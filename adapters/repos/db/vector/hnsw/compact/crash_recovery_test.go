@@ -1560,3 +1560,225 @@ func TestCrashRecovery_ImpossibleCompressionRecordInEmptySegment(t *testing.T) {
 		})
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Node IDs beyond the index's limit (weaviate/0-weaviate-issues#649)
+// ---------------------------------------------------------------------------
+
+const (
+	nodeIDLimitTestMax     = 1000
+	nodeIDLimitTestGarbage = 5000
+)
+
+func nodeIDLimitTestFunc() uint64 { return nodeIDLimitTestMax }
+
+// writeNodeIDLimitFixture writes ten linked nodes, the entrypoint and a
+// tombstone in the record layout each writer produces.
+func writeNodeIDLimitFixture(t *testing.T, path string, fileType FileType) {
+	t.Helper()
+	createTestWALFile(t, path, func(w *WALWriter) {
+		writeNode := func(id uint64) {
+			require.NoError(t, w.WriteAddNode(id, 0))
+			require.NoError(t, w.WriteAddLinksAtLevel(id, 0, []uint64{(id + 1) % 10}))
+		}
+		switch fileType {
+		case FileTypeSorted:
+			require.NoError(t, w.WriteSetEntryPointMaxLevel(0, 0))
+			for id := uint64(0); id < 10; id++ {
+				writeNode(id)
+			}
+		case FileTypeCondensed:
+			for id := uint64(9); ; id-- {
+				writeNode(id)
+				if id == 0 {
+					break
+				}
+			}
+			require.NoError(t, w.WriteSetEntryPointMaxLevel(0, 0))
+			require.NoError(t, w.WriteAddTombstone(3))
+		default:
+			require.NoError(t, w.WriteSetEntryPointMaxLevel(0, 0))
+			for id := uint64(0); id < 10; id++ {
+				writeNode(id)
+			}
+			require.NoError(t, w.WriteAddTombstone(3))
+		}
+	})
+}
+
+func nodeIDLimitTestName(fileType FileType) string {
+	if fileType == FileTypeRaw {
+		return "1000"
+	}
+	return BuildMergedFilename(1000, 1000, fileType)
+}
+
+// TestCrashRecovery_NodeIDBeyondLimitIsNeverApplied pins that a record naming a
+// node ID above the index's limit is treated as corruption: it is neither
+// applied nor kept, and the node index is never sized to it. A misaligned read
+// of a torn log decodes such IDs, and sizing the index to one ran the node out
+// of memory on every startup.
+func TestCrashRecovery_NodeIDBeyondLimitIsNeverApplied(t *testing.T) {
+	const g = nodeIDLimitTestGarbage
+
+	records := []struct {
+		name  string
+		write func(w *WALWriter) error
+		// rawOnly marks records the compacted-segment layout check already
+		// rejects, since the fixtures hold an entrypoint.
+		rawOnly bool
+	}{
+		{name: "add node", write: func(w *WALWriter) error { return w.WriteAddNode(g, 0) }},
+		{name: "entrypoint", write: func(w *WALWriter) error { return w.WriteSetEntryPointMaxLevel(g, 0) }, rawOnly: true},
+		{name: "link source", write: func(w *WALWriter) error { return w.WriteAddLinkAtLevel(g, 0, 1) }},
+		{name: "link target", write: func(w *WALWriter) error { return w.WriteAddLinkAtLevel(9, 0, g) }},
+		{name: "links source", write: func(w *WALWriter) error { return w.WriteAddLinksAtLevel(g, 0, []uint64{1, 2}) }},
+		{name: "links target", write: func(w *WALWriter) error { return w.WriteAddLinksAtLevel(9, 0, []uint64{1, g}) }},
+		{name: "replace links target", write: func(w *WALWriter) error { return w.WriteReplaceLinksAtLevel(9, 0, []uint64{g}) }},
+		{name: "tombstone", write: func(w *WALWriter) error { return w.WriteAddTombstone(g) }},
+		{name: "remove tombstone", write: func(w *WALWriter) error { return w.WriteRemoveTombstone(g) }},
+		{name: "clear links", write: func(w *WALWriter) error { return w.WriteClearLinks(g) }},
+		{name: "clear links at level", write: func(w *WALWriter) error { return w.WriteClearLinksAtLevel(g, 0) }},
+		{name: "delete node", write: func(w *WALWriter) error { return w.WriteDeleteNode(g) }},
+	}
+
+	for _, fileType := range []FileType{FileTypeRaw, FileTypeSorted, FileTypeCondensed} {
+		for _, rec := range records {
+			if rec.rawOnly && fileType != FileTypeRaw {
+				continue
+			}
+			t.Run(fmt.Sprintf("%s/%s", fileType, rec.name), func(t *testing.T) {
+				load := func(dir string) *LoadResult {
+					t.Helper()
+					res, err := NewLoader(LoaderConfig{Dir: dir, Logger: quietLogger(), MaxNodeID: nodeIDLimitTestFunc}).Load()
+					require.NoError(t, err)
+					require.NotNil(t, res)
+					return res
+				}
+
+				cleanDir := t.TempDir()
+				writeNodeIDLimitFixture(t, filepath.Join(cleanDir, nodeIDLimitTestName(fileType)), fileType)
+				clean := load(cleanDir)
+				cleanSize := fileSizeOf(t, filepath.Join(cleanDir, nodeIDLimitTestName(fileType)))
+
+				dir := t.TempDir()
+				path := filepath.Join(dir, nodeIDLimitTestName(fileType))
+				writeNodeIDLimitFixture(t, path, fileType)
+				appendToFile(t, path, walBytes(t, func(w *WALWriter) { require.NoError(t, rec.write(w)) }))
+
+				first := load(dir)
+				assert.True(t, first.RecoveredFromCrash, "a node ID beyond the limit must be detected as corruption")
+				assert.Less(t, len(first.State.Graph.Nodes), g, "node index sized to the garbage ID")
+				assertGraphEqual(t, clean.State, first.State)
+				require.Equal(t, cleanSize, fileSizeOf(t, path), "file must be truncated before the record")
+
+				second := load(dir)
+				assert.False(t, second.RecoveredFromCrash, "second load must be clean after truncation")
+				assertGraphEqual(t, clean.State, second.State)
+			})
+		}
+	}
+}
+
+// TestCrashRecovery_NodeIDLimitControls pins the cases the limit must not
+// change: an ID at the limit, and no limit at all, which keeps today's
+// behavior for indexes whose node IDs have no known bound.
+func TestCrashRecovery_NodeIDLimitControls(t *testing.T) {
+	tests := []struct {
+		name          string
+		maxNodeID     func() uint64
+		id            uint64
+		wantRecovered bool
+	}{
+		{name: "ID at the limit", maxNodeID: nodeIDLimitTestFunc, id: nodeIDLimitTestMax},
+		{name: "no limit", maxNodeID: nil, id: nodeIDLimitTestGarbage},
+		{name: "zero limit means no limit", maxNodeID: func() uint64 { return 0 }, id: nodeIDLimitTestGarbage},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "1000")
+			writeNodeIDLimitFixture(t, path, FileTypeRaw)
+			appendToFile(t, path, walBytes(t, func(w *WALWriter) { require.NoError(t, w.WriteAddNode(tc.id, 0)) }))
+			size := fileSizeOf(t, path)
+
+			res, err := NewLoader(LoaderConfig{Dir: dir, Logger: quietLogger(), MaxNodeID: tc.maxNodeID}).Load()
+			require.NoError(t, err)
+			assert.False(t, res.RecoveredFromCrash)
+			assert.Equal(t, size, fileSizeOf(t, path), "valid file must not be truncated")
+			require.NotNil(t, nodeAt(res.State, int(tc.id)), "node %d must be loaded", tc.id)
+		})
+	}
+}
+
+// TestCrashRecovery_NodeIDBeyondLimitDoesNotPresizeSnapshot pins the startup
+// pre-scan: it sizes the snapshot's node slice to the highest ID in the raw
+// logs before any record is applied, which is the crash-loop frame of #649.
+func TestCrashRecovery_NodeIDBeyondLimitDoesNotPresizeSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	createTestSnapshot(t, filepath.Join(dir, "1000.snapshot"), 0, 0, []testNode{
+		{id: 0, level: 0, connections: [][]uint64{{5}}},
+		{id: 5, level: 0, connections: [][]uint64{{0}}},
+	})
+	rawPath := filepath.Join(dir, "2000")
+	createTestWALFile(t, rawPath, func(w *WALWriter) {
+		require.NoError(t, w.WriteAddNode(7, 0))
+	})
+	validSize := fileSizeOf(t, rawPath)
+	appendToFile(t, rawPath, walBytes(t, func(w *WALWriter) {
+		require.NoError(t, w.WriteAddLinkAtLevel(nodeIDLimitTestGarbage, 0, 0))
+	}))
+
+	res, err := NewLoader(LoaderConfig{Dir: dir, Logger: quietLogger(), MaxNodeID: nodeIDLimitTestFunc}).Load()
+	require.NoError(t, err)
+	assert.True(t, res.RecoveredFromCrash)
+	assert.Less(t, len(res.State.Graph.Nodes), nodeIDLimitTestGarbage, "snapshot pre-sized to the garbage ID")
+	require.NotNil(t, nodeAt(res.State, 7), "records before the corruption must survive")
+	assert.Equal(t, validSize, fileSizeOf(t, rawPath), "raw log must be truncated before the record")
+}
+
+// TestCrashRecovery_NodeIDBeyondLimitFailsCompactionClosed pins the compactor
+// side: converting a raw log with an out-of-limit record must not carry the
+// record into a .sorted file. Compaction fails and keeps the source, and the
+// next load truncates it.
+func TestCrashRecovery_NodeIDBeyondLimitFailsCompactionClosed(t *testing.T) {
+	dir := t.TempDir()
+	rawPath := filepath.Join(dir, "1000")
+	writeNodeIDLimitFixture(t, rawPath, FileTypeRaw)
+	appendToFile(t, rawPath, walBytes(t, func(w *WALWriter) {
+		require.NoError(t, w.WriteAddNode(nodeIDLimitTestGarbage, 0))
+	}))
+	createTestWALFile(t, filepath.Join(dir, "2000"), func(w *WALWriter) {})
+
+	newCompactor := func() *Compactor {
+		cfg := DefaultCompactorConfig(dir)
+		cfg.MaxNodeID = nodeIDLimitTestFunc
+		return NewCompactor(cfg, quietLogger())
+	}
+
+	_, err := newCompactor().RunCycle(nil)
+	require.Error(t, err, "compaction must fail on an out-of-limit record")
+	_, statErr := os.Stat(rawPath)
+	require.NoError(t, statErr, "source must be kept")
+
+	res, err := NewLoader(LoaderConfig{Dir: dir, Logger: quietLogger(), MaxNodeID: nodeIDLimitTestFunc}).Load()
+	require.NoError(t, err)
+	assert.True(t, res.RecoveredFromCrash)
+	assert.Nil(t, nodeAt(res.State, nodeIDLimitTestGarbage))
+
+	c := newCompactor()
+	for i := 0; ; i++ {
+		require.Less(t, i, 50, "compaction did not converge")
+		action, err := c.RunCycle(nil)
+		require.NoError(t, err)
+		if action == ActionNone {
+			break
+		}
+	}
+	state := loadGraph(t, dir)
+	assert.Less(t, len(state.Graph.Nodes), nodeIDLimitTestGarbage)
+	for id := 0; id < 10; id++ {
+		require.False(t, effectivelyAbsent(nodeAt(state, id)), "node %d lost", id)
+	}
+}

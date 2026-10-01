@@ -77,6 +77,10 @@ type CompactorConfig struct {
 	// FS is the filesystem interface to use for file operations.
 	// If nil, defaults to common.NewOSFS().
 	FS common.FS
+
+	// MaxNodeID returns the highest node ID the index can hold. A record
+	// naming a higher one is corruption. Nil or 0 means no limit.
+	MaxNodeID func() uint64
 }
 
 // DefaultCompactorConfig returns the default configuration.
