@@ -207,6 +207,7 @@ type dynamic struct {
 	AllocChecker                 memwatch.AllocChecker
 	MakeBucketOptions            lsmkv.MakeBucketOptions
 	AsyncIndexingEnabled         bool
+	docIDCounter                 func() uint64
 
 	// upgradeFn performs the flat→HNSW rebuild. New wires it to the doUpgrade
 	// method; keeping it as an injected field (like the *Thunk dependencies
@@ -260,6 +261,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		AllocChecker:                 cfg.AllocChecker,
 		MakeBucketOptions:            cfg.MakeBucketOptions,
 		AsyncIndexingEnabled:         cfg.AsyncIndexingEnabled,
+		docIDCounter:                 cfg.DocIDCounter,
 	}
 	index.upgradeFn = index.doUpgrade
 
@@ -287,6 +289,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 				AllocChecker:                 index.AllocChecker,
 				MakeBucketOptions:            index.MakeBucketOptions,
 				AsyncIndexingEnabled:         index.AsyncIndexingEnabled,
+				DocIDCounter:                 index.docIDCounter,
 			},
 			index.uc.HnswUC,
 			index.tombstoneCallbacks,
@@ -1065,6 +1068,7 @@ func (dynamic *dynamic) upgradeUsing(wrapCopyTarget func(VectorIndex) VectorInde
 				AllocChecker:                 dynamic.AllocChecker,
 				MakeBucketOptions:            dynamic.MakeBucketOptions,
 				AsyncIndexingEnabled:         dynamic.AsyncIndexingEnabled,
+				DocIDCounter:                 dynamic.docIDCounter,
 			},
 			dynamic.uc.HnswUC,
 			dynamic.tombstoneCallbacks,

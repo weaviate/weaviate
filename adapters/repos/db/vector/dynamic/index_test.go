@@ -1683,7 +1683,10 @@ func TestDynamicUpgradedIndexDropsNodeIDBeyondDocIDCounter(t *testing.T) {
 	defer dyn.Shutdown(ctx)
 	require.True(t, dyn.IsUpgraded())
 
+	// The truncated log is empty, and the commit logger prunes empty raw logs.
 	st, err := os.Stat(garbagePath)
-	require.NoError(t, err)
-	assert.Zero(t, st.Size(), "commit log must be truncated before the out-of-limit record")
+	if !os.IsNotExist(err) {
+		require.NoError(t, err)
+		assert.Zero(t, st.Size(), "commit log must be truncated before the out-of-limit record")
+	}
 }

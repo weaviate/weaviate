@@ -303,8 +303,12 @@ func TestShardLoadDropsNodeIDBeyondDocIDCounter(t *testing.T) {
 	require.NoError(t, err)
 	defer s.Shutdown(ctx)
 
+	// The truncated log is empty, and the commit logger prunes empty raw logs.
 	for _, p := range logs {
 		st, err := os.Stat(p)
+		if os.IsNotExist(err) {
+			continue
+		}
 		require.NoError(t, err)
 		require.Zero(t, st.Size(), "%s must be truncated before the out-of-limit record", p)
 	}

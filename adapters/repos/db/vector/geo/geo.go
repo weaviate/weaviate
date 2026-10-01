@@ -128,6 +128,7 @@ func NewIndex(config Config,
 		AllocChecker:          config.AllocChecker,
 		GetViewThunk:          func() common.BucketView { return nil },
 		Logger:                config.Logger,
+		DocIDCounter:          config.DocIDCounter,
 	}, hnswent.UserConfig{
 		MaxConnections:         64,
 		EFConstruction:         128,

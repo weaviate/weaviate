@@ -136,6 +136,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				VisitedListPoolMaxSize: s.index.Config.VisitedListPoolMaxSize,
 				MakeBucketOptions:      makeBucketOptions,
 				AsyncIndexingEnabled:   s.index.AsyncIndexingEnabled,
+				DocIDCounter:           s.counter.Get,
 			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks, s.store)
 			if err != nil {
 				return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
@@ -219,6 +220,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			AllocChecker:         s.index.allocChecker,
 			MakeBucketOptions:    makeBucketOptions,
 			AsyncIndexingEnabled: s.index.AsyncIndexingEnabled,
+			DocIDCounter:         s.counter.Get,
 		}, dynamicUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())

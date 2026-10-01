@@ -102,6 +102,7 @@ func (s *Shard) newGeoIndex(propName string) (*geo.Index, error) {
 		ShardName:             s.name,
 		HNSWEF:                s.index.Config.HNSWGeoIndexEF,
 		AllocChecker:          s.index.allocChecker,
+		DocIDCounter:          s.counter.Get,
 	},
 		s.cycleCallbacks.geoPropsCommitLoggerCallbacks,
 		s.cycleCallbacks.geoPropsTombstoneCleanupCallbacks,
