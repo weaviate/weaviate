@@ -64,7 +64,7 @@ func TestCheckpointNeverOutrunsThePostingsItVouchesFor(t *testing.T) {
 			defer shard.Shutdown(context.Background())
 
 			task, _ := newFilterableToRangeableTask(t, idx, className, propName, shard.migrationUnit())
-			require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+			require.NoError(t, startOnShard(ctx, task, shard))
 
 			rec, ok := task.migrationRecord(shard)
 			require.True(t, ok, "the load hook records the migration as iterating")

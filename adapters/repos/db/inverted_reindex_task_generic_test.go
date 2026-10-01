@@ -109,6 +109,13 @@ func testMigrationUnitFor(idx *Index, shardName string) string {
 	return MigrationUnitID(shardName, idx.getSchema.NodeName())
 }
 
+// startOnShard is the runner's entry, the only one that creates a migration's
+// state on a shard.
+func startOnShard(ctx context.Context, task *ShardReindexTaskGeneric, shard *Shard) error {
+	_, err := task.onAfterLsmInitGuarded(ctx, shard)
+	return err
+}
+
 func newTestTask(logger logrus.FieldLogger, strategy MigrationStrategy, unitID string) *ShardReindexTaskGeneric {
 	return newTestTaskWithGuard(logger, strategy, defaultIndexClosingGuard, unitID)
 }
@@ -165,7 +172,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
 
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+	require.NoError(t, startOnShard(ctx, task, shard))
 
 	// Per-migration generation suffix (`_<N>`) is appended to every
 	// sidecar bucket name. The test strategy uses gen=1.

@@ -45,7 +45,7 @@ func pinTestShard(t *testing.T, ctx context.Context, className string, objectCou
 
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+	require.NoError(t, startOnShard(ctx, task, shard))
 
 	return shard, idx, task
 }

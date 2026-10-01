@@ -54,7 +54,7 @@ func driveToMigrationState(t *testing.T, ctx context.Context, shard *Shard,
 	t.Helper()
 	switch state {
 	case MigrationStateIterating:
-		require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+		require.NoError(t, startOnShard(ctx, task, shard))
 	case MigrationStateIterated:
 		require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	case MigrationStateMerged:

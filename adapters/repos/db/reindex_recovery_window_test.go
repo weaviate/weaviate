@@ -106,11 +106,26 @@ func TestShardLoadArmsTheMirrorForAnUnpromotedFlip(t *testing.T) {
 	const propName = filterableToRangeablePropName
 
 	tests := []struct {
-		name        string
+		name string
+		// rec nil leaves the shard without a record.
 		rec         func(MigrationSubject) MigrationRecord
 		noStagedDir bool
 		wantArmed   bool
+		// wantUntouched: re-attach must neither write a record nor open a directory.
+		wantUntouched bool
 	}{
+		{
+			name:          "the load reconciler discarded the record",
+			noStagedDir:   true,
+			wantUntouched: true,
+		},
+		{
+			name: "iterating",
+			rec: func(s MigrationSubject) MigrationRecord {
+				return NewMigrationRecordIterating(s, MigrationCheckpoint{})
+			},
+			wantUntouched: true,
+		},
 		{
 			name: "swapped but not promoted",
 			rec: func(s MigrationSubject) MigrationRecord {
@@ -144,15 +159,23 @@ func TestShardLoadArmsTheMirrorForAnUnpromotedFlip(t *testing.T) {
 
 			task, _ := newFilterableToRangeableTask(t, idx, className, propName, shard.migrationUnit())
 			subject := task.migrationSubject(shard, []string{propName}, time.Now())
-			require.NoError(t, task.putMigrationRecord(shard, tt.rec(subject)))
+			if tt.rec != nil {
+				require.NoError(t, task.putMigrationRecord(shard, tt.rec(subject)))
+			}
 			stagedDir := filepath.Join(shard.pathLSM(), subject.Props[propName].Staged)
 			if !tt.noStagedDir {
 				require.NoError(t, os.MkdirAll(stagedDir, 0o777))
 			}
 			require.Zero(t, shard.migrationMirrors.ArmedMigrationMirrors())
+			recordsBefore, dirsBefore := migrationRecordsOf(shard), lsmDirNames(t, shard.pathLSM())
 
 			require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 
+			if tt.wantUntouched {
+				require.Equal(t, recordsBefore, migrationRecordsOf(shard),
+					"a rebuilt task would restart a migration its task list may have ended")
+				require.Equal(t, dirsBefore, lsmDirNames(t, shard.pathLSM()))
+			}
 			if tt.wantArmed {
 				require.NotZero(t, shard.migrationMirrors.ArmedMigrationMirrors(),
 					"a flip the next promotion will act on still needs its writes mirrored")

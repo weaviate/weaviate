@@ -38,7 +38,7 @@ func TestReindex_ConcurrentWriteInRegistrationGap_NotLost(t *testing.T) {
 		require.NoError(t, os.RemoveAll(filepath.Join(shard.pathLSM(), ingest)))
 
 		shard.reconcileMigrationRecords(ctx, class)
-		require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+		require.NoError(t, startOnShard(ctx, task, shard))
 	}
 
 	tests := []struct {
@@ -111,7 +111,7 @@ func testRegistrationGapWritesSurvive(t *testing.T,
 		return origRegister(shard, props, bucketNamer)
 	}
 
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+	require.NoError(t, startOnShard(ctx, task, shard))
 	require.True(t, gapWritesDone, "registration wrapper must have fired during OnAfterLsmInit")
 
 	// Callbacks are registered now; these updates must reach the rangeable
