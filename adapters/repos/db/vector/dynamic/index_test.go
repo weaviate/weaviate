@@ -165,6 +165,62 @@ func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
 	assert.Contains(t, err.Error(), "async indexing")
 }
 
+func TestDynamicReplaceDoesNotAdvanceUpgradeThreshold(t *testing.T) {
+	ctx := context.Background()
+	meta, err := shardmeta.Open(t.TempDir(), time.Second)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		meta.Close()
+	})
+
+	dist := distancer.NewL2SquaredProvider()
+	noopCallback := cyclemanager.NewCallbackGroupNoop()
+	fuc := flatent.UserConfig{}
+	fuc.SetDefaults()
+	hnswuc := hnswent.NewDefaultUserConfig()
+
+	idx, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		RootPath:              t.TempDir(),
+		ID:                    "replace-threshold-test",
+		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
+		DistanceProvider:      dist,
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return nil, storobj.NewErrNotFoundf(id, "not used in flat stage")
+		},
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(nil),
+		TombstoneCallbacks:           noopCallback,
+		State:                        meta.Namespace(StateNamespace),
+		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+		AsyncIndexingEnabled:         true,
+	}, ent.UserConfig{
+		Threshold: 3,
+		Distance:  dist.Type(),
+		HnswUC:    hnswuc,
+		FlatUC:    fuc,
+	}, testinghelpers.NewDummyStore(t))
+	require.NoError(t, err)
+
+	id := uint64(7)
+	require.NoError(t, idx.Add(ctx, id, []float32{1, 0}))
+	for value := 2; value <= 7; value++ {
+		require.NoError(t, idx.Add(ctx, id, []float32{float32(value), 0}))
+	}
+
+	require.Equal(t, uint64(1), idx.AlreadyIndexed(), "replacing one live id must not advance the promotion count")
+
+	if idx.AlreadyIndexed() > idx.threshold {
+		var wg sync.WaitGroup
+		wg.Add(1)
+		require.NoError(t, idx.Upgrade(func() { wg.Done() }))
+		wg.Wait()
+	}
+
+	require.Equal(t, common.IndexType(common.IndexTypeFlat), idx.UnderlyingIndex())
+	require.False(t, idx.Upgraded())
+}
+
 func TempVectorForIDThunk(vectors [][]float32) func(context.Context, uint64, *common.VectorSlice) ([]float32, error) {
 	return func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
 		copy(container.Slice, vectors[int(id)])
