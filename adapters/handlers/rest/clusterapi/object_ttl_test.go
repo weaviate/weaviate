@@ -27,6 +27,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -187,16 +188,21 @@ func (s *waitingTTLSchema) ReadOnlyClassWithVersion(ctx context.Context, class s
 	return nil, fmt.Errorf("class %q: schema version not reached", class)
 }
 
-// sweptTTLRepo records the collections the sweep asked it for.
+// sweptTTLRepo records the collections the sweep asked it for. indexFor, when
+// set before the sweep starts, decides what each collection dispatches.
 type sweptTTLRepo struct {
-	lock  sync.Mutex
-	asked []string
+	lock     sync.Mutex
+	asked    []string
+	indexFor func(schema.ClassName) sharding.RemoteIndexIncomingRepo
 }
 
 func (r *sweptTTLRepo) GetIndexForIncomingSharding(class schema.ClassName) sharding.RemoteIndexIncomingRepo {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	r.asked = append(r.asked, string(class))
+	if r.indexFor != nil {
+		return r.indexFor(class)
+	}
 	return noopTTLIndex{}
 }
 
@@ -350,6 +356,97 @@ func TestIncomingDeleteHandsBackTheSlotOnABadBody(t *testing.T) {
 	require.False(t, status.IsRunning())
 
 	postTTLDelete(t, server, 1)
+}
+
+// ttlDispatchIndex dispatches a collection's deletes however the caller wants
+// them to run, in place of the shard loop the sweep reaches in production.
+type ttlDispatchIndex struct {
+	sharding.RemoteIndexIncomingRepo
+	dispatch func(eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder)
+}
+
+func (i ttlDispatchIndex) IncomingDeleteObjectsExpired(_ context.Context, eg *enterrors.ErrorGroupWrapper,
+	ec errorcompounder.ErrorCompounder, _ string, _, _ time.Time, _ func(int32), _ uint64,
+) {
+	i.dispatch(eg, ec)
+}
+
+// ttlDeletePanic is what a delete goroutine panics with. It names no collection,
+// so a row cannot pass on the panic's own text where the report owes it a group.
+const ttlDeletePanic = "delete goroutine panicked"
+
+var errTTLDeleteFailed = errors.New("delete failed")
+
+// dispatchPanic hands every collection a delete goroutine that panics.
+func dispatchPanic(schema.ClassName) sharding.RemoteIndexIncomingRepo {
+	return ttlDispatchIndex{dispatch: func(eg *enterrors.ErrorGroupWrapper, _ errorcompounder.ErrorCompounder) {
+		eg.Go(func() error { panic(ttlDeletePanic) })
+	}}
+}
+
+// The group returns a recovered panic rather than filing it in the compounder.
+// A sweep reading only the compounder reports a collection whose deletes never
+// ran as one that was swept.
+func TestIncomingDeleteReportsRecoveredPanics(t *testing.T) {
+	tests := []struct {
+		name        string
+		collections int
+		indexFor    func(schema.ClassName) sharding.RemoteIndexIncomingRepo
+		wantErr     []string
+		wantPanics  int
+	}{
+		{
+			name:        "every panicking collection is reported, not only the one Wait returns",
+			collections: 3,
+			indexFor:    dispatchPanic,
+			wantErr:     []string{ttlDeletePanic},
+			wantPanics:  3,
+		},
+		{
+			name:        "a panic does not displace an error a sibling filed itself",
+			collections: 2,
+			indexFor: func(class schema.ClassName) sharding.RemoteIndexIncomingRepo {
+				if class == "Collection0" {
+					return dispatchPanic(class)
+				}
+				return ttlDispatchIndex{dispatch: func(eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder) {
+					eg.Go(func() error {
+						ec.AddGroups(errTTLDeleteFailed, string(class))
+						return nil
+					})
+				}}
+			},
+			wantErr:    []string{ttlDeletePanic, "\"Collection1\": {" + errTTLDeleteFailed.Error()},
+			wantPanics: 1,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// the integration job disables recovery, under which a panic takes the
+			// test binary down instead of reaching the group
+			t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+
+			server, repo, status, sweepOutcome := ttlTestServer(t, &waitingTTLSchema{entered: make(chan struct{})})
+			repo.indexFor = test.indexFor
+
+			postTTLDelete(t, server, test.collections)
+
+			// the slot is released by the outermost defer, so waiting on it means
+			// the defer that logs the outcome read below has run
+			require.Eventually(t, func() bool { return !status.IsRunning() },
+				ttlProbeTimeout, 10*time.Millisecond, "the sweep must run to completion")
+
+			failed, returned := sweepOutcome()
+			require.True(t, returned)
+			require.Error(t, failed, "a sweep that lost a collection's deletes must not report success")
+			for _, want := range test.wantErr {
+				assert.ErrorContains(t, failed, want)
+			}
+			assert.Equal(t, test.wantPanics, strings.Count(failed.Error(), "panic occurred"),
+				"one entry per panicking collection, since Wait reports only the first")
+		})
+	}
 }
 
 // The abort endpoint reports the running deletion without releasing its slot,

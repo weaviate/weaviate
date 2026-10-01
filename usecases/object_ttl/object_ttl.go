@@ -192,6 +192,11 @@ func (c *Coordinator) Abort(ctx context.Context, targetOwnNode bool) (bool, erro
 
 	abortedNodes := make(map[string]bool, len(remoteNodes)+1)
 	abortedNodes[localNode] = localAborted
+	// a panicking goroutine never reaches its write below, and a node missing
+	// from the map reads as one the abort never asked
+	for _, nodeName := range remoteNodes {
+		abortedNodes[nodeName] = false
+	}
 	anyAborted := localAborted
 	abortedLock := new(sync.Mutex)
 
@@ -206,9 +211,11 @@ func (c *Coordinator) Abort(ctx context.Context, targetOwnNode bool) (bool, erro
 			abortedNodes[nodeName] = aborted
 			abortedLock.Unlock()
 			return nil
-		})
+		}, nodeName)
 	}
-	eg.Wait()
+	// every closure returns nil, so a recovered panic is all Wait can report,
+	// and the collector files it under the node that raised it
+	_ = eg.WaitAndCollect(ec.AddGroups)
 	err := ec.ToError()
 
 	l := c.logger.WithFields(logrus.Fields{
@@ -287,7 +294,9 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 		c.db.DeleteExpiredObjects(ttlCtx, eg, ec, name, deleteOnPropName, ttlThreshold, deletionTime, countDeleted, collection.version)
 	}
 
-	eg.Wait() // ignore errors from eg as they are already collected in ec
+	// every closure returns nil, so a recovered panic is all Wait can report,
+	// and the collector files it beside the errors the closures added themselves
+	_ = eg.WaitAndCollect(ec.AddGroups)
 
 	if err := ec.ToError(); err != nil {
 		return fmt.Errorf("deletion of expired objects on local node: %w", err)

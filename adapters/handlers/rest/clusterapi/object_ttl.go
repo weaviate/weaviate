@@ -194,7 +194,9 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 					time.UnixMilli(classPayload.DelMilli), countDeleted, classPayload.ClassVersion)
 			}
 
-			eg.Wait() // ignore errors from goroutines, they are collected in ec
+			// every closure returns nil, so a recovered panic is all Wait can report,
+			// and the collector files it beside the errors the closures added themselves
+			_ = eg.WaitAndCollect(ec.AddGroups)
 
 			err = ec.ToError()
 		}, d.logger)

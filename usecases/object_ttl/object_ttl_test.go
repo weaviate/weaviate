@@ -533,6 +533,37 @@ func TestLocalSweepKeepsTheCounterMapOffTheDeleteGoroutines(t *testing.T) {
 	// first collection's deletes are still running
 	classes := []string{"Collection0", "Collection1"}
 
+	probe := newTTLCounterProbe()
+	hook, err := runLocalSweep(t, classes, probe)
+	require.NoError(t, err)
+
+	require.True(t, probe.overlapped,
+		"the reader must be running before the loop writes the next entry")
+	require.False(t, probe.timedOut,
+		"the reader hit its deadline, so the loop never reached the next collection")
+
+	report := logEntry(hook, "ttl deletion on local node finished")
+	require.NotNil(t, report, "the sweep must report what it deleted")
+	assert.Equal(t, probe.counted, report.Data["c_"+probe.firstClass],
+		"the collection is credited with what its own closure counted")
+}
+
+// logEntry returns the first entry logged with msg, which is how a test reads a
+// value the code under test reports to an operator and nowhere else.
+func logEntry(hook *logrustest.Hook, msg string) *logrus.Entry {
+	for _, entry := range hook.AllEntries() {
+		if entry.Message == msg {
+			return entry
+		}
+	}
+	return nil
+}
+
+// runLocalSweep sweeps classes through deleter on a single-node cluster, so the
+// sweep takes the local path rather than handing the round to a remote node.
+func runLocalSweep(t *testing.T, classes []string, deleter expiredObjectsDeleter) (*logrustest.Hook, error) {
+	t.Helper()
+
 	logger, hook := logrustest.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
 
@@ -547,35 +578,146 @@ func TestLocalSweepKeepsTheCounterMapOffTheDeleteGoroutines(t *testing.T) {
 		return nil
 	})
 
-	// one node, so the sweep runs on the local path rather than being handed
-	// to a remote node
 	getter := schemaUC.NewMockSchemaGetter(t)
 	getter.EXPECT().NodeName().Return("node1")
 	getter.EXPECT().Nodes().Return([]string{"node1"})
 
-	probe := newTTLCounterProbe()
-	c := NewCoordinator(reader, getter, namespaces.NewController(logger), probe,
+	c := NewCoordinator(reader, getter, namespaces.NewController(logger), deleter,
 		configRuntime.NewDynamicValue[float64](1), logger, nil, nil, NewLocalStatus())
 
 	now := time.Now()
-	require.NoError(t, c.Start(context.Background(), false, now, now))
-
-	require.True(t, probe.overlapped,
-		"the reader must be running before the loop writes the next entry")
-	require.False(t, probe.timedOut,
-		"the reader hit its deadline, so the loop never reached the next collection")
-
-	report := localSweepReport(hook)
-	require.NotNil(t, report, "the sweep must report what it deleted")
-	assert.Equal(t, probe.counted, report.Data["c_"+probe.firstClass],
-		"the collection is credited with what its own closure counted")
+	return hook, c.Start(context.Background(), false, now, now)
 }
 
-func localSweepReport(hook *logrustest.Hook) *logrus.Entry {
-	for _, entry := range hook.AllEntries() {
-		if entry.Message == "ttl deletion on local node finished" {
-			return entry
-		}
+// deleterFunc dispatches a collection's deletes however the caller wants them
+// to run, in place of the store the sweep hands each collection to.
+type deleterFunc func(eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder, className string)
+
+func (f deleterFunc) DeleteExpiredObjects(_ context.Context, eg *enterrors.ErrorGroupWrapper,
+	ec errorcompounder.ErrorCompounder, className, _ string, _, _ time.Time, _ func(int32), _ uint64,
+) {
+	f(eg, ec, className)
+}
+
+// deletePanic is what a delete goroutine panics with. It names no collection, so
+// a row cannot pass on the panic's own text where the report owes it a group.
+const deletePanic = "delete goroutine panicked"
+
+var errDeleteFailed = errors.New("delete failed")
+
+// A recovered panic files no error in the compounder and deletes no objects, so
+// a sweep that only reads it reports a round that never ran as a clean one.
+func TestLocalSweepReportsRecoveredPanics(t *testing.T) {
+	tests := []struct {
+		name       string
+		classes    []string
+		dispatch   deleterFunc
+		wantErr    []string
+		wantPanics int
+	}{
+		{
+			name:    "every panicking collection is reported, not only the one Wait returns",
+			classes: []string{"Collection0", "Collection1", "Collection2"},
+			dispatch: func(eg *enterrors.ErrorGroupWrapper, _ errorcompounder.ErrorCompounder, _ string) {
+				eg.Go(func() error { panic(deletePanic) })
+			},
+			wantErr:    []string{deletePanic},
+			wantPanics: 3,
+		},
+		{
+			name:    "a panic does not displace an error a sibling filed itself",
+			classes: []string{"Collection0", "Collection1"},
+			dispatch: func(eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder, className string) {
+				if className == "Collection0" {
+					eg.Go(func() error { panic(deletePanic) })
+					return
+				}
+				eg.Go(func() error {
+					ec.AddGroups(errDeleteFailed, className)
+					return nil
+				})
+			},
+			wantErr:    []string{deletePanic, "\"Collection1\": {" + errDeleteFailed.Error()},
+			wantPanics: 1,
+		},
 	}
-	return nil
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// the integration job disables recovery, under which a panic takes the
+			// test binary down instead of reaching the group
+			t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+
+			_, err := runLocalSweep(t, test.classes, test.dispatch)
+
+			require.Error(t, err, "a sweep that lost a collection's deletes must not report success")
+			for _, want := range test.wantErr {
+				assert.ErrorContains(t, err, want)
+			}
+			assert.Equal(t, test.wantPanics, strings.Count(err.Error(), "panic occurred"),
+				"one entry per panicking collection, since Wait reports only the first")
+		})
+	}
+}
+
+// scriptedNodeResolver answers for every node but two, panicking for one and
+// failing to resolve the other, so one abort round carries all three outcomes.
+type scriptedNodeResolver struct {
+	host         string
+	panicking    string
+	unresolvable string
+}
+
+func (r scriptedNodeResolver) NodeHostname(nodeName string) (string, bool) {
+	switch nodeName {
+	case r.panicking:
+		panic("resolving " + nodeName)
+	case r.unresolvable:
+		return "", false
+	}
+	return r.host, true
+}
+
+// An abort reports per node, so a node whose goroutine panicked must reach the
+// caller as a node that was not aborted rather than as one that was.
+func TestCoordinatorAbortReportsRecoveredPanics(t *testing.T) {
+	// the integration job disables recovery, under which a panic takes the
+	// test binary down instead of reaching the group
+	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+
+	logger, hook := logrustest.NewNullLogger()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response := ObjectsExpiredAbortResponse{Aborted: true}
+		response.SetContentTypeHeader(w)
+		w.WriteHeader(http.StatusOK)
+		assert.NoError(t, json.NewEncoder(w).Encode(response))
+	}))
+	defer server.Close()
+
+	getter := schemaUC.NewMockSchemaGetter(t)
+	getter.EXPECT().NodeName().Return("node1")
+	getter.EXPECT().Nodes().Return([]string{"node1", "node2", "node3", "node4"})
+
+	resolver := scriptedNodeResolver{
+		host:         strings.TrimPrefix(server.URL, "http://"),
+		panicking:    "node3",
+		unresolvable: "node4",
+	}
+	c := NewCoordinator(nil, getter, nil, nil, configRuntime.NewDynamicValue[float64](1),
+		logger, server.Client(), resolver, NewLocalStatus())
+
+	aborted, err := c.Abort(context.Background(), false)
+
+	assert.True(t, aborted, "node2 aborted")
+
+	report := logEntry(hook, "abort ttl deletion on all nodes")
+	require.NotNil(t, report, "the abort must report what it reached")
+	assert.Equal(t, map[string]bool{"node1": false, "node2": true, "node3": false, "node4": false},
+		report.Data["nodes"], "a node the abort asked must be named whether or not it answered")
+
+	require.Error(t, err, "a node the abort never reached must not read as one it did")
+	assert.ErrorContains(t, err, "\"node3\": {panic occurred")
+	assert.ErrorContains(t, err, "resolving node3")
+	assert.ErrorContains(t, err, "\"node4\": {unable to resolve hostname for node4")
 }
