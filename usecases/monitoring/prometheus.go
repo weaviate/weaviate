@@ -147,10 +147,11 @@ type PrometheusMetrics struct {
 	ShardHaltForTransferForceResume *prometheus.CounterVec
 
 	// RAFT-based schema metrics
-	SchemaWrites         *prometheus.SummaryVec
-	SchemaReadsLocal     *prometheus.SummaryVec
-	SchemaReadsLeader    *prometheus.SummaryVec
-	SchemaWaitForVersion *prometheus.SummaryVec
+	SchemaWrites              *prometheus.SummaryVec
+	SchemaReadsLocal          *prometheus.SummaryVec
+	SchemaReadsLeader         *prometheus.SummaryVec
+	SchemaWaitForVersion      *prometheus.SummaryVec
+	SchemaLeaderQueryFailures *prometheus.CounterVec
 
 	TombstoneFindLocalEntrypoint  *prometheus.CounterVec
 	TombstoneFindGlobalEntrypoint *prometheus.CounterVec
@@ -888,6 +889,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "schema_wait_for_version_seconds",
 			Help: "Duration of waiting for a schema version to be reached",
 		}, []string{"type"}),
+		SchemaLeaderQueryFailures: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "weaviate_schema_leader_query_failures_total",
+			Help: "Schema queries forwarded to the RAFT leader that failed, by query type and reason (no_leader, conn_closed, ctx_canceled, leader_error)",
+		}, []string{"query_type", "reason"}),
 
 		TombstoneFindLocalEntrypoint: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "tombstone_find_local_entrypoint",
