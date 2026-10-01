@@ -881,9 +881,11 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		}
 	}, appState.Logger)
 
-	// TODO-RAFT: refactor remove this sleep
-	// this sleep was used to block GraphQL and give time to RAFT to start.
-	time.Sleep(2 * time.Second)
+	// TODO-RAFT: refactor remove this wait
+	// it blocks GraphQL for up to 2s to give RAFT time to start.
+	for deadline := time.Now().Add(2 * time.Second); !appState.ClusterService.Ready() && time.Now().Before(deadline); {
+		time.Sleep(50 * time.Millisecond)
+	}
 
 	appState.AutoSchemaManager = objects.NewAutoSchemaManager(schemaManager, vectorRepo, appState.ServerConfig,
 		appState.Logger, prometheus.DefaultRegisterer)
