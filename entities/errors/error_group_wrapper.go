@@ -27,9 +27,9 @@ import (
 )
 
 // ErrorGroupWrapper wraps errgroup.Group so a panic in a callback becomes its
-// error. Reaching the embedded group directly, as egw.Group.Go, skips that.
+// error.
 type ErrorGroupWrapper struct {
-	*errgroup.Group
+	group          *errgroup.Group
 	variables      []interface{}
 	logger         logrus.FieldLogger
 	recoverPanic   func(err *error, localVars ...interface{})
@@ -43,7 +43,7 @@ type ErrorGroupWrapper struct {
 // NewErrorGroupWrapper creates a new ErrorGroupWrapper.
 func NewErrorGroupWrapper(logger logrus.FieldLogger, vars ...interface{}) *ErrorGroupWrapper {
 	egw := &ErrorGroupWrapper{
-		Group:     new(errgroup.Group),
+		group:     new(errgroup.Group),
 		variables: vars,
 		logger:    logger,
 	}
@@ -59,7 +59,7 @@ func NewErrorGroupWrapper(logger logrus.FieldLogger, vars ...interface{}) *Error
 func NewErrorGroupWithContextWrapper(logger logrus.FieldLogger, ctx context.Context, vars ...interface{}) (*ErrorGroupWrapper, context.Context) {
 	eg, ctx := errgroup.WithContext(ctx)
 	egw := &ErrorGroupWrapper{
-		Group:     eg,
+		group:     eg,
 		variables: vars,
 		logger:    logger,
 	}
@@ -147,14 +147,14 @@ func (egw *ErrorGroupWrapper) withRecovery(f func() error, localVars ...interfac
 // Go runs f in a new goroutine, where a panic becomes f's error. Wait reports
 // it unless another goroutine errored first. WaitAndCollect always does.
 func (egw *ErrorGroupWrapper) Go(f func() error, localVars ...interface{}) {
-	egw.Group.Go(egw.withRecovery(f, localVars...))
+	egw.group.Go(egw.withRecovery(f, localVars...))
 	egw.routineCounter.Add(1)
 }
 
 // TryGo reports whether f started. It does not run f when the group's limit is
 // saturated, so a caller that ignores the result drops the work.
 func (egw *ErrorGroupWrapper) TryGo(f func() error, localVars ...interface{}) bool {
-	started := egw.Group.TryGo(egw.withRecovery(f, localVars...))
+	started := egw.group.TryGo(egw.withRecovery(f, localVars...))
 	if started {
 		egw.routineCounter.Add(1)
 	}
@@ -170,7 +170,7 @@ func (egw *ErrorGroupWrapper) RunRecovered(f func() error, localVars ...interfac
 
 // SetLimit sets the group's goroutine limit. Wait logs it next to jobs_count.
 func (egw *ErrorGroupWrapper) SetLimit(limit int) {
-	egw.Group.SetLimit(limit)
+	egw.group.SetLimit(limit)
 	egw.limitSet = limit
 }
 
@@ -194,7 +194,7 @@ func (egw *ErrorGroupWrapper) Wait() error {
 
 	logBase.Debugf("Waiting for %d jobs to finish with limit %d", count, egw.limitSet)
 
-	return egw.Group.Wait()
+	return egw.group.Wait()
 }
 
 // recoveredPanics returns every panic the group recovered, including ones Wait

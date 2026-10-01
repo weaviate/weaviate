@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync/atomic"
@@ -658,4 +659,12 @@ func TestWaitAndCollectReturnsWaitsError(t *testing.T) {
 		require.Equal(t, [][]string{{"Books", "shard-1"}}, groups,
 			"and the callback is handed the names of the call that raised it")
 	})
+}
+
+// An exported field would let a caller run a callback on the raw group, skipping panic recovery.
+func TestErrorGroupWrapperExportsNoField(t *testing.T) {
+	typ := reflect.TypeFor[ErrorGroupWrapper]()
+	for field := range typ.Fields() {
+		require.False(t, field.IsExported(), "field %s is reachable outside the package", field.Name)
+	}
 }
