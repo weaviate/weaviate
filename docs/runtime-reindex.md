@@ -1550,7 +1550,7 @@ source, the other is a copy that outlives it.
 4. Wait for the local reindex goroutine to drain
    (`SealLocalTaskDrain`, 10s timeout). Bounded so a stuck
    goroutine doesn't turn the HTTP request into a hang.
-5. `DB.NewStalePartialReindexSweep()` — wipe sidecars + migration dir
+5. `DB.NewStalePartialReindexSweep()` — wipe sidecars
    so the next submit starts from a clean slate. Runs for every index
    type the migration touches, not just the one named in the URL:
    `change-tokenization` spawns a searchable and a filterable strategy

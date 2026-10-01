@@ -51,7 +51,7 @@ func linesOf(entries []*logrus.Entry) []string {
 
 // One line for the whole walk: the fault is per record per shard, so reporting
 // at the point of failure follows the tenant count at every boot.
-func TestRecoveryWalkReportsUnbuildableTrackersOnce(t *testing.T) {
+func TestRecoveryWalkReportsUnbuildableRecordsOnce(t *testing.T) {
 	const shards = 12
 	root := t.TempDir()
 	indexPath := filepath.Join(root, "books_abc")
@@ -163,9 +163,9 @@ func TestOverlayConflictReportsManyPropertiesInOneLine(t *testing.T) {
 
 // The apply's sweep summary must print: record_set_reads is where a
 // once-per-shard regression shows up.
-func TestUpdatePropertySummaryPrintsWithoutPayloadReads(t *testing.T) {
+func TestUpdatePropertySummaryCountsRecordSetReads(t *testing.T) {
 	ctx := testCtx()
-	className := "SweepSummaryNoPayloads_" + uuid.NewString()[:8]
+	className := "SweepSummaryRecordReads_" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, []string{"title"})
 
 	logger, hook := logrustest.NewNullLogger()
