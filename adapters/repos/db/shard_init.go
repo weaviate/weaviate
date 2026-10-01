@@ -102,13 +102,12 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	index.metrics.UpdateShardStatus("", storagestate.StatusLoading.String())
 
-	// Only opening a shard that already has files is a load. A shard being
+	// Only opening a shard that already holds files is a load. A shard being
 	// created is fast and frequent (every tenant creation), and would bury
 	// the load distribution in near-zero samples. Registered before the
 	// recover below: defers run last-in first-out, so this one sees the error
 	// a recovered panic sets and skips that load as failed.
-	_, err = os.Stat(s.path())
-	exists := err == nil
+	exists := shardDirHasState(s.path())
 	defer func() {
 		if err == nil && exists {
 			monitoring.GetStartupMetrics().ObserveShardLoad(registration, time.Since(start))
@@ -210,6 +209,18 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	_ = s.reindexer.RunAfterLsmInit(ctx, s)
 	return s, nil
+}
+
+// shardDirHasState reports whether the shard directory holds anything from a
+// previous life. The directory itself proves nothing: since self-recovery,
+// ensureShardDir creates it as soon as the shard is registered, because a
+// folder missing at startup is what marks a wiped shard. A shard that was
+// opened before leaves its store and counter files behind; a fresh one is
+// empty. A read error counts as no state; the shard init that follows reports
+// it properly.
+func shardDirHasState(path string) bool {
+	entries, err := os.ReadDir(path)
+	return err == nil && len(entries) > 0
 }
 
 // cleanupPartialInit is called when the shard was only partially initialized.
