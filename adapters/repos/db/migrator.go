@@ -950,10 +950,9 @@ func (m *Migrator) UpdateReplicationConfig(ctx context.Context, className string
 	return nil
 }
 
-// ReportVectorDimensionsReindex waits for the indexes to load their shards, which
-// reindex their dimensions as they load, see [Shard.reindexDimensionsOnLoad]. The
-// error sums up what was left: failed shards, active shards not loaded and inactive
-// tenants with objects, reindexed only once loaded while the flag is set.
+// ReportVectorDimensionsReindex logs the outcome once the indexes have loaded their
+// shards. Shards are rebuilt before they load, see [Index.prepareDimensionsOfShards],
+// and retried when they load if that failed. The error lists what is left.
 func (m *Migrator) ReportVectorDimensionsReindex(ctx context.Context) error {
 	if !m.db.StartupComplete() {
 		return errors.New("report dimensions reindex: db has not completed startup")
@@ -1007,9 +1006,9 @@ func (db *DB) allShardsReady() bool {
 	return true
 }
 
-// dimensionsNotReindexed counts the local shards of the class that have objects and
-// were not reindexed, neither at startup nor when they loaded. A class the db failed
-// to create an index for has none.
+// dimensionsNotReindexed counts the local shards of the class that were not reindexed
+// and are not known to be empty. Frozen tenants and every shard of a class without an
+// index count, because their objects cannot be read.
 func (db *DB) dimensionsNotReindexed(className string) (notLoaded, inactive int, err error) {
 	db.indexLock.RLock()
 	index := db.indices[indexID(schema.ClassName(className))]

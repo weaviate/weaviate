@@ -629,8 +629,8 @@ func (s *Shard) createDimensionsBucket(ctx context.Context, name string) error {
 	return s.loadDimensionsBucket(ctx, name)
 }
 
-// loadDimensionsBucket does not refuse a read only shard, unlike
-// createDimensionsBucket. It is for a bucket that has to be opened again.
+// loadDimensionsBucket opens the dimensions bucket. Unlike createDimensionsBucket it
+// does not refuse a read only shard.
 func (s *Shard) loadDimensionsBucket(ctx context.Context, name string) error {
 	bucketPath := filepath.Join(s.pathLSM(), name)
 	strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, lsmkv.DimensionsBucketPrioritizedStrategies)

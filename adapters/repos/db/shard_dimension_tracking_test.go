@@ -214,7 +214,7 @@ func Test_Migration(t *testing.T) {
 	dimBefore := getDimensionsFromRepo(context.Background(), repo, "Test")
 	require.Equal(t, 0, dimBefore, "dimensions should not have been calculated")
 
-	// restart with REINDEX_VECTOR_DIMENSIONS_AT_STARTUP, the shard reindexes as it loads
+	// restart with REINDEX_VECTOR_DIMENSIONS_AT_STARTUP, startup rebuilds the shard before loading it
 	require.NoError(t, repo.Shutdown(context.Background()))
 	repoReindex, err := New(logger, "node1", Config{
 		RootPath:                  dirName,

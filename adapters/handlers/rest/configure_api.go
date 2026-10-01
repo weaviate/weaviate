@@ -975,7 +975,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	configureServer = makeConfigureServer(appState)
 
-	// Shards reindex their dimensions as they load, this only reports once all have.
+	// Startup rebuilds the dimensions of local shards before loading them. This
+	// reports the outcome once every index has loaded its shards.
 	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup && repo.GetConfig().TrackVectorDimensions {
 		enterrors.GoWrapper(func() {
 			l := appState.Logger.WithField("action", "startup")
