@@ -919,8 +919,7 @@ func (r *migrationReconciler) discard(ctx context.Context, subject MigrationSubj
 	})
 }
 
-// DiscardTask runs at cancel, so boot recovery never reads the task's records as
-// live. Unlike the passes, it reports what it kept: its caller tells the operator.
+// Unlike the passes, returns what it could not discard: terminal cleanup reports it.
 func (r *migrationReconciler) DiscardTask(ctx context.Context, task *distributedtask.Task) error {
 	if len(r.store.Unreadable()) > 0 {
 		return errors.New("a migration record on this shard cannot be read, so no record is discarded")

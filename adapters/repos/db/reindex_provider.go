@@ -1541,8 +1541,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 }
 
 // autoCleanupAfterTerminal runs on every node when a semantic migration
-// reaches FAILED or CANCELLED. Drains any still-running local goroutine, then
-// has the reconciler end the task's records on the shards the index map holds.
+// reaches FAILED or CANCELLED: once its local workers drain, the reconciler ends its records.
 //
 // Backup-gate race avoidance: a backup landing AFTER the FSM has flipped
 // to FAILED/CANCELLED but BEFORE this routine finishes its sidecar
@@ -1562,8 +1561,6 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 		return
 	}
 	defer unseal()
-	// The unregister fires from the defer so any return path — including
-	// a panic inside the teardown — releases the slot.
 	shards := uniqueShardsFromPayload(payload)
 	for _, shardName := range shards {
 		p.registerCleanup(payload.Collection, shardName)
@@ -1614,7 +1611,6 @@ func (p *ReindexProvider) discardTaskRecords(ctx context.Context, task *distribu
 	return worst, failures.ToErrorLimited(maxReportedErrors)
 }
 
-// A cold tenant is not in the map; its load reconciler settles it on reactivation.
 func (i *Index) discardTaskRecordsOn(ctx context.Context, name string, task *distributedtask.Task) error {
 	shard, release, err := i.getLoadedShard(name)
 	if err != nil {
@@ -1698,8 +1694,6 @@ func ClassifyCleanupSweep(err error) (outcome CleanupSweepOutcome, failure error
 	}
 }
 
-// Phases: which caller a cleanup summary belongs to, so two cleanups in one
-// log are told apart. The REST handlers name their own.
 const (
 	sweepPhaseIndexCleanup    = "partial-reindex cleanup"
 	sweepPhaseTerminalCleanup = "auto-cleanup after terminal status"
@@ -1929,8 +1923,7 @@ func (p *ReindexProvider) CleanupInProgressLookupBuilder() CleanupInProgressLook
 const reindexTerminalCleanupDrainTimeout = 10 * time.Second
 
 // reindexTerminalCleanupTimeout is one window for the whole cleanup run: every
-// shard shares it, and the shards it cuts short are reported as ones the
-// cleanup never reached.
+// shard shares it, and the shards it cuts short are reported as unreached.
 const reindexTerminalCleanupTimeout = 60 * time.Second
 
 // Matches the drain timeout: both run inline on the same dispatch.

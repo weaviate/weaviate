@@ -1144,8 +1144,7 @@ func (l *LazyLoadShard) mayHoldUndecidedRecordOf(task *distributedtask.Task) boo
 	return false
 }
 
-// Loads only a shard the map still holds, so cleanup never revives a tenant
-// deleted or deactivated since its gate. Returns holding the reference only.
+// Never revives an unmapped tenant, and loads under ctx: preventShutdown's load has no deadline.
 func (i *Index) loadMappedShardForCleanup(ctx context.Context, name string) (ShardLike, func(), error) {
 	if err := i.enterRead(); err != nil {
 		return nil, nil, err
@@ -1161,7 +1160,6 @@ func (i *Index) loadMappedShardForCleanup(ctx context.Context, name string) (Sha
 	if err := i.requireNamespaceAllowsShardLoad(callerUserRequest); err != nil {
 		return nil, nil, fmt.Errorf("%w: %w", ErrCleanupSweepTruncated, err)
 	}
-	// Not preventShutdown's load: it has no deadline, and these locks stall the tenant meanwhile.
 	if lazy, isLazy := shard.(*LazyLoadShard); isLazy {
 		if err := lazy.Load(ctx); err != nil {
 			if truncated := truncatedByCancellation(err); truncated != nil {
