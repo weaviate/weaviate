@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -343,7 +344,7 @@ func TestShard_ChangeLog_ActivateSweepsOrphans(t *testing.T) {
 }
 
 // Two concurrent activates must each leave their own .log file on disk.
-// Without changeLogsActivateMu, the second caller's keep-snapshot can miss
+// Without changeLogsLifecycleMu, the second caller's keep-snapshot can miss
 // the first caller's pending op and sweep its freshly-opened file.
 func TestShard_ChangeLog_ConcurrentActivate_NoCrossSweep(t *testing.T) {
 	ctx := context.Background()
@@ -507,4 +508,726 @@ func TestShard_ChangeLog_Finalize_WaitsForPreSealPendingOnly(t *testing.T) {
 	}
 
 	require.NoError(t, shard.StopChangeCapture(ctx, "op-fence"))
+}
+
+// A resumed movement reactivates its op-id while the donor still holds the log.
+func TestShard_ChangeLog_ReactivateSameOpID(t *testing.T) {
+	tests := []struct {
+		name       string
+		prevWrites int
+		prep       func(t *testing.T, old *changelog.ChangeLog) *changelog.Tailer
+	}{
+		{name: "plain"},
+		{
+			name:       "tailer open on old log",
+			prevWrites: 2,
+			prep: func(t *testing.T, old *changelog.ChangeLog) *changelog.Tailer {
+				tailer, err := old.NewTailer(0)
+				require.NoError(t, err)
+				t.Cleanup(func() { require.NoError(t, tailer.Close()) })
+				return tailer
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			shard := setupChangelogTestShard(t, ctx)
+			const opID = "op-resumed"
+
+			old, err := shard.ActivateChangeLog(ctx, opID)
+			require.NoError(t, err)
+			for i := range tc.prevWrites {
+				require.NoError(t, shard.PutObject(ctx, changelogTestObject(uuid.NewString(), "before", int64(i+1))))
+			}
+			var tailer *changelog.Tailer
+			if tc.prep != nil {
+				tailer = tc.prep(t, old)
+			}
+
+			_, err = shard.ActivateChangeLog(ctx, opID)
+			require.NoError(t, err)
+
+			fresh, ok := shard.GetChangeLog(ctx, opID)
+			require.True(t, ok)
+			require.NotSame(t, old, fresh)
+			require.Equal(t, uint64(0), fresh.LSN())
+			matches, err := filepath.Glob(filepath.Join(shard.changelogDir(), opID+changelogFileExtension))
+			require.NoError(t, err)
+			require.Len(t, matches, 1)
+			_, err = old.AppendDelete([16]byte{}, 1)
+			require.ErrorIs(t, err, changelog.ErrLogDeactivated)
+			if tailer != nil {
+				nextCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				defer cancel()
+				_, err := tailer.Next(nextCtx)
+				require.ErrorIs(t, err, changelog.ErrLogDeactivated)
+			}
+
+			id := uuid.NewString()
+			require.NoError(t, shard.PutObject(ctx, changelogTestObject(id, "after", 100)))
+			finalLSN, err := shard.FinalizeChangeLog(ctx, opID)
+			require.NoError(t, err)
+			require.Equal(t, uint64(1), finalLSN)
+			entries := drainAllEntries(t, fresh)
+			require.Len(t, entries, 1)
+			require.Equal(t, uuid.MustParse(id), uuid.UUID(entries[0].UUID))
+
+			require.NoError(t, shard.StopChangeCapture(ctx, opID))
+		})
+	}
+}
+
+func TestShard_ChangeLog_AbandonedReactivateKeepsLiveLog(t *testing.T) {
+	ctx := context.Background()
+	shard := setupChangelogTestShard(t, ctx)
+	const opID = "op-live"
+
+	_, err := shard.ActivateChangeLog(ctx, opID)
+	require.NoError(t, err)
+	live, ok := shard.GetChangeLog(ctx, opID)
+	require.True(t, ok)
+	require.NoError(t, shard.PutObject(ctx, changelogTestObject(uuid.NewString(), "live", 1)))
+
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	_, err = shard.ActivateChangeLog(cancelled, opID)
+	require.ErrorIs(t, err, context.Canceled)
+
+	still, ok := shard.GetChangeLog(ctx, opID)
+	require.True(t, ok)
+	require.Same(t, live, still)
+	require.Equal(t, uint64(1), still.LSN())
+	require.NoError(t, shard.StopChangeCapture(ctx, opID))
+}
+
+type changeLogMiss int
+
+const (
+	missGone changeLogMiss = iota
+	missLost
+	missNotLoaded
+)
+
+func classifyChangeLogMiss(t *testing.T, err error) changeLogMiss {
+	t.Helper()
+	require.Error(t, err)
+	msg := err.Error()
+	gone := strings.Contains(msg, changelog.ErrMsgNoActiveLog) || strings.Contains(msg, changelog.ErrMsgNoActiveChangeCaptureLog)
+	lost := strings.Contains(msg, changelog.ErrMsgChangeLogLost)
+	require.False(t, gone && lost, "error reads both gone and lost: %v", err)
+	switch {
+	case gone:
+		return missGone
+	case lost:
+		return missLost
+	default:
+		require.Contains(t, msg, "is not loaded")
+		return missNotLoaded
+	}
+}
+
+func assertChangeLogMiss(t *testing.T, ctx context.Context, idx *Index, shardName, opID string, want changeLogMiss) {
+	t.Helper()
+	_, snapErr := idx.IncomingSnapshotChangeLogLSN(ctx, shardName, opID)
+	_, finErr := idx.IncomingFinalizeChangeLog(ctx, shardName, opID)
+	_, tailErr := idx.IncomingGetChangeLog(ctx, shardName, opID, 0)
+	require.Equal(t, want, classifyChangeLogMiss(t, snapErr), "snapshot: %v", snapErr)
+	require.Equal(t, want, classifyChangeLogMiss(t, finErr), "finalize: %v", finErr)
+	require.Equal(t, want, classifyChangeLogMiss(t, tailErr), "tail: %v", tailErr)
+}
+
+func restartChangelogTestShard(t *testing.T, ctx context.Context, idx *Index, shardName string) {
+	t.Helper()
+	require.NoError(t, idx.IncomingReinitShard(ctx, shardName))
+	_, release, err := idx.getOrInitShard(ctx, shardName)
+	require.NoError(t, err)
+	release()
+}
+
+func unloadChangelogTestShard(t *testing.T, ctx context.Context, idx *Index, shardName string) *LazyLoadShard {
+	t.Helper()
+	loaded, ok := idx.shards.LoadAndDelete(shardName)
+	require.True(t, ok)
+	require.NoError(t, loaded.Shutdown(ctx))
+	lazy := NewLazyLoadShard(ctx, nil, shardName, idx, idx.getClass(), idx.centralJobQueue,
+		idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer, false, idx.bitmapBufPool)
+	idx.shards.Store(shardName, lazy)
+	return lazy
+}
+
+func changelogDirEntries(t *testing.T, idx *Index, shardName string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(changelogDirOf(shardPath(idx.path(), shardName)))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	require.NoError(t, err)
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	return names
+}
+
+// A log the donor discarded undrained must not read like one the movement stopped: the consumer seals on the latter.
+func TestIndex_ChangeLog_RestartSweptLogDistinctFromStopped(t *testing.T) {
+	const opID = "op-integrating"
+	tests := []struct {
+		name      string
+		lose      func(t *testing.T, ctx context.Context, shard *Shard)
+		want      changeLogMiss
+		wantFiles []string
+		unloaded  bool
+	}{
+		{
+			name: "stopped by the movement",
+			lose: func(t *testing.T, ctx context.Context, shard *Shard) {
+				require.NoError(t, shard.StopChangeCapture(ctx, opID))
+			},
+			want: missGone,
+		},
+		{
+			name: "swept by a donor restart",
+			lose: func(t *testing.T, ctx context.Context, shard *Shard) {
+				restartChangelogTestShard(t, ctx, shard.index, shard.name)
+			},
+			want:      missLost,
+			wantFiles: []string{opID + changelogLostExtension},
+		},
+		{
+			name: "deactivated by an append failure",
+			lose: func(t *testing.T, ctx context.Context, shard *Shard) {
+				log, ok := shard.GetChangeLog(ctx, opID)
+				require.True(t, ok)
+				shard.handleChangeLogFailure(opID, log, errors.New("disk full"))
+			},
+			want:      missLost,
+			wantFiles: []string{opID + changelogLostExtension},
+		},
+		{
+			name: "deactivated by an append failure, then a restart",
+			lose: func(t *testing.T, ctx context.Context, shard *Shard) {
+				log, ok := shard.GetChangeLog(ctx, opID)
+				require.True(t, ok)
+				shard.handleChangeLogFailure(opID, log, errors.New("disk full"))
+				restartChangelogTestShard(t, ctx, shard.index, shard.name)
+			},
+			want:      missLost,
+			wantFiles: []string{opID + changelogLostExtension},
+		},
+		{
+			name: "stopped, then a restart",
+			lose: func(t *testing.T, ctx context.Context, shard *Shard) {
+				require.NoError(t, shard.StopChangeCapture(ctx, opID))
+				restartChangelogTestShard(t, ctx, shard.index, shard.name)
+			},
+			want: missGone,
+		},
+		{
+			name: "lazy donor restarted, not loaded since",
+			lose: func(t *testing.T, ctx context.Context, shard *Shard) {
+				unloadChangelogTestShard(t, ctx, shard.index, shard.name)
+			},
+			want:      missLost,
+			wantFiles: []string{opID + changelogFileExtension},
+			unloaded:  true,
+		},
+		{
+			name: "lazy donor swept, then unloaded",
+			lose: func(t *testing.T, ctx context.Context, shard *Shard) {
+				restartChangelogTestShard(t, ctx, shard.index, shard.name)
+				unloadChangelogTestShard(t, ctx, shard.index, shard.name)
+			},
+			want:      missLost,
+			wantFiles: []string{opID + changelogLostExtension},
+			unloaded:  true,
+		},
+		{
+			name: "stopped, then unloaded",
+			lose: func(t *testing.T, ctx context.Context, shard *Shard) {
+				require.NoError(t, shard.StopChangeCapture(ctx, opID))
+				unloadChangelogTestShard(t, ctx, shard.index, shard.name)
+			},
+			want:     missNotLoaded,
+			unloaded: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			shard := setupChangelogTestShard(t, ctx)
+			idx := shard.index
+
+			require.NoError(t, idx.IncomingStartChangeCapture(ctx, shard.name, opID))
+			require.NoError(t, shard.PutObject(ctx, changelogTestObject(uuid.NewString(), "captured", 1)))
+			tc.lose(t, ctx, shard)
+
+			assertChangeLogMiss(t, ctx, idx, shard.name, opID, tc.want)
+			require.ElementsMatch(t, tc.wantFiles, changelogDirEntries(t, idx, shard.name))
+			for _, name := range tc.wantFiles {
+				if filepath.Ext(name) == changelogLostExtension {
+					info, err := os.Stat(filepath.Join(changelogDirOf(shardPath(idx.path(), shard.name)), name))
+					require.NoError(t, err)
+					require.Zero(t, info.Size(), name)
+				}
+			}
+			if tc.unloaded {
+				require.Nil(t, idx.shards.Loaded(shard.name))
+			}
+		})
+	}
+}
+
+func TestIndex_ChangeLog_StopClearsLost(t *testing.T) {
+	const opID = "op-stopped"
+	tests := []struct {
+		name     string
+		lose     func(t *testing.T, ctx context.Context, shard *Shard)
+		unloaded bool
+		want     changeLogMiss
+	}{
+		{
+			name: "loaded, swept by a restart",
+			lose: func(t *testing.T, ctx context.Context, shard *Shard) {
+				restartChangelogTestShard(t, ctx, shard.index, shard.name)
+			},
+			want: missGone,
+		},
+		{
+			name: "loaded, append failure",
+			lose: func(t *testing.T, ctx context.Context, shard *Shard) {
+				log, ok := shard.GetChangeLog(ctx, opID)
+				require.True(t, ok)
+				shard.handleChangeLogFailure(opID, log, errors.New("disk full"))
+			},
+			want: missGone,
+		},
+		{
+			name: "loaded, log still active",
+			lose: func(t *testing.T, ctx context.Context, shard *Shard) {},
+			want: missGone,
+		},
+		{
+			name: "unloaded, log never swept",
+			lose: func(t *testing.T, ctx context.Context, shard *Shard) {
+				unloadChangelogTestShard(t, ctx, shard.index, shard.name)
+			},
+			unloaded: true,
+			want:     missNotLoaded,
+		},
+		{
+			name: "unloaded, swept by a restart",
+			lose: func(t *testing.T, ctx context.Context, shard *Shard) {
+				restartChangelogTestShard(t, ctx, shard.index, shard.name)
+				unloadChangelogTestShard(t, ctx, shard.index, shard.name)
+			},
+			unloaded: true,
+			want:     missNotLoaded,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			shard := setupChangelogTestShard(t, ctx)
+			idx := shard.index
+
+			require.NoError(t, idx.IncomingStartChangeCapture(ctx, shard.name, opID))
+			require.NoError(t, shard.PutObject(ctx, changelogTestObject(uuid.NewString(), "captured", 1)))
+			tc.lose(t, ctx, shard)
+
+			require.NoError(t, idx.IncomingStopChangeCapture(ctx, shard.name, opID))
+			require.NoError(t, idx.IncomingStopChangeCapture(ctx, shard.name, opID))
+
+			require.Empty(t, changelogDirEntries(t, idx, shard.name))
+			assertChangeLogMiss(t, ctx, idx, shard.name, opID, tc.want)
+			if tc.unloaded {
+				require.Nil(t, idx.shards.Loaded(shard.name))
+			}
+			restartChangelogTestShard(t, ctx, idx, shard.name)
+			assertChangeLogMiss(t, ctx, idx, shard.name, opID, missGone)
+		})
+	}
+}
+
+func TestShard_ChangeLog_ActivateClearsOnlyItsOwnLostMarker(t *testing.T) {
+	const (
+		resumed = "op-resumed"
+		other   = "op-other"
+		orphan  = "op-orphan"
+	)
+	ctx := context.Background()
+	shard := setupChangelogTestShard(t, ctx)
+	idx := shard.index
+
+	require.NoError(t, idx.IncomingStartChangeCapture(ctx, shard.name, resumed))
+	require.NoError(t, idx.IncomingStartChangeCapture(ctx, shard.name, other))
+	require.NoError(t, shard.PutObject(ctx, changelogTestObject(uuid.NewString(), "captured", 1)))
+	restartChangelogTestShard(t, ctx, idx, shard.name)
+
+	dir := changelogDirOf(shardPath(idx.path(), shard.name))
+	orphanLog, _ := changelogPaths(dir, orphan)
+	require.NoError(t, os.WriteFile(orphanLog, []byte("stale"), 0o600))
+
+	require.NoError(t, idx.IncomingStartChangeCapture(ctx, shard.name, resumed))
+
+	require.ElementsMatch(t, []string{resumed + changelogFileExtension, other + changelogLostExtension},
+		changelogDirEntries(t, idx, shard.name))
+	lsn, err := idx.IncomingSnapshotChangeLogLSN(ctx, shard.name, resumed)
+	require.NoError(t, err)
+	require.Equal(t, uint64(0), lsn)
+	assertChangeLogMiss(t, ctx, idx, shard.name, other, missLost)
+
+	require.NoError(t, idx.IncomingStopChangeCapture(ctx, shard.name, resumed))
+	assertChangeLogMiss(t, ctx, idx, shard.name, resumed, missGone)
+	assertChangeLogMiss(t, ctx, idx, shard.name, other, missLost)
+}
+
+func TestShard_ChangeLog_StaleLogFailureSparesSuccessor(t *testing.T) {
+	ctx := context.Background()
+	shard := setupChangelogTestShard(t, ctx)
+	const opID = "op-replaced"
+
+	stale, err := shard.ActivateChangeLog(ctx, opID)
+	require.NoError(t, err)
+	fresh, err := shard.ActivateChangeLog(ctx, opID)
+	require.NoError(t, err)
+	require.NotSame(t, stale, fresh)
+
+	shard.handleChangeLogFailure(opID, stale, errors.New("disk full"))
+
+	registered, ok := shard.GetChangeLog(ctx, opID)
+	require.True(t, ok)
+	require.Same(t, fresh, registered)
+	require.Equal(t, []string{opID + changelogFileExtension}, changelogDirEntries(t, shard.index, shard.name))
+	id := uuid.NewString()
+	require.NoError(t, shard.PutObject(ctx, changelogTestObject(id, "after", 1)))
+	finalLSN, err := shard.FinalizeChangeLog(ctx, opID)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), finalLSN)
+	entries := drainAllEntries(t, fresh)
+	require.Len(t, entries, 1)
+	require.NoError(t, shard.StopChangeCapture(ctx, opID))
+}
+
+func TestIndex_ChangeLog_RefusesNamesLeavingTheirDir(t *testing.T) {
+	const opID = "op-1"
+	type row struct {
+		name     string
+		shard    string
+		op       string
+		badOp    bool
+		unloaded bool
+	}
+	var tests []row
+	for _, bad := range []string{"..", "../x", "a/b", ".", ""} {
+		tests = append(tests, row{name: "shard " + strconv.Quote(bad), shard: bad, op: opID})
+		for _, unloaded := range []bool{false, true} {
+			tests = append(tests, row{name: "op " + strconv.Quote(bad) + ", unloaded " + strconv.FormatBool(unloaded), op: bad, badOp: true, unloaded: unloaded})
+		}
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			shard := setupChangelogTestShard(t, ctx)
+			idx := shard.index
+			shardName := tc.shard
+			if tc.badOp {
+				shardName = shard.name
+			}
+			if tc.unloaded {
+				unloadChangelogTestShard(t, ctx, idx, shard.name)
+			}
+			escapedLog, escapedLost := changelogPaths(changelogDirOf(shardPath(idx.path(), shardName)), tc.op)
+			require.NoError(t, os.MkdirAll(filepath.Dir(escapedLost), os.ModePerm))
+			require.NoError(t, os.WriteFile(escapedLost, nil, 0o600))
+
+			if tc.badOp && !tc.unloaded {
+				err := idx.IncomingStartChangeCapture(ctx, shardName, tc.op)
+				require.ErrorContains(t, err, "invalid op id")
+			}
+			for _, ep := range incomingChangeLogEndpoints {
+				err := ep.call(ctx, idx, shardName, tc.op)
+				switch {
+				case tc.badOp:
+					require.ErrorContains(t, err, "invalid op id", ep.name)
+				case ep.errorsOnMissingShard:
+					require.Equal(t, missNotLoaded, classifyChangeLogMiss(t, err), "%s: %v", ep.name, err)
+				default:
+					require.NoError(t, err, ep.name)
+				}
+			}
+
+			require.FileExists(t, escapedLost)
+			require.NoFileExists(t, escapedLog)
+		})
+	}
+}
+
+func TestIndex_ChangeLog_UnloadedStopOnAShardLoadedSinceStopsItLoaded(t *testing.T) {
+	ctx := context.Background()
+	shard := setupChangelogTestShard(t, ctx)
+	idx := shard.index
+	const opID = "op-raced"
+	require.NoError(t, idx.IncomingStartChangeCapture(ctx, shard.name, opID))
+	log, ok := shard.GetChangeLog(ctx, opID)
+	require.True(t, ok)
+
+	require.NoError(t, idx.stopUnloadedChangeCapture(ctx, shard.name, opID))
+
+	_, ok = shard.GetChangeLog(ctx, opID)
+	require.False(t, ok)
+	_, err := log.AppendDelete([16]byte{}, 1)
+	require.ErrorIs(t, err, changelog.ErrLogDeactivated)
+	require.Empty(t, changelogDirEntries(t, idx, shard.name))
+	assertChangeLogMiss(t, ctx, idx, shard.name, opID, missGone)
+}
+
+func TestShard_ChangeLog_StopClearsLostMarkOfARegisteredLog(t *testing.T) {
+	const opID = "op-failing"
+	tests := []struct {
+		name string
+		mark func(t *testing.T, shard *Shard)
+	}{
+		{
+			name: "marker on disk",
+			mark: func(t *testing.T, shard *Shard) {
+				_, lostPath := changelogPaths(shard.changelogDir(), opID)
+				require.NoError(t, os.WriteFile(lostPath, nil, 0o600))
+			},
+		},
+		{
+			name: "marker in memory",
+			mark: func(t *testing.T, shard *Shard) { shard.lostChangeLogs.Store(opID, struct{}{}) },
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			shard := setupChangelogTestShard(t, ctx)
+			_, err := shard.ActivateChangeLog(ctx, opID)
+			require.NoError(t, err)
+			tc.mark(t, shard)
+
+			require.NoError(t, shard.StopChangeCapture(ctx, opID))
+
+			require.Empty(t, changelogDirEntries(t, shard.index, shard.name))
+			assertChangeLogMiss(t, ctx, shard.index, shard.name, opID, missGone)
+		})
+	}
+}
+
+func TestShard_ChangeLog_UnwritableLostMarkerStaysLostInMemory(t *testing.T) {
+	ctx := context.Background()
+	shard := setupChangelogTestShard(t, ctx)
+	const opID = "op-unmarkable"
+	log, err := shard.ActivateChangeLog(ctx, opID)
+	require.NoError(t, err)
+	dir := shard.changelogDir()
+	require.NoError(t, os.RemoveAll(dir))
+	require.NoError(t, os.WriteFile(dir, nil, 0o600))
+	t.Cleanup(func() { require.NoError(t, os.Remove(dir)) })
+
+	shard.handleChangeLogFailure(opID, log, errors.New("disk full"))
+
+	_, lostPath := changelogPaths(dir, opID)
+	require.NoFileExists(t, lostPath)
+	assertChangeLogMiss(t, ctx, shard.index, shard.name, opID, missLost)
+}
+
+// A failure whose lost marker can't be written keeps its log on disk, so the loss survives a restart.
+func TestIndex_ChangeLog_UnwritableLostMarkerSurvivesLifecycle(t *testing.T) {
+	const (
+		opID  = "op-unmarkable"
+		other = "op-other"
+	)
+	tests := []struct {
+		name      string
+		journey   func(t *testing.T, ctx context.Context, shard *Shard)
+		want      changeLogMiss
+		live      bool
+		wantFiles []string
+		unloaded  bool
+	}{
+		{
+			name:      "no restart",
+			journey:   func(t *testing.T, ctx context.Context, shard *Shard) {},
+			want:      missLost,
+			wantFiles: []string{opID + changelogFileExtension},
+		},
+		{
+			name: "restart",
+			journey: func(t *testing.T, ctx context.Context, shard *Shard) {
+				restartChangelogTestShard(t, ctx, shard.index, shard.name)
+			},
+			want:      missLost,
+			wantFiles: []string{opID + changelogLostExtension},
+		},
+		{
+			name: "resumed",
+			journey: func(t *testing.T, ctx context.Context, shard *Shard) {
+				require.NoError(t, shard.index.IncomingStartChangeCapture(ctx, shard.name, opID))
+				_, lostInMemory := shard.lostChangeLogs.Load(opID)
+				require.False(t, lostInMemory)
+				_, ok := shard.GetChangeLog(ctx, opID)
+				require.True(t, ok)
+			},
+			live:      true,
+			wantFiles: []string{opID + changelogFileExtension},
+		},
+		{
+			name: "another op activated, then a restart",
+			journey: func(t *testing.T, ctx context.Context, shard *Shard) {
+				require.NoError(t, shard.index.IncomingStartChangeCapture(ctx, shard.name, other))
+				restartChangelogTestShard(t, ctx, shard.index, shard.name)
+				assertChangeLogMiss(t, ctx, shard.index, shard.name, other, missLost)
+			},
+			want:      missLost,
+			wantFiles: []string{opID + changelogLostExtension, other + changelogLostExtension},
+		},
+		{
+			name: "stopped, then a restart",
+			journey: func(t *testing.T, ctx context.Context, shard *Shard) {
+				require.NoError(t, shard.index.IncomingStopChangeCapture(ctx, shard.name, opID))
+				require.Empty(t, changelogDirEntries(t, shard.index, shard.name))
+				restartChangelogTestShard(t, ctx, shard.index, shard.name)
+			},
+			want: missGone,
+		},
+		{
+			name: "unloaded",
+			journey: func(t *testing.T, ctx context.Context, shard *Shard) {
+				unloadChangelogTestShard(t, ctx, shard.index, shard.name)
+			},
+			want:      missLost,
+			wantFiles: []string{opID + changelogFileExtension},
+			unloaded:  true,
+		},
+		{
+			name: "unloaded, then stopped",
+			journey: func(t *testing.T, ctx context.Context, shard *Shard) {
+				unloadChangelogTestShard(t, ctx, shard.index, shard.name)
+				require.NoError(t, shard.index.IncomingStopChangeCapture(ctx, shard.name, opID))
+			},
+			want:     missNotLoaded,
+			unloaded: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			shard := setupChangelogTestShard(t, ctx)
+			idx := shard.index
+			require.NoError(t, idx.IncomingStartChangeCapture(ctx, shard.name, opID))
+			require.NoError(t, shard.PutObject(ctx, changelogTestObject(uuid.NewString(), "captured", 1)))
+			log, ok := shard.GetChangeLog(ctx, opID)
+			require.True(t, ok)
+			_, lostPath := changelogPaths(shard.changelogDir(), opID)
+			require.NoError(t, os.MkdirAll(filepath.Join(lostPath, "obstruction"), 0o700))
+
+			shard.handleChangeLogFailure(opID, log, errors.New("disk full"))
+			require.NoError(t, os.RemoveAll(lostPath))
+			tc.journey(t, ctx, shard)
+
+			if tc.live {
+				lsn, err := idx.IncomingSnapshotChangeLogLSN(ctx, shard.name, opID)
+				require.NoError(t, err)
+				require.Equal(t, uint64(0), lsn)
+			} else {
+				assertChangeLogMiss(t, ctx, idx, shard.name, opID, tc.want)
+			}
+			require.ElementsMatch(t, tc.wantFiles, changelogDirEntries(t, idx, shard.name))
+			if tc.unloaded {
+				require.Nil(t, idx.shards.Loaded(shard.name))
+			}
+		})
+	}
+}
+
+func TestShard_ChangeLog_LifecycleSerializedWithFailureHandling(t *testing.T) {
+	const opID = "op-raced"
+	type result struct {
+		log *changelog.ChangeLog
+		err error
+	}
+	fail := func(_ context.Context, shard *Shard, log *changelog.ChangeLog) error {
+		shard.handleChangeLogFailure(opID, log, errors.New("disk full"))
+		return nil
+	}
+	stop := func(ctx context.Context, shard *Shard) (*changelog.ChangeLog, error) {
+		return nil, shard.StopChangeCapture(ctx, opID)
+	}
+	activate := func(ctx context.Context, shard *Shard) (*changelog.ChangeLog, error) {
+		return shard.ActivateChangeLog(ctx, opID)
+	}
+	tests := []struct {
+		name       string
+		hooked     func(ctx context.Context, shard *Shard, log *changelog.ChangeLog) error
+		concurrent func(ctx context.Context, shard *Shard) (*changelog.ChangeLog, error)
+		wantFresh  bool
+	}{
+		{name: "failure vs stop", hooked: fail, concurrent: stop},
+		{name: "failure vs resumed activate", hooked: fail, concurrent: activate, wantFresh: true},
+		{
+			name: "stop vs resumed activate",
+			hooked: func(ctx context.Context, shard *Shard, _ *changelog.ChangeLog) error {
+				return shard.StopChangeCapture(ctx, opID)
+			},
+			concurrent: activate,
+			wantFresh:  true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			shard := setupChangelogTestShard(t, ctx)
+			idx := shard.index
+			log, err := shard.ActivateChangeLog(ctx, opID)
+			require.NoError(t, err)
+
+			done := make(chan result, 1)
+			shard.changeLogLifecycleCheckedHook = func() {
+				shard.changeLogLifecycleCheckedHook = nil
+				enterrors.GoWrapper(func() {
+					fresh, err := tc.concurrent(ctx, shard)
+					done <- result{log: fresh, err: err}
+				}, idx.logger)
+				select {
+				case res := <-done:
+					done <- res
+				case <-time.After(250 * time.Millisecond):
+				}
+			}
+
+			require.NoError(t, tc.hooked(ctx, shard, log))
+
+			var res result
+			select {
+			case res = <-done:
+			case <-time.After(10 * time.Second):
+				t.Fatal("concurrent lifecycle call did not finish")
+			}
+			require.NoError(t, res.err)
+			_, err = log.AppendDelete([16]byte{}, 1)
+			require.ErrorIs(t, err, changelog.ErrLogDeactivated)
+			_, lostInMemory := shard.lostChangeLogs.Load(opID)
+			require.False(t, lostInMemory)
+
+			if !tc.wantFresh {
+				require.Empty(t, changelogDirEntries(t, idx, shard.name))
+				assertChangeLogMiss(t, ctx, idx, shard.name, opID, missGone)
+				return
+			}
+			registered, ok := shard.GetChangeLog(ctx, opID)
+			require.True(t, ok)
+			require.Same(t, res.log, registered)
+			require.Equal(t, []string{opID + changelogFileExtension}, changelogDirEntries(t, idx, shard.name))
+			require.NoError(t, shard.PutObject(ctx, changelogTestObject(uuid.NewString(), "after", 1)))
+			finalLSN, err := shard.FinalizeChangeLog(ctx, opID)
+			require.NoError(t, err)
+			require.Equal(t, uint64(1), finalLSN)
+			require.NoError(t, shard.StopChangeCapture(ctx, opID))
+			require.Empty(t, changelogDirEntries(t, idx, shard.name))
+		})
+	}
 }

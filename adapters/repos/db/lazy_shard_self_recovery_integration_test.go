@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -360,6 +361,62 @@ func TestLazyShardTenantActivationRecoversMissingDir(t *testing.T) {
 			} else {
 				require.DirExists(t, shardPath(index.path(), tenant))
 			}
+		})
+	}
+}
+
+func TestLazyShardSelfRecoveryDemoteThenRepromote(t *testing.T) {
+	const tenant = "t"
+	ctx := context.Background()
+	cases := []struct {
+		name       string
+		minObjects int64
+		eager      bool
+		wantLoaded bool
+	}{
+		{name: "cold lazy promote", minObjects: 3},
+		{name: "warmed lazy promote", minObjects: 0, wantLoaded: true},
+		{name: "eager promote", minObjects: 3, eager: true, wantLoaded: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newRecoveringWarmupFixture(t, tenant, 2, tc.minObjects, tc.eager)
+			f.index.SetReplicationFSMReader(newSourcingFSM(t, warmupClassName,
+				opFrom(warmupNodeName, api.COPY, api.INTEGRATING)(tenant)))
+			live := warmupShardPath(f.dirName, tenant)
+			recovery := live + api.RecoveryFolderSuffix
+			f.restore()
+
+			for round := 0; round < 2; round++ {
+				require.NoError(t, f.index.PromoteRecoveringLocalShard(ctx, tenant))
+				lazy, ok := f.index.shards.Load(tenant).(*LazyLoadShard)
+				require.True(t, ok, "round %d: got %T", round, f.index.shards.Load(tenant))
+				require.Equal(t, tc.wantLoaded, lazy.isLoaded(), "round %d", round)
+				requireDrainReadsLost(t, f.index, tenant, recreatedOpID)
+				require.FileExists(t, lostMarkerPath(live, recreatedOpID), "round %d", round)
+
+				require.NoError(t, f.index.DemoteRecoveredLocalShard(ctx, tenant))
+				require.NoDirExists(t, live)
+				require.DirExists(t, recovery)
+				rec, ok := f.index.shards.Load(tenant).(*RecoveringShard)
+				require.True(t, ok, "round %d", round)
+				require.True(t, rec.IsRecovering())
+
+				_, release, err := f.index.getOrInitShardForReplication(ctx, tenant)
+				release()
+				require.True(t, enterrors.IsShardRecovering(err), "round %d: %v", round, err)
+				require.NoDirExists(t, live)
+
+				require.NoError(t, os.RemoveAll(filepath.Join(recovery, changelogDirName)))
+				require.NoError(t, os.Rename(recovery, live))
+			}
+
+			require.NoError(t, f.index.PromoteRecoveringLocalShard(ctx, tenant))
+			requireDrainReadsLost(t, f.index, tenant, recreatedOpID)
+			require.NoError(t, f.index.LoadLocalShardForMovement(ctx, tenant))
+			count, err := indexcounter.Read(live)
+			require.NoError(t, err)
+			require.EqualValues(t, 2, count)
 		})
 	}
 }

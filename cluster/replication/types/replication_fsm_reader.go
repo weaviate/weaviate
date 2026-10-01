@@ -27,3 +27,10 @@ type ReplicationFSMReader interface {
 	// HasActiveSelfRecoveryTargetingShard restricts HasActiveTargetReplicationForShard to SELF_RECOVERY ops.
 	HasActiveSelfRecoveryTargetingShard(collection, shard, targetNode string) bool
 }
+
+// ReplicationFSMSourcedOpsReader lists in-flight ops copying from a replica; kept apart so ReplicationFSMReader mocks need no stub.
+type ReplicationFSMSourcedOpsReader interface {
+	// InFlightOpsSourcingShard returns the IDs of ops sourcing from (sourceNode, collection, shard)
+	// in HYDRATING, FINALIZING or INTEGRATING: those whose donor change-capture log may be live.
+	InFlightOpsSourcingShard(collection, shard, sourceNode string) []uint64
+}

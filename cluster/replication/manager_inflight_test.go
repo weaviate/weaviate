@@ -222,3 +222,92 @@ func TestManager_CloseCancelsDrainRetry(t *testing.T) {
 		// Correct: the drain was cancelled, so the report is withheld.
 	}
 }
+
+func TestManager_ReportsCarryTheOpRound(t *testing.T) {
+	tests := []struct {
+		name      string
+		states    []cmd.ShardReplicationState
+		wantRound uint64
+	}{
+		{name: "fresh op", wantRound: 1},
+		{name: "forward only", states: []cmd.ShardReplicationState{cmd.HYDRATING, cmd.FINALIZING}, wantRound: 1},
+		{name: "one rewind", states: []cmd.ShardReplicationState{cmd.HYDRATING, cmd.FINALIZING, cmd.HYDRATING}, wantRound: 2},
+		{
+			name:      "two rewinds",
+			states:    []cmd.ShardReplicationState{cmd.HYDRATING, cmd.FINALIZING, cmd.INTEGRATING, cmd.HYDRATING, cmd.FINALIZING, cmd.HYDRATING},
+			wantRound: 3,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			const opID = uint64(6)
+			m := newDrainTestManager(t, opID, "TestClass", "shard1")
+			for _, s := range tc.states {
+				require.NoError(t, m.GetReplicationFSM().UpdateReplicationOpStatus(&cmd.ReplicationUpdateOpStateRequest{Id: opID, State: s}))
+			}
+			submitted := make(chan uint64, 1)
+			m.SetNodeReachedStateSubmitter("node1", func(ctx context.Context, req *cmd.ReplicationNodeReachedStateRequest) error {
+				submitted <- req.Round
+				return nil
+			})
+			m.broadcastNodeReachedState(opID, cmd.HYDRATING)
+			select {
+			case round := <-submitted:
+				require.Equal(t, tc.wantRound, round)
+			case <-time.After(2 * time.Second):
+				t.Fatal("state was not reported")
+			}
+		})
+	}
+}
+
+func TestManager_ReportRoundIsCapturedBeforeTheDrain(t *testing.T) {
+	for _, state := range []cmd.ShardReplicationState{cmd.INTEGRATING, cmd.DEHYDRATING} {
+		t.Run(state.String(), func(t *testing.T) {
+			const opID = uint64(7)
+			m := newDrainTestManager(t, opID, "TestClass", "shard1")
+			fsm := m.GetReplicationFSM()
+			for _, s := range []cmd.ShardReplicationState{cmd.HYDRATING, cmd.FINALIZING, state} {
+				require.NoError(t, fsm.UpdateReplicationOpStatus(&cmd.ReplicationUpdateOpStateRequest{Id: opID, State: s}))
+			}
+
+			submitted := make(chan uint64, 1)
+			m.SetNodeReachedStateSubmitter("node1", func(ctx context.Context, req *cmd.ReplicationNodeReachedStateRequest) error {
+				err := fsm.NodeReachedState(req)
+				submitted <- req.Round
+				return err
+			})
+			gate := make(chan struct{})
+			drainStarted := make(chan struct{}, 1)
+			m.SetInflightDrainer(func(ctx context.Context, class, shard string) error {
+				select {
+				case drainStarted <- struct{}{}:
+				default:
+				}
+				select {
+				case <-gate:
+					return nil
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			})
+
+			m.broadcastNodeReachedState(opID, state)
+			select {
+			case <-drainStarted:
+			case <-time.After(2 * time.Second):
+				t.Fatal("drain was never attempted")
+			}
+			require.NoError(t, fsm.UpdateReplicationOpStatus(&cmd.ReplicationUpdateOpStateRequest{Id: opID, State: cmd.HYDRATING}))
+			close(gate)
+
+			select {
+			case round := <-submitted:
+				require.Equal(t, uint64(1), round)
+			case <-time.After(2 * time.Second):
+				t.Fatalf("%s was not reported after the drain completed", state)
+			}
+			require.False(t, fsm.AllPeersAtLeast(opID, state, []string{"node1"}))
+		})
+	}
+}

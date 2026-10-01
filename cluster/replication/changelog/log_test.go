@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -409,4 +410,42 @@ func TestChangeLog_TailerCancellation(t *testing.T) {
 		_, err = cl.AppendPut([16]byte{}, 0, nil)
 		require.ErrorIs(t, err, changelog.ErrLogDeactivated)
 	})
+}
+
+// A resumed op reopens the same path, so a late second Deactivate of the replaced log must not delete its successor.
+func TestChangeLog_RepeatedDeactivateKeepsSuccessorFile(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	path := filepath.Join(t.TempDir(), "op.log")
+	old, err := changelog.Open(path, logger)
+	require.NoError(t, err)
+	require.NoError(t, old.Deactivate())
+	require.NoFileExists(t, path)
+
+	successor, err := changelog.Open(path, logger)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, successor.Deactivate()) })
+
+	require.NoError(t, old.Deactivate())
+	require.FileExists(t, path)
+	lsn, err := successor.AppendDelete([16]byte{2}, 2)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), lsn)
+}
+
+func TestChangeLog_DeactivateKeepingFileLeavesTheFile(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	path := filepath.Join(t.TempDir(), "op.log")
+	cl, err := changelog.Open(path, logger)
+	require.NoError(t, err)
+	_, err = cl.AppendDelete([16]byte{1}, 1)
+	require.NoError(t, err)
+
+	require.NoError(t, cl.DeactivateKeepingFile())
+	require.NoError(t, cl.Deactivate())
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	require.NotZero(t, info.Size())
+	_, err = cl.AppendDelete([16]byte{2}, 2)
+	require.ErrorIs(t, err, changelog.ErrLogDeactivated)
 }

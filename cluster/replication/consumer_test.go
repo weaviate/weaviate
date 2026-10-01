@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1316,10 +1317,7 @@ func TestConsumerShutdown(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 	mockFSMUpdater := types.NewMockFSMUpdater(t)
 	mockReplicaCopier := types.NewMockReplicaCopier(t)
-	parser := fakes.NewMockParser()
-	parser.On("ParseClass", mock.Anything).Return(nil)
-	schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
-	schemaReader := schemaManager.NewSchemaReader()
+	schemaReader := newShardSchemaReader("TestCollection", "test-shard", "node1")
 
 	var completionWg sync.WaitGroup
 	metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
@@ -2031,6 +2029,7 @@ func expectChangeCaptureMocks(m *types.MockReplicaCopier, fsm *types.MockFSMUpda
 	m.EXPECT().FinalizeChangeLog(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
 	m.EXPECT().StopChangeCapture(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	m.EXPECT().ReleaseReplicaSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	m.EXPECT().UnloadLocalShard(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	// PerNodeState convergence wait: satisfied immediately by default.
 	fsm.EXPECT().ReplicationAllPeersAtLeast(mock.Anything, mock.Anything).Return(true, nil).Maybe()
 }
@@ -2220,4 +2219,293 @@ func TestConsumerSelfRecoveryFinalizingPromotesUnderLoadPolicy(t *testing.T) {
 	mockReplicaCopier.AssertNotCalled(t, "LoadLocalShard", mock.Anything, mock.Anything, mock.Anything)
 	mockFSMUpdater.AssertExpectations(t)
 	mockReplicaCopier.AssertExpectations(t)
+}
+
+func TestConsumerCancelReportsGivenUp(t *testing.T) {
+	const (
+		opID       = uint64(9)
+		collection = "TestCollection"
+		shardName  = "shard1"
+	)
+	tests := []struct {
+		name        string
+		transfer    api.ShardReplicationTransferType
+		errors      int
+		deleteOp    bool
+		wantGivenUp string
+	}{
+		{name: "copy error budget exhausted", transfer: api.COPY, errors: replication.MaxErrors, wantGivenUp: "replica was not created"},
+		{name: "self-recovery error budget exhausted", transfer: api.SELF_RECOVERY, errors: replication.MaxErrors, wantGivenUp: "shard stays RECOVERING"},
+		{name: "user cancel without errors", transfer: api.COPY},
+		{name: "delete with exhausted budget", transfer: api.COPY, errors: replication.MaxErrors, deleteOp: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			fsm := types.NewMockFSMUpdater(t)
+			copier := types.NewMockReplicaCopier(t)
+			expectChangeCaptureMocks(copier, fsm)
+			copier.EXPECT().DropLocalShard(mock.Anything, collection, shardName).Return(nil).Maybe()
+			fsm.EXPECT().ReplicationGetReplicaOpStatus(mock.Anything, opID).Return(api.HYDRATING, nil)
+			if tc.deleteOp {
+				fsm.EXPECT().ReplicationRemoveReplicaOp(mock.Anything, opID).Return(nil)
+			} else {
+				fsm.EXPECT().ReplicationCancellationComplete(mock.Anything, opID).Return(nil)
+			}
+
+			var givenUp atomic.Int32
+			cancelled := make(chan struct{}, 1)
+			callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
+				WithOpGivenUpCallback(func(node string) {
+					require.Equal(t, "node2", node)
+					givenUp.Add(1)
+				}).
+				WithOpCancelledCallback(func(string) {
+					select {
+					case cancelled <- struct{}{}:
+					default:
+					}
+				}).Build()
+
+			consumer := replication.NewCopyOpConsumer(logger, fsm, copier, "node2", &backoff.StopBackOff{},
+				replication.NewOpsCache(), 10*time.Second, 1, callbacks,
+				newShardSchemaReader(collection, shardName, "node1"))
+
+			status := replication.NewShardReplicationStatus(api.HYDRATING)
+			for i := range tc.errors {
+				require.NoError(t, status.AddError(fmt.Sprintf("start change capture: file exists %d", i), int64(i)))
+			}
+			if tc.deleteOp {
+				status.TriggerDeletion()
+			} else {
+				status.TriggerCancellation()
+			}
+
+			_, stop := startConsumer(t, consumer, replication.NewShardReplicationOpAndStatus(
+				replication.NewShardReplicationOp(opID, "node1", "node2", collection, shardName, tc.transfer), status))
+			awaitSignal(t, cancelled, "op was never cancelled")
+			stop()
+
+			var gaveUpLogs []*logrus.Entry
+			for _, e := range hook.AllEntries() {
+				if strings.Contains(e.Message, "gave up") {
+					gaveUpLogs = append(gaveUpLogs, e)
+				}
+			}
+			if tc.wantGivenUp == "" {
+				require.Zero(t, givenUp.Load())
+				require.Empty(t, gaveUpLogs)
+				return
+			}
+			require.Equal(t, int32(1), givenUp.Load())
+			require.Len(t, gaveUpLogs, 1)
+			require.Equal(t, logrus.ErrorLevel, gaveUpLogs[0].Level)
+			require.Equal(t, fmt.Sprintf("replication op gave up after %d errors; %s: start change capture: file exists %d",
+				replication.MaxErrors, tc.wantGivenUp, replication.MaxErrors-1), gaveUpLogs[0].Message)
+			require.Equal(t, opID, gaveUpLogs[0].Data["op_id"])
+		})
+	}
+}
+
+func TestConsumerChangeCaptureLost(t *testing.T) {
+	const (
+		opID       = uint64(11)
+		collection = "TestCollection"
+		shardName  = "shard1"
+	)
+	lost := stderrors.New("rpc error: code = Internal desc = snapshot change-log LSN: incoming snapshot change-log LSN: op \"11\": shard: " +
+		changelog.ErrMsgChangeLogLost + " for that op-id")
+	gone := stderrors.New("rpc error: code = Internal desc = incoming snapshot change-log LSN: op \"11\": shard: " +
+		changelog.ErrMsgNoActiveChangeCaptureLog + " for that op-id")
+	tests := []struct {
+		name         string
+		state        api.ShardReplicationState
+		transfer     api.ShardReplicationTransferType
+		replicaAdded bool
+		snapErr      error
+		tailErr      error
+		finalizeErr  error
+		wantStates   []api.ShardReplicationState
+		wantCalls    []string
+	}{
+		{
+			name:       "finalizing snapshot lost before add re-hydrates",
+			state:      api.FINALIZING,
+			transfer:   api.COPY,
+			snapErr:    lost,
+			wantStates: []api.ShardReplicationState{api.HYDRATING},
+			wantCalls:  []string{"load", "snapshot"},
+		},
+		{
+			name:       "finalizing drain lost before add re-hydrates",
+			state:      api.FINALIZING,
+			transfer:   api.MOVE,
+			tailErr:    lost,
+			wantStates: []api.ShardReplicationState{api.HYDRATING},
+			wantCalls:  []string{"load", "snapshot", "tail"},
+		},
+		{
+			name:         "integrating snapshot lost re-hydrates",
+			state:        api.INTEGRATING,
+			transfer:     api.MOVE,
+			replicaAdded: true,
+			snapErr:      lost,
+			wantStates:   []api.ShardReplicationState{api.HYDRATING},
+			wantCalls:    []string{"snapshot"},
+		},
+		{
+			name:         "integrating drain lost re-hydrates",
+			state:        api.INTEGRATING,
+			transfer:     api.COPY,
+			replicaAdded: true,
+			tailErr:      lost,
+			wantStates:   []api.ShardReplicationState{api.HYDRATING},
+			wantCalls:    []string{"snapshot", "tail"},
+		},
+		{
+			name:         "integrating seal lost re-hydrates",
+			state:        api.INTEGRATING,
+			transfer:     api.MOVE,
+			replicaAdded: true,
+			finalizeErr:  lost,
+			wantStates:   []api.ShardReplicationState{api.HYDRATING},
+			wantCalls:    []string{"snapshot", "tail", "tail", "finalize"},
+		},
+		{
+			name:         "self-recovery finalizing snapshot lost after the promote re-hydrates",
+			state:        api.FINALIZING,
+			transfer:     api.SELF_RECOVERY,
+			replicaAdded: true,
+			snapErr:      lost,
+			wantStates:   []api.ShardReplicationState{api.HYDRATING},
+			wantCalls:    []string{"promote-folder", "promote", "snapshot"},
+		},
+		{
+			name:         "integrating after a stop still dehydrates a move",
+			state:        api.INTEGRATING,
+			transfer:     api.MOVE,
+			replicaAdded: true,
+			snapErr:      gone,
+			wantStates:   []api.ShardReplicationState{api.DEHYDRATING},
+			wantCalls:    []string{"snapshot"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := logrustest.NewNullLogger()
+			fsm := types.NewMockFSMUpdater(t)
+			copier := types.NewMockReplicaCopier(t)
+
+			var (
+				mu     sync.Mutex
+				calls  []string
+				states []api.ShardReplicationState
+			)
+			record := func(name string) {
+				mu.Lock()
+				defer mu.Unlock()
+				calls = append(calls, name)
+			}
+			done := make(chan string, 1)
+			finish := func(outcome string) {
+				select {
+				case done <- outcome:
+				default:
+				}
+			}
+
+			copier.EXPECT().LoadLocalShard(mock.Anything, collection, shardName).
+				RunAndReturn(func(context.Context, string, string) error { record("load"); return nil }).Maybe()
+			copier.EXPECT().UnloadLocalShard(mock.Anything, collection, shardName).
+				RunAndReturn(func(context.Context, string, string) error { record("unload"); return nil }).Maybe()
+			copier.EXPECT().PromoteRecoveryFolder(collection, shardName).
+				RunAndReturn(func(string, string) error { record("promote-folder"); return nil }).Maybe()
+			copier.EXPECT().PromoteRecoveredShard(mock.Anything, collection, shardName).
+				RunAndReturn(func(context.Context, string, string) error { record("promote"); return nil }).Maybe()
+			fsm.EXPECT().ReplicationLocalOpCancelState(opID).
+				Return(types.OpCancelState{State: tc.state, UnCancellable: true}, nil).Maybe()
+			copier.EXPECT().SnapshotChangeLogLSN(mock.Anything, "node1", collection, shardName, fmt.Sprint(opID)).
+				RunAndReturn(func(context.Context, string, string, string, string) (uint64, error) {
+					record("snapshot")
+					return 3, tc.snapErr
+				}).Maybe()
+			copier.EXPECT().TailAndApply(mock.Anything, "node1", collection, shardName, fmt.Sprint(opID), mock.Anything).
+				RunAndReturn(func(context.Context, string, string, string, string, uint64) (uint64, error) {
+					record("tail")
+					return 3, tc.tailErr
+				}).Maybe()
+			copier.EXPECT().FinalizeChangeLog(mock.Anything, "node1", collection, shardName, fmt.Sprint(opID)).
+				RunAndReturn(func(context.Context, string, string, string, string) (uint64, error) {
+					record("finalize")
+					return 3, tc.finalizeErr
+				}).Maybe()
+			copier.EXPECT().StopChangeCapture(mock.Anything, "node1", collection, shardName, fmt.Sprint(opID)).
+				RunAndReturn(func(context.Context, string, string, string, string) error { record("stop"); return nil }).Maybe()
+			copier.EXPECT().StartChangeCapture(mock.Anything, "node1", collection, shardName, fmt.Sprint(opID), mock.Anything).
+				RunAndReturn(func(context.Context, string, string, string, string, uint64) error {
+					record("start")
+					return stderrors.New("start failed")
+				}).Maybe()
+
+			fsm.EXPECT().ReplicationGetReplicaOpStatus(mock.Anything, opID).Return(tc.state, nil).Maybe()
+			fsm.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
+			fsm.EXPECT().ReplicationAllPeersAtLeast(opID, mock.Anything).Return(true, nil).Maybe()
+			fsm.EXPECT().ReplicationUpdateReplicaOpStatus(mock.Anything, opID, mock.Anything).
+				RunAndReturn(func(_ context.Context, _ uint64, state api.ShardReplicationState) error {
+					mu.Lock()
+					states = append(states, state)
+					mu.Unlock()
+					if state == api.READY || state == api.DEHYDRATING || state == api.HYDRATING {
+						finish("")
+					}
+					if state == api.DEHYDRATING {
+						return stderrors.New("stop before dehydrating")
+					}
+					return nil
+				}).Maybe()
+			var registered atomic.Int32
+			fsm.EXPECT().ReplicationRegisterError(mock.Anything, opID, mock.Anything).
+				RunAndReturn(func(_ context.Context, _ uint64, msg string) error {
+					registered.Add(1)
+					finish(msg)
+					return nil
+				}).Maybe()
+			fsm.EXPECT().DeleteReplicaFromShard(mock.Anything, collection, shardName, "node1").
+				Return(0, stderrors.New("dehydration out of scope")).Maybe()
+
+			var lostCount atomic.Int32
+			callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
+				WithChangeCaptureLostCallback(func(node string) {
+					require.Equal(t, "node2", node)
+					lostCount.Add(1)
+				}).Build()
+
+			replicas := []string{"node1"}
+			if tc.replicaAdded {
+				replicas = append(replicas, "node2")
+			}
+			consumer := replication.NewCopyOpConsumer(logger, fsm, copier, "node2", &backoff.StopBackOff{},
+				replication.NewOpsCache(), 10*time.Second, 1, callbacks,
+				newShardSchemaReader(collection, shardName, replicas...))
+
+			_, stop := startConsumer(t, consumer, replication.NewShardReplicationOpAndStatus(
+				replication.NewShardReplicationOp(opID, "node1", "node2", collection, shardName, tc.transfer),
+				replication.NewShardReplicationStatus(tc.state)))
+			outcome := awaitSignal(t, done, "op never settled")
+			stop()
+
+			require.Empty(t, outcome)
+			require.Zero(t, registered.Load())
+			mu.Lock()
+			defer mu.Unlock()
+			require.ElementsMatch(t, tc.wantCalls, calls)
+			require.Equal(t, tc.wantStates, states)
+			wantLost := int32(0)
+			if tc.wantStates[0] == api.HYDRATING {
+				wantLost = 1
+			}
+			require.Equal(t, wantLost, lostCount.Load())
+			fsm.AssertNotCalled(t, "ReplicationAddReplicaToShard", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		})
+	}
 }

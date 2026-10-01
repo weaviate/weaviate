@@ -102,6 +102,11 @@ func (m *Manager) broadcastNodeReachedState(opID uint64, state cmd.ShardReplicat
 	if m.submitNodeReached == nil || m.localNodeID == "" {
 		return
 	}
+	// Read in the triggering apply, before a later rewind can bump it.
+	var round uint64
+	if op, ok := m.replicationFSM.GetOpById(opID); ok {
+		round = op.Status.Rewinds + 1
+	}
 
 	enterrors.GoWrapper(func() {
 		if state == cmd.INTEGRATING || state == cmd.DEHYDRATING {
@@ -121,6 +126,7 @@ func (m *Manager) broadcastNodeReachedState(opID uint64, state cmd.ShardReplicat
 			Id:      opID,
 			NodeId:  m.localNodeID,
 			State:   state,
+			Round:   round,
 		}
 		bo := backoff.NewExponentialBackOff()
 		bo.MaxElapsedTime = 30 * time.Second

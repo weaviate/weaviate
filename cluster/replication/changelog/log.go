@@ -150,9 +150,21 @@ func (l *ChangeLog) Finalize() (uint64, error) {
 
 // Deactivate closes the log's file handle, removes the file from disk, and
 // wakes any blocked tailers (which will return ErrLogDeactivated). Safe to
-// call multiple times. Tailers that already hold their own *os.File handle
-// may continue to read on POSIX systems until they call Close themselves.
+// call multiple times; only the first removes the file, which by then may
+// belong to a successor log opened at the same path. Tailers that already
+// hold their own *os.File handle may continue to read on POSIX systems until
+// they call Close themselves.
 func (l *ChangeLog) Deactivate() error {
+	return l.deactivate(true)
+}
+
+// DeactivateKeepingFile is Deactivate without removing the file, so a shard load still marks the log lost.
+func (l *ChangeLog) DeactivateKeepingFile() error {
+	return l.deactivate(false)
+}
+
+func (l *ChangeLog) deactivate(removeFile bool) error {
+	first := false
 	if err := func() error {
 		l.mu.Lock()
 		defer l.mu.Unlock()
@@ -161,6 +173,7 @@ func (l *ChangeLog) Deactivate() error {
 			return nil
 		}
 		l.deactivated = true
+		first = true
 		l.wakeTailersLocked()
 
 		// Best-effort flush+close; errors are logged but don't prevent cleanup.
@@ -173,6 +186,9 @@ func (l *ChangeLog) Deactivate() error {
 		return nil
 	}(); err != nil {
 		return err
+	}
+	if !first || !removeFile {
+		return nil
 	}
 	if err := os.Remove(l.path); err != nil && !os.IsNotExist(err) {
 		l.logger.Errorf("changelog: remove during deactivate: %v", err)

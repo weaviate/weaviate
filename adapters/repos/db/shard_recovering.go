@@ -13,8 +13,15 @@ package db
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/diskio"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
@@ -85,4 +92,75 @@ func (r *RecoveringShard) GetStatusReason() string {
 		return inner.GetStatusReason()
 	}
 	return storagestate.StatusRecovering.String()
+}
+
+// DemoteRecoveredLocalShard undoes a SELF_RECOVERY promote before a rewound
+// re-copy: it shuts the promoted shard down, renames "<shard>/" back to
+// "<shard>.recovering/" and re-installs the load block. The rename keeps the
+// files for an incremental re-copy and leaves no torn live dir on a crash.
+// No-op without a live dir; a shard absent from the map (cold tenant) stays absent.
+func (i *Index) DemoteRecoveredLocalShard(ctx context.Context, shardName string) error {
+	if err := i.enterRead(); err != nil {
+		return err
+	}
+	defer i.exitRead()
+
+	i.shardCreateLocks.Lock(shardName)
+	defer i.shardCreateLocks.Unlock(shardName)
+
+	livePath := shardPath(i.path(), shardName)
+	if _, err := os.Stat(livePath); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("demote local shard %q: stat live dir: %w", shardName, err)
+	}
+
+	reinstall, err := i.shutDownPromotedShard(ctx, shardName)
+	if err != nil {
+		return fmt.Errorf("demote local shard %q: %w", shardName, err)
+	}
+
+	recoveryPath := livePath + api.RecoveryFolderSuffix
+	if err := os.RemoveAll(recoveryPath); err != nil {
+		return fmt.Errorf("demote local shard %q: remove stale %q: %w", shardName, recoveryPath, err)
+	}
+	if err := os.Rename(livePath, recoveryPath); err != nil {
+		return fmt.Errorf("demote local shard %q: rename %q -> %q: %w", shardName, livePath, recoveryPath, err)
+	}
+	if err := diskio.Fsync(filepath.Dir(livePath)); err != nil {
+		return fmt.Errorf("demote local shard %q: fsync parent: %w", shardName, err)
+	}
+
+	if reinstall {
+		var promMetrics *monitoring.PrometheusMetrics
+		if i.metrics != nil {
+			promMetrics = i.metrics.baseMetrics
+		}
+		i.installRecoveringShard(ctx, i.getSchema.ReadOnlyClass(i.Config.ClassName.String()), shardName, promMetrics)
+	}
+	return nil
+}
+
+// shutDownPromotedShard shuts a promoted shard down and takes it out of the
+// map, reporting whether a load block must replace it. A still-blocked
+// RecoveringShard holds nothing open and stays. Caller holds shardCreateLocks.
+func (i *Index) shutDownPromotedShard(ctx context.Context, shardName string) (bool, error) {
+	existing := i.shards.Load(shardName)
+	if existing == nil {
+		return false, nil
+	}
+	if rec, ok := existing.(*RecoveringShard); ok && rec.IsRecovering() {
+		return false, nil
+	}
+	shard, ok := i.shards.LoadAndDelete(shardName)
+	if !ok {
+		return false, nil
+	}
+	shutdownCtx, done := i.cancelOnCloseRequested(ctx)
+	defer done()
+	if err := shutdownOrRestoreShard(shutdownCtx, i, shardName, shard); err != nil && !errors.Is(err, errAlreadyShutdown) {
+		return false, fmt.Errorf("shut down promoted shard: %w", err)
+	}
+	return true, nil
 }

@@ -28,6 +28,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
+	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -648,6 +649,67 @@ func TestProbeShardData_PropagatesHosted(t *testing.T) {
 			}
 			require.Equal(t, tc.wantData, resp.GetHasData())
 			require.Equal(t, tc.wantHosted, resp.GetHosted())
+		})
+	}
+}
+
+// A lost log must reach the consumer as a plain failure with its text intact: neither a deferrable refusal nor "gone".
+func TestChangeLogLostReachesConsumer(t *testing.T) {
+	const (
+		indexName = "MyClass"
+		shardName = "shard1"
+		opID      = "op-1"
+	)
+	ctx := context.Background()
+	lost := fmt.Errorf("incoming snapshot change-log LSN: op %q: %w", opID,
+		errors.New("shard: "+changelog.ErrMsgChangeLogLost+" for that op-id"))
+	tests := []struct {
+		name  string
+		index *fakeIndex
+		call  func(svc *FileReplicationService) error
+	}{
+		{
+			name:  "opening the change-log tailer",
+			index: &fakeIndex{getErr: lost},
+			call: func(svc *FileReplicationService) error {
+				return svc.GetChangeLog(&pb.GetChangeLogRequest{
+					IndexName: indexName, ShardName: shardName, OpId: opID,
+				}, &noopStreamServer[pb.ChangeLogStreamEntry]{ctx: ctx})
+			},
+		},
+		{
+			name:  "snapshotting the change-log LSN",
+			index: &fakeIndex{snapshotErr: lost},
+			call: func(svc *FileReplicationService) error {
+				_, err := svc.SnapshotChangeLogLSN(ctx, &pb.SnapshotChangeLogLSNRequest{
+					IndexName: indexName, ShardName: shardName, OpId: opID,
+				})
+				return err
+			},
+		},
+		{
+			name:  "finalizing the change log",
+			index: &fakeIndex{finalizeErr: lost},
+			call: func(svc *FileReplicationService) error {
+				_, err := svc.FinalizeChangeLog(ctx, &pb.FinalizeChangeLogRequest{
+					IndexName: indexName, ShardName: shardName, OpId: opID,
+				})
+				return err
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := newService(t, map[string]*fakeIndex{indexName: tc.index})
+
+			err := tc.call(svc)
+			require.Error(t, err)
+			require.Equal(t, codes.Internal, status.Code(err))
+			consumerErr := fmt.Errorf("rpc on node1: %w", err)
+			require.True(t, replication.IsChangeLogLost(consumerErr))
+			require.False(t, replication.IsReversibleRefusal(consumerErr))
+			require.NotContains(t, consumerErr.Error(), changelog.ErrMsgNoActiveLog)
+			require.NotContains(t, consumerErr.Error(), changelog.ErrMsgNoActiveChangeCaptureLog)
 		})
 	}
 }

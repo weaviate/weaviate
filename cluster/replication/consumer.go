@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -54,7 +55,7 @@ const pointOfNoReturnWaitTimeout = 30 * time.Second
 
 // finalizeAndTail seals the source CCL while an uncapped tailer drains it
 // onto target. Idempotent on retry: "log gone" from either RPC means
-// already-drained.
+// already-drained; "log lost" is returned, the source discarded it undrained.
 func (c *CopyOpConsumer) finalizeAndTail(ctx context.Context, logger *logrus.Entry, src, coll, shard, opID string) error {
 	tailCtx, cancelTail := context.WithCancel(ctx)
 	defer cancelTail()
@@ -62,14 +63,14 @@ func (c *CopyOpConsumer) finalizeAndTail(ctx context.Context, logger *logrus.Ent
 	tailErrCh := make(chan error, 1)
 	enterrors.GoWrapper(func() {
 		_, err := c.replicaCopier.TailAndApply(tailCtx, src, coll, shard, opID, math.MaxUint64)
-		if isCCLAlreadyGone(err) {
+		if !IsChangeLogLost(err) && isCCLAlreadyGone(err) {
 			err = nil
 		}
 		tailErrCh <- err
 	}, c.logger)
 
 	if _, err := c.replicaCopier.FinalizeChangeLog(ctx, src, coll, shard, opID); err != nil {
-		if !isCCLAlreadyGone(err) {
+		if IsChangeLogLost(err) || !isCCLAlreadyGone(err) {
 			cancelTail()
 			<-tailErrCh
 			logger.Errorf("failure while finalizing change log: %v", err)
@@ -87,6 +88,13 @@ func (c *CopyOpConsumer) finalizeAndTail(ctx context.Context, logger *logrus.Ent
 	return nil
 }
 
+// IsChangeLogLost matches the source's "log discarded undrained" signal (source
+// restart or append failure). Check it before isCCLAlreadyGone: a lost log is
+// never a sealed one.
+func IsChangeLogLost(err error) bool {
+	return err != nil && strings.Contains(err.Error(), changelog.ErrMsgChangeLogLost)
+}
+
 // isCCLAlreadyGone matches the source's post-StopChangeCapture "log gone"
 // signal — the already-drained marker on retry.
 func isCCLAlreadyGone(err error) bool {
@@ -100,6 +108,16 @@ func isCCLAlreadyGone(err error) bool {
 
 // errOpCancelled is an error indicating that the operation was cancelled.
 var errOpCancelled = errors.New("operation cancelled")
+
+// errRedispatch ends the pass without spending the error budget; the op is
+// re-dispatched from the local FSM's current state.
+var errRedispatch = errors.New("op re-dispatched from its current state")
+
+// demoteWaitTimeout bounds the wait for a demoted target to leave the local sharding state.
+const demoteWaitTimeout = 30 * time.Second
+
+// demotePollInterval paces the re-reads of the local sharding state while waiting on a demotion.
+const demotePollInterval = 100 * time.Millisecond
 
 // waitForAllNodesAtLeast blocks until every node has reported PerNodeState[peer] >= target
 func (c *CopyOpConsumer) waitForAllNodesAtLeast(
@@ -175,6 +193,10 @@ type CopyOpConsumer struct {
 	// engineOpCallbacks defines hooks invoked at various stages of a replication operation's lifecycle
 	// (e.g., pending, start, complete, failure) to support metrics or custom observability logic.
 	engineOpCallbacks *metrics.ReplicationEngineOpsCallbacks
+
+	// demoteWaitTimeout and demotePollInterval pace waitForReplicaRemoved.
+	demoteWaitTimeout  time.Duration
+	demotePollInterval time.Duration
 }
 
 // NewCopyOpConsumer creates a new CopyOpConsumer instance responsible for executing
@@ -206,6 +228,9 @@ func NewCopyOpConsumer(
 		engineOpCallbacks: engineOpCallbacks,
 		schemaReader:      schemaReader,
 		opsGateway:        NewOpsGateway(),
+
+		demoteWaitTimeout:  demoteWaitTimeout,
+		demotePollInterval: demotePollInterval,
 	}
 	return c
 }
@@ -366,6 +391,11 @@ func (c *CopyOpConsumer) Consume(workerCtx context.Context, in <-chan ShardRepli
 						c.cancelOp(operation, opLogger)
 						return
 					}
+					if errors.Is(err, errRedispatch) {
+						c.opsGateway.RegisterFinished(op.Op.ID)
+						opLogger.Infof("replication operation re-dispatched: %v", err)
+						return
+					}
 					if IsReversibleRefusal(err) {
 						opLogger.Infof("replication operation deferred: %v", err)
 						return
@@ -449,7 +479,7 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 				return api.ShardReplicationState(""), backoff.Permanent(err)
 			}
 			// A cancellation divert is not a failure: skip the error budget.
-			if errors.Is(err, errOpCancelled) {
+			if errors.Is(err, errOpCancelled) || errors.Is(err, errRedispatch) {
 				return api.ShardReplicationState(""), backoff.Permanent(err)
 			}
 			logger.Warnf("state transition handler failed: %v", err)
@@ -478,10 +508,15 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 		return nil
 	}
 
+	rewound := api.StateRank(nextState) < api.StateRank(op.Status.GetCurrentState())
 	op.Status.ChangeState(nextState)
 	if nextState == api.READY {
 		// No need to continue the recursion if we are in the READY state
 		return nil
+	}
+	// A rewind resumes from the local FSM so HYDRATING sees every add applied before it.
+	if rewound {
+		return errRedispatch
 	}
 
 	if err := c.checkCancelled(logger, op); err != nil {
@@ -506,6 +541,8 @@ func (c *CopyOpConsumer) cancelOp(op ShardReplicationOpAndStatus, logger *logrus
 	}()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second) // Bound the cancel cleanup (StopChangeCapture, ReleaseReplicaSnapshot, target-shard drop) in case one hangs
 	defer cancel()
+
+	c.reportGivenUp(op)
 
 	// Safe for ops that never reached HYDRATING: idempotent for unknown opIDs.
 	if err := c.replicaCopier.StopChangeCapture(ctx, op.Op.SourceShard.NodeId,
@@ -547,6 +584,20 @@ func (c *CopyOpConsumer) cancelOp(op ShardReplicationOpAndStatus, logger *logrus
 		}
 		return
 	}
+}
+
+// reportGivenUp surfaces a cancel that Manager.RegisterError triggered after MaxErrors failures.
+func (c *CopyOpConsumer) reportGivenUp(op ShardReplicationOpAndStatus) {
+	errs := op.Status.Current.Errors
+	if !op.Status.OnlyCancellation() || len(errs) < MaxErrors {
+		return
+	}
+	c.engineOpCallbacks.OnOpGivenUp(c.nodeId)
+	outcome := "replica was not created"
+	if op.Op.TransferType == api.SELF_RECOVERY {
+		outcome = "shard stays RECOVERING"
+	}
+	getLoggerForOpAndStatus(c.logger, op.Op, op.Status).Errorf("replication op gave up after %d errors; %s: %s", len(errs), outcome, errs[len(errs)-1].Message)
 }
 
 // dropCancelledOpTargetShard removes the op's target shard (files included)
@@ -608,9 +659,10 @@ func (c *CopyOpConsumer) processRegisteredOp(ctx context.Context, op ShardReplic
 	return api.HYDRATING, nil
 }
 
-// processHydratingOp is the state handler for the HYDRATING state. On error
-// after a successful StartChangeCapture it tears the source log down so the
-// retry starts from a clean file slate.
+// processHydratingOp is the state handler for the HYDRATING state. A COPY/MOVE
+// target is first demoted (see demoteTarget). On error after a successful
+// StartChangeCapture it tears the source log down so the retry starts from a
+// clean file slate.
 func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplicationOpAndStatus) (nextState api.ShardReplicationState, retErr error) {
 	logger := getLoggerForOpAndStatus(c.logger, op.Op, op.Status)
 	logger.Info("processing hydrating replication operation")
@@ -655,10 +707,29 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 		return api.ShardReplicationState(""), ctx.Err()
 	}
 
+	if op.Op.TransferType == api.COPY || op.Op.TransferType == api.MOVE {
+		if err := c.demoteTarget(ctx, logger, op); err != nil {
+			logger.Errorf("failure while demoting the target before hydrating: %v", err)
+			return api.ShardReplicationState(""), err
+		}
+	}
+	// A rewound SELF_RECOVERY re-stages under "<shard>.recovering/"; the node owns the shard, so never remove its replica.
+	if op.Op.TransferType == api.SELF_RECOVERY && op.Status.Rewinds > 0 {
+		if err := c.replicaCopier.DemoteRecoveredShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
+			logger.Errorf("failure while demoting the recovered shard before re-hydrating: %v", err)
+			return api.ShardReplicationState(""), err
+		}
+	}
+
 	opID := strconv.FormatUint(op.Op.ID, 10)
 	src := op.Op.SourceShard.NodeId
 	coll := op.Op.SourceShard.CollectionId
 	shard := op.Op.SourceShard.ShardId
+
+	// A resumed op (target restart, failed cleanup) may have left its log on an older donor.
+	if err := c.replicaCopier.StopChangeCapture(ctx, src, coll, shard, opID); err != nil {
+		logger.Warnf("StopChangeCapture before start failed (non-fatal): %v", err)
+	}
 
 	// Must precede CopyReplicaFiles: every write after this point lands in
 	// the log and is replayed during FINALIZING/DEHYDRATING.
@@ -671,8 +742,8 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 			return
 		}
 		// Bounded background ctx — the worker ctx is already cancelled by the
-		// time we get here. If Stop fails, the orphan-sweep in
-		// Shard.ActivateChangeLog cleans up before the next retry's Start.
+		// time we get here. If Stop fails, the next attempt's Stop and the
+		// donor's same-op replace in Shard.ActivateChangeLog clean it up.
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := c.replicaCopier.StopChangeCapture(cleanupCtx, src, coll, shard, opID); err != nil {
@@ -758,11 +829,17 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 
 	snap, err := c.replicaCopier.SnapshotChangeLogLSN(ctx, src, coll, shard, opID)
 	if err != nil {
+		if IsChangeLogLost(err) {
+			return c.changeCaptureLost(logger, err)
+		}
 		logger.Errorf("failure while snapshotting change log LSN: %v", err)
 		return api.ShardReplicationState(""), err
 	}
 
 	if _, err := c.replicaCopier.TailAndApply(ctx, src, coll, shard, opID, snap); err != nil {
+		if IsChangeLogLost(err) {
+			return c.changeCaptureLost(logger, err)
+		}
 		logger.Errorf("failure while draining change log up to snapshot LSN: %v", err)
 		return api.ShardReplicationState(""), err
 	}
@@ -785,6 +862,9 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 				// The FSM will refuse this add forever; divert to the cancel path.
 				logger.Infof("registration refused, op cancelled mid-flight: %v", err)
 				return api.ShardReplicationState(""), errOpCancelled
+			case strings.Contains(err.Error(), types.ErrAddReplicaOpNotFinalizing.Error()):
+				logger.Infof("registration refused, op is no longer FINALIZING: %v", err)
+				return api.ShardReplicationState(""), fmt.Errorf("%w: %w", errRedispatch, err)
 			default:
 				logger.Errorf("failure while adding replica to shard: %v", err)
 				return api.ShardReplicationState(""), err
@@ -824,6 +904,71 @@ func (c *CopyOpConsumer) awaitPointOfNoReturn(ctx context.Context, opID uint64) 
 	}
 }
 
+// changeCaptureLost rewinds an op whose source log was discarded undrained
+// (FINALIZING before or after the add, or INTEGRATING): the target may miss
+// writes the log held, so it is never sealed. HYDRATING demotes and re-copies it.
+func (c *CopyOpConsumer) changeCaptureLost(logger *logrus.Entry, lostErr error) (api.ShardReplicationState, error) {
+	c.engineOpCallbacks.OnChangeCaptureLost(c.nodeId)
+	logger.Warnf("source change-capture log lost, re-hydrating the target: %v", lostErr)
+	return api.HYDRATING, nil
+}
+
+// demoteTarget removes the op's target from the sharding state if a rewound
+// attempt left it there, then unloads any local instance so the re-copy never
+// lands under a loaded or routed shard. The local read is authoritative: a
+// rewound HYDRATING is dispatched from the local FSM after the rewind applied,
+// and the leader refuses adds outside FINALIZING.
+func (c *CopyOpConsumer) demoteTarget(ctx context.Context, logger *logrus.Entry, op ShardReplicationOpAndStatus) error {
+	coll := op.Op.TargetShard.CollectionId
+	shard := op.Op.TargetShard.ShardId
+	target := op.Op.TargetShard.NodeId
+
+	nodes, err := c.schemaReader.ShardReplicas(coll, shard)
+	if err != nil {
+		return fmt.Errorf("read shard replicas: %w", err)
+	}
+	if slices.Contains(nodes, target) {
+		logger.Warnf("target %s is still a replica of the re-hydrating shard, removing it", target)
+		version, err := c.leaderClient.DeleteReplicaFromShard(ctx, coll, shard, target)
+		if err != nil {
+			return fmt.Errorf("remove target replica: %w", err)
+		}
+		if err := c.waitForReplicaRemoved(ctx, version, coll, shard, target); err != nil {
+			return err
+		}
+	}
+	if err := c.replicaCopier.UnloadLocalShard(ctx, coll, shard); err != nil {
+		return fmt.Errorf("unload target shard: %w", err)
+	}
+	return nil
+}
+
+// waitForReplicaRemoved blocks until the local node applied the removal
+// (schema and store) and no longer lists node as a replica.
+func (c *CopyOpConsumer) waitForReplicaRemoved(ctx context.Context, version uint64, coll, shard, node string) error {
+	ctx, cancel := context.WithTimeout(ctx, c.demoteWaitTimeout)
+	defer cancel()
+	if err := c.leaderClient.WaitForUpdate(ctx, version); err != nil {
+		return fmt.Errorf("wait for replica removal to apply: %w", err)
+	}
+	ticker := time.NewTicker(c.demotePollInterval)
+	defer ticker.Stop()
+	for {
+		nodes, err := c.schemaReader.ShardReplicas(coll, shard)
+		if err != nil {
+			return fmt.Errorf("read shard replicas: %w", err)
+		}
+		if !slices.Contains(nodes, node) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("replica %s still listed after removal: %w", node, ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
 // processIntegratingOp is the shared seal+drain phase for COPY and MOVE.
 // It waits for INTEGRATING to converge across every node — making the target
 // a counted write replica everywhere — then does a capped drain and seals the
@@ -852,10 +997,17 @@ func (c *CopyOpConsumer) processIntegratingOp(ctx context.Context, op ShardRepli
 		return api.ShardReplicationState(""), err
 	}
 
+	if err := pauseBeforeSealForTest(ctx); err != nil {
+		return api.ShardReplicationState(""), err
+	}
+
 	// Capped drain shrinks the gap before the final seal. "Log gone" on retry
 	// means a prior attempt already sealed.
 	snap, err := c.replicaCopier.SnapshotChangeLogLSN(ctx, src, coll, shard, opID)
 	if err != nil {
+		if IsChangeLogLost(err) {
+			return c.changeCaptureLost(logger, err)
+		}
 		if isCCLAlreadyGone(err) {
 			logger.Info("change log already sealed, integration already complete")
 			return nextStateAfterIntegrating(op.Op.TransferType), nil
@@ -865,6 +1017,9 @@ func (c *CopyOpConsumer) processIntegratingOp(ctx context.Context, op ShardRepli
 	}
 
 	if _, err := c.replicaCopier.TailAndApply(ctx, src, coll, shard, opID, snap); err != nil {
+		if IsChangeLogLost(err) {
+			return c.changeCaptureLost(logger, err)
+		}
 		if !isCCLAlreadyGone(err) {
 			logger.Errorf("failure while draining change log up to snapshot LSN: %v", err)
 			return api.ShardReplicationState(""), err
@@ -877,10 +1032,34 @@ func (c *CopyOpConsumer) processIntegratingOp(ctx context.Context, op ShardRepli
 	}
 
 	if err := c.finalizeAndTail(ctx, logger, src, coll, shard, opID); err != nil {
+		if IsChangeLogLost(err) {
+			return c.changeCaptureLost(logger, err)
+		}
 		return api.ShardReplicationState(""), err
 	}
 
 	return nextStateAfterIntegrating(op.Op.TransferType), nil
+}
+
+// pauseBeforeSealForTest holds INTEGRATING for WEAVIATE_TEST_REPLICA_PAUSE_BEFORE_SEAL
+// so acceptance tests can crash the source between the add and the seal.
+func pauseBeforeSealForTest(ctx context.Context) error {
+	v := os.Getenv("WEAVIATE_TEST_REPLICA_PAUSE_BEFORE_SEAL")
+	if v == "" {
+		return nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return fmt.Errorf("invalid WEAVIATE_TEST_REPLICA_PAUSE_BEFORE_SEAL: %w", err)
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }
 
 func nextStateAfterIntegrating(tt api.ShardReplicationTransferType) api.ShardReplicationState {

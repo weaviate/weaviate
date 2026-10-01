@@ -1054,7 +1054,16 @@ func (i *Index) ensureShardDir(shardName string) error {
 	if name != shardName || name == "." || name == ".." {
 		return fmt.Errorf("invalid shard name %q", shardName)
 	}
-	return os.MkdirAll(filepath.Join(i.path(), name), os.ModePerm)
+	dir := filepath.Join(i.path(), name)
+	if _, err := os.Stat(dir); err == nil {
+		return nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("stat shard dir %q: %w", dir, err)
+	}
+	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+		return err
+	}
+	return i.markSourcedChangeLogsLost(dir, name, true)
 }
 
 // used to init/create shard in different moments of index's lifecycle, therefore it needs to be called
@@ -3747,7 +3756,7 @@ func (i *Index) seedEmptyFallbackCount(shard ShardLike, shardName string) {
 		i.logger.WithField("shard", shardName).Warnf("failed to list promoted shard folder, applying the warmup rules unseeded: %v", err)
 		return
 	}
-	if len(entries) == 0 {
+	if shardDirHoldsNoData(entries) {
 		lazyShard.markUnloadedEmpty()
 	}
 }
@@ -3766,9 +3775,30 @@ func (i *Index) PromoteRecoveringLocalShard(ctx context.Context, shardName strin
 
 	shard := i.shards.Load(shardName)
 	if shard == nil {
+		// Callers keep the dir for the next activation, which loads it as an intact one.
+		if err := i.markRecoveredChangeLogsLost(shardName); err != nil {
+			return fmt.Errorf("promote local shard %q: %w", shardName, err)
+		}
 		return fmt.Errorf("promote local shard %q: %w", shardName, enterrors.ErrShardNotRegistered)
 	}
+	if rec, ok := shard.(*RecoveringShard); ok && rec.IsRecovering() {
+		if err := i.markRecoveredChangeLogsLost(shardName); err != nil {
+			return fmt.Errorf("promote local shard %q: %w", shardName, err)
+		}
+	}
 	return i.loadOrPromoteShard(ctx, shard, shardName, false)
+}
+
+// markRecoveredChangeLogsLost: a recovered or empty-fallback live dir never carries the old change logs.
+func (i *Index) markRecoveredChangeLogsLost(shardName string) error {
+	dir := shardPath(i.path(), shardName)
+	if _, err := os.Stat(dir); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("stat live dir %q: %w", dir, err)
+	}
+	return i.markSourcedChangeLogsLost(dir, shardName, true)
 }
 
 // UnloadLocalShard closes a shard and takes it out of the shard map. A shard
@@ -5073,7 +5103,7 @@ func (i *Index) tenantDirExists(tenantName string) (bool, error) {
 		}
 		return false, nil
 	}
-	return len(entries) > 0, nil
+	return !shardDirHoldsNoData(entries), nil
 }
 
 func (i *Index) buildReadRoutingPlan(cl routerTypes.ConsistencyLevel, tenantName string) (routerTypes.ReadRoutingPlan, error) {

@@ -97,6 +97,9 @@ type ShardReplicationOpStatus struct {
 	// local convergence wait. nil on pre-upgrade snapshots.
 	PerNodeState map[string]api.ShardReplicationState
 
+	// Rewinds counts transitions back to an earlier state; reports from an older round are dropped.
+	Rewinds uint64 `json:",omitempty"`
+
 	// Current is the current state of the shard replication operation
 	Current State
 

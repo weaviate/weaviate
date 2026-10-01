@@ -17,18 +17,13 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
-	"github.com/weaviate/weaviate/usecases/fakes"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type cancelAction string
@@ -50,17 +45,7 @@ const (
 )
 
 func newShardSchemaReader(collection, shardName string, nodes ...string) schema.SchemaReader {
-	parser := fakes.NewMockParser()
-	parser.On("ParseClass", mock.Anything).Return(nil)
-	schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
-	schemaManager.AddClass(
-		buildApplyRequest(collection, api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
-			Class: &models.Class{Class: collection, MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
-			State: &sharding.State{
-				Physical: map[string]sharding.Physical{shardName: {BelongsToNodes: nodes}},
-			},
-		}), "node1", true, false)
-	return schemaManager.NewSchemaReader()
+	return newShardSchemaManager(collection, shardName, nodes...).NewSchemaReader()
 }
 
 func applyCancelAction(t *testing.T, m *replication.Manager, uuid strfmt.UUID, opID uint64, action cancelAction) error {
@@ -125,8 +110,10 @@ func TestSelfRecoveryUncancellableAfterFinalizing(t *testing.T) {
 		wantRouted   bool
 	}
 	pastFinalizing := map[string][]api.ShardReplicationState{
-		"FINALIZING":  {api.HYDRATING, api.FINALIZING},
-		"INTEGRATING": {api.HYDRATING, api.FINALIZING, api.INTEGRATING},
+		"FINALIZING":           {api.HYDRATING, api.FINALIZING},
+		"INTEGRATING":          {api.HYDRATING, api.FINALIZING, api.INTEGRATING},
+		"rewound to HYDRATING": {api.HYDRATING, api.FINALIZING, api.INTEGRATING, api.HYDRATING},
+		"re-FINALIZING":        {api.HYDRATING, api.FINALIZING, api.HYDRATING, api.FINALIZING},
 	}
 	refusal := map[cancelAction]error{
 		actionCancel:      types.ErrCancellationImpossible,

@@ -475,19 +475,78 @@ func TestLazyRegistrationCreatesShardDir(t *testing.T) {
 	require.Zero(t, orch.submitCalls)
 }
 
-func TestListInactiveShardFilesTreatsEmptyFolderAsNoLocalData(t *testing.T) {
-	idx := newTestIndexForRecovery(t, &fakeSelfRecoveryOrch{})
-	idx.getSchema = &fakeSchemaGetter{}
-	shardDir := shardPath(idx.path(), "S")
-	require.NoError(t, os.MkdirAll(shardDir, os.ModePerm))
+func writeLostMarkerOnly(t *testing.T, shardDir string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(changelogDirOf(shardDir), os.ModePerm))
+	require.NoError(t, os.WriteFile(lostMarkerPath(shardDir, 7), nil, 0o600))
+}
 
-	_, err := idx.listInactiveShardFiles("S", &backup.ShardDescriptor{})
-	require.ErrorIs(t, err, errShardNoLocalData)
+func TestListInactiveShardFilesTreatsNoDataFolderAsNoLocalData(t *testing.T) {
+	cases := []struct {
+		name       string
+		prepare    func(t *testing.T, shardDir string)
+		wantNoData bool
+	}{
+		{name: "empty folder", prepare: func(*testing.T, string) {}, wantNoData: true},
+		{name: "folder holding only changelog/<op>.lost", prepare: writeLostMarkerOnly, wantNoData: true},
+		{name: "initialized folder", prepare: func(t *testing.T, shardDir string) {
+			require.NoError(t, os.WriteFile(filepath.Join(shardDir, "indexcount"), nil, 0o644))
+		}},
+		{name: "markers beside initialized data", prepare: func(t *testing.T, shardDir string) {
+			writeLostMarkerOnly(t, shardDir)
+			require.NoError(t, os.WriteFile(filepath.Join(shardDir, "indexcount"), nil, 0o644))
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			idx := newTestIndexForRecovery(t, &fakeSelfRecoveryOrch{})
+			idx.getSchema = &fakeSchemaGetter{}
+			shardDir := shardPath(idx.path(), "S")
+			require.NoError(t, os.MkdirAll(shardDir, os.ModePerm))
+			tc.prepare(t, shardDir)
 
-	require.NoError(t, os.WriteFile(filepath.Join(shardDir, "indexcount"), nil, 0o644))
-	_, err = idx.listInactiveShardFiles("S", &backup.ShardDescriptor{})
-	require.Error(t, err)
-	require.NotErrorIs(t, err, errShardNoLocalData)
+			_, err := idx.listInactiveShardFiles("S", &backup.ShardDescriptor{})
+
+			if tc.wantNoData {
+				require.ErrorIs(t, err, errShardNoLocalData)
+				return
+			}
+			require.Error(t, err)
+			require.NotErrorIs(t, err, errShardNoLocalData)
+		})
+	}
+}
+
+func TestTenantDirExists(t *testing.T) {
+	cases := []struct {
+		name    string
+		prepare func(t *testing.T, shardDir string)
+		want    bool
+	}{
+		{name: "missing folder", prepare: func(t *testing.T, shardDir string) { require.NoError(t, os.RemoveAll(shardDir)) }},
+		{name: "empty folder", prepare: func(*testing.T, string) {}},
+		{name: "folder holding only changelog/<op>.lost", prepare: writeLostMarkerOnly},
+		{name: "initialized folder", prepare: func(t *testing.T, shardDir string) {
+			require.NoError(t, os.WriteFile(filepath.Join(shardDir, "version"), nil, 0o644))
+		}, want: true},
+		{name: "markers beside initialized data", prepare: func(t *testing.T, shardDir string) {
+			writeLostMarkerOnly(t, shardDir)
+			require.NoError(t, os.WriteFile(filepath.Join(shardDir, "version"), nil, 0o644))
+		}, want: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			idx := newTestIndexForRecovery(t, &fakeSelfRecoveryOrch{})
+			shardDir := shardPath(idx.path(), "S")
+			require.NoError(t, os.MkdirAll(shardDir, os.ModePerm))
+			tc.prepare(t, shardDir)
+
+			got, err := idx.tenantDirExists("S")
+
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
 }
 
 func TestUsageForShardTreatsEmptyFolderAsZero(t *testing.T) {

@@ -21,6 +21,8 @@ var (
 	// accepted first; see ShardReplicationFSM.SetUnCancellable.
 	ErrOpCancellationInFlight       = errors.New("op cancellation in flight")
 	ErrReplicationOperationNotFound = errors.New("replication operation not found")
+	// ErrAddReplicaOpNotFinalizing: the leader refused an add for an op no longer in FINALIZING; matched by message across RPC.
+	ErrAddReplicaOpNotFinalizing = errors.New("add replica refused: op not in FINALIZING")
 	// ErrNotFound is a custom error that is used to indicate that a resource was not found.
 	// We use it to return a specific error code from the RPC layer to ensure we don't retry an operation
 	// returning an error indicating that the resource was not found.

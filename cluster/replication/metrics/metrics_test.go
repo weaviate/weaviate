@@ -200,6 +200,33 @@ func TestOpCallbacks(t *testing.T) {
 		// THEN
 		require.True(t, cancelledCalled, "expected cancelled callback to be called")
 	})
+
+	t.Run("error budget and change capture callbacks", func(t *testing.T) {
+		tests := []struct {
+			name string
+			with func(*metrics.ReplicationEngineOpsCallbacksBuilder, func(string)) *metrics.ReplicationEngineOpsCallbacksBuilder
+			on   func(*metrics.ReplicationEngineOpsCallbacks, string)
+		}{
+			{
+				name: "given up",
+				with: (*metrics.ReplicationEngineOpsCallbacksBuilder).WithOpGivenUpCallback,
+				on:   (*metrics.ReplicationEngineOpsCallbacks).OnOpGivenUp,
+			},
+			{
+				name: "change capture lost",
+				with: (*metrics.ReplicationEngineOpsCallbacksBuilder).WithChangeCaptureLostCallback,
+				on:   (*metrics.ReplicationEngineOpsCallbacks).OnChangeCaptureLost,
+			},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				tc.on(&metrics.ReplicationEngineOpsCallbacks{}, "node1")
+				var got string
+				tc.on(tc.with(metrics.NewReplicationEngineOpsCallbacksBuilder(), func(n string) { got = n }).Build(), "node1")
+				require.Equal(t, "node1", got)
+			})
+		}
+	})
 }
 
 func TestMetricsCollection(t *testing.T) {
@@ -460,4 +487,76 @@ func collectMetrics(metricFamilies []*io_prometheus_client.MetricFamily, node st
 		}
 	}
 	return values
+}
+
+func TestErrorBudgetAndChangeCaptureMetrics(t *testing.T) {
+	const (
+		givenUp   = "weaviate_replication_operations_error_budget_exhausted_total"
+		cancelled = "weaviate_replication_cancelled_operations"
+		cclLost   = "weaviate_replication_change_capture_lost_total"
+	)
+	zero := map[string]float64{"node-1": 0, "node-2": 0}
+	tests := []struct {
+		name   string
+		record func(cb *metrics.ReplicationEngineOpsCallbacks, node string)
+		counts map[string]int
+		want   map[string]map[string]float64
+	}{
+		{
+			name: "pre-registered at zero",
+			want: map[string]map[string]float64{givenUp: zero, cancelled: zero, cclLost: zero},
+		},
+		{
+			name: "given up",
+			record: func(cb *metrics.ReplicationEngineOpsCallbacks, node string) {
+				cb.OnOpPending(node)
+				cb.OnOpStart(node)
+				cb.OnOpGivenUp(node)
+				cb.OnOpCancelled(node)
+			},
+			counts: map[string]int{"node-1": 2},
+			want: map[string]map[string]float64{
+				givenUp:   {"node-1": 2, "node-2": 0},
+				cancelled: {"node-1": 2, "node-2": 0},
+				cclLost:   zero,
+			},
+		},
+		{
+			name:   "change capture lost",
+			record: (*metrics.ReplicationEngineOpsCallbacks).OnChangeCaptureLost,
+			counts: map[string]int{"node-2": 3},
+			want: map[string]map[string]float64{
+				givenUp:   zero,
+				cancelled: zero,
+				cclLost:   {"node-1": 0, "node-2": 3},
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			reg := prometheus.NewPedanticRegistry()
+			callbacks := metrics.NewReplicationEngineOpsCallbacks(reg)
+			callbacks.OnPrepareProcessing("node-1")
+			callbacks.OnPrepareProcessing("node-2")
+			for node, n := range tc.counts {
+				for range n {
+					tc.record(callbacks, node)
+				}
+			}
+
+			families, err := reg.Gather()
+			require.NoError(t, err)
+			got := map[string]map[string]float64{}
+			for _, mf := range families {
+				if _, ok := tc.want[mf.GetName()]; !ok {
+					continue
+				}
+				got[mf.GetName()] = map[string]float64{}
+				for _, m := range mf.GetMetric() {
+					got[mf.GetName()][m.GetLabel()[0].GetValue()] = m.GetCounter().GetValue()
+				}
+			}
+			require.Equal(t, tc.want, got)
+		})
+	}
 }

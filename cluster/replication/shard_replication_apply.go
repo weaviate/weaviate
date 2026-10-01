@@ -14,6 +14,7 @@ package replication
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -152,6 +153,13 @@ func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdate
 	}
 
 	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Dec()
+	if rank := api.StateRank(c.State); rank < api.StateRank(status.GetCurrentState()) {
+		// A rewind voids every peer's later report, or the next convergence wait passes on stale ones.
+		status.Rewinds++
+		maps.DeleteFunc(status.PerNodeState, func(_ string, st api.ShardReplicationState) bool {
+			return api.StateRank(st) > rank
+		})
+	}
 	status.ChangeState(c.State)
 	// FINALIZING promotes a SELF_RECOVERY copy over the live dir; a cancel past it would route an undrained replica.
 	if op.TransferType == api.SELF_RECOVERY && c.State == api.FINALIZING && !status.ShouldCancel {
@@ -173,6 +181,9 @@ func (s *ShardReplicationFSM) NodeReachedState(c *api.ReplicationNodeReachedStat
 		// Stale broadcast for an op that's been pruned — silent no-op.
 		return nil
 	}
+	if !reportInCurrentRound(status, c) {
+		return nil
+	}
 	if status.PerNodeState == nil {
 		status.PerNodeState = make(map[string]api.ShardReplicationState)
 	}
@@ -182,6 +193,15 @@ func (s *ShardReplicationFSM) NodeReachedState(c *api.ReplicationNodeReachedStat
 	}
 
 	return nil
+}
+
+// reportInCurrentRound drops a report sent before the op's latest rewind. An
+// older sender's round-0 report is kept only if it does not run ahead of the op.
+func reportInCurrentRound(status ShardReplicationOpStatus, c *api.ReplicationNodeReachedStateRequest) bool {
+	if c.Round != 0 {
+		return c.Round == status.Rewinds+1
+	}
+	return status.Rewinds == 0 || api.StateRank(c.State) <= api.StateRank(status.GetCurrentState())
 }
 
 func (s *ShardReplicationFSM) StoreSchemaVersion(c *api.ReplicationStoreSchemaVersionRequest) error {

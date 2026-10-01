@@ -90,6 +90,8 @@ type ReplicationNodeReachedStateRequest struct {
 	Id      uint64
 	NodeId  string
 	State   ShardReplicationState
+	// Round is 1 + the op's rewinds when State was reached; 0 from older senders.
+	Round uint64 `json:",omitempty"`
 }
 
 // StateRank orders states along the happy-path lifecycle so monotonic and

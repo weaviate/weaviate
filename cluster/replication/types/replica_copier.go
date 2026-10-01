@@ -33,11 +33,17 @@ type ReplicaCopier interface {
 	// PromoteRecoveredShard see cluster/replication/copier.Copier.PromoteRecoveredShard
 	PromoteRecoveredShard(ctx context.Context, collectionName, shardName string) error
 
+	// DemoteRecoveredShard see cluster/replication/copier.Copier.DemoteRecoveredShard
+	DemoteRecoveredShard(ctx context.Context, collectionName, shardName string) error
+
 	// LoadLocalShard see cluster/replication/copier.Copier.LoadLocalShard
 	LoadLocalShard(ctx context.Context, collectionName, shardName string) error
 
 	// DropLocalShard see cluster/replication/copier.Copier.DropLocalShard
 	DropLocalShard(ctx context.Context, collectionName, shardName string) error
+
+	// UnloadLocalShard see cluster/replication/copier.Copier.UnloadLocalShard
+	UnloadLocalShard(ctx context.Context, collectionName, shardName string) error
 
 	// InitAsyncReplicationLocally see cluster/replication/copier.Copier.InitAsyncReplicationLocally
 	InitAsyncReplicationLocally(ctx context.Context, collectionName, shardName string) error
