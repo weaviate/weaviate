@@ -23,7 +23,10 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -253,4 +256,56 @@ func TestShardKnownShut(t *testing.T) {
 	require.True(t, restoreShardIfStillAlive(&m, "torn", torn),
 		"a torn shard is retained as the last reference to its leaked handles")
 	require.NotNil(t, m.Load("torn"))
+}
+
+// TestShardLoadDropsNodeIDBeyondDocIDCounter pins that the shard hands its
+// document-ID counter to the vector index and to each geo property index, so a
+// commit log naming a node far beyond the counter is truncated on load instead
+// of sizing the node index to it (weaviate/0-weaviate-issues#649).
+func TestShardLoadDropsNodeIDBeyondDocIDCounter(t *testing.T) {
+	ctx := context.Background()
+	className := "NodeIDLimit"
+	class := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{Name: "location", DataType: schema.DataTypeGeoCoordinates.PropString()},
+		},
+	}
+	shard, index := testShardWithSettings(t, ctx, class, enthnsw.NewDefaultUserConfig(), false, false, false)
+	s, ok := shard.(*Shard)
+	require.True(t, ok)
+
+	const objects = 3
+	for i := range objects {
+		obj := testObject(className)
+		obj.Vector = []float32{float32(i), 1, 2}
+		obj.Object.Properties = map[string]interface{}{"location": geoCoordinates(float32(i), 1)}
+		require.NoError(t, s.PutObject(ctx, obj))
+	}
+	shardPath := s.path()
+	require.NoError(t, s.Shutdown(ctx))
+
+	garbage := uint64(objects + 1<<24 + 1000)
+	logs := []string{
+		path.Join(shardPath, s.vectorIndexID("")+".hnsw.commitlog.d", "9999999999"),
+		path.Join(shardPath, geoPropID("location")+".hnsw.commitlog.d", "9999999999"),
+	}
+	for _, p := range logs {
+		f, err := os.Create(p)
+		require.NoError(t, err)
+		require.NoError(t, compact.NewWALWriter(f).WriteAddNode(garbage, 0))
+		require.NoError(t, f.Close())
+	}
+
+	s, err := NewShard(ctx, nil, s.Name(), index, class,
+		index.centralJobQueue, index.scheduler, index.indexCheckpoints,
+		index.shardReindexer, false, index.bitmapBufPool, monitoring.ShardRegistrationEager)
+	require.NoError(t, err)
+	defer s.Shutdown(ctx)
+
+	for _, p := range logs {
+		st, err := os.Stat(p)
+		require.NoError(t, err)
+		require.Zero(t, st.Size(), "%s must be truncated before the out-of-limit record", p)
+	}
 }

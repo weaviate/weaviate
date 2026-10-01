@@ -79,6 +79,10 @@ type Config struct {
 	HNSWEF int
 
 	AllocChecker memwatch.AllocChecker
+
+	// DocIDCounter returns the shard's next document ID, which bounds the node
+	// IDs the index loads. See hnsw.Config.DocIDCounter.
+	DocIDCounter func() uint64
 }
 
 func (c Config) hnswEF() int {

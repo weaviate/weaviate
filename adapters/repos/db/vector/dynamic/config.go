@@ -48,6 +48,10 @@ type Config struct {
 	AllocChecker                 memwatch.AllocChecker
 	MakeBucketOptions            lsmkv.MakeBucketOptions
 	AsyncIndexingEnabled         bool
+
+	// DocIDCounter returns the shard's next document ID, which bounds the node
+	// IDs the HNSW index loads. See hnsw.Config.DocIDCounter.
+	DocIDCounter func() uint64
 }
 
 func (c Config) Validate() error {

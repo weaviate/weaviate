@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
@@ -1605,4 +1606,84 @@ func TestDynamicStaleCommitLogCleanedOnInit(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDynamicUpgradedIndexDropsNodeIDBeyondDocIDCounter pins that the HNSW index
+// a dynamic index loads after an upgrade gets the shard's document-ID counter,
+// so a node ID far beyond it is truncated instead of sizing the node index
+// (weaviate/0-weaviate-issues#649).
+func TestDynamicUpgradedIndexDropsNodeIDBeyondDocIDCounter(t *testing.T) {
+	ctx := context.Background()
+	const (
+		dimensions = 8
+		threshold  = 20
+		count      = 50
+	)
+
+	tempDir := t.TempDir()
+	db, err := bbolt.Open(filepath.Join(tempDir, "index.db"), 0o666, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+
+	vectors, _ := testinghelpers.RandomVecs(count, 0, dimensions)
+	dist := distancer.NewL2SquaredProvider()
+	noopCallback := cyclemanager.NewCallbackGroupNoop()
+	fuc := flatent.UserConfig{}
+	fuc.SetDefaults()
+	hnswuc := hnswent.UserConfig{MaxConnections: 16, EFConstruction: 64, EF: 32, VectorCacheMaxObjects: 1_000_000}
+	hnswuc.SetDefaults()
+	uc := ent.UserConfig{Threshold: threshold, Distance: dist.Type(), HnswUC: hnswuc, FlatUC: fuc}
+
+	indexID := "node-id-limit"
+	makeConfig := func() Config {
+		return Config{
+			AllocChecker: memwatch.NewDummyMonitor(),
+			RootPath:     tempDir,
+			ID:           indexID,
+			MakeCommitLoggerThunk: func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
+				return hnsw.NewCommitLogger(tempDir, indexID, logger, noopCallback, opts...)
+			},
+			DistanceProvider: dist,
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return vectors[int(id)], nil
+			},
+			GetViewThunk:                 GetViewThunk,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			TombstoneCallbacks:           noopCallback,
+			SharedDB:                     db,
+			MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+			AsyncIndexingEnabled:         true,
+			DocIDCounter:                 func() uint64 { return count },
+		}
+	}
+
+	dyn, err := New(makeConfig(), uc, testinghelpers.NewDummyStore(t))
+	require.NoError(t, err)
+	for i := uint64(0); i < count; i++ {
+		require.NoError(t, dyn.Add(ctx, i, vectors[i]))
+	}
+	upgraded := make(chan struct{})
+	require.NoError(t, dyn.Upgrade(func() { close(upgraded) }))
+	select {
+	case <-upgraded:
+	case <-time.After(30 * time.Second):
+		t.Fatal("upgrade did not finish")
+	}
+	require.True(t, dyn.IsUpgraded())
+	require.NoError(t, dyn.Shutdown(ctx))
+
+	garbagePath := filepath.Join(tempDir, indexID+".hnsw.commitlog.d", "9999999999")
+	f, err := os.Create(garbagePath)
+	require.NoError(t, err)
+	require.NoError(t, compact.NewWALWriter(f).WriteAddNode(count+1<<24+1000, 0))
+	require.NoError(t, f.Close())
+
+	dyn, err = New(makeConfig(), uc, testinghelpers.NewDummyStore(t))
+	require.NoError(t, err)
+	defer dyn.Shutdown(ctx)
+	require.True(t, dyn.IsUpgraded())
+
+	st, err := os.Stat(garbagePath)
+	require.NoError(t, err)
+	assert.Zero(t, st.Size(), "commit log must be truncated before the out-of-limit record")
 }
