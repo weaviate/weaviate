@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -215,12 +216,22 @@ func TestTenantTTLLoop_StopsWhenABatchMakesNoProgress(t *testing.T) {
 	const maxRounds = 3
 
 	deleteErr := errors.New("shard unavailable")
+	closingErr := errors.New("index closing")
 
 	tests := []struct {
 		name    string
 		batch   func(cancel context.CancelCauseFunc) (bool, error)
 		wantErr error // nil means nothing may be filed
 	}{
+		{
+			// the loop ends on the next round's cause check, so the tenant is not swept again
+			name: "sweep stopped after the delete succeeded",
+			batch: func(cancel context.CancelCauseFunc) (bool, error) {
+				cancel(closingErr)
+				return true, nil
+			},
+			wantErr: closingErr,
+		},
 		{
 			name:    "delete fails",
 			batch:   func(context.CancelCauseFunc) (bool, error) { return false, deleteErr },
@@ -872,6 +883,19 @@ func TestDeleteFromShardsDropsAShardThatMadeNoProgress(t *testing.T) {
 			wantDropped: []string{"s1"},
 			wantFiled:   []string{`"s1": {` + deleteErr.Error()},
 		},
+		{
+			name:        "a delete that deleted on a stopped sweep keeps its shard",
+			outcomes:    map[string]shardOutcome{"s1": {deleted: true, stopsSweep: true}},
+			wantDeleted: true,
+			wantStopped: true,
+		},
+		{
+			name:        "a delete that deleted and failed on a stopped sweep is filed but kept",
+			outcomes:    map[string]shardOutcome{"s1": {deleted: true, err: deleteErr, stopsSweep: true}},
+			wantDeleted: true,
+			wantStopped: true,
+			wantFiled:   []string{`"s1": {` + deleteErr.Error()},
+		},
 	}
 
 	for _, tt := range tests {
@@ -932,4 +956,212 @@ func TestDeleteFromShardsKeepsAShardThatDeletedPartOfItsBatch(t *testing.T) {
 		"a shard that deleted part of its batch and failed on the rest is swept again")
 	assert.Equal(t, 0, second.filings,
 		"a shard retried across rounds reports its failure once for the sweep, not once a round")
+}
+
+func TestTTLBatchFailedOutright(t *testing.T) {
+	deleteErr := errors.New("batch delete: one object failed")
+
+	tests := []struct {
+		name    string
+		deleted int32
+		err     error
+		want    bool
+	}{
+		{name: "a clean batch has not failed", deleted: 5},
+		{name: "a batch that deleted nothing without failing has not failed", deleted: 0},
+		{
+			// the case the pause counter was losing: progress plus a failure is still progress
+			name:    "a batch that deleted some and failed on the rest has not failed outright",
+			deleted: 5, err: deleteErr,
+		},
+		{
+			name:    "a batch that deleted nothing and failed has failed outright",
+			deleted: 0, err: deleteErr, want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, ttlBatchFailedOutright(tt.deleted, tt.err))
+		})
+	}
+}
+
+func TestTTLBatchOutcome(t *testing.T) {
+	deleteErr := errors.New("batch delete: one object failed")
+	pauseErr := errors.New("index closing")
+
+	tests := []struct {
+		name     string
+		batchErr error
+		pauseErr error
+		want     []error
+	}{
+		{name: "a clean batch and a clean pause file nothing"},
+		{name: "a stopped pause alone files its cause", pauseErr: pauseErr, want: []error{pauseErr}},
+		{name: "a failed batch alone files its failure", batchErr: deleteErr, want: []error{deleteErr}},
+		{
+			// a shutdown during the pause must not replace the failure the batch itself reported
+			name:     "a failed batch and a stopped pause file both",
+			batchErr: deleteErr, pauseErr: pauseErr, want: []error{deleteErr, pauseErr},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ttlBatchOutcome(tt.batchErr, tt.pauseErr)
+			if len(tt.want) == 0 {
+				assert.NoError(t, got)
+				return
+			}
+			for _, want := range tt.want {
+				assert.ErrorIs(t, got, want,
+					"an operator investigating a shutdown needs the batch's own failure, not only the cause")
+			}
+		})
+	}
+}
+
+func TestTTLPauseAfterBatch(t *testing.T) {
+	const pause = time.Millisecond
+
+	tests := []struct {
+		name          string
+		processed     int
+		every         int
+		dur           time.Duration
+		wantProcessed int
+		wantPaused    bool
+	}{
+		{name: "a batch below the threshold only counts", processed: 0, every: 3, dur: pause, wantProcessed: 1},
+		{name: "the batch that reaches the threshold pauses and resets", processed: 2, every: 3, dur: pause, wantProcessed: 0, wantPaused: true},
+		{name: "a count already past the threshold still pauses", processed: 9, every: 3, dur: pause, wantProcessed: 0, wantPaused: true},
+		{name: "a zero duration counts without pausing", processed: 9, every: 1, dur: 0, wantProcessed: 10},
+		{name: "a zero threshold counts without pausing", processed: 9, every: 0, dur: pause, wantProcessed: 10},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			logger.SetLevel(logrus.DebugLevel)
+
+			processed := tt.processed
+			require.NoError(t, ttlPauseAfterBatch(context.Background(), &processed,
+				tt.every, tt.dur, logger))
+
+			assert.Equal(t, tt.wantProcessed, processed)
+			if !tt.wantPaused {
+				assert.Empty(t, hook.AllEntries(), "nothing pauses, so nothing is logged")
+				return
+			}
+			require.Len(t, hook.AllEntries(), 1)
+			assert.Contains(t, hook.LastEntry().Message, "paused for ")
+		})
+	}
+}
+
+// TestTTLPauseAfterBatchReportsAStoppedSweep pins that a sweep aborted while it slept reports the
+// cause rather than the pause finishing.
+func TestTTLPauseAfterBatchReportsAStoppedSweep(t *testing.T) {
+	cause := errors.New("index closing")
+	ctx, cancel := context.WithCancelCause(context.Background())
+	cancel(cause)
+
+	logger, hook := logrustest.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+	processed := 0
+
+	err := ttlPauseAfterBatch(ctx, &processed, 1, time.Hour, logger)
+
+	require.ErrorIs(t, err, cause)
+	assert.Equal(t, 1, processed, "the batch counted before the sweep was stopped")
+	assert.Empty(t, hook.AllEntries(), "a pause cut short logs no pause")
+}
+
+func TestTTLFailureReason(t *testing.T) {
+	deleteErr := errors.New("shard unavailable")
+	cause := errors.New("index closing")
+
+	stopped, cancel := context.WithCancelCause(context.Background())
+	cancel(cause)
+
+	tests := []struct {
+		name    string
+		ctx     context.Context
+		deleted bool
+		err     error
+		want    error
+	}{
+		{name: "a batch that deleted something files nothing", ctx: context.Background(), deleted: true},
+		{name: "a batch that failed files its error", ctx: context.Background(), err: deleteErr, want: deleteErr},
+		{
+			name: "a batch that deleted something and failed files its error",
+			ctx:  context.Background(), deleted: true, err: deleteErr, want: deleteErr,
+		},
+		{
+			// the search cannot exclude these uuids, so a later round would hand back the same ones
+			name: "a batch that deleted nothing without failing files the sentinel",
+			ctx:  context.Background(), want: errTTLNoProgress,
+		},
+		{
+			name: "a stopped sweep also deletes nothing, which is not a failure",
+			ctx:  stopped,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, ttlFailureReason(tt.ctx, tt.deleted, tt.err))
+		})
+	}
+}
+
+// TestDeleteFromShardsRecordsEveryShardItDispatchedWhenStopped pins that a sweep stopped part way
+// through a round still records every shard it had already dispatched, and dispatches no more.
+// The round returns without waiting, so those outcomes land on the group the sweep waits on.
+func TestDeleteFromShardsRecordsEveryShardItDispatchedWhenStopped(t *testing.T) {
+	const shardCount = 4
+
+	shards2uuids := map[string][]strfmt.UUID{}
+	for i := range shardCount {
+		shards2uuids[fmt.Sprintf("s%d", i)] = []strfmt.UUID{"uuid-1"}
+	}
+
+	logger, _ := logrustest.NewNullLogger()
+	eg := enterrors.NewErrorGroupWrapper(logger)
+	// one slot, so the round can have at most one shard in flight when the next is dispatched
+	eg.SetLimit(1)
+	ec := errorcompounder.NewSafe()
+	ctx, cancel := context.WithCancelCause(context.Background())
+	t.Cleanup(func() { cancel(nil) })
+
+	var (
+		mu      sync.Mutex
+		ran     []string
+		dropped = map[string]struct{}{}
+		filed   = map[string]struct{}{}
+	)
+	deleted, stopped := deleteFromShards(ctx, eg, ec, "MyClass", shards2uuids, dropped, filed,
+		func(shard string, _ []strfmt.UUID) (bool, error) {
+			mu.Lock()
+			ran = append(ran, shard)
+			mu.Unlock()
+
+			cancel(errors.New("index closing"))
+			return false, nil
+		})
+
+	assert.False(t, deleted)
+	assert.True(t, stopped, "a round that saw the sweep stop reports it rather than finishing")
+
+	eg.Wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Less(t, len(ran), shardCount, "a stopped round leaves the rest for the next sweep")
+	assert.Len(t, dropped, len(ran), "every shard the round dispatched recorded its outcome")
+	for _, shard := range ran {
+		assert.Contains(t, dropped, shard)
+	}
+	assert.True(t, ec.Empty(), "a stopped sweep is not those shards failing")
 }

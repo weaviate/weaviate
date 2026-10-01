@@ -53,15 +53,24 @@ type tenantTTLLoop struct {
 	findUUIDs             func(ctx context.Context) ([]strfmt.UUID, error)
 	processBatch          func(ctx context.Context, uuids []strfmt.UUID) (deleted bool, err error)
 
-	// set once this tenant's failure is filed, so a tenant retried across rounds reports it
+	// set once this tenant's failure is filed, so a tenant retried across rounds files it
 	// once for the sweep rather than once a round
-	reported bool
+	filed bool
 }
 
 // errTTLNoProgress reports a batch that deleted nothing without failing. The tenant or
 // shard that produced it is not swept again for the rest of that sweep, because the next
 // round would find the same uuids.
-var errTTLNoProgress = errors.New("no object deleted and no error reported")
+var errTTLNoProgress = errors.New("no object deleted and no error reported, not swept again until the next sweep")
+
+// ttlFailureReason names what a finished batch should file, or nil where there is nothing to
+// file. A stopped sweep also deletes nothing, which is not the shard or tenant failing.
+func ttlFailureReason(ctx context.Context, deleted bool, err error) error {
+	if err != nil || deleted || context.Cause(ctx) != nil {
+		return err
+	}
+	return errTTLNoProgress
+}
 
 // shardIsLazyUnloaded reports whether the named shard is a lazy shard not yet materialized.
 // Only HOT tenants are lazy shards, so this never hides a COLD tenant from auto-activation.
@@ -71,14 +80,16 @@ func (i *Index) shardIsLazyUnloaded(shardName string) bool {
 }
 
 // deleteFromShards calls deleteShard once per shard that has expired uuids and was not dropped
-// earlier in the sweep, and waits unless the sweep ends first, which it reports as stopped. The
-// last shard, and one the group refuses, run on the calling goroutine. A shard that deleted nothing
-// is dropped for the rest of the sweep. One that failed is filed once for it, not once a round.
+// earlier in the sweep, and waits unless the sweep ends first, which it reports as stopped. A shard
+// that deleted nothing is dropped for the rest of the sweep, and one that failed is filed once for
+// it rather than once a round. It returns whether any shard deleted, then whether the sweep stopped.
+// On a stopped return a shard handed to the group may still be recording, so dropped and filed are
+// complete only once the caller has waited on the group.
 func deleteFromShards(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
 	ec errorcompounder.ErrorCompounder, class string, shards2uuids map[string][]strfmt.UUID,
 	dropped, filed map[string]struct{},
 	deleteShard func(shard string, uuids []strfmt.UUID) (bool, error),
-) (deleted, stopped bool) {
+) (bool, bool) {
 	shards := make([]string, 0, len(shards2uuids))
 	for shard, uuids := range shards2uuids {
 		if _, skip := dropped[shard]; !skip && len(uuids) > 0 {
@@ -92,17 +103,16 @@ func deleteFromShards(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
 	)
 	// returned is false when the delete panicked: the group files that panic, so record only drops the shard
 	record := func(shard string, deleted bool, err error, returned bool) {
-		reason := err
-		if reason == nil && returned && !deleted && context.Cause(ctx) == nil {
-			// a stopped sweep also deletes nothing, which is not this shard failing
-			reason = errTTLNoProgress
+		var reason error
+		if returned {
+			reason = ttlFailureReason(ctx, deleted, err)
 		}
 
 		shardsLock.Lock()
 		defer shardsLock.Unlock()
 
-		_, reported := filed[shard]
-		if reason != nil && !reported {
+		_, alreadyFiled := filed[shard]
+		if reason != nil && !alreadyFiled {
 			ec.AddGroups(reason, class, shard)
 			filed[shard] = struct{}{}
 		}
@@ -202,6 +212,11 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 				// processedBatches is intentionally shared between the findUUIDs and processBatch
 				// closures below — both run within this single goroutine, so there is no race.
 				processedBatches := 0
+				pauseLogger := i.logger.WithFields(logrus.Fields{
+					"action":     "objects_ttl_deletion",
+					"collection": class.Class,
+					"shard":      tenant,
+				})
 
 				loop := tenantTTLLoop{
 					class:                 class.Class,
@@ -217,32 +232,21 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 						return tenants2uuids[tenant], nil
 					},
 					processBatch: func(ctx context.Context, uuids []strfmt.UUID) (bool, error) {
-						deleted := false
-						countBatch := func(n int32) {
-							deleted = deleted || n > 0
-							countDeleted(n)
+						n, batchErr := i.incomingDeleteObjectsExpiredUuids(ctx, deletionTime, "", tenant,
+							uuids, replProps, schemaVersion)
+						countDeleted(n)
+						if batchErr != nil {
+							batchErr = fmt.Errorf("batch delete: %w", batchErr)
 						}
-						if err := i.incomingDeleteObjectsExpiredUuids(ctx, deletionTime, "", tenant,
-							uuids, countBatch, replProps, schemaVersion); err != nil {
-							return deleted, fmt.Errorf("batch delete: %w", err)
+						if ttlBatchFailedOutright(n, batchErr) {
+							return false, batchErr
 						}
-						processedBatches++
-						pauseEvery := i.Config.ObjectsTTLPauseEveryNoBatches.Get()
-						pauseDur := i.Config.ObjectsTTLPauseDuration.Get()
-						if pauseDur > 0 && pauseEvery > 0 && processedBatches >= pauseEvery {
-							t1 := time.Now()
-							t2, sleepErr := sleepWithCtx(ctx, pauseDur)
-							if sleepErr != nil {
-								return deleted, sleepErr // caller adds to ec and stops the loop
-							}
-							i.logger.WithFields(logrus.Fields{
-								"action":     "objects_ttl_deletion",
-								"collection": class.Class,
-								"shard":      tenant,
-							}).Debugf("paused for %s after processing %d batches", t2.Sub(t1), processedBatches)
-							processedBatches = 0
+						if err := ttlPauseAfterBatch(ctx, &processedBatches,
+							i.Config.ObjectsTTLPauseEveryNoBatches.Get(),
+							i.Config.ObjectsTTLPauseDuration.Get(), pauseLogger); err != nil {
+							return n > 0, ttlBatchOutcome(batchErr, err)
 						}
-						return deleted, nil
+						return n > 0, batchErr
 					},
 				}
 				loop.run(ctx, ec)
@@ -257,19 +261,40 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 
 	eg.Go(func() error {
 		processedBatches := 0
+		pauseLogger := i.logger.WithFields(logrus.Fields{
+			"action":     "objects_ttl_deletion",
+			"collection": class.Class,
+		})
 		dropped := map[string]struct{}{}
 		filed := map[string]struct{}{}
+		considered := map[string]struct{}{}
+		rounds := 0
+		sweepStopped := false
+
+		// one line per class, not per shard: an abandoned shard keeps its expired objects until the
+		// next sweep, and N entries inside one compounded error string cannot be read as a count
+		defer func() {
+			if sweepStopped {
+				// a shard handed to the group may still be recording into dropped and filed
+				return
+			}
+			i.logger.WithFields(logrus.Fields{
+				"action":     "objects_ttl_deletion",
+				"collection": class.Class,
+				"rounds":     rounds,
+				"shards":     len(considered),
+				"abandoned":  len(dropped),
+				"filed":      len(filed),
+			}).Debug("shard sweep finished")
+		}()
 		deleteShard := func(shard string, uuids []strfmt.UUID) (bool, error) {
-			deleted := false
-			countShard := func(n int32) {
-				deleted = deleted || n > 0
-				countDeleted(n)
+			n, err := i.incomingDeleteObjectsExpiredUuids(ctx, deletionTime, shard, "",
+				uuids, replProps, schemaVersion)
+			countDeleted(n)
+			if err != nil {
+				return n > 0, fmt.Errorf("batch delete: %w", err)
 			}
-			if err := i.incomingDeleteObjectsExpiredUuids(ctx, deletionTime, shard, "",
-				uuids, countShard, replProps, schemaVersion); err != nil {
-				return deleted, fmt.Errorf("batch delete: %w", err)
-			}
-			return deleted, nil
+			return n > 0, nil
 		}
 
 		// find uuids up to limit -> delete -> find uuids up to limit -> delete -> ... until no uuids left
@@ -279,48 +304,42 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 				return nil
 			}
 
+			rounds++
 			perShardLimit := i.Config.ObjectsTTLBatchSize.Get()
 			shards2uuids, err := i.findUUIDsForExpiredObjects(ctx, filter, "", replProps, perShardLimit)
 			if err != nil {
 				ec.AddGroups(fmt.Errorf("find uuids: %w", err), class.Class)
 				return nil
 			}
+			for shard := range shards2uuids {
+				considered[shard] = struct{}{}
+			}
 
 			deleted, stopped := deleteFromShards(ctx, eg, ec, class.Class, shards2uuids,
 				dropped, filed, deleteShard)
 			if stopped || !deleted {
+				sweepStopped = stopped
 				return nil
 			}
 
-			processedBatches++
-			pauseEveryNoBatches := i.Config.ObjectsTTLPauseEveryNoBatches.Get()
-			pauseDuration := i.Config.ObjectsTTLPauseDuration.Get()
-			if pauseDuration > 0 && pauseEveryNoBatches > 0 && processedBatches >= pauseEveryNoBatches {
-				t1 := time.Now()
-				t2, err := sleepWithCtx(ctx, pauseDuration)
-				if err != nil {
-					ec.AddGroups(err, class.Class)
-					return nil
-				}
-				i.logger.WithFields(logrus.Fields{
-					"action":     "objects_ttl_deletion",
-					"collection": class.Class,
-				}).Debugf("paused for %s after processing %d batches", t2.Sub(t1), processedBatches)
-				processedBatches = 0
+			if err := ttlPauseAfterBatch(ctx, &processedBatches,
+				i.Config.ObjectsTTLPauseEveryNoBatches.Get(),
+				i.Config.ObjectsTTLPauseDuration.Get(), pauseLogger); err != nil {
+				ec.AddGroups(err, class.Class)
+				return nil
 			}
 		}
 	}, class.Class)
 }
 
 func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context,
-	deletionTime time.Time, shard, tenant string, uuids []strfmt.UUID, countDeleted func(int32),
+	deletionTime time.Time, shard, tenant string, uuids []strfmt.UUID,
 	replProps *additional.ReplicationProperties, schemaVersion uint64,
-) (err error) {
+) (deleted int32, err error) {
 	i.metrics.IncObjectsTtlBatchDeletesCount()
 	i.metrics.IncObjectsTtlBatchDeletesRunning()
 
 	started := time.Now()
-	deleted := int32(0)
 	inputKey := shard
 	if tenant != "" {
 		inputKey = tenant
@@ -360,7 +379,7 @@ func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context,
 	input := map[string][]strfmt.UUID{inputKey: uuids}
 	resp, err := i.batchDeleteObjects(ctx, input, deletionTime, false, replProps, schemaVersion, tenant)
 	if err != nil {
-		return err
+		return deleted, err
 	}
 
 	ec := errorcompounder.New()
@@ -371,9 +390,8 @@ func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context,
 		}
 		deleted++
 	}
-	countDeleted(deleted)
 
-	return ec.ToErrorLimited(3)
+	return deleted, ec.ToErrorLimited(3)
 }
 
 func (i *Index) findUUIDsForExpiredObjects(ctx context.Context,
@@ -458,10 +476,9 @@ func (l *tenantTTLLoop) checkActivity() (shouldDeactivate bool, err error) {
 	return tenants2status[l.tenant] == models.TenantActivityStatusCOLD, nil
 }
 
-// findAndDelete fetches the next batch of expired UUIDs and deletes them. It returns true where
-// the loop should stop, which is no more work, a failed find, or a batch that deleted nothing. A
-// batch that deleted part of its uuids and failed on the rest made progress, so the loop goes on
-// and files the failure once for the sweep.
+// findAndDelete fetches the next batch of expired UUIDs, deletes them, and returns true where the
+// loop should stop. A batch that deleted part of its uuids and failed on the rest made progress, so
+// the loop goes on and files the failure once for the sweep.
 func (l *tenantTTLLoop) findAndDelete(ctx context.Context, ec errorcompounder.ErrorCompounder, deactivate *bool) (done bool) {
 	uuids, err := l.findUUIDs(ctx)
 	if err != nil {
@@ -479,14 +496,10 @@ func (l *tenantTTLLoop) findAndDelete(ctx context.Context, ec errorcompounder.Er
 	}
 
 	deleted, err := l.processBatch(ctx, uuids)
-	reason := err
-	if reason == nil && !deleted && context.Cause(ctx) == nil {
-		// a stopped sweep also deletes nothing, which is not this tenant failing
-		reason = errTTLNoProgress
-	}
-	if reason != nil && !l.reported {
+	reason := ttlFailureReason(ctx, deleted, err)
+	if reason != nil && !l.filed {
 		ec.AddGroups(reason, l.class, l.tenant)
-		l.reported = true
+		l.filed = true
 	}
 	return !deleted
 }
@@ -502,6 +515,47 @@ func (l *tenantTTLLoop) ensureDeactivation(ec errorcompounder.ErrorCompounder, d
 	if err := l.mgr.DeactivateTenants(ctx, l.class, l.tenant); err != nil {
 		ec.AddGroups(fmt.Errorf("deactivate tenant: %w", err), l.class, l.tenant)
 	}
+}
+
+// ttlBatchFailedOutright reports a batch that deleted none of its uuids and failed. Counting only
+// batches that failed on nothing would let a tenant holding one undeletable object run every batch
+// of its sweep back to back.
+func ttlBatchFailedOutright(deleted int32, err error) bool {
+	return err != nil && deleted == 0
+}
+
+// ttlBatchOutcome reports what a batch that was followed by a stopped pause should file. A sweep
+// stopped while it slept must not replace the failure the batch itself reported.
+func ttlBatchOutcome(batchErr, pauseErr error) error {
+	switch {
+	case batchErr == nil:
+		return pauseErr
+	case pauseErr == nil:
+		return batchErr
+	default:
+		return fmt.Errorf("%w; %w", batchErr, pauseErr)
+	}
+}
+
+// ttlPauseAfterBatch counts one finished unit of work, sleeps once the count reaches the configured
+// number so a sweep cannot starve foreground traffic, and reports the cause of a sweep stopped while
+// it slept. A unit is one batch in the tenant arm, one round of shard batches in the shard arm.
+func ttlPauseAfterBatch(ctx context.Context, processed *int, every int, dur time.Duration,
+	logger logrus.FieldLogger,
+) error {
+	*processed++
+	if dur <= 0 || every <= 0 || *processed < every {
+		return nil
+	}
+
+	started := time.Now()
+	ended, err := sleepWithCtx(ctx, dur)
+	if err != nil {
+		return err
+	}
+	logger.Debugf("paused for %s after processing %d batches", ended.Sub(started), *processed)
+	*processed = 0
+	return nil
 }
 
 func sleepWithCtx(ctx context.Context, d time.Duration) (val time.Time, err error) {
