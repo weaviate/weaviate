@@ -302,7 +302,7 @@ func TestReindexProviderBarrierIntegration_CrashAfterPersistRecoveryRecord(t *te
 	// disk and never invokes schema operations until buildRecoveryTasks
 	// fires (which only fires for dirs with started + reindexed).
 	rootPath := idx.Config.RootPath
-	recovered, err := DiscoverInFlightReindexTasks(rootPath, idx.logger, nil)
+	recovered, err := DiscoverInFlightReindexTasks(rootPath, true, idx.logger, nil)
 	require.NoError(t, err, "discover must not error on a started.mig-less dir")
 	for _, r := range recovered {
 		assert.NotEqualf(t, taskID, r.Descriptor.ID,
