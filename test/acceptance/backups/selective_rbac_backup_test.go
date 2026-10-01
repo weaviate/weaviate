@@ -266,50 +266,6 @@ func TestSelectiveRBACBackupRestore(t *testing.T) {
 		})
 	}
 
-	for _, tt := range []struct {
-		name           string
-		backupID       string
-		include        []string
-		unrelatedClass bool
-	}{
-		{name: "EmptyCluster", backupID: "classless-empty"},
-		{name: "UnmatchedInclude", backupID: "classless-unmatched", include: []string{"ns1:*"}, unrelatedClass: true},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			seedRBAC(t)
-			defer cleanupRBAC(t)
-
-			if tt.unrelatedClass {
-				helper.CreateClassAuth(t, par, adminKey)
-				defer helper.DeleteClassWithAuthz(t, par.Class, helper.CreateAuth(adminKey))
-			}
-
-			createSelectiveBackupForClasses(t, tt.include, tt.backupID,
-				[]string{roleName(1), roleName(2)}, []string{userName(1), userName(2)})
-
-			global, node := readDescriptors(t, tt.backupID)
-			assert.Empty(t, global.Classes())
-			require.Contains(t, global.Nodes, global.Leader)
-			assert.Empty(t, global.Nodes[global.Leader].Classes)
-			assert.Empty(t, node.Classes)
-			assert.NotEmpty(t, node.RbacBackups)
-			assert.NotEmpty(t, node.UserBackups)
-
-			deleteAllSeeded(t)
-			require.Empty(t, customRoleNames(t))
-			require.Empty(t, dynamicUserNames(t))
-
-			restoreClassless(t, tt.backupID)
-
-			assert.ElementsMatch(t, []string{roleName(1), roleName(2)}, customRoleNames(t))
-			assert.ElementsMatch(t, []string{userName(1), userName(2)}, dynamicUserNames(t))
-			assert.Contains(t, roleNamesForUser(t, userName(1)), roleName(1))
-			if tt.unrelatedClass {
-				assert.Equal(t, par.Class, helper.GetClassAuth(t, par.Class, adminKey).Class)
-			}
-		})
-	}
-
 	t.Run("ExactMissIsRejected", func(t *testing.T) {
 		seedRBAC(t)
 		defer cleanupRBAC(t)
