@@ -21,7 +21,6 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
@@ -58,30 +57,6 @@ func (h *hnsw) init(cfg Config) error {
 	return nil
 }
 
-// docIDCounterSlack covers the document-ID counter file lagging behind the
-// commit log after a power loss, since neither is fsynced.
-const docIDCounterSlack = 1 << 24
-
-// maxNodeID returns the highest node ID the index can hold, from the shard's
-// document-ID counter in the index's root directory, or 0 for no limit: when
-// node IDs are not document IDs, or there is no counter there (HFresh's
-// centroid index lives in a subdirectory).
-func (h *hnsw) maxNodeID() uint64 {
-	if h.multivector.Load() && !h.muvera.Load() {
-		return 0
-	}
-	counter, err := indexcounter.Read(h.rootPath)
-	if err != nil {
-		h.logger.WithField("action", "hnsw_max_node_id").
-			Warnf("read document-ID counter, loading without a node ID limit: %v", err)
-		return 0
-	}
-	if counter == 0 {
-		return 0
-	}
-	return counter + docIDCounterSlack
-}
-
 // restoreFromDisk loads the HNSW state from commit log files using compact.Loader.
 // A truncated/corrupt WAL file is logged for diagnostic purposes but does not
 // change the commit logger's behavior: the commit logger always starts a new
@@ -105,9 +80,11 @@ func (h *hnsw) restoreFromDisk() error {
 	}
 
 	loader := compact.NewLoader(compact.LoaderConfig{
-		Dir:       dir,
-		Logger:    h.logger,
-		MaxNodeID: h.maxNodeID(),
+		Dir:    dir,
+		Logger: h.logger,
+		// Multivector indexes without Muvera number their nodes separately.
+		// HFresh's centroid index lives in a subdirectory without the counter.
+		NodeIDsAreDocIDs: !h.multivector.Load() || h.muvera.Load(),
 	})
 
 	loadResult, err := loader.Load()

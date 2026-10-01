@@ -1566,8 +1566,9 @@ func TestCrashRecovery_ImpossibleCompressionRecordInEmptySegment(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 const (
-	nodeIDLimitTestMax     = 1000
-	nodeIDLimitTestGarbage = 5000
+	nodeIDLimitTestCounter = 10
+	nodeIDLimitTestMax     = nodeIDLimitTestCounter + docIDCounterSlack
+	nodeIDLimitTestGarbage = nodeIDLimitTestMax + 1000
 )
 
 // writeNodeIDLimitFixture writes ten linked nodes, the entrypoint and a
@@ -1602,6 +1603,18 @@ func writeNodeIDLimitFixture(t *testing.T, path string, fileType FileType) {
 			require.NoError(t, w.WriteAddTombstone(3))
 		}
 	})
+}
+
+// nodeIDLimitTestDir returns a commit log directory inside a shard directory
+// whose document-ID counter is nodeIDLimitTestCounter.
+func nodeIDLimitTestDir(t *testing.T) string {
+	t.Helper()
+	shardDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(shardDir, "indexcount"),
+		binary.LittleEndian.AppendUint64(nil, nodeIDLimitTestCounter), 0o644))
+	dir := filepath.Join(shardDir, "main.hnsw.commitlog.d")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	return dir
 }
 
 func nodeIDLimitTestName(fileType FileType) string {
@@ -1648,18 +1661,18 @@ func TestCrashRecovery_NodeIDBeyondLimitIsNeverApplied(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/%s", fileType, rec.name), func(t *testing.T) {
 				load := func(dir string) *LoadResult {
 					t.Helper()
-					res, err := NewLoader(LoaderConfig{Dir: dir, Logger: quietLogger(), MaxNodeID: nodeIDLimitTestMax}).Load()
+					res, err := NewLoader(LoaderConfig{Dir: dir, Logger: quietLogger(), NodeIDsAreDocIDs: true}).Load()
 					require.NoError(t, err)
 					require.NotNil(t, res)
 					return res
 				}
 
-				cleanDir := t.TempDir()
+				cleanDir := nodeIDLimitTestDir(t)
 				writeNodeIDLimitFixture(t, filepath.Join(cleanDir, nodeIDLimitTestName(fileType)), fileType)
 				clean := load(cleanDir)
 				cleanSize := fileSizeOf(t, filepath.Join(cleanDir, nodeIDLimitTestName(fileType)))
 
-				dir := t.TempDir()
+				dir := nodeIDLimitTestDir(t)
 				path := filepath.Join(dir, nodeIDLimitTestName(fileType))
 				writeNodeIDLimitFixture(t, path, fileType)
 				appendToFile(t, path, walBytes(t, func(w *WALWriter) { require.NoError(t, rec.write(w)) }))
@@ -1683,23 +1696,23 @@ func TestCrashRecovery_NodeIDBeyondLimitIsNeverApplied(t *testing.T) {
 // behavior for indexes whose node IDs have no known bound.
 func TestCrashRecovery_NodeIDLimitControls(t *testing.T) {
 	tests := []struct {
-		name      string
-		maxNodeID uint64
-		id        uint64
+		name   string
+		docIDs bool
+		id     uint64
 	}{
-		{name: "ID at the limit", maxNodeID: nodeIDLimitTestMax, id: nodeIDLimitTestMax},
-		{name: "no limit", maxNodeID: 0, id: nodeIDLimitTestGarbage},
+		{name: "ID at the limit", docIDs: true, id: nodeIDLimitTestMax},
+		{name: "node IDs are not document IDs", docIDs: false, id: nodeIDLimitTestGarbage},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
+			dir := nodeIDLimitTestDir(t)
 			path := filepath.Join(dir, "1000")
 			writeNodeIDLimitFixture(t, path, FileTypeRaw)
 			appendToFile(t, path, walBytes(t, func(w *WALWriter) { require.NoError(t, w.WriteAddNode(tc.id, 0)) }))
 			size := fileSizeOf(t, path)
 
-			res, err := NewLoader(LoaderConfig{Dir: dir, Logger: quietLogger(), MaxNodeID: tc.maxNodeID}).Load()
+			res, err := NewLoader(LoaderConfig{Dir: dir, Logger: quietLogger(), NodeIDsAreDocIDs: tc.docIDs}).Load()
 			require.NoError(t, err)
 			assert.False(t, res.RecoveredFromCrash)
 			assert.Equal(t, size, fileSizeOf(t, path), "valid file must not be truncated")
@@ -1712,7 +1725,7 @@ func TestCrashRecovery_NodeIDLimitControls(t *testing.T) {
 // pre-scan: it sizes the snapshot's node slice to the highest ID in the raw
 // logs before any record is applied, which is the crash-loop frame of #649.
 func TestCrashRecovery_NodeIDBeyondLimitDoesNotPresizeSnapshot(t *testing.T) {
-	dir := t.TempDir()
+	dir := nodeIDLimitTestDir(t)
 	createTestSnapshot(t, filepath.Join(dir, "1000.snapshot"), 0, 0, []testNode{
 		{id: 0, level: 0, connections: [][]uint64{{5}}},
 		{id: 5, level: 0, connections: [][]uint64{{0}}},
@@ -1726,7 +1739,7 @@ func TestCrashRecovery_NodeIDBeyondLimitDoesNotPresizeSnapshot(t *testing.T) {
 		require.NoError(t, w.WriteAddLinkAtLevel(nodeIDLimitTestGarbage, 0, 0))
 	}))
 
-	res, err := NewLoader(LoaderConfig{Dir: dir, Logger: quietLogger(), MaxNodeID: nodeIDLimitTestMax}).Load()
+	res, err := NewLoader(LoaderConfig{Dir: dir, Logger: quietLogger(), NodeIDsAreDocIDs: true}).Load()
 	require.NoError(t, err)
 	assert.True(t, res.RecoveredFromCrash)
 	assert.Less(t, len(res.State.Graph.Nodes), nodeIDLimitTestGarbage, "snapshot pre-sized to the garbage ID")

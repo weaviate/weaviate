@@ -13,10 +13,12 @@ package compact
 
 import (
 	"io"
+	"path/filepath"
 	"sort"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -42,10 +44,10 @@ type LoaderConfig struct {
 	// If nil, defaults to common.NewOSFS().
 	FS common.FS
 
-	// MaxNodeID is the highest node ID the index can hold. A record naming a
-	// higher one is corruption, and the file is truncated before it. 0 means no
-	// limit.
-	MaxNodeID uint64
+	// NodeIDsAreDocIDs bounds node IDs by the shard's document-ID counter, read
+	// from the directory holding Dir. A record naming a higher node ID is
+	// corruption, and the file is truncated before it.
+	NodeIDsAreDocIDs bool
 }
 
 // Loader reads all commit log files at startup and returns the accumulated
@@ -64,8 +66,9 @@ type LoaderConfig struct {
 //
 // Returns nil state (not an error) if the directory is empty or doesn't exist.
 type Loader struct {
-	config LoaderConfig
-	fs     common.FS
+	config    LoaderConfig
+	fs        common.FS
+	maxNodeID uint64
 }
 
 // LoadResult contains the result of loading commit logs.
@@ -97,6 +100,8 @@ func NewLoader(config LoaderConfig) *Loader {
 // Returns nil result (not error) if directory is empty or doesn't exist.
 // If a truncated WAL file is detected (crash recovery), RecoveredFromCrash will be true.
 func (l *Loader) Load() (*LoadResult, error) {
+	l.maxNodeID = l.nodeIDLimit()
+
 	// 0. Migrate snapshots from old directory FIRST (before any other operations)
 	// This ensures that snapshots stored in the old .hnsw.snapshot.d/ directory
 	// are moved to the new unified .hnsw.commitlog.d/ directory before we scan.
@@ -270,7 +275,7 @@ func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent
 	}
 	defer file.Close()
 
-	walReader := NewWALCommitReaderForFile(file, f.Type, l.config.MaxNodeID, l.config.Logger)
+	walReader := NewWALCommitReaderForFile(file, f.Type, l.maxNodeID, l.config.Logger)
 	inMemReader := NewInMemoryReader(walReader, l.config.Logger)
 
 	// keepLinkReplaceInfo=false at startup since we're building final state
@@ -346,6 +351,28 @@ func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent
 	return result, false, nil
 }
 
+// docIDCounterSlack covers the counter file lagging behind the commit logs
+// after a power loss, since neither is fsynced.
+const docIDCounterSlack = 1 << 24
+
+// nodeIDLimit returns the highest node ID the index can hold, or 0 for no
+// limit: when node IDs are not document IDs, or there is no counter.
+func (l *Loader) nodeIDLimit() uint64 {
+	if !l.config.NodeIDsAreDocIDs {
+		return 0
+	}
+	counter, err := indexcounter.Read(filepath.Dir(l.config.Dir))
+	if err != nil {
+		l.config.Logger.WithField("action", "hnsw_loader").
+			Warnf("read document-ID counter, loading without a node ID limit: %v", err)
+		return 0
+	}
+	if counter == 0 {
+		return 0
+	}
+	return counter + docIDCounterSlack
+}
+
 // truncateToLastValidRecord truncates a corrupt WAL file back to the end of its
 // last fully decoded commit (walReader.LastValidOffset), removing a torn or
 // garbage-appended tail. After this the file is a valid, shorter WAL again, so a
@@ -385,7 +412,7 @@ func (l *Loader) maxNodeIDInWALs(files []FileInfo) uint64 {
 			continue
 		}
 
-		reader := NewWALCommitReaderForFile(file, f.Type, l.config.MaxNodeID, l.config.Logger)
+		reader := NewWALCommitReaderForFile(file, f.Type, l.maxNodeID, l.config.Logger)
 		for {
 			c, err := reader.ReadNextCommit()
 			if err != nil {

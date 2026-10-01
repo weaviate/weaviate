@@ -19,7 +19,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -591,13 +590,19 @@ func TestRestoreFromDisk_NodeIDBeyondDocIDCounter(t *testing.T) {
 	const counter = 10
 	garbage := uint64(counter + 1<<24 + 1000)
 
+	multivector := ent.MultivectorConfig{Enabled: true}
+	muvera := ent.MultivectorConfig{Enabled: true, MuveraConfig: ent.MuveraConfig{Enabled: true, KSim: 4, DProjections: 16, Repetitions: 10}}
+
 	tests := []struct {
 		name          string
 		counterFile   bool
 		counter       uint64
+		multivector   ent.MultivectorConfig
 		wantTruncated bool
 	}{
 		{name: "beyond the counter and its slack", counterFile: true, counter: counter, wantTruncated: true},
+		{name: "muvera node IDs are document IDs", counterFile: true, counter: counter, multivector: muvera, wantTruncated: true},
+		{name: "multivector node IDs are not document IDs", counterFile: true, counter: counter, multivector: multivector},
 		{name: "zero counter means no limit", counterFile: true, counter: 0},
 		{name: "no counter file means no limit"},
 	}
@@ -606,6 +611,7 @@ func TestRestoreFromDisk_NodeIDBeyondDocIDCounter(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := createVectorHnswIndexTestConfig()
 			cfg.RootPath = t.TempDir()
+			cfg.MultiVectorForIDThunk = testMultiVectorForID
 			if tc.counterFile {
 				writeDocIDCounterForTest(t, cfg.RootPath, tc.counter)
 			}
@@ -613,15 +619,19 @@ func TestRestoreFromDisk_NodeIDBeyondDocIDCounter(t *testing.T) {
 				require.NoError(t, w.WriteAddNode(garbage, 0))
 			})
 
-			index, err := New(cfg, ent.UserConfig{MaxConnections: 30, EFConstruction: 60, EF: 36},
-				cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+			uc := ent.UserConfig{MaxConnections: 30, EFConstruction: 60, EF: 36, Multivector: tc.multivector}
+			index, err := New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 			require.NoError(t, err)
 			defer index.Shutdown(context.Background())
 
 			st, err := os.Stat(path)
 			require.NoError(t, err)
-			for id := 0; id < 10; id++ {
-				require.NotNil(t, index.nodes[id], "node %d lost", id)
+			// Without doc mappings in the store, a multivector index without Muvera
+			// drops the loaded nodes, so only the file shows whether the limit applied.
+			if !tc.multivector.Enabled || tc.multivector.MuveraConfig.Enabled {
+				for id := 0; id < 10; id++ {
+					require.NotNil(t, index.nodes[id], "node %d lost", id)
+				}
 			}
 			if tc.wantTruncated {
 				assert.Less(t, len(index.nodes), int(garbage), "node index sized to the garbage ID")
@@ -630,36 +640,6 @@ func TestRestoreFromDisk_NodeIDBeyondDocIDCounter(t *testing.T) {
 				assert.Greater(t, len(index.nodes), int(garbage), "without a limit the node loads as before")
 				assert.Greater(t, st.Size(), validSize)
 			}
-		})
-	}
-}
-
-func TestMaxNodeID(t *testing.T) {
-	tests := []struct {
-		name        string
-		counterFile []byte
-		multivector bool
-		muvera      bool
-		want        uint64
-	}{
-		{name: "no counter file", want: 0},
-		{name: "zero counter", counterFile: binary.LittleEndian.AppendUint64(nil, 0), want: 0},
-		{name: "unreadable counter", counterFile: []byte{1, 2, 3}, want: 0},
-		{name: "single vector", counterFile: binary.LittleEndian.AppendUint64(nil, 10), want: 10 + docIDCounterSlack},
-		{name: "multivector, node IDs are not document IDs", counterFile: binary.LittleEndian.AppendUint64(nil, 10), multivector: true, want: 0},
-		{name: "muvera, node IDs are document IDs", counterFile: binary.LittleEndian.AppendUint64(nil, 10), multivector: true, muvera: true, want: 10 + docIDCounterSlack},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			var h hnsw
-			h.rootPath = t.TempDir()
-			h.logger, _ = test.NewNullLogger()
-			if tc.counterFile != nil {
-				require.NoError(t, os.WriteFile(filepath.Join(h.rootPath, "indexcount"), tc.counterFile, 0o644))
-			}
-			h.multivector.Store(tc.multivector)
-			h.muvera.Store(tc.muvera)
-			assert.Equal(t, tc.want, h.maxNodeID())
 		})
 	}
 }
