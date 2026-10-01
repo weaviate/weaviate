@@ -69,7 +69,10 @@ func ReturnBatchTokenizerWithAltNames(multiplier float32, moduleName string, alt
 				if err != nil {
 					tke, _ = tiktoken.EncodingForModel("text-embedding-ada-002")
 				}
-				encoderCache.Set(modelString, tke)
+				// Only cache if we successfully created the tokenizer
+				if tke != nil {
+					encoderCache.Set(modelString, tke)
+				}
 			}
 		}
 
@@ -86,8 +89,12 @@ func ReturnBatchTokenizerWithAltNames(multiplier float32, moduleName string, alt
 				continue
 			}
 			texts[i] = text
-			if multiplier > 0 {
+			if multiplier > 0 && tke != nil {
 				tokenCounts[i] = int(float32(GetTokensCount(modelString, text, tke)) * multiplier)
+			} else if multiplier > 0 {
+				// Fallback when tiktoken is unavailable (e.g., read-only filesystem)
+				// Use a rough estimate: ~0.75 tokens per character for English text
+				tokenCounts[i] = int(float32(len(text)*3/4) * multiplier)
 			}
 		}
 		return texts, tokenCounts, skipObject, skipAll, nil
