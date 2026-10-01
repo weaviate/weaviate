@@ -1238,6 +1238,17 @@ func (b *Bucket) mapListFromConsistentView(ctx context.Context, view BucketConsi
 
 	// fmt.Printf("--map-list: get all disk segments took %s\n", time.Since(before))
 
+	if c.legacyRequireManualSorting {
+		// Sort to support segments which were stored in an unsorted fashion. Only
+		// disk entries need this: memtable postings are already sorted, and their
+		// slices are shared cache snapshots that must not be sorted in place.
+		for i := range entriesPerSegment {
+			sort.Slice(entriesPerSegment[i], func(a, b int) bool {
+				return bytes.Compare(entriesPerSegment[i][a].Key, entriesPerSegment[i][b].Key) == -1
+			})
+		}
+	}
+
 	// before = time.Now()
 	// fmt.Printf("--map-list: append all disk segments took %s\n", time.Since(before))
 
@@ -1265,15 +1276,6 @@ func (b *Bucket) mapListFromConsistentView(ctx context.Context, view BucketConsi
 	// defer func() {
 	// 	fmt.Printf("--map-list: run decoder took %s\n", time.Since(before))
 	// }()
-
-	if c.legacyRequireManualSorting {
-		// Sort to support segments which were stored in an unsorted fashion
-		for i := range entriesPerSegment {
-			sort.Slice(entriesPerSegment[i], func(a, b int) bool {
-				return bytes.Compare(entriesPerSegment[i][a].Key, entriesPerSegment[i][b].Key) == -1
-			})
-		}
-	}
 
 	return newSortedMapMerger().do(ctx, entriesPerSegment)
 }
