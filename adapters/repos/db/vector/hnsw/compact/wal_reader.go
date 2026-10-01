@@ -205,6 +205,9 @@ type WALCommitReader struct {
 	// in a compacted segment. See NewWALCommitReaderForFile.
 	layout *compactedLayout
 
+	// maxNodeID, when non-zero, rejects records naming a higher node ID.
+	maxNodeID uint64
+
 	reusableBuf     []byte
 	reusableUint64s []uint64
 }
@@ -230,6 +233,52 @@ func NewWALCommitReaderForFile(r io.Reader, fileType FileType, logger logrus.Fie
 		w.layout = &compactedLayout{fileType: fileType}
 	}
 	return w
+}
+
+// errNodeIDBeyondLimit reports a record naming a node ID above the index's
+// limit, which only corruption produces.
+var errNodeIDBeyondLimit = errors.New("node ID beyond the index's limit")
+
+// limitNodeIDs makes ReadNextCommit reject records naming a node ID above limit,
+// leaving LastValidOffset before them. 0 means no limit.
+func (w *WALCommitReader) limitNodeIDs(limit uint64) *WALCommitReader {
+	w.maxNodeID = limit
+	return w
+}
+
+// highestNodeID returns the highest node ID a commit names, if any.
+func highestNodeID(c Commit) (uint64, bool) {
+	switch ct := c.(type) {
+	case *AddNodeCommit:
+		return ct.ID, true
+	case *SetEntryPointMaxLevelCommit:
+		return ct.Entrypoint, true
+	case *AddLinkAtLevelCommit:
+		return max(ct.Source, ct.Target), true
+	case *AddLinksAtLevelCommit:
+		return maxOf(ct.Source, ct.Targets), true
+	case *ReplaceLinksAtLevelCommit:
+		return maxOf(ct.Source, ct.Targets), true
+	case *AddTombstoneCommit:
+		return ct.ID, true
+	case *RemoveTombstoneCommit:
+		return ct.ID, true
+	case *ClearLinksCommit:
+		return ct.ID, true
+	case *ClearLinksAtLevelCommit:
+		return ct.ID, true
+	case *DeleteNodeCommit:
+		return ct.ID, true
+	default:
+		return 0, false
+	}
+}
+
+func maxOf(id uint64, ids []uint64) uint64 {
+	for _, x := range ids {
+		id = max(id, x)
+	}
+	return id
 }
 
 // BytesRead returns the number of bytes successfully read from the underlying
@@ -263,6 +312,11 @@ func (w *WALCommitReader) ReadNextCommit() (Commit, error) {
 	if w.layout != nil {
 		if err := w.layout.check(c); err != nil {
 			return nil, err
+		}
+	}
+	if w.maxNodeID > 0 {
+		if id, ok := highestNodeID(c); ok && id > w.maxNodeID {
+			return nil, errors.Wrapf(errNodeIDBeyondLimit, "%s record names node %d, limit %d", c.Type(), id, w.maxNodeID)
 		}
 	}
 	w.lastValidOffset = w.BytesRead()

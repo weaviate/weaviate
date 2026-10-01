@@ -269,12 +269,23 @@ func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent
 	}
 	defer file.Close()
 
-	walReader := NewWALCommitReaderForFile(file, f.Type, l.config.Logger)
+	walReader := NewWALCommitReaderForFile(file, f.Type, l.config.Logger).limitNodeIDs(nodeIDLimit(l.config.MaxNodeID))
 	inMemReader := NewInMemoryReader(walReader, l.config.Logger)
 
 	// keepLinkReplaceInfo=false at startup since we're building final state
 	result, err := inMemReader.Do(state, false)
 	if err != nil {
+		if errors.Is(err, errNodeIDBeyondLimit) {
+			// Only corruption, such as a misaligned read of a torn log, names a
+			// node the index cannot hold; everything after it is unreliable too.
+			l.config.Logger.WithFields(logrus.Fields{
+				"action": "hnsw_loader",
+				"file":   f.Path,
+				"type":   f.Type.String(),
+			}).Errorf("commit log names a node beyond the index's limit - truncating before it: %v", err)
+			l.truncateToLastValidRecord(f.Path, walReader.LastValidOffset())
+			return result, true, nil
+		}
 		switch f.Type {
 		case FileTypeRaw:
 			// Raw/live WAL files may be interrupted mid-write by a crash,
@@ -334,6 +345,14 @@ func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent
 	return result, false, nil
 }
 
+// nodeIDLimit evaluates a MaxNodeID config value; nil means no limit.
+func nodeIDLimit(maxNodeID func() uint64) uint64 {
+	if maxNodeID == nil {
+		return 0
+	}
+	return maxNodeID()
+}
+
 // truncateToLastValidRecord truncates a corrupt WAL file back to the end of its
 // last fully decoded commit (walReader.LastValidOffset), removing a torn or
 // garbage-appended tail. After this the file is a valid, shorter WAL again, so a
@@ -373,7 +392,7 @@ func (l *Loader) maxNodeIDInWALs(files []FileInfo) uint64 {
 			continue
 		}
 
-		reader := NewWALCommitReaderForFile(file, f.Type, l.config.Logger)
+		reader := NewWALCommitReaderForFile(file, f.Type, l.config.Logger).limitNodeIDs(nodeIDLimit(l.config.MaxNodeID))
 		for {
 			c, err := reader.ReadNextCommit()
 			if err != nil {
