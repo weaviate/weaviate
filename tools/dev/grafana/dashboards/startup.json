@@ -178,7 +178,7 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "Wall time of each boot phase. Phases nest (db_reload runs inside raft_open or cluster_open), so they do not add up.",
+      "description": "Wall time of each boot phase, published once the phase completes. Phases nest (db_reload runs inside raft_open or cluster_open), so they do not add up.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -200,7 +200,7 @@
       },
       "gridPos": {
         "h": 6,
-        "w": 8,
+        "w": 12,
         "x": 8,
         "y": 1
       },
@@ -234,70 +234,6 @@
       ],
       "title": "Startup phase durations",
       "type": "bargauge"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "Prometheus"
-      },
-      "description": "Which startup phase is running right now, if any.",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "none",
-          "noValue": "none"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 4,
-        "x": 16,
-        "y": 1
-      },
-      "id": 105,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "textMode": "name",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "pluginVersion": "8.3.3",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "exemplar": true,
-          "expr": "weaviate_startup_phase_active == 1",
-          "interval": "",
-          "legendFormat": "{{phase}}",
-          "refId": "A"
-        }
-      ],
-      "title": "Phase in progress",
-      "type": "stat"
     },
     {
       "datasource": {
@@ -1547,6 +1483,6 @@
   "timezone": "",
   "title": "Startup times",
   "uid": "oZZHUUC7k",
-  "version": 4,
+  "version": 5,
   "weekStart": ""
 }

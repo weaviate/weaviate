@@ -39,14 +39,11 @@ func TestStartupMetrics_PhaseStarted(t *testing.T) {
 			m, _, _ := newTestStartupMetrics(t)
 
 			done := m.PhaseStarted(phase)
-			require.Equal(t, float64(1), testutil.ToFloat64(m.phaseActive.WithLabelValues(string(phase))),
-				"phase must be active while it runs")
 			require.Equal(t, float64(0), testutil.ToFloat64(m.phaseDuration.WithLabelValues(string(phase))),
 				"duration is only published once the phase ends")
 
 			time.Sleep(2 * time.Millisecond)
 			done()
-			require.Equal(t, float64(0), testutil.ToFloat64(m.phaseActive.WithLabelValues(string(phase))))
 			require.Greater(t, testutil.ToFloat64(m.phaseDuration.WithLabelValues(string(phase))), float64(0))
 
 			for _, other := range AllStartupPhases() {
@@ -210,7 +207,19 @@ func TestStartupMetrics_NilReceiverIsNoop(t *testing.T) {
 // rather than omitting series, and the set is fixed regardless of how many
 // collections or tenants the node holds.
 func TestStartupMetrics_PreRegisteredSeries(t *testing.T) {
-	m, _, _ := newTestStartupMetrics(t)
+	m, reg, _ := newTestStartupMetrics(t)
+
+	// Which phase is running was a gauge of its own once; a stuck node is
+	// still visible as a phase whose duration stays 0 while the process is
+	// up, and the logs name the phase, so its five series were not worth
+	// their cost.
+	t.Run("no phase active gauge", func(t *testing.T) {
+		families, err := reg.Gather()
+		require.NoError(t, err)
+		for _, family := range families {
+			require.NotEqual(t, "weaviate_startup_phase_active", family.GetName())
+		}
+	})
 
 	tests := []struct {
 		name      string
@@ -218,7 +227,6 @@ func TestStartupMetrics_PreRegisteredSeries(t *testing.T) {
 		want      int
 	}{
 		{name: "phase duration", collector: m.phaseDuration, want: len(AllStartupPhases())},
-		{name: "phase active", collector: m.phaseActive, want: len(AllStartupPhases())},
 		{name: "startup duration", collector: m.startupDuration, want: 1},
 		{name: "ready timestamp", collector: m.readyTimestamp, want: 1},
 		{name: "shard load", collector: m.shardLoad, want: 2},
