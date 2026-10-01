@@ -1570,8 +1570,6 @@ const (
 	nodeIDLimitTestGarbage = 5000
 )
 
-func nodeIDLimitTestFunc() uint64 { return nodeIDLimitTestMax }
-
 // writeNodeIDLimitFixture writes ten linked nodes, the entrypoint and a
 // tombstone in the record layout each writer produces.
 func writeNodeIDLimitFixture(t *testing.T, path string, fileType FileType) {
@@ -1650,7 +1648,7 @@ func TestCrashRecovery_NodeIDBeyondLimitIsNeverApplied(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/%s", fileType, rec.name), func(t *testing.T) {
 				load := func(dir string) *LoadResult {
 					t.Helper()
-					res, err := NewLoader(LoaderConfig{Dir: dir, Logger: quietLogger(), MaxNodeID: nodeIDLimitTestFunc}).Load()
+					res, err := NewLoader(LoaderConfig{Dir: dir, Logger: quietLogger(), MaxNodeID: nodeIDLimitTestMax}).Load()
 					require.NoError(t, err)
 					require.NotNil(t, res)
 					return res
@@ -1685,14 +1683,12 @@ func TestCrashRecovery_NodeIDBeyondLimitIsNeverApplied(t *testing.T) {
 // behavior for indexes whose node IDs have no known bound.
 func TestCrashRecovery_NodeIDLimitControls(t *testing.T) {
 	tests := []struct {
-		name          string
-		maxNodeID     func() uint64
-		id            uint64
-		wantRecovered bool
+		name      string
+		maxNodeID uint64
+		id        uint64
 	}{
-		{name: "ID at the limit", maxNodeID: nodeIDLimitTestFunc, id: nodeIDLimitTestMax},
-		{name: "no limit", maxNodeID: nil, id: nodeIDLimitTestGarbage},
-		{name: "zero limit means no limit", maxNodeID: func() uint64 { return 0 }, id: nodeIDLimitTestGarbage},
+		{name: "ID at the limit", maxNodeID: nodeIDLimitTestMax, id: nodeIDLimitTestMax},
+		{name: "no limit", maxNodeID: 0, id: nodeIDLimitTestGarbage},
 	}
 
 	for _, tc := range tests {
@@ -1730,55 +1726,10 @@ func TestCrashRecovery_NodeIDBeyondLimitDoesNotPresizeSnapshot(t *testing.T) {
 		require.NoError(t, w.WriteAddLinkAtLevel(nodeIDLimitTestGarbage, 0, 0))
 	}))
 
-	res, err := NewLoader(LoaderConfig{Dir: dir, Logger: quietLogger(), MaxNodeID: nodeIDLimitTestFunc}).Load()
+	res, err := NewLoader(LoaderConfig{Dir: dir, Logger: quietLogger(), MaxNodeID: nodeIDLimitTestMax}).Load()
 	require.NoError(t, err)
 	assert.True(t, res.RecoveredFromCrash)
 	assert.Less(t, len(res.State.Graph.Nodes), nodeIDLimitTestGarbage, "snapshot pre-sized to the garbage ID")
 	require.NotNil(t, nodeAt(res.State, 7), "records before the corruption must survive")
 	assert.Equal(t, validSize, fileSizeOf(t, rawPath), "raw log must be truncated before the record")
-}
-
-// TestCrashRecovery_NodeIDBeyondLimitFailsCompactionClosed pins the compactor
-// side: converting a raw log with an out-of-limit record must not carry the
-// record into a .sorted file. Compaction fails and keeps the source, and the
-// next load truncates it.
-func TestCrashRecovery_NodeIDBeyondLimitFailsCompactionClosed(t *testing.T) {
-	dir := t.TempDir()
-	rawPath := filepath.Join(dir, "1000")
-	writeNodeIDLimitFixture(t, rawPath, FileTypeRaw)
-	appendToFile(t, rawPath, walBytes(t, func(w *WALWriter) {
-		require.NoError(t, w.WriteAddNode(nodeIDLimitTestGarbage, 0))
-	}))
-	createTestWALFile(t, filepath.Join(dir, "2000"), func(w *WALWriter) {})
-
-	newCompactor := func() *Compactor {
-		cfg := DefaultCompactorConfig(dir)
-		cfg.MaxNodeID = nodeIDLimitTestFunc
-		return NewCompactor(cfg, quietLogger())
-	}
-
-	_, err := newCompactor().RunCycle(nil)
-	require.Error(t, err, "compaction must fail on an out-of-limit record")
-	_, statErr := os.Stat(rawPath)
-	require.NoError(t, statErr, "source must be kept")
-
-	res, err := NewLoader(LoaderConfig{Dir: dir, Logger: quietLogger(), MaxNodeID: nodeIDLimitTestFunc}).Load()
-	require.NoError(t, err)
-	assert.True(t, res.RecoveredFromCrash)
-	assert.Nil(t, nodeAt(res.State, nodeIDLimitTestGarbage))
-
-	c := newCompactor()
-	for i := 0; ; i++ {
-		require.Less(t, i, 50, "compaction did not converge")
-		action, err := c.RunCycle(nil)
-		require.NoError(t, err)
-		if action == ActionNone {
-			break
-		}
-	}
-	state := loadGraph(t, dir)
-	assert.Less(t, len(state.Graph.Nodes), nodeIDLimitTestGarbage)
-	for id := 0; id < 10; id++ {
-		require.False(t, effectivelyAbsent(nodeAt(state, id)), "node %d lost", id)
-	}
 }

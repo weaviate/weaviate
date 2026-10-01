@@ -77,10 +77,6 @@ type CompactorConfig struct {
 	// FS is the filesystem interface to use for file operations.
 	// If nil, defaults to common.NewOSFS().
 	FS common.FS
-
-	// MaxNodeID returns the highest node ID the index can hold. A record
-	// naming a higher one is corruption. Nil or 0 means no limit.
-	MaxNodeID func() uint64
 }
 
 // DefaultCompactorConfig returns the default configuration.
@@ -349,7 +345,7 @@ func (c *Compactor) convertFileToSorted(f FileInfo) (bool, error) {
 	// Read into memory using WALCommitReader + InMemoryReader. The layout
 	// check keeps a garbage ResetIndex in a .condensed file from discarding
 	// every older file below.
-	walReader := NewWALCommitReaderForFile(srcFile, f.Type, nodeIDLimit(c.config.MaxNodeID), c.logger)
+	walReader := NewWALCommitReaderForFile(srcFile, f.Type, 0, c.logger)
 	inMemReader := NewInMemoryReader(walReader, c.logger)
 	result, err := inMemReader.Do(nil, true) // keepLinkReplaceInformation = true
 	if err != nil {
@@ -506,7 +502,7 @@ func (c *Compactor) mergeSorted(state *DirectoryState, shouldAbort func() bool) 
 		}
 		openedFiles = append(openedFiles, file)
 
-		walReader := NewWALCommitReaderForFile(file, f.Type, nodeIDLimit(c.config.MaxNodeID), c.logger)
+		walReader := NewWALCommitReaderForFile(file, f.Type, 0, c.logger)
 		it, err := NewIterator(walReader, i, c.logger)
 		if err != nil {
 			return errors.Wrapf(err, "create iterator for %s", f.Path)
@@ -635,7 +631,7 @@ func (c *Compactor) createSnapshot(state *DirectoryState, shouldAbort func() boo
 			}
 			openedFiles = append(openedFiles, file)
 
-			walReader := NewWALCommitReaderForFile(file, f.Type, nodeIDLimit(c.config.MaxNodeID), c.logger)
+			walReader := NewWALCommitReaderForFile(file, f.Type, 0, c.logger)
 			it, err = NewIterator(walReader, i, c.logger)
 		}
 

@@ -43,7 +43,7 @@ func (h *hnsw) init(cfg Config) error {
 	// Create commit logger for future writes. The logger unconditionally
 	// creates a new raw file and never appends to an existing one — see
 	// createNewCommitFile's comment for why.
-	cl, err := cfg.MakeCommitLoggerThunk(WithMaxNodeID(h.maxNodeID))
+	cl, err := cfg.MakeCommitLoggerThunk()
 	if err != nil {
 		return errors.Wrap(err, "create commit logger")
 	}
@@ -107,7 +107,7 @@ func (h *hnsw) restoreFromDisk() error {
 	loader := compact.NewLoader(compact.LoaderConfig{
 		Dir:       dir,
 		Logger:    h.logger,
-		MaxNodeID: h.maxNodeID,
+		MaxNodeID: h.maxNodeID(),
 	})
 
 	loadResult, err := loader.Load()

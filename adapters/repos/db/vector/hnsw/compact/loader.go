@@ -42,9 +42,10 @@ type LoaderConfig struct {
 	// If nil, defaults to common.NewOSFS().
 	FS common.FS
 
-	// MaxNodeID returns the highest node ID the index can hold. A record
-	// naming a higher one is corruption. Nil or 0 means no limit.
-	MaxNodeID func() uint64
+	// MaxNodeID is the highest node ID the index can hold. A record naming a
+	// higher one is corruption, and the file is truncated before it. 0 means no
+	// limit.
+	MaxNodeID uint64
 }
 
 // Loader reads all commit log files at startup and returns the accumulated
@@ -269,7 +270,7 @@ func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent
 	}
 	defer file.Close()
 
-	walReader := NewWALCommitReaderForFile(file, f.Type, nodeIDLimit(l.config.MaxNodeID), l.config.Logger)
+	walReader := NewWALCommitReaderForFile(file, f.Type, l.config.MaxNodeID, l.config.Logger)
 	inMemReader := NewInMemoryReader(walReader, l.config.Logger)
 
 	// keepLinkReplaceInfo=false at startup since we're building final state
@@ -345,14 +346,6 @@ func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent
 	return result, false, nil
 }
 
-// nodeIDLimit evaluates a MaxNodeID config value; nil means no limit.
-func nodeIDLimit(maxNodeID func() uint64) uint64 {
-	if maxNodeID == nil {
-		return 0
-	}
-	return maxNodeID()
-}
-
 // truncateToLastValidRecord truncates a corrupt WAL file back to the end of its
 // last fully decoded commit (walReader.LastValidOffset), removing a torn or
 // garbage-appended tail. After this the file is a valid, shorter WAL again, so a
@@ -392,7 +385,7 @@ func (l *Loader) maxNodeIDInWALs(files []FileInfo) uint64 {
 			continue
 		}
 
-		reader := NewWALCommitReaderForFile(file, f.Type, nodeIDLimit(l.config.MaxNodeID), l.config.Logger)
+		reader := NewWALCommitReaderForFile(file, f.Type, l.config.MaxNodeID, l.config.Logger)
 		for {
 			c, err := reader.ReadNextCommit()
 			if err != nil {
