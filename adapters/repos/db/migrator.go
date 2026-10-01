@@ -995,6 +995,10 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 }
 
 func (m *Migrator) RecountProperties(ctx context.Context) error {
+	// before that the indices are not all there, and none would pass for recounted
+	if !m.db.StartupComplete() {
+		return errors.New("recount properties: db has not completed startup")
+	}
 	count := 0
 	m.logger.
 		WithField("action", "recount").
