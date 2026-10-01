@@ -89,6 +89,11 @@ func NewReplicationClient(httpClient *http.Client) (*replicationClient, error) {
 	}, nil
 }
 
+// Unhealthy implements router types.ReplicaHealth, so routing can order a refused replica last
+func (c *replicationClient) Unhealthy(hostAddr string) bool {
+	return c.breakers.unhealthy(hostAddr)
+}
+
 // FetchObject fetches one object it exits
 func (c *replicationClient) FetchObject(ctx context.Context, host, index,
 	shard string, id strfmt.UUID, selectProps search.SelectProperties,

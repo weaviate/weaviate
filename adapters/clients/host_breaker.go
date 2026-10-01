@@ -97,6 +97,17 @@ func (b *hostBreakers) allow(host string) error {
 	return fmt.Errorf("%w: %s (retrying in %s)", ErrHostCircuitOpen, host, remaining.Round(time.Millisecond))
 }
 
+// unhealthy reports whether this host is currently refused; unlike allow it never half-opens
+func (b *hostBreakers) unhealthy(host string) bool {
+	b.mu.RLock()
+	hb := b.hosts[host]
+	b.mu.RUnlock()
+	if hb == nil {
+		return false
+	}
+	return hb.breaker.State() == circuitbreaker.OpenState && hb.breaker.RemainingDelay() > 0
+}
+
 // observe records a finished call's outcome; errors from the caller giving up are ignored
 func (b *hostBreakers) observe(ctx context.Context, host string, err error) {
 	switch {

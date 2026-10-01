@@ -307,3 +307,29 @@ func TestReplicaClient_BreakerLetsRecoveredHostBackIn(t *testing.T) {
 	require.NoError(t, err, "a recovered host must be picked up again after the cool-off")
 	assert.EqualValues(t, hostBreakerThreshold+1, requests.Load())
 }
+
+// unhealthy must not consume the probe allow hands out after the cool-off.
+func TestHostBreakerUnhealthyHasNoSideEffect(t *testing.T) {
+	t.Parallel()
+
+	const host = "h1:7001"
+	b := newHostBreakers()
+	b.coolOff = 20 * time.Millisecond
+
+	require.False(t, b.unhealthy(host), "an untracked host is not unhealthy")
+
+	unavailable := &HTTPError{Code: http.StatusServiceUnavailable}
+	for i := 0; i < hostBreakerThreshold; i++ {
+		b.observe(context.Background(), host, unavailable)
+	}
+	require.True(t, b.unhealthy(host), "a refused host must report unhealthy")
+
+	for i := 0; i < 5; i++ {
+		require.True(t, b.unhealthy(host))
+	}
+	require.ErrorIs(t, b.allow(host), ErrHostCircuitOpen, "the cool-off must still be in force")
+
+	time.Sleep(b.coolOff + 10*time.Millisecond)
+	require.False(t, b.unhealthy(host), "past the cool-off the host is no longer refused")
+	require.NoError(t, b.allow(host), "and the probe allow hands out is still available")
+}
