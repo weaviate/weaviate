@@ -455,3 +455,36 @@ func TestCleanStaleMigrationDirs_UnreadableSentinelKeepsTrackerDir(t *testing.T)
 		"tracker dir %s must survive: an unclassifiable generation may be a "+
 			"completed migration awaiting deferred finalize", tracker)
 }
+
+// TestHasStalePartialReindexState_UnreadableSentinelFailsOpen pins the gate
+// half of #12647: a tracker whose completion can't be read must send the shard
+// to hydration, where the sweep refuses, rather than let the gate skip it.
+func TestHasStalePartialReindexState_UnreadableSentinelFailsOpen(t *testing.T) {
+	tracker := "enable_filterable_category_1"
+
+	tests := []struct {
+		name    string
+		sidecar string
+	}{
+		{name: "a sidecar to classify", sidecar: "property_category__enable_filterable_ingest_1"},
+		{name: "only the tracker dir"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			lsm := t.TempDir()
+			mkTrackerDir(t, lsm, tracker, "started.mig", "swapped.mig")
+			require.NoError(t, os.Symlink("tidied.mig",
+				filepath.Join(lsm, ".migrations", tracker, "tidied.mig")))
+			if tc.sidecar != "" {
+				mkSidecarDir(t, lsm, tc.sidecar)
+			}
+
+			stale, finalizable := hasStalePartialReindexState(lsm, "category", "filterable", nil, nil)
+
+			require.True(t, stale,
+				"a generation the gate can't classify must not read as clean")
+			require.False(t, finalizable)
+		})
+	}
+}

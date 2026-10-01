@@ -273,9 +273,10 @@ func (i *Index) cleanStalePartialReindexState(
 // tracker naming other properties leaves this reporting clean and skipping
 // the shard.
 //
-// Failing open costs only a hydration, except on an unlistable .migrations:
-// that hydration then finds no completed migration to preserve and removes
-// sidecars a deferred finalize still needs.
+// Failing open forces a hydration. Where .migrations or a sentinel can't be
+// read, the sweep on that shard then fails the shard's cleanup with
+// [ErrCleanupShardFailed] rather than remove sidecars it can't classify
+// (#12647).
 //
 // A FROZEN (offload) transition removes the shard from the map before it
 // removes files, so a mid-transition read either finds an emptying
