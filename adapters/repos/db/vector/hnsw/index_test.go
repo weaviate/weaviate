@@ -13,11 +13,13 @@ package hnsw
 
 import (
 	"context"
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -574,6 +576,13 @@ func writeRawCommitLogForTest(t *testing.T, cfg Config, tail func(w *compact.WAL
 	return path, st.Size()
 }
 
+// writeDocIDCounterForTest writes the shard's document-ID counter file, as
+// indexcounter.Counter persists it, into dir.
+func writeDocIDCounterForTest(t *testing.T, dir string, counter uint64) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "indexcount"), binary.LittleEndian.AppendUint64(nil, counter), 0o644))
+}
+
 // TestRestoreFromDisk_NodeIDBeyondDocIDCounter pins that an index whose node
 // IDs are document IDs never loads a node far beyond the shard's document-ID
 // counter: corruption decodes such IDs, and sizing the node index to one ran
@@ -584,18 +593,22 @@ func TestRestoreFromDisk_NodeIDBeyondDocIDCounter(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		counter       func() uint64
+		counterFile   bool
+		counter       uint64
 		wantTruncated bool
 	}{
-		{name: "beyond the counter and its slack", counter: func() uint64 { return counter }, wantTruncated: true},
-		{name: "zero counter means no limit", counter: func() uint64 { return 0 }},
+		{name: "beyond the counter and its slack", counterFile: true, counter: counter, wantTruncated: true},
+		{name: "zero counter means no limit", counterFile: true, counter: 0},
+		{name: "no counter file means no limit"},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := createVectorHnswIndexTestConfig()
 			cfg.RootPath = t.TempDir()
-			cfg.DocIDCounter = tc.counter
+			if tc.counterFile {
+				writeDocIDCounterForTest(t, cfg.RootPath, tc.counter)
+			}
 			path, validSize := writeRawCommitLogForTest(t, cfg, func(w *compact.WALWriter) {
 				require.NoError(t, w.WriteAddNode(garbage, 0))
 			})
@@ -622,24 +635,28 @@ func TestRestoreFromDisk_NodeIDBeyondDocIDCounter(t *testing.T) {
 }
 
 func TestMaxNodeID(t *testing.T) {
-	counter := func() uint64 { return 10 }
 	tests := []struct {
-		name         string
-		docIDCounter func() uint64
-		multivector  bool
-		muvera       bool
-		want         uint64
+		name        string
+		counterFile []byte
+		multivector bool
+		muvera      bool
+		want        uint64
 	}{
-		{name: "no counter", want: 0},
-		{name: "zero counter", docIDCounter: func() uint64 { return 0 }, want: 0},
-		{name: "single vector", docIDCounter: counter, want: 10 + docIDCounterSlack},
-		{name: "multivector, node IDs are not document IDs", docIDCounter: counter, multivector: true, want: 0},
-		{name: "muvera, node IDs are document IDs", docIDCounter: counter, multivector: true, muvera: true, want: 10 + docIDCounterSlack},
+		{name: "no counter file", want: 0},
+		{name: "zero counter", counterFile: binary.LittleEndian.AppendUint64(nil, 0), want: 0},
+		{name: "unreadable counter", counterFile: []byte{1, 2, 3}, want: 0},
+		{name: "single vector", counterFile: binary.LittleEndian.AppendUint64(nil, 10), want: 10 + docIDCounterSlack},
+		{name: "multivector, node IDs are not document IDs", counterFile: binary.LittleEndian.AppendUint64(nil, 10), multivector: true, want: 0},
+		{name: "muvera, node IDs are document IDs", counterFile: binary.LittleEndian.AppendUint64(nil, 10), multivector: true, muvera: true, want: 10 + docIDCounterSlack},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var h hnsw
-			h.docIDCounter = tc.docIDCounter
+			h.rootPath = t.TempDir()
+			h.logger, _ = test.NewNullLogger()
+			if tc.counterFile != nil {
+				require.NoError(t, os.WriteFile(filepath.Join(h.rootPath, "indexcount"), tc.counterFile, 0o644))
+			}
 			h.multivector.Store(tc.multivector)
 			h.muvera.Store(tc.muvera)
 			assert.Equal(t, tc.want, h.maxNodeID())

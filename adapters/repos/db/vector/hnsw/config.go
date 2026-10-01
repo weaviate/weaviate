@@ -47,10 +47,6 @@ type Config struct {
 	AcornFilterRatio                  float64
 	MakeBucketOptions                 lsmkv.MakeBucketOptions
 
-	// DocIDCounter returns the shard's next document ID. Set it when node IDs
-	// are document IDs: loading then treats a higher node ID as corruption.
-	DocIDCounter func() uint64
-
 	// metadata for monitoring
 	ShardName string
 	ClassName string

@@ -13,6 +13,7 @@ package dynamic
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
@@ -1609,9 +1610,9 @@ func TestDynamicStaleCommitLogCleanedOnInit(t *testing.T) {
 }
 
 // TestDynamicUpgradedIndexDropsNodeIDBeyondDocIDCounter pins that the HNSW index
-// a dynamic index loads after an upgrade gets the shard's document-ID counter,
-// so a node ID far beyond it is truncated instead of sizing the node index
-// (weaviate/0-weaviate-issues#649).
+// a dynamic index loads after an upgrade is bounded by the shard's document-ID
+// counter, so a node ID far beyond it is truncated instead of sizing the node
+// index (weaviate/0-weaviate-issues#649).
 func TestDynamicUpgradedIndexDropsNodeIDBeyondDocIDCounter(t *testing.T) {
 	ctx := context.Background()
 	const (
@@ -1653,9 +1654,11 @@ func TestDynamicUpgradedIndexDropsNodeIDBeyondDocIDCounter(t *testing.T) {
 			SharedDB:                     db,
 			MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 			AsyncIndexingEnabled:         true,
-			DocIDCounter:                 func() uint64 { return count },
 		}
 	}
+
+	// The shard's document-ID counter sits in the index's root directory.
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "indexcount"), binary.LittleEndian.AppendUint64(nil, count), 0o644))
 
 	dyn, err := New(makeConfig(), uc, testinghelpers.NewDummyStore(t))
 	require.NoError(t, err)
