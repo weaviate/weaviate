@@ -20,6 +20,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -195,7 +196,38 @@ func TestAddBatch_WrongDimensionsAfterInitialBatch(t *testing.T) {
 
 	err = index.AddBatch(context.Background(), batch2IDs, batch2Vectors)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "vector lengths don't match")
+	// the dimension mismatch is now rejected up front by ValidateBeforeInsert
+	// (before addOne can persist the node), not in the neighbor search
+	assert.True(t, errors.Is(err, common.ErrWrongDimensions), "unexpected error: %v", err)
+	// no ghost node may be left behind by the failed insert
+	assert.False(t, index.ContainsDoc(3), "ghost node detected: ContainsDoc(3) == true")
+	assert.False(t, index.ContainsDoc(4), "ghost node detected: ContainsDoc(4) == true")
+	// the previously inserted batch is untouched
+	assert.True(t, index.ContainsDoc(1))
+	assert.True(t, index.ContainsDoc(2))
+}
+
+// TestAddBatch_WrongDimensionAddLeavesNoGhostNode is a regression test for
+// https://github.com/weaviate/weaviate/issues/12986: a wrong-dimension Add
+// used to return an error while leaving the failed node visible via
+// ContainsDoc, because the dimension mismatch was only detected in the
+// neighbor-search phase, after addOne had already persisted the node.
+func TestAddBatch_WrongDimensionAddLeavesNoGhostNode(t *testing.T) {
+	index := testHNSW(t)
+	defer index.Shutdown(context.Background())
+
+	require.NoError(t, index.AddBatch(context.Background(),
+		[]uint64{1, 2},
+		[][]float32{{1, 0, 0, 0}, {0, 1, 0, 0}},
+	))
+
+	err := index.Add(context.Background(), 3, []float32{0, 0, 1})
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, common.ErrWrongDimensions), "unexpected error: %v", err)
+
+	assert.False(t, index.ContainsDoc(3), "ghost node detected: ContainsDoc(3) == true")
+	assert.True(t, index.ContainsDoc(1))
+	assert.True(t, index.ContainsDoc(2))
 }
 
 func TestAddBatch_MemoryAllocationFailure(t *testing.T) {
