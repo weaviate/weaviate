@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/schema"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	wsync "github.com/weaviate/weaviate/entities/sync"
@@ -543,7 +544,9 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 // ReplacedBucketDirSuffix names the dir the displaced bucket sits at between
 // [Store.ReplaceBuckets]' two renames. A crash in that window leaves it on
 // disk, where only the per-property cleanup sweep in package db picks it up.
-const ReplacedBucketDirSuffix = "___del"
+// Aliases [schema.InternalReplacedBucketSuffix], which the property-name check
+// reserves so no property can own a bucket dir of this shape.
+const ReplacedBucketDirSuffix = schema.InternalReplacedBucketSuffix
 
 // replaceBucket drains the displaced bucket and swaps the two directories on
 // disk. Caller must hold replacementBucket.flushLock (flushLock OUTER →
