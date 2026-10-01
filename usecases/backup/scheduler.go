@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
@@ -191,16 +192,12 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	selection, err := s.validateBackupRequest(ctx, store, req)
+	selection, err := s.validateBackupRequest(ctx, store, pr, req)
 	if err != nil {
-		return nil, backup.NewErrUnprocessable(err)
-	}
-
-	if !explicitInclude {
-		selection.classes, err = s.filterBackupableClasses(ctx, pr, authorization.CREATE, selection.classes)
-		if err != nil {
+		if errors.As(err, &authzerrors.Forbidden{}) {
 			return nil, err
 		}
+		return nil, backup.NewErrUnprocessable(err)
 	}
 
 	// An omitted selector backs up the whole store. A caller who may not do that
@@ -286,29 +283,23 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		err = fmt.Errorf("no backup backend %q: %w, did you enable the right module?", req.Backend, err)
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	meta, err := s.validateRestoreRequest(ctx, store, req)
+	meta, err := s.validateRestoreRequest(ctx, store, pr, req)
 	if err != nil {
 		if errors.Is(err, errMetaNotFound) {
 			return nil, backup.NewErrNotFound(err)
 		}
-		return nil, backup.NewErrUnprocessable(err)
-	}
-
-	if !explicitInclude {
-		allowed, err := s.filterBackupableClasses(ctx, pr, authorization.CREATE, meta.Classes())
-		if err != nil {
+		if errors.As(err, &authzerrors.Forbidden{}) {
 			return nil, err
 		}
-		meta.Include(allowed)
+		return nil, backup.NewErrUnprocessable(err)
 	}
 
 	schema, userBlob, rbacBlob, err := s.fetchSchema(ctx, req.Backend, req.Bucket, req.Path, meta)
 	if err != nil {
 		return nil, err
 	}
-	// The selector matched nothing at backup time. A node that ignored the
-	// request-level skip flag uploaded a whole-cluster blob; applying it would
-	// replace every user or role on this cluster.
+	// A node ignoring a skip flag can upload an excluded snapshot.
+	// Applying that snapshot would replace this cluster's users or roles.
 	if meta.SkipUsers && len(userBlob) > 0 {
 		s.logger.WithField("action", "try_restore").WithField("backup_id", req.ID).
 			Warn("discarding the user snapshot: 'includeUsers' matched no user at backup time, a participant uploaded one anyway")
@@ -400,19 +391,26 @@ func (s *Scheduler) filterBackupableClasses(ctx context.Context, pr *models.Prin
 	if len(classes) == 0 {
 		return classes, nil
 	}
-
+	resources := make([]string, len(classes))
+	for i, c := range classes {
+		resources[i] = authorization.Backups(c)[0]
+	}
+	permitted, err := s.permittedBackupResources(ctx, pr, verb, resources)
+	if err != nil {
+		return nil, backup.NewErrUnprocessable(err)
+	}
 	allowed := make([]string, 0, len(classes))
-	for _, c := range classes {
-		if err := s.authorizer.Authorize(ctx, pr, verb, authorization.Backups(c)...); err != nil {
-			if errors.As(err, &authzerrors.Forbidden{}) {
-				continue
-			}
-			return nil, backup.NewErrUnprocessable(err)
+	for i, c := range classes {
+		if permitted[resources[i]] {
+			allowed = append(allowed, c)
 		}
-		allowed = append(allowed, c)
 	}
 	if len(allowed) == 0 {
-		return nil, authzerrors.NewForbidden(pr, verb, authorization.Backups(classes...)...)
+		// Authorize writes one audit denial, for the wildcard resource the error names.
+		if err := s.authorizer.Authorize(ctx, pr, verb, authorization.Backups()...); err != nil && !errors.As(err, &authzerrors.Forbidden{}) {
+			return nil, backup.NewErrUnprocessable(err)
+		}
+		return nil, backupsForbidden(pr, verb)
 	}
 	return allowed, nil
 }
@@ -449,7 +447,7 @@ func (s *Scheduler) authorizeWholeStore(ctx context.Context, pr *models.Principa
 func allLiteralIDs(include []string) (ids []string, ok bool) {
 	ids = make([]string, 0, len(include))
 	for _, id := range include {
-		if isWildcardPattern(id) {
+		if isWildcard(id) {
 			return nil, false
 		}
 		ids = append(ids, id)
@@ -509,9 +507,49 @@ func (s *Scheduler) canonicalIDs(ids []string) []string {
 	return slices.Compact(out)
 }
 
-// authorizeBackupByID authorizes the caller against the classes, users and
-// roles recorded in the backup meta. A missing meta is a no-op (the 404 may
-// leak the id); any other backend error fails closed.
+// permittedBackupResources returns which of resources pr may act on with verb,
+// through FilterAuthorizedResources, which writes no denial to the audit log.
+// adminlist refuses the whole list with Forbidden, which permits none of it.
+func (s *Scheduler) permittedBackupResources(ctx context.Context, pr *models.Principal, verb string, resources []string) (map[string]bool, error) {
+	permitted := make(map[string]bool, len(resources))
+	if len(resources) == 0 {
+		return permitted, nil
+	}
+	allowed, err := s.authorizer.FilterAuthorizedResources(ctx, pr, verb, resources...)
+	if err != nil && !errors.As(err, &authzerrors.Forbidden{}) {
+		return nil, err
+	}
+	for _, r := range allowed {
+		permitted[r] = true
+	}
+	return permitted, nil
+}
+
+// authorizeBackupClasses authorizes verb on classes read from a backup
+// descriptor and denies with backupsForbidden.
+func (s *Scheduler) authorizeBackupClasses(ctx context.Context, pr *models.Principal, verb string, classes []string) error {
+	err := s.authorizer.Authorize(ctx, pr, verb, authorization.Backups(classes...)...)
+	if errors.As(err, &authzerrors.Forbidden{}) {
+		return backupsForbidden(pr, verb)
+	}
+	return err
+}
+
+// backupsForbidden builds the Forbidden error for classes the caller did not
+// name. It names the wildcard resource, since the caller may not see them, and
+// the action a role grants, such as read_backups.
+func backupsForbidden(pr *models.Principal, verb string) error {
+	resource := authorization.Backups()[0]
+	action := verb
+	if perm, err := conv.PathToPermission(verb, resource); err == nil && perm.Action != nil {
+		action = *perm.Action
+	}
+	return authzerrors.NewForbidden(pr, action, resource)
+}
+
+// authorizeBackupByID authorizes the caller against the classes recorded in the
+// backup meta. A missing meta is a no-op (the 404 may leak the id); any other
+// backend error fails closed.
 func (s *Scheduler) authorizeBackupByID(ctx context.Context, principal *models.Principal, verb string,
 	store coordStore, filename, overrideBucket, overridePath string,
 ) error {
@@ -525,7 +563,7 @@ func (s *Scheduler) authorizeBackupByID(ctx context.Context, principal *models.P
 		}
 		return err
 	}
-	if err := s.authorizer.Authorize(ctx, principal, verb, authorization.Backups(meta.Classes()...)...); err != nil {
+	if err := s.authorizeBackupClasses(ctx, principal, verb, meta.Classes()); err != nil {
 		return err
 	}
 	return s.authorizeResources(ctx, principal, verb, s.descriptorPrincipalResources(meta))
@@ -637,7 +675,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 			classes = m.Classes()
 		}
 	}
-	if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups(classes...)...); err != nil {
+	if err := s.authorizeBackupClasses(ctx, principal, authorization.DELETE, classes); err != nil {
 		return err
 	}
 	if err := s.authorizeResources(ctx, principal, authorization.DELETE, s.descriptorPrincipalResources(meta)); err != nil {
@@ -706,7 +744,7 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 			classes = backupMeta.Classes()
 		}
 	}
-	if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups(classes...)...); err != nil {
+	if err := s.authorizeBackupClasses(ctx, principal, authorization.DELETE, classes); err != nil {
 		return err
 	}
 	if err := s.authorizeResources(ctx, principal, authorization.DELETE, s.descriptorPrincipalResources(authMeta)); err != nil {
@@ -934,18 +972,18 @@ func coordBackend(provider BackupBackendProvider, backend, id, overrideBucket, o
 	return cs, nil
 }
 
-// backupSelections is what a backup request resolves to. Nil users and roles
-// keep the whole-cluster user and RBAC snapshots.
+// backupSelections carries resolved names and snapshot exclusions. Empty names
+// keep the full backend snapshot unless the corresponding skip flag is set.
 type backupSelections struct {
 	classes, users, roles []string
-	// skipUsers/skipRoles: the selector list was given but matched nothing,
-	// so the participant must upload no snapshot rather than the default one.
+	// Explicit empty lists and unmatched wildcards exclude the snapshot.
 	skipUsers, skipRoles bool
 }
 
-// validateBackupRequest resolves the request into concrete classes, users, and
-// roles. Users and roles stay empty unless includeUsers/includeRoles were given.
-func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore, req *BackupRequest) (selections backupSelections, err error) {
+// validateBackupRequest resolves the request into classes, users, and roles.
+// An empty or wildcard Include selects from the classes pr may back up, and no
+// error names another. Users and roles stay empty without includeUsers/includeRoles.
+func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore, pr *models.Principal, req *BackupRequest) (selections backupSelections, err error) {
 	if !store.backend.IsExternal() && s.backupper.nodeResolver.NodeCount() > 1 {
 		return selections, errLocalBackendDBRO
 	}
@@ -969,18 +1007,24 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 		return selections, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
 	}
 
-	// Get all available classes first for wildcard expansion
-	allClasses := s.backupper.selector.ListClasses(ctx)
+	candidates := s.backupper.selector.ListClasses(ctx)
+	// The authorizer checked Include's pattern text, not every class a wildcard
+	// matches, so a wildcard expands only over classes pr may back up.
+	if len(req.Include) == 0 || slices.ContainsFunc(req.Include, isWildcard) {
+		if candidates, err = s.filterBackupableClasses(ctx, pr, authorization.CREATE, candidates); err != nil {
+			return selections, err
+		}
+	}
 
 	// Expand wildcards in Include list
-	include := expandWildcards(req.Include, allClasses)
+	include := expandWildcards(req.Include, candidates)
 
 	// Expand wildcards in Exclude list
-	exclude := expandWildcards(req.Exclude, allClasses)
+	exclude := expandWildcards(req.Exclude, candidates)
 
 	classes := include
 	if len(req.Include) == 0 {
-		classes = allClasses
+		classes = candidates
 	}
 	classes = filterClasses(classes, exclude)
 	if len(classes) > 0 {
@@ -993,19 +1037,25 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	if err != nil {
 		return selections, err
 	}
-	selections.skipUsers = len(req.IncludeUsers) > 0 && len(users) == 0
+	selections.skipUsers = req.IncludeUsers != nil && len(users) == 0
 
 	roles, err := s.resolveRoles(req.IncludeRoles)
 	if err != nil {
 		return selections, err
 	}
-	selections.skipRoles = len(req.IncludeRoles) > 0 && len(roles) == 0
+	selections.skipRoles = req.IncludeRoles != nil && len(roles) == 0
 
 	if len(classes) == 0 && len(users) == 0 && len(roles) == 0 {
-		if len(req.Include) > 0 && len(include) == 0 {
-			return selections, fmt.Errorf("backup selects no collections, users, or roles: class list 'include' %v matches no class", req.Include)
+		hasIdentities, err := s.hasDefaultIdentities(req)
+		if err != nil {
+			return selections, err
 		}
-		return selections, fmt.Errorf("backup selects no collections, users, or roles: available collections: %v", allClasses)
+		if !hasIdentities {
+			if len(req.Include) > 0 && len(include) == 0 {
+				return selections, fmt.Errorf("backup selects no collections, users, or roles: class list 'include' %v matches no class", req.Include)
+			}
+			return selections, fmt.Errorf("backup selects no collections, users, or roles: available collections: %v", candidates)
+		}
 	}
 
 	if err = s.checkIfBackupExists(ctx, store, req); err != nil {
@@ -1023,11 +1073,11 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 
 	// The response does not report users or roles, so a selector that matched
 	// nothing is only visible here.
-	if selections.skipUsers {
+	if selections.skipUsers && len(req.IncludeUsers) > 0 {
 		s.logger.WithField("action", "try_backup").WithField("backup_id", req.ID).
 			Warnf("'includeUsers' %v matches no dynamic user, backing up none", req.IncludeUsers)
 	}
-	if selections.skipRoles {
+	if selections.skipRoles && len(req.IncludeRoles) > 0 {
 		s.logger.WithField("action", "try_backup").WithField("backup_id", req.ID).
 			Warnf("'includeRoles' %v matches no role, backing up none", req.IncludeRoles)
 	}
@@ -1039,11 +1089,26 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	return
 }
 
-// resolveUsers expands includeUsers selectors. Empty input → nil (ordinary
-// backup; whole-cluster snapshot is the participant's default).
+// hasDefaultIdentities checks omitted selectors without turning a full backend
+// snapshot into a filtered one. Full RBAC snapshots include built-in roles.
+func (s *Scheduler) hasDefaultIdentities(req *BackupRequest) (bool, error) {
+	if req.IncludeUsers == nil && s.userLister != nil && len(s.userLister.ListAllUsers()) > 0 {
+		return true, nil
+	}
+	if req.IncludeRoles == nil && s.roleLister != nil {
+		roles, err := s.roleLister.ListAllRoles()
+		if err != nil {
+			return false, fmt.Errorf("list all roles: %w", err)
+		}
+		return len(roles) > 0, nil
+	}
+	return false, nil
+}
+
+// resolveUsers preserves nil and empty inputs without consulting the backend.
 func (s *Scheduler) resolveUsers(includeUsers []string) ([]string, error) {
 	if len(includeUsers) == 0 {
-		return nil, nil
+		return includeUsers, nil
 	}
 	if s.userLister == nil {
 		return nil, errors.New("'includeUsers' was set but dynamic DB users are not enabled")
@@ -1053,8 +1118,8 @@ func (s *Scheduler) resolveUsers(includeUsers []string) ([]string, error) {
 
 // resolveUserSelectors mirrors class-selector semantics: '*'/'?' wildcards,
 // dedup, exact selectors must exist. Wildcards matching nothing yield an empty
-// result, which the caller turns into "back up no users". Absent includeUsers
-// is the caller's job and is not equivalent to "all".
+// result, which the caller turns into "back up no users". The caller handles
+// omitted selectors separately to preserve full backend snapshots.
 func resolveUserSelectors(includeUsers, allUsers []string) ([]string, error) {
 	if dup := findDuplicate(includeUsers); dup != "" {
 		return nil, fmt.Errorf("user list 'includeUsers' contains duplicate: %s", dup)
@@ -1074,11 +1139,10 @@ func resolveUserSelectors(includeUsers, allUsers []string) ([]string, error) {
 	return users, nil
 }
 
-// resolveRoles expands includeRoles selectors. Empty input returns nil, leaving
-// the participant on its default of a full RBAC snapshot.
+// resolveRoles preserves nil and empty inputs without consulting the backend.
 func (s *Scheduler) resolveRoles(includeRoles []string) ([]string, error) {
 	if len(includeRoles) == 0 {
-		return nil, nil
+		return includeRoles, nil
 	}
 	if s.roleLister == nil {
 		return nil, errors.New("'includeRoles' was set but RBAC is not enabled")
@@ -1143,7 +1207,10 @@ func (s *Scheduler) checkIfBackupExists(ctx context.Context, store coordStore, r
 	return nil
 }
 
-func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore, req *BackupRequest) (*backup.DistributedBackupDescriptor, error) {
+// validateRestoreRequest reads and checks the backup meta and narrows it to the
+// classes to restore. An empty or wildcard Include selects from the classes pr
+// may restore, and no error names another class.
+func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore, pr *models.Principal, req *BackupRequest) (*backup.DistributedBackupDescriptor, error) {
 	if !store.backend.IsExternal() && s.restorer.nodeResolver.NodeCount() > 1 {
 		return nil, errLocalBackendDBRO
 	}
@@ -1162,6 +1229,14 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 			return nil, fmt.Errorf("backup id %q does not exist: %w: %w", req.ID, notFoundErr, errMetaNotFound)
 		}
 		return nil, fmt.Errorf("find backup %s: %w", destPath, err)
+	}
+	// Authorize before the checks below, whose errors describe the backup.
+	cs := meta.Classes()
+	if (len(req.Include) == 0 || slices.ContainsFunc(req.Include, isWildcard)) && len(cs) > 0 {
+		if cs, err = s.filterBackupableClasses(ctx, pr, authorization.CREATE, cs); err != nil {
+			return nil, err
+		}
+		meta.Include(cs)
 	}
 	if meta.ID != req.ID {
 		return nil, fmt.Errorf("wrong backup file: restore request asked for %q but the descriptor at %q reports its ID as %q (someone placed metadata from a different backup into this slot, or the backup_config.json was overwritten by an aborted operation; remove the slot and retry with the original backup ID)",
@@ -1187,7 +1262,6 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 		return nil, fmt.Errorf("resolve base backup chain: %w", err)
 	}
 
-	cs := meta.Classes()
 	if len(cs) == 0 {
 		if len(req.Include) > 0 {
 			return nil, fmt.Errorf("class-less backup cannot be restored with 'include': %v", req.Include)
@@ -1215,10 +1289,12 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	// Expand wildcards in Exclude list against backup's classes
 	exclude := expandWildcards(req.Exclude, cs)
 
-	if len(include) > 0 {
+	if len(req.Include) > 0 {
+		if len(include) == 0 {
+			return nil, fmt.Errorf("class list 'include' %v matches no class in the backup", req.Include)
+		}
 		if first := meta.AllExist(include); first != "" {
-			err = fmt.Errorf("class %s doesn't exist in the backup, but does have %v: ", first, cs)
-			return nil, err
+			return nil, fmt.Errorf("class %s doesn't exist in the backup", first)
 		}
 		meta.Include(include)
 	} else {
@@ -1506,10 +1582,9 @@ func matchesWildcard(pattern, className string) bool {
 	return matched
 }
 
-// isWildcardPattern reports whether a selector is a pattern that expandWildcards
-// matches against candidates, rather than a literal it passes through.
-func isWildcardPattern(selector string) bool {
-	return strings.ContainsAny(selector, "*?")
+// isWildcard reports whether expandWildcards expands pattern against candidates.
+func isWildcard(pattern string) bool {
+	return strings.ContainsAny(pattern, "*?")
 }
 
 // expandWildcards expands patterns (which may contain wildcards) against a list of candidate classes.
@@ -1523,7 +1598,8 @@ func expandWildcards(patterns, candidates []string) []string {
 	seen := make(map[string]struct{}, len(patterns))
 
 	for _, pattern := range patterns {
-		if isWildcardPattern(pattern) {
+		// Check if pattern contains wildcard characters
+		if isWildcard(pattern) {
 			// Expand wildcard pattern against candidates
 			for _, candidate := range candidates {
 				if matchesWildcard(pattern, candidate) {

@@ -97,6 +97,8 @@ func TestShardFindUUIDs(t *testing.T) {
 		wantWarnSkipped   int
 		wantErr           error
 		wantErrText       string
+		// earlierCalls is how many calls run on the same shard before the one checked.
+		earlierCalls int
 	}
 	cases := []testCase{
 		{name: "no match", other: 5, wantCount: 0},
@@ -117,6 +119,10 @@ func TestShardFindUUIDs(t *testing.T) {
 			// The only case resolved from a flushed segment, exercising the
 			// worker read buffer.
 			name: "matches resolved from a flushed segment", matching: 600, other: 5, flushObjects: true, wantCount: 600,
+		},
+		{
+			name: "an unreadable row seen by repeated calls is warned about once", matching: 10,
+			unreadable: 1, earlierCalls: 2, wantCount: 9, wantWarnSkipped: 1,
 		},
 		{name: "cancelled context", matching: 5, cancelCtx: true, wantErr: context.Canceled},
 		{name: "a missing objects bucket fails the call instead of skipping", matching: 5, objectsBucketGone: true, wantErr: lsmkv.ErrBucketNotFound, wantErrText: "objects bucket"},
@@ -166,6 +172,10 @@ func TestShardFindUUIDs(t *testing.T) {
 				cancel()
 			}
 
+			for range tc.earlierCalls {
+				_, err := shard.FindUUIDs(findCtx, nameEquals(class, "match"), tc.limit)
+				require.NoError(t, err)
+			}
 			uuids, err := shard.FindUUIDs(findCtx, nameEquals(class, "match"), tc.limit)
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
@@ -305,10 +315,7 @@ func rowStateObject(t *testing.T, id strfmt.UUID) []byte {
 	return data
 }
 
-// TestResolveUUIDsTellsRowStatesApart covers the four states one doc id can land in. The
-// caller has to tell them apart: a missing row means the object is gone and its doc id may
-// be pruned, a row with no readable id is skipped and reported but never pruned, and a read
-// error means the store could not answer and the resolve fails.
+// TestResolveUUIDsTellsRowStatesApart pins how the resolve treats a present, absent, unreadable and failing row.
 func TestResolveUUIDsTellsRowStatesApart(t *testing.T) {
 	const docID = 42
 	id := strfmt.UUID(uuid.NewString())
@@ -358,9 +365,7 @@ func TestResolveUUIDsTellsRowStatesApart(t *testing.T) {
 	}
 }
 
-// TestResolveUUIDsLimitCountsUUIDsProduced pins that the limit counts UUIDs returned, not
-// doc ids read: a missing row and an unreadable one in front of the live objects cost a
-// read each and no slot, so the resolve walks past both to fill the limit.
+// TestResolveUUIDsLimitCountsUUIDsProduced pins that missing and unreadable rows cost a read, not a limit slot.
 func TestResolveUUIDsLimitCountsUUIDsProduced(t *testing.T) {
 	first, second := strfmt.UUID(uuid.NewString()), strfmt.UUID(uuid.NewString())
 	bucket := &stubDocIDBucket{failAfter: 100, objects: map[uint64][]byte{
@@ -416,10 +421,7 @@ func TestResolveUUIDsSetsConcurrencyBudget(t *testing.T) {
 	}
 }
 
-// TestShardObjectSearchSummarisesBatchedLookups pins the slow-query record a
-// filtered search leaves when it resolves its doc ids through the batch: one
-// summary under the with-view key that counts every lookup a segment served,
-// across more than one chunk.
+// TestShardObjectSearchSummarisesBatchedLookups pins one slow-query summary for all of a filtered search's lookups.
 func TestShardObjectSearchSummarisesBatchedLookups(t *testing.T) {
 	ctx := context.Background()
 	class := textNameClass("SlowLogSummaryTest")

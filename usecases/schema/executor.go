@@ -400,13 +400,18 @@ func (e *executor) GetShardsStatus(class, tenant string) (models.ShardStatusList
 	if err != nil {
 		return nil, err
 	}
+	shardsQueueSize, err := e.migrator.GetShardsQueueSize(ctx, class, tenant)
+	if err != nil {
+		return nil, err
+	}
 
 	resp := models.ShardStatusList{}
 
 	for name, status := range shardsStatus {
 		resp = append(resp, &models.ShardStatusGetResponse{
-			Name:   name,
-			Status: status,
+			Name:            name,
+			Status:          status,
+			VectorQueueSize: shardsQueueSize[name],
 		})
 	}
 

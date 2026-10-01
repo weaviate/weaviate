@@ -17,6 +17,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type (
@@ -113,7 +114,6 @@ type Metrics struct {
 	objectCount                  prometheus.Gauge
 	memtableDurations            prometheus.ObserverVec
 	memtableSize                 *prometheus.GaugeVec
-	DimensionSum                 *prometheus.GaugeVec
 	IOWrite                      *prometheus.SummaryVec
 	IORead                       *prometheus.SummaryVec
 	LazySegmentUnLoad            prometheus.Gauge
@@ -132,6 +132,7 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		className = "n/a"
 		shardName = "n/a"
 	}
+	namespace := namespacing.NamespaceFromQualified(className)
 
 	register := promMetrics.Registerer
 
@@ -712,18 +713,15 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 			"shard_name": shardName,
 		}),
 		objectCount: promMetrics.ObjectCount.With(prometheus.Labels{
-			"class_name": className,
-			"shard_name": shardName,
+			"class_name":           className,
+			"shard_name":           shardName,
+			"collection_namespace": namespace,
 		}),
 		memtableDurations: promMetrics.LSMMemtableDurations.MustCurryWith(prometheus.Labels{
 			"class_name": className,
 			"shard_name": shardName,
 		}),
 		memtableSize: promMetrics.LSMMemtableSize.MustCurryWith(prometheus.Labels{
-			"class_name": className,
-			"shard_name": shardName,
-		}),
-		DimensionSum: promMetrics.VectorDimensionsSum.MustCurryWith(prometheus.Labels{
 			"class_name": className,
 			"shard_name": shardName,
 		}),

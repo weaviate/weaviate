@@ -12,14 +12,22 @@
 package rbac
 
 import (
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
@@ -129,6 +137,58 @@ func TestRestoreFromBackupHonoursStripFlag(t *testing.T) {
 			}))
 
 			assert.Equal(t, []string{tt.want}, customRoleNames(t, m))
+		})
+	}
+}
+
+// TestRestoreFromBackupLogsTornOnlyAfterClear pins when RestoreFromBackup logs
+// rbac_restore_torn. A blob Restore refuses leaves the target's roles in place
+// and logs no torn line. A failure after Restore cleared the roles still logs it.
+func TestRestoreFromBackupLogsTornOnlyAfterClear(t *testing.T) {
+	unstorableRow, err := json.Marshal(map[string]any{
+		"grouping_policies": [][]string{{"group:a,b", "role:viewer"}},
+		"version":           rbac.SnapshotVersionLatest,
+	})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name string
+		blob []byte
+		// breakPolicyFile replaces the policy file with a directory, so Restore
+		// fails after it cleared the roles.
+		breakPolicyFile bool
+		wantTorn        bool
+	}{
+		{name: "undecodable blob", blob: []byte("{")},
+		{name: "row the policy file cannot store", blob: unstorableRow},
+		{name: "policy file fails after the clear", blob: snapshotOf(t, "roleC"), breakPolicyFile: true, wantTorn: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			m := newTestManagerAt(t, dir, nil)
+			require.NoError(t, applyCreateRole(m, "roleA"))
+			logger, hook := test.NewNullLogger()
+			m.logger = logger
+			if tt.breakPolicyFile {
+				policyFile := filepath.Join(dir, "rbac", "policy.csv")
+				require.NoError(t, os.Remove(policyFile))
+				require.NoError(t, os.Mkdir(policyFile, 0o755))
+			}
+
+			err := m.RestoreFromBackup(&cmd.RestoreRolesAndUsersRequest{Roles: tt.blob})
+			require.Error(t, err)
+
+			torn := slices.ContainsFunc(hook.AllEntries(), func(e *logrus.Entry) bool {
+				return strings.HasPrefix(e.Message, "rbac_restore_torn")
+			})
+			assert.Equal(t, tt.wantTorn, torn)
+			assert.Equal(t, !tt.wantTorn, errors.Is(err, rbac.ErrRestoreRefused))
+			if !tt.wantTorn {
+				assert.ElementsMatch(t, []string{"roleA"}, customRoleNames(t, m))
+			} else {
+				assert.NotContains(t, customRoleNames(t, m), "roleA")
+			}
 		})
 	}
 }

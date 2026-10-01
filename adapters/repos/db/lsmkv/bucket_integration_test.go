@@ -14,6 +14,7 @@
 package lsmkv
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -66,15 +67,17 @@ func TestDetermineUnloadedBucketStrategy(t *testing.T) {
 		assert.Equal(t, StrategyRoaringSet, strategy)
 	})
 
-	t.Run("bucket with empty wal", func(t *testing.T) {
-		pathBucket := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(pathBucket, "segment-1757496219190885000.wal"), []byte{}, 0o644))
+	for size := range 4 {
+		t.Run(fmt.Sprintf("bucket with %d-byte wal", size), func(t *testing.T) {
+			pathBucket := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(pathBucket, "segment-1757496219190885000.wal"), make([]byte, size), 0o644))
 
-		strategy, err := DetermineUnloadedBucketStrategy(pathBucket)
+			strategy, err := DetermineUnloadedBucketStrategy(pathBucket)
 
-		assert.NoError(t, err)
-		assert.Equal(t, StrategyRoaringSet, strategy)
-	})
+			assert.NoError(t, err)
+			assert.Equal(t, StrategyRoaringSet, strategy)
+		})
+	}
 
 	t.Run("bucket with empty segment", func(t *testing.T) {
 		pathBucket := t.TempDir()
@@ -237,16 +240,18 @@ func TestDetermineUnloadedBucketStrategyAmong(t *testing.T) {
 		assert.Equal(t, StrategyRoaringSet, strategy)
 	})
 
-	t.Run("bucket with empty wal, 1st strategy returned", func(t *testing.T) {
-		pathBucket := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(pathBucket, "segment-1757496219190885000.wal"), []byte{}, 0o644))
+	for size := range 4 {
+		t.Run(fmt.Sprintf("bucket with %d-byte wal, 1st strategy returned", size), func(t *testing.T) {
+			pathBucket := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(pathBucket, "segment-1757496219190885000.wal"), make([]byte, size), 0o644))
 
-		strategy, err := DetermineUnloadedBucketStrategyAmong(pathBucket,
-			[]string{StrategyRoaringSetRange, StrategyMapCollection})
+			strategy, err := DetermineUnloadedBucketStrategyAmong(pathBucket,
+				[]string{StrategyRoaringSetRange, StrategyMapCollection})
 
-		assert.NoError(t, err)
-		assert.Equal(t, StrategyRoaringSetRange, strategy)
-	})
+			assert.NoError(t, err)
+			assert.Equal(t, StrategyRoaringSetRange, strategy)
+		})
+	}
 
 	t.Run("bucket with 2 wals and matching strategies", func(t *testing.T) {
 		pathBucket := t.TempDir()

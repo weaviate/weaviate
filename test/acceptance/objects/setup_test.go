@@ -22,11 +22,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/objects"
 
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -129,13 +131,43 @@ func TestObjects_AsyncIndexing_LoadShard(t *testing.T) {
 			"description": fmt.Sprintf("Test string %d", i),
 		}, tenantName, []float32{0.0, 0.1})
 	}
-	time.Sleep(3 * time.Second)
+	// The dynamic index must hold the vectors on disk before the shard is
+	// unloaded, so its segments are read back when the tenant is reactivated.
+	waitForTenantShard(t, className, tenantName, func(c *assert.CollectT, shard *models.NodeShardStatus) {
+		if assert.NotNil(c, shard) {
+			assert.Zero(c, shard.VectorQueueLength)
+		}
+	})
 	helper.UpdateTenants(t, className, []*models.Tenant{{Name: tenantName, ActivityStatus: "INACTIVE"}})
 
-	time.Sleep(3 * time.Second)
+	waitForTenantShard(t, className, tenantName, func(c *assert.CollectT, shard *models.NodeShardStatus) {
+		assert.True(c, shard == nil || !shard.Loaded, "shard is still loaded")
+	})
 	helper.UpdateTenants(t, className, []*models.Tenant{{Name: tenantName, ActivityStatus: "ACTIVE"}})
 
 	deleteObjectClass(t, className)
+}
+
+// waitForTenantShard polls the verbose nodes status until check passes for
+// the tenant's shard, which is nil while the node does not report it.
+func waitForTenantShard(t *testing.T, className, tenant string, check func(*assert.CollectT, *models.NodeShardStatus)) {
+	t.Helper()
+	verbose := verbosity.OutputVerbose
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		resp, err := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithClassName(className).WithOutput(&verbose), nil)
+		if !assert.NoError(c, err) {
+			return
+		}
+		var shard *models.NodeShardStatus
+		for _, node := range resp.Payload.Nodes {
+			for _, s := range node.Shards {
+				if s.Name == tenant {
+					shard = s
+				}
+			}
+		}
+		check(c, shard)
+	}, 30*time.Second, 100*time.Millisecond)
 }
 
 func TestObjects_SyncIndexing(t *testing.T) {

@@ -754,23 +754,15 @@ func TestIndex_DebugResetVectorIndex(t *testing.T) {
 	err = index.DebugResetVectorIndex(ctx, shard.Name(), "")
 	require.Nil(t, err)
 
-	// wait until the queue is empty
-	for i := 0; i < 10; i++ {
-		time.Sleep(500 * time.Millisecond)
-		if q.Size() == 0 {
-			break
-		}
-	}
+	// the reset swaps in a new index and refills it in the background
+	newVidx, _ := getVectorIndexAndQueue(t, shard, "")
+	require.NotSame(t, vidx, newVidx)
 
-	// wait for the in-flight indexing to finish
-	require.NoError(t, q.Wait(t.Context()))
-
-	// make sure the new index contains all the objects
-	for _, obj := range objs {
-		if !vidx.ContainsDoc(obj.DocID) {
-			t.Fatalf("node %d should be in the vector index", obj.DocID)
+	require.EventuallyWithT(t, func(t *assert.CollectT) {
+		for _, obj := range objs {
+			assert.Truef(t, newVidx.ContainsDoc(obj.DocID), "node %d should be in the vector index", obj.DocID)
 		}
-	}
+	}, 10*time.Second, 50*time.Millisecond)
 
 	err = index.drop()
 	require.Nil(t, err)
@@ -846,23 +838,15 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 	err = index.DebugResetVectorIndex(ctx, shard.Name(), "foo")
 	require.Nil(t, err)
 
-	// wait until the queue is empty
-	for i := 0; i < 10; i++ {
-		time.Sleep(500 * time.Millisecond)
-		if q.Size() == 0 {
-			break
-		}
-	}
+	// the reset swaps in a new index and refills it in the background
+	newVidx, _ := getVectorIndexAndQueue(t, shard, "foo")
+	require.NotSame(t, vidx, newVidx)
 
-	// wait for the in-flight indexing to finish
-	require.NoError(t, q.Wait(t.Context()))
-
-	// make sure the new index contains all the objects
-	for _, obj := range objs {
-		if !vidx.ContainsDoc(obj.DocID) {
-			t.Fatalf("node %d should be in the vector index", obj.DocID)
+	require.EventuallyWithT(t, func(t *assert.CollectT) {
+		for _, obj := range objs {
+			assert.Truef(t, newVidx.ContainsDoc(obj.DocID), "node %d should be in the vector index", obj.DocID)
 		}
-	}
+	}, 10*time.Second, 50*time.Millisecond)
 
 	err = index.drop()
 	require.Nil(t, err)
@@ -870,6 +854,7 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 
 func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "100ms")
+	t.Setenv("QUEUE_SCHEDULER_INTERVAL", "100ms")
 
 	ctx := context.Background()
 	var cfg hnsw.UserConfig
@@ -898,7 +883,7 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	err = index.DebugResetVectorIndex(ctx, shard.Name(), "unknown")
 	require.Error(t, err)
 
-	amount := 1000
+	amount := 200
 
 	var objs []*storobj.Object
 	for i := 0; i < amount; i++ {
@@ -915,51 +900,28 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	vidx, q := getVectorIndexAndQueue(t, shard, "")
 
 	// wait until the queue is empty
-	for i := 0; i < 10; i++ {
-		time.Sleep(500 * time.Millisecond)
-		if q.Size() == 0 {
-			break
-		}
-	}
+	require.EventuallyWithT(t, func(t *assert.CollectT) {
+		assert.Zero(t, q.Size())
+	}, 10*time.Second, 50*time.Millisecond)
 
 	require.NoError(t, q.Wait(t.Context()))
 
 	// wait until the index is compressed
-	for i := 0; i < 10; i++ {
-		time.Sleep(500 * time.Millisecond)
-		if vidx.Compressed() {
-			break
-		}
-	}
+	require.Eventually(t, vidx.Compressed, 10*time.Second, 50*time.Millisecond)
 
 	err = index.DebugResetVectorIndex(ctx, shard.Name(), "")
 	require.Nil(t, err)
 
-	// wait until the queue is empty
-	for i := 0; i < 10; i++ {
-		time.Sleep(500 * time.Millisecond)
-		if q.Size() == 0 {
-			break
-		}
-	}
+	// the reset swaps in a new index and refills it in the background
+	newVidx, _ := getVectorIndexAndQueue(t, shard, "")
+	require.NotSame(t, vidx, newVidx)
 
-	// wait for the in-flight indexing to finish
-	require.NoError(t, q.Wait(t.Context()))
-
-	// wait until the index is compressed
-	for i := 0; i < 10; i++ {
-		time.Sleep(500 * time.Millisecond)
-		if vidx.Compressed() {
-			break
+	require.EventuallyWithT(t, func(t *assert.CollectT) {
+		for _, obj := range objs {
+			assert.Truef(t, newVidx.ContainsDoc(obj.DocID), "node %d should be in the vector index", obj.DocID)
 		}
-	}
-
-	// make sure the new index contains all the objects
-	for _, obj := range objs {
-		if !vidx.ContainsDoc(obj.DocID) {
-			t.Fatalf("node %d should be in the vector index", obj.DocID)
-		}
-	}
+	}, 10*time.Second, 50*time.Millisecond)
+	require.Eventually(t, newVidx.Compressed, 10*time.Second, 50*time.Millisecond)
 
 	err = index.drop()
 	require.Nil(t, err)

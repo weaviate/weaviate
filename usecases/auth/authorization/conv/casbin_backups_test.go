@@ -14,6 +14,8 @@ package conv
 import (
 	"testing"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -77,7 +79,7 @@ func TestBackupPrincipalPermissions(t *testing.T) {
 			require.Len(t, policies, 1)
 			assert.Equal(t, tt.wantPolicy, *policies[0])
 
-			back, err := PoliciesToPermission(*policies[0])
+			back, err := PoliciesToPermission(logrus.New(), *policies[0])
 			require.NoError(t, err)
 			require.Len(t, back, 1)
 			assert.Equal(t, perm, back[0])

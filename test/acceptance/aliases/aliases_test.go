@@ -12,38 +12,31 @@
 package test
 
 import (
-	"context"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
+	"github.com/weaviate/weaviate/test/helper/sample-schema/documents"
 )
 
-// TestAliases boots a single Weaviate container shared across the REST, gRPC and
-// backup suites. Each suite uses a unique alias-name prefix (Rest/Grpc/Backup)
-// and cleans up after itself so the instance-wide alias counts stay exact.
+// TestAliases runs the REST, gRPC and backup suites against the shared
+// server. Each suite uses a unique alias-name prefix (Rest/Grpc/Backup) and
+// cleans up after itself so the instance-wide alias counts stay exact.
 func TestAliases(t *testing.T) {
-	ctx := context.Background()
-	compose, err := docker.New().
-		WithBackendFilesystem().
-		WithWeaviateWithGRPC().
-		WithText2VecModel2Vec().
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
+	helper.SetupClient(helper.SharedServerURI)
 	defer helper.ResetClient()
+
+	for _, class := range []string{books.DefaultClassName, "Books2", documents.Document, documents.Passage} {
+		helper.DeleteClass(t, class)
+	}
 
 	t.Run("rest", func(t *testing.T) {
 		testAliasesAPI(t)
 	})
 	t.Run("grpc", func(t *testing.T) {
-		testAliasesAPIgRPC(t, compose.GetWeaviate().GrpcURI())
+		testAliasesAPIgRPC(t, helper.SharedServerGRPCURI)
 	})
 	t.Run("backup", func(t *testing.T) {
 		testAliasesAPIBackup(t)
