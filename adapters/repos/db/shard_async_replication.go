@@ -1589,6 +1589,8 @@ func (s *Shard) CreateAsyncCheckpoint(ctx context.Context, cutoffMs int64, creat
 		return errAsyncReplicationNotActive
 	}
 
+	// An expired checkpoint must not reject a newer backup's create as stale.
+	s.expireAsyncCheckpointLocked(time.Now())
 	if s.asyncCheckpointHashtree != nil && !createdAt.After(s.asyncCheckpointCreatedAt) {
 		s.metrics.IncAsyncCheckpointCreateFailureCount()
 		return errAsyncCheckpointStale
@@ -1649,12 +1651,40 @@ func (s *Shard) clearAsyncCheckpointLocked() {
 	s.asyncCheckpointActivatedAt = time.Time{}
 }
 
+// expireAsyncCheckpoint clears a checkpoint nobody deleted within replica.AsyncCheckpointMaxLifetime, e.g. after its coordinator crashed mid-planning.
+func (s *Shard) expireAsyncCheckpoint(now time.Time) bool {
+	s.asyncReplicationRWMux.RLock()
+	expired := s.asyncCheckpointExpiredLocked(now)
+	s.asyncReplicationRWMux.RUnlock()
+	if !expired {
+		return false
+	}
+	s.asyncReplicationRWMux.Lock()
+	defer s.asyncReplicationRWMux.Unlock()
+	return s.expireAsyncCheckpointLocked(now)
+}
+
+// expireAsyncCheckpointLocked requires asyncReplicationRWMux held for writing.
+func (s *Shard) expireAsyncCheckpointLocked(now time.Time) bool {
+	if !s.asyncCheckpointExpiredLocked(now) {
+		return false
+	}
+	s.metrics.IncAsyncCheckpointExpiredCount()
+	s.clearAsyncCheckpointLocked()
+	return true
+}
+
+// asyncCheckpointExpiredLocked requires asyncReplicationRWMux held.
+func (s *Shard) asyncCheckpointExpiredLocked(now time.Time) bool {
+	return s.asyncCheckpointHashtree != nil && now.Sub(s.asyncCheckpointActivatedAt) > replica.AsyncCheckpointMaxLifetime
+}
+
 // AsyncCheckpointRoot does not consult ctx: folding cancellation into ok=false would
 // let callers misread a cancelled context as an inactive checkpoint.
 func (s *Shard) AsyncCheckpointRoot(ctx context.Context) (root hashtree.Digest, cutoffMs int64, createdAt time.Time, ok bool) {
 	s.asyncReplicationRWMux.RLock()
 	defer s.asyncReplicationRWMux.RUnlock()
-	if s.asyncCheckpointHashtree == nil {
+	if s.asyncCheckpointHashtree == nil || s.asyncCheckpointExpiredLocked(time.Now()) {
 		return hashtree.Digest{}, 0, time.Time{}, false
 	}
 	return s.asyncCheckpointHashtree.Root(), s.asyncCheckpointCutoff, s.asyncCheckpointCreatedAt, true

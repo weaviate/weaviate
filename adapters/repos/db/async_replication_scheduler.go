@@ -613,6 +613,9 @@ type AsyncReplicationScheduler struct {
 	// per-cycle clamp in Effective().
 	runtimeClampWarner *asyncReplicationClampWarner
 
+	// expiredSinceReport counts checkpoint expiries since the last summary, so a mass expiry logs once, not once per shard.
+	expiredSinceReport atomic.Int64
+
 	// closed is set true at the top of Close() (before cancel) and never reset.
 	// Read by Register/Deregister and handleAdd/handleRemove to reject
 	// post-Close calls deterministically.
@@ -879,6 +882,28 @@ func (sched *AsyncReplicationScheduler) Deregister(s *Shard) error {
 		return ErrSchedulerClosed
 	case <-sched.ctx.Done():
 		return ErrSchedulerClosed
+	}
+}
+
+// expireAsyncCheckpoint clears s's checkpoint once it outlived replica.AsyncCheckpointMaxLifetime; must not be called under sched.mu.
+func (sched *AsyncReplicationScheduler) expireAsyncCheckpoint(s *Shard, now time.Time) {
+	if !s.expireAsyncCheckpoint(now) {
+		return
+	}
+	sched.expiredSinceReport.Add(1)
+	className := ""
+	if s.class != nil {
+		className = s.class.Class
+	}
+	sched.logger.WithField("class_name", className).WithField("shard_name", s.name).
+		Debugf("async checkpoint expired: not deleted within %s", replica.AsyncCheckpointMaxLifetime)
+}
+
+// reportExpiredCheckpoints logs one summary for the expiries since the last call.
+func (sched *AsyncReplicationScheduler) reportExpiredCheckpoints() {
+	if n := sched.expiredSinceReport.Swap(0); n > 0 {
+		sched.logger.WithField("action", "async_checkpoint_expiry").WithField("expired", n).
+			Warnf("%d async checkpoints expired: not deleted within %s", n, replica.AsyncCheckpointMaxLifetime)
 	}
 }
 
@@ -1403,9 +1428,11 @@ func (sched *AsyncReplicationScheduler) workerWatcher() {
 	for {
 		select {
 		case <-sched.ctx.Done():
+			sched.reportExpiredCheckpoints()
 			return
 		case <-ticker.C:
 			sched.adjustWorkers(sched.maxWorkersConfig.Get())
+			sched.reportExpiredCheckpoints()
 		}
 	}
 }
@@ -1882,6 +1909,8 @@ func (sched *AsyncReplicationScheduler) runEntry(entry *asyncSchedulerEntry, ski
 			currentHTHeight = currentHT.Height()
 		}
 	}()
+
+	sched.expireAsyncCheckpoint(s, time.Now())
 
 	cfg = base
 	if s.index != nil && s.index.globalreplicationConfig != nil {

@@ -3636,6 +3636,101 @@ func parkRebuildInBackoff(s *Shard) {
 	s.asyncRepRebuildBackoffUntil.Store(time.Now().Add(time.Hour).UnixNano())
 }
 
+func TestRunEntryExpiresAbandonedCheckpoint(t *testing.T) {
+	tests := []struct {
+		name         string
+		skipHashbeat bool
+		ready        bool
+		maintenance  bool
+		age          time.Duration
+		wantCleared  bool
+	}{
+		{name: "prefilter skip", skipHashbeat: true, ready: true, age: replica.AsyncCheckpointMaxLifetime + time.Minute, wantCleared: true},
+		{name: "unready tree", age: replica.AsyncCheckpointMaxLifetime + time.Minute, wantCleared: true},
+		{name: "hashbeat cycle", ready: true, age: replica.AsyncCheckpointMaxLifetime + time.Minute, wantCleared: true},
+		{name: "maintenance mode", ready: true, maintenance: true, age: replica.AsyncCheckpointMaxLifetime + time.Minute, wantCleared: true},
+		{name: "fresh checkpoint survives", ready: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			sched := newBareScheduler(512, 1)
+			sched.ctx = ctx
+			sched.resultCh = make(chan asyncSchedulerResult, 1)
+			ht, err := hashtree.NewHashTree(4)
+			require.NoError(t, err)
+			maintenance := tc.maintenance
+			s := &Shard{
+				index:                    &Index{Config: IndexConfig{ClassName: "C", MaintenanceModeEnabled: func() bool { return maintenance }}},
+				class:                    &models.Class{Class: "C"},
+				name:                     "S",
+				asyncRepCtx:              ctx,
+				hashtree:                 ht,
+				hashtreeFullyInitialized: true,
+				asyncReplicationConfig:   AsyncReplicationConfig{hashtreeHeight: 4},
+				metrics:                  checkpointTestMetrics(t),
+			}
+			require.NoError(t, s.CreateAsyncCheckpoint(ctx, time.Now().Add(time.Hour).UnixMilli(), time.Now().UTC()))
+			backdateAsyncCheckpoint(s, tc.age)
+			s.hashtreeFullyInitialized = tc.ready
+			s.asyncRepWg.Add(1)
+			parkRebuildInBackoff(s)
+			before := readCheckpointCounters(s.metrics)
+
+			sched.runEntry(&asyncSchedulerEntry{shard: s}, tc.skipHashbeat)
+
+			select {
+			case <-sched.resultCh:
+			case <-time.After(5 * time.Second):
+				t.Fatal("runEntry produced no result")
+			}
+			_, _, _, ok := s.AsyncCheckpointRoot(ctx)
+			assert.Equal(t, !tc.wantCleared, ok)
+			if tc.wantCleared {
+				assert.Equal(t, checkpointCounters{expired: before.expired + 1, active: before.active - 1}, readCheckpointCounters(s.metrics))
+				return
+			}
+			assert.Equal(t, before, readCheckpointCounters(s.metrics))
+		})
+	}
+}
+
+func TestExpiredCheckpointsLogOneSummary(t *testing.T) {
+	ctx := context.Background()
+	for _, n := range []int{1, 500} {
+		t.Run(fmt.Sprint(n), func(t *testing.T) {
+			sched := newBareScheduler(512, 1)
+			logger, hook := test.NewNullLogger()
+			sched.logger = logger
+			metrics := checkpointTestMetrics(t)
+			for i := range n {
+				ht, err := hashtree.NewHashTree(4)
+				require.NoError(t, err)
+				s := &Shard{
+					index:                    &Index{Config: IndexConfig{ClassName: "C"}},
+					class:                    &models.Class{Class: "C"},
+					name:                     fmt.Sprintf("s%d", i),
+					hashtree:                 ht,
+					hashtreeFullyInitialized: true,
+					metrics:                  metrics,
+				}
+				require.NoError(t, s.CreateAsyncCheckpoint(ctx, time.Now().Add(time.Hour).UnixMilli(), time.Now().UTC()))
+				backdateAsyncCheckpoint(s, replica.AsyncCheckpointMaxLifetime+time.Minute)
+				sched.expireAsyncCheckpoint(s, time.Now())
+			}
+			require.Empty(t, hook.AllEntries())
+
+			sched.reportExpiredCheckpoints()
+			sched.reportExpiredCheckpoints()
+
+			entries := hook.AllEntries()
+			require.Len(t, entries, 1)
+			assert.Equal(t, logrus.WarnLevel, entries[0].Level)
+			assert.Equal(t, int64(n), entries[0].Data["expired"])
+		})
+	}
+}
+
 // TestRunEntrySkipsUnreadyHashtree pins that a cycle dispatched for a registered-but-unready tree is skipped before the height check can arm a rebuild.
 func TestRunEntrySkipsUnreadyHashtree(t *testing.T) {
 	tests := []struct {

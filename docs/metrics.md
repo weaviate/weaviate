@@ -190,6 +190,11 @@ weaviate_shards{state="loaded",registration="lazy"}
 | `weaviate_replication_engine_producer_running_status` | Replication engine producer running status (0:not running, 1:running) | `Gauge` | `node` | - Low 
 | `weaviate_replication_engine_consumer_running_status` | Replication engine consumer running status (0:not running, 1:running) | `Gauge` | `node` | - Low 
 
+#### Async Checkpoint Metrics
+| Name | Description | Type | Labels | High Cardinality |
+|---|---|---|---|---|
+| `weaviate_async_checkpoint_expired_total` | Number of async replication checkpoints cleared for outliving their max lifetime without an explicit delete (e.g. the backup planning coordinator crashed). A non-zero rate points at coordinators failing to release checkpoints | `Counter` | `-` | - Low 
+
 #### Distributed Task Metrics
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|
