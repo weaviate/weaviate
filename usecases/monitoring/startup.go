@@ -120,7 +120,6 @@ var prefillCombos = [][]string{
 // Nil-safe and concurrency-safe.
 type StartupMetrics struct {
 	phaseDuration *prometheus.GaugeVec
-	phaseActive   *prometheus.GaugeVec
 
 	startupDuration prometheus.Gauge
 	readyTimestamp  prometheus.Gauge
@@ -155,10 +154,6 @@ func newStartupMetrics(reg prometheus.Registerer, processStart time.Time) *Start
 			Name: "weaviate_startup_phase_duration_seconds",
 			Help: "Wall-clock seconds the last run of a startup phase took on this node. Phases nest (db_reload runs inside raft_open or cluster_open), so they are not additive. 0 until the phase has completed once.",
 		}, []string{"phase"}),
-		phaseActive: r.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "weaviate_startup_phase_active",
-			Help: "1 while a startup phase is running on this node, 0 otherwise. modules_init runs before the metrics endpoint listens, so it is never scraped as active; its duration still is.",
-		}, []string{"phase"}),
 		startupDuration: r.NewGauge(prometheus.GaugeOpts{
 			Name: "weaviate_startup_duration_seconds",
 			Help: "Seconds from process start until this node first satisfied the readiness probe's predicate (the same check as /v1/.well-known/ready), polled once the API server is configured. 0 until ready.",
@@ -190,7 +185,6 @@ func newStartupMetrics(reg prometheus.Registerer, processStart time.Time) *Start
 
 	for _, phase := range AllStartupPhases() {
 		m.phaseDuration.WithLabelValues(string(phase)).Set(0)
-		m.phaseActive.WithLabelValues(string(phase)).Set(0)
 	}
 	for _, registration := range []ShardRegistration{ShardRegistrationEager, ShardRegistrationLazy} {
 		m.shardLoad.WithLabelValues(string(registration))
@@ -204,21 +198,18 @@ func newStartupMetrics(reg prometheus.Registerer, processStart time.Time) *Start
 	return m
 }
 
-// PhaseStarted marks the phase active and returns a done callback (call once,
-// e.g. `defer PhaseStarted(p)()`) that clears it and publishes the elapsed
-// wall time. A phase that runs again replaces its previous duration.
+// PhaseStarted starts timing the phase and returns a done callback (call
+// once, e.g. `defer PhaseStarted(p)()`) that publishes the elapsed wall time.
+// A phase that runs again replaces its previous duration. Until the callback
+// runs the phase reads 0, which is how a node stuck in a phase shows up.
 func (m *StartupMetrics) PhaseStarted(phase StartupPhase) func() {
 	if m == nil {
 		return func() {}
 	}
 
-	label := string(phase)
-	m.phaseActive.WithLabelValues(label).Set(1)
 	start := time.Now()
-
 	return func() {
-		m.phaseActive.WithLabelValues(label).Set(0)
-		m.phaseDuration.WithLabelValues(label).Set(time.Since(start).Seconds())
+		m.phaseDuration.WithLabelValues(string(phase)).Set(time.Since(start).Seconds())
 	}
 }
 

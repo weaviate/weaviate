@@ -1527,15 +1527,10 @@ func TestStoreReloadDBFromSchemaReportsProgressDuringReload(t *testing.T) {
 		return &db.StartupProgressSnapshot{Loaded: 3, Total: 10}
 	}
 
-	// The db_reload phase gauges live on the default registry shared by every
-	// parallel test, so only claims this reload guarantees are asserted: it is
-	// active while our reload runs, and has a duration once it is done.
+	// The db_reload phase gauge lives on the default registry shared by every
+	// parallel test, so only what this reload guarantees is asserted: a
+	// duration once it is done.
 	dbReloadPhase := prometheus.Labels{"phase": string(monitoring.StartupPhaseDBReload)}
-	phaseActive := func() float64 {
-		v, err := metricstest.GaugeValue(prometheus.DefaultGatherer, "weaviate_startup_phase_active", dbReloadPhase)
-		require.NoError(t, err)
-		return v
-	}
 
 	st := ms.Store(func(m *MockStore) {
 		// TriggerSchemaUpdateCallbacks runs inside the reload. Holding it open
@@ -1547,8 +1542,6 @@ func TestStoreReloadDBFromSchemaReportsProgressDuringReload(t *testing.T) {
 			}) {
 				t.Error("no progress logged while the reload was in flight")
 			}
-			assert.GreaterOrEqual(t, phaseActive(), float64(1),
-				"the db_reload phase must report active while the reload is in flight")
 		}).Return()
 	})
 

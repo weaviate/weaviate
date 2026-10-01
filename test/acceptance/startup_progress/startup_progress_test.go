@@ -140,7 +140,8 @@ func assertStartupMetrics(t *testing.T, ctx context.Context, compose *docker.Doc
 	phases := []string{"modules_init", "cluster_open", "raft_open", "raft_bootstrap", "db_reload"}
 
 	// The readiness tracker polls the readiness predicate once a second, so the
-	// ready gauges can trail the restart by a poll interval.
+	// ready gauges can trail the restart by a poll interval, and cluster_open
+	// publishes its duration just after readiness is reached.
 	var families map[string]*dto.MetricFamily
 	var lastScrapeErr error
 	ready := assert.Eventually(t, func() bool {
@@ -153,8 +154,8 @@ func assertStartupMetrics(t *testing.T, ctx context.Context, compose *docker.Doc
 			return false
 		}
 		for _, phase := range phases {
-			active, ok := helper.FindMetric(families, "weaviate_startup_phase_active", map[string]string{"phase": phase})
-			if !ok || active.GetGauge().GetValue() != 0 {
+			duration, ok := helper.FindMetric(families, "weaviate_startup_phase_duration_seconds", map[string]string{"phase": phase})
+			if !ok || duration.GetGauge().GetValue() <= 0 {
 				return false
 			}
 		}
@@ -176,10 +177,6 @@ func assertStartupMetrics(t *testing.T, ctx context.Context, compose *docker.Doc
 	}
 
 	assert.Greater(t, gauge("weaviate_startup_ready_timestamp_seconds", nil), float64(0))
-	for _, phase := range phases {
-		assert.Greater(t, gauge("weaviate_startup_phase_duration_seconds", map[string]string{"phase": phase}), float64(0),
-			"phase %s must have run", phase)
-	}
 
 	want := uint64(shards)
 	assert.Equal(t, want, sampleCount("weaviate_shard_load_duration_seconds", map[string]string{"registration": "eager"}),
