@@ -18,23 +18,22 @@ import (
 	"slices"
 	"time"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
-	"github.com/weaviate/weaviate/cluster/schema/local"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema/configvalidation"
-
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/autocut"
 	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/inverted"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/configvalidation"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -929,7 +928,7 @@ func (e *Explorer) GetSchema() schema.Schema {
 
 func (e *Explorer) replicationEnabled(params dto.GetParams) (bool, error) {
 	if e.classReader == nil {
-		return false, fmt.Errorf("schemaGetter not set")
+		return false, fmt.Errorf("classReader not set")
 	}
 
 	class := e.classReader.ReadOnlyClass(params.ClassName)
@@ -942,7 +941,7 @@ func (e *Explorer) replicationEnabled(params dto.GetParams) (bool, error) {
 
 func (e *Explorer) keepObjectsWithTTL(params dto.GetParams, input search.Result, searchStartTime time.Time) (bool, error) {
 	if e.classReader == nil {
-		return false, fmt.Errorf("schemaGetter not set")
+		return false, fmt.Errorf("classReader not set")
 	}
 
 	class := e.classReader.ReadOnlyClass(params.ClassName)
