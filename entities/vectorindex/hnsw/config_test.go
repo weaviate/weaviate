@@ -555,6 +555,18 @@ func Test_UserConfig(t *testing.T) {
 		},
 
 		{
+			name: "with string instead of bool for pq bitCompression",
+			input: map[string]interface{}{
+				"pq": map[string]interface{}{
+					"enabled":        true,
+					"bitCompression": "true",
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: `invalid type for "bitCompression": expected bool, got string`,
+		},
+
+		{
 			name: "with negative pq segments",
 			input: map[string]interface{}{
 				"pq": map[string]interface{}{
