@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -126,7 +127,7 @@ type coordinator struct {
 	// nil on the backupper, which never restores roles or users.
 	rolesAndUsers rolesAndUsersRestorer
 	// nil on the restorer, which never plans replica dedupe.
-	checkpointer ReplicaCheckpointer
+	dedupePlanner DedupePlanner
 
 	// state
 	Participants map[string]participantStatus
@@ -141,11 +142,8 @@ type coordinator struct {
 	timeoutNextRound              time.Duration
 	commitDispatchMargin          time.Duration
 
-	// replica-dedupe planning cadence
-	dedupeCutoffLead        time.Duration
-	dedupePollInterval      time.Duration
-	dedupeConvergenceBudget time.Duration
-	dedupePlanningSlack     time.Duration
+	// readNodeMeta retry cadence
+	dedupePollInterval time.Duration
 }
 
 // newcoordinator creates an instance which coordinates distributed BRO operations among many shards.
@@ -157,7 +155,7 @@ func newCoordinator(
 	nodeResolver NodeResolver,
 	backends BackupBackendProvider,
 	rolesAndUsers rolesAndUsersRestorer,
-	checkpointer ReplicaCheckpointer,
+	dedupePlanner DedupePlanner,
 ) *coordinator {
 	return &coordinator{
 		selector:                      selector,
@@ -167,7 +165,7 @@ func newCoordinator(
 		nodeResolver:                  nodeResolver,
 		backends:                      backends,
 		rolesAndUsers:                 rolesAndUsers,
-		checkpointer:                  checkpointer,
+		dedupePlanner:                 dedupePlanner,
 		Participants:                  make(map[string]participantStatus, 16),
 		timeoutNodeDown:               _TimeoutNodeDown,
 		timeoutQueryStatus:            _TimeoutQueryStatus,
@@ -175,11 +173,7 @@ func newCoordinator(
 		timeoutDedupeRestoreCanCommit: _TimeoutDedupeRestoreCanCommit,
 		timeoutNextRound:              _NextRoundPeriod,
 		commitDispatchMargin:          _CommitDispatchMargin,
-
-		dedupeCutoffLead:        _DedupeCutoffLead,
-		dedupePollInterval:      _DedupePollInterval,
-		dedupeConvergenceBudget: _DefaultDedupeConvergenceBudget,
-		dedupePlanningSlack:     _DedupePlanningSlack,
+		dedupePollInterval:            _DedupePollInterval,
 	}
 }
 
@@ -207,7 +201,7 @@ func (c *coordinator) Nodes(ctx context.Context, req *Request) (map[string]strin
 }
 
 // Backup coordinates a distributed backup among participants
-func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Request) error {
+func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Request) (err error) {
 	req.Method = OpCreate
 	if req.AttemptID == "" {
 		req.AttemptID = uuid.NewString()
@@ -224,23 +218,27 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	if prevID := c.lastOp.renew(req.ID, req.AttemptID, cstore.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return backup.NewErrUnprocessable(fmt.Errorf("backup %s already in progress", prevID))
 	}
+	handedOff := false
+	defer c.releaseSlotOnPanic(OpCreate, req.ID, &handedOff, &err)
 	compressionType, err := CompressionTypeFromLevel(req.Level)
 	if err != nil {
+		c.lastOp.reset()
 		return backup.NewErrUnprocessable(err)
 	}
 
 	// Planning sits after the lastOp gate and before canCommit so the wait stays outside its timeout.
-	var plan *dedupePlan
-	if req.DedupeReplicas && c.checkpointer != nil {
+	var plan *DedupePlan
+	if req.DedupeReplicas && c.dedupePlanner != nil {
 		budget := time.Duration(req.DedupeConvergenceTimeoutSeconds) * time.Second
 		participants := make(map[string]struct{}, len(groups))
 		for node := range groups {
 			participants[node] = struct{}{}
 		}
-		plan = c.planDesignatedShards(ctx, req.Classes, budget, participants, req.BaseDedupeDesignations)
+		plan = c.dedupePlanner.PlanDesignatedShards(ctx, req.Classes, budget, participants, req.BaseDedupeDesignations,
+			func() bool { return c.lastOp.get().cancelSignalled() })
 	}
 	// Stamp from the planning outcome: a zero-dedupe artifact is physically legacy and stays restorable on pre-3.0 releases, unless its base chain traverses a deduped artifact.
-	dedupeEffective := plan != nil && plan.designated() > 0
+	dedupeEffective := plan != nil && plan.Designated() > 0
 	version := Version
 	if dedupeEffective || req.BaseChainDeduped {
 		version = VersionDedupeReplicas
@@ -264,19 +262,19 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		DedupeReplicas:  dedupeEffective,
 	}
 	if plan != nil {
-		c.descriptor.DedupeDesignatedShards = plan.designated()
-		c.descriptor.DedupeFallbackShards = plan.fallback()
+		c.descriptor.DedupeDesignatedShards = plan.Designated()
+		c.descriptor.DedupeFallbackShards = plan.Fallback()
 		// copied, not aliased; non-Success artifacts carry the map harmlessly (chain validation refuses them)
-		for class, shards := range plan.designations {
+		for class, shards := range plan.Designations {
 			if len(shards) == 0 {
 				continue
 			}
 			if c.descriptor.DedupeCutoffsMs == nil {
-				c.descriptor.DedupeCutoffsMs = make(map[string]int64, len(plan.designations))
+				c.descriptor.DedupeCutoffsMs = make(map[string]int64, len(plan.Designations))
 			}
-			c.descriptor.DedupeCutoffsMs[class] = plan.cutoffs[class]
+			c.descriptor.DedupeCutoffsMs[class] = plan.Cutoffs[class]
 			if c.descriptor.DedupeDesignations == nil {
-				c.descriptor.DedupeDesignations = make(map[string]map[string]string, len(plan.designations))
+				c.descriptor.DedupeDesignations = make(map[string]map[string]string, len(plan.Designations))
 			}
 			c.descriptor.DedupeDesignations[class] = maps.Clone(shards)
 		}
@@ -351,9 +349,26 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 			c.log.WithFields(logFields).Errorf("coordinator: %s", c.descriptor.Error)
 		}
 	}
+	handedOff = true
 	enterrors.GoWrapper(f, c.log)
 
 	return nil
+}
+
+// releaseSlotOnPanic turns a panic in the synchronous section of an operation that holds the slot into an error and frees the slot, unless the async goroutine owns it already.
+func (c *coordinator) releaseSlotOnPanic(op Op, id string, handedOff *bool, err *error) {
+	r := recover()
+	if r == nil {
+		return
+	}
+	if *handedOff {
+		panic(r)
+	}
+	*err = fmt.Errorf("%s %s: coordinator panicked: %v", op, id, r)
+	c.log.WithField("action", op).WithField("backup_id", id).
+		Errorf("coordinator: recovered panic, releasing the operation slot: %v\n%s", r, debug.Stack())
+	c.lastOp.setFailed((*err).Error())
+	c.lastOp.reset()
 }
 
 // rolesAndUsersBlobs are the snapshots applied cluster-wide. A field is empty
@@ -369,7 +384,7 @@ func (c *coordinator) Restore(
 	desc *backup.DistributedBackupDescriptor,
 	schema []backup.ClassDescriptor,
 	blobs rolesAndUsersBlobs,
-) error {
+) (err error) {
 	req.Method = OpRestore
 	if req.AttemptID == "" {
 		req.AttemptID = uuid.NewString()
@@ -378,7 +393,7 @@ func (c *coordinator) Restore(
 	// Check if a cancellation is already in progress before asking nodes to commit.
 	if existingMeta, err := store.Meta(ctx, GlobalRestoreFile, req.Bucket, req.Path); err == nil {
 		if existingMeta.Status == backup.Cancelling {
-			c.lastOp.reset()
+			// The slot is not ours yet: resetting it would free another in-flight operation's.
 			c.log.WithField("backup_id", desc.ID).Info("restore cancellation already in progress")
 			return nil
 		}
@@ -388,6 +403,8 @@ func (c *coordinator) Restore(
 	if prevID := c.lastOp.renew(desc.ID, req.AttemptID, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return backup.NewErrUnprocessable(fmt.Errorf("restoration %s already in progress", prevID))
 	}
+	handedOff := false
+	defer c.releaseSlotOnPanic(OpRestore, desc.ID, &handedOff, &err)
 
 	for key := range c.Participants {
 		delete(c.Participants, key)
@@ -516,6 +533,7 @@ func (c *coordinator) Restore(
 			c.log.WithFields(logFields).Errorf("coordinator: %v", c.descriptor.Error)
 		}
 	}
+	handedOff = true
 	enterrors.GoWrapper(g, c.log)
 
 	return nil
@@ -669,7 +687,7 @@ func canCommitErrFromResponse(resp *CanCommitResponse) error {
 
 // canCommit asks candidates if they agree to participate in DBRO
 // It returns and error if any candidates refuses to participate
-func (c *coordinator) canCommit(ctx context.Context, req *Request, plan *dedupePlan) (map[string]string, error) {
+func (c *coordinator) canCommit(ctx context.Context, req *Request, plan *DedupePlan) (map[string]string, error) {
 	timeout, maxTimeout := c.timeoutCanCommit, _TimeoutCanCommit
 	if req.Method == OpRestore && req.DedupeReplicas {
 		timeout, maxTimeout = c.timeoutDedupeRestoreCanCommit, _TimeoutDedupeRestoreCanCommit

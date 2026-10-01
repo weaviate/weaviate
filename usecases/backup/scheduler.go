@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
+	"github.com/weaviate/weaviate/usecases/license"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
@@ -43,7 +44,17 @@ import (
 var (
 	errLocalBackendDBRO = errors.New("local filesystem backend is not viable for backing up a node cluster, try s3 or gcs")
 	errIncludeExclude   = errors.New("malformed request: 'include' and 'exclude' cannot both contain values")
+	// errDedupePlannerMissing refuses dedupeReplicas on a licensed node whose planner was not wired.
+	errDedupePlannerMissing = errors.New("dedupeReplicas cannot run because this node has no dedupe planner")
 )
+
+// DedupeFeature names deduplicated backups in the license refusal and the startup warning.
+const DedupeFeature = "deduplicated backups"
+
+// DedupeEnabled reports the BACKUP_DEDUPE_ENABLED flag; startup folds it into the dedupe license.Mode.
+func DedupeEnabled() bool {
+	return entcfg.Enabled(os.Getenv("BACKUP_DEDUPE_ENABLED"))
+}
 
 const (
 	errMsgHigherVersion = "unable to restore backup as it was produced by a higher version"
@@ -64,6 +75,8 @@ type Scheduler struct {
 	backupper  *coordinator
 	restorer   *coordinator
 	backends   BackupBackendProvider
+	// dedupeMode gates dedupeReplicas create requests; backupper.dedupePlanner is set only in FeatureLicensed.
+	dedupeMode license.Mode
 	// nil when dynamic DB users are not enabled.
 	userLister UserLister
 	// nil when RBAC is not enabled.
@@ -83,7 +96,8 @@ func NewScheduler(
 	authorizer authorization.Authorizer,
 	client client,
 	sourcer Selector,
-	checkpointer ReplicaCheckpointer,
+	dedupeMode license.Mode,
+	dedupePlanner DedupePlanner,
 	userLister UserLister,
 	roleLister RoleLister,
 	backends BackupBackendProvider,
@@ -98,6 +112,7 @@ func NewScheduler(
 		logger:            logger,
 		authorizer:        authorizer,
 		backends:          backends,
+		dedupeMode:        dedupeMode,
 		userLister:        userLister,
 		roleLister:        roleLister,
 		schema:            schema,
@@ -107,7 +122,7 @@ func NewScheduler(
 			sourcer,
 			client,
 			schema,
-			logger, nodeResolver, backends, nil, checkpointer,
+			logger, nodeResolver, backends, nil, dedupePlanner,
 		),
 		restorer: newCoordinator(
 			sourcer,
@@ -173,11 +188,6 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		}
 	}
 
-	// Coordinator-entry-only by design (participants honor designations regardless); restore of existing deduped artifacts is deliberately never gated.
-	if req.DedupeReplicas && !entcfg.Enabled(os.Getenv("BACKUP_DEDUPE_ENABLED")) {
-		return nil, backup.NewErrUnprocessable(fmt.Errorf("dedupeReplicas is not enabled on this cluster; set BACKUP_DEDUPE_ENABLED=true or retry without the option"))
-	}
-
 	store, err := coordBackend(s.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
 		err = fmt.Errorf("no backup backend %q: %w, did you enable the right module?", req.Backend, err)
@@ -190,6 +200,13 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 			return nil, err
 		}
 		return nil, backup.NewErrUnprocessable(err)
+	}
+
+	// After validation so an unauthorized caller never learns the flag or license state; restores are never gated.
+	if req.DedupeReplicas {
+		if err := s.dedupeGate(); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := store.Initialize(ctx, req.Bucket, req.Path); err != nil {
@@ -227,6 +244,21 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 			Bucket:  st.OverrideBucket,
 		}, nil
 	}
+}
+
+// dedupeGate refuses a dedupeReplicas create request unless this node runs the feature licensed and wired.
+func (s *Scheduler) dedupeGate() error {
+	switch s.dedupeMode {
+	case license.FeatureOff:
+		return backup.NewErrUnprocessable(fmt.Errorf("dedupeReplicas is not enabled on this cluster; set BACKUP_DEDUPE_ENABLED=true or retry without the option"))
+	case license.FeatureLicensed:
+		if s.backupper.dedupePlanner == nil {
+			return errDedupePlannerMissing
+		}
+		return nil
+	case license.FeatureUnlicensed:
+	}
+	return license.Required(DedupeFeature)
 }
 
 // Restore loads the backup and restores classes in temporary directories on the filesystem.
