@@ -349,7 +349,7 @@ func (c *Compactor) convertFileToSorted(f FileInfo) (bool, error) {
 	// Read into memory using WALCommitReader + InMemoryReader. The layout
 	// check keeps a garbage ResetIndex in a .condensed file from discarding
 	// every older file below.
-	walReader := NewWALCommitReaderForFile(srcFile, f.Type, c.logger).limitNodeIDs(nodeIDLimit(c.config.MaxNodeID))
+	walReader := NewWALCommitReaderForFile(srcFile, f.Type, nodeIDLimit(c.config.MaxNodeID), c.logger)
 	inMemReader := NewInMemoryReader(walReader, c.logger)
 	result, err := inMemReader.Do(nil, true) // keepLinkReplaceInformation = true
 	if err != nil {
@@ -506,7 +506,7 @@ func (c *Compactor) mergeSorted(state *DirectoryState, shouldAbort func() bool) 
 		}
 		openedFiles = append(openedFiles, file)
 
-		walReader := NewWALCommitReaderForFile(file, f.Type, c.logger).limitNodeIDs(nodeIDLimit(c.config.MaxNodeID))
+		walReader := NewWALCommitReaderForFile(file, f.Type, nodeIDLimit(c.config.MaxNodeID), c.logger)
 		it, err := NewIterator(walReader, i, c.logger)
 		if err != nil {
 			return errors.Wrapf(err, "create iterator for %s", f.Path)
@@ -635,7 +635,7 @@ func (c *Compactor) createSnapshot(state *DirectoryState, shouldAbort func() boo
 			}
 			openedFiles = append(openedFiles, file)
 
-			walReader := NewWALCommitReaderForFile(file, f.Type, c.logger).limitNodeIDs(nodeIDLimit(c.config.MaxNodeID))
+			walReader := NewWALCommitReaderForFile(file, f.Type, nodeIDLimit(c.config.MaxNodeID), c.logger)
 			it, err = NewIterator(walReader, i, c.logger)
 		}
 

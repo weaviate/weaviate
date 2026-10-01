@@ -226,25 +226,20 @@ func NewWALCommitReader(r io.Reader, logger logrus.FieldLogger) *WALCommitReader
 // NewWALCommitReaderForFile is NewWALCommitReader with the record-layout check
 // of fileType enabled: a .sorted or .condensed segment has no checksum, so a
 // record the compaction writers never put at that position is reported as an
-// error instead of being returned, and LastValidOffset stays before it.
-func NewWALCommitReaderForFile(r io.Reader, fileType FileType, logger logrus.FieldLogger) *WALCommitReader {
+// error instead of being returned, and LastValidOffset stays before it. Records
+// naming a node ID above maxNodeID are rejected the same way; 0 means no limit.
+func NewWALCommitReaderForFile(r io.Reader, fileType FileType, maxNodeID uint64, logger logrus.FieldLogger) *WALCommitReader {
 	w := NewWALCommitReader(r, logger)
 	if fileType == FileTypeSorted || fileType == FileTypeCondensed {
 		w.layout = &compactedLayout{fileType: fileType}
 	}
+	w.maxNodeID = maxNodeID
 	return w
 }
 
 // errNodeIDBeyondLimit reports a record naming a node ID above the index's
 // limit, which only corruption produces.
 var errNodeIDBeyondLimit = errors.New("node ID beyond the index's limit")
-
-// limitNodeIDs makes ReadNextCommit reject records naming a node ID above limit,
-// leaving LastValidOffset before them. 0 means no limit.
-func (w *WALCommitReader) limitNodeIDs(limit uint64) *WALCommitReader {
-	w.maxNodeID = limit
-	return w
-}
 
 // highestNodeID returns the highest node ID a commit names, if any.
 func highestNodeID(c Commit) (uint64, bool) {

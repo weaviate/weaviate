@@ -269,7 +269,7 @@ func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent
 	}
 	defer file.Close()
 
-	walReader := NewWALCommitReaderForFile(file, f.Type, l.config.Logger).limitNodeIDs(nodeIDLimit(l.config.MaxNodeID))
+	walReader := NewWALCommitReaderForFile(file, f.Type, nodeIDLimit(l.config.MaxNodeID), l.config.Logger)
 	inMemReader := NewInMemoryReader(walReader, l.config.Logger)
 
 	// keepLinkReplaceInfo=false at startup since we're building final state
@@ -392,7 +392,7 @@ func (l *Loader) maxNodeIDInWALs(files []FileInfo) uint64 {
 			continue
 		}
 
-		reader := NewWALCommitReaderForFile(file, f.Type, l.config.Logger).limitNodeIDs(nodeIDLimit(l.config.MaxNodeID))
+		reader := NewWALCommitReaderForFile(file, f.Type, nodeIDLimit(l.config.MaxNodeID), l.config.Logger)
 		for {
 			c, err := reader.ReadNextCommit()
 			if err != nil {
