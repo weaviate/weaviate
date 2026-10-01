@@ -178,6 +178,12 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
 
+	if s.recountPropertiesAtStartup() {
+		if err := s.recountPropertyLengths(ctx); err != nil {
+			return nil, fmt.Errorf("recount property lengths: %w", err)
+		}
+	}
+
 	if err = s.initShardVectors(ctx); err != nil {
 		return nil, fmt.Errorf("init shard vectors: %w", err)
 	}
@@ -242,6 +248,24 @@ func (s *Shard) NotifyReady() {
 	s.index.logger.
 		WithField("action", "startup").
 		Debugf("shard=%s is ready", s.name)
+}
+
+func (s *Shard) recountPropertiesAtStartup() bool {
+	return s.index.db != nil && s.index.db.config.RecountPropertiesAtStartup
+}
+
+// recountPropertyLengths rebuilds the shard's property lengths unless an
+// earlier load of the shard in this process did, see
+// [propertyLengthsRecounter.recountProperties].
+func (s *Shard) recountPropertyLengths(ctx context.Context) error {
+	if _, recounted := s.index.db.propLengthsRecounted.LoadOrStore(s.ID(), struct{}{}); recounted {
+		return nil
+	}
+	recounted, err := newPropertyLengthsRecounter(s).recountProperties(ctx)
+	if !recounted {
+		s.index.db.propLengthsRecounted.Delete(s.ID())
+	}
+	return err
 }
 
 // markInFlightRangeableMigrationsNotReady scans this shard's

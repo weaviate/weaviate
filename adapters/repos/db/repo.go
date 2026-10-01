@@ -75,6 +75,10 @@ type DB struct {
 	resourceScanState         *resourceScanState
 	memMonitor                *memwatch.Monitor
 
+	// propLengthsRecounted holds the ids of the shards whose property lengths
+	// were recounted in this process, see [Config.RecountPropertiesAtStartup].
+	propLengthsRecounted sync.Map
+
 	// indexLock is an RWMutex which allows concurrent access to various indexes,
 	// but only one modification at a time. R/W can be a bit confusing here,
 	// because it does not refer to write or read requests from a user's
@@ -436,6 +440,11 @@ type Config struct {
 	ServerVersion                  string
 	GitHash                        string
 	AvoidMMap                      bool
+
+	// RecountPropertiesAtStartup rebuilds the property lengths of every shard
+	// on its first load in this process.
+	RecountPropertiesAtStartup bool
+
 	// EnableLazyLoadShards controls lazy shard loading.
 	// nil = auto-detect based on thresholds, true = always lazy-load, false = always eager-load.
 	EnableLazyLoadShards                *bool
