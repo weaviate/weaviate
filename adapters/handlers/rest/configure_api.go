@@ -183,6 +183,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/telemetry/opentelemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
+	"github.com/weaviate/weaviate/wl/backupdedupe"
 	wlnshandlers "github.com/weaviate/weaviate/wl/namespaces/handlers"
 	"github.com/weaviate/weaviate/wl/selfrecovery"
 )
@@ -1737,9 +1738,9 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 	if appState.RBAC != nil {
 		roleLister = appState.RBAC
 	}
-	dedupeMode := backupDedupeModeFor(appState.ServerConfig.Config)
-	logUnlicensedBackupDedupe(appState.Logger, dedupeMode)
-	dedupePlanner, err := backupDedupePlanner(dedupeMode, appState.DB, appState.Logger)
+	dedupeMode := backupdedupe.ModeFor(appState.ServerConfig.Config)
+	backupdedupe.LogUnlicensed(appState.Logger, dedupeMode)
+	dedupePlanner, err := backupdedupe.NewForMode(dedupeMode, backupdedupe.Config{Checkpointer: appState.DB, Logger: appState.Logger})
 	if err != nil {
 		appState.Logger.WithField("action", "startup").
 			Errorf("dedupeReplicas backup requests will be refused on this node: cannot build the dedupe planner: %v", err)
