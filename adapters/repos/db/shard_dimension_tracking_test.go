@@ -65,6 +65,8 @@ func Benchmark_Migration(b *testing.B) {
 			}).Maybe()
 			mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 			mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+			mockSchemaReader.EXPECT().ShardFromUUID(mock.Anything, mock.Anything).RunAndReturn(
+				func(_ string, uuid []byte) string { return shardState.Shard("", string(uuid)) }).Maybe()
 			mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 			mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(b)
 			mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
@@ -149,6 +151,8 @@ func Test_Migration(t *testing.T) {
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().ShardFromUUID(mock.Anything, mock.Anything).RunAndReturn(
+		func(_ string, uuid []byte) string { return shardState.Shard("", string(uuid)) }).Maybe()
 	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
@@ -253,6 +257,8 @@ func Test_DimensionTracking(t *testing.T) {
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().ShardFromUUID(mock.Anything, mock.Anything).RunAndReturn(
+		func(_ string, uuid []byte) string { return shardState.Shard("", string(uuid)) }).Maybe()
 	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
@@ -509,6 +515,8 @@ func Test_DisableDimensionTracking(t *testing.T) {
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().ShardFromUUID(mock.Anything, mock.Anything).RunAndReturn(
+		func(_ string, uuid []byte) string { return shardState.Shard("", string(uuid)) }).Maybe()
 	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
