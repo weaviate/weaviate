@@ -935,10 +935,13 @@ func (e *HTTPError) Is(target error) bool {
 	return target == replica.ErrReplicaNotReady && e.Code == http.StatusServiceUnavailable
 }
 
+// shouldRetry reports whether the same peer is worth asking again. A 503 is not: on the cluster API
+// it means the node, or the class it was asked for, is not ready yet, which outlasts any backoff.
+// Asking again just spends the ladder: SearchShard alone would take MAX_RETRIES attempts, about
+// 7.5s, against a replica that already said no. The caller fails over instead.
 func shouldRetry(code int) bool {
 	return code == http.StatusInternalServerError ||
-		code == http.StatusTooManyRequests ||
-		code == http.StatusServiceUnavailable
+		code == http.StatusTooManyRequests
 }
 
 // readDigestsBinaryStream reads fixed-size digest records directly from r without
