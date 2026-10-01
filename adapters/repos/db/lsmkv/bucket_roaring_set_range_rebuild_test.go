@@ -14,9 +14,11 @@ package lsmkv
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -24,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
@@ -519,4 +522,98 @@ func TestReaderRoaringSetRange_PublishedFlagTrusted(t *testing.T) {
 	}
 	assert.Zero(t, countLogLevel(hook, logrus.WarnLevel),
 		"a validated, published rep must never trigger the per-read fallback WARN, even when unpopulated")
+}
+
+// flushOvergrowingSegments writes enough per segment for sroar's doubling
+// growth to overshoot while the rep merges the disk segments in.
+const (
+	shrinkSegments       = 2
+	shrinkValuesPerSeg   = 400
+	shrinkDocIDsPerValue = 20
+	shrinkValueStride    = 99991
+	shrinkDocIDSpace     = 1_000_000
+	shrinkCatchUpValue   = 7
+	shrinkCatchUpDocID   = 999_999_999
+)
+
+// TestRoaringSetRangeRepShrink pins that both sites building the in-memory rep
+// hand the layer bitmaps' spare capacity back, and that the rebuild shrinks
+// after its catch-up merge rather than before it.
+func TestRoaringSetRangeRepShrink(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("the startup build shrinks the rep", func(t *testing.T) {
+		dir := t.TempDir()
+		b := createTestBucketRoaringSetRange(t, ctx, dir, false)
+		flushOvergrowingSegments(t, b)
+		require.NoError(t, b.Shutdown(ctx))
+
+		reopened := createTestBucketRoaringSetRange(t, ctx, dir, true)
+		defer reopened.Shutdown(ctx)
+
+		rep := reopened.disk.roaringSetRangeSegmentInMemory
+		require.NotNil(t, rep)
+		assert.Zero(t, repSpareCapacityInBytes(t, rep))
+	})
+
+	t.Run("the rebuild shrinks after the catch-up merge", func(t *testing.T) {
+		dir := t.TempDir()
+		b := createTestBucketRoaringSetRange(t, ctx, dir, false)
+		defer b.Shutdown(ctx)
+		flushOvergrowingSegments(t, b)
+
+		rep, merged, release, err := b.disk.buildRoaringSetRangeRep(ctx)
+		require.NoError(t, err)
+		require.Positive(t, repSpareCapacityInBytes(t, rep), "fixture must overgrow the layers")
+
+		// A flush lands a new tail segment between the bulk build and the
+		// install, which regrows every layer it touches.
+		require.NoError(t, b.RoaringSetRangeAdd(shrinkCatchUpValue, shrinkCatchUpDocID))
+		require.NoError(t, b.FlushAndSwitch())
+		require.Equal(t, shrinkSegments+1, b.disk.Len())
+
+		require.NoError(t, b.disk.installRoaringSetRangeRep(rep, merged, release))
+		assert.Zero(t, repSpareCapacityInBytes(t, rep),
+			"the catch-up merge regrows the layers, so the shrink must follow it")
+
+		b.rangeableRepRebuilt.Store(true)
+		assert.Equal(t, []uint64{shrinkCatchUpDocID}, readEqual(t, b, shrinkCatchUpValue),
+			"the caught-up segment must be present in the published rep")
+	})
+}
+
+func flushOvergrowingSegments(t *testing.T, b *Bucket) {
+	t.Helper()
+
+	for segment := 0; segment < shrinkSegments; segment++ {
+		for v := uint64(0); v < shrinkValuesPerSeg; v++ {
+			docIDs := make([]uint64, shrinkDocIDsPerValue)
+			for d := range docIDs {
+				docIDs[d] = uint64(segment)*shrinkDocIDSpace + v*shrinkDocIDsPerValue + uint64(d)
+			}
+			require.NoError(t, b.RoaringSetRangeAdd(v*shrinkValueStride, docIDs...))
+		}
+		require.NoError(t, b.FlushAndSwitch())
+	}
+	require.Equal(t, shrinkSegments, b.disk.Len())
+}
+
+// repSpareCapacityInBytes is the capacity the rep's layer bitmaps hold beyond
+// their content. Neither the field nor sroar's capacity is exported, so this
+// reads both through unsafe, and fails if a bitmap's first field moves.
+func repSpareCapacityInBytes(t *testing.T, rep *roaringsetrange.SegmentInMemory) int {
+	t.Helper()
+
+	layers := reflect.ValueOf(rep).Elem().FieldByName("bitmaps")
+	require.True(t, layers.IsValid(), "roaringsetrange.SegmentInMemory has no bitmaps field")
+
+	spare := 0
+	for i := 0; i < layers.Len(); i++ {
+		bm := (*sroar.Bitmap)(layers.Index(i).UnsafePointer())
+		data := *(*[]uint16)(unsafe.Pointer(bm))
+		require.Equal(t, bm.LenInBytes(), len(data)*2,
+			"sroar.Bitmap's first field is no longer its data slice")
+		spare += (cap(data) - len(data)) * 2
+	}
+	return spare
 }
