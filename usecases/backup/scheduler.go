@@ -200,10 +200,12 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	// An omitted selector backs up the whole store. A caller who may not do that
-	// gets a backup without it, as an omitted include narrows to the authorized
-	// classes. This runs after validation, which resets both skip flags.
-	if len(req.IncludeUsers) == 0 {
+	// An omitted selector backs up the whole enabled store. A caller who may not
+	// do that gets a backup without it, as an omitted include narrows to the
+	// authorized classes. Explicit empty selectors and disabled stores are skipped.
+	if s.userLister == nil {
+		selection.skipUsers = true
+	} else if req.IncludeUsers == nil {
 		allowed, err := s.authorizeWholeStore(ctx, pr, authorization.BackupUsers())
 		if err != nil {
 			return nil, err
@@ -214,7 +216,9 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 				Warn("caller may not back up all dynamic users, backing up none: grant manage_backups on users to include them")
 		}
 	}
-	if len(req.IncludeRoles) == 0 {
+	if s.roleLister == nil {
+		selection.skipRoles = true
+	} else if req.IncludeRoles == nil {
 		allowed, err := s.authorizeWholeStore(ctx, pr, authorization.BackupRoles())
 		if err != nil {
 			return nil, err
