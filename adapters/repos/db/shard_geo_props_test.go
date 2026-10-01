@@ -37,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
@@ -969,4 +970,36 @@ func TestIndex_DebugResetGeoIndexNotFound(t *testing.T) {
 			assert.Contains(t, err.Error(), "not found")
 		})
 	}
+}
+
+// Geo queues count towards the shard queue size, as they do towards INDEXING.
+func TestShardQueueSizeCountsGeoQueue(t *testing.T) {
+	ctx := context.Background()
+	s, index := testAsyncGeoPropShard(t, ctx)
+
+	vq, release, ok := s.AcquireVectorIndexQueue("")
+	require.True(t, ok)
+	t.Cleanup(release)
+	_, gq := geoIndexAndQueue(t, s, "location")
+	for _, q := range []*VectorIndexQueue{vq, gq} {
+		require.NoError(t, q.Pause(ctx))
+		t.Cleanup(q.Resume)
+	}
+
+	for i := 0; i < 3; i++ {
+		require.NoError(t, s.PutObject(ctx, &storobj.Object{
+			MarshallerVersion: 1,
+			Object: models.Object{
+				ID:         strfmt.UUID(uuid.NewString()),
+				Class:      geoPropClass,
+				Properties: map[string]interface{}{"location": munichCoordinates()},
+			},
+			Vector: []float32{1, 2, 3},
+		}))
+	}
+
+	require.Equal(t, storagestate.StatusIndexing, s.GetStatus())
+	size, err := index.IncomingGetShardQueueSize(ctx, s.Name())
+	require.NoError(t, err)
+	require.EqualValues(t, 6, size, "3 vectors and 3 geo coordinates")
 }

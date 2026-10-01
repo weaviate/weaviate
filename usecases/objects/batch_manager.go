@@ -37,6 +37,7 @@ type BatchManager struct {
 	modulesProvider   ModulesProvider
 	autoSchemaManager *AutoSchemaManager
 	metrics           *Metrics
+	qualifier         namespacing.Qualifier
 }
 
 type BatchVectorRepo interface {
@@ -58,6 +59,7 @@ func NewBatchManager(vectorRepo BatchVectorRepo, modulesProvider ModulesProvider
 	schemaManager schemaManager, config *config.WeaviateConfig,
 	logger logrus.FieldLogger, authorizer authorization.Authorizer,
 	prom *monitoring.PrometheusMetrics, autoSchemaManager *AutoSchemaManager,
+	qualifier namespacing.Qualifier,
 ) *BatchManager {
 	return &BatchManager{
 		config:            config,
@@ -69,11 +71,12 @@ func NewBatchManager(vectorRepo BatchVectorRepo, modulesProvider ModulesProvider
 		authorizer:        authorizer,
 		autoSchemaManager: autoSchemaManager,
 		metrics:           NewMetrics(prom),
+		qualifier:         qualifier,
 	}
 }
 
-// resolveNS qualifies name with the principal's namespace (if enabled)
-// and resolves any alias to its underlying class.
+// resolveNS qualifies name through b.qualifier and resolves any alias to its
+// underlying class.
 func (b *BatchManager) resolveNS(principal *models.Principal, name string) (class, qualifiedAlias string, err error) {
-	return namespacing.Resolve(principal, b.schemaManager, b.config.Config.Namespaces.Enabled, name)
+	return namespacing.Resolve(principal, b.schemaManager, b.qualifier, name)
 }

@@ -34,7 +34,7 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 ) (*models.Object, error) {
 	class, _, err := m.resolveNS(principal, class)
 	if err != nil {
-		return nil, NewErrInvalidUserInput("%v", err)
+		return nil, userInputOrForbidden(err)
 	}
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(class, tenant)); err != nil {
@@ -119,7 +119,7 @@ func (m *Manager) GetObjectClassFromName(ctx context.Context, principal *models.
 ) (*models.Class, error) {
 	className, _, err := m.resolveNS(principal, className)
 	if err != nil {
-		return nil, NewErrInvalidUserInput("%v", err)
+		return nil, userInputOrForbidden(err)
 	}
 	class, err := m.schemaManager.GetClass(ctx, principal, className)
 	return class, err

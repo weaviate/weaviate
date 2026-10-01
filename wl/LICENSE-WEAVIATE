@@ -3,3 +3,11 @@ WEAVIATE LICENSE AGREEMENT
 Date posted: August 26, 2026
 
 All rights reserved.
+
+Within the "wl" directory and all its sub-directories, source code is
+Copyright Weaviate BV 2026-present, all rights reserved, and is only
+available under a separate enterprise license. For more information about
+buying an enterprise license, contact us here:
+http://weaviate.io/enterprise-edition. Enterprise
+features are enabled via license key. The BSD license does not grant the
+right to use these features or circumvent any license key.

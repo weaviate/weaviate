@@ -862,6 +862,17 @@ func TestGuardLoadPath(t *testing.T) {
 		require.ErrorIs(t, err, ErrNamespaceUnknownLocally)
 	})
 
+	// Status reads skip loading a cold shard, but not the guard.
+	t.Run("suspended refuses a status read of a cold shard", func(t *testing.T) {
+		idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateSuspended))
+		idx.shards.Store("t1", &LazyLoadShard{})
+
+		_, err := idx.IncomingGetShardStatus(ctx, "t1")
+		require.ErrorIs(t, err, namespaces.ErrNamespaceSuspended)
+		_, err = idx.IncomingGetShardQueueSize(ctx, "t1")
+		require.ErrorIs(t, err, namespaces.ErrNamespaceSuspended)
+	})
+
 	// The allow side: without it, a guard that refused every in-band load would
 	// pass every refuse-only assertion above.
 	t.Run("an active namespace admits the load", func(t *testing.T) {

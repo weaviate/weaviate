@@ -12,6 +12,7 @@
 package errors
 
 import (
+	"errors"
 	"slices"
 	"testing"
 
@@ -63,4 +64,12 @@ func Test_ForbiddenError(t *testing.T) {
 			assert.Equal(t, tt.groups, principal.Groups)
 		})
 	}
+}
+
+func TestNewForbiddenWithCause(t *testing.T) {
+	cause := errors.New("the feature needs a license")
+	err := NewForbiddenWithCause(cause)
+
+	assert.Equal(t, cause.Error(), err.Error())
+	assert.ErrorIs(t, err, cause)
 }

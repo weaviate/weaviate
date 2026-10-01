@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/license"
 	usagetypes "github.com/weaviate/weaviate/usecases/modulecomponents/usage/types"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -373,6 +374,11 @@ type Config struct {
 	// once at startup from the LICENSE_KEY form check and cannot be overridden
 	// at runtime.
 	WeaviateLicense bool `json:"weaviate_license" yaml:"weaviate_license"`
+
+	// License is the license state derived from LICENSE_KEY or
+	// LICENSE_KEY_FILE at startup, for observability (meta endpoint, metrics,
+	// logs).
+	License license.State `json:"license" yaml:"license"`
 }
 
 type CollectionPropsTenants struct {

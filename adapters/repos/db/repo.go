@@ -18,6 +18,7 @@ import (
 	"maps"
 	"math"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -169,6 +170,9 @@ type DB struct {
 	// shard decision can read its namespace's state. nil is only for tests
 	// that build no namespaced class; a namespaced one then fails closed.
 	namespacesExister namespaces.Exister
+
+	// Set after the cluster service is up. Nil-safe: nil keeps MkdirAll behavior.
+	selfRecoveryOrchestrator SelfRecoveryOrchestrator
 }
 
 // SetUsageLimits installs the usage-limits Manager on the DB. Must be
@@ -176,6 +180,41 @@ type DB struct {
 // inherit the manager. See docs/usage_limits.md.
 func (db *DB) SetUsageLimits(m *usagelimits.Manager) {
 	db.usageLimits = m
+}
+
+// SelfRecoveryOrchestrator is the narrow surface avoiding an import cycle on cluster/replication.
+type SelfRecoveryOrchestrator interface {
+	// Enabled must be checked before installing a wrapper, else it blocks load forever.
+	// Flag only; licensing is enforced inside the Submit methods so a resuming op is still recognised when unlicensed.
+	Enabled() bool
+	// SubmitRecovery is non-blocking; false = not queued and the caller MUST fall back to normal init.
+	SubmitRecovery(ctx context.Context, collection, shard string, startedWithoutRaftState bool) bool
+	// SubmitActivationRecovery queues a tenant activation whose local folder is missing; same contract as SubmitRecovery.
+	SubmitActivationRecovery(ctx context.Context, collection, shard string) bool
+	// Close stops submissions and drains in-flight workers, bounded by ctx; idempotent.
+	Close(ctx context.Context) error
+}
+
+// SetSelfRecoveryOrchestrator must be called before WaitForStartup.
+func (db *DB) SetSelfRecoveryOrchestrator(o SelfRecoveryOrchestrator) {
+	db.selfRecoveryOrchestrator = o
+}
+
+// ShardPath returns the on-disk directory for (collection, shard).
+func (db *DB) ShardPath(collection, shard string) string {
+	return shardPath(
+		path.Join(db.config.RootPath, indexID(schema.ClassName(collection))),
+		shard,
+	)
+}
+
+// LoadLocalShard is the self-recovery promote callback: never creates a shard, wraps the *NotRegistered sentinels for the orchestrator.
+func (db *DB) LoadLocalShard(ctx context.Context, collection, shard string) error {
+	idx := db.GetIndex(schema.ClassName(collection))
+	if idx == nil {
+		return fmt.Errorf("load local shard: index %q: %w", collection, enterrors.ErrIndexNotRegistered)
+	}
+	return idx.PromoteRecoveringLocalShard(ctx, shard)
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -497,8 +536,9 @@ type Config struct {
 
 	DisableDimensionMetrics *configRuntime.DynamicValue[bool]
 
-	// Plumbed through for future callers under the "wl" directory; nothing in
-	// the DB layer reads it yet.
+	// WeaviateLicense reports whether this node holds a well-formed license key.
+	// No code reads it. A reader outside wl/ must pass it with its feature's
+	// flag to license.ModeFor and call into wl/ only on FeatureLicensed.
 	WeaviateLicense bool
 }
 
@@ -792,6 +832,12 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	// Close, never send: a send reaches one receiver, and a recovered panic in
 	// scanResourceUsage would hang the whole shutdown on it until SIGKILL.
 	db.shutdownOnce.Do(func() { close(db.shutdown) })
+	// Stop self-recovery workers first so in-flight promote callbacks don't race Index.Shutdown.
+	if db.selfRecoveryOrchestrator != nil {
+		if err := db.selfRecoveryOrchestrator.Close(ctx); err != nil {
+			db.logger.Warnf("self-recovery: Close did not drain in time; workers may still be running: %v", err)
+		}
+	}
 	db.bitmapBufPoolClose()
 
 	if !db.AsyncIndexingEnabled {
