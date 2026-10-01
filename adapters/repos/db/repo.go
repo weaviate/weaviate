@@ -34,6 +34,7 @@ import (
 	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
 	"github.com/weaviate/weaviate/cluster/schema/local"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/cluster/utils"
@@ -61,7 +62,8 @@ import (
 type DB struct {
 	logger                    logrus.FieldLogger
 	localNodeName             string
-	schemaGetter              schemaUC.SchemaGetter
+	leaderSchema              leader.SchemaReader
+	tenants                   schemaUC.TenantActivator
 	config                    Config
 	indices                   map[string]*Index
 	remoteIndex               remote.IndexClient
@@ -156,7 +158,6 @@ type DB struct {
 
 	AsyncIndexingEnabled bool
 
-	tenantsManager schemaUC.TenantsActivityManager
 	// membership reports RAFT statistics for the node status.
 	membership cluster.RaftMembership
 
@@ -178,12 +179,8 @@ func (db *DB) SetUsageLimits(m *usagelimits.Manager) {
 	db.usageLimits = m
 }
 
-func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
-	return db.schemaGetter
-}
-
 func (db *DB) GetSchema() schema.Schema {
-	s := db.schemaGetter.ReadOnlySchema()
+	s := db.schemaReader.ReadOnlySchema()
 	return schema.Schema{Objects: &s}
 }
 
@@ -195,8 +192,16 @@ func (db *DB) GetRemoteIndex() remote.IndexClient {
 	return db.remoteIndex
 }
 
-func (db *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
-	db.schemaGetter = sg
+// SetLeaderSchema sets the leader-consistent reads: the shard owner on the write
+// path and tenant status on export and TTL.
+func (db *DB) SetLeaderSchema(leaderSchema leader.SchemaReader) {
+	db.leaderSchema = leaderSchema
+}
+
+// SetTenantActivator sets the tenant status lookup that may activate tenants, which
+// is a RAFT write, so it is kept apart from the readers.
+func (db *DB) SetTenantActivator(tenants schemaUC.TenantActivator) {
+	db.tenants = tenants
 }
 
 func (db *DB) GetScheduler() *queue.Scheduler {
@@ -241,7 +246,7 @@ func (db *DB) StartupLoadingProgress() *StartupProgressSnapshot {
 
 // startupClassNames returns the current class names for the startup progress scan
 func (db *DB) startupClassNames() []string {
-	classes := db.schemaGetter.ReadOnlySchema().Classes
+	classes := db.schemaReader.ReadOnlySchema().Classes
 	names := make([]string, 0, len(classes))
 	for _, class := range classes {
 		names = append(names, class.Class)
@@ -881,10 +886,6 @@ func (db *DB) SetReplicationFSM(replicationFsm *clusterReplication.ShardReplicat
 func (db *DB) SetBitmapBufPool(bufPool roaringset.BitmapBufPool, close func()) {
 	db.bitmapBufPool = bufPool
 	db.bitmapBufPoolClose = close
-}
-
-func (db *DB) SetTenantsActivityManager(tenantsManager schemaUC.TenantsActivityManager) {
-	db.tenantsManager = tenantsManager
 }
 
 func (db *DB) SetRaftMembership(membership cluster.RaftMembership) {

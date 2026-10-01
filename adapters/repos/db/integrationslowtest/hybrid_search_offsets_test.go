@@ -141,7 +141,7 @@ func TestHybridOffsets(t *testing.T) {
 			for _, queryAndVector := range queries {
 				log, _ := test.NewNullLogger()
 				explorer := traverser.NewExplorer(repo, log, nil, nil, myConfig)
-				explorer.SetSchemaGetter(schemaGetter)
+				explorer.SetClassReader(schemaGetter)
 				for _, alpha := range []float64{0.0, 0.5, 1.0} {
 					query := queryAndVector[0].(string)
 					vector := queryAndVector[1].([]float32)

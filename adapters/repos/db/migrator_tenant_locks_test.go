@@ -42,7 +42,7 @@ func newLockTestMigrator(t *testing.T, reachIndex bool) *Migrator {
 	t.Helper()
 
 	idx, _ := newDropTestIndex(t)
-	idx.getSchema = &fakeSchemaGetter{}
+	idx.schemaReader = &fakeSchemaGetter{}
 
 	var shards []string
 	owner := []string{lockTestNode}
@@ -80,7 +80,8 @@ func newLockTestMigrator(t *testing.T, reachIndex bool) *Migrator {
 		RunAndReturn(func(s string) (string, bool) { return s, true }).Maybe()
 	idx.remote = remote.NewIndex(
 		lockTestClass,
-		idx.getSchema,
+		idx.leaderSchema,
+		idx.schemaReader,
 		nodeResolver,
 		&FakeRemoteClient{shardStatus: shardStatus},
 	)

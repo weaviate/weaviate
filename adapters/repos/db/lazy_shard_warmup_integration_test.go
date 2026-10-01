@@ -90,11 +90,12 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 		}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
 
-	mockSchema := schemaUC.NewMockSchemaGetter(t)
+	mockSchema := local.NewMockSchemaReader(t)
+	mockSchemaTen := schemaUC.NewMockTenantActivator(t)
 	mockSchema.EXPECT().ReadOnlySchema().Maybe().Return(*fakeSchema.Objects)
 	mockSchema.EXPECT().ReadOnlyClass(warmupClassName).Maybe().Return(class)
-	mockSchema.EXPECT().TenantsShardsStatus(mock.Anything, warmupClassName, mock.Anything).Maybe().
-		Return(tenantStatus, nil)
+	mockSchemaTen.EXPECT().TenantsShardsStatusWithActivation(mock.Anything, warmupClassName, mock.Anything).Maybe().
+		Return(tenantStatus, uint64(0), nil)
 
 	mockRouter := types.NewMockRouter(t)
 	mockRouter.EXPECT().GetWriteReplicasLocation(warmupClassName, mock.Anything, mock.Anything).
@@ -111,7 +112,7 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 		}).Maybe()
 
 	schemaGetter := &fakeSchemaGetter{schema: fakeSchema, shardState: shardState}
-	shardResolver := resolver.NewShardResolver(warmupClassName, true, schemaGetter)
+	shardResolver := resolver.NewShardResolver(warmupClassName, true, schemaGetter, schemaGetter)
 
 	index, err := NewIndex(ctx, nil, IndexConfig{
 		NodeName:                      warmupNodeName,
@@ -123,10 +124,10 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 		LazyLoadShardWarmupMinObjects: minObjects,
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{VectorCacheMaxObjects: 1000}, nil, mockRouter, shardResolver,
-		mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{},
+		nil, mockSchemaTen, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{},
 		monitoring.GetMetrics(),
 		class, nil, scheduler, allocChecker,
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 	require.NoError(t, err)
 
 	return index, hook

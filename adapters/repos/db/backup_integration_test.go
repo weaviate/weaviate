@@ -92,7 +92,7 @@ func TestBackup_DBLevel(t *testing.T) {
 			return jsonErr
 		})
 		require.Nil(t, err)
-		expectedSchema, err := testShd.Index().getSchema.ReadOnlySchema().
+		expectedSchema, err := testShd.Index().schemaReader.ReadOnlySchema().
 			Classes[0].MarshalBinary()
 		require.Nil(t, err)
 
@@ -337,7 +337,9 @@ func setupTestDBWithShardState(t *testing.T, rootDir string, shardState *shardin
 	db, err := New(logger, "node1", cfg, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	db.SetSchemaGetter(schemaGetter)
+	db.SetLeaderSchema(schemaGetter)
+
+	db.SetTenantActivator(schemaGetter)
 	require.Nil(t, db.WaitForStartup(testCtx()))
 	migrator := NewMigrator(db, logger, "node1")
 

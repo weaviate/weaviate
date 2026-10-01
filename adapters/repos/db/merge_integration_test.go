@@ -74,7 +74,9 @@ func Test_MergingObjects(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger, "node1")
@@ -461,7 +463,9 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger, "node1")
@@ -753,7 +757,9 @@ func Test_MergeDocIdPreserved_PropsCorrectlyIndexed(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger, "node1")

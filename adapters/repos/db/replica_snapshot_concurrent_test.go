@@ -33,7 +33,6 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -41,7 +40,7 @@ import (
 // call's release deletes the other's dir mid-hardlink. With the lock,
 // callers serialize and all return a consistent file list.
 func TestIncomingCreateReplicaSnapshotConcurrent(t *testing.T) {
-	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
+	mockSchemaGetter := local.NewMockSchemaReader(t)
 
 	class := &models.Class{
 		Class:               "TestClass",
@@ -70,7 +69,7 @@ func TestIncomingCreateReplicaSnapshotConcurrent(t *testing.T) {
 			return readFunc(class, ss)
 		}).Maybe()
 
-	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter, nil)
 
 	index, err := NewIndex(context.Background(), nil, IndexConfig{
 		NodeName:          "node1",
@@ -79,9 +78,9 @@ func TestIncomingCreateReplicaSnapshotConcurrent(t *testing.T) {
 		ReplicationFactor: 1,
 		ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader,
+		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, nil, nil, mockSchemaReader,
 		nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 	require.NoError(t, err)
 	shutdownIndexOnCleanup(t, index)
 	index.db = stubDBWithNoLiveReindex()

@@ -448,7 +448,8 @@ func TestIndex_getShardsStorageStatus(t *testing.T) {
 
 	index := Index{
 		Config:           IndexConfig{NodeName: targetNode, ClassName: schema.ClassName("Songs")},
-		getSchema:        &fakeSchemaGetter{nodeName: targetNode},
+		leaderSchema:     &fakeSchemaGetter{nodeName: targetNode},
+		tenants:          &fakeSchemaGetter{nodeName: targetNode},
 		schemaReader:     schemaReader,
 		shardCreateLocks: esync.NewKeyRWLocker(),
 		router:           router,
@@ -458,7 +459,8 @@ func TestIndex_getShardsStorageStatus(t *testing.T) {
 
 	index.remote = remote.NewIndex(
 		"Songs",
-		index.getSchema,
+		index.leaderSchema,
+		index.schemaReader,
 		nodeResolver,
 		&FakeRemoteClient{shardStatus: shardStatus},
 	)

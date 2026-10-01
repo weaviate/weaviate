@@ -76,6 +76,7 @@ import (
 	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/replication/copier"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
 	"github.com/weaviate/weaviate/cluster/usage"
 	entconfig "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -200,7 +201,8 @@ type vectorRepo interface {
 	objects.BatchVectorRepo
 	traverser.VectorSearcher
 	classification.VectorRepo
-	SetSchemaGetter(schema.SchemaGetter)
+	SetLeaderSchema(leader.SchemaReader)
+	SetTenantActivator(schema.TenantActivator)
 	WaitForStartup(ctx context.Context) error
 	Shutdown(ctx context.Context) error
 }
@@ -790,8 +792,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	repo.SetNodeSelector(appState.ClusterService.NodeSelector())
 	repo.SetSchemaReader(appState.ClusterService.SchemaReader())
 	repo.SetReplicationFSM(appState.ClusterService.ReplicationFsm())
-	repo.SetSchemaGetter(appState.SchemaManager)
-	repo.SetTenantsActivityManager(appState.SchemaManager)
+	repo.SetLeaderSchema(appState.SchemaManager)
+	repo.SetTenantActivator(appState.SchemaManager)
 	repo.SetRaftMembership(appState.ClusterService.Raft)
 
 	// initialize needed services after all components are ready
@@ -824,9 +826,10 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	appState.InternalServer = clusterapi.NewServer(appState)
 	enterrors.GoWrapper(func() { appState.InternalServer.Serve() }, appState.Logger)
 
-	vectorRepo.SetSchemaGetter(schemaManager)
-	explorer.SetSchemaGetter(schemaManager)
-	appState.Modules.SetSchemaGetter(schemaManager)
+	vectorRepo.SetLeaderSchema(schemaManager)
+	vectorRepo.SetTenantActivator(schemaManager)
+	explorer.SetClassReader(schemaManager)
+	appState.Modules.SetClassReader(schemaManager)
 
 	appState.Traverser = traverser.NewTraverser(appState.ServerConfig,
 		appState.Logger, appState.Authorizer, vectorRepo, explorer, schemaManager,

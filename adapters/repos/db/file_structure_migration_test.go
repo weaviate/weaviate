@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -226,7 +227,7 @@ func testDB(t *testing.T, root string, classes []*models.Class, states map[strin
 		localNodeName: "node1",
 		config:        Config{RootPath: root},
 		logger:        logger,
-		schemaGetter: &fakeMigrationSchemaGetter{
+		leaderSchema: &fakeMigrationSchemaGetter{
 			sch:    schema.Schema{Objects: &models.Schema{Classes: classes}},
 			states: states,
 		},
@@ -281,8 +282,25 @@ func (c shardContents) assert(t *testing.T) {
 }
 
 type fakeMigrationSchemaGetter struct {
+	local.SchemaReader
+	leaderSchemaReader
+	schemaUC.TenantActivator
 	sch    schema.Schema
 	states map[string]*sharding.State
+}
+
+func (sg *fakeMigrationSchemaGetter) ShardOwnerFromLeader(class, shard string) (string, uint64, error) {
+	owner, err := sg.ShardOwner(class, shard)
+	return owner, 0, err
+}
+
+func (sg *fakeMigrationSchemaGetter) TenantsShardsStatusWithActivation(ctx context.Context, class string, tenants ...string) (map[string]string, uint64, error) {
+	res, err := sg.TenantsShardsStatus(ctx, class, tenants...)
+	return res, 0, err
+}
+
+func (sg *fakeMigrationSchemaGetter) TenantsShardsFromLeader(class string, tenants ...string) (map[string]string, uint64, error) {
+	return sg.TenantsShardsStatusWithActivation(context.Background(), class, tenants...)
 }
 
 func (sg *fakeMigrationSchemaGetter) ReadOnlySchema() models.Schema {

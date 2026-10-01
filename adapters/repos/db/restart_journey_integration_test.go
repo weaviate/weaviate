@@ -80,7 +80,9 @@ func TestRestartJourney(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	migrator := NewMigrator(repo, logger, "node1")
 
@@ -196,7 +198,9 @@ func TestRestartJourney(t *testing.T) {
 		}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
 			mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 		require.Nil(t, err)
-		newRepo.SetSchemaGetter(schemaGetter)
+		newRepo.SetLeaderSchema(schemaGetter)
+
+		newRepo.SetTenantActivator(schemaGetter)
 		require.Nil(t, newRepo.WaitForStartup(testCtx()))
 	})
 

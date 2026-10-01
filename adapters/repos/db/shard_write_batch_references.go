@@ -388,7 +388,7 @@ func (b *referencesBatcher) flushWALs(ctx context.Context) {
 
 func (b *referencesBatcher) getSchemaPropsByName() (map[string]*models.Property, error) {
 	idx := b.shard.Index()
-	class := idx.getSchema.ReadOnlyClass(idx.Config.ClassName.String())
+	class := idx.schemaReader.ReadOnlyClass(idx.Config.ClassName.String())
 	if class == nil {
 		return nil, fmt.Errorf("could not find class %s in schema", idx.Config.ClassName)
 	}

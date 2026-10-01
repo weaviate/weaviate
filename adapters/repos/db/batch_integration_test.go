@@ -77,7 +77,9 @@ func TestBatchPutObjectsWithDimensions(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 
 	defer func() {
@@ -130,7 +132,9 @@ func TestBatchPutObjects(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 
 	defer func() {
@@ -178,7 +182,9 @@ func TestBatchPutObjectsWithNamedVectors(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 
 	defer func() {
@@ -387,7 +393,9 @@ func TestBatchPutObjectsNoVectorsWithDimensions(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 
 	defer func() {
@@ -440,7 +448,9 @@ func TestBatchPutObjectsNoVectors(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 
 	defer func() {
@@ -488,7 +498,9 @@ func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer func() {
 		require.Nil(t, repo.Shutdown(context.Background()))
@@ -585,7 +597,9 @@ func TestBatchDeleteObjects(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer func() {
 		require.Nil(t, repo.Shutdown(context.Background()))
@@ -634,7 +648,9 @@ func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer func() {
 		require.Nil(t, repo.Shutdown(context.Background()))
@@ -691,7 +707,9 @@ func TestBatchDeleteObjects_Journey(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer func() {
 		require.Nil(t, repo.Shutdown(context.Background()))

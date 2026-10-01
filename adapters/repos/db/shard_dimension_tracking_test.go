@@ -65,6 +65,8 @@ func Benchmark_Migration(b *testing.B) {
 			}).Maybe()
 			mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 			mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+			mockSchemaReader.EXPECT().ShardFromUUID(mock.Anything, mock.Anything).RunAndReturn(
+				func(_ string, uuid []byte) string { return shardState.Shard("", string(uuid)) }).Maybe()
 			mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 			mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(b)
 			mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
@@ -81,7 +83,9 @@ func Benchmark_Migration(b *testing.B) {
 			}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 				mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 			require.Nil(b, err)
-			repo.SetSchemaGetter(schemaGetter)
+			repo.SetLeaderSchema(schemaGetter)
+
+			repo.SetTenantActivator(schemaGetter)
 			require.Nil(b, repo.WaitForStartup(testCtx()))
 			defer repo.Shutdown(context.Background())
 
@@ -147,6 +151,8 @@ func Test_Migration(t *testing.T) {
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().ShardFromUUID(mock.Anything, mock.Anything).RunAndReturn(
+		func(_ string, uuid []byte) string { return shardState.Shard("", string(uuid)) }).Maybe()
 	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
@@ -163,7 +169,9 @@ func Test_Migration(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 
 	migrator := NewMigrator(repo, logger, "node1")
@@ -221,7 +229,9 @@ func Test_Migration(t *testing.T) {
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 	defer repoNew.Shutdown(context.Background())
-	repoNew.SetSchemaGetter(schemaGetter)
+	repoNew.SetLeaderSchema(schemaGetter)
+
+	repoNew.SetTenantActivator(schemaGetter)
 
 	require.Nil(t, repoNew.WaitForStartup(testCtx()))
 
@@ -247,6 +257,8 @@ func Test_DimensionTracking(t *testing.T) {
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().ShardFromUUID(mock.Anything, mock.Anything).RunAndReturn(
+		func(_ string, uuid []byte) string { return shardState.Shard("", string(uuid)) }).Maybe()
 	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
@@ -263,7 +275,9 @@ func Test_DimensionTracking(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, monitoring.GetMetrics(), memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
@@ -501,6 +515,8 @@ func Test_DisableDimensionTracking(t *testing.T) {
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().ShardFromUUID(mock.Anything, mock.Anything).RunAndReturn(
+		func(_ string, uuid []byte) string { return shardState.Shard("", string(uuid)) }).Maybe()
 	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
@@ -518,7 +534,9 @@ func Test_DisableDimensionTracking(t *testing.T) {
 	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	db.SetSchemaGetter(schemaGetter)
+	db.SetLeaderSchema(schemaGetter)
+
+	db.SetTenantActivator(schemaGetter)
 	require.Nil(t, db.WaitForStartup(testCtx()))
 	defer db.Shutdown(context.Background())
 

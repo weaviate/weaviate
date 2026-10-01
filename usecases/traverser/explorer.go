@@ -18,23 +18,22 @@ import (
 	"slices"
 	"time"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
-	"github.com/weaviate/weaviate/cluster/schema/local"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema/configvalidation"
-
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/autocut"
 	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/inverted"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/configvalidation"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -53,7 +52,7 @@ type Explorer struct {
 	searcher          objectsSearcher
 	logger            logrus.FieldLogger
 	modulesProvider   ModulesProvider
-	schemaGetter      local.ClassReader
+	classReader       local.ClassReader
 	nearParamsVector  *nearParamsVector
 	targetParamHelper *TargetVectorParamHelper
 	metrics           explorerMetrics
@@ -120,15 +119,15 @@ func NewExplorer(searcher objectsSearcher, logger logrus.FieldLogger, modulesPro
 		logger:            logger,
 		modulesProvider:   modulesProvider,
 		metrics:           metrics,
-		schemaGetter:      nil, // schemaGetter is set later
+		classReader:       nil, // set later, once the schema manager exists
 		nearParamsVector:  newNearParamsVector(modulesProvider, searcher),
 		targetParamHelper: NewTargetParamHelper(),
 		config:            conf,
 	}
 }
 
-func (e *Explorer) SetSchemaGetter(sg local.ClassReader) {
-	e.schemaGetter = sg
+func (e *Explorer) SetClassReader(classReader local.ClassReader) {
+	e.classReader = classReader
 }
 
 // GetClass from search and connector repo
@@ -272,7 +271,7 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 		return nil, nil, fmt.Errorf("explorer: get class: vectorize params: %w", enterrors.NewErrQueryVectorization(err))
 	}
 
-	targetVectors, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.ReadOnlyClass,
+	targetVectors, err = e.targetParamHelper.GetTargetVectorOrDefault(e.classReader.ReadOnlyClass,
 		params.ClassName, targetVectors)
 	if err != nil {
 		return nil, nil, fmt.Errorf("explorer: get class: validate target vector: %w", err)
@@ -654,7 +653,7 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 
 			if params.AdditionalProperties.Certainty {
 				targetVectors := e.targetParamHelper.GetTargetVectorsFromParams(params)
-				class := e.schemaGetter.ReadOnlyClass(params.ClassName)
+				class := e.classReader.ReadOnlyClass(params.ClassName)
 				if err := configvalidation.CheckCertaintyCompatibility(class, targetVectors); err != nil {
 					return nil, fmt.Errorf("additional: %w for class: %v", err, params.ClassName)
 				}
@@ -923,16 +922,16 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 }
 
 func (e *Explorer) GetSchema() schema.Schema {
-	s := e.schemaGetter.ReadOnlySchema()
+	s := e.classReader.ReadOnlySchema()
 	return schema.Schema{Objects: &s}
 }
 
 func (e *Explorer) replicationEnabled(params dto.GetParams) (bool, error) {
-	if e.schemaGetter == nil {
-		return false, fmt.Errorf("schemaGetter not set")
+	if e.classReader == nil {
+		return false, fmt.Errorf("classReader not set")
 	}
 
-	class := e.schemaGetter.ReadOnlyClass(params.ClassName)
+	class := e.classReader.ReadOnlyClass(params.ClassName)
 	if class == nil {
 		return false, fmt.Errorf("class not found in schema: %q", params.ClassName)
 	}
@@ -941,11 +940,11 @@ func (e *Explorer) replicationEnabled(params dto.GetParams) (bool, error) {
 }
 
 func (e *Explorer) keepObjectsWithTTL(params dto.GetParams, input search.Result, searchStartTime time.Time) (bool, error) {
-	if e.schemaGetter == nil {
-		return false, fmt.Errorf("schemaGetter not set")
+	if e.classReader == nil {
+		return false, fmt.Errorf("classReader not set")
 	}
 
-	class := e.schemaGetter.ReadOnlyClass(params.ClassName)
+	class := e.classReader.ReadOnlyClass(params.ClassName)
 	if class == nil {
 		return false, fmt.Errorf("class not found in schema: %q", params.ClassName)
 	}

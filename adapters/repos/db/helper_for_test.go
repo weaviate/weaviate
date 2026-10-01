@@ -294,6 +294,8 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 	mockSchemaReader.EXPECT().LocalShards(mock.Anything).Return([]string{"shard1"}, nil).Maybe()
 	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).Return(1, nil).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().ShardFromUUID(mock.Anything, mock.Anything).RunAndReturn(
+		func(_ string, uuid []byte) string { return shardState.Shard("", string(uuid)) }).Maybe()
 	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -312,7 +314,11 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 
-	db.SetSchemaGetter(&fakeSchemaGetter{
+	db.SetLeaderSchema(&fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: classes}},
+		shardState: shardState,
+	})
+	db.SetTenantActivator(&fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: classes}},
 		shardState: shardState,
 	})
@@ -384,6 +390,8 @@ func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().ShardFromUUID(mock.Anything, mock.Anything).RunAndReturn(
+		func(_ string, uuid []byte) string { return shardState.Shard("", string(uuid)) }).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -496,7 +504,8 @@ func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models
 		vectorIndexUserConfig:  vic,
 		vectorIndexUserConfigs: map[string]schemaConfig.VectorIndexConfig{},
 		logger:                 logger,
-		getSchema:              schemaGetter,
+		leaderSchema:           schemaGetter,
+		tenants:                schemaGetter,
 		schemaReader:           mockSchemaReader,
 		centralJobQueue:        repo.jobQueueCh,
 		stopwords:              sd,

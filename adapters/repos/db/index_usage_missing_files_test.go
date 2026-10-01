@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
 	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
@@ -242,12 +243,14 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T, params usageInde
 		return readerFunc(class, shardState)
 	}).Maybe()
 
-	mockSchema := schemaUC.NewMockSchemaGetter(t)
+	mockSchema := local.NewMockSchemaReader(t)
+	mockSchemaTen := schemaUC.NewMockTenantActivator(t)
+	mockSchemaLeader := leader.NewMockSchema(t)
 	mockSchema.EXPECT().ReadOnlySchema().Maybe().Return(*fakeSchema.Objects)
 	mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
-	mockSchema.EXPECT().ShardOwner(className, tenantName).Maybe().Return("test-node", nil)
-	mockSchema.EXPECT().TenantsShardsStatus(ctx, className, tenantName).Maybe().
-		Return(map[string]string{tenantName: models.TenantActivityStatusHOT}, nil)
+	mockSchemaLeader.EXPECT().ShardOwnerFromLeader(className, tenantName).Maybe().Return("test-node", uint64(0), nil)
+	mockSchemaTen.EXPECT().TenantsShardsStatusWithActivation(ctx, className, tenantName).Maybe().
+		Return(map[string]string{tenantName: models.TenantActivityStatusHOT}, uint64(0), nil)
 
 	mockRouter := types.NewMockRouter(t)
 	mockRouter.EXPECT().GetWriteReplicasLocation(className, mock.Anything, mock.Anything).
@@ -258,7 +261,7 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T, params usageInde
 		Return(types.ReadReplicaSet{
 			Replicas: []types.Replica{{NodeName: "test-node", ShardName: tenantName, HostAddr: "110.12.15.23"}},
 		}, nil).Maybe()
-	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema, mockSchemaTen)
 
 	newIndexFn := func(lazy, trackDimensions bool) *Index {
 		idx, err := NewIndex(ctx, nil, IndexConfig{
@@ -274,7 +277,8 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T, params usageInde
 			namedVectorConfigs,
 			mockRouter,
 			shardResolver,
-			mockSchema,
+			mockSchemaLeader,
+			mockSchemaTen,
 			mockSchemaReader,
 			nil,
 			logger,
@@ -290,7 +294,6 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T, params usageInde
 			NewShardReindexerV3Noop(),
 			roaringset.NewBitmapBufPoolNoop(),
 			false,
-			nil,
 		)
 		require.NoError(t, err)
 		return idx

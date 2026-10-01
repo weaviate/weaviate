@@ -80,7 +80,9 @@ func TestVectorDistanceQuery(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}},
 		shardState: shardState,
 	}
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	migrator := NewMigrator(repo, logger, "node1")
 
 	require.Nil(t,

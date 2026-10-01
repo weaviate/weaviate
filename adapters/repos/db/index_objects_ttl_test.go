@@ -21,18 +21,28 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
-// fakeTTLTenantsManager implements the ttlTenantsManager interface for testing.
+// fakeTTLTenantsManager serves the tenant reads and writes the TTL loop makes.
 type fakeTTLTenantsManager struct {
+	local.SchemaReader
+	leaderSchemaReader
+	schemaUC.TenantActivator
 	statusMap map[string]string // tenant name → activity status
 	statusErr error             // if non-nil, returned by TenantsStatus
 
 	deactivateCalled []deactivateCall // records each DeactivateTenants call
 	deactivateErr    error            // if non-nil, returned by DeactivateTenants
+}
+
+func (f *fakeTTLTenantsManager) TenantsShardsFromLeader(class string, tenants ...string) (map[string]string, uint64, error) {
+	res, err := f.TenantsStatus(class, tenants...)
+	return res, 0, err
 }
 
 type deactivateCall struct {
@@ -80,7 +90,8 @@ func newTestLoop(t *testing.T, mgr *fakeTTLTenantsManager, autoActivation bool,
 		class:                 "MyClass",
 		tenant:                "tenant_0",
 		autoActivationEnabled: autoActivation,
-		mgr:                   mgr,
+		tenantStatus:          mgr,
+		tenants:               mgr,
 		findUUIDs:             findFn,
 		processBatch:          batchFn,
 	}

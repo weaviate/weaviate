@@ -23,6 +23,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
 	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -37,15 +38,36 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
+// leaderSchemaReader lets the fake embed leader.SchemaReader next to
+// local.SchemaReader, whose embedded field would otherwise have the same name.
+type leaderSchemaReader = leader.SchemaReader
+
 type fakeSchemaGetter struct {
-	local.ClassReader
+	local.SchemaReader
+	leaderSchemaReader
+	schemaUC.TenantActivator
 	nodeName   string
 	schema     schema.Schema
 	shardState *sharding.State
+}
+
+func (f *fakeSchemaGetter) ShardOwnerFromLeader(class, shard string) (string, uint64, error) {
+	owner, err := f.ShardOwner(class, shard)
+	return owner, 0, err
+}
+
+func (f *fakeSchemaGetter) TenantsShardsStatusWithActivation(ctx context.Context, class string, tenants ...string) (map[string]string, uint64, error) {
+	res, err := f.TenantsShardsStatus(ctx, class, tenants...)
+	return res, 0, err
+}
+
+func (f *fakeSchemaGetter) TenantsShardsFromLeader(class string, tenants ...string) (map[string]string, uint64, error) {
+	return f.TenantsShardsStatusWithActivation(context.Background(), class, tenants...)
 }
 
 func (f *fakeSchemaGetter) ReadOnlySchema() models.Schema {

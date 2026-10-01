@@ -90,7 +90,7 @@ func (s *Shard) analyzeObjectCommon(object *storobj.Object, c *models.Class) (ma
 }
 
 func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, []inverted.NestedProperty, error) {
-	c := s.index.getSchema.ReadOnlyClass(object.Class().String())
+	c := s.index.schemaReader.ReadOnlyClass(object.Class().String())
 	if c == nil {
 		return nil, nil, nil, fmt.Errorf("could not find class %s in schema", object.Class().String())
 	}
@@ -165,7 +165,7 @@ func (s *Shard) writePathAnalyzerOverlay(props []*models.Property) map[string]in
 func (s *Shard) AnalyzeObjectForMigrationWithOverlay(object *storobj.Object,
 	overlay map[string]inverted.PropertyOverlay,
 ) ([]inverted.Property, []inverted.NilProperty, error) {
-	c := s.index.getSchema.ReadOnlyClass(object.Class().String())
+	c := s.index.schemaReader.ReadOnlyClass(object.Class().String())
 	if c == nil {
 		return nil, nil, fmt.Errorf("could not find class %s in schema", object.Class().String())
 	}

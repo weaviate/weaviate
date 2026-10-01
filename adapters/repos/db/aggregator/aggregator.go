@@ -23,12 +23,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/modules"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 type vectorIndex interface {
@@ -47,7 +47,7 @@ type Aggregator struct {
 	logger                  logrus.FieldLogger
 	store                   *lsmkv.Store
 	params                  aggregation.Params
-	getSchema               schemaUC.SchemaGetter
+	classReader             local.ClassReader
 	propIndices             propertyspecific.Indices // to support geo-filters
 	classSearcher           inverted.ClassSearcher   // to support ref-filters
 	vectorIndex             vectorIndex
@@ -94,7 +94,7 @@ func (a *Aggregator) WithBatchedContainsEnabled(v *runtime.DynamicValue[bool]) *
 }
 
 func New(store *lsmkv.Store, params aggregation.Params,
-	getSchema schemaUC.SchemaGetter, propIndices propertyspecific.Indices,
+	classReader local.ClassReader, propIndices propertyspecific.Indices,
 	classSearcher inverted.ClassSearcher,
 	stopwordProvider *stopwords.Provider, shardVersion uint16,
 	vectorIndex vectorIndex, logger logrus.FieldLogger,
@@ -110,7 +110,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 		logger:                  logger,
 		store:                   store,
 		params:                  params,
-		getSchema:               getSchema,
+		classReader:             classReader,
 		propIndices:             propIndices,
 		classSearcher:           classSearcher,
 		stopwordProvider:        stopwordProvider,
@@ -152,7 +152,7 @@ func (a *Aggregator) Do(ctx context.Context) (*aggregation.Result, error) {
 func (a *Aggregator) aggTypeOfProperty(
 	name schema.PropertyName,
 ) (aggregation.PropertyType, schema.DataType, error) {
-	class := a.getSchema.ReadOnlyClass(a.params.ClassName.String())
+	class := a.classReader.ReadOnlyClass(a.params.ClassName.String())
 	if class == nil {
 		return "", "", fmt.Errorf("could not find class %s in schema", a.params.ClassName)
 	}

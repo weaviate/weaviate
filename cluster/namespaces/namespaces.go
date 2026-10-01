@@ -24,13 +24,6 @@ import (
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
-// SchemaNamespaceLister returns the classes and aliases that belong to a
-// namespace.
-type SchemaNamespaceLister interface {
-	ClassesInNamespace(namespace string) ([]string, error)
-	AliasesInNamespace(namespace string) []string
-}
-
 // DynusersNamespaceLister returns the dynamic DB users that belong to a
 // namespace.
 type DynusersNamespaceLister interface {
@@ -46,7 +39,7 @@ type RBACNamespaceLister interface {
 // Manager is the RAFT FSM adapter. It does not own state.
 type Manager struct {
 	controller *usecasesNamespaces.Controller
-	schema     SchemaNamespaceLister
+	schema     usecasesNamespaces.SchemaNamespaceLister
 	dynusers   DynusersNamespaceLister
 	rbac       RBACNamespaceLister
 	logger     logrus.FieldLogger
@@ -58,7 +51,7 @@ type Manager struct {
 // without dynamic users or RBAC pass nil and the respective check is skipped.
 func NewManager(
 	controller *usecasesNamespaces.Controller,
-	schema SchemaNamespaceLister,
+	schema usecasesNamespaces.SchemaNamespaceLister,
 	dynusers DynusersNamespaceLister,
 	rbac RBACNamespaceLister,
 	logger logrus.FieldLogger,

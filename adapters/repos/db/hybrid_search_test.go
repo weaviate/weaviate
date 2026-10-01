@@ -144,7 +144,9 @@ func TestHybrid(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, nil,
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
@@ -200,7 +202,9 @@ func TestBIER(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, nil,
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
@@ -321,7 +325,9 @@ func TestRFJourney(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, nil,
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
@@ -544,7 +550,7 @@ func TestRFJourney(t *testing.T) {
 
 		prov := modules.NewProvider(logger, config.Config{})
 		prov.SetClassDefaults(class)
-		prov.SetSchemaGetter(schemaGetter)
+		prov.SetClassReader(schemaGetter)
 		testerModule := &TesterModule{}
 		testerModule.AddVector("elephant", elephantVector())
 		testerModule.AddVector("journey", JourneyVector())
@@ -552,7 +558,7 @@ func TestRFJourney(t *testing.T) {
 
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
-		explorer.SetSchemaGetter(schemaGetter)
+		explorer.SetClassReader(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 
@@ -582,7 +588,7 @@ func TestRFJourney(t *testing.T) {
 
 		prov := modules.NewProvider(logger, config.Config{})
 		prov.SetClassDefaults(class)
-		prov.SetSchemaGetter(schemaGetter)
+		prov.SetClassReader(schemaGetter)
 		testerModule := &TesterModule{}
 		testerModule.AddVector("elephant", elephantVector())
 		testerModule.AddVector("Elephant Parade", elephantVector())
@@ -591,7 +597,7 @@ func TestRFJourney(t *testing.T) {
 
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
-		explorer.SetSchemaGetter(schemaGetter)
+		explorer.SetClassReader(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 
 		fmt.Println("--- Start results for hybrid with negative limit ---")
@@ -622,7 +628,7 @@ func TestRFJourney(t *testing.T) {
 
 		prov := modules.NewProvider(logger, config.Config{})
 		prov.SetClassDefaults(class)
-		prov.SetSchemaGetter(schemaGetter)
+		prov.SetClassReader(schemaGetter)
 		testerModule := &TesterModule{}
 		testerModule.AddVector("elephant", elephantVector())
 		testerModule.AddVector("Elephant Parade", elephantVector())
@@ -631,7 +637,7 @@ func TestRFJourney(t *testing.T) {
 
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
-		explorer.SetSchemaGetter(schemaGetter)
+		explorer.SetClassReader(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 
 		fmt.Println("--- Start results for hybrid with offset 2 ---")
@@ -664,7 +670,7 @@ func TestRFJourney(t *testing.T) {
 
 		prov := modules.NewProvider(logger, config.Config{})
 		prov.SetClassDefaults(class)
-		prov.SetSchemaGetter(schemaGetter)
+		prov.SetClassReader(schemaGetter)
 		testerModule := &TesterModule{}
 		testerModule.AddVector("elephant", elephantVector())
 		testerModule.AddVector("Elephant Parade", elephantVector())
@@ -673,7 +679,7 @@ func TestRFJourney(t *testing.T) {
 
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
-		explorer.SetSchemaGetter(schemaGetter)
+		explorer.SetClassReader(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 
 		fmt.Println("--- Start results for hybrid with offset 4 ---")
@@ -722,7 +728,9 @@ func TestRFJourneyWithFilters(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, nil,
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
@@ -808,7 +816,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 
 		prov := modules.NewProvider(logger, config.Config{})
 		prov.SetClassDefaults(class)
-		prov.SetSchemaGetter(schemaGetter)
+		prov.SetClassReader(schemaGetter)
 		testerModule := &TesterModule{}
 		testerModule.AddVector("elephant", elephantVector())
 		testerModule.AddVector("journey", JourneyVector())
@@ -816,7 +824,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
-		explorer.SetSchemaGetter(schemaGetter)
+		explorer.SetClassReader(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 		require.Equal(t, 0, len(hybridResults))
@@ -839,7 +847,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 
 		prov := modules.NewProvider(logger, config.Config{})
 		prov.SetClassDefaults(class)
-		prov.SetSchemaGetter(schemaGetter)
+		prov.SetClassReader(schemaGetter)
 		testerModule := &TesterModule{}
 		testerModule.AddVector("elephant", elephantVector())
 		testerModule.AddVector("journey", JourneyVector())
@@ -847,7 +855,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
-		explorer.SetSchemaGetter(schemaGetter)
+		explorer.SetClassReader(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 		require.Equal(t, 3, len(hybridResults))
@@ -880,7 +888,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 
 		prov := modules.NewProvider(logger, config.Config{})
 		prov.SetClassDefaults(class)
-		prov.SetSchemaGetter(schemaGetter)
+		prov.SetClassReader(schemaGetter)
 		testerModule := &TesterModule{}
 		testerModule.AddVector("elephant", elephantVector())
 		testerModule.AddVector("journey", JourneyVector())
@@ -888,7 +896,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
-		explorer.SetSchemaGetter(schemaGetter)
+		explorer.SetClassReader(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(hybridResults))
@@ -937,7 +945,9 @@ func TestStability(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, nil,
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
@@ -1119,7 +1129,9 @@ func TestHybridOverSearch(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, nil,
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
@@ -1145,7 +1157,7 @@ func TestHybridOverSearch(t *testing.T) {
 
 		prov := modules.NewProvider(logger, config.Config{})
 		prov.SetClassDefaults(class)
-		prov.SetSchemaGetter(schemaGetter)
+		prov.SetClassReader(schemaGetter)
 		testerModule := &TesterModule{}
 		testerModule.AddVector("elephant", elephantVector())
 		testerModule.AddVector("journey", JourneyVector())
@@ -1153,7 +1165,7 @@ func TestHybridOverSearch(t *testing.T) {
 
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(fos, log, prov, nil, defaultConfig)
-		explorer.SetSchemaGetter(schemaGetter)
+		explorer.SetClassReader(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(hybridResults))

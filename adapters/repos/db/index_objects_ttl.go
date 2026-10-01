@@ -20,6 +20,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -27,13 +28,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/multitenancy"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
-
-// ttlTenantsManager is the subset of schemaUC.TenantsActivityManager used by tenantTTLLoop.
-type ttlTenantsManager interface {
-	TenantsStatus(class string, tenants ...string) (map[string]string, error)
-	DeactivateTenants(ctx context.Context, class string, tenants ...string) error
-}
 
 // ttlDeactivateTimeout bounds the deferred DeactivateTenants RAFT call so that a stuck or
 // partitioned leader cannot block the goroutine indefinitely.
@@ -48,9 +44,12 @@ const ttlDeactivateTimeout = 30 * time.Second
 type tenantTTLLoop struct {
 	class, tenant         string
 	autoActivationEnabled bool
-	mgr                   ttlTenantsManager
-	findUUIDs             func(ctx context.Context) ([]strfmt.UUID, error)
-	processBatch          func(ctx context.Context, uuids []strfmt.UUID) error
+	// tenantStatus is read from the leader: a stale local read would delete against
+	// the wrong activity state. tenants deactivates what this loop activated.
+	tenantStatus leader.TenantReader
+	tenants      schemaUC.TenantActivator
+	findUUIDs    func(ctx context.Context) ([]strfmt.UUID, error)
+	processBatch func(ctx context.Context, uuids []strfmt.UUID) error
 }
 
 // shardIsLazyUnloaded reports whether the named shard is a lazy shard not yet materialized.
@@ -118,7 +117,8 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 					class:                 class.Class,
 					tenant:                tenant,
 					autoActivationEnabled: autoActivationEnabled,
-					mgr:                   i.tenantsManager,
+					tenantStatus:          i.leaderSchema,
+					tenants:               i.tenants,
 					findUUIDs: func(ctx context.Context) ([]strfmt.UUID, error) {
 						perShardLimit := i.Config.ObjectsTTLBatchSize.Get()
 						tenants2uuids, err := i.findUUIDsForExpiredObjects(ctx, filter, tenant, replProps, perShardLimit)
@@ -377,7 +377,7 @@ func (l *tenantTTLLoop) run(ctx context.Context, ec errorcompounder.ErrorCompoun
 // checkActivity queries the tenant's current activity status.
 // Returns true when the tenant is COLD and should be re-deactivated after TTL processing.
 func (l *tenantTTLLoop) checkActivity() (shouldDeactivate bool, err error) {
-	tenants2status, err := l.mgr.TenantsStatus(l.class, l.tenant)
+	tenants2status, _, err := l.tenantStatus.TenantsShardsFromLeader(l.class, l.tenant)
 	if err != nil {
 		return false, fmt.Errorf("check activity status: %w", err)
 	}
@@ -417,7 +417,7 @@ func (l *tenantTTLLoop) ensureDeactivation(ec errorcompounder.ErrorCompounder, d
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), ttlDeactivateTimeout)
 	defer cancel()
-	if err := l.mgr.DeactivateTenants(ctx, l.class, l.tenant); err != nil {
+	if err := l.tenants.DeactivateTenants(ctx, l.class, l.tenant); err != nil {
 		ec.AddGroups(fmt.Errorf("deactivate tenant: %w", err), l.class, l.tenant)
 	}
 }

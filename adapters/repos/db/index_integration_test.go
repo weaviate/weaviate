@@ -162,7 +162,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	schemaGetter := &fakeSchemaGetter{
 		schema: fakeSchema, shardState: shardState,
 	}
-	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter, schemaGetter)
 	index, err := NewIndex(testCtx(), nil, IndexConfig{
 		NodeName:             "node1",
 		EnableLazyLoadShards: true,
@@ -171,8 +171,8 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		ReplicationFactor:    1,
 		ShardLoadLimiter:     loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
+		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 	require.Nil(t, err)
 
 	productsIds := []strfmt.UUID{
@@ -230,8 +230,8 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		ReplicationFactor:    1,
 		ShardLoadLimiter:     loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
+		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 	require.Nil(t, err)
 
 	err = index.addProperty(context.TODO(), &models.Property{
@@ -407,7 +407,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 	schemaGetter := &fakeSchemaGetter{
 		schema: fakeSchema, shardState: shardState,
 	}
-	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter, schemaGetter)
 	index, err := NewIndex(ctx, nil, IndexConfig{
 		NodeName:             "node1",
 		EnableLazyLoadShards: true,
@@ -416,8 +416,8 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		ReplicationFactor:    1,
 		ShardLoadLimiter:     loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
+		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 	require.Nil(t, err)
 
 	productsIds := []strfmt.UUID{
@@ -502,15 +502,15 @@ func TestIndex_DropUnloadedShard(t *testing.T) {
 	schemaGetter := &fakeSchemaGetter{
 		schema: fakeSchema, shardState: shardState,
 	}
-	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter, schemaGetter)
 	index, err := NewIndex(testCtx(), nil, IndexConfig{
 		NodeName:             "node1",
 		EnableLazyLoadShards: true,
 		RootPath:             dirName,
 		ClassName:            schema.ClassName(class.Class),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), true, nil)
+		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
+		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), true)
 	require.Nil(t, err)
 
 	// drop the index before loading the shard
@@ -575,7 +575,7 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 	schemaGetter := &fakeSchemaGetter{
 		schema: fakeSchema, shardState: shardState,
 	}
-	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter, schemaGetter)
 	index, err := NewIndex(testCtx(), nil, IndexConfig{
 		NodeName:             "node1",
 		EnableLazyLoadShards: true,
@@ -584,8 +584,8 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 		ReplicationFactor:    1,
 		ShardLoadLimiter:     loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
+		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 	require.Nil(t, err)
 
 	// force the index to load the shard
@@ -639,7 +639,7 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class, shardState *sha
 	schemaGetter := &fakeSchemaGetter{
 		shardState: shardState,
 	}
-	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter, schemaGetter)
 	idx, err := NewIndex(testCtx(), nil, IndexConfig{
 		NodeName:             "node1",
 		RootPath:             rootDir,
@@ -648,8 +648,8 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class, shardState *sha
 		ReplicationFactor:    1,
 		ShardLoadLimiter:     loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(invertedConfig()),
-		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
+		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 	require.Nil(t, err)
 	return idx
 }

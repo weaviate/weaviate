@@ -36,7 +36,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -48,7 +47,7 @@ func newEmptyMTIndex(t *testing.T) *Index {
 	rootPath := t.TempDir()
 	logger := logrus.New()
 
-	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
+	mockSchemaGetter := local.NewMockSchemaReader(t)
 
 	class := &models.Class{
 		Class:               "TestClass",
@@ -70,7 +69,7 @@ func newEmptyMTIndex(t *testing.T) *Index {
 		}).Maybe()
 
 	scheduler := queue.NewScheduler(queue.SchedulerOptions{Logger: logger, Workers: 1})
-	shardResolver := resolver.NewShardResolver(class.Class, true, mockSchemaGetter)
+	shardResolver := resolver.NewShardResolver(class.Class, true, mockSchemaGetter, nil)
 
 	index, err := NewIndex(context.Background(), nil, IndexConfig{
 		NodeName:          "node1",
@@ -79,8 +78,8 @@ func newEmptyMTIndex(t *testing.T) *Index {
 		ReplicationFactor: 1,
 		ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, nil, nil, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
+		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = index.Shutdown(context.Background()) })
 	return index

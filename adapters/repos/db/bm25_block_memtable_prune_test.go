@@ -226,7 +226,9 @@ func newBM25BlockTestRepo(t *testing.T, logger logrus.FieldLogger) (*DB, *fakeSc
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	return repo, schemaGetter
 }

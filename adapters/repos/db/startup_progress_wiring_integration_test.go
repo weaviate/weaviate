@@ -147,7 +147,9 @@ func newShardCountingDB(t *testing.T, class *models.Class, state *sharding.State
 		memwatch.NewDummyMonitor(), nodes, sr, fsm, nil)
 	require.NoError(t, err)
 
-	db.SetSchemaGetter(schemaGetter)
+	db.SetLeaderSchema(schemaGetter)
+
+	db.SetTenantActivator(schemaGetter)
 	require.NoError(t, db.WaitForStartup(context.Background()))
 	t.Cleanup(func() { _ = db.Shutdown(context.Background()) })
 

@@ -171,7 +171,9 @@ func setupStopwordPresetRepo(t *testing.T, useBlockMaxWAND bool) (*DB, *fakeSche
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 
 	props := SetupStopwordPresetClass(t, repo, schemaGetter, logger)

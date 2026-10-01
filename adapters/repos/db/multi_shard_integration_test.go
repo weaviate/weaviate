@@ -325,7 +325,9 @@ func makeTestMultiShardSchema(repo *DB, logger logrus.FieldLogger, mockSchemaRea
 			class := &models.Class{Class: className}
 			return readFunc(class, shardState)
 		}).Maybe()
-		repo.SetSchemaGetter(schemaGetter)
+		repo.SetLeaderSchema(schemaGetter)
+
+		repo.SetTenantActivator(schemaGetter)
 		err := repo.WaitForStartup(testCtx())
 		require.Nil(t, err)
 		migrator := NewMigrator(repo, logger, "node1")

@@ -184,7 +184,9 @@ func initIndexAndPopulateWithLogger(t *testing.T, dirName string, logger *logrus
 	)
 	require.NoError(t, err)
 
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	err = repo.WaitForStartup(testCtx())
 	require.NoError(t, err)
 

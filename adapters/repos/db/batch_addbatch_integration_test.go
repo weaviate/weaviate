@@ -95,7 +95,9 @@ func setupTestRepo(t *testing.T, className string, properties []*models.Property
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.NoError(t, err)
 
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.NoError(t, repo.WaitForStartup(testCtx()))
 
 	t.Cleanup(func() {

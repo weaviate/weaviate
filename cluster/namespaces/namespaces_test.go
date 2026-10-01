@@ -38,7 +38,7 @@ func newTestManager(t *testing.T) *Manager {
 	return NewManager(usecasesNamespaces.NewController(logger), stubLeftovers{}, nil, nil, logger)
 }
 
-func newTestManagerWithLeftovers(t *testing.T, schema SchemaNamespaceLister, dynusers DynusersNamespaceLister, rbac RBACNamespaceLister) *Manager {
+func newTestManagerWithLeftovers(t *testing.T, schema usecasesNamespaces.SchemaNamespaceLister, dynusers DynusersNamespaceLister, rbac RBACNamespaceLister) *Manager {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
@@ -118,7 +118,7 @@ func TestNewManager_RequiredArgsPanic(t *testing.T) {
 	tests := []struct {
 		name       string
 		controller *usecasesNamespaces.Controller
-		schema     SchemaNamespaceLister
+		schema     usecasesNamespaces.SchemaNamespaceLister
 	}{
 		{name: "nil controller panics", controller: nil, schema: stubLeftovers{}},
 		{name: "nil schema lister panics", controller: controller, schema: nil},

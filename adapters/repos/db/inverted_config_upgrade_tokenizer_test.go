@@ -77,7 +77,9 @@ func TestBM25FCustomStopwordPresetUpdate(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.Background()))
 	defer repo.Shutdown(context.Background())
 
@@ -180,7 +182,7 @@ func TestBM25FCustomStopwordPresetUpdate(t *testing.T) {
 
 	// Update the user-defined preset: remove "le", add "yo".
 	t.Run("update preset", func(t *testing.T) {
-		cls := repo.schemaGetter.ReadOnlyClass(className.String())
+		cls := repo.schemaReader.ReadOnlyClass(className.String())
 		cls.InvertedIndexConfig.StopwordPresets = map[string][]string{
 			"fr": {"la", "les", "yo"},
 		}

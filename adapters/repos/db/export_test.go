@@ -124,7 +124,7 @@ func newTestIndexForSnapshot(t *testing.T, className string) *Index {
 			RootPath:  t.TempDir(),
 			ClassName: schema.ClassName(className),
 		},
-		getSchema: &fakeSchemaGetter{
+		schemaReader: &fakeSchemaGetter{
 			schema: schema.Schema{
 				Objects: &models.Schema{
 					Classes: []*models.Class{{Class: className}},

@@ -29,6 +29,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
 	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -37,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
@@ -97,6 +99,8 @@ func newRepo(t *testing.T, p repoParams, classes ...*models.Class) (*db.DB, *fak
 	mockSchemaReader.EXPECT().LocalShards(mock.Anything).Return([]string{"shard1"}, nil).Maybe()
 	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).Return(1, nil).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().ShardFromUUID(mock.Anything, mock.Anything).RunAndReturn(
+		func(_ string, uuid []byte) string { return shardState.Shard("", string(uuid)) }).Maybe()
 	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -110,7 +114,9 @@ func newRepo(t *testing.T, p repoParams, classes ...*models.Class) (*db.DB, *fak
 		&db.FakeRemoteNodeClient{}, &db.FakeReplicationClient{}, p.promMetrics, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.NoError(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	repo.SetShardReindexActivityLookup(func() db.ShardReindexActivityLookup {
 		return func(string, string) bool { return false }
 	})
@@ -143,10 +149,30 @@ func singleShard(t *testing.T, repo *db.DB, className string) db.ShardLike {
 	return shard
 }
 
+// leaderSchemaReader lets the fake embed leader.SchemaReader next to
+// local.SchemaReader, whose embedded field would otherwise have the same name.
+type leaderSchemaReader = leader.SchemaReader
+
 type fakeSchemaGetter struct {
-	local.ClassReader
+	local.SchemaReader
+	leaderSchemaReader
+	schemaUC.TenantActivator
 	schema     schema.Schema
 	shardState *sharding.State
+}
+
+func (f *fakeSchemaGetter) ShardOwnerFromLeader(class, shard string) (string, uint64, error) {
+	owner, err := f.ShardOwner(class, shard)
+	return owner, 0, err
+}
+
+func (f *fakeSchemaGetter) TenantsShardsStatusWithActivation(ctx context.Context, class string, tenants ...string) (map[string]string, uint64, error) {
+	res, err := f.TenantsShardsStatus(ctx, class, tenants...)
+	return res, 0, err
+}
+
+func (f *fakeSchemaGetter) TenantsShardsFromLeader(class string, tenants ...string) (map[string]string, uint64, error) {
+	return f.TenantsShardsStatusWithActivation(context.Background(), class, tenants...)
 }
 
 func (f *fakeSchemaGetter) ReadOnlySchema() models.Schema {

@@ -53,8 +53,8 @@ func refCountTestIndex(t *testing.T, className string) (*Index, *Shard) {
 
 	shard, idx := testShardWithSettings(t, t.Context(), &models.Class{Class: className},
 		enthnsw.NewDefaultUserConfig(), false, false, func(i *Index) {
-			i.shardResolver = resolver.NewShardResolver(className, false, i.getSchema)
-			i.remote = remote.NewIndex(className, i.getSchema,
+			i.shardResolver = resolver.NewShardResolver(className, false, i.schemaReader, i.tenants)
+			i.remote = remote.NewIndex(className, i.leaderSchema, i.schemaReader,
 				nodeResolver, &FakeRemoteClient{})
 		})
 

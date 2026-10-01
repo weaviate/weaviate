@@ -31,7 +31,6 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -108,7 +107,7 @@ func runUsageScanTeardown(t *testing.T, nodeName, className, shardName string,
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{nodeName}, nil).Maybe()
 	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 
-	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
+	mockSchemaGetter := local.NewMockSchemaReader(t)
 	mockSchemaGetter.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
 	mockSchemaGetter.EXPECT().ReadOnlyClass(className).Return(class).Maybe()
 
@@ -126,7 +125,9 @@ func runUsageScanTeardown(t *testing.T, nodeName, className, shardName string,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil,
 		memwatch.NewDummyMonitor(), mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.NoError(t, err)
-	repo.SetSchemaGetter(mockSchemaGetter)
+	repo.SetLeaderSchema(nil)
+
+	repo.SetTenantActivator(nil)
 	require.NoError(t, repo.WaitForStartup(ctx))
 	if !shutsDown {
 		defer repo.Shutdown(ctx)

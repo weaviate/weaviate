@@ -75,7 +75,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
 		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		explorer.SetClassReader(&fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
@@ -127,7 +127,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			log, _ := test.NewNullLogger()
 			metrics := &fakeMetrics{}
 			explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-			explorer.SetSchemaGetter(&fakeSchemaGetter{
+			explorer.SetClassReader(&fakeSchemaGetter{
 				schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 					{Class: "BestClass"},
 				}}},
@@ -158,7 +158,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			log, _ := test.NewNullLogger()
 			metrics := &fakeMetrics{}
 			explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-			explorer.SetSchemaGetter(&fakeSchemaGetter{
+			explorer.SetClassReader(&fakeSchemaGetter{
 				schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 					{Class: "BestClass"},
 				}}},
@@ -219,7 +219,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				log, _ := test.NewNullLogger()
 				metrics := &fakeMetrics{}
 				explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-				explorer.SetSchemaGetter(&fakeSchemaGetter{
+				explorer.SetClassReader(&fakeSchemaGetter{
 					schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 						{Class: "BestClass"},
 					}}},
@@ -299,7 +299,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			log, _ := test.NewNullLogger()
 			metrics := &fakeMetrics{}
 			explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-			explorer.SetSchemaGetter(&fakeSchemaGetter{
+			explorer.SetClassReader(&fakeSchemaGetter{
 				schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 					{Class: "BestClass"},
 				}}},
@@ -381,7 +381,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			log, _ := test.NewNullLogger()
 			metrics := &fakeMetrics{}
 			explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-			explorer.SetSchemaGetter(&fakeSchemaGetter{
+			explorer.SetClassReader(&fakeSchemaGetter{
 				schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 					{Class: "BestClass"},
 				}}},
@@ -461,7 +461,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			metrics := &fakeMetrics{}
 			log, _ := test.NewNullLogger()
 			explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-			explorer.SetSchemaGetter(&fakeSchemaGetter{
+			explorer.SetClassReader(&fakeSchemaGetter{
 				schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 					{Class: "BestClass"},
 				}}},
@@ -530,7 +530,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				log, _ := test.NewNullLogger()
 				metrics := &fakeMetrics{}
 				explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-				explorer.SetSchemaGetter(&fakeSchemaGetter{
+				explorer.SetClassReader(&fakeSchemaGetter{
 					schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 						{Class: "BestClass"},
 					}}},
@@ -581,7 +581,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				log, _ := test.NewNullLogger()
 				metrics := &fakeMetrics{}
 				explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-				explorer.SetSchemaGetter(&fakeSchemaGetter{
+				explorer.SetClassReader(&fakeSchemaGetter{
 					schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 						{Class: "BestClass"},
 					}}},
@@ -622,7 +622,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		explorer.SetClassReader(&fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
@@ -658,7 +658,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		explorer.SetClassReader(&fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
@@ -716,7 +716,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		explorer.SetClassReader(&fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
@@ -771,7 +771,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		explorer.SetClassReader(&fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
@@ -827,7 +827,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		explorer.SetClassReader(&fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
@@ -907,7 +907,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		explorer.SetClassReader(&fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
@@ -973,7 +973,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		explorer.SetClassReader(&fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
@@ -1029,7 +1029,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		explorer.SetClassReader(&fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
@@ -1084,7 +1084,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		explorer.SetClassReader(&fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
@@ -1179,7 +1179,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			},
 		}
 		explorer := NewExplorer(searcher, log, getFakeModulesProviderWithCustomExtenders(extender, nil, nil), nil, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		explorer.SetClassReader(&fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
@@ -1285,7 +1285,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			},
 		}
 		explorer := NewExplorer(searcher, log, getFakeModulesProviderWithCustomExtenders(nil, projector, nil), nil, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		explorer.SetClassReader(&fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
@@ -1395,7 +1395,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(fakeSearch, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		explorer.SetClassReader(&fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
@@ -1553,7 +1553,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(fakeSearch, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		explorer.SetClassReader(&fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
@@ -1782,7 +1782,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(fakeSearch, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		explorer.SetClassReader(&fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
@@ -2038,7 +2038,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			},
 		}
 		explorer := NewExplorer(searcher, log, getFakeModulesProviderWithCustomExtenders(extender, nil, nil), nil, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		explorer.SetClassReader(&fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
@@ -2149,7 +2149,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		explorer.SetClassReader(&fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
@@ -2211,7 +2211,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 			log, _ := test.NewNullLogger()
 			metrics := &fakeMetrics{}
 			explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-			explorer.SetSchemaGetter(&fakeSchemaGetter{
+			explorer.SetClassReader(&fakeSchemaGetter{
 				schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 					{Class: "BestClass"},
 				}}},
@@ -2265,7 +2265,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 			log, _ := test.NewNullLogger()
 			metrics := &fakeMetrics{}
 			explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-			explorer.SetSchemaGetter(&fakeSchemaGetter{
+			explorer.SetClassReader(&fakeSchemaGetter{
 				schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 					{Class: "BestClass"},
 				}}},
@@ -2307,7 +2307,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		explorer.SetClassReader(&fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
@@ -2336,7 +2336,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		explorer.SetClassReader(&fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
@@ -2368,7 +2368,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		explorer.SetClassReader(&fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
@@ -2397,7 +2397,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		explorer.SetClassReader(&fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
@@ -2426,12 +2426,12 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		explorer.SetClassReader(&fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
 		})
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		explorer.SetClassReader(&fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
@@ -2474,7 +2474,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		explorer.SetClassReader(&fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
@@ -2538,14 +2538,14 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		explorer.SetClassReader(&fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
 		})
 		schemaGetter := newFakeSchemaGetter("BestClass")
 		schemaGetter.SetVectorIndexConfig(hnsw.UserConfig{Distance: "cosine"})
-		explorer.schemaGetter = schemaGetter
+		explorer.classReader = schemaGetter
 		expectedParamsToSearch := params
 		search.
 			On("VectorSearch", expectedParamsToSearch, []models.Vector{[]float32{1.0, 2.0, 3.0}}).
@@ -2667,7 +2667,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 		}
 		metrics := &fakeMetrics{}
 		explorer := NewExplorer(searcher, log, getFakeModulesProviderWithCustomExtenders(nil, nil, pathBuilder), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		explorer.SetClassReader(&fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
@@ -2792,7 +2792,7 @@ func Test_Explorer_Hybrid_VectorizationTypedError(t *testing.T) {
 			log, _ := test.NewNullLogger()
 			metrics := &fakeMetrics{}
 			explorer := NewExplorer(search, log, tt.provider, metrics, defaultConfig)
-			explorer.SetSchemaGetter(&fakeSchemaGetter{
+			explorer.SetClassReader(&fakeSchemaGetter{
 				schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 					{Class: "BestClass"},
 				}}},

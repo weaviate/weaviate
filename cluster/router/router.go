@@ -42,7 +42,7 @@ type Builder struct {
 	collection           string
 	partitioningEnabled  bool
 	nodeSelector         cluster.NodeSelector
-	schemaGetter         schema.SchemaGetter
+	schemaGetter         schema.TenantActivator
 	schemaReader         local.SchemaReader
 	replicationFSMReader replicationTypes.ReplicationFSMReader
 }
@@ -63,7 +63,7 @@ func NewBuilder(
 	collection string,
 	partitioningEnabled bool,
 	nodeSelector cluster.NodeSelector,
-	schemaGetter schema.SchemaGetter,
+	schemaGetter schema.TenantActivator,
 	schemaReader local.SchemaReader,
 	replicationFSMReader replicationTypes.ReplicationFSMReader,
 ) *Builder {
@@ -115,7 +115,7 @@ type singleTenantRouter struct {
 // the tenant name as the partitioning key. Each tenant effectively becomes its own shard.
 type multiTenantRouter struct {
 	collection           string
-	schemaGetter         schema.SchemaGetter
+	schemaGetter         schema.TenantActivator
 	schemaReader         local.SchemaReader
 	replicationFSMReader replicationTypes.ReplicationFSMReader
 	nodeSelector         cluster.NodeSelector
