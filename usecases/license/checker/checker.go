@@ -105,14 +105,23 @@ type Checker struct {
 	mu        sync.Mutex
 	snap      Snapshot
 	lastResp  *license.VerifyResponse
+	lastValid *license.VerifyResponse // last signed "valid" answer; anchors the grace period
 	backoff   time.Duration
 	startedAt time.Time
 }
 
 type cacheFile struct {
-	Response    license.VerifyResponse `json:"response"`
-	LastValidAt time.Time              `json:"last_valid_at"`
-	GraceAnchor time.Time              `json:"grace_anchor"` // start of the current no-valid-answer run
+	Response license.VerifyResponse `json:"response"` // last signed answer, any status
+	// LastValid is the last signed "valid" answer. The grace period is
+	// derived exclusively from its signed CheckedAt; keeping it signed
+	// means a hand-edited cache cannot move the grace anchor into the
+	// future to postpone degradation.
+	LastValid *license.VerifyResponse `json:"last_valid,omitempty"`
+	// GraceAnchor is the start of the current no-valid-answer run for a
+	// node that never had a signed "valid". It is unsigned, but only values
+	// before this node's start are honored, so a forged future anchor is
+	// ignored and a forged past anchor only shortens grace.
+	GraceAnchor time.Time `json:"grace_anchor"`
 }
 
 func (c *Checker) now() time.Time {
@@ -136,12 +145,19 @@ func (c *Checker) grace() time.Duration {
 	return DefaultGracePeriod
 }
 
-// Snapshot returns the current view, recomputing time-dependent state.
+// Snapshot returns the current view, recomputing time-dependent state. When
+// the recompute crosses a state boundary (expiry or the grace period passing
+// on the local clock), OnChange is invoked, after the lock is released.
 func (c *Checker) Snapshot() Snapshot {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	old := c.snap
 	c.recompute()
-	return c.snap
+	newSnap := c.snap
+	c.mu.Unlock()
+	if old.State != newSnap.State && c.OnChange != nil {
+		c.OnChange(old, newSnap)
+	}
+	return newSnap
 }
 
 // Allowed is shorthand for Snapshot().Allowed().
@@ -219,6 +235,7 @@ func (c *Checker) CheckNow(ctx context.Context) Snapshot {
 		c.snap.ExpiresAt = resp.ExpiresAt
 		c.snap.ClusterMismatch = resp.ClusterMismatch
 		if resp.Status == license.StatusValid {
+			c.lastValid = &resp
 			c.snap.LastValidAt = resp.CheckedAt
 		}
 		interval := resp.NextCheckAfter.Sub(now)
@@ -343,14 +360,32 @@ func (c *Checker) loadCache() {
 		c.log().Warn("license cache signature invalid; ignoring", "path", c.CachePath, "err", err)
 		return
 	}
+	// The grace anchor is derived only from signed answers, so a
+	// hand-edited cache cannot postpone degradation. If a last-valid answer
+	// is present, its signature must verify as well, otherwise the whole
+	// cache is ignored.
+	if f.LastValid != nil {
+		if err := c.Client.TrustedKeys.Verify(*f.LastValid); err != nil || f.LastValid.Status != license.StatusValid {
+			c.log().Warn("license cache signature invalid; ignoring", "path", c.CachePath)
+			return
+		}
+	}
 	resp := f.Response
 	c.lastResp = &resp
 	c.snap.LastStatus = resp.Status
 	c.snap.LastCheckedAt = resp.CheckedAt
 	c.snap.ExpiresAt = resp.ExpiresAt
 	c.snap.ClusterMismatch = resp.ClusterMismatch
-	c.snap.LastValidAt = f.LastValidAt
-	if f.LastValidAt.IsZero() && !f.GraceAnchor.IsZero() && f.GraceAnchor.Before(c.startedAt) {
+	switch {
+	case f.LastValid != nil:
+		valid := *f.LastValid
+		c.lastValid = &valid
+		c.snap.LastValidAt = valid.CheckedAt
+	case resp.Status == license.StatusValid:
+		c.lastValid = &resp
+		c.snap.LastValidAt = resp.CheckedAt
+	}
+	if c.snap.LastValidAt.IsZero() && !f.GraceAnchor.IsZero() && f.GraceAnchor.Before(c.startedAt) {
 		c.startedAt = f.GraceAnchor
 	}
 	c.snap.NextCheckAt = c.now() // check straight away
@@ -365,18 +400,19 @@ func (c *Checker) saveCache() {
 	if anchor.IsZero() {
 		anchor = c.startedAt
 	}
-	raw, err := json.Marshal(cacheFile{Response: *c.lastResp, LastValidAt: c.snap.LastValidAt, GraceAnchor: anchor})
+	raw, err := json.Marshal(cacheFile{Response: *c.lastResp, LastValid: c.lastValid, GraceAnchor: anchor})
 	if err != nil {
 		return
 	}
 	tmp := c.CachePath + ".tmp"
-	if err := os.MkdirAll(filepath.Dir(c.CachePath), 0o700); err == nil {
-		err := os.WriteFile(tmp, raw, 0o600)
-		if err == nil {
-			err = os.Rename(tmp, c.CachePath)
-		}
-		if err != nil {
-			c.log().Warn("license cache write failed", "path", c.CachePath, "err", err)
-		}
+	if err := os.MkdirAll(filepath.Dir(c.CachePath), 0o700); err != nil {
+		c.log().Warn("license cache write failed", "path", c.CachePath, "err", err)
+		return
+	}
+	if err = os.WriteFile(tmp, raw, 0o600); err == nil {
+		err = os.Rename(tmp, c.CachePath)
+	}
+	if err != nil {
+		c.log().Warn("license cache write failed", "path", c.CachePath, "err", err)
 	}
 }

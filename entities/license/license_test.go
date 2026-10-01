@@ -193,3 +193,17 @@ func TestResponseSignAndVerify(t *testing.T) {
 		t.Fatalf("empty key set accepted: %v", err)
 	}
 }
+
+func TestCheckFreshnessRejectsExtremeTimestamps(t *testing.T) {
+	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
+	// Far enough in the future, now.Sub(timestamp) saturates and negating
+	// the duration overflows — the request must still be rejected.
+	farFuture := VerifyRequest{Timestamp: time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)}
+	if err := farFuture.CheckFreshness(now); !errors.Is(err, ErrStaleRequest) {
+		t.Fatalf("far-future request accepted: %v", err)
+	}
+	farPast := VerifyRequest{Timestamp: time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)}
+	if err := farPast.CheckFreshness(now); !errors.Is(err, ErrStaleRequest) {
+		t.Fatalf("far-past request accepted: %v", err)
+	}
+}

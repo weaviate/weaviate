@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	protocol "github.com/weaviate/weaviate/entities/license"
@@ -81,6 +82,10 @@ func (c *Client) Verify(ctx context.Context, clusterID, instanceID, weaviateVers
 	if base == "" {
 		base = DefaultServerURL
 	}
+	// A trailing slash on a configured ServerURL must not produce
+	// "//v1/verify": servers may answer that with a redirect, which would
+	// turn this POST into a GET.
+	base = strings.TrimRight(base, "/")
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/v1/verify", bytes.NewReader(body))
 	if err != nil {
 		return protocol.VerifyResponse{}, err

@@ -108,13 +108,11 @@ func (r VerifyRequest) VerifySignature(pub ed25519.PublicKey) error {
 }
 
 // CheckFreshness returns ErrStaleRequest if the request timestamp is more
-// than MaxClockSkew away from now.
+// than MaxClockSkew away from now. The timestamp is compared against the
+// allowed window directly; computing an absolute time.Duration instead would
+// overflow on extreme timestamps and let them pass as fresh.
 func (r VerifyRequest) CheckFreshness(now time.Time) error {
-	d := now.Sub(r.Timestamp)
-	if d < 0 {
-		d = -d
-	}
-	if d > MaxClockSkew {
+	if r.Timestamp.Before(now.Add(-MaxClockSkew)) || r.Timestamp.After(now.Add(MaxClockSkew)) {
 		return ErrStaleRequest
 	}
 	return nil

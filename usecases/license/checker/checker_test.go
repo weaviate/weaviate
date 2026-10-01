@@ -303,3 +303,61 @@ func TestRunLoopStopsOnContext(t *testing.T) {
 		t.Fatalf("calls=%d state=%v", f.calls.Load(), c.Snapshot().State)
 	}
 }
+
+func TestCacheGraceMetadataTamper(t *testing.T) {
+	clk := &clock{time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)}
+	f := newFakeServer(t, clk.now)
+	dir := t.TempDir()
+	cache := filepath.Join(dir, "license.json")
+
+	c1 := newChecker(t, f, clk, true, cache)
+	c1.CheckNow(context.Background()) // valid answer, cache written
+
+	// Hand-edit the last-valid answer's timestamp into the future. The
+	// signature no longer matches, so the whole cache must be ignored
+	// rather than extending the grace period.
+	raw, _ := os.ReadFile(cache)
+	var cf cacheFile
+	json.Unmarshal(raw, &cf)
+	if cf.LastValid == nil {
+		t.Fatal("cache should carry the last valid answer")
+	}
+	cf.LastValid.CheckedAt = clk.t.Add(100 * 24 * time.Hour)
+	tampered, _ := json.Marshal(cf)
+	os.WriteFile(cache, tampered, 0o600)
+
+	f.down.Store(true) // license service down during the restart
+	c2 := &Checker{Client: c1.Client, CachePath: cache, Enforce: true, Log: slog.New(slog.DiscardHandler), Now: clk.now}
+	c2.Start()
+	if s := c2.Snapshot(); s.State != StateUnreachable {
+		t.Fatalf("tampered grace metadata accepted: %+v", s)
+	}
+	// Degradation follows this node's own start time, not the forged
+	// timestamp.
+	clk.advance(DefaultGracePeriod + time.Second)
+	if s := c2.Snapshot(); s.State != StateDegraded {
+		t.Fatalf("forged grace anchor postponed degradation: %+v", s)
+	}
+}
+
+func TestOnChangeFiresOnClockDrivenTransition(t *testing.T) {
+	clk := &clock{time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)}
+	f := newFakeServer(t, clk.now)
+	c := newChecker(t, f, clk, true, "")
+	var changes []State
+	c.OnChange = func(_, n Snapshot) { changes = append(changes, n.State) }
+	c.CheckNow(context.Background()) // unreachable -> valid
+	if len(changes) != 1 || changes[0] != StateValid {
+		t.Fatalf("OnChange after check: %v", changes)
+	}
+
+	// The grace period passes on the local clock without any server call.
+	// Snapshot recomputes the state and must notify OnChange.
+	clk.advance(DefaultGracePeriod + time.Second)
+	if s := c.Snapshot(); s.State != StateDegraded {
+		t.Fatalf("state after grace: %+v", s)
+	}
+	if len(changes) != 2 || changes[1] != StateDegraded {
+		t.Fatalf("OnChange not fired for clock-driven transition: %v", changes)
+	}
+}
