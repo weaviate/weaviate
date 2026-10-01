@@ -54,6 +54,7 @@ import (
 
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
+	grpcHandler "github.com/weaviate/weaviate/adapters/handlers/grpc"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/grpcweb"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
@@ -189,6 +190,13 @@ import (
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
+
+const (
+	// grpcInFlightCancelDelay is how long a graceful gRPC stop waits before
+	// cancelling the calls still running.
+	grpcInFlightCancelDelay = 5 * time.Second
+	grpcGracefulStopTimeout = 20 * time.Second
+)
 
 func makeConfigureServer(appState *state.State) func(*http.Server, string, string) {
 	return func(s *http.Server, scheme, addr string) {
@@ -1557,12 +1565,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		},
 	)
 
-	var grpcInstrument []grpc.ServerOption
+	var grpcOptions []grpc.ServerOption
 	if appState.ServerConfig.Config.Monitoring.Enabled {
-		grpcInstrument = monitoring.InstrumentGrpc(appState.GRPCServerMetrics)
+		grpcOptions = monitoring.InstrumentGrpc(appState.GRPCServerMetrics)
 	}
 
-	grpcServer, batchDrain := createGrpcServer(appState, telemeter.GetClientTracker(), telemeter.GetIntegrationTracker(), grpcInstrument...)
+	grpcInFlight := grpcHandler.NewInFlightCancel()
+	grpcOptions = append(grpcOptions, grpc.ChainUnaryInterceptor(grpcInFlight.UnaryInterceptor()))
+	grpcServer, batchDrain := createGrpcServer(appState, telemeter.GetClientTracker(), telemeter.GetIntegrationTracker(), grpcOptions...)
 	grpcWebHandler, err := grpcweb.NewHandler(grpcServer, appState)
 	if err != nil {
 		appState.Logger.WithField("action", "grpc_web_startup").
@@ -1661,6 +1671,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// stop the gRPC server gracefully, but cap the wait so a stuck
 		// request can't block shutdown.
+		grpcCancelTimer := time.AfterFunc(grpcInFlightCancelDelay, grpcInFlight.Cancel)
 		grpcStopped := make(chan struct{})
 		enterrors.GoWrapper(func() {
 			grpcServer.GracefulStop()
@@ -1668,10 +1679,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}, appState.Logger)
 		select {
 		case <-grpcStopped:
-		case <-time.After(20 * time.Second):
+		case <-time.After(grpcGracefulStopTimeout):
 			appState.Logger.Warn("grpc graceful stop timed out, forcing stop")
 			grpcServer.Stop()
 		}
+		grpcCancelTimer.Stop()
+		appState.Logger.WithField("action", "grpc_shutdown").
+			Infof("cancelled %d in-flight grpc calls still running %s after graceful stop began",
+				grpcInFlight.CutShort(), grpcInFlightCancelDelay)
 
 		if appState.ServerConfig.Config.Sentry.Enabled {
 			sentry.Flush(2 * time.Second)
