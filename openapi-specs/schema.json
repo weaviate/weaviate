@@ -10281,6 +10281,16 @@
             "default": true,
             "type": "boolean",
             "description": "If true, the request is proxied to the cluster leader to ensure strong schema consistency. Default is true."
+          },
+          {
+            "name": "names",
+            "in": "query",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tenant names to filter the results to. If omitted, all tenants are returned."
           }
         ],
         "responses": {

@@ -584,7 +584,7 @@ func (s *schemaHandlers) getTenants(params schema.TenantsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
-	tenants, err := s.manager.GetConsistentTenants(ctx, principal, params.ClassName, *params.Consistency, nil)
+	tenants, err := s.manager.GetConsistentTenants(ctx, principal, params.ClassName, *params.Consistency, params.Names)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {

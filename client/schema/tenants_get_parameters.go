@@ -87,6 +87,12 @@ type TenantsGetParams struct {
 	*/
 	Consistency *bool
 
+	/* Names.
+
+	   Tenant names to filter the results to. If omitted, all tenants are returned.
+	*/
+	Names []string
+
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
@@ -173,6 +179,17 @@ func (o *TenantsGetParams) SetConsistency(consistency *bool) {
 	o.Consistency = consistency
 }
 
+// WithNames adds the names to the tenants get params
+func (o *TenantsGetParams) WithNames(names []string) *TenantsGetParams {
+	o.SetNames(names)
+	return o
+}
+
+// SetNames adds the names to the tenants get params
+func (o *TenantsGetParams) SetNames(names []string) {
+	o.Names = names
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *TenantsGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -194,8 +211,36 @@ func (o *TenantsGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Re
 		}
 	}
 
+	if o.Names != nil {
+
+		// binding items for names
+		joinedNames := o.bindParamNames(reg)
+
+		// query array param names
+		if err := r.SetQueryParam("names", joinedNames...); err != nil {
+			return err
+		}
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
 	return nil
+}
+
+// bindParamTenantsGet binds the parameter names
+func (o *TenantsGetParams) bindParamNames(formats strfmt.Registry) []string {
+	namesIR := o.Names
+
+	var namesIC []string
+	for _, namesIIR := range namesIR { // explode []string
+
+		namesIIV := namesIIR // string as string
+		namesIC = append(namesIC, namesIIV)
+	}
+
+	// items.CollectionFormat: ""
+	namesIS := swag.JoinByFormat(namesIC, "")
+
+	return namesIS
 }
