@@ -87,11 +87,10 @@ func (r *dimensionsReindex) summary() (rebuilt, failed int, objects int64) {
 	return rebuilt, failed, r.objects
 }
 
-// prepareDimensionsOfShards runs before the index loads its shards, and startup waits
-// for it. For the local shards of active and inactive tenants alike, without loading
-// them, it migrates their dimensions buckets to RoaringSet, and with
-// REINDEX_VECTOR_DIMENSIONS_AT_STARTUP rebuilds them. A shard that fails is logged; its
-// load tries again, see [Shard.reindexDimensionsOnLoad].
+// prepareDimensionsOfShards runs before the index loads its shards, for active and cold
+// tenants alike, without loading them. It migrates their dimensions buckets with
+// REINDEX_VECTOR_DIMENSIONS_TO_ROARINGSET_AT_STARTUP and rebuilds them with
+// REINDEX_VECTOR_DIMENSIONS_AT_STARTUP. A shard that fails is retried when it loads.
 func (i *Index) prepareDimensionsOfShards(ctx context.Context, class *models.Class, shardNames []string) {
 	reindex := i.Config.DimensionsReindex
 	if !i.Config.TrackVectorDimensions || len(shardNames) == 0 ||
@@ -238,7 +237,8 @@ func (s *Shard) reindexDimensionsOnLoad(ctx context.Context) error {
 // run while the shard serves. The bucket is replaced only once complete, so an
 // interruption changes nothing.
 func (s *Shard) recalculateDimensions(ctx context.Context) (objects int, err error) {
-	// a usage scan of the unloaded shard would take the replacement for a torn migration
+	// a usage scan of the unloaded shard runs migration recovery, which removes a
+	// replacement bucket that has no bucket moved aside next to it
 	unlock, err := shardusage.LockUnloadedDimensionsBucket(ctx, s.index.path(), s.name)
 	if err != nil {
 		return 0, err

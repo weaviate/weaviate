@@ -31,13 +31,13 @@ import (
 // under the build suffix, renamed to the ready suffix once complete and durable,
 // then swapped in via two renames:
 //
-//	dimensions       -> dimensions___del   (the point of no return)
+//	dimensions       -> dimensions___del
 //	dimensions…ready -> dimensions
 //
 // Before the first rename, the map bucket is untouched and any partial build is
-// discarded and retried. Past it, the ready bucket is the only complete copy, so
-// [RecoverDimensionsBucketMigration] must finish the switch before anything opens
-// the bucket, migration enabled or not.
+// discarded and retried. Past it, no bucket is under the name and opening it would
+// create an empty one, so [RecoverDimensionsBucketMigration] must finish the switch
+// before anything opens the bucket, migration enabled or not.
 const (
 	dimensionsMigrationBuildSuffix = "__to_roaringset_build"
 	dimensionsMigrationReadySuffix = DimensionsReplacementBucketSuffix
@@ -47,8 +47,8 @@ const (
 // DimensionsReplacedBucketSuffix is the one lsmkv.Store.ReplaceBuckets uses too.
 const DimensionsReplacedBucketSuffix = "___del"
 
-// DimensionsReplacementBucketSuffix names a complete bucket about to replace the
-// dimensions bucket.
+// DimensionsReplacementBucketSuffix names a bucket built to replace the dimensions
+// bucket. It is complete once the bucket in place is moved to DimensionsReplacedBucketSuffix.
 const DimensionsReplacementBucketSuffix = "__to_roaringset_ready"
 
 // LockUnloadedDimensionsBucket keeps usage scans of an unloaded shard off the
@@ -77,7 +77,7 @@ func PrepareDimensionsBucket(ctx context.Context, logger logrus.FieldLogger,
 		logger.WithField("action", "dimensions_bucket_migration").
 			WithField("path", shardPathDimensionsLSM(indexPath, shardName)).
 			Errorf("migrate dimensions bucket to roaring set: %v", err)
-		// it may have failed past the point of no return
+		// it may have failed between the two renames
 		if err := RecoverDimensionsBucketMigration(logger, indexPath, shardName); err != nil {
 			return fmt.Errorf("recover dimensions bucket migration: %w", err)
 		}
@@ -335,7 +335,7 @@ func recoverDimensionsBucketMigration(logger logrus.FieldLogger, bucketPath stri
 			logger.WithField("action", "dimensions_bucket_migration").
 				WithField("path", bucketPath).
 				Errorf("torn state: %q holds data next to an unfinished migration (%q, %q), "+
-					"tracked dimensions are incomplete until they are recalculated",
+					"tracked dimensions are incomplete until REINDEX_VECTOR_DIMENSIONS_AT_STARTUP recalculates them",
 					bucketPath, readyPath, delPath)
 			return nil
 		}
