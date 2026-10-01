@@ -13,6 +13,7 @@ package compact
 
 import (
 	"encoding/binary"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -808,6 +809,7 @@ func TestLoader_NodeIDLimit(t *testing.T) {
 		{name: "no counter file", docIDs: true, want: 0},
 		{name: "zero counter", docIDs: true, counterFile: counter(0), want: 0},
 		{name: "unreadable counter", docIDs: true, counterFile: []byte{1, 2, 3}, want: 0},
+		{name: "counter beyond maxNodeID", docIDs: true, counterFile: counter(math.MaxUint64), want: 0},
 		{name: "counter plus slack", docIDs: true, counterFile: counter(10), want: 10 + docIDCounterSlack},
 	}
 	for _, tc := range tests {

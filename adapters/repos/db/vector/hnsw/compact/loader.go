@@ -356,7 +356,7 @@ func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent
 const docIDCounterSlack = 1 << 24
 
 // nodeIDLimit returns the highest node ID the index can hold, or 0 for no
-// limit: when node IDs are not document IDs, or there is no counter.
+// limit: when node IDs are not document IDs, or there is no plausible counter.
 func (l *Loader) nodeIDLimit() uint64 {
 	if !l.config.NodeIDsAreDocIDs {
 		return 0
@@ -367,7 +367,8 @@ func (l *Loader) nodeIDLimit() uint64 {
 			Warnf("read document-ID counter, loading without a node ID limit: %v", err)
 		return 0
 	}
-	if counter == 0 {
+	// A counter beyond maxNodeID is corrupt, and adding the slack could wrap.
+	if counter == 0 || counter > maxNodeID {
 		return 0
 	}
 	return counter + docIDCounterSlack
