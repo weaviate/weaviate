@@ -115,10 +115,18 @@ func validatePermissions(namespacesEnabled, allowEmpty bool, permissions ...*mod
 				className(*p.Collection)
 			}
 			if p.User != nil {
-				add(validateRegexTarget("user", *p.User))
+				if *p.User == "" {
+					add(errors.New("backup user must not be empty"))
+				} else {
+					add(validateRegexTarget("user", *p.User))
+				}
 			}
 			if p.Role != nil {
-				add(validateRegexTarget("role", *p.Role))
+				if *p.Role == "" {
+					add(errors.New("backup role must not be empty"))
+				} else {
+					add(validateRegexTarget("role", *p.Role))
+				}
 			}
 		}
 		if p := perm.Nodes; p != nil && p.Collection != nil {
