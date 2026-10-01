@@ -330,6 +330,30 @@ func TestUploaderAllUploadsClassesConcurrently(t *testing.T) {
 	assert.Equal(t, backup.Success, desc.Status)
 }
 
+func TestUploaderClassCompletion(t *testing.T) {
+	t.Run("a callback fires for every fully uploaded class", func(t *testing.T) {
+		classes := []string{"Class-A", "Class-B"}
+		sourcePath := t.TempDir()
+		probe := newUploadProbe(sourcePath, genClassDescriptions(t, sourcePath, classes...)...)
+		uploader, desc, names, _ := newProbeUploader(t, probe, len(classes))
+
+		var (
+			mu       sync.Mutex
+			uploaded []string
+		)
+		uploader.onClassUploaded = func(className string) {
+			mu.Lock()
+			defer mu.Unlock()
+			uploaded = append(uploaded, className)
+		}
+
+		require.NoError(t, uploader.all(context.Background(), names, desc, nil, "", ""))
+		mu.Lock()
+		defer mu.Unlock()
+		assert.ElementsMatch(t, classes, uploaded)
+	})
+}
+
 // TestUploaderAllKeepsRequestOrder pins that the descriptor lists classes in the
 // order they were requested even when a later class finishes first.
 func TestUploaderAllKeepsRequestOrder(t *testing.T) {
