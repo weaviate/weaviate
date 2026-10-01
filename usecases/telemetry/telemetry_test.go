@@ -26,6 +26,7 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -491,6 +492,159 @@ func TestTelemetry_WithConsumer(t *testing.T) {
 	assert.Equal(t, PayloadType.Terminate, terminatePayload.Type)
 }
 
+// pushBound is far below defaultPushTimeout and far above testPushTimeout, so
+// a call that outlives it was bounded by neither the push timeout nor its ctx.
+const pushBound = 3 * time.Second
+
+const testPushTimeout = 100 * time.Millisecond
+
+func TestTelemetry_HangingPushIsBounded(t *testing.T) {
+	tests := []struct {
+		name        string
+		hold        string
+		pushTimeout time.Duration
+		callerCtx   time.Duration // 0 means context.Background()
+	}{
+		{name: "init, push timeout", hold: PayloadType.Init, pushTimeout: testPushTimeout},
+		{name: "init, caller ctx", hold: PayloadType.Init, pushTimeout: time.Hour, callerCtx: testPushTimeout},
+		{name: "terminate, push timeout", hold: PayloadType.Terminate, pushTimeout: testPushTimeout},
+		{name: "terminate, caller ctx", hold: PayloadType.Terminate, pushTimeout: time.Hour, callerCtx: testPushTimeout},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tel := newHangingConsumerTelemeter(t, tt.hold, withPushTimeout(tt.pushTimeout))
+			ctx := context.Background()
+			if tt.callerCtx > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, tt.callerCtx)
+				defer cancel()
+			}
+
+			if tt.hold == PayloadType.Init {
+				err := receiveWithin(t, callAsync(func() error { return tel.Start(ctx) }))
+				require.ErrorIs(t, err, context.DeadlineExceeded)
+				assert.True(t, tel.failedToStart.Load())
+				return
+			}
+
+			require.NoError(t, tel.Start(context.Background()))
+			err := receiveWithin(t, callAsync(func() error { return tel.Stop(ctx) }))
+			require.ErrorIs(t, err, context.DeadlineExceeded)
+		})
+	}
+}
+
+func TestTelemetry_StopWhileInitHangs(t *testing.T) {
+	// The push timeout outlasts Stop, so Stop reads failedToStart while Start
+	// is still pushing and -race sees Start write it afterwards.
+	tel := newHangingConsumerTelemeter(t, PayloadType.Init, withPushTimeout(500*time.Millisecond))
+	started := callAsync(func() error { return tel.Start(context.Background()) })
+	tel.waitForHeldPush(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := receiveWithin(t, callAsync(func() error { return tel.Stop(ctx) }))
+	require.ErrorIs(t, err, context.Canceled)
+
+	require.ErrorIs(t, receiveWithin(t, started), context.DeadlineExceeded)
+	assert.True(t, tel.failedToStart.Load())
+}
+
+func TestTelemetry_HangingUpdateDoesNotBlockStop(t *testing.T) {
+	// A tick ready alongside a waiting Stop must not start another held update;
+	// a loop that picks it fails a round half the time.
+	for i := range 10 {
+		t.Run(fmt.Sprintf("round %d", i), func(t *testing.T) {
+			t.Parallel()
+			tel := newHangingConsumerTelemeter(t, PayloadType.Update,
+				withPushTimeout(testPushTimeout), withPushInterval(10*time.Millisecond))
+			require.NoError(t, tel.Start(context.Background()))
+			tel.waitForHeldPush(t)
+
+			ctx, cancel := context.WithTimeout(context.Background(), testPushTimeout*3/2)
+			defer cancel()
+			err := receiveWithin(t, callAsync(func() error { return tel.Stop(ctx) }))
+			require.NoError(t, err)
+		})
+	}
+}
+
+// hangingConsumer answers every push except those of type hold, which it
+// keeps open until the client gives up or the test ends.
+type hangingConsumer struct {
+	hold    string
+	held    chan struct{}
+	release chan struct{}
+}
+
+func (h *hangingConsumer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	var payload Payload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	if payload.Type != h.hold {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	select {
+	case h.held <- struct{}{}:
+	default:
+	}
+	select {
+	case <-r.Context().Done():
+	case <-h.release:
+	}
+	w.WriteHeader(http.StatusServiceUnavailable)
+}
+
+type hangingConsumerTelemeter struct {
+	*Telemeter
+	consumer *hangingConsumer
+}
+
+func newHangingConsumerTelemeter(t *testing.T, hold string, opts ...telemetryOpt) hangingConsumerTelemeter {
+	h := &hangingConsumer{hold: hold, held: make(chan struct{}, 1), release: make(chan struct{})}
+	server := httptest.NewServer(h)
+	// Cleanups run last-in first-out, so held handlers are released before
+	// server.Close waits for them.
+	t.Cleanup(server.Close)
+	t.Cleanup(func() { close(h.release) })
+
+	opts = append([]telemetryOpt{withConsumerURL(server.URL), withPushInterval(time.Hour)}, opts...)
+	tel, sg, sm := newTestTelemeter(t, opts...)
+	sg.On("LocalNodeStatus", mock.Anything, "", "", verbosity.OutputVerbose).
+		Return(&models.NodeStatus{Stats: &models.NodeStats{}})
+	sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
+	return hangingConsumerTelemeter{Telemeter: tel, consumer: h}
+}
+
+func (tel hangingConsumerTelemeter) waitForHeldPush(t *testing.T) {
+	t.Helper()
+	select {
+	case <-tel.consumer.held:
+	case <-time.After(pushBound):
+		t.Fatalf("no %s push reached the consumer", tel.consumer.hold)
+	}
+}
+
+func callAsync(f func() error) <-chan error {
+	done := make(chan error, 1)
+	go func() { done <- f() }()
+	return done
+}
+
+func receiveWithin(t *testing.T, done <-chan error) error {
+	t.Helper()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(pushBound):
+		t.Fatalf("call did not return within %s", pushBound)
+		return nil
+	}
+}
+
 func TestTelemetry_BuildPayload_WithCloudInfo(t *testing.T) {
 	t.Run("on init with cloud info present", func(t *testing.T) {
 		tel, sg, sm, ci := newTestTelemeterWithCloudInfo(t)
@@ -652,6 +806,12 @@ func withConsumerURL(url string) telemetryOpt {
 func withPushInterval(interval time.Duration) telemetryOpt {
 	return func(tel *Telemeter) {
 		tel.pushInterval = interval
+	}
+}
+
+func withPushTimeout(timeout time.Duration) telemetryOpt {
+	return func(tel *Telemeter) {
+		tel.pushTimeout = timeout
 	}
 }
 
