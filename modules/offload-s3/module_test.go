@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -101,4 +102,32 @@ func TestUploadArgs_SkipsScratchFiles(t *testing.T) {
 
 func shardName(i int) string {
 	return fmt.Sprintf("tenant-%d", i)
+}
+
+// TestUploadedSizeMatchesUploadExcludes pins that the byte counter measures the
+// same file set the upload ships. dirSize counted the whole directory, so
+// tenant_offload_transferred_bytes_total was inflated by the .tmp scratch and
+// hashtree_uuid/ that uploadArgs explicitly excludes.
+func TestUploadedSizeMatchesUploadExcludes(t *testing.T) {
+	root := t.TempDir()
+	write := func(rel string, n int) {
+		p := filepath.Join(root, rel)
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		require.NoError(t, os.WriteFile(p, make([]byte, n), 0o644))
+	}
+
+	write("segment.db", 100)          // shipped
+	write("nested/segment.db", 50)    // shipped
+	write("store.wal", 25)            // shipped: .wal stays in
+	write("scratch.tmp", 999)         // excluded by --exclude=*.tmp
+	write("nested/other.tmp", 999)    // excluded at any depth
+	write("hashtree_uuid/ht.ht", 999) // excluded by --exclude=hashtree_uuid/*
+
+	got, err := uploadedSize(root)
+	require.NoError(t, err)
+	assert.Equal(t, int64(175), got, "only non-excluded files may be counted")
+
+	all, err := dirSize(root)
+	require.NoError(t, err)
+	assert.Greater(t, all, got, "dirSize counts the excluded files; uploadedSize must not")
 }

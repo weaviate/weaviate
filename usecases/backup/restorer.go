@@ -18,12 +18,10 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"reflect"
 	"slices"
 	"sync"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -217,14 +215,6 @@ func (r *restorer) restoreAll(ctx context.Context,
 	return nil
 }
 
-func getType(myvar interface{}) string {
-	if t := reflect.TypeOf(myvar); t.Kind() == reflect.Pointer {
-		return "*" + t.Elem().Name()
-	} else {
-		return t.Name()
-	}
-}
-
 func (r *restorer) restoreOne(ctx context.Context,
 	desc *backup.ClassDescriptor, serverVersion string, compressionType backup.CompressionType,
 	cpuPercentage int, store nodeStore,
@@ -235,11 +225,10 @@ func (r *restorer) restoreOne(ctx context.Context,
 	if monitoring.GetMetrics().Group {
 		classLabel = "n/a"
 	}
-	metric, err := monitoring.GetMetrics().BackupRestoreDurations.GetMetricWithLabelValues(getType(store.backend), classLabel)
-	if err == nil {
-		timer := prometheus.NewTimer(metric)
-		defer timer.ObserveDuration()
-	}
+	defer monitoring.ObserveDurationBoth(
+		monitoring.GetMetrics().BackupRestoreDurations,
+		monitoring.GetMetrics().BackupRestoreSeconds,
+		store.backend.Name(), classLabel)()
 
 	fw := newFileWriter(r.sourcer, store, r.logger).
 		WithPoolPercentage(cpuPercentage).

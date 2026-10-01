@@ -20,8 +20,6 @@ import (
 	"slices"
 	"sort"
 
-	"github.com/prometheus/client_golang/prometheus"
-
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -432,10 +430,10 @@ func (r *restorer) restoreOneFanout(ctx context.Context, cp classPlan, store nod
 	if monitoring.GetMetrics().Group {
 		classLabel = "n/a"
 	}
-	if metric, err := monitoring.GetMetrics().BackupRestoreDurations.GetMetricWithLabelValues(getType(store.backend), classLabel); err == nil {
-		timer := prometheus.NewTimer(metric)
-		defer timer.ObserveDuration()
-	}
+	defer monitoring.ObserveDurationBoth(
+		monitoring.GetMetrics().BackupRestoreDurations,
+		monitoring.GetMetrics().BackupRestoreSeconds,
+		store.backend.Name(), classLabel)()
 
 	for _, src := range cp.sources {
 		if err := fw.fetch(ctx, classTempDir, src.desc, src.store, req.Bucket, req.Path, compressionType); err != nil {

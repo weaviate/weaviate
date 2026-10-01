@@ -338,7 +338,7 @@ func (s *s3Client) GetObject(ctx context.Context, backupID, key, overrideBucket,
 	}
 
 	contents := buf.Bytes()
-	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues(Name, "class")
+	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues(Name, monitoring.BackupClassLabel(key))
 	if err == nil {
 		metric.Add(float64(len(contents)))
 	}
@@ -371,7 +371,7 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, overrideBucket,
 		)
 	}
 
-	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues(Name, "class")
+	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues(Name, monitoring.BackupClassLabel(key))
 	if err == nil {
 		metric.Add(float64(len(byes)))
 	}
@@ -435,7 +435,7 @@ func (s *s3Client) Write(ctx context.Context, backupID, key, overrideBucket, ove
 	}
 
 	if metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.
-		GetMetricWithLabelValues(Name, "class"); err == nil {
+		GetMetricWithLabelValues(Name, monitoring.BackupClassLabel(key)); err == nil {
 		metric.Add(float64(float64(info.Size)))
 	}
 	return info.Size, nil
@@ -469,7 +469,7 @@ func (s *s3Client) Read(ctx context.Context, backupID, key, overrideBucket, over
 	}
 
 	if metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.
-		GetMetricWithLabelValues(Name, "class"); err == nil {
+		GetMetricWithLabelValues(Name, monitoring.BackupClassLabel(key)); err == nil {
 		metric.Add(float64(float64(read)))
 	}
 

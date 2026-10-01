@@ -18,10 +18,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // newTestStoreWithObjectsBucket spins up a noop-cycled store with a real
@@ -107,22 +110,39 @@ func TestPauseResumeObjectBucketCompaction_NoRecursiveRLock(t *testing.T) {
 func TestDoStartStopPauseTimer_RefCount(t *testing.T) {
 	_, b := newTestStoreWithObjectsBucket(t)
 
-	b.doStartPauseTimer()
-	outer := b.pauseTimer
-	require.NotNil(t, outer, "outer Start must allocate a timer")
+	// The observation count is the behaviour that matters: nested pause sources
+	// must produce exactly one observation, not one per Start.
+	label := b.GetDir()
+	if monitoring.GetMetrics().Group {
+		label = "n/a"
+	}
+	countSeconds := func() uint64 {
+		m, err := monitoring.GetMetrics().BucketPauseSeconds.GetMetricWithLabelValues(label)
+		require.NoError(t, err)
+		var out dto.Metric
+		require.NoError(t, m.(prometheus.Metric).Write(&out))
+		return out.GetSummary().GetSampleCount()
+	}
+	before := countSeconds()
 
 	b.doStartPauseTimer()
-	require.Same(t, outer, b.pauseTimer, "inner Start must not overwrite the outer timer")
+	require.NotNil(t, b.pauseTimerStop, "outer Start must arm the timer")
+
+	b.doStartPauseTimer()
+	require.NotNil(t, b.pauseTimerStop, "inner Start must not disarm the outer timer")
 
 	b.doStopPauseTimer()
-	require.NotNil(t, b.pauseTimer, "inner Stop must not clear timer while outer holds")
+	require.NotNil(t, b.pauseTimerStop, "inner Stop must not clear timer while outer holds")
+	require.Equal(t, before, countSeconds(), "inner Stop must not observe")
 
 	b.doStopPauseTimer()
-	require.Nil(t, b.pauseTimer, "outer Stop must clear the timer")
+	require.Nil(t, b.pauseTimerStop, "outer Stop must clear the timer")
+	require.Equal(t, before+1, countSeconds(), "outer Stop must observe exactly once")
 
 	// Extra Stop must be a no-op (ref-count guard).
 	b.doStopPauseTimer()
-	require.Nil(t, b.pauseTimer)
+	require.Nil(t, b.pauseTimerStop)
+	require.Equal(t, before+1, countSeconds(), "extra Stop must not observe again")
 }
 
 // TestDoStartStopPauseTimer_RaceFree pins the race surfaced on

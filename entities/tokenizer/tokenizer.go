@@ -180,6 +180,7 @@ func init_gse_ch() error {
 // WithLabelValues does a registry lookup per call, too costly per value.
 type boundTokenizerMetrics struct {
 	duration         prometheus.Observer
+	requests         prometheus.Counter
 	tokenCount       prometheus.Counter
 	tokensPerRequest prometheus.Observer
 }
@@ -187,6 +188,7 @@ type boundTokenizerMetrics struct {
 // record writes one tokenization's worth of metrics: n tokens produced over dur.
 func (m *boundTokenizerMetrics) record(dur time.Duration, n int) {
 	m.duration.Observe(dur.Seconds())
+	m.requests.Inc()
 	m.tokenCount.Add(float64(n))
 	m.tokensPerRequest.Observe(float64(n))
 }
@@ -202,6 +204,7 @@ func metricsFor(label string) *boundTokenizerMetrics {
 	mon := monitoring.GetMetrics()
 	m, _ := boundMetricsByLabel.LoadOrStore(label, &boundTokenizerMetrics{
 		duration:         mon.TokenizerDuration.WithLabelValues(label),
+		requests:         mon.TokenizerRequests.WithLabelValues(label),
 		tokenCount:       mon.TokenCount.WithLabelValues(label),
 		tokensPerRequest: mon.TokenCountPerRequest.WithLabelValues(label),
 	})

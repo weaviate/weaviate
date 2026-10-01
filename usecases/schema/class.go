@@ -22,7 +22,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/pkg/errors"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
@@ -385,11 +384,10 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 		shardingState.IndexID = class.Class
 	}
 
-	metric, err := monitoring.GetMetrics().BackupRestoreClassDurations.GetMetricWithLabelValues(class.Class)
-	if err == nil {
-		timer := prometheus.NewTimer(metric)
-		defer timer.ObserveDuration()
-	}
+	defer monitoring.ObserveDurationBoth(
+		monitoring.GetMetrics().BackupRestoreClassDurations,
+		monitoring.GetMetrics().BackupRestoreClassSeconds,
+		class.Class)()
 
 	class.Class = schema.UppercaseClassName(class.Class)
 	class.Properties = schema.LowercaseAllPropertyNames(class.Properties)
@@ -403,8 +401,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 		return h.schemaReader.ReadOnlyClass(name), nil
 	}
 
-	err = h.validateClassInvariants(ctx, class, class.Class, classGetterWrapper, true)
-	if err != nil {
+	if err := h.validateClassInvariants(ctx, class, class.Class, classGetterWrapper, true); err != nil {
 		return err
 	}
 	// migrate only after validation in completed
@@ -415,7 +412,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	}
 
 	shardingState.MigrateFromOldFormat()
-	err = shardingState.MigrateShardingStateReplicationFactor()
+	err := shardingState.MigrateShardingStateReplicationFactor()
 	if err != nil {
 		return fmt.Errorf("error while migrating replication factor: %w", err)
 	}

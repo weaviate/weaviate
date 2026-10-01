@@ -31,17 +31,17 @@ func newConnMetrics(reg prometheus.Registerer) connMetrics {
 	return connMetrics{
 		connCreateTotal: r.NewCounter(prometheus.CounterOpts{
 			Namespace: "weaviate",
-			Name:      "weaviate_grpc_conn_create_total",
+			Name:      "grpc_conn_create_total",
 			Help:      "Total gRPC connections created",
 		}),
 		connReuseTotal: r.NewCounter(prometheus.CounterOpts{
 			Namespace: "weaviate",
-			Name:      "weaviate_grpc_conn_reuse_total",
+			Name:      "grpc_conn_reuse_total",
 			Help:      "Total reused connections",
 		}),
 		connCloseTotal: r.NewCounter(prometheus.CounterOpts{
 			Namespace: "weaviate",
-			Name:      "weaviate_grpc_conn_close_total",
+			Name:      "grpc_conn_close_total",
 			Help:      "Total connections closed",
 		}),
 		connRejectTotal: r.NewCounterVec(prometheus.CounterOpts{
@@ -56,7 +56,7 @@ func newConnMetrics(reg prometheus.Registerer) connMetrics {
 		}, []string{"reason"}),
 		connOpenGauge: r.NewGauge(prometheus.GaugeOpts{
 			Namespace: "weaviate",
-			Name:      "weaviate_grpc_conn_open",
+			Name:      "grpc_conn_open",
 			Help:      "Open connections",
 		}),
 	}

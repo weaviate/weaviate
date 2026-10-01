@@ -27,7 +27,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/entities/backup"
@@ -572,12 +571,10 @@ func (u *uploader) submitClass(ctx context.Context, eg *enterrors.ErrorGroupWrap
 	if monitoring.GetMetrics().Group {
 		classLabel = "n/a"
 	}
-	observe := func() {}
-	if metric, err := monitoring.GetMetrics().BackupStoreDurations.
-		GetMetricWithLabelValues(getType(u.backend.backend), classLabel); err == nil {
-		timer := prometheus.NewTimer(metric)
-		observe = func() { timer.ObserveDuration() }
-	}
+	observe := monitoring.ObserveDurationBoth(
+		monitoring.GetMetrics().BackupStoreDurations,
+		monitoring.GetMetrics().BackupStoreSeconds,
+		u.backend.backend.Name(), classLabel)
 
 	ctx, cancel := context.WithTimeout(ctx, storeTimeout)
 	u.log.WithFields(logrus.Fields{

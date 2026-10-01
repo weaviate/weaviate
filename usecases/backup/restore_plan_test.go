@@ -500,6 +500,8 @@ func TestRestoreFanoutStagesFromMultipleSources(t *testing.T) {
 	restoreDir := t.TempDir()
 	restoreMock := modulecapabilities.NewMockBackupBackend(t)
 	restoreMock.EXPECT().SourceDataPath().Return(restoreDir)
+	// backend_name on the restore duration metrics comes from Name(), not the Go type.
+	restoreMock.EXPECT().Name().Return("mock").Maybe()
 	restoreMock.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(e.serveReaderFn())
 
@@ -569,6 +571,8 @@ func TestRestoreFanoutFetchesBaseChunksFromSourcePrefix(t *testing.T) {
 	restoreDir := t.TempDir()
 	restoreMock := modulecapabilities.NewMockBackupBackend(t)
 	restoreMock.EXPECT().SourceDataPath().Return(restoreDir)
+	// backend_name on the restore duration metrics comes from Name(), not the Go type.
+	restoreMock.EXPECT().Name().Return("mock").Maybe()
 	restoreMock.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(e.serveReaderFn())
 
@@ -591,6 +595,8 @@ func TestRestoreOneFanoutZeroShardsResetsStaging(t *testing.T) {
 	restoreDir := t.TempDir()
 	restoreMock := modulecapabilities.NewMockBackupBackend(t)
 	restoreMock.EXPECT().SourceDataPath().Return(restoreDir)
+	// backend_name on the restore duration metrics comes from Name(), not the Go type.
+	restoreMock.EXPECT().Name().Return("mock").Maybe()
 
 	classTempDir := filepath.Join(restoreDir, TempDirectory, "Class-A")
 	require.NoError(t, os.MkdirAll(classTempDir, 0o755))

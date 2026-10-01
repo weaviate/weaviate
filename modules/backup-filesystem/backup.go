@@ -50,7 +50,7 @@ func (m *Module) GetObject(ctx context.Context, backupID, key, overrideBucket, o
 		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object %s", metaPath))
 	}
 
-	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues(m.Name(), "class")
+	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues(m.Name(), monitoring.BackupClassLabel(key))
 	if err == nil {
 		metric.Add(float64(len(contents)))
 	}
@@ -133,7 +133,7 @@ func (m *Module) PutObject(ctx context.Context, backupID, key, bucket, overrideP
 		return errors.Wrapf(err, "write file %s", backupPath)
 	}
 
-	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues(m.Name(), "class")
+	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues(m.Name(), monitoring.BackupClassLabel(key))
 	if err == nil {
 		metric.Add(float64(len(byes)))
 	}
@@ -168,7 +168,7 @@ func (m *Module) Write(ctx context.Context, backupID, key, overrideBucket, overr
 	}
 
 	if metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.
-		GetMetricWithLabelValues(m.Name(), "class"); err == nil {
+		GetMetricWithLabelValues(m.Name(), monitoring.BackupClassLabel(key)); err == nil {
 		metric.Add(float64(written))
 	}
 
@@ -201,7 +201,7 @@ func (m *Module) Read(ctx context.Context, backupID, key, overrideBucket, overri
 	}
 
 	if metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.
-		GetMetricWithLabelValues(m.Name(), "class"); err == nil {
+		GetMetricWithLabelValues(m.Name(), monitoring.BackupClassLabel(key)); err == nil {
 		metric.Add(float64(read))
 	}
 	return read, err

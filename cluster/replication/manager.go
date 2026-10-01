@@ -23,6 +23,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
@@ -66,7 +67,7 @@ func NewManager(schemaReader schema.SchemaReader, nodeSelector cluster.NodeSelec
 		nodeSelector:   nodeSelector,
 		ctx:            ctx,
 		cancel:         cancel,
-		inflightDrainFailuresCounter: prometheus.NewCounter(prometheus.CounterOpts{
+		inflightDrainFailuresCounter: promauto.With(reg).NewCounter(prometheus.CounterOpts{
 			Namespace: "weaviate",
 			Name:      "inflight_drain_failures_total",
 			Help:      "Total number of failures to drain in-flight writes before transitioning to INTEGRATING or DEHYDRATING state",
