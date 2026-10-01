@@ -158,7 +158,14 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 ) ([]*storobj.Object, error) {
 	ctx = concurrency.CtxWithBudgetIfAbsent(ctx, concurrency.TimesGOMAXPROCS(2))
 	beforeFilters := time.Now()
-	allowList, err := s.docIDs(ctx, filter, className, limit)
+	// A limited resolve stops after the first limit matches in index key order,
+	// which is not the sort order: sorting that subset would return the top of
+	// whichever matches happened to be read first. Sorting needs every match.
+	resolveLimit := limit
+	if len(sort) > 0 {
+		resolveLimit = 0
+	}
+	allowList, err := s.docIDs(ctx, filter, className, resolveLimit)
 	if err != nil {
 		return nil, err
 	}
