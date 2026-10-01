@@ -173,6 +173,10 @@ func TestDB_PrepareDimensionsAtStartup(t *testing.T) {
 				require.NoError(t, b.Shutdown(ctx))
 			}
 
+			// usage cached while the shard was unloaded, counting the dimensions it had
+			usageFile := filepath.Join(indexPath, shardName, "usage.json.tmp")
+			require.NoError(t, os.WriteFile(usageFile, []byte("{}"), 0o600))
+
 			physical := state.Physical[shardName]
 			physical.Status = tt.status
 			state.Physical[shardName] = physical
@@ -192,6 +196,11 @@ func TestDB_PrepareDimensionsAtStartup(t *testing.T) {
 			strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, lsmkv.DimensionsBucketPrioritizedStrategies)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectStrategy, strategy)
+			if tt.configure != nil {
+				require.NoFileExists(t, usageFile, "the cached usage counts the dimensions from before")
+			} else {
+				require.FileExists(t, usageFile)
+			}
 			usage, err := shardusage.CalculateUnloadedDimensionsUsage(ctx, restarted.logger, index.path(), shardName, "")
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectDims, usage.Count*usage.Dimensions)

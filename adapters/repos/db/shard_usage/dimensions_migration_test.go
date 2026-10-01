@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
@@ -490,7 +491,7 @@ func TestPrepareDimensionsBucket(t *testing.T) {
 		indexPath := t.TempDir()
 		seedDimensionsBucket(t, logger, indexPath, lsmkv.StrategyMapCollection, seed)
 
-		require.NoError(t, PrepareDimensionsBucket(ctx, logger, indexPath, migrationTestShard, false))
+		require.NoError(t, prepareForTest(ctx, logger, indexPath, migrationTestShard, false))
 
 		strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(
 			shardPathDimensionsLSM(indexPath, migrationTestShard), lsmkv.DimensionsBucketPrioritizedStrategies)
@@ -503,7 +504,7 @@ func TestPrepareDimensionsBucket(t *testing.T) {
 		indexPath := t.TempDir()
 		seedDimensionsBucket(t, logger, indexPath, lsmkv.StrategyMapCollection, seed)
 
-		require.NoError(t, PrepareDimensionsBucket(ctx, logger, indexPath, migrationTestShard, true))
+		require.NoError(t, prepareForTest(ctx, logger, indexPath, migrationTestShard, true))
 
 		assert.Equal(t, map[string][]uint64{dimsKey("text", 128): {1, 2, 3}}, readRoaringSetDimensions(t, logger, indexPath))
 	})
@@ -517,7 +518,7 @@ func TestPrepareDimensionsBucket(t *testing.T) {
 
 		cancelled, cancel := context.WithCancel(ctx)
 		cancel()
-		require.NoError(t, PrepareDimensionsBucket(cancelled, logger, indexPath, migrationTestShard, true))
+		require.NoError(t, prepareForTest(cancelled, logger, indexPath, migrationTestShard, true))
 
 		assert.Equal(t, before, dirListing(t, bucketPath))
 		requireNoMigrationLeftovers(t, indexPath)
@@ -544,7 +545,7 @@ func TestPrepareDimensionsBucket_LeftoverCannotBeRemoved(t *testing.T) {
 			before := dirListing(t, bucketPath)
 
 			for range 2 {
-				require.NoError(t, PrepareDimensionsBucket(ctx, logger, indexPath, migrationTestShard, true), "a load of the shard")
+				require.NoError(t, prepareForTest(ctx, logger, indexPath, migrationTestShard, true), "a load of the shard")
 			}
 
 			assert.Equal(t, before, dirListing(t, bucketPath))
@@ -655,6 +656,54 @@ func TestMigrateDimensionsBucketToRoaringSet_RemovalOfOldBucketFails(t *testing.
 	expected := map[string][]uint64{dimsKey("text", 128): {1, 2, 3}}
 	assert.Equal(t, expected, readRoaringSetDimensions(t, logger, indexPath))
 
-	require.NoError(t, PrepareDimensionsBucket(ctx, logger, indexPath, migrationTestShard, true), "the next load")
+	require.NoError(t, prepareForTest(ctx, logger, indexPath, migrationTestShard, true), "the next load")
 	assert.Equal(t, expected, readRoaringSetDimensions(t, logger, indexPath))
+}
+
+func prepareForTest(ctx context.Context, logger logrus.FieldLogger, indexPath, shardName string, migrate bool) error {
+	_, err := PrepareDimensionsBucket(ctx, logger, indexPath, shardName, migrate)
+	return err
+}
+
+// corruptFirstNodeLength overwrites the 8 bytes at offset of the first segment of the
+// bucket, after the segment header, as a length its cursor then allocates.
+func corruptFirstNodeLength(t *testing.T, bucketPath string, offset int) {
+	t.Helper()
+	segments, err := filepath.Glob(filepath.Join(bucketPath, "segment-*.db"))
+	require.NoError(t, err)
+	require.NotEmpty(t, segments)
+	f, err := os.OpenFile(segments[0], os.O_RDWR, 0o600)
+	require.NoError(t, err)
+	defer f.Close()
+	_, err = f.WriteAt([]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}, int64(segmentindex.HeaderSize+offset))
+	require.NoError(t, err)
+}
+
+// A corrupt map segment makes the copy panic. That fails the migration, which is
+// only logged, and must not fail the load of the shard.
+func TestPrepareDimensionsBucket_CorruptMapSegment(t *testing.T) {
+	ctx := context.Background()
+	logger, hook := test.NewNullLogger()
+	indexPath := t.TempDir()
+	bucketPath := shardPathDimensionsLSM(indexPath, migrationTestShard)
+	seedDimensionsBucket(t, logger, indexPath, lsmkv.StrategyMapCollection,
+		[][]dimsOp{{{targetVector: "text", dims: 128, docIDs: []uint64{1, 2, 3}}}})
+	// the values count of the first node
+	corruptFirstNodeLength(t, bucketPath, 0)
+
+	migrated, err := PrepareDimensionsBucket(ctx, logger, indexPath, migrationTestShard, true)
+	require.NoError(t, err)
+	assert.False(t, migrated)
+
+	strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, lsmkv.DimensionsBucketPrioritizedStrategies)
+	require.NoError(t, err)
+	assert.Equal(t, lsmkv.StrategyMapCollection, strategy, "the map bucket is kept")
+	requireNoMigrationLeftovers(t, indexPath)
+	logged := false
+	for _, entry := range hook.AllEntries() {
+		if entry.Level == logrus.ErrorLevel && strings.Contains(entry.Message, "panic") {
+			logged = true
+		}
+	}
+	assert.True(t, logged, "the failed migration is logged")
 }

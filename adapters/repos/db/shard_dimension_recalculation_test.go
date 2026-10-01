@@ -18,6 +18,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -27,12 +28,14 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
@@ -452,7 +455,9 @@ func TestShard_ReindexDimensionsOnLoad(t *testing.T) {
 		// prepare runs with the shard shut down, before it loads with reindex
 		prepare       func(t *testing.T, shard *Shard, reindex *dimensionsReindex)
 		reindex       *dimensionsReindex
+		neverWritten  bool
 		expectRebuilt bool
+		expectDone    bool
 		expectFailed  bool
 	}{
 		{name: "not enabled", reindex: nil},
@@ -473,6 +478,11 @@ func TestShard_ReindexDimensionsOnLoad(t *testing.T) {
 			expectRebuilt: true,
 		},
 		{
+			// such as a tenant created after startup, nothing to rebuild
+			name: "never written to", reindex: &dimensionsReindex{enabled: true},
+			neverWritten: true, expectDone: true,
+		},
+		{
 			// the shard serves with the dimensions it had
 			name:    "failed, the bucket is kept",
 			reindex: &dimensionsReindex{enabled: true},
@@ -485,7 +495,9 @@ func TestShard_ReindexDimensionsOnLoad(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			shard, idx, class := recalculationTestShard(t, ctx)
-			putRecalculationObjects(t, ctx, shard, class, 5)
+			if !tt.neverWritten {
+				putRecalculationObjects(t, ctx, shard, class, 5)
+			}
 			tracked := dimensionsBucketRows(t, shard)
 			require.NoError(t, shard.store.Bucket(helpers.DimensionsBucketLSM).RoaringSetAddList([]byte(bogus), []uint64{1}))
 			require.NoError(t, shard.Shutdown(ctx))
@@ -504,6 +516,9 @@ func TestShard_ReindexDimensionsOnLoad(t *testing.T) {
 				assert.True(t, tt.reindex.done(shard.ID()))
 			} else {
 				assert.Contains(t, rows, bogus)
+			}
+			if tt.expectDone {
+				assert.True(t, tt.reindex.done(shard.ID()))
 			}
 			if tt.expectFailed {
 				_, failed, _ := tt.reindex.summary()
@@ -660,4 +675,72 @@ func TestReportVectorDimensionsReindex(t *testing.T) {
 			assert.Contains(t, last.Message, complete)
 		})
 	}
+}
+
+type panicOnWarnHook struct{}
+
+func (panicOnWarnHook) Levels() []logrus.Level   { return []logrus.Level{logrus.WarnLevel} }
+func (panicOnWarnHook) Fire(*logrus.Entry) error { panic("warning logged") }
+
+// A panic while the startup pass prepares a shard's bucket must not keep the bucket
+// locked: the shard's load and every usage scan of it would wait forever.
+func TestIndex_PrepareUnloadedDimensionsBucket_PanicReleasesLock(t *testing.T) {
+	ctx := testCtx()
+	shard, idx, class := recalculationTestShard(t, ctx)
+	putRecalculationObjects(t, ctx, shard, class, 1)
+	require.NoError(t, shard.Shutdown(ctx))
+	// recovery warns about a leftover it cannot remove, and the hook panics on it
+	stuck := filepath.Join(shard.pathLSM(), helpers.DimensionsBucketLSM+"__to_roaringset_ready", "stuck")
+	require.NoError(t, os.MkdirAll(stuck, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(stuck, "file"), []byte("x"), 0o600))
+	require.NoError(t, os.Chmod(stuck, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(stuck, 0o700) })
+
+	logger := logrus.New()
+	logger.SetOutput(io.Discard)
+	logger.AddHook(panicOnWarnHook{})
+	original := idx.logger
+	idx.logger = logger
+	t.Cleanup(func() { idx.logger = original })
+
+	require.Panics(t, func() { _, _ = idx.prepareUnloadedDimensionsBucket(ctx, shard.Name(), false) })
+
+	lockCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	unlock, err := shardusage.LockUnloadedDimensionsBucket(lockCtx, idx.path(), shard.Name())
+	require.NoError(t, err, "the bucket must not stay locked")
+	unlock()
+}
+
+// A corrupt objects segment makes the scan panic. That fails the rebuild, and the
+// shard loads with the dimensions it had.
+func TestShard_ReindexDimensionsOnLoad_CorruptObjectsSegment(t *testing.T) {
+	ctx := testCtx()
+	shard, idx, class := recalculationTestShard(t, ctx)
+	putRecalculationObjects(t, ctx, shard, class, 5)
+	tracked := dimensionsBucketRows(t, shard)
+	require.NoError(t, shard.Shutdown(ctx))
+	// loaded once more, so the segment's sidecars are written before it is corrupted
+	loaded, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
+	require.NoError(t, err)
+	require.NoError(t, loaded.Shutdown(ctx))
+
+	segments, err := filepath.Glob(filepath.Join(shard.pathLSM(), helpers.ObjectsBucketLSM, "segment-*.db"))
+	require.NoError(t, err)
+	require.NotEmpty(t, segments)
+	f, err := os.OpenFile(segments[0], os.O_RDWR, 0o600)
+	require.NoError(t, err)
+	// the value length of the first node, after its tombstone byte
+	_, err = f.WriteAt([]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}, int64(segmentindex.HeaderSize+1))
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	reindex := &dimensionsReindex{enabled: true}
+	idx.Config.DimensionsReindex = reindex
+	reloaded, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
+	require.NoError(t, err, "the shard must load")
+	defer reloaded.Shutdown(ctx)
+	assert.Equal(t, tracked, dimensionsBucketRows(t, reloaded.(*Shard)))
+	_, failed, _ := reindex.summary()
+	assert.Equal(t, 1, failed)
 }

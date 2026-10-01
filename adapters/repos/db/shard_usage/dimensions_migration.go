@@ -62,27 +62,30 @@ func LockUnloadedDimensionsBucket(ctx context.Context, indexPath, shardName stri
 }
 
 // PrepareDimensionsBucket must run, under [LockUnloadedDimensionsBucket], before a
-// shard opens its dimensions bucket. A failed migration is only logged: the map
-// bucket keeps working and the next load retries.
+// shard opens its dimensions bucket. It reports whether it migrated the bucket. A
+// failed migration is only logged: the map bucket keeps working and the next load
+// retries.
 func PrepareDimensionsBucket(ctx context.Context, logger logrus.FieldLogger,
 	indexPath, shardName string, migrate bool,
-) error {
+) (migrated bool, err error) {
 	if err := RecoverDimensionsBucketMigration(logger, indexPath, shardName); err != nil {
-		return fmt.Errorf("recover dimensions bucket migration: %w", err)
+		return false, fmt.Errorf("recover dimensions bucket migration: %w", err)
 	}
 	if !migrate {
-		return nil
+		return false, nil
 	}
-	if _, err := MigrateDimensionsBucketToRoaringSet(ctx, logger, indexPath, shardName); err != nil {
+	migrated, err = MigrateDimensionsBucketToRoaringSet(ctx, logger, indexPath, shardName)
+	if err != nil {
 		logger.WithField("action", "dimensions_bucket_migration").
 			WithField("path", shardPathDimensionsLSM(indexPath, shardName)).
 			Errorf("migrate dimensions bucket to roaring set: %v", err)
 		// it may have failed between the two renames
 		if err := RecoverDimensionsBucketMigration(logger, indexPath, shardName); err != nil {
-			return fmt.Errorf("recover dimensions bucket migration: %w", err)
+			return false, fmt.Errorf("recover dimensions bucket migration: %w", err)
 		}
+		return false, nil
 	}
-	return nil
+	return migrated, nil
 }
 
 // RecoverDimensionsBucketMigration finishes or rolls back an interrupted migration.
@@ -153,6 +156,12 @@ func MigrateDimensionsBucketToRoaringSet(ctx context.Context, logger logrus.Fiel
 func buildRoaringSetDimensionsBucket(ctx context.Context, logger logrus.FieldLogger,
 	rootPath, mapPath, buildPath string,
 ) (rows int, err error) {
+	// a corrupt segment makes the cursor panic; only the build dir has changed by then
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("build roaring set dimensions bucket: panic: %v", r)
+		}
+	}()
 	if err := os.RemoveAll(buildPath); err != nil {
 		return 0, fmt.Errorf("remove stale dir %q: %w", buildPath, err)
 	}

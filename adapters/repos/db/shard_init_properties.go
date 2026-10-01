@@ -658,7 +658,7 @@ func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 	defer unlock()
 
 	// nothing can read or write the bucket yet, so a migration needs no double writes
-	if err := shardusage.PrepareDimensionsBucket(ctx, s.index.logger, s.index.path(), s.name,
+	if _, err := shardusage.PrepareDimensionsBucket(ctx, s.index.logger, s.index.path(), s.name,
 		s.index.Config.MigrateDimensionsToRoaringSet); err != nil {
 		return fmt.Errorf("create dimensions tracking property: %w", err)
 	}

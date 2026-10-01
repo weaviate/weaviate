@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
@@ -125,18 +126,14 @@ func (i *Index) prepareShardDimensions(ctx context.Context, class *models.Class,
 	reindex := i.Config.DimensionsReindex
 	rebuild := reindex.pending(shardID)
 
-	unlock, err := shardusage.LockUnloadedDimensionsBucket(ctx, i.path(), name)
+	// a rebuild writes a RoaringSet bucket anyway
+	migrated, err := i.prepareUnloadedDimensionsBucket(ctx, name, i.Config.MigrateDimensionsToRoaringSet && !rebuild)
 	if err != nil {
 		logger.Errorf("could not prepare dimensions: %v", err)
 		return
 	}
-	// a rebuild writes a RoaringSet bucket anyway
-	err = shardusage.PrepareDimensionsBucket(ctx, i.logger, i.path(), name,
-		i.Config.MigrateDimensionsToRoaringSet && !rebuild)
-	unlock()
-	if err != nil {
-		logger.Errorf("could not prepare dimensions: %v", err)
-		return
+	if migrated {
+		i.removeComputedUsage(logger, name)
 	}
 	if !rebuild {
 		return
@@ -149,7 +146,26 @@ func (i *Index) prepareShardDimensions(ctx context.Context, class *models.Class,
 		logger.Errorf("could not reindex dimensions: %v", err)
 		return
 	}
+	i.removeComputedUsage(logger, name)
 	logger.WithField("objects", objects).WithField("took", time.Since(start)).Info("dimensions reindexed")
+}
+
+func (i *Index) prepareUnloadedDimensionsBucket(ctx context.Context, name string, migrate bool) (bool, error) {
+	unlock, err := shardusage.LockUnloadedDimensionsBucket(ctx, i.path(), name)
+	if err != nil {
+		return false, err
+	}
+	// a panic must not keep the bucket locked, its load and usage scans would wait forever
+	defer unlock()
+	return shardusage.PrepareDimensionsBucket(ctx, i.logger, i.path(), name, migrate)
+}
+
+// removeComputedUsage drops the usage cached for the unloaded shard, which counts the
+// dimensions it had. Only a load of the shard drops it otherwise.
+func (i *Index) removeComputedUsage(logger logrus.FieldLogger, name string) {
+	if err := shardusage.RemoveComputedUsageDataForUnloadedShard(i.path(), name); err != nil {
+		logger.Warnf("failed to remove computed usage: %v", err)
+	}
 }
 
 // rebuildUnloadedShardDimensions rebuilds the dimensions bucket of a shard that is not
@@ -217,6 +233,11 @@ func (s *Shard) reindexDimensionsOnLoad(ctx context.Context) error {
 	if !s.index.Config.TrackVectorDimensions || !reindex.pending(s.ID()) {
 		return nil
 	}
+	// such as a tenant created after startup
+	if s.counter.PreviewNext() == 0 {
+		reindex.record(s.ID(), 0, true)
+		return nil
+	}
 	logger := s.index.logger.WithField("action", "reindex_vector_dimensions").WithField("shard", s.ID())
 
 	start := time.Now()
@@ -261,7 +282,13 @@ func (s *Shard) recalculateDimensions(ctx context.Context) (objects int, err err
 	return objects, nil
 }
 
-func (s *Shard) scanObjectDimensions(ctx context.Context) (dimensionsRows, int, error) {
+func (s *Shard) scanObjectDimensions(ctx context.Context) (_ dimensionsRows, _ int, err error) {
+	// a corrupt segment makes the cursor panic; the scan only reads
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("scan objects of shard %q: panic: %v", s.ID(), r)
+		}
+	}()
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
 		return nil, 0, fmt.Errorf("objects bucket of shard %q: %w", s.ID(), lsmkv.ErrBucketNotFound)
