@@ -423,3 +423,112 @@ func TestExtractNearObject(t *testing.T) {
 func ptFloat32(in float32) *float32 {
 	return &in
 }
+
+func TestExtractFilterContainsAny(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		operator  filters.Operator
+		property  string
+		valueType schema.DataType
+		expected  interface{}
+		query     string
+		variables map[string]interface{}
+	}{
+		{
+			name:      "extracts valueText array from variables",
+			operator:  filters.ContainsAny,
+			property:  "name",
+			valueType: schema.DataTypeText,
+			expected:  []string{"english", "german"},
+			query:     `query ($where: GetWhereInpObj) { SomeAction(where: $where) }`,
+			variables: map[string]interface{}{
+				"where": map[string]interface{}{
+					"path":      []interface{}{"name"},
+					"operator":  "ContainsAny",
+					"valueText": []interface{}{"english", "german"},
+				},
+			},
+		},
+		{
+			name:      "extracts valueInt array from variables",
+			operator:  filters.ContainsAny,
+			property:  "intField",
+			valueType: schema.DataTypeInt,
+			expected:  []int{1, 2},
+			query:     `query ($where: GetWhereInpObj) { SomeAction(where: $where) }`,
+			variables: map[string]interface{}{
+				"where": map[string]interface{}{
+					"path":     []interface{}{"intField"},
+					"operator": "ContainsAny",
+					"valueInt": []interface{}{1, 2},
+				},
+			},
+		},
+		{
+			name:      "extracts valueNumber array from variables",
+			operator:  filters.ContainsAny,
+			property:  "weight",
+			valueType: schema.DataTypeNumber,
+			expected:  []float64{1.5, 2.5},
+			query:     `query ($where: GetWhereInpObj) { SomeAction(where: $where) }`,
+			variables: map[string]interface{}{
+				"where": map[string]interface{}{
+					"path":        []interface{}{"weight"},
+					"operator":    "ContainsAny",
+					"valueNumber": []interface{}{1.5, 2.5},
+				},
+			},
+		},
+		{
+			name:      "extracts valueBoolean array from variables",
+			operator:  filters.ContainsAll,
+			property:  "isAvailable",
+			valueType: schema.DataTypeBoolean,
+			expected:  []bool{true, false},
+			query:     `query ($where: GetWhereInpObj) { SomeAction(where: $where) }`,
+			variables: map[string]interface{}{
+				"where": map[string]interface{}{
+					"path":         []interface{}{"isAvailable"},
+					"operator":     "ContainsAll",
+					"valueBoolean": []interface{}{true, false},
+				},
+			},
+		},
+		{
+			name:      "extracts inline literal array without variables",
+			operator:  filters.ContainsAny,
+			property:  "name",
+			valueType: schema.DataTypeText,
+			expected:  []string{"english", "german"},
+			query:     `{ SomeAction(where: { path: ["name"], operator: ContainsAny, valueText: ["english", "german"]}) }`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resolver := newMockResolver(t, mockParams{reportFilter: true})
+			expectedParams := &filters.LocalFilter{Root: &filters.Clause{
+				Operator: tt.operator,
+				On: &filters.Path{
+					Class:    schema.AssertValidClassName("SomeAction"),
+					Property: schema.AssertValidPropertyName(tt.property),
+				},
+				Value: &filters.Value{
+					Value: tt.expected,
+					Type:  tt.valueType,
+				},
+			}}
+
+			resolver.On("ReportFilters", expectedParams).
+				Return(test_helper.EmptyList(), nil).Once()
+
+			if tt.variables != nil {
+				resolver.AssertResolveWithVariables(t, tt.query, tt.variables)
+			} else {
+				resolver.AssertResolve(t, tt.query)
+			}
+		})
+	}
+}
