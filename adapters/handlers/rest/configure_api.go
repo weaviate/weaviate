@@ -990,18 +990,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		}, appState.Logger)
 	}
 
-	// In the background, as the db is ready for it only once the meta store is.
+	// Add recount properties of all the objects in the database, if requested by the user
 	if appState.ServerConfig.Config.RecountPropertiesAtStartup {
-		enterrors.GoWrapper(func() {
-			l := appState.Logger.WithField("action", "startup")
-			if err := metaStoreReady.waitForMetaStore(); err != nil {
-				l.Errorf("Recounting properties skipped: %v", err)
-				return
-			}
-			if err := migrator.RecountProperties(reindexCtx); err != nil {
-				l.Errorf("Recounting properties failed: %v", err)
-			}
-		}, appState.Logger)
+		migrator.RecountProperties(ctx)
 	}
 
 	providers := map[string]distributedtask.Provider{}
