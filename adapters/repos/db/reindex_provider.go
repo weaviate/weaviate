@@ -1585,8 +1585,7 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	summary.Log(level, msg)
 }
 
-// discardTaskRecords returns the worst outcome over the shards, so a later
-// clean shard does not mask an earlier one that kept its records.
+// Worst, not last: a clean shard must not mask one that kept its records.
 func (p *ReindexProvider) discardTaskRecords(ctx context.Context, task *distributedtask.Task,
 	collection string, shardNames []string,
 ) (CleanupSweepOutcome, error) {
@@ -1615,9 +1614,7 @@ func (p *ReindexProvider) discardTaskRecords(ctx context.Context, task *distribu
 	return worst, failures.ToErrorLimited(maxReportedErrors)
 }
 
-// discardTaskRecordsOn settles the task's records on one shard the map holds.
-// A cold tenant is not in the map; its load reconciler settles it once it is
-// reactivated.
+// A cold tenant is not in the map; its load reconciler settles it on reactivation.
 func (i *Index) discardTaskRecordsOn(ctx context.Context, name string, task *distributedtask.Task) error {
 	shard, release, err := i.getLoadedShard(name)
 	if err != nil {
@@ -1631,8 +1628,7 @@ func (i *Index) discardTaskRecordsOn(ctx context.Context, name string, task *dis
 		if lazy, isLazy := entry.(*LazyLoadShard); isLazy && !lazy.mayHoldUndecidedRecordOf(task) {
 			return nil
 		}
-		// The load reconciler reads this node's task map, which can lag the
-		// leader's, so a load alone does not settle the record.
+		// A load alone does not settle it: the load reconciler's task map can lag the leader's.
 		if shard, release, err = i.loadMappedShardForCleanup(ctx, name); err != nil || shard == nil {
 			return err
 		}

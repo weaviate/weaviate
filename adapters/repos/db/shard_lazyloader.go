@@ -1122,9 +1122,7 @@ func (l *LazyLoadShard) blockLoading() func() {
 	}
 }
 
-// mayHoldUndecidedRecordOf decides whether terminal cleanup loads this shard:
-// only a loaded shard's reconciler can end a record, and a record set that
-// cannot be read may hold one.
+// Only a loaded shard's reconciler can end a record; an unreadable set may hold one.
 func (l *LazyLoadShard) mayHoldUndecidedRecordOf(task *distributedtask.Task) bool {
 	release := l.blockLoading()
 	defer release()
@@ -1146,9 +1144,8 @@ func (l *LazyLoadShard) mayHoldUndecidedRecordOf(task *distributedtask.Task) boo
 	return false
 }
 
-// loadMappedShardForCleanup loads a shard only while the map still holds it,
-// so terminal cleanup never brings back a tenant deleted or deactivated since
-// its gate ran. Both locks are released on return; the reference is not.
+// Loads only a shard the map still holds, so cleanup never revives a tenant
+// deleted or deactivated since its gate. Returns holding the reference only.
 func (i *Index) loadMappedShardForCleanup(ctx context.Context, name string) (ShardLike, func(), error) {
 	if err := i.enterRead(); err != nil {
 		return nil, nil, err
@@ -1164,8 +1161,7 @@ func (i *Index) loadMappedShardForCleanup(ctx context.Context, name string) (Sha
 	if err := i.requireNamespaceAllowsShardLoad(callerUserRequest); err != nil {
 		return nil, nil, fmt.Errorf("%w: %w", ErrCleanupSweepTruncated, err)
 	}
-	// preventShutdown's own load has no deadline, and the locks above hold up
-	// this tenant's deactivation and requests while it waits for a permit.
+	// Not preventShutdown's load: it has no deadline, and these locks stall the tenant meanwhile.
 	if lazy, isLazy := shard.(*LazyLoadShard); isLazy {
 		if err := lazy.Load(ctx); err != nil {
 			if truncated := truncatedByCancellation(err); truncated != nil {

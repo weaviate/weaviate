@@ -651,13 +651,9 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInitGuarded(ctx context.Context, sha
 	return t.onAfterLsmInit(ctx, shard)
 }
 
-// OnAfterLsmInit is recovery's entry: it re-attaches to the record recovery
-// rebuilt it from and creates nothing, because a record says how far a
-// migration got, not that it is still live. Only the runner creates, through
-// onAfterLsmInitGuarded.
-//
-// It skips the closing check: some NewShard routes already hold
-// closeLock.RLock, which is not reentrant.
+// OnAfterLsmInit is recovery's entry and creates nothing: a record says how far a
+// migration got, not that it is live. It skips the closing check: some NewShard
+// routes already hold closeLock.RLock, which is not reentrant.
 func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Shard) error {
 	rec, hasRecord := t.migrationRecord(shard)
 	if !hasRecord || !rec.IterationComplete() || rec.State() == MigrationStatePromoted {
