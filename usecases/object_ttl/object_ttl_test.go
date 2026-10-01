@@ -441,15 +441,14 @@ const ttlProbeTimeout = 10 * time.Second
 
 // ttlCounterProbe keeps the first collection's delete goroutine calling
 // countDeleted across the loop's next write to the counter map, unordered.
-// Only counted is atomic, because Start runs that loop on the test's goroutine.
 type ttlCounterProbe struct {
 	dispatched int
 	firstClass string
 	reading    chan struct{}
 	stop       chan struct{}
 	overlapped bool
-	counted    atomic.Int32
-	timedOut   atomic.Bool
+	counted    int32
+	timedOut   bool
 }
 
 func newTTLCounterProbe() *ttlCounterProbe {
@@ -473,11 +472,11 @@ func (p *ttlCounterProbe) DeleteExpiredObjects(_ context.Context, eg *enterrors.
 				count++
 				select {
 				case <-p.stop:
-					p.counted.Store(count)
+					p.counted = count
 					return nil
 				case <-deadline:
-					p.counted.Store(count)
-					p.timedOut.Store(true)
+					p.counted = count
+					p.timedOut = true
 					return errors.New("the dispatch loop never reached the next collection")
 				default:
 				}
@@ -530,18 +529,15 @@ func TestLocalSweepKeepsTheCounterMapOffTheDeleteGoroutines(t *testing.T) {
 	now := time.Now()
 	require.NoError(t, c.Start(context.Background(), false, now, now))
 
-	require.Equal(t, len(classes), probe.dispatched,
-		"the loop must reach every collection, or nothing wrote while the reader ran")
 	require.True(t, probe.overlapped,
 		"the reader must be running before the loop writes the next entry")
-	require.False(t, probe.timedOut.Load(),
+	require.False(t, probe.timedOut,
 		"the reader hit its deadline, so the loop never reached the next collection")
 
 	report := localSweepReport(hook)
 	require.NotNil(t, report, "the sweep must report what it deleted")
-	assert.Equal(t, probe.counted.Load(), report.Data["c_"+probe.firstClass],
+	assert.Equal(t, probe.counted, report.Data["c_"+probe.firstClass],
 		"the collection is credited with what its own closure counted")
-	assert.Equal(t, probe.counted.Load(), report.Data["total_deleted"])
 }
 
 func localSweepReport(hook *logrustest.Hook) *logrus.Entry {

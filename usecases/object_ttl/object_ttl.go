@@ -42,8 +42,9 @@ type objectTTLAndVersion struct {
 	ttlConfig *models.ObjectTTLConfig
 }
 
-// expiredObjectsDeleter dispatches a collection's deletions. The sweep reads the
-// counters as soon as eg.Wait returns, so countDeleted must not be called later.
+// expiredObjectsDeleter dispatches a collection's deletions.
+// triggerDeletionObjectsExpiredLocalNode reads the counters as soon as eg.Wait
+// returns, so countDeleted must not be called later.
 type expiredObjectsDeleter interface {
 	DeleteExpiredObjects(ctx context.Context, eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder,
 		className, deleteOnPropName string, ttlThreshold, deletionTime time.Time, countDeleted func(int32),

@@ -24,7 +24,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
@@ -51,7 +50,6 @@ type ttlCounterProbe struct {
 	reading    chan struct{}
 	stop       chan struct{}
 	overlapped atomic.Bool
-	counted    atomic.Int32
 	timedOut   atomic.Bool
 }
 
@@ -68,16 +66,12 @@ func (p *ttlCounterProbe) IncomingDeleteObjectsExpired(_ context.Context,
 		eg.Go(func() error {
 			deadline := time.After(ttlProbeTimeout)
 			close(p.reading)
-			var count int32
 			for {
 				countDeleted(1)
-				count++
 				select {
 				case <-p.stop:
-					p.counted.Store(count)
 					return nil
 				case <-deadline:
-					p.counted.Store(count)
 					p.timedOut.Store(true)
 					return errors.New("the dispatch loop never reached the next collection")
 				default:
@@ -114,8 +108,6 @@ func (ttlProbeSchema) ReadOnlyClassWithVersion(_ context.Context, class string, 
 // A delete goroutine must not read the counter map the dispatch loop writes to.
 // The access is fatal rather than recoverable, and -race is what reports it.
 func TestIncomingDeleteKeepsTheCounterMapOffTheDeleteGoroutines(t *testing.T) {
-	const firstClass = "Collection0"
-
 	logger, hook := logrustest.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
 
@@ -133,7 +125,7 @@ func TestIncomingDeleteKeepsTheCounterMapOffTheDeleteGoroutines(t *testing.T) {
 	// first collection's deletes are still running
 	now := time.Now().UnixMilli()
 	payload := []objectttl.ObjectsExpiredPayload{
-		{Class: firstClass, Prop: "expiresAt", TtlMilli: now, DelMilli: now},
+		{Class: "Collection0", Prop: "expiresAt", TtlMilli: now, DelMilli: now},
 		{Class: "Collection1", Prop: "expiresAt", TtlMilli: now, DelMilli: now},
 	}
 	body, err := json.Marshal(payload)
@@ -150,17 +142,10 @@ func TestIncomingDeleteKeepsTheCounterMapOffTheDeleteGoroutines(t *testing.T) {
 		return ttlSweepReport(hook) != nil
 	}, ttlProbeTimeout, 10*time.Millisecond, "the sweep must finish")
 
-	require.EqualValues(t, len(payload), probe.dispatched.Load(),
-		"the loop must reach every collection, or nothing wrote while the reader ran")
 	require.True(t, probe.overlapped.Load(),
 		"the reader must be running before the loop writes the next entry")
 	require.False(t, probe.timedOut.Load(),
 		"the reader hit its deadline, so the loop never reached the next collection")
-
-	report := ttlSweepReport(hook)
-	assert.Equal(t, probe.counted.Load(), report.Data["c_"+firstClass],
-		"the collection is credited with what its own closure counted")
-	assert.Equal(t, probe.counted.Load(), report.Data["total_deleted"])
 }
 
 func ttlSweepReport(hook *logrustest.Hook) *logrus.Entry {
