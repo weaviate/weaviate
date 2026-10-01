@@ -40,8 +40,9 @@ func replaceNodeSize(n segmentReplaceNode) uint64 {
 	return uint64(size)
 }
 
-// doReplace parsers all entries into a cache for deduplication first and only
-// imports unique entries into the actual memtable as a final step.
+// doReplace parses entries into a deduplication cache and stores it into the
+// memtable at every chunk cut and at the end. A key is deduplicated only within
+// its chunk.
 func (p *commitloggerParser) doReplace() error {
 	cache := newReplaceCache()
 
@@ -87,11 +88,13 @@ func (p *commitloggerParser) storeReplaceCache(cache *replaceCache) {
 		}
 		var err error
 		if node.tombstone {
-			err = errors.Wrapf(p.memtable.setTombstone(node.primaryKey, opts...),
-				"recover delete of %q", node.primaryKey)
+			if err = p.memtable.setTombstone(node.primaryKey, opts...); err != nil {
+				err = errors.Wrapf(err, "recover delete of %q", node.primaryKey)
+			}
 		} else {
-			err = errors.Wrapf(p.memtable.put(node.primaryKey, node.value, opts...),
-				"recover write of %q", node.primaryKey)
+			if err = p.memtable.put(node.primaryKey, node.value, opts...); err != nil {
+				err = errors.Wrapf(err, "recover write of %q", node.primaryKey)
+			}
 		}
 		if err != nil {
 			p.refusedEntries++

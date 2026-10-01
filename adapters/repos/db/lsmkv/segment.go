@@ -529,7 +529,7 @@ func (s *segment) close() error {
 
 // segmentSidecarExtensions lists the extensions of the files a segment writes beside
 // its .db, the same set sidecarPaths builds per-segment paths for.
-var segmentSidecarExtensions = []string{".bloom", ".cna", ".metadata"}
+var segmentSidecarExtensions = []string{".bloom", CountNetAdditionsFileSuffix, MetadataFileSuffix}
 
 // isSegmentSidecarName reports whether a file name is one of those files. It reads
 // the extension alone, because what sits before it varies: a secondary bloom

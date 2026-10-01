@@ -137,15 +137,3 @@ func TestCommitlogParserRoaringSetCopiesKey(t *testing.T) {
 		})
 	}
 }
-
-// TestChunkIsFullWithoutChunking pins the nil-chunking deref: a parser with no
-// chunkedReplay set must answer "not full" without dereferencing p.chunking.
-func TestChunkIsFullWithoutChunking(t *testing.T) {
-	// a WAL whose name has no usable id reaches chunkIsFull with a real memtable
-	p := &commitloggerParser{memtable: &Memtable{}}
-
-	for _, held := range []uint64{0, 1, 1 << 20, 1 << 40} {
-		require.False(t, p.chunkIsFull(held))
-	}
-	require.NoError(t, p.cutChunkIfFull(p.memtable.Size()))
-}

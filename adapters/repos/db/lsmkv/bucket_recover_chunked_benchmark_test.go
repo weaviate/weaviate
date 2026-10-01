@@ -100,6 +100,14 @@ func benchmarkWALReplayArm(b *testing.B, strategy string, extra []BucketOption) 
 					})
 
 					b.StopTimer()
+					wantMemtableBound := uint64(threshold)
+					if threshold == 0 {
+						wantMemtableBound = walReplayBenchUnchunkedSize
+					}
+					require.Equal(b, wantMemtableBound, bucket.walReplayMaxMemtableSize(),
+						"the swept threshold has to be the memtable bound this arm cuts on")
+					require.Equal(b, uint64(1<<40), bucket.walThreshold,
+						"or the WAL trigger gets there first and the sweep moves nothing")
 					b.ReportMetric(float64(peak)/(1024*1024), "MB-peak-heap")
 					require.NoError(b, bucket.Shutdown(context.Background()))
 					b.StartTimer()
@@ -119,43 +127,14 @@ func walReplayBenchBaseline(threshold int) []BucketOption {
 	}
 
 	return []BucketOption{
-		WithDynamicMemtableSizing(2048*1024*1024, 2048*1024*1024, 1, 3600),
+		WithDynamicMemtableSizing(walReplayBenchUnchunkedSize, walReplayBenchUnchunkedSize, 1, 3600),
 		WithWalThreshold(1 << 40),
 	}
 }
 
-// The 0 arm needs both triggers out of reach or it still cuts, and a swept arm needs
-// the WAL one out of reach or it cuts on file bytes instead of the swept bound.
-func TestWALReplayBenchBaselineRaisesBothTriggers(t *testing.T) {
-	ctx := context.Background()
-
-	dir := t.TempDir()
-	b := openChunkTestBucket(t, dir, StrategyMapCollection, 0, walReplayBenchBaseline(0)...)
-	defer closeChunkTestBucket(t, ctx, b)
-
-	require.Equal(t, uint64(2048*1024*1024), b.walReplayMaxMemtableSize(),
-		"the memtable trigger has to sit above any fixture this benchmark builds")
-	require.Equal(t, uint64(1<<40), b.walThreshold,
-		"and the WAL trigger with it, or the larger sweep arms cut on WAL bytes instead")
-
-	for _, threshold := range walReplayBenchChunkSizes {
-		if threshold == 0 {
-			continue
-		}
-
-		t.Run(walReplayBenchName(math.MaxInt64, threshold), func(t *testing.T) {
-			dir := t.TempDir()
-			swept := openChunkTestBucket(t, dir, StrategyMapCollection, threshold,
-				walReplayBenchBaseline(threshold)...)
-			defer closeChunkTestBucket(t, ctx, swept)
-
-			require.Equal(t, uint64(threshold), swept.walReplayMaxMemtableSize(),
-				"the swept threshold has to be the memtable bound this arm cuts on")
-			require.Equal(t, uint64(1<<40), swept.walThreshold,
-				"or the WAL trigger gets there first and the sweep moves nothing")
-		})
-	}
-}
+// walReplayBenchUnchunkedSize is the memtable bound of the 0 arm, above any fixture
+// this benchmark builds.
+const walReplayBenchUnchunkedSize = 2048 * 1024 * 1024
 
 func walReplayBenchName(limit int64, threshold int) string {
 	chunking := "unchunked"

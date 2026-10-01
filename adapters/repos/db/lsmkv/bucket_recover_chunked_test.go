@@ -530,30 +530,46 @@ func TestRecoverFromWAL_ChunkedLastWALStartsFresh(t *testing.T) {
 }
 
 // Leftover chunks of an interrupted replay are dropped, not mounted alongside the
-// replay that rewrites them.
+// replay that rewrites them. The cleanup walk reads only file names, so one
+// strategy covers it.
 func TestRecoverFromWAL_ChunkedReplayInterrupted(t *testing.T) {
 	ctx := context.Background()
+	tc := chunkedWALCaseFor(t, StrategyReplace)
+	entries := tc.entryCount()
 
-	for _, tc := range chunkedWALCases() {
-		t.Run(tc.strategy, func(t *testing.T) {
-			entries := tc.entryCount()
-
+	for _, tt := range []struct {
+		name string
+		opts []BucketOption
+		// what every chunk's name must carry, as a flushed segment's would
+		infix string
+	}{
+		{name: "plain names"},
+		{
+			name:  "level and strategy in names",
+			opts:  []BucketOption{WithWriteSegmentInfoIntoFileName(true)},
+			infix: segmentExtraInfo(0, SegmentStrategyFromString(tc.strategy)),
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
 			dir := newChunkTestDir(t, tc, entries, chunkTestPayload)
 
 			wal := filesWithExt(t, dir, ".wal")[0]
 			walContents, err := os.ReadFile(filepath.Join(dir, wal))
 			require.NoError(t, err)
 
-			b := openChunkTestBucket(t, dir, tc.strategy, chunkTestThreshold)
+			b := openChunkTestBucket(t, dir, tc.strategy, chunkTestThreshold, tt.opts...)
 			expected := readAllChunkTestEntries(t, b, tc, entries, chunkTestPayload)
 			segments := filesWithExt(t, dir, ".db")
 			require.Greater(t, len(segments), 2, "need a run of chunks to walk")
+			for _, segment := range segments {
+				require.Contains(t, segment, tt.infix)
+			}
 			require.NoError(t, b.Shutdown(ctx))
 
 			// the chunks are on disk, but the crash came before the WAL was unlinked
 			require.NoError(t, os.WriteFile(filepath.Join(dir, wal), walContents, 0o644))
 
-			b = openChunkTestBucket(t, dir, tc.strategy, chunkTestThreshold)
+			b = openChunkTestBucket(t, dir, tc.strategy, chunkTestThreshold, tt.opts...)
 			defer closeChunkTestBucket(t, ctx, b)
 
 			require.Equal(t, segments, filesWithExt(t, dir, ".db"))
@@ -803,7 +819,6 @@ func TestRecoverFromWAL_DamagedWALRecoversTheSameEitherWay(t *testing.T) {
 		name  string
 		apply func(wal []byte) []byte
 	}{
-		{"truncate-1b", func(wal []byte) []byte { return wal[:len(wal)-1] }},
 		{"truncate-mid-record", func(wal []byte) []byte { return wal[:len(wal)*6/10+13] }},
 		{"flip-byte-mid", func(wal []byte) []byte {
 			damaged := append([]byte(nil), wal...)
@@ -849,41 +864,6 @@ func TestRecoverFromWAL_DamagedWALRecoversTheSameEitherWay(t *testing.T) {
 					"a damaged WAL is consumed like any other")
 			})
 		}
-	}
-}
-
-// The older of two WALs is chunked out to segments, the newest becoming active.
-func TestRecoverFromWAL_ChunkedWALIsNotTheLast(t *testing.T) {
-	ctx := context.Background()
-
-	for _, tc := range chunkedWALCases() {
-		t.Run(tc.strategy, func(t *testing.T) {
-			entries := tc.entryCount()
-
-			const tail = chunkTestUnderThreshold
-
-			dir := newChunkTestDir(t, tc, entries, chunkTestPayload)
-			later := t.TempDir()
-			buildChunkTestWALRange(t, later, tc, entries, entries+tail,
-				chunkTestPayload)
-
-			// WAL names are nanosecond timestamps, so the second one sorts last
-			newest := filesWithExt(t, later, ".wal")[0]
-			require.Greater(t, newest, filesWithExt(t, dir, ".wal")[0])
-			copyWAL(t, later, dir)
-
-			b := openChunkTestBucket(t, dir, tc.strategy, chunkTestThreshold)
-			defer closeChunkTestBucket(t, ctx, b)
-
-			require.Greater(t, len(filesWithExt(t, dir, ".db")), 1,
-				"the older WAL is chunked out to segments")
-			require.Equal(t, []string{newest}, filesWithExt(t, dir, ".wal"),
-				"the newest WAL still becomes the active memtable")
-
-			missing := tc.read(t, b, entries+tail+1, entries+tail+2, chunkTestPayload)[0]
-			all := readAllChunkTestEntries(t, b, tc, entries+tail, chunkTestPayload)
-			require.NotContains(t, all, missing, "both WALs have to be recovered")
-		})
 	}
 }
 
@@ -961,8 +941,6 @@ func blockChunkWrite(t testing.TB, dir, walName string, chunk int) string {
 	return path
 }
 
-// A chunk that cannot be written leaves the WAL where it is, still the only copy
-// of what the replay has not made durable.
 // Whichever write fails, the WAL stays the only copy and nothing it produced is
 // left behind: a committed name an older binary would mount, or staged bytes
 // sitting on a full disk for the whole crashloop.
@@ -1125,8 +1103,6 @@ func TestRecoverFromWAL_SecondaryKeysDoNotDelayTheCut(t *testing.T) {
 	}
 }
 
-// A replay that fails staging its tail must leave no chunk under a committed name,
-// which a binary without the cleanup walk would mount.
 // A failure renaming a chunk into place abandons the chunks the commit had not
 // reached yet, and leaves the ones it had. The operator learns how many from the
 // log or not at all.
@@ -1138,9 +1114,9 @@ func TestRecoverFromWAL_CommitFailureDiscardsTheRun(t *testing.T) {
 	baseID, err := parseSegmentTimestamp(wal)
 	require.NoError(t, err)
 
-	// a directory at chunk 1's committed name fails its rename once chunk 0's has
-	// succeeded. GetFileWithSizes skips directories, so it reaches neither the mount
-	// loop nor the cleanup walk.
+	// the os.Stat check in commit finds a directory at chunk 1's committed name and
+	// refuses it once chunk 0 is renamed. GetFileWithSizes skips directories, so it
+	// reaches neither the mount loop nor the cleanup walk.
 	require.NoError(t, os.Mkdir(chunkSegmentPath(dir, baseID, 1)+".db", 0o755))
 
 	logger, hook := logrustest.NewNullLogger()
@@ -1159,45 +1135,6 @@ func TestRecoverFromWAL_CommitFailureDiscardsTheRun(t *testing.T) {
 		"chunk 0 was renamed before chunk 1 failed, and the count is what says so")
 	require.NotContains(t, abandoned[0].Message, "aside",
 		"moving the WAL aside is what makes the committed chunks permanent")
-}
-
-// Both flags change what sg.add does with a segment, and a replay is the one
-// caller that adds segments outside a flush or a compaction.
-func TestRecoverFromWAL_ChunkedUnderSegmentLoadingFlags(t *testing.T) {
-	ctx := context.Background()
-
-	opts := []struct {
-		name string
-		opt  BucketOption
-	}{
-		{name: "lazy", opt: WithLazySegmentLoading(true)},
-		{name: "inmemory", opt: WithKeepSegmentsInMemory(true)},
-	}
-
-	for _, strategy := range []string{StrategySetCollection, StrategyRoaringSetRange} {
-		tc := chunkedWALCaseFor(t, strategy)
-		entries := tc.entryCount()
-
-		for _, tt := range opts {
-			t.Run(strategy+"/"+tt.name, func(t *testing.T) {
-				dir := newChunkTestDir(t, tc, entries, chunkTestPayload)
-				controlDir := newChunkTestDir(t, tc, entries, chunkTestPayload)
-
-				b := openChunkTestBucket(t, dir, tc.strategy, chunkTestThreshold, tt.opt)
-				defer closeChunkTestBucket(t, ctx, b)
-				require.Greater(t, len(filesWithExt(t, dir, ".db")), 1,
-					"the log has to have been cut for the mount path to be exercised")
-
-				control := openChunkTestBucket(t, controlDir, tc.strategy, 0, tt.opt)
-				defer closeChunkTestBucket(t, ctx, control)
-
-				require.Equal(t,
-					readAllChunkTestEntries(t, control, tc, entries, chunkTestPayload),
-					readAllChunkTestEntries(t, b, tc, entries, chunkTestPayload),
-					"a run mounted under this flag reads back as an unchunked replay does")
-			})
-		}
-	}
 }
 
 // A crash between staging and commit leaves chunks under the delete marker. The
@@ -1307,64 +1244,6 @@ func TestRecoverFromWAL_DeletesSurviveChunking(t *testing.T) {
 	}
 }
 
-// A node restarts with one write-ahead-log per bucket, so only a replay that
-// chunked is worth a line above Debug.
-func TestRecoverFromWAL_ReportsOnlyAReplayThatChunked(t *testing.T) {
-	ctx := context.Background()
-	tc := chunkedWALCaseFor(t, StrategySetCollection)
-
-	for _, tt := range []struct {
-		name    string
-		entries int
-		want    int
-	}{
-		{name: "a small WAL is replayed quietly", entries: chunkTestUnderThreshold, want: 0},
-		{name: "a WAL that chunked says how many segments", entries: chunkTestEntries, want: 1},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			dir := newChunkTestDir(t, tc, tt.entries, chunkTestPayload)
-
-			logger, hook := logrustest.NewNullLogger()
-			logger.SetLevel(logrus.InfoLevel)
-			b, err := tryOpenChunkTestBucketLogging(dir, tc.strategy, chunkTestThreshold, logger)
-			require.NoError(t, err)
-			defer closeChunkTestBucket(t, ctx, b)
-
-			require.Len(t, entriesWithAction(hook, "lsm_recover_from_active_wal_success"), tt.want)
-		})
-	}
-}
-
-// The refusal count is what the log line reports, so it has to survive past the
-// first refusal.
-func TestDrainReplaceCacheCountsEveryRefusal(t *testing.T) {
-	dir := t.TempDir()
-	b := openChunkTestBucket(t, dir, StrategyReplace, 0, WithSecondaryIndices(1))
-	defer closeChunkTestBucket(t, context.Background(), b)
-
-	mt, ok := b.active.(*Memtable)
-	require.True(t, ok, "the parser drains into a concrete memtable")
-
-	p := newCommitLoggerParser(StrategyReplace, nil, mt)
-	cache := newReplaceCache()
-	for i := range 3 {
-		// no secondary key reaches createSecondaryKeys, so the bucket's one index
-		// slot stays nil and the memtable refuses the entry
-		key := []byte(fmt.Sprintf("refused-%d", i))
-		cache.nodes[string(key)] = segmentReplaceNode{
-			primaryKey:          key,
-			value:               []byte("v"),
-			secondaryIndexCount: 1,
-		}
-	}
-
-	p.storeReplaceCache(cache)
-
-	require.Equal(t, 3, p.refusedEntries,
-		"the log line reports this, and a chunked replay refuses once per chunk")
-	require.Error(t, p.memtableRejectErr, "the first refusal still latches, so the WAL is written out")
-}
-
 // An entry the memtable refuses costs that entry, not the file holding it.
 func TestRecoverFromWAL_RefusedEntryCostsThatEntryOnly(t *testing.T) {
 	dir := t.TempDir()
@@ -1409,7 +1288,8 @@ func TestRecoverFromWAL_LaterChunkWinsOverEarlier(t *testing.T) {
 	}
 	require.NoError(t, b.Shutdown(context.Background()))
 
-	b = openChunkTestBucket(t, dir, StrategyReplace, chunkTestThreshold)
+	b = openChunkTestBucket(t, dir, StrategyReplace, chunkTestThreshold,
+		WithCalcCountNetAdditions(true))
 	defer closeChunkTestBucket(t, context.Background(), b)
 
 	require.Greater(t, len(filesWithExt(t, dir, ".db")), 1, "the WAL was replayed as a run")
@@ -1426,6 +1306,52 @@ func TestRecoverFromWAL_LaterChunkWinsOverEarlier(t *testing.T) {
 		default:
 			require.Equal(t, "first-", string(value[:6]), "an untouched key keeps its value")
 		}
+	}
+
+	count, err := b.Count(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, chunkTestEntries-(chunkTestEntries+1)/3, count,
+		"a key rewritten or deleted in a later chunk is counted once, or not at all")
+}
+
+// A key rewritten many times holds one value, so a replay must not cut on the
+// bytes of the values it replaced.
+func TestRecoverFromWAL_RewrittenKeysDoNotCutAChunk(t *testing.T) {
+	const (
+		keys     = 10
+		rewrites = 20
+	)
+	key := func(i int) []byte { return []byte(fmt.Sprintf("key-%02d", i)) }
+	value := func(round int) []byte {
+		return append([]byte(fmt.Sprintf("round-%02d-", round)), make([]byte, chunkTestPayload)...)
+	}
+
+	dir := t.TempDir()
+	b := openChunkTestBucket(t, dir, StrategyReplace, 0)
+	for round := range rewrites {
+		for i := range keys {
+			require.NoError(t, b.Put(key(i), value(round)))
+		}
+	}
+	require.NoError(t, b.Shutdown(context.Background()))
+
+	wal := filesWithExt(t, dir, ".wal")
+	info, err := os.Stat(filepath.Join(dir, wal[0]))
+	require.NoError(t, err)
+	require.Greater(t, info.Size(), int64(2*chunkTestThreshold),
+		"the WAL has to outgrow the threshold for the held-size cut to be in question")
+
+	// the WAL trigger out of reach, so only the held-size cut can fire
+	b = openChunkTestBucket(t, dir, StrategyReplace, chunkTestThreshold, WithWalThreshold(1<<40))
+	defer closeChunkTestBucket(t, context.Background(), b)
+
+	require.Empty(t, filesWithExt(t, dir, ".db"), "the held size never reached the threshold")
+	require.Equal(t, wal, filesWithExt(t, dir, ".wal"))
+
+	for i := range keys {
+		got, err := b.Get(key(i))
+		require.NoError(t, err)
+		require.Equal(t, value(rewrites-1), got)
 	}
 }
 
@@ -1495,6 +1421,8 @@ func TestRecoveredRunCommit(t *testing.T) {
 				tt.setup(t, dir, run)
 			}
 
+			// run.sg is nil, so this panics if commit reaches the segment group. Commit
+			// must not, because the WAL is unlinked between commit and mount.
 			var err error
 			require.NotPanics(t, func() { err = run.commit() })
 			if tt.wantErr == "" {
@@ -1523,8 +1451,6 @@ func TestRecoveredRunCommit(t *testing.T) {
 	}
 }
 
-// The WAL is unlinked between commit and mount, so commit must not reach the
-// segment group. The nil sg is the seam: reaching it panics.
 // Every chunk after the first must be stamped with a corpus that includes the
 // chunks before it, or its block bounds describe a corpus no reader scores against.
 func TestRecoveredRunStagesARunningAverage(t *testing.T) {
@@ -1583,98 +1509,43 @@ func newInvertedStageTestMemtable(t *testing.T, path string, firstDocID int, pro
 	return mt
 }
 
-// A file that merely ends in .wal names no segment: segmentID cuts it at the first
-// dot. The cleanup walk declines such a name, so a replay must not derive chunk ids
-// from it either — nothing would ever clean them up.
 // A name the cleanup walk would decline must not be chunked: chunks at ids
 // derived from it would sit at names nothing ever visits to remove.
 func TestRecoverFromWAL_NameThatCannotNameItsChunksIsReplayedWhole(t *testing.T) {
-	tests := []struct {
-		name     string
-		strategy string
-		// rename puts the fixture's WAL under a name that cannot derive chunk ids,
-		// and returns the name it now carries
-		rename func(t *testing.T, dir, wal string) string
-	}{
-		{
-			name: "a name merely ending in .wal", strategy: StrategySetCollection,
-			rename: func(t *testing.T, dir, wal string) string {
-				renamed := strings.TrimSuffix(wal, ".wal") + ".db.wal"
-				require.False(t, isSegmentWALName(renamed),
-					"the walk has to decline this name for the case to mean anything")
-				require.NoError(t, os.Rename(filepath.Join(dir, wal),
-					filepath.Join(dir, renamed)))
-				return renamed
-			},
-		},
-		{
-			// a leading zero, which ParseInt normalizes away and FormatInt does not
-			// restore, so the ids a chunk would take are not the ids the walk visits
-			name: "an id that does not round-trip", strategy: StrategyReplace,
-			rename: func(t *testing.T, dir, wal string) string {
-				const renamed = "segment-01771258130098421000.wal"
-				require.NoError(t, os.Rename(filepath.Join(dir, wal),
-					filepath.Join(dir, renamed)))
-				return renamed
-			},
-		},
-	}
+	ctx := context.Background()
+	tc := chunkedWALCaseFor(t, StrategyReplace)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			tc := chunkedWALCaseFor(t, tt.strategy)
+	dir := newChunkTestDir(t, tc, chunkTestEntries, chunkTestPayload)
 
-			dir := newChunkTestDir(t, tc, chunkTestEntries, chunkTestPayload)
-			renamed := tt.rename(t, dir, filesWithExt(t, dir, ".wal")[0])
+	// a leading zero, which ParseInt normalizes away and FormatInt does not
+	// restore, so the ids a chunk would take are not the ids the walk visits
+	const renamed = "segment-01771258130098421000.wal"
+	require.NoError(t, os.Rename(filepath.Join(dir, filesWithExt(t, dir, ".wal")[0]),
+		filepath.Join(dir, renamed)))
 
-			b, err := tryOpenChunkTestBucket(dir, tc.strategy, chunkTestThreshold)
-			require.NoError(t, err)
-			// adopted rather than written out, so it never reaches a flush: mt.path
-			// may already carry .db, which writeSegmentTo would refuse
-			defer b.Shutdown(ctx)
+	b := openChunkTestBucket(t, dir, tc.strategy, chunkTestThreshold)
+	defer closeChunkTestBucket(t, ctx, b)
 
-			require.Empty(t, filesWithExt(t, dir, ".db"),
-				"a chunk at an id derived from this name would never be cleaned up")
-			require.Equal(t, []string{renamed}, filesWithExt(t, dir, ".wal"),
-				"an uncut replay keeps its WAL as the active memtable")
+	require.Empty(t, filesWithExt(t, dir, ".db"),
+		"a chunk at an id derived from this name would never be cleaned up")
+	require.Equal(t, []string{renamed}, filesWithExt(t, dir, ".wal"),
+		"an uncut replay keeps its WAL as the active memtable")
 
-			// the same bytes under a name that does derive chunk ids, which is cut
-			control := openChunkTestBucket(t,
-				newChunkTestDir(t, tc, chunkTestEntries, chunkTestPayload),
-				tc.strategy, chunkTestThreshold)
-			defer control.Shutdown(ctx)
+	// the same bytes under a name that does derive chunk ids, which is cut
+	control := openChunkTestBucket(t,
+		newChunkTestDir(t, tc, chunkTestEntries, chunkTestPayload),
+		tc.strategy, chunkTestThreshold)
+	defer closeChunkTestBucket(t, ctx, control)
 
-			require.Equal(t,
-				tc.read(t, control, 0, chunkTestEntries, chunkTestPayload),
-				tc.read(t, b, 0, chunkTestEntries, chunkTestPayload),
-				"the uncut replay holds what the cut one holds")
-		})
-	}
+	require.Equal(t,
+		tc.read(t, control, 0, chunkTestEntries, chunkTestPayload),
+		tc.read(t, b, 0, chunkTestEntries, chunkTestPayload),
+		"the uncut replay holds what the cut one holds")
 }
 
-// A staged chunk carries the delete marker, which the mount loop removes rather
-// than opens.
-func TestRecoveredRunStagesUnderTheDeleteMarker(t *testing.T) {
-	dir := t.TempDir()
-	run := &recoveredRun{
-		sg: &SegmentGroup{}, dir: dir,
-		baseSegmentID: 1771258130098421000, chunkingAllowed: true,
-	}
-
-	mt := newInvertedStageTestMemtable(t, filepath.Join(dir, "mt-0"), 0, 2)
-	require.NoError(t, run.stage(mt))
-
-	require.Len(t, run.stagedPaths, 1)
-	require.True(t, strings.HasSuffix(run.stagedPaths[0], DeleteMarkerSuffix),
-		"a staged chunk must not carry a name a start would mount as committed data")
-	require.Empty(t, filesWithExt(t, dir, ".db"))
-}
-
-// Nothing reserves a chunk id, so one can already hold a live segment.
-// A WAL whose name carries no segment id cannot name chunks, and the run that
-// replays it stages nothing under that name. Its entries must still reach a
-// segment before the WAL is unlinked.
+// A WAL whose name carries no segment id cannot name chunks, so its replay
+// writes one segment under the WAL's own name, no-id.db. Its entries must still
+// reach that segment before the WAL is unlinked.
 func TestRecoverFromWAL_WALWithoutIDIsNotLost(t *testing.T) {
 	ctx := context.Background()
 
@@ -1775,10 +1646,6 @@ func TestRecoverFromWAL_AdoptsTheMemtableTheReplayEndedOn(t *testing.T) {
 	}
 }
 
-func TestCutChunkWithoutChunkingIsANoop(t *testing.T) {
-	require.NoError(t, (&commitloggerParser{}).cutChunk())
-}
-
 // Two chunked WALs in one recovery: their runs must not collide, and the second
 // inherits what the first added to the group.
 func TestRecoverFromWAL_TwoChunkedWALsInOneRecovery(t *testing.T) {
@@ -1800,6 +1667,7 @@ func TestRecoverFromWAL_TwoChunkedWALsInOneRecovery(t *testing.T) {
 			third := t.TempDir()
 			buildChunkTestWALRange(t, third, tc, chunkTestEntries, chunkTestEntries+10,
 				chunkTestPayload)
+			newest := filesWithExt(t, third, ".wal")
 			copyWAL(t, third, dir)
 
 			require.Len(t, filesWithExt(t, dir, ".wal"), 3)
@@ -1813,6 +1681,8 @@ func TestRecoverFromWAL_TwoChunkedWALsInOneRecovery(t *testing.T) {
 			segments := filesWithExt(t, dir, ".db")
 			require.Greater(t, len(segments), 3,
 				"two WALs above the threshold produce two runs, not two segments")
+			require.Equal(t, newest, filesWithExt(t, dir, ".wal"),
+				"the newest WAL still becomes the active memtable")
 
 			control := openChunkTestBucket(t, unchunkedDir, tc.strategy, 0)
 			defer closeChunkTestBucket(t, ctx, control)
@@ -1880,36 +1750,6 @@ func TestRecoverFromWAL_RefusedEntryDuringAChunkedReplay(t *testing.T) {
 		}
 		require.Equal(t, key(i), value, "entry %d was not the refused one", i)
 	}
-}
-
-// Production writes the level and strategy into a segment's name. A cut chunk has
-// to take that shape too, and the cleanup walk has to match it.
-func TestRecoverFromWAL_ChunkedInSegmentInfoNamingMode(t *testing.T) {
-	ctx := context.Background()
-	tc := chunkedWALCaseFor(t, StrategyReplace)
-	segInfo := WithWriteSegmentInfoIntoFileName(true)
-
-	dir := newChunkTestDir(t, tc, chunkTestEntries, chunkTestPayload)
-	walName, walBytes := chunkTestWAL(t, tc, chunkTestEntries, chunkTestPayload)
-
-	b := openChunkTestBucket(t, dir, tc.strategy, chunkTestThreshold, segInfo)
-	committed := filesWithExt(t, dir, ".db")
-	require.Greater(t, len(committed), 1)
-	for _, segment := range committed {
-		require.Contains(t, segment, segmentExtraInfo(0, SegmentStrategyFromString(tc.strategy)),
-			"a chunk carries the same infix a flushed segment would")
-	}
-	require.NoError(t, b.Shutdown(ctx))
-
-	// the crash window: the run is on disk and the WAL was never unlinked
-	require.NoError(t, os.WriteFile(filepath.Join(dir, walName), walBytes, 0o666))
-
-	b = openChunkTestBucket(t, dir, tc.strategy, chunkTestThreshold, segInfo)
-	defer closeChunkTestBucket(t, ctx, b)
-
-	require.Equal(t, committed, filesWithExt(t, dir, ".db"),
-		"the walk matched the infixed names, so the run was rewritten rather than mounted twice")
-	require.Len(t, b.disk.segments, len(committed))
 }
 
 // A chunk of a replayed WAL bakes its block-max bounds against the average

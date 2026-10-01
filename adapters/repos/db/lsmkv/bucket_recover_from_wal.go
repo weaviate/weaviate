@@ -123,8 +123,9 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 // resizer is absent or inactive. BenchmarkWALReplay sweeps the threshold around it.
 const defaultWALReplayMaxMemtableSize = config.DefaultPersistenceMemtablesMaxSize * 1024 * 1024
 
-// walReplayMaxMemtableSize is the heap a replay chunk may hold. Where a resizer
-// set the threshold it prefers the configured max.
+// walReplayMaxMemtableSize is the held size at which a replay cuts a chunk, as
+// Memtable.Size or the replace cache counts it. That is record payload, and the
+// heap behind a chunk runs several times larger. An active resizer supplies its max.
 func (b *Bucket) walReplayMaxMemtableSize() uint64 {
 	// the size a memtable may reach, not the size this bucket is flushing at: the
 	// resizer exists to track load, and a startup has none to track. Fewer, larger
@@ -299,8 +300,9 @@ func (r *recoveredRun) commit() error {
 	return nil
 }
 
-// mount adds the committed segments to the group. A failure costs only the mounting:
-// the next start reads them off disk and rebuilds whatever sidecar it did not reach.
+// mount adds the committed segments to the group. A failure fails the bucket open
+// but loses nothing. The next start reads the segments off disk and rebuilds
+// whatever sidecar this one did not reach.
 func (r *recoveredRun) mount() error {
 	for _, staged := range r.stagedPaths {
 		if err := r.sg.add(strings.TrimSuffix(staged, DeleteMarkerSuffix)); err != nil {

@@ -279,8 +279,8 @@ func segmentFilePrefix(id string) string {
 // something else: segmentID cuts it at the first dot, naming a segment it does
 // not own.
 func isSegmentWALName(name string) bool {
-	// the comparison below formats a string and cuts the name apart, and the mount
-	// loop asks this of every file in the directory
+	// the comparison below formats a string and cuts the name apart, and
+	// removeSegmentsOfSurvivingWALs asks this of every file in the directory
 	if !strings.HasSuffix(name, ".wal") {
 		return false
 	}

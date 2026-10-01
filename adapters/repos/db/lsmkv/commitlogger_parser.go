@@ -101,10 +101,6 @@ func (p *commitloggerParser) cutChunkIfFull(heldBytes uint64) error {
 // its deduplication cache between testing and cutting, so it cuts through this:
 // cutChunkIfFull would test the freshly emptied cache and miss the held-bytes cut.
 func (p *commitloggerParser) cutChunk() error {
-	if p.chunking == nil {
-		return nil
-	}
-
 	next, err := p.chunking.writeChunk(p.memtable)
 	if err != nil {
 		p.chunkWriteErr = err
