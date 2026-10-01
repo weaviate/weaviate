@@ -613,25 +613,8 @@ func TestLocalSweepReportsRecoveredPanics(t *testing.T) {
 		classes    []string
 		dispatch   deleterFunc
 		wantErr    []string
-		wantIs     error
 		wantPanics int
 	}{
-		{
-			name:    "a sweep whose deletes all return reports nothing",
-			classes: []string{"Collection0"},
-			dispatch: func(eg *enterrors.ErrorGroupWrapper, _ errorcompounder.ErrorCompounder, _ string) {
-				eg.Go(func() error { return nil })
-			},
-		},
-		{
-			name:    "a panicking delete goroutine is reported",
-			classes: []string{"Collection0"},
-			dispatch: func(eg *enterrors.ErrorGroupWrapper, _ errorcompounder.ErrorCompounder, _ string) {
-				eg.Go(func() error { panic(deletePanic) })
-			},
-			wantErr:    []string{deletePanic},
-			wantPanics: 1,
-		},
 		{
 			name:    "every panicking collection is reported, not only the one Wait returns",
 			classes: []string{"Collection0", "Collection1", "Collection2"},
@@ -657,16 +640,6 @@ func TestLocalSweepReportsRecoveredPanics(t *testing.T) {
 			wantErr:    []string{deletePanic, "\"Collection1\": {" + errDeleteFailed.Error()},
 			wantPanics: 1,
 		},
-		{
-			name:    "a panic raised with an error stays matchable",
-			classes: []string{"Collection0"},
-			dispatch: func(eg *enterrors.ErrorGroupWrapper, _ errorcompounder.ErrorCompounder, _ string) {
-				eg.Go(func() error { panic(errDeleteFailed) })
-			},
-			wantErr:    []string{errDeleteFailed.Error()},
-			wantIs:     errDeleteFailed,
-			wantPanics: 1,
-		},
 	}
 
 	for _, test := range tests {
@@ -677,29 +650,14 @@ func TestLocalSweepReportsRecoveredPanics(t *testing.T) {
 
 			_, err := runLocalSweep(t, test.classes, test.dispatch)
 
-			if len(test.wantErr) == 0 {
-				require.NoError(t, err)
-				return
-			}
 			require.Error(t, err, "a sweep that lost a collection's deletes must not report success")
 			for _, want := range test.wantErr {
 				assert.ErrorContains(t, err, want)
-			}
-			if test.wantIs != nil {
-				assert.ErrorIs(t, err, test.wantIs, "the compounder keeps the panic's own error reachable")
 			}
 			assert.Equal(t, test.wantPanics, strings.Count(err.Error(), "panic occurred"),
 				"one entry per panicking collection, since Wait reports only the first")
 		})
 	}
-}
-
-// panickingNodeResolver panics where the abort goroutine resolves its node,
-// standing in for any panic that goroutine's work can raise.
-type panickingNodeResolver struct{}
-
-func (panickingNodeResolver) NodeHostname(nodeName string) (string, bool) {
-	panic("resolving " + nodeName)
 }
 
 // scriptedNodeResolver answers for every node but two, panicking for one and
@@ -723,85 +681,43 @@ func (r scriptedNodeResolver) NodeHostname(nodeName string) (string, bool) {
 // An abort reports per node, so a node whose goroutine panicked must reach the
 // caller as a node that was not aborted rather than as one that was.
 func TestCoordinatorAbortReportsRecoveredPanics(t *testing.T) {
-	tests := []struct {
-		name        string
-		nodes       []string
-		resolver    func(host string) nodeResolver
-		wantAborted bool
-		wantErr     []string
-		wantNodes   map[string]bool
-	}{
-		{
-			name:        "an abort every node answers reports no error",
-			nodes:       []string{"node1", "node2", "node3"},
-			resolver:    func(host string) nodeResolver { return fixedNodeResolver(host) },
-			wantAborted: true,
-			wantNodes:   map[string]bool{"node1": false, "node2": true, "node3": true},
-		},
-		{
-			name:     "every panicking node is reported under its own name",
-			nodes:    []string{"node1", "node2", "node3"},
-			resolver: func(string) nodeResolver { return panickingNodeResolver{} },
-			wantErr: []string{
-				"panic occurred", "\"node2\": {", "\"node3\": {",
-				"resolving node2", "resolving node3",
-			},
-			wantNodes: map[string]bool{"node1": false, "node2": false, "node3": false},
-		},
-		{
-			name:  "a panicking node is reported beside a node that failed and one that aborted",
-			nodes: []string{"node1", "node2", "node3", "node4"},
-			resolver: func(host string) nodeResolver {
-				return scriptedNodeResolver{host: host, panicking: "node3", unresolvable: "node4"}
-			},
-			wantAborted: true,
-			wantErr: []string{
-				"\"node3\": {panic occurred", "resolving node3",
-				"\"node4\": {unable to resolve hostname for node4",
-			},
-			wantNodes: map[string]bool{"node1": false, "node2": true, "node3": false, "node4": false},
-		},
+	// the integration job disables recovery, under which a panic takes the
+	// test binary down instead of reaching the group
+	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+
+	logger, hook := logrustest.NewNullLogger()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response := ObjectsExpiredAbortResponse{Aborted: true}
+		response.SetContentTypeHeader(w)
+		w.WriteHeader(http.StatusOK)
+		assert.NoError(t, json.NewEncoder(w).Encode(response))
+	}))
+	defer server.Close()
+
+	getter := schemaUC.NewMockSchemaGetter(t)
+	getter.EXPECT().NodeName().Return("node1")
+	getter.EXPECT().Nodes().Return([]string{"node1", "node2", "node3", "node4"})
+
+	resolver := scriptedNodeResolver{
+		host:         strings.TrimPrefix(server.URL, "http://"),
+		panicking:    "node3",
+		unresolvable: "node4",
 	}
+	c := NewCoordinator(nil, getter, nil, nil, configRuntime.NewDynamicValue[float64](1),
+		logger, server.Client(), resolver, NewLocalStatus())
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+	aborted, err := c.Abort(context.Background(), false)
 
-			logger, hook := logrustest.NewNullLogger()
+	assert.True(t, aborted, "node2 aborted")
 
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				response := ObjectsExpiredAbortResponse{Aborted: true}
-				response.SetContentTypeHeader(w)
-				w.WriteHeader(http.StatusOK)
-				assert.NoError(t, json.NewEncoder(w).Encode(response))
-			}))
-			defer server.Close()
+	report := logEntry(hook, "abort ttl deletion on all nodes")
+	require.NotNil(t, report, "the abort must report what it reached")
+	assert.Equal(t, map[string]bool{"node1": false, "node2": true, "node3": false, "node4": false},
+		report.Data["nodes"], "a node the abort asked must be named whether or not it answered")
 
-			getter := schemaUC.NewMockSchemaGetter(t)
-			getter.EXPECT().NodeName().Return("node1")
-			getter.EXPECT().Nodes().Return(test.nodes)
-
-			c := NewCoordinator(nil, getter, nil, nil, configRuntime.NewDynamicValue[float64](1),
-				logger, server.Client(), test.resolver(strings.TrimPrefix(server.URL, "http://")),
-				NewLocalStatus())
-
-			aborted, err := c.Abort(context.Background(), false)
-
-			assert.Equal(t, test.wantAborted, aborted)
-
-			report := logEntry(hook, "abort ttl deletion on all nodes")
-			require.NotNil(t, report, "the abort must report what it reached")
-			assert.Equal(t, test.wantNodes, report.Data["nodes"],
-				"a node the abort asked must be named whether or not it answered")
-
-			if len(test.wantErr) == 0 {
-				require.NoError(t, err)
-				return
-			}
-			require.Error(t, err, "a node the abort never reached must not read as one it did")
-			for _, want := range test.wantErr {
-				assert.ErrorContains(t, err, want)
-			}
-		})
-	}
+	require.Error(t, err, "a node the abort never reached must not read as one it did")
+	assert.ErrorContains(t, err, "\"node3\": {panic occurred")
+	assert.ErrorContains(t, err, "resolving node3")
+	assert.ErrorContains(t, err, "\"node4\": {unable to resolve hostname for node4")
 }

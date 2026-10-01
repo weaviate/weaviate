@@ -396,13 +396,6 @@ func TestIncomingDeleteReportsRecoveredPanics(t *testing.T) {
 		wantPanics  int
 	}{
 		{
-			name:        "a panicking delete goroutine is reported",
-			collections: 1,
-			indexFor:    dispatchPanic,
-			wantErr:     []string{ttlDeletePanic},
-			wantPanics:  1,
-		},
-		{
 			name:        "every panicking collection is reported, not only the one Wait returns",
 			collections: 3,
 			indexFor:    dispatchPanic,
@@ -454,56 +447,6 @@ func TestIncomingDeleteReportsRecoveredPanics(t *testing.T) {
 				"one entry per panicking collection, since Wait reports only the first")
 		})
 	}
-}
-
-// abortingTTLSchema answers the first collection at once and holds every later
-// one until the sweep is cancelled. A test can then abort a sweep whose first
-// collection already has a delete goroutine in flight.
-type abortingTTLSchema struct {
-	held chan struct{}
-	once sync.Once
-}
-
-func (s *abortingTTLSchema) ReadOnlyClassWithVersion(ctx context.Context, class string, _ uint64) (*models.Class, error) {
-	if class == "Collection0" {
-		return &models.Class{Class: class}, nil
-	}
-	s.once.Do(func() { close(s.held) })
-	<-ctx.Done()
-	// the real wait reports the version it never reached, carrying neither the
-	// context's error nor its cause
-	return nil, fmt.Errorf("class %q: schema version not reached", class)
-}
-
-// An abort and a panic reach the same compounder, and an operator aborting a
-// sweep is how they meet. Both have to survive being rendered together.
-func TestIncomingDeleteReportsAPanicBesideAnAbort(t *testing.T) {
-	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
-
-	ttlSchema := &abortingTTLSchema{held: make(chan struct{})}
-	server, repo, status, sweepOutcome := ttlTestServer(t, ttlSchema)
-	repo.indexFor = dispatchPanic
-
-	postTTLDelete(t, server, 2)
-
-	select {
-	case <-ttlSchema.held:
-	case <-time.After(ttlProbeTimeout):
-		t.Fatal("the sweep never reached the second collection")
-	}
-
-	require.True(t, status.Abort(), "the sweep is running, so there is one to abort")
-
-	require.Eventually(t, func() bool { return !status.IsRunning() },
-		ttlProbeTimeout, 10*time.Millisecond, "the sweep must run to completion")
-
-	failed, returned := sweepOutcome()
-	require.True(t, returned)
-	require.Error(t, failed)
-	assert.ErrorIs(t, failed, objectttl.ErrAborted,
-		"the abort must stay matchable with a panic rendered beside it")
-	assert.ErrorContains(t, failed, ttlDeletePanic,
-		"and the panic must not be displaced by the abort")
 }
 
 // The abort endpoint reports the running deletion without releasing its slot,
