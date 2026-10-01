@@ -180,8 +180,8 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 				// TODO aliszka:ttl handle graceful index close / drop
 				idx, err := d.remoteIndex.IndexForIncomingWrite(ttlCtx, className, classPayload.ClassVersion)
 				if err != nil {
-					// the schema wait reports a cancelled sweep as a version it
-					// never reached, which reads as a broken node rather than an abort
+					// an abort still fails the schema wait as "local index not found:
+					// deadline exceeded", so report the abort instead
 					if cause := context.Cause(ttlCtx); cause != nil {
 						ec.AddGroups(cause, className)
 					} else {
