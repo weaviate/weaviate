@@ -537,7 +537,7 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 // replaceBucket drains the displaced bucket and swaps the two directories on
 // disk. Caller must hold replacementBucket.flushLock (flushLock OUTER →
 // maintenanceLock INNER, same order as the flush path).
-func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, replacementBucketName string, bucket *Bucket, bucketName string) (string, string, string, string, error) {
+func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, replacementBucketName string, bucket *Bucket, bucketName string) (_, _, _, _ string, err error) {
 	replacementBucket.disk.maintenanceLock.Lock()
 	defer replacementBucket.disk.maintenanceLock.Unlock()
 
@@ -556,6 +556,12 @@ func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, re
 		WithField("dir", s.dir).
 		Info("replacing bucket")
 
+	finishClaim, err := claimDirForMove(replacementBucket, newReplacementBucketDir)
+	if err != nil {
+		return "", "", "", "", err
+	}
+	defer func() { finishClaim(err == nil) }()
+
 	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
 		return "", "", "", "", errors.Wrapf(err, "failed moving orig bucket dir '%s'", currBucketDir)
 	}
@@ -564,6 +570,29 @@ func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, re
 	}
 
 	return currBucketDir, newBucketDir, currReplacementBucketDir, newReplacementBucketDir, nil
+}
+
+// claimDirForMove registers newDir in [GlobalBucketRegistry] before bucket is
+// moved there, so a move onto a dir another bucket uses fails before anything
+// is renamed. The returned finish must be called with the move's outcome: on
+// success the bucket's registration follows it to newDir, otherwise newDir is
+// released. Left at the old dir, the registry would refuse a new bucket there,
+// and would not notice a second bucket opened on the dir in use.
+func claimDirForMove(bucket *Bucket, newDir string) (finish func(moved bool), err error) {
+	if bucket.registeredPath == newDir {
+		return func(bool) {}, nil
+	}
+	if err := GlobalBucketRegistry.TryAdd(newDir); err != nil {
+		return nil, err
+	}
+	return func(moved bool) {
+		if !moved {
+			GlobalBucketRegistry.Remove(newDir)
+			return
+		}
+		GlobalBucketRegistry.Remove(bucket.registeredPath)
+		bucket.registeredPath = newDir
+	}, nil
 }
 
 // freezeAndSwapForReplace makes the replacement name-visible while frozen:
@@ -676,6 +705,13 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 		return fmt.Errorf("bucket '%s' can not be renamed before flushing", bucketName)
 	}
 
+	finishClaim, err := claimDirForMove(currBucket, newBucketDir)
+	if err != nil {
+		return err
+	}
+	moved := false
+	defer func() { finishClaim(moved) }()
+
 	currBucket.dir = newBucketDir
 
 	mt, err := currBucket.createNewActiveMemtable()
@@ -690,6 +726,7 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
 		return errors.Wrapf(err, "failed renaming bucket dir '%s' to '%s'", currBucketDir, newBucketDir)
 	}
+	moved = true
 
 	s.updateBucketDir(currBucket, currBucketDir, newBucketDir)
 
@@ -807,13 +844,21 @@ func (s *Store) FinalizeBucketSwap(ctx context.Context, bucketName, canonicalDir
 		return fmt.Errorf("flush memtable before dir rename: %w", err)
 	}
 
+	finishClaim, err := claimDirForMove(bucket, canonicalDir)
+	if err != nil {
+		return err
+	}
+
 	if err := os.RemoveAll(backupDir); err != nil {
+		finishClaim(false)
 		return fmt.Errorf("remove backup dir %q: %w", backupDir, err)
 	}
 
 	if err := os.Rename(currentDir, canonicalDir); err != nil {
+		finishClaim(false)
 		return fmt.Errorf("rename %q to %q: %w", currentDir, canonicalDir, err)
 	}
+	finishClaim(true)
 
 	s.updateBucketDir(bucket, currentDir, canonicalDir)
 	bucket.dir = canonicalDir
