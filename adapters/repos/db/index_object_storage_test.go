@@ -153,9 +153,8 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 
 			// Create mock schema getter
 			mockSchema := schemaUC.NewMockSchemaGetter(t)
-			mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
+			mockSchema.EXPECT().ReadOnlySchema().Maybe().Return(*fakeSchema.Objects)
 			mockSchema.EXPECT().ReadOnlyClass(tt.className).Maybe().Return(class)
-			mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
 			mockSchema.EXPECT().ShardFromUUID("TestClass", mock.Anything).Return(tt.shardName).Maybe()
 			mockSchema.EXPECT().ShardOwner(tt.className, tt.shardName).Maybe().Return("test-node", nil)
 
@@ -165,6 +164,7 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
 			// Create index
 			index, err := NewIndex(ctx, nil, IndexConfig{
+				NodeName:              "test-node",
 				RootPath:              dirName,
 				ClassName:             schema.ClassName(tt.className),
 				ReplicationFactor:     1,
@@ -323,9 +323,8 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 
 	// Create mock schema getter
 	mockSchema := schemaUC.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
+	mockSchema.EXPECT().ReadOnlySchema().Maybe().Return(*fakeSchema.Objects)
 	mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
-	mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
 	mockSchema.EXPECT().ShardOwner(className, tenantNamePopulated).Maybe().Return("test-node", nil)
 	mockSchema.EXPECT().TenantsShardsStatus(ctx, className, tenantNamePopulated).Maybe().
 		Return(map[string]string{tenantNamePopulated: models.TenantActivityStatusHOT}, nil)
@@ -345,6 +344,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	seedShardObjectCounter(t, dirName, className, tenantNamePopulated)
 	// Create index with lazy loading disabled to test active calculation methods
 	index, err := NewIndex(ctx, nil, IndexConfig{
+		NodeName:              "test-node",
 		RootPath:              dirName,
 		ClassName:             schema.ClassName(className),
 		ReplicationFactor:     1,
@@ -446,6 +446,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	// Create a new index instance to test inactive calculation methods
 	// This ensures we're testing the inactive methods on a fresh index that reads from disk
 	newIndex, err := NewIndex(ctx, nil, IndexConfig{
+		NodeName:              "test-node",
 		RootPath:              dirName,
 		ClassName:             schema.ClassName(className),
 		ReplicationFactor:     1,

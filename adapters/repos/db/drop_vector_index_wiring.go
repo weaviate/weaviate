@@ -48,7 +48,8 @@ func (db *DB) EditOpBucketsForShards(ctx context.Context, collection string, sha
 		if s == nil {
 			continue
 		}
-		if lazy, ok := s.(*LazyLoadShard); ok {
+		// asLazyLoadShard: a recovering shard's blocked load warns+skips instead of panicking in Store() below.
+		if lazy, ok := asLazyLoadShard(s); ok {
 			if _, _, err := lazy.loadIfCold(ctx); err != nil {
 				db.logger.WithField("collection", collection).WithField("shard", name).
 					WithFields(enterrors.DocsLinkFields(err)).
@@ -79,7 +80,7 @@ func (db *DB) EditOpBucketsForLoadedShards(collection string, shardNames []strin
 		if s == nil {
 			continue
 		}
-		if lazy, ok := s.(*LazyLoadShard); ok && !lazy.isLoaded() {
+		if lazy, ok := asLazyLoadShard(s); ok && !lazy.isLoaded() {
 			continue
 		}
 		if b := s.Store().Bucket(helpers.ObjectsBucketLSM); b != nil {
@@ -102,10 +103,16 @@ func (db *DB) EnsureDroppedVectorFilesRemoved(collection, shardName string, targ
 	idx.shardCreateLocks.RLock(shardName)
 	defer idx.shardCreateLocks.RUnlock(shardName)
 
-	// A loaded shard retries its own drop: idempotent, it finishes a drop that
-	// failed part-way, and it never opens index.db against its own lock.
-	if loaded := idx.shards.loaded(shardName); loaded != nil {
-		return loaded.retryDroppedVectorIndexes(targets)
+	// A shard in the map finishes its own drops: loaded, it retries them, which
+	// never opens index.db against its own lock; a lazy one does so under its
+	// loading mutex, so no load starts against the offline removal. Only a
+	// shard that left the map is swept by path, under the create lock its
+	// unload holds until index.db is closed.
+	switch s := idx.shards.Load(shardName).(type) {
+	case *Shard:
+		return s.retryDroppedVectorIndexes(targets)
+	case *LazyLoadShard:
+		return s.sweepDroppedVectorIndexes(targets)
 	}
 	helper := newVectorDropIndexHelper()
 	class := idx.getClass()

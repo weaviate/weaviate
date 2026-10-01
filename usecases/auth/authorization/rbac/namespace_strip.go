@@ -285,10 +285,9 @@ func ValidateNamespaceStrip(blob []byte, staticAPIKeyUsers []string) error {
 	return ValidateSnapshot(blob, true, staticAPIKeyUsers)
 }
 
-// ValidateSnapshot runs the checks [Manager.Restore] makes before it clears
-// the policy store, without clearing it: the decode, plus the strip when
-// stripNamespaces is set. Restore has no version check of its own, so with the
-// strip off only the decode runs.
+// ValidateSnapshot runs the decode and, with stripNamespaces set, the strip that
+// [Manager.Restore] runs before it clears the policy store. Restore also refuses
+// rows the policy file cannot store, which ValidateSnapshot does not check.
 func ValidateSnapshot(blob []byte, stripNamespaces bool, staticAPIKeyUsers []string) error {
 	// Restore treats an empty snapshot as a no-op.
 	if len(blob) == 0 {

@@ -14,12 +14,17 @@ package cluster
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/getsentry/sentry-go"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
@@ -372,10 +377,9 @@ func (s *Raft) ClassVersionsFromLeader(classes ...string) (map[string]uint64, er
 // Query receives a QueryRequest and ensure it is executed on the leader and returns the related QueryResponse
 // If any error happens it returns it
 func (s *Raft) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
+	queryType := req.Type.String()
 	t := prometheus.NewTimer(
-		monitoring.GetMetrics().SchemaReadsLeader.WithLabelValues(
-			req.Type.String(),
-		))
+		monitoring.GetMetrics().SchemaReadsLeader.WithLabelValues(queryType))
 	defer t.ObserveDuration()
 
 	if s.store.IsLeader() {
@@ -392,14 +396,47 @@ func (s *Raft) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResp
 		return nil
 		// pass in the election timeout after applying multiplier
 	}, backoffConfig(ctx, s.store.raftConfig().ElectionTimeout)); err != nil {
-		s.log.Warnf("query: failed to find leader after retries: %s", err)
+		reason := leaderQueryFailureReason(ctx, err, false)
+		monitoring.GetMetrics().SchemaLeaderQueryFailures.WithLabelValues(queryType, reason).Inc()
+		s.log.WithFields(logrus.Fields{
+			"query_type": queryType,
+			"reason":     reason,
+		}).Warnf("query: failed to find leader after retries: %s", err)
 		return &cmd.QueryResponse{}, err
 	}
 
 	resp, err := s.cl.Query(ctx, leader, req)
 	if err != nil {
-		s.log.WithField("leader", leader).Errorf("query: failed to query leader: %s", err)
+		reason := leaderQueryFailureReason(ctx, err, true)
+		monitoring.GetMetrics().SchemaLeaderQueryFailures.WithLabelValues(queryType, reason).Inc()
+		s.log.WithFields(logrus.Fields{
+			"leader":     leader,
+			"query_type": queryType,
+			"reason":     reason,
+		}).Errorf("query: failed to query leader: %s", err)
 		return &cmd.QueryResponse{}, err
 	}
 	return resp, err
+}
+
+const (
+	leaderQueryNoLeader    = "no_leader"
+	leaderQueryConnClosed  = "conn_closed"
+	leaderQueryCtxCanceled = "ctx_canceled"
+	leaderQueryLeaderError = "leader_error"
+)
+
+const grpcClientConnClosingDesc = "grpc: the client connection is closing"
+
+func leaderQueryFailureReason(ctx context.Context, err error, leaderKnown bool) string {
+	if status.Code(err) == codes.Canceled && strings.Contains(err.Error(), grpcClientConnClosingDesc) {
+		return leaderQueryConnClosed
+	}
+	if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return leaderQueryCtxCanceled
+	}
+	if !leaderKnown {
+		return leaderQueryNoLeader
+	}
+	return leaderQueryLeaderError
 }

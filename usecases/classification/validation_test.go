@@ -178,7 +178,7 @@ func Test_ValidateUserInput(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			fsg := &fakeSchemaGetter{testSchema()}
+			fsg := &fakeSchemaGetter{schema: testSchema()}
 			validator := NewValidator(func(name string) (*models.Class, error) { return fsg.ReadOnlyClass(name), nil }, test.input)
 			err := validator.Do()
 			assert.ErrorAs(t, err, &test.expectedError)

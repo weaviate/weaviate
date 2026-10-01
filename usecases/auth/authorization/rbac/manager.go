@@ -40,6 +40,10 @@ const (
 	SnapshotVersionLatest
 )
 
+// ErrRestoreRefused marks a [Manager.Restore] error returned before Restore
+// cleared the policy store, so the node still holds the roles it had.
+var ErrRestoreRefused = errors.New("restore snapshot refused")
+
 // NamespaceLister reports the namespaces this cluster currently has. Snapshot calls it
 // when it runs rather than at construction, so a snapshot taken later sees namespaces
 // created since boot.
@@ -135,10 +139,25 @@ func (m *Manager) GetUsersOrGroupsWithRoles(isGroup bool, authType authenticatio
 }
 
 func (m *Manager) upsertRolesPermissions(roles map[string][]authorization.Policy) error {
+	// Every role is assigned to this internal user, so a role without
+	// permissions still exists: g, db:wv_internal_empty, role:roleName
+	anchorUser := conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, authentication.AuthTypeDb)
+
+	// Check every row before writing any, so a refused upsert stores nothing. The
+	// authz handlers check first, but an older leader may have committed such a row.
 	for roleName, policies := range roles {
-		// assign role to internal user to make sure to catch empty roles
-		// e.g. : g, user:wv_internal_empty, role:roleName
-		if _, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, authentication.AuthTypeDb), conv.PrefixRoleName(roleName)); err != nil {
+		if err := conv.ValidateStorableRow("g", anchorUser, conv.PrefixRoleName(roleName)); err != nil {
+			return err
+		}
+		for _, policy := range policies {
+			if err := conv.ValidateStorableRow("p", conv.PrefixRoleName(roleName), policy.Resource, policy.Verb, policy.Domain); err != nil {
+				return err
+			}
+		}
+	}
+
+	for roleName, policies := range roles {
+		if _, err := m.casbin.AddRoleForUser(anchorUser, conv.PrefixRoleName(roleName)); err != nil {
 			return fmt.Errorf("AddRoleForUser: %w", err)
 		}
 		for _, policy := range policies {
@@ -210,7 +229,7 @@ func (m *Manager) getRoles(names ...string) (map[string][]authorization.Policy, 
 			casbinStoragePolicies = collectStaleRoles(polices, casbinStoragePoliciesMap, casbinStoragePolicies)
 		}
 	}
-	policies, err := conv.CasbinPolicies(m.namespacesEnabled, casbinStoragePolicies...)
+	policies, err := conv.CasbinPolicies(m.logger, m.namespacesEnabled, casbinStoragePolicies...)
 	if err != nil {
 		return nil, fmt.Errorf("CasbinPolicies: %w", err)
 	}
@@ -394,6 +413,13 @@ func (m *Manager) AddRolesForUser(user string, roles []string) error {
 
 	if !conv.NameHasPrefix(user) {
 		return errors.New("user does not contain a prefix")
+	}
+
+	// Check every row before writing any, so a refused call stores nothing.
+	for _, role := range roles {
+		if err := conv.ValidateStorableRow("g", user, conv.PrefixRoleName(role)); err != nil {
+			return err
+		}
 	}
 
 	for _, role := range roles {
@@ -690,19 +716,15 @@ func (m *Manager) ListAllRoles() ([]string, error) {
 	return slices.Collect(maps.Keys(roles)), nil
 }
 
+// Restore replaces the policy store with a backup's snapshot.
 func (m *Manager) Restore(b []byte, stripNamespaces bool) error {
-	// don't overwrite with empty snapshot to avoid overwriting recovery from file
-	// with a non-existent RBAC snapshot when coming from old versions
-	if m == nil || len(b) == 0 {
-		return nil
-	}
-	if m.casbin == nil {
+	if m == nil || len(b) == 0 || m.casbin == nil {
 		return nil
 	}
 
 	snapshot := snapshot{}
 	if err := json.Unmarshal(b, &snapshot); err != nil {
-		return fmt.Errorf("restore snapshot: decode json: %w", err)
+		return fmt.Errorf("%w: decode json: %w", ErrRestoreRefused, err)
 	}
 
 	// Keep this above the write lock and ClearPolicy below. A colliding snapshot
@@ -711,11 +733,45 @@ func (m *Manager) Restore(b []byte, stripNamespaces bool) error {
 	if stripNamespaces {
 		stripped, err := stripRBACSnapshot(snapshot, StaticAPIKeyUsers(m.authNconf))
 		if err != nil {
-			return err
+			return fmt.Errorf("%w: %w", ErrRestoreRefused, err)
 		}
 		snapshot = stripped
 	}
 
+	// Like the strip above, refuse before ClearPolicy. Rows the policy file can't
+	// hold would fail the next load, or load as rows the snapshot never had.
+	if err := validateStorableRows("p", snapshot.Policy); err != nil {
+		return fmt.Errorf("%w: %w", ErrRestoreRefused, err)
+	}
+	if err := validateStorableRows("g", snapshot.GroupingPolicy); err != nil {
+		return fmt.Errorf("%w: %w", ErrRestoreRefused, err)
+	}
+
+	return m.replacePolicies(snapshot)
+}
+
+// RestoreRaftSnapshot replaces the policy store with a RAFT snapshot. It drops
+// and logs each row the policy file cannot store, since refusing the snapshot
+// keeps the node from starting or catching up. Dropping a row only removes a grant.
+func (m *Manager) RestoreRaftSnapshot(b []byte) error {
+	// don't overwrite with empty snapshot to avoid overwriting recovery from file
+	// with a non-existent RBAC snapshot when coming from old versions
+	if m == nil || len(b) == 0 || m.casbin == nil {
+		return nil
+	}
+
+	snapshot := snapshot{}
+	if err := json.Unmarshal(b, &snapshot); err != nil {
+		return fmt.Errorf("restore snapshot: decode json: %w", err)
+	}
+	snapshot.Policy = m.dropUnstorableRows("p", snapshot.Policy)
+	snapshot.GroupingPolicy = m.dropUnstorableRows("g", snapshot.GroupingPolicy)
+
+	return m.replacePolicies(snapshot)
+}
+
+// replacePolicies clears the policy store and loads snapshot into it.
+func (m *Manager) replacePolicies(snapshot snapshot) error {
 	// Hold the write lock only for the casbin mutation and cache invalidation
 	// so that concurrent Enforce() calls (which hold RLock) are blocked.
 	// Unmarshalling is done above without the lock since it doesn't touch
@@ -764,6 +820,30 @@ func (m *Manager) Restore(b []byte, stripNamespaces bool) error {
 	}
 
 	return nil
+}
+
+func validateStorableRows(ptype string, rows [][]string) error {
+	for _, row := range rows {
+		if err := validateStorableRow(ptype, row); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *Manager) dropUnstorableRows(ptype string, rows [][]string) [][]string {
+	return slices.DeleteFunc(rows, func(row []string) bool {
+		err := validateStorableRow(ptype, row)
+		if err != nil {
+			m.logger.WithField("action", "restore_rbac_snapshot").
+				Errorf("rbac_restore_dropped_row: restored the snapshot without this row: %v", err)
+		}
+		return err != nil
+	})
+}
+
+func validateStorableRow(ptype string, row []string) error {
+	return conv.ValidateStorableRow(append([]string{ptype}, row...)...)
 }
 
 // BatchEnforcers is not needed after some digging they just loop over requests,

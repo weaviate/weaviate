@@ -243,7 +243,7 @@ func TestIndex_aggregateCount(t *testing.T) {
 						func() string { return "Delete" }),
 				},
 				shardCreateLocks: esync.NewKeyRWLocker(),
-				Config:           IndexConfig{ClassName: schema.ClassName("Abc")},
+				Config:           IndexConfig{NodeName: "node1", ClassName: schema.ClassName("Abc")},
 				metrics:          metrics,
 				logger:           logger,
 			}
@@ -447,7 +447,7 @@ func TestIndex_getShardsStorageStatus(t *testing.T) {
 		RunAndReturn(func(s string) (string, bool) { return s, true }).Maybe()
 
 	index := Index{
-		Config:           IndexConfig{ClassName: schema.ClassName("Songs")},
+		Config:           IndexConfig{NodeName: targetNode, ClassName: schema.ClassName("Songs")},
 		getSchema:        &fakeSchemaGetter{nodeName: targetNode},
 		schemaReader:     schemaReader,
 		shardCreateLocks: esync.NewKeyRWLocker(),
@@ -562,7 +562,7 @@ func TestIndex_ShardHasMultipleReplicasWrite_RoutesThroughReplicatorDuringMoveme
 			// test — proving the call short-circuited before consulting the router.
 
 			idx := &Index{
-				Config: IndexConfig{ClassName: schema.ClassName(className), ReplicationFactor: tt.replicationF},
+				Config: IndexConfig{NodeName: "node1", ClassName: schema.ClassName(className), ReplicationFactor: tt.replicationF},
 				router: mockRouter,
 			}
 			idx.SetReplicationFSMReader(fsm)
@@ -586,7 +586,7 @@ func TestIndex_ShardHasMultipleReplicasWrite_RoutesThroughReplicatorDuringMoveme
 func newDropLocalShardTestIndex(t *testing.T, logger logrus.FieldLogger) *Index {
 	t.Helper()
 	idx := &Index{
-		Config:           IndexConfig{RootPath: t.TempDir(), ClassName: schema.ClassName("DropTestClass")},
+		Config:           IndexConfig{NodeName: "node1", RootPath: t.TempDir(), ClassName: schema.ClassName("DropTestClass")},
 		logger:           logger,
 		backupLock:       esync.NewKeyRWLocker(),
 		shardCreateLocks: esync.NewKeyRWLocker(),
@@ -764,6 +764,7 @@ func requireSweepTally(t *testing.T, hook *test.Hook, want map[monitoring.Warmup
 		monitoring.WarmupSkippedEmpty,
 		monitoring.WarmupSkippedBelowThreshold,
 		monitoring.WarmupSkippedNamespaceUnknown,
+		monitoring.WarmupSkippedRecovering,
 	} {
 		require.Equal(t, want[outcome], tally[string(outcome)], "shards reported as %q", outcome)
 	}

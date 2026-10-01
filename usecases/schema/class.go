@@ -70,7 +70,7 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 	// NOTE: Support getting class via alias name
 	// Also we resolve before doing `Authorize` so that Authorizer will work
 	// with correct `collectionName` for permissions and errors UX
-	resolved, _, err := namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, name)
+	resolved, _, err := namespacing.Resolve(principal, h.schemaReader, h.qualifier, name)
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
@@ -127,7 +127,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	// caller-supplied ":" and the success of the namespaced-create flow are
 	// covered by test/acceptance/namespace/collection_alias_test.go.
 	originalClassName := cls.Class
-	qualified, err := namespacing.QualifyForCreate(principal, h.config.Namespaces.Enabled, cls.Class, "class")
+	qualified, err := namespacing.QualifyForCreate(principal, h.qualifier, cls.Class, "class")
 	if errors.Is(err, namespacing.ErrCreateRequiresNamespace) {
 		return nil, 0, authzerrors.NewNamespaceForbidden(principal)
 	}
@@ -135,7 +135,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 	cls.Class = qualified
-	if err := namespacing.QualifyPropertyDataTypes(principal, h.config.Namespaces.Enabled, cls.Properties); err != nil {
+	if err := namespacing.QualifyPropertyDataTypes(principal, h.qualifier, cls.Class, cls.Properties); err != nil {
 		return nil, 0, err
 	}
 
@@ -453,7 +453,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 // here: deleting via an alias name must be a no-op on the underlying
 // class, otherwise an alias becomes a backdoor to drop its target.
 func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, class string) error {
-	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+	class, err := namespacing.QualifyClass(principal, h.qualifier, class)
 	if err != nil {
 		return err
 	}
@@ -472,7 +472,7 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	className string, updated *models.Class,
 ) error {
-	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	className, err := namespacing.QualifyClass(principal, h.qualifier, className)
 	if err != nil {
 		return err
 	}
@@ -481,7 +481,7 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	// after a GET. Qualify it and require it to match the path so a
 	// mismatch surfaces explicitly instead of being silently overwritten.
 	if updated != nil && namespacing.ConfinedNamespace(principal) != "" {
-		qualifiedBody, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, updated.Class)
+		qualifiedBody, err := namespacing.QualifyClass(principal, h.qualifier, updated.Class)
 		if err != nil {
 			return fmt.Errorf("%w: %w", ErrValidation, err)
 		}
@@ -489,7 +489,9 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 			return fmt.Errorf("%w: class name in body %q does not match path %q", ErrValidation, updated.Class, namespacing.StripOwnNamespace(principal, className))
 		}
 		updated.Class = qualifiedBody
-		if err := namespacing.QualifyPropertyDataTypes(principal, h.config.Namespaces.Enabled, updated.Properties); err != nil {
+	}
+	if updated != nil {
+		if err := namespacing.QualifyPropertyDataTypes(principal, h.qualifier, className, updated.Properties); err != nil {
 			return fmt.Errorf("%w: %w", ErrValidation, err)
 		}
 	}

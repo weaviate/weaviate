@@ -84,9 +84,8 @@ func TestTTLSkipsLazyUnloadedTenant(t *testing.T) {
 	mockSchemaReader.EXPECT().Shards(className).Return([]string{tenant}, nil).Once()
 
 	mockSchema := schemaUC.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
+	mockSchema.EXPECT().ReadOnlySchema().Maybe().Return(*fakeSchema.Objects)
 	mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
-	mockSchema.EXPECT().NodeName().Maybe().Return(nodeName)
 
 	// No read-routing expectations: the skip means findUUIDs is never reached. Removing the
 	// skip would call BuildReadRoutingPlan and fail on an unexpected mock call.
@@ -96,6 +95,7 @@ func TestTTLSkipsLazyUnloadedTenant(t *testing.T) {
 	shardResolver := resolver.NewShardResolver(className, true, schemaGetter)
 
 	index, err := NewIndex(ctx, nil, IndexConfig{
+		NodeName:             nodeName,
 		RootPath:             t.TempDir(),
 		ClassName:            schema.ClassName(className),
 		ReplicationFactor:    1,

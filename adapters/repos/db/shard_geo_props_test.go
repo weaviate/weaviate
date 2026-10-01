@@ -37,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
@@ -57,6 +58,11 @@ func stuttgartCoordinates() *models.GeoCoordinates {
 
 func testGeoPropShard(t *testing.T, ctx context.Context) *Shard {
 	t.Helper()
+	return testGeoPropShardAsyncIndexing(t, ctx, false)
+}
+
+func testGeoPropShardAsyncIndexing(t *testing.T, ctx context.Context, asyncIndexing bool) *Shard {
+	t.Helper()
 
 	class := &models.Class{
 		Class: geoPropClass,
@@ -73,7 +79,7 @@ func testGeoPropShard(t *testing.T, ctx context.Context) *Shard {
 	}
 
 	shard, _ := testShardWithSettings(t, ctx, class,
-		hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, false)
+		hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, asyncIndexing)
 	return concreteShard(t, shard)
 }
 
@@ -485,6 +491,41 @@ func TestInitGeoPropNamesItsShard(t *testing.T) {
 	}
 }
 
+// TestGeoIndexQueueLogsLikeItsIndex pins that a geo queue's lines carry the
+// identity of the index they drain into and nothing else: class, shard and
+// index_id, with no target_vector, which a geo index has no object-vector
+// meaning for, and no shard_id, which only repeats class and shard.
+func TestGeoIndexQueueLogsLikeItsIndex(t *testing.T) {
+	ctx := context.Background()
+	s := testGeoPropShardAsyncIndexing(t, ctx, true)
+
+	logger, ok := s.index.logger.(*logrus.Logger)
+	require.True(t, ok, "the test shard no longer carries a hookable logger")
+	hook := test.NewLocal(logger)
+	logger.SetLevel(logrus.DebugLevel)
+
+	// a few coordinates, so the queue logs while indexing them
+	for i := 0; i < 8; i++ {
+		putGeoPropObject(t, ctx, s, map[string]interface{}{"location": munichCoordinates()})
+	}
+	_, q := geoIndexAndQueue(t, s, "location")
+	require.NotNil(t, q)
+	require.Eventually(t, func() bool { return q.Size() == 0 }, 30*time.Second, 50*time.Millisecond)
+
+	var queueLines int
+	for _, entry := range hook.AllEntries() {
+		if entry.Data["component"] != "vector_index_queue" || entry.Data["index_id"] != geoPropID("location") {
+			continue
+		}
+		queueLines++
+		require.Equalf(t, geoPropClass, entry.Data["class"], "line %q", entry.Message)
+		require.Equalf(t, s.name, entry.Data["shard"], "line %q", entry.Message)
+		require.NotContainsf(t, entry.Data, "target_vector", "line %q", entry.Message)
+		require.NotContainsf(t, entry.Data, "shard_id", "line %q", entry.Message)
+	}
+	require.NotZero(t, queueLines, "the geo queue logged no identified line")
+}
+
 // testShardWithNamedVector builds a shard whose only vector index is the named
 // vector "title" with the given config (async indexing on, as dynamic needs).
 func testShardWithNamedVector(t *testing.T, ctx context.Context, className string,
@@ -586,6 +627,7 @@ func TestVectorIndexLoggerCarriesIdentity(t *testing.T) {
 				indexID, ok := entry.Data["index_id"].(string)
 				if entry.Data["component"] == "vector_index_queue" {
 					require.Truef(t, ok, "queue line %q lost its index_id", entry.Message)
+					require.NotContainsf(t, entry.Data, "shard_id", "queue line %q", entry.Message)
 					queueLines++
 				}
 				if !ok {
@@ -928,4 +970,36 @@ func TestIndex_DebugResetGeoIndexNotFound(t *testing.T) {
 			assert.Contains(t, err.Error(), "not found")
 		})
 	}
+}
+
+// Geo queues count towards the shard queue size, as they do towards INDEXING.
+func TestShardQueueSizeCountsGeoQueue(t *testing.T) {
+	ctx := context.Background()
+	s, index := testAsyncGeoPropShard(t, ctx)
+
+	vq, release, ok := s.AcquireVectorIndexQueue("")
+	require.True(t, ok)
+	t.Cleanup(release)
+	_, gq := geoIndexAndQueue(t, s, "location")
+	for _, q := range []*VectorIndexQueue{vq, gq} {
+		require.NoError(t, q.Pause(ctx))
+		t.Cleanup(q.Resume)
+	}
+
+	for i := 0; i < 3; i++ {
+		require.NoError(t, s.PutObject(ctx, &storobj.Object{
+			MarshallerVersion: 1,
+			Object: models.Object{
+				ID:         strfmt.UUID(uuid.NewString()),
+				Class:      geoPropClass,
+				Properties: map[string]interface{}{"location": munichCoordinates()},
+			},
+			Vector: []float32{1, 2, 3},
+		}))
+	}
+
+	require.Equal(t, storagestate.StatusIndexing, s.GetStatus())
+	size, err := index.IncomingGetShardQueueSize(ctx, s.Name())
+	require.NoError(t, err)
+	require.EqualValues(t, 6, size, "3 vectors and 3 geo coordinates")
 }

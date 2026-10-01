@@ -237,34 +237,74 @@ func fetchObject(bucket *lsmkv.Bucket, idBytes []byte) (*storobj.Object, error) 
 	return obj, nil
 }
 
+// requireVectorIndexes fails a write before it stores when a vector index
+// it will insert into is missing. The legacy vector needs an index when
+// the schema has one.
+func (s *Shard) requireVectorIndexes(vectors map[string][]float32, multiVectors map[string][][]float32, legacy []float32) error {
+	has := func(name string) error {
+		if _, ok := s.vectors.get(name); !ok {
+			return fmt.Errorf("vector index not found for %q", name)
+		}
+		return nil
+	}
+	for name := range vectors {
+		err := has(name)
+		if err != nil {
+			return err
+		}
+	}
+	for name := range multiVectors {
+		err := has(name)
+		if err != nil {
+			return err
+		}
+	}
+	if len(legacy) > 0 && s.index.GetVectorIndexConfig("") != nil {
+		return has("")
+	}
+	return nil
+}
+
 func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes []byte,
 ) (status objectInsertStatus, err error) {
 	before := time.Now()
 	defer s.metrics.PutObject(before)
 
+	// validation happens before any change is stored, and a missing index
+	// is a failure here: an object stored without its index is skipped as
+	// unchanged on the retry and never indexed
 	for targetVector, vector := range obj.Vectors {
-		_, err := s.WithVectorIndex(targetVector, func(vectorIndex VectorIndex) error {
+		found, err := s.WithVectorIndex(targetVector, func(vectorIndex VectorIndex) error {
 			return vectorIndex.ValidateBeforeInsert(vector)
 		})
+		if !found {
+			return status, fmt.Errorf("vector index not found for %q", targetVector)
+		}
 		if err != nil {
 			return status, errors.Wrapf(err, "Validate vector index %s for target vector %s", targetVector, obj.ID())
 		}
 	}
 
 	for targetVector, vector := range obj.MultiVectors {
-		_, err := s.WithVectorIndex(targetVector, func(vectorIndex VectorIndex) error {
+		found, err := s.WithVectorIndex(targetVector, func(vectorIndex VectorIndex) error {
 			return vectorIndex.(VectorIndexMulti).ValidateMultiBeforeInsert(vector)
 		})
+		if !found {
+			return status, fmt.Errorf("vector index not found for %q", targetVector)
+		}
 		if err != nil {
 			return status, errors.Wrapf(err, "Validate vector index %s for target multi vector %s", targetVector, obj.ID())
 		}
 	}
 
-	if len(obj.Vector) > 0 && s.hasLegacyVectorIndex() {
-		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
-		_, err = s.WithVectorIndex("", func(index VectorIndex) error {
+	// the legacy vector needs an index when the schema has one
+	if len(obj.Vector) > 0 && s.index.GetVectorIndexConfig("") != nil {
+		found, err := s.WithVectorIndex("", func(index VectorIndex) error {
 			return index.ValidateBeforeInsert(obj.Vector)
 		})
+		if !found {
+			return status, fmt.Errorf(`vector index not found for ""`)
+		}
 		if err != nil {
 			return status, errors.Wrapf(err, "Validate vector index for %s", obj.ID())
 		}

@@ -292,6 +292,8 @@ func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger, *local.MockSchemaRe
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
 	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().AllNames().Return([]string{"node1"}).Maybe()
+	mockNodeSelector.EXPECT().ClusterHealthScore().Return(0).Maybe()
 	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
 	repo, err := New(logger, "node1", Config{
 		ServerVersion:             "server-version",

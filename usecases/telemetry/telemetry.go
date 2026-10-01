@@ -28,11 +28,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 const (
@@ -49,7 +50,8 @@ type nodesStatusGetter interface {
 type Telemeter struct {
 	machineID          strfmt.UUID
 	nodesStatusGetter  nodesStatusGetter
-	schemaManager      schema.SchemaGetter
+	schemaReader       local.ClassReader
+	nodes              cluster.NodeLister
 	logger             logrus.FieldLogger
 	shutdown           chan struct{}
 	failedToStart      bool
@@ -84,7 +86,7 @@ type Config struct {
 }
 
 // New creates a new Telemeter instance.
-func New(nodesStatusGetter nodesStatusGetter, schemaManager schema.SchemaGetter,
+func New(nodesStatusGetter nodesStatusGetter, schemaReader local.ClassReader, nodes cluster.NodeLister,
 	logger logrus.FieldLogger, consumerURL string, pushInterval time.Duration,
 	telemetryEnabled bool,
 	cfg Config,
@@ -100,7 +102,8 @@ func New(nodesStatusGetter nodesStatusGetter, schemaManager schema.SchemaGetter,
 		// machineID is a fresh UUID per process, distinct from nodeID.
 		machineID:            strfmt.UUID(uuid.NewString()),
 		nodesStatusGetter:    nodesStatusGetter,
-		schemaManager:        schemaManager,
+		schemaReader:         schemaReader,
+		nodes:                nodes,
 		logger:               logger,
 		shutdown:             make(chan struct{}),
 		consumer:             consumerURL,
@@ -307,15 +310,10 @@ type curatedFields struct {
 
 // curatedFields extracts the schema-derived signal fields in a single schema pass.
 func (tel *Telemeter) curatedFields() curatedFields {
-	cf := curatedFields{nodeCount: len(tel.schemaManager.Nodes())}
-
-	sch := tel.schemaManager.GetSchemaSkipAuth()
-	if sch.Objects == nil {
-		return cf
-	}
+	cf := curatedFields{nodeCount: len(tel.nodes.AllNames())}
 
 	counts := make(map[string]int)
-	for _, class := range sch.Objects.Classes {
+	for _, class := range tel.schemaReader.ReadOnlySchema().Classes {
 		if class == nil {
 			continue
 		}
@@ -393,28 +391,24 @@ func (tel *Telemeter) orHNSW(vectorIndexType string) string {
 }
 
 func (tel *Telemeter) getUsedModules() ([]string, error) {
-	sch := tel.schemaManager.GetSchemaSkipAuth()
 	usedModulesMap := map[string]struct{}{}
-
-	if sch.Objects != nil {
-		for _, class := range sch.Objects.Classes {
-			if class == nil {
-				continue
+	for _, class := range tel.schemaReader.ReadOnlySchema().Classes {
+		if class == nil {
+			continue
+		}
+		if modCfg, ok := class.ModuleConfig.(map[string]interface{}); ok {
+			for name, cfg := range modCfg {
+				usedModulesMap[tel.determineModule(name, cfg)] = struct{}{}
 			}
-			if modCfg, ok := class.ModuleConfig.(map[string]interface{}); ok {
+		} else if class.Vectorizer != "" && class.Vectorizer != "none" {
+			// Fallback for classes with nil ModuleConfig but a set class-level
+			// Vectorizer (pre-v1.14 schemas). "none" (BYOV) is excluded - not a module.
+			usedModulesMap[class.Vectorizer] = struct{}{}
+		}
+		for _, vectorConfig := range class.VectorConfig {
+			if modCfg, ok := vectorConfig.Vectorizer.(map[string]interface{}); ok {
 				for name, cfg := range modCfg {
 					usedModulesMap[tel.determineModule(name, cfg)] = struct{}{}
-				}
-			} else if class.Vectorizer != "" && class.Vectorizer != "none" {
-				// Fallback for classes with nil ModuleConfig but a set class-level
-				// Vectorizer (pre-v1.14 schemas). "none" (BYOV) is excluded - not a module.
-				usedModulesMap[class.Vectorizer] = struct{}{}
-			}
-			for _, vectorConfig := range class.VectorConfig {
-				if modCfg, ok := vectorConfig.Vectorizer.(map[string]interface{}); ok {
-					for name, cfg := range modCfg {
-						usedModulesMap[tel.determineModule(name, cfg)] = struct{}{}
-					}
 				}
 			}
 		}
@@ -454,11 +448,7 @@ func (tel *Telemeter) getObjectCount(ctx context.Context) (int64, error) {
 }
 
 func (tel *Telemeter) getCollectionsCount(context.Context) (int, error) {
-	sch := tel.schemaManager.GetSchemaSkipAuth()
-	if sch.Objects == nil {
-		return 0, nil
-	}
-	return len(sch.Objects.Classes), nil
+	return len(tel.schemaReader.ReadOnlySchema().Classes), nil
 }
 
 func (tel *Telemeter) getCloudInfo() (cloudProvider, uniqueID *string) {

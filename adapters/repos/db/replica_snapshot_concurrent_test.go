@@ -42,7 +42,6 @@ import (
 // callers serialize and all return a consistent file list.
 func TestIncomingCreateReplicaSnapshotConcurrent(t *testing.T) {
 	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
-	mockSchemaGetter.On("NodeName").Return("node1")
 
 	class := &models.Class{
 		Class:               "TestClass",
@@ -74,6 +73,7 @@ func TestIncomingCreateReplicaSnapshotConcurrent(t *testing.T) {
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
 
 	index, err := NewIndex(context.Background(), nil, IndexConfig{
+		NodeName:          "node1",
 		ClassName:         schema.ClassName("TestClass"),
 		RootPath:          t.TempDir(),
 		ReplicationFactor: 1,

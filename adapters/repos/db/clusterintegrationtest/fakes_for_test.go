@@ -168,7 +168,7 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 
 	backendProvider := newFakeBackupBackendProvider(localDir)
 	n.backupManager = ubak.NewHandler(
-		logger, config.Backup{}, &fakeAuthorizer{}, n.schemaManager, n.repo, backendProvider, fakeRbacBackupWrapper{}, fakeDynUserBackupWrapper{},
+		logger, config.Backup{}, &fakeAuthorizer{}, n.schemaManager, n.name, n.repo, backendProvider, fakeRbacBackupWrapper{}, fakeDynUserBackupWrapper{},
 	)
 
 	backupClient := clients.NewClusterBackups(&http.Client{})
@@ -239,13 +239,17 @@ func (r fakeDynUserBackupWrapper) Restore([]byte, bool) error {
 type fakeSchemaManager struct {
 	// Left unset: only the methods defined below are expected.
 	local.VersionedReader
+	local.ClassReader
 	schema       schema.Schema
 	shardState   *sharding.State
 	nodeResolver *nodeResolver
 }
 
-func (f *fakeSchemaManager) GetSchemaSkipAuth() schema.Schema {
-	return f.schema
+func (f *fakeSchemaManager) ReadOnlySchema() models.Schema {
+	if f.schema.Objects == nil {
+		return models.Schema{}
+	}
+	return *f.schema.Objects
 }
 
 func (f *fakeSchemaManager) ReadOnlyClass(class string) *models.Class {

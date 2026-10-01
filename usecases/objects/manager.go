@@ -101,6 +101,7 @@ type Manager struct {
 	autoSchemaManager *AutoSchemaManager
 	metrics           objectsMetrics
 	allocChecker      *memwatch.Monitor
+	qualifier         namespacing.Qualifier
 }
 
 type objectsMetrics interface {
@@ -177,7 +178,7 @@ func NewManager(schemaManager schemaManager,
 	config *config.WeaviateConfig, logger logrus.FieldLogger,
 	authorizer authorization.Authorizer, vectorRepo VectorRepo,
 	modulesProvider ModulesProvider, metrics objectsMetrics, allocChecker *memwatch.Monitor,
-	autoSchemaManager *AutoSchemaManager,
+	autoSchemaManager *AutoSchemaManager, qualifier namespacing.Qualifier,
 ) *Manager {
 	if allocChecker == nil {
 		allocChecker = memwatch.NewDummyMonitor()
@@ -194,13 +195,14 @@ func NewManager(schemaManager schemaManager,
 		autoSchemaManager: autoSchemaManager,
 		metrics:           metrics,
 		allocChecker:      allocChecker,
+		qualifier:         qualifier,
 	}
 }
 
-// resolveNS qualifies name with the principal's namespace (if enabled)
-// and resolves any alias to its underlying class.
+// resolveNS qualifies name through m.qualifier and resolves any alias to its
+// underlying class.
 func (m *Manager) resolveNS(principal *models.Principal, name string) (class, qualifiedAlias string, err error) {
-	return namespacing.Resolve(principal, m.schemaManager, m.config.Config.Namespaces.Enabled, name)
+	return namespacing.Resolve(principal, m.schemaManager, m.qualifier, name)
 }
 
 func generateUUID() (strfmt.UUID, error) {

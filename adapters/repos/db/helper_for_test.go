@@ -48,6 +48,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -257,7 +258,7 @@ func installNoLiveReindexLookup(db *DB) {
 // build a bare &Index{} literal without going through New() or the
 // shard fixtures.
 func stubDBWithNoLiveReindex() *DB {
-	db := &DB{}
+	db := &DB{localNodeName: "node1"}
 	installNoLiveReindexLookup(db)
 	return db
 }
@@ -273,6 +274,16 @@ func testShardMultiTenant(t testing.TB, ctx context.Context, className string, i
 }
 
 func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMetrics, classes ...*models.Class) *DB {
+	t.Helper()
+	return createTestDatabaseWithNamespaces(t, metrics, nil, classes...)
+}
+
+// createTestDatabaseWithNamespaces is createTestDatabaseWithClass with a
+// namespace lookup. Qualified class names need one: the shard guard refuses to
+// create a shard for a namespaced class it cannot look up.
+func createTestDatabaseWithNamespaces(t *testing.T, metrics *monitoring.PrometheusMetrics,
+	namespacesExister namespaces.Exister, classes ...*models.Class,
+) *DB {
 	t.Helper()
 
 	require.NotNil(t, metrics, "metrics parameter cannot be nil")
@@ -309,7 +320,7 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 		TrackVectorDimensions:     true,
 		EnableLazyLoadShards:      boolPtr(true),
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, namespacesExister)
 	require.Nil(t, err)
 
 	db.SetSchemaGetter(&fakeSchemaGetter{
@@ -338,7 +349,10 @@ func publishVectorMetricsFromDB(t *testing.T, db *DB) {
 		t.Logf("Vector dimensions tracking is disabled, returning 0")
 		return
 	}
-	db.metricsObserver.publishVectorMetrics(t.Context())
+	// A throwaway observer, not db.metricsObserver: db.metricsObserver's own
+	// goroutine keeps prune state between passes, and a second publisher
+	// would race it.
+	(&nodeWideMetricsObserver{db: db}).publishVectorMetrics(t.Context())
 }
 
 func getSingleShardNameFromRepo(repo *DB, className string) string {
@@ -383,6 +397,7 @@ func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models
 		return &models.Class{Class: name}
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -482,6 +497,7 @@ func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models
 
 	idx := &Index{
 		Config: IndexConfig{
+			NodeName:               "node1",
 			EnableLazyLoadShards:   true,
 			RootPath:               tmpDir,
 			ClassName:              schema.ClassName(class.Class),
@@ -658,7 +674,7 @@ func newTestIndex(t *testing.T, logger logrus.FieldLogger, className string,
 	t.Cleanup(closingCancel)
 
 	idx := &Index{
-		Config:        IndexConfig{ClassName: schema.ClassName(className)},
+		Config:        IndexConfig{NodeName: "node1", ClassName: schema.ClassName(className)},
 		logger:        logger,
 		schemaReader:  reader,
 		closingCtx:    closingCtx,

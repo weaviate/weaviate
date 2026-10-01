@@ -42,7 +42,7 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 	for _, obj := range objects {
 		cls, _, err := b.resolveNS(principal, obj.Class)
 		if err != nil {
-			return nil, NewErrInvalidUserInput("%v", err)
+			return nil, userInputOrForbidden(err)
 		}
 		obj.Class = cls
 		classesShards[obj.Class] = append(classesShards[obj.Class], obj.Tenant)
@@ -177,7 +177,7 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 		objectsPerClass       = make(map[string][]*models.Object)
 		originalIndexPerClass = make(map[string][]int)
 		validator             = validation.New(b.vectorRepo.Exists, b.config, repl,
-			principal, b.config.Config.Namespaces.Enabled)
+			principal, b.qualifier)
 	)
 
 	// validate each object and sort by class (==vectorizer)

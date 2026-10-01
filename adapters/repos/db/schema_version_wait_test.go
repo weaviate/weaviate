@@ -154,10 +154,11 @@ func Test_DB_WaitsForSchemaVersion_BeforeIndexLookup(t *testing.T) {
 				schemaReader.EXPECT().WaitForUpdate(mock.Anything, tt.version).
 					Return(tt.waitErr).Once()
 				db := &DB{
-					logger:       logger,
-					indices:      map[string]*Index{},
-					schemaReader: schemaReader,
-					memMonitor:   memwatch.NewDummyMonitor(),
+					localNodeName: "node1",
+					logger:        logger,
+					indices:       map[string]*Index{},
+					schemaReader:  schemaReader,
+					memMonitor:    memwatch.NewDummyMonitor(),
 				}
 
 				err := ep.call(context.Background(), db, tt.version)
@@ -208,7 +209,7 @@ func Test_DB_WaitForSchemaVersionForIndexWrite_ReportsFailureInMsg(t *testing.T)
 			schemaReader := local.NewMockSchemaReader(t)
 			schemaReader.EXPECT().WaitForUpdate(mock.Anything, tt.version).
 				Return(tt.waitErr).Once()
-			db := &DB{schemaReader: schemaReader}
+			db := &DB{localNodeName: "node1", schemaReader: schemaReader}
 
 			resp := db.waitForSchemaVersionForIndexWrite(context.Background(), tt.version)
 

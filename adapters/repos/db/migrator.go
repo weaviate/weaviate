@@ -151,6 +151,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 	var lazyLoadShardEnabled bool
 	idx, err = NewIndex(ctx, m.db,
 		IndexConfig{
+			NodeName:                       m.db.localNodeName,
 			ClassName:                      schema.ClassName(class.Class),
 			RootPath:                       m.db.config.RootPath,
 			ResourceUsage:                  m.db.config.ResourceUsage,
@@ -231,6 +232,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			LazyPropertyLengthsEnabled:   m.db.config.LazyPropertyLengthsEnabled,
 			MaintenanceModeEnabled:       m.db.config.MaintenanceModeEnabled,
 			AutoTenantActivation:         schema.AutoTenantActivationEnabled(class),
+			SelfRecoveryOrchestrator:     m.db.selfRecoveryOrchestrator,
+			ReplicationFSM:               m.db.replicationFSM,
 		},
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
@@ -445,7 +448,7 @@ func (m *Migrator) updateIndexTenants(ctx context.Context, idx *Index,
 func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 	incomingSS *sharding.State,
 ) error {
-	nodeName := m.db.schemaGetter.NodeName()
+	nodeName := m.db.localNodeName
 
 	// one tenant's failure must not skip the rest: Physical iterates in map
 	// order, so which tenants were reconciled would otherwise vary per run
@@ -1002,7 +1005,7 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 
 	// Iterate over all indexes
 	for _, index := range m.db.indices {
-		err := index.ForEachShard(func(name string, shard ShardLike) error {
+		err := index.forEachShardSkipRecovering(func(name string, shard ShardLike) error {
 			return shard.resetDimensionsLSM(ctx)
 		})
 		if err != nil {
@@ -1143,7 +1146,7 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNamesWithArgs map[
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU)
 	for _, index := range m.db.indices {
-		index.ForEachShard(func(name string, shard ShardLike) error {
+		index.forEachShardSkipRecovering(func(name string, shard ShardLike) error {
 			eg.Go(func() error {
 				reindexer := NewShardInvertedReindexer(shard, m.logger)
 				for taskName, task := range tasks {
@@ -1198,7 +1201,7 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 
 		eg.Go(func() error {
 			errgrpShards := enterrors.NewErrorGroupWrapper(m.logger)
-			index.ForEachShard(func(_ string, shard ShardLike) error {
+			index.forEachShardSkipRecovering(func(_ string, shard ShardLike) error {
 				errgrpShards.Go(func() error {
 					m.logMissingFilterableShard(shard).
 						Info("starting filterable indexing on shard, this may take a while")

@@ -38,7 +38,9 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 // stubSchemaManager satisfies namespacing.SchemaManager. ResolveAlias returns
@@ -88,7 +90,7 @@ func (r *recordingTraverser) GetClass(ctx context.Context, principal *models.Pri
 	return []any{}, nil
 }
 
-func newSearcher(t *testing.T, principal *models.Principal, namespacesEnabled bool, aliases map[string]string) (*WeaviateSearcher, *recordingTraverser) {
+func newSearcher(t *testing.T, principal *models.Principal, qualifier namespacing.Qualifier, aliases map[string]string) (*WeaviateSearcher, *recordingTraverser) {
 	t.Helper()
 	composer := func(token string, _ []string) (*models.Principal, error) {
 		return principal, nil
@@ -101,7 +103,7 @@ func newSearcher(t *testing.T, principal *models.Principal, namespacesEnabled bo
 		trav,
 		schemaReaderWith(t),
 		stubSchemaManager{aliases: aliases},
-		namespacesEnabled,
+		qualifier,
 		logger,
 	), trav
 }
@@ -131,74 +133,74 @@ func TestHybrid_NamespaceResolution(t *testing.T) {
 	}
 
 	cases := []struct {
-		name              string
-		principal         *models.Principal
-		namespacesEnabled bool
-		args              QueryHybridArgs
-		wantErrSubstr     string
-		wantClassName     string
+		name          string
+		principal     *models.Principal
+		qualifier     namespacing.Qualifier
+		args          QueryHybridArgs
+		wantErrSubstr string
+		wantClassName string
 	}{
 		{
-			name:              "namespaced principal, short name resolves into traverser params",
-			principal:         &models.Principal{Namespace: "customer1"},
-			namespacesEnabled: true,
-			args:              QueryHybridArgs{CollectionName: "Movies", Query: "x"},
-			wantClassName:     "customer1:Movies",
+			name:          "namespaced principal, short name resolves into traverser params",
+			principal:     &models.Principal{Namespace: "customer1"},
+			qualifier:     wlnamespaces.NewPrefixing(),
+			args:          QueryHybridArgs{CollectionName: "Movies", Query: "x"},
+			wantClassName: "customer1:Movies",
 		},
 		{
-			name:              "namespaced principal, alias resolves to qualified target",
-			principal:         &models.Principal{Namespace: "customer1"},
-			namespacesEnabled: true,
-			args:              QueryHybridArgs{CollectionName: "Films", Query: "x"},
-			wantClassName:     "customer1:Movies",
+			name:          "namespaced principal, alias resolves to qualified target",
+			principal:     &models.Principal{Namespace: "customer1"},
+			qualifier:     wlnamespaces.NewPrefixing(),
+			args:          QueryHybridArgs{CollectionName: "Films", Query: "x"},
+			wantClassName: "customer1:Movies",
 		},
 		{
-			name:              "namespaced principal, own-namespace qualified is rejected",
-			principal:         &models.Principal{Namespace: "customer1"},
-			namespacesEnabled: true,
-			args:              QueryHybridArgs{CollectionName: "customer1:Movies", Query: "x"},
-			wantErrSubstr:     "is not a valid class name",
+			name:          "namespaced principal, own-namespace qualified is rejected",
+			principal:     &models.Principal{Namespace: "customer1"},
+			qualifier:     wlnamespaces.NewPrefixing(),
+			args:          QueryHybridArgs{CollectionName: "customer1:Movies", Query: "x"},
+			wantErrSubstr: "is not a valid class name",
 		},
 		{
-			name:              "global principal, qualified name passes through",
-			principal:         &models.Principal{},
-			namespacesEnabled: true,
-			args:              QueryHybridArgs{CollectionName: "customer1:Movies", Query: "x"},
-			wantClassName:     "customer1:Movies",
+			name:          "global principal, qualified name passes through",
+			principal:     &models.Principal{},
+			qualifier:     wlnamespaces.NewPrefixing(),
+			args:          QueryHybridArgs{CollectionName: "customer1:Movies", Query: "x"},
+			wantClassName: "customer1:Movies",
 		},
 		{
-			name:              "namespaces disabled, name flows through untouched",
-			principal:         nil,
-			namespacesEnabled: false,
-			args:              QueryHybridArgs{CollectionName: "Global", Query: "x"},
-			wantClassName:     "Global",
+			name:          "namespaces disabled, name flows through untouched",
+			principal:     nil,
+			qualifier:     namespacing.Disabled,
+			args:          QueryHybridArgs{CollectionName: "Global", Query: "x"},
+			wantClassName: "Global",
 		},
 		{
-			name:              "namespacesEnabled accepts reference-path filter (inner class qualified)",
-			principal:         &models.Principal{Namespace: "customer1"},
-			namespacesEnabled: true,
-			args:              QueryHybridArgs{CollectionName: "Movies", Query: "x", Filters: refPathFilter},
-			wantClassName:     "customer1:Movies",
+			name:          "namespacesEnabled accepts reference-path filter (inner class qualified)",
+			principal:     &models.Principal{Namespace: "customer1"},
+			qualifier:     wlnamespaces.NewPrefixing(),
+			args:          QueryHybridArgs{CollectionName: "Movies", Query: "x", Filters: refPathFilter},
+			wantClassName: "customer1:Movies",
 		},
 		{
-			name:              "namespacesEnabled accepts direct-property filter",
-			principal:         &models.Principal{Namespace: "customer1"},
-			namespacesEnabled: true,
-			args:              QueryHybridArgs{CollectionName: "Movies", Query: "x", Filters: directFilter},
-			wantClassName:     "customer1:Movies",
+			name:          "namespacesEnabled accepts direct-property filter",
+			principal:     &models.Principal{Namespace: "customer1"},
+			qualifier:     wlnamespaces.NewPrefixing(),
+			args:          QueryHybridArgs{CollectionName: "Movies", Query: "x", Filters: directFilter},
+			wantClassName: "customer1:Movies",
 		},
 		{
-			name:              "namespacesEnabled=false still accepts reference-path filter",
-			principal:         nil,
-			namespacesEnabled: false,
-			args:              QueryHybridArgs{CollectionName: "Movies", Query: "x", Filters: refPathFilter},
-			wantClassName:     "Movies",
+			name:          "namespacesEnabled=false still accepts reference-path filter",
+			principal:     nil,
+			qualifier:     namespacing.Disabled,
+			args:          QueryHybridArgs{CollectionName: "Movies", Query: "x", Filters: refPathFilter},
+			wantClassName: "Movies",
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			s, trav := newSearcher(t, tc.principal, tc.namespacesEnabled, aliases)
+			s, trav := newSearcher(t, tc.principal, tc.qualifier, aliases)
 			_, err := s.Hybrid(context.Background(), bearerReq(), tc.args)
 
 			if tc.wantErrSubstr != "" {
@@ -226,7 +228,7 @@ func newSearcherWithResults(t *testing.T, principal *models.Principal, results [
 	authHandler := auth.NewAuth(false, composer, &authorization.DummyAuthorizer{}, nil)
 	logger, _ := test.NewNullLogger()
 	return NewWeaviateSearcher(authHandler, &stubTraverser{results: results},
-		schemaReaderWith(t), stubSchemaManager{}, true, logger)
+		schemaReaderWith(t), stubSchemaManager{}, wlnamespaces.NewPrefixing(), logger)
 }
 
 // TestHybrid_NestedRefClassStripped pins the NS strip on nested
@@ -338,7 +340,7 @@ func TestHybrid_DefaultSelectProperties(t *testing.T) {
 		trav := &recordingTraverser{}
 		logger, _ := test.NewNullLogger()
 		return NewWeaviateSearcher(authHandler, trav, reader,
-			stubSchemaManager{}, false, logger), trav
+			stubSchemaManager{}, namespacing.Disabled, logger), trav
 	}
 
 	t.Run("no return_properties resolves all non-ref non-blob properties", func(t *testing.T) {
@@ -417,7 +419,7 @@ func TestHybrid_ResponseHasNoOwnNamespaceLeak(t *testing.T) {
 // filter schema would overflow the stack here instead of returning.
 func hybridToolInputSchema(t *testing.T) map[string]any {
 	t.Helper()
-	s, _ := newSearcher(t, &models.Principal{}, false, nil)
+	s, _ := newSearcher(t, &models.Principal{}, namespacing.Disabled, nil)
 	tools := Tools(s, nil, nil)
 	require.Len(t, tools, 1)
 	raw := tools[0].Tool.RawInputSchema
@@ -541,7 +543,7 @@ func modelOperatorEnum(t *testing.T) []string {
 // both a leaf and a nested And.
 func TestHybrid_StructuredFilterFlowsThrough(t *testing.T) {
 	t.Run("leaf filter reaches the traverser", func(t *testing.T) {
-		s, trav := newSearcher(t, &models.Principal{}, false, nil)
+		s, trav := newSearcher(t, &models.Principal{}, namespacing.Disabled, nil)
 		_, err := s.Hybrid(context.Background(), bearerReq(), QueryHybridArgs{
 			CollectionName: "Movies", Query: "x",
 			Filters: map[string]any{
@@ -556,7 +558,7 @@ func TestHybrid_StructuredFilterFlowsThrough(t *testing.T) {
 	})
 
 	t.Run("nested And filter parses into operands", func(t *testing.T) {
-		s, trav := newSearcher(t, &models.Principal{}, false, nil)
+		s, trav := newSearcher(t, &models.Principal{}, namespacing.Disabled, nil)
 		_, err := s.Hybrid(context.Background(), bearerReq(), QueryHybridArgs{
 			CollectionName: "Movies", Query: "x",
 			Filters: map[string]any{
@@ -611,7 +613,7 @@ func TestHybrid_ArgumentValidation(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			s, trav := newSearcher(t, &models.Principal{}, false, nil)
+			s, trav := newSearcher(t, &models.Principal{}, namespacing.Disabled, nil)
 			_, err := s.Hybrid(context.Background(), bearerReq(), QueryHybridArgs{
 				CollectionName: "Things", Query: "x", Alpha: tc.alpha, Limit: tc.limit, TargetVectors: tc.targetVectors,
 			})

@@ -31,6 +31,7 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
 	schemauc "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // stampCall records one masked-RAFT UpdatePropertyFromMigration the repair fires.
@@ -133,13 +134,13 @@ func TestReconcileClassSearchableBlockmax_BackfillsResidualStamp(t *testing.T) {
 	// Handler's unexported schemaManager/schemaReader, so NewHandler is the
 	// only way to inject the capture; mgr.ReadOnlyClass resolves via the embedded SchemaReader.
 	h, err := schemauc.NewHandler(reader, capMgr, nil, nil, nil, logger, nil, nil, config.Config{},
-		nil, nil, nil, nil, nil, nil, schemauc.Parser{}, nil, nil, nil)
+		nil, nil, nil, nil, nil, nil, schemauc.Parser{}, nil, nil, nil, namespacing.Disabled)
 	require.NoError(t, err)
 	mgr := &schemauc.Manager{Handler: h, SchemaReader: reader}
 
 	p := &ReindexProvider{
 		logger:        logger,
-		db:            &DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
+		db:            &DB{localNodeName: "node1", indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
 		schemaManager: mgr,
 	}
 
@@ -198,7 +199,7 @@ func TestReconcileClassSearchableBlockmax_SeedsFromFinishedTaskWhileShardless(t 
 	capMgr := &capturingSchemaManager{}
 	reader := repairResidualReader{class: residualClass}
 	h, err := schemauc.NewHandler(reader, capMgr, nil, nil, nil, logger, nil, nil, config.Config{},
-		nil, nil, nil, nil, nil, nil, schemauc.Parser{}, nil, nil, nil)
+		nil, nil, nil, nil, nil, nil, schemauc.Parser{}, nil, nil, nil, namespacing.Disabled)
 	require.NoError(t, err)
 	mgr := &schemauc.Manager{Handler: h, SchemaReader: reader}
 
@@ -206,7 +207,7 @@ func TestReconcileClassSearchableBlockmax_SeedsFromFinishedTaskWhileShardless(t 
 	// observation — the FINISHED task is the sole seeding evidence.
 	p := &ReindexProvider{
 		logger:        logger,
-		db:            &DB{indices: map[string]*Index{}},
+		db:            &DB{localNodeName: "node1", indices: map[string]*Index{}},
 		schemaManager: mgr,
 	}
 

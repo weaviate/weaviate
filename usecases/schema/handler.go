@@ -88,6 +88,8 @@ type Handler struct {
 	// for placement; unused on NS-disabled clusters.
 	namespacesExister namespaces.Exister
 
+	qualifier namespacing.Qualifier
+
 	asyncIndexingEnabled bool
 }
 
@@ -171,6 +173,7 @@ func NewHandler(
 	parser Parser, classGetter *ClassGetter,
 	namespacesExister namespaces.Exister,
 	dropVectorEnqueuer DropVectorIndexEnqueuer,
+	qualifier namespacing.Qualifier,
 ) (Handler, error) {
 	handler := Handler{
 		config:                  config,
@@ -192,6 +195,7 @@ func NewHandler(
 		classGetter:             classGetter,
 		namespacesExister:       namespacesExister,
 		dropVectorEnqueuer:      dropVectorEnqueuer,
+		qualifier:               qualifier,
 
 		asyncIndexingEnabled: config.AsyncIndexingEnabled,
 	}
@@ -230,24 +234,11 @@ func (h *Handler) GetConsistentSchema(ctx context.Context, principal *models.Pri
 	}, nil
 }
 
-// GetSchemaSkipAuth can never be used as a response to a user request as it
-// could leak the schema to an unauthorized user, is intended to be used for
-// non-user triggered processes, such as regular updates / maintenance / etc
-func (h *Handler) GetSchemaSkipAuth() schema.Schema { return h.getSchema() }
-
 func (h *Handler) getSchema() schema.Schema {
 	s := h.schemaReader.ReadOnlySchema()
 	return schema.Schema{
 		Objects: &s,
 	}
-}
-
-func (h *Handler) Nodes() []string {
-	return h.clusterState.AllNames()
-}
-
-func (h *Handler) NodeName() string {
-	return h.clusterState.LocalName()
 }
 
 // NamespacesEnabled reports whether this cluster runs with namespaces on.
@@ -258,7 +249,7 @@ func (h *Handler) NamespacesEnabled() bool {
 func (h *Handler) UpdateShardStatus(ctx context.Context,
 	principal *models.Principal, class, shard, status string,
 ) (uint64, error) {
-	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+	class, err := namespacing.QualifyClass(principal, h.qualifier, class)
 	if err != nil {
 		return 0, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
@@ -273,7 +264,7 @@ func (h *Handler) UpdateShardStatus(ctx context.Context,
 func (h *Handler) ShardsStatus(ctx context.Context,
 	principal *models.Principal, class, shard string,
 ) (models.ShardStatusList, error) {
-	class, _, err := namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, class)
+	class, _, err := namespacing.Resolve(principal, h.schemaReader, h.qualifier, class)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
@@ -313,11 +304,6 @@ func (h *Handler) RemoveNode(ctx context.Context, node string) error {
 		return fmt.Errorf("node failed to leave cluster: %w", err)
 	}
 	return nil
-}
-
-// Statistics is used to return a map of various internal stats. This should only be used for informative purposes or debugging.
-func (h *Handler) Statistics() map[string]any {
-	return h.membership.Stats()
 }
 
 // DropVectorIndexEnqueuer submits the background cleanup distributed task for a

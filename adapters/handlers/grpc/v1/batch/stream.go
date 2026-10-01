@@ -29,6 +29,7 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"google.golang.org/grpc/codes"
@@ -65,7 +66,7 @@ type StreamHandler struct {
 	admitMu              sync.Mutex // taken only by tryAdmit, to check and reserve as one step
 	memInFlight          atomic.Int64
 	schemaManager        objects.ClassResolver
-	namespacesEnabled    bool
+	qualifier            namespacing.Qualifier
 	config               config.BatchStream
 }
 
@@ -80,7 +81,7 @@ func NewStreamHandler(
 	metrics *BatchStreamingMetrics,
 	logger logrus.FieldLogger,
 	schemaManager objects.ClassResolver,
-	namespacesEnabled bool,
+	qualifier namespacing.Qualifier,
 	admissionChecker admissionChecker,
 	cfg config.BatchStream,
 ) *StreamHandler {
@@ -99,7 +100,7 @@ func NewStreamHandler(
 		stoppingPerStream:    &sync.Map{},
 		admissionChecker:     admissionChecker,
 		schemaManager:        schemaManager,
-		namespacesEnabled:    namespacesEnabled,
+		qualifier:            qualifier,
 		config:               cfg,
 	}
 }
@@ -180,6 +181,7 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) (retErr err
 	if startReq == nil {
 		return fmt.Errorf("first message must be a start message")
 	}
+	CountConsistencyLevel(monitoring.ConsistencyLevelWrite, startReq.ConsistencyLevel)
 
 	h.setup(streamId)
 	defer h.teardown(streamId)
@@ -599,7 +601,7 @@ func (h *StreamHandler) enqueue(ctx context.Context, stream pb.Weaviate_BatchStr
 		if _, ok := resolvedByRaw[obj.Collection]; ok {
 			continue
 		}
-		resolved, _, err := namespacing.Resolve(principal, h.schemaManager, h.namespacesEnabled, obj.Collection)
+		resolved, _, err := namespacing.Resolve(principal, h.schemaManager, h.qualifier, obj.Collection)
 		if err != nil {
 			h.reportRejectedBatch(stream, log, principal, objs, refs, err)
 			return err

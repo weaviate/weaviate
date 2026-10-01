@@ -9,11 +9,10 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package namespaces
+package handlers
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -94,7 +93,6 @@ func newHandler(t *testing.T) (*namespaceHandler, *authorization.MockAuthorizer,
 	raft := &mockRaft{}
 	t.Cleanup(func() { raft.AssertExpectations(t) })
 	return &namespaceHandler{
-		enabled:    true,
 		authorizer: authorizer,
 		raft:       raft,
 	}, authorizer, raft
@@ -844,85 +842,6 @@ func TestListNamespaces_ErrorMapping(t *testing.T) {
 			res := h.listNamespaces(nsops.ListNamespacesParams{HTTPRequest: req}, principal)
 			_, ok := res.(*nsops.ListNamespacesInternalServerError)
 			assert.True(t, ok, "expected 500, got %T", res)
-		})
-	}
-}
-
-// -----------------------------------------------------------------------------
-// namespaces feature flag
-// -----------------------------------------------------------------------------
-
-// TestHandlers_Disabled verifies that every endpoint short-circuits with 404
-// when the namespaces feature flag is off, without calling authz or RAFT.
-// The handlers return a raw middleware.ResponderFunc (not a typed operations
-// response), so we drive it through a httptest recorder and check the status.
-func TestHandlers_Disabled(t *testing.T) {
-	principal := &models.Principal{}
-	hn := "node-1"
-	cases := []struct {
-		name   string
-		invoke func(h *namespaceHandler) middleware.Responder
-	}{
-		{
-			name: "create",
-			invoke: func(h *namespaceHandler) middleware.Responder {
-				return h.createNamespace(nsops.CreateNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
-			},
-		},
-		{
-			name: "update",
-			invoke: func(h *namespaceHandler) middleware.Responder {
-				return h.updateNamespace(nsops.UpdateNamespaceParams{
-					NamespaceID: "customer1", HTTPRequest: req,
-					Body: &models.NamespaceUpdateRequest{HomeNode: &hn},
-				}, principal)
-			},
-		},
-		{
-			name: "get",
-			invoke: func(h *namespaceHandler) middleware.Responder {
-				return h.getNamespace(nsops.GetNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
-			},
-		},
-		{
-			name: "delete",
-			invoke: func(h *namespaceHandler) middleware.Responder {
-				return h.deleteNamespace(nsops.DeleteNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
-			},
-		},
-		{
-			name: "list",
-			invoke: func(h *namespaceHandler) middleware.Responder {
-				return h.listNamespaces(nsops.ListNamespacesParams{HTTPRequest: req}, principal)
-			},
-		},
-		{
-			name: "suspend",
-			invoke: func(h *namespaceHandler) middleware.Responder {
-				return h.suspendNamespace(nsops.SuspendNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
-			},
-		},
-		{
-			name: "resume",
-			invoke: func(h *namespaceHandler) middleware.Responder {
-				return h.resumeNamespace(nsops.ResumeNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
-			},
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			h, _, _ := newHandler(t)
-			h.enabled = false
-			res := tc.invoke(h)
-
-			rec := httptest.NewRecorder()
-			res.WriteResponse(rec, runtime.JSONProducer())
-			assert.Equal(t, http.StatusNotFound, rec.Code, "expected 404")
-
-			var body models.ErrorResponse
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-			require.Len(t, body.Error, 1)
-			assert.Contains(t, body.Error[0].Message, "namespaces are not enabled")
 		})
 	}
 }

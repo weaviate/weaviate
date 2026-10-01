@@ -36,6 +36,8 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	clustermocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -275,7 +277,7 @@ func TestLocalNodeShardStats(t *testing.T) {
 				}
 				idx.closed = true
 			}
-			db := &DB{logger: logger, indices: map[string]*Index{idx.ID(): idx}}
+			db := &DB{nodeSelector: clustermocks.NewMockNodeSelector("node1"), localNodeName: "node1", logger: logger, indices: map[string]*Index{idx.ID(): idx}}
 			if tt.withNilIndex {
 				db.indices["gone"] = nil
 			}
@@ -419,9 +421,11 @@ func TestGetOneNodeStatusLocal(t *testing.T) {
 				idx.closed = true
 			}
 			db := &DB{
-				logger:       logger,
-				indices:      map[string]*Index{idx.ID(): idx},
-				schemaGetter: &fakeSchemaGetter{},
+				nodeSelector:  clustermocks.NewMockNodeSelector("node1"),
+				localNodeName: "node1",
+				logger:        logger,
+				indices:       map[string]*Index{idx.ID(): idx},
+				schemaGetter:  &fakeSchemaGetter{},
 			}
 
 			ctx := context.Background()
@@ -431,7 +435,7 @@ func TestGetOneNodeStatusLocal(t *testing.T) {
 				defer cancel()
 			}
 
-			status, err := db.GetOneNodeStatus(ctx, db.schemaGetter.NodeName(),
+			status, err := db.GetOneNodeStatus(ctx, db.localNodeName,
 				"", "", verbosity.OutputVerbose)
 
 			if tt.wantErr != nil {
@@ -496,9 +500,11 @@ func TestGetNodeStatusRemoteNodeCannotAnswer(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 			idx, _ := shardedIndex(t, className, []string{"s1"}, nil, nil, false)
 			db := &DB{
-				logger:       logger,
-				indices:      map[string]*Index{idx.ID(): idx},
-				schemaGetter: &nodeListSchemaGetter{nodeLists: [][]string{{"node1", "node2"}}},
+				localNodeName: "node1",
+				logger:        logger,
+				indices:       map[string]*Index{idx.ID(): idx},
+				schemaGetter:  &fakeSchemaGetter{},
+				nodeSelector:  &nodeListSelector{NodeSelector: clustermocks.NewMockNodeSelector("node1"), nodeLists: [][]string{{"node1", "node2"}}},
 				remoteNode: sharding.NewRemoteNode(
 					&fakeRouter{hostnames: map[string]string{"node2": "node2:7101"}},
 					&FakeRemoteNodeClient{
@@ -554,9 +560,11 @@ func TestGetNodeStatusMembershipChange(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 			idx, _ := shardedIndex(t, className, []string{"s1"}, nil, nil, false)
 			db := &DB{
-				logger:       logger,
-				indices:      map[string]*Index{idx.ID(): idx},
-				schemaGetter: &nodeListSchemaGetter{nodeLists: tt.nodeLists},
+				localNodeName: "node1",
+				logger:        logger,
+				indices:       map[string]*Index{idx.ID(): idx},
+				schemaGetter:  &fakeSchemaGetter{},
+				nodeSelector:  &nodeListSelector{NodeSelector: clustermocks.NewMockNodeSelector("node1"), nodeLists: tt.nodeLists},
 				remoteNode: sharding.NewRemoteNode(
 					&fakeRouter{hostnames: map[string]string{"node2": "node2:7101"}},
 					&FakeRemoteNodeClient{Status: &models.NodeStatus{Name: "node2", Status: &healthy}}),
@@ -613,8 +621,10 @@ func TestGetNodeStatisticsRemoteNodeCannotAnswer(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 			db := &DB{
-				logger:       logger,
-				schemaGetter: &fakeSchemaGetter{},
+				nodeSelector:  clustermocks.NewMockNodeSelector("node1"),
+				localNodeName: "node1",
+				logger:        logger,
+				schemaGetter:  &fakeSchemaGetter{},
 				remoteNode: sharding.NewRemoteNode(
 					&fakeRouter{hostnames: map[string]string{"node2": "node2:7101"}},
 					&FakeRemoteNodeClient{Err: tt.remoteErr}),
@@ -638,18 +648,19 @@ func TestGetNodeStatisticsRemoteNodeCannotAnswer(t *testing.T) {
 	}
 }
 
-// nodeListSchemaGetter reports one node list per read, so a test can add or
-// remove a node between the reads of a request.
-type nodeListSchemaGetter struct {
-	fakeSchemaGetter
+// nodeListSelector reports one node list per read, so a test can add or remove a
+// node between the reads of a request. Everything else comes from the embedded
+// selector.
+type nodeListSelector struct {
+	cluster.NodeSelector
 	nodeLists [][]string
 	reads     int
 }
 
-// Nodes reports the next list, and the last one once the lists run out.
-func (g *nodeListSchemaGetter) Nodes() []string {
-	nodes := g.nodeLists[min(g.reads, len(g.nodeLists)-1)]
-	g.reads++
+// AllNames reports the next list, and the last one once the lists run out.
+func (s *nodeListSelector) AllNames() []string {
+	nodes := s.nodeLists[min(s.reads, len(s.nodeLists)-1)]
+	s.reads++
 	return nodes
 }
 

@@ -29,13 +29,15 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 // A held receiver blocks drain until its hold ends, so Start clamps a
 // configured hold to the shutdown grace period.
 func TestStartBackpressure(t *testing.T) {
 	start := func(opts ...Option) *StreamHandler {
-		handler, _ := Start(nil, nil, nil, nil, nil, 0, logrus.New(), false, opts...)
+		handler, _ := Start(nil, nil, nil, nil, nil, 0, logrus.New(), namespacing.Disabled, opts...)
 		return handler
 	}
 
@@ -68,11 +70,11 @@ func TestEnqueueReleasesReservation(t *testing.T) {
 		return schemaManager
 	}
 
-	newHandler := func(schemaManager objects.ClassResolver, queue processingQueue, namespacesEnabled bool) *StreamHandler {
+	newHandler := func(schemaManager objects.ClassResolver, queue processingQueue, qualifier namespacing.Qualifier) *StreamHandler {
 		shuttingDownCtx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(cancel)
 		return NewStreamHandler(nil, nil, shuttingDownCtx, cancel, &sync.WaitGroup{}, &sync.WaitGroup{},
-			NewReportingQueues(), queue, nil, logrus.New(), schemaManager, namespacesEnabled,
+			NewReportingQueues(), queue, nil, logrus.New(), schemaManager, qualifier,
 			memwatch.NewDummyMonitor(), config.BatchStream{})
 	}
 
@@ -87,7 +89,7 @@ func TestEnqueueReleasesReservation(t *testing.T) {
 	}
 
 	t.Run("a namespace resolution error releases the reservation", func(t *testing.T) {
-		h := newHandler(newSchemaManager(nil), NewProcessingQueue(), true)
+		h := newHandler(newSchemaManager(nil), NewProcessingQueue(), wlnamespaces.NewPrefixing())
 
 		err := call(h, &models.Principal{Namespace: "customer1"}, "customer2:TestClass", &sync.WaitGroup{})
 
@@ -96,7 +98,7 @@ func TestEnqueueReleasesReservation(t *testing.T) {
 	})
 
 	t.Run("a class lookup error releases the reservation", func(t *testing.T) {
-		h := newHandler(newSchemaManager(errors.New("schema unavailable")), NewProcessingQueue(), false)
+		h := newHandler(newSchemaManager(errors.New("schema unavailable")), NewProcessingQueue(), namespacing.Disabled)
 
 		err := call(h, &models.Principal{}, className, &sync.WaitGroup{})
 
@@ -107,7 +109,7 @@ func TestEnqueueReleasesReservation(t *testing.T) {
 	t.Run("a panic at the queue send releases the reservation once and balances the wait group", func(t *testing.T) {
 		queue := NewProcessingQueue()
 		close(queue)
-		h := newHandler(newSchemaManager(nil), queue, false)
+		h := newHandler(newSchemaManager(nil), queue, namespacing.Disabled)
 
 		wg := &sync.WaitGroup{}
 		require.Panics(t, func() { _ = call(h, &models.Principal{}, className, wg) })

@@ -109,11 +109,8 @@ func runUsageScanTeardown(t *testing.T, nodeName, className, shardName string,
 	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
-	mockSchemaGetter.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-		Objects: &models.Schema{Classes: []*models.Class{class}},
-	}).Maybe()
+	mockSchemaGetter.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
 	mockSchemaGetter.EXPECT().ReadOnlyClass(className).Return(class).Maybe()
-	mockSchemaGetter.EXPECT().NodeName().Return(nodeName).Maybe()
 
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
 	mockNodeSelector.EXPECT().LocalName().Return(nodeName).Maybe()

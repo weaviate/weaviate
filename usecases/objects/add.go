@@ -28,8 +28,10 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 // AddObject Class Instance to the connected DB.
@@ -38,7 +40,7 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 ) (*models.Object, error) {
 	className, _, err := m.resolveNS(principal, object.Class)
 	if err != nil {
-		return nil, NewErrInvalidUserInput("%v", err)
+		return nil, userInputOrForbidden(err)
 	}
 	object.Class = className
 
@@ -95,7 +97,13 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 
 	autoSchemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, true, fetchedClasses, object)
 	if err != nil {
-		return nil, fmt.Errorf("invalid object: %w", err)
+		// A denial and a usage limit keep their own status. Every other error,
+		// a cluster failure writing the schema included, is reported as invalid
+		// input.
+		if _, limited := usagelimits.AsLimitExceeded(err); limited || errors.As(err, &authzerrs.Forbidden{}) {
+			return nil, fmt.Errorf("invalid object: %w", err)
+		}
+		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 	maxSchemaVersion = max(maxSchemaVersion, autoSchemaVersion)
 
@@ -197,7 +205,7 @@ func (m *Manager) validateObjectAndNormalizeNames(ctx context.Context,
 	class := fetchedClasses[incoming.Class].Class
 
 	return validation.New(m.vectorRepo.Exists, m.config, repl,
-		principal, m.config.Config.Namespaces.Enabled).
+		principal, m.qualifier).
 		Object(ctx, class, incoming, existing)
 }
 

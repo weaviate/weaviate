@@ -57,7 +57,23 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 	allocChecker memwatch.AllocChecker, tenants ...string,
 ) (*Index, *test.Hook) {
 	t.Helper()
-	ctx := context.Background()
+	return newWarmupIndexWithOpts(t, dirName, minObjects, allocChecker, warmupIndexOpts{}, tenants...)
+}
+
+type warmupIndexOpts struct {
+	ctx   context.Context
+	orch  SelfRecoveryOrchestrator
+	eager bool
+}
+
+func newWarmupIndexWithOpts(t *testing.T, dirName string, minObjects int64,
+	allocChecker memwatch.AllocChecker, opts warmupIndexOpts, tenants ...string,
+) (*Index, *test.Hook) {
+	t.Helper()
+	ctx := opts.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	logger, hook := test.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
 
@@ -91,9 +107,8 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
 
 	mockSchema := schemaUC.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
+	mockSchema.EXPECT().ReadOnlySchema().Maybe().Return(*fakeSchema.Objects)
 	mockSchema.EXPECT().ReadOnlyClass(warmupClassName).Maybe().Return(class)
-	mockSchema.EXPECT().NodeName().Maybe().Return(warmupNodeName)
 	mockSchema.EXPECT().TenantsShardsStatus(mock.Anything, warmupClassName, mock.Anything).Maybe().
 		Return(tenantStatus, nil)
 
@@ -115,12 +130,14 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 	shardResolver := resolver.NewShardResolver(warmupClassName, true, schemaGetter)
 
 	index, err := NewIndex(ctx, nil, IndexConfig{
+		NodeName:                      warmupNodeName,
 		RootPath:                      dirName,
 		ClassName:                     schema.ClassName(warmupClassName),
 		ReplicationFactor:             1,
 		ShardLoadLimiter:              loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
-		EnableLazyLoadShards:          true,
+		EnableLazyLoadShards:          !opts.eager,
 		LazyLoadShardWarmupMinObjects: minObjects,
+		SelfRecoveryOrchestrator:      opts.orch,
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{VectorCacheMaxObjects: 1000}, nil, mockRouter, shardResolver,
 		mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{},

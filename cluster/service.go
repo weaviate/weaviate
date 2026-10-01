@@ -225,7 +225,8 @@ func (c *Service) joinOrBootstrap(ctx context.Context, hasState bool) error {
 		joiner := bootstrap.NewJoiner(c.rpcClient, c.config.NodeID, c.raftAddr, c.config.Voter)
 		err := backoff.Retry(func() error {
 			joinNodes := bootstrap.ResolveRemoteNodes(c.config.NodeSelector, c.config.NodeNameToPortMap)
-			_, err := joiner.Do(bootstrapCtx, c.logger, joinNodes)
+			// Node has existing state, not a wiped joiner; barrier discarded.
+			_, _, err := joiner.Do(bootstrapCtx, c.logger, joinNodes)
 			return err
 		}, backoff.WithContext(backoff.NewConstantBackOff(1*time.Second), bootstrapCtx))
 		if err != nil {
@@ -241,6 +242,10 @@ func (c *Service) joinOrBootstrap(ctx context.Context, hasState bool) error {
 		c.config.Voter,
 		c.config.NodeSelector,
 		c.Raft.Ready,
+		// wiped-joiner catch-up barrier; no-op for non-wiped nodes.
+		c.Raft.store.SetJoinBarrier,
+		// a wiped joiner is "ready" pre-join; keep joining until the barrier lands.
+		c.Raft.store.NeedsJoinBarrier,
 	)
 	if err := bs.Do(
 		bootstrapCtx,

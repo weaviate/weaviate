@@ -74,6 +74,9 @@ function main() {
   run_acceptance_backup_dedupe_cross_version=false
   run_acceptance_backup_dedupe_incremental=false
   run_acceptance_backup_dedupe_misc=false
+  run_acceptance_self_recovery=false
+  run_acceptance_self_recovery_lazy=false
+  run_acceptance_self_recovery_intact=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -148,6 +151,9 @@ function main() {
           --acceptance-backup-dedupe-cross-version|-abdcv) run_all_tests=false; run_acceptance_backup_dedupe_cross_version=true;;
           --acceptance-backup-dedupe-incremental|-abdi) run_all_tests=false; run_acceptance_backup_dedupe_incremental=true;;
           --acceptance-backup-dedupe-misc|-abdm) run_all_tests=false; run_acceptance_backup_dedupe_misc=true;;
+          --acceptance-self-recovery|-asr) run_all_tests=false; run_acceptance_self_recovery=true;;
+          --acceptance-self-recovery-lazy|-asrl) run_all_tests=false; run_acceptance_self_recovery_lazy=true;;
+          --acceptance-self-recovery-intact|-asri) run_all_tests=false; run_acceptance_self_recovery_intact=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -207,6 +213,9 @@ function main() {
               "--acceptance-backup-dedupe-cross-version | -abdcv"\
               "--acceptance-backup-dedupe-incremental | -abdi"\
               "--acceptance-backup-dedupe-misc | -abdm"\
+              "--acceptance-self-recovery | -asr"\
+              "--acceptance-self-recovery-lazy | -asrl"\
+              "--acceptance-self-recovery-intact | -asri"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -532,6 +541,21 @@ function main() {
     echo "running backup dedupe misc acceptance tests"
     run_acceptance_backup_dedupe_misc
   fi
+
+  if $run_acceptance_self_recovery || $run_acceptance_tests || $run_all_tests; then
+    echo "running self-recovery acceptance tests"
+    run_acceptance_self_recovery
+  fi
+
+  if $run_acceptance_self_recovery_lazy || $run_acceptance_tests || $run_all_tests; then
+    echo "running self-recovery lazy-loading acceptance tests"
+    run_acceptance_self_recovery_lazy
+  fi
+
+  if $run_acceptance_self_recovery_intact || $run_acceptance_tests || $run_all_tests; then
+    echo "running self-recovery intact-node acceptance tests"
+    run_acceptance_self_recovery_intact
+  fi
   echo "Done!"
 }
 
@@ -730,6 +754,7 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/backup_dedupe_replicas' \
     | grep -v 'test/acceptance/distributed_tasks' \
     | grep -v 'test/acceptance/drop_vector_index' \
+    | grep -v 'test/acceptance/selfrecovery' \
     | sed 's|.*/test/acceptance/|test/acceptance/|'
 }
 
@@ -1169,6 +1194,24 @@ function run_acceptance_reindex_backup() {
   run_aof_group "reindex-backup" \
     test/acceptance/reindex_backup
 }
+function run_acceptance_self_recovery() {
+  build_weaviate_test_image
+  AOF_GROUP_SKIP='^TestSelfRecoveryLazy|^TestSelfRecoveryIntact' \
+    run_aof_group "self-recovery" test/acceptance/selfrecovery
+}
+
+function run_acceptance_self_recovery_lazy() {
+  build_weaviate_test_image
+  AOF_GROUP_RUN='^TestSelfRecoveryLazy' AOF_GROUP_TIMEOUT=40m \
+    run_aof_group "self-recovery-lazy" test/acceptance/selfrecovery
+}
+
+function run_acceptance_self_recovery_intact() {
+  build_weaviate_test_image
+  AOF_GROUP_RUN='^TestSelfRecoveryIntact' AOF_GROUP_TIMEOUT=30m \
+    run_aof_group "self-recovery-intact" test/acceptance/selfrecovery
+}
+
 
 function run_acceptance_drop_vector_index() {
   build_weaviate_test_image
