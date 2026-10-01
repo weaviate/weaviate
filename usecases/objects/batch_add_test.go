@@ -129,6 +129,19 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 			"the correct vector was used")
 	})
 
+	t.Run("ctx cancelled while vectorizing skips the write", func(t *testing.T) {
+		reset()
+		objectFinder.On("BatchPutObjects", mock.Anything).Return(nil).Maybe()
+		cancelCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		modulesProvider.On("BatchUpdateVector").Run(func(mock.Arguments) { cancel() }).Return(nil, nil)
+
+		_, err := manager.AddObjects(cancelCtx, nil, []*models.Object{{Class: "Foo"}}, []*string{}, nil)
+
+		require.ErrorIs(t, err, context.Canceled)
+		objectFinder.AssertNotCalled(t, "BatchPutObjects", mock.Anything)
+	})
+
 	t.Run("object without class", func(t *testing.T) {
 		reset()
 		objectFinder.On("BatchPutObjects", mock.Anything).Return(nil).Once()

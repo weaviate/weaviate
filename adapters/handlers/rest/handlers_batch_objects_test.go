@@ -14,11 +14,15 @@ package rest
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -142,4 +146,35 @@ func TestBatchObjectHandlers_AddObjects(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestBatchRequestsTotal_LogError(t *testing.T) {
+	cases := []struct {
+		name       string
+		err        error
+		wantStatus RequestStatus
+	}{
+		{name: "caller cancelled", err: fmt.Errorf("batch: %w", context.Canceled), wantStatus: UserError},
+		{name: "invalid input", err: objects.NewErrInvalidUserInput("bad"), wantStatus: UserError},
+		{name: "unexpected error", err: errors.New("disk full"), wantStatus: ServerError},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gauge := prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "requests_total"},
+				[]string{"status", "class_name", "api", "query_type"})
+			logger, _ := test.NewNullLogger()
+			e := &batchRequestsTotal{&restApiRequestsTotalImpl{
+				metrics:   &requestsTotalMetric{requestsTotal: gauge, api: "rest"},
+				api:       "rest",
+				queryType: "batch",
+				logger:    logger,
+			}}
+
+			e.logError("Foo", tc.err)
+
+			assert.Equal(t, 1.0, testutil.ToFloat64(gauge.With(prometheus.Labels{
+				"status": tc.wantStatus.String(), "class_name": "Foo", "api": "rest", "query_type": "batch",
+			})))
+		})
+	}
 }
