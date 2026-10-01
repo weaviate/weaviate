@@ -506,6 +506,12 @@ func shardsStorageStatusErrResponder(principal *models.Principal, err error) mid
 func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	if err, ok := emptyTenantActivityStatusFromContext(params.HTTPRequest.Context()); ok {
+		s.metricRequestsTotal.logError(params.ClassName, err)
+		return schema.NewTenantsCreateUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	}
+
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	_, err := s.manager.AddTenants(
 		ctx, principal, params.ClassName, params.Body,
