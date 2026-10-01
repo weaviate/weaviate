@@ -42,3 +42,9 @@ func IsNoLeader(err error) bool {
 		errors.Is(err, raft.ErrNotLeader) ||
 		errors.Is(err, raft.ErrLeadershipLost)
 }
+
+// IsNotCaughtUp reports whether err is a node still replaying the log rather than a fault: the
+// schema version the request needs has not been applied here yet, and will be shortly.
+func IsNotCaughtUp(err error) bool {
+	return errors.Is(err, ErrDeadlineExceeded)
+}

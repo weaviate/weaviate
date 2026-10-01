@@ -84,6 +84,9 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
+		if res := notCaughtUpResponder(principal, err); res != nil {
+			return res
+		}
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
@@ -349,6 +352,9 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError(params.ClassName, err)
+		if res := notCaughtUpResponder(principal, err); res != nil {
+			return res
+		}
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
@@ -386,6 +392,9 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError(className, err)
+		if res := notCaughtUpResponder(principal, err); res != nil {
+			return res
+		}
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
@@ -474,6 +483,9 @@ func (h *objectHandlers) patchObject(params objects.ObjectsClassPatchParams, pri
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError(getClassName(updates), err)
+		if res := notCaughtUpResponder(principal, err); res != nil {
+			return res
+		}
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(principal, err))
 	}

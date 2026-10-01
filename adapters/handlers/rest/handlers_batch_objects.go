@@ -41,6 +41,9 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
+		if res := notCaughtUpResponder(principal, err); res != nil {
+			return res
+		}
 		return batch.NewBatchObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
@@ -172,6 +175,9 @@ func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParam
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
+		if res := notCaughtUpResponder(principal, err); res != nil {
+			return res
+		}
 		return batch.NewBatchObjectsDeleteBadRequest().
 			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
