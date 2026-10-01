@@ -16,6 +16,7 @@ package db
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -187,15 +188,20 @@ func TestTTLSweepsATenantAcrossSeveralBatches(t *testing.T) {
 		expiredCount = 12
 		aliveCount   = 3
 		sweepBatch   = 5
+		maxRounds    = int32(4)
 	)
 
 	repo := setupTTLTenantRepo(t, sweepBatch, expiredCount, aliveCount)
 	index, logger := ttlIndex(t, repo)
 
+	ctx, cancel := context.WithCancelCause(context.Background())
+	t.Cleanup(func() { cancel(nil) })
+	boundTTLRounds(t, logger, maxRounds, cancel)
+
 	var deleted atomic.Int32
 	eg := enterrors.NewErrorGroupWrapper(logger)
 	ec := errorcompounder.New()
-	index.incomingDeleteObjectsExpired(context.Background(), eg, ec, batchDeleteTTLProp,
+	index.incomingDeleteObjectsExpired(ctx, eg, ec, batchDeleteTTLProp,
 		time.Now(), time.Now(), func(n int32) { deleted.Add(n) }, 0)
 	eg.Wait()
 
@@ -237,6 +243,46 @@ func (c *ttlRoundCounter) Fire(entry *logrus.Entry) error {
 	return nil
 }
 
+// ttlSweepSummary captures the one summary line a class's shard sweep logs as it ends.
+type ttlSweepSummary struct {
+	mu     sync.Mutex
+	fields logrus.Fields
+}
+
+func (s *ttlSweepSummary) Levels() []logrus.Level { return logrus.AllLevels }
+
+func (s *ttlSweepSummary) Fire(entry *logrus.Entry) error {
+	if entry.Message != "shard sweep finished" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.fields = entry.Data
+	return nil
+}
+
+func (s *ttlSweepSummary) get(t *testing.T) logrus.Fields {
+	t.Helper()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	require.NotNil(t, s.fields, "a class's shard sweep logs one summary line as it ends")
+	return s.fields
+}
+
+func captureTTLSweepSummary(t *testing.T, logger *logrus.Logger) *ttlSweepSummary {
+	t.Helper()
+
+	summary := &ttlSweepSummary{}
+	logger.SetLevel(logrus.DebugLevel)
+	logger.AddHook(summary)
+	return summary
+}
+
+// ttlSweepDeadline is far above what any test here takes, so it fires only on a sweep that is
+// not going to stop.
+const ttlSweepDeadline = 20 * time.Second
+
 func boundTTLRounds(t *testing.T, logger *logrus.Logger, maxRounds int32,
 	cancel context.CancelCauseFunc,
 ) *ttlRoundCounter {
@@ -245,6 +291,14 @@ func boundTTLRounds(t *testing.T, logger *logrus.Logger, maxRounds int32,
 	counter := &ttlRoundCounter{maxRounds: maxRounds, cancel: cancel}
 	logger.SetLevel(logrus.DebugLevel)
 	logger.AddHook(counter)
+
+	// the round count comes off a line the sweep owns, so rewording it would leave the count at
+	// zero and bound nothing. The deadline ends a sweep that will not stop whatever it logs.
+	deadline := time.AfterFunc(ttlSweepDeadline, func() {
+		cancel(errors.New("the sweep did not finish within the test's deadline"))
+	})
+	t.Cleanup(func() { deadline.Stop() })
+
 	return counter
 }
 
@@ -305,6 +359,7 @@ func TestTTLStopsSweepingShardsWhoseDeleteFails(t *testing.T) {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	t.Cleanup(func() { cancel(nil) })
 	rounds := boundTTLRounds(t, logger, maxRounds, cancel)
+	summary := captureTTLSweepSummary(t, logger)
 	calls := &atomic.Int32{}
 	index.schemaReader = ttlCountingSchemaReader{
 		SchemaReader: index.schemaReader, calls: calls, err: deleteErr,
@@ -324,6 +379,57 @@ func TestTTLStopsSweepingShardsWhoseDeleteFails(t *testing.T) {
 	err := ec.ToError()
 	require.ErrorContains(t, err, "batch delete")
 	require.ErrorIs(t, err, deleteErr)
+
+	fields := summary.get(t)
+	require.Equal(t, 1, fields["abandoned"],
+		"an abandoned shard must be countable without parsing the compounded error string")
+	require.Equal(t, 1, fields["filed"])
+	require.Equal(t, 1, fields["shards"])
+}
+
+// TestTTLSweepsAShardTheLastSweepDropped pins that a shard dropped and filed by one sweep is swept,
+// and its failure filed, again by the next.
+func TestTTLSweepsAShardTheLastSweepDropped(t *testing.T) {
+	const (
+		expiredCount = 12
+		aliveCount   = 3
+		sweepBatch   = 5
+		maxRounds    = int32(7)
+	)
+	deleteErr := errors.New("schema never caught up")
+
+	repo := setupTTLShardRepo(t, sweepBatch, singleShardState(), expiredCount, aliveCount)
+	index, logger := ttlIndex(t, repo)
+
+	ctx, cancel := context.WithCancelCause(context.Background())
+	t.Cleanup(func() { cancel(nil) })
+	boundTTLRounds(t, logger, maxRounds, cancel)
+
+	sweep := func() (int32, error) {
+		var deleted atomic.Int32
+		eg := enterrors.NewErrorGroupWrapper(logger)
+		ec := errorcompounder.NewSafe()
+		index.incomingDeleteObjectsExpired(ctx, eg, ec, batchDeleteTTLProp,
+			time.Now(), time.Now(), func(n int32) { deleted.Add(n) }, 1)
+		eg.Wait()
+		return deleted.Load(), ec.ToError()
+	}
+
+	original := index.schemaReader
+	index.schemaReader = ttlCountingSchemaReader{
+		SchemaReader: original, calls: &atomic.Int32{}, err: deleteErr,
+	}
+	deleted, err := sweep()
+	require.ErrorIs(t, err, deleteErr)
+	require.Equal(t, int32(0), deleted, "the first sweep's delete fails, so it drops the shard")
+	_, err = sweep()
+	require.ErrorIs(t, err, deleteErr, "a later sweep files the same failure again")
+
+	index.schemaReader = original
+	deleted, err = sweep()
+	require.NoError(t, err)
+	require.Equal(t, int32(expiredCount), deleted,
+		"the next sweep starts with an empty drop set and clears what the last one abandoned")
 }
 
 // TestTTLSweepsShardsAcrossSeveralRounds drives the same closure over more expired objects than
@@ -349,6 +455,7 @@ func TestTTLSweepsShardsAcrossSeveralRounds(t *testing.T) {
 	index.schemaReader = ttlCountingSchemaReader{
 		SchemaReader: index.schemaReader, calls: calls,
 	}
+	summary := captureTTLSweepSummary(t, logger)
 
 	var deleted atomic.Int32
 	eg := enterrors.NewErrorGroupWrapper(logger)
@@ -360,9 +467,13 @@ func TestTTLSweepsShardsAcrossSeveralRounds(t *testing.T) {
 	require.NoError(t, ec.ToError())
 	require.Equal(t, int32(expiredCount), deleted.Load(),
 		"every expired object goes, over more than one round of %d per shard", sweepBatch)
-	require.GreaterOrEqual(t, calls.Load(), int32(expiredCount/sweepBatch),
-		"a round deletes at most %d per shard, so more than one ran", sweepBatch)
-	require.Greater(t, rounds.rounds.Load(), int32(1), "the sweep ran more than one round")
+	require.Greater(t, rounds.rounds.Load(), int32(2), "the sweep ran more than one deleting round")
+
+	fields := summary.get(t)
+	require.Equal(t, 0, fields["abandoned"])
+	require.Equal(t, 0, fields["filed"])
+	require.Equal(t, int(rounds.rounds.Load()), fields["rounds"])
+	require.Equal(t, len(multiShardState().AllPhysicalShards()), fields["shards"])
 }
 
 // TestTTLReportsABatchSlotNoDeleteWroteTo covers a batch whose per-object delete panicked, which
@@ -372,18 +483,35 @@ func TestTTLReportsABatchSlotNoDeleteWroteTo(t *testing.T) {
 	// the integration job disables recovery, under which the panic below kills the binary
 	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
 
-	shardState := singleShardState()
-	repo := setupTTLShardRepo(t, 5, shardState, 1, 1)
-	index, _ := ttlIndex(t, repo)
+	t.Run("a batch whose only delete panicked made no progress", func(t *testing.T) {
+		shardState := singleShardState()
+		repo := setupTTLShardRepo(t, 5, shardState, 1, 1)
+		index, _ := ttlIndex(t, repo)
 
-	var deleted atomic.Int32
-	// uuid.MustParse panics on this id inside the per-object goroutine, so nothing writes the
-	// slot that object was given
-	err := index.incomingDeleteObjectsExpiredUuids(context.Background(), time.Now(),
-		shardState.AllPhysicalShards()[0], "", []strfmt.UUID{"not-a-uuid"},
-		func(n int32) { deleted.Add(n) }, defaultConsistency(), 0)
+		// uuid.MustParse panics on this id inside the per-object goroutine, so nothing writes the
+		// slot that object was given
+		deleted, err := index.incomingDeleteObjectsExpiredUuids(context.Background(), time.Now(),
+			shardState.AllPhysicalShards()[0], "", []strfmt.UUID{"not-a-uuid"},
+			defaultConsistency(), 0)
 
-	require.Error(t, err, "a batch slot no delete wrote to must not read as a success")
-	require.Equal(t, int32(0), deleted.Load(),
-		"a batch whose object delete panicked deleted nothing, so its round made no progress")
+		require.Error(t, err, "a batch slot no delete wrote to must not read as a success")
+		require.Equal(t, int32(0), deleted,
+			"a batch whose object delete panicked deleted nothing, so its round made no progress")
+	})
+
+	t.Run("a batch that deleted one of two reports the progress and the failure", func(t *testing.T) {
+		shardState := singleShardState()
+		repo := setupTTLShardRepo(t, 5, shardState, 1, 1)
+		index, _ := ttlIndex(t, repo)
+
+		// the pair both arms' drop condition turns on: one slot deleted, one slot no delete wrote to
+		deleted, err := index.incomingDeleteObjectsExpiredUuids(context.Background(), time.Now(),
+			shardState.AllPhysicalShards()[0], "",
+			[]strfmt.UUID{batchDeleteObjectID(0), "not-a-uuid"},
+			defaultConsistency(), 0)
+
+		require.Error(t, err)
+		require.Equal(t, int32(1), deleted,
+			"a batch that deleted part of its uuids made progress, so its shard is not dropped")
+	})
 }
