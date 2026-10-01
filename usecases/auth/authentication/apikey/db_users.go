@@ -65,6 +65,12 @@ func MakeUserKey(userId, namespace string) string {
 	return namespacing.QualifiedName(namespace, userId)
 }
 
+// IsOwnUser reports whether userKey is the user principal logged in as with an
+// API key. An OIDC principal with the same name is a different user.
+func IsOwnUser(principal *models.Principal, userKey string) bool {
+	return principal != nil && principal.UserType == models.UserTypeInputDb && principal.Username == userKey
+}
+
 // DBUsers is the cluster-side interface implemented by *cluster.Raft.
 // Write methods accept a context so the implementation can propagate
 // request cancellation through RAFT.
