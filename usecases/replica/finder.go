@@ -70,6 +70,17 @@ const (
 	LocalIndexNotReadyMsg = "local index not ready"
 )
 
+// defaultRequestBudget bounds a replicated read, pull and repair, when the caller set no deadline
+const defaultRequestBudget = 20 * time.Second
+
+// withRequestBudget applies defaultRequestBudget only when ctx has no deadline
+func withRequestBudget(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, defaultRequestBudget)
+}
+
 // AsyncReplicationSkipReason returns the skip-metric label for a retry-later error.
 func AsyncReplicationSkipReason(err error) string {
 	switch {
@@ -146,6 +157,9 @@ func (f *Finder) GetOne(ctx context.Context,
 	props search.SelectProperties,
 	adds additional.Properties,
 ) (*storobj.Object, error) {
+	ctx, cancel := withRequestBudget(ctx)
+	defer cancel()
+
 	c := NewReadCoordinator[findOneReply](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
 	op := func(ctx context.Context, host string, fullRead bool) (findOneReply, error) {
 		if fullRead {
@@ -266,6 +280,10 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 		}
 		return nil
 	}
+
+	ctx, cancel := withRequestBudget(ctx)
+	defer cancel()
+
 	// check shard consistency concurrently
 	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(f.logger, ctx)
 	for _, part := range clusterObjectByShard(createBatch(xs)) {
@@ -288,6 +306,9 @@ func (f *Finder) Exists(ctx context.Context,
 	shard string,
 	id strfmt.UUID,
 ) (bool, error) {
+	ctx, cancel := withRequestBudget(ctx)
+	defer cancel()
+
 	c := NewReadCoordinator[existReply](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
 	op := func(ctx context.Context, host string, _ bool) (existReply, error) {
 		xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id}, 0)
@@ -687,7 +708,8 @@ func (f *Finder) CountObjects(ctx context.Context, shard string, cl types.Consis
 		return count, nil
 	}, "", time.Minute)
 	if err != nil {
-		return 0, nil
+		// a routing failure must not read as an empty shard: aggregateCount sums these
+		return 0, err
 	}
 
 	// Fan in results from all concurrent Pull requests. Results with

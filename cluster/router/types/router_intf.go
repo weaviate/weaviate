@@ -127,6 +127,12 @@ type Replica struct {
 	HostAddr  string
 }
 
+// ReplicaHealth reports replicas the local data path found unable to serve, keyed by host address.
+// Advisory: routing demotes such a replica, never drops it, so a shard stays routable.
+type ReplicaHealth interface {
+	Unhealthy(hostAddr string) bool
+}
+
 // String returns a human-readable representation of a single Replica,
 // including node name, shard name, and host address.
 func (r Replica) String() string {

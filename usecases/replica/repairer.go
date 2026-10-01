@@ -31,6 +31,9 @@ import (
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
+// defaultReadRepairBudget bounds inline repair; what it does not finish converges asynchronously
+const defaultReadRepairBudget = time.Second
+
 // repairer tries to detect inconsistencies and repair objects when reading them from replicas
 type repairer struct {
 	class               string
@@ -57,6 +60,10 @@ func (r *repairer) repairOne(ctx context.Context,
 		}
 		r.metrics.ObserveReadRepairDuration(time.Since(start))
 	}(time.Now())
+
+	// bounded inside whatever the request has left
+	ctx, cancel := context.WithTimeout(ctx, defaultReadRepairBudget)
+	defer cancel()
 
 	var (
 		deleted          bool
