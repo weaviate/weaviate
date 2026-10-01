@@ -122,7 +122,16 @@ func Benchmark_Migration(b *testing.B) {
 			fmt.Printf("Added vectors, now migrating\n")
 
 			repo.config.TrackVectorDimensions = true
-			migrator.RecalculateVectorDimensions(context.TODO())
+			require.NoError(b, repo.GetIndex("Test").ForEachShard(func(_ string, shard ShardLike) error {
+				if lazy, ok := shard.(*LazyLoadShard); ok {
+					if err := lazy.Load(context.TODO()); err != nil {
+						return err
+					}
+					shard = lazy.shard
+				}
+				_, err := shard.(*Shard).recalculateDimensions(context.TODO())
+				return err
+			}))
 			fmt.Printf("Benchmark complete")
 		}()
 	}
@@ -204,13 +213,27 @@ func Test_Migration(t *testing.T) {
 
 	dimBefore := getDimensionsFromRepo(context.Background(), repo, "Test")
 	require.Equal(t, 0, dimBefore, "dimensions should not have been calculated")
-	repo.config.TrackVectorDimensions = true
-	migrator.RecalculateVectorDimensions(context.TODO())
-	dimAfterRecalculation := getDimensionsFromRepo(context.Background(), repo, "Test")
+
+	// restart with REINDEX_VECTOR_DIMENSIONS_AT_STARTUP, startup rebuilds the shard before loading it
+	require.NoError(t, repo.Shutdown(context.Background()))
+	repoReindex, err := New(logger, "node1", Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       1000,
+		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
+		ReindexVectorDimensions:   true,
+		EnableLazyLoadShards:      boolPtr(false),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
+	require.Nil(t, err)
+	repoReindex.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repoReindex.WaitForStartup(testCtx()))
+	dimAfterRecalculation := getDimensionsFromRepo(context.Background(), repoReindex, "Test")
 	require.Equal(t, 12800, dimAfterRecalculation, "dimensions should be counted now")
+	require.NoError(t, NewMigrator(repoReindex, logger, "node1").ReportVectorDimensionsReindex(testCtx()))
 
 	// shut down and test calculation from unloaded shard with new repo
-	require.NoError(t, repo.Shutdown(context.Background()))
+	require.NoError(t, repoReindex.Shutdown(context.Background()))
 	repoNew, err := New(logger, "node1", Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       1000,
