@@ -17,6 +17,8 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
@@ -119,7 +121,7 @@ func enumerationCases() []createReindexTasksEnumerationCase {
 				Collection:         "MyClass",
 				Properties:         []string{"title"},
 				TargetTokenization: "field",
-				BucketStrategy:     "MapCollection",
+				BucketStrategy:     lsmkv.StrategyMapCollection,
 			},
 			// With nil schemaManager, propertyHasFilterableBucket returns
 			// true (defensive), so both searchable + filterable sub-tasks
@@ -143,7 +145,7 @@ func enumerationCases() []createReindexTasksEnumerationCase {
 				Collection:         "MyClass",
 				Properties:         []string{"a", "b"}, // more than 1 prop
 				TargetTokenization: "field",
-				BucketStrategy:     "MapCollection",
+				BucketStrategy:     lsmkv.StrategyMapCollection,
 			},
 			wantNTasks:   0,
 			wantErrSubst: "exactly one property",

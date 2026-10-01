@@ -25,6 +25,7 @@ import (
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -79,7 +80,7 @@ func TestSwapPhaseLoadsTheShardBeforeClaimingItsUnit(t *testing.T) {
 
 	payload := &ReindexTaskPayload{
 		Collection: className, MigrationType: ReindexTypeChangeTokenization,
-		Properties: []string{prop}, TargetTokenization: "field", BucketStrategy: "MapCollection",
+		Properties: []string{prop}, TargetTokenization: "field", BucketStrategy: lsmkv.StrategyMapCollection,
 		UnitToShard: map[string]string{unitID: tenant},
 		UnitToNode:  map[string]string{unitID: node},
 	}
@@ -122,7 +123,7 @@ func TestAPhaseHoldsItsUnitWhileItRuns(t *testing.T) {
 
 	payload := &ReindexTaskPayload{
 		Collection: className, MigrationType: ReindexTypeChangeTokenization,
-		Properties: []string{"title"}, TargetTokenization: "field", BucketStrategy: "MapCollection",
+		Properties: []string{"title"}, TargetTokenization: "field", BucketStrategy: lsmkv.StrategyMapCollection,
 		UnitToShard: map[string]string{"u1": hot.Name()},
 		UnitToNode:  map[string]string{"u1": "node1"},
 	}
@@ -169,7 +170,7 @@ func TestASealedUnitNeverStartsItsIteration(t *testing.T) {
 			name: "semantic",
 			payload: ReindexTaskPayload{
 				MigrationType: ReindexTypeChangeTokenization, Properties: []string{"title"},
-				TargetTokenization: "field", BucketStrategy: "MapCollection",
+				TargetTokenization: "field", BucketStrategy: lsmkv.StrategyMapCollection,
 			},
 		},
 		{
@@ -228,7 +229,7 @@ func TestUnitsHeldByATeardownReportAtASampledRate(t *testing.T) {
 	desc := distributedtask.TaskDescriptor{ID: "T_contended", Version: 1}
 	payload := &ReindexTaskPayload{
 		Collection: className, MigrationType: ReindexTypeChangeTokenization,
-		Properties: []string{"title"}, TargetTokenization: "field", BucketStrategy: "MapCollection",
+		Properties: []string{"title"}, TargetTokenization: "field", BucketStrategy: lsmkv.StrategyMapCollection,
 		UnitToShard: map[string]string{},
 		UnitToNode:  map[string]string{},
 	}
