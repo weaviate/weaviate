@@ -152,7 +152,7 @@ func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
 		if err := asyncNotReadyError(res.StatusCode, b); err != nil {
 			return nil, err
 		}
-		return nil, fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
+		return nil, &HTTPError{Code: res.StatusCode, Body: b}
 	}
 
 	if res.Header.Get("X-Response-Encoding") == "binary" {
@@ -251,7 +251,7 @@ func (c *replicationClient) CompareDigests(ctx context.Context,
 		if err := asyncNotReadyError(res.StatusCode, b); err != nil {
 			return nil, err
 		}
-		return nil, fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
+		return nil, &HTTPError{Code: res.StatusCode, Body: b}
 	}
 
 	return readCompareDigestsBinaryStream(res.Body, res.ContentLength, len(digests))
@@ -355,7 +355,7 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 		if err := asyncNotReadyError(code, errBody); err != nil {
 			return nil, err
 		}
-		return nil, fmt.Errorf("status code: %v, error: %s", code, errBody)
+		return nil, &HTTPError{Code: code, Body: errBody}
 	}
 
 	if res.Header.Get("X-Response-Encoding") == "binary" {
@@ -390,7 +390,7 @@ func (c *replicationClient) postCompareRoots(req *http.Request, out any) error {
 	}
 	if code := res.StatusCode; !successCode(code) {
 		errBody, _ := io.ReadAll(res.Body)
-		return fmt.Errorf("status code: %v, error: %s", code, errBody)
+		return &HTTPError{Code: code, Body: errBody}
 	}
 
 	if err := json.NewDecoder(res.Body).Decode(out); err != nil {
@@ -523,7 +523,7 @@ func (c *replicationClient) CreateAsyncCheckpoint(ctx context.Context,
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
-		return fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
+		return &HTTPError{Code: res.StatusCode, Body: b}
 	}
 	return nil
 }
@@ -548,7 +548,7 @@ func (c *replicationClient) DeleteAsyncCheckpoint(ctx context.Context,
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
-		return fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
+		return &HTTPError{Code: res.StatusCode, Body: b}
 	}
 	return nil
 }
@@ -568,7 +568,7 @@ func (c *replicationClient) GetAsyncCheckpointStatus(ctx context.Context,
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
-		return nil, fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
+		return nil, &HTTPError{Code: res.StatusCode, Body: b}
 	}
 	var raw map[string]asyncCheckpointStatusEntry
 	if err := json.NewDecoder(res.Body).Decode(&raw); err != nil {
@@ -641,7 +641,7 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 		if err := asyncNotReadyError(res.StatusCode, b); err != nil {
 			return nil, err
 		}
-		return nil, fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
+		return nil, &HTTPError{Code: res.StatusCode, Body: b}
 	}
 
 	var resp []types.RepairResponse
@@ -907,7 +907,7 @@ func (c *replicationClient) doRetry(req *http.Request, body []byte, resp interfa
 
 		if code := res.StatusCode; code != http.StatusOK {
 			b, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v, error: %s", code, b)
+			return shouldRetry(code), &HTTPError{Code: code, Body: b}
 		}
 		if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
 			return false, fmt.Errorf("decode response: %w", err)
@@ -927,6 +927,12 @@ func (c *replicationClient) doCustomUnmarshal(timeout time.Duration,
 // It implements truncated exponential back-off with introduced jitter.
 func backOff(d time.Duration) time.Duration {
 	return time.Duration(float64(d.Nanoseconds()*2) * (0.5 + rand.Float64()))
+}
+
+// Is lets a caller classify a peer's refusal without parsing the body: a 503 on the cluster API
+// means the node, or the class it was asked for, cannot serve yet.
+func (e *HTTPError) Is(target error) bool {
+	return target == replica.ErrReplicaNotReady && e.Code == http.StatusServiceUnavailable
 }
 
 func shouldRetry(code int) bool {
