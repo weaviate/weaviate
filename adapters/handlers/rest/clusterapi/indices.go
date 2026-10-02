@@ -473,6 +473,11 @@ func (i *indices) postObjectBatch(w http.ResponseWriter, r *http.Request,
 	}
 
 	errs := i.shards.BatchPutObjects(r.Context(), index, shard, objs, schemaVersion)
+	if lagging := batchNotCaughtUp(errs); lagging != nil {
+		// a batch that failed only because this node is behind is not a per-object problem
+		http.Error(w, lagging.Error(), http.StatusServiceUnavailable)
+		return
+	}
 	errsJSON, err := shared.IndicesPayloads.ErrorList.Marshal(errs)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -847,6 +852,11 @@ func (i *indices) postReferences() http.Handler {
 		}
 
 		errs := i.shards.BatchAddReferences(r.Context(), index, shard, refs, schemaVersion)
+		if lagging := batchNotCaughtUp(errs); lagging != nil {
+			// a batch that failed only because this node is behind is not a per-object problem
+			http.Error(w, lagging.Error(), http.StatusServiceUnavailable)
+			return
+		}
 		errsJSON, err := shared.IndicesPayloads.ErrorList.Marshal(errs)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1205,7 +1215,7 @@ func (i *indices) deleteObjects() http.Handler {
 
 		resBytes, err := shared.IndicesPayloads.BatchDeleteResults.Marshal(results)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), operationStatus(err))
 			return
 		}
 
@@ -1331,7 +1341,7 @@ func (i *indices) postUpdateShardStatus() http.Handler {
 
 		err = i.shards.UpdateShardStatus(r.Context(), index, shard, targetStatus, schemaVersion)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), operationStatus(err))
 			return
 		}
 	})
@@ -1441,7 +1451,7 @@ func (i *indices) postAddAsyncReplicationTargetNode() http.Handler {
 
 		err = i.shards.AddAsyncReplicationTargetNode(r.Context(), indexName, shardName, targetNodeOverride, schemaVersion)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), operationStatus(err))
 			return
 		}
 
@@ -1472,7 +1482,8 @@ func (i *indices) deleteAsyncReplicationTargetNode() http.Handler {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
-			if strings.Contains(err.Error(), fmt.Sprintf("local index %q not found", indexName)) {
+			var missing enterrors.ErrLocalIndexNotFound
+			if errors.As(err, &missing) {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
@@ -1491,12 +1502,31 @@ func notCaughtUp(err error) bool {
 	if err == nil {
 		return false
 	}
+	// the schema wait wraps ErrDeadlineExceeded all the way up from Store.WaitForAppliedIndex
 	if errors.Is(err, clusterTypes.ErrDeadlineExceeded) {
 		return true
 	}
-	msg := err.Error()
-	return strings.Contains(msg, "wait for schema version") ||
-		(strings.Contains(msg, "local index") && strings.Contains(msg, "not found"))
+	var missing enterrors.ErrLocalIndexNotFound
+	return errors.As(err, &missing)
+}
+
+// batchNotCaughtUp reports whether every error in a batch is this node lagging. The schema wait
+// fails the whole batch with one duplicated error, so all-or-nothing keeps a partial failure as a
+// per-object error list rather than hiding it behind a status.
+func batchNotCaughtUp(errs []error) error {
+	var first error
+	for _, err := range errs {
+		if err == nil {
+			continue
+		}
+		if !notCaughtUp(err) {
+			return nil
+		}
+		if first == nil {
+			first = err
+		}
+	}
+	return first
 }
 
 // operationStatus renders a failed shard operation: a node that has not caught up is unavailable,
