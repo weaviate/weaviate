@@ -53,6 +53,10 @@ var ErrUserIdentifierExists = errors.New("user identifier already exists")
 // with one the caller supplied, locking that user out of the cluster.
 var ErrUserExists = errors.New("user already exists with a different credential")
 
+// ErrUserExpired is returned by ValidateAndExtract and ValidateImportedKey once
+// the user's ExpiresAt is reached.
+var ErrUserExpired = errors.New("user expired")
+
 // MakeUserKey returns the internal storage key for a user. Namespaced users
 // are stored under "namespace<sep>userId" so two namespaces can host the same
 // short id without collision; unnamespaced users keep the bare id for
@@ -94,8 +98,11 @@ type User struct {
 	ApiKeyFirstLetters string
 	CreatedAt          time.Time
 	LastUsedAt         time.Time
-	ImportedWithKey    bool
-	Namespace          string
+	// ExpiresAt is when ValidateAndExtract and ValidateImportedKey start
+	// refusing the user's key. Zero means never.
+	ExpiresAt       time.Time
+	ImportedWithKey bool
+	Namespace       string
 }
 
 // UserView is an independent snapshot of [User] returned by [DBUser.GetUsers]
@@ -115,9 +122,14 @@ func (u *User) view() UserView {
 		ApiKeyFirstLetters: u.ApiKeyFirstLetters,
 		CreatedAt:          u.CreatedAt,
 		LastUsedAt:         u.LastUsedAt,
+		ExpiresAt:          u.ExpiresAt,
 		ImportedWithKey:    u.ImportedWithKey,
 		Namespace:          u.Namespace,
 	}
+}
+
+func (u *User) isExpired(now time.Time) bool {
+	return !u.ExpiresAt.IsZero() && !now.Before(u.ExpiresAt)
 }
 
 type DBUser struct {
@@ -464,6 +476,7 @@ func (c *DBUser) ExportUsers(userIds ...string) (map[string]dbuser.ExportRecord,
 			ApiKeyFirstLetters: v.ApiKeyFirstLetters,
 			Active:             v.Active,
 			CreatedAt:          v.CreatedAt,
+			ExpiresAt:          v.ExpiresAt,
 			Namespace:          v.Namespace,
 		}
 		if v.ImportedWithKey {
@@ -574,6 +587,9 @@ func (c *DBUser) ValidateImportedKey(token string) (*models.Principal, error) {
 		if _, ok := c.data.UserKeyRevoked[userId]; ok {
 			return nil, fmt.Errorf("key is revoked")
 		}
+		if u.isExpired(time.Now()) {
+			return nil, ErrUserExpired
+		}
 
 		// imported keys are always without a namespace, something is seriously wrong here
 		if u.Namespace != "" {
@@ -654,6 +670,9 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 	}
 	if _, ok := c.data.UserKeyRevoked[userId]; ok {
 		return nil, fmt.Errorf("key is revoked")
+	}
+	if u.isExpired(time.Now()) {
+		return nil, ErrUserExpired
 	}
 	if err := namespaces.RequireActive(c.nsExister, u.Namespace); err != nil {
 		return nil, err
@@ -905,6 +924,7 @@ func stripDBUserNamespace(src dbUserdata) (dbUserdata, error) {
 			ApiKeyFirstLetters: user.ApiKeyFirstLetters,
 			CreatedAt:          user.CreatedAt,
 			LastUsedAt:         user.LastUsedAt,
+			ExpiresAt:          user.ExpiresAt,
 			ImportedWithKey:    user.ImportedWithKey,
 			Namespace:          user.Namespace,
 		}

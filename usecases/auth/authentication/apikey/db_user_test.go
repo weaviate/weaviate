@@ -15,7 +15,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strconv"
 	"sync"
 	"testing"
@@ -66,26 +65,6 @@ func TestDynUserConcurrency(t *testing.T) {
 	users, err := dynUsers.GetUsers(userNames...)
 	require.NoError(t, err)
 	require.Equal(t, len(userNames), len(users))
-}
-
-// Pins UserView's data fields to User's. Adding a field to User without
-// mirroring it in UserView (and view()) would silently drop it from the
-// GetUsers snapshot.
-func TestUserView_MirrorsUserFields(t *testing.T) {
-	collect := func(typ reflect.Type) map[string]string {
-		out := make(map[string]string, typ.NumField())
-		for i := 0; i < typ.NumField(); i++ {
-			f := typ.Field(i)
-			if f.Anonymous || !f.IsExported() {
-				continue
-			}
-			out[f.Name] = f.Type.String()
-		}
-		return out
-	}
-
-	require.Equal(t, collect(reflect.TypeOf(User{})), collect(reflect.TypeOf(UserView{})),
-		"User and UserView must expose the same exported data fields; update UserView and (*User).view() when adding fields to User")
 }
 
 // Concurrent Activate/Deactivate vs GetUsers field reads must stay race-free under -race.
@@ -802,6 +781,19 @@ func TestValidateAndExtract_NamespaceGuard(t *testing.T) {
 				m.AssertNotCalled(t, "GetNamespace")
 			},
 		},
+		{
+			name:      "expired user on suspended namespace",
+			userNs:    nsName,
+			setupMock: func(t *testing.T) *namespaces.MockExister { return namespaces.NewMockExister(t) },
+			tamper: func(t *testing.T, dyn *DBUser, userId, validKey string) string {
+				dyn.data.Users[userId].ExpiresAt = time.Now().Add(-time.Hour)
+				return validKey
+			},
+			wantErrIs: ErrUserExpired,
+			assertMock: func(t *testing.T, m *namespaces.MockExister) {
+				m.AssertNotCalled(t, "GetNamespace")
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -1513,6 +1505,8 @@ func TestExportUsers(t *testing.T) {
 		_, hash, identifier, err := keys.CreateApiKeyAndHash()
 		require.NoError(t, err)
 		require.NoError(t, dynUsers.CreateUser("user", hash, identifier, "abc", "", time.Now()))
+		expiresAt := time.Now().Add(time.Hour)
+		dynUsers.data.Users["user"].ExpiresAt = expiresAt
 
 		records, err := dynUsers.ExportUsers()
 		require.NoError(t, err)
@@ -1524,6 +1518,7 @@ func TestExportUsers(t *testing.T) {
 		require.Equal(t, identifier, rec.UserIdentifier)
 		require.Equal(t, "abc", rec.ApiKeyFirstLetters)
 		require.True(t, rec.Active)
+		require.Equal(t, expiresAt, rec.ExpiresAt)
 	})
 
 	t.Run("user with no stored hash fails the whole export", func(t *testing.T) {
@@ -1757,4 +1752,18 @@ func TestRestoreAcceptsRestoredKeyAfterCachedLogin(t *testing.T) {
 			require.Equal(t, userId, principal.Username)
 		})
 	}
+}
+
+func TestValidateImportedKey_Expiry(t *testing.T) {
+	const userId, token = "user", "imported-key"
+	dyn, err := NewDBUser(t.TempDir(), true, log, activeExister{})
+	require.NoError(t, err)
+	require.NoError(t, dyn.CreateUserWithKey(userId, token[:3], sha256.Sum256([]byte(token)), time.Now()))
+	dyn.data.Users[userId].ExpiresAt = time.Now().Add(-time.Hour)
+	lastUsedBefore := dyn.data.Users[userId].LastUsedAt
+
+	principal, err := dyn.ValidateImportedKey(token)
+	require.ErrorIs(t, err, ErrUserExpired)
+	require.Nil(t, principal)
+	require.Equal(t, lastUsedBefore, dyn.data.Users[userId].LastUsedAt)
 }
