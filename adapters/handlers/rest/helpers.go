@@ -19,6 +19,7 @@ import (
 	"github.com/go-openapi/runtime"
 	middleware "github.com/go-openapi/runtime/middleware"
 
+	clusterTypes "github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -46,6 +47,19 @@ func errPayloadFromSingleErr(principal *models.Principal, err error) *models.Err
 func tooManyRequestsResponder(principal *models.Principal, err error) middleware.Responder {
 	return middleware.ResponderFunc(func(rw http.ResponseWriter, producer runtime.Producer) {
 		rw.WriteHeader(http.StatusTooManyRequests)
+		if perr := producer.Produce(rw, errPayloadFromSingleErr(principal, err)); perr != nil {
+			panic(perr) // let the recovery middleware deal with this
+		}
+	})
+}
+
+// notCaughtUpResponder renders a node that is still replaying the log as 503, or nil to fall through
+func notCaughtUpResponder(principal *models.Principal, err error) middleware.Responder {
+	if !clusterTypes.IsNotCaughtUp(err) {
+		return nil
+	}
+	return middleware.ResponderFunc(func(rw http.ResponseWriter, producer runtime.Producer) {
+		rw.WriteHeader(http.StatusServiceUnavailable)
 		if perr := producer.Produce(rw, errPayloadFromSingleErr(principal, err)); perr != nil {
 			panic(perr) // let the recovery middleware deal with this
 		}

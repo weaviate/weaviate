@@ -24,6 +24,7 @@ const (
 	StatusGone                = 410
 	StatusTooManyRequests     = 429
 	StatusInternalServerError = 500
+	StatusServiceUnavailable  = 503
 )
 
 type Error struct {
@@ -38,6 +39,10 @@ func (e *Error) Error() string {
 }
 
 // Unwrap underlying error
+func (e *Error) ServiceUnavailable() bool {
+	return e.Code == StatusServiceUnavailable
+}
+
 func (e *Error) Unwrap() error {
 	return e.Err
 }

@@ -27,6 +27,7 @@ import (
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	clusterTypes "github.com/weaviate/weaviate/cluster/types"
 	pbv0 "github.com/weaviate/weaviate/grpc/generated/protocol/v0"
 	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
@@ -189,6 +190,10 @@ func translateTypedError(err error) error {
 	}
 	if v, ok := restrictions.AsViolation(err); ok {
 		return restrictionViolationToGrpcError(v)
+	}
+	// still replaying the log, so the caller should try another node rather than see UNKNOWN
+	if clusterTypes.IsNotCaughtUp(err) {
+		return status.Error(codes.Unavailable, err.Error())
 	}
 	return nil
 }
