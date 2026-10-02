@@ -2804,7 +2804,15 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			out = append(out, localShardResult...)
 			dists = append(dists, localShardScores...)
 			m.Unlock()
+
+			if i.Config.ForceFullReplicasSearch {
+				// holding a replica is no reason to stop here: the flag's contract is
+				// to ask every replica and keep the best distance each one reports
+				remoteSearches.Add(1)
+				return remoteSearch(shardName)
+			}
 		} else {
+			remoteSearches.Add(1)
 			return remoteSearch(shardName)
 		}
 
@@ -2851,15 +2859,17 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 	}
 
-	if len(readPlan.Shards()) == 1 {
+	// one shard answers already sorted and limited, but a full-replica union holds
+	// every replica's answer for that shard, so it still has to be merged
+	if len(readPlan.Shards()) == 1 && !i.Config.ForceFullReplicasSearch {
 		return out, dists, nil
 	}
 
-	if len(readPlan.Shards()) > 1 && groupBy != nil {
+	if groupBy != nil {
 		return i.mergeGroups(out, dists, groupBy, limit, len(readPlan.Shards()))
 	}
 
-	if len(readPlan.Shards()) > 1 && len(sort) > 0 {
+	if len(sort) > 0 {
 		return i.sort(out, dists, sort, limit)
 	}
 

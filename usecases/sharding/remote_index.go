@@ -457,7 +457,9 @@ func (ri *RemoteIndex) queryAllReplicas(
 			wg.Add(1)
 			enterrors.GoWrapper(func() {
 				defer wg.Done()
+				// own err, so concurrent workers do not write queryAll's named return
 				var searchResult ReplicasSearchResult
+				var err error
 
 				if errC := ctx.Err(); errC != nil {
 					mu.Lock()
