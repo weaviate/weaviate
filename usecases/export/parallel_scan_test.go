@@ -26,6 +26,8 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/parquet-go/parquet-go"
+	"github.com/parquet-go/parquet-go/encoding/thrift"
+	"github.com/parquet-go/parquet-go/format"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1009,4 +1011,90 @@ func TestParquetWriter_OnFlush(t *testing.T) {
 		// The remaining 5 objects were buffered but not flushed before the error.
 		require.Equal(t, []int64{10, 10}, callbacks)
 	})
+}
+
+func TestParquetWriter_Statistics(t *testing.T) {
+	t.Parallel()
+
+	rows := make([]ParquetRow, 0, 3)
+	for i := range 3 {
+		rows = append(rows, ParquetRow{
+			ID:           fmt.Sprintf("00000000-0000-0000-0000-00000000000%d", i),
+			Vector:       []byte{byte(i), 1, 2, 3},
+			NamedVectors: fmt.Appendf(nil, `{"a":[%d]}`, i),
+			MultiVectors: fmt.Appendf(nil, `{"b":[[%d]]}`, i),
+			Properties:   fmt.Appendf(nil, `{"p":%d}`, i),
+		})
+	}
+	// A row without vectors or properties puts one null in each blob column.
+	nullRow := ParquetRow{ID: "00000000-0000-0000-0000-000000000003"}
+
+	var buf bytes.Buffer
+	writer, err := NewParquetWriter(&buf)
+	require.NoError(t, err)
+	for _, row := range append(rows, nullRow) {
+		require.NoError(t, writer.WriteRow(row))
+	}
+	require.NoError(t, writer.Close())
+
+	file, err := parquet.OpenFile(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	require.NoError(t, err)
+	require.Len(t, file.RowGroups(), 1)
+
+	tests := []struct {
+		column        string
+		value         func(ParquetRow) any
+		wantPageStats bool
+		wantNulls     int64
+	}{
+		{column: "id", value: func(r ParquetRow) any { return r.ID }, wantPageStats: true},
+		{column: "vector", value: func(r ParquetRow) any { return r.Vector }, wantNulls: 1},
+		{column: "named_vectors", value: func(r ParquetRow) any { return r.NamedVectors }, wantNulls: 1},
+		{column: "multi_vectors", value: func(r ParquetRow) any { return r.MultiVectors }, wantNulls: 1},
+		{column: "properties", value: func(r ParquetRow) any { return r.Properties }, wantNulls: 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.column, func(t *testing.T) {
+			leaf, ok := file.Schema().Lookup(tc.column)
+			require.True(t, ok)
+			i := leaf.ColumnIndex
+			chunk := file.RowGroups()[0].ColumnChunks()[i]
+
+			// A reader pruning pages by the column index must find every value the file holds.
+			columnIndex, err := chunk.ColumnIndex()
+			require.NoError(t, err)
+			for _, row := range rows {
+				value := parquet.ValueOf(tc.value(row))
+				assert.Less(t, parquet.Search(columnIndex, value, chunk.Type()), columnIndex.NumPages(),
+					"column index search for %v", value)
+			}
+			assert.Equal(t, []int64{tc.wantNulls}, file.ColumnIndexes()[i].NullCounts, "column index null counts")
+
+			chunkStats := file.Metadata().RowGroups[0].Columns[i].MetaData.Statistics
+			assert.NotEmpty(t, chunkStats.MaxValue, "column chunk bounds")
+			assert.Equal(t, tc.wantNulls, chunkStats.NullCount, "column chunk null count")
+
+			pages := file.OffsetIndexes()[i].PageLocations
+			require.NotEmpty(t, pages)
+			for _, page := range pages {
+				pageStats := readPageHeaderStatistics(t, buf.Bytes()[page.Offset:])
+				assert.Equal(t, tc.wantPageStats, len(pageStats.MaxValue) > 0, "page header statistics")
+			}
+		})
+	}
+}
+
+// readPageHeaderStatistics decodes the data page header at the start of data
+// and returns the statistics it carries.
+func readPageHeaderStatistics(t *testing.T, data []byte) format.Statistics {
+	t.Helper()
+
+	var header format.PageHeader
+	reader := new(thrift.CompactProtocol).NewReader(bytes.NewReader(data))
+	require.NoError(t, thrift.NewDecoder(reader).Decode(&header))
+	if header.DataPageHeaderV2.Valid {
+		return header.DataPageHeaderV2.V.Statistics
+	}
+	require.True(t, header.DataPageHeader.Valid, "page type %v is not a data page", header.Type)
+	return header.DataPageHeader.V.Statistics
 }
