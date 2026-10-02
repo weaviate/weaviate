@@ -30,8 +30,7 @@ type migrationMirrorDisarmer interface {
 
 // Must run before the directory is removed, or mmaps and compactions leak.
 // Takes directories, not a record, so the caller closes only what it has
-// already decided to remove — closing one it means to keep would stop that
-// data serving with no record left to account for it.
+// already decided to remove, or what no read uses: anything else stops serving.
 type migrationStagedBucketCloser interface {
 	ShutdownStagedBucketsAt(ctx context.Context, dirs []string) error
 }
@@ -395,6 +394,11 @@ func (r *migrationReconciler) wedgeUncommittable(ctx context.Context, rec Migrat
 // Not in wedged(): promotion paths wedge records whose mirror a promotion still needs.
 func (r *migrationReconciler) stopWedgedMirror(ctx context.Context, subject MigrationSubject) {
 	r.disarmMirrors(subject)
+	release, sealed := r.sealUnit(subject)
+	if !sealed {
+		return
+	}
+	defer release()
 	if err := r.closeStagedBuckets(ctx, migrationOwnedDirs(subject)...); err != nil {
 		r.logger.WithField("record", subject.Key.String()).Warnf("stop the mirror of a wedged migration: %v", err)
 	}

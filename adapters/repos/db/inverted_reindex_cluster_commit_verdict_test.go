@@ -85,7 +85,15 @@ func TestATaskVerdictWedgeStopsOnlyThatRecordsMirror(t *testing.T) {
 		name          string
 		migrationType ReindexMigrationType
 		record        func(MigrationSubject) MigrationRecord
+		// workerHoldsTheUnit: buckets a worker still uses are closed only under its seal.
+		workerHoldsTheUnit bool
 	}{
+		{
+			name:               "a worker of the gone task still holds the unit",
+			migrationType:      ReindexTypeRepairRangeable,
+			record:             func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterating(s, MigrationCheckpoint{}) },
+			workerHoldsTheUnit: true,
+		},
 		{
 			name:          "the leader's list no longer holds a migration the schema cannot show",
 			migrationType: ReindexTypeRepairRangeable,
@@ -110,12 +118,19 @@ func TestATaskVerdictWedgeStopsOnlyThatRecordsMirror(t *testing.T) {
 			f.put(tt.record(wedging))
 			f.put(NewMigrationRecordIterated(running))
 			require.NoError(t, f.store.Load())
+			if tt.workerHoldsTheUnit {
+				f.liveUnit = liveUnitOf(wedging)
+			}
 
 			newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps()).
 				ReconcileWithClusterTasks(context.Background(), f.tasks)
 
 			require.True(t, f.store.Wedged(wedging.Key), "fixture: the pass has to wedge the record")
 			require.ElementsMatch(t, []migrationMirrorKey{{wedging.Key, "title"}, {wedging.Key, "body"}}, f.disarmed)
+			if tt.workerHoldsTheUnit {
+				require.Empty(t, f.buckets.closed, "the worker's next chunk would find its buckets gone")
+				return
+			}
 			require.ElementsMatch(t, migrationOwnedDirs(wedging), f.buckets.closed)
 		})
 	}
