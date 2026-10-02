@@ -31,7 +31,7 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/weaviate/weaviate/usecases/monitoring/metricstest"
+	monitoringhelpers "github.com/weaviate/weaviate/usecases/monitoring/testinghelpers"
 )
 
 // The startup metrics live on the default registry shared by every test in
@@ -40,7 +40,7 @@ import (
 
 func hnswRestoreCount(t *testing.T) uint64 {
 	t.Helper()
-	n, err := metricstest.SampleCount(prometheus.DefaultGatherer,
+	n, err := monitoringhelpers.SampleCount(prometheus.DefaultGatherer,
 		"weaviate_vector_index_restore_duration_seconds",
 		prometheus.Labels{"index_type": string(monitoring.VectorIndexTypeHNSW)})
 	require.NoError(t, err)
@@ -53,7 +53,7 @@ func hnswPrefillLabels(mode monitoring.PrefillMode) prometheus.Labels {
 
 func hnswPrefillCount(t *testing.T, mode monitoring.PrefillMode) uint64 {
 	t.Helper()
-	n, err := metricstest.SampleCount(prometheus.DefaultGatherer,
+	n, err := monitoringhelpers.SampleCount(prometheus.DefaultGatherer,
 		"weaviate_vector_cache_prefill_duration_seconds", hnswPrefillLabels(mode))
 	require.NoError(t, err)
 	return n
@@ -61,7 +61,7 @@ func hnswPrefillCount(t *testing.T, mode monitoring.PrefillMode) uint64 {
 
 func hnswPrefillActive(t *testing.T, mode monitoring.PrefillMode) float64 {
 	t.Helper()
-	v, err := metricstest.GaugeValue(prometheus.DefaultGatherer,
+	v, err := monitoringhelpers.GaugeValue(prometheus.DefaultGatherer,
 		"weaviate_vector_cache_prefill_active", hnswPrefillLabels(mode))
 	require.NoError(t, err)
 	return v

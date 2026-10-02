@@ -42,7 +42,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/weaviate/weaviate/usecases/monitoring/metricstest"
+	"github.com/weaviate/weaviate/usecases/monitoring/testinghelpers"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -1555,7 +1555,7 @@ func TestStoreReloadDBFromSchemaReportsProgressDuringReload(t *testing.T) {
 		}
 	}
 
-	duration, err := metricstest.GaugeValue(prometheus.DefaultGatherer, "weaviate_startup_phase_duration_seconds", dbReloadPhase)
+	duration, err := testinghelpers.GaugeValue(prometheus.DefaultGatherer, "weaviate_startup_phase_duration_seconds", dbReloadPhase)
 	require.NoError(t, err)
 	require.Greater(t, duration, float64(0), "the db_reload phase publishes its duration once the reload ends")
 }

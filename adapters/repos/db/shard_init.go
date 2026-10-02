@@ -102,17 +102,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	index.metrics.UpdateShardStatus("", storagestate.StatusLoading.String())
 
-	// Only opening a shard that already holds files is a load. A shard being
-	// created is fast and frequent (every tenant creation), and would bury
-	// the load distribution in near-zero samples. Registered before the
-	// recover below: defers run last-in first-out, so this one sees the error
-	// a recovered panic sets and skips that load as failed.
+	// only opening a shard that already holds files is a load; a shard being
+	// created would bury the load distribution in near-zero samples
 	exists := shardDirHasState(s.path())
-	defer func() {
-		if err == nil && exists {
-			monitoring.GetStartupMetrics().ObserveShardLoad(registration, time.Since(start))
-		}
-	}()
 
 	defer func() {
 		p := recover()
@@ -141,6 +133,10 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 			}).Debug("context.WithTimeout")
 
 			s.cleanupPartialInit(ctx)
+		}
+
+		if err == nil && exists {
+			monitoring.GetStartupMetrics().ObserveShardLoad(registration, time.Since(start))
 		}
 	}()
 

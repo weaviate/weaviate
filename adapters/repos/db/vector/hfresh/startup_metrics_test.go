@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/weaviate/weaviate/usecases/monitoring/metricstest"
+	monitoringhelpers "github.com/weaviate/weaviate/usecases/monitoring/testinghelpers"
 )
 
 // The version-map warmup is hfresh's post-startup cache fill; it always runs
@@ -35,7 +35,7 @@ var hfreshPrefillLabels = prometheus.Labels{
 
 func hfreshPrefillCount(t *testing.T) uint64 {
 	t.Helper()
-	n, err := metricstest.SampleCount(prometheus.DefaultGatherer,
+	n, err := monitoringhelpers.SampleCount(prometheus.DefaultGatherer,
 		"weaviate_vector_cache_prefill_duration_seconds", hfreshPrefillLabels)
 	require.NoError(t, err)
 	return n
@@ -43,7 +43,7 @@ func hfreshPrefillCount(t *testing.T) uint64 {
 
 func hfreshPrefillActive(t *testing.T) float64 {
 	t.Helper()
-	v, err := metricstest.GaugeValue(prometheus.DefaultGatherer,
+	v, err := monitoringhelpers.GaugeValue(prometheus.DefaultGatherer,
 		"weaviate_vector_cache_prefill_active", hfreshPrefillLabels)
 	require.NoError(t, err)
 	return v

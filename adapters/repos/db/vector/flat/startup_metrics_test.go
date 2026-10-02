@@ -24,14 +24,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/weaviate/weaviate/usecases/monitoring/metricstest"
+	"github.com/weaviate/weaviate/usecases/monitoring/testinghelpers"
 )
 
 // flatPrefillCount reads the flat preload series off the default registry.
 // It is shared by every test in the binary, so callers compare deltas.
 func flatPrefillCount(t *testing.T) uint64 {
 	t.Helper()
-	n, err := metricstest.SampleCount(prometheus.DefaultGatherer,
+	n, err := testinghelpers.SampleCount(prometheus.DefaultGatherer,
 		"weaviate_vector_cache_prefill_duration_seconds",
 		prometheus.Labels{
 			"index_type": string(monitoring.VectorIndexTypeFlat),
@@ -39,6 +39,56 @@ func flatPrefillCount(t *testing.T) uint64 {
 		})
 	require.NoError(t, err)
 	return n
+}
+
+func flatPrefillActive(t *testing.T) float64 {
+	t.Helper()
+	v, err := testinghelpers.GaugeValue(prometheus.DefaultGatherer,
+		"weaviate_vector_cache_prefill_active",
+		prometheus.Labels{
+			"index_type": string(monitoring.VectorIndexTypeFlat),
+			"mode":       string(monitoring.PrefillModeSync),
+		})
+	require.NoError(t, err)
+	return v
+}
+
+// panickingQuantizer makes the first step of the preload panic.
+type panickingQuantizer struct{ Quantizer }
+
+func (panickingQuantizer) Type() QuantizerType {
+	panic("preload panic injected by the test")
+}
+
+// A preload that panics is recovered by the shard's init in production, so
+// it must release the active gauge without recording a duration, like the
+// hnsw and hfresh prefills do.
+func Test_NoRace_Flat_PanickingPreloadReleasesActive(t *testing.T) {
+	ctx := context.Background()
+	dirName := t.TempDir()
+
+	store := loadTestStore(t, dirName)
+	index := newBQCachedIndex(t, dirName, store)
+	for i, vec := range [][]float32{{4, -1, 4}, {-2, 3, 1}, {0.5, 0.5, 0.5}} {
+		require.NoError(t, index.Add(ctx, uint64(i), vec))
+	}
+	require.NoError(t, index.Shutdown(ctx))
+	require.NoError(t, store.Shutdown(ctx))
+
+	store = loadTestStore(t, dirName)
+	defer store.Shutdown(ctx)
+	index = newBQCachedIndex(t, dirName, store)
+	defer index.Shutdown(ctx)
+	require.NotNil(t, index.quantizer, "the reopened index restored its quantizer")
+
+	before, activeBefore := flatPrefillCount(t), flatPrefillActive(t)
+	orig := index.quantizer
+	index.quantizer = panickingQuantizer{orig}
+	require.Panics(t, func() { index.PostStartup(ctx) })
+	index.quantizer = orig
+
+	require.Equal(t, activeBefore, flatPrefillActive(t), "a preload that panicked must not stay active")
+	require.Equal(t, before, flatPrefillCount(t), "a preload that panicked is not a completed prefill")
 }
 
 // An uncached flat index has no vector cache, so PostStartup preloads nothing

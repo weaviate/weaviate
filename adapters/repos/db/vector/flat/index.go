@@ -46,12 +46,11 @@ const (
 	defaultCachePageSize = 32
 )
 
-// errPreloadAborted marks a startup preload the parallel iterator cut short,
-// and errNothingToPreload one that found no flushed vectors; neither is
-// reported as a completed prefill.
+// preload outcomes that are not reported as a completed prefill
 var (
-	errPreloadAborted   = errors.New("preload aborted")
-	errNothingToPreload = errors.New("nothing to preload")
+	errPreloadIncomplete = errors.New("preload did not complete")
+	errPreloadAborted    = errors.New("preload aborted")
+	errNothingToPreload  = errors.New("nothing to preload")
 )
 
 type flat struct {
@@ -1022,10 +1021,9 @@ func (index *flat) PostStartup(ctx context.Context) {
 	// much more efficient and only ever-so-slightly more memory-consuming (about
 	// one additional struct per vector while loading. Should be negligible)
 
-	// The flat preload always runs inside the shard load, so it reports as a
-	// synchronous prefill. Only a preload that ran to completion is timed.
+	// failure default: a recovered panic must not record a duration
 	prefillDone := monitoring.GetStartupMetrics().PrefillStarted(monitoring.VectorIndexTypeFlat, monitoring.PrefillModeSync)
-	var prefillErr error
+	prefillErr := errPreloadIncomplete
 	defer func() { prefillDone(prefillErr) }()
 
 	before := time.Now()
@@ -1140,8 +1138,7 @@ func (index *flat) PostStartup(ctx context.Context) {
 		if k == nil {
 			index.cachePrefilled.Store(true)
 		}
-		// Either way nothing was preloaded, so this is not a prefill: an empty
-		// tenant must not record a microsecond sample on every creation.
+		// nothing was preloaded, so this is not a prefill
 		prefillErr = errNothingToPreload
 		return
 	}
@@ -1201,6 +1198,7 @@ func (index *flat) PostStartup(ctx context.Context) {
 	}
 
 	index.cachePrefilled.Store(true)
+	prefillErr = nil
 
 	took := time.Since(before)
 	index.logger.WithFields(logrus.Fields{

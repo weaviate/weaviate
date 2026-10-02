@@ -9,13 +9,13 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package metricstest reads individual series out of a prometheus.Gatherer
+// Package testinghelpers reads individual series out of a prometheus.Gatherer
 // for tests. testutil.ToFloat64 cannot read summaries or histograms, and
 // metrics on the default registry are only reachable through a gather.
 //
 // On the default registry compare deltas rather than absolute values: other
 // tests in the same binary observe into the same series.
-package metricstest
+package testinghelpers
 
 import (
 	"fmt"

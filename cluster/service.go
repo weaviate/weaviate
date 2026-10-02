@@ -270,12 +270,15 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		return fmt.Errorf("start rpc service: %w", err)
 	}
 
-	raftOpenDone := startupMetrics.PhaseStarted(monitoring.StartupPhaseRaftOpen)
-	if err := c.Raft.Open(ctx, db); err != nil {
-		raftOpenDone()
-		return fmt.Errorf("open raft store: %w", err)
+	if err := func() error {
+		defer startupMetrics.PhaseStarted(monitoring.StartupPhaseRaftOpen)()
+		if err := c.Raft.Open(ctx, db); err != nil {
+			return fmt.Errorf("open raft store: %w", err)
+		}
+		return nil
+	}(); err != nil {
+		return err
 	}
-	raftOpenDone()
 
 	hasState, err := raft.HasExistingState(c.Raft.store.logCache, c.Raft.store.logStore, c.Raft.store.snapshotStore)
 	if err != nil {

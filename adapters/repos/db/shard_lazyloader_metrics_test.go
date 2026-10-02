@@ -35,7 +35,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/weaviate/weaviate/usecases/monitoring/metricstest"
+	"github.com/weaviate/weaviate/usecases/monitoring/testinghelpers"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -843,7 +843,7 @@ func TestShardLoadDurationObservedForExistingShards(t *testing.T) {
 			className := "TestShardLoadDuration" + string(tt.registration)
 			rootPath := t.TempDir()
 			count := func() uint64 {
-				n, err := metricstest.SampleCount(prometheus.DefaultGatherer,
+				n, err := testinghelpers.SampleCount(prometheus.DefaultGatherer,
 					"weaviate_shard_load_duration_seconds",
 					prometheus.Labels{"registration": string(tt.registration)})
 				require.NoError(t, err)
@@ -903,7 +903,7 @@ func TestShardLoadNotObservedWhenLoadPanics(t *testing.T) {
 	ctx := context.Background()
 	const className = "TestShardLoadPanic"
 	count := func() uint64 {
-		n, err := metricstest.SampleCount(prometheus.DefaultGatherer,
+		n, err := testinghelpers.SampleCount(prometheus.DefaultGatherer,
 			"weaviate_shard_load_duration_seconds",
 			prometheus.Labels{"registration": string(monitoring.ShardRegistrationLazy)})
 		require.NoError(t, err)

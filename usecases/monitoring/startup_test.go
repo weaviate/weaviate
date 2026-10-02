@@ -23,7 +23,7 @@ import (
 	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/usecases/monitoring/metricstest"
+	"github.com/weaviate/weaviate/usecases/monitoring/testinghelpers"
 )
 
 func newTestStartupMetrics(t *testing.T) (*StartupMetrics, *prometheus.Registry, time.Time) {
@@ -109,17 +109,17 @@ func TestStartupMetrics_ObserveShardLoad(t *testing.T) {
 
 			m.ObserveShardLoad(tt.registration, 1500*time.Millisecond)
 
-			count, err := metricstest.SampleCount(reg, "weaviate_shard_load_duration_seconds",
+			count, err := testinghelpers.SampleCount(reg, "weaviate_shard_load_duration_seconds",
 				prometheus.Labels{"registration": string(tt.registration)})
 			require.NoError(t, err)
 			require.Equal(t, uint64(1), count)
 
-			sum, err := metricstest.SampleSum(reg, "weaviate_shard_load_duration_seconds",
+			sum, err := testinghelpers.SampleSum(reg, "weaviate_shard_load_duration_seconds",
 				prometheus.Labels{"registration": string(tt.registration)})
 			require.NoError(t, err)
 			require.InDelta(t, 1.5, sum, 1e-9, "observed in seconds")
 
-			count, err = metricstest.SampleCount(reg, "weaviate_shard_load_duration_seconds",
+			count, err = testinghelpers.SampleCount(reg, "weaviate_shard_load_duration_seconds",
 				prometheus.Labels{"registration": string(tt.other)})
 			require.NoError(t, err)
 			require.Equal(t, uint64(0), count, "the other registration is pre-registered but untouched")
@@ -132,11 +132,11 @@ func TestStartupMetrics_ObserveVectorIndexRestore(t *testing.T) {
 
 	m.ObserveVectorIndexRestore(VectorIndexTypeHNSW, 250*time.Millisecond)
 
-	count, err := metricstest.SampleCount(reg, "weaviate_vector_index_restore_duration_seconds",
+	count, err := testinghelpers.SampleCount(reg, "weaviate_vector_index_restore_duration_seconds",
 		prometheus.Labels{"index_type": "hnsw"})
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), count)
-	sum, err := metricstest.SampleSum(reg, "weaviate_vector_index_restore_duration_seconds",
+	sum, err := testinghelpers.SampleSum(reg, "weaviate_vector_index_restore_duration_seconds",
 		prometheus.Labels{"index_type": "hnsw"})
 	require.NoError(t, err)
 	require.InDelta(t, 0.25, sum, 1e-9)
@@ -170,7 +170,7 @@ func TestStartupMetrics_PrefillStarted(t *testing.T) {
 			require.Equal(t, float64(0), testutil.ToFloat64(m.prefillActive.With(labels)),
 				"active drops whatever the outcome")
 
-			count, err := metricstest.SampleCount(reg, "weaviate_vector_cache_prefill_duration_seconds", labels)
+			count, err := testinghelpers.SampleCount(reg, "weaviate_vector_cache_prefill_duration_seconds", labels)
 			require.NoError(t, err)
 			require.Equal(t, tt.wantCount, count)
 		})
@@ -243,7 +243,7 @@ func TestStartupMetrics_PreRegisteredSeries(t *testing.T) {
 
 // The timing metrics deliberately expose only _sum and _count: a fixed cost of
 // two series per label combination on every node, instead of a bucket set
-// that multiplies by node count in hosted setups.
+// that multiplies by node count.
 func TestStartupMetrics_TimingMetricsExposeOnlySumAndCount(t *testing.T) {
 	m, reg, _ := newTestStartupMetrics(t)
 	m.ObserveShardLoad(ShardRegistrationEager, time.Second)
@@ -278,9 +278,8 @@ func TestStartupMetrics_Singleton(t *testing.T) {
 	require.Same(t, GetStartupMetrics(), GetStartupMetrics())
 }
 
-// TrackReady turns the readiness predicate into the time-to-ready gauges.
-// Nothing polls that predicate outside the kubernetes probe, so the tracker
-// has to.
+// TrackReady turns the readiness check into the time-to-ready gauges; nothing
+// else polls that check, so the tracker has to.
 func TestStartupMetrics_TrackReady(t *testing.T) {
 	tests := []struct {
 		name       string
