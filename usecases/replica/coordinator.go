@@ -15,7 +15,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -319,18 +318,15 @@ func (c *coordinator[T, R]) Push(ctx context.Context,
 	return c.read(level, commitCh, onResult, onFlatten, batchSize), nil
 }
 
-// replicaCannotServe reports whether err means the replica is unable to serve at all - starting up,
-// in maintenance, or without the class yet - rather than failing transiently. The readiness gates
-// are matched by message because both transports make them opaque.
+// replicaCannotServe reports whether err means the replica is unable to serve at all - it cannot
+// serve this request yet, is starting up, or is in maintenance - rather than failing transiently.
 func replicaCannotServe(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, ErrReplicaBooting) || errors.Is(err, ErrReplicaMaintenance) {
-		return true
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, NodeNotReadyMsg) || strings.Contains(msg, LocalIndexNotReadyMsg)
+	return errors.Is(err, ErrReplicaNotReady) ||
+		errors.Is(err, ErrReplicaBooting) ||
+		errors.Is(err, ErrReplicaMaintenance)
 }
 
 // Pull data from replica depending on consistency level, trying to reach level successful calls

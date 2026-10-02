@@ -540,8 +540,9 @@ func TestPullStopsWhenTheLevelBecomesUnreachable(t *testing.T) {
 
 	c := replica.NewReadCoordinator[int](router, metrics, cls, shard, "", logger)
 
-	// only B can answer; A and C say they are not ready, so quorum of 2 is out of reach
-	notReady := fmt.Errorf("status code: 503, error: 503 %s", replica.NodeNotReadyMsg)
+	// only B can answer; A and C answer 503, so quorum of 2 is out of reach. The client returns
+	// the typed error, which is what the coordinator classifies on.
+	notReady := &clients.HTTPError{Code: http.StatusServiceUnavailable, Body: []byte("503 " + replica.NodeNotReadyMsg)}
 	op := func(ctx context.Context, host string, _ bool) (int, error) {
 		if host == "b:7001" {
 			return 1, nil

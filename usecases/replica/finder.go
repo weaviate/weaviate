@@ -45,7 +45,10 @@ var (
 	ErrAsyncReplicationNotActive = errors.New("async replication is not active on this shard")
 	// Skip-reason refinements; both wrap ErrAsyncReplicationNotActive so existing errors.Is checks keep matching.
 	ErrReplicaMaintenance = fmt.Errorf("%w: peer in maintenance mode", ErrAsyncReplicationNotActive)
-	ErrReplicaBooting     = fmt.Errorf("%w: peer not ready", ErrAsyncReplicationNotActive)
+	// ErrReplicaNotReady is any 503 from a peer: it cannot serve this request yet. Deliberately not
+	// part of the async-replication family, so a plain read failing over is not reported as a boot.
+	ErrReplicaNotReady = errors.New("replica cannot serve yet")
+	ErrReplicaBooting  = fmt.Errorf("%w: peer not ready", ErrAsyncReplicationNotActive)
 	// ErrAsyncCheckpointCutoffInPast maps to HTTP 412 / FailedPrecondition.
 	ErrAsyncCheckpointCutoffInPast = errors.New("checkpoint cutoff is not in this node's future")
 	// MsgCLevel consistency level cannot be achieved
