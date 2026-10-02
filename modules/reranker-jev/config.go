@@ -1,0 +1,40 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package modrerankerjev
+
+import (
+	"context"
+
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/modules/reranker-jev/config"
+)
+
+func (m *ReRankerJevModule) ClassConfigDefaults() map[string]any {
+	return map[string]any{}
+}
+
+func (m *ReRankerJevModule) PropertyConfigDefaults(
+	dt *schema.DataType,
+) map[string]any {
+	return map[string]any{}
+}
+
+func (m *ReRankerJevModule) ValidateClass(ctx context.Context,
+	class *models.Class, cfg moduletools.ClassConfig,
+) error {
+	return config.NewClassSettings(cfg).Validate(class)
+}
+
+var _ = modulecapabilities.ClassConfigurator(New())

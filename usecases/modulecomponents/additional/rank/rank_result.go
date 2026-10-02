@@ -23,7 +23,32 @@ import (
 	rerankmodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
 
+// getScore scores the results and sorts them by score, highest first. Results
+// with the same score keep the order the search gave them.
 func (p *ReRankerProvider) getScore(ctx context.Context, cfg moduletools.ClassConfig,
+	in []search.Result, params *Params,
+) ([]search.Result, error) {
+	scored, err := p.Score(ctx, cfg, in, params)
+	if err != nil || len(scored) == 0 {
+		return scored, err
+	}
+	SortByScore(scored)
+	return scored, nil
+}
+
+// SortByScore sorts scored results by their rerank score, highest first.
+// Results with the same score keep their order.
+func SortByScore(scored []search.Result) {
+	sort.SliceStable(scored, func(i, j int) bool {
+		apI := scored[i].AdditionalProperties["rerank"].([]*rerankmodels.RankResult)
+		apJ := scored[j].AdditionalProperties["rerank"].([]*rerankmodels.RankResult)
+		return *apI[0].Score > *apJ[0].Score
+	})
+}
+
+// Score attaches the reranker's score to every result as the "rerank"
+// additional property and keeps the order of the results.
+func (p *ReRankerProvider) Score(ctx context.Context, cfg moduletools.ClassConfig,
 	in []search.Result, params *Params,
 ) ([]search.Result, error) {
 	if len(in) == 0 {
@@ -74,13 +99,5 @@ func (p *ReRankerProvider) getScore(ctx context.Context, cfg moduletools.ClassCo
 		}
 	}
 
-	// sort the list
-	sort.Slice(in, func(i, j int) bool {
-		apI := in[i].AdditionalProperties["rerank"].([]*rerankmodels.RankResult)
-		apJ := in[j].AdditionalProperties["rerank"].([]*rerankmodels.RankResult)
-
-		// Sort in descending order, based on Score values
-		return *apI[0].Score > *apJ[0].Score
-	})
 	return in, nil
 }

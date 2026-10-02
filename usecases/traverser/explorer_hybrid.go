@@ -96,7 +96,7 @@ func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchn
 	// Selection (MMR) runs once post-fusion; a per-leg ANN pass would be discarded by fusion.
 	params.Selection = nil
 
-	partialResults, searchVectors, err := e.searchForTargets(ctx, params, targetVectors, searchVector)
+	partialResults, searchVectors, err := e.searchForTargets(ctx, params, targetVectors, searchVector, nil)
 	if err != nil {
 		return nil, "", err
 	}
@@ -174,7 +174,7 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 	// HybridSearch stays set so that searchForTargets leaves the additional
 	// properties of the modules to the fused results. Do not clear
 	// AdditionalProperties.ModuleParams for that: the store reads them.
-	partialResults, vectors, err := e.searchForTargets(ctx, subsearchWrap, targetVectors, nil)
+	partialResults, vectors, err := e.searchForTargets(ctx, subsearchWrap, targetVectors, nil, nil)
 	if err != nil {
 		return nil, "", err
 	}
