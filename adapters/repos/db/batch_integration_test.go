@@ -1153,18 +1153,19 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 						ID:     id,
 						Vector: []float32{0.05, 0.1, 0.2},
 					},
-					UUID: id,
+					UUID:          id,
+					OriginalIndex: i,
 				}
 			}
 
 			t.Run("can import", func(t *testing.T) {
-				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+				ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 				defer cancel()
 
 				batchRes, err := repo.BatchPutObjects(ctx, batch, nil, 0)
 				require.Nil(t, err, "there shouldn't be an overall error, only individual ones")
 
-				t.Run("some elements have error'd due to context", func(t *testing.T) {
+				t.Run("every element has error'd due to context and was not stored", func(t *testing.T) {
 					require.Len(t, batchRes, 50)
 
 					errCount := 0
@@ -1175,7 +1176,12 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 						}
 					}
 
-					assert.True(t, errCount > 0)
+					assert.Equal(t, 50, errCount)
+					for _, elem := range batchRes {
+						ok, err := repo.Exists(context.Background(), "ThingForBatching", elem.UUID, nil, "")
+						require.NoError(t, err)
+						assert.False(t, ok, "errored object was stored")
+					}
 				})
 			})
 		})
