@@ -1629,107 +1629,91 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			Infof("refused %d requests on the REST port arriving or still running %s after shutdown began",
 				restInFlight.unavailableResponses.Load(), restInFlightCancelDelay)
 
-		leaveCluster := func() {
-			// Leave announces a graceful departure, and DrainSleep gives peers
-			// time to stop routing to this node before the internal server closes.
-			if err := appState.Cluster.Leave(); err != nil {
-				appState.Logger.Errorf("leave node from cluster: %v", err)
-			}
-			time.Sleep(appState.ServerConfig.Config.Raft.DrainSleep.Get())
-		}
-
-		// PreServerShutdown already called StartShutdown so exports are signaled to stop, wait here until completion.
-		drainExports := func() {
-			exportCtx, exportCancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer exportCancel()
-			if err := appState.ExportParticipant.Shutdown(exportCtx); err != nil {
-				appState.Logger.
-					WithError(err).
-					WithField("action", "shutdown export participant").
-					Errorf("failed to gracefully shutdown")
-			}
-		}
-
-		stopTelemetry := func() {
-			if !telemetryEnabled(appState) {
-				return
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			// must be shutdown before the db, to ensure the
-			// termination payload contains the correct
-			// object count
-			if err := telemeter.Stop(ctx); err != nil {
-				appState.Logger.WithField("action", "stop_telemetry").
-					Errorf("failed to stop telemetry: %s", err.Error())
-			}
-		}
-
-		closeTaskScheduler := func() {
-			if appState.DistributedTaskScheduler != nil {
-				appState.DistributedTaskScheduler.Close()
-			}
-		}
-
-		closeDB := func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-			defer cancel()
-
-			if err := appState.InternalServer.Close(ctx); err != nil {
-				appState.Logger.
-					WithField("action", "shutdown internal server").
-					Errorf("failed to gracefully shutdown: %v", err)
-			}
-
-			if err := appState.ClusterService.Close(ctx); err != nil {
-				appState.Logger.
-					WithField("action", "shutdown cluster service").
-					Errorf("failed to gracefully shutdown: %v", err)
-			}
-
-			if err := appState.APIKey.Dynamic.Close(); err != nil {
-				appState.Logger.
-					WithField("action", "shutdown db users").
-					Errorf("failed to gracefully shutdown: %v", err)
-			}
-
-			if err := appState.Modules.Close(); err != nil {
-				appState.Logger.
-					WithField("action", "shutdown modules").
-					Errorf("failed to gracefully shutdown: %v", err)
-			}
-
-			// Replicated writes of in-flight requests and the replication
-			// engine's file copies use these until the DB is closed.
-			appState.ReplGRPCConnManager.Close()
-			appState.GRPCConnManager.Close()
-		}
-
-		flushObservability := func() {
-			// configureAPI's ctx is cancelled by now, and a cancelled ctx
-			// makes the tracer provider return before it flushes.
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			if err := opentelemetry.Shutdown(ctx); err != nil {
-				appState.Logger.WithField("action", "stop_opentelemetry").
-					Errorf("failed to stop opentelemetry: %s", err.Error())
-			}
-			if appState.ServerConfig.Config.Sentry.Enabled {
-				sentry.Flush(2 * time.Second)
-			}
-		}
-
-		shutdownInPhases(appState.Logger,
-			[]func(){
-				// the gRPC server keeps serving until peers have had DrainSleep
-				// to stop routing to this node
-				func() {
-					leaveCluster()
-					stopGrpcServer(grpcServer, grpcInFlight, grpcInFlightCancelDelay, grpcGracefulStopTimeout, appState.Logger)
-				},
-				drainExports, stopTelemetry, closeTaskScheduler,
+		shutdownSteps{
+			leaveCluster: func() {
+				// Leave announces a graceful departure, and DrainSleep gives peers
+				// time to stop routing to this node before the internal server closes.
+				if err := appState.Cluster.Leave(); err != nil {
+					appState.Logger.Errorf("leave node from cluster: %v", err)
+				}
+				time.Sleep(appState.ServerConfig.Config.Raft.DrainSleep.Get())
 			},
-			closeDB, flushObservability)
+			stopGRPCServer: func() {
+				stopGrpcServer(grpcServer, grpcInFlight, grpcInFlightCancelDelay, grpcGracefulStopTimeout, appState.Logger)
+			},
+			// PreServerShutdown already called StartShutdown so exports are signaled to stop, wait here until completion.
+			drainExports: func() {
+				exportCtx, exportCancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer exportCancel()
+				if err := appState.ExportParticipant.Shutdown(exportCtx); err != nil {
+					appState.Logger.
+						WithField("action", "shutdown export participant").
+						Errorf("failed to gracefully shutdown: %v", err)
+				}
+			},
+			stopTelemetry: func() {
+				if !telemetryEnabled(appState) {
+					return
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				// must be shutdown before the db, to ensure the
+				// termination payload contains the correct
+				// object count
+				if err := telemeter.Stop(ctx); err != nil {
+					appState.Logger.WithField("action", "stop_telemetry").
+						Errorf("failed to stop telemetry: %s", err.Error())
+				}
+			},
+			closeTaskScheduler: func() {
+				if appState.DistributedTaskScheduler != nil {
+					appState.DistributedTaskScheduler.Close()
+				}
+			},
+			closeInternalServer: func(ctx context.Context) {
+				if err := appState.InternalServer.Close(ctx); err != nil {
+					appState.Logger.
+						WithField("action", "shutdown internal server").
+						Errorf("failed to gracefully shutdown: %v", err)
+				}
+			},
+			closeClusterService: func(ctx context.Context) {
+				if err := appState.ClusterService.Close(ctx); err != nil {
+					appState.Logger.
+						WithField("action", "shutdown cluster service").
+						Errorf("failed to gracefully shutdown: %v", err)
+				}
+			},
+			closeDBUsers: func() {
+				if err := appState.APIKey.Dynamic.Close(); err != nil {
+					appState.Logger.
+						WithField("action", "shutdown db users").
+						Errorf("failed to gracefully shutdown: %v", err)
+				}
+			},
+			closeModules: func() {
+				if err := appState.Modules.Close(); err != nil {
+					appState.Logger.
+						WithField("action", "shutdown modules").
+						Errorf("failed to gracefully shutdown: %v", err)
+				}
+			},
+			closeConnManagers: func() {
+				appState.ReplGRPCConnManager.Close()
+				appState.GRPCConnManager.Close()
+			},
+			shutdownOTEL: func(ctx context.Context) {
+				if err := opentelemetry.Shutdown(ctx); err != nil {
+					appState.Logger.WithField("action", "stop_opentelemetry").
+						Errorf("failed to stop opentelemetry: %s", err.Error())
+				}
+			},
+			flushSentry: func() {
+				if appState.ServerConfig.Config.Sentry.Enabled {
+					sentry.Flush(2 * time.Second)
+				}
+			},
+		}.run(appState.Logger)
 	}
 
 	startGrpcServer(grpcServer, appState)
@@ -1739,6 +1723,55 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	// Serve grpc-web on the REST port under /v1/grpc-web/ rather than a dedicated listener
 	return grpcweb.Mount("/v1/grpc-web", grpcWebHandler, restHandler,
 		func() bool { return appState.ServerConfig.Config.GRPC.GrpcWebEnabledOrDefault() })
+}
+
+// shutdownSteps holds the steps of api.ServerShutdown, and run decides which
+// of them may overlap and which must wait for others.
+type shutdownSteps struct {
+	leaveCluster        func()
+	stopGRPCServer      func()
+	drainExports        func()
+	stopTelemetry       func()
+	closeTaskScheduler  func()
+	closeInternalServer func(ctx context.Context)
+	closeClusterService func(ctx context.Context)
+	closeDBUsers        func()
+	closeModules        func()
+	closeConnManagers   func()
+	shutdownOTEL        func(ctx context.Context)
+	flushSentry         func()
+}
+
+func (s shutdownSteps) run(logger logrus.FieldLogger) {
+	shutdownInPhases(logger,
+		[]func(){
+			// the gRPC server keeps serving until peers have had DrainSleep
+			// to stop routing to this node
+			func() {
+				s.leaveCluster()
+				s.stopGRPCServer()
+			},
+			s.drainExports, s.stopTelemetry, s.closeTaskScheduler,
+		},
+		func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			s.closeInternalServer(ctx)
+			s.closeClusterService(ctx)
+			s.closeDBUsers()
+			s.closeModules()
+			// Replicated writes of in-flight requests and the replication
+			// engine's file copies use these until the DB is closed.
+			s.closeConnManagers()
+		},
+		func() {
+			// configureAPI's ctx is cancelled by now, and a cancelled ctx
+			// makes the tracer provider return before it flushes.
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			s.shutdownOTEL(ctx)
+			s.flushSentry()
+		})
 }
 
 // shutdownInPhases runs stopDBUsers concurrently and starts closeDB only once
