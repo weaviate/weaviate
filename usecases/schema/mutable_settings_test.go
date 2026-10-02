@@ -154,9 +154,7 @@ func TestMutableSettingsChanges(t *testing.T) {
 	}
 }
 
-// The migrating module's change makes MigrateVectorizerSettings copy every module's new settings over the stored
-// ones. The mutable module's change must be judged against the stored settings whether or not that copy already
-// happened, and which comes first depends on map order, so the update is applied to a fresh class many times.
+// Which module is checked first depends on map order, so the update is applied to a fresh class many times.
 func TestParseClassUpdate_MutableSettingsJudgedAgainstStoredSettings(t *testing.T) {
 	p := NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, fakeValidator{}, mutableModules{}, nil, nil)
 	shardingConfig := shardingcfg.Config{

@@ -1797,9 +1797,8 @@ func deepEqualVectorizerSettings(initial, updated any) bool {
 	return reflect.DeepEqual(structToMap(initial), structToMap(updated))
 }
 
-// mutableSettingsChanges returns the modules whose existing settings changed from initial to updated in a way the
-// module allows, keyed by target vector. The class-level moduleConfig uses an empty target vector. It must run before
-// MigrateVectorizerSettings writes the updated settings into initial.
+// mutableSettingsChanges returns the modules whose settings changed in a way the module allows, keyed by target
+// vector ("" for the class-level moduleConfig). It must run before MigrateVectorizerSettings overwrites initial.
 func mutableSettingsChanges(modulesProvider modulesProvider, initial, updated *models.Class) map[string][]string {
 	changes := map[string][]string{}
 	collect := func(targetVector string, initialConfig, updatedConfig map[string]any) {

@@ -72,9 +72,9 @@ type MigrateProperties interface {
 	MigrateProperties() []MigrateProperty
 }
 
-// MutableSettings is an optional capability interface. A module that implements it can allow changes to its
-// settings on an existing collection; without it every change is rejected. It also runs on Raft apply on every
-// node, so the result must depend only on current and updated, which hold just this module's settings.
+// MutableSettings is an optional capability: a module implementing it may allow settings changes on an existing
+// collection, otherwise every change is rejected. It runs on Raft apply on every node, so the result must depend
+// only on current and updated, which hold just this module's settings.
 type MutableSettings interface {
 	MutableSettings(current, updated moduletools.ClassConfig) bool
 }
