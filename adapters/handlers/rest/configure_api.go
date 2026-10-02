@@ -192,8 +192,6 @@ import (
 const MinimumRequiredContextionaryVersion = "1.0.2"
 
 const (
-	// grpcInFlightCancelDelay is how long a graceful gRPC stop waits before
-	// cancelling the calls still running.
 	grpcInFlightCancelDelay = 5 * time.Second
 	grpcGracefulStopTimeout = 20 * time.Second
 )
