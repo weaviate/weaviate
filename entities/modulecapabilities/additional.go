@@ -66,3 +66,12 @@ type AdditionalProperty struct {
 type AdditionalProperties interface {
 	AdditionalProperties() map[string]AdditionalProperty
 }
+
+// RerankFetchDepthProvider is implemented by reranker modules that drop
+// results. It returns how many candidates a search fetches before the rerank
+// runs, so the requested page can still be filled. pageEnd is offset+limit
+// of the requested page; the candidates reach at least that far. 0 fetches
+// the page only. A page the module cannot judge whole is an error.
+type RerankFetchDepthProvider interface {
+	RerankFetchDepth(ctx context.Context, cfg moduletools.ClassConfig, pageEnd int) (int, error)
+}
