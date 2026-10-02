@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 
@@ -278,11 +279,12 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 		return nil, err
 	}
 
-	if err := validateImmutableFields(class, update, p.modules); err != nil {
+	allowed := mutableSettingsChanges(p.modules, class, update)
+	if err := validateImmutableFields(class, update, p.modules, allowed); err != nil {
 		return nil, err
 	}
 
-	if err := p.validateModuleConfigsParityAndImmutables(class, update); err != nil {
+	if err := p.validateModuleConfigsParityAndImmutables(class, update, allowed[""]); err != nil {
 		return nil, err
 	}
 
@@ -454,7 +456,7 @@ func hasTargetVectors(class *models.Class) bool {
 	return len(class.VectorConfig) > 0
 }
 
-func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *models.Class) error {
+func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *models.Class, allowed []string) error {
 	if updated.ModuleConfig == nil || reflect.DeepEqual(initial.ModuleConfig, updated.ModuleConfig) {
 		return nil
 	}
@@ -473,10 +475,10 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 
 	// this part:
 	// - allow adding new modules
-	// - only allows updating generative and rerankers
+	// - allows updating generative and rerankers
 	// - only one gen/rerank module can be present. Existing ones will be replaced, updating with more than one is not
 	//   allowed
-	// - other modules will not be changed. They can be present in the update if they have EXACTLY the same settings
+	// - other modules keep EXACTLY the same settings, except changes the module allows (MutableSettings)
 	hasGenerativeUpdate := false
 	hasRerankerUpdate := false
 	for module := range updatedModConf {
@@ -504,7 +506,7 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 			continue
 		}
 
-		if mutableSettingsChange(p.modules, module, initialModConf[module], updatedModConf[module]) {
+		if slices.Contains(allowed, module) {
 			continue
 		}
 
@@ -518,7 +520,7 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 			}
 		}
 
-		return fmt.Errorf("can only update generative and reranker module configs. Got: %v for class: %s", module, updated.Class)
+		return fmt.Errorf("can only update generative and reranker module configs, or settings the module allows to change. Got: %v for class: %s", module, updated.Class)
 	}
 
 	if initial.ModuleConfig == nil {

@@ -14,11 +14,11 @@ package schema_test
 import (
 	"encoding/json"
 	"maps"
+	"reflect"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
@@ -26,11 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
-	modgoogle "github.com/weaviate/weaviate/modules/text2vec-google"
-	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
-	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/fakes"
-	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -51,14 +47,26 @@ func (acceptAllIndexUpdates) ValidateVectorIndexConfigsUpdate(old, updated map[s
 	return nil
 }
 
+// endpointModules lets every module change its "endpoint" setting and nothing else.
+type endpointModules struct{}
+
+func (endpointModules) IsReranker(string) bool                  { return false }
+func (endpointModules) IsGenerative(string) bool                { return false }
+func (endpointModules) IsMultiVector(string) bool               { return false }
+func (endpointModules) HasModule(string) bool                   { return true }
+func (endpointModules) MigrateVectorizerSettings(any, any) bool { return false }
+
+func (endpointModules) MutableSettings(_ string, current, updated map[string]any) bool {
+	current, updated = maps.Clone(current), maps.Clone(updated)
+	delete(current, "endpoint")
+	delete(updated, "endpoint")
+	return reflect.DeepEqual(current, updated)
+}
+
 func newSchemaManagerWithModules(t *testing.T) *clusterSchema.SchemaManager {
 	t.Helper()
-	logger, _ := test.NewNullLogger()
-	provider := modules.NewProvider(logger, config.Config{})
-	provider.Register(modgoogle.New())
-	provider.Register(modweaviateembed.New())
 	parser := schema.NewParser(fakes.NewFakeClusterState(), vectorindex.ParseAndValidateConfig,
-		acceptAllIndexUpdates{}, provider, nil, nil)
+		acceptAllIndexUpdates{}, endpointModules{}, nil, nil)
 	return clusterSchema.NewSchemaManager("node1", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 }
 
@@ -82,96 +90,73 @@ func updateClassRequest(t *testing.T, class *models.Class, version uint64) *comm
 	return applyRequest(t, command.ApplyRequest_TYPE_UPDATE_CLASS, class.Class, version, command.UpdateClassRequest{Class: class})
 }
 
-func aiStudioSettings() map[string]any {
-	return map[string]any{
-		"apiEndpoint":        "generativelanguage.googleapis.com",
-		"model":              "gemini-embedding-001",
-		"dimensions":         1536,
-		"vectorizeClassName": false,
-	}
+const module = "text2vec-mutable"
+
+func moduleSettings(endpoint, model string) map[string]any {
+	return map[string]any{"endpoint": endpoint, "model": model}
 }
 
-func withSettings(changes map[string]any) map[string]any {
-	out := aiStudioSettings()
-	maps.Copy(out, changes)
-	return out
-}
-
-var vertexChanges = map[string]any{"apiEndpoint": "us-central1-aiplatform.googleapis.com", "projectId": "my-project"}
-
-type googleClassShape struct {
+type classShape struct {
 	name           string
 	build          func(settings map[string]any) *models.Class
 	settings       func(c *models.Class) map[string]any
 	immutableError string
 }
 
-var googleClassShapes = []googleClassShape{
+var classShapes = []classShape{
 	{
-		name:           "legacy module config",
+		name:           "class-level module config",
 		immutableError: "can only update generative and reranker module configs",
 		build: func(settings map[string]any) *models.Class {
 			return &models.Class{
 				Class:           className,
-				Vectorizer:      modgoogle.LegacyName,
+				Vectorizer:      module,
 				VectorIndexType: "hnsw",
-				ModuleConfig:    map[string]any{modgoogle.LegacyName: settings},
+				ModuleConfig:    map[string]any{module: maps.Clone(settings)},
 			}
 		},
 		settings: func(c *models.Class) map[string]any {
-			return c.ModuleConfig.(map[string]any)[modgoogle.LegacyName].(map[string]any)
+			return c.ModuleConfig.(map[string]any)[module].(map[string]any)
 		},
 	},
 	{
 		name:           "named vector",
-		immutableError: "vectorizer config of vector \"gemini\" is immutable",
+		immutableError: `vectorizer config of vector "vec" is immutable`,
 		build: func(settings map[string]any) *models.Class {
 			return &models.Class{
 				Class: className,
 				VectorConfig: map[string]models.VectorConfig{
-					"gemini": {
-						VectorIndexType: "hnsw",
-						Vectorizer:      map[string]any{modgoogle.LegacyName: settings},
-					},
+					"vec": {VectorIndexType: "hnsw", Vectorizer: map[string]any{module: maps.Clone(settings)}},
 				},
 			}
 		},
 		settings: func(c *models.Class) map[string]any {
-			return c.VectorConfig["gemini"].Vectorizer.(map[string]any)[modgoogle.LegacyName].(map[string]any)
+			return c.VectorConfig["vec"].Vectorizer.(map[string]any)[module].(map[string]any)
 		},
 	},
 }
 
-func TestSchemaManager_UpdateClass_GoogleEndpointSettings(t *testing.T) {
-	for _, shape := range googleClassShapes {
+func TestSchemaManager_UpdateClass_MutableSettings(t *testing.T) {
+	for _, shape := range classShapes {
 		t.Run(shape.name, func(t *testing.T) {
-			addClass := addClassRequest(t, shape.build(aiStudioSettings()))
-			switchToVertex := updateClassRequest(t, shape.build(withSettings(vertexChanges)), 2)
-			changeModel := updateClassRequest(t, shape.build(withSettings(map[string]any{"model": "text-embedding-005"})), 3)
-
-			requireVertexSettings := func(t *testing.T, sm *clusterSchema.SchemaManager) {
-				t.Helper()
-				settings := shape.settings(sm.NewSchemaReader().ReadOnlyClass(className))
-				require.Equal(t, "us-central1-aiplatform.googleapis.com", settings["apiEndpoint"])
-				require.Equal(t, "my-project", settings["projectId"])
-				require.Equal(t, "gemini-embedding-001", settings["model"])
-				require.EqualValues(t, 1536, settings["dimensions"])
-			}
+			addClass := addClassRequest(t, shape.build(moduleSettings("a", "m")))
+			changeEndpoint := updateClassRequest(t, shape.build(moduleSettings("b", "m")), 2)
+			changeModel := updateClassRequest(t, shape.build(moduleSettings("b", "other")), 3)
 
 			t.Run("apply, then replay the same entry", func(t *testing.T) {
 				sm := newSchemaManagerWithModules(t)
 				require.NoError(t, sm.AddClass(addClass, "node1", true, false))
-				require.NoError(t, sm.UpdateClass(switchToVertex, "node1", true, false))
-				requireVertexSettings(t, sm)
+				require.NoError(t, sm.UpdateClass(changeEndpoint, "node1", true, false))
+				require.Equal(t, moduleSettings("b", "m"), shape.settings(sm.NewSchemaReader().ReadOnlyClass(className)))
 
-				require.NoError(t, sm.UpdateClass(switchToVertex, "node1", true, false))
-				requireVertexSettings(t, sm)
+				require.NoError(t, sm.UpdateClass(changeEndpoint, "node1", true, false))
+				require.Equal(t, moduleSettings("b", "m"), shape.settings(sm.NewSchemaReader().ReadOnlyClass(className)))
 			})
 
-			t.Run("model change is rejected", func(t *testing.T) {
+			t.Run("change the module does not allow is rejected", func(t *testing.T) {
 				sm := newSchemaManagerWithModules(t)
 				require.NoError(t, sm.AddClass(addClass, "node1", true, false))
-				require.NoError(t, sm.UpdateClass(switchToVertex, "node1", true, false))
+				require.NoError(t, sm.UpdateClass(changeEndpoint, "node1", true, false))
 
 				err := sm.UpdateClass(changeModel, "node1", true, false)
 				require.ErrorIs(t, err, clusterSchema.ErrBadRequest)
@@ -179,24 +164,4 @@ func TestSchemaManager_UpdateClass_GoogleEndpointSettings(t *testing.T) {
 			})
 		})
 	}
-}
-
-func TestSchemaManager_UpdateClass_MigratesRenamedVectorizerSetting(t *testing.T) {
-	const baseURL = "https://api.embedding.weaviate.io"
-	build := func(settings map[string]any) *models.Class {
-		return &models.Class{
-			Class:           className,
-			Vectorizer:      modweaviateembed.Name,
-			VectorIndexType: "hnsw",
-			ModuleConfig:    map[string]any{modweaviateembed.Name: settings},
-		}
-	}
-	sm := newSchemaManagerWithModules(t)
-	require.NoError(t, sm.AddClass(addClassRequest(t, build(map[string]any{"baseUrl": baseURL})), "node1", true, false))
-
-	require.NoError(t, sm.UpdateClass(updateClassRequest(t, build(map[string]any{"baseURL": baseURL}), 2), "node1", true, false))
-
-	stored := sm.NewSchemaReader().ReadOnlyClass(className).ModuleConfig.(map[string]any)[modweaviateembed.Name].(map[string]any)
-	require.Equal(t, baseURL, stored["baseURL"])
-	require.NotContains(t, stored, "baseUrl")
 }

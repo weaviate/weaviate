@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"os"
 	"reflect"
 	"slices"
@@ -585,13 +584,16 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 			}
 		}
 
-		if err := validateImmutableFields(initial, updated, h.parser.modules); err != nil {
+		allowed := mutableSettingsChanges(h.parser.modules, initial, updated)
+		if err := validateImmutableFields(initial, updated, h.parser.modules, allowed); err != nil {
 			return err
 		}
 
-		for _, changed := range mutableVectorizerChanges(h.parser.modules, initial, updated) {
-			if err := h.moduleConfig.ValidateModuleConfig(ctx, updated, changed.module, changed.targetVector); err != nil {
-				return err
+		for targetVector, modules := range allowed {
+			for _, module := range modules {
+				if err := h.moduleConfig.ValidateModuleConfig(ctx, updated, module, targetVector); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -1706,7 +1708,7 @@ func validateUpdatingMT(current, update *models.Class) (enabled bool, err error)
 	return enabled, err
 }
 
-func validateImmutableFields(initial, updated *models.Class, modulesProvider modulesProvider) error {
+func validateImmutableFields(initial, updated *models.Class, modulesProvider modulesProvider, allowed map[string][]string) error {
 	immutableFields := []immutableText{
 		{
 			name:     "class name",
@@ -1751,7 +1753,7 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 		updated.VectorConfig[k] = v
 
 		if !deepEqualVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
-			if mutableVectorizerSettingsChange(modulesProvider, initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+			if _, ok := allowed[k]; ok {
 				continue
 			}
 
@@ -1795,51 +1797,27 @@ func deepEqualVectorizerSettings(initial, updated any) bool {
 	return reflect.DeepEqual(structToMap(initial), structToMap(updated))
 }
 
-func mutableSettingsChange(modulesProvider modulesProvider, module string, initial, updated any) bool {
-	initialSettings, updatedSettings := structToMap(initial), structToMap(updated)
-	if initialSettings == nil || updatedSettings == nil || reflect.DeepEqual(initialSettings, updatedSettings) {
-		return false
-	}
-	return modulesProvider.MutableSettings(module, initialSettings, updatedSettings)
-}
-
-func vectorizerModuleSettings(vectorizer any) (string, any, bool) {
-	byModule := structToMap(vectorizer)
-	if len(byModule) != 1 {
-		return "", nil, false
-	}
-	module := slices.Collect(maps.Keys(byModule))[0]
-	return module, byModule[module], true
-}
-
-func mutableVectorizerSettingsChange(modulesProvider modulesProvider, initial, updated any) bool {
-	module, initialSettings, ok := vectorizerModuleSettings(initial)
-	updatedModule, updatedSettings, updatedOk := vectorizerModuleSettings(updated)
-	return ok && updatedOk && module == updatedModule &&
-		mutableSettingsChange(modulesProvider, module, initialSettings, updatedSettings)
-}
-
-type vectorizerConfigRef struct {
-	module       string
-	targetVector string // empty for the class-level config
-}
-
-func mutableVectorizerChanges(modulesProvider modulesProvider, initial, updated *models.Class) []vectorizerConfigRef {
-	var changes []vectorizerConfigRef
-	for name, vectorConfig := range updated.VectorConfig {
-		initialConfig, ok := initial.VectorConfig[name]
-		if !ok || !mutableVectorizerSettingsChange(modulesProvider, initialConfig.Vectorizer, vectorConfig.Vectorizer) {
-			continue
+// mutableSettingsChanges returns the modules whose existing settings changed from initial to updated in a way the
+// module allows, keyed by target vector. The class-level moduleConfig uses an empty target vector. It must run before
+// MigrateVectorizerSettings writes the updated settings into initial.
+func mutableSettingsChanges(modulesProvider modulesProvider, initial, updated *models.Class) map[string][]string {
+	changes := map[string][]string{}
+	collect := func(targetVector string, initialConfig, updatedConfig map[string]any) {
+		for module := range updatedConfig {
+			initialSettings, _ := initialConfig[module].(map[string]any)
+			updatedSettings, _ := updatedConfig[module].(map[string]any)
+			if initialSettings != nil && updatedSettings != nil && !reflect.DeepEqual(initialSettings, updatedSettings) &&
+				modulesProvider.MutableSettings(module, initialSettings, updatedSettings) {
+				changes[targetVector] = append(changes[targetVector], module)
+			}
 		}
-		module, _, _ := vectorizerModuleSettings(vectorConfig.Vectorizer)
-		changes = append(changes, vectorizerConfigRef{module: module, targetVector: name})
 	}
 
-	initialModuleConfig := structToMap(initial.ModuleConfig)
-	for module, settings := range structToMap(updated.ModuleConfig) {
-		initialSettings, ok := initialModuleConfig[module]
-		if ok && mutableSettingsChange(modulesProvider, module, initialSettings, settings) {
-			changes = append(changes, vectorizerConfigRef{module: module})
+	collect("", structToMap(initial.ModuleConfig), structToMap(updated.ModuleConfig))
+	for name, vectorConfig := range updated.VectorConfig {
+		initialVectorizer, updatedVectorizer := structToMap(initial.VectorConfig[name].Vectorizer), structToMap(vectorConfig.Vectorizer)
+		if len(initialVectorizer) == 1 && len(updatedVectorizer) == 1 {
+			collect(name, initialVectorizer, updatedVectorizer)
 		}
 	}
 	return changes
