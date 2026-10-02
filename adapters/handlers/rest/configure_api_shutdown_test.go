@@ -12,6 +12,8 @@
 package rest
 
 import (
+	"context"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -38,7 +40,7 @@ func TestShutdownInPhases(t *testing.T) {
 	t.Cleanup(func() { close(abort) })
 
 	const stepCount = 3
-	var started, returned atomic.Int32
+	var started atomic.Int32
 	allStarted := make(chan struct{})
 	// Each step returns only once every step is running, so a sequential
 	// runner never gets past the first step.
@@ -56,7 +58,6 @@ func TestShutdownInPhases(t *testing.T) {
 	fastStep := func(done chan struct{}) func() {
 		return func() {
 			startStep()
-			returned.Add(1)
 			close(done)
 		}
 	}
@@ -67,31 +68,16 @@ func TestShutdownInPhases(t *testing.T) {
 		case <-releaseSlow:
 		case <-abort:
 		}
-		returned.Add(1)
 	}
 
-	var mu sync.Mutex
-	var events []string
-	record := func(e string) {
-		mu.Lock()
-		defer mu.Unlock()
-		events = append(events, e)
-	}
-	var returnedAtCloseDB int32
 	closeDBStarted := make(chan struct{})
-	closeDB := func() {
-		close(closeDBStarted)
-		returnedAtCloseDB = returned.Load()
-		record("closeDB start")
-		record("closeDB end")
-	}
-	flush := func() { record("flush") }
+	closeDB := func() { close(closeDBStarted) }
 
 	logger, _ := test.NewNullLogger()
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)
-		shutdownInPhases(logger, []func(){fastStep(fastDone[0]), slowStep, fastStep(fastDone[1])}, closeDB, flush)
+		shutdownInPhases(logger, []func(){fastStep(fastDone[0]), slowStep, fastStep(fastDone[1])}, closeDB, func() {})
 	}()
 
 	await(allStarted, "every step to be running at once")
@@ -106,9 +92,6 @@ func TestShutdownInPhases(t *testing.T) {
 	}
 	close(releaseSlow)
 	await(finished, "shutdownInPhases to return")
-
-	require.EqualValues(t, stepCount, returnedAtCloseDB, "closeDB started before every step returned")
-	assert.Equal(t, []string{"closeDB start", "closeDB end", "flush"}, events)
 }
 
 // A step that panics must not leave the join waiting forever.
@@ -123,4 +106,93 @@ func TestShutdownInPhasesPanickingStep(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("shutdownInPhases never got past a panicking step")
 	}
+}
+
+func TestShutdownStepsRun(t *testing.T) {
+	var mu sync.Mutex
+	var events []string
+	record := func(e string) {
+		mu.Lock()
+		defer mu.Unlock()
+		events = append(events, e)
+	}
+	step := func(name string) func() {
+		return func() {
+			record(name + " start")
+			record(name + " end")
+		}
+	}
+	stepWithCtx := func(name string) func(context.Context) {
+		return func(context.Context) { step(name)() }
+	}
+
+	grpcStarted := make(chan struct{})
+	var otelCtxErr error
+	steps := shutdownSteps{
+		leaveCluster: func() {
+			record("leaveCluster start")
+			// Correct code never starts the gRPC stop while leaveCluster runs,
+			// so this window cannot flake.
+			select {
+			case <-grpcStarted:
+			case <-time.After(100 * time.Millisecond):
+			}
+			record("leaveCluster end")
+		},
+		stopGRPCServer: func() {
+			record("stopGRPCServer start")
+			close(grpcStarted)
+			record("stopGRPCServer end")
+		},
+		drainExports:        step("drainExports"),
+		stopTelemetry:       step("stopTelemetry"),
+		closeTaskScheduler:  step("closeTaskScheduler"),
+		closeInternalServer: stepWithCtx("closeInternalServer"),
+		closeClusterService: stepWithCtx("closeClusterService"),
+		closeDBUsers:        step("closeDBUsers"),
+		closeModules:        step("closeModules"),
+		closeConnManagers:   step("closeConnManagers"),
+		shutdownOTEL: func(ctx context.Context) {
+			otelCtxErr = ctx.Err()
+			step("shutdownOTEL")()
+		},
+		flushSentry: step("flushSentry"),
+	}
+
+	logger, _ := test.NewNullLogger()
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		steps.run(logger)
+	}()
+	select {
+	case <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for shutdown to return")
+	}
+
+	stopsDBUsers := []string{"leaveCluster", "stopGRPCServer", "drainExports", "stopTelemetry", "closeTaskScheduler"}
+	closesDB := []string{"closeInternalServer", "closeClusterService", "closeDBUsers", "closeModules", "closeConnManagers"}
+	type order struct{ earlier, later string }
+	var orders []order
+	for _, s := range stopsDBUsers {
+		orders = append(orders, order{s, "closeInternalServer"})
+	}
+	for _, s := range closesDB {
+		orders = append(orders, order{s, "shutdownOTEL"}, order{s, "flushSentry"})
+	}
+	orders = append(orders,
+		order{"leaveCluster", "stopGRPCServer"},
+		order{"closeClusterService", "closeConnManagers"},
+	)
+	for _, o := range orders {
+		t.Run(o.earlier+" returns before "+o.later+" starts", func(t *testing.T) {
+			end := slices.Index(events, o.earlier+" end")
+			start := slices.Index(events, o.later+" start")
+			require.NotEqual(t, -1, end, "%s never ran", o.earlier)
+			require.NotEqual(t, -1, start, "%s never ran", o.later)
+			assert.Less(t, end, start, "events: %v", events)
+		})
+	}
+	require.NoError(t, otelCtxErr, "shutdownOTEL got a cancelled ctx")
 }
