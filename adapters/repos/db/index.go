@@ -4854,7 +4854,7 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 				}
 			}
 
-			ch <- result{objs}
+			ch <- result{nameShardDeleteResults(uuids, objs)}
 		}
 		enterrors.GoWrapper(f, i.logger)
 	}
