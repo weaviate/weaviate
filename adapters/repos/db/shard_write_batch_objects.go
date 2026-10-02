@@ -113,6 +113,9 @@ func (ob *objectsBatcher) Objects(ctx context.Context,
 
 	ob.init(objects)
 	ob.storeInObjectStore(ctx)
+	// A stored object must reach its vector and geo indexes, so cancelling
+	// stops only objects that have not been stored yet.
+	ctx = context.WithoutCancel(ctx)
 	ob.markDeletedInVectorStorage(ctx)
 	ob.storeAdditionalStorageWithWorkers(ctx)
 	ob.flushWALs(ctx)
@@ -206,17 +209,16 @@ func (ob *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
 		return err
 	}
 
+	if err := ctx.Err(); err != nil {
+		return errors.Wrapf(err, "store object %d of batch", objectIndex)
+	}
+
 	status, err := ob.shard.putObjectLSM(ctx, object, idBytes)
 	if err != nil {
 		return err
 	}
 
 	ob.setStatusForID(status, object.ID())
-
-	if err := ctx.Err(); err != nil {
-		return errors.Wrapf(err, "end store object %d of batch", objectIndex)
-	}
-
 	return nil
 }
 
@@ -266,12 +268,6 @@ func (ob *objectsBatcher) markDeletedInVectorStorage(ctx context.Context) {
 // stores, such as the main vector index as well as the property-specific
 // indices, such as the geo-index.
 func (ob *objectsBatcher) storeAdditionalStorageWithWorkers(ctx context.Context) {
-	if ok := ob.checkContext(ctx); !ok {
-		// if the context is no longer OK, there's no point in continuing - abort
-		// early
-		return
-	}
-
 	ob.batchStartTime = time.Now()
 
 	for i, object := range ob.objects {
@@ -292,12 +288,6 @@ func (ob *objectsBatcher) storeAdditionalStorageWithWorkers(ctx context.Context)
 }
 
 func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Context) {
-	if ok := ob.checkContext(ctx); !ok {
-		// if the context is no longer OK, there's no point in continuing - abort
-		// early
-		return
-	}
-
 	ob.batchStartTime = time.Now()
 	shouldGeoIndex := ob.shard.hasGeoIndex()
 
@@ -395,11 +385,6 @@ func (ob *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Conte
 		}
 	}()
 
-	if err := ctx.Err(); err != nil {
-		ob.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
-		return
-	}
-
 	if len(object.Vector) > 0 || len(object.Vectors) > 0 || len(object.MultiVectors) > 0 {
 		// By this time all required deletes (e.g. because of DocID changes) have
 		// already been grouped and performed in bulk. Only the insertions are
@@ -460,27 +445,6 @@ func (ob *objectsBatcher) setErrorAtIndex(err error, index int) {
 	ob.Lock()
 	defer ob.Unlock()
 	ob.errs[index] = err
-}
-
-// checkContext does nothing if the context is still active. But if the context
-// has error'd, it marks all objects which have not previously error'd yet with
-// the ctx error
-func (ob *objectsBatcher) checkContext(ctx context.Context) bool {
-	if err := ctx.Err(); err != nil {
-		for i, err := range ob.errs {
-			if err == nil {
-				// already has an error, ignore
-				continue
-			}
-
-			ob.errs[i] = errors.Wrapf(err,
-				"inverted indexing complete, about to start vector indexing")
-		}
-
-		return false
-	}
-
-	return true
 }
 
 func (ob *objectsBatcher) flushWALs(ctx context.Context) {
