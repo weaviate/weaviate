@@ -584,8 +584,17 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 			}
 		}
 
-		if err := validateImmutableFields(initial, updated, h.parser.modules); err != nil {
+		allowed := mutableSettingsChanges(h.parser.modules, initial, updated)
+		if err := validateImmutableFields(initial, updated, h.parser.modules, allowed); err != nil {
 			return err
+		}
+
+		for targetVector, modules := range allowed {
+			for _, module := range modules {
+				if err := h.moduleConfig.ValidateModuleConfig(ctx, updated, module, targetVector); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	// A nil sharding state means that the sharding state will not be updated.
@@ -1699,7 +1708,7 @@ func validateUpdatingMT(current, update *models.Class) (enabled bool, err error)
 	return enabled, err
 }
 
-func validateImmutableFields(initial, updated *models.Class, modulesProvider modulesProvider) error {
+func validateImmutableFields(initial, updated *models.Class, modulesProvider modulesProvider, allowed map[string][]string) error {
 	immutableFields := []immutableText{
 		{
 			name:     "class name",
@@ -1744,6 +1753,10 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 		updated.VectorConfig[k] = v
 
 		if !deepEqualVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+			if _, ok := allowed[k]; ok {
+				continue
+			}
+
 			// There might be module settings that need to be migrated to new names, for example
 			// if baseUrl property setting was renamed to baseURL then we need to adjust module settings
 			// and migrate baseUrl to baseURL
@@ -1782,6 +1795,31 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 
 func deepEqualVectorizerSettings(initial, updated any) bool {
 	return reflect.DeepEqual(structToMap(initial), structToMap(updated))
+}
+
+// mutableSettingsChanges returns the modules whose settings changed in a way the module allows, keyed by target
+// vector ("" for the class-level moduleConfig). It must run before MigrateVectorizerSettings overwrites initial.
+func mutableSettingsChanges(modulesProvider modulesProvider, initial, updated *models.Class) map[string][]string {
+	changes := map[string][]string{}
+	collect := func(targetVector string, initialConfig, updatedConfig map[string]any) {
+		for module := range updatedConfig {
+			initialSettings, _ := initialConfig[module].(map[string]any)
+			updatedSettings, _ := updatedConfig[module].(map[string]any)
+			if initialSettings != nil && updatedSettings != nil && !reflect.DeepEqual(initialSettings, updatedSettings) &&
+				modulesProvider.MutableSettings(module, initialSettings, updatedSettings) {
+				changes[targetVector] = append(changes[targetVector], module)
+			}
+		}
+	}
+
+	collect("", structToMap(initial.ModuleConfig), structToMap(updated.ModuleConfig))
+	for name, vectorConfig := range updated.VectorConfig {
+		initialVectorizer, updatedVectorizer := structToMap(initial.VectorConfig[name].Vectorizer), structToMap(vectorConfig.Vectorizer)
+		if len(initialVectorizer) == 1 && len(updatedVectorizer) == 1 {
+			collect(name, initialVectorizer, updatedVectorizer)
+		}
+	}
+	return changes
 }
 
 func structToMap(obj any) (objMap map[string]any) {
