@@ -1675,13 +1675,17 @@ func TestCrashRecovery_NodeIDBeyondLimitIsNeverApplied(t *testing.T) {
 				dir := nodeIDLimitTestDir(t)
 				path := filepath.Join(dir, nodeIDLimitTestName(fileType))
 				writeNodeIDLimitFixture(t, path, fileType)
-				appendToFile(t, path, walBytes(t, func(w *WALWriter) { require.NoError(t, rec.write(w)) }))
+				tail := walBytes(t, func(w *WALWriter) { require.NoError(t, rec.write(w)) })
+				appendToFile(t, path, tail)
 
 				first := load(dir)
 				assert.True(t, first.RecoveredFromCrash, "a node ID beyond the limit must be detected as corruption")
 				assert.Less(t, len(first.State.Graph.Nodes), g, "node index sized to the garbage ID")
 				assertGraphEqual(t, clean.State, first.State)
 				require.Equal(t, cleanSize, fileSizeOf(t, path), "file must be truncated before the record")
+				saved, err := os.ReadFile(fmt.Sprintf("%s.%d.corrupt", path, cleanSize))
+				require.NoError(t, err, "the dropped tail must be saved")
+				require.Equal(t, tail, saved)
 
 				second := load(dir)
 				assert.False(t, second.RecoveredFromCrash, "second load must be clean after truncation")
@@ -1745,4 +1749,23 @@ func TestCrashRecovery_NodeIDBeyondLimitDoesNotPresizeSnapshot(t *testing.T) {
 	assert.Less(t, len(res.State.Graph.Nodes), nodeIDLimitTestGarbage, "snapshot pre-sized to the garbage ID")
 	require.NotNil(t, nodeAt(res.State, 7), "records before the corruption must survive")
 	assert.Equal(t, validSize, fileSizeOf(t, rawPath), "raw log must be truncated before the record")
+}
+
+// TestCrashRecovery_NodeIDBeyondLimitKeepsFileWhenTailCannotBeSaved pins that
+// a truncation the counter decides never happens without a copy: when the
+// dropped tail cannot be saved, the load fails and the file stays as it is.
+func TestCrashRecovery_NodeIDBeyondLimitKeepsFileWhenTailCannotBeSaved(t *testing.T) {
+	dir := nodeIDLimitTestDir(t)
+	path := filepath.Join(dir, "1000")
+	writeNodeIDLimitFixture(t, path, FileTypeRaw)
+	validSize := fileSizeOf(t, path)
+	appendToFile(t, path, walBytes(t, func(w *WALWriter) { require.NoError(t, w.WriteAddNode(nodeIDLimitTestGarbage, 0)) }))
+	size := fileSizeOf(t, path)
+
+	// A directory where the saved tail would go makes saving it fail.
+	require.NoError(t, os.Mkdir(fmt.Sprintf("%s.%d.corrupt", path, validSize), 0o755))
+
+	_, err := NewLoader(LoaderConfig{Dir: dir, Logger: quietLogger(), NodeIDsAreDocIDs: true}).Load()
+	require.Error(t, err)
+	assert.Equal(t, size, fileSizeOf(t, path), "file must not be truncated without a saved copy")
 }

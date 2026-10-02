@@ -12,7 +12,9 @@
 package compact
 
 import (
+	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"sort"
 
@@ -284,12 +286,22 @@ func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent
 		if errors.Is(err, errNodeIDBeyondLimit) {
 			// Only corruption, such as a misaligned read of a torn log, names a
 			// node the index cannot hold; everything after it is unreliable too.
+			// The limit comes from the document-ID counter, so the dropped tail
+			// is kept in case the counter, not the log, is wrong.
+			offset := walReader.LastValidOffset()
+			saved, dropped, saveErr := l.saveTail(f.Path, offset)
+			if saveErr != nil {
+				return result, false, errors.Wrapf(saveErr, "save the tail of %s before truncating it (%v)", f.Path, err)
+			}
 			l.config.Logger.WithFields(logrus.Fields{
-				"action": "hnsw_loader",
-				"file":   f.Path,
-				"type":   f.Type.String(),
+				"action":        "hnsw_loader",
+				"file":          f.Path,
+				"type":          f.Type.String(),
+				"offset":        offset,
+				"dropped_bytes": dropped,
+				"saved_to":      saved,
 			}).Errorf("commit log names a node beyond the index's limit - truncating before it: %v", err)
-			l.truncateToLastValidRecord(f.Path, walReader.LastValidOffset())
+			l.truncateToLastValidRecord(f.Path, offset)
 			return result, true, nil
 		}
 		switch f.Type {
@@ -372,6 +384,38 @@ func (l *Loader) nodeIDLimit() uint64 {
 		return 0
 	}
 	return counter + docIDCounterSlack
+}
+
+// saveTail copies path from offset to its end into a sibling file the loader
+// never reads, so a truncation can be undone by appending it back.
+func (l *Loader) saveTail(path string, offset int64) (string, int64, error) {
+	src, err := l.fs.Open(path)
+	if err != nil {
+		return "", 0, err
+	}
+	defer src.Close()
+	st, err := src.Stat()
+	if err != nil {
+		return "", 0, err
+	}
+
+	dst := fmt.Sprintf("%s.%d.corrupt", path, offset)
+	out, err := l.fs.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return "", 0, err
+	}
+	n, err := io.Copy(out, io.NewSectionReader(src, offset, st.Size()-offset))
+	if err == nil {
+		err = out.Sync()
+	}
+	closeErr := out.Close()
+	if err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return "", 0, err
+	}
+	return dst, n, nil
 }
 
 // truncateToLastValidRecord truncates a corrupt WAL file back to the end of its
