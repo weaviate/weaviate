@@ -147,3 +147,15 @@ func TestInFlightCancelUnaryInterceptor(t *testing.T) {
 		})
 	}
 }
+
+// A call returning as the cancel fires must be counted before the interceptor returns.
+func TestInFlightCancelCountsCallReturningAsCancelFires(t *testing.T) {
+	ic := NewInFlightCancel()
+	_, err := ic.UnaryInterceptor()(context.Background(), nil, &grpc.UnaryServerInfo{},
+		func(ctx context.Context, _ any) (any, error) {
+			ic.Cancel()
+			return nil, nil
+		})
+	assert.Equal(t, codes.Unavailable, status.Code(err))
+	assert.Equal(t, int64(1), ic.CutShort())
+}
