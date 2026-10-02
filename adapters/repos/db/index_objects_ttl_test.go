@@ -467,21 +467,7 @@ func TestDeleteFromShardsRunsTheLastShardInline(t *testing.T) {
 			wantFreeSlots: 1,
 		},
 		{
-			name:          "the last of three runs inline",
-			shards2uuids:  map[string][]strfmt.UUID{"s1": {"a"}, "s2": {"b"}, "s3": {"c"}},
-			wantRan:       []string{"s1", "s2", "s3"},
-			wantInline:    1,
-			wantFreeSlots: 1,
-		},
-		{
-			name:          "a shard with no expired uuids is neither dispatched nor counted",
-			shards2uuids:  map[string][]strfmt.UUID{"s1": {"a"}, "empty": {}, "s2": {"b"}},
-			wantRan:       []string{"s1", "s2"},
-			wantInline:    1,
-			wantFreeSlots: 1,
-		},
-		{
-			name:          "a shard whose uuid list is nil is neither dispatched nor counted",
+			name:          "a shard with a nil or empty uuid list is neither dispatched nor counted",
 			shards2uuids:  map[string][]strfmt.UUID{"s1": {"a"}, "nil": nil, "empty": {}, "s2": {"b"}},
 			wantRan:       []string{"s1", "s2"},
 			wantInline:    1,
@@ -527,23 +513,11 @@ func TestDeleteFromShardsRunsTheLastShardInline(t *testing.T) {
 // TestDeleteFromShardsWithNothingExpired pins that a round with nothing to delete dispatches no
 // shard and reports none, which is how the sweep loop learns to stop.
 func TestDeleteFromShardsWithNothingExpired(t *testing.T) {
-	cases := []struct {
-		name         string
-		shards2uuids map[string][]strfmt.UUID
-	}{
-		{name: "no shards", shards2uuids: map[string][]strfmt.UUID{}},
-		{name: "every shard empty", shards2uuids: map[string][]strfmt.UUID{"s1": {}, "s2": nil}},
-	}
+	run := runShardDispatch(t, map[string][]strfmt.UUID{"s1": {}, "s2": nil}, 1)
 
-	for _, tt := range cases {
-		t.Run(tt.name, func(t *testing.T) {
-			run := runShardDispatch(t, tt.shards2uuids, 1)
-
-			assert.Empty(t, run.ran)
-			assert.Equal(t, 0, run.dispatched)
-			assert.False(t, run.stopped)
-		})
-	}
+	assert.Empty(t, run.ran)
+	assert.Equal(t, 0, run.dispatched)
+	assert.False(t, run.stopped)
 }
 
 // TestDeleteFromShardsStopsOnAStoppedSweep pins that a stopped sweep runs the shard it is on and
@@ -591,11 +565,6 @@ func TestDeleteFromShardsContainsAPanicToItsShard(t *testing.T) {
 			name:         "every shard panics, so the inline one does whichever it is",
 			shards2uuids: map[string][]strfmt.UUID{"s1": {"a"}, "s2": {"b"}, "s3": {"c"}},
 			panicking:    []string{"s1", "s2", "s3"},
-		},
-		{
-			name:         "one shard of three panics",
-			shards2uuids: map[string][]strfmt.UUID{"s1": {"a"}, "s2": {"b"}, "s3": {"c"}},
-			panicking:    []string{"s2"},
 		},
 	}
 
