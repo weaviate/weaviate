@@ -38,8 +38,7 @@ func (c *InFlightCancel) Cancel() {
 	c.cancel()
 }
 
-// CutShort returns how many calls Cancel cancelled. It can read one short,
-// because a call can return Unavailable before its count is added.
+// CutShort returns how many calls Cancel cancelled.
 func (c *InFlightCancel) CutShort() int64 {
 	return c.cutShort.Load()
 }
@@ -59,6 +58,9 @@ func (c *InFlightCancel) UnaryInterceptor() grpc.UnaryServerInterceptor {
 		if stop() {
 			return resp, err
 		}
+		// The callback counts this call before cancelling ctx. A client cancel at
+		// the same instant can still let the call return uncounted.
+		<-ctx.Done()
 		return nil, status.Error(codes.Unavailable, "server is shutting down")
 	}
 }
