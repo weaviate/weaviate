@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	clusterTypes "github.com/weaviate/weaviate/cluster/types"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // A node behind on schema must read as unavailable, not as a fault: 500 is retryable, so the caller
@@ -36,9 +37,14 @@ func TestOperationStatus(t *testing.T) {
 			want: http.StatusServiceUnavailable,
 		},
 		{
-			name: "wrapped per shard",
-			err:  fmt.Errorf("shard %q: wait for schema version 55: deadline exceeded", "S1"),
+			name: "wrapped per shard, as Index does",
+			err:  fmt.Errorf("shard %q: wait for schema version 55: %w", "S1", clusterTypes.ErrDeadlineExceeded),
 			want: http.StatusServiceUnavailable,
+		},
+		{
+			name: "the same text without the cause is not classified",
+			err:  errors.New("shard \"S1\": wait for schema version 55: deadline exceeded"),
+			want: http.StatusInternalServerError,
 		},
 		{
 			name: "the sentinel on its own",
@@ -47,7 +53,12 @@ func TestOperationStatus(t *testing.T) {
 		},
 		{
 			name: "a class this node does not have yet",
-			err:  errors.New(`local index "Product_v2" not found`),
+			err:  enterrors.ErrLocalIndexNotFound{Index: "Product_v2"},
+			want: http.StatusServiceUnavailable,
+		},
+		{
+			name: "reached through the unprocessable wrapper the shards layer adds",
+			err:  enterrors.NewErrUnprocessable(enterrors.ErrLocalIndexNotFound{Index: "Product_v2"}),
 			want: http.StatusServiceUnavailable,
 		},
 		{
@@ -61,6 +72,35 @@ func TestOperationStatus(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			assert.Equal(t, test.want, operationStatus(test.err))
+		})
+	}
+}
+
+// A batch fails whole when this node is behind, so it answers unavailable rather than a per-object
+// error list the caller would read as a partial success.
+func TestBatchNotCaughtUp(t *testing.T) {
+	lagging := fmt.Errorf("wait for schema version 55: %w", clusterTypes.ErrDeadlineExceeded)
+
+	tests := []struct {
+		name string
+		errs []error
+		want bool
+	}{
+		{name: "no errors", errs: []error{nil, nil}},
+		{name: "every object blocked by the wait", errs: []error{lagging, lagging}, want: true},
+		{name: "the wait plus a real failure stays per object", errs: []error{lagging, errors.New("disk full")}},
+		{name: "a partial success stays per object", errs: []error{nil, errors.New("invalid vector")}},
+		{name: "blocked with gaps", errs: []error{nil, lagging, nil}, want: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := batchNotCaughtUp(test.errs)
+			if !test.want {
+				assert.Nil(t, got)
+				return
+			}
+			assert.ErrorIs(t, got, clusterTypes.ErrDeadlineExceeded)
 		})
 	}
 }
