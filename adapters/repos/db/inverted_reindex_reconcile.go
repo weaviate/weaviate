@@ -388,7 +388,6 @@ func (r *migrationReconciler) wedgeUncommittable(ctx context.Context, rec Migrat
 		rec.State(), why, strings.Join(migrationReportedNames(subject.Properties()), ", "))
 }
 
-// Under the seal and not in wedged(): the unit's worker, or a promotion, may still need the mirror.
 func (r *migrationReconciler) wedgeForTask(ctx context.Context, subject MigrationSubject, format string, args ...any) {
 	if err := r.withSealedUnit(subject, "its wedge", func() error {
 		r.wedged(subject, migrationWedgeRemedy, format, args...)
