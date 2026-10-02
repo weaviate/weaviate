@@ -32,12 +32,16 @@ import (
 )
 
 type fakeBucketCloser struct {
-	closed []string
-	err    error
+	closed  []string
+	err     error
+	onClose func()
 }
 
 func (f *fakeBucketCloser) ShutdownStagedBucketsAt(_ context.Context, dirs []string) error {
 	f.closed = append(f.closed, dirs...)
+	if f.onClose != nil {
+		f.onClose()
+	}
 	return f.err
 }
 
@@ -69,10 +73,19 @@ type reconcileFixture struct {
 	logger        *logrus.Logger
 	logs          *test.Hook
 	disarmed      []migrationMirrorKey
+	// unsealed counts disarms and closes made while no seal was held.
+	unsealed int
 }
 
 func (f *reconcileFixture) DisarmMigrationMirror(key MigrationRecordKey, prop string) {
 	f.disarmed = append(f.disarmed, migrationMirrorKey{key, prop})
+	f.countUnsealed()
+}
+
+func (f *reconcileFixture) countUnsealed() {
+	if len(f.sealed) == f.sealsReleased {
+		f.unsealed++
+	}
 }
 
 func newReconcileFixture(t *testing.T) *reconcileFixture {
@@ -84,7 +97,7 @@ func newReconcileFixtureAt(t *testing.T, lsmPath string) *reconcileFixture {
 	t.Helper()
 	logger, hook := test.NewNullLogger()
 	require.NoError(t, os.MkdirAll(lsmPath, 0o777))
-	return &reconcileFixture{
+	f := &reconcileFixture{
 		t:             t,
 		tasksReadable: true,
 		lsmPath:       lsmPath,
@@ -93,6 +106,8 @@ func newReconcileFixtureAt(t *testing.T, lsmPath string) *reconcileFixture {
 		logger:        logger,
 		logs:          hook,
 	}
+	f.buckets.onClose = f.countUnsealed
+	return f
 }
 
 func (f *reconcileFixture) logged(want string) bool {
@@ -1392,7 +1407,31 @@ func TestEveryTeardownArmSealsTheUnit(t *testing.T) {
 		name     string
 		arrange  func(f *reconcileFixture)
 		heldDirs []string
+		// pass: the arm runs on the periodic pass, after the shard load.
+		pass bool
+		// wedges: the arm's own work is the wedge, the disarm and the close.
+		wedges bool
 	}{
+		{
+			name: "the pass's wedge of a migration no task list holds",
+			arrange: func(f *reconcileFixture) {
+				subject := subjectOf(42)
+				subject.MigrationType = ReindexTypeRepairRangeable
+				f.mkdirs("property_title__g42_ingest", "property_title_searchable")
+				f.put(NewMigrationRecordMerged(subject))
+			},
+			pass:   true,
+			wedges: true,
+		},
+		{
+			name: "the load's wedge of a migration the cluster committed",
+			arrange: func(f *reconcileFixture) {
+				f.tasks = []*distributedtask.Task{testTask(taskID, 42, distributedtask.TaskStatusFinished)}
+				f.mkdirs("property_title__g42_ingest", "property_title__s42_reindex", "property_title_searchable")
+				f.put(NewMigrationRecordIterated(subjectOf(42)))
+			},
+			wedges: true,
+		},
 		{
 			name: "the discard arm",
 			arrange: func(f *reconcileFixture) {
@@ -1440,18 +1479,21 @@ func TestEveryTeardownArmSealsTheUnit(t *testing.T) {
 			live.class = testClassWithTokenization(models.PropertyTokenizationLowercase, "title")
 			tt.arrange(live)
 			live.liveUnit = liveUnitOf(live.planted[0])
-			live.reconcile()
+			runArm(live, tt.pass)
 			for _, dir := range tt.heldDirs {
 				require.True(t, live.exists(dir),
 					"a live worker writes into %s through a pointer it already holds", dir)
 			}
 			require.Contains(t, live.asked, *live.liveUnit,
 				"the arm must take the seal of the unit whose directories it is about to remove")
+			require.False(t, live.store.Wedged(live.planted[0].Key), "the next pass has to ask again")
+			require.Empty(t, live.disarmed, "the worker needs its mirror until its own swap")
+			require.Empty(t, live.buckets.closed, "the worker's buckets stay open")
 
 			free := newReconcileFixture(t)
 			free.class = testClassWithTokenization(models.PropertyTokenizationLowercase, "title")
 			tt.arrange(free)
-			free.reconcile()
+			runArm(free, tt.pass)
 			for _, dir := range tt.heldDirs {
 				require.False(t, free.exists(dir),
 					"with no worker running, %s is the arm's own work and must be done", dir)
@@ -1460,7 +1502,21 @@ func TestEveryTeardownArmSealsTheUnit(t *testing.T) {
 				"the arm holds the unit while it works")
 			require.Equal(t, len(free.sealed), free.sealsReleased,
 				"and lets it go again: a leaked seal refuses this unit for the life of the process")
+			require.Zero(t, free.unsealed, "disarmed or closed without the unit's seal")
+			if tt.wedges {
+				require.True(t, free.store.Wedged(free.planted[0].Key))
+				require.ElementsMatch(t, []migrationMirrorKey{{free.planted[0].Key, "title"}}, free.disarmed)
+				require.ElementsMatch(t, migrationOwnedDirs(free.planted[0]), free.buckets.closed)
+			}
 		})
+	}
+}
+
+func runArm(f *reconcileFixture, pass bool) {
+	f.reconcile()
+	if pass {
+		newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps()).
+			ReconcileWithClusterTasks(context.Background(), f.tasks)
 	}
 }
 

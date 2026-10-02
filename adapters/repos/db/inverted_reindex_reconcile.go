@@ -30,7 +30,7 @@ type migrationMirrorDisarmer interface {
 
 // Must run before the directory is removed, or mmaps and compactions leak.
 // Takes directories, not a record, so the caller closes only what it has
-// already decided to remove, or what no read uses: anything else stops serving.
+// already decided to remove, or what no read uses, under the unit's seal.
 type migrationStagedBucketCloser interface {
 	ShutdownStagedBucketsAt(ctx context.Context, dirs []string) error
 }
@@ -359,8 +359,7 @@ func (r *migrationReconciler) ReconcileWithClusterTasks(ctx context.Context, tas
 		verdict, why := r.clusterVerdict(subject, tasks)
 		switch {
 		case verdict == migrationVerdictWedge:
-			r.wedged(subject, migrationWedgeRemedy, "%s.", why)
-			r.stopWedgedMirror(ctx, subject)
+			r.wedgeForTask(ctx, subject, "%s.", why)
 		case verdict == migrationVerdictDiscard:
 			if err := r.discard(ctx, subject, why); err != nil {
 				r.logger.WithField("record", subject.Key.String()).Errorf(
@@ -383,23 +382,19 @@ func (r *migrationReconciler) ReconcileWithClusterTasks(ctx context.Context, tas
 
 func (r *migrationReconciler) wedgeUncommittable(ctx context.Context, rec MigrationRecord, why string) {
 	subject := rec.Subject()
-	r.wedged(subject, migrationWedgeRemedy,
+	r.wedgeForTask(ctx, subject,
 		"migration is %s locally but the cluster reports it committed (%s), so no load here can finish it. "+
 			"Properties: %s.",
 		rec.State(), why, strings.Join(migrationReportedNames(subject.Properties()), ", "))
-	r.store.MarkWedged(subject.Key)
-	r.stopWedgedMirror(ctx, subject)
 }
 
-// Not in wedged(): promotion paths wedge records whose mirror a promotion still needs.
-func (r *migrationReconciler) stopWedgedMirror(ctx context.Context, subject MigrationSubject) {
-	r.disarmMirrors(subject)
-	release, sealed := r.sealUnit(subject)
-	if !sealed {
-		return
-	}
-	defer release()
-	if err := r.closeStagedBuckets(ctx, migrationOwnedDirs(subject)...); err != nil {
+// Under the seal and not in wedged(): the unit's worker, or a promotion, may still need the mirror.
+func (r *migrationReconciler) wedgeForTask(ctx context.Context, subject MigrationSubject, format string, args ...any) {
+	if err := r.withSealedUnit(subject, "its wedge", func() error {
+		r.wedged(subject, migrationWedgeRemedy, format, args...)
+		r.disarmMirrors(subject)
+		return r.closeStagedBuckets(ctx, migrationOwnedDirs(subject)...)
+	}); err != nil {
 		r.logger.WithField("record", subject.Key.String()).Warnf("stop the mirror of a wedged migration: %v", err)
 	}
 }

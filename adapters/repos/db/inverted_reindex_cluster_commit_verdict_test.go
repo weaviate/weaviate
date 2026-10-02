@@ -15,10 +15,15 @@ import (
 	"context"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/storobj"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // A commit verdict on a record whose rebuild never finished can never be acted
@@ -85,15 +90,7 @@ func TestATaskVerdictWedgeStopsOnlyThatRecordsMirror(t *testing.T) {
 		name          string
 		migrationType ReindexMigrationType
 		record        func(MigrationSubject) MigrationRecord
-		// workerHoldsTheUnit: buckets a worker still uses are closed only under its seal.
-		workerHoldsTheUnit bool
 	}{
-		{
-			name:               "a worker of the gone task still holds the unit",
-			migrationType:      ReindexTypeRepairRangeable,
-			record:             func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterating(s, MigrationCheckpoint{}) },
-			workerHoldsTheUnit: true,
-		},
 		{
 			name:          "the leader's list no longer holds a migration the schema cannot show",
 			migrationType: ReindexTypeRepairRangeable,
@@ -118,20 +115,80 @@ func TestATaskVerdictWedgeStopsOnlyThatRecordsMirror(t *testing.T) {
 			f.put(tt.record(wedging))
 			f.put(NewMigrationRecordIterated(running))
 			require.NoError(t, f.store.Load())
-			if tt.workerHoldsTheUnit {
-				f.liveUnit = liveUnitOf(wedging)
-			}
 
 			newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps()).
 				ReconcileWithClusterTasks(context.Background(), f.tasks)
 
 			require.True(t, f.store.Wedged(wedging.Key), "fixture: the pass has to wedge the record")
 			require.ElementsMatch(t, []migrationMirrorKey{{wedging.Key, "title"}, {wedging.Key, "body"}}, f.disarmed)
-			if tt.workerHoldsTheUnit {
-				require.Empty(t, f.buckets.closed, "the worker's next chunk would find its buckets gone")
-				return
-			}
 			require.ElementsMatch(t, migrationOwnedDirs(wedging), f.buckets.closed)
+		})
+	}
+}
+
+// A worker can outlive its task (a cancel with a zero task TTL) and still swap
+// its staged index in, so a pass that cannot take its seal must leave the
+// mirror copying every write until then.
+func TestARefusedWedgeKeepsTheWorkersMirror(t *testing.T) {
+	const written = int64(777777)
+
+	for _, tt := range []struct {
+		name            string
+		cancelTheWorker bool
+	}{
+		{name: "the user cancelled the worker", cancelTheWorker: true},
+		{name: "the worker has not seen the cancel yet"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "RefusedWedge_" + uuid.NewString()[:8]
+			class := newFilterableToRangeableTestClass(className)
+			rangeable := true
+			class.Properties[0].IndexRangeFilters = &rangeable
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+			shard := shd.(*Shard)
+			t.Cleanup(func() { shard.Shutdown(context.Background()) })
+			for _, obj := range makeFilterableToRangeableTestObjects(t, 25, className) {
+				require.NoError(t, shard.PutObject(ctx, obj))
+			}
+
+			task, _ := newFilterableToRangeableTask(t, idx, className, filterableToRangeablePropName, shard.migrationUnit())
+			task.setMigrationIdentity(distributedtask.TaskDescriptor{ID: "repair", Version: 1}, shard.migrationUnit(),
+				&ReindexTaskPayload{MigrationType: ReindexTypeRepairRangeable, Collection: className})
+			workerCtx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			require.NoError(t, task.RunReindexOnlyOnShard(workerCtx, shard))
+			require.NoError(t, task.RunPrepareOnShard(workerCtx, shard))
+			if tt.cancelTheWorker {
+				cancel()
+			}
+
+			r := shard.migrationReconciler(func() *models.Class { return class })
+			r.deps.LocalTasks = func() ([]*distributedtask.Task, bool) { return nil, true }
+			r.deps.SealUnit = func(distributedtask.TaskDescriptor, string) (func(), bool) { return nil, false }
+			r.ReconcileWithClusterTasks(context.Background(), nil)
+
+			require.NoError(t, shard.PutObject(context.Background(), &storobj.Object{
+				MarshallerVersion: 1,
+				Object: models.Object{
+					ID:         strfmt.UUID(uuid.NewString()),
+					Class:      className,
+					Properties: map[string]interface{}{filterableToRangeablePropName: written},
+				},
+			}))
+			swapErr := task.RunSwapOnShard(workerCtx, shard)
+			if !tt.cancelTheWorker {
+				require.NoError(t, swapErr)
+			}
+
+			rec, ok := task.migrationRecord(shard)
+			require.True(t, ok)
+			require.Equal(t, MigrationStateSwapped, rec.State())
+			served := shard.store.Bucket(helpers.BucketRangeableFromPropNameLSM(filterableToRangeablePropName))
+			require.NotNil(t, served)
+			require.NotEmpty(t, readRangeableIDs(t, served, 0), "fixture: the corpus is served")
+			require.Len(t, readRangeableIDs(t, served, written), 1, "the write made after the pass")
+			require.Len(t, rangeableDocIDsAtLeast(t, served, 0), 26)
 		})
 	}
 }
