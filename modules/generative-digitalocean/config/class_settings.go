@@ -12,6 +12,10 @@
 package config
 
 import (
+	"context"
+	"fmt"
+	"os"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -34,6 +38,18 @@ var (
 	DefaultModel   = "llama-4-maverick"
 )
 
+// ModelLister returns the set of available model ids from a DigitalOcean
+// Serverless Inference endpoint. It is implemented in the clients package and
+// injected here through DefaultModelLister to keep config free of HTTP-client
+// dependencies. Tests can override DefaultModelLister with a fake.
+type ModelLister interface {
+	ListModels(ctx context.Context, baseURL, apiKey string, weaviateUUID string) ([]string, error)
+}
+
+// DefaultModelLister is the lister used by Validate. The clients package
+// registers an HTTP-backed implementation at init time.
+var DefaultModelLister ModelLister
+
 type classSettings struct {
 	cfg                  moduletools.ClassConfig
 	propertyValuesHelper basesettings.PropertyValuesHelper
@@ -43,7 +59,7 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{cfg: cfg, propertyValuesHelper: basesettings.NewPropertyValuesHelper("generative-digitalocean")}
 }
 
-func (ic *classSettings) Validate(class *models.Class) error {
+func (ic *classSettings) Validate(ctx context.Context, class *models.Class) error {
 	if ic.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
@@ -66,7 +82,48 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if presencePenalty := ic.PresencePenalty(); presencePenalty != nil && (*presencePenalty < -2 || *presencePenalty > 2) {
 		return errors.New("wrong presencePenalty configuration, values are between -2.0 and 2.0")
 	}
-	return nil
+	return ic.validateModel(ctx)
+}
+
+func (ic *classSettings) validateModel(ctx context.Context) error {
+	lister := DefaultModelLister
+	if lister == nil {
+		return nil
+	}
+
+	apiKey := ic.apiKey()
+	if apiKey == "" {
+		// Without a server-side API key the model can't be checked against
+		// /v1/models; the endpoint rejects an unknown model at generate time,
+		// where users can supply their own key via X-Digitalocean-Api-Key.
+		return nil
+	}
+
+	model := ic.Model()
+	available, err := lister.ListModels(ctx, ic.BaseURL(), apiKey, ic.WeaviateUUID())
+	if err != nil {
+		return errors.Wrap(err, "list DigitalOcean models")
+	}
+
+	for _, id := range available {
+		if id == model {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("model %q is not available on the DigitalOcean Serverless Inference endpoint; available models: %v", model, available)
+}
+
+// apiKey resolves the DigitalOcean API key from the DIGITALOCEAN_APIKEY
+// environment variable. Validation runs at collection-create time, where the
+// per-request header is not available, so only the server-level env var is
+// consulted.
+func (ic *classSettings) apiKey() string {
+	return os.Getenv("DIGITALOCEAN_APIKEY")
+}
+
+func (ic *classSettings) WeaviateUUID() string {
+	return os.Getenv("VECTOR_DB_UUID")
 }
 
 func (ic *classSettings) BaseURL() string {
