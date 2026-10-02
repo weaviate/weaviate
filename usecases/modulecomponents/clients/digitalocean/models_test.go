@@ -69,16 +69,66 @@ func TestModelLister_Cache(t *testing.T) {
 	assert.Equal(t, int32(2), atomic.LoadInt32(&calls))
 }
 
-func TestModelLister_Error(t *testing.T) {
+func TestModelLister_PrunesExpiredEntries(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = io.WriteString(w, `{"error":{"message":"bad token","code":"unauthorized"}}`)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"object":"list","data":[{"id":"m1","object":"model","owned_by":"do","created":1}]}`)
 	}))
 	t.Cleanup(server.Close)
 
 	l := NewModelLister(5 * time.Second)
+	expiredKey := l.cacheKey("https://expired.example.com", "old-key")
+	freshKey := l.cacheKey("https://fresh.example.com", "other-key")
+	l.cache[expiredKey] = modelCacheEntry{models: []string{"old"}, fetchedAt: time.Now().Add(-modelCacheTTL)}
+	l.cache[freshKey] = modelCacheEntry{models: []string{"fresh"}, fetchedAt: time.Now()}
+
 	_, err := l.ListModels(context.Background(), server.URL, "test-key", "test-uuid")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "status 401")
-	assert.Contains(t, err.Error(), "bad token")
+	require.NoError(t, err)
+
+	assert.NotContains(t, l.cache, expiredKey)
+	assert.Contains(t, l.cache, freshKey)
+	assert.Contains(t, l.cache, l.cacheKey(server.URL, "test-key"))
+}
+
+func TestModelLister_Error(t *testing.T) {
+	tests := []struct {
+		name        string
+		statusCode  int
+		body        string
+		expectedErr string
+	}{
+		{
+			name:        "openai-style error",
+			statusCode:  http.StatusUnauthorized,
+			body:        `{"error":{"message":"bad token","code":"unauthorized"}}`,
+			expectedErr: "DigitalOcean /v1/models returned status 401: bad token",
+		},
+		{
+			name:        "native error",
+			statusCode:  http.StatusPaymentRequired,
+			body:        `{"id":"Payment Required","message":"insufficient balance","request_id":"req-123"}`,
+			expectedErr: "DigitalOcean /v1/models returned status 402: insufficient balance request_id: req-123",
+		},
+		{
+			name:        "status only",
+			statusCode:  http.StatusInternalServerError,
+			body:        `{}`,
+			expectedErr: "DigitalOcean /v1/models returned status 500",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.statusCode)
+				_, _ = io.WriteString(w, tt.body)
+			}))
+			t.Cleanup(server.Close)
+
+			l := NewModelLister(5 * time.Second)
+			_, err := l.ListModels(context.Background(), server.URL, "test-key", "test-uuid")
+			require.Error(t, err)
+			assert.Equal(t, tt.expectedErr, err.Error())
+		})
+	}
 }

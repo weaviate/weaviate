@@ -13,10 +13,11 @@ package config
 
 import (
 	"context"
-	"fmt"
 	"os"
+	"slices"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
@@ -59,7 +60,11 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{cfg: cfg, propertyValuesHelper: basesettings.NewPropertyValuesHelper("generative-digitalocean")}
 }
 
-func (ic *classSettings) Validate(ctx context.Context, class *models.Class) error {
+// Validate checks the class config. It also checks the model against the
+// endpoint's /v1/models list, but only logs a warning when the model is
+// missing or the list can't be fetched: that check depends on a remote
+// service, so it must not block collection creation or backup restore.
+func (ic *classSettings) Validate(ctx context.Context, class *models.Class, logger logrus.FieldLogger) error {
 	if ic.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
@@ -82,17 +87,10 @@ func (ic *classSettings) Validate(ctx context.Context, class *models.Class) erro
 	if presencePenalty := ic.PresencePenalty(); presencePenalty != nil && (*presencePenalty < -2 || *presencePenalty > 2) {
 		return errors.New("wrong presencePenalty configuration, values are between -2.0 and 2.0")
 	}
-	return ic.validateModel(ctx)
-}
 
-func (ic *classSettings) validateModel(ctx context.Context) error {
 	lister := DefaultModelLister
-	if lister == nil {
-		return nil
-	}
-
 	apiKey := ic.apiKey()
-	if apiKey == "" {
+	if lister == nil || apiKey == "" {
 		// Without a server-side API key the model can't be checked against
 		// /v1/models; the endpoint rejects an unknown model at generate time,
 		// where users can supply their own key via X-Digitalocean-Api-Key.
@@ -102,20 +100,17 @@ func (ic *classSettings) validateModel(ctx context.Context) error {
 	model := ic.Model()
 	available, err := lister.ListModels(ctx, ic.BaseURL(), apiKey, ic.WeaviateUUID())
 	if err != nil {
-		return errors.Wrap(err, "list DigitalOcean models")
+		logger.Warnf("collection %q: failed to list DigitalOcean models: %v", class.Class, err)
+		return nil
 	}
-
-	for _, id := range available {
-		if id == model {
-			return nil
-		}
+	if !slices.Contains(available, model) {
+		logger.Warnf("collection %q: model %q is not available on the DigitalOcean Serverless Inference endpoint; available models: %v", class.Class, model, available)
 	}
-
-	return fmt.Errorf("model %q is not available on the DigitalOcean Serverless Inference endpoint; available models: %v", model, available)
+	return nil
 }
 
 // apiKey resolves the DigitalOcean API key from the DIGITALOCEAN_APIKEY
-// environment variable. Validation runs at collection-create time, where the
+// environment variable. The model check runs at collection-create time, where the
 // per-request header is not available, so only the server-level env var is
 // consulted.
 func (ic *classSettings) apiKey() string {

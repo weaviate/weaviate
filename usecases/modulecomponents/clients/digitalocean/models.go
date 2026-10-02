@@ -35,10 +35,14 @@ import (
 // and avoiding excessive calls.
 const modelCacheTTL = 5 * time.Minute
 
+// modelListResponse covers both error formats: DigitalOcean's native
+// top-level {"id","message","request_id"} and the OpenAI-style {"error":{...}}.
 type modelListResponse struct {
-	Object string          `json:"object"`
-	Data   []modelListItem `json:"data"`
-	Error  *modelListError `json:"error,omitempty"`
+	Object    string          `json:"object"`
+	Data      []modelListItem `json:"data"`
+	Message   string          `json:"message,omitempty"`
+	RequestID string          `json:"request_id,omitempty"`
+	Error     *modelListError `json:"error,omitempty"`
 }
 
 type modelListError struct {
@@ -90,8 +94,14 @@ func (l *ModelLister) ListModels(ctx context.Context, baseURL, apiKey, weaviateU
 		return nil, err
 	}
 
+	now := time.Now()
 	l.mu.Lock()
-	l.cache[cacheKey] = modelCacheEntry{models: models, fetchedAt: time.Now()}
+	for key, entry := range l.cache {
+		if now.Sub(entry.fetchedAt) >= modelCacheTTL {
+			delete(l.cache, key)
+		}
+	}
+	l.cache[cacheKey] = modelCacheEntry{models: models, fetchedAt: now}
 	l.mu.Unlock()
 
 	return models, nil
@@ -135,6 +145,11 @@ func (l *ModelLister) fetch(ctx context.Context, baseURL, apiKey, weaviateUUID s
 		msg := fmt.Sprintf("DigitalOcean /v1/models returned status %d", res.StatusCode)
 		if parsed.Error != nil && parsed.Error.Message != "" {
 			msg = fmt.Sprintf("%s: %s", msg, parsed.Error.Message)
+		} else if parsed.Message != "" {
+			msg = fmt.Sprintf("%s: %s", msg, parsed.Message)
+		}
+		if parsed.RequestID != "" {
+			msg = fmt.Sprintf("%s request_id: %s", msg, parsed.RequestID)
 		}
 		return nil, errors.New(msg)
 	}

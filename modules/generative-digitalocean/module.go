@@ -33,6 +33,7 @@ func New() *GenerativeDigitalOceanModule {
 type GenerativeDigitalOceanModule struct {
 	generative                   generativeClient
 	additionalPropertiesProvider map[string]modulecapabilities.GenerativeProperty
+	logger                       logrus.FieldLogger
 }
 
 type generativeClient interface {
@@ -65,6 +66,7 @@ func (m *GenerativeDigitalOceanModule) initAdditional(ctx context.Context, timeo
 
 	client := clients.New(apiKey, timeout, logger)
 	m.generative = client
+	m.logger = logger
 	m.additionalPropertiesProvider = parameters.AdditionalGenerativeParameters(m.generative)
 
 	return nil
