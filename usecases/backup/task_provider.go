@@ -43,6 +43,10 @@ type BackupTaskProvider struct {
 	userSrc  dynUserSnapshotter
 	backends BackupBackendProvider
 
+	// planner plans replica dedupe inside the flow; nil when no Checkpointer
+	// is wired. Nothing renews its lastOp.
+	planner *coordinator
+
 	recorder distributedtask.TaskCompletionRecorder
 
 	// nodeHandler holds the node-wide lastOp latch shared with the legacy 2PC
@@ -76,9 +80,15 @@ type BackupTaskProviderParams struct {
 	NodeHandler       *Handler
 	AppliedIndexProbe func(ctx context.Context, version uint64) error
 	DataPath          string
+	Checkpointer      ReplicaCheckpointer
 }
 
 func NewBackupTaskProvider(p BackupTaskProviderParams) *BackupTaskProvider {
+	var planner *coordinator
+	if p.Checkpointer != nil {
+		planner = newCoordinator(nil, nil, nil, p.Logger, nil, p.Backends, nil, p.Checkpointer)
+		planner.dtmPlanner = true
+	}
 	return &BackupTaskProvider{
 		node:              p.Node,
 		logger:            p.Logger,
@@ -87,6 +97,7 @@ func NewBackupTaskProvider(p BackupTaskProviderParams) *BackupTaskProvider {
 		rbacSrc:           p.RBACSrc,
 		userSrc:           p.UserSrc,
 		backends:          p.Backends,
+		planner:           planner,
 		nodeHandler:       p.NodeHandler,
 		appliedIndexProbe: p.AppliedIndexProbe,
 		dataPath:          p.DataPath,
@@ -699,6 +710,12 @@ func (p *BackupTaskProvider) writeTerminalDescriptor(task *distributedtask.Task,
 	if err == nil && isFinalStatus(existing.Status) {
 		return nil
 	}
+	// A terminal descriptor written without the published plan would mislabel
+	// a deduped artifact. Not-found means no plan was published, so no node
+	// filtered a shard and the plan-less descriptor below is accurate.
+	if payload.DedupeReplicas && err != nil && !errors.As(err, &backup.ErrNotFound{}) {
+		return fmt.Errorf("terminal descriptor: read published plan: %w", err)
+	}
 
 	status, errMsg := backupVerdict(task)
 
@@ -719,8 +736,17 @@ func (p *BackupTaskProvider) writeTerminalDescriptor(task *distributedtask.Task,
 		Error:          errMsg,
 		CompletedAt:    time.Now().UTC(),
 	}
+	if payload.DedupeReplicas && err == nil {
+		descriptor.Version = existing.Version
+		descriptor.DedupeReplicas = existing.DedupeReplicas
+		descriptor.DedupeDesignatedShards = existing.DedupeDesignatedShards
+		descriptor.DedupeFallbackShards = existing.DedupeFallbackShards
+		descriptor.DedupeCutoffsMs = existing.DedupeCutoffsMs
+		descriptor.DedupeDesignations = existing.DedupeDesignations
+	}
 
 	var totalSize int64
+	nodeMetas := make(map[string]*backup.BackupDescriptor, len(payload.Nodes))
 	for nodeName, nd := range payload.Nodes {
 		ns, nsErr := nodeBackend(nodeName, p.backends, payload.Backend, payload.ID, payload.Bucket, payload.Path)
 		if nsErr != nil {
@@ -739,12 +765,34 @@ func (p *BackupTaskProvider) writeTerminalDescriptor(task *distributedtask.Task,
 			nd.Error = fmt.Sprintf("missing node descriptor for %s: %v", nodeName, readErr)
 			continue
 		}
+		nodeMetas[nodeName] = meta
 		nd.PreCompressionSizeBytes = meta.PreCompressionSizeBytes
 		totalSize += meta.PreCompressionSizeBytes
 		nd.Status = meta.Status
 	}
 	descriptor.PreCompressionSizeBytes = totalSize
 	descriptor.CompressionType = payload.CompressionType
+
+	if status == backup.Success && len(descriptor.DedupeDesignations) > 0 {
+		logger := p.logger.WithField("backup_id", task.ID)
+		verifier := newCoordinator(nil, nil, nil, p.logger, nil, p.backends, nil, nil)
+		statusReq := &StatusRequest{
+			Method:       OpCreate,
+			ID:           payload.ID,
+			Backend:      payload.Backend,
+			Bucket:       payload.Bucket,
+			Path:         payload.Path,
+			BaseBackupID: payload.BaseBackupID,
+		}
+		plan := &dedupePlan{designations: descriptor.DedupeDesignations}
+		if err := verifier.verifyDesignatedCoverage(ctx, statusReq, plan, nodeMetas); err != nil {
+			descriptor.Status = backup.Failed
+			descriptor.Error = err.Error()
+			logger.Errorf("designated-shard coverage check failed: %v", err)
+		} else if attributed := attributeDedupedShardSizes(p.logger, descriptor, nodeMetas); attributed > 0 {
+			logger.Debugf("%d bytes attributed to skipping replicas for logical backup size", attributed)
+		}
+	}
 
 	var writeErr error
 	for attempt := range descriptorWriteAttempts {

@@ -1050,6 +1050,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		AppliedIndexProbe: func(ctx context.Context, version uint64) error {
 			return appState.ClusterService.WaitForUpdate(ctx, version)
 		},
+		Checkpointer: repo,
 	})
 	providers[backup.BackupTaskNamespace] = backupTaskProvider
 	appState.BackupTaskProvider = backupTaskProvider

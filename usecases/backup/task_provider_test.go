@@ -321,8 +321,13 @@ func TestBackupTaskProvider(t *testing.T) {
 		blockCh := make(chan backup.ClassDescriptor)
 		sourcer := &fakeSourcer{}
 		sourcer.On("Backupable", mock.Anything, mock.Anything).Return(nil)
+		// The uploader drains this channel until it closes; DB.BackupDescriptors
+		// closes it once its ctx ends.
 		sourcer.On("BackupDescriptors", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-			Return((<-chan backup.ClassDescriptor)(blockCh))
+			Return((<-chan backup.ClassDescriptor)(blockCh)).
+			Run(func(a mock.Arguments) {
+				context.AfterFunc(a.Get(0).(context.Context), func() { close(blockCh) })
+			})
 		sourcer.On("ReleaseBackup", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 		be := newFakeBackend()
@@ -386,6 +391,8 @@ func TestBackupTaskProvider(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		be := newFakeBackend()
 		be.On("GetObject", mock.Anything, mock.Anything, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+		// coordStore.Meta probes the legacy per-node descriptor when the global one is missing.
+		be.On("GetObject", mock.Anything, mock.Anything, BackupFile).Return(nil, backup.ErrNotFound{})
 		be.On("PutObject", mock.Anything, mock.Anything, GlobalBackupFile, mock.Anything).Return(nil)
 
 		provider := NewBackupTaskProvider(BackupTaskProviderParams{
@@ -705,6 +712,87 @@ func TestBackupTerminalDescriptor(t *testing.T) {
 		assert.Contains(t, nd.Error, "connection refused")
 		assert.NotContains(t, nd.Error, "per task record",
 			"the record's unit data must not appear for a non-not-found error")
+	})
+
+	shardingState := []byte(`{"physical":{"s1":{"belongsToNodes":["node-1","node-2"]}}}`)
+	published := backup.DistributedBackupDescriptor{
+		ID:                     "b1",
+		Status:                 backup.Started,
+		Version:                VersionDedupeReplicas,
+		DedupeReplicas:         true,
+		DedupeDesignatedShards: 1,
+		DedupeFallbackShards:   1,
+		DedupeCutoffsMs:        map[string]int64{"Article": 1234},
+		DedupeDesignations:     map[string]map[string]string{"Article": {"s1": "node-1"}},
+	}
+	nodeMeta := func(size int64, shards ...*backup.ShardDescriptor) []byte {
+		raw, _ := json.Marshal(backup.BackupDescriptor{
+			Status:                  backup.Success,
+			PreCompressionSizeBytes: size,
+			Classes:                 []backup.ClassDescriptor{{Name: "Article", ShardingState: shardingState, Shards: shards}},
+		})
+		return raw
+	}
+	// completeDedupeBackup runs OnTaskCompleted for a successful dedupe task
+	// over a backend serving the given global descriptor read and node-1 meta.
+	completeDedupeBackup := func(t *testing.T, globalRaw []byte, globalErr error, node1Meta []byte) (*fakeBackend, error) {
+		t.Helper()
+		logger, _ := test.NewNullLogger()
+		be := newFakeBackend()
+		be.On("GetObject", mock.Anything, "b1", GlobalBackupFile).Return(globalRaw, globalErr)
+		be.On("GetObject", mock.Anything, "b1", BackupFile).Return(nil, backup.ErrNotFound{})
+		be.On("GetObject", mock.Anything, "b1/node-1", BackupFile).Return(node1Meta, nil)
+		be.On("GetObject", mock.Anything, "b1/node-2", BackupFile).Return(nodeMeta(0), nil)
+		be.On("PutObject", mock.Anything, "b1", GlobalBackupFile, mock.Anything).Return(nil)
+
+		provider := NewBackupTaskProvider(BackupTaskProviderParams{
+			Node:     "node-1",
+			Logger:   logger,
+			Cfg:      config.Backup{},
+			Backends: &fakeBackupBackendProvider{backend: be},
+		})
+		payload := makePayload("b1")
+		payload.DedupeReplicas = true
+		return be, provider.OnTaskCompleted(makeTask("b1", distributedtask.TaskStatusFinished, payload))
+	}
+	publishedRaw, err := json.Marshal(published)
+	require.NoError(t, err)
+
+	t.Run("dedupe artifact keeps the published plan", func(t *testing.T) {
+		be, err := completeDedupeBackup(t, publishedRaw, nil,
+			nodeMeta(1000, &backup.ShardDescriptor{Name: "s1", Node: "node-1", PreCompressionSizeBytes: 1000}))
+		require.NoError(t, err)
+
+		got := be.glMeta
+		assert.Equal(t, backup.Success, got.Status)
+		assert.Equal(t, VersionDedupeReplicas, got.Version)
+		assert.True(t, got.DedupeReplicas)
+		assert.Equal(t, 1, got.DedupeDesignatedShards)
+		assert.Equal(t, 1, got.DedupeFallbackShards)
+		assert.Equal(t, published.DedupeCutoffsMs, got.DedupeCutoffsMs)
+		assert.Equal(t, published.DedupeDesignations, got.DedupeDesignations)
+		assert.Equal(t, int64(1000), got.DedupeSkippedBytes, "sizes are attributed to the skipping replica")
+		assert.Equal(t, int64(1000), got.Nodes["node-2"].PreCompressionSizeBytes)
+		assert.Equal(t, int64(2000), got.PreCompressionSizeBytes)
+	})
+
+	t.Run("designated shard missing from its archiver fails the backup", func(t *testing.T) {
+		be, err := completeDedupeBackup(t, publishedRaw, nil, nodeMeta(0))
+		require.NoError(t, err)
+
+		got := be.glMeta
+		assert.Equal(t, backup.Failed, got.Status)
+		assert.Contains(t, got.Error, "designated shard")
+		assert.True(t, got.DedupeReplicas, "a failed artifact still carries the published plan")
+		assert.Zero(t, got.DedupeSkippedBytes, "a failed backup must not attribute sizes")
+	})
+
+	t.Run("unreadable published plan fails closed", func(t *testing.T) {
+		be, err := completeDedupeBackup(t, nil, errors.New("backend unavailable"),
+			nodeMeta(1000, &backup.ShardDescriptor{Name: "s1", Node: "node-1", PreCompressionSizeBytes: 1000}))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "backend unavailable")
+		be.AssertNotCalled(t, "PutObject", mock.Anything, mock.Anything, GlobalBackupFile, mock.Anything)
 	})
 }
 

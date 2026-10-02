@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"time"
@@ -73,6 +74,46 @@ func (p *dedupePlan) designated() int {
 // fallback counts candidate shards that ended up archived by all replicas.
 func (p *dedupePlan) fallback() int {
 	return p.candidateShards - p.designated()
+}
+
+// stamp writes the planning outcome onto desc and returns whether the artifact is deduped.
+// A nil plan stamps an artifact with no plan fields.
+// An artifact with zero deduped shards is stored in the legacy layout, so pre-3.0 releases can restore it.
+// The exception: if its base chain includes a deduped artifact, it gets the dedupe version.
+func (p *dedupePlan) stamp(desc *backup.DistributedBackupDescriptor, baseChainDeduped bool) bool {
+	dedupeEffective := p != nil && p.designated() > 0
+	desc.Version = Version
+	if dedupeEffective || baseChainDeduped {
+		desc.Version = VersionDedupeReplicas
+	}
+	desc.DedupeReplicas = dedupeEffective
+	if p == nil {
+		return false
+	}
+	desc.DedupeDesignatedShards = p.designated()
+	desc.DedupeFallbackShards = p.fallback()
+	// Maps are copied, not shared. Non-Success artifacts carry them too; that is harmless because chain validation refuses those artifacts.
+	for class, shards := range p.designations {
+		if len(shards) == 0 {
+			continue
+		}
+		if desc.DedupeCutoffsMs == nil {
+			desc.DedupeCutoffsMs = make(map[string]int64, len(p.designations))
+		}
+		desc.DedupeCutoffsMs[class] = p.cutoffs[class]
+		if desc.DedupeDesignations == nil {
+			desc.DedupeDesignations = make(map[string]map[string]string, len(p.designations))
+		}
+		desc.DedupeDesignations[class] = maps.Clone(shards)
+	}
+	return dedupeEffective
+}
+
+// flowCancelled reports whether the DTM flow ended during planning.
+// The flow ctx has no deadline, so Canceled always means the flow ended, never a planning failure.
+// The planning deadline still ends with DeadlineExceeded.
+func (c *coordinator) flowCancelled(ctx context.Context) bool {
+	return c.dtmPlanner && errors.Is(ctx.Err(), context.Canceled)
 }
 
 // planDesignatedShards designates one archiving node per convergence-proven shard; failures only downgrade shards to all-replica fallback, and checkpoints are deleted before returning (archiving needs no live checkpoint).
@@ -174,6 +215,9 @@ func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string
 		// Per-class cutoff: one shared cutoff would let serial creates on wide backups overrun the lead and silently reject later classes.
 		cutoffMs := time.Now().Add(c.dedupeCutoffLead).UnixMilli()
 		if err := c.checkpointer.CreateAsyncCheckpoints(ctx, class, cutoffMs, candidates[class]); err != nil {
+			if c.flowCancelled(ctx) {
+				return plan
+			}
 			monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("create_rpc_failed").Add(float64(len(candidates[class])))
 			c.log.WithField("action", OpCreate).WithField("class", class).
 				Warnf("replica dedupe: class falls back to all-replica backup: create checkpoints: %v", err)
@@ -193,8 +237,9 @@ func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string
 		latestCutoffMs = max(latestCutoffMs, cutoffMs)
 	}
 	if !c.sleepUnlessCancelled(ctx, time.UnixMilli(latestCutoffMs)) {
-		// A user Cancel kills the whole backup; anything else is the planning deadline silently degrading every candidate.
-		if !c.lastOp.get().cancelSignalled() {
+		// A user Cancel or the end of the DTM flow kills the whole backup.
+		// Anything else is the planning deadline, which silently degrades every candidate.
+		if !c.lastOp.get().cancelSignalled() && !c.flowCancelled(ctx) {
 			remaining := 0
 			for _, shards := range candidates {
 				remaining += len(shards)
@@ -208,6 +253,9 @@ func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string
 	}
 
 	converged := c.pollConvergence(ctx, candidates, plan.replicas, cutoffs, budget)
+	if c.flowCancelled(ctx) {
+		return plan
+	}
 
 	loads := make(map[string]int)
 	classNames := make([]string, 0, len(converged))
@@ -252,6 +300,9 @@ func (c *coordinator) pollConvergence(ctx context.Context, candidates map[string
 			sort.Strings(shardNames)
 
 			statuses, err := c.checkpointer.GetAsyncCheckpointNodeStatuses(ctx, class, shardNames)
+			if c.flowCancelled(ctx) {
+				return converged
+			}
 			if err != nil {
 				monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("status_failed").Add(float64(len(shards)))
 				c.log.WithField("action", OpCreate).WithField("class", class).
@@ -293,6 +344,9 @@ func (c *coordinator) pollConvergence(ctx context.Context, candidates map[string
 		if !c.sleepUnlessCancelled(ctx, time.Now().Add(c.dedupePollInterval)) {
 			break
 		}
+	}
+	if c.flowCancelled(ctx) {
+		return converged
 	}
 	for class, shards := range pending {
 		if len(shards) > 0 {
