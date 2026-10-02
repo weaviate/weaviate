@@ -237,6 +237,11 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	// boost.depth beyond the hybrid default is silently truncated and a
 	// high-boost candidate below the cutoff can never be promoted.
 	subSearchLimit := params.Pagination.Limit
+	// The page is cut from the fused list, so the legs have to fetch up to
+	// its end. A limit of 0 or less is a flag, not a page size.
+	if params.Pagination.Limit > 0 && params.Pagination.Offset > 0 {
+		subSearchLimit = params.Pagination.Offset + params.Pagination.Limit
+	}
 	if params.Boost != nil && params.Boost.OriginalLimit > 0 {
 		subSearchLimit = e.mmrFetchDepth(params.Boost, params.Boost.OriginalOffset+params.Boost.OriginalLimit)
 	}
