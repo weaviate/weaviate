@@ -148,15 +148,12 @@ func (ic *classSettings) Validate() error {
 	}
 
 	model := ic.Model()
-	if ic.ApiEndpoint() == "" {
+	if ic.ApiEndpoint() != DefaultAIStudioEndpoint {
 		// Google Vertex AI mandatory settings validation
-		location := ic.Location()
-		if location == "" {
+		if ic.Location() == "" {
 			errorMessages = append(errorMessages, "location setting needs to be present")
 		}
-
-		projectID := ic.ProjectID()
-		if projectID == "" {
+		if ic.ProjectID() == "" {
 			errorMessages = append(errorMessages, "projectId setting needs to be present")
 		}
 	}

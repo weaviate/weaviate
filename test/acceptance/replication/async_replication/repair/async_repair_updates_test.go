@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package replication
+package repair
 
 import (
 	"context"
@@ -44,12 +44,28 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectUpdateScenario() {
 
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor: int64(clusterSize),
+			Factor:      int64(clusterSize),
+			AsyncConfig: common.FastAsyncConfig(),
 		}
 		paragraphClass.Vectorizer = "text2vec-model2vec"
 
 		helper.SetupClient(compose.GetWeaviate().URI())
 		helper.CreateClass(t, paragraphClass)
+	})
+
+	originalContents := func(i int) string { return fmt.Sprintf("paragraph#%d", i) }
+	updatedContents := func(i int) string { return fmt.Sprintf("paragraph#%d (updated)", i) }
+
+	t.Run("insert paragraphs on every node", func(t *testing.T) {
+		batch := make([]*models.Object, len(paragraphIDs))
+		for i, id := range paragraphIDs {
+			batch[i] = articles.NewParagraph().
+				WithID(id).
+				WithContents(originalContents(i)).
+				Object()
+		}
+
+		common.CreateObjectsCL(t, compose.GetWeaviate().URI(), batch, types.ConsistencyLevelAll)
 	})
 
 	node := 2
@@ -63,7 +79,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectUpdateScenario() {
 		for i, id := range paragraphIDs {
 			batch[i] = articles.NewParagraph().
 				WithID(id).
-				WithContents(fmt.Sprintf("paragraph#%d", i)).
+				WithContents(updatedContents(i)).
 				Object()
 		}
 
@@ -112,8 +128,9 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectUpdateScenario() {
 				require.NotNil(ct, resp)
 				require.Equal(ct, id, resp.ID)
 
-				props := resp.Properties.(map[string]interface{})
-				props["contents"] = fmt.Sprintf("paragraph#%d", i)
+				props, ok := resp.Properties.(map[string]interface{})
+				require.True(ct, ok)
+				require.Equal(ct, updatedContents(i), props["contents"])
 			}
 		}, 120*time.Second, 5*time.Second, "not all the objects have been asynchronously replicated")
 	})

@@ -55,6 +55,16 @@ func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
 	bucket := shd.Store().Bucket(bucketName)
 	require.NotNil(t, bucket)
 	dirName := path.Join(repo.GetConfig().RootPath, shd.Index().ID(), shd.Name(), "lsm", bucketName)
+	listFiles := func(t require.TestingT) []string {
+		entries, err := os.ReadDir(dirName)
+		require.Nil(t, err)
+		names := make([]string, len(entries))
+		for i, e := range entries {
+			names[i] = e.Name()
+		}
+		return names
+	}
+	var haltedFiles []string
 
 	t.Run("generate random data", func(t *testing.T) {
 		for i := range keys {
@@ -86,22 +96,14 @@ func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
 		time.Sleep(time.Second)
 
 		// once shard status is set to readonly,
-		// the number of segment files should
-		// not change
-		entries, err := os.ReadDir(dirName)
-		require.Nil(t, err)
-		numSegments := len(entries)
+		// the segment files should not change
+		haltedFiles = listFiles(t)
 
-		// if the number of segments remain the
-		// same for 30 seconds, we can be
-		// reasonably sure that the compaction
-		// process was halted
-		for i := 0; i < 30; i++ {
-			entries, err := os.ReadDir(dirName)
-			require.Nil(t, err)
-
-			require.Equal(t, numSegments, len(entries))
-			t.Logf("iteration %d, sleeping", i)
+		// compaction runs at most 3s apart while it has
+		// work, so files unchanged for several intervals
+		// mean it was halted
+		for i := 0; i < 8; i++ {
+			require.Equal(t, haltedFiles, listFiles(t))
 			time.Sleep(time.Second)
 		}
 	})
@@ -110,7 +112,11 @@ func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
 		err := shd.UpdateStatus(storagestate.StatusReady.String(), "test ready")
 		require.Nil(t, err)
 
-		time.Sleep(time.Second)
+		// the work held back while readonly has to resume, otherwise
+		// the files above stayed unchanged for another reason
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			assert.NotEqual(c, haltedFiles, listFiles(c))
+		}, 15*time.Second, 100*time.Millisecond)
 	})
 
 	require.Nil(t, repo.DeleteIndex(schema.ClassName(className)))

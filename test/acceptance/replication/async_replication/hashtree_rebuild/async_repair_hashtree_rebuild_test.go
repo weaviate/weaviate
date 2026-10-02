@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package replication
+package hashtreerebuild
 
 import (
 	"context"
@@ -177,7 +177,7 @@ func TestHashtreeRebuildOnSchemaHeightChange(t *testing.T) {
 
 	t.Run("async replication is active on every shard", func(t *testing.T) {
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			n, err := shardsAsyncReplicationLen(t, paragraphClass.Class)
+			n, err := common.ShardsAsyncReplicationLen(t, paragraphClass.Class)
 			require.NoError(ct, err)
 			require.Greater(ct, n, 0)
 		}, rebuildEventuallyDeadline, 1*time.Second)
@@ -214,7 +214,7 @@ func TestHashtreeRebuildOnSchemaHeightChange(t *testing.T) {
 
 	t.Run("async replication resumes after the rebuild", func(t *testing.T) {
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			n, err := shardsAsyncReplicationLen(t, paragraphClass.Class)
+			n, err := common.ShardsAsyncReplicationLen(t, paragraphClass.Class)
 			require.NoError(ct, err)
 			require.Greater(ct, n, 0)
 		}, rebuildEventuallyDeadline, 1*time.Second)
@@ -301,7 +301,7 @@ func TestHashtreeRebuildOnTenantStatusChange(t *testing.T) {
 
 	t.Run("async replication is active", func(t *testing.T) {
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			n, err := shardsAsyncReplicationLen(t, paragraphClass.Class)
+			n, err := common.ShardsAsyncReplicationLen(t, paragraphClass.Class)
 			require.NoError(ct, err)
 			require.Greater(ct, n, 0)
 		}, rebuildEventuallyDeadline, 1*time.Second)
@@ -420,7 +420,7 @@ func TestSchemaAndTenantOpsFastDuringRebuilds(t *testing.T) {
 
 	t.Run("async replication is active", func(t *testing.T) {
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			n, err := shardsAsyncReplicationLen(t, paragraphClass.Class)
+			n, err := common.ShardsAsyncReplicationLen(t, paragraphClass.Class)
 			require.NoError(ct, err)
 			require.Greater(ct, n, 0)
 		}, rebuildEventuallyDeadline, 1*time.Second)
@@ -450,7 +450,7 @@ func TestSchemaAndTenantOpsFastDuringRebuilds(t *testing.T) {
 		requireRebuildOnEveryNode(ctx, t, compose, 3, 1, rebuildEventuallyDeadline)
 		requireClusterHealthy(t, 3)
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			n, err := shardsAsyncReplicationLen(t, paragraphClass.Class)
+			n, err := common.ShardsAsyncReplicationLen(t, paragraphClass.Class)
 			require.NoError(ct, err)
 			require.Greater(ct, n, 0)
 		}, rebuildEventuallyDeadline, 2*time.Second)
@@ -524,7 +524,7 @@ func TestHashtreeRebuildOnRuntimeToggles(t *testing.T) {
 		common.CreateObjectsCL(t, compose.GetWeaviate().URI(), batch, types.ConsistencyLevelAll)
 
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			n, err := shardsAsyncReplicationLen(t, paragraphClass.Class)
+			n, err := common.ShardsAsyncReplicationLen(t, paragraphClass.Class)
 			require.NoError(ct, err)
 			require.Greater(ct, n, 0)
 		}, rebuildEventuallyDeadline, 1*time.Second)
@@ -533,14 +533,14 @@ func TestHashtreeRebuildOnRuntimeToggles(t *testing.T) {
 	t.Run("kill-switch drains and restores async replication", func(t *testing.T) {
 		writeOverride(t, "async_replication_disabled: true\\n")
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			n, err := shardsAsyncReplicationLen(t, paragraphClass.Class)
+			n, err := common.ShardsAsyncReplicationLen(t, paragraphClass.Class)
 			require.NoError(ct, err)
 			require.Equal(ct, 0, n, "asyncReplicationStatus must drain once the kill-switch is on")
 		}, 120*time.Second, 500*time.Millisecond)
 
 		writeOverride(t, "async_replication_disabled: false\\n")
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			n, err := shardsAsyncReplicationLen(t, paragraphClass.Class)
+			n, err := common.ShardsAsyncReplicationLen(t, paragraphClass.Class)
 			require.NoError(ct, err)
 			require.Greater(ct, n, 0, "asyncReplicationStatus must repopulate once the kill-switch is off")
 		}, rebuildEventuallyDeadline, 1*time.Second)

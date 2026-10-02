@@ -13,10 +13,13 @@ package bootstrap
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/status"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
@@ -241,6 +244,81 @@ func TestJoiner_DoesNotDialSelfOnLeaderRedirection(t *testing.T) {
 	}
 	// And there should be exactly one call to the remote
 	assert.ElementsMatch(t, []string{remote}, mpj.calls)
+}
+
+func TestJoinerRejoin(t *testing.T) {
+	const localAddr = "127.0.0.1:8300"
+	notLeader := status.Error(rpc.NotLeaderRPCCode, "not leader")
+	nodes := func() map[string]string { return map[string]string{"weaviate-0": localAddr} }
+
+	tests := []struct {
+		name        string
+		retryPeriod time.Duration
+		// failures is how many attempts fail before one succeeds; -1 never succeeds
+		failures int
+		// leaderAfterFirstAttempt makes the node learn of a leader once the first attempt failed
+		leaderAfterFirstAttempt bool
+		leaderFromStart         bool
+		wantErr                 error
+		wantJoins               int
+	}{
+		{
+			name:                    "retries at once when a leader appears",
+			retryPeriod:             time.Hour,
+			failures:                1,
+			leaderAfterFirstAttempt: true,
+			wantJoins:               2,
+		},
+		{
+			name:            "waits the retry period when the leader was already known",
+			retryPeriod:     time.Hour,
+			failures:        -1,
+			leaderFromStart: true,
+			wantErr:         context.DeadlineExceeded,
+			wantJoins:       1,
+		},
+		{
+			name:        "retries every retry period without a leader",
+			retryPeriod: 10 * time.Millisecond,
+			failures:    2,
+			wantJoins:   3,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var joins atomic.Int32
+			var leader atomic.Bool
+			leader.Store(tt.leaderFromStart)
+			pj := funcPeerJoiner(func() (*cmd.JoinPeerResponse, error) {
+				n := int(joins.Add(1))
+				if tt.leaderAfterFirstAttempt {
+					leader.Store(true)
+				}
+				if tt.failures < 0 || n <= tt.failures {
+					return &cmd.JoinPeerResponse{}, notLeader
+				}
+				return &cmd.JoinPeerResponse{}, nil
+			})
+
+			ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+			defer cancel()
+			j := NewJoiner(pj, "weaviate-0", localAddr, true)
+			err := j.Rejoin(ctx, logrus.New(), nodes, leader.Load, tt.retryPeriod, time.Millisecond)
+
+			require.ErrorIs(t, err, tt.wantErr)
+			require.Equal(t, tt.wantJoins, int(joins.Load()))
+		})
+	}
+}
+
+type funcPeerJoiner func() (*cmd.JoinPeerResponse, error)
+
+func (f funcPeerJoiner) Join(context.Context, string, *cmd.JoinPeerRequest) (*cmd.JoinPeerResponse, error) {
+	return f()
+}
+
+func (f funcPeerJoiner) Notify(context.Context, string, *cmd.NotifyPeerRequest) (*cmd.NotifyPeerResponse, error) {
+	return &cmd.NotifyPeerResponse{}, nil
 }
 
 // mockPeerJoiner implements PeerJoiner and records Join calls

@@ -327,6 +327,9 @@ func TestGRPC(t *testing.T) {
 		require.Equal(t, resp.Matches, int64(1))
 		require.Equal(t, resp.Successful, int64(1))
 		require.Equal(t, resp.Failed, int64(0))
+		require.NotNil(t, resp.Limit)
+		// 10005 is docker-compose-test.yml's QUERY_MAXIMUM_RESULTS.
+		require.Equal(t, int64(10005), *resp.Limit)
 		require.Equal(t, resp.Objects[0].Uuid, idByte(books.Dune.String()))
 	})
 

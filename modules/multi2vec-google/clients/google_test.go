@@ -583,3 +583,240 @@ func nullLogger() logrus.FieldLogger {
 	l, _ := test.NewNullLogger()
 	return l
 }
+
+func TestBuildURL(t *testing.T) {
+	tests := []struct {
+		name        string
+		apiEndpoint string
+		location    string
+		model       string
+		want        string
+	}{
+		{
+			name:        "AI Studio",
+			apiEndpoint: "generativelanguage.googleapis.com",
+			model:       "gemini-embedding-2",
+			want:        "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:batchEmbedContents",
+		},
+		{
+			name:        "Vertex regional predict",
+			apiEndpoint: "us-central1-aiplatform.googleapis.com",
+			location:    "europe-west4",
+			model:       "multimodalembedding@001",
+			want:        "https://europe-west4-aiplatform.googleapis.com/v1/projects/project/locations/europe-west4/publishers/google/models/multimodalembedding@001:predict",
+		},
+		{
+			name:        "Vertex global predict uses the region-less host",
+			apiEndpoint: "us-central1-aiplatform.googleapis.com",
+			location:    "global",
+			model:       "multimodalembedding@001",
+			want:        "https://aiplatform.googleapis.com/v1/projects/project/locations/global/publishers/google/models/multimodalembedding@001:predict",
+		},
+		{
+			name:        "Vertex gemini-embedding-2 with a regional location goes to global embedContent",
+			apiEndpoint: "us-central1-aiplatform.googleapis.com",
+			location:    "us-central1",
+			model:       "gemini-embedding-2",
+			want:        "https://aiplatform.googleapis.com/v1/projects/project/locations/global/publishers/google/models/gemini-embedding-2:embedContent",
+		},
+		{
+			name:        "Vertex gemini-embedding-2 with global location",
+			apiEndpoint: "us-central1-aiplatform.googleapis.com",
+			location:    "global",
+			model:       "gemini-embedding-2",
+			want:        "https://aiplatform.googleapis.com/v1/projects/project/locations/global/publishers/google/models/gemini-embedding-2:embedContent",
+		},
+		{
+			name:        "Vertex gemini-embedding-2 without location",
+			apiEndpoint: "us-central1-aiplatform.googleapis.com",
+			model:       "gemini-embedding-2",
+			want:        "https://aiplatform.googleapis.com/v1/projects/project/locations/global/publishers/google/models/gemini-embedding-2:embedContent",
+		},
+		{
+			name:        "Vertex gemini-embedding-2-preview",
+			apiEndpoint: "us-central1-aiplatform.googleapis.com",
+			location:    "us-central1",
+			model:       "gemini-embedding-2-preview",
+			want:        "https://aiplatform.googleapis.com/v1/projects/project/locations/global/publishers/google/models/gemini-embedding-2-preview:embedContent",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, buildURL(tt.apiEndpoint, tt.location, "project", tt.model))
+		})
+	}
+}
+
+func TestVertexEmbedContentClient(t *testing.T) {
+	dimensions := int64(768)
+	tests := []struct {
+		name       string
+		texts      []string
+		images     []string
+		videos     []string
+		audios     []string
+		dimensions *int64
+		wantParts  []contentPart
+		want       *ent.VectorizationResult
+	}{
+		{
+			name:      "text",
+			texts:     []string{"text"},
+			wantParts: []contentPart{*textPart("text")},
+			want:      &ent.VectorizationResult{TextVectors: [][]float32{{1}}},
+		},
+		{
+			name:      "image",
+			images:    []string{"img"},
+			wantParts: []contentPart{*imagePart("img")},
+			want:      &ent.VectorizationResult{ImageVectors: [][]float32{{1}}},
+		},
+		{
+			name:      "video",
+			videos:    []string{"vid"},
+			wantParts: []contentPart{*videoPart("vid")},
+			want:      &ent.VectorizationResult{VideoVectors: [][]float32{{1}}},
+		},
+		{
+			name:      "audio",
+			audios:    []string{"aud"},
+			wantParts: []contentPart{*audioPart("aud")},
+			want:      &ent.VectorizationResult{AudioVectors: [][]float32{{1}}},
+		},
+		{
+			name:       "every modality gets its own request and vector",
+			texts:      []string{"text"},
+			images:     []string{"img"},
+			videos:     []string{"vid"},
+			audios:     []string{"aud"},
+			dimensions: &dimensions,
+			wantParts:  []contentPart{*textPart("text"), *imagePart("img"), *videoPart("vid"), *audioPart("aud")},
+			want: &ent.VectorizationResult{
+				TextVectors:  [][]float32{{1}},
+				ImageVectors: [][]float32{{2}},
+				VideoVectors: [][]float32{{3}},
+				AudioVectors: [][]float32{{4}},
+			},
+		},
+		{
+			name:      "several objects",
+			texts:     []string{"a", "b"},
+			images:    []string{"img"},
+			wantParts: []contentPart{*textPart("a"), *imagePart("img"), *textPart("b")},
+			want: &ent.VectorizationResult{
+				TextVectors:  [][]float32{{1}, {3}},
+				ImageVectors: [][]float32{{2}},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotRequests []map[string]any
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, err := io.ReadAll(r.Body)
+				require.NoError(t, err)
+				var raw map[string]any
+				require.NoError(t, json.Unmarshal(body, &raw))
+				gotRequests = append(gotRequests, raw)
+
+				resp := vertexEmbedContentResponse{
+					Embedding: &embedContentEmbedding{Values: []float32{float32(len(gotRequests))}},
+				}
+				require.NoError(t, json.NewEncoder(w).Encode(resp))
+			}))
+			defer server.Close()
+
+			res, err := newTestClient(server.URL).Vectorize(context.Background(), tt.texts, tt.images, tt.videos, tt.audios,
+				ent.VectorizationConfig{ProjectID: "project", Model: "gemini-embedding-2", Dimensions: tt.dimensions})
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, res)
+
+			require.Len(t, gotRequests, len(tt.wantParts))
+			for i, req := range gotRequests {
+				var wantPart map[string]any
+				partBytes, err := json.Marshal(tt.wantParts[i])
+				require.NoError(t, err)
+				require.NoError(t, json.Unmarshal(partBytes, &wantPart))
+				assert.Equal(t, map[string]any{"parts": []any{wantPart}}, req["content"])
+
+				assert.NotContains(t, req, "outputDimensionality", "deprecated top-level field")
+				if tt.dimensions == nil {
+					assert.NotContains(t, req, "embedContentConfig")
+				} else {
+					assert.Equal(t, map[string]any{"outputDimensionality": float64(*tt.dimensions)}, req["embedContentConfig"])
+				}
+			}
+		})
+	}
+}
+
+func TestClientErrorResponses(t *testing.T) {
+	models := []struct {
+		name        string
+		apiEndpoint string
+		model       string
+	}{
+		{name: "Vertex predict", model: "multimodalembedding@001"},
+		{name: "Vertex embedContent", model: "gemini-embedding-2"},
+		{name: "AI Studio", apiEndpoint: "generativelanguage.googleapis.com", model: "gemini-embedding-2"},
+	}
+	responses := []struct {
+		name    string
+		status  int
+		body    string
+		wantErr string
+	}{
+		{
+			name:    "HTML error page",
+			status:  http.StatusNotFound,
+			body:    "<!DOCTYPE html><html><body>404. That's an error.</body></html>",
+			wantErr: "connection to Google failed with status: 404",
+		},
+		{
+			name:    "JSON error",
+			status:  http.StatusNotFound,
+			body:    `{"error":{"code":404,"message":"Publisher model not found","status":"NOT_FOUND"}}`,
+			wantErr: "connection to Google failed with status: 404 error: Publisher model not found",
+		},
+		{
+			name:    "malformed success",
+			status:  http.StatusOK,
+			body:    "not json",
+			wantErr: "failed to parse vectorization response (status 200)",
+		},
+		{
+			name:    "empty success",
+			status:  http.StatusOK,
+			body:    "{}",
+			wantErr: "empty embeddings response",
+		},
+	}
+	for _, m := range models {
+		for _, r := range responses {
+			t.Run(m.name+"/"+r.name, func(t *testing.T) {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(r.status)
+					w.Write([]byte(r.body))
+				}))
+				defer server.Close()
+
+				_, err := newTestClient(server.URL).Vectorize(context.Background(), []string{"text"}, nil, nil, nil,
+					ent.VectorizationConfig{ApiEndpoint: m.apiEndpoint, Location: "us-central1", ProjectID: "project", Model: m.model})
+				require.Error(t, err)
+				assert.ErrorContains(t, err, r.wantErr)
+			})
+		}
+	}
+}
+
+func newTestClient(serverURL string) *google {
+	return &google{
+		apiKey:       "apiKey",
+		httpClient:   &http.Client{},
+		googleApiKey: apikey.NewGoogleApiKey(),
+		urlBuilderFn: func(apiEndpoint, location, projectID, model string) string {
+			return serverURL
+		},
+		logger: nullLogger(),
+	}
+}

@@ -52,6 +52,7 @@ const (
 	_TimeoutQueryStatus = 5 * time.Second
 	_TimeoutCanCommit   = 8 * time.Second
 	_NextRoundPeriod    = 10 * time.Second
+	_FirstRoundPeriod   = 100 * time.Millisecond
 	_MaxNumberConns     = 16
 )
 
@@ -655,7 +656,9 @@ func (c *coordinator) commit(ctx context.Context,
 	}
 
 	nFailures := c.commitAll(ctx, req, node2Host)
-	retryAfter := c.timeoutNextRound / 5 // 2s for first time
+	// Poll quickly at first so small operations finish fast, then back off
+	// to timeoutNextRound.
+	retryAfter := min(_FirstRoundPeriod, c.timeoutNextRound)
 	canContinue := len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
 	for canContinue {
 		// Check for external cancellation in polling loop
@@ -682,7 +685,7 @@ func (c *coordinator) commit(ctx context.Context,
 			c.descriptor.Error = "restore cancelled: context cancelled"
 			return
 		}
-		retryAfter = c.timeoutNextRound
+		retryAfter = min(2*retryAfter, c.timeoutNextRound)
 		nFailures += c.queryAll(ctx, req, node2Host)
 		canContinue = len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
 	}
@@ -848,17 +851,18 @@ func (c *coordinator) queryAll(ctx context.Context, req *StatusRequest, nodes ma
 	return n
 }
 
-// commitAll tells all participants to proceed with their backup operations
-// It returns the number of failures
+// commitAll tells each participant to proceed and returns the failure count.
 func (c *coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes map[string]string) int {
+	if len(nodes) == 0 {
+		return 0
+	}
+
 	type pair struct {
 		node string
 		err  error
 	}
-	// Buffer one slot per node so a failing worker never blocks on the send.
-	// The consumer only runs after the submit loop finishes, so an unbuffered
-	// channel would let the first _MaxNumberConns failures hold every g.Go slot
-	// while blocked on the send, deadlocking the submit loop.
+	// Each worker can report one failure. Buffering all reports prevents workers
+	// from filling the concurrency limit while the caller is still submitting work.
 	errChan := make(chan pair, len(nodes))
 	aCounter := int64(len(nodes))
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx)

@@ -90,47 +90,14 @@ func setupDebugHandlers(appState *state.State) {
 		w.Write(jsonBytes)
 	}))
 
-	http.HandleFunc("/debug/index/rebuild/vector", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !appState.DB.AsyncIndexingEnabled {
-			http.Error(w, "async indexing is not enabled", http.StatusNotImplemented)
-			return
-		}
-
-		colName := r.URL.Query().Get("collection")
-		shardName := r.URL.Query().Get("shard")
-		targetVector := r.URL.Query().Get("vector")
-
-		if colName == "" || shardName == "" {
-			http.Error(w, "collection and shard are required", http.StatusBadRequest)
-			return
-		}
-
-		idx := appState.DB.GetIndex(schema.ClassName(colName))
-		if idx == nil {
-			logger.WithField("collection", colName).Error("collection not found")
-			http.Error(w, "collection not found", http.StatusNotFound)
-			return
-		}
-
-		err := idx.DebugResetVectorIndex(context.Background(), shardName, targetVector)
-		if err != nil {
-			logger.
-				WithField("shard", shardName).
-				WithField("targetVector", targetVector).
-				WithError(err).
-				Error("failed to reset vector index")
-			if errTxt := err.Error(); strings.Contains(errTxt, "not found") {
-				http.Error(w, "shard not found", http.StatusNotFound)
+	http.HandleFunc("/debug/index/rebuild/vector", newRebuildVectorIndexHandler(logger, appState.DB.AsyncIndexingEnabled,
+		func(name schema.ClassName) debugVectorIndexResetter {
+			idx := appState.DB.GetIndex(name)
+			if idx == nil {
+				return nil
 			}
-
-			http.Error(w, "failed to reset vector index", http.StatusInternalServerError)
-			return
-		}
-
-		logger.WithField("shard", shardName).Info("reindexing started")
-
-		w.WriteHeader(http.StatusAccepted)
-	}))
+			return idx
+		}))
 
 	http.HandleFunc("/debug/index/repair/vector", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !appState.DB.AsyncIndexingEnabled {
@@ -141,9 +108,14 @@ func setupDebugHandlers(appState *state.State) {
 		colName := r.URL.Query().Get("collection")
 		shardName := r.URL.Query().Get("shard")
 		targetVector := r.URL.Query().Get("vector")
+		geoProp := r.URL.Query().Get("geo")
 
 		if colName == "" || shardName == "" {
 			http.Error(w, "collection and shard are required", http.StatusBadRequest)
+			return
+		}
+		if targetVector != "" && geoProp != "" {
+			http.Error(w, "vector and geo cannot both be set", http.StatusBadRequest)
 			return
 		}
 
@@ -181,9 +153,14 @@ func setupDebugHandlers(appState *state.State) {
 		colName := r.URL.Query().Get("collection")
 		shardName := r.URL.Query().Get("shard")
 		targetVector := r.URL.Query().Get("vector")
+		geoProp := r.URL.Query().Get("geo")
 
 		if colName == "" || shardName == "" {
 			http.Error(w, "collection and shard are required", http.StatusBadRequest)
+			return
+		}
+		if targetVector != "" && geoProp != "" {
+			http.Error(w, "vector and geo cannot both be set", http.StatusBadRequest)
 			return
 		}
 
@@ -912,6 +889,73 @@ type MaintenanceMode struct {
 
 type hnswStats interface {
 	Stats() (*hnsw.HnswStats, error)
+}
+
+// debugVectorIndexResetter is what the rebuild handler needs from *db.Index.
+type debugVectorIndexResetter interface {
+	DebugResetVectorIndex(ctx context.Context, shardName, targetVector string) error
+	DebugResetGeoIndex(ctx context.Context, shardName, propName string) error
+}
+
+// newRebuildVectorIndexHandler serves /debug/index/rebuild/vector, which
+// rebuilds a target vector's index, or with geo=<property> that property's
+// geo index. getIndex returns nil for an unknown collection.
+func newRebuildVectorIndexHandler(logger logrus.FieldLogger, asyncIndexingEnabled bool,
+	getIndex func(schema.ClassName) debugVectorIndexResetter,
+) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !asyncIndexingEnabled {
+			http.Error(w, "async indexing is not enabled", http.StatusNotImplemented)
+			return
+		}
+
+		colName := r.URL.Query().Get("collection")
+		shardName := r.URL.Query().Get("shard")
+		targetVector := r.URL.Query().Get("vector")
+		geoProp := r.URL.Query().Get("geo")
+
+		if colName == "" || shardName == "" {
+			http.Error(w, "collection and shard are required", http.StatusBadRequest)
+			return
+		}
+		if targetVector != "" && geoProp != "" {
+			http.Error(w, "vector and geo cannot both be set", http.StatusBadRequest)
+			return
+		}
+
+		idx := getIndex(schema.ClassName(colName))
+		if idx == nil {
+			logger.WithField("collection", colName).Error("collection not found")
+			http.Error(w, "collection not found", http.StatusNotFound)
+			return
+		}
+
+		reset, notFound := idx.DebugResetVectorIndex, "shard or vector index not found"
+		name := targetVector
+		if geoProp != "" {
+			reset, notFound = idx.DebugResetGeoIndex, "shard or geo index not found"
+			name = geoProp
+		}
+		err := reset(context.Background(), shardName, name)
+		if err != nil {
+			logger.
+				WithField("shard", shardName).
+				WithField("targetVector", targetVector).
+				WithField("geo", geoProp).
+				Errorf("failed to reset vector index: %v", err)
+			if strings.Contains(err.Error(), "not found") {
+				http.Error(w, notFound, http.StatusNotFound)
+				return
+			}
+
+			http.Error(w, "failed to reset vector index", http.StatusInternalServerError)
+			return
+		}
+
+		logger.WithField("shard", shardName).Info("reindexing started")
+
+		w.WriteHeader(http.StatusAccepted)
+	}
 }
 
 type hfreshReassignIndex interface {

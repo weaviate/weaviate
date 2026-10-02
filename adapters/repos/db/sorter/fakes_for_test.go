@@ -144,6 +144,49 @@ func createMyFavoriteClassObject() *storobj.Object {
 	)
 }
 
+// createMyFavoriteClassObjectJSONDecoded mirrors createMyFavoriteClassObject
+// with its properties in the shapes JSON unmarshaling produces — every array
+// as []interface{} and every nested object as map[string]interface{} — the
+// form an object read back from storage carries.
+func createMyFavoriteClassObjectJSONDecoded() *storobj.Object {
+	return storobj.FromObject(
+		&models.Object{
+			Class:              testClassName,
+			CreationTimeUnix:   900000000001,
+			LastUpdateTimeUnix: 900000000002,
+			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			Properties: map[string]interface{}{
+				"textProp":        "text",
+				"textPropArray":   []interface{}{"text", "text"},
+				"intProp":         float64(100),
+				"numberProp":      float64(17),
+				"intPropArray":    []interface{}{float64(10), float64(20), float64(30)},
+				"numberPropArray": []interface{}{float64(1), float64(2), float64(3)},
+				"boolProp":        true,
+				"boolPropArray":   []interface{}{true, false, true},
+				"dateProp":        "1980-01-01T00:00:00+02:00",
+				"datePropArray":   []interface{}{"1980-01-01T00:00:00+02:00"},
+				"phoneProp": map[string]interface{}{
+					"countryCode":            float64(49),
+					"defaultCountry":         "DE",
+					"input":                  "0171 1000000",
+					"valid":                  true,
+					"internationalFormatted": "+49 171 1000000",
+					"national":               float64(1000000),
+					"nationalFormatted":      "0171 1000000",
+				},
+				"geoProp": map[string]interface{}{
+					"longitude": float64(1),
+					"latitude":  float64(2),
+				},
+			},
+		},
+		[]float32{1, 2, 0.7},
+		nil,
+		nil,
+	)
+}
+
 func sorterCitySchema() *schema.Schema {
 	return &schema.Schema{
 		Objects: &models.Schema{

@@ -14,6 +14,7 @@ package search
 import (
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -263,19 +264,19 @@ func buildMetadata(asMap map[string]any, addl additional.Properties) *models.Sea
 	populated := false
 
 	if addl.Distance {
-		if distance, ok := additionalMap["distance"].(float32); ok {
+		if distance, ok := additionalMap["distance"].(float32); ok && isFinite(float64(distance)) {
 			metadata.Distance = &distance
 			populated = true
 		}
 	}
 	if addl.Certainty {
-		if certainty, ok := additionalMap["certainty"].(float64); ok {
+		if certainty, ok := additionalMap["certainty"].(float64); ok && isFinite(certainty) {
 			metadata.Certainty = &certainty
 			populated = true
 		}
 	}
 	if addl.Score {
-		if score, ok := additionalMap["score"].(float32); ok {
+		if score, ok := additionalMap["score"].(float32); ok && isFinite(float64(score)) {
 			metadata.Score = &score
 			populated = true
 		}
@@ -303,4 +304,11 @@ func buildMetadata(asMap map[string]any, addl additional.Properties) *models.Sea
 		return nil
 	}
 	return metadata
+}
+
+// isFinite guards the JSON encoder: NaN and ±Inf cannot be encoded, and the
+// 200 header is already on the wire by the time the encoder runs, so such a
+// value is dropped instead of failing the whole response.
+func isFinite(v float64) bool {
+	return !math.IsNaN(v) && !math.IsInf(v, 0)
 }
