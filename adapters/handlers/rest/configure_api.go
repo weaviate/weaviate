@@ -194,13 +194,17 @@ const MinimumRequiredContextionaryVersion = "1.0.2"
 const (
 	grpcInFlightCancelDelay = 5 * time.Second
 	grpcGracefulStopTimeout = 20 * time.Second
+	// restInFlightCancelDelay must stay below --graceful-timeout, or a request
+	// that outlives it fails http.Server.Shutdown and ServerShutdown never runs.
+	restInFlightCancelDelay = 5 * time.Second
 )
 
-func makeConfigureServer(appState *state.State) func(*http.Server, string, string) {
+func makeConfigureServer(appState *state.State, requestsCtx context.Context) func(*http.Server, string, string) {
 	return func(s *http.Server, scheme, addr string) {
 		// Add properties to the config
 		appState.ServerConfig.Hostname = addr
 		appState.ServerConfig.Scheme = scheme
+		s.BaseContext = func(net.Listener) context.Context { return requestsCtx }
 	}
 }
 
@@ -1054,8 +1058,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		}
 	}, appState.Logger)
 
-	configureServer = makeConfigureServer(appState)
-
 	// Add dimensions to all the objects in the database, if requested by the user
 	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup && repo.GetConfig().TrackVectorDimensions {
 		appState.Logger.
@@ -1578,7 +1580,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	setupMiddlewares := makeSetupMiddlewares(appState)
-	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context(), telemeter)
+	restInFlight := newInFlightCancel(restInFlightCancelDelay)
+	configureServer = makeConfigureServer(appState, restInFlight.requestsCtx)
+	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context(), telemeter, restInFlight)
 	if telemetryEnabled(appState) {
 		enterrors.GoWrapper(func() {
 			if err := telemeter.Start(context.Background()); err != nil {
@@ -1608,6 +1612,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	api.PreServerShutdown = func() {
+		restInFlight.cancelRequestsAfterDelay()
 		// Reject new export requests and signal in-flight exports to stop
 		// early, while the server can still serve other requests. The actual
 		// wait for export drain happens in ServerShutdown.
@@ -1617,6 +1622,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	api.ServerShutdown = func() {
+		appState.Logger.WithField("action", "rest_shutdown").
+			Infof("answered 503 to %d rest requests that had not responded %s after shutdown began",
+				restInFlight.unavailableResponses.Load(), restInFlightCancelDelay)
+
 		// leave memberlist first to announce node graceful departure
 		if err := appState.Cluster.Leave(); err != nil {
 			appState.Logger.WithError(err).Error("leave node from cluster")
@@ -1714,7 +1723,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	restHandler := setupGlobalMiddleware(api.Serve(setupMiddlewares))
 	// Serve grpc-web on the REST port under /v1/grpc-web/ rather than a dedicated listener
-	return grpcweb.Mount("/v1/grpc-web", grpcWebHandler, restHandler,
+	return grpcweb.Mount("/v1/grpc-web", restInFlight.unavailableAfterCancel(grpcWebHandler), restHandler,
 		func() bool { return appState.ServerConfig.Config.GRPC.GrpcWebEnabledOrDefault() })
 }
 
