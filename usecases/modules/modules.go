@@ -17,6 +17,7 @@ import (
 	"maps"
 	"regexp"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -707,27 +708,20 @@ func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, mod
 
 		additionalGenerativeDefaultProvider := ""
 		additionalGenerativeParameters := map[string]modulecapabilities.GenerativeProperty{}
-		allAdditionalProperties := map[string]modulecapabilities.AdditionalProperty{}
-		for _, module := range p.GetAll() {
-			if p.isGenerativeModule(module.Type()) {
-				if arg, ok := module.(modulecapabilities.AdditionalGenerativeProperties); ok {
-					for name, additionalGenerativeParameter := range arg.AdditionalGenerativeProperties() {
-						additionalGenerativeParameters[name] = additionalGenerativeParameter
-						if p.shouldIncludeClassArgument(class, module.Name(), module.Type(), p.getModuleAltNames(module)) {
-							additionalGenerativeDefaultProvider = name
-						}
-					}
-				}
-			} else if p.shouldIncludeClassArgument(class, module.Name(), module.Type(), p.getModuleAltNames(module)) {
-				if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
-					if arg != nil && arg.AdditionalProperties() != nil {
-						for name, additionalProperty := range arg.AdditionalProperties() {
-							allAdditionalProperties[name] = additionalProperty
-						}
+		for _, module := range p.modulesByName() {
+			if !p.isGenerativeModule(module.Type()) {
+				continue
+			}
+			if arg, ok := module.(modulecapabilities.AdditionalGenerativeProperties); ok {
+				for name, additionalGenerativeParameter := range arg.AdditionalGenerativeProperties() {
+					additionalGenerativeParameters[name] = additionalGenerativeParameter
+					if p.shouldIncludeClassArgument(class, module.Name(), module.Type(), p.getModuleAltNames(module)) {
+						additionalGenerativeDefaultProvider = name
 					}
 				}
 			}
 		}
+		allAdditionalProperties := p.classAdditionalProperties(class)
 		if len(additionalGenerativeParameters) > 0 {
 			if generateFn := modulecomponents.GetGenericGenerateProperty(class.Class, additionalGenerativeParameters, additionalGenerativeDefaultProvider, p.logger); generateFn != nil {
 				allAdditionalProperties[modulecomponents.AdditionalPropertyGenerate] = *generateFn
@@ -792,6 +786,36 @@ func additionalExtendOrder(moduleParams map[string]interface{}) []string {
 		names = append([]string{rerank}, names...)
 	}
 	return names
+}
+
+// modulesByName returns the registered modules sorted by name.
+func (p *Provider) modulesByName() []modulecapabilities.Module {
+	all := p.GetAll()
+	slices.SortFunc(all, func(a, b modulecapabilities.Module) int {
+		return strings.Compare(a.Name(), b.Name())
+	})
+	return all
+}
+
+// classAdditionalProperties returns the additional properties that the
+// non-generative modules provide for the class. Two modules can provide the
+// same property, for example a class that names two rerankers. The name
+// order makes the choice the same on every request: the last module by name
+// wins.
+func (p *Provider) classAdditionalProperties(class *models.Class) map[string]modulecapabilities.AdditionalProperty {
+	properties := map[string]modulecapabilities.AdditionalProperty{}
+	for _, module := range p.modulesByName() {
+		if p.isGenerativeModule(module.Type()) ||
+			!p.shouldIncludeClassArgument(class, module.Name(), module.Type(), p.getModuleAltNames(module)) {
+			continue
+		}
+		provider, ok := module.(modulecapabilities.AdditionalProperties)
+		if !ok || provider == nil {
+			continue
+		}
+		maps.Copy(properties, provider.AdditionalProperties())
+	}
+	return properties
 }
 
 func (p *Provider) getClassFromSearchResult(in []search.Result) (*models.Class, error) {
