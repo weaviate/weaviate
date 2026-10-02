@@ -172,6 +172,14 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 	subsearchWrap.Selection = nil
 	subsearchWrap.Group = nil
 	subsearchWrap.GroupBy = nil
+	// Rerankers and generative modules run once on the fused results. With
+	// HybridSearch unset, searchForTargets would also run them on this leg.
+	// They may need the object vectors, which searchForTargets only loads
+	// when it sees module params.
+	if len(subsearchWrap.AdditionalProperties.ModuleParams) > 0 {
+		subsearchWrap.AdditionalProperties.Vector = true
+	}
+	subsearchWrap.AdditionalProperties.ModuleParams = nil
 	partialResults, vectors, err := e.searchForTargets(ctx, subsearchWrap, targetVectors, nil)
 	if err != nil {
 		return nil, "", err
