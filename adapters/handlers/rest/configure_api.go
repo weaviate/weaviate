@@ -1669,24 +1669,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.ReplGRPCConnManager.Close()
 		appState.GRPCConnManager.Close()
 
-		// stop the gRPC server gracefully, but cap the wait so a stuck
-		// request can't block shutdown.
-		grpcCancelTimer := time.AfterFunc(grpcInFlightCancelDelay, grpcInFlight.Cancel)
-		grpcStopped := make(chan struct{})
-		enterrors.GoWrapper(func() {
-			grpcServer.GracefulStop()
-			close(grpcStopped)
-		}, appState.Logger)
-		select {
-		case <-grpcStopped:
-		case <-time.After(grpcGracefulStopTimeout):
-			appState.Logger.Warn("grpc graceful stop timed out, forcing stop")
-			grpcServer.Stop()
-		}
-		grpcCancelTimer.Stop()
-		appState.Logger.WithField("action", "grpc_shutdown").
-			Infof("cancelled %d in-flight grpc calls still running %s after graceful stop began",
-				grpcInFlight.CutShort(), grpcInFlightCancelDelay)
+		stopGrpcServer(grpcServer, grpcInFlight, grpcInFlightCancelDelay, grpcGracefulStopTimeout, appState.Logger)
 
 		if appState.ServerConfig.Config.Sentry.Enabled {
 			sentry.Flush(2 * time.Second)
