@@ -12,8 +12,10 @@
 package rest
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -28,12 +30,15 @@ import (
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/grpcweb"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
+	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -171,6 +176,129 @@ func TestInFlightCancelUnavailablePassesThroughCORSAndMetrics(t *testing.T) {
 	assert.Equal(t, uint64(1), count, "batch metrics middleware did not observe the 503")
 }
 
+// writeHeaderCounter counts WriteHeader calls, which httptest.ResponseRecorder
+// silently ignores after the first.
+type writeHeaderCounter struct {
+	*httptest.ResponseRecorder
+	calls int
+}
+
+func (c *writeHeaderCounter) WriteHeader(status int) {
+	c.calls++
+	c.ResponseRecorder.WriteHeader(status)
+}
+
+// A handler panicking after the cancel still answers 503 and is counted.
+func TestInFlightCancelPanicAfterCancel(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	inFlight := newInFlightCancel(time.Hour)
+	t.Cleanup(inFlight.cancelRequests)
+	handler := makeSetupGlobalMiddleware(newMiddlewareTestState(logger), nil, nil, inFlight)(
+		http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			inFlight.cancelRequests()
+			panic(errors.New("handler failed"))
+		}))
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/batch/objects", nil))
+
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assert.Equal(t, int64(1), inFlight.unavailableResponses.Load())
+}
+
+// blockingSearch holds every Search call until its ctx is cancelled.
+type blockingSearch struct {
+	pbv1.UnimplementedWeaviateServer
+	entered chan struct{}
+}
+
+func (b *blockingSearch) Search(ctx context.Context, _ *pbv1.SearchRequest) (*pbv1.SearchReply, error) {
+	b.entered <- struct{}{}
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(5 * time.Second):
+		return &pbv1.SearchReply{}, nil
+	}
+}
+
+// After the cancel grpc-web gets Grpc-Status 14 and Connect a JSON 503, both with CORS headers.
+func TestInFlightCancelGrpcWebRefusal(t *testing.T) {
+	const (
+		origin      = "https://example.com"
+		grpcWebType = "application/grpc-web+proto"
+	)
+	logger, _ := logrustest.NewNullLogger()
+	appState := newMiddlewareTestState(logger)
+	appState.ServerConfig.Config.CORS = config.CORS{AllowOrigin: origin}
+	grpcServer := grpc.NewServer()
+	search := &blockingSearch{entered: make(chan struct{}, 1)}
+	pbv1.RegisterWeaviateServer(grpcServer, search)
+	inFlight := newInFlightCancel(time.Hour)
+	t.Cleanup(inFlight.cancelRequests)
+	handler, err := grpcweb.NewHandler(grpcServer, appState, inFlight.unavailableAfterCancel)
+	require.NoError(t, err)
+
+	serve := func(method string, body []byte, header http.Header) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, pbv1.Weaviate_Search_FullMethodName, bytes.NewReader(body))
+		r.Header.Set("Origin", origin)
+		for k, v := range header {
+			r.Header[k] = v
+		}
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, r.WithContext(inFlight.requestsCtx))
+		return rec
+	}
+	// An empty grpc-web data frame is a flag byte followed by a zero length.
+	grpcWebCall := func() *httptest.ResponseRecorder {
+		return serve(http.MethodPost, make([]byte, 5), http.Header{"Content-Type": {grpcWebType}})
+	}
+
+	inFlightDone := make(chan *httptest.ResponseRecorder, 1)
+	enterrors.GoWrapper(func() { inFlightDone <- grpcWebCall() }, logger)
+	select {
+	case <-search.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("grpc-web call never reached Search")
+	}
+	inFlight.cancelRequests()
+
+	connect := http.Header{"Content-Type": {"application/proto"}, "Connect-Protocol-Version": {"1"}}
+	preflight := http.Header{"Access-Control-Request-Method": {http.MethodPost}}
+	cases := []struct {
+		name            string
+		rec             *httptest.ResponseRecorder
+		wantStatus      int
+		wantContentType string
+		wantGrpcStatus  string
+		wantEmptyBody   bool
+	}{
+		{
+			name: "grpc-web in flight at the cancel", rec: <-inFlightDone,
+			wantStatus: http.StatusOK, wantContentType: grpcWebType, wantGrpcStatus: "14", wantEmptyBody: true,
+		},
+		{
+			name: "grpc-web arriving after the cancel", rec: grpcWebCall(),
+			wantStatus: http.StatusOK, wantContentType: grpcWebType, wantGrpcStatus: "14", wantEmptyBody: true,
+		},
+		{
+			name: "connect arriving after the cancel", rec: serve(http.MethodPost, nil, connect),
+			wantStatus: http.StatusServiceUnavailable, wantContentType: "application/json",
+		},
+		{
+			name: "preflight after the cancel", rec: serve(http.MethodOptions, nil, preflight),
+			wantStatus: http.StatusOK, wantEmptyBody: true,
+		},
+	}
+	for _, tc := range cases {
+		assert.Equal(t, tc.wantStatus, tc.rec.Code, tc.name)
+		assert.Equal(t, tc.wantContentType, tc.rec.Header().Get("Content-Type"), tc.name)
+		assert.Equal(t, tc.wantGrpcStatus, tc.rec.Header().Get("Grpc-Status"), tc.name)
+		assert.Equal(t, tc.wantEmptyBody, tc.rec.Body.Len() == 0, tc.name)
+		assert.Equal(t, origin, tc.rec.Header().Get("Access-Control-Allow-Origin"), tc.name)
+	}
+}
+
 func TestInFlightCancelMiddleware(t *testing.T) {
 	cases := []struct {
 		name                string
@@ -254,12 +382,14 @@ func TestInFlightCancelMiddleware(t *testing.T) {
 			}
 			handlerRan := false
 			rec := httptest.NewRecorder()
+			counted := &writeHeaderCounter{ResponseRecorder: rec}
 			inFlight.unavailableAfterCancel(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				handlerRan = true
 				tc.handler(w, inFlight.cancelRequests)
-			})).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/batch/objects", nil))
+			})).ServeHTTP(counted, httptest.NewRequest(http.MethodPost, "/v1/batch/objects", nil))
 
 			assert.Equal(t, !tc.wantHandlerSkipped, handlerRan, "handler ran")
+			assert.LessOrEqual(t, counted.calls, 1, "WriteHeader reached the underlying writer more than once")
 			assert.Equal(t, tc.wantStatus, rec.Code)
 			assert.Equal(t, tc.wantUnavailable, inFlight.unavailableResponses.Load())
 			assert.Equal(t, tc.wantFlushed, rec.Flushed)

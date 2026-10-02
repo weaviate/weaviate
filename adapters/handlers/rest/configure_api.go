@@ -1573,14 +1573,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	grpcInFlight := grpcHandler.NewInFlightCancel()
 	grpcOptions = append(grpcOptions, grpc.ChainUnaryInterceptor(grpcInFlight.UnaryInterceptor()))
 	grpcServer, batchDrain := createGrpcServer(appState, telemeter.GetClientTracker(), telemeter.GetIntegrationTracker(), grpcOptions...)
-	grpcWebHandler, err := grpcweb.NewHandler(grpcServer, appState)
+	restInFlight := newInFlightCancel(restInFlightCancelDelay)
+	grpcWebHandler, err := grpcweb.NewHandler(grpcServer, appState, restInFlight.unavailableAfterCancel)
 	if err != nil {
 		appState.Logger.WithField("action", "grpc_web_startup").
 			Fatalf("init grpc-web handler: %v", err)
 	}
 
 	setupMiddlewares := makeSetupMiddlewares(appState)
-	restInFlight := newInFlightCancel(restInFlightCancelDelay)
 	configureServer = makeConfigureServer(appState, restInFlight.requestsCtx)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context(), telemeter, restInFlight)
 	if telemetryEnabled(appState) {
@@ -1623,7 +1623,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	api.ServerShutdown = func() {
 		appState.Logger.WithField("action", "rest_shutdown").
-			Infof("answered 503 to %d rest requests arriving or still running %s after shutdown began",
+			Infof("refused %d requests on the REST port arriving or still running %s after shutdown began",
 				restInFlight.unavailableResponses.Load(), restInFlightCancelDelay)
 
 		// leave memberlist first to announce node graceful departure
@@ -1723,7 +1723,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	restHandler := setupGlobalMiddleware(api.Serve(setupMiddlewares))
 	// Serve grpc-web on the REST port under /v1/grpc-web/ rather than a dedicated listener
-	return grpcweb.Mount("/v1/grpc-web", restInFlight.unavailableAfterCancel(grpcWebHandler), restHandler,
+	return grpcweb.Mount("/v1/grpc-web", grpcWebHandler, restHandler,
 		func() bool { return appState.ServerConfig.Config.GRPC.GrpcWebEnabledOrDefault() })
 }
 
