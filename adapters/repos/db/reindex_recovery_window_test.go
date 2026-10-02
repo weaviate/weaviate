@@ -113,7 +113,23 @@ func TestShardLoadArmsTheMirrorForAnUnpromotedFlip(t *testing.T) {
 		wantArmed   bool
 		// wantUntouched: re-attach must neither write a record nor open a directory.
 		wantUntouched bool
+		// wedged: the load reconciler marked the record stuck before re-attach ran.
+		wedged bool
 	}{
+		{
+			name:          "iterated, wedged by a task verdict at load",
+			rec:           func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterated(s) },
+			wedged:        true,
+			wantUntouched: true,
+		},
+		{
+			name: "swapped, wedged by a promotion path",
+			rec: func(s MigrationSubject) MigrationRecord {
+				return NewMigrationRecordSwapped(s, s.Properties(), map[string]string{propName: s.Props[propName].Canonical})
+			},
+			wedged:    true,
+			wantArmed: true,
+		},
 		{
 			name:          "the load reconciler discarded the record",
 			noStagedDir:   true,
@@ -166,6 +182,9 @@ func TestShardLoadArmsTheMirrorForAnUnpromotedFlip(t *testing.T) {
 			subject := task.migrationSubject(shard, []string{propName}, time.Now())
 			if tt.rec != nil {
 				require.NoError(t, task.putMigrationRecord(shard, tt.rec(subject)))
+			}
+			if tt.wedged {
+				shard.migrationRecords.MarkWedged(subject.Key)
 			}
 			stagedDir := filepath.Join(shard.pathLSM(), subject.Props[propName].Staged)
 			if !tt.noStagedDir {

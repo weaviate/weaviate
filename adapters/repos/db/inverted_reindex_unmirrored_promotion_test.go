@@ -97,6 +97,7 @@ func TestPromotionSaysWhyItWithheldAfterAnUnmirroredBoot(t *testing.T) {
 
 	require.Equal(t, 1, r.WedgedCount())
 	require.NotEmpty(t, f.errorLines("no double-write mirror armed"))
+	require.Empty(t, f.disarmed, "a promotion path's wedge may still promote, so its mirror stays")
 }
 
 // Nothing else arms the mirror for a migration awaiting its flip, so the stamp

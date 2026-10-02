@@ -78,6 +78,49 @@ func TestACommitVerdictOnAnUnfinishedRebuildTerminates(t *testing.T) {
 	}
 }
 
+// A record a task verdict wedges is never committed, so its mirror would only
+// copy writes nobody reads. Another migration's mirror keeps running.
+func TestATaskVerdictWedgeStopsOnlyThatRecordsMirror(t *testing.T) {
+	tests := []struct {
+		name          string
+		migrationType ReindexMigrationType
+		record        func(MigrationSubject) MigrationRecord
+	}{
+		{
+			name:          "the leader's list no longer holds a migration the schema cannot show",
+			migrationType: ReindexTypeRepairRangeable,
+			record:        func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(s) },
+		},
+		{
+			name:          "the cluster committed a migration this replica never finished",
+			migrationType: ReindexTypeChangeTokenization,
+			record:        func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterated(s) },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newReconcileFixture(t)
+			f.class = testClassWithTokenization(models.PropertyTokenizationLowercase, "title", "body")
+			wedging := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title", "body")
+			wedging.MigrationType = tt.migrationType
+			running := testMigrationSubject(50, StrategyCodeSearchableRetokenize, "title")
+			running.TaskID = "running"
+			f.tasks = []*distributedtask.Task{testTask(running.TaskID, 50, distributedtask.TaskStatusStarted)}
+			f.put(tt.record(wedging))
+			f.put(NewMigrationRecordIterated(running))
+			require.NoError(t, f.store.Load())
+
+			newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps()).
+				ReconcileWithClusterTasks(context.Background(), f.tasks)
+
+			require.True(t, f.store.Wedged(wedging.Key), "fixture: the pass has to wedge the record")
+			require.ElementsMatch(t, []migrationMirrorKey{{wedging.Key, "title"}, {wedging.Key, "body"}}, f.disarmed)
+			require.ElementsMatch(t, migrationOwnedDirs(wedging), f.buckets.closed)
+		})
+	}
+}
+
 // A write moves the record on, so the next pass has something new to decide.
 func TestAWriteClearsTheWedgeThatStoppedTheLeaderQuery(t *testing.T) {
 	f := newReconcileFixture(t)

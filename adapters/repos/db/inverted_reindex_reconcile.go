@@ -239,7 +239,7 @@ func (r *migrationReconciler) reconcileUncommitted(ctx context.Context, rec Migr
 		// Above the restart edge, not below it: a migration the cluster
 		// committed can never be finished here, so restarting its rebuild
 		// would restart it on every load and the record would never terminate.
-		r.wedgeUncommittable(rec, why)
+		r.wedgeUncommittable(ctx, rec, why)
 		return nil
 	case migrationVerdictLeave:
 	default:
@@ -361,6 +361,7 @@ func (r *migrationReconciler) ReconcileWithClusterTasks(ctx context.Context, tas
 		switch {
 		case verdict == migrationVerdictWedge:
 			r.wedged(subject, migrationWedgeRemedy, "%s.", why)
+			r.stopWedgedMirror(ctx, subject)
 		case verdict == migrationVerdictDiscard:
 			if err := r.discard(ctx, subject, why); err != nil {
 				r.logger.WithField("record", subject.Key.String()).Errorf(
@@ -375,19 +376,37 @@ func (r *migrationReconciler) ReconcileWithClusterTasks(ctx context.Context, tas
 			r.logger.WithField("record", subject.Key.String()).Info(
 				"the staged data is the data; the next shard load promotes it onto the canonical name")
 		case verdict == migrationVerdictCommit:
-			r.wedgeUncommittable(rec, why)
+			r.wedgeUncommittable(ctx, rec, why)
 		}
 	}
 	monitoring.GetMetrics().AddMigrationRecordsWedged(r.WedgedCount(), 0)
 }
 
-func (r *migrationReconciler) wedgeUncommittable(rec MigrationRecord, why string) {
+func (r *migrationReconciler) wedgeUncommittable(ctx context.Context, rec MigrationRecord, why string) {
 	subject := rec.Subject()
 	r.wedged(subject, migrationWedgeRemedy,
 		"migration is %s locally but the cluster reports it committed (%s), so no load here can finish it. "+
 			"Properties: %s.",
 		rec.State(), why, strings.Join(migrationReportedNames(subject.Properties()), ", "))
 	r.store.MarkWedged(subject.Key)
+	r.stopWedgedMirror(ctx, subject)
+}
+
+// Not in wedged(): promotion paths wedge records whose mirror a promotion still needs.
+func (r *migrationReconciler) stopWedgedMirror(ctx context.Context, subject MigrationSubject) {
+	r.disarmMirrors(subject)
+	if err := r.closeStagedBuckets(ctx, migrationOwnedDirs(subject)...); err != nil {
+		r.logger.WithField("record", subject.Key.String()).Warnf("stop the mirror of a wedged migration: %v", err)
+	}
+}
+
+func (r *migrationReconciler) disarmMirrors(subject MigrationSubject) {
+	if r.deps.Mirror == nil {
+		return
+	}
+	for _, prop := range subject.Properties() {
+		r.deps.Mirror.DisarmMigrationMirror(subject.Key, prop)
+	}
 }
 
 // As destructive as discard (removes directories before renaming), so
@@ -961,11 +980,7 @@ func (r *migrationReconciler) discardSealed(ctx context.Context, subject Migrati
 // The record answers for every directory it names, so it goes last of all.
 // Mirrors are disarmed first: a still-armed mirror would copy into a directory just removed.
 func (r *migrationReconciler) reclaimRecordAndDirs(ctx context.Context, subject MigrationSubject) error {
-	if r.deps.Mirror != nil {
-		for _, prop := range subject.Properties() {
-			r.deps.Mirror.DisarmMigrationMirror(subject.Key, prop)
-		}
-	}
+	r.disarmMirrors(subject)
 	if remaining := r.reclaimOwnedDirs(ctx, subject); len(remaining) > 0 {
 		return fmt.Errorf("%d owned directory/directories survived", len(remaining))
 	}

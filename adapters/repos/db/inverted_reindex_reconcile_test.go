@@ -68,6 +68,11 @@ type reconcileFixture struct {
 	class         *models.Class
 	logger        *logrus.Logger
 	logs          *test.Hook
+	disarmed      []migrationMirrorKey
+}
+
+func (f *reconcileFixture) DisarmMigrationMirror(key MigrationRecordKey, prop string) {
+	f.disarmed = append(f.disarmed, migrationMirrorKey{key, prop})
 }
 
 func newReconcileFixture(t *testing.T) *reconcileFixture {
@@ -150,6 +155,7 @@ func (f *reconcileFixture) deps() migrationReconcileDeps {
 			return func() { f.sealsReleased++ }, true
 		},
 		Class:   func() *models.Class { return f.class },
+		Mirror:  f,
 		Buckets: f.buckets,
 	}
 }

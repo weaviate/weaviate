@@ -658,6 +658,10 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 	if !hasRecord || !rec.IterationComplete() || rec.State() == MigrationStatePromoted {
 		return nil
 	}
+	// Only a task verdict wedges an unflipped record at load, and its copy is never read.
+	if !rec.FlipDecided() && shard.migrationRecordStore().Wedged(t.migrationRecordKey()) {
+		return nil
+	}
 	_, err := t.onAfterLsmInit(ctx, shard)
 	return err
 }
