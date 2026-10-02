@@ -409,15 +409,18 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 }
 
 func (m *Manager) CollectionOfTask(namespace string, payload []byte) string {
-	m.mu.RLock()
-	extractor := m.collectionExtractors[namespace]
-	m.mu.RUnlock()
-
+	extractor := m.collectionExtractor(namespace)
 	if extractor == nil {
 		return ""
 	}
 	collection, _ := extractor(payload)
 	return collection
+}
+
+func (m *Manager) collectionExtractor(namespace string) CollectionExtractor {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.collectionExtractors[namespace]
 }
 
 func (m *Manager) HasActiveTaskForCollection(collection string) bool {
