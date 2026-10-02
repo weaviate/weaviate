@@ -11,12 +11,29 @@
 
 package errors
 
+import "fmt"
+
 type ErrUnprocessable struct {
 	err error
 }
 
 func (e ErrUnprocessable) Error() string {
 	return e.err.Error()
+}
+
+// Unwrap exposes the cause, so callers classify with errors.Is/As instead of matching the message
+func (e ErrUnprocessable) Unwrap() error {
+	return e.err
+}
+
+// ErrLocalIndexNotFound is a class this node does not hold yet, so its schema has not caught up.
+// The message is unchanged, so callers still matching on text keep working.
+type ErrLocalIndexNotFound struct {
+	Index string
+}
+
+func (e ErrLocalIndexNotFound) Error() string {
+	return fmt.Sprintf("local index %q not found", e.Index)
 }
 
 func NewErrUnprocessable(err error) ErrUnprocessable {

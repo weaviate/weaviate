@@ -110,7 +110,14 @@ func iteratorConcurrently(ctx context.Context, b *lsmkv.Bucket, newCursor func()
 	if len(seeds) == 0 {
 		c := newCursor()
 		defer c.Close()
+		count := 0
 		for k, v, vv, bi := c.First(); k != nil; k, v, vv, bi = c.Next() {
+			count++
+			// the seeded branches below check too: a caller that gave up must stop this scan,
+			// which is also what releases the segments the cursor pins
+			if count%contextCheckInterval == 0 && ctx.Err() != nil {
+				return ctx.Err()
+			}
 			err := aggregateFunc(k, v, vv, bi)
 			if err != nil {
 				return err

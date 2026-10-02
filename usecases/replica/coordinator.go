@@ -358,6 +358,17 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 			c.metrics.ObserveReadDuration(time.Since(start))
 		}()
 
+		// replicas that said they cannot serve: once too few are left, waiting out the worker
+		// timeout cannot reach level, so the workers stop instead of retrying dead hosts
+		var unreachableMu sync.Mutex
+		unreachable := make(map[string]struct{}, len(hosts))
+		levelUnreachable := func(host string) bool {
+			unreachableMu.Lock()
+			defer unreachableMu.Unlock()
+			unreachable[host] = struct{}{}
+			return len(hosts)-len(unreachable) < level
+		}
+
 		hostRetryQueue := make(chan hostRetry, len(hosts))
 
 		// put the "backups/fallbacks" on the retry queue
@@ -391,6 +402,11 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 					replyCh <- Result[T]{resp, err}
 					return
 				}
+				if errors.Is(err, ErrReplicaNotReady) && levelUnreachable(hosts[hostIndex]) {
+					replyCh <- Result[T]{resp, err}
+					return
+				}
+
 				// this host failed op on the first try, put it on the retry queue
 				select {
 				case <-workerCtx.Done():
@@ -410,6 +426,11 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 						replyCh <- Result[T]{resp, err}
 						return
 					}
+					if errors.Is(err, ErrReplicaNotReady) && levelUnreachable(hr.host) {
+						replyCh <- Result[T]{resp, err}
+						return
+					}
+
 					nextBackOff := hr.currentBackOff.NextBackOff()
 					if nextBackOff == backoff.Stop {
 						// this host has run out of retries, send the result and note that

@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	clusterTypes "github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -443,7 +444,7 @@ func (i *indices) postObjectSingle(w http.ResponseWriter, r *http.Request,
 			writeUsageLimitExceeded(w, le)
 			return
 		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), operationStatus(err))
 		return
 	}
 
@@ -472,6 +473,9 @@ func (i *indices) postObjectBatch(w http.ResponseWriter, r *http.Request,
 	}
 
 	errs := i.shards.BatchPutObjects(r.Context(), index, shard, objs, schemaVersion)
+	if wroteNotCaughtUp(w, errs) {
+		return
+	}
 	errsJSON, err := shared.IndicesPayloads.ErrorList.Marshal(errs)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -626,7 +630,7 @@ func (i *indices) deleteObject() http.Handler {
 
 		err = i.shards.DeleteObject(r.Context(), index, shard, strfmt.UUID(id), deletionTime, schemaVersion)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), operationStatus(err))
 			return
 		}
 
@@ -671,7 +675,7 @@ func (i *indices) mergeObject() http.Handler {
 		}
 
 		if err = i.shards.MergeObject(r.Context(), index, shard, mergeDoc, schemaVersion); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), operationStatus(err))
 			return
 		}
 
@@ -775,7 +779,7 @@ func (i *indices) postSearchObjects() http.Handler {
 		results, dists, queryProfiles, err := i.shards.Search(r.Context(), index, shard,
 			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, err.Error(), unprocessableStatus(err))
 			return
 		}
 		if errors.Is(err, queryadmission.ErrOverloaded) {
@@ -846,6 +850,9 @@ func (i *indices) postReferences() http.Handler {
 		}
 
 		errs := i.shards.BatchAddReferences(r.Context(), index, shard, refs, schemaVersion)
+		if wroteNotCaughtUp(w, errs) {
+			return
+		}
 		errsJSON, err := shared.IndicesPayloads.ErrorList.Marshal(errs)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -897,7 +904,7 @@ func (i *indices) postAggregateObjects() http.Handler {
 		aggRes, err := i.shards.Aggregate(r.Context(), index, shard, params)
 
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, err.Error(), unprocessableStatus(err))
 			return
 		}
 		if errors.Is(err, queryadmission.ErrOverloaded) {
@@ -962,7 +969,7 @@ func (i *indices) postFindUUIDs() http.Handler {
 		results, err := i.shards.FindUUIDs(r.Context(), index, shard, filters, limit)
 
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, err.Error(), unprocessableStatus(err))
 			return
 		}
 		if err != nil {
@@ -1060,7 +1067,7 @@ func (i *indices) getObjectsDigest() http.Handler {
 
 		results, err := i.shards.DigestObjects(r.Context(), index, shard, ids)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, err.Error(), unprocessableStatus(err))
 			return
 		}
 		if err != nil {
@@ -1204,7 +1211,7 @@ func (i *indices) deleteObjects() http.Handler {
 
 		resBytes, err := shared.IndicesPayloads.BatchDeleteResults.Marshal(results)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), operationStatus(err))
 			return
 		}
 
@@ -1232,7 +1239,7 @@ func (i *indices) getGetShardQueueSize() http.Handler {
 
 		size, err := i.shards.GetShardQueueSize(r.Context(), index, shard)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, err.Error(), unprocessableStatus(err))
 			return
 		}
 
@@ -1271,7 +1278,7 @@ func (i *indices) getGetShardStatus() http.Handler {
 
 		status, err := i.shards.GetShardStatus(r.Context(), index, shard)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, err.Error(), unprocessableStatus(err))
 			return
 		}
 		if err != nil {
@@ -1330,7 +1337,7 @@ func (i *indices) postUpdateShardStatus() http.Handler {
 
 		err = i.shards.UpdateShardStatus(r.Context(), index, shard, targetStatus, schemaVersion)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), operationStatus(err))
 			return
 		}
 	})
@@ -1440,7 +1447,7 @@ func (i *indices) postAddAsyncReplicationTargetNode() http.Handler {
 
 		err = i.shards.AddAsyncReplicationTargetNode(r.Context(), indexName, shardName, targetNodeOverride, schemaVersion)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), operationStatus(err))
 			return
 		}
 
@@ -1471,7 +1478,8 @@ func (i *indices) deleteAsyncReplicationTargetNode() http.Handler {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
-			if strings.Contains(err.Error(), fmt.Sprintf("local index %q not found", indexName)) {
+			var missing enterrors.ErrLocalIndexNotFound
+			if errors.As(err, &missing) {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
@@ -1481,4 +1489,57 @@ func (i *indices) deleteAsyncReplicationTargetNode() http.Handler {
 
 		w.WriteHeader(http.StatusNoContent)
 	})
+}
+
+// notCaughtUp reports whether err is this node lagging the schema rather than a fault: the class is
+// not here yet, or the version asked for has not been applied
+func notCaughtUp(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, clusterTypes.ErrDeadlineExceeded) {
+		return true
+	}
+	var missing enterrors.ErrLocalIndexNotFound
+	return errors.As(err, &missing)
+}
+
+// unprocessableStatus answers 503 for a class this node does not hold yet: 422 reads as the
+// caller's fault, so nothing retries it and the replica loses its vote
+func unprocessableStatus(err error) int {
+	if notCaughtUp(err) {
+		return http.StatusServiceUnavailable
+	}
+	return http.StatusUnprocessableEntity
+}
+
+// wroteNotCaughtUp answers a batch that failed only because this node is behind, and reports
+// whether it did. All-or-nothing: a real per-object failure keeps the error list the caller needs.
+func wroteNotCaughtUp(w http.ResponseWriter, errs []error) bool {
+	var lagging error
+	for _, err := range errs {
+		if err == nil {
+			continue
+		}
+		if !notCaughtUp(err) {
+			return false
+		}
+		if lagging == nil {
+			lagging = err
+		}
+	}
+	if lagging == nil {
+		return false
+	}
+
+	http.Error(w, lagging.Error(), http.StatusServiceUnavailable)
+	return true
+}
+
+// operationStatus answers 503 for a node that has not caught up, 500 for a real failure
+func operationStatus(err error) int {
+	if notCaughtUp(err) {
+		return http.StatusServiceUnavailable
+	}
+	return http.StatusInternalServerError
 }
