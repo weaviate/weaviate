@@ -129,7 +129,8 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 	b.metrics.BatchObjects(len(objects))
 	b.metrics.BatchOp("total_preprocessing", beforePreProcessing.UnixNano())
 
-	// Vectorizing can outlast the caller, and the replicated write below does not stop for a cancelled ctx.
+	// Vectorizing can outlast the caller, and the replicated write below
+	// does not stop for a cancelled ctx.
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
