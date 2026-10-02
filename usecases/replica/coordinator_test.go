@@ -508,3 +508,59 @@ func Test_coordinatorPull(t *testing.T) {
 		})
 	}
 }
+
+// Once too few replicas can serve, no amount of retrying reaches the level, so the read must say so
+// at once. CountObjects gives its pull a minute: waiting that out is what turned two dead replicas
+// into ~58s queries.
+func TestPullStopsWhenTheLevelBecomesUnreachable(t *testing.T) {
+	const (
+		cls   = "C1"
+		shard = "S1"
+	)
+
+	hosts := []types.Replica{
+		{NodeName: "A", ShardName: shard, HostAddr: "a:7001"},
+		{NodeName: "B", ShardName: shard, HostAddr: "b:7001"},
+		{NodeName: "C", ShardName: shard, HostAddr: "c:7001"},
+	}
+
+	logger, _ := test.NewNullLogger()
+	metrics, err := replica.NewMetrics(nil)
+	require.NoError(t, err)
+
+	options := types.RoutingPlanBuildOptions{Shard: shard, ConsistencyLevel: types.ConsistencyLevelQuorum}
+	router := types.NewMockRouter(t)
+	router.EXPECT().BuildRoutingPlanOptions(shard, shard, types.ConsistencyLevelQuorum, "").Return(options).Once()
+	router.EXPECT().BuildReadRoutingPlan(options).Return(types.ReadRoutingPlan{
+		Shard:               shard,
+		ReplicaSet:          types.ReadReplicaSet{Replicas: hosts},
+		ConsistencyLevel:    types.ConsistencyLevelQuorum,
+		IntConsistencyLevel: 2,
+	}, nil).Once()
+
+	c := replica.NewReadCoordinator[int](router, metrics, cls, shard, "", logger)
+
+	// only B can answer; A and C say they are not ready, so quorum of 2 is out of reach
+	notReady := fmt.Errorf("status code: 503, error: 503 %s", replica.NodeNotReadyMsg)
+	op := func(ctx context.Context, host string, _ bool) (int, error) {
+		if host == "b:7001" {
+			return 1, nil
+		}
+		return 0, notReady
+	}
+
+	started := time.Now()
+	replyCh, level, err := c.Pull(context.Background(), types.ConsistencyLevelQuorum, op, "", time.Minute)
+	require.NoError(t, err)
+	require.Equal(t, 2, level)
+
+	var replies int
+	for range replyCh {
+		replies++
+	}
+	elapsed := time.Since(started)
+
+	require.Equal(t, level, replies, "one reply per worker, as the caller depends on")
+	require.Less(t, elapsed, 10*time.Second,
+		"the pull must give up as soon as too few replicas can serve, not sit out its minute (took %s)", elapsed)
+}
