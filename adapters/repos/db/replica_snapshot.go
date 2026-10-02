@@ -40,7 +40,7 @@ type replicaSnapshotState struct {
 	isSnapshot bool
 }
 
-func deferIfReindexInFlight(err error) error {
+func asShardBusyIfReindexInFlight(err error) error {
 	busyWithReindex := errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex) &&
 		!errors.Is(err, ErrReindexGateUnavailable)
 	if !busyWithReindex {
@@ -79,7 +79,7 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 		files, err := shard.CreateReplicaSnapshot(ctx, stagingRoot)
 		if err != nil {
 			i.cleanupFailedReplicaSnapshot(stagingRoot, opID, false, nil)
-			return nil, deferIfReindexInFlight(err)
+			return nil, asShardBusyIfReindexInFlight(err)
 		}
 		i.logger.WithField("op_id", opID).WithField("shard", shardName).
 			Debugf("created replica snapshot: %d files", len(files))
@@ -92,7 +92,7 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 	// backstops a target crash so the halt can't leak forever waiting on a peer that's gone.
 	if err := shard.HaltForTransfer(ctx, false, i.Config.TransferInactivityTimeout); err != nil {
 		i.cleanupFailedReplicaSnapshot(stagingRoot, opID, false, nil)
-		return nil, deferIfReindexInFlight(fmt.Errorf("halt shard %q for transfer: %w", shardName, err))
+		return nil, asShardBusyIfReindexInFlight(fmt.Errorf("halt shard %q for transfer: %w", shardName, err))
 	}
 
 	files, err := shard.ListReplicaSnapshotFiles(ctx, stagingRoot)
