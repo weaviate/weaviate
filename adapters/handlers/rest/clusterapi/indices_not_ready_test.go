@@ -104,3 +104,35 @@ func TestBatchNotCaughtUp(t *testing.T) {
 		})
 	}
 }
+
+// A read against a class this node does not hold yet must say unavailable, not unprocessable: a 422
+// is the caller's fault by convention, so nothing retries it and the replica's vote is simply lost.
+func TestUnprocessableStatus(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{
+			name: "a class this node has not applied yet",
+			err:  enterrors.NewErrUnprocessable(enterrors.ErrLocalIndexNotFound{Index: "Product_v2"}),
+			want: http.StatusServiceUnavailable,
+		},
+		{
+			name: "a request that really is unprocessable",
+			err:  enterrors.NewErrUnprocessable(errors.New("vector lengths don't match")),
+			want: http.StatusUnprocessableEntity,
+		},
+		{
+			name: "a missing shard is not a missing class",
+			err:  enterrors.NewErrUnprocessable(errors.New("shard not found")),
+			want: http.StatusUnprocessableEntity,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.want, unprocessableStatus(test.err))
+		})
+	}
+}

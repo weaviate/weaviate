@@ -781,7 +781,7 @@ func (i *indices) postSearchObjects() http.Handler {
 		results, dists, queryProfiles, err := i.shards.Search(r.Context(), index, shard,
 			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, err.Error(), unprocessableStatus(err))
 			return
 		}
 		if errors.Is(err, queryadmission.ErrOverloaded) {
@@ -908,7 +908,7 @@ func (i *indices) postAggregateObjects() http.Handler {
 		aggRes, err := i.shards.Aggregate(r.Context(), index, shard, params)
 
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, err.Error(), unprocessableStatus(err))
 			return
 		}
 		if errors.Is(err, queryadmission.ErrOverloaded) {
@@ -973,7 +973,7 @@ func (i *indices) postFindUUIDs() http.Handler {
 		results, err := i.shards.FindUUIDs(r.Context(), index, shard, filters, limit)
 
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, err.Error(), unprocessableStatus(err))
 			return
 		}
 		if err != nil {
@@ -1071,7 +1071,7 @@ func (i *indices) getObjectsDigest() http.Handler {
 
 		results, err := i.shards.DigestObjects(r.Context(), index, shard, ids)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, err.Error(), unprocessableStatus(err))
 			return
 		}
 		if err != nil {
@@ -1243,7 +1243,7 @@ func (i *indices) getGetShardQueueSize() http.Handler {
 
 		size, err := i.shards.GetShardQueueSize(r.Context(), index, shard)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, err.Error(), unprocessableStatus(err))
 			return
 		}
 
@@ -1282,7 +1282,7 @@ func (i *indices) getGetShardStatus() http.Handler {
 
 		status, err := i.shards.GetShardStatus(r.Context(), index, shard)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, err.Error(), unprocessableStatus(err))
 			return
 		}
 		if err != nil {
@@ -1508,6 +1508,17 @@ func notCaughtUp(err error) bool {
 	}
 	var missing enterrors.ErrLocalIndexNotFound
 	return errors.As(err, &missing)
+}
+
+// unprocessableStatus renders an unprocessable shard operation. A class this node does not hold
+// yet is not a bad request: the sender only forwards classes the schema already has, so the local
+// index is missing because this node is behind, and 422 would cost the replica its vote - nothing
+// retries it and nothing fails over from it.
+func unprocessableStatus(err error) int {
+	if notCaughtUp(err) {
+		return http.StatusServiceUnavailable
+	}
+	return http.StatusUnprocessableEntity
 }
 
 // batchNotCaughtUp reports whether every error in a batch is this node lagging. The schema wait
