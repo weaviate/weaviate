@@ -35,7 +35,7 @@ func (m *GenerativeDigitalOceanModule) ValidateClass(ctx context.Context,
 	class *models.Class, cfg moduletools.ClassConfig,
 ) error {
 	settings := config.NewClassSettings(cfg)
-	return settings.Validate(ctx, class, m.logger)
+	return settings.Validate(ctx, class)
 }
 
 var _ = modulecapabilities.ClassConfigurator(New())

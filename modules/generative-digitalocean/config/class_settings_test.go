@@ -15,7 +15,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
@@ -105,9 +104,8 @@ func TestClassSettings(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			settings := NewClassSettings(tt.cfg)
-			logger, _ := test.NewNullLogger()
 
-			err := settings.Validate(context.Background(), &models.Class{Class: "Test"}, logger)
+			err := settings.Validate(context.Background(), &models.Class{Class: "Test"})
 			if tt.expectedErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.expectedErr)

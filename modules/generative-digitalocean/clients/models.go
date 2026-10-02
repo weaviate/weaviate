@@ -20,8 +20,7 @@ import (
 
 // init registers the default model lister with the config package so that
 // ValidateClass can call out to DigitalOcean without config depending on this
-// package. The timeout is short because the model check only warns, and it
-// also runs during backup restore.
+// package.
 func init() {
-	config.DefaultModelLister = digitalocean.NewModelLister(5 * time.Second)
+	config.DefaultModelLister = digitalocean.NewModelLister(30 * time.Second)
 }

@@ -13,11 +13,11 @@ package config
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"slices"
 
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
@@ -60,11 +60,9 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{cfg: cfg, propertyValuesHelper: basesettings.NewPropertyValuesHelper("generative-digitalocean")}
 }
 
-// Validate checks the class config. It also checks the model against the
-// endpoint's /v1/models list, but only logs a warning when the model is
-// missing or the list can't be fetched: that check depends on a remote
-// service, so it must not block collection creation or backup restore.
-func (ic *classSettings) Validate(ctx context.Context, class *models.Class, logger logrus.FieldLogger) error {
+// Validate checks the class config and, when DIGITALOCEAN_APIKEY is set,
+// checks the model against the endpoint's /v1/models list.
+func (ic *classSettings) Validate(ctx context.Context, class *models.Class) error {
 	if ic.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
@@ -97,14 +95,14 @@ func (ic *classSettings) Validate(ctx context.Context, class *models.Class, logg
 		return nil
 	}
 
-	model := ic.Model()
-	available, err := lister.ListModels(ctx, ic.BaseURL(), apiKey, ic.WeaviateUUID())
-	if err != nil {
-		logger.Warnf("collection %q: failed to list DigitalOcean models: %v", class.Class, err)
-		return nil
-	}
-	if !slices.Contains(available, model) {
-		logger.Warnf("collection %q: model %q is not available on the DigitalOcean Serverless Inference endpoint; available models: %v", class.Class, model, available)
+	if model := ic.Model(); model != "" {
+		available, err := lister.ListModels(ctx, ic.BaseURL(), apiKey, ic.WeaviateUUID())
+		if err != nil {
+			return errors.Wrap(err, "list DigitalOcean models")
+		}
+		if !slices.Contains(available, model) {
+			return fmt.Errorf("model %q is not available on the DigitalOcean Serverless Inference endpoint; available models: %v", model, available)
+		}
 	}
 	return nil
 }

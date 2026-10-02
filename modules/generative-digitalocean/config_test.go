@@ -16,8 +16,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/sirupsen/logrus"
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -29,12 +27,12 @@ import (
 
 func TestValidateClass(t *testing.T) {
 	tests := []struct {
-		name        string
-		cfg         fakeClassConfig
-		lister      *fakeModelLister
-		apiKeyEnv   string
-		expectedErr string
-		expectedLog string
+		name          string
+		cfg           fakeClassConfig
+		lister        *fakeModelLister
+		apiKeyEnv     string
+		expectedErr   string
+		wantNoListing bool
 	}{
 		{
 			name:      "model available",
@@ -43,30 +41,39 @@ func TestValidateClass(t *testing.T) {
 			apiKeyEnv: "dop_v1_test",
 		},
 		{
-			name:   "api key missing skips the model check",
-			cfg:    fakeClassConfig{"model": "retired-model"},
-			lister: &fakeModelLister{models: []string{"llama-4-maverick"}},
+			name:          "api key missing skips the model check",
+			cfg:           fakeClassConfig{"model": "retired-model"},
+			lister:        &fakeModelLister{models: []string{"llama-4-maverick"}},
+			wantNoListing: true,
 		},
 		{
-			name:        "model not available only warns",
+			name:          "empty model skips the model check",
+			cfg:           fakeClassConfig{"model": ""},
+			lister:        &fakeModelLister{models: []string{"llama-4-maverick"}},
+			apiKeyEnv:     "dop_v1_test",
+			wantNoListing: true,
+		},
+		{
+			name:        "model not available",
 			cfg:         fakeClassConfig{"model": "retired-model"},
 			lister:      &fakeModelLister{models: []string{"llama-4-maverick"}},
 			apiKeyEnv:   "dop_v1_test",
-			expectedLog: `model "retired-model" is not available`,
+			expectedErr: `model "retired-model" is not available`,
 		},
 		{
-			name:        "lister error only warns",
+			name:        "lister error",
 			cfg:         fakeClassConfig{"model": "llama-4-maverick"},
 			lister:      &fakeModelLister{err: errors.New("endpoint unreachable")},
 			apiKeyEnv:   "dop_v1_test",
-			expectedLog: "endpoint unreachable",
+			expectedErr: "list DigitalOcean models: endpoint unreachable",
 		},
 		{
-			name:        "invalid local config still fails",
-			cfg:         fakeClassConfig{"temperature": 3.0},
-			lister:      &fakeModelLister{models: []string{"llama-4-maverick"}},
-			apiKeyEnv:   "dop_v1_test",
-			expectedErr: "wrong temperature configuration",
+			name:          "invalid local config fails before the model check",
+			cfg:           fakeClassConfig{"temperature": 3.0},
+			lister:        &fakeModelLister{models: []string{"llama-4-maverick"}},
+			apiKeyEnv:     "dop_v1_test",
+			expectedErr:   "wrong temperature configuration",
+			wantNoListing: true,
 		},
 	}
 
@@ -78,29 +85,17 @@ func TestValidateClass(t *testing.T) {
 			config.DefaultModelLister = tt.lister
 			t.Cleanup(func() { config.DefaultModelLister = prev })
 
-			logger, hook := test.NewNullLogger()
-			m := &GenerativeDigitalOceanModule{logger: logger}
-
+			m := &GenerativeDigitalOceanModule{}
 			err := m.ValidateClass(context.Background(), &models.Class{Class: "Test"}, tt.cfg)
 			if tt.expectedErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.expectedErr)
-				assert.Empty(t, hook.AllEntries())
-				return
+			} else {
+				require.NoError(t, err)
 			}
-			require.NoError(t, err)
-
-			if tt.apiKeyEnv == "" {
+			if tt.wantNoListing {
 				assert.Zero(t, tt.lister.calls)
 			}
-			if tt.expectedLog == "" {
-				assert.Empty(t, hook.AllEntries())
-				return
-			}
-			require.Len(t, hook.AllEntries(), 1)
-			assert.Equal(t, logrus.WarnLevel, hook.LastEntry().Level)
-			assert.Contains(t, hook.LastEntry().Message, tt.expectedLog)
-			assert.Contains(t, hook.LastEntry().Message, `collection "Test"`)
 		})
 	}
 }
