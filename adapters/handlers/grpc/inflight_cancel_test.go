@@ -77,6 +77,7 @@ func TestInFlightCancelUnaryInterceptor(t *testing.T) {
 		wantErr              error
 		wantCutShort         int64
 		wantHandlerCancelled bool
+		wantHandlerSkipped   bool
 	}{
 		{
 			name: "cancel during the call returns Unavailable and drops the reply",
@@ -90,14 +91,14 @@ func TestInFlightCancelUnaryInterceptor(t *testing.T) {
 			wantHandlerCancelled: true,
 		},
 		{
-			name:         "call arriving after cancel returns Unavailable",
+			name:         "call arriving after cancel is refused without running its handler",
 			cancelBefore: true,
 			handler: func(ctx context.Context, _ *InFlightCancel, _ context.CancelFunc) (any, error) {
 				return waitForCancel(ctx)
 			},
-			wantCode:             codes.Unavailable,
-			wantCutShort:         1,
-			wantHandlerCancelled: true,
+			wantCode:           codes.Unavailable,
+			wantCutShort:       1,
+			wantHandlerSkipped: true,
 		},
 		{
 			name: "call finishing before cancel passes its reply through",
@@ -132,6 +133,7 @@ func TestInFlightCancelUnaryInterceptor(t *testing.T) {
 			countingCtx := &afterFuncCountingCtx{Context: shutdownCtx}
 			ic := &InFlightCancel{ctx: countingCtx, cancel: shutdownCancel}
 			handlerCancelled = false
+			handlerRan := false
 			if tc.cancelBefore {
 				ic.Cancel()
 			}
@@ -139,7 +141,10 @@ func TestInFlightCancelUnaryInterceptor(t *testing.T) {
 			callerCtx, callerCancel := context.WithCancel(context.Background())
 			t.Cleanup(callerCancel)
 			resp, err := ic.UnaryInterceptor()(callerCtx, nil, &grpc.UnaryServerInfo{},
-				func(ctx context.Context, _ any) (any, error) { return tc.handler(ctx, ic, callerCancel) })
+				func(ctx context.Context, _ any) (any, error) {
+					handlerRan = true
+					return tc.handler(ctx, ic, callerCancel)
+				})
 
 			if tc.wantCode != codes.OK {
 				require.Error(t, err)
@@ -149,6 +154,7 @@ func TestInFlightCancelUnaryInterceptor(t *testing.T) {
 			}
 			assert.Equal(t, tc.wantResp, resp)
 			assert.Equal(t, tc.wantHandlerCancelled, handlerCancelled, "handler ctx cancellation")
+			assert.Equal(t, !tc.wantHandlerSkipped, handlerRan, "handler ran")
 			assert.Equal(t, int64(0), countingCtx.live.Load(), "AfterFunc registration outlived the call")
 
 			ic.Cancel()
