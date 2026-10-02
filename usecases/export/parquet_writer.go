@@ -33,6 +33,12 @@ const (
 	defaultBatchSize = 10000 // Buffer 10k rows before writing
 )
 
+// Columns whose page headers NewParquetWriter writes without statistics, which
+// would carry each page's smallest and largest value in full. They keep their
+// column index bounds, because parquet.SkipPageBounds writes empty ones that
+// lead DataFusion to skip pages holding matching rows.
+var columnsWithoutPageStatistics = []string{"vector", "named_vectors", "multi_vectors", "properties"}
+
 // ParquetWriter writes Weaviate objects to Parquet format
 type ParquetWriter struct {
 	writer    *parquet.GenericWriter[ParquetRow]
@@ -45,11 +51,15 @@ type ParquetWriter struct {
 func NewParquetWriter(w io.Writer) (*ParquetWriter, error) {
 	schema := parquet.SchemaOf(ParquetRow{})
 
-	writer := parquet.NewGenericWriter[ParquetRow](w,
+	options := []parquet.WriterOption{
 		schema,
 		parquet.Compression(&parquet.Zstd),
-		parquet.PageBufferSize(8*1024*1024), // 8MB page buffer
-	)
+		parquet.PageBufferSize(8 * 1024 * 1024), // 8MB page buffer
+	}
+	for _, column := range columnsWithoutPageStatistics {
+		options = append(options, parquet.SkipPageStatistics(column))
+	}
+	writer := parquet.NewGenericWriter[ParquetRow](w, options...)
 
 	return &ParquetWriter{
 		writer:    writer,
