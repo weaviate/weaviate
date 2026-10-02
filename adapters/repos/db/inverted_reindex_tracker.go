@@ -36,6 +36,7 @@ type reindexTracker interface {
 
 	markProgress(lastProcessedKey indexKey, processedCount, indexedCount int) error
 	GetProgress() (indexKey, *time.Time, error)
+	getProcessedObjectCount() (int, error)
 
 	IsReindexed() bool
 	markReindexed() error
@@ -234,6 +235,14 @@ func (t *fileReindexTracker) GetProgress() (indexKey, *time.Time, error) {
 
 	t.progressCheckpoint = checkpoint + 1
 	return key, &tm, nil
+}
+
+// getProcessedObjectCount sums every persisted checkpoint's per-chunk count
+// (0 if none), giving cumulative progress across crash-resumes even though
+// each checkpoint only stores its own chunk's count.
+func (t *fileReindexTracker) getProcessedObjectCount() (int, error) {
+	total, _, err := t.GetMigratedCount()
+	return total, err
 }
 
 func (t *fileReindexTracker) parseProgressFile(filename string) (lastProcessedKey indexKey, tm time.Time, allCount int, idxCount int, err error) {
