@@ -598,11 +598,13 @@ func TestRestoreFromDisk_NodeIDBeyondDocIDCounter(t *testing.T) {
 		counterFile   bool
 		counter       uint64
 		multivector   ent.MultivectorConfig
+		hfresh        bool
 		wantTruncated bool
 	}{
 		{name: "beyond the counter and its slack", counterFile: true, counter: counter, wantTruncated: true},
 		{name: "muvera node IDs are document IDs", counterFile: true, counter: counter, multivector: muvera, wantTruncated: true},
 		{name: "multivector node IDs are not document IDs", counterFile: true, counter: counter, multivector: multivector},
+		{name: "hfresh centroid node IDs are not document IDs", counterFile: true, counter: counter, hfresh: true},
 		{name: "zero counter means no limit", counterFile: true, counter: 0},
 		{name: "no counter file means no limit"},
 	}
@@ -612,6 +614,7 @@ func TestRestoreFromDisk_NodeIDBeyondDocIDCounter(t *testing.T) {
 			cfg := createVectorHnswIndexTestConfig()
 			cfg.RootPath = t.TempDir()
 			cfg.MultiVectorForIDThunk = testMultiVectorForID
+			cfg.HFreshMode = tc.hfresh
 			if tc.counterFile {
 				writeDocIDCounterForTest(t, cfg.RootPath, tc.counter)
 			}

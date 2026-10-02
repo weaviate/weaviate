@@ -202,6 +202,7 @@ type hnsw struct {
 	store                 *lsmkv.Store
 
 	allocChecker              memwatch.AllocChecker
+	hfreshMode                bool
 	tombstoneMemCheckInterval time.Duration
 	tombstoneCleanupRunning   atomic.Bool
 
@@ -400,6 +401,7 @@ func New(cfg Config, uc ent.UserConfig,
 
 		store:                     store,
 		allocChecker:              cfg.AllocChecker,
+		hfreshMode:                cfg.HFreshMode,
 		tombstoneMemCheckInterval: 500 * time.Millisecond,
 		visitedListPoolMaxSize:    cfg.VisitedListPoolMaxSize,
 		asyncIndexingEnabled:      cfg.AsyncIndexingEnabled,

@@ -82,9 +82,9 @@ func (h *hnsw) restoreFromDisk() error {
 	loader := compact.NewLoader(compact.LoaderConfig{
 		Dir:    dir,
 		Logger: h.logger,
-		// Multivector indexes without Muvera number their nodes separately.
-		// HFresh's centroid index lives in a subdirectory without the counter.
-		NodeIDsAreDocIDs: !h.multivector.Load() || h.muvera.Load(),
+		// Multivector indexes without Muvera number their nodes separately, and
+		// HFresh's centroid index numbers them by posting ID.
+		NodeIDsAreDocIDs: !h.hfreshMode && (!h.multivector.Load() || h.muvera.Load()),
 	})
 
 	loadResult, err := loader.Load()
