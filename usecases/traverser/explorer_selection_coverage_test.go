@@ -141,7 +141,7 @@ func Test_Explorer_VectorSelectionVectorStripping(t *testing.T) {
 			NearVector:           &searchparams.NearVector{Vectors: []models.Vector{[]float32{0.1, 0.2, 0.3}}},
 			Selection:            mmrSel(3, 0),
 			AdditionalProperties: additional.Properties{Vector: requestVector},
-		})
+		}, nil)
 		require.NoError(t, err)
 		require.NotEmpty(t, res)
 		return res

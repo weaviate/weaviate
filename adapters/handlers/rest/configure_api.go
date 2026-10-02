@@ -127,6 +127,7 @@ import (
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
 	modrerankercontextualai "github.com/weaviate/weaviate/modules/reranker-contextualai"
 	modrerankerdummy "github.com/weaviate/weaviate/modules/reranker-dummy"
+	modrerankerjev "github.com/weaviate/weaviate/modules/reranker-jev"
 	modrerankerjinaai "github.com/weaviate/weaviate/modules/reranker-jinaai"
 	modrerankernvidia "github.com/weaviate/weaviate/modules/reranker-nvidia"
 	modrerankertransformers "github.com/weaviate/weaviate/modules/reranker-transformers"
@@ -2046,6 +2047,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modrerankertransformers.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modrerankerjev.Name]; ok {
+		appState.Modules.Register(modrerankerjev.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modrerankerjev.Name).
 			Debug("enabled module")
 	}
 
