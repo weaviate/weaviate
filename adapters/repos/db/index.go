@@ -4471,31 +4471,11 @@ func (i *Index) requestCycleStops() []cycleStop {
 func waitForCycleStops(ctx context.Context, usecase string, stops []cycleStop) error {
 	var errs []error
 	for _, stop := range stops {
-		if err := waitForCycleStop(ctx, stop.result); err != nil {
+		if err := cyclemanager.WaitForStop(ctx, stop.result); err != nil {
 			errs = append(errs, fmt.Errorf("%s: stop %s cycle: %w", usecase, stop.name, err))
 		}
 	}
 	return stderrors.Join(errs...)
-}
-
-// waitForCycleStop waits for a stop result, preferring it over an expired ctx when
-// both are ready, so a cycle that did stop is not reported as a failure.
-func waitForCycleStop(ctx context.Context, stopResult chan bool) error {
-	var stopped bool
-	select {
-	case stopped = <-stopResult:
-	case <-ctx.Done():
-		// select picks randomly when both are ready, so the result is checked again
-		select {
-		case stopped = <-stopResult:
-		default:
-			return ctx.Err()
-		}
-	}
-	if !stopped {
-		return stderrors.New("cycle kept running")
-	}
-	return nil
 }
 
 func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[string]int64, error) {
