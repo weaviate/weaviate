@@ -12,6 +12,7 @@
 package rest
 
 import (
+	"context"
 	"errors"
 
 	middleware "github.com/go-openapi/runtime/middleware"
@@ -279,6 +280,8 @@ func newBatchRequestsTotal(metrics *monitoring.PrometheusMetrics, logger logrus.
 
 func (e *batchRequestsTotal) logError(className string, err error) {
 	switch {
+	case errors.Is(err, context.Canceled):
+		e.logUserError(className)
 	case errors.As(err, &errReplication{}):
 		e.logUserError(className)
 	case errors.As(err, &autherrs.Forbidden{}), errors.As(err, &objects.ErrInvalidUserInput{}):
