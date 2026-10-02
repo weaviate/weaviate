@@ -1249,9 +1249,7 @@ func TestAsyncNotReadyErrorStatusMapping(t *testing.T) {
 	}
 }
 
-// A 503 says the peer cannot serve yet, which outlasts any backoff: the caller must fail over
-// rather than climb the ladder against the same node. SearchShard asks with MAX_RETRIES, so
-// retrying a catching-up replica costs about 7.5s per shard.
+// A 503 outlasts the ladder, so the caller must fail over rather than retry the same node.
 func TestShouldRetryByStatus(t *testing.T) {
 	t.Parallel()
 
