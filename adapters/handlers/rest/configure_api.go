@@ -1570,11 +1570,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	setupMiddlewares := makeSetupMiddlewares(appState)
-	// Time to ready is measured against the readiness probe's own predicate,
-	// polled from here because nothing else asks it outside the probe. The API
-	// server starts listening as soon as configureAPI returns, so the first
-	// true answer is within a poll interval of the first 200 from
-	// /v1/.well-known/ready.
+	// Time to ready is measured against the readiness endpoint's own check,
+	// polled from here because nothing else asks it. The API server starts
+	// listening as soon as configureAPI returns, so the first true answer is
+	// within a poll interval of the first 200 from /v1/.well-known/ready.
 	enterrors.GoWrapper(func() {
 		monitoring.GetStartupMetrics().TrackReady(serverShutdownCtx,
 			func() bool { return nodeReady(appState) }, readyPollInterval)

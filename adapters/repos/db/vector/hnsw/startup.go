@@ -567,8 +567,7 @@ func (h *hnsw) resetTombstoneMetric() {
 	}
 }
 
-// errPrefillIncomplete is the prefill outcome until the prefill has actually
-// run to its end, so a panic on the way records no duration.
+// errPrefillIncomplete is the prefill outcome until the prefill ran to its end.
 var errPrefillIncomplete = errors.New("prefill did not complete")
 
 // PostStartup triggers routines that should happen after startup. The startup
@@ -608,10 +607,7 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 			mode = monitoring.PrefillModeSync
 		}
 		prefillDone := monitoring.GetStartupMetrics().PrefillStarted(monitoring.VectorIndexTypeHNSW, mode)
-		// Reported through a deferred call with a failure default: a prefill
-		// that panics is recovered by the goroutine wrapper (or by the shard's
-		// recover in sync mode) and must release the active gauge without
-		// recording a duration.
+		// failure default: a recovered panic must not record a duration
 		prefillErr := errPrefillIncomplete
 		defer func() { prefillDone(prefillErr) }()
 
@@ -641,9 +637,8 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		if err != nil {
 			h.logger.Errorf("prefill vector cache: %v", err)
 		}
-		// The compressed paths report nothing when cut short, so the context
-		// stands in for their error: a prefill aborted by shutdown must not
-		// record a misleadingly short duration.
+		// the compressed prefill paths return nothing when cut short, so the
+		// context stands in for their error
 		if err == nil {
 			err = ctx.Err()
 		}

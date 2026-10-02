@@ -298,12 +298,11 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 	})
 }
 
-// nodeReady is the predicate behind /v1/.well-known/ready. The startup
-// metrics poll it too, so "time to ready" is the first moment the probe would
+// nodeReady is the check behind /v1/.well-known/ready. The startup metrics
+// poll it too, so "time to ready" means the first moment that endpoint would
 // have answered 200 rather than a narrower, internal notion of readiness.
 func nodeReady(state *state.State) bool {
-	// in maintenance mode the node is live but not ready, so kubernetes keeps
-	// the pod running without sending traffic to it
+	// in maintenance mode the node is live but not ready
 	if state.Cluster.MaintenanceModeEnabledForLocalhost() {
 		return false
 	}
@@ -319,8 +318,7 @@ func nodeReady(state *state.State) bool {
 }
 
 // readyPollInterval is how often the startup metrics ask nodeReady until it
-// first answers true. The predicate can reach out to module sidecars through
-// GetMeta, so it is polled no faster than a readiness probe would.
+// first answers true: once a second, since GetMeta may call module sidecars.
 const readyPollInterval = time.Second
 
 // addSearchBodyLimit caps search and aggregate request bodies: an announced

@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package metricstest
+package testinghelpers
 
 import (
 	"testing"
