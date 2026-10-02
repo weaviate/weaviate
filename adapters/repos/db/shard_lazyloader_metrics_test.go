@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
@@ -34,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/monitoring/testinghelpers"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -53,6 +55,19 @@ type shardMetricsHarness struct {
 	migrator     *Migrator
 	metrics      *monitoring.PrometheusMetrics
 	schemaGetter *fakeSchemaGetter
+	shardState   *sharding.State
+	// closed records an explicit shutdown so the cleanup does not shut the
+	// repo down a second time: a second Shutdown waits 30s per batch worker
+	// for poison pills nothing receives.
+	closed bool
+}
+
+// shutdown closes the repo now, e.g. so a test can reopen its files.
+func (h *shardMetricsHarness) shutdown(t *testing.T) {
+	t.Helper()
+	require.False(t, h.closed, "the repo is already shut down")
+	h.closed = true
+	require.NoError(t, h.repo.Shutdown(context.Background()))
 }
 
 func newShardMetricsHarness(t *testing.T) *shardMetricsHarness {
@@ -60,7 +75,36 @@ func newShardMetricsHarness(t *testing.T) *shardMetricsHarness {
 }
 
 func newShardMetricsHarnessWithLazyLoading(t *testing.T, lazyLoading bool) *shardMetricsHarness {
+	return newShardMetricsHarnessOpts(t, shardMetricsHarnessOptions{lazyLoading: lazyLoading})
+}
+
+// shardMetricsHarnessOptions configure newShardMetricsHarnessOpts. The zero
+// value is an eager repo over a fresh temp dir with an empty schema.
+type shardMetricsHarnessOptions struct {
+	lazyLoading bool
+	// rootPath lets a test reopen a repo over the files an earlier one wrote.
+	rootPath string
+	// classes are in the schema before the repo starts, so db.init opens
+	// them the way a restart does.
+	classes []*models.Class
+	// shardState fixes the shard names. A reopen must reuse the state the
+	// files were written under: singleShardState draws a fresh name each
+	// time, and a new name is a new shard, not a load of the old one.
+	shardState *sharding.State
+	// warmupMinObjects is LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS for the classes
+	// db.init opens; a negative value turns the background warmup sweep off,
+	// so nothing loads a lazy shard behind the test's back.
+	warmupMinObjects int64
+}
+
+func newShardMetricsHarnessOpts(t *testing.T, opts shardMetricsHarnessOptions) *shardMetricsHarness {
 	t.Helper()
+	if opts.rootPath == "" {
+		opts.rootPath = t.TempDir()
+	}
+	if opts.shardState == nil {
+		opts.shardState = singleShardState()
+	}
 	logger, _ := test.NewNullLogger()
 
 	baseMetrics := monitoring.GetMetrics()
@@ -76,9 +120,9 @@ func newShardMetricsHarnessWithLazyLoading(t *testing.T, lazyLoading bool) *shar
 		metrics.Shards.WithLabelValues(labels...).Set(0)
 	}
 
-	shardState := singleShardState()
+	shardState := opts.shardState
 	schemaGetter := &fakeSchemaGetter{
-		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		schema:     schema.Schema{Objects: &models.Schema{Classes: opts.classes}},
 		shardState: shardState,
 	}
 	mockSchemaReader := local.NewMockSchemaReader(t)
@@ -99,11 +143,12 @@ func newShardMetricsHarnessWithLazyLoading(t *testing.T, lazyLoading bool) *shar
 	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
 
 	repo, err := New(logger, "node1", Config{
-		RootPath:                  t.TempDir(),
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-		TrackVectorDimensions:     true,
-		EnableLazyLoadShards:      boolPtr(lazyLoading),
+		RootPath:                      opts.rootPath,
+		QueryMaximumResults:           10000,
+		MaxImportGoroutinesFactor:     1,
+		TrackVectorDimensions:         true,
+		EnableLazyLoadShards:          boolPtr(opts.lazyLoading),
+		LazyLoadShardWarmupMinObjects: opts.warmupMinObjects,
 	},
 		&FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{},
 		&FakeReplicationClient{}, metrics, memwatch.NewDummyMonitor(),
@@ -113,33 +158,52 @@ func newShardMetricsHarnessWithLazyLoading(t *testing.T, lazyLoading bool) *shar
 
 	repo.SetSchemaGetter(schemaGetter)
 	require.NoError(t, repo.WaitForStartup(testCtx()))
-	t.Cleanup(func() { repo.Shutdown(context.Background()) })
 
-	return &shardMetricsHarness{
+	h := &shardMetricsHarness{
 		repo:         repo,
 		migrator:     NewMigrator(repo, logger, "node1"),
 		metrics:      metrics,
 		schemaGetter: schemaGetter,
+		shardState:   shardState,
+	}
+	t.Cleanup(func() {
+		if !h.closed {
+			repo.Shutdown(context.Background())
+		}
+	})
+
+	return h
+}
+
+// shardMetricsClass is the collection the harness tests work with: one HNSW
+// shard, no multi-tenancy.
+func shardMetricsClass(className string) *models.Class {
+	return &models.Class{
+		Class:               className,
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		ReplicationConfig:   &models.ReplicationConfig{Factor: 1},
 	}
 }
 
 // addClass registers className and returns the name of its only shard, left unloaded.
 func (h *shardMetricsHarness) addClass(t *testing.T, className string) string {
 	t.Helper()
-	class := &models.Class{
-		Class:               className,
-		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: invertedConfig(),
-	}
+	class := shardMetricsClass(className)
 	require.NoError(t, h.migrator.AddClass(context.Background(), class))
 	h.schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
+	return h.shardOf(t, className)
+}
 
+// shardOf returns the name of className's only shard.
+func (h *shardMetricsHarness) shardOf(t *testing.T, className string) string {
+	t.Helper()
 	var shardName string
 	h.repo.GetIndex(schema.ClassName(className)).shards.Range(func(name string, _ ShardLike) error {
 		shardName = name
 		return nil
 	})
-	require.NotEmpty(t, shardName, "the new class should have registered a shard")
+	require.NotEmpty(t, shardName, "the class should have registered a shard")
 	return shardName
 }
 
@@ -748,4 +812,129 @@ func TestLazyLoadShardMetricsLifecycle(t *testing.T) {
 		unloadingCount := testutil.ToFloat64(metrics.ShardsUnloading)
 		require.Equal(t, float64(0), unloadingCount, "no shards should be unloading")
 	})
+}
+
+// TestShardLoadDurationObservedForExistingShards pins what
+// weaviate_shard_load_duration_seconds counts: opening a shard that already
+// has files on disk, under the registration its collection uses. Creating a
+// shard is not a load, so creation churn cannot skew the distribution. The
+// series lives on the default registry shared by every test, hence the deltas.
+func TestShardLoadDurationObservedForExistingShards(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name         string
+		lazyLoading  bool
+		registration monitoring.ShardRegistration
+	}{
+		{
+			name:         "an eager collection loads its shard when the class is added",
+			lazyLoading:  false,
+			registration: monitoring.ShardRegistrationEager,
+		},
+		{
+			name:         "a lazy collection loads its shard on first access",
+			lazyLoading:  true,
+			registration: monitoring.ShardRegistrationLazy,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			className := "TestShardLoadDuration" + string(tt.registration)
+			rootPath := t.TempDir()
+			count := func() uint64 {
+				n, err := testinghelpers.SampleCount(prometheus.DefaultGatherer,
+					"weaviate_shard_load_duration_seconds",
+					prometheus.Labels{"registration": string(tt.registration)})
+				require.NoError(t, err)
+				return n
+			}
+
+			h := newShardMetricsHarnessOpts(t, shardMetricsHarnessOptions{lazyLoading: tt.lazyLoading, rootPath: rootPath})
+			before := count()
+			shardName := h.addClass(t, className)
+			if lazyShard, ok := h.repo.GetIndex(schema.ClassName(className)).shards.Load(shardName).(*LazyLoadShard); ok {
+				_, _, err := lazyShard.loadIfCold(ctx)
+				require.NoError(t, err)
+			}
+			require.Equal(t, before, count(), "creating a shard is not a load")
+
+			// Leave data behind so the reopen has a shard worth loading.
+			obj := &models.Object{Class: className, ID: strfmt.UUID(uuid.New().String())}
+			require.NoError(t, h.repo.PutObject(ctx, obj, []float32{1, 2, 3, 4}, nil, nil, nil, 0))
+			h.shutdown(t)
+
+			// The reopened repo finds the class in its schema, so db.init opens
+			// the index the way a restart does.
+			reopened := newShardMetricsHarnessOpts(t, shardMetricsHarnessOptions{
+				lazyLoading: tt.lazyLoading,
+				rootPath:    rootPath,
+				classes:     []*models.Class{shardMetricsClass(className)},
+				shardState:  h.shardState,
+			})
+			shardName = reopened.shardOf(t, className)
+			if tt.lazyLoading {
+				require.Equal(t, before, count(), "registering a lazy shard does not load it")
+				lazyShard, ok := reopened.repo.GetIndex(schema.ClassName(className)).shards.Load(shardName).(*LazyLoadShard)
+				require.True(t, ok)
+				_, _, err := lazyShard.loadIfCold(ctx)
+				require.NoError(t, err)
+			}
+
+			require.Equal(t, before+1, count(),
+				"opening the existing shard is observed once under its registration")
+		})
+	}
+}
+
+// panickingReindexer panics at the end of NewShard, after the shard's files
+// are open, so the load fails through the recover path rather than the error
+// path.
+type panickingReindexer struct{}
+
+func (panickingReindexer) RunAfterLsmInit(context.Context, *Shard) error {
+	panic("shard load panic injected by the test")
+}
+
+// TestShardLoadNotObservedWhenLoadPanics pins the other half of "failed loads
+// are not observed": a load that ends in a recovered panic surfaces as an
+// error and must not count as a completed load either.
+func TestShardLoadNotObservedWhenLoadPanics(t *testing.T) {
+	ctx := context.Background()
+	const className = "TestShardLoadPanic"
+	count := func() uint64 {
+		n, err := testinghelpers.SampleCount(prometheus.DefaultGatherer,
+			"weaviate_shard_load_duration_seconds",
+			prometheus.Labels{"registration": string(monitoring.ShardRegistrationLazy)})
+		require.NoError(t, err)
+		return n
+	}
+
+	// The class is in the schema from the start and the warmup sweep is off:
+	// a sweep would reload the shard the test shuts down below, on a slow
+	// runner within the test's own window, and count a legitimate load.
+	h := newShardMetricsHarnessOpts(t, shardMetricsHarnessOptions{
+		lazyLoading:      true,
+		classes:          []*models.Class{shardMetricsClass(className)},
+		warmupMinObjects: -1,
+	})
+	shardName := h.shardOf(t, className)
+	index := h.repo.GetIndex(schema.ClassName(className))
+	lazyShard, ok := index.shards.Load(shardName).(*LazyLoadShard)
+	require.True(t, ok)
+	_, _, err := lazyShard.loadIfCold(ctx)
+	require.NoError(t, err)
+	obj := &models.Object{Class: className, ID: strfmt.UUID(uuid.New().String())}
+	require.NoError(t, h.repo.PutObject(ctx, obj, []float32{1, 2, 3, 4}, nil, nil, nil, 0))
+	// Leave the files on disk with nothing open, so a direct NewShard is a load.
+	require.NoError(t, lazyShard.Shutdown(ctx))
+
+	before := count()
+	shard, err := NewShard(ctx, h.metrics, shardName, index, shardMetricsClass(className),
+		index.centralJobQueue, index.scheduler, &panickingReindexer{},
+		false, index.bitmapBufPool, monitoring.ShardRegistrationLazy)
+
+	require.Error(t, err, "a panic during the load surfaces as an error")
+	require.Nil(t, shard)
+	require.Equal(t, before, count(), "a load that panicked is not a completed load")
 }

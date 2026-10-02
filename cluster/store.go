@@ -1296,6 +1296,7 @@ func (st *Store) openDatabase(ctx context.Context) {
 func (st *Store) reloadDBFromSchema() {
 	if !st.cfg.MetadataOnlyVoters {
 		func() {
+			defer monitoring.GetStartupMetrics().PhaseStarted(monitoring.StartupPhaseDBReload)()
 			stop := st.trackDBLoadProgress()
 			defer stop()
 			ctx := context.Background()

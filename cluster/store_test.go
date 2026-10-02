@@ -41,6 +41,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/monitoring/testinghelpers"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -1525,6 +1527,11 @@ func TestStoreReloadDBFromSchemaReportsProgressDuringReload(t *testing.T) {
 		return &db.StartupProgressSnapshot{Loaded: 3, Total: 10}
 	}
 
+	// The db_reload phase gauge lives on the default registry shared by every
+	// parallel test, so only what this reload guarantees is asserted: a
+	// duration once it is done.
+	dbReloadPhase := prometheus.Labels{"phase": string(monitoring.StartupPhaseDBReload)}
+
 	st := ms.Store(func(m *MockStore) {
 		// TriggerSchemaUpdateCallbacks runs inside the reload. Holding it open
 		// until the tracker has logged proves the sampling happens while the
@@ -1547,6 +1554,10 @@ func TestStoreReloadDBFromSchemaReportsProgressDuringReload(t *testing.T) {
 			assert.Equal(t, "30%", e.Data["progress"])
 		}
 	}
+
+	duration, err := testinghelpers.GaugeValue(prometheus.DefaultGatherer, "weaviate_startup_phase_duration_seconds", dbReloadPhase)
+	require.NoError(t, err)
+	require.Greater(t, duration, float64(0), "the db_reload phase publishes its duration once the reload ends")
 }
 
 type MockStore struct {

@@ -17,7 +17,9 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -26,8 +28,9 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// TestStartupProgressLogsShardLoading restarts a node that owns several shards
-// and asserts the shard-loading progress reaches the logs.
+// TestStartupProgressLogsShardLoading restarts a node that owns several
+// tenant shards and asserts the shard-loading progress reaches the logs and
+// the startup metrics reach /metrics.
 //
 // Only the final "local DB loaded from schema" line is asserted. It is emitted
 // whenever the reload runs, with counts freshly scanned from the restored
@@ -38,8 +41,13 @@ func TestStartupProgressLogsShardLoading(t *testing.T) {
 	ctx := context.Background()
 
 	const (
-		classCount     = 3
-		shardsPerClass = 2
+		classCount = 3
+		// A tenant is a shard whose contents the test controls, so every shard
+		// deterministically holds vector state to restore after the restart.
+		// Objects in a non-tenant collection spread over its shards by UUID
+		// hash, which a test cannot steer.
+		tenantsPerClass  = 2
+		objectsPerTenant = 20
 	)
 
 	compose, err := docker.New().
@@ -47,6 +55,8 @@ func TestStartupProgressLogsShardLoading(t *testing.T) {
 		// Lazy-loaded shards are discounted from the progress totals; force
 		// eager loading so every shard counts.
 		WithWeaviateEnv("DISABLE_LAZY_LOAD_SHARDS", "true").
+		// The startup metrics are read off /metrics after the restart.
+		WithWeaviateEnv("PROMETHEUS_MONITORING_ENABLED", "true").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -56,18 +66,41 @@ func TestStartupProgressLogsShardLoading(t *testing.T) {
 	helper.SetupClient(compose.GetWeaviate().URI())
 
 	for i := 0; i < classCount; i++ {
+		className := fmt.Sprintf("StartupProgress%d", i)
 		helper.CreateClass(t, &models.Class{
-			Class: fmt.Sprintf("StartupProgress%d", i),
+			Class:      className,
+			Vectorizer: "none",
 			Properties: []*models.Property{
 				{Name: "name", DataType: []string{"text"}},
 			},
-			ShardingConfig: map[string]interface{}{"desiredCount": shardsPerClass},
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 		})
+
+		tenants := make([]*models.Tenant, tenantsPerClass)
+		for j := range tenants {
+			tenants[j] = &models.Tenant{Name: fmt.Sprintf("tenant%d", j)}
+		}
+		helper.CreateTenants(t, className, tenants)
+
+		for j, tenant := range tenants {
+			objects := make([]*models.Object, objectsPerTenant)
+			for k := range objects {
+				objects[k] = &models.Object{
+					Class:      className,
+					Tenant:     tenant.Name,
+					Properties: map[string]interface{}{"name": fmt.Sprintf("object %d", k)},
+					Vector:     []float32{float32(k), float32(j), 1},
+				}
+			}
+			helper.CreateObjectsBatch(t, objects)
+		}
 	}
 
 	// The first boot of an empty node never reloads the DB, so everything
 	// asserted below can only come from this restart.
 	require.NoError(t, compose.RestartAt(ctx, 0, nil))
+
+	assertStartupMetrics(t, ctx, compose, classCount*tenantsPerClass)
 
 	reader, err := compose.GetWeaviate().Container().Logs(ctx)
 	require.NoError(t, err)
@@ -79,7 +112,7 @@ func TestStartupProgressLogsShardLoading(t *testing.T) {
 	require.Contains(t, logs, "local DB loaded from schema",
 		"the reload's progress tracker must report the load")
 
-	total := classCount * shardsPerClass
+	total := classCount * tenantsPerClass
 	assert.True(t,
 		strings.Contains(logs, fmt.Sprintf("shards_total=%d", total)) ||
 			strings.Contains(logs, fmt.Sprintf(`"shards_total":%d`, total)),
@@ -96,4 +129,63 @@ func tail(logs string, n int) string {
 		lines = lines[len(lines)-n:]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// assertStartupMetrics pins what a restart exposes on /metrics: the node
+// reports when it became ready, every boot phase has run and finished, and
+// each eager shard was loaded, restored and prefilled exactly once.
+func assertStartupMetrics(t *testing.T, ctx context.Context, compose *docker.DockerCompose, shards int) {
+	t.Helper()
+	container := compose.GetWeaviate().Container()
+	phases := []string{"modules_init", "cluster_open", "raft_open", "raft_bootstrap", "db_reload"}
+
+	// The readiness tracker polls the readiness predicate once a second, so the
+	// ready gauges can trail the restart by a poll interval, and cluster_open
+	// publishes its duration just after readiness is reached.
+	var families map[string]*dto.MetricFamily
+	var lastScrapeErr error
+	ready := assert.Eventually(t, func() bool {
+		families, lastScrapeErr = helper.ScrapeMetrics(ctx, container)
+		if lastScrapeErr != nil {
+			return false
+		}
+		ready, ok := helper.FindMetric(families, "weaviate_startup_duration_seconds", nil)
+		if !ok || ready.GetGauge().GetValue() <= 0 {
+			return false
+		}
+		for _, phase := range phases {
+			duration, ok := helper.FindMetric(families, "weaviate_startup_phase_duration_seconds", map[string]string{"phase": phase})
+			if !ok || duration.GetGauge().GetValue() <= 0 {
+				return false
+			}
+		}
+		return true
+	}, 30*time.Second, 500*time.Millisecond)
+	if !ready {
+		t.Fatalf("the node must report ready with every startup phase finished; last scrape error: %v", lastScrapeErr)
+	}
+
+	gauge := func(name string, labels map[string]string) float64 {
+		m, ok := helper.FindMetric(families, name, labels)
+		require.True(t, ok, "missing %s%v", name, labels)
+		return m.GetGauge().GetValue()
+	}
+	sampleCount := func(name string, labels map[string]string) uint64 {
+		m, ok := helper.FindMetric(families, name, labels)
+		require.True(t, ok, "missing %s%v", name, labels)
+		return m.GetSummary().GetSampleCount()
+	}
+
+	assert.Greater(t, gauge("weaviate_startup_ready_timestamp_seconds", nil), float64(0))
+
+	want := uint64(shards)
+	assert.Equal(t, want, sampleCount("weaviate_shard_load_duration_seconds", map[string]string{"registration": "eager"}),
+		"every shard is loaded eagerly on this restart")
+	assert.Zero(t, sampleCount("weaviate_shard_load_duration_seconds", map[string]string{"registration": "lazy"}))
+	assert.Equal(t, want, sampleCount("weaviate_vector_index_restore_duration_seconds", map[string]string{"index_type": "hnsw"}),
+		"every shard's HNSW index had commit-log state to restore")
+	hnswSync := map[string]string{"index_type": "hnsw", "mode": "sync"}
+	assert.Equal(t, want, sampleCount("weaviate_vector_cache_prefill_duration_seconds", hnswSync),
+		"eager collections prefill their vector cache inside the shard load")
+	assert.Zero(t, gauge("weaviate_vector_cache_prefill_active", hnswSync))
 }

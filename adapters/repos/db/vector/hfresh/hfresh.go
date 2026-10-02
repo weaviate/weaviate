@@ -34,6 +34,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 const (
@@ -424,11 +425,23 @@ func (h *HFresh) PostStartup(ctx context.Context) {
 	h.Centroids.hnsw.PostStartup(ctx)
 }
 
+// warmup outcomes that are not reported as a completed prefill
+var (
+	errWarmupIncomplete = stderrors.New("version map warmup did not complete")
+	errNothingToWarm    = stderrors.New("version map warmup found nothing to warm")
+)
+
 func (h *HFresh) warmVersionMap() {
 	before := time.Now()
+	prefillDone := monitoring.GetStartupMetrics().PrefillStarted(monitoring.VectorIndexTypeHFresh, monitoring.PrefillModeAsync)
+	// failure default: a recovered panic must not record a duration
+	warmupErr := errWarmupIncomplete
+	defer func() { prefillDone(warmupErr) }()
+
 	count, err := h.VersionMap.Warmup(h.ctx)
 	if err != nil {
 		h.logger.Warnf("version map warmup interrupted after %d entries: %v", count, err)
+		warmupErr = err
 		return
 	}
 
@@ -439,6 +452,7 @@ func (h *HFresh) warmVersionMap() {
 	for postingID, metadata := range h.PostingMap.Iter() {
 		if h.ctx.Err() != nil {
 			h.logger.Warnf("version map warmup interrupted after %d entries: %v", count+defaults, h.ctx.Err())
+			warmupErr = h.ctx.Err()
 			return
 		}
 
@@ -456,6 +470,11 @@ func (h *HFresh) warmVersionMap() {
 		}()
 	}
 
+	// an empty tenant warms nothing and is not a prefill
+	warmupErr = nil
+	if count+defaults == 0 {
+		warmupErr = errNothingToWarm
+	}
 	h.logger.WithFields(logrus.Fields{
 		"action":   "hfresh_version_map_warmup",
 		"count":    count,

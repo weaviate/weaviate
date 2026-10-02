@@ -211,33 +211,19 @@ func (c *Service) onFSMCaughtUp(ctx context.Context) {
 	}
 }
 
-// Open internal RPC service to handle node communication,
-// bootstrap the Raft node, and restore the database state
-func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
-	c.logger.WithField("servers", c.config.NodeNameToPortMap).Info("open cluster service")
-	if err := c.rpcServer.Open(); err != nil {
-		return fmt.Errorf("start rpc service: %w", err)
-	}
+// joinOrBootstrap makes this node part of a raft cluster. With existing raft
+// state it re-joins the nodes in the raft join list so the configuration
+// carries its current address; without state it runs the bootstrap procedure,
+// joining a cluster or notifying peers that it is ready to form one. Both are
+// bounded by RAFT_BOOTSTRAP_TIMEOUT.
+func (c *Service) joinOrBootstrap(ctx context.Context, hasState bool) error {
+	defer monitoring.GetStartupMetrics().PhaseStarted(monitoring.StartupPhaseRaftBootstrap)()
 
-	if err := c.Raft.Open(ctx, db); err != nil {
-		return fmt.Errorf("open raft store: %w", err)
-	}
-
-	hasState, err := raft.HasExistingState(c.Raft.store.logCache, c.Raft.store.logStore, c.Raft.store.snapshotStore)
-	if err != nil {
-		return err
-	}
-	c.log.WithField("hasState", hasState).Info("raft init")
-
-	// If we have a state in raft, we only want to re-join the nodes in raft_join list to ensure that we update the
-	// configuration with our current ip.
-	// If we have no state, we want to do the bootstrap procedure where we will try to join a cluster or notify other
-	// peers that we are ready to form a new cluster.
 	bootstrapCtx, bCancel := context.WithTimeout(ctx, c.config.BootstrapTimeout)
 	defer bCancel()
 	if hasState {
 		joiner := bootstrap.NewJoiner(c.rpcClient, c.config.NodeID, c.raftAddr, c.config.Voter)
-		err = backoff.Retry(func() error {
+		err := backoff.Retry(func() error {
 			joinNodes := bootstrap.ResolveRemoteNodes(c.config.NodeSelector, c.config.NodeNameToPortMap)
 			// Node has existing state, not a wiped joiner; barrier discarded.
 			_, _, err := joiner.Do(bootstrapCtx, c.logger, joinNodes)
@@ -246,26 +232,60 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		if err != nil {
 			return fmt.Errorf("could not join raft join list: %w. Weaviate detected this node to have state stored. If the DB is still loading up we will hit this timeout. You can try increasing/setting RAFT_BOOTSTRAP_TIMEOUT env variable to a higher value", err)
 		}
-	} else {
-		bs := bootstrap.NewBootstrapper(
-			c.rpcClient,
-			c.config.NodeID,
-			c.raftAddr,
-			c.config.Voter,
-			c.config.NodeSelector,
-			c.Raft.Ready,
-			// wiped-joiner catch-up barrier; no-op for non-wiped nodes.
-			c.Raft.store.SetJoinBarrier,
-			// a wiped joiner is "ready" pre-join; keep joining until the barrier lands.
-			c.Raft.store.NeedsJoinBarrier,
-		)
-		if err := bs.Do(
-			bootstrapCtx,
-			c.config.NodeNameToPortMap,
-			c.logger,
-			c.closeBootstrapper); err != nil {
-			return fmt.Errorf("bootstrap: %w", err)
+		return nil
+	}
+
+	bs := bootstrap.NewBootstrapper(
+		c.rpcClient,
+		c.config.NodeID,
+		c.raftAddr,
+		c.config.Voter,
+		c.config.NodeSelector,
+		c.Raft.Ready,
+		// wiped-joiner catch-up barrier; no-op for non-wiped nodes.
+		c.Raft.store.SetJoinBarrier,
+		// a wiped joiner is "ready" pre-join; keep joining until the barrier lands.
+		c.Raft.store.NeedsJoinBarrier,
+	)
+	if err := bs.Do(
+		bootstrapCtx,
+		c.config.NodeNameToPortMap,
+		c.logger,
+		c.closeBootstrapper); err != nil {
+		return fmt.Errorf("bootstrap: %w", err)
+	}
+	return nil
+}
+
+// Open internal RPC service to handle node communication,
+// bootstrap the Raft node, and restore the database state
+func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
+	startupMetrics := monitoring.GetStartupMetrics()
+	defer startupMetrics.PhaseStarted(monitoring.StartupPhaseClusterOpen)()
+
+	c.logger.WithField("servers", c.config.NodeNameToPortMap).Info("open cluster service")
+	if err := c.rpcServer.Open(); err != nil {
+		return fmt.Errorf("start rpc service: %w", err)
+	}
+
+	if err := func() error {
+		defer startupMetrics.PhaseStarted(monitoring.StartupPhaseRaftOpen)()
+		if err := c.Raft.Open(ctx, db); err != nil {
+			return fmt.Errorf("open raft store: %w", err)
 		}
+		return nil
+	}(); err != nil {
+		return err
+	}
+
+	hasState, err := raft.HasExistingState(c.Raft.store.logCache, c.Raft.store.logStore, c.Raft.store.snapshotStore)
+	if err != nil {
+		return err
+	}
+	c.log.WithField("hasState", hasState).Info("raft init")
+
+	if err := c.joinOrBootstrap(ctx, hasState); err != nil {
+		return err
 	}
 
 	if err := c.WaitUntilDBRestored(ctx, 1*time.Second, c.closeWaitForDB); err != nil {
