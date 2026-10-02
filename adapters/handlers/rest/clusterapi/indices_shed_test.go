@@ -14,19 +14,24 @@ package clusterapi
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	clusterTypes "github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -135,4 +140,120 @@ func serveShardAggregate(t *testing.T, aggErr error) *httptest.ResponseRecorder 
 	rec := httptest.NewRecorder()
 	idx.Indices().ServeHTTP(rec, req)
 	return rec
+}
+
+// A node behind on schema must read as unavailable: 500 is retryable, so the caller spends the
+// ladder on a node that already said no.
+func TestOperationStatus(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{
+			name: "the sender asked for a version this node has not applied",
+			err:  fmt.Errorf("wait for schema version 55: %w", clusterTypes.ErrDeadlineExceeded),
+			want: http.StatusServiceUnavailable,
+		},
+		{
+			name: "wrapped per shard, as Index does",
+			err:  fmt.Errorf("shard %q: wait for schema version 55: %w", "S1", clusterTypes.ErrDeadlineExceeded),
+			want: http.StatusServiceUnavailable,
+		},
+		{
+			name: "the same text without the cause is not classified",
+			err:  errors.New("shard \"S1\": wait for schema version 55: deadline exceeded"),
+			want: http.StatusInternalServerError,
+		},
+		{
+			name: "the sentinel on its own",
+			err:  fmt.Errorf("something: %w", clusterTypes.ErrDeadlineExceeded),
+			want: http.StatusServiceUnavailable,
+		},
+		{
+			name: "a class this node does not have yet",
+			err:  enterrors.ErrLocalIndexNotFound{Index: "Product_v2"},
+			want: http.StatusServiceUnavailable,
+		},
+		{
+			name: "reached through the unprocessable wrapper the shards layer adds",
+			err:  enterrors.NewErrUnprocessable(enterrors.ErrLocalIndexNotFound{Index: "Product_v2"}),
+			want: http.StatusServiceUnavailable,
+		},
+		{
+			name: "a real failure stays an internal error",
+			err:  errors.New("write to disk: no space left on device"),
+			want: http.StatusInternalServerError,
+		},
+		{name: "no error", err: nil, want: http.StatusInternalServerError},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.want, operationStatus(test.err))
+		})
+	}
+}
+
+// A batch blocked entirely by the wait answers unavailable, not a per-object list reading as
+// partial success.
+func TestWroteNotCaughtUp(t *testing.T) {
+	lagging := fmt.Errorf("wait for schema version 55: %w", clusterTypes.ErrDeadlineExceeded)
+
+	tests := []struct {
+		name     string
+		errs     []error
+		wantCode int
+	}{
+		{name: "no errors", errs: []error{nil, nil}},
+		{name: "every object blocked by the wait", errs: []error{lagging, lagging}, wantCode: http.StatusServiceUnavailable},
+		{name: "the wait plus a real failure stays per object", errs: []error{lagging, errors.New("disk full")}},
+		{name: "a partial success stays per object", errs: []error{nil, errors.New("invalid vector")}},
+		{name: "blocked with gaps", errs: []error{nil, lagging, nil}, wantCode: http.StatusServiceUnavailable},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			wrote := wroteNotCaughtUp(rec, test.errs)
+
+			if test.wantCode == 0 {
+				assert.False(t, wrote, "the caller must get its per-object error list")
+				return
+			}
+			assert.True(t, wrote)
+			assert.Equal(t, test.wantCode, rec.Code)
+		})
+	}
+}
+
+// A read for a class this node does not hold yet says unavailable: a 422 loses the replica's vote.
+func TestUnprocessableStatus(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{
+			name: "a class this node has not applied yet",
+			err:  enterrors.NewErrUnprocessable(enterrors.ErrLocalIndexNotFound{Index: "Product_v2"}),
+			want: http.StatusServiceUnavailable,
+		},
+		{
+			name: "a request that really is unprocessable",
+			err:  enterrors.NewErrUnprocessable(errors.New("vector lengths don't match")),
+			want: http.StatusUnprocessableEntity,
+		},
+		{
+			name: "a missing shard is not a missing class",
+			err:  enterrors.NewErrUnprocessable(errors.New("shard not found")),
+			want: http.StatusUnprocessableEntity,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.want, unprocessableStatus(test.err))
+		})
+	}
 }

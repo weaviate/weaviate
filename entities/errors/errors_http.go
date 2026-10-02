@@ -21,15 +21,13 @@ func (e ErrUnprocessable) Error() string {
 	return e.err.Error()
 }
 
-// Unwrap exposes the cause so callers can classify it with errors.Is/As instead of matching
-// the message, which is what they had to do before.
+// Unwrap exposes the cause, so callers classify with errors.Is/As instead of matching the message
 func (e ErrUnprocessable) Unwrap() error {
 	return e.err
 }
 
-// ErrLocalIndexNotFound is a class the sender knows about but this node does not hold yet, so its
-// schema has not caught up rather than the request being wrong. The message is unchanged, so
-// callers still matching on text keep working.
+// ErrLocalIndexNotFound is a class this node does not hold yet, so its schema has not caught up.
+// The message is unchanged, so callers still matching on text keep working.
 type ErrLocalIndexNotFound struct {
 	Index string
 }

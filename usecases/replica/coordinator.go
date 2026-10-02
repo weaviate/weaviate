@@ -318,17 +318,6 @@ func (c *coordinator[T, R]) Push(ctx context.Context,
 	return c.read(level, commitCh, onResult, onFlatten, batchSize), nil
 }
 
-// replicaCannotServe reports whether err means the replica is unable to serve at all - it cannot
-// serve this request yet, is starting up, or is in maintenance - rather than failing transiently.
-func replicaCannotServe(err error) bool {
-	if err == nil {
-		return false
-	}
-	return errors.Is(err, ErrReplicaNotReady) ||
-		errors.Is(err, ErrReplicaBooting) ||
-		errors.Is(err, ErrReplicaMaintenance)
-}
-
 // Pull data from replica depending on consistency level, trying to reach level successful calls
 // to op, while cycling through replicas for the coordinator's shard.
 //
@@ -413,7 +402,7 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 					replyCh <- Result[T]{resp, err}
 					return
 				}
-				if replicaCannotServe(err) && levelUnreachable(hosts[hostIndex]) {
+				if errors.Is(err, ErrReplicaNotReady) && levelUnreachable(hosts[hostIndex]) {
 					replyCh <- Result[T]{resp, err}
 					return
 				}
@@ -437,7 +426,7 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 						replyCh <- Result[T]{resp, err}
 						return
 					}
-					if replicaCannotServe(err) && levelUnreachable(hr.host) {
+					if errors.Is(err, ErrReplicaNotReady) && levelUnreachable(hr.host) {
 						replyCh <- Result[T]{resp, err}
 						return
 					}

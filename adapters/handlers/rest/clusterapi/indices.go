@@ -473,9 +473,7 @@ func (i *indices) postObjectBatch(w http.ResponseWriter, r *http.Request,
 	}
 
 	errs := i.shards.BatchPutObjects(r.Context(), index, shard, objs, schemaVersion)
-	if lagging := batchNotCaughtUp(errs); lagging != nil {
-		// a batch that failed only because this node is behind is not a per-object problem
-		http.Error(w, lagging.Error(), http.StatusServiceUnavailable)
+	if wroteNotCaughtUp(w, errs) {
 		return
 	}
 	errsJSON, err := shared.IndicesPayloads.ErrorList.Marshal(errs)
@@ -852,9 +850,7 @@ func (i *indices) postReferences() http.Handler {
 		}
 
 		errs := i.shards.BatchAddReferences(r.Context(), index, shard, refs, schemaVersion)
-		if lagging := batchNotCaughtUp(errs); lagging != nil {
-			// a batch that failed only because this node is behind is not a per-object problem
-			http.Error(w, lagging.Error(), http.StatusServiceUnavailable)
+		if wroteNotCaughtUp(w, errs) {
 			return
 		}
 		errsJSON, err := shared.IndicesPayloads.ErrorList.Marshal(errs)
@@ -1496,13 +1492,11 @@ func (i *indices) deleteAsyncReplicationTargetNode() http.Handler {
 }
 
 // notCaughtUp reports whether err is this node lagging the schema rather than a fault: the class is
-// not here yet, or the version the sender asked for has not been applied. Both clear on their own,
-// so the caller is told to go elsewhere instead of retrying a node that cannot answer yet.
+// not here yet, or the version asked for has not been applied
 func notCaughtUp(err error) bool {
 	if err == nil {
 		return false
 	}
-	// the schema wait wraps ErrDeadlineExceeded all the way up from Store.WaitForAppliedIndex
 	if errors.Is(err, clusterTypes.ErrDeadlineExceeded) {
 		return true
 	}
@@ -1510,10 +1504,8 @@ func notCaughtUp(err error) bool {
 	return errors.As(err, &missing)
 }
 
-// unprocessableStatus renders an unprocessable shard operation. A class this node does not hold
-// yet is not a bad request: the sender only forwards classes the schema already has, so the local
-// index is missing because this node is behind, and 422 would cost the replica its vote - nothing
-// retries it and nothing fails over from it.
+// unprocessableStatus answers 503 for a class this node does not hold yet: 422 reads as the
+// caller's fault, so nothing retries it and the replica loses its vote
 func unprocessableStatus(err error) int {
 	if notCaughtUp(err) {
 		return http.StatusServiceUnavailable
@@ -1521,27 +1513,30 @@ func unprocessableStatus(err error) int {
 	return http.StatusUnprocessableEntity
 }
 
-// batchNotCaughtUp reports whether every error in a batch is this node lagging. The schema wait
-// fails the whole batch with one duplicated error, so all-or-nothing keeps a partial failure as a
-// per-object error list rather than hiding it behind a status.
-func batchNotCaughtUp(errs []error) error {
-	var first error
+// wroteNotCaughtUp answers a batch that failed only because this node is behind, and reports
+// whether it did. All-or-nothing: a real per-object failure keeps the error list the caller needs.
+func wroteNotCaughtUp(w http.ResponseWriter, errs []error) bool {
+	var lagging error
 	for _, err := range errs {
 		if err == nil {
 			continue
 		}
 		if !notCaughtUp(err) {
-			return nil
+			return false
 		}
-		if first == nil {
-			first = err
+		if lagging == nil {
+			lagging = err
 		}
 	}
-	return first
+	if lagging == nil {
+		return false
+	}
+
+	http.Error(w, lagging.Error(), http.StatusServiceUnavailable)
+	return true
 }
 
-// operationStatus renders a failed shard operation: a node that has not caught up is unavailable,
-// anything else is this node's fault.
+// operationStatus answers 503 for a node that has not caught up, 500 for a real failure
 func operationStatus(err error) int {
 	if notCaughtUp(err) {
 		return http.StatusServiceUnavailable

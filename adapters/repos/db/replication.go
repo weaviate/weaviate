@@ -306,9 +306,8 @@ func (db *DB) waitForSchemaVersionForIndexWrite(ctx context.Context, schemaVersi
 		// Msg carries the human-readable detail because Err is not
 		// serialised over the wire (json:"-"); without Msg the remote
 		// coordinator would see an empty error and treat it as success.
-		// StatusNotReady, not PreconditionFailed: this node is behind, not the request wrong, and
-		// the cluster API turns it into a 503 the coordinator can fail over from instead of a
-		// success carrying an error, which costs the replica its vote
+		// StatusNotReady, not PreconditionFailed: the cluster API turns it into a 503 the coordinator
+		// fails over from, rather than a success carrying an error that costs the replica its vote
 		return &replica.SimpleResponse{Errors: []replicaerrors.Error{{
 			Code: replicaerrors.StatusNotReady,
 			Msg:  fmt.Sprintf("waiting for schema version %d: %v", schemaVersion, err),

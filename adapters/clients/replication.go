@@ -929,16 +929,13 @@ func backOff(d time.Duration) time.Duration {
 	return time.Duration(float64(d.Nanoseconds()*2) * (0.5 + rand.Float64()))
 }
 
-// Is lets a caller classify a peer's refusal without parsing the body: a 503 on the cluster API
-// means the node, or the class it was asked for, cannot serve yet.
+// Is reports a 503 as ErrReplicaNotReady, so callers classify a refusal without parsing the body
 func (e *HTTPError) Is(target error) bool {
 	return target == replica.ErrReplicaNotReady && e.Code == http.StatusServiceUnavailable
 }
 
-// shouldRetry reports whether the same peer is worth asking again. A 503 is not: on the cluster API
-// it means the node, or the class it was asked for, is not ready yet, which outlasts any backoff.
-// Asking again just spends the ladder: SearchShard alone would take MAX_RETRIES attempts, about
-// 7.5s, against a replica that already said no. The caller fails over instead.
+// shouldRetry reports whether the same peer is worth asking again. A 503 is not: it cannot serve
+// yet, which outlasts the ladder, so the caller fails over instead
 func shouldRetry(code int) bool {
 	return code == http.StatusInternalServerError ||
 		code == http.StatusTooManyRequests
