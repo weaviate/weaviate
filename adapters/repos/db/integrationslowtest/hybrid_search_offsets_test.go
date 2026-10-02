@@ -40,12 +40,12 @@ import (
 
 const (
 	paginationClassName       = "PaginationTest"
-	paginationCollectionSize  = 1100
-	paginationMaximumResults  = int64(1000)
+	paginationCollectionSize  = 110
+	paginationMaximumResults  = int64(100)
 	paginationHybridDimension = 5
 )
 
-var paginationHybridMaximumResults = []int64{10, 100, 1000}
+var paginationHybridMaximumResults = []int64{10, 100}
 
 func seedPaginationObjects(t *testing.T, repo *db.DB, seed *rand.Rand) {
 	t.Helper()

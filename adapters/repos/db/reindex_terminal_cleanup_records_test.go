@@ -83,7 +83,7 @@ func TestTerminalCleanupSettlesTheTasksRecordsOnTheShardsItHolds(t *testing.T) {
 		UnitToShard:   map[string]string{"a": loadedA.Name(), "b": unloadedB, "c": loadedC},
 	}, logger)
 
-	recovered, err := DiscoverInFlightReindexTasks(idx.Config.RootPath, logger, nil)
+	recovered, err := DiscoverInFlightReindexTasks(idx.Config.RootPath, true, logger, nil)
 	require.NoError(t, err)
 	var rebuilt []string
 	for _, rr := range recovered {

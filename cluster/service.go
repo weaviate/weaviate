@@ -44,6 +44,8 @@ const (
 	replicationEngineShutdownTimeout = 20 * time.Second
 	replicationOperationTimeout      = 24 * time.Hour
 	catchUpInterval                  = 5 * time.Second
+	// readyPollPeriod is how often startup checks for a leader or a loaded DB.
+	readyPollPeriod = 50 * time.Millisecond
 
 	// Fallbacks used only when the config seam left a cleanup knob unwired.
 	defaultReplicaMovementCleanupMaxAge   = 168 * time.Hour
@@ -237,11 +239,12 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 	defer bCancel()
 	if hasState {
 		joiner := bootstrap.NewJoiner(c.rpcClient, c.config.NodeID, c.raftAddr, c.config.Voter)
-		err = backoff.Retry(func() error {
-			joinNodes := bootstrap.ResolveRemoteNodes(c.config.NodeSelector, c.config.NodeNameToPortMap)
-			_, err := joiner.Do(bootstrapCtx, c.logger, joinNodes)
-			return err
-		}, backoff.WithContext(backoff.NewConstantBackOff(1*time.Second), bootstrapCtx))
+		err = joiner.Rejoin(bootstrapCtx, c.logger,
+			func() map[string]string {
+				return bootstrap.ResolveRemoteNodes(c.config.NodeSelector, c.config.NodeNameToPortMap)
+			},
+			func() bool { return c.Raft.store.Leader() != "" },
+			time.Second, readyPollPeriod)
 		if err != nil {
 			return fmt.Errorf("could not join raft join list: %w. Weaviate detected this node to have state stored. If the DB is still loading up we will hit this timeout. You can try increasing/setting RAFT_BOOTSTRAP_TIMEOUT env variable to a higher value", err)
 		}
@@ -263,7 +266,7 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		}
 	}
 
-	if err := c.WaitUntilDBRestored(ctx, 1*time.Second, c.closeWaitForDB); err != nil {
+	if err := c.WaitUntilDBRestored(ctx, readyPollPeriod, c.closeWaitForDB); err != nil {
 		return fmt.Errorf("restore database: %w", err)
 	}
 

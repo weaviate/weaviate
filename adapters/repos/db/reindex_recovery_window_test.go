@@ -88,7 +88,7 @@ func TestRecoveryWindowSpansAnUnpromotedFlip(t *testing.T) {
 				plantUnreadableRecord(t, store.Dir())
 			}
 
-			recovered, err := DiscoverInFlightReindexTasks(root, logger, nil)
+			recovered, err := DiscoverInFlightReindexTasks(root, true, logger, nil)
 			require.NoError(t, err)
 
 			if !tt.wantIn {
@@ -296,7 +296,7 @@ func TestRecoveryWalkAggregatesUnreadableShardsIntoOneLine(t *testing.T) {
 	}
 
 	logger, hook := test.NewNullLogger()
-	recovered, err := DiscoverInFlightReindexTasks(root, logger, nil)
+	recovered, err := DiscoverInFlightReindexTasks(root, true, logger, nil)
 	require.NoError(t, err)
 	require.Empty(t, recovered)
 

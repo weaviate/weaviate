@@ -69,7 +69,7 @@ func TestRecoveryWalkReportsUnbuildableRecordsOnce(t *testing.T) {
 	}
 
 	logger, hook := logrustest.NewNullLogger()
-	recovered, err := DiscoverInFlightReindexTasks(root, logger, nil)
+	recovered, err := DiscoverInFlightReindexTasks(root, true, logger, nil)
 	require.NoError(t, err)
 	require.Empty(t, recovered)
 
@@ -105,7 +105,7 @@ func TestRecoveryWalkReportsUnreadableRecordSetsWithTheirReason(t *testing.T) {
 	}
 
 	logger, hook := logrustest.NewNullLogger()
-	recovered, err := DiscoverInFlightReindexTasks(root, logger, nil)
+	recovered, err := DiscoverInFlightReindexTasks(root, true, logger, nil)
 	require.NoError(t, err)
 	require.Empty(t, recovered, "an unreadable record set recovers nothing")
 

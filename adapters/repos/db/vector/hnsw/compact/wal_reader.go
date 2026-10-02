@@ -201,6 +201,10 @@ type WALCommitReader struct {
 	// back to its last valid record.
 	lastValidOffset int64
 
+	// layout, when set, rejects records that cannot appear at their position
+	// in a compacted segment. See NewWALCommitReaderForFile.
+	layout *compactedLayout
+
 	reusableBuf     []byte
 	reusableUint64s []uint64
 }
@@ -214,6 +218,18 @@ func NewWALCommitReader(r io.Reader, logger logrus.FieldLogger) *WALCommitReader
 		countingR: cr,
 		logger:    logger,
 	}
+}
+
+// NewWALCommitReaderForFile is NewWALCommitReader with the record-layout check
+// of fileType enabled: a .sorted or .condensed segment has no checksum, so a
+// record the compaction writers never put at that position is reported as an
+// error instead of being returned, and LastValidOffset stays before it.
+func NewWALCommitReaderForFile(r io.Reader, fileType FileType, logger logrus.FieldLogger) *WALCommitReader {
+	w := NewWALCommitReader(r, logger)
+	if fileType == FileTypeSorted || fileType == FileTypeCondensed {
+		w.layout = &compactedLayout{fileType: fileType}
+	}
+	return w
 }
 
 // BytesRead returns the number of bytes successfully read from the underlying
@@ -237,13 +253,20 @@ func (w *WALCommitReader) LastValidOffset() int64 {
 //   - (nil, io.EOF) when no more commits are available
 //   - (nil, err) on other errors
 //
-// On success it advances LastValidOffset to the end of the returned commit.
+// A record cut off after its type byte is reported as io.ErrUnexpectedEOF, never
+// io.EOF. On success it advances LastValidOffset to the end of the returned commit.
 func (w *WALCommitReader) ReadNextCommit() (Commit, error) {
 	c, err := w.decodeNextCommit()
-	if err == nil {
-		w.lastValidOffset = w.BytesRead()
+	if err != nil {
+		return nil, err
 	}
-	return c, err
+	if w.layout != nil {
+		if err := w.layout.check(c); err != nil {
+			return nil, err
+		}
+	}
+	w.lastValidOffset = w.BytesRead()
+	return c, nil
 }
 
 func (w *WALCommitReader) decodeNextCommit() (Commit, error) {
@@ -252,6 +275,16 @@ func (w *WALCommitReader) decodeNextCommit() (Commit, error) {
 		return nil, err
 	}
 
+	c, err := w.decodeCommitBody(ct)
+	if errors.Is(err, io.EOF) {
+		// A body field hit EOF with zero bytes left: the log ends between two
+		// fields of this commit, which is a torn tail, not a clean end.
+		return nil, errors.Wrapf(io.ErrUnexpectedEOF, "commit type %d: %v", ct, err)
+	}
+	return c, err
+}
+
+func (w *WALCommitReader) decodeCommitBody(ct HnswCommitType) (Commit, error) {
 	switch ct {
 	case AddNode:
 		return w.readAddNode()
@@ -632,6 +665,12 @@ func readPQData(r io.Reader) (*compression.PQData, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Writers only produce segments that divide the dimensions and a non-zero
+	// centroid count. A record without segments carries no encoders, and one
+	// without centroids restores encoders with no centers.
+	if m == 0 || ks == 0 || dims%m != 0 {
+		return nil, errors.Errorf("pq with %d dimensions, %d segments and %d centroids", dims, m, ks)
+	}
 
 	encoder := compression.Encoder(encByte)
 	pqData := compression.PQData{
@@ -649,6 +688,11 @@ func readPQData(r io.Reader) (*compression.PQData, error) {
 	case compression.UseTileEncoder:
 		encoderReader = readTileEncoder
 	case compression.UseKMeansEncoder:
+		// Zero-width segments hold no bytes, so m and ks would not be bounded
+		// by the bytes read. Real PQ segments divide the dimensions.
+		if dims/m == 0 {
+			return nil, errors.Errorf("pq with %d dimensions cannot have %d segments", dims, m)
+		}
 		encoderReader = readKMeansEncoder
 	default:
 		return nil, errors.New("unsupported encoder type")
@@ -687,6 +731,66 @@ func readSQData(r io.Reader) (*compression.SQData, error) {
 	}, nil
 }
 
+// maxPreallocEntries caps the capacity taken from a count in a record header.
+// Headers are not checksummed, so slices grow as their elements are actually
+// read and garbage cannot request more memory than the bytes behind it.
+const maxPreallocEntries = 4096
+
+func preallocCap(n uint32) int {
+	return int(min(n, maxPreallocEntries))
+}
+
+func readFloat32s(r io.Reader, n uint32) ([]float32, error) {
+	out := make([]float32, 0, preallocCap(n))
+	for i := uint32(0); i < n; i++ {
+		f, err := readFloat32(r)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, nil
+}
+
+// readRotation reads the swaps and signs of a FastRotation.
+func readRotation(r io.Reader, outputDim, rounds uint32) ([][]compression.Swap, [][]float32, error) {
+	// Real rotations have an output dimension of at least 64. Below 2 a round
+	// holds no swaps, so rounds would not be bounded by the bytes read.
+	if rounds > 0 && outputDim < 2 {
+		return nil, nil, errors.Errorf("rotation with %d rounds has output dimension %d", rounds, outputDim)
+	}
+
+	swaps := make([][]compression.Swap, 0, preallocCap(rounds))
+	for i := uint32(0); i < rounds; i++ {
+		round := make([]compression.Swap, 0, preallocCap(outputDim/2))
+		for j := uint32(0); j < outputDim/2; j++ {
+			var s compression.Swap
+			var err error
+			s.I, err = readUint16(r)
+			if err != nil {
+				return nil, nil, err
+			}
+			s.J, err = readUint16(r)
+			if err != nil {
+				return nil, nil, err
+			}
+			round = append(round, s)
+		}
+		swaps = append(swaps, round)
+	}
+
+	signs := make([][]float32, 0, preallocCap(rounds))
+	for i := uint32(0); i < rounds; i++ {
+		round, err := readFloat32s(r, outputDim)
+		if err != nil {
+			return nil, nil, err
+		}
+		signs = append(signs, round)
+	}
+
+	return swaps, signs, nil
+}
+
 // RQ
 
 func readRQData(r io.Reader) (*compression.RQData, error) {
@@ -707,31 +811,9 @@ func readRQData(r io.Reader) (*compression.RQData, error) {
 		return nil, err
 	}
 
-	swaps := make([][]compression.Swap, rounds)
-	for i := uint32(0); i < rounds; i++ {
-		swaps[i] = make([]compression.Swap, outputDim/2)
-		for j := uint32(0); j < outputDim/2; j++ {
-			swaps[i][j].I, err = readUint16(r)
-			if err != nil {
-				return nil, err
-			}
-			swaps[i][j].J, err = readUint16(r)
-			if err != nil {
-				return nil, err
-			}
-		}
-	}
-
-	signs := make([][]float32, rounds)
-	for i := uint32(0); i < rounds; i++ {
-		signs[i] = make([]float32, outputDim)
-		for j := uint32(0); j < outputDim; j++ {
-			sign, err := readFloat32(r)
-			if err != nil {
-				return nil, err
-			}
-			signs[i][j] = sign
-		}
+	swaps, signs, err := readRotation(r, outputDim, rounds)
+	if err != nil {
+		return nil, err
 	}
 
 	return &compression.RQData{
@@ -762,39 +844,14 @@ func readBRQData(r io.Reader) (*compression.BRQData, error) {
 		return nil, err
 	}
 
-	swaps := make([][]compression.Swap, rounds)
-	for i := uint32(0); i < rounds; i++ {
-		swaps[i] = make([]compression.Swap, outputDim/2)
-		for j := uint32(0); j < outputDim/2; j++ {
-			swaps[i][j].I, err = readUint16(r)
-			if err != nil {
-				return nil, err
-			}
-			swaps[i][j].J, err = readUint16(r)
-			if err != nil {
-				return nil, err
-			}
-		}
+	swaps, signs, err := readRotation(r, outputDim, rounds)
+	if err != nil {
+		return nil, err
 	}
 
-	signs := make([][]float32, rounds)
-	for i := uint32(0); i < rounds; i++ {
-		signs[i] = make([]float32, outputDim)
-		for j := uint32(0); j < outputDim; j++ {
-			sign, err := readFloat32(r)
-			if err != nil {
-				return nil, err
-			}
-			signs[i][j] = sign
-		}
-	}
-
-	rounding := make([]float32, outputDim)
-	for i := uint32(0); i < outputDim; i++ {
-		rounding[i], err = readFloat32(r)
-		if err != nil {
-			return nil, err
-		}
+	rounding, err := readFloat32s(r, outputDim)
+	if err != nil {
+		return nil, err
 	}
 
 	return &compression.BRQData{
@@ -833,31 +890,45 @@ func readMuveraData(r io.Reader) (*multivector.MuveraData, error) {
 		return nil, err
 	}
 
-	gaussians := make([][][]float32, repetitions)
-	for i := uint32(0); i < repetitions; i++ {
-		gaussians[i] = make([][]float32, kSim)
-		for j := uint32(0); j < kSim; j++ {
-			gaussians[i][j] = make([]float32, dimensions)
-			for k := uint32(0); k < dimensions; k++ {
-				gaussians[i][j][k], err = readFloat32(r)
+	if repetitions > 0 && (dimensions == 0 || (kSim == 0 && dProjections == 0)) {
+		return nil, errors.Errorf("muvera encoder with %d repetitions has no payload", repetitions)
+	}
+
+	readMatrices := func(rows uint32) ([][][]float32, error) {
+		out := make([][][]float32, 0, preallocCap(repetitions))
+		for i := uint32(0); i < repetitions; i++ {
+			m := make([][]float32, 0, preallocCap(rows))
+			for j := uint32(0); j < rows; j++ {
+				v, err := readFloat32s(r, dimensions)
 				if err != nil {
 					return nil, err
 				}
+				m = append(m, v)
 			}
+			out = append(out, m)
+		}
+		return out, nil
+	}
+
+	var gaussians [][][]float32
+	if kSim > 0 {
+		gaussians, err = readMatrices(kSim)
+		if err != nil {
+			return nil, err
 		}
 	}
 
-	s := make([][][]float32, repetitions)
-	for i := uint32(0); i < repetitions; i++ {
-		s[i] = make([][]float32, dProjections)
-		for j := uint32(0); j < dProjections; j++ {
-			s[i][j] = make([]float32, dimensions)
-			for k := uint32(0); k < dimensions; k++ {
-				s[i][j][k], err = readFloat32(r)
-				if err != nil {
-					return nil, err
-				}
-			}
+	s, err := readMatrices(dProjections)
+	if err != nil {
+		return nil, err
+	}
+
+	if kSim == 0 {
+		// Zero-width gaussians occupy no bytes, so they are only built once S
+		// has shown that repetitions is backed by data.
+		gaussians = make([][][]float32, repetitions)
+		for i := range gaussians {
+			gaussians[i] = make([][]float32, 0)
 		}
 	}
 
@@ -917,18 +988,14 @@ func (w *WALCommitReader) readAddRQCentered() (Commit, error) {
 	if err != nil {
 		return nil, err
 	}
-	// The mean always has exactly InputDim entries; validating before the
-	// allocation stops a corrupted record from requesting an arbitrarily
-	// large slice (and surfaces the corruption here instead of at restore).
+	// The mean always has exactly InputDim entries; a mismatch surfaces the
+	// corruption here instead of at restore.
 	if meanLen != data.InputDim {
 		return nil, errors.Errorf("centered RQ mean length %d does not match input dimension %d", meanLen, data.InputDim)
 	}
-	mean := make([]float32, meanLen)
-	for i := range mean {
-		mean[i], err = readFloat32(w.r)
-		if err != nil {
-			return nil, err
-		}
+	mean, err := readFloat32s(w.r, meanLen)
+	if err != nil {
+		return nil, err
 	}
 	data.Mean = mean
 	return &AddRQCommit{Data: data}, nil

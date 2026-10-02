@@ -301,7 +301,8 @@ type fakeMigrator struct {
 }
 
 func (f *fakeMigrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
-	return nil, nil
+	args := f.Called(ctx, className, tenant)
+	return args.Get(0).(map[string]int64), args.Error(1)
 }
 
 func (f *fakeMigrator) DropOrphanedClass(ctx context.Context, className string, hasFrozen bool) error {

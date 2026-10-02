@@ -407,6 +407,7 @@ func TestShardsStatus(t *testing.T) {
 		aliasMap          map[string]string
 		inputClass        string
 		resolvedClass     string
+		wantErr           error
 	}{
 		{
 			name:          "alias resolves to existing class",
@@ -449,16 +450,26 @@ func TestShardsStatus(t *testing.T) {
 			inputClass:        "TestAlias",
 			resolvedClass:     "RealClass",
 		},
+		{
+			name:       "prefixed name on a namespaces-disabled cluster is a validation error",
+			inputClass: "a:Foo",
+			wantErr:    ErrValidation,
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			handler, fakeSchemaManager := newTestHandlerWithNamespaces(t, tc.namespacesEnabled)
-			fakeSchemaManager.On("GetShardsStatus", tc.resolvedClass, shardName).Return(expectedStatus, nil)
 			handler.schemaReader = &fakeSchemaManagerWithAlias{
 				fakeSchemaManager: fakeSchemaManager,
 				aliasMap:          tc.aliasMap,
 			}
+			if tc.wantErr != nil {
+				_, err := handler.ShardsStatus(ctx, tc.principal, tc.inputClass, shardName)
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			fakeSchemaManager.On("GetShardsStatus", tc.resolvedClass, shardName).Return(expectedStatus, nil)
 
 			status, err := handler.ShardsStatus(ctx, tc.principal, tc.inputClass, shardName)
 			require.NoError(t, err)
@@ -466,6 +477,13 @@ func TestShardsStatus(t *testing.T) {
 			fakeSchemaManager.AssertExpectations(t)
 		})
 	}
+}
+
+func TestUpdateShardStatus_InvalidClassNameIsValidationError(t *testing.T) {
+	t.Parallel()
+	handler, _ := newTestHandlerWithNamespaces(t, false)
+	_, err := handler.UpdateShardStatus(context.Background(), nil, "a:Foo", "shard1", "READONLY")
+	require.ErrorIs(t, err, ErrValidation)
 }
 
 func TestGetAliases_WithNonExistentClass(t *testing.T) {

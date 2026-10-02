@@ -14,7 +14,10 @@ package search
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"regexp"
+	"strings"
 
 	openapierrors "github.com/go-openapi/errors"
 
@@ -33,8 +36,13 @@ func ServeError(rw http.ResponseWriter, r *http.Request, err error) {
 	}
 	body := rec.body.Bytes()
 	if json.Unmarshal(body, &apiErr) == nil && apiErr.Message != "" {
+		message := rewriteBindMessage(apiErr.Message)
+		if strings.Contains(apiErr.Message, errBodyTooLarge) {
+			rec.status = http.StatusRequestEntityTooLarge
+			message = fmt.Sprintf("request body exceeds the %d byte limit", MaxBodyBytes)
+		}
 		reshaped, marshalErr := json.Marshal(&models.ErrorResponse{
-			Error: []*models.ErrorResponseErrorItems0{{Message: apiErr.Message}},
+			Error: []*models.ErrorResponseErrorItems0{{Message: message}},
 		})
 		if marshalErr == nil {
 			body = reshaped
@@ -54,6 +62,31 @@ func ServeError(rw http.ResponseWriter, r *http.Request, err error) {
 	rw.Header().Set("Content-Type", "application/json")
 	rw.WriteHeader(rec.status)
 	rw.Write(body)
+}
+
+// MaxBodyBytes caps a search or aggregate request body; a where filter
+// with thousands of values fits comfortably, an unbounded body does not.
+const MaxBodyBytes = 4 << 20
+
+// errBodyTooLarge is the text of net/http's MaxBytesError.
+const errBodyTooLarge = "http: request body too large"
+
+var (
+	// swagger: parsing body body from "" failed, because <reason>
+	bindPrefix = regexp.MustCompile(`^parsing body body from "" failed, because `)
+	// encoding/json: cannot unmarshal string into Go struct field SearchCommon.tenant of type string
+	bindTypeMismatch = regexp.MustCompile(`json: cannot unmarshal (\S+) into Go struct field (?:[\w.]*\.)?(\w+) of type ([\w.\[\]]+)`)
+	// encoding/json: cannot unmarshal array into Go value of type models.SearchBm25Request
+	bindBodyMismatch = regexp.MustCompile(`json: cannot unmarshal (\S+) into Go value of type [\w.]+`)
+)
+
+// rewriteBindMessage turns the JSON decoder's messages into ones that name
+// request fields instead of Go types.
+func rewriteBindMessage(msg string) string {
+	msg = bindPrefix.ReplaceAllString(msg, "invalid request body: ")
+	msg = bindTypeMismatch.ReplaceAllString(msg, `field "$2" must be $3, got $1`)
+	msg = bindBodyMismatch.ReplaceAllString(msg, "the body must be a JSON object, got $1")
+	return msg
 }
 
 // responseRecorder captures the default error renderer's output.

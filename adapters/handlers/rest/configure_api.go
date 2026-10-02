@@ -170,6 +170,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	exportusecase "github.com/weaviate/weaviate/usecases/export"
+	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -362,6 +363,15 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		metricsRegisterer = promMetrics.Registerer
 		appState.Metrics = promMetrics
 	}
+
+	appState.License = &appState.ServerConfig.Config.License
+	license.RegisterMetrics(metricsRegisterer, *appState.License)
+	licenseLogFields := logrus.Fields{"action": "license", "edition": appState.License.Edition()}
+	if appState.License.Edition() == license.EditionEnterprise {
+		licenseLogFields["status"] = appState.License.Status
+		licenseLogFields["license_id"] = appState.License.LicenseID
+	}
+	appState.Logger.WithFields(licenseLogFields).Info("license state")
 
 	// TODO: configure http transport for efficient intra-cluster comm
 	remoteIndexClient := clients.NewRemoteIndex(appState.ClusterHttpClient)
@@ -813,6 +823,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// deferred swap go only to the old main bucket and are silently lost.
 	recoveredReindexes, recoveryErr := db.DiscoverInFlightReindexTasks(
 		appState.ServerConfig.Config.Persistence.DataPath,
+		appState.ServerConfig.Config.RuntimeReindexEnabled,
 		appState.Logger,
 		appState.SchemaManager,
 	)
@@ -835,9 +846,11 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		}
 	}, appState.Logger)
 
-	// TODO-RAFT: refactor remove this sleep
-	// this sleep was used to block GraphQL and give time to RAFT to start.
-	time.Sleep(2 * time.Second)
+	// TODO-RAFT: refactor remove this wait
+	// it blocks GraphQL for up to 2s to give RAFT time to start.
+	for deadline := time.Now().Add(2 * time.Second); !appState.ClusterService.Ready() && time.Now().Before(deadline); {
+		time.Sleep(50 * time.Millisecond)
+	}
 
 	appState.AutoSchemaManager = objects.NewAutoSchemaManager(schemaManager, vectorRepo, appState.ServerConfig,
 		appState.Logger, prometheus.DefaultRegisterer)
@@ -883,7 +896,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	appState.ObjectTTLCoordinator = objectttl.NewCoordinator(appState.ClusterService.SchemaReader(), appState.SchemaManager,
-		appState.NamespacesController, appState.DB,
+		appState.NamespacesController, appState.DB, appState.ServerConfig.Config.ObjectsTTLConcurrencyFactor,
 		appState.Logger, appState.ClusterHttpClient, appState.Cluster, appState.ObjectTTLLocalStatus)
 
 	// appState.RBAC is a typed nil when RBAC is disabled; pass an untyped-nil
@@ -1387,7 +1400,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.ServerConfig.Config.Namespaces.Enabled, appState.Metrics, appState.Logger)
 	setupSearchHandlers(api, appState)
 	setupMiscHandlers(api, appState.ServerConfig, appState.Modules,
-		appState.Metrics, appState.Logger)
+		appState.License, appState.Metrics, appState.Logger)
 	setupClassificationHandlers(api, classifier, appState.ServerConfig.Config.Namespaces.Enabled, appState.Metrics, appState.Logger)
 	backupScheduler := startBackupScheduler(appState)
 	setupBackupHandlers(api, backupScheduler, appState.ServerConfig.Config.Authorization.Rbac, appState.Metrics, appState.Logger)

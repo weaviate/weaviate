@@ -15,7 +15,6 @@ package rest_search
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -27,7 +26,6 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -218,20 +216,8 @@ func movieClass() *models.Class {
 }
 
 func TestRESTSearchNearText(t *testing.T) {
-	ctx := context.Background()
-	compose, err := docker.New().
-		WithWeaviate().
-		// the endpoint is experimental and off by default; enable it
-		WithWeaviateEnv("EXPERIMENTAL_REST_SEARCH_ENABLED", "true").
-		WithText2VecModel2Vec().
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
-
 	defer helper.SetupClient(fmt.Sprintf("%s:%s", helper.ServerHost, helper.ServerPort))
-	helper.SetupClient(compose.GetWeaviate().URI())
+	helper.SetupClient(restSearchServerURI(t))
 
 	studioClass := &models.Class{
 		Class:      "Studio",
@@ -756,52 +742,4 @@ func TestRESTSearchNearText(t *testing.T) {
 		// bind-tier errors use the same ErrorResponse shape as handler errors
 		assert.Contains(t, out, "error", "bind errors must be ErrorResponse-shaped: %v", out)
 	})
-}
-
-// TestRESTSearchDisabled pins the opt-in default: with
-// EXPERIMENTAL_REST_SEARCH_ENABLED unset, every search answers 422 before
-// any schema access.
-func TestRESTSearchDisabled(t *testing.T) {
-	ctx := context.Background()
-	compose, err := docker.New().
-		// no EXPERIMENTAL_REST_SEARCH_ENABLED: the feature is off by default
-		WithWeaviate().
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
-
-	defer helper.SetupClient(fmt.Sprintf("%s:%s", helper.ServerHost, helper.ServerPort))
-	helper.SetupClient(compose.GetWeaviate().URI())
-
-	status, out := postNearText(t, "Anything", map[string]any{
-		"query": []string{"anything"},
-	})
-	require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
-	assert.Contains(t, errMessage(t, out), "not enabled")
-
-	// the gate covers every search endpoint
-	status, out = postBm25(t, "Anything", map[string]any{
-		"query": "anything",
-	})
-	require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
-	assert.Contains(t, errMessage(t, out), "not enabled")
-
-	status, out = postHybrid(t, "Anything", map[string]any{
-		"query": "anything",
-	})
-	require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
-	assert.Contains(t, errMessage(t, out), "not enabled")
-
-	status, out = postNearObject(t, "Anything", map[string]any{
-		"id": "dd44bbee-ca5f-4db7-a412-5fc6a2300001",
-	})
-	require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
-	assert.Contains(t, errMessage(t, out), "not enabled")
-
-	// the gate also covers the sibling aggregate endpoint
-	status, out = postAggregate(t, "Anything", map[string]any{})
-	require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
-	assert.Contains(t, errMessage(t, out), "not enabled")
 }

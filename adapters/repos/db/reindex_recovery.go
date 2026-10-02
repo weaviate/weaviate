@@ -41,10 +41,13 @@ type RecoveredReindex struct {
 // two halves of a change-tokenization are separate entries.
 func DiscoverInFlightReindexTasks(
 	rootPath string,
+	runtimeReindexEnabled bool,
 	logger logrus.FieldLogger,
 	schemaManager *schema.Manager,
 ) ([]RecoveredReindex, error) {
-	if rootPath == "" {
+	// The scan lists a directory per shard, which delays startup by minutes
+	// on clusters with many tenants, so it only runs with the feature on.
+	if rootPath == "" || !runtimeReindexEnabled {
 		return nil, nil
 	}
 	indices, err := os.ReadDir(rootPath)
