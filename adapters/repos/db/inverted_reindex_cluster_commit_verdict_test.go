@@ -177,18 +177,19 @@ func TestARefusedWedgeKeepsTheWorkersMirror(t *testing.T) {
 				},
 			}))
 			swapErr := task.RunSwapOnShard(workerCtx, shard)
-			if !tt.cancelTheWorker {
-				require.NoError(t, swapErr)
-			}
 
+			served := shard.store.Bucket(helpers.BucketRangeableFromPropNameLSM(filterableToRangeablePropName))
+			require.NotNil(t, served)
+			require.Len(t, rangeableDocIDsAtLeast(t, served, 0), 26)
+			if tt.cancelTheWorker {
+				return
+			}
+			require.NoError(t, swapErr)
 			rec, ok := task.migrationRecord(shard)
 			require.True(t, ok)
 			require.Equal(t, MigrationStateSwapped, rec.State())
-			served := shard.store.Bucket(helpers.BucketRangeableFromPropNameLSM(filterableToRangeablePropName))
-			require.NotNil(t, served)
 			require.NotEmpty(t, readRangeableIDs(t, served, 0), "fixture: the corpus is served")
 			require.Len(t, readRangeableIDs(t, served, written), 1, "the write made after the pass")
-			require.Len(t, rangeableDocIDsAtLeast(t, served, 0), 26)
 		})
 	}
 }
