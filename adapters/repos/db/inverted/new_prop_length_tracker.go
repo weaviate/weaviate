@@ -16,8 +16,10 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"sync"
 
+	"github.com/weaviate/weaviate/entities/diskio"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 
 	"github.com/pkg/errors"
@@ -25,6 +27,8 @@ import (
 )
 
 var MAX_BUCKETS = 64
+
+var errFlushClosed = errors.New("cannot flush closed tracker")
 
 type ShardMetaData struct {
 	BucketedData map[string]map[int]int
@@ -40,6 +44,10 @@ type JsonShardMetaData struct {
 	UnlimitedBuckets bool
 	logger           logrus.FieldLogger
 	closed           bool
+	// dirty is set when data differs from the file, and unsynced when Flush
+	// wrote the file without fsyncing it. Only Close fsyncs.
+	dirty    bool
+	unsynced bool
 }
 
 // This class replaces the old PropertyLengthTracker.  It fixes a bug and provides a
@@ -94,6 +102,7 @@ func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardM
 	if err != nil {
 		if os.IsNotExist(err) { // File doesn't exist, probably a new class(or a recount), return empty tracker
 			logger.Debugf("prop len tracker file %s does not exist, creating new tracker", path)
+			t.dirty = true
 			t.Flush()
 			return t, nil
 		}
@@ -141,9 +150,9 @@ func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardM
 			}
 		}
 		t.data = data
+		t.dirty = true
 		plt.Close()
 		plt.Drop()
-		t.Flush()
 	}
 	t.path = path
 
@@ -166,6 +175,7 @@ func (t *JsonShardMetaData) Clear() {
 	}
 
 	t.data = &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
+	t.dirty = true
 	t.lockFreeFlush()
 }
 
@@ -190,6 +200,7 @@ func (t *JsonShardMetaData) TrackObjects(delta int) error {
 	}
 
 	t.data.ObjectCount = t.data.ObjectCount + delta
+	t.dirty = true
 	return nil
 }
 
@@ -210,6 +221,7 @@ func (t *JsonShardMetaData) TrackProperty(propName string, value float32) error 
 		t.logger.Print("WARNING: t.data is nil in TrackProperty, initializing to empty tracker")
 		t.data = &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
 	}
+	t.dirty = true
 	t.data.SumData[propName] = t.data.SumData[propName] + int(value)
 	t.data.CountData[propName] = t.data.CountData[propName] + 1
 
@@ -242,6 +254,7 @@ func (t *JsonShardMetaData) UnTrackProperty(propName string, value float32) erro
 		t.logger.Print("WARNING: t.data is nil in TrackProperty, initializing to empty tracker")
 		t.data = &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
 	}
+	t.dirty = true
 	t.data.SumData[propName] = t.data.SumData[propName] - int(value)
 	t.data.CountData[propName] = t.data.CountData[propName] - 1
 
@@ -346,30 +359,60 @@ func (t *JsonShardMetaData) Flush() error {
 
 func (t *JsonShardMetaData) lockFreeFlush() error {
 	if t.closed {
-		return fmt.Errorf("cannot flush closed tracker")
+		return errFlushClosed
 	}
+	if !t.dirty {
+		return nil
+	}
+	tmp, err := t.writeTemp()
+	if err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, t.path); err != nil {
+		return err
+	}
+	t.dirty, t.unsynced = false, true
+	return nil
+}
 
+// lockFreeFlushDurably writes and fsyncs the data when dirty, or fsyncs the
+// file an earlier Flush wrote.
+func (t *JsonShardMetaData) lockFreeFlushDurably() error {
+	if t.closed {
+		return errFlushClosed
+	}
+	if t.dirty {
+		tmp, err := t.writeTemp()
+		if err != nil {
+			return err
+		}
+		if err := diskio.Fsync(tmp); err != nil {
+			return err
+		}
+		if err := diskio.RenameAndSync(tmp, t.path); err != nil {
+			return err
+		}
+	} else if t.unsynced {
+		if err := diskio.Fsync(t.path); err != nil {
+			return err
+		}
+		if err := diskio.Fsync(filepath.Dir(t.path)); err != nil {
+			return err
+		}
+	}
+	t.dirty, t.unsynced = false, false
+	return nil
+}
+
+// writeTemp writes the data to a temporary file, which the caller renames over
+// the real one so a crash mid-write cannot corrupt it.
+func (t *JsonShardMetaData) writeTemp() (string, error) {
 	bytes, err := json.Marshal(t.data)
 	if err != nil {
-		return err
+		return "", err
 	}
-
-	filename := t.path
-
-	// Do a write+rename to avoid corrupting the file if we crash while writing
-	tempfile := filename + ".tmp"
-
-	err = os.WriteFile(tempfile, bytes, 0o666)
-	if err != nil {
-		return err
-	}
-
-	err = os.Rename(tempfile, filename)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	tmp := t.path + ".tmp"
+	return tmp, os.WriteFile(tmp, bytes, 0o666)
 }
 
 func (t *JsonShardMetaData) SetWantFlush(val bool) {
@@ -380,35 +423,40 @@ func (t *JsonShardMetaData) SetWantFlush(val bool) {
 	}
 }
 
-// Closes the tracker and removes the backup file
+// Close writes pending changes durably, then closes the tracker.
 func (t *JsonShardMetaData) Close() error {
 	if t == nil {
 		return nil
-	}
-	if err := t.Flush(); err != nil {
-		return errors.Wrap(err, "flush before closing")
 	}
 
 	t.Lock()
 	defer t.Unlock()
 
+	if err := t.lockFreeFlushDurably(); err != nil {
+		return errors.Wrap(err, "flush before closing")
+	}
 	clear(t.data.BucketedData)
 	t.closed = true
 
 	return nil
 }
 
-// Drop removes the tracker from disk
+// Drop closes the tracker and, unless keepFiles, removes its file.
 func (t *JsonShardMetaData) Drop(keepFiles bool) error {
 	if t == nil {
 		return nil
 	}
-	t.Close()
 
 	t.Lock()
 	defer t.Unlock()
 
+	// Files kept for a running backup are deleted once it finishes, so they
+	// need no fsync.
+	if keepFiles && !t.closed {
+		t.lockFreeFlush()
+	}
 	clear(t.data.BucketedData)
+	t.closed = true
 
 	if !keepFiles {
 		os.Remove(t.path)
