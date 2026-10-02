@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -604,19 +605,24 @@ func TestRestoreFromDisk_NodeIDBeyondDocIDCounter(t *testing.T) {
 		{name: "beyond the counter and its slack", counterFile: true, counter: counter, wantTruncated: true},
 		{name: "muvera node IDs are document IDs", counterFile: true, counter: counter, multivector: muvera, wantTruncated: true},
 		{name: "multivector node IDs are not document IDs", counterFile: true, counter: counter, multivector: multivector},
-		{name: "hfresh centroid node IDs are not document IDs", counterFile: true, counter: counter, hfresh: true},
+		{name: "hfresh centroids live where there is no counter", counterFile: true, counter: counter, hfresh: true},
 		{name: "zero counter means no limit", counterFile: true, counter: 0},
 		{name: "no counter file means no limit"},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			shardDir := t.TempDir()
 			cfg := createVectorHnswIndexTestConfig()
-			cfg.RootPath = t.TempDir()
+			cfg.RootPath = shardDir
+			if tc.hfresh {
+				// HFresh's centroid index lives in HFresh's own directory.
+				cfg.RootPath = filepath.Join(shardDir, helpers.HFreshDirName("main"))
+				cfg.ID = helpers.CentroidsID("main")
+			}
 			cfg.MultiVectorForIDThunk = testMultiVectorForID
-			cfg.HFreshMode = tc.hfresh
 			if tc.counterFile {
-				writeDocIDCounterForTest(t, cfg.RootPath, tc.counter)
+				writeDocIDCounterForTest(t, shardDir, tc.counter)
 			}
 			path, validSize := writeRawCommitLogForTest(t, cfg, func(w *compact.WALWriter) {
 				require.NoError(t, w.WriteAddNode(garbage, 0))
