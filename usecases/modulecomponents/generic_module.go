@@ -35,7 +35,10 @@ const (
 	Explore
 )
 
-const AdditionalPropertyGenerate = additional.PropertyGenerate
+const (
+	AdditionalPropertyGenerate = additional.PropertyGenerate
+	AdditionalPropertyRerank   = additional.PropertyRerank
+)
 
 func GetGenericArgument(name, className string, argumentType ArgumentType,
 	nearTextTransformer modulecapabilities.TextTransform,
