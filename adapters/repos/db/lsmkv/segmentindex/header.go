@@ -62,23 +62,45 @@ func (h *Header) WriteTo(w io.Writer) (int64, error) {
 }
 
 func (h *Header) PrimaryIndex(source []byte) ([]byte, error) {
+	return h.PrimaryIndexFromRegion(source[h.IndexStart:])
+}
+
+// PrimaryIndexFromRegion is like PrimaryIndex, but takes only the index
+// region (bytes from IndexStart to EOF), e.g. a heap-pinned copy.
+func (h *Header) PrimaryIndexFromRegion(region []byte) ([]byte, error) {
 	if h.SecondaryIndices == 0 {
-		return source[h.IndexStart:], nil
+		return region, nil
 	}
 
-	offsets, err := h.parseSecondaryIndexOffsets(
-		source[h.IndexStart:h.secondaryIndexOffsetsEnd()])
+	offsetsSize := h.secondaryIndexOffsetsEnd() - h.IndexStart
+	offsets, err := h.parseSecondaryIndexOffsets(region[:offsetsSize])
 	if err != nil {
 		return nil, err
 	}
 
 	// the beginning of the first secondary is also the end of the primary
-	end := offsets[0]
-	return source[h.secondaryIndexOffsetsEnd():end], nil
+	end, err := h.regionRelative(offsets[0], len(region))
+	if err != nil {
+		return nil, err
+	}
+	if end < offsetsSize {
+		return nil, fmt.Errorf("first secondary index offset %d overlaps offset table", offsets[0])
+	}
+	return region[offsetsSize:end], nil
 }
 
 func (h *Header) secondaryIndexOffsetsEnd() uint64 {
 	return h.IndexStart + (uint64(h.SecondaryIndices) * 8)
+}
+
+// regionRelative converts an absolute offset table entry into one relative
+// to the index region, bounds-checked since the table may be corrupt on disk.
+func (h *Header) regionRelative(absOffset uint64, regionLen int) (uint64, error) {
+	if absOffset < h.IndexStart || absOffset-h.IndexStart > uint64(regionLen) {
+		return 0, fmt.Errorf("secondary index offset %d out of range [%d, %d]",
+			absOffset, h.IndexStart, h.IndexStart+uint64(regionLen))
+	}
+	return absOffset - h.IndexStart, nil
 }
 
 func (h *Header) parseSecondaryIndexOffsets(source []byte) ([]uint64, error) {
@@ -93,25 +115,41 @@ func (h *Header) parseSecondaryIndexOffsets(source []byte) ([]uint64, error) {
 }
 
 func (h *Header) SecondaryIndex(source []byte, indexID uint16) ([]byte, error) {
+	return h.SecondaryIndexFromRegion(source[h.IndexStart:], indexID)
+}
+
+// SecondaryIndexFromRegion is like SecondaryIndex, but takes only the index
+// region. See PrimaryIndexFromRegion.
+func (h *Header) SecondaryIndexFromRegion(region []byte, indexID uint16) ([]byte, error) {
 	if indexID >= h.SecondaryIndices {
 		return nil, fmt.Errorf("retrieve index %d with len %d",
 			indexID, h.SecondaryIndices)
 	}
 
-	offsets, err := h.parseSecondaryIndexOffsets(
-		source[h.IndexStart:h.secondaryIndexOffsetsEnd()])
+	offsetsSize := h.secondaryIndexOffsetsEnd() - h.IndexStart
+	offsets, err := h.parseSecondaryIndexOffsets(region[:offsetsSize])
 	if err != nil {
 		return nil, err
 	}
 
-	start := offsets[indexID]
+	start, err := h.regionRelative(offsets[indexID], len(region))
+	if err != nil {
+		return nil, err
+	}
 	if indexID == h.SecondaryIndices-1 {
 		// this is the last index, return until EOF
-		return source[start:], nil
+		return region[start:], nil
 	}
 
-	end := offsets[indexID+1]
-	return source[start:end], nil
+	end, err := h.regionRelative(offsets[indexID+1], len(region))
+	if err != nil {
+		return nil, err
+	}
+	if end < start {
+		return nil, fmt.Errorf("secondary index offsets %d and %d out of order",
+			offsets[indexID], offsets[indexID+1])
+	}
+	return region[start:end], nil
 }
 
 func ParseHeader(data []byte) (*Header, error) {
