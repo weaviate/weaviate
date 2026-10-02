@@ -29,6 +29,7 @@ type inFlightCancel struct {
 	cancelRequests       context.CancelFunc
 	cancelDelay          time.Duration
 	unavailableResponses atomic.Int64
+	shutdownStarted      atomic.Bool
 }
 
 func newInFlightCancel(cancelDelay time.Duration) *inFlightCancel {
@@ -36,15 +37,23 @@ func newInFlightCancel(cancelDelay time.Duration) *inFlightCancel {
 	return &inFlightCancel{requestsCtx: ctx, cancelRequests: cancel, cancelDelay: cancelDelay}
 }
 
-func (c *inFlightCancel) cancelRequestsAfterDelay() {
+// startShutdown makes readiness answer 503 at once and cancels every request
+// after cancelDelay.
+func (c *inFlightCancel) startShutdown() {
+	c.shutdownStarted.Store(true)
 	time.AfterFunc(c.cancelDelay, c.cancelRequests)
 }
 
-// unavailableAfterCancel answers 503 for a request whose response had not
-// started when the cancel fired, and drops the handler's reply. Clients retry
-// neither the 200 with per-object errors nor the 500 a cancelled batch answers with.
+// unavailableAfterCancel answers 503 once the cancel fired, to new requests and in
+// place of responses not yet started. Clients retry neither the 200 with
+// per-object errors nor the 500 a cancelled batch answers with.
 func (c *inFlightCancel) unavailableAfterCancel(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if c.requestsCtx.Err() != nil {
+			c.unavailableResponses.Add(1)
+			writeOperationalModeErrorResponse(w, errServerShuttingDown)
+			return
+		}
 		uw := &unavailableAfterCancelWriter{ResponseWriter: w, inFlight: c}
 		next.ServeHTTP(uw, r)
 		uw.decideResponse()

@@ -1612,7 +1612,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	api.PreServerShutdown = func() {
-		restInFlight.cancelRequestsAfterDelay()
+		restInFlight.startShutdown()
 		// Reject new export requests and signal in-flight exports to stop
 		// early, while the server can still serve other requests. The actual
 		// wait for export drain happens in ServerShutdown.
@@ -1623,7 +1623,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	api.ServerShutdown = func() {
 		appState.Logger.WithField("action", "rest_shutdown").
-			Infof("answered 503 to %d rest requests that had not responded %s after shutdown began",
+			Infof("answered 503 to %d rest requests arriving or still running %s after shutdown began",
 				restInFlight.unavailableResponses.Load(), restInFlightCancelDelay)
 
 		// leave memberlist first to announce node graceful departure

@@ -124,7 +124,7 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 			handler = makeAddMonitoring(appState.Metrics)(handler)
 		}
 		handler = addPreflight(handler, appState.ServerConfig.Config.CORS)
-		handler = addLiveAndReadyness(appState, handler)
+		handler = addLiveAndReadyness(appState, inFlight, handler)
 		handler = addHandleRoot(handler)
 		// Add client tracking middleware early in the chain to capture all requests
 		if telemeter != nil {
@@ -279,7 +279,7 @@ func addInjectHeadersIntoContext(next http.Handler) http.Handler {
 	})
 }
 
-func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
+func addLiveAndReadyness(state *state.State, inFlight *inFlightCancel, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.String() == "/v1/.well-known/live" {
 			w.WriteHeader(http.StatusOK)
@@ -287,6 +287,10 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 		}
 
 		if r.URL.String() == "/v1/.well-known/ready" {
+			if inFlight.shutdownStarted.Load() {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
 			code := http.StatusOK
 			// if this node is in maintenance mode, we want to return live but not ready
 			// so that kubernetes will allow this pod to run but not send traffic to it
