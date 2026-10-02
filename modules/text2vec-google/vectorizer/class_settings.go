@@ -13,7 +13,6 @@ package vectorizer
 
 import (
 	"fmt"
-	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -70,9 +69,11 @@ func MutableSettings(current, updated moduletools.ClassConfig) bool {
 var endpointSettings = []string{apiEndpointProperty, projectIDProperty, locationProperty}
 
 func onlyEndpointSettingsChanged(current, updated map[string]any) bool {
-	for _, key := range slices.Concat(slices.Collect(maps.Keys(current)), slices.Collect(maps.Keys(updated))) {
-		if !slices.Contains(endpointSettings, key) && !reflect.DeepEqual(current[key], updated[key]) {
-			return false
+	for _, settings := range []map[string]any{current, updated} {
+		for key := range settings {
+			if !slices.Contains(endpointSettings, key) && !reflect.DeepEqual(current[key], updated[key]) {
+				return false
+			}
 		}
 	}
 	return true
