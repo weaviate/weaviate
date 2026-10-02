@@ -17,6 +17,7 @@ import (
 	"runtime"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
