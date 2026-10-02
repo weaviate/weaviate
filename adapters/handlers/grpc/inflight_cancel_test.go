@@ -91,6 +91,17 @@ func TestInFlightCancelUnaryInterceptor(t *testing.T) {
 			wantHandlerCancelled: true,
 		},
 		{
+			name: "cancel during the call remaps the handler's error to Unavailable",
+			handler: func(ctx context.Context, ic *InFlightCancel, _ context.CancelFunc) (any, error) {
+				ic.Cancel()
+				_, err := waitForCancel(ctx)
+				return nil, err
+			},
+			wantCode:             codes.Unavailable,
+			wantCutShort:         1,
+			wantHandlerCancelled: true,
+		},
+		{
 			name:         "call arriving after cancel is refused without running its handler",
 			cancelBefore: true,
 			handler: func(ctx context.Context, _ *InFlightCancel, _ context.CancelFunc) (any, error) {
@@ -161,4 +172,16 @@ func TestInFlightCancelUnaryInterceptor(t *testing.T) {
 			assert.Equal(t, tc.wantCutShort, ic.CutShort(), "cut-short count")
 		})
 	}
+}
+
+// A call returning as the cancel fires must be counted before the interceptor returns.
+func TestInFlightCancelCountsCallReturningAsCancelFires(t *testing.T) {
+	ic := NewInFlightCancel()
+	_, err := ic.UnaryInterceptor()(context.Background(), nil, &grpc.UnaryServerInfo{},
+		func(ctx context.Context, _ any) (any, error) {
+			ic.Cancel()
+			return nil, nil
+		})
+	assert.Equal(t, codes.Unavailable, status.Code(err))
+	assert.Equal(t, int64(1), ic.CutShort())
 }
