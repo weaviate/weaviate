@@ -160,15 +160,16 @@ func WithPread(with bool) BucketOption {
 	}
 }
 
+// WithDynamicMemtableSizing takes bytes, not megabytes: the advisor holds bytes,
+// and a caller whose ceiling is under a megabyte has no way to say so otherwise.
 func WithDynamicMemtableSizing(
-	initialMB, maxMB, minActiveSeconds, maxActiveSeconds int,
+	initialBytes, maxBytes, minActiveSeconds, maxActiveSeconds int,
 ) BucketOption {
 	return func(b *Bucket) error {
-		mb := 1024 * 1024
 		cfg := memtableSizeAdvisorCfg{
-			initial:     initialMB * mb,
-			stepSize:    10 * mb,
-			maxSize:     maxMB * mb,
+			initial:     initialBytes,
+			stepSize:    10 * 1024 * 1024,
+			maxSize:     maxBytes,
 			minDuration: time.Duration(minActiveSeconds) * time.Second,
 			maxDuration: time.Duration(maxActiveSeconds) * time.Second,
 		}
