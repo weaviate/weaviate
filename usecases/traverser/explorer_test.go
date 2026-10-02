@@ -2815,6 +2815,10 @@ type fakeModulesProvider struct {
 	customC11yModule *fakeText2vecContextionaryModule
 }
 
+func (p *fakeModulesProvider) RerankFetchDepth(ctx context.Context, className string, pageEnd int) (int, error) {
+	return 0, nil
+}
+
 func (p *fakeModulesProvider) VectorFromInput(ctx context.Context, className, input, targetVector string) ([]float32, error) {
 	panic("not implemented")
 }

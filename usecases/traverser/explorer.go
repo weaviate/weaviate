@@ -40,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	uc "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/traverser/grouper"
 )
@@ -83,6 +84,7 @@ type ModulesProvider interface {
 	ListExploreAdditionalExtend(ctx context.Context, in []search.Result,
 		moduleParams map[string]interface{},
 		argumentModuleParams map[string]interface{}) ([]search.Result, error)
+	RerankFetchDepth(ctx context.Context, className string, pageEnd int) (int, error)
 	VectorFromInput(ctx context.Context, className, input, targetVector string) ([]float32, error)
 	MultiVectorFromInput(ctx context.Context, className, input, targetVector string) ([][]float32, error)
 }
@@ -180,8 +182,15 @@ func (e *Explorer) GetClass(ctx context.Context,
 		params.Pagination = &pagination
 	}
 
+	// A reranker that drops results needs more candidates than the page.
+	// rerankPage is the page the client asked for, or nil without over-fetch.
+	rerankPage, err := e.overfetchForRerank(ctx, &params, searchStartTime)
+	if err != nil {
+		return nil, err
+	}
+
 	if params.KeywordRanking != nil {
-		res, err := e.getClassKeywordBased(ctx, params)
+		res, err := e.getClassKeywordBased(ctx, params, rerankPage)
 		if err != nil {
 			return nil, err
 		}
@@ -189,7 +198,7 @@ func (e *Explorer) GetClass(ctx context.Context,
 	}
 
 	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
-		res, searchVector, err := e.getClassVectorSearch(ctx, params)
+		res, searchVector, err := e.getClassVectorSearch(ctx, params, rerankPage)
 		if err != nil {
 			return nil, err
 		}
@@ -198,7 +207,7 @@ func (e *Explorer) GetClass(ctx context.Context,
 
 	// Hybrid and plain list searches go through getClassList, which handles
 	// Group workarounds, ListExploreAdditionalExtend, and usage tracking.
-	res, err := e.getClassList(ctx, params)
+	res, err := e.getClassList(ctx, params, rerankPage)
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +228,184 @@ func (e *Explorer) applyBoostIfNeeded(res []search.Result, boost *filters.Boost,
 	return applyBoostScoring(res, boost)
 }
 
-func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
+// rerankPage is the page the client asked for, kept while the search fetches
+// more candidates for a reranker that drops results.
+type rerankPage struct {
+	offset int
+	limit  int
+	// searchStartTime is what the TTL filter of the response compares against.
+	searchStartTime time.Time
+}
+
+// overfetchForRerank widens the pagination to the depth the class's reranker
+// asks for and returns the page the client requested, which extendResults
+// applies after the rerank. The candidates reach at least the end of the
+// page, so a page past the depth fetches offset+limit of them.
+//
+// It returns nil when the query is not over-fetched:
+//   - boost and MMR fetch their own depth and cut to the page before the
+//     reranker runs
+//   - grouping changes what a result is, so a page of groups cannot be cut
+//     from reranked objects
+//   - autocut picks the candidates by the jumps in their scores, and more
+//     candidates would move the jump it cuts at
+//   - a search by distance has no page size
+func (e *Explorer) overfetchForRerank(ctx context.Context, params *dto.GetParams, searchStartTime time.Time,
+) (*rerankPage, error) {
+	if _, ok := params.AdditionalProperties.ModuleParams[modulecomponents.AdditionalPropertyRerank]; !ok || e.modulesProvider == nil {
+		return nil, nil
+	}
+	boostActive := params.Boost != nil && params.Boost.Weight > 0
+	mmrActive := params.Selection != nil && params.Selection.MMR != nil
+	if boostActive || mmrActive || params.GroupBy != nil || params.Group != nil {
+		return nil, nil
+	}
+	if params.Pagination == nil || params.Pagination.Autocut > 0 || params.Pagination.Offset < 0 {
+		return nil, nil
+	}
+	page := rerankPage{
+		offset: params.Pagination.Offset, limit: params.Pagination.Limit, searchStartTime: searchStartTime,
+	}
+	if page.limit == filters.LimitFlagNotSet {
+		// The same page a query without a reranker gets: the hybrid page
+		// is cut at QueryHybridMaximumResults, the others at the default.
+		page.limit = int(e.config.QueryDefaults.Limit)
+		if params.HybridSearch != nil {
+			page.limit = int(e.config.QueryHybridMaximumResults)
+		}
+	}
+	if page.limit <= 0 {
+		return nil, nil
+	}
+	// The store checks offset+limit against QueryMaximumResults. The
+	// candidates start at offset 0, so the page is checked here instead.
+	pageEnd := page.offset + page.limit
+	if pageEnd < page.limit || pageEnd > int(e.config.QueryMaximumResults) {
+		return nil, fmt.Errorf("query maximum results exceeded: the total limit calculated from the provided "+
+			"offset '%d' and limit '%d' exceeds the configured value for QUERY_MAXIMUM_RESULTS '%d'",
+			page.offset, page.limit, e.config.QueryMaximumResults)
+	}
+
+	depth, err := e.modulesProvider.RerankFetchDepth(ctx, params.ClassName, pageEnd)
+	if err != nil {
+		return nil, fmt.Errorf("explorer: get class: rerank fetch depth: %w", err)
+	}
+	if depth <= 0 {
+		return nil, nil
+	}
+
+	overfetch := *params.Pagination
+	overfetch.Limit = min(max(depth, pageEnd), int(e.config.QueryMaximumResults))
+	overfetch.Offset = 0
+	params.Pagination = &overfetch
+	return &page, nil
+}
+
+// queryProfileProperty is the additional property that carries the query
+// profile on the first result.
+const queryProfileProperty = "queryProfile"
+
+// extendResults runs the additional properties of the modules on the results.
+// extend is the provider call of the search path.
+//
+// With a rerankPage the reranker runs alone on all candidates. The results
+// that the response would drop anyway are removed, the page is cut, and only
+// then the other properties run. They must work on what the client gets: a
+// generative module would otherwise be called for candidates that are thrown
+// away, and a grouped answer would be built from them.
+func (e *Explorer) extendResults(ctx context.Context, res []search.Result, params dto.GetParams,
+	searchVector models.Vector, page *rerankPage,
+	extend func(res []search.Result, moduleParams map[string]interface{}) ([]search.Result, error),
+) ([]search.Result, error) {
+	moduleParams := params.AdditionalProperties.ModuleParams
+	if page == nil {
+		return extend(res, moduleParams)
+	}
+	const rerank = modulecomponents.AdditionalPropertyRerank
+
+	var queryProfile interface{}
+	if len(res) > 0 {
+		queryProfile = res[0].AdditionalProperties[queryProfileProperty]
+	}
+
+	res, err := extend(res, map[string]interface{}{rerank: moduleParams[rerank]})
+	if err != nil {
+		return nil, err
+	}
+	kept := make([]search.Result, 0, len(res))
+	for _, result := range res {
+		keep, err := e.keptInResponse(params, result, searchVector, page.searchStartTime)
+		if err != nil {
+			return nil, err
+		}
+		if keep {
+			kept = append(kept, result)
+		}
+	}
+	res = paginate(kept, page.offset, page.limit)
+	if len(res) == 0 {
+		return res, nil
+	}
+
+	// The reranker may have moved or dropped the result the profile was on.
+	if queryProfile != nil {
+		for i := range res {
+			delete(res[i].AdditionalProperties, queryProfileProperty)
+		}
+		if res[0].AdditionalProperties == nil {
+			res[0].AdditionalProperties = models.AdditionalProperties{}
+		}
+		res[0].AdditionalProperties[queryProfileProperty] = queryProfile
+	}
+
+	rest := make(map[string]interface{}, len(moduleParams))
+	for name, value := range moduleParams {
+		if name != rerank {
+			rest[name] = value
+		}
+	}
+	if len(rest) == 0 {
+		return res, nil
+	}
+	return extend(res, rest)
+}
+
+// keptInResponse reports whether the response will contain the result: the
+// TTL, certainty and distance filters of the response remove the others.
+func (e *Explorer) keptInResponse(params dto.GetParams, res search.Result, searchVector models.Vector,
+	searchStartTime time.Time,
+) (bool, error) {
+	keep, err := e.keepObjectsWithTTL(params, res, searchStartTime)
+	if err != nil {
+		return false, fmt.Errorf("object ttl filtering: %w", err)
+	}
+	return keep && (searchVector == nil || withinCertaintyAndDistance(params, res)), nil
+}
+
+// withinCertaintyAndDistance reports whether the result of a vector search
+// satisfies the certainty or distance the query asked for.
+func withinCertaintyAndDistance(params dto.GetParams, res search.Result) bool {
+	// Dist is between 0..2, we need to reduce to the user space of 0..1
+	normalizedResultDist := res.Dist / 2
+
+	certainty := ExtractCertaintyFromParams(params)
+	if 1-normalizedResultDist < float32(certainty) && 1-normalizedResultDist >= 0 {
+		// TODO: Clean this up. The >= check is so that this logic does not run
+		// non-cosine distance.
+		return false
+	}
+
+	if certainty == 0 {
+		distance, withDistance := ExtractDistanceFromParams(params)
+		if withDistance && (!floatcomp.InDelta(float64(res.Dist), distance, 1e-6) &&
+			float64(res.Dist) > distance) {
+			return false
+		}
+	}
+	return true
+}
+
+func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParams, page *rerankPage) ([]search.Result, error) {
 	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
 		return nil, errors.Errorf("conflict: both near<Media> and keyword-based (bm25) arguments present, choose one")
 	}
@@ -248,7 +434,10 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 	res = e.applyBoostIfNeeded(res, params.Boost, false)
 
 	if e.modulesProvider != nil {
-		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res, params.AdditionalProperties.ModuleParams, nil, params.ModuleParams)
+		res, err = e.extendResults(ctx, res, params, nil, page,
+			func(res []search.Result, moduleParams map[string]interface{}) ([]search.Result, error) {
+				return e.modulesProvider.GetExploreAdditionalExtend(ctx, res, moduleParams, nil, params.ModuleParams)
+			})
 		if err != nil {
 			return nil, fmt.Errorf("explorer: get class: extend: %w", err)
 		}
@@ -265,7 +454,7 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 }
 
 func (e *Explorer) getClassVectorSearch(ctx context.Context,
-	params dto.GetParams,
+	params dto.GetParams, page *rerankPage,
 ) ([]search.Result, models.Vector, error) {
 	targetVectors, err := e.targetFromParams(ctx, params)
 	if err != nil {
@@ -311,7 +500,7 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 		}
 	}
 
-	res, searchVectors, err := e.searchForTargets(ctx, params, targetVectors, nil)
+	res, searchVectors, err := e.searchForTargets(ctx, params, targetVectors, nil, page)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "explorer: get class: concurrentTargetVectorSearch")
 	}
@@ -382,11 +571,17 @@ func (e *Explorer) mmrFetchDepth(boost *filters.Boost, windowEnd int) int {
 // paginateResults returns the [offset:offset+limit] window of res; limit <= 0
 // means no upper bound.
 func (e *Explorer) paginateResults(res []search.Result, offset, limit int) []search.Result {
+	return paginate(res, offset, limit)
+}
+
+// paginate returns the window [offset, offset+limit) of res. A limit of 0 or
+// less means no upper bound.
+func paginate[T any](res []T, offset, limit int) []T {
 	if offset < 0 {
 		offset = 0
 	}
 	if offset >= len(res) {
-		return []search.Result{}
+		return []T{}
 	}
 	if limit <= 0 {
 		return res[offset:]
@@ -398,7 +593,9 @@ func (e *Explorer) paginateResults(res []search.Result, offset, limit int) []sea
 	return res[offset:end]
 }
 
-func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams *searchparams.NearVector) ([]search.Result, []models.Vector, error) {
+// searchForTargets runs the vector search. page is the rerank page of an
+// over-fetched query and nil for every other caller.
+func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams *searchparams.NearVector, page *rerankPage) ([]search.Result, []models.Vector, error) {
 	var err error
 	searchVectors := make([]models.Vector, len(targetVectors))
 	eg := enterrors.NewErrorGroupWrapper(e.logger)
@@ -470,8 +667,10 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 	// re-sort the final page on both the vector and the hybrid path.
 	mmrActive := params.Selection != nil && params.Selection.MMR != nil
 	if e.modulesProvider != nil && params.HybridSearch == nil && !mmrActive {
-		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
-			params.AdditionalProperties.ModuleParams, searchVectors[0], params.ModuleParams)
+		res, err = e.extendResults(ctx, res, params, searchVectors[0], page,
+			func(res []search.Result, moduleParams map[string]interface{}) ([]search.Result, error) {
+				return e.modulesProvider.GetExploreAdditionalExtend(ctx, res, moduleParams, searchVectors[0], params.ModuleParams)
+			})
 		if err != nil {
 			return nil, nil, fmt.Errorf("explorer: get class: extend: %w", err)
 		}
@@ -516,7 +715,7 @@ func (e *Explorer) CalculateTotalLimit(pagination *filters.Pagination) (int, err
 }
 
 func (e *Explorer) getClassList(ctx context.Context,
-	params dto.GetParams,
+	params dto.GetParams, page *rerankPage,
 ) ([]search.Result, error) {
 	// we will modify the params because of the workaround outlined below,
 	// however, we only want to track what the user actually set for the usage
@@ -569,8 +768,10 @@ func (e *Explorer) getClassList(ctx context.Context,
 	}
 
 	if e.modulesProvider != nil {
-		res, err = e.modulesProvider.ListExploreAdditionalExtend(ctx, res,
-			params.AdditionalProperties.ModuleParams, params.ModuleParams)
+		res, err = e.extendResults(ctx, res, params, nil, page,
+			func(res []search.Result, moduleParams map[string]interface{}) ([]search.Result, error) {
+				return e.modulesProvider.ListExploreAdditionalExtend(ctx, res, moduleParams, params.ModuleParams)
+			})
 		if err != nil {
 			return nil, fmt.Errorf("explorer: list class: extend: %w", err)
 		}
@@ -634,22 +835,8 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 		}
 
 		if searchVector != nil {
-			// Dist is between 0..2, we need to reduce to the user space of 0..1
-			normalizedResultDist := res.Dist / 2
-
-			certainty := ExtractCertaintyFromParams(params)
-			if 1-normalizedResultDist < float32(certainty) && 1-normalizedResultDist >= 0 {
-				// TODO: Clean this up. The >= check is so that this logic does not run
-				// non-cosine distance.
+			if !withinCertaintyAndDistance(params, res) {
 				continue
-			}
-
-			if certainty == 0 {
-				distance, withDistance := ExtractDistanceFromParams(params)
-				if withDistance && (!floatcomp.InDelta(float64(res.Dist), distance, 1e-6) &&
-					float64(res.Dist) > distance) {
-					continue
-				}
 			}
 
 			if params.AdditionalProperties.Certainty {
