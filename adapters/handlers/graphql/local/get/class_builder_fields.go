@@ -646,8 +646,7 @@ func extractProperties(className string, selections *ast.SelectionSet,
 	var additionalProps additional.Properties
 	additionalCheck := &additionalCheck{modulesProvider}
 
-	for _, selection := range selections.Selections {
-		field := selection.(*ast.Field)
+	for _, field := range common_filters.SelectedFields(selections, fragments) {
 		name := field.Name.Value
 		property := search.SelectProperty{Name: name}
 
