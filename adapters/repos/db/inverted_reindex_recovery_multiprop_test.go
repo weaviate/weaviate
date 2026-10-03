@@ -69,7 +69,7 @@ func computeMultiPropBaseline(t *testing.T, propNames []string, numObjects int) 
 	}
 
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	task := newTestTask(idx.logger, strategy)
+	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
 	require.NoError(t, task.RunOnShard(ctx, shard))
 	require.True(t, strategy.migrationCompleted)
 
@@ -106,22 +106,21 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 	}
 
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	task := newTestTask(idx.logger, strategy)
+	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
 
 	// Drive iteration + runtimePrepare so runtimeSwap's Phase 2a is next.
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-	rt, err := task.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	props, err := task.readPropsToReindex(rt)
-	require.NoError(t, err)
-	require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rt, props))
+	iterated, ok := task.migrationRecord(shard)
+	require.True(t, ok, "the rebuild must have left a record")
+	props := iterated.Subject().Properties()
+	require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, props))
 
 	// Panic prefix lets the recover() handler distinguish THE expected
 	// fault panic from any unrelated panic inside runtimeSwap.
 	const haltPanicPrefix = "mid-loop halt: simulated crash"
 	prodSwap := task.processOneSwapProp
-	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, propName string) (*lsmkv.Bucket, error) {
-		bucket, err := prodSwap(ctx, store, rt, propIdx, propName)
+	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store, propIdx int, propName string) (*lsmkv.Bucket, error) {
+		bucket, err := prodSwap(ctx, store, propIdx, propName)
 		if err != nil {
 			return nil, err
 		}
@@ -144,7 +143,7 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 				panicValue = r
 			}
 		}()
-		swapErr = task.runtimeSwap(ctx, task.logger, shard, rt, props)
+		swapErr = task.runtimeSwap(ctx, task.logger, shard, props)
 		swapReturned = true
 	}()
 
@@ -157,14 +156,18 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 		"recovered panic not from hook (want prefix %q; got %T %v)",
 		haltPanicPrefix, panicValue, panicValue)
 
-	swappedCount := 0
+	swapped, ok := task.migrationRecord(shard)
+	require.True(t, ok, "the flip decision must have left a record")
+	require.Equal(t, MigrationStateSwapped, swapped.State())
+
+	flippedCount := 0
 	for _, p := range props {
-		if rt.IsSwappedProp(p) {
-			swappedCount++
+		if shard.store.Bucket(task.ingestBucketName(p)) == nil {
+			flippedCount++
 		}
 	}
-	assert.GreaterOrEqualf(t, swappedCount, haltAfter, "≥%d markSwappedProp (got %d)", haltAfter, swappedCount)
-	assert.Lessf(t, swappedCount, len(propNames), "halt didn't fire (got %d of %d)", swappedCount, len(propNames))
+	assert.GreaterOrEqualf(t, flippedCount, haltAfter, "≥%d props flipped (got %d)", haltAfter, flippedCount)
+	assert.Lessf(t, flippedCount, len(propNames), "halt didn't fire (got %d of %d)", flippedCount, len(propNames))
 
 	shardName := shard.Name()
 	shardLSMPath := shard.pathLSM()
@@ -177,7 +180,7 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 	simulateProcessRestartBucketCleanup(t, shardLSMPath)
 
 	strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	task2 := newTestTask(idx.logger, strategy2)
+	task2 := newTestTask(idx.logger, strategy2, testMigrationUnitFor(idx, shardName))
 	idx.shardReindexer = &testShardReindexer{task: task2}
 
 	shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
@@ -186,9 +189,6 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 	defer shard2.Shutdown(ctx)
 	idx.shards.Store(shardName, shd2)
 
-	// Relaunch is a no-op: FinalizeCompletedMigrations already completed
-	// the swap during shard init and removed the tracker; convergence is
-	// checked on bucket content below.
 	require.NoError(t, task2.RunOnShard(ctx, shard2), "recovery relaunch")
 
 	for _, propName := range propNames {
@@ -298,7 +298,7 @@ func runCrossReplicaMigration(t *testing.T, propNames []string, className string
 
 	// Run the full migration pipeline.
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	task := newTestTask(idx.logger, strategy)
+	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
 	require.NoError(t, task.RunOnShard(ctx, shard),
 		"cross-replica migration (reverse=%v)", reverse)
 
@@ -354,13 +354,7 @@ func resolveDocIDFingerprintToUUIDs(t *testing.T, logger logrus.FieldLogger,
 // catches a bug where one prop's posting list bleeds into another.
 func makeMultiPropConvergenceObjects(t *testing.T, n int, className string, propNames []string) []*storobj.Object {
 	t.Helper()
-	tokens := []string{
-		"alpha", "bravo", "charlie", "delta", "echo",
-		"foxtrot", "golf", "hotel", "india", "juliett",
-		"kilo", "lima", "mike", "november", "oscar",
-		"papa", "quebec", "romeo", "sierra", "tango",
-		"uniform", "victor", "whiskey", "xray", "yankee",
-	}
+	tokens := convergenceTokens
 	out := make([]*storobj.Object, n)
 	for i := 0; i < n; i++ {
 		props := map[string]interface{}{}

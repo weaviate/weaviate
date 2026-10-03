@@ -116,6 +116,11 @@ func (s *Raft) Ready() bool {
 	return s.store.Ready()
 }
 
+// FSMHasCaughtUp reports only that the log held at store open was replayed.
+func (s *Raft) FSMHasCaughtUp() bool {
+	return s.store.FSMHasCaughtUp()
+}
+
 func (s *Raft) SchemaReader() schema.SchemaReader {
 	return s.store.SchemaReader()
 }

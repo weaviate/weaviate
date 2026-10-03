@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -117,13 +116,13 @@ func TestTheClusterPassWalksARealLoadedShard(t *testing.T) {
 	// decided, undecided sibling or not.
 	require.NoError(t, detectorStore.Put(NewMigrationRecordMerged(
 		testMigrationSubject(43, StrategyCodeEnableFilterable, "title"))))
-	plantUnreadableRecord(t, detectorStore.Dir())
+	unreadable := plantUnreadableRecord(t, detectorStore.Dir())
 	require.NoError(t, detectorStore.Load())
 	require.True(t, detectorStore.HasUndecided(), "fixture: the record it could read is undecided")
 	db.migrationCluster.ReconcileLoaded(ctx)
 	require.Zero(t, leaderQueries,
 		"a shard this build cannot read every record of must not open the leader-query gate")
-	require.NoError(t, os.Remove(filepath.Join(detectorStore.Dir(), "99_enable_searchable.json")))
+	require.NoError(t, os.Remove(unreadable))
 	require.NoError(t, detectorStore.Load())
 	hook.Reset()
 

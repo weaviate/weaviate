@@ -33,7 +33,7 @@ import (
 // TestParallelEnableFilterableAndRangeable mirrors the frontend repro on
 // https://github.com/weaviate/weaviate/issues/10675: parallel enable-filterable + enable-rangeFilters
 // on the same numeric property both end up FAILED with
-// "progress.mig.000000001: no such file or directory".
+// a missing per-migration checkpoint.
 //
 // Root cause. Once a property has IndexFilterable=false and
 // IndexRangeFilters=false (e.g. after DELETE filterable + DELETE
@@ -44,8 +44,8 @@ import (
 // so the RAFT-applied schema carries the in-progress migration's flag as
 // false. On apply, Migrator.UpdateProperty → Shard.updatePropertyBuckets
 // cleans the migration dirs for any index whose flag is now false —
-// which removes the in-flight migration's working directory and the
-// next markProgress fails with ENOENT.
+// which removes the in-flight migration's working directory out from
+// under it.
 //
 // The fix gates this at submit time: any two reindex migrations on the
 // same (collection, property) tuple conflict and the second submit gets

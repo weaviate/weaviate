@@ -63,7 +63,7 @@ func (r *migrationClusterReconciler) samplers() (unresolved, shuttingDown *logru
 }
 
 // SetTaskSources and the periodic pass run on different goroutines, so the
-// sources are guarded; periodicOnce starts the pass on the first call only.
+// sources are guarded.
 func (r *migrationClusterReconciler) SetTaskSources(ctx context.Context, source MigrationLocalTaskSource,
 	cluster MigrationClusterTaskSource,
 ) {

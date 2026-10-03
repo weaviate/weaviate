@@ -18,9 +18,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// shardMigrations is one shard's side of migration-record reconciliation.
-// Detached from its index, or before the cutover installs real answers, it
-// falls back to safe defaults: no local task list, and every seal granted.
+// A shard detached from its index falls back to safe defaults rather than failing.
 type shardMigrations struct {
 	shard *Shard
 }
@@ -32,6 +30,13 @@ func (m shardMigrations) ReconcileWithClusterTasks(ctx context.Context, tasks []
 		return
 	}
 	m.liveReconciler().ReconcileWithClusterTasks(ctx, tasks)
+}
+
+func (m shardMigrations) DiscardTask(ctx context.Context, task *distributedtask.Task) error {
+	if m.shard.migrationRecords == nil {
+		return nil
+	}
+	return m.liveReconciler().DiscardTask(ctx, task)
 }
 
 func (m shardMigrations) RetireSuperseded(ctx context.Context) {

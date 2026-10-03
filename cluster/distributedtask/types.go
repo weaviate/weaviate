@@ -209,10 +209,9 @@ type ConflictDetector interface {
 //
 // Motivating failure mode: a `change-tokenization` reindex spawns
 // separate per-shard sub-tasks for the searchable and filterable
-// indexes. A DELETE `/index/searchable` arriving mid-flight applies
-// `cleanStaleMigrationDirs("<prop>", "searchable")`, which wipes the
-// `searchable_retokenize_<prop>_<gen>/` working dir under the still-
-// running sub-task. That sub-unit FAILs; the sibling filterable
+// indexes. A DELETE `/index/searchable` arriving mid-flight sweeps the
+// property's stale searchable sidecars, which wipes the sub-task's working
+// copy under the still-running sub-task. That sub-unit FAILs; the sibling filterable
 // sub-unit keeps going and commits its local bucket swap; the
 // per-shard ack barrier sees mixed acks → task FAILED →
 // `flipSemanticMigrationSchema` skipped → schema stays at OLD
@@ -492,8 +491,7 @@ func (t TaskStatus) IsTerminal() bool {
 // The exact negation of [TaskStatus.IsTerminal], so a status this build
 // does not recognize counts as in flight: reading it as done would admit
 // a second migration onto a property a newer node is still migrating, and
-// let the orphan audit and TTL sweep delete live state. See
-// docs/runtime-reindex.md §4.2.
+// let the TTL sweep delete live state. See docs/runtime-reindex.md §4.2.
 func (t TaskStatus) IsActive() bool {
 	return !t.IsTerminal()
 }
@@ -587,7 +585,7 @@ type Task struct {
 
 	// PostCompletionAcks records per-node confirmations that the node's
 	// SWAP phase (the second half of the split OnGroupCompleted —
-	// per-shard SwapBucketPointer tight loop + post-atomic tidy +
+	// per-shard SwapBucketPointer tight loop + post-atomic cleanup +
 	// per-strategy OnMigrationComplete) completed successfully. Keys are
 	// node IDs. Populated only after the task transitions to SWAPPING
 	// and only by the [Scheduler] tick firing
