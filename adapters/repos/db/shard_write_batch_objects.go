@@ -142,11 +142,14 @@ func (ob *objectsBatcher) storeInObjectStore(ctx context.Context) {
 	ob.shard.Metrics().ObjectStore(beforeObjectStore)
 }
 
+// errBatchWorkerPanicked is the error a batch reports for an object whose
+// worker panicked. The error group logs the recovered panic and its stack.
+var errBatchWorkerPanicked = errors.New("panicked while writing the object, see the node log")
+
 func (ob *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 	batch []*storobj.Object,
 ) []error {
 	errs := make([]error, len(batch))
-	errLock := &sync.Mutex{}
 
 	// if the context is expired fail all
 	if err := ctx.Err(); err != nil {
@@ -167,17 +170,17 @@ func (ob *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 		object := object
 		index := j
 		f := func() error {
-			if err := ob.storeObjectOfBatchInLSM(ctx, class, index, object); err != nil {
-				errLock.Lock()
-				errs[index] = err
-				errLock.Unlock()
-			}
+			// Each goroutine owns errs[index]. errBatchWorkerPanicked stays there
+			// when storeObjectOfBatchInLSM panics, so the object is not reported stored.
+			errs[index] = errBatchWorkerPanicked
+			errs[index] = ob.storeObjectOfBatchInLSM(ctx, class, index, object)
 			return nil
 		}
 		eg.Go(f)
 
 	}
-	_ = eg.Wait() // no errors can happen here, this is just for concurrency control
+	// f returns nil, so Wait's only error is a recovered panic, already in errs.
+	_ = eg.Wait()
 
 	return errs
 }

@@ -73,7 +73,6 @@ func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context,
 	defer b.shard.Metrics().BatchDelete(before, "shard_delete_all")
 
 	result := make(objects.BatchSimpleObjects, len(batch))
-	objLock := &sync.Mutex{}
 
 	// if the context is expired fail all
 	if err := ctx.Err(); err != nil {
@@ -96,19 +95,18 @@ outer:
 		}
 
 		f := func() error {
-			// perform delete
-			obj := b.deleteObjectOfBatchInLSM(ctx, uuid, deletionTime, dryRun)
-			objLock.Lock()
-			result[i] = obj
-			objLock.Unlock()
+			// Each goroutine owns result[i]. errBatchWorkerPanicked stays there
+			// when deleteObjectOfBatchInLSM panics, so the object is not reported deleted.
+			result[i] = objects.BatchSimpleObject{UUID: uuid, Err: errBatchWorkerPanicked}
+			result[i] = b.deleteObjectOfBatchInLSM(ctx, uuid, deletionTime, dryRun)
 			return nil
 		}
 		eg.Go(f, i, uuid)
 		lastDeleted = i
 
 	}
-	// safe to ignore error, as the internal routines never return an error
-	eg.Wait()
+	// f returns nil, so Wait's only error is a recovered panic, already in result.
+	_ = eg.Wait()
 
 	ctxErr := ctx.Err()
 	for i, count := lastDeleted+1, len(batch); i < count; i++ {
