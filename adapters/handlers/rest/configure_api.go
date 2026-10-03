@@ -60,7 +60,6 @@ import (
 	clusterapigrpc "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
-	rest_namespaces "github.com/weaviate/weaviate/adapters/handlers/rest/namespaces"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	replicationHandlers "github.com/weaviate/weaviate/adapters/handlers/rest/replication"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/restcompat"
@@ -170,6 +169,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	exportusecase "github.com/weaviate/weaviate/usecases/export"
+	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -184,6 +184,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/telemetry/opentelemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
+	wlnshandlers "github.com/weaviate/weaviate/wl/namespaces/handlers"
+	"github.com/weaviate/weaviate/wl/selfrecovery"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -364,6 +366,15 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.Metrics = promMetrics
 	}
 
+	appState.License = &appState.ServerConfig.Config.License
+	license.RegisterMetrics(metricsRegisterer, *appState.License)
+	licenseLogFields := logrus.Fields{"action": "license", "edition": appState.License.Edition()}
+	if appState.License.Edition() == license.EditionEnterprise {
+		licenseLogFields["status"] = appState.License.Status
+		licenseLogFields["license_id"] = appState.License.LicenseID
+	}
+	appState.Logger.WithFields(licenseLogFields).Info("license state")
+
 	// TODO: configure http transport for efficient intra-cluster comm
 	remoteIndexClient := clients.NewRemoteIndex(appState.ClusterHttpClient)
 	remoteNodesClient := clients.NewRemoteNode(appState.ClusterHttpClient)
@@ -540,6 +551,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		AsyncIndexingEnabled:          appState.ServerConfig.Config.AsyncIndexingEnabled,
 		OperationalMode:               appState.ServerConfig.Config.OperationalMode,
 		DisableDimensionMetrics:       appState.ServerConfig.Config.DisableDimensionMetrics,
+		WeaviateLicense:               appState.ServerConfig.Config.WeaviateLicense,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil, appState.NamespacesController) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -649,6 +661,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		MetadataOnlyVoters:          appState.ServerConfig.Config.Raft.MetadataOnlyVoters,
 		EnableOneNodeRecovery:       appState.ServerConfig.Config.Raft.EnableOneNodeRecovery,
 		ForceOneNodeRecovery:        appState.ServerConfig.Config.Raft.ForceOneNodeRecovery,
+		SelfRecoveryEnabled:         appState.ServerConfig.Config.Replication.SelfRecoveryEnabled,
+		WipedJoinerBarrierTimeout:   appState.ServerConfig.Config.Replication.SelfRecoveryBarrierTimeout,
 		DB:                          nil,
 		Parser:                      schemaParser,
 		NodeNameToPortMap:           server2port,
@@ -732,6 +746,36 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		return nil
 	}
 
+	// Wired after Cluster (Raft dep) and before WaitForStartup so schema-replay shard-init can hand off missing shards.
+	selfRecoveryOrch := selfrecovery.New(selfrecovery.Config{
+		Raft:                   appState.ClusterService.Raft,
+		Schema:                 selfRecoverySchemaReader{r: appState.ClusterService.SchemaReader()},
+		PathResolver:           selfRecoveryDBPathResolver{db: appState.DB, root: dataPath},
+		ClientFactory:          remoteClientFactory,
+		NodeSelector:           nodeSelector,
+		NodeName:               nodeName,
+		Enabled:                appState.ServerConfig.Config.Replication.SelfRecoveryEnabled,
+		Licensed:               appState.ServerConfig.Config.WeaviateLicense,
+		Concurrency:            appState.ServerConfig.Config.Replication.SelfRecoveryConcurrency,
+		MaintenanceModeEnabled: appState.Cluster.MaintenanceModeEnabledForLocalhost,
+		OnRecoveryComplete:     appState.DB.LoadLocalShard,
+		RootDataPath:           dataPath,
+		Logger:                 appState.Logger,
+		Registerer:             prometheus.DefaultRegisterer,
+	})
+	appState.DB.SetSelfRecoveryOrchestrator(selfRecoveryOrch)
+	// Expose debug endpoints only when the feature is on.
+	if appState.ServerConfig.Config.Replication.SelfRecoveryEnabled {
+		setupSelfRecoveryHandlers(appState, selfRecoveryOrch)
+		setupRaftDebugHandlers(appState, appState.ClusterService.Raft)
+	}
+	// One-shot reclaim of *.recovering/ leftovers from a downgrade.
+	if removed, err := selfRecoveryOrch.CleanupOrphanRecoveryDirs(dataPath); err != nil {
+		appState.Logger.Warnf("self-recovery orphan cleanup failed: %v", err)
+	} else if len(removed) > 0 {
+		appState.Logger.WithField("count", len(removed)).Info("self-recovery: removed orphan recovery dirs")
+	}
+
 	executor := schema.NewExecutor(migrator,
 		appState.ClusterService.SchemaReader(),
 		appState.Logger, restoreClassDirWithAudit,
@@ -766,6 +810,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		collectionRetrievalStrategyConfigFlag,
 		appState.NamespacesController,
 		dropVectorEnqueuer,
+		appState.NamespaceQualifier,
 	)
 	if err != nil {
 		appState.Logger.
@@ -880,7 +925,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.Logger, prometheus.DefaultRegisterer)
 	batchManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		schemaManager, appState.ServerConfig, appState.Logger,
-		appState.Authorizer, appState.Metrics, appState.AutoSchemaManager)
+		appState.Authorizer, appState.Metrics, appState.AutoSchemaManager,
+		appState.NamespaceQualifier)
 	appState.BatchManager = batchManager
 
 	err = migrator.AdjustFilterablePropSettings(ctx)
@@ -1463,15 +1509,18 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	remoteDbUsers := clients.NewRemoteUser(appState.ClusterHttpClient, appState.Cluster)
 	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.APIKey.Dynamic, appState.AuthzController, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.Cluster, appState.ServerConfig.Config.Namespaces.Enabled, appState.NamespacesController, appState.Logger)
-	rest_namespaces.SetupHandlers(appState.ServerConfig.Config.Namespaces.Enabled, api, appState.ClusterService.Raft, appState.Authorizer)
+	setupNamespaceHandlers(api, namespaceModeFor(appState.ServerConfig.Config), func(api *operations.WeaviateAPI) {
+		wlnshandlers.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer)
+	})
 
-	setupSchemaHandlers(api, appState.SchemaManager, appState.Authorizer, appState.Metrics, appState.Logger, appState.ClusterService.Raft, appState.ReindexSubmitLocks, appState.ServerConfig.Config.Namespaces.Enabled)
+	setupSchemaHandlers(api, appState.SchemaManager, appState.Authorizer, appState.Metrics, appState.Logger, appState.ClusterService.Raft, appState.ReindexSubmitLocks, appState.NamespaceQualifier)
 	setupIndexesHandlers(api, appState)
-	setupTokenizeHandlers(api, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.Logger)
+	setupTokenizeHandlers(api, appState.SchemaManager, appState.NamespaceQualifier, appState.Logger)
 	setupAliasesHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.SchemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.DB, appState.Modules,
-		objects.NewMetrics(appState.Metrics), appState.MemWatch, appState.AutoSchemaManager)
+		objects.NewMetrics(appState.Metrics), appState.MemWatch, appState.AutoSchemaManager,
+		appState.NamespaceQualifier)
 	setupObjectHandlers(api, objectsManager, appState.ServerConfig.Config, appState.Logger,
 		appState.Modules, appState.Metrics)
 	setupObjectBatchHandlers(api, appState.BatchManager, appState.Metrics, appState.Logger)
@@ -1479,7 +1528,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.ServerConfig.Config.Namespaces.Enabled, appState.Metrics, appState.Logger)
 	setupSearchHandlers(api, appState)
 	setupMiscHandlers(api, appState.ServerConfig, appState.Modules,
-		appState.Metrics, appState.Logger)
+		appState.License, appState.Metrics, appState.Logger)
 	setupClassificationHandlers(api, classifier, appState.ServerConfig.Config.Namespaces.Enabled, appState.Metrics, appState.Logger)
 	backupScheduler := startBackupScheduler(appState)
 	// Lets a DELETE landing on a non-coordinator cancel the create via abort fan-out.
@@ -1774,6 +1823,9 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	// classifier's nsExister, so the controller must be initialised
 	// before this call.
 	appState.NamespacesController = usecasesNamespaces.NewController(logger)
+	namespaceMode := namespaceModeFor(serverConfig.Config)
+	appState.NamespaceQualifier = namespaceQualifier(namespaceMode)
+	logUnlicensedNamespaces(logger, namespaceMode)
 	appState.OIDC = configureOIDC(appState)
 	appState.APIKey = configureAPIKey(appState)
 	appState.APIKeyRemote = apikey.NewRemoteApiKey(appState.APIKey)

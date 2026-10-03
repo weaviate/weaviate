@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // newTestHandlerWithRealVectorConfigParser mirrors newTestHandler but wires
@@ -44,7 +45,7 @@ func newTestHandlerWithRealVectorConfigParser(t *testing.T) *Handler {
 	handler, err := NewHandler(
 		schemaManager, schemaManager, schemaManager, &fakeDB{}, fakeValidator, logger, mocks.NewMockAuthorizer(),
 		&cfg.SchemaHandlerConfig, cfg, vectorindex.ParseAndValidateConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil, nil, nil)
+		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil, nil, nil, namespacing.Disabled)
 	require.NoError(t, err)
 	handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 	return &handler

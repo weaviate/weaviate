@@ -25,6 +25,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/queryadmission"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -64,6 +65,7 @@ type Service struct {
 	config               *config.Config
 	authorizer           authorization.Authorizer
 	logger               logrus.FieldLogger
+	qualifier            namespacing.Qualifier
 
 	authenticator      *auth.Handler
 	batchHandler       batch.Batcher
@@ -79,7 +81,7 @@ func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *sta
 		state.Logger,
 		authenticator,
 		state.SchemaManager,
-		state.ServerConfig.Config.Namespaces.Enabled,
+		state.NamespaceQualifier,
 	)
 	batchStreamHandler, batchDrain := batch.Start(
 		authenticator,
@@ -89,7 +91,7 @@ func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *sta
 		prometheus.DefaultRegisterer,
 		state.ServerConfig.Config.BatchStream.Workers(),
 		state.Logger,
-		state.ServerConfig.Config.Namespaces.Enabled,
+		state.NamespaceQualifier,
 		batch.WithStreamConfig(state.ServerConfig.Config.BatchStream),
 	)
 	return &Service{
@@ -101,6 +103,7 @@ func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *sta
 		config:               &state.ServerConfig.Config,
 		logger:               state.Logger,
 		authorizer:           state.Authorizer,
+		qualifier:            state.NamespaceQualifier,
 		authenticator:        authenticator,
 		batchHandler:         batchHandler,
 		batchStreamHandler:   batchStreamHandler,
@@ -137,14 +140,14 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (repl
 	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
-	if req.Collection, _, err = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection); err != nil {
+	if req.Collection, _, err = namespacing.Resolve(principal, s.schemaManager, s.qualifier, req.Collection); err != nil {
 		return nil, err
 	}
 
 	getClass := s.classGetterWithAuthzFunc(ctx, principal, req.Tenant)
 	parser := NewAggregateParser(
 		getClass,
-		s.config.Namespaces.Enabled,
+		s.qualifier,
 		principal,
 	)
 
@@ -195,6 +198,7 @@ func (s *Service) TenantsGet(ctx context.Context, req *pb.TenantsGetRequest) (re
 }
 
 func (s *Service) BatchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (*pb.BatchDeleteReply, error) {
+	batch.CountConsistencyLevel(monitoring.ConsistencyLevelWrite, req.ConsistencyLevel)
 	var result *pb.BatchDeleteReply
 	var errInner error
 
@@ -223,7 +227,7 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 		tenant = *req.Tenant
 	}
 
-	if req.Collection, _, err = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection); err != nil {
+	if req.Collection, _, err = namespacing.Resolve(principal, s.schemaManager, s.qualifier, req.Collection); err != nil {
 		return nil, err
 	}
 
@@ -231,7 +235,7 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 		return nil, err
 	}
 
-	params, err := batchDeleteParamsFromProto(req, s.classGetterWithAuthzFunc(ctx, principal, tenant), s.config.Namespaces.Enabled, principal)
+	params, err := batchDeleteParamsFromProto(req, s.classGetterWithAuthzFunc(ctx, principal, tenant), s.qualifier, principal)
 	if err != nil {
 		return nil, fmt.Errorf("batch delete params: %w", err)
 	}
@@ -255,6 +259,7 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 //
 // It is intended to be used in isolation and therefore is not dependent on BatchSend/BatchStream.
 func (s *Service) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+	batch.CountConsistencyLevel(monitoring.ConsistencyLevelWrite, req.ConsistencyLevel)
 	var result *pb.BatchObjectsReply
 	var errInner error
 
@@ -277,6 +282,7 @@ func (s *Service) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 //
 // It is intended to be used in isolation and therefore is not dependent on BatchSend/BatchStream.
 func (s *Service) BatchReferences(ctx context.Context, req *pb.BatchReferencesRequest) (*pb.BatchReferencesReply, error) {
+	batch.CountConsistencyLevel(monitoring.ConsistencyLevelWrite, req.ConsistencyLevel)
 	var result *pb.BatchReferencesReply
 	var errInner error
 
@@ -310,6 +316,7 @@ func (s *Service) BatchStream(stream pb.Weaviate_BatchStreamServer) error {
 }
 
 func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
+	batch.CountConsistencyLevel(monitoring.ConsistencyLevelRead, req.ConsistencyLevel)
 	var result *pb.SearchReply
 	var errInner error
 
@@ -348,7 +355,7 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (reply *pb.
 	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
-	if req.Collection, _, err = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection); err != nil {
+	if req.Collection, _, err = namespacing.Resolve(principal, s.schemaManager, s.qualifier, req.Collection); err != nil {
 		return nil, err
 	}
 
@@ -357,7 +364,7 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (reply *pb.
 		req.Uses_127Api,
 		getClass,
 		principal,
-		s.config.Namespaces.Enabled,
+		s.qualifier,
 	)
 	replier := NewReplier(
 		req.Uses_127Api,

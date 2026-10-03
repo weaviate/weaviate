@@ -32,11 +32,11 @@ import (
 func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Principal,
 	className string, merge bool, newProps ...*models.Property,
 ) (*models.Class, uint64, error) {
-	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	className, err := namespacing.QualifyClass(principal, h.qualifier, className)
 	if err != nil {
 		return nil, 0, err
 	}
-	if err := namespacing.QualifyPropertyDataTypes(principal, h.config.Namespaces.Enabled, className, newProps); err != nil {
+	if err := namespacing.QualifyPropertyDataTypes(principal, h.qualifier, className, newProps); err != nil {
 		return nil, 0, err
 	}
 
@@ -127,7 +127,7 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *models.Principal,
 	className, propertyName, indexName string,
 ) error {
-	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	className, err := namespacing.QualifyClass(principal, h.qualifier, className)
 	if err != nil {
 		return err
 	}
@@ -250,7 +250,7 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.Principal,
 	className, vectorIndexName string,
 ) error {
-	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	className, err := namespacing.QualifyClass(principal, h.qualifier, className)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrValidation, err)
 	}
@@ -331,7 +331,7 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 func (h *Handler) DeleteClassProperty(ctx context.Context, principal *models.Principal,
 	class string, property string,
 ) error {
-	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+	class, err := namespacing.QualifyClass(principal, h.qualifier, class)
 	if err != nil {
 		return err
 	}

@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 )
 
@@ -69,6 +70,12 @@ func TestErrPayloadFromSingleErr(t *testing.T) {
 			err:       fmt.Errorf("updating db: https:Articles: cannot init shard: %w", enterrors.ErrNotEnoughMappings),
 			want:      "updating db: Articles: cannot init shard: not enough memory mappings (see https://docs.weaviate.io/e/core-mem001)",
 		},
+		{
+			name:      "license refusal survives stripping for a namespace named after a word in it",
+			principal: &models.Principal{Username: "u", Namespace: "key"},
+			err:       license.Required("namespaces"),
+			want:      license.Required("namespaces").Error(),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -99,6 +106,7 @@ func TestHTTPStatusForNamespaceErr(t *testing.T) {
 		{name: "collection-suspended → 422", err: namespaces.ErrCollectionSuspended, wantStatus: http.StatusUnprocessableEntity, wantOK: true},
 		{name: "wrapped suspended still classifies", err: fmt.Errorf("apply: %w", namespaces.ErrNamespaceSuspended), wantStatus: http.StatusUnprocessableEntity, wantOK: true},
 		{name: "resuming → 503", err: namespaces.ErrNamespaceResuming, wantStatus: http.StatusServiceUnavailable, wantOK: true},
+		{name: "wrapped license refusal → 403", err: fmt.Errorf("resolve: %w", license.Required("namespaces")), wantStatus: http.StatusForbidden, wantOK: true},
 		{name: "invalid-state-transition → 422", err: namespaces.ErrInvalidStateTransition, wantStatus: http.StatusUnprocessableEntity, wantOK: true},
 		{name: "wrapped invalid-state-transition still classifies", err: fmt.Errorf("apply: %w", namespaces.ErrInvalidStateTransition), wantStatus: http.StatusUnprocessableEntity, wantOK: true},
 		{name: "mt-disabled is not in the family", err: schema.ErrMTDisabled, wantStatus: 0, wantOK: false},

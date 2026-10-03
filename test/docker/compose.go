@@ -109,6 +109,9 @@ const (
 	Ref2VecCentroid = "ref2vec-centroid"
 )
 
+// TestWeaviateLicenseKey is a well-formed test key; Weaviate only form-checks it.
+const TestWeaviateLicenseKey = "wv8.lic_01ARZ3NDEKTSV4RRFFQ69G5FAV.AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+
 type Compose struct {
 	netOctet                    int // second octet of this cluster's subnet, set in Start
 	enableModules               []string
@@ -131,6 +134,7 @@ type Compose struct {
 	withQnATransformers         bool
 	withWeaviateExposeGRPCPort  bool
 	withWeaviateExposeDebugPort bool
+	withWeaviateTmpfsData       bool
 	withSecondWeaviate          bool
 	withWeaviateCluster         bool
 	withWeaviateClusterSize     int
@@ -145,6 +149,8 @@ type Compose struct {
 	weaviateAdminlistReadOnlyUsers []string
 	withWeaviateDbUsers            bool
 	withWeaviateNamespaces         bool
+	withLicenseKeyFile             bool
+	licenseKey                     string
 	withWeaviateRbac               bool
 	weaviateRbacRoots              []string
 	weaviateRbacRootGroups         []string
@@ -603,9 +609,23 @@ func (d *Compose) WithMCPConfigFile(hostPath, containerPath string) *Compose {
 	return d
 }
 
+// WithWeaviateLicense sets LICENSE_KEY so Weaviate-licensed (wl/) features start.
+func (d *Compose) WithWeaviateLicense() *Compose {
+	return d.WithWeaviateEnv("LICENSE_KEY", TestWeaviateLicenseKey)
+}
+
 func (d *Compose) WithWeaviateWithDebugPort() *Compose {
-	d.With1NodeCluster()
+	// Default to 1 node only if no size was set, else this clobbers WithWeaviateCluster(N).
+	if !d.withWeaviateCluster {
+		d.With1NodeCluster()
+	}
 	d.withWeaviateExposeDebugPort = true
+	return d
+}
+
+// WithWeaviateTmpfsData mounts /data as tmpfs (wiped on stop): rm-while-running races open-fd writes that recreate files before SIGKILL.
+func (d *Compose) WithWeaviateTmpfsData() *Compose {
+	d.withWeaviateTmpfsData = true
 	return d
 }
 
@@ -720,10 +740,35 @@ func (d *Compose) WithDbUsers() *Compose {
 // disables GraphQL, which Config.Validate requires whenever namespaces are on.
 // Config.Validate also requires RBAC on namespace-enabled clusters, so callers
 // that need a bootable NS cluster must pair this with WithRBAC()/WithRbacRoots().
-// This helper does not auto-enable RBAC.
+// This helper does not auto-enable RBAC. Each node gets the key in
+// WEAVIATE_LICENSE_KEY as LICENSE_KEY unless the test sets its own, and Start
+// fails if WEAVIATE_LICENSE_KEY is unset.
 func (d *Compose) WithNamespaces() *Compose {
 	d.withWeaviateNamespaces = true
 	return d
+}
+
+// WithLicenseKeyFile gives each node the key in WEAVIATE_LICENSE_KEY through
+// LICENSE_KEY_FILE instead of LICENSE_KEY. SetLicenseKeyFileAt replaces the key a node reads
+// when it next restarts.
+func (d *Compose) WithLicenseKeyFile() *Compose {
+	d.withLicenseKeyFile = true
+	d.weaviateEnvs["LICENSE_KEY_FILE"] = licenseKeyFilePath
+	return d
+}
+
+// containerFiles returns the files startWeaviate copies into a node. The
+// license key file gets a new reader per call, because testcontainers drains
+// a reader on the first copy and a retried or second node would get no key.
+func (d *Compose) containerFiles() []testcontainers.ContainerFile {
+	if !d.withLicenseKeyFile {
+		return d.weaviateFiles
+	}
+	return append(slices.Clone(d.weaviateFiles), testcontainers.ContainerFile{
+		Reader:            strings.NewReader(d.licenseKey),
+		ContainerFilePath: licenseKeyFilePath,
+		FileMode:          0o644,
+	})
 }
 
 func (d *Compose) WithRbacRoots(usernames ...string) *Compose {
@@ -771,6 +816,15 @@ func (d *Compose) WithAutoschema() *Compose {
 }
 
 func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
+	// Read the license key before anything starts, so a missing key leaves no
+	// network behind.
+	if d.withWeaviateNamespaces || d.withLicenseKeyFile {
+		key, err := LicenseKey()
+		if err != nil {
+			return nil, err
+		}
+		d.licenseKey = key
+	}
 	// Telemetry is off by default so nothing reaches the real endpoint. Setting
 	// TELEMETRY_URL opts in and redirects every payload to that sink. An explicit
 	// DISABLE_TELEMETRY (either value) always wins.
@@ -1049,7 +1103,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "RAFT_PORT")
 		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
 		delete(secondWeaviateSettings, "RAFT_JOIN")
-		container, err := startWeaviate(ctx, d.enableModules, envSettings, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, "/v1/.well-known/ready", d.weaviateFiles, d.weaviateHostGateway)
+		container, err := startWeaviate(ctx, d.enableModules, envSettings, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateTmpfsData, "/v1/.well-known/ready", d.containerFiles(), d.weaviateHostGateway)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
@@ -1176,6 +1230,13 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		// 404 that arrives once the leader has finished tearing down the
 		// namespace's classes, aliases, and users.
 		settings["NAMESPACE_CLEANUP_INTERVAL"] = "1s"
+		// A test's own key wins, and Weaviate refuses to start with both
+		// LICENSE_KEY and LICENSE_KEY_FILE set.
+		_, hasKey := settings["LICENSE_KEY"]
+		_, hasKeyFile := settings["LICENSE_KEY_FILE"]
+		if !hasKey && !hasKeyFile {
+			settings["LICENSE_KEY"] = d.licenseKey
+		}
 	}
 
 	if d.withAutoschema {
@@ -1230,7 +1291,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 			}
 			attemptCtx, cancel := context.WithTimeout(context.Background(), perAttemptTimeout)
 			c, err := startWeaviate(attemptCtx, d.enableModules,
-				cfg, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, livenessEndpoint, d.weaviateFiles, d.weaviateHostGateway)
+				cfg, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateTmpfsData, livenessEndpoint, d.containerFiles(), d.weaviateHostGateway)
 			cancel()
 			if err == nil {
 				if attempt > 0 {

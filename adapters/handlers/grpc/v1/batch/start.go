@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type Drain func()
@@ -68,7 +69,7 @@ func Start(
 	reg prometheus.Registerer,
 	numWorkers int,
 	logger logrus.FieldLogger,
-	namespacesEnabled bool,
+	qualifier namespacing.Qualifier,
 	opts ...Option,
 ) (*StreamHandler, Drain) {
 	o := &options{}
@@ -109,7 +110,7 @@ func Start(
 		metrics,
 		logger,
 		schemaManager,
-		namespacesEnabled,
+		qualifier,
 		o.admissionChecker,
 		backpressure,
 	)

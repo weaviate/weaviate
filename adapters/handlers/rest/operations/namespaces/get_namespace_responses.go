@@ -98,7 +98,7 @@ func (o *GetNamespaceUnauthorized) WriteResponse(rw http.ResponseWriter, produce
 const GetNamespaceForbiddenCode int = 403
 
 /*
-GetNamespaceForbidden Forbidden
+GetNamespaceForbidden Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node
 
 swagger:response getNamespaceForbidden
 */

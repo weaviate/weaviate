@@ -69,11 +69,11 @@ type LoadResult struct {
 	State *ent.DeserializationResult
 
 	// RecoveredFromCrash is true if a corrupt WAL file was detected during
-	// loading: a raw file with a torn tail (truncated back to its last valid
-	// commit) or a compacted .sorted/.condensed segment that could not be fully
-	// read and was dropped in favour of the snapshot + clean segments. When
-	// true, the caller should start a new commit log file instead of appending
-	// to the existing one.
+	// loading: a raw file with a torn tail, or a compacted .sorted/.condensed
+	// segment with a torn or garbage tail. Either is truncated back to its last
+	// valid record, and only the records before it are applied. When true, the
+	// caller should start a new commit log file instead of appending to the
+	// existing one.
 	RecoveredFromCrash bool
 }
 
@@ -256,8 +256,8 @@ func (l *Loader) filterFilesAlreadyInSnapshot(files []FileInfo, snapshotEndTS in
 }
 
 // loadWALFile reads a single WAL file and applies it to the current state.
-// Returns the result, whether crash recovery occurred (a torn raw tail was
-// truncated, or a corrupt compacted segment was dropped), and any error.
+// Returns the result, whether crash recovery occurred (a torn raw tail or a
+// corrupt compacted tail was truncated), and any error.
 func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent.DeserializationResult, bool, error) {
 	file, err := l.fs.Open(f.Path)
 	if err != nil {
@@ -265,7 +265,7 @@ func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent
 	}
 	defer file.Close()
 
-	walReader := NewWALCommitReader(file, l.config.Logger)
+	walReader := NewWALCommitReaderForFile(file, f.Type, l.config.Logger)
 	inMemReader := NewInMemoryReader(walReader, l.config.Logger)
 
 	// keepLinkReplaceInfo=false at startup since we're building final state
@@ -298,7 +298,8 @@ func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent
 			// truncate the file back to its last valid record: the records read
 			// before the corruption are kept (best-effort recall), and the file
 			// becomes valid again so the next compaction reads it without
-			// stalling. The damaged tail is unrecoverable regardless.
+			// stalling. The layout check in the reader stops at the first
+			// out-of-place record, so garbage is neither applied nor kept.
 			//
 			// This only relaxes the *load* path. Compaction still fails closed
 			// when it reads a corrupt merge input (see Compactor / the merge
@@ -368,7 +369,7 @@ func (l *Loader) maxNodeIDInWALs(files []FileInfo) uint64 {
 			continue
 		}
 
-		reader := NewWALCommitReader(file, l.config.Logger)
+		reader := NewWALCommitReaderForFile(file, f.Type, l.config.Logger)
 		for {
 			c, err := reader.ReadNextCommit()
 			if err != nil {
