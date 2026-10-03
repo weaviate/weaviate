@@ -162,12 +162,28 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 
 	explicitInclude := len(req.Include) > 0
 
+	var explicit []string
 	if explicitInclude {
 		// Copy Include because authorization.Backups uppercases its input in place.
 		includeCopy := append([]string(nil), req.Include...)
-		if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups(includeCopy...)...); err != nil {
-			return nil, err
+		explicit = append(explicit, authorization.Backups(includeCopy...)...)
+	}
+	if len(req.IncludeUsers) > 0 {
+		if ids, ok := allLiteralIDs(req.IncludeUsers); ok {
+			explicit = append(explicit, authorization.BackupUsers(ids...)...)
+		} else {
+			explicit = append(explicit, authorization.BackupUsers()...)
 		}
+	}
+	if len(req.IncludeRoles) > 0 {
+		if ids, ok := allLiteralIDs(req.IncludeRoles); ok {
+			explicit = append(explicit, authorization.BackupRoles(ids...)...)
+		} else {
+			explicit = append(explicit, authorization.BackupRoles()...)
+		}
+	}
+	if err := s.authorizeResources(ctx, pr, authorization.CREATE, explicit); err != nil {
+		return nil, err
 	}
 
 	store, err := coordBackend(s.backends, req.Backend, req.ID, req.Bucket, req.Path)
@@ -182,6 +198,42 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 			return nil, err
 		}
 		return nil, backup.NewErrUnprocessable(err)
+	}
+
+	// An omitted selector backs up the whole enabled store. A caller who may not
+	// do that gets a backup without it, as an omitted include narrows to the
+	// authorized classes. Explicit empty selectors and disabled stores are skipped.
+	if s.userLister == nil {
+		selection.skipUsers = true
+	} else if req.IncludeUsers == nil {
+		allowed, err := s.authorizeWholeStore(ctx, pr, authorization.BackupUsers())
+		if err != nil {
+			return nil, err
+		}
+		if !allowed {
+			selection.skipUsers = true
+			s.logger.WithField("action", "try_backup").WithField("backup_id", req.ID).
+				Warn("caller may not back up all dynamic users, backing up none: grant manage_backups on users to include them")
+		}
+	}
+	if s.roleLister == nil {
+		selection.skipRoles = true
+	} else if req.IncludeRoles == nil {
+		allowed, err := s.authorizeWholeStore(ctx, pr, authorization.BackupRoles())
+		if err != nil {
+			return nil, err
+		}
+		if !allowed {
+			selection.skipRoles = true
+			s.logger.WithField("action", "try_backup").WithField("backup_id", req.ID).
+				Warn("caller may not back up all roles, backing up none: grant manage_backups on roles to include them")
+		}
+	}
+
+	// Narrowing can empty a class-less request that passed validation on its
+	// default identity selections.
+	if len(selection.classes) == 0 && selection.skipUsers && selection.skipRoles {
+		return nil, backup.NewErrUnprocessable(fmt.Errorf("backup selects no collections, users, or roles: available collections"))
 	}
 
 	if err := store.Initialize(ctx, req.Bucket, req.Path); err != nil {
@@ -273,14 +325,6 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		rbacBlob = nil
 	}
 
-	if err := s.validateNamespaceStripping(ctx, schema, userBlob, rbacBlob, meta.Classes(), req.UserRestoreOption, req.RbacRestoreOption); err != nil {
-		return nil, backup.NewErrUnprocessable(err)
-	}
-
-	if err := s.validateNamespaceReferences(userBlob, rbacBlob, req.UserRestoreOption, req.RbacRestoreOption); err != nil {
-		return nil, backup.NewErrUnprocessable(err)
-	}
-
 	// A nil lister means that subsystem is disabled. Its blob stays empty, so
 	// nothing is applied for it, and the restore proceeds.
 	blobs := rolesAndUsersBlobs{}
@@ -298,6 +342,25 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 			s.logSubsystemDisabled(req.ID, "users", "dynamic user management")
 		}
 	}
+
+	// The descriptor, never the request, names what a blob holds: restore
+	// requests carry no includeUsers/includeRoles. This authorization check runs
+	// before any step reads a blob. Later steps see only the blobs it authorized,
+	// because their errors name the users and roles inside.
+	if err := s.authorizeResources(ctx, pr, authorization.CREATE, s.restorePrincipalResources(blobs)); err != nil {
+		return nil, err
+	}
+
+	if err := s.validateNamespaceStripping(ctx, schema, blobs.users, blobs.roles, meta.Classes(), req.UserRestoreOption, req.RbacRestoreOption); err != nil {
+		return nil, backup.NewErrUnprocessable(err)
+	}
+
+	if err := s.validateNamespaceReferences(blobs.users, blobs.roles, req.UserRestoreOption, req.RbacRestoreOption); err != nil {
+		return nil, backup.NewErrUnprocessable(err)
+	}
+	// Restore status and cancel authorize against what this restore applies.
+	meta.SkipUsers = len(blobs.users) == 0
+	meta.SkipRoles = len(blobs.roles) == 0
 
 	status := string(backup.Started)
 	data := &models.BackupRestoreResponse{
@@ -362,6 +425,98 @@ func (s *Scheduler) filterBackupableClasses(ctx context.Context, pr *models.Prin
 	return allowed, nil
 }
 
+// authorizeResources authorizes a backup operation's resources. Every
+// users/roles check goes through here: no resources means nothing to
+// authorize, and the rbac authorizer rejects a call carrying none, root
+// included.
+func (s *Scheduler) authorizeResources(ctx context.Context, pr *models.Principal, verb string, resources []string) error {
+	if len(resources) == 0 {
+		return nil
+	}
+	return s.authorizer.Authorize(ctx, pr, verb, resources...)
+}
+
+// authorizeWholeStore reports whether the caller may back up every user or
+// every role. Forbidden returns false, so the backup is narrowed, not failed.
+// Any other authorizer error becomes Unprocessable, as in filterBackupableClasses.
+func (s *Scheduler) authorizeWholeStore(ctx context.Context, pr *models.Principal, wildcard []string) (bool, error) {
+	err := s.authorizeResources(ctx, pr, authorization.CREATE, wildcard)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.As(err, &authzerrors.Forbidden{}):
+		return false, nil
+	default:
+		return false, backup.NewErrUnprocessable(err)
+	}
+}
+
+// allLiteralIDs returns an includeUsers or includeRoles list as sorted,
+// deduplicated literal IDs. ok is false when any entry is a pattern; users and
+// roles must treat that case identically, which is why the scan lives here.
+func allLiteralIDs(include []string) (ids []string, ok bool) {
+	ids = make([]string, 0, len(include))
+	for _, id := range include {
+		if isWildcard(id) {
+			return nil, false
+		}
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	return slices.Compact(ids), true
+}
+
+// restorePrincipalResources returns the users and roles resources a restore
+// of blobs requires. Applying a snapshot replaces that subsystem's whole
+// store, deleting every entry the snapshot does not carry, so each applied
+// blob requires its kind wildcard regardless of the IDs the descriptor names.
+func (s *Scheduler) restorePrincipalResources(blobs rolesAndUsersBlobs) []string {
+	var resources []string
+	if len(blobs.users) > 0 {
+		resources = append(resources, authorization.BackupUsers()...)
+	}
+	if len(blobs.roles) > 0 {
+		resources = append(resources, authorization.BackupRoles()...)
+	}
+	return resources
+}
+
+// descriptorPrincipalResources returns the users and roles resources that the
+// content recorded in meta requires: none for a skipped subsystem, the named
+// IDs, or the kind wildcard for an empty list. A nil meta means it could not
+// be read; that requires both wildcards.
+func (s *Scheduler) descriptorPrincipalResources(meta *backup.DistributedBackupDescriptor) []string {
+	if meta == nil {
+		return append(authorization.BackupUsers(), authorization.BackupRoles()...)
+	}
+	var resources []string
+	if !meta.SkipUsers {
+		resources = append(resources, authorization.BackupUsers(s.canonicalIDs(meta.UserList())...)...)
+	}
+	if !meta.SkipRoles {
+		resources = append(resources, authorization.BackupRoles(s.canonicalIDs(meta.RoleList())...)...)
+	}
+	return resources
+}
+
+// canonicalIDs returns ids in the one form the checks compare: sorted,
+// deduplicated, and stripped of their namespace qualifier when this cluster
+// has namespaces disabled, since permissions here name IDs as they exist
+// here. Users and roles must strip identically. Empty in, empty out; the
+// resource builders map an empty list to the kind wildcard.
+func (s *Scheduler) canonicalIDs(ids []string) []string {
+	strip := !s.schema.NamespacesEnabled()
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if strip {
+			id = namespacing.StripQualification(id)
+		}
+		out = append(out, id)
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
 // permittedBackupResources returns which of resources pr may act on with verb,
 // through FilterAuthorizedResources, which writes no denial to the audit log.
 // adminlist refuses the whole list with Forbidden, which permits none of it.
@@ -418,7 +573,10 @@ func (s *Scheduler) authorizeBackupByID(ctx context.Context, principal *models.P
 		}
 		return err
 	}
-	return s.authorizeBackupClasses(ctx, principal, verb, meta.Classes())
+	if err := s.authorizeBackupClasses(ctx, principal, verb, meta.Classes()); err != nil {
+		return err
+	}
+	return s.authorizeResources(ctx, principal, verb, s.descriptorPrincipalResources(meta))
 }
 
 const metaReadAttempts = 3
@@ -517,7 +675,8 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	idErr := validateID(backupID)
 
 	// Authorize before validating the id so an unpermitted caller gets 403, not a
-	// hint about the id. Scope to the backup's classes when readable, else wildcard.
+	// hint about the id. The check covers the backup's recorded content when its
+	// descriptor is readable; without one it requires the wildcards.
 	var meta *backup.DistributedBackupDescriptor
 	var classes []string
 	if idErr == nil {
@@ -527,6 +686,9 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		}
 	}
 	if err := s.authorizeBackupClasses(ctx, principal, authorization.DELETE, classes); err != nil {
+		return err
+	}
+	if err := s.authorizeResources(ctx, principal, authorization.DELETE, s.descriptorPrincipalResources(meta)); err != nil {
 		return err
 	}
 	if idErr != nil {
@@ -580,17 +742,22 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 	// Authorize before validating the id so an unpermitted caller gets 403, not a
 	// hint about the id. Prefer the restore descriptor, else the backup descriptor;
 	// if neither is readable, require wildcard DELETE.
-	var meta *backup.DistributedBackupDescriptor
+	var meta, authMeta *backup.DistributedBackupDescriptor
 	var metaErr error
 	var classes []string
 	if idErr == nil {
 		if meta, metaErr = metaWithRetry(ctx, store, GlobalRestoreFile, overrideBucket, overridePath); metaErr == nil {
+			authMeta = meta
 			classes = meta.Classes()
 		} else if backupMeta, err := metaWithRetry(ctx, store, GlobalBackupFile, overrideBucket, overridePath); err == nil {
+			authMeta = backupMeta
 			classes = backupMeta.Classes()
 		}
 	}
 	if err := s.authorizeBackupClasses(ctx, principal, authorization.DELETE, classes); err != nil {
+		return err
+	}
+	if err := s.authorizeResources(ctx, principal, authorization.DELETE, s.descriptorPrincipalResources(authMeta)); err != nil {
 		return err
 	}
 	if idErr != nil {
@@ -686,10 +853,12 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 	slices.SortFunc(backups, sortBackups(AllBackupsOrder(*sortingOrder)))
 
 	classes := make([][]string, len(backups))
+	principals := make([][]string, len(backups))
 	for i, b := range backups {
 		classes[i] = b.Classes()
+		principals[i] = s.descriptorPrincipalResources(b)
 	}
-	readable, err := s.canReadBackups(ctx, principal, classes)
+	readable, err := s.canReadBackups(ctx, principal, classes, principals)
 	if err != nil {
 		return nil, err
 	}
@@ -720,9 +889,10 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 
 // canReadBackups reports for each backup whether the caller may READ every
 // collection it names, uppercasing those names in place as authorization.Backups
-// does. Authorizing each distinct name once per listing rather than once per
-// backup drops the first-denial exit and the per-denial audit record.
-func (s *Scheduler) canReadBackups(ctx context.Context, principal *models.Principal, backupClasses [][]string) ([]bool, error) {
+// does, and every users and roles resource in backupPrincipals. Each distinct
+// resource is authorized once per listing, not once per backup. The trade-off
+// is that it does not stop at the first denial and writes no audit record per denial.
+func (s *Scheduler) canReadBackups(ctx context.Context, principal *models.Principal, backupClasses, backupPrincipals [][]string) ([]bool, error) {
 	readable := make([]bool, len(backupClasses))
 	// rbac.Manager rejects a call carrying no resources, so a listing with no
 	// backups must not make one.
@@ -732,12 +902,15 @@ func (s *Scheduler) canReadBackups(ctx context.Context, principal *models.Princi
 
 	// rbac.Manager enforces one resource at a time, so check for a caller
 	// holding backup READ outright before naming thousands of collections.
-	// Silent because a denial here is the ordinary route to the per-collection
-	// check below, which re-raises any other error.
-	if err := s.authorizer.AuthorizeSilent(ctx, principal, authorization.READ, authorization.Backups()...); err == nil {
+	// The probe uses AuthorizeSilent because a denial here is the ordinary route
+	// to the per-resource check below, which re-raises any other error. The
+	// blanket READ needs all three wildcards; otherwise a caller holding only
+	// the collections wildcard would list backups carrying users and roles.
+	wildcards := append(authorization.Backups(), append(authorization.BackupUsers(), authorization.BackupRoles()...)...)
+	if err := s.authorizer.AuthorizeSilent(ctx, principal, authorization.READ, wildcards...); err == nil {
 		// AuthorizeSilent writes no audit record and nothing else authorizes
 		// this endpoint. Record the grant that permitted the whole listing.
-		if err := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups()...); err != nil {
+		if err := s.authorizer.Authorize(ctx, principal, authorization.READ, wildcards...); err != nil {
 			return nil, err
 		}
 		for i := range readable {
@@ -746,9 +919,11 @@ func (s *Scheduler) canReadBackups(ctx context.Context, principal *models.Princi
 		return readable, nil
 	}
 
+	resources := make([][]string, len(backupClasses))
 	named := make(map[string]struct{})
-	for _, classes := range backupClasses {
-		for _, resource := range authorization.Backups(classes...) {
+	for i, classes := range backupClasses {
+		resources[i] = append(authorization.Backups(classes...), backupPrincipals[i]...)
+		for _, resource := range resources[i] {
 			named[resource] = struct{}{}
 		}
 	}
@@ -768,9 +943,9 @@ func (s *Scheduler) canReadBackups(ctx context.Context, principal *models.Princi
 		mayRead[resource] = struct{}{}
 	}
 
-	for i, classes := range backupClasses {
+	for i := range backupClasses {
 		readable[i] = true
-		for _, resource := range authorization.Backups(classes...) {
+		for _, resource := range resources[i] {
 			if _, ok := mayRead[resource]; !ok {
 				readable[i] = false
 				break
@@ -1336,7 +1511,7 @@ func (s *Scheduler) fetchSchema(
 	overrideBucket string,
 	overridePath string,
 	req *backup.DistributedBackupDescriptor,
-) ([]backup.ClassDescriptor, []byte, []byte, error) {
+) (_ []backup.ClassDescriptor, userBlob, rbacBlob []byte, _ error) {
 	f := func(node string) (*backup.BackupDescriptor, error) {
 		store, err := nodeBackend(node, s.backends, backend, req.ID, overrideBucket, overridePath)
 		if err != nil {

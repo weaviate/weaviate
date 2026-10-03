@@ -148,22 +148,36 @@ func Test_Authorization(t *testing.T) {
 
 				if !test.ignoreAuthZ {
 					if test.probesBlanket {
-						// Denying the blanket probe sends List on to the
-						// per-resource authorization asserted on here.
-						blanket := authorization.Backups()[0]
-						authorizer.On("AuthorizeSilent", mock.Anything, mock.Anything, test.expectedVerb, blanket).
-							Return(authzerrors.NewForbidden(&models.Principal{}, test.expectedVerb, blanket)).Once()
+						// Denying the blanket probe makes List fall through to the
+						// per-resource authorization this test asserts on. The
+						// probe covers collections, users and roles.
+						blanket := []interface{}{authorization.Backups()[0], authorization.BackupUsers()[0], authorization.BackupRoles()[0]}
+						authorizer.On("AuthorizeSilent", append([]interface{}{mock.Anything, mock.Anything, test.expectedVerb}, blanket...)...).
+							Return(authzerrors.NewForbidden(&models.Principal{}, test.expectedVerb, authorization.Backups()...)).Once()
 					}
 					if test.filtered {
-						authorizer.On("FilterAuthorizedResources", mock.Anything, mock.Anything, test.expectedVerb, test.expectedResource).
-							Return([]string{test.expectedResource}, nil).Once()
+						// The descriptor names no users or roles, so a listing
+						// filter carries both kind wildcards too.
+						named := []string{test.expectedResource}
+						if test.probesBlanket {
+							named = append(named, authorization.BackupRoles()[0], authorization.BackupUsers()[0])
+						}
+						args := make([]interface{}, 0, len(named)+3)
+						args = append(args, mock.Anything, mock.Anything, test.expectedVerb)
+						for _, r := range named {
+							args = append(args, r)
+						}
+						authorizer.On("FilterAuthorizedResources", args...).
+							Return(named, nil).Once()
 					} else {
 						authorizer.On("Authorize", mock.Anything, mock.Anything, test.expectedVerb, test.expectedResource).Return(nil).Once()
 					}
 					// Subsequent fine-grained authz calls (e.g. Backup/Restore
 					// re-authorizing on resolved classes, Cancel re-authorizing
-					// on meta classes) are allowed but not required.
+					// on meta classes, the users and roles checks) are allowed
+					// but not required.
 					authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+					authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 				}
 
 				args := append([]interface{}{context.Background(), &models.Principal{}}, test.additionalArgs...)

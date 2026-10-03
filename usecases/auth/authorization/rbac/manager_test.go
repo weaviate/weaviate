@@ -1626,6 +1626,18 @@ func TestPrettyPermissionsResources_NamespaceStripping(t *testing.T) {
 			wantGlobal: "[Domain: backups,Collection: customer1:Movies]",
 		},
 		{
+			domain:     "BackupsUser",
+			perm:       &models.Permission{Backups: &models.PermissionBackups{User: strPtr("customer1:bob")}},
+			wantNS:     "[Domain: backups, User: bob]",
+			wantGlobal: "[Domain: backups, User: customer1:bob]",
+		},
+		{
+			domain:     "BackupsRole",
+			perm:       &models.Permission{Backups: &models.PermissionBackups{Role: strPtr("customer1:editor")}},
+			wantNS:     "[Domain: backups, Role: editor]",
+			wantGlobal: "[Domain: backups, Role: customer1:editor]",
+		},
+		{
 			domain: "Nodes",
 			perm: &models.Permission{Nodes: &models.PermissionNodes{
 				Verbosity:  strPtr("verbose"),

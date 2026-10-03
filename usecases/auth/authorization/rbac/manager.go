@@ -37,6 +37,7 @@ import (
 
 const (
 	SnapshotVersionV0 = iota
+	SnapshotVersionV1
 	SnapshotVersionLatest
 )
 
@@ -718,13 +719,20 @@ func (m *Manager) ListAllRoles() ([]string, error) {
 
 // Restore replaces the policy store with a backup's snapshot.
 func (m *Manager) Restore(b []byte, stripNamespaces bool) error {
+	_, err := m.RestoreAndReportMigration(b, stripNamespaces)
+	return err
+}
+
+// RestoreAndReportMigration is Restore that also reports whether the snapshot
+// predated backups/users and backups/roles and so was migrated on the way in.
+func (m *Manager) RestoreAndReportMigration(b []byte, stripNamespaces bool) (migrated bool, err error) {
 	if m == nil || len(b) == 0 || m.casbin == nil {
-		return nil
+		return false, nil
 	}
 
 	snapshot := snapshot{}
 	if err := json.Unmarshal(b, &snapshot); err != nil {
-		return fmt.Errorf("%w: decode json: %w", ErrRestoreRefused, err)
+		return false, fmt.Errorf("%w: decode json: %w", ErrRestoreRefused, err)
 	}
 
 	// Keep this above the write lock and ClearPolicy below. A colliding snapshot
@@ -733,7 +741,7 @@ func (m *Manager) Restore(b []byte, stripNamespaces bool) error {
 	if stripNamespaces {
 		stripped, err := stripRBACSnapshot(snapshot, StaticAPIKeyUsers(m.authNconf))
 		if err != nil {
-			return fmt.Errorf("%w: %w", ErrRestoreRefused, err)
+			return false, fmt.Errorf("%w: %w", ErrRestoreRefused, err)
 		}
 		snapshot = stripped
 	}
@@ -741,10 +749,10 @@ func (m *Manager) Restore(b []byte, stripNamespaces bool) error {
 	// Like the strip above, refuse before ClearPolicy. Rows the policy file can't
 	// hold would fail the next load, or load as rows the snapshot never had.
 	if err := validateStorableRows("p", snapshot.Policy); err != nil {
-		return fmt.Errorf("%w: %w", ErrRestoreRefused, err)
+		return false, fmt.Errorf("%w: %w", ErrRestoreRefused, err)
 	}
 	if err := validateStorableRows("g", snapshot.GroupingPolicy); err != nil {
-		return fmt.Errorf("%w: %w", ErrRestoreRefused, err)
+		return false, fmt.Errorf("%w: %w", ErrRestoreRefused, err)
 	}
 
 	return m.replacePolicies(snapshot)
@@ -754,15 +762,23 @@ func (m *Manager) Restore(b []byte, stripNamespaces bool) error {
 // and logs each row the policy file cannot store, since refusing the snapshot
 // keeps the node from starting or catching up. Dropping a row only removes a grant.
 func (m *Manager) RestoreRaftSnapshot(b []byte) error {
+	_, err := m.RestoreRaftSnapshotAndReportMigration(b)
+	return err
+}
+
+// RestoreRaftSnapshotAndReportMigration is RestoreRaftSnapshot that also
+// reports whether the snapshot predated backups/users and backups/roles and
+// so was migrated on the way in.
+func (m *Manager) RestoreRaftSnapshotAndReportMigration(b []byte) (bool, error) {
 	// don't overwrite with empty snapshot to avoid overwriting recovery from file
 	// with a non-existent RBAC snapshot when coming from old versions
 	if m == nil || len(b) == 0 || m.casbin == nil {
-		return nil
+		return false, nil
 	}
 
 	snapshot := snapshot{}
 	if err := json.Unmarshal(b, &snapshot); err != nil {
-		return fmt.Errorf("restore snapshot: decode json: %w", err)
+		return false, fmt.Errorf("restore snapshot: decode json: %w", err)
 	}
 	snapshot.Policy = m.dropUnstorableRows("p", snapshot.Policy)
 	snapshot.GroupingPolicy = m.dropUnstorableRows("g", snapshot.GroupingPolicy)
@@ -770,8 +786,10 @@ func (m *Manager) RestoreRaftSnapshot(b []byte) error {
 	return m.replacePolicies(snapshot)
 }
 
-// replacePolicies clears the policy store and loads snapshot into it.
-func (m *Manager) replacePolicies(snapshot snapshot) error {
+// replacePolicies clears the policy store and loads snapshot into it. It
+// reports whether the snapshot predated backups/users and backups/roles and
+// so was migrated on the way in.
+func (m *Manager) replacePolicies(snapshot snapshot) (migrated bool, err error) {
 	// Hold the write lock only for the casbin mutation and cache invalidation
 	// so that concurrent Enforce() calls (which hold RLock) are blocked.
 	// Unmarshalling is done above without the lock since it doesn't touch
@@ -782,44 +800,119 @@ func (m *Manager) replacePolicies(snapshot snapshot) error {
 	// we need to clear the policies before adding the new ones
 	m.casbin.ClearPolicy()
 
-	_, err := m.casbin.AddPolicies(snapshot.Policy)
+	_, err = m.casbin.AddPolicies(snapshot.Policy)
 	if err != nil {
-		return fmt.Errorf("add policies: %w", err)
+		return false, fmt.Errorf("add policies: %w", err)
 	}
 
 	_, err = m.casbin.AddGroupingPolicies(snapshot.GroupingPolicy)
 	if err != nil {
-		return fmt.Errorf("add grouping policies: %w", err)
+		return false, fmt.Errorf("add grouping policies: %w", err)
 	}
 
 	if snapshot.Version == SnapshotVersionV0 {
 		if err := upgradePoliciesFrom129(m.casbin, true); err != nil {
-			return fmt.Errorf("upgrade policies: %w", err)
+			return false, fmt.Errorf("upgrade policies: %w", err)
 		}
 
 		if err := upgradeGroupingsFrom129(m.casbin, m.authNconf); err != nil {
-			return fmt.Errorf("upgrade groupings: %w", err)
+			return false, fmt.Errorf("upgrade groupings: %w", err)
+		}
+	}
+
+	// applyPredefinedRoles saves and LoadPolicy reloads from that save, so the
+	// grants must be added before it or the reload discards them.
+	migrated = snapshot.Version <= SnapshotVersionV1
+	if migrated {
+		if err := addBackupPrincipalGrants(m.casbin); err != nil {
+			return false, fmt.Errorf("add backup principal grants: %w", err)
 		}
 	}
 
 	// environment config needs to be applied again in case there were changes since the last snapshot
 	if err := applyPredefinedRoles(m.casbin, m.rbacConf, m.authNconf, m.namespacesEnabled); err != nil {
-		return fmt.Errorf("apply env config: %w", err)
+		return false, fmt.Errorf("apply env config: %w", err)
 	}
 
 	// Load the policies to ensure they are in memory
 	if err := m.casbin.LoadPolicy(); err != nil {
-		return fmt.Errorf("load policies: %w", err)
+		return false, fmt.Errorf("load policies: %w", err)
 	}
 
 	// Invalidate the cache so the first Enforce() after the lock is released
 	// evaluates against the freshly loaded policies. ClearPolicy() is not
 	// overridden by SyncedCachedEnforcer and does not invalidate on its own.
 	if err := m.casbin.InvalidateCache(); err != nil {
-		return fmt.Errorf("restore snapshot: InvalidateCache: %w", err)
+		return false, fmt.Errorf("restore snapshot: InvalidateCache: %w", err)
 	}
 
+	return migrated, nil
+}
+
+// addBackupPrincipalGrants gives every role the rows conv.BackupPrincipalGrants
+// derives from its backups collections grants. Casbin ignores a row it already
+// holds, so running it twice changes nothing.
+func addBackupPrincipalGrants(enforcer *casbin.SyncedCachedEnforcer) error {
+	// The filtered read is a copy; the loop adds rows while it iterates.
+	rows, err := enforcer.GetFilteredNamedPolicy("p", 0)
+	if err != nil {
+		return fmt.Errorf("GetFilteredNamedPolicy: %w", err)
+	}
+	for _, row := range rows {
+		if len(row) < 4 {
+			continue
+		}
+		for _, g := range conv.BackupPrincipalGrants(authorization.Policy{Resource: row[1], Verb: row[2], Domain: row[3]}) {
+			if _, err := enforcer.AddNamedPolicy("p", row[0], g.Resource, g.Verb, g.Domain); err != nil {
+				return fmt.Errorf("AddNamedPolicy: %w", err)
+			}
+		}
+	}
 	return nil
+}
+
+// OrphanedBackupPrincipalGrants returns the users/roles backup wildcards to
+// drop alongside the removed permissions. The migration derives those
+// wildcards from a role's collections backup grants, so they go when the
+// role loses its last one; while any survives, it returns nil. It judges raw
+// casbin rows, so rows the permission converter rejects cannot fail it.
+func (m *Manager) OrphanedBackupPrincipalGrants(role string, removing []*authorization.Policy) ([]*authorization.Policy, error) {
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
+
+	rows, err := m.casbin.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName(role))
+	if err != nil {
+		return nil, fmt.Errorf("GetFilteredNamedPolicy: %w", err)
+	}
+	removed := make(map[authorization.Policy]struct{}, len(removing))
+	for _, p := range removing {
+		if p != nil {
+			removed[*p] = struct{}{}
+		}
+	}
+
+	var orphaned []*authorization.Policy
+	seen := map[authorization.Policy]struct{}{}
+	for _, row := range rows {
+		if len(row) < 4 {
+			continue
+		}
+		held := authorization.Policy{Resource: row[1], Verb: row[2], Domain: row[3]}
+		grants := conv.BackupPrincipalGrants(held)
+		if len(grants) == 0 {
+			continue
+		}
+		if _, ok := removed[held]; !ok {
+			return nil, nil
+		}
+		for _, g := range grants {
+			if _, ok := seen[g]; !ok {
+				seen[g] = struct{}{}
+				orphaned = append(orphaned, &g)
+			}
+		}
+	}
+	return orphaned, nil
 }
 
 func validateStorableRows(ptype string, rows [][]string) error {
@@ -890,6 +983,12 @@ func prettyPermissionsResources(principal *models.Principal, perm *models.Permis
 		s := fmt.Sprintf("Domain: %s,", authorization.BackupsDomain)
 		if perm.Backups.Collection != nil && *perm.Backups.Collection != "" {
 			s += fmt.Sprintf("Collection: %s", strip(*perm.Backups.Collection))
+		}
+		if perm.Backups.User != nil && *perm.Backups.User != "" {
+			s += fmt.Sprintf(" User: %s", strip(*perm.Backups.User))
+		}
+		if perm.Backups.Role != nil && *perm.Backups.Role != "" {
+			s += fmt.Sprintf(" Role: %s", strip(*perm.Backups.Role))
 		}
 		s = strings.TrimSuffix(s, ",")
 		res += fmt.Sprintf("[%s]", s)
