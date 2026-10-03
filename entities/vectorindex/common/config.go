@@ -42,6 +42,10 @@ const (
 // Tries to parse the int value from the map, if it overflows math.MaxInt64, it
 // uses math.MaxInt64 instead. This is to protect from rounding errors from
 // json marshalling where the type may be assumed as float64
+//
+// If the key is present with a value that is neither a json.Number nor a
+// float64 (including an explicit JSON `null`), that is a caller error and is
+// reported rather than silently defaulting the field to 0.
 func OptionalIntFromMap(in map[string]interface{}, name string,
 	setFn func(v int),
 ) error {
@@ -60,6 +64,8 @@ func OptionalIntFromMap(in map[string]interface{}, name string,
 		asInt64, err = typed.Int64()
 	case float64:
 		asInt64 = int64(typed)
+	default:
+		return errors.Errorf("%q must be an integer, got %T", name, value)
 	}
 	if err != nil {
 		// try to recover from error
@@ -75,6 +81,9 @@ func OptionalIntFromMap(in map[string]interface{}, name string,
 	return nil
 }
 
+// If the key is present with a value that is not a bool (including an
+// explicit JSON `null`), that is a caller error and is reported rather than
+// silently leaving the field at its current value.
 func OptionalBoolFromMap(in map[string]interface{}, name string,
 	setFn func(v bool),
 ) error {
@@ -85,13 +94,18 @@ func OptionalBoolFromMap(in map[string]interface{}, name string,
 
 	asBool, ok := value.(bool)
 	if !ok {
-		return nil
+		return errors.Errorf("%q must be a boolean, got %T", name, value)
 	}
 
 	setFn(asBool)
 	return nil
 }
 
+// If the key is present with a value that is not a string (including an
+// explicit JSON `null`), that is a caller error and is reported rather than
+// silently leaving the field at its current value. This is what previously
+// let `"distance": null` in a vectorIndexConfig be silently accepted and
+// resolved to the default distance metric instead of being rejected.
 func OptionalStringFromMap(in map[string]interface{}, name string,
 	setFn func(v string),
 ) error {
@@ -102,7 +116,7 @@ func OptionalStringFromMap(in map[string]interface{}, name string,
 
 	asString, ok := value.(string)
 	if !ok {
-		return nil
+		return errors.Errorf("%q must be a string, got %T", name, value)
 	}
 
 	setFn(asString)
