@@ -204,13 +204,16 @@ func (h *batchObjectHandlers) objectsDeleteResponse(input *objects.BatchDeleteRe
 		var errorResponse *models.ErrorResponse
 
 		status := models.BatchDeleteResponseResultsObjectsItems0StatusSUCCESS
-		if input.DryRun {
-			status = models.BatchDeleteResponseResultsObjectsItems0StatusDRYRUN
-		} else if obj.Err != nil {
+		// a failed dry run would otherwise report no failures and, with output "minimal",
+		// drop the affected ids
+		switch {
+		case obj.Err != nil:
 			status = models.BatchDeleteResponseResultsObjectsItems0StatusFAILED
 			errorResponse = errPayloadFromSingleErr(obj.Err)
 			failed += 1
-		} else {
+		case input.DryRun:
+			status = models.BatchDeleteResponseResultsObjectsItems0StatusDRYRUN
+		default:
 			successful += 1
 		}
 
