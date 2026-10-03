@@ -1,0 +1,9 @@
+package pkg
+
+import enterrors "github.com/weaviate/weaviate/entities/errors"
+
+func Clean() {
+	enterrors.GoWrapper(func() { doWork() }, nil)
+}
+
+func doWork() {}
