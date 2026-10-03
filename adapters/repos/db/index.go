@@ -387,7 +387,7 @@ type Index struct {
 	// db is the owning *DB, set by the caller right after NewIndex
 	// returns. Used by [Index.refuseIfReindexInFlight] to consult the
 	// DTM-backed backup gate. Nil is treated conservatively by the gate
-	// (refuses), matching the pre-wire stance.
+	// (refuses).
 	db *DB
 }
 

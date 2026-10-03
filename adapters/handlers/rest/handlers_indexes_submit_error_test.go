@@ -41,6 +41,17 @@ func TestMapSubmitTaskError(t *testing.T) {
 			"the internal conflicting task ID must not leak to the caller")
 	})
 
+	t.Run("replica-movement sentinel -> 409", func(t *testing.T) {
+		fsmErr := fmt.Errorf("executing command: %w",
+			distributedtask.NewBlockedByReplicaMovementError("C"))
+		resp := h.mapSubmitTaskError(nil, "C", "C:change-tokenization:p:aaaa", fsmErr)
+		code, body := statusOf(t, resp)
+		require.Equal(t, http.StatusConflict, code,
+			"a movement the caller can wait out must not read as a server fault")
+		require.Len(t, body.Error, 1)
+		assert.Contains(t, body.Error[0].Message, "replica movement in flight")
+	})
+
 	t.Run("generic infra error -> 500", func(t *testing.T) {
 		resp := h.mapSubmitTaskError(nil, "C", "C:change-tokenization:p:aaaa",
 			errors.New("raft leader lost"))

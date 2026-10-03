@@ -30,9 +30,9 @@ The guard works in **both directions**, plus one special case that has no user t
                                          │
    ┌─────────────────────┐  ┌────────────────────────┐  ┌──────────────────────┐
    │ FORWARD             │  │ REVERSE                │  │ DEFER                │
-   │ schema change while │  │ move starts while a    │  │ automatic flat→HNSW  │
-   │ a move is running   │  │ structural op is       │  │ upgrade (no user)    │
-   │                     │  │ already running        │  │                      │
+   │ schema change while │  │ move starts while      │  │ automatic flat→HNSW  │
+   │ a move is running   │  │ compression or a       │  │ upgrade (no user)    │
+   │                     │  │ flat→HNSW upgrade runs │  │                      │
    │  → REJECT           │  │  → WAIT, then proceed  │  │  → POSTPONE          │
    │  clear error,       │  │  never silently        │  │  retry next tick     │
    │  retry after move   │  │  cancelled             │  │  after move ends     │
@@ -40,7 +40,7 @@ The guard works in **both directions**, plus one special case that has no user t
 ```
 
 - **Forward** — a dangerous schema change is **rejected** while a move is in progress. The operator gets a clear message and retries once the move finishes. (These are metadata-only operations, so blocking them does not stop reads or writes of your data.)
-- **Reverse** — if a structural operation is **already running** on the source when a move is requested, the move **waits** instead of failing, then proceeds once the operation finishes.
+- **Reverse** — if compression or a `flat → HNSW` upgrade is **already running** on the source when a move is requested, the move **waits** instead of failing, then proceeds once the operation finishes. A reindex or vector-index-drop task still active on the collection refuses the move with 409 instead, and a move that reaches a shard still being cleaned up after a cancelled or failed reindex waits for the cleanup to finish.
 - **Defer** — the dynamic `flat → HNSW` index upgrade fires automatically with no user behind it, so it cannot be "rejected." It is **postponed** while a move is active and retried on the next scheduler tick.
 
 Blocking is **scoped to the affected collection** — other collections are untouched.
@@ -57,6 +57,9 @@ Blocking is **scoped to the affected collection** — other collections are unto
 | Dynamic `flat → HNSW` auto-upgrade | **Deferred** |
 | Start a move while compression is running on the source | **Waits** |
 | Start a move while a `flat → HNSW` upgrade is running | **Waits** |
+| Start a move while a reindex or vector-index-drop task is active on the collection | **Refused (409)** |
+| Start a move on a shard still being cleaned up after a cancelled or failed reindex | **Waits** |
+| Start a reindex while a move runs on the collection | **Refused (409)** |
 
 ## What stays allowed
 

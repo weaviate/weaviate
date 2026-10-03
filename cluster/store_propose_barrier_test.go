@@ -33,10 +33,10 @@ import (
 )
 
 // Telemetry off so only the test moves the log index.
-func newBarrierTestStore(t *testing.T) (*Raft, *MockStore) {
+func newBarrierTestStore(t *testing.T, tweaks ...func(*Config)) (*Raft, *MockStore) {
 	t.Helper()
 
-	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
+	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort(), tweaks...)
 	m.cfg.TelemetryEnabled = false
 	m.store.cfg.TelemetryEnabled = false
 

@@ -69,16 +69,10 @@ together into a small REST surface rooted at
 > already running stays observable and, for as long as it is still
 > `STARTED`, cancellable (§12). Everything below describes behavior with
 > the flag on.
->
-> **With the flag off, a replica move can kill a running migration.** The
-> backup path's reindex check is skipped, so a replica move — or any other
-> operation that closes the shard — is admitted even while a migration is
-> still writing to that shard. Closing the shard takes the storage away from
-> the migration, and the migration fails loudly: the task ends in `FAILED`,
-> the schema stays at its pre-migration value, and the copy itself completes
-> normally. Nothing is corrupted, but the migration is lost and has to be
-> resubmitted once the flag is back on. With the flag on, the move is refused
-> and the replication engine retries it until the migration finishes.
+
+A replica movement requested while a migration runs on its collection is
+refused with 409. One that reaches a shard still being cleaned up after a
+cancelled or failed migration waits for the cleanup to finish.
 
 ### `PUT /v1/schema/{className}/properties/{propertyName}/index/{indexType}`
 
@@ -164,9 +158,11 @@ Response shapes (PUT / rebuild / cancel):
   `/v1/schema/{className}/properties/X/index/searchable` with a
   tokenization to add one first").
 - `404 Not Found` — class or property doesn't exist.
-- `409 Conflict` — two distinct meanings. On PUT / rebuild, an in-flight
+- `409 Conflict` — three distinct meanings. On PUT / rebuild, an in-flight
   task already touches this property; the error names the offending task
-  ID. On cancel, either arm can refuse. The pre-flight refuses a status
+  ID unless another submit won the race. On PUT / rebuild, a replica
+  movement is in flight on the collection.
+  On cancel, either arm can refuse. The pre-flight refuses a status
   other than `STARTED` (`PREPARING` or `SWAPPING`, where nodes may
   already have written merged state or renamed bucket directories, or one
   this build does not recognize) and names the task ID and that status.
