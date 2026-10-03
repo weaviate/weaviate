@@ -29,7 +29,7 @@ type quantizer[T byte | uint64] interface {
 	ReturnQuantizerDistancer(distancer quantizerDistancer[T])
 	CompressedBytes(compressed []T) []byte
 	FromCompressedBytes(compressed []byte) []T
-	PersistCompression(logger CommitLogger)
+	PersistCompression(logger CommitLogger) error
 	Stats() CompressionStats
 
 	// FromCompressedBytesWithSubsliceBuffer is like FromCompressedBytes, but
@@ -39,7 +39,9 @@ type quantizer[T byte | uint64] interface {
 	FromCompressedBytesWithSubsliceBuffer(compressed []byte, buffer *[]T) []T
 }
 
-func (bq *BinaryQuantizer) PersistCompression(logger CommitLogger) {
+func (bq *BinaryQuantizer) PersistCompression(logger CommitLogger) error {
+	// BQ has no trained state to persist.
+	return nil
 }
 
 func (pq *ProductQuantizer) NewQuantizerDistancer(vec []float32) quantizerDistancer[byte] {
