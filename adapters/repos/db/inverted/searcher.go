@@ -341,7 +341,7 @@ func (s *Searcher) extractPropValuePair(
 	if class == nil {
 		return nil, fmt.Errorf("class %q not found", className)
 	}
-	out, err := s.buildPropValuePair(ctx, filter, className, class)
+	out, err := s.buildPropValuePair(ctx, filter, className, class, true)
 	if err != nil {
 		return nil, err
 	}
@@ -440,6 +440,7 @@ func flipNestedIsNull(pv *propValuePair) *propValuePair {
 // invokes groupNestedSubtrees once on the final tree.
 func (s *Searcher) buildPropValuePair(
 	ctx context.Context, filter *filters.Clause, className schema.ClassName, class *models.Class,
+	allowStopwordOnlyEqual bool,
 ) (*propValuePair, error) {
 	out, err := newPropValuePair(class)
 	if err != nil {
@@ -542,7 +543,8 @@ func (s *Searcher) buildPropValuePair(
 	}
 
 	if s.onTokenizableProp(property) {
-		return s.extractTokenizableProp(property, filter.Value.Type, filter.Value.Value, filter.Operator, class)
+		return s.extractTokenizableProp(property, filter.Value.Type, filter.Value.Value,
+			filter.Operator, class, allowStopwordOnlyEqual)
 	}
 
 	return s.extractPrimitiveProp(property, filter.Value.Type, filter.Value.Value, filter.Operator, class)
@@ -567,12 +569,13 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 	eg.SetLimit(outerConcurrencyLimit)
 
 	concurrencyReductionFactor := min(len(operands), outerConcurrencyLimit)
-
+	allowStopwordOnlyEqual := operator != filters.ContainsAll &&
+		operator != filters.ContainsAny && operator != filters.ContainsNone
 	for i, clause := range operands {
 		i, clause := i, clause
 		eg.Go(func() error {
 			ctx := concurrency.ContextWithFractionalBudget(ctx, concurrencyReductionFactor, concurrency.GOMAXPROCS)
-			child, err := s.buildPropValuePair(ctx, &clause, className, class)
+			child, err := s.buildPropValuePair(ctx, &clause, className, class, allowStopwordOnlyEqual)
 			// check for stopword errors on ContainsAny operator only at the end
 			if err != nil && errors.Is(err, ErrOnlyStopwords) && operator == filters.ContainsAny {
 				return nil
@@ -847,7 +850,7 @@ func (s *Searcher) extractTimestampProp(propName string, propType schema.DataTyp
 }
 
 func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema.DataType,
-	value interface{}, operator filters.Operator, class *models.Class,
+	value interface{}, operator filters.Operator, class *models.Class, allowStopwordOnlyEqual bool,
 ) (*propValuePair, error) {
 	valueString, ok := value.(string)
 	if !ok {
@@ -887,6 +890,10 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 			prepared := tokenizer.NewPreparedAnalyzer(prop.TextAnalyzer)
 			result := tokenizer.Analyze(valueString, effectiveTok, class.Class, prepared, sw)
 			terms = result.Query
+			if allowStopwordOnlyEqual && operator == filters.OperatorEqual &&
+				effectiveTok == models.PropertyTokenizationWord && len(terms) == 0 {
+				terms = result.Indexed
+			}
 		}
 	default:
 		return nil, fmt.Errorf("expected value type to be text, got %v", propType)
