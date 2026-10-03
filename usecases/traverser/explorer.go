@@ -535,6 +535,11 @@ func (e *Explorer) getClassList(ctx context.Context,
 	if params.Group != nil && (params.Filters != nil || params.Sort != nil) {
 		params.AdditionalProperties.Vector = true
 	}
+	if len(params.AdditionalProperties.ModuleParams) > 0 {
+		// if a module-specific additional prop is set, assume it needs the vector,
+		// objects of remote shards only carry it if it is requested
+		params.AdditionalProperties.Vector = true
+	}
 	var res []search.Result
 	var err error
 	if params.HybridSearch != nil {
