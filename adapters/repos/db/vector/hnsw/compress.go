@@ -12,7 +12,6 @@
 package hnsw
 
 import (
-	"context"
 	"errors"
 	"fmt"
 
@@ -25,6 +24,9 @@ import (
 func (h *hnsw) compress(cfg ent.UserConfig) error {
 	if !cfg.PQ.Enabled && !cfg.BQ.Enabled && !cfg.SQ.Enabled && !cfg.RQ.Enabled {
 		return nil
+	}
+	if err := h.dropCtx.Err(); err != nil {
+		return fmt.Errorf("abort compression: %w", err)
 	}
 	h.compressActionLock.Lock()
 	released := false
@@ -42,6 +44,9 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		cleanData := make([][]float32, 0, len(data))
 		sampler := common.NewSparseFisherYatesIterator(len(data))
 		for !sampler.IsDone() {
+			if err := h.dropCtx.Err(); err != nil {
+				return fmt.Errorf("abort compression: %w", err)
+			}
 			// Sparse Fisher Yates sampling algorithm to choose random element
 			sampledIndex := sampler.Next()
 			if sampledIndex == nil {
@@ -51,7 +56,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			// request the vectors. Otherwise we would miss any vector that's currently
 			// not in the cache, for example because the cache is not hot yet after a
 			// restart.
-			p, err := h.cache.Get(context.Background(), uint64(*sampledIndex))
+			p, err := h.cache.Get(h.dropCtx, uint64(*sampledIndex))
 			if err != nil {
 				var e storobj.ErrNotFound
 				if errors.As(err, &e) {
@@ -124,15 +129,33 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			return err
 		}
 	} else if cfg.RQ.Enabled {
+		// RQ init (including its full-cache preload in checkAndCompress) does
+		// not observe dropCtx: it flips compressed before preloading, so it
+		// cannot abort cleanly. Drop's join waits for this call to finish;
+		// checkAndCompress reached from the insert path is not tracked.
 		h.rqActive.Store(true)
 		released = true
 		h.compressActionLock.Unlock()
 		h.checkAndCompress()
 		return nil
 	}
+	// Catches a cancel that landed during the (uncancellable) quantizer fit
+	// above, before starting the full-cache preload.
+	if err := h.dropCtx.Err(); err != nil {
+		return fmt.Errorf("abort compression: %w", err)
+	}
+	// Once aborted the closures no-op, so the loop drains quickly; nothing is
+	// persisted below and compressed stays false, leaving teardown to proceed
+	// as if the upgrade never started.
+	aborted := h.dropCtx.Done()
 	if singleVector {
 		compressionhelpers.Concurrently(h.logger, uint64(len(data)),
 			func(index uint64) {
+				select {
+				case <-aborted:
+					return
+				default:
+				}
 				if len(data[index]) == 0 {
 					return
 				}
@@ -141,12 +164,20 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 	} else {
 		compressionhelpers.Concurrently(h.logger, uint64(len(data)),
 			func(index uint64) {
+				select {
+				case <-aborted:
+					return
+				default:
+				}
 				if len(data[index]) == 0 {
 					return
 				}
 				docID, relativeID := h.cache.GetKeys(index)
 				h.compressor.PreloadPassage(index, docID, relativeID, data[index])
 			})
+	}
+	if err := h.dropCtx.Err(); err != nil {
+		return fmt.Errorf("abort compression: %w", err)
 	}
 
 	h.compressor.PersistCompression(h.commitLog)

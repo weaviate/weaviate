@@ -64,6 +64,11 @@ type hnsw struct {
 	// indicates the index is shutting down
 	shutdownCtx       context.Context
 	shutdownCtxCancel context.CancelFunc
+	// indicates the index is being dropped: unlike shutdown, the compression
+	// output would be deleted anyway, so in-flight compression aborts at its
+	// next checkpoint instead of running to completion
+	dropCtx       context.Context
+	dropCtxCancel context.CancelFunc
 	// prefillWg tracks the background cache prefill so Shutdown can wait for it.
 	// The prefiller reads the shard's objects bucket, and the shard tears that
 	// bucket down as soon as the vector indexes report they are shut.
@@ -193,7 +198,9 @@ type hnsw struct {
 	// to define the rescoring concurrency.
 	rescoreConcurrency int
 
-	compressActionLock    *sync.RWMutex
+	compressActionLock *sync.RWMutex
+	// compressWg lets Drop/Shutdown join the async compression goroutine Upgrade spawns.
+	compressWg            sync.WaitGroup
 	className             string
 	shardName             string
 	VectorForIDThunk      common.VectorForID[float32]
@@ -334,6 +341,7 @@ func New(cfg Config, uc ent.UserConfig,
 	}
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
 	shutdownCtx, shutdownCtxCancel := context.WithCancel(context.Background())
+	dropCtx, dropCtxCancel := context.WithCancel(context.Background())
 	index := &hnsw{
 		maximumConnections: uc.MaxConnections,
 
@@ -366,6 +374,8 @@ func New(cfg Config, uc ent.UserConfig,
 		resetCtxCancel:        resetCtxCancel,
 		shutdownCtx:           shutdownCtx,
 		shutdownCtxCancel:     shutdownCtxCancel,
+		dropCtx:               dropCtx,
+		dropCtxCancel:         dropCtxCancel,
 		initialInsertOnce:     &sync.Once{},
 
 		ef:       int64(uc.EF),
@@ -766,6 +776,17 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 }
 
 func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
+	// In-flight compression output is garbage once the index is being dropped:
+	// cancel it, then join. The join stays mandatory — the goroutine writes to
+	// the cache and commit log torn down below, and cancellation alone leaves
+	// no happens-before edge with its exit.
+	h.dropCtxCancel()
+	// Also cancel shutdownCtx listeners and join the prefiller, which reads
+	// buckets the shard tears down after Drop.
+	h.shutdownCtxCancel()
+	h.prefillWg.Wait()
+	h.compressWg.Wait()
+
 	// cancel tombstone cleanup goroutine
 	if err := h.tombstoneCleanupCallbackCtrl.Unregister(ctx); err != nil {
 		return errors.Wrap(err, "hnsw drop")
@@ -788,6 +809,10 @@ func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
 func (h *hnsw) Shutdown(ctx context.Context) error {
 	h.shutdownCtxCancel()
 	h.prefillWg.Wait()
+	// Join in-flight async compression before teardown: it drops the cache and
+	// writes the commit log. Unlike Drop, let it run to completion — the result
+	// is persisted, and sync indexing has no retry after an aborted upgrade.
+	h.compressWg.Wait()
 
 	ec := errorcompounder.New()
 	ec.AddWrapf(h.commitLog.Shutdown(ctx), "shutdown commit log")
