@@ -19,7 +19,7 @@ func (m *Memtable) newRoaringSetCursor() roaringset.InnerCursor {
 	m.RLock()
 	defer m.RUnlock()
 
-	// Since FlattenInOrder makes deep copy of bst's nodes,
-	// no further memtable's locking in required on cursor's methods
-	return roaringset.NewBinarySearchTreeCursor(m.roaringSet)
+	// Since flattenInOrder makes deep copies of the index's nodes,
+	// no further memtable locking is required on cursor's methods
+	return roaringset.NewFlattenedNodesCursor(m.roaringSet.flattenInOrder())
 }

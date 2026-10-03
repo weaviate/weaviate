@@ -27,20 +27,24 @@ type value struct {
 	tombstone bool
 }
 
-func (t *binarySearchTreeMulti) insert(key []byte, values []value) {
+// insert satisfies multiIndex; it returns 0 because the red-black tree's node
+// overhead is not tracked in the memtable's flush-size budget (only the skip
+// list reports its value-log backing growth).
+func (t *binarySearchTreeMulti) insert(key []byte, values []value) int {
 	if t.root == nil {
 		t.root = &binarySearchNodeMulti{
 			key:         key,
 			values:      values,
 			colourIsRed: false, // root node is always black
 		}
-		return
+		return 0
 	}
 
 	if newRoot := t.root.insert(key, values); newRoot != nil {
 		t.root = newRoot
 	}
 	t.root.colourIsRed = false // Can be flipped in the process of balancing, but root is always black
+	return 0
 }
 
 func (t *binarySearchTreeMulti) get(key []byte) ([]value, error) {

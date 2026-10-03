@@ -13,7 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
-	"sort"
+	"slices"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/rbtree"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -23,20 +23,24 @@ type binarySearchTreeMap struct {
 	root *binarySearchNodeMap
 }
 
-func (t *binarySearchTreeMap) insert(key []byte, pair MapPair) {
+// insert satisfies mapIndex; it returns 0 because the red-black tree's node
+// overhead is not tracked in the memtable's flush-size budget (only the skip
+// list reports its value-log backing growth).
+func (t *binarySearchTreeMap) insert(key []byte, pair MapPair) int {
 	if t.root == nil {
 		t.root = &binarySearchNodeMap{
 			key:         key,
 			values:      []MapPair{pair},
 			colourIsRed: false, // root node is always black
 		}
-		return
+		return 0
 	}
 
 	if newRoot := t.root.insert(key, pair); newRoot != nil {
 		t.root = newRoot
 	}
 	t.root.colourIsRed = false // Can be flipped in the process of balancing, but root is always black
+	return 0
 }
 
 func (t *binarySearchTreeMap) get(key []byte) ([]MapPair, error) {
@@ -233,33 +237,40 @@ func (n *binarySearchNodeMap) subtreeSize() int {
 
 // takes a list of MapPair and sorts it while keeping the original order. Then
 // removes redundancies (from updates or deletes after previous inserts) using
-// a simple deduplication process.
+// a simple deduplication process. The input is left untouched (it may be aliased,
+// e.g. a red-black tree node's values slice).
 func sortAndDedupValues(in []MapPair) []MapPair {
 	out := make([]MapPair, len(in))
 	copy(out, in)
+	return sortAndDedupValuesInPlace(out)
+}
 
-	// use SliceStable so that we keep the insert order on duplicates. This is
-	// important because otherwise we can't dedup them correctly if we don't know
-	// in which order they came in.
-	sort.SliceStable(out, func(a, b int) bool {
-		return bytes.Compare(out[a].Key, out[b].Key) < 0
+// sortAndDedupValuesInPlace is sortAndDedupValues without the defensive copy: it
+// sorts and dedups vals in place and returns the deduped prefix. Only safe when the
+// caller owns vals and it is not aliased anywhere else — e.g. a skip-list snapshot,
+// which is freshly allocated per read. Do NOT call it on a tree node's values slice.
+func sortAndDedupValuesInPlace(vals []MapPair) []MapPair {
+	// stable sort so we keep the insert order on duplicates — required for the
+	// keep-last dedup below. SortStableFunc (generic) avoids sort.SliceStable's
+	// per-call reflection allocations on this hot BM25 read path.
+	slices.SortStableFunc(vals, func(a, b MapPair) int {
+		return bytes.Compare(a.Key, b.Key)
 	})
 
 	// now deduping is as simple as looking one key ahead - if it's the same key
-	// simply skip the current element. Meaning "out" will be a subset of
-	// (sorted) "in".
+	// simply skip the current element. Meaning the result is a subset of sorted vals.
 	outIndex := 0
-	for inIndex, pair := range out {
+	for inIndex, pair := range vals {
 		// look ahead
-		if inIndex+1 < len(out) && bytes.Equal(out[inIndex+1].Key, pair.Key) {
+		if inIndex+1 < len(vals) && bytes.Equal(vals[inIndex+1].Key, pair.Key) {
 			continue
 		}
 
-		out[outIndex] = pair
+		vals[outIndex] = pair
 		outIndex++
 	}
 
-	return out[:outIndex]
+	return vals[:outIndex]
 }
 
 func binarySearchNodeMapFromRB(rbNode rbtree.Node) (bsNode *binarySearchNodeMap) {
