@@ -100,9 +100,8 @@ func NewServer(appState *state.State) *Server {
 		NodeReady:                          appState.ClusterService.Ready,
 	})
 
-	var handler http.Handler
 	// Multiplexing handler: Routes gRPC vs. REST (HTTP)
-	handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var base http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("content-type"), "application/grpc") {
 			grpcServer.ServeHTTP(w, r) // Route to gRPC
 			return
@@ -110,26 +109,7 @@ func NewServer(appState *state.State) *Server {
 		mux.ServeHTTP(w, r) // Route to REST mux (handles HTTP/1.1 or plain HTTP/2)
 	})
 
-	handler = addClusterHandlerMiddleware(handler, appState, auth)
-	if appState.ServerConfig.Config.Sentry.Enabled {
-		// Wrap the default mux with Sentry to capture panics, report errors and
-		// measure performance.
-		//
-		// Alternatively, you can also wrap individual handlers if you need to
-		// use different options for different parts of your app.
-		handler = sentryhttp.New(sentryhttp.Options{}).Handle(mux)
-	}
-
-	if appState.ServerConfig.Config.Monitoring.Enabled {
-		handler = monitoring.InstrumentHTTP(
-			handler,
-			staticRoute(mux),
-			appState.HTTPServerMetrics.InflightRequests,
-			appState.HTTPServerMetrics.RequestDuration,
-			appState.HTTPServerMetrics.RequestBodySize,
-			appState.HTTPServerMetrics.ResponseBodySize,
-		)
-	}
+	handler := buildHandlerChain(base, mux, appState, auth)
 
 	protocols := http.Protocols{}
 	protocols.SetHTTP1(true)
@@ -221,6 +201,39 @@ var clusterv1Regexp = regexp.MustCompile("/v1/cluster/*")
 // If the request doesn't match, it will continue to the next handler.
 // The dedicated http.Handler is wrapped with the provided auth so /v1/cluster/* endpoints
 // require basic auth when it is enabled in the cluster auth config.
+// buildHandlerChain wraps base with the cluster middleware and, where enabled,
+// with Sentry and monitoring.
+//
+// Each layer wraps the handler built before it. Handing a layer anything else --
+// the bare mux, say -- discards every layer already applied, with no error and
+// no log line, so the route set served ends up depending on which options are
+// enabled.
+func buildHandlerChain(base http.Handler, mux *http.ServeMux, appState *state.State, auth auth) http.Handler {
+	handler := addClusterHandlerMiddleware(base, appState, auth)
+
+	if appState.ServerConfig.Config.Sentry.Enabled {
+		// Wrap the chain with Sentry to capture panics, report errors and
+		// measure performance.
+		//
+		// Alternatively, you can also wrap individual handlers if you need to
+		// use different options for different parts of your app.
+		handler = sentryhttp.New(sentryhttp.Options{}).Handle(handler)
+	}
+
+	if appState.ServerConfig.Config.Monitoring.Enabled {
+		handler = monitoring.InstrumentHTTP(
+			handler,
+			staticRoute(mux),
+			appState.HTTPServerMetrics.InflightRequests,
+			appState.HTTPServerMetrics.RequestDuration,
+			appState.HTTPServerMetrics.RequestBodySize,
+			appState.HTTPServerMetrics.ResponseBodySize,
+		)
+	}
+
+	return handler
+}
+
 func addClusterHandlerMiddleware(next http.Handler, appState *state.State, auth auth) http.Handler {
 	// Instantiate the router outside the returned lambda to avoid re-allocating everytime a new request comes in
 	raftRouter := raft.ClusterRouter(appState.SchemaManager.Handler)
