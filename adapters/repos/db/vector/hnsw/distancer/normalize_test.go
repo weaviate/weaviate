@@ -40,6 +40,31 @@ func TestNormalize(t *testing.T) {
 		result := Normalize(v)
 		assert.Equal(t, []float32{0, 0, 0}, result)
 	})
+
+	t.Run("large components do not collapse to zero", func(t *testing.T) {
+		// 1e20*1e20 is 1e40, past the float32 max, so the sum of squares
+		// overflows to +Inf and the vector used to scale to all zeros.
+		v := []float32{1e20, 1e20, 1e20, 1e20}
+		assertUnitLength(t, Normalize(v))
+	})
+
+	t.Run("tiny components do not collapse to zero", func(t *testing.T) {
+		// The mirror case: 1e-25*1e-25 underflows to 0 in float32, so the sum
+		// of squares reads as a zero vector.
+		v := []float32{1e-25, 1e-25, 1e-25, 1e-25}
+		assertUnitLength(t, Normalize(v))
+	})
+}
+
+// assertUnitLength checks the magnitude in float64 so that the check itself
+// does not overflow on the inputs it is meant to cover.
+func assertUnitLength(t *testing.T, v []float32) {
+	t.Helper()
+	var mag float64
+	for _, x := range v {
+		mag += float64(x) * float64(x)
+	}
+	assert.InDelta(t, 1.0, math.Sqrt(mag), 0.0001)
 }
 
 func TestNormalizeInPlace(t *testing.T) {
@@ -98,6 +123,12 @@ func TestNormalizeInPlace(t *testing.T) {
 		NormalizeInPlace(v)
 		assert.Equal(t, []float32{}, v)
 	})
+
+	t.Run("large components do not collapse to zero", func(t *testing.T) {
+		v := []float32{1e20, -1e20, 1e20, -1e20}
+		NormalizeInPlace(v)
+		assertUnitLength(t, v)
+	})
 }
 
 // TestNormalizeMatchesScalarReference checks the SIMD-backed implementation
@@ -147,6 +178,13 @@ func TestNormalizeInto(t *testing.T) {
 		buf := []float32{1, 2, 3}
 		got := NormalizeInto(buf, []float32{0, 0, 0})
 		assert.Equal(t, []float32{0, 0, 0}, got)
+	})
+
+	t.Run("large components do not collapse to zero", func(t *testing.T) {
+		v := []float32{1e20, 1e20, 1e20, 1e20}
+		got := NormalizeInto([]float32{99}, v)
+		assertUnitLength(t, got)
+		assert.Equal(t, []float32{1e20, 1e20, 1e20, 1e20}, v, "input must be preserved")
 	})
 }
 
