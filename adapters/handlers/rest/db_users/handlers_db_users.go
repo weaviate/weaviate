@@ -168,7 +168,7 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 		}
 		// dbUser.Id is the qualified storage key; show the short form to namespaced callers.
 		displayID := namespacing.StripOwnNamespace(principal, dbUser.Id)
-		response, err = h.addToListAllResponse(ctx, principal, response, dbUser.Id, displayID, string(models.UserTypeOutputDbUser), dbUser.Active, apiKeyFirstLetter, namespace, &dbUser.CreatedAt, &lastUsedTime)
+		response, err = h.addToListAllResponse(ctx, principal, response, dbUser.Id, displayID, string(models.UserTypeOutputDbUser), dbUser.Active, apiKeyFirstLetter, namespace, &dbUser.CreatedAt, &lastUsedTime, dbUser.ExpiresAt)
 		if err != nil {
 			return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 		}
@@ -183,7 +183,7 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 				// don't overwrite dynamic users with the same name. Can happen after import
 				continue
 			}
-			response, err = h.addToListAllResponse(ctx, principal, response, staticUser, staticUser, string(models.UserTypeOutputDbEnvUser), true, "", "", nil, nil)
+			response, err = h.addToListAllResponse(ctx, principal, response, staticUser, staticUser, string(models.UserTypeOutputDbEnvUser), true, "", "", nil, nil, time.Time{})
 			if err != nil {
 				return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 			}
@@ -193,7 +193,7 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 	return users.NewListAllUsersOK().WithPayload(response)
 }
 
-func (h *dynUserHandler) addToListAllResponse(ctx context.Context, principal *models.Principal, response []*models.DBUserInfo, internalID, displayID, userType string, active bool, apiKeyFirstLetter, namespace string, createdAt *time.Time, lastusedAt *time.Time) ([]*models.DBUserInfo, error) {
+func (h *dynUserHandler) addToListAllResponse(ctx context.Context, principal *models.Principal, response []*models.DBUserInfo, internalID, displayID, userType string, active bool, apiKeyFirstLetter, namespace string, createdAt *time.Time, lastusedAt *time.Time, expiresAt time.Time) ([]*models.DBUserInfo, error) {
 	// The list reads roles once per user, so it reads this node's controller
 	// rather than querying the leader.
 	var roles map[string][]authorization.Policy
@@ -213,6 +213,7 @@ func (h *dynUserHandler) addToListAllResponse(ctx context.Context, principal *mo
 		Roles:              h.visibleRoleNames(ctx, principal, roles, own),
 		APIKeyFirstLetters: apiKeyFirstLetter,
 		Namespace:          namespace,
+		ExpiresAt:          RenderExpiresAt(expiresAt),
 	}
 	if createdAt != nil {
 		resp.CreatedAt = strfmt.DateTime(*createdAt)
@@ -223,6 +224,16 @@ func (h *dynUserHandler) addToListAllResponse(ctx context.Context, principal *mo
 
 	response = append(response, resp)
 	return response, nil
+}
+
+// RenderExpiresAt returns a DB user's expiry as a REST field, or nil when the
+// user has none.
+func RenderExpiresAt(t time.Time) *strfmt.DateTime {
+	if t.IsZero() {
+		return nil
+	}
+	dt := strfmt.DateTime(t)
+	return &dt
 }
 
 // visibleRoleNames returns the role names to expose for a db user, matching the
@@ -270,6 +281,7 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		user := existingDbUsers[internalKey]
 		response.Active = &user.Active
 		response.CreatedAt = strfmt.DateTime(user.CreatedAt)
+		response.ExpiresAt = RenderExpiresAt(user.ExpiresAt)
 		if isRootUser || h.callerHasAdminRole(principal) {
 			response.APIKeyFirstLetters = user.ApiKeyFirstLetters
 		}

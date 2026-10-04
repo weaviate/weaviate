@@ -28,9 +28,11 @@ import (
 //
 // swagger:model Principal
 type Principal struct {
-
 	// groups
 	Groups []string `json:"groups"`
+
+	// This is true when the API key resolved to a DB user record, which covers a dynamic DB user's own key and an imported static key. A login through the static API key list leaves it false, even when a DB user shares its name, though both carry userType db.
+	IsDynamicDbUser bool `json:"isDynamicDbUser,omitempty"`
 
 	// True for principals that operate across all namespaces (e.g. static API keys). Authoritative marker for operator-level principals; do not infer from an empty namespace.
 	IsGlobalOperator bool `json:"isGlobalOperator,omitempty"`
@@ -91,7 +93,6 @@ func (m *Principal) ContextValidate(ctx context.Context, formats strfmt.Registry
 }
 
 func (m *Principal) contextValidateUserType(ctx context.Context, formats strfmt.Registry) error {
-
 	if err := m.UserType.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
 			return ve.ValidateName("userType")

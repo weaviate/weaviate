@@ -9144,6 +9144,12 @@ func init() {
             "db_env_user"
           ]
         },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent means the key never expires. Expiry does not change ` + "`" + `active` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "lastUsedAt": {
           "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
           "type": [
@@ -10538,6 +10544,10 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "isDynamicDbUser": {
+          "description": "This is true when the API key resolved to a DB user record, which covers a dynamic DB user's own key and an imported static key. A login through the static API key list leaves it false, even when a DB user shares its name, though both carry userType db.",
+          "type": "boolean"
         },
         "isGlobalOperator": {
           "description": "True for principals that operate across all namespaces (e.g. static API keys). Authoritative marker for operator-level principals; do not infer from an empty namespace.",
@@ -12355,6 +12365,12 @@ func init() {
         "username"
       ],
       "properties": {
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the caller's API key stops authenticating. Absent means the key never expires, the caller is not a DB user, or DB user management is disabled.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "groups": {
           "description": "The groups associated with the user.",
           "type": "array",
@@ -22078,6 +22094,12 @@ func init() {
             "db_env_user"
           ]
         },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent means the key never expires. Expiry does not change ` + "`" + `active` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "lastUsedAt": {
           "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
           "type": [
@@ -23693,6 +23715,10 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "isDynamicDbUser": {
+          "description": "This is true when the API key resolved to a DB user record, which covers a dynamic DB user's own key and an imported static key. A login through the static API key list leaves it false, even when a DB user shares its name, though both carry userType db.",
+          "type": "boolean"
         },
         "isGlobalOperator": {
           "description": "True for principals that operate across all namespaces (e.g. static API keys). Authoritative marker for operator-level principals; do not infer from an empty namespace.",
@@ -25519,6 +25545,12 @@ func init() {
         "username"
       ],
       "properties": {
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the caller's API key stops authenticating. Absent means the key never expires, the caller is not a DB user, or DB user management is disabled.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "groups": {
           "description": "The groups associated with the user.",
           "type": "array",

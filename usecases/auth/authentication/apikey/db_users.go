@@ -643,6 +643,7 @@ func (c *DBUser) ValidateImportedKey(token string) (*models.Principal, error) {
 			UserType:         models.UserTypeInputDb,
 			Namespace:        "",
 			IsGlobalOperator: false,
+			IsDynamicDbUser:  true,
 		}, nil
 	}
 
@@ -725,6 +726,7 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 		UserType:         models.UserTypeInputDb,
 		Namespace:        u.Namespace,
 		IsGlobalOperator: false,
+		IsDynamicDbUser:  true,
 	}, nil
 }
 
