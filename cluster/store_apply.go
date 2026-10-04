@@ -57,6 +57,10 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		return 0, fmt.Errorf("marshal command: %w", err)
 	}
 
+	if err := refuseUnknownFields(req); err != nil {
+		return 0, err
+	}
+
 	// Namespace admission runs before the schema-shape filter so a suspended
 	// namespace answers with its own state rather than a complaint about the
 	// entity the caller named.
@@ -85,6 +89,20 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		return 0, fmt.Errorf("response returned from raft apply is not of type Response instead got: %T, this should not happen", futureResponse)
 	}
 	return resp.Version, resp.Error
+}
+
+// refuseUnknownFields refuses an update carrying a field this binary does not
+// know before it is appended. Once committed, only newer nodes could apply it.
+func refuseUnknownFields(req *api.ApplyRequest) error {
+	switch req.Type {
+	case api.ApplyRequest_TYPE_UPDATE_USER:
+		if err := json.Unmarshal(req.SubCommand, &api.UpdateUserRequest{}); err != nil {
+			return fmt.Errorf("unmarshal update-user subcommand: %w", err)
+		}
+		return nil
+	default:
+		return nil
+	}
 }
 
 // admitPropose refuses a command whose namespace is not in a state that admits
@@ -542,6 +560,10 @@ func (st *Store) Apply(l *raft.Log) any {
 	case api.ApplyRequest_TYPE_CREATE_USER_WITH_KEY:
 		f = func() {
 			ret.Error = st.dynUserManager.CreateUserWithKeyRequest(&cmd)
+		}
+	case api.ApplyRequest_TYPE_UPDATE_USER:
+		f = func() {
+			ret.Error = st.dynUserManager.UpdateUser(&cmd)
 		}
 
 	case api.ApplyRequest_TYPE_ADD_NAMESPACE:

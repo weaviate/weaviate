@@ -286,6 +286,7 @@ func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLette
 		InternalIdentifier: userIdentifier,
 		CreatedAt:          createdAt,
 		ApiKeyFirstLetters: apiKeyFirstLetters,
+		ExpiresAt:          c.storedExpiry(userId),
 		Namespace:          namespace,
 	}
 	return c.storeToFile()
@@ -307,6 +308,7 @@ func (c *DBUser) CreateUserWithKey(userId, apiKeyFirstLetters string, weakHash [
 		InternalIdentifier: "imported_" + userId,
 		CreatedAt:          createdAt,
 		ApiKeyFirstLetters: apiKeyFirstLetters,
+		ExpiresAt:          c.storedExpiry(userId),
 		ImportedWithKey:    true,
 	}
 	return c.storeToFile()
@@ -434,6 +436,39 @@ func (c *DBUser) DeactivateUser(userId string, revokeKey bool) error {
 	c.data.Users[userId].Active = false
 
 	return c.storeToFile()
+}
+
+// UserUpdate holds the fields UpdateUser sets. A nil field is left as stored.
+type UserUpdate struct {
+	// ExpiresAt is stored in UTC. A pointer to the zero time clears the expiry.
+	ExpiresAt *time.Time
+}
+
+// UpdateUser never reads the clock, so every node applying the entry stores the
+// same values.
+func (c *DBUser) UpdateUser(userId string, update UserUpdate) error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	u := c.data.Users[userId]
+	if u == nil {
+		return fmt.Errorf("user %s does not exist", userId)
+	}
+
+	if update.ExpiresAt != nil {
+		u.ExpiresAt = update.ExpiresAt.UTC()
+	}
+	return c.storeToFile()
+}
+
+// storedExpiry returns userId's expiry, or zero for an unknown user, so a
+// re-applied CreateUser or CreateUserWithKey keeps the expiry UpdateUser set.
+// Caller must hold c.lock.
+func (c *DBUser) storedExpiry(userId string) time.Time {
+	if u := c.data.Users[userId]; u != nil {
+		return u.ExpiresAt
+	}
+	return time.Time{}
 }
 
 func (c *DBUser) GetUsers(userIds ...string) (map[string]UserView, error) {

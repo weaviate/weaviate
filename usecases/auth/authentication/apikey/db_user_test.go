@@ -82,12 +82,13 @@ func TestGetUsers_NoRaceWithMutators(t *testing.T) {
 
 	const iterations = 200
 	done := make(chan struct{})
-	wg := sync.WaitGroup{}
+	mutators := sync.WaitGroup{}
+	readers := sync.WaitGroup{}
 
 	// Mutator: flips Active under c.lock.
-	wg.Add(1)
+	mutators.Add(1)
 	go func() {
-		defer wg.Done()
+		defer mutators.Done()
 		for i := 0; i < iterations; i++ {
 			id := userIds[i%numUsers]
 			if i%2 == 0 {
@@ -96,13 +97,25 @@ func TestGetUsers_NoRaceWithMutators(t *testing.T) {
 				_ = dynUsers.ActivateUser(id)
 			}
 		}
-		close(done)
+	}()
+
+	// A second mutator sets and clears ExpiresAt under c.lock.
+	mutators.Add(1)
+	go func() {
+		defer mutators.Done()
+		for i := 0; i < iterations; i++ {
+			expiresAt := time.Time{}
+			if i%2 == 0 {
+				expiresAt = time.Now().Add(time.Hour)
+			}
+			_ = dynUsers.UpdateUser(userIds[i%numUsers], UserUpdate{ExpiresAt: &expiresAt})
+		}
 	}()
 
 	// Reader: GetUsers + read .Active.
-	wg.Add(1)
+	readers.Add(1)
 	go func() {
-		defer wg.Done()
+		defer readers.Done()
 		for {
 			select {
 			case <-done:
@@ -115,11 +128,30 @@ func TestGetUsers_NoRaceWithMutators(t *testing.T) {
 				_ = u.Active
 				_ = u.LastUsedAt
 				_ = u.InternalIdentifier
+				_ = u.ExpiresAt
 			}
 		}
 	}()
 
-	wg.Wait()
+	// Snapshot marshals every user under c.lock without the per-user locks, so
+	// the race detector fails this test if a mutator writes a field under only the per-user lock.
+	readers.Add(1)
+	go func() {
+		defer readers.Done()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			_, err := dynUsers.Snapshot()
+			assert.NoError(t, err)
+		}
+	}()
+
+	mutators.Wait()
+	close(done)
+	readers.Wait()
 }
 
 func TestConcurrentValidate(t *testing.T) {

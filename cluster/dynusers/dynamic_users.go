@@ -119,6 +119,18 @@ func (m *Manager) SuspendUser(c *cmd.ApplyRequest) error {
 	return m.dynUser.DeactivateUser(req.UserId, req.RevokeKey)
 }
 
+func (m *Manager) UpdateUser(c *cmd.ApplyRequest) error {
+	if m.dynUser == nil {
+		return nil
+	}
+	req := &cmd.UpdateUserRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return m.dynUser.UpdateUser(req.UserId, apikey.UserUpdate{ExpiresAt: req.ExpiresAt})
+}
+
 func (m *Manager) RotateKey(c *cmd.ApplyRequest) error {
 	if m.dynUser == nil {
 		return nil

@@ -12,6 +12,7 @@
 package dynusers
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"testing"
 	"time"
@@ -77,6 +78,8 @@ func TestManager_CreateUser(t *testing.T) {
 		name      string
 		namespace string
 		makeMock  func(t *testing.T) *usecasesNamespaces.MockExister
+		// storedExpiry is set on the user between two applies of the create.
+		storedExpiry time.Time
 	}{
 		{
 			name:      "active namespace",
@@ -114,6 +117,12 @@ func TestManager_CreateUser(t *testing.T) {
 				return usecasesNamespaces.NewMockExisterInState(t, map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateResuming})
 			},
 		},
+		{
+			name:         "re-applied create keeps a stored expiry",
+			namespace:    "",
+			makeMock:     func(t *testing.T) *usecasesNamespaces.MockExister { return newNamespacesMock(t) },
+			storedExpiry: time.Now().Add(time.Hour).UTC(),
+		},
 	}
 
 	for _, tc := range tests {
@@ -127,12 +136,69 @@ func TestManager_CreateUser(t *testing.T) {
 				Namespace:      tc.namespace,
 				CreatedAt:      time.Now(),
 			})}
+			if !tc.storedExpiry.IsZero() {
+				require.NoError(t, m.CreateUser(apply))
+				require.NoError(t, dynUser.UpdateUser("u1", apikey.UserUpdate{ExpiresAt: &tc.storedExpiry}))
+			}
 			require.NoError(t, m.CreateUser(apply))
 			users, err := dynUser.GetUsers("u1")
 			require.NoError(t, err)
 			require.NotNil(t, users["u1"])
 			assert.Equal(t, tc.namespace, users["u1"].Namespace)
+			assert.Truef(t, tc.storedExpiry.Equal(users["u1"].ExpiresAt), "expiry %v, want %v", users["u1"].ExpiresAt, tc.storedExpiry)
 		})
+	}
+}
+
+// TestManager_CreateUserWithKeyKeepsExpiry pins that re-importing a user keeps
+// the expiry UpdateUser stored on it.
+func TestManager_CreateUserWithKeyKeepsExpiry(t *testing.T) {
+	m, dynUser, _ := newTestManager(t, newNamespacesMock(t))
+	apply := &cmd.ApplyRequest{SubCommand: mustMarshalJSON(t, cmd.CreateUserWithKeyRequest{
+		UserId:    "u1",
+		WeakHash:  sha256.Sum256([]byte("imported-key")),
+		CreatedAt: time.Now(),
+	})}
+	require.NoError(t, m.CreateUserWithKeyRequest(apply))
+	expiresAt := time.Now().Add(time.Hour).UTC()
+	require.NoError(t, dynUser.UpdateUser("u1", apikey.UserUpdate{ExpiresAt: &expiresAt}))
+
+	require.NoError(t, m.CreateUserWithKeyRequest(apply))
+
+	users, err := dynUser.GetUsers("u1")
+	require.NoError(t, err)
+	assert.Truef(t, expiresAt.Equal(users["u1"].ExpiresAt), "expiry %v, want %v", users["u1"].ExpiresAt, expiresAt)
+}
+
+// TestManager_UpdateUser pins that the apply changes only the fields the
+// request carries, both in memory and in users.json.
+func TestManager_UpdateUser(t *testing.T) {
+	now := time.Now().UTC()
+	stored := now.Add(2 * time.Hour)
+	wantExpiry := now.Add(time.Hour)
+
+	m, dynUser, dir := newTestManager(t, newNamespacesMock(t))
+	seedUser(t, m, "u1", "")
+	require.NoError(t, dynUser.UpdateUser("u1", apikey.UserUpdate{ExpiresAt: &stored}))
+	before, err := dynUser.GetUsers("u1")
+	require.NoError(t, err)
+
+	require.NoError(t, m.UpdateUser(&cmd.ApplyRequest{SubCommand: mustMarshalJSON(t, cmd.UpdateUserRequest{UserId: "u1", ExpiresAt: &wantExpiry})}))
+
+	after, err := dynUser.GetUsers("u1")
+	require.NoError(t, err)
+	want := before["u1"]
+	want.ExpiresAt = after["u1"].ExpiresAt
+	assert.Equal(t, want, after["u1"], "the update must change no field but the expiry")
+
+	logger, _ := test.NewNullLogger()
+	reopened, err := apikey.NewDBUser(dir, false, logger, newNamespacesMock(t))
+	require.NoError(t, err)
+	for _, store := range []*apikey.DBUser{dynUser, reopened} {
+		users, err := store.GetUsers("u1")
+		require.NoError(t, err)
+		got := users["u1"].ExpiresAt
+		assert.Truef(t, wantExpiry.Equal(got), "stored %v, want %v", got, wantExpiry)
 	}
 }
 
@@ -181,6 +247,7 @@ func TestManager_MalformedJSON(t *testing.T) {
 		{name: "SuspendUser", call: func(m *Manager) error { return m.SuspendUser(apply) }},
 		{name: "RotateKey", call: func(m *Manager) error { return m.RotateKey(apply) }},
 		{name: "CreateUserWithKeyRequest", call: func(m *Manager) error { return m.CreateUserWithKeyRequest(apply) }},
+		{name: "UpdateUser", call: func(m *Manager) error { return m.UpdateUser(apply) }},
 		{name: "GetUsers", call: func(m *Manager) error { _, err := m.GetUsers(query); return err }},
 		{name: "CheckUserIdentifierExists", call: func(m *Manager) error { _, err := m.CheckUserIdentifierExists(query); return err }},
 	}

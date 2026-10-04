@@ -147,6 +147,28 @@ func (s *Raft) ActivateUser(ctx context.Context, userId string) error {
 	return nil
 }
 
+// SetUserExpiration replaces userId's expiry. A zero expiresAt clears it.
+func (s *Raft) SetUserExpiration(ctx context.Context, userId string, expiresAt time.Time) error {
+	expiresAt = expiresAt.UTC()
+	req := cmd.UpdateUserRequest{
+		UserId:    userId,
+		ExpiresAt: &expiresAt,
+		Version:   cmd.DynUserLatestCommandPolicyVersion,
+	}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.ApplyRequest{
+		Type:       cmd.ApplyRequest_TYPE_UPDATE_USER,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(ctx, command); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Raft) DeactivateUser(ctx context.Context, userId string, revokeKey bool) error {
 	req := cmd.SuspendUserRequest{
 		UserId:    userId,
