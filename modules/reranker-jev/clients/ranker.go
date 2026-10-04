@@ -296,12 +296,32 @@ func (r judgeRequest) cacheKey(document string, batchSize int) judgmentKey {
 }
 
 // judge sends one batch and retries when the API is rate limiting or failing.
-// It returns one probability per document, in order.
+// A batch the API rejects for its size is sent as two halves, so long
+// documents still get judged; the batch size is an upper bound. It returns
+// one probability per document, in order.
 func (c *client) judge(ctx context.Context, request judgeRequest, documents []string,
 ) ([]float64, jevUsage, error) {
+	values, usage, result, err := c.judgeBatch(ctx, request, documents)
+	if err == nil || !result.tooLarge || len(documents) < 2 {
+		return values, usage, err
+	}
+	half := len(documents) / 2
+	first, firstUsage, err := c.judge(ctx, request, documents[:half])
+	if err != nil {
+		return nil, jevUsage{}, err
+	}
+	second, secondUsage, err := c.judge(ctx, request, documents[half:])
+	if err != nil {
+		return nil, jevUsage{}, err
+	}
+	return append(first, second...), jevUsage{InputTokens: firstUsage.InputTokens + secondUsage.InputTokens}, nil
+}
+
+func (c *client) judgeBatch(ctx context.Context, request judgeRequest, documents []string,
+) ([]float64, jevUsage, sendResult, error) {
 	body, err := json.Marshal(newJevRequest(request, documents))
 	if err != nil {
-		return nil, jevUsage{}, errors.Wrap(err, "marshal body")
+		return nil, jevUsage{}, sendResult{}, errors.Wrap(err, "marshal body")
 	}
 
 	var lastErr error
@@ -309,25 +329,25 @@ func (c *client) judge(ctx context.Context, request judgeRequest, documents []st
 	for attempt := range maxAttempts {
 		if attempt > 0 {
 			if err := wait(ctx, c.retryDelay(attempt, retryAfter)); err != nil {
-				return nil, jevUsage{}, err
+				return nil, jevUsage{}, sendResult{}, err
 			}
 		}
 		result, err := c.send(ctx, request, body, len(documents))
 		if err == nil {
-			return result.values, result.usage, nil
+			return result.values, result.usage, result, nil
 		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, jevUsage{}, ctxErr
+			return nil, jevUsage{}, result, ctxErr
 		}
 		if !result.retryable {
-			return nil, jevUsage{}, err
+			return nil, jevUsage{}, result, err
 		}
 		c.logger.WithField("action", "reranker_jev_retry").WithField("attempt", attempt+1).
 			Debugf("jev request failed, retrying: %v", err)
 		lastErr = err
 		retryAfter = result.retryAfter
 	}
-	return nil, jevUsage{}, errors.Wrapf(lastErr, "after %d attempts", maxAttempts)
+	return nil, jevUsage{}, sendResult{}, errors.Wrapf(lastErr, "after %d attempts", maxAttempts)
 }
 
 // retryDelay doubles with every attempt and is spread over half its length,
@@ -344,7 +364,13 @@ type sendResult struct {
 	usage      jevUsage
 	retryable  bool
 	retryAfter time.Duration
+	// tooLarge: the API rejected the request for its size.
+	tooLarge bool
 }
+
+// tooLargeError is the error_type Jev answers with status 400 when a
+// request has more tokens than it accepts. The limit is not published.
+const tooLargeError = "max_tokens_exceeded"
 
 func (c *client) send(ctx context.Context, request judgeRequest, body []byte, documents int,
 ) (sendResult, error) {
@@ -375,6 +401,7 @@ func (c *client) send(ctx context.Context, request judgeRequest, body []byte, do
 		return sendResult{
 				retryable:  res.StatusCode == http.StatusTooManyRequests || res.StatusCode >= 500,
 				retryAfter: parseRetryAfter(res.Header.Get("Retry-After")),
+				tooLarge:   res.StatusCode == http.StatusBadRequest && bytes.Contains(errorBody, []byte(tooLargeError)),
 			}, errors.Errorf(
 				"connection to Jev API failed with status %d: %s", res.StatusCode, errorBody)
 	}
