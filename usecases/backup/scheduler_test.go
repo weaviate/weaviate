@@ -3450,7 +3450,7 @@ func makeUserSnapshot(t *testing.T, ids ...string) []byte {
 	dbu, err := apikey.NewDBUser(t.TempDir(), true, logger, namespaces.NewController(logger))
 	require.NoError(t, err)
 	for _, id := range ids {
-		require.NoError(t, dbu.CreateUser(id, "hash-"+id, "ident-"+id, "", namespacing.NamespaceFromQualified(id), time.Now()))
+		require.NoError(t, dbu.CreateUser(id, "hash-"+id, "ident-"+id, "", namespacing.NamespaceFromQualified(id), time.Now(), time.Time{}))
 	}
 	snap, err := dbu.Snapshot()
 	require.NoError(t, err)

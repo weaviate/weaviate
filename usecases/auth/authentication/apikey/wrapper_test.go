@@ -127,7 +127,7 @@ func TestValidDynamicKey(t *testing.T) {
 			apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
 			require.NoError(t, err)
 
-			require.NoError(t, wrapper.Dynamic.CreateUser(userId, hash, identifier, "", "", time.Now()))
+			require.NoError(t, wrapper.Dynamic.CreateUser(userId, hash, identifier, "", "", time.Now(), time.Time{}))
 
 			principal, err := wrapper.ValidateAndExtract(apiKey, nil)
 			if testCase.expectError {
@@ -177,7 +177,7 @@ func TestValidateAndExtract_NeutralNamespaceMessage(t *testing.T) {
 
 			apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
 			require.NoError(t, err)
-			require.NoError(t, wrapper.Dynamic.CreateUser("u1", hash, identifier, "", nsName, time.Now()))
+			require.NoError(t, wrapper.Dynamic.CreateUser("u1", hash, identifier, "", nsName, time.Now(), time.Time{}))
 
 			token := apiKey
 			if tc.wrongKey {

@@ -73,13 +73,16 @@ func TestNewManager_NilNamespacesPanics(t *testing.T) {
 func TestManager_CreateUser(t *testing.T) {
 	_, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
+	createdAt := time.Now().UTC()
+	stored := createdAt.Add(2 * time.Hour)
 
 	tests := []struct {
 		name      string
 		namespace string
 		makeMock  func(t *testing.T) *usecasesNamespaces.MockExister
-		// storedExpiry is set on the user between two applies of the create.
-		storedExpiry time.Time
+		// update, when set, is stored by UpdateUser between two applies of the create.
+		update     *time.Time
+		wantExpiry time.Time
 	}{
 		{
 			name:      "active namespace",
@@ -118,10 +121,10 @@ func TestManager_CreateUser(t *testing.T) {
 			},
 		},
 		{
-			name:         "re-applied create keeps a stored expiry",
-			namespace:    "",
-			makeMock:     func(t *testing.T) *usecasesNamespaces.MockExister { return newNamespacesMock(t) },
-			storedExpiry: time.Now().Add(time.Hour).UTC(),
+			name:       "re-applied create keeps a stored expiry",
+			makeMock:   func(t *testing.T) *usecasesNamespaces.MockExister { return newNamespacesMock(t) },
+			update:     &stored,
+			wantExpiry: stored,
 		},
 	}
 
@@ -134,18 +137,20 @@ func TestManager_CreateUser(t *testing.T) {
 				SecureHash:     hash,
 				UserIdentifier: identifier,
 				Namespace:      tc.namespace,
-				CreatedAt:      time.Now(),
+				CreatedAt:      createdAt,
 			})}
-			if !tc.storedExpiry.IsZero() {
+			if tc.update != nil {
 				require.NoError(t, m.CreateUser(apply))
-				require.NoError(t, dynUser.UpdateUser("u1", apikey.UserUpdate{ExpiresAt: &tc.storedExpiry}))
+				require.NoError(t, dynUser.UpdateUser("u1", apikey.UserUpdate{ExpiresAt: tc.update}))
 			}
 			require.NoError(t, m.CreateUser(apply))
 			users, err := dynUser.GetUsers("u1")
 			require.NoError(t, err)
-			require.NotNil(t, users["u1"])
-			assert.Equal(t, tc.namespace, users["u1"].Namespace)
-			assert.Truef(t, tc.storedExpiry.Equal(users["u1"].ExpiresAt), "expiry %v, want %v", users["u1"].ExpiresAt, tc.storedExpiry)
+			got, ok := users["u1"]
+			require.True(t, ok)
+			assert.Equal(t, tc.namespace, got.Namespace)
+			assert.Truef(t, createdAt.Equal(got.CreatedAt), "createdAt %v, want %v", got.CreatedAt, createdAt)
+			assert.Truef(t, tc.wantExpiry.Equal(got.ExpiresAt), "expiry %v, want %v", got.ExpiresAt, tc.wantExpiry)
 		})
 	}
 }

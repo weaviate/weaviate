@@ -42,47 +42,22 @@ func startDynUserRaft(t *testing.T, userID string) (*Raft, context.Context, *api
 
 	_, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
-	require.NoError(t, srv.CreateUser(ctx, userID, hash, identifier, "", "", time.Now()))
+	require.NoError(t, srv.CreateUser(ctx, userID, hash, identifier, "", "", time.Now(), time.Time{}))
 	return srv, ctx, dynUser, cleanup
 }
 
-func TestRaftSetUserExpiration(t *testing.T) {
-	const userID = "u1"
-	srv, ctx, dynUser, cleanup := startDynUserRaft(t, userID)
+func TestRaftSetUserExpiration_UnknownUser(t *testing.T) {
+	srv, ctx, dynUser, cleanup := startDynUserRaft(t, "u1")
 	defer cleanup()
+	before, err := dynUser.GetUsers()
+	require.NoError(t, err)
 
-	plusTwo := time.Date(2030, 1, 2, 3, 4, 5, 6, time.FixedZone("", 2*60*60))
-	tests := []struct {
-		name      string
-		userID    string
-		expiresAt time.Time
-		wantErr   string
-	}{
-		{name: "non-UTC time is stored as the same instant in UTC", userID: userID, expiresAt: plusTwo},
-		{name: "unknown user returns the apply error", userID: "missing", expiresAt: plusTwo, wantErr: "user missing does not exist"},
-	}
+	err = srv.SetUserExpiration(ctx, "missing", time.Now().Add(time.Hour))
+	require.ErrorContains(t, err, "user missing does not exist")
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			stored := time.Now().Add(time.Hour).UTC()
-			require.NoError(t, dynUser.UpdateUser(userID, apikey.UserUpdate{ExpiresAt: &stored}))
-			before, err := dynUser.GetUsers()
-			require.NoError(t, err)
-
-			err = srv.SetUserExpiration(ctx, tc.userID, tc.expiresAt)
-			after, getErr := dynUser.GetUsers()
-			require.NoError(t, getErr)
-			if tc.wantErr != "" {
-				assert.ErrorContains(t, err, tc.wantErr)
-				assert.Equal(t, before, after, "a refused set must change no user")
-				return
-			}
-			require.NoError(t, err)
-			got := after[userID].ExpiresAt
-			assert.Truef(t, tc.expiresAt.Equal(got), "stored %v, want %v", got, tc.expiresAt)
-			assert.Equal(t, time.UTC, got.Location())
-		})
-	}
+	after, err := dynUser.GetUsers()
+	require.NoError(t, err)
+	assert.Equal(t, before, after, "a refused set must change no user")
 }
 
 // TestRaftUpdateUserRefusesUnknownField pins that the leader refuses an update

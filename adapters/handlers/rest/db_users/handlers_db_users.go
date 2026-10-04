@@ -474,7 +474,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	if err := h.dbUsers.CreateUser(ctx, internalKey, hash, userIdentifier, apiKey[:3], ns, time.Now()); err != nil {
+	if err := h.dbUsers.CreateUser(ctx, internalKey, hash, userIdentifier, apiKey[:3], ns, time.Now(), time.Time{}); err != nil {
 		// The namespace changed state between the pre-check above and the
 		// apply. Deleting renders 422 like the pre-check does — the namespace
 		// never returns to active, so the create is not retryable.
@@ -906,7 +906,7 @@ func (h *dynUserHandler) importOneUser(ctx context.Context, targetNamespace stri
 		createdAt = time.Now()
 	}
 
-	if err := h.dbUsers.CreateUser(ctx, key, rec.SecureHash, rec.UserIdentifier, rec.APIKeyFirstLetters, targetNamespace, createdAt); err != nil {
+	if err := h.dbUsers.CreateUser(ctx, key, rec.SecureHash, rec.UserIdentifier, rec.APIKeyFirstLetters, targetNamespace, createdAt, time.Time{}); err != nil {
 		if errors.Is(err, apikey.ErrUserIdentifierExists) {
 			return errResult("source key already maps to a different target user")
 		}

@@ -79,7 +79,7 @@ func IsOwnUser(principal *models.Principal, userKey string) bool {
 // Write methods accept a context so the implementation can propagate
 // request cancellation through RAFT.
 type DBUsers interface {
-	CreateUser(ctx context.Context, userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace string, createdAt time.Time) error
+	CreateUser(ctx context.Context, userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace string, createdAt, expiresAt time.Time) error
 	CreateUserWithKey(ctx context.Context, userId, apiKeyFirstLetters string, weakHash [sha256.Size]byte, createdAt time.Time) error
 	DeleteUser(ctx context.Context, userId string) error
 	ActivateUser(ctx context.Context, userId string) error
@@ -254,7 +254,7 @@ func restoreAllFields(data dbUserdata) dbUserdata {
 	return data
 }
 
-func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace string, createdAt time.Time) error {
+func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace string, createdAt, expiresAt time.Time) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -286,7 +286,7 @@ func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLette
 		InternalIdentifier: userIdentifier,
 		CreatedAt:          createdAt,
 		ApiKeyFirstLetters: apiKeyFirstLetters,
-		ExpiresAt:          c.storedExpiry(userId),
+		ExpiresAt:          c.storedExpiryOr(userId, expiresAt.UTC()),
 		Namespace:          namespace,
 	}
 	return c.storeToFile()
@@ -308,7 +308,7 @@ func (c *DBUser) CreateUserWithKey(userId, apiKeyFirstLetters string, weakHash [
 		InternalIdentifier: "imported_" + userId,
 		CreatedAt:          createdAt,
 		ApiKeyFirstLetters: apiKeyFirstLetters,
-		ExpiresAt:          c.storedExpiry(userId),
+		ExpiresAt:          c.storedExpiryOr(userId, time.Time{}),
 		ImportedWithKey:    true,
 	}
 	return c.storeToFile()
@@ -461,14 +461,14 @@ func (c *DBUser) UpdateUser(userId string, update UserUpdate) error {
 	return c.storeToFile()
 }
 
-// storedExpiry returns userId's expiry, or zero for an unknown user, so a
-// re-applied CreateUser or CreateUserWithKey keeps the expiry UpdateUser set.
-// Caller must hold c.lock.
-func (c *DBUser) storedExpiry(userId string) time.Time {
+// storedExpiryOr returns userId's stored expiry, or expiresAt for an unknown
+// user, so a re-applied CreateUser or CreateUserWithKey keeps the expiry
+// UpdateUser set. Caller must hold c.lock.
+func (c *DBUser) storedExpiryOr(userId string, expiresAt time.Time) time.Time {
 	if u := c.data.Users[userId]; u != nil {
 		return u.ExpiresAt
 	}
-	return time.Time{}
+	return expiresAt
 }
 
 func (c *DBUser) GetUsers(userIds ...string) (map[string]UserView, error) {

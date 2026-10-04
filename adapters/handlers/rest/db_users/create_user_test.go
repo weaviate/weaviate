@@ -89,7 +89,7 @@ func TestCreateInternalServerError(t *testing.T) {
 				dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(tt.CheckUserIdentifierExistsValueReturn, tt.CheckUserIdentifierExistsErrorReturn)
 			}
 			if tt.CheckUserIdentifierExistsErrorReturn == nil && !tt.CheckUserIdentifierExistsValueReturn && tt.GetUserReturn == nil {
-				dynUser.On("CreateUser", mock.Anything, "user", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(tt.CreateUserReturn)
+				dynUser.On("CreateUser", mock.Anything, "user", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(tt.CreateUserReturn)
 			}
 
 			h := dynUserHandler{
@@ -149,7 +149,7 @@ func TestCreateSuccess(t *testing.T) {
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", user).Return(map[string]apikey.UserView{}, nil)
 	dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
-	dynUser.On("CreateUser", mock.Anything, user, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	dynUser.On("CreateUser", mock.Anything, user, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	h := dynUserHandler{
 		dbUsers:    dynUser,
@@ -489,7 +489,7 @@ func TestCreateUser_Namespaces(t *testing.T) {
 				}
 				dynUser.On("GetUsers", tt.authzKey).Return(map[string]apikey.UserView{}, nil)
 				dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
-				dynUser.On("CreateUser", mock.Anything, tt.authzKey, mock.Anything, mock.Anything, mock.Anything, expectedNS, mock.Anything).Return(tt.createUserErr)
+				dynUser.On("CreateUser", mock.Anything, tt.authzKey, mock.Anything, mock.Anything, mock.Anything, expectedNS, mock.Anything, mock.Anything).Return(tt.createUserErr)
 			}
 
 			ns := namespaces.NewMockExister(t)
@@ -617,7 +617,7 @@ func TestCreateUser_MapsApplyNamespaceErrors(t *testing.T) {
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			dynUser.On("GetUsers", userID).Return(map[string]apikey.UserView{}, nil)
 			dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
-			dynUser.On("CreateUser", mock.Anything, userID, mock.Anything, mock.Anything, mock.Anything, "ns1", mock.Anything).Return(tt.applyErr)
+			dynUser.On("CreateUser", mock.Anything, userID, mock.Anything, mock.Anything, mock.Anything, "ns1", mock.Anything, mock.Anything).Return(tt.applyErr)
 
 			// Active, so the pre-check passes and the apply error under test
 			// is what the handler renders.

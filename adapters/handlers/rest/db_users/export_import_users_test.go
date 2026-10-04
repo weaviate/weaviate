@@ -184,7 +184,7 @@ func TestImportUsersHandler(t *testing.T) {
 		dynUser := NewMockDbUserAndRolesGetter(t)
 		dynUser.On("ExportUsers", key).Return(map[string]dbuser.ExportRecord{}, nil)
 		dynUser.On("CheckUserIdentifierExists", "identifier-16-ch").Return(false, nil)
-		dynUser.On("CreateUser", mock.Anything, key, strongHash, "identifier-16-ch", "abc", "ns1", mock.Anything).Return(nil)
+		dynUser.On("CreateUser", mock.Anything, key, strongHash, "identifier-16-ch", "abc", "ns1", mock.Anything, mock.Anything).Return(nil)
 
 		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
 		result := firstResult(t, h.importUsers(importOne(strongRecord(true)), principal))
@@ -325,7 +325,7 @@ func TestImportUsersHandler(t *testing.T) {
 		dynUser := NewMockDbUserAndRolesGetter(t)
 		dynUser.On("ExportUsers", key).Return(map[string]dbuser.ExportRecord{}, nil)
 		dynUser.On("CheckUserIdentifierExists", "identifier-16-ch").Return(false, nil)
-		dynUser.On("CreateUser", mock.Anything, key, strongHash, "identifier-16-ch", "abc", "ns1", mock.Anything).Return(nil)
+		dynUser.On("CreateUser", mock.Anything, key, strongHash, "identifier-16-ch", "abc", "ns1", mock.Anything, mock.Anything).Return(nil)
 		dynUser.On("DeactivateUser", mock.Anything, key, false).Return(errors.New("raft down"))
 
 		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
@@ -455,7 +455,7 @@ func TestImportUsersHandler(t *testing.T) {
 		// the id between the read and the apply.
 		dynUser.On("ExportUsers", key).Return(map[string]dbuser.ExportRecord{}, nil)
 		dynUser.On("CheckUserIdentifierExists", "identifier-16-ch").Return(false, nil)
-		dynUser.On("CreateUser", mock.Anything, key, strongHash, "identifier-16-ch", "abc", "ns1", mock.Anything).
+		dynUser.On("CreateUser", mock.Anything, key, strongHash, "identifier-16-ch", "abc", "ns1", mock.Anything, mock.Anything).
 			Return(fmt.Errorf("creating user: %w", apikey.ErrUserExists))
 
 		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}

@@ -54,7 +54,7 @@ func (m *Manager) CreateUser(c *cmd.ApplyRequest) error {
 
 	// No namespace-state check here: a committed create must apply on every
 	// binary. Store.admitCreateLike refuses it before the append.
-	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier, req.ApiKeyFirstLetters, req.Namespace, req.CreatedAt)
+	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier, req.ApiKeyFirstLetters, req.Namespace, req.CreatedAt, req.ExpiresAt)
 }
 
 func (m *Manager) CreateUserWithKeyRequest(c *cmd.ApplyRequest) error {

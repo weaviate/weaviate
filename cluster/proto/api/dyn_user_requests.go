@@ -32,6 +32,7 @@ type CreateUsersRequest struct {
 	ApiKeyFirstLetters string
 	Namespace          string
 	CreatedAt          time.Time
+	ExpiresAt          time.Time
 	Version            int
 }
 

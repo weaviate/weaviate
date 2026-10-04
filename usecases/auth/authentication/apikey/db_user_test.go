@@ -54,7 +54,7 @@ func TestDynUserConcurrency(t *testing.T) {
 	for i := 0; i < numUsers; i++ {
 		userName := fmt.Sprintf("user%v", i)
 		go func() {
-			err := dynUsers.CreateUser(userName, "something", userName, "", "", time.Now())
+			err := dynUsers.CreateUser(userName, "something", userName, "", "", time.Now(), time.Time{})
 			require.NoError(t, err)
 			wg.Done()
 		}()
@@ -76,7 +76,7 @@ func TestGetUsers_NoRaceWithMutators(t *testing.T) {
 	userIds := make([]string, 0, numUsers)
 	for i := 0; i < numUsers; i++ {
 		id := fmt.Sprintf("u%d", i)
-		require.NoError(t, dynUsers.CreateUser(id, "h", id, "", "", time.Now()))
+		require.NoError(t, dynUsers.CreateUser(id, "h", id, "", "", time.Now(), time.Time{}))
 		userIds = append(userIds, id)
 	}
 
@@ -163,12 +163,12 @@ func TestConcurrentValidate(t *testing.T) {
 	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(userId1, hash, identifier, "", "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId1, hash, identifier, "", "", time.Now(), time.Time{}))
 
 	apiKey2, hash2, identifier2, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(userId2, hash2, identifier2, "", "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId2, hash2, identifier2, "", "", time.Now(), time.Time{}))
 
 	randomKey, _, err := keys.DecodeApiKey(apiKey)
 	require.NoError(t, err)
@@ -206,7 +206,7 @@ func TestDynUserTestSlowAfterWeakHash(t *testing.T) {
 	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", "", time.Now(), time.Time{}))
 
 	randomKey, _, err := keys.DecodeApiKey(apiKey)
 	require.NoError(t, err)
@@ -237,7 +237,7 @@ func TestUpdateUser(t *testing.T) {
 	apiKey, hash, oldIdentifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(userId, hash, oldIdentifier, "", "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId, hash, oldIdentifier, "", "", time.Now(), time.Time{}))
 
 	// login works
 	randomKeyOld, _, err := keys.DecodeApiKey(apiKey)
@@ -285,7 +285,7 @@ func TestCheckUserIdentifierExists(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, exists)
 
-	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", "", time.Now(), time.Time{}))
 
 	exists, err = dynUsers.CheckUserIdentifierExists(identifier)
 	require.NoError(t, err)
@@ -306,13 +306,13 @@ func TestSnapShotAndRestore(t *testing.T) {
 	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(userId1, hash, identifier, "", "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId1, hash, identifier, "", "", time.Now(), time.Time{}))
 	login1, _, err := keys.DecodeApiKey(apiKey)
 	require.NoError(t, err)
 
 	apiKey2, hash2, identifier2, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
-	require.NoError(t, dynUsers.CreateUser(userId2, hash2, identifier2, "", "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId2, hash2, identifier2, "", "", time.Now(), time.Time{}))
 	login2, _, err := keys.DecodeApiKey(apiKey2)
 	require.NoError(t, err)
 
@@ -378,7 +378,7 @@ func TestSuspendAfterDelete(t *testing.T) {
 	_, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", "", time.Now(), time.Time{}))
 
 	users, err := dynUsers.GetUsers(userId)
 	require.NoError(t, err)
@@ -403,7 +403,7 @@ func TestLastUsedTime(t *testing.T) {
 	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", "", time.Now(), time.Time{}))
 
 	user, err := dynUsers.GetUsers(userId)
 	require.NoError(t, err)
@@ -568,7 +568,7 @@ func TestSnapshotRestoreEmpty(t *testing.T) {
 	_, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", "", time.Now(), time.Time{}))
 	user, err := dynUsers.GetUsers(userId)
 	require.NoError(t, err)
 	require.Equal(t, user[userId].Id, userId)
@@ -606,7 +606,7 @@ func TestCreateUserStoresNamespace(t *testing.T) {
 			_, hash, identifier, err := keys.CreateApiKeyAndHash()
 			require.NoError(t, err)
 
-			require.NoError(t, dynUsers.CreateUser("u1", hash, identifier, "", tc.namespace, time.Now()))
+			require.NoError(t, dynUsers.CreateUser("u1", hash, identifier, "", tc.namespace, time.Now(), time.Time{}))
 
 			users, err := dynUsers.GetUsers("u1")
 			require.NoError(t, err)
@@ -632,7 +632,7 @@ func TestSnapshotRestoreMultipleNamespaces(t *testing.T) {
 	for _, s := range seeds {
 		_, hash, identifier, err := keys.CreateApiKeyAndHash()
 		require.NoError(t, err)
-		require.NoError(t, dynUsers.CreateUser(s.userId, hash, identifier, "", s.namespace, time.Now()))
+		require.NoError(t, dynUsers.CreateUser(s.userId, hash, identifier, "", s.namespace, time.Now(), time.Time{}))
 	}
 
 	snap, err := dynUsers.Snapshot()
@@ -666,7 +666,7 @@ func TestValidateAndExtractReturnsNamespace(t *testing.T) {
 
 			apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
 			require.NoError(t, err)
-			require.NoError(t, dynUsers.CreateUser("u1", hash, identifier, "", tc.namespace, time.Now()))
+			require.NoError(t, dynUsers.CreateUser("u1", hash, identifier, "", tc.namespace, time.Now(), time.Time{}))
 
 			randomKey, _, err := keys.DecodeApiKey(apiKey)
 			require.NoError(t, err)
@@ -709,7 +709,7 @@ func createNamespacedUser(tb testing.TB, dyn *DBUser, namespace string) (userId,
 	tb.Helper()
 	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(tb, err)
-	require.NoError(tb, dyn.CreateUser("u1", hash, identifier, "", namespace, time.Now()))
+	require.NoError(tb, dyn.CreateUser("u1", hash, identifier, "", namespace, time.Now(), time.Time{}))
 	key, _, err = keys.DecodeApiKey(apiKey)
 	require.NoError(tb, err)
 	return "u1", key, identifier
@@ -972,7 +972,7 @@ func TestUsersInNamespace(t *testing.T) {
 	for _, s := range seeds {
 		_, hash, identifier, err := keys.CreateApiKeyAndHash()
 		require.NoError(t, err)
-		require.NoError(t, dynUsers.CreateUser(s.id, hash, identifier, "", s.namespace, time.Now()))
+		require.NoError(t, dynUsers.CreateUser(s.id, hash, identifier, "", s.namespace, time.Now(), time.Time{}))
 	}
 
 	require.ElementsMatch(t, []string{"u-alpha-1", "u-alpha-2"}, dynUsers.UsersInNamespace("alpha"))
@@ -997,7 +997,7 @@ func TestDeleteUsersInNamespace(t *testing.T) {
 		for _, s := range seeds {
 			_, hash, identifier, err := keys.CreateApiKeyAndHash()
 			require.NoError(t, err)
-			require.NoError(t, dynUsers.CreateUser(s.id, hash, identifier, "", s.namespace, time.Now()))
+			require.NoError(t, dynUsers.CreateUser(s.id, hash, identifier, "", s.namespace, time.Now(), time.Time{}))
 		}
 
 		require.NoError(t, dynUsers.DeleteUsersInNamespace("alpha"))
@@ -1017,7 +1017,7 @@ func TestDeleteUsersInNamespace(t *testing.T) {
 
 		_, hash, identifier, err := keys.CreateApiKeyAndHash()
 		require.NoError(t, err)
-		require.NoError(t, dynUsers.CreateUser("u1", hash, identifier, "", "alpha", time.Now()))
+		require.NoError(t, dynUsers.CreateUser("u1", hash, identifier, "", "alpha", time.Now(), time.Time{}))
 
 		require.NoError(t, dynUsers.DeleteUsersInNamespace("alpha"))
 		require.NoError(t, dynUsers.DeleteUsersInNamespace("alpha"))
@@ -1030,12 +1030,12 @@ func TestDeleteUsersInNamespace(t *testing.T) {
 
 		_, hash, identifier, err := keys.CreateApiKeyAndHash()
 		require.NoError(t, err)
-		require.NoError(t, dynUsers.CreateUser("u1", hash, identifier, "", "alpha", time.Now()))
+		require.NoError(t, dynUsers.CreateUser("u1", hash, identifier, "", "alpha", time.Now(), time.Time{}))
 		require.NoError(t, dynUsers.DeleteUsersInNamespace("alpha"))
 
 		_, hash2, identifier2, err := keys.CreateApiKeyAndHash()
 		require.NoError(t, err)
-		require.NoError(t, dynUsers.CreateUser("u1", hash2, identifier2, "", "alpha", time.Now()))
+		require.NoError(t, dynUsers.CreateUser("u1", hash2, identifier2, "", "alpha", time.Now(), time.Time{}))
 
 		users, err := dynUsers.GetUsers("u1")
 		require.NoError(t, err)
@@ -1059,7 +1059,7 @@ func seedUser(t *testing.T, u *DBUser, userId, namespace string) (login, identif
 	t.Helper()
 	apiKey, hash, ident, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
-	require.NoError(t, u.CreateUser(userId, hash, ident, "", namespace, time.Now()))
+	require.NoError(t, u.CreateUser(userId, hash, ident, "", namespace, time.Now(), time.Time{}))
 	login, _, err = keys.DecodeApiKey(apiKey)
 	require.NoError(t, err)
 	return login, ident
@@ -1517,11 +1517,11 @@ func TestListAllUsers(t *testing.T) {
 	// create users in different namespaces
 	_, hash1, identifier1, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
-	require.NoError(t, dynUsers.CreateUser("ns1:user", hash1, identifier1, "", "ns1", time.Now()))
+	require.NoError(t, dynUsers.CreateUser("ns1:user", hash1, identifier1, "", "ns1", time.Now(), time.Time{}))
 
 	_, hash2, identifier2, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
-	require.NoError(t, dynUsers.CreateUser("ns2:user", hash2, identifier2, "", "ns2", time.Now()))
+	require.NoError(t, dynUsers.CreateUser("ns2:user", hash2, identifier2, "", "ns2", time.Now(), time.Time{}))
 
 	users := dynUsers.ListAllUsers()
 
@@ -1536,7 +1536,7 @@ func TestExportUsers(t *testing.T) {
 		require.NoError(t, err)
 		_, hash, identifier, err := keys.CreateApiKeyAndHash()
 		require.NoError(t, err)
-		require.NoError(t, dynUsers.CreateUser("user", hash, identifier, "abc", "", time.Now()))
+		require.NoError(t, dynUsers.CreateUser("user", hash, identifier, "abc", "", time.Now(), time.Time{}))
 		expiresAt := time.Now().Add(time.Hour)
 		dynUsers.data.Users["user"].ExpiresAt = expiresAt
 
@@ -1558,10 +1558,10 @@ func TestExportUsers(t *testing.T) {
 		require.NoError(t, err)
 		_, hash, identifier, err := keys.CreateApiKeyAndHash()
 		require.NoError(t, err)
-		require.NoError(t, dynUsers.CreateUser("healthy", hash, identifier, "", "", time.Now()))
+		require.NoError(t, dynUsers.CreateUser("healthy", hash, identifier, "", "", time.Now(), time.Time{}))
 		_, hash2, identifier2, err := keys.CreateApiKeyAndHash()
 		require.NoError(t, err)
-		require.NoError(t, dynUsers.CreateUser("broken", hash2, identifier2, "", "", time.Now()))
+		require.NoError(t, dynUsers.CreateUser("broken", hash2, identifier2, "", "", time.Now(), time.Time{}))
 		// No write path drops a hash, so corrupt the store directly.
 		delete(dynUsers.data.SecureKeyStorageById, "broken")
 
@@ -1596,7 +1596,7 @@ func TestExportUsers(t *testing.T) {
 		require.NoError(t, err)
 		_, hash, identifier, err := keys.CreateApiKeyAndHash()
 		require.NoError(t, err)
-		require.NoError(t, dynUsers.CreateUser("user", hash, identifier, "", "", time.Now()))
+		require.NoError(t, dynUsers.CreateUser("user", hash, identifier, "", "", time.Now(), time.Time{}))
 		require.NoError(t, dynUsers.DeactivateUser("user", true))
 
 		records, err := dynUsers.ExportUsers()
@@ -1612,7 +1612,7 @@ func TestExportUsers(t *testing.T) {
 		require.NoError(t, err)
 		_, hash, identifier, err := keys.CreateApiKeyAndHash()
 		require.NoError(t, err)
-		require.NoError(t, dynUsers.CreateUser("user", hash, identifier, "", "", time.Now()))
+		require.NoError(t, dynUsers.CreateUser("user", hash, identifier, "", "", time.Now(), time.Time{}))
 		require.NoError(t, dynUsers.DeactivateUser("user", false))
 
 		records, err := dynUsers.ExportUsers()
@@ -1641,9 +1641,9 @@ func TestCreateUserIdentifierInvariant(t *testing.T) {
 		require.NoError(t, err)
 		_, hash, identifier, err := keys.CreateApiKeyAndHash()
 		require.NoError(t, err)
-		require.NoError(t, dynUsers.CreateUser("user1", hash, identifier, "", "", time.Now()))
+		require.NoError(t, dynUsers.CreateUser("user1", hash, identifier, "", "", time.Now(), time.Time{}))
 
-		err = dynUsers.CreateUser("user2", "different-hash", identifier, "", "", time.Now())
+		err = dynUsers.CreateUser("user2", "different-hash", identifier, "", "", time.Now(), time.Time{})
 		require.ErrorIs(t, err, ErrUserIdentifierExists)
 
 		// The clobber wrote nothing: user2 must not exist and the identifier must
@@ -1665,10 +1665,10 @@ func TestCreateUserIdentifierInvariant(t *testing.T) {
 		require.NoError(t, err)
 		_, hash, identifier, err := keys.CreateApiKeyAndHash()
 		require.NoError(t, err)
-		require.NoError(t, dynUsers.CreateUser("user1", hash, identifier, "", "", time.Now()))
+		require.NoError(t, dynUsers.CreateUser("user1", hash, identifier, "", "", time.Now(), time.Time{}))
 
 		// Re-applying the same userId succeeds, as RAFT log replay and a repeat import need.
-		require.NoError(t, dynUsers.CreateUser("user1", hash, identifier, "", "", time.Now()))
+		require.NoError(t, dynUsers.CreateUser("user1", hash, identifier, "", "", time.Now(), time.Time{}))
 	})
 
 	t.Run("same user id with a different identifier is refused with ErrUserExists", func(t *testing.T) {
@@ -1676,11 +1676,11 @@ func TestCreateUserIdentifierInvariant(t *testing.T) {
 		require.NoError(t, err)
 		_, hash, identifier, err := keys.CreateApiKeyAndHash()
 		require.NoError(t, err)
-		require.NoError(t, dynUsers.CreateUser("user1", hash, identifier, "", "", time.Now()))
+		require.NoError(t, dynUsers.CreateUser("user1", hash, identifier, "", "", time.Now(), time.Time{}))
 
 		_, otherHash, otherIdentifier, err := keys.CreateApiKeyAndHash()
 		require.NoError(t, err)
-		err = dynUsers.CreateUser("user1", otherHash, otherIdentifier, "", "", time.Now())
+		err = dynUsers.CreateUser("user1", otherHash, otherIdentifier, "", "", time.Now(), time.Time{})
 		require.ErrorIs(t, err, ErrUserExists)
 
 		// The rejected create wrote nothing: the stored credential is the original
@@ -1699,7 +1699,7 @@ func TestCreateUserIdentifierInvariant(t *testing.T) {
 		require.NoError(t, err)
 		apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
 		require.NoError(t, err)
-		require.NoError(t, dynUsers.CreateUser("user1", hash, identifier, "", "", time.Now()))
+		require.NoError(t, dynUsers.CreateUser("user1", hash, identifier, "", "", time.Now(), time.Time{}))
 
 		randomKey, _, err := keys.DecodeApiKey(apiKey)
 		require.NoError(t, err)
@@ -1712,7 +1712,7 @@ func TestCreateUserIdentifierInvariant(t *testing.T) {
 		// re-create must drop it rather than reject the newly stored credential.
 		_, newHash, _, err := keys.CreateApiKeyAndHash()
 		require.NoError(t, err)
-		require.NoError(t, dynUsers.CreateUser("user1", newHash, identifier, "", "", time.Now()))
+		require.NoError(t, dynUsers.CreateUser("user1", newHash, identifier, "", "", time.Now(), time.Time{}))
 
 		_, cached = dynUsers.memoryOnlyData.weakKeyStorageById.Load("user1")
 		require.False(t, cached)
@@ -1751,7 +1751,7 @@ func TestRestoreAcceptsRestoredKeyAfterCachedLogin(t *testing.T) {
 				require.NoError(t, dynUsers.DeleteUser(userId))
 				apiKey, hash, newIdentifier, err := keys.CreateApiKeyAndHash()
 				require.NoError(t, err)
-				require.NoError(t, dynUsers.CreateUser(userId, hash, newIdentifier, "", "", time.Now()))
+				require.NoError(t, dynUsers.CreateUser(userId, hash, newIdentifier, "", "", time.Now(), time.Time{}))
 				key, _, err := keys.DecodeApiKey(apiKey)
 				require.NoError(t, err)
 				return key, newIdentifier
@@ -1765,7 +1765,7 @@ func TestRestoreAcceptsRestoredKeyAfterCachedLogin(t *testing.T) {
 
 			apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
 			require.NoError(t, err)
-			require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", "", time.Now()))
+			require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", "", time.Now(), time.Time{}))
 			key, _, err := keys.DecodeApiKey(apiKey)
 			require.NoError(t, err)
 
