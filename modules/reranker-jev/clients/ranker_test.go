@@ -433,6 +433,41 @@ func TestRankBatches(t *testing.T) {
 		})
 	}
 
+	t.Run("a batch the API rejects for its size is sent as halves", func(t *testing.T) {
+		// Jev accepts at most 3 documents per request here: 10 -> 5 + 5 -> 2 + 3 each.
+		handler := &jevHandler{t: t, scores: scores, maxDocumentsPerRequest: 3}
+		server := httptest.NewServer(handler)
+		defer server.Close()
+
+		res, err := newTestClient("apiKey").Rank(context.Background(), "q", documents[:10],
+			classConfig(server.URL, map[string]any{"batchSize": 10}))
+
+		require.NoError(t, err)
+		for i, document := range documents[:10] {
+			assert.Equal(t, ent.DocumentScore{Document: document, Score: scores[document]}, res.DocumentScores[i])
+		}
+		var sizes []int
+		for _, request := range handler.received() {
+			if state, ok := request.body.State.(map[string]any); ok {
+				sizes = append(sizes, len(state))
+			}
+		}
+		sort.Ints(sizes)
+		assert.Equal(t, []int{2, 2, 3, 3, 5, 5, 10}, sizes)
+	})
+
+	t.Run("a single document the API rejects for its size is an error", func(t *testing.T) {
+		handler := &jevHandler{t: t, scores: scores, maxDocumentsPerRequest: -1}
+		server := httptest.NewServer(handler)
+		defer server.Close()
+
+		_, err := newTestClient("apiKey").Rank(context.Background(), "q", documents[:1],
+			classConfig(server.URL, map[string]any{"batchSize": 1}))
+
+		require.ErrorContains(t, err, "max_tokens_exceeded")
+		assert.Len(t, handler.received(), 1)
+	})
+
 	t.Run("a batch of one document uses the single-document request", func(t *testing.T) {
 		handler := &jevHandler{t: t, scores: scores}
 		server := httptest.NewServer(handler)
@@ -587,6 +622,9 @@ type jevHandler struct {
 	// omitAnswerFor leaves one document of a batch without an answer.
 	omitAnswerFor string
 	retryAfter    string
+	// maxDocumentsPerRequest makes the handler answer 400 max_tokens_exceeded
+	// to a larger request; 0 accepts every request, -1 rejects every request.
+	maxDocumentsPerRequest int
 
 	lock        sync.Mutex
 	requests    []receivedRequest
@@ -633,6 +671,17 @@ func (h *jevHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}()
 	time.Sleep(h.delay)
 
+	if limit := h.maxDocumentsPerRequest; limit != 0 && status == http.StatusOK {
+		sent := 1
+		if state, ok := req.State.(map[string]any); ok {
+			sent = len(state)
+		}
+		if limit < 0 || sent > limit {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"detail":{"error_type":"max_tokens_exceeded"}}`))
+			return
+		}
+	}
 	if status != http.StatusOK {
 		if h.retryAfter != "" {
 			w.Header().Set("Retry-After", h.retryAfter)
