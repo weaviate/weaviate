@@ -229,6 +229,9 @@ func (h *dynUserHandler) addToListAllResponse(ctx context.Context, principal *mo
 	return response, nil
 }
 
+// setExpirationRoute is the REST route that sets an existing DB user's expiry.
+const setExpirationRoute = "PUT /v1/users/db/{user_id}/expiration"
+
 // RenderExpiresAt returns a DB user's expiry as a REST field, or nil when the
 // user has none.
 func RenderExpiresAt(t time.Time) *strfmt.DateTime {
@@ -441,7 +444,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 
 	if params.Body.Import != nil && *params.Body.Import {
 		if !expiresAt.IsZero() {
-			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("expiresAt cannot be set on import; set it with PUT /v1/users/db/{user_id}/expiration after the import")))
+			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("expiresAt cannot be set on import; set it with %s after the import", setExpirationRoute)))
 		}
 
 		if !h.principalIsRootUser(principal) {
@@ -750,6 +753,7 @@ func (h *dynUserHandler) exportUsers(params experimental.ExportUsersParams, prin
 			APIKeyFirstLetters: rec.ApiKeyFirstLetters,
 			Active:             rec.Active,
 			CreatedAt:          strfmt.DateTime(rec.CreatedAt),
+			ExpiresAt:          RenderExpiresAt(rec.ExpiresAt),
 			Namespace:          rec.Namespace,
 			Status:             rec.Status.String(),
 		}
@@ -804,6 +808,23 @@ func (h *dynUserHandler) importUsers(params experimental.ImportUsersParams, prin
 		}
 	}
 
+	// Every record's expiry resolves before importOneUser writes any record, so a
+	// refused expiry writes nothing.
+	expiresAt := make([]time.Time, len(params.Body.Users))
+	for i, rec := range params.Body.Users {
+		if rec == nil {
+			continue
+		}
+		t, err := h.expiry.ResolveImported((*time.Time)(rec.ExpiresAt))
+		if errors.Is(err, license.ErrRequired) {
+			return experimental.NewImportUsersForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+		}
+		if err != nil {
+			return experimental.NewImportUsersUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("user %q: %w", bareUserID(rec), err)))
+		}
+		expiresAt[i] = t
+	}
+
 	if h.namespacesEnabled {
 		if targetNamespace == "" {
 			return experimental.NewImportUsersUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("a target namespace is required on namespace-enabled clusters")))
@@ -823,8 +844,8 @@ func (h *dynUserHandler) importUsers(params experimental.ImportUsersParams, prin
 	}
 
 	response := &models.UserImportResponse{Results: make([]*models.UserImportResult, 0, len(params.Body.Users))}
-	for _, rec := range params.Body.Users {
-		response.Results = append(response.Results, h.importOneUser(ctx, targetNamespace, rec))
+	for i, rec := range params.Body.Users {
+		response.Results = append(response.Results, h.importOneUser(ctx, targetNamespace, rec, expiresAt[i]))
 	}
 
 	return experimental.NewImportUsersOK().WithPayload(response)
@@ -843,7 +864,7 @@ func bareUserID(rec *models.DBUserCredential) string {
 // It refuses a user id held by a different identifier and an identifier bound to
 // a different user. Both checks can race a concurrent create; CreateUser repeats
 // them at apply time.
-func (h *dynUserHandler) importOneUser(ctx context.Context, targetNamespace string, rec *models.DBUserCredential) *models.UserImportResult {
+func (h *dynUserHandler) importOneUser(ctx context.Context, targetNamespace string, rec *models.DBUserCredential, expiresAt time.Time) *models.UserImportResult {
 	bareID := bareUserID(rec)
 	result := &models.UserImportResult{UserID: &bareID}
 	errResult := func(reason string) *models.UserImportResult {
@@ -903,6 +924,18 @@ func (h *dynUserHandler) importOneUser(ctx context.Context, targetNamespace stri
 		if u.UserIdentifier != rec.UserIdentifier {
 			return errResult("a different credential already exists for this user id")
 		}
+		// Import never changes an existing user's expiry.
+		if !expiresAt.IsZero() && !expiresAt.Equal(u.ExpiresAt) {
+			if expiresAt.After(time.Now()) {
+				return errResult(fmt.Sprintf("expiresAt differs from the existing user's; change it with %s", setExpirationRoute))
+			}
+			// PUT /v1/users/db/{user_id}/expiration refuses a past time, so an operator
+			// retires the key by deactivating the user, which import never re-activates.
+			if !u.Active {
+				return okResult(models.UserImportResultStatusSkippedExists)
+			}
+			return errResult(fmt.Sprintf("expiresAt differs from the existing user's and has passed, so %s cannot set it; deactivate the user, or delete it and re-import", setExpirationRoute))
+		}
 		// Same identifier means the stored hash is already the right one. A repeat
 		// import only brings the active state in line with the record.
 		if u.Active == rec.Active {
@@ -933,7 +966,7 @@ func (h *dynUserHandler) importOneUser(ctx context.Context, targetNamespace stri
 		createdAt = time.Now()
 	}
 
-	if err := h.dbUsers.CreateUser(ctx, key, rec.SecureHash, rec.UserIdentifier, rec.APIKeyFirstLetters, targetNamespace, createdAt, time.Time{}); err != nil {
+	if err := h.dbUsers.CreateUser(ctx, key, rec.SecureHash, rec.UserIdentifier, rec.APIKeyFirstLetters, targetNamespace, createdAt, expiresAt); err != nil {
 		if errors.Is(err, apikey.ErrUserIdentifierExists) {
 			return errResult("source key already maps to a different target user")
 		}

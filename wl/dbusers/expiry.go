@@ -27,12 +27,22 @@ func NewValidatingExpiry() *ValidatingExpiry { return &ValidatingExpiry{} }
 // It refuses a time that is not after now, and a UTC year past 9999, which
 // JSON cannot encode.
 func (*ValidatingExpiry) Resolve(requested *time.Time) (time.Time, error) {
+	return resolveAfter(requested, time.Now().UTC(), "is not in the future")
+}
+
+// ResolveImported resolves as Resolve does but accepts a past time. It refuses
+// a time at or before the Unix epoch, which an empty string decodes to.
+func (*ValidatingExpiry) ResolveImported(requested *time.Time) (time.Time, error) {
+	return resolveAfter(requested, time.Unix(0, 0), "is at or before the Unix epoch, which an empty string decodes to")
+}
+
+func resolveAfter(requested *time.Time, floor time.Time, refusal string) (time.Time, error) {
 	if requested == nil {
 		return time.Time{}, nil
 	}
 	t := requested.UTC().Truncate(time.Millisecond)
-	if !t.After(time.Now()) {
-		return time.Time{}, fmt.Errorf("expiresAt %s is not in the future", t.Format(time.RFC3339Nano))
+	if !t.After(floor) {
+		return time.Time{}, fmt.Errorf("expiresAt %s %s", t.Format(time.RFC3339Nano), refusal)
 	}
 	if t.Year() > 9999 {
 		return time.Time{}, errors.New("expiresAt must be before the year 10000 in UTC")

@@ -17,6 +17,9 @@ import "time"
 // store. A nil requested returns the zero time, which means never.
 type ExpiryResolver interface {
 	Resolve(requested *time.Time) (time.Time, error)
+	// ResolveImported resolves the expiry of an imported record, which may
+	// already have passed.
+	ResolveImported(requested *time.Time) (time.Time, error)
 }
 
 // RefusingExpiry returns an ExpiryResolver that returns err for any requested
@@ -30,4 +33,8 @@ func (r refusingExpiry) Resolve(requested *time.Time) (time.Time, error) {
 		return time.Time{}, nil
 	}
 	return time.Time{}, r.err
+}
+
+func (r refusingExpiry) ResolveImported(requested *time.Time) (time.Time, error) {
+	return r.Resolve(requested)
 }

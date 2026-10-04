@@ -2633,7 +2633,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or a record sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9083,6 +9083,12 @@ func init() {
           "type": "string",
           "format": "date-time"
         },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent or null means the key never expires, except that import never changes an existing user's expiry, so a record without one keeps the stored value. A new user takes the record's value, even one that has passed. A differing future value for an existing user gives that record an error result naming ` + "`" + `PUT /v1/users/db/{user_id}/expiration` + "`" + `. A differing past value gives ` + "`" + `skipped_exists` + "`" + ` for a deactivated user. For an active one it gives an error result advising to deactivate the user, or delete it and re-import, because that PUT refuses a past time. A node without a Weaviate license key refuses the whole import with 403 when any record sets a non-null ` + "`" + `expiresAt` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "namespace": {
           "description": "The namespace the user was bound to on the source. Informational on export; import binds the user to the request's target namespace.",
           "type": "string"
@@ -15368,7 +15374,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or a record sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -22038,6 +22044,12 @@ func init() {
           "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
           "type": "string",
           "format": "date-time"
+        },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent or null means the key never expires, except that import never changes an existing user's expiry, so a record without one keeps the stored value. A new user takes the record's value, even one that has passed. A differing future value for an existing user gives that record an error result naming ` + "`" + `PUT /v1/users/db/{user_id}/expiration` + "`" + `. A differing past value gives ` + "`" + `skipped_exists` + "`" + ` for a deactivated user. For an active one it gives an error result advising to deactivate the user, or delete it and re-import, because that PUT refuses a past time. A node without a Weaviate license key refuses the whole import with 403 when any record sets a non-null ` + "`" + `expiresAt` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
         },
         "namespace": {
           "description": "The namespace the user was bound to on the source. Informational on export; import binds the user to the request's target namespace.",

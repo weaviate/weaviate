@@ -27,9 +27,9 @@ func dbUserExpirationModeFor(cfg config.Config) license.Mode {
 	return license.ModeFor(cfg.Authentication.DBUsers.Enabled, cfg.WeaviateLicense)
 }
 
-// dbUserExpiryResolver picks the ExpiryResolver that createUser resolves a
-// requested expiresAt with. Any mode but FeatureLicensed gets the license
-// refusal.
+// dbUserExpiryResolver picks the ExpiryResolver that createUser and importUsers
+// resolve a requested expiresAt with. Any mode but FeatureLicensed gets the
+// license refusal.
 func dbUserExpiryResolver(mode license.Mode) apikey.ExpiryResolver {
 	switch mode {
 	case license.FeatureLicensed:
