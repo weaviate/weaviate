@@ -43,6 +43,7 @@ type client struct {
 	path         string
 	httpClient   *http.Client
 	maxDocuments int
+	maxTokens    int
 	logger       logrus.FieldLogger
 }
 
@@ -53,6 +54,7 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *clien
 		host:         "https://api.jina.ai",
 		path:         "/v1/rerank",
 		maxDocuments: 1000,
+		maxTokens:    150000,
 		logger:       logger,
 	}
 }
@@ -63,7 +65,8 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 	eg := enterrors.NewErrorGroupWrapper(c.logger)
 	eg.SetLimit(_NUMCPU)
 
-	chunkedDocuments := c.chunkDocuments(documents, c.maxDocuments)
+	// Jina rejects a request over 200,000 tokens; the estimate leaves a margin.
+	chunkedDocuments := ent.ChunkDocuments(query, documents, c.maxDocuments, c.maxTokens)
 	documentScoreResponses := make([][]ent.DocumentScore, len(chunkedDocuments))
 	for i := range chunkedDocuments {
 		i := i // https://golang.org/doc/faq#closures_and_goroutines
@@ -152,21 +155,6 @@ func (c *client) performRank(ctx context.Context, query string, documents []stri
 		return nil, fmt.Errorf("failed to parse reranker response (status %d): %w", res.StatusCode, err)
 	}
 	return c.toDocumentScores(documents, rankResponse.Results)
-}
-
-func (c *client) chunkDocuments(documents []string, chunkSize int) [][]string {
-	var requests [][]string
-	for i := 0; i < len(documents); i += chunkSize {
-		end := i + chunkSize
-
-		if end > len(documents) {
-			end = len(documents)
-		}
-
-		requests = append(requests, documents[i:end])
-	}
-
-	return requests
 }
 
 func (c *client) toDocumentScores(documents []string, results []Result) ([]ent.DocumentScore, error) {
