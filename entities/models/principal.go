@@ -28,6 +28,7 @@ import (
 //
 // swagger:model Principal
 type Principal struct {
+
 	// groups
 	Groups []string `json:"groups"`
 
@@ -93,6 +94,7 @@ func (m *Principal) ContextValidate(ctx context.Context, formats strfmt.Registry
 }
 
 func (m *Principal) contextValidateUserType(ctx context.Context, formats strfmt.Registry) error {
+
 	if err := m.UserType.ContextValidate(ctx, formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
 			return ve.ValidateName("userType")

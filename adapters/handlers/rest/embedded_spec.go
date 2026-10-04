@@ -7751,6 +7751,12 @@ func init() {
                   "type": "string",
                   "format": "date-time"
                 },
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format at which the user's API key stops authenticating, stored in UTC with millisecond precision. It must be in the future. Setting it needs a Weaviate license key on the node, else the request answers 403. On a node with a license key, a request that also sets ` + "`" + `import` + "`" + ` to true answers 422. Absent means the key never expires.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
                 "import": {
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "type": "boolean",
@@ -7777,7 +7783,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or the body sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20590,6 +20596,12 @@ func init() {
                   "type": "string",
                   "format": "date-time"
                 },
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format at which the user's API key stops authenticating, stored in UTC with millisecond precision. It must be in the future. Setting it needs a Weaviate license key on the node, else the request answers 403. On a node with a license key, a request that also sets ` + "`" + `import` + "`" + ` to true answers 422. Absent means the key never expires.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
                 "import": {
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "type": "boolean",
@@ -20616,7 +20628,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or the body sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

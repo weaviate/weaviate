@@ -51,6 +51,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rolevisibility"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
@@ -69,6 +70,7 @@ type dynUserHandler struct {
 	nodesGetter          cluster.NodeLister
 	namespacesEnabled    bool
 	namespaces           namespaces.Exister
+	expiry               apikey.ExpiryResolver
 }
 
 type DbUserAndRolesGetter interface {
@@ -88,7 +90,7 @@ var validateUserNameRegex = regexp.MustCompile(`^` + apikey.UserNameRegexCore + 
 func SetupHandlers(
 	api *operations.WeaviateAPI, dbUsers DbUserAndRolesGetter, localUsers LocalUsersGetter, localRoles authorization.Controller, authorizer authorization.Authorizer,
 	authNConfig config.Authentication, authZConfig config.Authorization, remoteUser *clients.RemoteUser, nodesGetter cluster.NodeLister,
-	namespacesEnabled bool, ns namespaces.Exister, logger logrus.FieldLogger,
+	namespacesEnabled bool, ns namespaces.Exister, expiry apikey.ExpiryResolver, logger logrus.FieldLogger,
 ) {
 	h := &dynUserHandler{
 		authorizer:           authorizer,
@@ -102,6 +104,7 @@ func SetupHandlers(
 		nodesGetter:          nodesGetter,
 		namespacesEnabled:    namespacesEnabled,
 		namespaces:           ns,
+		expiry:               expiry,
 		logger:               logger,
 	}
 
@@ -424,11 +427,23 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("db user management is not enabled")))
 	}
 
+	expiresAt, err := h.expiry.Resolve((*time.Time)(params.Body.ExpiresAt))
+	if errors.Is(err, license.ErrRequired) {
+		return users.NewCreateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+	if err != nil {
+		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
 	if params.Body.Import != nil && *params.Body.Import && h.namespacesEnabled {
 		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("import is not supported on namespace-enabled clusters")))
 	}
 
 	if params.Body.Import != nil && *params.Body.Import {
+		if !expiresAt.IsZero() {
+			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("expiresAt cannot be set on import; set it with PUT /v1/users/db/{user_id}/expiration after the import")))
+		}
+
 		if !h.principalIsRootUser(principal) {
 			return users.NewCreateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("only root users can import static api keys")))
 		}
@@ -486,7 +501,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	if err := h.dbUsers.CreateUser(ctx, internalKey, hash, userIdentifier, apiKey[:3], ns, time.Now(), time.Time{}); err != nil {
+	if err := h.dbUsers.CreateUser(ctx, internalKey, hash, userIdentifier, apiKey[:3], ns, time.Now(), expiresAt); err != nil {
 		// The namespace changed state between the pre-check above and the
 		// apply. Deleting renders 422 like the pre-check does — the namespace
 		// never returns to active, so the create is not retryable.
