@@ -29,7 +29,7 @@ func disableSearchableIndexOnProp(t *testing.T, ctx context.Context, shard *Shar
 	t.Helper()
 	main := helpers.BucketSearchableFromPropNameLSM(propName)
 	require.NoError(t, shard.removeBucket(ctx, main))
-	sweep := migrationSweepStateFor(shard.pathLSM(), shard.index.logger)
+	sweep := shard.migrationSweepState()
 	shard.cleanStaleSidecarDirs(ctx, main, sweep.committed)
 }
 

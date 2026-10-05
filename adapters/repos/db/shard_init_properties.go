@@ -21,7 +21,6 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -231,22 +230,9 @@ func (s *migrationSweepState) recordSetReads() int {
 	return s.recordReads
 }
 
-func migrationSweepStateFor(lsmPath string, logger logrus.FieldLogger) *migrationSweepState {
-	// Every caller holds a loaded shard, whose own load already reported a record
-	// set it could not read (reconcileMigrationRecords).
-	committed, _ := migrationPreservedStateAt(lsmPath, logger)
-	return &migrationSweepState{
-		recordReads: 1,
-		committed:   committed,
-	}
-}
-
 // No disk read: the shard's store is the only writer to .migrations/records/.
 func (s *Shard) migrationSweepState() *migrationSweepState {
 	store := s.migrationRecordStore()
-	if store == nil {
-		return migrationSweepStateFor(s.pathLSM(), s.index.logger)
-	}
 	unreadable := store.Unreadable()
 	return &migrationSweepState{
 		recordReads: 1,
