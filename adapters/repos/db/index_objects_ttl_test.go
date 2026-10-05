@@ -15,10 +15,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -312,4 +317,304 @@ func TestTenantTTLLoop_DeactivateUsesTimeout(t *testing.T) {
 
 	assert.True(t, call.ctxWasLive, "deactivation context must not be expired at call time")
 	assert.True(t, call.hasDeadline, "deactivation context must have a deadline (from WithTimeout)")
+}
+
+// currentGoroutineID reads the id off a one-frame stack dump, so a test can tell the shard
+// deleteFromShards ran itself from the ones it handed to the group.
+func currentGoroutineID() string {
+	var buf [64]byte
+	n := runtime.Stack(buf[:], false)
+	// "goroutine 42 [running]:"
+	return strings.Fields(string(buf[:n]))[1]
+}
+
+// shardDispatchTimeout bounds every wait in runShardDispatch, so a dispatch that never runs a
+// shard inline fails in seconds instead of parking the package on a blocked group slot.
+const shardDispatchTimeout = 2 * time.Second
+
+// shardDispatchGrace is how long runShardDispatch gives a dispatch to return while the shards it
+// gave the group are still held. One that waits for them cannot return in any grace at all, so
+// this only prices how fast one that does not wait is caught.
+const shardDispatchGrace = 50 * time.Millisecond
+
+// shardDispatchRun records what one deleteFromShards call did. freeSlots counts the group slots
+// left when the first shard to run on the calling goroutine ran.
+type shardDispatchRun struct {
+	dispatched int
+	stopped    bool
+	ran        []string
+	inline     []string
+	got        map[string][]strfmt.UUID
+	freeSlots  int
+	// set when deleteFromShards returned while the shards it gave the group were still blocked
+	returnedEarly bool
+}
+
+// runShardDispatch calls deleteFromShards on a goroutine of its own and reports what it did. A
+// shard the group runs holds its slot until the inline shard has counted the free ones. One free
+// slot out of a limit of len(wantRan) therefore means every other shard was dispatched first.
+func runShardDispatch(t *testing.T, shards2uuids map[string][]strfmt.UUID, limit int) shardDispatchRun {
+	t.Helper()
+	logger, _ := logrustest.NewNullLogger()
+	eg := enterrors.NewErrorGroupWrapper(logger)
+	eg.SetLimit(limit)
+
+	var (
+		mu           sync.Mutex
+		run          shardDispatchRun
+		dispatcherID string
+		releaseOnce  sync.Once
+	)
+	release := make(chan struct{})
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
+
+	inlineRan := make(chan struct{}, 1)
+	done := make(chan struct{})
+
+	run.got = map[string][]strfmt.UUID{}
+	deleteShard := func(shard string, uuids []strfmt.UUID) {
+		inline := currentGoroutineID() == dispatcherID
+
+		mu.Lock()
+		run.ran = append(run.ran, shard)
+		run.got[shard] = uuids
+		if inline {
+			run.inline = append(run.inline, shard)
+		}
+		first := len(run.inline) == 1
+		mu.Unlock()
+
+		if !inline {
+			<-release
+			return
+		}
+		if !first {
+			return
+		}
+
+		free := 0
+		for eg.TryGo(func() error { <-release; return nil }) {
+			free++
+		}
+		mu.Lock()
+		run.freeSlots = free
+		mu.Unlock()
+		inlineRan <- struct{}{}
+	}
+
+	enterrors.GoWrapper(func() {
+		defer close(done)
+		dispatcherID = currentGoroutineID()
+		dispatched, stopped := deleteFromShards(context.Background(), eg, "MyClass", shards2uuids, deleteShard)
+		mu.Lock()
+		run.dispatched, run.stopped = dispatched, stopped
+		mu.Unlock()
+	}, logger)
+
+	select {
+	case <-inlineRan:
+	case <-done:
+	case <-time.After(shardDispatchTimeout):
+		t.Error("no shard ran on the dispatching goroutine")
+	}
+
+	select {
+	case <-done:
+		mu.Lock()
+		run.returnedEarly = true
+		mu.Unlock()
+	case <-time.After(shardDispatchGrace):
+	}
+	unblock()
+
+	select {
+	case <-done:
+	case <-time.After(shardDispatchTimeout):
+		t.Fatal("deleteFromShards did not return")
+	}
+	require.NoError(t, eg.Wait())
+
+	mu.Lock()
+	defer mu.Unlock()
+	return run
+}
+
+// TestDeleteFromShardsRunsTheLastShardInline pins which shard a round keeps for itself. The
+// caller waits for the group either way, so handing the last shard over leaves it holding a slot
+// to do nothing. A shard with nothing expired is not one of the dispatched.
+func TestDeleteFromShardsRunsTheLastShardInline(t *testing.T) {
+	cases := []struct {
+		name          string
+		shards2uuids  map[string][]strfmt.UUID
+		wantRan       []string
+		limit         int // 0 means a slot for every shard but the inline one
+		wantInline    int
+		wantFreeSlots int
+	}{
+		{
+			name:          "the only shard runs inline",
+			shards2uuids:  map[string][]strfmt.UUID{"s1": {"a"}},
+			wantRan:       []string{"s1"},
+			wantInline:    1,
+			wantFreeSlots: 1,
+		},
+		{
+			name:          "the last of two runs inline",
+			shards2uuids:  map[string][]strfmt.UUID{"s1": {"a"}, "s2": {"b"}},
+			wantRan:       []string{"s1", "s2"},
+			wantInline:    1,
+			wantFreeSlots: 1,
+		},
+		{
+			name:          "a shard with a nil or empty uuid list is neither dispatched nor counted",
+			shards2uuids:  map[string][]strfmt.UUID{"s1": {"a"}, "nil": nil, "empty": {}, "s2": {"b"}},
+			wantRan:       []string{"s1", "s2"},
+			wantInline:    1,
+			wantFreeSlots: 1,
+		},
+		{
+			// the group is saturated for every collection once the node runs GOMAXPROCS sweeps
+			name:          "a shard the group has no slot for runs inline too",
+			shards2uuids:  map[string][]strfmt.UUID{"s1": {"a"}, "s2": {"b"}, "s3": {"c"}},
+			wantRan:       []string{"s1", "s2", "s3"},
+			limit:         1,
+			wantInline:    2,
+			wantFreeSlots: 0,
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			limit := tt.limit
+			if limit == 0 {
+				limit = len(tt.wantRan)
+			}
+			run := runShardDispatch(t, tt.shards2uuids, limit)
+
+			require.ElementsMatch(t, tt.wantRan, run.ran, "every shard with expired uuids is swept, and only those")
+			require.Len(t, run.inline, tt.wantInline,
+				"a shard runs on the calling goroutine when it is last, or when the group refuses it")
+			require.Equal(t, tt.wantFreeSlots, run.freeSlots,
+				"the first shard run inline is dispatched after every shard the group accepted")
+			for _, shard := range tt.wantRan {
+				assert.Equal(t, tt.shards2uuids[shard], run.got[shard], "each shard is handed its own uuids")
+			}
+			if len(tt.wantRan) > 1 {
+				assert.False(t, run.returnedEarly,
+					"deleteFromShards returns only once the shards it gave the group have finished")
+			}
+			assert.Equal(t, len(tt.wantRan), run.dispatched)
+			assert.False(t, run.stopped)
+		})
+	}
+}
+
+// TestDeleteFromShardsWithNothingExpired pins that a round with nothing to delete dispatches no
+// shard and reports none, which is how the sweep loop learns to stop.
+func TestDeleteFromShardsWithNothingExpired(t *testing.T) {
+	run := runShardDispatch(t, map[string][]strfmt.UUID{"s1": {}, "s2": nil}, 1)
+
+	assert.Empty(t, run.ran)
+	assert.Equal(t, 0, run.dispatched)
+	assert.False(t, run.stopped)
+}
+
+// TestDeleteFromShardsStopsOnAStoppedSweep pins that a stopped sweep runs the shard it is on and
+// then leaves the rest undispatched, rather than tearing a batch up mid-flight.
+func TestDeleteFromShardsStopsOnAStoppedSweep(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	eg := enterrors.NewErrorGroupWrapper(logger)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	var mu sync.Mutex
+	ran := []string{}
+	dispatched, stopped := deleteFromShards(ctx, eg, "MyClass",
+		map[string][]strfmt.UUID{"s1": {"a"}, "s2": {"b"}, "s3": {"c"}},
+		func(shard string, _ []strfmt.UUID) {
+			mu.Lock()
+			defer mu.Unlock()
+			ran = append(ran, shard)
+		})
+	require.NoError(t, eg.Wait())
+
+	assert.Equal(t, 1, dispatched, "the stop is observed after a shard is dispatched, not before")
+	assert.True(t, stopped)
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Len(t, ran, 1, "the shards the stop never reached are not swept")
+}
+
+// TestDeleteFromShardsContainsAPanicToItsShard pins that a panicking shard neither takes the
+// sweep loop down with it nor disappears. The other shards are still dispatched, and the panic
+// is recorded on the group, which is the only route out for one the group did not run itself.
+func TestDeleteFromShardsContainsAPanicToItsShard(t *testing.T) {
+	cases := []struct {
+		name         string
+		shards2uuids map[string][]strfmt.UUID
+		panicking    []string
+	}{
+		{
+			name:         "the only shard panics, so the inline one does",
+			shards2uuids: map[string][]strfmt.UUID{"s1": {"a"}},
+			panicking:    []string{"s1"},
+		},
+		{
+			name:         "every shard panics, so the inline one does whichever it is",
+			shards2uuids: map[string][]strfmt.UUID{"s1": {"a"}, "s2": {"b"}, "s3": {"c"}},
+			panicking:    []string{"s1", "s2", "s3"},
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			// the integration job disables recovery, under which a panic here kills the binary
+			t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+
+			logger, _ := logrustest.NewNullLogger()
+			eg := enterrors.NewErrorGroupWrapper(logger)
+
+			panicking := map[string]bool{}
+			for _, shard := range tt.panicking {
+				panicking[shard] = true
+			}
+			var (
+				mu         sync.Mutex
+				ran        []string
+				dispatched int
+				stopped    bool
+			)
+			require.NotPanics(t, func() {
+				dispatched, stopped = deleteFromShards(context.Background(), eg, "MyClass", tt.shards2uuids,
+					func(shard string, _ []strfmt.UUID) {
+						mu.Lock()
+						ran = append(ran, shard)
+						mu.Unlock()
+						if panicking[shard] {
+							panic("shard delete panicked: " + shard)
+						}
+					})
+			}, "a panicking shard must not unwind the sweep loop")
+
+			var filed []string
+			// the sweep's waiter discards this the same way. run returns nil, so the only error Wait
+			// can carry is a panic a group goroutine raised, and collect files that one too
+			_ = eg.WaitAndCollect(func(err error, groups ...string) {
+				filed = append(filed, fmt.Sprintf("%v %v", groups, err))
+			})
+
+			mu.Lock()
+			defer mu.Unlock()
+			assert.Len(t, ran, len(tt.shards2uuids), "every shard is still dispatched")
+			assert.Equal(t, len(tt.shards2uuids), dispatched)
+			assert.False(t, stopped)
+			require.Len(t, filed, len(tt.panicking), "one collected panic per panicking shard")
+			for _, entry := range filed {
+				assert.Contains(t, entry, "[MyClass s", "the panic is filed under its collection and shard")
+				assert.Contains(t, entry, "panic occurred")
+			}
+		})
+	}
 }
