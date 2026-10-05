@@ -292,10 +292,10 @@ func (p *Provider) ValidateModuleConfig(ctx context.Context, class *models.Class
 	cfg := NewClassBasedModuleConfig(class, moduleName, "", targetVector, &p.cfg)
 	validation := moduletools.NewValidationClassConfig(cfg)
 	err := cc.ValidateClass(ctx, class, validation)
-	if err == nil {
-		// What the module's own validation cannot see, for example an int
-		// setting given a fraction.
-		err = validation.Err()
+	if invalid := validation.Err(); invalid != nil {
+		// A module error can describe the wrong value a getter returned in
+		// place of the reported setting.
+		err = invalid
 	}
 	if err != nil {
 		return errors.Wrapf(err, "module '%s'", moduleName)

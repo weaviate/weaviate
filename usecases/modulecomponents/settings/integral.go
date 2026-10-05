@@ -13,14 +13,16 @@ package settings
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
+	"strconv"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
 )
 
 // integerSettingError returns an error when an int setting of a new class
-// was given a number with a fraction.
+// was given a number with a fraction, or one too large to read as an int.
 //
 // Only a json.Number is checked: that is how the REST API decodes the
 // numbers of a new class. A class read back from the schema or from a backup
@@ -30,13 +32,20 @@ func integerSettingError(settings map[string]any, name string) error {
 	if !ok {
 		return nil
 	}
-	if _, err := number.Float64(); err != nil {
-		// Not a number: the getter returns the wrong value and the module
-		// decides, as before.
+	asFloat, err := number.Float64()
+	if errors.Is(err, strconv.ErrRange) {
+		return fmt.Errorf("%s is out of range, got %s", name, number)
+	}
+	if err != nil {
+		// Invalid syntax, which the REST decoder never produces: the getter
+		// returns the wrong value and the module decides, as before.
 		return nil
 	}
-	if _, integral := integralValue(number); !integral {
+	if asFloat != math.Trunc(asFloat) {
 		return fmt.Errorf("%s must be an integer, got %s", name, number)
+	}
+	if _, integral := integralValue(number); !integral {
+		return fmt.Errorf("%s is out of range, got %s", name, number)
 	}
 	return nil
 }
@@ -80,10 +89,8 @@ func integralValue(number json.Number) (int64, bool) {
 		return asInt, true
 	}
 	asFloat, err := number.Float64()
-	if err != nil || math.IsInf(asFloat, 0) || math.IsNaN(asFloat) {
-		return 0, false
-	}
-	if asFloat != math.Trunc(asFloat) || math.Abs(asFloat) >= maxExactInt {
+	// NaN fails the Trunc comparison and ±Inf fails the bound.
+	if err != nil || asFloat != math.Trunc(asFloat) || math.Abs(asFloat) >= maxExactInt {
 		return 0, false
 	}
 	return int64(asFloat), true

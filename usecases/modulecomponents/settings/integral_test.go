@@ -169,3 +169,27 @@ func TestValidateIntegers(t *testing.T) {
 	assert.NoError(t, helper.ValidateIntegers(nil, "topK"))
 	assert.EqualError(t, NewBaseClassSettings(cfg, false).ValidateIntegers("topK"), "topK must be an integer, got 2.5")
 }
+
+// An integer that cannot be read as an int is out of range, not a fraction.
+func TestIntegerSettingErrorOutOfRange(t *testing.T) {
+	tests := []struct {
+		number  string
+		wantErr string
+	}{
+		// Written as an integer, it is read exactly beyond 2^53.
+		{number: "9223372036854775807"},
+		{number: "1e16", wantErr: "dimensions is out of range, got 1e16"},
+		{number: "99999999999999999999", wantErr: "dimensions is out of range, got 99999999999999999999"},
+		{number: "1e400", wantErr: "dimensions is out of range, got 1e400"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.number, func(t *testing.T) {
+			err := integerSettingError(map[string]any{"dimensions": json.Number(tt.number)}, "dimensions")
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.EqualError(t, err, tt.wantErr)
+			}
+		})
+	}
+}
