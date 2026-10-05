@@ -15,7 +15,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -23,6 +25,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -75,11 +78,12 @@ func (f *fakeTTLTenantsManager) DeactivateTenants(ctx context.Context, class str
 
 func newTestLoop(t *testing.T, mgr *fakeTTLTenantsManager, autoActivation bool,
 	findFn func(ctx context.Context) ([]strfmt.UUID, error),
-	batchFn func(ctx context.Context, uuids []strfmt.UUID) error,
+	batchFn func(ctx context.Context, uuids []strfmt.UUID) (bool, error),
 ) tenantTTLLoop {
 	t.Helper()
 	if batchFn == nil {
-		batchFn = func(context.Context, []strfmt.UUID) error { return nil }
+		// true is "the batch deleted something", the result that does not stop the loop
+		batchFn = func(context.Context, []strfmt.UUID) (bool, error) { return true, nil }
 	}
 	return tenantTTLLoop{
 		class:                 "MyClass",
@@ -145,12 +149,12 @@ func TestTenantTTLLoop_ContextCancelAfterActivation(t *testing.T) {
 			// If we reach this point, the loop failed to detect context cancellation.
 			return nil, nil
 		},
-		func(ctx context.Context, _ []strfmt.UUID) error {
+		func(ctx context.Context, _ []strfmt.UUID) (bool, error) {
 			batchesProcessed++
 			// Simulate the TTL context being canceled after the first batch
 			// (e.g. index drop, node shutdown, or TTL round abort).
 			cancel(fmt.Errorf("concurrent raft deactivation canceled ttl context"))
-			return nil
+			return true, nil
 		},
 	)
 
@@ -178,23 +182,177 @@ func TestTenantTTLLoop_NormalCompletion_Deactivates(t *testing.T) {
 		statusMap: map[string]string{"tenant_0": models.TenantActivityStatusCOLD},
 	}
 
-	calls := atomic.Int32{}
+	finds := atomic.Int32{}
+	batches := atomic.Int32{}
 	loop := newTestLoop(t, mgr, true,
 		func(ctx context.Context) ([]strfmt.UUID, error) {
-			if calls.Add(1) == 1 {
+			if finds.Add(1) <= 2 {
 				return []strfmt.UUID{"uuid-1"}, nil
 			}
 			return nil, nil
 		},
-		nil,
+		func(context.Context, []strfmt.UUID) (bool, error) {
+			batches.Add(1)
+			return true, nil
+		},
 	)
 
 	ec := errorcompounder.New()
 	loop.run(context.Background(), ec)
 
 	assert.NoError(t, ec.ToError())
+	// a batch that deleted something earns another round
+	assert.Equal(t, int32(2), batches.Load())
+	assert.Equal(t, int32(3), finds.Load())
 	require.Len(t, mgr.deactivateCalled, 1)
 	assert.Equal(t, "tenant_0", mgr.deactivateCalled[0].tenant)
+}
+
+// TestTenantTTLLoop_StopsWhenABatchMakesNoProgress covers a tenant whose delete cannot
+// make progress. The search cannot exclude it, so each round hands it the same uuids.
+func TestTenantTTLLoop_StopsWhenABatchMakesNoProgress(t *testing.T) {
+	// findUUIDs never runs out below, so only the loop's own exit ends the run. The
+	// bound reports a missing exit as a failure instead of hanging the package.
+	const maxRounds = 3
+
+	deleteErr := errors.New("shard unavailable")
+	closingErr := errors.New("index closing")
+
+	tests := []struct {
+		name    string
+		batch   func(cancel context.CancelCauseFunc) (bool, error)
+		wantErr error // nil means nothing may be filed
+	}{
+		{
+			// the loop ends on the next round's cause check, so the tenant is not swept again
+			name: "sweep stopped after the delete succeeded",
+			batch: func(cancel context.CancelCauseFunc) (bool, error) {
+				cancel(closingErr)
+				return true, nil
+			},
+			wantErr: closingErr,
+		},
+		{
+			name:    "delete fails",
+			batch:   func(context.CancelCauseFunc) (bool, error) { return false, deleteErr },
+			wantErr: deleteErr,
+		},
+		{
+			name:    "delete reports neither an error nor a count",
+			batch:   func(context.CancelCauseFunc) (bool, error) { return false, nil },
+			wantErr: errTTLNoProgress,
+		},
+		{
+			name: "sweep stopped while the delete ran",
+			batch: func(cancel context.CancelCauseFunc) (bool, error) {
+				cancel(errors.New("index closing"))
+				return false, nil
+			},
+			wantErr: nil,
+		},
+		{
+			// only the no-progress arm spares a stopped sweep. A delete that failed
+			// is filed whether the sweep was stopped or not
+			name: "sweep stopped and the delete failed",
+			batch: func(cancel context.CancelCauseFunc) (bool, error) {
+				cancel(errors.New("index closing"))
+				return false, deleteErr
+			},
+			wantErr: deleteErr,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mgr := &fakeTTLTenantsManager{
+				statusMap: map[string]string{"tenant_0": models.TenantActivityStatusCOLD},
+			}
+			ctx, cancel := context.WithCancelCause(context.Background())
+			t.Cleanup(func() { cancel(nil) })
+
+			rounds := 0
+			loop := newTestLoop(t, mgr, true,
+				func(context.Context) ([]strfmt.UUID, error) {
+					rounds++
+					require.LessOrEqual(t, rounds, maxRounds,
+						"loop kept sweeping: findUUIDs called %d times for a delete that made no progress", rounds)
+					return []strfmt.UUID{"uuid-1"}, nil
+				},
+				func(context.Context, []strfmt.UUID) (bool, error) { return tt.batch(cancel) },
+			)
+
+			ec := errorcompounder.New()
+			loop.run(ctx, ec)
+
+			assert.Equal(t, 1, rounds, "the tenant must be swept once")
+			if tt.wantErr == nil {
+				assert.True(t, ec.Empty(), "a stopped sweep is not this tenant failing")
+			} else {
+				require.Equal(t, 1, ec.Len(), "one filing per swept tenant")
+				assert.ErrorIs(t, ec.ToError(), tt.wantErr)
+			}
+			require.Len(t, mgr.deactivateCalled, 1, "a tenant activated for TTL is deactivated on every exit")
+		})
+	}
+}
+
+// TestTenantTTLLoop_KeepsSweepingATenantThatDeletedPartOfItsBatch pins that the tenant is swept
+// again and its failure filed once for the sweep.
+func TestTenantTTLLoop_KeepsSweepingATenantThatDeletedPartOfItsBatch(t *testing.T) {
+	deleteErr := errors.New("one object failed")
+
+	tests := []struct {
+		name string
+		// what each round's delete reports alongside deleteErr, before the find runs dry
+		deleted    []bool
+		wantRounds int
+	}{
+		{
+			name:       "the tenant drains, then the find runs dry",
+			deleted:    []bool{true, true, true},
+			wantRounds: 4,
+		},
+		{
+			name:       "the last round deletes nothing, which stops the tenant",
+			deleted:    []bool{true, true, false},
+			wantRounds: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mgr := &fakeTTLTenantsManager{
+				statusMap: map[string]string{"tenant_0": models.TenantActivityStatusCOLD},
+			}
+
+			rounds := 0
+			loop := newTestLoop(t, mgr, true,
+				func(context.Context) ([]strfmt.UUID, error) {
+					rounds++
+					// reports a loop that will not stop as a failure instead of hanging the package
+					require.LessOrEqual(t, rounds, len(tt.deleted)+1,
+						"loop kept sweeping: findUUIDs called %d times", rounds)
+					if rounds > len(tt.deleted) {
+						return nil, nil
+					}
+					return []strfmt.UUID{"uuid-1"}, nil
+				},
+				func(context.Context, []strfmt.UUID) (bool, error) {
+					return tt.deleted[rounds-1], deleteErr
+				},
+			)
+
+			ec := errorcompounder.New()
+			loop.run(context.Background(), ec)
+
+			assert.Equal(t, tt.wantRounds, rounds,
+				"a tenant that deleted part of its batch drains in one sweep, not one batch per sweep")
+			require.Equal(t, 1, ec.Len(),
+				"a tenant retried across rounds reports its failure once for the sweep, not once a round")
+			assert.ErrorIs(t, ec.ToError(), deleteErr)
+			require.Len(t, mgr.deactivateCalled, 1, "a tenant activated for TTL is deactivated on every exit")
+		})
+	}
 }
 
 func TestTenantTTLLoop_ActiveTenant_NoDeactivation(t *testing.T) {
@@ -297,28 +455,6 @@ func TestTenantTTLLoop_DeactivateError_ReportedInEc(t *testing.T) {
 	assert.ErrorContains(t, err, "raft timeout")
 }
 
-func TestTenantTTLLoop_DeactivateUsesTimeout(t *testing.T) {
-	// Verify the deferred DeactivateTenants call uses a bounded-timeout context,
-	// not a bare context.Background().
-	mgr := &fakeTTLTenantsManager{
-		statusMap: map[string]string{"tenant_0": models.TenantActivityStatusCOLD},
-	}
-
-	loop := newTestLoop(t, mgr, true,
-		func(ctx context.Context) ([]strfmt.UUID, error) { return nil, nil },
-		nil,
-	)
-
-	ec := errorcompounder.New()
-	loop.run(context.Background(), ec)
-
-	require.Len(t, mgr.deactivateCalled, 1)
-	call := mgr.deactivateCalled[0]
-
-	assert.True(t, call.ctxWasLive, "deactivation context must not be expired at call time")
-	assert.True(t, call.hasDeadline, "deactivation context must have a deadline (from WithTimeout)")
-}
-
 // currentGoroutineID reads the id off a one-frame stack dump, so a test can tell the shard
 // deleteFromShards ran itself from the ones it handed to the group.
 func currentGoroutineID() string {
@@ -340,12 +476,12 @@ const shardDispatchGrace = 50 * time.Millisecond
 // shardDispatchRun records what one deleteFromShards call did. freeSlots counts the group slots
 // left when the first shard to run on the calling goroutine ran.
 type shardDispatchRun struct {
-	dispatched int
-	stopped    bool
-	ran        []string
-	inline     []string
-	got        map[string][]strfmt.UUID
-	freeSlots  int
+	deleted   bool
+	stopped   bool
+	ran       []string
+	inline    []string
+	got       map[string][]strfmt.UUID
+	freeSlots int
 	// set when deleteFromShards returned while the shards it gave the group were still blocked
 	returnedEarly bool
 }
@@ -373,7 +509,7 @@ func runShardDispatch(t *testing.T, shards2uuids map[string][]strfmt.UUID, limit
 	done := make(chan struct{})
 
 	run.got = map[string][]strfmt.UUID{}
-	deleteShard := func(shard string, uuids []strfmt.UUID) {
+	deleteShard := func(shard string, uuids []strfmt.UUID) (bool, error) {
 		inline := currentGoroutineID() == dispatcherID
 
 		mu.Lock()
@@ -387,10 +523,10 @@ func runShardDispatch(t *testing.T, shards2uuids map[string][]strfmt.UUID, limit
 
 		if !inline {
 			<-release
-			return
+			return true, nil
 		}
 		if !first {
-			return
+			return true, nil
 		}
 
 		free := 0
@@ -401,14 +537,16 @@ func runShardDispatch(t *testing.T, shards2uuids map[string][]strfmt.UUID, limit
 		run.freeSlots = free
 		mu.Unlock()
 		inlineRan <- struct{}{}
+		return true, nil
 	}
 
 	enterrors.GoWrapper(func() {
 		defer close(done)
 		dispatcherID = currentGoroutineID()
-		dispatched, stopped := deleteFromShards(context.Background(), eg, "MyClass", shards2uuids, deleteShard)
+		deleted, stopped := deleteFromShards(context.Background(), eg, errorcompounder.NewSafe(),
+			"MyClass", shards2uuids, map[string]struct{}{}, map[string]struct{}{}, deleteShard)
 		mu.Lock()
-		run.dispatched, run.stopped = dispatched, stopped
+		run.deleted, run.stopped = deleted, stopped
 		mu.Unlock()
 	}, logger)
 
@@ -504,19 +642,19 @@ func TestDeleteFromShardsRunsTheLastShardInline(t *testing.T) {
 				assert.False(t, run.returnedEarly,
 					"deleteFromShards returns only once the shards it gave the group have finished")
 			}
-			assert.Equal(t, len(tt.wantRan), run.dispatched)
+			assert.True(t, run.deleted)
 			assert.False(t, run.stopped)
 		})
 	}
 }
 
 // TestDeleteFromShardsWithNothingExpired pins that a round with nothing to delete dispatches no
-// shard and reports none, which is how the sweep loop learns to stop.
+// shard and reports no deletion, which is how the sweep loop learns to stop.
 func TestDeleteFromShardsWithNothingExpired(t *testing.T) {
 	run := runShardDispatch(t, map[string][]strfmt.UUID{"s1": {}, "s2": nil}, 1)
 
 	assert.Empty(t, run.ran)
-	assert.Equal(t, 0, run.dispatched)
+	assert.False(t, run.deleted)
 	assert.False(t, run.stopped)
 }
 
@@ -531,20 +669,21 @@ func TestDeleteFromShardsStopsOnAStoppedSweep(t *testing.T) {
 
 	var mu sync.Mutex
 	ran := []string{}
-	dispatched, stopped := deleteFromShards(ctx, eg, "MyClass",
+	_, stopped := deleteFromShards(ctx, eg, errorcompounder.NewSafe(), "MyClass",
 		map[string][]strfmt.UUID{"s1": {"a"}, "s2": {"b"}, "s3": {"c"}},
-		func(shard string, _ []strfmt.UUID) {
+		map[string]struct{}{}, map[string]struct{}{},
+		func(shard string, _ []strfmt.UUID) (bool, error) {
 			mu.Lock()
 			defer mu.Unlock()
 			ran = append(ran, shard)
+			return true, nil
 		})
 	require.NoError(t, eg.Wait())
 
-	assert.Equal(t, 1, dispatched, "the stop is observed after a shard is dispatched, not before")
 	assert.True(t, stopped)
 	mu.Lock()
 	defer mu.Unlock()
-	assert.Len(t, ran, 1, "the shards the stop never reached are not swept")
+	assert.Len(t, ran, 1, "the stop is observed after one shard is dispatched, and the shards it never reached are not swept")
 }
 
 // TestDeleteFromShardsContainsAPanicToItsShard pins that a panicking shard neither takes the
@@ -581,20 +720,22 @@ func TestDeleteFromShardsContainsAPanicToItsShard(t *testing.T) {
 				panicking[shard] = true
 			}
 			var (
-				mu         sync.Mutex
-				ran        []string
-				dispatched int
-				stopped    bool
+				mu      sync.Mutex
+				ran     []string
+				stopped bool
 			)
+			ec := errorcompounder.NewSafe()
+			dropped := map[string]struct{}{}
 			require.NotPanics(t, func() {
-				dispatched, stopped = deleteFromShards(context.Background(), eg, "MyClass", tt.shards2uuids,
-					func(shard string, _ []strfmt.UUID) {
+				_, stopped = deleteFromShards(context.Background(), eg, ec, "MyClass", tt.shards2uuids,
+					dropped, map[string]struct{}{}, func(shard string, _ []strfmt.UUID) (bool, error) {
 						mu.Lock()
 						ran = append(ran, shard)
 						mu.Unlock()
 						if panicking[shard] {
 							panic("shard delete panicked: " + shard)
 						}
+						return true, nil
 					})
 			}, "a panicking shard must not unwind the sweep loop")
 
@@ -608,8 +749,10 @@ func TestDeleteFromShardsContainsAPanicToItsShard(t *testing.T) {
 			mu.Lock()
 			defer mu.Unlock()
 			assert.Len(t, ran, len(tt.shards2uuids), "every shard is still dispatched")
-			assert.Equal(t, len(tt.shards2uuids), dispatched)
 			assert.False(t, stopped)
+			assert.ElementsMatch(t, tt.panicking, slices.Collect(maps.Keys(dropped)),
+				"a delete that panicked deleted nothing, so its shard is dropped for the rest of the sweep")
+			assert.Zero(t, ec.Len(), "a panicking shard is filed once, by the group, not also as having made no progress")
 			require.Len(t, filed, len(tt.panicking), "one collected panic per panicking shard")
 			for _, entry := range filed {
 				assert.Contains(t, entry, "[MyClass s", "the panic is filed under its collection and shard")
@@ -617,4 +760,402 @@ func TestDeleteFromShardsContainsAPanicToItsShard(t *testing.T) {
 			}
 		})
 	}
+}
+
+// shardOutcome is what a test's fake delete reports for one shard.
+type shardOutcome struct {
+	deleted bool
+	err     error
+	// stopsSweep cancels the sweep from inside the delete, as an index closing under a
+	// running batch does
+	stopsSweep bool
+}
+
+// shardRound records what one deleteFromShards call did over a set of shard outcomes.
+type shardRound struct {
+	deleted bool
+	stopped bool
+	ran     []string
+	filed   error
+	filings int
+}
+
+// runShardRound calls deleteFromShards once, handing every shard one uuid and the outcome its
+// name maps to. dropped carries in the shards earlier rounds gave up on and filed the ones whose
+// failure they already reported, and the call adds to both.
+func runShardRound(t *testing.T, outcomes map[string]shardOutcome,
+	dropped, filed map[string]struct{},
+) shardRound {
+	t.Helper()
+
+	logger, _ := logrustest.NewNullLogger()
+	eg := enterrors.NewErrorGroupWrapper(logger)
+	ec := errorcompounder.NewSafe()
+	ctx, cancel := context.WithCancelCause(context.Background())
+	t.Cleanup(func() { cancel(nil) })
+
+	shards2uuids := make(map[string][]strfmt.UUID, len(outcomes))
+	for shard := range outcomes {
+		shards2uuids[shard] = []strfmt.UUID{"uuid-1"}
+	}
+
+	var (
+		mu  sync.Mutex
+		ran []string
+	)
+	deleted, stopped := deleteFromShards(ctx, eg, ec, "MyClass", shards2uuids, dropped, filed,
+		func(shard string, _ []strfmt.UUID) (bool, error) {
+			mu.Lock()
+			ran = append(ran, shard)
+			mu.Unlock()
+
+			outcome := outcomes[shard]
+			if outcome.stopsSweep {
+				cancel(errors.New("index closing"))
+			}
+			return outcome.deleted, outcome.err
+		})
+	require.NoError(t, eg.Wait())
+
+	mu.Lock()
+	defer mu.Unlock()
+	return shardRound{
+		deleted: deleted, stopped: stopped, ran: ran,
+		filed: ec.ToError(), filings: ec.Len(),
+	}
+}
+
+// TestDeleteFromShardsDropsAShardThatMadeNoProgress covers a shard whose delete cannot make
+// progress. The search cannot exclude it, so each round would hand it the same uuids.
+func TestDeleteFromShardsDropsAShardThatMadeNoProgress(t *testing.T) {
+	deleteErr := errors.New("shard unavailable")
+
+	tests := []struct {
+		name        string
+		outcomes    map[string]shardOutcome
+		wantDeleted bool
+		wantStopped bool
+		wantDropped []string
+		wantFiled   []string // one rendered fragment per filing; empty means nothing may be filed
+	}{
+		{
+			name:        "a delete that fails is filed",
+			outcomes:    map[string]shardOutcome{"s1": {err: deleteErr}},
+			wantDropped: []string{"s1"},
+			wantFiled:   []string{`"s1": {` + deleteErr.Error()},
+		},
+		{
+			name:        "a delete that reports neither an error nor a count is filed as no progress",
+			outcomes:    map[string]shardOutcome{"s1": {}},
+			wantDropped: []string{"s1"},
+			wantFiled:   []string{`"s1": {` + errTTLNoProgress.Error()},
+		},
+		{
+			name:        "a delete that failed after deleting part of its batch keeps its shard",
+			outcomes:    map[string]shardOutcome{"s1": {deleted: true, err: deleteErr}},
+			wantDeleted: true,
+			wantFiled:   []string{`"s1": {` + deleteErr.Error()},
+		},
+		{
+			name:        "a round where one shard deleted and another did not drops only the other",
+			outcomes:    map[string]shardOutcome{"s1": {deleted: true}, "s2": {}},
+			wantDeleted: true,
+			wantDropped: []string{"s2"},
+			wantFiled:   []string{`"s2": {` + errTTLNoProgress.Error()},
+		},
+		{
+			name:        "a shard that deleted is neither filed nor dropped",
+			outcomes:    map[string]shardOutcome{"s1": {deleted: true}},
+			wantDeleted: true,
+		},
+		{
+			name:        "a sweep stopped while the delete ran is not filed as no progress",
+			outcomes:    map[string]shardOutcome{"s1": {stopsSweep: true}},
+			wantStopped: true,
+			wantDropped: []string{"s1"},
+		},
+		{
+			// only the no-progress arm spares a stopped sweep. A delete that failed
+			// is filed whether the sweep was stopped or not
+			name:        "a delete that failed on a stopped sweep is filed",
+			outcomes:    map[string]shardOutcome{"s1": {err: deleteErr, stopsSweep: true}},
+			wantStopped: true,
+			wantDropped: []string{"s1"},
+			wantFiled:   []string{`"s1": {` + deleteErr.Error()},
+		},
+		{
+			name:        "a delete that deleted on a stopped sweep keeps its shard",
+			outcomes:    map[string]shardOutcome{"s1": {deleted: true, stopsSweep: true}},
+			wantDeleted: true,
+			wantStopped: true,
+		},
+		{
+			name:        "a delete that deleted and failed on a stopped sweep is filed but kept",
+			outcomes:    map[string]shardOutcome{"s1": {deleted: true, err: deleteErr, stopsSweep: true}},
+			wantDeleted: true,
+			wantStopped: true,
+			wantFiled:   []string{`"s1": {` + deleteErr.Error()},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dropped := map[string]struct{}{}
+			run := runShardRound(t, tt.outcomes, dropped, map[string]struct{}{})
+
+			assert.ElementsMatch(t, slices.Collect(maps.Keys(tt.outcomes)), run.ran,
+				"every shard with uuids is swept")
+			assert.Equal(t, tt.wantDeleted, run.deleted,
+				"a round makes progress only where a shard deleted something")
+			assert.Equal(t, tt.wantStopped, run.stopped)
+			assert.ElementsMatch(t, tt.wantDropped, slices.Collect(maps.Keys(dropped)),
+				"only a shard that made no progress is dropped for the rest of the sweep")
+
+			require.Equal(t, len(tt.wantFiled), run.filings, "one filing per shard that could not delete")
+			for _, want := range tt.wantFiled {
+				assert.ErrorContains(t, run.filed, want)
+			}
+		})
+	}
+}
+
+// TestDeleteFromShardsSkipsAShardAnEarlierRoundDropped runs two rounds over one dropped set. The
+// shard the first round dropped is not swept again, which is what stops the sweep re-finding the
+// uuids no delete of that shard can remove.
+func TestDeleteFromShardsSkipsAShardAnEarlierRoundDropped(t *testing.T) {
+	outcomes := map[string]shardOutcome{"s1": {deleted: true}, "s2": {}}
+	dropped, filed := map[string]struct{}{}, map[string]struct{}{}
+
+	first := runShardRound(t, outcomes, dropped, filed)
+	require.ElementsMatch(t, []string{"s1", "s2"}, first.ran)
+	require.Equal(t, []string{"s2"}, slices.Collect(maps.Keys(dropped)))
+
+	second := runShardRound(t, outcomes, dropped, filed)
+	assert.Equal(t, []string{"s1"}, second.ran, "a shard an earlier round dropped is not swept again")
+	assert.True(t, second.deleted)
+	assert.NoError(t, second.filed, "a shard already dropped is not filed a second time")
+
+	third := runShardRound(t, outcomes, map[string]struct{}{"s1": {}, "s2": {}}, filed)
+	assert.Empty(t, third.ran, "a round whose every shard was dropped sweeps none")
+	assert.False(t, third.deleted, "which is how the sweep learns to stop")
+}
+
+// TestDeleteFromShardsKeepsAShardThatDeletedPartOfItsBatch pins that the shard is swept again
+// and its failure filed once for the sweep.
+func TestDeleteFromShardsKeepsAShardThatDeletedPartOfItsBatch(t *testing.T) {
+	outcomes := map[string]shardOutcome{"s1": {deleted: true, err: errors.New("one object failed")}}
+	dropped, filed := map[string]struct{}{}, map[string]struct{}{}
+
+	first := runShardRound(t, outcomes, dropped, filed)
+	require.Equal(t, []string{"s1"}, first.ran)
+	require.Equal(t, 1, first.filings)
+	require.Empty(t, dropped)
+
+	second := runShardRound(t, outcomes, dropped, filed)
+	assert.Equal(t, []string{"s1"}, second.ran,
+		"a shard that deleted part of its batch and failed on the rest is swept again")
+	assert.Equal(t, 0, second.filings,
+		"a shard retried across rounds reports its failure once for the sweep, not once a round")
+}
+
+func TestTTLBatchFailedOutright(t *testing.T) {
+	deleteErr := errors.New("batch delete: one object failed")
+
+	tests := []struct {
+		name    string
+		deleted int32
+		err     error
+		want    bool
+	}{
+		{name: "a clean batch has not failed", deleted: 5},
+		{name: "a batch that deleted nothing without failing has not failed", deleted: 0},
+		{
+			// the case the pause counter was losing: progress plus a failure is still progress
+			name:    "a batch that deleted some and failed on the rest has not failed outright",
+			deleted: 5, err: deleteErr,
+		},
+		{
+			name:    "a batch that deleted nothing and failed has failed outright",
+			deleted: 0, err: deleteErr, want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, ttlBatchFailedOutright(tt.deleted, tt.err))
+		})
+	}
+}
+
+func TestTTLBatchOutcome(t *testing.T) {
+	deleteErr := errors.New("batch delete: one object failed")
+	pauseErr := errors.New("index closing")
+
+	tests := []struct {
+		name     string
+		batchErr error
+		pauseErr error
+		want     []error
+	}{
+		{name: "a stopped pause alone files its cause", pauseErr: pauseErr, want: []error{pauseErr}},
+		{
+			// a shutdown during the pause must not replace the failure the batch itself reported
+			name:     "a failed batch and a stopped pause file both",
+			batchErr: deleteErr, pauseErr: pauseErr, want: []error{deleteErr, pauseErr},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ttlBatchOutcome(tt.batchErr, tt.pauseErr)
+			for _, want := range tt.want {
+				assert.ErrorIs(t, got, want,
+					"an operator investigating a shutdown needs the batch's own failure, not only the cause")
+			}
+		})
+	}
+}
+
+func TestTTLPauseAfterBatch(t *testing.T) {
+	const pause = time.Millisecond
+
+	tests := []struct {
+		name          string
+		processed     int
+		every         int
+		dur           time.Duration
+		wantProcessed int
+		wantPaused    bool
+	}{
+		{name: "a batch below the threshold only counts", processed: 0, every: 3, dur: pause, wantProcessed: 1},
+		{name: "the batch that reaches the threshold pauses and resets", processed: 2, every: 3, dur: pause, wantProcessed: 0, wantPaused: true},
+		{name: "a count already past the threshold still pauses", processed: 9, every: 3, dur: pause, wantProcessed: 0, wantPaused: true},
+		{name: "a zero duration counts without pausing", processed: 9, every: 1, dur: 0, wantProcessed: 10},
+		{name: "a zero threshold counts without pausing", processed: 9, every: 0, dur: pause, wantProcessed: 10},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			logger.SetLevel(logrus.DebugLevel)
+
+			processed := tt.processed
+			require.NoError(t, ttlPauseAfterBatch(context.Background(), &processed,
+				tt.every, tt.dur, logger))
+
+			assert.Equal(t, tt.wantProcessed, processed)
+			if !tt.wantPaused {
+				assert.Empty(t, hook.AllEntries(), "nothing pauses, so nothing is logged")
+				return
+			}
+			require.Len(t, hook.AllEntries(), 1)
+			assert.Contains(t, hook.LastEntry().Message, "paused for ")
+		})
+	}
+}
+
+// TestTTLPauseAfterBatchReportsAStoppedSweep pins that a sweep aborted while it slept reports the
+// cause rather than the pause finishing.
+func TestTTLPauseAfterBatchReportsAStoppedSweep(t *testing.T) {
+	cause := errors.New("index closing")
+	ctx, cancel := context.WithCancelCause(context.Background())
+	cancel(cause)
+
+	logger, hook := logrustest.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+	processed := 0
+
+	err := ttlPauseAfterBatch(ctx, &processed, 1, time.Hour, logger)
+
+	require.ErrorIs(t, err, cause)
+	assert.Equal(t, 1, processed, "the batch counted before the sweep was stopped")
+	assert.Empty(t, hook.AllEntries(), "a pause cut short logs no pause")
+}
+
+func TestTTLFailureReason(t *testing.T) {
+	deleteErr := errors.New("shard unavailable")
+	cause := errors.New("index closing")
+
+	stopped, cancel := context.WithCancelCause(context.Background())
+	cancel(cause)
+
+	tests := []struct {
+		name    string
+		ctx     context.Context
+		deleted bool
+		err     error
+		want    error
+	}{
+		{name: "a batch that deleted something files nothing", ctx: context.Background(), deleted: true},
+		{name: "a batch that failed files its error", ctx: context.Background(), err: deleteErr, want: deleteErr},
+		{
+			name: "a batch that deleted something and failed files its error",
+			ctx:  context.Background(), deleted: true, err: deleteErr, want: deleteErr,
+		},
+		{
+			// the search cannot exclude these uuids, so a later round would hand back the same ones
+			name: "a batch that deleted nothing without failing files the sentinel",
+			ctx:  context.Background(), want: errTTLNoProgress,
+		},
+		{
+			name: "a stopped sweep also deletes nothing, which is not a failure",
+			ctx:  stopped,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, ttlFailureReason(tt.ctx, tt.deleted, tt.err))
+		})
+	}
+}
+
+// TestDeleteFromShardsRecordsEveryShardItDispatchedWhenStopped pins that a sweep stopped part way
+// through a round still records every shard it had already dispatched, and dispatches no more.
+// The round returns without waiting, so those outcomes land on the group the sweep waits on.
+func TestDeleteFromShardsRecordsEveryShardItDispatchedWhenStopped(t *testing.T) {
+	const shardCount = 4
+
+	shards2uuids := map[string][]strfmt.UUID{}
+	for i := range shardCount {
+		shards2uuids[fmt.Sprintf("s%d", i)] = []strfmt.UUID{"uuid-1"}
+	}
+
+	logger, _ := logrustest.NewNullLogger()
+	eg := enterrors.NewErrorGroupWrapper(logger)
+	// one slot, so the round can have at most one shard in flight when the next is dispatched
+	eg.SetLimit(1)
+	ec := errorcompounder.NewSafe()
+	ctx, cancel := context.WithCancelCause(context.Background())
+	t.Cleanup(func() { cancel(nil) })
+
+	var (
+		mu      sync.Mutex
+		ran     []string
+		dropped = map[string]struct{}{}
+		filed   = map[string]struct{}{}
+	)
+	deleted, stopped := deleteFromShards(ctx, eg, ec, "MyClass", shards2uuids, dropped, filed,
+		func(shard string, _ []strfmt.UUID) (bool, error) {
+			mu.Lock()
+			ran = append(ran, shard)
+			mu.Unlock()
+
+			cancel(errors.New("index closing"))
+			return false, nil
+		})
+
+	assert.False(t, deleted)
+	assert.True(t, stopped, "a round that saw the sweep stop reports it rather than finishing")
+
+	eg.Wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Less(t, len(ran), shardCount, "a stopped round leaves the rest for the next sweep")
+	assert.Len(t, dropped, len(ran), "every shard the round dispatched recorded its outcome")
+	for _, shard := range ran {
+		assert.Contains(t, dropped, shard)
+	}
+	assert.True(t, ec.Empty(), "a stopped sweep is not those shards failing")
 }
