@@ -65,7 +65,7 @@ func TestGetNumberValueReadsAnIntWrittenAsAFloat(t *testing.T) {
 		{name: "float without a fraction", value: json.Number("1024.0"), want: 1024},
 		{name: "exponent", value: json.Number("1e3"), want: 1000},
 		{name: "fraction is the wrong value", value: json.Number("100.5"), want: -1},
-		{name: "stored fraction is truncated, as before", value: 100.5, want: 100},
+		{name: "stored fraction is truncated", value: 100.5, want: 100},
 		{name: "stored integer", value: float64(1024), want: 1024},
 	}
 	for _, tt := range tests {
@@ -105,7 +105,7 @@ func TestIntGettersReportAFractionToAClassUnderValidation(t *testing.T) {
 		// Values of a class that was stored before: not a json.Number.
 		{name: "stored fraction", value: 100.5},
 		{name: "stored integer", value: float64(1024)},
-		// The module's own validation decides about these, as before.
+		// The module's own validation decides about these.
 		{name: "string", value: "many"},
 		{name: "bool", value: true},
 	}

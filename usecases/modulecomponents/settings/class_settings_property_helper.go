@@ -234,8 +234,9 @@ func getNumberValue[T int | int64 | float64](settings map[string]any,
 		if asInt64V, err := v.Int64(); err == nil {
 			return asNumber[int64, T](asInt64V)
 		}
-		// A fraction, which only a float setting can hold. The REST API
-		// decodes every number of a module config as json.Number.
+		// Int64 fails on a fraction, on an int written as a float and on a
+		// number beyond int64. The REST API decodes every number of a module
+		// config as json.Number.
 		var zero T
 		if _, isFloat := any(zero).(float64); isFloat {
 			if asFloat64V, err := v.Float64(); err == nil {
@@ -243,9 +244,8 @@ func getNumberValue[T int | int64 | float64](settings map[string]any,
 			}
 			return defaultValue
 		}
-		// An int setting written without a fraction, such as 1024.0 or 1e3.
-		// The stored float64 is read as that int at request time, so
-		// validation has to see the same value.
+		// An int written as a float (1024.0, 1e3): the stored float64 is read
+		// as that int at request time, so validation has to see the same value.
 		if asInt64V, ok := integralValue(v); ok {
 			return asNumber[int64, T](asInt64V)
 		}

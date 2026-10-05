@@ -38,7 +38,7 @@ func integerSettingError(settings map[string]any, name string) error {
 	}
 	if err != nil {
 		// Invalid syntax, which the REST decoder never produces: the getter
-		// returns the wrong value and the module decides, as before.
+		// returns the wrong value and the module decides.
 		return nil
 	}
 	if asFloat != math.Trunc(asFloat) {
@@ -51,8 +51,8 @@ func integerSettingError(settings map[string]any, name string) error {
 }
 
 // reportNonIntegral tells a class config under validation that the int
-// setting a getter was asked for has a fraction. This covers every int
-// setting a module reads while it validates a class.
+// setting a getter was asked for has a fraction or is out of range. This
+// covers every int setting a module reads while it validates a class.
 func reportNonIntegral(cfg moduletools.ClassConfig, settings map[string]any, name string) {
 	validation, ok := cfg.(*moduletools.ValidationClassConfig)
 	if !ok {
@@ -64,8 +64,8 @@ func reportNonIntegral(cfg moduletools.ClassConfig, settings map[string]any, nam
 }
 
 // ValidateIntegers returns an error when one of the named int settings of a
-// new class has a fraction. A module calls it from its class validation for
-// the int settings that validation does not read otherwise.
+// new class has a fraction or is out of range. A module calls it from its
+// class validation for the int settings that validation does not read.
 func (h *classPropertyValuesHelper) ValidateIntegers(cfg moduletools.ClassConfig, names ...string) error {
 	if cfg == nil {
 		return nil

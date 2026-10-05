@@ -213,7 +213,7 @@ func (s BaseClassSettings) GetPropertyAsInt64(name string, defaultValue *int64) 
 }
 
 // ValidateIntegers returns an error when one of the named int settings of a
-// new class has a fraction.
+// new class has a fraction or is out of range.
 func (s BaseClassSettings) ValidateIntegers(names ...string) error {
 	return s.propertyHelper.ValidateIntegers(s.cfg, names...)
 }
