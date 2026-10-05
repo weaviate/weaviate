@@ -153,6 +153,7 @@ func wlUseViolations(fset *token.FileSet, rel string, f *ast.File, gates map[str
 		}
 		wlNames[name] = true
 	}
+	licenseNames := licenseImportNames(f)
 	var stack []ast.Node
 	ast.Inspect(f, func(n ast.Node) bool {
 		if n == nil {
@@ -160,7 +161,7 @@ func wlUseViolations(fset *token.FileSet, rel string, f *ast.File, gates map[str
 			return true
 		}
 		if sel, ok := n.(*ast.SelectorExpr); ok {
-			if id, ok := sel.X.(*ast.Ident); ok && wlNames[id.Name] && !wlUseAllowed(stack, gates) {
+			if id, ok := sel.X.(*ast.Ident); ok && wlNames[id.Name] && !wlUseAllowed(stack, gates, licenseNames) {
 				violations = append(violations, fmt.Sprintf("%s:%d: %s.%s", rel, fset.Position(sel.Pos()).Line, id.Name, sel.Sel.Name))
 			}
 		}
@@ -170,7 +171,7 @@ func wlUseViolations(fset *token.FileSet, rel string, f *ast.File, gates map[str
 	return append(violations, licensedModeViolations(fset, rel, f)...)
 }
 
-func wlUseAllowed(stack []ast.Node, gates map[string]bool) bool {
+func wlUseAllowed(stack []ast.Node, gates, licenseNames map[string]bool) bool {
 	for i := len(stack) - 1; i >= 0; i-- {
 		switch n := stack[i].(type) {
 		case *ast.FuncLit:
@@ -178,7 +179,7 @@ func wlUseAllowed(stack []ast.Node, gates map[string]bool) bool {
 				return true
 			}
 		case *ast.CaseClause:
-			if isLicensedCase(n) {
+			if isLicensedCase(n, licenseNames) {
 				return true
 			}
 		}
@@ -189,27 +190,13 @@ func wlUseAllowed(stack []ast.Node, gates map[string]bool) bool {
 // licensedModeViolations returns a violation for every license.FeatureLicensed that is not a case label, every license.Mode conversion and every gate mode argument that is neither a variable nor a ModeFor call, so no code can hard-code the licensed mode past ModeFor.
 func licensedModeViolations(fset *token.FileSet, rel string, f *ast.File) []string {
 	var violations []string
-	name := ""
 	for _, imp := range f.Imports {
-		if p, err := strconv.Unquote(imp.Path.Value); err != nil || p != licensePkgPath {
-			continue
-		}
-		name = "license"
-		if imp.Name != nil {
-			name = imp.Name.Name
-		}
-		if name == "." {
+		if p, err := strconv.Unquote(imp.Path.Value); err == nil && p == licensePkgPath && imp.Name != nil && imp.Name.Name == "." {
 			violations = append(violations, fmt.Sprintf("%s:%d: . import of %s", rel, fset.Position(imp.Pos()).Line, licensePkgPath))
 		}
 	}
-	isLicense := func(e ast.Expr, sym string) bool {
-		sel, ok := ast.Unparen(e).(*ast.SelectorExpr)
-		if !ok || sel.Sel.Name != sym {
-			return false
-		}
-		id, ok := sel.X.(*ast.Ident)
-		return ok && id.Name == name
-	}
+	names := licenseImportNames(f)
+	isLicense := func(e ast.Expr, sym string) bool { return isLicenseSelector(e, sym, names) }
 	var stack []ast.Node
 	ast.Inspect(f, func(n ast.Node) bool {
 		if n == nil {
@@ -226,6 +213,10 @@ func licensedModeViolations(fset *token.FileSet, rel string, f *ast.File) []stri
 			if isLicense(n.Fun, "Mode") {
 				violations = append(violations, fmt.Sprintf("%s:%d: license.Mode", rel, fset.Position(n.Pos()).Line))
 			}
+		case *ast.ValueSpec:
+			if isLicense(n.Type, "Mode") && slices.ContainsFunc(n.Values, func(v ast.Expr) bool { return !isModeForCall(v) }) {
+				violations = append(violations, fmt.Sprintf("%s:%d: license.Mode declaration", rel, fset.Position(n.Pos()).Line))
+			}
 		case *ast.SelectorExpr:
 			if isLicense(n, "FeatureLicensed") {
 				cc, ok := stack[len(stack)-1].(*ast.CaseClause)
@@ -241,18 +232,49 @@ func licensedModeViolations(fset *token.FileSet, rel string, f *ast.File) []stri
 }
 
 func isModeArgument(arg ast.Expr) bool {
-	switch a := arg.(type) {
+	_, ok := arg.(*ast.Ident)
+	return ok || isModeForCall(arg)
+}
+
+func isModeForCall(e ast.Expr) bool {
+	call, ok := e.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	switch fn := call.Fun.(type) {
 	case *ast.Ident:
-		return true
-	case *ast.CallExpr:
-		switch fn := a.Fun.(type) {
-		case *ast.Ident:
-			return strings.HasSuffix(fn.Name, "ModeFor")
-		case *ast.SelectorExpr:
-			return strings.HasSuffix(fn.Sel.Name, "ModeFor")
-		}
+		return strings.HasSuffix(fn.Name, "ModeFor")
+	case *ast.SelectorExpr:
+		return strings.HasSuffix(fn.Sel.Name, "ModeFor")
 	}
 	return false
+}
+
+// licenseImportNames returns the names f imports usecases/license under, blank and dot imports excluded.
+func licenseImportNames(f *ast.File) map[string]bool {
+	names := map[string]bool{}
+	for _, imp := range f.Imports {
+		if p, err := strconv.Unquote(imp.Path.Value); err != nil || p != licensePkgPath {
+			continue
+		}
+		name := "license"
+		if imp.Name != nil {
+			name = imp.Name.Name
+		}
+		if name != "_" && name != "." {
+			names[name] = true
+		}
+	}
+	return names
+}
+
+func isLicenseSelector(e ast.Expr, sym string, names map[string]bool) bool {
+	sel, ok := ast.Unparen(e).(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != sym {
+		return false
+	}
+	id, ok := sel.X.(*ast.Ident)
+	return ok && names[id.Name]
 }
 
 func isGateArgument(lit *ast.FuncLit, parent ast.Node, gates map[string]bool) bool {
@@ -267,16 +289,8 @@ func isGateArgument(lit *ast.FuncLit, parent ast.Node, gates map[string]bool) bo
 	return slices.ContainsFunc(call.Args, func(arg ast.Expr) bool { return arg == lit })
 }
 
-func isLicensedCase(cc *ast.CaseClause) bool {
-	if len(cc.List) != 1 {
-		return false
-	}
-	sel, ok := cc.List[0].(*ast.SelectorExpr)
-	if !ok {
-		return false
-	}
-	pkg, ok := sel.X.(*ast.Ident)
-	return ok && pkg.Name == "license" && sel.Sel.Name == "FeatureLicensed"
+func isLicensedCase(cc *ast.CaseClause, licenseNames map[string]bool) bool {
+	return len(cc.List) == 1 && isLicenseSelector(cc.List[0], "FeatureLicensed", licenseNames)
 }
 
 func TestWLGuards(t *testing.T) {
@@ -466,6 +480,18 @@ func f(x *X) { x.Close(nil) }`,
 			want: []string{"fixture.go:10: license.FeatureLicensed"},
 		},
 		{
+			name: "call in a licensed case under an aliased license import",
+			body: `import lic "github.com/weaviate/weaviate/usecases/license"
+func f(mode lic.Mode) any {
+	switch mode {
+	case lic.FeatureLicensed:
+		return selfrecovery.New(selfrecovery.Config{})
+	case lic.FeatureOff, lic.FeatureUnlicensed:
+	}
+	return nil
+}`,
+		},
+		{
 			name: "mutation: New called outside the gate closure",
 			body: `func f(mode license.Mode) {
 	o := selfrecovery.New(selfrecovery.Config{})
@@ -546,6 +572,16 @@ func TestLicensedModeViolations(t *testing.T) {
 		{name: "comparison", body: `func f(mode license.Mode) bool { return mode == license.FeatureLicensed }`, want: []string{"fixture.go:5: license.FeatureLicensed"}},
 		{name: "comparison in a case", body: `func f(mode license.Mode) { switch { case mode == license.FeatureLicensed: } }`, want: []string{"fixture.go:5: license.FeatureLicensed"}},
 		{name: "mode conversion", body: `var m = license.Mode(2)`, want: []string{"fixture.go:5: license.Mode"}},
+		{name: "typed var from a literal", body: `var m license.Mode = 2`, want: []string{"fixture.go:5: license.Mode declaration"}},
+		{name: "typed const from a literal", body: `const m license.Mode = 2`, want: []string{"fixture.go:5: license.Mode declaration"}},
+		{name: "typed local var from a literal", body: `func f() { var m license.Mode = 2; selfRecoveryFor(m, nil, nil) }`, want: []string{"fixture.go:5: license.Mode declaration"}},
+		{name: "typed var from a conversion", body: `var m license.Mode = license.Mode(2)`, want: []string{"fixture.go:5: license.Mode declaration", "fixture.go:5: license.Mode"}},
+		{name: "typed var from a variable", body: `var m license.Mode = other`, want: []string{"fixture.go:5: license.Mode declaration"}},
+		{name: "typed var from a ModeFor call", body: `var m license.Mode = selfRecoveryModeFor(cfg)`},
+		{name: "typed var, field and parameter without a value", body: `var m license.Mode
+type T struct{ mode license.Mode }
+func f(mode license.Mode) { selfRecoveryFor(mode, nil, nil) }`},
+		{name: "typed var from a literal under an aliased import", imp: `lic "github.com/weaviate/weaviate/usecases/license"`, body: `var m lic.Mode = 2`, want: []string{"fixture.go:5: license.Mode declaration"}},
 		{name: "parenthesised mode conversion", body: `var m = (license.Mode)(2)`, want: []string{"fixture.go:5: license.Mode"}},
 		{
 			name: "gate modes from variables and ModeFor calls",
@@ -564,7 +600,8 @@ func TestLicensedModeViolations(t *testing.T) {
 		{name: "qualifier mode from a literal", body: `func f() { namespaceQualifier(2) }`, want: []string{"fixture.go:5: namespaceQualifier mode argument"}},
 		{name: "parenthesised gate", body: `func f() { (selfRecoveryFor)(2, nil, nil) }`, want: []string{"fixture.go:5: selfRecoveryFor mode argument"}},
 		{name: "gate mode from a literal without a license import", imp: `"github.com/weaviate/weaviate/usecases/other"`, body: `func f() { selfRecoveryFor(2, nil, nil) }`, want: []string{"fixture.go:5: selfRecoveryFor mode argument"}},
-		{name: "other modes and the Mode type", body: `var m license.Mode = license.FeatureOff`},
+		{name: "typed var from another mode", body: `var m license.Mode = license.FeatureOff`, want: []string{"fixture.go:5: license.Mode declaration"}},
+		{name: "other modes outside a declaration", body: `func f() any { return license.FeatureOff }`},
 		{name: "aliased import", imp: `lic "github.com/weaviate/weaviate/usecases/license"`, body: `var m = lic.FeatureLicensed`, want: []string{"fixture.go:5: license.FeatureLicensed"}},
 		{name: "dot import", imp: `. "github.com/weaviate/weaviate/usecases/license"`, body: `var m = FeatureLicensed`, want: []string{"fixture.go:3: . import of github.com/weaviate/weaviate/usecases/license"}},
 		{name: "no license import", imp: `"github.com/weaviate/weaviate/usecases/other"`, body: `var m = license.FeatureLicensed`},
