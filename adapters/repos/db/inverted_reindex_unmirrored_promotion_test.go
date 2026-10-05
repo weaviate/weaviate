@@ -102,7 +102,8 @@ func TestPromotionRefusesToReplaceALiveCanonicalDirAfterAnUnmirroredBoot(t *test
 			if tt.wantWithheld {
 				require.Equal(t, 1, r.WedgedCount())
 				require.NotEmpty(t, f.errorLines("no double-write mirror armed"))
-				require.Empty(t, f.disarmed)
+				require.Empty(t, f.disarmed, "a promotion's wedge only marks and logs: the record is flipped, "+
+					"recovery armed no mirror for it at boot, and only a task verdict on an unflipped record disarms one")
 			}
 		})
 	}
