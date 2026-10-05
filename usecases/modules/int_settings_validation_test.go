@@ -121,39 +121,46 @@ func TestIntSettingsRejectAFractionOnClassCreate(t *testing.T) {
 	}
 	for _, c := range cases {
 		for _, setting := range c.settings {
-			with := func(value any) map[string]any {
-				settings := map[string]any{}
-				for k, v := range c.extra {
-					settings[k] = v
-				}
-				if value != nil {
-					settings[setting] = value
-				}
-				return settings
-			}
 			t.Run(c.module.Name()+"/"+setting, func(t *testing.T) {
-				require.NoError(t, validateWith(t, c.module, with(nil)), "the fixture must be valid without the setting")
-
-				// The REST API decodes the numbers of a new class as json.Number.
-				require.Error(t, validateWith(t, c.module, with(json.Number("100.5"))))
-
-				// An integer written as a float is the same integer: both are
-				// accepted, or both fail the module's own rule for that value.
-				asInt := validateWith(t, c.module, with(json.Number("7")))
-				asFloat := validateWith(t, c.module, with(json.Number("7.0")))
-				if asInt == nil {
-					assert.NoError(t, asFloat)
-				} else {
-					assert.EqualError(t, asFloat, asInt.Error())
-				}
-
-				// A class read back from the schema or a backup holds float64.
-				// One stored with a fraction before this check must still load.
-				if err := validateWith(t, c.module, with(100.5)); err != nil {
-					assert.NotContains(t, err.Error(), "must be an integer")
-				}
+				assertIntSetting(t, c.module, setting, c.extra)
 			})
 		}
+	}
+}
+
+// assertIntSetting checks one int setting of a module. extra holds what the
+// module needs to pass validation otherwise.
+func assertIntSetting(t *testing.T, module modulecapabilities.Module, setting string, extra map[string]any) {
+	t.Helper()
+	with := func(value any) map[string]any {
+		settings := map[string]any{}
+		for k, v := range extra {
+			settings[k] = v
+		}
+		if value != nil {
+			settings[setting] = value
+		}
+		return settings
+	}
+	require.NoError(t, validateWith(t, module, with(nil)), "the fixture must be valid without the setting")
+
+	// The REST API decodes the numbers of a new class as json.Number.
+	require.Error(t, validateWith(t, module, with(json.Number("100.5"))))
+
+	// An integer written as a float is the same integer: both are accepted,
+	// or both fail the module's own rule for that value.
+	asInt := validateWith(t, module, with(json.Number("7")))
+	asFloat := validateWith(t, module, with(json.Number("7.0")))
+	if asInt == nil {
+		assert.NoError(t, asFloat)
+	} else {
+		assert.EqualError(t, asFloat, asInt.Error())
+	}
+
+	// A class read back from the schema or a backup holds float64. One
+	// stored with a fraction before this check must still load.
+	if err := validateWith(t, module, with(100.5)); err != nil {
+		assert.NotContains(t, err.Error(), "must be an integer")
 	}
 }
 

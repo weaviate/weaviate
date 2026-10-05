@@ -63,9 +63,6 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if err := ic.BaseClassSettings.Validate(class); err != nil {
 		return err
 	}
-	if err := ic.BaseClassSettings.ValidateIntegers("dimensions"); err != nil {
-		return err
-	}
 	if ic.InferenceURL() != "" && (ic.PassageInferenceURL() != "" || ic.QueryInferenceURL() != "") {
 		return errors.New("either inferenceUrl or passageInferenceUrl together with queryInferenceUrl needs to be set, not both")
 	}
@@ -75,5 +72,5 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if ic.PassageInferenceURL() != "" && ic.QueryInferenceURL() == "" {
 		return errors.New("passageInferenceUrl is set but queryInferenceUrl is empty, both needs to be set")
 	}
-	return nil
+	return ic.BaseClassSettings.ValidateIntegers("dimensions")
 }

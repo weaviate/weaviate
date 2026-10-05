@@ -61,9 +61,6 @@ func (cs *classSettings) Validate(class *models.Class) error {
 	if err := cs.BaseClassSettings.Validate(class); err != nil {
 		return err
 	}
-	if err := cs.BaseClassSettings.ValidateIntegers("dimensions"); err != nil {
-		return err
-	}
 	if err := cs.BaseClassSettings.ValidateBaseURL(cs.BaseURL()); err != nil {
 		return err
 	}
@@ -73,5 +70,5 @@ func (cs *classSettings) Validate(class *models.Class) error {
 		return errors.Errorf("wrong truncate type, available types are: %v", availableTruncates)
 	}
 
-	return nil
+	return cs.BaseClassSettings.ValidateIntegers("dimensions")
 }

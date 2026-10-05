@@ -52,10 +52,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
 	}
-	if err := ic.propertyValuesHelper.ValidateIntegers(ic.cfg, maxNewTokensProperty); err != nil {
-		return err
-	}
-	return nil
+	return ic.propertyValuesHelper.ValidateIntegers(ic.cfg, maxNewTokensProperty)
 }
 
 func (ic *classSettings) getStringProperty(property string, defaultValue string) *string {
