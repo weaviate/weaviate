@@ -14,13 +14,13 @@ package clients
 import (
 	"time"
 
-	"github.com/weaviate/weaviate/modules/text2vec-digitalocean/ent"
+	"github.com/weaviate/weaviate/modules/generative-digitalocean/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/digitalocean"
 )
 
-// init registers the default model lister with the ent package so that
-// ValidateClass can call out to DigitalOcean without ent depending on this
+// init registers the default model lister with the config package so that
+// ValidateClass can call out to DigitalOcean without config depending on this
 // package.
 func init() {
-	ent.DefaultModelLister = digitalocean.NewModelLister(30 * time.Second)
+	config.DefaultModelLister = digitalocean.NewModelLister(30 * time.Second)
 }

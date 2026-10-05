@@ -12,10 +12,12 @@
 package config
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -103,7 +105,7 @@ func TestClassSettings(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			settings := NewClassSettings(tt.cfg)
 
-			err := settings.Validate(nil)
+			err := settings.Validate(context.Background(), &models.Class{Class: "Test"})
 			if tt.expectedErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.expectedErr)
@@ -121,6 +123,15 @@ func TestClassSettings(t *testing.T) {
 			assert.Equal(t, tt.expectedStop, settings.Stop())
 		})
 	}
+}
+
+func TestClassSettingsEnvVars(t *testing.T) {
+	t.Setenv("DIGITALOCEAN_APIKEY", "dop_v1_test")
+	t.Setenv("VECTOR_DB_UUID", "test-uuid")
+
+	settings := NewClassSettings(fakeClassConfig{})
+	assert.Equal(t, "dop_v1_test", settings.apiKey())
+	assert.Equal(t, "test-uuid", settings.WeaviateUUID())
 }
 
 func ptr[T any](v T) *T {
