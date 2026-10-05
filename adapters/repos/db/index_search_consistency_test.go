@@ -122,28 +122,34 @@ func setupSearchConsistencyRepo(t *testing.T, client replica.Client) (*DB, *Inde
 		shardState: shardState,
 	}
 	mockSchemaReader := localschema.NewMockSchemaReader(t)
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+
+	// Schema metadata lookups made by the search paths under test.
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
 		return readFunc(class, shardState)
 	}).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
-	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
-	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+
+	// Replication routing state consulted when reads fan out to replicas.
 	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().HasActiveTargetReplicationForShard(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockNodeSelector := cluster.NewMockNodeSelector(t)
-	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-	repo, err := New(logger, "node1", Config{
+
+	cfg := Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+	}
+	repo, err := New(logger, "node1", cfg, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.NoError(t, err)
 	repo.SetSchemaGetter(schemaGetter)
