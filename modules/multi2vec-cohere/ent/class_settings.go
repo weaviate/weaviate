@@ -87,6 +87,9 @@ func (ic *classSettings) Validate() error {
 	if err := ic.base.ValidateMultiModal(fields); err != nil {
 		return err
 	}
+	if err := ic.base.ValidateIntegers("dimensions"); err != nil {
+		return err
+	}
 	if err := ic.base.ValidateBaseURL(ic.BaseURL()); err != nil {
 		return err
 	}
