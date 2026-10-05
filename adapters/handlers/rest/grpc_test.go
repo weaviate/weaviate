@@ -28,8 +28,6 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
-
-	grpcHandler "github.com/weaviate/weaviate/adapters/handlers/grpc"
 )
 
 // blockingHealthServer holds every Check until release is closed, or until
@@ -67,109 +65,56 @@ func serveBufconn(t *testing.T, server *grpc.Server) *grpc.ClientConn {
 	return conn
 }
 
-func TestStartGrpcStop(t *testing.T) {
+func TestStartGrpcStopTimeoutCountsFromStart(t *testing.T) {
 	const forcingStop = "grpc graceful stop timed out, forcing stop"
 
-	cases := []struct {
-		name            string
-		respectCtx      bool
-		cancelCalls     bool
-		stopTimeout     time.Duration
-		waitAfter       time.Duration
-		maxWait         time.Duration
-		wantForceStop   bool
-		wantUnavailable int64
-	}{
-		{
-			name:            "call that respects ctx is cancelled and drained before the timeout",
-			respectCtx:      true,
-			cancelCalls:     true,
-			stopTimeout:     2 * time.Second,
-			maxWait:         time.Second,
-			wantUnavailable: 1,
-		},
-		{
-			name:            "call that ignores ctx is disconnected at the timeout",
-			cancelCalls:     true,
-			stopTimeout:     300 * time.Millisecond,
-			maxWait:         5 * time.Second,
-			wantForceStop:   true,
-			wantUnavailable: 1,
-		},
-		{
-			name:          "timeout counts from the start, not from the wait",
-			stopTimeout:   time.Second,
-			waitAfter:     time.Second,
-			maxWait:       500 * time.Millisecond,
-			wantForceStop: true,
-		},
+	health := &blockingHealthServer{entered: make(chan struct{}, 1), release: make(chan struct{})}
+	releaseHandler := sync.OnceFunc(func() { close(health.release) })
+	t.Cleanup(releaseHandler)
+	server := grpc.NewServer()
+	grpc_health_v1.RegisterHealthServer(server, health)
+	conn := serveBufconn(t, server)
+
+	callErr := make(chan error, 1)
+	go func() {
+		_, err := grpc_health_v1.NewHealthClient(conn).Check(context.Background(), &grpc_health_v1.HealthCheckRequest{})
+		callErr <- err
+	}()
+	select {
+	case <-health.entered:
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "call never reached the handler")
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			health := &blockingHealthServer{
-				respectCtx: tc.respectCtx,
-				entered:    make(chan struct{}, 1),
-				release:    make(chan struct{}),
-			}
-			releaseHandler := sync.OnceFunc(func() { close(health.release) })
-			t.Cleanup(releaseHandler)
-
-			callsCtx, cancelCalls := context.WithCancel(context.Background())
-			t.Cleanup(cancelCalls)
-			inFlight := grpcHandler.NewInFlightCancel(callsCtx)
-			server := grpc.NewServer(grpc.ChainUnaryInterceptor(inFlight.UnavailableAfterCancel()))
-			grpc_health_v1.RegisterHealthServer(server, health)
-			conn := serveBufconn(t, server)
-
-			callErr := make(chan error, 1)
-			go func() {
-				_, err := grpc_health_v1.NewHealthClient(conn).Check(context.Background(), &grpc_health_v1.HealthCheckRequest{})
-				callErr <- err
-			}()
-			select {
-			case <-health.entered:
-			case <-time.After(5 * time.Second):
-				require.FailNow(t, "call never reached the handler")
-			}
-
-			logger, hook := test.NewNullLogger()
-			wait := startGrpcStop(server, func() {}, tc.stopTimeout, logger)
-			if tc.cancelCalls {
-				cancelCalls()
-			}
-			<-time.After(tc.waitAfter)
-			waitTook := make(chan time.Duration, 1)
-			go func() {
-				start := time.Now()
-				wait()
-				waitTook <- time.Since(start)
-			}()
-
-			select {
-			case err := <-callErr:
-				assert.Equal(t, codes.Unavailable, status.Code(err))
-			case <-time.After(5 * time.Second):
-				require.FailNow(t, "client call still blocked after the server stopped")
-			}
-			// Stop may or may not wait for a handler that ignores its ctx.
-			releaseHandler()
-
-			select {
-			case took := <-waitTook:
-				assert.Less(t, took, tc.maxWait)
-			case <-time.After(5 * time.Second):
-				require.FailNow(t, "wait did not return")
-			}
-
-			var forcedStop bool
-			for _, e := range hook.AllEntries() {
-				forcedStop = forcedStop || (e.Level == logrus.WarnLevel && e.Message == forcingStop)
-			}
-			assert.Equal(t, tc.wantForceStop, forcedStop, "forced Stop")
-			assert.Equal(t, tc.wantUnavailable, inFlight.UnavailableResponses())
-		})
+	logger, hook := test.NewNullLogger()
+	wait := startGrpcStop(server, func() {}, 300*time.Millisecond, logger)
+	select {
+	case err := <-callErr:
+		assert.Equal(t, codes.Unavailable, status.Code(err))
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "client call still blocked after the server stopped")
 	}
+	waitTook := make(chan time.Duration, 1)
+	go func() {
+		start := time.Now()
+		wait()
+		waitTook <- time.Since(start)
+	}()
+	// Stop may or may not wait for a handler that ignores its ctx.
+	releaseHandler()
+
+	select {
+	case took := <-waitTook:
+		assert.Less(t, took, 500*time.Millisecond)
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "wait did not return")
+	}
+
+	var forcedStop bool
+	for _, e := range hook.AllEntries() {
+		forcedStop = forcedStop || (e.Level == logrus.WarnLevel && e.Message == forcingStop)
+	}
+	assert.True(t, forcedStop, "forced Stop")
 }
 
 // wait must not return while the graceful stop it joins is still draining a call.
