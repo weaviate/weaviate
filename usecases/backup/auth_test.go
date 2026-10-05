@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
+	"github.com/weaviate/weaviate/usecases/license"
 )
 
 // A component-test like test suite that makes sure that every available UC is
@@ -282,7 +283,7 @@ func newAuthzTestScheduler(t *testing.T, methodName string, classes []string, au
 	selector.On("ListClasses", mock.Anything).Return(classes).Maybe()
 	selector.On("Backupable", mock.Anything, mock.Anything).Return(nil).Maybe()
 
-	s := NewScheduler(authorizer, nil, selector, nil, nil, nil, backupProvider, nodeResolver, &fakeSchemaManger{}, nil, nil, nil, logger)
+	s := NewScheduler(authorizer, nil, selector, license.FeatureOff, nil, nil, nil, backupProvider, nodeResolver, &fakeSchemaManger{}, nil, nil, nil, logger)
 	require.NotNil(t, s)
 	return s
 }

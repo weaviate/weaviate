@@ -18,6 +18,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -524,6 +525,19 @@ func (s *segment) close() error {
 	}
 
 	return nil
+}
+
+// segmentSidecarExtensions lists the extensions of the files a segment writes beside
+// its .db, the same set sidecarPaths builds per-segment paths for.
+var segmentSidecarExtensions = []string{".bloom", CountNetAdditionsFileSuffix, MetadataFileSuffix}
+
+// isSegmentSidecarName reports whether a file name is one of those files. It reads
+// the extension alone, because what sits before it varies: a secondary bloom
+// carries its index, and writeSegmentInfoIntoFileName adds a level and a strategy.
+func isSegmentSidecarName(name string) bool {
+	return slices.ContainsFunc(segmentSidecarExtensions, func(ext string) bool {
+		return strings.HasSuffix(name, ext)
+	})
 }
 
 // sidecarPaths returns the paths of the files derived from the segment: bloom

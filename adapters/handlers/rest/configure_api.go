@@ -184,6 +184,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/telemetry/opentelemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
+	"github.com/weaviate/weaviate/wl/backupdedupe"
 	wlnshandlers "github.com/weaviate/weaviate/wl/namespaces/handlers"
 	"github.com/weaviate/weaviate/wl/selfrecovery"
 )
@@ -895,6 +896,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// decide which migrations are still in flight.
 	recoveredReindexes, recoveryErr := db.DiscoverInFlightReindexTasks(
 		appState.ServerConfig.Config.Persistence.DataPath,
+		appState.ServerConfig.Config.RuntimeReindexEnabled,
 		appState.Logger,
 		appState.SchemaManager,
 	)
@@ -917,9 +919,11 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		}
 	}, appState.Logger)
 
-	// TODO-RAFT: refactor remove this sleep
-	// this sleep was used to block GraphQL and give time to RAFT to start.
-	time.Sleep(2 * time.Second)
+	// TODO-RAFT: refactor remove this wait
+	// it blocks GraphQL for up to 2s to give RAFT time to start.
+	for deadline := time.Now().Add(2 * time.Second); !appState.ClusterService.Ready() && time.Now().Before(deadline); {
+		time.Sleep(50 * time.Millisecond)
+	}
 
 	appState.AutoSchemaManager = objects.NewAutoSchemaManager(schemaManager, vectorRepo, appState.ServerConfig,
 		appState.Logger, prometheus.DefaultRegisterer)
@@ -966,7 +970,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	appState.ObjectTTLCoordinator = objectttl.NewCoordinator(appState.ClusterService.SchemaReader(), appState.Cluster,
-		appState.NamespacesController, appState.DB,
+		appState.NamespacesController, appState.DB, appState.ServerConfig.Config.ObjectsTTLConcurrencyFactor,
 		appState.Logger, appState.ClusterHttpClient, appState.Cluster, appState.ObjectTTLLocalStatus)
 
 	// appState.RBAC is a typed nil when RBAC is disabled; pass an untyped-nil
@@ -1738,10 +1742,17 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 	if appState.RBAC != nil {
 		roleLister = appState.RBAC
 	}
+	dedupeMode := backupdedupe.ModeFor(appState.ServerConfig.Config)
+	backupdedupe.LogUnlicensed(appState.Logger, dedupeMode)
+	dedupePlanner, err := backupdedupe.NewForMode(dedupeMode, backupdedupe.Config{Checkpointer: appState.DB, Logger: appState.Logger})
+	if err != nil {
+		appState.Logger.WithField("action", "startup").
+			Errorf("dedupeReplicas backup requests will be refused on this node: cannot build the dedupe planner: %v", err)
+	}
 	backupScheduler := backup.NewScheduler(
 		appState.Authorizer,
 		clients.NewClusterBackups(appState.ClusterHttpClient),
-		appState.DB, appState.DB, userLister, roleLister, appState.Modules,
+		appState.DB, dedupeMode, dedupePlanner, userLister, roleLister, appState.Modules,
 		membership{appState.Cluster, appState.ClusterService},
 		appState.SchemaManager,
 		rbac.StaticAPIKeyUsers(appState.ServerConfig.Config.Authentication),

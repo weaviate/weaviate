@@ -205,6 +205,9 @@ type WALCommitReader struct {
 	// in a compacted segment. See NewWALCommitReaderForFile.
 	layout *compactedLayout
 
+	// maxNodeID, when non-zero, rejects records naming a higher node ID.
+	maxNodeID uint64
+
 	reusableBuf     []byte
 	reusableUint64s []uint64
 }
@@ -223,13 +226,54 @@ func NewWALCommitReader(r io.Reader, logger logrus.FieldLogger) *WALCommitReader
 // NewWALCommitReaderForFile is NewWALCommitReader with the record-layout check
 // of fileType enabled: a .sorted or .condensed segment has no checksum, so a
 // record the compaction writers never put at that position is reported as an
-// error instead of being returned, and LastValidOffset stays before it.
-func NewWALCommitReaderForFile(r io.Reader, fileType FileType, logger logrus.FieldLogger) *WALCommitReader {
+// error instead of being returned, and LastValidOffset stays before it. Records
+// naming a node ID above maxNodeID are rejected the same way; 0 means no limit.
+func NewWALCommitReaderForFile(r io.Reader, fileType FileType, maxNodeID uint64, logger logrus.FieldLogger) *WALCommitReader {
 	w := NewWALCommitReader(r, logger)
 	if fileType == FileTypeSorted || fileType == FileTypeCondensed {
 		w.layout = &compactedLayout{fileType: fileType}
 	}
+	w.maxNodeID = maxNodeID
 	return w
+}
+
+// errNodeIDBeyondLimit reports a record naming a node ID above the index's
+// limit, which only corruption produces.
+var errNodeIDBeyondLimit = errors.New("node ID beyond the index's limit")
+
+// highestNodeID returns the highest node ID a commit names, if any.
+func highestNodeID(c Commit) (uint64, bool) {
+	switch ct := c.(type) {
+	case *AddNodeCommit:
+		return ct.ID, true
+	case *SetEntryPointMaxLevelCommit:
+		return ct.Entrypoint, true
+	case *AddLinkAtLevelCommit:
+		return max(ct.Source, ct.Target), true
+	case *AddLinksAtLevelCommit:
+		return maxOf(ct.Source, ct.Targets), true
+	case *ReplaceLinksAtLevelCommit:
+		return maxOf(ct.Source, ct.Targets), true
+	case *AddTombstoneCommit:
+		return ct.ID, true
+	case *RemoveTombstoneCommit:
+		return ct.ID, true
+	case *ClearLinksCommit:
+		return ct.ID, true
+	case *ClearLinksAtLevelCommit:
+		return ct.ID, true
+	case *DeleteNodeCommit:
+		return ct.ID, true
+	default:
+		return 0, false
+	}
+}
+
+func maxOf(id uint64, ids []uint64) uint64 {
+	for _, x := range ids {
+		id = max(id, x)
+	}
+	return id
 }
 
 // BytesRead returns the number of bytes successfully read from the underlying
@@ -263,6 +307,11 @@ func (w *WALCommitReader) ReadNextCommit() (Commit, error) {
 	if w.layout != nil {
 		if err := w.layout.check(c); err != nil {
 			return nil, err
+		}
+	}
+	if w.maxNodeID > 0 {
+		if id, ok := highestNodeID(c); ok && id > w.maxNodeID {
+			return nil, errors.Wrapf(errNodeIDBeyondLimit, "%s record names node %d, limit %d", c.Type(), id, w.maxNodeID)
 		}
 	}
 	w.lastValidOffset = w.BytesRead()
