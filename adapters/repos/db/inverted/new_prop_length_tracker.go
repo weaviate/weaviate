@@ -254,16 +254,14 @@ func (t *JsonShardMetaData) UnTrackProperty(propName string, value float32) erro
 		t.logger.Print("WARNING: t.data is nil in TrackProperty, initializing to empty tracker")
 		t.data = &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
 	}
+	buckets, ok := t.data.BucketedData[propName]
+	if !ok {
+		return errors.New("property not found")
+	}
 	t.dirty = true
 	t.data.SumData[propName] = t.data.SumData[propName] - int(value)
 	t.data.CountData[propName] = t.data.CountData[propName] - 1
-
-	bucketId := t.bucketFromValue(value)
-	if _, ok := t.data.BucketedData[propName]; ok {
-		t.data.BucketedData[propName][int(bucketId)] = t.data.BucketedData[propName][int(bucketId)] - 1
-	} else {
-		return errors.New("property not found")
-	}
+	buckets[t.bucketFromValue(value)]--
 
 	return nil
 }

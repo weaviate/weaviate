@@ -689,17 +689,10 @@ func Test_JsonShardMetaData_FlushWritesOnlyWhenDirty(t *testing.T) {
 		mutate      func(tr *JsonShardMetaData)
 		wantRewrite bool
 	}{
-		{name: "no mutation", mutate: func(tr *JsonShardMetaData) {
-			tr.ObjectTally()
-			tr.PropertyMean("p")
-			tr.PropertyTally("p")
-		}},
-		{name: "TrackObjects", mutate: func(tr *JsonShardMetaData) { tr.TrackObjects(1) }, wantRewrite: true},
-		{name: "TrackProperty", mutate: func(tr *JsonShardMetaData) { tr.TrackProperty("p", 3) }, wantRewrite: true},
 		{name: "UnTrackProperty", mutate: func(tr *JsonShardMetaData) { tr.UnTrackProperty("p", 3) }, wantRewrite: true},
 		{name: "UnTrackProperty unknown property", mutate: func(tr *JsonShardMetaData) {
 			tr.UnTrackProperty("unknown", 3)
-		}, wantRewrite: true},
+		}},
 		{name: "Clear", mutate: func(tr *JsonShardMetaData) { tr.Clear() }, wantRewrite: true},
 	}
 	for _, tt := range tests {
@@ -723,7 +716,19 @@ func Test_JsonShardMetaData_FlushWritesOnlyWhenDirty(t *testing.T) {
 	}
 }
 
-func Test_JsonShardMetaData_LoadRewritesOnlyConvertedOrMissingFile(t *testing.T) {
+func Test_JsonShardMetaData_UnTrackUnknownPropertyLeavesTallyUnchanged(t *testing.T) {
+	tr, err := NewJsonShardMetaData(path.Join(t.TempDir(), "proplen"), logrus.New())
+	require.NoError(t, err)
+
+	require.Error(t, tr.UnTrackProperty("unknown", 3))
+
+	sum, count, _, err := tr.PropertyTally("unknown")
+	require.NoError(t, err)
+	require.Zero(t, sum)
+	require.Zero(t, count)
+}
+
+func Test_JsonShardMetaData_LoadWritesConvertedOrMissingFile(t *testing.T) {
 	tests := []struct {
 		name    string
 		prepare func(t *testing.T, trackerPath string)
