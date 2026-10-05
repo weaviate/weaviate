@@ -199,7 +199,9 @@ Response shapes (PUT / rebuild / cancel):
 - `422 Unprocessable Entity` — `{indexType}` outside the enum.
 - `429 / 503` — per-collection in-flight cap reached (default 32), or the
   cluster service is unavailable / an in-flight task's payload cannot be
-  parsed so conflict-freedom cannot be proven.
+  parsed so conflict-freedom cannot be proven / a local worker of an earlier
+  task on this property did not exit within 10 s (typically right after a
+  cancel; retry shortly).
 
 ### `DELETE /v1/schema/{className}/properties/{propertyName}/index/{indexType}`
 
@@ -1562,8 +1564,9 @@ source, the other is a copy that outlives it.
    resubmit.
 6. 202 with `Status: CANCELLED` + the cancelled task ID.
 
-If the drain times out, return 202 anyway — the next submit's
-defense-in-depth cleanup will pick up the work. If the node crashes
+If the drain times out, return 202 anyway. The next submit waits up to
+10 s for that worker and returns 503 while it still runs, so the client
+retries. If the node crashes
 mid-cancel, the on-disk state survives; the next submit's pre-cleanup
 catches that gap.
 

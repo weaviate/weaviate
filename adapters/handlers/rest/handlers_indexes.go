@@ -516,8 +516,8 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, svc reindexTask
 	// Bounded wait: a stuck goroutine must not turn the cancel HTTP
 	// request into an open-ended hang. The same timeout (10s) is used by
 	// the DTM scheduler for analogous waits. If we time out, we still
-	// return 202 — the next submit's defense-in-depth cleanup will pick
-	// up the work.
+	// return 202; the next submit waits for the worker the same way and
+	// returns 503 while it runs.
 	if h.appState.ReindexProvider != nil {
 		h.appState.Logger.WithFields(logrus.Fields{
 			"taskID":     target.ID,
