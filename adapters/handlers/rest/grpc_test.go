@@ -54,42 +54,63 @@ func (s *blockingHealthServer) Check(ctx context.Context, _ *grpc_health_v1.Heal
 	return &grpc_health_v1.HealthCheckResponse{Status: grpc_health_v1.HealthCheckResponse_SERVING}, nil
 }
 
-func TestStopGrpcServer(t *testing.T) {
+// serveBufconn serves server in memory and returns a client connected to it.
+func serveBufconn(t *testing.T, server *grpc.Server) *grpc.ClientConn {
+	t.Helper()
+	lis := bufconn.Listen(1024 * 1024)
+	go func() { _ = server.Serve(lis) }()
+	conn, err := grpc.NewClient("passthrough:///bufnet",
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return lis.DialContext(ctx) }),
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	return conn
+}
+
+func TestStartGrpcStop(t *testing.T) {
 	const forcingStop = "grpc graceful stop timed out, forcing stop"
 
 	cases := []struct {
-		name          string
-		callInFlight  bool
-		respectCtx    bool
-		cancelDelay   time.Duration
-		stopTimeout   time.Duration
-		maxDuration   time.Duration
-		wantForceStop bool
-		wantCutShort  int64
+		name            string
+		callInFlight    bool
+		respectCtx      bool
+		cancelCalls     bool
+		stopTimeout     time.Duration
+		waitAfter       time.Duration
+		maxWait         time.Duration
+		wantForceStop   bool
+		wantUnavailable int64
 	}{
 		{
-			name:        "no calls in flight stops without waiting for the cancel",
-			cancelDelay: time.Hour,
+			name:        "no calls in flight stops without waiting for the timeout",
 			stopTimeout: time.Hour,
-			maxDuration: 5 * time.Second,
+			maxWait:     5 * time.Second,
 		},
 		{
-			name:         "call that respects ctx is cancelled and drained before the backstop",
-			callInFlight: true,
-			respectCtx:   true,
-			cancelDelay:  50 * time.Millisecond,
-			stopTimeout:  2 * time.Second,
-			maxDuration:  time.Second,
-			wantCutShort: 1,
+			name:            "call that respects ctx is cancelled and drained before the timeout",
+			callInFlight:    true,
+			respectCtx:      true,
+			cancelCalls:     true,
+			stopTimeout:     2 * time.Second,
+			maxWait:         time.Second,
+			wantUnavailable: 1,
 		},
 		{
-			name:          "call that ignores ctx is disconnected at the backstop",
+			name:            "call that ignores ctx is disconnected at the timeout",
+			callInFlight:    true,
+			cancelCalls:     true,
+			stopTimeout:     300 * time.Millisecond,
+			maxWait:         5 * time.Second,
+			wantForceStop:   true,
+			wantUnavailable: 1,
+		},
+		{
+			name:          "timeout counts from the start, not from the wait",
 			callInFlight:  true,
-			cancelDelay:   50 * time.Millisecond,
-			stopTimeout:   300 * time.Millisecond,
-			maxDuration:   5 * time.Second,
+			stopTimeout:   time.Second,
+			waitAfter:     time.Second,
+			maxWait:       500 * time.Millisecond,
 			wantForceStop: true,
-			wantCutShort:  1,
 		},
 	}
 
@@ -103,17 +124,12 @@ func TestStopGrpcServer(t *testing.T) {
 			releaseHandler := sync.OnceFunc(func() { close(health.release) })
 			t.Cleanup(releaseHandler)
 
-			inFlight := grpcHandler.NewInFlightCancel()
-			server := grpc.NewServer(grpc.ChainUnaryInterceptor(inFlight.UnaryInterceptor()))
+			callsCtx, cancelCalls := context.WithCancel(context.Background())
+			t.Cleanup(cancelCalls)
+			inFlight := grpcHandler.NewInFlightCancel(callsCtx)
+			server := grpc.NewServer(grpc.ChainUnaryInterceptor(inFlight.UnavailableAfterCancel()))
 			grpc_health_v1.RegisterHealthServer(server, health)
-			lis := bufconn.Listen(1024 * 1024)
-			go func() { _ = server.Serve(lis) }()
-
-			conn, err := grpc.NewClient("passthrough:///bufnet",
-				grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return lis.DialContext(ctx) }),
-				grpc.WithTransportCredentials(insecure.NewCredentials()))
-			require.NoError(t, err)
-			t.Cleanup(func() { _ = conn.Close() })
+			conn := serveBufconn(t, server)
 
 			callErr := make(chan error, 1)
 			if tc.callInFlight {
@@ -129,11 +145,16 @@ func TestStopGrpcServer(t *testing.T) {
 			}
 
 			logger, hook := test.NewNullLogger()
-			stopTook := make(chan time.Duration, 1)
+			wait := startGrpcStop(server, func() {}, tc.stopTimeout, logger)
+			if tc.cancelCalls {
+				cancelCalls()
+			}
+			<-time.After(tc.waitAfter)
+			waitTook := make(chan time.Duration, 1)
 			go func() {
 				start := time.Now()
-				stopGrpcServer(server, inFlight, tc.cancelDelay, tc.stopTimeout, logger)
-				stopTook <- time.Since(start)
+				wait()
+				waitTook <- time.Since(start)
 			}()
 
 			if tc.callInFlight {
@@ -148,10 +169,10 @@ func TestStopGrpcServer(t *testing.T) {
 			releaseHandler()
 
 			select {
-			case took := <-stopTook:
-				assert.Less(t, took, tc.maxDuration)
+			case took := <-waitTook:
+				assert.Less(t, took, tc.maxWait)
 			case <-time.After(5 * time.Second):
-				require.FailNow(t, "stop did not return")
+				require.FailNow(t, "wait did not return")
 			}
 
 			var forcedStop bool
@@ -159,7 +180,50 @@ func TestStopGrpcServer(t *testing.T) {
 				forcedStop = forcedStop || (e.Level == logrus.WarnLevel && e.Message == forcingStop)
 			}
 			assert.Equal(t, tc.wantForceStop, forcedStop, "forced Stop")
-			assert.Equal(t, tc.wantCutShort, inFlight.CutShort())
+			assert.Equal(t, tc.wantUnavailable, inFlight.UnavailableResponses())
 		})
 	}
+}
+
+// wait must not return while the graceful stop it joins is still draining a call.
+func TestStartGrpcStopWaitJoinsDrain(t *testing.T) {
+	health := &blockingHealthServer{entered: make(chan struct{}, 1), release: make(chan struct{})}
+	releaseHandler := sync.OnceFunc(func() { close(health.release) })
+	t.Cleanup(releaseHandler)
+	server := grpc.NewServer()
+	grpc_health_v1.RegisterHealthServer(server, health)
+	conn := serveBufconn(t, server)
+
+	callErr := make(chan error, 1)
+	go func() {
+		_, err := grpc_health_v1.NewHealthClient(conn).Check(context.Background(), &grpc_health_v1.HealthCheckRequest{})
+		callErr <- err
+	}()
+	select {
+	case <-health.entered:
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "call never reached the handler")
+	}
+
+	logger, _ := test.NewNullLogger()
+	wait := startGrpcStop(server, func() {}, time.Hour, logger)
+	waited := make(chan struct{})
+	go func() {
+		wait()
+		close(waited)
+	}()
+	// Correct code never returns while the call runs, so this window cannot flake.
+	select {
+	case <-waited:
+		t.Fatal("wait returned while the graceful stop was still draining a call")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	releaseHandler()
+	select {
+	case <-waited:
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "wait did not return once the call finished")
+	}
+	require.NoError(t, <-callErr)
 }

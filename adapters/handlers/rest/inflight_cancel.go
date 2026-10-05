@@ -18,34 +18,27 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
-	"time"
 
 	"google.golang.org/grpc/codes"
 )
 
 var errServerShuttingDown = errors.New("server is shutting down")
 
-// inFlightCancel cancels requestsCtx, which every REST request derives from via
-// http.Server.BaseContext, so http.Server.Shutdown waits only for handlers that
-// ignore it.
+// inFlightCancel refuses requests through its middleware once requestsCtx is
+// cancelled, and replaces responses not yet started.
 type inFlightCancel struct {
 	requestsCtx          context.Context
-	cancelRequests       context.CancelFunc
-	cancelDelay          time.Duration
 	unavailableResponses atomic.Int64
 	shutdownStarted      atomic.Bool
 }
 
-func newInFlightCancel(cancelDelay time.Duration) *inFlightCancel {
-	ctx, cancel := context.WithCancel(context.Background())
-	return &inFlightCancel{requestsCtx: ctx, cancelRequests: cancel, cancelDelay: cancelDelay}
+func newInFlightCancel(requestsCtx context.Context) *inFlightCancel {
+	return &inFlightCancel{requestsCtx: requestsCtx}
 }
 
-// startShutdown makes readiness answer 503 at once and cancels every request
-// after cancelDelay.
+// startShutdown makes readiness answer 503.
 func (c *inFlightCancel) startShutdown() {
 	c.shutdownStarted.Store(true)
-	time.AfterFunc(c.cancelDelay, c.cancelRequests)
 }
 
 // unavailableAfterCancel refuses new requests once the cancel fired, and replaces
