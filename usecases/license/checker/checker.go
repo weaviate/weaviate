@@ -45,8 +45,8 @@ const (
 	// StateUnreachable: no trustworthy answer yet, or the last attempt
 	// failed; the previous state (if any) is kept in Snapshot.LastStatus.
 	StateUnreachable State = "unreachable"
-	// StateDegraded: enforcement is on and no valid answer has been obtained
-	// within the grace period. Enterprise features should be disabled.
+	// StateDegraded: no valid answer has been obtained within the grace
+	// period. Enterprise features are disabled.
 	StateDegraded State = "degraded"
 )
 
@@ -70,8 +70,7 @@ type Snapshot struct {
 	NextCheckAt     time.Time      `json:"next_check_at,omitempty"`
 	LastError       string         `json:"last_error,omitempty"`
 	ClusterMismatch bool           `json:"cluster_mismatch,omitempty"`
-	Enforcing       bool           `json:"enforcing"`
-	GraceEndsAt     time.Time      `json:"grace_ends_at,omitempty"` // when degradation would start, if enforcing
+	GraceEndsAt     time.Time      `json:"grace_ends_at,omitempty"` // when degradation starts
 }
 
 // Allowed reports whether enterprise features may run.
@@ -95,8 +94,6 @@ type Checker struct {
 	// GracePeriod is how long without a signed "valid" before the node
 	// degrades. Zero means DefaultGracePeriod.
 	GracePeriod time.Duration
-	// Enforce turns the degraded state on. When false the checker only logs.
-	Enforce bool
 	// OnChange is called whenever the State changes.
 	OnChange func(old, new Snapshot)
 	Log      *slog.Logger
@@ -171,7 +168,7 @@ func (c *Checker) Start() {
 		c.snap = Snapshot{State: StateUnlicensed}
 		return
 	}
-	c.snap = Snapshot{State: StateUnreachable, LicenseID: c.Client.LicenseID, Enforcing: c.Enforce}
+	c.snap = Snapshot{State: StateUnreachable, LicenseID: c.Client.LicenseID}
 	c.startedAt = c.now()
 	c.loadCache()
 	c.recompute()
@@ -267,7 +264,6 @@ func (c *Checker) recompute() {
 	}
 	now := c.now()
 	s := &c.snap
-	s.Enforcing = c.Enforce
 	s.GraceEndsAt = time.Time{}
 
 	var base State
@@ -300,16 +296,10 @@ func (c *Checker) recompute() {
 		anchor = now
 	}
 	s.GraceEndsAt = anchor.Add(c.grace())
-	inGrace := now.Before(s.GraceEndsAt)
 
-	switch {
-	case base == StateValid && inGrace:
-		// fine
-	case base == StateValid && c.Enforce:
-		base = StateDegraded
-	case base == StateValid:
-		base = StateUnreachable
-	case !inGrace && c.Enforce:
+	// Past the grace period the node degrades no matter what the last
+	// answer said; there is deliberately no way to turn enforcement off.
+	if !now.Before(s.GraceEndsAt) {
 		base = StateDegraded
 	}
 	s.State = base
@@ -319,7 +309,7 @@ func (c *Checker) logState(old, new Snapshot) {
 	l := c.log().With("license_id", new.LicenseID, "state", new.State)
 	switch {
 	case old.State != new.State:
-		l.Info("license state changed", "from", old.State, "expires_at", new.ExpiresAt, "enforcing", new.Enforcing)
+		l.Info("license state changed", "from", old.State, "expires_at", new.ExpiresAt)
 	case new.State == StateValid:
 		l.Debug("license ok", "expires_at", new.ExpiresAt, "next_check_at", new.NextCheckAt)
 	}
@@ -329,7 +319,7 @@ func (c *Checker) logState(old, new Snapshot) {
 	if new.State != StateValid && new.State != StateUnlicensed {
 		if new.State == StateDegraded {
 			l.Error("license degraded: enterprise features are disabled; contact Weaviate support")
-		} else if new.Enforcing {
+		} else {
 			l.Warn("license not confirmed; enterprise features will be disabled at grace end", "grace_ends_at", new.GraceEndsAt)
 		}
 	}

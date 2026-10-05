@@ -73,7 +73,7 @@ type clock struct{ t time.Time }
 func (c *clock) now() time.Time          { return c.t }
 func (c *clock) advance(d time.Duration) { c.t = c.t.Add(d) }
 
-func newChecker(t *testing.T, f *fakeServer, clk *clock, enforce bool, cache string) *Checker {
+func newChecker(t *testing.T, f *fakeServer, clk *clock, cache string) *Checker {
 	t.Helper()
 	lic, _ := license.Generate()
 	client, err := licenseclient.NewClient(lic.Key(), f.trusted)
@@ -83,7 +83,7 @@ func newChecker(t *testing.T, f *fakeServer, clk *clock, enforce bool, cache str
 	client.ServerURL = f.srv.URL
 	c := &Checker{
 		Client: client, ClusterID: "c-1", InstanceID: "n-1", WeaviateVersion: "1.34.2",
-		CachePath: cache, Enforce: enforce, Log: slog.New(slog.DiscardHandler), Now: clk.now,
+		CachePath: cache, Log: slog.New(slog.DiscardHandler), Now: clk.now,
 	}
 	c.Start()
 	return c
@@ -104,7 +104,7 @@ func TestHappyPathAndScheduling(t *testing.T) {
 	clk := &clock{time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)}
 	f := newFakeServer(t, clk.now)
 	var changes []State
-	c := newChecker(t, f, clk, true, "")
+	c := newChecker(t, f, clk, "")
 	c.OnChange = func(_, n Snapshot) { changes = append(changes, n.State) }
 	if s := c.Snapshot(); s.State != StateUnreachable {
 		t.Fatalf("before first check: %v", s.State)
@@ -137,7 +137,7 @@ func TestHappyPathAndScheduling(t *testing.T) {
 func TestOutageGraceAndDegrade(t *testing.T) {
 	clk := &clock{time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)}
 	f := newFakeServer(t, clk.now)
-	c := newChecker(t, f, clk, true, "")
+	c := newChecker(t, f, clk, "")
 	c.CheckNow(context.Background())
 
 	f.down.Store(true)
@@ -159,8 +159,7 @@ func TestOutageGraceAndDegrade(t *testing.T) {
 		t.Fatalf("backoff should cap: %v", got)
 	}
 
-	// Still valid up to the grace boundary, degraded after it, and only
-	// because Enforce is on.
+	// Still valid up to the grace boundary, degraded after it.
 	clk.advance(DefaultGracePeriod - time.Minute)
 	if s := c.Snapshot(); s.State != StateValid {
 		t.Fatalf("inside grace: %v", s.State)
@@ -199,23 +198,11 @@ func TestOutageGraceAndDegrade(t *testing.T) {
 	}
 }
 
-func TestLogOnlyNeverDegrades(t *testing.T) {
-	clk := &clock{time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)}
-	f := newFakeServer(t, clk.now)
-	f.status.Store(license.StatusRevoked)
-	c := newChecker(t, f, clk, false, "")
-	c.CheckNow(context.Background())
-	clk.advance(30 * 24 * time.Hour)
-	if s := c.Snapshot(); s.State != StateRevoked || !s.Allowed() || s.Enforcing {
-		t.Fatalf("log-only: %+v", s)
-	}
-}
-
 func TestNeverReachableDegradesFromStart(t *testing.T) {
 	clk := &clock{time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)}
 	f := newFakeServer(t, clk.now)
 	f.down.Store(true)
-	c := newChecker(t, f, clk, true, "")
+	c := newChecker(t, f, clk, "")
 	c.CheckNow(context.Background())
 	if s := c.Snapshot(); s.State != StateUnreachable || !s.Allowed() {
 		t.Fatalf("fresh node during outage must be allowed: %+v", s)
@@ -232,7 +219,7 @@ func TestCacheRoundTripAndTamper(t *testing.T) {
 	dir := t.TempDir()
 	cache := filepath.Join(dir, "sub", "license.json")
 
-	c1 := newChecker(t, f, clk, true, cache)
+	c1 := newChecker(t, f, clk, cache)
 	c1.CheckNow(context.Background())
 	if _, err := os.Stat(cache); err != nil {
 		t.Fatal("cache not written")
@@ -240,7 +227,7 @@ func TestCacheRoundTripAndTamper(t *testing.T) {
 
 	// Restart during an outage: state restored from cache, no call needed.
 	f.down.Store(true)
-	c2 := &Checker{Client: c1.Client, CachePath: cache, Enforce: true, Log: slog.New(slog.DiscardHandler), Now: clk.now}
+	c2 := &Checker{Client: c1.Client, CachePath: cache, Log: slog.New(slog.DiscardHandler), Now: clk.now}
 	c2.Start()
 	s := c2.Snapshot()
 	if s.State != StateValid || s.LastValidAt != clk.t || s.NextCheckAt != clk.t {
@@ -258,7 +245,7 @@ func TestCacheRoundTripAndTamper(t *testing.T) {
 	cf.Response.ExpiresAt = cf.Response.ExpiresAt.Add(10 * 365 * 24 * time.Hour)
 	tampered, _ := json.Marshal(cf)
 	os.WriteFile(cache, tampered, 0o600)
-	c3 := &Checker{Client: c1.Client, CachePath: cache, Enforce: true, Log: slog.New(slog.DiscardHandler), Now: clk.now}
+	c3 := &Checker{Client: c1.Client, CachePath: cache, Log: slog.New(slog.DiscardHandler), Now: clk.now}
 	c3.Start()
 	if s := c3.Snapshot(); s.State != StateUnreachable {
 		t.Fatalf("tampered cache accepted: %+v", s)
@@ -285,7 +272,7 @@ func TestCacheRoundTripAndTamper(t *testing.T) {
 func TestRunLoopStopsOnContext(t *testing.T) {
 	clk := &clock{time.Now()}
 	f := newFakeServer(t, clk.now)
-	c := newChecker(t, f, clk, false, "")
+	c := newChecker(t, f, clk, "")
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { c.Run(ctx); close(done) }()
@@ -310,7 +297,7 @@ func TestCacheGraceMetadataTamper(t *testing.T) {
 	dir := t.TempDir()
 	cache := filepath.Join(dir, "license.json")
 
-	c1 := newChecker(t, f, clk, true, cache)
+	c1 := newChecker(t, f, clk, cache)
 	c1.CheckNow(context.Background()) // valid answer, cache written
 
 	// Hand-edit the last-valid answer's timestamp into the future. The
@@ -327,7 +314,7 @@ func TestCacheGraceMetadataTamper(t *testing.T) {
 	os.WriteFile(cache, tampered, 0o600)
 
 	f.down.Store(true) // license service down during the restart
-	c2 := &Checker{Client: c1.Client, CachePath: cache, Enforce: true, Log: slog.New(slog.DiscardHandler), Now: clk.now}
+	c2 := &Checker{Client: c1.Client, CachePath: cache, Log: slog.New(slog.DiscardHandler), Now: clk.now}
 	c2.Start()
 	if s := c2.Snapshot(); s.State != StateUnreachable {
 		t.Fatalf("tampered grace metadata accepted: %+v", s)
@@ -343,7 +330,7 @@ func TestCacheGraceMetadataTamper(t *testing.T) {
 func TestOnChangeFiresOnClockDrivenTransition(t *testing.T) {
 	clk := &clock{time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)}
 	f := newFakeServer(t, clk.now)
-	c := newChecker(t, f, clk, true, "")
+	c := newChecker(t, f, clk, "")
 	var changes []State
 	c.OnChange = func(_, n Snapshot) { changes = append(changes, n.State) }
 	c.CheckNow(context.Background()) // unreachable -> valid
