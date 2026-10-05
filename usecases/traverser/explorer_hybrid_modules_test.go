@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -92,14 +93,15 @@ func page(all []search.Result, pagination *filters.Pagination) []search.Result {
 	return all[start:end]
 }
 
-// The additional properties of the modules run once, on the fused results
-// of a hybrid search, whatever the vector leg is.
-func TestExplorerHybridRunsModulesOnce(t *testing.T) {
+type hybridSearchCase struct {
+	name   string
+	hybrid searchparams.HybridSearch
+}
+
+// hybridSearches returns a hybrid search for each kind of vector leg.
+func hybridSearches() []hybridSearchCase {
 	vector := []float32{0.1, 0.2, 0.3}
-	searches := []struct {
-		name   string
-		hybrid searchparams.HybridSearch
-	}{
+	return []hybridSearchCase{
 		{name: "vector", hybrid: searchparams.HybridSearch{Query: "q", Alpha: 0.5, Vector: vector}},
 		{name: "nearVector sub-search", hybrid: searchparams.HybridSearch{
 			Query: "q", Alpha: 0.5,
@@ -114,6 +116,11 @@ func TestExplorerHybridRunsModulesOnce(t *testing.T) {
 			NearTextParams: &searchparams.NearTextParams{Values: []string{"q"}},
 		}},
 	}
+}
+
+// The additional properties of the modules run once, on the fused results
+// of a hybrid search, whatever the vector leg is.
+func TestExplorerHybridRunsModulesOnce(t *testing.T) {
 	moduleParams := []struct {
 		name   string
 		params func() map[string]any
@@ -126,7 +133,7 @@ func TestExplorerHybridRunsModulesOnce(t *testing.T) {
 			return params
 		}},
 	}
-	for _, s := range searches {
+	for _, s := range hybridSearches() {
 		for _, mp := range moduleParams {
 			t.Run(s.name+"/"+mp.name, func(t *testing.T) {
 				searcher := &fakeVectorSearcher{}
@@ -155,29 +162,38 @@ func TestExplorerHybridRunsModulesOnce(t *testing.T) {
 	}
 }
 
-// Modules that run on the fused list may need the object vectors, so the
-// nearText leg has to load them although it runs no module itself.
-func TestExplorerHybridNearTextLegLoadsVectorsForModules(t *testing.T) {
-	searcher := &fakeVectorSearcher{}
-	provider := &recordingModulesProvider{fakeModulesProvider: &fakeModulesProvider{}}
-	explorer := newTestExplorer(searcher, provider)
-	var legWantsVector bool
-	searcher.vectorSearchFn = func(params dto.GetParams) ([]search.Result, error) {
-		legWantsVector = params.AdditionalProperties.Vector
-		return page(makeHybridVectorResults(20), params.Pagination), nil
-	}
-	params := dto.GetParams{
-		ClassName:  "TestClass",
-		Pagination: &filters.Pagination{Limit: 5},
-		HybridSearch: &searchparams.HybridSearch{
-			Query: "test", Alpha: 1,
-			NearTextParams: &searchparams.NearTextParams{Values: []string{"test"}},
-		},
-	}
-	params.AdditionalProperties.ModuleParams = rerankParams()
+// The vector leg passes the module params to the store and asks it for the
+// object vectors. The store copies the stored interpretation of
+// text2vec-contextionary only when the module params ask for it, and the
+// modules on the fused results may need the vectors.
+func TestExplorerHybridVectorLegPassesModuleParamsToStore(t *testing.T) {
+	for _, s := range hybridSearches() {
+		t.Run(s.name, func(t *testing.T) {
+			searcher := &fakeVectorSearcher{}
+			var legs []additional.Properties
+			searcher.vectorSearchFn = func(params dto.GetParams) ([]search.Result, error) {
+				legs = append(legs, params.AdditionalProperties)
+				return page(makeHybridVectorResults(20), params.Pagination), nil
+			}
+			searcher.sparseObjectSearchFn = func(params dto.GetParams) ([]*storobj.Object, []float32, error) {
+				return nil, nil, nil
+			}
+			provider := &recordingModulesProvider{fakeModulesProvider: &fakeModulesProvider{}}
+			explorer := newTestExplorer(searcher, provider)
+			hybrid := s.hybrid
+			params := dto.GetParams{
+				ClassName:    "TestClass",
+				Pagination:   &filters.Pagination{Limit: 5},
+				HybridSearch: &hybrid,
+			}
+			params.AdditionalProperties.ModuleParams = map[string]any{"interpretation": true}
 
-	_, err := explorer.GetClass(context.Background(), params)
+			_, err := explorer.GetClass(context.Background(), params)
 
-	require.NoError(t, err)
-	assert.True(t, legWantsVector)
+			require.NoError(t, err)
+			require.Len(t, legs, 1)
+			assert.Equal(t, map[string]any{"interpretation": true}, legs[0].ModuleParams)
+			assert.True(t, legs[0].Vector)
+		})
+	}
 }
