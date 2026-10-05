@@ -699,7 +699,7 @@ func Test_JsonShardMetaData_FlushWritesOnlyWhenDirty(t *testing.T) {
 		{name: "UnTrackProperty", mutate: func(tr *JsonShardMetaData) { tr.UnTrackProperty("p", 3) }, wantRewrite: true},
 		{name: "UnTrackProperty unknown property", mutate: func(tr *JsonShardMetaData) {
 			tr.UnTrackProperty("unknown", 3)
-		}, wantRewrite: true},
+		}},
 		{name: "Clear", mutate: func(tr *JsonShardMetaData) { tr.Clear() }, wantRewrite: true},
 	}
 	for _, tt := range tests {
@@ -721,6 +721,19 @@ func Test_JsonShardMetaData_FlushWritesOnlyWhenDirty(t *testing.T) {
 			require.NoFileExists(t, trackerPath+".tmp")
 		})
 	}
+}
+
+// Untracking an unknown property used to leave negative sum and count behind.
+func Test_JsonShardMetaData_UnTrackUnknownPropertyLeavesTallyUnchanged(t *testing.T) {
+	tr, err := NewJsonShardMetaData(path.Join(t.TempDir(), "proplen"), logrus.New())
+	require.NoError(t, err)
+
+	require.Error(t, tr.UnTrackProperty("unknown", 3))
+
+	sum, count, _, err := tr.PropertyTally("unknown")
+	require.NoError(t, err)
+	require.Zero(t, sum)
+	require.Zero(t, count)
 }
 
 func Test_JsonShardMetaData_LoadRewritesOnlyConvertedOrMissingFile(t *testing.T) {
