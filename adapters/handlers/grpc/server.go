@@ -27,6 +27,7 @@ import (
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	pbv0 "github.com/weaviate/weaviate/grpc/generated/protocol/v0"
 	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
@@ -171,9 +172,10 @@ func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.Prome
 	}
 }
 
-// translateTypedError maps Weaviate's typed errors (auth, usage limits)
-// to gRPC statuses. Returns nil when no mapping applies so callers can
-// fall through. Shared by the unary and stream interceptors.
+// translateTypedError maps Weaviate's typed errors (auth, usage limits,
+// restrictions, memory load-shed) to gRPC statuses. Returns nil when no
+// mapping applies so callers can fall through. Shared by the unary and stream
+// interceptors.
 func translateTypedError(err error) error {
 	if err == nil {
 		return nil
@@ -189,6 +191,10 @@ func translateTypedError(err error) error {
 	}
 	if v, ok := restrictions.AsViolation(err); ok {
 		return restrictionViolationToGrpcError(v)
+	}
+	// a memwatch rejection is a load-shed, so it gets the same code as a usage-limit one
+	if enterrors.IsMemoryPressure(err) {
+		return status.Error(codes.ResourceExhausted, err.Error())
 	}
 	return nil
 }

@@ -97,6 +97,9 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 			return objects.NewObjectsCreateTooManyRequests().
 				WithPayload(newUsageLimitPayload(le))
 		}
+		if res := memoryShedResponder(principal, err); res != nil {
+			return res
+		}
 		if errors.As(err, &uco.ErrInvalidUserInput{}) {
 			return objects.NewObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
@@ -359,6 +362,9 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 		principal, params.ClassName, params.ID, repl, tenant)
 	if err != nil {
 		h.metricRequestsTotal.logError(params.ClassName, err)
+		if res := memoryShedResponder(principal, err); res != nil {
+			return res
+		}
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return objects.NewObjectsClassDeleteForbidden().
@@ -397,6 +403,9 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 		if le, ok := usagelimits.AsLimitExceeded(err); ok {
 			return objects.NewObjectsClassPutTooManyRequests().
 				WithPayload(newUsageLimitPayload(le))
+		}
+		if res := memoryShedResponder(principal, err); res != nil {
+			return res
 		}
 		if errors.As(err, &uco.ErrInvalidUserInput{}) {
 			return objects.NewObjectsClassPutUnprocessableEntity().
@@ -481,6 +490,9 @@ func (h *objectHandlers) patchObject(params objects.ObjectsClassPatchParams, pri
 	objErr := h.manager.MergeObject(ctx, principal, updates, repl)
 	if objErr != nil {
 		h.metricRequestsTotal.logError(getClassName(updates), objErr)
+		if res := memoryShedResponder(principal, objErr); res != nil {
+			return res
+		}
 		switch {
 		case objErr.NotFound():
 			return objects.NewObjectsClassPatchNotFound()
@@ -493,6 +505,9 @@ func (h *objectHandlers) patchObject(params objects.ObjectsClassPatchParams, pri
 		case objErr.UnprocessableEntity():
 			return objects.NewObjectsClassPatchUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, objErr))
+		case objErr.TooManyRequests():
+			// No generated 429 responder for this operation.
+			return tooManyRequestsResponder(principal, objErr)
 		default:
 			return objects.NewObjectsClassPatchInternalServerError().
 				WithPayload(errPayloadFromSingleErr(principal, objErr))
