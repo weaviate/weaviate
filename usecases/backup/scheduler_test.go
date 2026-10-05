@@ -993,8 +993,8 @@ func TestSchedulerCreateBackup(t *testing.T) {
 		fs.client.On("CanCommit", any, node, mock.MatchedBy(func(req *Request) bool {
 			return len(req.Classes) == 0 && slices.Equal(req.Users, []string{"alice"})
 		})).Return(cresp, nil)
-		fs.client.On("Commit", any, node, sReq).Return(nil)
-		fs.client.On("Status", any, node, sReq).Return(sresp, nil)
+		fs.client.On("Commit", any, node, matchStatusReq(sReq)).Return(nil)
+		fs.client.On("Status", any, node, matchStatusReq(sReq)).Return(sresp, nil)
 		fs.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
 
 		s := fs.scheduler()
@@ -4391,7 +4391,7 @@ func TestRestoreSelectsLeaderBlob(t *testing.T) {
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
 		fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.Anything).Return(nil)
 		fs.client.On("CanCommit", mock.Anything, node, mock.Anything).
-			Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}, nil)
+			Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: maxBooking(false)}, nil)
 		fs.client.On("Commit", mock.Anything, node, mock.Anything).Return(nil)
 		fs.client.On("Status", mock.Anything, node, mock.Anything).
 			Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil)
