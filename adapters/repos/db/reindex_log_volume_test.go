@@ -24,7 +24,6 @@ import (
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -49,116 +48,80 @@ func linesOf(entries []*logrus.Entry) []string {
 	return out
 }
 
-// One line for the whole walk: the fault is per record per shard, so reporting
-// at the point of failure follows the tenant count at every boot.
-func TestRecoveryWalkReportsUnbuildableRecordsOnce(t *testing.T) {
+// One line per fault kind for the whole walk, with its count, its reason and
+// capped names: a line per shard or record follows the tenant count at every boot.
+func TestRecoveryWalkReportsEachFaultKindOnce(t *testing.T) {
 	const shards = 12
-	root := t.TempDir()
-	indexPath := filepath.Join(root, "books_abc")
 	fixtureLogger, _ := logrustest.NewNullLogger()
 
-	for i := 0; i < shards; i++ {
-		lsm := filepath.Join(indexPath, fmt.Sprintf("tenant-%02d", i), "lsm")
-		require.NoError(t, os.MkdirAll(lsm, 0o777))
-		subject := testMigrationSubject(uint64(i+1), StrategyCodeEnableSearchable, "title")
-		// The writer accepts this record; recovery cannot build a task from it.
-		subject.MigrationType = ReindexTypeEnableSearchable
-		subject.TargetTokenization = ""
-		require.NoError(t, NewMigrationRecordStore(lsm, fixtureLogger).
-			Put(NewMigrationRecordMerged(subject)))
+	tests := []struct {
+		name string
+		seed func(t *testing.T, i int, lsm string)
+		// about picks the walk's line; names is the field carrying its capped names.
+		about, names string
+		wantText     []string
+	}{
+		{
+			name: "a record recovery cannot build a task from",
+			seed: func(t *testing.T, i int, lsm string) {
+				require.NoError(t, os.MkdirAll(lsm, 0o777))
+				subject := testMigrationSubject(uint64(i+1), StrategyCodeEnableSearchable, "title")
+				subject.MigrationType, subject.TargetTokenization = ReindexTypeEnableSearchable, ""
+				require.NoError(t, NewMigrationRecordStore(lsm, fixtureLogger).Put(NewMigrationRecordMerged(subject)))
+			},
+			about: "builds no reindex task", names: "records",
+			wantText: []string{fmt.Sprintf("%d migration(s)", shards)},
+		},
+		{
+			name: "a record set that cannot be read",
+			seed: func(t *testing.T, _ int, lsm string) {
+				require.NoError(t, os.MkdirAll(filepath.Join(lsm, migrationsDir), 0o777))
+				require.NoError(t, os.WriteFile(filepath.Join(lsm, migrationsDir, migrationRecordsDirName), nil, 0o600))
+			},
+			about: "the migration records of", names: "shards",
+			wantText: []string{
+				fmt.Sprintf("%d shard(s)", shards), "read migration records dir",
+				fmt.Sprintf("(and %d more)", shards-maxReportedErrors),
+			},
+		},
+		{
+			name: "one record that cannot be read",
+			seed: func(t *testing.T, _ int, lsm string) {
+				recordsDir := filepath.Join(lsm, migrationsDir, migrationRecordsDirName)
+				require.NoError(t, os.MkdirAll(recordsDir, 0o777))
+				require.NoError(t, os.WriteFile(filepath.Join(recordsDir, "searchable_retokenize_title_1.json"),
+					[]byte("not json"), 0o600))
+			},
+			about: "some migration records of", names: "shards",
+			wantText: []string{fmt.Sprintf("%d shard(s)", shards)},
+		},
 	}
 
-	logger, hook := logrustest.NewNullLogger()
-	recovered, err := DiscoverInFlightReindexTasks(root, true, logger, nil)
-	require.NoError(t, err)
-	require.Empty(t, recovered)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			for i := 0; i < shards; i++ {
+				tt.seed(t, i, filepath.Join(root, "books_abc", fmt.Sprintf("tenant-%02d", i), "lsm"))
+			}
 
-	about := entriesAbout(hook, "builds no reindex task")
-	require.Len(t, about, 1,
-		"one line for the whole walk, not one per record: %v", linesOf(about))
-	require.Equal(t, logrus.WarnLevel, about[0].Level)
-	require.Contains(t, about[0].Message, fmt.Sprintf("%d migration(s)", shards),
-		"the one line carries the count the per-record lines used to carry")
+			logger, hook := logrustest.NewNullLogger()
+			recovered, err := DiscoverInFlightReindexTasks(root, true, logger, nil)
+			require.NoError(t, err)
+			require.Empty(t, recovered)
 
-	// The names have to be capped, or the one line grows with the tenant count.
-	names, ok := about[0].Data["records"].([]string)
-	require.True(t, ok, "the line carries the record names it counted")
-	require.Len(t, names, maxReportedErrors+1,
-		"the capped names plus the one entry that says how many are unaccounted for")
-	require.Contains(t, names[len(names)-1], fmt.Sprintf("and %d more", shards-maxReportedErrors))
-}
-
-// The count alone does not say what to fix, and the reason is the only thing
-// that tells a full disk from a permission fault.
-func TestRecoveryWalkReportsUnreadableRecordSetsWithTheirReason(t *testing.T) {
-	const shards = 12
-	root := t.TempDir()
-	indexPath := filepath.Join(root, "books_abc")
-
-	for i := 0; i < shards; i++ {
-		lsm := filepath.Join(indexPath, fmt.Sprintf("tenant-%02d", i), "lsm")
-		require.NoError(t, os.MkdirAll(filepath.Join(lsm, ".migrations"), 0o777))
-		// A file where the record set's directory belongs: the store's read of it
-		// fails with a reason, which is the arm under test.
-		require.NoError(t, os.WriteFile(
-			filepath.Join(lsm, ".migrations", migrationRecordsDirName), nil, 0o600))
+			about := entriesAbout(hook, tt.about)
+			require.Len(t, about, 1, "one line for the whole walk: %v", linesOf(about))
+			require.Equal(t, logrus.WarnLevel, about[0].Level)
+			for _, want := range tt.wantText {
+				require.Contains(t, about[0].Message, want)
+			}
+			names, ok := about[0].Data[tt.names].([]string)
+			require.True(t, ok, "the line carries the names it counted")
+			require.Len(t, names, maxReportedErrors+1,
+				"the capped names plus the one entry that says how many are unaccounted for")
+			require.Contains(t, names[len(names)-1], fmt.Sprintf("and %d more", shards-maxReportedErrors))
+		})
 	}
-
-	logger, hook := logrustest.NewNullLogger()
-	recovered, err := DiscoverInFlightReindexTasks(root, true, logger, nil)
-	require.NoError(t, err)
-	require.Empty(t, recovered, "an unreadable record set recovers nothing")
-
-	about := entriesAbout(hook, "the migration records of")
-	require.Len(t, about, 1,
-		"one line for the whole walk, not one per shard: %v", linesOf(about))
-	require.Equal(t, logrus.WarnLevel, about[0].Level)
-	require.Contains(t, about[0].Message, fmt.Sprintf("%d shard(s)", shards))
-	require.Contains(t, about[0].Message, "read migration records dir",
-		"the reason the helper used to log has to reach this line")
-
-	// The reasons have to be capped, or the one line grows with the tenant count.
-	require.Contains(t, about[0].Message,
-		fmt.Sprintf("(and %d more)", shards-maxReportedErrors))
-	names, ok := about[0].Data["shards"].([]string)
-	require.True(t, ok, "the line carries the shard names it counted")
-	require.Len(t, names, maxReportedErrors+1,
-		"the capped names plus the one entry that says how many are unaccounted for")
-}
-
-// One bounded line whatever the property count: both registrations name every
-// property, so a line per property is a line per property the user configured.
-func TestOverlayConflictReportsManyPropertiesInOneLine(t *testing.T) {
-	const props = 50
-
-	names := make([]string, props)
-	forced := map[string]inverted.PropertyOverlay{}
-	for i := range names {
-		names[i] = fmt.Sprintf("prop_%02d", i)
-		forced[names[i]] = inverted.PropertyOverlay{ForceSearchable: true}
-	}
-
-	logger, hook := logrustest.NewNullLogger()
-	s := &Shard{index: &Index{logger: logger}}
-
-	s.registerDoubleWriteWithScope(names, forced, noopMirrorCallbacks)
-	require.Empty(t, entriesAbout(hook, "different analyzer overlays"),
-		"fixture: one registration cannot conflict with itself")
-
-	s.registerDoubleWriteWithScope(names, nil, noopMirrorCallbacks)
-
-	about := entriesAbout(hook, "different analyzer overlays")
-	require.Len(t, about, 1,
-		"one line for the transition, not one per conflicting property: %v", linesOf(about))
-	require.Equal(t, props, about[0].Data["property_count"],
-		"the line names how many properties conflict")
-
-	reported, ok := about[0].Data["props"].([]string)
-	require.True(t, ok, "the line carries the property names it counted")
-	require.Less(t, len(reported), props,
-		"the names on the one line are capped, or the line grows with the property count")
-	require.Len(t, reported, maxReportedErrors+1,
-		"the capped names plus the one entry that says how many are unaccounted for")
 }
 
 // The apply's sweep summary must print: record_set_reads is where a

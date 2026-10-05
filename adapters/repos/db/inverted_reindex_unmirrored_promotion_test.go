@@ -32,6 +32,9 @@ func TestPromotionRefusesToReplaceALiveCanonicalDirAfterAnUnmirroredBoot(t *test
 		canonicalDir  bool
 		wantState     MigrationState
 		wantCanonical string
+		// wantWithheld: the record wedges with a reason, and its mirror stays
+		// armed for a promotion that may still come.
+		wantWithheld bool
 	}{
 		{
 			name:          "mirrored: the staged copy is current, promote over the canonical dir",
@@ -45,6 +48,7 @@ func TestPromotionRefusesToReplaceALiveCanonicalDirAfterAnUnmirroredBoot(t *test
 			canonicalDir:  true,
 			wantState:     MigrationStateSwapped,
 			wantCanonical: "property_title_searchable",
+			wantWithheld:  true,
 		},
 		{
 			name:          "unmirrored, but the flip already moved the pointer off the canonical dir: nothing to lose",
@@ -71,7 +75,7 @@ func TestPromotionRefusesToReplaceALiveCanonicalDirAfterAnUnmirroredBoot(t *test
 			f.put(NewMigrationRecordSwapped(subject, []string{"title"},
 				map[string]string{"title": canonical}))
 
-			f.reconcile()
+			r := f.reconcile()
 
 			state, present2 := f.state(subject.Key)
 			require.True(t, present2)
@@ -79,25 +83,13 @@ func TestPromotionRefusesToReplaceALiveCanonicalDirAfterAnUnmirroredBoot(t *test
 			// mkdirs stamps each directory's name into its segment file, so this
 			// reads which one now answers to the canonical name.
 			require.Equal(t, tt.wantCanonical, f.contentOf(canonical))
+			if tt.wantWithheld {
+				require.Equal(t, 1, r.WedgedCount())
+				require.NotEmpty(t, f.errorLines("no double-write mirror armed"))
+				require.Empty(t, f.disarmed)
+			}
 		})
 	}
-}
-
-func TestPromotionSaysWhyItWithheldAfterAnUnmirroredBoot(t *testing.T) {
-	f := newReconcileFixture(t)
-	f.class = testClassWithTokenization(models.PropertyTokenizationWord, "title")
-
-	subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
-	subject.Unmirrored = true
-	f.mkdirs("property_title__g42_ingest", "property_title")
-	f.put(NewMigrationRecordSwapped(subject, []string{"title"},
-		map[string]string{"title": "property_title"}))
-
-	r := f.reconcile()
-
-	require.Equal(t, 1, r.WedgedCount())
-	require.NotEmpty(t, f.errorLines("no double-write mirror armed"))
-	require.Empty(t, f.disarmed, "a promotion path's wedge may still promote, so its mirror stays")
 }
 
 // Nothing else arms the mirror for a migration awaiting its flip, so the stamp

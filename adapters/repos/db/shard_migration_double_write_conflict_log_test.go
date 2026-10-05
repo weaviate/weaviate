@@ -12,6 +12,7 @@
 package db
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -21,13 +22,15 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 )
 
-// Only newly conflicting properties are reported: a teardown disarms one
-// property at a time, so reporting the whole set each time is quadratic.
+// Only newly conflicting properties are reported, on one bounded line: a
+// teardown disarms one property at a time, so reporting the whole set each
+// time is quadratic, and a line per property grows with the schema.
 func TestOverlayConflictIsReportedOnTheTransition(t *testing.T) {
-	props := []string{"a", "b", "c", "d"}
+	props := make([]string, 50)
 	forced := map[string]inverted.PropertyOverlay{}
-	for _, prop := range props {
-		forced[prop] = inverted.PropertyOverlay{ForceSearchable: true}
+	for i := range props {
+		props[i] = fmt.Sprintf("prop_%02d", i)
+		forced[props[i]] = inverted.PropertyOverlay{ForceSearchable: true}
 	}
 
 	tests := []struct {
@@ -38,7 +41,7 @@ func TestOverlayConflictIsReportedOnTheTransition(t *testing.T) {
 		{
 			name: "a disarm that only shrinks the conflict set reports nothing",
 			then: func(_ *Shard, disarmFirst, _ func(string)) {
-				disarmFirst("a")
+				disarmFirst(props[0])
 			},
 		},
 		{
@@ -52,8 +55,8 @@ func TestOverlayConflictIsReportedOnTheTransition(t *testing.T) {
 		{
 			name: "a conflict that goes away and comes back is reported again",
 			then: func(s *Shard, _, disarmSecond func(string)) {
-				disarmSecond("a")
-				s.registerDoubleWriteWithScope([]string{"a"}, nil, noopMirrorCallbacks)
+				disarmSecond(props[0])
+				s.registerDoubleWriteWithScope(props[:1], nil, noopMirrorCallbacks)
 			},
 			wantWarns: 1,
 		},
@@ -81,6 +84,10 @@ func TestOverlayConflictIsReportedOnTheTransition(t *testing.T) {
 				"one line for the transition, whatever the property count")
 			require.Equal(t, len(props), hook.LastEntry().Data["property_count"],
 				"the line names how many properties conflict")
+			reported, ok := hook.LastEntry().Data["props"].([]string)
+			require.True(t, ok, "the line carries the property names it counted")
+			require.Len(t, reported, maxReportedErrors+1,
+				"the capped names plus the one entry that says how many are unaccounted for")
 
 			hook.Reset()
 			test.then(s, disarmFirst, disarmSecond)

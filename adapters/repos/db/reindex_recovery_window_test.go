@@ -13,10 +13,8 @@ package db
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -336,43 +334,4 @@ func rangeableEnabledTestClass(className string) *models.Class {
 	on := true
 	class.Properties[0].IndexRangeFilters = &on
 	return class
-}
-
-// One line per fault kind: these faults are systemic, so a line per shard would
-// follow the tenant count at every boot. Only the walk's own line is counted —
-// the record store reports separately per shard — and matching is on the walk's
-// prefix at any level, since keying on Warn misses the per-shard line.
-func TestRecoveryWalkAggregatesUnreadableShardsIntoOneLine(t *testing.T) {
-	const shards = 12
-	root := t.TempDir()
-	indexPath := filepath.Join(root, "books_abc")
-
-	for i := 0; i < shards; i++ {
-		lsm := filepath.Join(indexPath, fmt.Sprintf("tenant-%02d", i), "lsm")
-		recordsDir := filepath.Join(lsm, ".migrations", "records")
-		require.NoError(t, os.MkdirAll(recordsDir, 0o777))
-		// One unreadable record makes the whole set unreadable: the "recovering
-		// nothing on this shard" arm.
-		require.NoError(t, os.WriteFile(
-			filepath.Join(recordsDir, "searchable_retokenize_title_1.json"),
-			[]byte("not json"), 0o600))
-	}
-
-	logger, hook := test.NewNullLogger()
-	recovered, err := DiscoverInFlightReindexTasks(root, true, logger, nil)
-	require.NoError(t, err)
-	require.Empty(t, recovered)
-
-	// Every line about unreadable records, not just the summary: a per-shard line
-	// would pass a summary-only assertion and still follow the tenant count.
-	var about []string
-	for _, e := range hook.AllEntries() {
-		if strings.Contains(e.Message, "reindex recovery:") &&
-			strings.Contains(e.Message, "could not be read") {
-			about = append(about, e.Message)
-		}
-	}
-	require.Len(t, about, 1, "one line for the whole walk, not one per shard: %v", about)
-	require.Contains(t, about[0], fmt.Sprintf("%d shard(s)", shards),
-		"the one line carries the count the per-shard lines used to carry")
 }
