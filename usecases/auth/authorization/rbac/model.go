@@ -161,7 +161,7 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 		}
 	}
 
-	// Wipe all four built-in role policies before re-registering. The
+	// Wipe all built-in role policies before re-registering. The
 	// canonical shape lives in code; rebuilding from scratch on every boot
 	// keeps the on-disk policy CSV honest.
 	for _, role := range authorization.BuiltInRoles {
@@ -182,13 +182,25 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 	// wildcards; on NS-enabled only root/read-only do — Casbin lacks deny
 	// semantics, so admin/viewer must be registered per-permission to be
 	// narrowable.
-	wildcardRoles := authorization.BuiltInRoles
+	wildcardRoles := authorization.WildcardRoles
 	if namespacesEnabled {
-		wildcardRoles = authorization.EnvVarRoles
+		wildcardRoles = []string{authorization.Root, authorization.ReadOnly}
 	}
 	for _, role := range wildcardRoles {
 		if _, err := enforcer.AddNamedPolicy("p", conv.PrefixRoleName(role), "*", conv.BuiltInWildcardVerb[role], "*"); err != nil {
 			return fmt.Errorf("add policy: %w", err)
+		}
+	}
+
+	// The metadata reader is always registered per permission: a wildcard READ
+	// would include read_data.
+	metadataPolicies, err := conv.PermissionToPolicies(authorization.BuiltInPermissionsFor(namespacesEnabled)[authorization.MetadataReader]...)
+	if err != nil {
+		return fmt.Errorf("metadata reader policies: %w", err)
+	}
+	for _, p := range metadataPolicies {
+		if _, err := enforcer.AddNamedPolicy("p", conv.PrefixRoleName(authorization.MetadataReader), p.Resource, p.Verb, p.Domain); err != nil {
+			return fmt.Errorf("add metadata reader policy: %w", err)
 		}
 	}
 
@@ -277,6 +289,15 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 		}
 		if _, err := enforcer.AddRoleForUser(conv.PrefixGroupName(viewerGroup), conv.PrefixRoleName(authorization.ReadOnly)); err != nil {
 			return fmt.Errorf("add viewer role for group %s: %w", viewerGroup, err)
+		}
+	}
+
+	for _, metadataGroup := range conf.MetadataGroups {
+		if strings.TrimSpace(metadataGroup) == "" {
+			continue
+		}
+		if _, err := enforcer.AddRoleForUser(conv.PrefixGroupName(metadataGroup), conv.PrefixRoleName(authorization.MetadataReader)); err != nil {
+			return fmt.Errorf("add metadata reader role for group %s: %w", metadataGroup, err)
 		}
 	}
 

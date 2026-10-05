@@ -236,11 +236,21 @@ var (
 	Viewer = "viewer"
 	Admin  = "admin"
 	// build-in roles that can be assigned via env vars and cannot be changed via APIS
-	Root         = "root"
-	ReadOnly     = "read-only"
-	BuiltInRoles = []string{Viewer, Admin, Root, ReadOnly}
+	Root     = "root"
+	ReadOnly = "read-only"
+	// MetadataReader is a config-bound built-in role granting read-only access
+	// to cluster metadata (schema, tenants, nodes, cluster, aliases, replication
+	// status) and no access to objects or vectors. The operator_ prefix keeps it
+	// hidden from namespace-confined callers on namespace-enabled clusters.
+	MetadataReader = "operator_metadata_reader"
+	BuiltInRoles   = []string{Viewer, Admin, Root, ReadOnly, MetadataReader}
 
-	EnvVarRoles = []string{ReadOnly, Root}
+	EnvVarRoles = []string{ReadOnly, Root, MetadataReader}
+
+	// WildcardRoles are the built-in roles registered as a single wildcard
+	// policy. MetadataReader is deliberately absent: a wildcard READ would
+	// include read_data, so it is always registered per permission.
+	WildcardRoles = []string{Viewer, Admin, Root, ReadOnly}
 
 	// OperatorReservedRolePrefixes mark a global role operator-only: invisible to,
 	// unassignable to, and uncreatable-as-a-local-role by namespace-confined callers.
@@ -265,17 +275,19 @@ func IsOperatorReservedRoleName(shortName string) bool {
 func BuiltInPermissionsFor(namespacesEnabled bool) map[string][]*models.Permission {
 	if !namespacesEnabled {
 		return map[string][]*models.Permission{
-			Viewer:   viewerPermissions(),
-			Admin:    adminPermissions(),
-			Root:     adminPermissions(),
-			ReadOnly: viewerPermissions(),
+			Viewer:         viewerPermissions(),
+			Admin:          adminPermissions(),
+			Root:           adminPermissions(),
+			ReadOnly:       viewerPermissions(),
+			MetadataReader: metadataReaderPermissions(),
 		}
 	}
 	return map[string][]*models.Permission{
-		Viewer:   tenantSafeViewerPermissions(),
-		Admin:    tenantSafeAdminPermissions(),
-		Root:     adminPermissions(),
-		ReadOnly: viewerPermissions(),
+		Viewer:         tenantSafeViewerPermissions(),
+		Admin:          tenantSafeAdminPermissions(),
+		Root:           adminPermissions(),
+		ReadOnly:       viewerPermissions(),
+		MetadataReader: metadataReaderPermissions(),
 	}
 }
 
@@ -644,6 +656,22 @@ func viewerPermissions() []*models.Permission {
 	}
 
 	return perms
+}
+
+// metadataReaderPermissions : can read cluster metadata but never objects or
+// vectors. Deliberately excludes read_data, read_mcp, read_backups,
+// read_users, read_roles and read_groups.
+func metadataReaderPermissions() []*models.Permission {
+	readCollections, readTenants, readNodes := ReadCollections, ReadTenants, ReadNodes
+	readCluster, readAliases, readReplicate := ReadCluster, ReadAliases, ReadReplicate
+	return []*models.Permission{
+		{Action: &readCollections, Collections: AllCollections},
+		{Action: &readTenants, Tenants: AllTenants},
+		{Action: &readNodes, Nodes: AllNodes},
+		{Action: &readCluster},
+		{Action: &readAliases, Aliases: AllAliases},
+		{Action: &readReplicate, Replicate: AllReplicate},
+	}
 }
 
 // Admin : aka basically super Admin or root
