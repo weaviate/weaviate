@@ -1413,6 +1413,8 @@ func TestEveryTeardownArmSealsTheUnit(t *testing.T) {
 		pass bool
 		// wedges: the arm's own work is the wedge, the disarm and the close.
 		wedges bool
+		// disarms: the arm ends the migration, so its mirror has to stop too.
+		disarms bool
 	}{
 		{
 			name: "the pass's wedge of a migration no task list holds",
@@ -1442,6 +1444,7 @@ func TestEveryTeardownArmSealsTheUnit(t *testing.T) {
 				f.put(NewMigrationRecordMerged(subjectOf(42)))
 			},
 			heldDirs: []string{"property_title__g42_ingest", "property_title__s42_reindex"},
+			disarms:  true,
 		},
 		{
 			name: "the promotion arm, which removes the displaced directory before it renames",
@@ -1472,6 +1475,7 @@ func TestEveryTeardownArmSealsTheUnit(t *testing.T) {
 				f.put(swappedOn(20, "title"))
 			},
 			heldDirs: []string{"property_title__g10_ingest", "property_title__s10_reindex"},
+			disarms:  true,
 		},
 	}
 
@@ -1505,6 +1509,10 @@ func TestEveryTeardownArmSealsTheUnit(t *testing.T) {
 			require.Equal(t, len(free.sealed), free.sealsReleased,
 				"and lets it go again: a leaked seal refuses this unit for the life of the process")
 			require.Zero(t, free.unsealed, "disarmed or closed without the unit's seal")
+			if tt.disarms || tt.wedges {
+				require.Contains(t, free.disarmed, migrationMirrorKey{free.planted[0].Key, "title"},
+					"a mirror left armed copies every write to the property until restart")
+			}
 			if tt.wedges {
 				require.True(t, free.store.Wedged(free.planted[0].Key))
 				require.ElementsMatch(t, []migrationMirrorKey{{free.planted[0].Key, "title"}}, free.disarmed)
