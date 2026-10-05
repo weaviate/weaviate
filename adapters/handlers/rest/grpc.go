@@ -38,19 +38,21 @@ func startGrpcServer(server *grpc.Server, state *state.State) {
 }
 
 // startGrpcStop refuses grpc-web calls, which a graceful stop answers with a
-// non-retryable Unknown, then starts the graceful stop. The returned wait forces
-// Stop stopTimeout after this call, and a handler ignoring its ctx may outlive it.
+// non-retryable Unknown, then starts the graceful stop and forces Stop
+// stopTimeout later. wait only joins it, and a handler ignoring its ctx may outlive it.
 func startGrpcStop(server *grpc.Server, refuseGrpcWeb func(), stopTimeout time.Duration,
 	logger logrus.FieldLogger,
 ) (wait func()) {
 	refuseGrpcWeb()
-	deadline := time.NewTimer(stopTimeout)
 	stopped := make(chan struct{})
 	enterrors.GoWrapper(func() {
 		server.GracefulStop()
 		close(stopped)
 	}, logger)
-	return func() {
+	done := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		defer close(done)
+		deadline := time.NewTimer(stopTimeout)
 		defer deadline.Stop()
 		select {
 		case <-stopped:
@@ -58,5 +60,6 @@ func startGrpcStop(server *grpc.Server, refuseGrpcWeb func(), stopTimeout time.D
 			logger.Warn("grpc graceful stop timed out, forcing stop")
 			server.Stop()
 		}
-	}
+	}, logger)
+	return func() { <-done }
 }

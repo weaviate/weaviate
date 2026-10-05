@@ -76,7 +76,7 @@ func TestStartGrpcStop(t *testing.T) {
 		respectCtx      bool
 		cancelCalls     bool
 		stopTimeout     time.Duration
-		waitAfter       time.Duration
+		stopBeforeWait  bool
 		maxWait         time.Duration
 		wantForceStop   bool
 		wantUnavailable int64
@@ -105,12 +105,12 @@ func TestStartGrpcStop(t *testing.T) {
 			wantUnavailable: 1,
 		},
 		{
-			name:          "timeout counts from the start, not from the wait",
-			callInFlight:  true,
-			stopTimeout:   time.Second,
-			waitAfter:     time.Second,
-			maxWait:       500 * time.Millisecond,
-			wantForceStop: true,
+			name:           "timeout counts from the start, not from the wait",
+			callInFlight:   true,
+			stopTimeout:    300 * time.Millisecond,
+			stopBeforeWait: true,
+			maxWait:        500 * time.Millisecond,
+			wantForceStop:  true,
 		},
 	}
 
@@ -132,6 +132,14 @@ func TestStartGrpcStop(t *testing.T) {
 			conn := serveBufconn(t, server)
 
 			callErr := make(chan error, 1)
+			requireUnavailable := func() {
+				select {
+				case err := <-callErr:
+					assert.Equal(t, codes.Unavailable, status.Code(err))
+				case <-time.After(5 * time.Second):
+					require.FailNow(t, "client call still blocked after the server stopped")
+				}
+			}
 			if tc.callInFlight {
 				go func() {
 					_, err := grpc_health_v1.NewHealthClient(conn).Check(context.Background(), &grpc_health_v1.HealthCheckRequest{})
@@ -149,7 +157,9 @@ func TestStartGrpcStop(t *testing.T) {
 			if tc.cancelCalls {
 				cancelCalls()
 			}
-			<-time.After(tc.waitAfter)
+			if tc.stopBeforeWait {
+				requireUnavailable()
+			}
 			waitTook := make(chan time.Duration, 1)
 			go func() {
 				start := time.Now()
@@ -157,13 +167,8 @@ func TestStartGrpcStop(t *testing.T) {
 				waitTook <- time.Since(start)
 			}()
 
-			if tc.callInFlight {
-				select {
-				case err := <-callErr:
-					assert.Equal(t, codes.Unavailable, status.Code(err))
-				case <-time.After(5 * time.Second):
-					require.FailNow(t, "client call still blocked after the server stopped")
-				}
+			if tc.callInFlight && !tc.stopBeforeWait {
+				requireUnavailable()
 			}
 			// Stop may or may not wait for a handler that ignores its ctx.
 			releaseHandler()
