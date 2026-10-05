@@ -400,9 +400,6 @@ func (r *migrationReconciler) wedgeForTask(ctx context.Context, subject Migratio
 }
 
 func (r *migrationReconciler) disarmMirrors(subject MigrationSubject) {
-	if r.deps.Mirror == nil {
-		return
-	}
 	for _, prop := range subject.Properties() {
 		r.deps.Mirror.DisarmMigrationMirror(subject.Key, prop)
 	}

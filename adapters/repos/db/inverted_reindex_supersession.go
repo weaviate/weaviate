@@ -245,9 +245,7 @@ func (r *migrationReconciler) retireOneSealed(ctx context.Context, all []Migrati
 func (r *migrationReconciler) retireProperty(ctx context.Context, all []MigrationRecord,
 	subject MigrationSubject, prop string,
 ) error {
-	if r.deps.Mirror != nil {
-		r.deps.Mirror.DisarmMigrationMirror(subject.Key, prop)
-	}
+	r.deps.Mirror.DisarmMigrationMirror(subject.Key, prop)
 	// Every directory holding this record's own copy of the property, not the
 	// staged one alone: the record stops answering for the property here, and a
 	// sidecar left behind is data at a name nothing attributes any more.
