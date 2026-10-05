@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modrerankerjev
+package modrerankertypesafeai
 
 import (
 	"testing"
@@ -28,10 +28,10 @@ func TestMaxConcurrentRequestsFromEnv(t *testing.T) {
 		{name: "unset uses the default", value: "", want: 16},
 		{name: "lowest value", value: "1", want: 1},
 		{name: "highest value", value: "256", want: 256},
-		{name: "zero", value: "0", wantErr: `JEV_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "0"`},
-		{name: "above the limit", value: "257", wantErr: `JEV_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "257"`},
-		{name: "negative", value: "-4", wantErr: `JEV_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "-4"`},
-		{name: "not a number", value: "many", wantErr: `JEV_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "many"`},
+		{name: "zero", value: "0", wantErr: `RERANKER_TYPESAFEAI_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "0"`},
+		{name: "above the limit", value: "257", wantErr: `RERANKER_TYPESAFEAI_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "257"`},
+		{name: "negative", value: "-4", wantErr: `RERANKER_TYPESAFEAI_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "-4"`},
+		{name: "not a number", value: "many", wantErr: `RERANKER_TYPESAFEAI_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "many"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

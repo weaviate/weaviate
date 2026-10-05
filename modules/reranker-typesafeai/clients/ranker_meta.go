@@ -13,7 +13,7 @@ package clients
 
 func (c *client) MetaInfo() (map[string]any, error) {
 	return map[string]any{
-		"name":              "Reranker - Jev",
+		"name":              "Reranker - TypeSafeAI",
 		"documentationHref": "https://docs.typesafe.ai/api",
 	}, nil
 }

@@ -302,7 +302,7 @@ func TestExplorerRerankOverfetchDepthError(t *testing.T) {
 	searcher := &fakeVectorSearcher{}
 	provider := &droppingRerankProvider{
 		fakeModulesProvider: &fakeModulesProvider{},
-		depthErr:            errors.New("X-Jev-Fetch-Depth must be a number"),
+		depthErr:            errors.New("X-Typesafeai-Fetch-Depth must be a number"),
 	}
 	explorer := newTestExplorer(searcher, provider)
 	searcher.searchFn = func(params dto.GetParams) ([]search.Result, error) {
@@ -319,7 +319,7 @@ func TestExplorerRerankOverfetchDepthError(t *testing.T) {
 
 	_, err := explorer.GetClass(context.Background(), params)
 
-	require.ErrorContains(t, err, "X-Jev-Fetch-Depth must be a number")
+	require.ErrorContains(t, err, "X-Typesafeai-Fetch-Depth must be a number")
 }
 
 // The store checks offset+limit against QueryMaximumResults, but the

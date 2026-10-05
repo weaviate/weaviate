@@ -61,7 +61,7 @@ func TestRank(t *testing.T) {
 			"I want a refund now", "Thanks, all good", "Where is my order?",
 			"This is unacceptable!!", "Could you update my plan",
 		}
-		handler := &jevHandler{t: t, scores: scores}
+		handler := &typesafeaiHandler{t: t, scores: scores}
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
@@ -89,7 +89,7 @@ func TestRank(t *testing.T) {
 	})
 
 	t.Run("uses the model from the class config", func(t *testing.T) {
-		handler := &jevHandler{t: t, scores: map[string]float64{"doc": 0.5}}
+		handler := &typesafeaiHandler{t: t, scores: map[string]float64{"doc": 0.5}}
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
@@ -103,7 +103,7 @@ func TestRank(t *testing.T) {
 	})
 
 	t.Run("empty document scores zero without a request", func(t *testing.T) {
-		handler := &jevHandler{t: t, scores: map[string]float64{"doc": 0.8}}
+		handler := &typesafeaiHandler{t: t, scores: map[string]float64{"doc": 0.8}}
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
@@ -120,7 +120,7 @@ func TestRank(t *testing.T) {
 	})
 
 	t.Run("only empty documents is an error, not an empty answer", func(t *testing.T) {
-		handler := &jevHandler{t: t, scores: map[string]float64{}}
+		handler := &typesafeaiHandler{t: t, scores: map[string]float64{}}
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
@@ -132,7 +132,7 @@ func TestRank(t *testing.T) {
 	})
 
 	t.Run("identical documents share one request", func(t *testing.T) {
-		handler := &jevHandler{t: t, scores: map[string]float64{"same": 0.7, "other": 0.1}}
+		handler := &typesafeaiHandler{t: t, scores: map[string]float64{"same": 0.7, "other": 0.1}}
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
@@ -149,12 +149,12 @@ func TestRank(t *testing.T) {
 	})
 
 	t.Run("api key from the request header wins", func(t *testing.T) {
-		handler := &jevHandler{t: t, scores: map[string]float64{"doc": 0.5}}
+		handler := &typesafeaiHandler{t: t, scores: map[string]float64{"doc": 0.5}}
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
 		c := newTestClient("envKey")
-		ctx := context.WithValue(context.Background(), "X-Jev-Api-Key", []string{"headerKey"})
+		ctx := context.WithValue(context.Background(), "X-Typesafeai-Api-Key", []string{"headerKey"})
 		_, err := c.Rank(ctx, query, []string{"doc"}, classConfig(server.URL, nil))
 
 		require.NoError(t, err)
@@ -212,7 +212,7 @@ func TestRankRejectedBeforeAnyRequest(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := &jevHandler{t: t}
+			handler := &typesafeaiHandler{t: t}
 			server := httptest.NewServer(handler)
 			defer server.Close()
 
@@ -263,7 +263,7 @@ func TestRankErrorResponses(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := &jevHandler{t: t, scores: map[string]float64{"doc": 0.6}, statuses: tt.statuses}
+			handler := &typesafeaiHandler{t: t, scores: map[string]float64{"doc": 0.6}, statuses: tt.statuses}
 			server := httptest.NewServer(handler)
 			defer server.Close()
 
@@ -316,7 +316,7 @@ func TestRankMalformedResponses(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := &jevHandler{t: t, rawBody: tt.body}
+			handler := &typesafeaiHandler{t: t, rawBody: tt.body}
 			server := httptest.NewServer(handler)
 			defer server.Close()
 
@@ -330,7 +330,7 @@ func TestRankMalformedResponses(t *testing.T) {
 }
 
 func TestRankStopsOnContextCancel(t *testing.T) {
-	handler := &jevHandler{t: t, statuses: []int{529, 529, 529, 529, 529}}
+	handler := &typesafeaiHandler{t: t, statuses: []int{529, 529, 529, 529, 529}}
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
@@ -363,7 +363,7 @@ func TestRankBoundsRequestsInFlight(t *testing.T) {
 	for document, score := range moreScores {
 		scores[document] = score
 	}
-	handler := &jevHandler{t: t, scores: scores, delay: 20 * time.Millisecond}
+	handler := &typesafeaiHandler{t: t, scores: scores, delay: 20 * time.Millisecond}
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	c := New("apiKey", 0, limit, nullLogger())
@@ -409,7 +409,7 @@ func TestRankBatches(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := &jevHandler{t: t, scores: scores}
+			handler := &typesafeaiHandler{t: t, scores: scores}
 			server := httptest.NewServer(handler)
 			defer server.Close()
 
@@ -435,7 +435,7 @@ func TestRankBatches(t *testing.T) {
 
 	t.Run("a batch the API rejects for its size is sent as halves", func(t *testing.T) {
 		// Jev accepts at most 3 documents per request here: 10 -> 5 + 5 -> 2 + 3 each.
-		handler := &jevHandler{t: t, scores: scores, maxDocumentsPerRequest: 3}
+		handler := &typesafeaiHandler{t: t, scores: scores, maxDocumentsPerRequest: 3}
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
@@ -457,7 +457,7 @@ func TestRankBatches(t *testing.T) {
 	})
 
 	t.Run("a single document the API rejects for its size is an error", func(t *testing.T) {
-		handler := &jevHandler{t: t, scores: scores, maxDocumentsPerRequest: -1}
+		handler := &typesafeaiHandler{t: t, scores: scores, maxDocumentsPerRequest: -1}
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
@@ -469,7 +469,7 @@ func TestRankBatches(t *testing.T) {
 	})
 
 	t.Run("a batch of one document uses the single-document request", func(t *testing.T) {
-		handler := &jevHandler{t: t, scores: scores}
+		handler := &typesafeaiHandler{t: t, scores: scores}
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
@@ -491,7 +491,7 @@ func TestRankBatches(t *testing.T) {
 	})
 
 	t.Run("a batch with an answer missing fails the request", func(t *testing.T) {
-		handler := &jevHandler{t: t, scores: scores, omitAnswerFor: "document_2"}
+		handler := &typesafeaiHandler{t: t, scores: scores, omitAnswerFor: "document_2"}
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
@@ -502,7 +502,7 @@ func TestRankBatches(t *testing.T) {
 	})
 
 	t.Run("only documents not judged before are batched", func(t *testing.T) {
-		handler := &jevHandler{t: t, scores: scores}
+		handler := &typesafeaiHandler{t: t, scores: scores}
 		server := httptest.NewServer(handler)
 		defer server.Close()
 		c := newTestClient("apiKey")
@@ -522,7 +522,7 @@ func TestRankBatches(t *testing.T) {
 }
 
 func TestRankDoesNotRetryATimeout(t *testing.T) {
-	handler := &jevHandler{t: t, scores: map[string]float64{"doc": 0.5}, delay: 300 * time.Millisecond}
+	handler := &typesafeaiHandler{t: t, scores: map[string]float64{"doc": 0.5}, delay: 300 * time.Millisecond}
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	c := New("apiKey", 50*time.Millisecond, DefaultMaxConcurrentRequests, nullLogger())
@@ -588,7 +588,7 @@ func TestParseRetryAfter(t *testing.T) {
 }
 
 func TestRankHonoursRetryAfter(t *testing.T) {
-	handler := &jevHandler{
+	handler := &typesafeaiHandler{
 		t: t, scores: map[string]float64{"doc": 0.5},
 		statuses: []int{http.StatusTooManyRequests}, retryAfter: "1",
 	}
@@ -605,12 +605,12 @@ func TestRankHonoursRetryAfter(t *testing.T) {
 
 type receivedRequest struct {
 	authorization string
-	body          jevRequest
+	body          typesafeaiRequest
 }
 
-// jevHandler fakes the Jev API. statuses[i] is the status of the i-th request;
+// typesafeaiHandler fakes the TypeSafeAI API. statuses[i] is the status of the i-th request;
 // requests beyond len(statuses) get 200.
-type jevHandler struct {
+type typesafeaiHandler struct {
 	t        *testing.T
 	scores   map[string]float64
 	statuses []int
@@ -632,18 +632,18 @@ type jevHandler struct {
 	maxInFlight int
 }
 
-func (h *jevHandler) received() []receivedRequest {
+func (h *typesafeaiHandler) received() []receivedRequest {
 	h.lock.Lock()
 	defer h.lock.Unlock()
 	return append([]receivedRequest(nil), h.requests...)
 }
 
-func (h *jevHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *typesafeaiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	assert.NoError(h.t, err)
 	defer r.Body.Close()
 
-	var req jevRequest
+	var req typesafeaiRequest
 	assert.NoError(h.t, json.Unmarshal(bodyBytes, &req))
 	assert.Equal(h.t, "/v1/systemone", r.URL.Path)
 	assert.Equal(h.t, http.MethodPost, r.Method)
@@ -695,7 +695,7 @@ func (h *jevHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	answers := map[string]jevAnswer{}
+	answers := map[string]typesafeaiAnswer{}
 	switch state := req.State.(type) {
 	case string:
 		score, ok := h.scores[state]
@@ -731,11 +731,11 @@ func (h *jevHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // classConfig sends one document per request unless the settings say
 // otherwise, which keeps the request count of a test equal to its documents.
 // answerFor answers in the type of the question.
-func answerFor(question jevQuestion, value float64) jevAnswer {
+func answerFor(question typesafeaiQuestion, value float64) typesafeaiAnswer {
 	if question.Type == scoreType {
-		return jevAnswer{Type: scoreType, Score: &value}
+		return typesafeaiAnswer{Type: scoreType, Score: &value}
 	}
-	return jevAnswer{Type: noulType, Noul: &value}
+	return typesafeaiAnswer{Type: noulType, Noul: &value}
 }
 
 func classConfig(baseURL string, settings map[string]any) moduletools.ClassConfig {

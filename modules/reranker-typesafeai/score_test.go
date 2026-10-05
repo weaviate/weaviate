@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modrerankerjev
+package modrerankertypesafeai
 
 import (
 	"context"
@@ -40,35 +40,35 @@ func TestRerankWithARubric(t *testing.T) {
 	}{
 		{
 			name:    "search order keeps every result",
-			headers: map[string]string{"X-Jev-Score-Levels": levels},
+			headers: map[string]string{"X-Typesafeai-Score-Levels": levels},
 			want:    []string{"invoice", "data lost", "font size", "outage", "export bug"},
 		},
 		{
 			name:    "probability order sorts by score",
-			headers: map[string]string{"X-Jev-Score-Levels": levels, "X-Jev-Order": "probability"},
+			headers: map[string]string{"X-Typesafeai-Score-Levels": levels, "X-Typesafeai-Order": "probability"},
 			want:    []string{"data lost", "outage", "export bug", "invoice", "font size"},
 		},
 		{
 			name:    "minimum score from the header",
-			headers: map[string]string{"X-Jev-Score-Levels": levels, "X-Jev-Min-Score": "1"},
+			headers: map[string]string{"X-Typesafeai-Score-Levels": levels, "X-Typesafeai-Min-Score": "1"},
 			want:    []string{"invoice", "data lost", "outage", "export bug"},
 		},
 		{
 			name:     "minimum score from the class setting",
 			settings: map[string]any{"minScore": 2},
-			headers:  map[string]string{"X-Jev-Score-Levels": levels},
+			headers:  map[string]string{"X-Typesafeai-Score-Levels": levels},
 			want:     []string{"data lost", "outage"},
 		},
 		{
 			name:     "header wins over the class setting",
 			settings: map[string]any{"minScore": 3},
-			headers:  map[string]string{"X-Jev-Score-Levels": levels, "X-Jev-Min-Score": "1.2"},
+			headers:  map[string]string{"X-Typesafeai-Score-Levels": levels, "X-Typesafeai-Min-Score": "1.2"},
 			want:     []string{"data lost", "outage", "export bug"},
 		},
 		{
 			name:     "the probability threshold does not apply to scores",
 			settings: map[string]any{"minProbability": 0.9},
-			headers:  map[string]string{"X-Jev-Score-Levels": levels},
+			headers:  map[string]string{"X-Typesafeai-Score-Levels": levels},
 			want:     []string{"invoice", "data lost", "font size", "outage", "export bug"},
 		},
 		{
@@ -78,20 +78,20 @@ func TestRerankWithARubric(t *testing.T) {
 		},
 		{
 			name:       "minimum score above the last level",
-			headers:    map[string]string{"X-Jev-Score-Levels": levels, "X-Jev-Min-Score": "3.5"},
-			wantErr:    `X-Jev-Min-Score must be a number between 0 and 3, got "3.5"`,
+			headers:    map[string]string{"X-Typesafeai-Score-Levels": levels, "X-Typesafeai-Min-Score": "3.5"},
+			wantErr:    `X-Typesafeai-Min-Score must be a number between 0 and 3, got "3.5"`,
 			wantNoRank: true,
 		},
 		{
 			name:       "minimum score is not a number",
-			headers:    map[string]string{"X-Jev-Score-Levels": levels, "X-Jev-Min-Score": "today"},
-			wantErr:    `X-Jev-Min-Score must be a number between 0 and 3, got "today"`,
+			headers:    map[string]string{"X-Typesafeai-Score-Levels": levels, "X-Typesafeai-Min-Score": "today"},
+			wantErr:    `X-Typesafeai-Min-Score must be a number between 0 and 3, got "today"`,
 			wantNoRank: true,
 		},
 		{
 			name:       "class minimum score above the last level",
 			settings:   map[string]any{"minScore": 5},
-			headers:    map[string]string{"X-Jev-Score-Levels": levels},
+			headers:    map[string]string{"X-Typesafeai-Score-Levels": levels},
 			wantErr:    "minScore must be between 0 and 3, got 5",
 			wantNoRank: true,
 		},
@@ -99,25 +99,25 @@ func TestRerankWithARubric(t *testing.T) {
 			// A malformed header fails the request even when the other
 			// question type is asked.
 			name:       "malformed probability threshold with a rubric",
-			headers:    map[string]string{"X-Jev-Score-Levels": levels, "X-Jev-Min-Probability": "high"},
-			wantErr:    `X-Jev-Min-Probability must be a number between 0 and 1, got "high"`,
+			headers:    map[string]string{"X-Typesafeai-Score-Levels": levels, "X-Typesafeai-Min-Probability": "high"},
+			wantErr:    `X-Typesafeai-Min-Probability must be a number between 0 and 1, got "high"`,
 			wantNoRank: true,
 		},
 		{
 			name:       "malformed score threshold without a rubric",
-			headers:    map[string]string{"X-Jev-Min-Score": "today"},
-			wantErr:    `X-Jev-Min-Score must be a number between 0 and 9, got "today"`,
+			headers:    map[string]string{"X-Typesafeai-Min-Score": "today"},
+			wantErr:    `X-Typesafeai-Min-Score must be a number between 0 and 9, got "today"`,
 			wantNoRank: true,
 		},
 		{
 			name:    "score threshold without a rubric is not applied",
-			headers: map[string]string{"X-Jev-Min-Score": "5"},
+			headers: map[string]string{"X-Typesafeai-Min-Score": "5"},
 			want:    []string{"invoice", "data lost", "font size", "outage", "export bug"},
 		},
 		{
 			name:       "invalid rubric",
-			headers:    map[string]string{"X-Jev-Score-Levels": "only"},
-			wantErr:    "X-Jev-Score-Levels must list between 2 and 10 levels, got 1",
+			headers:    map[string]string{"X-Typesafeai-Score-Levels": "only"},
+			wantErr:    "X-Typesafeai-Score-Levels must list between 2 and 10 levels, got 1",
 			wantNoRank: true,
 		},
 	}

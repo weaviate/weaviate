@@ -23,7 +23,7 @@ import (
 )
 
 func withLevels(levels string) context.Context {
-	return context.WithValue(context.Background(), "X-Jev-Score-Levels", []string{levels})
+	return context.WithValue(context.Background(), "X-Typesafeai-Score-Levels", []string{levels})
 }
 
 func TestRankWithARubric(t *testing.T) {
@@ -33,7 +33,7 @@ func TestRankWithARubric(t *testing.T) {
 	documents := []string{"dark theme", "data lost", "invoice typo"}
 
 	t.Run("sends a score question and returns the rubric position", func(t *testing.T) {
-		handler := &jevHandler{t: t, scores: scores}
+		handler := &typesafeaiHandler{t: t, scores: scores}
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
@@ -57,7 +57,7 @@ func TestRankWithARubric(t *testing.T) {
 	})
 
 	t.Run("levels from the class setting", func(t *testing.T) {
-		handler := &jevHandler{t: t, scores: scores}
+		handler := &typesafeaiHandler{t: t, scores: scores}
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
@@ -71,7 +71,7 @@ func TestRankWithARubric(t *testing.T) {
 	})
 
 	t.Run("a batch carries the rubric in every question", func(t *testing.T) {
-		handler := &jevHandler{t: t, scores: scores}
+		handler := &typesafeaiHandler{t: t, scores: scores}
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
@@ -90,7 +90,7 @@ func TestRankWithARubric(t *testing.T) {
 	})
 
 	t.Run("a yes/no question carries no rubric", func(t *testing.T) {
-		handler := &jevHandler{t: t, scores: map[string]float64{"doc": 0.5}}
+		handler := &typesafeaiHandler{t: t, scores: map[string]float64{"doc": 0.5}}
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
@@ -103,13 +103,13 @@ func TestRankWithARubric(t *testing.T) {
 	})
 
 	t.Run("an invalid rubric fails before any request", func(t *testing.T) {
-		handler := &jevHandler{t: t, scores: scores}
+		handler := &typesafeaiHandler{t: t, scores: scores}
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
 		_, err := newTestClient("apiKey").Rank(withLevels("only"), "q", documents, classConfig(server.URL, nil))
 
-		require.ErrorContains(t, err, "X-Jev-Score-Levels must list between 2 and 10 levels, got 1")
+		require.ErrorContains(t, err, "X-Typesafeai-Score-Levels must list between 2 and 10 levels, got 1")
 		assert.Empty(t, handler.received())
 	})
 }
@@ -117,7 +117,7 @@ func TestRankWithARubric(t *testing.T) {
 // A yes/no answer, an answer for another rubric and an answer for the same
 // rubric must not be served for each other.
 func TestRankCacheIsSeparatedByQuestionType(t *testing.T) {
-	handler := &jevHandler{t: t, scores: map[string]float64{"doc": 1}}
+	handler := &typesafeaiHandler{t: t, scores: map[string]float64{"doc": 1}}
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	c := newTestClient("apiKey")
@@ -168,7 +168,7 @@ func TestRankRubricMalformedResponses(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := &jevHandler{t: t, rawBody: tt.body}
+			handler := &typesafeaiHandler{t: t, rawBody: tt.body}
 			server := httptest.NewServer(handler)
 			defer server.Close()
 
@@ -179,7 +179,7 @@ func TestRankRubricMalformedResponses(t *testing.T) {
 	}
 
 	t.Run("a score answer to a yes/no question", func(t *testing.T) {
-		handler := &jevHandler{t: t, rawBody: `{"answers":{"q":{"type":"score","score":1}}}`}
+		handler := &typesafeaiHandler{t: t, rawBody: `{"answers":{"q":{"type":"score","score":1}}}`}
 		server := httptest.NewServer(handler)
 		defer server.Close()
 

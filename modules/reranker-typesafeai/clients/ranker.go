@@ -29,7 +29,7 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/reranker-jev/config"
+	"github.com/weaviate/weaviate/modules/reranker-typesafeai/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
@@ -41,7 +41,7 @@ const (
 	scoreType   = "score"
 
 	// DefaultMaxConcurrentRequests and MaxConcurrentRequestsLimit bound the
-	// requests to the Jev API that are in flight across all queries of the
+	// requests to the TypeSafeAI API that are in flight across all queries of the
 	// process.
 	DefaultMaxConcurrentRequests = 16
 	MaxConcurrentRequestsLimit   = 256
@@ -63,7 +63,7 @@ type client struct {
 	retryBackoff time.Duration
 	cache        *judgmentCache
 	// inFlight holds one token per request being sent. It is shared by all
-	// Rank calls, so it limits the load on the Jev API however many queries
+	// Rank calls, so it limits the load on the TypeSafeAI API however many queries
 	// run at once.
 	inFlight chan struct{}
 	logger   logrus.FieldLogger
@@ -108,9 +108,9 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 	batchSize := min(max(settings.BatchSize(), 1), config.MaxBatchSize)
 	apiKey, err := c.getApiKey(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "Jev API Key")
+		return nil, errors.Wrap(err, "TypeSafeAI API Key")
 	}
-	jevURL, err := c.getJevURL(ctx, settings.BaseURL())
+	typesafeaiURL, err := c.getTypeSafeAIURL(ctx, settings.BaseURL())
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +123,7 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 		return nil, err
 	}
 	request := judgeRequest{
-		url: jevURL, apiKey: apiKey, model: settings.Model(), query: query, batchSize: batchSize,
+		url: typesafeaiURL, apiKey: apiKey, model: settings.Model(), query: query, batchSize: batchSize,
 		levels: levels,
 	}
 
@@ -216,12 +216,12 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 		return nil, err
 	}
 
-	c.logger.WithField("action", "reranker_jev_rank").
+	c.logger.WithField("action", "reranker_typesafeai_rank").
 		WithField("documents", len(documents)).
 		WithField("judged", len(pending)).
 		WithField("requests", requests.Load()).
 		WithField("input_tokens", inputTokens.Load()).
-		Debug("jev rank finished")
+		Debug("typesafeai rank finished")
 
 	documentScores := make([]ent.DocumentScore, len(documents))
 	for i, document := range documents {
@@ -234,9 +234,9 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 	return &ent.RankResult{Query: query, DocumentScores: documentScores}, nil
 }
 
-// The cache modes a request can ask for with the X-Jev-Cache header.
+// The cache modes a request can ask for with the X-Typesafeai-Cache header.
 const (
-	cacheHeader = "X-Jev-Cache"
+	cacheHeader = "X-Typesafeai-Cache"
 	// cacheOn reads stored answers and stores new ones. It is the default.
 	cacheOn = "on"
 	// cacheRefresh judges every document again and replaces what is stored.
@@ -300,7 +300,7 @@ func (r judgeRequest) cacheKey(document string, batchSize int) judgmentKey {
 // documents still get judged; the batch size is an upper bound. It returns
 // one probability per document, in order.
 func (c *client) judge(ctx context.Context, request judgeRequest, documents []string,
-) ([]float64, jevUsage, error) {
+) ([]float64, typesafeaiUsage, error) {
 	values, usage, result, err := c.judgeBatch(ctx, request, documents)
 	if err == nil || !result.tooLarge || len(documents) < 2 {
 		return values, usage, err
@@ -308,20 +308,20 @@ func (c *client) judge(ctx context.Context, request judgeRequest, documents []st
 	half := len(documents) / 2
 	first, firstUsage, err := c.judge(ctx, request, documents[:half])
 	if err != nil {
-		return nil, jevUsage{}, err
+		return nil, typesafeaiUsage{}, err
 	}
 	second, secondUsage, err := c.judge(ctx, request, documents[half:])
 	if err != nil {
-		return nil, jevUsage{}, err
+		return nil, typesafeaiUsage{}, err
 	}
-	return append(first, second...), jevUsage{InputTokens: firstUsage.InputTokens + secondUsage.InputTokens}, nil
+	return append(first, second...), typesafeaiUsage{InputTokens: firstUsage.InputTokens + secondUsage.InputTokens}, nil
 }
 
 func (c *client) judgeBatch(ctx context.Context, request judgeRequest, documents []string,
-) ([]float64, jevUsage, sendResult, error) {
-	body, err := json.Marshal(newJevRequest(request, documents))
+) ([]float64, typesafeaiUsage, sendResult, error) {
+	body, err := json.Marshal(newTypeSafeAIRequest(request, documents))
 	if err != nil {
-		return nil, jevUsage{}, sendResult{}, errors.Wrap(err, "marshal body")
+		return nil, typesafeaiUsage{}, sendResult{}, errors.Wrap(err, "marshal body")
 	}
 
 	var lastErr error
@@ -329,7 +329,7 @@ func (c *client) judgeBatch(ctx context.Context, request judgeRequest, documents
 	for attempt := range maxAttempts {
 		if attempt > 0 {
 			if err := wait(ctx, c.retryDelay(attempt, retryAfter)); err != nil {
-				return nil, jevUsage{}, sendResult{}, err
+				return nil, typesafeaiUsage{}, sendResult{}, err
 			}
 		}
 		result, err := c.send(ctx, request, body, len(documents))
@@ -337,17 +337,17 @@ func (c *client) judgeBatch(ctx context.Context, request judgeRequest, documents
 			return result.values, result.usage, result, nil
 		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, jevUsage{}, result, ctxErr
+			return nil, typesafeaiUsage{}, result, ctxErr
 		}
 		if !result.retryable {
-			return nil, jevUsage{}, result, err
+			return nil, typesafeaiUsage{}, result, err
 		}
-		c.logger.WithField("action", "reranker_jev_retry").WithField("attempt", attempt+1).
-			Debugf("jev request failed, retrying: %v", err)
+		c.logger.WithField("action", "reranker_typesafeai_retry").WithField("attempt", attempt+1).
+			Debugf("typesafeai request failed, retrying: %v", err)
 		lastErr = err
 		retryAfter = result.retryAfter
 	}
-	return nil, jevUsage{}, sendResult{}, errors.Wrapf(lastErr, "after %d attempts", maxAttempts)
+	return nil, typesafeaiUsage{}, sendResult{}, errors.Wrapf(lastErr, "after %d attempts", maxAttempts)
 }
 
 // retryDelay doubles with every attempt and is spread over half its length,
@@ -361,7 +361,7 @@ func (c *client) retryDelay(attempt int, retryAfter time.Duration) time.Duration
 
 type sendResult struct {
 	values     []float64
-	usage      jevUsage
+	usage      typesafeaiUsage
 	retryable  bool
 	retryAfter time.Duration
 	// tooLarge: the API rejected the request for its size.
@@ -403,14 +403,14 @@ func (c *client) send(ctx context.Context, request judgeRequest, body []byte, do
 				retryAfter: parseRetryAfter(res.Header.Get("Retry-After")),
 				tooLarge:   res.StatusCode == http.StatusBadRequest && bytes.Contains(errorBody, []byte(tooLargeError)),
 			}, errors.Errorf(
-				"connection to Jev API failed with status %d: %s", res.StatusCode, errorBody)
+				"connection to TypeSafeAI API failed with status %d: %s", res.StatusCode, errorBody)
 	}
 
 	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
 		return sendResult{}, errors.Wrap(err, "read response body")
 	}
-	var response jevResponse
+	var response typesafeaiResponse
 	if err := json.Unmarshal(bodyBytes, &response); err != nil {
 		return sendResult{}, errors.Wrap(err, "parse response")
 	}
@@ -443,56 +443,56 @@ func wait(ctx context.Context, delay time.Duration) error {
 }
 
 func (c *client) getApiKey(ctx context.Context) (string, error) {
-	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Jev-Api-Key"); apiKey != "" {
+	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Typesafeai-Api-Key"); apiKey != "" {
 		return apiKey, nil
 	}
 	if c.apiKey != "" {
 		return c.apiKey, nil
 	}
 	return "", errors.New("no api key found " +
-		"neither in request header: X-Jev-Api-Key " +
-		"nor in environment variable under JEV_APIKEY")
+		"neither in request header: X-Typesafeai-Api-Key " +
+		"nor in environment variable under TYPESAFEAI_APIKEY")
 }
 
-func (c *client) getJevURL(ctx context.Context, baseURL string) (string, error) {
-	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Jev-Baseurl", baseURL)
+func (c *client) getTypeSafeAIURL(ctx context.Context, baseURL string) (string, error) {
+	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Typesafeai-Baseurl", baseURL)
 	if err != nil {
 		return "", err
 	}
 	return url.JoinPath(passedBaseURL, apiPath)
 }
 
-type jevRequest struct {
-	Model     string                 `json:"model"`
-	State     any                    `json:"state"`
-	Questions map[string]jevQuestion `json:"questions"`
+type typesafeaiRequest struct {
+	Model     string                        `json:"model"`
+	State     any                           `json:"state"`
+	Questions map[string]typesafeaiQuestion `json:"questions"`
 }
 
-type jevQuestion struct {
+type typesafeaiQuestion struct {
 	Type         string `json:"type"`
 	Instructions string `json:"instructions"`
 	// Criteria is the rubric of a score question, lowest level first.
 	Criteria []string `json:"criteria,omitempty"`
 }
 
-// newJevRequest builds the request for one batch. A single document is the
+// newTypeSafeAIRequest builds the request for one batch. A single document is the
 // state itself. Several documents become a map, with one question per
 // document that names the document it is about.
-func newJevRequest(request judgeRequest, documents []string) jevRequest {
-	question := jevQuestion{Type: noulType, Instructions: request.query}
+func newTypeSafeAIRequest(request judgeRequest, documents []string) typesafeaiRequest {
+	question := typesafeaiQuestion{Type: noulType, Instructions: request.query}
 	if len(request.levels) > 0 {
 		question.Type = scoreType
 		question.Criteria = request.levels
 	}
 	if len(documents) == 1 {
-		return jevRequest{
+		return typesafeaiRequest{
 			Model:     request.model,
 			State:     documents[0],
-			Questions: map[string]jevQuestion{questionKey: question},
+			Questions: map[string]typesafeaiQuestion{questionKey: question},
 		}
 	}
 	state := make(map[string]string, len(documents))
-	questions := make(map[string]jevQuestion, len(documents))
+	questions := make(map[string]typesafeaiQuestion, len(documents))
 	for i, document := range documents {
 		key := batchKey(i)
 		state[key] = document
@@ -500,32 +500,32 @@ func newJevRequest(request judgeRequest, documents []string) jevRequest {
 		batchQuestion.Instructions = "In " + key + ": " + request.query
 		questions[key] = batchQuestion
 	}
-	return jevRequest{Model: request.model, State: state, Questions: questions}
+	return typesafeaiRequest{Model: request.model, State: state, Questions: questions}
 }
 
 func batchKey(i int) string {
 	return "document_" + strconv.Itoa(i)
 }
 
-type jevResponse struct {
-	Answers map[string]jevAnswer `json:"answers"`
-	Usage   jevUsage             `json:"usage"`
+type typesafeaiResponse struct {
+	Answers map[string]typesafeaiAnswer `json:"answers"`
+	Usage   typesafeaiUsage             `json:"usage"`
 }
 
-type jevAnswer struct {
+type typesafeaiAnswer struct {
 	Type  string   `json:"type"`
 	Noul  *float64 `json:"noul,omitempty"`
 	Score *float64 `json:"score,omitempty"`
 }
 
-// jevUsage is the part of the API's usage report that is billed.
-type jevUsage struct {
+// typesafeaiUsage is the part of the API's usage report that is billed.
+type typesafeaiUsage struct {
 	InputTokens int64 `json:"input_tokens"`
 }
 
 // values returns the answers of a batch of the given size, in the order of
 // its documents. levels is the length of the rubric, 0 for a yes/no question.
-func (r jevResponse) values(documents, levels int) ([]float64, error) {
+func (r typesafeaiResponse) values(documents, levels int) ([]float64, error) {
 	if documents == 1 {
 		value, err := r.value(questionKey, levels)
 		if err != nil {
@@ -544,7 +544,7 @@ func (r jevResponse) values(documents, levels int) ([]float64, error) {
 	return out, nil
 }
 
-func (r jevResponse) value(key string, levels int) (float64, error) {
+func (r typesafeaiResponse) value(key string, levels int) (float64, error) {
 	answer, ok := r.Answers[key]
 	if !ok {
 		return 0, errors.Errorf("no answer in response for %q", key)

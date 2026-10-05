@@ -24,14 +24,14 @@ import (
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
-const moduleName = "reranker-jev"
+const moduleName = "reranker-typesafeai"
 
 const (
-	DefaultBaseURL        = "https://api.typesafe.ai"
-	DefaultJevModel       = "jev-latest"
-	DefaultMaxDocuments   = 100
-	DefaultMinProbability = 0.0
-	DefaultFetchDepth     = 0
+	DefaultBaseURL         = "https://api.typesafe.ai"
+	DefaultTypeSafeAIModel = "jev-latest"
+	DefaultMaxDocuments    = 100
+	DefaultMinProbability  = 0.0
+	DefaultFetchDepth      = 0
 
 	// OrderSearch keeps the results in the order the search gave them: the
 	// probability only decides which ones are dropped. OrderProbability
@@ -44,12 +44,12 @@ const (
 	DefaultOrder     = OrderSearch
 
 	// A rubric has between MinScoreLevels and MaxScoreLevels levels, which is
-	// what the Jev API accepts.
+	// what the TypeSafeAI API accepts.
 	MinScoreLevels      = 2
 	MaxScoreLevels      = 10
 	MaxScoreLevelLength = 200
 	DefaultMinScore     = 0.0
-	ScoreLevelsHeader   = "X-Jev-Score-Levels"
+	ScoreLevelsHeader   = "X-Typesafeai-Score-Levels"
 	// MaxDocumentsLimit bounds the per-query API spend.
 	MaxDocumentsLimit = 1000
 	// DefaultBatchSize is 1 because a document judged together with others
@@ -128,11 +128,11 @@ func (ic *classSettings) BaseURL() string {
 }
 
 func (ic *classSettings) Model() string {
-	return ic.getStringProperty("model", DefaultJevModel)
+	return ic.getStringProperty("model", DefaultTypeSafeAIModel)
 }
 
 // MaxDocuments is the highest number of documents a single rerank request may
-// have judged by the Jev API.
+// have judged by the TypeSafeAI API.
 func (ic *classSettings) MaxDocuments() int {
 	defaultValue := DefaultMaxDocuments
 	// A value of the wrong type maps to 0, which Validate rejects.
@@ -150,7 +150,7 @@ func (ic *classSettings) Order() string {
 	return ic.getStringProperty("order", DefaultOrder)
 }
 
-// BatchSize is how many documents share one request to the Jev API.
+// BatchSize is how many documents share one request to the TypeSafeAI API.
 func (ic *classSettings) BatchSize() int {
 	defaultValue := DefaultBatchSize
 	// A value of the wrong type maps to 0, which Validate rejects.
