@@ -21,6 +21,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
@@ -58,7 +59,8 @@ func TestMetadataReaderHasNoWildcardPolicy(t *testing.T) {
 	require.NotEmpty(t, policies)
 	for _, p := range policies {
 		assert.NotEqual(t, "*", p[1], "metadata reader must not hold a wildcard resource: %v", p)
-		assert.Equal(t, authorization.READ, p[2], "metadata reader must be read-only: %v", p)
+		// roles carry a scope suffix (R_ALL); every verb must still be a plain read
+		assert.Contains(t, []string{authorization.READ, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL)}, p[2], "metadata reader must be read-only: %v", p)
 		assert.NotEqual(t, authorization.DataDomain, p[3], "metadata reader must not hold data policies: %v", p)
 	}
 }
@@ -73,21 +75,33 @@ func TestMetadataReaderGroupPermissions(t *testing.T) {
 		"collection config": authorization.CollectionsMetadata("Movies")[0],
 		"tenants":           authorization.ShardsMetadata("Movies", "tenant1")[0],
 		"nodes verbose":     authorization.Nodes(verbosity.OutputVerbose, "Movies")[0],
-		"cluster":           authorization.Cluster(),
-		"aliases":           authorization.Aliases("Movies", "MoviesAlias")[0],
-		"replication":       authorization.Replications("Movies", "shard1"),
+		// verbosity is a discriminator in the resource path: the default minimal
+		// read must not 403 just because the role was granted verbose
+		"nodes minimal": authorization.Nodes(verbosity.OutputMinimal)[0],
+		"cluster":       authorization.Cluster(),
+		"aliases":       authorization.Aliases("Movies", "MoviesAlias")[0],
+		"replication":   authorization.Replications("Movies", "shard1"),
+		"users":         authorization.Users("someone")[0],
+		"roles":         authorization.Roles("admin")[0],
+		"groups":        authorization.Groups(authentication.AuthTypeOIDC, "some-group")[0],
 	}
 	for name, resource := range allowed {
 		t.Run("allowed/"+name, func(t *testing.T) {
-			ok, err := m.checkPermissions(staff, resource, authorization.READ)
+			read, update := authorization.READ, authorization.UPDATE
+			if name == "roles" {
+				// the roles handler authorizes reads as READ with scope ALL
+				read = authorization.VerbWithScope(read, authorization.ROLE_SCOPE_ALL)
+				update = authorization.VerbWithScope(update, authorization.ROLE_SCOPE_ALL)
+			}
+			ok, err := m.checkPermissions(staff, resource, read)
 			require.NoError(t, err)
 			assert.True(t, ok)
 
-			ok, err = m.checkPermissions(staff, resource, authorization.UPDATE)
+			ok, err = m.checkPermissions(staff, resource, update)
 			require.NoError(t, err)
 			assert.False(t, ok, "metadata reader must not write")
 
-			ok, err = m.checkPermissions(outsider, resource, authorization.READ)
+			ok, err = m.checkPermissions(outsider, resource, read)
 			require.NoError(t, err)
 			assert.False(t, ok, "only the configured group holds the role")
 		})
@@ -97,8 +111,6 @@ func TestMetadataReaderGroupPermissions(t *testing.T) {
 		"objects":     authorization.Objects("Movies", "shard1"),
 		"shards data": authorization.ShardsData("Movies", "shard1")[0],
 		"backups":     authorization.Backups("Movies")[0],
-		"users":       authorization.Users("someone")[0],
-		"roles":       authorization.Roles("admin")[0],
 		"mcp":         authorization.Mcp(),
 	}
 	for name, resource := range denied {
