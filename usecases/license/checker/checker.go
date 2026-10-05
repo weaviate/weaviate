@@ -27,27 +27,7 @@ import (
 
 	licenseclient "github.com/weaviate/weaviate/adapters/clients/license"
 	"github.com/weaviate/weaviate/entities/license"
-)
-
-// State is what a Weaviate node knows about its license right now.
-type State string
-
-const (
-	// StateUnlicensed: no key configured; community mode, no checks run.
-	StateUnlicensed State = "unlicensed"
-	// StateValid: the last signed answer said valid and has not expired.
-	StateValid State = "valid"
-	// StateExpired / StateRevoked / StateUnknownLicense: the last signed
-	// answer said so.
-	StateExpired        State = "expired"
-	StateRevoked        State = "revoked"
-	StateUnknownLicense State = "unknown"
-	// StateUnreachable: no trustworthy answer yet, or the last attempt
-	// failed; the previous state (if any) is kept in Snapshot.LastStatus.
-	StateUnreachable State = "unreachable"
-	// StateDegraded: no valid answer has been obtained within the grace
-	// period. Enterprise features are disabled.
-	StateDegraded State = "degraded"
+	licensestate "github.com/weaviate/weaviate/usecases/license"
 )
 
 // Defaults for the check loop.
@@ -61,20 +41,20 @@ const (
 
 // Snapshot is a point-in-time view of the checker.
 type Snapshot struct {
-	State           State          `json:"state"`
-	LicenseID       string         `json:"license_id,omitempty"`
-	LastStatus      license.Status `json:"last_status,omitempty"` // from the last signed answer
-	ExpiresAt       time.Time      `json:"expires_at,omitempty"`
-	LastCheckedAt   time.Time      `json:"last_checked_at,omitempty"` // last signed answer of any status
-	LastValidAt     time.Time      `json:"last_valid_at,omitempty"`   // last signed "valid"
-	NextCheckAt     time.Time      `json:"next_check_at,omitempty"`
-	LastError       string         `json:"last_error,omitempty"`
-	ClusterMismatch bool           `json:"cluster_mismatch,omitempty"`
-	GraceEndsAt     time.Time      `json:"grace_ends_at,omitempty"` // when degradation starts
+	State           licensestate.Status `json:"state"`
+	LicenseID       string              `json:"license_id,omitempty"`
+	LastStatus      license.Status      `json:"last_status,omitempty"` // from the last signed answer
+	ExpiresAt       time.Time           `json:"expires_at,omitempty"`
+	LastCheckedAt   time.Time           `json:"last_checked_at,omitempty"` // last signed answer of any status
+	LastValidAt     time.Time           `json:"last_valid_at,omitempty"`   // last signed "valid"
+	NextCheckAt     time.Time           `json:"next_check_at,omitempty"`
+	LastError       string              `json:"last_error,omitempty"`
+	ClusterMismatch bool                `json:"cluster_mismatch,omitempty"`
+	GraceEndsAt     time.Time           `json:"grace_ends_at,omitempty"` // when degradation starts
 }
 
 // Allowed reports whether enterprise features may run.
-func (s Snapshot) Allowed() bool { return s.State != StateDegraded }
+func (s Snapshot) Allowed() bool { return s.State != licensestate.StatusDegraded }
 
 // Checker runs the client side of the protocol for one node.
 type Checker struct {
@@ -88,8 +68,9 @@ type Checker struct {
 	WeaviateVersion string
 
 	// CachePath, when set, persists the last signed response so a restart
-	// during an outage does not lose license state. The signature is
-	// re-verified on load, so a tampered cache is ignored.
+	// during an outage does not lose license state. Signatures and license
+	// IDs are re-verified on load, so a tampered or foreign cache is
+	// ignored.
 	CachePath string
 	// GracePeriod is how long without a signed "valid" before the node
 	// degrades. Zero means DefaultGracePeriod.
@@ -104,7 +85,6 @@ type Checker struct {
 	lastResp  *license.VerifyResponse
 	lastValid *license.VerifyResponse // last signed "valid" answer; anchors the grace period
 	backoff   time.Duration
-	startedAt time.Time
 }
 
 type cacheFile struct {
@@ -114,11 +94,6 @@ type cacheFile struct {
 	// means a hand-edited cache cannot move the grace anchor into the
 	// future to postpone degradation.
 	LastValid *license.VerifyResponse `json:"last_valid,omitempty"`
-	// GraceAnchor is the start of the current no-valid-answer run for a
-	// node that never had a signed "valid". It is unsigned, but only values
-	// before this node's start are honored, so a forged future anchor is
-	// ignored and a forged past anchor only shortens grace.
-	GraceAnchor time.Time `json:"grace_anchor"`
 }
 
 func (c *Checker) now() time.Time {
@@ -165,11 +140,10 @@ func (c *Checker) Start() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.Client == nil {
-		c.snap = Snapshot{State: StateUnlicensed}
+		c.snap = Snapshot{State: licensestate.StatusUnlicensed}
 		return
 	}
-	c.snap = Snapshot{State: StateUnreachable, LicenseID: c.Client.LicenseID}
-	c.startedAt = c.now()
+	c.snap = Snapshot{LicenseID: c.Client.LicenseID}
 	c.loadCache()
 	c.recompute()
 }
@@ -198,7 +172,7 @@ func (c *Checker) Run(ctx context.Context) {
 // CheckNow performs one verify call and updates the snapshot.
 func (c *Checker) CheckNow(ctx context.Context) Snapshot {
 	if c.Client == nil {
-		return Snapshot{State: StateUnlicensed}
+		return Snapshot{State: licensestate.StatusUnlicensed}
 	}
 	clusterID := c.ClusterID
 	if c.ClusterIDFunc != nil {
@@ -266,41 +240,36 @@ func (c *Checker) recompute() {
 	s := &c.snap
 	s.GraceEndsAt = time.Time{}
 
-	var base State
+	var base licensestate.Status
 	switch {
 	case c.lastResp == nil:
-		base = StateUnreachable
+		base = licensestate.StatusUnreachable
 	case c.lastResp.Status == license.StatusValid && now.Before(c.lastResp.ExpiresAt):
-		base = StateValid
+		base = licensestate.StatusValid
 	case c.lastResp.Status == license.StatusValid: // a cached valid answer whose expiry has since passed
-		base = StateExpired
+		base = licensestate.StatusExpired
 	case c.lastResp.Status == license.StatusExpired:
-		base = StateExpired
+		base = licensestate.StatusExpired
 	case c.lastResp.Status == license.StatusRevoked:
-		base = StateRevoked
+		base = licensestate.StatusRevoked
 	default:
-		base = StateUnknownLicense
+		base = licensestate.StatusUnknown
 	}
 
-	// Grace runs from the last signed "valid" answer ("no valid response
-	// for 7 days"). A node that never had one is anchored on its own
-	// start time, persisted through the cache, so it still degrades
-	// eventually. A stale "valid" answer counts as unreachable, not valid:
-	// a week-long license-server outage must not be indistinguishable from
-	// a healthy license.
+	// Grace runs only from a signed "valid" answer for this license ("no
+	// valid response for 7 days"). A node that never had one — the server
+	// unreachable or every answer non-valid — degrades at once; otherwise
+	// every restart would start a fresh grace period. A stale "valid"
+	// answer counts as expired, not valid: a week-long license-server
+	// outage must not be indistinguishable from a healthy license.
 	anchor := s.LastValidAt
 	if anchor.IsZero() {
-		anchor = c.startedAt
-	}
-	if anchor.IsZero() {
-		anchor = now
+		s.State = licensestate.StatusDegraded
+		return
 	}
 	s.GraceEndsAt = anchor.Add(c.grace())
-
-	// Past the grace period the node degrades no matter what the last
-	// answer said; there is deliberately no way to turn enforcement off.
 	if !now.Before(s.GraceEndsAt) {
-		base = StateDegraded
+		base = licensestate.StatusDegraded
 	}
 	s.State = base
 }
@@ -310,14 +279,14 @@ func (c *Checker) logState(old, new Snapshot) {
 	switch {
 	case old.State != new.State:
 		l.Info("license state changed", "from", old.State, "expires_at", new.ExpiresAt)
-	case new.State == StateValid:
+	case new.State == licensestate.StatusValid:
 		l.Debug("license ok", "expires_at", new.ExpiresAt, "next_check_at", new.NextCheckAt)
 	}
 	if new.ClusterMismatch && !old.ClusterMismatch {
 		l.Warn("license was issued for a different cluster; contact Weaviate support")
 	}
-	if new.State != StateValid && new.State != StateUnlicensed {
-		if new.State == StateDegraded {
+	if new.State != licensestate.StatusValid && new.State != licensestate.StatusUnlicensed {
+		if new.State == licensestate.StatusDegraded {
 			l.Error("license degraded: enterprise features are disabled; contact Weaviate support")
 		} else {
 			l.Warn("license not confirmed; enterprise features will be disabled at grace end", "grace_ends_at", new.GraceEndsAt)
@@ -326,6 +295,15 @@ func (c *Checker) logState(old, new Snapshot) {
 }
 
 // ---- cache ----------------------------------------------------------------
+
+// cachedAnswerOK reports whether resp was signed by a trusted server key for
+// this license.
+func (c *Checker) cachedAnswerOK(resp license.VerifyResponse) error {
+	if resp.LicenseID != c.Client.LicenseID {
+		return errors.New("license: cached answer is for a different license")
+	}
+	return c.Client.TrustedKeys.Verify(resp)
+}
 
 func (c *Checker) loadCache() {
 	if c.CachePath == "" {
@@ -343,20 +321,17 @@ func (c *Checker) loadCache() {
 		c.log().Warn("license cache corrupt; ignoring", "path", c.CachePath, "err", err)
 		return
 	}
-	if f.Response.LicenseID != c.Client.LicenseID {
-		return // cache from a different key
-	}
-	if err := c.Client.TrustedKeys.Verify(f.Response); err != nil {
-		c.log().Warn("license cache signature invalid; ignoring", "path", c.CachePath, "err", err)
+	if err := c.cachedAnswerOK(f.Response); err != nil {
+		c.log().Warn("license cache invalid; ignoring", "path", c.CachePath, "err", err)
 		return
 	}
 	// The grace anchor is derived only from signed answers, so a
 	// hand-edited cache cannot postpone degradation. If a last-valid answer
-	// is present, its signature must verify as well, otherwise the whole
-	// cache is ignored.
+	// is present, it must be signed, for this license, and say "valid",
+	// otherwise the whole cache is ignored.
 	if f.LastValid != nil {
-		if err := c.Client.TrustedKeys.Verify(*f.LastValid); err != nil || f.LastValid.Status != license.StatusValid {
-			c.log().Warn("license cache signature invalid; ignoring", "path", c.CachePath)
+		if err := c.cachedAnswerOK(*f.LastValid); err != nil || f.LastValid.Status != license.StatusValid {
+			c.log().Warn("license cache invalid; ignoring", "path", c.CachePath)
 			return
 		}
 	}
@@ -375,9 +350,6 @@ func (c *Checker) loadCache() {
 		c.lastValid = &resp
 		c.snap.LastValidAt = resp.CheckedAt
 	}
-	if c.snap.LastValidAt.IsZero() && !f.GraceAnchor.IsZero() && f.GraceAnchor.Before(c.startedAt) {
-		c.startedAt = f.GraceAnchor
-	}
 	c.snap.NextCheckAt = c.now() // check straight away
 	c.log().Info("license state restored from cache", "status", resp.Status, "checked_at", resp.CheckedAt)
 }
@@ -386,11 +358,7 @@ func (c *Checker) saveCache() {
 	if c.CachePath == "" || c.lastResp == nil {
 		return
 	}
-	anchor := c.snap.LastValidAt
-	if anchor.IsZero() {
-		anchor = c.startedAt
-	}
-	raw, err := json.Marshal(cacheFile{Response: *c.lastResp, LastValid: c.lastValid, GraceAnchor: anchor})
+	raw, err := json.Marshal(cacheFile{Response: *c.lastResp, LastValid: c.lastValid})
 	if err != nil {
 		return
 	}

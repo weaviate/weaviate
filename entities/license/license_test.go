@@ -14,6 +14,7 @@ package license
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -33,7 +34,7 @@ func TestGenerateAndKeyRoundTrip(t *testing.T) {
 	if !strings.HasPrefix(key, "wv8."+l.ID+".") {
 		t.Fatalf("unexpected key shape %q", key)
 	}
-	id, priv, err := ParseKey("  " + key + "\n")
+	id, priv, err := ParseKey(key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,21 +49,60 @@ func TestGenerateAndKeyRoundTrip(t *testing.T) {
 	}
 }
 
+// TestParseKeyErrors is the single form-check table for the key format; the
+// startup gate in usecases/config delegates to ParseKey, so these cases cover
+// both. Whitespace, padding and non-canonical base64 are all rejected.
 func TestParseKeyErrors(t *testing.T) {
 	l, _ := Generate()
-	cases := map[string]error{
-		"":                              ErrMalformedKey,
-		"wv8." + l.ID:                   ErrMalformedKey,
-		"wv1." + l.ID + ".abc":          ErrBadPrefix,
-		"wv8.lic_short.abc":             ErrBadID,
-		"wv8." + l.ID + ".not-base64!!": ErrMalformedKey,
-		"wv8." + l.ID + ".AAAA":         ErrMalformedKey, // wrong seed length
+	seed := make([]byte, 32)
+	for i := range seed {
+		seed[i] = byte(i)
 	}
-	for in, want := range cases {
-		_, _, err := ParseKey(in)
-		if !errors.Is(err, want) {
-			t.Errorf("ParseKey(%q) = %v, want %v", in, err, want)
-		}
+	validSeed := base64.RawURLEncoding.EncodeToString(seed)
+	valid := "wv8." + l.ID + "." + validSeed
+
+	cases := []struct {
+		name string
+		key  string
+		want error
+	}{
+		{"empty", "", ErrMalformedKey},
+		{"no separators", "wv8lic_01ARZ3NDEKTSV4RRFFQ69G5FAVAAAA", ErrMalformedKey},
+		{"too many segments", valid + ".extra", ErrMalformedKey},
+		{"missing seed segment", "wv8." + l.ID, ErrMalformedKey},
+		{"wrong format prefix", "wv7." + l.ID + "." + validSeed, ErrBadPrefix},
+		{"uppercase format prefix", "WV8." + l.ID + "." + validSeed, ErrBadPrefix},
+		{"leading space", " " + valid, ErrBadPrefix},
+		{"trailing newline", valid + "\n", ErrMalformedKey},
+		{"trailing space", valid + " ", ErrMalformedKey},
+		{"wrong id prefix", "wv8.foo_01ARZ3NDEKTSV4RRFFQ69G5FAV." + validSeed, ErrBadID},
+		{"id too short", "wv8.lic_short.abc", ErrBadID},
+		{"id too long", "wv8.lic_01ARZ3NDEKTSV4RRFFQ69G5FAVV." + validSeed, ErrBadID},
+		{"id with excluded char I", "wv8.lic_01ARZ3NDEKTSV4RRFFQ69G5FAI." + validSeed, ErrBadID},
+		{"id with excluded char L", "wv8.lic_01ARZ3NDEKTSV4RRFFQ69G5FAL." + validSeed, ErrBadID},
+		{"id with excluded char O", "wv8.lic_01ARZ3NDEKTSV4RRFFQ69G5FAO." + validSeed, ErrBadID},
+		{"id with excluded char U", "wv8.lic_01ARZ3NDEKTSV4RRFFQ69G5FAU." + validSeed, ErrBadID},
+		{"id with lowercase char", "wv8.lic_01ARZ3NDEKTSV4RRFFQ69G5FAa." + validSeed, ErrBadID},
+		{"seed not base64", "wv8." + l.ID + ".not-base64!!", ErrMalformedKey},
+		{"seed too short", "wv8." + l.ID + ".AAAA", ErrMalformedKey},
+		{"seed too long", "wv8." + l.ID + "." + validSeed + "AA", ErrMalformedKey},
+		{"seed with padding", "wv8." + l.ID + "." + validSeed[:42] + "=", ErrMalformedKey},
+		{"seed with standard base64 char", "wv8." + l.ID + "." + strings.Replace(validSeed, "A", "+", 1), ErrMalformedKey},
+		// Decodes to the same 32 bytes as 43x"A", but the encoding is not
+		// canonical (non-zero trailing bits), so it must be rejected.
+		{"seed with non-zero trailing bits", "wv8." + l.ID + "." + strings.Repeat("A", 42) + "B", ErrMalformedKey},
+		// DecodeString ignores embedded CR/LF; the canonical re-encode check
+		// must reject these.
+		{"seed with embedded newline", "wv8." + l.ID + "." + strings.Replace(validSeed, "AA", "A\nA", 1), ErrMalformedKey},
+		{"seed with embedded carriage return", "wv8." + l.ID + "." + strings.Replace(validSeed, "AA", "A\rA", 1), ErrMalformedKey},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := ParseKey(tt.key)
+			if !errors.Is(err, tt.want) {
+				t.Errorf("ParseKey(%q) = %v, want %v", tt.key, err, tt.want)
+			}
+		})
 	}
 }
 
@@ -205,5 +245,28 @@ func TestCheckFreshnessRejectsExtremeTimestamps(t *testing.T) {
 	farPast := VerifyRequest{Timestamp: time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)}
 	if err := farPast.CheckFreshness(now); !errors.Is(err, ErrStaleRequest) {
 		t.Fatalf("far-past request accepted: %v", err)
+	}
+}
+
+func TestServerKeySetVerifyRejectsWrongLengthKey(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	srv := ServerKey{ID: "srv", PrivateKey: priv}
+	now := time.Now()
+	resp := VerifyResponse{
+		LicenseID:      "lic_01J9ABCDEFGHJKMNPQRSTVWXYZ",
+		Status:         StatusValid,
+		ExpiresAt:      now.Add(DefaultTerm),
+		CheckedAt:      now,
+		NextCheckAfter: now.Add(24 * time.Hour),
+		Nonce:          "n1",
+	}
+	if err := srv.Sign(&resp); err != nil {
+		t.Fatal(err)
+	}
+	// ed25519.Verify panics on a wrong-length key; a truncated trusted key
+	// must produce an error instead.
+	truncated := ServerKeySet{"srv": pub[:ed25519.PublicKeySize-1]}
+	if err := truncated.Verify(resp); !errors.Is(err, ErrUnknownServerKey) {
+		t.Fatalf("wrong-length trusted key: %v", err)
 	}
 }

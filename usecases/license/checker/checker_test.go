@@ -27,6 +27,7 @@ import (
 
 	licenseclient "github.com/weaviate/weaviate/adapters/clients/license"
 	"github.com/weaviate/weaviate/entities/license"
+	licensestate "github.com/weaviate/weaviate/usecases/license"
 )
 
 // fakeServer answers verify calls with a configurable status, signing every
@@ -92,7 +93,7 @@ func newChecker(t *testing.T, f *fakeServer, clk *clock, cache string) *Checker 
 func TestUnlicensed(t *testing.T) {
 	c := &Checker{}
 	c.Start()
-	if s := c.Snapshot(); s.State != StateUnlicensed || !s.Allowed() {
+	if s := c.Snapshot(); s.State != licensestate.StatusUnlicensed || !s.Allowed() {
 		t.Fatalf("%+v", s)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -103,20 +104,22 @@ func TestUnlicensed(t *testing.T) {
 func TestHappyPathAndScheduling(t *testing.T) {
 	clk := &clock{time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)}
 	f := newFakeServer(t, clk.now)
-	var changes []State
+	var changes []licensestate.Status
 	c := newChecker(t, f, clk, "")
 	c.OnChange = func(_, n Snapshot) { changes = append(changes, n.State) }
-	if s := c.Snapshot(); s.State != StateUnreachable {
-		t.Fatalf("before first check: %v", s.State)
+	// Before the first signed "valid" answer the node is already degraded:
+	// there is no grace without one.
+	if s := c.Snapshot(); s.State != licensestate.StatusDegraded || s.Allowed() {
+		t.Fatalf("before first check: %+v", s)
 	}
 	s := c.CheckNow(context.Background())
-	if s.State != StateValid || !s.Allowed() || s.LastValidAt != clk.t || s.ExpiresAt != f.expires {
+	if s.State != licensestate.StatusValid || !s.Allowed() || s.LastValidAt != clk.t || s.ExpiresAt != f.expires {
 		t.Fatalf("after check: %+v", s)
 	}
 	if s.NextCheckAt.Sub(clk.t) != 24*time.Hour {
 		t.Fatalf("next check should follow the server's interval, got %v", s.NextCheckAt.Sub(clk.t))
 	}
-	if len(changes) != 1 || changes[0] != StateValid {
+	if len(changes) != 1 || changes[0] != licensestate.StatusValid {
 		t.Fatalf("OnChange: %v", changes)
 	}
 	// Expiry passing on the client clock flips the state without a call.
@@ -125,11 +128,11 @@ func TestHappyPathAndScheduling(t *testing.T) {
 	clk.t = f.expires.Add(-time.Hour)
 	c.CheckNow(context.Background())
 	clk.t = f.expires.Add(time.Second)
-	if s := c.Snapshot(); s.State != StateExpired || !s.Allowed() {
+	if s := c.Snapshot(); s.State != licensestate.StatusExpired || !s.Allowed() {
 		t.Fatalf("expired by clock: %+v", s)
 	}
 	clk.advance(DefaultGracePeriod)
-	if s := c.Snapshot(); s.State != StateDegraded || s.Allowed() {
+	if s := c.Snapshot(); s.State != licensestate.StatusDegraded || s.Allowed() {
 		t.Fatalf("expired past grace: %+v", s)
 	}
 }
@@ -142,7 +145,7 @@ func TestOutageGraceAndDegrade(t *testing.T) {
 
 	f.down.Store(true)
 	s := c.CheckNow(context.Background())
-	if s.State != StateValid || s.LastError == "" {
+	if s.State != licensestate.StatusValid || s.LastError == "" {
 		t.Fatalf("outage should keep the last valid state: %+v", s)
 	}
 	if s.NextCheckAt.Sub(clk.t) != InitialRetryBackoff {
@@ -161,35 +164,35 @@ func TestOutageGraceAndDegrade(t *testing.T) {
 
 	// Still valid up to the grace boundary, degraded after it.
 	clk.advance(DefaultGracePeriod - time.Minute)
-	if s := c.Snapshot(); s.State != StateValid {
+	if s := c.Snapshot(); s.State != licensestate.StatusValid {
 		t.Fatalf("inside grace: %v", s.State)
 	}
 	clk.advance(2 * time.Minute)
-	if s := c.Snapshot(); s.State != StateDegraded || s.Allowed() {
+	if s := c.Snapshot(); s.State != licensestate.StatusDegraded || s.Allowed() {
 		t.Fatalf("outage past grace: %+v", s)
 	}
 	// Server returns and says valid: recovered, grace anchor refreshed.
 	f.down.Store(false)
-	if s := c.CheckNow(context.Background()); s.State != StateValid {
+	if s := c.CheckNow(context.Background()); s.State != licensestate.StatusValid {
 		t.Fatalf("recovery from outage: %+v", s)
 	}
 	// Now the license is revoked: allowed through grace, degraded after.
 	f.status.Store(license.StatusRevoked)
 	s = c.CheckNow(context.Background())
-	if s.State != StateRevoked || s.GraceEndsAt.IsZero() {
+	if s.State != licensestate.StatusRevoked || s.GraceEndsAt.IsZero() {
 		t.Fatalf("revoked answer: %+v", s)
 	}
 	if !s.Allowed() {
 		t.Fatal("must stay allowed inside grace after revocation")
 	}
 	clk.advance(DefaultGracePeriod + time.Second)
-	if s := c.Snapshot(); s.State != StateDegraded || s.Allowed() {
+	if s := c.Snapshot(); s.State != licensestate.StatusDegraded || s.Allowed() {
 		t.Fatalf("after grace: %+v", s)
 	}
 	// A fresh valid answer recovers immediately.
 	f.status.Store(license.StatusValid)
 	f.expires = clk.t.Add(time.Hour)
-	if s := c.CheckNow(context.Background()); s.State != StateValid || !s.Allowed() {
+	if s := c.CheckNow(context.Background()); s.State != licensestate.StatusValid || !s.Allowed() {
 		t.Fatalf("recovery: %+v", s)
 	}
 	// Backoff resets after success.
@@ -198,19 +201,39 @@ func TestOutageGraceAndDegrade(t *testing.T) {
 	}
 }
 
-func TestNeverReachableDegradesFromStart(t *testing.T) {
-	clk := &clock{time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)}
-	f := newFakeServer(t, clk.now)
-	f.down.Store(true)
-	c := newChecker(t, f, clk, "")
-	c.CheckNow(context.Background())
-	if s := c.Snapshot(); s.State != StateUnreachable || !s.Allowed() {
-		t.Fatalf("fresh node during outage must be allowed: %+v", s)
+// TestNoGraceWithoutValidAnswer pins the fail-closed rule: without a signed
+// "valid" answer for this license, the node degrades at once — otherwise
+// every restart would start a fresh grace period.
+func TestNoGraceWithoutValidAnswer(t *testing.T) {
+	newClock := func() *clock { return &clock{time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)} }
+
+	for _, st := range []license.Status{license.StatusExpired, license.StatusRevoked, license.StatusUnknown} {
+		t.Run("server signs "+string(st), func(t *testing.T) {
+			clk := newClock()
+			f := newFakeServer(t, clk.now)
+			f.status.Store(st)
+			c := newChecker(t, f, clk, "")
+			if s := c.CheckNow(context.Background()); s.State != licensestate.StatusDegraded || s.Allowed() {
+				t.Fatalf("first check with a non-valid answer must degrade at once: %+v", s)
+			}
+			// A restart with no cache is degraded immediately, too.
+			c2 := &Checker{Client: c.Client, Log: slog.New(slog.DiscardHandler), Now: clk.now}
+			c2.Start()
+			if s := c2.Snapshot(); s.State != licensestate.StatusDegraded || s.Allowed() {
+				t.Fatalf("restart without any valid answer: %+v", s)
+			}
+		})
 	}
-	clk.advance(DefaultGracePeriod + time.Second)
-	if s := c.Snapshot(); s.State != StateDegraded {
-		t.Fatalf("fresh node after grace: %+v", s)
-	}
+
+	t.Run("server unreachable and no cache", func(t *testing.T) {
+		clk := newClock()
+		f := newFakeServer(t, clk.now)
+		f.down.Store(true)
+		c := newChecker(t, f, clk, "")
+		if s := c.CheckNow(context.Background()); s.State != licensestate.StatusDegraded || s.Allowed() {
+			t.Fatalf("unreachable with no cache must degrade at once: %+v", s)
+		}
+	})
 }
 
 func TestCacheRoundTripAndTamper(t *testing.T) {
@@ -230,14 +253,15 @@ func TestCacheRoundTripAndTamper(t *testing.T) {
 	c2 := &Checker{Client: c1.Client, CachePath: cache, Log: slog.New(slog.DiscardHandler), Now: clk.now}
 	c2.Start()
 	s := c2.Snapshot()
-	if s.State != StateValid || s.LastValidAt != clk.t || s.NextCheckAt != clk.t {
+	if s.State != licensestate.StatusValid || s.LastValidAt != clk.t || s.NextCheckAt != clk.t {
 		t.Fatalf("restored: %+v", s)
 	}
 	if !s.Allowed() {
 		t.Fatal("restored valid state must be allowed")
 	}
 
-	// Tampered cache (status flipped) is ignored: signature no longer matches.
+	// Tampered cache (status flipped) is ignored: signature no longer
+	// matches. With no signed "valid" answer the node degrades at once.
 	raw, _ := os.ReadFile(cache)
 	var cf cacheFile
 	json.Unmarshal(raw, &cf)
@@ -247,7 +271,7 @@ func TestCacheRoundTripAndTamper(t *testing.T) {
 	os.WriteFile(cache, tampered, 0o600)
 	c3 := &Checker{Client: c1.Client, CachePath: cache, Log: slog.New(slog.DiscardHandler), Now: clk.now}
 	c3.Start()
-	if s := c3.Snapshot(); s.State != StateUnreachable {
+	if s := c3.Snapshot(); s.State != licensestate.StatusDegraded {
 		t.Fatalf("tampered cache accepted: %+v", s)
 	}
 
@@ -257,15 +281,52 @@ func TestCacheRoundTripAndTamper(t *testing.T) {
 	oc.ServerURL = f.srv.URL
 	c4 := &Checker{Client: oc, CachePath: cache, Log: slog.New(slog.DiscardHandler), Now: clk.now}
 	c4.Start()
-	if s := c4.Snapshot(); s.State != StateUnreachable {
+	if s := c4.Snapshot(); s.State != licensestate.StatusDegraded {
 		t.Fatalf("foreign cache accepted: %+v", s)
 	}
 	// Corrupt file is ignored, not fatal.
 	os.WriteFile(cache, []byte("{nope"), 0o600)
 	c5 := &Checker{Client: c1.Client, CachePath: cache, Log: slog.New(slog.DiscardHandler), Now: clk.now}
 	c5.Start()
-	if s := c5.Snapshot(); s.State != StateUnreachable {
+	if s := c5.Snapshot(); s.State != licensestate.StatusDegraded {
 		t.Fatalf("corrupt cache: %+v", s)
+	}
+}
+
+// TestCacheLastValidForOtherLicense: the last-valid answer in the cache must
+// be signed for this license, not merely by a trusted server key — otherwise
+// a copied cache entry could set the grace anchor for the wrong license.
+func TestCacheLastValidForOtherLicense(t *testing.T) {
+	clk := &clock{time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)}
+	f := newFakeServer(t, clk.now)
+	dir := t.TempDir()
+	cacheA := filepath.Join(dir, "a.json")
+	cacheB := filepath.Join(dir, "b.json")
+
+	ca := newChecker(t, f, clk, cacheA) // fresh license A
+	ca.CheckNow(context.Background())
+	cb := newChecker(t, f, clk, cacheB) // fresh license B
+	cb.CheckNow(context.Background())
+
+	var cfA, cfB cacheFile
+	rawA, _ := os.ReadFile(cacheA)
+	json.Unmarshal(rawA, &cfA)
+	rawB, _ := os.ReadFile(cacheB)
+	json.Unmarshal(rawB, &cfB)
+	if cfA.LastValid == nil || cfB.LastValid == nil {
+		t.Fatal("both caches should carry a last-valid answer")
+	}
+
+	// A's latest answer is genuine, but the last-valid answer was signed
+	// for B: the whole cache must be ignored.
+	cfA.LastValid = cfB.LastValid
+	forged, _ := json.Marshal(cfA)
+	os.WriteFile(cacheA, forged, 0o600)
+
+	c2 := &Checker{Client: ca.Client, CachePath: cacheA, Log: slog.New(slog.DiscardHandler), Now: clk.now}
+	c2.Start()
+	if s := c2.Snapshot(); s.State != licensestate.StatusDegraded {
+		t.Fatalf("cache with a last-valid answer for another license accepted: %+v", s)
 	}
 }
 
@@ -286,7 +347,7 @@ func TestRunLoopStopsOnContext(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run did not stop")
 	}
-	if f.calls.Load() != 1 || c.Snapshot().State != StateValid {
+	if f.calls.Load() != 1 || c.Snapshot().State != licensestate.StatusValid {
 		t.Fatalf("calls=%d state=%v", f.calls.Load(), c.Snapshot().State)
 	}
 }
@@ -301,8 +362,9 @@ func TestCacheGraceMetadataTamper(t *testing.T) {
 	c1.CheckNow(context.Background()) // valid answer, cache written
 
 	// Hand-edit the last-valid answer's timestamp into the future. The
-	// signature no longer matches, so the whole cache must be ignored
-	// rather than extending the grace period.
+	// signature no longer matches, so the whole cache must be ignored —
+	// and with no signed "valid" answer left, the node degrades at once
+	// rather than gaining extended grace.
 	raw, _ := os.ReadFile(cache)
 	var cf cacheFile
 	json.Unmarshal(raw, &cf)
@@ -316,14 +378,8 @@ func TestCacheGraceMetadataTamper(t *testing.T) {
 	f.down.Store(true) // license service down during the restart
 	c2 := &Checker{Client: c1.Client, CachePath: cache, Log: slog.New(slog.DiscardHandler), Now: clk.now}
 	c2.Start()
-	if s := c2.Snapshot(); s.State != StateUnreachable {
+	if s := c2.Snapshot(); s.State != licensestate.StatusDegraded || s.Allowed() {
 		t.Fatalf("tampered grace metadata accepted: %+v", s)
-	}
-	// Degradation follows this node's own start time, not the forged
-	// timestamp.
-	clk.advance(DefaultGracePeriod + time.Second)
-	if s := c2.Snapshot(); s.State != StateDegraded {
-		t.Fatalf("forged grace anchor postponed degradation: %+v", s)
 	}
 }
 
@@ -331,20 +387,20 @@ func TestOnChangeFiresOnClockDrivenTransition(t *testing.T) {
 	clk := &clock{time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)}
 	f := newFakeServer(t, clk.now)
 	c := newChecker(t, f, clk, "")
-	var changes []State
+	var changes []licensestate.Status
 	c.OnChange = func(_, n Snapshot) { changes = append(changes, n.State) }
-	c.CheckNow(context.Background()) // unreachable -> valid
-	if len(changes) != 1 || changes[0] != StateValid {
+	c.CheckNow(context.Background()) // degraded -> valid
+	if len(changes) != 1 || changes[0] != licensestate.StatusValid {
 		t.Fatalf("OnChange after check: %v", changes)
 	}
 
 	// The grace period passes on the local clock without any server call.
 	// Snapshot recomputes the state and must notify OnChange.
 	clk.advance(DefaultGracePeriod + time.Second)
-	if s := c.Snapshot(); s.State != StateDegraded {
+	if s := c.Snapshot(); s.State != licensestate.StatusDegraded {
 		t.Fatalf("state after grace: %+v", s)
 	}
-	if len(changes) != 2 || changes[1] != StateDegraded {
+	if len(changes) != 2 || changes[1] != licensestate.StatusDegraded {
 		t.Fatalf("OnChange not fired for clock-driven transition: %v", changes)
 	}
 }

@@ -104,9 +104,11 @@ func FormatKey(id string, priv ed25519.PrivateKey) string {
 	return KeyPrefix + "." + id + "." + base64.RawURLEncoding.EncodeToString(seed)
 }
 
-// ParseKey parses a customer-facing key back into its license ID and private key.
+// ParseKey parses a customer-facing key back into its license ID and private
+// key. It is strict: whitespace, padding, and non-canonical base64 (trailing
+// bits, embedded CR/LF) are all rejected, so a key either round-trips exactly
+// or fails.
 func ParseKey(key string) (id string, priv ed25519.PrivateKey, err error) {
-	key = strings.TrimSpace(key)
 	parts := strings.Split(key, ".")
 	if len(parts) != 3 {
 		return "", nil, ErrMalformedKey
@@ -119,6 +121,11 @@ func ParseKey(key string) (id string, priv ed25519.PrivateKey, err error) {
 	}
 	seed, err := base64.RawURLEncoding.DecodeString(parts[2])
 	if err != nil || len(seed) != ed25519.SeedSize {
+		return "", nil, ErrMalformedKey
+	}
+	// Require the canonical encoding: DecodeString alone ignores CR/LF and
+	// accepts non-zero trailing bits.
+	if base64.RawURLEncoding.EncodeToString(seed) != parts[2] {
 		return "", nil, ErrMalformedKey
 	}
 	return parts[1], ed25519.NewKeyFromSeed(seed), nil

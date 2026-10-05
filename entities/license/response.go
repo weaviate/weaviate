@@ -88,7 +88,8 @@ type ServerKeySet map[string]ed25519.PublicKey
 // Verify checks the response signature against the key named by ServerKeyID.
 func (s ServerKeySet) Verify(r VerifyResponse) error {
 	pub, ok := s[r.ServerKeyID]
-	if !ok {
+	if !ok || len(pub) != ed25519.PublicKeySize {
+		// ed25519.Verify panics on a wrong-length key.
 		return ErrUnknownServerKey
 	}
 	p, err := r.payload()
