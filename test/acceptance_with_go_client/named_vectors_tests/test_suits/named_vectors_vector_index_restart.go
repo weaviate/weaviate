@@ -12,6 +12,7 @@
 package test_suits
 
 import (
+	acceptance_with_go_client "acceptance_tests_with_client"
 	"context"
 	"fmt"
 	"io"
@@ -19,13 +20,10 @@ import (
 	"testing"
 	"time"
 
-	acceptance_with_go_client "acceptance_tests_with_client"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	tcexec "github.com/testcontainers/testcontainers-go/exec"
 	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
@@ -290,7 +288,7 @@ func testCompresseVectorTypesRestart(compose *docker.DockerCompose) func(t *test
 
 			weaviateContainer := compose.GetWeaviate().Container()
 			path := fmt.Sprintf("/data/%s/%s/lsm", strings.ToLower(className), shardName)
-			code, reader, err := weaviateContainer.Exec(ctx, []string{"ls", "-1", path}, tcexec.Multiplexed())
+			code, reader, err := weaviateContainer.Exec(ctx, []string{"ls", "-1", path})
 			require.NoError(t, err)
 			require.Equal(t, 0, code)
 
@@ -512,7 +510,7 @@ func testLegacyAndNamedVectorRestart(compose *docker.DockerCompose) func(t *test
 
 					weaviateContainer := compose.GetWeaviate().Container()
 					path := fmt.Sprintf("/data/%s/%s/lsm", strings.ToLower(className), shardName)
-					code, reader, err := weaviateContainer.Exec(ctx, []string{"ls", "-1", path}, tcexec.Multiplexed())
+					code, reader, err := weaviateContainer.Exec(ctx, []string{"ls", "-1", path})
 					require.NoError(t, err)
 					require.Equal(t, 0, code)
 
