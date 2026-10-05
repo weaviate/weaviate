@@ -12,15 +12,9 @@
 package moduletools
 
 // ValidationClassConfig is the class config a module is given while a class
-// is validated. Code that reads a setting on the module's behalf reports to
-// it what the module's own validation cannot see.
-//
-// Today that is one case: an int setting whose value has a fraction. The
-// settings getters cannot return that as an error. They return the caller's
-// "wrong value", and many modules pass their default or nil there, so the
-// module validates its default instead of the user's number. The class is
-// then stored with the fraction, and at request time the stored float64 is
-// truncated to an int that validation never saw.
+// is validated. Settings getters report to it what they cannot return as an
+// error, such as an int setting given a fraction. The provider fails the
+// validation with the first report.
 type ValidationClassConfig struct {
 	ClassConfig
 	invalid error

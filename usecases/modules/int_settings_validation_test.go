@@ -56,7 +56,7 @@ import (
 )
 
 // validateWith runs a module's class validation the way the provider does:
-// the module's own error first, then what the settings getters reported.
+// what the settings getters reported first, then the module's own error.
 func validateWith(t *testing.T, module modulecapabilities.Module, settings map[string]any) error {
 	t.Helper()
 	configurator, ok := module.(modulecapabilities.ClassConfigurator)
@@ -69,10 +69,11 @@ func validateWith(t *testing.T, module modulecapabilities.Module, settings map[s
 	}
 	cfg := usecasesmodules.NewClassBasedModuleConfig(class, module.Name(), "", "", &config.Config{})
 	validation := moduletools.NewValidationClassConfig(cfg)
-	if err := configurator.ValidateClass(context.Background(), class, validation); err != nil {
-		return err
+	err := configurator.ValidateClass(context.Background(), class, validation)
+	if invalid := validation.Err(); invalid != nil {
+		return invalid
 	}
-	return validation.Err()
+	return err
 }
 
 // Every int setting of a module that uses the shared settings helper,
@@ -92,19 +93,21 @@ func TestIntSettingsRejectAFractionOnClassCreate(t *testing.T) {
 		{modgenerativecohere.New(), []string{"maxTokens", "k"}, nil},
 		{modgenerativecontextualai.New(), []string{"maxNewTokens"}, nil},
 		{modgenerativedatabricks.New(), []string{"maxTokens", "topK"}, map[string]any{"endpoint": "http://x"}},
-		// These two read maxTokens with the float getter and truncate it
-		// when they build the request.
+		// Reads maxTokens with the float getter and truncates it in the request.
 		{modgenerativedeepseek.New(), []string{"maxTokens"}, nil},
 		{modgenerativedigitalocean.New(), []string{"maxTokens"}, nil},
 		{modgenerativefriendliai.New(), []string{"maxTokens"}, nil},
 		{modgenerativegoogle.New(), []string{"tokenLimit", "topK"}, map[string]any{"projectId": "p"}},
 		{modgenerativemistral.New(), []string{"maxTokens"}, nil},
 		{modgenerativenvidia.New(), []string{"maxTokens"}, nil},
+		// Reads maxTokens with the float getter and truncates it in the request.
 		{modgenerativeopenai.New(), []string{"maxTokens"}, nil},
 		{modgenerativexai.New(), []string{"maxTokens"}, nil},
 		{modmulti2vecaws.New(), []string{"dimensions"}, map[string]any{"textFields": []any{"text"}, "region": "us-east-1"}},
 		{modmulti2veccohere.New(), []string{"dimensions"}, map[string]any{"textFields": []any{"text"}}},
 		{modmulti2vecgoogle.New(), []string{"dimensions", "videoIntervalSeconds"}, map[string]any{"textFields": []any{"text"}, "location": "us", "projectId": "p"}},
+		// Validation reads these two only for the legacy default model.
+		{modmulti2vecgoogle.New(), []string{"dimensions", "videoIntervalSeconds"}, map[string]any{"textFields": []any{"text"}, "location": "us", "projectId": "p", "model": "gemini-embedding-2"}},
 		{modmulti2vecjinaai.New(), []string{"dimensions"}, map[string]any{"textFields": []any{"text"}}},
 		// Reads maxTokens with a getter of its own.
 		{modqnaopenai.New(), []string{"maxTokens"}, nil},
@@ -145,7 +148,7 @@ func assertIntSetting(t *testing.T, module modulecapabilities.Module, setting st
 	require.NoError(t, validateWith(t, module, with(nil)), "the fixture must be valid without the setting")
 
 	// The REST API decodes the numbers of a new class as json.Number.
-	require.Error(t, validateWith(t, module, with(json.Number("100.5"))))
+	require.ErrorContains(t, validateWith(t, module, with(json.Number("100.5"))), setting+" must be an integer")
 
 	// An integer written as a float is the same integer: both are accepted,
 	// or both fail the module's own rule for that value.
@@ -157,8 +160,8 @@ func assertIntSetting(t *testing.T, module modulecapabilities.Module, setting st
 		assert.EqualError(t, asFloat, asInt.Error())
 	}
 
-	// A class read back from the schema or a backup holds float64. One
-	// stored with a fraction before this check must still load.
+	// A class read back from the schema or a backup holds float64. This
+	// check must not reject a fraction stored before it existed.
 	if err := validateWith(t, module, with(100.5)); err != nil {
 		assert.NotContains(t, err.Error(), "must be an integer")
 	}
@@ -206,4 +209,24 @@ func TestProviderRejectsAFractionInAnIntSetting(t *testing.T) {
 			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
+}
+
+// generative-databricks validates the wrong value its getter returns for a
+// fraction and fails with a range message that 100.5 satisfies. The
+// provider reports the fraction instead.
+func TestProviderReportsAFractionBeforeTheModuleError(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	provider := usecasesmodules.NewProvider(logger, config.Config{})
+	provider.Register(modgenerativedatabricks.New())
+	class := &models.Class{
+		Class:      "T",
+		Properties: []*models.Property{{Name: "text", DataType: []string{"text"}}},
+		ModuleConfig: map[string]any{"generative-databricks": map[string]any{
+			"endpoint": "http://x", "maxTokens": json.Number("100.5"),
+		}},
+	}
+
+	err := provider.ValidateClass(context.Background(), class)
+
+	require.EqualError(t, err, "module 'generative-databricks': maxTokens must be an integer, got 100.5")
 }
