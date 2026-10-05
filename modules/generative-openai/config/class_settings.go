@@ -140,6 +140,10 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
 	}
+	// maxTokens is read as a float and truncated to an int in the request.
+	if err := ic.propertyValuesHelper.ValidateIntegers(ic.cfg, maxTokensProperty); err != nil {
+		return err
+	}
 
 	temperature := ic.Temperature()
 	if temperature != nil && (*temperature < 0 || *temperature > 1) {

@@ -28,16 +28,19 @@ import (
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativecontextualai "github.com/weaviate/weaviate/modules/generative-contextualai"
 	modgenerativedatabricks "github.com/weaviate/weaviate/modules/generative-databricks"
+	modgenerativedeepseek "github.com/weaviate/weaviate/modules/generative-deepseek"
 	modgenerativedigitalocean "github.com/weaviate/weaviate/modules/generative-digitalocean"
 	modgenerativefriendliai "github.com/weaviate/weaviate/modules/generative-friendliai"
 	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
 	modgenerativemistral "github.com/weaviate/weaviate/modules/generative-mistral"
 	modgenerativenvidia "github.com/weaviate/weaviate/modules/generative-nvidia"
+	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativexai "github.com/weaviate/weaviate/modules/generative-xai"
 	modmulti2vecaws "github.com/weaviate/weaviate/modules/multi2vec-aws"
 	modmulti2veccohere "github.com/weaviate/weaviate/modules/multi2vec-cohere"
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
+	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modrerankercontextualai "github.com/weaviate/weaviate/modules/reranker-contextualai"
 	modtext2multivecjinaai "github.com/weaviate/weaviate/modules/text2multivec-jinaai"
 	modtext2vecaws "github.com/weaviate/weaviate/modules/text2vec-aws"
@@ -72,10 +75,11 @@ func validateWith(t *testing.T, module modulecapabilities.Module, settings map[s
 	return validation.Err()
 }
 
-// Every int setting that a module reads through the shared settings helper.
-// A new class must not be accepted with a fraction in one of them: the
-// stored value would be truncated at request time to an int that the
-// module's validation never saw.
+// Every int setting of a module that uses the shared settings helper,
+// whichever getter the module reads it with. A new class must not be
+// accepted with a fraction in one of them: the stored value would be
+// truncated at request time to an int that the module's validation never
+// saw, or sent to the provider as a fraction.
 func TestIntSettingsRejectAFractionOnClassCreate(t *testing.T) {
 	cases := []struct {
 		module   modulecapabilities.Module
@@ -88,16 +92,22 @@ func TestIntSettingsRejectAFractionOnClassCreate(t *testing.T) {
 		{modgenerativecohere.New(), []string{"maxTokens", "k"}, nil},
 		{modgenerativecontextualai.New(), []string{"maxNewTokens"}, nil},
 		{modgenerativedatabricks.New(), []string{"maxTokens", "topK"}, map[string]any{"endpoint": "http://x"}},
+		// These two read maxTokens with the float getter and truncate it
+		// when they build the request.
+		{modgenerativedeepseek.New(), []string{"maxTokens"}, nil},
 		{modgenerativedigitalocean.New(), []string{"maxTokens"}, nil},
 		{modgenerativefriendliai.New(), []string{"maxTokens"}, nil},
 		{modgenerativegoogle.New(), []string{"tokenLimit", "topK"}, map[string]any{"projectId": "p"}},
 		{modgenerativemistral.New(), []string{"maxTokens"}, nil},
 		{modgenerativenvidia.New(), []string{"maxTokens"}, nil},
+		{modgenerativeopenai.New(), []string{"maxTokens"}, nil},
 		{modgenerativexai.New(), []string{"maxTokens"}, nil},
 		{modmulti2vecaws.New(), []string{"dimensions"}, map[string]any{"textFields": []any{"text"}, "region": "us-east-1"}},
 		{modmulti2veccohere.New(), []string{"dimensions"}, map[string]any{"textFields": []any{"text"}}},
 		{modmulti2vecgoogle.New(), []string{"dimensions", "videoIntervalSeconds"}, map[string]any{"textFields": []any{"text"}, "location": "us", "projectId": "p"}},
 		{modmulti2vecjinaai.New(), []string{"dimensions"}, map[string]any{"textFields": []any{"text"}}},
+		// Reads maxTokens with a getter of its own.
+		{modqnaopenai.New(), []string{"maxTokens"}, nil},
 		{modrerankercontextualai.New(), []string{"topN"}, nil},
 		{modtext2multivecjinaai.New(), []string{"dimensions"}, nil},
 		{modtext2vecaws.New(), []string{"dimensions"}, map[string]any{"service": "bedrock", "region": "us-east-1", "model": "amazon.titan-embed-text-v2:0"}},
