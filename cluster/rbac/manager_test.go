@@ -13,14 +13,16 @@ package rbac
 
 import (
 	"encoding/json"
-	"path/filepath"
 	"testing"
 
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -32,8 +34,13 @@ func newTestManager(t *testing.T) *Manager {
 
 func newTestManagerWithNamespaces(t *testing.T, namespaces rbac.NamespaceLister) *Manager {
 	t.Helper()
-	policyPath := filepath.Join(t.TempDir(), "policy.csv")
-	authZ, err := rbac.New(policyPath, rbacconf.Config{Enabled: true}, config.Authentication{}, true, namespaces, logrus.New())
+	return newTestManagerAt(t, t.TempDir(), namespaces)
+}
+
+// newTestManagerAt keeps the policy file under dir, for a test that breaks it.
+func newTestManagerAt(t *testing.T, dir string, namespaces rbac.NamespaceLister) *Manager {
+	t.Helper()
+	authZ, err := rbac.New(dir, rbacconf.Config{Enabled: true}, config.Authentication{}, true, namespaces, logrus.New())
 	require.NoError(t, err)
 	return NewManager(authZ, config.Authentication{}, logrus.New())
 }
@@ -123,4 +130,31 @@ func TestUpsertRolesPermissionsRejectsMalformedSubCommand(t *testing.T) {
 		SubCommand: []byte("not json"),
 	})
 	require.ErrorIs(t, err, ErrBadRequest)
+}
+
+// TestRestoreDropsRowsPolicyFileCannotStore pins that a RAFT snapshot holding a
+// row the policy file cannot store still restores, without that row. The raft
+// library stops the node from starting when no snapshot restores.
+func TestRestoreDropsRowsPolicyFileCannotStore(t *testing.T) {
+	m := newTestManager(t)
+	require.NoError(t, applyCreateRole(m, "roleA"))
+	blob, err := json.Marshal(map[string]any{
+		"roles_policies": [][]string{{"role:roleB", authorization.Cluster(), authorization.READ, authorization.ClusterDomain}},
+		"grouping_policies": [][]string{
+			{conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, authentication.AuthTypeDb), "role:roleB"},
+			{"oidc:Doe, John", "role:roleB"},
+			{"oidc:Jane", "role:roleB"},
+		},
+		"version": rbac.SnapshotVersionLatest,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, m.Restore(blob))
+
+	assert.ElementsMatch(t, []string{"roleB"}, customRoleNames(t, m))
+	for user, want := range map[string]int{"Jane": 1, "Doe, John": 0} {
+		roles, err := m.authZ.GetRolesForUserOrGroup(user, authentication.AuthTypeOIDC, false)
+		require.NoError(t, err)
+		assert.Len(t, roles, want, user)
+	}
 }

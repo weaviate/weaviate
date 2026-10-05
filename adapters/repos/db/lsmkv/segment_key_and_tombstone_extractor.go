@@ -37,15 +37,18 @@ type bufferedKeyAndTombstoneExtractor struct {
 
 type keyAndTombstoneCallbackFn func(key []byte, tombstone bool)
 
+// outputBuffer is the caller's, so a caller building many segments in a row can
+// hand back the same one rather than dropping megabytes per segment. Its length
+// is the flush threshold.
 func newBufferedKeyAndTombstoneExtractor(rawSegment []byte, initialOffset uint64,
-	end uint64, outputBufferSize uint64, secondaryIndexCount uint16,
+	end uint64, outputBuffer []byte, secondaryIndexCount uint16,
 	callback keyAndTombstoneCallbackFn,
 ) *bufferedKeyAndTombstoneExtractor {
 	return &bufferedKeyAndTombstoneExtractor{
 		rawSegment:          rawSegment,
 		offset:              initialOffset,
 		end:                 end,
-		outputBuffer:        make([]byte, outputBufferSize),
+		outputBuffer:        outputBuffer,
 		outputBufferOffset:  0,
 		secondaryIndexCount: secondaryIndexCount,
 		callback:            callback,
