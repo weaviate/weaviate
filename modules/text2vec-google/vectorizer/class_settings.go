@@ -55,15 +55,9 @@ var defaultModelDimensions = map[string]*int64{
 	"gemini-embedding-001": &DefaultDimensions,
 }
 
-// MutableSettings reports whether updated differs from current only in the settings that
-// select the Google API and project, with the same effective model and dimensions.
+// MutableSettings reports whether updated differs from current only in the endpoint settings.
 func MutableSettings(current, updated moduletools.ClassConfig) bool {
-	if !onlyEndpointSettingsChanged(current.Class(), updated.Class()) {
-		return false
-	}
-	currentSettings, updatedSettings := NewClassSettings(current), NewClassSettings(updated)
-	return currentSettings.Model() == updatedSettings.Model() &&
-		sameDimensions(currentSettings.Dimensions(), updatedSettings.Dimensions())
+	return onlyEndpointSettingsChanged(current.Class(), updated.Class())
 }
 
 var endpointSettings = []string{apiEndpointProperty, projectIDProperty, locationProperty}
@@ -77,13 +71,6 @@ func onlyEndpointSettingsChanged(current, updated map[string]any) bool {
 		}
 	}
 	return true
-}
-
-func sameDimensions(current, updated *int64) bool {
-	if current == nil || updated == nil {
-		return current == updated
-	}
-	return *current == *updated
 }
 
 var availableTaskTypes = []string{

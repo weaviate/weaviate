@@ -233,7 +233,6 @@ func TestMutableSettings(t *testing.T) {
 			want:    true,
 		},
 		{name: "default model on both sides", current: aiStudio, updated: vertex, want: true},
-		{name: "model setting added with the same effective model", current: aiStudio, updated: with(vertex, "model", "gemini-embedding-001")},
 		{
 			name:    "another model, endpoint and project change",
 			current: vertex005,
@@ -266,12 +265,11 @@ func TestMutableSettings(t *testing.T) {
 			want:    true,
 		},
 		{name: "same explicit dimensions on both sides", current: with(aiStudio, "dimensions", 1536), updated: with(vertex, "dimensions", 1536), want: true},
-		{name: "dimensions setting removed with the same effective dimensions", current: with(aiStudio, "dimensions", 768), updated: vertex},
-		{name: "model changes from the default", current: aiStudio, updated: with(vertex, "model", "text-embedding-005")},
-		{name: "model set through modelId changes from the default", current: aiStudio, updated: with(vertex, "modelId", "text-embedding-005")},
+		{name: "dimensions removed", current: with(aiStudio, "dimensions", 768), updated: vertex},
+		{name: "model added", current: aiStudio, updated: with(vertex, "model", "text-embedding-005")},
+		{name: "modelId added", current: aiStudio, updated: with(vertex, "modelId", "text-embedding-005")},
 		{name: "model changes", current: with(vertex, "model", "text-embedding-004"), updated: vertex005},
 		{name: "model changes together with the endpoint", current: with(aiStudio, "model", "text-embedding-004"), updated: vertex005},
-		{name: "explicit dimensions on one side, default on the other", current: with(aiStudio, "dimensions", 1536), updated: vertex},
 		{name: "different explicit dimensions", current: with(aiStudio, "dimensions", 1536), updated: with(vertex, "dimensions", 3072)},
 		{name: "dimensions change for another model", current: with(vertex005, "dimensions", 256), updated: with(vertex005, "dimensions", 768)},
 		{name: "taskType changes with the endpoint", current: aiStudio, updated: with(vertex, "taskType", "CLUSTERING")},
@@ -283,4 +281,9 @@ func TestMutableSettings(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestDefaultModelsMatch(t *testing.T) {
+	assert.Equal(t, DefaultModel, DefaulAIStudioModel,
+		"MutableSettings allows an endpoint switch only because both endpoints default to the same model")
 }
