@@ -15,12 +15,112 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/models"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
+
+// interruptingRetokenizeStrategy cancels the run's context after a fixed number of writes.
+type interruptingRetokenizeStrategy struct {
+	FilterableRetokenizeStrategy
+	writes      int
+	cancelAfter int
+	cancel      context.CancelFunc
+}
+
+func (s *interruptingRetokenizeStrategy) WriteToReindexBucket(shard ShardLike, bucket *lsmkv.Bucket,
+	docID uint64, prop inverted.Property,
+) error {
+	if err := s.FilterableRetokenizeStrategy.WriteToReindexBucket(shard, bucket, docID, prop); err != nil {
+		return err
+	}
+	s.writes++
+	if s.writes == s.cancelAfter {
+		s.cancel()
+	}
+	return nil
+}
+
+// A shard that needs more than one slice resumes from the checkpoint, so
+// without one it restarts every slice from the same key and never finishes.
+func TestTheIterationLoopRecordsWhereItStopped(t *testing.T) {
+	const (
+		propName     = "title"
+		checkpointAt = 20
+	)
+	tests := []struct {
+		name               string
+		processingDuration time.Duration
+		checkEvery         int
+		cancelAfter        int
+	}{
+		{
+			name:               "the run stops on an error",
+			processingDuration: 10 * time.Minute,
+			checkEvery:         1000,
+			cancelAfter:        checkpointAt,
+		},
+		{
+			name:       "the run's time slice ends",
+			checkEvery: checkpointAt,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			runCtx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			className := "IterationCheckpoint_" + uuid.NewString()[:8]
+			shd, idx := testShardWithSettings(t, ctx, newTestClassWithProps(className, []string{propName}),
+				enthnsw.UserConfig{Skip: true}, false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(context.Background())
+			for _, obj := range makeConvergenceTestObjects(t, 50, className) {
+				require.NoError(t, shard.PutObject(ctx, obj))
+			}
+
+			strategy := &interruptingRetokenizeStrategy{
+				FilterableRetokenizeStrategy: FilterableRetokenizeStrategy{
+					propName: propName, targetTokenization: models.PropertyTokenizationField,
+					className: className, generation: 1,
+				},
+				cancelAfter: tt.cancelAfter,
+				cancel:      cancel,
+			}
+			task := NewShardReindexTaskGeneric("FilterableRetokenize", idx.logger, strategy,
+				reindexTaskConfig{
+					concurrency:                   2,
+					memtableOptFactor:             4,
+					pauseDuration:                 time.Second,
+					processingDuration:            tt.processingDuration,
+					checkProcessingEveryNoObjects: tt.checkEvery,
+				},
+				&UuidKeyParser{}, uuidObjectsIteratorAsync, defaultIndexClosingGuard)
+			task.setMigrationIdentity(distributedtask.TaskDescriptor{ID: "retokenize", Version: 1},
+				shard.migrationUnit(),
+				&ReindexTaskPayload{MigrationType: ReindexTypeChangeTokenizationFilterable, Collection: className})
+
+			require.NoError(t, startOnShard(ctx, task, shard))
+			_, err := task.OnAfterLsmInitAsync(runCtx, shard)
+			require.Equal(t, tt.cancelAfter > 0, err != nil, "unexpected run outcome: %v", err)
+			require.Equal(t, checkpointAt, strategy.writes, "fixture: the loop has to stop after %d objects", checkpointAt)
+
+			rec, ok := task.migrationRecord(shard)
+			require.True(t, ok)
+			iterating, ok := rec.(MigrationRecordIterating)
+			require.True(t, ok, "the run stopped before the end, so the record is still %s", rec.State())
+			require.NotEmpty(t, iterating.Checkpoint().LastProcessedKey)
+		})
+	}
+}
 
 func segmentsOnDisk(t *testing.T, bucketDir string) int {
 	t.Helper()
