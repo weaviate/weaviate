@@ -1018,9 +1018,8 @@ func (m *Manager) LocalDistributedTasks() map[string][]*Task {
 	return result
 }
 
-// LocalTaskStatuses is the read for callers that decide from a task's status:
-// [Manager.LocalDistributedTasks] clones every unit map under the lock that
-// RAFT applies wait on, and a decider can ask once per record.
+// LocalTaskStatuses copies no units: a decider can read once per record, under
+// the lock RAFT applies wait on, where [Manager.LocalDistributedTasks] clones them all.
 func (m *Manager) LocalTaskStatuses(namespace string) []TaskStatusEntry {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

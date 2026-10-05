@@ -252,9 +252,8 @@ func (i *Index) cleanStalePartialReindexState(
 	return sweepErr
 }
 
-// hasStalePartialReindexState fails open on an unreadable record set or listing;
-// a shard with some unreadable records reads as clean, because its sweep would
-// keep every sidecar anyway. finalizable is false whenever stale is true.
+// Fails open on an unreadable record set or listing; some unreadable records read as
+// clean, since the sweep keeps every sidecar anyway. finalizable is false when stale is.
 func hasStalePartialReindexState(
 	lsmPath, propName, indexType string, dirs *dirNamesCache, logger logrus.FieldLogger,
 ) (stale, finalizable bool) {

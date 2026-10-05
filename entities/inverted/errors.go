@@ -22,8 +22,7 @@ func NewMissingFilterableIndexError(propName string) error {
 	return MissingIndexError{missingFilterableFormat, []any{propName, propName}}
 }
 
-// The schema already has this index, so the message must not send the user
-// to change it: only fixing this node's migration state brings it back.
+// The schema already has this index, so the message must not send the user to change it.
 func NewWithheldRangeableIndexError(propName string) error {
 	return MissingIndexError{withheldRangeableFormat, []any{propName}}
 }
