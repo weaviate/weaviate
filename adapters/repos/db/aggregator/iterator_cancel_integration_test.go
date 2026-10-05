@@ -28,8 +28,8 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-// Enough keys that every branch's share of them exceeds contextCheckInterval.
-const iteratorCancelKeyCount = 5000
+// Ensure at least one seeded range exceeds contextCheckInterval on every machine.
+var iteratorCancelKeyCount = (2*runtime.GOMAXPROCS(0) + 1) * (contextCheckInterval + 1)
 
 // iteratorStrategy pairs a bucket strategy that reaches iteratorConcurrently
 // with the cursor its call sites use. No cursor aborts on a cancelled context
