@@ -52,7 +52,7 @@ func (c *afterFuncCountingCtx) AfterFunc(f func()) func() bool {
 	}
 }
 
-func TestInFlightCancelUnaryInterceptor(t *testing.T) {
+func TestInFlightCancelUnavailableAfterCancel(t *testing.T) {
 	okReply := &pbv1.BatchObjectsReply{Took: 1}
 	handlerErr := status.Error(codes.InvalidArgument, "bad request")
 
@@ -71,63 +71,63 @@ func TestInFlightCancelUnaryInterceptor(t *testing.T) {
 	cases := []struct {
 		name                 string
 		cancelBefore         bool
-		handler              func(ctx context.Context, ic *InFlightCancel, callerCancel context.CancelFunc) (any, error)
+		handler              func(ctx context.Context, shutdownCancel, callerCancel context.CancelFunc) (any, error)
 		wantResp             any
 		wantCode             codes.Code
 		wantErr              error
-		wantCutShort         int64
+		wantUnavailable      int64
 		wantHandlerCancelled bool
 		wantHandlerSkipped   bool
 	}{
 		{
 			name: "cancel during the call returns Unavailable and drops the reply",
-			handler: func(ctx context.Context, ic *InFlightCancel, _ context.CancelFunc) (any, error) {
-				ic.Cancel()
+			handler: func(ctx context.Context, shutdownCancel, _ context.CancelFunc) (any, error) {
+				shutdownCancel()
 				resp, _ := waitForCancel(ctx)
 				return resp, nil
 			},
 			wantCode:             codes.Unavailable,
-			wantCutShort:         1,
+			wantUnavailable:      1,
 			wantHandlerCancelled: true,
 		},
 		{
 			name: "cancel during the call remaps the handler's error to Unavailable",
-			handler: func(ctx context.Context, ic *InFlightCancel, _ context.CancelFunc) (any, error) {
-				ic.Cancel()
+			handler: func(ctx context.Context, shutdownCancel, _ context.CancelFunc) (any, error) {
+				shutdownCancel()
 				_, err := waitForCancel(ctx)
 				return nil, err
 			},
 			wantCode:             codes.Unavailable,
-			wantCutShort:         1,
+			wantUnavailable:      1,
 			wantHandlerCancelled: true,
 		},
 		{
 			name:         "call arriving after cancel is refused without running its handler",
 			cancelBefore: true,
-			handler: func(ctx context.Context, _ *InFlightCancel, _ context.CancelFunc) (any, error) {
+			handler: func(ctx context.Context, _, _ context.CancelFunc) (any, error) {
 				return waitForCancel(ctx)
 			},
 			wantCode:           codes.Unavailable,
-			wantCutShort:       1,
+			wantUnavailable:    1,
 			wantHandlerSkipped: true,
 		},
 		{
 			name: "call finishing before cancel passes its reply through",
-			handler: func(ctx context.Context, _ *InFlightCancel, _ context.CancelFunc) (any, error) {
+			handler: func(ctx context.Context, _, _ context.CancelFunc) (any, error) {
 				return okReply, nil
 			},
 			wantResp: okReply,
 		},
 		{
 			name: "handler error is not remapped",
-			handler: func(ctx context.Context, _ *InFlightCancel, _ context.CancelFunc) (any, error) {
+			handler: func(ctx context.Context, _, _ context.CancelFunc) (any, error) {
 				return nil, handlerErr
 			},
 			wantErr: handlerErr,
 		},
 		{
 			name: "caller cancelling its own call is not remapped",
-			handler: func(ctx context.Context, _ *InFlightCancel, callerCancel context.CancelFunc) (any, error) {
+			handler: func(ctx context.Context, _, callerCancel context.CancelFunc) (any, error) {
 				callerCancel()
 				return waitForCancel(ctx)
 			},
@@ -142,19 +142,19 @@ func TestInFlightCancelUnaryInterceptor(t *testing.T) {
 			shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 			t.Cleanup(shutdownCancel)
 			countingCtx := &afterFuncCountingCtx{Context: shutdownCtx}
-			ic := &InFlightCancel{ctx: countingCtx, cancel: shutdownCancel}
+			ic := NewInFlightCancel(countingCtx)
 			handlerCancelled = false
 			handlerRan := false
 			if tc.cancelBefore {
-				ic.Cancel()
+				shutdownCancel()
 			}
 
 			callerCtx, callerCancel := context.WithCancel(context.Background())
 			t.Cleanup(callerCancel)
-			resp, err := ic.UnaryInterceptor()(callerCtx, nil, &grpc.UnaryServerInfo{},
+			resp, err := ic.UnavailableAfterCancel()(callerCtx, nil, &grpc.UnaryServerInfo{},
 				func(ctx context.Context, _ any) (any, error) {
 					handlerRan = true
-					return tc.handler(ctx, ic, callerCancel)
+					return tc.handler(ctx, shutdownCancel, callerCancel)
 				})
 
 			if tc.wantCode != codes.OK {
@@ -168,20 +168,22 @@ func TestInFlightCancelUnaryInterceptor(t *testing.T) {
 			assert.Equal(t, !tc.wantHandlerSkipped, handlerRan, "handler ran")
 			assert.Equal(t, int64(0), countingCtx.live.Load(), "AfterFunc registration outlived the call")
 
-			ic.Cancel()
-			assert.Equal(t, tc.wantCutShort, ic.CutShort(), "cut-short count")
+			shutdownCancel()
+			assert.Equal(t, tc.wantUnavailable, ic.UnavailableResponses(), "unavailable responses")
 		})
 	}
 }
 
 // A call returning as the cancel fires must be counted before the interceptor returns.
 func TestInFlightCancelCountsCallReturningAsCancelFires(t *testing.T) {
-	ic := NewInFlightCancel()
-	_, err := ic.UnaryInterceptor()(context.Background(), nil, &grpc.UnaryServerInfo{},
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+	t.Cleanup(shutdownCancel)
+	ic := NewInFlightCancel(shutdownCtx)
+	_, err := ic.UnavailableAfterCancel()(context.Background(), nil, &grpc.UnaryServerInfo{},
 		func(ctx context.Context, _ any) (any, error) {
-			ic.Cancel()
+			shutdownCancel()
 			return nil, nil
 		})
 	assert.Equal(t, codes.Unavailable, status.Code(err))
-	assert.Equal(t, int64(1), ic.CutShort())
+	assert.Equal(t, int64(1), ic.UnavailableResponses())
 }

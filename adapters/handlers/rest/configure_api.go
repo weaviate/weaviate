@@ -193,13 +193,14 @@ import (
 const MinimumRequiredContextionaryVersion = "1.0.2"
 
 const (
-	grpcInFlightCancelDelay = 5 * time.Second
 	grpcGracefulStopTimeout = 20 * time.Second
-	// restInFlightCancelDelay must stay below --graceful-timeout, or a request
+	// inFlightCancelDelay must stay below --graceful-timeout, or a request
 	// that outlives it fails http.Server.Shutdown and ServerShutdown never runs.
-	restInFlightCancelDelay = 5 * time.Second
+	inFlightCancelDelay = 5 * time.Second
 )
 
+// makeConfigureServer derives every request from requestsCtx, so its cancel lets
+// http.Server.Shutdown wait only for handlers that ignore it.
 func makeConfigureServer(appState *state.State, requestsCtx context.Context) func(*http.Server, string, string) {
 	return func(s *http.Server, scheme, addr string) {
 		// Add properties to the config
@@ -1571,11 +1572,16 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		grpcOptions = monitoring.InstrumentGrpc(appState.GRPCServerMetrics)
 	}
 
-	grpcInFlight := grpcHandler.NewInFlightCancel()
-	grpcOptions = append(grpcOptions, grpc.ChainUnaryInterceptor(grpcInFlight.UnaryInterceptor()))
+	// clientCallsCtx is cancelled inFlightCancelDelay after shutdown begins, cutting
+	// REST requests and public gRPC calls at the same moment.
+	clientCallsCtx, cancelClientCalls := context.WithCancel(context.Background())
+	grpcInFlight := grpcHandler.NewInFlightCancel(clientCallsCtx)
+	grpcOptions = append(grpcOptions, grpc.ChainUnaryInterceptor(grpcInFlight.UnavailableAfterCancel()))
 	grpcServer, batchDrain := createGrpcServer(appState, telemeter.GetClientTracker(), telemeter.GetIntegrationTracker(), grpcOptions...)
-	restInFlight := newInFlightCancel(restInFlightCancelDelay)
-	grpcWebHandler, err := grpcweb.NewHandler(grpcServer, appState, restInFlight.unavailableAfterCancel)
+	restInFlight := newInFlightCancel(clientCallsCtx)
+	grpcWebCtx, refuseGrpcWeb := context.WithCancel(clientCallsCtx)
+	grpcWebInFlight := newInFlightCancel(grpcWebCtx)
+	grpcWebHandler, err := grpcweb.NewHandler(grpcServer, appState, grpcWebInFlight.unavailableAfterCancel)
 	if err != nil {
 		appState.Logger.WithField("action", "grpc_web_startup").
 			Fatalf("init grpc-web handler: %v", err)
@@ -1612,22 +1618,23 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}, appState.Logger)
 	}
 
+	var waitGrpcStop func()
 	api.PreServerShutdown = func() {
 		restInFlight.startShutdown()
+		time.AfterFunc(inFlightCancelDelay, cancelClientCalls)
 		// Reject new export requests and signal in-flight exports to stop
 		// early, while the server can still serve other requests. The actual
 		// wait for export drain happens in ServerShutdown.
 		exportScheduler.StartShutdown()
 		appState.ExportParticipant.StartShutdown()
+		// The batch-stream drain tells stream clients to back off through the
+		// gRPC server, so the server stops only after it.
 		batchDrain()
+		waitGrpcStop = startGrpcStop(grpcServer, refuseGrpcWeb, grpcGracefulStopTimeout, appState.Logger)
 	}
 
 	api.ServerShutdown = func() {
 		serverShutdownCancel(fmt.Errorf("server shutdown"))
-
-		appState.Logger.WithField("action", "rest_shutdown").
-			Infof("refused %d requests on the REST port arriving or still running %s after shutdown began",
-				restInFlight.unavailableResponses.Load(), restInFlightCancelDelay)
 
 		shutdownSteps{
 			leaveCluster: func() {
@@ -1638,8 +1645,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				}
 				time.Sleep(appState.ServerConfig.Config.Raft.DrainSleep.Get())
 			},
-			stopGRPCServer: func() {
-				stopGrpcServer(grpcServer, grpcInFlight, grpcInFlightCancelDelay, grpcGracefulStopTimeout, appState.Logger)
+			waitGRPCStop: func() {
+				waitGrpcStop()
+				// The REST drain finished before ServerShutdown, so every count is final here.
+				appState.Logger.WithField("action", "server_shutdown").
+					Infof("refused %d REST requests and %d gRPC calls arriving or still running %s after shutdown began, and %d grpc-web calls once the gRPC server began stopping",
+						restInFlight.unavailableResponses.Load(), grpcInFlight.UnavailableResponses(), inFlightCancelDelay,
+						grpcWebInFlight.unavailableResponses.Load())
 			},
 			// PreServerShutdown already called StartShutdown so exports are signaled to stop, wait here until completion.
 			drainExports: func() {
@@ -1729,7 +1741,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 // of them may overlap and which must wait for others.
 type shutdownSteps struct {
 	leaveCluster        func()
-	stopGRPCServer      func()
+	waitGRPCStop        func()
 	drainExports        func()
 	stopTelemetry       func()
 	closeTaskScheduler  func()
@@ -1744,15 +1756,7 @@ type shutdownSteps struct {
 
 func (s shutdownSteps) run(logger logrus.FieldLogger) {
 	shutdownInPhases(logger,
-		[]func(){
-			// the gRPC server keeps serving until peers have had DrainSleep
-			// to stop routing to this node
-			func() {
-				s.leaveCluster()
-				s.stopGRPCServer()
-			},
-			s.drainExports, s.stopTelemetry, s.closeTaskScheduler,
-		},
+		[]func(){s.leaveCluster, s.waitGRPCStop, s.drainExports, s.stopTelemetry, s.closeTaskScheduler},
 		func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 			defer cancel()
