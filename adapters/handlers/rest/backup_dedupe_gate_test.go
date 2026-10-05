@@ -9,20 +9,32 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package backupdedupe
+package rest
 
 import (
+	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/license"
 )
 
-func TestModeFor(t *testing.T) {
+type fakeDedupePlanner struct{}
+
+func (fakeDedupePlanner) PlanDesignatedShards(context.Context, []string, time.Duration,
+	map[string]struct{}, map[string]map[string]string, func() bool,
+) *backup.DedupePlan {
+	return nil
+}
+
+func TestDedupeModeFor(t *testing.T) {
 	cases := []struct {
 		name     string
 		flag     string
@@ -40,56 +52,61 @@ func TestModeFor(t *testing.T) {
 			var cfg config.Config
 			cfg.WeaviateLicense = tc.licensed
 
-			require.Equal(t, tc.want, ModeFor(cfg))
+			require.Equal(t, tc.want, dedupeModeFor(cfg))
 		})
 	}
 }
 
-func TestNewForMode(t *testing.T) {
-	logger, _ := logrustest.NewNullLogger()
+func TestDedupePlannerFor(t *testing.T) {
+	errBuild := errors.New("build failed")
 	cases := []struct {
-		name         string
-		mode         license.Mode
-		checkpointer Checkpointer
-		wantPlanner  bool
-		wantErr      error
+		name        string
+		mode        license.Mode
+		buildErr    error
+		wantBuilds  int
+		wantPlanner bool
+		wantErr     error
 	}{
-		{name: "off wires no planner", mode: license.FeatureOff, checkpointer: newFakeCheckpointer()},
-		{name: "unlicensed wires no planner", mode: license.FeatureUnlicensed, checkpointer: newFakeCheckpointer()},
-		{name: "licensed wires the wl planner", mode: license.FeatureLicensed, checkpointer: newFakeCheckpointer(), wantPlanner: true},
-		{name: "licensed without a checkpointer wires no planner", mode: license.FeatureLicensed, wantErr: ErrNilCheckpointer},
-		{name: "a mode outside the three wires no planner", mode: license.Mode(99), checkpointer: newFakeCheckpointer()},
+		{name: "off", mode: license.FeatureOff},
+		{name: "unlicensed", mode: license.FeatureUnlicensed},
+		{name: "a mode outside the three", mode: license.Mode(99)},
+		{name: "licensed", mode: license.FeatureLicensed, wantBuilds: 1, wantPlanner: true},
+		{name: "licensed build error", mode: license.FeatureLicensed, buildErr: errBuild, wantBuilds: 1, wantErr: errBuild},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			p, err := NewForMode(tc.mode, Config{Checkpointer: tc.checkpointer, Logger: logger})
+			builds := 0
+			p, err := dedupePlannerFor(tc.mode, func() (backup.DedupePlanner, error) {
+				builds++
+				if tc.buildErr != nil {
+					return nil, tc.buildErr
+				}
+				return fakeDedupePlanner{}, nil
+			})
 
-			if tc.wantErr != nil {
-				require.ErrorIs(t, err, tc.wantErr)
-			} else {
-				require.NoError(t, err)
-			}
-			require.Equal(t, tc.wantPlanner, p != nil, "only a planner may be a non-nil interface")
-			require.Equal(t, tc.wantPlanner, license.DeclaredInWL(p), "only FeatureLicensed may wire wl code")
+			require.ErrorIs(t, err, tc.wantErr)
+			require.Equal(t, tc.wantBuilds, builds)
+			require.Equal(t, tc.wantPlanner, p != nil)
+			require.False(t, license.DeclaredInWL(p))
 		})
 	}
 }
 
-func TestLogUnlicensed(t *testing.T) {
+func TestLogUnlicensedDedupe(t *testing.T) {
 	cases := []struct {
 		name     string
 		mode     license.Mode
 		wantWarn bool
 	}{
-		{name: "off", mode: license.FeatureOff, wantWarn: false},
+		{name: "off", mode: license.FeatureOff},
 		{name: "unlicensed", mode: license.FeatureUnlicensed, wantWarn: true},
-		{name: "licensed", mode: license.FeatureLicensed, wantWarn: false},
+		{name: "licensed", mode: license.FeatureLicensed},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			logger, hook := logrustest.NewNullLogger()
 
-			LogUnlicensed(logger, tc.mode)
+			logUnlicensedDedupe(logger, tc.mode)
 
 			if !tc.wantWarn {
 				require.Empty(t, hook.AllEntries())
@@ -98,10 +115,10 @@ func TestLogUnlicensed(t *testing.T) {
 			require.Len(t, hook.AllEntries(), 1)
 			entry := hook.LastEntry()
 			require.Equal(t, logrus.WarnLevel, entry.Level)
-			require.Equal(t, licenseFeature, entry.Data["feature"])
+			require.Equal(t, backup.DedupeFeature, entry.Data["feature"])
 			require.Contains(t, entry.Message, "dedupeReplicas")
 			require.Contains(t, entry.Message, "restores")
-			require.NotContains(t, licenseFeature, ":")
+			require.NotContains(t, backup.DedupeFeature, ":")
 		})
 	}
 }

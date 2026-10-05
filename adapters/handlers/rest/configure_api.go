@@ -1741,9 +1741,15 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 	if appState.RBAC != nil {
 		roleLister = appState.RBAC
 	}
-	dedupeMode := backupdedupe.ModeFor(appState.ServerConfig.Config)
-	backupdedupe.LogUnlicensed(appState.Logger, dedupeMode)
-	dedupePlanner, err := backupdedupe.NewForMode(dedupeMode, backupdedupe.Config{Checkpointer: appState.DB, Logger: appState.Logger})
+	dedupeMode := dedupeModeFor(appState.ServerConfig.Config)
+	logUnlicensedDedupe(appState.Logger, dedupeMode)
+	dedupePlanner, err := dedupePlannerFor(dedupeMode, func() (backup.DedupePlanner, error) {
+		p, err := backupdedupe.New(backupdedupe.Config{Checkpointer: appState.DB, Logger: appState.Logger})
+		if err != nil {
+			return nil, err
+		}
+		return p, nil
+	})
 	if err != nil {
 		appState.Logger.WithField("action", "startup").
 			Errorf("dedupeReplicas backup requests will be refused on this node: cannot build the dedupe planner: %v", err)
