@@ -30,12 +30,18 @@ func TestPromotionRefusesToReplaceALiveCanonicalDirAfterAnUnmirroredBoot(t *test
 		name          string
 		unmirrored    bool
 		canonicalDir  bool
+		displaced     string
 		wantState     MigrationState
 		wantCanonical string
-		// wantWithheld: the record wedges with a reason, and its mirror stays
-		// armed for a promotion that may still come.
-		wantWithheld bool
+		wantWithheld  bool
 	}{
+		{
+			name:         "unmirrored: the displaced dir holds writes the staged copy missed, promote nothing",
+			unmirrored:   true,
+			displaced:    "property_title",
+			wantState:    MigrationStateSwapped,
+			wantWithheld: true,
+		},
 		{
 			name:          "mirrored: the staged copy is current, promote over the canonical dir",
 			canonicalDir:  true,
@@ -71,18 +77,28 @@ func TestPromotionRefusesToReplaceALiveCanonicalDirAfterAnUnmirroredBoot(t *test
 			if tt.canonicalDir {
 				present = append(present, canonical)
 			}
+			displaced := canonical
+			if tt.displaced != "" {
+				displaced = tt.displaced
+				present = append(present, displaced)
+			}
 			f.mkdirs(present...)
 			f.put(NewMigrationRecordSwapped(subject, []string{"title"},
-				map[string]string{"title": canonical}))
+				map[string]string{"title": displaced}))
 
 			r := f.reconcile()
 
 			state, present2 := f.state(subject.Key)
 			require.True(t, present2)
 			require.Equal(t, tt.wantState, state)
-			// mkdirs stamps each directory's name into its segment file, so this
-			// reads which one now answers to the canonical name.
-			require.Equal(t, tt.wantCanonical, f.contentOf(canonical))
+			if tt.wantCanonical != "" {
+				// mkdirs stamps each directory's name into its segment file, so this
+				// reads which one now answers to the canonical name.
+				require.Equal(t, tt.wantCanonical, f.contentOf(canonical))
+			}
+			if tt.displaced != "" {
+				require.Equal(t, tt.displaced, f.contentOf(tt.displaced), "the displaced dir is the only complete copy")
+			}
 			if tt.wantWithheld {
 				require.Equal(t, 1, r.WedgedCount())
 				require.NotEmpty(t, f.errorLines("no double-write mirror armed"))

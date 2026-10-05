@@ -58,8 +58,9 @@ func TestRecoveryWalkReportsEachFaultKindOnce(t *testing.T) {
 		name string
 		seed func(t *testing.T, i int, lsm string)
 		// about picks the walk's line; names is the field carrying its capped names.
-		about, names string
-		wantText     []string
+		about, names    string
+		wantText        []string
+		unreadableLines int
 	}{
 		{
 			name: "a record recovery cannot build a task from",
@@ -83,6 +84,7 @@ func TestRecoveryWalkReportsEachFaultKindOnce(t *testing.T) {
 				fmt.Sprintf("%d shard(s)", shards), "read migration records dir",
 				fmt.Sprintf("(and %d more)", shards-maxReportedErrors),
 			},
+			unreadableLines: 1,
 		},
 		{
 			name: "one record that cannot be read",
@@ -93,7 +95,8 @@ func TestRecoveryWalkReportsEachFaultKindOnce(t *testing.T) {
 					[]byte("not json"), 0o600))
 			},
 			about: "some migration records of", names: "shards",
-			wantText: []string{fmt.Sprintf("%d shard(s)", shards)},
+			wantText:        []string{fmt.Sprintf("%d shard(s)", shards)},
+			unreadableLines: 1,
 		},
 	}
 
@@ -120,6 +123,15 @@ func TestRecoveryWalkReportsEachFaultKindOnce(t *testing.T) {
 			require.Len(t, names, maxReportedErrors+1,
 				"the capped names plus the one entry that says how many are unaccounted for")
 			require.Contains(t, names[len(names)-1], fmt.Sprintf("and %d more", shards-maxReportedErrors))
+
+			var unreadable []*logrus.Entry
+			for _, entry := range entriesAbout(hook, "reindex recovery:") {
+				if strings.Contains(entry.Message, "could not be read") {
+					unreadable = append(unreadable, entry)
+				}
+			}
+			require.Len(t, unreadable, tt.unreadableLines,
+				"a shard is reported as wholly or partly unreadable, never both: %v", linesOf(unreadable))
 		})
 	}
 }
