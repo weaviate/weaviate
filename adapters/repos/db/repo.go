@@ -528,11 +528,6 @@ type Config struct {
 	OperationalMode *configRuntime.DynamicValue[string]
 
 	DisableDimensionMetrics *configRuntime.DynamicValue[bool]
-
-	// WeaviateLicense reports whether this node holds a well-formed license key.
-	// No code reads it. A reader outside wl/ must pass it with its feature's
-	// flag to license.ModeFor and call into wl/ only on FeatureLicensed.
-	WeaviateLicense bool
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
