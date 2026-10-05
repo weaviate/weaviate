@@ -12,9 +12,8 @@
 package rest
 
 import (
+	"fmt"
 	"net/http"
-	"net/http/httptest"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -24,19 +23,21 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 )
 
-// A request still running when GracefulTimeout expires must not stop
-// handleShutdown from calling ServerShutdown, which leaves the cluster and
-// closes the database.
-func TestHandleShutdownCallsServerShutdown(t *testing.T) {
+// ServerShutdown leaves the cluster and closes the database, so it must run
+// exactly once, also when a request outlives GracefulTimeout.
+func TestServeAndShutdown(t *testing.T) {
 	tests := []struct {
-		name string
-		// whether each HTTP server holds a request past GracefulTimeout
-		requestOutlivesDrain []bool
+		name                 string
+		requestOutlivesDrain bool
 	}{
-		{name: "one server, drained in time", requestOutlivesDrain: []bool{false}},
-		{name: "one server, request outlives the drain", requestOutlivesDrain: []bool{true}},
-		{name: "two servers, one request outlives the drain", requestOutlivesDrain: []bool{false, true}},
+		{name: "drained in time", requestOutlivesDrain: false},
+		{name: "request outlives the drain", requestOutlivesDrain: true},
 	}
+
+	// configureAPI sets configureServer, and Serve calls it for every listener.
+	prev := configureServer
+	configureServer = func(*http.Server, string, string) {}
+	t.Cleanup(func() { configureServer = prev })
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -45,47 +46,35 @@ func TestHandleShutdownCallsServerShutdown(t *testing.T) {
 				PreServerShutdown: func() {},
 				ServerShutdown:    func() { serverShutdownCalls.Add(1) },
 			})
+			s.EnabledListeners = []string{schemeHTTP}
+			s.Host = "127.0.0.1"
 			s.GracefulTimeout = 50 * time.Millisecond
 
-			var servers []*http.Server
-			for _, outlives := range tt.requestOutlivesDrain {
-				servers = append(servers, startServer(t, outlives))
+			entered := make(chan struct{})
+			release := make(chan struct{})
+			t.Cleanup(func() { close(release) })
+			s.SetHandler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				close(entered)
+				<-release
+			}))
+			require.NoError(t, s.Listen())
+
+			served := make(chan error, 1)
+			go func() { served <- s.ServeAndShutdown() }()
+
+			if tt.requestOutlivesDrain {
+				go func() {
+					resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/", s.Port))
+					if err == nil {
+						resp.Body.Close()
+					}
+				}()
+				<-entered
 			}
 
 			require.NoError(t, s.Shutdown())
-			wg := new(sync.WaitGroup)
-			wg.Add(1)
-			s.handleShutdown(wg, &servers)
-
+			require.NoError(t, <-served)
 			require.Equal(t, int32(1), serverShutdownCalls.Load())
 		})
 	}
-}
-
-// startServer serves one HTTP server. With holdRequest, it returns once a
-// request is in flight that runs until the test ends.
-func startServer(t *testing.T, holdRequest bool) *http.Server {
-	t.Helper()
-	release := make(chan struct{})
-	entered := make(chan struct{})
-	ts := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		close(entered)
-		<-release
-	}))
-	t.Cleanup(func() {
-		close(release)
-		ts.Close()
-	})
-	if !holdRequest {
-		return ts.Config
-	}
-
-	go func() {
-		resp, err := ts.Client().Get(ts.URL)
-		if err == nil {
-			resp.Body.Close()
-		}
-	}()
-	<-entered
-	return ts.Config
 }
