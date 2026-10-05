@@ -190,6 +190,22 @@ weaviate_shards{state="loaded",registration="lazy"}
 | `weaviate_replication_engine_producer_running_status` | Replication engine producer running status (0:not running, 1:running) | `Gauge` | `node` | - Low 
 | `weaviate_replication_engine_consumer_running_status` | Replication engine consumer running status (0:not running, 1:running) | `Gauge` | `node` | - Low 
 
+#### Self-Recovery Metrics
+Registered only on a node with `SELF_RECOVERY_ENABLED=true` and a well-formed Weaviate license key (`LICENSE_KEY` or `LICENSE_KEY_FILE`); a node with the flag off or without a license exposes none of them. No metric carries collection or shard labels, so a wiped node with many shards adds no series per shard. See `docs/self-recovery.md`.
+
+| Name | Description | Type | Labels | High Cardinality |
+|---|---|---|---|---|
+| `weaviate_self_recovery_in_progress` | Self-recovery operations currently in progress on this node | `Gauge` | `-` | - Low 
+| `weaviate_self_recovery_started_total` | Self-recovery operations started, by source peer | `Counter` | `source_node` | - Low (bounded by cluster size) 
+| `weaviate_self_recovery_completed_total` | Self-recovery operations completed, by terminal result (`success`, `failure`, `empty_fallback`, `cancelled`) | `Counter` | `result` | - Low 
+| `weaviate_self_recovery_duration_seconds` | End-to-end duration of a self-recovery operation, by terminal result; buckets 10s to ~1.4h | `Histogram` | `result` | - Low 
+| `weaviate_self_recovery_no_data_empty_total` | Empty fallbacks on a node that started with RAFT state and no healthy peer confirmed the shard; alert on this | `Counter` | `-` | - Low 
+| `weaviate_self_recovery_no_data_during_bootstrap_total` | Empty fallbacks on a node that started without RAFT state, during its wiped round, or on tenant activation; informational | `Counter` | `-` | - Low 
+| `weaviate_self_recovery_no_data_confirmed_empty_total` | Empty fallbacks where a healthy peer confirmed the shard holds no objects; informational | `Counter` | `-` | - Low 
+| `weaviate_self_recovery_unreachable_peer_total` | Probes that failed to reach a peer (transport or timeout), by peer | `Counter` | `peer` | - Low (bounded by cluster size) 
+| `weaviate_self_recovery_giveup_total` | Self-recovery attempts that exhausted retries without reaching READY; alert on this | `Counter` | `-` | - Low 
+| `weaviate_self_recovery_accept_empty_total` | Operator invocations of the accept-empty escape hatch | `Counter` | `-` | - Low 
+
 #### Distributed Task Metrics
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|

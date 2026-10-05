@@ -180,7 +180,7 @@ func (db *DB) SetUsageLimits(m *usagelimits.Manager) {
 // SelfRecoveryOrchestrator is the narrow surface avoiding an import cycle on cluster/replication.
 type SelfRecoveryOrchestrator interface {
 	// Enabled must be checked before installing a wrapper, else it blocks load forever.
-	// Flag only; licensing is enforced inside the Submit methods so a resuming op is still recognised when unlicensed.
+	// True whenever the flag is on, licensed or not (UnlicensedSelfRecovery), so a resuming op is still recognised.
 	Enabled() bool
 	// SubmitRecovery is non-blocking; false = not queued and the caller MUST fall back to normal init.
 	SubmitRecovery(ctx context.Context, collection, shard string, startedWithoutRaftState bool) bool
