@@ -1281,7 +1281,7 @@ function run_acceptance_backup_dedupe() {
 function run_acceptance_backup_dedupe_cross_version() {
   build_weaviate_test_image
   echo_green "acceptance — backup-dedupe-cross-version"
-  AOF_GROUP_RUN='^TestBackupCrossVersionRestore$' AOF_GROUP_TIMEOUT=30m \
+  AOF_GROUP_RUN='^(TestBackupCrossVersionRestore|TestBackupDedupeRestoreWithoutLicense)$' AOF_GROUP_TIMEOUT=40m \
     run_aof_group "backup-dedupe-cross-version" test/acceptance/backup_dedupe_replicas
 }
 
@@ -1296,7 +1296,7 @@ function run_acceptance_backup_dedupe_incremental() {
 function run_acceptance_backup_dedupe_misc() {
   build_weaviate_test_image
   echo_green "acceptance — backup-dedupe-misc"
-  AOF_GROUP_SKIP='^(TestBackupDedupeReplicas|TestBackupCrossVersionRestore|TestBackupDedupeIncremental)$' \
+  AOF_GROUP_SKIP='^(TestBackupDedupeReplicas|TestBackupCrossVersionRestore|TestBackupDedupeRestoreWithoutLicense|TestBackupDedupeIncremental)$' \
     run_aof_group "backup-dedupe-misc" test/acceptance/backup_dedupe_replicas
 }
 

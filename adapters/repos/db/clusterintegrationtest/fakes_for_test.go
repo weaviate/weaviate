@@ -44,6 +44,7 @@ import (
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -173,7 +174,7 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 
 	backupClient := clients.NewClusterBackups(&http.Client{})
 	n.scheduler = ubak.NewScheduler(
-		&fakeAuthorizer{}, backupClient, n.repo, n.repo, nil, nil, backendProvider, nodeResolver, n.schemaManager, nil, nil, nil, logger)
+		&fakeAuthorizer{}, backupClient, n.repo, license.FeatureOff, nil, nil, nil, backendProvider, nodeResolver, n.schemaManager, nil, nil, nil, logger)
 
 	n.migrator = db.NewMigrator(n.repo, logger, n.name)
 

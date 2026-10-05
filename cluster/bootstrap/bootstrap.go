@@ -49,8 +49,9 @@ type Bootstrapper struct {
 	// needsJoinBarrier keeps joining even when ready: a wiped joiner is "ready" before it ever joined.
 	needsJoinBarrier func() bool
 
-	retryPeriod time.Duration
-	jitter      time.Duration
+	retryPeriod     time.Duration
+	jitter          time.Duration
+	readyPollPeriod time.Duration
 }
 
 // NewBootstrapper constructs a new bootstrapper. onJoin and needsJoinBarrier may be nil.
@@ -60,6 +61,7 @@ func NewBootstrapper(peerJoiner PeerJoiner, raftID string, raftAddr string, vote
 		addrResolver:     r,
 		retryPeriod:      time.Second,
 		jitter:           time.Second,
+		readyPollPeriod:  50 * time.Millisecond,
 		localNodeID:      raftID,
 		localRaftAddr:    raftAddr,
 		isStoreReady:     isStoreReady,
@@ -79,17 +81,26 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 		ctx = transaction.Context()
 		defer transaction.Finish()
 	}
-	ticker := time.NewTicker(jitter(b.retryPeriod, b.jitter))
-	defer ticker.Stop()
+	// The first attempt runs at once. Readiness is also checked between attempts
+	// so a node that becomes ready, like a sole voter that just bootstrapped
+	// itself, exits without waiting for the next attempt.
+	attempt := time.NewTimer(0)
+	defer attempt.Stop()
+	readyPoll := time.NewTicker(b.readyPollPeriod)
+	defer readyPoll.Stop()
 	for {
 		select {
 		case <-stop:
 			return nil
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-ticker.C:
-			if b.isStoreReady() && (b.needsJoinBarrier == nil || !b.needsJoinBarrier()) {
-				lg.WithField("action", "bootstrap").Info("node reporting ready, exiting bootstrap process")
+		case <-readyPoll.C:
+			if b.ready(lg) {
+				return nil
+			}
+		case <-attempt.C:
+			attempt.Reset(jitter(b.retryPeriod, b.jitter))
+			if b.ready(lg) {
 				return nil
 			}
 
@@ -139,6 +150,14 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 			}
 		}
 	}
+}
+
+func (b *Bootstrapper) ready(lg *logrus.Logger) bool {
+	if !b.isStoreReady() || (b.needsJoinBarrier != nil && b.needsJoinBarrier()) {
+		return false
+	}
+	lg.WithField("action", "bootstrap").Info("node reporting ready, exiting bootstrap process")
+	return true
 }
 
 // notify attempts to notify all nodes in remoteNodes that this server is ready to bootstrap

@@ -68,9 +68,8 @@ type DistributedBackupDescriptor struct {
 	DedupeDesignations map[string]map[string]string `json:"dedupeDesignations,omitempty"`
 	// DedupeSkippedBytes: bytes attributed to skipping replicas; real archived ≈ PreCompressionSizeBytes − DedupeSkippedBytes.
 	DedupeSkippedBytes int64 `json:"dedupeSkippedBytes,omitempty"`
-	// SkipUsers/SkipRoles record that includeUsers/includeRoles was given but
-	// matched nothing. Restore discards any user or RBAC blob a node uploaded
-	// anyway, which a participant predating the request-level skip flag does.
+	// SkipUsers/SkipRoles record an explicit user-supplied empty list or if user-supplied wildcards matched nothing.
+	// Restore discards any user or RBAC blob a node uploaded anyway, which a participant predating the request-level skip flag does.
 	SkipUsers bool `json:"skipUsers,omitempty"`
 	SkipRoles bool `json:"skipRoles,omitempty"`
 }
