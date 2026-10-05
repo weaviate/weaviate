@@ -24,7 +24,11 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -283,6 +287,46 @@ func TestOnlyAPromotedFlipReportsRangeableReady(t *testing.T) {
 			markInFlightRangeableMigrationsNotReady(shard)
 
 			require.Equal(t, tt.wantReady, shard.IsRangeableLocallyReady(propName))
+		})
+	}
+}
+
+// A withheld range index is this node's state, so a filter that needs it must
+// not tell the user to change a schema that already has it.
+func TestAFilterOnAWithheldRangeIndexDoesNotBlameTheSchema(t *testing.T) {
+	const propName = filterableToRangeablePropName
+	off := false
+
+	for _, tt := range []struct {
+		name      string
+		rangeable bool
+		wantMsg   string
+	}{
+		{name: "the schema has the range index this shard withholds", rangeable: true, wantMsg: ".migrations"},
+		{name: "the schema has no index to filter on", wantMsg: "indexFilterable"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "WithheldRangeIndex_" + uuid.NewString()[:8]
+			class := newFilterableToRangeableTestClass(className)
+			class.Properties[0].IndexFilterable = &off
+			class.Properties[0].IndexRangeFilters = &tt.rangeable
+			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(context.Background())
+			plantUnreadableRecord(t, shard.migrationRecords.Dir())
+			require.NoError(t, shard.migrationRecords.Load())
+			markInFlightRangeableMigrationsNotReady(shard)
+
+			_, _, err := shard.ObjectSearch(ctx, 10, &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(propName)},
+				Value:    &filters.Value{Value: 1, Type: schema.DataTypeInt},
+			}}, nil, nil, nil, additional.Properties{}, nil)
+
+			var missing inverted.MissingIndexError
+			require.ErrorAs(t, err, &missing, "the API keeps answering it as a missing index")
+			require.Contains(t, err.Error(), tt.wantMsg)
 		})
 	}
 }

@@ -114,6 +114,13 @@ func (s *Searcher) hasUsableRangeableIndex(prop *models.Property) bool {
 	return HasRangeableIndex(prop) && s.isRangeableLocallyReady(prop.Name)
 }
 
+func missingFilterIndexError(prop *models.Property) error {
+	if HasRangeableIndex(prop) {
+		return inverted.NewWithheldRangeableIndexError(prop.Name)
+	}
+	return inverted.NewMissingFilterableIndexError(prop.Name)
+}
+
 var ErrOnlyStopwords = fmt.Errorf("invalid search term, only stopwords provided. " +
 	"Stopwords can be configured in class.invertedIndexConfig.stopwords")
 
@@ -656,7 +663,7 @@ func (s *Searcher) extractPrimitiveProp(prop *models.Property, propType schema.D
 	hasRangeableIndex := s.hasUsableRangeableIndex(prop)
 
 	if !hasFilterableIndex && !hasSearchableIndex && !hasRangeableIndex {
-		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
+		return nil, missingFilterIndexError(prop)
 	}
 
 	return &propValuePair{
@@ -737,7 +744,7 @@ func (s *Searcher) extractUUIDFilter(prop *models.Property, value interface{},
 	hasRangeableIndex := s.hasUsableRangeableIndex(prop)
 
 	if !hasFilterableIndex && !hasSearchableIndex && !hasRangeableIndex {
-		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
+		return nil, missingFilterIndexError(prop)
 	}
 
 	return &propValuePair{
@@ -896,7 +903,7 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 	hasRangeableIndex := s.hasUsableRangeableIndex(prop)
 
 	if !hasFilterableIndex && !hasSearchableIndex && !hasRangeableIndex {
-		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
+		return nil, missingFilterIndexError(prop)
 	}
 
 	propValuePairs := make([]*propValuePair, 0, len(terms))
