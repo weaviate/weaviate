@@ -1624,6 +1624,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				}
 			},
 			closeTaskScheduler: func() {
+				// Close signals running tasks and returns without waiting for them to stop.
 				if appState.DistributedTaskScheduler != nil {
 					appState.DistributedTaskScheduler.Close()
 				}
@@ -1748,11 +1749,11 @@ func shutdownInPhases(logger logrus.FieldLogger, stopDBUsers []func(), closeDB, 
 		}, logger)
 	}
 	wg.Wait()
-	logger.Infof("stopped everything using the database in %s", time.Since(start))
+	logger.Infof("shutdown steps that use the database returned after %s", time.Since(start))
 
 	start = time.Now()
 	closeDB()
-	logger.Infof("closed the database in %s", time.Since(start))
+	logger.Infof("database teardown steps returned after %s", time.Since(start))
 
 	flush()
 }
