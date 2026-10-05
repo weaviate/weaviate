@@ -27,7 +27,6 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// interruptingRetokenizeStrategy cancels the run's context after a fixed number of writes.
 type interruptingRetokenizeStrategy struct {
 	FilterableRetokenizeStrategy
 	writes      int

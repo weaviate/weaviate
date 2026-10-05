@@ -29,9 +29,8 @@ import (
 // its cleanup returns; a restart in between would rebuild the cancelled task.
 func TestTerminalCleanupSettlesTheTasksRecordsOnTheShardsItHolds(t *testing.T) {
 	const (
-		unloadedB = "unloaded-b"
-		loadedC   = "loaded-c"
-		// Neither holds a record cleanup can end, so loading either costs a load for nothing.
+		unloadedB    = "unloaded-b"
+		loadedC      = "loaded-c"
 		otherTaskD   = "unloaded-other-task-d"
 		decidedFlipE = "unloaded-decided-flip-e"
 	)

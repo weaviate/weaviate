@@ -1412,8 +1412,7 @@ func TestEveryTeardownArmSealsTheUnit(t *testing.T) {
 		// pass: the arm runs on the periodic pass, after the shard load.
 		pass bool
 		// wedges: the arm's own work is the wedge, the disarm and the close.
-		wedges bool
-		// disarms: the arm ends the migration, so its mirror has to stop too.
+		wedges  bool
 		disarms bool
 	}{
 		{

@@ -289,8 +289,6 @@ func TestOnlyAPromotedFlipReportsRangeableReady(t *testing.T) {
 	}
 }
 
-// A withheld range index is this node's state, so a filter that needs it must
-// not tell the user to change a schema that already has it.
 func TestAFilterOnAWithheldRangeIndexDoesNotBlameTheSchema(t *testing.T) {
 	const propName = filterableToRangeablePropName
 	off := false

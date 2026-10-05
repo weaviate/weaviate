@@ -2459,8 +2459,6 @@ func TestManager_LocalUnrecognizedDistributedTasks(t *testing.T) {
 	}
 }
 
-// A decider reads statuses once per record it decides, so the read must not
-// grow with the units of the tasks it reads.
 func TestLocalTaskStatusesCopiesNoUnits(t *testing.T) {
 	m := NewManager(ManagerParameters{})
 	units := make(map[string]*Unit, 10_000)
