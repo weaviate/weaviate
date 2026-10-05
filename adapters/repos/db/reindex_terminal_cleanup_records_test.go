@@ -31,6 +31,9 @@ func TestTerminalCleanupSettlesTheTasksRecordsOnTheShardsItHolds(t *testing.T) {
 	const (
 		unloadedB = "unloaded-b"
 		loadedC   = "loaded-c"
+		// Neither holds a record cleanup can end, so loading either costs a load for nothing.
+		otherTaskD   = "unloaded-other-task-d"
+		decidedFlipE = "unloaded-decided-flip-e"
 	)
 	ctx := testCtx()
 	className := "TerminalCleanupRecords_" + uuid.NewString()[:8]
@@ -65,6 +68,19 @@ func TestTerminalCleanupSettlesTheTasksRecordsOnTheShardsItHolds(t *testing.T) {
 	lsmB := shardPathLSM(idx.path(), unloadedB)
 	require.NoError(t, os.MkdirAll(lsmB, 0o777))
 	require.NoError(t, NewMigrationRecordStore(lsmB, logger).Put(NewMigrationRecordMerged(subjectOf("T", 1, unloadedB, "title"))))
+	unloaded := map[string]MigrationRecord{
+		otherTaskD: NewMigrationRecordIterated(subjectOf("L", 2, otherTaskD, "body")),
+	}
+	flip := subjectOf("T", 1, decidedFlipE, "title")
+	unloaded[decidedFlipE] = NewMigrationRecordSwapped(flip, flip.Properties(),
+		map[string]string{"title": flip.Props["title"].Canonical})
+	lazyLeftAlone := map[string]*LazyLoadShard{}
+	for name, rec := range unloaded {
+		lazyLeftAlone[name] = lazyShard(name)
+		lsm := shardPathLSM(idx.path(), name)
+		require.NoError(t, os.MkdirAll(lsm, 0o777))
+		require.NoError(t, NewMigrationRecordStore(lsm, logger).Put(rec))
+	}
 
 	c := lazyShard(loadedC)
 	require.NoError(t, c.Load(ctx))
@@ -80,8 +96,13 @@ func TestTerminalCleanupSettlesTheTasksRecordsOnTheShardsItHolds(t *testing.T) {
 		MigrationType: ReindexTypeChangeTokenization,
 		Collection:    className,
 		Properties:    []string{"title"},
-		UnitToShard:   map[string]string{"a": loadedA.Name(), "b": unloadedB, "c": loadedC},
+		UnitToShard: map[string]string{
+			"a": loadedA.Name(), "b": unloadedB, "c": loadedC, "d": otherTaskD, "e": decidedFlipE,
+		},
 	}, logger)
+	for name, lazy := range lazyLeftAlone {
+		require.False(t, lazy.isLoaded(), "%s holds no record of the task that cleanup could end", name)
+	}
 
 	recovered, err := DiscoverInFlightReindexTasks(idx.Config.RootPath, true, logger, nil)
 	require.NoError(t, err)
@@ -89,7 +110,9 @@ func TestTerminalCleanupSettlesTheTasksRecordsOnTheShardsItHolds(t *testing.T) {
 	for _, rr := range recovered {
 		rebuilt = append(rebuilt, rr.Descriptor.ID+" on "+rr.ShardName)
 	}
-	require.ElementsMatch(t, []string{"L on " + loadedA.Name(), "T on " + loadedC}, rebuilt,
+	require.ElementsMatch(t, []string{
+		"L on " + loadedA.Name(), "T on " + loadedC, "L on " + otherTaskD, "T on " + decidedFlipE,
+	}, rebuilt,
 		"only another task's record and a flip the cancel came too late for may survive the cleanup")
 }
 
