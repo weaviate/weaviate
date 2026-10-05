@@ -118,6 +118,35 @@ func hybridSearches() []hybridSearchCase {
 	}
 }
 
+// runHybridGet runs a hybrid Get for a page of 5 against a store of 20
+// objects. It returns the module calls and the additional properties that
+// each vector leg passed to the store.
+func runHybridGet(t *testing.T, hybrid searchparams.HybridSearch, moduleParams map[string]any,
+) (calls []string, legs []additional.Properties) {
+	t.Helper()
+	searcher := &fakeVectorSearcher{}
+	searcher.vectorSearchFn = func(params dto.GetParams) ([]search.Result, error) {
+		legs = append(legs, params.AdditionalProperties)
+		return page(makeHybridVectorResults(20), params.Pagination), nil
+	}
+	searcher.sparseObjectSearchFn = func(params dto.GetParams) ([]*storobj.Object, []float32, error) {
+		return nil, nil, nil
+	}
+	provider := &recordingModulesProvider{fakeModulesProvider: &fakeModulesProvider{}}
+	explorer := newTestExplorer(searcher, provider)
+	params := dto.GetParams{
+		ClassName:    "TestClass",
+		Pagination:   &filters.Pagination{Limit: 5},
+		HybridSearch: &hybrid,
+	}
+	params.AdditionalProperties.ModuleParams = moduleParams
+
+	_, err := explorer.GetClass(context.Background(), params)
+
+	require.NoError(t, err)
+	return provider.calls, legs
+}
+
 // The additional properties of the modules run once, on the fused results
 // of a hybrid search, whatever the vector leg is.
 func TestExplorerHybridRunsModulesOnce(t *testing.T) {
@@ -136,27 +165,9 @@ func TestExplorerHybridRunsModulesOnce(t *testing.T) {
 	for _, s := range hybridSearches() {
 		for _, mp := range moduleParams {
 			t.Run(s.name+"/"+mp.name, func(t *testing.T) {
-				searcher := &fakeVectorSearcher{}
-				searcher.vectorSearchFn = func(params dto.GetParams) ([]search.Result, error) {
-					return page(makeHybridVectorResults(20), params.Pagination), nil
-				}
-				searcher.sparseObjectSearchFn = func(params dto.GetParams) ([]*storobj.Object, []float32, error) {
-					return nil, nil, nil
-				}
-				provider := &recordingModulesProvider{fakeModulesProvider: &fakeModulesProvider{}}
-				explorer := newTestExplorer(searcher, provider)
-				hybrid := s.hybrid
-				params := dto.GetParams{
-					ClassName:    "TestClass",
-					Pagination:   &filters.Pagination{Limit: 5},
-					HybridSearch: &hybrid,
-				}
-				params.AdditionalProperties.ModuleParams = mp.params()
+				calls, _ := runHybridGet(t, s.hybrid, mp.params())
 
-				_, err := explorer.GetClass(context.Background(), params)
-
-				require.NoError(t, err)
-				assert.Equal(t, []string{"list:" + mp.name + ":5"}, provider.calls)
+				assert.Equal(t, []string{"list:" + mp.name + ":5"}, calls)
 			})
 		}
 	}
@@ -169,28 +180,8 @@ func TestExplorerHybridRunsModulesOnce(t *testing.T) {
 func TestExplorerHybridVectorLegPassesModuleParamsToStore(t *testing.T) {
 	for _, s := range hybridSearches() {
 		t.Run(s.name, func(t *testing.T) {
-			searcher := &fakeVectorSearcher{}
-			var legs []additional.Properties
-			searcher.vectorSearchFn = func(params dto.GetParams) ([]search.Result, error) {
-				legs = append(legs, params.AdditionalProperties)
-				return page(makeHybridVectorResults(20), params.Pagination), nil
-			}
-			searcher.sparseObjectSearchFn = func(params dto.GetParams) ([]*storobj.Object, []float32, error) {
-				return nil, nil, nil
-			}
-			provider := &recordingModulesProvider{fakeModulesProvider: &fakeModulesProvider{}}
-			explorer := newTestExplorer(searcher, provider)
-			hybrid := s.hybrid
-			params := dto.GetParams{
-				ClassName:    "TestClass",
-				Pagination:   &filters.Pagination{Limit: 5},
-				HybridSearch: &hybrid,
-			}
-			params.AdditionalProperties.ModuleParams = map[string]any{"interpretation": true}
+			_, legs := runHybridGet(t, s.hybrid, map[string]any{"interpretation": true})
 
-			_, err := explorer.GetClass(context.Background(), params)
-
-			require.NoError(t, err)
 			require.Len(t, legs, 1)
 			assert.Equal(t, map[string]any{"interpretation": true}, legs[0].ModuleParams)
 			assert.True(t, legs[0].Vector)
