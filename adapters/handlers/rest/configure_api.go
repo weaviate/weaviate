@@ -552,7 +552,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		AsyncIndexingEnabled:          appState.ServerConfig.Config.AsyncIndexingEnabled,
 		OperationalMode:               appState.ServerConfig.Config.OperationalMode,
 		DisableDimensionMetrics:       appState.ServerConfig.Config.DisableDimensionMetrics,
-		WeaviateLicense:               appState.ServerConfig.Config.WeaviateLicense,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil, appState.NamespacesController) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -751,7 +750,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	selfRecoveryMode := selfRecoveryModeFor(appState.ServerConfig.Config)
 	logUnlicensedSelfRecovery(appState.Logger, selfRecoveryMode)
 	selfRecoveryHousekeeping(selfRecoveryMode, dataPath, appState.Logger)
-	var selfRecoveryOrch *selfrecovery.Orchestrator
+	var selfRecoveryOrch db.SelfRecoveryOrchestrator
 	appState.DB.SetSelfRecoveryOrchestrator(selfRecoveryFor(selfRecoveryMode, appState.Logger, func() db.SelfRecoveryOrchestrator {
 		selfRecoveryOrch = selfrecovery.New(selfrecovery.Config{
 			Raft:                   appState.ClusterService.Raft,
@@ -770,7 +769,12 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		return selfRecoveryOrch
 	}))
 	setupSelfRecoveryDebugHandlers(http.DefaultServeMux, selfRecoveryMode, func(mux *http.ServeMux) {
-		srhandlers.SetupHandlers(mux, appState.Logger, selfRecoveryOrch)
+		orch, ok := selfRecoveryOrch.(*selfrecovery.Orchestrator)
+		if !ok {
+			appState.Logger.WithField("action", "startup").
+				Errorf("self-recovery debug endpoints will answer 503: the orchestrator is %T, not the licensed one", selfRecoveryOrch)
+		}
+		srhandlers.SetupHandlers(mux, appState.Logger, orch)
 	})
 	if selfRecoveryMode != license.FeatureOff {
 		setupRaftDebugHandlers(appState, appState.ClusterService.Raft)
