@@ -86,8 +86,12 @@ var asyncRepTargetHostsSeam func(*Shard) ([]string, error)
 // asyncRepPerClassFallbackSeam replaces the per-class fallback pre-filter in tests; nil outside tests.
 var asyncRepPerClassFallbackSeam func(context.Context, map[string]hashtree.Digest) (map[string]struct{}, replica.PrefilterStats)
 
+// asyncWorkerWatcherInterval (ns) paces workerWatcher's worker resize and checkpoint expiry sweep; atomic so tests can shrink it.
+var asyncWorkerWatcherInterval atomic.Int64
+
 func init() {
 	asyncRepRebuildBaseBackoff.Store(int64(30 * time.Second))
+	asyncWorkerWatcherInterval.Store(int64(30 * time.Second))
 }
 
 // ErrSchedulerClosed is returned by Register / Deregister when called after Close.
@@ -907,6 +911,23 @@ func (sched *AsyncReplicationScheduler) reportExpiredCheckpoints() {
 	}
 }
 
+// sweepExpiredCheckpoints expires checkpoints of every registered shard, covering shards runEntry won't reach in time (global disable, frequency above the max lifetime); snapshots under sched.mu, expires outside it.
+func (sched *AsyncReplicationScheduler) sweepExpiredCheckpoints() {
+	sched.mu.Lock()
+	shards := make([]*Shard, 0, len(sched.entries))
+	for s := range sched.entries {
+		shards = append(shards, s)
+	}
+	sched.mu.Unlock()
+	now := time.Now()
+	for _, s := range shards {
+		if sched.ctx.Err() != nil {
+			return
+		}
+		sched.expireAsyncCheckpoint(s, now)
+	}
+}
+
 // ----- dispatcher goroutine -------------------------------------------------
 
 // timeUntilNext returns the time until the next entry is due, locking
@@ -1421,9 +1442,9 @@ func (sched *AsyncReplicationScheduler) worker() {
 
 // workerWatcher polls maxWorkersConfig every 30 s and calls adjustWorkers so
 // that changes to AsyncReplicationSchedulerWorkers take effect at runtime
-// without a restart.
+// without a restart. Off the dispatcher, it also sweeps expired checkpoints.
 func (sched *AsyncReplicationScheduler) workerWatcher() {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(time.Duration(asyncWorkerWatcherInterval.Load()))
 	defer ticker.Stop()
 	for {
 		select {
@@ -1432,6 +1453,7 @@ func (sched *AsyncReplicationScheduler) workerWatcher() {
 			return
 		case <-ticker.C:
 			sched.adjustWorkers(sched.maxWorkersConfig.Get())
+			sched.sweepExpiredCheckpoints()
 			sched.reportExpiredCheckpoints()
 		}
 	}
