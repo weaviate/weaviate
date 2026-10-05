@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modrerankerjev
+package modrerankertypesafeai
 
 import (
 	"context"
@@ -18,20 +18,20 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/modules/reranker-jev/config"
+	"github.com/weaviate/weaviate/modules/reranker-typesafeai/config"
 )
 
-func (m *ReRankerJevModule) ClassConfigDefaults() map[string]any {
+func (m *ReRankerTypeSafeAIModule) ClassConfigDefaults() map[string]any {
 	return map[string]any{}
 }
 
-func (m *ReRankerJevModule) PropertyConfigDefaults(
+func (m *ReRankerTypeSafeAIModule) PropertyConfigDefaults(
 	dt *schema.DataType,
 ) map[string]any {
 	return map[string]any{}
 }
 
-func (m *ReRankerJevModule) ValidateClass(ctx context.Context,
+func (m *ReRankerTypeSafeAIModule) ValidateClass(ctx context.Context,
 	class *models.Class, cfg moduletools.ClassConfig,
 ) error {
 	return config.NewClassSettings(cfg).Validate(class)

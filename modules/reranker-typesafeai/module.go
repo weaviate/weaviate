@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modrerankerjev
+package modrerankertypesafeai
 
 import (
 	"context"
@@ -22,50 +22,50 @@ import (
 
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/reranker-jev/clients"
+	"github.com/weaviate/weaviate/modules/reranker-typesafeai/clients"
 	rerankeradditional "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
-const Name = "reranker-jev"
+const Name = "reranker-typesafeai"
 
-func New() *ReRankerJevModule {
-	return &ReRankerJevModule{}
+func New() *ReRankerTypeSafeAIModule {
+	return &ReRankerTypeSafeAIModule{}
 }
 
-type ReRankerJevModule struct {
-	reranker             ReRankerJevClient
+type ReRankerTypeSafeAIModule struct {
+	reranker             ReRankerTypeSafeAIClient
 	additionalProperties map[string]modulecapabilities.AdditionalProperty
 }
 
-type ReRankerJevClient interface {
+type ReRankerTypeSafeAIClient interface {
 	Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
 	MetaInfo() (map[string]any, error)
 }
 
-func (m *ReRankerJevModule) Name() string {
+func (m *ReRankerTypeSafeAIModule) Name() string {
 	return Name
 }
 
-func (m *ReRankerJevModule) Type() modulecapabilities.ModuleType {
+func (m *ReRankerTypeSafeAIModule) Type() modulecapabilities.ModuleType {
 	return modulecapabilities.Text2TextReranker
 }
 
-func (m *ReRankerJevModule) Init(ctx context.Context,
+func (m *ReRankerTypeSafeAIModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	if err := m.initAdditional(ctx, params.GetConfig().ModuleHttpClientTimeout, params.GetLogger()); err != nil {
-		return errors.Wrap(err, "init reranker-jev")
+		return errors.Wrap(err, "init reranker-typesafeai")
 	}
 
 	return nil
 }
 
-func (m *ReRankerJevModule) initAdditional(ctx context.Context, timeout time.Duration,
+func (m *ReRankerTypeSafeAIModule) initAdditional(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-	apiKey := os.Getenv("JEV_APIKEY")
+	apiKey := os.Getenv("TYPESAFEAI_APIKEY")
 	maxConcurrentRequests, err := maxConcurrentRequestsFromEnv()
 	if err != nil {
 		return err
@@ -74,10 +74,10 @@ func (m *ReRankerJevModule) initAdditional(ctx context.Context, timeout time.Dur
 	return nil
 }
 
-const maxConcurrentRequestsEnv = "JEV_MAX_CONCURRENT_REQUESTS"
+const maxConcurrentRequestsEnv = "RERANKER_TYPESAFEAI_MAX_CONCURRENT_REQUESTS"
 
 // maxConcurrentRequestsFromEnv reads the process-wide limit of requests to
-// the Jev API that may be in flight at once.
+// the TypeSafeAI API that may be in flight at once.
 func maxConcurrentRequestsFromEnv() (int, error) {
 	value := os.Getenv(maxConcurrentRequestsEnv)
 	if value == "" {
@@ -91,17 +91,17 @@ func maxConcurrentRequestsFromEnv() (int, error) {
 	return parsed, nil
 }
 
-func (m *ReRankerJevModule) setClient(client ReRankerJevClient) {
+func (m *ReRankerTypeSafeAIModule) setClient(client ReRankerTypeSafeAIClient) {
 	m.reranker = client
-	m.additionalProperties = withJevRerank(
+	m.additionalProperties = withTypeSafeAIRerank(
 		rerankeradditional.NewRankerProvider(client).AdditionalProperties(), rank.New(client))
 }
 
-func (m *ReRankerJevModule) MetaInfo() (map[string]any, error) {
+func (m *ReRankerTypeSafeAIModule) MetaInfo() (map[string]any, error) {
 	return m.reranker.MetaInfo()
 }
 
-func (m *ReRankerJevModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
+func (m *ReRankerTypeSafeAIModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	return m.additionalProperties
 }
 

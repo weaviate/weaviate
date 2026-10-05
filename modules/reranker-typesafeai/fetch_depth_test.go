@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modrerankerjev
+package modrerankertypesafeai
 
 import (
 	"context"
@@ -44,19 +44,19 @@ func TestRerankFetchDepth(t *testing.T) {
 		{name: "off: the page is not checked", settings: map[string]any{}, pageEnd: 101, want: 0},
 		{
 			name: "the bound is the same as Rank's", settings: map[string]any{"maxDocuments": 5000}, header: "3000",
-			wantErr: "X-Jev-Fetch-Depth must be a whole number between 0 and maxDocuments 1000, got \"3000\"",
+			wantErr: "X-Typesafeai-Fetch-Depth must be a whole number between 0 and maxDocuments 1000, got \"3000\"",
 		},
 		{
 			name: "header above maxDocuments", settings: map[string]any{"maxDocuments": 50}, header: "51",
-			wantErr: "X-Jev-Fetch-Depth must be a whole number between 0 and maxDocuments 50, got \"51\"",
+			wantErr: "X-Typesafeai-Fetch-Depth must be a whole number between 0 and maxDocuments 50, got \"51\"",
 		},
 		{
 			name: "header not a number", settings: map[string]any{}, header: "many",
-			wantErr: "X-Jev-Fetch-Depth must be a whole number between 0 and maxDocuments 100, got \"many\"",
+			wantErr: "X-Typesafeai-Fetch-Depth must be a whole number between 0 and maxDocuments 100, got \"many\"",
 		},
 		{
 			name: "header negative", settings: map[string]any{}, header: "-1",
-			wantErr: "X-Jev-Fetch-Depth must be a whole number between 0 and maxDocuments 100, got \"-1\"",
+			wantErr: "X-Typesafeai-Fetch-Depth must be a whole number between 0 and maxDocuments 100, got \"-1\"",
 		},
 		{
 			name: "class setting above maxDocuments", settings: map[string]any{"fetchDepth": 200},
@@ -67,7 +67,7 @@ func TestRerankFetchDepth(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			if tt.header != "" {
-				ctx = context.WithValue(ctx, "X-Jev-Fetch-Depth", []string{tt.header})
+				ctx = context.WithValue(ctx, "X-Typesafeai-Fetch-Depth", []string{tt.header})
 			}
 
 			pageEnd := tt.pageEnd

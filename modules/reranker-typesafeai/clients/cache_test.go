@@ -106,7 +106,7 @@ func TestRankUsesTheCache(t *testing.T) {
 	scores := map[string]float64{"a": 0.9, "b": 0.2, "c": 0.6}
 
 	t.Run("a repeated request sends nothing", func(t *testing.T) {
-		handler := &jevHandler{t: t, scores: scores}
+		handler := &typesafeaiHandler{t: t, scores: scores}
 		server := httptest.NewServer(handler)
 		defer server.Close()
 		c := newTestClient("apiKey")
@@ -121,7 +121,7 @@ func TestRankUsesTheCache(t *testing.T) {
 	})
 
 	t.Run("only the documents not seen before are sent", func(t *testing.T) {
-		handler := &jevHandler{t: t, scores: scores}
+		handler := &typesafeaiHandler{t: t, scores: scores}
 		server := httptest.NewServer(handler)
 		defer server.Close()
 		c := newTestClient("apiKey")
@@ -139,7 +139,7 @@ func TestRankUsesTheCache(t *testing.T) {
 	})
 
 	t.Run("another query or model is judged again", func(t *testing.T) {
-		handler := &jevHandler{t: t, scores: scores}
+		handler := &typesafeaiHandler{t: t, scores: scores}
 		server := httptest.NewServer(handler)
 		defer server.Close()
 		c := newTestClient("apiKey")
@@ -156,7 +156,7 @@ func TestRankUsesTheCache(t *testing.T) {
 	})
 
 	t.Run("a failed judgment is not cached", func(t *testing.T) {
-		handler := &jevHandler{t: t, scores: scores, statuses: []int{http.StatusUnauthorized}}
+		handler := &typesafeaiHandler{t: t, scores: scores, statuses: []int{http.StatusUnauthorized}}
 		server := httptest.NewServer(handler)
 		defer server.Close()
 		c := newTestClient("apiKey")
@@ -171,7 +171,7 @@ func TestRankUsesTheCache(t *testing.T) {
 	})
 
 	t.Run("a cached request still needs an api key", func(t *testing.T) {
-		handler := &jevHandler{t: t, scores: scores}
+		handler := &typesafeaiHandler{t: t, scores: scores}
 		server := httptest.NewServer(handler)
 		defer server.Close()
 		c := newTestClient("apiKey")
@@ -187,16 +187,16 @@ func TestRankUsesTheCache(t *testing.T) {
 
 func TestRankCacheIsSeparatedByEndpointAndAPIKey(t *testing.T) {
 	t.Run("another endpoint does not read the judgments of the first", func(t *testing.T) {
-		real := &jevHandler{t: t, scores: map[string]float64{"a": 0.1}}
+		real := &typesafeaiHandler{t: t, scores: map[string]float64{"a": 0.1}}
 		realServer := httptest.NewServer(real)
 		defer realServer.Close()
-		other := &jevHandler{t: t, scores: map[string]float64{"a": 1}}
+		other := &typesafeaiHandler{t: t, scores: map[string]float64{"a": 1}}
 		otherServer := httptest.NewServer(other)
 		defer otherServer.Close()
 		c := newTestClient("apiKey")
 
 		// A caller points the module at their own server first.
-		otherCtx := context.WithValue(context.Background(), "X-Jev-Baseurl", []string{otherServer.URL})
+		otherCtx := context.WithValue(context.Background(), "X-Typesafeai-Baseurl", []string{otherServer.URL})
 		res, err := c.Rank(otherCtx, "q", []string{"a"}, classConfig(realServer.URL, nil))
 		require.NoError(t, err)
 		require.Equal(t, 1.0, res.DocumentScores[0].Score)
@@ -210,14 +210,14 @@ func TestRankCacheIsSeparatedByEndpointAndAPIKey(t *testing.T) {
 	})
 
 	t.Run("another api key is checked by the API again", func(t *testing.T) {
-		handler := &jevHandler{t: t, scores: map[string]float64{"a": 0.4}}
+		handler := &typesafeaiHandler{t: t, scores: map[string]float64{"a": 0.4}}
 		server := httptest.NewServer(handler)
 		defer server.Close()
 		c := newTestClient("apiKey")
 
 		_, err := c.Rank(context.Background(), "q", []string{"a"}, classConfig(server.URL, nil))
 		require.NoError(t, err)
-		otherKey := context.WithValue(context.Background(), "X-Jev-Api-Key", []string{"other"})
+		otherKey := context.WithValue(context.Background(), "X-Typesafeai-Api-Key", []string{"other"})
 		_, err = c.Rank(otherKey, "q", []string{"a"}, classConfig(server.URL, nil))
 		require.NoError(t, err)
 
@@ -230,7 +230,7 @@ func TestRankCacheIsSeparatedByEndpointAndAPIKey(t *testing.T) {
 // Jev can give two probabilities for the same document. Queries that ask at
 // the same time must all end up with one of them.
 func TestRankConcurrentQueriesAgreeOnAProbability(t *testing.T) {
-	handler := &jevHandler{t: t, delay: 50 * time.Millisecond, scoreByRequest: []float64{0.45, 0.55, 0.65}}
+	handler := &typesafeaiHandler{t: t, delay: 50 * time.Millisecond, scoreByRequest: []float64{0.45, 0.55, 0.65}}
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	c := newTestClient("apiKey")
@@ -262,7 +262,7 @@ func TestRankConcurrentQueriesAgreeOnAProbability(t *testing.T) {
 // A probability judged in a batch differs from one judged alone, so they
 // must not be served for each other.
 func TestRankCacheIsSeparatedByBatchSize(t *testing.T) {
-	handler := &jevHandler{t: t, scores: map[string]float64{"a": 0.3, "b": 0.6}}
+	handler := &typesafeaiHandler{t: t, scores: map[string]float64{"a": 0.3, "b": 0.6}}
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	c := newTestClient("apiKey")
@@ -290,7 +290,7 @@ func TestRankCachesLoneDocumentsAsSingleJudgments(t *testing.T) {
 	}
 
 	t.Run("the tail of a batched request", func(t *testing.T) {
-		handler := &jevHandler{t: t, scores: scores}
+		handler := &typesafeaiHandler{t: t, scores: scores}
 		server := httptest.NewServer(handler)
 		defer server.Close()
 		c := newTestClient("apiKey")
@@ -312,7 +312,7 @@ func TestRankCachesLoneDocumentsAsSingleJudgments(t *testing.T) {
 	})
 
 	t.Run("a batched class reads single judgments", func(t *testing.T) {
-		handler := &jevHandler{t: t, scores: scores}
+		handler := &typesafeaiHandler{t: t, scores: scores}
 		server := httptest.NewServer(handler)
 		defer server.Close()
 		c := newTestClient("apiKey")
@@ -329,15 +329,15 @@ func TestRankCachesLoneDocumentsAsSingleJudgments(t *testing.T) {
 }
 
 func withCache(mode string) context.Context {
-	return context.WithValue(context.Background(), "X-Jev-Cache", []string{mode})
+	return context.WithValue(context.Background(), "X-Typesafeai-Cache", []string{mode})
 }
 
-// X-Jev-Cache lets a request judge again: "refresh" replaces the stored
+// X-Typesafeai-Cache lets a request judge again: "refresh" replaces the stored
 // answers, "off" neither reads nor stores.
 func TestRankCacheModes(t *testing.T) {
 	// Every request gets another score, as if Jev changed its answer.
-	newHandler := func(t *testing.T) *jevHandler {
-		return &jevHandler{t: t, scoreByRequest: []float64{0.1, 0.2, 0.3, 0.4, 0.5, 0.6}}
+	newHandler := func(t *testing.T) *typesafeaiHandler {
+		return &typesafeaiHandler{t: t, scoreByRequest: []float64{0.1, 0.2, 0.3, 0.4, 0.5, 0.6}}
 	}
 	score := func(t *testing.T, c *client, ctx context.Context, url string) float64 {
 		res, err := c.Rank(ctx, "q", []string{"doc"}, classConfig(url, nil))
@@ -371,7 +371,7 @@ func TestRankCacheModes(t *testing.T) {
 	t.Run("refresh of one document replaces the answer a batched class reads", func(t *testing.T) {
 		// The batch answers from scores; the second request, a alone,
 		// answers 0.9.
-		handler := &jevHandler{t: t, scores: map[string]float64{"a": 0.3, "b": 0.6}, scoreByRequest: []float64{0, 0.9}}
+		handler := &typesafeaiHandler{t: t, scores: map[string]float64{"a": 0.3, "b": 0.6}, scoreByRequest: []float64{0, 0.9}}
 		server := httptest.NewServer(handler)
 		defer server.Close()
 		c := newTestClient("apiKey")
@@ -413,7 +413,7 @@ func TestRankCacheModes(t *testing.T) {
 
 		_, err := newTestClient("apiKey").Rank(withCache("sometimes"), "q", []string{"doc"}, classConfig(server.URL, nil))
 
-		require.EqualError(t, err, `X-Jev-Cache must be "on", "refresh" or "off", got "sometimes"`)
+		require.EqualError(t, err, `X-Typesafeai-Cache must be "on", "refresh" or "off", got "sometimes"`)
 		assert.Empty(t, handler.received())
 	})
 

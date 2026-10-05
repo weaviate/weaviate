@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modrerankerjev
+package modrerankertypesafeai
 
 import (
 	"context"
@@ -20,17 +20,17 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/modules/reranker-jev/config"
+	"github.com/weaviate/weaviate/modules/reranker-typesafeai/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	rerankmodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
 )
 
 const (
-	minProbabilityHeader = "X-Jev-Min-Probability"
-	minScoreHeader       = "X-Jev-Min-Score"
-	fetchDepthHeader     = "X-Jev-Fetch-Depth"
-	orderHeader          = "X-Jev-Order"
+	minProbabilityHeader = "X-Typesafeai-Min-Probability"
+	minScoreHeader       = "X-Typesafeai-Min-Score"
+	fetchDepthHeader     = "X-Typesafeai-Fetch-Depth"
+	orderHeader          = "X-Typesafeai-Order"
 )
 
 // RerankFetchDepth returns the candidates to fetch before the rerank: the
@@ -39,7 +39,7 @@ const (
 // page that ends beyond it fails here instead of after the search. The
 // explorer only asks when the query can be over-fetched; a search with
 // grouping, autocut, boost or MMR ignores the header and the setting.
-func (m *ReRankerJevModule) RerankFetchDepth(ctx context.Context, cfg moduletools.ClassConfig, pageEnd int,
+func (m *ReRankerTypeSafeAIModule) RerankFetchDepth(ctx context.Context, cfg moduletools.ClassConfig, pageEnd int,
 ) (int, error) {
 	settings := config.NewClassSettings(cfg)
 	maxDocuments := min(settings.MaxDocuments(), config.MaxDocumentsLimit)
@@ -64,14 +64,14 @@ func (m *ReRankerJevModule) RerankFetchDepth(ctx context.Context, cfg moduletool
 	return max(depth, pageEnd), nil
 }
 
-// withJevRerank replaces the search functions of the rerank property. The
+// withTypeSafeAIRerank replaces the search functions of the rerank property. The
 // GraphQL parts of the shared reranker property stay as they are.
-func withJevRerank(properties map[string]modulecapabilities.AdditionalProperty, ranker *rank.ReRankerProvider,
+func withTypeSafeAIRerank(properties map[string]modulecapabilities.AdditionalProperty, ranker *rank.ReRankerProvider,
 ) map[string]modulecapabilities.AdditionalProperty {
 	out := make(map[string]modulecapabilities.AdditionalProperty, len(properties))
 	for name, property := range properties {
 		if name == modulecomponents.AdditionalPropertyRerank {
-			rerank := jevRerank(ranker)
+			rerank := typesafeaiRerank(ranker)
 			searchFunctions := modulecapabilities.AdditionalSearch{}
 			if property.SearchFunctions.ExploreGet != nil {
 				searchFunctions.ExploreGet = rerank
@@ -86,11 +86,11 @@ func withJevRerank(properties map[string]modulecapabilities.AdditionalProperty, 
 	return out
 }
 
-// jevRerank attaches Jev's answer to every result, orders the results as the
+// typesafeaiRerank attaches Jev's answer to every result, orders the results as the
 // class or the request asks, and drops those below the threshold. The answer
 // is a probability for a yes/no question and a position on the rubric for a
 // score question, and each has its own threshold.
-func jevRerank(ranker *rank.ReRankerProvider) modulecapabilities.AdditionalPropertyFn {
+func typesafeaiRerank(ranker *rank.ReRankerProvider) modulecapabilities.AdditionalPropertyFn {
 	return func(ctx context.Context, in []search.Result, params any, limit *int,
 		argumentModuleParams map[string]any, cfg moduletools.ClassConfig,
 	) ([]search.Result, error) {

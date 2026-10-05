@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modrerankerjev
+package modrerankertypesafeai
 
 import (
 	"context"
@@ -44,7 +44,7 @@ func TestRerankDropsResultsBelowMinProbability(t *testing.T) {
 		name     string
 		settings map[string]any
 		header   string
-		// order is sent as the X-Jev-Order header.
+		// order is sent as the X-Typesafeai-Order header.
 		order   string
 		want    []string
 		wantErr string
@@ -109,28 +109,28 @@ func TestRerankDropsResultsBelowMinProbability(t *testing.T) {
 			name:       "threshold header is not a number",
 			settings:   map[string]any{},
 			header:     "high",
-			wantErr:    `X-Jev-Min-Probability must be a number between 0 and 1, got "high"`,
+			wantErr:    `X-Typesafeai-Min-Probability must be a number between 0 and 1, got "high"`,
 			wantNoRank: true,
 		},
 		{
 			name:       "threshold header above 1",
 			settings:   map[string]any{},
 			header:     "1.5",
-			wantErr:    `X-Jev-Min-Probability must be a number between 0 and 1, got "1.5"`,
+			wantErr:    `X-Typesafeai-Min-Probability must be a number between 0 and 1, got "1.5"`,
 			wantNoRank: true,
 		},
 		{
 			name:       "threshold header below 0",
 			settings:   map[string]any{},
 			header:     "-0.1",
-			wantErr:    `X-Jev-Min-Probability must be a number between 0 and 1, got "-0.1"`,
+			wantErr:    `X-Typesafeai-Min-Probability must be a number between 0 and 1, got "-0.1"`,
 			wantNoRank: true,
 		},
 		{
 			name:       "threshold header NaN",
 			settings:   map[string]any{},
 			header:     "NaN",
-			wantErr:    `X-Jev-Min-Probability must be a number between 0 and 1, got "NaN"`,
+			wantErr:    `X-Typesafeai-Min-Probability must be a number between 0 and 1, got "NaN"`,
 			wantNoRank: true,
 		},
 		{
@@ -143,7 +143,7 @@ func TestRerankDropsResultsBelowMinProbability(t *testing.T) {
 			name:       "unknown order header",
 			settings:   map[string]any{},
 			order:      "newest",
-			wantErr:    `X-Jev-Order must be "search" or "probability", got "newest"`,
+			wantErr:    `X-Typesafeai-Order must be "search" or "probability", got "newest"`,
 			wantNoRank: true,
 		},
 		{
@@ -167,10 +167,10 @@ func TestRerankDropsResultsBelowMinProbability(t *testing.T) {
 
 				ctx := context.Background()
 				if tt.header != "" {
-					ctx = context.WithValue(ctx, "X-Jev-Min-Probability", []string{tt.header})
+					ctx = context.WithValue(ctx, "X-Typesafeai-Min-Probability", []string{tt.header})
 				}
 				if tt.order != "" {
-					ctx = context.WithValue(ctx, "X-Jev-Order", []string{tt.order})
+					ctx = context.WithValue(ctx, "X-Typesafeai-Order", []string{tt.order})
 				}
 				property, query := "text", "the customer is angry"
 
@@ -221,7 +221,7 @@ func TestRerankKeepsGraphQLFunctions(t *testing.T) {
 	assert.Nil(t, rerank.SearchFunctions.ObjectList)
 }
 
-func newTestModule(client ReRankerJevClient) *ReRankerJevModule {
+func newTestModule(client ReRankerTypeSafeAIClient) *ReRankerTypeSafeAIModule {
 	m := New()
 	m.setClient(client)
 	return m

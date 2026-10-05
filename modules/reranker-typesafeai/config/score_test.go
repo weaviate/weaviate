@@ -44,23 +44,23 @@ func TestScoreLevels(t *testing.T) {
 		{name: "two levels are the minimum", settings: map[string]any{}, header: "no|yes", want: []string{"no", "yes"}},
 		{
 			name: "one level in the header", settings: map[string]any{}, header: "only",
-			wantErr: "X-Jev-Score-Levels must list between 2 and 10 levels, got 1",
+			wantErr: "X-Typesafeai-Score-Levels must list between 2 and 10 levels, got 1",
 		},
 		{
 			name: "eleven levels in the header", settings: map[string]any{}, header: eleven,
-			wantErr: "X-Jev-Score-Levels must list between 2 and 10 levels, got 11",
+			wantErr: "X-Typesafeai-Score-Levels must list between 2 and 10 levels, got 11",
 		},
 		{
 			name: "empty level in the header", settings: map[string]any{}, header: "low||high",
-			wantErr: "X-Jev-Score-Levels has an empty level at position 2",
+			wantErr: "X-Typesafeai-Score-Levels has an empty level at position 2",
 		},
 		{
 			name: "level too long", settings: map[string]any{}, header: "low|" + strings.Repeat("x", 201),
-			wantErr: "X-Jev-Score-Levels has a level of 201 bytes at position 2, the maximum is 200",
+			wantErr: "X-Typesafeai-Score-Levels has a level of 201 bytes at position 2, the maximum is 200",
 		},
 		{
 			name: "repeated level in the header", settings: map[string]any{}, header: "low|high|low",
-			wantErr: "X-Jev-Score-Levels repeats the level \"low\" at positions 1 and 3",
+			wantErr: "X-Typesafeai-Score-Levels repeats the level \"low\" at positions 1 and 3",
 		},
 		{
 			name:     "class levels are trimmed",
@@ -95,7 +95,7 @@ func TestScoreLevels(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			if tt.header != "" {
-				ctx = context.WithValue(ctx, "X-Jev-Score-Levels", []string{tt.header})
+				ctx = context.WithValue(ctx, "X-Typesafeai-Score-Levels", []string{tt.header})
 			}
 
 			got, err := ScoreLevels(ctx, fakeClassConfig{classConfig: tt.settings})
