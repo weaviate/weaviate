@@ -27,8 +27,10 @@ import (
 	"github.com/weaviate/weaviate/cluster/router/types"
 	localschema "github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -61,16 +63,12 @@ func (c *searchConsistencyClient) DigestObjects(_ context.Context, host, _, _ st
 }
 
 // swapSearchConsistencyReplicator replaces the index's replicator with one
-// whose router resolves three replicas and computes the consistency level
-// against all three, including unreachable ones. Digest reads go to client.
+// whose router resolves three replicas per shard and computes the consistency
+// level against all three, including unreachable ones. Digest reads go to
+// client.
 func swapSearchConsistencyReplicator(t *testing.T, idx *Index, client replica.Client) {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
-	replicas := []types.Replica{
-		{NodeName: "node1", ShardName: "shard1", HostAddr: "127.0.0.1"},
-		{NodeName: "node2", ShardName: "shard1", HostAddr: "127.0.0.2"},
-		{NodeName: "node3", ShardName: "shard1", HostAddr: "127.0.0.3"},
-	}
 	mockRouter := types.NewMockRouter(t)
 	mockRouter.EXPECT().
 		BuildRoutingPlanOptions(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -82,6 +80,11 @@ func swapSearchConsistencyReplicator(t *testing.T, idx *Index, client replica.Cl
 	mockRouter.EXPECT().
 		BuildReadRoutingPlan(mock.Anything).
 		RunAndReturn(func(opts types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
+			replicas := []types.Replica{
+				{NodeName: "node1", ShardName: opts.Shard, HostAddr: "127.0.0.1"},
+				{NodeName: "node2", ShardName: opts.Shard, HostAddr: "127.0.0.2"},
+				{NodeName: "node3", ShardName: opts.Shard, HostAddr: "127.0.0.3"},
+			}
 			return types.ReadRoutingPlan{
 				LocalHostname:       "127.0.0.1",
 				Shard:               opts.Shard,
@@ -114,9 +117,12 @@ func swapSearchConsistencyReplicator(t *testing.T, idx *Index, client replica.Cl
 const searchConsistencyUpdateTime = int64(999)
 
 func setupSearchConsistencyRepo(t *testing.T, client replica.Client) (*DB, *Index) {
+	return setupSearchConsistencyRepoWithState(t, client, singleShardState())
+}
+
+func setupSearchConsistencyRepoWithState(t *testing.T, client replica.Client, shardState *sharding.State) (*DB, *Index) {
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
-	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
@@ -161,7 +167,7 @@ func setupSearchConsistencyRepo(t *testing.T, client replica.Client) (*DB, *Inde
 		InvertedIndexConfig: &models.InvertedIndexConfig{},
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		Properties: []*models.Property{
-			{Name: "title", DataType: schema.DataTypeText.PropString()},
+			{Name: "title", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWord},
 		},
 		ReplicationConfig: &models.ReplicationConfig{Factor: 3},
 	}
@@ -235,6 +241,37 @@ func TestObjectSearchConsistencyLevelEnforcement(t *testing.T) {
 		require.Nil(t, res)
 		require.Contains(t, err.Error(), `cannot achieve consistency level "ALL"`)
 	})
+
+	// A search that retains no hits never enters the digest vote, so the level
+	// must still be validated against replica availability for the shard.
+	zeroHitFilter := &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			On: &filters.Path{
+				Class:    "SearchConsistencyTestClass",
+				Property: "title",
+			},
+			Value: &filters.Value{
+				Value: "zzqqxneverpresent",
+				Type:  schema.DataTypeText,
+			},
+		},
+	}
+
+	t.Run("ALL fails on a zero-hit search when a replica is down", func(t *testing.T) {
+		res, _, err := idx.objectSearch(ctx, 10, zeroHitFilter, nil, nil, nil, additional.Properties{},
+			&additional.ReplicationProperties{ConsistencyLevel: "ALL"}, "", 0, nil)
+		require.Error(t, err)
+		require.Nil(t, res)
+		require.Contains(t, err.Error(), `cannot achieve consistency level "ALL"`)
+	})
+
+	t.Run("QUORUM passes on a zero-hit search with two replicas up", func(t *testing.T) {
+		res, _, err := idx.objectSearch(ctx, 10, zeroHitFilter, nil, nil, nil, additional.Properties{},
+			&additional.ReplicationProperties{ConsistencyLevel: "QUORUM"}, "", 0, nil)
+		require.NoError(t, err)
+		require.Empty(t, res)
+	})
 }
 
 // Objects read from single-replica shards carry no ownership stamp. They must
@@ -255,12 +292,70 @@ func TestCheckSearchConsistencySkipsUnownedObjects(t *testing.T) {
 	}
 
 	t.Run("mixed results only check owned objects", func(t *testing.T) {
-		err := idx.checkSearchConsistency(ctx, "QUORUM", []*storobj.Object{owned, unowned})
+		err := idx.checkSearchConsistency(ctx, "QUORUM", "", []string{"shard1"}, []*storobj.Object{owned, unowned})
 		require.NoError(t, err)
 	})
 
 	t.Run("all-unowned results skip the check entirely", func(t *testing.T) {
-		err := idx.checkSearchConsistency(ctx, "ALL", []*storobj.Object{unowned})
+		err := idx.checkSearchConsistency(ctx, "ALL", "", []string{"shard1"}, []*storobj.Object{unowned})
 		require.NoError(t, err)
+	})
+}
+
+// Multi-shard vector searches fan out and merge coordinator-side; every merge
+// shape (groupBy, explicit sort, default distance order) funnels into the same
+// consistency enforcement. One of three replicas per shard is down, so ALL
+// must fail on every shape while QUORUM still passes.
+func TestObjectVectorSearchConsistencyMultiShard(t *testing.T) {
+	ctx := context.Background()
+	client := &searchConsistencyClient{
+		updateTime: searchConsistencyUpdateTime,
+		downHosts:  map[string]bool{"127.0.0.3": true},
+	}
+	repo, idx := setupSearchConsistencyRepoWithState(t, client, multiShardState())
+	// write with the default (single-node) replicator, then swap in the
+	// three-replica one that drives the consistency checks
+	putSearchConsistencyObj(t, repo, "00000000-0000-0000-0000-0000000000c1")
+	putSearchConsistencyObj(t, repo, "00000000-0000-0000-0000-0000000000c2")
+	putSearchConsistencyObj(t, repo, "00000000-0000-0000-0000-0000000000c3")
+	swapSearchConsistencyReplicator(t, idx, client)
+
+	vec := []models.Vector{[]float32{0.1, 0.2, 0.3, 0.4}}
+
+	t.Run("default distance merging", func(t *testing.T) {
+		res, _, err := idx.objectVectorSearch(ctx, vec, []string{""}, 0, 10,
+			nil, nil, nil, additional.Properties{},
+			&additional.ReplicationProperties{ConsistencyLevel: "ALL"}, "", nil, nil)
+		require.Error(t, err)
+		require.Nil(t, res)
+		require.Contains(t, err.Error(), `cannot achieve consistency level "ALL"`)
+	})
+
+	t.Run("explicit sort", func(t *testing.T) {
+		sort := []filters.Sort{{Path: []string{"title"}, Order: "asc"}}
+		res, _, err := idx.objectVectorSearch(ctx, vec, []string{""}, 0, 10,
+			nil, sort, nil, additional.Properties{},
+			&additional.ReplicationProperties{ConsistencyLevel: "ALL"}, "", nil, nil)
+		require.Error(t, err)
+		require.Nil(t, res)
+		require.Contains(t, err.Error(), `cannot achieve consistency level "ALL"`)
+	})
+
+	t.Run("groupBy", func(t *testing.T) {
+		groupBy := &searchparams.GroupBy{Property: "title", Groups: 1, ObjectsPerGroup: 1}
+		res, _, err := idx.objectVectorSearch(ctx, vec, []string{""}, 0, 10,
+			nil, nil, groupBy, additional.Properties{},
+			&additional.ReplicationProperties{ConsistencyLevel: "ALL"}, "", nil, nil)
+		require.Error(t, err)
+		require.Nil(t, res)
+		require.Contains(t, err.Error(), `cannot achieve consistency level "ALL"`)
+	})
+
+	t.Run("QUORUM passes on the remaining replicas", func(t *testing.T) {
+		res, _, err := idx.objectVectorSearch(ctx, vec, []string{""}, 0, 10,
+			nil, nil, nil, additional.Properties{},
+			&additional.ReplicationProperties{ConsistencyLevel: "QUORUM"}, "", nil, nil)
+		require.NoError(t, err)
+		require.NotEmpty(t, res)
 	})
 }

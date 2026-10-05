@@ -2945,7 +2945,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 
 	if i.anyShardHasMultipleReplicasRead(tenant, readPlan.Shards()) {
-		if err := i.checkSearchConsistency(ctx, cl, outObjects); err != nil {
+		if err := i.checkSearchConsistency(ctx, cl, tenant, readPlan.Shards(), outObjects); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -2961,8 +2961,14 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 // single-replica shards (e.g. a class at replication factor 1 with an
 // in-flight shard replication) are excluded from the check rather than
 // failing it.
+//
+// A replicated shard that contributed no retained objects never enters the
+// digest vote, which returns immediately for an empty set, so its replicas
+// would not be contacted at all and an unreachable one would stay undetected.
+// Such shards are probed individually: with no objects left to compare, the
+// level is validated against replica availability alone.
 func (i *Index) checkSearchConsistency(ctx context.Context, cl routerTypes.ConsistencyLevel,
-	outObjects []*storobj.Object,
+	tenant string, shards []string, outObjects []*storobj.Object,
 ) error {
 	checkObjects := outObjects
 	unowned := false
@@ -2982,6 +2988,21 @@ func (i *Index) checkSearchConsistency(ctx context.Context, cl routerTypes.Consi
 	}
 	if err := i.replicator.CheckConsistency(ctx, cl, checkObjects); err != nil {
 		return fmt.Errorf("%s %q: %w", replicaerrors.MsgCLevel, cl, err)
+	}
+	voted := make(map[string]struct{}, len(checkObjects))
+	for _, obj := range checkObjects {
+		voted[obj.BelongsToShard] = struct{}{}
+	}
+	for _, shard := range shards {
+		if _, ok := voted[shard]; ok {
+			continue
+		}
+		if !i.shardHasMultipleReplicasRead(tenant, shard) {
+			continue
+		}
+		if err := i.replicator.CheckShardConsistencyLevel(ctx, cl, shard); err != nil {
+			return fmt.Errorf("%s %q: %w", replicaerrors.MsgCLevel, cl, err)
+		}
 	}
 	return nil
 }
@@ -3294,7 +3315,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			}
 			if i.shardHasMultipleReplicasRead(tenant, readPlan.Shards()[0]) {
 				storobj.AddOwnership(out, i.Config.NodeName, readPlan.Shards()[0])
-				if err := i.checkSearchConsistency(ctx, cl, out); err != nil {
+				if err := i.checkSearchConsistency(ctx, cl, tenant, readPlan.Shards(), out); err != nil {
 					return nil, nil, err
 				}
 			}
@@ -3428,7 +3449,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	}
 
 	if i.anyShardHasMultipleReplicasRead(tenant, readPlan.Shards()) {
-		if err := i.checkSearchConsistency(ctx, cl, out); err != nil {
+		if err := i.checkSearchConsistency(ctx, cl, tenant, readPlan.Shards(), out); err != nil {
 			return nil, nil, err
 		}
 	}
