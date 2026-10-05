@@ -586,8 +586,8 @@ func (p *ReindexProvider) processOneUnit(
 		cached = len(tasks) > 0
 	}
 	if cached {
-		// Recovery seeds only the halves that carry a record, so a restart between
-		// a unit's halves leaves the other one to build here.
+		// Recovery seeds only the halves whose iteration finished, so a restart
+		// between a unit's halves leaves the other one to build here.
 		fresh, createErr := p.createReindexTasks(task.TaskDescriptor, unitID, payload)
 		if createErr != nil {
 			p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf("creating reindex tasks: %v", createErr))
@@ -607,7 +607,7 @@ func (p *ReindexProvider) processOneUnit(
 		}
 		if len(added) > 0 {
 			logger.Infof("reindex provider: recovery seeded %d of this unit's migrations; "+
-				"built the %d never-started one(s) (%s) from the task payload",
+				"built the %d unseeded one(s) (%s) from the task payload",
 				len(tasks)-len(added), len(added), strings.Join(added, ", "))
 			p.cacheReindexTasks(task.TaskDescriptor, unitID, tasks)
 		}

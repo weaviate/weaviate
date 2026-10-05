@@ -45,13 +45,10 @@ import (
 //     sidecar bucket dirs. Without cleanup,
 //     the second submit creates a *new* DTM task (so checkReindexConflict
 //     does not catch it) but the OnAfterLsmInit path attempts to load buckets
-//     whose state is the half-written aftermath of the previous run. Either
-//     it loads stale data and the swap promotes a corrupt bucket, or the
-//     "expected progress" tracker disagrees with the on-disk objects bucket
-//     and the iteration silently no-ops, or one of the sidecar bucket
-//     "rename: file exists" errors during RunSwapOnShard. All three failure
-//     modes manifest the same way to the customer: the schema flag flips to
-//     true but bm25() / equalFilter() / rangeFilter() returns zero hits.
+//     whose state is the half-written aftermath of the previous run, and the
+//     swap promotes that partial bucket. The customer sees the schema flag
+//     flip to true while bm25() / equalFilter() / rangeFilter() return zero
+//     hits.
 //
 // Three sub-tests, one per index type, each on its own collection so they
 // can run independently inside the shared container.
@@ -107,7 +104,7 @@ func testCancelThenRetrySearchable(t *testing.T, restURI string) {
 	hits := bm25Hits(t, class, "retryfox")
 	require.Equal(t, cancelObjectCount, hits,
 		"post-CANCEL-then-retry: bm25('retryfox') must return all %d docs; got %d. "+
-			"If 0, the second submit short-circuited on stale started.mig / progress.mig and "+
+			"If 0, the retry built nothing over the cancelled run's leftover sidecars and "+
 			"the bucket is empty — schema reports ready but customer queries are broken (Sev 1)",
 		cancelObjectCount, hits)
 }
@@ -144,7 +141,7 @@ func testCancelThenRetryFilterable(t *testing.T, restURI string) {
 	hits := equalFilterHits(t, class, "name", "shared_name")
 	require.Equal(t, cancelObjectCount, hits,
 		"post-CANCEL-then-retry: filterable Equal('shared_name') must return %d; got %d. "+
-			"If 0, the migration silently no-opped on stale started.mig / partial __reindex sidecars (Sev 1)",
+			"If 0, the retry built nothing over the cancelled run's leftover sidecars (Sev 1)",
 		cancelObjectCount, hits)
 }
 
@@ -185,7 +182,7 @@ func testCancelThenRetryRangeable(t *testing.T, restURI string) {
 	hits := rangeFilterHits(t, class, "score", 50)
 	require.Equal(t, expected, hits,
 		"post-CANCEL-then-retry: range LessThan(50) must return %d; got %d. "+
-			"If 0, the migration silently no-opped on stale started.mig / partial __reindex sidecars (Sev 1)",
+			"If 0, the retry built nothing over the cancelled run's leftover sidecars (Sev 1)",
 		expected, hits)
 }
 

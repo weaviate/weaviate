@@ -185,7 +185,7 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 	// Structural sibling of DeleteThenReEnable on the CANCEL→retry axis.
 	// Submits an enable-*, cancels it mid-flight, re-submits. The second
 	// submit MUST actually build the index — not silently no-op on the
-	// record and partial __reindex sidecars the cancelled run left behind.
+	// partial __reindex sidecars the cancelled run left behind.
 	t.Run("CancelThenRetry", func(t *testing.T) {
 		testCancelThenRetry(t, restURI)
 	})

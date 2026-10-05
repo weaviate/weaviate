@@ -596,7 +596,7 @@ already runs this synchronously, but the wait can time out or the node
 can crash mid-cancel. Submit-time cleanup catches that gap. Critically,
 for `change-tokenization` the sweep wipes BOTH `searchable` AND
 `filterable` migration dirs — cleaning only one of them was the root
-cause of a Sev 1 (see `indexTypesFromMigrationType`'s godoc).
+cause of a Sev 1.
 
 ### 4.2 Distributed Task Manager — `cluster/distributedtask/`
 
@@ -1658,10 +1658,7 @@ This build emits no load-time signal for an unpromoted marker-era migration.
 
 Downgrading is the mirror of it. A migration this build flipped and has not yet
 promoted keeps its live data under the staged name, and the record in
-`<shard>/lsm/.migrations/records/` is the only thing that says so. An older
-release does not read records, so it never renames the staged directory onto
-the canonical name, and the three strategies that pre-create an empty canonical
-bucket when the migration arms then serve queries from it.
+`<shard>/lsm/.migrations/records/` is the only thing that says so.
 
 The staged directory itself survives an ordinary downgrade — the older
 release's sidecar sweep runs on an index DELETE, not on load. But that sweep

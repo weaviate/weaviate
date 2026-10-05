@@ -556,8 +556,8 @@ func (r *migrationReconciler) promoteProperty(rec MigrationRecordSwapped,
 		return rec, false, why, nil
 	}
 
-	// Dormant here: every flip this build writes displaces the canonical name
-	// itself, and the cutover is what writes a different one.
+	// A back-to-back flip with no load in between displaces the predecessor's
+	// staged directory.
 	if displaced != "" && displaced != canonical {
 		if cleared, err := r.clearForPromotion(subject, displaced, "the displaced directory"); err != nil || !cleared {
 			return rec, false, "", err

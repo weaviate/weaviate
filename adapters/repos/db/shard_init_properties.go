@@ -285,8 +285,8 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 		"operation":   "CleanStalePartialReindexState",
 	})
 
-	// A shard whose records cannot be read withholds every sidecar, so the sweep
-	// has removed nothing and must not report success.
+	// A shard whose record set cannot be read at all keeps every sidecar, so the
+	// sweep has removed nothing and must not report success.
 	committed, err := migrationPreservedStateAt(s.pathLSM(), s.index.logger)
 	if err != nil {
 		return fmt.Errorf("partial-reindex cleanup: %w", err)

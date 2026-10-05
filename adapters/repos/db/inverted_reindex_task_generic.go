@@ -439,7 +439,7 @@ func (t *ShardReindexTaskGeneric) stagedPropsStillOnDisk(logger logrus.FieldLogg
 	return kept, nil
 }
 
-// swapStillToRun: the decision precedes the first pointer move, so all-staged means none flipped.
+// swapStillToRun: after a load, all-staged means none flipped; in process it can also mean all flipped, which the swap skips.
 func (t *ShardReindexTaskGeneric) swapStillToRun(logger logrus.FieldLogger, shard ShardLike,
 	rec MigrationRecord, props []string,
 ) (bool, error) {
@@ -1032,8 +1032,8 @@ func (t *ShardReindexTaskGeneric) runtimePrepare(ctx context.Context,
 			return fmt.Errorf("flushing reindex bucket %q: %w", reindexName, err)
 		}
 		reindexDir := reindexBucket.GetDir()
-		// FOLLOW-UP: ShutdownBucket does not abort a long-running compaction on ctx
-		// cancel, so a graceful shutdown can interrupt the prep. Tracked separately.
+		// FOLLOW-UP: ShutdownBucket waits out a running compaction, then fails with
+		// ctx's error, so a graceful shutdown fails the prep. Tracked separately.
 		if err := store.ShutdownBucket(ctx, reindexName); err != nil {
 			return fmt.Errorf("shutting down reindex bucket %q: %w", reindexName, err)
 		}

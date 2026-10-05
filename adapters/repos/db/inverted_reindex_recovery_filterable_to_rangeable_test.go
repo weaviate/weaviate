@@ -305,8 +305,8 @@ func TestRecoveryConvergence_FilterableToRangeable_FromEachState(t *testing.T) {
 		buildTask: func(t *testing.T, f *migrationRestartFixture) (*ShardReindexTaskGeneric, func() bool) {
 			task, wrapped := newFilterableToRangeableTask(t, f.idx, f.class.Class, propName,
 				testMigrationUnitFor(f.idx, f.shardName))
-			// Stands in for the RAFT round trip in
-			// [FilterableToRangeableStrategy.OnMigrationComplete]; without it the
+			// Stands in for the schema flip [ReindexProvider.OnTaskCompleted] commits
+			// through RAFT; without it the
 			// next load never opens the bucket the promotion just renamed.
 			wrapped.onComplete = func() error {
 				enabled := true
