@@ -309,6 +309,10 @@ func (a backupsAuthorizer) Authorize(_ context.Context, pr *models.Principal, ve
 	return nil
 }
 
+func (a backupsAuthorizer) AuthorizeAndRequireActiveNamespace(ctx context.Context, pr *models.Principal, verb string, _ string, resources ...string) error {
+	return a.Authorize(ctx, pr, verb, resources...)
+}
+
 func (a backupsAuthorizer) AuthorizeSilent(ctx context.Context, pr *models.Principal, verb string, resources ...string) error {
 	return a.Authorize(ctx, pr, verb, resources...)
 }

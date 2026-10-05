@@ -867,7 +867,7 @@ func TestUpdateClass_QualifiesPropertyDataTypes(t *testing.T) {
 			sm.On("UpdateClass", mock.MatchedBy(func(c *models.Class) bool {
 				captured = c
 				return true
-			}), mock.Anything).Return(nil).Maybe()
+			}), mock.Anything, cmd.ClassUpdateOriginUser).Return(nil).Maybe()
 
 			body := &models.Class{
 				Class:             tt.bodyClass,

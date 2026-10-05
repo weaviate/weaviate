@@ -39,6 +39,10 @@ func (r *recordingAuthorizer) Authorize(ctx context.Context, principal *models.P
 	return nil
 }
 
+func (r *recordingAuthorizer) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error {
+	return r.Authorize(ctx, principal, verb, resources...)
+}
+
 func (r *recordingAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
 	return r.Authorize(ctx, principal, verb, resources...)
 }

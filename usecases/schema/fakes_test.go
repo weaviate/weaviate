@@ -42,8 +42,8 @@ func (f *fakeSchemaManager) RestoreClass(_ context.Context, cls *models.Class, s
 	return 0, args.Error(0)
 }
 
-func (f *fakeSchemaManager) UpdateClass(_ context.Context, cls *models.Class, ss *sharding.State) (uint64, error) {
-	args := f.Called(cls, ss)
+func (f *fakeSchemaManager) UpdateClass(_ context.Context, cls *models.Class, ss *sharding.State, origin command.ClassUpdateOrigin) (uint64, error) {
+	args := f.Called(cls, ss, origin)
 	return 0, args.Error(0)
 }
 

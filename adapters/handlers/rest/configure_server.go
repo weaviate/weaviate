@@ -163,6 +163,13 @@ func configureAnonymousAccess(appState *state.State) *anonymous.Client {
 }
 
 func configureAuthorizer(appState *state.State) error {
+	// configureOIDC and configureAPIKey take appState.NamespacesController
+	// earlier in boot and neither rejects a typed nil, so this is the first
+	// place it is checked.
+	if appState.ServerConfig.Config.Namespaces.Enabled && appState.NamespacesController == nil {
+		return fmt.Errorf("NAMESPACES_ENABLED=true requires a namespace controller, but it wasn't initialized")
+	}
+
 	if appState.ServerConfig.Config.Authorization.Rbac.Enabled {
 		// if rbac enforcer enabled, start forcing all requests using the casbin enforcer
 		rbacController, err := rbac.New(

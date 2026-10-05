@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -44,10 +45,11 @@ const (
 // cleared the policy store, so the node still holds the roles it had.
 var ErrRestoreRefused = errors.New("restore snapshot refused")
 
-// NamespaceLister reports the namespaces this cluster currently has. Snapshot calls it
-// when it runs rather than at construction, so a snapshot taken later sees namespaces
-// created since boot.
+// NamespaceLister reports the namespaces this cluster currently has. Snapshot calls
+// List when it runs, so it sees namespaces created since boot.
+// AuthorizeAndRequireActiveNamespace reads a namespace's state through Exister.
 type NamespaceLister interface {
+	usecasesNamespaces.Exister
 	List() []cmd.Namespace
 }
 
@@ -61,6 +63,9 @@ type Manager struct {
 	restoreLock       sync.RWMutex
 }
 
+// New builds the RBAC manager. namespaces must be non-nil when namespacesEnabled is
+// true, because the first namespace-qualified class reads its state.
+// configureAuthorizer refuses to boot without it.
 func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool, namespaces NamespaceLister, logger logrus.FieldLogger) (*Manager, error) {
 	csbin, err := Init(rbacConf, rbacStoragePath, authNconf, namespacesEnabled)
 	if err != nil {

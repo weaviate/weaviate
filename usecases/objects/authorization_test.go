@@ -188,6 +188,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 			precedingCalls: []mocks.AuthZReq{{
 				Principal: principal, Verb: authorization.READ,
 				Resources: authorization.ShardsData("class", "tenant"),
+				Method:    mocks.MethodAuthorize,
 			}},
 			expectedVerb:      authorization.UPDATE,
 			expectedResources: authorization.ShardsData("class", "tenant"),
@@ -260,7 +261,10 @@ func expectedAuthZReqs(principal *models.Principal, preceding []mocks.AuthZReq,
 ) []mocks.AuthZReq {
 	reqs := make([]mocks.AuthZReq, 0, len(preceding)+1)
 	reqs = append(reqs, preceding...)
-	return append(reqs, mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources})
+	return append(reqs, mocks.AuthZReq{
+		Principal: principal, Verb: verb, Resources: resources,
+		Method: mocks.MethodAuthorize,
+	})
 }
 
 func Test_BatchKinds_Authorization(t *testing.T) {
@@ -298,6 +302,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			precedingCalls: []mocks.AuthZReq{{
 				Principal: principal, Verb: authorization.UPDATE,
 				Resources: authorization.ShardsData("class", "tenant"),
+				Method:    mocks.MethodAuthorize,
 			}},
 			expectedVerb:      authorization.CREATE,
 			expectedResources: authorization.ShardsData("class", "tenant"),
