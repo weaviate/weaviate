@@ -160,7 +160,9 @@ func (f *reconcileFixture) reconcile() *migrationReconciler {
 
 func (f *reconcileFixture) deps() migrationReconcileDeps {
 	return migrationReconcileDeps{
-		LocalTasks: func() ([]*distributedtask.Task, bool) { return f.tasks, f.tasksReadable },
+		LocalTasks: func() ([]distributedtask.TaskStatusEntry, bool) {
+			return migrationTaskStatuses(f.tasks), f.tasksReadable
+		},
 		SealUnit: func(desc distributedtask.TaskDescriptor, unitID string) (func(), bool) {
 			f.asked = append(f.asked, liveUnitKey{desc, unitID})
 			if f.liveUnit != nil && *f.liveUnit == (liveUnitKey{desc, unitID}) {

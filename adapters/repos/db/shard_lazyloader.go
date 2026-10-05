@@ -1142,9 +1142,9 @@ func (l *LazyLoadShard) mayHoldUndecidedRecordOf(task *distributedtask.Task) boo
 	if err := store.Load(); err != nil || len(store.Unreadable()) > 0 {
 		return true
 	}
-	tasks := []*distributedtask.Task{task}
+	tasks := []distributedtask.TaskStatusEntry{task.StatusEntry()}
 	for _, rec := range store.Records() {
-		if findMigrationTask(rec.Subject(), tasks) != nil && !rec.FlipDecided() {
+		if _, found := findMigrationTask(rec.Subject(), tasks); found && !rec.FlipDecided() {
 			return true
 		}
 	}

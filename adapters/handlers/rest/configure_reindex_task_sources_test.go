@@ -26,7 +26,7 @@ import (
 // stubMigrationTaskRaft records whether the task list was reached at all.
 type stubMigrationTaskRaft struct {
 	caughtUp   bool
-	local      map[string][]*distributedtask.Task
+	local      map[string][]distributedtask.TaskStatusEntry
 	cluster    map[string][]*distributedtask.Task
 	clusterErr error
 
@@ -36,9 +36,9 @@ type stubMigrationTaskRaft struct {
 
 func (s *stubMigrationTaskRaft) FSMHasCaughtUp() bool { return s.caughtUp }
 
-func (s *stubMigrationTaskRaft) LocalDistributedTasks() map[string][]*distributedtask.Task {
+func (s *stubMigrationTaskRaft) LocalTaskStatuses(namespace string) []distributedtask.TaskStatusEntry {
 	s.localReads++
-	return s.local
+	return s.local[namespace]
 }
 
 func (s *stubMigrationTaskRaft) ListDistributedTasks(context.Context) (map[string][]*distributedtask.Task, error) {
@@ -60,21 +60,29 @@ func reindexTasks(ids ...string) []*distributedtask.Task {
 	return tasks
 }
 
+func reindexTaskStatuses(ids ...string) []distributedtask.TaskStatusEntry {
+	var out []distributedtask.TaskStatusEntry
+	for _, task := range reindexTasks(ids...) {
+		out = append(out, task.StatusEntry())
+	}
+	return out
+}
+
 // A node mid-catch-up must report "I cannot tell", not an empty task list the
 // reconciler would read as authoritative and act on destructively.
 func TestMigrationLocalTaskSourceWithholdsUntilTheFSMHasCaughtUp(t *testing.T) {
 	tests := []struct {
 		name      string
 		caughtUp  bool
-		local     map[string][]*distributedtask.Task
-		wantTasks []*distributedtask.Task
+		local     map[string][]distributedtask.TaskStatusEntry
+		wantTasks []distributedtask.TaskStatusEntry
 		wantKnown bool
 		wantReads int
 	}{
 		{
 			name:      "still applying its log: withholds, and does not read the task list",
 			caughtUp:  false,
-			local:     map[string][]*distributedtask.Task{db.ReindexNamespace: reindexTasks("a")},
+			local:     map[string][]distributedtask.TaskStatusEntry{db.ReindexNamespace: reindexTaskStatuses("a")},
 			wantTasks: nil,
 			wantKnown: false,
 			wantReads: 0,
@@ -82,15 +90,15 @@ func TestMigrationLocalTaskSourceWithholdsUntilTheFSMHasCaughtUp(t *testing.T) {
 		{
 			name:      "caught up: reports the reindex namespace",
 			caughtUp:  true,
-			local:     map[string][]*distributedtask.Task{db.ReindexNamespace: reindexTasks("a", "b")},
-			wantTasks: reindexTasks("a", "b"),
+			local:     map[string][]distributedtask.TaskStatusEntry{db.ReindexNamespace: reindexTaskStatuses("a", "b")},
+			wantTasks: reindexTaskStatuses("a", "b"),
 			wantKnown: true,
 			wantReads: 1,
 		},
 		{
 			name:      "caught up with no reindex tasks: an empty list is authoritative",
 			caughtUp:  true,
-			local:     map[string][]*distributedtask.Task{"other": reindexTasks("a")},
+			local:     map[string][]distributedtask.TaskStatusEntry{"other": reindexTaskStatuses("a")},
 			wantTasks: nil,
 			wantKnown: true,
 			wantReads: 1,

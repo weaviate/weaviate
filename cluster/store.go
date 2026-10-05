@@ -485,6 +485,10 @@ func (st *Store) LocalDistributedTasks() map[string][]*distributedtask.Task {
 	return st.distributedTasksManager.LocalDistributedTasks()
 }
 
+func (st *Store) LocalTaskStatuses(namespace string) []distributedtask.TaskStatusEntry {
+	return st.distributedTasksManager.LocalTaskStatuses(namespace)
+}
+
 // lastIndex returns the last index in stable storage,
 // either from the last log or from the last snapshot.
 // this method work as a protection from applying anything was applied to the db

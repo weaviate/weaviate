@@ -50,7 +50,7 @@ func TestTheClusterPassSamplesItsPerShardRefusals(t *testing.T) {
 
 	db := &DB{logger: logger, indices: map[string]*Index{"Books": idx}}
 	db.migrationCluster.db = db
-	db.migrationCluster.local = func() ([]*distributedtask.Task, bool) { return nil, true }
+	db.migrationCluster.local = func() ([]distributedtask.TaskStatusEntry, bool) { return nil, true }
 	db.migrationCluster.cluster = func(context.Context) ([]*distributedtask.Task, error) {
 		return nil, nil
 	}

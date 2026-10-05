@@ -36,7 +36,7 @@ type migrationStagedBucketCloser interface {
 }
 
 type migrationReconcileDeps struct {
-	LocalTasks func() ([]*distributedtask.Task, bool)
+	LocalTasks func() ([]distributedtask.TaskStatusEntry, bool)
 
 	SealUnit func(distributedtask.TaskDescriptor, string) (func(), bool)
 
@@ -348,6 +348,7 @@ func (r *migrationReconciler) ReconcileWithClusterTasks(ctx context.Context, tas
 	if len(r.store.Unreadable()) > 0 {
 		return
 	}
+	statuses := migrationTaskStatuses(tasks)
 	for _, rec := range r.store.Records() {
 		if ctx.Err() != nil {
 			return
@@ -356,7 +357,7 @@ func (r *migrationReconciler) ReconcileWithClusterTasks(ctx context.Context, tas
 		if rec.FlipDecided() || r.store.Wedged(subject.Key) {
 			continue
 		}
-		verdict, why := r.clusterVerdict(subject, tasks)
+		verdict, why := r.clusterVerdict(subject, statuses)
 		switch {
 		case verdict == migrationVerdictWedge:
 			r.wedgeForTask(ctx, subject, "%s.", why)
@@ -819,7 +820,7 @@ const migrationTaskMapUnreadable = "this node's task map cannot be read yet"
 
 // Not installed and installed-but-not-applied-yet read the same here: neither
 // licenses a decision.
-func (r *migrationReconciler) localTasks() ([]*distributedtask.Task, bool) {
+func (r *migrationReconciler) localTasks() ([]distributedtask.TaskStatusEntry, bool) {
 	if r.deps.LocalTasks == nil {
 		return nil, false
 	}
@@ -834,12 +835,12 @@ func (r *migrationReconciler) localVerdict(subject MigrationSubject) (migrationV
 	return r.verdictFrom(subject, tasks, taskListMayLag)
 }
 
-func (r *migrationReconciler) clusterVerdict(subject MigrationSubject, tasks []*distributedtask.Task) (migrationVerdict, string) {
+func (r *migrationReconciler) clusterVerdict(subject MigrationSubject, tasks []distributedtask.TaskStatusEntry) (migrationVerdict, string) {
 	local, readable := r.localTasks()
 	if !readable {
 		return migrationVerdictLeave, migrationTaskMapUnreadable
 	}
-	if task := findMigrationTask(subject, local); task != nil {
+	if task, found := findMigrationTask(subject, local); found {
 		return migrationVerdictForTask(task)
 	}
 	return r.verdictFrom(subject, tasks, taskListIsComplete)
@@ -874,10 +875,10 @@ const (
 	taskListIsComplete taskListCompleteness = true
 )
 
-func (r *migrationReconciler) verdictFrom(subject MigrationSubject, tasks []*distributedtask.Task,
+func (r *migrationReconciler) verdictFrom(subject MigrationSubject, tasks []distributedtask.TaskStatusEntry,
 	completeness taskListCompleteness,
 ) (migrationVerdict, string) {
-	if task := findMigrationTask(subject, tasks); task != nil {
+	if task, found := findMigrationTask(subject, tasks); found {
 		return migrationVerdictForTask(task)
 	}
 
@@ -907,7 +908,7 @@ func (r *migrationReconciler) verdictFrom(subject MigrationSubject, tasks []*dis
 	return migrationVerdictDiscard, "owning task is gone and the schema does not show its effect"
 }
 
-func migrationVerdictForTask(task *distributedtask.Task) (migrationVerdict, string) {
+func migrationVerdictForTask(task distributedtask.TaskStatusEntry) (migrationVerdict, string) {
 	switch task.Status {
 	case distributedtask.TaskStatusFinished:
 		return migrationVerdictCommit, "owning task finished"
@@ -919,13 +920,23 @@ func migrationVerdictForTask(task *distributedtask.Task) (migrationVerdict, stri
 	}
 }
 
-func findMigrationTask(subject MigrationSubject, tasks []*distributedtask.Task) *distributedtask.Task {
+func findMigrationTask(subject MigrationSubject, tasks []distributedtask.TaskStatusEntry) (distributedtask.TaskStatusEntry, bool) {
 	for _, task := range tasks {
-		if task != nil && task.ID == subject.TaskID && task.Version == subject.Key.TaskVersion {
-			return task
+		if task.ID == subject.TaskID && task.Version == subject.Key.TaskVersion {
+			return task, true
 		}
 	}
-	return nil
+	return distributedtask.TaskStatusEntry{}, false
+}
+
+func migrationTaskStatuses(tasks []*distributedtask.Task) []distributedtask.TaskStatusEntry {
+	out := make([]distributedtask.TaskStatusEntry, 0, len(tasks))
+	for _, task := range tasks {
+		if task != nil {
+			out = append(out, task.StatusEntry())
+		}
+	}
+	return out
 }
 
 // Can't wait for a live worker instead: shard load runs on the RAFT apply
@@ -941,11 +952,11 @@ func (r *migrationReconciler) DiscardTask(ctx context.Context, task *distributed
 	if len(r.store.Unreadable()) > 0 {
 		return errors.New("a migration record on this shard cannot be read, so no record is discarded")
 	}
-	verdict, why := migrationVerdictForTask(task)
+	verdict, why := migrationVerdictForTask(task.StatusEntry())
 	if verdict != migrationVerdictDiscard {
 		return nil
 	}
-	tasks := []*distributedtask.Task{task}
+	tasks := []distributedtask.TaskStatusEntry{task.StatusEntry()}
 	discarding := errorcompounder.New()
 	for _, rec := range r.store.Records() {
 		if err := ctx.Err(); err != nil {
@@ -953,7 +964,7 @@ func (r *migrationReconciler) DiscardTask(ctx context.Context, task *distributed
 			break
 		}
 		subject := rec.Subject()
-		if findMigrationTask(subject, tasks) == nil || rec.FlipDecided() || r.store.Wedged(subject.Key) {
+		if _, found := findMigrationTask(subject, tasks); !found || rec.FlipDecided() || r.store.Wedged(subject.Key) {
 			continue
 		}
 		discarding.AddWrapf(r.discardUnlessUnitRuns(ctx, subject, why), "record %s", subject.Key)

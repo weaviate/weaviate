@@ -53,7 +53,7 @@ func (m shardMigrations) liveReconciler() *migrationReconciler {
 	})
 }
 
-func (m shardMigrations) LocalTasks() ([]*distributedtask.Task, bool) {
+func (m shardMigrations) LocalTasks() ([]distributedtask.TaskStatusEntry, bool) {
 	if m.shard.index == nil || m.shard.index.db == nil {
 		return nil, false
 	}

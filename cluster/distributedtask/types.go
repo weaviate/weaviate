@@ -536,6 +536,17 @@ type TaskDescriptor struct {
 	Version uint64 `json:"version"`
 }
 
+// TaskStatusEntry is what a decision reads of a task. It carries no units, so
+// reading it costs the same however many replicas the task touches.
+type TaskStatusEntry struct {
+	TaskDescriptor
+	Status TaskStatus
+}
+
+func (t *Task) StatusEntry() TaskStatusEntry {
+	return TaskStatusEntry{TaskDescriptor: t.TaskDescriptor, Status: t.Status}
+}
+
 // Task represents a distributed task tracked across the cluster via Raft consensus.
 //
 // Completion is tracked per-unit. The task finishes when all units reach a terminal

@@ -1018,6 +1018,21 @@ func (m *Manager) LocalDistributedTasks() map[string][]*Task {
 	return result
 }
 
+// LocalTaskStatuses is the read for callers that decide from a task's status:
+// [Manager.LocalDistributedTasks] clones every unit map under the lock that
+// RAFT applies wait on, and a decider can ask once per record.
+func (m *Manager) LocalTaskStatuses(namespace string) []TaskStatusEntry {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	tasks := m.tasks[namespace]
+	out := make([]TaskStatusEntry, 0, len(tasks))
+	for _, task := range tasks {
+		out = append(out, task.StatusEntry())
+	}
+	return out
+}
+
 // This is not reached through the [TaskLister] interface in production —
 // [cluster.Raft] is the concrete TaskLister the wiring hands out. It still
 // has two direct production callers: [Manager.Snapshot], on the RAFT FSM's
