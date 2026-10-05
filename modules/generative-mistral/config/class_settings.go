@@ -47,6 +47,9 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
 	}
+	if err := ic.propertyValuesHelper.ValidateIntegers(ic.cfg, maxTokensProperty); err != nil {
+		return err
+	}
 	model := ic.getStringProperty(modelProperty, DefaultMistralModel)
 	if model == nil {
 		return errors.Errorf("no model provided")
