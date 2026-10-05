@@ -45,8 +45,9 @@ const (
 		"Set it to `true` or leave empty"
 	withheldRangeableFormat = "Filtering by property '%s' needs its range index, which the schema has " +
 		"but this shard does not serve yet: a migration on it has not been promoted here, or a migration " +
-		"record under the shard's .migrations directory cannot be read. Fix or remove an unreadable record, " +
-		"then reload the shard"
+		"record under the shard's .migrations directory cannot be read. An unreadable record is normally a " +
+		"downgrade: run the build that wrote it, or remove the file the record store named once you have " +
+		"confirmed what it claims, then reload the shard"
 	missingSearchableFormat = "Searching by property '%s' requires inverted index. " +
 		"Is `indexSearchable` option of property '%s' enabled? " +
 		"Set it to `true` or leave empty"
