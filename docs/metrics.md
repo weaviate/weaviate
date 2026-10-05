@@ -209,6 +209,11 @@ Registered only on a node with `SELF_RECOVERY_ENABLED=true` and a well-formed We
 #### Async Checkpoint Metrics
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|
+| `weaviate_async_checkpoint_create_total` | Number of successful local async replication checkpoint creations, including replacements of an existing checkpoint | `Counter` | `-` | - Low 
+| `weaviate_async_checkpoint_create_failure_total` | Number of failed checkpoint creations (stale creation time, cutoff already in the past, or async replication not active on the shard) | `Counter` | `-` | - Low 
+| `weaviate_async_checkpoint_delete_total` | Number of explicit checkpoint deletes that cleared an active checkpoint; clears caused by stopping or disabling async replication are excluded | `Counter` | `-` | - Low 
+| `weaviate_async_checkpoint_active` | Number of shards on this node currently holding an active checkpoint; replacements don't change the count | `Gauge` | `-` | - Low 
+| `weaviate_async_checkpoint_lifetime_seconds` | Time a checkpoint stayed active before being cleared by an explicit delete, a replacement, a stop/disable, or expiry | `Histogram` | `-` | - Low 
 | `weaviate_async_checkpoint_expired_total` | Number of async replication checkpoints cleared for outliving their max lifetime without an explicit delete (e.g. the backup planning coordinator crashed). A non-zero rate points at coordinators failing to release checkpoints | `Counter` | `-` | - Low 
 
 #### Distributed Task Metrics
