@@ -76,11 +76,10 @@ func validateWith(t *testing.T, module modulecapabilities.Module, settings map[s
 	return err
 }
 
-// Every int setting of a module that uses the shared settings helper,
-// whichever getter the module reads it with. A new class must not be
-// accepted with a fraction in one of them: the stored value would be
-// truncated at request time to an int that the module's validation never
-// saw, or sent to the provider as a fraction.
+// A new class with a fraction in any int setting a module reads must be
+// rejected, whichever getter the module uses. Otherwise the stored value is
+// truncated at request time to an int that validation never saw, or sent to
+// the provider as a fraction.
 func TestIntSettingsRejectAFractionOnClassCreate(t *testing.T) {
 	cases := []struct {
 		module   modulecapabilities.Module
@@ -106,7 +105,8 @@ func TestIntSettingsRejectAFractionOnClassCreate(t *testing.T) {
 		{modmulti2vecaws.New(), []string{"dimensions"}, map[string]any{"textFields": []any{"text"}, "region": "us-east-1"}},
 		{modmulti2veccohere.New(), []string{"dimensions"}, map[string]any{"textFields": []any{"text"}}},
 		{modmulti2vecgoogle.New(), []string{"dimensions", "videoIntervalSeconds"}, map[string]any{"textFields": []any{"text"}, "location": "us", "projectId": "p"}},
-		// Validation reads these two only for the legacy default model.
+		// With a model other than the legacy default, only ValidateIntegers
+		// checks these two.
 		{modmulti2vecgoogle.New(), []string{"dimensions", "videoIntervalSeconds"}, map[string]any{"textFields": []any{"text"}, "location": "us", "projectId": "p", "model": "gemini-embedding-2"}},
 		{modmulti2vecjinaai.New(), []string{"dimensions"}, map[string]any{"textFields": []any{"text"}}},
 		// Reads maxTokens with a getter of its own.
@@ -167,9 +167,9 @@ func assertIntSetting(t *testing.T, module modulecapabilities.Module, setting st
 	}
 }
 
-// The reproduction of the issue, through the provider: text2vec-openai only
-// accepts 256, 1024 and 3072 dimensions for this model, and a fraction used
-// to skip that check.
+// weaviate/0-weaviate-issues#677: a fractional dimensions value must not skip
+// the text2vec-openai check of the allowed values (256, 1024 and 3072 for
+// this model).
 func TestProviderRejectsAFractionInAnIntSetting(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -211,9 +211,9 @@ func TestProviderRejectsAFractionInAnIntSetting(t *testing.T) {
 	}
 }
 
-// generative-databricks validates the wrong value its getter returns for a
-// fraction and fails with a range message that 100.5 satisfies. The
-// provider reports the fraction instead.
+// For a fraction, generative-databricks checks the wrong value its getter
+// returns and fails with a range error that 100.5 satisfies. The provider
+// reports the fraction instead.
 func TestProviderReportsAFractionBeforeTheModuleError(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	provider := usecasesmodules.NewProvider(logger, config.Config{})
