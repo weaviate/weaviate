@@ -12,6 +12,13 @@
 package rest
 
 import (
+	"errors"
+
+	"github.com/go-openapi/runtime/middleware"
+
+	cerrors "github.com/weaviate/weaviate/adapters/handlers/rest/errors"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/license"
@@ -37,4 +44,22 @@ func dbUserExpiryResolver(mode license.Mode) apikey.ExpiryResolver {
 	case license.FeatureOff, license.FeatureUnlicensed:
 	}
 	return apikey.RefusingExpiry(license.Required(dbUserExpirationFeature))
+}
+
+// setupDBUserExpirationHandlers registers PUT /users/db/{user_id}/expiration
+// for mode. setupWL runs only in FeatureLicensed. FeatureOff answers 422, any
+// other mode the license 403, and neither runs an authorization check.
+func setupDBUserExpirationHandlers(api *operations.WeaviateAPI, mode license.Mode, setupWL func(*operations.WeaviateAPI)) {
+	var refusal middleware.Responder = users.NewSetUserExpirationForbidden().WithPayload(
+		cerrors.ErrPayloadFromSingleErr(nil, license.Required(dbUserExpirationFeature)))
+	switch mode {
+	case license.FeatureLicensed:
+		setupWL(api)
+		return
+	case license.FeatureOff:
+		refusal = users.NewSetUserExpirationUnprocessableEntity().WithPayload(
+			cerrors.ErrPayloadFromSingleErr(nil, errors.New("db user management is not enabled")))
+	case license.FeatureUnlicensed:
+	}
+	api.UsersSetUserExpirationHandler = users.SetUserExpirationHandlerFunc(respondWith[users.SetUserExpirationParams](refusal))
 }

@@ -8007,6 +8007,85 @@ func init() {
         ]
       }
     },
+    "/users/db/{user_id}/expiration": {
+      "put": {
+        "description": "Set or clear the time at which a database user's (` + "`" + `db` + "`" + ` user type) API key stops authenticating. The body sets exactly one of ` + "`" + `expiresAt` + "`" + `, which must be in the future, and ` + "`" + `neverExpires` + "`" + `, which must be true and clears the expiry. Any other body answers 422, and so do the caller's own user, root users and static users. A node without a Weaviate license key answers 403, so an expired user can then only be deleted and re-created.",
+        "tags": [
+          "users"
+        ],
+        "summary": "Set a user's expiration",
+        "operationId": "setUserExpiration",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the user.",
+            "name": "user_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "Set exactly one of ` + "`" + `expiresAt` + "`" + ` and ` + "`" + `neverExpires` + "`" + `.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format, stored in UTC with millisecond precision, at which the user's API key stops authenticating. It must be in the future.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
+                "neverExpires": {
+                  "description": "True clears the user's expiry, so the API key never expires. False answers 422.",
+                  "type": "boolean",
+                  "x-nullable": true
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User expiration successfully set."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden, because the caller lacks the permission or the node has no Weaviate license key.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "User not found."
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.db.setUserExpiration"
+        ]
+      }
+    },
     "/users/db/{user_id}/rotate-key": {
       "post": {
         "description": "Revoke the current API key for the specified database user (` + "`" + `db` + "`" + ` user type) and generate a new one.",
@@ -20855,6 +20934,85 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.users.db.deactivateUser"
+        ]
+      }
+    },
+    "/users/db/{user_id}/expiration": {
+      "put": {
+        "description": "Set or clear the time at which a database user's (` + "`" + `db` + "`" + ` user type) API key stops authenticating. The body sets exactly one of ` + "`" + `expiresAt` + "`" + `, which must be in the future, and ` + "`" + `neverExpires` + "`" + `, which must be true and clears the expiry. Any other body answers 422, and so do the caller's own user, root users and static users. A node without a Weaviate license key answers 403, so an expired user can then only be deleted and re-created.",
+        "tags": [
+          "users"
+        ],
+        "summary": "Set a user's expiration",
+        "operationId": "setUserExpiration",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the user.",
+            "name": "user_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "Set exactly one of ` + "`" + `expiresAt` + "`" + ` and ` + "`" + `neverExpires` + "`" + `.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format, stored in UTC with millisecond precision, at which the user's API key stops authenticating. It must be in the future.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
+                "neverExpires": {
+                  "description": "True clears the user's expiry, so the API key never expires. False answers 422.",
+                  "type": "boolean",
+                  "x-nullable": true
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User expiration successfully set."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden, because the caller lacks the permission or the node has no Weaviate license key.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "User not found."
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.db.setUserExpiration"
         ]
       }
     },
