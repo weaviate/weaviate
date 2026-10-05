@@ -80,9 +80,8 @@ func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context,
 	result := make(objects.BatchSimpleObjects, len(batch))
 	objLock := &sync.Mutex{}
 
-	// a goroutine that dies before writing its slot leaves the zero value there,
-	// and every caller reads a nil Err as a deleted object. Seeding the uuid too
-	// is what lets a caller say which object an error belongs to.
+	// seed each slot so a goroutine that panics before writing it reads as failed,
+	// since every caller takes a nil Err for a deleted object. The uuid names the object.
 	for i := range result {
 		result[i] = objects.BatchSimpleObject{UUID: batch[i], Err: errBatchSlotNotProcessed}
 	}

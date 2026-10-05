@@ -1127,8 +1127,6 @@ func (p batchDeleteParamsPayload) SetContentTypeHeaderReq(r *http.Request) {
 	r.Header.Set("content-type", p.MIME())
 }
 
-// batchDeleteResultsPayload carries one row per uuid, each decoded by
-// objects.BatchSimpleObject's codec.
 type batchDeleteResultsPayload struct{}
 
 func (p batchDeleteResultsPayload) Unmarshal(in []byte) (objects.BatchSimpleObjects, error) {

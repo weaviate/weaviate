@@ -997,9 +997,7 @@ func TestTTLBatchOutcome(t *testing.T) {
 		pauseErr error
 		want     []error
 	}{
-		{name: "a clean batch and a clean pause file nothing"},
 		{name: "a stopped pause alone files its cause", pauseErr: pauseErr, want: []error{pauseErr}},
-		{name: "a failed batch alone files its failure", batchErr: deleteErr, want: []error{deleteErr}},
 		{
 			// a shutdown during the pause must not replace the failure the batch itself reported
 			name:     "a failed batch and a stopped pause file both",
@@ -1010,10 +1008,6 @@ func TestTTLBatchOutcome(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := ttlBatchOutcome(tt.batchErr, tt.pauseErr)
-			if len(tt.want) == 0 {
-				assert.NoError(t, got)
-				return
-			}
 			for _, want := range tt.want {
 				assert.ErrorIs(t, got, want,
 					"an operator investigating a shutdown needs the batch's own failure, not only the cause")

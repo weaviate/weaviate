@@ -70,9 +70,9 @@ type BatchReference struct {
 // type using the .Response() method
 type BatchReferences []BatchReference
 
-// BatchSimpleObject is one slot of a batch delete's answer; its Err is what says the object was not
-// deleted. It crosses the cluster wire through its own codec: a struct decoding it with a bare Err
-// error fails on any failed slot, and that decode error fails the whole batch.
+// BatchSimpleObject is one slot of a batch delete's answer. A nil Err means no delete of UUID failed,
+// as for a dry run or an already-absent object; a failed WAL write sets Err on deleted objects too.
+// Err crosses the cluster wire through its own codec, since encoding/json cannot decode an error.
 type BatchSimpleObject struct {
 	UUID strfmt.UUID
 	Err  error

@@ -527,14 +527,10 @@ func ttlBatchFailedOutright(deleted int32, err error) bool {
 // ttlBatchOutcome reports what a batch that was followed by a stopped pause should file. A sweep
 // stopped while it slept must not replace the failure the batch itself reported.
 func ttlBatchOutcome(batchErr, pauseErr error) error {
-	switch {
-	case batchErr == nil:
+	if batchErr == nil {
 		return pauseErr
-	case pauseErr == nil:
-		return batchErr
-	default:
-		return fmt.Errorf("%w; %w", batchErr, pauseErr)
 	}
+	return fmt.Errorf("%w; %w", batchErr, pauseErr)
 }
 
 // ttlPauseAfterBatch counts one finished unit of work, sleeps once the count reaches the configured
