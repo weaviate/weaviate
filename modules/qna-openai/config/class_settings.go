@@ -73,10 +73,6 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
 	}
-	// maxTokens is read and sent as a float; the API takes an integer.
-	if err := ic.propertyValuesHelper.ValidateIntegers(ic.cfg, maxTokensProperty); err != nil {
-		return err
-	}
 
 	model := ic.getStringProperty(modelProperty, DefaultOpenAIModel)
 	if model == nil || !ic.validateOpenAISetting(*model, availableOpenAIModels) {
@@ -117,7 +113,8 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return err
 	}
 
-	return nil
+	// maxTokens is read and sent as a float; the API takes an integer.
+	return ic.propertyValuesHelper.ValidateIntegers(ic.cfg, maxTokensProperty)
 }
 
 func (ic *classSettings) getStringProperty(name, defaultValue string) *string {

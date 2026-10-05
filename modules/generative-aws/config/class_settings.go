@@ -95,9 +95,6 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
 	}
-	if err := ic.propertyValuesHelper.ValidateIntegers(ic.cfg, maxTokensProperty, maxTokenCountProperty, maxTokensToSampleProperty, topKProperty); err != nil {
-		return err
-	}
 
 	var errorMessages []string
 
@@ -145,7 +142,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return fmt.Errorf("%s", strings.Join(errorMessages, ", "))
 	}
 
-	return nil
+	return ic.propertyValuesHelper.ValidateIntegers(ic.cfg, maxTokensProperty, maxTokenCountProperty, maxTokensToSampleProperty, topKProperty)
 }
 
 func (ic *classSettings) validatAvailableAWSSetting(value string, availableValues []string) bool {
