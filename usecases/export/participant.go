@@ -37,11 +37,11 @@ const (
 	defaultSiblingCheckInterval = 1 * time.Minute
 
 	// maxExportParallelismMultiplier caps EXPORT_PARALLELISM at
-	// GOMAXPROCS*N. Each worker holds a 16 MB buffered pipe and an LSM
-	// cursor, so an unbounded value (e.g. a mis-set env var) could pin
-	// many GBs of memory and exhaust file descriptors. 4x is chosen to
-	// still allow oversubscription for I/O wait without leaving room
-	// for pathological misconfiguration.
+	// GOMAXPROCS*N. Each worker holds an LSM cursor, a buffered pipe of half a
+	// row group and a parquet file's open row group, row batch and page index.
+	// An unbounded value (e.g. a mis-set env var) could pin many GBs of memory
+	// and exhaust file descriptors. 4x is chosen to still allow oversubscription
+	// for I/O wait without leaving room for pathological misconfiguration.
 	maxExportParallelismMultiplier = 4
 )
 
@@ -1231,8 +1231,7 @@ func (p *Participant) startNodeStatusWriter(
 // means GOMAXPROCS.
 //
 // Values above GOMAXPROCS*maxExportParallelismMultiplier are clamped to
-// bound memory (each worker holds a 16 MB pipe buffer plus an LSM cursor)
-// and a warning is logged.
+// bound memory (see maxExportParallelismMultiplier) and a warning is logged.
 func (p *Participant) getExportParallelism() int {
 	maxP := runtime.GOMAXPROCS(0)
 	n := maxP
