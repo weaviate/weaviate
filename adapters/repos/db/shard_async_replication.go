@@ -1630,17 +1630,23 @@ func (s *Shard) DeleteAsyncCheckpoint(ctx context.Context) error {
 	}
 	s.asyncReplicationRWMux.Lock()
 	defer s.asyncReplicationRWMux.Unlock()
-	if s.asyncCheckpointHashtree == nil {
+	if s.asyncCheckpointHashtree == nil || s.expireAsyncCheckpointLocked(time.Now()) {
 		return nil
 	}
 	s.metrics.IncAsyncCheckpointDeleteCount()
-	s.clearAsyncCheckpointLocked()
+	s.dropAsyncCheckpointLocked()
 	return nil
 }
 
-// clearAsyncCheckpointLocked requires asyncReplicationRWMux held for writing.
-// Shared by DeleteAsyncCheckpoint and the stop/disable cleanup paths.
+// clearAsyncCheckpointLocked requires asyncReplicationRWMux held for writing; the stop/disable paths use it, and an outlived checkpoint still counts as expired.
 func (s *Shard) clearAsyncCheckpointLocked() {
+	if !s.expireAsyncCheckpointLocked(time.Now()) {
+		s.dropAsyncCheckpointLocked()
+	}
+}
+
+// dropAsyncCheckpointLocked requires asyncReplicationRWMux held for writing.
+func (s *Shard) dropAsyncCheckpointLocked() {
 	if s.asyncCheckpointHashtree != nil {
 		s.metrics.ObserveAsyncCheckpointLifetime(time.Since(s.asyncCheckpointActivatedAt))
 		s.metrics.DecAsyncCheckpointActive()
@@ -1670,7 +1676,7 @@ func (s *Shard) expireAsyncCheckpointLocked(now time.Time) bool {
 		return false
 	}
 	s.metrics.IncAsyncCheckpointExpiredCount()
-	s.clearAsyncCheckpointLocked()
+	s.dropAsyncCheckpointLocked()
 	return true
 }
 

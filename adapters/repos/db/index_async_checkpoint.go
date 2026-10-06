@@ -36,7 +36,7 @@ func (i *Index) createAsyncCheckpoint(ctx context.Context, shardName string, cut
 		return i.createUnloadedAsyncCheckpoint(ctx, shardName, cutoffMs, createdAt)
 	}
 	defer release()
-	i.unloadedCheckpoints.delete(shardName)
+	i.unloadedCheckpoints.clear(shardName)
 	return shard.CreateAsyncCheckpoint(ctx, cutoffMs, createdAt)
 }
 
@@ -148,7 +148,7 @@ func (i *Index) getAsyncCheckpointShardStatus(ctx context.Context, shardNames []
 				return nil
 			}
 			defer release()
-			i.unloadedCheckpoints.delete(shardName)
+			i.unloadedCheckpoints.clear(shardName)
 			if lazy, ok := asLazyLoadShard(shard); ok && !lazy.IsAsyncCheckpointHostable() {
 				return nil
 			}

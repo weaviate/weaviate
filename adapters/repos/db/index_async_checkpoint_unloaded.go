@@ -43,10 +43,12 @@ var unloadedCheckpointLogThrottle = replica.NewLogThrottle(time.Minute)
 // unloadedCheckpointSweepInterval bounds put's full expiry sweep so a create fan-out over N tenants stays O(N).
 const unloadedCheckpointSweepInterval = time.Minute
 
+// unloadedCheckpointRegistry meters like Shard: every entry leaves exactly once, as an expiry if it outlived its lifetime, else as a delete or a clear.
 type unloadedCheckpointRegistry struct {
 	mu        sync.Mutex
 	entries   map[string]unloadedCheckpoint
 	lastSweep time.Time
+	metrics   *Metrics
 }
 
 // put mirrors Shard.CreateAsyncCheckpoint's stale and past-cutoff checks.
@@ -55,24 +57,32 @@ func (r *unloadedCheckpointRegistry) put(shardName string, cp unloadedCheckpoint
 	defer r.mu.Unlock()
 	now := time.Now()
 	if now.Sub(r.lastSweep) >= unloadedCheckpointSweepInterval {
-		r.lastSweep = now
-		for name, prev := range r.entries {
-			if prev.expired(now) {
-				delete(r.entries, name)
-			}
-		}
+		r.sweepLocked(now)
 	}
-	if prev, ok := r.entries[shardName]; ok && !prev.expired(now) && !cp.createdAt.After(prev.createdAt) {
+	prev, wasActive := r.entries[shardName]
+	if wasActive && r.expireLocked(shardName, prev, now) {
+		wasActive = false
+	}
+	if wasActive && !cp.createdAt.After(prev.createdAt) {
+		r.metrics.IncAsyncCheckpointCreateFailureCount()
 		return errAsyncCheckpointStale
 	}
 	if cp.cutoffMs <= time.Now().UnixMilli() {
+		r.metrics.IncAsyncCheckpointCreateFailureCount()
 		return errAsyncCheckpointCutoffInPast
 	}
 	if r.entries == nil {
 		r.entries = make(map[string]unloadedCheckpoint)
 	}
+	if wasActive {
+		r.metrics.ObserveAsyncCheckpointLifetime(now.Sub(prev.activatedAt))
+	}
 	cp.activatedAt = now
 	r.entries[shardName] = cp
+	r.metrics.IncAsyncCheckpointCreateCount()
+	if !wasActive {
+		r.metrics.IncAsyncCheckpointActive()
+	}
 	return nil
 }
 
@@ -81,8 +91,7 @@ func (r *unloadedCheckpointRegistry) get(shardName string) (unloadedCheckpoint, 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	cp, ok := r.entries[shardName]
-	if ok && cp.expired(time.Now()) {
-		delete(r.entries, shardName)
+	if ok && r.expireLocked(shardName, cp, time.Now()) {
 		return unloadedCheckpoint{}, false
 	}
 	return cp, ok
@@ -92,9 +101,75 @@ func (cp unloadedCheckpoint) expired(now time.Time) bool {
 	return now.Sub(cp.activatedAt) > replica.AsyncCheckpointMaxLifetime
 }
 
+// delete is the explicit DeleteAsyncCheckpoint path, counted under delete_total.
 func (r *unloadedCheckpointRegistry) delete(shardName string) {
+	r.remove(shardName, true)
+}
+
+// clear drops an entry the shard no longer needs (loaded, recovering, dropped), outside delete_total like Shard's stop/disable clears.
+func (r *unloadedCheckpointRegistry) clear(shardName string) {
+	r.remove(shardName, false)
+}
+
+func (r *unloadedCheckpointRegistry) remove(shardName string, explicit bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	cp, ok := r.entries[shardName]
+	if !ok {
+		return
+	}
+	now := time.Now()
+	if r.expireLocked(shardName, cp, now) {
+		return
+	}
+	if explicit {
+		r.metrics.IncAsyncCheckpointDeleteCount()
+	}
+	r.dropLocked(shardName, cp, now)
+}
+
+// clearAll empties the registry of a closing index so its entries leave the active gauge.
+func (r *unloadedCheckpointRegistry) clearAll() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now()
+	for name, cp := range r.entries {
+		if !r.expireLocked(name, cp, now) {
+			r.dropLocked(name, cp, now)
+		}
+	}
+}
+
+// sweep expires every outlived entry and returns how many it expired.
+func (r *unloadedCheckpointRegistry) sweep(now time.Time) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.sweepLocked(now)
+}
+
+func (r *unloadedCheckpointRegistry) sweepLocked(now time.Time) int {
+	r.lastSweep = now
+	n := 0
+	for name, cp := range r.entries {
+		if r.expireLocked(name, cp, now) {
+			n++
+		}
+	}
+	return n
+}
+
+func (r *unloadedCheckpointRegistry) expireLocked(shardName string, cp unloadedCheckpoint, now time.Time) bool {
+	if !cp.expired(now) {
+		return false
+	}
+	r.metrics.IncAsyncCheckpointExpiredCount()
+	r.dropLocked(shardName, cp, now)
+	return true
+}
+
+func (r *unloadedCheckpointRegistry) dropLocked(shardName string, cp unloadedCheckpoint, now time.Time) {
+	r.metrics.ObserveAsyncCheckpointLifetime(now.Sub(cp.activatedAt))
+	r.metrics.DecAsyncCheckpointActive()
 	delete(r.entries, shardName)
 }
 
@@ -145,7 +220,7 @@ func (i *Index) createUnloadedAsyncCheckpoint(ctx context.Context, shardName str
 		"class":  i.Config.ClassName,
 		"shard":  shardName,
 	})
-	return i.withUnloadedShard(shardName, func(state unloadedShardState) error {
+	err := i.withUnloadedShard(shardName, func(state unloadedShardState) error {
 		if state == shardRecovering {
 			return fmt.Errorf("%w: shard %q: %w", errAsyncReplicationNotActive, shardName, enterrors.ErrShardRecovering)
 		}
@@ -189,6 +264,10 @@ func (i *Index) createUnloadedAsyncCheckpoint(ctx context.Context, shardName str
 			Debug("async checkpoint answered from persisted hashtree")
 		return nil
 	})
+	if errors.Is(err, errAsyncReplicationNotActive) {
+		i.metrics.IncAsyncCheckpointCreateFailureCount()
+	}
+	return err
 }
 
 // unloadedAsyncCheckpointStatus omits the entry unless the shard is still unloaded and its .ht still exists.
@@ -206,7 +285,7 @@ func (i *Index) unloadedAsyncCheckpointStatus(shardName string) (replica.AsyncCh
 	found := false
 	err := i.withUnloadedShard(shardName, func(state unloadedShardState) error {
 		if state == shardLoaded || state == shardRecovering {
-			i.unloadedCheckpoints.delete(shardName)
+			i.unloadedCheckpoints.clear(shardName)
 			return nil
 		}
 		if _, err := os.Stat(cp.filename); err != nil {

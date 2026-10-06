@@ -620,6 +620,10 @@ type AsyncReplicationScheduler struct {
 	// expiredSinceReport counts checkpoint expiries since the last summary, so a mass expiry logs once, not once per shard.
 	expiredSinceReport atomic.Int64
 
+	// unloadedCheckpointsMu is a leaf lock guarding unloadedCheckpoints, the live indexes' unloaded-shard registries the watcher sweeps.
+	unloadedCheckpointsMu sync.Mutex
+	unloadedCheckpoints   map[*unloadedCheckpointRegistry]struct{}
+
 	// closed is set true at the top of Close() (before cancel) and never reset.
 	// Read by Register/Deregister and handleAdd/handleRemove to reject
 	// post-Close calls deterministically.
@@ -912,6 +916,7 @@ func (sched *AsyncReplicationScheduler) reportExpiredCheckpoints() {
 }
 
 // sweepExpiredCheckpoints expires checkpoints of every registered shard, covering shards runEntry won't reach in time (global disable, frequency above the max lifetime); snapshots under sched.mu, expires outside it.
+// Unloaded shards' registries are swept too, since put is their only other sweep trigger.
 func (sched *AsyncReplicationScheduler) sweepExpiredCheckpoints() {
 	sched.mu.Lock()
 	shards := make([]*Shard, 0, len(sched.entries))
@@ -926,6 +931,41 @@ func (sched *AsyncReplicationScheduler) sweepExpiredCheckpoints() {
 		}
 		sched.expireAsyncCheckpoint(s, now)
 	}
+	sched.sweepUnloadedCheckpoints(now)
+}
+
+func (sched *AsyncReplicationScheduler) sweepUnloadedCheckpoints(now time.Time) {
+	sched.unloadedCheckpointsMu.Lock()
+	registries := make([]*unloadedCheckpointRegistry, 0, len(sched.unloadedCheckpoints))
+	for r := range sched.unloadedCheckpoints {
+		registries = append(registries, r)
+	}
+	sched.unloadedCheckpointsMu.Unlock()
+	for _, r := range registries {
+		if sched.ctx.Err() != nil {
+			return
+		}
+		if n := r.sweep(now); n > 0 {
+			sched.expiredSinceReport.Add(int64(n))
+			sched.logger.WithField("expired", n).
+				Debugf("unloaded-shard async checkpoints expired: not deleted within %s", replica.AsyncCheckpointMaxLifetime)
+		}
+	}
+}
+
+func (sched *AsyncReplicationScheduler) registerUnloadedCheckpoints(r *unloadedCheckpointRegistry) {
+	sched.unloadedCheckpointsMu.Lock()
+	defer sched.unloadedCheckpointsMu.Unlock()
+	if sched.unloadedCheckpoints == nil {
+		sched.unloadedCheckpoints = make(map[*unloadedCheckpointRegistry]struct{})
+	}
+	sched.unloadedCheckpoints[r] = struct{}{}
+}
+
+func (sched *AsyncReplicationScheduler) deregisterUnloadedCheckpoints(r *unloadedCheckpointRegistry) {
+	sched.unloadedCheckpointsMu.Lock()
+	defer sched.unloadedCheckpointsMu.Unlock()
+	delete(sched.unloadedCheckpoints, r)
 }
 
 // ----- dispatcher goroutine -------------------------------------------------
