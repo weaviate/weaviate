@@ -48,6 +48,8 @@ type fakeCheckpointer struct {
 	shardReplicas map[string]map[string][]string
 	replicasErr   map[string]error
 	replicasCalls int
+	replicasHang  map[string]bool
+	asyncHang     map[string]bool
 	asyncChecks   int
 	createErr     map[string]error
 	createPanic   map[string]bool
@@ -77,6 +79,8 @@ func newFakeCheckpointer() *fakeCheckpointer {
 		asyncDisabled: map[string]bool{},
 		shardReplicas: map[string]map[string][]string{},
 		replicasErr:   map[string]error{},
+		replicasHang:  map[string]bool{},
+		asyncHang:     map[string]bool{},
 		createErr:     map[string]error{},
 		createPanic:   map[string]bool{},
 		statusPanic:   map[string]bool{},
@@ -93,20 +97,34 @@ func newFakeCheckpointer() *fakeCheckpointer {
 	}
 }
 
-func (f *fakeCheckpointer) ShardReplicas(_ context.Context, class string) (map[string][]string, error) {
+func (f *fakeCheckpointer) ShardReplicas(ctx context.Context, class string) (map[string][]string, error) {
+	f.mu.Lock()
+	f.replicasCalls++
+	hang := f.replicasHang[class]
+	f.mu.Unlock()
+	if hang {
+		<-ctx.Done()
+		return nil, fmt.Errorf("read sharding state: %w", ctx.Err())
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.replicasCalls++
 	if err := f.replicasErr[class]; err != nil {
 		return nil, err
 	}
 	return f.shardReplicas[class], nil
 }
 
-func (f *fakeCheckpointer) IsAsyncReplicationEnabled(_ context.Context, class string) bool {
+func (f *fakeCheckpointer) IsAsyncReplicationEnabled(ctx context.Context, class string) bool {
+	f.mu.Lock()
+	f.asyncChecks++
+	hang := f.asyncHang[class]
+	f.mu.Unlock()
+	if hang {
+		<-ctx.Done()
+		return false
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.asyncChecks++
 	return !f.asyncDisabled[class]
 }
 
@@ -1076,6 +1094,70 @@ func TestPlanDesignatedShardsUserCancelRecordsNoOutcome(t *testing.T) {
 				"%v", hook.AllEntries())
 			assert.True(t, slices.ContainsFunc(hook.AllEntries(), func(e *logrus.Entry) bool {
 				return e.Level == logrus.InfoLevel && e.Message == "replica dedupe: planning cancelled"
+			}), "%v", hook.AllEntries())
+		})
+	}
+}
+
+func TestPlanDesignatedShardsDeadlineDuringEligibility(t *testing.T) {
+	tests := []struct {
+		name         string
+		setup        func(f *fakeCheckpointer, classes []string)
+		timeout      time.Duration
+		wantShards   int
+		wantWarn     string
+		wantReplicas int
+	}{
+		{
+			name:         "replica lookup killed by the deadline",
+			setup:        func(f *fakeCheckpointer, classes []string) { f.replicasHang[classes[2]] = true },
+			timeout:      100 * time.Millisecond,
+			wantShards:   2,
+			wantWarn:     "planning deadline hit, 2 shards fall back, 2 classes unresolved",
+			wantReplicas: 3,
+		},
+		{
+			name:         "async check answered by a dead ctx",
+			setup:        func(f *fakeCheckpointer, classes []string) { f.asyncHang[classes[2]] = true },
+			timeout:      100 * time.Millisecond,
+			wantShards:   2,
+			wantWarn:     "planning deadline hit, 2 shards fall back, 2 classes unresolved",
+			wantReplicas: 2,
+		},
+		{
+			name:     "deadline passed before planning",
+			timeout:  -time.Second,
+			wantWarn: "planning deadline hit, 0 shards fall back, 4 classes unresolved",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f, classes := newWideFakeCheckpointer(4, 0)
+			if tc.setup != nil {
+				tc.setup(f, classes)
+			}
+			c := newTestPlanner(f)
+			logger, hook := test.NewNullLogger()
+			c.log = logger
+			planCtx, cancel := context.WithTimeout(context.Background(), tc.timeout)
+			defer cancel()
+			deadlineBefore, ineligibleBefore := dedupeFallbackCount("planning_deadline"), dedupeFallbackCount("class_ineligible")
+			fallbackBefore := dedupeShardOutcomeCount("fallback")
+
+			plan := c.PlanDesignatedShards(planCtx, classes, 0, parts("n1", "n2"), nil, nil)
+
+			assert.Empty(t, plan.Designations)
+			assert.Equal(t, tc.wantShards, plan.CandidateShards)
+			assert.Equal(t, float64(tc.wantShards), dedupeFallbackCount("planning_deadline")-deadlineBefore)
+			assert.Equal(t, float64(tc.wantShards), dedupeShardOutcomeCount("fallback")-fallbackBefore)
+			assert.Zero(t, dedupeFallbackCount("class_ineligible")-ineligibleBefore)
+			assert.Empty(t, f.createCalls)
+			assert.Equal(t, tc.wantReplicas, f.replicasCalls)
+			assert.True(t, slices.ContainsFunc(hook.AllEntries(), func(e *logrus.Entry) bool {
+				return e.Level == logrus.WarnLevel && strings.Contains(e.Message, tc.wantWarn)
+			}), "%v", hook.AllEntries())
+			assert.False(t, slices.ContainsFunc(hook.AllEntries(), func(e *logrus.Entry) bool {
+				return strings.Contains(e.Message, "replica lookup failed")
 			}), "%v", hook.AllEntries())
 		})
 	}

@@ -181,10 +181,11 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 	}, p.log)
 
 	candidates := make(map[string][]string, len(classes))
-	for _, class := range classes {
+	for i, class := range classes {
 		enabled := p.checkpointer.IsAsyncReplicationEnabled(ctx, class)
-		if cancelled() {
-			p.abortPlanning(ctx, sum, plan, nil, cancelled)
+		// A dead ctx may have answered the check, so the class counts as unresolved rather than ineligible.
+		if cancelled() || ctx.Err() != nil {
+			p.stopEligibility(ctx, sum, plan, candidates, len(classes)-i, cancelled)
 			return plan
 		}
 		if !enabled {
@@ -195,8 +196,8 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 			continue
 		}
 		replicasByShard, err := p.checkpointer.ShardReplicas(ctx, class)
-		if err != nil && cancelled() {
-			p.abortPlanning(ctx, sum, plan, nil, cancelled)
+		if err != nil && (cancelled() || (ctx.Err() != nil && errors.Is(err, ctx.Err()))) {
+			p.stopEligibility(ctx, sum, plan, candidates, len(classes)-i, cancelled)
 			return plan
 		}
 		if err != nil {
@@ -311,6 +312,16 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 	return plan
 }
 
+// stopEligibility aborts planning inside the class-eligibility loop.
+// Unresolved classes have no known shard count, so only resolved candidates count as planning_deadline shards; the summary names the unresolved classes.
+func (p *Planner) stopEligibility(ctx context.Context, sum *planSummary, plan *backup.DedupePlan, candidates map[string][]string, unresolved int, cancelled func() bool) {
+	for _, shards := range candidates {
+		plan.CandidateShards += len(shards)
+	}
+	sum.deadlineClasses += unresolved
+	p.abortPlanning(ctx, sum, plan, candidates, cancelled)
+}
+
 // abortPlanning accounts every remaining candidate as fallen back when planning stops before the cutoff.
 func (p *Planner) abortPlanning(ctx context.Context, sum *planSummary, plan *backup.DedupePlan, candidates map[string][]string, cancelled func() bool) {
 	sum.stopped, sum.stopErr = true, ctx.Err()
@@ -349,6 +360,7 @@ type planSummary struct {
 	missing, unconverged     int
 	missingByNode            map[string]int
 	deadlineShards           int
+	deadlineClasses          int
 	stopped                  bool
 	stopErr                  error
 }
@@ -387,6 +399,9 @@ func (p *Planner) logSummary(sum *planSummary, plan *backup.DedupePlan, took tim
 	case sum.stopped && cancelled:
 		log.Info("replica dedupe: planning cancelled")
 		return
+	case sum.stopped && sum.deadlineClasses > 0:
+		problems = append(problems, fmt.Sprintf("planning deadline hit, %d shards fall back, %d classes unresolved: %v",
+			sum.deadlineShards, sum.deadlineClasses, sum.stopErr))
 	case sum.stopped:
 		problems = append(problems, fmt.Sprintf("planning deadline hit, %d shards fall back: %v", sum.deadlineShards, sum.stopErr))
 	}
