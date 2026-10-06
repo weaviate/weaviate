@@ -27,6 +27,9 @@ import (
 type VersionedSchemaReader struct { // TODO TEST
 	schema        *schema
 	WaitForUpdate func(ctx context.Context, version uint64) error
+	// AppliedIndex reads the RAFT log index already applied here, without waiting. Nil when
+	// the caller has no way to read it, which callers must treat as "unknown", not as 0.
+	AppliedIndex func() uint64
 }
 
 func (s VersionedSchemaReader) ClassInfo(ctx context.Context,

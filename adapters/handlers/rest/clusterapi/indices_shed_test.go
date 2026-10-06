@@ -57,7 +57,7 @@ type overloadedShards struct {
 func (o overloadedShards) Search(context.Context, string, string,
 	[]models.Vector, []string, float32, int, *filters.LocalFilter, *searchparams.KeywordRanking,
 	[]filters.Sort, *filters.Cursor, *searchparams.GroupBy, additional.Properties,
-	*dto.TargetCombination, []string,
+	*dto.TargetCombination, []string, uint64,
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
 	return nil, nil, nil, o.err
 }
@@ -106,7 +106,7 @@ func serveShardSearch(t *testing.T, searchErr error) *httptest.ResponseRecorder 
 }
 
 func (o overloadedShards) Aggregate(context.Context, string, string,
-	aggregation.Params,
+	aggregation.Params, uint64,
 ) (*aggregation.Result, error) {
 	return nil, o.err
 }
@@ -152,6 +152,37 @@ func serveShardAggregate(t *testing.T, aggErr error) *httptest.ResponseRecorder 
 
 // A node behind on schema must read as unavailable: 500 is retryable, so the caller spends the
 // ladder on a node that already said no.
+// TestMissingShardIsLagNotFault pins the multi-tenant case. A lagging replica is missing a shard
+// rather than a class, and as a fault that answered 500, which shouldRetry asks again -- against a
+// peer that cannot hold the shard until its schema advances.
+func TestMissingShardIsLagNotFault(t *testing.T) {
+	missing := enterrors.ErrLocalShardNotFound{Shard: "sim55298380815951463"}
+
+	t.Run("a missing shard answers not-ready on writes", func(t *testing.T) {
+		assert.Equal(t, http.StatusServiceUnavailable, operationStatus(missing))
+	})
+
+	t.Run("and on reads", func(t *testing.T) {
+		assert.Equal(t, http.StatusServiceUnavailable, unprocessableStatus(missing))
+	})
+
+	t.Run("still classified once Index has wrapped it", func(t *testing.T) {
+		wrapped := fmt.Errorf("search shard %q: %w", "sim55298380815951463", missing)
+		assert.Equal(t, http.StatusServiceUnavailable, operationStatus(wrapped))
+	})
+
+	t.Run("the message is unchanged, so text matching still works", func(t *testing.T) {
+		assert.Equal(t, `local sim55298380815951463 shard not found`, missing.Error())
+	})
+
+	t.Run("the same text without the cause is not classified", func(t *testing.T) {
+		assert.Equal(t,
+			http.StatusInternalServerError,
+			operationStatus(errors.New("local sim55298380815951463 shard not found")),
+		)
+	})
+}
+
 func TestOperationStatus(t *testing.T) {
 	tests := []struct {
 		name string

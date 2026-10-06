@@ -36,6 +36,35 @@ func (e ErrLocalIndexNotFound) Error() string {
 	return fmt.Sprintf("local index %q not found", e.Index)
 }
 
+// ErrLocalShardNotFound is a shard this node does not hold yet, so its schema has not caught up.
+// For a multi-tenant class the shard is the tenant. The message is unchanged, so callers still
+// matching on text keep working.
+type ErrLocalShardNotFound struct {
+	Shard string
+}
+
+func (e ErrLocalShardNotFound) Error() string {
+	return fmt.Sprintf("local %s shard not found", e.Shard)
+}
+
+// ErrNotServedHere is an index or shard missing from a node whose schema is already at or past
+// the version the request was resolved against. Waiting cannot make it appear, so the caller
+// must re-resolve where the data lives rather than retry this node. It is deliberately not an
+// ErrLocalIndexNotFound or ErrLocalShardNotFound: those read as "not caught up yet", and
+// answering that here is what keeps a coordinator retrying a replica that will never serve.
+type ErrNotServedHere struct {
+	Index   string
+	Shard   string
+	Version uint64
+}
+
+func (e ErrNotServedHere) Error() string {
+	if e.Shard == "" {
+		return fmt.Sprintf("local index %q not found at schema version %d", e.Index, e.Version)
+	}
+	return fmt.Sprintf("local index %q has no shard %q at schema version %d", e.Index, e.Shard, e.Version)
+}
+
 func NewErrUnprocessable(err error) ErrUnprocessable {
 	return ErrUnprocessable{err}
 }

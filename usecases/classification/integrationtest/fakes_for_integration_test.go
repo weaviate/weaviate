@@ -434,7 +434,7 @@ func (f *fakeRemoteClient) RemoveAsyncReplicationTargetNode(ctx context.Context,
 
 func (f *fakeRemoteClient) GetObject(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID, props search.SelectProperties,
-	additional additional.Properties,
+	additional additional.Properties, schemaVersion uint64,
 ) (*storobj.Object, error) {
 	return nil, nil
 }
@@ -457,7 +457,7 @@ func (c *fakeRemoteClient) CountObjects(ctx context.Context, host, index, shard 
 }
 
 func (f *fakeRemoteClient) Exists(ctx context.Context, hostName, indexName,
-	shardName string, id strfmt.UUID,
+	shardName string, id strfmt.UUID, schemaVersion uint64,
 ) (bool, error) {
 	return false, nil
 }
@@ -478,7 +478,7 @@ func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 	shardName string, vector []models.Vector, targetVector []string, distance float32, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 	cursor *filters.Cursor, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination,
-	properties []string,
+	properties []string, schemaVersion uint64,
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
 	return nil, nil, nil, nil
 }
@@ -488,7 +488,7 @@ func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexN
 }
 
 func (f *fakeRemoteClient) MultiGetObjects(ctx context.Context, hostName, indexName,
-	shardName string, ids []strfmt.UUID,
+	shardName string, ids []strfmt.UUID, schemaVersion uint64,
 ) ([]*storobj.Object, error) {
 	return nil, nil
 }
@@ -500,13 +500,13 @@ func (f *fakeRemoteClient) BatchAddReferences(ctx context.Context, hostName,
 }
 
 func (f *fakeRemoteClient) Aggregate(ctx context.Context, hostName, indexName,
-	shardName string, params aggregation.Params,
+	shardName string, params aggregation.Params, schemaVersion uint64,
 ) (*aggregation.Result, error) {
 	return nil, nil
 }
 
 func (f *fakeRemoteClient) FindUUIDs(ctx context.Context, hostName, indexName, shardName string,
-	filters *filters.LocalFilter, limit int,
+	filters *filters.LocalFilter, limit int, schemaVersion uint64,
 ) ([]strfmt.UUID, error) {
 	return nil, nil
 }
@@ -518,13 +518,13 @@ func (f *fakeRemoteClient) DeleteObjectBatch(ctx context.Context, hostName, inde
 }
 
 func (f *fakeRemoteClient) GetShardQueueSize(ctx context.Context,
-	hostName, indexName, shardName string,
+	hostName, indexName, shardName string, schemaVersion uint64,
 ) (int64, error) {
 	return 0, nil
 }
 
 func (f *fakeRemoteClient) GetShardStatus(ctx context.Context,
-	hostName, indexName, shardName string,
+	hostName, indexName, shardName string, schemaVersion uint64,
 ) (string, error) {
 	return "", nil
 }

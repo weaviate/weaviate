@@ -188,12 +188,15 @@ func (s *SchemaManager) NewSchemaReader() SchemaReader {
 	)
 }
 
-func (s *SchemaManager) NewSchemaReaderWithWaitFunc(f func(context.Context, uint64) error) SchemaReader {
+func (s *SchemaManager) NewSchemaReaderWithWaitFunc(f func(context.Context, uint64) error,
+	appliedIndex func() uint64,
+) SchemaReader {
 	return NewSchemaReader(
 		s.schema,
 		VersionedSchemaReader{
 			schema:        s.schema,
 			WaitForUpdate: f,
+			AppliedIndex:  appliedIndex,
 		},
 	)
 }

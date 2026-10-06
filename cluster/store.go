@@ -897,7 +897,7 @@ func (st *Store) SchemaReader() schema.SchemaReader {
 	f := func(ctx context.Context, version uint64) error {
 		return st.WaitForAppliedIndex(ctx, time.Millisecond*50, version)
 	}
-	return st.schemaManager.NewSchemaReaderWithWaitFunc(f)
+	return st.schemaManager.NewSchemaReaderWithWaitFunc(f, st.lastAppliedIndex.Load)
 }
 
 // Stats returns internal statistics from this store, for informational/debugging purposes only.
