@@ -182,7 +182,12 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 
 	candidates := make(map[string][]string, len(classes))
 	for _, class := range classes {
-		if !p.checkpointer.IsAsyncReplicationEnabled(ctx, class) {
+		enabled := p.checkpointer.IsAsyncReplicationEnabled(ctx, class)
+		if cancelled() {
+			p.abortPlanning(ctx, sum, plan, nil, cancelled)
+			return plan
+		}
+		if !enabled {
 			monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("class_ineligible").Inc()
 			sum.asyncDisabled++
 			p.log.WithField("action", backup.OpCreate).WithField("class", class).
@@ -190,6 +195,10 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 			continue
 		}
 		replicasByShard, err := p.checkpointer.ShardReplicas(ctx, class)
+		if err != nil && cancelled() {
+			p.abortPlanning(ctx, sum, plan, nil, cancelled)
+			return plan
+		}
 		if err != nil {
 			monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("class_ineligible").Inc()
 			sum.replicas.add(class, 0, err)
@@ -230,12 +239,16 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 	// Registered before any create so a panic still deletes what exists.
 	defer func() { p.deleteCheckpoints(ctx, created) }()
 	results := p.createCheckpoints(ctx, candidateClasses, candidates)
-	aborted := false
+	// A user Cancel seen here voids every create outcome, failures included.
+	aborted := cancelled()
 	for i, class := range candidateClasses {
 		res := results[i]
 		// A panicked create may have left checkpoints behind.
 		if res.err == nil || res.panicked {
 			created[class] = candidates[class]
+		}
+		if aborted {
+			continue
 		}
 		// Planning's ctx died first: counted once below as a deadline fallback, not per class as an RPC failure.
 		if res.err != nil && !res.panicked && ctx.Err() != nil && errors.Is(res.err, ctx.Err()) {
@@ -253,7 +266,7 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 		cutoffs[class] = res.cutoffMs
 	}
 	plan.Cutoffs = cutoffs
-	if aborted {
+	if aborted || cancelled() {
 		p.abortPlanning(ctx, sum, plan, candidates, cancelled)
 		return plan
 	}
@@ -272,8 +285,9 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 	}
 
 	converged := p.pollConvergence(ctx, sum, candidates, plan.Replicas, cutoffs, budget, cancelled)
-	// A user Cancel kills the backup: like a cancel before the cutoff, it designates nothing and records no outcome.
-	if sum.stopped && cancelled() {
+	// A user Cancel kills the backup, even after a converging final pass: it designates nothing and records no outcome.
+	if cancelled() {
+		p.abortPlanning(ctx, sum, plan, candidates, cancelled)
 		return plan
 	}
 
@@ -565,6 +579,11 @@ func (p *Planner) pollConvergence(ctx context.Context, sum *planSummary, candida
 			shardNamesByClass[i] = shardNames
 		}
 		results := p.fetchCheckpointStatuses(ctx, classes, shardNamesByClass)
+		// A user Cancel seen here voids the pass: no status failure or missing checkpoint is recorded.
+		if cancelled() {
+			aborted = true
+			break
+		}
 		for i, class := range classes {
 			shards, shardNames := pending[class], shardNamesByClass[i]
 			statuses, err := results[i].statuses, results[i].err

@@ -47,6 +47,8 @@ type fakeCheckpointer struct {
 	asyncDisabled map[string]bool
 	shardReplicas map[string]map[string][]string
 	replicasErr   map[string]error
+	replicasCalls int
+	asyncChecks   int
 	createErr     map[string]error
 	createPanic   map[string]bool
 	statusPanic   map[string]bool
@@ -94,6 +96,7 @@ func newFakeCheckpointer() *fakeCheckpointer {
 func (f *fakeCheckpointer) ShardReplicas(_ context.Context, class string) (map[string][]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.replicasCalls++
 	if err := f.replicasErr[class]; err != nil {
 		return nil, err
 	}
@@ -103,6 +106,7 @@ func (f *fakeCheckpointer) ShardReplicas(_ context.Context, class string) (map[s
 func (f *fakeCheckpointer) IsAsyncReplicationEnabled(_ context.Context, class string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.asyncChecks++
 	return !f.asyncDisabled[class]
 }
 
@@ -658,7 +662,12 @@ func TestPlanDesignatedShards(t *testing.T) {
 
 		deadlineBefore := dedupeFallbackCount("planning_deadline")
 		begin := time.Now()
-		plan := c.PlanDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2"), nil, func() bool { return true })
+		cancelled := func() bool {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			return len(f.createCalls) > 0
+		}
+		plan := c.PlanDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2"), nil, cancelled)
 		assert.Less(t, time.Since(begin), 5*time.Second)
 		assert.Equal(t, 0, plan.Designated())
 		assert.Equal(t, []string{"C1"}, f.deleteCalls)
@@ -773,7 +782,12 @@ func TestPlanDesignatedShardsFanout(t *testing.T) {
 			c.cleanupTimeout = 50 * time.Millisecond
 
 			begin := time.Now()
-			plan := c.PlanDesignatedShards(ctx, classes, 0, parts("n1", "n2"), nil, func() bool { return tc.cancelled })
+			cancelled := func() bool {
+				f.mu.Lock()
+				defer f.mu.Unlock()
+				return tc.cancelled && len(f.createCalls) > 0
+			}
+			plan := c.PlanDesignatedShards(ctx, classes, 0, parts("n1", "n2"), nil, cancelled)
 			elapsed := time.Since(begin)
 			t.Logf("planned and cleaned %d classes in %s", len(classes), elapsed)
 			assert.Less(t, elapsed, time.Second)
@@ -985,6 +999,84 @@ func TestPlanDesignatedShardsLogVolume(t *testing.T) {
 				}
 			}
 			assert.Equal(t, volumes[0], volumes[1], "log volume must not grow with the class count")
+		})
+	}
+}
+
+func TestPlanDesignatedShardsUserCancelRecordsNoOutcome(t *testing.T) {
+	statusSeen := func(f *fakeCheckpointer) bool { return len(f.statusCalls) > 0 }
+	createSeen := func(f *fakeCheckpointer) bool { return len(f.createCalls) > 0 }
+	tests := []struct {
+		name     string
+		setup    func(f *fakeCheckpointer, class string)
+		cancelIf func(f *fakeCheckpointer) bool
+	}{
+		{name: "cancel during a status pass that converges every shard", cancelIf: statusSeen},
+		{
+			name:     "cancel during creates that all fail",
+			setup:    func(f *fakeCheckpointer, class string) { f.createErr[class] = assert.AnError },
+			cancelIf: createSeen,
+		},
+		{name: "cancel during creates that all succeed", cancelIf: createSeen},
+		{
+			name:     "cancel during a status pass that fails",
+			setup:    func(f *fakeCheckpointer, class string) { f.statusErr[class] = assert.AnError },
+			cancelIf: statusSeen,
+		},
+		{
+			name: "cancel during a status pass with missing checkpoints",
+			setup: func(f *fakeCheckpointer, class string) {
+				f.converge[class+"/s1"] = false
+				f.partial[class+"/s1"] = true
+			},
+			cancelIf: statusSeen,
+		},
+		{
+			name:     "cancel during replica lookups that fail",
+			setup:    func(f *fakeCheckpointer, class string) { f.replicasErr[class] = assert.AnError },
+			cancelIf: func(f *fakeCheckpointer) bool { return f.replicasCalls > 0 },
+		},
+		{
+			name:     "cancel during async checks of disabled classes",
+			setup:    func(f *fakeCheckpointer, class string) { f.asyncDisabled[class] = true },
+			cancelIf: func(f *fakeCheckpointer) bool { return f.asyncChecks > 0 },
+		},
+	}
+	reasons := []string{"class_ineligible", "create_rpc_failed", "status_failed", "checkpoint_missing", "not_converged", "planning_deadline"}
+	counts := func() []float64 {
+		out := []float64{dedupeShardOutcomeCount("designated"), dedupeShardOutcomeCount("fallback")}
+		for _, r := range reasons {
+			out = append(out, dedupeFallbackCount(r))
+		}
+		return out
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f, classes := newWideFakeCheckpointer(4, 0)
+			for _, class := range classes {
+				if tc.setup != nil {
+					tc.setup(f, class)
+				}
+			}
+			c := newTestPlanner(f)
+			logger, hook := test.NewNullLogger()
+			c.log = logger
+			cancelled := func() bool {
+				f.mu.Lock()
+				defer f.mu.Unlock()
+				return tc.cancelIf(f)
+			}
+			before := counts()
+
+			plan := c.PlanDesignatedShards(context.Background(), classes, 0, parts("n1", "n2"), nil, cancelled)
+
+			assert.Empty(t, plan.Designations)
+			assert.Equal(t, before, counts())
+			assert.False(t, slices.ContainsFunc(hook.AllEntries(), func(e *logrus.Entry) bool { return e.Level <= logrus.WarnLevel }),
+				"%v", hook.AllEntries())
+			assert.True(t, slices.ContainsFunc(hook.AllEntries(), func(e *logrus.Entry) bool {
+				return e.Level == logrus.InfoLevel && e.Message == "replica dedupe: planning cancelled"
+			}), "%v", hook.AllEntries())
 		})
 	}
 }
