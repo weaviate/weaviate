@@ -427,24 +427,44 @@ func (rii *RemoteIndexIncoming) RemoveAsyncReplicationTargetNode(
 	return index.IncomingRemoveAsyncReplicationTargetNode(ctx, shardName, targetNodeOverride)
 }
 
-// incomingRead resolves the local index for a read and runs f against it, handing any missing
-// index or shard to [enterrors.ClassifyReadMiss].
+// incomingRead resolves the local index for a read and runs f against it. Only a miss
+// [enterrors.NotServedHere] calls final becomes an ErrNotServedHere; every other outcome is left
+// as it was, so a lagging replica keeps the error its caller retries.
 func incomingRead[T any](rii *RemoteIndexIncoming, indexName, shardName string,
 	schemaVersion uint64, f func(RemoteIndexIncomingRepo) (T, error),
 ) (T, error) {
 	var zero T
 
-	appliedIndex := rii.schema.AppliedIndex()
-
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
-		return zero, enterrors.ClassifyReadMiss(enterrors.ErrLocalIndexNotFound{Index: indexName},
-			indexName, "", schemaVersion, appliedIndex)
+		missing := enterrors.ErrLocalIndexNotFound{Index: indexName}
+		if final := rii.finalMiss(missing, indexName, "", schemaVersion); final != nil {
+			return zero, final
+		}
+		return zero, enterrors.NewErrUnprocessable(missing)
 	}
 
 	res, err := f(index)
-	if err != nil {
-		return zero, enterrors.ClassifyReadMiss(err, indexName, shardName, schemaVersion, appliedIndex)
+	if final := rii.finalMiss(err, indexName, shardName, schemaVersion); final != nil {
+		return zero, final
 	}
-	return res, nil
+	return res, err
+}
+
+// finalMiss answers the error for a miss that waiting cannot fix, or nil when err is anything
+// else. The applied index is read only once there is a miss to classify, so an all-local read
+// and a successful remote one both stay off the schema.
+func (rii *RemoteIndexIncoming) finalMiss(err error, indexName, shardName string,
+	schemaVersion uint64,
+) error {
+	if err == nil || !enterrors.IsSchemaLag(err) {
+		return nil
+	}
+	appliedIndex := rii.schema.AppliedIndex()
+	if !enterrors.NotServedHere(err, schemaVersion, appliedIndex) {
+		return nil
+	}
+	return enterrors.NewErrUnprocessable(enterrors.ErrNotServedHere{
+		Index: indexName, Shard: shardName, Version: appliedIndex,
+	})
 }

@@ -150,13 +150,13 @@ func (f *Finder) GetOne(ctx context.Context,
 	adds additional.Properties,
 ) (*storobj.Object, error) {
 	c := NewReadCoordinator[findOneReply](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
-	op := func(ctx context.Context, host string, fullRead bool, schemaVersion uint64) (findOneReply, error) {
+	op := func(ctx context.Context, host string, fullRead bool) (findOneReply, error) {
 		if fullRead {
-			r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds, 0, schemaVersion)
+			r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds, 0)
 
 			return findOneReply{host, 0, r, r.UpdateTime(), false}, err
 		} else {
-			xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id}, 0, schemaVersion)
+			xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id}, 0)
 
 			var x types.RepairResponse
 
@@ -193,8 +193,8 @@ func (f *Finder) FindUUIDs(ctx context.Context, className, shard string,
 ) (uuids []strfmt.UUID, err error) {
 	c := NewReadCoordinator[[]strfmt.UUID](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
 
-	op := func(ctx context.Context, host string, _ bool, schemaVersion uint64) ([]strfmt.UUID, error) {
-		return f.client.FindUUIDs(ctx, host, f.class, shard, filters, limit, schemaVersion)
+	op := func(ctx context.Context, host string, _ bool) ([]strfmt.UUID, error) {
+		return f.client.FindUUIDs(ctx, host, f.class, shard, filters, limit)
 	}
 
 	replyCh, _, err := c.Pull(ctx, l, op, "", 30*time.Second)
@@ -292,8 +292,8 @@ func (f *Finder) Exists(ctx context.Context,
 	id strfmt.UUID,
 ) (bool, error) {
 	c := NewReadCoordinator[existReply](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
-	op := func(ctx context.Context, host string, _ bool, schemaVersion uint64) (existReply, error) {
-		xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id}, 0, schemaVersion)
+	op := func(ctx context.Context, host string, _ bool) (existReply, error) {
+		xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id}, 0)
 		var x types.RepairResponse
 		if len(xs) == 1 {
 			x = xs[0]
@@ -327,7 +327,7 @@ func (f *Finder) NodeObject(ctx context.Context,
 	if !ok || host == "" {
 		return nil, fmt.Errorf("cannot resolve node name: %s", nodeName)
 	}
-	r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds, 9, NoSchemaVersion)
+	r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds, 9)
 	return r.Object, err
 }
 
@@ -341,11 +341,11 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 		shard        = batch.Shard
 		digests, ids = batch.Digests()
 	)
-	op := func(ctx context.Context, host string, isCallerCopy bool, schemaVersion uint64) (BatchReply, error) {
+	op := func(ctx context.Context, host string, isCallerCopy bool) (BatchReply, error) {
 		if isCallerCopy { // we already know the update times of this copy
 			return BatchReply{Sender: host, IsLocal: true, DigestData: digests}, nil
 		}
-		xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids, 0, schemaVersion)
+		xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids, 0)
 		return BatchReply{Sender: host, DigestData: xs}, err
 	}
 
@@ -678,8 +678,8 @@ func (f *Finder) CountObjects(ctx context.Context, shard string, cl types.Consis
 	c := NewReadCoordinator[int](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
 
 	// NOTE(dyma): Why do we need to pass both the context and the timeout?
-	results, _, err := c.Pull(ctx, cl, func(ctx context.Context, host string, _ bool, schemaVersion uint64) (int, error) {
-		count, err := f.client.cl.CountObjects(ctx, host, f.class, shard, schemaVersion)
+	results, _, err := c.Pull(ctx, cl, func(ctx context.Context, host string, _ bool) (int, error) {
+		count, err := f.client.cl.CountObjects(ctx, host, f.class, shard)
 		if err != nil {
 			f.logger.WithFields(logrus.Fields{
 				"shard": shard,

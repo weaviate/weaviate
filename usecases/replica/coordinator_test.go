@@ -329,9 +329,9 @@ func Test_coordinatorPull(t *testing.T) {
 		return mockRouter
 	}
 
-	op := func(client replica.Client) func(ctx context.Context, host string, fullRead bool, schemaVersion uint64) (types.RepairResponse, error) {
-		return func(ctx context.Context, host string, fullRead bool, schemaVersion uint64) (types.RepairResponse, error) {
-			xs, err := client.DigestObjects(ctx, host, class, shard, []strfmt.UUID{fakeObj.Object.ID}, 0, schemaVersion)
+	op := func(client replica.Client) func(ctx context.Context, host string, fullRead bool) (types.RepairResponse, error) {
+		return func(ctx context.Context, host string, fullRead bool) (types.RepairResponse, error) {
+			xs, err := client.DigestObjects(ctx, host, class, shard, []strfmt.UUID{fakeObj.Object.ID}, 0)
 			var x types.RepairResponse
 			if len(xs) == 1 {
 				x = xs[0]
@@ -544,7 +544,7 @@ func TestPullStopsWhenTheLevelBecomesUnreachable(t *testing.T) {
 	// only B can answer; A and C answer 503, so quorum of 2 is out of reach. The client returns
 	// the typed error, which is what the coordinator classifies on.
 	notReady := &clients.HTTPError{Code: http.StatusServiceUnavailable, Body: []byte("503 " + replica.NodeNotReadyMsg)}
-	op := func(ctx context.Context, host string, _ bool, _ uint64) (int, error) {
+	op := func(ctx context.Context, host string, _ bool) (int, error) {
 		if host == "b:7001" {
 			return 1, nil
 		}

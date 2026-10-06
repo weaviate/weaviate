@@ -54,19 +54,20 @@ func newReplicaServer(t *testing.T, r replicaTypes.Replicator) *httptest.Server 
 	return server
 }
 
+// laggingMiss and finalMiss are the two shapes a replica returns for a shard it does not hold.
 func laggingMiss() error {
-	return enterrors.ClassifyReadMiss(enterrors.ErrLocalShardNotFound{Shard: testShard},
-		testIndex, testShard, 100, 90)
+	return enterrors.ErrLocalShardNotFound{Shard: testShard}
 }
 
 func finalMiss() error {
-	return enterrors.ClassifyReadMiss(enterrors.ErrLocalShardNotFound{Shard: testShard},
-		testIndex, testShard, 100, 100)
+	return enterrors.NewErrUnprocessable(enterrors.ErrNotServedHere{
+		Index: testIndex, Shard: testShard, Version: 100,
+	})
 }
 
-// TestReplicaReadMissStatus pins the status each read endpoint answers for the two kinds of
-// miss. These used to answer a flat 422 for any miss, telling the coordinator "never" when the
-// replica only needed to catch up, while _count answered a retryable 500.
+// Pins the status each read endpoint answers for the two kinds of miss. A final miss used to
+// read as 422 at best, telling the coordinator nothing it could act on; lag keeps the retryable
+// 500 it needs to outlast schema propagation.
 func TestReplicaReadMissStatus(t *testing.T) {
 	endpoints := []struct {
 		name    string
@@ -127,7 +128,7 @@ func TestReplicaReadMissStatus(t *testing.T) {
 		readErr  error
 		wantCode int
 	}{
-		{"behind on schema reads as unavailable", laggingMiss(), http.StatusServiceUnavailable},
+		{"behind on schema stays retryable", laggingMiss(), http.StatusInternalServerError},
 		{"caught up and still missing is terminal", finalMiss(), http.StatusUnprocessableEntity},
 		{"an unrelated failure is a fault", io.ErrUnexpectedEOF, http.StatusInternalServerError},
 	}
@@ -149,8 +150,7 @@ func TestReplicaReadMissStatus(t *testing.T) {
 	}
 }
 
-// TestReplicaReadForwardsSchemaVersion checks the version survives the wire, and that a
-// malformed one is the caller's fault rather than a silent 0.
+// A malformed version is the caller's fault rather than a silent 0.
 func TestReplicaReadForwardsSchemaVersion(t *testing.T) {
 	countURL := func(base, query string) string {
 		u := base + "/indices/" + testIndex + "/shards/" + testShard + "/objects/_count"

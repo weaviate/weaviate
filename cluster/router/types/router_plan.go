@@ -54,8 +54,6 @@ func (o RoutingPlanBuildOptions) String() string {
 //   - ReplicaSet: The ordered list of Replicas to contact.
 //   - ConsistencyLevel: The user-specified consistency level.
 //   - IntConsistencyLevel: The resolved numeric value for the consistency level.
-//   - SchemaVersion: The local schema version this plan was resolved against. It travels with
-//     the read so a replica can tell schema lag from a shard it genuinely does not hold.
 type ReadRoutingPlan struct {
 	LocalHostname       string
 	Shard               string
@@ -63,7 +61,6 @@ type ReadRoutingPlan struct {
 	ReplicaSet          ReadReplicaSet
 	ConsistencyLevel    ConsistencyLevel
 	IntConsistencyLevel int
-	SchemaVersion       uint64
 }
 
 // String returns a human-readable representation of the ReadRoutingPlan,

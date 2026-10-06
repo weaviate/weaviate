@@ -765,6 +765,14 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.ServerConfig.Config.Raft.ConsistencyWaitTimeout,
 	)
 
+	// Wired here rather than at construction because the schema reader does not exist that
+	// early. The reader is captured once, because SchemaReader() builds one per call and this
+	// runs on every remote read. See clients.SchemaVersionProvider for why reads send it.
+	clusterSchemaReader := appState.ClusterService.SchemaReader()
+	remoteIndexClient.SetSchemaVersionProvider(clusterSchemaReader.ClassVersion)
+	restReplicationClient.SetSchemaVersionProvider(clusterSchemaReader.ClassVersion)
+	grpcReplicationClient.SetSchemaVersionProvider(clusterSchemaReader.ClassVersion)
+
 	// initialize needed services after all components are ready
 	postInitModules(appState)
 

@@ -132,11 +132,11 @@ type RClient interface {
 	// FetchObject fetches one object
 	FetchObject(_ context.Context, host, index, shard string,
 		id strfmt.UUID, props search.SelectProperties,
-		additional additional.Properties, numRetries int, schemaVersion uint64) (Replica, error)
+		additional additional.Properties, numRetries int) (Replica, error)
 
 	// FetchObjects fetches objects specified in ids list.
 	FetchObjects(_ context.Context, host, index, shard string,
-		ids []strfmt.UUID, schemaVersion uint64) ([]Replica, error)
+		ids []strfmt.UUID) ([]Replica, error)
 
 	// OverwriteObjects conditionally updates existing objects.
 	OverwriteObjects(_ context.Context, host, index, shard string,
@@ -147,10 +147,10 @@ type RClient interface {
 	// number of bytes transferred over the network when fetching a replicated
 	// object
 	DigestObjects(ctx context.Context, host, index, shard string,
-		ids []strfmt.UUID, numRetries int, schemaVersion uint64) ([]types.RepairResponse, error)
+		ids []strfmt.UUID, numRetries int) ([]types.RepairResponse, error)
 
 	FindUUIDs(ctx context.Context, host, index, shard string,
-		filters *filters.LocalFilter, limit int, schemaVersion uint64) ([]strfmt.UUID, error)
+		filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error)
 
 	DigestObjectsInRange(ctx context.Context, host, index, shard string,
 		initialUUID, finalUUID strfmt.UUID, limit int) ([]types.RepairDigest, error)
@@ -173,17 +173,13 @@ type RClient interface {
 	CompareHashTreeRoots(ctx context.Context, host, index string,
 		roots map[string]hashtree.Digest) (divergingShards []string, err error)
 
-	CountObjects(ctx context.Context, host, index, shard string, schemaVersion uint64) (int, error)
+	CountObjects(ctx context.Context, host, index, shard string) (int, error)
 
 	// Async-checkpoint RPCs: createdAt is the initiator's value, propagated unchanged.
 	GetAsyncCheckpointStatus(ctx context.Context, host, index string, shardNames []string) (map[string]AsyncCheckpointShardStatus, error)
 	CreateAsyncCheckpoint(ctx context.Context, host, index string, shardNames []string, cutoffMs int64, createdAt time.Time) error
 	DeleteAsyncCheckpoint(ctx context.Context, host, index string, shardNames []string) error
 }
-
-// NoSchemaVersion marks a read with no version to send: read repair and node-targeted debug
-// reads pick their own host rather than resolve a routing plan.
-const NoSchemaVersion uint64 = 0
 
 // FinderClient extends RClient with consistency checks
 type FinderClient struct {
@@ -202,9 +198,8 @@ func (fc FinderClient) FullRead(ctx context.Context,
 	props search.SelectProperties,
 	additional additional.Properties,
 	numRetries int,
-	schemaVersion uint64,
 ) (Replica, error) {
-	return fc.cl.FetchObject(ctx, host, index, shard, id, props, additional, numRetries, schemaVersion)
+	return fc.cl.FetchObject(ctx, host, index, shard, id, props, additional, numRetries)
 }
 
 func (fc FinderClient) HashTreeLevel(ctx context.Context,
@@ -216,10 +211,10 @@ func (fc FinderClient) HashTreeLevel(ctx context.Context,
 // DigestReads reads digests of all specified objects
 func (fc FinderClient) DigestReads(ctx context.Context,
 	host, index, shard string,
-	ids []strfmt.UUID, numRetries int, schemaVersion uint64,
+	ids []strfmt.UUID, numRetries int,
 ) ([]types.RepairResponse, error) {
 	n := len(ids)
-	rs, err := fc.cl.DigestObjects(ctx, host, index, shard, ids, numRetries, schemaVersion)
+	rs, err := fc.cl.DigestObjects(ctx, host, index, shard, ids, numRetries)
 	if err == nil && len(rs) != n {
 		err = fmt.Errorf("malformed digest read response: length expected %d got %d", n, len(rs))
 	}
@@ -303,7 +298,7 @@ func (fc FinderClient) fullReadChunk(ctx context.Context,
 	host, index, shard string,
 	chunk []strfmt.UUID, offset int,
 ) ([]Replica, error) {
-	part, err := fc.cl.FetchObjects(ctx, host, index, shard, chunk, NoSchemaVersion)
+	part, err := fc.cl.FetchObjects(ctx, host, index, shard, chunk)
 	if err != nil {
 		return nil, err
 	}
@@ -329,7 +324,7 @@ func (fc FinderClient) Overwrite(ctx context.Context,
 }
 
 func (fc FinderClient) FindUUIDs(ctx context.Context,
-	host, class, shard string, filters *filters.LocalFilter, limit int, schemaVersion uint64,
+	host, class, shard string, filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
-	return fc.cl.FindUUIDs(ctx, host, class, shard, filters, limit, schemaVersion)
+	return fc.cl.FindUUIDs(ctx, host, class, shard, filters, limit)
 }

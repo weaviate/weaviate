@@ -1274,10 +1274,17 @@ func (i *Index) FetchObjects(ctx context.Context,
 	return resp, nil
 }
 
-// classifyReplicatedReadMiss hands a replicated read's failure to [enterrors.ClassifyReadMiss].
+// classifyReplicatedReadMiss rewrites only a miss [enterrors.NotServedHere] calls final, so
+// nothing retries a replica that can never serve the shard. Anything else passes through.
 func (db *DB) classifyReplicatedReadMiss(err error, className, shardName string, schemaVersion uint64) error {
-	if err == nil {
-		return nil
+	if err == nil || !enterrors.IsSchemaLag(err) {
+		return err
 	}
-	return enterrors.ClassifyReadMiss(err, className, shardName, schemaVersion, db.schemaReader.AppliedIndex())
+	appliedIndex := db.schemaReader.AppliedIndex()
+	if !enterrors.NotServedHere(err, schemaVersion, appliedIndex) {
+		return err
+	}
+	return enterrors.NewErrUnprocessable(enterrors.ErrNotServedHere{
+		Index: className, Shard: shardName, Version: appliedIndex,
+	})
 }

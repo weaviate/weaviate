@@ -41,9 +41,8 @@ type (
 	// readyOp asks a replica to execute the actual operation
 	commitOp[T any] func(_ context.Context, host, requestID string) (T, error)
 
-	// readOp defines a generic read operation. schemaVersion is the routing plan's, and travels
-	// to the replica so it can tell schema lag from a shard it does not hold.
-	readOp[T any] func(_ context.Context, host string, fullRead bool, schemaVersion uint64) (T, error)
+	// readOp defines a generic read operation
+	readOp[T any] func(_ context.Context, host string, fullRead bool) (T, error)
 
 	// onResult defines a hook called when the coordinator reads a result from the commitCh
 	onResult[T any] func(result Result[T], successes []T, failures []T) ([]T, []T, bool, error)
@@ -410,7 +409,7 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 				// because that will be the direct candidate (if a direct candidate was provided),
 				// if we only used the retry queue then we would not have the guarantee that the
 				// fullRead will be tried on hosts[0] first.
-				resp, err := op(workerCtx, hosts[hostIndex], isFullReadWorker, readRoutingPlan.SchemaVersion)
+				resp, err := op(workerCtx, hosts[hostIndex], isFullReadWorker)
 				// TODO return retryable info here, for now should be fine since most errors are considered retryable
 				// TODO have increasing timeout passed into each op (eg 1s, 2s, 4s, 8s, 16s, 32s, with some max) similar to backoff? future PR? or should we just set timeout once per worker in Pull?
 				if err == nil {
@@ -437,7 +436,7 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 
 				// let's fallback to the backups in the retry queue
 				for hr := range hostRetryQueue {
-					resp, err := op(workerCtx, hr.host, isFullReadWorker, readRoutingPlan.SchemaVersion)
+					resp, err := op(workerCtx, hr.host, isFullReadWorker)
 					if err == nil {
 						replyCh <- Result[T]{resp, err}
 						return

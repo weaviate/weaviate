@@ -54,9 +54,9 @@ func (f fakeIncomingRepo) GetIndexForIncomingSharding(schema.ClassName) RemoteIn
 	return f.index
 }
 
-// TestIncomingReadTellsLagFromAGenuineMiss pins what a replica answers when it cannot serve a
-// read. The distinction is what stops a coordinator from spending its read budget on a node that
-// will never hold the shard, and from giving up on one that is only behind.
+// Only a miss the replica is already current enough to be sure about is rewritten, and that is
+// the whole point: a lagging replica keeps the error it had, so the retry that outlasts schema
+// propagation still happens, while a replica that will never hold the shard says so once.
 func TestIncomingReadTellsLagFromAGenuineMiss(t *testing.T) {
 	const (
 		index = "Articles"
@@ -73,69 +73,59 @@ func TestIncomingReadTellsLagFromAGenuineMiss(t *testing.T) {
 		indexAbsent  bool
 		readErr      error
 
-		wantUnprocessable bool
-		wantLag           bool
-		wantFinal         bool
+		// wantFinal: rewritten to ErrNotServedHere, which the cluster API answers 422.
+		// wantUnchanged: the error the caller already produced, left alone.
+		wantFinal     bool
+		wantUnchanged bool
 	}{
 		{
-			name:              "behind the read's version, so a missing shard is lag",
-			appliedIndex:      90,
-			requested:         100,
-			readErr:           missingShard,
-			wantUnprocessable: true,
-			wantLag:           true,
+			name:          "behind the read's version, so a missing shard stays retryable",
+			appliedIndex:  90,
+			requested:     100,
+			readErr:       missingShard,
+			wantUnchanged: true,
 		},
 		{
-			name:              "caught up, so the same missing shard is final",
-			appliedIndex:      100,
-			requested:         100,
-			readErr:           missingShard,
-			wantUnprocessable: true,
-			wantFinal:         true,
-		},
-		{
-			name:              "ahead of the read's version is also caught up",
-			appliedIndex:      150,
-			requested:         100,
-			readErr:           missingShard,
-			wantUnprocessable: true,
-			wantFinal:         true,
-		},
-		{
-			name:              "no version sent at all cannot rule out lag",
-			appliedIndex:      100,
-			requested:         0,
-			readErr:           missingShard,
-			wantUnprocessable: true,
-			wantLag:           true,
-		},
-		{
-			name:              "a missing index while behind is lag",
-			appliedIndex:      90,
-			requested:         100,
-			indexAbsent:       true,
-			wantUnprocessable: true,
-			wantLag:           true,
-		},
-		{
-			name:              "a missing index while caught up is final",
-			appliedIndex:      100,
-			requested:         100,
-			indexAbsent:       true,
-			wantUnprocessable: true,
-			wantFinal:         true,
-		},
-		{
-			name:         "an unrelated failure is neither, whatever the versions",
+			name:         "caught up, so the same missing shard is final",
 			appliedIndex: 100,
 			requested:    100,
-			readErr:      other,
+			readErr:      missingShard,
+			wantFinal:    true,
 		},
 		{
-			name:         "and is not reclassified while behind either",
-			appliedIndex: 90,
+			name:         "ahead of the read's version is also caught up",
+			appliedIndex: 150,
 			requested:    100,
-			readErr:      other,
+			readErr:      missingShard,
+			wantFinal:    true,
+		},
+		{
+			name:          "no version sent at all cannot rule out lag",
+			appliedIndex:  100,
+			requested:     0,
+			readErr:       missingShard,
+			wantUnchanged: true,
+		},
+		{
+			name:         "a missing index while caught up is final",
+			appliedIndex: 100,
+			requested:    100,
+			indexAbsent:  true,
+			wantFinal:    true,
+		},
+		{
+			name:          "an unrelated failure is neither, whatever the versions",
+			appliedIndex:  100,
+			requested:     100,
+			readErr:       other,
+			wantUnchanged: true,
+		},
+		{
+			name:          "and is not reclassified while behind either",
+			appliedIndex:  90,
+			requested:     100,
+			readErr:       other,
+			wantUnchanged: true,
 		},
 	}
 
@@ -150,27 +140,35 @@ func TestIncomingReadTellsLagFromAGenuineMiss(t *testing.T) {
 				func(RemoteIndexIncomingRepo) (int, error) { return 0, tc.readErr })
 			require.Error(t, err)
 
-			assert.Equal(t, tc.wantUnprocessable, errors.As(err, &enterrors.ErrUnprocessable{}),
-				"unprocessable is what the cluster API needs to pick 503 or 422 instead of 500")
-
-			// Lag keeps the original miss wrapped, so the cluster API still reads it as
-			// "not caught up" and answers 503.
-			var lagShard enterrors.ErrLocalShardNotFound
-			var lagIndex enterrors.ErrLocalIndexNotFound
-			assert.Equal(t, tc.wantLag, errors.As(err, &lagShard) || errors.As(err, &lagIndex))
-
-			// A final miss deliberately matches neither, or the coordinator keeps retrying.
 			var final enterrors.ErrNotServedHere
-			assert.Equal(t, tc.wantFinal, errors.As(err, &final))
+			assert.Equal(t, tc.wantFinal, errors.As(err, &final),
+				"a final miss must match nothing that reads as lag, or the coordinator keeps retrying")
 
-			if !tc.wantUnprocessable {
-				assert.ErrorIs(t, err, tc.readErr, "an unrelated failure must pass through untouched")
+			if tc.wantUnchanged {
+				assert.ErrorIs(t, err, tc.readErr, "lag must keep the error it had")
 			}
 		})
 	}
 }
 
-// TestIncomingReadPassesResultsThrough guards the happy path: no classification, no error.
+// The one miss the facade has always wrapped itself: a class this node does not hold reads as
+// not-ready while lag cannot be ruled out.
+func TestIncomingReadKeepsAMissingIndexNotReady(t *testing.T) {
+	rii := &RemoteIndexIncoming{
+		repo:   fakeIncomingRepo{absent: true},
+		schema: fakeIncomingSchema{appliedIndex: 90},
+	}
+
+	_, err := incomingRead(rii, "Articles", "tenant-7", 100,
+		func(RemoteIndexIncomingRepo) (int, error) { return 0, nil })
+	require.Error(t, err)
+
+	assert.True(t, errors.As(err, &enterrors.ErrUnprocessable{}))
+	var missing enterrors.ErrLocalIndexNotFound
+	assert.True(t, errors.As(err, &missing), "still reads as not caught up")
+}
+
+// The happy path: no classification, no error.
 func TestIncomingReadPassesResultsThrough(t *testing.T) {
 	rii := &RemoteIndexIncoming{
 		repo:   fakeIncomingRepo{index: fakeIncomingIndex{}},

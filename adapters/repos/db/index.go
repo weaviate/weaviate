@@ -391,16 +391,6 @@ func (i *Index) path() string {
 	return path.Join(i.Config.RootPath, i.ID())
 }
 
-// localSchemaVersion is the version of this node's schema that a read is resolved against.
-// Sent along with remote reads, it lets the receiving node tell schema lag from a genuine
-// miss: below this version it cannot be expected to hold the shard yet, at or above it a
-// missing shard is real. Writes carry the version their caller waited for; reads have no
-// such caller, so the local schema is the reference.
-func (i *Index) localSchemaVersion() uint64 {
-	info := i.schemaReader.ClassInfo(i.Config.ClassName.String())
-	return max(info.ClassVersion, info.ShardVersion)
-}
-
 func (i *Index) snapshotsPath() string {
 	return path.Join(i.path(), lsmkv.SnapshotsRootDir)
 }
@@ -2154,7 +2144,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 		},
 		func() error {
 			var err error
-			if obj, err = i.remote.GetObject(ctx, shardName, id, props, addl, i.localSchemaVersion()); err != nil {
+			if obj, err = i.remote.GetObject(ctx, shardName, id, props, addl); err != nil {
 				return fmt.Errorf("get remote object: shard=%s: %w", shardName, err)
 			}
 			return nil
@@ -2233,9 +2223,6 @@ func (i *Index) multiObjectByID(ctx context.Context,
 
 	out := make([]*storobj.Object, len(query))
 
-	// Resolved once, so every shard of this query is judged against the same schema version.
-	schemaVersion := i.localSchemaVersion()
-
 	for shardName, group := range byShard {
 		var objects []*storobj.Object
 
@@ -2247,7 +2234,7 @@ func (i *Index) multiObjectByID(ctx context.Context,
 			},
 			func() error {
 				var err error
-				objects, err = i.remote.MultiGetObjects(ctx, shardName, extractIDsFromMulti(group.ids), schemaVersion)
+				objects, err = i.remote.MultiGetObjects(ctx, shardName, extractIDsFromMulti(group.ids))
 				return errors.Wrapf(err, "remote shard %s", shardName)
 			})
 		if err != nil {
@@ -2317,7 +2304,7 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 		},
 		func() error {
 			var err error
-			if exists, err = i.remote.Exists(ctx, shardName, id, i.localSchemaVersion()); err != nil {
+			if exists, err = i.remote.Exists(ctx, shardName, id); err != nil {
 				owner, _ := i.getSchema.ShardOwner(i.Config.ClassName.String(), shardName)
 				return fmt.Errorf("exists remotely: shard=%q owner=%q: %w", shardName, owner, err)
 			}
@@ -2477,11 +2464,8 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 	eg.SetLimit(_NUMCPU*2 + 1)
 	shardResultLock := sync.Mutex{}
 
-	// Resolved once, so every shard of this query is judged against the same schema version.
-	schemaVersion := i.localSchemaVersion()
-
 	remoteSearch := func(shardName string) error {
-		objs, scores, queryProfiles, nodeName, err := i.remote.SearchShard(ctx, shardName, nil, nil, 0, limit, filters, keywordRanking, sort, cursor, nil, addlProps, nil, properties, schemaVersion)
+		objs, scores, queryProfiles, nodeName, err := i.remote.SearchShard(ctx, shardName, nil, nil, 0, limit, filters, keywordRanking, sort, cursor, nil, addlProps, nil, properties)
 		if err != nil {
 			return fmt.Errorf(
 				"remote shard object search %s: %w", shardName, err)
@@ -2706,8 +2690,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 		// Force a search on all the replicas for the shard
 		remoteSearchResults, err := i.remote.SearchAllReplicas(ctx,
 			i.logger, shardName, searchVectors, targetVectors, distance, limit, localFilters,
-			nil, sort, nil, groupBy, additional, i.getSchema.NodeName(), targetCombination, properties,
-			i.localSchemaVersion())
+			nil, sort, nil, groupBy, additional, i.getSchema.NodeName(), targetCombination, properties)
 		// Only return an error if we failed to query remote shards AND we had no local shard to query
 		if err != nil && shard == nil {
 			return nil, nil, errors.Wrapf(err, "remote shard %s", shardName)
@@ -2725,7 +2708,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 		// Search only what is necessary
 		remoteResult, remoteDists, queryProfiles, nodeName, err := i.remote.SearchShard(ctx,
 			shardName, searchVectors, targetVectors, distance, limit, localFilters,
-			nil, sort, nil, groupBy, additional, targetCombination, properties, i.localSchemaVersion())
+			nil, sort, nil, groupBy, additional, targetCombination, properties)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "remote shard %s", shardName)
 		}
@@ -3324,10 +3307,6 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 	}
 
 	results := make([]*aggregation.Result, len(shards))
-
-	// Resolved once, so every shard of this query is judged against the same schema version.
-	schemaVersion := i.localSchemaVersion()
-
 	for j, shardName := range shards {
 		var res *aggregation.Result
 
@@ -3339,7 +3318,7 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 			},
 			func() error {
 				var err error
-				res, err = i.remote.Aggregate(ctx, shardName, params, schemaVersion)
+				res, err = i.remote.Aggregate(ctx, shardName, params)
 				if err != nil || res == nil {
 					return err
 				}
@@ -3731,10 +3710,6 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 	}
 
 	shardsQueueSize := make(map[string]int64)
-
-	// Resolved once, so every shard of this query is judged against the same schema version.
-	schemaVersion := i.localSchemaVersion()
-
 	for _, shardName := range shardNames {
 		if tenant != "" && shardName != tenant {
 			continue
@@ -3749,7 +3724,7 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 			},
 			func() error {
 				var err error
-				size, err = i.remote.GetShardQueueSize(ctx, shardName, schemaVersion)
+				size, err = i.remote.GetShardQueueSize(ctx, shardName)
 				return err
 			})
 		if err != nil {
@@ -3793,9 +3768,6 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 
 	shardsStatus := make(map[string]string)
 
-	// Resolved once, so every shard of this query is judged against the same schema version.
-	schemaVersion := i.localSchemaVersion()
-
 	for _, shardName := range shardNames {
 		if tenant != "" && shardName != tenant {
 			continue
@@ -3808,7 +3780,7 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 			},
 			func() error {
 				var err error
-				status, err = i.remote.GetShardStatus(ctx, shardName, schemaVersion)
+				status, err = i.remote.GetShardStatus(ctx, shardName)
 				return err
 			})
 		if err != nil {
@@ -3888,10 +3860,6 @@ func (i *Index) findUUIDs(ctx context.Context,
 	className := i.Config.ClassName.String()
 
 	results := make(map[string][]strfmt.UUID)
-
-	// Resolved once, so every shard of this query is judged against the same schema version.
-	schemaVersion := i.localSchemaVersion()
-
 	for _, shardName := range readPlan.Shards() {
 		var err error
 
@@ -3906,7 +3874,7 @@ func (i *Index) findUUIDs(ctx context.Context,
 				},
 				func() error {
 					var err error
-					results[shardName], err = i.remote.FindUUIDs(ctx, shardName, filters, perShardLimit, schemaVersion)
+					results[shardName], err = i.remote.FindUUIDs(ctx, shardName, filters, perShardLimit)
 					return err
 				})
 		}

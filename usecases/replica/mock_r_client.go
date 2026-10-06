@@ -171,9 +171,9 @@ func (_c *MockRClient_CompareHashTreeRoots_Call) RunAndReturn(run func(context.C
 	return _c
 }
 
-// CountObjects provides a mock function with given fields: ctx, host, index, shard, schemaVersion
-func (_m *MockRClient) CountObjects(ctx context.Context, host string, index string, shard string, schemaVersion uint64) (int, error) {
-	ret := _m.Called(ctx, host, index, shard, schemaVersion)
+// CountObjects provides a mock function with given fields: ctx, host, index, shard
+func (_m *MockRClient) CountObjects(ctx context.Context, host string, index string, shard string) (int, error) {
+	ret := _m.Called(ctx, host, index, shard)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CountObjects")
@@ -181,17 +181,17 @@ func (_m *MockRClient) CountObjects(ctx context.Context, host string, index stri
 
 	var r0 int
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, uint64) (int, error)); ok {
-		return rf(ctx, host, index, shard, schemaVersion)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) (int, error)); ok {
+		return rf(ctx, host, index, shard)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, uint64) int); ok {
-		r0 = rf(ctx, host, index, shard, schemaVersion)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) int); ok {
+		r0 = rf(ctx, host, index, shard)
 	} else {
 		r0 = ret.Get(0).(int)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, uint64) error); ok {
-		r1 = rf(ctx, host, index, shard, schemaVersion)
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string) error); ok {
+		r1 = rf(ctx, host, index, shard)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -209,14 +209,13 @@ type MockRClient_CountObjects_Call struct {
 //   - host string
 //   - index string
 //   - shard string
-//   - schemaVersion uint64
-func (_e *MockRClient_Expecter) CountObjects(ctx interface{}, host interface{}, index interface{}, shard interface{}, schemaVersion interface{}) *MockRClient_CountObjects_Call {
-	return &MockRClient_CountObjects_Call{Call: _e.mock.On("CountObjects", ctx, host, index, shard, schemaVersion)}
+func (_e *MockRClient_Expecter) CountObjects(ctx interface{}, host interface{}, index interface{}, shard interface{}) *MockRClient_CountObjects_Call {
+	return &MockRClient_CountObjects_Call{Call: _e.mock.On("CountObjects", ctx, host, index, shard)}
 }
 
-func (_c *MockRClient_CountObjects_Call) Run(run func(ctx context.Context, host string, index string, shard string, schemaVersion uint64)) *MockRClient_CountObjects_Call {
+func (_c *MockRClient_CountObjects_Call) Run(run func(ctx context.Context, host string, index string, shard string)) *MockRClient_CountObjects_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(uint64))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
 	})
 	return _c
 }
@@ -226,7 +225,7 @@ func (_c *MockRClient_CountObjects_Call) Return(_a0 int, _a1 error) *MockRClient
 	return _c
 }
 
-func (_c *MockRClient_CountObjects_Call) RunAndReturn(run func(context.Context, string, string, string, uint64) (int, error)) *MockRClient_CountObjects_Call {
+func (_c *MockRClient_CountObjects_Call) RunAndReturn(run func(context.Context, string, string, string) (int, error)) *MockRClient_CountObjects_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -331,9 +330,9 @@ func (_c *MockRClient_DeleteAsyncCheckpoint_Call) RunAndReturn(run func(context.
 	return _c
 }
 
-// DigestObjects provides a mock function with given fields: ctx, host, index, shard, ids, numRetries, schemaVersion
-func (_m *MockRClient) DigestObjects(ctx context.Context, host string, index string, shard string, ids []strfmt.UUID, numRetries int, schemaVersion uint64) ([]types.RepairResponse, error) {
-	ret := _m.Called(ctx, host, index, shard, ids, numRetries, schemaVersion)
+// DigestObjects provides a mock function with given fields: ctx, host, index, shard, ids, numRetries
+func (_m *MockRClient) DigestObjects(ctx context.Context, host string, index string, shard string, ids []strfmt.UUID, numRetries int) ([]types.RepairResponse, error) {
+	ret := _m.Called(ctx, host, index, shard, ids, numRetries)
 
 	if len(ret) == 0 {
 		panic("no return value specified for DigestObjects")
@@ -341,19 +340,19 @@ func (_m *MockRClient) DigestObjects(ctx context.Context, host string, index str
 
 	var r0 []types.RepairResponse
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, []strfmt.UUID, int, uint64) ([]types.RepairResponse, error)); ok {
-		return rf(ctx, host, index, shard, ids, numRetries, schemaVersion)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, []strfmt.UUID, int) ([]types.RepairResponse, error)); ok {
+		return rf(ctx, host, index, shard, ids, numRetries)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, []strfmt.UUID, int, uint64) []types.RepairResponse); ok {
-		r0 = rf(ctx, host, index, shard, ids, numRetries, schemaVersion)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, []strfmt.UUID, int) []types.RepairResponse); ok {
+		r0 = rf(ctx, host, index, shard, ids, numRetries)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]types.RepairResponse)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, []strfmt.UUID, int, uint64) error); ok {
-		r1 = rf(ctx, host, index, shard, ids, numRetries, schemaVersion)
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, []strfmt.UUID, int) error); ok {
+		r1 = rf(ctx, host, index, shard, ids, numRetries)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -373,14 +372,13 @@ type MockRClient_DigestObjects_Call struct {
 //   - shard string
 //   - ids []strfmt.UUID
 //   - numRetries int
-//   - schemaVersion uint64
-func (_e *MockRClient_Expecter) DigestObjects(ctx interface{}, host interface{}, index interface{}, shard interface{}, ids interface{}, numRetries interface{}, schemaVersion interface{}) *MockRClient_DigestObjects_Call {
-	return &MockRClient_DigestObjects_Call{Call: _e.mock.On("DigestObjects", ctx, host, index, shard, ids, numRetries, schemaVersion)}
+func (_e *MockRClient_Expecter) DigestObjects(ctx interface{}, host interface{}, index interface{}, shard interface{}, ids interface{}, numRetries interface{}) *MockRClient_DigestObjects_Call {
+	return &MockRClient_DigestObjects_Call{Call: _e.mock.On("DigestObjects", ctx, host, index, shard, ids, numRetries)}
 }
 
-func (_c *MockRClient_DigestObjects_Call) Run(run func(ctx context.Context, host string, index string, shard string, ids []strfmt.UUID, numRetries int, schemaVersion uint64)) *MockRClient_DigestObjects_Call {
+func (_c *MockRClient_DigestObjects_Call) Run(run func(ctx context.Context, host string, index string, shard string, ids []strfmt.UUID, numRetries int)) *MockRClient_DigestObjects_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].([]strfmt.UUID), args[5].(int), args[6].(uint64))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].([]strfmt.UUID), args[5].(int))
 	})
 	return _c
 }
@@ -390,7 +388,7 @@ func (_c *MockRClient_DigestObjects_Call) Return(_a0 []types.RepairResponse, _a1
 	return _c
 }
 
-func (_c *MockRClient_DigestObjects_Call) RunAndReturn(run func(context.Context, string, string, string, []strfmt.UUID, int, uint64) ([]types.RepairResponse, error)) *MockRClient_DigestObjects_Call {
+func (_c *MockRClient_DigestObjects_Call) RunAndReturn(run func(context.Context, string, string, string, []strfmt.UUID, int) ([]types.RepairResponse, error)) *MockRClient_DigestObjects_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -459,9 +457,9 @@ func (_c *MockRClient_DigestObjectsInRange_Call) RunAndReturn(run func(context.C
 	return _c
 }
 
-// FetchObject provides a mock function with given fields: _a0, host, index, shard, id, props, _a6, numRetries, schemaVersion
-func (_m *MockRClient) FetchObject(_a0 context.Context, host string, index string, shard string, id strfmt.UUID, props search.SelectProperties, _a6 additional.Properties, numRetries int, schemaVersion uint64) (Replica, error) {
-	ret := _m.Called(_a0, host, index, shard, id, props, _a6, numRetries, schemaVersion)
+// FetchObject provides a mock function with given fields: _a0, host, index, shard, id, props, _a6, numRetries
+func (_m *MockRClient) FetchObject(_a0 context.Context, host string, index string, shard string, id strfmt.UUID, props search.SelectProperties, _a6 additional.Properties, numRetries int) (Replica, error) {
+	ret := _m.Called(_a0, host, index, shard, id, props, _a6, numRetries)
 
 	if len(ret) == 0 {
 		panic("no return value specified for FetchObject")
@@ -469,17 +467,17 @@ func (_m *MockRClient) FetchObject(_a0 context.Context, host string, index strin
 
 	var r0 Replica
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, strfmt.UUID, search.SelectProperties, additional.Properties, int, uint64) (Replica, error)); ok {
-		return rf(_a0, host, index, shard, id, props, _a6, numRetries, schemaVersion)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, strfmt.UUID, search.SelectProperties, additional.Properties, int) (Replica, error)); ok {
+		return rf(_a0, host, index, shard, id, props, _a6, numRetries)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, strfmt.UUID, search.SelectProperties, additional.Properties, int, uint64) Replica); ok {
-		r0 = rf(_a0, host, index, shard, id, props, _a6, numRetries, schemaVersion)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, strfmt.UUID, search.SelectProperties, additional.Properties, int) Replica); ok {
+		r0 = rf(_a0, host, index, shard, id, props, _a6, numRetries)
 	} else {
 		r0 = ret.Get(0).(Replica)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, strfmt.UUID, search.SelectProperties, additional.Properties, int, uint64) error); ok {
-		r1 = rf(_a0, host, index, shard, id, props, _a6, numRetries, schemaVersion)
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, strfmt.UUID, search.SelectProperties, additional.Properties, int) error); ok {
+		r1 = rf(_a0, host, index, shard, id, props, _a6, numRetries)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -501,14 +499,13 @@ type MockRClient_FetchObject_Call struct {
 //   - props search.SelectProperties
 //   - _a6 additional.Properties
 //   - numRetries int
-//   - schemaVersion uint64
-func (_e *MockRClient_Expecter) FetchObject(_a0 interface{}, host interface{}, index interface{}, shard interface{}, id interface{}, props interface{}, _a6 interface{}, numRetries interface{}, schemaVersion interface{}) *MockRClient_FetchObject_Call {
-	return &MockRClient_FetchObject_Call{Call: _e.mock.On("FetchObject", _a0, host, index, shard, id, props, _a6, numRetries, schemaVersion)}
+func (_e *MockRClient_Expecter) FetchObject(_a0 interface{}, host interface{}, index interface{}, shard interface{}, id interface{}, props interface{}, _a6 interface{}, numRetries interface{}) *MockRClient_FetchObject_Call {
+	return &MockRClient_FetchObject_Call{Call: _e.mock.On("FetchObject", _a0, host, index, shard, id, props, _a6, numRetries)}
 }
 
-func (_c *MockRClient_FetchObject_Call) Run(run func(_a0 context.Context, host string, index string, shard string, id strfmt.UUID, props search.SelectProperties, _a6 additional.Properties, numRetries int, schemaVersion uint64)) *MockRClient_FetchObject_Call {
+func (_c *MockRClient_FetchObject_Call) Run(run func(_a0 context.Context, host string, index string, shard string, id strfmt.UUID, props search.SelectProperties, _a6 additional.Properties, numRetries int)) *MockRClient_FetchObject_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(strfmt.UUID), args[5].(search.SelectProperties), args[6].(additional.Properties), args[7].(int), args[8].(uint64))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(strfmt.UUID), args[5].(search.SelectProperties), args[6].(additional.Properties), args[7].(int))
 	})
 	return _c
 }
@@ -518,14 +515,14 @@ func (_c *MockRClient_FetchObject_Call) Return(_a0 Replica, _a1 error) *MockRCli
 	return _c
 }
 
-func (_c *MockRClient_FetchObject_Call) RunAndReturn(run func(context.Context, string, string, string, strfmt.UUID, search.SelectProperties, additional.Properties, int, uint64) (Replica, error)) *MockRClient_FetchObject_Call {
+func (_c *MockRClient_FetchObject_Call) RunAndReturn(run func(context.Context, string, string, string, strfmt.UUID, search.SelectProperties, additional.Properties, int) (Replica, error)) *MockRClient_FetchObject_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// FetchObjects provides a mock function with given fields: _a0, host, index, shard, ids, schemaVersion
-func (_m *MockRClient) FetchObjects(_a0 context.Context, host string, index string, shard string, ids []strfmt.UUID, schemaVersion uint64) ([]Replica, error) {
-	ret := _m.Called(_a0, host, index, shard, ids, schemaVersion)
+// FetchObjects provides a mock function with given fields: _a0, host, index, shard, ids
+func (_m *MockRClient) FetchObjects(_a0 context.Context, host string, index string, shard string, ids []strfmt.UUID) ([]Replica, error) {
+	ret := _m.Called(_a0, host, index, shard, ids)
 
 	if len(ret) == 0 {
 		panic("no return value specified for FetchObjects")
@@ -533,19 +530,19 @@ func (_m *MockRClient) FetchObjects(_a0 context.Context, host string, index stri
 
 	var r0 []Replica
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, []strfmt.UUID, uint64) ([]Replica, error)); ok {
-		return rf(_a0, host, index, shard, ids, schemaVersion)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, []strfmt.UUID) ([]Replica, error)); ok {
+		return rf(_a0, host, index, shard, ids)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, []strfmt.UUID, uint64) []Replica); ok {
-		r0 = rf(_a0, host, index, shard, ids, schemaVersion)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, []strfmt.UUID) []Replica); ok {
+		r0 = rf(_a0, host, index, shard, ids)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]Replica)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, []strfmt.UUID, uint64) error); ok {
-		r1 = rf(_a0, host, index, shard, ids, schemaVersion)
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, []strfmt.UUID) error); ok {
+		r1 = rf(_a0, host, index, shard, ids)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -564,14 +561,13 @@ type MockRClient_FetchObjects_Call struct {
 //   - index string
 //   - shard string
 //   - ids []strfmt.UUID
-//   - schemaVersion uint64
-func (_e *MockRClient_Expecter) FetchObjects(_a0 interface{}, host interface{}, index interface{}, shard interface{}, ids interface{}, schemaVersion interface{}) *MockRClient_FetchObjects_Call {
-	return &MockRClient_FetchObjects_Call{Call: _e.mock.On("FetchObjects", _a0, host, index, shard, ids, schemaVersion)}
+func (_e *MockRClient_Expecter) FetchObjects(_a0 interface{}, host interface{}, index interface{}, shard interface{}, ids interface{}) *MockRClient_FetchObjects_Call {
+	return &MockRClient_FetchObjects_Call{Call: _e.mock.On("FetchObjects", _a0, host, index, shard, ids)}
 }
 
-func (_c *MockRClient_FetchObjects_Call) Run(run func(_a0 context.Context, host string, index string, shard string, ids []strfmt.UUID, schemaVersion uint64)) *MockRClient_FetchObjects_Call {
+func (_c *MockRClient_FetchObjects_Call) Run(run func(_a0 context.Context, host string, index string, shard string, ids []strfmt.UUID)) *MockRClient_FetchObjects_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].([]strfmt.UUID), args[5].(uint64))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].([]strfmt.UUID))
 	})
 	return _c
 }
@@ -581,14 +577,14 @@ func (_c *MockRClient_FetchObjects_Call) Return(_a0 []Replica, _a1 error) *MockR
 	return _c
 }
 
-func (_c *MockRClient_FetchObjects_Call) RunAndReturn(run func(context.Context, string, string, string, []strfmt.UUID, uint64) ([]Replica, error)) *MockRClient_FetchObjects_Call {
+func (_c *MockRClient_FetchObjects_Call) RunAndReturn(run func(context.Context, string, string, string, []strfmt.UUID) ([]Replica, error)) *MockRClient_FetchObjects_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// FindUUIDs provides a mock function with given fields: ctx, host, index, shard, _a4, limit, schemaVersion
-func (_m *MockRClient) FindUUIDs(ctx context.Context, host string, index string, shard string, _a4 *filters.LocalFilter, limit int, schemaVersion uint64) ([]strfmt.UUID, error) {
-	ret := _m.Called(ctx, host, index, shard, _a4, limit, schemaVersion)
+// FindUUIDs provides a mock function with given fields: ctx, host, index, shard, _a4, limit
+func (_m *MockRClient) FindUUIDs(ctx context.Context, host string, index string, shard string, _a4 *filters.LocalFilter, limit int) ([]strfmt.UUID, error) {
+	ret := _m.Called(ctx, host, index, shard, _a4, limit)
 
 	if len(ret) == 0 {
 		panic("no return value specified for FindUUIDs")
@@ -596,19 +592,19 @@ func (_m *MockRClient) FindUUIDs(ctx context.Context, host string, index string,
 
 	var r0 []strfmt.UUID
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, *filters.LocalFilter, int, uint64) ([]strfmt.UUID, error)); ok {
-		return rf(ctx, host, index, shard, _a4, limit, schemaVersion)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, *filters.LocalFilter, int) ([]strfmt.UUID, error)); ok {
+		return rf(ctx, host, index, shard, _a4, limit)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, *filters.LocalFilter, int, uint64) []strfmt.UUID); ok {
-		r0 = rf(ctx, host, index, shard, _a4, limit, schemaVersion)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, *filters.LocalFilter, int) []strfmt.UUID); ok {
+		r0 = rf(ctx, host, index, shard, _a4, limit)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]strfmt.UUID)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, *filters.LocalFilter, int, uint64) error); ok {
-		r1 = rf(ctx, host, index, shard, _a4, limit, schemaVersion)
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, *filters.LocalFilter, int) error); ok {
+		r1 = rf(ctx, host, index, shard, _a4, limit)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -628,14 +624,13 @@ type MockRClient_FindUUIDs_Call struct {
 //   - shard string
 //   - _a4 *filters.LocalFilter
 //   - limit int
-//   - schemaVersion uint64
-func (_e *MockRClient_Expecter) FindUUIDs(ctx interface{}, host interface{}, index interface{}, shard interface{}, _a4 interface{}, limit interface{}, schemaVersion interface{}) *MockRClient_FindUUIDs_Call {
-	return &MockRClient_FindUUIDs_Call{Call: _e.mock.On("FindUUIDs", ctx, host, index, shard, _a4, limit, schemaVersion)}
+func (_e *MockRClient_Expecter) FindUUIDs(ctx interface{}, host interface{}, index interface{}, shard interface{}, _a4 interface{}, limit interface{}) *MockRClient_FindUUIDs_Call {
+	return &MockRClient_FindUUIDs_Call{Call: _e.mock.On("FindUUIDs", ctx, host, index, shard, _a4, limit)}
 }
 
-func (_c *MockRClient_FindUUIDs_Call) Run(run func(ctx context.Context, host string, index string, shard string, _a4 *filters.LocalFilter, limit int, schemaVersion uint64)) *MockRClient_FindUUIDs_Call {
+func (_c *MockRClient_FindUUIDs_Call) Run(run func(ctx context.Context, host string, index string, shard string, _a4 *filters.LocalFilter, limit int)) *MockRClient_FindUUIDs_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(*filters.LocalFilter), args[5].(int), args[6].(uint64))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(*filters.LocalFilter), args[5].(int))
 	})
 	return _c
 }
@@ -645,7 +640,7 @@ func (_c *MockRClient_FindUUIDs_Call) Return(_a0 []strfmt.UUID, _a1 error) *Mock
 	return _c
 }
 
-func (_c *MockRClient_FindUUIDs_Call) RunAndReturn(run func(context.Context, string, string, string, *filters.LocalFilter, int, uint64) ([]strfmt.UUID, error)) *MockRClient_FindUUIDs_Call {
+func (_c *MockRClient_FindUUIDs_Call) RunAndReturn(run func(context.Context, string, string, string, *filters.LocalFilter, int) ([]strfmt.UUID, error)) *MockRClient_FindUUIDs_Call {
 	_c.Call.Return(run)
 	return _c
 }
