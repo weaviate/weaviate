@@ -363,14 +363,18 @@ func (st *Store) Apply(l *raft.Log) any {
 				ret.Error = fmt.Errorf("unmarshal add-roles-for-user subcommand: %w", err)
 				return
 			}
-			subjectNS, err := subjectNamespace(req.User)
-			if err != nil {
-				ret.Error = fmt.Errorf("resolve namespace of subject %q: %w", req.User, err)
-				return
-			}
-			if err := usecasesNamespaces.RequireActive(st.namespaceManager, subjectNS); err != nil {
-				ret.Error = err
-				return
+			// With namespaces off, a ':' in a subject is part of the user id, as
+			// in the OIDC subject "urn:example:alice", and names no namespace.
+			if st.cfg.NamespacesEnabled {
+				subjectNS, err := subjectNamespace(req.User)
+				if err != nil {
+					ret.Error = fmt.Errorf("resolve namespace of subject %q: %w", req.User, err)
+					return
+				}
+				if err := usecasesNamespaces.RequireActive(st.namespaceManager, subjectNS); err != nil {
+					ret.Error = err
+					return
+				}
 			}
 			ret.Error = st.authZManager.AddRolesForUser(&cmd)
 		}
