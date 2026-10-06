@@ -197,8 +197,8 @@ func ToRPCError(err error) error {
 //
 // Detection order:
 //  1. gRPC status code == PermanentRejectionRPCCode and the message
-//     prefix matches "[dtm-perm/<id>] ..." → re-attach the specific
-//     sentinel via errors.Join.
+//     contains "[dtm-perm/<id>]" → re-attach the specific sentinel via
+//     errors.Join.
 //  2. gRPC status code == PermanentRejectionRPCCode but the marker is
 //     missing or unknown → re-attach only the umbrella sentinel
 //     (forward-compat: a future sentinel id we don't recognise should
@@ -225,14 +225,14 @@ func RehydratePermanentRejection(err error) error {
 	return errors.Join(err, ErrPermanentRejection)
 }
 
-// extractMarkerID returns the on-wire sentinel id from a message that
-// starts with "[dtm-perm/<id>] ...". Returns "" if no marker is found.
+// extractMarkerID returns the sentinel id of the first "[dtm-perm/<id>]"
+// marker in msg, or "" if there is none. The marker can sit anywhere in msg
+// because the leader may wrap the FSM error before it crosses the wire.
 func extractMarkerID(msg string) string {
-	const prefix = "[dtm-perm/"
-	if !strings.HasPrefix(msg, prefix) {
+	_, rest, found := strings.Cut(msg, "[dtm-perm/")
+	if !found {
 		return ""
 	}
-	rest := msg[len(prefix):]
 	end := strings.Index(rest, "]")
 	if end <= 0 {
 		return ""
