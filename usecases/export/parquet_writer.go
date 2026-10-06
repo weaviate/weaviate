@@ -30,26 +30,43 @@ type ParquetRow struct {
 }
 
 const (
-	defaultBatchSize = 10000 // Buffer 10k rows before writing
+	// WriteRow flushes its buffer at defaultBatchSize rows or maxBatchBytes.
+	defaultBatchSize = 256
+	maxBatchBytes    = 4 * 1024 * 1024
+
+	// Flush ends the open row group at maxRowGroupBytes. parquet-go keeps that
+	// row group in memory and writes it to the io.Writer only when it ends.
+	maxRowGroupBytes = 32 * 1024 * 1024
 )
+
+// Blob columns NewParquetWriter writes without page statistics, so page headers
+// don't copy each page's min and max blob. SkipPageBounds stays off because
+// DataFusion skips matching pages when the column index bounds are empty.
+var columnsWithoutPageStatistics = []string{"vector", "named_vectors", "multi_vectors", "properties"}
 
 // ParquetWriter writes Weaviate objects to Parquet format
 type ParquetWriter struct {
-	writer    *parquet.GenericWriter[ParquetRow]
-	buffer    []ParquetRow
-	batchSize int
-	onFlush   func(int64) // called after each successful flush with the number of rows flushed
+	writer        *parquet.GenericWriter[ParquetRow]
+	buffer        []ParquetRow
+	bufferBytes   int // ID and blob bytes of the rows in buffer
+	batchSize     int
+	rowGroupStart int64       // writer.Size() when the open row group started
+	onFlush       func(int64) // called after each successful flush with the number of rows flushed
 }
 
 // NewParquetWriter creates a new Parquet writer
 func NewParquetWriter(w io.Writer) (*ParquetWriter, error) {
 	schema := parquet.SchemaOf(ParquetRow{})
 
-	writer := parquet.NewGenericWriter[ParquetRow](w,
+	options := []parquet.WriterOption{
 		schema,
 		parquet.Compression(&parquet.Zstd),
-		parquet.PageBufferSize(8*1024*1024), // 8MB page buffer
-	)
+		parquet.PageBufferSize(8 * 1024 * 1024), // 8MB page buffer
+	}
+	for _, column := range columnsWithoutPageStatistics {
+		options = append(options, parquet.SkipPageStatistics(column))
+	}
+	writer := parquet.NewGenericWriter[ParquetRow](w, options...)
 
 	return &ParquetWriter{
 		writer:    writer,
@@ -63,15 +80,17 @@ func NewParquetWriter(w io.Writer) (*ParquetWriter, error) {
 // worker goroutines.
 func (pw *ParquetWriter) WriteRow(row ParquetRow) error {
 	pw.buffer = append(pw.buffer, row)
+	pw.bufferBytes += len(row.ID) + len(row.Vector) + len(row.NamedVectors) + len(row.MultiVectors) + len(row.Properties)
 
-	if len(pw.buffer) >= pw.batchSize {
+	if len(pw.buffer) >= pw.batchSize || pw.bufferBytes >= maxBatchBytes {
 		return pw.Flush()
 	}
 
 	return nil
 }
 
-// Flush writes all buffered rows to the Parquet file
+// Flush writes all buffered rows to the open row group, and ends the row
+// group once it reaches maxRowGroupBytes.
 func (pw *ParquetWriter) Flush() error {
 	if len(pw.buffer) == 0 {
 		return nil
@@ -83,7 +102,17 @@ func (pw *ParquetWriter) Flush() error {
 		return fmt.Errorf("write batch to parquet: %w", err)
 	}
 
-	pw.buffer = pw.buffer[:0] // Reset buffer
+	clear(pw.buffer) // drop the rows' byte slices so they can be garbage-collected
+	pw.buffer = pw.buffer[:0]
+	pw.bufferBytes = 0
+
+	if pw.writer.Size()-pw.rowGroupStart >= maxRowGroupBytes {
+		if err := pw.writer.Flush(); err != nil {
+			return fmt.Errorf("write row group to parquet: %w", err)
+		}
+		pw.rowGroupStart = pw.writer.Size()
+	}
+
 	if pw.onFlush != nil {
 		pw.onFlush(n)
 	}

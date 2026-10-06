@@ -475,7 +475,7 @@ func TestApplyGate_RejectsMixedRoleBatchWithInactiveNamespace(t *testing.T) {
 // subject in a deleting or missing namespace, otherwise a late assignment would
 // leave a grouping row behind after the cleanup cascade emptied the namespace.
 // OIDC subjects are gated too (their handler-side existence check is a no-op),
-// and global (unqualified) subjects are not gated.
+// and unqualified subjects are not. With namespaces off, no subject is gated.
 func TestApplyGate_RejectsRoleAssignmentIntoInactiveNamespace(t *testing.T) {
 	assignCmd := func(user string) []byte {
 		return cmdAsBytes("", api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER,
@@ -483,10 +483,11 @@ func TestApplyGate_RejectsRoleAssignmentIntoInactiveNamespace(t *testing.T) {
 	}
 
 	tests := []struct {
-		name    string
-		seed    func(*namespaces.Controller)
-		user    string
-		wantErr error
+		name          string
+		seed          func(*namespaces.Controller)
+		user          string
+		namespacesOff bool
+		wantErr       error
 	}{
 		{
 			name: "assign into deleting namespace rejected",
@@ -524,11 +525,18 @@ func TestApplyGate_RejectsRoleAssignmentIntoInactiveNamespace(t *testing.T) {
 			seed: func(c *namespaces.Controller) {},
 			user: "db:bob",
 		},
+		{
+			name:          "oidc URN subject passes gate with namespaces off",
+			seed:          func(c *namespaces.Controller) {},
+			user:          "oidc:urn:example:alice",
+			namespacesOff: true,
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			ms, log := setupApplyTest(t)
+			ms.store.cfg.NamespacesEnabled = !tc.namespacesOff
 			tc.seed(ms.cfg.NamespacesController)
 			log.Data = assignCmd(tc.user)
 
@@ -537,6 +545,10 @@ func TestApplyGate_RejectsRoleAssignmentIntoInactiveNamespace(t *testing.T) {
 			require.True(t, ok)
 			if tc.wantErr != nil {
 				require.ErrorIs(t, resp.Error, tc.wantErr)
+				return
+			}
+			if tc.namespacesOff {
+				require.NoError(t, resp.Error)
 				return
 			}
 			require.NotErrorIs(t, resp.Error, namespaces.ErrNamespaceDeleting)

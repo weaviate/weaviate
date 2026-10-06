@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -355,6 +356,10 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		delete(files, entry)
 	}
 
+	if err := removeSegmentsOfSurvivingWALs(sg.dir, files, logger); err != nil {
+		return nil, err
+	}
+
 	// segments need to be initialised in order of their timestamp to ensure that various computations are correct (CNA etc)
 	fileList := make([]string, 0, len(files))
 	for entry := range files {
@@ -379,28 +384,6 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 
 		if filepath.Ext(entry) != ".db" {
 			// skip, this could be commit log, etc.
-			continue
-		}
-
-		// before we can mount this file, we need to check if a WAL exists for it.
-		// If yes, we must assume that the flush never finished, as otherwise the
-		// WAL would have been deleted. Thus we must remove it.
-		walFileName, _, _ := strings.Cut(entry, ".")
-		walFileName += ".wal"
-		_, ok := files[walFileName]
-		if ok {
-			// the segment will be recovered from the WAL
-			err := os.Remove(filepath.Join(sg.dir, entry))
-			if err != nil {
-				return nil, fmt.Errorf("delete partially written segment %s: %w", entry, err)
-			}
-
-			logger.WithField("action", "lsm_segment_init").
-				WithField("path", filepath.Join(sg.dir, entry)).
-				WithField("wal_path", walFileName).
-				Info("discarded (partially written) LSM segment, because an active WAL for " +
-					"the same segment was found. A recovery from the WAL will follow.")
-
 			continue
 		}
 
@@ -490,6 +473,14 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		sg.strategy = StrategyInverted
 	}
 
+	// a replay stamps each inverted segment with the average standing when it is
+	// written, and that stamp picks which posting a block records as its maximum.
+	// Seeding from the mounted corpus keeps that near what a reader divides by.
+	if sg.strategy == StrategyInverted {
+		stats := sg.sumAveragePropLength()
+		sg.averagePropLength.Store(&stats)
+	}
+
 	if err := b.mayRecoverFromCommitLogs(ctx, sg, files); err != nil {
 		return nil, err
 	}
@@ -517,13 +508,6 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		if len(sg.segments) == 0 {
 			break
 		}
-		var stats avgPropLengthStats
-		avg, count := sg.segments[len(sg.segments)-1].getInvertedData().avgPropertyLengthsAvg, sg.segments[len(sg.segments)-1].getInvertedData().avgPropertyLengthsCount
-
-		if count > 0 {
-			stats.sum += uint64(avg * float64(count))
-			stats.count += count
-		}
 		// start with last but one segment, as the last one doesn't need tombstones for now
 		for i := len(sg.segments) - 2; i >= 0; i-- {
 			// avoid crashing if segment has no tombstones
@@ -534,14 +518,11 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			if _, err := sg.segments[i].MergeTombstones(tombstonesNext); err != nil {
 				return nil, fmt.Errorf("init segment %s: merge tombstones %w", sg.segments[i].getPath(), err)
 			}
-
-			avg, count := sg.segments[i].getInvertedData().avgPropertyLengthsAvg, sg.segments[i].getInvertedData().avgPropertyLengthsCount
-
-			if count > 0 {
-				stats.sum += uint64(avg * float64(count))
-				stats.count += count
-			}
 		}
+
+		// recomputed rather than left to what sg.add accumulated, so the segments the
+		// replay wrote and the ones already on disk are counted the same way
+		stats := sg.sumAveragePropLength()
 		sg.averagePropLength.Store(&stats)
 
 	case StrategyRoaringSetRange:
@@ -566,6 +547,122 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
 
 	return sg, nil
+}
+
+// removeSegmentsOfSurvivingWALs removes every segment a write-ahead-log has
+// already been written out to. Unlinking the WAL is a replay's single commit
+// point, so while segment-<T>.wal is there, segment-<T> and the chunks after it
+// are provisional. recoveredRun.commit renames them in ascending order, so the
+// walk stops at the first id with no segment.
+func removeSegmentsOfSurvivingWALs(dir string, files map[string]int64,
+	logger logrus.FieldLogger,
+) error {
+	walNames := make([]string, 0, len(files))
+	for entry, size := range files {
+		// mayRecoverFromCommitLogs unlinks a zero-length WAL and replays nothing, so
+		// a segment of that id was written by an earlier run and is not provisional.
+		if isSegmentWALName(entry) && size > 0 {
+			walNames = append(walNames, entry)
+		}
+	}
+	slices.Sort(walNames)
+
+	for _, walName := range walNames {
+		ids := chunkedSegmentIDs(walName, files)
+
+		// highest first, so an interruption always leaves a prefix of the run with
+		// chunk 0 in it. A suffix would read on the next start as a run that wrote
+		// no chunk 0, and the segments above it would be mounted and replayed over.
+		for i := len(ids) - 1; i >= 0; i-- {
+			if err := removeSegmentsWithID(dir, files, ids[i], walName, logger); err != nil {
+				return err
+			}
+
+			if err := diskio.Fsync(dir); err != nil {
+				return fmt.Errorf("fsync segment directory %q: %w", dir, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// chunkedSegmentIDs lists the segment ids a replay of walName may have written:
+// chunk 0 takes the WAL's own id, each chunk above it one more. It stops at the first
+// gap, since commit renames in ascending order and an interruption leaves a prefix.
+func chunkedSegmentIDs(walName string, files map[string]int64) []string {
+	// matching on the id as written covers a WAL whose name carries no number
+	baseID := segmentID(walName)
+	if found, _ := segmentExistsWithID(baseID, files); !found {
+		return nil
+	}
+	ids := []string{baseID}
+
+	// chunk names are derived from the WAL's id, so a WAL that carries none
+	// produced none; and on a name FormatInt disagrees with, the higher ids
+	// belong to live segments rather than to this run
+	walTimestamp, canDeriveChunkIDs := canonicalSegmentTimestamp(walName)
+	if !canDeriveChunkIDs {
+		return ids
+	}
+
+	// the addition wraps at the end of the id space, and the negative ids it
+	// then produces belong to nothing this replay wrote
+	for chunk := int64(1); walTimestamp+chunk > walTimestamp; chunk++ {
+		id := strconv.FormatInt(walTimestamp+chunk, 10)
+		if found, _ := segmentExistsWithID(id, files); !found {
+			break
+		}
+		ids = append(ids, id)
+	}
+
+	return ids
+}
+
+func removeSegmentsWithID(dir string, files map[string]int64, id, walName string,
+	logger logrus.FieldLogger,
+) error {
+	found, segName := segmentExistsWithID(id, files)
+	if !found {
+		return nil
+	}
+
+	// the file map is a snapshot, so a file already gone is the outcome wanted
+	if err := os.Remove(filepath.Join(dir, segName)); err != nil &&
+		!errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("delete provisional segment %q: %w",
+			filepath.Join(dir, segName), err)
+	}
+	delete(files, segName)
+
+	logger.WithField("action", "lsm_segment_init").
+		WithField("path", filepath.Join(dir, segName)).
+		WithField("wal_path", walName).
+		Info("discarded a provisional LSM segment, because an active WAL it was " +
+			"written from was found. A recovery from the WAL will follow.")
+
+	return removeSegmentDerivedFiles(dir, files, id)
+}
+
+// removeSegmentDerivedFiles drops the sidecars a discarded segment left behind,
+// matching isSegmentSidecarName so that a segment dropped here loses the same
+// files one dropped after a compaction does.
+func removeSegmentDerivedFiles(dir string, files map[string]int64, id string) error {
+	prefix := segmentFilePrefix(id)
+
+	for fileName := range files {
+		if !strings.HasPrefix(fileName, prefix) || !isSegmentSidecarName(fileName) {
+			continue
+		}
+
+		if err := os.Remove(filepath.Join(dir, fileName)); err != nil &&
+			!errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("delete derived file %q: %w", filepath.Join(dir, fileName), err)
+		}
+		delete(files, fileName)
+	}
+
+	return nil
 }
 
 func (sg *SegmentGroup) pauseCompaction(ctx context.Context) error {
@@ -1149,11 +1246,11 @@ func fileExists(path string) (bool, error) {
 	return false, err
 }
 
-func segmentExistsWithID(segmentID string, files map[string]int64) (bool, string) {
-	// segment file format is "segment-{segmentID}.EXT" where EXT is either
+func segmentExistsWithID(id string, files map[string]int64) (bool, string) {
+	// segment file format is "segment-{id}.EXT" where EXT is either
 	// - ".db" if extra infos in filename are not used
 	// - ".{extra_infos}.db" if extra infos in filename are used
-	match := fmt.Sprintf("segment-%s.", segmentID)
+	match := segmentFilePrefix(id)
 	for fileName := range files {
 		if strings.HasPrefix(fileName, match) && strings.HasSuffix(fileName, ".db") {
 			return true, fileName
@@ -1221,6 +1318,20 @@ func (sg *SegmentGroup) Len() int {
 	defer release()
 
 	return len(segments)
+}
+
+// sumAveragePropLength totals what every mounted segment contributes to the BM25
+// average.
+func (sg *SegmentGroup) sumAveragePropLength() avgPropLengthStats {
+	var stats avgPropLengthStats
+	for _, segment := range sg.segments {
+		inv := segment.getInvertedData()
+		if inv.avgPropertyLengthsCount > 0 {
+			stats.sum += uint64(inv.avgPropertyLengthsAvg * float64(inv.avgPropertyLengthsCount))
+			stats.count += inv.avgPropertyLengthsCount
+		}
+	}
+	return stats
 }
 
 func (sg *SegmentGroup) GetAveragePropertyLength() (float64, uint64) {

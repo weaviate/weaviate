@@ -1559,14 +1559,23 @@ func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...Secondar
 }
 
 func (b *Bucket) createNewActiveMemtable() (memtable, error) {
-	path := filepath.Join(b.dir, fmt.Sprintf("segment-%d", time.Now().UnixNano()))
+	path := segmentPathForID(b.dir, time.Now().UnixNano())
 
 	cl, err := newLazyCommitLogger(path, b.strategy)
 	if err != nil {
 		return nil, errors.Wrap(err, "init commit logger")
 	}
 
-	mt, err := newMemtable(cl, b.metrics, b.logger, b.allocChecker, memtableConfig{
+	mt, err := b.newMemtableAt(cl, path)
+	if err != nil {
+		return nil, err
+	}
+
+	return mt, nil
+}
+
+func (b *Bucket) newMemtableAt(cl memtableCommitLogger, path string) (*Memtable, error) {
+	return newMemtable(cl, b.metrics, b.logger, b.allocChecker, memtableConfig{
 		path:                         path,
 		strategy:                     b.strategy,
 		secondaryIndices:             b.secondaryIndices,
@@ -1576,11 +1585,6 @@ func (b *Bucket) createNewActiveMemtable() (memtable, error) {
 		skipSecondaryKeyCheck:        b.skipSecondaryKeyCheck,
 		bm25config:                   b.bm25Config,
 	})
-	if err != nil {
-		return nil, err
-	}
-
-	return mt, nil
 }
 
 func (b *Bucket) Count(ctx context.Context) (int, error) {
@@ -1828,6 +1832,8 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 	walTooLarge := uint64(commitLogSize) >= b.walThreshold
 	dirtyTooLong := b.active.DirtyDuration() >= b.flushDirtyAfter
 	shouldSwitch := memtableTooLarge || walTooLarge || dirtyTooLong
+	// read under the lock, a FlushAndSwitch from elsewhere replaces b.active
+	cycleLength := b.active.ActiveDuration()
 
 	// If true, the parent shard has indicated that it has
 	// entered an immutable state. During this time, the
@@ -1853,7 +1859,6 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 	b.flushLock.RUnlock()
 	if shouldSwitch {
 		b.haltedFlushTimer.Reset()
-		cycleLength := b.active.ActiveDuration()
 		if err := b.FlushAndSwitch(); err != nil {
 			b.logger.WithField("action", "lsm_memtable_flush").
 				WithField("path", b.GetDir()).
