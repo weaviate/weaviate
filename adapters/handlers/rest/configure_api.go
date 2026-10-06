@@ -192,8 +192,8 @@ const MinimumRequiredContextionaryVersion = "1.0.2"
 
 const (
 	grpcGracefulStopTimeout = 20 * time.Second
-	// inFlightCancelDelay must stay below --graceful-timeout, or a request
-	// that outlives it fails http.Server.Shutdown and ServerShutdown never runs.
+	// inFlightCancelDelay must stay below --graceful-timeout, or requests are
+	// not cancelled before the drain gives up and closes their servers.
 	inFlightCancelDelay = 5 * time.Second
 	// batchDrainTimeout gives batch streams, closed at inFlightCancelDelay,
 	// time to send their last results. It too counts against --graceful-timeout.
