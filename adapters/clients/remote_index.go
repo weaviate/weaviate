@@ -52,6 +52,7 @@ func AsyncReplicationTargetNodeEndpoint(indexName, shardName string) string {
 
 type RemoteIndex struct {
 	retryClient
+	schemaVersionSource
 }
 
 func NewRemoteIndex(httpClient *http.Client) *RemoteIndex {
@@ -59,11 +60,6 @@ func NewRemoteIndex(httpClient *http.Client) *RemoteIndex {
 		client:  httpClient,
 		retryer: newRetryer(),
 	}}
-}
-
-// schemaVersionQuery encodes the schema version a request was resolved against.
-func schemaVersionQuery(schemaVersion uint64) string {
-	return url.Values{replica.SchemaVersionKey: []string{strconv.FormatUint(schemaVersion, 10)}}.Encode()
 }
 
 func (c *RemoteIndex) PutObject(ctx context.Context, host, index,
@@ -191,7 +187,7 @@ func (c *RemoteIndex) BatchAddReferences(ctx context.Context, hostName, indexNam
 
 func (c *RemoteIndex) GetObject(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID, selectProps search.SelectProperties,
-	additional additional.Properties, schemaVersion uint64,
+	additional additional.Properties,
 ) (*storobj.Object, error) {
 	selectPropsBytes, err := json.Marshal(selectProps)
 	if err != nil {
@@ -211,7 +207,7 @@ func (c *RemoteIndex) GetObject(ctx context.Context, hostName, indexName,
 		url.Values{
 			"additional":             []string{additionalEncoded},
 			"selectProperties":       []string{selectPropsEncoded},
-			replica.SchemaVersionKey: []string{strconv.FormatUint(schemaVersion, 10)},
+			replica.SchemaVersionKey: []string{strconv.FormatUint(c.schemaVersion(indexName), 10)},
 		}.Encode(),
 		nil)
 	if err != nil {
@@ -255,13 +251,13 @@ func (c *RemoteIndex) GetObject(ctx context.Context, hostName, indexName,
 }
 
 func (c *RemoteIndex) Exists(ctx context.Context, hostName, indexName,
-	shardName string, id strfmt.UUID, schemaVersion uint64,
+	shardName string, id strfmt.UUID,
 ) (bool, error) {
 	req, err := setupRequest(ctx, http.MethodGet, hostName,
 		fmt.Sprintf("/indices/%s/shards/%s/objects/%s", indexName, shardName, id),
 		url.Values{
 			"check_exists":           []string{"true"},
-			replica.SchemaVersionKey: []string{strconv.FormatUint(schemaVersion, 10)},
+			replica.SchemaVersionKey: []string{strconv.FormatUint(c.schemaVersion(indexName), 10)},
 		}.Encode(),
 		nil)
 	if err != nil {
@@ -339,7 +335,7 @@ func (c *RemoteIndex) MergeObject(ctx context.Context, hostName, indexName,
 }
 
 func (c *RemoteIndex) MultiGetObjects(ctx context.Context, hostName, indexName,
-	shardName string, ids []strfmt.UUID, schemaVersion uint64,
+	shardName string, ids []strfmt.UUID,
 ) ([]*storobj.Object, error) {
 	idsBytes, err := json.Marshal(ids)
 	if err != nil {
@@ -350,7 +346,7 @@ func (c *RemoteIndex) MultiGetObjects(ctx context.Context, hostName, indexName,
 		fmt.Sprintf("/indices/%s/shards/%s/objects", indexName, shardName),
 		url.Values{
 			"ids":                    []string{idsEncoded},
-			replica.SchemaVersionKey: []string{strconv.FormatUint(schemaVersion, 10)},
+			replica.SchemaVersionKey: []string{strconv.FormatUint(c.schemaVersion(indexName), 10)},
 		}.Encode(),
 		nil)
 	if err != nil {
@@ -406,7 +402,6 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 	additional additional.Properties,
 	targetCombination *dto.TargetCombination,
 	properties []string,
-	schemaVersion uint64,
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
 	// new request
 	body, err := clusterapi.IndicesPayloads.SearchParams.
@@ -416,7 +411,7 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 	}
 	req, err := setupRequest(ctx, http.MethodPost, host,
 		fmt.Sprintf("/indices/%s/shards/%s/objects/_search", index, shard),
-		schemaVersionQuery(schemaVersion), bytes.NewReader(body))
+		c.schemaVersionQuery(index), bytes.NewReader(body))
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("create http request: %w", err)
 	}
@@ -456,7 +451,7 @@ func (r *aggregateResp) decode(data []byte) (err error) {
 }
 
 func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, index,
-	shard string, params aggregation.Params, schemaVersion uint64,
+	shard string, params aggregation.Params,
 ) (*aggregation.Result, error) {
 	// create new request
 	body, err := clusterapi.IndicesPayloads.AggregationParams.Marshal(params)
@@ -465,7 +460,7 @@ func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, index,
 	}
 	req, err := setupRequest(ctx, http.MethodPost, hostName,
 		fmt.Sprintf("/indices/%s/shards/%s/objects/_aggregations", index, shard),
-		schemaVersionQuery(schemaVersion), bytes.NewReader(body))
+		c.schemaVersionQuery(index), bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create http request: %w", err)
 	}
@@ -485,7 +480,7 @@ func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, index,
 }
 
 func (c *RemoteIndex) FindUUIDs(ctx context.Context, hostName, indexName,
-	shardName string, filters *filters.LocalFilter, limit int, schemaVersion uint64,
+	shardName string, filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
 	paramsBytes, err := clusterapi.IndicesPayloads.FindUUIDsParams.Marshal(filters, limit)
 	if err != nil {
@@ -493,7 +488,7 @@ func (c *RemoteIndex) FindUUIDs(ctx context.Context, hostName, indexName,
 	}
 	req, err := setupRequest(ctx, http.MethodPost, hostName,
 		fmt.Sprintf("/indices/%s/shards/%s/objects/_find", indexName, shardName),
-		schemaVersionQuery(schemaVersion), bytes.NewReader(paramsBytes))
+		c.schemaVersionQuery(indexName), bytes.NewReader(paramsBytes))
 	if err != nil {
 		return nil, errors.Wrap(err, "open http request")
 	}
@@ -583,11 +578,11 @@ func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName
 }
 
 func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
-	hostName, indexName, shardName string, schemaVersion uint64,
+	hostName, indexName, shardName string,
 ) (int64, error) {
 	req, err := setupRequest(ctx, http.MethodGet, hostName,
 		fmt.Sprintf("/indices/%s/shards/%s/queuesize", indexName, shardName),
-		schemaVersionQuery(schemaVersion), nil)
+		c.schemaVersionQuery(indexName), nil)
 	if err != nil {
 		return 0, errors.Wrap(err, "open http request")
 	}
@@ -624,11 +619,11 @@ func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 }
 
 func (c *RemoteIndex) GetShardStatus(ctx context.Context,
-	hostName, indexName, shardName string, schemaVersion uint64,
+	hostName, indexName, shardName string,
 ) (string, error) {
 	req, err := setupRequest(ctx, http.MethodGet, hostName,
 		fmt.Sprintf("/indices/%s/shards/%s/status", indexName, shardName),
-		schemaVersionQuery(schemaVersion), nil)
+		c.schemaVersionQuery(indexName), nil)
 	if err != nil {
 		return "", errors.Wrap(err, "open http request")
 	}

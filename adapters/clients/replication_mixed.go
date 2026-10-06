@@ -131,30 +131,29 @@ func (s *switchReplicationClient) Abort(ctx context.Context, host, index, shard,
 
 func (s *switchReplicationClient) FetchObject(ctx context.Context, host, index, shard string,
 	id strfmt.UUID, props search.SelectProperties, additional additional.Properties, numRetries int,
-	schemaVersion uint64,
 ) (replica.Replica, error) {
 	if s.useGRPC() {
-		return s.grpcClient.FetchObject(ctx, host, index, shard, id, props, additional, numRetries, schemaVersion)
+		return s.grpcClient.FetchObject(ctx, host, index, shard, id, props, additional, numRetries)
 	}
-	return s.restClient.FetchObject(ctx, host, index, shard, id, props, additional, numRetries, schemaVersion)
+	return s.restClient.FetchObject(ctx, host, index, shard, id, props, additional, numRetries)
 }
 
 func (s *switchReplicationClient) FetchObjects(ctx context.Context, host, index, shard string,
-	ids []strfmt.UUID, schemaVersion uint64,
+	ids []strfmt.UUID,
 ) ([]replica.Replica, error) {
 	if s.useGRPC() {
-		return s.grpcClient.FetchObjects(ctx, host, index, shard, ids, schemaVersion)
+		return s.grpcClient.FetchObjects(ctx, host, index, shard, ids)
 	}
-	return s.restClient.FetchObjects(ctx, host, index, shard, ids, schemaVersion)
+	return s.restClient.FetchObjects(ctx, host, index, shard, ids)
 }
 
 func (s *switchReplicationClient) DigestObjects(ctx context.Context, host, index, shard string,
-	ids []strfmt.UUID, numRetries int, schemaVersion uint64,
+	ids []strfmt.UUID, numRetries int,
 ) ([]types.RepairResponse, error) {
 	if s.useGRPC() {
-		return s.grpcClient.DigestObjects(ctx, host, index, shard, ids, numRetries, schemaVersion)
+		return s.grpcClient.DigestObjects(ctx, host, index, shard, ids, numRetries)
 	}
-	return s.restClient.DigestObjects(ctx, host, index, shard, ids, numRetries, schemaVersion)
+	return s.restClient.DigestObjects(ctx, host, index, shard, ids, numRetries)
 }
 
 func (s *switchReplicationClient) DigestObjectsInRange(ctx context.Context, host, index, shard string,
@@ -176,12 +175,12 @@ func (s *switchReplicationClient) OverwriteObjects(ctx context.Context, host, in
 }
 
 func (s *switchReplicationClient) FindUUIDs(ctx context.Context, host, index, shard string,
-	filter *filters.LocalFilter, limit int, schemaVersion uint64,
+	filter *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
 	if s.useGRPC() {
-		return s.grpcClient.FindUUIDs(ctx, host, index, shard, filter, limit, schemaVersion)
+		return s.grpcClient.FindUUIDs(ctx, host, index, shard, filter, limit)
 	}
-	return s.restClient.FindUUIDs(ctx, host, index, shard, filter, limit, schemaVersion)
+	return s.restClient.FindUUIDs(ctx, host, index, shard, filter, limit)
 }
 
 func (s *switchReplicationClient) HashTreeLevel(ctx context.Context, host, index, shard string,
@@ -220,13 +219,11 @@ func (s *switchReplicationClient) CompareHashTreeRootsMulti(ctx context.Context,
 	return s.restClient.CompareHashTreeRootsMulti(ctx, host, classes)
 }
 
-func (s *switchReplicationClient) CountObjects(ctx context.Context, host string, index string, shard string,
-	schemaVersion uint64,
-) (int, error) {
+func (s *switchReplicationClient) CountObjects(ctx context.Context, host string, index string, shard string) (int, error) {
 	if s.useGRPC() {
-		return s.grpcClient.CountObjects(ctx, host, index, shard, schemaVersion)
+		return s.grpcClient.CountObjects(ctx, host, index, shard)
 	}
-	return s.restClient.CountObjects(ctx, host, index, shard, schemaVersion)
+	return s.restClient.CountObjects(ctx, host, index, shard)
 }
 
 func (s *switchReplicationClient) CreateAsyncCheckpoint(ctx context.Context,

@@ -14,7 +14,6 @@ package clusterapi
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -37,13 +36,12 @@ import (
 )
 
 // TestReadMissStatusSeparatesLagFromFinal pins the two shapes a replica returns when it cannot
-// serve a read, and the status each must get. 500 for either is the worst of the three, because
-// shouldRetry asks the same replica again.
+// serve a read, and the status each must get. A final miss is the only one worth answering 422:
+// lag keeps the retryable 500 it needs to outlast schema propagation.
 func TestReadMissStatusSeparatesLagFromFinal(t *testing.T) {
 	const shard = "tenant-7"
 
-	lagging := enterrors.NewErrUnprocessable(fmt.Errorf("applied schema index %d, read resolved at version %d: %w",
-		90, 100, enterrors.ErrLocalShardNotFound{Shard: shard}))
+	lagging := enterrors.ErrLocalShardNotFound{Shard: shard}
 	final := enterrors.NewErrUnprocessable(enterrors.ErrNotServedHere{
 		Index: "MyClass", Shard: shard, Version: 100,
 	})
@@ -53,7 +51,7 @@ func TestReadMissStatusSeparatesLagFromFinal(t *testing.T) {
 		readErr  error
 		wantCode int
 	}{
-		{"behind on schema reads as unavailable", lagging, http.StatusServiceUnavailable},
+		{"behind on schema stays retryable", lagging, http.StatusInternalServerError},
 		{"caught up and still missing is terminal", final, http.StatusUnprocessableEntity},
 		{"an unrelated failure is a fault", io.ErrUnexpectedEOF, http.StatusInternalServerError},
 	}

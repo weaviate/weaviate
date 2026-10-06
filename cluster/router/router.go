@@ -175,13 +175,6 @@ func buildReplicas(nodeNames []string, shard string, hostnameResolver func(nodeN
 	return replicas
 }
 
-// localSchemaVersion is the version of the local schema a routing plan was resolved against.
-// Either version can be the change that put the shard where the plan says it is.
-func localSchemaVersion(schemaReader schema.SchemaReader, collection string) uint64 {
-	info := schemaReader.ClassInfo(collection)
-	return max(info.ClassVersion, info.ShardVersion)
-}
-
 // validateTenant for a single-tenant router checks the tenant is empty and returns an error if it is not.
 func (r *singleTenantRouter) validateTenant(tenant string) error {
 	if tenant != "" {
@@ -361,7 +354,6 @@ func (r *singleTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildO
 		},
 		ConsistencyLevel:    params.ConsistencyLevel,
 		IntConsistencyLevel: cl,
-		SchemaVersion:       localSchemaVersion(r.schemaReader, r.collection),
 	}
 
 	return plan, nil
@@ -626,7 +618,6 @@ func (r *multiTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOp
 		},
 		ConsistencyLevel:    params.ConsistencyLevel,
 		IntConsistencyLevel: cl,
-		SchemaVersion:       localSchemaVersion(r.schemaReader, r.collection),
 	}, nil
 }
 

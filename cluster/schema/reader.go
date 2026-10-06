@@ -67,6 +67,15 @@ func (rs SchemaReader) ClassInfo(class string) (ci ClassInfo) {
 	return res
 }
 
+// ClassVersion is the later of a class's class and sharding-state versions, or 0 when the class
+// is unknown here. Reads send it so the receiving node can tell schema lag from data it
+// genuinely does not hold. It reads the local schema directly: unlike ClassInfo it skips the
+// timers and the no-op version wait, because this is on the read path of every remote request.
+func (rs SchemaReader) ClassVersion(class string) uint64 {
+	info := rs.schema.ClassInfo(class)
+	return max(info.ClassVersion, info.ShardVersion)
+}
+
 // AppliedIndex is the RAFT log index this node has finished applying, or 0 when the caller
 // wired no way to read it. It does not wait; entities/errors.ClassifyReadMiss compares it.
 func (rs SchemaReader) AppliedIndex() uint64 {

@@ -41,6 +41,7 @@ import (
 // grpcReplicationClient implements replica.Client using gRPC.
 type grpcReplicationClient struct {
 	connManager *grpcconn.ConnManager
+	schemaVersionSource
 }
 
 var _ replica.Client = (*grpcReplicationClient)(nil)
@@ -284,7 +285,6 @@ func (c *grpcReplicationClient) Abort(ctx context.Context, host, index, shard, r
 
 func (c *grpcReplicationClient) FetchObject(ctx context.Context, host, index, shard string,
 	id strfmt.UUID, _ search.SelectProperties, _ additional.Properties, numRetries int,
-	schemaVersion uint64,
 ) (replica.Replica, error) {
 	client, err := c.getClient(host)
 	if err != nil {
@@ -298,7 +298,7 @@ func (c *grpcReplicationClient) FetchObject(ctx context.Context, host, index, sh
 		Index:         index,
 		Shard:         shard,
 		Uuid:          id.String(),
-		SchemaVersion: schemaVersion,
+		SchemaVersion: c.schemaVersion(index),
 	}, grpc_retry.WithMax(uint(numRetries)))
 	if err != nil {
 		return replica.Replica{}, readGRPCError("FetchObject", err)
@@ -312,7 +312,7 @@ func (c *grpcReplicationClient) FetchObject(ctx context.Context, host, index, sh
 }
 
 func (c *grpcReplicationClient) FetchObjects(ctx context.Context, host, index, shard string,
-	ids []strfmt.UUID, schemaVersion uint64,
+	ids []strfmt.UUID,
 ) ([]replica.Replica, error) {
 	client, err := c.getClient(host)
 	if err != nil {
@@ -328,7 +328,7 @@ func (c *grpcReplicationClient) FetchObjects(ctx context.Context, host, index, s
 		Index:         index,
 		Shard:         shard,
 		Uuids:         clusterapi.UUIDsToStrings(ids),
-		SchemaVersion: schemaVersion,
+		SchemaVersion: c.schemaVersion(index),
 	})
 	if err != nil {
 		return nil, readGRPCError("FetchObjects", err)
@@ -342,7 +342,7 @@ func (c *grpcReplicationClient) FetchObjects(ctx context.Context, host, index, s
 }
 
 func (c *grpcReplicationClient) DigestObjects(ctx context.Context, host, index, shard string,
-	ids []strfmt.UUID, numRetries int, schemaVersion uint64,
+	ids []strfmt.UUID, numRetries int,
 ) ([]types.RepairResponse, error) {
 	client, err := c.getClient(host)
 	if err != nil {
@@ -356,7 +356,7 @@ func (c *grpcReplicationClient) DigestObjects(ctx context.Context, host, index, 
 		Index:         index,
 		Shard:         shard,
 		Ids:           clusterapi.UUIDsToStrings(ids),
-		SchemaVersion: schemaVersion,
+		SchemaVersion: c.schemaVersion(index),
 	}, grpc_retry.WithMax(uint(numRetries)))
 	if err != nil {
 		return nil, readGRPCError("DigestObjects", err)
@@ -589,7 +589,7 @@ func (c *grpcReplicationClient) OverwriteObjects(ctx context.Context, host, inde
 }
 
 func (c *grpcReplicationClient) FindUUIDs(ctx context.Context, host, index, shard string,
-	filter *filters.LocalFilter, limit int, schemaVersion uint64,
+	filter *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
 	client, err := c.getClient(host)
 	if err != nil {
@@ -611,7 +611,7 @@ func (c *grpcReplicationClient) FindUUIDs(ctx context.Context, host, index, shar
 		Shard:         shard,
 		FilterJson:    filterJSON,
 		Limit:         int32(limit),
-		SchemaVersion: schemaVersion,
+		SchemaVersion: c.schemaVersion(index),
 	}, grpc_retry.Disable())
 	if err != nil {
 		return nil, readGRPCError("FindUUIDs", err)
@@ -721,9 +721,7 @@ func (c *grpcReplicationClient) HashTreeLevel(ctx context.Context, host, index, 
 	return digests, nil
 }
 
-func (c *grpcReplicationClient) CountObjects(ctx context.Context, host, index, shard string,
-	schemaVersion uint64,
-) (int, error) {
+func (c *grpcReplicationClient) CountObjects(ctx context.Context, host, index, shard string) (int, error) {
 	client, err := c.getClient(host)
 	if err != nil {
 		return 0, err
@@ -735,7 +733,7 @@ func (c *grpcReplicationClient) CountObjects(ctx context.Context, host, index, s
 	resp, err := client.CountObjects(ctx, &protocol.CountObjectsRequest{
 		Index:         index,
 		Shard:         shard,
-		SchemaVersion: schemaVersion,
+		SchemaVersion: c.schemaVersion(index),
 	})
 	if err != nil {
 		return 0, readGRPCError("CountObjects", err)

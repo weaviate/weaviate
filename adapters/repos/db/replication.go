@@ -1274,10 +1274,19 @@ func (i *Index) FetchObjects(ctx context.Context,
 	return resp, nil
 }
 
-// classifyReplicatedReadMiss hands a replicated read's failure to [enterrors.ClassifyReadMiss].
+// classifyReplicatedReadMiss answers a miss this node is already current enough to be sure about
+// as final, so nothing retries a replica that can never serve the shard. Anything else, a miss
+// while still behind included, passes through untouched: lag resolves on its own, and the retry
+// that outlasts schema propagation is what keeps the read correct meanwhile.
 func (db *DB) classifyReplicatedReadMiss(err error, className, shardName string, schemaVersion uint64) error {
-	if err == nil {
-		return nil
+	if err == nil || !enterrors.IsSchemaLag(err) {
+		return err
 	}
-	return enterrors.ClassifyReadMiss(err, className, shardName, schemaVersion, db.schemaReader.AppliedIndex())
+	appliedIndex := db.schemaReader.AppliedIndex()
+	if !enterrors.NotServedHere(err, schemaVersion, appliedIndex) {
+		return err
+	}
+	return enterrors.NewErrUnprocessable(enterrors.ErrNotServedHere{
+		Index: className, Shard: shardName, Version: appliedIndex,
+	})
 }

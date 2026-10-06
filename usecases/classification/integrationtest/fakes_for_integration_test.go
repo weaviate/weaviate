@@ -434,7 +434,7 @@ func (f *fakeRemoteClient) RemoveAsyncReplicationTargetNode(ctx context.Context,
 
 func (f *fakeRemoteClient) GetObject(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID, props search.SelectProperties,
-	additional additional.Properties, schemaVersion uint64,
+	additional additional.Properties,
 ) (*storobj.Object, error) {
 	return nil, nil
 }
@@ -457,7 +457,7 @@ func (c *fakeRemoteClient) CountObjects(ctx context.Context, host, index, shard 
 }
 
 func (f *fakeRemoteClient) Exists(ctx context.Context, hostName, indexName,
-	shardName string, id strfmt.UUID, schemaVersion uint64,
+	shardName string, id strfmt.UUID,
 ) (bool, error) {
 	return false, nil
 }
@@ -478,7 +478,7 @@ func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 	shardName string, vector []models.Vector, targetVector []string, distance float32, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 	cursor *filters.Cursor, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination,
-	properties []string, schemaVersion uint64,
+	properties []string,
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
 	return nil, nil, nil, nil
 }
@@ -488,7 +488,7 @@ func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexN
 }
 
 func (f *fakeRemoteClient) MultiGetObjects(ctx context.Context, hostName, indexName,
-	shardName string, ids []strfmt.UUID, schemaVersion uint64,
+	shardName string, ids []strfmt.UUID,
 ) ([]*storobj.Object, error) {
 	return nil, nil
 }
@@ -500,13 +500,13 @@ func (f *fakeRemoteClient) BatchAddReferences(ctx context.Context, hostName,
 }
 
 func (f *fakeRemoteClient) Aggregate(ctx context.Context, hostName, indexName,
-	shardName string, params aggregation.Params, schemaVersion uint64,
+	shardName string, params aggregation.Params,
 ) (*aggregation.Result, error) {
 	return nil, nil
 }
 
 func (f *fakeRemoteClient) FindUUIDs(ctx context.Context, hostName, indexName, shardName string,
-	filters *filters.LocalFilter, limit int, schemaVersion uint64,
+	filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
 	return nil, nil
 }
@@ -518,13 +518,13 @@ func (f *fakeRemoteClient) DeleteObjectBatch(ctx context.Context, hostName, inde
 }
 
 func (f *fakeRemoteClient) GetShardQueueSize(ctx context.Context,
-	hostName, indexName, shardName string, schemaVersion uint64,
+	hostName, indexName, shardName string,
 ) (int64, error) {
 	return 0, nil
 }
 
 func (f *fakeRemoteClient) GetShardStatus(ctx context.Context,
-	hostName, indexName, shardName string, schemaVersion uint64,
+	hostName, indexName, shardName string,
 ) (string, error) {
 	return "", nil
 }
@@ -607,19 +607,19 @@ func (c *fakeReplicationClient) Exists(ctx context.Context, host, index,
 
 func (f *fakeReplicationClient) FetchObject(_ context.Context, host, index,
 	shard string, id strfmt.UUID, props search.SelectProperties,
-	additional additional.Properties, numRetries int, schemaVersion uint64,
+	additional additional.Properties, numRetries int,
 ) (replica.Replica, error) {
 	return replica.Replica{}, nil
 }
 
 func (c *fakeReplicationClient) FetchObjects(ctx context.Context, host,
-	index, shard string, ids []strfmt.UUID, schemaVersion uint64,
+	index, shard string, ids []strfmt.UUID,
 ) ([]replica.Replica, error) {
 	return nil, nil
 }
 
 func (c *fakeReplicationClient) DigestObjects(ctx context.Context,
-	host, index, shard string, ids []strfmt.UUID, numRetries int, schemaVersion uint64,
+	host, index, shard string, ids []strfmt.UUID, numRetries int,
 ) (result []types.RepairResponse, err error) {
 	return nil, nil
 }
@@ -631,7 +631,7 @@ func (c *fakeReplicationClient) OverwriteObjects(ctx context.Context,
 }
 
 func (c *fakeReplicationClient) FindUUIDs(ctx context.Context, host, index, shard string,
-	filters *filters.LocalFilter, limit int, schemaVersion uint64,
+	filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
 	return nil, nil
 }
@@ -660,7 +660,7 @@ func (c *fakeReplicationClient) CompareHashTreeRoots(ctx context.Context, host, 
 	return nil, nil
 }
 
-func (c *fakeReplicationClient) CountObjects(ctx context.Context, host, index, shard string, schemaVersion uint64) (int, error) {
+func (c *fakeReplicationClient) CountObjects(ctx context.Context, host, index, shard string) (int, error) {
 	return 0, nil
 }
 

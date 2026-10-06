@@ -75,24 +75,21 @@ func IsSchemaLag(err error) bool {
 	return errors.As(err, &missingIndex) || errors.As(err, &missingShard)
 }
 
-// ClassifyReadMiss rewrites a missing local index or shard into the error the cluster API needs
-// to pick a status code; anything else passes through unchanged. Behind wantVersion, or sent no
-// version at all, the miss is lag and keeps matching [IsSchemaLag], so the API answers 503 and
-// the coordinator fails over. At or past it the miss is [ErrNotServedHere], answered 422, so
-// nothing retries a replica that can never serve it.
+// NotServedHere reports whether a missing local index or shard is final: this node's schema is
+// already at or past the version the read was resolved against, so waiting cannot make it
+// appear and the caller must re-resolve rather than retry. The caller answers such a miss with
+// [ErrNotServedHere], which the cluster API turns into a 422 that nothing retries.
 //
 // appliedIndex is the comparator rather than the local class version because it only advances
 // once an entry's store side has run: comparing class versions would call a read that races a
-// tenant's creation a genuine miss.
-func ClassifyReadMiss(err error, index, shard string, wantVersion, appliedIndex uint64) error {
-	if !IsSchemaLag(err) {
-		return err
-	}
-	if wantVersion > 0 && appliedIndex >= wantVersion {
-		return NewErrUnprocessable(ErrNotServedHere{Index: index, Shard: shard, Version: appliedIndex})
-	}
-	return NewErrUnprocessable(fmt.Errorf(
-		"applied schema index %d, read resolved at version %d: %w", appliedIndex, wantVersion, err))
+// tenant's creation final. wantVersion 0 is a caller too old to send one, so lag cannot be
+// ruled out.
+//
+// Everything else, a miss while still behind included, must be left exactly as it was: lag
+// resolves on its own, and the retry that outlasts schema propagation is what keeps a read
+// correct while an entry is still reaching every replica.
+func NotServedHere(err error, wantVersion, appliedIndex uint64) bool {
+	return wantVersion > 0 && appliedIndex >= wantVersion && IsSchemaLag(err)
 }
 
 func NewErrUnprocessable(err error) ErrUnprocessable {

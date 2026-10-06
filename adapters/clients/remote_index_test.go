@@ -149,7 +149,7 @@ func TestRemoteIndexShardStatus(t *testing.T) {
 	defer ts.Close()
 	client := newRemoteIndex(ts.Client())
 	t.Run("ConnectionError", func(t *testing.T) {
-		_, err := client.GetShardStatus(ctx, "", "C1", "S1", 0)
+		_, err := client.GetShardStatus(ctx, "", "C1", "S1")
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "connect")
 	})
@@ -173,15 +173,15 @@ func TestRemoteIndexShardStatus(t *testing.T) {
 	}
 
 	t.Run("ContentType", func(t *testing.T) {
-		_, err := client.GetShardStatus(ctx, fs.host, "C1", "S1", 0)
+		_, err := client.GetShardStatus(ctx, fs.host, "C1", "S1")
 		assert.NotNil(t, err)
 	})
 	t.Run("Status", func(t *testing.T) {
-		_, err := client.GetShardStatus(ctx, fs.host, "C1", "S1", 0)
+		_, err := client.GetShardStatus(ctx, fs.host, "C1", "S1")
 		assert.NotNil(t, err)
 	})
 	t.Run("Success", func(t *testing.T) {
-		st, err := client.GetShardStatus(ctx, fs.host, "C1", "S1", 0)
+		st, err := client.GetShardStatus(ctx, fs.host, "C1", "S1")
 		assert.Nil(t, err)
 		assert.Equal(t, "READONLY", st)
 	})
@@ -398,7 +398,7 @@ func TestRemoteIndexSearchShardShedRehydratesOverloaded(t *testing.T) {
 	}
 
 	_, _, _, err := client.SearchShard(ctx, fs.host, "C1", "S1",
-		nil, nil, 0, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, 0)
+		nil, nil, 0, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil)
 	require.Error(t, err)
 	require.ErrorIs(t, err, queryadmission.ErrOverloaded,
 		"a cross-node admission shed (429) surviving retry exhaustion must carry ErrOverloaded, got: %v", err)
@@ -424,7 +424,7 @@ func TestRemoteIndexSearchShardNon429NotOverloaded(t *testing.T) {
 	}
 
 	_, _, _, err := client.SearchShard(ctx, fs.host, "C1", "S1",
-		nil, nil, 0, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, 0)
+		nil, nil, 0, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil)
 	require.Error(t, err)
 	require.NotErrorIs(t, err, queryadmission.ErrOverloaded)
 }
@@ -447,7 +447,7 @@ func TestRemoteIndexAggregateShedRehydratesOverloaded(t *testing.T) {
 		_, _ = w.Write([]byte("node overloaded, request shed"))
 	}
 
-	_, err := client.Aggregate(ctx, fs.host, "C1", "S1", aggregation.Params{}, 0)
+	_, err := client.Aggregate(ctx, fs.host, "C1", "S1", aggregation.Params{})
 	require.Error(t, err)
 	require.ErrorIs(t, err, queryadmission.ErrOverloaded,
 		"a cross-node aggregation shed (429) surviving retry exhaustion must carry ErrOverloaded, got: %v", err)
@@ -469,7 +469,7 @@ func TestRemoteIndexAggregateNon429NotOverloaded(t *testing.T) {
 		_, _ = w.Write([]byte("boom"))
 	}
 
-	_, err := client.Aggregate(ctx, fs.host, "C1", "S1", aggregation.Params{}, 0)
+	_, err := client.Aggregate(ctx, fs.host, "C1", "S1", aggregation.Params{})
 	require.Error(t, err)
 	require.NotErrorIs(t, err, queryadmission.ErrOverloaded)
 }
