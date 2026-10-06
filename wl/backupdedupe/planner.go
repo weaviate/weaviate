@@ -593,7 +593,10 @@ func (p *Planner) pollConvergence(ctx context.Context, sum *planSummary, candida
 					continue
 				}
 				// Checkpoint membership is final after create, so an entry absent on the first poll never appears later; only root equality is worth polling for.
-				if lacking := missingReplicasAtCutoff(entries, replicas[class][shard], cutoffs[class]); firstPoll && len(lacking) > 0 {
+				if !firstPoll {
+					continue
+				}
+				if lacking := missingReplicasAtCutoff(entries, replicas[class][shard], cutoffs[class]); len(lacking) > 0 {
 					missing++
 					for _, node := range lacking {
 						sum.missingByNode[node]++
