@@ -40,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 func TestShard_UpdateStatus(t *testing.T) {
@@ -1065,6 +1066,13 @@ func TestShard_MultiVectorOnIndexWithoutMultiSupport(t *testing.T) {
 			obj := testObject("TestClass")
 			obj.MultiVectors = map[string][][]float32{"foo": multiVector}
 			return shd.PutObject(ctx, obj)
+		},
+		"merge": func(t *testing.T, ctx context.Context, shd ShardLike) error {
+			return shd.MergeObject(ctx, objects.MergeDocument{
+				Class:   "TestClass",
+				ID:      strfmt.UUID(uuid.NewString()),
+				Vectors: models.Vectors{"foo": multiVector},
+			})
 		},
 	}
 
