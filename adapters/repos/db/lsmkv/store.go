@@ -578,6 +578,9 @@ func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, re
 // success the bucket's registration follows it to newDir, otherwise newDir is
 // released. Left at the old dir, the registry would refuse a new bucket there,
 // and would not notice a second bucket opened on the dir in use.
+//
+// The caller must hold bucket.flushLock until finish returns: Bucket.Shutdown
+// reads registeredPath under it.
 func claimDirForMove(bucket *Bucket, newDir string) (finish func(moved bool), err error) {
 	if bucket.registeredPath == newDir {
 		return func(bool) {}, nil
@@ -797,7 +800,10 @@ func (s *Store) SwapBucketPointer(ctx context.Context, targetName, sourceName st
 	// because every swap in a chain runs this same Remove, so the path is
 	// released BEFORE the next bucket claims it. registeredPath equals the
 	// source bucket's current dir here (no rename has run yet).
-	GlobalBucketRegistry.Remove(sourceBucket.registeredPath)
+	sourceBucket.flushLock.RLock()
+	registeredPath := sourceBucket.registeredPath
+	sourceBucket.flushLock.RUnlock()
+	GlobalBucketRegistry.Remove(registeredPath)
 
 	return oldBucket, nil
 }
@@ -844,6 +850,9 @@ func (s *Store) FinalizeBucketSwap(ctx context.Context, bucketName, canonicalDir
 		return fmt.Errorf("flush memtable before dir rename: %w", err)
 	}
 
+	bucket.flushLock.Lock()
+	defer bucket.flushLock.Unlock()
+
 	finishClaim, err := claimDirForMove(bucket, canonicalDir)
 	if err != nil {
 		return err
@@ -862,9 +871,6 @@ func (s *Store) FinalizeBucketSwap(ctx context.Context, bucketName, canonicalDir
 
 	s.updateBucketDir(bucket, currentDir, canonicalDir)
 	bucket.dir = canonicalDir
-
-	bucket.flushLock.Lock()
-	defer bucket.flushLock.Unlock()
 
 	mt, err := bucket.createNewActiveMemtable()
 	if err != nil {
