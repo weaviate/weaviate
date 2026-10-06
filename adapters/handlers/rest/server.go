@@ -447,14 +447,21 @@ func (s *Server) handleShutdown(wg *sync.WaitGroup, serversPtr *[]*http.Server) 
 		}()
 	}
 
-	// Wait until all listeners have successfully shut down before calling ServerShutdown
+	// WEAVIATE OVERRIDE START: close servers that outlive GracefulTimeout and always run ServerShutdown
 	success := true
 	for range servers {
 		success = success && <-shutdownChan
 	}
-	if success {
-		s.api.ServerShutdown()
+	if !success {
+		// Closing fails the reads and writes Shutdown waited on, from a slow client or a handler ignoring its ctx.
+		for _, server := range servers {
+			if err := server.Close(); err != nil {
+				s.Logf("HTTP server Close: %v", err)
+			}
+		}
 	}
+	s.api.ServerShutdown()
+	// WEAVIATE OVERRIDE END
 }
 
 // GetHandler returns a handler useful for testing

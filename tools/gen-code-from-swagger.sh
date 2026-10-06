@@ -9,6 +9,12 @@ version=v0.30.4
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 SWAGGER=$DIR/swagger-${version}
 
+SERVER_TEMPLATE="$DIR/swagger-templates/server/server.gotmpl"
+if ! head -1 "$SERVER_TEMPLATE" | grep -q "go-swagger $version "; then
+  echo "$SERVER_TEMPLATE was not copied from go-swagger $version; re-copy it and re-apply the WEAVIATE OVERRIDE block" >&2
+  exit 1
+fi
+
 GOARCH=$(go env GOARCH)
 GOOS=$(go env GOOS)
 if [ ! -f "$SWAGGER" ]; then
@@ -34,7 +40,9 @@ go install golang.org/x/tools/cmd/goimports@v0.1.12
 # Remove old stuff.
 (cd "$DIR"/..; rm -rf entities/models client adapters/handlers/rest/operations/)
 
-(cd "$DIR"/..; $SWAGGER generate server --name=weaviate --model-package=entities/models --server-package=adapters/handlers/rest --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https --struct-tags=yaml --struct-tags=json)
+# swagger-templates/server/server.gotmpl is a modified copy of go-swagger's template. When bumping
+# version, re-copy it from the new tag and re-apply the WEAVIATE OVERRIDE block.
+(cd "$DIR"/..; $SWAGGER generate server --name=weaviate --model-package=entities/models --server-package=adapters/handlers/rest --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https --struct-tags=yaml --struct-tags=json --template-dir="$DIR/swagger-templates" --allow-template-override)
 (cd "$DIR"/..; $SWAGGER generate client --name=weaviate --model-package=entities/models --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https)
 
 echo Generate Deprecation code...
