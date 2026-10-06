@@ -46,7 +46,6 @@ const (
 	defaultCachePageSize = 32
 )
 
-// preload outcomes that are not reported as a completed prefill
 var (
 	errPreloadIncomplete = errors.New("preload did not complete")
 	errPreloadAborted    = errors.New("preload aborted")

@@ -425,7 +425,6 @@ func (h *HFresh) PostStartup(ctx context.Context) {
 	h.Centroids.hnsw.PostStartup(ctx)
 }
 
-// warmup outcomes that are not reported as a completed prefill
 var (
 	errWarmupIncomplete = stderrors.New("version map warmup did not complete")
 	errNothingToWarm    = stderrors.New("version map warmup found nothing to warm")
