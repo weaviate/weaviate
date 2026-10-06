@@ -188,7 +188,7 @@ Join our [Community forum](https://forum.weaviate.io/) to discuss ideas and get 
 
 ## License
 
-This repository contains code in our Community Edition and our Enterprise Edition. Most of this repository is available under the BSD 3-Clause License. Files in our wl/ folder are only available under a commercial license with a license key issued by us. If you are interested in a commercial license, please contact us at [http://weaviate.io/enterprise-edition](http://weaviate.io/enterprise-edition). Our binaries, [available for download here](https://github.com/weaviate/weaviate/releases), combine these two elements. Enterprise features require a license key.
+This repository contains code in our Community Edition and our Enterprise Edition. Most of this repository is available under the BSD 3-Clause License. Files in our wl/ folder are only available under a commercial license with a license key issued by us. If you are interested in a commercial license, please contact us at [https://weaviate.io/contact](https://weaviate.io/contact). Our binaries, [available for download here](https://github.com/weaviate/weaviate/releases), combine these two elements. Enterprise features require a license key.
 
 Please see our [licensing FAQ](https://docs.weaviate.io/deploy/enterprise#frequently-asked-questions) for more information.
 
