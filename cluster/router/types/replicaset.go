@@ -18,8 +18,7 @@ import (
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
-// ReadReplicaSet contains *exactly one* replica per shard and is produced by
-// ReadReplicaStrategy implementations for read paths.
+// ReadReplicaSet holds every reachable replica of each shard a read plan targets.
 type ReadReplicaSet struct {
 	Replicas []Replica
 }

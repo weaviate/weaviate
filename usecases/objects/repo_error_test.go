@@ -514,6 +514,14 @@ func TestRefTargetReplicasErrIsInternal(t *testing.T) {
 			userFault: requireUserInput,
 		},
 		{
+			name: "validate object",
+			call: func(m *Manager) error {
+				return m.ValidateObject(context.Background(), &models.Principal{}, withRef(), nil)
+			},
+			internal:  requireInternal,
+			userFault: requireUserInput,
+		},
+		{
 			name: "update object",
 			arrange: func(repo *fakeVectorRepo) {
 				repo.On("Object", class, id, mock.Anything, mock.Anything, "").Return(found, nil).Once()

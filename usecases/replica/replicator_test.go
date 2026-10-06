@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -888,12 +889,12 @@ func TestReplicatorReachabilityCheck(t *testing.T) {
 
 		err := rep.PutObject(ctx, shard, obj, level, 123)
 		assert.ErrorIs(t, err, replicaerrors.ErrReplicas)
-		assert.ErrorContains(t, err, "cannot reach enough replicas")
+		assert.Equal(t, 1, strings.Count(fmt.Sprint(err), "cannot reach enough replicas"), "error text: %v", err)
 		assert.ErrorContains(t, err, cause)
 
 		got, err := rep.GetOne(ctx, level, shard, id, proj, adds)
 		assert.ErrorIs(t, err, replicaerrors.ErrReplicas)
-		assert.ErrorContains(t, err, "cannot reach enough replicas")
+		assert.Equal(t, 1, strings.Count(fmt.Sprint(err), "cannot reach enough replicas"), "error text: %v", err)
 		assert.ErrorContains(t, err, cause)
 		assert.Nil(t, got)
 

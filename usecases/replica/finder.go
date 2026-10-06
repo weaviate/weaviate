@@ -716,7 +716,7 @@ func (f *Finder) CountObjects(ctx context.Context, shard string, cl types.Consis
 // If we can't calculate the mode, we fallback to median. We can only calculate
 // the true median for an odd-numbered set. If a set has even number of elemets
 // of which none is a mode, then the median would be calculated as an average,
-// which is not contained in the set. In that case we pick the lower value of
+// which is not contained in the set. In that case we pick the higher value of
 // the two "candidate" values.
 func reconcile(counts []int) int {
 	var mode int
