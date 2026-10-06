@@ -660,12 +660,11 @@ func viewerPermissions() []*models.Permission {
 
 // metadataReaderPermissions : can read cluster metadata and access-control
 // configuration but never objects or vectors. Deliberately excludes read_data
-// and read_mcp, and every non-read action. Backups are excluded because the
-// only backups action, manage_backups, also creates and restores.
+// and read_mcp, and every non-read action, including manage_backups.
 func metadataReaderPermissions() []*models.Permission {
 	readCollections, readTenants, readNodes := ReadCollections, ReadTenants, ReadNodes
 	readCluster, readAliases, readReplicate := ReadCluster, ReadAliases, ReadReplicate
-	readUsers, readRoles, readGroups := ReadUsers, ReadRoles, ReadGroups
+	readUsers, readRoles, readGroups, readBackups := ReadUsers, ReadRoles, ReadGroups, ReadBackups
 	return []*models.Permission{
 		{Action: &readCollections, Collections: AllCollections},
 		{Action: &readTenants, Tenants: AllTenants},
@@ -676,6 +675,7 @@ func metadataReaderPermissions() []*models.Permission {
 		{Action: &readUsers, Users: AllUsers},
 		{Action: &readRoles, Roles: AllRoles},
 		{Action: &readGroups, Groups: AllOIDCGroups},
+		{Action: &readBackups, Backups: AllBackups},
 	}
 }
 

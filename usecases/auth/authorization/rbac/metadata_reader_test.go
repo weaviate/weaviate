@@ -103,6 +103,7 @@ func TestMetadataReaderGroupPermissions(t *testing.T) {
 		"users":         authorization.Users("someone")[0],
 		"roles":         authorization.Roles("admin")[0],
 		"groups":        authorization.Groups(authentication.AuthTypeOIDC, "some-group")[0],
+		"backups":       authorization.Backups("Movies")[0],
 	}
 	denied := []struct {
 		name, resource, verb string
@@ -113,7 +114,8 @@ func TestMetadataReaderGroupPermissions(t *testing.T) {
 		{"read shards data", authorization.ShardsData("Movies", "shard1")[0], authorization.READ},
 		{"create collection", authorization.CollectionsMetadata("Movies")[0], authorization.CREATE},
 		{"delete collection", authorization.CollectionsMetadata("Movies")[0], authorization.DELETE},
-		{"read backups", authorization.Backups("Movies")[0], authorization.READ},
+		{"create backups", authorization.Backups("Movies")[0], authorization.CREATE},
+		{"cancel backups", authorization.Backups("Movies")[0], authorization.DELETE},
 		{"read mcp", authorization.Mcp(), authorization.READ},
 	}
 
