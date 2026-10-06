@@ -690,7 +690,7 @@ func TestGRPCReplicationFetchObject(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		resp, err := client.FetchObject(ctx, "passthrough:bufnet", "C1", "S1",
-			expected.ID, nil, additional.Properties{}, 9)
+			expected.ID, nil, additional.Properties{}, 9, 0)
 		require.Nil(t, err)
 		assert.Equal(t, expected.ID, resp.ID)
 		assert.Equal(t, expected.Deleted, resp.Deleted)
@@ -699,7 +699,7 @@ func TestGRPCReplicationFetchObject(t *testing.T) {
 
 	t.Run("DecodeResponse", func(t *testing.T) {
 		_, err := client.FetchObject(ctx, "passthrough:bufnet", "C1", "S1",
-			strfmt.UUID(RequestMalFormedResponse), nil, additional.Properties{}, 9)
+			strfmt.UUID(RequestMalFormedResponse), nil, additional.Properties{}, 9, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "unmarshal")
 	})
@@ -707,7 +707,7 @@ func TestGRPCReplicationFetchObject(t *testing.T) {
 	t.Run("ConnectionError", func(t *testing.T) {
 		closedClient := NewGRPCReplicationClient(closedConnManager(t))
 		_, err := closedClient.FetchObject(ctx, "passthrough:bufnet", "C1", "S1",
-			UUID1, nil, additional.Properties{}, 9)
+			UUID1, nil, additional.Properties{}, 9, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "connection")
 	})
@@ -760,7 +760,7 @@ func TestGRPCReplicationFetchObjects(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		resp, err := client.FetchObjects(ctx, "passthrough:bufnet", "C1", "S1",
-			[]strfmt.UUID{expected[0].ID})
+			[]strfmt.UUID{expected[0].ID}, 0)
 		require.Nil(t, err)
 		require.Len(t, resp, 2)
 		assert.Equal(t, expected[0].ID, resp[0].ID)
@@ -773,7 +773,7 @@ func TestGRPCReplicationFetchObjects(t *testing.T) {
 
 	t.Run("DecodeResponse", func(t *testing.T) {
 		_, err := client.FetchObjects(ctx, "passthrough:bufnet", "C1", "S1",
-			[]strfmt.UUID{strfmt.UUID(RequestMalFormedResponse)})
+			[]strfmt.UUID{strfmt.UUID(RequestMalFormedResponse)}, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "unmarshal")
 	})
@@ -781,7 +781,7 @@ func TestGRPCReplicationFetchObjects(t *testing.T) {
 	t.Run("ConnectionError", func(t *testing.T) {
 		closedClient := NewGRPCReplicationClient(closedConnManager(t))
 		_, err := closedClient.FetchObjects(ctx, "passthrough:bufnet", "C1", "S1",
-			[]strfmt.UUID{UUID1})
+			[]strfmt.UUID{UUID1}, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "connection")
 	})
@@ -829,7 +829,7 @@ func TestGRPCReplicationDigestObjects(t *testing.T) {
 			[]strfmt.UUID{
 				strfmt.UUID(expected[0].ID),
 				strfmt.UUID(expected[1].ID),
-			}, 9)
+			}, 9, 0)
 		require.Nil(t, err)
 		require.Len(t, resp, 2)
 		assert.Equal(t, expected[0].ID, resp[0].ID)
@@ -845,7 +845,7 @@ func TestGRPCReplicationDigestObjects(t *testing.T) {
 	t.Run("ConnectionError", func(t *testing.T) {
 		closedClient := NewGRPCReplicationClient(closedConnManager(t))
 		_, err := closedClient.DigestObjects(ctx, "passthrough:bufnet", "C1", "S1",
-			[]strfmt.UUID{UUID1}, 9)
+			[]strfmt.UUID{UUID1}, 9, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "connection")
 	})

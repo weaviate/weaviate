@@ -43,7 +43,7 @@ func replicasOf(xs ...*storobj.Object) []replica.Replica {
 
 // expectFetch mocks node's one FetchObjects call for exactly ids, returning xs.
 func expectFetch(f *fakeFactory, node, cls, shard string, ids []strfmt.UUID, xs []replica.Replica) {
-	f.RClient.EXPECT().FetchObjects(anyVal, node, cls, shard, ids).
+	f.RClient.EXPECT().FetchObjects(anyVal, node, cls, shard, ids, anyVal).
 		Return(xs, nil).
 		Once()
 }
@@ -51,7 +51,7 @@ func expectFetch(f *fakeFactory, node, cls, shard string, ids []strfmt.UUID, xs 
 // expectFetchAnyOrder is like expectFetch but asserts the ids in any order:
 // read repair batches ids per replica without guaranteeing their order.
 func expectFetchAnyOrder(t *testing.T, f *fakeFactory, node, cls, shard string, want []strfmt.UUID, xs []replica.Replica) {
-	f.RClient.EXPECT().FetchObjects(anyVal, node, cls, shard, anyVal).
+	f.RClient.EXPECT().FetchObjects(anyVal, node, cls, shard, anyVal, anyVal).
 		Return(xs, nil).
 		Once().
 		RunFn = func(a mock.Arguments) {
@@ -96,9 +96,9 @@ func TestRepairerOneWithALL(t *testing.T) {
 				digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
 				digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 			)
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal).Return(item, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal).Return(digestR2, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal, anyVal).Return(item, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal, anyVal).Return(digestR2, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal, anyVal).Return(digestR3, nil)
 
 			updates := []*objects.VObject{{
 				ID:                      id,
@@ -126,9 +126,9 @@ func TestRepairerOneWithALL(t *testing.T) {
 				digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 				digestR4  = []types.RepairResponse{{ID: id.String(), UpdateTime: 4, Err: "conflict"}}
 			)
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, 0).Return(item, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal).Return(digestR2, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, 0, anyVal).Return(item, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal, anyVal).Return(digestR2, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal, anyVal).Return(digestR3, nil)
 
 			updates := []*objects.VObject{{
 				ID:                      id,
@@ -160,14 +160,14 @@ func TestRepairerOneWithALL(t *testing.T) {
 				digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
 				digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 			)
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal).Return(item2, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal, anyVal).Return(item2, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal, anyVal).Return(digestR3, nil)
 			// called during reparation to fetch the most recent object from the winner node (first node with highest UpdateTime)
 			// Note: Only the winner node (first encountered with highest UpdateTime) is fetched, not all nodes with that time
 			// Since both B and C have UpdateTime 3, either could be the winner depending on vote order
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[1], cls, shard, id, proj, adds, anyVal).Return(item3, nil).Maybe()
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[2], cls, shard, id, proj, adds, anyVal).Return(item3, nil).Maybe()
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[1], cls, shard, id, proj, adds, anyVal, anyVal).Return(item3, nil).Maybe()
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[2], cls, shard, id, proj, adds, anyVal, anyVal).Return(item3, nil).Maybe()
 
 			f.RClient.EXPECT().OverwriteObjects(anyVal, nodes[0], cls, shard, anyVal).
 				Return(digestR2, nil).RunFn = func(a mock.Arguments) {
@@ -190,9 +190,9 @@ func TestRepairerOneWithALL(t *testing.T) {
 				digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
 				digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 			)
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal).Return(item, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal).Return(digestR2, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal, anyVal).Return(item, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal, anyVal).Return(digestR2, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal, anyVal).Return(digestR3, nil)
 
 			updates := []*objects.VObject{{
 				ID:                      id,
@@ -219,11 +219,11 @@ func TestRepairerOneWithALL(t *testing.T) {
 				digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
 				digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 			)
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal).Return(item1, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal).Return(digestR2, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal, anyVal).Return(item1, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal, anyVal).Return(digestR2, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal, anyVal).Return(digestR3, nil)
 			// called during reparation to fetch the most recent object
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[2], cls, shard, id, proj, adds, anyVal).Return(emptyItem, errAny)
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[2], cls, shard, id, proj, adds, anyVal, anyVal).Return(emptyItem, errAny)
 
 			got, err := finder.GetOne(ctx, types.ConsistencyLevelAll, shard, id, proj, adds)
 			require.ErrorContains(t, err, replicaerrors.ErrRepair.Error())
@@ -240,11 +240,11 @@ func TestRepairerOneWithALL(t *testing.T) {
 				digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
 				digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 			)
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal).Return(item1, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal).Return(digestR2, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal, anyVal).Return(item1, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal, anyVal).Return(digestR2, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal, anyVal).Return(digestR3, nil)
 			// called during reparation to fetch the most recent object
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[2], cls, shard, id, proj, adds, anyVal).
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[2], cls, shard, id, proj, adds, anyVal, anyVal).
 				Return(item1, nil).Once()
 
 			got, err := finder.GetOne(ctx, types.ConsistencyLevelAll, shard, id, proj, adds)
@@ -264,9 +264,9 @@ func TestRepairerOneWithALL(t *testing.T) {
 				digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 0, Deleted: false}}
 				digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
 			)
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal).Return(item, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal).Return(digestR2, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal, anyVal).Return(item, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal, anyVal).Return(digestR2, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal, anyVal).Return(digestR3, nil)
 
 			f.RClient.EXPECT().OverwriteObjects(anyVal, nodes[1], cls, shard, anyVal).
 				Return(digestR2, nil).RunFn = func(a mock.Arguments) {
@@ -288,9 +288,9 @@ func TestRepairerOneWithALL(t *testing.T) {
 				digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
 				digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
 			)
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal).Return(item, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal).Return(digestR2, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal, anyVal).Return(item, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal, anyVal).Return(digestR2, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal, anyVal).Return(digestR3, nil)
 
 			got, err := finder.GetOne(ctx, types.ConsistencyLevelAll, shard, id, proj, adds)
 			require.ErrorContains(t, err, replicaerrors.MsgCLevel)
@@ -306,9 +306,9 @@ func TestRepairerOneWithALL(t *testing.T) {
 				digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: true}}
 				digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: true}}
 			)
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal).Return(item, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal).Return(digestR2, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal, anyVal).Return(item, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal, anyVal).Return(digestR2, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal, anyVal).Return(digestR3, nil)
 
 			got, err := finder.GetOne(ctx, types.ConsistencyLevelAll, shard, id, proj, adds)
 			require.NoError(t, err)
@@ -355,13 +355,13 @@ func TestRepairerExistsWithALL(t *testing.T) {
 				digestR4  = []types.RepairResponse{{ID: id.String(), UpdateTime: 4, Err: "conflict"}}
 			)
 
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal).Return(digestR2, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal, anyVal).Return(digestR2, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal, anyVal).Return(digestR3, nil)
 			// repair - fetch from winner node (first node with highest UpdateTime)
 			// Since both A and C have UpdateTime 3, either could be the winner depending on vote order
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal).Return(item, nil).Maybe()
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[2], cls, shard, id, proj, adds, anyVal).Return(item, nil).Maybe()
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal, anyVal).Return(item, nil).Maybe()
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[2], cls, shard, id, proj, adds, anyVal, anyVal).Return(item, nil).Maybe()
 
 			updates := []*objects.VObject{{
 				ID:                      id,
@@ -395,14 +395,14 @@ func TestRepairerExistsWithALL(t *testing.T) {
 				digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 			)
 
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal).Return(digestR2, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal, anyVal).Return(digestR2, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal, anyVal).Return(digestR3, nil)
 
 			// called during reparation to fetch the most recent object from the winner node
 			// Since both B and C have UpdateTime 3, either could be the winner depending on vote order
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[1], cls, shard, id, proj, adds, anyVal).Return(item3, nil).Maybe()
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[2], cls, shard, id, proj, adds, anyVal).Return(item3, nil).Maybe()
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[1], cls, shard, id, proj, adds, anyVal, anyVal).Return(item3, nil).Maybe()
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[2], cls, shard, id, proj, adds, anyVal, anyVal).Return(item3, nil).Maybe()
 
 			f.RClient.EXPECT().OverwriteObjects(anyVal, nodes[0], cls, shard, anyVal).
 				Return(digestR2, nil).RunFn = func(a mock.Arguments) {
@@ -425,14 +425,14 @@ func TestRepairerExistsWithALL(t *testing.T) {
 				digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
 				digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 			)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal).Return(digestR2, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal, anyVal).Return(digestR2, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal, anyVal).Return(digestR3, nil)
 
 			// called during reparation to fetch the most recent object from the winner node
 			// Since both A and C have UpdateTime 3, either could be the winner depending on vote order
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal).Return(item, nil).Maybe()
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[2], cls, shard, id, proj, adds, anyVal).Return(item, nil).Maybe()
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal, anyVal).Return(item, nil).Maybe()
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[2], cls, shard, id, proj, adds, anyVal, anyVal).Return(item, nil).Maybe()
 
 			updates := []*objects.VObject{{
 				ID:                      id,
@@ -462,11 +462,11 @@ func TestRepairerExistsWithALL(t *testing.T) {
 				digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 			)
 
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal).Return(digestR1, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal).Return(digestR2, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal, anyVal).Return(digestR1, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal, anyVal).Return(digestR2, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal, anyVal).Return(digestR3, nil)
 			// called during reparation to fetch the most recent object
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[2], cls, shard, id, proj, adds, anyVal).Return(emptyItem, errAny)
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[2], cls, shard, id, proj, adds, anyVal, anyVal).Return(emptyItem, errAny)
 
 			got, err := finder.Exists(ctx, types.ConsistencyLevelAll, shard, id)
 			require.ErrorContains(t, err, replicaerrors.ErrRepair.Error())
@@ -487,11 +487,11 @@ func TestRepairerExistsWithALL(t *testing.T) {
 				digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 			)
 
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal).Return(digestR1, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal).Return(digestR2, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal, anyVal).Return(digestR1, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal, anyVal).Return(digestR2, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal, anyVal).Return(digestR3, nil)
 			// called during reparation to fetch the most recent object
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[2], cls, shard, id, proj, adds, anyVal).Return(item1, nil)
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[2], cls, shard, id, proj, adds, anyVal, anyVal).Return(item1, nil)
 
 			got, err := finder.Exists(ctx, types.ConsistencyLevelAll, shard, id)
 			require.ErrorContains(t, err, replicaerrors.ErrRepair.Error())
@@ -510,14 +510,14 @@ func TestRepairerExistsWithALL(t *testing.T) {
 				digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2, Deleted: false}}
 				digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
 			)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal).Return(digestR2, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal, anyVal).Return(digestR2, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal, anyVal).Return(digestR3, nil)
 
 			// it can fetch object from the first or third node (winner node with highest UpdateTime)
 			// Since both A and C have UpdateTime 3, either could be the winner depending on vote order
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal).Return(item, nil).Maybe()
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[2], cls, shard, id, proj, adds, anyVal).Return(item, nil).Maybe()
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal, anyVal).Return(item, nil).Maybe()
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[2], cls, shard, id, proj, adds, anyVal, anyVal).Return(item, nil).Maybe()
 
 			f.RClient.EXPECT().OverwriteObjects(anyVal, nodes[1], cls, shard, anyVal).
 				Return(digestR2, nil).RunFn = func(a mock.Arguments) {
@@ -541,9 +541,9 @@ func TestRepairerExistsWithALL(t *testing.T) {
 				digestR2 = []types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
 				digestR3 = []types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
 			)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal).Return(digestR0, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal).Return(digestR2, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal, anyVal).Return(digestR0, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal, anyVal).Return(digestR2, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal, anyVal).Return(digestR3, nil)
 
 			got, err := finder.Exists(ctx, types.ConsistencyLevelAll, shard, id)
 			require.ErrorContains(t, err, replicaerrors.ErrRepair.Error())
@@ -593,13 +593,13 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 				digestR4  = []types.RepairResponse{{ID: id.String(), UpdateTime: 4, Err: "conflict"}}
 			)
 
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal).Return(digestR2, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal, anyVal).Return(digestR2, nil)
 			// With Quorum, nodes[2] might not be queried if quorum is reached with nodes[0] and nodes[1]
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal).Return(digestR2, errAny).Maybe()
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal, anyVal).Return(digestR2, errAny).Maybe()
 
 			// repair
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal).Return(item, nil)
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal, anyVal).Return(item, nil)
 
 			updates := []*objects.VObject{{
 				ID:                      id,
@@ -632,12 +632,12 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 				digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 			)
 
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal).Return(digestR2, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal, anyVal).Return(digestR2, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal, anyVal).Return(digestR3, nil)
 			// Note: nodes[2] is not in nodes[:2], so it won't be called
 
 			// called during reparation to fetch the most recent object
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[1], cls, shard, id, proj, adds, anyVal).Return(item3, nil)
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[1], cls, shard, id, proj, adds, anyVal, anyVal).Return(item3, nil)
 
 			f.RClient.EXPECT().OverwriteObjects(anyVal, nodes[0], cls, shard, anyVal).
 				Return(digestR2, nil).RunFn = func(a mock.Arguments) {
@@ -661,12 +661,12 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 				digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 			)
 
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal).Return(digestR2, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal, anyVal).Return(digestR2, nil)
 			// Note: nodes[2] is not in nodes[:2], so it won't be called
 
 			// called during reparation to fetch the most recent object
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal).Return(item, nil)
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal, anyVal).Return(item, nil)
 
 			updates := []*objects.VObject{{
 				ID:                      id,
@@ -695,11 +695,11 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 				digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 			)
 
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal).Return(digestR1, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal).Return(digestR2, errAny)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal, anyVal).Return(digestR1, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal, anyVal).Return(digestR2, errAny)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal, anyVal).Return(digestR3, nil)
 			// called during reparation to fetch the most recent object
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[2], cls, shard, id, proj, adds, anyVal).Return(emptyItem, errAny)
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[2], cls, shard, id, proj, adds, anyVal, anyVal).Return(emptyItem, errAny)
 
 			got, err := finder.Exists(ctx, types.ConsistencyLevelQuorum, shard, id)
 			require.ErrorContains(t, err, replicaerrors.ErrRepair.Error())
@@ -718,12 +718,12 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 				digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 			)
 
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal).Return(digestR1, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal, anyVal).Return(digestR1, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal, anyVal).Return(digestR3, nil)
 			// With Quorum, nodes[2] might not be queried if quorum is reached with nodes[0] and nodes[1]
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal).Return(digestR1, errAny).Maybe()
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal, anyVal).Return(digestR1, errAny).Maybe()
 			// called during reparation to fetch the most recent object
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[1], cls, shard, id, proj, adds, anyVal).Return(item1, nil)
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[1], cls, shard, id, proj, adds, anyVal, anyVal).Return(item1, nil)
 
 			got, err := finder.Exists(ctx, types.ConsistencyLevelQuorum, shard, id)
 			require.ErrorContains(t, err, replicaerrors.ErrRepair.Error())
@@ -743,11 +743,11 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 				digestR2  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2, Deleted: false}}
 				digestR3  = []types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
 			)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal).Return(digestR2, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal, anyVal).Return(digestR2, nil)
 
 			// it can fetch object from the first or third node
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal).Return(item, nil)
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, anyVal, anyVal).Return(item, nil)
 
 			f.RClient.EXPECT().OverwriteObjects(anyVal, nodes[1], cls, shard, anyVal).
 				Return(digestR2, nil).RunFn = func(a mock.Arguments) {
@@ -770,8 +770,8 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 				digestR0 = []types.RepairResponse{{ID: id.String(), UpdateTime: 0, Deleted: true}}
 				digestR2 = []types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: false}}
 			)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal).Return(digestR0, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal).Return(digestR2, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, anyVal, anyVal).Return(digestR0, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal, anyVal).Return(digestR2, nil)
 
 			got, err := finder.Exists(ctx, types.ConsistencyLevelQuorum, shard, id)
 			require.ErrorContains(t, err, replicaerrors.ErrRepair.Error())
@@ -829,8 +829,8 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				want = setObjectsConsistency(directR, true)
 			)
 
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal).Return(digestR2, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, ids, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal, anyVal).Return(digestR2, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, ids, anyVal, anyVal).Return(digestR3, nil)
 			// the caller's own replica wins all three, so it serves the content
 			expectFetch(f, nodes[0], cls, shard, ids, replicasOf(directR...))
 			// Repair stale replicas
@@ -933,8 +933,8 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				// local search. Only IsConsistent is updated.
 				want = setObjectsConsistency(xs, true)
 			)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal).Return(digestR2, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, ids, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal, anyVal).Return(digestR2, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, ids, anyVal, anyVal).Return(digestR3, nil)
 
 			// fetch the winning version of every object that has to be written,
 			// from whichever replica won it
@@ -1084,8 +1084,8 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			)
 			want := setObjectsConsistency(xs, true)
 			want[2].IsConsistent = false
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal).Return(digestR2, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, ids, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal, anyVal).Return(digestR2, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, ids, anyVal, anyVal).Return(digestR3, nil)
 
 			// the caller's own replica wins all three, so it serves the content
 			expectFetch(f, nodes[0], cls, shard, ids, replicasOf(xs...))
@@ -1181,17 +1181,17 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			want[1].BelongsToNode = "A"
 			want[1].BelongsToShard = shard
 
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal).
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal, anyVal).
 				Return(digestR2, nil).
 				Once()
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, ids, anyVal).
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, ids, anyVal, anyVal).
 				Return(digestR3, nil).
 				Once()
 
 			// fetch the winning version of every object that has to be written.
 			// nodes[1] holds ids[1] at the winning time already, so it is not asked.
 			expectFetchAnyOrder(t, f, nodes[0], cls, shard, ids[:2], replicasOf(xs[:2]...))
-			f.RClient.EXPECT().FetchObjects(anyVal, nodes[2], cls, shard, anyVal).
+			f.RClient.EXPECT().FetchObjects(anyVal, nodes[2], cls, shard, anyVal, anyVal).
 				Return(directR3, nil).
 				Once()
 			// repair
@@ -1254,16 +1254,16 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			// local search. Only IsConsistent is updated.
 			want := setObjectsConsistency(xs, true)
 
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal).
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal, anyVal).
 				Return(digestR2, nil).
 				Once()
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, ids, anyVal).
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, ids, anyVal, anyVal).
 				Return(digestR3, nil).
 				Once()
 
 			// fetch most recent objects from nodes that have higher UpdateTime
 			// nodes[2] has ids[2] with UpdateTime 4 (higher than local's 1)
-			f.RClient.EXPECT().FetchObjects(anyVal, nodes[2], cls, shard, anyVal).
+			f.RClient.EXPECT().FetchObjects(anyVal, nodes[2], cls, shard, anyVal, anyVal).
 				Return(directR3, nil).
 				Once()
 			// repair
@@ -1316,17 +1316,17 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			want := setObjectsConsistency(xs, true)
 			want[2].IsConsistent = false
 
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal).
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal, anyVal).
 				Return(digestR2, nil).
 				Once()
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, ids, anyVal).
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, ids, anyVal, anyVal).
 				Return(digestR3, nil).
 				Once()
 
 			// fetch most recent objects from nodes that have higher UpdateTime
 			// nodes[2] has ids[2] with UpdateTime 4 (higher than local's 1)
 			// nodes[1] has ids[1] with UpdateTime 3 (same as local's 3, so no fetch needed)
-			f.RClient.EXPECT().FetchObjects(anyVal, nodes[2], cls, shard, anyVal).
+			f.RClient.EXPECT().FetchObjects(anyVal, nodes[2], cls, shard, anyVal, anyVal).
 				Return(directR3, nil).
 				Once()
 			// Note: When FetchObjects returns an unexpected UpdateTime (3 instead of 4),
@@ -1364,10 +1364,10 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			want := setObjectsConsistency(xs, true)
 			want[2].IsConsistent = false // orphan
 
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal).
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal, anyVal).
 				Return(digestR2, nil).
 				Once()
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, ids, anyVal).
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, ids, anyVal, anyVal).
 				Return(digestR3, nil).
 				Once()
 
@@ -1438,8 +1438,8 @@ func TestRepairerCheckConsistencyQuorum(t *testing.T) {
 				}
 				want = setObjectsConsistency(xs, true)
 			)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal).Return(digestR2, errAny)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, ids, anyVal).Return(digestR3, nil)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal, anyVal).Return(digestR2, errAny)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, ids, anyVal, anyVal).Return(digestR3, nil)
 
 			// Quorum (2 of 3) tolerates nodes[1] erroring: nodes[2] is repaired for
 			// ids[0] and ids[2], served from the caller's own replica.
@@ -1569,7 +1569,7 @@ func TestRepairerCheckConsistencyRepairPayloadIsRefetched(t *testing.T) {
 				captured []*objects.VObject
 			)
 
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal).
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal, anyVal).
 				Return(digestR, nil)
 
 			// content is always fetched, even when the caller's own node wins
@@ -1581,7 +1581,7 @@ func TestRepairerCheckConsistencyRepairPayloadIsRefetched(t *testing.T) {
 				ID:     id,
 				Object: newObject(winnerTime, storedProps, storedVector),
 			}}
-			f.RClient.EXPECT().FetchObjects(anyVal, winner, cls, shard, ids).Return(full, nil).Once()
+			f.RClient.EXPECT().FetchObjects(anyVal, winner, cls, shard, ids, anyVal).Return(full, nil).Once()
 
 			f.RClient.EXPECT().OverwriteObjects(anyVal, tt.repairedNode, cls, shard, anyVal).
 				Return([]types.RepairResponse{}, nil).
@@ -1663,8 +1663,8 @@ func TestRepairerCheckConsistencyMMRStrippedVectorIsRefetched(t *testing.T) {
 		}
 	}
 
-	f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal).Return(digestR, nil)
-	f.RClient.EXPECT().FetchObjects(anyVal, nodes[0], cls, shard, ids).
+	f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal, anyVal).Return(digestR, nil)
+	f.RClient.EXPECT().FetchObjects(anyVal, nodes[0], cls, shard, ids, anyVal).
 		Return([]replica.Replica{{ID: id, Object: newObject(storedVectors)}}, nil).Once()
 	f.RClient.EXPECT().OverwriteObjects(anyVal, nodes[1], cls, shard, anyVal).
 		Return([]types.RepairResponse{}, nil).
@@ -1740,7 +1740,7 @@ func TestRepairerCheckConsistencyBatchMixedWinners(t *testing.T) {
 		}
 	}
 
-	f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal).Return(digestR, nil)
+	f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal, anyVal).Return(digestR, nil)
 
 	fetchReply := func(node string) func(mock.Arguments) {
 		return func(a mock.Arguments) {
@@ -1749,14 +1749,14 @@ func TestRepairerCheckConsistencyBatchMixedWinners(t *testing.T) {
 			fetched[node] = append(fetched[node], a[4].([]strfmt.UUID)...)
 		}
 	}
-	f.RClient.EXPECT().FetchObjects(anyVal, nodes[0], cls, shard, []strfmt.UUID{ids[1], ids[2]}).
+	f.RClient.EXPECT().FetchObjects(anyVal, nodes[0], cls, shard, []strfmt.UUID{ids[1], ids[2]}, anyVal).
 		Return([]replica.Replica{
 			{ID: ids[1], Object: stored(ids[1], 5)},
 			{ID: ids[2], Object: stored(ids[2], 5)},
 		}, nil).
 		Once().
 		RunFn = fetchReply(nodes[0])
-	f.RClient.EXPECT().FetchObjects(anyVal, nodes[1], cls, shard, []strfmt.UUID{ids[3]}).
+	f.RClient.EXPECT().FetchObjects(anyVal, nodes[1], cls, shard, []strfmt.UUID{ids[3]}, anyVal).
 		Return([]replica.Replica{{ID: ids[3], Object: stored(ids[3], 7)}}, nil).
 		Once().
 		RunFn = fetchReply(nodes[1])

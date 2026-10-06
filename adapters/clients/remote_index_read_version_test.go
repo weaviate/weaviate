@@ -28,10 +28,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-// TestRemoteIndexReadsCarrySchemaVersion checks every remote read puts the schema version it was
-// resolved against on the wire. Without it the receiving node cannot tell its own schema lag from
-// a shard it genuinely does not hold, so it has to answer "not ready" to both and the caller
-// keeps retrying a replica that will never serve.
+// TestRemoteIndexReadsCarrySchemaVersion checks every remote read puts the version on the wire.
+// Without it the receiving node has to answer "not ready" to every miss.
 func TestRemoteIndexReadsCarrySchemaVersion(t *testing.T) {
 	const (
 		version  = "4711"

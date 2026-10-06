@@ -61,8 +61,7 @@ func NewRemoteIndex(httpClient *http.Client) *RemoteIndex {
 	}}
 }
 
-// schemaVersionQuery encodes the schema version a request was resolved against, so the
-// receiving node can tell schema lag from a shard it genuinely does not hold.
+// schemaVersionQuery encodes the schema version a request was resolved against.
 func schemaVersionQuery(schemaVersion uint64) string {
 	return url.Values{replica.SchemaVersionKey: []string{strconv.FormatUint(schemaVersion, 10)}}.Encode()
 }

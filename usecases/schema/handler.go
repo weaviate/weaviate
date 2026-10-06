@@ -113,6 +113,10 @@ type SchemaReader interface {
 	// WaitForUpdate ensures that the local schema has caught up to version.
 	WaitForUpdate(ctx context.Context, version uint64) error
 
+	// AppliedIndex is the RAFT log index this node has finished applying, read without waiting.
+	// 0 means it could not be read; entities/errors.ClassifyReadMiss compares it.
+	AppliedIndex() uint64
+
 	// These schema reads function reads the metadata immediately present in the local schema and can be eventually
 	// consistent.
 	// For details about each endpoint see [github.com/weaviate/weaviate/cluster/schema.SchemaReader].

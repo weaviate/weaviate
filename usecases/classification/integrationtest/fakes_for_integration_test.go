@@ -607,19 +607,19 @@ func (c *fakeReplicationClient) Exists(ctx context.Context, host, index,
 
 func (f *fakeReplicationClient) FetchObject(_ context.Context, host, index,
 	shard string, id strfmt.UUID, props search.SelectProperties,
-	additional additional.Properties, numRetries int,
+	additional additional.Properties, numRetries int, schemaVersion uint64,
 ) (replica.Replica, error) {
 	return replica.Replica{}, nil
 }
 
 func (c *fakeReplicationClient) FetchObjects(ctx context.Context, host,
-	index, shard string, ids []strfmt.UUID,
+	index, shard string, ids []strfmt.UUID, schemaVersion uint64,
 ) ([]replica.Replica, error) {
 	return nil, nil
 }
 
 func (c *fakeReplicationClient) DigestObjects(ctx context.Context,
-	host, index, shard string, ids []strfmt.UUID, numRetries int,
+	host, index, shard string, ids []strfmt.UUID, numRetries int, schemaVersion uint64,
 ) (result []types.RepairResponse, err error) {
 	return nil, nil
 }
@@ -631,7 +631,7 @@ func (c *fakeReplicationClient) OverwriteObjects(ctx context.Context,
 }
 
 func (c *fakeReplicationClient) FindUUIDs(ctx context.Context, host, index, shard string,
-	filters *filters.LocalFilter, limit int,
+	filters *filters.LocalFilter, limit int, schemaVersion uint64,
 ) ([]strfmt.UUID, error) {
 	return nil, nil
 }
@@ -660,7 +660,7 @@ func (c *fakeReplicationClient) CompareHashTreeRoots(ctx context.Context, host, 
 	return nil, nil
 }
 
-func (c *fakeReplicationClient) CountObjects(ctx context.Context, host, index, shard string) (int, error) {
+func (c *fakeReplicationClient) CountObjects(ctx context.Context, host, index, shard string, schemaVersion uint64) (int, error) {
 	return 0, nil
 }
 

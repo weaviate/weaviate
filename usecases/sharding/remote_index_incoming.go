@@ -13,7 +13,6 @@ package sharding
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -45,8 +44,8 @@ type RemoteIncomingRepo interface {
 
 type RemoteIncomingSchema interface {
 	ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64) (*models.Class, error)
-	// AppliedIndex is the RAFT log index this node has finished applying, read without
-	// waiting. 0 means it could not be read, which callers must treat as "unknown".
+	// AppliedIndex is the RAFT log index this node has finished applying, read without waiting.
+	// 0 means it could not be read.
 	AppliedIndex() uint64
 }
 
@@ -428,64 +427,24 @@ func (rii *RemoteIndexIncoming) RemoveAsyncReplicationTargetNode(
 	return index.IncomingRemoveAsyncReplicationTargetNode(ctx, shardName, targetNodeOverride)
 }
 
-// incomingRead resolves the local index for a read and runs f against it, telling schema lag
-// from data this node genuinely does not hold by comparing its applied RAFT index against the
-// schema version the coordinator resolved the read against.
-//
-// The applied index, not the local class version, is the comparator: it only advances once an
-// entry's store side has run too, so at or past the entry that created a shard the shard is
-// already registered here. Comparing class versions instead would call a read that races a
-// tenant's creation a genuine miss, because the class version is bumped before the shard is
-// built.
-//
-// The comparison does not wait. A read that blocks behind schema propagation pays the
-// propagation delay in query latency, which is what this is here to avoid; it answers at once
-// and lets the coordinator pick another replica.
-//
-//   - behind that version, or sent no version at all (0, from a coordinator too old to send
-//     one, so lag cannot be ruled out): the miss is lag, reported as unprocessable for the
-//     cluster API to answer 503, which the coordinator fails over from rather than retries
-//   - at or past it: this node will not hold the shard however long anyone waits, so the miss
-//     is final (422) and must not read as lag, or the coordinator spends its whole read budget
-//     retrying a replica that can never serve it
+// incomingRead resolves the local index for a read and runs f against it, handing any missing
+// index or shard to [enterrors.ClassifyReadMiss].
 func incomingRead[T any](rii *RemoteIndexIncoming, indexName, shardName string,
 	schemaVersion uint64, f func(RemoteIndexIncomingRepo) (T, error),
 ) (T, error) {
 	var zero T
 
 	appliedIndex := rii.schema.AppliedIndex()
-	caughtUp := schemaVersion > 0 && appliedIndex >= schemaVersion
 
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
-		return zero, classifyReadMiss(enterrors.ErrLocalIndexNotFound{Index: indexName},
-			indexName, "", schemaVersion, appliedIndex, caughtUp)
+		return zero, enterrors.ClassifyReadMiss(enterrors.ErrLocalIndexNotFound{Index: indexName},
+			indexName, "", schemaVersion, appliedIndex)
 	}
 
 	res, err := f(index)
 	if err != nil {
-		return zero, classifyReadMiss(err, indexName, shardName, schemaVersion, appliedIndex, caughtUp)
+		return zero, enterrors.ClassifyReadMiss(err, indexName, shardName, schemaVersion, appliedIndex)
 	}
 	return res, nil
-}
-
-// classifyReadMiss rewrites a missing local index or shard into the error the cluster API needs
-// to pick a status code. Anything else passes through unchanged. The lagging form keeps the
-// original error wrapped, so it still matches as "not caught up"; the final form deliberately
-// does not.
-func classifyReadMiss(err error, indexName, shardName string,
-	wantVersion, appliedIndex uint64, caughtUp bool,
-) error {
-	var missingIndex enterrors.ErrLocalIndexNotFound
-	var missingShard enterrors.ErrLocalShardNotFound
-	if !errors.As(err, &missingIndex) && !errors.As(err, &missingShard) {
-		return err
-	}
-	if caughtUp {
-		return enterrors.NewErrUnprocessable(enterrors.ErrNotServedHere{
-			Index: indexName, Shard: shardName, Version: appliedIndex,
-		})
-	}
-	return enterrors.NewErrUnprocessable(fmt.Errorf(
-		"applied schema index %d, read resolved at version %d: %w", appliedIndex, wantVersion, err))
 }

@@ -68,10 +68,7 @@ func (rs SchemaReader) ClassInfo(class string) (ci ClassInfo) {
 }
 
 // AppliedIndex is the RAFT log index this node has finished applying, or 0 when the caller
-// wired no way to read it. Compared without waiting against the version a request was
-// resolved against, it tells schema lag from data this node genuinely does not hold: the
-// index only advances once an entry's store side has run too, so at or past the entry that
-// created a shard, the shard is already registered here.
+// wired no way to read it. It does not wait; entities/errors.ClassifyReadMiss compares it.
 func (rs SchemaReader) AppliedIndex() uint64 {
 	if rs.versionedSchemaReader.AppliedIndex == nil {
 		return 0

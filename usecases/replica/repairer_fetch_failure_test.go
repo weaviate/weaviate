@@ -185,9 +185,9 @@ func TestRepairBatchFetchFromWinnerFails(t *testing.T) {
 				xs    = []*storobj.Object{objectEx(id, 1, shard, "A")}
 			)
 
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, []strfmt.UUID{id}, anyVal).
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, []strfmt.UUID{id}, anyVal, anyVal).
 				Return([]types.RepairResponse{{ID: id.String(), UpdateTime: 2}}, nil)
-			f.RClient.EXPECT().FetchObjects(anyVal, nodes[1], cls, shard, []strfmt.UUID{id}).
+			f.RClient.EXPECT().FetchObjects(anyVal, nodes[1], cls, shard, []strfmt.UUID{id}, anyVal).
 				Return(tt.fetched, tt.err).
 				Once()
 			writes := recordWrites(f, nodes...)
@@ -236,8 +236,8 @@ func TestFullReadsChunksIDs(t *testing.T) {
 				mu  sync.Mutex
 				got []int
 			)
-			rc.EXPECT().FetchObjects(anyVal, "B", "C1", "S1", anyVal).
-				RunAndReturn(func(_ context.Context, _, _, _ string, chunk []strfmt.UUID) ([]replica.Replica, error) {
+			rc.EXPECT().FetchObjects(anyVal, "B", "C1", "S1", anyVal, anyVal).
+				RunAndReturn(func(_ context.Context, _, _, _ string, chunk []strfmt.UUID, _ uint64) ([]replica.Replica, error) {
 					mu.Lock()
 					got = append(got, len(chunk))
 					mu.Unlock()
@@ -278,8 +278,8 @@ func TestFullReadsFetchesChunksConcurrently(t *testing.T) {
 	)
 
 	rc := replica.NewMockRClient(t)
-	rc.EXPECT().FetchObjects(anyVal, "B", "C1", "S1", anyVal).
-		RunAndReturn(func(_ context.Context, _, _, _ string, chunk []strfmt.UUID) ([]replica.Replica, error) {
+	rc.EXPECT().FetchObjects(anyVal, "B", "C1", "S1", anyVal, anyVal).
+		RunAndReturn(func(_ context.Context, _, _, _ string, chunk []strfmt.UUID, _ uint64) ([]replica.Replica, error) {
 			n := inFlight.Add(1)
 			defer inFlight.Add(-1)
 			for {
@@ -319,8 +319,8 @@ func TestFullReadsFailedChunkFailsTheRead(t *testing.T) {
 	ids := fullReadIDs(2 * replica.MaxFullReadIDsPerRequest)
 
 	rc := replica.NewMockRClient(t)
-	rc.EXPECT().FetchObjects(anyVal, "B", "C1", "S1", anyVal).
-		RunAndReturn(func(_ context.Context, _, _, _ string, chunk []strfmt.UUID) ([]replica.Replica, error) {
+	rc.EXPECT().FetchObjects(anyVal, "B", "C1", "S1", anyVal, anyVal).
+		RunAndReturn(func(_ context.Context, _, _, _ string, chunk []strfmt.UUID, _ uint64) ([]replica.Replica, error) {
 			if chunk[0] == ids[replica.MaxFullReadIDsPerRequest] {
 				return nil, errAny
 			}
@@ -344,8 +344,8 @@ func TestFullReadsRejectsMisalignedLaterChunk(t *testing.T) {
 	other := strfmt.UUID("99999999-9999-4999-8999-999999999999")
 
 	rc := replica.NewMockRClient(t)
-	rc.EXPECT().FetchObjects(anyVal, "B", "C1", "S1", anyVal).
-		RunAndReturn(func(_ context.Context, _, _, _ string, chunk []strfmt.UUID) ([]replica.Replica, error) {
+	rc.EXPECT().FetchObjects(anyVal, "B", "C1", "S1", anyVal, anyVal).
+		RunAndReturn(func(_ context.Context, _, _, _ string, chunk []strfmt.UUID, _ uint64) ([]replica.Replica, error) {
 			rs := make([]replica.Replica, len(chunk))
 			for i, id := range chunk {
 				rs[i] = repl(id, 1, false)
@@ -393,13 +393,13 @@ func TestRepairBatchThreeDistinctWinners(t *testing.T) {
 		}
 		return rs
 	}
-	f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal).
+	f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal, anyVal).
 		Return(digest(1, 3, 1), nil)
-	f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, ids, anyVal).
+	f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, ids, anyVal, anyVal).
 		Return(digest(1, 1, 3), nil)
 
 	for i, node := range nodes {
-		f.RClient.EXPECT().FetchObjects(anyVal, node, cls, shard, []strfmt.UUID{ids[i]}).
+		f.RClient.EXPECT().FetchObjects(anyVal, node, cls, shard, []strfmt.UUID{ids[i]}, anyVal).
 			Return([]replica.Replica{repl(ids[i], 3, false)}, nil).
 			Once()
 	}
@@ -480,9 +480,9 @@ func TestRepairBatchCarriesVectorShapes(t *testing.T) {
 				MultiVectors: tt.multiVectors,
 			}
 
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, []strfmt.UUID{id}, anyVal).
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, []strfmt.UUID{id}, anyVal, anyVal).
 				Return([]types.RepairResponse{{ID: id.String(), UpdateTime: 2}}, nil)
-			f.RClient.EXPECT().FetchObjects(anyVal, nodes[1], cls, shard, []strfmt.UUID{id}).
+			f.RClient.EXPECT().FetchObjects(anyVal, nodes[1], cls, shard, []strfmt.UUID{id}, anyVal).
 				Return([]replica.Replica{{ID: id, Object: winner}}, nil).
 				Once()
 			writes := recordWrites(f, nodes...)
@@ -515,10 +515,10 @@ func TestRepairBatchSkipsContentTheStrategyDiscards(t *testing.T) {
 	)
 
 	// the caller's copy is the newest, but B holds an older tombstone
-	f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, []strfmt.UUID{id}, anyVal).
+	f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, []strfmt.UUID{id}, anyVal, anyVal).
 		Return([]types.RepairResponse{{ID: id.String(), UpdateTime: 3, Deleted: true}}, nil)
 	var fetches atomic.Int64
-	f.RClient.EXPECT().FetchObjects(anyVal, anyVal, anyVal, anyVal, anyVal).
+	f.RClient.EXPECT().FetchObjects(anyVal, anyVal, anyVal, anyVal, anyVal, anyVal).
 		Return(nil, nil).
 		Maybe().
 		RunFn = func(mock.Arguments) { fetches.Add(1) }
