@@ -12,7 +12,6 @@
 package indexcheckpoint
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -157,35 +156,21 @@ func (c *Checkpoints) Delete(shardID, targetVector string) error {
 	return nil
 }
 
-// DeleteShard removes all checkpoints for a shard.
-// It works for both single and multi vector shards.
-func (c *Checkpoints) DeleteShard(shardID string) error {
+// DeleteShard deletes the checkpoints of the shard and of its target vectors. Keys
+// join the shard id and the target vector with "_", and both may contain "_", so a
+// key that only starts with the shard id can be another shard's, such as tenant
+// "t1_x" of tenant "t1".
+func (c *Checkpoints) DeleteShard(shardID string, targetVectors []string) error {
 	err := c.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(checkpointBucket)
-
-		c := b.Cursor()
-		sID := []byte(shardID)
-		var toDelete [][]byte
-
-		for k, _ := c.Seek(sID); k != nil; k, _ = c.Next() {
-			if !bytes.HasPrefix(k, sID) {
-				break
-			}
-
-			// ensure the key is either the shardID or shardID_vector
-			if !bytes.Equal(k, sID) && k[len(sID)] != '_' {
-				continue
-			}
-
-			toDelete = append(toDelete, k)
+		if err := b.Delete([]byte(c.getID(shardID, ""))); err != nil {
+			return err
 		}
-
-		for _, k := range toDelete {
-			if err := b.Delete(k); err != nil {
+		for _, targetVector := range targetVectors {
+			if err := b.Delete([]byte(c.getID(shardID, targetVector))); err != nil {
 				return err
 			}
 		}
-
 		return nil
 	})
 	if err != nil {
