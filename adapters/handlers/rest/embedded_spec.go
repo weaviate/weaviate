@@ -10287,6 +10287,7 @@ func init() {
           "type": "string",
           "enum": [
             "manage_backups",
+            "read_backups",
             "read_cluster",
             "create_data",
             "read_data",
@@ -23274,6 +23275,7 @@ func init() {
           "type": "string",
           "enum": [
             "manage_backups",
+            "read_backups",
             "read_cluster",
             "create_data",
             "read_data",

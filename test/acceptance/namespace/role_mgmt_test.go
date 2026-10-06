@@ -217,6 +217,7 @@ func TestNamespaceLocalRoles(t *testing.T) {
 		assert.True(t, names["visible"], "namespaced admin should see its own role (stripped)")
 		assert.False(t, names[authorization.Root], "root must stay hidden")
 		assert.False(t, names[authorization.ReadOnly], "read-only must stay hidden")
+		assert.False(t, names[authorization.MetadataReader], "operator-reserved metadata reader must stay hidden")
 		assert.False(t, names["hidden"], "another namespace's role must stay hidden")
 		assert.False(t, names[ns2+":hidden"], "another namespace's role must stay hidden (qualified)")
 	})

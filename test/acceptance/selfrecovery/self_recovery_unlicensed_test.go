@@ -101,7 +101,7 @@ func TestSelfRecoveryUnlicensedDoesNotRecover(t *testing.T) {
 	})
 
 	mustRun(t, "startup warns about the missing license and falls back per shard", func(t *testing.T) {
-		assertNodeLogContains(ctx, t, compose, victimIdx, "no valid Weaviate license key")
+		assertNodeLogContains(ctx, t, compose, victimIdx, "the self-recovery feature is enabled but this node holds no well-formed Weaviate license key")
 		assertNodeLogContains(ctx, t, compose, victimIdx, "self-recovery: submission was not queued")
 	})
 
@@ -115,7 +115,7 @@ func TestSelfRecoveryUnlicensedDoesNotRecover(t *testing.T) {
 		assertShardObjectCounts(t, class, docker.Weaviate0, counts)
 	})
 
-	mustRun(t, "debug endpoints stay registered with restart license-gated", func(t *testing.T) {
+	mustRun(t, "debug endpoints refuse every call with the license error", func(t *testing.T) {
 		debugURI := compose.GetWeaviate().DebugURI()
 		require.NotEmpty(t, debugURI)
 		for _, tc := range []struct {
@@ -129,14 +129,22 @@ func TestSelfRecoveryUnlicensedDoesNotRecover(t *testing.T) {
 				bodyContains: "license",
 			},
 			{
-				name:       "restart on an unknown class is not found",
-				path:       "/debug/self-recovery/restart?collection=NoSuchClass&shard=X",
-				wantStatus: http.StatusNotFound,
+				name:         "restart on an unknown class is forbidden",
+				path:         "/debug/self-recovery/restart?collection=NoSuchClass&shard=X",
+				wantStatus:   http.StatusForbidden,
+				bodyContains: "license",
 			},
 			{
-				name:       "accept-empty on an unknown class is not found",
-				path:       "/debug/self-recovery/accept-empty?collection=NoSuchClass&shard=X",
-				wantStatus: http.StatusNotFound,
+				name:         "accept-empty on a live shard is forbidden",
+				path:         "/debug/self-recovery/accept-empty?collection=" + class + "&shard=" + kept,
+				wantStatus:   http.StatusForbidden,
+				bodyContains: "license",
+			},
+			{
+				name:         "accept-empty on an unknown class is forbidden",
+				path:         "/debug/self-recovery/accept-empty?collection=NoSuchClass&shard=X",
+				wantStatus:   http.StatusForbidden,
+				bodyContains: "license",
 			},
 		} {
 			t.Run(tc.name, func(t *testing.T) {

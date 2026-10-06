@@ -123,7 +123,13 @@ func TestNamespacedAdminLifecycle(t *testing.T) {
 		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(bobKey))
 		assert.Error(c, err)
 	}, 10*time.Second, 50*time.Millisecond, "old apikey must be invalidated after rotate")
-	require.NotNil(t, helper.GetInfoForOwnUser(t, newBobKey))
+	// The new key needs the same wait as the old one. RotateKey returns once the
+	// leader applied it, and the follower this client talks to answers 401 until
+	// it catches up.
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(newBobKey))
+		assert.NoError(c, err)
+	}, 10*time.Second, 50*time.Millisecond, "new apikey must be accepted after rotate")
 
 	// Delete → admin GET 404s.
 	helper.DeleteUser(t, "bob", nsAdminKey)
