@@ -73,6 +73,21 @@ func TestReplicationHappyPathTestSuite(t *testing.T) {
 	suite.Run(t, new(ReplicationHappyPathTestSuite))
 }
 
+// classNodesStatusEventually retries until every node has applied the class: a node that has not
+// yet makes the whole request 404.
+func classNodesStatusEventually(t *testing.T, className string) *nodes.NodesGetClassOK {
+	verbose := verbosity.OutputVerbose
+	params := nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(className)
+	var body *nodes.NodesGetClassOK
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := helper.Client(t).Nodes.NodesGetClass(params, nil)
+		require.NoError(ct, err, "failed to get nodes status: %+v", err)
+		require.NotNil(ct, resp.Payload)
+		body = resp
+	}, 30*time.Second, 500*time.Millisecond)
+	return body
+}
+
 func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 	t := suite.T()
 	mainCtx := context.Background()
@@ -152,11 +167,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 	var uuid strfmt.UUID
 	sourceNode := -1
 	t.Run("start replica replication to node3 for paragraph", func(t *testing.T) {
-		verbose := verbosity.OutputVerbose
-		params := nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(paragraphClass.Class)
-		body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
-		require.NoError(t, clientErr, "failed to get nodes status: %+v", clientErr)
-		require.NotNil(t, body.Payload)
+		body := classNodesStatusEventually(t, paragraphClass.Class)
 		targetNode := docker.Weaviate2
 		hasFoundNode := false
 		hasFoundShard := false
@@ -217,10 +228,9 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 			details, err := helper.Client(t).Replication.ReplicationDetails(
 				replication.NewReplicationDetailsParams().WithID(uuid), nil,
 			)
-			assert.NoError(t, err, "failed to get replication details %s", err)
-			assert.NotNil(t, details, "expected replication details to be not nil")
-			assert.NotNil(t, details.Payload, "expected replication details payload to be not nil")
-			assert.NotNil(t, details.Payload.Status, "expected replication status to be not nil")
+			require.NoError(ct, err, "failed to get replication details %s", err)
+			require.NotNil(ct, details.Payload, "expected replication details payload to be not nil")
+			require.NotNil(ct, details.Payload.Status, "expected replication status to be not nil")
 			assert.Equal(ct, "READY", details.Payload.Status.State, "expected replication status to be READY")
 		}, 360*time.Second, 3*time.Second, "replication operation %s not finished in time", uuid)
 	})
@@ -320,11 +330,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantHappyPath()
 	var targetNodeURI string
 	var uuid strfmt.UUID
 	t.Run("start replica replication to node3 for paragraph", func(t *testing.T) {
-		verbose := verbosity.OutputVerbose
-		params := nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(paragraphClass.Class)
-		body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
-		require.NoError(t, clientErr, "failed to get nodes status: %+v", clientErr)
-		require.NotNil(t, body.Payload)
+		body := classNodesStatusEventually(t, paragraphClass.Class)
 
 		hasFoundNode := false
 		hasFoundShard := false
@@ -411,10 +417,9 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantHappyPath()
 			details, err := helper.Client(t).Replication.ReplicationDetails(
 				replication.NewReplicationDetailsParams().WithID(uuid), nil,
 			)
-			assert.NoError(t, err, "failed to get replication details %s", err)
-			assert.NotNil(t, details, "expected replication details to be not nil")
-			assert.NotNil(t, details.Payload, "expected replication details payload to be not nil")
-			assert.NotNil(t, details.Payload.Status, "expected replication status to be not nil")
+			require.NoError(ct, err, "failed to get replication details %s", err)
+			require.NotNil(ct, details.Payload, "expected replication details payload to be not nil")
+			require.NotNil(ct, details.Payload.Status, "expected replication status to be not nil")
 			assert.Equal(ct, "READY", details.Payload.Status.State, "expected replication status to be READY")
 		}, 240*time.Second, 1*time.Second, "replication operation %s not finished in time", uuid)
 	})
