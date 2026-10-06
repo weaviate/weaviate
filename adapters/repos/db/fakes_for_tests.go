@@ -462,7 +462,7 @@ type FakeReplicationClient struct{}
 
 var _ replica.Client = (*FakeReplicationClient)(nil)
 
-func (f *FakeReplicationClient) CountObjects(ctx context.Context, host string, index string, shard string) (int, error) {
+func (f *FakeReplicationClient) CountObjects(ctx context.Context, host string, index string, shard string, schemaVersion uint64) (int, error) {
 	return 0, nil
 }
 
@@ -518,19 +518,19 @@ func (FakeReplicationClient) Exists(ctx context.Context, hostName, indexName,
 
 func (*FakeReplicationClient) FetchObject(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID, props search.SelectProperties,
-	additional additional.Properties, numRetries int,
+	additional additional.Properties, numRetries int, schemaVersion uint64,
 ) (replica.Replica, error) {
 	return replica.Replica{}, nil
 }
 
 func (*FakeReplicationClient) DigestObjects(ctx context.Context,
-	hostName, indexName, shardName string, ids []strfmt.UUID, numRetries int,
+	hostName, indexName, shardName string, ids []strfmt.UUID, numRetries int, schemaVersion uint64,
 ) (result []types.RepairResponse, err error) {
 	return nil, nil
 }
 
 func (*FakeReplicationClient) FetchObjects(ctx context.Context, host,
-	index, shard string, ids []strfmt.UUID,
+	index, shard string, ids []strfmt.UUID, schemaVersion uint64,
 ) ([]replica.Replica, error) {
 	return nil, nil
 }
@@ -542,7 +542,7 @@ func (*FakeReplicationClient) OverwriteObjects(ctx context.Context,
 }
 
 func (*FakeReplicationClient) FindUUIDs(ctx context.Context,
-	hostName, indexName, shardName string, filters *filters.LocalFilter, limit int,
+	hostName, indexName, shardName string, filters *filters.LocalFilter, limit int, schemaVersion uint64,
 ) (result []strfmt.UUID, err error) {
 	return nil, nil
 }

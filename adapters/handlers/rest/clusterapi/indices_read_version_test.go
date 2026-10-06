@@ -37,14 +37,11 @@ import (
 )
 
 // TestReadMissStatusSeparatesLagFromFinal pins the two shapes a replica returns when it cannot
-// serve a read, and the status each must get. 503 is the one a coordinator fails over from; 422
-// is terminal. Answering 503 for a shard the replica will never hold is what kept coordinators
-// cycling a dead end for the whole read budget, and 500 for either is worse still, because
+// serve a read, and the status each must get. 500 for either is the worst of the three, because
 // shouldRetry asks the same replica again.
 func TestReadMissStatusSeparatesLagFromFinal(t *testing.T) {
 	const shard = "tenant-7"
 
-	// The shapes usecases/sharding.classifyReadMiss produces.
 	lagging := enterrors.NewErrUnprocessable(fmt.Errorf("applied schema index %d, read resolved at version %d: %w",
 		90, 100, enterrors.ErrLocalShardNotFound{Shard: shard}))
 	final := enterrors.NewErrUnprocessable(enterrors.ErrNotServedHere{
@@ -97,8 +94,7 @@ func (v *versionRecordingShards) Aggregate(_ context.Context, _, _ string,
 	return &aggregation.Result{}, nil
 }
 
-// TestReadForwardsSchemaVersion checks the version survives the wire. Without it the replica has
-// nothing to compare against and has to treat every miss as lag.
+// TestReadForwardsSchemaVersion checks the version survives the wire.
 func TestReadForwardsSchemaVersion(t *testing.T) {
 	newIndices := func(sh shards) *indices {
 		logger := logrus.New()

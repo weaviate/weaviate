@@ -152,9 +152,8 @@ func serveShardAggregate(t *testing.T, aggErr error) *httptest.ResponseRecorder 
 
 // A node behind on schema must read as unavailable: 500 is retryable, so the caller spends the
 // ladder on a node that already said no.
-// TestMissingShardIsLagNotFault pins the multi-tenant case. A lagging replica is missing a shard
-// rather than a class, and as a fault that answered 500, which shouldRetry asks again -- against a
-// peer that cannot hold the shard until its schema advances.
+// The multi-tenant case: a lagging replica is missing a shard rather than a class, and as a
+// fault that answered a retryable 500.
 func TestMissingShardIsLagNotFault(t *testing.T) {
 	missing := enterrors.ErrLocalShardNotFound{Shard: "sim55298380815951463"}
 

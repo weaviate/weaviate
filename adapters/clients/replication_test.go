@@ -465,7 +465,7 @@ func TestReplicationFetchObject(t *testing.T) {
 
 	c := newReplicationClient(t, server.Client())
 	resp, err := c.FetchObject(context.Background(), server.URL[7:],
-		"C1", "S1", expected.ID, nil, additional.Properties{}, 9)
+		"C1", "S1", expected.ID, nil, additional.Properties{}, 9, 0)
 	require.Nil(t, err)
 	assert.Equal(t, expected.ID, resp.ID)
 	assert.Equal(t, expected.Deleted, resp.Deleted)
@@ -513,7 +513,7 @@ func TestReplicationFetchObjects(t *testing.T) {
 	}))
 
 	c := newReplicationClient(t, server.Client())
-	resp, err := c.FetchObjects(context.Background(), server.URL[7:], "C1", "S1", []strfmt.UUID{expected[0].ID})
+	resp, err := c.FetchObjects(context.Background(), server.URL[7:], "C1", "S1", []strfmt.UUID{expected[0].ID}, 0)
 	require.Nil(t, err)
 	require.Len(t, resp, 2)
 	assert.Equal(t, expected[0].ID, resp[0].ID)
@@ -551,7 +551,7 @@ func TestReplicationDigestObjects(t *testing.T) {
 	resp, err := c.DigestObjects(context.Background(), server.URL[7:], "C1", "S1", []strfmt.UUID{
 		strfmt.UUID(expected[0].ID),
 		strfmt.UUID(expected[1].ID),
-	}, 9)
+	}, 9, 0)
 	require.Nil(t, err)
 	require.Len(t, resp, 2)
 	assert.Equal(t, expected[0].ID, resp[0].ID)
@@ -1277,7 +1277,7 @@ func TestShouldRetryByStatus(t *testing.T) {
 
 			c := newReplicationClient(t, server.Client())
 			_, err := c.DigestObjects(context.Background(), server.URL[len("http://"):],
-				"C1", "S1", []strfmt.UUID{UUID1}, MAX_RETRIES)
+				"C1", "S1", []strfmt.UUID{UUID1}, MAX_RETRIES, 0)
 			require.Error(t, err)
 
 			if test.wantRetried {

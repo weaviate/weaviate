@@ -1549,26 +1549,15 @@ func (i *indices) deleteAsyncReplicationTargetNode() http.Handler {
 	})
 }
 
-// notCaughtUp reports whether err is this node lagging the schema rather than a fault: the class
-// or shard is not here yet, or the version asked for has not been applied.
-//
-// Reads arrive with the schema version they were resolved against, so a replica that has caught
-// up to it already knows a missing index or shard is real; usecases/sharding.classifyReadMiss
-// turns that into an [enterrors.ErrNotServedHere], which deliberately matches nothing here. A
-// miss that still matches is one this node could grow into.
+// notCaughtUp reports whether err is this node lagging the schema rather than a fault.
+// [enterrors.ErrNotServedHere] deliberately does not match: that miss is final.
 func notCaughtUp(err error) bool {
-	var (
-		missingIndex enterrors.ErrLocalIndexNotFound
-		missingShard enterrors.ErrLocalShardNotFound
-	)
-	return errors.Is(err, clusterTypes.ErrDeadlineExceeded) ||
-		errors.As(err, &missingIndex) || errors.As(err, &missingShard)
+	return errors.Is(err, clusterTypes.ErrDeadlineExceeded) || enterrors.IsSchemaLag(err)
 }
 
 // unprocessableStatus answers 503 for a class or shard this node does not hold yet: 422 reads as
-// the caller's fault, so nothing retries it and the replica loses its vote. A read that is final
-// (this node is current and still does not hold the shard) wants exactly that 422, because
-// retrying it anywhere up to the read budget cannot change the answer.
+// the caller's fault, so nothing retries it and the replica loses its vote. A final miss wants
+// exactly that 422, because retrying it cannot change the answer.
 func unprocessableStatus(err error) int {
 	if notCaughtUp(err) {
 		return http.StatusServiceUnavailable

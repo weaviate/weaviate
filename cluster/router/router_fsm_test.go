@@ -130,7 +130,7 @@ func TestReadRoutingWithFSM(t *testing.T) {
 			reg := prometheus.NewRegistry()
 			shardReplicationFSM := replication.NewShardReplicationFSM(reg)
 			clusterState := clusterMocks.NewMockNodeSelector(testCase.allShardNodes...)
-			schemaReaderMock := schema.NewMockSchemaReader(t)
+			schemaReaderMock := newMockSchemaReader(t)
 			schemaGetterMock := schema.NewMockSchemaGetter(t)
 			schemaGetterMock.EXPECT().OptimisticTenantStatus(mock.Anything, "collection1", "shard1").Return(
 				map[string]string{
@@ -309,7 +309,7 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 			reg := prometheus.NewRegistry()
 			shardReplicationFSM := replication.NewShardReplicationFSM(reg)
 			clusterState := clusterMocks.NewMockNodeSelector(testCase.allShardNodes...)
-			schemaReaderMock := schema.NewMockSchemaReader(t)
+			schemaReaderMock := newMockSchemaReader(t)
 			schemaGetterMock := schema.NewMockSchemaGetter(t)
 			schemaGetterMock.EXPECT().OptimisticTenantStatus(mock.Anything, "collection1", "shard1").Return(
 				map[string]string{

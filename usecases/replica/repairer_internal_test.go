@@ -43,7 +43,7 @@ func TestRepairBatchPartTimeBasedLiveWinnerFailedRefetch(t *testing.T) {
 
 	rc := NewMockRClient(t)
 	// Winner refetch fails so result stays nil (repairer.go err branch after FullReads).
-	rc.EXPECT().FetchObjects(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	rc.EXPECT().FetchObjects(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(nil, errors.New("refetch failed")).Maybe()
 	rc.EXPECT().OverwriteObjects(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(nil, nil).Maybe()
@@ -103,10 +103,10 @@ func TestRepairBatchPartDeleteOnConflictSurvivesFailedFetch(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			rc := NewMockRClient(t)
 			if tt.fetchFails {
-				rc.EXPECT().FetchObjects(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				rc.EXPECT().FetchObjects(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(nil, errors.New("fetch failed")).Maybe()
 			} else {
-				rc.EXPECT().FetchObjects(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				rc.EXPECT().FetchObjects(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return([]Replica{{
 						ID: id,
 						Object: &storobj.Object{Object: models.Object{
@@ -174,8 +174,8 @@ func TestRepairBatchPartDeleteOnConflictSkipsContentFetch(t *testing.T) {
 
 	var fetches atomic.Int32
 	rc := NewMockRClient(t)
-	rc.EXPECT().FetchObjects(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(context.Context, string, string, string, []strfmt.UUID) ([]Replica, error) {
+	rc.EXPECT().FetchObjects(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(context.Context, string, string, string, []strfmt.UUID, uint64) ([]Replica, error) {
 			fetches.Add(1)
 			return nil, nil
 		}).Maybe()

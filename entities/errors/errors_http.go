@@ -11,7 +11,10 @@
 
 package errors
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 type ErrUnprocessable struct {
 	err error
@@ -48,10 +51,9 @@ func (e ErrLocalShardNotFound) Error() string {
 }
 
 // ErrNotServedHere is an index or shard missing from a node whose schema is already at or past
-// the version the request was resolved against. Waiting cannot make it appear, so the caller
-// must re-resolve where the data lives rather than retry this node. It is deliberately not an
-// ErrLocalIndexNotFound or ErrLocalShardNotFound: those read as "not caught up yet", and
-// answering that here is what keeps a coordinator retrying a replica that will never serve.
+// the version the request was resolved against. Waiting cannot make it appear. It is
+// deliberately not an ErrLocalIndexNotFound or ErrLocalShardNotFound, which read as "not caught
+// up yet": answering that here is what keeps a coordinator retrying a replica that never will.
 type ErrNotServedHere struct {
 	Index   string
 	Shard   string
@@ -63,6 +65,34 @@ func (e ErrNotServedHere) Error() string {
 		return fmt.Sprintf("local index %q not found at schema version %d", e.Index, e.Version)
 	}
 	return fmt.Sprintf("local index %q has no shard %q at schema version %d", e.Index, e.Shard, e.Version)
+}
+
+// IsSchemaLag reports whether err is an index or shard that is not here yet, rather than a
+// fault. [ErrNotServedHere] deliberately does not match: it is a miss that waiting cannot fix.
+func IsSchemaLag(err error) bool {
+	var missingIndex ErrLocalIndexNotFound
+	var missingShard ErrLocalShardNotFound
+	return errors.As(err, &missingIndex) || errors.As(err, &missingShard)
+}
+
+// ClassifyReadMiss rewrites a missing local index or shard into the error the cluster API needs
+// to pick a status code; anything else passes through unchanged. Behind wantVersion, or sent no
+// version at all, the miss is lag and keeps matching [IsSchemaLag], so the API answers 503 and
+// the coordinator fails over. At or past it the miss is [ErrNotServedHere], answered 422, so
+// nothing retries a replica that can never serve it.
+//
+// appliedIndex is the comparator rather than the local class version because it only advances
+// once an entry's store side has run: comparing class versions would call a read that races a
+// tenant's creation a genuine miss.
+func ClassifyReadMiss(err error, index, shard string, wantVersion, appliedIndex uint64) error {
+	if !IsSchemaLag(err) {
+		return err
+	}
+	if wantVersion > 0 && appliedIndex >= wantVersion {
+		return NewErrUnprocessable(ErrNotServedHere{Index: index, Shard: shard, Version: appliedIndex})
+	}
+	return NewErrUnprocessable(fmt.Errorf(
+		"applied schema index %d, read resolved at version %d: %w", appliedIndex, wantVersion, err))
 }
 
 func NewErrUnprocessable(err error) ErrUnprocessable {

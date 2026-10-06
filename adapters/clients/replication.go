@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/url"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -85,10 +86,10 @@ func NewReplicationClient(httpClient *http.Client) (*replicationClient, error) {
 // FetchObject fetches one object it exits
 func (c *replicationClient) FetchObject(ctx context.Context, host, index,
 	shard string, id strfmt.UUID, selectProps search.SelectProperties,
-	additional additional.Properties, numRetries int,
+	additional additional.Properties, numRetries int, schemaVersion uint64,
 ) (replica.Replica, error) {
 	resp := replica.Replica{}
-	req, err := newHttpReplicaRequest(ctx, http.MethodGet, host, index, shard, "", id.String(), nil, 0)
+	req, err := newHttpReplicaRequest(ctx, http.MethodGet, host, index, shard, "", id.String(), nil, schemaVersion)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
@@ -97,7 +98,7 @@ func (c *replicationClient) FetchObject(ctx context.Context, host, index,
 }
 
 func (c *replicationClient) DigestObjects(ctx context.Context,
-	host, index, shard string, ids []strfmt.UUID, numRetries int,
+	host, index, shard string, ids []strfmt.UUID, numRetries int, schemaVersion uint64,
 ) (result []types.RepairResponse, err error) {
 	var resp []types.RepairResponse
 	body, err := json.Marshal(ids)
@@ -106,7 +107,7 @@ func (c *replicationClient) DigestObjects(ctx context.Context,
 	}
 	req, err := newHttpReplicaRequest(
 		ctx, http.MethodGet, host, index, shard,
-		"", "_digest", bytes.NewReader(body), 0)
+		"", "_digest", bytes.NewReader(body), schemaVersion)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
@@ -451,11 +452,13 @@ func (c *replicationClient) CompareHashTreeRootsMulti(ctx context.Context, host 
 	return &resp, nil
 }
 
-func (c *replicationClient) CountObjects(ctx context.Context, host string, index string, shard string) (int, error) {
+func (c *replicationClient) CountObjects(ctx context.Context, host string, index string, shard string,
+	schemaVersion uint64,
+) (int, error) {
 	var resp int
 	req, err := newHttpReplicaRequest(
 		ctx, http.MethodGet, host, index, shard,
-		"", "_count", nil, 0,
+		"", "_count", nil, schemaVersion,
 	)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
@@ -652,7 +655,7 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 }
 
 func (c *replicationClient) FetchObjects(ctx context.Context, host,
-	index, shard string, ids []strfmt.UUID,
+	index, shard string, ids []strfmt.UUID, schemaVersion uint64,
 ) ([]replica.Replica, error) {
 	resp := make(replica.Replicas, len(ids))
 	idsBytes, err := json.Marshal(ids)
@@ -662,12 +665,16 @@ func (c *replicationClient) FetchObjects(ctx context.Context, host,
 
 	idsEncoded := base64.StdEncoding.EncodeToString(idsBytes)
 
-	req, err := newHttpReplicaRequest(ctx, http.MethodGet, host, index, shard, "", "", nil, 0)
+	req, err := newHttpReplicaRequest(ctx, http.MethodGet, host, index, shard, "", "", nil, schemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("create http request: %w", err)
 	}
 
-	req.URL.RawQuery = url.Values{"ids": []string{idsEncoded}}.Encode()
+	// Rebuilding RawQuery drops what newHttpReplicaRequest put there, so carry the version over.
+	req.URL.RawQuery = url.Values{
+		"ids":                    []string{idsEncoded},
+		replica.SchemaVersionKey: []string{strconv.FormatUint(schemaVersion, 10)},
+	}.Encode()
 	err = c.doCustomUnmarshal(c.timeoutUnit*COMMIT_TIMEOUT_VALUE, req, nil, resp.UnmarshalBinary, MAX_RETRIES)
 	return resp, err
 }
@@ -780,7 +787,7 @@ func (c *replicationClient) DeleteObjects(ctx context.Context, host, index, shar
 }
 
 func (c *replicationClient) FindUUIDs(ctx context.Context, hostName, indexName,
-	shardName string, filters *filters.LocalFilter, limit int,
+	shardName string, filters *filters.LocalFilter, limit int, schemaVersion uint64,
 ) ([]strfmt.UUID, error) {
 	paramsBytes, err := clusterapi.IndicesPayloads.FindUUIDsParams.Marshal(filters, limit)
 	if err != nil {
@@ -789,7 +796,7 @@ func (c *replicationClient) FindUUIDs(ctx context.Context, hostName, indexName,
 
 	path := fmt.Sprintf("/indices/%s/shards/%s/objects/_find", indexName, shardName)
 	method := http.MethodPost
-	url := url.URL{Scheme: "http", Host: hostName, Path: path}
+	url := url.URL{Scheme: "http", Host: hostName, Path: path, RawQuery: schemaVersionQuery(schemaVersion)}
 
 	req, err := http.NewRequestWithContext(ctx, method, url.String(),
 		bytes.NewReader(paramsBytes))

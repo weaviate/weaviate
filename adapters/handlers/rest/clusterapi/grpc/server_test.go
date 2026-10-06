@@ -111,11 +111,11 @@ func Test_ServerReplicationService(t *testing.T) {
 				c := "C"
 				s := "S"
 				ids := []strfmt.UUID{"id1", "id2"}
-				mockReplicator.EXPECT().DigestObjects(mock.Anything, c, s, ids).Return([]routerTypes.RepairResponse{
+				mockReplicator.EXPECT().DigestObjects(mock.Anything, c, s, ids, mock.Anything).Return([]routerTypes.RepairResponse{
 					{ID: "id1"},
 					{ID: "id2"},
 				}, nil)
-				resp, err := client.DigestObjects(context.Background(), host, c, s, ids, 9)
+				resp, err := client.DigestObjects(context.Background(), host, c, s, ids, 9, 0)
 				require.NoError(t, err)
 				require.Len(t, resp, 2)
 				require.Equal(t, "id1", resp[0].ID)
@@ -161,8 +161,8 @@ func Test_ServerReplicationService(t *testing.T) {
 				c := "C"
 				s := "S"
 				limit := 10
-				mockReplicator.EXPECT().FindUUIDs(mock.Anything, c, s, (*filters.LocalFilter)(nil), limit).Return([]strfmt.UUID{"uuid1", "uuid2"}, nil)
-				resp, err := client.FindUUIDs(context.Background(), host, c, s, nil, limit)
+				mockReplicator.EXPECT().FindUUIDs(mock.Anything, c, s, (*filters.LocalFilter)(nil), limit, mock.Anything).Return([]strfmt.UUID{"uuid1", "uuid2"}, nil)
+				resp, err := client.FindUUIDs(context.Background(), host, c, s, nil, limit, 0)
 				require.NoError(t, err)
 				require.Len(t, resp, 2)
 				require.Equal(t, strfmt.UUID("uuid1"), resp[0])
@@ -300,8 +300,8 @@ func Test_ServerReplicationService(t *testing.T) {
 					Deleted:                 true,
 					LastUpdateTimeUnixMilli: 1234567890000,
 				}
-				mockReplicator.EXPECT().FetchObject(mock.Anything, c, s, uuid).Return(expectedReplica, nil)
-				resp, err := client.FetchObject(context.Background(), host, c, s, uuid, nil, additional.Properties{}, 0)
+				mockReplicator.EXPECT().FetchObject(mock.Anything, c, s, uuid, mock.Anything).Return(expectedReplica, nil)
+				resp, err := client.FetchObject(context.Background(), host, c, s, uuid, nil, additional.Properties{}, 0, 0)
 				require.NoError(t, err)
 				require.Equal(t, uuid, resp.ID)
 				require.True(t, resp.Deleted)
@@ -316,8 +316,8 @@ func Test_ServerReplicationService(t *testing.T) {
 					{ID: "fetch-id-1", Deleted: true, LastUpdateTimeUnixMilli: 100},
 					{ID: "fetch-id-2", Deleted: false, LastUpdateTimeUnixMilli: 200},
 				}
-				mockReplicator.EXPECT().FetchObjects(mock.Anything, c, s, ids).Return(expectedReplicas, nil)
-				resp, err := client.FetchObjects(context.Background(), host, c, s, ids)
+				mockReplicator.EXPECT().FetchObjects(mock.Anything, c, s, ids, mock.Anything).Return(expectedReplicas, nil)
+				resp, err := client.FetchObjects(context.Background(), host, c, s, ids, 0)
 				require.NoError(t, err)
 				require.Len(t, resp, 2)
 				require.Equal(t, strfmt.UUID("fetch-id-1"), resp[0].ID)
@@ -529,7 +529,7 @@ func Test_ServerNodeNotReady(t *testing.T) {
 		c := "C"
 		s := "S"
 		ids := []strfmt.UUID{"id1", "id2"}
-		_, err := client.DigestObjects(context.Background(), host, c, s, ids, 9)
+		_, err := client.DigestObjects(context.Background(), host, c, s, ids, 9, 0)
 		require.Error(t, err)
 		require.Equal(t, codes.Unavailable, status.Code(err))
 	})
@@ -579,7 +579,7 @@ func Test_ServerInMaintenanceMode(t *testing.T) {
 		c := "C"
 		s := "S"
 		ids := []strfmt.UUID{"id1", "id2"}
-		_, err := client.DigestObjects(context.Background(), host, c, s, ids, 9)
+		_, err := client.DigestObjects(context.Background(), host, c, s, ids, 9, 0)
 		require.Error(t, err)
 		require.Equal(t, codes.FailedPrecondition, status.Code(err))
 	})
