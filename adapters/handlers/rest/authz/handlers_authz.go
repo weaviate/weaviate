@@ -1608,7 +1608,7 @@ func (h *authZHandlers) dbUserExists(user string) (bool, error) {
 
 // validateRootGroup validates that enduser do not touch the internal root group
 func (h *authZHandlers) validateRootGroup(name string) error {
-	if slices.Contains(h.rbacconfig.RootGroups, name) || slices.Contains(h.rbacconfig.ReadOnlyGroups, name) {
+	if slices.Contains(h.rbacconfig.RootGroups, name) || slices.Contains(h.rbacconfig.ReadOnlyGroups, name) || slices.Contains(h.rbacconfig.MetadataGroups, name) {
 		return fmt.Errorf("cannot assign or revoke from root group %s", name)
 	}
 	return nil

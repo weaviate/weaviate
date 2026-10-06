@@ -1303,9 +1303,11 @@ func TestRestoreEmptyData(t *testing.T) {
 	_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"), "*", authorization.READ, authorization.SchemaDomain)
 	require.NoError(t, err)
 
+	// four wildcard built-ins, the per-permission metadata reader, and the added policy
+	want := 5 + len(metadataReaderPolicyRows(t, false))
 	policies, err := m.casbin.GetPolicy()
 	require.NoError(t, err)
-	require.Len(t, policies, 5)
+	require.Len(t, policies, want)
 
 	err = m.Restore([]byte{}, false)
 	require.NoError(t, err)
@@ -1314,7 +1316,7 @@ func TestRestoreEmptyData(t *testing.T) {
 	// nothing overwritten
 	policies, err = m.casbin.GetPolicy()
 	require.NoError(t, err)
-	require.Len(t, policies, 5)
+	require.Len(t, policies, want)
 }
 
 // TestGetRolesForUserOrGroupDuringRestore pins that a role lookup keeps making
@@ -2035,7 +2037,9 @@ func TestSnapshotAndRestoreUpgrade(t *testing.T) {
 
 				finalPolicies, err := m.casbin.GetPolicy()
 				require.NoError(t, err)
-				assert.ElementsMatch(t, finalPolicies, tt.policiesExpected)
+				// the metadata reader's per-permission policies are re-added after restore too
+				expected := append(append([][]string{}, tt.policiesExpected...), metadataReaderPolicyRows(t, false)...)
+				assert.ElementsMatch(t, finalPolicies, expected)
 
 				finalGroupingPolicies, err := m.casbin.GetGroupingPolicy()
 				require.NoError(t, err)
