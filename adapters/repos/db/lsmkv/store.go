@@ -715,22 +715,22 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 	moved := false
 	defer func() { finishClaim(moved) }()
 
-	currBucket.dir = newBucketDir
-
-	mt, err := currBucket.createNewActiveMemtable()
+	// Nothing in memory changes until the dir is renamed, so a failed rename
+	// leaves the bucket as it was.
+	mt, err := currBucket.newActiveMemtableIn(newBucketDir)
 	if err != nil {
 		return fmt.Errorf("switch active memtable: %w", err)
 	}
-	currBucket.active = mt
-
-	s.bucketsByName[newBucketName] = currBucket
-	delete(s.bucketsByName, bucketName)
 
 	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
 		return errors.Wrapf(err, "failed renaming bucket dir '%s' to '%s'", currBucketDir, newBucketDir)
 	}
 	moved = true
 
+	currBucket.dir = newBucketDir
+	currBucket.active = mt
+	s.bucketsByName[newBucketName] = currBucket
+	delete(s.bucketsByName, bucketName)
 	s.updateBucketDir(currBucket, currBucketDir, newBucketDir)
 
 	return nil

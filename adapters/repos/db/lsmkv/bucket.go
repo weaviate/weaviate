@@ -1559,7 +1559,13 @@ func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...Secondar
 }
 
 func (b *Bucket) createNewActiveMemtable() (memtable, error) {
-	path := segmentPathForID(b.dir, time.Now().UnixNano())
+	return b.newActiveMemtableIn(b.dir)
+}
+
+// newActiveMemtableIn creates a memtable whose segment and WAL will live in dir.
+// Nothing is written to disk until the first write.
+func (b *Bucket) newActiveMemtableIn(dir string) (memtable, error) {
+	path := segmentPathForID(dir, time.Now().UnixNano())
 
 	cl, err := newLazyCommitLogger(path, b.strategy)
 	if err != nil {
