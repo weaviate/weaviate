@@ -397,11 +397,8 @@ func TestRunSwapOnShard_SentinelAwareDispatch(t *testing.T) {
 // the cheap sentinel fsync (markSwappedProp) is allowed — no Shutdown,
 // no Rename, no RAFT, no compaction wait. The total Phase 2a wall-clock
 // for an N-prop migration MUST stay inside the microseconds-to-low-ms
-// budget at any scale; the per-shard tokenization overlay's
-// "mixed-state" subwindow (some props swapped, others not — queries to
-// not-yet-swapped props during the window would tokenize input with the
-// new value against an old-tokenized bucket and return wrong results)
-// is exactly this wall-clock.
+// budget at any scale; the per-shard property overlay's "mixed-state"
+// subwindow (some props swapped, others not) is exactly this wall-clock.
 //
 // Regression scenarios this guards against:
 //

@@ -50,8 +50,9 @@ func loadTestShard(t *testing.T, index *Index) (string, *Shard) {
 	})
 	entry := index.shards.Load(name)
 	require.NotNil(t, entry)
-	require.NoError(t, entry.(*LazyLoadShard).Load(context.Background()))
-	return name, entry.(*LazyLoadShard).shard
+	shard, _, err := entry.(*LazyLoadShard).loadIfCold(context.Background())
+	require.NoError(t, err)
+	return name, shard
 }
 
 // dropTestShard pins the shard as Index.withShardForWrite does, then races a
@@ -204,8 +205,8 @@ func TestObjectReadsAfterStoreTeardownReturnErrors(t *testing.T) {
 			_, err := shard.objectByIndexIDWithProps(context.Background(), 0, nil)
 			return err
 		},
-		"uuid from doc id": func() error {
-			_, err := shard.uuidFromDocID(0)
+		"find uuids": func() error {
+			_, err := shard.FindUUIDs(context.Background(), nil, 0)
 			return err
 		},
 		"object list": func() error {

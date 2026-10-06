@@ -22,6 +22,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
+	cerrors "github.com/weaviate/weaviate/adapters/handlers/rest/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
 	"github.com/weaviate/weaviate/cluster/router/types"
@@ -101,7 +102,7 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 		if errors.As(err, &uco.ErrInvalidUserInput{}) {
 			return objects.NewObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
-		} else if errors.As(err, &uco.ErrMultiTenancy{}) {
+		} else if errors.As(err, &uco.ErrMultiTenancy{}) || cerrors.NamespaceErrRendersUnprocessable(err) {
 			return objects.NewObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		} else if errors.As(err, &authzerrors.Forbidden{}) {
@@ -138,7 +139,7 @@ func (h *objectHandlers) validateObject(params objects.ObjectsValidateParams,
 		case errors.As(err, &uco.ErrInvalidUserInput{}):
 			return objects.NewObjectsValidateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
-		case errors.As(err, &uco.ErrMultiTenancy{}):
+		case errors.As(err, &uco.ErrMultiTenancy{}), cerrors.NamespaceErrRendersUnprocessable(err):
 			return objects.NewObjectsValidateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
@@ -174,6 +175,10 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 		}
 		if err != nil {
 			h.metricRequestsTotal.logUserError(params.ClassName)
+			if errors.As(err, &authzerrors.Forbidden{}) {
+				return objects.NewObjectsClassGetForbidden().
+					WithPayload(errPayloadFromSingleErr(principal, err))
+			}
 			return objects.NewObjectsClassGetBadRequest().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
@@ -208,7 +213,7 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 		case errors.As(err, &uco.ErrInvalidUserInput{}):
 			return objects.NewObjectsClassGetUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
-		case errors.As(err, &uco.ErrMultiTenancy{}):
+		case errors.As(err, &uco.ErrMultiTenancy{}), cerrors.NamespaceErrRendersUnprocessable(err):
 			return objects.NewObjectsClassGetUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
@@ -366,7 +371,8 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &uco.ErrNotFound{}):
 			return objects.NewObjectsClassDeleteNotFound()
-		case errors.As(err, &uco.ErrMultiTenancy{}):
+		case errors.As(err, &uco.ErrMultiTenancy{}), errors.As(err, &uco.ErrInvalidUserInput{}),
+			cerrors.NamespaceErrRendersUnprocessable(err):
 			return objects.NewObjectsClassDeleteUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
@@ -402,7 +408,7 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 		if errors.As(err, &uco.ErrInvalidUserInput{}) {
 			return objects.NewObjectsClassPutUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
-		} else if errors.As(err, &uco.ErrMultiTenancy{}) {
+		} else if errors.As(err, &uco.ErrMultiTenancy{}) || cerrors.NamespaceErrRendersUnprocessable(err) {
 			return objects.NewObjectsClassPutUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		} else if errors.As(err, &authzerrors.Forbidden{}) {
@@ -902,7 +908,7 @@ func (e *objectsRequestsTotal) logError(className string, err error) {
 	var customError *uco.Error
 	switch {
 
-	case errors.As(err, &uco.ErrMultiTenancy{}):
+	case errors.As(err, &uco.ErrMultiTenancy{}), cerrors.NamespaceErrRendersUnprocessable(err):
 		e.logUserError(className)
 	case errors.As(err, &errReplication{}), errors.As(err, &errUnregonizedProperty{}):
 		e.logUserError(className)

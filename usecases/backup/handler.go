@@ -24,9 +24,11 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -148,16 +150,15 @@ type BackupBackendProvider interface {
 }
 
 type schemaManger interface {
+	local.ClassReader
 	RestoreClass(ctx context.Context, d *backup.ClassDescriptor, nodeMapping map[string]string, overwriteAlias bool, stripNamespaces bool) error
-	NodeName() string
 	NamespacesEnabled() bool
-	ClassEqual(name string) string
 }
 
 type NodeResolver interface {
-	NodeHostname(nodeName string) (string, bool)
-	AllNames() []string
-	NodeCount() int
+	cluster.HostnameResolver
+	cluster.NodeLister
+	cluster.NodeCounter
 
 	// LeaderID is used to return the current leader ID
 	// It may return empty strings if there is no current leader or the leader is unknown.
@@ -219,12 +220,12 @@ func NewHandler(
 	cfg config.Backup,
 	authorizer authorization.Authorizer,
 	schema schemaManger,
+	node string,
 	sourcer Sourcer,
 	backends BackupBackendProvider,
 	rbacSourcer RBACSnapshotter,
 	dynUserSourcer dynUserSnapshotter,
 ) *Handler {
-	node := schema.NodeName()
 	m := &Handler{
 		node:       node,
 		logger:     logger,
@@ -266,14 +267,14 @@ type BackupRequest struct {
 	// The same class cannot appear in both Include and Exclude in the same request
 	Exclude []string
 
-	// Non-empty switches the backup to a filtered dynamic-user snapshot.
-	// Empty keeps the whole-cluster snapshot. Same '*'/'?' wildcards as Include.
-	// An exact name must exist; wildcards matching nothing back up no users.
+	// Nil captures the full dynamic-user store. An empty list excludes it.
+	// Selectors support '*'/'?' wildcards; exact names must exist.
+	// Wildcards matching nothing exclude the user snapshot.
 	IncludeUsers []string
 
-	// Non-empty filters the RBAC snapshot to the matching roles. Empty keeps the
-	// whole-cluster snapshot. Same '*'/'?' wildcards as Include; built-ins rejected.
-	// An exact name must exist; wildcards matching nothing back up no roles.
+	// Nil captures the full RBAC state. An empty list excludes it.
+	// Selectors support '*'/'?' wildcards and exclude built-in roles.
+	// Exact names must exist; wildcards matching nothing exclude the RBAC snapshot.
 	IncludeRoles []string
 
 	// NodeMapping is a map of node name replacement where key is the old name and value is the new name

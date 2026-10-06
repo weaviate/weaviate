@@ -420,10 +420,7 @@ func TestGraphQL_MultiTenancy(t *testing.T) {
 		}
 
 		t.Run("add data", func(t *testing.T) {
-			// the assertion below is the error the vector search path raises for
-			// a multi-tenant class queried without a tenant, so this class needs
-			// a vectorizer module rather than its own vectors
-			fixtures.CreateSchemaPizzaForTenantsWithVectorizer(t, client, "text2vec-contextionary")
+			fixtures.CreateSchemaPizzaForTenants(t, client)
 			fixtures.CreateTenantsPizza(t, client, tenant1, tenant2)
 			fixtures.CreateDataPizzaQuattroFormaggiForTenants(t, client, tenant1.Name)
 			fixtures.CreateDataPizzaFruttiDiMareForTenants(t, client, tenant1.Name)
@@ -433,7 +430,8 @@ func TestGraphQL_MultiTenancy(t *testing.T) {
 
 		t.Run("explore with nearText", func(t *testing.T) {
 			nearText := client.GraphQL().NearTextArgBuilder().
-				WithConcepts([]string{"Italian"})
+				WithConcepts([]string{"Italian"}).
+				WithTargetVectors(fixtures.DefaultVectorName)
 
 			resp, err := client.GraphQL().Explore().
 				WithNearText(nearText).
@@ -461,7 +459,7 @@ func TestGroupByMultiTenancy(t *testing.T) {
 		&models.Class{
 			Class:              "TextContent",
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
-			Vectorizer:         "text2vec-contextionary",
+			VectorConfig:       fixtures.DefaultVectorConfig(),
 			Properties: []*models.Property{
 				{
 					Name:     "text",
@@ -476,7 +474,7 @@ func TestGroupByMultiTenancy(t *testing.T) {
 		&models.Class{
 			Class:              "Document",
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
-			Vectorizer:         "text2vec-contextionary",
+			VectorConfig:       fixtures.DefaultVectorConfig(),
 			Properties: []*models.Property{
 				{
 					Name:     "textContents",

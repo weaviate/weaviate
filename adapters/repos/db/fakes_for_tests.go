@@ -23,6 +23,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -41,13 +42,17 @@ import (
 )
 
 type fakeSchemaGetter struct {
+	local.ClassReader
 	nodeName   string
 	schema     schema.Schema
 	shardState *sharding.State
 }
 
-func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
-	return f.schema
+func (f *fakeSchemaGetter) ReadOnlySchema() models.Schema {
+	if f.schema.Objects == nil {
+		return models.Schema{}
+	}
+	return *f.schema.Objects
 }
 
 func (f *fakeSchemaGetter) ReadOnlyClass(class string) *models.Class {
@@ -87,7 +92,7 @@ func (f *fakeSchemaGetter) ShardReplicas(class, shard string) ([]string, error) 
 	return x.BelongsToNodes, nil
 }
 
-func (f *fakeSchemaGetter) TenantsShards(_ context.Context, class string, tenants ...string) (map[string]string, error) {
+func (f *fakeSchemaGetter) TenantsShardsStatus(_ context.Context, class string, tenants ...string) (map[string]string, error) {
 	res := map[string]string{}
 	for _, t := range tenants {
 		res[t] = models.TenantActivityStatusHOT

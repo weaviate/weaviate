@@ -49,9 +49,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rolevisibility"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/namespaces"
-	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -66,7 +66,7 @@ type dynUserHandler struct {
 	logger               logrus.FieldLogger
 	dbUserEnabled        bool
 	remoteUser           *clients.RemoteUser
-	nodesGetter          schema.SchemaGetter
+	nodesGetter          cluster.NodeLister
 	namespacesEnabled    bool
 	namespaces           namespaces.Exister
 }
@@ -87,7 +87,7 @@ var validateUserNameRegex = regexp.MustCompile(`^` + apikey.UserNameRegexCore + 
 
 func SetupHandlers(
 	api *operations.WeaviateAPI, dbUsers DbUserAndRolesGetter, localUsers LocalUsersGetter, localRoles authorization.Controller, authorizer authorization.Authorizer,
-	authNConfig config.Authentication, authZConfig config.Authorization, remoteUser *clients.RemoteUser, nodesGetter schema.SchemaGetter,
+	authNConfig config.Authentication, authZConfig config.Authorization, remoteUser *clients.RemoteUser, nodesGetter cluster.NodeLister,
 	namespacesEnabled bool, ns namespaces.Exister, logger logrus.FieldLogger,
 ) {
 	h := &dynUserHandler{
@@ -205,7 +205,7 @@ func (h *dynUserHandler) addToListAllResponse(ctx context.Context, principal *mo
 		}
 	}
 
-	own := principal != nil && internalID == principal.Username && principal.UserType == models.UserTypeInputDb
+	own := apikey.IsOwnUser(principal, internalID)
 	resp := &models.DBUserInfo{
 		Active:             &active,
 		UserID:             &displayID,
@@ -294,7 +294,7 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("get roles: %w", err)))
 	}
 
-	own := principal != nil && internalKey == principal.Username && principal.UserType == models.UserTypeInputDb
+	own := apikey.IsOwnUser(principal, internalKey)
 	response.Roles = h.visibleRoleNames(ctx, principal, existingRoles, own)
 
 	return users.NewGetUserInfoOK().WithPayload(response)
@@ -306,7 +306,7 @@ func (h *dynUserHandler) getLastUsed(users []apikey.UserView) map[string]time.Ti
 		usersWithTime[user.Id] = user.LastUsedAt
 	}
 
-	nodes := h.nodesGetter.Nodes()
+	nodes := h.nodesGetter.AllNames()
 	if len(nodes) == 1 {
 		return usersWithTime
 	}
@@ -417,7 +417,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 	}
 
 	if params.Body.Import != nil && *params.Body.Import {
-		if !h.principalIsRootUser(principal.Username) {
+		if !h.principalIsRootUser(principal) {
 			return users.NewCreateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("only root users can import static api keys")))
 		}
 
@@ -561,7 +561,7 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("db user management is not enabled")))
 	}
 
-	if internalKey == principal.Username {
+	if apikey.IsOwnUser(principal, internalKey) {
 		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("cannot delete its own user %q", params.UserID)))
 	}
 
@@ -610,7 +610,7 @@ func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, princ
 		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("db user management is not enabled")))
 	}
 
-	if internalKey == principal.Username {
+	if apikey.IsOwnUser(principal, internalKey) {
 		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("cannot deactivate its own user %q", params.UserID)))
 	}
 
@@ -936,16 +936,11 @@ func (h *dynUserHandler) staticUserExists(newUser string) bool {
 	return false
 }
 
-func (h *dynUserHandler) principalIsRootUser(name string) bool {
+func (h *dynUserHandler) principalIsRootUser(principal *models.Principal) bool {
 	if !h.rbacConfig.Enabled && !h.adminListConfig.Enabled {
 		return true
 	}
-	for i := range h.rbacConfig.RootUsers {
-		if h.rbacConfig.RootUsers[i] == name {
-			return true
-		}
-	}
-	return false
+	return principal != nil && h.isRootUser(principal.Username)
 }
 
 func (h *dynUserHandler) isRootUser(name string) bool {

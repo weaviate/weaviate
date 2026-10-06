@@ -193,8 +193,9 @@ func underlyingShard(t *testing.T, sl ShardLike) *Shard {
 	case *Shard:
 		return s
 	case *LazyLoadShard:
-		require.NoError(t, s.Load(context.Background()))
-		return s.shard
+		shard, _, err := s.loadIfCold(context.Background())
+		require.NoError(t, err)
+		return shard
 	default:
 		t.Fatalf("unexpected ShardLike type %T", sl)
 		return nil
@@ -242,8 +243,10 @@ func TestDropVectorIndex_FailedTeardownKeepsTheIndexForCleanup(t *testing.T) {
 	assert.Same(t, failing, owned[0])
 	records, _, err := shard.mapping.Load()
 	require.NoError(t, err)
-	assert.Equal(t, map[string]vectorIndexRecord{"named": named}, records,
-		"the record outlives a failed teardown: the retry needs it")
+	dropping := named
+	dropping.State = vectorIndexStateDropping
+	assert.Equal(t, map[string]vectorIndexRecord{"named": dropping}, records,
+		"the record outlives a failed teardown, marked dropping: the retry needs it")
 
 	require.NoError(t, shard.DropVectorIndex(ctx, "named"), "a retried drop tears the same index down")
 	owned = nil

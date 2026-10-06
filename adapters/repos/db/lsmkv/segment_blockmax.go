@@ -58,14 +58,7 @@ func (s *segment) loadBlockEntries(node segmentindex.Node, plView *propLengthsVi
 	} else {
 		// read first 8 bytes to get
 		buf = make([]byte, 8+12*terms.ENCODE_AS_FULL_BYTES)
-		r, err := s.newNodeReader(nodeOffset{node.Start, node.Start + uint64(8+12*terms.ENCODE_AS_FULL_BYTES)}, "loadBMW")
-		if err != nil {
-			return nil, 0, nil, err
-		}
-		defer r.Release()
-
-		_, err = r.Read(buf)
-		if err != nil {
+		if err := s.preadInto(buf, node.Start, loadBMWOp); err != nil {
 			return nil, 0, nil, err
 		}
 	}
@@ -95,15 +88,8 @@ func (s *segment) loadBlockEntries(node segmentindex.Node, plView *propLengthsVi
 	if s.readFromMemory {
 		buf = s.contents[node.Start+16 : node.Start+16+uint64(blockCount*20)]
 	} else {
-		r, err := s.newNodeReader(nodeOffset{node.Start + 16, node.Start + 16 + uint64(blockCount*20)}, "loadBMW")
-		if err != nil {
-			return nil, 0, nil, err
-		}
-		defer r.Release()
-
 		buf = make([]byte, blockCount*20)
-		_, err = r.Read(buf)
-		if err != nil {
+		if err := s.preadInto(buf, node.Start+16, loadBMWOp); err != nil {
 			return nil, 0, nil, err
 		}
 	}

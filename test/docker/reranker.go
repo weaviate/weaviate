@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -28,7 +27,7 @@ func startRerankerTransformers(ctx context.Context, networkName, rerankerTransfo
 	if len(rerankerTransformersImage) > 0 {
 		image = rerankerTransformersImage
 	}
-	port := nat.Port("8080/tcp")
+	port := "8080/tcp"
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:    image,
@@ -59,7 +58,7 @@ func startRerankerTransformers(ctx context.Context, networkName, rerankerTransfo
 		return nil, err
 	}
 	envSettings := make(map[string]string)
-	envSettings["RERANKER_INFERENCE_API"] = fmt.Sprintf("http://%s:%s", RerankerTransformers, port.Port())
+	envSettings["RERANKER_INFERENCE_API"] = fmt.Sprintf("http://%s:%s", RerankerTransformers, portNumber(port))
 	endpoints := make(map[EndpointName]endpoint)
 	endpoints[HTTP] = endpoint{port, uri}
 	return &DockerContainer{RerankerTransformers, endpoints, container, envSettings}, nil

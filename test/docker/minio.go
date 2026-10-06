@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -24,7 +23,7 @@ import (
 const MinIO = "test-minio"
 
 func startMinIO(ctx context.Context, networkName string, netOctet int, buckets map[string]string) (*DockerContainer, error) {
-	port := nat.Port("9000/tcp")
+	port := "9000/tcp"
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:        "cgr.dev/chainguard/minio",
@@ -70,8 +69,8 @@ func startMinIO(ctx context.Context, networkName string, netOctet int, buckets m
 		return nil, err
 	}
 	envSettings := make(map[string]string)
-	envSettings["BACKUP_S3_ENDPOINT"] = fmt.Sprintf("%s:%s", MinIO, port.Port())
-	envSettings["OFFLOAD_S3_ENDPOINT"] = fmt.Sprintf("http://%s:%s", MinIO, port.Port())
+	envSettings["BACKUP_S3_ENDPOINT"] = fmt.Sprintf("%s:%s", MinIO, portNumber(port))
+	envSettings["OFFLOAD_S3_ENDPOINT"] = fmt.Sprintf("http://%s:%s", MinIO, portNumber(port))
 	envSettings["BACKUP_S3_USE_SSL"] = "false"
 	envSettings["AWS_ACCESS_KEY_ID"] = "aws_access_key"
 	envSettings["AWS_SECRET_KEY"] = "aws_secret_key"

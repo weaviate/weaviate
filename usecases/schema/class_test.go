@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/tokenizer"
@@ -543,7 +544,7 @@ func Test_AddClassWithLimits(t *testing.T) {
 				// An unlimited cap must not ask the leader for a count it would
 				// discard, so the expectation is only set where the cap is on.
 				if tt.maxAllowed != config.DefaultMaximumAllowedCollectionsCount {
-					fakeSchemaManager.On("QueryCollectionsCount", "").Return(tt.existingCount, nil)
+					fakeSchemaManager.On("CollectionsCountFromLeader", "").Return(tt.existingCount, nil)
 				}
 
 				// Set the max collections limit in config
@@ -571,7 +572,7 @@ func Test_AddClassWithLimits(t *testing.T) {
 					require.Nil(t, err)
 				}
 				if tt.maxAllowed == config.DefaultMaximumAllowedCollectionsCount {
-					fakeSchemaManager.AssertNotCalled(t, "QueryCollectionsCount", "")
+					fakeSchemaManager.AssertNotCalled(t, "CollectionsCountFromLeader", "")
 				}
 				fakeSchemaManager.AssertExpectations(t)
 			})
@@ -2407,8 +2408,8 @@ func Test_UpdateClass(t *testing.T) {
 				store.parser = handler.parser
 
 				fakeSchemaManager.On("AddClass", test.initial, mock.Anything).Return(nil)
-				fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
-				fakeSchemaManager.On("QueryReadOnlyClasses", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
+				fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser).Return(nil)
+				fakeSchemaManager.On("ReadOnlyClassesFromLeader", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
 				fakeSchemaManager.On("ReadOnlyClass", test.initial.Class, mock.Anything).Return(test.initial)
 				fakeSchemaManager.On("CopyShardingState", mock.Anything).Return(&sharding.State{}, nil)
 				if len(test.initial.Properties) > 0 {
@@ -2419,8 +2420,8 @@ func Test_UpdateClass(t *testing.T) {
 				assert.Nil(t, err)
 				store.AddClass(test.initial)
 
-				fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
-				fakeSchemaManager.On("QueryReadOnlyClasses", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
+				fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser).Return(nil)
+				fakeSchemaManager.On("ReadOnlyClassesFromLeader", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
 				err = handler.UpdateClass(ctx, nil, test.initial.Class, test.update)
 				if err == nil {
 					err = store.UpdateClass(test.update)
@@ -2507,8 +2508,8 @@ func Test_UpdateClass_ObjectTTLConfig(t *testing.T) {
 			store.parser = handler.parser
 
 			fakeSchemaManager.On("AddClass", initial, mock.Anything).Return(nil)
-			fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
-			fakeSchemaManager.On("QueryReadOnlyClasses", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
+			fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser).Return(nil)
+			fakeSchemaManager.On("ReadOnlyClassesFromLeader", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
 			fakeSchemaManager.On("ReadOnlyClass", initial.Class, mock.Anything).Return(initial)
 
 			handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
@@ -2578,7 +2579,7 @@ func Test_UpdateClass_ObjectTTLConfig(t *testing.T) {
 				store.parser = handler.parser
 
 				fakeSchemaManager.On("AddClass", initial, mock.Anything).Return(nil)
-				fakeSchemaManager.On("QueryReadOnlyClasses", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
+				fakeSchemaManager.On("ReadOnlyClassesFromLeader", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
 				fakeSchemaManager.On("ReadOnlyClass", initial.Class, mock.Anything).Return(initial)
 
 				handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
@@ -3170,7 +3171,6 @@ func Test_AddClass_NoImplicitLegacyVectorIndex(t *testing.T) {
 
 	tests := []struct {
 		name                string
-		defaultVectorizer   string
 		defaultIndexType    string
 		defaultQuantization string
 		class               *models.Class
@@ -3181,11 +3181,6 @@ func Test_AddClass_NoImplicitLegacyVectorIndex(t *testing.T) {
 		{
 			name:  "class asking for no vector stays vector-less",
 			class: &models.Class{Class: "NewClass"},
-		},
-		{
-			name:              "default vectorizer module does not create an index",
-			defaultVectorizer: "text2vec-contextionary",
-			class:             &models.Class{Class: "NewClass"},
 		},
 		{
 			name:             "default index type does not create an index",
@@ -3213,6 +3208,13 @@ func Test_AddClass_NoImplicitLegacyVectorIndex(t *testing.T) {
 			wantIndexConfig:  true,
 		},
 		{
+			name:            "explicit index config keeps the legacy index without a vectorizer",
+			class:           &models.Class{Class: "NewClass", VectorIndexConfig: map[string]interface{}{"distance": "dot"}},
+			wantVectorizer:  config.VectorizerModuleNone,
+			wantIndexType:   hnswT,
+			wantIndexConfig: true,
+		},
+		{
 			name: "named vectors leave the legacy fields empty",
 			class: &models.Class{Class: "NewClass", VectorConfig: map[string]models.VectorConfig{
 				"vec1": {
@@ -3228,9 +3230,6 @@ func Test_AddClass_NoImplicitLegacyVectorIndex(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-			if tt.defaultVectorizer != "" {
-				handler.config.DefaultVectorizerModule = tt.defaultVectorizer
-			}
 			handler.config.DefaultVectorIndexType = runtime.NewDynamicValue(tt.defaultIndexType)
 			handler.config.DefaultQuantization = runtime.NewDynamicValue(tt.defaultQuantization)
 			fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
@@ -3322,7 +3321,6 @@ func Test_SetClassDefaults_DefaultVectorIndexType(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, _ := newTestHandler(t, &fakeDB{})
 			handler.config.DefaultVectorIndexType = runtime.NewDynamicValue(tt.defaultIndexType)
-			handler.config.DefaultVectorizerModule = config.VectorizerModuleNone
 
 			class := &models.Class{
 				Vectorizer:        tt.classVectorizer,
@@ -4007,4 +4005,26 @@ func TestValidatePropertyProcessing_ASCIIFoldIgnoreRequiresFold(t *testing.T) {
 		err := validatePropertyProcessing(prop, pdt, nil)
 		require.NoError(t, err)
 	})
+}
+
+func TestManagerUpdateClassInternal_ProposesOrigin(t *testing.T) {
+	const origin = command.ClassUpdateOriginDropVectorFinalize
+	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+	newClass := func() *models.Class {
+		return &models.Class{
+			Class:             "C",
+			Vectorizer:        "none",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+	}
+	initial := newClass()
+	fakeSchemaManager.On("AddClass", initial, mock.Anything).Return(nil)
+	fakeSchemaManager.On("ReadOnlyClass", initial.Class, mock.Anything).Return(initial)
+	fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything, origin).Return(nil)
+	_, _, err := handler.AddClass(context.Background(), nil, initial)
+	require.NoError(t, err)
+
+	m := &Manager{Handler: *handler}
+	require.NoError(t, m.UpdateClassInternal(context.Background(), initial.Class, newClass(), origin))
+	fakeSchemaManager.AssertExpectations(t)
 }

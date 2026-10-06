@@ -81,8 +81,8 @@ func (p *ReindexProvider) RunSearchableBlockmaxRepair(ctx context.Context) {
 
 // reconcileSearchableBlockmaxStamps runs one read-repair pass over every class.
 func (p *ReindexProvider) reconcileSearchableBlockmaxStamps(ctx context.Context) {
-	sch := p.schemaManager.GetSchemaSkipAuth()
-	if sch.Objects == nil {
+	classes := p.schemaManager.ReadOnlySchema().Classes
+	if len(classes) == 0 {
 		return
 	}
 
@@ -95,7 +95,7 @@ func (p *ReindexProvider) reconcileSearchableBlockmaxStamps(ctx context.Context)
 		p.logger.Warnf("searchable-blockmax repair: task list unavailable, on-disk seeding only: %v", err)
 	}
 
-	for _, class := range sch.Objects.Classes {
+	for _, class := range classes {
 		if ctx.Err() != nil {
 			return
 		}

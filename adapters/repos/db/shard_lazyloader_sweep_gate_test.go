@@ -31,7 +31,7 @@ import (
 // loading mutex, so the shard stays cold for the next round.
 var errTestLoadRefused = fmt.Errorf("test: refusing to load")
 
-// loadProbeAllocChecker runs the probe at the point [LazyLoadShard.Load] reaches
+// loadProbeAllocChecker runs the probe at the point [LazyLoadShard.loadIfCold] reaches
 // its first step under the loading mutex, which is the earliest a real load
 // could act on the shard.
 type loadProbeAllocChecker struct {
@@ -142,7 +142,7 @@ func TestLazyLoadShardCanSkipUnloadedSweepIsOneStep(t *testing.T) {
 			newShard: func() *LazyLoadShard {
 				return newGateShard(loadProbeAllocChecker{memwatch.NewDummyMonitor(), probe})
 			},
-			takeMutex: func(lazy *LazyLoadShard) { _ = lazy.Load(ctx) },
+			takeMutex: func(lazy *LazyLoadShard) { _, _, _ = lazy.loadIfCold(ctx) },
 		},
 	}
 

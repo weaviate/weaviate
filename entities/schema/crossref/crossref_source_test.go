@@ -87,6 +87,16 @@ func Test_Source_ParsingFromString(t *testing.T) {
 		})
 	})
 
+	t.Run("from a namespace-qualified class", func(t *testing.T) {
+		for _, class := range []string{"ns1:MyClassName", "1foo:MyClassName"} {
+			t.Run(class, func(t *testing.T) {
+				ref, err := ParseSource("weaviate://localhost/" + class + "/c2cd3f91-0160-477e-869a-8da8829e0a4d/myRefProp")
+				require.NoError(t, err)
+				assert.Equal(t, schema.ClassName(class), ref.Class)
+			})
+		}
+	})
+
 	t.Run("from a network action ref that is well-formed", func(t *testing.T) {
 		uri := "weaviate://another-weaviate/SomeActionClass/c2cd3f91-0160-477e-869a-8da8829e0a4d/myRefProp"
 		ref, err := ParseSource(uri)
@@ -148,6 +158,22 @@ func Test_Source_ParsingFromString(t *testing.T) {
 			{
 				name: "with a lowercased class name",
 				uri:  "weaviate://localhost/someClass/c2cd3f91-0160-477e-869a-8da8829e0a4d/myRefProp",
+			},
+			{
+				name: "with a lowercased class name after a namespace",
+				uri:  "weaviate://localhost/ns1:someClass/c2cd3f91-0160-477e-869a-8da8829e0a4d/myRefProp",
+			},
+			{
+				name: "with a lowercased class name after a digit-leading namespace",
+				uri:  "weaviate://localhost/1foo:someClass/c2cd3f91-0160-477e-869a-8da8829e0a4d/myRefProp",
+			},
+			{
+				name: "with a namespace and no class name",
+				uri:  "weaviate://localhost/ns1:/c2cd3f91-0160-477e-869a-8da8829e0a4d/myRefProp",
+			},
+			{
+				name: "with a second namespace after the first",
+				uri:  "weaviate://localhost/ns1:ns2:SomeClass/c2cd3f91-0160-477e-869a-8da8829e0a4d/myRefProp",
 			},
 		}
 

@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	localschema "github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -34,7 +35,6 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -63,7 +63,7 @@ func setupReplayShard(t *testing.T) (repo *DB, idx *Index, shard string, class *
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := localschema.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		return readFunc(class, shardState)
@@ -581,4 +581,52 @@ func TestOverwriteObjectsFromChangeLog_DecodeErrorAborts(t *testing.T) {
 	found3, err := repo.Object(context.Background(), class.Class, id3, nil, additional.Properties{}, nil, "")
 	require.Nil(t, err)
 	assert.Nil(t, found3, "entry 3 (after the error) must NOT have been applied")
+}
+
+// A promoted but undrained SELF_RECOVERY shard can already be a COPY/MOVE source; its later drain must reach that movement's log.
+func TestOverwriteObjectsFromChangeLog_TeesIntoActiveMovementLog(t *testing.T) {
+	repo, idx, shard, class := setupReplayShard(t)
+	ctx := context.Background()
+
+	deletedID := strfmt.UUID("11111111-67f3-4e6e-a988-c53eaefbd58e")
+	putID := strfmt.UUID("22222222-67f3-4e6e-a988-c53eaefbd58e")
+	stale := &models.Object{
+		ID: deletedID, Class: class.Class, CreationTimeUnix: 10, LastUpdateTimeUnix: 10,
+		Properties: map[string]interface{}{"stringProp": "deleted in the copy window"}, Vector: []float32{1, 2, 3},
+	}
+	require.Nil(t, repo.PutObject(ctx, stale, stale.Vector, nil, nil, nil, 0))
+
+	require.NoError(t, idx.IncomingStartChangeCapture(ctx, shard, "movement-from-here"))
+
+	fresh := &models.Object{
+		ID: putID, Class: class.Class, CreationTimeUnix: 20, LastUpdateTimeUnix: 20,
+		Properties: map[string]interface{}{"stringProp": "written in the copy window"}, Vector: []float32{4, 5, 6},
+	}
+	require.Nil(t, idx.OverwriteObjectsFromChangeLog(ctx, shard, []ChangeLogReplayEntry{
+		{ID: putID, LastUpdateTimeUnixMilli: 20, Payload: mustMarshalPayload(t, fresh, fresh.Vector)},
+		{ID: deletedID, LastUpdateTimeUnixMilli: 30, IsDelete: true},
+	}))
+
+	lsn, err := idx.IncomingSnapshotChangeLogLSN(ctx, shard, "movement-from-here")
+	require.NoError(t, err)
+	tailer, err := idx.IncomingGetChangeLog(ctx, shard, "movement-from-here", lsn)
+	require.NoError(t, err)
+	defer tailer.Close()
+
+	var puts, deletes []strfmt.UUID
+	for {
+		e, err := tailer.Next(ctx)
+		if err != nil {
+			break
+		}
+		id := strfmt.UUID(uuid.UUID(e.UUID).String())
+		if e.IsDelete {
+			deletes = append(deletes, id)
+		} else {
+			puts = append(puts, id)
+		}
+	}
+	require.Equal(t, []strfmt.UUID{putID}, puts)
+	require.Equal(t, []strfmt.UUID{deletedID}, deletes)
+	require.NoError(t, idx.IncomingStopChangeCapture(ctx, shard, "movement-from-here"))
 }

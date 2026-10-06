@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // A component-test like test suite that makes sure that every available UC is
@@ -72,7 +73,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 				(*additional.ReplicationProperties)(nil),
 			},
 			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.Objects("class", "tenant", "foo")},
+			expectedResources: []string{authorization.Objects("class", "tenant")},
 		},
 		{
 			methodName: "GetObject",
@@ -82,7 +83,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 				(*additional.ReplicationProperties)(nil), "tenant",
 			},
 			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.Objects("class", "tenant", "foo")},
+			expectedResources: []string{authorization.Objects("class", "tenant")},
 		},
 		{
 			methodName: "DeleteObject",
@@ -91,7 +92,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 				(*additional.ReplicationProperties)(nil), "tenant",
 			},
 			expectedVerb:      authorization.DELETE,
-			expectedResources: []string{authorization.Objects("class", "tenant", "foo")},
+			expectedResources: []string{authorization.Objects("class", "tenant")},
 		},
 		{
 			// the path class and id differ from the body, so the row pins which
@@ -103,7 +104,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 				(*additional.ReplicationProperties)(nil),
 			},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: []string{authorization.Objects("class", "tenant", "foo")},
+			expectedResources: []string{authorization.Objects("class", "tenant")},
 		},
 		{
 			methodName: "MergeObject",
@@ -112,19 +113,19 @@ func Test_Kinds_Authorization(t *testing.T) {
 				(*additional.ReplicationProperties)(nil),
 			},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: []string{authorization.Objects("class", "tenant", "foo")},
+			expectedResources: []string{authorization.Objects("class", "tenant")},
 		},
 		{
 			methodName:        "HeadObject",
 			additionalArgs:    []interface{}{"class", strfmt.UUID("foo"), (*additional.ReplicationProperties)(nil), "tenant"},
 			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.Objects("class", "tenant", "foo")},
+			expectedResources: []string{authorization.Objects("class", "tenant")},
 		},
 		{ // the deprecated route carries no class, which widens the resource to every collection
 			methodName:        "HeadObject",
 			additionalArgs:    []interface{}{"", strfmt.UUID("foo"), (*additional.ReplicationProperties)(nil), ""},
 			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.Objects("", "", "foo")},
+			expectedResources: []string{authorization.Objects("", "")},
 		},
 
 		// class lookups
@@ -132,7 +133,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 			methodName:        "GetObjectsClass",
 			additionalArgs:    []interface{}{strfmt.UUID("foo")},
 			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.Objects("", "", "foo")},
+			expectedResources: []string{authorization.Objects("", "")},
 		},
 		{
 			methodName:                "GetObjectClassFromName",
@@ -156,7 +157,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 				"tenant",
 			},
 			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.Objects("", "tenant", "")},
+			expectedResources: []string{authorization.Objects("", "tenant")},
 		},
 
 		// reference on objects
@@ -187,6 +188,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 			precedingCalls: []mocks.AuthZReq{{
 				Principal: principal, Verb: authorization.READ,
 				Resources: authorization.ShardsData("class", "tenant"),
+				Method:    mocks.MethodAuthorize,
 			}},
 			expectedVerb:      authorization.UPDATE,
 			expectedResources: authorization.ShardsData("class", "tenant"),
@@ -228,7 +230,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 				manager := NewManager(schemaManager,
 					cfg, logger, authorizer,
 					vectorRepo, getFakeModulesProvider(), &fakeMetrics{}, nil,
-					NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+					NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 
 				args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 				out, err := callFuncByName(manager, test.methodName, args...)
@@ -259,7 +261,10 @@ func expectedAuthZReqs(principal *models.Principal, preceding []mocks.AuthZReq,
 ) []mocks.AuthZReq {
 	reqs := make([]mocks.AuthZReq, 0, len(preceding)+1)
 	reqs = append(reqs, preceding...)
-	return append(reqs, mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources})
+	return append(reqs, mocks.AuthZReq{
+		Principal: principal, Verb: verb, Resources: resources,
+		Method: mocks.MethodAuthorize,
+	})
 }
 
 func Test_BatchKinds_Authorization(t *testing.T) {
@@ -297,6 +302,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			precedingCalls: []mocks.AuthZReq{{
 				Principal: principal, Verb: authorization.UPDATE,
 				Resources: authorization.ShardsData("class", "tenant"),
+				Method:    mocks.MethodAuthorize,
 			}},
 			expectedVerb:      authorization.CREATE,
 			expectedResources: authorization.ShardsData("class", "tenant"),
@@ -348,7 +354,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 				vectorRepo := &fakeObjectFinder{}
 				modulesProvider := getFakeModulesProvider()
 				manager := NewBatchManager(vectorRepo, modulesProvider, schemaManager, cfg, logger, authorizer, nil,
-					NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+					NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 
 				args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 				out, err := callFuncByName(manager, test.methodName, args...)

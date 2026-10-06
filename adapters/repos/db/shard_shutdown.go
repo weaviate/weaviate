@@ -41,7 +41,8 @@ func shardKnownShut(s ShardLike) bool {
 	case *LazyLoadShard:
 		sh.mutex.Lock()
 		defer sh.mutex.Unlock()
-		return sh.loaded && sh.shard.shut.Load() && sh.shard.teardownError() == nil
+		loaded := sh.currentShard()
+		return loaded != nil && loaded.shut.Load() && loaded.teardownError() == nil
 	default:
 		return false
 	}
@@ -97,10 +98,11 @@ func shardTeardownError(s ShardLike) error {
 	case *LazyLoadShard:
 		sh.mutex.Lock()
 		defer sh.mutex.Unlock()
-		if !sh.loaded {
+		loaded := sh.currentShard()
+		if loaded == nil {
 			return nil
 		}
-		return sh.shard.teardownError()
+		return loaded.teardownError()
 	default:
 		return nil
 	}
@@ -118,7 +120,8 @@ func shardStillAlive(s ShardLike) bool {
 	case *LazyLoadShard:
 		sh.mutex.Lock()
 		defer sh.mutex.Unlock()
-		return sh.loaded && !sh.shard.shut.Load()
+		loaded := sh.currentShard()
+		return loaded != nil && !loaded.shut.Load()
 	default:
 		// Unknown wrapper: restoring a live shard is the safe direction — a
 		// dead map entry fails requests loudly, an orphaned live instance
@@ -164,35 +167,73 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	return err
 }
 
-// shutdownOrRestoreShard closes a shard already removed from the shard map
-// and, when the close fails with the instance still live, puts it back —
-// leaving a live instance out of the map lets a later (re)load double-open
-// the directory. Callers hold the shard's create lock and classify
-// errAlreadyShutdown themselves (terminal, not a failure).
+// ShardUnloadOutcome values are meant as Prometheus labels, so renaming one
+// empties dashboards with no error.
+type ShardUnloadOutcome string
+
+const (
+	// ShardUnloadOutcomeUnloaded also covers a name that was never in the shard map.
+	ShardUnloadOutcomeUnloaded ShardUnloadOutcome = "unloaded"
+	// ShardUnloadOutcomeRefusedInUse says the shard shuts down once idle and
+	// refuses new requests until then.
+	ShardUnloadOutcomeRefusedInUse ShardUnloadOutcome = "refused_in_use"
+	// ShardUnloadOutcomeTorn says a teardown failed midway. The shard fails requests
+	// until a restart or Index.dropShards.
+	ShardUnloadOutcomeTorn ShardUnloadOutcome = "torn"
+	// ShardUnloadOutcomeIndexClosing says the index is closing, so retries fail.
+	ShardUnloadOutcomeIndexClosing ShardUnloadOutcome = "index_closing"
+	// ShardUnloadOutcomeFailed covers every other failure, including an unknown class.
+	ShardUnloadOutcomeFailed ShardUnloadOutcome = "failed"
+)
+
+// This map is only a checklist: it makes the exhaustive lint fail until a new
+// outcome is listed here, so no outcome ships without a dashboard update. It is
+// blank because nothing reads it.
+//
+//exhaustive:enforce
+var _ = map[ShardUnloadOutcome]struct{}{
+	ShardUnloadOutcomeUnloaded:     {},
+	ShardUnloadOutcomeRefusedInUse: {},
+	ShardUnloadOutcomeTorn:         {},
+	ShardUnloadOutcomeIndexClosing: {},
+	ShardUnloadOutcomeFailed:       {},
+}
+
+// shutdownOrRestoreShard closes a shard removed from the shard map. A live shard
+// whose close fails is put back, so no later load opens its directory twice.
+// Callers hold the shard's create lock and treat errAlreadyShutdown as success.
 //
 // A shard that stays out of the map stops being counted. Shutdown alone only
 // moves it from loaded to unloaded, which is right while it stays in the map;
 // counted after removal, every tenant deactivation raises shards_unloaded for a
 // shard the node no longer holds.
-func shutdownOrRestoreShard(ctx context.Context, idx *Index, name string, shard ShardLike) error {
+//
+// A close request that cancels ctx also reports refused_in_use, which
+// Index.UnloadLocalShard turns into index_closing.
+func shutdownOrRestoreShard(ctx context.Context, idx *Index, name string, shard ShardLike) (ShardUnloadOutcome, error) {
 	shards, logger := &idx.shards, idx.logger
 
 	err := shard.Shutdown(ctx)
 	if err == nil || errors.Is(err, errAlreadyShutdown) {
 		idx.metrics.baseMetrics.DeleteUnloadedShard(shardRegistration(shard))
-		return err
+		return ShardUnloadOutcomeUnloaded, err
 	}
 	if restoreShardIfStillAlive(shards, name, shard) {
 		if terr := shardTeardownError(shard); terr != nil {
 			logger.WithField("action", "shard_shutdown").
 				WithField("shard", name).
-				Errorf("teardown failed mid-way; torn shard retained in the map (holds its leaked handles, unavailable until restart): %v", err)
-		} else {
-			logger.WithField("action", "shard_shutdown").
-				WithField("shard", name).
-				Errorf("shutdown failed; live shard restored to the active map to prevent a duplicate instance: %v", err)
+				Errorf("teardown failed mid-way; torn shard retained in the map (holds its leaked handles, unavailable until restart): %v", terr)
+			return ShardUnloadOutcomeTorn, err
 		}
-		return err
+		logger.WithField("action", "shard_shutdown").
+			WithField("shard", name).
+			Errorf("shutdown failed; live shard restored to the active map to prevent a duplicate instance: %v", err)
+		// A cancelled backoff returns the context error instead of the refusal.
+		if errors.Is(err, errShardStillInUse) ||
+			errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			return ShardUnloadOutcomeRefusedInUse, err
+		}
+		return ShardUnloadOutcomeFailed, err
 	}
 	// Not restored and not torn: the shard is CLEANLY shut — the concurrent
 	// deferred completion (last ref release) won the race while this attempt
@@ -201,7 +242,7 @@ func shutdownOrRestoreShard(ctx context.Context, idx *Index, name string, shard 
 	// already-shut case, not a failure (a cold-tenant batch would otherwise
 	// fail whole on one racy tenant).
 	idx.metrics.baseMetrics.DeleteUnloadedShard(shardRegistration(shard))
-	return errAlreadyShutdown
+	return ShardUnloadOutcomeUnloaded, errAlreadyShutdown
 }
 
 // restoreShardIfStillAlive puts a shard whose Shutdown failed back into the
@@ -378,6 +419,12 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		err = s.store.Shutdown(ctx)
 		ec.AddWrapf(err, "stop lsmkv store")
 		storeDurable = err == nil
+	}
+
+	// counter is nil if the shard failed to initialize before opening it
+	if s.counter != nil {
+		err = s.counter.Close()
+		ec.AddWrapf(err, "close index counter")
 	}
 
 	// Publish only after the store flushed: a crash-surviving snapshot must never over-represent the store.

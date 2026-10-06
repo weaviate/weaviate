@@ -14,12 +14,17 @@ package cluster
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/getsentry/sentry-go"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
@@ -32,7 +37,7 @@ import (
 
 // QueryReadOnlyClass will verify that class is non empty and then build a Query that will be directed to the leader to
 // ensure we will read the class with strong consistency
-func (s *Raft) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error) {
+func (s *Raft) ReadOnlyClassesFromLeader(classes ...string) (map[string]versioned.Class, error) {
 	ctx := context.Background()
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",
@@ -89,9 +94,9 @@ func (s *Raft) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Cla
 	return resp.Classes, nil
 }
 
-// QuerySchema build a Query to read the schema that will be directed to the leader to ensure we will read the class
+// SchemaFromLeader build a Query to read the schema that will be directed to the leader to ensure we will read the class
 // with strong consistency
-func (s *Raft) QuerySchema() (models.Schema, error) {
+func (s *Raft) SchemaFromLeader() (models.Schema, error) {
 	ctx := context.Background()
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",
@@ -118,10 +123,10 @@ func (s *Raft) QuerySchema() (models.Schema, error) {
 	return resp.Schema, nil
 }
 
-// QueryCollectionsCount issues a leader-directed count query. An empty
+// CollectionsCountFromLeader issues a leader-directed count query. An empty
 // namespace returns the cluster-global total; a non-empty namespace returns
 // the count restricted to classes in that namespace.
-func (s *Raft) QueryCollectionsCount(namespace string) (int, error) {
+func (s *Raft) CollectionsCountFromLeader(namespace string) (int, error) {
 	ctx := context.Background()
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",
@@ -154,9 +159,9 @@ func (s *Raft) QueryCollectionsCount(namespace string) (int, error) {
 	return resp.Count, nil
 }
 
-// QueryTenants build a Query to read the tenants of a given class that will be directed to the leader to ensure we
+// TenantsFromLeader build a Query to read the tenants of a given class that will be directed to the leader to ensure we
 // will read the class with strong consistency
-func (s *Raft) QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error) {
+func (s *Raft) TenantsFromLeader(class string, tenants []string) ([]*models.Tenant, uint64, error) {
 	ctx := context.Background()
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",
@@ -193,9 +198,9 @@ func (s *Raft) QueryTenants(class string, tenants []string) ([]*models.Tenant, u
 	return resp.Tenants, resp.ShardVersion, nil
 }
 
-// QueryShardOwner build a Query to read the tenants of a given class that will be directed to the leader to ensure we
+// ShardOwnerFromLeader build a Query to read the tenants of a given class that will be directed to the leader to ensure we
 // will read the tenant with strong consistency and return the shard owner node
-func (s *Raft) QueryShardOwner(class, shard string) (string, uint64, error) {
+func (s *Raft) ShardOwnerFromLeader(class, shard string) (string, uint64, error) {
 	ctx := context.Background()
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",
@@ -232,10 +237,10 @@ func (s *Raft) QueryShardOwner(class, shard string) (string, uint64, error) {
 	return resp.Owner, resp.ShardVersion, nil
 }
 
-// QueryTenantsShards build a Query to read the tenants and their activity status of a given class.
+// TenantsShardsFromLeader build a Query to read the tenants and their activity status of a given class.
 // The request will be directed to the leader to ensure we  will read the tenant with strong consistency and return the
 // shard owner node
-func (s *Raft) QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error) {
+func (s *Raft) TenantsShardsFromLeader(class string, tenants ...string) (map[string]string, uint64, error) {
 	ctx := context.Background()
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",
@@ -272,10 +277,10 @@ func (s *Raft) QueryTenantsShards(class string, tenants ...string) (map[string]s
 	return resp.TenantsActivityStatus, resp.SchemaVersion, nil
 }
 
-// QueryShardingState build a Query to read the sharding state of a given class.
+// ShardingStateFromLeader build a Query to read the sharding state of a given class.
 // The request will be directed to the leader to ensure we  will read the shard state with strong consistency and return the
 // state and it's version.
-func (s *Raft) QueryShardingState(class string) (*sharding.State, uint64, error) {
+func (s *Raft) ShardingStateFromLeader(class string) (*sharding.State, uint64, error) {
 	ctx := context.Background()
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",
@@ -311,8 +316,8 @@ func (s *Raft) QueryShardingState(class string) (*sharding.State, uint64, error)
 	return resp.State, resp.Version, nil
 }
 
-// QueryClassVersions returns the current version of the requested classes.
-func (s *Raft) QueryClassVersions(classes ...string) (map[string]uint64, error) {
+// ClassVersionsFromLeader returns the current version of the requested classes.
+func (s *Raft) ClassVersionsFromLeader(classes ...string) (map[string]uint64, error) {
 	ctx := context.Background()
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",
@@ -372,10 +377,9 @@ func (s *Raft) QueryClassVersions(classes ...string) (map[string]uint64, error) 
 // Query receives a QueryRequest and ensure it is executed on the leader and returns the related QueryResponse
 // If any error happens it returns it
 func (s *Raft) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
+	queryType := req.Type.String()
 	t := prometheus.NewTimer(
-		monitoring.GetMetrics().SchemaReadsLeader.WithLabelValues(
-			req.Type.String(),
-		))
+		monitoring.GetMetrics().SchemaReadsLeader.WithLabelValues(queryType))
 	defer t.ObserveDuration()
 
 	if s.store.IsLeader() {
@@ -392,14 +396,47 @@ func (s *Raft) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResp
 		return nil
 		// pass in the election timeout after applying multiplier
 	}, backoffConfig(ctx, s.store.raftConfig().ElectionTimeout)); err != nil {
-		s.log.Warnf("query: failed to find leader after retries: %s", err)
+		reason := leaderQueryFailureReason(ctx, err, false)
+		monitoring.GetMetrics().SchemaLeaderQueryFailures.WithLabelValues(queryType, reason).Inc()
+		s.log.WithFields(logrus.Fields{
+			"query_type": queryType,
+			"reason":     reason,
+		}).Warnf("query: failed to find leader after retries: %s", err)
 		return &cmd.QueryResponse{}, err
 	}
 
 	resp, err := s.cl.Query(ctx, leader, req)
 	if err != nil {
-		s.log.WithField("leader", leader).Errorf("query: failed to query leader: %s", err)
+		reason := leaderQueryFailureReason(ctx, err, true)
+		monitoring.GetMetrics().SchemaLeaderQueryFailures.WithLabelValues(queryType, reason).Inc()
+		s.log.WithFields(logrus.Fields{
+			"leader":     leader,
+			"query_type": queryType,
+			"reason":     reason,
+		}).Errorf("query: failed to query leader: %s", err)
 		return &cmd.QueryResponse{}, err
 	}
 	return resp, err
+}
+
+const (
+	leaderQueryNoLeader    = "no_leader"
+	leaderQueryConnClosed  = "conn_closed"
+	leaderQueryCtxCanceled = "ctx_canceled"
+	leaderQueryLeaderError = "leader_error"
+)
+
+const grpcClientConnClosingDesc = "grpc: the client connection is closing"
+
+func leaderQueryFailureReason(ctx context.Context, err error, leaderKnown bool) string {
+	if status.Code(err) == codes.Canceled && strings.Contains(err.Error(), grpcClientConnClosingDesc) {
+		return leaderQueryConnClosed
+	}
+	if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return leaderQueryCtxCanceled
+	}
+	if !leaderKnown {
+		return leaderQueryNoLeader
+	}
+	return leaderQueryLeaderError
 }

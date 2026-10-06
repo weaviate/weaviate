@@ -31,17 +31,18 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/replication/copier"
 	"github.com/weaviate/weaviate/cluster/replication/copier/internal/changelogdrain"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/fakes"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/remote"
 )
 
 // bufconnFakeIndex implements only the 4 change-log methods; the other
 // RemoteIndexIncomingRepo methods panic via the embedded nil interface, which
 // is what we want — the tests must not touch them.
 type bufconnFakeIndex struct {
-	sharding.RemoteIndexIncomingRepo
+	remote.IndexIncomingRepo
 	log *changelog.ChangeLog
 }
 
@@ -71,13 +72,16 @@ type bufconnFakeRepo struct {
 	idx *bufconnFakeIndex
 }
 
-func (r *bufconnFakeRepo) GetIndexForIncomingSharding(schema.ClassName) sharding.RemoteIndexIncomingRepo {
+func (r *bufconnFakeRepo) GetIndexForIncomingSharding(schema.ClassName) remote.IndexIncomingRepo {
 	return r.idx
 }
 
 // bufconnFakeSchema satisfies the StartChangeCapture schema-version barrier;
 // these tests pass schemaVersion 0, so the barrier is always a no-op.
-type bufconnFakeSchema struct{}
+type bufconnFakeSchema struct {
+	// Left unset: only the methods defined below are expected.
+	local.VersionedReader
+}
 
 func (bufconnFakeSchema) ReadOnlyClassWithVersion(context.Context, string, uint64) (*models.Class, error) {
 	return nil, nil
@@ -118,7 +122,7 @@ func newBufconnFixture(t *testing.T) *bufconnFixture {
 	require.NoError(t, err)
 
 	fakeIdx := &bufconnFakeIndex{log: log}
-	svc := grpchandlers.NewFileReplicationService(&bufconnFakeRepo{idx: fakeIdx}, bufconnFakeSchema{}, 64*1024)
+	svc := grpchandlers.NewFileReplicationService(&bufconnFakeRepo{idx: fakeIdx}, bufconnFakeSchema{}, 64*1024, 0)
 
 	lis := bufconn.Listen(1 << 20)
 	server := grpc.NewServer()

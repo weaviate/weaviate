@@ -19,6 +19,8 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 )
 
 // keyMatch5BraceRe mirrors casbin's KeyMatch5, which rewrites a "{...}" token to
@@ -95,9 +97,9 @@ func validatePermissions(namespacesEnabled, allowEmpty bool, permissions ...*mod
 			if p.Tenant != nil {
 				tenantName(*p.Tenant)
 			}
-			if p.Object != nil {
-				add(validateRegexTarget("object", *p.Object))
-			}
+			// Data.Object is deprecated and ignored: the data resource wildcards its
+			// objects segment, so the value never becomes a casbin pattern and there is
+			// nothing left to validate. A value an old client still sends is a no-op.
 		}
 		if p := perm.Backups; p != nil && p.Collection != nil {
 			className(*p.Collection)
@@ -139,6 +141,18 @@ func validatePermissions(namespacesEnabled, allowEmpty bool, permissions ...*mod
 		}
 	}
 
+	return nil
+}
+
+// validateStorablePolicies rejects a permission whose resource would corrupt the
+// policy file. It skips the length check because a resource joins several
+// targets, and validatePermissions already caps each one at maxTargetLength.
+func validateStorablePolicies(policies []authorization.Policy) error {
+	for _, p := range policies {
+		if err := conv.ValidateStorableCharacters(p.Resource); err != nil {
+			return fmt.Errorf("permission %q %w", p.Resource, err)
+		}
+	}
 	return nil
 }
 

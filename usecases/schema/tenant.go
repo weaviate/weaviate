@@ -42,7 +42,7 @@ func (h *Handler) AddTenants(ctx context.Context,
 	class string,
 	tenants []*models.Tenant,
 ) (uint64, error) {
-	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+	class, err := namespacing.QualifyClass(principal, h.qualifier, class)
 	if err != nil {
 		return 0, err
 	}
@@ -73,7 +73,7 @@ func (h *Handler) AddTenants(ctx context.Context,
 	if dv := h.config.UsageLimits.MaxTenantsPerCollection; dv != nil {
 		cap := dv.Get()
 		if cap >= 0 {
-			existing, _, err := h.schemaManager.QueryTenants(class, nil)
+			existing, _, err := h.schemaManager.TenantsFromLeader(class, nil)
 			if err != nil {
 				return 0, fmt.Errorf("count tenants for limit check: %w", err)
 			}
@@ -189,7 +189,7 @@ func (h *Handler) validateActivityStatuses(ctx context.Context, tenants []*model
 func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal,
 	class string, tenants []*models.Tenant,
 ) ([]*models.Tenant, error) {
-	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+	class, err := namespacing.QualifyClass(principal, h.qualifier, class)
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +240,7 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 
 	// we get the new state to return correct status
 	// specially in FREEZING and UNFREEZING
-	tenantsStatus, err := h.schemaReader.TenantsShardsWithVersion(ctx, version, class, tNames...)
+	tenantsStatus, err := h.schemaReader.TenantsShardsStatusWithVersion(ctx, version, class, tNames...)
 	if err != nil {
 		return nil, err
 	}
@@ -258,7 +258,7 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal, class string, tenants []string) error {
-	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+	class, err := namespacing.QualifyClass(principal, h.qualifier, class)
 	if err != nil {
 		return err
 	}
@@ -288,11 +288,11 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 	var allTenants []*models.Tenant
 	var err error
 
-	if class, _, err = namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, class); err != nil {
+	if class, _, err = namespacing.Resolve(principal, h.schemaReader, h.qualifier, class); err != nil {
 		return nil, err
 	}
 	if consistency {
-		allTenants, _, err = h.schemaManager.QueryTenants(class, tenants)
+		allTenants, _, err = h.schemaManager.TenantsFromLeader(class, tenants)
 	} else {
 		// If non consistent, fallback to the default implementation
 		allTenants, err = h.getTenantsByNames(class, tenants)
@@ -316,7 +316,7 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 }
 
 func (h *Handler) GetConsistentTenant(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) (*models.Tenant, error) {
-	class, _, err := namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, class)
+	class, _, err := namespacing.Resolve(principal, h.schemaReader, h.qualifier, class)
 	if err != nil {
 		return nil, err
 	}
@@ -329,7 +329,7 @@ func (h *Handler) GetConsistentTenant(ctx context.Context, principal *models.Pri
 
 	tenants := []string{tenant}
 	if consistency {
-		allTenants, _, err = h.schemaManager.QueryTenants(class, tenants)
+		allTenants, _, err = h.schemaManager.TenantsFromLeader(class, tenants)
 	} else {
 		// If non consistent, fallback to the default implementation
 		allTenants, err = h.getTenantsByNames(class, tenants)
@@ -361,7 +361,7 @@ func (h *Handler) multiTenancy(class string) (clusterSchema.ClassInfo, error) {
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) ConsistentTenantExists(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) error {
-	class, _, err := namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, class)
+	class, _, err := namespacing.Resolve(principal, h.schemaReader, h.qualifier, class)
 	if err != nil {
 		return err
 	}
@@ -372,7 +372,7 @@ func (h *Handler) ConsistentTenantExists(ctx context.Context, principal *models.
 
 	var tenants []*models.Tenant
 	if consistency {
-		tenants, _, err = h.schemaManager.QueryTenants(class, []string{tenant})
+		tenants, _, err = h.schemaManager.TenantsFromLeader(class, []string{tenant})
 	} else {
 		// If non consistent, fallback to the default implementation
 		tenants, err = h.getTenantsByNames(class, []string{tenant})

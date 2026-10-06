@@ -17,12 +17,12 @@ import (
 	"math"
 	"os"
 	"regexp"
+	goruntime "runtime"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/go-openapi/swag"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 
@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/license"
 	usagetypes "github.com/weaviate/weaviate/usecases/modulecomponents/usage/types"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -175,7 +176,6 @@ type Config struct {
 	Authorization                    Authorization            `json:"authorization" yaml:"authorization"`
 	Origin                           string                   `json:"origin" yaml:"origin"`
 	Persistence                      Persistence              `json:"persistence" yaml:"persistence"`
-	DefaultVectorizerModule          string                   `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
 	DefaultVectorDistanceMetric      string                   `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
 	EnableModules                    string                   `json:"enable_modules" yaml:"enable_modules"`
 	EnableApiBasedModules            bool                     `json:"api_based_modules_disabled" yaml:"api_based_modules_disabled"`
@@ -342,6 +342,9 @@ type Config struct {
 	// only be enabled on newly bootstrapped clusters (enforced at startup).
 	Namespaces Namespaces `json:"namespaces" yaml:"namespaces"`
 
+	// Configuration options for the batch streaming logic, e.g. soft memory backpressure.
+	BatchStream BatchStream `json:"batch_stream" yaml:"batch_stream"`
+
 	// Usage configuration for the usage module
 	Usage usagetypes.UsageConfig `json:"usage" yaml:"usage"`
 
@@ -371,6 +374,11 @@ type Config struct {
 	// once at startup from the LICENSE_KEY form check and cannot be overridden
 	// at runtime.
 	WeaviateLicense bool `json:"weaviate_license" yaml:"weaviate_license"`
+
+	// License is the license state derived from LICENSE_KEY or
+	// LICENSE_KEY_FILE at startup, for observability (meta endpoint, metrics,
+	// logs).
+	License license.State `json:"license" yaml:"license"`
 }
 
 type CollectionPropsTenants struct {
@@ -796,38 +804,12 @@ func runtimeMismatchProblems(allowList []string, defaultDV *runtime.DynamicValue
 	return out
 }
 
-// ValidateModules validates the non-nested parameters. Nested objects must provide their own
-// validation methods
-func (c *Config) ValidateModules(modProv moduleProvider) error {
-	if err := c.validateDefaultVectorizerModule(modProv); err != nil {
-		return errors.Wrap(err, "default vectorizer module")
-	}
-
-	if err := c.validateDefaultVectorDistanceMetric(); err != nil {
-		return errors.Wrap(err, "default vector distance metric")
-	}
-
-	return nil
-}
-
-func (c *Config) validateDefaultVectorizerModule(modProv moduleProvider) error {
-	if c.DefaultVectorizerModule == VectorizerModuleNone {
-		return nil
-	}
-
-	return modProv.ValidateVectorizer(c.DefaultVectorizerModule)
-}
-
-type moduleProvider interface {
-	ValidateVectorizer(moduleName string) error
-}
-
-func (c *Config) validateDefaultVectorDistanceMetric() error {
+func (c *Config) ValidateDefaultVectorDistanceMetric() error {
 	switch c.DefaultVectorDistanceMetric {
 	case "", common.DistanceCosine, common.DistanceDot, common.DistanceL2Squared, common.DistanceManhattan, common.DistanceHamming:
 		return nil
 	default:
-		return fmt.Errorf("must be one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]")
+		return fmt.Errorf("default vector distance metric: must be one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]")
 	}
 }
 
@@ -955,6 +937,124 @@ func (b BackupGCS) Validate() error {
 	return validateBackupGCSConnPool(b.GRPCConnPool, "backup_gcs.grpc_conn_pool")
 }
 
+var DefaultBatchStreamWorkers = goruntime.GOMAXPROCS(0)
+
+const (
+	DefaultBatchStreamGateRatio   = 0.9
+	DefaultBatchStreamEngageRatio = 0.5
+	DefaultBatchStreamMaxAckDelay = 2 * time.Second
+	DefaultBatchStreamHoldSeconds = 30
+)
+
+// BatchStream configures the backpressure the BatchStream receiver applies to a
+// client. A nil field takes its default; a field set to zero is kept.
+type BatchStream struct {
+	// gateRatio is the fraction of GOMEMLIMIT at which live heap stops a message
+	// being admitted. It is the threshold of the batch stream's own memory
+	// monitor, and the top of the ack delay curve.
+	gateRatio *float64
+
+	// EngageRatio is the live heap ratio below which acks are not delayed.
+	// Between it and GateRatio the delay grows convexly to MaxAckDelay. A
+	// GateRatio at or below it disables the delay entirely.
+	engageRatio *float64
+
+	// maxAckDelay is the ack delay applied at and above GateRatio. Zero switches
+	// the ack delay off.
+	maxAckDelay *time.Duration
+
+	// holdSeconds bounds how long a receiver waits for memory after a failed
+	// admission check before it fails the stream. Zero fails the stream on the
+	// first failed check.
+	holdSeconds *int
+
+	// workers is the number of worker goroutines the BatchStream receiver uses. Zero lets the receiver choose a default.
+	workers *int
+}
+
+func NewBatchStream(gateRatio, engageRatio *float64, maxAckDelay *time.Duration, holdSeconds, workers *int) BatchStream {
+	return BatchStream{
+		gateRatio:   gateRatio,
+		engageRatio: engageRatio,
+		maxAckDelay: maxAckDelay,
+		holdSeconds: holdSeconds,
+		workers:     workers,
+	}
+}
+
+func (b BatchStream) GateRatio() float64 {
+	if b.gateRatio == nil {
+		return DefaultBatchStreamGateRatio
+	}
+	return *b.gateRatio
+}
+
+func (b BatchStream) EngageRatio() float64 {
+	if b.engageRatio == nil {
+		return DefaultBatchStreamEngageRatio
+	}
+	return *b.engageRatio
+}
+
+func (b BatchStream) MaxAckDelay() time.Duration {
+	if b.maxAckDelay == nil {
+		return DefaultBatchStreamMaxAckDelay
+	}
+	return *b.maxAckDelay
+}
+
+func (b BatchStream) HoldSeconds() int {
+	if b.holdSeconds == nil {
+		return DefaultBatchStreamHoldSeconds
+	}
+	return *b.holdSeconds
+}
+
+func (b BatchStream) WithHoldSeconds(holdSeconds int) BatchStream {
+	return BatchStream{
+		gateRatio:   b.gateRatio,
+		engageRatio: b.engageRatio,
+		maxAckDelay: b.maxAckDelay,
+		holdSeconds: &holdSeconds,
+		workers:     b.workers,
+	}
+}
+
+func (b BatchStream) Workers() int {
+	if b.workers == nil {
+		return DefaultBatchStreamWorkers
+	}
+	return *b.workers
+}
+
+// batchStreamFile is the config-file shape of BatchStream. The yaml and json
+// decoders skip unexported fields, so BatchStream decodes through it.
+type batchStream struct {
+	GateRatio   *float64       `json:"gate_ratio" yaml:"gate_ratio"`
+	EngageRatio *float64       `json:"engage_ratio" yaml:"engage_ratio"`
+	MaxAckDelay *time.Duration `json:"max_ack_delay" yaml:"max_ack_delay"`
+	HoldSeconds *int           `json:"hold_seconds" yaml:"hold_seconds"`
+	Workers     *int           `json:"workers" yaml:"workers"`
+}
+
+func (b *BatchStream) UnmarshalYAML(node *yaml.Node) error {
+	var f batchStream
+	if err := node.Decode(&f); err != nil {
+		return err
+	}
+	*b = NewBatchStream(f.GateRatio, f.EngageRatio, f.MaxAckDelay, f.HoldSeconds, f.Workers)
+	return nil
+}
+
+func (b *BatchStream) UnmarshalJSON(data []byte) error {
+	var f batchStream
+	if err := json.Unmarshal(data, &f); err != nil {
+		return err
+	}
+	*b = NewBatchStream(f.GateRatio, f.EngageRatio, f.MaxAckDelay, f.HoldSeconds, f.Workers)
+	return nil
+}
+
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided
 const (
 	DefaultQueryDefaultsLimit        int64 = 10
@@ -1022,12 +1122,15 @@ type Persistence struct {
 	LSMSkipWriteClassNameEnabled        bool   `json:"lsmSkipClassNameEnabled" yaml:"lsmSkipClassNameEnabled"`
 	LSMCycleManagerRoutinesFactor       int    `json:"lsmCycleManagerRoutinesFactor" yaml:"lsmCycleManagerRoutinesFactor"`
 	IndexRangeableInMemory              bool   `json:"indexRangeableInMemory" yaml:"indexRangeableInMemory"`
-	MinMMapSize                         int64  `json:"minMMapSize" yaml:"minMMapSize"`
-	LazySegmentsDisabled                bool   `json:"lazySegmentsDisabled" yaml:"lazySegmentsDisabled"`
-	SegmentInfoIntoFileNameEnabled      bool   `json:"segmentFileInfoEnabled" yaml:"segmentFileInfoEnabled"`
-	WriteMetadataFilesEnabled           bool   `json:"writeMetadataFilesEnabled" yaml:"writeMetadataFilesEnabled"`
-	MaxReuseWalSize                     int64  `json:"MaxReuseWalSize" yaml:"MaxReuseWalSize"`
-	HNSWMaxLogSize                      int64  `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
+	// Properties whose rangeable index keeps its segments in memory, per
+	// collection. Read only when IndexRangeableInMemory is false.
+	IndexRangeableInMemoryProps    map[string][]string `json:"indexRangeableInMemoryProps" yaml:"indexRangeableInMemoryProps"`
+	MinMMapSize                    int64               `json:"minMMapSize" yaml:"minMMapSize"`
+	LazySegmentsDisabled           bool                `json:"lazySegmentsDisabled" yaml:"lazySegmentsDisabled"`
+	SegmentInfoIntoFileNameEnabled bool                `json:"segmentFileInfoEnabled" yaml:"segmentFileInfoEnabled"`
+	WriteMetadataFilesEnabled      bool                `json:"writeMetadataFilesEnabled" yaml:"writeMetadataFilesEnabled"`
+	MaxReuseWalSize                int64               `json:"MaxReuseWalSize" yaml:"MaxReuseWalSize"`
+	HNSWMaxLogSize                 int64               `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
 
 	// HNSW snapshot settings below are deprecated no-ops. Kept for YAML/JSON
 	// back-compat so existing config files parse without error. No consumer
@@ -1086,6 +1189,19 @@ const (
 func (p Persistence) Validate() error {
 	if p.DataPath == "" {
 		return fmt.Errorf("persistence.dataPath must be set")
+	}
+
+	// A config file writes this field past the environment parser's refusals.
+	for collection, props := range p.IndexRangeableInMemoryProps {
+		if _, err := schema.ValidateClassName(collection); err != nil {
+			return fmt.Errorf("persistence.indexRangeableInMemoryProps names %q: %w",
+				collection, err)
+		}
+		if len(props) == 0 {
+			return fmt.Errorf("persistence.indexRangeableInMemoryProps names %q with no "+
+				"properties: list them, or write %q for every rangeable property it has",
+				collection, AllProperties)
+		}
 	}
 
 	return nil

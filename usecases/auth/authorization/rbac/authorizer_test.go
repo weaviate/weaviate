@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
@@ -644,7 +645,7 @@ func TestAuthorizeResourceAggregation(t *testing.T) {
 
 	resource, ok := perm["resource"].(string)
 	require.True(t, ok, "resource should be a string")
-	assert.Equal(t, "[Domain: data, Collection: ContactRecommendations, Tenant: *, Object: *]", resource)
+	assert.Equal(t, "[Domain: data, Collection: ContactRecommendations, Tenant: *]", resource)
 
 	// Verify aggregation by checking that we have fewer log entries than resources
 	// This proves that 1000 identical resources were aggregated into 1 log entry
@@ -717,7 +718,7 @@ func TestFilterAuthorizedResourcesAggregation(t *testing.T) {
 
 	resource, ok := perm["resource"].(string)
 	require.True(t, ok, "resource should be a string")
-	assert.Equal(t, "[Domain: data, Collection: ContactRecommendations, Tenant: *, Object: *]", resource)
+	assert.Equal(t, "[Domain: data, Collection: ContactRecommendations, Tenant: *]", resource)
 
 	results, ok := perm["results"].(string)
 	require.True(t, ok, "results should be a string")
@@ -965,22 +966,45 @@ func setupTestManagerWithAPIKey(t *testing.T, logger *logrus.Logger, apiKey conf
 		false, nil, logger)
 }
 
-// fakeNamespaceLister reports a fixed namespace set, standing in for the cluster's
-// namespace controller.
-type fakeNamespaceLister []string
+// fakeNamespaceLister reports a fixed namespace set and each namespace's state,
+// standing in for the cluster's namespace controller.
+type fakeNamespaceLister map[string]cmd.NamespaceState
 
-func (f fakeNamespaceLister) List() []cmd.Namespace {
-	out := make([]cmd.Namespace, 0, len(f))
-	for _, name := range f {
-		out = append(out, cmd.Namespace{Name: name})
+// activeNamespaces builds a lister holding each named namespace in the active state.
+func activeNamespaces(names ...string) fakeNamespaceLister {
+	out := make(fakeNamespaceLister, len(names))
+	for _, name := range names {
+		out[name] = cmd.NamespaceStateActive
 	}
 	return out
 }
 
+func (f fakeNamespaceLister) List() []cmd.Namespace {
+	out := make([]cmd.Namespace, 0, len(f))
+	for name, state := range f {
+		out = append(out, cmd.Namespace{Name: name, State: state})
+	}
+	return out
+}
+
+func (f fakeNamespaceLister) GetNamespace(name string) (cmd.Namespace, bool) {
+	state, ok := f[name]
+	if !ok {
+		return cmd.Namespace{}, false
+	}
+	return cmd.Namespace{Name: name, State: state}, true
+}
+
 // setupNSEnabledTestManager is setupTestManager with namespacesEnabled=true:
 // admin/viewer get the narrowed shape, root/read-only stay wildcard. The caller's
-// namespaces are the ones a snapshot may record.
+// namespaces are the ones a snapshot may record, all of them active.
 func setupNSEnabledTestManager(t *testing.T, logger *logrus.Logger, namespaces ...string) (*Manager, error) {
+	return setupNSEnabledTestManagerWithLister(t, logger, activeNamespaces(namespaces...))
+}
+
+// setupNSEnabledTestManagerWithLister is setupNSEnabledTestManager for a caller
+// that needs namespaces in a state other than active, or none at all.
+func setupNSEnabledTestManagerWithLister(t *testing.T, logger *logrus.Logger, lister NamespaceLister) (*Manager, error) {
 	tmpDir, err := os.MkdirTemp("", "rbac-test-ns-*")
 	if err != nil {
 		return nil, err
@@ -995,7 +1019,7 @@ func setupNSEnabledTestManager(t *testing.T, logger *logrus.Logger, namespaces .
 
 	return New(policyPath, rbacconf.Config{Enabled: true},
 		config.Authentication{OIDC: config.OIDC{Enabled: true}, APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}},
-		true, fakeNamespaceLister(namespaces), logger)
+		true, lister, logger)
 }
 
 // TestNarrowedViewerVsReadOnly_ClusterReadDenied asserts enforcement of
@@ -1228,6 +1252,49 @@ func TestBackupsWildcardProbeRequiresBlanketGrant(t *testing.T) {
 			}
 			require.Error(t, err)
 			assert.ErrorAs(t, err, new(authzErrors.Forbidden))
+		})
+	}
+}
+
+// TestAuthorize_DenialKeepsGroupGrants pins that a denied check leaves the
+// principal's groups intact, so a later check still finds the group's role.
+func TestAuthorize_DenialKeepsGroupGrants(t *testing.T) {
+	tests := []struct {
+		name   string
+		groups []string
+	}{
+		{name: "one group", groups: []string{"g1"}},
+		{name: "two groups", groups: []string{"g1", "g2"}},
+		{name: "three groups", groups: []string{"g2", "g1", "g3"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			m, err := setupTestManager(t, logger)
+			require.NoError(t, err)
+
+			role := conv.PrefixRoleName("group-role")
+			_, err = m.casbin.AddNamedPolicy("p", role, authorization.CollectionsMetadata("Mine")[0], authorization.READ, authorization.SchemaDomain)
+			require.NoError(t, err)
+			_, err = m.casbin.AddRoleForUser(conv.PrefixGroupName("g1"), role)
+			require.NoError(t, err)
+
+			principal := &models.Principal{Username: "alice", Groups: slices.Clone(tt.groups), UserType: models.UserTypeInputOidc}
+			granted := authorization.CollectionsMetadata("Mine")
+			notGranted := authorization.CollectionsMetadata("Other")
+
+			require.NoError(t, m.Authorize(context.Background(), principal, authorization.READ, granted...))
+			for range 2 {
+				err = m.Authorize(context.Background(), principal, authorization.READ, notGranted...)
+				require.ErrorAs(t, err, new(authzErrors.Forbidden))
+			}
+			require.NoError(t, m.Authorize(context.Background(), principal, authorization.READ, granted...))
+
+			allowed, err := m.FilterAuthorizedResources(context.Background(), principal, authorization.READ, append(notGranted, granted...)...)
+			require.NoError(t, err)
+			assert.Equal(t, granted, allowed)
+			assert.Equal(t, tt.groups, principal.Groups)
 		})
 	}
 }

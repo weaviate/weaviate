@@ -66,7 +66,7 @@ func fullPermission() *models.Permission {
 	return &models.Permission{
 		Action:      strPtr("read_collections"),
 		Collections: &models.PermissionCollections{Collection: strPtr("customer1:Movies")},
-		Data:        &models.PermissionData{Collection: strPtr("customer1:Movies"), Tenant: strPtr("t1"), Object: strPtr("o1")},
+		Data:        &models.PermissionData{Collection: strPtr("customer1:Movies"), Tenant: strPtr("t1"), Object: strPtr("o1")}, //nolint:staticcheck // the deprecated field is exactly what this case pins
 		Nodes:       &models.PermissionNodes{Collection: strPtr("customer1:Movies"), Verbosity: strPtr("minimal")},
 		Tenants:     &models.PermissionTenants{Collection: strPtr("customer1:Movies"), Tenant: strPtr("t1")},
 		Backups:     &models.PermissionBackups{Collection: strPtr("customer1:Movies")},
@@ -83,7 +83,7 @@ func fullPermissionStripped() *models.Permission {
 	return &models.Permission{
 		Action:      strPtr("read_collections"),
 		Collections: &models.PermissionCollections{Collection: strPtr("Movies")},
-		Data:        &models.PermissionData{Collection: strPtr("Movies"), Tenant: strPtr("t1"), Object: strPtr("o1")},
+		Data:        &models.PermissionData{Collection: strPtr("Movies"), Tenant: strPtr("t1"), Object: strPtr("o1")}, //nolint:staticcheck // the deprecated field is exactly what this case pins
 		Nodes:       &models.PermissionNodes{Collection: strPtr("Movies"), Verbosity: strPtr("minimal")},
 		Tenants:     &models.PermissionTenants{Collection: strPtr("Movies"), Tenant: strPtr("t1")},
 		Backups:     &models.PermissionBackups{Collection: strPtr("Movies")},

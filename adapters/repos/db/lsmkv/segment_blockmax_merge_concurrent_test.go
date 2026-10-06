@@ -15,7 +15,6 @@ package lsmkv
 
 import (
 	"context"
-	"encoding/binary"
 	"math/rand"
 	"runtime/debug"
 	"sync"
@@ -66,12 +65,12 @@ func TestBlockMaxWandMergeFilterConcurrent(t *testing.T) {
 
 	for i := 0; i < nDocs; i++ {
 		id := docID(i)
-		require.NoError(t, bucket.MapSet([]byte("alpha"), NewMapPairFromDocIdAndTf(id, float32(1+i%5), 1, false)))
+		require.NoError(t, bucket.InvertedSet([]byte("alpha"), id, float32(1+i%5), 1))
 		if i%2 == 0 {
-			require.NoError(t, bucket.MapSet([]byte("beta"), NewMapPairFromDocIdAndTf(id, 2, 1, false)))
+			require.NoError(t, bucket.InvertedSet([]byte("beta"), id, 2, 1))
 		}
 		if i%3 == 0 {
-			require.NoError(t, bucket.MapSet([]byte("gamma"), NewMapPairFromDocIdAndTf(id, 3, 1, false)))
+			require.NoError(t, bucket.InvertedSet([]byte("gamma"), id, 3, 1))
 		}
 	}
 	require.NoError(t, bucket.FlushAndSwitch())
@@ -81,19 +80,12 @@ func TestBlockMaxWandMergeFilterConcurrent(t *testing.T) {
 	// concurrent phase: concurrent FlushAndSwitch races the query's memtable read
 	// on a pre-existing, merge-unrelated path, and the fold only needs tombstones
 	// present, not flushes in flight.
-	// Fresh key per delete: MapDeleteKey retains the key in the memtable's map,
-	// and the first batch is flushed below, so a reused buffer would persist stale
-	// keys into the segment.
 	for i := 0; i < nDocs; i += 5 {
-		delKey := make([]byte, 8)
-		binary.BigEndian.PutUint64(delKey, docID(i))
-		require.NoError(t, bucket.MapDeleteKey([]byte("alpha"), delKey))
+		require.NoError(t, bucket.InvertedDeleteDoc([]byte("alpha"), docID(i)))
 	}
 	require.NoError(t, bucket.FlushAndSwitch())
 	for i := 1; i < nDocs; i += 7 {
-		delKey := make([]byte, 8)
-		binary.BigEndian.PutUint64(delKey, docID(i))
-		require.NoError(t, bucket.MapDeleteKey([]byte("alpha"), delKey))
+		require.NoError(t, bucket.InvertedDeleteDoc([]byte("alpha"), docID(i)))
 	}
 
 	// The shared filter (every other seeded doc). The merge folds tombstones into
@@ -132,12 +124,8 @@ func TestBlockMaxWandMergeFilterConcurrent(t *testing.T) {
 		guard(func() {
 			r := rand.New(rand.NewSource(int64(1000 + w)))
 			for !stop.Load() {
-				// fresh key per delete: MapDeleteKey retains it by reference, so
-				// reusing the buffer races concurrent readers of a prior key's bytes.
-				mapKey := make([]byte, 8)
-				binary.BigEndian.PutUint64(mapKey, docID(r.Intn(nDocs)))
-				if err := bucket.MapDeleteKey([]byte("alpha"), mapKey); err != nil {
-					t.Errorf("MapDeleteKey: %v", err)
+				if err := bucket.InvertedDeleteDoc([]byte("alpha"), docID(r.Intn(nDocs))); err != nil {
+					t.Errorf("InvertedDeleteDoc: %v", err)
 					return
 				}
 				writeRuns.Add(1)

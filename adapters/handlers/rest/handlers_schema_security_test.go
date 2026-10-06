@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // denyAuthorizer denies every request with a Forbidden error and records the
@@ -34,11 +35,17 @@ import (
 type denyAuthorizer struct {
 	forbidden authzerrors.Forbidden
 	verb      string
+	class     string
 	resources []string
 }
 
 func (d *denyAuthorizer) Authorize(_ context.Context, _ *models.Principal, verb string, resources ...string) error {
 	d.verb, d.resources = verb, resources
+	return d.forbidden
+}
+
+func (d *denyAuthorizer) AuthorizeAndRequireActiveNamespace(_ context.Context, _ *models.Principal, verb string, class string, resources ...string) error {
+	d.verb, d.class, d.resources = verb, class, resources
 	return d.forbidden
 }
 
@@ -102,6 +109,7 @@ func TestDeleteClassPropertyIndex_AuthorizesBeforeConflictPreflight(t *testing.T
 		authorizer:          authz,
 		reindexTaskLister:   lister,
 		logger:              logrus.New(),
+		qualifier:           namespacing.Disabled,
 	}
 
 	resp := h.deleteClassPropertyIndex(schema.SchemaObjectsPropertiesDeleteParams{

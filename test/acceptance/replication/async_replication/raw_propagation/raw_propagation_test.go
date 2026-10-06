@@ -56,7 +56,7 @@ func TestAsyncRepairObjectPropagation(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(clusterSize).
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		Start(ctx)
 	require.Nil(t, err)
 	defer func() {
@@ -67,9 +67,10 @@ func TestAsyncRepairObjectPropagation(t *testing.T) {
 
 	paragraphClass := articles.ParagraphsClass()
 	paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-		Factor: int64(clusterSize),
+		Factor:      int64(clusterSize),
+		AsyncConfig: common.FastAsyncConfig(),
 	}
-	paragraphClass.Vectorizer = "text2vec-contextionary"
+	paragraphClass.Vectorizer = "text2vec-model2vec"
 
 	t.Run("create schema", func(t *testing.T) {
 		helper.CreateClass(t, paragraphClass)

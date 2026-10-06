@@ -47,7 +47,7 @@ func (s *Shard) migrationUnit() string {
 	if s.index == nil || s.index.getSchema == nil {
 		return ""
 	}
-	return MigrationUnitID(s.name, s.index.getSchema.NodeName())
+	return MigrationUnitID(s.name, s.index.Config.NodeName)
 }
 
 func (s *Shard) migrationReconciler(class func() *models.Class) *migrationReconciler {
@@ -103,8 +103,9 @@ func (l *LazyLoadShard) migrationRecordStore() *MigrationRecordStore {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	if !l.loaded {
+	shard := l.currentShard()
+	if shard == nil {
 		return nil
 	}
-	return l.shard.migrationRecordStore()
+	return shard.migrationRecordStore()
 }

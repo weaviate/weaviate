@@ -41,7 +41,7 @@ func Test_DeleteClassS3Journey(t *testing.T) {
 
 		compose, err := docker.New().
 			WithOffloadS3("offloading", "us-west-1").
-			WithText2VecContextionary().
+			WithText2VecModel2Vec().
 			With3NodeCluster().
 			Start(ctx)
 		require.Nil(t, err)
@@ -207,7 +207,7 @@ func Test_DeleteAndRecreateS3Journey(t *testing.T) {
 
 		compose, err := docker.New().
 			WithOffloadS3("offloading", "us-west-1").
-			WithText2VecContextionary().
+			WithText2VecModel2Vec().
 			With3NodeCluster().
 			Start(ctx)
 		require.Nil(t, err)

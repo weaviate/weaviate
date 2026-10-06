@@ -12,14 +12,17 @@
 package rest
 
 import (
+	"context"
 	"errors"
 
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
 
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
+	cerrors "github.com/weaviate/weaviate/adapters/handlers/rest/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/batch"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
@@ -30,14 +33,25 @@ import (
 )
 
 type batchObjectHandlers struct {
-	manager             *objects.BatchManager
+	manager             batchObjectsManager
 	metricRequestsTotal restApiRequestsTotal
+}
+
+type batchObjectsManager interface {
+	AddObjects(ctx context.Context, principal *models.Principal, objects []*models.Object,
+		fields []*string, repl *additional.ReplicationProperties) (objects.BatchObjects, error)
+	AddReferences(ctx context.Context, principal *models.Principal, refs []*models.BatchReference,
+		repl *additional.ReplicationProperties) (objects.BatchReferences, error)
+	DeleteObjects(ctx context.Context, principal *models.Principal, match *models.BatchDeleteMatch,
+		deletionTimeUnixMilli *int64, dryRun *bool, output *string,
+		repl *additional.ReplicationProperties, tenant string) (*objects.BatchDeleteResponse, error)
 }
 
 func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	restCtx.SetBatchNamespace(ctx, namespacing.ConfinedNamespace(principal))
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
@@ -60,7 +74,7 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 		case errors.As(err, &objects.ErrInvalidUserInput{}):
 			return batch.NewBatchObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
-		case errors.As(err, &objects.ErrMultiTenancy{}):
+		case errors.As(err, &objects.ErrMultiTenancy{}), cerrors.NamespaceErrRendersUnprocessable(err):
 			return batch.NewBatchObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
@@ -119,7 +133,7 @@ func (h *batchObjectHandlers) addReferences(params batch.BatchReferencesCreatePa
 		case errors.As(err, &objects.ErrInvalidUserInput{}):
 			return batch.NewBatchReferencesCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
-		case errors.As(err, &objects.ErrMultiTenancy{}):
+		case errors.As(err, &objects.ErrMultiTenancy{}), cerrors.NamespaceErrRendersUnprocessable(err):
 			return batch.NewBatchReferencesCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
@@ -185,7 +199,7 @@ func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParam
 		if errors.As(err, &objects.ErrInvalidUserInput{}) {
 			return batch.NewBatchObjectsDeleteUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
-		} else if errors.As(err, &objects.ErrMultiTenancy{}) {
+		} else if errors.As(err, &objects.ErrMultiTenancy{}) || cerrors.NamespaceErrRendersUnprocessable(err) {
 			return batch.NewBatchObjectsDeleteUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		} else if errors.As(err, &autherrs.Forbidden{}) {
@@ -282,7 +296,7 @@ func (e *batchRequestsTotal) logError(className string, err error) {
 		e.logUserError(className)
 	case errors.As(err, &autherrs.Forbidden{}), errors.As(err, &objects.ErrInvalidUserInput{}):
 		e.logUserError(className)
-	case errors.As(err, &objects.ErrMultiTenancy{}):
+	case errors.As(err, &objects.ErrMultiTenancy{}), cerrors.NamespaceErrRendersUnprocessable(err):
 		e.logUserError(className)
 	default:
 		if errors.As(err, &objects.ErrMultiTenancy{}) ||

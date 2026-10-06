@@ -81,9 +81,14 @@ const (
 	WarmupSkippedAlreadyLoaded WarmupOutcome = "skipped_already_loaded"
 	// WarmupSkippedEmpty: the shard has never held an object.
 	WarmupSkippedEmpty WarmupOutcome = "skipped_empty"
+	// WarmupSkippedRecovering: being restored from a peer; the promote loads it, not the sweep.
+	WarmupSkippedRecovering WarmupOutcome = "skipped_recovering"
 	// WarmupSkippedBelowThreshold: the shard holds too few objects for
 	// LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS.
 	WarmupSkippedBelowThreshold WarmupOutcome = "skipped_below_threshold"
+	// WarmupSkippedNamespaceUnknown: the class's namespace could not be decided,
+	// being absent from this node's map or in a state this binary has no case for.
+	WarmupSkippedNamespaceUnknown WarmupOutcome = "skipped_namespace_unknown"
 )
 
 // RecordWarmupOutcome records what the startup warmup sweep did with one shard.

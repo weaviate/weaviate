@@ -250,11 +250,17 @@ func TestValidatePermissions(t *testing.T) {
 			expectedErr: "not a valid class name",
 		},
 		{
-			name: "invalid regex in data object is rejected (would panic the matcher)",
+			// Data.Object is deprecated and ignored, so nothing about it is validated
+			// any more: every value that is rejected on a live target -- a regex that
+			// does not compile, a '/', a brace-rewrite break, an over-long string --
+			// is accepted here as a no-op.
+			name: "deprecated data object is accepted whatever it holds",
 			permissions: []*models.Permission{
-				{Data: &models.PermissionData{Collection: String("*"), Object: String("[")}},
+				dataWithObject("["),
+				dataWithObject("a/b"),
+				dataWithObject(`\x{263a}`),
+				dataWithObject(strings.Repeat("o", maxTargetLength+1)),
 			},
-			expectedErr: "not a valid pattern",
 		},
 		{
 			name: "invalid regex in user is rejected",
@@ -278,19 +284,6 @@ func TestValidatePermissions(t *testing.T) {
 			expectedErr: "not a valid pattern",
 		},
 		{
-			name: "slash in object is rejected",
-			permissions: []*models.Permission{
-				{Data: &models.PermissionData{Collection: String("*"), Object: String("a/b")}},
-			},
-			expectedErr: "must not contain '/'",
-		},
-		{
-			name: "valid object regex is accepted",
-			permissions: []*models.Permission{
-				{Data: &models.PermissionData{Collection: String("*"), Object: String("o|x")}},
-			},
-		},
-		{
 			name: "valid user regex is accepted",
 			permissions: []*models.Permission{
 				{Users: &models.PermissionUsers{Users: String("admin.*")}},
@@ -306,13 +299,6 @@ func TestValidatePermissions(t *testing.T) {
 			name: "unicode class escape in user rejected (KeyMatch5 brace rewrite would break it)",
 			permissions: []*models.Permission{
 				{Users: &models.PermissionUsers{Users: String(`\p{L}`)}},
-			},
-			expectedErr: "not a valid pattern",
-		},
-		{
-			name: "unicode codepoint escape in object rejected",
-			permissions: []*models.Permission{
-				{Data: &models.PermissionData{Collection: String("*"), Object: String(`\x{263a}`)}},
 			},
 			expectedErr: "not a valid pattern",
 		},
@@ -421,9 +407,16 @@ func TestValidatePermissions(t *testing.T) {
 func TestValidatePermissions_AccumulatesErrors(t *testing.T) {
 	err := validatePermissions(false, false, &models.Permission{
 		Collections: &models.PermissionCollections{Collection: String("A[")},
-		Data:        &models.PermissionData{Collection: String("*"), Object: String("(")},
+		Users:       &models.PermissionUsers{Users: String("(")},
 	})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "collection 'A[' is not a valid pattern")
-	assert.Contains(t, err.Error(), "object '(' is not a valid pattern")
+	assert.Contains(t, err.Error(), "users '(' is not a valid pattern")
+}
+
+// dataWithObject builds a data permission carrying the deprecated object field,
+// which the server still accepts on the wire and ignores.
+func dataWithObject(object string) *models.Permission {
+	//nolint:staticcheck // pinning the deprecated field's no-op behaviour is the point
+	return &models.Permission{Data: &models.PermissionData{Collection: String("*"), Object: String(object)}}
 }

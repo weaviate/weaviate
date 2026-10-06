@@ -22,7 +22,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/usecases/schema"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
@@ -115,7 +114,6 @@ func TestCreateRoleSuccess(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			authorizer := authorization.NewMockAuthorizer(t)
 			controller := NewMockControllerAndGetUsers(t)
-			schemaReader := schema.NewMockSchemaGetter(t)
 			logger, _ := test.NewNullLogger()
 
 			authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
@@ -123,10 +121,9 @@ func TestCreateRoleSuccess(t *testing.T) {
 			controller.On("CreateRolesPermissions", mock.Anything).Return(nil)
 
 			h := &authZHandlers{
-				authorizer:   authorizer,
-				controller:   controller,
-				schemaReader: schemaReader,
-				logger:       logger,
+				authorizer: authorizer,
+				controller: controller,
+				logger:     logger,
 			}
 			res := h.createRole(tt.params, tt.principal)
 			parsed, ok := res.(*authz.CreateRoleCreated)
@@ -246,7 +243,6 @@ func TestCreateRoleBadRequest(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			authorizer := authorization.NewMockAuthorizer(t)
 			controller := NewMockControllerAndGetUsers(t)
-			schemaReader := schema.NewMockSchemaGetter(t)
 			logger, _ := test.NewNullLogger()
 
 			if tt.expectedError == "" {
@@ -256,10 +252,9 @@ func TestCreateRoleBadRequest(t *testing.T) {
 			}
 
 			h := &authZHandlers{
-				authorizer:   authorizer,
-				controller:   controller,
-				schemaReader: schemaReader,
-				logger:       logger,
+				authorizer: authorizer,
+				controller: controller,
+				logger:     logger,
 			}
 			res := h.createRole(tt.params, nil)
 			parsed, ok := res.(*authz.CreateRoleBadRequest)
@@ -489,7 +484,6 @@ func TestCreateRoleOperatorReservedPrefix(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			authorizer := authorization.NewMockAuthorizer(t)
 			controller := NewMockControllerAndGetUsers(t)
-			schemaReader := schema.NewMockSchemaGetter(t)
 			logger, _ := test.NewNullLogger()
 
 			authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
@@ -500,7 +494,6 @@ func TestCreateRoleOperatorReservedPrefix(t *testing.T) {
 			h := &authZHandlers{
 				authorizer:        authorizer,
 				controller:        controller,
-				schemaReader:      schemaReader,
 				logger:            logger,
 				namespacesEnabled: tt.namespacesEnabled,
 			}
@@ -626,7 +619,6 @@ func TestCreateRoleNamespaced(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			authorizer := authorization.NewMockAuthorizer(t)
 			controller := NewMockControllerAndGetUsers(t)
-			schemaReader := schema.NewMockSchemaGetter(t)
 			logger, _ := test.NewNullLogger()
 
 			authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
@@ -646,7 +638,6 @@ func TestCreateRoleNamespaced(t *testing.T) {
 			h := &authZHandlers{
 				authorizer:        authorizer,
 				controller:        controller,
-				schemaReader:      schemaReader,
 				logger:            logger,
 				namespacesEnabled: true,
 			}

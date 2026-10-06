@@ -24,7 +24,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
-func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass classGetterWithAuthzFunc, namespacesEnabled bool, principal *models.Principal) (objects.BatchDeleteParams, error) {
+func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass classGetterWithAuthzFunc, qualifier namespacing.Qualifier, principal *models.Principal) (objects.BatchDeleteParams, error) {
 	params := objects.BatchDeleteParams{}
 
 	tenant := ""
@@ -54,7 +54,7 @@ func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass c
 		return objects.BatchDeleteParams{}, fmt.Errorf("no filters in batch delete request")
 	}
 
-	clause, err := ExtractFilters(req.Filters, authorizedGetClass, req.Collection, tenant, namespacesEnabled, principal)
+	clause, err := ExtractFilters(req.Filters, authorizedGetClass, req.Collection, tenant, qualifier, principal)
 	if err != nil {
 		return objects.BatchDeleteParams{}, err
 	}
@@ -67,6 +67,9 @@ func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass c
 	return params, nil
 }
 
+// batchDeleteReplyFromObjects converts a repo-level delete result into the gRPC reply.
+// Limit is always set, including a cap of zero, so an absent field on the wire means
+// the server predates the field.
 func batchDeleteReplyFromObjects(response objects.BatchDeleteResult, verbose bool, principal *models.Principal) (*pb.BatchDeleteReply, error) {
 	var successful, failed int64
 
@@ -103,10 +106,12 @@ func batchDeleteReplyFromObjects(response objects.BatchDeleteResult, verbose boo
 			objs = append(objs, resultObj)
 		}
 	}
+	limit := response.Limit
 	reply := &pb.BatchDeleteReply{
 		Successful: successful,
 		Failed:     failed,
 		Matches:    response.Matches,
+		Limit:      &limit,
 		Objects:    objs,
 	}
 

@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/backup"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
@@ -479,7 +480,8 @@ func TestInitShardVectors_RecoveryFromARefusedLoad(t *testing.T) {
 	require.NoError(t, err)
 	cold := coldShard.(*LazyLoadShard)
 	idx.shards.Store(shard.Name(), cold)
-	require.ErrorContains(t, cold.Load(ctx), `vectors "" and "compressed" share "vectors_compressed"`)
+	_, _, err = cold.loadIfCold(ctx)
+	require.ErrorContains(t, err, `vectors "" and "compressed" share "vectors_compressed"`)
 
 	// the drop runs against the cold shard, by path; checked before the
 	// reload, which would recreate an empty bucket and hide the loss
@@ -488,9 +490,10 @@ func TestInitShardVectors_RecoveryFromARefusedLoad(t *testing.T) {
 	require.NoError(t, err, "the drop spared the legacy vector's bucket")
 	require.NotEmpty(t, entries)
 
-	require.NoError(t, cold.Load(ctx))
+	_, _, err = cold.loadIfCold(ctx)
+	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, cold.Shutdown(context.Background())) })
-	found, err := cold.shard.WithVectorIndex("", func(index VectorIndex) error {
+	found, err := cold.loadedShard().WithVectorIndex("", func(index VectorIndex) error {
 		for _, obj := range objs {
 			if !index.ContainsDoc(obj.DocID) {
 				return fmt.Errorf("doc %d is gone", obj.DocID)
@@ -675,4 +678,181 @@ func copyFileForTest(t *testing.T, src, dst string) {
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Dir(dst), 0o755))
 	require.NoError(t, os.WriteFile(dst, data, 0o644))
+}
+
+// A dropping record is a deferred deletion the process did not finish: the
+// load deletes the files and the record, then treats the vector as unknown.
+func TestInitShardVectors_FinishesADroppingRecord(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "one", true)))
+	require.NotEmpty(t, entriesNamed(t, shard, "foo"))
+	dropping := vectorIndexRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "dropping"}
+
+	// dropped in the schema, the record left dropping: files and record go
+	markDropped(class, "foo")
+	shard.index.vectorIndexUserConfigLock.Lock()
+	delete(shard.index.vectorIndexUserConfigs, "foo")
+	shard.index.vectorIndexUserConfigLock.Unlock()
+	shard = reloadAfter(t, ctx, shard, class, func() {
+		withOfflineMapping(t, shard.path(), func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+			require.NoError(t, m.Put("foo", dropping))
+		})
+	})
+	assert.Empty(t, entriesNamed(t, shard, "foo"))
+	_, ok, err := shard.mapping.Get("foo")
+	require.NoError(t, err)
+	assert.False(t, ok)
+	found, err := shard.WithVectorIndex("foo", func(VectorIndex) error { return nil })
+	require.NoError(t, err)
+	assert.False(t, found)
+
+	// active again in the schema with the record still dropping: the old
+	// files go, then the vector is created fresh
+	class.VectorConfig["foo"] = models.VectorConfig{VectorIndexType: enthnsw.NewDefaultUserConfig().IndexType(), VectorIndexConfig: enthnsw.NewDefaultUserConfig()}
+	shard.index.vectorIndexUserConfigLock.Lock()
+	shard.index.vectorIndexUserConfigs["foo"] = enthnsw.NewDefaultUserConfig()
+	shard.index.vectorIndexUserConfigLock.Unlock()
+	stale := filepath.Join(shard.path(), helpers.GetHNSWCommitLogDirName("foo"), "stale")
+	shard = reloadAfter(t, ctx, shard, class, func() {
+		require.NoError(t, os.MkdirAll(filepath.Dir(stale), 0o755))
+		require.NoError(t, os.WriteFile(stale, []byte("old"), 0o600))
+		withOfflineMapping(t, shard.path(), func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+			require.NoError(t, m.Put("foo", dropping))
+		})
+	})
+	rec, ok, err := shard.mapping.Get("foo")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, vectorIndexRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "ready"}, rec)
+	_, err = os.Stat(stale)
+	assert.True(t, os.IsNotExist(err), "the old files went before the fresh build")
+	found, err = shard.WithVectorIndex("foo", func(VectorIndex) error { return nil })
+	require.NoError(t, err)
+	assert.True(t, found)
+}
+
+// The startup's marker sweep runs before the mapping is open: it must read
+// the dropping record offline and delete at the recorded id, not at the
+// naming rule's, or the remapped files outlive the record.
+func TestInitShardVectors_FinishesADroppingRecordAtTheRecordedID(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	shard, decoy := remapFoo(t, ctx, shard, class)
+
+	markDropped(class, "foo")
+	shard.index.vectorIndexUserConfigLock.Lock()
+	delete(shard.index.vectorIndexUserConfigs, "foo")
+	shard.index.vectorIndexUserConfigLock.Unlock()
+	shard = reloadAfter(t, ctx, shard, class, func() {
+		withOfflineMapping(t, shard.path(), func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+			require.NoError(t, m.Put("foo", vectorIndexRecord{PhysicalID: "vectors_foo_v2", IndexType: "hnsw", State: "dropping"}))
+		})
+	})
+	assert.Empty(t, entriesWithID(t, shard, "vectors_foo_v2"))
+	_, err := os.Stat(decoy)
+	assert.NoError(t, err, "the naming rule's paths were not touched")
+	_, ok, err := shard.mapping.Get("foo")
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
+// The cold sweep, on a shard that is not loaded, deletes at the recorded id
+// and deletes nothing for a name the mapping does not record.
+func TestRemoveVectorIndexFiles_ReadsTheRecordOffline(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	shard, decoy := remapFoo(t, ctx, shard, class)
+	ghost := filepath.Join(shard.path(), helpers.GetHNSWCommitLogDirName("ghost"), "somebody-elses")
+	require.NoError(t, os.MkdirAll(filepath.Dir(ghost), 0o755))
+	require.NoError(t, os.WriteFile(ghost, []byte("x"), 0o600))
+	require.NoError(t, shard.Shutdown(ctx))
+	withOfflineMapping(t, shard.path(), func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+		require.NoError(t, m.Put("foo", vectorIndexRecord{PhysicalID: "vectors_foo_v2", IndexType: "hnsw", State: "dropping"}))
+	})
+
+	h := newVectorDropIndexHelper()
+	require.NoError(t, h.removeVectorIndexFiles(shard.index.path(), shard.name, "foo", otherTargetVectors(class, "foo")))
+	assert.Empty(t, entriesWithID(t, shard, "vectors_foo_v2"))
+	_, err := os.Stat(decoy)
+	assert.NoError(t, err, "the naming rule's paths were not touched")
+	rec, ok, _, err := readVectorIndexRecordOffline(shard.path(), "foo")
+	require.NoError(t, err)
+	assert.False(t, ok, "the record went last: %+v", rec)
+
+	require.NoError(t, h.removeVectorIndexFiles(shard.index.path(), shard.name, "ghost", nil))
+	_, err = os.Stat(ghost)
+	assert.NoError(t, err, "an initialized mapping without a record owns nothing")
+
+	// a record this binary cannot trust stops the sweep before it deletes
+	withOfflineMapping(t, shard.path(), func(_ *vectorIndexMapping, ns *shardmeta.Namespace) {
+		require.NoError(t, ns.Put([]byte("ghost"), []byte(`{"physical_id":"","index_type":"hnsw","state":"ready"}`)))
+	})
+	err = h.removeVectorIndexFiles(shard.index.path(), shard.name, "ghost", nil)
+	require.ErrorContains(t, err, "physical id")
+	_, err = os.Stat(ghost)
+	assert.NoError(t, err, "nothing deleted on a refused record")
+}
+
+// A drop that failed part-way leaves a dropping record and files, here an
+// upgraded dynamic index whose state key is gone and whose commit log
+// survives. When the schema has the name again, the load finishes the drop
+// first, so the re-created index starts clean instead of inferring its
+// upgrade from the surviving commit log and replaying it.
+func TestInitShardVectors_FinishesADroppingRecordBeforeRecreatingTheName(t *testing.T) {
+	ctx := testCtx()
+	const className = "RecreateDynamic"
+	duc := entdynamic.UserConfig{}
+	duc.SetDefaults()
+	duc.Threshold = 10
+	class := &models.Class{Class: className, VectorConfig: map[string]models.VectorConfig{
+		"dyn": {VectorIndexType: duc.IndexType(), VectorIndexConfig: duc},
+	}}
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, true, func(i *Index) {
+		i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{"dyn": duc}
+	})
+	shard := underlyingShard(t, shd)
+	t.Cleanup(func() { _ = idx.drop() })
+
+	var objs []*storobj.Object
+	for i := 0; i < 20; i++ {
+		obj := &storobj.Object{
+			MarshallerVersion: 1,
+			Object:            models.Object{ID: strfmt.UUID(uuid.NewString()), Class: className},
+			Vectors:           map[string][]float32{"dyn": {float32(i), 1, 2, 3}},
+		}
+		require.NoError(t, shard.PutObject(ctx, obj))
+		objs = append(objs, obj)
+	}
+	commitLog := filepath.Join(shard.path(), helpers.GetHNSWCommitLogDirName("dyn"))
+	flatBucket := filepath.Join(shard.pathLSM(), helpers.VectorsBucketNameForID("vectors_dyn"))
+	exists := func(path string) bool { _, err := os.Stat(path); return err == nil }
+	require.Eventually(t, func() bool { return exists(commitLog) && !exists(flatBucket) }, 30*time.Second, 50*time.Millisecond,
+		"the queue upgrades past the threshold")
+
+	// the partial drop: state key gone, commit log left, record dropping;
+	// the schema still has the name, as after a finalize and a re-create
+	shard = reloadAfter(t, ctx, shard, class, func() {
+		require.NoError(t, dynamic.RemoveStateKeyForID(shard.path(), "vectors_dyn"))
+		withOfflineMapping(t, shard.path(), func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+			require.NoError(t, m.Put("dyn", vectorIndexRecord{PhysicalID: "vectors_dyn", IndexType: "dynamic", State: "dropping"}))
+		})
+	})
+
+	rec, ok, err := shard.mapping.Get("dyn")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "ready", rec.State)
+	upgraded, err := dynamic.UpgradedInState(shard.metadataDB.Namespace(dynamic.StateNamespace), shard.path(), "vectors_dyn")
+	require.NoError(t, err)
+	assert.False(t, upgraded, "the re-created index starts flat")
+	assert.True(t, exists(flatBucket), "the flat stage is back")
+	found, err := shard.WithVectorIndex("dyn", func(index VectorIndex) error {
+		for _, obj := range objs {
+			assert.False(t, index.ContainsDoc(obj.DocID), "the surviving commit log was not replayed")
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	require.True(t, found)
 }

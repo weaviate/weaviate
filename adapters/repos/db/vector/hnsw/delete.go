@@ -619,13 +619,13 @@ func (h *hnsw) reassignNeighbor(
 	currentMaximumLayer := h.currentMaximumLayer
 	h.RUnlock()
 
-	if neighborNode == nil || deleteList.Contains(neighborNode.id) {
+	if neighborNode == nil || deleteList.Contains(neighbor) {
 		return true, nil
 	}
 
 	neighborNode.Lock()
-	neighborLevel := neighborNode.level
-	if !connectionsPointTo(neighborNode.connections, deleteList) {
+	neighborLevel := int(neighborNode.level)
+	if !connectionsPointTo(&neighborNode.connections, deleteList) {
 		// nothing needs to be changed, skip
 		neighborNode.Unlock()
 		return true, nil
@@ -657,7 +657,7 @@ func (h *hnsw) reassignNeighbor(
 	defer neighborNode.unmarkAsMaintenance()
 
 	dummyEntrypoint := uint64(0)
-	if err := h.reconnectNeighboursOf(ctx, neighborNode, dummyEntrypoint, neighborVec, compressorDistancer,
+	if err := h.reconnectNeighboursOf(ctx, neighbor, neighborNode, dummyEntrypoint, neighborVec, compressorDistancer,
 		neighborLevel, currentMaximumLayer, deleteList, processedIDs); err != nil {
 		return false, errors.Wrap(err, "find and connect neighbors")
 	}
@@ -709,7 +709,7 @@ func (h *hnsw) deleteEntrypoint(id uint64, denyList helpers.AllowList) error {
 	return nil
 }
 
-var errNoUsableEntrypoint = errors.New("no valid entrypoint available")
+var errNoUsableEntrypoint = enterrors.ErrNoUsableEntrypoint
 
 // repairGlobalEntrypoint replaces an unusable global entrypoint with a usable
 // node, skipping nodes in denyList (which must already contain oldEntrypoint).
@@ -781,7 +781,7 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList,
 		}
 
 		candidate.Lock()
-		candidateLevel := candidate.level
+		candidateLevel := int(candidate.level)
 		candidate.Unlock()
 
 		// skip tombstoned and under-maintenance nodes: they would immediately
@@ -837,7 +837,7 @@ func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, oldEntrypoint 
 			}
 
 			candidate.Lock()
-			candidateLevel := candidate.level
+			candidateLevel := int(candidate.level)
 			candidate.Unlock()
 
 			if candidateLevel != l {
@@ -871,8 +871,9 @@ func (h *hnsw) isOnlyNode(needleID uint64, denyList helpers.AllowList) bool {
 }
 
 func (h *hnsw) isOnlyNodeUnlocked(needleID uint64, denyList helpers.AllowList) bool {
-	for _, node := range h.nodes {
-		if node == nil || node.id == needleID || denyList.Contains(node.id) || node.connections.Layers() == 0 {
+	for i, node := range h.nodes {
+		id := uint64(i)
+		if node == nil || id == needleID || denyList.Contains(id) || node.connections.Layers() == 0 {
 			continue
 		}
 		return false

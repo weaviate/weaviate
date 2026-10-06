@@ -30,11 +30,11 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 ) error {
 	className, _, err := m.resolveNS(principal, obj.Class)
 	if err != nil {
-		return NewErrInvalidUserInput("%v", err)
+		return userInputOrForbidden(err)
 	}
 	obj.Class = className
 
-	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, obj.Tenant, obj.ID)); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, obj.Tenant)); err != nil {
 		return err
 	}
 

@@ -264,7 +264,7 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			closeRequestedCtx, signalCloseRequested := context.WithCancelCause(context.Background())
 			defer signalCloseRequested(nil)
 			idx := &Index{
-				Config:               IndexConfig{RootPath: t.TempDir(), ClassName: "Movies"},
+				Config:               IndexConfig{NodeName: "node1", RootPath: t.TempDir(), ClassName: "Movies"},
 				closingCtx:           closingCtx,
 				closeRequestedCtx:    closeRequestedCtx,
 				signalCloseRequested: signalCloseRequested,
@@ -400,7 +400,7 @@ func TestCleanStalePartialReindexStateRefusesAnAlreadyRequestedClose(t *testing.
 			closeRequestedCtx, signalCloseRequested := context.WithCancelCause(context.Background())
 			defer signalCloseRequested(nil)
 			idx := &Index{
-				Config:               IndexConfig{RootPath: t.TempDir(), ClassName: "Movies"},
+				Config:               IndexConfig{NodeName: "node1", RootPath: t.TempDir(), ClassName: "Movies"},
 				closingCtx:           closingCtx,
 				closeRequestedCtx:    closeRequestedCtx,
 				signalCloseRequested: signalCloseRequested,
@@ -539,7 +539,7 @@ func TestForEachShardStrictReportsACloseThatLandsMidWalk(t *testing.T) {
 			closeRequestedCtx, signalCloseRequested := context.WithCancelCause(context.Background())
 			defer signalCloseRequested(nil)
 			idx := &Index{
-				Config:               IndexConfig{RootPath: t.TempDir(), ClassName: "Movies"},
+				Config:               IndexConfig{NodeName: "node1", RootPath: t.TempDir(), ClassName: "Movies"},
 				closingCtx:           closingCtx,
 				closeRequestedCtx:    closeRequestedCtx,
 				signalCloseRequested: signalCloseRequested,
@@ -686,7 +686,7 @@ func newSweepTestIndex(t *testing.T, logger *logrus.Logger) (
 	closeRequestedCtx, signalCloseRequested := context.WithCancelCause(context.Background())
 	t.Cleanup(func() { signalCloseRequested(nil) })
 	return &Index{
-		Config:               IndexConfig{RootPath: t.TempDir(), ClassName: "Movies"},
+		Config:               IndexConfig{NodeName: "node1", RootPath: t.TempDir(), ClassName: "Movies"},
 		closingCtx:           closingCtx,
 		closeRequestedCtx:    closeRequestedCtx,
 		signalCloseRequested: signalCloseRequested,
@@ -905,7 +905,7 @@ func TestIndexCleanStalePartialReindexStateReportsRefusedListingsPerSweep(t *tes
 
 // Pins that a collection already gone is reported as dropped, not clean.
 func TestDBCleanStalePartialReindexStateOnACollectionThatIsNotHere(t *testing.T) {
-	db := &DB{indices: map[string]*Index{}}
+	db := &DB{localNodeName: "node1", indices: map[string]*Index{}}
 
 	err := db.NewStalePartialReindexSweep()(context.Background(), "Movies", "title", "filterable")
 

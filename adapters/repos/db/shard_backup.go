@@ -548,7 +548,7 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 func (s *Shard) readBackupMetadata(d *backup.ShardDescriptor) (err error) {
 	d.Name = s.name
 
-	d.Node = s.index.getSchema.NodeName()
+	d.Node = s.index.Config.NodeName
 
 	fpath := s.counter.FileName()
 	if d.DocIDCounter, err = os.ReadFile(fpath); err != nil {

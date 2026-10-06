@@ -24,4 +24,6 @@ type ReplicationFSMReader interface {
 	// replication op for (collection, shard, targetNode) whose state is non-terminal.
 	// Eventually consistent with the RAFT log (local FSM read); not a synchronization barrier.
 	HasActiveTargetReplicationForShard(collection, shard, targetNode string) bool
+	// HasActiveSelfRecoveryTargetingShard restricts HasActiveTargetReplicationForShard to SELF_RECOVERY ops.
+	HasActiveSelfRecoveryTargetingShard(collection, shard, targetNode string) bool
 }

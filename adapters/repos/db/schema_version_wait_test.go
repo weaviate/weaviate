@@ -22,12 +22,12 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 // Test_DB_WaitsForSchemaVersion_BeforeIndexLookup pins the order of the two steps
@@ -150,14 +150,15 @@ func Test_DB_WaitsForSchemaVersion_BeforeIndexLookup(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(ep.name+"/"+tt.name, func(t *testing.T) {
 				logger, _ := test.NewNullLogger()
-				schemaReader := schemaUC.NewMockSchemaReader(t)
+				schemaReader := local.NewMockSchemaReader(t)
 				schemaReader.EXPECT().WaitForUpdate(mock.Anything, tt.version).
 					Return(tt.waitErr).Once()
 				db := &DB{
-					logger:       logger,
-					indices:      map[string]*Index{},
-					schemaReader: schemaReader,
-					memMonitor:   memwatch.NewDummyMonitor(),
+					localNodeName: "node1",
+					logger:        logger,
+					indices:       map[string]*Index{},
+					schemaReader:  schemaReader,
+					memMonitor:    memwatch.NewDummyMonitor(),
 				}
 
 				err := ep.call(context.Background(), db, tt.version)
@@ -205,10 +206,10 @@ func Test_DB_WaitForSchemaVersionForIndexWrite_ReportsFailureInMsg(t *testing.T)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			schemaReader := schemaUC.NewMockSchemaReader(t)
+			schemaReader := local.NewMockSchemaReader(t)
 			schemaReader.EXPECT().WaitForUpdate(mock.Anything, tt.version).
 				Return(tt.waitErr).Once()
-			db := &DB{schemaReader: schemaReader}
+			db := &DB{localNodeName: "node1", schemaReader: schemaReader}
 
 			resp := db.waitForSchemaVersionForIndexWrite(context.Background(), tt.version)
 

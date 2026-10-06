@@ -37,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/license"
 )
 
 // --- test helpers ---
@@ -44,6 +45,10 @@ import (
 type noopAuthorizer struct{}
 
 func (n *noopAuthorizer) Authorize(_ context.Context, _ *models.Principal, _ string, _ ...string) error {
+	return nil
+}
+
+func (n *noopAuthorizer) AuthorizeAndRequireActiveNamespace(_ context.Context, _ *models.Principal, _ string, _ string, _ ...string) error {
 	return nil
 }
 
@@ -583,14 +588,14 @@ func TestBackupTaskProvider(t *testing.T) {
 // dedupeFlow runs one node's DTM flow for a dedupe backup over fakes. Article
 // has two shards replicated on node-1 and node-2; Book lives on node-1 only.
 type dedupeFlow struct {
-	node         string
-	payload      *taskPayload
-	provider     *BackupTaskProvider
-	backend      *fakeBackend
-	sourcer      *fakeSourcer
-	checkpointer *fakeCheckpointer
-	recorder     *threadSafeRecorder
-	hook         *test.Hook
+	node     string
+	payload  *taskPayload
+	provider *BackupTaskProvider
+	backend  *fakeBackend
+	sourcer  *fakeSourcer
+	planner  *fakeDedupePlanner
+	recorder *threadSafeRecorder
+	hook     *test.Hook
 	// claimedBy presets NodeID on the local units, as a restarted flow sees it.
 	claimedBy string
 
@@ -608,19 +613,14 @@ type dedupeUpload struct {
 func newDedupeFlow(t *testing.T, node string) *dedupeFlow {
 	t.Helper()
 	fx := &dedupeFlow{
-		node:         node,
-		payload:      makePayload("b1"),
-		backend:      newFakeBackend(),
-		sourcer:      &fakeSourcer{},
-		checkpointer: newFakeCheckpointer(),
-		recorder:     &threadSafeRecorder{},
+		node:     node,
+		payload:  makePayload("b1"),
+		backend:  newFakeBackend(),
+		sourcer:  &fakeSourcer{},
+		planner:  &fakeDedupePlanner{},
+		recorder: &threadSafeRecorder{},
 	}
 	fx.payload.DedupeReplicas = true
-	fx.checkpointer.shardReplicas["Article"] = map[string][]string{
-		"s1": {"node-1", "node-2"},
-		"s2": {"node-1", "node-2"},
-	}
-	fx.checkpointer.shardReplicas["Book"] = map[string][]string{"s1": {"node-1"}}
 
 	fx.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
 	fx.backend.On("SourceDataPath").Return("/data")
@@ -652,18 +652,14 @@ func newDedupeFlow(t *testing.T, node string) *dedupeFlow {
 	var logger *logrus.Logger
 	logger, fx.hook = test.NewNullLogger()
 	fx.provider = NewBackupTaskProvider(BackupTaskProviderParams{
-		Node:         node,
-		Logger:       logger,
-		Cfg:          config.Backup{},
-		Sourcer:      fx.sourcer,
-		Backends:     &fakeBackupBackendProvider{backend: fx.backend},
-		Checkpointer: fx.checkpointer,
+		Node:          node,
+		Logger:        logger,
+		Cfg:           config.Backup{},
+		Sourcer:       fx.sourcer,
+		Backends:      &fakeBackupBackendProvider{backend: fx.backend},
+		DedupePlanner: fx.planner,
 	})
 	fx.provider.planPollInterval = 5 * time.Millisecond
-	fx.provider.planner.dedupeCutoffLead = 10 * time.Millisecond
-	fx.provider.planner.dedupePollInterval = 5 * time.Millisecond
-	fx.provider.planner.dedupeConvergenceBudget = 500 * time.Millisecond
-	fx.provider.planner.dedupePlanningSlack = 200 * time.Millisecond
 	fx.provider.SetCompletionRecorder(fx.recorder)
 	return fx
 }
@@ -734,29 +730,6 @@ func marshalDescriptor(t *testing.T, desc backup.DistributedBackupDescriptor) []
 	return raw
 }
 
-var dedupeFallbackReasons = []string{"class_ineligible", "create_rpc_failed", "planning_deadline", "status_failed", "checkpoint_missing", "not_converged"}
-
-// noFallbackRecorded snapshots the dedupe fallback metrics and returns a check
-// that they did not move and that no fallback was logged.
-func noFallbackRecorded(t *testing.T, hook *test.Hook) func() {
-	t.Helper()
-	before := make(map[string]float64, len(dedupeFallbackReasons))
-	for _, reason := range dedupeFallbackReasons {
-		before[reason] = dedupeFallbackCount(reason)
-	}
-	fallbackBefore := dedupeShardOutcomeCount("fallback")
-	return func() {
-		t.Helper()
-		for _, reason := range dedupeFallbackReasons {
-			assert.Zero(t, dedupeFallbackCount(reason)-before[reason], reason)
-		}
-		assert.Zero(t, dedupeShardOutcomeCount("fallback")-fallbackBefore)
-		for _, entry := range hook.AllEntries() {
-			assert.NotContains(t, entry.Message, "all-replica backup")
-		}
-	}
-}
-
 func TestBackupTaskProviderDedupe(t *testing.T) {
 	published := backup.DistributedBackupDescriptor{
 		ID:                     "b1",
@@ -769,12 +742,11 @@ func TestBackupTaskProviderDedupe(t *testing.T) {
 
 	t.Run("planner publishes the plan before uploading and uploads with its designations", func(t *testing.T) {
 		fx := newDedupeFlow(t, "node-1")
-		fx.checkpointer.converge["Article/s1"] = true
-		fx.checkpointer.converge["Article/s2"] = true
-		// Balanced assignment would give s1 to node-1.
+		wantPlan := map[string]map[string]string{"Article": {"s1": "node-2", "s2": "node-1"}}
+		fx.planner.plan = &DedupePlan{Designations: wantPlan, Cutoffs: map[string]int64{"Article": 1}, CandidateShards: 2}
+		baseDesignations := map[string]map[string]string{"Article": {"s1": "node-2"}}
 		fx.withBase(marshalDescriptor(t, backup.DistributedBackupDescriptor{
-			ID: "base", Status: backup.Success,
-			DedupeDesignations: map[string]map[string]string{"Article": {"s1": "node-2"}},
+			ID: "base", Status: backup.Success, DedupeDesignations: baseDesignations,
 		}), nil)
 		// The re-read after publishing serves a plan unlike the one written, so
 		// only an upload from the stored plan matches it.
@@ -783,12 +755,16 @@ func TestBackupTaskProviderDedupe(t *testing.T) {
 
 		fx.run(t)
 
-		wantPlan := map[string]map[string]string{"Article": {"s1": "node-2", "s2": "node-1"}}
+		calls := fx.planner.recordedCalls()
+		require.Len(t, calls, 1)
+		assert.Equal(t, fx.payload.Classes, calls[0].classes)
+		assert.Equal(t, map[string]struct{}{"node-1": {}, "node-2": {}}, calls[0].participants)
+		assert.Equal(t, baseDesignations, calls[0].preferred, "the base designations are offered to the planner")
 		assert.Equal(t, 1, fx.globalWrites())
 		uploads := fx.getUploads()
 		require.Len(t, uploads, 1)
 		assert.Equal(t, backup.Started, uploads[0].global.Status, "the plan is published before the upload")
-		assert.Equal(t, wantPlan, uploads[0].global.DedupeDesignations, "the base designee wins over balance")
+		assert.Equal(t, wantPlan, uploads[0].global.DedupeDesignations)
 		assert.Equal(t, VersionDedupeReplicas, uploads[0].global.Version)
 		assert.True(t, uploads[0].global.DedupeReplicas)
 		assert.Equal(t, 2, uploads[0].global.DedupeDesignatedShards)
@@ -816,7 +792,7 @@ func TestBackupTaskProviderDedupe(t *testing.T) {
 		assert.Equal(t, VersionDedupeReplicas, version)
 		assert.True(t, dedupe)
 		assert.Zero(t, fx.globalWrites(), "only the planner writes the Started descriptor")
-		assert.Empty(t, fx.checkpointer.createCalls)
+		assert.Empty(t, fx.planner.recordedCalls())
 		assert.Empty(t, fx.recorder.getFailures())
 		assert.Equal(t, []string{"node-2/Article"}, fx.recorder.getCompletions())
 	})
@@ -895,7 +871,7 @@ func TestBackupTaskProviderDedupe(t *testing.T) {
 		assert.Equal(t, []string{"node-2/Article"}, fx.recorder.getCompletions())
 	})
 
-	t.Run("ordinary dedupe failures publish a fallback plan and the backup continues", func(t *testing.T) {
+	t.Run("a plan with fallback shards is published and the backup continues", func(t *testing.T) {
 		tests := []struct {
 			name             string
 			setup            func(*dedupeFlow)
@@ -903,37 +879,30 @@ func TestBackupTaskProviderDedupe(t *testing.T) {
 			wantWarning      string
 		}{
 			{
-				name: "status RPC error",
+				name: "every shard falls back",
 				setup: func(fx *dedupeFlow) {
-					fx.checkpointer.statusErr["Article"] = errors.New("status unavailable")
+					fx.planner.plan = &DedupePlan{CandidateShards: 2}
 				},
 			},
 			{
-				name: "create RPC error",
+				name: "some shards fall back",
 				setup: func(fx *dedupeFlow) {
-					fx.checkpointer.createErr["Article"] = errors.New("create unavailable")
+					fx.planner.plan = &DedupePlan{
+						Designations:    map[string]map[string]string{"Article": {"s1": "node-1"}},
+						Cutoffs:         map[string]int64{"Article": 1},
+						CandidateShards: 2,
+					}
 				},
+				wantDesignations: map[string]map[string]string{"Article": {"s1": "node-1"}},
 			},
 			{
-				name: "missing checkpoint",
+				name: "base descriptor read error plans without base designations",
 				setup: func(fx *dedupeFlow) {
-					fx.checkpointer.partial["Article/s1"] = true
-					fx.checkpointer.partial["Article/s2"] = true
-				},
-			},
-			{
-				name: "convergence timeout",
-				setup: func(fx *dedupeFlow) {
-					fx.checkpointer.diverge["Article/s1"] = true
-					fx.checkpointer.diverge["Article/s2"] = true
-					fx.provider.planner.dedupeConvergenceBudget = 40 * time.Millisecond
-				},
-			},
-			{
-				name: "base descriptor read error",
-				setup: func(fx *dedupeFlow) {
-					fx.checkpointer.converge["Article/s1"] = true
-					fx.checkpointer.converge["Article/s2"] = true
+					fx.planner.plan = &DedupePlan{
+						Designations:    map[string]map[string]string{"Article": {"s1": "node-1", "s2": "node-2"}},
+						Cutoffs:         map[string]int64{"Article": 1},
+						CandidateShards: 2,
+					}
 					fx.withBase(nil, errors.New("backend unavailable"))
 				},
 				wantDesignations: map[string]map[string]string{"Article": {"s1": "node-1", "s2": "node-2"}},
@@ -949,10 +918,14 @@ func TestBackupTaskProviderDedupe(t *testing.T) {
 
 				fx.run(t)
 
+				calls := fx.planner.recordedCalls()
+				require.Len(t, calls, 1)
+				assert.Nil(t, calls[0].preferred)
 				got := fx.backend.glMeta
 				assert.Equal(t, backup.Started, got.Status)
 				assert.Equal(t, tc.wantDesignations, got.DedupeDesignations)
 				assert.Equal(t, len(tc.wantDesignations) > 0, got.DedupeReplicas)
+				assert.Equal(t, len(tc.wantDesignations["Article"]), got.DedupeDesignatedShards)
 				assert.Equal(t, 2-len(tc.wantDesignations["Article"]), got.DedupeFallbackShards)
 				uploads := fx.getUploads()
 				require.Len(t, uploads, 1)
@@ -968,49 +941,23 @@ func TestBackupTaskProviderDedupe(t *testing.T) {
 		}
 	})
 
-	t.Run("converged shards keep their designations when others fall back", func(t *testing.T) {
-		fx := newDedupeFlow(t, "node-1")
-		fx.backend.serveWrittenGlobalBackupMeta = true
-		fx.serveGlobal(nil, backup.ErrNotFound{})
-		fx.checkpointer.converge["Article/s1"] = true
-		fx.checkpointer.diverge["Article/s2"] = true
-		fx.provider.planner.dedupeConvergenceBudget = 40 * time.Millisecond
-
-		fx.run(t)
-
-		want := map[string]map[string]string{"Article": {"s1": "node-1"}}
-		got := fx.backend.glMeta
-		assert.Equal(t, want, got.DedupeDesignations)
-		assert.Equal(t, 1, got.DedupeDesignatedShards)
-		assert.Equal(t, 1, got.DedupeFallbackShards)
-		assert.True(t, got.DedupeReplicas)
-		uploads := fx.getUploads()
-		require.Len(t, uploads, 1)
-		assert.Equal(t, want, uploads[0].designations)
-		assert.Empty(t, fx.recorder.getFailures())
-	})
-
 	t.Run("cancel during convergence stops planning and prevents uploads", func(t *testing.T) {
 		fx := newDedupeFlow(t, "node-1")
 		fx.serveGlobal(nil, backup.ErrNotFound{})
-		fx.checkpointer.statusHang = true
-		fx.provider.planner.dedupeConvergenceBudget = time.Minute
-		fx.provider.planner.dedupePlanningSlack = time.Minute
-		noFallback := noFallbackRecorded(t, fx.hook)
+		fx.planner.blockUntilCancelled = true
+		fx.planner.plan = &DedupePlan{CandidateShards: 2}
 
 		handle := fx.start(t)
-		require.Eventually(t, func() bool {
-			fx.checkpointer.mu.Lock()
-			defer fx.checkpointer.mu.Unlock()
-			return fx.checkpointer.statusCalls["Article"] > 0
-		}, 5*time.Second, time.Millisecond)
+		require.Eventually(t, func() bool { return len(fx.planner.recordedCalls()) > 0 }, 5*time.Second, time.Millisecond)
+		cancelled := fx.planner.recordedCalls()[0].cancelled
+		assert.False(t, cancelled(), "a running flow is not cancelled")
 		handle.Terminate()
 		waitDone(t, handle)
 
+		assert.True(t, cancelled(), "the ended flow reports cancelled to the planner")
 		assert.Zero(t, fx.globalWrites(), "no plan is published")
 		fx.sourcer.AssertNotCalled(t, "BackupDescriptors", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 		assert.Empty(t, fx.recorder.getFailures())
-		noFallback()
 	})
 
 	t.Run("cancel during the base descriptor read plans nothing and logs no read failure", func(t *testing.T) {
@@ -1034,7 +981,7 @@ func TestBackupTaskProviderDedupe(t *testing.T) {
 		for _, entry := range fx.hook.AllEntries() {
 			assert.NotContains(t, entry.Message, "unreadable")
 		}
-		assert.Empty(t, fx.checkpointer.createCalls)
+		assert.Empty(t, fx.planner.recordedCalls())
 		assert.Zero(t, fx.globalWrites())
 		fx.sourcer.AssertNotCalled(t, "BackupDescriptors", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 		assert.Empty(t, fx.recorder.getFailures())
@@ -1053,7 +1000,7 @@ func TestBackupTaskProviderDedupe(t *testing.T) {
 			assert.Contains(t, msg, "interrupted")
 			assert.Contains(t, msg, "new backup ID")
 		}
-		assert.Empty(t, fx.checkpointer.createCalls)
+		assert.Empty(t, fx.planner.recordedCalls())
 		assert.Zero(t, fx.globalWrites())
 		fx.sourcer.AssertNotCalled(t, "BackupDescriptors", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	})
@@ -1065,7 +1012,7 @@ func TestBackupTaskProviderDedupe(t *testing.T) {
 
 		fx.run(t)
 
-		assert.Empty(t, fx.checkpointer.createCalls)
+		assert.Empty(t, fx.planner.recordedCalls())
 		assert.Zero(t, fx.globalWrites())
 		uploads := fx.getUploads()
 		require.Len(t, uploads, 1)
@@ -1524,8 +1471,9 @@ func newDTMProposeFixture(t *testing.T) *dtmProposeFixture {
 
 func TestBackupDTMDedupe(t *testing.T) {
 	t.Run("dedupe request is admitted and proposed with dedupe fields", func(t *testing.T) {
-		t.Setenv("BACKUP_DEDUPE_ENABLED", "true")
 		fixture := newDTMProposeFixture(t)
+		fixture.scheduler.dedupeMode = license.FeatureLicensed
+		fixture.scheduler.backupper.dedupePlanner = &fakeDedupePlanner{}
 		fixture.req.DedupeReplicas = true
 		fixture.req.DedupeConvergenceTimeoutSeconds = 30
 
@@ -1538,6 +1486,16 @@ func TestBackupDTMDedupe(t *testing.T) {
 		assert.True(t, proposed.DedupeReplicas)
 		assert.Equal(t, 30, proposed.DedupeConvergenceTimeoutSeconds)
 		assert.Empty(t, fixture.scheduler.backupper.lastOp.get().ID, "a DTM backup never takes the 2PC slot")
+	})
+
+	t.Run("unlicensed dedupe request is refused before it is proposed", func(t *testing.T) {
+		fixture := newDTMProposeFixture(t)
+		fixture.scheduler.dedupeMode = license.FeatureUnlicensed
+		fixture.req.DedupeReplicas = true
+
+		_, err := fixture.scheduler.Backup(context.Background(), nil, fixture.req)
+		require.Error(t, err)
+		assert.Empty(t, fixture.dtm.proposedPayload)
 	})
 }
 
@@ -1713,6 +1671,10 @@ type recordingAuthorizer struct {
 func (a *recordingAuthorizer) Authorize(_ context.Context, _ *models.Principal, _ string, resources ...string) error {
 	a.resources = append(a.resources, resources...)
 	return a.err
+}
+
+func (a *recordingAuthorizer) AuthorizeAndRequireActiveNamespace(ctx context.Context, pr *models.Principal, verb string, _ string, resources ...string) error {
+	return a.Authorize(ctx, pr, verb, resources...)
 }
 
 func (a *recordingAuthorizer) AuthorizeSilent(_ context.Context, _ *models.Principal, _ string, resources ...string) error {

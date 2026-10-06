@@ -18,13 +18,13 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/mock"
 
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 func newDummyModule(name string, t modulecapabilities.ModuleType) modulecapabilities.Module {
@@ -184,8 +184,8 @@ func (m dummyNonVectorizerModule) Type() modulecapabilities.ModuleType {
 // newMockSchemaGetter returns a generated SchemaGetter mock that serves
 // ReadOnlyClass from sch. The expectation is optional so setups that never
 // look up a class don't fail the mock's cleanup assertion.
-func newMockSchemaGetter(t *testing.T, sch schema.Schema) *schemaUC.MockSchemaGetter {
-	sg := schemaUC.NewMockSchemaGetter(t)
+func newMockSchemaReader(t *testing.T, sch schema.Schema) *local.MockSchemaReader {
+	sg := local.NewMockSchemaReader(t)
 	sg.EXPECT().ReadOnlyClass(mock.Anything).RunAndReturn(sch.GetClass).Maybe()
 	return sg
 }

@@ -16,6 +16,9 @@ import (
 	"os"
 	"testing"
 
+	"github.com/go-openapi/swag"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
+
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 
@@ -25,14 +28,8 @@ import (
 
 func TestConfigModules(t *testing.T) {
 	t.Run("invalid DefaultVectorDistanceMetric", func(t *testing.T) {
-		moduleProvider := &fakeModuleProvider{
-			valid: []string{"text2vec-contextionary"},
-		}
-		config := Config{
-			DefaultVectorizerModule:     "text2vec-contextionary",
-			DefaultVectorDistanceMetric: "euclidean",
-		}
-		err := config.ValidateModules(moduleProvider)
+		config := Config{DefaultVectorDistanceMetric: "euclidean"}
+		err := config.ValidateDefaultVectorDistanceMetric()
 		assert.EqualError(
 			t,
 			err,
@@ -40,54 +37,14 @@ func TestConfigModules(t *testing.T) {
 		)
 	})
 
-	t.Run("invalid DefaultVectorizerModule", func(t *testing.T) {
-		moduleProvider := &fakeModuleProvider{
-			valid: []string{"text2vec-contextionary"},
-		}
-		config := Config{
-			DefaultVectorizerModule:     "contextionary",
-			DefaultVectorDistanceMetric: "cosine",
-		}
-		err := config.ValidateModules(moduleProvider)
-		assert.EqualError(
-			t,
-			err,
-			"default vectorizer module: invalid vectorizer \"contextionary\"",
-		)
-	})
-
-	t.Run("all valid configurations", func(t *testing.T) {
-		moduleProvider := &fakeModuleProvider{
-			valid: []string{"text2vec-contextionary"},
-		}
-		config := Config{
-			DefaultVectorizerModule:     "text2vec-contextionary",
-			DefaultVectorDistanceMetric: "l2-squared",
-		}
-		err := config.ValidateModules(moduleProvider)
-		assert.Nil(t, err, "should not error")
+	t.Run("valid DefaultVectorDistanceMetric", func(t *testing.T) {
+		config := Config{DefaultVectorDistanceMetric: "l2-squared"}
+		assert.NoError(t, config.ValidateDefaultVectorDistanceMetric())
 	})
 
 	t.Run("without DefaultVectorDistanceMetric", func(t *testing.T) {
-		moduleProvider := &fakeModuleProvider{
-			valid: []string{"text2vec-contextionary"},
-		}
-		config := Config{
-			DefaultVectorizerModule: "text2vec-contextionary",
-		}
-		err := config.ValidateModules(moduleProvider)
-		assert.Nil(t, err, "should not error")
-	})
-
-	t.Run("with none DefaultVectorizerModule", func(t *testing.T) {
-		moduleProvider := &fakeModuleProvider{
-			valid: []string{"text2vec-contextionary"},
-		}
-		config := Config{
-			DefaultVectorizerModule: "none",
-		}
-		err := config.ValidateModules(moduleProvider)
-		assert.Nil(t, err, "should not error")
+		config := Config{}
+		assert.NoError(t, config.ValidateDefaultVectorDistanceMetric())
 	})
 
 	t.Run("parse config.yaml file", func(t *testing.T) {
@@ -309,6 +266,21 @@ func TestConfigParsing(t *testing.T) {
 		require.NoError(t, FromEnv(&config))
 		require.NotNil(t, config.BackupGCS.UseGRPC)
 		assert.False(t, config.BackupGCS.UseGRPCOrDefault())
+	})
+
+	t.Run("a config file cannot grant the license", func(t *testing.T) {
+		t.Setenv("LICENSE_KEY", "")
+		t.Setenv("LICENSE_KEY_FILE", "")
+
+		filepath := fmt.Sprintf("%s/config.yaml", t.TempDir())
+		require.NoError(t, os.WriteFile(filepath, []byte("weaviate_license: true\n"), 0o600))
+
+		weaviateConfig := &WeaviateConfig{}
+		flags := &swag.CommandLineOptionsGroup{Options: &Flags{ConfigFile: filepath}}
+		logger, _ := logrustest.NewNullLogger()
+		require.NoError(t, weaviateConfig.LoadConfig(flags, logger))
+
+		assert.False(t, weaviateConfig.Config.WeaviateLicense)
 	})
 }
 
@@ -568,6 +540,50 @@ func TestBackupGCSUseGRPCOrDefault(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, BackupGCS{UseGRPC: tt.useGRPC}.UseGRPCOrDefault())
+		})
+	}
+}
+
+// A config file is unmarshalled straight into Persistence, past every refusal
+// the environment parser makes.
+func TestPersistenceValidateIndexRangeableInMemoryProps(t *testing.T) {
+	tests := []struct {
+		name   string
+		props  map[string][]string
+		errMsg string
+	}{
+		{
+			name: "nothing configured",
+		},
+		{
+			name:  "named properties",
+			props: map[string][]string{"Foo": {"price"}},
+		},
+		{
+			name:  "every property of a collection",
+			props: map[string][]string{"Foo": {AllProperties}},
+		},
+		{
+			name:   "a collection with no properties is refused",
+			props:  map[string][]string{"Foo": {}},
+			errMsg: "with no properties",
+		},
+		{
+			name:   "a key that is not a collection name is refused",
+			props:  map[string][]string{"foo": {"price"}},
+			errMsg: `names "foo"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := Persistence{DataPath: "./data", IndexRangeableInMemoryProps: tt.props}
+			err := p.Validate()
+			if tt.errMsg != "" {
+				require.ErrorContains(t, err, tt.errMsg)
+				return
+			}
+			require.NoError(t, err)
 		})
 	}
 }

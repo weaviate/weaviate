@@ -184,6 +184,7 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 			if !ok {
 				return fmt.Errorf("cannot remove %s index for %s property: no main bucket for this index type", indexType, prop.Name)
 			}
+			s.retirePropertyOverlay(prop.Name, indexType)
 			if err := s.removeBucket(ctx, mainBucket); err != nil {
 				return fmt.Errorf("cannot remove %s index for %s property: %w", indexType, prop.Name, err)
 			}
@@ -588,13 +589,13 @@ func (s *Shard) removeBucket(ctx context.Context, bucketName string) error {
 	}
 	// Remove the directory even if the store forgot the bucket: a removal
 	// that failed here after the shutdown left it behind.
-	if err := s.removeDirIfExists(s.pathLSM(), bucketName); err != nil {
+	if err := removeDirIfExists(s.pathLSM(), bucketName); err != nil {
 		return fmt.Errorf("bucket %s shut down successfully but directory removal failed: %w", bucketName, err)
 	}
 	return nil
 }
 
-func (s *Shard) removeDirIfExists(parentDir, dirName string) error {
+func removeDirIfExists(parentDir, dirName string) error {
 	dirPath := filepath.Join(parentDir, dirName)
 	if _, err := os.Stat(dirPath); !os.IsNotExist(err) {
 		if err := os.RemoveAll(dirPath); err != nil {
@@ -666,9 +667,11 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 	}
 
 	if inverted.HasRangeableIndex(prop) {
+		// Appended last so it wins over makeDefaultBucketOptions' value.
+		opts := append(makeBucketOptions(lsmkv.StrategyRoaringSetRange),
+			lsmkv.WithKeepSegmentsInMemory(s.index.Config.keepRangeableInMemory(prop.Name)))
 		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketRangeableFromPropNameLSM(prop.Name),
-			makeBucketOptions(lsmkv.StrategyRoaringSetRange)...,
+			helpers.BucketRangeableFromPropNameLSM(prop.Name), opts...,
 		); err != nil {
 			return err
 		}

@@ -140,7 +140,7 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 	assert.ErrorContains(t, err, "node not found")
 	_, err = sc.ShardOwner(ctx, "C", "Sx", 1)
 	assert.ErrorIs(t, err, ErrShardNotFound)
-	shards, _, err := sc.TenantsShards(ctx, 1, "C", "S2")
+	shards, _, err := sc.TenantsShardsStatus(ctx, 1, "C", "S2")
 	assert.Empty(t, shards)
 	assert.Nil(t, err)
 	shard, err := sc.ShardFromUUID(ctx, "Cx", nil, 1)
@@ -168,12 +168,12 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 	assert.Contains(t, nodes, owner)
 
 	// TenantShard
-	shards, _, err = sc.TenantsShards(ctx, 1, "D", "S1")
+	shards, _, err = sc.TenantsShardsStatus(ctx, 1, "D", "S1")
 	assert.Equal(t, shards, map[string]string{"S1": "A"})
 	assert.Equal(t, shards["S1"], "A")
 	assert.Nil(t, err)
 
-	shards, _, err = sc.TenantsShards(ctx, 1, "D", "Sx")
+	shards, _, err = sc.TenantsShardsStatus(ctx, 1, "D", "Sx")
 	assert.Empty(t, shards)
 	assert.Nil(t, err)
 
@@ -263,7 +263,7 @@ func TestSchemaReaderClass(t *testing.T) {
 	assert.ErrorContains(t, err, "node not found")
 	_, err = sc.ShardOwner("C", "Sx")
 	assert.ErrorIs(t, err, ErrShardNotFound)
-	shard, _ := sc.TenantsShards("C", "S2")
+	shard, _ := sc.TenantsShardsStatus("C", "S2")
 	assert.Empty(t, shard)
 	assert.Empty(t, sc.ShardFromUUID("Cx", nil))
 
@@ -287,9 +287,9 @@ func TestSchemaReaderClass(t *testing.T) {
 	assert.Contains(t, nodes, owner)
 
 	// TenantShard
-	shards, _ := sc.TenantsShards("D", "S1")
+	shards, _ := sc.TenantsShardsStatus("D", "S1")
 	assert.Equal(t, shards["S1"], "A")
-	shards, _ = sc.TenantsShards("D", "Sx")
+	shards, _ = sc.TenantsShardsStatus("D", "Sx")
 	assert.Empty(t, shards)
 }
 
@@ -357,7 +357,7 @@ func TestReloadKeepsNestedRangeFiltersInSchema(t *testing.T) {
 		Type: cmd.ApplyRequest_TYPE_ADD_CLASS, Class: "C", SubCommand: sub,
 	}, "node1", true, false))
 
-	sm.ReloadDBFromSchema()
+	sm.ReloadDBFromSchema(context.Background())
 
 	class, _ := sm.schema.ReadOnlyClass("C")
 	require.NotNil(t, class)
@@ -1358,6 +1358,99 @@ func TestSchemaManager_PreApplyFilterRestoreClassCollision(t *testing.T) {
 			}
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+// propertyRecordingIndexer captures the property the store half applies.
+type propertyRecordingIndexer struct {
+	Indexer
+
+	got *models.Property
+}
+
+func (r *propertyRecordingIndexer) UpdateProperty(_ string, req cmd.UpdatePropertyRequest) error {
+	r.got = req.Property
+	return nil
+}
+
+func (r *propertyRecordingIndexer) TriggerSchemaUpdateCallbacks() {}
+
+// TestUpdatePropertyStoreSeesTheMergedProperty pins that the DB half applies
+// the merged property: it drops buckets by the index flags it is handed, and a
+// mask leaves the omitted ones to the schema.
+func TestUpdatePropertyStoreSeesTheMergedProperty(t *testing.T) {
+	vTrue, vFalse := true, false
+
+	tests := []struct {
+		name            string
+		mask            []string
+		payload         *models.Property
+		wantFilterable  bool
+		wantSearchable  bool
+		wantRangeFilter bool
+	}{
+		{
+			name:            "masked update keeps the fields it does not name",
+			mask:            []string{cmd.PropertyFieldIndexSearchable},
+			payload:         &models.Property{Name: "p", IndexFilterable: &vFalse, IndexSearchable: &vFalse, IndexRangeFilters: &vFalse},
+			wantFilterable:  true,
+			wantSearchable:  false,
+			wantRangeFilter: true,
+		},
+		{
+			name:            "masked update applies the field it names",
+			mask:            []string{cmd.PropertyFieldIndexFilterable},
+			payload:         &models.Property{Name: "p", IndexFilterable: &vFalse, IndexSearchable: &vFalse, IndexRangeFilters: &vFalse},
+			wantFilterable:  false,
+			wantSearchable:  true,
+			wantRangeFilter: true,
+		},
+		{
+			name:            "no mask merges everything",
+			mask:            nil,
+			payload:         &models.Property{Name: "p", IndexFilterable: &vFalse, IndexSearchable: &vFalse, IndexRangeFilters: &vFalse},
+			wantFilterable:  false,
+			wantSearchable:  false,
+			wantRangeFilter: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			idx := &propertyRecordingIndexer{}
+			parser := fakes.NewMockParser()
+			parser.On("ParseClass", mock.Anything).Return(nil)
+			sm := NewSchemaManager("node1", idx, parser, prometheus.NewPedanticRegistry(), logrus.New())
+
+			require.NoError(t, sm.schema.addClass(&models.Class{
+				Class: "C",
+				Properties: []*models.Property{{
+					Name: "p", DataType: []string{"text"},
+					IndexFilterable: &vTrue, IndexSearchable: &vTrue, IndexRangeFilters: &vTrue,
+				}},
+			}, &sharding.State{Physical: map[string]sharding.Physical{}}, 1))
+
+			sub, err := json.Marshal(cmd.UpdatePropertyRequest{
+				Property: test.payload, FieldsToUpdate: test.mask,
+			})
+			require.NoError(t, err)
+			require.NoError(t, sm.UpdateProperty(&cmd.ApplyRequest{
+				Type: cmd.ApplyRequest_TYPE_UPDATE_PROPERTY, Class: "C", Version: 2, SubCommand: sub,
+			}, false, false))
+
+			require.NotNil(t, idx.got, "the store half must run")
+			require.Equal(t, test.wantFilterable, *idx.got.IndexFilterable, "filterable")
+			require.Equal(t, test.wantSearchable, *idx.got.IndexSearchable, "searchable")
+			require.Equal(t, test.wantRangeFilter, *idx.got.IndexRangeFilters, "rangeable")
+
+			cls, _ := sm.schema.ReadOnlyClass("C")
+			require.NotNil(t, cls)
+			schemaProp := findProp(cls, "p")
+			require.NotNil(t, schemaProp)
+			require.Equal(t, *schemaProp.IndexFilterable, *idx.got.IndexFilterable)
+			require.Equal(t, *schemaProp.IndexSearchable, *idx.got.IndexSearchable)
+			require.Equal(t, *schemaProp.IndexRangeFilters, *idx.got.IndexRangeFilters)
 		})
 	}
 }

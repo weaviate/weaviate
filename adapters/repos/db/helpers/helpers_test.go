@@ -243,3 +243,12 @@ func TestVectorIndexArtifactNamesForID(t *testing.T) {
 	// a named vector's list agrees with the name-based catalogue
 	assert.Equal(t, vectorIndexArtifactNames("title"), VectorIndexArtifactNamesForID("vectors_title"))
 }
+
+// An index whose raw bucket is another index's muvera bucket keeps it.
+func TestVectorIndexArtifactsForID(t *testing.T) {
+	got := VectorIndexArtifactsForID("vectors_title", []string{"vectors_title_muvera_vectors", "vectors_title"})
+	assert.NotContains(t, got.LSMBuckets, "vectors_title_muvera_vectors", "owned by the sibling")
+	assert.Contains(t, got.LSMBuckets, "vectors_title", "its own raw bucket, the sibling list naming itself changes nothing")
+	assert.Equal(t, VectorIndexArtifactNamesForID("vectors_title").ShardDirs, got.ShardDirs)
+	assert.Equal(t, VectorIndexArtifactNamesForID("vectors_title"), VectorIndexArtifactsForID("vectors_title", nil))
+}

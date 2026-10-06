@@ -25,7 +25,7 @@ const weaviateEndpoint = "WEAVIATE_ENDPOINT"
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 	compose, err := docker.New().
-		WithWeaviate().WithText2VecContextionary().WithSUMTransformers().
+		WithWeaviate().WithText2VecModel2Vec().WithSUMTransformers().
 		Start(ctx)
 	if err != nil {
 		panic(errors.Wrapf(err, "cannot start"))

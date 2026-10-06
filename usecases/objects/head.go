@@ -28,9 +28,9 @@ func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, c
 ) (bool, *Error) {
 	className, _, err := m.resolveNS(principal, className)
 	if err != nil {
-		return false, &Error{err.Error(), StatusUnprocessableEntity, err}
+		return false, resolverError(err)
 	}
-	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, tenant, id)); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, tenant)); err != nil {
 		return false, &Error{err.Error(), StatusForbidden, err}
 	}
 

@@ -1243,8 +1243,9 @@ func shutdownDrainsWriters(t *testing.T, minWalThreshold int64) {
 
 	// Stand where a writer stands after getActiveMemtableForWrite has returned:
 	// holding the memtable and its count, with no bucket lock.
-	active, release, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	require.NoError(t, err)
+	release := active.decWriterCount
 	// Deferred as well as released below: the drain waits on this count with no
 	// deadline, so a FailNow between here and the explicit release would strand
 	// the Shutdown goroutine holding two bucket locks for the rest of the binary.

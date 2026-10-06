@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -121,24 +122,24 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.ErrorIs(t, err, schema.ErrClassExists)
 
 	// QueryReadOnlyClass
-	readOnlyVClass, err := srv.QueryReadOnlyClasses(cls.Class)
+	readOnlyVClass, err := srv.ReadOnlyClassesFromLeader(cls.Class)
 	assert.NoError(t, err)
 	assert.NotNil(t, readOnlyVClass[cls.Class].Class)
 	assert.Equal(t, cls, readOnlyVClass[cls.Class].Class)
 
-	// QueryClassVersions
-	classVersions, err := srv.QueryClassVersions(cls.Class)
+	// ClassVersionsFromLeader
+	classVersions, err := srv.ClassVersionsFromLeader(cls.Class)
 	assert.NoError(t, err)
 	assert.Equal(t, readOnlyVClass[cls.Class].Version, classVersions[cls.Class])
 
-	// QuerySchema
-	getSchema, err := srv.QuerySchema()
+	// SchemaFromLeader
+	getSchema, err := srv.SchemaFromLeader()
 	assert.NoError(t, err)
 	assert.NotNil(t, getSchema)
 	assert.Equal(t, models.Schema{Classes: []*models.Class{readOnlyVClass[cls.Class].Class}}, getSchema)
 
-	// QueryTenants all
-	getTenantsAll, _, err := srv.QueryTenants(cls.Class, []string{})
+	// TenantsFromLeader all
+	getTenantsAll, _, err := srv.TenantsFromLeader(cls.Class, []string{})
 	assert.NoError(t, err)
 	assert.NotNil(t, getTenantsAll)
 	assert.Equal(t, []*models.Tenant{{
@@ -146,8 +147,8 @@ func TestRaftEndpoints(t *testing.T) {
 		ActivityStatus: models.TenantActivityStatusHOT,
 	}}, getTenantsAll)
 
-	// QueryTenants one
-	getTenantsOne, _, err := srv.QueryTenants(cls.Class, []string{"T0"})
+	// TenantsFromLeader one
+	getTenantsOne, _, err := srv.TenantsFromLeader(cls.Class, []string{"T0"})
 	assert.NoError(t, err)
 	assert.NotNil(t, getTenantsOne)
 	assert.Equal(t, []*models.Tenant{{
@@ -155,36 +156,36 @@ func TestRaftEndpoints(t *testing.T) {
 		ActivityStatus: models.TenantActivityStatusHOT,
 	}}, getTenantsOne)
 
-	// QueryTenants one
-	getTenantsNone, _, err := srv.QueryTenants(cls.Class, []string{"T"})
+	// TenantsFromLeader one
+	getTenantsNone, _, err := srv.TenantsFromLeader(cls.Class, []string{"T"})
 	assert.NoError(t, err)
 	assert.NotNil(t, getTenantsNone)
 	assert.Equal(t, []*models.Tenant{}, getTenantsNone)
 
 	// Query ShardTenant
-	getTenantShards, _, err := srv.QueryTenantsShards(cls.Class, "T0")
+	getTenantShards, _, err := srv.TenantsShardsFromLeader(cls.Class, "T0")
 	for tenant, status := range getTenantShards {
 		assert.Nil(t, err)
 		assert.Equal(t, "T0", tenant)
 		assert.Equal(t, models.TenantActivityStatusHOT, status)
 	}
 
-	// QueryShardOwner
-	srv.UpdateClass(ctx, cls, &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"T0": {Name: "T0", BelongsToNodes: []string{"N0"}}}})
-	getShardOwner, _, err := srv.QueryShardOwner(cls.Class, "T0")
+	// ShardOwnerFromLeader
+	srv.UpdateClass(ctx, cls, &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"T0": {Name: "T0", BelongsToNodes: []string{"N0"}}}}, command.ClassUpdateOriginUser)
+	getShardOwner, _, err := srv.ShardOwnerFromLeader(cls.Class, "T0")
 	assert.Nil(t, err)
 	assert.Equal(t, "N0", getShardOwner)
 	// Verify that updating with nil sharding state does not change the sharding state
-	srv.UpdateClass(ctx, cls, nil)
-	getShardOwner, _, err = srv.QueryShardOwner(cls.Class, "T0")
+	srv.UpdateClass(ctx, cls, nil, command.ClassUpdateOriginUser)
+	getShardOwner, _, err = srv.ShardOwnerFromLeader(cls.Class, "T0")
 	assert.Nil(t, err)
 	assert.Equal(t, "N0", getShardOwner)
 
-	// QueryShardingState
+	// ShardingStateFromLeader
 	shardingState := &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"T0": {Name: "T0", BelongsToNodes: []string{"N0"}}}, ReplicationFactor: 1}
-	srv.UpdateClass(ctx, cls, shardingState)
+	srv.UpdateClass(ctx, cls, shardingState, command.ClassUpdateOriginUser)
 
-	getShardingState, _, err := srv.QueryShardingState(cls.Class)
+	getShardingState, _, err := srv.ShardingStateFromLeader(cls.Class)
 	assert.Nil(t, err)
 	assert.Equal(t, shardingState, getShardingState)
 
@@ -195,12 +196,12 @@ func TestRaftEndpoints(t *testing.T) {
 		ReplicationFactor: 1,
 		Tenants:           1,
 	}
-	_, err = srv.UpdateClass(ctx, nil, nil)
+	_, err = srv.UpdateClass(ctx, nil, nil, command.ClassUpdateOriginUser)
 	assert.ErrorIs(t, err, schema.ErrBadRequest)
 	cls.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
 	cls.ReplicationConfig = &models.ReplicationConfig{Factor: 1}
 	ss.Physical = map[string]sharding.Physical{"T0": {Name: "T0"}}
-	version, err := srv.UpdateClass(ctx, cls, nil)
+	version, err := srv.UpdateClass(ctx, cls, nil, command.ClassUpdateOriginUser)
 	info.ClassVersion = version
 	info.ShardVersion = version0
 	assert.Nil(t, err)
@@ -325,8 +326,8 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.Equal(t, m.store.cfg.NodeID, leaderID)
 
 	// create snapshot
-	assert.Nil(t, srv.store.raft.Barrier(2*time.Second).Error())
-	assert.Nil(t, srv.store.raft.Snapshot().Error())
+	assert.Nil(t, srv.store.raft.Load().Barrier(2*time.Second).Error())
+	assert.Nil(t, srv.store.raft.Load().Snapshot().Error())
 
 	// restore from snapshot
 	assert.Nil(t, srv.Close(ctx))
@@ -341,6 +342,69 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready))
 	schemaReader = srv.SchemaReader()
 	assert.Equal(t, info, schemaReader.ClassInfo("C"))
+}
+
+// TestRaftUpdateClass_NamespaceGate pins that Raft.UpdateClass puts its origin on
+// the command, by updating a class in a suspended namespace.
+func TestRaftUpdateClass_NamespaceGate(t *testing.T) {
+	ctx := context.Background()
+	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
+	m.indexer.On("Open", mock.Anything).Return(nil)
+	m.indexer.On("Close", mock.Anything).Return(nil)
+	m.indexer.On("AddClass", mock.Anything).Return(nil)
+	m.indexer.On("UpdateClass", mock.Anything).Return(nil)
+	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+	m.parser.On("ParseClass", mock.Anything).Return(nil)
+	m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(nil, nil)
+	m.replicationFSM.EXPECT().HasActiveReplicationForCollection(mock.Anything).Return(false).Maybe()
+
+	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
+	require.NoError(t, srv.Open(ctx, m.indexer))
+	defer srv.Close(ctx)
+	require.NoError(t, srv.store.Notify(m.cfg.NodeID, fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)))
+	require.True(t, tryNTimesWithWait(20, 200*time.Millisecond, srv.store.IsLeader))
+
+	_, _, err := srv.AddNamespace(ctx, command.Namespace{Name: "alpha", HomeNodes: []string{m.cfg.NodeID}})
+	require.NoError(t, err)
+	cls := &models.Class{Class: "alpha:C", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}}
+	_, err = srv.AddClass(ctx, cls, &sharding.State{PartitioningEnabled: true})
+	require.NoError(t, err)
+	_, err = srv.ChangeNamespaceState(ctx, "alpha", command.NamespaceStateSuspended)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name    string
+		origin  command.ClassUpdateOrigin
+		wantErr error
+	}{
+		{
+			name:   "a BlockMax cutover is admitted",
+			origin: command.ClassUpdateOriginBlockmaxCutover,
+		},
+		{
+			name:    "a user update is refused",
+			origin:  command.ClassUpdateOriginUser,
+			wantErr: usecasesNamespaces.ErrNamespaceSuspended,
+		},
+		{
+			name:    "an update from a node predating the origin is refused",
+			origin:  command.ClassUpdateOriginUnspecified,
+			wantErr: usecasesNamespaces.ErrNamespaceSuspended,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			update := &models.Class{Class: cls.Class, Description: tt.name, MultiTenancyConfig: cls.MultiTenancyConfig}
+			_, err := srv.UpdateClass(ctx, update, nil, tt.origin)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.name, srv.SchemaReader().ReadOnlyClass(cls.Class).Description)
+		})
+	}
 }
 
 func TestRaftStoreInit(t *testing.T) {

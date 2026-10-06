@@ -77,6 +77,17 @@ func TestVectorIndexMapping_Load(t *testing.T) {
 		assert.Empty(t, records)
 	})
 
+	// a deferred deletion the process did not finish; the next load does
+	t.Run("a dropping record loads", func(t *testing.T) {
+		m, db := newTestVectorIndexMapping(t)
+		put(t, db, ".format_version", "1")
+		put(t, db, "title", `{"physical_id":"vectors_title","index_type":"hnsw","state":"dropping"}`)
+		records, initialized, err := m.Load()
+		require.NoError(t, err)
+		assert.True(t, initialized)
+		assert.Equal(t, vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "dropping"}, records["title"])
+	})
+
 	t.Run("reads every record under its logical name", func(t *testing.T) {
 		m, db := newTestVectorIndexMapping(t)
 		put(t, db, ".format_version", "1")
@@ -301,4 +312,42 @@ func TestVectorIndexMapping_Delete(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, initialized, "a delete does not initialize the mapping")
 	})
+}
+
+// The offline reader refuses what Load refuses: a deletion must not act on
+// a record this binary cannot read.
+func TestReadVectorIndexRecordOffline(t *testing.T) {
+	valid := `{"physical_id":"vectors_title","index_type":"hnsw","state":"ready"}`
+	tests := []struct {
+		name    string
+		version string
+		record  string
+		wantErr string
+		wantOK  bool
+	}{
+		{name: "reads a record", version: "1", record: valid, wantOK: true},
+		{name: "unsupported format version", version: "2", record: valid, wantErr: "format version"},
+		{name: "invalid record", version: "1", record: `{"physical_id":"","index_type":"hnsw","state":"ready"}`, wantErr: "physical id"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			db, err := shardmeta.Open(dir, entlsmkv.BoltFlockTimeout)
+			require.NoError(t, err)
+			ns := db.Namespace(vectorIndexMappingNamespace)
+			require.NoError(t, ns.Put([]byte(vectorIndexMappingFormatVersionKey), []byte(tt.version)))
+			require.NoError(t, ns.Put([]byte("title"), []byte(tt.record)))
+			require.NoError(t, db.Close())
+
+			rec, ok, initialized, err := readVectorIndexRecordOffline(dir, "title")
+			assert.True(t, initialized)
+			assert.Equal(t, tt.wantOK, ok)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready"}, rec)
+		})
+	}
 }

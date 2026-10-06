@@ -16,11 +16,8 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
-
-type nodeCounter interface {
-	NodeCount() int
-}
 
 func ValidateConfig(class *models.Class, globalCfg replication.GlobalConfig) error {
 	if class.ReplicationConfig == nil {
@@ -52,7 +49,7 @@ func ValidateConfig(class *models.Class, globalCfg replication.GlobalConfig) err
 	return nil
 }
 
-func ValidateConfigUpdate(old, updated *models.Class, nodeCounter nodeCounter) error {
+func ValidateConfigUpdate(old, updated *models.Class, nodeCounter cluster.NodeCounter) error {
 	// This is not possible if schema is being updated via by a client.
 	// But for a test object that wasn't created by a client, it is.
 	if old.ReplicationConfig == nil || old.ReplicationConfig.Factor == 0 {

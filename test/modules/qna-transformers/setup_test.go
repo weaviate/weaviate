@@ -26,7 +26,7 @@ func TestMain(m *testing.M) {
 	ctx := context.Background()
 	compose, err := docker.New().
 		WithWeaviate().
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		WithText2VecTransformers().
 		WithQnATransformers().
 		Start(ctx)

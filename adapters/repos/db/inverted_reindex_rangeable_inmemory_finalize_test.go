@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -63,20 +64,27 @@ func firstErrorEntry(hook *test.Hook) *logrus.Entry {
 	return nil
 }
 
-// newRangeableFinalizeTestShard builds a shard+index with the rangeable
-// in-memory knob enabled.
-// newRangeableFinalizeTestShard builds the shard; indexOpts run on the index
-// before the shard starts, which is where a test installs a log hook: the
-// shard's goroutines read index.logger, so a swap afterwards is a data race.
+// newRangeableFinalizeTestShard keeps every rangeable property in memory.
+// indexOpts run on the index before the shard starts, which is where a test
+// installs a log hook: the shard's goroutines read index.logger, so a swap
+// afterwards is a data race.
 func newRangeableFinalizeTestShard(t *testing.T, classNamePrefix string, indexOpts ...func(*Index)) (context.Context, *Shard, *Index, string) {
+	t.Helper()
+	opts := append([]func(*Index){func(idx *Index) { idx.Config.IndexRangeableInMemory = true }}, indexOpts...)
+	return newRangeableTestShard(t, classNamePrefix, opts...)
+}
+
+// newRangeableTestShard builds a shard+index for the filterable-to-rangeable
+// class, configured by indexOpts.
+func newRangeableTestShard(t *testing.T, classNamePrefix string, indexOpts ...func(*Index),
+) (context.Context, *Shard, *Index, string) {
 	t.Helper()
 	ctx := testCtx()
 	className := classNamePrefix + uuid.NewString()[:8]
 	class := newFilterableToRangeableTestClass(className)
 
-	opts := append([]func(*Index){func(idx *Index) { idx.Config.IndexRangeableInMemory = true }}, indexOpts...)
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, opts...)
+		false, false, indexOpts...)
 	shard := shd.(*Shard)
 	t.Cleanup(func() { shard.Shutdown(ctx) })
 	return ctx, shard, idx, className
@@ -349,4 +357,39 @@ func TestRebuildRangeableInMemoryReps_NilBucketDegradesWithoutCancellation(t *te
 	metric, err2 := monitoring.GetMetrics().RangeableInMemoryRebuildDegraded.GetMetricWithLabelValues(className2, shard.Name(), missingPropName)
 	require.NoError(t, err2)
 	assert.GreaterOrEqual(t, testutil.ToFloat64(metric), float64(1))
+}
+
+// The swap promotes ingest buckets that open with no rep, so a named property
+// the finalize rebuild skips serves from disk until the next open.
+func TestRangeableReindex_RepFollowsPropertySelection(t *testing.T) {
+	propName := filterableToRangeablePropName
+
+	tests := []struct {
+		name         string
+		props        []string
+		wantInMemory bool
+	}{
+		{name: "the property is named", props: []string{propName}, wantInMemory: true},
+		{name: "every property is named", props: []string{config.AllProperties}, wantInMemory: true},
+		{name: "another property is named", props: []string{"other"}, wantInMemory: false},
+		{name: "no property is named", wantInMemory: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, shard, idx, className := newRangeableTestShard(t, "RangeableRepSelection_",
+				func(idx *Index) { idx.Config.IndexRangeableInMemoryProps = tt.props })
+			putRangeableTestObjects(t, ctx, shard, className, 5)
+
+			task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+			require.NoError(t, runReindexToCompletionOrError(t, ctx, task, shard))
+
+			bucket := shard.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName))
+			require.NotNil(t, bucket)
+			assert.Equal(t, tt.wantInMemory, bucket.RangeableServesFromMemory())
+			require.Len(t, filterableToRangeableFingerprint(t, bucket),
+				filterableToRangeableNumDistinctValues,
+				"range reads must return the full term set whichever path serves them")
+		})
+	}
 }

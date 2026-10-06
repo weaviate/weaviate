@@ -104,3 +104,44 @@ func TestFailingWriteSeekerFailsWithAnErrorEvenUnset(t *testing.T) {
 	_, err = set.Write([]byte("abc"))
 	require.ErrorIs(t, err, own)
 }
+
+// TestFailingWriteSeekerFailsAtAByteRatherThanACall pins what FailAtByte is for:
+// the same byte fails whether the caller emits it in one Write or one at a time.
+func TestFailingWriteSeekerFailsAtAByteRatherThanACall(t *testing.T) {
+	const failAt = 13
+
+	tests := []struct {
+		name  string
+		split []int
+	}{
+		{"one call", []int{30}},
+		{"three calls", []int{10, 10, 10}},
+		{"one byte at a time", []int{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := &FailingWriteSeeker{FailAtByte: failAt}
+
+			var accepted int
+			var err error
+			for _, size := range tt.split {
+				var n int
+				n, err = w.Write(make([]byte, size))
+				accepted += n
+				if err != nil {
+					break
+				}
+			}
+
+			require.ErrorIs(t, err, ErrDiskFull)
+			require.Equal(t, failAt-1, accepted,
+				"every byte before the failing one is accepted, whatever the call boundaries")
+
+			at, err := w.Seek(0, io.SeekEnd)
+			require.NoError(t, err)
+			require.EqualValues(t, failAt-1, at,
+				"the accepted bytes move the position, not just the returned count")
+		})
+	}
+}

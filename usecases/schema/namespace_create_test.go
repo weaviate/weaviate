@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -28,9 +29,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingcfg "github.com/weaviate/weaviate/usecases/sharding/config"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 // fakeNamespacesExister implements [namespaces.Exister] for tests that only
@@ -63,10 +66,13 @@ func newTestHandlerWithNamespaces(t *testing.T, enabled bool) (*Handler, *fakeSc
 		valid: []string{"text2vec-contextionary", "model1", "model2"},
 	}
 	cfg := config.Config{
-		DefaultVectorizerModule:     config.VectorizerModuleNone,
 		DefaultVectorDistanceMetric: "cosine",
 	}
 	cfg.Namespaces.Enabled = enabled
+	qualifier := namespacing.Disabled
+	if enabled {
+		qualifier = wlnamespaces.NewPrefixing()
+	}
 	fakeClusterState := fakes.NewFakeClusterState()
 	fakeValidator := &fakeValidator{}
 	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, fakeModulesProvider{}, nil, nil)
@@ -75,10 +81,10 @@ func newTestHandlerWithNamespaces(t *testing.T, enabled bool) (*Handler, *fakeSc
 	// Tests that exercise placement should set handler.namespacesExister
 	// directly to override this default.
 	handler, err := NewHandler(
-		schemaManager, schemaManager, &fakeDB{}, fakeValidator, logger, mocks.NewMockAuthorizer(),
+		schemaManager, schemaManager, schemaManager, &fakeDB{}, fakeValidator, logger, mocks.NewMockAuthorizer(),
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil,
-		fakeNamespacesExister{defaultHomeNode: "node-1"}, nil)
+		fakeNamespacesExister{defaultHomeNode: "node-1"}, nil, qualifier)
 	require.NoError(t, err)
 	handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 	return &handler, schemaManager
@@ -95,12 +101,14 @@ func globalPrincipal() *models.Principal {
 func TestAddClass(t *testing.T) {
 	t.Parallel()
 	casts := []struct {
-		name       string
-		enabled    bool
-		principal  *models.Principal
-		class      string
-		wantClass  string
-		wantErrMsg string
+		name         string
+		enabled      bool
+		principal    *models.Principal
+		class        string
+		dataType     []string // DataType of a single "ref" property, nil for no properties
+		wantClass    string
+		wantDataType []string
+		wantErrMsg   string
 	}{
 		{
 			name:      "namespaced principal qualifies and persists prefixed class",
@@ -108,6 +116,23 @@ func TestAddClass(t *testing.T) {
 			principal: namespacedPrincipal("customer1"),
 			class:     "Movies",
 			wantClass: "customer1:Movies",
+		},
+		{
+			name:         "namespaced principal's short ref target gets the class's namespace",
+			enabled:      true,
+			principal:    namespacedPrincipal("customer1"),
+			class:        "Movies",
+			dataType:     []string{"Animal"},
+			wantClass:    "customer1:Movies",
+			wantDataType: []string{"customer1:Animal"},
+		},
+		{
+			name:       "namespaced principal's prefixed ref target rejected",
+			enabled:    true,
+			principal:  namespacedPrincipal("customer1"),
+			class:      "Movies",
+			dataType:   []string{"customer2:Animal"},
+			wantErrMsg: "'customer2:Animal' is not a valid class name",
 		},
 		{
 			name:       "global principal rejected on namespaces enabled",
@@ -157,9 +182,18 @@ func TestAddClass(t *testing.T) {
 				VectorIndexConfig: map[string]interface{}{},
 				ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 			}
+			if tt.dataType != nil {
+				class.Properties = []*models.Property{{Name: "ref", DataType: tt.dataType}}
+			}
+			for _, target := range []string{"customer1:Animal", "customer2:Animal"} {
+				sm.On("ReadOnlyClass", target).Return(&models.Class{Class: target}).Maybe()
+			}
 
 			if tt.wantClass != "" {
 				sm.On("AddClass", mock.MatchedBy(func(c *models.Class) bool {
+					if tt.wantDataType != nil && (len(c.Properties) != 1 || !slices.Equal(c.Properties[0].DataType, tt.wantDataType)) {
+						return false
+					}
 					return c.Class == tt.wantClass
 				}), mock.Anything).Return(nil)
 			}
@@ -602,7 +636,7 @@ func TestUpdateTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 				captured = req
 				return true
 			})).Return(nil)
-			sm.On("TenantsShardsWithVersion", mock.Anything, uint64(0), mock.Anything, mock.Anything).
+			sm.On("TenantsShardsStatusWithVersion", mock.Anything, uint64(0), mock.Anything, mock.Anything).
 				Return(map[string]string{"T1": models.TenantActivityStatusHOT}, nil)
 
 			_, err := handler.UpdateTenants(context.Background(), tt.principal, tt.class,
@@ -690,9 +724,9 @@ func TestAddAlias(t *testing.T) {
 	}
 }
 
-// TestUpdateClass_QualifiesPropertyDataTypes pins the GET→PUT round-trip:
-// a namespaced caller's stripped cross-ref DataType is qualified before
-// reaching the SchemaManager; foreign-prefix entries are rejected.
+// TestUpdateClass_QualifiesPropertyDataTypes pins the GET→PUT round-trip.
+// A short cross-ref DataType gets the class's namespace before it reaches the
+// SchemaManager, and a target in another namespace is rejected for every caller.
 func TestUpdateClass_QualifiesPropertyDataTypes(t *testing.T) {
 	t.Parallel()
 
@@ -701,8 +735,10 @@ func TestUpdateClass_QualifiesPropertyDataTypes(t *testing.T) {
 		enabled       bool
 		principal     *models.Principal
 		storedClass   string
+		storedDT      []string // DataType the stored class holds, nil if wantStoredDT
 		bodyClass     string
 		bodyDataType  []string
+		nilBody       bool
 		wantStoredDT  []string
 		wantErrSubstr string
 	}{
@@ -743,6 +779,59 @@ func TestUpdateClass_QualifiesPropertyDataTypes(t *testing.T) {
 			wantStoredDT: []string{"text"},
 		},
 		{
+			name:         "global: short cross-ref DataType gets the class's namespace",
+			enabled:      true,
+			principal:    globalPrincipal(),
+			storedClass:  "customer1:Movies",
+			bodyClass:    "customer1:Movies",
+			bodyDataType: []string{"Other"},
+			wantStoredDT: []string{"customer1:Other"},
+		},
+		{
+			name:         "global: cross-ref DataType in the class's namespace kept",
+			enabled:      true,
+			principal:    globalPrincipal(),
+			storedClass:  "customer1:Movies",
+			bodyClass:    "customer1:Movies",
+			bodyDataType: []string{"customer1:Other"},
+			wantStoredDT: []string{"customer1:Other"},
+		},
+		{
+			name:          "global: foreign-namespace ref DataType rejected",
+			enabled:       true,
+			principal:     globalPrincipal(),
+			storedClass:   "customer1:Movies",
+			bodyClass:     "customer1:Movies",
+			bodyDataType:  []string{"customer2:Other"},
+			wantErrSubstr: "'customer2:Other' is not a valid class name",
+		},
+		{
+			name:          "global: stored foreign-namespace ref DataType sent back unchanged rejected",
+			enabled:       true,
+			principal:     globalPrincipal(),
+			storedClass:   "customer1:Movies",
+			storedDT:      []string{"customer2:Other"},
+			bodyClass:     "customer1:Movies",
+			bodyDataType:  []string{"customer2:Other"},
+			wantErrSubstr: "'customer2:Other' is not a valid class name",
+		},
+		{
+			name:        "global: nil body returns without reaching SchemaManager",
+			enabled:     true,
+			principal:   globalPrincipal(),
+			storedClass: "customer1:Movies",
+			bodyClass:   "customer1:Movies",
+			nilBody:     true,
+		},
+		{
+			name:        "namespaced: nil body returns without reaching SchemaManager",
+			enabled:     true,
+			principal:   namespacedPrincipal("customer1"),
+			storedClass: "customer1:Movies",
+			bodyClass:   "Movies",
+			nilBody:     true,
+		},
+		{
 			name:         "NS disabled: qualifier is a no-op, body passes through verbatim",
 			enabled:      false,
 			principal:    nil,
@@ -758,23 +847,27 @@ func TestUpdateClass_QualifiesPropertyDataTypes(t *testing.T) {
 			t.Parallel()
 			handler, sm := newTestHandlerWithNamespaces(t, tt.enabled)
 
+			storedDT := tt.storedDT
+			if storedDT == nil {
+				storedDT = tt.wantStoredDT
+			}
 			stored := &models.Class{
 				Class:             tt.storedClass,
 				Vectorizer:        "model1",
 				VectorIndexConfig: map[string]interface{}{},
 				ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				Properties: []*models.Property{
-					{Name: "watched", DataType: tt.wantStoredDT},
+					{Name: "watched", DataType: storedDT},
 				},
 			}
 			sm.On("ReadOnlyClass", tt.storedClass).Return(stored).Maybe()
-			sm.On("QueryReadOnlyClasses", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
+			sm.On("ReadOnlyClassesFromLeader", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
 
 			var captured *models.Class
 			sm.On("UpdateClass", mock.MatchedBy(func(c *models.Class) bool {
 				captured = c
 				return true
-			}), mock.Anything).Return(nil).Maybe()
+			}), mock.Anything, cmd.ClassUpdateOriginUser).Return(nil).Maybe()
 
 			body := &models.Class{
 				Class:             tt.bodyClass,
@@ -785,10 +878,18 @@ func TestUpdateClass_QualifiesPropertyDataTypes(t *testing.T) {
 					{Name: "watched", DataType: tt.bodyDataType},
 				},
 			}
+			if tt.nilBody {
+				body = nil
+			}
 
 			err := handler.UpdateClass(context.Background(), tt.principal, tt.bodyClass, body)
+			if tt.nilBody {
+				require.NoError(t, err)
+				require.Nil(t, captured, "SchemaManager.UpdateClass must not be called without a body")
+				return
+			}
 			if tt.wantErrSubstr != "" {
-				require.Error(t, err)
+				require.ErrorIs(t, err, ErrValidation)
 				assert.Contains(t, err.Error(), tt.wantErrSubstr)
 				require.Nil(t, captured, "SchemaManager.UpdateClass must not be called on rejected body")
 				return
@@ -806,7 +907,7 @@ func TestUpdateClass_QualifiesPropertyDataTypes(t *testing.T) {
 // MAXIMUM_ALLOWED_COLLECTIONS_COUNT cap is enforced per namespace when
 // namespaces are enabled, using principal.Namespace as the selector.
 //
-// The mock matcher on QueryCollectionsCount(<principalNS>) is what proves
+// The mock matcher on CollectionsCountFromLeader(<principalNS>) is what proves
 // the selector: a row only passes if AddClass requested the count for the
 // caller's namespace.
 func TestAddClass_NamespacedCollectionLimit(t *testing.T) {
@@ -847,7 +948,7 @@ func TestAddClass_NamespacedCollectionLimit(t *testing.T) {
 			handler, sm := newTestHandlerWithNamespaces(t, true)
 			handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(tt.limit)
 
-			sm.On("QueryCollectionsCount", tt.principalNS).Return(tt.existingCount, nil)
+			sm.On("CollectionsCountFromLeader", tt.principalNS).Return(tt.existingCount, nil)
 			if !tt.wantErr {
 				sm.On("AddClass", mock.MatchedBy(func(c *models.Class) bool {
 					return c.Class == tt.principalNS+":Movies"

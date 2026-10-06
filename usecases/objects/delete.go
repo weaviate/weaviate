@@ -36,10 +36,10 @@ func (m *Manager) DeleteObject(ctx context.Context,
 ) error {
 	className, _, err := m.resolveNS(principal, className)
 	if err != nil {
-		return NewErrInvalidUserInput("%v", err)
+		return userInputOrForbidden(err)
 	}
 
-	if err := m.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Objects(className, tenant, id)); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Objects(className, tenant)); err != nil {
 		return err
 	}
 	ctx = classcache.ContextWithClassCache(ctx)

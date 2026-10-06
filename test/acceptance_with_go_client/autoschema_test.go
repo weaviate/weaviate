@@ -292,7 +292,7 @@ func TestAutoschemaPanicOnUnregonizedDataTypeWithBatch(t *testing.T) {
 		require.Nil(t, resp[0].Result.Errors)
 		require.NotNil(t, resp[0].Object)
 		// auto-schema creates a "default" named vector with the none vectorizer,
-		// so nothing is vectorized even though DEFAULT_VECTORIZER_MODULE is set
+		// so nothing is vectorized
 		assert.Empty(t, resp[0].Object.Vector)
 		assert.Empty(t, resp[0].Object.Vectors)
 

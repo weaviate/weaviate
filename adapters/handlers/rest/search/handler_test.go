@@ -32,6 +32,7 @@ import (
 	gproto "google.golang.org/protobuf/proto"
 
 	dbinverted "github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -48,7 +49,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 type fakeSearcher struct {
@@ -283,6 +286,7 @@ func newTestHandlerSeeded(t *testing.T, extra []*models.Class, aliases map[strin
 		Traverser:    deps.searcher,
 		SchemaReader: seedSchema(t, classes, aliases),
 		Authorizer:   deps.authorizer,
+		Qualifier:    namespacing.Disabled,
 		DefaultLimit: 10,
 		// matches DefaultQueryCrossReferenceDepthLimit
 		CrossRefDepthLimit: 5,
@@ -566,6 +570,10 @@ func (rbacLikeAuthorizer) Authorize(ctx context.Context, principal *models.Princ
 	return fmt.Errorf("rbac: %w", autherrs.NewForbidden(p, verb, resources...))
 }
 
+func (a rbacLikeAuthorizer) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error {
+	return a.Authorize(ctx, principal, verb, resources...)
+}
+
 func (a rbacLikeAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
 	return a.Authorize(ctx, principal, verb, resources...)
 }
@@ -633,16 +641,16 @@ type denyCollections struct {
 	requests []mocks.AuthZReq
 }
 
-func (a *denyCollections) authorize(principal *models.Principal, verb string, resources []string) error {
-	a.requests = append(a.requests, mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources})
-	for _, r := range resources {
+func (a *denyCollections) authorize(req mocks.AuthZReq) error {
+	a.requests = append(a.requests, req)
+	for _, r := range req.Resources {
 		for name := range a.denied {
 			if strings.Contains(r, "/collections/"+name+"/") {
-				p := principal
+				p := req.Principal
 				if p == nil {
 					p = &models.Principal{Username: "anonymous"}
 				}
-				return fmt.Errorf("rbac: %w", autherrs.NewForbidden(p, verb, resources...))
+				return fmt.Errorf("rbac: %w", autherrs.NewForbidden(p, req.Verb, req.Resources...))
 			}
 		}
 	}
@@ -650,15 +658,22 @@ func (a *denyCollections) authorize(principal *models.Principal, verb string, re
 }
 
 func (a *denyCollections) Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
-	return a.authorize(principal, verb, resources)
+	return a.authorize(mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources, Method: mocks.MethodAuthorize})
+}
+
+func (a *denyCollections) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error {
+	return a.authorize(mocks.AuthZReq{
+		Principal: principal, Verb: verb, Resources: resources,
+		Method: mocks.MethodAuthorizeAndRequireActiveNamespace, Class: class,
+	})
 }
 
 func (a *denyCollections) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
-	return a.authorize(principal, verb, resources)
+	return a.authorize(mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources, Method: mocks.MethodAuthorizeSilent})
 }
 
 func (a *denyCollections) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, verb string, resources ...string) ([]string, error) {
-	if err := a.authorize(principal, verb, resources); err != nil {
+	if err := a.authorize(mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources, Method: mocks.MethodFilterAuthorizedResources}); err != nil {
 		return nil, err
 	}
 	return resources, nil
@@ -891,6 +906,11 @@ func TestStatusFromErrorMessages(t *testing.T) {
 			name:       "only-stopwords pattern is a 400",
 			err:        wrap(dbinverted.ErrOnlyStopwords),
 			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "query vector of the wrong dimensionality is a 422",
+			err:        wrap(fmt.Errorf("knn search: distance between entrypoint and query node: 2 vs 3: %w", distancer.ErrVectorLength)),
+			wantStatus: http.StatusUnprocessableEntity,
 		},
 		{
 			name:       "provider failure is a fixed 500 with the detail as cause",
@@ -1140,6 +1160,65 @@ func TestNearObjectSourceObjectErrorMapping(t *testing.T) {
 	}
 }
 
+// mustNearVectorModel is mustModel for the near-vector request model.
+func mustNearVectorModel(t *testing.T, body string) *models.SearchNearVectorRequest {
+	t.Helper()
+	var req models.SearchNearVectorRequest
+	require.NoError(t, json.Unmarshal([]byte(body), &req))
+	return &req
+}
+
+// doNearVector runs the near-vector handler the way the generated operation
+// wiring does, with the typed, already-decoded request model.
+func doNearVector(t *testing.T, deps *testDeps, principal *models.Principal,
+	collection, body string,
+) (*models.SearchResponse, *APIError) {
+	t.Helper()
+	return deps.handler.NearVector(context.Background(), principal, collection, mustNearVectorModel(t, body))
+}
+
+// TestNearVectorHandlerHappyPath: the near-vector wrapper drives the same
+// execute() flow as the other search types, with NearVector params instead of
+// module, keyword or hybrid params. The only near-vector handler test: the
+// shared gates are pinned once in TestExecuteIsSearchTypeAgnostic, the
+// near-text handler tests and the acceptance suite.
+func TestNearVectorHandlerHappyPath(t *testing.T) {
+	deps := newTestHandler(t)
+	deps.searcher.res = []any{
+		map[string]any{
+			"id":    strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			"title": "Dune",
+			"_additional": map[string]any{
+				"distance": float32(0.12),
+			},
+		},
+	}
+
+	payload, apiErr := doNearVector(t, deps, nil, "Movie",
+		`{"vector":[0.1,-0.2,0.3],"limit":5,"returnProperties":["title"],"returnMetadata":["distance"]}`)
+	require.Nil(t, apiErr)
+
+	require.Len(t, payload.Results, 1)
+	obj := payload.Results[0]
+	assert.Equal(t, "Dune", obj.Properties["title"])
+	require.NotNil(t, obj.ID)
+	require.NotNil(t, obj.Metadata)
+	require.NotNil(t, obj.Metadata.Distance)
+	assert.Equal(t, float32(0.12), *obj.Metadata.Distance)
+	require.NotNil(t, payload.TookMs)
+
+	// the traverser was called with near-vector params, nothing else
+	params := deps.searcher.lastParams
+	assert.Equal(t, "Movie", params.ClassName)
+	assert.Equal(t, 5, params.Pagination.Limit)
+	require.NotNil(t, params.NearVector)
+	require.Len(t, params.NearVector.Vectors, 1)
+	assert.Equal(t, []float32{0.1, -0.2, 0.3}, params.NearVector.Vectors[0])
+	assert.Empty(t, params.ModuleParams)
+	assert.Nil(t, params.KeywordRanking)
+	assert.Nil(t, params.HybridSearch)
+}
+
 // mustHybridModel is mustModel for the hybrid request model.
 func mustHybridModel(t *testing.T, body string) *models.SearchHybridRequest {
 	t.Helper()
@@ -1201,7 +1280,7 @@ func TestHybridHandlerHappyPath(t *testing.T) {
 
 func TestHandlerStripsNamespaceFromErrors(t *testing.T) {
 	deps := newTestHandler(t)
-	deps.handler.namespacesEnabled = true
+	deps.handler.qualifier = wlnamespaces.NewPrefixing()
 	principal := &models.Principal{Username: "someone", Namespace: "ns1"}
 
 	// unknown collection: the internal error names the qualified collection

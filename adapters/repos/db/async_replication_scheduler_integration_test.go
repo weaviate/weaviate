@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -443,5 +444,81 @@ func TestAdjustWorkersDoesNotLeakWorkersUnderConfigFlapping(t *testing.T) {
 		sched.adjustWorkers(n)
 		require.Equal(t, int64(n), sched.liveWorkers.Load(),
 			"flap %d: growing back must reclaim pending scale-down tokens instead of leaking workers", i)
+	}
+}
+
+// TestAsyncSchedulerDrainRaceWithLiveDispatch: bounded drains must survive a live dispatcher re-arming the latch between a cycle's Done and the next Add.
+func TestAsyncSchedulerDrainRaceWithLiveDispatch(t *testing.T) {
+	ctx := context.Background()
+	sched := newStartedTestScheduler(t, 2)
+
+	shards := make([]*Shard, 4)
+	for i := range shards {
+		_, idx := testShard(t, ctx, fmt.Sprintf("DrainRace%d", i))
+		s := firstShard(t, idx)
+		prepareShardForScheduler(t, s)
+		s.asyncReplicationConfig.frequency = time.Millisecond
+		s.asyncReplicationConfig.frequencyWhilePropagating = time.Millisecond
+		require.NoError(t, sched.Register(s))
+		shards[i] = s
+	}
+
+	stop := make(chan struct{})
+	var timedOut atomic.Bool
+	var wg sync.WaitGroup
+	for _, s := range shards {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				select {
+				case <-s.asyncRepDrained():
+				case <-time.After(5 * time.Second):
+					timedOut.Store(true)
+					return
+				}
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				s.asyncRepWg.Wait()
+			}
+		}()
+	}
+
+	time.Sleep(500 * time.Millisecond)
+	close(stop)
+
+	joined := make(chan struct{})
+	go func() { wg.Wait(); close(joined) }()
+	select {
+	case <-joined:
+	case <-time.After(5 * time.Second):
+		t.Fatal("drain waiters did not exit")
+	}
+	require.False(t, timedOut.Load(), "a drain waiter never fired under live dispatch")
+
+	for _, s := range shards {
+		require.NoError(t, sched.Deregister(s))
+	}
+	for _, s := range shards {
+		done := make(chan struct{})
+		go func() { s.asyncRepWg.Wait(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("shard %q never drained after Deregister", s.name)
+		}
 	}
 }

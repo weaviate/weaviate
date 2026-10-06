@@ -38,11 +38,11 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 ) (*models.Object, error) {
 	className, _, err := m.resolveNS(principal, updates.Class)
 	if err != nil {
-		return nil, NewErrInvalidUserInput("%v", err)
+		return nil, userInputOrForbidden(err)
 	}
 	updates.Class = className
 
-	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(updates.Class, updates.Tenant, updates.ID)); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(updates.Class, updates.Tenant)); err != nil {
 		return nil, err
 	}
 

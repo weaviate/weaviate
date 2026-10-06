@@ -32,7 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
-	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
@@ -59,15 +59,6 @@ func jsonResponder(status int, payload interface{}) middleware.Responder {
 			}
 		}
 	})
-}
-
-// authzResponder maps an authz error to 403 (forbidden) or 500, shared by
-// the three reindex mutation handlers.
-func authzResponder(principal *models.Principal, err error) middleware.Responder {
-	if errors.As(err, &authzerrors.Forbidden{}) {
-		return jsonResponder(http.StatusForbidden, errPayloadFromSingleErr(principal, err))
-	}
-	return jsonResponder(http.StatusInternalServerError, errPayloadFromSingleErr(principal, err))
 }
 
 // normalizeIndexTypeParam maps the {indexType} path value to its internal
@@ -99,14 +90,18 @@ type indexesHandlers struct {
 	appState *state.State
 	// taskSource is the status read's only route to the task list, resolved
 	// once at wiring. Reaching for appState.ClusterService inside getIndexes
-	// would put the leader-routed methods back within reach.
-	taskSource localTaskLister
+	// would put the leader-routed methods back within reach. A status read
+	// answers from this node's FSM, where both the task list and the class
+	// advance from the same log, so a class read taken after a task read is
+	// never the older of the two. A task read that decides a mutation stays on
+	// the leader-routed ListDistributedTasks, which LocalTaskLister omits.
+	taskSource distributedtask.LocalTaskLister
 }
 
 // resolveTaskSource keeps a nil ClusterService out of the interface: boxed,
 // the interface value is non-nil and LocalDistributedTasks nil-derefs on the
 // *cluster.Service receiver.
-func resolveTaskSource(appState *state.State) localTaskLister {
+func resolveTaskSource(appState *state.State) distributedtask.LocalTaskLister {
 	if appState.ClusterService == nil {
 		return nil
 	}
@@ -131,23 +126,6 @@ func (h *indexesHandlers) submitLock(collection, propertyName string) *sync.Mute
 	return h.appState.ReindexSubmitLocks.SubmitLockFor(collection, propertyName)
 }
 
-// localTaskLister is *cluster.Service narrowed to the local-only method.
-// A status read answers from this node's FSM, where both the task list and
-// the class advance from the same log, so a class read taken after a task
-// read is never the older of the two. Swapping that order is the one edit
-// this cannot take. A task read that decides a mutation stays on the
-// leader-routed ListDistributedTasks, which this interface omits.
-type localTaskLister interface {
-	LocalDistributedTasks() map[string][]*distributedtask.Task
-}
-
-// classReader reads a class from this node's schema. appState.SchemaManager,
-// a *usecases/schema.Manager, satisfies it.
-type classReader interface {
-	ClassInfo(name string) clusterSchema.ClassInfo
-	ReadOnlyClass(name string) *models.Class
-}
-
 // readClassAndTasks reads the task list before the class, so the class can
 // never be the older of the two. A nil lister means no cluster service: the
 // caller gets the class with no tasks. classes must be non-nil.
@@ -158,7 +136,7 @@ type classReader interface {
 // ReadOnlyClass below, after the task read, so the order above holds for
 // every class this returns. A collection deleted between the two reads
 // leaves ReadOnlyClass answering nil against an Exists that was true.
-func readClassAndTasks(collection string, taskSource localTaskLister, classes classReader) (*models.Class, []parsedReindexTask) {
+func readClassAndTasks(collection string, taskSource distributedtask.LocalTaskLister, classes local.ClassReader) (*models.Class, []parsedReindexTask) {
 	if !classes.ClassInfo(collection).Exists {
 		return nil, nil
 	}
@@ -177,9 +155,12 @@ func readClassAndTasks(collection string, taskSource localTaskLister, classes cl
 func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams, principal *models.Principal) middleware.Responder {
 	// Resolve (alias-aware) before authz so authz and the lookup use the qualified name.
 	collection, _, rErr := namespacing.Resolve(principal, h.appState.SchemaManager,
-		h.appState.ServerConfig.Config.Namespaces.Enabled, params.ClassName)
+		h.appState.NamespaceQualifier, params.ClassName)
 	if rErr != nil {
-		return schema.NewSchemaObjectsIndexesGetForbidden().WithPayload(errPayloadFromSingleErr(principal, rErr))
+		if errors.As(rErr, &authzerrors.Forbidden{}) {
+			return schema.NewSchemaObjectsIndexesGetForbidden().WithPayload(errPayloadFromSingleErr(principal, rErr))
+		}
+		return schema.NewSchemaObjectsIndexesGetUnprocessableEntity().WithPayload(errPayloadFromSingleErr(principal, rErr))
 	}
 
 	// Require READ on the collection's metadata: this endpoint exposes

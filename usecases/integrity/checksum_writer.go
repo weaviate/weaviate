@@ -21,6 +21,9 @@ type ChecksumWriter interface {
 	io.Writer
 	N() int
 	Hash() []byte
+	// HashInto appends the checksum to buf, so that a caller-owned buffer
+	// avoids the allocation of Hash.
+	HashInto(buf []byte) []byte
 	HashWrite([]byte) (int, error)
 	Reset()
 }
@@ -64,6 +67,10 @@ func (wc *CRC32Writer) N() int {
 
 func (wc *CRC32Writer) Hash() []byte {
 	return wc.hash.Sum(nil)
+}
+
+func (wc *CRC32Writer) HashInto(buf []byte) []byte {
+	return wc.hash.Sum(buf)
 }
 
 func (wc *CRC32Writer) Reset() {

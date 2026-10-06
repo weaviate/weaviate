@@ -12,11 +12,15 @@
 package compact
 
 import (
+	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"sort"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -41,6 +45,11 @@ type LoaderConfig struct {
 	// FS is the filesystem interface to use for file operations.
 	// If nil, defaults to common.NewOSFS().
 	FS common.FS
+
+	// NodeIDsAreDocIDs bounds node IDs by the shard's document-ID counter, read
+	// from the directory holding Dir. A record naming a higher node ID is
+	// corruption, and the file is truncated before it.
+	NodeIDsAreDocIDs bool
 }
 
 // Loader reads all commit log files at startup and returns the accumulated
@@ -59,8 +68,9 @@ type LoaderConfig struct {
 //
 // Returns nil state (not an error) if the directory is empty or doesn't exist.
 type Loader struct {
-	config LoaderConfig
-	fs     common.FS
+	config    LoaderConfig
+	fs        common.FS
+	maxNodeID uint64
 }
 
 // LoadResult contains the result of loading commit logs.
@@ -69,11 +79,11 @@ type LoadResult struct {
 	State *ent.DeserializationResult
 
 	// RecoveredFromCrash is true if a corrupt WAL file was detected during
-	// loading: a raw file with a torn tail (truncated back to its last valid
-	// commit) or a compacted .sorted/.condensed segment that could not be fully
-	// read and was dropped in favour of the snapshot + clean segments. When
-	// true, the caller should start a new commit log file instead of appending
-	// to the existing one.
+	// loading: a raw file with a torn tail, or a compacted .sorted/.condensed
+	// segment with a torn or garbage tail. Either is truncated back to its last
+	// valid record, and only the records before it are applied. When true, the
+	// caller should start a new commit log file instead of appending to the
+	// existing one.
 	RecoveredFromCrash bool
 }
 
@@ -92,6 +102,8 @@ func NewLoader(config LoaderConfig) *Loader {
 // Returns nil result (not error) if directory is empty or doesn't exist.
 // If a truncated WAL file is detected (crash recovery), RecoveredFromCrash will be true.
 func (l *Loader) Load() (*LoadResult, error) {
+	l.maxNodeID = l.nodeIDLimit()
+
 	// 0. Migrate snapshots from old directory FIRST (before any other operations)
 	// This ensures that snapshots stored in the old .hnsw.snapshot.d/ directory
 	// are moved to the new unified .hnsw.commitlog.d/ directory before we scan.
@@ -256,8 +268,8 @@ func (l *Loader) filterFilesAlreadyInSnapshot(files []FileInfo, snapshotEndTS in
 }
 
 // loadWALFile reads a single WAL file and applies it to the current state.
-// Returns the result, whether crash recovery occurred (a torn raw tail was
-// truncated, or a corrupt compacted segment was dropped), and any error.
+// Returns the result, whether crash recovery occurred (a torn raw tail or a
+// corrupt compacted tail was truncated), and any error.
 func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent.DeserializationResult, bool, error) {
 	file, err := l.fs.Open(f.Path)
 	if err != nil {
@@ -265,12 +277,33 @@ func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent
 	}
 	defer file.Close()
 
-	walReader := NewWALCommitReader(file, l.config.Logger)
+	walReader := NewWALCommitReaderForFile(file, f.Type, l.maxNodeID, l.config.Logger)
 	inMemReader := NewInMemoryReader(walReader, l.config.Logger)
 
 	// keepLinkReplaceInfo=false at startup since we're building final state
 	result, err := inMemReader.Do(state, false)
 	if err != nil {
+		if errors.Is(err, errNodeIDBeyondLimit) {
+			// Only corruption, such as a misaligned read of a torn log, names a
+			// node the index cannot hold; everything after it is unreliable too.
+			// The limit comes from the document-ID counter, so the dropped tail
+			// is kept in case the counter, not the log, is wrong.
+			offset := walReader.LastValidOffset()
+			saved, dropped, saveErr := l.saveTail(f.Path, offset)
+			if saveErr != nil {
+				return result, false, errors.Wrapf(saveErr, "save the tail of %s before truncating it (%v)", f.Path, err)
+			}
+			l.config.Logger.WithFields(logrus.Fields{
+				"action":        "hnsw_loader",
+				"file":          f.Path,
+				"type":          f.Type.String(),
+				"offset":        offset,
+				"dropped_bytes": dropped,
+				"saved_to":      saved,
+			}).Errorf("commit log names a node beyond the index's limit - truncating before it: %v", err)
+			l.truncateToLastValidRecord(f.Path, offset)
+			return result, true, nil
+		}
 		switch f.Type {
 		case FileTypeRaw:
 			// Raw/live WAL files may be interrupted mid-write by a crash,
@@ -298,7 +331,8 @@ func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent
 			// truncate the file back to its last valid record: the records read
 			// before the corruption are kept (best-effort recall), and the file
 			// becomes valid again so the next compaction reads it without
-			// stalling. The damaged tail is unrecoverable regardless.
+			// stalling. The layout check in the reader stops at the first
+			// out-of-place record, so garbage is neither applied nor kept.
 			//
 			// This only relaxes the *load* path. Compaction still fails closed
 			// when it reads a corrupt merge input (see Compactor / the merge
@@ -327,6 +361,61 @@ func (l *Loader) loadWALFile(f FileInfo, state *ent.DeserializationResult) (*ent
 	}).Debug("loaded WAL file")
 
 	return result, false, nil
+}
+
+// docIDCounterSlack covers the counter file lagging behind the commit logs
+// after a power loss, since neither is fsynced.
+const docIDCounterSlack = 1 << 24
+
+// nodeIDLimit returns the highest node ID the index can hold, or 0 for no
+// limit: when node IDs are not document IDs, or there is no plausible counter.
+func (l *Loader) nodeIDLimit() uint64 {
+	if !l.config.NodeIDsAreDocIDs {
+		return 0
+	}
+	counter, err := indexcounter.Read(filepath.Dir(l.config.Dir))
+	if err != nil {
+		l.config.Logger.WithField("action", "hnsw_loader").
+			Warnf("read document-ID counter, loading without a node ID limit: %v", err)
+		return 0
+	}
+	// A counter beyond maxNodeID is corrupt, and adding the slack could wrap.
+	if counter == 0 || counter > maxNodeID {
+		return 0
+	}
+	return counter + docIDCounterSlack
+}
+
+// saveTail copies path from offset to its end into a sibling file the loader
+// never reads, so a truncation can be undone by appending it back.
+func (l *Loader) saveTail(path string, offset int64) (string, int64, error) {
+	src, err := l.fs.Open(path)
+	if err != nil {
+		return "", 0, err
+	}
+	defer src.Close()
+	st, err := src.Stat()
+	if err != nil {
+		return "", 0, err
+	}
+
+	dst := fmt.Sprintf("%s.%d.corrupt", path, offset)
+	out, err := l.fs.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return "", 0, err
+	}
+	n, err := io.Copy(out, io.NewSectionReader(src, offset, st.Size()-offset))
+	if err == nil {
+		err = out.Sync()
+	}
+	closeErr := out.Close()
+	if err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return "", 0, err
+	}
+	return dst, n, nil
 }
 
 // truncateToLastValidRecord truncates a corrupt WAL file back to the end of its
@@ -368,7 +457,7 @@ func (l *Loader) maxNodeIDInWALs(files []FileInfo) uint64 {
 			continue
 		}
 
-		reader := NewWALCommitReader(file, l.config.Logger)
+		reader := NewWALCommitReaderForFile(file, f.Type, l.maxNodeID, l.config.Logger)
 		for {
 			c, err := reader.ReadNextCommit()
 			if err != nil {

@@ -14,11 +14,13 @@ package bootstrap
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/status"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
@@ -117,7 +119,7 @@ func TestBootstrapper(t *testing.T) {
 			test.doBefore(m)
 
 			// Configure the bootstrapper
-			b := NewBootstrapper(m, "RID", "ADDR", test.voter, mocks.NewMockNodeSelector(nodesSlice...), test.isReady)
+			b := NewBootstrapper(m, "RID", "ADDR", test.voter, mocks.NewMockNodeSelector(nodesSlice...), test.isReady, nil, nil)
 			b.retryPeriod = time.Millisecond
 			b.jitter = time.Millisecond
 			ctx, cancel := context.WithTimeout(ctx, time.Millisecond*100)
@@ -133,6 +135,75 @@ func TestBootstrapper(t *testing.T) {
 			} else if !test.success && err == nil {
 				t.Errorf("%s: test must fail", test.name)
 			}
+			m.AssertExpectations(t)
+		})
+	}
+}
+
+// Pins X2a: a wiped joiner reports ready pre-join; exiting early would lose the barrier.
+func TestBootstrapperJoinsDespiteReadyWhenBarrierNeeded(t *testing.T) {
+	m := &MockNodeClient{}
+	m.On("Join", mock.Anything, mock.Anything, mock.Anything).Return(&cmd.JoinPeerResponse{LeaderCommitIndex: 42}, nil)
+
+	var gotBarrier uint64
+	needs := true
+	b := NewBootstrapper(m, "RID", "ADDR", true, mocks.NewMockNodeSelector("S1", "S2"),
+		func() bool { return true },
+		func(idx uint64) { gotBarrier = idx; needs = false },
+		func() bool { return needs })
+	b.retryPeriod = time.Millisecond
+	b.jitter = time.Millisecond
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*100)
+	defer cancel()
+	logger, _ := logrustest.NewNullLogger()
+
+	require.NoError(t, b.Do(ctx, map[string]int{"S1": 1, "S2": 2}, logger, make(chan struct{})))
+	require.Equal(t, uint64(42), gotBarrier)
+	m.AssertExpectations(t)
+}
+
+// TestBootstrapperDoesNotWaitForRetryPeriod pins that the first attempt runs at
+// once and that a node that becomes ready between attempts exits without
+// waiting for the next one.
+func TestBootstrapperDoesNotWaitForRetryPeriod(t *testing.T) {
+	tests := []struct {
+		name     string
+		doBefore func(m *MockNodeClient, ready *atomic.Bool)
+	}{
+		{
+			name: "first attempt joins",
+			doBefore: func(m *MockNodeClient, ready *atomic.Bool) {
+				m.On("Join", mock.Anything, mock.Anything, mock.Anything).Return(&cmd.JoinPeerResponse{}, nil)
+			},
+		},
+		{
+			name: "ready after notifying",
+			doBefore: func(m *MockNodeClient, ready *atomic.Bool) {
+				m.On("Join", mock.Anything, mock.Anything, mock.Anything).Return(&cmd.JoinPeerResponse{}, errAny)
+				m.On("Notify", mock.Anything, mock.Anything, mock.Anything).
+					Run(func(mock.Arguments) { ready.Store(true) }).
+					Return(&cmd.NotifyPeerResponse{}, nil)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &MockNodeClient{}
+			var ready atomic.Bool
+			tt.doBefore(m, &ready)
+
+			b := NewBootstrapper(m, "RID", "ADDR", true, mocks.NewMockNodeSelector("S1"), ready.Load, nil, nil)
+			b.retryPeriod = time.Hour
+			b.jitter = time.Millisecond
+			b.readyPollPeriod = time.Millisecond
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			logger, _ := logrustest.NewNullLogger()
+
+			start := time.Now()
+			require.NoError(t, b.Do(ctx, map[string]int{"S1": 1}, logger, make(chan struct{})))
+			require.Less(t, time.Since(start), time.Second)
 			m.AssertExpectations(t)
 		})
 	}

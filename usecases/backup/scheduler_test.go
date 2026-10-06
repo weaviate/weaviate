@@ -40,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -155,6 +156,85 @@ func TestSchedulerValidateCreateBackup(t *testing.T) {
 		assert.NotNil(t, err)
 	})
 
+	t.Run("EmptyIncludeSelectsFromPermittedClasses", func(t *testing.T) {
+		tests := []struct {
+			name          string
+			permitted     []string
+			authErr       error
+			exclude       []string
+			backupableErr error
+			wantErr       string
+			wantForbidden bool
+		}{
+			{name: "no permitted class", exclude: []string{"*"}, wantErr: "forbidden", wantForbidden: true},
+			{name: "every permitted class excluded", permitted: []string{"Allowed"}, exclude: []string{"Allowed"}, wantErr: "no collections, users, or roles: available collections: [Allowed]"},
+			{name: "permitted class not backupable", permitted: []string{"Allowed"}, backupableErr: ErrAny, wantErr: ErrAny.Error()},
+			{name: "authorizer fails", authErr: ErrAny, wantErr: ErrAny.Error()},
+			// adminlist refuses a list it does not wholly permit.
+			{name: "authorizer refuses the whole list", authErr: fmt.Errorf("adminlist: %w", authzerrors.NewForbidden(&models.Principal{}, authorization.CREATE, authorization.Backups("Allowed", "Hidden")...)), wantErr: "forbidden", wantForbidden: true},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				fs := newFakeScheduler(nil)
+				fs.auth = permitBackupsOf(tc.permitted...)
+				if tc.authErr != nil {
+					failing := mocks.NewMockAuthorizer()
+					failing.SetErr(tc.authErr)
+					fs.auth = failing
+				}
+				fs.selector.On("ListClasses", ctx).Return([]string{"Allowed", "Hidden"})
+				fs.selector.On("Backupable", ctx, []string{"Allowed"}).Return(tc.backupableErr).Maybe()
+				_, err := fs.scheduler().Backup(ctx, nil, &BackupRequest{
+					Backend: backendName,
+					ID:      "1234",
+					Exclude: tc.exclude,
+				})
+				require.ErrorContains(t, err, tc.wantErr)
+				assert.NotContains(t, err.Error(), "Hidden")
+				if tc.wantForbidden {
+					assert.ErrorAs(t, err, &authzerrors.Forbidden{})
+				} else {
+					assert.IsType(t, backup.ErrUnprocessable{}, err)
+				}
+			})
+		}
+	})
+
+	t.Run("IncludeWildcardMatchesNoClass", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		fs.selector.On("ListClasses", ctx).Return([]string{cls})
+		_, err := fs.scheduler().Backup(ctx, nil, &BackupRequest{
+			Backend: backendName,
+			ID:      "1234",
+			Include: []string{"Zzz*"},
+		})
+		require.ErrorContains(t, err, "matches no class")
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
+	})
+
+	t.Run("IncludeWildcardExpandsOnlyToPermittedClasses", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		// The authorizer grants the pattern itself but not every class it matches.
+		fs.auth = permitBackupsOf("Article?*", "Article")
+		fs.selector.On("ListClasses", ctx).Return([]string{"Article", "ArticleSecret"})
+		_, err := fs.scheduler().Backup(ctx, nil, &BackupRequest{
+			Backend: backendName,
+			ID:      "1234",
+			Include: []string{"Article?*"},
+		})
+		require.ErrorContains(t, err, "matches no class")
+		assert.NotContains(t, err.Error(), "ArticleSecret")
+	})
+
+	t.Run("WildcardDenialFailsUnprocessable", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		fs.auth = wildcardAuthFails{permitBackupsOf()}
+		fs.selector.On("ListClasses", ctx).Return([]string{"Allowed", "Hidden"})
+		_, err := fs.scheduler().Backup(ctx, nil, &BackupRequest{Backend: backendName, ID: "1234"})
+		require.ErrorContains(t, err, ErrAny.Error())
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
+	})
+
 	t.Run("GetMetadataFails", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.selector.On("ListClasses", ctx).Return([]string{cls})
@@ -191,6 +271,320 @@ func TestSchedulerValidateCreateBackup(t *testing.T) {
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), fmt.Sprintf("backup %q already exists", id))
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
+	})
+}
+
+func TestValidateBackupRequest(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	tests := []struct {
+		name         string
+		allClasses   []string
+		include      []string
+		exclude      []string
+		includeUsers []string
+		includeRoles []string
+		wantClasses  []string
+		wantUsers    []string
+		wantRoles    []string
+		wantSkipUser bool
+		wantSkipRole bool
+		wantErr      string
+		allUsers     []string
+		allRoles     []string
+		noUsers      bool
+		noRoles      bool
+		roleErr      error
+		permitted    []string
+	}{
+		{
+			name:         "users only with no collections",
+			includeUsers: []string{"alice"},
+			wantUsers:    []string{"alice"},
+		},
+		{
+			name:         "roles only with no collections",
+			includeRoles: []string{"reader"},
+			wantRoles:    []string{"reader"},
+		},
+		{
+			name:         "users and roles with an unmatched collection pattern",
+			allClasses:   []string{"Other"},
+			include:      []string{"ns1:*"},
+			includeUsers: []string{"alice"},
+			includeRoles: []string{"reader"},
+			wantUsers:    []string{"alice"},
+			wantRoles:    []string{"reader"},
+		},
+		{
+			name: "omitted identity selectors select full backends",
+		},
+		{
+			name:         "empty user selection keeps default roles",
+			includeUsers: []string{},
+			wantSkipUser: true,
+		},
+		{
+			name:         "empty role selection keeps default users",
+			includeRoles: []string{},
+			wantSkipRole: true,
+		},
+		{
+			name:         "empty identity selections omit snapshots with collections",
+			allClasses:   []string{"Books"},
+			wantClasses:  []string{"Books"},
+			includeUsers: []string{},
+			includeRoles: []string{},
+			wantSkipUser: true,
+			wantSkipRole: true,
+			noUsers:      true,
+			noRoles:      true,
+		},
+		{
+			name:         "empty identity selections without collections select nothing",
+			includeUsers: []string{},
+			includeRoles: []string{},
+			wantSkipUser: true,
+			wantSkipRole: true,
+			wantErr:      "no collections, users, or roles",
+		},
+		{
+			name:     "empty default backends select nothing",
+			allUsers: []string{},
+			allRoles: []string{},
+			wantErr:  "no collections, users, or roles",
+		},
+		{
+			name:    "disabled default backends select nothing",
+			noUsers: true,
+			noRoles: true,
+			wantErr: "no collections, users, or roles",
+		},
+		{
+			name:    "default users suffice with roles disabled",
+			noRoles: true,
+		},
+		{
+			name:    "default roles suffice with users disabled",
+			noUsers: true,
+		},
+		{
+			name:         "omitted roles include built-in roles",
+			includeUsers: []string{},
+			allRoles:     authorization.BuiltInRoles,
+			wantSkipUser: true,
+		},
+		{
+			name:         "role wildcard excludes built-in roles",
+			includeUsers: []string{},
+			includeRoles: []string{"*"},
+			allRoles:     authorization.BuiltInRoles,
+			wantSkipUser: true,
+			wantSkipRole: true,
+			wantErr:      "no collections, users, or roles",
+		},
+		{
+			name:         "default role lookup failure is returned",
+			includeUsers: []string{},
+			roleErr:      errors.New("role lookup failed"),
+			wantSkipUser: true,
+			wantErr:      "list all roles: role lookup failed",
+		},
+		{
+			name:    "default users avoid unnecessary role lookup",
+			roleErr: errors.New("role lookup failed"),
+		},
+		{
+			name:        "collections avoid default identity lookup",
+			allClasses:  []string{"Books"},
+			wantClasses: []string{"Books"},
+			roleErr:     errors.New("role lookup failed"),
+		},
+		{
+			name:         "missed user wildcard keeps default roles",
+			includeUsers: []string{"missing*"},
+			wantSkipUser: true,
+		},
+		{
+			name:         "missed role wildcard keeps default users",
+			includeRoles: []string{"missing*"},
+			wantSkipRole: true,
+		},
+		{
+			name:       "unmatched collection wildcard keeps default identities",
+			allClasses: []string{"Books"},
+			include:    []string{"missing*"},
+		},
+		{
+			name:         "excluded permitted collections leave selected users",
+			allClasses:   []string{"Allowed", "Hidden"},
+			permitted:    []string{"Allowed"},
+			exclude:      []string{"Allowed"},
+			includeUsers: []string{"alice"},
+			wantUsers:    []string{"alice"},
+		},
+		{
+			name:         "wildcard omits forbidden collections but keeps users",
+			allClasses:   []string{"Allowed", "AllowedSecret"},
+			permitted:    []string{"Allowed", "Allowed?*"},
+			include:      []string{"Allowed?*"},
+			includeUsers: []string{"alice"},
+			wantUsers:    []string{"alice"},
+		},
+		{
+			name:         "selected users do not bypass total collection denial",
+			allClasses:   []string{"Hidden"},
+			permitted:    []string{},
+			includeUsers: []string{"alice"},
+			wantErr:      "forbidden",
+		},
+		{
+			name:         "identity selectors that both miss select nothing",
+			includeUsers: []string{"missing*"},
+			includeRoles: []string{"missing*"},
+			wantSkipUser: true,
+			wantSkipRole: true,
+			wantErr:      "no collections, users, or roles",
+		},
+		{
+			name:         "one identity selector match is enough",
+			includeUsers: []string{"alice"},
+			includeRoles: []string{"missing*"},
+			wantUsers:    []string{"alice"},
+			wantSkipRole: true,
+		},
+		{
+			name:         "exclusions may remove every collection when a role remains",
+			allClasses:   []string{"Books"},
+			exclude:      []string{"Books"},
+			includeRoles: []string{"reader"},
+			wantRoles:    []string{"reader"},
+		},
+		{
+			name:        "collection selection is unchanged",
+			allClasses:  []string{"Books", "Movies"},
+			include:     []string{"Books"},
+			wantClasses: []string{"Books"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fs := newFakeScheduler(nil)
+			fs.userLister.users = []string{"alice", "bob"}
+			fs.roleLister.roles = []string{"reader", "writer"}
+			if tt.allUsers != nil {
+				fs.userLister.users = tt.allUsers
+			}
+			if tt.allRoles != nil {
+				fs.roleLister.roles = tt.allRoles
+			}
+			fs.roleLister.err = tt.roleErr
+			scheduler := fs.scheduler()
+			if tt.permitted != nil {
+				scheduler.authorizer = permitBackupsOf(tt.permitted...)
+			}
+			if tt.noUsers {
+				scheduler.userLister = nil
+			}
+			if tt.noRoles {
+				scheduler.roleLister = nil
+			}
+			fs.selector.On("ListClasses", ctx).Return(tt.allClasses)
+			if len(tt.wantClasses) > 0 {
+				fs.selector.On("Backupable", ctx, tt.wantClasses).Return(nil)
+			}
+
+			id := "selection-test"
+			if tt.wantErr == "" {
+				fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("backups/" + id)
+				fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+				fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
+			}
+			store := coordStore{objectStore{backend: fs.backend, backupId: id}}
+			got, err := scheduler.validateBackupRequest(ctx, store, nil, &BackupRequest{
+				ID: id, Include: tt.include, Exclude: tt.exclude,
+				IncludeUsers: tt.includeUsers, IncludeRoles: tt.includeRoles,
+			})
+
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+				assert.ElementsMatch(t, tt.wantClasses, got.classes)
+				assert.ElementsMatch(t, tt.wantUsers, got.users)
+				assert.ElementsMatch(t, tt.wantRoles, got.roles)
+			}
+			assert.Equal(t, tt.wantSkipUser, got.skipUsers)
+			assert.Equal(t, tt.wantSkipRole, got.skipRoles)
+		})
+	}
+
+	t.Run("empty selection wrapper returns unprocessable", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		fs.selector.On("ListClasses", ctx).Return([]string(nil))
+		_, err := fs.scheduler().Backup(ctx, nil, &BackupRequest{ID: "empty-selection", Backend: "s3"})
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
+	})
+}
+
+func TestFilterBackupableClasses(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	principal := &models.Principal{Username: "test-user"}
+
+	for _, operation := range []string{"create", "restore"} {
+		t.Run(operation+" performs no authorization call", func(t *testing.T) {
+			fs := newFakeScheduler(nil)
+			got, err := fs.scheduler().filterBackupableClasses(ctx, principal, authorization.CREATE, nil)
+			require.NoError(t, err)
+			assert.Empty(t, got)
+			assert.Empty(t, fs.auth.(*mocks.FakeAuthorizer).Calls())
+		})
+	}
+
+	t.Run("non-empty input with no allowed collection is forbidden", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		auth := fs.auth.(*mocks.FakeAuthorizer)
+		auth.SetErr(authzerrors.NewForbidden(principal, authorization.CREATE, authorization.Backups("Books")...))
+		got, err := fs.scheduler().filterBackupableClasses(ctx, principal, authorization.CREATE, []string{"Books"})
+		assert.Nil(t, got)
+		assert.ErrorAs(t, err, &authzerrors.Forbidden{})
+		assert.Len(t, auth.Calls(), 2)
+	})
+
+	t.Run("allowed collections are retained", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		auth := fs.auth.(*mocks.FakeAuthorizer)
+		auth.Deny(authorization.Backups("Movies")...)
+		got, err := fs.scheduler().filterBackupableClasses(ctx, principal, authorization.CREATE, []string{"Books", "Movies"})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"Books"}, got)
+		assert.Len(t, auth.Calls(), 1)
+	})
+
+	t.Run("authorizer errors are unprocessable", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		auth := fs.auth.(*mocks.FakeAuthorizer)
+		auth.SetErr(ErrAny)
+		got, err := fs.scheduler().filterBackupableClasses(ctx, principal, authorization.CREATE, []string{"Books"})
+		assert.Nil(t, got)
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
+	})
+
+	t.Run("explicit create include is authorized before validation", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		fs.selector.On("ListClasses", ctx).Return([]string(nil))
+		_, err := fs.scheduler().Backup(ctx, principal, &BackupRequest{
+			ID: "explicit-create", Backend: "s3", Include: []string{"Book*"},
+		})
+		require.Error(t, err)
+		calls := fs.auth.(*mocks.FakeAuthorizer).Calls()
+		require.Len(t, calls, 1)
+		assert.Equal(t, authorization.CREATE, calls[0].Verb)
+		assert.Equal(t, authorization.Backups("Book*"), calls[0].Resources)
 	})
 }
 
@@ -301,6 +695,23 @@ func TestSchedulerBackupStatus(t *testing.T) {
 		assert.Equal(t, want, got)
 	})
 
+	t.Run("class-less metadata uses wildcard authorization", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		bytes := marshalCoordinatorMeta(backup.DistributedBackupDescriptor{
+			StartedAt: starTime, Status: backup.Success,
+			Nodes: map[string]*backup.NodeDescriptor{"N1": {Classes: nil}},
+		})
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+
+		got, err := fs.scheduler().BackupStatus(ctx, &models.Principal{Username: "test-user"}, backendName, id, "", "")
+		require.NoError(t, err)
+		assert.Equal(t, backup.Success, got.Status)
+		calls := fs.auth.(*mocks.FakeAuthorizer).Calls()
+		require.Len(t, calls, 1)
+		assert.Equal(t, authorization.Backups(), calls[0].Resources)
+	})
+
 	t.Run("RejectSingleNodeMetadata", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		bytes := marshalMeta(
@@ -409,6 +820,23 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 		got, err := fs.scheduler().RestorationStatus(ctx, nil, backendName, id, "", "")
 		assert.Nil(t, err)
 		assert.Equal(t, want, got)
+	})
+
+	t.Run("class-less metadata uses wildcard authorization", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		bytes := marshalCoordinatorMeta(backup.DistributedBackupDescriptor{
+			StartedAt: starTime, Status: backup.Success,
+			Nodes: map[string]*backup.NodeDescriptor{"N1": {Classes: nil}},
+		})
+		fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return(bytes, nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+
+		got, err := fs.scheduler().RestorationStatus(ctx, &models.Principal{Username: "test-user"}, backendName, id, "", "")
+		require.NoError(t, err)
+		assert.Equal(t, backup.Success, got.Status)
+		calls := fs.auth.(*mocks.FakeAuthorizer).Calls()
+		require.Len(t, calls, 1)
+		assert.Equal(t, authorization.Backups(), calls[0].Resources)
 	})
 }
 
@@ -553,6 +981,33 @@ func TestSchedulerCreateBackup(t *testing.T) {
 		assert.Equal(t, backup.Success, fs.backend.glMeta.Status)
 		assert.Equal(t, "", fs.backend.glMeta.Error)
 	})
+
+	t.Run("class-less create performs no authorization call", func(t *testing.T) {
+		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+		fs.userLister.users = []string{"alice"}
+		fs.selector.On("ListClasses", ctx).Return([]string(nil))
+		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		fs.backend.On("Initialize", ctx, mock.Anything).Return(nil)
+		fs.client.On("CanCommit", any, node, mock.MatchedBy(func(req *Request) bool {
+			return len(req.Classes) == 0 && slices.Equal(req.Users, []string{"alice"})
+		})).Return(cresp, nil)
+		fs.client.On("Commit", any, node, matchStatusReq(sReq)).Return(nil)
+		fs.client.On("Status", any, node, matchStatusReq(sReq)).Return(sresp, nil)
+		fs.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
+
+		s := fs.scheduler()
+		resp, err := s.Backup(ctx, &models.Principal{Username: "test-user"}, &BackupRequest{
+			ID: backupID, Backend: backendName, IncludeUsers: []string{"alice"},
+		})
+		require.NoError(t, err)
+		assert.Empty(t, resp.Classes)
+		assert.Empty(t, fs.auth.(*mocks.FakeAuthorizer).Calls())
+		require.Eventually(t, func() bool { return s.backupper.lastOp.get().Status == "" },
+			10*time.Second, 10*time.Millisecond, "backup did not finish")
+		fs.client.AssertExpectations(t)
+	})
 }
 
 // denyClassAuthorizer forbids any resource naming deny, so filterBackupableClasses narrows per class.
@@ -568,6 +1023,12 @@ func (a *denyClassAuthorizer) Authorize(ctx context.Context, principal *models.P
 		}
 	}
 	return a.FakeAuthorizer.Authorize(ctx, principal, verb, resources...)
+}
+
+func (a *denyClassAuthorizer) FilterAuthorizedResources(_ context.Context, _ *models.Principal, _ string, resources ...string) ([]string, error) {
+	return slices.DeleteFunc(slices.Clone(resources), func(r string) bool {
+		return strings.Contains(strings.ToUpper(r), strings.ToUpper(a.deny))
+	}), nil
 }
 
 func TestSchedulerRestoration(t *testing.T) {
@@ -1149,6 +1610,82 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{ID: id, Include: []string{"unknown"}}, false)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "unknown")
+		// The caller is authorized for the classes it named, not the backup's others.
+		assert.NotContains(t, err.Error(), cls)
+	})
+
+	t.Run("IncludeWildcardMatchesNoClass", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{ID: id, Include: []string{"Zzz*"}}, false)
+		require.ErrorContains(t, err, "matches no class in the backup")
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
+	})
+
+	t.Run("IncludeWildcardExpandsOnlyToPermittedClasses", func(t *testing.T) {
+		twoClasses := meta
+		twoClasses.Nodes = map[string]*backup.NodeDescriptor{nodeName: {Classes: []string{"Article", "ArticleSecret"}}}
+		fs := newFakeScheduler(nil)
+		// The authorizer grants the pattern itself but not every class it matches.
+		fs.auth = permitBackupsOf("Article?*", "Article")
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(twoClasses), nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{ID: id, Include: []string{"Article?*"}}, false)
+		require.ErrorContains(t, err, "matches no class in the backup")
+		assert.NotContains(t, err.Error(), "ArticleSecret")
+	})
+
+	t.Run("EmptyIncludeDeniedBeforeBackupStatusIsChecked", func(t *testing.T) {
+		failed := meta
+		failed.Status = backup.Failed
+		fs := newFakeScheduler(nil)
+		fs.auth = permitBackupsOf()
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(failed), nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{ID: id}, false)
+		require.ErrorAs(t, err, &authzerrors.Forbidden{})
+		assert.NotContains(t, err.Error(), string(backup.Failed))
+	})
+
+	t.Run("EmptyIncludeSelectsFromPermittedClasses", func(t *testing.T) {
+		twoClasses := meta
+		twoClasses.Nodes = map[string]*backup.NodeDescriptor{nodeName: {Classes: []string{"Allowed", "Hidden"}}}
+		tests := []struct {
+			name          string
+			permitted     []string
+			authErr       error
+			exclude       []string
+			wantErr       string
+			wantForbidden bool
+		}{
+			{name: "no permitted class", exclude: []string{"*"}, wantErr: "forbidden", wantForbidden: true},
+			{name: "every permitted class excluded", permitted: []string{"Allowed"}, exclude: []string{"Allowed"}, wantErr: "please choose from : [Allowed]"},
+			{name: "authorizer fails", authErr: ErrAny, wantErr: ErrAny.Error()},
+			// adminlist refuses a list it does not wholly permit.
+			{name: "authorizer refuses the whole list", authErr: fmt.Errorf("adminlist: %w", authzerrors.NewForbidden(&models.Principal{}, authorization.CREATE, authorization.Backups("Allowed", "Hidden")...)), wantErr: "forbidden", wantForbidden: true},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				fs := newFakeScheduler(nil)
+				fs.auth = permitBackupsOf(tc.permitted...)
+				if tc.authErr != nil {
+					failing := mocks.NewMockAuthorizer()
+					failing.SetErr(tc.authErr)
+					fs.auth = failing
+				}
+				fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(twoClasses), nil)
+				fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+				_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{ID: id, Exclude: tc.exclude}, false)
+				require.ErrorContains(t, err, tc.wantErr)
+				assert.NotContains(t, err.Error(), "Hidden")
+				if tc.wantForbidden {
+					assert.ErrorAs(t, err, &authzerrors.Forbidden{})
+				} else {
+					assert.IsType(t, backup.ErrUnprocessable{}, err)
+				}
+			})
+		}
 	})
 
 	t.Run("EmptyResultClassList", func(t *testing.T) { //  backup was successful but class list is empty
@@ -1193,6 +1730,103 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 		require.Error(t, err)
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 		assert.ErrorContains(t, err, "resolve base backup chain")
+	})
+}
+
+func TestValidateRestoreRequest(t *testing.T) {
+	t.Parallel()
+
+	const (
+		id        = "classless-restore"
+		node      = "Node-1"
+		all       = "all"
+		noRestore = models.RestoreConfigUsersOptionsNoRestore
+	)
+	ctx := context.Background()
+	tests := []struct {
+		name        string
+		include     []string
+		exclude     []string
+		usersOption string
+		rolesOption string
+		wantErr     string
+	}{
+		{name: "users restore keeps the leader", usersOption: all, rolesOption: noRestore},
+		{name: "roles restore keeps the leader", usersOption: noRestore, rolesOption: all},
+		{name: "both restore options disabled", usersOption: noRestore, rolesOption: noRestore, wantErr: "nothing to restore"},
+		{name: "exact include", include: []string{"Books"}, usersOption: all, rolesOption: all, wantErr: "cannot be restored with 'include'"},
+		{name: "wildcard include", include: []string{"Book*"}, usersOption: all, rolesOption: all, wantErr: "cannot be restored with 'include'"},
+		{name: "empty include entry", include: []string{""}, usersOption: all, rolesOption: all, wantErr: "cannot be restored with 'include'"},
+		{name: "exact exclude", exclude: []string{"Books"}, usersOption: all, rolesOption: all, wantErr: "cannot be restored with 'exclude'"},
+		{name: "wildcard exclude", exclude: []string{"Book*"}, usersOption: all, rolesOption: all, wantErr: "cannot be restored with 'exclude'"},
+		{name: "empty exclude entry", exclude: []string{""}, usersOption: all, rolesOption: all, wantErr: "cannot be restored with 'exclude'"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fs := newFakeScheduler(nil)
+			meta := backup.DistributedBackupDescriptor{
+				ID: id, StartedAt: time.Now().UTC(), Version: Version,
+				ServerVersion: "1.23", Status: backup.Success, Leader: node,
+				Nodes: map[string]*backup.NodeDescriptor{node: {Classes: nil}},
+			}
+			fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
+			fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("backups/" + id)
+			store := coordStore{objectStore{backend: fs.backend, backupId: id}}
+
+			got, err := fs.scheduler().validateRestoreRequest(ctx, store, nil, &BackupRequest{
+				ID: id, Include: tt.include, Exclude: tt.exclude,
+				UserRestoreOption: tt.usersOption, RbacRestoreOption: tt.rolesOption,
+			})
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				assert.Nil(t, got)
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, got.Nodes[node])
+			assert.Empty(t, got.Nodes[node].Classes)
+			assert.Equal(t, node, got.Leader)
+		})
+	}
+
+	t.Run("wrapper returns unprocessable", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		meta := backup.DistributedBackupDescriptor{
+			ID: id, StartedAt: time.Now().UTC(), Version: Version,
+			ServerVersion: "1.23", Status: backup.Success, Leader: node,
+			Nodes: map[string]*backup.NodeDescriptor{node: {Classes: nil}},
+		}
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("backups/" + id)
+
+		_, err := fs.scheduler().Restore(ctx, &models.Principal{Username: "test-user"}, &BackupRequest{
+			ID: id, Backend: "s3", UserRestoreOption: noRestore, RbacRestoreOption: noRestore,
+		}, false)
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
+		assert.Empty(t, fs.auth.(*mocks.FakeAuthorizer).Calls())
+	})
+
+	t.Run("explicit include is authorized before validation", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		meta := backup.DistributedBackupDescriptor{
+			ID: id, StartedAt: time.Now().UTC(), Version: Version,
+			ServerVersion: "1.23", Status: backup.Success, Leader: node,
+			Nodes: map[string]*backup.NodeDescriptor{node: {Classes: nil}},
+		}
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("backups/" + id)
+
+		_, err := fs.scheduler().Restore(ctx, &models.Principal{Username: "test-user"}, &BackupRequest{
+			ID: id, Backend: "s3", Include: []string{"Books"},
+			UserRestoreOption: all, RbacRestoreOption: all,
+		}, false)
+		require.Error(t, err)
+		calls := fs.auth.(*mocks.FakeAuthorizer).Calls()
+		require.Len(t, calls, 1)
+		assert.Equal(t, authorization.CREATE, calls[0].Verb)
+		assert.Equal(t, authorization.Backups("Books"), calls[0].Resources)
 	})
 }
 
@@ -1287,6 +1921,23 @@ func TestSchedulerList(t *testing.T) {
 		assert.Empty(t, (*resp)[0].IncrementalBaseBackupID)
 	})
 
+	t.Run("class-less backup uses wildcard authorization", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		backups := []*backup.DistributedBackupDescriptor{{
+			ID: backupID1, Status: backup.Success,
+			Nodes: map[string]*backup.NodeDescriptor{"node1": {Classes: nil}},
+		}}
+		fs.backend.On("AllBackups", mock.Anything).Return(backups, nil)
+
+		resp, err := fs.scheduler().List(ctx, &models.Principal{Username: "test-user"}, backendName, defaultListOrdering, false)
+		require.NoError(t, err)
+		require.Len(t, *resp, 1)
+		assert.Empty(t, (*resp)[0].Classes)
+		calls := fs.auth.(*mocks.FakeAuthorizer).Calls()
+		require.Len(t, calls, 2)
+		assert.Equal(t, authorization.Backups(), calls[0].Resources)
+	})
+
 	t.Run("EmptyList", func(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
 		fs := newFakeScheduler(nil)
@@ -1328,8 +1979,9 @@ func TestSchedulerList(t *testing.T) {
 			assert.Equal(t, authorization.READ, call.Verb)
 			assert.Equal(t, authorization.Backups(), call.Resources)
 		}
-		assert.True(t, calls[0].Silent, "the probe must not log a denial for callers who hold no blanket READ")
-		assert.False(t, calls[1].Silent,
+		assert.Equal(t, mocks.MethodAuthorizeSilent, calls[0].Method,
+			"the probe must not log a denial for callers who hold no blanket READ")
+		assert.Equal(t, mocks.MethodAuthorize, calls[1].Method,
 			"nothing else authorizes this endpoint, so the grant must reach the audit log")
 	})
 
@@ -1640,6 +2292,174 @@ func TestSchedulerLogsOperationDuration(t *testing.T) {
 	}
 }
 
+// TestSchedulerAuditLogOmitsUnrequestedClasses checks, against RBAC, that no
+// audit entry names a class the caller neither asked for nor may use. A request
+// left with no class writes one denial, for the wildcard its error names.
+func TestSchedulerAuditLogOmitsUnrequestedClasses(t *testing.T) {
+	t.Parallel()
+	const (
+		backendName = "s3"
+		id          = "1234"
+		hidden      = "Payroll"
+	)
+	var (
+		ctx     = context.Background()
+		alice   = &models.Principal{Username: "alice", UserType: models.UserTypeInputDb}
+		order   = "desc"
+		classes = []string{"Article", hidden}
+	)
+	backupOf := func(id string, classes ...string) *backup.DistributedBackupDescriptor {
+		return &backup.DistributedBackupDescriptor{
+			ID: id, Version: Version, ServerVersion: "1.23", Status: backup.Failed,
+			Nodes: map[string]*backup.NodeDescriptor{nodeName: {Classes: classes}},
+		}
+	}
+
+	tests := []struct {
+		name  string
+		grant string // collections alice may manage backups of, none when empty
+		call  func(t *testing.T, s *Scheduler, backend *fakeBackend)
+		// wantLogged is text some entry holds, unchecked when empty. wantDenial
+		// is text the only denial holds, and empty wants no denial.
+		wantLogged string
+		wantDenial string
+	}{
+		{
+			name:  "backup with empty include",
+			grant: "Art*",
+			call: func(t *testing.T, s *Scheduler, _ *fakeBackend) {
+				_, err := s.Backup(ctx, alice, &BackupRequest{Backend: backendName, ID: id})
+				require.ErrorContains(t, err, ErrAny.Error())
+			},
+			wantLogged: "Collection: Article",
+		},
+		{
+			name:  "backup with wildcard include",
+			grant: "Art*",
+			call: func(t *testing.T, s *Scheduler, _ *fakeBackend) {
+				_, err := s.Backup(ctx, alice, &BackupRequest{Backend: backendName, ID: id, Include: []string{"Art*"}})
+				require.ErrorContains(t, err, ErrAny.Error())
+			},
+			wantLogged: "Collection: Article",
+		},
+		{
+			name: "backup with empty include and no permitted class",
+			call: func(t *testing.T, s *Scheduler, _ *fakeBackend) {
+				_, err := s.Backup(ctx, alice, &BackupRequest{Backend: backendName, ID: id})
+				require.ErrorAs(t, err, &authzerrors.Forbidden{})
+			},
+			wantDenial: "Collection: *",
+		},
+		{
+			name:  "backup naming a class alice may not back up",
+			grant: "Art*",
+			call: func(t *testing.T, s *Scheduler, _ *fakeBackend) {
+				_, err := s.Backup(ctx, alice, &BackupRequest{Backend: backendName, ID: id, Include: []string{hidden}})
+				require.ErrorAs(t, err, &authzerrors.Forbidden{})
+			},
+			wantDenial: "Collection: " + hidden,
+		},
+		{
+			name:  "restore with empty include",
+			grant: "Art*",
+			call: func(t *testing.T, s *Scheduler, _ *fakeBackend) {
+				_, err := s.Restore(ctx, alice, &BackupRequest{Backend: backendName, ID: id}, false)
+				require.ErrorContains(t, err, string(backup.Failed))
+			},
+			wantLogged: "Collection: Article",
+		},
+		{
+			name:  "restore with wildcard include",
+			grant: "Art*",
+			call: func(t *testing.T, s *Scheduler, _ *fakeBackend) {
+				_, err := s.Restore(ctx, alice, &BackupRequest{Backend: backendName, ID: id, Include: []string{"Art*"}}, false)
+				require.ErrorContains(t, err, string(backup.Failed))
+			},
+			wantLogged: "Collection: Article",
+		},
+		{
+			name: "restore with empty include and no permitted class",
+			call: func(t *testing.T, s *Scheduler, _ *fakeBackend) {
+				_, err := s.Restore(ctx, alice, &BackupRequest{Backend: backendName, ID: id}, false)
+				require.ErrorAs(t, err, &authzerrors.Forbidden{})
+			},
+			wantDenial: "Collection: *",
+		},
+		{
+			name:  "list",
+			grant: "Art*",
+			call: func(t *testing.T, s *Scheduler, backend *fakeBackend) {
+				// A backup with no class is visible only through the wildcard resource.
+				backend.On("AllBackups", ctx).Return([]*backup.DistributedBackupDescriptor{
+					backupOf("article", "Article"), backupOf("payroll", hidden), backupOf("mixed", "Article", hidden), backupOf("none"),
+				}, nil)
+				resp, err := s.List(ctx, alice, backendName, &order, false)
+				require.NoError(t, err)
+				require.Len(t, *resp, 1)
+				assert.Equal(t, "article", (*resp)[0].ID)
+			},
+			wantLogged: "Collection: Article",
+		},
+		{
+			name:  "list with no backup",
+			grant: "Art*",
+			call: func(t *testing.T, s *Scheduler, backend *fakeBackend) {
+				backend.On("AllBackups", ctx).Return([]*backup.DistributedBackupDescriptor{}, nil)
+				resp, err := s.List(ctx, alice, backendName, &order, false)
+				require.NoError(t, err)
+				assert.Empty(t, *resp)
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := test.NewNullLogger()
+			m, err := rbac.New(t.TempDir(), rbacconf.Config{Enabled: true}, config.Authentication{}, false, nil, logger)
+			require.NoError(t, err)
+			if tc.grant != "" {
+				role, action := "backup-articles", authorization.ManageBackups
+				policies, err := conv.RolesToPolicies(&models.Role{Name: &role, Permissions: []*models.Permission{
+					{Action: &action, Backups: &models.PermissionBackups{Collection: &tc.grant}},
+				}})
+				require.NoError(t, err)
+				require.NoError(t, m.CreateRolesPermissions(policies))
+				require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId(alice.Username, authentication.AuthTypeDb), []string{role}))
+			}
+
+			fs := newFakeScheduler(nil)
+			fs.auth = m
+			fs.selector.On("ListClasses", ctx).Return(classes)
+			// Backupable fails, which stops a backup once its classes are chosen.
+			fs.selector.On("Backupable", ctx, []string{"Article"}).Return(ErrAny)
+			fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(*backupOf(id, classes...)), nil)
+			fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/backups/" + id)
+			tc.call(t, fs.scheduler(), fs.backend)
+
+			var logged, denials []string
+			for _, e := range hook.AllEntries() {
+				line, err := e.String()
+				require.NoError(t, err)
+				logged = append(logged, line)
+				if e.Message == "authorization denied" {
+					denials = append(denials, line)
+				}
+			}
+			if tc.wantDenial == "" {
+				assert.Empty(t, denials)
+			} else {
+				require.Len(t, denials, 1)
+				assert.Contains(t, denials[0], tc.wantDenial)
+			}
+			if tc.wantLogged != "" {
+				assert.Contains(t, strings.Join(logged, "\n"), tc.wantLogged)
+			}
+			if !strings.Contains(tc.wantDenial, hidden) {
+				assert.NotContains(t, strings.Join(logged, "\n"), hidden)
+			}
+		})
+	}
+}
+
 type fakeScheduler struct {
 	selector     fakeSelector
 	userLister   fakeUserLister
@@ -1660,6 +2480,8 @@ type fakeScheduler struct {
 	nilListers    bool
 	rolesAndUsers rolesAndUsersRestorer
 	namespaces    namespaces.Exister
+	dedupeMode    license.Mode
+	dedupePlanner DedupePlanner
 }
 
 // fakeUserLister is a static UserLister for scheduler tests.
@@ -1699,7 +2521,7 @@ func (f *fakeScheduler) scheduler() *Scheduler {
 	if !f.nilListers {
 		userLister, roleLister = &f.userLister, &f.roleLister
 	}
-	c := NewScheduler(f.auth, &f.client, &f.selector, nil, userLister, roleLister, provider,
+	c := NewScheduler(f.auth, &f.client, &f.selector, f.dedupeMode, f.dedupePlanner, userLister, roleLister, provider,
 		f.nodeResolver, &f.schema, f.staticAPIKeyUsers, f.rolesAndUsers, f.namespaces, f.log)
 	c.backupper.timeoutNextRound = time.Millisecond * 200
 	c.restorer.timeoutNextRound = time.Millisecond * 200
@@ -1791,6 +2613,22 @@ func TestCancellingBackup(t *testing.T) {
 		assert.Equal(t, authorization.DELETE, calls[0].Verb)
 		assert.Equal(t, authorization.Backups("Class1"), calls[0].Resources)
 		fakeScheduler.backend.AssertExpectations(t)
+	})
+
+	t.Run("class-less metadata uses wildcard authorization", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		ds := backup.DistributedBackupDescriptor{
+			ID: backupID, Status: backup.Cancelled,
+			Nodes: map[string]*backup.NodeDescriptor{"node1": {Classes: nil}},
+		}
+		fs.backend.On("GetObject", mock.Anything, backupID, GlobalBackupFile).Return(marshalCoordinatorMeta(ds), nil)
+		fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+
+		err := fs.scheduler().Cancel(ctx, &models.Principal{Username: "test-user"}, backendName, backupID, "", "")
+		require.NoError(t, err)
+		calls := fs.auth.(*mocks.FakeAuthorizer).Calls()
+		require.Len(t, calls, 1)
+		assert.Equal(t, authorization.Backups(), calls[0].Resources)
 	})
 }
 
@@ -1902,6 +2740,22 @@ func TestCancellingRestore(t *testing.T) {
 		err = fakeScheduler.scheduler().CancelRestore(ctx, nil, backendName, backupID, "", "")
 		assert.Nil(t, err) // Should return nil for already cancelled
 		fakeScheduler.backend.AssertExpectations(t)
+	})
+
+	t.Run("class-less metadata uses wildcard authorization", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		ds := backup.DistributedBackupDescriptor{
+			ID: backupID, Status: backup.Cancelled,
+			Nodes: map[string]*backup.NodeDescriptor{"node1": {Classes: nil}},
+		}
+		fs.backend.On("GetObject", mock.Anything, backupID, GlobalRestoreFile).Return(marshalCoordinatorMeta(ds), nil)
+		fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+
+		err := fs.scheduler().CancelRestore(ctx, &models.Principal{Username: "test-user"}, backendName, backupID, "", "")
+		require.NoError(t, err)
+		calls := fs.auth.(*mocks.FakeAuthorizer).Calls()
+		require.Len(t, calls, 1)
+		assert.Equal(t, authorization.Backups(), calls[0].Resources)
 	})
 
 	t.Run("CancellingFinalizing", func(t *testing.T) {
@@ -2142,7 +2996,13 @@ func TestResolveUsers(t *testing.T) {
 		s := &Scheduler{} // no userLister: must not be consulted at all
 		users, err := s.resolveUsers(nil)
 		require.NoError(t, err)
-		assert.Empty(t, users)
+		assert.Nil(t, users)
+	})
+
+	t.Run("empty includeUsers needs no user backend", func(t *testing.T) {
+		users, err := (&Scheduler{}).resolveUsers([]string{})
+		require.NoError(t, err)
+		assert.Equal(t, []string{}, users)
 	})
 
 	t.Run("includeUsers without a user lister is rejected", func(t *testing.T) {
@@ -2265,7 +3125,13 @@ func TestResolveRoles(t *testing.T) {
 		s := &Scheduler{} // no roleLister: must not be consulted at all
 		roles, err := s.resolveRoles(nil)
 		require.NoError(t, err)
-		assert.Empty(t, roles)
+		assert.Nil(t, roles)
+	})
+
+	t.Run("empty includeRoles needs no role backend", func(t *testing.T) {
+		roles, err := (&Scheduler{}).resolveRoles([]string{})
+		require.NoError(t, err)
+		assert.Equal(t, []string{}, roles)
 	})
 
 	t.Run("includeRoles without a role lister is rejected", func(t *testing.T) {
@@ -2400,43 +3266,59 @@ func TestSchedulerCreateBackupRecordsUsers(t *testing.T) {
 		assert.False(t, nodeReq.SkipUsers)
 	})
 
-	t.Run("ordinary backup records no users", func(t *testing.T) {
-		req := BackupRequest{
-			ID:      backupID,
-			Include: []string{cls},
-			Backend: backendName,
-		}
-		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
-		nodeReq := setup(fs, &req)
+	for _, body := range []string{`{}`, `{"includeUsers":null}`} {
+		t.Run("default user snapshot for "+body, func(t *testing.T) {
+			var payload models.BackupCreateRequest
+			require.NoError(t, json.Unmarshal([]byte(body), &payload))
+			require.Nil(t, payload.IncludeUsers)
+			req := BackupRequest{
+				ID:           backupID,
+				Include:      []string{cls},
+				Backend:      backendName,
+				IncludeUsers: payload.IncludeUsers,
+			}
+			fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+			nodeReq := setup(fs, &req)
 
-		_, err := fs.scheduler().Backup(ctx, &models.Principal{}, &req)
-		require.Nil(t, err)
-		assert.Nil(t, fs.backend.glMeta.Users)
-		assert.False(t, fs.backend.glMeta.SkipUsers)
-		assert.Empty(t, nodeReq.Users)
-		assert.False(t, nodeReq.SkipUsers)
-	})
+			_, err := fs.scheduler().Backup(ctx, &models.Principal{}, &req)
+			require.Nil(t, err)
+			assert.Nil(t, fs.backend.glMeta.Users)
+			assert.False(t, fs.backend.glMeta.SkipUsers)
+			assert.Empty(t, nodeReq.Users)
+			assert.False(t, nodeReq.SkipUsers)
+		})
+	}
 
-	t.Run("includeUsers matching no user skips the user snapshot", func(t *testing.T) {
-		req := BackupRequest{
-			ID:           backupID,
-			Include:      []string{cls},
-			Backend:      backendName,
-			IncludeUsers: []string{"ns9:*"},
-		}
-		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
-		fs.userLister.users = []string{"ns1:alice"}
-		nodeReq := setup(fs, &req)
+	for _, tt := range []struct {
+		name string
+		body string
+	}{
+		{name: "unmatched user wildcard", body: `{"includeUsers":["ns9:*"]}`},
+		{name: "empty user list", body: `{"includeUsers":[]}`},
+	} {
+		t.Run(tt.name+" skips the user snapshot", func(t *testing.T) {
+			var body models.BackupCreateRequest
+			require.NoError(t, json.Unmarshal([]byte(tt.body), &body))
+			req := BackupRequest{
+				ID:           backupID,
+				Include:      []string{cls},
+				Backend:      backendName,
+				IncludeUsers: body.IncludeUsers,
+			}
+			fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+			fs.userLister.users = []string{"ns1:alice"}
+			nodeReq := setup(fs, &req)
 
-		_, err := fs.scheduler().Backup(ctx, &models.Principal{}, &req)
-		require.NoError(t, err)
-		assert.Empty(t, fs.backend.glMeta.Users)
-		assert.True(t, fs.backend.glMeta.SkipUsers)
-		assert.False(t, fs.backend.glMeta.SkipRoles)
-		assert.Empty(t, nodeReq.Users)
-		assert.True(t, nodeReq.SkipUsers)
-		assert.False(t, nodeReq.SkipRoles)
-	})
+			_, err := fs.scheduler().Backup(ctx, &models.Principal{}, &req)
+			require.NoError(t, err)
+			assert.Empty(t, fs.backend.glMeta.Users)
+			assert.True(t, fs.backend.glMeta.SkipUsers)
+			assert.False(t, fs.backend.glMeta.SkipRoles)
+			assert.Empty(t, nodeReq.Users)
+			assert.True(t, nodeReq.SkipUsers)
+			assert.False(t, nodeReq.SkipRoles)
+		})
+	}
 }
 
 // Scheduler.Backup must resolve includeRoles and record them on the global
@@ -2503,43 +3385,59 @@ func TestSchedulerCreateBackupRecordsRoles(t *testing.T) {
 		assert.False(t, nodeReq.SkipRoles)
 	})
 
-	t.Run("ordinary backup records no roles", func(t *testing.T) {
-		req := BackupRequest{
-			ID:      backupID,
-			Include: []string{cls},
-			Backend: backendName,
-		}
-		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
-		fs.roleLister.roles = []string{"ns1:reader"}
-		nodeReq := setup(fs, &req)
+	for _, body := range []string{`{}`, `{"includeRoles":null}`} {
+		t.Run("default role snapshot for "+body, func(t *testing.T) {
+			var payload models.BackupCreateRequest
+			require.NoError(t, json.Unmarshal([]byte(body), &payload))
+			require.Nil(t, payload.IncludeRoles)
+			req := BackupRequest{
+				ID:           backupID,
+				Include:      []string{cls},
+				Backend:      backendName,
+				IncludeRoles: payload.IncludeRoles,
+			}
+			fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+			fs.roleLister.roles = []string{"ns1:reader"}
+			nodeReq := setup(fs, &req)
 
-		_, err := fs.scheduler().Backup(ctx, &models.Principal{}, &req)
-		require.NoError(t, err)
-		assert.Nil(t, fs.backend.glMeta.Roles)
-		assert.Empty(t, nodeReq.Roles)
-		assert.False(t, nodeReq.SkipRoles)
-	})
+			_, err := fs.scheduler().Backup(ctx, &models.Principal{}, &req)
+			require.NoError(t, err)
+			assert.Nil(t, fs.backend.glMeta.Roles)
+			assert.Empty(t, nodeReq.Roles)
+			assert.False(t, nodeReq.SkipRoles)
+		})
+	}
 
-	t.Run("includeRoles matching no role skips the RBAC snapshot", func(t *testing.T) {
-		req := BackupRequest{
-			ID:           backupID,
-			Include:      []string{cls},
-			Backend:      backendName,
-			IncludeRoles: []string{"ns9:*"},
-		}
-		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
-		fs.roleLister.roles = []string{"ns1:reader"}
-		nodeReq := setup(fs, &req)
+	for _, tt := range []struct {
+		name string
+		body string
+	}{
+		{name: "unmatched role wildcard", body: `{"includeRoles":["ns9:*"]}`},
+		{name: "empty role list", body: `{"includeRoles":[]}`},
+	} {
+		t.Run(tt.name+" skips the RBAC snapshot", func(t *testing.T) {
+			var body models.BackupCreateRequest
+			require.NoError(t, json.Unmarshal([]byte(tt.body), &body))
+			req := BackupRequest{
+				ID:           backupID,
+				Include:      []string{cls},
+				Backend:      backendName,
+				IncludeRoles: body.IncludeRoles,
+			}
+			fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+			fs.roleLister.roles = []string{"ns1:reader"}
+			nodeReq := setup(fs, &req)
 
-		_, err := fs.scheduler().Backup(ctx, &models.Principal{}, &req)
-		require.NoError(t, err)
-		assert.Empty(t, fs.backend.glMeta.Roles)
-		assert.True(t, fs.backend.glMeta.SkipRoles)
-		assert.False(t, fs.backend.glMeta.SkipUsers)
-		assert.Empty(t, nodeReq.Roles)
-		assert.True(t, nodeReq.SkipRoles)
-		assert.False(t, nodeReq.SkipUsers)
-	})
+			_, err := fs.scheduler().Backup(ctx, &models.Principal{}, &req)
+			require.NoError(t, err)
+			assert.Empty(t, fs.backend.glMeta.Roles)
+			assert.True(t, fs.backend.glMeta.SkipRoles)
+			assert.False(t, fs.backend.glMeta.SkipUsers)
+			assert.Empty(t, nodeReq.Roles)
+			assert.True(t, nodeReq.SkipRoles)
+			assert.False(t, nodeReq.SkipUsers)
+		})
+	}
 }
 
 // classDesc builds a per-node class descriptor, optionally carrying aliases.
@@ -3468,6 +4366,52 @@ func TestRestoreSelectsLeaderBlob(t *testing.T) {
 		calls := drive(t, "Node-A", map[string][]byte{"Node-A": blobA}, false, skip{users: true, roles: true})
 		assert.Empty(t, calls)
 	})
+
+	t.Run("class-less restore performs no authorization call", func(t *testing.T) {
+		const (
+			backupID = "classless-blobs"
+			node     = "Node-A"
+		)
+		meta := backup.DistributedBackupDescriptor{
+			ID: backupID, StartedAt: time.Now().UTC(), Version: Version,
+			ServerVersion: "1.23", Status: backup.Success, Leader: node,
+			Nodes: map[string]*backup.NodeDescriptor{node: {Classes: nil}},
+		}
+		nodeMeta, err := json.Marshal(backup.BackupDescriptor{
+			ID: backupID, Status: backup.Success, RbacBackups: blobA, UserBackups: userBlob,
+		})
+		require.NoError(t, err)
+
+		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+		recorder := &recordingRolesAndUsersRestorer{}
+		fs.rolesAndUsers = recorder
+		fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
+		fs.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", ctx, backupID+"/"+node, BackupFile).Return(nodeMeta, nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
+		fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.Anything).Return(nil)
+		fs.client.On("CanCommit", mock.Anything, node, mock.Anything).
+			Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: maxBooking(false)}, nil)
+		fs.client.On("Commit", mock.Anything, node, mock.Anything).Return(nil)
+		fs.client.On("Status", mock.Anything, node, mock.Anything).
+			Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil)
+
+		s := fs.scheduler()
+		_, err = s.Restore(ctx, &models.Principal{Username: "test-user"}, &BackupRequest{
+			ID: backupID, Backend: "gcs",
+			UserRestoreOption: "all", RbacRestoreOption: "all",
+		}, false)
+		require.NoError(t, err)
+		assert.Empty(t, fs.auth.(*mocks.FakeAuthorizer).Calls())
+		require.Eventually(t, func() bool { return s.restorer.lastOp.get().Status == "" },
+			10*time.Second, 10*time.Millisecond, "restore did not finish")
+		calls := recorder.recorded()
+		require.Len(t, calls, 1)
+		assert.Equal(t, blobA, calls[0].roles)
+		assert.Equal(t, userBlob, calls[0].users)
+		assert.Equal(t, backup.Success, fs.backend.glMeta.Status)
+	})
 }
 
 // TestRestoreIgnoresNodeMappingForUnknownNode pins that a nodeMapping entry
@@ -3532,28 +4476,164 @@ func TestRestoreIgnoresNodeMappingForUnknownNode(t *testing.T) {
 	}
 }
 
-func TestSchedulerBackupDedupeOptIn(t *testing.T) {
-	t.Run("RejectedByDefault", func(t *testing.T) {
-		t.Setenv("BACKUP_DEDUPE_ENABLED", "")
-		fs := newFakeScheduler(nil)
-		_, err := fs.scheduler().Backup(context.Background(), nil, &BackupRequest{ID: "opt-in", Backend: "s3", DedupeReplicas: true})
-		require.ErrorContains(t, err, "BACKUP_DEDUPE_ENABLED")
-		assert.IsType(t, backup.ErrUnprocessable{}, err)
-	})
-	t.Run("EnabledPassesGate", func(t *testing.T) {
-		t.Setenv("BACKUP_DEDUPE_ENABLED", "true")
-		fs := newFakeScheduler(nil)
-		fs.selector.On("ListClasses", mock.Anything).Return([]string{})
-		_, err := fs.scheduler().Backup(context.Background(), nil, &BackupRequest{ID: "opt-in", Backend: "s3", DedupeReplicas: true})
-		require.ErrorContains(t, err, "no available classes")
-		assert.NotContains(t, err.Error(), "BACKUP_DEDUPE_ENABLED")
-	})
+// newDedupeGateScheduler wires a one-node scheduler whose create request can run to a successful commit.
+func newDedupeGateScheduler(t *testing.T, id string, mode license.Mode, planner DedupePlanner) (*Scheduler, *fakeScheduler) {
+	t.Helper()
+	const cls, node = "Class-A", "N1"
+	any := mock.Anything
+	fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+	fs.dedupeMode = mode
+	fs.dedupePlanner = planner
+	fs.selector.On("ListClasses", any).Return([]string{cls})
+	fs.selector.On("Backupable", any, []string{cls}).Return(nil)
+	fs.selector.On("Shards", any, cls).Return([]string{node}, nil)
+	fs.backend.On("HomeDir", any, any, any).Return("home/" + id)
+	fs.backend.On("GetObject", any, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+	fs.backend.On("GetObject", any, id, BackupFile).Return(nil, backup.ErrNotFound{})
+	fs.backend.On("GetObject", any, id+"/"+node, any).Return(marshalMeta(backup.BackupDescriptor{Status: backup.Success}), nil)
+	fs.backend.On("Initialize", any, any).Return(nil)
+	fs.backend.On("PutObject", any, id, GlobalBackupFile, any).Return(nil)
+	fs.client.On("CanCommit", any, node, any).Return(&CanCommitResponse{Method: OpCreate, ID: id, Timeout: maxBooking(false), DedupeHonored: true}, nil)
+	fs.client.On("Commit", any, node, any).Return(nil)
+	fs.client.On("Status", any, node, any).Return(&StatusResponse{Status: backup.Success, ID: id, Method: OpCreate}, nil)
+	fs.client.On("Abort", any, node, any).Return(nil)
+	return fs.scheduler(), fs
+}
+
+func TestSchedulerBackupDedupeGate(t *testing.T) {
+	const id = "gate"
+	type outcome int
+	const (
+		proceeds outcome = iota
+		flagOff
+		unlicensed
+		plannerMissing
+	)
+	cases := []struct {
+		name        string
+		mode        license.Mode
+		withPlanner bool
+		option      bool
+		want        outcome
+		wantPlanned bool
+	}{
+		{name: "off refuses the option with a planner", mode: license.FeatureOff, withPlanner: true, option: true, want: flagOff},
+		{name: "off refuses the option without a planner", mode: license.FeatureOff, option: true, want: flagOff},
+		{name: "unlicensed refuses the option", mode: license.FeatureUnlicensed, option: true, want: unlicensed},
+		{name: "licensed plans the option", mode: license.FeatureLicensed, withPlanner: true, option: true, want: proceeds, wantPlanned: true},
+		{name: "licensed without a planner refuses the option", mode: license.FeatureLicensed, option: true, want: plannerMissing},
+		{name: "out-of-range mode refuses the option", mode: license.Mode(99), withPlanner: true, option: true, want: unlicensed},
+		{name: "off without the option backs up", mode: license.FeatureOff, want: proceeds},
+		{name: "unlicensed without the option backs up", mode: license.FeatureUnlicensed, want: proceeds},
+		{name: "licensed without the option backs up", mode: license.FeatureLicensed, withPlanner: true, want: proceeds},
+		{name: "out-of-range mode without the option backs up", mode: license.Mode(99), want: proceeds},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakeDedupePlanner{plan: &DedupePlan{}}
+			var planner DedupePlanner
+			if tc.withPlanner {
+				planner = fake
+			}
+			s, fs := newDedupeGateScheduler(t, id, tc.mode, planner)
+
+			resp, err := s.Backup(context.Background(), nil, &BackupRequest{ID: id, Backend: "s3", Include: []string{"Class-A"}, DedupeReplicas: tc.option})
+
+			if tc.want == proceeds {
+				require.NoError(t, err)
+				require.NotNil(t, resp)
+				require.Eventually(t, func() bool { return s.backupper.lastOp.get().ID == "" }, 5*time.Second, 10*time.Millisecond)
+				assert.Equal(t, backup.Success, fs.backend.globalMetaStatus())
+				if tc.wantPlanned {
+					assert.Len(t, fake.recordedCalls(), 1)
+				} else {
+					assert.Empty(t, fake.recordedCalls())
+				}
+				return
+			}
+			require.Error(t, err)
+			assert.Nil(t, resp)
+			assert.Empty(t, fake.recordedCalls())
+			fs.backend.AssertNotCalled(t, "Initialize", mock.Anything, mock.Anything)
+			fs.backend.AssertNotCalled(t, "PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+			fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, mock.Anything, mock.Anything)
+			switch tc.want {
+			case flagOff:
+				assert.ErrorContains(t, err, "BACKUP_DEDUPE_ENABLED")
+				assert.IsType(t, backup.ErrUnprocessable{}, err)
+				assert.NotErrorIs(t, err, license.ErrRequired)
+			case unlicensed:
+				assert.ErrorIs(t, err, license.ErrRequired)
+				assert.ErrorAs(t, err, &authzerrors.Forbidden{})
+				assert.False(t, errors.As(err, &backup.ErrUnprocessable{}))
+				assert.NotContains(t, err.Error(), ":")
+			case plannerMissing:
+				assert.ErrorIs(t, err, errDedupePlannerMissing)
+				assert.NotErrorIs(t, err, license.ErrRequired)
+				assert.False(t, errors.As(err, &backup.ErrUnprocessable{}))
+			case proceeds:
+			}
+		})
+	}
+}
+
+func TestSchedulerBackupDedupeGateAfterAuthorization(t *testing.T) {
+	const id = "gate-authz"
+	cases := []struct {
+		name        string
+		mode        license.Mode
+		withPlanner bool
+	}{
+		{name: "off", mode: license.FeatureOff},
+		{name: "unlicensed", mode: license.FeatureUnlicensed},
+		{name: "licensed", mode: license.FeatureLicensed, withPlanner: true},
+		{name: "licensed without a planner", mode: license.FeatureLicensed},
+		{name: "out-of-range mode", mode: license.Mode(99)},
+	}
+	for _, tc := range cases {
+		for _, include := range [][]string{nil, {"Class-A"}} {
+			t.Run(fmt.Sprintf("%s include %v", tc.name, include), func(t *testing.T) {
+				fake := &fakeDedupePlanner{plan: &DedupePlan{}}
+				var planner DedupePlanner
+				if tc.withPlanner {
+					planner = fake
+				}
+				s, fs := newDedupeGateScheduler(t, id, tc.mode, planner)
+				principal := &models.Principal{Username: "intruder"}
+				fs.auth.(*mocks.FakeAuthorizer).SetErr(authzerrors.NewForbidden(principal, authorization.CREATE, authorization.Backups()...))
+
+				resp, err := s.Backup(context.Background(), principal, &BackupRequest{ID: id, Backend: "s3", Include: include, DedupeReplicas: true})
+
+				require.Error(t, err)
+				assert.Nil(t, resp)
+				assert.ErrorAs(t, err, &authzerrors.Forbidden{})
+				assert.NotErrorIs(t, err, license.ErrRequired)
+				assert.NotErrorIs(t, err, errDedupePlannerMissing)
+				assert.NotContains(t, err.Error(), "BACKUP_DEDUPE_ENABLED")
+				assert.NotContains(t, err.Error(), "license")
+				assert.Empty(t, fake.recordedCalls())
+				fs.backend.AssertNotCalled(t, "Initialize", mock.Anything, mock.Anything)
+				fs.backend.AssertNotCalled(t, "PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+			})
+		}
+	}
+}
+
+func TestDedupeEnabled(t *testing.T) {
+	for _, tc := range []struct {
+		env  string
+		want bool
+	}{{"", false}, {"false", false}, {"true", true}, {"on", true}} {
+		t.Run(tc.env, func(t *testing.T) {
+			t.Setenv("BACKUP_DEDUPE_ENABLED", tc.env)
+			assert.Equal(t, tc.want, DedupeEnabled())
+		})
+	}
 }
 
 // startPlanningBackup drives a dedupe create into its convergence wait and returns its result channel.
-func startPlanningBackup(t *testing.T, id string) (*Scheduler, *fakeScheduler, chan error) {
+func startPlanningBackup(t *testing.T, id string) (*Scheduler, *fakeScheduler, *fakeDedupePlanner, chan error) {
 	t.Helper()
-	t.Setenv("BACKUP_DEDUPE_ENABLED", "true")
 	const cls = "Class1"
 	fs := newFakeScheduler(&fakeNodeResolver{hosts: map[string]string{"N1": "h1", "N2": "h2"}, leader: "N1"})
 	fs.selector.On("Backupable", mock.Anything, []string{cls}).Return(nil)
@@ -3565,13 +4645,10 @@ func startPlanningBackup(t *testing.T, id string) (*Scheduler, *fakeScheduler, c
 	fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
 	fs.backend.On("PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	fs.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-	ckpt := newFakeCheckpointer()
-	ckpt.shardReplicas[cls] = map[string][]string{"S1": {"N1", "N2"}}
-	ckpt.diverge[cls+"/S1"] = true
+	planner := &fakeDedupePlanner{plan: &DedupePlan{}, blockUntilCancelled: true}
+	fs.dedupeMode = license.FeatureLicensed
+	fs.dedupePlanner = planner
 	s := fs.scheduler()
-	s.backupper.checkpointer = ckpt
-	s.backupper.dedupeCutoffLead = 100 * time.Millisecond
-	s.backupper.dedupePollInterval = 20 * time.Millisecond
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -3583,11 +4660,13 @@ func startPlanningBackup(t *testing.T, id string) (*Scheduler, *fakeScheduler, c
 	}()
 	require.Eventually(t, func() bool { return s.backupper.lastOp.get().ID == id },
 		5*time.Second, 10*time.Millisecond, "backup never took the op slot")
-	return s, fs, errCh
+	require.Eventually(t, func() bool { return len(planner.recordedCalls()) == 1 },
+		5*time.Second, 10*time.Millisecond, "backup never started planning")
+	return s, fs, planner, errCh
 }
 
 // expectPlanningCancelled asserts the create unwinds cancelled without ever booking participants.
-func expectPlanningCancelled(t *testing.T, s *Scheduler, fs *fakeScheduler, errCh chan error) {
+func expectPlanningCancelled(t *testing.T, s *Scheduler, fs *fakeScheduler, planner *fakeDedupePlanner, errCh chan error) {
 	t.Helper()
 	select {
 	case err := <-errCh:
@@ -3597,6 +4676,7 @@ func expectPlanningCancelled(t *testing.T, s *Scheduler, fs *fakeScheduler, errC
 	case <-time.After(5 * time.Second):
 		t.Fatal("backup still planning 5s after cancel; the signal never reached the create path")
 	}
+	require.True(t, planner.observedCancel(), "the planner's cancelled() never reported the cancel")
 	fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, mock.Anything, mock.Anything)
 	require.Eventually(t, func() bool { return s.backupper.lastOp.get().ID == "" },
 		5*time.Second, 10*time.Millisecond, "op slot not released after cancel")
@@ -3604,15 +4684,31 @@ func expectPlanningCancelled(t *testing.T, s *Scheduler, fs *fakeScheduler, errC
 
 func TestSchedulerCancelDuringDedupePlanning(t *testing.T) {
 	const id = "cancel-mid-planning"
-	s, fs, errCh := startPlanningBackup(t, id)
-	require.NoError(t, s.Cancel(context.Background(), nil, "s3", id, "", ""))
-	expectPlanningCancelled(t, s, fs, errCh)
+	cases := []struct {
+		name   string
+		cancel func(t *testing.T, s *Scheduler)
+	}{
+		{name: "user cancel requests it", cancel: func(t *testing.T, s *Scheduler) {
+			require.NoError(t, s.Cancel(context.Background(), nil, "s3", id, "", ""))
+			require.True(t, s.backupper.lastOp.get().CancelRequested)
+		}},
+		{name: "slot status cancelled", cancel: func(t *testing.T, s *Scheduler) {
+			s.backupper.lastOp.set(backup.Cancelled)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s, fs, planner, errCh := startPlanningBackup(t, id)
+			tc.cancel(t, s)
+			expectPlanningCancelled(t, s, fs, planner, errCh)
+		})
+	}
 }
 
 // TestRemoteAbortCancelsCoordinatorCreatePlanning pins non-coordinator DELETE reaching a planning create.
 func TestRemoteAbortCancelsCoordinatorCreatePlanning(t *testing.T) {
 	const id = "cancel-remote-abort"
-	s, fs, errCh := startPlanningBackup(t, id)
+	s, fs, planner, errCh := startPlanningBackup(t, id)
 
 	require.False(t, s.cancelCoordinatorOp(OpCreate, id, "foreign-attempt"))
 	require.False(t, s.backupper.lastOp.get().CancelRequested)
@@ -3624,8 +4720,9 @@ func TestRemoteAbortCancelsCoordinatorCreatePlanning(t *testing.T) {
 	require.False(t, s.cancelCoordinatorOp(OpRestore, id, ""))
 	require.False(t, s.backupper.lastOp.get().CancelRequested)
 
+	require.False(t, planner.observedCancel())
 	require.True(t, s.cancelCoordinatorOp(OpCreate, id, ""))
-	expectPlanningCancelled(t, s, fs, errCh)
+	expectPlanningCancelled(t, s, fs, planner, errCh)
 }
 
 func TestCancelCoordinatorOpGuards(t *testing.T) {
@@ -3853,7 +4950,7 @@ func TestValidateBackupRequestBaseChainFloor(t *testing.T) {
 
 			s := fs.scheduler()
 			store := coordStore{objectStore{fs.backend, id, "", "", ""}}
-			sel, err := s.validateBackupRequest(ctx, store, &BackupRequest{
+			sel, err := s.validateBackupRequest(ctx, store, nil, &BackupRequest{
 				ID: id, Backend: "s3", Include: []string{cls}, BaseBackupID: "base-1",
 			})
 			if tc.wantErr != "" {
@@ -3887,7 +4984,7 @@ func TestIncludeWildcardMiss(t *testing.T) {
 		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
 		store := coordStore{objectStore{fs.backend, id, "", "", ""}}
 
-		selection, err := fs.scheduler().validateBackupRequest(ctx, store, &BackupRequest{
+		selection, err := fs.scheduler().validateBackupRequest(ctx, store, nil, &BackupRequest{
 			ID: id, Backend: "s3", Include: []string{"Zzz*"},
 		})
 		require.Error(t, err, "resolved classes: %v", selection.classes)
@@ -3908,7 +5005,7 @@ func TestIncludeWildcardMiss(t *testing.T) {
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		store := coordStore{objectStore{fs.backend, id, "", "", ""}}
 
-		got, err := fs.scheduler().validateRestoreRequest(ctx, store, &BackupRequest{
+		got, err := fs.scheduler().validateRestoreRequest(ctx, store, nil, &BackupRequest{
 			ID: id, Backend: "s3", Include: []string{"Zzz*"},
 		})
 		var classes []string

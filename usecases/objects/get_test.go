@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func Test_GetAction(t *testing.T) {
@@ -67,7 +68,7 @@ func Test_GetAction(t *testing.T) {
 		manager = NewManager(schemaManager, cfg, logger,
 			authorizer, vectorRepo,
 			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 	}
 
 	t.Run("get non-existing action by id", func(t *testing.T) {
@@ -696,7 +697,7 @@ func Test_GetThing(t *testing.T) {
 		manager = NewManager(schemaManager, cfg, logger,
 			authorizer, vectorRepo,
 			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 	}
 
 	t.Run("get non-existing thing by id", func(t *testing.T) {
@@ -1093,7 +1094,7 @@ func newFakeGetManager(schema schema.Schema, opts ...func(*fakeGetManager)) fake
 	r.modulesProvider = getFakeModulesProviderWithCustomExtenders(r.extender, r.projector)
 	r.Manager = NewManager(schemaManager, cfg, logger,
 		r.authorizer, r.repo, r.modulesProvider, r.metrics, nil,
-		NewAutoSchemaManager(schemaManager, r.repo, cfg, logger, prometheus.NewPedanticRegistry()))
+		NewAutoSchemaManager(schemaManager, r.repo, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 
 	return r
 }

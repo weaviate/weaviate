@@ -21,6 +21,8 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
@@ -47,8 +49,9 @@ func (db *DB) EditOpBucketsForShards(ctx context.Context, collection string, sha
 		if s == nil {
 			continue
 		}
-		if lazy, ok := s.(*LazyLoadShard); ok {
-			if err := lazy.Load(ctx); err != nil {
+		// asLazyLoadShard: a recovering shard's blocked load warns+skips instead of panicking in Store() below.
+		if lazy, ok := asLazyLoadShard(s); ok {
+			if _, _, err := lazy.loadIfCold(ctx); err != nil {
 				db.logger.WithField("collection", collection).WithField("shard", name).
 					WithFields(enterrors.DocsLinkFields(err)).
 					Warnf("drop-vector: load lazy shard: %v", err)
@@ -78,13 +81,8 @@ func (db *DB) EditOpBucketsForLoadedShards(collection string, shardNames []strin
 		if s == nil {
 			continue
 		}
-		if lazy, ok := s.(*LazyLoadShard); ok {
-			lazy.mutex.Lock()
-			loaded := lazy.loaded
-			lazy.mutex.Unlock()
-			if !loaded {
-				continue
-			}
+		if lazy, ok := asLazyLoadShard(s); ok && !lazy.isLoaded() {
+			continue
 		}
 		if b := s.Store().Bucket(helpers.ObjectsBucketLSM); b != nil {
 			buckets[name] = b
@@ -106,10 +104,16 @@ func (db *DB) EnsureDroppedVectorFilesRemoved(collection, shardName string, targ
 	idx.shardCreateLocks.RLock(shardName)
 	defer idx.shardCreateLocks.RUnlock(shardName)
 
-	// A loaded shard retries its own drop: idempotent, it finishes a drop that
-	// failed part-way, and it never opens index.db against its own lock.
-	if loaded := idx.shards.loaded(shardName); loaded != nil {
-		return loaded.retryDroppedVectorIndexes(targets)
+	// A shard in the map finishes its own drops: loaded, it retries them, which
+	// never opens index.db against its own lock; a lazy one does so under its
+	// loading mutex, so no load starts against the offline removal. Only a
+	// shard that left the map is swept by path, under the create lock its
+	// unload holds until index.db is closed.
+	switch s := idx.shards.Load(shardName).(type) {
+	case *Shard:
+		return s.retryDroppedVectorIndexes(targets)
+	case *LazyLoadShard:
+		return s.sweepDroppedVectorIndexes(targets)
 	}
 	helper := newVectorDropIndexHelper()
 	class := idx.getClass()
@@ -190,11 +194,7 @@ func loadedShardForDimensionsClear(idx *Index, shardName string) (*Shard, func()
 	case *Shard:
 		shard = s
 	case *LazyLoadShard:
-		s.mutex.Lock()
-		if s.loaded {
-			shard = s.shard
-		}
-		s.mutex.Unlock()
+		shard = s.loadedShard()
 	}
 	if shard == nil {
 		return nil, nil, notLoaded
@@ -220,12 +220,10 @@ func invalidateComputedUsage(idx *Index, shardName string) error {
 	return nil
 }
 
-// schemaClassUpdater is the slice of the schema manager the finalizer needs: read a
-// class and apply an internal class update. Narrowed to an interface so the
-// finalizer's read-modify-write / retry / guard logic is unit-testable.
+// schemaClassUpdater lets tests fake *schema.Manager's class updates.
 type schemaClassUpdater interface {
-	ReadOnlyClass(collection string) *models.Class
-	UpdateClassInternal(ctx context.Context, collection string, updated *models.Class) error
+	local.ClassReader
+	UpdateClassInternal(ctx context.Context, collection string, updated *models.Class, origin api.ClassUpdateOrigin) error
 }
 
 // schemaVectorConfigFinalizer removes dropped named-vector entries from a class's
@@ -235,21 +233,10 @@ type schemaVectorConfigFinalizer struct {
 	mgr schemaClassUpdater
 }
 
-// managerClassUpdater adapts *schema.Manager to schemaClassUpdater.
-type managerClassUpdater struct{ mgr *schema.Manager }
-
-func (a managerClassUpdater) ReadOnlyClass(collection string) *models.Class {
-	return a.mgr.ReadOnlyClass(collection)
-}
-
-func (a managerClassUpdater) UpdateClassInternal(ctx context.Context, collection string, updated *models.Class) error {
-	return schema.UpdateClassInternal(&a.mgr.Handler, ctx, collection, updated)
-}
-
 // NewSchemaVectorConfigFinalizer builds the schema finalizer used to construct
 // the DropVectorIndexProvider (exported so the REST wiring can pass it).
 func NewSchemaVectorConfigFinalizer(mgr *schema.Manager) *schemaVectorConfigFinalizer {
-	return &schemaVectorConfigFinalizer{mgr: managerClassUpdater{mgr}}
+	return &schemaVectorConfigFinalizer{mgr: mgr}
 }
 
 // deepCopyClass returns a fully independent copy (JSON round-trip; finalize is
@@ -304,7 +291,7 @@ func (f *schemaVectorConfigFinalizer) RemoveDroppedVectorConfig(ctx context.Cont
 		// the FSM keeps the legacy fields genuinely empty — nothing to set
 		// here.
 
-		if err := f.mgr.UpdateClassInternal(ctx, collection, next); err != nil {
+		if err := f.mgr.UpdateClassInternal(ctx, collection, next, api.ClassUpdateOriginDropVectorFinalize); err != nil {
 			lastErr = err
 			select {
 			case <-ctx.Done():

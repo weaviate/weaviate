@@ -39,7 +39,8 @@ func TestSchema_MultiTenancyConfig(t *testing.T) {
 
 		className := "MultiTenantClass"
 		schemaClass := &models.Class{
-			Class: className,
+			Class:        className,
+			VectorConfig: fixtures.DefaultVectorConfig(),
 			Properties: []*models.Property{
 				{
 					Name:     "someProperty",
@@ -69,7 +70,8 @@ func TestSchema_MultiTenancyConfig(t *testing.T) {
 
 		className := "MultiTenantClassDisabled"
 		schemaClass := &models.Class{
-			Class: className,
+			Class:        className,
+			VectorConfig: fixtures.DefaultVectorConfig(),
 			Properties: []*models.Property{
 				{
 					Name:     "someProperty",
@@ -99,7 +101,8 @@ func TestSchema_MultiTenancyConfig(t *testing.T) {
 
 		className := "NonMultiTenantClass"
 		schemaClass := &models.Class{
-			Class: className,
+			Class:        className,
+			VectorConfig: fixtures.DefaultVectorConfig(),
 			Properties: []*models.Property{
 				{
 					Name:     "someProperty",

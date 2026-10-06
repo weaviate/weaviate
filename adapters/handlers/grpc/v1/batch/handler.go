@@ -26,28 +26,28 @@ import (
 	"github.com/weaviate/weaviate/entities/versioned"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type Handler struct {
-	authorizer        authorization.Authorizer
-	authenticator     *auth.Handler
-	batchManager      *objects.BatchManager
-	logger            logrus.FieldLogger
-	schemaManager     *schema.Manager
-	namespacesEnabled bool
+	authorizer    authorization.Authorizer
+	authenticator *auth.Handler
+	batchManager  *objects.BatchManager
+	logger        logrus.FieldLogger
+	schemaManager objects.ClassResolver
+	qualifier     namespacing.Qualifier
 }
 
-func NewHandler(authorizer authorization.Authorizer, batchManager *objects.BatchManager, logger logrus.FieldLogger, authenticator *auth.Handler, schemaManager *schema.Manager, namespacesEnabled bool) *Handler {
+func NewHandler(authorizer authorization.Authorizer, batchManager *objects.BatchManager, logger logrus.FieldLogger, authenticator *auth.Handler, schemaManager objects.ClassResolver, qualifier namespacing.Qualifier) *Handler {
 	return &Handler{
-		authorizer:        authorizer,
-		authenticator:     authenticator,
-		batchManager:      batchManager,
-		logger:            logger,
-		schemaManager:     schemaManager,
-		namespacesEnabled: namespacesEnabled,
+		authorizer:    authorizer,
+		authenticator: authenticator,
+		batchManager:  batchManager,
+		logger:        logger,
+		schemaManager: schemaManager,
+		qualifier:     qualifier,
 	}
 }
 
@@ -59,6 +59,7 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	}
 	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
+	restCtx.SetBatchNamespace(ctx, namespacing.ConfinedNamespace(principal))
 	ctx = classcache.ContextWithClassCache(ctx)
 
 	// we need to save the class two times:
@@ -68,7 +69,7 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	knownClasses := map[string]versioned.Class{}
 	knownClassesAuthCheck := map[string]*models.Class{}
 	classGetter := func(classname, shard string) (string, *models.Class, error) {
-		resolved, qualifiedAlias, err := namespacing.Resolve(principal, h.schemaManager, h.namespacesEnabled, classname)
+		resolved, qualifiedAlias, err := namespacing.Resolve(principal, h.schemaManager, h.qualifier, classname)
 		if err != nil {
 			return "", nil, err
 		}
@@ -102,7 +103,7 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 		knownClassesAuthCheck[classTenantName] = vClass[classname].Class
 		return resolved, vClass[classname].Class, nil
 	}
-	objs, objOriginalIndex, objectParsingErrors := BatchObjectsFromProto(req, classGetter, principal, h.namespacesEnabled)
+	objs, objOriginalIndex, objectParsingErrors := BatchObjectsFromProto(req, classGetter, principal, h.qualifier)
 
 	var objErrors []*pb.BatchObjectsReply_BatchError
 	for i, err := range objectParsingErrors {
@@ -172,6 +173,16 @@ func (h *Handler) BatchReferences(ctx context.Context, req *pb.BatchReferencesRe
 		Errors: refErrors,
 	}
 	return result, nil
+}
+
+// CountConsistencyLevel counts one API request by the consistency level it
+// asked for. Call it once per client request, never per internal sub-batch.
+func CountConsistencyLevel(operation string, level *pb.ConsistencyLevel) {
+	var cl string
+	if repl := extractReplicationProperties(level); repl != nil {
+		cl = repl.ConsistencyLevel
+	}
+	monitoring.GetMetrics().IncConsistencyLevelRequest(operation, cl)
 }
 
 func extractReplicationProperties(level *pb.ConsistencyLevel) *additional.ReplicationProperties {

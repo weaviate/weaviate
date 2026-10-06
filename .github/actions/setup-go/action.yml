@@ -7,7 +7,7 @@ inputs:
   go-version:
     description: Go version to install
     required: false
-    default: '1.26'
+    default: '1.27'
   cache:
     description: Whether to enable setup-go's built-in module cache
     required: false

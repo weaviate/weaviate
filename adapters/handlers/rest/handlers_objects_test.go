@@ -14,16 +14,21 @@ package rest
 import (
 	"context"
 	stderrors "errors"
+	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	uco "github.com/weaviate/weaviate/usecases/objects"
 
 	"github.com/stretchr/testify/assert"
@@ -777,23 +782,38 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		type test struct {
 			name string
 			err  error
+			want middleware.Responder
 		}
 
 		tests := []test{
 			{
 				name: "without props - noaction changes",
+				want: objects.NewObjectsClassDeleteNoContent(),
 			},
 			{
 				name: "error forbidden",
 				err:  errors.NewForbidden(&models.Principal{}, "get", "Myclass/123"),
+				want: objects.NewObjectsClassDeleteForbidden(),
 			},
 			{
 				name: "use case err not found",
 				err:  uco.ErrNotFound{},
+				want: objects.NewObjectsClassDeleteNotFound(),
+			},
+			{
+				name: "multi-tenancy error",
+				err:  uco.NewErrMultiTenancy(stderrors.New("has multi-tenancy disabled")),
+				want: objects.NewObjectsClassDeleteUnprocessableEntity(),
+			},
+			{
+				name: "invalid class name",
+				err:  uco.NewErrInvalidUserInput("%v", stderrors.New("'a:Foo' is not a valid class name")),
+				want: objects.NewObjectsClassDeleteUnprocessableEntity(),
 			},
 			{
 				name: "unknown error",
 				err:  stderrors.New("any error"),
+				want: objects.NewObjectsClassDeleteInternalServerError(),
 			},
 		}
 
@@ -808,13 +828,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 					ClassName:   cls,
 					ID:          "123",
 				}
-				res := h.deleteObject(req, nil)
-				_, ok := res.(*objects.ObjectsClassDeleteNoContent)
-				if test.err != nil {
-					require.False(t, ok)
-					return
-				}
-				require.True(t, ok)
+				require.IsType(t, test.want, h.deleteObject(req, nil))
 			})
 		}
 	})
@@ -1050,6 +1064,29 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 	})
 }
 
+// A namespace refusal answers 422 and the metric counts it as a user error, so
+// it logs nothing. POST /v1/objects is covered end to end by
+// TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart.
+func TestObjectHandlers_NamespaceRefusal(t *testing.T) {
+	err := fmt.Errorf("repo: object by id: %w", namespaces.ErrNamespaceSuspended)
+	logger, hook := logrustest.NewNullLogger()
+	h := &objectHandlers{
+		manager:             &fakeManager{getObjectErr: err, updateObjectErr: err, deleteObjectReturn: err},
+		metricRequestsTotal: newObjectsRequestsTotal(nil, logger),
+	}
+	r := httptest.NewRequest(http.MethodGet, "/v1/objects/alpha:Movies/123", nil)
+
+	assert.IsType(t, &objects.ObjectsClassGetUnprocessableEntity{},
+		h.getObject(objects.ObjectsClassGetParams{HTTPRequest: r, ClassName: "alpha:Movies", ID: "123"}, nil))
+	assert.IsType(t, &objects.ObjectsClassPutUnprocessableEntity{},
+		h.updateObject(objects.ObjectsClassPutParams{
+			HTTPRequest: r, ClassName: "alpha:Movies", ID: "123", Body: &models.Object{Class: "alpha:Movies"},
+		}, nil))
+	assert.IsType(t, &objects.ObjectsClassDeleteUnprocessableEntity{},
+		h.deleteObject(objects.ObjectsClassDeleteParams{HTTPRequest: r, ClassName: "alpha:Movies", ID: "123"}, nil))
+	assert.Empty(t, hook.AllEntries())
+}
+
 // A stray qualified class on a beacon never leaks into the Href URL.
 func TestExtendReferenceWithAPILink_StripsQualifiedClass(t *testing.T) {
 	cases := []struct {
@@ -1131,8 +1168,10 @@ func TestExtendProperties(t *testing.T) {
 }
 
 type fakeManager struct {
-	getObjectReturn *models.Object
-	getObjectErr    error
+	getObjectReturn           *models.Object
+	getObjectErr              error
+	getObjectClassFromNameErr error
+	getObjectsClassErr        error
 
 	addObjectReturn    *models.Object
 	queryResult        []*models.Object
@@ -1175,6 +1214,9 @@ func (f *fakeManager) GetObject(_ context.Context, _ *models.Principal, class st
 func (f *fakeManager) GetObjectsClass(ctx context.Context,
 	principal *models.Principal, id strfmt.UUID,
 ) (*models.Class, error) {
+	if f.getObjectsClassErr != nil {
+		return nil, f.getObjectsClassErr
+	}
 	class := &models.Class{
 		Class:      f.getObjectReturn.Class,
 		Vectorizer: "text2vec-contextionary",
@@ -1185,6 +1227,9 @@ func (f *fakeManager) GetObjectsClass(ctx context.Context,
 func (f *fakeManager) GetObjectClassFromName(ctx context.Context, principal *models.Principal,
 	className string,
 ) (*models.Class, error) {
+	if f.getObjectClassFromNameErr != nil {
+		return nil, f.getObjectClassFromNameErr
+	}
 	class := &models.Class{
 		Class:      f.getObjectReturn.Class,
 		Vectorizer: "text2vec-contextionary",

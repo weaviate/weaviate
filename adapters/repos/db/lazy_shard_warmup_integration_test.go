@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
@@ -56,7 +57,23 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 	allocChecker memwatch.AllocChecker, tenants ...string,
 ) (*Index, *test.Hook) {
 	t.Helper()
-	ctx := context.Background()
+	return newWarmupIndexWithOpts(t, dirName, minObjects, allocChecker, warmupIndexOpts{}, tenants...)
+}
+
+type warmupIndexOpts struct {
+	ctx   context.Context
+	orch  SelfRecoveryOrchestrator
+	eager bool
+}
+
+func newWarmupIndexWithOpts(t *testing.T, dirName string, minObjects int64,
+	allocChecker memwatch.AllocChecker, opts warmupIndexOpts, tenants ...string,
+) (*Index, *test.Hook) {
+	t.Helper()
+	ctx := opts.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	logger, hook := test.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
 
@@ -82,7 +99,7 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 
 	scheduler := queue.NewScheduler(queue.SchedulerOptions{Logger: logger, Workers: 1})
 
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 		func(_ string, _ bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			return readerFunc(class, shardState)
@@ -90,10 +107,9 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
 
 	mockSchema := schemaUC.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
+	mockSchema.EXPECT().ReadOnlySchema().Maybe().Return(*fakeSchema.Objects)
 	mockSchema.EXPECT().ReadOnlyClass(warmupClassName).Maybe().Return(class)
-	mockSchema.EXPECT().NodeName().Maybe().Return(warmupNodeName)
-	mockSchema.EXPECT().TenantsShards(mock.Anything, warmupClassName, mock.Anything).Maybe().
+	mockSchema.EXPECT().TenantsShardsStatus(mock.Anything, warmupClassName, mock.Anything).Maybe().
 		Return(tenantStatus, nil)
 
 	mockRouter := types.NewMockRouter(t)
@@ -114,12 +130,14 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 	shardResolver := resolver.NewShardResolver(warmupClassName, true, schemaGetter)
 
 	index, err := NewIndex(ctx, nil, IndexConfig{
+		NodeName:                      warmupNodeName,
 		RootPath:                      dirName,
 		ClassName:                     schema.ClassName(warmupClassName),
 		ReplicationFactor:             1,
 		ShardLoadLimiter:              loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
-		EnableLazyLoadShards:          true,
+		EnableLazyLoadShards:          !opts.eager,
 		LazyLoadShardWarmupMinObjects: minObjects,
+		SelfRecoveryOrchestrator:      opts.orch,
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{VectorCacheMaxObjects: 1000}, nil, mockRouter, shardResolver,
 		mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{},
@@ -129,39 +147,6 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 	require.NoError(t, err)
 
 	return index, hook
-}
-
-// sweepDoneMessage is what the startup sweep logs once it has walked every shard.
-const sweepDoneMessage = "finished loading all shards"
-
-// requireSweepTally asserts how many shards the startup sweep reported under
-// each outcome, waiting for it to finish. An outcome absent from want must have
-// counted nothing.
-func requireSweepTally(t *testing.T, hook *test.Hook, want map[monitoring.WarmupOutcome]int) {
-	t.Helper()
-
-	var tally logrus.Fields
-	require.Eventually(t, func() bool {
-		for _, entry := range hook.AllEntries() {
-			if entry.Message != sweepDoneMessage {
-				continue
-			}
-			tally = entry.Data
-			return true
-		}
-		return false
-	}, 30*time.Second, 50*time.Millisecond, "the sweep should log what it did with every shard")
-
-	for _, outcome := range []monitoring.WarmupOutcome{
-		monitoring.WarmupLoaded,
-		monitoring.WarmupFailed,
-		monitoring.WarmupSkippedShardGone,
-		monitoring.WarmupSkippedAlreadyLoaded,
-		monitoring.WarmupSkippedEmpty,
-		monitoring.WarmupSkippedBelowThreshold,
-	} {
-		require.Equal(t, want[outcome], tally[string(outcome)], "shards reported as %q", outcome)
-	}
 }
 
 // coldWarmupShard returns a tenant's shard, asserting it is an unloaded lazy one.
@@ -315,7 +300,8 @@ func TestLazyShardBackgroundWarmup(t *testing.T) {
 			}
 
 			// Leaving a shard out of the sweep must keep it loadable on demand.
-			require.NoError(t, lazy.Load(ctx))
+			_, _, err := lazy.loadIfCold(ctx)
+			require.NoError(t, err)
 			require.True(t, lazy.isLoaded())
 		})
 	}
@@ -361,7 +347,7 @@ func TestLazyShardBackgroundWarmupSkipsSpendNoTick(t *testing.T) {
 }
 
 // refusingAllocChecker refuses the load attempts listed in refuse, counted from
-// one, and allows the rest. LazyLoadShard.Load asks it before it builds the shard,
+// one, and allows the rest. LazyLoadShard.loadIfCold asks it before it builds the shard,
 // so this fails a load without having to damage anything on disk.
 type refusingAllocChecker struct {
 	mu     sync.Mutex
@@ -533,7 +519,8 @@ func TestLazyShardWarmupSkipsShardWithNothingToWarm(t *testing.T) {
 			defer index.Shutdown(ctx)
 
 			if tt.loadFirst {
-				require.NoError(t, coldWarmupShard(t, index, tenant).Load(ctx))
+				_, _, err := coldWarmupShard(t, index, tenant).loadIfCold(ctx)
+				require.NoError(t, err)
 			}
 
 			shouldWarm, outcome := index.warmupCandidate(tt.asked)
@@ -595,7 +582,8 @@ func TestLazyShardWarmupLoadOutcome(t *testing.T) {
 			defer index.Shutdown(ctx)
 
 			if tt.loadFirst {
-				require.NoError(t, coldWarmupShard(t, index, tenant).Load(ctx))
+				_, _, err := coldWarmupShard(t, index, tenant).loadIfCold(ctx)
+				require.NoError(t, err)
 			}
 
 			outcome, err := index.loadLocalShardIfActive(tt.asked)

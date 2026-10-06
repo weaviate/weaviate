@@ -33,6 +33,11 @@ func testMulti2VecGoogleVertex(host, gcpProject, location, vectorizerName string
 				name:  "multimodalembedding@001",
 				model: "multimodalembedding@001",
 			},
+			{
+				name:      "gemini-embedding-2",
+				model:     "gemini-embedding-2",
+				withAudio: true,
+			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, multimodalTests(tt, gcpProject, location, vectorizerName))
@@ -71,7 +76,7 @@ func multimodalTests(tt testCase, gcpProject, location, vectorizerName string) f
 		// Define path to test/helper/sample-schema/multimodal/data folder
 		dataFolderPath := "../../../test/helper/sample-schema/multimodal/data"
 		defaultDimensions := 1408
-		if tt.apiEndpoint != "" {
+		if tt.model == "gemini-embedding-2" {
 			defaultDimensions = 3072
 		}
 		clipGoogleSettings := map[string]any{

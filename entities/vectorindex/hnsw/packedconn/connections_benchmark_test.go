@@ -26,7 +26,7 @@ func (c *Connections) bulkInsertAtLayerOriginal(conns []uint64, layer uint8) {
 		return
 	}
 
-	layerData := &c.layers[layer]
+	layerData := c.layer(layer)
 
 	if layerData.packed == 0 {
 		// Empty layer - just encode all values

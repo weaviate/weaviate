@@ -43,9 +43,9 @@ type BackupTaskProvider struct {
 	userSrc  dynUserSnapshotter
 	backends BackupBackendProvider
 
-	// planner plans replica dedupe inside the flow; nil when no Checkpointer
-	// is wired. Nothing renews its lastOp.
-	planner *coordinator
+	// planner plans replica dedupe inside the flow; nil unless dedupe is
+	// licensed on this node.
+	planner DedupePlanner
 	// planPollInterval is how often a non-leader polls for the published plan.
 	planPollInterval time.Duration
 
@@ -82,15 +82,10 @@ type BackupTaskProviderParams struct {
 	NodeHandler       *Handler
 	AppliedIndexProbe func(ctx context.Context, version uint64) error
 	DataPath          string
-	Checkpointer      ReplicaCheckpointer
+	DedupePlanner     DedupePlanner
 }
 
 func NewBackupTaskProvider(p BackupTaskProviderParams) *BackupTaskProvider {
-	var planner *coordinator
-	if p.Checkpointer != nil {
-		planner = newCoordinator(nil, nil, nil, p.Logger, nil, p.Backends, nil, p.Checkpointer)
-		planner.dtmPlanner = true
-	}
 	return &BackupTaskProvider{
 		node:              p.Node,
 		logger:            p.Logger,
@@ -99,7 +94,7 @@ func NewBackupTaskProvider(p BackupTaskProviderParams) *BackupTaskProvider {
 		rbacSrc:           p.RBACSrc,
 		userSrc:           p.UserSrc,
 		backends:          p.Backends,
-		planner:           planner,
+		planner:           p.DedupePlanner,
 		planPollInterval:  _DedupePollInterval,
 		nodeHandler:       p.NodeHandler,
 		appliedIndexProbe: p.AppliedIndexProbe,
@@ -767,16 +762,18 @@ func (p *BackupTaskProvider) publishedPlan(
 		}
 	}
 
-	var plan *dedupePlan
+	var plan *DedupePlan
 	if p.planner != nil {
 		participants := make(map[string]struct{}, len(payload.Nodes))
 		for node := range payload.Nodes {
 			participants[node] = struct{}{}
 		}
 		budget := time.Duration(payload.DedupeConvergenceTimeoutSeconds) * time.Second
-		plan = p.planner.planDesignatedShards(ctx, payload.Classes, budget, participants, preferred)
+		// The flow ctx has no deadline, so any ctx error means the flow ended.
+		plan = p.planner.PlanDesignatedShards(ctx, payload.Classes, budget, participants, preferred,
+			func() bool { return ctx.Err() != nil })
 	} else {
-		logger.Warn("replica dedupe: no replica checkpointer on this node, every replica is uploaded")
+		logger.Warn("replica dedupe: no dedupe planner on this node, every replica is uploaded")
 	}
 	if ctx.Err() != nil {
 		return nil
@@ -821,7 +818,7 @@ func globalDescriptor(ctx context.Context, store coordStore, payload *taskPayloa
 // on different nodes produce identical content. With dedupe, only the leader
 // writes. An existing descriptor is left untouched: the first write wins, and a
 // terminal status never flips back.
-func (p *BackupTaskProvider) writeStartedDescriptor(ctx context.Context, task *distributedtask.Task, payload *taskPayload, plan *dedupePlan) error {
+func (p *BackupTaskProvider) writeStartedDescriptor(ctx context.Context, task *distributedtask.Task, payload *taskPayload, plan *DedupePlan) error {
 	store, err := coordBackend(p.backends, payload.Backend, payload.ID, payload.Bucket, payload.Path)
 	if err != nil {
 		return fmt.Errorf("started descriptor: init backend: %w", err)
@@ -948,7 +945,7 @@ func (p *BackupTaskProvider) writeTerminalDescriptor(task *distributedtask.Task,
 			Path:         payload.Path,
 			BaseBackupID: payload.BaseBackupID,
 		}
-		plan := &dedupePlan{designations: descriptor.DedupeDesignations}
+		plan := &DedupePlan{Designations: descriptor.DedupeDesignations}
 		if err := verifier.verifyDesignatedCoverage(ctx, statusReq, plan, nodeMetas); err != nil {
 			descriptor.Status = backup.Failed
 			descriptor.Error = err.Error()

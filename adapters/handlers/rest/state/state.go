@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	exportUsecase "github.com/weaviate/weaviate/usecases/export"
+	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -43,7 +44,9 @@ import (
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/remote"
 	"github.com/weaviate/weaviate/usecases/traverser"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
@@ -62,6 +65,7 @@ type State struct {
 	Crons           *cron.Crons
 
 	ServerConfig  *config.WeaviateConfig
+	License       *license.State
 	LDIntegration *configRuntime.LDIntegration
 	Logger        *logrus.Logger
 	gqlMutex      sync.Mutex
@@ -71,7 +75,7 @@ type State struct {
 	SchemaManager *schema.Manager
 	Cluster       *cluster.State
 
-	RemoteIndexIncoming *sharding.RemoteIndexIncoming
+	RemoteIndexIncoming *remote.IndexIncoming
 	RemoteNodeIncoming  *sharding.RemoteNodeIncoming
 	Traverser           *traverser.Traverser
 
@@ -93,11 +97,15 @@ type State struct {
 	TenantActivity       *tenantactivity.Handler
 	InternalServer       types.ClusterServer
 	NamespacesController *usecasesNamespaces.Controller
+	NamespaceQualifier   namespacing.Qualifier
 
 	ObjectTTLCoordinator *objectttl.Coordinator
 	ObjectTTLLocalStatus *objectttl.LocalStatus
 
 	DistributedTaskScheduler *distributedtask.Scheduler
+
+	// BackupDedupePlanner is nil unless replica dedupe is licensed on this node.
+	BackupDedupePlanner backup.DedupePlanner
 
 	// ReindexProvider is the local handle for the runtime-reindex
 	// distributed-task provider. Exposed here so the REST cancel handler
