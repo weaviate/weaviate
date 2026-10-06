@@ -14,6 +14,7 @@ package compact
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -48,17 +49,33 @@ import (
 //   - InMemoryReader.readNode -> growIndexToAccommodateNode, reached from
 //     Compactor.convertFileToSorted (the "reader" path here) and from
 //     Loader.Load replaying a raw file with no snapshot present (the "loader"
-//     path). growIndexToAccommodateNode has the same guard at every commit
+//     paths). growIndexToAccommodateNode has the same guard at every commit
 //     type that names a node, so a garbage AddLinksAtLevel source or target
 //     is covered next to AddNode.
 //   - Loader.maxNodeIDInWALs -> SnapshotReader.WithMinNodes ->
 //     SnapshotReader.readMetadata, reached at startup when a snapshot exists
 //     and the trailing raw file carries the garbage ID (the "loader-snapshot"
-//     path). The pre-scan applies the same `<= maxNodeID` filter and then
+//     paths). The pre-scan applies the same `<= maxNodeID` filter and then
 //     pre-sizes the snapshot's node slice to walMaxID+1 before a single
 //     commit is applied, so a fix confined to growIndexToAccommodateNode
 //     leaves this crash-loop in place. This is the frame in the issue's
 //     startup stack (0x92f8000008 / 8 = walMaxID + 1).
+//
+// #13377 bounds the startup load for indexes whose node IDs are document IDs:
+// the loader reads the shard's `indexcount` counter and rejects any record
+// naming a node above counter+2^24, truncating the file before it. The
+// "loader" and "loader-snapshot" paths are wired like those indexes (a counter
+// next to the commit log directory, NodeIDsAreDocIDs set) and pass with it.
+// Two production configurations still have no bound and stay red here:
+//
+//   - The compactor ("reader"). #13377 gives it no limit on the premise that
+//     it only reads files the loader already checked or the running process
+//     wrote. The issue's first stack is this path, on a raw file the running
+//     process wrote after the restart.
+//   - Startup without a limit ("loader-nolimit", "loader-snapshot-nolimit"):
+//     multivector indexes without Muvera, HFresh's centroid index, and a shard
+//     whose counter is 0 or unreadable all load with NodeIDsAreDocIDs unset or
+//     no usable counter, which #13377 leaves at today's behavior.
 //
 // The reader and the loader must not size the node index to a garbage ID.
 // That is the only contract pinned here. How the corrupt commit is handled is
@@ -145,13 +162,28 @@ const (
 	// Compactor.convertFileToSorted calls it (the #649 compactor stack).
 	garbageNodeIDPathReader = "reader"
 	// garbageNodeIDPathLoader is Loader.Load over a directory holding the log
-	// as its only raw file and no snapshot: startup on a fresh shard.
+	// as its only raw file and no snapshot: startup on a fresh shard. Wired
+	// like production for an index whose node IDs are document IDs: the
+	// commit log directory sits in a shard directory with an `indexcount`
+	// counter of garbageNodeIDDocIDCounter, and NodeIDsAreDocIDs is set.
 	garbageNodeIDPathLoader = "loader"
 	// garbageNodeIDPathLoaderSnapshot is Loader.Load over a directory holding
 	// a snapshot with the real nodes and the log as the trailing raw file:
 	// startup on a shard that has compacted at least once (the #649 startup
-	// stack, which crash-loops the node).
+	// stack, which crash-loops the node). Wired like garbageNodeIDPathLoader.
 	garbageNodeIDPathLoaderSnapshot = "loader-snapshot"
+	// garbageNodeIDPathLoaderNoLimit is garbageNodeIDPathLoader with
+	// NodeIDsAreDocIDs unset: a multivector index without Muvera, HFresh's
+	// centroid index, or any shard whose counter the loader cannot use.
+	garbageNodeIDPathLoaderNoLimit = "loader-nolimit"
+	// garbageNodeIDPathLoaderSnapshotNoLimit is garbageNodeIDPathLoaderSnapshot
+	// with NodeIDsAreDocIDs unset.
+	garbageNodeIDPathLoaderSnapshotNoLimit = "loader-snapshot-nolimit"
+
+	// garbageNodeIDDocIDCounter is the shard's document-ID counter for the
+	// bounded loader paths: one past the highest real node, as the shard's
+	// counter would be after handing out those IDs.
+	garbageNodeIDDocIDCounter = uint64(garbageNodeIDRealNodes + 1)
 
 	// garbageNodeIDCommitAddNode puts the garbage ID in an AddNode.
 	garbageNodeIDCommitAddNode = "add-node"
@@ -184,6 +216,8 @@ var garbageNodeIDPaths = []string{
 	garbageNodeIDPathReader,
 	garbageNodeIDPathLoader,
 	garbageNodeIDPathLoaderSnapshot,
+	garbageNodeIDPathLoaderNoLimit,
+	garbageNodeIDPathLoaderSnapshotNoLimit,
 }
 
 var garbageNodeIDCommits = []string{
@@ -297,6 +331,32 @@ func writeGarbageNodeIDSnapshot(t *testing.T, path string) {
 	require.NoError(t, f.Close())
 }
 
+// garbageNodeIDCommitLogDir returns a commit log directory inside a shard
+// directory, with the shard's `indexcount` counter written next to it the way
+// the shard persists it (8 bytes little-endian), so the loader can bound node
+// IDs for the paths that opt in.
+func garbageNodeIDCommitLogDir(t *testing.T) string {
+	t.Helper()
+	shardDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(shardDir, "indexcount"),
+		binary.LittleEndian.AppendUint64(nil, garbageNodeIDDocIDCounter), 0o644))
+	dir := filepath.Join(shardDir, "main.hnsw.commitlog.d")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	return dir
+}
+
+// usesSnapshot reports whether the path starts from a snapshot with the real
+// nodes and replays only the tail from a raw file.
+func (sc garbageNodeIDScenario) usesSnapshot() bool {
+	return sc.path == garbageNodeIDPathLoaderSnapshot || sc.path == garbageNodeIDPathLoaderSnapshotNoLimit
+}
+
+// nodeIDsAreDocIDs reports whether the loader is told node IDs are document
+// IDs, which is what lets it bound them by the shard's counter (#13377).
+func (sc garbageNodeIDScenario) nodeIDsAreDocIDs() bool {
+	return sc.path == garbageNodeIDPathLoader || sc.path == garbageNodeIDPathLoaderSnapshot
+}
+
 // writeGarbageNodeIDTail writes the scenario commit, then one more real node
 // that a skip-and-continue reader must still apply.
 func writeGarbageNodeIDTail(t *testing.T, w *WALWriter, sc garbageNodeIDScenario) {
@@ -341,8 +401,8 @@ func runGarbageNodeIDChild(t *testing.T, sc garbageNodeIDScenario) {
 		reader := NewInMemoryReader(NewWALCommitReader(&buf, logger), logger)
 		// keepLinkReplaceInformation=true mirrors Compactor.convertFileToSorted.
 		state, err = reader.Do(nil, true)
-	case garbageNodeIDPathLoader:
-		dir := t.TempDir()
+	case garbageNodeIDPathLoader, garbageNodeIDPathLoaderNoLimit:
+		dir := garbageNodeIDCommitLogDir(t)
 		f, createErr := os.Create(filepath.Join(dir, "1000"))
 		require.NoError(t, createErr)
 		w := NewWALWriter(f)
@@ -351,12 +411,12 @@ func runGarbageNodeIDChild(t *testing.T, sc garbageNodeIDScenario) {
 		require.NoError(t, f.Close())
 
 		var res *LoadResult
-		res, err = NewLoader(LoaderConfig{Dir: dir, Logger: logger}).Load()
+		res, err = NewLoader(LoaderConfig{Dir: dir, Logger: logger, NodeIDsAreDocIDs: sc.nodeIDsAreDocIDs()}).Load()
 		if res != nil {
 			state = res.State
 		}
-	case garbageNodeIDPathLoaderSnapshot:
-		dir := t.TempDir()
+	case garbageNodeIDPathLoaderSnapshot, garbageNodeIDPathLoaderSnapshotNoLimit:
+		dir := garbageNodeIDCommitLogDir(t)
 		writeGarbageNodeIDSnapshot(t, filepath.Join(dir, "1000.snapshot"))
 		// the raw file's timestamp is past the snapshot's, so it is in the
 		// replay set that maxNodeIDInWALs pre-scans
@@ -366,7 +426,7 @@ func runGarbageNodeIDChild(t *testing.T, sc garbageNodeIDScenario) {
 		require.NoError(t, f.Close())
 
 		var res *LoadResult
-		res, err = NewLoader(LoaderConfig{Dir: dir, Logger: logger}).Load()
+		res, err = NewLoader(LoaderConfig{Dir: dir, Logger: logger, NodeIDsAreDocIDs: sc.nodeIDsAreDocIDs()}).Load()
 		if res != nil {
 			state = res.State
 		}
@@ -404,7 +464,7 @@ func runGarbageNodeIDChild(t *testing.T, sc garbageNodeIDScenario) {
 // scenario, for the failure messages: growIndexToAccommodateNode grows to
 // id+MinimumIndexGrowthDelta, the snapshot pre-size to walMaxID+1.
 func (sc garbageNodeIDScenario) buggySlots() uint64 {
-	if sc.path == garbageNodeIDPathLoaderSnapshot {
+	if sc.usesSnapshot() {
 		return sc.id + 1
 	}
 	return sc.id + cache.MinimumIndexGrowthDelta
@@ -496,7 +556,7 @@ func runGarbageNodeIDParent(t *testing.T, topLevelName string, sc garbageNodeIDS
 // crashing goroutine's stack to count as #649: growIndexToAccommodateNode for
 // the raw-file replay, SnapshotReader.readMetadata for the snapshot pre-size.
 func (sc garbageNodeIDScenario) allocFrame() string {
-	if sc.path == garbageNodeIDPathLoaderSnapshot {
+	if sc.usesSnapshot() {
 		return "(*SnapshotReader).readMetadata"
 	}
 	return "growIndexToAccommodateNode"
