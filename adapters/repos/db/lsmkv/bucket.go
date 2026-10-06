@@ -1916,9 +1916,14 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 		// over them refuse up front instead of racing a still-live instance
 		// (see the claim in NewBucket). A retried or restart shutdown clears
 		// it once the teardown actually finishes.
-		if err == nil {
-			GlobalBucketRegistry.Remove(b.registeredPath)
+		if err != nil {
+			return
 		}
+		// read at exit, not on entry: a concurrent ReplaceBuckets may still move the bucket
+		b.flushLock.RLock()
+		registeredPath := b.registeredPath
+		b.flushLock.RUnlock()
+		GlobalBucketRegistry.Remove(registeredPath)
 	}()
 
 	start := time.Now()

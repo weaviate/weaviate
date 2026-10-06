@@ -1522,7 +1522,7 @@ func Test_UpdateClass(t *testing.T) {
 					},
 				}
 
-				err := validateImmutableFields(initial, updated, nil)
+				err := validateImmutableFields(initial, updated, nil, nil)
 				require.NoError(t, err, "validate immutable fields")
 
 				assert.Equal(t,

@@ -1396,3 +1396,75 @@ func TestChunkWriterCreateSameMicrosecond(t *testing.T) {
 		require.Equal(t, content, got, "existing chunk file was clobbered")
 	})
 }
+
+// A deployment that ships a smaller per-queue chunk size restarts with the
+// old, larger chunks still on disk (sealed and partial). Those legacy
+// chunks must drain correctly: a sealed one is dispatched as one (large)
+// batch, the adopted partial is sealed and dispatched as-is, and only new
+// writes land in chunks of the new size. Nothing may be lost or duplicated.
+func TestChunkSizeChangeAcrossRestart(t *testing.T) {
+	s := makeScheduler(t)
+	dir := t.TempDir()
+
+	// "old" queue: 13-byte header + 13 bytes per record on disk, so 1313
+	// bytes seals a chunk at 100 records. 150 records leave one sealed
+	// 100-record chunk plus a 50-record partial tail.
+	oldQ := makeQueueWith(t, s, discardExecutor(), 1313, dir)
+	pushed := make([]uint64, 0, 180)
+	for i := uint64(1); i <= 150; i++ {
+		require.NoError(t, oldQ.Push(makeRecord(1, i)))
+		pushed = append(pushed, i)
+	}
+	require.NoError(t, oldQ.Flush())
+	require.NoError(t, oldQ.Close(context.Background()))
+
+	// restart with ~10-record chunks
+	newQ := makeQueueWith(t, s, discardExecutor(), 143, dir)
+	t.Cleanup(func() { _ = newQ.Close(context.Background()) })
+	require.EqualValues(t, 150, newQ.Size(), "all legacy records must be recovered")
+
+	for i := uint64(151); i <= 180; i++ {
+		require.NoError(t, newQ.Push(makeRecord(1, i)))
+		pushed = append(pushed, i)
+	}
+	require.NoError(t, newQ.Flush())
+	// let the partial tail become stale so DequeueBatch picks it up
+	// (makeQueueWith uses a 500ms stale timeout)
+	time.Sleep(600 * time.Millisecond)
+
+	seen := make(map[uint64]int)
+	var legacyBatch bool
+	for {
+		b, err := newQ.DequeueBatch()
+		require.NoError(t, err)
+		if b == nil {
+			break
+		}
+		if len(b.Tasks) == 100 {
+			// the sealed legacy chunk comes through as one large batch
+			legacyBatch = true
+		}
+		var hasPostRestartID bool
+		for _, task := range b.Tasks {
+			key := task.(*mockTask).key
+			if key > 150 {
+				hasPostRestartID = true
+			}
+			seen[key]++
+		}
+		// records pushed after the restart must land in chunks of the new
+		// size: only legacy chunks may exceed it
+		if hasPostRestartID {
+			require.LessOrEqual(t, len(b.Tasks), 10,
+				"post-restart records must be dispatched in new-size chunks")
+		}
+		b.Done()
+	}
+
+	require.True(t, legacyBatch, "the sealed legacy chunk should drain as one batch")
+	require.Len(t, seen, 180)
+	for _, id := range pushed {
+		require.Equal(t, 1, seen[id], "record %d must drain exactly once", id)
+	}
+	require.EqualValues(t, 0, newQ.Size())
+}
