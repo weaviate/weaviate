@@ -804,3 +804,42 @@ func TestSchedulerReplaysCanceledChunkFirst(t *testing.T) {
 		})
 	}
 }
+
+// A non-positive interval would make the scheduler's ticker panic, killing
+// the goroutine that schedules every queue, or make a failing queue retry in
+// a tight loop.
+func TestSchedulerIntervalsFromEnv(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    string
+		schedule time.Duration
+		retry    time.Duration
+	}{
+		{name: "unset", value: "", schedule: time.Second, retry: 5 * time.Second},
+		{name: "valid", value: "250ms", schedule: 250 * time.Millisecond, retry: 250 * time.Millisecond},
+		{name: "invalid", value: "soon", schedule: time.Second, retry: 5 * time.Second},
+		{name: "zero", value: "0s", schedule: time.Second, retry: 5 * time.Second},
+		{name: "negative", value: "-5s", schedule: time.Second, retry: 5 * time.Second},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("QUEUE_SCHEDULER_INTERVAL", test.value)
+			t.Setenv("QUEUE_RETRY_INTERVAL", test.value)
+
+			s := NewScheduler(SchedulerOptions{Logger: newTestLogger()})
+			require.Equal(t, test.schedule, s.ScheduleInterval)
+			require.Equal(t, test.retry, s.RetryInterval)
+		})
+	}
+
+	t.Run("negative options", func(t *testing.T) {
+		s := NewScheduler(SchedulerOptions{
+			Logger:           newTestLogger(),
+			ScheduleInterval: -time.Second,
+			RetryInterval:    -time.Second,
+		})
+		require.Equal(t, time.Second, s.ScheduleInterval)
+		require.Equal(t, 5*time.Second, s.RetryInterval)
+	})
+}

@@ -58,7 +58,7 @@ type SchedulerOptions struct {
 	Workers int
 	// The interval at which the scheduler checks the queues for tasks. Defaults to 1 second.
 	ScheduleInterval time.Duration
-	// How long a queue waits before replaying a batch that failed.
+	// How long a queue waits before replaying a batch that failed. Defaults to 5 seconds.
 	RetryInterval time.Duration
 	// Function to be called when the scheduler is closed
 	OnClose func()
@@ -67,8 +67,6 @@ type SchedulerOptions struct {
 }
 
 func NewScheduler(opts SchedulerOptions) *Scheduler {
-	var err error
-
 	if opts.Logger == nil {
 		opts.Logger = logrus.New()
 	}
@@ -78,38 +76,12 @@ func NewScheduler(opts SchedulerOptions) *Scheduler {
 		opts.Workers = max(1, runtime.GOMAXPROCS(0)-1)
 	}
 
-	if opts.ScheduleInterval == 0 {
-		var it time.Duration
-		v := os.Getenv("QUEUE_SCHEDULER_INTERVAL")
-
-		if v != "" {
-			it, err = time.ParseDuration(v)
-			if err != nil {
-				opts.Logger.WithError(err).WithField("value", v).Warn("failed to parse QUEUE_SCHEDULER_INTERVAL, using default")
-			}
-		}
-
-		if it == 0 {
-			it = 1 * time.Second
-		}
-		opts.ScheduleInterval = it
+	if opts.ScheduleInterval <= 0 {
+		opts.ScheduleInterval = intervalFromEnv(opts.Logger, "QUEUE_SCHEDULER_INTERVAL", time.Second)
 	}
 
-	if opts.RetryInterval == 0 {
-		var ri time.Duration
-		v := os.Getenv("QUEUE_RETRY_INTERVAL")
-
-		if v != "" {
-			ri, err = time.ParseDuration(v)
-			if err != nil {
-				opts.Logger.WithError(err).WithField("value", v).Warn("failed to parse QUEUE_RETRY_INTERVAL, using default")
-			}
-		}
-
-		if ri == 0 {
-			ri = 5 * time.Second
-		}
-		opts.RetryInterval = ri
+	if opts.RetryInterval <= 0 {
+		opts.RetryInterval = intervalFromEnv(opts.Logger, "QUEUE_RETRY_INTERVAL", 5*time.Second)
 	}
 
 	s := Scheduler{
@@ -120,6 +92,27 @@ func NewScheduler(opts SchedulerOptions) *Scheduler {
 	s.triggerCh = make(chan chan struct{}, 1)
 
 	return &s
+}
+
+// intervalFromEnv returns the duration set in the given environment variable,
+// or def if it is unset, invalid or not positive.
+func intervalFromEnv(logger logrus.FieldLogger, name string, def time.Duration) time.Duration {
+	v := os.Getenv(name)
+	if v == "" {
+		return def
+	}
+
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		logger.WithField("value", v).Warnf("failed to parse %s, using default: %v", name, err)
+		return def
+	}
+	if d <= 0 {
+		logger.WithField("value", v).Warnf("%s must be positive, using default", name)
+		return def
+	}
+
+	return d
 }
 
 func (s *Scheduler) RegisterQueue(q Queue) {
