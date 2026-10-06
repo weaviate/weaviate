@@ -93,26 +93,30 @@ files are copied. Offloaded/frozen tenants are skipped with a `SkipReason`.
 
 Each shard snapshot is split into key ranges scanned by a worker pool
 (`EXPORT_PARALLELISM` workers, GOMAXPROCS by default, capped at
-`GOMAXPROCS * 4`), producing one Parquet file per range.
+`GOMAXPROCS * 4`), producing one or more Parquet files per range.
 
 **Range computation:** `computeRanges` uses `QuantileKeys` to split the key
 space. Range count is bounded between `count / maxObjectsPerRange` and
-`count / minObjectsPerRange` (50K--500K objects, targeting ~2--3 GB files after
-Zstd compression).
+`count / minObjectsPerRange` (50K--500K objects).
 
-**Per-range pipeline:** Each `scanJob` creates a 16 MiB buffered pipe
-connecting a `ParquetWriter` to a backend upload goroutine. The writer flushes
-its row buffer at 256 rows or 4 MiB and ends a row group at 32 MiB. parquet-go
-holds the open row group in memory, so its bytes reach the pipe only when the
-row group ends. The writer starts a new page in a column at about 8 MiB before
-Zstd compression, so a very large row makes a larger page. The scan seeks to
-its start key with a bucket cursor, deserializes each object via
-`storobj.ExportFieldsFromBinary`, and writes a `ParquetRow`.
+**Per-file pipeline:** Each file a `scanJob` writes gets a 16 MiB buffered pipe
+connecting a `ParquetWriter` to a backend upload goroutine. Once a file reaches
+1 GiB, the scan waits for its upload and writes the next row to a new file.
+parquet-go keeps a file's page index and footer metadata in memory until the
+file closes, and both grow with the file. The writer flushes its row buffer at
+256 rows or 4 MiB and ends a row group at 32 MiB. parquet-go holds the open row
+group in memory, so its bytes reach the pipe only when the row group ends. The
+writer starts a new page in a column at about 8 MiB before Zstd compression, so
+a very large row makes a larger page. The scan seeks to its start key with a
+bucket cursor, deserializes each object via `storobj.ExportFieldsFromBinary`,
+and writes a `ParquetRow`.
 Cleanup goroutines shut down snapshot buckets and remove directories after all
 ranges of a shard complete.
 
-**File naming:** `{className}_{shardName}_{rangeIndex:04d}.parquet`. Collection
-and tenant names are stored as file-level Parquet metadata, not as row columns.
+**File naming:** `{className}_{shardName}_{fileIndex:04d}.parquet`. A shard
+numbers its files from 0000 in the order its ranges open them, so a file number
+does not identify a key range. Collection and tenant names are stored as
+file-level Parquet metadata, not as row columns.
 
 ## Status and Monitoring
 
@@ -122,7 +126,7 @@ and tenant names are stored as file-level Parquet metadata, not as row columns.
 {homeDir}/
   export_metadata.json                              # source of truth
   node_{nodeName}_status.json                       # per node, written every 10 s
-  {className}_{shardName}_{rangeIndex:04d}.parquet
+  {className}_{shardName}_{fileIndex:04d}.parquet
 ```
 
 ### States

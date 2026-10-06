@@ -372,6 +372,10 @@ func (f *fakeStore) UpdateClass(cls *models.Class) error {
 
 	cls.VectorIndexConfig = u.VectorIndexConfig
 	cls.InvertedIndexConfig = u.InvertedIndexConfig
+	cls.VectorConfig = u.VectorConfig
+	if u.ModuleConfig != nil {
+		cls.ModuleConfig = u.ModuleConfig
+	}
 	return nil
 }
 
