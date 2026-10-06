@@ -282,7 +282,8 @@ func TestDrainAfterBrokenStream(t *testing.T) {
 }
 
 func TestDrainWithHangingClient(t *testing.T) {
-	testDuration := 5 * time.Minute
+	testDuration := 10 * time.Second
+	gracePeriod := 100 * time.Millisecond
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, testDuration)
 	defer cancel()
@@ -356,7 +357,7 @@ func TestDrainWithHangingClient(t *testing.T) {
 	mockStream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Once()
 
 	numWorkers := 1
-	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false)
+	handler, drain := batch.StartWithGracePeriod(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false, gracePeriod)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -367,11 +368,12 @@ func TestDrainWithHangingClient(t *testing.T) {
 	err := handler.Handle(mockStream)
 	wg.Wait()
 	require.NotNil(t, err, "handler should return error shutting down")
-	require.ErrorAs(t, err, &context.Canceled, "handler should return context.Canceled error")
+	require.ErrorIs(t, err, context.Canceled, "handler should return context.Canceled error")
 }
 
 func TestDrainWithMisbehavingClient(t *testing.T) {
-	testDuration := 5 * time.Minute
+	testDuration := 10 * time.Second
+	gracePeriod := 100 * time.Millisecond
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, testDuration)
 	defer cancel()
@@ -442,7 +444,7 @@ func TestDrainWithMisbehavingClient(t *testing.T) {
 	// Will not emit shutdown message since client never stops sending messages, it gets hung up on instead
 
 	numWorkers := 1
-	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false)
+	handler, drain := batch.StartWithGracePeriod(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false, gracePeriod)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -453,7 +455,7 @@ func TestDrainWithMisbehavingClient(t *testing.T) {
 	err := handler.Handle(mockStream)
 	wg.Wait()
 	require.NotNil(t, err, "handler should return error shutting down")
-	require.ErrorAs(t, err, &context.Canceled, "handler should return context.Canceled error")
+	require.ErrorIs(t, err, context.Canceled, "handler should return context.Canceled error")
 }
 
 // A stream still receiving after the shutdown message is cut when client calls

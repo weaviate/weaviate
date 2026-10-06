@@ -58,6 +58,7 @@ type StreamHandler struct {
 	shuttingDownCtx      context.Context
 	triggerShuttingDown  context.CancelFunc
 	clientCallsCtx       context.Context
+	gracePeriod          time.Duration
 	registerMu           sync.Mutex
 	logger               logrus.FieldLogger
 	reportingQueues      *reportingQueues
@@ -82,6 +83,7 @@ func NewStreamHandler(
 	shuttingDownCtx context.Context,
 	triggerShuttingDown context.CancelFunc,
 	clientCallsCtx context.Context,
+	gracePeriod time.Duration,
 	recvWg, sendWg *sync.WaitGroup,
 	reportingQueues *reportingQueues,
 	processingQueue processingQueue,
@@ -98,6 +100,7 @@ func NewStreamHandler(
 		shuttingDownCtx:      shuttingDownCtx,
 		triggerShuttingDown:  triggerShuttingDown,
 		clientCallsCtx:       clientCallsCtx,
+		gracePeriod:          gracePeriod,
 		logger:               logger,
 		reportingQueues:      reportingQueues,
 		processingQueue:      processingQueue,
@@ -496,7 +499,7 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, principal
 			shuttingDownDone = nil // only do this once
 			if gracePeriod == nil {
 				// if we haven't already started the grace period timer then do so now
-				gracePeriod = time.After(SHUTDOWN_GRACE_PERIOD)
+				gracePeriod = time.After(h.gracePeriod)
 				log.Info("server is shutting down, will force close recv stream after grace period")
 			}
 		}
@@ -534,7 +537,7 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, principal
 			// after the shutdown signal then we need to start the grace period timer
 			// so that we can force close the stream after the grace period has expired
 			shuttingDownDone = nil // only do this once
-			gracePeriod = time.After(SHUTDOWN_GRACE_PERIOD)
+			gracePeriod = time.After(h.gracePeriod)
 			log.Info("server is shutting down, will force close recv stream after grace period")
 			continue
 		case <-gracePeriod:
