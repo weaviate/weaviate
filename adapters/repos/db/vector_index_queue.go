@@ -54,12 +54,38 @@ type VectorIndexQueue struct {
 	vectorIndex VectorIndex
 }
 
+// geoQueueChunkSize bounds how much work one geo queue batch hands to a
+// worker, like the HFresh task queues do. A batch is one chunk file, and a
+// geo record is ~23 bytes on disk, so the default 10MB chunk holds ~450k
+// points, which the scheduler compresses into a single AddBatch call that
+// can occupy a worker for minutes (and with one worker, starve every other
+// index queue on the node, weaviate/0-weaviate-issues#670). 24KB ≈ 1000
+// points per batch.
+const geoQueueChunkSize = 24 * 1024
+
+// asyncBatchSizeFromEnv returns the accumulate batch size from
+// ASYNC_INDEXING_BATCH_SIZE, or 0 for queues with a custom chunk size: a
+// custom (small) chunk size bounds how long one batch occupies a worker,
+// and accumulating batches in DequeueBatch would merge the small chunks
+// right back into the oversized batch that bound exists to prevent.
+func asyncBatchSizeFromEnv(customChunkSize uint64) int {
+	if customChunkSize != 0 {
+		return 0
+	}
+
+	batchSize, _ := strconv.Atoi(os.Getenv("ASYNC_INDEXING_BATCH_SIZE"))
+	if batchSize < 0 {
+		return 0
+	}
+	return batchSize
+}
+
 func NewVectorIndexQueue(
 	shard *Shard,
 	targetVector string,
 	index VectorIndex,
 ) (*VectorIndexQueue, error) {
-	return newVectorIndexQueueWithID(shard, shard.vectorIndexID(targetVector), targetVector, index)
+	return newVectorIndexQueueWithID(shard, shard.vectorIndexID(targetVector), targetVector, index, 0)
 }
 
 // NewGeoIndexQueue creates a VectorIndexQueue for a geo property index.
@@ -69,14 +95,20 @@ func NewGeoIndexQueue(
 	propName string,
 	index VectorIndex,
 ) (*VectorIndexQueue, error) {
-	return newVectorIndexQueueWithID(shard, geoPropID(propName), "geo_"+propName, index)
+	return newVectorIndexQueueWithID(shard, geoPropID(propName), "geo_"+propName, index, geoQueueChunkSize)
 }
 
+// newVectorIndexQueueWithID builds the queue draining into index. chunkSize
+// overrides the DiskQueue's default (10MB) chunk size; queues that set it
+// do so to bound how long one batch occupies a worker, so they also opt out
+// of ASYNC_INDEXING_BATCH_SIZE accumulation (0 = default size, accumulation
+// allowed).
 func newVectorIndexQueueWithID(
 	shard *Shard,
 	indexID string,
 	logLabel string,
 	index VectorIndex,
+	chunkSize uint64,
 ) (*VectorIndexQueue, error) {
 	viq := VectorIndexQueue{
 		shard:        shard,
@@ -90,10 +122,7 @@ func newVectorIndexQueueWithID(
 		WithField("target_vector", logLabel)
 
 	staleTimeout, _ := time.ParseDuration(os.Getenv("ASYNC_INDEXING_STALE_TIMEOUT"))
-	batchSize, _ := strconv.Atoi(os.Getenv("ASYNC_INDEXING_BATCH_SIZE"))
-	if batchSize > 0 {
-		viq.batchSize = batchSize
-	}
+	viq.batchSize = asyncBatchSizeFromEnv(chunkSize)
 
 	viq.metrics = NewVectorIndexQueueMetrics(logger, shard.promMetrics, shard.index.Config.ClassName.String(), shard.Name(), logLabel)
 
@@ -109,6 +138,7 @@ func newVectorIndexQueueWithID(
 			OnBatchProcessed: viq.OnBatchProcessed,
 			StaleTimeout:     staleTimeout,
 			Metrics:          viq.metrics.QueueMetrics(),
+			ChunkSize:        chunkSize,
 		},
 	)
 	if err != nil {
