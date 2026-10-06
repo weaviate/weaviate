@@ -151,7 +151,7 @@ weaviate_startup_duration_seconds > 0 and on (instance) sum by (instance) (weavi
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|
 | `weaviate_index_shards_total` | Total number of shards per index status | `Gauge` | `status` | - Low 
-| `weaviate_index_shard_status_update_duration_seconds` | Time taken to update shard status in seconds. The `READY` transition is observed with the whole shard load, so the buckets run from 10ms to about 5 minutes (they were the client defaults, which cap at 10s). For load timing prefer `weaviate_shard_load_duration_seconds`, which splits eager from lazy shards and skips shard creation. | `Histogram` | `status` | - Low 
+| `weaviate_index_shard_status_update_duration_seconds` | Time taken to update shard status in seconds. The `READY` transition is observed with the whole shard load, so the buckets run from 10ms to about 5 minutes (they were the client defaults, which cap at 10s). For load timing prefer `weaviate_shard_load_duration_seconds`, which tells the loads that delayed readiness from warmup and runtime loads and skips shard creation. | `Histogram` | `status` | - Low 
 
 #### Auto Schema Metrics
 | Name | Description | Type | Labels | High Cardinality |
