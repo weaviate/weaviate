@@ -128,6 +128,9 @@ var (
 	DeleteUsers          = "delete_users"
 
 	ManageBackups = "manage_backups"
+	// ReadBackups lists backups and reads backup and restore status. It cannot
+	// create, restore or cancel a backup.
+	ReadBackups = "read_backups"
 
 	ManageNamespaces = "manage_namespaces"
 
@@ -169,6 +172,7 @@ var (
 
 		// Backups domain
 		ManageBackups,
+		ReadBackups,
 
 		// Namespaces domain
 		ManageNamespaces,
