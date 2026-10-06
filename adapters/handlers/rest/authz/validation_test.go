@@ -23,19 +23,26 @@ func TestValidatePermissions(t *testing.T) {
 	tests := []struct {
 		name              string
 		permissions       []*models.Permission
-		allowEmpty        bool
+		check             permissionCheck
 		namespacesEnabled bool
 		expectedErr       string
 	}{
 		{
-			name:        "no permissions - not allowed",
+			name:        "no permissions - not allowed on add",
 			permissions: []*models.Permission{},
+			check:       checkAdd,
 			expectedErr: "role has to have at least 1 permission",
 		},
 		{
-			name:        "no permissions - allowed",
+			name:        "no permissions - not allowed on lookup",
 			permissions: []*models.Permission{},
-			allowEmpty:  true,
+			check:       checkLookup,
+			expectedErr: "role has to have at least 1 permission",
+		},
+		{
+			name:        "no permissions - allowed on create",
+			permissions: []*models.Permission{},
+			check:       checkCreate,
 		},
 		{
 			name: "invalid collection name with space",
@@ -68,6 +75,22 @@ func TestValidatePermissions(t *testing.T) {
 					},
 				},
 			},
+		},
+		{
+			// "ſ" and "ı" uppercase to ASCII "S" and "I", so the stored pattern
+			// would name a different class.
+			name: "collection starting with long s rejected",
+			permissions: []*models.Permission{
+				{Collections: &models.PermissionCollections{Collection: String("\u017fovies*")}},
+			},
+			expectedErr: "not a valid class name",
+		},
+		{
+			name: "collection starting with dotless i rejected",
+			permissions: []*models.Permission{
+				{Collections: &models.PermissionCollections{Collection: String("\u0131tems")}},
+			},
+			expectedErr: "not a valid class name",
 		},
 		{
 			name: "lowercase collection name in an alias permission is uppercased, not rejected",
@@ -331,6 +354,14 @@ func TestValidatePermissions(t *testing.T) {
 			expectedErr: "not a valid pattern",
 		},
 		{
+			name: "invalid regex in alias rejected on lookup",
+			permissions: []*models.Permission{
+				{Aliases: &models.PermissionAliases{Collection: String("*"), Alias: String("[")}},
+			},
+			check:       checkLookup,
+			expectedErr: "alias '[' is not a valid pattern",
+		},
+		{
 			name: "invalid regex in tenant rejected",
 			permissions: []*models.Permission{
 				{Tenants: &models.PermissionTenants{Collection: String("*"), Tenant: String("[")}},
@@ -391,7 +422,7 @@ func TestValidatePermissions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validatePermissions(tt.namespacesEnabled, tt.allowEmpty, tt.permissions...)
+			err := validatePermissions(tt.namespacesEnabled, tt.check, tt.permissions...)
 			if tt.expectedErr != "" {
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), tt.expectedErr)
@@ -405,7 +436,7 @@ func TestValidatePermissions(t *testing.T) {
 // TestValidatePermissions_AccumulatesErrors pins that every invalid field in a
 // permission surfaces, not just the last one.
 func TestValidatePermissions_AccumulatesErrors(t *testing.T) {
-	err := validatePermissions(false, false, &models.Permission{
+	err := validatePermissions(false, checkAdd, &models.Permission{
 		Collections: &models.PermissionCollections{Collection: String("A[")},
 		Users:       &models.PermissionUsers{Users: String("(")},
 	})

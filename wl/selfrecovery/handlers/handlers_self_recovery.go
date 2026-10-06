@@ -9,7 +9,9 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package rest
+// Package handlers serves the /debug/self-recovery operator endpoints of a licensed node.
+// It is Weaviate-licensed (wl/LICENSE-WEAVIATE), unlike the BSD-3-Clause code outside wl/.
+package handlers
 
 import (
 	"context"
@@ -20,7 +22,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/wl/selfrecovery"
 )
@@ -39,15 +40,21 @@ func validShardOrCollection(name string) error {
 	return nil
 }
 
-// setupSelfRecoveryHandlers registers the SELF_RECOVERY operator endpoints under /debug/self-recovery.
-func setupSelfRecoveryHandlers(appState *state.State, orch *selfrecovery.Orchestrator) {
-	logger := appState.Logger.WithField("handler", "self_recovery")
-	http.HandleFunc("/debug/self-recovery/accept-empty", newSelfRecoveryAcceptEmptyHandler(logger, orch))
-	// Cancels in-flight ops, erases ".recovering/", submits afresh.
-	http.HandleFunc("/debug/self-recovery/restart", newSelfRecoveryRestartHandler(logger, orch))
+const (
+	// AcceptEmptyPath is the accept-empty escape hatch.
+	AcceptEmptyPath = "/debug/self-recovery/accept-empty"
+	// RestartPath cancels in-flight ops, erases ".recovering/" and submits afresh.
+	RestartPath = "/debug/self-recovery/restart"
+)
+
+// SetupHandlers registers the SELF_RECOVERY operator endpoints on mux. The handlers check neither the flag nor the license key, so call it only in FeatureLicensed.
+func SetupHandlers(mux *http.ServeMux, logger logrus.FieldLogger, orch *selfrecovery.Orchestrator) {
+	logger = logger.WithField("handler", "self_recovery")
+	mux.HandleFunc(AcceptEmptyPath, newAcceptEmptyHandler(logger, orch))
+	mux.HandleFunc(RestartPath, newRestartHandler(logger, orch))
 }
 
-func newSelfRecoveryAcceptEmptyHandler(logger logrus.FieldLogger, orch *selfrecovery.Orchestrator) http.HandlerFunc {
+func newAcceptEmptyHandler(logger logrus.FieldLogger, orch *selfrecovery.Orchestrator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed; use POST", http.StatusMethodNotAllowed)
@@ -95,7 +102,7 @@ func newSelfRecoveryAcceptEmptyHandler(logger logrus.FieldLogger, orch *selfreco
 	}
 }
 
-func newSelfRecoveryRestartHandler(logger logrus.FieldLogger, orch *selfrecovery.Orchestrator) http.HandlerFunc {
+func newRestartHandler(logger logrus.FieldLogger, orch *selfrecovery.Orchestrator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed; use POST", http.StatusMethodNotAllowed)
@@ -117,13 +124,6 @@ func newSelfRecoveryRestartHandler(logger logrus.FieldLogger, orch *selfrecovery
 		}
 		// WithoutCancel: the resubmit outlives the handler.
 		if err := orch.RestartRecovery(context.WithoutCancel(r.Context()), collection, shard); err != nil {
-			// An unlicensed node refuses by design: expected, so Warn.
-			if errors.Is(err, selfrecovery.ErrSelfRecoveryUnlicensed) {
-				logger.WithField("collection", collection).WithField("shard", shard).
-					Warnf("self-recovery restart refused: %v", err)
-				http.Error(w, err.Error(), http.StatusForbidden)
-				return
-			}
 			logger.WithField("collection", collection).WithField("shard", shard).
 				Errorf("self-recovery restart failed: %v", err)
 			// Unknown collection/shard is a client mistake, not a 500.

@@ -185,7 +185,7 @@ func (db *DB) SetUsageLimits(m *usagelimits.Manager) {
 // SelfRecoveryOrchestrator is the narrow surface avoiding an import cycle on cluster/replication.
 type SelfRecoveryOrchestrator interface {
 	// Enabled must be checked before installing a wrapper, else it blocks load forever.
-	// Flag only; licensing is enforced inside the Submit methods so a resuming op is still recognised when unlicensed.
+	// True whenever the flag is on, licensed or not (UnlicensedSelfRecovery), so a resuming op is still recognised.
 	Enabled() bool
 	// SubmitRecovery is non-blocking; false = not queued and the caller MUST fall back to normal init.
 	SubmitRecovery(ctx context.Context, collection, shard string, startedWithoutRaftState bool) bool
@@ -535,11 +535,6 @@ type Config struct {
 	OperationalMode *configRuntime.DynamicValue[string]
 
 	DisableDimensionMetrics *configRuntime.DynamicValue[bool]
-
-	// WeaviateLicense reports whether this node holds a well-formed license key.
-	// No code reads it. A reader outside wl/ must pass it with its feature's
-	// flag to license.ModeFor and call into wl/ only on FeatureLicensed.
-	WeaviateLicense bool
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

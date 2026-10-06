@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -171,7 +170,6 @@ func newOrchestratorForTest(t *testing.T, raft RaftEntryPoint, schemaR SchemaRea
 		ClientFactory: clientFactory,
 		NodeSelector:  ns,
 		NodeName:      "self",
-		Licensed:      true,
 		Logger:        logger,
 		PollInterval:  10_000_000,
 		ProbeTimeout:  100_000_000,
@@ -421,37 +419,6 @@ func TestAcceptEmpty_RemovesRecoveryDir(t *testing.T) {
 	require.True(t, info.IsDir())
 }
 
-func TestCleanupOrphanRecoveryDirs(t *testing.T) {
-	root := t.TempDir()
-	mk := func(p string) {
-		require.NoError(t, os.MkdirAll(filepath.Join(root, p), 0o755))
-	}
-	mk("Coll/shard1")
-	mk("Coll/shard1.recovering")
-	mk("Coll/shard2.recovering")
-	mk("Coll/shard3")
-	mk("Coll2/tenantA")
-	mk("Coll2/tenantA.recovering")
-
-	logger := logrus.New()
-	logger.SetLevel(logrus.PanicLevel)
-	o := New(Config{Logger: logger, NodeName: "self"})
-
-	removed, err := o.CleanupOrphanRecoveryDirs(root)
-	require.NoError(t, err)
-	require.ElementsMatch(t, []string{
-		filepath.Join(root, "Coll/shard1.recovering"),
-		filepath.Join(root, "Coll2/tenantA.recovering"),
-	}, removed)
-
-	for _, p := range []string{"Coll/shard1", "Coll/shard3", "Coll2/tenantA"} {
-		_, err := os.Stat(filepath.Join(root, p))
-		require.NoError(t, err, "live dir %s should be present", p)
-	}
-	_, err = os.Stat(filepath.Join(root, "Coll/shard2.recovering"))
-	require.NoError(t, err, "in-flight recovery dir must be preserved")
-}
-
 func TestRegisterAndPoll_ReturnsNotFoundWhenOpVanishes(t *testing.T) {
 	raft := &stubRaft{
 		detailsByUUID: nil,
@@ -476,8 +443,6 @@ func TestSubmit_NoOpInMaintenanceMode(t *testing.T) {
 		ClientFactory:          nil,
 		NodeSelector:           &stubNodeSelector{},
 		NodeName:               "self",
-		Enabled:                true,
-		Licensed:               true,
 		MaintenanceModeEnabled: func() bool { return true },
 		Logger:                 logger,
 		PollInterval:           10_000_000,
@@ -501,8 +466,6 @@ func TestSubmit_RaceWithClose(t *testing.T) {
 			PathResolver: stubPathResolver{root: t.TempDir()},
 			NodeSelector: &stubNodeSelector{},
 			NodeName:     "self",
-			Enabled:      true,
-			Licensed:     true,
 			Concurrency:  2,
 			Logger:       logger,
 			PollInterval: 10 * time.Millisecond,
@@ -731,7 +694,6 @@ func TestRunOne_EmptyFallbackBucketByPeerAnswers(t *testing.T) {
 					}, nil
 				}
 				o := newOrchestratorForTest(t, &stubRaft{}, stubSchema{replicas: replicas}, ns, clientFactory, stubPathResolver{root: t.TempDir()})
-				o.enabled = true
 				ref := ShardRef{Collection: "C", Shard: "S"}
 
 				decision, err := o.probeAndDecide(context.Background(), ref)
