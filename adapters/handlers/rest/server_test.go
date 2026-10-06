@@ -12,6 +12,7 @@
 package rest
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -122,6 +123,79 @@ func TestHandleShutdownRunsServerShutdown(t *testing.T) {
 			assert.Equal(t, tt.wantShutdownLog, strings.Contains(strings.Join(logs, "\n"), "HTTP server Shutdown"), "logs: %q", logs)
 		})
 	}
+}
+
+// One listener failing its Shutdown must not cut another listener's drain short.
+func TestHandleShutdownWaitsForEveryServer(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	serverShutdownRan := make(chan struct{})
+	api := &operations.WeaviateAPI{
+		PreServerShutdown: func() {},
+		ServerShutdown:    func() { close(serverShutdownRan) },
+		Logger:            func(string, ...interface{}) {},
+	}
+	s := NewServer(api)
+	s.GracefulTimeout = 5 * time.Second
+
+	failing := &http.Server{Handler: http.NotFoundHandler()}
+	t.Cleanup(func() { failing.Close() })
+	failingLn, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	enterrors.GoWrapper(func() { failing.Serve(closeErrListener{failingLn}) }, logger)
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	draining := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(entered)
+		<-release
+		w.Write([]byte("done"))
+	})}
+	t.Cleanup(func() { draining.Close() })
+	drainingLn, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	enterrors.GoWrapper(func() { draining.Serve(drainingLn) }, logger)
+
+	respErr := make(chan error, 1)
+	enterrors.GoWrapper(func() {
+		resp, err := http.Get("http://" + drainingLn.Addr().String())
+		if err == nil {
+			_, err = io.ReadAll(resp.Body)
+			resp.Body.Close()
+		}
+		respErr <- err
+	}, logger)
+	waitOrFail(t, entered, "handler never started")
+
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	servers := []*http.Server{failing, draining}
+	enterrors.GoWrapper(func() { s.handleShutdown(wg, &servers) }, logger)
+	require.NoError(t, s.Shutdown())
+
+	select {
+	case <-serverShutdownRan:
+		t.Fatal("ServerShutdown ran while a server was still draining")
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(release)
+
+	select {
+	case err := <-respErr:
+		require.NoError(t, err, "the in-flight request must complete")
+	case <-time.After(5 * time.Second):
+		t.Fatal("in-flight request never completed")
+	}
+	waitOrFail(t, serverShutdownRan, "ServerShutdown never ran")
+	handled := make(chan struct{})
+	enterrors.GoWrapper(func() { wg.Wait(); close(handled) }, logger)
+	waitOrFail(t, handled, "handleShutdown did not return")
+}
+
+type closeErrListener struct{ net.Listener }
+
+func (l closeErrListener) Close() error {
+	l.Listener.Close()
+	return errors.New("close failed")
 }
 
 func waitOrFail(t *testing.T, ch <-chan struct{}, msg string) {
