@@ -12,6 +12,7 @@
 package vectorizer
 
 import (
+	"maps"
 	"testing"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -206,4 +207,83 @@ func wantOrDefault(value, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func TestMutableSettings(t *testing.T) {
+	with := func(base map[string]any, key string, value any) map[string]any {
+		settings := maps.Clone(base)
+		settings[key] = value
+		return settings
+	}
+	aiStudio := map[string]any{"apiEndpoint": DefaultAIStudioEndpoint}
+	vertex := map[string]any{"apiEndpoint": DefaultApiEndpoint, "projectId": "project"}
+	vertex005 := with(vertex, "model", "text-embedding-005")
+	vertex004Dimensions := with(with(vertex, "model", "text-embedding-004"), "dimensions", 768)
+
+	tests := []struct {
+		name    string
+		current map[string]any
+		updated map[string]any
+		want    bool
+	}{
+		{
+			name:    "gemini-embedding-001 on both sides",
+			current: with(aiStudio, "model", "gemini-embedding-001"),
+			updated: with(vertex, "model", "gemini-embedding-001"),
+			want:    true,
+		},
+		{name: "default model on both sides", current: aiStudio, updated: vertex, want: true},
+		{
+			name:    "another model, endpoint and project change",
+			current: vertex005,
+			updated: with(with(vertex005, "apiEndpoint", "europe-west4-aiplatform.googleapis.com"), "projectId", "other"),
+			want:    true,
+		},
+		{
+			name:    "another model, location change",
+			current: with(vertex005, "location", "us-central1"),
+			updated: with(vertex005, "location", "europe-west4"),
+			want:    true,
+		},
+		{name: "another model, location removed", current: with(vertex005, "location", "us-central1"), updated: vertex005, want: true},
+		{
+			name:    "another model, project change with explicit dimensions",
+			current: vertex004Dimensions,
+			updated: with(vertex004Dimensions, "projectId", "other"),
+			want:    true,
+		},
+		{
+			name:    "same model set through modelId on both sides",
+			current: with(aiStudio, "modelId", "text-embedding-004"),
+			updated: with(vertex, "modelId", "text-embedding-004"),
+			want:    true,
+		},
+		{
+			name:    "gemini-embedding-001 set through modelId on both sides",
+			current: map[string]any{"apiEndpoint": DefaultAIStudioEndpoint, "modelId": "gemini-embedding-001", "dimensions": 1536},
+			updated: map[string]any{"apiEndpoint": DefaultApiEndpoint, "projectId": "project", "location": "us-central1", "modelId": "gemini-embedding-001", "dimensions": 1536},
+			want:    true,
+		},
+		{name: "same explicit dimensions on both sides", current: with(aiStudio, "dimensions", 1536), updated: with(vertex, "dimensions", 1536), want: true},
+		{name: "dimensions removed", current: with(aiStudio, "dimensions", 768), updated: vertex},
+		{name: "model added", current: aiStudio, updated: with(vertex, "model", "text-embedding-005")},
+		{name: "modelId added", current: aiStudio, updated: with(vertex, "modelId", "text-embedding-005")},
+		{name: "model changes", current: with(vertex, "model", "text-embedding-004"), updated: vertex005},
+		{name: "model changes together with the endpoint", current: with(aiStudio, "model", "text-embedding-004"), updated: vertex005},
+		{name: "different explicit dimensions", current: with(aiStudio, "dimensions", 1536), updated: with(vertex, "dimensions", 3072)},
+		{name: "dimensions change for another model", current: with(vertex005, "dimensions", 256), updated: with(vertex005, "dimensions", 768)},
+		{name: "taskType changes with the endpoint", current: aiStudio, updated: with(vertex, "taskType", "CLUSTERING")},
+		{name: "titleProperty changes", current: vertex, updated: with(vertex, "titleProperty", "title")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := MutableSettings(fakeClassConfig{classConfig: tt.current}, fakeClassConfig{classConfig: tt.updated})
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestDefaultModelsMatch(t *testing.T) {
+	assert.Equal(t, DefaultModel, DefaulAIStudioModel,
+		"MutableSettings allows an endpoint switch only because both endpoints default to the same model")
 }

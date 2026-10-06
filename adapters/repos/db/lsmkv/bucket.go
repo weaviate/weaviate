@@ -1734,7 +1734,13 @@ func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...Secondar
 }
 
 func (b *Bucket) createNewActiveMemtable() (memtable, error) {
-	path := segmentPathForID(b.dir, time.Now().UnixNano())
+	return b.newActiveMemtableIn(b.dir)
+}
+
+// newActiveMemtableIn creates a memtable whose segment and WAL will live in dir.
+// Nothing is written to disk until the first write.
+func (b *Bucket) newActiveMemtableIn(dir string) (memtable, error) {
+	path := segmentPathForID(dir, time.Now().UnixNano())
 
 	cl, err := newLazyCommitLogger(path, b.strategy)
 	if err != nil {
@@ -1916,9 +1922,14 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 		// over them refuse up front instead of racing a still-live instance
 		// (see the claim in NewBucket). A retried or restart shutdown clears
 		// it once the teardown actually finishes.
-		if err == nil {
-			GlobalBucketRegistry.Remove(b.registeredPath)
+		if err != nil {
+			return
 		}
+		// read at exit, not on entry: a concurrent ReplaceBuckets may still move the bucket
+		b.flushLock.RLock()
+		registeredPath := b.registeredPath
+		b.flushLock.RUnlock()
+		GlobalBucketRegistry.Remove(registeredPath)
 	}()
 
 	start := time.Now()
