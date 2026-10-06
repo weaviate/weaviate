@@ -18,7 +18,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -45,11 +44,6 @@ type VectorIndexQueue struct {
 
 	// tracks the dimensions of the vectors in the queue
 	dims atomic.Int32
-	// If positive, accumulates vectors in a batch before indexing them.
-	// Otherwise, the batch size is determined by the size of a chunk file
-	// (typically 10MB worth of vectors).
-	// Batch size is not guaranteed to match this value exactly.
-	batchSize int
 
 	vectorIndex VectorIndex
 }
@@ -62,23 +56,6 @@ type VectorIndexQueue struct {
 // index queue on the node, weaviate/0-weaviate-issues#670). 24KB ≈ 1000
 // points per batch.
 const geoQueueChunkSize = 24 * 1024
-
-// asyncBatchSizeFromEnv returns the accumulate batch size from
-// ASYNC_INDEXING_BATCH_SIZE, or 0 for queues with a custom chunk size: a
-// custom (small) chunk size bounds how long one batch occupies a worker,
-// and accumulating batches in DequeueBatch would merge the small chunks
-// right back into the oversized batch that bound exists to prevent.
-func asyncBatchSizeFromEnv(customChunkSize uint64) int {
-	if customChunkSize != 0 {
-		return 0
-	}
-
-	batchSize, _ := strconv.Atoi(os.Getenv("ASYNC_INDEXING_BATCH_SIZE"))
-	if batchSize < 0 {
-		return 0
-	}
-	return batchSize
-}
 
 func NewVectorIndexQueue(
 	shard *Shard,
@@ -99,10 +76,8 @@ func NewGeoIndexQueue(
 }
 
 // newVectorIndexQueueWithID builds the queue draining into index. chunkSize
-// overrides the DiskQueue's default (10MB) chunk size; queues that set it
-// do so to bound how long one batch occupies a worker, so they also opt out
-// of ASYNC_INDEXING_BATCH_SIZE accumulation (0 = default size, accumulation
-// allowed).
+// overrides the DiskQueue's default (10MB) chunk size (0 = default) to bound
+// how long one batch occupies a worker.
 func newVectorIndexQueueWithID(
 	shard *Shard,
 	indexID string,
@@ -122,7 +97,6 @@ func newVectorIndexQueueWithID(
 		WithField("target_vector", logLabel)
 
 	staleTimeout, _ := time.ParseDuration(os.Getenv("ASYNC_INDEXING_STALE_TIMEOUT"))
-	viq.batchSize = asyncBatchSizeFromEnv(chunkSize)
 
 	viq.metrics = NewVectorIndexQueueMetrics(logger, shard.promMetrics, shard.index.Config.ClassName.String(), shard.Name(), logLabel)
 
@@ -206,43 +180,6 @@ func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.Vector
 	}
 
 	return nil
-}
-
-// DequeueBatch dequeues a batch of tasks from the queue.
-// If the queue is configured to accumulate vectors in a batch, it will dequeue
-// tasks until the target batch size is reached.
-// Otherwise, dequeues a single chunk file worth of tasks.
-func (iq *VectorIndexQueue) DequeueBatch() (*queue.Batch, error) {
-	if iq.batchSize <= 0 {
-		return iq.DiskQueue.DequeueBatch()
-	}
-
-	var batches []*queue.Batch
-	var taskCount int
-
-	for {
-		batch, err := iq.DiskQueue.DequeueBatch()
-		if err != nil {
-			return nil, err
-		}
-
-		if batch == nil {
-			break
-		}
-
-		batches = append(batches, batch)
-
-		taskCount += len(batch.Tasks)
-		if taskCount >= iq.batchSize {
-			break
-		}
-	}
-
-	if len(batches) == 0 {
-		return nil, nil
-	}
-
-	return queue.MergeBatches(batches...), nil
 }
 
 func (iq *VectorIndexQueue) Delete(ids ...uint64) error {
