@@ -242,7 +242,12 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 
 	for targetVector, vector := range obj.MultiVectors {
 		if vectorIndex, ok := s.GetVectorIndex(targetVector); ok {
-			if err := vectorIndex.(VectorIndexMulti).ValidateMultiBeforeInsert(vector); err != nil {
+			multiIndex, ok := vectorIndex.(VectorIndexMulti)
+			if !ok {
+				return status, errors.Errorf("Validate vector index %s for target multi vector %s: %s index does not support multi-vectors",
+					targetVector, obj.ID(), vectorIndex.Type())
+			}
+			if err := multiIndex.ValidateMultiBeforeInsert(vector); err != nil {
 				return status, errors.Wrapf(err, "Validate vector index %s for target multi vector %s", targetVector, obj.ID())
 			}
 		}

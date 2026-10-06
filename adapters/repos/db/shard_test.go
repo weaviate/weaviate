@@ -1043,3 +1043,48 @@ func TestShard_TombstoneCleanupInterval_NamedVector(t *testing.T) {
 		20*time.Second, 200*time.Millisecond,
 		"tombstones did not drain: %d remaining", numTombstones())
 }
+
+// Flat, dynamic and hfresh indexes do not implement VectorIndexMulti. A
+// multi-vector payload aimed at one of them must be refused, never panic.
+func TestShard_MultiVectorOnIndexWithoutMultiSupport(t *testing.T) {
+	// The dynamic index can only be created with async indexing enabled.
+	indexes := []struct {
+		name  string
+		cfg   schemaConfig.VectorIndexConfig
+		async []bool
+	}{
+		{name: "flat", cfg: flat.NewDefaultUserConfig(), async: []bool{false, true}},
+		{name: "dynamic", cfg: dynamic.NewDefaultUserConfig(), async: []bool{true}},
+		{name: "hfresh", cfg: hfresh.NewDefaultUserConfig(), async: []bool{false, true}},
+	}
+
+	multiVector := [][]float32{{0.1, 0.2, 0.3, 0.4}, {0.5, 0.6, 0.7, 0.8}}
+
+	ops := map[string]func(t *testing.T, ctx context.Context, shd ShardLike) error{
+		"put": func(t *testing.T, ctx context.Context, shd ShardLike) error {
+			obj := testObject("TestClass")
+			obj.MultiVectors = map[string][][]float32{"foo": multiVector}
+			return shd.PutObject(ctx, obj)
+		},
+	}
+
+	for _, index := range indexes {
+		for _, async := range index.async {
+			for opName, op := range ops {
+				t.Run(fmt.Sprintf("%s/async=%t/%s", index.name, async, opName), func(t *testing.T) {
+					ctx := testCtx()
+					class := &models.Class{Class: "TestClass"}
+					shd, idx := testShardWithSettings(t, ctx, class, hnsw.NewDefaultUserConfig(), false, async /* withCheckpoints */, async,
+						func(i *Index) {
+							i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{"foo": index.cfg}
+						})
+					defer func() { require.NoError(t, idx.drop()) }()
+
+					err := op(t, ctx, shd)
+					require.ErrorContains(t, err, "does not support multi-vectors")
+					require.Equal(t, 0, int(shd.Counter().Get()))
+				})
+			}
+		}
+	}
+}
