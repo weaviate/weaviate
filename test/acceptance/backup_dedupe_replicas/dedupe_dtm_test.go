@@ -89,6 +89,7 @@ func TestBackupDedupeDTM(t *testing.T) {
 		WithWeaviateCluster(3).
 		WithBackendS3(bucketName, regionName).
 		WithWeaviateEnv("BACKUP_DEDUPE_ENABLED", "true").
+		WithWeaviateLicense().
 		WithWeaviateEnv("BACKUP_DISTRIBUTED_TASKS_ENABLED", "true").
 		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
 		Start(ctx)
