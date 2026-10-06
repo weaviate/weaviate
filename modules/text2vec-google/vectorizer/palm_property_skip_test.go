@@ -30,13 +30,30 @@ func TestPalmPropertyLevelSkipIsIgnored(t *testing.T) {
 
 	for _, key := range []string{"text2vec-google", "text2vec-palm"} {
 		for _, namedVector := range []bool{false, true} {
+			titleCfg := map[string]interface{}{
+				key: map[string]interface{}{"vectorizePropertyName": true},
+			}
+			noteCfg := map[string]interface{}{
+				key: map[string]interface{}{"skip": true},
+			}
+			// Google rows also store the opposite flags under the legacy key.
+			// The canonical name must win for both skip and vectorizePropertyName.
+			// Palm rows stay legacy-only.
+			if key == "text2vec-google" {
+				titleCfg["text2vec-palm"] = map[string]interface{}{"vectorizePropertyName": false}
+				noteCfg["text2vec-palm"] = map[string]interface{}{"skip": false}
+			}
+
 			class := &models.Class{
 				Class: "Doc",
 				Properties: []*models.Property{
-					{Name: "title", DataType: []string{"text"}},
+					{
+						Name: "title", DataType: []string{"text"},
+						ModuleConfig: titleCfg,
+					},
 					{
 						Name: "internalNote", DataType: []string{"text"},
-						ModuleConfig: map[string]interface{}{key: map[string]interface{}{"skip": true}},
+						ModuleConfig: noteCfg,
 					},
 				},
 			}
@@ -55,8 +72,8 @@ func TestPalmPropertyLevelSkipIsIgnored(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Logf("key=%-16s namedVector=%-5t text sent: %q", key, namedVector, client.lastInput)
-			if len(client.lastInput) != 1 || client.lastInput[0] != "Hello" {
-				t.Errorf("key=%s namedVector=%t: internalNote has skip=true but was vectorized", key, namedVector)
+			if len(client.lastInput) != 1 || client.lastInput[0] != "title Hello" {
+				t.Errorf("key=%s namedVector=%t: got %q, want %q", key, namedVector, client.lastInput, "title Hello")
 			}
 		}
 	}
