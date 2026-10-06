@@ -1728,7 +1728,13 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 	close(drained)
 	defer b.lifetimeLock.Unlock()
 
-	defer GlobalBucketRegistry.Remove(b.registeredPath)
+	// read at exit, not on entry: a concurrent ReplaceBuckets may still move the bucket
+	defer func() {
+		b.flushLock.RLock()
+		registeredPath := b.registeredPath
+		b.flushLock.RUnlock()
+		GlobalBucketRegistry.Remove(registeredPath)
+	}()
 
 	start := time.Now()
 
