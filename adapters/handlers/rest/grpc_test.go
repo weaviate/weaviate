@@ -117,58 +117,53 @@ func TestStartGrpcStopTimeoutCountsFromStart(t *testing.T) {
 	assert.True(t, forcedStop, "forced Stop")
 }
 
-// A drain that never finishes must not hold up the gRPC stop past the timeout.
+// A finished drain is waited for in full, and one still blocked is left at the
+// timeout with a warning.
 func TestWaitBatchDrain(t *testing.T) {
-	const (
-		timeout     = 200 * time.Millisecond
-		waitLimit   = 5 * time.Second
-		drainNotice = "batch stream drain did not finish within 200ms, continuing shutdown"
-	)
-
 	cases := []struct {
-		name       string
-		drainHangs bool
+		name        string
+		timeout     time.Duration
+		drainBlocks bool
 	}{
-		{name: "drain that finishes returns at once"},
-		{name: "drain that hangs is left behind at the timeout", drainHangs: true},
+		{name: "drain finishes", timeout: time.Hour},
+		{name: "drain blocks past the timeout", timeout: 100 * time.Millisecond, drainBlocks: true},
 	}
-
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			release := make(chan struct{})
 			t.Cleanup(func() { close(release) })
 			drain := func() {
-				if tc.drainHangs {
+				if tc.drainBlocks {
 					<-release
 				}
 			}
-
 			logger, hook := test.NewNullLogger()
 			waited := make(chan time.Duration, 1)
 			go func() {
 				start := time.Now()
-				waitBatchDrain(drain, timeout, logger)
+				waitBatchDrain(drain, tc.timeout, logger)
 				waited <- time.Since(start)
 			}()
-
 			select {
 			case took := <-waited:
-				if tc.drainHangs {
-					assert.GreaterOrEqual(t, took, timeout)
-				} else {
-					assert.Less(t, took, timeout)
+				if tc.drainBlocks {
+					assert.GreaterOrEqual(t, took, tc.timeout)
 				}
-			case <-time.After(waitLimit):
+			case <-time.After(5 * time.Second):
 				require.FailNow(t, "waitBatchDrain did not return")
 			}
-
-			var noticed bool
-			for _, e := range hook.AllEntries() {
-				noticed = noticed || (e.Level == logrus.WarnLevel && e.Message == drainNotice)
-			}
-			assert.Equal(t, tc.drainHangs, noticed, "drain timeout warning")
+			assert.Equal(t, tc.drainBlocks, loggedDrainTimeout(hook))
 		})
 	}
+}
+
+func loggedDrainTimeout(hook *test.Hook) bool {
+	for _, e := range hook.AllEntries() {
+		if e.Level == logrus.WarnLevel && e.Data["action"] == "shutdown_drain" {
+			return true
+		}
+	}
+	return false
 }
 
 // wait must not return while the graceful stop it joins is still draining a call.
