@@ -851,17 +851,18 @@ func (c *coordinator) queryAll(ctx context.Context, req *StatusRequest, nodes ma
 	return n
 }
 
-// commitAll tells all participants to proceed with their backup operations
-// It returns the number of failures
+// commitAll tells each participant to proceed and returns the failure count.
 func (c *coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes map[string]string) int {
+	if len(nodes) == 0 {
+		return 0
+	}
+
 	type pair struct {
 		node string
 		err  error
 	}
-	// Buffer one slot per node so a failing worker never blocks on the send.
-	// The consumer only runs after the submit loop finishes, so an unbuffered
-	// channel would let the first _MaxNumberConns failures hold every g.Go slot
-	// while blocked on the send, deadlocking the submit loop.
+	// Each worker can report one failure. Buffering all reports prevents workers
+	// from filling the concurrency limit while the caller is still submitting work.
 	errChan := make(chan pair, len(nodes))
 	aCounter := int64(len(nodes))
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx)

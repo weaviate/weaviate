@@ -170,6 +170,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	exportusecase "github.com/weaviate/weaviate/usecases/export"
+	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -362,6 +363,15 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		metricsRegisterer = promMetrics.Registerer
 		appState.Metrics = promMetrics
 	}
+
+	appState.License = &appState.ServerConfig.Config.License
+	license.RegisterMetrics(metricsRegisterer, *appState.License)
+	licenseLogFields := logrus.Fields{"action": "license", "edition": appState.License.Edition()}
+	if appState.License.Edition() == license.EditionEnterprise {
+		licenseLogFields["status"] = appState.License.Status
+		licenseLogFields["license_id"] = appState.License.LicenseID
+	}
+	appState.Logger.WithFields(licenseLogFields).Info("license state")
 
 	// TODO: configure http transport for efficient intra-cluster comm
 	remoteIndexClient := clients.NewRemoteIndex(appState.ClusterHttpClient)
@@ -848,6 +858,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// decide which migrations are still in flight.
 	recoveredReindexes, recoveryErr := db.DiscoverInFlightReindexTasks(
 		appState.ServerConfig.Config.Persistence.DataPath,
+		appState.ServerConfig.Config.RuntimeReindexEnabled,
 		appState.Logger,
 		appState.SchemaManager,
 	)
@@ -870,9 +881,11 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		}
 	}, appState.Logger)
 
-	// TODO-RAFT: refactor remove this sleep
-	// this sleep was used to block GraphQL and give time to RAFT to start.
-	time.Sleep(2 * time.Second)
+	// TODO-RAFT: refactor remove this wait
+	// it blocks GraphQL for up to 2s to give RAFT time to start.
+	for deadline := time.Now().Add(2 * time.Second); !appState.ClusterService.Ready() && time.Now().Before(deadline); {
+		time.Sleep(50 * time.Millisecond)
+	}
 
 	appState.AutoSchemaManager = objects.NewAutoSchemaManager(schemaManager, vectorRepo, appState.ServerConfig,
 		appState.Logger, prometheus.DefaultRegisterer)
@@ -918,7 +931,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	appState.ObjectTTLCoordinator = objectttl.NewCoordinator(appState.ClusterService.SchemaReader(), appState.SchemaManager,
-		appState.NamespacesController, appState.DB,
+		appState.NamespacesController, appState.DB, appState.ServerConfig.Config.ObjectsTTLConcurrencyFactor,
 		appState.Logger, appState.ClusterHttpClient, appState.Cluster, appState.ObjectTTLLocalStatus)
 
 	// appState.RBAC is a typed nil when RBAC is disabled; pass an untyped-nil
@@ -971,18 +984,13 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// that path — a read error then means we can't verify the invariant and
 		// must fail closed, rather than crashing an NS-enabled node that never
 		// inspects this data.
-		var roleNames, policyResources, groupingSubjects []string
+		var roleNames, groupingSubjects []string
 		if !appState.ServerConfig.Config.Namespaces.Enabled && appState.RBAC != nil {
 			roles, err := appState.RBAC.GetRoles()
 			if err != nil {
 				l.Fatalf("namespace startup invariants: GetRoles: %v", err)
 			}
-			for name, policies := range roles {
-				roleNames = append(roleNames, name)
-				for _, p := range policies {
-					policyResources = append(policyResources, p.Resource)
-				}
-			}
+			roleNames = slices.Collect(maps.Keys(roles))
 			groupingSubjects, err = appState.RBAC.ListGroupingSubjects()
 			if err != nil {
 				l.Fatalf("namespace startup invariants: ListGroupingSubjects: %v", err)
@@ -995,8 +1003,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			classNames,
 			appState.ClusterService.NamespaceCount(),
 			roleNames,
-			policyResources,
 			groupingSubjects,
+			rbac.StaticAPIKeyUsers(appState.ServerConfig.Config.Authentication),
 		); err != nil {
 			l.Fatal(err)
 		}
@@ -1279,7 +1287,7 @@ func configureReindexer(recovered []db.RecoveredReindex, logger logrus.FieldLogg
 // A class name is considered namespace-qualified iff it contains
 // entschema.NamespaceSeparator (":"), which is forbidden in plain class names
 // by ClassNameRegexCore and locked by TestValidateClassName_RejectsNamespaceSeparator.
-func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnabled bool, maxReplicationFactor int, classNames []string, nsCount int, roleNames []string, policyResources []string, groupingSubjects []string) error {
+func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnabled bool, maxReplicationFactor int, classNames []string, nsCount int, roleNames []string, groupingSubjects []string, staticAPIKeyUsers []string) error {
 	var nonNamespacedCount, namespacedCount int
 	var nonNamespacedExample, namespacedExample string
 	for _, name := range classNames {
@@ -1312,28 +1320,22 @@ func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnable
 		return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d namespace-qualified collection(s) (e.g. %q); refusing to start with inconsistent state", namespacedCount, namespacedExample)
 	}
 
-	// Role names, policy resources (what a role's permissions grant access to)
-	// and grouping subjects (who a role assignment binds) may each be
+	// Role names and grouping subjects (who a role assignment binds) may be
 	// namespace-qualified when NAMESPACES_ENABLED=true. With namespaces disabled
 	// they would be misinterpreted, so the rows are only inspected in that case.
+	//
+	// A role's permissions are skipped. With namespaces disabled no collection,
+	// alias or role name contains ':', so a qualified pattern grants nothing.
 	if !enabled {
 		if n, ex := countQualified(roleNames, conv.ContainsNamespaceSeparator); n > 0 {
 			return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d namespace-qualified role(s) (e.g. %q); refusing to start with inconsistent state", n, ex)
 		}
-		// A users/<id> or groups/<type>/<name> resource may carry a ':' inside the
-		// id itself (e.g. an OIDC username), so its colon is not a namespace
-		// qualifier and the resource is skipped; collection/role shapes still count.
-		if n, ex := countQualified(policyResources, func(r string) bool {
-			return !conv.IsOpaqueIDResource(r) && conv.ContainsNamespaceSeparator(r)
-		}); n > 0 {
-			return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d namespace-qualified role permission(s) (e.g. %q); refusing to start with inconsistent state", n, ex)
-		}
 		// Only a colon in a direct db user (e.g. db:customer1:alice) is a namespace
-		// qualifier — db names forbid ':'. OIDC names may contain ':', so oidc:
-		// subjects are ambiguous and skipped; groups are global regardless of name.
+		// qualifier — db names forbid ':'. OIDC and static API-key user names may
+		// contain ':' and are global, so both are skipped, as are groups.
 		if n, ex := countQualified(groupingSubjects, func(s string) bool {
 			user, prefix, err := conv.GetUserAndPrefix(s)
-			if err != nil || prefix != string(authentication.AuthTypeDb) {
+			if err != nil || prefix != string(authentication.AuthTypeDb) || slices.Contains(staticAPIKeyUsers, user) {
 				return false
 			}
 			return conv.ContainsNamespaceSeparator(user)
@@ -1479,7 +1481,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.ServerConfig.Config.Namespaces.Enabled, appState.Metrics, appState.Logger)
 	setupSearchHandlers(api, appState)
 	setupMiscHandlers(api, appState.ServerConfig, appState.Modules,
-		appState.Metrics, appState.Logger)
+		appState.License, appState.Metrics, appState.Logger)
 	setupClassificationHandlers(api, classifier, appState.ServerConfig.Config.Namespaces.Enabled, appState.Metrics, appState.Logger)
 	backupScheduler := startBackupScheduler(appState)
 	setupBackupHandlers(api, backupScheduler, appState.ServerConfig.Config.Authorization.Rbac, appState.Metrics, appState.Logger)

@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config/parser"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/license"
 )
 
 const (
@@ -1099,11 +1100,12 @@ func FromEnv(config *Config) error {
 	}
 
 	config.DisableGraphQL = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL")))
-	weaviateLicense, err := weaviateLicenseEnabled()
+	licenseState, err := resolveLicenseState()
 	if err != nil {
 		return err
 	}
-	config.WeaviateLicense = weaviateLicense
+	config.WeaviateLicense = licenseState.Status == license.StatusValid
+	config.License = licenseState
 
 	config.Namespaces.Enabled = entcfg.Enabled(os.Getenv("NAMESPACES_ENABLED"))
 	if config.Namespaces.Enabled {

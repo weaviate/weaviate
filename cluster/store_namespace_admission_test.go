@@ -1150,7 +1150,7 @@ func TestExecuteGate_RejectsMixedRoleBatchWithInactiveNamespace(t *testing.T) {
 // subject in a deleting or missing namespace, otherwise a late assignment would
 // leave a grouping row behind after the cleanup cascade emptied the namespace.
 // OIDC subjects are gated too (their handler-side existence check is a no-op),
-// and global (unqualified) subjects are not gated.
+// and unqualified subjects are not. With namespaces off, no subject is gated.
 func TestExecuteGate_RejectsRoleAssignmentIntoInactiveNamespace(t *testing.T) {
 	assignCmd := func(user string) []byte {
 		return cmdAsBytes("", api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER,
@@ -1161,10 +1161,11 @@ func TestExecuteGate_RejectsRoleAssignmentIntoInactiveNamespace(t *testing.T) {
 	// sentinel is namespaces.RequireActive's own table, and the subject the
 	// namespace is read off is what these vary.
 	tests := []struct {
-		name    string
-		seed    func(*testing.T, *namespaces.Controller)
-		user    string
-		wantErr error
+		name          string
+		seed          func(*testing.T, *namespaces.Controller)
+		user          string
+		namespacesOff bool
+		wantErr       error
 	}{
 		{
 			name:    "assign into deleting namespace rejected",
@@ -1188,11 +1189,18 @@ func TestExecuteGate_RejectsRoleAssignmentIntoInactiveNamespace(t *testing.T) {
 			seed: func(*testing.T, *namespaces.Controller) {},
 			user: "db:bob",
 		},
+		{
+			name:          "oidc URN subject passes gate with namespaces off",
+			seed:          func(*testing.T, *namespaces.Controller) {},
+			user:          "oidc:urn:example:alice",
+			namespacesOff: true,
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			ms, _ := setupApplyTest(t)
+			ms.store.cfg.NamespacesEnabled = !tc.namespacesOff
 			tc.seed(t, ms.cfg.NamespacesController)
 
 			err := admitProposeBytes(t, &ms, assignCmd(tc.user))

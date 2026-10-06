@@ -19,6 +19,7 @@ package models
 import (
 	"context"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
@@ -34,6 +35,9 @@ type Meta struct {
 	// The url of the host.
 	Hostname string `json:"hostname,omitempty"`
 
+	// License state of this Weaviate instance.
+	License *MetaLicense `json:"license,omitempty"`
+
 	// Module-specific meta information.
 	Modules interface{} `json:"modules,omitempty"`
 
@@ -43,11 +47,64 @@ type Meta struct {
 
 // Validate validates this meta
 func (m *Meta) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validateLicense(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
 	return nil
 }
 
-// ContextValidate validates this meta based on context it is used
+func (m *Meta) validateLicense(formats strfmt.Registry) error {
+	if swag.IsZero(m.License) { // not required
+		return nil
+	}
+
+	if m.License != nil {
+		if err := m.License.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("license")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("license")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ContextValidate validate this meta based on the context it is used
 func (m *Meta) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateLicense(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *Meta) contextValidateLicense(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.License != nil {
+		if err := m.License.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("license")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("license")
+			}
+			return err
+		}
+	}
+
 	return nil
 }
 

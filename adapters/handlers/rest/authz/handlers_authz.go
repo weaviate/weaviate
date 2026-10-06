@@ -325,6 +325,24 @@ func hasAllScopedRolePermission(policies []authorization.Policy) bool {
 	return false
 }
 
+// logUnstorableInput names who sent a value the policy file cannot store, since
+// the handlers refuse it before Authorize writes an audit line. It cuts the value
+// to maxTargetLength bytes, so a long request cannot make a long log line.
+func (h *authZHandlers) logUnstorableInput(principal *models.Principal, action, what, value string, err error) {
+	fields := logrus.Fields{
+		"action":    action,
+		"component": authorization.ComponentName,
+	}
+	if principal != nil {
+		fields["user"] = principal.Username
+	}
+	if len(value) > maxTargetLength {
+		fields["length"] = len(value)
+		value = value[:maxTargetLength] + "..."
+	}
+	h.logger.WithFields(fields).Warnf("refused %s %q: %v", what, value, err)
+}
+
 func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
@@ -336,13 +354,18 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("role name is invalid")))
 	}
 
-	if err := validatePermissions(h.namespacesEnabled, true, params.Body.Permissions...); err != nil {
+	if err := validatePermissions(h.namespacesEnabled, checkCreate, params.Body.Permissions...); err != nil {
 		return authz.NewCreateRoleUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("role permissions are invalid: %w", err)))
 	}
 
 	policies, err := conv.RolesToPolicies(params.Body)
 	if err != nil {
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("invalid role: %w", err)))
+	}
+
+	if err := validateStorablePolicies(policies[*params.Body.Name]); err != nil {
+		h.logUnstorableInput(principal, "create_role", "permissions of role", *params.Body.Name, err)
+		return authz.NewCreateRoleUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("role permissions are invalid: %w", err)))
 	}
 
 	if slices.Contains(authorization.BuiltInRoles, *params.Body.Name) {
@@ -416,7 +439,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("you can not update built-in role %s", params.ID)))
 	}
 
-	if err := validatePermissions(h.namespacesEnabled, false, params.Body.Permissions...); err != nil {
+	if err := validatePermissions(h.namespacesEnabled, checkAdd, params.Body.Permissions...); err != nil {
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("invalid permissions %w", err)))
 	}
 
@@ -429,6 +452,10 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 	}
 
 	rolePolicies := policies[params.ID]
+	if err := validateStorablePolicies(rolePolicies); err != nil {
+		h.logUnstorableInput(principal, "add_permissions", "permissions of role", params.ID, err)
+		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("invalid permissions: %w", err)))
+	}
 	if err := h.validateNoQualifiedNamespaceInPolicies(principal, rolePolicies, false); err != nil {
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
@@ -493,7 +520,7 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 	// we don't validate permissions entity existence
 	// in case of the permissions gets removed after the entity got removed
 	// delete class ABC, then remove permissions on class ABC
-	if err := validatePermissions(h.namespacesEnabled, false, params.Body.Permissions...); err != nil {
+	if err := validatePermissions(h.namespacesEnabled, checkLookup, params.Body.Permissions...); err != nil {
 		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("invalid permissions %w", err)))
 	}
 
@@ -574,7 +601,7 @@ func (h *authZHandlers) hasPermission(params authz.HasPermissionParams, principa
 		return authz.NewHasPermissionBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("permission is required")))
 	}
 
-	if err := validatePermissions(h.namespacesEnabled, false, params.Body); err != nil {
+	if err := validatePermissions(h.namespacesEnabled, checkLookup, params.Body); err != nil {
 		return authz.NewHasPermissionBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("invalid permissions %w", err)))
 	}
 
@@ -652,7 +679,7 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 			name = namespacing.StripOwnNamespace(principal, roleName)
 		}
 
-		perms, err := conv.PoliciesToPermission(policies...)
+		perms, err := conv.PoliciesToPermission(h.logger, policies...)
 		if err != nil {
 			return authz.NewGetRolesInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("PoliciesToPermission: %w", err)))
 		}
@@ -732,7 +759,7 @@ func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Pr
 		policies = roles[roleID]
 	}
 
-	perms, err := conv.PoliciesToPermission(policies...)
+	perms, err := conv.PoliciesToPermission(h.logger, policies...)
 	if err != nil {
 		return authz.NewGetRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("PoliciesToPermission: %w", err)))
 	}
@@ -804,6 +831,11 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 		if err := validateEnvVarRoles(role); err != nil {
 			return authz.NewAssignRoleToUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("assigning: %w", err)))
 		}
+	}
+
+	if err := conv.ValidateStorableValue(internalID); err != nil {
+		h.logUnstorableInput(principal, "assign_roles", "user id", internalID, err)
+		return authz.NewAssignRoleToUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("user id %w", err)))
 	}
 
 	if err := h.validateUserIDForNamespaces(internalID); err != nil {
@@ -884,6 +916,11 @@ func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, 
 
 	if rolevisibility.CallerConfined(h.namespacesEnabled, principal) {
 		return authz.NewAssignRoleToGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("assigning roles to groups is not allowed")))
+	}
+
+	if err := conv.ValidateStorableValue(params.ID); err != nil {
+		h.logUnstorableInput(principal, "assign_roles", "group id", params.ID, err)
+		return authz.NewAssignRoleToGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("group id %w", err)))
 	}
 
 	for _, role := range params.Body.Roles {
@@ -987,7 +1024,7 @@ func (h *authZHandlers) getRolesForUserDeprecated(params authz.GetRolesForUserDe
 	var authErr error
 	for _, existing := range []map[string][]authorization.Policy{existingRolesDB, existingRolesOIDC} {
 		for roleName, policies := range existing {
-			perms, err := conv.PoliciesToPermission(policies...)
+			perms, err := conv.PoliciesToPermission(h.logger, policies...)
 			if err != nil {
 				return authz.NewGetRolesForUserDeprecatedInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("PoliciesToPermission: %w", err)))
 			}
@@ -1049,7 +1086,7 @@ func (h *authZHandlers) visibleRolesForSubject(ctx context.Context, principal *m
 			continue
 		}
 
-		perms, err := conv.PoliciesToPermission(policies...)
+		perms, err := conv.PoliciesToPermission(h.logger, policies...)
 		if err != nil {
 			return nil, nil, fmt.Errorf("PoliciesToPermission: %w", err)
 		}
@@ -1571,7 +1608,7 @@ func (h *authZHandlers) dbUserExists(user string) (bool, error) {
 
 // validateRootGroup validates that enduser do not touch the internal root group
 func (h *authZHandlers) validateRootGroup(name string) error {
-	if slices.Contains(h.rbacconfig.RootGroups, name) || slices.Contains(h.rbacconfig.ReadOnlyGroups, name) {
+	if slices.Contains(h.rbacconfig.RootGroups, name) || slices.Contains(h.rbacconfig.ReadOnlyGroups, name) || slices.Contains(h.rbacconfig.MetadataGroups, name) {
 		return fmt.Errorf("cannot assign or revoke from root group %s", name)
 	}
 	return nil

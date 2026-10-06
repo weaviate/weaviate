@@ -58,8 +58,8 @@ func newObjectCountTestIndex(t *testing.T, className string, shards map[string]S
 func newObjectCountObserver(indices ...*Index) (*nodeWideMetricsObserver, *DB, prometheus.Gauge) {
 	logger, _ := test.NewNullLogger()
 	gaugeVec := prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "object_count"},
-		[]string{"class_name", "shard_name"})
-	gauge := gaugeVec.WithLabelValues("n/a", "n/a")
+		[]string{"class_name", "shard_name", "collection_namespace"})
+	gauge := gaugeVec.WithLabelValues("n/a", "n/a", "")
 	gauge.Set(gaugeUntouched)
 
 	byName := make(map[string]*Index, len(indices))

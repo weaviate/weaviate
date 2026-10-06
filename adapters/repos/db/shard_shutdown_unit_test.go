@@ -12,6 +12,7 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -23,7 +24,13 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	enthfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -253,4 +260,109 @@ func TestShardKnownShut(t *testing.T) {
 	require.True(t, restoreShardIfStillAlive(&m, "torn", torn),
 		"a torn shard is retained as the last reference to its leaked handles")
 	require.NotNil(t, m.Load("torn"))
+}
+
+// TestShardLoadDropsNodeIDBeyondDocIDCounter pins that the vector index and each
+// geo property index of a shard are bounded by its document-ID counter, so a
+// commit log naming a node far beyond it is truncated on load instead of sizing
+// the node index to it (weaviate/0-weaviate-issues#649). HFresh's centroid index
+// numbers its nodes by posting ID and must keep no limit; it gets none only
+// because it lives in HFresh's directory, where there is no counter.
+func TestShardLoadDropsNodeIDBeyondDocIDCounter(t *testing.T) {
+	type commitLog struct {
+		indexPath     func(s *Shard) string // relative to the shard directory
+		wantTruncated bool
+	}
+	geoLog := commitLog{indexPath: func(*Shard) string { return geoPropID("location") }, wantTruncated: true}
+
+	tests := []struct {
+		name              string
+		vectorIndexConfig schemaConfig.VectorIndexConfig
+		logs              []commitLog
+	}{
+		{
+			name:              "hnsw",
+			vectorIndexConfig: enthnsw.NewDefaultUserConfig(),
+			logs: []commitLog{
+				{indexPath: func(s *Shard) string { return s.vectorIndexID("") }, wantTruncated: true},
+				geoLog,
+			},
+		},
+		{
+			name:              "hfresh",
+			vectorIndexConfig: enthfresh.NewDefaultUserConfig(),
+			logs: []commitLog{
+				{indexPath: func(s *Shard) string {
+					id := s.vectorIndexID("")
+					return path.Join(helpers.HFreshDirName(id), helpers.CentroidsID(id))
+				}},
+				geoLog,
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			className := "NodeIDLimit"
+			class := &models.Class{
+				Class: className,
+				Properties: []*models.Property{
+					{Name: "location", DataType: schema.DataTypeGeoCoordinates.PropString()},
+				},
+			}
+			shard, index := testShardWithSettings(t, ctx, class, tc.vectorIndexConfig, false, false, false)
+			s, ok := shard.(*Shard)
+			require.True(t, ok)
+
+			const objects = 3
+			for i := range objects {
+				obj := testObject(className)
+				obj.Vector = []float32{float32(i), 1, 2, 3}
+				obj.Object.Properties = map[string]interface{}{"location": geoCoordinates(float32(i), 1)}
+				require.NoError(t, s.PutObject(ctx, obj))
+			}
+			shardPath := s.path()
+			logPaths := make([]string, len(tc.logs))
+			for i, l := range tc.logs {
+				logPaths[i] = path.Join(shardPath, l.indexPath(s)+".hnsw.commitlog.d", "9999999999")
+			}
+			require.NoError(t, s.Shutdown(ctx))
+
+			record := walBytesForShardTest(t, objects+1<<24+1000)
+			for _, p := range logPaths {
+				require.NoError(t, os.WriteFile(p, record, 0o644))
+			}
+
+			s, err := NewShard(ctx, nil, s.Name(), index, class,
+				index.centralJobQueue, index.scheduler, index.indexCheckpoints,
+				index.shardReindexer, false, index.bitmapBufPool, monitoring.ShardRegistrationEager)
+			require.NoError(t, err)
+			defer s.Shutdown(ctx)
+
+			for i, l := range tc.logs {
+				p := logPaths[i]
+				st, err := os.Stat(p)
+				if l.wantTruncated {
+					// The truncated log is empty, and the commit logger prunes empty raw logs.
+					if os.IsNotExist(err) {
+						continue
+					}
+					require.NoError(t, err)
+					require.Zero(t, st.Size(), "%s must be truncated before the out-of-limit record", p)
+					continue
+				}
+				require.NoError(t, err)
+				require.Equal(t, int64(len(record)), st.Size(), "%s must keep its record", p)
+			}
+		})
+	}
+}
+
+// walBytesForShardTest encodes an AddNode record for id.
+func walBytesForShardTest(t *testing.T, id uint64) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	require.NoError(t, compact.NewWALWriter(&buf).WriteAddNode(id, 0))
+	return buf.Bytes()
 }

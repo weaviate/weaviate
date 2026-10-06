@@ -6,7 +6,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/weaviate/weaviate)](https://goreportcard.com/report/github.com/weaviate/weaviate)
 [![Coverage Status](https://codecov.io/gh/weaviate/weaviate/branch/main/graph/badge.svg)](https://codecov.io/gh/weaviate/weaviate)
 
-**Weaviate** is an open-source, cloud-native vector database that stores both objects and vectors, enabling semantic search at scale. It combines vector similarity search with keyword filtering, retrieval-augmented generation (RAG), and reranking in a single query interface. Common use cases include RAG systems, semantic and image search, recommendation engines, chatbots, and content classification.
+**Weaviate** is a cloud-native vector database that stores both objects and vectors, enabling semantic search at scale. It combines vector similarity search with keyword filtering, retrieval-augmented generation (RAG), and reranking in a single query interface. Common use cases include RAG systems, semantic and image search, recommendation engines, chatbots, and content classification.
 
 Weaviate supports two approaches to store vectors: automatic vectorization at import using [integrated models](https://docs.weaviate.io/weaviate/model-providers) (OpenAI, Cohere, HuggingFace, and others) or direct import of [pre-computed vector embeddings](https://docs.weaviate.io/weaviate/starter-guides/custom-vectors). Production deployments benefit from built-in multi-tenancy, replication, RBAC authorization, and [many other features](#weaviate-features).
 
@@ -182,10 +182,17 @@ Weaviate integrates with many external services:
 
 ## Contributing
 
-We welcome and appreciate contributions! Please see our [Contributor guide](https://docs.weaviate.io/contributor-guide) for the development setup, code style guidelines, testing requirements and the pull request process.
+We welcome and appreciate contributions! Please see our [Contributor guide](https://docs.weaviate.io/contributor-guide) for the development setup, code style guidelines, testing requirements and the pull request process. If you wish to contribute to our Enterprise Edition, your contributions will be under the BSD license.
 
 Join our [Community forum](https://forum.weaviate.io/) to discuss ideas and get help.
 
 ## License
 
-BSD 3-Clause License. See [LICENSE](./LICENSE) for details.
+This repository contains code in our Community Edition and our Enterprise Edition. Most of this repository is available under the BSD 3-Clause License. Files in our wl/ folder are only available under a commercial license with a license key issued by us. If you are interested in a commercial license, please contact us at [http://weaviate.io/enterprise-edition](http://weaviate.io/enterprise-edition). Our binaries, [available for download here](https://github.com/weaviate/weaviate/releases), combine these two elements. Enterprise features require a license key.
+
+Please see our [licensing FAQ](https://docs.weaviate.io/deploy/enterprise#frequently-asked-questions) for more information.
+
+| Delivery | Community Edition | Enterprise Edition |
+| --- | --- | --- |
+| Source code | Under BSD in our GitHub repo | Available for review in folder wl/ of our GitHub repo, but not licensed there |
+| Docker image | Under BSD. Single Docker image combines this with Enterprise Edition | Available under our enterprise license. Requires license key to enable enterprise edition features. |
