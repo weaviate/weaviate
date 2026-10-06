@@ -41,36 +41,55 @@ func metadataReaderPolicyRows(t *testing.T, namespacesEnabled bool) [][]string {
 	return rows
 }
 
-func setupMetadataReaderTestManager(t *testing.T, groups ...string) *Manager {
+// metadataReaderModes runs a metadata reader test with namespaces off and on.
+// applyPredefinedRoles picks its wildcard roles per mode, so a regression in
+// either branch must fail here.
+var metadataReaderModes = []struct {
+	name              string
+	namespacesEnabled bool
+}{
+	{name: "namespaces off", namespacesEnabled: false},
+	{name: "namespaces on", namespacesEnabled: true},
+}
+
+func setupMetadataReaderTestManager(t *testing.T, namespacesEnabled bool, groups ...string) *Manager {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
 	conf := rbacconf.Config{Enabled: true, MetadataGroups: groups}
 	require.NoError(t, conf.Validate())
 	m, err := New(filepath.Join(t.TempDir(), "policy.csv"), conf,
-		config.Authentication{OIDC: config.OIDC{Enabled: true}}, false, nil, logger)
+		config.Authentication{OIDC: config.OIDC{Enabled: true}}, namespacesEnabled, nil, logger)
 	require.NoError(t, err)
 	return m
 }
 
+// metadataReaderPrincipal is a caller in groups. With namespaces on it is a
+// global operator, since nodes, cluster and replicate are operator-only there.
+func metadataReaderPrincipal(name string, namespacesEnabled bool, groups ...string) *models.Principal {
+	return &models.Principal{Username: name, UserType: models.UserTypeInputOidc, Groups: groups, IsGlobalOperator: namespacesEnabled}
+}
+
 func TestMetadataReaderHasNoWildcardPolicy(t *testing.T) {
-	m := setupMetadataReaderTestManager(t)
-	policies, err := m.casbin.GetFilteredPolicy(0, conv.PrefixRoleName(authorization.MetadataReader))
-	require.NoError(t, err)
-	require.NotEmpty(t, policies)
-	for _, p := range policies {
-		assert.NotEqual(t, "*", p[1], "metadata reader must not hold a wildcard resource: %v", p)
-		// roles carry a scope suffix (R_ALL); every verb must still be a plain read
-		assert.Contains(t, []string{authorization.READ, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL)}, p[2], "metadata reader must be read-only: %v", p)
-		assert.NotEqual(t, authorization.DataDomain, p[3], "metadata reader must not hold data policies: %v", p)
+	for _, mode := range metadataReaderModes {
+		t.Run(mode.name, func(t *testing.T) {
+			m := setupMetadataReaderTestManager(t, mode.namespacesEnabled)
+			policies, err := m.casbin.GetFilteredPolicy(0, conv.PrefixRoleName(authorization.MetadataReader))
+			require.NoError(t, err)
+			require.NotEmpty(t, policies)
+			for _, p := range policies {
+				assert.NotEqual(t, "*", p[1], "metadata reader must not hold a wildcard resource: %v", p)
+				// an empty verb regex-matches every action
+				assert.NotEmpty(t, p[2], "metadata reader must not hold an empty verb: %v", p)
+				// roles carry a scope suffix (R_ALL); every verb must still be a plain read
+				assert.Contains(t, []string{authorization.READ, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL)}, p[2], "metadata reader must be read-only: %v", p)
+				assert.NotEqual(t, authorization.DataDomain, p[3], "metadata reader must not hold data policies: %v", p)
+			}
+		})
 	}
 }
 
 func TestMetadataReaderGroupPermissions(t *testing.T) {
 	const group = "infra-access"
-	m := setupMetadataReaderTestManager(t, group)
-	staff := &models.Principal{Username: "staff", UserType: models.UserTypeInputOidc, Groups: []string{group}}
-	outsider := &models.Principal{Username: "other", UserType: models.UserTypeInputOidc, Groups: []string{"other-group"}}
-
 	allowed := map[string]string{
 		"collection config": authorization.CollectionsMetadata("Movies")[0],
 		"tenants":           authorization.ShardsMetadata("Movies", "tenant1")[0],
@@ -85,53 +104,82 @@ func TestMetadataReaderGroupPermissions(t *testing.T) {
 		"roles":         authorization.Roles("admin")[0],
 		"groups":        authorization.Groups(authentication.AuthTypeOIDC, "some-group")[0],
 	}
-	for name, resource := range allowed {
-		t.Run("allowed/"+name, func(t *testing.T) {
-			read, update := authorization.READ, authorization.UPDATE
-			if name == "roles" {
-				// the roles handler authorizes reads as READ with scope ALL
-				read = authorization.VerbWithScope(read, authorization.ROLE_SCOPE_ALL)
-				update = authorization.VerbWithScope(update, authorization.ROLE_SCOPE_ALL)
+	denied := []struct {
+		name, resource, verb string
+	}{
+		{"read objects", authorization.Objects("Movies", "shard1"), authorization.READ},
+		{"delete objects", authorization.Objects("Movies", "shard1"), authorization.DELETE},
+		{"create objects", authorization.Objects("Movies", "shard1"), authorization.CREATE},
+		{"read shards data", authorization.ShardsData("Movies", "shard1")[0], authorization.READ},
+		{"create collection", authorization.CollectionsMetadata("Movies")[0], authorization.CREATE},
+		{"delete collection", authorization.CollectionsMetadata("Movies")[0], authorization.DELETE},
+		{"read backups", authorization.Backups("Movies")[0], authorization.READ},
+		{"read mcp", authorization.Mcp(), authorization.READ},
+	}
+
+	for _, mode := range metadataReaderModes {
+		t.Run(mode.name, func(t *testing.T) {
+			m := setupMetadataReaderTestManager(t, mode.namespacesEnabled, group)
+			staff := metadataReaderPrincipal("staff", mode.namespacesEnabled, group)
+			outsider := metadataReaderPrincipal("other", mode.namespacesEnabled, "other-group")
+
+			for name, resource := range allowed {
+				t.Run("allowed/"+name, func(t *testing.T) {
+					read, update := authorization.READ, authorization.UPDATE
+					if name == "roles" {
+						// the roles handler authorizes reads as READ with scope ALL
+						read = authorization.VerbWithScope(read, authorization.ROLE_SCOPE_ALL)
+						update = authorization.VerbWithScope(update, authorization.ROLE_SCOPE_ALL)
+					}
+					ok, err := m.checkPermissions(staff, resource, read)
+					require.NoError(t, err)
+					assert.True(t, ok)
+
+					ok, err = m.checkPermissions(staff, resource, update)
+					require.NoError(t, err)
+					assert.False(t, ok, "metadata reader must not write")
+
+					ok, err = m.checkPermissions(outsider, resource, read)
+					require.NoError(t, err)
+					assert.False(t, ok, "only the configured group holds the role")
+				})
 			}
-			ok, err := m.checkPermissions(staff, resource, read)
-			require.NoError(t, err)
-			assert.True(t, ok)
 
-			ok, err = m.checkPermissions(staff, resource, update)
-			require.NoError(t, err)
-			assert.False(t, ok, "metadata reader must not write")
-
-			ok, err = m.checkPermissions(outsider, resource, read)
-			require.NoError(t, err)
-			assert.False(t, ok, "only the configured group holds the role")
-		})
-	}
-
-	denied := map[string]string{
-		"objects":     authorization.Objects("Movies", "shard1"),
-		"shards data": authorization.ShardsData("Movies", "shard1")[0],
-		"backups":     authorization.Backups("Movies")[0],
-		"mcp":         authorization.Mcp(),
-	}
-	for name, resource := range denied {
-		t.Run("denied/"+name, func(t *testing.T) {
-			ok, err := m.checkPermissions(staff, resource, authorization.READ)
-			require.NoError(t, err)
-			assert.False(t, ok)
+			for _, d := range denied {
+				t.Run("denied/"+d.name, func(t *testing.T) {
+					ok, err := m.checkPermissions(staff, d.resource, d.verb)
+					require.NoError(t, err)
+					assert.False(t, ok)
+				})
+			}
 		})
 	}
 }
 
 func TestMetadataReaderBindingResetFromConfig(t *testing.T) {
-	m := setupMetadataReaderTestManager(t, "infra-access")
-	// a binding added outside config does not survive a re-apply
-	_, err := m.casbin.AddRoleForUser(conv.PrefixGroupName("sneaky"), conv.PrefixRoleName(authorization.MetadataReader))
-	require.NoError(t, err)
+	for _, mode := range metadataReaderModes {
+		t.Run(mode.name, func(t *testing.T) {
+			m := setupMetadataReaderTestManager(t, mode.namespacesEnabled, "infra-access")
+			// a binding added outside config does not survive a re-apply
+			_, err := m.casbin.AddRoleForUser(conv.PrefixGroupName("sneaky"), conv.PrefixRoleName(authorization.MetadataReader))
+			require.NoError(t, err)
 
-	require.NoError(t, applyPredefinedRoles(m.casbin, rbacconf.Config{Enabled: true, MetadataGroups: []string{"infra-access"}},
-		config.Authentication{OIDC: config.OIDC{Enabled: true}}, false))
+			require.NoError(t, applyPredefinedRoles(m.casbin, rbacconf.Config{Enabled: true, MetadataGroups: []string{"infra-access"}},
+				config.Authentication{OIDC: config.OIDC{Enabled: true}}, mode.namespacesEnabled))
 
-	subjects, err := m.casbin.GetUsersForRole(conv.PrefixRoleName(authorization.MetadataReader))
+			subjects, err := m.casbin.GetUsersForRole(conv.PrefixRoleName(authorization.MetadataReader))
+			require.NoError(t, err)
+			assert.ElementsMatch(t, []string{conv.PrefixGroupName("infra-access")}, subjects)
+		})
+	}
+}
+
+func TestAddWildcardPoliciesFailsClosed(t *testing.T) {
+	m := setupMetadataReaderTestManager(t, false)
+	err := addWildcardPolicies(m.casbin, []string{authorization.Root, "role-without-verb"}, conv.BuiltInWildcardVerb)
+	require.ErrorContains(t, err, `built-in role "role-without-verb" has no wildcard verb`)
+
+	policies, err := m.casbin.GetFilteredPolicy(0, conv.PrefixRoleName("role-without-verb"))
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{conv.PrefixGroupName("infra-access")}, subjects)
+	assert.Empty(t, policies, "no policy may be registered for a role without a wildcard verb")
 }

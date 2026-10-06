@@ -186,10 +186,8 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 	if namespacesEnabled {
 		wildcardRoles = []string{authorization.Root, authorization.ReadOnly}
 	}
-	for _, role := range wildcardRoles {
-		if _, err := enforcer.AddNamedPolicy("p", conv.PrefixRoleName(role), "*", conv.BuiltInWildcardVerb[role], "*"); err != nil {
-			return fmt.Errorf("add policy: %w", err)
-		}
+	if err := addWildcardPolicies(enforcer, wildcardRoles, conv.BuiltInWildcardVerb); err != nil {
+		return err
 	}
 
 	// The metadata reader is always registered per permission: a wildcard READ
@@ -323,6 +321,22 @@ var (
 	nodesMinimalResource = authorization.NodesDomain + "/verbosity/minimal"
 	nodesVerbosePrefix   = authorization.NodesDomain + "/verbosity/verbose/"
 )
+
+// addWildcardPolicies registers a single "*" policy per role with the role's
+// wildcard verb. It fails closed: an empty verb regex-matches every action in
+// casbin, so a role without a wildcard verb would silently gain full access.
+func addWildcardPolicies(enforcer *casbin.SyncedCachedEnforcer, roles []string, verbs map[string]string) error {
+	for _, role := range roles {
+		verb := verbs[role]
+		if verb == "" {
+			return fmt.Errorf("built-in role %q has no wildcard verb", role)
+		}
+		if _, err := enforcer.AddNamedPolicy("p", conv.PrefixRoleName(role), "*", verb, "*"); err != nil {
+			return fmt.Errorf("add policy: %w", err)
+		}
+	}
+	return nil
+}
 
 // rejectNamespacedRootSubjects fails startup when a namespace-qualified subject
 // is configured for the root role: a namespaced principal must never inherit
