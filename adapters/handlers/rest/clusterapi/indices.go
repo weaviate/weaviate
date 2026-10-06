@@ -65,6 +65,16 @@ func writeUsageLimitExceeded(w http.ResponseWriter, le *usagelimits.LimitExceede
 	})
 }
 
+// shardReadHTTPStatus returns 422 for an enterrors.ErrUnprocessable, such as a
+// shard that is loading or recovering, so a coordinator turns to another
+// replica rather than retrying this node. It returns 500 for any other error.
+func shardReadHTTPStatus(err error) int {
+	if errors.As(err, &enterrors.ErrUnprocessable{}) {
+		return http.StatusUnprocessableEntity
+	}
+	return http.StatusInternalServerError
+}
+
 type indices struct {
 	shards shards
 	db     db
@@ -554,7 +564,7 @@ func (i *indices) getObject() http.Handler {
 		obj, err := i.shards.GetObject(r.Context(), index, shard, strfmt.UUID(id),
 			selectProperties, additional)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), shardReadHTTPStatus(err))
 			return
 		}
 
@@ -585,6 +595,9 @@ func (i *indices) checkExists(w http.ResponseWriter, r *http.Request,
 	}).Debug("checking if shard exists ...")
 	ok, err := i.shards.Exists(r.Context(), index, shard, strfmt.UUID(id))
 	if err != nil {
+		// The client RemoteIndex.Exists retries a 500 on this node but not a 422. A
+		// coordinator sends check_exists only for a shard with one read replica, so
+		// a 500 lets it wait for this node to load the index.
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -720,7 +733,7 @@ func (i *indices) getObjectsMulti() http.Handler {
 
 		objs, err := i.shards.MultiGetObjects(r.Context(), index, shard, ids)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), shardReadHTTPStatus(err))
 			return
 		}
 
@@ -960,13 +973,8 @@ func (i *indices) postFindUUIDs() http.Handler {
 		}).Debug("find UUIDs ...")
 
 		results, err := i.shards.FindUUIDs(r.Context(), index, shard, filters, limit)
-
-		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
-			return
-		}
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), shardReadHTTPStatus(err))
 			return
 		}
 
@@ -1231,13 +1239,8 @@ func (i *indices) getGetShardQueueSize() http.Handler {
 		}).Debug("getting shard queue size ...")
 
 		size, err := i.shards.GetShardQueueSize(r.Context(), index, shard)
-		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
-			return
-		}
-
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), shardReadHTTPStatus(err))
 			return
 		}
 
@@ -1270,12 +1273,8 @@ func (i *indices) getGetShardStatus() http.Handler {
 		}).Debug("getting shard status ...")
 
 		status, err := i.shards.GetShardStatus(r.Context(), index, shard)
-		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
-			return
-		}
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), shardReadHTTPStatus(err))
 			return
 		}
 

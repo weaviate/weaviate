@@ -16,6 +16,15 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+
+	"github.com/go-openapi/strfmt"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 var errAny = errors.New("anyErr")
@@ -74,6 +83,100 @@ func TestQueryReplica(t *testing.T) {
 			t.Errorf("%s: last responding node want:%s got:%s", test.name, test.targetNode, lastNode)
 		}
 	}
+}
+
+// TestShardReadsFailOverToReadyReplica verifies each read returns the answer of
+// N1, the only ready replica, whichever replica readFromReplicas tries first.
+func TestShardReadsFailOverToReadyReplica(t *testing.T) {
+	ctx := context.Background()
+	id := strfmt.UUID("8c7c6a2e-3b5c-4b0e-9a3c-1f2d3e4f5a6b")
+	obj := &storobj.Object{Object: models.Object{ID: id}}
+	tests := []struct {
+		name string
+		read func(ri *RemoteIndex) (any, error)
+		want any
+	}{
+		{"GetObject", func(ri *RemoteIndex) (any, error) {
+			return ri.GetObject(ctx, "S", id, search.SelectProperties{}, additional.Properties{})
+		}, obj},
+		{"MultiGetObjects", func(ri *RemoteIndex) (any, error) {
+			return ri.MultiGetObjects(ctx, "S", []strfmt.UUID{id})
+		}, []*storobj.Object{obj}},
+		{"Exists", func(ri *RemoteIndex) (any, error) {
+			return ri.Exists(ctx, "S", id)
+		}, true},
+		{"FindUUIDs", func(ri *RemoteIndex) (any, error) {
+			return ri.FindUUIDs(ctx, "S", nil, 10)
+		}, []strfmt.UUID{id}},
+		{"GetShardQueueSize", func(ri *RemoteIndex) (any, error) {
+			return ri.GetShardQueueSize(ctx, "S")
+		}, int64(7)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			schema := newFakeSchema(0, 2)
+			resolver := newFakeResolver(0, 2)
+			ri := NewRemoteIndex("C", &schema, &resolver, readyOnlyOn{readyHost: "H1", obj: obj})
+
+			got, err := tt.read(ri)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// readyOnlyOn answers shard reads from readyHost and fails them on every other
+// host, as a replica does while its shard is loading or recovering.
+type readyOnlyOn struct {
+	RemoteIndexClient
+	readyHost string
+	obj       *storobj.Object
+}
+
+func (c readyOnlyOn) check(host string) error {
+	if host != c.readyHost {
+		return errAny
+	}
+	return nil
+}
+
+func (c readyOnlyOn) GetObject(_ context.Context, host, _, _ string, _ strfmt.UUID,
+	_ search.SelectProperties, _ additional.Properties,
+) (*storobj.Object, error) {
+	if err := c.check(host); err != nil {
+		return nil, err
+	}
+	return c.obj, nil
+}
+
+func (c readyOnlyOn) MultiGetObjects(_ context.Context, host, _, _ string, _ []strfmt.UUID,
+) ([]*storobj.Object, error) {
+	if err := c.check(host); err != nil {
+		return nil, err
+	}
+	return []*storobj.Object{c.obj}, nil
+}
+
+func (c readyOnlyOn) Exists(_ context.Context, host, _, _ string, _ strfmt.UUID) (bool, error) {
+	if err := c.check(host); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (c readyOnlyOn) FindUUIDs(_ context.Context, host, _, _ string, _ *filters.LocalFilter, _ int,
+) ([]strfmt.UUID, error) {
+	if err := c.check(host); err != nil {
+		return nil, err
+	}
+	return []strfmt.UUID{c.obj.ID()}, nil
+}
+
+func (c readyOnlyOn) GetShardQueueSize(_ context.Context, host, _, _ string) (int64, error) {
+	if err := c.check(host); err != nil {
+		return 0, err
+	}
+	return 7, nil
 }
 
 func newFakeResolver(fromNode, toNode int) fakeNodeResolver {

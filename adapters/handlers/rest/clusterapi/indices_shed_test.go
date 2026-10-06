@@ -34,14 +34,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/queryadmission"
 )
 
-// overloadedShards embeds shards so only Search needs implementing; any other
-// call nil-panics.
-type overloadedShards struct {
+// failingShards embeds shards and returns err from each method the tests
+// implement. Any other call nil-panics.
+type failingShards struct {
 	shards
 	err error
 }
 
-func (o overloadedShards) Search(context.Context, string, string,
+func (o failingShards) Search(context.Context, string, string,
 	[]models.Vector, []string, float32, int, *filters.LocalFilter, *searchparams.KeywordRanking,
 	[]filters.Sort, *filters.Cursor, *searchparams.GroupBy, additional.Properties,
 	*dto.TargetCombination, []string,
@@ -76,7 +76,7 @@ func serveShardSearch(t *testing.T, searchErr error) *httptest.ResponseRecorder 
 	t.Helper()
 	logger := logrus.New()
 	logger.SetOutput(&bytes.Buffer{})
-	idx := NewIndices(overloadedShards{err: searchErr}, startedDB{},
+	idx := NewIndices(failingShards{err: searchErr}, startedDB{},
 		NewNoopAuthHandler(), func() bool { return false }, logger)
 
 	body, err := shared.IndicesPayloads.SearchParams.Marshal(
@@ -92,7 +92,7 @@ func serveShardSearch(t *testing.T, searchErr error) *httptest.ResponseRecorder 
 	return rec
 }
 
-func (o overloadedShards) Aggregate(context.Context, string, string,
+func (o failingShards) Aggregate(context.Context, string, string,
 	aggregation.Params,
 ) (*aggregation.Result, error) {
 	return nil, o.err
@@ -122,7 +122,7 @@ func serveShardAggregate(t *testing.T, aggErr error) *httptest.ResponseRecorder 
 	t.Helper()
 	logger := logrus.New()
 	logger.SetOutput(&bytes.Buffer{})
-	idx := NewIndices(overloadedShards{err: aggErr}, startedDB{},
+	idx := NewIndices(failingShards{err: aggErr}, startedDB{},
 		NewNoopAuthHandler(), func() bool { return false }, logger)
 
 	body, err := shared.IndicesPayloads.AggregationParams.Marshal(aggregation.Params{})
