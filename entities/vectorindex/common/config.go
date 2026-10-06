@@ -85,7 +85,7 @@ func OptionalBoolFromMap(in map[string]interface{}, name string,
 
 	asBool, ok := value.(bool)
 	if !ok {
-		return nil
+		return errors.Errorf("invalid type for %q: expected bool, got %T", name, value)
 	}
 
 	setFn(asBool)
