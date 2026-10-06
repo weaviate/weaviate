@@ -354,7 +354,7 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "Cumulative since boot (sum / count): shards only load as the node loads them, so no rate() is needed. Per-shard outliers are in the 'Completed loading shard' log line.",
+      "description": "Cumulative (sum / count) over every load since the process started, by why the shard was opened: startup loads delayed readiness, warmup loads ran in the background sweep after a lazy boot, runtime loads are first access, tenant activation, replica movement and onload. Per-shard outliers are in the 'Completed loading shard' log line.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -426,9 +426,9 @@
             "uid": "Prometheus"
           },
           "exemplar": true,
-          "expr": "sum by (registration) (weaviate_shard_load_duration_seconds_sum) / sum by (registration) (weaviate_shard_load_duration_seconds_count)",
+          "expr": "sum by (trigger) (weaviate_shard_load_duration_seconds_sum) / sum by (trigger) (weaviate_shard_load_duration_seconds_count)",
           "interval": "",
-          "legendFormat": "avg {{registration}}",
+          "legendFormat": "avg {{trigger}}",
           "refId": "A"
         }
       ],
@@ -440,7 +440,7 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "",
+      "description": "Loads since the process started, by trigger. Only startup counts toward time to ready.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -489,13 +489,13 @@
             "uid": "Prometheus"
           },
           "exemplar": true,
-          "expr": "sum by (registration) (weaviate_shard_load_duration_seconds_count)",
+          "expr": "sum by (trigger) (weaviate_shard_load_duration_seconds_count)",
           "interval": "",
-          "legendFormat": "{{registration}}",
+          "legendFormat": "{{trigger}}",
           "refId": "A"
         }
       ],
-      "title": "Shards loaded since boot",
+      "title": "Shards loaded",
       "type": "stat"
     },
     {
@@ -503,7 +503,7 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "",
+      "description": "Seconds spent loading shards since the process started, by trigger. The startup series is the boot's shard-load cost; runtime grows with every tenant activation and replica movement.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -552,9 +552,9 @@
             "uid": "Prometheus"
           },
           "exemplar": true,
-          "expr": "sum by (registration) (weaviate_shard_load_duration_seconds_sum)",
+          "expr": "sum by (trigger) (weaviate_shard_load_duration_seconds_sum)",
           "interval": "",
-          "legendFormat": "{{registration}}",
+          "legendFormat": "{{trigger}}",
           "refId": "A"
         }
       ],
@@ -566,7 +566,7 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "sync prefills ran inside the shard load and delayed readiness; async ones ran in the background.",
+      "description": "sync prefills ran inside a shard load, async ones in the background. Cumulative over every load since the process started, including shards opened after boot; read it at the ready timestamp for the boot figure.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -652,7 +652,7 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "Non-zero after ready means the node is still warming caches.",
+      "description": "A prefill is running: during boot, in the warmup sweep, or inside a shard opened after boot (tenant activation, replica movement).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -778,7 +778,7 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "Rebuilding an index from its snapshot and commit logs. Fresh indexes are not observed.",
+      "description": "Rebuilding an index from its snapshot and commit logs. Fresh indexes are not observed. Cumulative over every load since the process started, including shards opened after boot.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -864,7 +864,7 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "",
+      "description": "Restores since the process started, boot and later loads alike.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -919,7 +919,7 @@
           "refId": "A"
         }
       ],
-      "title": "Indexes restored since boot",
+      "title": "Indexes restored",
       "type": "stat"
     },
     {

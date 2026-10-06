@@ -42,7 +42,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	scheduler *queue.Scheduler,
 	reindexer ShardReindexerV3, lazyLoadSegments bool, bitmapBufPool roaringset.BitmapBufPool,
-	registration monitoring.ShardRegistration,
+	registration monitoring.ShardRegistration, trigger monitoring.ShardLoadTrigger,
 ) (_ *Shard, err error) {
 	start := time.Now()
 	index.logger.WithFields(logrus.Fields{
@@ -136,7 +136,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		}
 
 		if err == nil && exists {
-			monitoring.GetStartupMetrics().ObserveShardLoad(registration, time.Since(start))
+			monitoring.GetStartupMetrics().ObserveShardLoad(trigger, time.Since(start))
 		}
 	}()
 

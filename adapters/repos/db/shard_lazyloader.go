@@ -150,6 +150,17 @@ func (l *LazyLoadShard) loadedShard() *Shard {
 // whether this call built it. The startup sweep counts only the loads it
 // performed, and a request can take the shard first.
 func (l *LazyLoadShard) loadIfCold(ctx context.Context) (*Shard, bool, error) {
+	return l.load(ctx, monitoring.ShardLoadTriggerRuntime)
+}
+
+// loadForWarmup is loadIfCold for the background sweep that follows a lazy
+// boot, so its loads are told apart from the ones requests trigger.
+func (l *LazyLoadShard) loadForWarmup(ctx context.Context) (*Shard, bool, error) {
+	return l.load(ctx, monitoring.ShardLoadTriggerWarmup)
+}
+
+// load is loadIfCold reporting under the given trigger.
+func (l *LazyLoadShard) load(ctx context.Context, trigger monitoring.ShardLoadTrigger) (*Shard, bool, error) {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
@@ -187,7 +198,7 @@ func (l *LazyLoadShard) loadIfCold(ctx context.Context) (*Shard, bool, error) {
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
 		class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler,
 		l.shardOpts.shardReindexer, l.lazyLoadSegments,
-		l.shardOpts.bitmapBufPool, monitoring.ShardRegistrationLazy)
+		l.shardOpts.bitmapBufPool, monitoring.ShardRegistrationLazy, trigger)
 	if err != nil {
 		l.shardOpts.promMetrics.FailLoadingShard()
 		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)

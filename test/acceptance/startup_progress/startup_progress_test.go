@@ -179,9 +179,10 @@ func assertStartupMetrics(t *testing.T, ctx context.Context, compose *docker.Doc
 	assert.Greater(t, gauge("weaviate_startup_ready_timestamp_seconds", nil), float64(0))
 
 	want := uint64(shards)
-	assert.Equal(t, want, sampleCount("weaviate_shard_load_duration_seconds", map[string]string{"registration": "eager"}),
-		"every shard is loaded eagerly on this restart")
-	assert.Zero(t, sampleCount("weaviate_shard_load_duration_seconds", map[string]string{"registration": "lazy"}))
+	assert.Equal(t, want, sampleCount("weaviate_shard_load_duration_seconds", map[string]string{"trigger": "startup"}),
+		"every shard is opened while its index is built on this restart")
+	assert.Zero(t, sampleCount("weaviate_shard_load_duration_seconds", map[string]string{"trigger": "warmup"}))
+	assert.Zero(t, sampleCount("weaviate_shard_load_duration_seconds", map[string]string{"trigger": "runtime"}))
 	assert.Equal(t, want, sampleCount("weaviate_vector_index_restore_duration_seconds", map[string]string{"index_type": "hnsw"}),
 		"every shard's HNSW index had commit-log state to restore")
 	hnswSync := map[string]string{"index_type": "hnsw", "mode": "sync"}

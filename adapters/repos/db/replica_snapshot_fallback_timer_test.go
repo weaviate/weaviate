@@ -99,7 +99,7 @@ func TestReplicaSnapshotFallbackInactivityTimerIsReset(t *testing.T) {
 
 	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler,
 		NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop(),
-		monitoring.ShardRegistrationEager)
+		monitoring.ShardRegistrationEager, monitoring.ShardLoadTriggerStartup)
 	require.NoError(t, err)
 	index.shards.Store("shard1", shard)
 

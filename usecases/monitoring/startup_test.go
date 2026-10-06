@@ -96,33 +96,31 @@ func TestStartupMetrics_SetReady(t *testing.T) {
 }
 
 func TestStartupMetrics_ObserveShardLoad(t *testing.T) {
-	tests := []struct {
-		registration ShardRegistration
-		other        ShardRegistration
-	}{
-		{registration: ShardRegistrationEager, other: ShardRegistrationLazy},
-		{registration: ShardRegistrationLazy, other: ShardRegistrationEager},
-	}
-	for _, tt := range tests {
-		t.Run(string(tt.registration), func(t *testing.T) {
+	for _, trigger := range AllShardLoadTriggers() {
+		t.Run(string(trigger), func(t *testing.T) {
 			m, reg, _ := newTestStartupMetrics(t)
 
-			m.ObserveShardLoad(tt.registration, 1500*time.Millisecond)
+			m.ObserveShardLoad(trigger, 1500*time.Millisecond)
 
 			count, err := testinghelpers.SampleCount(reg, "weaviate_shard_load_duration_seconds",
-				prometheus.Labels{"registration": string(tt.registration)})
+				prometheus.Labels{"trigger": string(trigger)})
 			require.NoError(t, err)
 			require.Equal(t, uint64(1), count)
 
 			sum, err := testinghelpers.SampleSum(reg, "weaviate_shard_load_duration_seconds",
-				prometheus.Labels{"registration": string(tt.registration)})
+				prometheus.Labels{"trigger": string(trigger)})
 			require.NoError(t, err)
 			require.InDelta(t, 1.5, sum, 1e-9, "observed in seconds")
 
-			count, err = testinghelpers.SampleCount(reg, "weaviate_shard_load_duration_seconds",
-				prometheus.Labels{"registration": string(tt.other)})
-			require.NoError(t, err)
-			require.Equal(t, uint64(0), count, "the other registration is pre-registered but untouched")
+			for _, other := range AllShardLoadTriggers() {
+				if other == trigger {
+					continue
+				}
+				count, err = testinghelpers.SampleCount(reg, "weaviate_shard_load_duration_seconds",
+					prometheus.Labels{"trigger": string(other)})
+				require.NoError(t, err)
+				require.Equal(t, uint64(0), count, "trigger %s is pre-registered but untouched", other)
+			}
 		})
 	}
 }
@@ -196,7 +194,7 @@ func TestStartupMetrics_NilReceiverIsNoop(t *testing.T) {
 	require.NotPanics(t, func() {
 		m.PhaseStarted(StartupPhaseDBReload)()
 		m.SetReady()
-		m.ObserveShardLoad(ShardRegistrationEager, time.Second)
+		m.ObserveShardLoad(ShardLoadTriggerStartup, time.Second)
 		m.ObserveVectorIndexRestore(VectorIndexTypeHNSW, time.Second)
 		m.PrefillStarted(VectorIndexTypeHNSW, PrefillModeSync)(nil)
 		m.PrefillStarted(VectorIndexTypeHNSW, PrefillModeSync)(errors.New("boom"))
@@ -229,7 +227,7 @@ func TestStartupMetrics_PreRegisteredSeries(t *testing.T) {
 		{name: "phase duration", collector: m.phaseDuration, want: len(AllStartupPhases())},
 		{name: "startup duration", collector: m.startupDuration, want: 1},
 		{name: "ready timestamp", collector: m.readyTimestamp, want: 1},
-		{name: "shard load", collector: m.shardLoad, want: 2},
+		{name: "shard load", collector: m.shardLoad, want: len(AllShardLoadTriggers())},
 		{name: "vector index restore", collector: m.vectorIndexRestore, want: 1},
 		{name: "prefill duration", collector: m.prefillDuration, want: 4},
 		{name: "prefill active", collector: m.prefillActive, want: 4},
@@ -246,7 +244,7 @@ func TestStartupMetrics_PreRegisteredSeries(t *testing.T) {
 // that multiplies by node count.
 func TestStartupMetrics_TimingMetricsExposeOnlySumAndCount(t *testing.T) {
 	m, reg, _ := newTestStartupMetrics(t)
-	m.ObserveShardLoad(ShardRegistrationEager, time.Second)
+	m.ObserveShardLoad(ShardLoadTriggerStartup, time.Second)
 	m.ObserveVectorIndexRestore(VectorIndexTypeHNSW, time.Second)
 	m.PrefillStarted(VectorIndexTypeHNSW, PrefillModeSync)(nil)
 

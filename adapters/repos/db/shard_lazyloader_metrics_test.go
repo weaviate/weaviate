@@ -815,74 +815,141 @@ func TestLazyLoadShardMetricsLifecycle(t *testing.T) {
 }
 
 // TestShardLoadDurationObservedForExistingShards pins what
-// weaviate_shard_load_duration_seconds counts: opening a shard that already
-// has files on disk, under the registration its collection uses. Creating a
-// shard is not a load, so creation churn cannot skew the distribution. The
-// series lives on the default registry shared by every test, hence the deltas.
+// weaviate_shard_load_duration_seconds counts and under which trigger: opening
+// a shard that already has files on disk, labelled by why it was opened.
+// Creating a shard is not a load, so creation churn cannot skew the
+// distribution. The series lives on the default registry shared by every test,
+// hence the deltas.
 func TestShardLoadDurationObservedForExistingShards(t *testing.T) {
 	ctx := context.Background()
 
+	counts := func(t *testing.T) map[monitoring.ShardLoadTrigger]uint64 {
+		t.Helper()
+		out := map[monitoring.ShardLoadTrigger]uint64{}
+		for _, trigger := range monitoring.AllShardLoadTriggers() {
+			n, err := testinghelpers.SampleCount(prometheus.DefaultGatherer,
+				"weaviate_shard_load_duration_seconds",
+				prometheus.Labels{"trigger": string(trigger)})
+			require.NoError(t, err)
+			out[trigger] = n
+		}
+		return out
+	}
+	delta := func(t *testing.T, before map[monitoring.ShardLoadTrigger]uint64) map[monitoring.ShardLoadTrigger]uint64 {
+		t.Helper()
+		out := map[monitoring.ShardLoadTrigger]uint64{}
+		for trigger, n := range counts(t) {
+			out[trigger] = n - before[trigger]
+		}
+		return out
+	}
+
 	tests := []struct {
-		name         string
-		lazyLoading  bool
-		registration monitoring.ShardRegistration
+		name        string
+		lazyLoading bool
+		// warmupMinObjects applies to the reopened repo; negative turns the
+		// background sweep off.
+		warmupMinObjects int64
+		// open does, on the reopened repo, whatever the case is about beyond
+		// what the reopen itself does.
+		open func(t *testing.T, h *shardMetricsHarness, className, shardName string)
+		want map[monitoring.ShardLoadTrigger]uint64
 	}{
 		{
-			name:         "an eager collection loads its shard when the class is added",
-			lazyLoading:  false,
-			registration: monitoring.ShardRegistrationEager,
+			name:             "startup: an eager collection opens its shard while its index is built",
+			lazyLoading:      false,
+			warmupMinObjects: -1,
+			open:             func(*testing.T, *shardMetricsHarness, string, string) {},
+			want:             map[monitoring.ShardLoadTrigger]uint64{monitoring.ShardLoadTriggerStartup: 1},
 		},
 		{
-			name:         "a lazy collection loads its shard on first access",
-			lazyLoading:  true,
-			registration: monitoring.ShardRegistrationLazy,
+			name:             "warmup: the background sweep opens a lazy collection's shard",
+			lazyLoading:      true,
+			warmupMinObjects: 0,
+			open: func(t *testing.T, h *shardMetricsHarness, className, shardName string) {
+				index := h.repo.GetIndex(schema.ClassName(className))
+				require.Eventually(t, func() bool {
+					lazyShard, ok := index.shards.Load(shardName).(*LazyLoadShard)
+					return ok && lazyShard.loadedShard() != nil
+				}, 15*time.Second, 100*time.Millisecond,
+					"the sweep loads the shard about a second after the index is built")
+			},
+			want: map[monitoring.ShardLoadTrigger]uint64{monitoring.ShardLoadTriggerWarmup: 1},
+		},
+		{
+			name:             "runtime: first access opens a lazy collection's shard",
+			lazyLoading:      true,
+			warmupMinObjects: -1,
+			open: func(t *testing.T, h *shardMetricsHarness, className, shardName string) {
+				lazyShard, ok := h.repo.GetIndex(schema.ClassName(className)).shards.Load(shardName).(*LazyLoadShard)
+				require.True(t, ok)
+				_, _, err := lazyShard.loadIfCold(ctx)
+				require.NoError(t, err)
+			},
+			want: map[monitoring.ShardLoadTrigger]uint64{monitoring.ShardLoadTriggerRuntime: 1},
+		},
+		{
+			name:             "runtime: a tenant activation reopens a shard the node had shut",
+			lazyLoading:      false,
+			warmupMinObjects: -1,
+			open: func(t *testing.T, h *shardMetricsHarness, className, shardName string) {
+				index := h.repo.GetIndex(schema.ClassName(className))
+				shard, ok := index.shards.Load(shardName).(*Shard)
+				require.True(t, ok)
+				require.NoError(t, shard.Shutdown(ctx))
+				// The activation finds the shut shard, evicts it and opens the
+				// files again through initShard, the path every post-boot load
+				// takes: tenant activation, replica movement, onload.
+				require.NoError(t, index.LoadLocalShardForTenantActivation(ctx, shardName, false))
+			},
+			want: map[monitoring.ShardLoadTrigger]uint64{
+				monitoring.ShardLoadTriggerStartup: 1,
+				monitoring.ShardLoadTriggerRuntime: 1,
+			},
 		},
 	}
-	for _, tt := range tests {
+	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			className := "TestShardLoadDuration" + string(tt.registration)
+			className := fmt.Sprintf("TestShardLoadDuration%d", i)
 			rootPath := t.TempDir()
-			count := func() uint64 {
-				n, err := testinghelpers.SampleCount(prometheus.DefaultGatherer,
-					"weaviate_shard_load_duration_seconds",
-					prometheus.Labels{"registration": string(tt.registration)})
-				require.NoError(t, err)
-				return n
-			}
 
-			h := newShardMetricsHarnessOpts(t, shardMetricsHarnessOptions{lazyLoading: tt.lazyLoading, rootPath: rootPath})
-			before := count()
+			h := newShardMetricsHarnessOpts(t, shardMetricsHarnessOptions{
+				lazyLoading: tt.lazyLoading, rootPath: rootPath, warmupMinObjects: -1,
+			})
+			before := counts(t)
 			shardName := h.addClass(t, className)
 			if lazyShard, ok := h.repo.GetIndex(schema.ClassName(className)).shards.Load(shardName).(*LazyLoadShard); ok {
 				_, _, err := lazyShard.loadIfCold(ctx)
 				require.NoError(t, err)
 			}
-			require.Equal(t, before, count(), "creating a shard is not a load")
+			require.Equal(t, before, counts(t), "creating a shard is not a load")
 
 			// Leave data behind so the reopen has a shard worth loading.
 			obj := &models.Object{Class: className, ID: strfmt.UUID(uuid.New().String())}
 			require.NoError(t, h.repo.PutObject(ctx, obj, []float32{1, 2, 3, 4}, nil, nil, nil, 0))
 			h.shutdown(t)
 
-			// The reopened repo finds the class in its schema, so db.init opens
+			// The reopened repo finds the class in its schema, so db.init builds
 			// the index the way a restart does.
 			reopened := newShardMetricsHarnessOpts(t, shardMetricsHarnessOptions{
-				lazyLoading: tt.lazyLoading,
-				rootPath:    rootPath,
-				classes:     []*models.Class{shardMetricsClass(className)},
-				shardState:  h.shardState,
+				lazyLoading:      tt.lazyLoading,
+				rootPath:         rootPath,
+				classes:          []*models.Class{shardMetricsClass(className)},
+				shardState:       h.shardState,
+				warmupMinObjects: tt.warmupMinObjects,
 			})
 			shardName = reopened.shardOf(t, className)
-			if tt.lazyLoading {
-				require.Equal(t, before, count(), "registering a lazy shard does not load it")
-				lazyShard, ok := reopened.repo.GetIndex(schema.ClassName(className)).shards.Load(shardName).(*LazyLoadShard)
-				require.True(t, ok)
-				_, _, err := lazyShard.loadIfCold(ctx)
-				require.NoError(t, err)
+			if tt.lazyLoading && tt.warmupMinObjects < 0 {
+				require.Equal(t, before, counts(t), "registering a lazy shard does not load it")
 			}
+			tt.open(t, reopened, className, shardName)
 
-			require.Equal(t, before+1, count(),
-				"opening the existing shard is observed once under its registration")
+			want := map[monitoring.ShardLoadTrigger]uint64{}
+			for _, trigger := range monitoring.AllShardLoadTriggers() {
+				want[trigger] = tt.want[trigger]
+			}
+			require.Equal(t, want, delta(t, before),
+				"each load is observed once, under the trigger that opened it")
 		})
 	}
 }
@@ -905,7 +972,7 @@ func TestShardLoadNotObservedWhenLoadPanics(t *testing.T) {
 	count := func() uint64 {
 		n, err := testinghelpers.SampleCount(prometheus.DefaultGatherer,
 			"weaviate_shard_load_duration_seconds",
-			prometheus.Labels{"registration": string(monitoring.ShardRegistrationLazy)})
+			prometheus.Labels{"trigger": string(monitoring.ShardLoadTriggerRuntime)})
 		require.NoError(t, err)
 		return n
 	}
@@ -932,7 +999,7 @@ func TestShardLoadNotObservedWhenLoadPanics(t *testing.T) {
 	before := count()
 	shard, err := NewShard(ctx, h.metrics, shardName, index, shardMetricsClass(className),
 		index.centralJobQueue, index.scheduler, &panickingReindexer{},
-		false, index.bitmapBufPool, monitoring.ShardRegistrationLazy)
+		false, index.bitmapBufPool, monitoring.ShardRegistrationLazy, monitoring.ShardLoadTriggerRuntime)
 
 	require.Error(t, err, "a panic during the load surfaces as an error")
 	require.Nil(t, shard)

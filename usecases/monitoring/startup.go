@@ -72,6 +72,26 @@ const (
 	PrefillModeAsync PrefillMode = "async"
 )
 
+// ShardLoadTrigger is the value of the closed `trigger` label on the shard
+// load summary: why a shard that already had files on disk was opened. Only
+// startup loads delay readiness; warmup is the background sweep that follows a
+// lazy boot; runtime is every load on demand after that (first access, tenant
+// activation, replica movement, onload), which a day of tenant churn would
+// otherwise pass off as boot cost.
+type ShardLoadTrigger string
+
+const (
+	ShardLoadTriggerStartup ShardLoadTrigger = "startup"
+	ShardLoadTriggerWarmup  ShardLoadTrigger = "warmup"
+	ShardLoadTriggerRuntime ShardLoadTrigger = "runtime"
+)
+
+// AllShardLoadTriggers lists every trigger, so every series can be
+// pre-registered.
+func AllShardLoadTriggers() []ShardLoadTrigger {
+	return []ShardLoadTrigger{ShardLoadTriggerStartup, ShardLoadTriggerWarmup, ShardLoadTriggerRuntime}
+}
+
 // prefillCombos are the only (index_type, mode) pairs a prefill runs as, and
 // the only ones pre-registered.
 var prefillCombos = [][]string{
@@ -137,8 +157,8 @@ func newStartupMetrics(reg prometheus.Registerer, processStart time.Time) *Start
 		// no Objectives on purpose: that leaves only _sum and _count
 		shardLoad: r.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "weaviate_shard_load_duration_seconds",
-			Help: "Seconds to load an existing shard from disk: LSM buckets and WAL recovery, inverted indexes, vector index restore and any synchronous cache prefill. registration is eager for shards opened at startup and lazy for shards opened on first access. Creating a new shard and failed loads are not observed. Sum and count only.",
-		}, []string{"registration"}),
+			Help: "Seconds to open a shard that already has files on disk: LSM buckets and WAL recovery, inverted indexes, vector index restore and any synchronous cache prefill. trigger is startup for a shard opened while its collection's index was built at boot, warmup for one opened by the background sweep that follows a lazy boot, and runtime for one opened on demand afterwards: first access, tenant activation, replica movement or onload. Creating a new shard and failed loads are not observed. Sum and count only.",
+		}, []string{"trigger"}),
 		vectorIndexRestore: r.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "weaviate_vector_index_restore_duration_seconds",
 			Help: "Seconds to rebuild a vector index from its on-disk state (snapshot, commit logs, compressed vectors). Only observed when there was state to restore. Sum and count only.",
@@ -158,8 +178,8 @@ func newStartupMetrics(reg prometheus.Registerer, processStart time.Time) *Start
 	for _, phase := range AllStartupPhases() {
 		m.phaseDuration.WithLabelValues(string(phase)).Set(0)
 	}
-	for _, registration := range []ShardRegistration{ShardRegistrationEager, ShardRegistrationLazy} {
-		m.shardLoad.WithLabelValues(string(registration))
+	for _, trigger := range AllShardLoadTriggers() {
+		m.shardLoad.WithLabelValues(string(trigger))
 	}
 	m.vectorIndexRestore.WithLabelValues(string(VectorIndexTypeHNSW))
 	for _, combo := range prefillCombos {
@@ -221,15 +241,15 @@ func (m *StartupMetrics) TrackReady(ctx context.Context, isReady func() bool, pe
 	}
 }
 
-// ObserveShardLoad records one successful load of an existing shard. Callers
-// skip it for a shard that was just created, so creation churn does not skew
-// the load distribution.
-func (m *StartupMetrics) ObserveShardLoad(registration ShardRegistration, took time.Duration) {
+// ObserveShardLoad records one successful load of an existing shard under the
+// trigger that opened it. Callers skip it for a shard that was just created, so
+// creation churn does not skew the load distribution.
+func (m *StartupMetrics) ObserveShardLoad(trigger ShardLoadTrigger, took time.Duration) {
 	if m == nil {
 		return
 	}
 
-	m.shardLoad.WithLabelValues(string(registration)).Observe(took.Seconds())
+	m.shardLoad.WithLabelValues(string(trigger)).Observe(took.Seconds())
 }
 
 // ObserveVectorIndexRestore records one successful restore of a vector index

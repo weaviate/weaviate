@@ -656,7 +656,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 
 				newShard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
 					i.shardReindexer, false, i.bitmapBufPool,
-					monitoring.ShardRegistrationEager)
+					monitoring.ShardRegistrationEager, monitoring.ShardLoadTriggerStartup)
 				if err != nil {
 					return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 				}
@@ -912,7 +912,7 @@ func (i *Index) loadLocalShardIfActive(shardName string) (monitoring.WarmupOutco
 	ctx, done := i.cancelOnCloseRequested(context.Background())
 	defer done()
 
-	_, loaded, err := lazyShard.loadIfCold(ctx)
+	_, loaded, err := lazyShard.loadForWarmup(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -1063,9 +1063,12 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 		}
 		defer i.shardLoadLimiter.Release()
 
+		// Every load after boot comes through here: tenant activation, replica
+		// movement, onload. Reporting it as startup would pass a day of tenant
+		// churn off as boot cost.
 		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
 			i.shardReindexer, false, i.bitmapBufPool,
-			monitoring.ShardRegistrationEager)
+			monitoring.ShardRegistrationEager, monitoring.ShardLoadTriggerRuntime)
 		if err != nil {
 			return nil, fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 		}
