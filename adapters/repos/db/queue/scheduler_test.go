@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 func TestScheduler(t *testing.T) {
@@ -269,14 +270,13 @@ func TestScheduler(t *testing.T) {
 		s.RetryInterval = 100 * time.Millisecond
 		s.Start()
 
+		var mu sync.Mutex
 		called := make(map[uint64]int)
 
-		started := make(chan struct{})
 		e := mockTaskDecoder{
 			execFn: func(ctx context.Context, t *mockTask) error {
-				if t.key == 0 {
-					close(started)
-				}
+				mu.Lock()
+				defer mu.Unlock()
 
 				called[t.key]++
 				if t.key == 3 && called[t.key] < 3 {
@@ -295,13 +295,14 @@ func TestScheduler(t *testing.T) {
 		}
 		pushMany(t, q, 1, batch...)
 
-		s.Schedule(t.Context())
-		<-started
-		_ = s.Wait(t.Context(), q.ID())
+		require.Eventually(t, func() bool { return q.Size() == 0 }, 10*time.Second, 10*time.Millisecond)
 
+		// the batch is replayed from the start until the failing task passes
+		mu.Lock()
+		defer mu.Unlock()
 		for i := 0; i < 30; i++ {
-			if i == 3 {
-				require.Equal(t, 3, called[uint64(i)])
+			if i <= 3 {
+				require.Equal(t, 3, called[uint64(i)], "task %d should have been executed three times", i)
 				continue
 			}
 
@@ -681,6 +682,68 @@ func TestSchedulerSmallChunksDoNotStarveOtherQueues(t *testing.T) {
 		"slow queue already drained, the test proved nothing about interleaving")
 }
 
+// A queue whose tasks keep failing with a transient error must not hold the
+// workers: the other queues have to keep being processed.
+func TestSchedulerFailingQueueDoesNotBlockOthers(t *testing.T) {
+	s := makeScheduler(t, 2)
+	s.Start()
+	defer s.Close(t.Context())
+
+	failing := make(chan struct{}, 1)
+	stuck := makeQueue(t, s, &mockTaskDecoder{
+		execFn: func(ctx context.Context, _ *mockTask) error {
+			select {
+			case failing <- struct{}{}:
+			default:
+			}
+			return storagestate.ErrStatusReadOnly
+		},
+	})
+	defer stuck.Close(t.Context())
+
+	// keys spread over both workers
+	pushMany(t, stuck, 1, 0, 1, 2, 3)
+	select {
+	case <-failing:
+	case <-time.After(10 * time.Second):
+		t.Fatal("failing queue was never scheduled")
+	}
+
+	ch, e := streamExecutor()
+	healthy := makeQueue(t, s, e)
+	defer healthy.Close(t.Context())
+
+	pushMany(t, healthy, 1, 10, 11)
+	got := []uint64{recvWithin(t, ch, 10*time.Second), recvWithin(t, ch, 10*time.Second)}
+	slices.Sort(got)
+	require.Equal(t, []uint64{10, 11}, got)
+}
+
+// A failing queue is replayed at most once per RetryInterval, not in a tight
+// loop.
+func TestSchedulerFailingQueueWaitsRetryInterval(t *testing.T) {
+	s := makeScheduler(t, 1)
+	s.RetryInterval = 200 * time.Millisecond
+	s.Start()
+	defer s.Close(t.Context())
+
+	var executed atomic.Int32
+	q := makeQueue(t, s, &mockTaskDecoder{
+		execFn: func(ctx context.Context, _ *mockTask) error {
+			executed.Add(1)
+			return storagestate.ErrStatusReadOnly
+		},
+	})
+	defer q.Close(t.Context())
+
+	pushMany(t, q, 1, 1)
+	require.Eventually(t, func() bool { return executed.Load() > 0 }, 10*time.Second, 10*time.Millisecond)
+
+	time.Sleep(time.Second)
+	require.LessOrEqual(t, executed.Load(), int32(7), "a failing queue must wait between replays")
+	require.GreaterOrEqual(t, executed.Load(), int32(2), "a failing queue must keep being retried")
+}
+
 // When a task fails with a transient error or panics, its whole chunk is
 // replayed on the queue's next turn, before any newer chunk.
 func TestSchedulerReplaysCanceledChunkFirst(t *testing.T) {
@@ -688,6 +751,10 @@ func TestSchedulerReplaysCanceledChunkFirst(t *testing.T) {
 		name string
 		fail func() error
 	}{
+		{
+			name: "transient error",
+			fail: func() error { return enterrors.NewNotEnoughMemory("simulated") },
+		},
 		{
 			name: "panic",
 			fail: func() error { panic("simulated task panic") },
