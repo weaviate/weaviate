@@ -72,7 +72,7 @@ func TestEnqueueReleasesReservation(t *testing.T) {
 	newHandler := func(schemaManager schemaManager, queue processingQueue, qualifier namespacing.Qualifier) *StreamHandler {
 		shuttingDownCtx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(cancel)
-		return NewStreamHandler(nil, nil, shuttingDownCtx, cancel, &sync.WaitGroup{}, &sync.WaitGroup{},
+		return NewStreamHandler(nil, nil, shuttingDownCtx, cancel, context.Background(), &sync.WaitGroup{}, &sync.WaitGroup{},
 			NewReportingQueues(), queue, nil, logrus.New(), schemaManager, qualifier,
 			memwatch.NewDummyMonitor(), config.BatchStream{})
 	}

@@ -73,7 +73,7 @@ type Service struct {
 	batchObjectsSem    *semaphore.Weighted
 }
 
-func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *state.State) (*Service, batch.Drain) {
+func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *state.State, clientCallsCtx context.Context) (*Service, batch.Drain) {
 	authenticator := auth.NewHandler(allowAnonymous, authComposer)
 	batchHandler := batch.NewHandler(
 		state.Authorizer,
@@ -93,6 +93,7 @@ func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *sta
 		state.Logger,
 		state.NamespaceQualifier,
 		batch.WithStreamConfig(state.ServerConfig.Config.BatchStream),
+		batch.WithClientCallsCtx(clientCallsCtx),
 	)
 	return &Service{
 		traverser:            state.Traverser,

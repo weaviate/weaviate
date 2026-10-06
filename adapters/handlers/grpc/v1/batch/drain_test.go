@@ -16,6 +16,7 @@ import (
 	"errors"
 	"io"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -101,7 +102,11 @@ func TestDrainOfInProgressBatch(t *testing.T) {
 	mockStream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Once()
 
 	numWorkers := 1
-	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, namespacing.Disabled)
+	// The client finishes before the cut, as a well-behaved one does.
+	clientCallsCtx, cancelClientCalls := context.WithCancel(context.Background())
+	t.Cleanup(cancelClientCalls)
+	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, namespacing.Disabled,
+		batch.WithClientCallsCtx(clientCallsCtx))
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -450,6 +455,122 @@ func TestDrainWithMisbehavingClient(t *testing.T) {
 	wg.Wait()
 	require.NotNil(t, err, "handler should return error shutting down")
 	require.ErrorAs(t, err, &context.Canceled, "handler should return context.Canceled error")
+}
+
+// A stream still receiving after the shutdown message is cut when client calls
+// are cancelled, long before SHUTDOWN_GRACE_PERIOD.
+func TestDrainClosesStreamsWhenClientCallsCancelled(t *testing.T) {
+	const waitLimit = 5 * time.Second
+	collection := "TestClass"
+
+	cases := []struct {
+		name string
+		// keepSending makes the client send data after the shutdown message instead of going silent.
+		keepSending bool
+		// batchWaitsForCtx makes the batcher hold the first batch until its ctx ends,
+		// so it is still unwritten when client calls are cancelled.
+		batchWaitsForCtx bool
+	}{
+		{name: "client keeps sending", keepSending: true},
+		{name: "client goes silent"},
+		{name: "batch not yet written is abandoned", batchWaitsForCtx: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+			clientCallsCtx, cancelClientCalls := context.WithCancel(context.Background())
+			t.Cleanup(cancelClientCalls)
+
+			var written atomic.Int32
+			batchEntered := make(chan struct{}, 1)
+			batcher := mocks.NewMockBatcher(t)
+			batcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(
+				func(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+					select {
+					case batchEntered <- struct{}{}:
+					default:
+					}
+					if tc.batchWaitsForCtx {
+						<-ctx.Done()
+					}
+					// the LSM write is skipped once ctx is done
+					if err := ctx.Err(); err != nil {
+						return nil, err
+					}
+					written.Add(int32(len(req.Objects)))
+					return &pb.BatchObjectsReply{}, nil
+				}).Maybe()
+			schemaManager := mocks.NewMockschemaManager(t)
+			schemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
+			schemaManager.EXPECT().GetCachedClassNoAuth(mock.Anything, collection).
+				Return(map[string]versioned.Class{collection: {Class: &models.Class{Class: collection}}}, nil).Maybe()
+			authenticator := mocks.NewMockauthenticator(t)
+			authenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
+
+			stream := newMockStream(t)
+			stream.EXPECT().Context().Return(ctx).Maybe()
+			shutdownSent := make(chan struct{})
+			stream.EXPECT().Send(newBatchStreamShuttingDownReply()).RunAndReturn(func(*pb.BatchStreamReply) error {
+				close(shutdownSent)
+				return nil
+			}).Once()
+			stream.EXPECT().Send(mock.Anything).Return(nil).Maybe()
+			objs := []*pb.BatchObject{{Collection: collection, Uuid: "5f8e0d34-1c6a-4a1e-9f0c-6f9b6e0f0a11"}}
+			recvCount := 0
+			stream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
+				recvCount++
+				switch {
+				case recvCount == 1:
+					return newBatchStreamStartRequest(), nil
+				case recvCount == 2 || tc.keepSending:
+					return newBatchStreamObjsRequest(objs), nil
+				default:
+					<-ctx.Done()
+					return nil, io.EOF
+				}
+			}).Maybe()
+
+			handler, drain := batch.Start(authenticator, nil, batcher, schemaManager, nil, 1, logrus.New(), namespacing.Disabled,
+				batch.WithClientCallsCtx(clientCallsCtx))
+			handled := make(chan error, 1)
+			go func() { handled <- handler.Handle(stream) }()
+
+			select {
+			case <-batchEntered:
+			case <-time.After(waitLimit):
+				require.FailNow(t, "first batch never reached the batcher")
+			}
+			drained := make(chan struct{})
+			go func() {
+				drain()
+				close(drained)
+			}()
+			select {
+			case <-shutdownSent:
+			case <-time.After(waitLimit):
+				require.FailNow(t, "shutdown message never sent")
+			}
+			cancelClientCalls()
+
+			select {
+			case err := <-handled:
+				require.ErrorIs(t, err, context.Canceled)
+				require.ErrorContains(t, err, "recv stream closed as client calls were cancelled")
+			case <-time.After(waitLimit):
+				require.FailNow(t, "stream not closed after client calls were cancelled")
+			}
+			select {
+			case <-drained:
+			case <-time.After(waitLimit):
+				require.FailNow(t, "drain did not finish after the stream was closed")
+			}
+			if tc.batchWaitsForCtx {
+				require.Zero(t, written.Load(), "the batch unwritten at the cut must stay unwritten")
+			}
+		})
+	}
 }
 
 func newBatchStreamShuttingDownReply() *pb.BatchStreamReply {
