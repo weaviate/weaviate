@@ -15,12 +15,14 @@ import (
 	"context"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -30,6 +32,12 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 
 	grpcHandler "github.com/weaviate/weaviate/adapters/handlers/grpc"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
+	batchmocks "github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch/mocks"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/versioned"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // blockingHealthServer holds every Check until release is closed, or until
@@ -190,58 +198,145 @@ func TestStartGrpcStop(t *testing.T) {
 	}
 }
 
-// A drain that never finishes must not hold up the gRPC stop past the timeout.
-func TestWaitBatchDrain(t *testing.T) {
+// A drain that finishes is waited for in full, with no timeout warning.
+func TestWaitBatchDrainReturnsWithDrain(t *testing.T) {
+	const timeout = time.Hour
+	logger, hook := test.NewNullLogger()
+	waited := make(chan struct{})
+	go func() {
+		waitBatchDrain(func() {}, timeout, logger)
+		close(waited)
+	}()
+	select {
+	case <-waited:
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "waitBatchDrain did not return once drain did")
+	}
+	assert.False(t, loggedDrainTimeout(hook))
+}
+
+func loggedDrainTimeout(hook *test.Hook) bool {
+	for _, e := range hook.AllEntries() {
+		if e.Level == logrus.WarnLevel && e.Data["action"] == "shutdown_drain" {
+			return true
+		}
+	}
+	return false
+}
+
+// A client that stops reading blocks the sender's last Send, so a real drain
+// never returns on its own and only the timeout lets shutdown go on.
+func TestWaitBatchDrainLeavesSenderBlockedOnClient(t *testing.T) {
 	const (
-		timeout     = 200 * time.Millisecond
-		waitLimit   = 5 * time.Second
-		drainNotice = "batch stream drain did not finish within 200ms, continuing shutdown"
+		timeout   = 500 * time.Millisecond
+		waitLimit = 5 * time.Second
 	)
+	await := func(ch <-chan struct{}, what string) {
+		t.Helper()
+		select {
+		case <-ch:
+		case <-time.After(waitLimit):
+			require.FailNowf(t, "timed out", "waiting for %s", what)
+		}
+	}
+	collection := "TestClass"
 
-	cases := []struct {
-		name       string
-		drainHangs bool
-	}{
-		{name: "drain that finishes returns at once"},
-		{name: "drain that hangs is left behind at the timeout", drainHangs: true},
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	clientCallsCtx, cancelClientCalls := context.WithCancel(context.Background())
+	t.Cleanup(cancelClientCalls)
+	release := make(chan struct{})
+	releaseSend := sync.OnceFunc(func() { close(release) })
+	t.Cleanup(releaseSend)
+
+	batchEntered, finishBatch := make(chan struct{}), make(chan struct{})
+	batcher := batchmocks.NewMockBatcher(t)
+	batcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(
+		func(context.Context, *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+			close(batchEntered)
+			<-finishBatch
+			return &pb.BatchObjectsReply{}, nil
+		}).Once()
+	schemaManager := batchmocks.NewMockschemaManager(t)
+	schemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
+	schemaManager.EXPECT().GetCachedClassNoAuth(mock.Anything, collection).
+		Return(map[string]versioned.Class{collection: {Class: &models.Class{Class: collection}}}, nil).Once()
+	authenticator := batchmocks.NewMockauthenticator(t)
+	authenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
+
+	// Every Send after the shutdown message blocks, as for a client that stopped reading.
+	acksSent, shutdownSent, sendBlocked := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	signalSendBlocked := sync.OnceFunc(func() { close(sendBlocked) })
+	var shuttingDown atomic.Bool
+	stream := batchmocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamRequest, pb.BatchStreamReply](t)
+	stream.EXPECT().Context().Return(ctx).Maybe()
+	stream.EXPECT().Send(mock.Anything).RunAndReturn(func(msg *pb.BatchStreamReply) error {
+		switch {
+		case msg.GetAcks() != nil:
+			close(acksSent)
+		case msg.GetShuttingDown() != nil:
+			shuttingDown.Store(true)
+			close(shutdownSent)
+		case shuttingDown.Load():
+			signalSendBlocked()
+			<-release
+		}
+		return nil
+	}).Maybe()
+	recvCount := 0
+	stream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
+		recvCount++
+		switch recvCount {
+		case 1:
+			return &pb.BatchStreamRequest{Message: &pb.BatchStreamRequest_Start_{Start: &pb.BatchStreamRequest_Start{}}}, nil
+		case 2:
+			return &pb.BatchStreamRequest{Message: &pb.BatchStreamRequest_Data_{Data: &pb.BatchStreamRequest_Data{
+				Objects: &pb.BatchStreamRequest_Data_Objects{Values: []*pb.BatchObject{{Collection: collection}}},
+			}}}, nil
+		default:
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+	}).Maybe()
+
+	logger, hook := test.NewNullLogger()
+	handler, drain := batch.Start(authenticator, nil, batcher, schemaManager, nil, 1, logger, namespacing.Disabled,
+		batch.WithClientCallsCtx(clientCallsCtx))
+	go func() { _ = handler.Handle(stream) }()
+	await(batchEntered, "the batch to reach the batcher")
+	await(acksSent, "the batch to be acknowledged")
+
+	drained := make(chan struct{})
+	waited := make(chan time.Duration, 1)
+	go func() {
+		start := time.Now()
+		waitBatchDrain(func() {
+			drain()
+			close(drained)
+		}, timeout, logger)
+		waited <- time.Since(start)
+	}()
+	await(shutdownSent, "the shutdown message")
+	close(finishBatch)
+	await(sendBlocked, "the results Send to block")
+	cancelClientCalls()
+
+	select {
+	case took := <-waited:
+		assert.GreaterOrEqual(t, took, timeout)
+	case <-time.After(waitLimit):
+		require.FailNow(t, "waitBatchDrain did not return at its timeout")
+	}
+	assert.True(t, loggedDrainTimeout(hook))
+	select {
+	case <-drained:
+		require.FailNow(t, "drain returned while the sender was blocked in Send")
+	default:
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			release := make(chan struct{})
-			t.Cleanup(func() { close(release) })
-			drain := func() {
-				if tc.drainHangs {
-					<-release
-				}
-			}
-
-			logger, hook := test.NewNullLogger()
-			waited := make(chan time.Duration, 1)
-			go func() {
-				start := time.Now()
-				waitBatchDrain(drain, timeout, logger)
-				waited <- time.Since(start)
-			}()
-
-			select {
-			case took := <-waited:
-				if tc.drainHangs {
-					assert.GreaterOrEqual(t, took, timeout)
-				} else {
-					assert.Less(t, took, timeout)
-				}
-			case <-time.After(waitLimit):
-				require.FailNow(t, "waitBatchDrain did not return")
-			}
-
-			var noticed bool
-			for _, e := range hook.AllEntries() {
-				noticed = noticed || (e.Level == logrus.WarnLevel && e.Message == drainNotice)
-			}
-			assert.Equal(t, tc.drainHangs, noticed, "drain timeout warning")
-		})
-	}
+	releaseSend()
+	// Recv never ends the stream, so drain finishes only if client calls cut the receiver.
+	await(drained, "drain to finish once Send returned")
 }
 
 // wait must not return while the graceful stop it joins is still draining a call.
