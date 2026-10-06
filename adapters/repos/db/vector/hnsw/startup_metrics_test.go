@@ -59,14 +59,6 @@ func hnswPrefillCount(t *testing.T, mode monitoring.PrefillMode) uint64 {
 	return n
 }
 
-func hnswPrefillActive(t *testing.T, mode monitoring.PrefillMode) float64 {
-	t.Helper()
-	v, err := monitoringhelpers.GaugeValue(prometheus.DefaultGatherer,
-		"weaviate_vector_cache_prefill_active", hnswPrefillLabels(mode))
-	require.NoError(t, err)
-	return v
-}
-
 // startupMetricsHarness builds indexes over the same commit log directory
 // whose VectorForID can be parked or made to panic, so a test can reopen an
 // index and hold its prefill open or blow it up.
@@ -185,14 +177,12 @@ func TestStartupMetricsPrefillObservedUnderItsMode(t *testing.T) {
 			defer index.Shutdown(ctx)
 
 			before, beforeOther := hnswPrefillCount(t, tt.mode), hnswPrefillCount(t, tt.other)
-			activeBefore := hnswPrefillActive(t, tt.mode)
 
 			index.PostStartup(ctx)
 			index.prefillWg.Wait()
 
 			require.Equal(t, before+1, hnswPrefillCount(t, tt.mode))
 			require.Equal(t, beforeOther, hnswPrefillCount(t, tt.other), "the other mode must not move")
-			require.Equal(t, activeBefore, hnswPrefillActive(t, tt.mode), "a finished prefill is no longer active")
 		})
 	}
 }
@@ -218,7 +208,6 @@ func TestStartupMetricsAbortedPrefillNotObserved(t *testing.T) {
 	index := h.newIndex(t)
 
 	before := hnswPrefillCount(t, monitoring.PrefillModeAsync)
-	activeBefore := hnswPrefillActive(t, monitoring.PrefillModeAsync)
 
 	// New() replays the commit log through the same thunk, so arm only once
 	// the index is built.
@@ -230,8 +219,6 @@ func TestStartupMetricsAbortedPrefillNotObserved(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Fatal("prefill never reached VectorForID")
 	}
-	require.Equal(t, activeBefore+1, hnswPrefillActive(t, monitoring.PrefillModeAsync),
-		"a running prefill is counted as active")
 
 	done := make(chan error, 1)
 	go func() { done <- index.Shutdown(ctx) }()
@@ -250,15 +237,12 @@ func TestStartupMetricsAbortedPrefillNotObserved(t *testing.T) {
 
 	require.Equal(t, before, hnswPrefillCount(t, monitoring.PrefillModeAsync),
 		"a prefill cut short by shutdown must not record a misleadingly short duration")
-	require.Equal(t, activeBefore, hnswPrefillActive(t, monitoring.PrefillModeAsync),
-		"an aborted prefill is no longer active")
 }
 
 // A prefill that panics is recovered by the goroutine wrapper (or by the
-// shard's recover in sync mode) and the process keeps running, so the active
-// gauge must not stay raised for the life of the process, and the run must
-// not count as a completed prefill.
-func TestStartupMetricsPanickingPrefillReleasesActive(t *testing.T) {
+// shard's recover in sync mode) and the process keeps running, so the run
+// must not count as a completed prefill.
+func TestStartupMetricsPanickingPrefillRecordsNoDuration(t *testing.T) {
 	// The integration CI job runs with DISABLE_RECOVERY_ON_PANIC, which makes
 	// the goroutine wrapper re-raise instead of recover and would take the
 	// whole test binary down; this test is about the production default.
@@ -271,7 +255,6 @@ func TestStartupMetricsPanickingPrefillReleasesActive(t *testing.T) {
 	defer index.Shutdown(ctx)
 
 	before := hnswPrefillCount(t, monitoring.PrefillModeAsync)
-	activeBefore := hnswPrefillActive(t, monitoring.PrefillModeAsync)
 
 	// New() replays the commit log through the same thunk, so arm only once
 	// the index is built.
@@ -279,8 +262,6 @@ func TestStartupMetricsPanickingPrefillReleasesActive(t *testing.T) {
 	index.PostStartup(ctx)
 	index.prefillWg.Wait()
 
-	require.Equal(t, activeBefore, hnswPrefillActive(t, monitoring.PrefillModeAsync),
-		"a prefill that panicked must not stay active")
 	require.Equal(t, before, hnswPrefillCount(t, monitoring.PrefillModeAsync),
 		"a prefill that panicked is not a completed prefill")
 }

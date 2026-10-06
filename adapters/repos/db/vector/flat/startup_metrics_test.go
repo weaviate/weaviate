@@ -41,18 +41,6 @@ func flatPrefillCount(t *testing.T) uint64 {
 	return n
 }
 
-func flatPrefillActive(t *testing.T) float64 {
-	t.Helper()
-	v, err := testinghelpers.GaugeValue(prometheus.DefaultGatherer,
-		"weaviate_vector_cache_prefill_active",
-		prometheus.Labels{
-			"index_type": string(monitoring.VectorIndexTypeFlat),
-			"mode":       string(monitoring.PrefillModeSync),
-		})
-	require.NoError(t, err)
-	return v
-}
-
 // panickingQuantizer makes the first step of the preload panic.
 type panickingQuantizer struct{ Quantizer }
 
@@ -61,9 +49,8 @@ func (panickingQuantizer) Type() QuantizerType {
 }
 
 // A preload that panics is recovered by the shard's init in production, so
-// it must release the active gauge without recording a duration, like the
-// hnsw and hfresh prefills do.
-func Test_NoRace_Flat_PanickingPreloadReleasesActive(t *testing.T) {
+// it must not record a duration, like the hnsw and hfresh prefills.
+func Test_NoRace_Flat_PanickingPreloadRecordsNoDuration(t *testing.T) {
 	ctx := context.Background()
 	dirName := t.TempDir()
 
@@ -81,13 +68,12 @@ func Test_NoRace_Flat_PanickingPreloadReleasesActive(t *testing.T) {
 	defer index.Shutdown(ctx)
 	require.NotNil(t, index.quantizer, "the reopened index restored its quantizer")
 
-	before, activeBefore := flatPrefillCount(t), flatPrefillActive(t)
+	before := flatPrefillCount(t)
 	orig := index.quantizer
 	index.quantizer = panickingQuantizer{orig}
 	require.Panics(t, func() { index.PostStartup(ctx) })
 	index.quantizer = orig
 
-	require.Equal(t, activeBefore, flatPrefillActive(t), "a preload that panicked must not stay active")
 	require.Equal(t, before, flatPrefillCount(t), "a preload that panicked is not a completed prefill")
 }
 

@@ -75,23 +75,17 @@ func TestStartupMetrics_SetReady(t *testing.T) {
 	m, _, processStart := newTestStartupMetrics(t)
 
 	require.Equal(t, float64(0), testutil.ToFloat64(m.startupDuration), "0 until ready")
-	require.Equal(t, float64(0), testutil.ToFloat64(m.readyTimestamp), "0 until ready")
 
 	before := time.Now()
 	m.SetReady()
 	after := time.Now()
 
-	ts := testutil.ToFloat64(m.readyTimestamp)
-	require.GreaterOrEqual(t, ts, float64(before.UnixNano())/float64(time.Second))
-	require.LessOrEqual(t, ts, float64(after.UnixNano())/float64(time.Second))
-
 	dur := testutil.ToFloat64(m.startupDuration)
-	require.InDelta(t, ts-float64(processStart.UnixNano())/float64(time.Second), dur, 0.01,
-		"startup duration is measured from process start")
+	require.GreaterOrEqual(t, dur, before.Sub(processStart).Seconds(), "measured from process start")
+	require.LessOrEqual(t, dur, after.Sub(processStart).Seconds(), "measured from process start")
 
 	time.Sleep(2 * time.Millisecond)
 	m.SetReady()
-	require.Equal(t, ts, testutil.ToFloat64(m.readyTimestamp), "only the first readiness counts")
 	require.Equal(t, dur, testutil.ToFloat64(m.startupDuration), "only the first readiness counts")
 }
 
@@ -161,31 +155,13 @@ func TestStartupMetrics_PrefillStarted(t *testing.T) {
 			labels := prometheus.Labels{"index_type": string(tt.indexType), "mode": string(tt.mode)}
 
 			done := m.PrefillStarted(tt.indexType, tt.mode)
-			require.Equal(t, float64(1), testutil.ToFloat64(m.prefillActive.With(labels)),
-				"active while the prefill runs")
-
 			done(tt.err)
-			require.Equal(t, float64(0), testutil.ToFloat64(m.prefillActive.With(labels)),
-				"active drops whatever the outcome")
 
 			count, err := testinghelpers.SampleCount(reg, "weaviate_vector_cache_prefill_duration_seconds", labels)
 			require.NoError(t, err)
 			require.Equal(t, tt.wantCount, count)
 		})
 	}
-}
-
-func TestStartupMetrics_PrefillActiveCountsConcurrentRuns(t *testing.T) {
-	m, _, _ := newTestStartupMetrics(t)
-	labels := prometheus.Labels{"index_type": "hnsw", "mode": "async"}
-
-	done1 := m.PrefillStarted(VectorIndexTypeHNSW, PrefillModeAsync)
-	done2 := m.PrefillStarted(VectorIndexTypeHNSW, PrefillModeAsync)
-	require.Equal(t, float64(2), testutil.ToFloat64(m.prefillActive.With(labels)))
-	done1(nil)
-	require.Equal(t, float64(1), testutil.ToFloat64(m.prefillActive.With(labels)))
-	done2(nil)
-	require.Equal(t, float64(0), testutil.ToFloat64(m.prefillActive.With(labels)))
 }
 
 func TestStartupMetrics_NilReceiverIsNoop(t *testing.T) {
@@ -226,11 +202,9 @@ func TestStartupMetrics_PreRegisteredSeries(t *testing.T) {
 	}{
 		{name: "phase duration", collector: m.phaseDuration, want: len(AllStartupPhases())},
 		{name: "startup duration", collector: m.startupDuration, want: 1},
-		{name: "ready timestamp", collector: m.readyTimestamp, want: 1},
 		{name: "shard load", collector: m.shardLoad, want: len(AllShardLoadTriggers())},
 		{name: "vector index restore", collector: m.vectorIndexRestore, want: 1},
 		{name: "prefill duration", collector: m.prefillDuration, want: 4},
-		{name: "prefill active", collector: m.prefillActive, want: 4},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -309,9 +283,9 @@ func TestStartupMetrics_TrackReady(t *testing.T) {
 			require.Equal(t, tt.want, got)
 			if tt.want {
 				require.Equal(t, tt.readyAfter+1, calls.Load(), "returns on the first ready answer")
-				require.Greater(t, testutil.ToFloat64(m.readyTimestamp), float64(0), "the first ready answer is recorded")
+				require.Greater(t, testutil.ToFloat64(m.startupDuration), float64(0), "the first ready answer is recorded")
 			} else {
-				require.Equal(t, float64(0), testutil.ToFloat64(m.readyTimestamp), "a cancelled tracker records nothing")
+				require.Equal(t, float64(0), testutil.ToFloat64(m.startupDuration), "a cancelled tracker records nothing")
 			}
 		})
 	}

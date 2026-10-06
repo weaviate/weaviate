@@ -116,13 +116,10 @@ type StartupMetrics struct {
 	phaseDuration *prometheus.GaugeVec
 
 	startupDuration prometheus.Gauge
-	readyTimestamp  prometheus.Gauge
 
 	shardLoad          *prometheus.SummaryVec
 	vectorIndexRestore *prometheus.SummaryVec
-
-	prefillDuration *prometheus.SummaryVec
-	prefillActive   *prometheus.GaugeVec
+	prefillDuration    *prometheus.SummaryVec
 
 	processStart time.Time
 	readyOnce    sync.Once
@@ -150,10 +147,6 @@ func newStartupMetrics(reg prometheus.Registerer, processStart time.Time) *Start
 			Name: "weaviate_startup_duration_seconds",
 			Help: "Seconds from process start until this node first passed the readiness endpoint's check (/v1/.well-known/ready), polled once the API server is configured. 0 until ready.",
 		}),
-		readyTimestamp: r.NewGauge(prometheus.GaugeOpts{
-			Name: "weaviate_startup_ready_timestamp_seconds",
-			Help: "Unix time at which this node first passed the readiness endpoint's check (/v1/.well-known/ready). 0 until ready.",
-		}),
 		// no Objectives on purpose: that leaves only _sum and _count
 		shardLoad: r.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "weaviate_shard_load_duration_seconds",
@@ -166,10 +159,6 @@ func newStartupMetrics(reg prometheus.Registerer, processStart time.Time) *Start
 		prefillDuration: r.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "weaviate_vector_cache_prefill_duration_seconds",
 			Help: "Seconds a vector cache prefill took to complete. mode is sync when it ran inside the shard load and delayed readiness, async when it ran in the background. Aborted and failed prefills are not observed. Sum and count only.",
-		}, []string{"index_type", "mode"}),
-		prefillActive: r.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "weaviate_vector_cache_prefill_active",
-			Help: "Number of vector cache prefills currently running on this node",
 		}, []string{"index_type", "mode"}),
 		processStart: processStart,
 	}
@@ -184,7 +173,6 @@ func newStartupMetrics(reg prometheus.Registerer, processStart time.Time) *Start
 	m.vectorIndexRestore.WithLabelValues(string(VectorIndexTypeHNSW))
 	for _, combo := range prefillCombos {
 		m.prefillDuration.WithLabelValues(combo...)
-		m.prefillActive.WithLabelValues(combo...).Set(0)
 	}
 
 	return m
@@ -212,9 +200,7 @@ func (m *StartupMetrics) SetReady() {
 	}
 
 	m.readyOnce.Do(func() {
-		now := time.Now()
-		m.readyTimestamp.Set(float64(now.UnixNano()) / float64(time.Second))
-		m.startupDuration.Set(now.Sub(m.processStart).Seconds())
+		m.startupDuration.Set(time.Since(m.processStart).Seconds())
 	})
 }
 
@@ -262,21 +248,19 @@ func (m *StartupMetrics) ObserveVectorIndexRestore(indexType VectorIndexType, to
 	m.vectorIndexRestore.WithLabelValues(string(indexType)).Observe(took.Seconds())
 }
 
-// PrefillStarted counts a running prefill and returns a done callback (call
-// once) that stops counting it and, when err is nil, records how long it took.
-// A prefill cut short by shutdown would record a misleadingly short sample, so
-// callers pass the abort or failure error instead.
+// PrefillStarted starts timing a prefill and returns a done callback (call
+// once) that, when err is nil, records how long it took. A prefill cut short
+// by shutdown would record a misleadingly short sample, so callers pass the
+// abort or failure error instead.
 func (m *StartupMetrics) PrefillStarted(indexType VectorIndexType, mode PrefillMode) func(err error) {
 	if m == nil {
 		return func(error) {}
 	}
 
 	labels := []string{string(indexType), string(mode)}
-	m.prefillActive.WithLabelValues(labels...).Inc()
 	start := time.Now()
 
 	return func(err error) {
-		m.prefillActive.WithLabelValues(labels...).Dec()
 		if err != nil {
 			return
 		}

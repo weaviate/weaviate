@@ -170,11 +170,6 @@ func NewMetrics(
 	shardStatusUpdateDurationsSeconds := prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name: "weaviate_index_shard_status_update_duration_seconds",
 		Help: "Time taken to update shard status in seconds",
-		// defaultDurationBuckets span 10ms to about 5min. Without them this
-		// histogram used the client defaults (5ms to 10s), and since the READY
-		// transition is observed with the whole shard load, every load longer
-		// than 10s landed in the +Inf bucket. _sum and _count are unaffected.
-		Buckets: defaultDurationBuckets,
 	}, []string{"status"}) // status: READONLY, INDEXING, LOADING, READY, SHUTDOWN
 
 	// Try to register metrics, reuse existing ones if already registered

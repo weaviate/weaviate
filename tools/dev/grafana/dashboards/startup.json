@@ -112,72 +112,6 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "Unix time the node first satisfied the readiness probe. Empty while still starting.",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "dateTimeAsIso",
-          "noValue": "not ready yet"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 4,
-        "x": 4,
-        "y": 1
-      },
-      "id": 103,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "textMode": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "pluginVersion": "8.3.3",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "exemplar": true,
-          "expr": "max(weaviate_startup_ready_timestamp_seconds > 0) * 1000",
-          "interval": "",
-          "legendFormat": "",
-          "refId": "A",
-          "instant": true,
-          "range": false
-        }
-      ],
-      "title": "Ready at",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "Prometheus"
-      },
       "description": "Wall time of each boot phase, published once the phase completes. Phases nest (db_reload runs inside raft_open or cluster_open), so they do not add up.",
       "fieldConfig": {
         "defaults": {
@@ -566,7 +500,7 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "sync prefills ran inside a shard load, async ones in the background. Cumulative over every load since the process started, including shards opened after boot; read it at the ready timestamp for the boot figure.",
+      "description": "sync prefills ran inside a shard load, async ones in the background. Cumulative over every load since the process started, including shards opened after boot; read it when the time-to-ready stat first turns non-zero for the boot figure.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -646,69 +580,6 @@
       ],
       "title": "Average vector cache prefill",
       "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "Prometheus"
-      },
-      "description": "A prefill is running: during boot, in the warmup sweep, or inside a shard opened after boot (tenant activation, replica movement).",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "none"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 20,
-        "y": 8
-      },
-      "id": 112,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "textMode": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "pluginVersion": "8.3.3",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "exemplar": true,
-          "expr": "sum by (index_type, mode) (weaviate_vector_cache_prefill_active)",
-          "interval": "",
-          "legendFormat": "{{index_type}} {{mode}}",
-          "refId": "A"
-        }
-      ],
-      "title": "Prefills running",
-      "type": "stat"
     },
     {
       "datasource": {

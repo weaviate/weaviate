@@ -165,18 +165,11 @@ func assertStartupMetrics(t *testing.T, ctx context.Context, compose *docker.Doc
 		t.Fatalf("the node must report ready with every startup phase finished; last scrape error: %v", lastScrapeErr)
 	}
 
-	gauge := func(name string, labels map[string]string) float64 {
-		m, ok := helper.FindMetric(families, name, labels)
-		require.True(t, ok, "missing %s%v", name, labels)
-		return m.GetGauge().GetValue()
-	}
 	sampleCount := func(name string, labels map[string]string) uint64 {
 		m, ok := helper.FindMetric(families, name, labels)
 		require.True(t, ok, "missing %s%v", name, labels)
 		return m.GetSummary().GetSampleCount()
 	}
-
-	assert.Greater(t, gauge("weaviate_startup_ready_timestamp_seconds", nil), float64(0))
 
 	want := uint64(shards)
 	assert.Equal(t, want, sampleCount("weaviate_shard_load_duration_seconds", map[string]string{"trigger": "startup"}),
@@ -188,5 +181,4 @@ func assertStartupMetrics(t *testing.T, ctx context.Context, compose *docker.Doc
 	hnswSync := map[string]string{"index_type": "hnsw", "mode": "sync"}
 	assert.Equal(t, want, sampleCount("weaviate_vector_cache_prefill_duration_seconds", hnswSync),
 		"eager collections prefill their vector cache inside the shard load")
-	assert.Zero(t, gauge("weaviate_vector_cache_prefill_active", hnswSync))
 }
