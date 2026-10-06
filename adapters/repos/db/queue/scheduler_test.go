@@ -680,3 +680,60 @@ func TestSchedulerSmallChunksDoNotStarveOtherQueues(t *testing.T) {
 	require.Less(t, slowProcessed.Load(), int32(100),
 		"slow queue already drained, the test proved nothing about interleaving")
 }
+
+// When a task fails with a transient error or panics, its whole chunk is
+// replayed on the queue's next turn, before any newer chunk.
+func TestSchedulerReplaysCanceledChunkFirst(t *testing.T) {
+	tests := []struct {
+		name string
+		fail func() error
+	}{
+		{
+			name: "panic",
+			fail: func() error { panic("simulated task panic") },
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			s := makeScheduler(t, 1)
+			s.Start()
+			defer s.Close(t.Context())
+
+			var mu sync.Mutex
+			var order []uint64
+			var failed atomic.Bool
+			q := makeQueue(t, s, &mockTaskDecoder{
+				execFn: func(ctx context.Context, task *mockTask) error {
+					if task.key == 2 && failed.CompareAndSwap(false, true) {
+						return test.fail()
+					}
+					mu.Lock()
+					order = append(order, task.key)
+					mu.Unlock()
+					return nil
+				},
+			})
+			defer q.Close(t.Context())
+
+			// seal two chunks before the scheduler sees them
+			require.NoError(t, q.Pause(t.Context()))
+			pushMany(t, q, 1, 1, 2, 3)
+			sealChunk(t, q)
+			pushMany(t, q, 1, 4, 5, 6)
+			sealChunk(t, q)
+			q.Resume()
+
+			require.Eventually(t, func() bool { return q.Size() == 0 }, 10*time.Second, 10*time.Millisecond,
+				"the canceled chunk must be read again so the queue drains")
+
+			mu.Lock()
+			defer mu.Unlock()
+			require.Equal(t, []uint64{1, 1, 2, 3, 4, 5, 6}, order)
+
+			entries, err := os.ReadDir(q.dir)
+			require.NoError(t, err)
+			require.Empty(t, entries)
+		})
+	}
+}
