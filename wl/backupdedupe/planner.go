@@ -504,9 +504,13 @@ func (p *Planner) deleteCheckpoints(ctx context.Context, created map[string][]st
 	eg.SetLimit(_DedupeClassConcurrency)
 	for class, shards := range created {
 		eg.Go(func() error {
-			classCtx, cancelClass := context.WithTimeout(budgetCtx, p.cleanupTimeout)
-			defer cancelClass()
-			err := p.checkpointer.DeleteAsyncCheckpoints(classCtx, class, shards)
+			// Cleanup budget already spent: a dead-ctx call only burns a fan-out, so the class just counts as failed.
+			err := budgetCtx.Err()
+			if err == nil {
+				classCtx, cancelClass := context.WithTimeout(budgetCtx, p.cleanupTimeout)
+				defer cancelClass()
+				err = p.checkpointer.DeleteAsyncCheckpoints(classCtx, class, shards)
+			}
 			if err == nil {
 				return nil
 			}

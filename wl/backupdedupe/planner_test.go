@@ -69,6 +69,7 @@ type fakeCheckpointer struct {
 	root          hashtree.Digest
 	callDelay     time.Duration
 	deleteHang    bool
+	deleteDelay   time.Duration
 	createHang    bool
 	inFlight      int
 	maxInFlight   int
@@ -167,8 +168,9 @@ func (f *fakeCheckpointer) DeleteAsyncCheckpoints(ctx context.Context, class str
 	defer f.exit()
 	f.mu.Lock()
 	f.deleteCalls = append(f.deleteCalls, class)
-	hang, blowUp := f.deleteHang, f.deletePanic[class]
+	hang, blowUp, delay := f.deleteHang, f.deletePanic[class], f.deleteDelay
 	f.mu.Unlock()
+	time.Sleep(delay)
 	if blowUp {
 		panic("delete blew up")
 	}
@@ -1159,6 +1161,52 @@ func TestPlanDesignatedShardsDeadlineDuringEligibility(t *testing.T) {
 			assert.False(t, slices.ContainsFunc(hook.AllEntries(), func(e *logrus.Entry) bool {
 				return strings.Contains(e.Message, "replica lookup failed")
 			}), "%v", hook.AllEntries())
+		})
+	}
+}
+
+func TestDeleteCheckpointsCleanupBudget(t *testing.T) {
+	classCount := _DedupeClassConcurrency + 4
+	tests := []struct {
+		name      string
+		hang      bool
+		delay     time.Duration
+		wantCalls int
+		wantWarn  string
+	}{
+		{
+			name:      "queued classes skip the delete once the budget is spent",
+			hang:      true,
+			delay:     100 * time.Millisecond,
+			wantCalls: _DedupeClassConcurrency,
+			wantWarn:  fmt.Sprintf("delete checkpoints failed for %d of %d classes", classCount, classCount),
+		},
+		{name: "budget not hit deletes every class", wantCalls: classCount},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f, classes := newWideFakeCheckpointer(classCount, 0)
+			f.deleteHang, f.deleteDelay = tc.hang, tc.delay
+			c := newTestPlanner(f)
+			c.cleanupTimeout = 20 * time.Millisecond
+			logger, hook := test.NewNullLogger()
+			c.log = logger
+			created := make(map[string][]string, len(classes))
+			for _, class := range classes {
+				created[class] = []string{"s1"}
+			}
+
+			c.deleteCheckpoints(context.Background(), created)
+
+			assert.Len(t, f.deleteCalls, tc.wantCalls)
+			warns := slices.DeleteFunc(hook.AllEntries(), func(e *logrus.Entry) bool { return e.Level != logrus.WarnLevel })
+			if tc.wantWarn == "" {
+				assert.Empty(t, warns)
+				return
+			}
+			require.Len(t, warns, 1)
+			assert.Contains(t, warns[0].Message, tc.wantWarn)
+			assert.Contains(t, warns[0].Message, context.DeadlineExceeded.Error())
 		})
 	}
 }
