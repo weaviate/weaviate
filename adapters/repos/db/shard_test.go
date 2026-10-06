@@ -1074,6 +1074,13 @@ func TestShard_MultiVectorOnIndexWithoutMultiSupport(t *testing.T) {
 				Vectors: models.Vectors{"foo": multiVector},
 			})
 		},
+		"batch": func(t *testing.T, ctx context.Context, shd ShardLike) error {
+			obj := testObject("TestClass")
+			obj.MultiVectors = map[string][][]float32{"foo": multiVector}
+			errs := shd.PutObjectBatch(ctx, []*storobj.Object{obj})
+			require.Len(t, errs, 1)
+			return errs[0]
+		},
 	}
 
 	for _, index := range indexes {
