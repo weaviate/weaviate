@@ -14,6 +14,8 @@ package types
 import (
 	"fmt"
 	"strings"
+
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 // ReadReplicaSet contains *exactly one* replica per shard and is produced by
@@ -123,28 +125,52 @@ func (s WriteReplicaSet) IsEmpty() bool {
 	return len(s.Replicas) == 0
 }
 
-// validateReplicaSetConsistency validates that the consistency level can be satisfied
-// by grouping replicas by shard and validating each shard independently.
-func validateReplicaSetConsistency(replicas []Replica, level ConsistencyLevel) (int, error) {
+// validateReplicaSetConsistency answers two questions per shard. replicas holds the
+// reachable replicas; replicaCounts maps each shard to its replica count N before
+// unreachable replicas were dropped.
+//
+// Reachability: for QUORUM and ALL, every shard in replicaCounts with N > 0 must have
+// at least a majority (N/2+1) of its replicas reachable, otherwise the request is
+// rejected with an error matching replicaerrors.ErrReplicas. A nil replicaCounts
+// skips this check.
+//
+// Required answers: QUORUM requires a majority of N, ALL requires every reachable
+// replica, ONE and unknown levels require 1. A shard without an entry in
+// replicaCounts requires level.ToInt of its reachable replica count. Once the
+// reachability check passes, required answers never exceed the reachable replicas.
+//
+// All shards must resolve to the same number of required answers.
+func validateReplicaSetConsistency(replicas []Replica, level ConsistencyLevel, replicaCounts map[string]int) (int, error) {
 	if len(replicas) == 0 {
 		return 0, nil
 	}
 
-	// Group replicas by shard
-	replicasByShard := make(map[string][]Replica)
+	reachableByShard := make(map[string]int)
 	for _, replica := range replicas {
-		replicasByShard[replica.ShardName] = append(replicasByShard[replica.ShardName], replica)
+		reachableByShard[replica.ShardName]++
+	}
+
+	if level == ConsistencyLevelQuorum || level == ConsistencyLevelAll {
+		for shardName, n := range replicaCounts {
+			// N = 0 means the shard has no replicas, so none are unreachable.
+			if n == 0 {
+				continue
+			}
+			majority := ConsistencyLevelQuorum.ToInt(n)
+			if reachable := reachableByShard[shardName]; reachable < majority {
+				return 0, replicaerrors.NewNotEnoughReplicasErrorWithCounts(majority, reachable,
+					fmt.Errorf("shard %q: %d of %d replicas reachable", shardName, reachable, n))
+			}
+		}
 	}
 
 	var expectedConsistencyLevel int
 	var firstShard string
 
-	for shardName, shardReplicas := range replicasByShard {
-		resolved := level.ToInt(len(shardReplicas))
-		if resolved > len(shardReplicas) {
-			return 0, fmt.Errorf(
-				"shard %s: impossible to satisfy consistency level (%d) > available replicas (%d)",
-				shardName, resolved, len(shardReplicas))
+	for shardName, reachable := range reachableByShard {
+		resolved := level.ToInt(reachable)
+		if n, ok := replicaCounts[shardName]; ok && level == ConsistencyLevelQuorum {
+			resolved = level.ToInt(n)
 		}
 
 		if firstShard == "" {
@@ -160,10 +186,10 @@ func validateReplicaSetConsistency(replicas []Replica, level ConsistencyLevel) (
 	return expectedConsistencyLevel, nil
 }
 
-func (s ReadReplicaSet) ValidateConsistencyLevel(level ConsistencyLevel) (int, error) {
-	return validateReplicaSetConsistency(s.Replicas, level)
+func (s ReadReplicaSet) ValidateConsistencyLevel(level ConsistencyLevel, replicaCounts map[string]int) (int, error) {
+	return validateReplicaSetConsistency(s.Replicas, level, replicaCounts)
 }
 
-func (s WriteReplicaSet) ValidateConsistencyLevel(level ConsistencyLevel) (int, error) {
-	return validateReplicaSetConsistency(s.Replicas, level)
+func (s WriteReplicaSet) ValidateConsistencyLevel(level ConsistencyLevel, replicaCounts map[string]int) (int, error) {
+	return validateReplicaSetConsistency(s.Replicas, level, replicaCounts)
 }

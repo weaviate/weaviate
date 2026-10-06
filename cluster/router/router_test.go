@@ -28,6 +28,7 @@ import (
 
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/sharding/config"
@@ -2116,6 +2117,155 @@ func TestRouter_BuildReadRoutingPlan_LocalOnly(t *testing.T) {
 			plan, err := r.BuildReadRoutingPlan(opts)
 			require.NoError(t, err)
 			require.Equal(t, expected, plan.ReplicaSet.Replicas)
+		})
+	}
+}
+
+func TestRouter_BuildRoutingPlan_ReachabilityCheck(t *testing.T) {
+	const (
+		readPlan  = "read"
+		writePlan = "write"
+	)
+	threeNodes := []string{"node1", "node2", "node3"}
+
+	tests := []struct {
+		name           string
+		schemaReplicas []string // returned by ShardReplicas
+		fsmReplicas    []string // returned by the FSM read and write filters
+		reachable      []string // nodes known to the node selector
+		level          types.ConsistencyLevel
+		skip           bool     // RoutingPlanBuildOptions.SkipReachabilityCheck
+		plans          []string // plan kinds to build; nil means read and write
+		want           int
+		wantErr        string // substring of the rejection; empty means no error
+	}{
+		{
+			name:      "only node1 reachable: QUORUM is rejected",
+			reachable: []string{"node1"},
+			level:     types.ConsistencyLevelQuorum,
+			wantErr:   "1 of 3 replicas reachable",
+		},
+		{
+			name:      "only node1 reachable: ALL is rejected",
+			reachable: []string{"node1"},
+			level:     types.ConsistencyLevelAll,
+			wantErr:   "1 of 3 replicas reachable",
+		},
+		{
+			name:      "only node1 reachable: ONE requires 1",
+			reachable: []string{"node1"},
+			level:     types.ConsistencyLevelOne,
+			want:      1,
+		},
+		{
+			name:      "node1 and node2 reachable: QUORUM requires 2",
+			reachable: []string{"node1", "node2"},
+			level:     types.ConsistencyLevelQuorum,
+			want:      2,
+		},
+		{
+			name:      "node1 and node2 reachable: ALL requires 2",
+			reachable: []string{"node1", "node2"},
+			level:     types.ConsistencyLevelAll,
+			want:      2,
+		},
+		{
+			name:      "skipped check: ALL read with only node1 reachable requires 1",
+			reachable: []string{"node1"},
+			level:     types.ConsistencyLevelAll,
+			skip:      true,
+			plans:     []string{readPlan},
+			want:      1,
+		},
+		{
+			name:      "write plans ignore the skip option",
+			reachable: []string{"node1"},
+			level:     types.ConsistencyLevelAll,
+			skip:      true,
+			plans:     []string{writePlan},
+			wantErr:   "1 of 3 replicas reachable",
+		},
+		{
+			name:           "replica count is taken after the FSM filter",
+			schemaReplicas: []string{"node1", "node2", "node3", "node4"},
+			fsmReplicas:    threeNodes,
+			reachable:      []string{"node1", "node2"},
+			level:          types.ConsistencyLevelQuorum,
+			want:           2,
+		},
+	}
+
+	routers := []struct {
+		name         string
+		partitioning bool
+		tenant       string
+		shard        string // shard passed in the plan options
+		shardName    string // shard the router resolves
+	}{
+		{name: "single_tenant", shard: "shard1", shardName: "shard1"},
+		{name: "multi_tenant", partitioning: true, tenant: "luke", shardName: "luke"},
+	}
+
+	for _, tt := range tests {
+		if tt.schemaReplicas == nil {
+			tt.schemaReplicas = threeNodes
+		}
+		if tt.fsmReplicas == nil {
+			tt.fsmReplicas = tt.schemaReplicas
+		}
+		if tt.plans == nil {
+			tt.plans = []string{readPlan, writePlan}
+		}
+
+		t.Run(tt.name, func(t *testing.T) {
+			for _, rt := range routers {
+				for _, plan := range tt.plans {
+					t.Run(rt.name+"_"+plan, func(t *testing.T) {
+						sg := schema.NewMockSchemaGetter(t)
+						sr := schema.NewMockSchemaReader(t)
+						fsm := replicationTypes.NewMockReplicationFSMReader(t)
+
+						state := createShardingStateWithShards([]string{rt.shardName})
+						sr.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+							return readFunc(&models.Class{Class: className}, state)
+						}).Maybe()
+						sr.EXPECT().ShardReplicas("TestClass", rt.shardName).Return(tt.schemaReplicas, nil)
+						sg.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", rt.tenant).
+							Return(map[string]string{rt.tenant: models.TenantActivityStatusHOT}, nil).Maybe()
+						fsm.EXPECT().FilterOneShardReplicasRead("TestClass", rt.shardName, tt.schemaReplicas).Return(tt.fsmReplicas).Maybe()
+						fsm.EXPECT().FilterOneShardReplicasWrite("TestClass", rt.shardName, tt.schemaReplicas).Return(tt.fsmReplicas).Maybe()
+
+						r := router.NewBuilder("TestClass", rt.partitioning, mocks.NewMockNodeSelector(tt.reachable...), sg, sr, fsm).Build()
+						opts := types.RoutingPlanBuildOptions{
+							Shard:                 rt.shard,
+							Tenant:                rt.tenant,
+							ConsistencyLevel:      tt.level,
+							SkipReachabilityCheck: tt.skip,
+						}
+
+						var got int
+						var err error
+						if plan == readPlan {
+							var p types.ReadRoutingPlan
+							p, err = r.BuildReadRoutingPlan(opts)
+							got = p.IntConsistencyLevel
+						} else {
+							var p types.WriteRoutingPlan
+							p, err = r.BuildWriteRoutingPlan(opts)
+							got = p.IntConsistencyLevel
+						}
+
+						if tt.wantErr != "" {
+							require.ErrorIs(t, err, replicaerrors.ErrReplicas)
+							require.ErrorContains(t, err, "cannot reach enough replicas")
+							require.ErrorContains(t, err, tt.wantErr)
+							return
+						}
+						require.NoError(t, err)
+						require.Equal(t, tt.want, got)
+					})
+				}
+			}
 		})
 	}
 }

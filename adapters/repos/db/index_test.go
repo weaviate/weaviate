@@ -27,15 +27,22 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/clients"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	clusterMocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestIndex_aggregateCount(t *testing.T) {
@@ -191,6 +198,113 @@ func TestIndex_aggregateCount(t *testing.T) {
 				IncludeMetaCount: true,
 				Tenant:           tt.tenant,
 			}, nil)
+
+			// Assert
+			require.NoError(t, err, "aggregate")
+			require.Len(t, res.Groups, 1, "number of groups")
+			require.Equal(t, tt.want, res.Groups[0].Count, "object count")
+		})
+	}
+}
+
+func TestIndex_aggregateCount_UnreachableReplicas(t *testing.T) {
+	const (
+		className = "Abc"
+		shardName = "abc"
+	)
+
+	logger, _ := test.NewNullLogger()
+	metrics, err := NewMetrics(logger, monitoring.GetMetrics(), className, "n/a")
+	require.NoError(t, err, "create index metrics")
+
+	replicaMetrics, err := replica.NewMetrics(monitoring.GetMetrics())
+	require.NoError(t, err, "create replica metrics")
+
+	// startReplica starts a replica server reporting count and returns its address,
+	// which is also its node name.
+	startReplica := func(t *testing.T, count int) string {
+		t.Helper()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			io.WriteString(w, strconv.Itoa(count))
+		}))
+		t.Cleanup(srv.Close)
+		return srv.URL[7:]
+	}
+
+	for _, tt := range []struct {
+		name        string
+		counts      []int    // Counts reported by each reachable replica.
+		unreachable []string // Replicas of the shard that the node selector does not know.
+		want        int
+	}{
+		{
+			name:        "rf3_one_unreachable",
+			counts:      []int{92, 92},
+			unreachable: []string{"down-1"},
+			want:        92,
+		},
+		{
+			name:        "rf3_two_unreachable",
+			counts:      []int{92},
+			unreachable: []string{"down-1", "down-2"},
+			want:        92,
+		},
+		{
+			name:        "rf2_one_unreachable",
+			counts:      []int{92},
+			unreachable: []string{"down-1"},
+			want:        92,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			var reachable []string
+			for _, count := range tt.counts {
+				reachable = append(reachable, startReplica(t, count))
+			}
+			replicas := append(slices.Clone(reachable), tt.unreachable...)
+
+			state := &sharding.State{Physical: map[string]sharding.Physical{
+				shardName: {Name: shardName, BelongsToNodes: replicas},
+			}}
+			schemaReader := schemaUC.NewMockSchemaReader(t)
+			schemaReader.EXPECT().Shards(className).Return([]string{shardName}, nil)
+			schemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
+				func(className string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
+					return readFunc(&models.Class{Class: className}, state)
+				})
+			schemaReader.EXPECT().ShardReplicas(className, shardName).Return(replicas, nil)
+			fsmReader := replicationTypes.NewMockReplicationFSMReader(t)
+			fsmReader.EXPECT().FilterOneShardReplicasRead(className, shardName, replicas).Return(replicas)
+
+			indexRouter := router.NewBuilder(className, false, clusterMocks.NewMockNodeSelector(reachable...),
+				schemaUC.NewMockSchemaGetter(t), schemaReader, fsmReader).Build()
+
+			index := Index{
+				router: indexRouter,
+				replicator: &replica.Replicator{
+					Finder: replica.NewFinder(
+						className,
+						indexRouter,
+						cluster.NewMockNodeResolver(t),
+						"node-1",
+						func() replica.Client {
+							c, err := clients.NewReplicationClient(&http.Client{})
+							require.NoError(t, err)
+							return c
+						}(),
+						replicaMetrics,
+						logger,
+						func() string { return "Delete" }),
+				},
+				shardCreateLocks: esync.NewKeyRWLocker(),
+				Config:           IndexConfig{ClassName: schema.ClassName(className)},
+				metrics:          metrics,
+				logger:           logger,
+			}
+
+			// Act
+			res, err := index.aggregate(t.Context(), nil, aggregation.Params{IncludeMetaCount: true}, nil)
 
 			// Assert
 			require.NoError(t, err, "aggregate")
