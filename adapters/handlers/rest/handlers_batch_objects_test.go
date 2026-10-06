@@ -14,19 +14,24 @@ package rest
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/batch"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -142,4 +147,36 @@ func TestBatchObjectHandlers_AddObjects(t *testing.T) {
 			})
 		}
 	})
+
+	// A suspended namespace refuses the tenant autoTenants creates for a batch,
+	// which fails the whole request rather than one row. The metric counts it as
+	// a user error, so it logs nothing.
+	t.Run("answers 422 for a namespace refusal", func(t *testing.T) {
+		logger, hook := logrustest.NewNullLogger()
+		h := &batchObjectHandlers{
+			manager:             &fakeBatchManager{err: fmt.Errorf("auto create tenants: %w", namespaces.ErrNamespaceSuspended)},
+			metricRequestsTotal: newBatchRequestsTotal(nil, logger),
+		}
+		rec := httptest.NewRecorder()
+		h.addObjects(batch.BatchObjectsCreateParams{
+			HTTPRequest: httptest.NewRequest(http.MethodPost, "/v1/batch/objects", nil),
+			Body:        batch.BatchObjectsCreateBody{Objects: []*models.Object{{Class: "alpha:Movies"}}},
+		}, nil).WriteResponse(rec, runtime.JSONProducer())
+
+		assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+		assert.Contains(t, rec.Body.String(), "namespace is suspended")
+		assert.Empty(t, hook.AllEntries())
+	})
+}
+
+// fakeBatchManager answers AddObjects with err. Its other methods panic.
+type fakeBatchManager struct {
+	batchObjectsManager
+	err error
+}
+
+func (f *fakeBatchManager) AddObjects(context.Context, *models.Principal, []*models.Object,
+	[]*string, *additional.ReplicationProperties,
+) (objects.BatchObjects, error) {
+	return nil, f.err
 }
