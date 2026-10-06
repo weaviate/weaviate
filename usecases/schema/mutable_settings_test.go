@@ -149,9 +149,32 @@ func TestMutableSettingsChanges(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, mutableSettingsChanges(mutableModules{}, tt.initial, tt.updated))
+			var validated []string
+			got, err := mutableSettingsChanges(mutableModules{}, tt.initial, tt.updated, func(module, targetVector string) error {
+				validated = append(validated, module+"/"+targetVector)
+				return nil
+			})
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+
+			var wantValidated []string
+			for targetVector, modules := range tt.want {
+				for _, module := range modules {
+					wantValidated = append(wantValidated, module+"/"+targetVector)
+				}
+			}
+			require.ElementsMatch(t, wantValidated, validated)
 		})
 	}
+
+	t.Run("returns the validation error", func(t *testing.T) {
+		initial := namedVectorClass(mutableModule, moduleSettings("a", "m"))
+		updated := namedVectorClass(mutableModule, moduleSettings("b", "m"))
+		_, err := mutableSettingsChanges(mutableModules{}, initial, updated, func(string, string) error {
+			return errors.New("invalid endpoint")
+		})
+		require.ErrorContains(t, err, "invalid endpoint")
+	})
 }
 
 // Which module is checked first depends on map order, so the update is applied to a fresh class many times.

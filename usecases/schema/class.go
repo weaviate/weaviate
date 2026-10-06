@@ -584,17 +584,14 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 			}
 		}
 
-		allowed := mutableSettingsChanges(h.parser.modules, initial, updated)
-		if err := validateImmutableFields(initial, updated, h.parser.modules, allowed); err != nil {
+		allowed, err := mutableSettingsChanges(h.parser.modules, initial, updated, func(module, targetVector string) error {
+			return h.moduleConfig.ValidateModuleConfig(ctx, updated, module, targetVector)
+		})
+		if err != nil {
 			return err
 		}
-
-		for targetVector, modules := range allowed {
-			for _, module := range modules {
-				if err := h.moduleConfig.ValidateModuleConfig(ctx, updated, module, targetVector); err != nil {
-					return err
-				}
-			}
+		if err := validateImmutableFields(initial, updated, h.parser.modules, allowed); err != nil {
+			return err
 		}
 	}
 	// A nil sharding state means that the sharding state will not be updated.
@@ -1798,28 +1795,39 @@ func deepEqualVectorizerSettings(initial, updated any) bool {
 }
 
 // mutableSettingsChanges returns the modules whose settings changed in a way the module allows, keyed by target
-// vector ("" for the class-level moduleConfig). It must run before MigrateVectorizerSettings overwrites initial.
-func mutableSettingsChanges(modulesProvider modulesProvider, initial, updated *models.Class) map[string][]string {
+// vector ("" for the class-level moduleConfig), and stops at the first error validate returns for one of them.
+// It must run before MigrateVectorizerSettings overwrites initial.
+func mutableSettingsChanges(modulesProvider modulesProvider, initial, updated *models.Class,
+	validate func(module, targetVector string) error,
+) (map[string][]string, error) {
 	changes := map[string][]string{}
-	collect := func(targetVector string, initialConfig, updatedConfig map[string]any) {
+	collect := func(targetVector string, initialConfig, updatedConfig map[string]any) error {
 		for module := range updatedConfig {
 			initialSettings, _ := initialConfig[module].(map[string]any)
 			updatedSettings, _ := updatedConfig[module].(map[string]any)
 			if initialSettings != nil && updatedSettings != nil && !reflect.DeepEqual(initialSettings, updatedSettings) &&
 				modulesProvider.MutableSettings(module, initialSettings, updatedSettings) {
+				if err := validate(module, targetVector); err != nil {
+					return err
+				}
 				changes[targetVector] = append(changes[targetVector], module)
 			}
 		}
+		return nil
 	}
 
-	collect("", structToMap(initial.ModuleConfig), structToMap(updated.ModuleConfig))
+	if err := collect("", structToMap(initial.ModuleConfig), structToMap(updated.ModuleConfig)); err != nil {
+		return nil, err
+	}
 	for name, vectorConfig := range updated.VectorConfig {
 		initialVectorizer, updatedVectorizer := structToMap(initial.VectorConfig[name].Vectorizer), structToMap(vectorConfig.Vectorizer)
 		if len(initialVectorizer) == 1 && len(updatedVectorizer) == 1 {
-			collect(name, initialVectorizer, updatedVectorizer)
+			if err := collect(name, initialVectorizer, updatedVectorizer); err != nil {
+				return nil, err
+			}
 		}
 	}
-	return changes
+	return changes, nil
 }
 
 func structToMap(obj any) (objMap map[string]any) {
