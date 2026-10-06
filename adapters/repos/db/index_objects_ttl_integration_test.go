@@ -214,7 +214,7 @@ func TestTTLSweepsATenantAcrossSeveralBatches(t *testing.T) {
 // ttlCountingSchemaReader counts the batch deletes a sweep runs. err, when set, fails every one
 // of them before any shard I/O while findUUIDs still resolves real uuids.
 type ttlCountingSchemaReader struct {
-	schemaUC.SchemaReader
+	local.SchemaReader
 	calls *atomic.Int32
 	err   error
 }
