@@ -127,6 +127,12 @@ func (pw *ParquetWriter) Close() error {
 	return pw.writer.Close()
 }
 
+// Size estimates the file size from the bytes written and the open row group.
+// It does not count rows still in the batch buffer.
+func (pw *ParquetWriter) Size() int64 {
+	return pw.writer.Size()
+}
+
 // SetFileMetadata sets a key/value pair in the Parquet file metadata.
 func (pw *ParquetWriter) SetFileMetadata(key, value string) {
 	pw.writer.SetKeyValueMetadata(key, value)
