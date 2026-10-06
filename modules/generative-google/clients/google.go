@@ -111,7 +111,19 @@ var (
 	FINISH_REASON_SPII               = "SPII"
 )
 
+// escapeVertexPathToken encodes the characters that would start a new path
+// segment, query, or fragment. Other characters, including "@" in model ids
+// such as text-bison@001, are left as they are.
+func escapeVertexPathToken(value string) string {
+	if !strings.ContainsAny(value, "%/?#") {
+		return value
+	}
+	return strings.NewReplacer("%", "%25", "/", "%2F", "?", "%3F", "#", "%23").Replace(value)
+}
+
 func buildURL(useGenerativeAI bool, apiEndpoint, projectID, modelID, region, location string) string {
+	projectID = escapeVertexPathToken(projectID)
+	modelID = escapeVertexPathToken(modelID)
 	if useGenerativeAI {
 		// Generative AI endpoints, for more context check out this link:
 		// https://developers.generativeai.google/models/language#model_variations
@@ -257,6 +269,8 @@ func (v *google) parseGenerateMessageResponse(statusCode int, bodyBytes []byte, 
 // Google credential off Google's domain. apiEndpoint, region and location all
 // end up in the request host, and a GraphQL or gRPC request can set all three
 // without any schema permission, so the class config check alone is not enough.
+// model, endpointId and projectId are interpolated into the path, so a value
+// containing "/", "?" or "#" is rejected before the request is built.
 func validateEndpoint(params googleparams.Params) error {
 	if err := modulecomponents.ValidateGoogleApiEndpoint(params.ApiEndpoint); err != nil {
 		return err
@@ -264,7 +278,23 @@ func validateEndpoint(params googleparams.Params) error {
 	if err := modulecomponents.ValidateGoogleLocation("region", params.Region); err != nil {
 		return err
 	}
-	return modulecomponents.ValidateGoogleLocation("location", params.Location)
+	if err := modulecomponents.ValidateGoogleLocation("location", params.Location); err != nil {
+		return err
+	}
+	if err := validateVertexPathParam("model", params.Model); err != nil {
+		return err
+	}
+	if err := validateVertexPathParam("endpointId", params.EndpointID); err != nil {
+		return err
+	}
+	return validateVertexPathParam("projectId", params.ProjectID)
+}
+
+func validateVertexPathParam(property, value string) error {
+	if value == "" || !strings.ContainsAny(value, "/?#") {
+		return nil
+	}
+	return fmt.Errorf("%s must not contain '/', '?' or '#', got %q", property, value)
 }
 
 func (v *google) getParameters(cfg moduletools.ClassConfig, options interface{}, imagePropertiesArray []map[string]*string) googleparams.Params {
