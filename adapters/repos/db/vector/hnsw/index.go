@@ -146,6 +146,13 @@ type hnsw struct {
 	multiDistancerProvider distancer.Provider
 	pools                  *pools
 
+	// distancesNonNegative is true for distance metrics that never produce
+	// negative values (geo, l2, cosine, manhattan, hamming — but not dot
+	// product, whose distance is the negated dot product). It gates the
+	// mass-duplicate shortcut in selectNeighborsHeuristic, whose soundness
+	// rests solely on distances being >= 0.
+	distancesNonNegative bool
+
 	forbidFlat bool // mostly used in testing scenarios where we want to use the index even in scenarios where we typically wouldn't
 
 	metrics       *Metrics
@@ -412,6 +419,15 @@ func New(cfg Config, uc ent.UserConfig,
 
 	index.multivector.Store(uc.Multivector.Enabled)
 	index.muvera.Store(uc.Multivector.MuveraEnabled())
+
+	switch cfg.DistanceProvider.Type() {
+	case "geo", "l2-squared", "cosine-dot", "manhattan", "hamming":
+		// these metrics never produce negative distances (cosine distance
+		// is 1 - dot of normalized vectors, clamped to >= 0 by import-time
+		// normalization). Dot product does not qualify: its distance is
+		// the negated dot product, which is negative for similar vectors.
+		index.distancesNonNegative = true
+	}
 
 	if uc.BQ.Enabled {
 		var err error
