@@ -43,6 +43,12 @@ type BackupTaskProvider struct {
 	userSrc  dynUserSnapshotter
 	backends BackupBackendProvider
 
+	// planner plans replica dedupe inside the flow; nil when no Checkpointer
+	// is wired. Nothing renews its lastOp.
+	planner *coordinator
+	// planPollInterval is how often a non-leader polls for the published plan.
+	planPollInterval time.Duration
+
 	recorder distributedtask.TaskCompletionRecorder
 
 	// nodeHandler holds the node-wide lastOp latch shared with the legacy 2PC
@@ -76,9 +82,15 @@ type BackupTaskProviderParams struct {
 	NodeHandler       *Handler
 	AppliedIndexProbe func(ctx context.Context, version uint64) error
 	DataPath          string
+	Checkpointer      ReplicaCheckpointer
 }
 
 func NewBackupTaskProvider(p BackupTaskProviderParams) *BackupTaskProvider {
+	var planner *coordinator
+	if p.Checkpointer != nil {
+		planner = newCoordinator(nil, nil, nil, p.Logger, nil, p.Backends, nil, p.Checkpointer)
+		planner.dtmPlanner = true
+	}
 	return &BackupTaskProvider{
 		node:              p.Node,
 		logger:            p.Logger,
@@ -87,6 +99,8 @@ func NewBackupTaskProvider(p BackupTaskProviderParams) *BackupTaskProvider {
 		rbacSrc:           p.RBACSrc,
 		userSrc:           p.UserSrc,
 		backends:          p.Backends,
+		planner:           planner,
+		planPollInterval:  _DedupePollInterval,
 		nodeHandler:       p.NodeHandler,
 		appliedIndexProbe: p.AppliedIndexProbe,
 		dataPath:          p.DataPath,
@@ -390,6 +404,10 @@ const keepaliveInterval = 5 * time.Second
 // descriptorWriteAttempts caps retries when writing the global descriptor.
 const descriptorWriteAttempts = 3
 
+// planReadAttempts caps consecutive failed reads of the published plan on a
+// non-planner node.
+const planReadAttempts = 3
+
 type classCompletionTracker struct {
 	mu        sync.Mutex
 	total     int
@@ -474,6 +492,17 @@ func (p *BackupTaskProvider) runNodeBackup(
 	handle.setCancelFunc(cancel)
 	defer cancel()
 
+	// A unit already claimed by this node means an earlier flow on this node ran
+	// and may have started planning. This check runs before the claims below, so
+	// this flow's own claims never count.
+	claimedBefore := false
+	for _, cls := range classes {
+		if u := task.Units[fmt.Sprintf("%s/%s", p.node, cls)]; u != nil && u.NodeID == p.node {
+			claimedBefore = true
+			break
+		}
+	}
+
 	// Claim units: progress=0 transitions PENDING to IN_PROGRESS.
 	for _, cls := range classes {
 		unitID := fmt.Sprintf("%s/%s", p.node, cls)
@@ -491,9 +520,20 @@ func (p *BackupTaskProvider) runNodeBackup(
 		p.runKeepalive(keepaliveCtx, task, classes, recorder)
 	}, p.logger)
 
-	// Every unit-owning node writes the global descriptor at flow start. The
-	// first write wins, and every writer produces the same content.
-	if err := p.writeStartedDescriptor(ctx, task, payload); err != nil {
+	// Without dedupe, every unit-owning node writes the global descriptor at flow
+	// start. The first write wins, and every writer produces the same content.
+	// With dedupe, no node uploads before the plan is published, and every node
+	// uploads with the plan as stored.
+	version, dedupeReplicas := payload.artifactVersion(), false
+	var designations map[string]map[string]string
+	if payload.DedupeReplicas {
+		published := p.publishedPlan(ctx, task, payload, claimedBefore, recorder, logFields)
+		if published == nil {
+			return
+		}
+		version, dedupeReplicas = published.Version, published.DedupeReplicas
+		designations = published.DedupeDesignations
+	} else if err := p.writeStartedDescriptor(ctx, task, payload, nil); err != nil {
 		p.logger.WithFields(logFields).Errorf("write started descriptor: %v", err)
 		p.failAllUnits(task, payload, recorder, err.Error(), false)
 		return
@@ -516,11 +556,11 @@ func (p *BackupTaskProvider) runNodeBackup(
 		StartedAt:       task.StartedAt,
 		ID:              task.ID,
 		Classes:         make([]backup.ClassDescriptor, 0, len(classes)),
-		Version:         payload.artifactVersion(),
+		Version:         version,
 		ServerVersion:   payload.ServerVersion,
 		CompressionType: &compressionType,
 		BaseBackupID:    baseBackupID,
-		DedupeReplicas:  false,
+		DedupeReplicas:  dedupeReplicas,
 	}
 
 	// The node-wide latch doubles as the uploader's status publisher, so the
@@ -536,8 +576,11 @@ func (p *BackupTaskProvider) runNodeBackup(
 		skipUsers: payload.SkipUsers,
 		skipRoles: payload.SkipRoles,
 	}
+	// The full map is safe on every node: a node verifies only the shards
+	// designated to itself and skips only local shards designated elsewhere.
 	up := newUploader(p.cfg, p.sourcer, p.rbacSrc, p.userSrc, selection, store, task.ID, slot, p.logger).
-		withCompression(newZipConfig(payload.Compression))
+		withCompression(newZipConfig(payload.Compression)).
+		withShardDesignations(designations)
 
 	completionTracker := newClassCompletionTracker(len(classes))
 	recordClassCompletion := func(className string) bool {
@@ -641,11 +684,144 @@ func (p *BackupTaskProvider) failAllUnits(
 	}
 }
 
-// writeStartedDescriptor writes the global Started descriptor at flow start.
-// All fields come from the payload and task record, so concurrent writers on
-// different nodes produce identical content. An existing descriptor is left
-// untouched: the first write wins and a terminal status never flips back.
-func (p *BackupTaskProvider) writeStartedDescriptor(ctx context.Context, task *distributedtask.Task, payload *taskPayload) error {
+// publishedPlan returns the global Started descriptor that carries a dedupe
+// backup's plan. The leader plans and publishes it; every other node polls until
+// it exists. It returns nil when the flow must stop; a unit failure that stop
+// requires is already recorded.
+func (p *BackupTaskProvider) publishedPlan(
+	ctx context.Context,
+	task *distributedtask.Task,
+	payload *taskPayload,
+	claimedBefore bool,
+	recorder distributedtask.TaskCompletionRecorder,
+	logFields logrus.Fields,
+) *backup.DistributedBackupDescriptor {
+	logger := p.logger.WithFields(logFields)
+	store, err := coordBackend(p.backends, payload.Backend, payload.ID, payload.Bucket, payload.Path)
+	if err != nil {
+		logger.Errorf("replica dedupe: init backend: %v", err)
+		p.failAllUnits(task, payload, recorder, err.Error(), false)
+		return nil
+	}
+
+	if p.node != payload.Leader {
+		readFailures := 0
+		for {
+			existing, err := globalDescriptor(ctx, store, payload)
+			switch {
+			case err == nil:
+				readFailures = 0
+				if existing != nil && existing.Status == backup.Started {
+					return existing
+				}
+			case ctx.Err() != nil:
+				return nil
+			default:
+				readFailures++
+				if readFailures >= planReadAttempts {
+					logger.Errorf("replica dedupe: read published plan: %v", err)
+					p.failAllUnits(task, payload, recorder, err.Error(), false)
+					return nil
+				}
+				logger.Warnf("replica dedupe: read published plan: %v", err)
+			}
+			if !sleepUntil(ctx, time.Now().Add(p.planPollInterval)) {
+				return nil
+			}
+		}
+	}
+
+	existing, err := globalDescriptor(ctx, store, payload)
+	if err != nil {
+		logger.Errorf("replica dedupe: read published plan: %v", err)
+		p.failAllUnits(task, payload, recorder, err.Error(), false)
+		return nil
+	}
+	if existing != nil {
+		if existing.Status != backup.Started {
+			logger.Infof("replica dedupe: global descriptor is already %s, not uploading", existing.Status)
+			return nil
+		}
+		logger.Info("replica dedupe: reusing the published plan")
+		return existing
+	}
+	if claimedBefore {
+		msg := "replica dedupe planning was interrupted before a plan was published; retry the backup with a new backup ID"
+		logger.Error(msg)
+		p.failAllUnits(task, payload, recorder, msg, false)
+		return nil
+	}
+
+	var preferred map[string]map[string]string
+	if payload.BaseBackupID != "" {
+		base, err := store.GlobalMetaForBackupID(ctx, payload.BaseBackupID, payload.Bucket, payload.Path)
+		switch {
+		case err == nil:
+			preferred = base.DedupeDesignations
+		case ctx.Err() != nil:
+			// The flow ended during the read, so the error says nothing about the
+			// backend. ctx is checked, not err, because err's type is backend-specific.
+			return nil
+		default:
+			logger.Warnf("replica dedupe: base backup %q unreadable, planning without its designations: %v", payload.BaseBackupID, err)
+		}
+	}
+
+	var plan *dedupePlan
+	if p.planner != nil {
+		participants := make(map[string]struct{}, len(payload.Nodes))
+		for node := range payload.Nodes {
+			participants[node] = struct{}{}
+		}
+		budget := time.Duration(payload.DedupeConvergenceTimeoutSeconds) * time.Second
+		plan = p.planner.planDesignatedShards(ctx, payload.Classes, budget, participants, preferred)
+	} else {
+		logger.Warn("replica dedupe: no replica checkpointer on this node, every replica is uploaded")
+	}
+	if ctx.Err() != nil {
+		return nil
+	}
+
+	if err := p.writeStartedDescriptor(ctx, task, payload, plan); err != nil {
+		logger.Errorf("write started descriptor: %v", err)
+		p.failAllUnits(task, payload, recorder, err.Error(), false)
+		return nil
+	}
+	// Uploads use the plan as stored, so the planner and every other node
+	// upload with the same plan.
+	stored, err := globalDescriptor(ctx, store, payload)
+	if err != nil {
+		logger.Errorf("replica dedupe: read published plan: %v", err)
+		p.failAllUnits(task, payload, recorder, err.Error(), false)
+		return nil
+	}
+	if stored == nil || stored.Status != backup.Started {
+		logger.Info("replica dedupe: no Started descriptor after publishing, not uploading")
+		return nil
+	}
+	return stored
+}
+
+// globalDescriptor reads the backup's global descriptor. It returns nil when
+// none exists yet.
+func globalDescriptor(ctx context.Context, store coordStore, payload *taskPayload) (*backup.DistributedBackupDescriptor, error) {
+	desc, err := store.Meta(ctx, GlobalBackupFile, payload.Bucket, payload.Path)
+	if errors.As(err, &backup.ErrNotFound{}) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return desc, nil
+}
+
+// writeStartedDescriptor writes the global Started descriptor at flow start and
+// stamps it with plan. A nil plan stamps no plan fields.
+// Without dedupe, all fields come from the payload and task record, so writers
+// on different nodes produce identical content. With dedupe, only the leader
+// writes. An existing descriptor is left untouched: the first write wins, and a
+// terminal status never flips back.
+func (p *BackupTaskProvider) writeStartedDescriptor(ctx context.Context, task *distributedtask.Task, payload *taskPayload, plan *dedupePlan) error {
 	store, err := coordBackend(p.backends, payload.Backend, payload.ID, payload.Bucket, payload.Path)
 	if err != nil {
 		return fmt.Errorf("started descriptor: init backend: %w", err)
@@ -661,7 +837,6 @@ func (p *BackupTaskProvider) writeStartedDescriptor(ctx context.Context, task *d
 		StartedAt:       task.StartedAt,
 		ID:              payload.ID,
 		Nodes:           payload.Nodes,
-		Version:         payload.artifactVersion(),
 		ServerVersion:   payload.ServerVersion,
 		Leader:          payload.Leader,
 		BaseBackupID:    payload.BaseBackupID,
@@ -669,10 +844,10 @@ func (p *BackupTaskProvider) writeStartedDescriptor(ctx context.Context, task *d
 		Roles:           payload.Roles,
 		SkipUsers:       payload.SkipUsers,
 		SkipRoles:       payload.SkipRoles,
-		DedupeReplicas:  false,
 		CompressionType: payload.CompressionType,
 		Status:          backup.Started,
 	}
+	plan.stamp(descriptor, payload.BaseChainDeduped)
 
 	var writeErr error
 	for attempt := range descriptorWriteAttempts {
@@ -699,6 +874,12 @@ func (p *BackupTaskProvider) writeTerminalDescriptor(task *distributedtask.Task,
 	if err == nil && isFinalStatus(existing.Status) {
 		return nil
 	}
+	// A terminal descriptor written without the published plan would mislabel
+	// a deduped artifact. Not-found means no plan was published, so no node
+	// filtered a shard and the plan-less descriptor below is accurate.
+	if payload.DedupeReplicas && err != nil && !errors.As(err, &backup.ErrNotFound{}) {
+		return fmt.Errorf("terminal descriptor: read published plan: %w", err)
+	}
 
 	status, errMsg := backupVerdict(task)
 
@@ -719,8 +900,17 @@ func (p *BackupTaskProvider) writeTerminalDescriptor(task *distributedtask.Task,
 		Error:          errMsg,
 		CompletedAt:    time.Now().UTC(),
 	}
+	if payload.DedupeReplicas && err == nil {
+		descriptor.Version = existing.Version
+		descriptor.DedupeReplicas = existing.DedupeReplicas
+		descriptor.DedupeDesignatedShards = existing.DedupeDesignatedShards
+		descriptor.DedupeFallbackShards = existing.DedupeFallbackShards
+		descriptor.DedupeCutoffsMs = existing.DedupeCutoffsMs
+		descriptor.DedupeDesignations = existing.DedupeDesignations
+	}
 
 	var totalSize int64
+	nodeMetas := make(map[string]*backup.BackupDescriptor, len(payload.Nodes))
 	for nodeName, nd := range payload.Nodes {
 		ns, nsErr := nodeBackend(nodeName, p.backends, payload.Backend, payload.ID, payload.Bucket, payload.Path)
 		if nsErr != nil {
@@ -739,12 +929,34 @@ func (p *BackupTaskProvider) writeTerminalDescriptor(task *distributedtask.Task,
 			nd.Error = fmt.Sprintf("missing node descriptor for %s: %v", nodeName, readErr)
 			continue
 		}
+		nodeMetas[nodeName] = meta
 		nd.PreCompressionSizeBytes = meta.PreCompressionSizeBytes
 		totalSize += meta.PreCompressionSizeBytes
 		nd.Status = meta.Status
 	}
 	descriptor.PreCompressionSizeBytes = totalSize
 	descriptor.CompressionType = payload.CompressionType
+
+	if status == backup.Success && len(descriptor.DedupeDesignations) > 0 {
+		logger := p.logger.WithField("backup_id", task.ID)
+		verifier := newCoordinator(nil, nil, nil, p.logger, nil, p.backends, nil, nil)
+		statusReq := &StatusRequest{
+			Method:       OpCreate,
+			ID:           payload.ID,
+			Backend:      payload.Backend,
+			Bucket:       payload.Bucket,
+			Path:         payload.Path,
+			BaseBackupID: payload.BaseBackupID,
+		}
+		plan := &dedupePlan{designations: descriptor.DedupeDesignations}
+		if err := verifier.verifyDesignatedCoverage(ctx, statusReq, plan, nodeMetas); err != nil {
+			descriptor.Status = backup.Failed
+			descriptor.Error = err.Error()
+			logger.Errorf("designated-shard coverage check failed: %v", err)
+		} else if attributed := attributeDedupedShardSizes(p.logger, descriptor, nodeMetas); attributed > 0 {
+			logger.Debugf("%d bytes attributed to skipping replicas for logical backup size", attributed)
+		}
+	}
 
 	var writeErr error
 	for attempt := range descriptorWriteAttempts {

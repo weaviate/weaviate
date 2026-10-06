@@ -294,10 +294,6 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 			return nil, err
 		}
 	}
-	if s.dtmEnabled() && req.DedupeReplicas {
-		return nil, backup.NewErrUnprocessable(fmt.Errorf(
-			"dedupeReplicas is not supported with distributed task backup orchestration; disable distributed task backups or retry without dedupeReplicas"))
-	}
 
 	if err := store.Initialize(ctx, req.Bucket, req.Path); err != nil {
 		return nil, fmt.Errorf("init uploader: %w", err)
@@ -358,22 +354,24 @@ func (s *Scheduler) backupViaDTM(ctx context.Context, req *BackupRequest, sel ba
 	}
 
 	payload := &taskPayload{
-		ID:               req.ID,
-		Backend:          req.Backend,
-		Nodes:            groups,
-		Leader:           leader,
-		Classes:          sel.classes,
-		Users:            sel.users,
-		Roles:            sel.roles,
-		SkipUsers:        sel.skipUsers,
-		SkipRoles:        sel.skipRoles,
-		Compression:      req.Compression,
-		Bucket:           req.Bucket,
-		Path:             req.Path,
-		BaseBackupID:     req.BaseBackupID,
-		ServerVersion:    config.ServerVersion,
-		CompressionType:  compressionType,
-		BaseChainDeduped: sel.baseChainDeduped,
+		ID:                              req.ID,
+		Backend:                         req.Backend,
+		Nodes:                           groups,
+		Leader:                          leader,
+		Classes:                         sel.classes,
+		Users:                           sel.users,
+		Roles:                           sel.roles,
+		SkipUsers:                       sel.skipUsers,
+		SkipRoles:                       sel.skipRoles,
+		Compression:                     req.Compression,
+		Bucket:                          req.Bucket,
+		Path:                            req.Path,
+		BaseBackupID:                    req.BaseBackupID,
+		ServerVersion:                   config.ServerVersion,
+		CompressionType:                 compressionType,
+		BaseChainDeduped:                sel.baseChainDeduped,
+		DedupeReplicas:                  req.DedupeReplicas,
+		DedupeConvergenceTimeoutSeconds: req.DedupeConvergenceTimeoutSeconds,
 	}
 
 	payloadBytes, err := marshalTaskPayload(payload)

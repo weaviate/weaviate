@@ -15,7 +15,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -126,6 +125,9 @@ type coordinator struct {
 	rolesAndUsers rolesAndUsersRestorer
 	// nil on the restorer, which never plans replica dedupe.
 	checkpointer ReplicaCheckpointer
+	// dtmPlanner is true only on the DTM flow's planning coordinator.
+	// Its ctx is cancelled only when the flow ends.
+	dtmPlanner bool
 
 	// state
 	Participants map[string]participantStatus
@@ -238,20 +240,12 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		}
 		plan = c.planDesignatedShards(ctx, req.Classes, budget, participants, req.BaseDedupeDesignations)
 	}
-	// Stamp from the planning outcome: a zero-dedupe artifact is physically legacy and stays restorable on pre-3.0 releases, unless its base chain traverses a deduped artifact.
-	dedupeEffective := plan != nil && plan.designated() > 0
-	version := Version
-	if dedupeEffective || req.BaseChainDeduped {
-		version = VersionDedupeReplicas
-	}
-	req.DedupeEffective = dedupeEffective
 
 	c.descriptor = &backup.DistributedBackupDescriptor{
 		StartedAt:       time.Now().UTC(),
 		Status:          backup.Started,
 		ID:              req.ID,
 		Nodes:           groups,
-		Version:         version,
 		ServerVersion:   config.ServerVersion,
 		Leader:          leader,
 		CompressionType: compressionType,
@@ -260,26 +254,9 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		Roles:           req.Roles,
 		SkipUsers:       req.SkipUsers,
 		SkipRoles:       req.SkipRoles,
-		DedupeReplicas:  dedupeEffective,
 	}
-	if plan != nil {
-		c.descriptor.DedupeDesignatedShards = plan.designated()
-		c.descriptor.DedupeFallbackShards = plan.fallback()
-		// copied, not aliased; non-Success artifacts carry the map harmlessly (chain validation refuses them)
-		for class, shards := range plan.designations {
-			if len(shards) == 0 {
-				continue
-			}
-			if c.descriptor.DedupeCutoffsMs == nil {
-				c.descriptor.DedupeCutoffsMs = make(map[string]int64, len(plan.designations))
-			}
-			c.descriptor.DedupeCutoffsMs[class] = plan.cutoffs[class]
-			if c.descriptor.DedupeDesignations == nil {
-				c.descriptor.DedupeDesignations = make(map[string]map[string]string, len(plan.designations))
-			}
-			c.descriptor.DedupeDesignations[class] = maps.Clone(shards)
-		}
-	}
+	dedupeEffective := plan.stamp(c.descriptor, req.BaseChainDeduped)
+	req.DedupeEffective = dedupeEffective
 
 	for key := range c.Participants {
 		delete(c.Participants, key)

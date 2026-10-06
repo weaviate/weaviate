@@ -46,6 +46,7 @@ type fakeCheckpointer struct {
 	replicasErr   map[string]error
 	createErr     map[string]error
 	createPanic   map[string]bool
+	createHang    map[string]bool
 	statusErr     map[string]error
 	statusHang    bool
 	converge      map[string]bool
@@ -67,6 +68,7 @@ func newFakeCheckpointer() *fakeCheckpointer {
 		replicasErr:   map[string]error{},
 		createErr:     map[string]error{},
 		createPanic:   map[string]bool{},
+		createHang:    map[string]bool{},
 		statusErr:     map[string]error{},
 		converge:      map[string]bool{},
 		convergeAfter: map[string]int{},
@@ -94,8 +96,14 @@ func (f *fakeCheckpointer) IsAsyncReplicationEnabled(_ context.Context, class st
 	return !f.asyncDisabled[class]
 }
 
-func (f *fakeCheckpointer) CreateAsyncCheckpoints(_ context.Context, class string, cutoffMs int64, _ []string) error {
+func (f *fakeCheckpointer) CreateAsyncCheckpoints(ctx context.Context, class string, cutoffMs int64, _ []string) error {
 	f.mu.Lock()
+	if f.createHang[class] {
+		f.createCalls = append(f.createCalls, class)
+		f.mu.Unlock()
+		<-ctx.Done()
+		return ctx.Err()
+	}
 	defer f.mu.Unlock()
 	if f.createPanic[class] {
 		panic("create blew up")
@@ -469,21 +477,32 @@ func TestPlanDesignatedShards(t *testing.T) {
 	})
 
 	t.Run("planning deadline expiry falls back loudly", func(t *testing.T) {
-		f := newFakeCheckpointer()
-		f.shardReplicas["C1"] = map[string][]string{"s1": {"n1", "n2"}, "s2": {"n1", "n2"}}
-		c := newDedupeCoordinator(f)
-		c.dedupeCutoffLead = 5 * time.Second
+		for _, tc := range []struct {
+			name       string
+			dtmPlanner bool
+		}{
+			{name: "on the 2PC coordinator", dtmPlanner: false},
+			{name: "on the DTM planner", dtmPlanner: true},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				f := newFakeCheckpointer()
+				f.shardReplicas["C1"] = map[string][]string{"s1": {"n1", "n2"}, "s2": {"n1", "n2"}}
+				c := newDedupeCoordinator(f)
+				c.dtmPlanner = tc.dtmPlanner
+				c.dedupeCutoffLead = 5 * time.Second
 
-		reasonBefore := dedupeFallbackCount("planning_deadline")
-		fallbackBefore := dedupeShardOutcomeCount("fallback")
-		deadlineCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
-		defer cancel()
-		plan := c.planDesignatedShards(deadlineCtx, []string{"C1"}, 0, parts("n1", "n2", "n3"), nil)
-		assert.Equal(t, 0, plan.designated())
-		assert.Equal(t, 2, plan.fallback())
-		assert.Equal(t, []string{"C1"}, f.deleteCalls, "checkpoints must be deleted even on deadline expiry")
-		assert.Equal(t, 2.0, dedupeFallbackCount("planning_deadline")-reasonBefore)
-		assert.Equal(t, 2.0, dedupeShardOutcomeCount("fallback")-fallbackBefore)
+				reasonBefore := dedupeFallbackCount("planning_deadline")
+				fallbackBefore := dedupeShardOutcomeCount("fallback")
+				deadlineCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+				defer cancel()
+				plan := c.planDesignatedShards(deadlineCtx, []string{"C1"}, 0, parts("n1", "n2", "n3"), nil)
+				assert.Equal(t, 0, plan.designated())
+				assert.Equal(t, 2, plan.fallback())
+				assert.Equal(t, []string{"C1"}, f.deleteCalls, "checkpoints must be deleted even on deadline expiry")
+				assert.Equal(t, 2.0, dedupeFallbackCount("planning_deadline")-reasonBefore)
+				assert.Equal(t, 2.0, dedupeShardOutcomeCount("fallback")-fallbackBefore)
+			})
+		}
 	})
 
 	t.Run("context cancellation mid-poll still deletes", func(t *testing.T) {
@@ -602,6 +621,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 		c.dedupeConvergenceBudget = time.Minute
 		c.dedupePlanningSlack = time.Minute
 
+		statusFailedBefore := dedupeFallbackCount("status_failed")
 		done := make(chan *dedupePlan, 1)
 		enterrors.GoWrapper(func() {
 			done <- c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2"), nil)
@@ -618,6 +638,117 @@ func TestPlanDesignatedShards(t *testing.T) {
 			assert.Equal(t, 0, plan.designated())
 		case <-time.After(10 * time.Second):
 			t.Fatal("planning stayed blocked on the wedged RPC after cancel")
+		}
+		assert.Equal(t, 1.0, dedupeFallbackCount("status_failed")-statusFailedBefore,
+			"the 2PC path still reports a cancelled status RPC as a fallback")
+	})
+
+	t.Run("a cancelled flow ctx on the DTM planner records no fallback", func(t *testing.T) {
+		withReplicas := func(classes ...string) func(*fakeCheckpointer, *coordinator) {
+			return func(f *fakeCheckpointer, _ *coordinator) {
+				for _, class := range classes {
+					f.shardReplicas[class] = map[string][]string{"s1": {"n1", "n2"}}
+				}
+			}
+		}
+		tests := []struct {
+			name    string
+			classes []string
+			setup   func(*fakeCheckpointer, *coordinator)
+			// reached is called with f.mu held. It reports whether planning has reached the site under test.
+			reached     func(*fakeCheckpointer) bool
+			wantDeleted []string
+		}{
+			{
+				name:    "cancel during a hung create RPC",
+				classes: []string{"A1", "B1"},
+				setup: func(f *fakeCheckpointer, c *coordinator) {
+					withReplicas("A1", "B1")(f, c)
+					f.createHang["B1"] = true
+				},
+				reached:     func(f *fakeCheckpointer) bool { return len(f.createCalls) == 2 },
+				wantDeleted: []string{"A1"},
+			},
+			{
+				name:    "cancel during the cutoff wait",
+				classes: []string{"C1"},
+				setup: func(f *fakeCheckpointer, c *coordinator) {
+					withReplicas("C1")(f, c)
+					c.dedupeCutoffLead = time.Minute
+				},
+				reached:     func(f *fakeCheckpointer) bool { return len(f.createCalls) == 1 },
+				wantDeleted: []string{"C1"},
+			},
+			{
+				name:    "cancel during a hung status RPC",
+				classes: []string{"C1"},
+				setup: func(f *fakeCheckpointer, c *coordinator) {
+					withReplicas("C1")(f, c)
+					f.statusHang = true
+				},
+				reached:     func(f *fakeCheckpointer) bool { return f.statusCalls["C1"] > 0 },
+				wantDeleted: []string{"C1"},
+			},
+			{
+				name:    "cancel during the poll sleep",
+				classes: []string{"C1"},
+				setup: func(f *fakeCheckpointer, c *coordinator) {
+					withReplicas("C1")(f, c)
+					f.diverge["C1/s1"] = true
+				},
+				reached:     func(f *fakeCheckpointer) bool { return f.statusCalls["C1"] > 0 },
+				wantDeleted: []string{"C1"},
+			},
+		}
+		reasons := []string{"class_ineligible", "create_rpc_failed", "planning_deadline", "status_failed", "checkpoint_missing", "not_converged"}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				f := newFakeCheckpointer()
+				logger, hook := test.NewNullLogger()
+				c := NewBackupTaskProvider(BackupTaskProviderParams{Logger: logger, Checkpointer: f}).planner
+				require.NotNil(t, c)
+				c.dedupeCutoffLead = 10 * time.Millisecond
+				c.dedupePollInterval = time.Minute
+				c.dedupeConvergenceBudget = time.Minute
+				c.dedupePlanningSlack = time.Minute
+				tc.setup(f, c)
+
+				reasonsBefore := make(map[string]float64, len(reasons))
+				for _, reason := range reasons {
+					reasonsBefore[reason] = dedupeFallbackCount(reason)
+				}
+				fallbackBefore := dedupeShardOutcomeCount("fallback")
+
+				flowCtx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				done := make(chan *dedupePlan, 1)
+				enterrors.GoWrapper(func() {
+					done <- c.planDesignatedShards(flowCtx, tc.classes, 0, parts("n1", "n2"), nil)
+				}, c.log)
+				require.Eventually(t, func() bool {
+					f.mu.Lock()
+					defer f.mu.Unlock()
+					return tc.reached(f)
+				}, 5*time.Second, time.Millisecond)
+				cancel()
+
+				select {
+				case plan := <-done:
+					assert.Equal(t, 0, plan.designated())
+				case <-time.After(10 * time.Second):
+					t.Fatal("planning stayed blocked after the flow ctx was cancelled")
+				}
+				for _, reason := range reasons {
+					assert.Zero(t, dedupeFallbackCount(reason)-reasonsBefore[reason], reason)
+				}
+				assert.Zero(t, dedupeShardOutcomeCount("fallback")-fallbackBefore)
+				for _, entry := range hook.AllEntries() {
+					assert.NotContains(t, entry.Message, "all-replica backup")
+				}
+				f.mu.Lock()
+				defer f.mu.Unlock()
+				assert.Equal(t, tc.wantDeleted, f.deleteCalls, "created checkpoints must still be deleted")
+			})
 		}
 	})
 }
