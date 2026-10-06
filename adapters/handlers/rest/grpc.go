@@ -29,8 +29,8 @@ func createGrpcServer(state *state.State, clientTracker *telemetry.ClientTracker
 	return grpcHandler.CreateGRPCServer(state, clientTracker, integrationTracker, clientCallsCtx, options...)
 }
 
-// waitBatchDrain returns once drain does, or after timeout. A drain left
-// running ends when the gRPC stop that follows closes its streams.
+// waitBatchDrain returns once drain does, or after timeout. The graceful gRPC
+// stop that follows still waits for batch workers; only the forced Stop does not.
 func waitBatchDrain(drain batch.Drain, timeout time.Duration, logger logrus.FieldLogger) {
 	done := make(chan struct{})
 	enterrors.GoWrapper(func() {
