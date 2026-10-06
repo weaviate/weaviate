@@ -72,7 +72,8 @@ func assertRefusalLogged(t *testing.T, hook *test.Hook, action, user string) {
 
 // The strict mocks fail the test on any call, so each rejection happens before
 // authorization and before anything is written. conv already refuses a line
-// break in a group target with a 400, before the storable check runs.
+// break in a group target with a 400, before the storable check runs. The
+// class-name rule refuses each such value in an alias target first.
 func TestCreateRoleRejectsUnstorableValues(t *testing.T) {
 	for _, v := range unstorableValues {
 		for field, perm := range unstorablePermissions(v.value) {
@@ -92,8 +93,12 @@ func TestCreateRoleRejectsUnstorableValues(t *testing.T) {
 					assert.True(t, ok, "got %T", res)
 					return
 				}
-				_, ok := res.(*authz.CreateRoleUnprocessableEntity)
-				assert.True(t, ok, "got %T", res)
+				parsed, ok := res.(*authz.CreateRoleUnprocessableEntity)
+				require.True(t, ok, "got %T", res)
+				if field == "alias" {
+					assert.Contains(t, parsed.Payload.Error[0].Message, "not a valid alias name")
+					return
+				}
 				assertRefusalLogged(t, hook, "create_role", "user1")
 			})
 		}
@@ -115,9 +120,13 @@ func TestAddPermissionsRejectsUnstorableValues(t *testing.T) {
 					HTTPRequest: req,
 					Body:        authz.AddPermissionsBody{Permissions: []*models.Permission{perm}},
 				}, &models.Principal{Username: "user1"})
-				_, ok := res.(*authz.AddPermissionsBadRequest)
-				assert.True(t, ok, "got %T", res)
+				parsed, ok := res.(*authz.AddPermissionsBadRequest)
+				require.True(t, ok, "got %T", res)
 				if field == "group" && strings.Contains(v.value, "\n") {
+					return
+				}
+				if field == "alias" {
+					assert.Contains(t, parsed.Payload.Error[0].Message, "not a valid alias name")
 					return
 				}
 				assertRefusalLogged(t, hook, "add_permissions", "user1")
