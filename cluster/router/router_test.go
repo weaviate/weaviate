@@ -2268,4 +2268,56 @@ func TestRouter_BuildRoutingPlan_ReachabilityCheck(t *testing.T) {
 			}
 		})
 	}
+
+	// Single-shard plans fail with "no read replica found" before validation when no
+	// replica is reachable, so the reachability check at ONE needs a multi-shard plan.
+	shardReplicas := map[string][]string{
+		"shard1": threeNodes,
+		"shard2": {"node4", "node5", "node6"},
+	}
+	allShardsTests := []struct {
+		name      string
+		reachable []string
+		want      int
+		wantErr   string
+	}{
+		{
+			name:      "all shards: ONE is rejected when no replica of shard2 is reachable",
+			reachable: threeNodes,
+			wantErr:   `shard "shard2": 0 of 3 replicas reachable`,
+		},
+		{
+			name:      "all shards: ONE requires 1 when one replica of shard2 is reachable",
+			reachable: []string{"node1", "node2", "node3", "node4"},
+			want:      1,
+		},
+	}
+
+	for _, tt := range allShardsTests {
+		t.Run(tt.name, func(t *testing.T) {
+			sg := schema.NewMockSchemaGetter(t)
+			sr := schema.NewMockSchemaReader(t)
+			fsm := replicationTypes.NewMockReplicationFSMReader(t)
+
+			state := createShardingStateWithShards([]string{"shard1", "shard2"})
+			sr.EXPECT().Shards("TestClass").Return(state.AllPhysicalShards(), nil)
+			for shard, replicas := range shardReplicas {
+				sr.EXPECT().ShardReplicas("TestClass", shard).Return(replicas, nil)
+				fsm.EXPECT().FilterOneShardReplicasRead("TestClass", shard, replicas).Return(replicas)
+			}
+
+			r := router.NewBuilder("TestClass", false, mocks.NewMockNodeSelector(tt.reachable...), sg, sr, fsm).Build()
+			plan, err := r.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{ConsistencyLevel: types.ConsistencyLevelOne})
+
+			if tt.wantErr != "" {
+				require.ErrorIs(t, err, replicaerrors.ErrReplicas)
+				require.ErrorContains(t, err, "cannot reach enough replicas")
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, plan.IntConsistencyLevel)
+			require.ElementsMatch(t, []string{"shard1", "shard2"}, plan.Shards())
+		})
+	}
 }

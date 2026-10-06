@@ -129,10 +129,10 @@ func (s WriteReplicaSet) IsEmpty() bool {
 // reachable replicas; replicaCounts maps each shard to its replica count N before
 // unreachable replicas were dropped.
 //
-// Reachability: for QUORUM and ALL, every shard in replicaCounts with N > 0 must have
-// at least a majority (N/2+1) of its replicas reachable, otherwise the request is
-// rejected with an error matching replicaerrors.ErrReplicas. A nil replicaCounts
-// skips this check.
+// Reachability: every shard in replicaCounts with N > 0 must have a minimum number of
+// replicas reachable, otherwise the request is rejected with an error matching
+// replicaerrors.ErrReplicas. QUORUM and ALL need a majority (N/2+1); ONE and unknown
+// levels need at least one. A nil replicaCounts skips this check.
 //
 // Required answers: QUORUM requires a majority of N, ALL requires every reachable
 // replica, ONE and unknown levels require 1. A shard without an entry in
@@ -150,17 +150,18 @@ func validateReplicaSetConsistency(replicas []Replica, level ConsistencyLevel, r
 		reachableByShard[replica.ShardName]++
 	}
 
-	if level == ConsistencyLevelQuorum || level == ConsistencyLevelAll {
-		for shardName, n := range replicaCounts {
-			// N = 0 means the shard has no replicas, so none are unreachable.
-			if n == 0 {
-				continue
-			}
-			majority := ConsistencyLevelQuorum.ToInt(n)
-			if reachable := reachableByShard[shardName]; reachable < majority {
-				return 0, replicaerrors.NewNotEnoughReplicasErrorWithCounts(majority, reachable,
-					fmt.Errorf("shard %q: %d of %d replicas reachable", shardName, reachable, n))
-			}
+	for shardName, n := range replicaCounts {
+		// N = 0 means the shard has no replicas, so none are unreachable.
+		if n == 0 {
+			continue
+		}
+		minReachable := 1
+		if level == ConsistencyLevelQuorum || level == ConsistencyLevelAll {
+			minReachable = ConsistencyLevelQuorum.ToInt(n)
+		}
+		if reachable := reachableByShard[shardName]; reachable < minReachable {
+			return 0, replicaerrors.NewNotEnoughReplicasErrorWithCounts(minReachable, reachable,
+				fmt.Errorf("shard %q: %d of %d replicas reachable", shardName, reachable, n))
 		}
 	}
 

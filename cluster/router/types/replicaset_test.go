@@ -307,6 +307,20 @@ func TestValidateConsistencyLevel(t *testing.T) {
 			replicaCounts: map[string]int{"s1": 3, "s2": 0},
 			want:          2,
 		},
+		{
+			name:          "ONE rejects a shard with a count but no reachable replica",
+			level:         types.ConsistencyLevelOne,
+			replicas:      replicasOf("s1", "n1", "n2", "n3"),
+			replicaCounts: map[string]int{"s1": 3, "s2": 3},
+			wantErr:       `shard "s2": 0 of 3 replicas reachable`,
+		},
+		{
+			name:          "ONE ignores a shard with no replicas",
+			level:         types.ConsistencyLevelOne,
+			replicas:      replicasOf("s1", "n1", "n2", "n3"),
+			replicaCounts: map[string]int{"s1": 3, "s2": 0},
+			want:          1,
+		},
 	}
 
 	validators := []struct {

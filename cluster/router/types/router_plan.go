@@ -35,7 +35,7 @@ type RoutingPlanBuildOptions struct {
 	DirectCandidateNode string
 	// LocalOnly resolves replicas from local schema; no leader query, no tenant activation.
 	LocalOnly bool
-	// SkipReachabilityCheck skips the check that a majority of the shard's replicas are reachable, ignore by write plans.
+	// SkipReachabilityCheck skips the per-shard reachability check; write plans ignore it.
 	SkipReachabilityCheck bool
 }
 

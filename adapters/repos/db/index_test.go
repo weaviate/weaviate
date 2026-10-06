@@ -41,6 +41,7 @@ import (
 	clusterMocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -209,8 +210,9 @@ func TestIndex_aggregateCount(t *testing.T) {
 
 func TestIndex_aggregateCount_UnreachableReplicas(t *testing.T) {
 	const (
-		className = "Abc"
-		shardName = "abc"
+		className     = "Abc"
+		shardName     = "abc"
+		downShardName = "xyz"
 	)
 
 	logger, _ := test.NewNullLogger()
@@ -232,10 +234,12 @@ func TestIndex_aggregateCount_UnreachableReplicas(t *testing.T) {
 	}
 
 	for _, tt := range []struct {
-		name        string
-		counts      []int    // Counts reported by each reachable replica.
-		unreachable []string // Replicas of the shard that the node selector does not know.
-		want        int
+		name         string
+		counts       []int    // Counts reported by each reachable replica.
+		unreachable  []string // Replicas of the shard that the node selector does not know.
+		downReplicas []string // Replicas of a second shard, all unknown to the node selector; nil means no second shard.
+		want         int
+		wantErr      error
 	}{
 		{
 			name:        "rf3_one_unreachable",
@@ -255,6 +259,12 @@ func TestIndex_aggregateCount_UnreachableReplicas(t *testing.T) {
 			unreachable: []string{"down-1"},
 			want:        92,
 		},
+		{
+			name:         "second_shard_all_unreachable",
+			counts:       []int{92, 92, 92},
+			downReplicas: []string{"down-1", "down-2", "down-3"},
+			wantErr:      replicaerrors.ErrReplicas,
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
@@ -267,14 +277,22 @@ func TestIndex_aggregateCount_UnreachableReplicas(t *testing.T) {
 			state := &sharding.State{Physical: map[string]sharding.Physical{
 				shardName: {Name: shardName, BelongsToNodes: replicas},
 			}}
+			shards := []string{shardName}
 			schemaReader := schemaUC.NewMockSchemaReader(t)
-			schemaReader.EXPECT().Shards(className).Return([]string{shardName}, nil)
+			fsmReader := replicationTypes.NewMockReplicationFSMReader(t)
+			if tt.downReplicas != nil {
+				state.Physical[downShardName] = sharding.Physical{Name: downShardName, BelongsToNodes: tt.downReplicas}
+				shards = append(shards, downShardName)
+				schemaReader.EXPECT().ShardReplicas(className, downShardName).Return(tt.downReplicas, nil)
+				fsmReader.EXPECT().FilterOneShardReplicasRead(className, downShardName, tt.downReplicas).Return(tt.downReplicas)
+			}
+			schemaReader.EXPECT().Shards(className).Return(shards, nil)
+			// Only the per-shard counts read the sharding state. A rejected plan never runs them.
 			schemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
 				func(className string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
 					return readFunc(&models.Class{Class: className}, state)
-				})
+				}).Maybe()
 			schemaReader.EXPECT().ShardReplicas(className, shardName).Return(replicas, nil)
-			fsmReader := replicationTypes.NewMockReplicationFSMReader(t)
 			fsmReader.EXPECT().FilterOneShardReplicasRead(className, shardName, replicas).Return(replicas)
 
 			indexRouter := router.NewBuilder(className, false, clusterMocks.NewMockNodeSelector(reachable...),
@@ -307,6 +325,10 @@ func TestIndex_aggregateCount_UnreachableReplicas(t *testing.T) {
 			res, err := index.aggregate(t.Context(), nil, aggregation.Params{IncludeMetaCount: true}, nil)
 
 			// Assert
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr, "aggregate")
+				return
+			}
 			require.NoError(t, err, "aggregate")
 			require.Len(t, res.Groups, 1, "number of groups")
 			require.Equal(t, tt.want, res.Groups[0].Count, "object count")
