@@ -840,8 +840,8 @@ func (p *Participant) submitSnapshotJobs(
 }
 
 // submitShardJobs opens a snapshot bucket, computes key ranges, and submits
-// scanJobs to jobCh. Each scanJob owns its own writer pipeline (one parquet
-// file per range). A cleanup goroutine (tracked by cleanupWg) waits for all
+// scanJobs to jobCh. Each scanJob writes its range to one or more parquet
+// files. A cleanup goroutine (tracked by cleanupWg) waits for all
 // range jobs to complete, then shuts down the snapshot bucket and removes the
 // snapshot directory.
 func (p *Participant) submitShardJobs(
@@ -887,12 +887,13 @@ func (p *Participant) submitShardJobs(
 		Info("starting shard scan")
 
 	writerCfg := &rangeWriterConfig{
-		backend:   backend,
-		req:       req,
-		className: snap.className,
-		shardName: snap.shardName,
-		isMT:      snap.isMT,
-		logger:    p.logger,
+		backend:      backend,
+		req:          req,
+		className:    snap.className,
+		shardName:    snap.shardName,
+		isMT:         snap.isMT,
+		maxFileBytes: maxFileBytes,
+		logger:       p.logger,
 		onFlush: func(n int64) {
 			nodeStatus.AddShardExported(snap.className, snap.shardName, n)
 			p.metrics.ObjectsTotal.Add(float64(n))
