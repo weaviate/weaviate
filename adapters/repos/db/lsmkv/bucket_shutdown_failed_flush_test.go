@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
@@ -23,50 +24,82 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-// failingCloseCommitLog fails the flush the way a full disk does: the commit log is
-// closed, and the flush gives up before writing a segment.
+// failingCloseCommitLog fails the close that starts a flush. With closeFirst the
+// commit log is durable before the failure, otherwise its buffered writes never
+// reach the file, the way a write error on a full disk leaves it.
 type failingCloseCommitLog struct {
 	memtableCommitLogger
+	closeFirst bool
 }
 
 func (c failingCloseCommitLog) close() error {
-	_ = c.memtableCommitLogger.close()
+	if c.closeFirst {
+		_ = c.memtableCommitLogger.close()
+	}
 	return errors.New("no space left on device")
 }
 
 // A flush that failed leaves its memtable flushing, and nothing clears it. Shutdown
-// must not wait for it, and the next load must still find its data.
+// must not wait for it, and must either persist its data or report that it could not.
 func TestBucket_ShutdownAfterFailedFlush(t *testing.T) {
-	ctx := context.Background()
-	logger, _ := test.NewNullLogger()
-	dir := t.TempDir()
-	open := func() *Bucket {
-		b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace))
-		require.NoError(t, err)
-		return b
+	tests := []struct {
+		name          string
+		closeFirst    bool
+		readOnlyDir   bool
+		expectPersist bool
+	}{
+		{name: "commit log durable", closeFirst: true, expectPersist: true},
+		{name: "commit log missing writes", closeFirst: false, expectPersist: true},
+		{name: "segment cannot be written", closeFirst: false, readOnlyDir: true},
 	}
 
-	b := open()
-	require.NoError(t, b.Put([]byte("key"), []byte("value")))
-	active := b.active.(*Memtable)
-	active.commitlog = failingCloseCommitLog{active.commitlog}
-	require.Error(t, b.FlushAndSwitch())
-	require.NotNil(t, b.flushing)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.readOnlyDir && os.Geteuid() == 0 {
+				t.Skip("root ignores directory permissions")
+			}
 
-	done := make(chan error, 1)
-	go func() { done <- b.Shutdown(ctx) }()
-	select {
-	case err := <-done:
-		require.NoError(t, err)
-	case <-time.After(30 * time.Second):
-		require.FailNow(t, "shutdown waits forever for a flush that failed")
+			ctx := context.Background()
+			logger, _ := test.NewNullLogger()
+			dir := t.TempDir()
+			open := func() *Bucket {
+				b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
+					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+					WithStrategy(StrategyReplace))
+				require.NoError(t, err)
+				return b
+			}
+
+			b := open()
+			require.NoError(t, b.Put([]byte("key"), []byte("value")))
+			active := b.active.(*Memtable)
+			active.commitlog = failingCloseCommitLog{active.commitlog, tt.closeFirst}
+			require.Error(t, b.FlushAndSwitch())
+			require.NotNil(t, b.flushing)
+
+			if tt.readOnlyDir {
+				require.NoError(t, os.Chmod(dir, 0o500))
+				t.Cleanup(func() { os.Chmod(dir, 0o700) })
+			}
+
+			done := make(chan error, 1)
+			go func() { done <- b.Shutdown(ctx) }()
+			select {
+			case err := <-done:
+				if !tt.expectPersist {
+					require.Error(t, err)
+					return
+				}
+				require.NoError(t, err)
+			case <-time.After(30 * time.Second):
+				require.FailNow(t, "shutdown waits forever for a flush that failed")
+			}
+
+			reloaded := open()
+			defer reloaded.Shutdown(ctx)
+			value, err := reloaded.Get([]byte("key"))
+			require.NoError(t, err)
+			require.Equal(t, []byte("value"), value)
+		})
 	}
-
-	reloaded := open()
-	defer reloaded.Shutdown(ctx)
-	value, err := reloaded.Get([]byte("key"))
-	require.NoError(t, err)
-	require.Equal(t, []byte("value"), value)
 }

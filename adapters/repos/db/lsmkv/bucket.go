@@ -1820,13 +1820,18 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 	defer b.flushAndSwitchMu.Unlock()
 
 	b.flushLock.RLock()
-	failed := b.flushing != nil
+	failed := b.flushing
 	b.flushLock.RUnlock()
-	if failed {
-		// its commit log is deleted only once its segment is written, so the next
-		// load finds its data either way
-		b.logger.WithField("action", "lsm_bucket_shutdown").WithField("path", b.dir).
-			Warn("shutting down with the memtable of a failed flush, the next load reads it from disk")
+	if failed == nil {
+		return nil
+	}
+
+	// its commit log may lack writes that only the memtable holds, so the memtable
+	// is written out rather than left to the commit log
+	b.logger.WithField("action", "lsm_bucket_shutdown").WithField("path", b.dir).
+		Warn("shutting down with the memtable of a failed flush, writing it out")
+	if err := failed.flushAfterFailedFlush(); err != nil {
+		return fmt.Errorf("write out memtable of a failed flush: %w", err)
 	}
 	return nil
 }

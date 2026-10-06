@@ -98,6 +98,16 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 	return segmentPath, nil
 }
 
+// flushAfterFailedFlush writes out a memtable whose flush failed. That flush has
+// already tried to close the commit log, and a close that failed may have left
+// writes out of it, so the segment is written from memory before the log is removed.
+func (m *Memtable) flushAfterFailedFlush() error {
+	if _, err := m.writeSegmentTo(m.path, ""); err != nil {
+		return err
+	}
+	return m.commitlog.delete()
+}
+
 // writeSegmentTo writes the memtable out to path, which must carry no extension: the
 // segment's level and strategy may be appended, then .db, then suffixAfterDB. It does not
 // close or delete the commit log, and it is where the lsm_memtable_flush_* series
