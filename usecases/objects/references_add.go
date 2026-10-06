@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -141,6 +142,9 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 	if err := input.validateExistence(ctx, validator, tenant, targetRef); err != nil {
+		if errors.Is(err, replicaerrors.ErrReplicas) {
+			return &Error{"validate existence", StatusInternalServerError, err}
+		}
 		return &Error{"validate existence", StatusBadRequest, err}
 	}
 
