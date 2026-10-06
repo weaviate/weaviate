@@ -35,14 +35,16 @@ type RoutingPlanBuildOptions struct {
 	DirectCandidateNode string
 	// LocalOnly resolves replicas from local schema; no leader query, no tenant activation.
 	LocalOnly bool
+	// SkipReachabilityCheck skips the check that a majority of the shard's replicas are reachable.
+	SkipReachabilityCheck bool
 }
 
 // String returns a human-readable representation of the RoutingPlanBuildOptions.
 // Useful for debugging and logging.
 func (o RoutingPlanBuildOptions) String() string {
 	return fmt.Sprintf(
-		"RoutingPlanBuildOptions{shard: %q, tenant: %q, consistencyLevel: %s, directCandidateNode: %q, localOnly: %t}",
-		o.Shard, o.Tenant, o.ConsistencyLevel, o.DirectCandidateNode, o.LocalOnly,
+		"RoutingPlanBuildOptions{shard: %q, tenant: %q, consistencyLevel: %s, directCandidateNode: %q, localOnly: %t, skipReachabilityCheck: %t}",
+		o.Shard, o.Tenant, o.ConsistencyLevel, o.DirectCandidateNode, o.LocalOnly, o.SkipReachabilityCheck,
 	)
 }
 

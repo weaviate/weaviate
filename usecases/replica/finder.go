@@ -673,6 +673,7 @@ func (f *Finder) LocalNodeName() string {
 // CountObjects returns an aggregated object count from all replicas the shard exists on.
 func (f *Finder) CountObjects(ctx context.Context, shard string, cl types.ConsistencyLevel) (int, error) {
 	c := NewReadCoordinator[int](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
+	c.skipReachabilityCheck = true
 
 	// NOTE(dyma): Why do we need to pass both the context and the timeout?
 	results, _, err := c.Pull(ctx, cl, func(ctx context.Context, host string, _ bool) (int, error) {
