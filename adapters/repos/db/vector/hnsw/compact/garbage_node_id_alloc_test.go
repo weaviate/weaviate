@@ -130,10 +130,13 @@ const (
 	// writes to stdout, so the parent can find it among the test runner output.
 	garbageNodeIDResultPrefix = "GARBAGE_NODE_ID_RESULT "
 
-	// garbageNodeIDChildTimeout bounds a child that hangs in the allocation
-	// (the "GC walks 800 GB" variant of #649). The scenarios finish in well
-	// under a second when the bug is absent.
-	garbageNodeIDChildTimeout = 2 * time.Minute
+	// garbageNodeIDChildTimeout bounds a child that neither reports nor dies:
+	// the OS tearing down the garbage-sized mapping, or GC/page-faulting that
+	// never finishes (the "GC walks 800 GB" variant of #649). The scenarios
+	// finish in well under a second when the bug is absent, and the children
+	// run serially, so the bound is kept short enough for the whole matrix to
+	// fail within the default package timeout when every scenario hangs.
+	garbageNodeIDChildTimeout = 10 * time.Second
 
 	// garbageNodeIDMaxSaneNodes bounds len(Graph.Nodes) after replaying a log
 	// whose real IDs are all below garbageNodeIDRealNodes. 2^24 slots (128 MiB
@@ -288,10 +291,13 @@ type garbageNodeIDReport struct {
 	NodesLen int `json:"nodes_len"`
 	// SysDeltaBytes is the MemStats.Sys growth across the replay.
 	SysDeltaBytes uint64 `json:"sys_delta_bytes"`
-	// RealNodesPresent counts non-nil nodes among the real IDs
-	// 0..garbageNodeIDRealNodes (inclusive: the last one is written after the
-	// scenario commit), so it also shows whether replay continued past it.
-	RealNodesPresent int `json:"real_nodes_present"`
+	// PrefixNodesPresent counts non-nil nodes among the real IDs
+	// 0..garbageNodeIDRealNodes-1, all written before the scenario commit.
+	PrefixNodesPresent int `json:"prefix_nodes_present"`
+	// TailNodePresent is whether the real node written after the scenario
+	// commit (ID garbageNodeIDRealNodes) is present, i.e. whether replay
+	// continued past the commit.
+	TailNodePresent bool `json:"tail_node_present"`
 	// StateReturned is whether the reader/loader handed back a state at all.
 	StateReturned bool `json:"state_returned"`
 	// ScenarioNodePresent is whether Graph.Nodes holds a node at the scenario
@@ -444,10 +450,13 @@ func runGarbageNodeIDChild(t *testing.T, sc garbageNodeIDScenario) {
 		report.StateReturned = true
 		nodes := state.Graph.Nodes
 		report.NodesLen = len(nodes)
-		for id := 0; id <= garbageNodeIDRealNodes && id < len(nodes); id++ {
+		for id := 0; id < garbageNodeIDRealNodes && id < len(nodes); id++ {
 			if nodes[id] != nil {
-				report.RealNodesPresent++
+				report.PrefixNodesPresent++
 			}
+		}
+		if garbageNodeIDRealNodes < len(nodes) {
+			report.TailNodePresent = nodes[garbageNodeIDRealNodes] != nil
 		}
 		if sc.id < uint64(len(nodes)) {
 			report.ScenarioNodePresent = nodes[sc.id] != nil
@@ -490,7 +499,7 @@ func runGarbageNodeIDParent(t *testing.T, topLevelName string, sc garbageNodeIDS
 		require.FailNowf(t, "child hung",
 			"the %s did not return within %s while replaying an %s with ID %d: "+
 				"the node index is being sized to the garbage ID (%d slots, %.0f GiB of pointers) "+
-				"and GC/page-faulting on it never finishes (0-weaviate-issues#649)\n--- child output tail ---\n%s",
+				"and the OS or GC/page-faulting never finishes with it (0-weaviate-issues#649)\n--- child output tail ---\n%s",
 			sc.path, garbageNodeIDChildTimeout, sc.commit, sc.id, buggySlots, buggyGiB, tail)
 	}
 	if runErr != nil {
@@ -525,20 +534,28 @@ func runGarbageNodeIDParent(t *testing.T, topLevelName string, sc garbageNodeIDS
 
 	if sc.control {
 		assert.Empty(t, report.Err, "%s returned an error for a legitimately sparse ID", sc.path)
-		assert.Equal(t, garbageNodeIDRealNodes+1, report.RealNodesPresent,
-			"all real nodes must be applied around a legitimately sparse ID %d", sc.id)
+		assert.Equal(t, garbageNodeIDRealNodes, report.PrefixNodesPresent,
+			"all real nodes before a legitimately sparse ID %d must be applied", sc.id)
+		assert.True(t, report.TailNodePresent,
+			"the real node after a legitimately sparse ID %d must be applied", sc.id)
 		assert.True(t, report.ScenarioNodePresent,
 			"a legitimately sparse ID %d must be materialized as a normal node (nodes_len=%d)", sc.id, report.NodesLen)
 	} else {
 		// a handled corruption error is one acceptable outcome; a returned
-		// state must still hold every node written before the corrupt commit
+		// state must still hold every node written before the corrupt commit.
+		// No state and no error is not: the loader returns (nil, nil) for an
+		// empty result, and this fixture is not empty, so that would mean the
+		// valid prefix was dropped silently.
 		if report.Err != "" {
 			t.Logf("%s reported the corrupt commit as an error: %s", sc.path, report.Err)
 		}
+		assert.Truef(t, report.StateReturned || report.Err != "",
+			"%s returned neither a state nor an error for a log with %d real nodes before the corrupt %s with ID %d",
+			sc.path, garbageNodeIDRealNodes, sc.commit, sc.id)
 		if report.StateReturned {
-			assert.GreaterOrEqualf(t, report.RealNodesPresent, garbageNodeIDRealNodes,
+			assert.Equalf(t, garbageNodeIDRealNodes, report.PrefixNodesPresent,
 				"%s dropped nodes written before the corrupt %s with ID %d (%d of %d present)",
-				sc.path, sc.commit, sc.id, report.RealNodesPresent, garbageNodeIDRealNodes)
+				sc.path, sc.commit, sc.id, report.PrefixNodesPresent, garbageNodeIDRealNodes)
 		}
 	}
 
