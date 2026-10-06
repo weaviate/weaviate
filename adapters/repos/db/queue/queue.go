@@ -1412,7 +1412,15 @@ func (r *chunkReader) forget(path string) {
 	r.m.Lock()
 	defer r.m.Unlock()
 
-	if i := slices.Index(r.chunkList, path); i >= 0 {
+	i := slices.Index(r.chunkList, path)
+	switch {
+	case i == 0:
+		// the common case: processed chunks leave from the front. Reslicing
+		// avoids shifting the whole backlog; append reclaims the space once
+		// the list grows.
+		r.chunkList[0] = ""
+		r.chunkList = r.chunkList[1:]
+	case i > 0:
 		r.chunkList = slices.Delete(r.chunkList, i, i+1)
 	}
 }
