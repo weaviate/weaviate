@@ -12,6 +12,7 @@
 package rest
 
 import (
+	"context"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -24,8 +25,26 @@ import (
 	"google.golang.org/grpc"
 )
 
-func createGrpcServer(state *state.State, clientTracker *telemetry.ClientTracker, integrationTracker *telemetry.IntegrationTracker, options ...grpc.ServerOption) (*grpc.Server, batch.Drain) {
-	return grpcHandler.CreateGRPCServer(state, clientTracker, integrationTracker, options...)
+func createGrpcServer(state *state.State, clientTracker *telemetry.ClientTracker, integrationTracker *telemetry.IntegrationTracker, clientCallsCtx context.Context, options ...grpc.ServerOption) (*grpc.Server, batch.Drain) {
+	return grpcHandler.CreateGRPCServer(state, clientTracker, integrationTracker, clientCallsCtx, options...)
+}
+
+// waitBatchDrain returns once drain does, or after timeout. A drain left
+// running ends when the gRPC stop that follows closes its streams.
+func waitBatchDrain(drain batch.Drain, timeout time.Duration, logger logrus.FieldLogger) {
+	done := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		defer close(done)
+		drain()
+	}, logger)
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
+		logger.WithField("action", "shutdown_drain").
+			Warnf("batch stream drain did not finish within %s, continuing shutdown", timeout)
+	}
 }
 
 func startGrpcServer(server *grpc.Server, state *state.State) {
