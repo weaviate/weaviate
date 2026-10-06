@@ -1153,6 +1153,19 @@ func (p *Provider) UsageEnabled() bool {
 	return false
 }
 
+func (p *Provider) MutableSettings(moduleName string, current, updated map[string]any) bool {
+	mod, ok := p.GetByName(moduleName).(modulecapabilities.MutableSettings)
+	if !ok {
+		return false
+	}
+	return mod.MutableSettings(p.settingsConfig(moduleName, current), p.settingsConfig(moduleName, updated))
+}
+
+func (p *Provider) settingsConfig(moduleName string, settings map[string]any) moduletools.ClassConfig {
+	class := &models.Class{ModuleConfig: map[string]any{moduleName: settings}}
+	return NewClassBasedModuleConfig(class, moduleName, "", "", &p.cfg)
+}
+
 // MigrateVectorizerSettings compares and migrates module settings if module settings
 // changed, an example would be renaming of baseUrl property setting to baseURL
 // in that case we need to migrate baseURL value to new property name.
