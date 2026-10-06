@@ -89,7 +89,7 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 		f      = func(ctx context.Context, version uint64) error { return retErr }
 		nodes  = []string{"N1", "N2"}
 		s      = NewSchema(t.Name(), &MockShardReader{}, prometheus.NewPedanticRegistry())
-		sc     = VersionedSchemaReader{s, f}
+		sc     = VersionedSchemaReader{schema: s, WaitForUpdate: f}
 	)
 
 	// class not found

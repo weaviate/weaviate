@@ -13,6 +13,7 @@ package sharding
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -44,6 +45,9 @@ type RemoteIncomingRepo interface {
 
 type RemoteIncomingSchema interface {
 	ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64) (*models.Class, error)
+	// AppliedIndex is the RAFT log index this node has finished applying, read without
+	// waiting. 0 means it could not be read, which callers must treat as "unknown".
+	AppliedIndex() uint64
 }
 
 type RemoteIndexIncomingRepo interface {
@@ -170,25 +174,21 @@ func (rii *RemoteIndexIncoming) BatchAddReferences(ctx context.Context, indexNam
 
 func (rii *RemoteIndexIncoming) GetObject(ctx context.Context, indexName,
 	shardName string, id strfmt.UUID, selectProperties search.SelectProperties,
-	additional additional.Properties,
+	additional additional.Properties, schemaVersion uint64,
 ) (*storobj.Object, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-	if index == nil {
-		return nil, enterrors.NewErrUnprocessable(enterrors.ErrLocalIndexNotFound{Index: indexName})
-	}
-
-	return index.IncomingGetObject(ctx, shardName, id, selectProperties, additional)
+	return incomingRead(rii, indexName, shardName, schemaVersion,
+		func(index RemoteIndexIncomingRepo) (*storobj.Object, error) {
+			return index.IncomingGetObject(ctx, shardName, id, selectProperties, additional)
+		})
 }
 
 func (rii *RemoteIndexIncoming) Exists(ctx context.Context, indexName,
-	shardName string, id strfmt.UUID,
+	shardName string, id strfmt.UUID, schemaVersion uint64,
 ) (bool, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-	if index == nil {
-		return false, enterrors.NewErrUnprocessable(enterrors.ErrLocalIndexNotFound{Index: indexName})
-	}
-
-	return index.IncomingExists(ctx, shardName, id)
+	return incomingRead(rii, indexName, shardName, schemaVersion,
+		func(index RemoteIndexIncomingRepo) (bool, error) {
+			return index.IncomingExists(ctx, shardName, id)
+		})
 }
 
 func (rii *RemoteIndexIncoming) DeleteObject(ctx context.Context, indexName,
@@ -214,51 +214,50 @@ func (rii *RemoteIndexIncoming) MergeObject(ctx context.Context, indexName,
 }
 
 func (rii *RemoteIndexIncoming) MultiGetObjects(ctx context.Context, indexName,
-	shardName string, ids []strfmt.UUID,
+	shardName string, ids []strfmt.UUID, schemaVersion uint64,
 ) ([]*storobj.Object, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-	if index == nil {
-		return nil, enterrors.NewErrUnprocessable(enterrors.ErrLocalIndexNotFound{Index: indexName})
-	}
-
-	return index.IncomingMultiGetObjects(ctx, shardName, ids)
+	return incomingRead(rii, indexName, shardName, schemaVersion,
+		func(index RemoteIndexIncomingRepo) ([]*storobj.Object, error) {
+			return index.IncomingMultiGetObjects(ctx, shardName, ids)
+		})
 }
 
 func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName string,
 	vectors []models.Vector, targetVectors []string, distance float32, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination,
-	properties []string,
+	properties []string, schemaVersion uint64,
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-	if index == nil {
-		return nil, nil, nil, enterrors.NewErrUnprocessable(enterrors.ErrLocalIndexNotFound{Index: indexName})
+	type result struct {
+		objects       []*storobj.Object
+		scores        []float32
+		queryProfiles []helpers.ShardQueryProfile
 	}
-
-	return index.IncomingSearch(
-		ctx, shardName, vectors, targetVectors, distance, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, properties)
+	r, err := incomingRead(rii, indexName, shardName, schemaVersion,
+		func(index RemoteIndexIncomingRepo) (result, error) {
+			objs, scores, queryProfiles, err := index.IncomingSearch(
+				ctx, shardName, vectors, targetVectors, distance, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, properties)
+			return result{objs, scores, queryProfiles}, err
+		})
+	return r.objects, r.scores, r.queryProfiles, err
 }
 
 func (rii *RemoteIndexIncoming) Aggregate(ctx context.Context, indexName, shardName string,
-	params aggregation.Params,
+	params aggregation.Params, schemaVersion uint64,
 ) (*aggregation.Result, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-	if index == nil {
-		return nil, enterrors.NewErrUnprocessable(enterrors.ErrLocalIndexNotFound{Index: indexName})
-	}
-
-	return index.IncomingAggregate(ctx, shardName, params, rii.modules)
+	return incomingRead(rii, indexName, shardName, schemaVersion,
+		func(index RemoteIndexIncomingRepo) (*aggregation.Result, error) {
+			return index.IncomingAggregate(ctx, shardName, params, rii.modules)
+		})
 }
 
 func (rii *RemoteIndexIncoming) FindUUIDs(ctx context.Context, indexName, shardName string,
-	filters *filters.LocalFilter, limit int,
+	filters *filters.LocalFilter, limit int, schemaVersion uint64,
 ) ([]strfmt.UUID, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-	if index == nil {
-		return nil, enterrors.NewErrUnprocessable(enterrors.ErrLocalIndexNotFound{Index: indexName})
-	}
-
-	return index.IncomingFindUUIDs(ctx, shardName, filters, limit)
+	return incomingRead(rii, indexName, shardName, schemaVersion,
+		func(index RemoteIndexIncomingRepo) ([]strfmt.UUID, error) {
+			return index.IncomingFindUUIDs(ctx, shardName, filters, limit)
+		})
 }
 
 func (rii *RemoteIndexIncoming) DeleteObjectBatch(ctx context.Context, indexName, shardName string,
@@ -273,25 +272,21 @@ func (rii *RemoteIndexIncoming) DeleteObjectBatch(ctx context.Context, indexName
 }
 
 func (rii *RemoteIndexIncoming) GetShardQueueSize(ctx context.Context,
-	indexName, shardName string,
+	indexName, shardName string, schemaVersion uint64,
 ) (int64, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-	if index == nil {
-		return 0, enterrors.NewErrUnprocessable(enterrors.ErrLocalIndexNotFound{Index: indexName})
-	}
-
-	return index.IncomingGetShardQueueSize(ctx, shardName)
+	return incomingRead(rii, indexName, shardName, schemaVersion,
+		func(index RemoteIndexIncomingRepo) (int64, error) {
+			return index.IncomingGetShardQueueSize(ctx, shardName)
+		})
 }
 
 func (rii *RemoteIndexIncoming) GetShardStatus(ctx context.Context,
-	indexName, shardName string,
+	indexName, shardName string, schemaVersion uint64,
 ) (string, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-	if index == nil {
-		return "", enterrors.NewErrUnprocessable(enterrors.ErrLocalIndexNotFound{Index: indexName})
-	}
-
-	return index.IncomingGetShardStatus(ctx, shardName)
+	return incomingRead(rii, indexName, shardName, schemaVersion,
+		func(index RemoteIndexIncomingRepo) (string, error) {
+			return index.IncomingGetShardStatus(ctx, shardName)
+		})
 }
 
 func (rii *RemoteIndexIncoming) UpdateShardStatus(ctx context.Context,
@@ -431,4 +426,66 @@ func (rii *RemoteIndexIncoming) RemoveAsyncReplicationTargetNode(
 	}
 
 	return index.IncomingRemoveAsyncReplicationTargetNode(ctx, shardName, targetNodeOverride)
+}
+
+// incomingRead resolves the local index for a read and runs f against it, telling schema lag
+// from data this node genuinely does not hold by comparing its applied RAFT index against the
+// schema version the coordinator resolved the read against.
+//
+// The applied index, not the local class version, is the comparator: it only advances once an
+// entry's store side has run too, so at or past the entry that created a shard the shard is
+// already registered here. Comparing class versions instead would call a read that races a
+// tenant's creation a genuine miss, because the class version is bumped before the shard is
+// built.
+//
+// The comparison does not wait. A read that blocks behind schema propagation pays the
+// propagation delay in query latency, which is what this is here to avoid; it answers at once
+// and lets the coordinator pick another replica.
+//
+//   - behind that version, or sent no version at all (0, from a coordinator too old to send
+//     one, so lag cannot be ruled out): the miss is lag, reported as unprocessable for the
+//     cluster API to answer 503, which the coordinator fails over from rather than retries
+//   - at or past it: this node will not hold the shard however long anyone waits, so the miss
+//     is final (422) and must not read as lag, or the coordinator spends its whole read budget
+//     retrying a replica that can never serve it
+func incomingRead[T any](rii *RemoteIndexIncoming, indexName, shardName string,
+	schemaVersion uint64, f func(RemoteIndexIncomingRepo) (T, error),
+) (T, error) {
+	var zero T
+
+	appliedIndex := rii.schema.AppliedIndex()
+	caughtUp := schemaVersion > 0 && appliedIndex >= schemaVersion
+
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	if index == nil {
+		return zero, classifyReadMiss(enterrors.ErrLocalIndexNotFound{Index: indexName},
+			indexName, "", schemaVersion, appliedIndex, caughtUp)
+	}
+
+	res, err := f(index)
+	if err != nil {
+		return zero, classifyReadMiss(err, indexName, shardName, schemaVersion, appliedIndex, caughtUp)
+	}
+	return res, nil
+}
+
+// classifyReadMiss rewrites a missing local index or shard into the error the cluster API needs
+// to pick a status code. Anything else passes through unchanged. The lagging form keeps the
+// original error wrapped, so it still matches as "not caught up"; the final form deliberately
+// does not.
+func classifyReadMiss(err error, indexName, shardName string,
+	wantVersion, appliedIndex uint64, caughtUp bool,
+) error {
+	var missingIndex enterrors.ErrLocalIndexNotFound
+	var missingShard enterrors.ErrLocalShardNotFound
+	if !errors.As(err, &missingIndex) && !errors.As(err, &missingShard) {
+		return err
+	}
+	if caughtUp {
+		return enterrors.NewErrUnprocessable(enterrors.ErrNotServedHere{
+			Index: indexName, Shard: shardName, Version: appliedIndex,
+		})
+	}
+	return enterrors.NewErrUnprocessable(fmt.Errorf(
+		"applied schema index %d, read resolved at version %d: %w", appliedIndex, wantVersion, err))
 }
