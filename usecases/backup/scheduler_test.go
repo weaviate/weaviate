@@ -2460,6 +2460,83 @@ func TestSchedulerAuditLogOmitsUnrequestedClasses(t *testing.T) {
 	}
 }
 
+// TestSchedulerReadBackupsAction pins that read_backups lists backups and reads
+// their status, but cannot create, restore or cancel one.
+func TestSchedulerReadBackupsAction(t *testing.T) {
+	t.Parallel()
+	const (
+		backendName = "s3"
+		id          = "1234"
+	)
+	var (
+		ctx     = context.Background()
+		alice   = &models.Principal{Username: "alice", UserType: models.UserTypeInputDb}
+		order   = "desc"
+		classes = []string{"Article", "Payroll"}
+		all     = "*"
+	)
+	backupOf := func(id string, classes ...string) *backup.DistributedBackupDescriptor {
+		return &backup.DistributedBackupDescriptor{
+			ID: id, Version: Version, ServerVersion: "1.23", Status: backup.Success,
+			Nodes: map[string]*backup.NodeDescriptor{nodeName: {Classes: classes}},
+		}
+	}
+
+	setup := func(t *testing.T) (*Scheduler, *fakeBackend) {
+		logger, _ := test.NewNullLogger()
+		m, err := rbac.New(t.TempDir(), rbacconf.Config{Enabled: true}, config.Authentication{}, false, nil, logger)
+		require.NoError(t, err)
+		role, action := "backup-reader", authorization.ReadBackups
+		policies, err := conv.RolesToPolicies(&models.Role{Name: &role, Permissions: []*models.Permission{
+			{Action: &action, Backups: &models.PermissionBackups{Collection: &all}},
+		}})
+		require.NoError(t, err)
+		require.NoError(t, m.CreateRolesPermissions(policies))
+		require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId(alice.Username, authentication.AuthTypeDb), []string{role}))
+
+		fs := newFakeScheduler(nil)
+		fs.auth = m
+		fs.selector.On("ListClasses", ctx).Return(classes).Maybe()
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(*backupOf(id, classes...)), nil).Maybe()
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/backups/" + id).Maybe()
+		return fs.scheduler(), fs.backend
+	}
+
+	t.Run("list", func(t *testing.T) {
+		s, backend := setup(t)
+		backend.On("AllBackups", ctx).Return([]*backup.DistributedBackupDescriptor{
+			backupOf("article", "Article"), backupOf("payroll", "Payroll"),
+		}, nil)
+		resp, err := s.List(ctx, alice, backendName, &order, false)
+		require.NoError(t, err)
+		assert.Len(t, *resp, 2)
+	})
+
+	t.Run("backup status", func(t *testing.T) {
+		s, _ := setup(t)
+		_, err := s.BackupStatus(ctx, alice, backendName, id, "", "")
+		assert.False(t, errors.As(err, &authzerrors.Forbidden{}), "status must not be forbidden: %v", err)
+	})
+
+	t.Run("create is forbidden", func(t *testing.T) {
+		s, _ := setup(t)
+		_, err := s.Backup(ctx, alice, &BackupRequest{Backend: backendName, ID: id})
+		require.ErrorAs(t, err, &authzerrors.Forbidden{})
+	})
+
+	t.Run("restore is forbidden", func(t *testing.T) {
+		s, _ := setup(t)
+		_, err := s.Restore(ctx, alice, &BackupRequest{Backend: backendName, ID: id}, false)
+		require.ErrorAs(t, err, &authzerrors.Forbidden{})
+	})
+
+	t.Run("cancel is forbidden", func(t *testing.T) {
+		s, _ := setup(t)
+		err := s.Cancel(ctx, alice, backendName, id, "", "")
+		require.ErrorAs(t, err, &authzerrors.Forbidden{})
+	})
+}
+
 type fakeScheduler struct {
 	selector     fakeSelector
 	userLister   fakeUserLister

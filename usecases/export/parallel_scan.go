@@ -153,8 +153,8 @@ func computeNumRanges(count, parallelism int) int {
 // never create a writer (and thus never start an upload). If endKey is
 // nil, scans to the end.
 //
-// Progress reporting is handled by the writer's onFlush callback, which
-// fires after each batch of rows is flushed to the underlying io.Writer.
+// The writer's onFlush callback reports progress when a batch enters the open
+// row group, up to one row group before its bytes reach the upload pipe.
 func scanRangeToWriter(
 	ctx context.Context,
 	bucket *lsmkv.Bucket,
@@ -226,8 +226,8 @@ type rangeWriterConfig struct {
 }
 
 // rangePipeline bundles a per-range ParquetWriter, buffered pipe, and upload
-// goroutine. The buffered pipe decouples scan speed from upload speed so that
-// LSM cursors are not held open waiting on network I/O.
+// goroutine. Once the pipe is full (defaultPipeBufferSize), the scan waits for
+// the upload with its LSM cursor open.
 //
 // The pipeline is created lazily by scanJob.execute on the first row scanned,
 // so empty ranges never instantiate a pipeline at all — there is no
@@ -239,10 +239,9 @@ type rangePipeline struct {
 }
 
 // Shutdown closes the writer pipeline and waits for the upload to finish.
-// If scanErr is non-nil, the onFlush callback is suppressed before teardown
-// so that progress is not reported for objects that will not reach the backend.
-// On writer.Close or pw.Close errors, onFlush may still fire during the
-// final flush since those rows were written to the pipe successfully.
+// If scanErr is non-nil, Shutdown clears onFlush first, so rows still in the
+// batch buffer are not counted. On any error, including a failed upload,
+// onFlush may already have counted batches that never reached the backend.
 func (rp *rangePipeline) Shutdown(scanErr error) error {
 	if scanErr != nil {
 		rp.writer.onFlush = nil
@@ -270,10 +269,7 @@ func (rp *rangePipeline) Shutdown(scanErr error) error {
 	return nil
 }
 
-// startRangeWriter creates a rangePipeline for a single key range. A bounded
-// buffered pipe (defaultPipeBufferSize) sits between the ParquetWriter and
-// the upload goroutine so that the scan can run at disk speed without being
-// blocked by upload latency.
+// startRangeWriter creates a rangePipeline for a single key range.
 func startRangeWriter(ctx context.Context, cfg *rangeWriterConfig, rangeIndex int) (*rangePipeline, error) {
 	pr, pw := newBufferedPipe(defaultPipeBufferSize)
 
