@@ -18,11 +18,15 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -54,8 +58,15 @@ func (n *noopAuthorizer) FilterAuthorizedResources(_ context.Context, _ *models.
 type threadSafeRecorder struct {
 	mu          sync.Mutex
 	completions []string // unitIDs
-	failures    []string
-	progresses  []progressEntry
+	// failures holds every failed unit; retryableFailures holds the subset
+	// reported as retryable.
+	failures          []string
+	retryableFailures []string
+	failureMessages   []string
+	progresses        []progressEntry
+	// claimTask, when set, has each reported unit pinned to the reporting node,
+	// as the FSM does on a claim.
+	claimTask *distributedtask.Task
 }
 
 type progressEntry struct {
@@ -70,25 +81,45 @@ func (r *threadSafeRecorder) RecordDistributedTaskUnitCompletion(_ context.Conte
 	return nil
 }
 
-func (r *threadSafeRecorder) RecordDistributedTaskUnitFailure(_ context.Context, _, _ string, _ uint64, _, unitID, _ string) error {
+func (r *threadSafeRecorder) RecordDistributedTaskUnitFailure(_ context.Context, _, _ string, _ uint64, _, unitID, errMsg string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.failures = append(r.failures, unitID)
+	r.failureMessages = append(r.failureMessages, errMsg)
 	return nil
 }
 
-func (r *threadSafeRecorder) RecordDistributedTaskRetryableUnitFailure(_ context.Context, _, _ string, _ uint64, _, unitID, _ string) error {
+func (r *threadSafeRecorder) RecordDistributedTaskRetryableUnitFailure(_ context.Context, _, _ string, _ uint64, _, unitID, errMsg string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.failures = append(r.failures, unitID)
+	r.retryableFailures = append(r.retryableFailures, unitID)
+	r.failureMessages = append(r.failureMessages, errMsg)
 	return nil
 }
 
-func (r *threadSafeRecorder) UpdateDistributedTaskUnitProgress(_ context.Context, _, _ string, _ uint64, _, unitID string, progress float32) error {
+func (r *threadSafeRecorder) UpdateDistributedTaskUnitProgress(_ context.Context, _, _ string, _ uint64, nodeID, unitID string, progress float32) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.progresses = append(r.progresses, progressEntry{unitID, progress})
+	if r.claimTask != nil {
+		if u := r.claimTask.Units[unitID]; u != nil {
+			u.NodeID = nodeID
+		}
+	}
 	return nil
+}
+
+func (r *threadSafeRecorder) getCompletions() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.completions...)
+}
+
+func (r *threadSafeRecorder) getFailureMessages() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.failureMessages...)
 }
 
 func (r *threadSafeRecorder) getProgresses() []progressEntry {
@@ -101,6 +132,12 @@ func (r *threadSafeRecorder) getFailures() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]string(nil), r.failures...)
+}
+
+func (r *threadSafeRecorder) getRetryableFailures() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.retryableFailures...)
 }
 
 // nodeHandlerWithLatch builds the node-side handler whose `lastOp` latch the
@@ -377,7 +414,7 @@ func TestBackupTaskProvider(t *testing.T) {
 
 		payload := makePayload("b1")
 		task := makeTask("b1", distributedtask.TaskStatusStarted, payload)
-		require.NoError(t, provider.writeStartedDescriptor(context.Background(), task, payload))
+		require.NoError(t, provider.writeStartedDescriptor(context.Background(), task, payload, nil))
 
 		be.AssertCalled(t, "PutObject", mock.Anything, mock.Anything, GlobalBackupFile, mock.Anything)
 		assert.Equal(t, backup.Started, be.glMeta.Status)
@@ -407,7 +444,7 @@ func TestBackupTaskProvider(t *testing.T) {
 		payload.BaseChainDeduped = true
 
 		require.NoError(t, provider.writeStartedDescriptor(
-			context.Background(), makeTask("b1", distributedtask.TaskStatusStarted, payload), payload,
+			context.Background(), makeTask("b1", distributedtask.TaskStatusStarted, payload), payload, nil,
 		))
 		assert.True(t, be.glMeta.SkipUsers)
 		assert.True(t, be.glMeta.SkipRoles)
@@ -430,7 +467,7 @@ func TestBackupTaskProvider(t *testing.T) {
 
 		payload := makePayload("b1")
 		task := makeTask("b1", distributedtask.TaskStatusStarted, payload)
-		require.NoError(t, provider.writeStartedDescriptor(context.Background(), task, payload))
+		require.NoError(t, provider.writeStartedDescriptor(context.Background(), task, payload, nil))
 		be.AssertNotCalled(t, "PutObject", mock.Anything, mock.Anything, GlobalBackupFile, mock.Anything)
 	})
 
@@ -540,6 +577,500 @@ func TestBackupTaskProvider(t *testing.T) {
 		be.On("GetObject", mock.Anything, mock.Anything, mock.Anything).Return(termBytes, nil)
 
 		assert.False(t, provider.ShouldRetainCompletedTask(task, nil), "must release once descriptor is terminal")
+	})
+}
+
+// dedupeFlow runs one node's DTM flow for a dedupe backup over fakes. Article
+// has two shards replicated on node-1 and node-2; Book lives on node-1 only.
+type dedupeFlow struct {
+	node         string
+	payload      *taskPayload
+	provider     *BackupTaskProvider
+	backend      *fakeBackend
+	sourcer      *fakeSourcer
+	checkpointer *fakeCheckpointer
+	recorder     *threadSafeRecorder
+	hook         *test.Hook
+	// claimedBy presets NodeID on the local units, as a restarted flow sees it.
+	claimedBy string
+
+	mu sync.Mutex
+	// uploads records each BackupDescriptors call, the start of every upload.
+	uploads []dedupeUpload
+}
+
+type dedupeUpload struct {
+	designations map[string]map[string]string
+	// global is the global descriptor as written when the upload started.
+	global backup.DistributedBackupDescriptor
+}
+
+func newDedupeFlow(t *testing.T, node string) *dedupeFlow {
+	t.Helper()
+	fx := &dedupeFlow{
+		node:         node,
+		payload:      makePayload("b1"),
+		backend:      newFakeBackend(),
+		sourcer:      &fakeSourcer{},
+		checkpointer: newFakeCheckpointer(),
+		recorder:     &threadSafeRecorder{},
+	}
+	fx.payload.DedupeReplicas = true
+	fx.checkpointer.shardReplicas["Article"] = map[string][]string{
+		"s1": {"node-1", "node-2"},
+		"s2": {"node-1", "node-2"},
+	}
+	fx.checkpointer.shardReplicas["Book"] = map[string][]string{"s1": {"node-1"}}
+
+	fx.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+	fx.backend.On("SourceDataPath").Return("/data")
+	// coordStore.Meta probes the legacy per-node descriptor when the global one is missing.
+	fx.backend.On("GetObject", mock.Anything, "b1", BackupFile).Return(nil, backup.ErrNotFound{})
+	fx.backend.On("PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	classes := fx.payload.Nodes[node].Classes
+	described := make(chan backup.ClassDescriptor, len(classes))
+	for _, cls := range classes {
+		described <- backup.ClassDescriptor{Name: cls}
+	}
+	close(described)
+	fx.sourcer.On("BackupDescriptors", mock.Anything, "b1", classes, mock.Anything, mock.Anything).
+		Return((<-chan backup.ClassDescriptor)(described)).
+		Run(func(a mock.Arguments) {
+			fx.backend.RLock()
+			global := fx.backend.glMeta
+			fx.backend.RUnlock()
+			fx.mu.Lock()
+			defer fx.mu.Unlock()
+			fx.uploads = append(fx.uploads, dedupeUpload{
+				designations: a.Get(4).(map[string]map[string]string),
+				global:       global,
+			})
+		})
+	fx.sourcer.On("ReleaseBackup", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	var logger *logrus.Logger
+	logger, fx.hook = test.NewNullLogger()
+	fx.provider = NewBackupTaskProvider(BackupTaskProviderParams{
+		Node:         node,
+		Logger:       logger,
+		Cfg:          config.Backup{},
+		Sourcer:      fx.sourcer,
+		Backends:     &fakeBackupBackendProvider{backend: fx.backend},
+		Checkpointer: fx.checkpointer,
+	})
+	fx.provider.planPollInterval = 5 * time.Millisecond
+	fx.provider.planner.dedupeCutoffLead = 10 * time.Millisecond
+	fx.provider.planner.dedupePollInterval = 5 * time.Millisecond
+	fx.provider.planner.dedupeConvergenceBudget = 500 * time.Millisecond
+	fx.provider.planner.dedupePlanningSlack = 200 * time.Millisecond
+	fx.provider.SetCompletionRecorder(fx.recorder)
+	return fx
+}
+
+// start launches the flow. The recorder pins each claimed unit to this node on
+// the task the flow reads, so a claim made by this start never looks like an
+// earlier one.
+func (fx *dedupeFlow) start(t *testing.T) distributedtask.TaskHandle {
+	t.Helper()
+	task := makeTask("b1", distributedtask.TaskStatusStarted, fx.payload)
+	for _, cls := range fx.payload.Nodes[fx.node].Classes {
+		unitID := fmt.Sprintf("%s/%s", fx.node, cls)
+		task.Units[unitID] = &distributedtask.Unit{ID: unitID, NodeID: fx.claimedBy}
+	}
+	fx.recorder.claimTask = task
+	handle, err := fx.provider.StartTask(task)
+	require.NoError(t, err)
+	return handle
+}
+
+func (fx *dedupeFlow) run(t *testing.T) {
+	t.Helper()
+	waitDone(t, fx.start(t))
+}
+
+func (fx *dedupeFlow) getUploads() []dedupeUpload {
+	fx.mu.Lock()
+	defer fx.mu.Unlock()
+	return append([]dedupeUpload(nil), fx.uploads...)
+}
+
+func (fx *dedupeFlow) globalWrites() int {
+	n := 0
+	for _, call := range fx.backend.Calls {
+		if call.Method == "PutObject" && call.Arguments.Get(2) == GlobalBackupFile {
+			n++
+		}
+	}
+	return n
+}
+
+// serveGlobal serves raw for every global descriptor read of the backup.
+func (fx *dedupeFlow) serveGlobal(raw []byte, err error) *mock.Call {
+	return fx.backend.On("GetObject", mock.Anything, "b1", GlobalBackupFile).Return(raw, err)
+}
+
+// withBase points the payload at base, whose global descriptor read returns
+// (raw, err). No node has a descriptor in base, so each uploads in full.
+func (fx *dedupeFlow) withBase(raw []byte, err error) *mock.Call {
+	fx.payload.BaseBackupID = "base"
+	fx.backend.On("GetObject", mock.Anything, "base/"+fx.node, BackupFile).Return(nil, backup.ErrNotFound{})
+	return fx.backend.On("GetObject", mock.Anything, "base", GlobalBackupFile).Return(raw, err)
+}
+
+func waitDone(t *testing.T, handle distributedtask.TaskHandle) {
+	t.Helper()
+	select {
+	case <-handle.Done():
+	case <-time.After(10 * time.Second):
+		t.Fatal("the flow did not finish")
+	}
+}
+
+func marshalDescriptor(t *testing.T, desc backup.DistributedBackupDescriptor) []byte {
+	t.Helper()
+	raw, err := json.Marshal(desc)
+	require.NoError(t, err)
+	return raw
+}
+
+var dedupeFallbackReasons = []string{"class_ineligible", "create_rpc_failed", "planning_deadline", "status_failed", "checkpoint_missing", "not_converged"}
+
+// noFallbackRecorded snapshots the dedupe fallback metrics and returns a check
+// that they did not move and that no fallback was logged.
+func noFallbackRecorded(t *testing.T, hook *test.Hook) func() {
+	t.Helper()
+	before := make(map[string]float64, len(dedupeFallbackReasons))
+	for _, reason := range dedupeFallbackReasons {
+		before[reason] = dedupeFallbackCount(reason)
+	}
+	fallbackBefore := dedupeShardOutcomeCount("fallback")
+	return func() {
+		t.Helper()
+		for _, reason := range dedupeFallbackReasons {
+			assert.Zero(t, dedupeFallbackCount(reason)-before[reason], reason)
+		}
+		assert.Zero(t, dedupeShardOutcomeCount("fallback")-fallbackBefore)
+		for _, entry := range hook.AllEntries() {
+			assert.NotContains(t, entry.Message, "all-replica backup")
+		}
+	}
+}
+
+func TestBackupTaskProviderDedupe(t *testing.T) {
+	published := backup.DistributedBackupDescriptor{
+		ID:                     "b1",
+		Status:                 backup.Started,
+		Version:                VersionDedupeReplicas,
+		DedupeReplicas:         true,
+		DedupeDesignatedShards: 2,
+		DedupeDesignations:     map[string]map[string]string{"Article": {"s1": "node-2", "s2": "node-2"}},
+	}
+
+	t.Run("planner publishes the plan before uploading and uploads with its designations", func(t *testing.T) {
+		fx := newDedupeFlow(t, "node-1")
+		fx.checkpointer.converge["Article/s1"] = true
+		fx.checkpointer.converge["Article/s2"] = true
+		// Balanced assignment would give s1 to node-1.
+		fx.withBase(marshalDescriptor(t, backup.DistributedBackupDescriptor{
+			ID: "base", Status: backup.Success,
+			DedupeDesignations: map[string]map[string]string{"Article": {"s1": "node-2"}},
+		}), nil)
+		// The re-read after publishing serves a plan unlike the one written, so
+		// only an upload from the stored plan matches it.
+		fx.serveGlobal(nil, backup.ErrNotFound{}).Twice()
+		fx.serveGlobal(marshalDescriptor(t, published), nil)
+
+		fx.run(t)
+
+		wantPlan := map[string]map[string]string{"Article": {"s1": "node-2", "s2": "node-1"}}
+		assert.Equal(t, 1, fx.globalWrites())
+		uploads := fx.getUploads()
+		require.Len(t, uploads, 1)
+		assert.Equal(t, backup.Started, uploads[0].global.Status, "the plan is published before the upload")
+		assert.Equal(t, wantPlan, uploads[0].global.DedupeDesignations, "the base designee wins over balance")
+		assert.Equal(t, VersionDedupeReplicas, uploads[0].global.Version)
+		assert.True(t, uploads[0].global.DedupeReplicas)
+		assert.Equal(t, 2, uploads[0].global.DedupeDesignatedShards)
+		assert.Zero(t, uploads[0].global.DedupeFallbackShards)
+
+		assert.Equal(t, published.DedupeDesignations, uploads[0].designations, "the upload uses the stored plan")
+		version, dedupe := fx.backend.getMetaStamp()
+		assert.Equal(t, VersionDedupeReplicas, version)
+		assert.True(t, dedupe)
+		assert.Empty(t, fx.recorder.getFailures())
+		assert.ElementsMatch(t, []string{"node-1/Article", "node-1/Book"}, fx.recorder.getCompletions())
+	})
+
+	t.Run("non-planner waits for the published plan and uploads with it", func(t *testing.T) {
+		fx := newDedupeFlow(t, "node-2")
+		fx.serveGlobal(nil, backup.ErrNotFound{}).Once()
+		fx.serveGlobal(marshalDescriptor(t, published), nil)
+
+		fx.run(t)
+
+		uploads := fx.getUploads()
+		require.Len(t, uploads, 1)
+		assert.Equal(t, published.DedupeDesignations, uploads[0].designations)
+		version, dedupe := fx.backend.getMetaStamp()
+		assert.Equal(t, VersionDedupeReplicas, version)
+		assert.True(t, dedupe)
+		assert.Zero(t, fx.globalWrites(), "only the planner writes the Started descriptor")
+		assert.Empty(t, fx.checkpointer.createCalls)
+		assert.Empty(t, fx.recorder.getFailures())
+		assert.Equal(t, []string{"node-2/Article"}, fx.recorder.getCompletions())
+	})
+
+	t.Run("non-planner never takes a terminal descriptor for a plan", func(t *testing.T) {
+		fx := newDedupeFlow(t, "node-2")
+		cancelled := published
+		cancelled.Status = backup.Cancelled
+		var reads atomic.Int32
+		fx.serveGlobal(marshalDescriptor(t, cancelled), nil).Run(func(mock.Arguments) { reads.Add(1) })
+
+		handle := fx.start(t)
+		require.Eventually(t, func() bool { return reads.Load() >= 3 }, 5*time.Second, time.Millisecond,
+			"the non-planner keeps polling past a terminal descriptor")
+		handle.Terminate()
+		waitDone(t, handle)
+
+		assert.Empty(t, fx.getUploads())
+		assert.Empty(t, fx.recorder.getFailures())
+	})
+
+	t.Run("non-planner fails its units when the published plan stays unreadable", func(t *testing.T) {
+		fx := newDedupeFlow(t, "node-2")
+		var reads atomic.Int32
+		fx.serveGlobal(nil, errors.New("backend unavailable")).Run(func(mock.Arguments) { reads.Add(1) })
+
+		fx.run(t)
+
+		assert.Equal(t, int32(planReadAttempts), reads.Load())
+		assert.Equal(t, []string{"node-2/Article"}, fx.recorder.getFailures())
+		assert.Empty(t, fx.recorder.getRetryableFailures())
+		for _, msg := range fx.recorder.getFailureMessages() {
+			assert.Contains(t, msg, "backend unavailable")
+		}
+		assert.Empty(t, fx.getUploads())
+	})
+
+	t.Run("non-planner fails no unit when the read that would reach the bound ends with the flow", func(t *testing.T) {
+		fx := newDedupeFlow(t, "node-2")
+		fx.serveGlobal(nil, errors.New("backend unavailable")).Times(planReadAttempts - 1)
+		reading := make(chan struct{})
+		fx.serveGlobal(nil, errors.New("read aborted")).Run(func(a mock.Arguments) {
+			close(reading)
+			<-a.Get(0).(context.Context).Done()
+		})
+
+		handle := fx.start(t)
+		select {
+		case <-reading:
+		case <-time.After(5 * time.Second):
+			t.Fatal("the non-planner never made its last bounded read")
+		}
+		handle.Terminate()
+		waitDone(t, handle)
+
+		assert.Empty(t, fx.recorder.getFailures())
+		assert.Empty(t, fx.getUploads())
+	})
+
+	t.Run("non-planner resets its read-failure count after a successful read", func(t *testing.T) {
+		fx := newDedupeFlow(t, "node-2")
+		readErr := errors.New("backend unavailable")
+		// Four read errors in total. Only the not-found read between them keeps
+		// the failure count below planReadAttempts.
+		fx.serveGlobal(nil, readErr).Twice()
+		fx.serveGlobal(nil, backup.ErrNotFound{}).Once()
+		fx.serveGlobal(nil, readErr).Twice()
+		fx.serveGlobal(marshalDescriptor(t, published), nil)
+
+		fx.run(t)
+
+		uploads := fx.getUploads()
+		require.Len(t, uploads, 1)
+		assert.Equal(t, published.DedupeDesignations, uploads[0].designations)
+		assert.Empty(t, fx.recorder.getFailures())
+		assert.Equal(t, []string{"node-2/Article"}, fx.recorder.getCompletions())
+	})
+
+	t.Run("ordinary dedupe failures publish a fallback plan and the backup continues", func(t *testing.T) {
+		tests := []struct {
+			name             string
+			setup            func(*dedupeFlow)
+			wantDesignations map[string]map[string]string
+			wantWarning      string
+		}{
+			{
+				name: "status RPC error",
+				setup: func(fx *dedupeFlow) {
+					fx.checkpointer.statusErr["Article"] = errors.New("status unavailable")
+				},
+			},
+			{
+				name: "create RPC error",
+				setup: func(fx *dedupeFlow) {
+					fx.checkpointer.createErr["Article"] = errors.New("create unavailable")
+				},
+			},
+			{
+				name: "missing checkpoint",
+				setup: func(fx *dedupeFlow) {
+					fx.checkpointer.partial["Article/s1"] = true
+					fx.checkpointer.partial["Article/s2"] = true
+				},
+			},
+			{
+				name: "convergence timeout",
+				setup: func(fx *dedupeFlow) {
+					fx.checkpointer.diverge["Article/s1"] = true
+					fx.checkpointer.diverge["Article/s2"] = true
+					fx.provider.planner.dedupeConvergenceBudget = 40 * time.Millisecond
+				},
+			},
+			{
+				name: "base descriptor read error",
+				setup: func(fx *dedupeFlow) {
+					fx.checkpointer.converge["Article/s1"] = true
+					fx.checkpointer.converge["Article/s2"] = true
+					fx.withBase(nil, errors.New("backend unavailable"))
+				},
+				wantDesignations: map[string]map[string]string{"Article": {"s1": "node-1", "s2": "node-2"}},
+				wantWarning:      `base backup "base" unreadable`,
+			},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				fx := newDedupeFlow(t, "node-1")
+				fx.backend.serveWrittenGlobalBackupMeta = true
+				fx.serveGlobal(nil, backup.ErrNotFound{})
+				tc.setup(fx)
+
+				fx.run(t)
+
+				got := fx.backend.glMeta
+				assert.Equal(t, backup.Started, got.Status)
+				assert.Equal(t, tc.wantDesignations, got.DedupeDesignations)
+				assert.Equal(t, len(tc.wantDesignations) > 0, got.DedupeReplicas)
+				assert.Equal(t, 2-len(tc.wantDesignations["Article"]), got.DedupeFallbackShards)
+				uploads := fx.getUploads()
+				require.Len(t, uploads, 1)
+				assert.Equal(t, tc.wantDesignations, uploads[0].designations)
+				assert.Empty(t, fx.recorder.getFailures())
+				assert.ElementsMatch(t, []string{"node-1/Article", "node-1/Book"}, fx.recorder.getCompletions())
+				if tc.wantWarning != "" {
+					assert.True(t, slices.ContainsFunc(fx.hook.AllEntries(), func(e *logrus.Entry) bool {
+						return e.Level == logrus.WarnLevel && strings.Contains(e.Message, tc.wantWarning)
+					}), "want a warning containing %q", tc.wantWarning)
+				}
+			})
+		}
+	})
+
+	t.Run("converged shards keep their designations when others fall back", func(t *testing.T) {
+		fx := newDedupeFlow(t, "node-1")
+		fx.backend.serveWrittenGlobalBackupMeta = true
+		fx.serveGlobal(nil, backup.ErrNotFound{})
+		fx.checkpointer.converge["Article/s1"] = true
+		fx.checkpointer.diverge["Article/s2"] = true
+		fx.provider.planner.dedupeConvergenceBudget = 40 * time.Millisecond
+
+		fx.run(t)
+
+		want := map[string]map[string]string{"Article": {"s1": "node-1"}}
+		got := fx.backend.glMeta
+		assert.Equal(t, want, got.DedupeDesignations)
+		assert.Equal(t, 1, got.DedupeDesignatedShards)
+		assert.Equal(t, 1, got.DedupeFallbackShards)
+		assert.True(t, got.DedupeReplicas)
+		uploads := fx.getUploads()
+		require.Len(t, uploads, 1)
+		assert.Equal(t, want, uploads[0].designations)
+		assert.Empty(t, fx.recorder.getFailures())
+	})
+
+	t.Run("cancel during convergence stops planning and prevents uploads", func(t *testing.T) {
+		fx := newDedupeFlow(t, "node-1")
+		fx.serveGlobal(nil, backup.ErrNotFound{})
+		fx.checkpointer.statusHang = true
+		fx.provider.planner.dedupeConvergenceBudget = time.Minute
+		fx.provider.planner.dedupePlanningSlack = time.Minute
+		noFallback := noFallbackRecorded(t, fx.hook)
+
+		handle := fx.start(t)
+		require.Eventually(t, func() bool {
+			fx.checkpointer.mu.Lock()
+			defer fx.checkpointer.mu.Unlock()
+			return fx.checkpointer.statusCalls["Article"] > 0
+		}, 5*time.Second, time.Millisecond)
+		handle.Terminate()
+		waitDone(t, handle)
+
+		assert.Zero(t, fx.globalWrites(), "no plan is published")
+		fx.sourcer.AssertNotCalled(t, "BackupDescriptors", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		assert.Empty(t, fx.recorder.getFailures())
+		noFallback()
+	})
+
+	t.Run("cancel during the base descriptor read plans nothing and logs no read failure", func(t *testing.T) {
+		fx := newDedupeFlow(t, "node-1")
+		fx.serveGlobal(nil, backup.ErrNotFound{})
+		reading := make(chan struct{})
+		fx.withBase(nil, errors.New("read aborted")).Run(func(a mock.Arguments) {
+			close(reading)
+			<-a.Get(0).(context.Context).Done()
+		})
+
+		handle := fx.start(t)
+		select {
+		case <-reading:
+		case <-time.After(5 * time.Second):
+			t.Fatal("the planner never read the base descriptor")
+		}
+		handle.Terminate()
+		waitDone(t, handle)
+
+		for _, entry := range fx.hook.AllEntries() {
+			assert.NotContains(t, entry.Message, "unreadable")
+		}
+		assert.Empty(t, fx.checkpointer.createCalls)
+		assert.Zero(t, fx.globalWrites())
+		fx.sourcer.AssertNotCalled(t, "BackupDescriptors", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		assert.Empty(t, fx.recorder.getFailures())
+	})
+
+	t.Run("restart after claim with no published plan fails with a planning-interruption reason", func(t *testing.T) {
+		fx := newDedupeFlow(t, "node-1")
+		fx.claimedBy = "node-1"
+		fx.serveGlobal(nil, backup.ErrNotFound{})
+
+		fx.run(t)
+
+		assert.ElementsMatch(t, []string{"node-1/Article", "node-1/Book"}, fx.recorder.getFailures())
+		assert.Empty(t, fx.recorder.getRetryableFailures())
+		for _, msg := range fx.recorder.getFailureMessages() {
+			assert.Contains(t, msg, "interrupted")
+			assert.Contains(t, msg, "new backup ID")
+		}
+		assert.Empty(t, fx.checkpointer.createCalls)
+		assert.Zero(t, fx.globalWrites())
+		fx.sourcer.AssertNotCalled(t, "BackupDescriptors", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	t.Run("restart after publication reuses the plan without replanning", func(t *testing.T) {
+		fx := newDedupeFlow(t, "node-1")
+		fx.claimedBy = "node-1"
+		fx.serveGlobal(marshalDescriptor(t, published), nil)
+
+		fx.run(t)
+
+		assert.Empty(t, fx.checkpointer.createCalls)
+		assert.Zero(t, fx.globalWrites())
+		uploads := fx.getUploads()
+		require.Len(t, uploads, 1)
+		assert.Equal(t, published.DedupeDesignations, uploads[0].designations)
+		assert.Empty(t, fx.recorder.getFailures())
 	})
 }
 
@@ -992,19 +1523,21 @@ func newDTMProposeFixture(t *testing.T) *dtmProposeFixture {
 }
 
 func TestBackupDTMDedupe(t *testing.T) {
-	t.Run("the combined mode is rejected before initialization or proposal", func(t *testing.T) {
+	t.Run("dedupe request is admitted and proposed with dedupe fields", func(t *testing.T) {
 		t.Setenv("BACKUP_DEDUPE_ENABLED", "true")
 		fixture := newDTMProposeFixture(t)
 		fixture.req.DedupeReplicas = true
+		fixture.req.DedupeConvergenceTimeoutSeconds = 30
 
 		resp, err := fixture.scheduler.Backup(context.Background(), nil, fixture.req)
-		assert.Nil(t, resp)
-		require.Error(t, err)
-		assert.IsType(t, backup.ErrUnprocessable{}, err)
-		assert.Contains(t, err.Error(), "not supported with distributed task backup orchestration")
-		assert.Empty(t, fixture.dtm.proposedPayload)
-		fixture.backend.AssertNotCalled(t, "Initialize", mock.Anything, mock.Anything)
-		assert.Empty(t, fixture.scheduler.backupper.lastOp.get().ID)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.NotEmpty(t, fixture.dtm.proposedPayload)
+		proposed, err := unmarshalTaskPayload(fixture.dtm.proposedPayload)
+		require.NoError(t, err)
+		assert.True(t, proposed.DedupeReplicas)
+		assert.Equal(t, 30, proposed.DedupeConvergenceTimeoutSeconds)
+		assert.Empty(t, fixture.scheduler.backupper.lastOp.get().ID, "a DTM backup never takes the 2PC slot")
 	})
 }
 
