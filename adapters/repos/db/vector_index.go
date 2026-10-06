@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -53,6 +54,16 @@ type VectorIndex interface {
 	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
 	// CompressionStats returns the compression statistics for this index
 	CompressionStats() compressionhelpers.CompressionStats
+}
+
+// asMultiVectorIndex refuses a multi-vector operation on an index that only
+// supports single vectors; only hnsw implements VectorIndexMulti.
+func asMultiVectorIndex(index VectorIndex, targetVector string) (VectorIndexMulti, error) {
+	multiIndex, ok := index.(VectorIndexMulti)
+	if !ok {
+		return nil, fmt.Errorf("target vector %q: %s index does not support multi-vectors", targetVector, index.Type())
+	}
+	return multiIndex, nil
 }
 
 // VectorIndexMulti is a VectorIndex that supports multi-vector indexing.

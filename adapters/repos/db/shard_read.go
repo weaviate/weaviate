@@ -679,7 +679,11 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 		case []float32:
 			distancer = index.QueryVectorDistancer(v)
 		case [][]float32:
-			distancer = index.(VectorIndexMulti).QueryMultiVectorDistancer(v)
+			multiIndex, err := asMultiVectorIndex(index, target)
+			if err != nil {
+				return nil, err
+			}
+			distancer = multiIndex.QueryMultiVectorDistancer(v)
 		default:
 			return nil, fmt.Errorf("unsupported vector type: %T", v)
 		}
@@ -781,7 +785,11 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 						return err
 					}
 				case [][]float32:
-					ids, dists, err = vidx.(VectorIndexMulti).SearchByMultiVectorDistance(
+					multiIndex, err := asMultiVectorIndex(vidx, targetVector)
+					if err != nil {
+						return fmt.Errorf("multi vector search by distance: %w", err)
+					}
+					ids, dists, err = multiIndex.SearchByMultiVectorDistance(
 						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
@@ -809,7 +817,11 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 						return err
 					}
 				case [][]float32:
-					ids, dists, err = vidx.(VectorIndexMulti).SearchByMultiVector(ctx, searchVector, limit, allowList)
+					multiIndex, err := asMultiVectorIndex(vidx, targetVector)
+					if err != nil {
+						return fmt.Errorf("multi vector search: %w", err)
+					}
+					ids, dists, err = multiIndex.SearchByMultiVector(ctx, searchVector, limit, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's

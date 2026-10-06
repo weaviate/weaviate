@@ -1081,6 +1081,20 @@ func TestShard_MultiVectorOnIndexWithoutMultiSupport(t *testing.T) {
 			require.Len(t, errs, 1)
 			return errs[0]
 		},
+		"search": func(t *testing.T, ctx context.Context, shd ShardLike) error {
+			_, _, err := shd.ObjectVectorSearch(ctx, []models.Vector{multiVector}, []string{"foo"}, 0, 10,
+				nil, nil, nil, additional.Properties{}, nil, nil)
+			return err
+		},
+		"search by distance": func(t *testing.T, ctx context.Context, shd ShardLike) error {
+			_, _, err := shd.ObjectVectorSearch(ctx, []models.Vector{multiVector}, []string{"foo"}, 0.5, -1,
+				nil, nil, nil, additional.Properties{}, nil, nil)
+			return err
+		},
+		"distance for query": func(t *testing.T, ctx context.Context, shd ShardLike) error {
+			_, err := shd.VectorDistanceForQuery(ctx, 0, []models.Vector{multiVector}, []string{"foo"})
+			return err
+		},
 	}
 
 	for _, index := range indexes {
