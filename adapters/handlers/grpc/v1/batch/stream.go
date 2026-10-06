@@ -57,6 +57,7 @@ type StreamHandler struct {
 	authorizer           authorization.Authorizer
 	shuttingDownCtx      context.Context
 	triggerShuttingDown  context.CancelFunc
+	clientCallsCtx       context.Context
 	registerMu           sync.Mutex
 	logger               logrus.FieldLogger
 	reportingQueues      *reportingQueues
@@ -80,6 +81,7 @@ func NewStreamHandler(
 	authorizer authorization.Authorizer,
 	shuttingDownCtx context.Context,
 	triggerShuttingDown context.CancelFunc,
+	clientCallsCtx context.Context,
 	recvWg, sendWg *sync.WaitGroup,
 	reportingQueues *reportingQueues,
 	processingQueue processingQueue,
@@ -95,6 +97,7 @@ func NewStreamHandler(
 		authorizer:           authorizer,
 		shuttingDownCtx:      shuttingDownCtx,
 		triggerShuttingDown:  triggerShuttingDown,
+		clientCallsCtx:       clientCallsCtx,
 		logger:               logger,
 		reportingQueues:      reportingQueues,
 		processingQueue:      processingQueue,
@@ -479,6 +482,11 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, principal
 
 	shuttingDownDone := h.shuttingDownCtx.Done()
 	var gracePeriod <-chan time.Time
+	forceClose := func(reason string) error {
+		log.Warnf("closing recv stream %s", reason)
+		cancel()
+		return fmt.Errorf("server is shutting down, recv stream closed %s: %w", reason, ctx.Err())
+	}
 
 	reqCh, errCh := h.recv(ctx, stream)
 	for {
@@ -491,15 +499,13 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, principal
 				gracePeriod = time.After(SHUTDOWN_GRACE_PERIOD)
 				log.Info("server is shutting down, will force close recv stream after grace period")
 			}
-			select {
-			case <-gracePeriod:
-				// if we're still looping after the grace period has expired then force close
-				log.Warn("grace period expired, closing recv stream")
-				cancel()
-				return fmt.Errorf("server is shutting down, recv stream closed after grace period: %w", ctx.Err())
-			default:
-				// otherwise continue as normal
-			}
+		}
+		select {
+		case <-gracePeriod:
+			return forceClose("after grace period")
+		case <-h.clientCallsCtx.Done():
+			return forceClose("as client calls were cancelled")
+		default:
 		}
 
 		var request *pb.BatchStreamRequest
@@ -532,10 +538,9 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, principal
 			log.Info("server is shutting down, will force close recv stream after grace period")
 			continue
 		case <-gracePeriod:
-			// if we block waiting for stream.Recv() until the grace period expires then force close
-			log.Warn("grace period expired, closing recv stream")
-			cancel()
-			return fmt.Errorf("server is shutting down, recv stream closed after grace period: %w", ctx.Err())
+			return forceClose("after grace period")
+		case <-h.clientCallsCtx.Done():
+			return forceClose("as client calls were cancelled")
 		}
 
 		if errors.Is(err, io.EOF) {

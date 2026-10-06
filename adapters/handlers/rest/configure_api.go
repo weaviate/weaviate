@@ -195,6 +195,9 @@ const (
 	// inFlightCancelDelay must stay below --graceful-timeout, or a request
 	// that outlives it fails http.Server.Shutdown and ServerShutdown never runs.
 	inFlightCancelDelay = 5 * time.Second
+	// batchDrainTimeout gives batch streams, closed at inFlightCancelDelay,
+	// time to send their last results. It too counts against --graceful-timeout.
+	batchDrainTimeout = inFlightCancelDelay + 5*time.Second
 )
 
 // makeConfigureServer derives every request from requestsCtx, so its cancel lets
@@ -1527,7 +1530,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	clientCallsCtx, cancelClientCalls := context.WithCancel(context.Background())
 	grpcInFlight := grpcHandler.NewInFlightCancel(clientCallsCtx)
 	grpcOptions = append(grpcOptions, grpc.ChainUnaryInterceptor(grpcInFlight.UnavailableAfterCancel()))
-	grpcServer, batchDrain := createGrpcServer(appState, telemeter.GetClientTracker(), telemeter.GetIntegrationTracker(), grpcOptions...)
+	grpcServer, batchDrain := createGrpcServer(appState, telemeter.GetClientTracker(), telemeter.GetIntegrationTracker(), clientCallsCtx, grpcOptions...)
 	restInFlight := newInFlightCancel(clientCallsCtx)
 	grpcWebCtx, refuseGrpcWeb := context.WithCancel(clientCallsCtx)
 	grpcWebInFlight := newInFlightCancel(grpcWebCtx)
@@ -1579,7 +1582,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.ExportParticipant.StartShutdown()
 		// The batch-stream drain tells stream clients to back off through the
 		// gRPC server, so the server stops only after it.
-		batchDrain()
+		waitBatchDrain(batchDrain, batchDrainTimeout, appState.Logger)
 		waitGrpcStop = startGrpcStop(grpcServer, refuseGrpcWeb, grpcGracefulStopTimeout, appState.Logger)
 	}
 

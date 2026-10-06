@@ -29,6 +29,7 @@ type Drain func()
 type options struct {
 	admissionChecker  admissionChecker
 	batchStreamConfig config.BatchStream
+	clientCallsCtx    context.Context
 }
 
 type Option func(*options)
@@ -47,6 +48,14 @@ func WithAdmissionChecker(c admissionChecker) Option {
 func WithStreamConfig(cfg config.BatchStream) Option {
 	return func(o *options) {
 		o.batchStreamConfig = cfg
+	}
+}
+
+// WithClientCallsCtx closes every stream still receiving once ctx is
+// cancelled, as the shutdown grace period expiring would.
+func WithClientCallsCtx(ctx context.Context) Option {
+	return func(o *options) {
+		o.clientCallsCtx = ctx
 	}
 }
 
@@ -70,7 +79,7 @@ func Start(
 	namespacesEnabled bool,
 	opts ...Option,
 ) (*StreamHandler, Drain) {
-	o := &options{}
+	o := &options{clientCallsCtx: context.Background()}
 	for _, opt := range opts {
 		opt(o)
 	}
@@ -101,6 +110,7 @@ func Start(
 		authorizer,
 		shuttingDownCtx,
 		triggerShuttingDown,
+		o.clientCallsCtx,
 		&recvWg,
 		&sendWg,
 		reportingQueues,

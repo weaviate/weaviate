@@ -190,6 +190,60 @@ func TestStartGrpcStop(t *testing.T) {
 	}
 }
 
+// A drain that never finishes must not hold up the gRPC stop past the timeout.
+func TestWaitBatchDrain(t *testing.T) {
+	const (
+		timeout     = 200 * time.Millisecond
+		waitLimit   = 5 * time.Second
+		drainNotice = "batch stream drain did not finish within 200ms, continuing shutdown"
+	)
+
+	cases := []struct {
+		name       string
+		drainHangs bool
+	}{
+		{name: "drain that finishes returns at once"},
+		{name: "drain that hangs is left behind at the timeout", drainHangs: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			release := make(chan struct{})
+			t.Cleanup(func() { close(release) })
+			drain := func() {
+				if tc.drainHangs {
+					<-release
+				}
+			}
+
+			logger, hook := test.NewNullLogger()
+			waited := make(chan time.Duration, 1)
+			go func() {
+				start := time.Now()
+				waitBatchDrain(drain, timeout, logger)
+				waited <- time.Since(start)
+			}()
+
+			select {
+			case took := <-waited:
+				if tc.drainHangs {
+					assert.GreaterOrEqual(t, took, timeout)
+				} else {
+					assert.Less(t, took, timeout)
+				}
+			case <-time.After(waitLimit):
+				require.FailNow(t, "waitBatchDrain did not return")
+			}
+
+			var noticed bool
+			for _, e := range hook.AllEntries() {
+				noticed = noticed || (e.Level == logrus.WarnLevel && e.Message == drainNotice)
+			}
+			assert.Equal(t, tc.drainHangs, noticed, "drain timeout warning")
+		})
+	}
+}
+
 // wait must not return while the graceful stop it joins is still draining a call.
 func TestStartGrpcStopWaitJoinsDrain(t *testing.T) {
 	health := &blockingHealthServer{entered: make(chan struct{}, 1), release: make(chan struct{})}
