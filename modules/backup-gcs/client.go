@@ -12,7 +12,6 @@
 package modstggcs
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -175,14 +174,11 @@ func (g *gcsClient) getObject(ctx context.Context, bucket *storage.BucketHandle,
 	}
 	defer reader.Close()
 
-	// Read file contents using io.Copy for better memory management
-	var buf bytes.Buffer
-	_, err = io.Copy(&buf, reader)
+	content, err := ubak.ReadAllSized(reader, reader.Remain())
 	if err != nil {
 		return nil, errors.Wrapf(err, "read object: %v", objectName)
 	}
 
-	content := buf.Bytes()
 	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues(Name, "class")
 	if err == nil {
 		metric.Add(float64(len(content)))
