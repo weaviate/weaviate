@@ -329,6 +329,14 @@ func (c *coordinator[T, R]) Push(ctx context.Context,
 // - Only send error messages on replyCh once it's unlikely we'll ever reach level successes
 //
 // Note that the first retry for a given host, may happen before c.pullBackOff.initial has passed
+// cannotServe reports whether asking this peer again within the attempt is pointless. Counting the
+// never-will case matters in MT, where a tenant's shard lives on a subset of nodes, so "not here"
+// is the steady state and a worker would otherwise retry it until its timeout. A replica merely
+// behind the requested version reports lag instead and keeps being retried.
+func cannotServe(err error) bool {
+	return errors.Is(err, ErrReplicaNotReady) || errors.Is(err, ErrReplicaNotServedHere)
+}
+
 func (c *coordinator[T, any]) Pull(ctx context.Context,
 	cl types.ConsistencyLevel,
 	op readOp[T], directCandidate string,
@@ -402,7 +410,7 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 					replyCh <- Result[T]{resp, err}
 					return
 				}
-				if errors.Is(err, ErrReplicaNotReady) && levelUnreachable(hosts[hostIndex]) {
+				if cannotServe(err) && levelUnreachable(hosts[hostIndex]) {
 					replyCh <- Result[T]{resp, err}
 					return
 				}
@@ -426,7 +434,7 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 						replyCh <- Result[T]{resp, err}
 						return
 					}
-					if errors.Is(err, ErrReplicaNotReady) && levelUnreachable(hr.host) {
+					if cannotServe(err) && levelUnreachable(hr.host) {
 						replyCh <- Result[T]{resp, err}
 						return
 					}

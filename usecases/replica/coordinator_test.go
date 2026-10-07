@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -564,4 +565,113 @@ func TestPullStopsWhenTheLevelBecomesUnreachable(t *testing.T) {
 	require.Equal(t, level, replies, "one reply per worker, as the caller depends on")
 	require.Less(t, elapsed, 10*time.Second,
 		"the pull must give up as soon as too few replicas can serve, not sit out its minute (took %s)", elapsed)
+}
+
+// A tenant's shard lives on a subset of nodes, so "I do not serve this shard" is the MT steady
+// state. Unclassified it cost the worker its whole timeout -- a minute for CountObjects, which is
+// where the aggregate latency came from.
+func TestPullStopsWhenAReplicaCannotServeTheShard(t *testing.T) {
+	const (
+		cls   = "C1"
+		shard = "S1"
+	)
+
+	hosts := []types.Replica{
+		{NodeName: "A", ShardName: shard, HostAddr: "a:7001"},
+		{NodeName: "B", ShardName: shard, HostAddr: "b:7001"},
+		{NodeName: "C", ShardName: shard, HostAddr: "c:7001"},
+	}
+
+	logger, _ := test.NewNullLogger()
+	metrics, err := replica.NewMetrics(nil)
+	require.NoError(t, err)
+
+	options := types.RoutingPlanBuildOptions{Shard: shard, ConsistencyLevel: types.ConsistencyLevelQuorum}
+	router := types.NewMockRouter(t)
+	router.EXPECT().BuildRoutingPlanOptions(shard, shard, types.ConsistencyLevelQuorum, "").Return(options).Once()
+	router.EXPECT().BuildReadRoutingPlan(options).Return(types.ReadRoutingPlan{
+		Shard:               shard,
+		ReplicaSet:          types.ReadReplicaSet{Replicas: hosts},
+		ConsistencyLevel:    types.ConsistencyLevelQuorum,
+		IntConsistencyLevel: 2,
+	}, nil).Once()
+
+	c := replica.NewReadCoordinator[int](router, metrics, cls, shard, "", logger)
+
+	// 422 is a miss the serving node is sure about; lag would be a 503 and stay retryable.
+	notServedHere := &clients.HTTPError{Code: http.StatusUnprocessableEntity, Body: []byte("not served here")}
+	var calls atomic.Int32
+	op := func(ctx context.Context, host string, _ bool) (int, error) {
+		calls.Add(1)
+		if host == "b:7001" {
+			return 1, nil
+		}
+		return 0, notServedHere
+	}
+
+	started := time.Now()
+	replyCh, level, err := c.Pull(context.Background(), types.ConsistencyLevelQuorum, op, "", time.Minute)
+	require.NoError(t, err)
+	require.Equal(t, 2, level)
+
+	var replies int
+	for range replyCh {
+		replies++
+	}
+	elapsed := time.Since(started)
+
+	require.Equal(t, level, replies, "one reply per worker, as the caller depends on")
+	require.Less(t, elapsed, 10*time.Second,
+		"a replica that does not serve the shard must not be retried to the timeout (took %s)", elapsed)
+	require.LessOrEqual(t, int(calls.Load()), len(hosts),
+		"each host should be asked at most once: a final answer is not worth repeating")
+}
+
+// The guard on the above: a non-final error must still be retried, or a read can no longer reach
+// its consistency level once propagation catches up.
+func TestPullKeepsRetryingAReplicaThatIsOnlyBehind(t *testing.T) {
+	const (
+		cls   = "C1"
+		shard = "S1"
+	)
+
+	hosts := []types.Replica{
+		{NodeName: "A", ShardName: shard, HostAddr: "a:7001"},
+		{NodeName: "B", ShardName: shard, HostAddr: "b:7001"},
+		{NodeName: "C", ShardName: shard, HostAddr: "c:7001"},
+	}
+
+	logger, _ := test.NewNullLogger()
+	metrics, err := replica.NewMetrics(nil)
+	require.NoError(t, err)
+
+	options := types.RoutingPlanBuildOptions{Shard: shard, ConsistencyLevel: types.ConsistencyLevelQuorum}
+	router := types.NewMockRouter(t)
+	router.EXPECT().BuildRoutingPlanOptions(shard, shard, types.ConsistencyLevelQuorum, "").Return(options).Once()
+	router.EXPECT().BuildReadRoutingPlan(options).Return(types.ReadRoutingPlan{
+		Shard:               shard,
+		ReplicaSet:          types.ReadReplicaSet{Replicas: hosts},
+		ConsistencyLevel:    types.ConsistencyLevelQuorum,
+		IntConsistencyLevel: 2,
+	}, nil).Once()
+
+	c := replica.NewReadCoordinator[int](router, metrics, cls, shard, "", logger)
+
+	// 500 carries no sentinel, so it means "ask again": nothing here is final.
+	retryable := &clients.HTTPError{Code: http.StatusInternalServerError, Body: []byte("boom")}
+	var calls atomic.Int32
+	op := func(ctx context.Context, host string, _ bool) (int, error) {
+		calls.Add(1)
+		return 0, retryable
+	}
+
+	replyCh, level, err := c.Pull(context.Background(), types.ConsistencyLevelQuorum, op, "", 2*time.Second)
+	require.NoError(t, err)
+	require.Equal(t, 2, level)
+
+	for range replyCh {
+	}
+
+	require.Greater(t, int(calls.Load()), len(hosts),
+		"a retryable failure must keep being retried, not written off as unable to serve")
 }
