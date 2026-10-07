@@ -61,7 +61,7 @@ func TestQuery(t *testing.T) {
 			wantQueryInput: inputs,
 		},
 		{
-			// errAny is not a Forbidden, so gateErr renders it 422 rather than 403.
+			// errAny is not a Forbidden, so forbiddenOrUnprocessable renders it 422 rather than 403.
 			name:           "a non-permission authorizer error",
 			class:          cls,
 			param:          params,

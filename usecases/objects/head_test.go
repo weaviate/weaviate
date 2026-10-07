@@ -63,7 +63,7 @@ func Test_HeadObject(t *testing.T) {
 			class:   cls,
 			authErr: errAny,
 			wantOK:  false,
-			// errAny is not a Forbidden, so gateErr renders it 422 rather than 403.
+			// errAny is not a Forbidden, so forbiddenOrUnprocessable renders it 422 rather than 403.
 			wantCode: StatusUnprocessableEntity,
 		},
 		{

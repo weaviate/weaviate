@@ -24,19 +24,19 @@ import (
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
-// Test_GateRefusal_RendersUnprocessable covers the gateErr sites no per-method
-// table reaches. The namespace row fails if a site keeps 403, and the permission
-// row fails if a site answers 422 for a denied caller.
+// Test_GateRefusal_RendersUnprocessable covers the authorizer call sites no
+// per-method table reaches. The namespace row fails if a site keeps 403, and the
+// permission row fails if a site answers 422 for a denied caller.
 func Test_GateRefusal_RendersUnprocessable(t *testing.T) {
 	id := strfmt.UUID("d18c8e5e-0000-0000-0000-56b0cfe33ce7")
 	principal := &models.Principal{Username: "u"}
 
 	// The gate returns RequireActive's sentinel unwrapped and never as a
-	// Forbidden, which is what lets gateErr tell the two apart without naming
+	// Forbidden, so forbiddenOrUnprocessable tells the two apart without naming
 	// usecases/namespaces. TestAuthorizeAndRequireActiveNamespace pins that.
 	namespaceRefusal := errors.New("namespace is suspended")
 	// NewForbidden builds this one, because a zero-value Forbidden panics in its
-	// own Error(), which gateErr calls.
+	// own Error(), which forbiddenOrUnprocessable calls.
 	permissionRefusal := authzerrs.NewForbidden(principal, "R", "data/collections/Zoo")
 
 	// allowFirst counts the authorizer calls a site must pass before the one under

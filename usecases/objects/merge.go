@@ -51,12 +51,12 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	}
 	className, aliasName, err := m.resolveNS(principal, updates.Class)
 	if err != nil {
-		return resolverError(err)
+		return forbiddenOrUnprocessable(err)
 	}
 	updates.Class = className
 	cls, id := updates.Class, updates.ID
 	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.UPDATE, className, authorization.Objects(className, updates.Tenant)); err != nil {
-		return gateErr(err)
+		return forbiddenOrUnprocessable(err)
 	}
 
 	ctx = classcache.ContextWithClassCache(ctx)

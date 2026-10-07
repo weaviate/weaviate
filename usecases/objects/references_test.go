@@ -187,7 +187,7 @@ func Test_ReferenceAdd(t *testing.T) {
 	}{
 		{
 			Name: "authorization", Req: req, Stage: 0,
-			// anyErr is not a Forbidden, so gateErr renders it 422 rather than 403.
+			// anyErr is not a Forbidden, so forbiddenOrUnprocessable renders it 422 rather than 403.
 			WantCode: StatusUnprocessableEntity, WantErr: anyErr, ErrAuth: anyErr,
 		},
 		{
@@ -346,7 +346,7 @@ func Test_ReferenceUpdate(t *testing.T) {
 		},
 		{
 			Name: "authorization", Req: req,
-			// anyErr is not a Forbidden, so gateErr renders it 422 rather than 403.
+			// anyErr is not a Forbidden, so forbiddenOrUnprocessable renders it 422 rather than 403.
 			WantCode: StatusUnprocessableEntity, WantErr: anyErr, ErrAuth: anyErr,
 			Stage: 0,
 		},
@@ -508,7 +508,7 @@ func Test_ReferenceDelete(t *testing.T) {
 		},
 		{
 			Name: "authorization", Req: req,
-			// anyErr is not a Forbidden, so gateErr renders it 422 rather than 403.
+			// anyErr is not a Forbidden, so forbiddenOrUnprocessable renders it 422 rather than 403.
 			WantCode: StatusUnprocessableEntity, WantErr: anyErr, ErrAuth: anyErr, Stage: 1,
 		},
 		{

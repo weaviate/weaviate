@@ -73,14 +73,14 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 	if params != nil && params.Class != "" {
 		resolved, _, err := m.resolveNS(principal, params.Class)
 		if err != nil {
-			return nil, resolverError(err)
+			return nil, forbiddenOrUnprocessable(err)
 		}
 		params.Class = resolved
 		class = params.Class
 	}
 
 	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.READ, class, authorization.CollectionsData(class)...); err != nil {
-		return nil, gateErr(err)
+		return nil, forbiddenOrUnprocessable(err)
 	}
 
 	m.metrics.GetObjectInc()

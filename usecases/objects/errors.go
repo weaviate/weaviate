@@ -45,17 +45,6 @@ func (e *Error) Unwrap() error {
 	return e.Err
 }
 
-// gateErr renders an authorizer error in a method that checks namespace state.
-// An autherrs.Forbidden answers 403, everything else 422. It cannot test the
-// namespace sentinel instead, because usecases/namespaces imports this package.
-func gateErr(err error) *Error {
-	code := StatusUnprocessableEntity
-	if errors.As(err, &autherrs.Forbidden{}) {
-		code = StatusForbidden
-	}
-	return &Error{err.Error(), code, err}
-}
-
 func (e *Error) NotFound() bool {
 	return e.Code == StatusNotFound
 }
@@ -99,9 +88,10 @@ func userInputOrForbidden(err error) error {
 	return NewErrInvalidUserInput("%v", err)
 }
 
-// resolverError maps a resolver error to 403 for a Forbidden and to 422
-// otherwise.
-func resolverError(err error) *Error {
+// forbiddenOrUnprocessable maps a resolver or authorizer error to 403 for an
+// autherrs.Forbidden and to 422 otherwise. It cannot test the namespace sentinel
+// instead, because usecases/namespaces imports this package.
+func forbiddenOrUnprocessable(err error) *Error {
 	if errors.As(err, &autherrs.Forbidden{}) {
 		return &Error{err.Error(), StatusForbidden, err}
 	}

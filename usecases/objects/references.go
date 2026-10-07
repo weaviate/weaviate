@@ -45,7 +45,7 @@ func (m *Manager) autodetectToClass(class *models.Class, fromProperty string, be
 
 func (m *Manager) getAuthorizedFromClass(ctx context.Context, principal *models.Principal, className string) (*models.Class, uint64, versioned.Classes, *Error) {
 	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.READ, className, authorization.CollectionsMetadata(className)...); err != nil {
-		return nil, 0, nil, gateErr(err)
+		return nil, 0, nil, forbiddenOrUnprocessable(err)
 	}
 	fetchedClass, err := m.schemaManager.GetCachedClassNoAuth(ctx, className)
 	if err != nil {
