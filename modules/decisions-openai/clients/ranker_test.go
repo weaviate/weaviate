@@ -846,7 +846,7 @@ func TestRankLogsUsage(t *testing.T) {
 	require.Len(t, finished, 1)
 	assert.Equal(t, logrus.DebugLevel, finished[0].Level)
 	assert.Equal(t, logrus.Fields{
-		"action":        "reranker_openai_rank",
+		"action":        "decisions_openai_rank",
 		"documents":     5,
 		"requests":      int64(3),
 		"unanswered":    int64(1),
@@ -887,7 +887,7 @@ func TestRankLogsUsageOnFailure(t *testing.T) {
 			documents: []string{"a", "b", "c", "d"},
 			failures:  map[string]failure{"c": {status: 400, body: badRequest}},
 			wantFields: logrus.Fields{
-				"action":        "reranker_openai_rank",
+				"action":        "decisions_openai_rank",
 				"documents":     4,
 				"requests":      int64(2),
 				"unanswered":    int64(1),
@@ -1076,7 +1076,7 @@ func TestMetaInfo(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, map[string]any{
-		"name":              "Reranker - OpenAI",
+		"name":              "Decisions - OpenAI",
 		"documentationHref": "https://developers.openai.com/api/docs/guides/decisions",
 	}, meta)
 }

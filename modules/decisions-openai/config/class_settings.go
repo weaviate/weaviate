@@ -25,7 +25,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
-const moduleName = "reranker-openai"
+const moduleName = "decisions-openai"
 
 const (
 	DefaultBaseURL      = "https://api.openai.com"

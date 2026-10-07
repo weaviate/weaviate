@@ -30,7 +30,7 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/reranker-openai/config"
+	"github.com/weaviate/weaviate/modules/decisions-openai/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
@@ -170,7 +170,7 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 		})
 	}
 	err = eg.Wait()
-	usage := c.logger.WithField("action", "reranker_openai_rank").
+	usage := c.logger.WithField("action", "decisions_openai_rank").
 		WithField("documents", len(documents)).
 		WithField("requests", requests.Load()).
 		WithField("unanswered", unanswered.Load()).
@@ -249,7 +249,7 @@ func (c *client) judge(ctx context.Context, request judgeRequest, document strin
 		if !result.retryable {
 			return judgment{}, err
 		}
-		c.logger.WithField("action", "reranker_openai_retry").WithField("attempt", attempt+1).
+		c.logger.WithField("action", "decisions_openai_retry").WithField("attempt", attempt+1).
 			Debugf("openai request failed, retrying: %v", err)
 		lastErr = err
 		retryAfter = result.retryAfter

@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modrerankeropenai
+package moddecisionsopenai
 
 import (
 	"context"
@@ -22,46 +22,46 @@ import (
 
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/reranker-openai/clients"
+	"github.com/weaviate/weaviate/modules/decisions-openai/clients"
 	rerankeradditional "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
-const Name = "reranker-openai"
+const Name = "decisions-openai"
 
-func New() *ReRankerOpenAIModule {
-	return &ReRankerOpenAIModule{}
+func New() *DecisionsOpenAIModule {
+	return &DecisionsOpenAIModule{}
 }
 
-type ReRankerOpenAIModule struct {
-	reranker                     ReRankerOpenAIClient
+type DecisionsOpenAIModule struct {
+	reranker                     DecisionsOpenAIClient
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
 }
 
-type ReRankerOpenAIClient interface {
+type DecisionsOpenAIClient interface {
 	Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
 	MetaInfo() (map[string]any, error)
 }
 
-func (m *ReRankerOpenAIModule) Name() string {
+func (m *DecisionsOpenAIModule) Name() string {
 	return Name
 }
 
-func (m *ReRankerOpenAIModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2TextReranker
+func (m *DecisionsOpenAIModule) Type() modulecapabilities.ModuleType {
+	return modulecapabilities.Decisions
 }
 
-func (m *ReRankerOpenAIModule) Init(ctx context.Context,
+func (m *DecisionsOpenAIModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	if err := m.initAdditional(ctx, params.GetConfig().ModuleHttpClientTimeout, params.GetLogger()); err != nil {
-		return errors.Wrap(err, "init reranker-openai")
+		return errors.Wrap(err, "init decisions-openai")
 	}
 
 	return nil
 }
 
-func (m *ReRankerOpenAIModule) initAdditional(ctx context.Context, timeout time.Duration,
+func (m *DecisionsOpenAIModule) initAdditional(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
 	apiKey := os.Getenv("OPENAI_APIKEY")
@@ -74,7 +74,7 @@ func (m *ReRankerOpenAIModule) initAdditional(ctx context.Context, timeout time.
 	return nil
 }
 
-const maxConcurrentRequestsEnv = "RERANKER_OPENAI_MAX_CONCURRENT_REQUESTS"
+const maxConcurrentRequestsEnv = "DECISIONS_OPENAI_MAX_CONCURRENT_REQUESTS"
 
 // maxConcurrentRequestsFromEnv reads the process-wide limit of requests to
 // the OpenAI API that may be in flight at once.
@@ -91,11 +91,11 @@ func maxConcurrentRequestsFromEnv() (int, error) {
 	return parsed, nil
 }
 
-func (m *ReRankerOpenAIModule) MetaInfo() (map[string]any, error) {
+func (m *DecisionsOpenAIModule) MetaInfo() (map[string]any, error) {
 	return m.reranker.MetaInfo()
 }
 
-func (m *ReRankerOpenAIModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
+func (m *DecisionsOpenAIModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
 
