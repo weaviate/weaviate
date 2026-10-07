@@ -253,7 +253,8 @@ func (f *fakeModuleConfig) IsGenerative(moduleName string) bool {
 }
 
 func (f *fakeModuleConfig) IsReranker(moduleName string) bool {
-	return strings.Contains(moduleName, "reranker")
+	// A decisions module serves rerank as the reranker modules do.
+	return strings.Contains(moduleName, "reranker") || strings.HasPrefix(moduleName, "decisions-")
 }
 
 func (f *fakeModuleConfig) IsMultiVector(moduleName string) bool {
