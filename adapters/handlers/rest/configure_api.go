@@ -760,6 +760,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	repo.SetReplicationFSM(appState.ClusterService.ReplicationFsm())
 	repo.SetSchemaGetter(appState.SchemaManager)
 	repo.SetTenantsActivityManager(appState.SchemaManager)
+	repo.SetShardingStateQuerier(appState.ClusterService)
 
 	// Reads carry the schema version this node resolved them against, so the receiving node can
 	// tell its own schema lag from data it genuinely does not hold. Wired here rather than at
