@@ -56,9 +56,29 @@ type VectorIndex interface {
 	CompressionStats() compressionhelpers.CompressionStats
 }
 
-// asMultiVectorIndex refuses a multi-vector operation on an index that only
-// supports single vectors; only hnsw implements VectorIndexMulti.
+// checkVectorKind refuses a payload whose shape does not match what the
+// target's index is configured for. Every hnsw implements VectorIndexMulti,
+// so the configured capability is what counts; a mismatch that slips past
+// here is only caught after the object is stored, or never with async
+// indexing. The noop index stands in for skipped indexing and takes anything.
+func checkVectorKind(index VectorIndex, targetVector string, multi bool) error {
+	if index.Type() == common.IndexTypeNoop || index.Multivector() == multi {
+		return nil
+	}
+	if multi {
+		return fmt.Errorf("target vector %q: %s index does not support multi-vectors", targetVector, index.Type())
+	}
+	return fmt.Errorf("target vector %q: %s index is configured for multi-vectors and does not accept single vectors",
+		targetVector, index.Type())
+}
+
+// asMultiVectorIndex is checkVectorKind for a multi-vector operation, also
+// guarding the type assertion for indexes that never implement the interface.
 func asMultiVectorIndex(index VectorIndex, targetVector string) (VectorIndexMulti, error) {
+	err := checkVectorKind(index, targetVector, true)
+	if err != nil {
+		return nil, err
+	}
 	multiIndex, ok := index.(VectorIndexMulti)
 	if !ok {
 		return nil, fmt.Errorf("target vector %q: %s index does not support multi-vectors", targetVector, index.Type())

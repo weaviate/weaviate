@@ -677,6 +677,10 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 		var distancer common.QueryVectorDistancer
 		switch v := searchVectors[j].(type) {
 		case []float32:
+			err := checkVectorKind(index, target, false)
+			if err != nil {
+				return nil, err
+			}
 			distancer = index.QueryVectorDistancer(v)
 		case [][]float32:
 			multiIndex, err := asMultiVectorIndex(index, target)
@@ -774,6 +778,10 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 			if limit < 0 {
 				switch searchVector := searchVectors[i].(type) {
 				case []float32:
+					err = checkVectorKind(vidx, targetVector, false)
+					if err != nil {
+						return fmt.Errorf("vector search by distance: %w", err)
+					}
 					ids, dists, err = vidx.SearchByVectorDistance(
 						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
 					if err != nil {
@@ -805,6 +813,10 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 			} else {
 				switch searchVector := searchVectors[i].(type) {
 				case []float32:
+					err = checkVectorKind(vidx, targetVector, false)
+					if err != nil {
+						return fmt.Errorf("vector search: %w", err)
+					}
 					ids, dists, err = vidx.SearchByVector(ctx, searchVector, limit, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
