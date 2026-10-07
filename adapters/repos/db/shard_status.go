@@ -102,6 +102,7 @@ func (s *Shard) getStatusUnlocked() storagestate.Status {
 		return nil
 	})
 	s.status.Status = status
+	s.moveCountedStatusLocked(status)
 	return status
 }
 

@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -58,7 +60,8 @@ type statusGaugeHarness struct {
 type statusGaugeOpts struct {
 	multiTenant bool
 	// tenants is the number of tenants of a multi-tenant class, 0 meaning one.
-	tenants int
+	tenants    int
+	asyncIndex bool
 }
 
 func newStatusGaugeHarness(t *testing.T, opts statusGaugeOpts) *statusGaugeHarness {
@@ -118,6 +121,7 @@ func newStatusGaugeHarness(t *testing.T, opts statusGaugeOpts) *statusGaugeHarne
 			QueryMaximumResults:       10000,
 			MaxImportGoroutinesFactor: 1,
 			EnableLazyLoadShards:      boolPtr(false),
+			AsyncIndexingEnabled:      opts.asyncIndex,
 		},
 		&FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{},
 		&FakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
@@ -407,4 +411,38 @@ func TestShardStatusGaugeReleasedWhenInitFails(t *testing.T) {
 	require.Error(t, shard.(*LazyLoadShard).Load(testCtx()))
 
 	h.requireBuckets(t, "after the failed init", nil)
+}
+
+// A paused queue holding one object makes GetStatus recompute READY as INDEXING
+// without any explicit status update, which is the drift the gauge must follow.
+func TestShardStatusGaugeFollowsRecomputedStatus(t *testing.T) {
+	ctx := testCtx()
+	h := newStatusGaugeHarness(t, statusGaugeOpts{asyncIndex: true})
+	className := "StatusGaugeRecompute"
+	idx := h.addClass(t, statusGaugeClass(className, false))
+	_, shard := onlyShard(t, idx)
+	concrete := shard.(*Shard)
+
+	var queue *VectorIndexQueue
+	require.NoError(t, concrete.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
+		queue = q
+		return nil
+	}))
+	require.NotNil(t, queue)
+	require.NoError(t, queue.Pause(ctx))
+
+	obj := &models.Object{Class: className, ID: strfmt.UUID(uuid.NewString())}
+	require.NoError(t, h.repo.PutObject(ctx, obj, []float32{1, 2, 3, 4}, nil, nil, nil, 0))
+
+	require.Equal(t, storagestate.StatusIndexing, concrete.GetStatus())
+	h.requireBuckets(t, "after GetStatus saw a backlog",
+		map[storagestate.Status]float64{storagestate.StatusIndexing: 1})
+
+	require.NoError(t, concrete.UpdateStatus(storagestate.StatusReadOnly.String(), "test"))
+	h.requireBuckets(t, "after the shard went read-only",
+		map[storagestate.Status]float64{storagestate.StatusReadOnly: 1})
+
+	queue.Resume()
+	require.NoError(t, h.migrator.DropClass(ctx, className, false))
+	h.requireBuckets(t, "after the collection is dropped", nil)
 }
