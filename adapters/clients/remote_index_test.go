@@ -32,6 +32,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 
 	"github.com/stretchr/testify/assert"
@@ -227,6 +228,40 @@ func TestRemoteIndexPutFile(t *testing.T) {
 		err := client.PutFile(ctx, fs.host, "C1", "S1", "file1", rsc)
 		assert.Nil(t, err)
 	})
+}
+
+// A failed check must not report the object as present, or a caller reading
+// the bool first answers "already exists" for an object that was never stored.
+func TestRemoteIndexExistsFailedCheck(t *testing.T) {
+	t.Parallel()
+
+	id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
+	fs := newFakeRemoteIndexServer(t, http.MethodGet, "/indices/C1/shards/S1/objects/"+id.String())
+	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}
+	ts := fs.server(t)
+	defer ts.Close()
+
+	down := httptest.NewServer(http.NotFoundHandler())
+	downHost := down.URL[7:]
+	down.Close()
+
+	tests := []struct {
+		name string
+		host string
+	}{
+		{name: "owner answers 500", host: fs.host},
+		{name: "owner refuses the connection", host: downHost},
+	}
+	client := newRemoteIndex(ts.Client())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			exists, err := client.Exists(context.Background(), tt.host, "C1", "S1", id)
+			require.Error(t, err)
+			assert.False(t, exists)
+		})
+	}
 }
 
 func newRemoteIndex(httpClient *http.Client) *RemoteIndex {
