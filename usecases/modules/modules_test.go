@@ -583,3 +583,55 @@ func TestBatchUpdateVector_VectorlessClassIsNoop(t *testing.T) {
 		})
 	}
 }
+
+// Explore validates module search params without a class. With more than one
+// vectorizer enabled no module matched and building the error dereferenced
+// the nil class, panicking instead of returning an error (gh-4050).
+func TestCrossClassValidateSearchParam(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		modules     []string
+		param       string
+		errContains string
+	}{
+		{name: "single vectorizer, known param", modules: []string{"mod1"}, param: "nearArgument"},
+		{name: "single vectorizer, unknown param", modules: []string{"mod1"}, param: "nearOther", errContains: "nearOther"},
+		{name: "multiple vectorizers", modules: []string{"mod1", "mod2"}, param: "nearArgument", errContains: "multiple vectorizer modules"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			p := NewProvider(logger, config.Config{})
+			p.SetSchemaGetter(getMockSchemaReader(t))
+			for _, m := range tc.modules {
+				p.Register(newGraphQLModule(m).withArg("nearArgument"))
+			}
+			require.NoError(t, p.Init(context.Background(), nil, logger))
+
+			var err error
+			require.NotPanics(t, func() { err = p.CrossClassValidateSearchParam(tc.param, nil) })
+			if tc.errContains == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tc.errContains)
+		})
+	}
+}
+
+// With more than one vectorizer, Explore used to drop module params during
+// extraction, so the user got a misleading "received no search params" error
+// instead of the validation error above (gh-4050).
+func TestCrossClassExtractSearchParams_MultipleVectorizers(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	p := NewProvider(logger, config.Config{})
+	p.SetSchemaGetter(getMockSchemaReader(t))
+	p.Register(newGraphQLModule("mod1").withArg("nearArgument"))
+	p.Register(newGraphQLModule("mod2").withArg("nearArgument"))
+	require.NoError(t, p.Init(context.Background(), nil, logger))
+
+	params := p.CrossClassExtractSearchParams(map[string]interface{}{
+		"nearArgument": map[string]interface{}{},
+	})
+
+	assert.Contains(t, params, "nearArgument")
+}

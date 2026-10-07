@@ -3521,3 +3521,24 @@ func timeMust(t strfmt.DateTime, err error) strfmt.DateTime {
 
 	return t
 }
+
+// Selecting class properties through a fragment used to panic on an
+// unchecked *ast.Field type assertion (gh-4050).
+func TestGetFragmentSelection(t *testing.T) {
+	t.Parallel()
+
+	for _, query := range []string{
+		"{ Get { SomeAction { ... on SomeAction { intField } } } }",
+		"{ Get { SomeAction { ...F } } } fragment F on SomeAction { intField }",
+	} {
+		t.Run(query, func(t *testing.T) {
+			resolver := newMockResolver()
+			resolver.On("GetClass", dto.GetParams{
+				ClassName:  "SomeAction",
+				Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			}).Return(test_helper.EmptyList(), nil).Once()
+
+			resolver.AssertResolve(t, query)
+		})
+	}
+}

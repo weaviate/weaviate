@@ -536,7 +536,9 @@ func (p *Provider) extractSearchParams(arguments map[string]interface{}, class *
 	exractedParams := map[string]interface{}{}
 	exractedCombination := map[string]*dto.TargetCombination{}
 	for _, module := range p.GetAll() {
-		if p.shouldCrossClassIncludeClassArgument(class, module.Name(), module.Type(), p.getModuleAltNames(module)) {
+		// Explore (class == nil) extracts from every module so that validation
+		// can reject what it cannot serve instead of the param silently vanishing.
+		if class == nil || p.shouldIncludeClassArgument(class, module.Name(), module.Type(), p.getModuleAltNames(module)) {
 			if args, ok := module.(modulecapabilities.GraphQLArguments); ok {
 				for paramName, argument := range args.Arguments() {
 					if param, ok := arguments[paramName]; ok && argument.ExtractFunction != nil {
@@ -584,6 +586,13 @@ func (p *Provider) validateSearchParam(name string, value interface{}, class *mo
 		}
 	}
 
+	if class == nil {
+		if p.HasMultipleVectorizers() {
+			return fmt.Errorf("search-type %v is not supported in Explore when multiple vectorizer modules are enabled, "+
+				"use nearVector or nearObject instead", name)
+		}
+		return enterrors.NewErrNoVectorizerModule(fmt.Errorf("could not vectorize input for Explore with search-type %v. Make sure a vectorizer module is configured", name))
+	}
 	return enterrors.NewErrNoVectorizerModule(fmt.Errorf("could not vectorize input for collection %v with search-type %v. Make sure a vectorizer module is configured for this collection", class.Class, name))
 }
 

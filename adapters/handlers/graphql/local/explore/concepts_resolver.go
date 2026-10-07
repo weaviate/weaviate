@@ -17,7 +17,6 @@ import (
 	"fmt"
 
 	"github.com/tailor-platform/graphql"
-	"github.com/tailor-platform/graphql/language/ast"
 
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
@@ -144,10 +143,8 @@ func containsCertaintyProperty(info graphql.ResolveInfo) bool {
 		return false
 	}
 
-	for _, selection := range info.FieldASTs[0].SelectionSet.Selections {
-		field := selection.(*ast.Field)
-		name := field.Name.Value
-		if name == "certainty" {
+	for _, field := range common_filters.SelectedFields(info.FieldASTs[0].SelectionSet, info.Fragments) {
+		if field.Name.Value == "certainty" {
 			return true
 		}
 	}
