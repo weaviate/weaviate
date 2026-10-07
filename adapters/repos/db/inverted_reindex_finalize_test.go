@@ -12,19 +12,16 @@
 package db
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
-
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// Tests for the per-migration generation helpers added for
-// https://github.com/weaviate/weaviate/issues/10675. The functions under test live in
-// inverted_reindex_finalize.go and inverted_reindex_strategy_dir_names.go.
+// Tests for the migration dir-name helpers added for
+// https://github.com/weaviate/weaviate/issues/10675. The functions under test
+// live in inverted_reindex_strategy_dir_names.go.
 
 func TestParseMigrationDirName(t *testing.T) {
 	cases := []struct {
@@ -65,840 +62,120 @@ func TestGenSuffix(t *testing.T) {
 	require.Equal(t, "_0", genSuffix(0)) // 0 is reserved (canonical) but genSuffix still emits — callers don't pass 0
 }
 
-// A stat failure must not read as absence: that would retire an in-flight
-// migration and record it complete without ever rebuilding the index.
-func TestMigrationTrackerDirAbsentDoesNotReadAStatFailureAsAbsence(t *testing.T) {
-	lsmPath := t.TempDir()
-	require.NoError(t, os.Mkdir(filepath.Join(lsmPath, ".migrations"), 0o755))
-	const dirName = MigrationDirSearchableMapToBlockmax + "_1"
-	dirPath := filepath.Join(lsmPath, ".migrations", dirName)
-
-	require.True(t, migrationTrackerDirAbsent(lsmPath, dirName))
-	require.NoError(t, os.Mkdir(dirPath, 0o755))
-	require.False(t, migrationTrackerDirAbsent(lsmPath, dirName))
-
-	// A symlink loop stands in for the stat failures a unit test cannot
-	// produce (EIO, EACCES, no descriptors left), as in [breakSentinelRead].
-	require.NoError(t, os.Remove(dirPath))
-	require.NoError(t, os.Symlink(dirName, dirPath))
-	require.False(t, migrationTrackerDirAbsent(lsmPath, dirName),
-		"a tracker dir whose stat fails must not read as one that is not there")
+type plantedMigration struct {
+	taskVersion uint64
+	code        MigrationStrategyCode
+	prop        string
+	state       MigrationState
+	canonical   string
+	running     bool
 }
 
-// classWithIndexedProps authorizes finalization for every migrated index, so
-// callers can exercise generation/recovery logic without schema gating.
-func classWithIndexedProps(names ...string) *models.Class {
-	on := true
-	class := &models.Class{Class: "Finalize"}
-	for _, name := range names {
-		class.Properties = append(class.Properties, &models.Property{
-			Name:              name,
-			IndexFilterable:   &on,
-			IndexSearchable:   &on,
-			IndexRangeFilters: &on,
-		})
+func (p plantedMigration) subject() MigrationSubject {
+	subject := testMigrationSubject(p.taskVersion, p.code, p.prop)
+	if p.canonical != "" {
+		dirs := subject.Props[p.prop]
+		dirs.Canonical = p.canonical
+		subject.Props[p.prop] = dirs
 	}
-	return class
+	return subject
 }
 
-// touchSentinel creates an empty file at the given path. Used to
-// simulate sentinel files (started.mig, tidied.mig, etc.) in tests.
-func touchSentinel(t *testing.T, path string) {
+func (p plantedMigration) record(t *testing.T) MigrationRecord {
 	t.Helper()
-	require.NoError(t, os.WriteFile(path, nil, 0o644))
+	return newMigrationRecordAt(t, p.subject(), p.state)
 }
 
-// Finalizing is refused only for a canonical dir the load-time sweep would
-// delete (an index explicitly turned off); every other schema state finalizes.
-func TestFinalizeCompletedMigrations_FollowsTheSchemaFlag(t *testing.T) {
-	const propName = "text"
-	off, on := false, true
-
+func TestReconcileConvergesEveryMigrationOnAShard(t *testing.T) {
 	tests := []struct {
 		name          string
-		tracker       string
-		canonical     string
-		ingestSuffix  string
-		props         []*models.Property
-		wantFinalized bool
+		plant         []plantedMigration
+		wantCanonical map[string]string
+		wantStaged    []string
 	}{
 		{
-			name:         "enable-filterable while the flag is still off",
-			tracker:      "enable_filterable_text_1",
-			canonical:    "property_text",
-			ingestSuffix: "__enable_filterable_ingest_1",
-			props:        []*models.Property{{Name: propName, IndexFilterable: &off}},
+			name: "two strategies on one property settle into their own buckets",
+			plant: []plantedMigration{
+				{taskVersion: 10, code: StrategyCodeSearchableRetokenize, prop: "title", state: MigrationStateMerged},
+				{taskVersion: 11, code: StrategyCodeFilterableRetokenize, prop: "title", state: MigrationStateMerged},
+			},
+			wantCanonical: map[string]string{
+				"property_title_searchable": "property_title__g10_ingest",
+				"property_title":            "property_title__g11_ingest",
+			},
 		},
 		{
-			name:          "enable-filterable once the flag has landed",
-			tracker:       "enable_filterable_text_1",
-			canonical:     "property_text",
-			ingestSuffix:  "__enable_filterable_ingest_1",
-			props:         []*models.Property{{Name: propName, IndexFilterable: &on}},
-			wantFinalized: true,
+			name: "three properties on three strategies settle together",
+			plant: []plantedMigration{
+				{taskVersion: 20, code: StrategyCodeSearchableRetokenize, prop: "alpha", state: MigrationStateMerged},
+				{taskVersion: 21, code: StrategyCodeEnableFilterable, prop: "beta", state: MigrationStateSwapped},
+				{taskVersion: 22, code: StrategyCodeFilterableToRangeable, prop: "gamma", state: MigrationStateMerged},
+			},
+			wantCanonical: map[string]string{
+				"property_alpha_searchable": "property_alpha__g20_ingest",
+				"property_beta":             "property_beta__g21_ingest",
+				"property_gamma_rangeable":  "property_gamma__g22_ingest",
+			},
 		},
 		{
-			name:          "a flag the class leaves unset",
-			tracker:       "enable_filterable_text_1",
-			canonical:     "property_text",
-			ingestSuffix:  "__enable_filterable_ingest_1",
-			props:         []*models.Property{{Name: propName}},
-			wantFinalized: true,
+			name: "a committed migration settles beside one still rebuilding",
+			plant: []plantedMigration{
+				{taskVersion: 30, code: StrategyCodeSearchableRetokenize, prop: "title", state: MigrationStateMerged},
+				{
+					taskVersion: 31, code: StrategyCodeSearchableRetokenize, prop: "body",
+					state: MigrationStateIterating, running: true,
+				},
+			},
+			wantCanonical: map[string]string{
+				"property_title_searchable": "property_title__g30_ingest",
+				"property_body_searchable":  "property_body_searchable",
+			},
+			wantStaged: []string{"property_body__g31_ingest"},
 		},
 		{
-			name:          "a property the class does not hold",
-			tracker:       "enable_filterable_text_1",
-			canonical:     "property_text",
-			ingestSuffix:  "__enable_filterable_ingest_1",
-			wantFinalized: true,
+			name: "the newer migration wins the bucket even though the older one already flipped",
+			plant: []plantedMigration{
+				{taskVersion: 40, code: StrategyCodeSearchableRetokenize, prop: "title", state: MigrationStateSwapped},
+				{taskVersion: 41, code: StrategyCodeSearchableRetokenize, prop: "title", state: MigrationStateMerged},
+			},
+			wantCanonical: map[string]string{"property_title_searchable": "property_title__g41_ingest"},
 		},
 		{
-			name:         "enable-searchable while the flag is still off",
-			tracker:      "enable_searchable_text_1",
-			canonical:    "property_text_searchable",
-			ingestSuffix: "__enable_searchable_ingest_1",
-			props:        []*models.Property{{Name: propName, IndexSearchable: &off}},
-		},
-		{
-			name:         "filterable-to-rangeable while the flag is still off",
-			tracker:      "filterable_to_rangeable_text_1",
-			canonical:    "property_text_rangeable",
-			ingestSuffix: "__rangeable_ingest_1",
-			props:        []*models.Property{{Name: propName, IndexRangeFilters: &off}},
-		},
-		{
-			name:         "a retokenize onto a searchable index the class turns off",
-			tracker:      "searchable_retokenize_text_1",
-			canonical:    "property_text_searchable",
-			ingestSuffix: "__retokenize_ingest_1",
-			props:        []*models.Property{{Name: propName, IndexSearchable: &off}},
-		},
-		{
-			name:          "rebuild-searchable, which flips no flag of its own",
-			tracker:       "rebuild_searchable_text_1",
-			canonical:     "property_text_searchable",
-			ingestSuffix:  "__rebuild_searchable_ingest_1",
-			props:         []*models.Property{{Name: propName, IndexSearchable: &on}},
-			wantFinalized: true,
+			name:          "a bucket no record names is left alone",
+			wantCanonical: map[string]string{"property_title": "property_title"},
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			lsmPath := t.TempDir()
-			trackerDir := filepath.Join(lsmPath, migrationsDir, tc.tracker)
-			require.NoError(t, os.MkdirAll(trackerDir, 0o755))
-			touchSentinel(t, filepath.Join(trackerDir, "swapped.mig"))
-			touchSentinel(t, filepath.Join(trackerDir, "tidied.mig"))
-			require.NoError(t, os.WriteFile(
-				filepath.Join(trackerDir, "properties.mig"), []byte(propName), 0o644))
-
-			stagedDir := filepath.Join(lsmPath, tc.canonical+tc.ingestSuffix)
-			require.NoError(t, os.MkdirAll(stagedDir, 0o755))
-			require.NoError(t, os.WriteFile(
-				filepath.Join(stagedDir, "segment.db"), []byte("rebuilt"), 0o644))
-
-			logger, _ := test.NewNullLogger()
-			FinalizeCompletedMigrations(lsmPath,
-				&models.Class{Class: "Finalize", Properties: tc.props}, logger)
-
-			canonicalDir := filepath.Join(lsmPath, tc.canonical)
-			if tc.wantFinalized {
-				data, err := os.ReadFile(filepath.Join(canonicalDir, "segment.db"))
-				require.NoError(t, err, "the rebuilt data must reach the canonical name")
-				require.Equal(t, "rebuilt", string(data))
-				require.NoDirExists(t, stagedDir)
-				require.NoDirExists(t, trackerDir)
-				return
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newReconcileFixture(t)
+			var props []string
+			for canonical := range tt.wantCanonical {
+				f.mkdirs(canonical)
 			}
-			require.NoDirExists(t, canonicalDir,
-				"the next load's sweep deletes a canonical directory under a disabled index")
-			require.FileExists(t, filepath.Join(stagedDir, "segment.db"),
-				"the rebuilt data must keep its staged name until the flag lands")
-			require.DirExists(t, trackerDir,
-				"the tracker must survive, or nothing knows to finalize later")
+			for _, planted := range tt.plant {
+				subject := planted.subject()
+				f.mkdirs(append(migrationOwnedDirs(subject), subject.Props[planted.prop].Canonical)...)
+				f.put(planted.record(t))
+				props = append(props, planted.prop)
+				if planted.running {
+					f.tasks = append(f.tasks,
+						testTask(subject.TaskID, planted.taskVersion, distributedtask.TaskStatusStarted))
+				}
+			}
+			f.class = testClassWithTokenization(models.PropertyTokenizationLowercase, props...)
+
+			f.reconcile()
+			f.reconcile()
+
+			for canonical, want := range tt.wantCanonical {
+				require.Truef(t, f.exists(canonical), "canonical bucket %q", canonical)
+				require.Equalf(t, want, f.contentOf(canonical), "canonical bucket %q", canonical)
+			}
+			for _, staged := range tt.wantStaged {
+				require.Truef(t, f.exists(staged), "staged directory %q", staged)
+			}
+			f.requireMigrationDirsTrackRecords()
 		})
 	}
-}
-
-// TestFinalizeCompletedMigrations_MultiGen_PickHighestTidied verifies
-// that when multiple tidied gens are on disk (e.g. a crash before the
-// in-process trim could run), restart-finalize picks the highest one
-// and cleans the rest.
-func TestFinalizeCompletedMigrations_MultiGen_PickHighestTidied(t *testing.T) {
-	lsmPath := t.TempDir()
-	migsDir := filepath.Join(lsmPath, ".migrations")
-	require.NoError(t, os.MkdirAll(migsDir, 0o755))
-
-	// Set up three tidied gens for the same (prop, indexType) tuple.
-	// Each carries the sentinel files finalize expects + a
-	// properties.mig listing the prop.
-	for _, gen := range []int{1, 2, 3} {
-		dir := filepath.Join(migsDir, "searchable_retokenize_text_"+itoa(gen))
-		require.NoError(t, os.MkdirAll(dir, 0o755))
-		touchSentinel(t, filepath.Join(dir, "swapped.mig"))
-		touchSentinel(t, filepath.Join(dir, "tidied.mig"))
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "properties.mig"), []byte("text"), 0o644))
-	}
-
-	// Create the on-disk ingest dirs each gen would have. Gen 3 is the
-	// "winner" — its ingest dir should be renamed to the canonical
-	// `property_text_searchable`. Older gens' dirs should be removed.
-	for _, gen := range []int{1, 2, 3} {
-		require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_"+itoa(gen)), 0o755))
-		require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_backup_"+itoa(gen)), 0o755))
-	}
-	// Drop a marker file in gen-3's ingest so we can confirm it survived
-	// the rename to canonical.
-	winnerMarker := []byte("gen-3-data")
-	require.NoError(t, os.WriteFile(
-		filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_3", "segment.db"),
-		winnerMarker, 0o644))
-
-	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, classWithIndexedProps("text"), logger)
-
-	// Canonical main dir should exist and contain gen-3's marker.
-	canonical := filepath.Join(lsmPath, "property_text_searchable")
-	got, err := os.ReadFile(filepath.Join(canonical, "segment.db"))
-	require.NoError(t, err, "canonical dir should contain gen-3's segment")
-	require.Equal(t, winnerMarker, got)
-
-	// Older gen ingest dirs and all backup dirs should be gone.
-	for _, gen := range []int{1, 2, 3} {
-		_, err := os.Stat(filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_"+itoa(gen)))
-		require.True(t, os.IsNotExist(err), "ingest dir for gen %d should be removed", gen)
-		_, err = os.Stat(filepath.Join(lsmPath, "property_text_searchable__retokenize_backup_"+itoa(gen)))
-		require.True(t, os.IsNotExist(err), "backup dir for gen %d should be removed", gen)
-	}
-
-	// All tracker dirs should be gone — gen 3's was promoted, older
-	// gens were cleaned as stale.
-	migEntries, err := os.ReadDir(migsDir)
-	require.NoError(t, err)
-	require.Empty(t, migEntries, "tracker dirs should all be removed")
-}
-
-// TestFinalizeCompletedMigrations_TidiedPlusInFlight verifies that a
-// gen > highest-tidied is left alone (in-flight, recovery's job),
-// while the highest-tidied is still promoted.
-func TestFinalizeCompletedMigrations_TidiedPlusInFlight(t *testing.T) {
-	lsmPath := t.TempDir()
-	migsDir := filepath.Join(lsmPath, ".migrations")
-	require.NoError(t, os.MkdirAll(migsDir, 0o755))
-
-	// Gen 1: tidied (the "highest tidied").
-	gen1 := filepath.Join(migsDir, "searchable_retokenize_text_1")
-	require.NoError(t, os.MkdirAll(gen1, 0o755))
-	touchSentinel(t, filepath.Join(gen1, "swapped.mig"))
-	touchSentinel(t, filepath.Join(gen1, "tidied.mig"))
-	require.NoError(t, os.WriteFile(filepath.Join(gen1, "properties.mig"), []byte("text"), 0o644))
-
-	// Gen 2: in-flight (started but not yet tidied).
-	gen2 := filepath.Join(migsDir, "searchable_retokenize_text_2")
-	require.NoError(t, os.MkdirAll(gen2, 0o755))
-	touchSentinel(t, filepath.Join(gen2, "started.mig"))
-	require.NoError(t, os.WriteFile(filepath.Join(gen2, "properties.mig"), []byte("text"), 0o644))
-
-	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_1"), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_2"), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_reindex_2"), 0o755))
-
-	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, classWithIndexedProps("text"), logger)
-
-	// Gen 1 finalized → canonical dir exists.
-	_, err := os.Stat(filepath.Join(lsmPath, "property_text_searchable"))
-	require.NoError(t, err, "canonical dir should exist after gen-1 finalize")
-	// Gen 1 sidecar/tracker dirs gone.
-	_, err = os.Stat(filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_1"))
-	require.True(t, os.IsNotExist(err), "gen-1 ingest dir should be renamed away")
-	_, err = os.Stat(gen1)
-	require.True(t, os.IsNotExist(err), "gen-1 tracker dir should be removed")
-	// Gen 2 left alone for recovery.
-	_, err = os.Stat(gen2)
-	require.NoError(t, err, "gen-2 tracker dir should remain for recovery")
-	_, err = os.Stat(filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_2"))
-	require.NoError(t, err, "gen-2 ingest dir should remain for recovery")
-	_, err = os.Stat(filepath.Join(lsmPath, "property_text_searchable__retokenize_reindex_2"))
-	require.NoError(t, err, "gen-2 reindex dir should remain for recovery")
-}
-
-// TestFinalizeCompletedMigrations_OnlyUntidiedIsNoOp verifies that if
-// no migration has tidied yet, finalize touches nothing (recovery
-// owns).
-func TestFinalizeCompletedMigrations_OnlyUntidiedIsNoOp(t *testing.T) {
-	lsmPath := t.TempDir()
-	migsDir := filepath.Join(lsmPath, ".migrations")
-	require.NoError(t, os.MkdirAll(migsDir, 0o755))
-
-	gen1 := filepath.Join(migsDir, "searchable_retokenize_text_1")
-	require.NoError(t, os.MkdirAll(gen1, 0o755))
-	touchSentinel(t, filepath.Join(gen1, "started.mig"))
-	require.NoError(t, os.WriteFile(filepath.Join(gen1, "properties.mig"), []byte("text"), 0o644))
-
-	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_1"), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_reindex_1"), 0o755))
-
-	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, classWithIndexedProps("text"), logger)
-
-	// Tracker dir still there.
-	_, err := os.Stat(gen1)
-	require.NoError(t, err, "untidied tracker dir should remain")
-	// Sidecars still there.
-	_, err = os.Stat(filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_1"))
-	require.NoError(t, err)
-	_, err = os.Stat(filepath.Join(lsmPath, "property_text_searchable__retokenize_reindex_1"))
-	require.NoError(t, err)
-	// No canonical dir created.
-	_, err = os.Stat(filepath.Join(lsmPath, "property_text_searchable"))
-	require.True(t, os.IsNotExist(err), "canonical dir must not be created for untidied state")
-}
-
-// -----------------------------------------------------------------------------
-// Recovery path: merged.mig set but tidied.mig missing
-// -----------------------------------------------------------------------------
-//
-// These tests pin the recovery path added to FinalizeCompletedMigrations
-// for the failure mode behind RestartMatrix R2 / R2b:
-//
-//   - T1 word→field completes successfully on all nodes (gen-1 tidied).
-//   - T2 field→word starts. On some node, the in-process runtime swap
-//     dies after `markMerged` but before `markTidied` (e.g. the
-//     SwapBucketPointer pre-step panicked, ctx was canceled, or the
-//     process was killed mid-swap by the test's rolling restart).
-//   - The FSM-level task is FINISHED (the reindex iteration's unit
-//     completion was reported BEFORE the swap), so the cluster-wide
-//     OnTaskCompleted schema flip already RAFT-committed `tokenization
-//     = "word"`.
-//   - On disk this node has tracker_2 with merged.mig but NOT
-//     tidied.mig; the gen-2 ingest dir holds the new word-tokenized
-//     dataset; gen-1's tidied tracker is still present (because
-//     T2's end-of-swap trim never ran).
-//
-// Without recovery, FinalizeCompletedMigrations would promote gen-1
-// (highest tidied) and produce the #10675-shape divergence: schema
-// says "word" but the bucket on this node has field-tokenized data, so
-// "alpha" queries return 0 docs while other replicas return 6.
-//
-// The recovery path writes swapped.mig + tidied.mig retroactively for
-// the highest merged gen so the existing ingest→canonical promotion
-// runs on the correct (newest, fully-prepended) generation.
-
-// TestFinalizeCompletedMigrations_MergedButNotTidied_Recovers is the
-// minimal pin for the R2/R2b bug: gen-1 tidied, gen-2 merged-but-not-
-// tidied, gen-2 must win the promotion.
-func TestFinalizeCompletedMigrations_MergedButNotTidied_Recovers(t *testing.T) {
-	lsmPath := t.TempDir()
-	migsDir := filepath.Join(lsmPath, ".migrations")
-	require.NoError(t, os.MkdirAll(migsDir, 0o755))
-
-	// Gen 1: fully tidied (T1 succeeded).
-	gen1 := filepath.Join(migsDir, "searchable_retokenize_text_1")
-	require.NoError(t, os.MkdirAll(gen1, 0o755))
-	touchSentinel(t, filepath.Join(gen1, "merged.mig"))
-	touchSentinel(t, filepath.Join(gen1, "swapped.mig"))
-	touchSentinel(t, filepath.Join(gen1, "tidied.mig"))
-	require.NoError(t, os.WriteFile(filepath.Join(gen1, "properties.mig"), []byte("text"), 0o644))
-
-	// Gen 2: merged but NOT tidied (the recovery case).
-	gen2 := filepath.Join(migsDir, "searchable_retokenize_text_2")
-	require.NoError(t, os.MkdirAll(gen2, 0o755))
-	touchSentinel(t, filepath.Join(gen2, "started.mig"))
-	touchSentinel(t, filepath.Join(gen2, "reindexed.mig"))
-	touchSentinel(t, filepath.Join(gen2, "prepended.mig"))
-	touchSentinel(t, filepath.Join(gen2, "merged.mig"))
-	require.NoError(t, os.WriteFile(filepath.Join(gen2, "properties.mig"), []byte("text"), 0o644))
-
-	// Gen-1 ingest dir holds the previous live-main data (field-tokenized
-	// in the real bug). Gen-2 ingest holds the new merged data
-	// (word-tokenized — the correct state under the cluster-wide schema).
-	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_1"), 0o755))
-	require.NoError(t, os.WriteFile(
-		filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_1", "segment.db"),
-		[]byte("gen-1-stale-data"), 0o644))
-
-	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_2"), 0o755))
-	gen2Marker := []byte("gen-2-merged-data")
-	require.NoError(t, os.WriteFile(
-		filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_2", "segment.db"),
-		gen2Marker, 0o644))
-
-	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, classWithIndexedProps("text"), logger)
-
-	// Canonical dir must contain gen-2's marker, NOT gen-1's stale data.
-	canonical := filepath.Join(lsmPath, "property_text_searchable")
-	got, err := os.ReadFile(filepath.Join(canonical, "segment.db"))
-	require.NoError(t, err, "canonical dir should exist after recovery promotion")
-	require.Equal(t, gen2Marker, got,
-		"canonical must contain gen-2 (merged) data, not gen-1 (tidied-but-stale) data")
-
-	// All ingest sidecars cleaned.
-	for _, gen := range []int{1, 2} {
-		_, err := os.Stat(filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_"+itoa(gen)))
-		require.True(t, os.IsNotExist(err),
-			"gen %d ingest dir must be removed after recovery (renamed or cleaned)", gen)
-	}
-
-	// Tracker dirs gone.
-	migEntries, err := os.ReadDir(migsDir)
-	require.NoError(t, err)
-	require.Empty(t, migEntries, "both tracker dirs must be removed after recovery finalize")
-}
-
-// TestFinalizeCompletedMigrations_MergedOnly_NoPriorTidied_Recovers
-// pins the fresh-cluster variant: gen-1 is the FIRST migration and its
-// swap crashed post-merge. Without recovery the canonical bucket never
-// gets created and the shard starts up with an empty bucket directory.
-func TestFinalizeCompletedMigrations_MergedOnly_NoPriorTidied_Recovers(t *testing.T) {
-	lsmPath := t.TempDir()
-	migsDir := filepath.Join(lsmPath, ".migrations")
-	require.NoError(t, os.MkdirAll(migsDir, 0o755))
-
-	gen1 := filepath.Join(migsDir, "searchable_retokenize_text_1")
-	require.NoError(t, os.MkdirAll(gen1, 0o755))
-	touchSentinel(t, filepath.Join(gen1, "reindexed.mig"))
-	touchSentinel(t, filepath.Join(gen1, "prepended.mig"))
-	touchSentinel(t, filepath.Join(gen1, "merged.mig"))
-	require.NoError(t, os.WriteFile(filepath.Join(gen1, "properties.mig"), []byte("text"), 0o644))
-
-	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_1"), 0o755))
-	marker := []byte("gen-1-recovered")
-	require.NoError(t, os.WriteFile(
-		filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_1", "segment.db"),
-		marker, 0o644))
-
-	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, classWithIndexedProps("text"), logger)
-
-	canonical := filepath.Join(lsmPath, "property_text_searchable")
-	got, err := os.ReadFile(filepath.Join(canonical, "segment.db"))
-	require.NoError(t, err, "canonical dir should be created from gen-1 ingest")
-	require.Equal(t, marker, got)
-}
-
-// TestFinalizeCompletedMigrations_TidiedHigherThanMerged_PicksTidied
-// guards against a regression where the recovery path picks merged
-// instead of tidied when tidied is at the same or higher gen. We never
-// want to skip a successfully-completed migration in favor of an
-// earlier merged-only one.
-func TestFinalizeCompletedMigrations_TidiedHigherThanMerged_PicksTidied(t *testing.T) {
-	lsmPath := t.TempDir()
-	migsDir := filepath.Join(lsmPath, ".migrations")
-	require.NoError(t, os.MkdirAll(migsDir, 0o755))
-
-	// Gen 1: merged-only (a half-completed earlier attempt).
-	gen1 := filepath.Join(migsDir, "searchable_retokenize_text_1")
-	require.NoError(t, os.MkdirAll(gen1, 0o755))
-	touchSentinel(t, filepath.Join(gen1, "merged.mig"))
-	require.NoError(t, os.WriteFile(filepath.Join(gen1, "properties.mig"), []byte("text"), 0o644))
-
-	// Gen 2: fully tidied.
-	gen2 := filepath.Join(migsDir, "searchable_retokenize_text_2")
-	require.NoError(t, os.MkdirAll(gen2, 0o755))
-	touchSentinel(t, filepath.Join(gen2, "merged.mig"))
-	touchSentinel(t, filepath.Join(gen2, "swapped.mig"))
-	touchSentinel(t, filepath.Join(gen2, "tidied.mig"))
-	require.NoError(t, os.WriteFile(filepath.Join(gen2, "properties.mig"), []byte("text"), 0o644))
-
-	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_1"), 0o755))
-	require.NoError(t, os.WriteFile(
-		filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_1", "segment.db"),
-		[]byte("gen-1-stale"), 0o644))
-
-	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_2"), 0o755))
-	winner := []byte("gen-2-tidied-winner")
-	require.NoError(t, os.WriteFile(
-		filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_2", "segment.db"),
-		winner, 0o644))
-
-	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, classWithIndexedProps("text"), logger)
-
-	got, err := os.ReadFile(filepath.Join(lsmPath, "property_text_searchable", "segment.db"))
-	require.NoError(t, err)
-	require.Equal(t, winner, got,
-		"highest gen with tidied must win when merged-only is at a lower gen")
-}
-
-// TestFinalizeCompletedMigrations_RecoveryWritesMissingSentinels
-// asserts the sentinel-writing side effect of the recovery path so a
-// later restart sees a self-consistent tracker (idempotent re-finalize).
-// We invoke finalize on a tracker that lacks swapped/tidied, then
-// re-stat the (now-removed) tracker via the on-disk artifacts: the
-// canonical dir exists, the tracker is gone, and the sentinels were
-// written before tracker removal (verified indirectly by checking the
-// canonical was created — without sentinel writes finalizeMigrationDir
-// returns early without renaming).
-func TestFinalizeCompletedMigrations_RecoveryWritesMissingSentinels(t *testing.T) {
-	lsmPath := t.TempDir()
-	migsDir := filepath.Join(lsmPath, ".migrations")
-	require.NoError(t, os.MkdirAll(migsDir, 0o755))
-
-	gen1 := filepath.Join(migsDir, "searchable_retokenize_text_1")
-	require.NoError(t, os.MkdirAll(gen1, 0o755))
-	touchSentinel(t, filepath.Join(gen1, "merged.mig")) // ONLY merged, no swapped/tidied
-	require.NoError(t, os.WriteFile(filepath.Join(gen1, "properties.mig"), []byte("text"), 0o644))
-
-	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_1"), 0o755))
-	require.NoError(t, os.WriteFile(
-		filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_1", "seg.db"),
-		[]byte("data"), 0o644))
-
-	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, classWithIndexedProps("text"), logger)
-
-	// If sentinels weren't written before finalizeMigrationDir ran, the
-	// canonical dir would not be created (finalizeMigrationDir returns
-	// early on missing swapped/tidied). Check canonical exists.
-	_, err := os.Stat(filepath.Join(lsmPath, "property_text_searchable", "seg.db"))
-	require.NoError(t, err,
-		"recovery path must write swapped/tidied sentinels so finalizeMigrationDir promotes")
-}
-
-// TestFinalizeCompletedMigrations_StartedOnlyNotPromoted is the
-// safety guard: a tracker that's been started/reindexed/prepended but
-// NOT YET merged is still in an earlier stage. The reindex iteration
-// may have completed, but prepend may not have. Promoting the ingest
-// dir would be unsafe because it could be missing reindex-bucket
-// segments that PrependSegmentsFromBucket hasn't moved yet. Verify
-// such state is left alone for the in-flight recovery path.
-func TestFinalizeCompletedMigrations_StartedOnlyNotPromoted(t *testing.T) {
-	lsmPath := t.TempDir()
-	migsDir := filepath.Join(lsmPath, ".migrations")
-	require.NoError(t, os.MkdirAll(migsDir, 0o755))
-
-	gen1 := filepath.Join(migsDir, "searchable_retokenize_text_1")
-	require.NoError(t, os.MkdirAll(gen1, 0o755))
-	touchSentinel(t, filepath.Join(gen1, "started.mig"))
-	touchSentinel(t, filepath.Join(gen1, "reindexed.mig"))
-	touchSentinel(t, filepath.Join(gen1, "prepended.mig"))
-	// NO merged.mig
-	require.NoError(t, os.WriteFile(filepath.Join(gen1, "properties.mig"), []byte("text"), 0o644))
-
-	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_1"), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_reindex_1"), 0o755))
-
-	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, classWithIndexedProps("text"), logger)
-
-	// Tracker untouched.
-	_, err := os.Stat(gen1)
-	require.NoError(t, err, "started/reindexed/prepended-only tracker must be left for recovery")
-	// Sidecars untouched.
-	_, err = os.Stat(filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_1"))
-	require.NoError(t, err)
-	_, err = os.Stat(filepath.Join(lsmPath, "property_text_searchable__retokenize_reindex_1"))
-	require.NoError(t, err)
-	// No canonical created.
-	_, err = os.Stat(filepath.Join(lsmPath, "property_text_searchable"))
-	require.True(t, os.IsNotExist(err),
-		"no canonical promotion until merged.mig is set — otherwise we'd promote a partial ingest")
-}
-
-// TestFinalizeCompletedMigrations_RecoveryAcrossNamespaces verifies
-// recovery applies independently per namespace: a filterable tracker
-// in recovery state must not interfere with a searchable tracker in a
-// different (tidied) state on the same property.
-func TestFinalizeCompletedMigrations_RecoveryAcrossNamespaces(t *testing.T) {
-	lsmPath := t.TempDir()
-	migsDir := filepath.Join(lsmPath, ".migrations")
-	require.NoError(t, os.MkdirAll(migsDir, 0o755))
-
-	// Searchable: gen-1 tidied (normal path).
-	s1 := filepath.Join(migsDir, "searchable_retokenize_text_1")
-	require.NoError(t, os.MkdirAll(s1, 0o755))
-	touchSentinel(t, filepath.Join(s1, "merged.mig"))
-	touchSentinel(t, filepath.Join(s1, "swapped.mig"))
-	touchSentinel(t, filepath.Join(s1, "tidied.mig"))
-	require.NoError(t, os.WriteFile(filepath.Join(s1, "properties.mig"), []byte("text"), 0o644))
-
-	// Filterable: gen-1 merged-only (recovery path).
-	f1 := filepath.Join(migsDir, "filterable_retokenize_text_1")
-	require.NoError(t, os.MkdirAll(f1, 0o755))
-	touchSentinel(t, filepath.Join(f1, "merged.mig"))
-	require.NoError(t, os.WriteFile(filepath.Join(f1, "properties.mig"), []byte("text"), 0o644))
-
-	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_1"), 0o755))
-	require.NoError(t, os.WriteFile(
-		filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_1", "s.db"),
-		[]byte("searchable-data"), 0o644))
-
-	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text__filt_retokenize_ingest_1"), 0o755))
-	require.NoError(t, os.WriteFile(
-		filepath.Join(lsmPath, "property_text__filt_retokenize_ingest_1", "f.db"),
-		[]byte("filterable-data"), 0o644))
-
-	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, classWithIndexedProps("text"), logger)
-
-	// Both canonical dirs should now exist with their respective data.
-	sBytes, err := os.ReadFile(filepath.Join(lsmPath, "property_text_searchable", "s.db"))
-	require.NoError(t, err)
-	require.Equal(t, []byte("searchable-data"), sBytes)
-
-	fBytes, err := os.ReadFile(filepath.Join(lsmPath, "property_text", "f.db"))
-	require.NoError(t, err)
-	require.Equal(t, []byte("filterable-data"), fBytes)
-}
-
-// TestFinalizeCompletedMigrations_IdempotentAfterRecovery verifies
-// running finalize a second time after a successful recovery is a
-// no-op — important because the test container's restart sequence
-// effectively re-invokes finalize on every node start.
-func TestFinalizeCompletedMigrations_IdempotentAfterRecovery(t *testing.T) {
-	lsmPath := t.TempDir()
-	migsDir := filepath.Join(lsmPath, ".migrations")
-	require.NoError(t, os.MkdirAll(migsDir, 0o755))
-
-	gen1 := filepath.Join(migsDir, "searchable_retokenize_text_1")
-	require.NoError(t, os.MkdirAll(gen1, 0o755))
-	touchSentinel(t, filepath.Join(gen1, "merged.mig"))
-	require.NoError(t, os.WriteFile(filepath.Join(gen1, "properties.mig"), []byte("text"), 0o644))
-
-	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_1"), 0o755))
-	require.NoError(t, os.WriteFile(
-		filepath.Join(lsmPath, "property_text_searchable__retokenize_ingest_1", "seg.db"),
-		[]byte("data"), 0o644))
-
-	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, classWithIndexedProps("text"), logger)
-
-	// Second call should be a complete no-op now that nothing remains in .migrations.
-	FinalizeCompletedMigrations(lsmPath, classWithIndexedProps("text"), logger)
-
-	got, err := os.ReadFile(filepath.Join(lsmPath, "property_text_searchable", "seg.db"))
-	require.NoError(t, err)
-	require.Equal(t, []byte("data"), got)
-
-	migEntries, err := os.ReadDir(migsDir)
-	require.NoError(t, err)
-	require.Empty(t, migEntries, "no trackers should remain after a successful recovery")
-}
-
-// TestFinalizeCompletedMigrations_ConcurrentMultiPropMigrations_Converge
-// pins https://github.com/weaviate/0-weaviate-issues/issues/214 Test Gap unit-level item 1: a single
-// shard's .migrations/ directory carrying multiple in-flight migrations
-// on different properties simultaneously, each at a different stage of
-// half-finalization, must converge to the same final on-disk shape as
-// if each migration had finished cleanly in isolation.
-//
-// Failure shape this catches: a refactor of the per-namespace
-// promotion loop that accidentally short-circuits on the FIRST
-// namespace's recovery would leave later namespaces' merged dirs
-// orphaned. The reindex provider's rehydrate path expects either a
-// fully promoted canonical dir or an in-flight tracker; a half-orphaned
-// in-between state silently serves stale data.
-//
-// Layout exercised:
-//
-//   - alpha: change-tokenization with both searchable+filterable
-//     indexes, both at merged-but-not-tidied gen 1 (the
-//     crash-during-FINALIZING-on-step-3 shape).
-//
-//   - beta: enable-filterable on a fresh-rangeable property, also at
-//     merged-but-not-tidied gen 1 (different strategy, different
-//     namespace prefix).
-//
-//   - gamma: enable-rangeable, merged-but-not-tidied gen 1 (format-only
-//     migration; the recovery path must still write swap/tidied
-//     sentinels for it because finalize doesn't distinguish format-only
-//     vs semantic on the recovery path).
-func TestFinalizeCompletedMigrations_ConcurrentMultiPropMigrations_Converge(t *testing.T) {
-	lsmPath := t.TempDir()
-	migsDir := filepath.Join(lsmPath, ".migrations")
-	require.NoError(t, os.MkdirAll(migsDir, 0o755))
-
-	// alpha — change-tokenization, both indexes at merged-but-not-tidied gen 1.
-	alphaSearchable := filepath.Join(migsDir, "searchable_retokenize_alpha_1")
-	require.NoError(t, os.MkdirAll(alphaSearchable, 0o755))
-	touchSentinel(t, filepath.Join(alphaSearchable, "merged.mig"))
-	require.NoError(t, os.WriteFile(filepath.Join(alphaSearchable, "properties.mig"), []byte("alpha"), 0o644))
-	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_alpha_searchable__retokenize_ingest_1"), 0o755))
-	require.NoError(t, os.WriteFile(
-		filepath.Join(lsmPath, "property_alpha_searchable__retokenize_ingest_1", "seg.db"),
-		[]byte("alpha-searchable-NEW"), 0o644))
-
-	alphaFilterable := filepath.Join(migsDir, "filterable_retokenize_alpha_1")
-	require.NoError(t, os.MkdirAll(alphaFilterable, 0o755))
-	touchSentinel(t, filepath.Join(alphaFilterable, "merged.mig"))
-	require.NoError(t, os.WriteFile(filepath.Join(alphaFilterable, "properties.mig"), []byte("alpha"), 0o644))
-	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_alpha__filt_retokenize_ingest_1"), 0o755))
-	require.NoError(t, os.WriteFile(
-		filepath.Join(lsmPath, "property_alpha__filt_retokenize_ingest_1", "seg.db"),
-		[]byte("alpha-filterable-NEW"), 0o644))
-
-	// beta — enable-filterable, merged-but-not-tidied gen 1. Strategy
-	// dir suffixes: SourceBucket = "property_beta",
-	// IngestSuffix = "__enable_filterable_ingest_1".
-	betaFilt := filepath.Join(migsDir, "enable_filterable_beta_1")
-	require.NoError(t, os.MkdirAll(betaFilt, 0o755))
-	touchSentinel(t, filepath.Join(betaFilt, "merged.mig"))
-	require.NoError(t, os.WriteFile(filepath.Join(betaFilt, "properties.mig"), []byte("beta"), 0o644))
-	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_beta__enable_filterable_ingest_1"), 0o755))
-	require.NoError(t, os.WriteFile(
-		filepath.Join(lsmPath, "property_beta__enable_filterable_ingest_1", "seg.db"),
-		[]byte("beta-filt-NEW"), 0o644))
-
-	// gamma — enable-rangeable (FilterableToRangeable strategy),
-	// merged-but-not-tidied gen 1. Strategy dir suffixes:
-	// SourceBucket = "property_gamma_rangeable",
-	// IngestSuffix = "__rangeable_ingest_1".
-	gammaRange := filepath.Join(migsDir, "filterable_to_rangeable_gamma_1")
-	require.NoError(t, os.MkdirAll(gammaRange, 0o755))
-	touchSentinel(t, filepath.Join(gammaRange, "merged.mig"))
-	require.NoError(t, os.WriteFile(filepath.Join(gammaRange, "properties.mig"), []byte("gamma"), 0o644))
-	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_gamma_rangeable__rangeable_ingest_1"), 0o755))
-	require.NoError(t, os.WriteFile(
-		filepath.Join(lsmPath, "property_gamma_rangeable__rangeable_ingest_1", "seg.db"),
-		[]byte("gamma-range-NEW"), 0o644))
-
-	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, classWithIndexedProps("alpha", "beta", "gamma"), logger)
-
-	// All three property migrations must promote to their canonical
-	// names with the correct data. A bug that processed only the first
-	// namespace would leave beta/gamma orphaned.
-	for _, c := range []struct {
-		canonical string
-		want      string
-	}{
-		{"property_alpha_searchable/seg.db", "alpha-searchable-NEW"},
-		{"property_alpha/seg.db", "alpha-filterable-NEW"},
-		{"property_beta/seg.db", "beta-filt-NEW"},
-		{"property_gamma_rangeable/seg.db", "gamma-range-NEW"},
-	} {
-		got, err := os.ReadFile(filepath.Join(lsmPath, c.canonical))
-		require.NoErrorf(t, err, "%s must exist after finalize", c.canonical)
-		require.Equalf(t, c.want, string(got), "%s data mismatch", c.canonical)
-	}
-
-	// All four .migrations/ tracker dirs must be removed (recovery completes
-	// the full promotion and trims their entries).
-	migEntries, err := os.ReadDir(migsDir)
-	require.NoError(t, err)
-	require.Empty(t, migEntries,
-		"every tracker must be cleared after multi-prop recovery — got %v", migEntries)
-}
-
-// TestFinalizeCompletedMigrations_PerShardDivergentStates_Converge
-// pins https://github.com/weaviate/0-weaviate-issues/issues/214 Test Gap unit-level item 2: three shards
-// of the same collection enter restart with deliberately divergent
-// half-finalized states for the SAME migration. All three must
-// converge to the same canonical-bucket shape after their per-shard
-// FinalizeCompletedMigrations runs (it's a per-shard, not a per-node,
-// path; called once per shard during shard init).
-//
-// Failure shape this catches: a refactor that introduced cross-shard
-// state leakage in finalize (e.g. an accidental shared global
-// recovered-gens cache) would let one shard's promotion influence
-// another's. The pre-fix per-replica divergence Frontend Claude
-// observed (`7×32, 3×30, 2×23, 6×5`) is structurally this class of
-// bug if it ever resurfaces at the unit-test level.
-//
-// Layout exercised:
-//
-//   - shard-0: gen 1 fully tidied (clean post-runtime-swap state). Just
-//     needs the canonical-rename pass.
-//
-//   - shard-1: gen 1 merged-but-not-tidied (crashed mid-swap). Needs
-//     the recovery path's sentinel writes plus the canonical-rename.
-//
-//   - shard-2: NO migrations dir at all (the FinalizeCompletedMigrations
-//     no-op path). Must remain unchanged.
-func TestFinalizeCompletedMigrations_PerShardDivergentStates_Converge(t *testing.T) {
-	type shardSetup struct {
-		name            string
-		stage           string // "tidied", "merged", "no_migrations"
-		expectCanonical bool
-		expectedData    string
-	}
-
-	shards := []shardSetup{
-		{name: "shard-0", stage: "tidied", expectCanonical: true, expectedData: "shard0-NEW"},
-		{name: "shard-1", stage: "merged", expectCanonical: true, expectedData: "shard1-NEW"},
-		{name: "shard-2", stage: "no_migrations", expectCanonical: false, expectedData: ""},
-	}
-
-	root := t.TempDir()
-	logger, _ := test.NewNullLogger()
-	for _, sh := range shards {
-		lsmPath := filepath.Join(root, sh.name, "lsm")
-		require.NoError(t, os.MkdirAll(lsmPath, 0o755))
-		switch sh.stage {
-		case "tidied":
-			migsDir := filepath.Join(lsmPath, ".migrations")
-			require.NoError(t, os.MkdirAll(migsDir, 0o755))
-			gen1 := filepath.Join(migsDir, "searchable_retokenize_path_1")
-			require.NoError(t, os.MkdirAll(gen1, 0o755))
-			touchSentinel(t, filepath.Join(gen1, "merged.mig"))
-			touchSentinel(t, filepath.Join(gen1, "swapped.mig"))
-			touchSentinel(t, filepath.Join(gen1, "tidied.mig"))
-			require.NoError(t, os.WriteFile(filepath.Join(gen1, "properties.mig"), []byte("path"), 0o644))
-			require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_path_searchable__retokenize_ingest_1"), 0o755))
-			require.NoError(t, os.WriteFile(
-				filepath.Join(lsmPath, "property_path_searchable__retokenize_ingest_1", "seg.db"),
-				[]byte(sh.expectedData), 0o644))
-		case "merged":
-			migsDir := filepath.Join(lsmPath, ".migrations")
-			require.NoError(t, os.MkdirAll(migsDir, 0o755))
-			gen1 := filepath.Join(migsDir, "searchable_retokenize_path_1")
-			require.NoError(t, os.MkdirAll(gen1, 0o755))
-			touchSentinel(t, filepath.Join(gen1, "merged.mig"))
-			require.NoError(t, os.WriteFile(filepath.Join(gen1, "properties.mig"), []byte("path"), 0o644))
-			require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_path_searchable__retokenize_ingest_1"), 0o755))
-			require.NoError(t, os.WriteFile(
-				filepath.Join(lsmPath, "property_path_searchable__retokenize_ingest_1", "seg.db"),
-				[]byte(sh.expectedData), 0o644))
-		case "no_migrations":
-			// Intentionally empty — finalize must be a no-op here.
-		}
-		FinalizeCompletedMigrations(lsmPath, classWithIndexedProps("path"), logger)
-	}
-
-	for _, sh := range shards {
-		lsmPath := filepath.Join(root, sh.name, "lsm")
-		canonical := filepath.Join(lsmPath, "property_path_searchable", "seg.db")
-		if sh.expectCanonical {
-			got, err := os.ReadFile(canonical)
-			require.NoErrorf(t, err, "%s: canonical dir must exist", sh.name)
-			require.Equalf(t, sh.expectedData, string(got), "%s: canonical data mismatch", sh.name)
-		} else {
-			_, err := os.Stat(canonical)
-			require.True(t, os.IsNotExist(err),
-				"%s: expected no canonical dir on no-migrations shard, got %v", sh.name, err)
-		}
-		// The migrations dir, if it existed, must be empty after finalize.
-		if sh.stage != "no_migrations" {
-			migEntries, _ := os.ReadDir(filepath.Join(lsmPath, ".migrations"))
-			require.Emptyf(t, migEntries, "%s: tracker dirs must be cleared after finalize", sh.name)
-		}
-	}
-}
-
-// itoa is the local stand-in for strconv.Itoa kept private to the test
-// file to avoid touching imports needlessly.
-func itoa(i int) string {
-	const digits = "0123456789"
-	if i == 0 {
-		return "0"
-	}
-	neg := i < 0
-	if neg {
-		i = -i
-	}
-	var buf [20]byte
-	pos := len(buf)
-	for i > 0 {
-		pos--
-		buf[pos] = digits[i%10]
-		i /= 10
-	}
-	if neg {
-		pos--
-		buf[pos] = '-'
-	}
-	return string(buf[pos:])
 }

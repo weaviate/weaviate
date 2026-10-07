@@ -29,9 +29,55 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 )
+
+// The store reports this name back, and a test clearing the fault removes it.
+const unreadableRecordFile = "99_enable_searchable.json"
+
+// plantUnreadableRecord writes an undecodable file into a shard's record
+// directory, which withholds every destructive action on that shard. Returns
+// the path so a caller clearing the fault names the file the store refused.
+func plantUnreadableRecord(t *testing.T, dir string) string {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(dir, 0o777))
+	path := filepath.Join(dir, unreadableRecordFile)
+	require.NoError(t, os.WriteFile(path, []byte("{"), 0o600))
+	return path
+}
+
+// newMigrationRecordAt builds the record a migration stopped at state would have
+// written, taking flipped properties and displaced dirs from the subject as the
+// writer does. One switch for the package, so a new state reaches every fixture.
+func newMigrationRecordAt(t *testing.T, subject MigrationSubject, state MigrationState) MigrationRecord {
+	t.Helper()
+	switch state {
+	case MigrationStateIterating:
+		return NewMigrationRecordIterating(subject, MigrationCheckpoint{})
+	case MigrationStateIterated:
+		return NewMigrationRecordIterated(subject)
+	case MigrationStateMerged:
+		return NewMigrationRecordMerged(subject)
+	case MigrationStateSwapped:
+		return NewMigrationRecordSwapped(subject, subject.Properties(),
+			subject.dirsInRole(migrationCanonicalOf))
+	case MigrationStatePromoted:
+		return NewMigrationRecordPromoted(subject, subject.Properties(),
+			subject.dirsInRole(migrationCanonicalOf))
+	}
+	require.FailNowf(t, "no record for this migration state", "%q", state)
+	return nil
+}
+
+// recordStoreDirOf names a shard's record directory the way production does,
+// for a caller holding only the shard's LSM path.
+func recordStoreDirOf(t *testing.T, lsmPath string) string {
+	t.Helper()
+	logger, _ := test.NewNullLogger()
+	return NewMigrationRecordStore(lsmPath, logger).Dir()
+}
 
 func testMigrationSubject(version uint64, code MigrationStrategyCode, props ...string) MigrationSubject {
 	subject := MigrationSubject{
@@ -40,7 +86,8 @@ func testMigrationSubject(version uint64, code MigrationStrategyCode, props ...s
 		MigrationType:        ReindexTypeChangeTokenization,
 		TargetTokenization:   models.PropertyTokenizationLowercase,
 		OriginalTokenization: models.PropertyTokenizationWord,
-		TrackerDir:           fmt.Sprintf("m_%d_tracker", version),
+		Collection:           "Books",
+		BucketStrategy:       lsmkv.StrategyInverted,
 		IterationCutoff:      time.Date(2026, 8, 21, 9, 0, 0, 0, time.UTC),
 	}
 	if len(props) == 0 {
@@ -76,6 +123,8 @@ func TestMigrationRecordRoundTrip(t *testing.T) {
 	displaced := map[string]string{"title": "property_title"}
 	nilDirMaps := testMigrationSubject(7, StrategyCodeSearchableMapToBlockmax, "title")
 	nilDirMaps.Props = map[string]MigrationPropertyDirs{"title": {}}
+	noBucketStrategy := testMigrationSubject(42, StrategyCodeFilterableToRangeable, "title")
+	noBucketStrategy.BucketStrategy = ""
 
 	tests := []struct {
 		name      string
@@ -116,6 +165,11 @@ func TestMigrationRecordRoundTrip(t *testing.T) {
 		{
 			name:      "a record naming no directories keeps its nil maps nil",
 			record:    NewMigrationRecordMerged(nilDirMaps),
+			wantState: MigrationStateMerged,
+		},
+		{
+			name:      "a migration that reads no bucket strategy still carries its collection",
+			record:    NewMigrationRecordMerged(noBucketStrategy),
 			wantState: MigrationStateMerged,
 		},
 		{
@@ -166,8 +220,8 @@ func TestTheRecordsWireNamesAreTheCompatibilityContract(t *testing.T) {
 	require.Equal(t, []string{"flip", "formatVersion", "state", "subject"},
 		keysOf(t, swapped))
 	require.Equal(t, []string{
-		"iterationCutoff", "key", "migrationType", "originalTokenization",
-		"props", "targetTokenization", "taskID", "trackerDir",
+		"bucketStrategy", "collection", "iterationCutoff", "key", "migrationType",
+		"originalTokenization", "props", "targetTokenization", "taskID",
 	}, keysOf(t, swapped, "subject"))
 	require.Equal(t, []string{"canonical", "sidecar", "staged"},
 		keysOf(t, swapped, "subject", "props", "title"))
@@ -278,6 +332,13 @@ func TestMigrationRecordNotUnderstood(t *testing.T) {
 			wantErr: "names unknown migration type \"reticulate-splines\"",
 		},
 		{
+			name: "bucket strategy no store implements",
+			data: valid(func(env map[string]any) {
+				env["subject"].(map[string]any)["bucketStrategy"] = "blockmax"
+			}),
+			wantErr: "names unknown bucket strategy \"blockmax\"",
+		},
+		{
 			name:    "task ID missing",
 			data:    valid(func(env map[string]any) { env["subject"].(map[string]any)["taskID"] = "" }),
 			wantErr: "has no task ID",
@@ -285,7 +346,7 @@ func TestMigrationRecordNotUnderstood(t *testing.T) {
 		{
 			name: "checkpoint on a state that has none",
 			data: valid(func(env map[string]any) {
-				env["checkpoint"] = map[string]any{"processedCount": 1}
+				env["checkpoint"] = map[string]any{"lastProcessedKey": "aGFsZndheQ=="}
 			}),
 			wantErr: "in state \"merged\": checkpoint block present=true, wanted=false",
 		},
@@ -468,16 +529,6 @@ func TestMigrationRecordNotUnderstood(t *testing.T) {
 			wantErr: `names directory "property_shared__g41_ingest" as both the displaced directory of property "body" and the displaced directory of property "title"`,
 		},
 		{
-			// Every other role is covered by
-			// [TestNoStoreTheShardServesFromCanBeNamedInAnyDirectoryRole]; the
-			// tracker directory is the one that does not sit at the shard root.
-			name: "a tracker directory that is the record store",
-			data: valid(func(env map[string]any) {
-				env["subject"].(map[string]any)["trackerDir"] = migrationRecordsDirName
-			}),
-			wantErr: `names tracker directory "records", which is a directory no migration may own`,
-		},
-		{
 			name: "a unit the record file name could not carry",
 			data: valid(func(env map[string]any) {
 				env["subject"].(map[string]any)["key"].(map[string]any)["unitID"] = "../shard-2__node-0"
@@ -566,7 +617,6 @@ func TestMigrationRecordStore(t *testing.T) {
 	// tells their directories apart by the strategy word the name carries.
 	merged := func(version uint64, code MigrationStrategyCode) MigrationRecord {
 		subject := testMigrationSubject(version, code, "title")
-		subject.TrackerDir = fmt.Sprintf("%s_%d_tracker", code, version)
 		setMigrationDir(&subject, "title", func(d *MigrationPropertyDirs) {
 			d.Staged = fmt.Sprintf("property_title__%s_%d_ingest", code, version)
 			d.Sidecar = fmt.Sprintf("property_title__%s_%d_reindex", code, version)
@@ -606,8 +656,8 @@ func TestMigrationRecordStore(t *testing.T) {
 			},
 			assert: func(t *testing.T, s *MigrationRecordStore) {
 				require.Len(t, s.Unreadable(), 1)
-				require.Equal(t, "99_enable_searchable.json", s.Unreadable()[0].FileName)
-				_, err := os.Stat(filepath.Join(s.Dir(), "99_enable_searchable.json"))
+				require.Equal(t, unreadableRecordFile, s.Unreadable()[0].FileName)
+				_, err := os.Stat(filepath.Join(s.Dir(), unreadableRecordFile))
 				require.NoError(t, err, "an unreadable record must survive the load that could not read it")
 			},
 		},
@@ -620,6 +670,11 @@ func TestMigrationRecordStore(t *testing.T) {
 			assert: func(t *testing.T, s *MigrationRecordStore) {
 				require.Len(t, s.Records(), 1)
 				require.Len(t, s.Unreadable(), 1)
+
+				logger, _ := test.NewNullLogger()
+				committed, err := migrationPreservedStateAt(filepath.Dir(filepath.Dir(s.Dir())), logger)
+				require.NoError(t, err)
+				require.True(t, committed.preservesBucket("a directory no readable record names"))
 			},
 		},
 		{
@@ -671,8 +726,8 @@ func TestMigrationRecordStore(t *testing.T) {
 				require.Empty(t, s.Unreadable(), "a scratch file is not a record this build failed to read")
 
 				logger, _ := test.NewNullLogger()
-				foreign := NewMigrationRecordStore(filepath.Dir(filepath.Dir(s.Dir())), logger)
-				require.NoError(t, foreign.Load())
+				_, _, recordSetErr := migrationRecordsAt(filepath.Dir(filepath.Dir(s.Dir())), logger)
+				require.NoError(t, recordSetErr)
 				_, err := os.Stat(scratch)
 				require.NoError(t, err, "a foreign reader must not delete a scratch file it does not own")
 
@@ -795,6 +850,10 @@ func TestMigrationRecordStore(t *testing.T) {
 				require.Equal(t, MigrationRecordFaultStore, s.Unreadable()[0].Scope)
 				require.Contains(t, s.Unreadable()[0].Reason, "shard-1__node-9")
 
+				logger, _ := test.NewNullLogger()
+				committed, err := migrationPreservedStateAt(filepath.Dir(filepath.Dir(s.Dir())), logger)
+				require.NoError(t, err)
+				require.True(t, committed.preservesBucket("a directory no record names"))
 				require.Error(t, s.Put(merged(43, StrategyCodeEnableFilterable)),
 					"a frozen store must not take a write it cannot place among the records it could not attribute")
 			},
@@ -876,7 +935,7 @@ func TestMigrationRecordStoreConcurrentAccess(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range 64 {
-				_ = NewMigrationRecordStore(lsmPath, logger).Load()
+				migrationRecordsAt(lsmPath, logger)
 			}
 		}()
 	}
@@ -899,11 +958,6 @@ func TestDecodeMigrationRecordRejectsEscapingHandles(t *testing.T) {
 		wantErr   bool
 		wantField string
 	}{
-		{
-			name:   "tracker directory",
-			place:  func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) { s.TrackerDir = h },
-			handle: "../../../../etc", wantErr: true,
-		},
 		{
 			name: "staged directory",
 			place: func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) {
@@ -947,8 +1001,10 @@ func TestDecodeMigrationRecordRejectsEscapingHandles(t *testing.T) {
 			handle: "property_tracker__g42_ingest/searchable/title", wantErr: true,
 		},
 		{
-			name:   "an empty handle is the ordinary names-none",
-			place:  func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) { s.TrackerDir = h },
+			name: "an empty handle is the ordinary names-none",
+			place: func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) {
+				s.Props = map[string]MigrationPropertyDirs{"title": {Staged: h}}
+			},
 			handle: "",
 		},
 		{
@@ -959,8 +1015,10 @@ func TestDecodeMigrationRecordRejectsEscapingHandles(t *testing.T) {
 			handle: ".", wantErr: true,
 		},
 		{
-			name:   "a descent and an ascent that cancel",
-			place:  func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) { s.TrackerDir = h },
+			name: "a descent and an ascent that cancel",
+			place: func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) {
+				s.Props = map[string]MigrationPropertyDirs{"title": {Sidecar: h}}
+			},
 			handle: "x/..", wantErr: true,
 		},
 		{
@@ -1010,7 +1068,6 @@ func TestDecodeMigrationRecordRejectsEscapingHandles(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			subject := testMigrationSubject(42, StrategyCodeEnableFilterable, "title")
-			subject.TrackerDir = ""
 			subject.Props = map[string]MigrationPropertyDirs{"title": {}}
 			flip := migrationFlipEnvelope{Flipped: []string{"title"}}
 			tt.place(&subject, &flip, tt.handle)
@@ -1054,12 +1111,6 @@ func TestTheWriterRefusesWhatTheLoaderWouldReject(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name:    "a tracker directory that leaves the shard root",
-			mangle:  func(s *MigrationSubject) { s.TrackerDir = "../../../etc" },
-			because: "the tracker directory is joined onto the shard and handed to a recursive delete",
-			wantErr: "names tracker directory \"../../../etc\"",
-		},
-		{
 			name: "a staged directory that is a live bucket of another property",
 			mangle: func(s *MigrationSubject) {
 				s.Props = map[string]MigrationPropertyDirs{"title": {Staged: "property_body_searchable"}}
@@ -1078,6 +1129,12 @@ func TestTheWriterRefusesWhatTheLoaderWouldReject(t *testing.T) {
 			mangle:  func(s *MigrationSubject) { padMigrationSubject(s, maxMigrationRecordBytes) },
 			because: "the loader refuses a file over the bound, so the writer must not build one",
 			wantErr: "bound is",
+		},
+		{
+			name:    "a bucket strategy no store implements",
+			mangle:  func(s *MigrationSubject) { s.BucketStrategy = "blockmax" },
+			because: "a rebuild on it would write the property in a format no reader can open",
+			wantErr: `names unknown bucket strategy "blockmax"`,
 		},
 	}
 
@@ -1119,7 +1176,6 @@ func TestTheLargestRecordTheWriterCanBuildFitsTheLoadersBound(t *testing.T) {
 	}
 
 	subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize)
-	subject.TrackerDir = longest("tracker", 0)
 	subject.Props = make(map[string]MigrationPropertyDirs, maxReindexPropertiesPerTask)
 	displaced := map[string]string{}
 	for i := 0; i < maxReindexPropertiesPerTask; i++ {
@@ -1158,22 +1214,47 @@ func TestTheLargestRecordTheWriterCanBuildFitsTheLoadersBound(t *testing.T) {
 	}
 }
 
-func TestARecordNamingNoPropertiesIsRefusedByTheWriterAndToleratedByTheLoader(t *testing.T) {
-	subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize)
-	rec := NewMigrationRecordMerged(subject)
+func TestARefusalOnlyTheWriterMakesIsToleratedByTheLoader(t *testing.T) {
+	tests := []struct {
+		name    string
+		props   []string
+		mangle  func(*MigrationSubject)
+		wantErr string
+	}{
+		{
+			name:    "a record naming no properties",
+			wantErr: "names no properties",
+		},
+		{
+			name:    "a record naming no collection",
+			props:   []string{"title"},
+			mangle:  func(s *MigrationSubject) { s.Collection = "" },
+			wantErr: "has no collection",
+		},
+	}
 
-	_, err := encodeMigrationRecord(rec)
-	require.ErrorContains(t, err, "names no properties")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, tt.props...)
+			if tt.mangle != nil {
+				tt.mangle(&subject)
+			}
+			rec := NewMigrationRecordMerged(subject)
 
-	logger, _ := test.NewNullLogger()
-	store := NewMigrationRecordStore(t.TempDir(), logger)
-	require.Error(t, store.Put(rec), "and Put refuses it for the same reason")
+			_, err := encodeMigrationRecord(rec)
+			require.ErrorContains(t, err, tt.wantErr)
 
-	writeRawMigrationRecord(t, store, rec.toEnvelope())
+			logger, _ := test.NewNullLogger()
+			store := NewMigrationRecordStore(t.TempDir(), logger)
+			require.Error(t, store.Put(rec), "and Put refuses it for the same reason")
 
-	require.NoError(t, store.Load())
-	require.Len(t, store.Records(), 1, "the loader reads it")
-	require.Empty(t, store.Unreadable(), "and withholds nothing on its account")
+			writeRawMigrationRecord(t, store, rec.toEnvelope())
+
+			require.NoError(t, store.Load())
+			require.Len(t, store.Records(), 1, "the loader reads it")
+			require.Empty(t, store.Unreadable(), "and withholds nothing on its account")
+		})
+	}
 }
 
 func storeLinesAt(hook *test.Hook, level logrus.Level) []string {
@@ -1330,7 +1411,7 @@ func migrationShardRootDirectoryRoles(t *testing.T) []migrationHandleGroup {
 	t.Helper()
 	var out []migrationHandleGroup
 	for _, group := range migrationHandleGroups {
-		if !group.namesDirectory || group.underMigrationsDir {
+		if !group.namesDirectory {
 			continue
 		}
 		require.Containsf(t, migrationDirectoryRolePlacers, group.field,
@@ -1367,7 +1448,7 @@ func TestEveryWriterEmittedSidecarNameIsAccepted(t *testing.T) {
 			&RebuildSearchableStrategy{propNames: []string{prop}, generation: generation},
 		}
 	}
-	require.Len(t, strategiesFor("title", 1), len(strategiesByMigrationDir(1)))
+	require.Len(t, strategiesFor("title", 1), len(strategiesByCode(1)))
 
 	for _, generation := range []int{1, 2, 11} {
 		for _, prop := range props {
@@ -1375,7 +1456,7 @@ func TestEveryWriterEmittedSidecarNameIsAccepted(t *testing.T) {
 				main := strategy.SourceBucketName(prop)
 				requireAcceptedInPromoteRoles(t, main)
 				for _, suffix := range []string{
-					strategy.ReindexSuffix(), strategy.IngestSuffix(), strategy.BackupSuffix(),
+					strategy.ReindexSuffix(), strategy.IngestSuffix(),
 				} {
 					name := main + suffix
 					require.Truef(t, migrationHandleIsSidecarShaped(name),
@@ -1423,7 +1504,7 @@ func TestEveryStrategyReadsTheMainBucketThisNames(t *testing.T) {
 		StrategyCodeEnableSearchable:            &EnableSearchableStrategy{propNames: []string{prop}},
 		StrategyCodeRebuildSearchable:           &RebuildSearchableStrategy{propNames: []string{prop}},
 	}
-	require.Len(t, byCode, len(strategiesByMigrationDir(1)), "every strategy carries a record code")
+	require.Len(t, byCode, len(strategiesByCode(1)), "every strategy carries a record code")
 
 	for code, strategy := range byCode {
 		t.Run(string(code), func(t *testing.T) {
@@ -1602,6 +1683,38 @@ func TestRemovingARecordPublishesTheRemoval(t *testing.T) {
 	require.Error(t, store.removeSynced(key, func(string) error { return assert.AnError }),
 		"a removal whose absence did not reach disk must not read as done")
 	require.Empty(t, store.Records(), "the file is gone either way, so memory has to agree")
+}
+
+// HasUndecided is what makes the once-a-minute cluster pass pick a shard up.
+// Both halves cost: a missed record never progresses, and one reported after its
+// flip buys a leader query and a shard walk every minute for nothing.
+func TestOnlyAMovableRecordBeforeItsFlipIsUndecided(t *testing.T) {
+	tests := []struct {
+		name   string
+		state  MigrationState
+		wedged bool
+		want   bool
+	}{
+		{name: "before the flip and movable", state: MigrationStateMerged, want: true},
+		{name: "before the flip but wedged", state: MigrationStateMerged, wedged: true},
+		{name: "after the flip", state: MigrationStateSwapped},
+		{name: "after the flip and wedged", state: MigrationStateSwapped, wedged: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			store := NewMigrationRecordStore(t.TempDir(), logger)
+			subject := testMigrationSubject(42, StrategyCodeEnableFilterable, "title")
+
+			require.NoError(t, store.Put(newMigrationRecordAt(t, subject, tt.state)))
+			if tt.wedged {
+				store.MarkWedged(subject.Key)
+			}
+
+			require.Equal(t, tt.want, store.HasUndecided())
+		})
+	}
 }
 
 // The wedge belongs to the record the key named, not to the key. A record

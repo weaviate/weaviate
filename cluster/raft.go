@@ -112,8 +112,19 @@ func (s *Raft) LocalDistributedTasks() map[string][]*distributedtask.Task {
 	return s.store.LocalDistributedTasks()
 }
 
+// LocalTaskStatuses is the decider's read of this node's FSM. It can trail the
+// leader, so a task missing from it licenses no decision.
+func (s *Raft) LocalTaskStatuses(namespace string) []distributedtask.TaskStatusEntry {
+	return s.store.LocalTaskStatuses(namespace)
+}
+
 func (s *Raft) Ready() bool {
 	return s.store.Ready()
+}
+
+// FSMHasCaughtUp reports only that the log held at store open was replayed.
+func (s *Raft) FSMHasCaughtUp() bool {
+	return s.store.FSMHasCaughtUp()
 }
 
 func (s *Raft) SchemaReader() schema.SchemaReader {

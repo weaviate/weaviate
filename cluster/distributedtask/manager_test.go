@@ -2458,3 +2458,21 @@ func TestManager_LocalUnrecognizedDistributedTasks(t *testing.T) {
 		})
 	}
 }
+
+func TestLocalTaskStatusesCopiesNoUnits(t *testing.T) {
+	m := NewManager(ManagerParameters{})
+	units := make(map[string]*Unit, 10_000)
+	for i := range 10_000 {
+		id := fmt.Sprintf("u-%d", i)
+		units[id] = &Unit{ID: id}
+	}
+	desc := TaskDescriptor{ID: "t", Version: 7}
+	m.tasks["reindex"] = map[string]*Task{"t": {
+		Namespace: "reindex", TaskDescriptor: desc, Status: TaskStatusCancelled, Units: units,
+	}}
+
+	require.Equal(t, []TaskStatusEntry{{TaskDescriptor: desc, Status: TaskStatusCancelled}},
+		m.LocalTaskStatuses("reindex"))
+	require.Empty(t, m.LocalTaskStatuses("other"))
+	require.LessOrEqual(t, testing.AllocsPerRun(10, func() { m.LocalTaskStatuses("reindex") }), 1.0)
+}

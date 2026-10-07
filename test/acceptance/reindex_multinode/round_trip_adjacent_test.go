@@ -49,8 +49,8 @@ import (
 //  2. DifferentTokenizations_*: is the bug specific to word↔field, or
 //     does it also bite word↔whitespace, word↔lowercase, etc.?
 //  3. MultipleProperties: do two simultaneous round-trips on different
-//     props collide via shared migration dirs (they shouldn't — per
-//     MigrationDirName they're per-prop — but if they do, that's a
+//     props collide via shared migration dirs (they shouldn't — the
+//     sidecar names are per-prop — but if they do, that's a
 //     separate Sev-1)?
 //  4. FilterableOnly_RoundTrip: same bug shape on filterable=true,
 //     searchable=false via the change-tokenization-filterable body
@@ -58,9 +58,9 @@ import (
 //  5. SearchableOnly_RoundTrip: same bug shape on searchable=true,
 //     filterable=false (change-tok-both is impossible here, only the
 //     searchable change-tokenization applies)?
-//  6. EnableFilterableThenChangeTok: does enable-filterable's
-//     tidied.mig poison the subsequent change-tokenization migration
-//     dir state?
+//  6. EnableFilterableThenChangeTok: does enable-filterable's completed
+//     migration state poison the subsequent change-tokenization
+//     migration dir state?
 //  7. EnableSearchableThenChangeTok: same idea for enable-searchable.
 //
 // Cluster sharing: every AJ top-level Test* spins up a single 3-node
@@ -152,8 +152,8 @@ func TestMultiNode_ChangeTokenization_AJ_MultiProperty(t *testing.T) {
 
 	t.Run("MultipleProperties_simultaneous", func(t *testing.T) {
 		// Journey 3: two text properties, both word→field→word in
-		// sequence on the same collection. Per MigrationDirName the
-		// migration dirs are per-property, so collisions across props
+		// sequence on the same collection. The sidecar names are
+		// per-property, so collisions across props
 		// should not happen — if any of the per-property baselines goes
 		// to zero on any replica, that's a separate Sev-1.
 		testMultiPropertyRoundTrip(t, compose)
@@ -195,11 +195,6 @@ func TestMultiNode_ChangeTokenization_AJ_EnableThenChange(t *testing.T) {
 	defer dumpContainerLogs(ctx, t, compose)
 
 	t.Run("EnableFilterableThenChangeTok", func(t *testing.T) {
-		// Journey 6: a property starts filterable=false. We enable
-		// filterable (which writes tidied.mig to a per-prop dir under
-		// .migrations/), then immediately change-tokenization on the
-		// same property. Does enable-filterable's residual state
-		// interfere with the change-tok migration?
 		testEnableFilterableThenChangeTok(t, compose)
 	})
 
@@ -213,8 +208,8 @@ func TestMultiNode_ChangeTokenization_AJ_EnableThenChange(t *testing.T) {
 // TestMultiNode_ChangeTokenization_RestartThenRoundTrip pins journey 8:
 // T1 word→field, RESTART every node (graceful), then T2 field→word.
 // Hypothesis: a node restart between rounds triggers
-// FinalizeCompletedMigrations on shard init, which cleans up the
-// completed-but-not-tidied migration directory for the first migration.
+// reconciliation on shard init, which cleans up the first migration's
+// completed-but-unswept directories.
 // If that cleanup is what's missing from the in-process round-trip path,
 // a restart-between should produce CONSISTENT replicas where the
 // in-process version produces empty ones.
@@ -261,7 +256,7 @@ func TestMultiNode_ChangeTokenization_RestartThenRoundTrip(t *testing.T) {
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "field")
 
-	// Restart every node, one at a time, so FinalizeCompletedMigrations
+	// Restart every node, one at a time, so reconciliation
 	// runs on each node's shard init.
 	for nodeIdx := 0; nodeIdx < 3; nodeIdx++ {
 		t.Logf("cycling node %d between rounds", nodeIdx+1)
@@ -294,7 +289,7 @@ func TestMultiNode_ChangeTokenization_RestartThenRoundTrip(t *testing.T) {
 }
 
 // TestMultiNode_ChangeTokenization_MTRoundTrip pins journey 9: same
-// word→field→word, but on a multi-tenant class. Per-tenant tracker paths
+// word→field→word, but on a multi-tenant class. Per-tenant migration paths
 // might bypass the bug (different on-disk layout) — or they might hit
 // the same root cause and break per-tenant.
 func TestMultiNode_ChangeTokenization_MTRoundTrip(t *testing.T) {
@@ -362,7 +357,7 @@ func TestMultiNode_ChangeTokenization_MTRoundTrip(t *testing.T) {
 
 // TestMultiNode_ChangeTokenization_ConcurrentDifferentProps pins
 // journey 10: two distinct text properties getting change-tok migrations
-// concurrently. Per MigrationDirName the dirs are per-property, so
+// concurrently. The sidecar names are per-property, so
 // collisions shouldn't happen — but if the in-process scheduler
 // serializes through any shared per-shard state, this can expose it.
 func TestMultiNode_ChangeTokenization_ConcurrentDifferentProps(t *testing.T) {
@@ -671,7 +666,6 @@ func testEnableFilterableThenChangeTok(t *testing.T, compose *docker.DockerCompo
 	importObjects(t, restURI, className, testDocuments)
 	baselines := waitForPerReplicaBaseline(t, compose, className, testBM25Queries)
 
-	// Step 1: enable filterable. This writes a tidied.mig per-prop.
 	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "filterable",
 		`{}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
@@ -686,10 +680,6 @@ func testEnableFilterableThenChangeTok(t *testing.T, compose *docker.DockerCompo
 	}, 30*time.Second, 50*time.Millisecond,
 		"text.IndexFilterable should be true after enable-filterable")
 
-	// Step 2: change-tokenization word→field on the same property.
-	// Hypothesis: enable-filterable's tidied.mig poisons the new
-	// change-tok migration dir state, leaving N-1 replicas with empty
-	// post-swap buckets.
 	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable",
 		`{"tokenization":"field"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))

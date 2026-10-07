@@ -31,8 +31,6 @@ import (
 //
 // Cause hypothesis (to confirm): some on-disk leftover state accumulates
 // across cycles that the per-cycle DELETE cleanup misses. Candidates:
-//   - `.migrations/<dir>/properties.mig` outside the per-property
-//     dir-name pattern.
 //   - DTM task records persisted to disk that survive across reindex
 //     submissions and short-circuit on the second/third call.
 //   - In-memory state on the shard (markSearchableBlockmaxProperties
