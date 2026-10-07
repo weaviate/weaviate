@@ -299,9 +299,9 @@ func (m *Metrics) TrackDelete(start time.Time, step string) {
 	m.deleteTime.With(prometheus.Labels{"step": step}).Observe(took)
 }
 
-// TrackStartupTotal feeds the legacy startup_durations_ms series. It is
-// superseded by weaviate_vector_index_restore_duration_seconds and kept for
-// one minor release so existing dashboards keep working.
+// TrackStartupTotal feeds the legacy startup_durations_ms series for the
+// commit-log read, the same span weaviate_vector_index_restore_duration_seconds
+// reports without the per-class labels.
 func (m *Metrics) TrackStartupTotal(start time.Time) {
 	if !m.enabled {
 		return
