@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -52,16 +54,15 @@ type statusGaugeHarness struct {
 	repo         *DB
 	migrator     *Migrator
 	schemaGetter *fakeSchemaGetter
-	// shardsCount lives on the Index, which is gone by the time a drop test
-	// reads it.
+	// shardsCount is captured here because the Index is gone by the time a drop
+	// test reads it.
 	shardsCount *prometheus.GaugeVec
 }
 
 type statusGaugeOpts struct {
 	multiTenant bool
-	// tenants is the number of tenants of a multi-tenant class, 0 meaning one.
-	tenants    int
-	asyncIndex bool
+	tenants     int
+	asyncIndex  bool
 }
 
 func newStatusGaugeHarness(t *testing.T, opts statusGaugeOpts) *statusGaugeHarness {
@@ -70,7 +71,8 @@ func newStatusGaugeHarness(t *testing.T, opts statusGaugeOpts) *statusGaugeHarne
 	logger, _ := test.NewNullLogger()
 
 	metricsCopy := *monitoring.GetMetrics()
-	metricsCopy.Registerer = monitoring.NoopRegisterer
+	// One registry for every index, as in production, so the gauge is shared.
+	metricsCopy.Registerer = prometheus.NewRegistry()
 
 	shardState := singleShardState()
 	if opts.multiTenant {
@@ -163,9 +165,8 @@ func statusGaugeClass(name string, multiTenant bool) *models.Class {
 	}
 }
 
-// requireBuckets asserts every status bucket against want, with absent statuses
-// expected at exactly 0: a double release drives a bucket negative, which "not
-// positive" would let through.
+// requireBuckets asserts every bucket, absent ones at exactly 0 so a double
+// release (negative) is caught.
 func (h *statusGaugeHarness) requireBuckets(t *testing.T, msg string, want map[storagestate.Status]float64) {
 	t.Helper()
 
@@ -206,10 +207,9 @@ func TestShardStatusGaugeReleasedWhenShardLeavesNode(t *testing.T) {
 		name        string
 		multiTenant bool
 		skipAsRoot  bool
-		// counted is what the status gauge holds for the shard before the act step.
-		counted map[storagestate.Status]float64
-		prepare func(t *testing.T, e env)
-		act     func(t *testing.T, e env)
+		counted     map[storagestate.Status]float64
+		prepare     func(t *testing.T, e env)
+		act         func(t *testing.T, e env)
 	}{
 		{
 			name:    "collection dropped",
@@ -225,8 +225,7 @@ func TestShardStatusGaugeReleasedWhenShardLeavesNode(t *testing.T) {
 				require.NoError(t, e.shard.Shutdown(ctx))
 			},
 			act: func(t *testing.T, e env) {
-				// Dropping a shard whose store is already closed may report an
-				// error; the gauge must be released either way.
+				// Drop may error on a closed store; the gauge must be released regardless.
 				_ = e.h.migrator.DropClass(ctx, e.className, false)
 			},
 		},
@@ -242,8 +241,7 @@ func TestShardStatusGaugeReleasedWhenShardLeavesNode(t *testing.T) {
 			counted:    map[storagestate.Status]float64{storagestate.StatusReady: 1},
 			skipAsRoot: true,
 			prepare: func(t *testing.T, e env) {
-				// The drop cannot remove entries from a read-only shard directory
-				// and returns early, with the shard still counted as READY.
+				// Read-only shard dir makes drop return early while still counted READY.
 				dir := e.shard.(*Shard).path()
 				require.NoError(t, os.Chmod(dir, 0o555))
 				t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
@@ -261,18 +259,50 @@ func TestShardStatusGaugeReleasedWhenShardLeavesNode(t *testing.T) {
 				shard, ok := e.idx.shards.LoadAndDelete(e.shardName)
 				require.True(t, ok)
 				require.NoError(t, shard.drop(false))
-				// A dropped shard still reports READY, and reading it must not
-				// count it again.
+				// A dropped shard still reports READY; reading it must not recount it.
 				require.Equal(t, storagestate.StatusReady, shard.GetStatus())
+			},
+		},
+		{
+			name:    "status update fails then collection dropped",
+			counted: map[storagestate.Status]float64{storagestate.StatusReady: 1},
+			prepare: func(t *testing.T, e env) {
+				// The failed update changes the shard's status but not the gauge;
+				// the release must still take the shard out of READY.
+				require.NoError(t, e.shard.(*Shard).store.Shutdown(ctx))
+				require.Error(t, e.shard.UpdateStatus(storagestate.StatusReadOnly.String(), "closed store"))
+			},
+			act: func(t *testing.T, e env) {
+				_ = e.h.migrator.DropClass(ctx, e.className, false)
+			},
+		},
+		{
+			name:        "loaded tenant offloaded as frozen",
+			multiTenant: true,
+			counted:     map[storagestate.Status]float64{storagestate.StatusReady: 1},
+			prepare: func(t *testing.T, e env) {
+				require.NoError(t, e.shard.(*LazyLoadShard).Load(ctx))
+				e.h.migrator.cluster = noopProcessor{}
+			},
+			act: func(t *testing.T, e env) {
+				ec := errorcompounder.New()
+				e.h.migrator.frozen(ctx, e.idx, []string{e.shardName}, ec)
+				require.NoError(t, ec.ToError())
+				require.Nil(t, e.idx.shards.Load(e.shardName), "offload should evict the shard")
 			},
 		},
 		{
 			name:    "shutdown panics",
 			counted: map[storagestate.Status]float64{storagestate.StatusReady: 1},
 			prepare: func(t *testing.T, e env) {
-				// The teardown dereferences cycleCallbacks, so nil makes it
-				// panic part way through.
-				e.shard.(*Shard).cycleCallbacks = nil
+				// nil cycleCallbacks makes teardown panic part way.
+				shard := e.shard.(*Shard)
+				callbacks := shard.cycleCallbacks
+				shard.cycleCallbacks = nil
+				t.Cleanup(func() {
+					shard.cycleCallbacks = callbacks
+					require.NoError(t, shard.store.Shutdown(ctx))
+				})
 			},
 			act: func(t *testing.T, e env) {
 				shard, ok := e.idx.shards.LoadAndDelete(e.shardName)
@@ -404,7 +434,7 @@ func TestShardStatusGaugeReleasedWhenInitFails(t *testing.T) {
 	idx := h.addClass(t, statusGaugeClass("StatusGaugeInit", true))
 	_, shard := onlyShard(t, idx)
 
-	// The shard directory cannot be created, so init fails before the store exists.
+	// Shard dir cannot be created, so init fails before the store exists.
 	require.NoError(t, os.Chmod(idx.path(), 0o555))
 	t.Cleanup(func() { _ = os.Chmod(idx.path(), 0o755) })
 
@@ -413,8 +443,68 @@ func TestShardStatusGaugeReleasedWhenInitFails(t *testing.T) {
 	h.requireBuckets(t, "after the failed init", nil)
 }
 
-// A paused queue holding one object makes GetStatus recompute READY as INDEXING
-// without any explicit status update, which is the drift the gauge must follow.
+// Paused queue with one object makes GetStatus recompute READY as INDEXING; the gauge must follow.
+func TestShardStatusGaugeReleasedWhileStatusIsAccessed(t *testing.T) {
+	ctx := testCtx()
+
+	tests := []struct {
+		name string
+		act  func(t *testing.T, h *statusGaugeHarness, className string, shard *Shard)
+	}{
+		{
+			name: "collection dropped",
+			act: func(t *testing.T, h *statusGaugeHarness, className string, _ *Shard) {
+				require.NoError(t, h.migrator.DropClass(ctx, className, false))
+			},
+		},
+		{
+			name: "shut down",
+			act: func(t *testing.T, _ *statusGaugeHarness, _ string, shard *Shard) {
+				require.NoError(t, shard.Shutdown(ctx))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newStatusGaugeHarness(t, statusGaugeOpts{})
+			className := "StatusGaugeConcurrent"
+			idx := h.addClass(t, statusGaugeClass(className, false))
+			_, shard := onlyShard(t, idx)
+			concrete := shard.(*Shard)
+
+			stop := make(chan struct{})
+			var wg sync.WaitGroup
+			for i := 0; i < 3; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					for {
+						select {
+						case <-stop:
+							return
+						default:
+						}
+						// Updates fail once the store is closed, which is expected here.
+						_ = concrete.GetStatus()
+						_ = concrete.UpdateStatus(storagestate.StatusReadOnly.String(), "race")
+						_ = concrete.UpdateStatus(storagestate.StatusReady.String(), "race")
+					}
+				}()
+			}
+
+			time.Sleep(20 * time.Millisecond)
+			tc.act(t, h, className, concrete)
+			close(stop)
+			wg.Wait()
+
+			h.requireBuckets(t, "after teardown with concurrent status access", nil)
+		})
+	}
+}
+
+type noopProcessor struct{ processor }
+
 func TestShardStatusGaugeFollowsRecomputedStatus(t *testing.T) {
 	ctx := testCtx()
 	h := newStatusGaugeHarness(t, statusGaugeOpts{asyncIndex: true})
