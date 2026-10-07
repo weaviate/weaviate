@@ -571,8 +571,19 @@ func (h *hnsw) resetTombstoneMetric() {
 	}
 }
 
-// errPrefillIncomplete is the prefill outcome until the prefill ran to its end.
-var errPrefillIncomplete = errors.New("prefill did not complete")
+// prefill outcomes that are not reported as a completed prefill
+var (
+	errPrefillIncomplete = errors.New("prefill did not complete")
+	errNothingToPrefill  = errors.New("nothing to prefill")
+)
+
+// prefilledVectors is how many vectors the prefill left in the cache.
+func (h *hnsw) prefilledVectors() int64 {
+	if h.compressed.Load() {
+		return h.compressor.CountVectors()
+	}
+	return h.cache.CountVectors()
+}
 
 // PostStartup triggers routines that should happen after startup. The startup
 // process is triggered during the creation which in turn happens as part of
@@ -638,6 +649,11 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		// context stands in for their error
 		if err == nil {
 			err = ctx.Err()
+		}
+		// the prefillers report neither a failed read nor an index whose
+		// vectors are all gone, and a prefill that loaded nothing is not one
+		if err == nil && h.prefilledVectors() == 0 {
+			err = errNothingToPrefill
 		}
 		prefillErr = err
 
