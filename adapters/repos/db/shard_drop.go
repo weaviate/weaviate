@@ -44,15 +44,15 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 		}).Errorf("proceeding with drop while references are still held; in-flight requests on this shard will fail: %v", drainErr)
 	}
 
+	// Released even if teardown fails: the caller already removed the shard from
+	// the shard map.
+	defer s.releaseCountedStatus()
+
 	s.shutCtxCancel(fmt.Errorf("drop %q", s.ID()))
 	s.reindexer.Stop(s, fmt.Errorf("shard drop"))
 
 	s.metrics.DeleteShardLabels(s.index.Config.ClassName.String(), s.name)
 	s.replicationMap.clear()
-
-	// The caller already took the shard out of the shard map, so it stops being
-	// counted even when the teardown below fails.
-	defer s.releaseCountedStatus()
 
 	s.index.logger.WithFields(logrus.Fields{
 		"action": "drop_shard",
