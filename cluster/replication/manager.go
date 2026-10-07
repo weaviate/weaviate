@@ -457,15 +457,16 @@ func (m *Manager) QueryShardingStateByCollectionAndShard(c *cmd.QueryRequest) ([
 			return fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Collection)
 		}
 
-		for _, physical := range state.Physical {
-			if physical.Name == subCommand.Shard {
-				shards = map[string][]string{
-					physical.Name: append([]string(nil), physical.BelongsToNodes...),
-				}
-				return nil
-			}
+		// Indexed, not scanned: a read that cannot resolve a tenant locally lands here, so a
+		// class with many tenants would otherwise pay for the whole map.
+		physical, ok := state.Physical[subCommand.Shard]
+		if !ok {
+			return fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Shard)
 		}
-		return fmt.Errorf("%w: %s", types.ErrNotFound, subCommand.Shard)
+		shards = map[string][]string{
+			subCommand.Shard: append([]string(nil), physical.BelongsToNodes...),
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, wrapClassNotFoundErr(err, subCommand.Collection)
