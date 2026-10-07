@@ -596,7 +596,9 @@ func (p *Provider) GetAdditionalFields(class *models.Class) map[string]*graphql.
 	additionalProperties := map[string]*graphql.Field{}
 	additionalGenerativeDefaultProvider := ""
 	additionalGenerativeParameters := map[string]modulecapabilities.GenerativeProperty{}
-	for _, module := range p.GetAll() {
+	// By name, so that two modules providing the same property give the
+	// same field on every call, the one the search path uses.
+	for _, module := range p.modulesByName() {
 		if p.isGenerativeModule(module.Type()) {
 			if arg, ok := module.(modulecapabilities.AdditionalGenerativeProperties); ok {
 				for name, additionalGenerativeParameter := range arg.AdditionalGenerativeProperties() {
@@ -638,34 +640,30 @@ func (p *Provider) ExtractAdditionalField(className, name string, params []*ast.
 	if err != nil {
 		return err
 	}
+	if name != modulecomponents.AdditionalPropertyGenerate {
+		// The same module that serves the property on the search path.
+		if additionalProperty, ok := p.classAdditionalProperties(class)[name]; ok {
+			return additionalProperty.GraphQLExtractFunction(params, class)
+		}
+		return nil
+	}
 	additionalGenerativeDefaultProvider := ""
 	additionalGenerativeParameters := map[string]modulecapabilities.GenerativeProperty{}
-	for _, module := range p.GetAll() {
-		if name == modulecomponents.AdditionalPropertyGenerate {
-			if p.isGenerativeModule(module.Type()) {
-				if arg, ok := module.(modulecapabilities.AdditionalGenerativeProperties); ok {
-					for name, additionalGenerativeParameter := range arg.AdditionalGenerativeProperties() {
-						additionalGenerativeParameters[name] = additionalGenerativeParameter
-						if p.shouldIncludeClassArgument(class, module.Name(), module.Type(), p.getModuleAltNames(module)) {
-							additionalGenerativeDefaultProvider = name
-						}
-					}
-				}
-			}
-		} else if p.shouldIncludeClassArgument(class, module.Name(), module.Type(), p.getModuleAltNames(module)) {
-			if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
-				if additionalProperties := arg.AdditionalProperties(); len(additionalProperties) > 0 {
-					if additionalProperty, ok := additionalProperties[name]; ok {
-						return additionalProperty.GraphQLExtractFunction(params, class)
-					}
+	for _, module := range p.modulesByName() {
+		if !p.isGenerativeModule(module.Type()) {
+			continue
+		}
+		if arg, ok := module.(modulecapabilities.AdditionalGenerativeProperties); ok {
+			for name, additionalGenerativeParameter := range arg.AdditionalGenerativeProperties() {
+				additionalGenerativeParameters[name] = additionalGenerativeParameter
+				if p.shouldIncludeClassArgument(class, module.Name(), module.Type(), p.getModuleAltNames(module)) {
+					additionalGenerativeDefaultProvider = name
 				}
 			}
 		}
 	}
-	if name == modulecomponents.AdditionalPropertyGenerate {
-		if generateFn := modulecomponents.GetGenericGenerateProperty(class.Class, additionalGenerativeParameters, additionalGenerativeDefaultProvider, p.logger); generateFn != nil {
-			return generateFn.GraphQLExtractFunction(params, class)
-		}
+	if generateFn := modulecomponents.GetGenericGenerateProperty(class.Class, additionalGenerativeParameters, additionalGenerativeDefaultProvider, p.logger); generateFn != nil {
+		return generateFn.GraphQLExtractFunction(params, class)
 	}
 	return nil
 }

@@ -17,6 +17,8 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+	"github.com/tailor-platform/graphql"
+	"github.com/tailor-platform/graphql/language/ast"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -101,5 +103,47 @@ func TestRerankModuleChoiceIsStable(t *testing.T) {
 	require.Len(t, served, additionalExtendRuns)
 	for _, module := range served {
 		require.Equal(t, "reranker-z", module)
+	}
+}
+
+// graphQLReranker is a reranker module whose GraphQL field and extract
+// function tell which module they belong to.
+type graphQLReranker struct {
+	dummyNonVectorizerModule
+}
+
+func (m graphQLReranker) Type() modulecapabilities.ModuleType {
+	return modulecapabilities.Text2TextReranker
+}
+
+func (m graphQLReranker) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
+	property := rerankProperty(m.name, nil)["rerank"]
+	property.GraphQLFieldFunction = func(string) *graphql.Field {
+		return &graphql.Field{Description: m.name}
+	}
+	property.GraphQLExtractFunction = func([]*ast.Argument, *models.Class) any {
+		return m.name
+	}
+	return map[string]modulecapabilities.AdditionalProperty{"rerank": property}
+}
+
+// The GraphQL field of a property two modules provide and the parsing of
+// its arguments must come from the module that serves the search, on every
+// call.
+func TestRerankGraphQLChoiceIsStable(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	p := NewProvider(logger, config.Config{})
+	p.SetSchemaGetter(rerankSchemaReader(t))
+	for _, name := range []string{"reranker-m", "reranker-z", "reranker-a"} {
+		p.Register(graphQLReranker{dummyNonVectorizerModule{name: name}})
+	}
+	class, err := p.getClass("ClassBoth")
+	require.NoError(t, err)
+
+	for range additionalExtendRuns {
+		fields := p.GetAdditionalFields(class)
+		require.Contains(t, fields, "rerank")
+		require.Equal(t, "reranker-z", fields["rerank"].Description)
+		require.Equal(t, "reranker-z", p.ExtractAdditionalField("ClassBoth", "rerank", nil))
 	}
 }
