@@ -387,29 +387,32 @@ func Test_BatchDelete_ValidationErrorsAreUserInput(t *testing.T) {
 }
 
 // Test_BatchDelete_ValidationKeepsDenials pins that validateBatchDelete returns
-// a denied class lookup or filter class read as a Forbidden, so REST answers
-// 403. Any other lookup failure is ErrInvalidUserInput.
+// a denied class read or filter class read as a Forbidden, so REST answers 403.
+// A failed class lookup is ErrInvalidUserInput.
 func Test_BatchDelete_ValidationKeepsDenials(t *testing.T) {
 	principal := &models.Principal{Username: "u"}
 	denied := authzerrs.NewForbidden(principal, authorization.READ, "Foo")
 
 	cases := []struct {
-		name          string
-		schemaErr     error
-		denyFilter    bool
+		name      string
+		schemaErr error
+		// denyAfter lets that many authorizer calls pass and denies the rest: the
+		// DELETE check, then the namespace gate's class READ, then the filter's
+		// class READ. Zero denies nothing.
+		denyAfter     int
 		wantForbidden bool
 		wantMsg       string
 	}{
 		{
-			name: "class lookup denied", schemaErr: denied, wantForbidden: true,
-			wantMsg: "validate: failed to get class: Foo: " + denied.Error(),
+			name: "class read denied at the gate", denyAfter: 1, wantForbidden: true,
+			wantMsg: "validate: " + denied.Error(),
 		},
 		{
 			name: "class lookup failed", schemaErr: errors.New("schema unavailable"),
 			wantMsg: "validate: failed to get class: Foo: schema unavailable",
 		},
 		{
-			name: "filter class read denied", denyFilter: true, wantForbidden: true,
+			name: "filter class read denied", denyAfter: 2, wantForbidden: true,
 			wantMsg: "validate: invalid where filter: ",
 		},
 	}
@@ -430,9 +433,8 @@ func Test_BatchDelete_ValidationKeepsDenials(t *testing.T) {
 			}}
 			schemaManager := &fakeSchemaManager{GetSchemaResponse: sch, GetschemaErr: tc.schemaErr}
 			authorizer := mocks.NewMockAuthorizer()
-			if tc.denyFilter {
-				// The first call is DeleteObjects' own DELETE check.
-				authorizer.SetErrAfter(1, denied)
+			if tc.denyAfter > 0 {
+				authorizer.SetErrAfter(tc.denyAfter, denied)
 			}
 			logger, _ := test.NewNullLogger()
 			vectorRepo := &fakeObjectFinder{}

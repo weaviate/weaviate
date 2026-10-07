@@ -28,10 +28,10 @@ func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, c
 ) (bool, *Error) {
 	className, _, err := m.resolveNS(principal, className)
 	if err != nil {
-		return false, resolverError(err)
+		return false, forbiddenOrUnprocessable(err)
 	}
-	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, tenant)); err != nil {
-		return false, &Error{err.Error(), StatusForbidden, err}
+	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.READ, className, authorization.Objects(className, tenant)); err != nil {
+		return false, forbiddenOrUnprocessable(err)
 	}
 
 	m.metrics.HeadObjectInc()

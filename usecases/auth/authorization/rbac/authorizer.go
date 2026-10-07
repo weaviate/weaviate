@@ -162,7 +162,16 @@ func (m *Manager) AuthorizeAndRequireActiveNamespace(ctx context.Context, princi
 			WithField("request_action", verb).
 			Warn("rbac: class carries no namespace, so its namespace state was not checked")
 	}
-	return usecasesNamespaces.RequireActive(m.namespaces, namespace)
+	if err := usecasesNamespaces.RequireActive(m.namespaces, namespace); err != nil {
+		// Authorize has already logged this request as allowed, so this line is the
+		// only record that the namespace refused it.
+		m.logger.WithFields(m.auditFields(principal)).
+			WithField("class", class).
+			WithField("request_action", verb).
+			Infof("rbac: namespace refused the request: %v", err)
+		return err
+	}
+	return nil
 }
 
 // AuthorizeSilent verify if the user has access to a resource to do specific action without audit logs

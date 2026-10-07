@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -49,8 +50,11 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 	}
 	knownClasses := map[string]versioned.Class{}
 
-	// whole request fails if permissions for any collection are not present
-	for className, shards := range classesShards {
+	// The whole request fails if any collection lacks a permission. Sorted order
+	// returns the same error on every run.
+	for _, className := range slices.Sorted(maps.Keys(classesShards)) {
+		shards := classesShards[className]
+
 		// we don't leak any info that someone who inserts data does not have anyway
 		vClass, err := b.schemaManager.GetCachedClassNoAuth(ctx, className)
 		if err != nil {
@@ -61,8 +65,7 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 		if err := b.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(className, shards...)...); err != nil {
 			return nil, err
 		}
-
-		if err := b.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(className, shards...)...); err != nil {
+		if err := b.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.CREATE, className, authorization.ShardsData(className, shards...)...); err != nil {
 			return nil, err
 		}
 	}
