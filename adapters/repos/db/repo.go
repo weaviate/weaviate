@@ -122,6 +122,8 @@ type DB struct {
 	nodeSelector   cluster.NodeSelector
 	schemaReader   schemaUC.SchemaReader
 	replicationFSM types.ReplicationFSMReader
+	// Nil keeps the local-only behaviour.
+	replicationManager types.Manager
 
 	// reindexAuditMu guards the audit deps installed by
 	// [DB.SetReindexAuditDeps] and the backup-gate activity lookup
@@ -777,6 +779,11 @@ func (db *DB) SetReindexer(reindexer ShardReindexerV3) {
 
 func (db *DB) SetNodeSelector(nodeSelector cluster.NodeSelector) {
 	db.nodeSelector = nodeSelector
+}
+
+// SetReplicationManager must run before any index is built.
+func (db *DB) SetReplicationManager(m types.Manager) {
+	db.replicationManager = m
 }
 
 func (db *DB) SetSchemaReader(schemaReader schemaUC.SchemaReader) {
