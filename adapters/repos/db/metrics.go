@@ -612,6 +612,8 @@ func NewMetrics(
 	return m, nil
 }
 
+// UpdateShardStatus moves a shard between status buckets. An empty old registers
+// a shard that was not counted, an empty new releases a counted one.
 func (m *Metrics) UpdateShardStatus(old, new string) {
 	if m.shardsCount == nil {
 		return
@@ -621,7 +623,9 @@ func (m *Metrics) UpdateShardStatus(old, new string) {
 		m.shardsCount.WithLabelValues(old).Dec()
 	}
 
-	m.shardsCount.WithLabelValues(new).Inc()
+	if new != "" {
+		m.shardsCount.WithLabelValues(new).Inc()
+	}
 }
 
 func (m *Metrics) ObserveUpdateShardStatus(status string, duration time.Duration) {

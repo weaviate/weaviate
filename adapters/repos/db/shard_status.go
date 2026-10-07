@@ -37,6 +37,41 @@ type ShardStatus struct {
 	Reason string
 }
 
+// registerCountedStatus counts a new shard under status.
+func (s *Shard) registerCountedStatus(status storagestate.Status) {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+
+	s.index.metrics.UpdateShardStatus("", status.String())
+	s.countedStatus = status.String()
+}
+
+// moveCountedStatusLocked follows a status change in the gauge. A shard that is
+// not counted stays uncounted, so a status read or write after the shard was
+// released cannot count it again.
+func (s *Shard) moveCountedStatusLocked(next storagestate.Status) {
+	if s.countedStatus == "" || s.countedStatus == next.String() {
+		return
+	}
+
+	s.index.metrics.UpdateShardStatus(s.countedStatus, next.String())
+	s.countedStatus = next.String()
+}
+
+// releaseCountedStatus removes the shard from the gauge. Safe to call more than
+// once and on a shard that was never counted.
+func (s *Shard) releaseCountedStatus() {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+
+	if s.countedStatus == "" {
+		return
+	}
+
+	s.index.metrics.UpdateShardStatus(s.countedStatus, "")
+	s.countedStatus = ""
+}
+
 func (s *Shard) GetStatus() storagestate.Status {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
@@ -137,7 +172,7 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 		return err
 	}
 
-	s.index.metrics.UpdateShardStatus(oldStatus.String(), targetStatus.String())
+	s.moveCountedStatusLocked(targetStatus)
 
 	lvl := logrus.DebugLevel
 	if targetStatus == storagestate.StatusReadOnly {

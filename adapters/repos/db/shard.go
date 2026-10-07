@@ -362,7 +362,13 @@ type Shard struct {
 	haltForTransferCount     atomic.Int64
 	haltForTransferCtxCancel context.CancelFunc
 
-	status              ShardStatus
+	status ShardStatus
+	// countedStatus is the bucket of weaviate_index_shards_total this shard is
+	// counted in, "" when it is not counted. Kept apart from status.Status
+	// because a failed bucket update leaves status changed and the gauge not,
+	// and releasing by status would then decrement a bucket the shard never
+	// entered. Guarded by statusLock.
+	countedStatus       string
 	statusLock          sync.RWMutex
 	propertyIndicesLock sync.RWMutex
 

@@ -50,6 +50,10 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 	s.metrics.DeleteShardLabels(s.index.Config.ClassName.String(), s.name)
 	s.replicationMap.clear()
 
+	// The caller already took the shard out of the shard map, so it stops being
+	// counted even when the teardown below fails.
+	defer s.releaseCountedStatus()
+
 	s.index.logger.WithFields(logrus.Fields{
 		"action": "drop_shard",
 		"class":  s.class.Class,
