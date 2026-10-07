@@ -77,6 +77,7 @@ type startupMetricsHarness struct {
 	vectors   [][]float32
 	armed     atomic.Bool
 	panicking atomic.Bool
+	missing   atomic.Bool
 	entered   chan struct{}
 	released  chan struct{}
 }
@@ -108,6 +109,9 @@ func newStartupMetricsHarness(t *testing.T, indexID string, waitForPrefill bool)
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			if h.panicking.Load() {
 				panic("prefill panic injected by the test")
+			}
+			if h.missing.Load() {
+				return nil, storobj.NewErrNotFoundf(id, "gone")
 			}
 			if h.armed.Load() {
 				select {
@@ -283,6 +287,26 @@ func TestStartupMetricsPanickingPrefillReleasesActive(t *testing.T) {
 		"a prefill that panicked must not stay active")
 	require.Equal(t, before, hnswPrefillCount(t, monitoring.PrefillModeAsync),
 		"a prefill that panicked is not a completed prefill")
+}
+
+// A restored index whose vectors are all gone (objects deleted, or every read
+// failing) still runs its prefill, but the prefillers report neither outcome.
+// A prefill that loaded nothing is not a prefill and must not record a sample.
+func TestStartupMetricsPrefillThatLoadsNothingNotObserved(t *testing.T) {
+	ctx := context.Background()
+	h := newStartupMetricsHarness(t, "prefill_nothing", true)
+	h.fill(t, h.newIndex(t))
+	index := h.newIndex(t)
+	defer index.Shutdown(ctx)
+
+	before := hnswPrefillCount(t, monitoring.PrefillModeSync)
+	// New() replays the commit log through the same thunk, so take the
+	// vectors away only once the index is built.
+	h.missing.Store(true)
+	index.PostStartup(ctx)
+	index.prefillWg.Wait()
+
+	require.Equal(t, before, hnswPrefillCount(t, monitoring.PrefillModeSync), "a prefill that loaded no vector is not observed")
 }
 
 // startup_progress was never set, so minting a series for it exports a
