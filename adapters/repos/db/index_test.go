@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"maps"
@@ -25,17 +26,24 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/clients"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	clusterMocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
@@ -334,6 +342,100 @@ func TestIndex_aggregateCount_UnreachableReplicas(t *testing.T) {
 			require.Equal(t, tt.want, res.Groups[0].Count, "object count")
 		})
 	}
+}
+
+func TestIndex_objectSearch_UnreachableReplicas(t *testing.T) {
+	const (
+		className = "Abc"
+		shardName = "abc"
+		objectID  = strfmt.UUID("6ae8f8e1-39b4-4a5c-a8a1-91d5b01c5a7e")
+	)
+	// The coordinator holds no replica, so the search reaches node1 remotely.
+	replicas := []string{"node1", "node2", "node3"}
+	nodeSelector := clusterMocks.NewMockNodeSelector("coordinator", "node1")
+
+	replicaMetrics, err := replica.NewMetrics(monitoring.GetMetrics())
+	require.NoError(t, err, "create replica metrics")
+
+	for _, level := range []types.ConsistencyLevel{types.ConsistencyLevelQuorum, types.ConsistencyLevelAll} {
+		t.Run(string(level), func(t *testing.T) {
+			// Arrange
+			logger, hook := test.NewNullLogger()
+			schemaReader := schemaUC.NewMockSchemaReader(t)
+			schemaReader.EXPECT().Shards(className).Return([]string{shardName}, nil)
+			// Read serves the shard check of the read repair plan.
+			schemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
+				func(className string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
+					return readFunc(&models.Class{Class: className}, &sharding.State{Physical: map[string]sharding.Physical{
+						shardName: {Name: shardName, BelongsToNodes: replicas},
+					}})
+				})
+			schemaReader.EXPECT().ShardReplicas(className, shardName).Return(replicas, nil)
+			fsmReader := replicationTypes.NewMockReplicationFSMReader(t)
+			fsmReader.EXPECT().FilterOneShardReplicasRead(className, shardName, replicas).Return(replicas)
+
+			indexRouter := router.NewBuilder(className, false, nodeSelector,
+				schemaUC.NewMockSchemaGetter(t), schemaReader, fsmReader).Build()
+
+			index := Index{
+				router: indexRouter,
+				remote: sharding.NewRemoteIndex(className, fakeShardReplicas(replicas), nodeSelector,
+					&searchRemoteClient{objects: []*storobj.Object{
+						storobj.FromObject(&models.Object{Class: className, ID: objectID}, nil, nil, nil),
+					}}),
+				replicator: &replica.Replicator{
+					Finder: replica.NewFinder(className, indexRouter, cluster.NewMockNodeResolver(t), "coordinator",
+						nil, replicaMetrics, logger, func() string { return "Delete" }),
+				},
+				Config: IndexConfig{ClassName: schema.ClassName(className), ReplicationFactor: 3},
+				logger: logger,
+			}
+
+			// Act
+			objs, _, err := index.objectSearch(t.Context(), 10, nil, nil, nil, nil, additional.Properties{},
+				&additional.ReplicationProperties{ConsistencyLevel: string(level)}, "", 0, nil)
+
+			// Assert
+			require.NoError(t, err, "object search")
+			require.Len(t, objs, 1, "number of objects")
+			require.Equal(t, objectID, objs[0].ID(), "object id")
+			require.False(t, objs[0].IsConsistent, "object marked consistent")
+
+			var readRepairLogged bool
+			for _, entry := range hook.AllEntries() {
+				if entry.Level == logrus.ErrorLevel && strings.Contains(entry.Message, "failed to check consistency of search results") {
+					require.Contains(t, entry.Message, "cannot reach enough replicas", "read repair error")
+					readRepairLogged = true
+				}
+			}
+			require.True(t, readRepairLogged, "read repair failure is logged")
+		})
+	}
+}
+
+type fakeShardReplicas []string
+
+func (f fakeShardReplicas) ShardOwner(class, shard string) (string, error) {
+	return f[0], nil
+}
+
+func (f fakeShardReplicas) ShardReplicas(class, shard string) ([]string, error) {
+	return f, nil
+}
+
+// searchRemoteClient answers every remote shard search with objects.
+type searchRemoteClient struct {
+	FakeRemoteClient
+	objects []*storobj.Object
+}
+
+func (c *searchRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
+	shardName string, vector []models.Vector, targetVector []string, distance float32, limit int,
+	filters *filters.LocalFilter, _ *searchparams.KeywordRanking, sort []filters.Sort,
+	cursor *filters.Cursor, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination,
+	properties []string,
+) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
+	return c.objects, make([]float32, len(c.objects)), nil, nil
 }
 
 type fakeRouter struct {
