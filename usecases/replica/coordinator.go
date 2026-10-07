@@ -339,6 +339,16 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
+	replyCh, level := c.pull(ctx, readRoutingPlan, op, timeout)
+	return replyCh, level, nil
+}
+
+// pull runs Pull against an already resolved readRoutingPlan.
+func (c *coordinator[T, any]) pull(ctx context.Context,
+	readRoutingPlan types.ReadRoutingPlan,
+	op readOp[T],
+	timeout time.Duration,
+) (<-chan Result[T], int) {
 	level := readRoutingPlan.IntConsistencyLevel
 	hosts := readRoutingPlan.HostAddresses()
 	replyCh := make(chan Result[T], level)
@@ -440,7 +450,7 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 	}
 	enterrors.GoWrapper(f, c.log)
 
-	return replyCh, level, nil
+	return replyCh, level
 }
 
 // hostRetry tracks how long we should wait to retry this host again

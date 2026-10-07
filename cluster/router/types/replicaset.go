@@ -20,6 +20,8 @@ import (
 // ReadReplicaStrategy implementations for read paths.
 type ReadReplicaSet struct {
 	Replicas []Replica
+	// Unreachable replicas are not contacted but count towards the consistency level.
+	Unreachable []Replica
 }
 
 // String returns a human-readable representation of a ReplicaSet,
@@ -79,7 +81,8 @@ func (s ReadReplicaSet) EmptyReplicas() bool {
 }
 
 type WriteReplicaSet struct {
-	Replicas []Replica
+	Replicas    []Replica
+	Unreachable []Replica
 }
 
 // NodeNames returns a list of node names contained in the ReplicaSet.
@@ -125,26 +128,26 @@ func (s WriteReplicaSet) IsEmpty() bool {
 
 // validateReplicaSetConsistency validates that the consistency level can be satisfied
 // by grouping replicas by shard and validating each shard independently.
-func validateReplicaSetConsistency(replicas []Replica, level ConsistencyLevel) (int, error) {
-	if len(replicas) == 0 {
-		return 0, nil
-	}
-
-	// Group replicas by shard
-	replicasByShard := make(map[string][]Replica)
+func validateReplicaSetConsistency(replicas, unreachable []Replica, level ConsistencyLevel) (int, error) {
+	total := make(map[string]int)
+	reachable := make(map[string]int)
 	for _, replica := range replicas {
-		replicasByShard[replica.ShardName] = append(replicasByShard[replica.ShardName], replica)
+		total[replica.ShardName]++
+		reachable[replica.ShardName]++
+	}
+	for _, replica := range unreachable {
+		total[replica.ShardName]++
 	}
 
 	var expectedConsistencyLevel int
 	var firstShard string
 
-	for shardName, shardReplicas := range replicasByShard {
-		resolved := level.ToInt(len(shardReplicas))
-		if resolved > len(shardReplicas) {
+	for shardName, n := range total {
+		resolved := level.ToInt(n)
+		if resolved > reachable[shardName] {
 			return 0, fmt.Errorf(
-				"shard %s: impossible to satisfy consistency level (%d) > available replicas (%d)",
-				shardName, resolved, len(shardReplicas))
+				"shard %s: impossible to satisfy consistency level %s: requires %d of %d replicas, %d unreachable",
+				shardName, level, resolved, n, n-reachable[shardName])
 		}
 
 		if firstShard == "" {
@@ -161,9 +164,9 @@ func validateReplicaSetConsistency(replicas []Replica, level ConsistencyLevel) (
 }
 
 func (s ReadReplicaSet) ValidateConsistencyLevel(level ConsistencyLevel) (int, error) {
-	return validateReplicaSetConsistency(s.Replicas, level)
+	return validateReplicaSetConsistency(s.Replicas, s.Unreachable, level)
 }
 
 func (s WriteReplicaSet) ValidateConsistencyLevel(level ConsistencyLevel) (int, error) {
-	return validateReplicaSetConsistency(s.Replicas, level)
+	return validateReplicaSetConsistency(s.Replicas, s.Unreachable, level)
 }
