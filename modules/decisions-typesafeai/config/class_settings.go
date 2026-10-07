@@ -24,7 +24,7 @@ import (
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
-const moduleName = "reranker-typesafeai"
+const moduleName = "decisions-typesafeai"
 
 const (
 	DefaultBaseURL         = "https://api.typesafe.ai"

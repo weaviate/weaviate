@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modrerankertypesafeai
+package moddecisionstypesafeai
 
 import (
 	"context"
@@ -221,7 +221,7 @@ func TestRerankKeepsGraphQLFunctions(t *testing.T) {
 	assert.Nil(t, rerank.SearchFunctions.ObjectList)
 }
 
-func newTestModule(client ReRankerTypeSafeAIClient) *ReRankerTypeSafeAIModule {
+func newTestModule(client DecisionsTypeSafeAIClient) *DecisionsTypeSafeAIModule {
 	m := New()
 	m.setClient(client)
 	return m
