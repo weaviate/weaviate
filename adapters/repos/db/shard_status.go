@@ -37,7 +37,6 @@ type ShardStatus struct {
 	Reason string
 }
 
-// registerCountedStatus counts a new shard under status.
 func (s *Shard) registerCountedStatus(status storagestate.Status) {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
@@ -46,10 +45,9 @@ func (s *Shard) registerCountedStatus(status storagestate.Status) {
 	s.countedStatus = status.String()
 }
 
-// moveCountedStatusLocked follows a status change in the gauge. A shard that is
-// not counted stays uncounted, so a status read or write after the shard was
-// released cannot count it again.
-func (s *Shard) moveCountedStatusLocked(next storagestate.Status) {
+// moveCountedStatusUnlocked follows a status change in the gauge; an uncounted
+// (released) shard stays uncounted. Caller must hold statusLock.
+func (s *Shard) moveCountedStatusUnlocked(next storagestate.Status) {
 	if s.countedStatus == "" || s.countedStatus == next.String() {
 		return
 	}
@@ -58,8 +56,7 @@ func (s *Shard) moveCountedStatusLocked(next storagestate.Status) {
 	s.countedStatus = next.String()
 }
 
-// releaseCountedStatus removes the shard from the gauge. Safe to call more than
-// once and on a shard that was never counted.
+// releaseCountedStatus is idempotent and safe on a never-counted shard.
 func (s *Shard) releaseCountedStatus() {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
@@ -72,6 +69,8 @@ func (s *Shard) releaseCountedStatus() {
 	s.countedStatus = ""
 }
 
+// GetStatus recomputes READY/INDEXING from the vector queues, so a read can move
+// the shard between gauge buckets.
 func (s *Shard) GetStatus() storagestate.Status {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
@@ -102,7 +101,7 @@ func (s *Shard) getStatusUnlocked() storagestate.Status {
 		return nil
 	})
 	s.status.Status = status
-	s.moveCountedStatusLocked(status)
+	s.moveCountedStatusUnlocked(status)
 	return status
 }
 
@@ -173,7 +172,7 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 		return err
 	}
 
-	s.moveCountedStatusLocked(targetStatus)
+	s.moveCountedStatusUnlocked(targetStatus)
 
 	lvl := logrus.DebugLevel
 	if targetStatus == storagestate.StatusReadOnly {
