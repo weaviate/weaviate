@@ -90,8 +90,15 @@ This document is the single source of truth for Prometheus metrics exposed by We
 #### Startup Metrics
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|
-| `startup_progress` | Ratio (percentage) of startup progress for a particular component in a shard | `Gauge` | `class_name, operation, shard_name` | ❌ High 
+| `weaviate_startup_duration_seconds` | Seconds from process start until the node first passed the readiness check behind `/v1/.well-known/ready` (raft store open, local DB loaded, leader known, not in maintenance mode, cluster healthy, modules answering), polled once the API server is configured. 0 until ready. | `Gauge` | `-` | - Low (1 series) |
+| `weaviate_vector_index_restore_duration_seconds` | Seconds to rebuild a vector index from its on-disk state (snapshot, commit logs, compressed vectors), whenever a shard opens: at boot, on tenant activation, on replica movement. Only observed when there was state to restore. `_sum` and `_count` only. | `Summary` | `-` | - Low (2 series) |
+| `weaviate_vector_cache_prefill_duration_seconds` | Seconds a vector cache prefill took to complete, whenever a shard opens. Aborted and failed prefills, and shards with nothing to prefill, are not observed. `_sum` and `_count` only. | `Summary` | `-` | - Low (2 series) |
+| `startup_progress` | Deprecated: it was never set, and no series is minted for it any more. Removed in a later release. | `Gauge` | `class_name, operation, shard_name` | ❌ High 
 | `startup_diskio_throughput` | Disk I/O throughput in bytes per second | `Summary` | `class_name, operation, shard_name` | ❌ High 
+
+Notes:
+- The three `weaviate_*` series above carry no labels: five series per node whatever the node holds. The two summaries are cumulative over every shard open since the process started, at boot and afterwards alike (tenant activation, replica movement), so for the boot figure read them when `weaviate_startup_duration_seconds` first turns non-zero, or over the boot's time window.
+- Average restore or prefill: `sum(weaviate_vector_index_restore_duration_seconds_sum) / sum(weaviate_vector_index_restore_duration_seconds_count)`, and the same for the prefill summary. Time to ready per node: `max by (instance) (weaviate_startup_duration_seconds)`.
 
 #### Tombstone Metrics
 | Name | Description | Type | Labels | High Cardinality |
