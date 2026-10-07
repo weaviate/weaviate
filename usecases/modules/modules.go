@@ -295,6 +295,17 @@ func (p *Provider) IsReranker(modName string) bool {
 	return mod.Type() == modulecapabilities.Text2TextReranker
 }
 
+// IsDecisions reports whether the module is a decisions module. A class
+// holds at most one, next to at most one reranker; both serve rerank and the
+// request picks between them, see rerankModule.
+func (p *Provider) IsDecisions(modName string) bool {
+	mod := p.GetByName(modName)
+	if mod == nil {
+		return false
+	}
+	return mod.Type() == modulecapabilities.Decisions
+}
+
 func (p *Provider) IsMultiVector(modName string) bool {
 	mod := p.GetByName(modName)
 	if mod == nil {
@@ -816,7 +827,44 @@ func (p *Provider) classAdditionalProperties(class *models.Class) map[string]mod
 		}
 		maps.Copy(properties, provider.AdditionalProperties())
 	}
+	// A reranker and a decisions module both serve rerank. The reranker
+	// serves it unless the request asks for a decision.
+	if module, _ := p.rerankModule(class, false); module != nil {
+		if provider, ok := module.(modulecapabilities.AdditionalProperties); ok && provider != nil {
+			if property, ok := provider.AdditionalProperties()[modulecomponents.AdditionalPropertyRerank]; ok {
+				properties[modulecomponents.AdditionalPropertyRerank] = property
+			}
+		}
+	}
 	return properties
+}
+
+// rerankModule returns the module that serves a rerank on the class: the
+// decisions module when the request asks for a decision, otherwise the
+// reranker, or the decisions module in its place when the class has none.
+// It is nil when the class has neither.
+func (p *Provider) rerankModule(class *models.Class, decision bool) (modulecapabilities.Module, error) {
+	var reranker, decisions modulecapabilities.Module
+	for _, module := range p.modulesByName() {
+		if !p.shouldIncludeClassArgument(class, module.Name(), module.Type(), p.getModuleAltNames(module)) {
+			continue
+		}
+		if module.Type() == modulecapabilities.Text2TextReranker {
+			reranker = module
+		} else if module.Type() == modulecapabilities.Decisions {
+			decisions = module
+		}
+	}
+	if decision {
+		if decisions == nil {
+			return nil, fmt.Errorf("rerank.decision needs a decisions module, class %q has none", class.Class)
+		}
+		return decisions, nil
+	}
+	if reranker != nil {
+		return reranker, nil
+	}
+	return decisions, nil
 }
 
 func (p *Provider) getClassFromSearchResult(in []search.Result) (*models.Class, error) {

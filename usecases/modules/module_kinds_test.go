@@ -1,0 +1,240 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package modules
+
+import (
+	"context"
+	"testing"
+
+	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	enitiesSchema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/config"
+)
+
+// typedModule is a module of any type that serves the given additional
+// properties, recording in served which module ran rerank.
+type typedModule struct {
+	dummyNonVectorizerModule
+	moduleType modulecapabilities.ModuleType
+	properties []string
+	served     *[]string
+}
+
+func (m typedModule) Type() modulecapabilities.ModuleType {
+	return m.moduleType
+}
+
+func (m typedModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
+	out := map[string]modulecapabilities.AdditionalProperty{}
+	for _, name := range m.properties {
+		if name == "rerank" {
+			out[name] = rerankProperty(m.name, m.served)[name]
+			continue
+		}
+		out[name] = modulecapabilities.AdditionalProperty{}
+	}
+	return out
+}
+
+func rerankerModule(name string, served *[]string) typedModule {
+	return typedModule{dummyNonVectorizerModule{name: name}, modulecapabilities.Text2TextReranker, []string{"rerank"}, served}
+}
+
+func decisionsModule(name string, served *[]string) typedModule {
+	return typedModule{dummyNonVectorizerModule{name: name}, modulecapabilities.Decisions, []string{"rerank", "decide"}, served}
+}
+
+// A module's kind is its type. The schema holds one reranker and one
+// decisions module per class.
+func TestIsRerankerAndIsDecisionsByType(t *testing.T) {
+	tests := []struct {
+		name          string
+		module        modulecapabilities.Module
+		wantReranker  bool
+		wantDecisions bool
+		unregister    bool
+	}{
+		{name: "reranker", module: rerankerModule("reranker-x", nil), wantReranker: true},
+		{name: "decisions module", module: decisionsModule("decisions-x", nil), wantDecisions: true},
+		{
+			name:   "module of another type that serves rerank",
+			module: typedModule{dummyNonVectorizerModule{name: "other-x"}, modulecapabilities.Text2TextQnA, []string{"rerank"}, nil},
+		},
+		{name: "generative module", module: typedModule{dummyNonVectorizerModule{name: "generative-x"}, modulecapabilities.Text2TextGenerative, nil, nil}},
+		{name: "module that is not registered", module: rerankerModule("reranker-missing", nil), unregister: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			p := NewProvider(logger, config.Config{})
+			if !tt.unregister {
+				p.Register(tt.module)
+			}
+
+			assert.Equal(t, tt.wantReranker, p.IsReranker(tt.module.Name()))
+			assert.Equal(t, tt.wantDecisions, p.IsDecisions(tt.module.Name()))
+		})
+	}
+}
+
+func kindsSchemaReader() schemaGetter {
+	class := func(name string, modules ...string) *models.Class {
+		moduleConfig := map[string]interface{}{}
+		for _, module := range modules {
+			moduleConfig[module] = map[string]interface{}{}
+		}
+		return &models.Class{Class: name, ModuleConfig: moduleConfig}
+	}
+	return &fakeSchemaGetter{schema: enitiesSchema.Schema{Objects: &models.Schema{Classes: []*models.Class{
+		class("Reranker", "reranker-a"),
+		class("Decisions", "decisions-z"),
+		// decisions-z sorts after reranker-a, so a choice by name would pick it.
+		class("Both", "reranker-a", "decisions-z"),
+		class("None"),
+	}}}}
+}
+
+// The request decides which module reranks: the decisions module when it
+// asks for a decision, otherwise the reranker, or the decisions module in
+// its place when the class has none.
+func TestRerankModule(t *testing.T) {
+	tests := []struct {
+		class    string
+		decision bool
+		want     string
+		wantErr  string
+	}{
+		{class: "Reranker", want: "reranker-a"},
+		{class: "Reranker", decision: true, wantErr: `rerank.decision needs a decisions module, class "Reranker" has none`},
+		{class: "Decisions", want: "decisions-z"},
+		{class: "Decisions", decision: true, want: "decisions-z"},
+		{class: "Both", want: "reranker-a"},
+		{class: "Both", decision: true, want: "decisions-z"},
+		{class: "None", want: ""},
+		{class: "None", decision: true, wantErr: `rerank.decision needs a decisions module, class "None" has none`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.class+"/decision="+map[bool]string{false: "no", true: "yes"}[tt.decision], func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			p := NewProvider(logger, config.Config{})
+			p.SetSchemaGetter(kindsSchemaReader())
+			p.Register(rerankerModule("reranker-a", nil))
+			p.Register(decisionsModule("decisions-z", nil))
+			// A second module of each kind, so that no class gets one implicitly.
+			p.Register(rerankerModule("reranker-b", nil))
+			p.Register(decisionsModule("decisions-y", nil))
+
+			class, err := p.getClass(tt.class)
+			require.NoError(t, err)
+			module, err := p.rerankModule(class, tt.decision)
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			if tt.want == "" {
+				assert.Nil(t, module)
+				return
+			}
+			require.NotNil(t, module)
+			assert.Equal(t, tt.want, module.Name())
+		})
+	}
+}
+
+// A class that names a reranker and a decisions module gets its rerank from
+// the reranker on every request, whatever the names, and decide from the
+// decisions module.
+func TestClassWithBothKindsReranksWithTheReranker(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	var served []string
+	p := NewProvider(logger, config.Config{})
+	p.SetSchemaGetter(kindsSchemaReader())
+	p.Register(rerankerModule("reranker-a", &served))
+	p.Register(decisionsModule("decisions-z", &served))
+	p.Register(rerankerModule("reranker-b", &served))
+	p.Register(decisionsModule("decisions-y", &served))
+	in := []search.Result{{ClassName: "Both"}}
+
+	for range additionalExtendRuns {
+		_, err := p.GetExploreAdditionalExtend(context.Background(), in, map[string]any{"rerank": "params"}, nil, nil)
+		require.NoError(t, err)
+	}
+
+	require.Len(t, served, additionalExtendRuns)
+	for _, module := range served {
+		require.Equal(t, "reranker-a", module)
+	}
+	class, err := p.getClass("Both")
+	require.NoError(t, err)
+	properties := p.classAdditionalProperties(class)
+	assert.Contains(t, properties, "decide")
+}
+
+// A class whose moduleConfig names no module gets one of a kind implicitly
+// only when exactly one module of that kind is registered. A reranker and a
+// decisions module are two kinds, so both are included.
+func TestImplicitInclusionCountsPerKind(t *testing.T) {
+	class := &models.Class{Class: "Plain"}
+	tests := []struct {
+		name       string
+		registered []modulecapabilities.Module
+		want       map[string]bool
+	}{
+		{
+			name:       "one reranker",
+			registered: []modulecapabilities.Module{rerankerModule("reranker-x", nil)},
+			want:       map[string]bool{"reranker-x": true},
+		},
+		{
+			name:       "one decisions module",
+			registered: []modulecapabilities.Module{decisionsModule("decisions-x", nil)},
+			want:       map[string]bool{"decisions-x": true},
+		},
+		{
+			name:       "a reranker and a decisions module",
+			registered: []modulecapabilities.Module{rerankerModule("reranker-x", nil), decisionsModule("decisions-x", nil)},
+			want:       map[string]bool{"reranker-x": true, "decisions-x": true},
+		},
+		{
+			name:       "two rerankers",
+			registered: []modulecapabilities.Module{rerankerModule("reranker-x", nil), rerankerModule("reranker-y", nil)},
+			want:       map[string]bool{"reranker-x": false, "reranker-y": false},
+		},
+		{
+			name:       "two decisions modules",
+			registered: []modulecapabilities.Module{decisionsModule("decisions-x", nil), decisionsModule("decisions-y", nil)},
+			want:       map[string]bool{"decisions-x": false, "decisions-y": false},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			p := NewProvider(logger, config.Config{})
+			for _, module := range tt.registered {
+				p.Register(module)
+			}
+			for name, want := range tt.want {
+				module := p.GetByName(name)
+				got := p.shouldIncludeClassArgument(class, name, module.Type(), p.getModuleAltNames(module))
+				assert.Equal(t, want, got, name)
+			}
+		})
+	}
+}

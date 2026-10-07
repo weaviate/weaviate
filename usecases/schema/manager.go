@@ -91,6 +91,7 @@ type ModuleConfig interface {
 	GetByName(name string) modulecapabilities.Module
 	IsGenerative(string) bool
 	IsReranker(string) bool
+	IsDecisions(string) bool
 	IsMultiVector(string) bool
 }
 

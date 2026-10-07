@@ -1065,6 +1065,34 @@ func (h *Handler) validateCanAddClass(ctx context.Context, class *models.Class, 
 	return h.validateClassInvariants(ctx, class, originalName, classGetterWithAuth, relaxCrossRefValidation)
 }
 
+// validateModuleKinds rejects a class that names two rerankers or two
+// decisions modules. Both kinds serve rerank, and a class has one of each at
+// most, so that the request decides which one reranks.
+func (h *Handler) validateModuleKinds(class *models.Class) error {
+	moduleConfig, ok := class.ModuleConfig.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	var rerankers, decisions []string
+	for module := range moduleConfig {
+		switch {
+		case h.moduleConfig.IsReranker(module):
+			rerankers = append(rerankers, module)
+		case h.moduleConfig.IsDecisions(module):
+			decisions = append(decisions, module)
+		}
+	}
+	if len(rerankers) > 1 {
+		slices.Sort(rerankers)
+		return fmt.Errorf("class %q names %d reranker modules, at most one is allowed: %v", class.Class, len(rerankers), rerankers)
+	}
+	if len(decisions) > 1 {
+		slices.Sort(decisions)
+		return fmt.Errorf("class %q names %d decisions modules, at most one is allowed: %v", class.Class, len(decisions), decisions)
+	}
+	return nil
+}
+
 func (h *Handler) validateClassInvariants(
 	ctx context.Context, class *models.Class, originalName string, classGetterWithAuth func(string) (*models.Class, error),
 	relaxCrossRefValidation bool,
@@ -1082,6 +1110,10 @@ func (h *Handler) validateClassInvariants(
 	}
 
 	if err := h.validateVectorSettings(class); err != nil {
+		return err
+	}
+
+	if err := h.validateModuleKinds(class); err != nil {
 		return err
 	}
 

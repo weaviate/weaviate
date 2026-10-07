@@ -94,6 +94,40 @@ func TestParser(t *testing.T) {
 			error:    false,
 		},
 		{
+			name:     "update adds a decisions module next to a reranker",
+			old:      &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ShardingConfig: sc, ModuleConfig: map[string]interface{}{"reranker-random": emptyMap, "text2vec-random": emptyMap}},
+			update:   &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ModuleConfig: map[string]interface{}{"decisions-madeup": emptyMap}},
+			expected: &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ShardingConfig: sc, ModuleConfig: map[string]interface{}{"reranker-random": emptyMap, "decisions-madeup": emptyMap, "text2vec-random": emptyMap}},
+			error:    false,
+		},
+		{
+			name:     "update replaces the decisions module and keeps the reranker",
+			old:      &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ShardingConfig: sc, ModuleConfig: map[string]interface{}{"reranker-random": emptyMap, "decisions-random": emptyMap}},
+			update:   &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ModuleConfig: map[string]interface{}{"decisions-madeup": emptyMap}},
+			expected: &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ShardingConfig: sc, ModuleConfig: map[string]interface{}{"reranker-random": emptyMap, "decisions-madeup": emptyMap}},
+			error:    false,
+		},
+		{
+			name:     "update replaces the reranker and keeps the decisions module",
+			old:      &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ShardingConfig: sc, ModuleConfig: map[string]interface{}{"reranker-random": emptyMap, "decisions-random": emptyMap}},
+			update:   &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ModuleConfig: map[string]interface{}{"reranker-madeup": emptyMap}},
+			expected: &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ShardingConfig: sc, ModuleConfig: map[string]interface{}{"reranker-madeup": emptyMap, "decisions-random": emptyMap}},
+			error:    false,
+		},
+		{
+			name:     "update with a reranker and a decisions module at once",
+			old:      &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ShardingConfig: sc},
+			update:   &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ModuleConfig: map[string]interface{}{"reranker-madeup": emptyMap, "decisions-madeup": emptyMap}},
+			expected: &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ShardingConfig: sc, ModuleConfig: map[string]interface{}{"reranker-madeup": emptyMap, "decisions-madeup": emptyMap}},
+			error:    false,
+		},
+		{
+			name:   "update with two decisions modules => error",
+			old:    &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ShardingConfig: sc},
+			update: &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ModuleConfig: map[string]interface{}{"decisions-madeup": emptyMap, "decisions-other": emptyMap}},
+			error:  true,
+		},
+		{
 			name:     "update reranker and generative module - previously not configured, other text2vec module present",
 			old:      &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ShardingConfig: sc, ModuleConfig: map[string]interface{}{"reranker-random": emptyMap, "generative-random": emptyMap, "text2vec-random": emptyMap}},
 			update:   &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ModuleConfig: map[string]interface{}{"reranker-madeup": emptyMap, "generative-madeup": emptyMap}},
@@ -292,6 +326,10 @@ type fakeModulesProvider struct{}
 
 func (m fakeModulesProvider) IsReranker(name string) bool {
 	return strings.Contains(name, "reranker")
+}
+
+func (m fakeModulesProvider) IsDecisions(name string) bool {
+	return strings.HasPrefix(name, "decisions-")
 }
 
 func (m fakeModulesProvider) IsGenerative(name string) bool {
