@@ -529,6 +529,7 @@ func NewIndex(
 		return nil, fmt.Errorf("init index %q: global replication config is required when ReplicationFactor > 1", cfg.ClassName.String())
 	}
 	index.asyncReplicationScheduler = cfg.AsyncReplicationScheduler
+	index.unloadedCheckpoints.metrics = metrics
 
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 
@@ -559,6 +560,10 @@ func NewIndex(
 	index.cycleCallbacks.compactionCycle.Start()
 	index.cycleCallbacks.compactionAuxCycle.Start()
 	index.cycleCallbacks.flushCycle.Start()
+
+	if index.asyncReplicationScheduler != nil {
+		index.asyncReplicationScheduler.registerUnloadedCheckpoints(&index.unloadedCheckpoints)
+	}
 
 	return index, nil
 }
@@ -4314,7 +4319,7 @@ func (i *Index) dropShards(names []string) error {
 			// on this shard invalidates its usage record as it finishes, which
 			// re-creates the count, and the drop is what waits that reference out.
 			shardusage.ForgetComputedUsageGeneration(i.path(), name)
-			i.unloadedCheckpoints.delete(name)
+			i.unloadedCheckpoints.clear(name)
 
 			return nil
 		})
@@ -5143,6 +5148,12 @@ func (i *Index) beginClose() error {
 	defer lsmkv.GlobalBucketRegistry.RemoveByPrefixes(i.path())
 	i.closingCancel()
 	i.closeLock.Unlock()
+
+	// No put can follow: create re-checks i.closed under closeLock.
+	if i.asyncReplicationScheduler != nil {
+		i.asyncReplicationScheduler.deregisterUnloadedCheckpoints(&i.unloadedCheckpoints)
+	}
+	i.unloadedCheckpoints.clearAll()
 
 	i.inflight.Wait()
 	return nil

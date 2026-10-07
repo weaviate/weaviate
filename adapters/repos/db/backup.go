@@ -842,8 +842,15 @@ func verifyDesignatedLocalShards(designated map[string]string, shardNames []stri
 		return nil
 	}
 	sort.Strings(mine)
-	return fmt.Errorf("shards %v are designated to this node but no longer local; the replica set changed during the backup, retry it", mine)
+	listed := mine
+	if len(mine) > _maxDesignatedShardsInError {
+		listed = append(mine[:_maxDesignatedShardsInError:_maxDesignatedShardsInError], fmt.Sprintf("+%d more", len(mine)-_maxDesignatedShardsInError))
+	}
+	return fmt.Errorf("shards %v are designated to this node but no longer local; the replica set changed during the backup, retry it", listed)
 }
+
+// _maxDesignatedShardsInError caps the shard names in a drift error, which can span every tenant of a class.
+const _maxDesignatedShardsInError = 10
 
 // filterDesignatedShards drops shards designated to another still-replica node; anything else is kept so exclusion never orphans a shard.
 func filterDesignatedShards(shardNames []string, designated map[string]string, replicas map[string][]string, nodeName string) []string {
