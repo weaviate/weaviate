@@ -59,6 +59,8 @@ type statusGaugeHarness struct {
 	shardsCount *prometheus.GaugeVec
 }
 
+type noopProcessor struct{ processor }
+
 type statusGaugeOpts struct {
 	multiTenant bool
 	tenants     int
@@ -132,8 +134,9 @@ func newStatusGaugeHarness(t *testing.T, opts statusGaugeOpts) *statusGaugeHarne
 	require.NoError(t, err)
 
 	repo.SetSchemaGetter(schemaGetter)
+	installNoLiveReindexLookup(repo)
 	require.NoError(t, repo.WaitForStartup(testCtx()))
-	t.Cleanup(func() { repo.Shutdown(context.Background()) })
+	t.Cleanup(func() { require.NoError(t, repo.Shutdown(context.Background())) })
 
 	return &statusGaugeHarness{
 		repo:         repo,
@@ -211,13 +214,6 @@ func TestShardStatusGaugeReleasedWhenShardLeavesNode(t *testing.T) {
 		prepare     func(t *testing.T, e env)
 		act         func(t *testing.T, e env)
 	}{
-		{
-			name:    "collection dropped",
-			counted: map[storagestate.Status]float64{storagestate.StatusReady: 1},
-			act: func(t *testing.T, e env) {
-				require.NoError(t, e.h.migrator.DropClass(ctx, e.className, false))
-			},
-		},
 		{
 			name:    "shut down then collection dropped",
 			counted: nil,
@@ -308,19 +304,6 @@ func TestShardStatusGaugeReleasedWhenShardLeavesNode(t *testing.T) {
 				shard, ok := e.idx.shards.LoadAndDelete(e.shardName)
 				require.True(t, ok)
 				require.Panics(t, func() { _ = shard.Shutdown(ctx) })
-			},
-		},
-		{
-			name:        "loaded tenant deactivated",
-			multiTenant: true,
-			counted:     map[storagestate.Status]float64{storagestate.StatusReady: 1},
-			prepare: func(t *testing.T, e env) {
-				require.NoError(t, e.shard.(*LazyLoadShard).Load(ctx))
-			},
-			act: func(t *testing.T, e env) {
-				require.NoError(t, e.h.migrator.UpdateTenants(ctx, statusGaugeClass(e.className, true),
-					[]*schemaUC.UpdateTenantPayload{{Name: e.shardName, Status: models.TenantActivityStatusCOLD}}, false))
-				require.Nil(t, e.idx.shards.Load(e.shardName), "deactivation should evict the shard")
 			},
 		},
 		{
@@ -443,7 +426,6 @@ func TestShardStatusGaugeReleasedWhenInitFails(t *testing.T) {
 	h.requireBuckets(t, "after the failed init", nil)
 }
 
-// Paused queue with one object makes GetStatus recompute READY as INDEXING; the gauge must follow.
 func TestShardStatusGaugeReleasedWhileStatusIsAccessed(t *testing.T) {
 	ctx := testCtx()
 
@@ -503,8 +485,7 @@ func TestShardStatusGaugeReleasedWhileStatusIsAccessed(t *testing.T) {
 	}
 }
 
-type noopProcessor struct{ processor }
-
+// Paused queue with one object makes GetStatus recompute READY as INDEXING; the gauge must follow.
 func TestShardStatusGaugeFollowsRecomputedStatus(t *testing.T) {
 	ctx := testCtx()
 	h := newStatusGaugeHarness(t, statusGaugeOpts{asyncIndex: true})

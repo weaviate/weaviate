@@ -44,8 +44,6 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 		}).Errorf("proceeding with drop while references are still held; in-flight requests on this shard will fail: %v", drainErr)
 	}
 
-	// Released even if teardown fails: the caller already removed the shard from
-	// the shard map.
 	defer s.releaseCountedStatus()
 
 	s.shutCtxCancel(fmt.Errorf("drop %q", s.ID()))

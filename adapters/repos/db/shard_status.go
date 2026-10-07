@@ -46,7 +46,7 @@ func (s *Shard) registerCountedStatus(status storagestate.Status) {
 }
 
 // moveCountedStatusUnlocked follows a status change in the gauge; an uncounted
-// (released) shard stays uncounted. Caller must hold statusLock.
+// (released) shard stays uncounted.
 func (s *Shard) moveCountedStatusUnlocked(next storagestate.Status) {
 	if s.countedStatus == "" || s.countedStatus == next.String() {
 		return
