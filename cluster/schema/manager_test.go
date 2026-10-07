@@ -1051,3 +1051,54 @@ func TestUpdatePropertyStoreSeesTheMergedProperty(t *testing.T) {
 		})
 	}
 }
+
+// KnownTenants answers from Sharding.Physical, the same map metaClass.AddTenants
+// consults, and must not retry: an absent tenant is the answer.
+func TestSchemaReaderKnownTenants(t *testing.T) {
+	var (
+		s   = NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+		rsc = SchemaReader{s, VersionedSchemaReader{}}
+	)
+
+	// no class yet
+	assert.Empty(t, rsc.KnownTenants("D", []string{"T1"}))
+
+	s.addClass(
+		&models.Class{Class: "D", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}},
+		&sharding.State{
+			PartitioningEnabled: true,
+			Physical: map[string]sharding.Physical{
+				"T1": {Status: "HOT", BelongsToNodes: []string{"N1"}},
+				"T2": {Status: "COLD", BelongsToNodes: []string{"N1"}},
+			},
+		}, 1)
+
+	tests := []struct {
+		name string
+		ask  []string
+		want []string
+	}{
+		{name: "existing tenant is reported", ask: []string{"T1"}, want: []string{"T1"}},
+		{name: "a COLD tenant exists too, status is not the question", ask: []string{"T2"}, want: []string{"T2"}},
+		{name: "only the existing subset comes back", ask: []string{"T1", "Tx", "T2"}, want: []string{"T1", "T2"}},
+		{name: "absent tenant is simply absent", ask: []string{"Tx"}, want: nil},
+		{name: "nothing asked, nothing known", ask: nil, want: nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := rsc.KnownTenants("D", tt.ask)
+			names := make([]string, 0, len(got))
+			for n := range got {
+				names = append(names, n)
+			}
+			assert.ElementsMatch(t, tt.want, names)
+		})
+	}
+
+	// a non-partitioned class has no tenants to know about
+	s.addClass(&models.Class{Class: "C"}, &sharding.State{
+		Physical: map[string]sharding.Physical{"S1": {BelongsToNodes: []string{"N1"}}},
+	}, 1)
+	assert.Empty(t, rsc.KnownTenants("C", []string{"S1"}))
+}

@@ -281,6 +281,27 @@ func (rs SchemaReader) TenantsShards(class string, tenants ...string) (map[strin
 	return rs.TenantsShardsWithVersion(context.TODO(), 0, class, tenants...)
 }
 
+// KnownTenants returns the subset of tenants the local sharding state already
+// lists, reading the same Sharding.Physical map that metaClass.AddTenants checks.
+//
+// Deliberately not routed through TenantsShards: that retries while the result is
+// empty, which is the all-new-tenant case, so a genuine create would pay the
+// 3x50ms ladder before the add. Here an absent tenant is the answer, not a miss.
+func (rs SchemaReader) KnownTenants(class string, tenants []string) map[string]struct{} {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("KnownTenants"))
+	defer t.ObserveDuration()
+
+	shards, _ := rs.schema.TenantsShards(class, tenants...)
+	if len(shards) == 0 {
+		return nil
+	}
+	known := make(map[string]struct{}, len(shards))
+	for tenant := range shards {
+		known[tenant] = struct{}{}
+	}
+	return known
+}
+
 func (rs SchemaReader) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
 	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("GetShardsStatus"))
 	defer t.ObserveDuration()
