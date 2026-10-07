@@ -280,10 +280,10 @@ This document is the single source of truth for Prometheus metrics exposed by We
 #### Schema Metrics
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|
-| `schema_writes_seconds` | Duration of schema writes (which always involve the leader) | `Summary` | `type` | - Low 
-| `schema_reads_local_seconds` | Duration of local schema reads that do not involve the leader | `Summary` | `type` | - Low 
-| `schema_reads_leader_seconds` | Duration of schema reads that are passed to the leader | `Summary` | `type` | - Low 
-| `schema_wait_for_version_seconds` | Duration of waiting for a schema version to be reached | `Summary` | `type` | - Low 
+| `schema_writes_seconds` | Duration of schema writes (which always involve the leader) | `Histogram` | `type` | - Low 
+| `schema_reads_local_seconds` | Duration of local schema reads that do not involve the leader | `Histogram` | `type` | - Low 
+| `schema_reads_leader_seconds` | Duration of schema reads that are passed to the leader | `Histogram` | `type` | - Low 
+| `schema_wait_for_version_seconds` | Duration of waiting for a schema version to be reached | `Histogram` | `type` | - Low 
 
 ---
 
