@@ -29,6 +29,10 @@ import (
 )
 
 const (
+	// notServedHereAttempts: more than one because that answer is not reliably final, few because
+	// the point is to stop burning the worker timeout on a replica that will never hold the shard.
+	notServedHereAttempts = 3
+
 	defaultBackOffInitialInterval = time.Millisecond * 250
 	defaultBackOffMaxElapsedTime  = time.Second * 128
 )
@@ -329,14 +333,6 @@ func (c *coordinator[T, R]) Push(ctx context.Context,
 // - Only send error messages on replyCh once it's unlikely we'll ever reach level successes
 //
 // Note that the first retry for a given host, may happen before c.pullBackOff.initial has passed
-// cannotServe reports whether asking this peer again within the attempt is pointless. Counting the
-// never-will case matters in MT, where a tenant's shard lives on a subset of nodes, so "not here"
-// is the steady state and a worker would otherwise retry it until its timeout. A replica merely
-// behind the requested version reports lag instead and keeps being retried.
-func cannotServe(err error) bool {
-	return errors.Is(err, ErrReplicaNotReady) || errors.Is(err, ErrReplicaNotServedHere)
-}
-
 func (c *coordinator[T, any]) Pull(ctx context.Context,
 	cl types.ConsistencyLevel,
 	op readOp[T], directCandidate string,
@@ -377,6 +373,30 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 			return len(hosts)-len(unreachable) < level
 		}
 
+		// Finality is inferred from the schema version, which a shard being materialised --
+		// restored, activated, lazily loaded -- does not advance, so the shard can be absent while
+		// the schema is current. Writing such a host off at once fails reads that only had to wait.
+		var notHereMu sync.Mutex
+		notHere := make(map[string]int, len(hosts))
+		notHereExhausted := func(host string) bool {
+			notHereMu.Lock()
+			defer notHereMu.Unlock()
+			notHere[host]++
+			return notHere[host] >= notServedHereAttempts
+		}
+
+		// writeOff counts a host out of reach: at once if it cannot serve yet, after a few tries if
+		// it reports the shard is not its own.
+		writeOff := func(host string, err error) bool {
+			switch {
+			case errors.Is(err, ErrReplicaNotReady):
+				return levelUnreachable(host)
+			case errors.Is(err, ErrReplicaNotServedHere):
+				return notHereExhausted(host) && levelUnreachable(host)
+			}
+			return false
+		}
+
 		hostRetryQueue := make(chan hostRetry, len(hosts))
 
 		// put the "backups/fallbacks" on the retry queue
@@ -410,7 +430,7 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 					replyCh <- Result[T]{resp, err}
 					return
 				}
-				if cannotServe(err) && levelUnreachable(hosts[hostIndex]) {
+				if writeOff(hosts[hostIndex], err) {
 					replyCh <- Result[T]{resp, err}
 					return
 				}
@@ -434,7 +454,7 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 						replyCh <- Result[T]{resp, err}
 						return
 					}
-					if cannotServe(err) && levelUnreachable(hr.host) {
+					if writeOff(hr.host, err) {
 						replyCh <- Result[T]{resp, err}
 						return
 					}

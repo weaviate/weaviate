@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -623,8 +624,63 @@ func TestPullStopsWhenAReplicaCannotServeTheShard(t *testing.T) {
 	require.Equal(t, level, replies, "one reply per worker, as the caller depends on")
 	require.Less(t, elapsed, 10*time.Second,
 		"a replica that does not serve the shard must not be retried to the timeout (took %s)", elapsed)
-	require.LessOrEqual(t, int(calls.Load()), len(hosts),
-		"each host should be asked at most once: a final answer is not worth repeating")
+	require.LessOrEqual(t, int(calls.Load()), 4*len(hosts),
+		"the retries must stay bounded rather than run until the timeout")
+}
+
+// A restore, activation or lazy load leaves the shard absent while the schema is already current,
+// so "does not serve this shard" is not reliably final. Writing the host off on the first such
+// answer broke backups: mid-backup activation left CountObjects with no replica reporting a count.
+func TestPullSucceedsWhenAShardArrivesOnRetry(t *testing.T) {
+	const (
+		cls   = "C1"
+		shard = "S1"
+	)
+
+	hosts := []types.Replica{
+		{NodeName: "A", ShardName: shard, HostAddr: "a:7001"},
+		{NodeName: "B", ShardName: shard, HostAddr: "b:7001"},
+		{NodeName: "C", ShardName: shard, HostAddr: "c:7001"},
+	}
+
+	logger, _ := test.NewNullLogger()
+	metrics, err := replica.NewMetrics(nil)
+	require.NoError(t, err)
+
+	options := types.RoutingPlanBuildOptions{Shard: shard, ConsistencyLevel: types.ConsistencyLevelQuorum}
+	router := types.NewMockRouter(t)
+	router.EXPECT().BuildRoutingPlanOptions(shard, shard, types.ConsistencyLevelQuorum, "").Return(options).Once()
+	router.EXPECT().BuildReadRoutingPlan(options).Return(types.ReadRoutingPlan{
+		Shard:               shard,
+		ReplicaSet:          types.ReadReplicaSet{Replicas: hosts},
+		ConsistencyLevel:    types.ConsistencyLevelQuorum,
+		IntConsistencyLevel: 2,
+	}, nil).Once()
+
+	c := replica.NewReadCoordinator[int](router, metrics, cls, shard, "", logger)
+
+	notServedHere := &clients.HTTPError{Code: http.StatusUnprocessableEntity, Body: []byte("not served here")}
+	var seen sync.Map
+	op := func(ctx context.Context, host string, _ bool) (int, error) {
+		if _, asked := seen.LoadOrStore(host, true); !asked {
+			return 0, notServedHere
+		}
+		return 1, nil
+	}
+
+	replyCh, level, err := c.Pull(context.Background(), types.ConsistencyLevelQuorum, op, "", 10*time.Second)
+	require.NoError(t, err)
+	require.Equal(t, 2, level)
+
+	var succeeded int
+	for r := range replyCh {
+		if r.Err == nil {
+			succeeded++
+		}
+	}
+
+	require.Equal(t, level, succeeded,
+		"a shard that lands on a retry must still satisfy the consistency level")
 }
 
 // The guard on the above: a non-final error must still be retried, or a read can no longer reach
