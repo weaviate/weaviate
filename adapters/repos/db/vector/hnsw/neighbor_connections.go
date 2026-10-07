@@ -391,20 +391,23 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 			return errors.Wrap(err, "connect neighbors")
 		}
 
-		neighbor.resetConnectionsAtLevelNoLock(level)
-		if err := n.graph.commitLog.ClearLinksAtLevel(neighborID, uint16(level)); err != nil {
-			return err
-		}
-
 		ids := make([]uint64, 0, candidates.Len())
 		for candidates.Len() > 0 {
-			id := candidates.Pop().ID
-			ids = append(ids, id)
-			if err := n.graph.commitLog.AddLinkAtLevel(neighborID, level, id); err != nil {
-				return err
-			}
+			ids = append(ids, candidates.Pop().ID)
 		}
+
+		neighbor.resetConnectionsAtLevelNoLock(level)
 		neighbor.appendConnectionsAtLevelNoLock(level, ids, maximumConnections)
+
+		// a single replace record instead of a clear record followed by one
+		// record per link: identical on replay (both overwrite the level's
+		// links; doAtLevel already logs the node's own list this way) but
+		// ~2.4x fewer commit log bytes on this path, which dominates log
+		// volume when inserts keep re-pruning full neighbor lists
+		// (weaviate/0-weaviate-issues#670).
+		if err := n.graph.commitLog.ReplaceLinksAtLevel(neighborID, level, ids); err != nil {
+			return err
+		}
 	}
 
 	return nil
