@@ -87,6 +87,7 @@ import (
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
+	moddecisionsopenai "github.com/weaviate/weaviate/modules/decisions-openai"
 	moddecisionstypesafeai "github.com/weaviate/weaviate/modules/decisions-typesafeai"
 	modgenerativeanthropic "github.com/weaviate/weaviate/modules/generative-anthropic"
 	modgenerativeanyscale "github.com/weaviate/weaviate/modules/generative-anyscale"
@@ -127,7 +128,6 @@ import (
 	modrerankerdummy "github.com/weaviate/weaviate/modules/reranker-dummy"
 	modrerankerjinaai "github.com/weaviate/weaviate/modules/reranker-jinaai"
 	modrerankernvidia "github.com/weaviate/weaviate/modules/reranker-nvidia"
-	modrerankeropenai "github.com/weaviate/weaviate/modules/reranker-openai"
 	modrerankertransformers "github.com/weaviate/weaviate/modules/reranker-transformers"
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
 	modsum "github.com/weaviate/weaviate/modules/sum-transformers"
@@ -1833,6 +1833,7 @@ func registerModules(appState *state.State) error {
 		modrerankervoyageai.Name,
 		modrerankerjinaai.Name,
 		modrerankernvidia.Name,
+		moddecisionsopenai.Name,
 		moddecisionstypesafeai.Name,
 	}
 
@@ -1919,11 +1920,11 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules[modrerankeropenai.Name]; ok {
-		appState.Modules.Register(modrerankeropenai.New())
+	if _, ok := enabledModules[moddecisionsopenai.Name]; ok {
+		appState.Modules.Register(moddecisionsopenai.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", modrerankeropenai.Name).
+			WithField("module", moddecisionsopenai.Name).
 			Debug("enabled module")
 	}
 

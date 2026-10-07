@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modrerankeropenai
+package moddecisionsopenai
 
 import (
 	"context"
@@ -29,13 +29,13 @@ import (
 func TestModuleNameAndType(t *testing.T) {
 	m := New()
 
-	assert.Equal(t, "reranker-openai", Name)
-	assert.Equal(t, "reranker-openai", m.Name())
-	assert.Equal(t, modulecapabilities.Text2TextReranker, m.Type())
+	assert.Equal(t, "decisions-openai", Name)
+	assert.Equal(t, "decisions-openai", m.Name())
+	assert.Equal(t, modulecapabilities.Decisions, m.Type())
 }
 
 func TestMaxConcurrentRequestsFromEnv(t *testing.T) {
-	const rangeErr = "RERANKER_OPENAI_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "
+	const rangeErr = "DECISIONS_OPENAI_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "
 	tests := []struct {
 		name    string
 		value   string
@@ -77,7 +77,7 @@ func TestInitAdditional(t *testing.T) {
 		{
 			name:    "invalid limit fails the init",
 			value:   "0",
-			wantErr: `RERANKER_OPENAI_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "0"`,
+			wantErr: `DECISIONS_OPENAI_MAX_CONCURRENT_REQUESTS must be a whole number between 1 and 256, got "0"`,
 		},
 	}
 	for _, tt := range tests {
@@ -96,7 +96,7 @@ func TestInitAdditional(t *testing.T) {
 			assert.Contains(t, m.AdditionalProperties(), "rerank")
 			meta, err := m.MetaInfo()
 			require.NoError(t, err)
-			assert.Equal(t, "Reranker - OpenAI", meta["name"])
+			assert.Equal(t, "Decisions - OpenAI", meta["name"])
 			assert.NotEmpty(t, meta["documentationHref"])
 		})
 	}

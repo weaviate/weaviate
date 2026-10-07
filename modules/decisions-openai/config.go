@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modrerankeropenai
+package moddecisionsopenai
 
 import (
 	"context"
@@ -18,20 +18,20 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/modules/reranker-openai/config"
+	"github.com/weaviate/weaviate/modules/decisions-openai/config"
 )
 
-func (m *ReRankerOpenAIModule) ClassConfigDefaults() map[string]any {
+func (m *DecisionsOpenAIModule) ClassConfigDefaults() map[string]any {
 	return map[string]any{}
 }
 
-func (m *ReRankerOpenAIModule) PropertyConfigDefaults(
+func (m *DecisionsOpenAIModule) PropertyConfigDefaults(
 	dt *schema.DataType,
 ) map[string]any {
 	return map[string]any{}
 }
 
-func (m *ReRankerOpenAIModule) ValidateClass(ctx context.Context,
+func (m *DecisionsOpenAIModule) ValidateClass(ctx context.Context,
 	class *models.Class, cfg moduletools.ClassConfig,
 ) error {
 	return config.NewClassSettings(cfg).Validate(class)

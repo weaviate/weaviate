@@ -13,7 +13,7 @@ package clients
 
 func (c *client) MetaInfo() (map[string]any, error) {
 	return map[string]any{
-		"name":              "Reranker - OpenAI",
+		"name":              "Decisions - OpenAI",
 		"documentationHref": "https://developers.openai.com/api/docs/guides/decisions",
 	}, nil
 }
