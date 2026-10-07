@@ -186,11 +186,13 @@ This document is the single source of truth for Prometheus metrics exposed by We
 #### Cluster Store Metrics
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|
-| `weaviate_cluster_store_fsm_apply_duration_seconds` | Time to apply cluster store FSM state in local node | `Histogram` | `nodeID` | - Low 
+| `weaviate_cluster_store_fsm_apply_duration_seconds` | Time to apply cluster store FSM state in local node, by command type | `Histogram` | `nodeID, cmd_type` | - Low 
 | `weaviate_cluster_store_fsm_apply_failures_total` | Total failure count of cluster store FSM state apply in local node | `Counter` | `nodeID` | - Low 
 | `weaviate_cluster_store_raft_last_applied_index` | Current applied index of a raft cluster in local node | `Gauge` | `nodeID` | - Low 
 | `weaviate_cluster_store_fsm_last_applied_index` | Current applied index of cluster store FSM in local node | `Gauge` | `nodeID` | - Low 
 | `weaviate_cluster_store_fsm_startup_applied_index` | Previous applied index of the cluster store FSM in local node | `Gauge` | `nodeID` | - Low 
+| `weaviate_cluster_store_wait_for_index_duration_seconds` | Time spent waiting for the local FSM to reach a schema version. `outcome` is `immediate` (already applied, nothing waited for), `caught_up`, or `deadline`. The deadline is the sooner of `RAFT_CONSISTENCY_WAIT_TIMEOUT` and the caller's remaining context, so a short `deadline` observation means the request arrived with little budget rather than that the FSM was slow | `Histogram` | `nodeID, outcome` | - Low 
+| `weaviate_cluster_store_wait_for_index_gap_entries` | Entries still missing when a wait for a schema version gave up. A couple of entries points at something other than lag; thousands means the node is genuinely catching up | `Histogram` | `nodeID` | - Low 
 
 #### Schema Management Metrics
 | Name | Description | Type | Labels | High Cardinality |
@@ -280,10 +282,10 @@ This document is the single source of truth for Prometheus metrics exposed by We
 #### Schema Metrics
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|
-| `schema_writes_seconds` | Duration of schema writes (which always involve the leader) | `Summary` | `type` | - Low 
-| `schema_reads_local_seconds` | Duration of local schema reads that do not involve the leader | `Summary` | `type` | - Low 
-| `schema_reads_leader_seconds` | Duration of schema reads that are passed to the leader | `Summary` | `type` | - Low 
-| `schema_wait_for_version_seconds` | Duration of waiting for a schema version to be reached | `Summary` | `type` | - Low 
+| `weaviate_schema_writes_seconds` | Duration of schema writes (which always involve the leader) | `Histogram` | `type` | - Low 
+| `weaviate_schema_reads_local_seconds` | Duration of local schema reads that do not involve the leader | `Histogram` | `type` | - Low 
+| `weaviate_schema_reads_leader_seconds` | Duration of schema reads that are passed to the leader | `Histogram` | `type` | - Low 
+| `weaviate_schema_wait_for_version_seconds` | Duration of waiting for a schema version to be reached | `Histogram` | `type` | - Low 
 
 ---
 
