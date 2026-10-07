@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modrerankertypesafeai
+package moddecisionstypesafeai
 
 import (
 	"context"
@@ -18,20 +18,20 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/modules/reranker-typesafeai/config"
+	"github.com/weaviate/weaviate/modules/decisions-typesafeai/config"
 )
 
-func (m *ReRankerTypeSafeAIModule) ClassConfigDefaults() map[string]any {
+func (m *DecisionsTypeSafeAIModule) ClassConfigDefaults() map[string]any {
 	return map[string]any{}
 }
 
-func (m *ReRankerTypeSafeAIModule) PropertyConfigDefaults(
+func (m *DecisionsTypeSafeAIModule) PropertyConfigDefaults(
 	dt *schema.DataType,
 ) map[string]any {
 	return map[string]any{}
 }
 
-func (m *ReRankerTypeSafeAIModule) ValidateClass(ctx context.Context,
+func (m *DecisionsTypeSafeAIModule) ValidateClass(ctx context.Context,
 	class *models.Class, cfg moduletools.ClassConfig,
 ) error {
 	return config.NewClassSettings(cfg).Validate(class)

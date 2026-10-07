@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modrerankertypesafeai
+package moddecisionstypesafeai
 
 import (
 	"context"
@@ -22,47 +22,47 @@ import (
 
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/reranker-typesafeai/clients"
+	"github.com/weaviate/weaviate/modules/decisions-typesafeai/clients"
 	rerankeradditional "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
-const Name = "reranker-typesafeai"
+const Name = "decisions-typesafeai"
 
-func New() *ReRankerTypeSafeAIModule {
-	return &ReRankerTypeSafeAIModule{}
+func New() *DecisionsTypeSafeAIModule {
+	return &DecisionsTypeSafeAIModule{}
 }
 
-type ReRankerTypeSafeAIModule struct {
-	reranker             ReRankerTypeSafeAIClient
+type DecisionsTypeSafeAIModule struct {
+	reranker             DecisionsTypeSafeAIClient
 	additionalProperties map[string]modulecapabilities.AdditionalProperty
 }
 
-type ReRankerTypeSafeAIClient interface {
+type DecisionsTypeSafeAIClient interface {
 	Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
 	MetaInfo() (map[string]any, error)
 }
 
-func (m *ReRankerTypeSafeAIModule) Name() string {
+func (m *DecisionsTypeSafeAIModule) Name() string {
 	return Name
 }
 
-func (m *ReRankerTypeSafeAIModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2TextReranker
+func (m *DecisionsTypeSafeAIModule) Type() modulecapabilities.ModuleType {
+	return modulecapabilities.Decisions
 }
 
-func (m *ReRankerTypeSafeAIModule) Init(ctx context.Context,
+func (m *DecisionsTypeSafeAIModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	if err := m.initAdditional(ctx, params.GetConfig().ModuleHttpClientTimeout, params.GetLogger()); err != nil {
-		return errors.Wrap(err, "init reranker-typesafeai")
+		return errors.Wrap(err, "init decisions-typesafeai")
 	}
 
 	return nil
 }
 
-func (m *ReRankerTypeSafeAIModule) initAdditional(ctx context.Context, timeout time.Duration,
+func (m *DecisionsTypeSafeAIModule) initAdditional(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
 	apiKey := os.Getenv("TYPESAFEAI_APIKEY")
@@ -74,7 +74,7 @@ func (m *ReRankerTypeSafeAIModule) initAdditional(ctx context.Context, timeout t
 	return nil
 }
 
-const maxConcurrentRequestsEnv = "RERANKER_TYPESAFEAI_MAX_CONCURRENT_REQUESTS"
+const maxConcurrentRequestsEnv = "DECISIONS_TYPESAFEAI_MAX_CONCURRENT_REQUESTS"
 
 // maxConcurrentRequestsFromEnv reads the process-wide limit of requests to
 // the TypeSafeAI API that may be in flight at once.
@@ -91,17 +91,17 @@ func maxConcurrentRequestsFromEnv() (int, error) {
 	return parsed, nil
 }
 
-func (m *ReRankerTypeSafeAIModule) setClient(client ReRankerTypeSafeAIClient) {
+func (m *DecisionsTypeSafeAIModule) setClient(client DecisionsTypeSafeAIClient) {
 	m.reranker = client
 	m.additionalProperties = withTypeSafeAIRerank(
 		rerankeradditional.NewRankerProvider(client).AdditionalProperties(), rank.New(client))
 }
 
-func (m *ReRankerTypeSafeAIModule) MetaInfo() (map[string]any, error) {
+func (m *DecisionsTypeSafeAIModule) MetaInfo() (map[string]any, error) {
 	return m.reranker.MetaInfo()
 }
 
-func (m *ReRankerTypeSafeAIModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
+func (m *DecisionsTypeSafeAIModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	return m.additionalProperties
 }
 

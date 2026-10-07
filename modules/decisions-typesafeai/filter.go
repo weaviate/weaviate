@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modrerankertypesafeai
+package moddecisionstypesafeai
 
 import (
 	"context"
@@ -20,7 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/modules/reranker-typesafeai/config"
+	"github.com/weaviate/weaviate/modules/decisions-typesafeai/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	rerankmodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
@@ -39,7 +39,7 @@ const (
 // page that ends beyond it fails here instead of after the search. The
 // explorer only asks when the query can be over-fetched; a search with
 // grouping, autocut, boost or MMR ignores the header and the setting.
-func (m *ReRankerTypeSafeAIModule) RerankFetchDepth(ctx context.Context, cfg moduletools.ClassConfig, pageEnd int,
+func (m *DecisionsTypeSafeAIModule) RerankFetchDepth(ctx context.Context, cfg moduletools.ClassConfig, pageEnd int,
 ) (int, error) {
 	settings := config.NewClassSettings(cfg)
 	maxDocuments := min(settings.MaxDocuments(), config.MaxDocumentsLimit)

@@ -29,7 +29,7 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/reranker-typesafeai/config"
+	"github.com/weaviate/weaviate/modules/decisions-typesafeai/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
@@ -216,7 +216,7 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 		return nil, err
 	}
 
-	c.logger.WithField("action", "reranker_typesafeai_rank").
+	c.logger.WithField("action", "decisions_typesafeai_rank").
 		WithField("documents", len(documents)).
 		WithField("judged", len(pending)).
 		WithField("requests", requests.Load()).
@@ -342,7 +342,7 @@ func (c *client) judgeBatch(ctx context.Context, request judgeRequest, documents
 		if !result.retryable {
 			return nil, typesafeaiUsage{}, result, err
 		}
-		c.logger.WithField("action", "reranker_typesafeai_retry").WithField("attempt", attempt+1).
+		c.logger.WithField("action", "decisions_typesafeai_retry").WithField("attempt", attempt+1).
 			Debugf("typesafeai request failed, retrying: %v", err)
 		lastErr = err
 		retryAfter = result.retryAfter

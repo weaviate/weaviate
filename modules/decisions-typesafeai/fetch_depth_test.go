@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modrerankertypesafeai
+package moddecisionstypesafeai
 
 import (
 	"context"
