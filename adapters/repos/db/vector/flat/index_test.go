@@ -1831,7 +1831,10 @@ func Test_NoRace_Flat_SearchAfterRestartWithUnflushedData(t *testing.T) {
 	require.NotNil(t, bucket)
 	require.Empty(t, bucket.QuantileKeys(16), "expected no segments, data must live in the memtable only")
 
+	prefills := flatPrefillCount(t)
 	index.PostStartup(ctx)
+	require.Equal(t, prefills+1, flatPrefillCount(t),
+		"a cached flat index reports its startup preload as a synchronous prefill")
 
 	ids, _, err := index.SearchByVector(ctx, []float32{1, 0, 0}, len(vectors), nil)
 	require.NoError(t, err)
@@ -1867,11 +1870,16 @@ func Test_NoRace_Flat_EmptyTenantPostStartupAllocatesNothing(t *testing.T) {
 	index := newBQCachedIndex(t, dirName, store)
 	defer index.Shutdown(context.Background())
 
+	prefills := flatPrefillCount(t)
 	index.PostStartup(context.Background())
 
 	// an empty tenant must not pay for a cache it doesn't use
 	assert.EqualValues(t, 0, index.cache.Len(),
 		"PostStartup on an empty index must not allocate the vector cache")
+	// ... nor report a prefill that filled nothing: tenant creation is exactly
+	// the churn that would bury the prefill average in microsecond samples
+	assert.Equal(t, prefills, flatPrefillCount(t),
+		"an empty tenant preloads nothing and must not report a prefill")
 }
 
 func Test_NoRace_Flat_QueryVectorDistancerBeforePreload(t *testing.T) {

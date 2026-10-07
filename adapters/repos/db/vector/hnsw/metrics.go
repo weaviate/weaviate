@@ -29,9 +29,7 @@ type Metrics struct {
 	cleaned                       prometheus.Counter
 	size                          prometheus.Gauge
 	grow                          prometheus.Observer
-	startupProgress               prometheus.Gauge
 	startupDurations              prometheus.ObserverVec
-	startupDiskIO                 prometheus.ObserverVec
 	tombstoneReassignNeighbors    prometheus.Counter
 	tombstoneFindGlobalEntrypoint prometheus.Counter
 	tombstoneFindLocalEntrypoint  prometheus.Counter
@@ -89,9 +87,7 @@ func newMetrics(prom *monitoring.PrometheusMetrics,
 	}
 
 	grow := prom.VectorIndexMaintenanceDurations.With(opLabels("grow"))
-	startupProgress := prom.StartupProgress.With(opLabels("hnsw_read_commitlogs"))
 	startupDurations := prom.StartupDurations.MustCurryWith(baseLabels)
-	startupDiskIO := prom.StartupDiskIO.MustCurryWith(baseLabels)
 
 	tombstoneReassignNeighbors := prom.TombstoneReassignNeighbors.With(baseLabels)
 	tombstoneUnexpected := prom.VectorIndexTombstoneUnexpected.MustCurryWith(baseLabels)
@@ -115,9 +111,7 @@ func newMetrics(prom *monitoring.PrometheusMetrics,
 		deleteTime:                    deleteTime,
 		size:                          size,
 		grow:                          grow,
-		startupProgress:               startupProgress,
 		startupDurations:              startupDurations,
-		startupDiskIO:                 startupDiskIO,
 		tombstoneReassignNeighbors:    tombstoneReassignNeighbors,
 		tombstoneFindGlobalEntrypoint: tombstoneFindGlobalEntrypoint,
 		tombstoneFindLocalEntrypoint:  tombstoneFindLocalEntrypoint,
@@ -305,14 +299,9 @@ func (m *Metrics) TrackDelete(start time.Time, step string) {
 	m.deleteTime.With(prometheus.Labels{"step": step}).Observe(took)
 }
 
-func (m *Metrics) StartupProgress(ratio float64) {
-	if !m.enabled {
-		return
-	}
-
-	m.startupProgress.Set(ratio)
-}
-
+// TrackStartupTotal feeds the legacy startup_durations_ms series. It is
+// superseded by weaviate_vector_index_restore_duration_seconds and kept for
+// one minor release so existing dashboards keep working.
 func (m *Metrics) TrackStartupTotal(start time.Time) {
 	if !m.enabled {
 		return
@@ -320,25 +309,6 @@ func (m *Metrics) TrackStartupTotal(start time.Time) {
 
 	took := float64(time.Since(start)) / float64(time.Millisecond)
 	m.startupDurations.With(prometheus.Labels{"operation": "hnsw_read_all_commitlogs"}).Observe(took)
-}
-
-func (m *Metrics) TrackStartupIndividual(start time.Time) {
-	if !m.enabled {
-		return
-	}
-
-	took := float64(time.Since(start)) / float64(time.Millisecond)
-	m.startupDurations.With(prometheus.Labels{"operation": "hnsw_read_single_commitlog"}).Observe(took)
-}
-
-func (m *Metrics) TrackStartupReadCommitlogDiskIO(read int64, nanoseconds int64) {
-	if !m.enabled {
-		return
-	}
-
-	seconds := float64(nanoseconds) / float64(time.Second)
-	throughput := float64(read) / float64(seconds)
-	m.startupDiskIO.With(prometheus.Labels{"operation": "hnsw_read_commitlog"}).Observe(throughput)
 }
 
 func (m *Metrics) MemoryAllocationRejected() {
