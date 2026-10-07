@@ -146,7 +146,18 @@ func (r *recordingTransport) RoundTrip(req *http.Request) (*http.Response, error
 }
 
 func TestProjectIDIsInsertedIntoURLPath(t *testing.T) {
-	for _, projectID := range []string{"my-project", "a?b=c", "a/../../other"} {
+	// Explicit expected tokens: url.PathEscape must NOT be used to compute
+	// expectations here because it leaves "." and ".." unencoded.
+	cases := []struct{ projectID, wantToken string }{
+		{"my-project", "my-project"},
+		{"a?b=c", "a%3Fb=c"},
+		{"a#b", "a%23b"},
+		{"a%2Fb", "a%252Fb"},
+		{"a/../../other", "a%2F..%2F..%2Fother"},
+		{".", "%2E"},
+		{"..", "%2E%2E"},
+	}
+	for _, tc := range cases {
 		rt := &recordingTransport{}
 		c := &google{
 			apiKey:       "apiKey",
@@ -157,19 +168,19 @@ func TestProjectIDIsInsertedIntoURLPath(t *testing.T) {
 		}
 		_, _ = c.vectorize(context.Background(), []string{"text"}, retrievalDocument, "", settings{
 			ApiEndpoint: "us-central1-aiplatform.googleapis.com",
-			ProjectID:   projectID,
+			ProjectID:   tc.projectID,
 			Model:       "gemini-embedding-001",
 			Location:    "us-central1",
 		})
 
 		if rt.got == nil {
-			t.Logf("projectId=%q: rejected before sending", projectID)
+			t.Logf("projectId=%q: rejected before sending", tc.projectID)
 			continue
 		}
-		want := "/v1/projects/" + url.PathEscape(projectID) + "/locations/us-central1/publishers/google/models/gemini-embedding-001:predict"
-		t.Logf("projectId=%q\n  url=%s\n  path=%s query=%q", projectID, rt.got, rt.got.Path, rt.got.RawQuery)
+		want := "/v1/projects/" + tc.wantToken + "/locations/us-central1/publishers/google/models/gemini-embedding-001:predict"
+		t.Logf("projectId=%q\n  url=%s\n  path=%s query=%q", tc.projectID, rt.got, rt.got.Path, rt.got.RawQuery)
 		if rt.got.EscapedPath() != want || rt.got.RawQuery != "" {
-			t.Errorf("projectId=%q changed the request path or query", projectID)
+			t.Errorf("projectId=%q changed the request path or query", tc.projectID)
 		}
 	}
 }

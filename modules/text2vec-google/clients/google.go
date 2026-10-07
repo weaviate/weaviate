@@ -79,6 +79,15 @@ func buildURL(useGenerativeAI bool, apiEndpoint, projectID, modelID, location st
 // (project ID, model ID) that could reshape the request path or introduce a
 // query string when interpolated into the Vertex AI request URL.
 func escapeVertexPathToken(value string) string {
+	// Exact dot segments must be encoded even though they contain none of the
+	// characters below: a literal "." or ".." would otherwise survive as a
+	// normalizable RFC 3986 dot segment in the request path.
+	if value == "." {
+		return "%2E"
+	}
+	if value == ".." {
+		return "%2E%2E"
+	}
 	if !strings.ContainsAny(value, "%/?#") {
 		return value
 	}
