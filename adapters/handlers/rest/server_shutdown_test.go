@@ -47,13 +47,17 @@ func TestServeAndShutdown(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var serverShutdownCalls atomic.Int32
+			var handlerReturned, returnedBeforeServerShutdown atomic.Bool
 			s := NewServer(&operations.WeaviateAPI{
 				PreServerShutdown: func() {},
-				ServerShutdown:    func() { serverShutdownCalls.Add(1) },
+				ServerShutdown: func() {
+					serverShutdownCalls.Add(1)
+					returnedBeforeServerShutdown.Store(handlerReturned.Load())
+				},
 			})
 			s.EnabledListeners = []string{schemeHTTP}
 			s.Host = "127.0.0.1"
-			s.GracefulTimeout = 50 * time.Millisecond
+			s.GracefulTimeout = 200 * time.Millisecond
 
 			entered := make(chan struct{})
 			release := make(chan struct{})
@@ -62,8 +66,11 @@ func TestServeAndShutdown(t *testing.T) {
 			s.SetHandler(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 				close(entered)
 				if tt.stallBody {
+					defer handlerReturned.Store(true)
 					_, err := io.ReadAll(r.Body)
 					readErr <- err
+					// Without the wait for handlers, ServerShutdown starts within this window.
+					time.Sleep(20 * time.Millisecond)
 					return
 				}
 				<-release
@@ -99,6 +106,7 @@ func TestServeAndShutdown(t *testing.T) {
 				select {
 				case err := <-readErr:
 					require.Error(t, err, "closing the server must fail the stalled body read")
+					require.True(t, returnedBeforeServerShutdown.Load(), "the woken handler must return before ServerShutdown")
 				case <-time.After(5 * time.Second):
 					t.Fatal("handler still blocked reading the stalled body")
 				}
