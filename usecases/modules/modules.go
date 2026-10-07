@@ -287,12 +287,39 @@ func (p *Provider) IsGenerative(modName string) bool {
 	return mod.Type() == modulecapabilities.Text2TextGenerative
 }
 
+// IsReranker reports whether the module serves the rerank additional
+// property. A reranker module does by type; a decisions module does as one
+// of its properties. The schema holds one such module per class.
 func (p *Provider) IsReranker(modName string) bool {
 	mod := p.GetByName(modName)
 	if mod == nil {
 		return false
 	}
-	return mod.Type() == modulecapabilities.Text2TextReranker
+	return mod.Type() == modulecapabilities.Text2TextReranker ||
+		servesAdditionalProperty(mod, modulecomponents.AdditionalPropertyRerank)
+}
+
+// servesAdditionalProperty reports whether the module provides the
+// additional property.
+func servesAdditionalProperty(mod modulecapabilities.Module, name string) bool {
+	provider, ok := mod.(modulecapabilities.AdditionalProperties)
+	if !ok || provider == nil {
+		return false
+	}
+	_, ok = provider.AdditionalProperties()[name]
+	return ok
+}
+
+// isOnlyOneModuleServing reports whether exactly one registered module
+// provides the additional property.
+func (p *Provider) isOnlyOneModuleServing(name string) bool {
+	count := 0
+	for _, mod := range p.registered {
+		if servesAdditionalProperty(mod, name) {
+			count++
+		}
+	}
+	return count == 1
 }
 
 func (p *Provider) IsMultiVector(modName string) bool {
@@ -358,7 +385,12 @@ func (p *Provider) shouldIncludeClassArgument(class *models.Class, module string
 		}
 	}
 	// Allow Text2Text (QnA, Generative, Summarize, NER) modules to be registered to a given class
-	// only if there's no configuration present and there's only one module of a given type enabled
+	// only if there's no configuration present and there's only one module of a given type enabled.
+	// A reranker and a decisions module both serve rerank, so for them the
+	// count is over the modules that serve it, whatever their type.
+	if servesAdditionalProperty(p.GetByName(module), modulecomponents.AdditionalPropertyRerank) {
+		return p.isOnlyOneModuleServing(modulecomponents.AdditionalPropertyRerank)
+	}
 	return p.isOnlyOneModuleEnabledOfAGivenType(moduleType)
 }
 
