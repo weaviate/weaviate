@@ -37,5 +37,7 @@ Each `go test` invocation then runs through [gotestsum](https://github.com/gotes
 `pytest-<mode>.xml`. Test flags and exit codes are unchanged. Console output
 comes from gotestsum: close to `go test`'s, plus a final `DONE N tests`
 summary. If gotestsum cannot be installed, Go tests fall back to plain
-`go test` without XML. The directory's XML files are wiped at the start of
-every `run.sh` invocation, so a CI retry reports only the final attempt.
+`go test` without XML. `test/run.sh` deletes the `go-*.xml` and
+`pytest-*.xml` files in `JUNIT_DIR` when it starts, so a CI retry reports only
+the final attempt; other files are kept, and `test/integration/run.sh` run on
+its own deletes nothing.
