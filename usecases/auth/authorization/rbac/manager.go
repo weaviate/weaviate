@@ -547,7 +547,7 @@ func (m *Manager) apiManagedBuiltInGroupings(subjects map[string]struct{}) ([][]
 // the given db users, at [SnapshotVersionLatest]. Each id is matched exactly as the
 // subject "db:<id>", so a namespaced user is passed qualified ("ns1:alice") and no
 // namespace or prefix matching applies. It returns nil when none of the users holds
-// either role. [Manager.Snapshot] with a role selection carries none of these rows.
+// either role. [Manager.Snapshot] with a custom-role selection carries none of these rows.
 func (m *Manager) BuiltInAssignments(userIDs ...string) ([]byte, error) {
 	if m == nil || m.casbin == nil {
 		return nil, nil
@@ -579,13 +579,10 @@ func (m *Manager) BuiltInAssignments(userIDs ...string) ([]byte, error) {
 }
 
 // MergeSnapshots concatenates two snapshots' rows and unions their namespaces. An empty
-// side returns the other side unchanged. Overlapping sides produce duplicate rows (a
-// participant predating the user-keyed carry uploads namespace-wide built-in rows that
-// repeat carried ones); casbin's batch add skips repeated rows and the strip's collision
-// check counts source names, not rows, so duplicates are tolerated downstream. The
-// result keeps a's Version, so Restore still upgrades a V0 role blob. Callers pass a
-// [Manager.BuiltInAssignments] blob as b, and the V0 upgrade leaves its db-subject rows
-// unchanged.
+// side returns the other side unchanged. Duplicate rows are kept, because casbin's batch
+// add skips repeated rows and the strip's collision check counts source names, not rows.
+// The result keeps a's Version, so Restore still upgrades a V0 role blob. Callers pass a
+// [Manager.BuiltInAssignments] blob as b, whose db-subject rows the V0 upgrade leaves unchanged.
 func MergeSnapshots(a, b []byte) ([]byte, error) {
 	if len(b) == 0 {
 		return a, nil
