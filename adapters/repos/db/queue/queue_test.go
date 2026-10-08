@@ -2065,3 +2065,56 @@ func TestChunkTakenOutDuringBackupStaysOnDisk(t *testing.T) {
 		})
 	}
 }
+
+// When no record of an intact chunk can be decoded, the decoder is more
+// likely broken than the data: the chunk must stay in the queue for a fixed
+// binary, not be quarantined with all its records.
+func TestDequeueBatchNoDecodableRecord(t *testing.T) {
+	tests := []struct {
+		name   string
+		panics bool
+	}{
+		{name: "decoding errors"},
+		{name: "decoder panics", panics: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// not started: the test dequeues itself
+			s := makeScheduler(t)
+			q := makeQueueWith(t, s, &brokenDecoder{panics: test.panics}, 0, t.TempDir())
+			defer q.Close(t.Context())
+
+			pushMany(t, q, 1, 1, 2, 3)
+			sealChunk(t, q)
+
+			_, err := q.DequeueBatch()
+			require.Error(t, err)
+			require.EqualValues(t, 3, q.Size())
+
+			// a fixed decoder processes the chunk
+			q.taskDecoder = discardExecutor()
+			b, err := q.DequeueBatch()
+			require.NoError(t, err)
+			require.NotNil(t, b)
+			require.Len(t, b.Tasks, 3)
+			b.Done()
+			require.Zero(t, q.Size())
+
+			entries, err := os.ReadDir(q.dir)
+			require.NoError(t, err)
+			require.Empty(t, entries, "nothing is quarantined")
+		})
+	}
+}
+
+type brokenDecoder struct {
+	panics bool
+}
+
+func (d *brokenDecoder) DecodeTask([]byte) (Task, error) {
+	if d.panics {
+		panic("simulated decoder panic")
+	}
+	return nil, errors.New("simulated decoding error")
+}
