@@ -466,8 +466,9 @@ func (q *DiskQueue) decodeChunk(c *chunk) (tasks []Task, corrupt error, err erro
 	}
 
 	// an intact chunk where no record decodes points to the decoder rather
-	// than to the data: keep it for a fixed binary instead of quarantining it
-	if len(tasks) == 0 && undecodable > 0 && corrupt == nil {
+	// than to the data: keep it for a fixed binary instead of quarantining it.
+	// A single record tells nothing about the decoder.
+	if len(tasks) == 0 && undecodable > 1 && corrupt == nil {
 		return nil, nil, errors.Wrapf(decodeErr, "none of the %d records could be decoded", undecodable)
 	}
 

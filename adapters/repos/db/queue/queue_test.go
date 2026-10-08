@@ -2069,14 +2069,18 @@ func TestChunkTakenOutDuringBackupStaysOnDisk(t *testing.T) {
 
 // When no record of an intact chunk can be decoded, the decoder is more
 // likely broken than the data: the chunk must stay in the queue for a fixed
-// binary, not be quarantined with all its records.
+// binary, not be quarantined with all its records. A single record tells
+// nothing about the decoder, so a chunk holding one is quarantined.
 func TestDequeueBatchNoDecodableRecord(t *testing.T) {
 	tests := []struct {
 		name   string
+		keys   []uint64
 		panics bool
+		kept   bool
 	}{
-		{name: "decoding errors"},
-		{name: "decoder panics", panics: true},
+		{name: "decoding errors", keys: []uint64{1, 2, 3}, kept: true},
+		{name: "decoder panics", keys: []uint64{1, 2, 3}, panics: true, kept: true},
+		{name: "single record", keys: []uint64{1}},
 	}
 
 	for _, test := range tests {
@@ -2086,23 +2090,34 @@ func TestDequeueBatchNoDecodableRecord(t *testing.T) {
 			q := makeQueueWith(t, s, &brokenDecoder{panics: test.panics}, 0, t.TempDir())
 			defer q.Close(t.Context())
 
-			pushMany(t, q, 1, 1, 2, 3)
+			pushMany(t, q, 1, test.keys...)
 			sealChunk(t, q)
+			entries, err := os.ReadDir(q.dir)
+			require.NoError(t, err)
+			chunkFile := filepath.Join(q.dir, entries[0].Name())
 
-			_, err := q.DequeueBatch()
+			b, err := q.DequeueBatch()
+			require.Nil(t, b)
+			if !test.kept {
+				require.NoError(t, err)
+				require.Zero(t, q.Size())
+				_, err = os.Stat(chunkFile + ".corrupt")
+				require.NoError(t, err)
+				return
+			}
 			require.Error(t, err)
-			require.EqualValues(t, 3, q.Size())
+			require.EqualValues(t, len(test.keys), q.Size())
 
 			// a fixed decoder processes the chunk
 			q.taskDecoder = discardExecutor()
-			b, err := q.DequeueBatch()
+			b, err = q.DequeueBatch()
 			require.NoError(t, err)
 			require.NotNil(t, b)
-			require.Len(t, b.Tasks, 3)
+			require.Len(t, b.Tasks, len(test.keys))
 			b.Done()
 			require.Zero(t, q.Size())
 
-			entries, err := os.ReadDir(q.dir)
+			entries, err = os.ReadDir(q.dir)
 			require.NoError(t, err)
 			require.Empty(t, entries, "nothing is quarantined")
 		})
