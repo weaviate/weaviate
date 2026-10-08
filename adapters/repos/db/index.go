@@ -3037,6 +3037,19 @@ func (i *Index) initLocalShard(ctx context.Context, shardName string) error {
 	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, false, false)
 }
 
+// EnsureLocalShard makes a shard available, leaving lazy loading to open it on
+// first use. Use it from anything applied off the replicated log: that apply is
+// serial, so opening a shard there delays every entry behind it -- activation
+// measured 55-95ms per shard, enough for a burst to strand reads waiting on a
+// newer version. Still opens eagerly when lazy loading is off, which defers nothing.
+func (i *Index) EnsureLocalShard(ctx context.Context, shardName string, implicitShardLoading bool) error {
+	mustLoad := !i.Config.EnableLazyLoadShards
+	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, implicitShardLoading)
+}
+
+// LoadLocalShard opens the shard now, whatever lazy loading is set to: for background
+// work that needs it materialised before reporting success, such as files a replica
+// movement just streamed. Never from an apply -- use EnsureLocalShard there.
 func (i *Index) LoadLocalShard(ctx context.Context, shardName string, implicitShardLoading bool) error {
 	// TODO: implicitShardLoading needs to be double checked if needed at all
 	// consalidate mustLoad and implicitShardLoading
