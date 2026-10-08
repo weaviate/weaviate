@@ -17,11 +17,15 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/shutdownreport"
 )
 
 func TestShutdownInPhases(t *testing.T) {
@@ -109,6 +113,24 @@ func TestShutdownInPhasesPanickingStep(t *testing.T) {
 }
 
 func TestShutdownStepsRun(t *testing.T) {
+	// Each step sleeps a distinct duration, so a step timed under the wrong
+	// name, or not timed, logs the wrong <step>_ms.
+	sleeps := map[string]time.Duration{
+		shutdownreport.StepLeaveCluster:       3 * time.Millisecond,
+		shutdownreport.StepWaitGRPCStop:       5 * time.Millisecond,
+		shutdownreport.StepDrainExports:       7 * time.Millisecond,
+		shutdownreport.StepStopTelemetry:      2 * time.Millisecond,
+		shutdownreport.StepCloseTaskScheduler: 4 * time.Millisecond,
+		shutdownreport.StepInternalClose:      11 * time.Millisecond,
+		shutdownreport.StepClusterClose:       13 * time.Millisecond,
+		shutdownreport.StepCloseDBUsers:       17 * time.Millisecond,
+		shutdownreport.StepCloseModules:       19 * time.Millisecond,
+		shutdownreport.StepCloseConnManagers:  23 * time.Millisecond,
+		shutdownreport.StepShutdownOTEL:       29 * time.Millisecond,
+		shutdownreport.StepFlushSentry:        31 * time.Millisecond,
+	}
+	const wantPreDBSteps = 7 * time.Millisecond
+
 	var mu sync.Mutex
 	var events []string
 	record := func(e string) {
@@ -116,60 +138,77 @@ func TestShutdownStepsRun(t *testing.T) {
 		defer mu.Unlock()
 		events = append(events, e)
 	}
-	step := func(name string) func() {
+	step := func(name, reportStep string) func() {
 		return func() {
 			record(name + " start")
+			time.Sleep(sleeps[reportStep])
 			record(name + " end")
 		}
 	}
-	stepWithCtx := func(name string) func(context.Context) {
-		return func(context.Context) { step(name)() }
+	stepWithCtx := func(name, reportStep string) func(context.Context) {
+		return func(context.Context) { step(name, reportStep)() }
 	}
 
-	grpcWaitStarted := make(chan struct{})
+	report := shutdownreport.New("node-1")
+	var summary logrus.Fields
+	var clusterCloseReport *shutdownreport.Report
 	var otelCtxErr error
-	steps := shutdownSteps{
-		// leaveCluster returns only once the gRPC wait is running, so running
-		// the two in sequence shows up as waitGRPCStop starting after it ended.
-		leaveCluster: func() {
-			record("leaveCluster start")
-			select {
-			case <-grpcWaitStarted:
-			case <-time.After(5 * time.Second):
-			}
-			record("leaveCluster end")
-		},
-		waitGRPCStop: func() {
-			record("waitGRPCStop start")
-			close(grpcWaitStarted)
-			record("waitGRPCStop end")
-		},
-		drainExports:        step("drainExports"),
-		stopTelemetry:       step("stopTelemetry"),
-		closeTaskScheduler:  step("closeTaskScheduler"),
-		closeInternalServer: stepWithCtx("closeInternalServer"),
-		closeClusterService: stepWithCtx("closeClusterService"),
-		closeDBUsers:        step("closeDBUsers"),
-		closeModules:        step("closeModules"),
-		closeConnManagers:   step("closeConnManagers"),
-		shutdownOTEL: func(ctx context.Context) {
-			otelCtxErr = ctx.Err()
-			step("shutdownOTEL")()
-		},
-		flushSentry: step("flushSentry"),
-	}
+	synctest.Test(t, func(t *testing.T) {
+		grpcWaitStarted := make(chan struct{})
+		steps := shutdownSteps{
+			// leaveCluster returns only once the gRPC wait is running, so running
+			// the two in sequence shows up as waitGRPCStop starting after it ended.
+			leaveCluster: func() {
+				record("leaveCluster start")
+				select {
+				case <-grpcWaitStarted:
+				case <-time.After(5 * time.Second):
+				}
+				time.Sleep(sleeps[shutdownreport.StepLeaveCluster])
+				record("leaveCluster end")
+			},
+			waitGRPCStop: func() {
+				record("waitGRPCStop start")
+				close(grpcWaitStarted)
+				time.Sleep(sleeps[shutdownreport.StepWaitGRPCStop])
+				record("waitGRPCStop end")
+			},
+			drainExports:        step("drainExports", shutdownreport.StepDrainExports),
+			stopTelemetry:       step("stopTelemetry", shutdownreport.StepStopTelemetry),
+			closeTaskScheduler:  step("closeTaskScheduler", shutdownreport.StepCloseTaskScheduler),
+			closeInternalServer: stepWithCtx("closeInternalServer", shutdownreport.StepInternalClose),
+			closeClusterService: func(ctx context.Context) {
+				clusterCloseReport = shutdownreport.From(ctx)
+				stepWithCtx("closeClusterService", shutdownreport.StepClusterClose)(ctx)
+			},
+			closeDBUsers:      step("closeDBUsers", shutdownreport.StepCloseDBUsers),
+			closeModules:      step("closeModules", shutdownreport.StepCloseModules),
+			closeConnManagers: step("closeConnManagers", shutdownreport.StepCloseConnManagers),
+			shutdownOTEL: func(ctx context.Context) {
+				otelCtxErr = ctx.Err()
+				stepWithCtx("shutdownOTEL", shutdownreport.StepShutdownOTEL)(ctx)
+			},
+			flushSentry: step("flushSentry", shutdownreport.StepFlushSentry),
+		}
 
-	logger, _ := test.NewNullLogger()
-	finished := make(chan struct{})
-	go func() {
-		defer close(finished)
-		steps.run(logger)
-	}()
-	select {
-	case <-finished:
-	case <-time.After(10 * time.Second):
-		t.Fatal("timed out waiting for shutdown to return")
+		logger, _ := test.NewNullLogger()
+		steps.run(logger, report)
+
+		reportLogger, hook := test.NewNullLogger()
+		report.Log(reportLogger, shutdownreport.DefaultThresholds())
+		for _, e := range hook.AllEntries() {
+			if e.Message == "shutdown finished" {
+				summary = e.Data
+			}
+		}
+	})
+
+	require.NotNil(t, summary, "no summary line")
+	for reportStep, sleep := range sleeps {
+		assert.Equal(t, sleep.Milliseconds(), summary[reportStep+"_ms"], reportStep)
 	}
+	assert.Equal(t, wantPreDBSteps.Milliseconds(), summary[shutdownreport.StepPreDBSteps+"_ms"])
+	require.Same(t, report, clusterCloseReport, "the database close ctx does not carry the report")
 
 	stopsDBUsers := []string{"leaveCluster", "waitGRPCStop", "drainExports", "stopTelemetry", "closeTaskScheduler"}
 	closesDB := []string{"closeInternalServer", "closeClusterService", "closeDBUsers", "closeModules", "closeConnManagers"}

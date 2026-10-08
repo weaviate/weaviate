@@ -97,6 +97,25 @@ func TestRESTRequestInFlightAtShutdown(t *testing.T) {
 	out, err := io.ReadAll(logs)
 	require.NoError(t, err)
 	assert.True(t, strings.Contains(string(out), "refused 1 REST requests"), "shutdown log line missing")
+	summary := shutdownSummary(t, string(out))
+	// The held batch keeps the REST drain open until it is cut.
+	assert.Greater(t, summary["client_drain_ms"], 0.0)
+	assert.LessOrEqual(t, summary["client_drain_ms"], summary["total_ms"])
+}
+
+// shutdownSummary returns the fields of the one shutdown summary line in logs.
+func shutdownSummary(t *testing.T, logs string) map[string]any {
+	t.Helper()
+	var lines []string
+	for line := range strings.Lines(logs) {
+		if strings.Contains(line, `"msg":"shutdown finished"`) {
+			lines = append(lines, line)
+		}
+	}
+	require.Len(t, lines, 1, "shutdown summary lines")
+	var fields map[string]any
+	require.NoError(t, json.Unmarshal([]byte(lines[0][strings.Index(lines[0], "{"):]), &fields))
+	return fields
 }
 
 // hangingEmbeddings is an OpenAI-compatible embeddings endpoint that holds every
