@@ -69,8 +69,8 @@ func (s *Shard) releaseCountedStatus() {
 	s.countedStatus = ""
 }
 
-// GetStatus recomputes READY/INDEXING from the vector queues, so a read can move
-// the shard between gauge buckets.
+// GetStatus recomputes READY/INDEXING from the vector queues. The gauge is not
+// moved by the recompute, only by status writes.
 func (s *Shard) GetStatus() storagestate.Status {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
@@ -101,7 +101,6 @@ func (s *Shard) getStatusUnlocked() storagestate.Status {
 		return nil
 	})
 	s.status.Status = status
-	s.moveCountedStatusUnlocked(status)
 	return status
 }
 

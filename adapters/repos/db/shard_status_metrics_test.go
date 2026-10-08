@@ -485,8 +485,9 @@ func TestShardStatusGaugeReleasedWhileStatusIsAccessed(t *testing.T) {
 	}
 }
 
-// Paused queue with one object makes GetStatus recompute READY as INDEXING; the gauge must follow.
-func TestShardStatusGaugeFollowsRecomputedStatus(t *testing.T) {
+// Paused queue with one object makes GetStatus recompute READY as INDEXING; a
+// later write must move the shard out of the bucket it is counted in.
+func TestShardStatusGaugeMovesFromCountedBucketOnWrite(t *testing.T) {
 	ctx := testCtx()
 	h := newStatusGaugeHarness(t, statusGaugeOpts{asyncIndex: true})
 	className := "StatusGaugeRecompute"
@@ -507,7 +508,7 @@ func TestShardStatusGaugeFollowsRecomputedStatus(t *testing.T) {
 
 	require.Equal(t, storagestate.StatusIndexing, concrete.GetStatus())
 	h.requireBuckets(t, "after GetStatus saw a backlog",
-		map[storagestate.Status]float64{storagestate.StatusIndexing: 1})
+		map[storagestate.Status]float64{storagestate.StatusReady: 1})
 
 	require.NoError(t, concrete.UpdateStatus(storagestate.StatusReadOnly.String(), "test"))
 	h.requireBuckets(t, "after the shard went read-only",
