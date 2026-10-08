@@ -66,6 +66,13 @@ func TestReportConcurrentAggregation(t *testing.T) {
 				}, s.db.slowestIndexes)
 			},
 		},
+		{
+			name: "bucket outcomes",
+			work: func(r *Report, i int) { r.BucketDone(BucketOutcome(i % int(bucketOutcomes))) },
+			check: func(t *testing.T, s summary) {
+				assert.Equal(t, [bucketOutcomes]int64{16, 16, 16, 16}, s.db.buckets)
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -196,7 +203,8 @@ func TestReportClock(t *testing.T) {
 
 func TestReportSummaryBounded(t *testing.T) {
 	wantKeys := []string{
-		"action", "batch_drain_ms", "client_drain_ms", "close_conn_managers_ms", "close_db_users_ms",
+		"action", "batch_drain_ms", "buckets_ctx_expired", "buckets_failed", "buckets_flushed",
+		"buckets_wal_reused", "client_drain_ms", "close_conn_managers_ms", "close_db_users_ms",
 		"close_modules_ms", "close_task_scheduler_ms", "cluster_close_ms", "db_ms", "db_reached",
 		"drain_exports_ms", "flush_sentry_ms", "grpc_forced_stop", "grpc_stop_ms", "grpc_unavailable",
 		"grpc_web_unavailable", "hashtree_dumps_skipped", "indexes_done", "indexes_total",
@@ -231,6 +239,21 @@ func TestReportSummaryBounded(t *testing.T) {
 			wantFields: logrus.Fields{
 				"grpc_stop_ms": int64(21000), "grpc_forced_stop": true,
 				"rest_unavailable": int64(1), "grpc_unavailable": int64(2), "grpc_web_unavailable": int64(3),
+			},
+			wantWarns: 1,
+		},
+		{
+			name: "bucket outcomes",
+			record: func(r *Report) {
+				for o, n := range []int{BucketFlushed: 1, BucketWALReused: 2, BucketCtxExpired: 3, BucketFailed: 4} {
+					for range n {
+						r.BucketDone(BucketOutcome(o))
+					}
+				}
+			},
+			wantFields: logrus.Fields{
+				"buckets_flushed": int64(1), "buckets_wal_reused": int64(2),
+				"buckets_ctx_expired": int64(3), "buckets_failed": int64(4),
 			},
 			wantWarns: 1,
 		},
@@ -283,6 +306,11 @@ func TestReportWarnings(t *testing.T) {
 			"total_ms": totalOver.Milliseconds(), "total_threshold_ms": th.Total.Milliseconds(),
 			"slowest_step": slowest, "slowest_step_ms": took,
 		}
+	}
+	skipped := func(hashtreeDumps, ctxExpired, failed int64) warning {
+		return warning{msg: "shutdown skipped flushes or snapshots", fields: logrus.Fields{
+			"hashtree_dumps_skipped": hashtreeDumps, "buckets_ctx_expired": ctxExpired, "buckets_failed": failed,
+		}}
 	}
 	tests := []struct {
 		name       string
@@ -359,11 +387,23 @@ func TestReportWarnings(t *testing.T) {
 			}},
 		},
 		{
-			name: "skipped hashtree dump",
-			s:    summary{db: dbOutcome{hashtreeDumpsSkipped: 1}},
-			wantOthers: []warning{{
-				msg: "shutdown skipped flushes or snapshots", fields: logrus.Fields{"hashtree_dumps_skipped": int64(1)},
-			}},
+			name:       "skipped hashtree dump",
+			s:          summary{db: dbOutcome{hashtreeDumpsSkipped: 1}},
+			wantOthers: []warning{skipped(1, 0, 0)},
+		},
+		{
+			name:       "buckets whose ctx expired",
+			s:          summary{db: dbOutcome{buckets: [bucketOutcomes]int64{BucketCtxExpired: 2}}},
+			wantOthers: []warning{skipped(0, 2, 0)},
+		},
+		{
+			name:       "buckets that failed",
+			s:          summary{db: dbOutcome{buckets: [bucketOutcomes]int64{BucketFailed: 3}}},
+			wantOthers: []warning{skipped(0, 0, 3)},
+		},
+		{
+			name: "flushed and WAL-reused buckets do not warn",
+			s:    summary{db: dbOutcome{buckets: [bucketOutcomes]int64{BucketFlushed: 5, BucketWALReused: 6}}},
 		},
 		{
 			name:       "cluster close that never reached the db",
@@ -389,7 +429,7 @@ func TestReportWarnings(t *testing.T) {
 				{msg: "gRPC server stop was forced", fields: logrus.Fields{"grpc_stop_ms": int64(21000)}},
 				{msg: "REST server close was forced", fields: logrus.Fields{"rest_handlers_still_running": int64(2)}},
 				{msg: "shutdown skipped shards still in use", fields: logrus.Fields{"shards_still_in_use": int64(3)}},
-				{msg: "shutdown skipped flushes or snapshots", fields: logrus.Fields{"hashtree_dumps_skipped": int64(4)}},
+				skipped(4, 0, 0),
 				{msg: "shutdown did not close the database"},
 			},
 		},
@@ -426,6 +466,7 @@ func TestNilReport(t *testing.T) {
 			r.ShardTornDown("Movies", "s0", time.Second)
 			r.ShardStillInUse()
 			r.HashtreeDumpSkipped()
+			r.BucketDone(BucketFailed)
 			logger, hook := test.NewNullLogger()
 			r.Log(logger, DefaultThresholds())
 

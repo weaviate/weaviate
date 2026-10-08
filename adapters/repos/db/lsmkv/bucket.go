@@ -48,6 +48,7 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/shutdownreport"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -1948,6 +1949,9 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 		b.metrics.ObserveBucketShutdownDurationByStrategy(b.strategy, time.Since(start))
 	}()
 
+	walReused := false
+	defer func() { shutdownreport.From(ctx).BucketDone(bucketOutcome(ctx, err, walReused)) }()
+
 	if err := b.disk.shutdown(ctx); err != nil {
 		return err
 	}
@@ -1993,6 +1997,7 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 			b.flushLock.Unlock()
 			return err
 		}
+		walReused = true
 	} else {
 		if _, err := b.active.flush(); err != nil {
 			b.flushLock.Unlock()
@@ -2038,6 +2043,21 @@ func (b *Bucket) lockFlushAndSwitch(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// bucketOutcome counts an error as ctx-expired only when it wraps the expired
+// ctx's error, so a disk error returned after the deadline still counts as failed.
+func bucketOutcome(ctx context.Context, err error, walReused bool) shutdownreport.BucketOutcome {
+	switch {
+	case err == nil && walReused:
+		return shutdownreport.BucketWALReused
+	case err == nil:
+		return shutdownreport.BucketFlushed
+	case ctx.Err() != nil && errors.Is(err, ctx.Err()):
+		return shutdownreport.BucketCtxExpired
+	default:
+		return shutdownreport.BucketFailed
+	}
 }
 
 func (b *Bucket) shouldReuseWAL() bool {

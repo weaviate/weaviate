@@ -87,7 +87,19 @@ type Report struct {
 	indexesTotal, indexesDone              atomic.Int64
 	shardsStarted, shardsTornDown          atomic.Int64
 	shardsStillInUse, hashtreeDumpsSkipped atomic.Int64
+	buckets                                [bucketOutcomes]atomic.Int64
 }
+
+// BucketOutcome is how a bucket's shutdown ended.
+type BucketOutcome int
+
+const (
+	BucketFlushed BucketOutcome = iota
+	BucketWALReused
+	BucketCtxExpired
+	BucketFailed
+	bucketOutcomes
+)
 
 // clientOutcome is how the REST and gRPC servers stopped serving clients.
 type clientOutcome struct {
@@ -261,6 +273,13 @@ func (r *Report) HashtreeDumpSkipped() {
 	r.hashtreeDumpsSkipped.Add(1)
 }
 
+func (r *Report) BucketDone(o BucketOutcome) {
+	if r == nil {
+		return
+	}
+	r.buckets[o].Add(1)
+}
+
 // Log writes the summary line, then the warnings.
 func (r *Report) Log(logger logrus.FieldLogger, th Thresholds) {
 	if r == nil {
@@ -294,6 +313,9 @@ func (r *Report) summary() summary {
 		shardsStillInUse:     r.shardsStillInUse.Load(),
 		hashtreeDumpsSkipped: r.hashtreeDumpsSkipped.Load(),
 	}
+	for o := range db.buckets {
+		db.buckets[o] = r.buckets[o].Load()
+	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -325,6 +347,7 @@ type dbOutcome struct {
 	indexesTotal, indexesDone                          int64
 	shardsTornDown, shardsInTeardown, shardsStillInUse int64
 	hashtreeDumpsSkipped                               int64
+	buckets                                            [bucketOutcomes]int64
 	slowestIndexes, slowestShards                      []timedName
 }
 
@@ -405,6 +428,10 @@ func (s summary) fields() logrus.Fields {
 		"shards_in_teardown":     s.db.shardsInTeardown,
 		"shards_still_in_use":    s.db.shardsStillInUse,
 		"hashtree_dumps_skipped": s.db.hashtreeDumpsSkipped,
+		"buckets_flushed":        s.db.buckets[BucketFlushed],
+		"buckets_wal_reused":     s.db.buckets[BucketWALReused],
+		"buckets_ctx_expired":    s.db.buckets[BucketCtxExpired],
+		"buckets_failed":         s.db.buckets[BucketFailed],
 		"slowest_indexes":        formatSlowest(s.db.slowestIndexes),
 		"slowest_shards":         formatSlowest(s.db.slowestShards),
 	}
@@ -437,10 +464,15 @@ func (s summary) warnings(th Thresholds) []warning {
 			fields: logrus.Fields{"shards_still_in_use": s.db.shardsStillInUse},
 		})
 	}
-	if s.db.hashtreeDumpsSkipped > 0 {
+	ctxExpired, failed := s.db.buckets[BucketCtxExpired], s.db.buckets[BucketFailed]
+	if s.db.hashtreeDumpsSkipped > 0 || ctxExpired > 0 || failed > 0 {
 		warns = append(warns, warning{
-			msg:    "shutdown skipped flushes or snapshots",
-			fields: logrus.Fields{"hashtree_dumps_skipped": s.db.hashtreeDumpsSkipped},
+			msg: "shutdown skipped flushes or snapshots",
+			fields: logrus.Fields{
+				"hashtree_dumps_skipped": s.db.hashtreeDumpsSkipped,
+				"buckets_ctx_expired":    ctxExpired,
+				"buckets_failed":         failed,
+			},
 		})
 	}
 	// DB.Shutdown runs inside the cluster close, so a cluster close that never
