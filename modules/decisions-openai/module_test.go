@@ -22,6 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 )
@@ -94,6 +95,7 @@ func TestInitAdditional(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Contains(t, m.AdditionalProperties(), "rerank")
+			assert.Contains(t, m.AdditionalProperties(), "decide")
 			meta, err := m.MetaInfo()
 			require.NoError(t, err)
 			assert.Equal(t, "Decisions - OpenAI", meta["name"])
@@ -157,6 +159,29 @@ func TestValidateClass(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
+		})
+	}
+}
+
+func TestDecisionLimits(t *testing.T) {
+	tests := []struct {
+		name             string
+		settings         map[string]any
+		wantMaxDocuments int
+	}{
+		{name: "defaults", settings: map[string]any{}, wantMaxDocuments: 100},
+		{name: "maxDocuments from the class", settings: map[string]any{"maxDocuments": 40}, wantMaxDocuments: 40},
+		{name: "a setting Resolve rejects leaves no page bound", settings: map[string]any{"maxDocuments": "many"}, wantMaxDocuments: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			class := &models.Class{Class: "Ticket", ModuleConfig: map[string]any{Name: tt.settings}}
+			limits := New().DecisionLimits(modules.NewClassBasedModuleConfig(class, Name, "", "", &config.Config{}))
+
+			assert.Equal(t, modulecapabilities.DecisionLimits{
+				MaxDocuments: tt.wantMaxDocuments,
+				DataTypes:    []schema.DataType{schema.DataTypeText},
+			}, limits)
 		})
 	}
 }
