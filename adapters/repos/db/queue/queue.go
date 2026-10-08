@@ -465,6 +465,11 @@ func (q *DiskQueue) decodeChunk(c *chunk) (tasks []Task, corrupt error, err erro
 		tasks = append(tasks, t)
 	}
 
+	// a chunk cut at a record boundary reads cleanly up to the cut
+	if read := uint64(len(tasks) + undecodable); corrupt == nil && read < c.count {
+		corrupt = errors.Errorf("chunk holds %d records, its header claims %d", read, c.count)
+	}
+
 	if undecodable > 0 {
 		decodeErr = errors.Wrapf(decodeErr, "%d records could not be decoded", undecodable)
 		corrupt = stderrors.Join(corrupt, decodeErr)

@@ -1938,8 +1938,9 @@ func TestBatchDoneMissingCorruptChunk(t *testing.T) {
 }
 
 // A chunk cut at a record boundary after startup still has a readable header,
-// so nothing fails while reading it. Taking it out of the queue must still
-// remove exactly what was counted for it.
+// so nothing fails while reading it. It holds fewer records than its header
+// says, so it must be quarantined like a torn chunk, and taking it out of the
+// queue must remove exactly what was counted for it.
 func TestDequeueBatchChunkTruncatedAtRecordBoundary(t *testing.T) {
 	// not started: the test dequeues itself
 	s := makeScheduler(t)
@@ -1976,6 +1977,8 @@ func TestDequeueBatchChunkTruncatedAtRecordBoundary(t *testing.T) {
 		b.Done()
 	}
 
+	_, err = os.Stat(first + ".corrupt")
+	require.NoError(t, err, "the cut chunk is kept for inspection")
 	require.Zero(t, q.Size())
 	q.m.RLock()
 	defer q.m.RUnlock()
