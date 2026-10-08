@@ -1651,3 +1651,45 @@ func TestDequeueBatchChunkBecameUnreadable(t *testing.T) {
 		})
 	}
 }
+
+// An I/O error may be temporary: the chunk stays in the queue to be read
+// again, rather than being skipped with its records still counted.
+func TestDequeueBatchIOErrorKeepsChunk(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("file permissions do not apply to root")
+	}
+
+	// not started: the test dequeues itself
+	s := makeScheduler(t)
+	dir := t.TempDir()
+
+	q := makeQueueWith(t, s, discardExecutor(), 0, dir)
+	pushMany(t, q, 1, 1, 2)
+	sealChunk(t, q)
+	pushMany(t, q, 1, 3, 4)
+	sealChunk(t, q)
+	require.NoError(t, q.Close(t.Context()))
+
+	// reopen, so the chunks are read from their path
+	q = makeQueueWith(t, s, discardExecutor(), 0, dir)
+	defer q.Close(t.Context())
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	first := filepath.Join(dir, entries[0].Name())
+	require.NoError(t, os.Chmod(first, 0o000))
+
+	_, err = q.DequeueBatch()
+	require.ErrorIs(t, err, os.ErrPermission)
+	require.EqualValues(t, 4, q.Size())
+
+	require.NoError(t, os.Chmod(first, 0o644))
+	for _, want := range []uint64{1, 3} {
+		b, err := q.DequeueBatch()
+		require.NoError(t, err)
+		require.NotNil(t, b)
+		require.EqualValues(t, want, b.Tasks[0].Key())
+		b.Done()
+	}
+	require.Zero(t, q.Size())
+}

@@ -469,6 +469,9 @@ func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 		count, err := s.dispatchQueue(q)
 		if err != nil {
 			s.Logger.WithError(err).WithField("id", id).Error("failed to schedule queue")
+			// e.g. an I/O error reading the queue: try again later, not on
+			// every tick
+			q.RetryAfter(s.RetryInterval)
 		}
 
 		q.MarkAsUnscheduled()

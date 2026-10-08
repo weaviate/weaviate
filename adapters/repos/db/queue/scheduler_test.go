@@ -843,3 +843,33 @@ func TestSchedulerIntervalsFromEnv(t *testing.T) {
 		require.Equal(t, 5*time.Second, s.RetryInterval)
 	})
 }
+
+// A queue that fails to dequeue is retried once per RetryInterval, not on
+// every tick.
+func TestSchedulerDequeueErrorWaitsRetryInterval(t *testing.T) {
+	s := makeScheduler(t, 1)
+	s.RetryInterval = 200 * time.Millisecond
+	s.Start()
+	defer s.Close(t.Context())
+
+	q := &erroringQueue{id: "erroring_queue", metrics: NewMetrics(newTestLogger(), nil, nil)}
+	s.RegisterQueue(q)
+
+	require.Eventually(t, func() bool { return q.calls.Load() > 0 }, 10*time.Second, 10*time.Millisecond)
+	time.Sleep(time.Second)
+	require.LessOrEqual(t, q.calls.Load(), int32(7), "a failing queue must wait between dequeues")
+}
+
+type erroringQueue struct {
+	id      string
+	metrics *Metrics
+	calls   atomic.Int32
+}
+
+func (q *erroringQueue) ID() string        { return q.id }
+func (q *erroringQueue) Size() int64       { return 1 }
+func (q *erroringQueue) Metrics() *Metrics { return q.metrics }
+func (q *erroringQueue) DequeueBatch() (*Batch, error) {
+	q.calls.Add(1)
+	return nil, errors.New("simulated I/O error")
+}

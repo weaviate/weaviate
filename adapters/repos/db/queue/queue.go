@@ -346,13 +346,6 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 		return nil, nil
 	}
 	defer c.Close()
-	defer func() {
-		// skip a chunk that cannot be read rather than failing on it every
-		// turn; it stays on disk
-		if err != nil {
-			q.r.forget(c.path)
-		}
-	}()
 
 	// The record count comes from disk and may be corrupt. It is only used as
 	// a capacity hint: cap it by the number of records that could possibly
@@ -509,7 +502,7 @@ func (q *DiskQueue) checkIfStale() (*chunk, error) {
 
 // readChunk returns the oldest chunk not processed yet. A chunk whose file is
 // gone or whose header became unreadable is taken out of the queue, and the
-// next one is read.
+// next one is read. Any other error may be temporary: the chunk stays first.
 func (q *DiskQueue) readChunk() (*chunk, error) {
 	for {
 		c, err := q.r.ReadChunk()
@@ -525,8 +518,6 @@ func (q *DiskQueue) readChunk() (*chunk, error) {
 		case isCorruptHeader(err):
 			q.quarantineChunk(&chunk{path: ref.path, count: ref.count, size: ref.size}, err)
 		default:
-			// skip an unreadable chunk rather than failing on it every turn
-			q.r.forget(ref.path)
 			return nil, err
 		}
 	}
