@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -1531,4 +1532,54 @@ func TestChunkOpenFailureClosesFile(t *testing.T) {
 		}
 		require.Less(t, nextFd()-before, uintptr(25), "failed opens leave their file open")
 	})
+}
+
+// A record that cannot be decoded must not cost the other records of its
+// chunk, nor leave the chunk counted after the others are processed.
+func TestDequeueBatchUndecodableRecord(t *testing.T) {
+	s := makeScheduler(t)
+	s.Start()
+	defer s.Close(t.Context())
+
+	q := makeQueueWith(t, s, &undecodableKeyDecoder{key: 2}, 0, t.TempDir())
+	defer q.Close(t.Context())
+	require.NoError(t, q.Pause(t.Context()))
+
+	pushMany(t, q, 1, 1, 2, 3)
+	sealChunk(t, q)
+	entries, err := os.ReadDir(q.dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	chunkFile := filepath.Join(q.dir, entries[0].Name())
+
+	b, err := q.DequeueBatch()
+	require.NoError(t, err)
+	require.NotNil(t, b)
+	var keys []uint64
+	for _, task := range b.Tasks {
+		keys = append(keys, task.Key())
+	}
+	require.Equal(t, []uint64{1, 3}, keys)
+	b.Done()
+
+	// the file is kept for inspection, but no longer counted
+	_, err = os.Stat(chunkFile + ".corrupt")
+	require.NoError(t, err)
+	require.Zero(t, q.Size())
+
+	b, err = q.DequeueBatch()
+	require.NoError(t, err)
+	require.Nil(t, b)
+}
+
+type undecodableKeyDecoder struct {
+	mockTaskDecoder
+	key uint64
+}
+
+func (d *undecodableKeyDecoder) DecodeTask(data []byte) (Task, error) {
+	if binary.BigEndian.Uint64(data[1:]) == d.key {
+		return nil, errors.New("simulated decoding error")
+	}
+	return d.mockTaskDecoder.DecodeTask(data)
 }

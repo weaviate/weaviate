@@ -374,6 +374,8 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 	// salvage them and quarantine the file, otherwise the chunk is never
 	// removed and its records stay counted, so the queue never drains.
 	var corruptChunkErr error
+	var undecodable int
+	var decodeErr error
 
 	buf := make([]byte, 4)
 	for {
@@ -419,13 +421,21 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 			return nil, errors.Wrap(err, "failed to read record")
 		}
 
-		// decode the task
+		// decode the task. The framing is intact, so a record that cannot
+		// be decoded is skipped and the following ones are still read.
 		t, err := q.taskDecoder.DecodeTask(buf)
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to decode task")
+			undecodable++
+			decodeErr = err
+			continue
 		}
 
 		tasks = append(tasks, t)
+	}
+
+	if undecodable > 0 {
+		decodeErr = errors.Wrapf(decodeErr, "%d records could not be decoded", undecodable)
+		corruptChunkErr = stderrors.Join(corruptChunkErr, decodeErr)
 	}
 
 	err = c.Close()
@@ -714,7 +724,7 @@ func (q *DiskQueue) quarantineChunk(c *chunk, cause error) {
 	q.metrics.Size(q.recordCount)
 
 	q.Logger.WithField("file", quarantinePath).
-		Errorf("chunk is truncated or corrupt, quarantined it; records beyond the corruption are lost: %v", cause)
+		Errorf("chunk is truncated or corrupt, quarantined it; its unreadable records are lost: %v", cause)
 }
 
 // analyzeDisk is a slow method that determines the number of records
