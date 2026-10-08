@@ -54,13 +54,13 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 	if input.Class != "" {
 		class, _, err := m.resolveNS(principal, input.Class)
 		if err != nil {
-			return resolverError(err)
+			return forbiddenOrUnprocessable(err)
 		}
 		input.Class = class
 	}
 
-	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
+	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.UPDATE, input.Class, authorization.ShardsData(input.Class, tenant)...); err != nil {
+		return forbiddenOrUnprocessable(err)
 	}
 
 	if input.Class == "" {
@@ -136,7 +136,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 			qualifiedTarget, shortTarget, err := namespacing.QualifyRefTarget(
 				principal, m.qualifier, input.Class, parsedTargetRefs[i].Class)
 			if err != nil {
-				return resolverError(err)
+				return forbiddenOrUnprocessable(err)
 			}
 			parsedTargetRefs[i].Class = qualifiedTarget
 			input.Refs[i].Class = strfmt.URI(shortTarget)

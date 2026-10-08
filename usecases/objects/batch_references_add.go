@@ -14,6 +14,8 @@ package objects
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 
@@ -89,13 +91,18 @@ func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Prin
 		return nil, err
 	}
 
-	var pathsData []string
-	for _, val := range uniqueClassShard {
-		pathsData = append(pathsData, authorization.ShardsData(val.Class, val.Shard)...)
+	pathsByClass := map[string][]string{}
+	for _, key := range slices.Sorted(maps.Keys(uniqueClassShard)) {
+		val := uniqueClassShard[key]
+		pathsByClass[val.Class] = append(pathsByClass[val.Class], authorization.ShardsData(val.Class, val.Shard)...)
 	}
 
-	if err := b.authorizer.Authorize(ctx, principal, authorization.UPDATE, pathsData...); err != nil {
-		return nil, err
+	// One source class in a non-active namespace refuses the whole batch. Sorted
+	// order returns the same error on every run.
+	for _, class := range slices.Sorted(maps.Keys(pathsByClass)) {
+		if err := b.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.UPDATE, class, pathsByClass[class]...); err != nil {
+			return nil, err
+		}
 	}
 
 	b.metrics.BatchRefInc()
@@ -171,8 +178,10 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 		uniqueClassShard[qualifiedTarget+"#"+ref.Tenant] = classAndShard{Class: qualifiedTarget, Shard: ref.Tenant}
 	}
 
+	// Sorted so a denial names the same target shard on every run.
 	shardsDataPaths := make([]string, 0, len(uniqueClassShard))
-	for _, val := range uniqueClassShard {
+	for _, key := range slices.Sorted(maps.Keys(uniqueClassShard)) {
+		val := uniqueClassShard[key]
 		shardsDataPaths = append(shardsDataPaths, authorization.ShardsData(val.Class, val.Shard)...)
 	}
 
