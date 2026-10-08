@@ -349,88 +349,9 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 	}
 	defer c.Close()
 
-	// The record count comes from disk and may be corrupt. It is only used as
-	// a capacity hint: cap it by the number of records that could possibly
-	// fit in the chunk payload.
-	payloadSize := c.size - uint64(chunkHeaderSize)
-	count := c.count
-	if maxRecords := payloadSize / minEncodedRecordSize; count > maxRecords {
-		q.Logger.WithField("file", c.path).
-			Warnf("chunk header claims %d records, but at most %d fit in %d bytes of payload; the header is likely corrupt", c.count, maxRecords, payloadSize)
-		count = maxRecords
-	}
-
-	// decode all tasks from the chunk
-	// and partition them by worker
-	tasks := make([]Task, 0, count)
-
-	// A chunk torn by a crash (e.g. power loss before its tail reached disk)
-	// ends mid-record. The records before the corruption are still valid:
-	// salvage them and quarantine the file, otherwise the chunk is never
-	// removed and its records stay counted, so the queue never drains.
-	var corruptChunkErr error
-	var undecodable int
-	var decodeErr error
-
-	buf := make([]byte, 4)
-	for {
-		buf = buf[:4]
-
-		// read the record length
-		_, err := io.ReadFull(c.r, buf)
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if errors.Is(err, io.ErrUnexpectedEOF) {
-			corruptChunkErr = errors.Wrap(err, "chunk ends mid-record")
-			break
-		}
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to read record length")
-		}
-		length := binary.BigEndian.Uint32(buf)
-		if length == 0 {
-			corruptChunkErr = errors.New("invalid record length")
-			break
-		}
-		// the length prefix comes from disk and may be corrupt: a record
-		// cannot be larger than the chunk payload that contains it. Validate
-		// before allocating.
-		if uint64(length) > payloadSize-4 {
-			corruptChunkErr = errors.Errorf("invalid record length %d, chunk payload is only %d bytes", length, payloadSize)
-			break
-		}
-
-		// read the record
-		if cap(buf) < int(length) {
-			buf = make([]byte, length)
-		} else {
-			buf = buf[:length]
-		}
-		_, err = io.ReadFull(c.r, buf)
-		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-			corruptChunkErr = errors.Wrap(err, "chunk ends mid-record")
-			break
-		}
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to read record")
-		}
-
-		// decode the task. The framing is intact, so a record that cannot
-		// be decoded is skipped and the following ones are still read.
-		t, err := q.taskDecoder.DecodeTask(buf)
-		if err != nil {
-			undecodable++
-			decodeErr = err
-			continue
-		}
-
-		tasks = append(tasks, t)
-	}
-
-	if undecodable > 0 {
-		decodeErr = errors.Wrapf(decodeErr, "%d records could not be decoded", undecodable)
-		corruptChunkErr = stderrors.Join(corruptChunkErr, decodeErr)
+	tasks, corruptChunkErr, err := q.decodeChunk(c)
+	if err != nil {
+		return nil, err
 	}
 
 	err = c.Close()
@@ -466,6 +387,90 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 		Tasks:  tasks,
 		OnDone: doneFn,
 	}, nil
+}
+
+// decodeChunk reads the tasks of a chunk. A chunk torn by a crash (e.g. power
+// loss before its tail reached disk) ends mid-record: the records before the
+// corruption are still returned, along with the corruption, so that the chunk
+// is quarantined once they are processed instead of never being removed.
+func (q *DiskQueue) decodeChunk(c *chunk) (tasks []Task, corrupt error, err error) {
+	// The record count comes from disk and may be corrupt. It is only used as
+	// a capacity hint: cap it by the number of records that could possibly
+	// fit in the chunk payload.
+	payloadSize := c.size - uint64(chunkHeaderSize)
+	count := c.count
+	if maxRecords := payloadSize / minEncodedRecordSize; count > maxRecords {
+		q.Logger.WithField("file", c.path).
+			Warnf("chunk header claims %d records, but at most %d fit in %d bytes of payload; the header is likely corrupt", c.count, maxRecords, payloadSize)
+		count = maxRecords
+	}
+
+	tasks = make([]Task, 0, count)
+	var undecodable int
+	var decodeErr error
+
+	buf := make([]byte, 4)
+	for {
+		buf = buf[:4]
+
+		// read the record length
+		_, err := io.ReadFull(c.r, buf)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if errors.Is(err, io.ErrUnexpectedEOF) {
+			corrupt = errors.Wrap(err, "chunk ends mid-record")
+			break
+		}
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "failed to read record length")
+		}
+		length := binary.BigEndian.Uint32(buf)
+		if length == 0 {
+			corrupt = errors.New("invalid record length")
+			break
+		}
+		// the length prefix comes from disk and may be corrupt: a record
+		// cannot be larger than the chunk payload that contains it. Validate
+		// before allocating.
+		if uint64(length) > payloadSize-4 {
+			corrupt = errors.Errorf("invalid record length %d, chunk payload is only %d bytes", length, payloadSize)
+			break
+		}
+
+		// read the record
+		if cap(buf) < int(length) {
+			buf = make([]byte, length)
+		} else {
+			buf = buf[:length]
+		}
+		_, err = io.ReadFull(c.r, buf)
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			corrupt = errors.Wrap(err, "chunk ends mid-record")
+			break
+		}
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "failed to read record")
+		}
+
+		// decode the task. The framing is intact, so a record that cannot
+		// be decoded is skipped and the following ones are still read.
+		t, err := q.taskDecoder.DecodeTask(buf)
+		if err != nil {
+			undecodable++
+			decodeErr = err
+			continue
+		}
+
+		tasks = append(tasks, t)
+	}
+
+	if undecodable > 0 {
+		decodeErr = errors.Wrapf(decodeErr, "%d records could not be decoded", undecodable)
+		corrupt = stderrors.Join(corrupt, decodeErr)
+	}
+
+	return tasks, corrupt, nil
 }
 
 func (q *DiskQueue) checkIfStale() (*chunk, error) {
