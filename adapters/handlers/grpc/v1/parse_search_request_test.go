@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/decide"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearAudio"
@@ -29,6 +30,7 @@ import (
 	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearThermal"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearVideo"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -2324,6 +2326,68 @@ func TestGRPCSearchRequest(t *testing.T) {
 				},
 			},
 			error: false,
+		},
+		{
+			name: "Decide with a question of each kind",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{
+					{Name: "angry", Property: someString1, Instructions: "the customer is angry", Kind: &pb.DecisionQuestion_Predicate{Predicate: &pb.DecisionPredicate{}}},
+					{Name: "team", Property: someString1, Instructions: "which team", Kind: &pb.DecisionQuestion_Choice{Choice: &pb.DecisionChoice{Options: []*pb.DecisionOption{
+						{Value: "billing", Description: &someString2}, {Value: "other"},
+					}}}},
+					{Name: "urgency", Property: someString1, Instructions: "how urgent", Kind: &pb.DecisionQuestion_Score{Score: &pb.DecisionScore{Levels: []*pb.DecisionLevel{
+						{Label: "low"}, {Label: "high", Description: &someString2},
+					}}}},
+				}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties: append(defaultTestClassProps, search.SelectProperty{Name: someString1, IsPrimitive: true}),
+				AdditionalProperties: additional.Properties{
+					NoProps: false,
+					ModuleParams: map[string]interface{}{"decide": &decide.Params{Questions: []ent.DecisionQuestion{
+						{Name: "angry", Property: someString1, Instructions: "the customer is angry", Kind: ent.DecisionPredicate},
+						{Name: "team", Property: someString1, Instructions: "which team", Kind: ent.DecisionChoice, Options: []ent.DecisionOption{
+							{Value: "billing", Description: someString2}, {Value: "other"},
+						}},
+						{Name: "urgency", Property: someString1, Instructions: "how urgent", Kind: ent.DecisionScore, Levels: []ent.DecisionLevel{
+							{Label: "low"}, {Label: "high", Description: someString2},
+						}},
+					}}},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "Decide question without a kind",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Decide:     &pb.Decisions{Questions: []*pb.DecisionQuestion{{Name: "angry", Property: someString1, Instructions: "x"}}},
+			},
+			error: true,
+		},
+		{
+			name: "Decide with two questions of the same name",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{
+					{Name: "angry", Property: someString1, Instructions: "x", Kind: &pb.DecisionQuestion_Predicate{Predicate: &pb.DecisionPredicate{}}},
+					{Name: "angry", Property: someString1, Instructions: "y", Kind: &pb.DecisionQuestion_Predicate{Predicate: &pb.DecisionPredicate{}}},
+				}},
+			},
+			error: true,
+		},
+		{
+			name: "Decide with group by",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				GroupBy:    &pb.GroupBy{Path: []string{"name"}, NumberOfGroups: 2, ObjectsPerGroup: 3},
+				Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{
+					{Name: "angry", Property: someString1, Instructions: "x", Kind: &pb.DecisionQuestion_Predicate{Predicate: &pb.DecisionPredicate{}}},
+				}},
+			},
+			error: true,
 		},
 		{
 			name: "Rerank with query",

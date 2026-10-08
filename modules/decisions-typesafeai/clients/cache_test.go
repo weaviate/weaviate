@@ -30,7 +30,7 @@ func TestJudgmentCache(t *testing.T) {
 	}
 
 	t.Run("returns what was stored", func(t *testing.T) {
-		c := newJudgmentCache(2)
+		c := newJudgmentCache[float64](2)
 		c.putIfAbsent(key(1), 0.4)
 
 		got, ok := c.get(key(1))
@@ -58,7 +58,7 @@ func TestJudgmentCache(t *testing.T) {
 	})
 
 	t.Run("evicts the least recently used entry at capacity", func(t *testing.T) {
-		c := newJudgmentCache(2)
+		c := newJudgmentCache[float64](2)
 		c.putIfAbsent(key(1), 0.1)
 		c.putIfAbsent(key(2), 0.2)
 		_, _ = c.get(key(1))
@@ -74,7 +74,7 @@ func TestJudgmentCache(t *testing.T) {
 	})
 
 	t.Run("the first value stored for a key stays", func(t *testing.T) {
-		c := newJudgmentCache(2)
+		c := newJudgmentCache[float64](2)
 
 		assert.Equal(t, 0.1, c.putIfAbsent(key(1), 0.1))
 		assert.Equal(t, 0.1, c.putIfAbsent(key(1), 0.9), "the later value is not stored and not returned")
@@ -85,7 +85,7 @@ func TestJudgmentCache(t *testing.T) {
 	})
 
 	t.Run("never exceeds its capacity under concurrent use", func(t *testing.T) {
-		c := newJudgmentCache(16)
+		c := newJudgmentCache[float64](16)
 		var wg sync.WaitGroup
 		for g := range 8 {
 			wg.Add(1)
@@ -431,7 +431,7 @@ func TestRankCacheModes(t *testing.T) {
 }
 
 func TestJudgmentCachePutReplaces(t *testing.T) {
-	c := newJudgmentCache(2)
+	c := newJudgmentCache[float64](2)
 	key := newJudgmentKey("doc")
 	c.putIfAbsent(key, 0.1)
 

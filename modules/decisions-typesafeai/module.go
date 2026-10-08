@@ -13,6 +13,7 @@ package moddecisionstypesafeai
 
 import (
 	"context"
+	"maps"
 	"os"
 	"strconv"
 	"time"
@@ -41,6 +42,8 @@ type DecisionsTypeSafeAIModule struct {
 
 type DecisionsTypeSafeAIClient interface {
 	Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
+	Decide(ctx context.Context, questions []ent.DecisionQuestion, documents []string,
+		cfg moduletools.ClassConfig) ([][]ent.DecisionAnswer, error)
 	MetaInfo() (map[string]any, error)
 }
 
@@ -95,6 +98,7 @@ func (m *DecisionsTypeSafeAIModule) setClient(client DecisionsTypeSafeAIClient) 
 	m.reranker = client
 	m.additionalProperties = withTypeSafeAIRerank(
 		rerankeradditional.NewRankerProvider(client).AdditionalProperties(), rank.New(client))
+	maps.Copy(m.additionalProperties, rerankeradditional.NewDecideProvider(client).AdditionalProperties())
 }
 
 func (m *DecisionsTypeSafeAIModule) MetaInfo() (map[string]any, error) {

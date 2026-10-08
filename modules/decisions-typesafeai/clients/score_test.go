@@ -52,7 +52,7 @@ func TestRankWithARubric(t *testing.T) {
 			question := request.body.Questions[questionKey]
 			assert.Equal(t, "score", question.Type)
 			assert.Equal(t, "how urgent is this ticket?", question.Instructions)
-			assert.Equal(t, levels, question.Criteria)
+			assert.Equal(t, levels, criteriaStrings(t, question.Criteria))
 		}
 	})
 
@@ -67,7 +67,7 @@ func TestRankWithARubric(t *testing.T) {
 		require.NoError(t, err)
 		question := handler.received()[0].body.Questions[questionKey]
 		assert.Equal(t, "score", question.Type)
-		assert.Equal(t, []string{"low", "high"}, question.Criteria)
+		assert.Equal(t, []string{"low", "high"}, criteriaStrings(t, question.Criteria))
 	})
 
 	t.Run("a batch carries the rubric in every question", func(t *testing.T) {
@@ -85,7 +85,7 @@ func TestRankWithARubric(t *testing.T) {
 		require.Len(t, requests[0].body.Questions, 3)
 		for _, question := range requests[0].body.Questions {
 			assert.Equal(t, "score", question.Type)
-			assert.Equal(t, levels, question.Criteria)
+			assert.Equal(t, levels, criteriaStrings(t, question.Criteria))
 		}
 	})
 
@@ -187,4 +187,16 @@ func TestRankRubricMalformedResponses(t *testing.T) {
 
 		require.ErrorContains(t, err, `unexpected answer type "score"`)
 	})
+}
+
+// criteriaStrings reads the rubric of a decoded request, a JSON list.
+func criteriaStrings(t *testing.T, criteria any) []string {
+	t.Helper()
+	items, ok := criteria.([]any)
+	require.True(t, ok, "criteria must be a list, got %T", criteria)
+	out := make([]string, len(items))
+	for i, item := range items {
+		out[i] = item.(string)
+	}
+	return out
 }
