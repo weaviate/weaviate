@@ -44,6 +44,8 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 		}).Errorf("proceeding with drop while references are still held; in-flight requests on this shard will fail: %v", drainErr)
 	}
 
+	defer s.releaseCountedStatus()
+
 	s.shutCtxCancel(fmt.Errorf("drop %q", s.ID()))
 	s.reindexer.Stop(s, fmt.Errorf("shard drop"))
 

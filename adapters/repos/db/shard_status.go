@@ -37,6 +37,40 @@ type ShardStatus struct {
 	Reason string
 }
 
+func (s *Shard) registerCountedStatus(status storagestate.Status) {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+
+	s.index.metrics.UpdateShardStatus("", status.String())
+	s.countedStatus = status.String()
+}
+
+// moveCountedStatusUnlocked follows a status change in the gauge; an uncounted
+// (released) shard stays uncounted.
+func (s *Shard) moveCountedStatusUnlocked(next storagestate.Status) {
+	if s.countedStatus == "" || s.countedStatus == next.String() {
+		return
+	}
+
+	s.index.metrics.UpdateShardStatus(s.countedStatus, next.String())
+	s.countedStatus = next.String()
+}
+
+// releaseCountedStatus is idempotent and safe on a never-counted shard.
+func (s *Shard) releaseCountedStatus() {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+
+	if s.countedStatus == "" {
+		return
+	}
+
+	s.index.metrics.UpdateShardStatus(s.countedStatus, "")
+	s.countedStatus = ""
+}
+
+// GetStatus recomputes READY/INDEXING from the vector queues. The gauge is not
+// moved by the recompute, only by status writes.
 func (s *Shard) GetStatus() storagestate.Status {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
@@ -137,7 +171,7 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 		return err
 	}
 
-	s.index.metrics.UpdateShardStatus(oldStatus.String(), targetStatus.String())
+	s.moveCountedStatusUnlocked(targetStatus)
 
 	lvl := logrus.DebugLevel
 	if targetStatus == storagestate.StatusReadOnly {
