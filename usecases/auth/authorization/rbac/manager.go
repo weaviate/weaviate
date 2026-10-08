@@ -521,35 +521,10 @@ func (m *Manager) RevokeRolesForUser(userName string, roles ...string) error {
 // every restore, so carrying them would be discarded work.
 var apiManagedBuiltInRoles = []string{authorization.Admin, authorization.Viewer}
 
-// apiManagedBuiltInGroupings returns the admin and viewer assignments held by subjects
-// qualified with a namespace the selection named. A built-in role can never be selected,
-// so without these rows a namespace's own admin is absent from the snapshot and a fresh
-// cluster has nothing to rebuild it from.
-//
-// Anything outside that namespace stays behind. A db subject strips unconditionally, so
-// another namespace's admin would arrive on the restored cluster as a global identity
-// holding admin. A global or group subject belongs to the source cluster rather than to
-// the namespace being moved.
-func (m *Manager) apiManagedBuiltInGroupings(roles []string) ([][]string, error) {
-	namespaces := make(map[string]struct{}, len(roles))
-	for _, name := range roles {
-		if ns := namespacing.NamespaceFromQualified(name); ns != "" {
-			namespaces[ns] = struct{}{}
-		}
-	}
-	if len(namespaces) == 0 {
-		return nil, nil
-	}
-
-	inScope := func(subject string) bool {
-		_, _, ns, err := conv.SubjectNamespace(subject)
-		if err != nil || ns == "" {
-			return false
-		}
-		_, ok := namespaces[ns]
-		return ok
-	}
-
+// apiManagedBuiltInGroupings returns the admin and viewer assignments whose subject is
+// one of subjects. The match is on the full subject string, so "db:alice" never selects
+// "db:ns1:alice" or "oidc:alice".
+func (m *Manager) apiManagedBuiltInGroupings(subjects map[string]struct{}) ([][]string, error) {
 	var out [][]string
 	for _, role := range apiManagedBuiltInRoles {
 		gs, err := m.casbin.GetFilteredNamedGroupingPolicy("g", 1, conv.PrefixRoleName(role))
@@ -557,12 +532,89 @@ func (m *Manager) apiManagedBuiltInGroupings(roles []string) ([][]string, error)
 			return nil, fmt.Errorf("GetFilteredNamedGroupingPolicy: %w", err)
 		}
 		for _, g := range gs {
-			if len(g) > 0 && inScope(g[0]) {
+			if len(g) == 0 {
+				continue
+			}
+			if _, ok := subjects[g[0]]; ok {
 				out = append(out, g)
 			}
 		}
 	}
 	return out, nil
+}
+
+// BuiltInAssignments returns a snapshot holding only the admin and viewer assignments of
+// the given db users, at [SnapshotVersionLatest]. Each id is matched exactly as the
+// subject "db:<id>", so a namespaced user is passed qualified ("ns1:alice") and no
+// namespace or prefix matching applies. It returns nil when none of the users holds
+// either role. [Manager.Snapshot] with a role selection carries none of these rows.
+func (m *Manager) BuiltInAssignments(userIDs ...string) ([]byte, error) {
+	if m == nil || m.casbin == nil {
+		return nil, nil
+	}
+
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
+
+	subjects := make(map[string]struct{}, len(userIDs))
+	for _, id := range userIDs {
+		subjects[conv.UserNameWithTypeFromId(id, authentication.AuthTypeDb)] = struct{}{}
+	}
+	groupingPolicy, err := m.apiManagedBuiltInGroupings(subjects)
+	if err != nil {
+		return nil, err
+	}
+	if len(groupingPolicy) == 0 {
+		return nil, nil
+	}
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(snapshot{
+		GroupingPolicy: groupingPolicy,
+		Version:        SnapshotVersionLatest,
+	}); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// MergeSnapshots concatenates two snapshots' rows and unions their namespaces. An empty
+// side returns the other side unchanged. Overlapping sides produce duplicate rows (a
+// participant predating the user-keyed carry uploads namespace-wide built-in rows that
+// repeat carried ones); casbin's batch add skips repeated rows and the strip's collision
+// check counts source names, not rows, so duplicates are tolerated downstream. The
+// result keeps a's Version, so Restore still upgrades a V0 role blob. Callers pass a
+// [Manager.BuiltInAssignments] blob as b, and the V0 upgrade leaves its db-subject rows
+// unchanged.
+func MergeSnapshots(a, b []byte) ([]byte, error) {
+	if len(b) == 0 {
+		return a, nil
+	}
+	if len(a) == 0 {
+		return b, nil
+	}
+
+	var sa, sb snapshot
+	if err := json.Unmarshal(a, &sa); err != nil {
+		return nil, fmt.Errorf("merge snapshots: decode first: %w", err)
+	}
+	if err := json.Unmarshal(b, &sb); err != nil {
+		return nil, fmt.Errorf("merge snapshots: decode second: %w", err)
+	}
+
+	namespaces := slices.Concat(sa.Namespaces, sb.Namespaces)
+	slices.Sort(namespaces)
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(snapshot{
+		Policy:         slices.Concat(sa.Policy, sb.Policy),
+		GroupingPolicy: slices.Concat(sa.GroupingPolicy, sb.GroupingPolicy),
+		Version:        sa.Version,
+		Namespaces:     slices.Compact(namespaces),
+	}); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // referencedNamespaces returns the namespaces the given rows refer to, in sorted order.
@@ -641,8 +693,8 @@ type snapshot struct {
 // no roles it captures the whole store. Called with roles it keeps only those
 // roles' rows: `p` rows are matched on p[0] and `g` rows on g[1], both of which
 // hold the role name, so the assignments and the db:wv_internal_empty placeholder
-// come along too. A selection also carries the admin and viewer grants held by
-// the principals it covers, for the reason given on apiManagedBuiltInGroupings.
+// come along too. A selection carries no admin or viewer assignments;
+// [Manager.BuiltInAssignments] provides those for a chosen set of users.
 func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
 	// snapshot isn't always initialized, e.g. when RBAC is disabled
 	if m == nil {
@@ -686,11 +738,6 @@ func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
 			policy = append(policy, ps...)
 			groupingPolicy = append(groupingPolicy, gs...)
 		}
-		gs, err := m.apiManagedBuiltInGroupings(roles)
-		if err != nil {
-			return nil, err
-		}
-		groupingPolicy = append(groupingPolicy, gs...)
 	}
 
 	// Use a buffer to stream the JSON encoding

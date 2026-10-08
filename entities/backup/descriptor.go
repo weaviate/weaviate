@@ -59,8 +59,13 @@ type DistributedBackupDescriptor struct {
 	Roles                   []string                   `json:"roles,omitempty"`
 	// SkipUsers/SkipRoles record an explicit user-supplied empty list or if user-supplied wildcards matched nothing.
 	// Restore discards any user or RBAC blob a node uploaded anyway, which a participant predating the request-level skip flag does.
+	// That discard leaves BuiltInRoleAssignments in place.
 	SkipUsers bool `json:"skipUsers,omitempty"`
 	SkipRoles bool `json:"skipRoles,omitempty"`
+	// BuiltInRoleAssignments is an RBAC snapshot of the admin and viewer assignments held by the backed-up
+	// dynamic users. The coordinator writes it when includeRoles is set and users are backed up; restore
+	// merges it into the RBAC blob it applies.
+	BuiltInRoleAssignments []byte `json:"builtInRoleAssignments,omitempty"`
 }
 
 // Len returns how many nodes exist in d

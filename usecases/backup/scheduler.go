@@ -200,6 +200,8 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		Bucket:       req.Bucket,
 		Path:         req.Path,
 		BaseBackupID: req.BaseBackupID,
+
+		BuiltInRoleAssignments: selection.builtInRoleAssignments,
 	}
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
 		return nil, err
@@ -271,6 +273,14 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	}
 	if meta.SkipRoles {
 		rbacBlob = nil
+	}
+	// Merge before the strip and reference checks below, so they also check the
+	// built-in assignments. noRestore applies no role blob, so it skips the merge
+	// and any merge decode error.
+	if req.RbacRestoreOption != models.RestoreConfigRolesOptionsNoRestore {
+		if rbacBlob, err = rbac.MergeSnapshots(rbacBlob, meta.BuiltInRoleAssignments); err != nil {
+			return nil, backup.NewErrUnprocessable(fmt.Errorf("merge built-in role assignments: %w", err))
+		}
 	}
 
 	if err := s.validateNamespaceStripping(ctx, schema, userBlob, rbacBlob, meta.Classes(), req.UserRestoreOption, req.RbacRestoreOption); err != nil {
@@ -813,6 +823,10 @@ type backupSelections struct {
 	classes, users, roles []string
 	// Explicit empty lists and unmatched wildcards exclude the snapshot.
 	skipUsers, skipRoles bool
+	// builtInRoleAssignments holds the admin and viewer assignments of the
+	// backed-up users. It is nil unless includeRoles is set and users are
+	// backed up, because a role-filtered RBAC snapshot carries none of them.
+	builtInRoleAssignments []byte
 }
 
 // validateBackupRequest resolves the request into classes, users, and roles.
@@ -914,7 +928,20 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	}
 	if selections.skipRoles && len(req.IncludeRoles) > 0 {
 		s.logger.WithField("action", "try_backup").WithField("backup_id", req.ID).
-			Warnf("'includeRoles' %v matches no role, backing up none", req.IncludeRoles)
+			Warnf("'includeRoles' %v matches no role, backing up no custom roles", req.IncludeRoles)
+	}
+
+	if req.IncludeRoles != nil && !selections.skipUsers && s.roleLister != nil {
+		carried := users
+		if req.IncludeUsers == nil && s.userLister != nil {
+			// An omitted includeUsers backs up every dynamic user.
+			carried = s.userLister.ListAllUsers()
+		}
+		if len(carried) > 0 {
+			if selections.builtInRoleAssignments, err = s.roleLister.BuiltInAssignments(carried...); err != nil {
+				return selections, fmt.Errorf("collect built-in role assignments: %w", err)
+			}
+		}
 	}
 
 	selections.classes = classes
