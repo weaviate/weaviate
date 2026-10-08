@@ -4128,7 +4128,7 @@ func TestRestoreNamespaceStrippingCollisionFailsFast(t *testing.T) {
 			// ListClasses is deliberately unstubbed: class collisions are judged via
 			// ClassEqual, so the selector must not be consulted here.
 			//
-			// If preflight wrongly passes, the restore calls the stubs below.
+			// If the pre-restore checks wrongly pass, the restore calls the stubs below.
 			// They let the test fail on its assertions instead of panicking on an unexpected mock call.
 			fs.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{}).Maybe()
 			fs.client.On("CanCommit", mock.Anything, mock.Anything, mock.Anything).Return(nil, ErrAny).Maybe()

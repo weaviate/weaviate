@@ -823,8 +823,8 @@ type backupSelections struct {
 	classes, users, roles []string
 	// Explicit empty lists and unmatched wildcards exclude the snapshot.
 	skipUsers, skipRoles bool
-	// builtInRoleAssignments holds the admin and viewer assignments a
-	// role-filtered RBAC snapshot leaves out: those of the backed-up db users,
+	// builtInRoleAssignments holds the admin and viewer assignments an RBAC
+	// snapshot filtered by roles leaves out: those of the backed-up db users,
 	// and those of the OIDC users in the namespaces includeRoles names. It is
 	// nil when includeRoles is omitted, because the full snapshot holds them.
 	builtInRoleAssignments []byte

@@ -240,10 +240,9 @@ func stripRBACSnapshot(s snapshot, staticAPIKeyUsers []string) (snapshot, error)
 	return out, nil
 }
 
-// roleNameNamespaces returns, in sorted order, the namespaces that s's role names
-// carry: p[0] of every policy row and g[1] of every grouping row. It ignores
-// s.Namespaces. It is the namespace set of a snapshot that has no list, both in
-// stripRBACSnapshot and in [MergeSnapshots].
+// roleNameNamespaces returns, sorted, the namespaces s's role names carry:
+// p[0] of every policy row and g[1] of every grouping row. It ignores
+// s.Namespaces.
 func roleNameNamespaces(s snapshot) []string {
 	seen := map[string]struct{}{}
 	add := func(roleKey string) {

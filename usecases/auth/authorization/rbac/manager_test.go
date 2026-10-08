@@ -184,8 +184,8 @@ func TestSnapshotRolesFilter(t *testing.T) {
 		require.NoError(t, err)
 
 		// Compare against the encoding casbin produces directly. Routing the
-		// no-args path through the per-role filter would reorder and regroup the
-		// rows, and it would no longer match this byte for byte.
+		// no-argument call through the per-role filter would reorder and regroup
+		// the rows, and it would no longer match this byte for byte.
 		p, err := m.casbin.GetPolicy()
 		require.NoError(t, err)
 		g, err := m.casbin.GetGroupingPolicy()
@@ -308,8 +308,8 @@ func TestSnapshotBuiltInGrantScope(t *testing.T) {
 		m := seedNS(t)
 		blob, err := m.Snapshot()
 		require.NoError(t, err)
-		// The no-args path must stay the verbatim store dump, so every admin is
-		// present exactly once.
+		// With no role arguments, Snapshot returns the whole store, so every
+		// admin is present exactly once.
 		assert.ElementsMatch(t,
 			[]string{"db:ns1:local-admin", "db:ns2:boss", "db:global-admin", "oidc:ns1:someone"},
 			grantedAdmins(t, blob))
@@ -355,8 +355,8 @@ func TestBuiltInAssignments(t *testing.T) {
 		ids  []string
 		// want is the blob's grouping rows. A nil want means the blob must be nil.
 		want [][]string
-		// restore, when set, restores the blob onto a namespaces-off manager and
-		// checks who holds admin there instead of checking want.
+		// restore, when set, restores the blob onto a manager with namespaces
+		// disabled and checks who holds admin there instead of checking want.
 		restore *restore
 	}{
 		{
@@ -441,8 +441,8 @@ func TestOIDCBuiltInAssignments(t *testing.T) {
 		namespaces []string
 		// want is the blob's grouping rows. A nil want means the blob must be nil.
 		want [][]string
-		// restoreAdmins, when set, restores the blob with a strip onto a namespaces-off
-		// manager and checks who holds admin there instead of checking want.
+		// restoreAdmins, when set, restores the blob with a strip onto a manager with
+		// namespaces disabled and checks who holds admin there instead of checking want.
 		restoreAdmins []string
 	}{
 		{

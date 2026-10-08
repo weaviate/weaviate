@@ -62,9 +62,10 @@ type DistributedBackupDescriptor struct {
 	// That discard leaves BuiltInRoleAssignments in place.
 	SkipUsers bool `json:"skipUsers,omitempty"`
 	SkipRoles bool `json:"skipRoles,omitempty"`
-	// BuiltInRoleAssignments is an RBAC snapshot of the admin and viewer assignments held by the backed-up
-	// dynamic users. The coordinator writes it when includeRoles is set and users are backed up; restore
-	// merges it into the RBAC blob it applies.
+	// BuiltInRoleAssignments is an RBAC snapshot of the admin and viewer assignments the backup
+	// carries: those of the backed-up db users and of the OIDC users in the namespaces includeRoles
+	// names. The coordinator writes it when includeRoles is set; restore merges it into the RBAC
+	// blob it applies.
 	BuiltInRoleAssignments []byte `json:"builtInRoleAssignments,omitempty"`
 }
 
