@@ -101,6 +101,10 @@ func TestRESTRequestInFlightAtShutdown(t *testing.T) {
 	// The held batch keeps the REST drain open until it is cut.
 	assert.Greater(t, summary["client_drain_ms"], 0.0)
 	assert.LessOrEqual(t, summary["client_drain_ms"], summary["total_ms"])
+	// The held batch is cut before GracefulTimeout, so the REST servers drain in time.
+	assert.Equal(t, 1.0, summary["rest_unavailable"])
+	assert.Equal(t, false, summary["rest_forced_close"])
+	assert.Equal(t, 0.0, summary["rest_handlers_still_running"])
 }
 
 // shutdownSummary returns the fields of the one shutdown summary line in logs.

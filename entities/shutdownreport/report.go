@@ -48,7 +48,9 @@ var allSteps = []string{
 	StepCloseModules, StepCloseConnManagers, StepShutdownOTEL, StepFlushSentry, StepDB,
 }
 
-// clientDrain is in the running set from Begin until RESTDrained.
+// clientDrain names the drain of client requests, which starts in Begin and
+// ends in RESTDrained, two callbacks Time cannot wrap as one step. Its logged
+// duration ends at the later of RESTDrained and GRPCStopped.
 const clientDrain = "client_drain"
 
 // Thresholds are the durations above which Log warns about a phase.
@@ -73,8 +75,20 @@ type Report struct {
 	mu          sync.Mutex
 	begun       time.Time
 	restDrained time.Duration
+	grpcStopped time.Duration
 	steps       map[string]time.Duration
 	running     map[string]struct{}
+	clients     clientOutcome
+}
+
+// clientOutcome is how the REST and gRPC servers stopped serving clients.
+type clientOutcome struct {
+	grpcStopTook     time.Duration
+	grpcForcedStop   bool
+	restForcedClose  bool
+	restStillRunning int64
+
+	restUnavailable, grpcUnavailable, grpcWebUnavailable int64
 }
 
 func New(node string) *Report {
@@ -121,6 +135,44 @@ func (r *Report) RESTDrained() {
 	defer r.mu.Unlock()
 	r.restDrained = r.sinceBegin()
 	delete(r.running, clientDrain)
+}
+
+// GRPCStopped records how long the gRPC server took to stop and whether the
+// stop had to be forced.
+func (r *Report) GRPCStopped(took time.Duration, forced bool) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.grpcStopped = r.sinceBegin()
+	r.clients.grpcStopTook = took
+	r.clients.grpcForcedStop = forced
+}
+
+// CallsUnavailable records the calls answered as unavailable, both those
+// refused after shutdown began and those cut while running.
+func (r *Report) CallsUnavailable(rest, grpc, grpcWeb int64) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.clients.restUnavailable = rest
+	r.clients.grpcUnavailable = grpc
+	r.clients.grpcWebUnavailable = grpcWeb
+}
+
+// RESTForceClosed records that the HTTP servers were closed while still busy,
+// and how many handlers were still running after the wait for them.
+func (r *Report) RESTForceClosed(stillRunning int64) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.clients.restForcedClose = true
+	r.clients.restStillRunning = stillRunning
 }
 
 // Time runs fn and records its duration under step, also when fn panics.
@@ -174,14 +226,16 @@ func (r *Report) summary() summary {
 	defer r.mu.Unlock()
 	return summary{
 		total:       r.sinceBegin(),
-		clientDrain: r.restDrained,
+		clientDrain: max(r.restDrained, r.grpcStopped),
 		steps:       maps.Clone(r.steps),
+		clients:     r.clients,
 	}
 }
 
 type summary struct {
 	total, clientDrain time.Duration
 	steps              map[string]time.Duration
+	clients            clientOutcome
 }
 
 type warning struct {
@@ -195,6 +249,14 @@ func (s summary) fields() logrus.Fields {
 	f := logrus.Fields{
 		"total_ms":        s.total.Milliseconds(),
 		"client_drain_ms": s.clientDrain.Milliseconds(),
+
+		"grpc_stop_ms":                s.clients.grpcStopTook.Milliseconds(),
+		"grpc_forced_stop":            s.clients.grpcForcedStop,
+		"rest_forced_close":           s.clients.restForcedClose,
+		"rest_handlers_still_running": s.clients.restStillRunning,
+		"rest_unavailable":            s.clients.restUnavailable,
+		"grpc_unavailable":            s.clients.grpcUnavailable,
+		"grpc_web_unavailable":        s.clients.grpcWebUnavailable,
 	}
 	for _, step := range allSteps {
 		f[step+"_ms"] = s.steps[step].Milliseconds()
@@ -203,6 +265,26 @@ func (s summary) fields() logrus.Fields {
 }
 
 func (s summary) warnings(th Thresholds) []warning {
+	var warns []warning
+	if w, ok := s.phaseWarning(th); ok {
+		warns = append(warns, w)
+	}
+	if s.clients.grpcForcedStop {
+		warns = append(warns, warning{
+			msg:    "gRPC server stop was forced",
+			fields: logrus.Fields{"grpc_stop_ms": s.clients.grpcStopTook.Milliseconds()},
+		})
+	}
+	if s.clients.restForcedClose {
+		warns = append(warns, warning{
+			msg:    "REST server close was forced",
+			fields: logrus.Fields{"rest_handlers_still_running": s.clients.restStillRunning},
+		})
+	}
+	return warns
+}
+
+func (s summary) phaseWarning(th Thresholds) (warning, bool) {
 	over := logrus.Fields{}
 	addIfOver := func(phase string, took, threshold time.Duration) {
 		if took > threshold {
@@ -215,7 +297,7 @@ func (s summary) warnings(th Thresholds) []warning {
 	addIfOver(StepDB, s.steps[StepDB], th.DB)
 	addIfOver("total", s.total, th.Total)
 	if len(over) == 0 {
-		return nil
+		return warning{}, false
 	}
 	if s.total > th.Total {
 		if step, took := s.slowestStep(); step != "" {
@@ -223,7 +305,7 @@ func (s summary) warnings(th Thresholds) []warning {
 			over["slowest_step_ms"] = took.Milliseconds()
 		}
 	}
-	return []warning{{msg: "shutdown phases took longer than their threshold", fields: over}}
+	return warning{msg: "shutdown phases took longer than their threshold", fields: over}, true
 }
 
 // slowestStep skips pre_db_steps, which only groups other steps, and counts

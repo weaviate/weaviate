@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/shutdownreport"
+	"github.com/weaviate/weaviate/entities/shutdownreport/shutdownreporttest"
 )
 
 func TestShutdownInPhases(t *testing.T) {
@@ -153,55 +154,59 @@ func TestShutdownStepsRun(t *testing.T) {
 	var summary logrus.Fields
 	var clusterCloseReport *shutdownreport.Report
 	var otelCtxErr error
-	synctest.Test(t, func(t *testing.T) {
-		grpcWaitStarted := make(chan struct{})
-		steps := shutdownSteps{
-			// leaveCluster returns only once the gRPC wait is running, so running
-			// the two in sequence shows up as waitGRPCStop starting after it ended.
-			leaveCluster: func() {
-				record("leaveCluster start")
-				select {
-				case <-grpcWaitStarted:
-				case <-time.After(5 * time.Second):
-				}
-				time.Sleep(sleeps[shutdownreport.StepLeaveCluster])
-				record("leaveCluster end")
-			},
-			waitGRPCStop: func() {
-				record("waitGRPCStop start")
-				close(grpcWaitStarted)
-				time.Sleep(sleeps[shutdownreport.StepWaitGRPCStop])
-				record("waitGRPCStop end")
-			},
-			drainExports:        step("drainExports", shutdownreport.StepDrainExports),
-			stopTelemetry:       step("stopTelemetry", shutdownreport.StepStopTelemetry),
-			closeTaskScheduler:  step("closeTaskScheduler", shutdownreport.StepCloseTaskScheduler),
-			closeInternalServer: stepWithCtx("closeInternalServer", shutdownreport.StepInternalClose),
-			closeClusterService: func(ctx context.Context) {
-				clusterCloseReport = shutdownreport.From(ctx)
-				stepWithCtx("closeClusterService", shutdownreport.StepClusterClose)(ctx)
-			},
-			closeDBUsers:      step("closeDBUsers", shutdownreport.StepCloseDBUsers),
-			closeModules:      step("closeModules", shutdownreport.StepCloseModules),
-			closeConnManagers: step("closeConnManagers", shutdownreport.StepCloseConnManagers),
-			shutdownOTEL: func(ctx context.Context) {
-				otelCtxErr = ctx.Err()
-				stepWithCtx("shutdownOTEL", shutdownreport.StepShutdownOTEL)(ctx)
-			},
-			flushSentry: step("flushSentry", shutdownreport.StepFlushSentry),
-		}
-
-		logger, _ := test.NewNullLogger()
-		steps.run(logger, report)
-
-		reportLogger, hook := test.NewNullLogger()
-		report.Log(reportLogger, shutdownreport.DefaultThresholds())
-		for _, e := range hook.AllEntries() {
-			if e.Message == "shutdown finished" {
-				summary = e.Data
+	// A step deadlocked on a mutex never advances the fake clock, so only a real-time bound fails it.
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		synctest.Test(t, func(t *testing.T) {
+			grpcWaitStarted := make(chan struct{})
+			steps := shutdownSteps{
+				// leaveCluster waits up to 5s for the gRPC wait to start, so running the
+				// two in sequence shows waitGRPCStop starting after leaveCluster ended.
+				leaveCluster: func() {
+					record("leaveCluster start")
+					select {
+					case <-grpcWaitStarted:
+					case <-time.After(5 * time.Second):
+					}
+					time.Sleep(sleeps[shutdownreport.StepLeaveCluster])
+					record("leaveCluster end")
+				},
+				waitGRPCStop: func() {
+					record("waitGRPCStop start")
+					close(grpcWaitStarted)
+					time.Sleep(sleeps[shutdownreport.StepWaitGRPCStop])
+					record("waitGRPCStop end")
+				},
+				drainExports:        step("drainExports", shutdownreport.StepDrainExports),
+				stopTelemetry:       step("stopTelemetry", shutdownreport.StepStopTelemetry),
+				closeTaskScheduler:  step("closeTaskScheduler", shutdownreport.StepCloseTaskScheduler),
+				closeInternalServer: stepWithCtx("closeInternalServer", shutdownreport.StepInternalClose),
+				closeClusterService: func(ctx context.Context) {
+					clusterCloseReport = shutdownreport.From(ctx)
+					stepWithCtx("closeClusterService", shutdownreport.StepClusterClose)(ctx)
+				},
+				closeDBUsers:      step("closeDBUsers", shutdownreport.StepCloseDBUsers),
+				closeModules:      step("closeModules", shutdownreport.StepCloseModules),
+				closeConnManagers: step("closeConnManagers", shutdownreport.StepCloseConnManagers),
+				shutdownOTEL: func(ctx context.Context) {
+					otelCtxErr = ctx.Err()
+					stepWithCtx("shutdownOTEL", shutdownreport.StepShutdownOTEL)(ctx)
+				},
+				flushSentry: step("flushSentry", shutdownreport.StepFlushSentry),
 			}
-		}
-	})
+
+			logger, _ := test.NewNullLogger()
+			steps.run(logger, report)
+
+			summary = shutdownreporttest.Summary(t, report)
+		})
+	}()
+	select {
+	case <-finished:
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for shutdown to return")
+	}
 
 	require.NotNil(t, summary, "no summary line")
 	for reportStep, sleep := range sleeps {

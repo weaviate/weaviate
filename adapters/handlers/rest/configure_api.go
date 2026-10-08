@@ -1596,7 +1596,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		shutdownReport.Time(shutdownreport.StepBatchDrain, func() {
 			waitBatchDrain(batchDrain, batchDrainTimeout, appState.Logger)
 		})
-		waitGrpcStop = startGrpcStop(grpcServer, refuseGrpcWeb, grpcGracefulStopTimeout, appState.Logger)
+		waitGrpcStop = startGrpcStop(grpcServer, refuseGrpcWeb, grpcGracefulStopTimeout, shutdownReport, appState.Logger)
 	}
 
 	api.ServerShutdown = func() {
@@ -1614,11 +1614,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			},
 			waitGRPCStop: func() {
 				waitGrpcStop()
-				// The REST drain finished before ServerShutdown, so every count is final here.
+				// A REST or grpc-web handler still running after the forced close is counted
+				// when it returns, so it can be missing from these counts.
+				restUnavailable := restInFlight.unavailableResponses.Load()
+				grpcUnavailable := grpcInFlight.UnavailableResponses()
+				grpcWebUnavailable := grpcWebInFlight.unavailableResponses.Load()
+				shutdownReport.CallsUnavailable(restUnavailable, grpcUnavailable, grpcWebUnavailable)
 				appState.Logger.WithField("action", "server_shutdown").
 					Infof("refused %d REST requests and %d gRPC calls arriving or still running %s after shutdown began, and %d grpc-web calls once the gRPC server began stopping",
-						restInFlight.unavailableResponses.Load(), grpcInFlight.UnavailableResponses(), inFlightCancelDelay,
-						grpcWebInFlight.unavailableResponses.Load())
+						restUnavailable, grpcUnavailable, inFlightCancelDelay, grpcWebUnavailable)
 			},
 			// PreServerShutdown already called StartShutdown so exports are signaled to stop, wait here until completion.
 			drainExports: func() {

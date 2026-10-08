@@ -266,7 +266,7 @@ func TestInFlightCancelGrpcWebRefusal(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("grpc-web call never reached Search")
 	}
-	t.Cleanup(startGrpcStop(grpcServer, refuseGrpcWeb, time.Hour, logger))
+	t.Cleanup(startGrpcStop(grpcServer, refuseGrpcWeb, time.Hour, nil, logger))
 
 	connect := http.Header{"Content-Type": {"application/proto"}, "Connect-Protocol-Version": {"1"}}
 	cases := []struct {

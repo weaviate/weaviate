@@ -20,9 +20,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
+	"github.com/weaviate/weaviate/entities/shutdownreport"
 )
 
 // ServerShutdown leaves the cluster and closes the database, so it must run
@@ -32,10 +36,13 @@ func TestServeAndShutdown(t *testing.T) {
 		name                 string
 		requestOutlivesDrain bool
 		stallBody            bool
+		wantForced           bool
+		wantStillRunning     int64
 	}{
 		{name: "drained in time", requestOutlivesDrain: false},
-		{name: "request outlives the drain", requestOutlivesDrain: true},
-		{name: "client stalls mid-body", stallBody: true},
+		{name: "request outlives the drain", requestOutlivesDrain: true, wantForced: true, wantStillRunning: 1},
+		// The woken handler returns within the wait, so a forced close can leave none running.
+		{name: "client stalls mid-body", stallBody: true, wantForced: true},
 	}
 
 	// configureAPI sets configureServer, and Serve calls it for every listener.
@@ -45,13 +52,20 @@ func TestServeAndShutdown(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			prevReport := shutdownReport
+			shutdownReport = shutdownreport.New("node-1")
+			t.Cleanup(func() { shutdownReport = prevReport })
+
 			var serverShutdownCalls atomic.Int32
 			var handlerReturned, returnedBeforeServerShutdown atomic.Bool
+			var summary logrus.Fields
 			s := NewServer(&operations.WeaviateAPI{
 				PreServerShutdown: func() {},
 				ServerShutdown: func() {
 					serverShutdownCalls.Add(1)
 					returnedBeforeServerShutdown.Store(handlerReturned.Load())
+					// The production ServerShutdown logs the report as its last step.
+					summary = logReport(shutdownReport)
 				},
 			})
 			s.EnabledListeners = []string{schemeHTTP}
@@ -97,9 +111,14 @@ func TestServeAndShutdown(t *testing.T) {
 				<-entered
 			}
 
+			shutdownReport.Begin()
 			require.NoError(t, s.Shutdown())
 			require.NoError(t, <-served)
 			require.Equal(t, int32(1), serverShutdownCalls.Load())
+
+			require.NotNil(t, summary, "summary line")
+			assert.Equal(t, tt.wantForced, summary["rest_forced_close"])
+			assert.Equal(t, tt.wantStillRunning, summary["rest_handlers_still_running"])
 
 			if tt.stallBody {
 				select {
@@ -112,4 +131,16 @@ func TestServeAndShutdown(t *testing.T) {
 			}
 		})
 	}
+}
+
+// logReport logs r and returns the summary line's fields.
+func logReport(r *shutdownreport.Report) logrus.Fields {
+	logger, hook := test.NewNullLogger()
+	r.Log(logger, shutdownreport.DefaultThresholds())
+	for _, e := range hook.AllEntries() {
+		if e.Message == "shutdown finished" {
+			return e.Data
+		}
+	}
+	return nil
 }

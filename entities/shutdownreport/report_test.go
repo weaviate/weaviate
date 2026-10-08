@@ -115,6 +115,19 @@ func TestReportClock(t *testing.T) {
 			wantTotal:       3000,
 			wantClientDrain: 2000,
 		},
+		{
+			name: "client drain ends at the later gRPC stop",
+			run: func(t *testing.T, r *Report) {
+				r.Begin()
+				time.Sleep(2 * time.Second)
+				r.RESTDrained()
+				time.Sleep(2 * time.Second)
+				r.GRPCStopped(time.Second, false)
+				time.Sleep(time.Second)
+			},
+			wantTotal:       5000,
+			wantClientDrain: 4000,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -133,16 +146,32 @@ func TestReportSummaryBounded(t *testing.T) {
 	wantKeys := []string{
 		"action", "batch_drain_ms", "client_drain_ms", "close_conn_managers_ms", "close_db_users_ms",
 		"close_modules_ms", "close_task_scheduler_ms", "cluster_close_ms", "db_ms", "drain_exports_ms",
-		"flush_sentry_ms", "internal_close_ms", "leave_cluster_ms", "node", "pre_db_steps_ms",
-		"shutdown_otel_ms", "stop_telemetry_ms", "total_ms", "wait_grpc_stop_ms",
+		"flush_sentry_ms", "grpc_forced_stop", "grpc_stop_ms", "grpc_unavailable", "grpc_web_unavailable",
+		"internal_close_ms", "leave_cluster_ms", "node", "pre_db_steps_ms", "rest_forced_close",
+		"rest_handlers_still_running", "rest_unavailable", "shutdown_otel_ms", "stop_telemetry_ms",
+		"total_ms", "wait_grpc_stop_ms",
 	}
 	tests := []struct {
-		name      string
-		elapsed   time.Duration
-		wantWarns int
+		name       string
+		elapsed    time.Duration
+		record     func(r *Report)
+		wantFields logrus.Fields
+		wantWarns  int
 	}{
 		{name: "idle shutdown", elapsed: time.Second},
 		{name: "total over its threshold", elapsed: DefaultThresholds().Total + time.Second, wantWarns: 1},
+		{
+			name: "client outcome",
+			record: func(r *Report) {
+				r.GRPCStopped(21*time.Second, true)
+				r.CallsUnavailable(1, 2, 3)
+			},
+			wantFields: logrus.Fields{
+				"grpc_stop_ms": int64(21000), "grpc_forced_stop": true,
+				"rest_unavailable": int64(1), "grpc_unavailable": int64(2), "grpc_web_unavailable": int64(3),
+			},
+			wantWarns: 1,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -150,6 +179,9 @@ func TestReportSummaryBounded(t *testing.T) {
 				r := New("node-1")
 				r.Begin()
 				r.Time(StepLeaveCluster, func() { time.Sleep(tt.elapsed) })
+				if tt.record != nil {
+					tt.record(r)
+				}
 				logger, hook := test.NewNullLogger()
 				r.Log(logger, DefaultThresholds())
 
@@ -166,6 +198,9 @@ func TestReportSummaryBounded(t *testing.T) {
 				require.Len(t, infos, 1)
 				assert.Equal(t, "shutdown finished", infos[0].Message)
 				assert.Equal(t, wantKeys, slices.Sorted(maps.Keys(infos[0].Data)))
+				for k, v := range tt.wantFields {
+					assert.Equal(t, v, infos[0].Data[k], k)
+				}
 				assert.Len(t, warns, tt.wantWarns)
 			})
 		})
@@ -182,31 +217,32 @@ func TestReportWarnings(t *testing.T) {
 		}
 	}
 	tests := []struct {
-		name string
-		s    summary
-		want logrus.Fields
+		name       string
+		s          summary
+		wantPhases logrus.Fields
+		wantOthers []warning
 	}{
 		{name: "nothing over", s: summary{total: time.Second}},
 		{name: "client drain at threshold", s: summary{clientDrain: th.ClientDrain}},
 		{
-			name: "client drain over",
-			s:    summary{clientDrain: th.ClientDrain + time.Millisecond},
-			want: logrus.Fields{"client_drain_ms": int64(10001), "client_drain_threshold_ms": int64(10000)},
+			name:       "client drain over",
+			s:          summary{clientDrain: th.ClientDrain + time.Millisecond},
+			wantPhases: logrus.Fields{"client_drain_ms": int64(10001), "client_drain_threshold_ms": int64(10000)},
 		},
 		{
 			name: "internal close at threshold",
 			s:    summary{steps: map[string]time.Duration{StepInternalClose: th.InternalClose}},
 		},
 		{
-			name: "internal close over",
-			s:    summary{steps: map[string]time.Duration{StepInternalClose: th.InternalClose + time.Millisecond}},
-			want: logrus.Fields{"internal_close_ms": int64(5001), "internal_close_threshold_ms": int64(5000)},
+			name:       "internal close over",
+			s:          summary{steps: map[string]time.Duration{StepInternalClose: th.InternalClose + time.Millisecond}},
+			wantPhases: logrus.Fields{"internal_close_ms": int64(5001), "internal_close_threshold_ms": int64(5000)},
 		},
 		{name: "db at threshold", s: summary{steps: map[string]time.Duration{StepDB: th.DB}}},
 		{
-			name: "db over",
-			s:    summary{steps: map[string]time.Duration{StepDB: th.DB + time.Millisecond}},
-			want: logrus.Fields{"db_ms": int64(20001), "db_threshold_ms": int64(20000)},
+			name:       "db over",
+			s:          summary{steps: map[string]time.Duration{StepDB: th.DB + time.Millisecond}},
+			wantPhases: logrus.Fields{"db_ms": int64(20001), "db_threshold_ms": int64(20000)},
 		},
 		{
 			name: "total at threshold has no slowest step",
@@ -217,40 +253,71 @@ func TestReportWarnings(t *testing.T) {
 			s: summary{total: totalOver, steps: map[string]time.Duration{
 				StepPreDBSteps: 20 * time.Second, StepLeaveCluster: 19 * time.Second,
 			}},
-			want: totalOverFields(StepLeaveCluster, 19000),
+			wantPhases: totalOverFields(StepLeaveCluster, 19000),
 		},
 		{
 			name: "slow db is named over cluster close",
 			s: summary{total: totalOver, steps: map[string]time.Duration{
 				StepClusterClose: 10 * time.Second, StepDB: 8 * time.Second,
 			}},
-			want: totalOverFields(StepDB, 8000),
+			wantPhases: totalOverFields(StepDB, 8000),
 		},
 		{
 			name: "cluster close is counted without the db",
 			s: summary{total: totalOver, steps: map[string]time.Duration{
 				StepClusterClose: 10 * time.Second, StepDB: time.Second, StepLeaveCluster: 5 * time.Second,
 			}},
-			want: totalOverFields(StepClusterClose, 9000),
+			wantPhases: totalOverFields(StepClusterClose, 9000),
 		},
 		{
 			name: "tie goes to the name that sorts first",
 			s: summary{total: totalOver, steps: map[string]time.Duration{
 				StepStopTelemetry: 4 * time.Second, StepDrainExports: 4 * time.Second,
 			}},
-			want: totalOverFields(StepDrainExports, 4000),
+			wantPhases: totalOverFields(StepDrainExports, 4000),
+		},
+		{
+			name: "forced gRPC stop",
+			s:    summary{clients: clientOutcome{grpcForcedStop: true, grpcStopTook: 21 * time.Second}},
+			wantOthers: []warning{{
+				msg: "gRPC server stop was forced", fields: logrus.Fields{"grpc_stop_ms": int64(21000)},
+			}},
+		},
+		{
+			name: "forced REST close warns with no handler left running",
+			s:    summary{clients: clientOutcome{restForcedClose: true}},
+			wantOthers: []warning{{
+				msg: "REST server close was forced", fields: logrus.Fields{"rest_handlers_still_running": int64(0)},
+			}},
+		},
+		{
+			name: "forced REST close with handlers still running",
+			s:    summary{clients: clientOutcome{restForcedClose: true, restStillRunning: 2}},
+			wantOthers: []warning{{
+				msg: "REST server close was forced", fields: logrus.Fields{"rest_handlers_still_running": int64(2)},
+			}},
+		},
+		{
+			name: "every kind warns, in order",
+			s: summary{
+				total: totalOver, steps: map[string]time.Duration{StepLeaveCluster: time.Second},
+				clients: clientOutcome{grpcForcedStop: true, grpcStopTook: 21 * time.Second, restForcedClose: true, restStillRunning: 2},
+			},
+			wantPhases: totalOverFields(StepLeaveCluster, 1000),
+			wantOthers: []warning{
+				{msg: "gRPC server stop was forced", fields: logrus.Fields{"grpc_stop_ms": int64(21000)}},
+				{msg: "REST server close was forced", fields: logrus.Fields{"rest_handlers_still_running": int64(2)}},
+			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			warns := tt.s.warnings(th)
-			if tt.want == nil {
-				assert.Empty(t, warns)
-				return
+			var want []warning
+			if tt.wantPhases != nil {
+				want = append(want, warning{msg: "shutdown phases took longer than their threshold", fields: tt.wantPhases})
 			}
-			require.Len(t, warns, 1)
-			assert.Equal(t, "shutdown phases took longer than their threshold", warns[0].msg)
-			assert.Equal(t, tt.want, warns[0].fields)
+			want = append(want, tt.wantOthers...)
+			assert.Equal(t, want, tt.s.warnings(th))
 		})
 	}
 }
@@ -266,6 +333,9 @@ func TestNilReport(t *testing.T) {
 			ran := false
 			r.Time(StepLeaveCluster, func() { ran = true })
 			r.StartPhase(StepDB)()
+			r.GRPCStopped(time.Second, true)
+			r.CallsUnavailable(1, 2, 3)
+			r.RESTForceClosed(1)
 			logger, hook := test.NewNullLogger()
 			r.Log(logger, DefaultThresholds())
 
