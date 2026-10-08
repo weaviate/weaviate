@@ -336,7 +336,7 @@ func (m *Migrator) LoadShard(ctx context.Context, class, shard string) error {
 	if idx == nil {
 		return fmt.Errorf("could not find collection %s", class)
 	}
-	return idx.LoadLocalShard(ctx, shard, false)
+	return idx.LoadLocalShard(ctx, shard, true, false)
 }
 
 func (m *Migrator) DropShard(ctx context.Context, class, shard string) error {
@@ -446,7 +446,7 @@ func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 
 		if phys.Status == models.TenantActivityStatusHOT {
 			// Only load the tenant if activity status == HOT.
-			ec.AddWrapf(idx.LoadLocalShard(ctx, shardName, false),
+			ec.AddWrapf(idx.LoadLocalShard(ctx, shardName, false, false),
 				"add missing tenant shard %s during update index", shardName)
 		} else {
 			// Shutdown the tenant if activity status != HOT
@@ -693,7 +693,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
 				defer cancel()
 
-				if err := idx.LoadLocalShard(ctx, name, implicitTenantActivation); err != nil {
+				if err := idx.LoadLocalShard(ctx, name, false, implicitTenantActivation); err != nil {
 					ec.Add(err)
 					idx.logger.WithFields(logrus.Fields{
 						"action": "tenant_activation_lazy_load_shard",
