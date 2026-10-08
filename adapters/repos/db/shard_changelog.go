@@ -35,20 +35,40 @@ const (
 	changelogRetryAttempts = 2
 )
 
-// ActivateChangeLog opens a fresh log for opID and registers it. It first
-// sweeps any .log files whose op-id is not registered — the safety net for
-// orphans left by prior failed movements on a long-lived shard.
+// ActivateChangeLog opens a fresh log for opID and registers it, replacing a
+// log already registered under opID (a resumed op). It first sweeps any .log
+// files whose op-id is not registered — the safety net for orphans left by
+// prior failed movements on a long-lived shard.
 //
 // The keep-snapshot, sweep, O_EXCL Open, and Register run under
-// changeLogsActivateMu so two concurrent activates can't each snapshot a
+// changeLogsLifecycleMu so two concurrent activates can't each snapshot a
 // stale registered set and sweep the other's freshly-opened .log file.
 func (s *Shard) ActivateChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, error) {
-	s.changeLogsActivateMu.Lock()
-	defer s.changeLogsActivateMu.Unlock()
+	s.changeLogsLifecycleMu.Lock()
+	defer s.changeLogsLifecycleMu.Unlock()
 
 	dir := s.changelogDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("shard %q: create changelog dir: %w", s.ID(), err)
+	}
+
+	// An abandoned Start (slow shard load) must not clobber the retried attempt's live log.
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("shard %q: activate changelog for op %q: %w", s.ID(), opID, err)
+	}
+
+	// A resumed op reuses its id; its stale log would fail the O_EXCL Open forever.
+	if stale := s.changeLogs.Load().Get(opID); stale != nil {
+		changelog.Unregister(&s.changeLogs, opID)
+		if err := stale.Deactivate(); err != nil {
+			return nil, fmt.Errorf("shard %q: deactivate stale changelog for op %q: %w", s.ID(), opID, err)
+		}
+		s.index.logger.WithFields(logrus.Fields{
+			"action":   "change_capture_log",
+			"op_id":    opID,
+			"shard":    s.ID(),
+			"last_lsn": stale.LSN(),
+		}).Info("replaced stale change-capture log")
 	}
 
 	keep := s.registeredOpIDs()
@@ -143,7 +163,15 @@ func (s *Shard) SnapshotChangeLogLSN(ctx context.Context, opID string) (uint64, 
 }
 
 func (s *Shard) StopChangeCapture(ctx context.Context, opID string) error {
+	s.changeLogsLifecycleMu.Lock()
+	defer s.changeLogsLifecycleMu.Unlock()
+
+	// An abandoned Stop must not tear down the log a retried attempt activated while it queued.
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("shard %q: stop changelog for op %q: %w", s.ID(), opID, err)
+	}
 	log := s.changeLogs.Load().Get(opID)
+	s.runChangeLogLifecycleCheckedHook()
 	if log == nil {
 		return nil
 	}
@@ -277,16 +305,28 @@ func (s *Shard) dispatchAppendResult(opID string, log *changelog.ChangeLog, err 
 }
 
 func (s *Shard) handleChangeLogFailure(opID string, log *changelog.ChangeLog, cause error) {
-	s.index.logger.
-		WithField("op_id", opID).
-		WithField("shard", s.ID()).
-		Error(fmt.Errorf("change-capture log entered terminal failure, deactivating: %w", cause))
+	logger := s.index.logger.WithFields(logrus.Fields{"op_id": opID, "shard": s.ID()})
+	logger.Errorf("change-capture log entered terminal failure, deactivating: %v", cause)
+	s.changeLogsLifecycleMu.Lock()
+	defer s.changeLogsLifecycleMu.Unlock()
+	registered := s.changeLogs.Load().Get(opID)
+	s.runChangeLogLifecycleCheckedHook()
+	// A resumed op may have replaced this log; its successor lives under the same path.
+	if registered != log {
+		if err := log.Deactivate(); err != nil {
+			logger.Errorf("change-capture log deactivate after failure: %v", err)
+		}
+		return
+	}
 	changelog.Unregister(&s.changeLogs, opID)
 	if err := log.Deactivate(); err != nil {
-		s.index.logger.
-			WithField("op_id", opID).
-			WithField("shard", s.ID()).
-			Error(fmt.Errorf("change-capture log deactivate after failure: %w", err))
+		logger.Errorf("change-capture log deactivate after failure: %v", err)
+	}
+}
+
+func (s *Shard) runChangeLogLifecycleCheckedHook() {
+	if s.changeLogLifecycleCheckedHook != nil {
+		s.changeLogLifecycleCheckedHook()
 	}
 }
 

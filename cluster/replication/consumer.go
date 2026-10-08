@@ -241,7 +241,7 @@ func (c *CopyOpConsumer) Consume(workerCtx context.Context, in <-chan ShardRepli
 			// we would block the worker pool and not be able to cancel the operation leading to resource starvation.
 			if op.Status.ShouldCancel && !c.ongoingOps.HasBeenCancelled(op.Op.ID) {
 				// Update the cache to mark the operation as cancelled
-				c.ongoingOps.StoreHasBeenCancelled(op.Op.ID)
+				c.ongoingOps.StoreHasBeenCancelled(op)
 				logger.Debug("cancelled the replication op")
 				if c.ongoingOps.InFlight(op.Op.ID) {
 					// Cancel the in-flight operation
@@ -500,12 +500,18 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 // It exists outside of the formal state machine to allow for cancellation of operations that are in progress
 // or have been cancelled but not yet processed without introducing new intermediate states to the FSM.
 func (c *CopyOpConsumer) cancelOp(op ShardReplicationOpAndStatus, logger *logrus.Entry) {
+	// The dispatch snapshot predates a mid-run cancel and lacks its flags and errors.
+	if cancelling, ok := c.ongoingOps.CancelledSnapshot(op.Op.ID); ok {
+		op = cancelling
+	}
 	defer func() {
 		c.ongoingOps.DeleteHasBeenCancelled(op.Op.ID)
 		c.engineOpCallbacks.OnOpCancelled(c.nodeId)
 	}()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second) // Bound the cancel cleanup (StopChangeCapture, ReleaseReplicaSnapshot, target-shard drop) in case one hangs
 	defer cancel()
+
+	c.reportGivenUp(op)
 
 	// Safe for ops that never reached HYDRATING: idempotent for unknown opIDs.
 	if err := c.replicaCopier.StopChangeCapture(ctx, op.Op.SourceShard.NodeId,
@@ -547,6 +553,20 @@ func (c *CopyOpConsumer) cancelOp(op ShardReplicationOpAndStatus, logger *logrus
 		}
 		return
 	}
+}
+
+// reportGivenUp surfaces a cancel that Manager.RegisterError triggered after MaxErrors failures.
+func (c *CopyOpConsumer) reportGivenUp(op ShardReplicationOpAndStatus) {
+	errs := op.Status.Current.Errors
+	if !op.Status.OnlyCancellation() || len(errs) < MaxErrors {
+		return
+	}
+	c.engineOpCallbacks.OnOpGivenUp(c.nodeId)
+	outcome := "replica was not created"
+	if op.Op.TransferType == api.SELF_RECOVERY {
+		outcome = "shard stays RECOVERING"
+	}
+	getLoggerForOpAndStatus(c.logger, op.Op, op.Status).Errorf("replication op gave up after %d errors; %s: %s", len(errs), outcome, errs[len(errs)-1].Message)
 }
 
 // dropCancelledOpTargetShard removes the op's target shard (files included)
@@ -660,6 +680,11 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 	coll := op.Op.SourceShard.CollectionId
 	shard := op.Op.SourceShard.ShardId
 
+	// A resumed op (target restart, failed cleanup) may have left its log on an older donor.
+	if err := c.replicaCopier.StopChangeCapture(ctx, src, coll, shard, opID); err != nil {
+		logger.Warnf("StopChangeCapture before start failed (non-fatal): %v", err)
+	}
+
 	// Must precede CopyReplicaFiles: every write after this point lands in
 	// the log and is replayed during FINALIZING/DEHYDRATING.
 	if err := c.replicaCopier.StartChangeCapture(ctx, src, coll, shard, opID, op.Status.SchemaVersion); err != nil {
@@ -671,8 +696,8 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 			return
 		}
 		// Bounded background ctx — the worker ctx is already cancelled by the
-		// time we get here. If Stop fails, the orphan-sweep in
-		// Shard.ActivateChangeLog cleans up before the next retry's Start.
+		// time we get here. If Stop fails, the next attempt's Stop and the
+		// donor's same-op replace in Shard.ActivateChangeLog clean it up.
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := c.replicaCopier.StopChangeCapture(cleanupCtx, src, coll, shard, opID); err != nil {

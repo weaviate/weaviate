@@ -343,7 +343,7 @@ func TestShard_ChangeLog_ActivateSweepsOrphans(t *testing.T) {
 }
 
 // Two concurrent activates must each leave their own .log file on disk.
-// Without changeLogsActivateMu, the second caller's keep-snapshot can miss
+// Without changeLogsLifecycleMu, the second caller's keep-snapshot can miss
 // the first caller's pending op and sweep its freshly-opened file.
 func TestShard_ChangeLog_ConcurrentActivate_NoCrossSweep(t *testing.T) {
 	ctx := context.Background()
@@ -507,4 +507,265 @@ func TestShard_ChangeLog_Finalize_WaitsForPreSealPendingOnly(t *testing.T) {
 	}
 
 	require.NoError(t, shard.StopChangeCapture(ctx, "op-fence"))
+}
+
+// A resumed movement reactivates its op-id while the donor still holds the log.
+func TestShard_ChangeLog_ReactivateSameOpID(t *testing.T) {
+	activators := []struct {
+		name     string
+		activate func(ctx context.Context, shard *Shard, opID string) error
+	}{
+		{
+			name: "shard",
+			activate: func(ctx context.Context, shard *Shard, opID string) error {
+				_, err := shard.ActivateChangeLog(ctx, opID)
+				return err
+			},
+		},
+		{
+			name: "index",
+			activate: func(ctx context.Context, shard *Shard, opID string) error {
+				return shard.index.IncomingStartChangeCapture(ctx, shard.name, opID)
+			},
+		},
+	}
+	tests := []struct {
+		name       string
+		prevWrites int
+		prep       func(t *testing.T, old *changelog.ChangeLog) *changelog.Tailer
+	}{
+		{name: "plain"},
+		{name: "entries appended before", prevWrites: 3},
+		{
+			name:       "tailer open on old log",
+			prevWrites: 2,
+			prep: func(t *testing.T, old *changelog.ChangeLog) *changelog.Tailer {
+				tailer, err := old.NewTailer(0)
+				require.NoError(t, err)
+				t.Cleanup(func() { require.NoError(t, tailer.Close()) })
+				return tailer
+			},
+		},
+		{
+			name:       "old log finalized",
+			prevWrites: 1,
+			prep: func(t *testing.T, old *changelog.ChangeLog) *changelog.Tailer {
+				_, err := old.Finalize()
+				require.NoError(t, err)
+				return nil
+			},
+		},
+	}
+	for _, act := range activators {
+		for _, tc := range tests {
+			t.Run(act.name+"/"+tc.name, func(t *testing.T) {
+				ctx := context.Background()
+				shard := setupChangelogTestShard(t, ctx)
+				const opID = "op-resumed"
+
+				require.NoError(t, act.activate(ctx, shard, opID))
+				old, ok := shard.GetChangeLog(ctx, opID)
+				require.True(t, ok)
+				for i := range tc.prevWrites {
+					require.NoError(t, shard.PutObject(ctx, changelogTestObject(uuid.NewString(), "before", int64(i+1))))
+				}
+				var tailer *changelog.Tailer
+				if tc.prep != nil {
+					tailer = tc.prep(t, old)
+				}
+
+				require.NoError(t, act.activate(ctx, shard, opID))
+
+				fresh, ok := shard.GetChangeLog(ctx, opID)
+				require.True(t, ok)
+				require.NotSame(t, old, fresh)
+				require.Equal(t, uint64(0), fresh.LSN())
+				matches, err := filepath.Glob(filepath.Join(shard.changelogDir(), opID+changelogFileExtension))
+				require.NoError(t, err)
+				require.Len(t, matches, 1)
+				_, err = old.AppendDelete([16]byte{}, 1)
+				require.ErrorIs(t, err, changelog.ErrLogDeactivated)
+				if tailer != nil {
+					nextCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+					defer cancel()
+					_, err := tailer.Next(nextCtx)
+					require.ErrorIs(t, err, changelog.ErrLogDeactivated)
+				}
+
+				id := uuid.NewString()
+				require.NoError(t, shard.PutObject(ctx, changelogTestObject(id, "after", 100)))
+				finalLSN, err := shard.FinalizeChangeLog(ctx, opID)
+				require.NoError(t, err)
+				require.Equal(t, uint64(1), finalLSN)
+				entries := drainAllEntries(t, fresh)
+				require.Len(t, entries, 1)
+				require.Equal(t, uuid.MustParse(id), uuid.UUID(entries[0].UUID))
+
+				require.NoError(t, shard.StopChangeCapture(ctx, opID))
+			})
+		}
+	}
+}
+
+func TestShard_ChangeLog_AbandonedReactivateKeepsLiveLog(t *testing.T) {
+	ctx := context.Background()
+	shard := setupChangelogTestShard(t, ctx)
+	const opID = "op-live"
+
+	_, err := shard.ActivateChangeLog(ctx, opID)
+	require.NoError(t, err)
+	live, ok := shard.GetChangeLog(ctx, opID)
+	require.True(t, ok)
+	require.NoError(t, shard.PutObject(ctx, changelogTestObject(uuid.NewString(), "live", 1)))
+
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	_, err = shard.ActivateChangeLog(cancelled, opID)
+	require.ErrorIs(t, err, context.Canceled)
+
+	still, ok := shard.GetChangeLog(ctx, opID)
+	require.True(t, ok)
+	require.Same(t, live, still)
+	require.Equal(t, uint64(1), still.LSN())
+	require.NoError(t, shard.StopChangeCapture(ctx, opID))
+}
+
+func changelogDirEntries(t *testing.T, shard *Shard) []string {
+	t.Helper()
+	entries, err := os.ReadDir(shard.changelogDir())
+	if os.IsNotExist(err) {
+		return nil
+	}
+	require.NoError(t, err)
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	return names
+}
+
+func TestShard_ChangeLog_StaleLogFailureSparesSuccessor(t *testing.T) {
+	ctx := context.Background()
+	shard := setupChangelogTestShard(t, ctx)
+	const opID = "op-replaced"
+
+	stale, err := shard.ActivateChangeLog(ctx, opID)
+	require.NoError(t, err)
+	fresh, err := shard.ActivateChangeLog(ctx, opID)
+	require.NoError(t, err)
+	require.NotSame(t, stale, fresh)
+
+	shard.handleChangeLogFailure(opID, stale, errors.New("disk full"))
+
+	registered, ok := shard.GetChangeLog(ctx, opID)
+	require.True(t, ok)
+	require.Same(t, fresh, registered)
+	require.Equal(t, []string{opID + changelogFileExtension}, changelogDirEntries(t, shard))
+	id := uuid.NewString()
+	require.NoError(t, shard.PutObject(ctx, changelogTestObject(id, "after", 1)))
+	finalLSN, err := shard.FinalizeChangeLog(ctx, opID)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), finalLSN)
+	entries := drainAllEntries(t, fresh)
+	require.Len(t, entries, 1)
+	require.NoError(t, shard.StopChangeCapture(ctx, opID))
+}
+
+func TestShard_ChangeLog_LifecycleSerializedWithResumedActivation(t *testing.T) {
+	const opID = "op-raced"
+	type result struct {
+		log *changelog.ChangeLog
+		err error
+	}
+	tests := []struct {
+		name   string
+		hooked func(ctx context.Context, shard *Shard, log *changelog.ChangeLog) error
+	}{
+		{
+			name: "failure vs resumed activate",
+			hooked: func(_ context.Context, shard *Shard, log *changelog.ChangeLog) error {
+				shard.handleChangeLogFailure(opID, log, errors.New("disk full"))
+				return nil
+			},
+		},
+		{
+			name: "stop vs resumed activate",
+			hooked: func(ctx context.Context, shard *Shard, _ *changelog.ChangeLog) error {
+				return shard.StopChangeCapture(ctx, opID)
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			shard := setupChangelogTestShard(t, ctx)
+			log, err := shard.ActivateChangeLog(ctx, opID)
+			require.NoError(t, err)
+
+			done := make(chan result, 1)
+			shard.changeLogLifecycleCheckedHook = func() {
+				shard.changeLogLifecycleCheckedHook = nil
+				enterrors.GoWrapper(func() {
+					fresh, err := shard.ActivateChangeLog(ctx, opID)
+					done <- result{log: fresh, err: err}
+				}, shard.index.logger)
+				select {
+				case res := <-done:
+					done <- res
+				case <-time.After(250 * time.Millisecond):
+				}
+			}
+
+			require.NoError(t, tc.hooked(ctx, shard, log))
+
+			var res result
+			select {
+			case res = <-done:
+			case <-time.After(10 * time.Second):
+				t.Fatal("resumed activation did not finish")
+			}
+			require.NoError(t, res.err)
+			_, err = log.AppendDelete([16]byte{}, 1)
+			require.ErrorIs(t, err, changelog.ErrLogDeactivated)
+
+			registered, ok := shard.GetChangeLog(ctx, opID)
+			require.True(t, ok)
+			require.Same(t, res.log, registered)
+			require.Equal(t, []string{opID + changelogFileExtension}, changelogDirEntries(t, shard))
+			require.NoError(t, shard.PutObject(ctx, changelogTestObject(uuid.NewString(), "after", 1)))
+			finalLSN, err := shard.FinalizeChangeLog(ctx, opID)
+			require.NoError(t, err)
+			require.Equal(t, uint64(1), finalLSN)
+			require.NoError(t, shard.StopChangeCapture(ctx, opID))
+			require.Empty(t, changelogDirEntries(t, shard))
+		})
+	}
+}
+
+// A stop its caller gave up on while it queued must not tear down the log a retried activation registered since.
+func TestShard_ChangeLog_AbandonedStopKeepsRetriedLog(t *testing.T) {
+	const opID = "op-retried"
+	ctx := context.Background()
+	shard := setupChangelogTestShard(t, ctx)
+	idx := shard.index
+	require.NoError(t, idx.IncomingStartChangeCapture(ctx, shard.name, opID))
+	require.NoError(t, shard.PutObject(ctx, changelogTestObject(uuid.NewString(), "captured", 1)))
+
+	shard.changeLogsLifecycleMu.Lock()
+	abandoned, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	enterrors.GoWrapper(func() { done <- idx.IncomingStopChangeCapture(abandoned, shard.name, opID) }, idx.logger)
+	cancel()
+	shard.changeLogsLifecycleMu.Unlock()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(10 * time.Second):
+		t.Fatal("abandoned stop did not return")
+	}
+
+	require.Equal(t, []string{opID + changelogFileExtension}, changelogDirEntries(t, shard))
+	lsn, err := idx.IncomingSnapshotChangeLogLSN(ctx, shard.name, opID)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), lsn)
 }

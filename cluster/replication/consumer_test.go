@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -2220,4 +2221,234 @@ func TestConsumerSelfRecoveryFinalizingPromotesUnderLoadPolicy(t *testing.T) {
 	mockReplicaCopier.AssertNotCalled(t, "LoadLocalShard", mock.Anything, mock.Anything, mock.Anything)
 	mockFSMUpdater.AssertExpectations(t)
 	mockReplicaCopier.AssertExpectations(t)
+}
+
+func startConsumer(t *testing.T, consumer *replication.CopyOpConsumer, op replication.ShardReplicationOpAndStatus) (chan<- replication.ShardReplicationOpAndStatus, func()) {
+	t.Helper()
+	logger, _ := logrustest.NewNullLogger()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	ops := make(chan replication.ShardReplicationOpAndStatus, 256)
+	done := make(chan error, 1)
+	enterrors.GoWrapper(func() { done <- consumer.Consume(ctx, ops) }, logger)
+	ops <- op
+	return ops, func() {
+		close(ops)
+		require.NoError(t, <-done)
+	}
+}
+
+func awaitSignal[T any](t *testing.T, ch <-chan T, failMsg string) T {
+	t.Helper()
+	select {
+	case v := <-ch:
+		return v
+	case <-time.After(10 * time.Second):
+		t.Fatal(failMsg)
+	}
+	var zero T
+	return zero
+}
+
+func TestConsumerHydratingStopsStaleCaptureBeforeStart(t *testing.T) {
+	const (
+		opID       = uint64(7)
+		collection = "TestCollection"
+		shardName  = "shard1"
+	)
+	tests := []struct {
+		name      string
+		transfer  api.ShardReplicationTransferType
+		stopErr   error
+		startErr  error
+		copyErr   error
+		wantCalls []string
+	}{
+		{
+			name:      "stale log stopped then capture restarted",
+			transfer:  api.COPY,
+			startErr:  stderrors.New("start failed"),
+			wantCalls: []string{"stop", "start"},
+		},
+		{
+			name:      "stop refused by an older donor still starts",
+			transfer:  api.MOVE,
+			stopErr:   stderrors.New("unimplemented"),
+			startErr:  stderrors.New("start failed"),
+			wantCalls: []string{"stop", "start"},
+		},
+		{
+			name:      "copy failure tears the fresh log down",
+			transfer:  api.COPY,
+			copyErr:   stderrors.New("copy failed"),
+			wantCalls: []string{"stop", "start", "copy", "stop"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := logrustest.NewNullLogger()
+			fsm := types.NewMockFSMUpdater(t)
+			copier := types.NewMockReplicaCopier(t)
+
+			var (
+				mu    sync.Mutex
+				calls []string
+			)
+			record := func(name string) {
+				mu.Lock()
+				defer mu.Unlock()
+				calls = append(calls, name)
+			}
+			opIDStr := fmt.Sprint(opID)
+			copier.EXPECT().StopChangeCapture(mock.Anything, "node1", collection, shardName, opIDStr).
+				RunAndReturn(func(context.Context, string, string, string, string) error {
+					record("stop")
+					return tc.stopErr
+				})
+			copier.EXPECT().StartChangeCapture(mock.Anything, "node1", collection, shardName, opIDStr, mock.Anything).
+				RunAndReturn(func(context.Context, string, string, string, string, uint64) error {
+					record("start")
+					return tc.startErr
+				})
+			if tc.startErr == nil {
+				copier.EXPECT().CopyReplicaFiles(mock.Anything, mock.Anything, "node1", collection, shardName, mock.Anything).
+					RunAndReturn(func(context.Context, strfmt.UUID, string, string, string, uint64) error {
+						record("copy")
+						return tc.copyErr
+					})
+			}
+			fsm.EXPECT().ReplicationGetReplicaOpStatus(mock.Anything, opID).Return(api.HYDRATING, nil)
+			registered := make(chan struct{})
+			fsm.EXPECT().ReplicationRegisterError(mock.Anything, opID, mock.Anything).
+				Run(func(context.Context, uint64, string) { close(registered) }).
+				Return(nil).Once()
+
+			consumer := replication.NewCopyOpConsumer(logger, fsm, copier, "node2", &backoff.StopBackOff{},
+				replication.NewOpsCache(), 10*time.Second, 1,
+				metrics.NewReplicationEngineOpsCallbacksBuilder().Build(),
+				newShardSchemaReader(collection, shardName, "node1"))
+
+			_, stop := startConsumer(t, consumer, replication.NewShardReplicationOpAndStatus(
+				replication.NewShardReplicationOp(opID, "node1", "node2", collection, shardName, tc.transfer),
+				replication.NewShardReplicationStatus(api.HYDRATING)))
+			awaitSignal(t, registered, "hydrating attempt never failed")
+			stop()
+
+			mu.Lock()
+			defer mu.Unlock()
+			require.Equal(t, tc.wantCalls, calls)
+		})
+	}
+}
+
+func TestConsumerCancelReportsGivenUp(t *testing.T) {
+	const (
+		opID       = uint64(9)
+		collection = "TestCollection"
+		shardName  = "shard1"
+	)
+	tests := []struct {
+		name        string
+		transfer    api.ShardReplicationTransferType
+		errors      int
+		deleteOp    bool
+		midRun      bool
+		wantGivenUp string
+	}{
+		{name: "copy error budget exhausted", transfer: api.COPY, errors: replication.MaxErrors, wantGivenUp: "replica was not created"},
+		{name: "self-recovery error budget exhausted", transfer: api.SELF_RECOVERY, errors: replication.MaxErrors, wantGivenUp: "shard stays RECOVERING"},
+		{name: "user cancel without errors", transfer: api.COPY},
+		{name: "delete with exhausted budget", transfer: api.COPY, errors: replication.MaxErrors, deleteOp: true},
+		{name: "copy error budget exhausted mid-run", transfer: api.COPY, errors: replication.MaxErrors, midRun: true, wantGivenUp: "replica was not created"},
+		{name: "self-recovery error budget exhausted mid-run", transfer: api.SELF_RECOVERY, errors: replication.MaxErrors, midRun: true, wantGivenUp: "shard stays RECOVERING"},
+		{name: "user cancel mid-run", transfer: api.COPY, midRun: true},
+		{name: "delete mid-run", transfer: api.COPY, errors: replication.MaxErrors, deleteOp: true, midRun: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			fsm := types.NewMockFSMUpdater(t)
+			copier := types.NewMockReplicaCopier(t)
+			expectChangeCaptureMocks(copier, fsm)
+			copier.EXPECT().DropLocalShard(mock.Anything, collection, shardName).Return(nil).Maybe()
+			fsm.EXPECT().ReplicationGetReplicaOpStatus(mock.Anything, opID).Return(api.HYDRATING, nil).Once()
+			fsm.EXPECT().ReplicationLocalOpCancelState(opID).Return(types.OpCancelState{State: api.HYDRATING}, nil).Maybe()
+			if tc.deleteOp {
+				fsm.EXPECT().ReplicationRemoveReplicaOp(mock.Anything, opID).Return(nil).Once()
+			} else {
+				fsm.EXPECT().ReplicationCancellationComplete(mock.Anything, opID).Return(nil).Once()
+			}
+			copying := make(chan struct{})
+			blockCopy := func(ctx context.Context) error {
+				close(copying)
+				<-ctx.Done()
+				return ctx.Err()
+			}
+			copier.EXPECT().CopyReplicaFiles(mock.Anything, mock.Anything, "node1", collection, shardName, mock.Anything).
+				RunAndReturn(func(ctx context.Context, _ strfmt.UUID, _, _, _ string, _ uint64) error { return blockCopy(ctx) }).Maybe()
+			copier.EXPECT().CopyReplicaFilesToLocalShard(mock.Anything, mock.Anything, "node1", collection, shardName, mock.Anything, mock.Anything).
+				RunAndReturn(func(ctx context.Context, _ strfmt.UUID, _, _, _, _ string, _ uint64) error { return blockCopy(ctx) }).Maybe()
+
+			var givenUp, cancelledCount atomic.Int32
+			cancelled := make(chan struct{}, 1)
+			callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
+				WithOpGivenUpCallback(func(node string) {
+					require.Equal(t, "node2", node)
+					givenUp.Add(1)
+				}).
+				WithOpCancelledCallback(func(string) {
+					cancelledCount.Add(1)
+					select {
+					case cancelled <- struct{}{}:
+					default:
+					}
+				}).Build()
+
+			consumer := replication.NewCopyOpConsumer(logger, fsm, copier, "node2", &backoff.StopBackOff{},
+				replication.NewOpsCache(), 10*time.Second, 1, callbacks,
+				newShardSchemaReader(collection, shardName, "node1"))
+
+			op := replication.NewShardReplicationOp(opID, "node1", "node2", collection, shardName, tc.transfer)
+			status := replication.NewShardReplicationStatus(api.HYDRATING)
+			for i := range tc.errors {
+				require.NoError(t, status.AddError(fmt.Sprintf("start change capture: file exists %d", i), int64(i)))
+			}
+			if tc.deleteOp {
+				status.TriggerDeletion()
+			} else {
+				status.TriggerCancellation()
+			}
+
+			if !tc.midRun {
+				_, stop := startConsumer(t, consumer, replication.NewShardReplicationOpAndStatus(op, status))
+				awaitSignal(t, cancelled, "op was never cancelled")
+				stop()
+			} else {
+				ops, stop := startConsumer(t, consumer, replication.NewShardReplicationOpAndStatus(op, replication.NewShardReplicationStatus(api.HYDRATING)))
+				awaitSignal(t, copying, "copy never started")
+				ops <- replication.NewShardReplicationOpAndStatus(op, status)
+				awaitSignal(t, cancelled, "op was never cancelled")
+				stop()
+			}
+			require.Equal(t, int32(1), cancelledCount.Load())
+
+			var gaveUpLogs []*logrus.Entry
+			for _, e := range hook.AllEntries() {
+				if strings.Contains(e.Message, "gave up") {
+					gaveUpLogs = append(gaveUpLogs, e)
+				}
+			}
+			if tc.wantGivenUp == "" {
+				require.Zero(t, givenUp.Load())
+				require.Empty(t, gaveUpLogs)
+				return
+			}
+			require.Equal(t, int32(1), givenUp.Load())
+			require.Len(t, gaveUpLogs, 1)
+			require.Equal(t, logrus.ErrorLevel, gaveUpLogs[0].Level)
+			require.Equal(t, fmt.Sprintf("replication op gave up after %d errors; %s: start change capture: file exists %d",
+				replication.MaxErrors, tc.wantGivenUp, replication.MaxErrors-1), gaveUpLogs[0].Message)
+			require.Equal(t, opID, gaveUpLogs[0].Data["op_id"])
+		})
+	}
 }

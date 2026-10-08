@@ -17,9 +17,7 @@ import (
 )
 
 type OpsCache struct {
-	// hasBeenCancelled is a map of opId to an empty struct
-	// It is used to communicate between the main consumer goroutine and its
-	// workers whether an operation has been formally cancelled
+	// hasBeenCancelled maps opId to the snapshot that carried the cancel; workers clean up from it.
 	hasBeenCancelled sync.Map
 	// cancels is a map of opId to a cancel function
 	// It is used by the main goroutine to cancel the workers if
@@ -45,8 +43,18 @@ func (c *OpsCache) HasBeenCancelled(opId uint64) bool {
 	return ok
 }
 
-func (c *OpsCache) StoreHasBeenCancelled(opId uint64) {
-	c.hasBeenCancelled.Store(opId, struct{}{})
+func (c *OpsCache) StoreHasBeenCancelled(op ShardReplicationOpAndStatus) {
+	c.hasBeenCancelled.Store(op.Op.ID, op)
+}
+
+// CancelledSnapshot returns the snapshot that carried the op's cancel, if any.
+func (c *OpsCache) CancelledSnapshot(opId uint64) (ShardReplicationOpAndStatus, bool) {
+	v, ok := c.hasBeenCancelled.Load(opId)
+	if !ok {
+		return ShardReplicationOpAndStatus{}, false
+	}
+	op, ok := v.(ShardReplicationOpAndStatus)
+	return op, ok
 }
 
 func (c *OpsCache) DeleteHasBeenCancelled(opId uint64) {

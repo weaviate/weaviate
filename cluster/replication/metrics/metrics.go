@@ -28,6 +28,7 @@ type ReplicationEngineOpsCallbacks struct {
 	onOpComplete        func(node string)
 	onOpFailed          func(node string)
 	onOpCancelled       func(node string)
+	onOpGivenUp         func(node string)
 }
 
 // ReplicationEngineOpsCallbacksBuilder helps construct an ReplicationEngineOpsCallbacks instance with
@@ -48,6 +49,7 @@ func NewReplicationEngineOpsCallbacksBuilder() *ReplicationEngineOpsCallbacksBui
 			onOpComplete:        func(node string) {},
 			onOpFailed:          func(node string) {},
 			onOpCancelled:       func(node string) {},
+			onOpGivenUp:         func(node string) {},
 		},
 	}
 }
@@ -102,6 +104,13 @@ func (b *ReplicationEngineOpsCallbacksBuilder) WithOpCancelledCallback(callback 
 	return b
 }
 
+// WithOpGivenUpCallback sets a callback to be executed when a replication
+// operation is cancelled because it exhausted its error budget for the given node.
+func (b *ReplicationEngineOpsCallbacksBuilder) WithOpGivenUpCallback(callback func(node string)) *ReplicationEngineOpsCallbacksBuilder {
+	b.callbacks.onOpGivenUp = callback
+	return b
+}
+
 // Build finalizes the configuration and returns the ReplicationEngineOpsCallbacks instance.
 func (b *ReplicationEngineOpsCallbacksBuilder) Build() *ReplicationEngineOpsCallbacks {
 	return &b.callbacks
@@ -141,6 +150,15 @@ func (m *ReplicationEngineOpsCallbacks) OnOpCancelled(node string) {
 	m.onOpCancelled(node)
 }
 
+// OnOpGivenUp invokes the configured callback for when a replication operation
+// exhausted its error budget and was auto-cancelled. Nil-safe for zero-value callbacks.
+func (m *ReplicationEngineOpsCallbacks) OnOpGivenUp(node string) {
+	if m.onOpGivenUp == nil {
+		return
+	}
+	m.onOpGivenUp(node)
+}
+
 // NewReplicationEngineOpsCallbacks creates and registers Prometheus metrics for tracking
 // replication operations and returns a ReplicationEngineOpsCallbacks instance configured to update those metrics.
 //
@@ -150,6 +168,7 @@ func (m *ReplicationEngineOpsCallbacks) OnOpCancelled(node string) {
 // - weaviate_replication_complete_operations (CounterVec)
 // - weaviate_replication_failed_operations (CounterVec)
 // - weaviate_replication_cancelled_operations (CounterVec)
+// - weaviate_replication_operations_error_budget_exhausted_total (CounterVec)
 //
 // All metrics are labeled by node and automatically updated through the callback lifecycle.
 //
@@ -159,6 +178,8 @@ func (m *ReplicationEngineOpsCallbacks) OnOpCancelled(node string) {
 // 3. When an operation **starts**, decrement `replication_pending_operations` and increment `replication_ongoing_operations`.
 // 4. When an operation **completes successfully**, decrement `replication_ongoing_operations` and increment `replication_complete_operations`.
 // 5. When an operation **fails**, decrement `replication_ongoing_operations` and increment `replication_failed_operations`.
+// 6. When an operation **is cancelled**, decrement `replication_ongoing_operations` and increment `replication_cancelled_operations`.
+// 7. When a cancelled operation **exhausted its error budget**, also increment `replication_operations_error_budget_exhausted_total`.
 //
 // This ensures that gauges (`pending`, `ongoing`) reflect the current number of active operations,
 // while counters (`complete`, `failed`) accumulate totals over time.
@@ -193,6 +214,12 @@ func NewReplicationEngineOpsCallbacks(reg prometheus.Registerer) *ReplicationEng
 		Help:      "Number of cancelled replication operations",
 	}, []string{"node"})
 
+	givenUpOps := promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
+		Namespace: "weaviate",
+		Name:      "replication_operations_error_budget_exhausted_total",
+		Help:      "Number of replication operations auto-cancelled after exhausting their error budget",
+	}, []string{"node"})
+
 	return NewReplicationEngineOpsCallbacksBuilder().
 		WithPrepareProcessing(func(node string) {
 			// Add(0) is used to ensure that the metric exists for the given node label
@@ -203,6 +230,8 @@ func NewReplicationEngineOpsCallbacks(reg prometheus.Registerer) *ReplicationEng
 			ongoingOps.WithLabelValues(node).Add(0)
 			completeOps.WithLabelValues(node).Add(0)
 			failedOps.WithLabelValues(node).Add(0)
+			cancelledOps.WithLabelValues(node).Add(0)
+			givenUpOps.WithLabelValues(node).Add(0)
 		}).
 		WithOpPendingCallback(func(node string) {
 			pendingOps.WithLabelValues(node).Inc()
@@ -229,6 +258,9 @@ func NewReplicationEngineOpsCallbacks(reg prometheus.Registerer) *ReplicationEng
 			ongoingOps.WithLabelValues(node).Dec()
 			cancelledOps.WithLabelValues(node).Inc()
 			monitoring.GetBackgroundProcessMetrics().DecActive(monitoring.ProcessReplicaMovement)
+		}).
+		WithOpGivenUpCallback(func(node string) {
+			givenUpOps.WithLabelValues(node).Inc()
 		}).
 		Build()
 }

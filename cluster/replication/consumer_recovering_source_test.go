@@ -59,9 +59,7 @@ func TestConsumerRecoveringSourceFailsCleanly(t *testing.T) {
 			logger, _ := logrustest.NewNullLogger()
 			fsm := types.NewMockFSMUpdater(t)
 			copier := types.NewMockReplicaCopier(t)
-			if tc.startErr == nil {
-				copier.EXPECT().StopChangeCapture(mock.Anything, "node1", collection, shardName, "41").Return(nil)
-			}
+			copier.EXPECT().StopChangeCapture(mock.Anything, "node1", collection, shardName, "41").Return(nil)
 			copier.EXPECT().StartChangeCapture(mock.Anything, "node1", collection, shardName, "41", mock.Anything).Return(tc.startErr)
 			var copied atomic.Bool
 			copier.EXPECT().CopyReplicaFiles(mock.Anything, mock.Anything, "node1", collection, shardName, mock.Anything).
