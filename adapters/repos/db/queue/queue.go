@@ -356,7 +356,7 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 
 	err = c.Close()
 	if err != nil {
-		q.Logger.WithField("file", c.path).WithError(err).Warn("failed to close chunk file")
+		q.Logger.WithField("file", c.path).Warnf("failed to close chunk file: %v", err)
 	}
 
 	if len(tasks) == 0 {

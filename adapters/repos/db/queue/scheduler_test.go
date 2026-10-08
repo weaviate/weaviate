@@ -858,6 +858,7 @@ func TestSchedulerDequeueErrorWaitsRetryInterval(t *testing.T) {
 	require.Eventually(t, func() bool { return q.calls.Load() > 0 }, 10*time.Second, 10*time.Millisecond)
 	time.Sleep(time.Second)
 	require.LessOrEqual(t, q.calls.Load(), int32(7), "a failing queue must wait between dequeues")
+	require.GreaterOrEqual(t, q.calls.Load(), int32(2), "a failing queue must keep being retried")
 }
 
 type erroringQueue struct {
