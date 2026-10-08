@@ -258,3 +258,78 @@ func TestAddBatchWithSuccessfulAllocation(t *testing.T) {
 	finalValue := testutil.ToFloat64(metrics.VectorIndexMemoryAllocationRejected)
 	require.Equal(t, initialValue, finalValue, "metric should not increment when allocation succeeds")
 }
+
+// TestRemovedTombstoneMetricsAreNotExported pins the removal of five per-shard
+// tombstone series that were dropped to cut the number of series shipped to the
+// metrics backend. A tombstone cleanup cycle is the only producer of these
+// series, so running one with real Prometheus metrics must leave none of the
+// removed names in the default registry.
+func TestRemovedTombstoneMetricsAreNotExported(t *testing.T) {
+	ctx := context.Background()
+	vectors := vectorsForDeleteTest()
+
+	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
+
+	index, err := New(Config{
+		RootPath:              t.TempDir(),
+		ID:                    "removed-tombstone-metrics",
+		ClassName:             "RemovedTombstoneMetrics",
+		ShardName:             "removed-tombstone-metrics-shard",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return vectors[int(id)], nil
+		},
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		AllocChecker:                 memwatch.NewDummyMonitor(),
+		PrometheusMetrics:            monitoring.GetMetrics(),
+	}, ent.UserConfig{
+		MaxConnections:        30,
+		EFConstruction:        128,
+		VectorCacheMaxObjects: 100000,
+	}, cyclemanager.NewCallbackGroupNoop(), store)
+	require.NoError(t, err)
+	defer index.Shutdown(context.TODO())
+
+	for i, vec := range vectors {
+		require.NoError(t, index.Add(ctx, uint64(i), vec))
+	}
+	for i := range vectors {
+		if i%2 == 0 {
+			require.NoError(t, index.Delete(uint64(i)))
+		}
+	}
+	require.NoError(t, index.CleanUpTombstonedNodes(neverStop))
+
+	families, err := prometheus.DefaultGatherer.Gather()
+	require.NoError(t, err)
+	exported := make(map[string]struct{}, len(families))
+	for _, f := range families {
+		exported[f.GetName()] = struct{}{}
+	}
+
+	removed := []string{
+		"tombstone_find_global_entrypoint",
+		"tombstone_find_local_entrypoint",
+		"vector_index_tombstone_cleaned",
+		"vector_index_tombstone_cleanup_threads",
+		"vector_index_tombstone_unexpected_total",
+	}
+	for _, name := range removed {
+		_, ok := exported[name]
+		require.False(t, ok, "removed metric %q is still exported", name)
+	}
+
+	// the cycle gauges stay and must still be produced by the same cycle
+	for _, name := range []string{
+		"vector_index_tombstones",
+		"vector_index_tombstone_cycle_start_timestamp_seconds",
+		"vector_index_tombstone_cycle_end_timestamp_seconds",
+		"vector_index_tombstone_cycle_progress",
+	} {
+		_, ok := exported[name]
+		require.True(t, ok, "kept metric %q is no longer exported", name)
+	}
+}
