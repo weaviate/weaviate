@@ -801,7 +801,7 @@ func (q *DiskQueue) quarantineChunk(path string, cause error) error {
 	quarantinePath := path + ".corrupt"
 	var err error
 	if q.maintenanceMode.Load() {
-		err = quarantineDuringBackup(path, quarantinePath)
+		err = q.quarantineDuringBackup(path, quarantinePath)
 	} else {
 		err = os.Rename(path, quarantinePath)
 	}
@@ -820,21 +820,31 @@ func (q *DiskQueue) quarantineChunk(path string, cause error) error {
 	return nil
 }
 
+// hardLink is a variable so tests can simulate a filesystem without hard
+// links.
+var hardLink = os.Link
+
 // quarantineDuringBackup quarantines a chunk that a backup may be copying:
 // the quarantined copy is a hard link, and the chunk itself is removed with
 // the processed ones once the backup completes.
-func quarantineDuringBackup(path, quarantinePath string) error {
+func (q *DiskQueue) quarantineDuringBackup(path, quarantinePath string) error {
 	// a leftover from an interrupted attempt
 	_ = os.Remove(quarantinePath)
 
-	err := os.Link(path, quarantinePath)
-	if err != nil {
-		return err
+	linkErr := hardLink(path, quarantinePath)
+	if stderrors.Is(linkErr, fs.ErrNotExist) {
+		return linkErr
+	}
+	if linkErr != nil {
+		q.Logger.WithField("file", path).
+			Warnf("cannot hard link the corrupt chunk, it will be removed after the backup instead of kept: %v", linkErr)
 	}
 
 	f, err := os.Create(path + ".processed")
 	if err != nil {
-		_ = os.Remove(quarantinePath)
+		if linkErr == nil {
+			_ = os.Remove(quarantinePath)
+		}
 		return err
 	}
 	return f.Close()

@@ -1990,19 +1990,28 @@ func TestDequeueBatchChunkTruncatedAtRecordBoundary(t *testing.T) {
 // processing: a chunk taken out of the queue during the backup must stay on
 // disk until the backup completes, even when it is quarantined.
 func TestChunkTakenOutDuringBackupStaysOnDisk(t *testing.T) {
+	tornChunk := func(t *testing.T, path string) {
+		fi, err := os.Stat(path)
+		require.NoError(t, err)
+		require.NoError(t, os.Truncate(path, fi.Size()-2))
+	}
+
 	tests := []struct {
-		name       string
-		damage     func(t *testing.T, path string)
-		quarantine bool
+		name        string
+		damage      func(t *testing.T, path string)
+		noHardLinks bool
+		quarantine  bool
 	}{
 		{
-			name: "torn chunk",
-			damage: func(t *testing.T, path string) {
-				fi, err := os.Stat(path)
-				require.NoError(t, err)
-				require.NoError(t, os.Truncate(path, fi.Size()-2))
-			},
+			name:       "torn chunk",
+			damage:     tornChunk,
 			quarantine: true,
+		},
+		{
+			// the queue moves on, without keeping a quarantined copy
+			name:        "torn chunk without hard links",
+			damage:      tornChunk,
+			noHardLinks: true,
 		},
 		{
 			name: "empty chunk",
@@ -2033,6 +2042,11 @@ func TestChunkTakenOutDuringBackupStaysOnDisk(t *testing.T) {
 			require.NoError(t, err)
 			first := filepath.Join(dir, entries[0].Name())
 			test.damage(t, first)
+			if test.noHardLinks {
+				prev := hardLink
+				hardLink = func(string, string) error { return errors.ErrUnsupported }
+				t.Cleanup(func() { hardLink = prev })
+			}
 
 			q.EnableMaintenanceMode()
 			for {
