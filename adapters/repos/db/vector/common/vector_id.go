@@ -23,6 +23,8 @@ import (
 
 var ErrWrongDimensions = errors.New("vector dimensions do not match the index dimensions")
 
+var ErrMultiVectorUnsupported = errors.New("vector index does not support multi-vectors")
+
 type VectorIndex interface {
 	AddBatch(ctx context.Context, ids []uint64, vector [][]float32) error
 	ValidateBeforeInsert(vector []float32) error
@@ -53,13 +55,17 @@ func AddVectorsToIndex(ctx context.Context, vectors []VectorRecord, vectorIndex 
 		}
 		return vectorIndex.AddBatch(ctx, ids, vecs)
 	case *Vector[[][]float32]:
+		multiIndex, ok := vectorIndex.(VectorIndexMulti)
+		if !ok {
+			return ErrMultiVectorUnsupported
+		}
 		ids := make([]uint64, len(vectors))
 		vecs := make([][][]float32, len(vectors))
 		for i, v := range vectors {
 			ids[i] = v.(*Vector[[][]float32]).ID
 			vecs[i] = v.(*Vector[[][]float32]).Vector
 		}
-		return vectorIndex.(VectorIndexMulti).AddMultiBatch(ctx, ids, vecs)
+		return multiIndex.AddMultiBatch(ctx, ids, vecs)
 	default:
 		return fmt.Errorf("unexpected vector type %T", vectors[0])
 	}
@@ -95,7 +101,11 @@ func (v *Vector[T]) Validate(vectorIndex VectorIndex) error {
 	case []float32:
 		return vectorIndex.ValidateBeforeInsert(any(v.Vector).([]float32))
 	case [][]float32:
-		return vectorIndex.(VectorIndexMulti).ValidateMultiBeforeInsert(any(v.Vector).([][]float32))
+		multiIndex, ok := vectorIndex.(VectorIndexMulti)
+		if !ok {
+			return ErrMultiVectorUnsupported
+		}
+		return multiIndex.ValidateMultiBeforeInsert(any(v.Vector).([][]float32))
 	default:
 		return fmt.Errorf("unexpected vector type %T", v.Vector)
 	}
