@@ -21,12 +21,14 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-func (s *Raft) CreateUser(ctx context.Context, userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace string, createdAt time.Time) error {
+func (s *Raft) CreateUser(ctx context.Context, userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace string, createdAt, expiresAt time.Time) error {
+	expiresAt = expiresAt.UTC()
 	req := cmd.CreateUsersRequest{
 		UserId:             userId,
 		SecureHash:         secureHash,
 		UserIdentifier:     userIdentifier,
 		CreatedAt:          createdAt,
+		ExpiresAt:          expiresAt,
 		ApiKeyFirstLetters: apiKeyFirstLetters,
 		Namespace:          namespace,
 		Version:            cmd.DynUserLatestCommandPolicyVersion,
@@ -139,6 +141,28 @@ func (s *Raft) ActivateUser(ctx context.Context, userId string) error {
 	}
 	command := &cmd.ApplyRequest{
 		Type:       cmd.ApplyRequest_TYPE_ACTIVATE_USER,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(ctx, command); err != nil {
+		return err
+	}
+	return nil
+}
+
+// SetUserExpiration replaces userId's expiry. A zero expiresAt clears it.
+func (s *Raft) SetUserExpiration(ctx context.Context, userId string, expiresAt time.Time) error {
+	expiresAt = expiresAt.UTC()
+	req := cmd.UpdateUserRequest{
+		UserId:    userId,
+		ExpiresAt: &expiresAt,
+		Version:   cmd.DynUserLatestCommandPolicyVersion,
+	}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.ApplyRequest{
+		Type:       cmd.ApplyRequest_TYPE_UPDATE_USER,
 		SubCommand: subCommand,
 	}
 	if _, err := s.Execute(ctx, command); err != nil {

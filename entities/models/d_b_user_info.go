@@ -48,6 +48,10 @@ type DBUserInfo struct {
 	// Enum: [db_user db_env_user]
 	DbUserType *string `json:"dbUserType"`
 
+	// Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent means the key never expires. Expiry does not change `active`.
+	// Format: date-time
+	ExpiresAt *strfmt.DateTime `json:"expiresAt,omitempty"`
+
 	// Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.
 	// Format: date-time
 	LastUsedAt strfmt.DateTime `json:"lastUsedAt,omitempty"`
@@ -81,6 +85,10 @@ func (m *DBUserInfo) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateDbUserType(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateExpiresAt(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -172,6 +180,18 @@ func (m *DBUserInfo) validateDbUserType(formats strfmt.Registry) error {
 
 	// value enum
 	if err := m.validateDbUserTypeEnum("dbUserType", "body", *m.DbUserType); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *DBUserInfo) validateExpiresAt(formats strfmt.Registry) error {
+	if swag.IsZero(m.ExpiresAt) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("expiresAt", "body", "date-time", m.ExpiresAt.String(), formats); err != nil {
 		return err
 	}
 

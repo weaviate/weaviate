@@ -31,6 +31,10 @@ import (
 // swagger:model UserOwnInfo
 type UserOwnInfo struct {
 
+	// Date and time in ISO 8601 format, in UTC, at which the caller's API key stops authenticating. Absent means the key never expires, the caller is not a DB user, or DB user management is disabled.
+	// Format: date-time
+	ExpiresAt *strfmt.DateTime `json:"expiresAt,omitempty"`
+
 	// The groups associated with the user.
 	Groups []string `json:"groups"`
 
@@ -46,6 +50,10 @@ type UserOwnInfo struct {
 func (m *UserOwnInfo) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateExpiresAt(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateRoles(formats); err != nil {
 		res = append(res, err)
 	}
@@ -57,6 +65,18 @@ func (m *UserOwnInfo) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *UserOwnInfo) validateExpiresAt(formats strfmt.Registry) error {
+	if swag.IsZero(m.ExpiresAt) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("expiresAt", "body", "date-time", m.ExpiresAt.String(), formats); err != nil {
+		return err
+	}
+
 	return nil
 }
 

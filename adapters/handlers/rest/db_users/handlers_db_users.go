@@ -51,6 +51,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rolevisibility"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
@@ -69,6 +70,7 @@ type dynUserHandler struct {
 	nodesGetter          cluster.NodeLister
 	namespacesEnabled    bool
 	namespaces           namespaces.Exister
+	expiry               apikey.ExpiryResolver
 }
 
 type DbUserAndRolesGetter interface {
@@ -88,7 +90,7 @@ var validateUserNameRegex = regexp.MustCompile(`^` + apikey.UserNameRegexCore + 
 func SetupHandlers(
 	api *operations.WeaviateAPI, dbUsers DbUserAndRolesGetter, localUsers LocalUsersGetter, localRoles authorization.Controller, authorizer authorization.Authorizer,
 	authNConfig config.Authentication, authZConfig config.Authorization, remoteUser *clients.RemoteUser, nodesGetter cluster.NodeLister,
-	namespacesEnabled bool, ns namespaces.Exister, logger logrus.FieldLogger,
+	namespacesEnabled bool, ns namespaces.Exister, expiry apikey.ExpiryResolver, logger logrus.FieldLogger,
 ) {
 	h := &dynUserHandler{
 		authorizer:           authorizer,
@@ -102,6 +104,7 @@ func SetupHandlers(
 		nodesGetter:          nodesGetter,
 		namespacesEnabled:    namespacesEnabled,
 		namespaces:           ns,
+		expiry:               expiry,
 		logger:               logger,
 	}
 
@@ -168,7 +171,7 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 		}
 		// dbUser.Id is the qualified storage key; show the short form to namespaced callers.
 		displayID := namespacing.StripOwnNamespace(principal, dbUser.Id)
-		response, err = h.addToListAllResponse(ctx, principal, response, dbUser.Id, displayID, string(models.UserTypeOutputDbUser), dbUser.Active, apiKeyFirstLetter, namespace, &dbUser.CreatedAt, &lastUsedTime)
+		response, err = h.addToListAllResponse(ctx, principal, response, dbUser.Id, displayID, string(models.UserTypeOutputDbUser), dbUser.Active, apiKeyFirstLetter, namespace, &dbUser.CreatedAt, &lastUsedTime, dbUser.ExpiresAt)
 		if err != nil {
 			return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 		}
@@ -183,7 +186,7 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 				// don't overwrite dynamic users with the same name. Can happen after import
 				continue
 			}
-			response, err = h.addToListAllResponse(ctx, principal, response, staticUser, staticUser, string(models.UserTypeOutputDbEnvUser), true, "", "", nil, nil)
+			response, err = h.addToListAllResponse(ctx, principal, response, staticUser, staticUser, string(models.UserTypeOutputDbEnvUser), true, "", "", nil, nil, time.Time{})
 			if err != nil {
 				return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 			}
@@ -193,7 +196,7 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 	return users.NewListAllUsersOK().WithPayload(response)
 }
 
-func (h *dynUserHandler) addToListAllResponse(ctx context.Context, principal *models.Principal, response []*models.DBUserInfo, internalID, displayID, userType string, active bool, apiKeyFirstLetter, namespace string, createdAt *time.Time, lastusedAt *time.Time) ([]*models.DBUserInfo, error) {
+func (h *dynUserHandler) addToListAllResponse(ctx context.Context, principal *models.Principal, response []*models.DBUserInfo, internalID, displayID, userType string, active bool, apiKeyFirstLetter, namespace string, createdAt *time.Time, lastusedAt *time.Time, expiresAt time.Time) ([]*models.DBUserInfo, error) {
 	// The list reads roles once per user, so it reads this node's controller
 	// rather than querying the leader.
 	var roles map[string][]authorization.Policy
@@ -213,6 +216,7 @@ func (h *dynUserHandler) addToListAllResponse(ctx context.Context, principal *mo
 		Roles:              h.visibleRoleNames(ctx, principal, roles, own),
 		APIKeyFirstLetters: apiKeyFirstLetter,
 		Namespace:          namespace,
+		ExpiresAt:          RenderExpiresAt(expiresAt),
 	}
 	if createdAt != nil {
 		resp.CreatedAt = strfmt.DateTime(*createdAt)
@@ -223,6 +227,19 @@ func (h *dynUserHandler) addToListAllResponse(ctx context.Context, principal *mo
 
 	response = append(response, resp)
 	return response, nil
+}
+
+// setExpirationRoute is the REST route that sets an existing DB user's expiry.
+const setExpirationRoute = "PUT /v1/users/db/{user_id}/expiration"
+
+// RenderExpiresAt returns a DB user's expiry as a REST field, or nil when the
+// user has none.
+func RenderExpiresAt(t time.Time) *strfmt.DateTime {
+	if t.IsZero() {
+		return nil
+	}
+	dt := strfmt.DateTime(t)
+	return &dt
 }
 
 // visibleRoleNames returns the role names to expose for a db user, matching the
@@ -270,6 +287,7 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		user := existingDbUsers[internalKey]
 		response.Active = &user.Active
 		response.CreatedAt = strfmt.DateTime(user.CreatedAt)
+		response.ExpiresAt = RenderExpiresAt(user.ExpiresAt)
 		if isRootUser || h.callerHasAdminRole(principal) {
 			response.APIKeyFirstLetters = user.ApiKeyFirstLetters
 		}
@@ -412,11 +430,23 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("db user management is not enabled")))
 	}
 
+	expiresAt, err := h.expiry.Resolve((*time.Time)(params.Body.ExpiresAt))
+	if errors.Is(err, license.ErrRequired) {
+		return users.NewCreateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+	if err != nil {
+		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
 	if params.Body.Import != nil && *params.Body.Import && h.namespacesEnabled {
 		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("import is not supported on namespace-enabled clusters")))
 	}
 
 	if params.Body.Import != nil && *params.Body.Import {
+		if !expiresAt.IsZero() {
+			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("expiresAt cannot be set on import; set it with %s after the import", setExpirationRoute)))
+		}
+
 		if !h.principalIsRootUser(principal) {
 			return users.NewCreateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("only root users can import static api keys")))
 		}
@@ -474,7 +504,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	if err := h.dbUsers.CreateUser(ctx, internalKey, hash, userIdentifier, apiKey[:3], ns, time.Now()); err != nil {
+	if err := h.dbUsers.CreateUser(ctx, internalKey, hash, userIdentifier, apiKey[:3], ns, time.Now(), expiresAt); err != nil {
 		// The namespace changed state between the pre-check above and the
 		// apply. Deleting renders 422 like the pre-check does — the namespace
 		// never returns to active, so the create is not retryable.
@@ -723,6 +753,7 @@ func (h *dynUserHandler) exportUsers(params experimental.ExportUsersParams, prin
 			APIKeyFirstLetters: rec.ApiKeyFirstLetters,
 			Active:             rec.Active,
 			CreatedAt:          strfmt.DateTime(rec.CreatedAt),
+			ExpiresAt:          RenderExpiresAt(rec.ExpiresAt),
 			Namespace:          rec.Namespace,
 			Status:             rec.Status.String(),
 		}
@@ -777,6 +808,23 @@ func (h *dynUserHandler) importUsers(params experimental.ImportUsersParams, prin
 		}
 	}
 
+	// Every record's expiry resolves before importOneUser writes any record, so a
+	// refused expiry writes nothing.
+	expiresAt := make([]time.Time, len(params.Body.Users))
+	for i, rec := range params.Body.Users {
+		if rec == nil {
+			continue
+		}
+		t, err := h.expiry.ResolveImported((*time.Time)(rec.ExpiresAt))
+		if errors.Is(err, license.ErrRequired) {
+			return experimental.NewImportUsersForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+		}
+		if err != nil {
+			return experimental.NewImportUsersUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("user %q: %w", bareUserID(rec), err)))
+		}
+		expiresAt[i] = t
+	}
+
 	if h.namespacesEnabled {
 		if targetNamespace == "" {
 			return experimental.NewImportUsersUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("a target namespace is required on namespace-enabled clusters")))
@@ -796,8 +844,8 @@ func (h *dynUserHandler) importUsers(params experimental.ImportUsersParams, prin
 	}
 
 	response := &models.UserImportResponse{Results: make([]*models.UserImportResult, 0, len(params.Body.Users))}
-	for _, rec := range params.Body.Users {
-		response.Results = append(response.Results, h.importOneUser(ctx, targetNamespace, rec))
+	for i, rec := range params.Body.Users {
+		response.Results = append(response.Results, h.importOneUser(ctx, targetNamespace, rec, expiresAt[i]))
 	}
 
 	return experimental.NewImportUsersOK().WithPayload(response)
@@ -816,7 +864,7 @@ func bareUserID(rec *models.DBUserCredential) string {
 // It refuses a user id held by a different identifier and an identifier bound to
 // a different user. Both checks can race a concurrent create; CreateUser repeats
 // them at apply time.
-func (h *dynUserHandler) importOneUser(ctx context.Context, targetNamespace string, rec *models.DBUserCredential) *models.UserImportResult {
+func (h *dynUserHandler) importOneUser(ctx context.Context, targetNamespace string, rec *models.DBUserCredential, expiresAt time.Time) *models.UserImportResult {
 	bareID := bareUserID(rec)
 	result := &models.UserImportResult{UserID: &bareID}
 	errResult := func(reason string) *models.UserImportResult {
@@ -876,6 +924,18 @@ func (h *dynUserHandler) importOneUser(ctx context.Context, targetNamespace stri
 		if u.UserIdentifier != rec.UserIdentifier {
 			return errResult("a different credential already exists for this user id")
 		}
+		// Import never changes an existing user's expiry.
+		if !expiresAt.IsZero() && !expiresAt.Equal(u.ExpiresAt) {
+			if expiresAt.After(time.Now()) {
+				return errResult(fmt.Sprintf("expiresAt differs from the existing user's; change it with %s", setExpirationRoute))
+			}
+			// PUT /v1/users/db/{user_id}/expiration refuses a past time, so an operator
+			// retires the key by deactivating the user, which import never re-activates.
+			if !u.Active {
+				return okResult(models.UserImportResultStatusSkippedExists)
+			}
+			return errResult(fmt.Sprintf("expiresAt differs from the existing user's and has passed, so %s cannot set it; deactivate the user, or delete it and re-import", setExpirationRoute))
+		}
 		// Same identifier means the stored hash is already the right one. A repeat
 		// import only brings the active state in line with the record.
 		if u.Active == rec.Active {
@@ -906,7 +966,7 @@ func (h *dynUserHandler) importOneUser(ctx context.Context, targetNamespace stri
 		createdAt = time.Now()
 	}
 
-	if err := h.dbUsers.CreateUser(ctx, key, rec.SecureHash, rec.UserIdentifier, rec.APIKeyFirstLetters, targetNamespace, createdAt); err != nil {
+	if err := h.dbUsers.CreateUser(ctx, key, rec.SecureHash, rec.UserIdentifier, rec.APIKeyFirstLetters, targetNamespace, createdAt, expiresAt); err != nil {
 		if errors.Is(err, apikey.ErrUserIdentifierExists) {
 			return errResult("source key already maps to a different target user")
 		}
