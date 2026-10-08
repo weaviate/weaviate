@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/license"
 )
@@ -72,6 +73,8 @@ type threadSafeRecorder struct {
 	// claimTask, when set, has each reported unit pinned to the reporting node,
 	// as the FSM does on a claim.
 	claimTask *distributedtask.Task
+	// onCompletion, when set, runs on every unit completion, before it is recorded.
+	onCompletion func(unitID string)
 }
 
 type progressEntry struct {
@@ -80,6 +83,9 @@ type progressEntry struct {
 }
 
 func (r *threadSafeRecorder) RecordDistributedTaskUnitCompletion(_ context.Context, _, _ string, _ uint64, _, unitID string) error {
+	if r.onCompletion != nil {
+		r.onCompletion(unitID)
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.completions = append(r.completions, unitID)
@@ -491,9 +497,9 @@ func TestBackupTaskProvider(t *testing.T) {
 
 		payload := makePayload("b1")
 		payloadBytes, _ := json.Marshal(payload)
-		provider.payloadCache["b1"] = payloadBytes
-
 		desc := distributedtask.TaskDescriptor{ID: "b1", Version: 42}
+		provider.payloadCache["b1"] = startedTask{desc: desc, payload: payloadBytes}
+
 		err := provider.CleanupTask(desc)
 		require.NoError(t, err)
 		sourcer.AssertCalled(t, "ReleaseBackup", context.Background(), "b1", "Article")
@@ -502,26 +508,19 @@ func TestBackupTaskProvider(t *testing.T) {
 		assert.False(t, ok)
 	})
 
-	t.Run("GetLocalTasks reports cached descriptors for bootstrap", func(t *testing.T) {
-		logger, _ := test.NewNullLogger()
-		provider := NewBackupTaskProvider(BackupTaskProviderParams{
-			Node:   "node-1",
-			Logger: logger,
-			Cfg:    config.Backup{},
-		})
+	t.Run("GetLocalTasks reports the started task's ID and Version", func(t *testing.T) {
+		sourcer, _ := blockingSourcer()
+		provider := newFlowProvider(t, newFakeBackend(), sourcer, &threadSafeRecorder{})
 		assert.Nil(t, provider.GetLocalTasks(), "empty cache returns nil")
 
-		provider.payloadCache["bak-1"] = []byte(`{}`)
-		provider.payloadCache["bak-2"] = []byte(`{}`)
+		handle, err := provider.StartTask(makeTask("b1", distributedtask.TaskStatusStarted, makePayload("b1")))
+		require.NoError(t, err)
+		defer waitDone(t, handle)
+		defer handle.Terminate()
 
-		descs := provider.GetLocalTasks()
-		require.Len(t, descs, 2)
-		ids := map[string]bool{}
-		for _, d := range descs {
-			ids[d.ID] = true
-		}
-		assert.True(t, ids["bak-1"])
-		assert.True(t, ids["bak-2"])
+		// The tick looks the descriptor up in the task list by ID and Version,
+		// so only the started version keeps the flow's local state alive.
+		assert.Equal(t, []distributedtask.TaskDescriptor{{ID: "b1", Version: 42}}, provider.GetLocalTasks())
 	})
 
 	t.Run("keepalive writes progress to prevent stale detection", func(t *testing.T) {
@@ -583,6 +582,241 @@ func TestBackupTaskProvider(t *testing.T) {
 
 		assert.False(t, provider.ShouldRetainCompletedTask(task, nil), "must release once descriptor is terminal")
 	})
+
+	t.Run("a node whose local units are all terminal gets an idle handle", func(t *testing.T) {
+		sourcer, _ := blockingSourcer()
+		be := newFakeBackend()
+		recorder := &threadSafeRecorder{}
+		provider := newFlowProvider(t, be, sourcer, recorder)
+
+		task := makeTask("b1", distributedtask.TaskStatusStarted, makePayload("b1"))
+		task.Units = map[string]*distributedtask.Unit{
+			"node-1/Article": {Status: distributedtask.UnitStatusCompleted, NodeID: "node-1"},
+			"node-1/Book":    {Status: distributedtask.UnitStatusCompleted, NodeID: "node-1"},
+			"node-2/Article": {Status: distributedtask.UnitStatusPending},
+		}
+		// An unclaimed unit counts for every node, so the scheduler starts node-1.
+		require.True(t, task.NodeHasNonTerminalUnits("node-1"))
+
+		handle, err := provider.StartTask(task)
+		require.NoError(t, err)
+		handle.Terminate()
+		waitDone(t, handle)
+
+		assert.IsType(t, &idleTaskHandle{}, handle)
+		sourcer.AssertNotCalled(t, "BackupDescriptors", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		be.AssertNotCalled(t, "PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		assert.Empty(t, recorder.getProgresses(), "no unit is claimed")
+	})
+
+	// Article is COMPLETED. Book is IN_PROGRESS, re-opened on node-1, and its
+	// upload finishes first.
+	rerunTask := func() *distributedtask.Task {
+		task := makeTask("b1", distributedtask.TaskStatusStarted, makePayload("b1"))
+		task.Units = map[string]*distributedtask.Unit{
+			"node-1/Article": {Status: distributedtask.UnitStatusCompleted, NodeID: "node-1"},
+			"node-1/Book":    {Status: distributedtask.UnitStatusInProgress, NodeID: "node-1"},
+			"node-2/Article": {Status: distributedtask.UnitStatusPending},
+		}
+		return task
+	}
+
+	t.Run("a re-run reports the re-opened unit only after the node descriptor is written", func(t *testing.T) {
+		events := &eventLog{}
+		be := newFakeBackend()
+		be.On("PutObject", mock.Anything, "b1/node-1", BackupFile, mock.Anything).Return(nil).
+			Run(func(mock.Arguments) { events.add("write node descriptor") })
+		recorder := &threadSafeRecorder{onCompletion: func(unitID string) { events.add("complete " + unitID) }}
+		provider := newFlowProvider(t, be, describingSourcer("Book", "Article"), recorder)
+
+		handle, err := provider.StartTask(rerunTask())
+		require.NoError(t, err)
+		waitDone(t, handle)
+
+		assert.Equal(t, []string{"write node descriptor", "complete node-1/Book"}, events.get(),
+			"the last pending unit is reported after backup.json, and a COMPLETED unit is not reported again")
+		assert.Empty(t, recorder.getFailures())
+	})
+
+	t.Run("a re-run whose node descriptor is already Success uploads nothing", func(t *testing.T) {
+		tests := []struct {
+			name       string
+			startedAt  func(task *distributedtask.Task) time.Time
+			wantUpload bool
+		}{
+			{
+				name:      "the descriptor belongs to this task",
+				startedAt: func(task *distributedtask.Task) time.Time { return task.StartedAt },
+			},
+			{
+				name:       "the descriptor belongs to an earlier task with this ID",
+				startedAt:  func(task *distributedtask.Task) time.Time { return task.StartedAt.Add(-time.Hour) },
+				wantUpload: true,
+			},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				task := rerunTask()
+				be := newFakeBackend()
+				nodeRaw, err := json.Marshal(backup.BackupDescriptor{ID: "b1", Status: backup.Success, StartedAt: tc.startedAt(task)})
+				require.NoError(t, err)
+				be.On("GetObject", mock.Anything, "b1/node-1", BackupFile).Return(nodeRaw, nil)
+				sourcer := describingSourcer("Book", "Article")
+				recorder := &threadSafeRecorder{}
+				provider := newFlowProvider(t, be, sourcer, recorder)
+
+				handle, err := provider.StartTask(task)
+				require.NoError(t, err)
+				waitDone(t, handle)
+
+				if tc.wantUpload {
+					sourcer.AssertNumberOfCalls(t, "BackupDescriptors", 1)
+					be.AssertCalled(t, "PutObject", mock.Anything, "b1/node-1", BackupFile, mock.Anything)
+				} else {
+					sourcer.AssertNotCalled(t, "BackupDescriptors", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+					be.AssertNotCalled(t, "PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+				}
+				assert.Equal(t, []string{"node-1/Book"}, recorder.getCompletions())
+				assert.Empty(t, recorder.getFailures())
+			})
+		}
+	})
+
+	t.Run("Terminate of a running flow records no unit failure", func(t *testing.T) {
+		sourcer, describing := blockingSourcer()
+		recorder := &threadSafeRecorder{}
+		provider := newFlowProvider(t, newFakeBackend(), sourcer, recorder)
+
+		handle, err := provider.StartTask(makeTask("b1", distributedtask.TaskStatusStarted, makePayload("b1")))
+		require.NoError(t, err)
+		select {
+		case <-describing:
+		case <-time.After(5 * time.Second):
+			t.Fatal("the flow never started its upload")
+		}
+		handle.Terminate()
+		waitDone(t, handle)
+
+		assert.Empty(t, recorder.getFailures(), "shutdown and cancel are not unit failures")
+	})
+
+	t.Run("LocalCallbacksDone waits for a final global descriptor", func(t *testing.T) {
+		globalDescriptor := func(status backup.Status) []byte {
+			raw, err := json.Marshal(backup.DistributedBackupDescriptor{ID: "b1", Status: status})
+			require.NoError(t, err)
+			return raw
+		}
+		tests := []struct {
+			name      string
+			localNode string
+			payload   []byte
+			global    []byte
+			want      bool
+		}{
+			{name: "an unparseable payload is not done", localNode: "node-1", payload: []byte("not json")},
+			{name: "a Started descriptor is not done", localNode: "node-1", global: globalDescriptor(backup.Started)},
+			{name: "a Success descriptor is done", localNode: "node-1", global: globalDescriptor(backup.Success), want: true},
+			{name: "a node outside the payload is done without a read", localNode: "node-3", want: true},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				logger, _ := test.NewNullLogger()
+				be := newFakeBackend()
+				be.On("GetObject", mock.Anything, "b1", GlobalBackupFile).Return(tc.global, nil)
+				provider := NewBackupTaskProvider(BackupTaskProviderParams{
+					Node:     tc.localNode,
+					Logger:   logger,
+					Cfg:      config.Backup{},
+					Backends: &fakeBackupBackendProvider{backend: be},
+				})
+				task := makeTask("b1", distributedtask.TaskStatusFinished, makePayload("b1"))
+				if tc.payload != nil {
+					task.Payload = tc.payload
+				}
+
+				assert.Equal(t, tc.want, provider.LocalCallbacksDone(task, tc.localNode))
+				if tc.global == nil {
+					be.AssertNotCalled(t, "GetObject", mock.Anything, mock.Anything, mock.Anything)
+				}
+			})
+		}
+	})
+}
+
+var _ distributedtask.RecoveryAwareProvider = (*BackupTaskProvider)(nil)
+
+// newFlowProvider returns a node-1 provider whose flow runs over be and
+// sourcer. Every descriptor read misses and every write succeeds, unless the
+// test registered its own expectation on be first.
+func newFlowProvider(t *testing.T, be *fakeBackend, sourcer *fakeSourcer, recorder *threadSafeRecorder) *BackupTaskProvider {
+	t.Helper()
+	be.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+	be.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("/test")
+	be.On("SourceDataPath").Return("/data")
+	be.On("GetObject", mock.Anything, mock.Anything, mock.Anything).Return(nil, backup.ErrNotFound{})
+	be.On("PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	logger, _ := test.NewNullLogger()
+	provider := NewBackupTaskProvider(BackupTaskProviderParams{
+		Node:     "node-1",
+		Logger:   logger,
+		Cfg:      config.Backup{},
+		Sourcer:  sourcer,
+		Backends: &fakeBackupBackendProvider{backend: be},
+	})
+	provider.SetCompletionRecorder(recorder)
+	return provider
+}
+
+// blockingSourcer returns a sourcer whose class stream stays open until the
+// flow ends, and a channel that closes once the flow opens the stream.
+func blockingSourcer() (*fakeSourcer, <-chan struct{}) {
+	described := make(chan backup.ClassDescriptor)
+	describing := make(chan struct{})
+	sourcer := &fakeSourcer{}
+	// The uploader drains the stream until it closes; DB.BackupDescriptors
+	// closes it once its ctx ends.
+	sourcer.On("BackupDescriptors", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return((<-chan backup.ClassDescriptor)(described)).Once().
+		Run(func(a mock.Arguments) {
+			close(describing)
+			context.AfterFunc(a.Get(0).(context.Context), func() { close(described) })
+		})
+	sourcer.On("ReleaseBackup", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	return sourcer, describing
+}
+
+// describingSourcer returns a sourcer that describes classes in order. Each
+// class has no shards, so its upload completes in that order.
+func describingSourcer(classes ...string) *fakeSourcer {
+	described := make(chan backup.ClassDescriptor, len(classes))
+	for _, cls := range classes {
+		described <- backup.ClassDescriptor{Name: cls}
+	}
+	close(described)
+	sourcer := &fakeSourcer{}
+	sourcer.On("BackupDescriptors", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return((<-chan backup.ClassDescriptor)(described)).Once()
+	sourcer.On("ReleaseBackup", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	return sourcer
+}
+
+// eventLog records events from concurrent sources in the order they happen.
+type eventLog struct {
+	mu     sync.Mutex
+	events []string
+}
+
+func (l *eventLog) add(event string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.events = append(l.events, event)
+}
+
+func (l *eventLog) get() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]string(nil), l.events...)
 }
 
 // dedupeFlow runs one node's DTM flow for a dedupe backup over fakes. Article
@@ -626,6 +860,8 @@ func newDedupeFlow(t *testing.T, node string) *dedupeFlow {
 	fx.backend.On("SourceDataPath").Return("/data")
 	// coordStore.Meta probes the legacy per-node descriptor when the global one is missing.
 	fx.backend.On("GetObject", mock.Anything, "b1", BackupFile).Return(nil, backup.ErrNotFound{})
+	// A restarted flow reads its own node descriptor before uploading.
+	fx.backend.On("GetObject", mock.Anything, "b1/"+node, BackupFile).Return(nil, backup.ErrNotFound{})
 	fx.backend.On("PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	classes := fx.payload.Nodes[node].Classes
@@ -1272,6 +1508,58 @@ func TestBackupTerminalDescriptor(t *testing.T) {
 		assert.Contains(t, err.Error(), "backend unavailable")
 		be.AssertNotCalled(t, "PutObject", mock.Anything, mock.Anything, GlobalBackupFile, mock.Anything)
 	})
+
+	t.Run("a Success verdict requires every node descriptor to be Success", func(t *testing.T) {
+		nodeDescriptor := func(status backup.Status) []byte {
+			raw, err := json.Marshal(backup.BackupDescriptor{ID: "b1", Status: status})
+			require.NoError(t, err)
+			return raw
+		}
+		tests := []struct {
+			name     string
+			node2Raw []byte
+			node2Err error
+			// wantStatus is the written global status; empty means nothing is written.
+			wantStatus backup.Status
+		}{
+			{name: "a Cancelled node descriptor fails the backup", node2Raw: nodeDescriptor(backup.Cancelled), wantStatus: backup.Failed},
+			{name: "a missing node descriptor fails the backup", node2Err: backup.ErrNotFound{}, wantStatus: backup.Failed},
+			{name: "an unreadable node descriptor writes nothing", node2Err: errors.New("backend unavailable")},
+			{name: "Success node descriptors keep the verdict", node2Raw: nodeDescriptor(backup.Success), wantStatus: backup.Success},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				logger, _ := test.NewNullLogger()
+				be := newFakeBackend()
+				be.On("GetObject", mock.Anything, "b1", GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+				be.On("GetObject", mock.Anything, "b1", BackupFile).Return(nil, backup.ErrNotFound{})
+				be.On("GetObject", mock.Anything, "b1/node-1", BackupFile).Return(nodeDescriptor(backup.Success), nil)
+				be.On("GetObject", mock.Anything, "b1/node-2", BackupFile).Return(tc.node2Raw, tc.node2Err)
+				be.On("PutObject", mock.Anything, "b1", GlobalBackupFile, mock.Anything).Return(nil)
+				provider := NewBackupTaskProvider(BackupTaskProviderParams{
+					Node:     "node-1",
+					Logger:   logger,
+					Cfg:      config.Backup{},
+					Backends: &fakeBackupBackendProvider{backend: be},
+				})
+
+				err := provider.OnTaskCompleted(makeTask("b1", distributedtask.TaskStatusFinished, makePayload("b1")))
+
+				if tc.wantStatus == "" {
+					require.Error(t, err)
+					assert.Contains(t, err.Error(), "backend unavailable")
+					be.AssertNotCalled(t, "PutObject", mock.Anything, mock.Anything, GlobalBackupFile, mock.Anything)
+					return
+				}
+				require.NoError(t, err)
+				assert.Equal(t, tc.wantStatus, be.glMeta.Status)
+				if tc.wantStatus == backup.Failed {
+					assert.Contains(t, be.glMeta.Error, "node-2")
+					assert.NotContains(t, be.glMeta.Error, "node-1", "a node with a Success descriptor is not blamed")
+				}
+			})
+		}
+	})
 }
 
 func TestBackupStatusMapping(t *testing.T) {
@@ -1642,7 +1930,9 @@ func TestBackupStatusAuthorization(t *testing.T) {
 	}
 
 	t.Run("an unpermitted principal cannot read an in-flight backup", func(t *testing.T) {
-		denier := &recordingAuthorizer{err: errors.New("forbidden")}
+		// The rbac authorizer wraps its Forbidden this way.
+		denier := &recordingAuthorizer{err: fmt.Errorf("rbac: %w",
+			authzerrors.NewForbidden(nil, authorization.READ, authorization.Backups("Article")[0]))}
 		s := newScheduler(t, denier)
 
 		st, err := s.BackupStatus(context.Background(), nil, "fakeBackend", "b1", "", "")
@@ -1650,6 +1940,9 @@ func TestBackupStatusAuthorization(t *testing.T) {
 		assert.Nil(t, st)
 		assert.Contains(t, denier.resources, authorization.Backups("Article")[0],
 			"the read must be scoped to the record's classes")
+		assert.ErrorAs(t, err, &authzerrors.Forbidden{})
+		assert.Contains(t, err.Error(), authorization.Backups()[0], "the denial names the wildcard resource")
+		assert.NotContains(t, err.Error(), "Article", "the denial must not name the record's classes")
 	})
 
 	t.Run("a permitted principal is served from the task record", func(t *testing.T) {

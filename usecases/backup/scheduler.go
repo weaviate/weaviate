@@ -671,7 +671,8 @@ func (s *Scheduler) authorizeBackupByID(ctx context.Context, principal *models.P
 }
 
 // authorizeTaskClasses authorizes the caller against the classes carried by a
-// DTM backup record. An unreadable payload authorizes nothing.
+// DTM backup record and denies with backupsForbidden. An unreadable payload
+// authorizes nothing.
 func (s *Scheduler) authorizeTaskClasses(ctx context.Context, principal *models.Principal, verb string,
 	task *distributedtask.Task,
 ) error {
@@ -681,7 +682,7 @@ func (s *Scheduler) authorizeTaskClasses(ctx context.Context, principal *models.
 	}
 	// authorization.Backups uppercases its input in place.
 	classes := append([]string(nil), payload.Classes...)
-	return s.authorizer.Authorize(ctx, principal, verb, authorization.Backups(classes...)...)
+	return s.authorizeBackupClasses(ctx, principal, verb, classes)
 }
 
 const metaReadAttempts = 3

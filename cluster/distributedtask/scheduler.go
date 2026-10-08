@@ -392,11 +392,12 @@ func (s *Scheduler) preMarkTerminalCallbacksLocked(tasksByNamespace map[string]m
 			}
 			// A [RecoveryAwareProvider] that reports local callback work
 			// as not done skips the pre-mark, so the next tick
-			// re-dispatches this task's callbacks. That recovers
-			// nothing: every callback is a no-op at terminal status. The
-			// one durable effect is a re-issued post-completion ack, once
-			// per process start, until the completed-task TTL drops the
-			// task (see [RecoveryAwareProvider.LocalCallbacksDone]). Only
+			// re-dispatches this task's callbacks. They may re-run
+			// durable terminal work, so they must be idempotent at
+			// terminal status. The post-completion ack is also
+			// re-issued, once per process start, until the
+			// completed-task TTL drops the task (see
+			// [RecoveryAwareProvider.LocalCallbacksDone]). Only
 			// FINISHED tasks are asked: a failed or cancelled task has no
 			// completed swap that could be missing.
 			if task.Status == TaskStatusFinished {
