@@ -277,7 +277,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	// Merge before the strip and reference checks below, so they also check the
 	// built-in assignments. noRestore applies no role blob, so it skips the merge
 	// and any merge decode error.
-	if req.RbacRestoreOption != models.RestoreConfigRolesOptionsNoRestore {
+	if req.RbacRestoreOption != models.RestoreConfigRolesOptionsNoRestore && s.roleLister != nil {
 		if rbacBlob, err = rbac.MergeSnapshots(rbacBlob, meta.BuiltInRoleAssignments); err != nil {
 			return nil, backup.NewErrUnprocessable(fmt.Errorf("merge built-in role assignments: %w", err))
 		}

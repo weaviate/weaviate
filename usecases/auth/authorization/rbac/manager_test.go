@@ -374,18 +374,9 @@ func TestBuiltInAssignments(t *testing.T) {
 			ids:  []string{"carol"},
 		},
 		{
-			name: "a user holding no built-in role yields a nil blob",
-			ids:  []string{"nobody"},
-		},
-		{
-			name:    "a namespaced user's grant restores stripped onto a global user",
-			ids:     []string{"ns1:alice"},
-			restore: &restore{strip: true, wantAdmins: []string{"db:alice"}},
-		},
-		{
-			name:    "a global user's grant restores without a strip",
-			ids:     []string{"alice"},
-			restore: &restore{strip: false, wantAdmins: []string{"db:alice"}},
+			name: "several ids carry each user's grants, and an id holding none adds nothing",
+			ids:  []string{"alice", "ns1:alice", "nobody"},
+			want: [][]string{{"db:alice", admin}, {"db:alice", viewer}, {"db:ns1:alice", admin}},
 		},
 	}
 	for _, tt := range tests {

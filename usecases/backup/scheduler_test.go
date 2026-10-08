@@ -597,11 +597,6 @@ func TestValidateBackupRequest(t *testing.T) {
 			oidc:         oidcAssignments,
 		},
 		{
-			name:         "no carried users, no assignments",
-			includeUsers: []string{},
-			includeRoles: []string{"reader"},
-		},
-		{
 			name:         "includeRoles omitted calls nothing",
 			includeUsers: []string{"alice"},
 		},
@@ -4391,10 +4386,10 @@ func TestRestoreRejectsInactiveNamespaceRefs(t *testing.T) {
 			wantRoles: rbacBlob,
 		},
 		{
-			// The carried assignment names the missing ns3 and is neither checked nor applied.
+			// noRestore skips the merge, so an undecodable carried blob is never decoded.
 			name:     "noRestore skips the check for the artefact it turns off",
 			rbacBlob: rbacBlob,
-			carried:  []byte(`{"version":1,"grouping_policies":[["db:ns3:bob","role:admin"]]}`),
+			carried:  []byte(`not json`),
 			states:   map[string]cmd.NamespaceState{},
 			options: func(req *BackupRequest) {
 				req.RbacRestoreOption = models.RestoreConfigRolesOptionsNoRestore

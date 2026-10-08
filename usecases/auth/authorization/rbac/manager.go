@@ -759,7 +759,7 @@ type snapshot struct {
 // no roles it captures the whole store. Called with roles it keeps only those
 // roles' rows: `p` rows are matched on p[0] and `g` rows on g[1], both of which
 // hold the role name, so the assignments and the db:wv_internal_empty placeholder
-// come along too. A selection carries no admin or viewer assignments
+// come along too. A selection of custom roles carries no admin or viewer assignments
 // ([Manager.BuiltInAssignments] and [Manager.OIDCBuiltInAssignments] carry those).
 func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
 	// snapshot isn't always initialized, e.g. when RBAC is disabled
