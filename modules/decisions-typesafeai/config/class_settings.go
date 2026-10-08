@@ -56,6 +56,10 @@ const (
 	// gets a less stable probability: measured on the same document, it
 	// stayed within 0.04 alone and moved by up to 0.21 in batches of 10.
 	DefaultBatchSize = 1
+	// DefaultCache keeps Jev's answers in memory, so that a repeated
+	// question gets the same answer and costs nothing. Off, every request
+	// is judged again.
+	DefaultCache = true
 	// MaxBatchSize is where accuracy is reported to drop when more documents
 	// share one request.
 	MaxBatchSize = 25
@@ -146,6 +150,12 @@ func ValidOrder(order string) bool {
 
 // Order is the order of the results after the rerank: OrderSearch or
 // OrderProbability.
+// Cache reports whether the module keeps the answers of this class in
+// memory. The X-Typesafeai-Cache header of a request wins over it.
+func (ic *classSettings) Cache() bool {
+	return ic.propertyValuesHelper.GetPropertyAsBool(ic.cfg, "cache", DefaultCache)
+}
+
 func (ic *classSettings) Order() string {
 	return ic.getStringProperty("order", DefaultOrder)
 }

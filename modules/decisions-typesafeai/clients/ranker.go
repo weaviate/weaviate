@@ -61,7 +61,10 @@ type client struct {
 	apiKey       string
 	httpClient   *http.Client
 	retryBackoff time.Duration
-	cache        *judgmentCache
+	cache        *judgmentCache[float64]
+	// decisions caches the answers of Decide, under keys that cover the
+	// questions as well as the document.
+	decisions *judgmentCache[[]ent.DecisionAnswer]
 	// inFlight holds one token per request being sent. It is shared by all
 	// Rank calls, so it limits the load on the TypeSafeAI API however many queries
 	// run at once.
@@ -74,7 +77,8 @@ func New(apiKey string, timeout time.Duration, maxConcurrentRequests int, logger
 		apiKey:       apiKey,
 		httpClient:   modulecomponents.NewBaseHttpClient(timeout),
 		retryBackoff: 500 * time.Millisecond,
-		cache:        newJudgmentCache(cacheCapacity),
+		cache:        newJudgmentCache[float64](cacheCapacity),
+		decisions:    newJudgmentCache[[]ent.DecisionAnswer](cacheCapacity),
 		inFlight:     make(chan struct{}, maxConcurrentRequests),
 		logger:       logger,
 	}
@@ -118,7 +122,7 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 	if err != nil {
 		return nil, err
 	}
-	cache, err := cacheModeOf(ctx)
+	cache, err := cacheModeOf(ctx, settings.Cache())
 	if err != nil {
 		return nil, err
 	}
@@ -245,10 +249,15 @@ const (
 	cacheOff = "off"
 )
 
-func cacheModeOf(ctx context.Context) (string, error) {
+// cacheModeOf returns the mode from the request header, or the class
+// setting when the request has none.
+func cacheModeOf(ctx context.Context, classCache bool) (string, error) {
 	switch mode := modulecomponents.GetValueFromContext(ctx, cacheHeader); mode {
 	case "":
-		return cacheOn, nil
+		if classCache {
+			return cacheOn, nil
+		}
+		return cacheOff, nil
 	case cacheOn, cacheRefresh, cacheOff:
 		return mode, nil
 	default:
@@ -324,30 +333,46 @@ func (c *client) judgeBatch(ctx context.Context, request judgeRequest, documents
 		return nil, typesafeaiUsage{}, sendResult{}, errors.Wrap(err, "marshal body")
 	}
 
+	response, result, err := c.postWithRetry(ctx, request.url, request.apiKey, body)
+	if err != nil {
+		return nil, typesafeaiUsage{}, result, err
+	}
+	values, err := response.values(len(documents), len(request.levels))
+	if err != nil {
+		return nil, typesafeaiUsage{}, sendResult{}, err
+	}
+	return values, response.Usage, result, nil
+}
+
+// postWithRetry sends the body and retries when the API is rate limiting or
+// failing. The result says whether the API rejected the request for its
+// size.
+func (c *client) postWithRetry(ctx context.Context, url, apiKey string, body []byte,
+) (typesafeaiResponse, sendResult, error) {
 	var lastErr error
 	retryAfter := time.Duration(0)
 	for attempt := range maxAttempts {
 		if attempt > 0 {
 			if err := wait(ctx, c.retryDelay(attempt, retryAfter)); err != nil {
-				return nil, typesafeaiUsage{}, sendResult{}, err
+				return typesafeaiResponse{}, sendResult{}, err
 			}
 		}
-		result, err := c.send(ctx, request, body, len(documents))
+		response, result, err := c.send(ctx, url, apiKey, body)
 		if err == nil {
-			return result.values, result.usage, result, nil
+			return response, result, nil
 		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, typesafeaiUsage{}, result, ctxErr
+			return typesafeaiResponse{}, result, ctxErr
 		}
 		if !result.retryable {
-			return nil, typesafeaiUsage{}, result, err
+			return typesafeaiResponse{}, result, err
 		}
 		c.logger.WithField("action", "decisions_typesafeai_retry").WithField("attempt", attempt+1).
 			Debugf("typesafeai request failed, retrying: %v", err)
 		lastErr = err
 		retryAfter = result.retryAfter
 	}
-	return nil, typesafeaiUsage{}, sendResult{}, errors.Wrapf(lastErr, "after %d attempts", maxAttempts)
+	return typesafeaiResponse{}, sendResult{}, errors.Wrapf(lastErr, "after %d attempts", maxAttempts)
 }
 
 // retryDelay doubles with every attempt and is spread over half its length,
@@ -359,9 +384,8 @@ func (c *client) retryDelay(attempt int, retryAfter time.Duration) time.Duration
 	return max(delay, min(retryAfter, maxRetryAfter))
 }
 
+// sendResult says how a failed request may be handled.
 type sendResult struct {
-	values     []float64
-	usage      typesafeaiUsage
 	retryable  bool
 	retryAfter time.Duration
 	// tooLarge: the API rejected the request for its size.
@@ -372,33 +396,33 @@ type sendResult struct {
 // request has more tokens than it accepts. The limit is not published.
 const tooLargeError = "max_tokens_exceeded"
 
-func (c *client) send(ctx context.Context, request judgeRequest, body []byte, documents int,
-) (sendResult, error) {
+func (c *client) send(ctx context.Context, url, apiKey string, body []byte,
+) (typesafeaiResponse, sendResult, error) {
 	select {
 	case c.inFlight <- struct{}{}:
 		defer func() { <-c.inFlight }()
 	case <-ctx.Done():
-		return sendResult{}, ctx.Err()
+		return typesafeaiResponse{}, sendResult{}, ctx.Err()
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, request.url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return sendResult{}, errors.Wrap(err, "create POST request")
+		return typesafeaiResponse{}, sendResult{}, errors.Wrap(err, "create POST request")
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", request.apiKey))
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
 		// Not retried: the base client already resends on a broken
 		// connection, and retrying a timeout multiplies the wait.
-		return sendResult{}, errors.Wrap(err, "send POST request")
+		return typesafeaiResponse{}, sendResult{}, errors.Wrap(err, "send POST request")
 	}
 	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
 		errorBody, _ := io.ReadAll(io.LimitReader(res.Body, maxErrorBodyBytes))
-		return sendResult{
+		return typesafeaiResponse{}, sendResult{
 				retryable:  res.StatusCode == http.StatusTooManyRequests || res.StatusCode >= 500,
 				retryAfter: parseRetryAfter(res.Header.Get("Retry-After")),
 				tooLarge:   res.StatusCode == http.StatusBadRequest && bytes.Contains(errorBody, []byte(tooLargeError)),
@@ -408,17 +432,13 @@ func (c *client) send(ctx context.Context, request judgeRequest, body []byte, do
 
 	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
-		return sendResult{}, errors.Wrap(err, "read response body")
+		return typesafeaiResponse{}, sendResult{}, errors.Wrap(err, "read response body")
 	}
 	var response typesafeaiResponse
 	if err := json.Unmarshal(bodyBytes, &response); err != nil {
-		return sendResult{}, errors.Wrap(err, "parse response")
+		return typesafeaiResponse{}, sendResult{}, errors.Wrap(err, "parse response")
 	}
-	values, err := response.values(documents, len(request.levels))
-	if err != nil {
-		return sendResult{}, err
-	}
-	return sendResult{values: values, usage: response.Usage}, nil
+	return response, sendResult{}, nil
 }
 
 // parseRetryAfter reads the seconds form of the Retry-After header. Anything
@@ -471,8 +491,9 @@ type typesafeaiRequest struct {
 type typesafeaiQuestion struct {
 	Type         string `json:"type"`
 	Instructions string `json:"instructions"`
-	// Criteria is the rubric of a score question, lowest level first.
-	Criteria []string `json:"criteria,omitempty"`
+	// Criteria is the rubric of a score question, lowest level first, or
+	// the options of a choice question with their descriptions.
+	Criteria any `json:"criteria,omitempty"`
 }
 
 // newTypeSafeAIRequest builds the request for one batch. A single document is the
@@ -516,6 +537,11 @@ type typesafeaiAnswer struct {
 	Type  string   `json:"type"`
 	Noul  *float64 `json:"noul,omitempty"`
 	Score *float64 `json:"score,omitempty"`
+	// Choice, Probabilities and Confidence are the parts of a choice or a
+	// score answer. A score's probabilities are keyed by level index.
+	Choice        *string            `json:"choice,omitempty"`
+	Probabilities map[string]float64 `json:"probabilities,omitempty"`
+	Confidence    *float64           `json:"confidence,omitempty"`
 }
 
 // typesafeaiUsage is the part of the API's usage report that is billed.

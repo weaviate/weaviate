@@ -33,8 +33,18 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantBatchSize int
 		// wantOrder empty stands for the default.
 		wantOrder string
-		wantErr   string
+		// wantCacheOff: the class turns the answer cache off.
+		wantCacheOff bool
+		wantErr      string
 	}{
+		{
+			name:             "cache off",
+			cfg:              fakeClassConfig{classConfig: map[string]any{"cache": false}},
+			wantModel:        "jev-latest",
+			wantBaseURL:      "https://api.typesafe.ai",
+			wantMaxDocuments: 100,
+			wantCacheOff:     true,
+		},
 		{
 			name:             "default settings",
 			cfg:              fakeClassConfig{classConfig: map[string]any{}},
@@ -199,6 +209,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				wantOrder = "search"
 			}
 			assert.Equal(t, wantOrder, ic.Order())
+			assert.Equal(t, !tt.wantCacheOff, ic.Cache())
 		})
 	}
 }

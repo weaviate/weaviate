@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	generate "github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 	additionalModels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -168,6 +169,7 @@ func (r *Replier) extractObjectsToResults(res []interface{}, searchParams dto.Ge
 			Properties: props,
 			Metadata:   additionalProps.Metadata,
 			Generative: additionalProps.GenerativeSingle,
+			Decisions:  additionalProps.Decisions,
 		}
 
 		results[i] = result
@@ -204,9 +206,10 @@ func idToByte(idRaw interface{}) ([]byte, string, error) {
 func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsParams additional.Properties, firstObject, fromGroup bool) (*additionalProps, error) {
 	generativeSearchRaw, generativeSearchEnabled := additionalPropsParams.ModuleParams["generate"]
 	_, rerankEnabled := additionalPropsParams.ModuleParams["rerank"]
+	_, decideEnabled := additionalPropsParams.ModuleParams["decide"]
 
 	addProps := &additionalProps{Metadata: &pb.MetadataResult{}}
-	if additionalPropsParams.ID && !generativeSearchEnabled && !rerankEnabled && !fromGroup {
+	if additionalPropsParams.ID && !generativeSearchEnabled && !rerankEnabled && !decideEnabled && !fromGroup {
 		idRaw, ok := asMap["id"]
 		if !ok {
 			return nil, errors.New("could not extract get id in additional prop")
@@ -236,7 +239,7 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 		additionalPropertiesMap["distance"] = addPropertiesGroup.Distance
 	}
 	// id is part of the _additional map in case of generative search, group, & rerank - don't aks me why
-	if additionalPropsParams.ID && (generativeSearchEnabled || fromGroup || rerankEnabled) {
+	if additionalPropsParams.ID && (generativeSearchEnabled || fromGroup || rerankEnabled || decideEnabled) {
 		idRaw, ok := additionalPropertiesMap["id"]
 		if !ok {
 			return nil, errors.New("could not extract get id generative in additional prop")
@@ -272,6 +275,18 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 		}
 		addProps.Metadata.RerankScore = *rerankFmt[0].Score
 		addProps.Metadata.RerankScorePresent = true
+	}
+
+	if decideEnabled {
+		decided, ok := additionalPropertiesMap["decide"]
+		if !ok {
+			return nil, errors.New("No results for decide despite a search request. Is a decisions module enabled?")
+		}
+		answers, ok := decided.([]ent.DecisionAnswer)
+		if !ok {
+			return nil, errors.New("could not cast decide result additional prop")
+		}
+		addProps.Decisions = decisionResult(answers)
 	}
 
 	// additional properties are only present for certain searches/configs => don't return an error if not available
@@ -659,4 +674,38 @@ type additionalProps struct {
 	GenerativeSingle            *pb.GenerativeResult
 	GenerativeGrouped           *pb.GenerativeResult
 	GenerativeGroupedDeprecated string
+	Decisions                   *pb.DecisionResult
+}
+
+// decisionResult converts the answers a decisions module attached to an
+// object, one per question in question order.
+func decisionResult(answers []ent.DecisionAnswer) *pb.DecisionResult {
+	out := &pb.DecisionResult{Answers: make([]*pb.DecisionAnswer, len(answers))}
+	for i, answer := range answers {
+		reply := &pb.DecisionAnswer{Name: answer.Name}
+		switch {
+		case answer.Refused:
+			reply.Kind = &pb.DecisionAnswer_Refusal{Refusal: &pb.DecisionRefusal{}}
+		case answer.Kind == ent.DecisionPredicate:
+			reply.Kind = &pb.DecisionAnswer_Predicate{Predicate: &pb.DecisionPredicateAnswer{Probability: answer.Probability}}
+		case answer.Kind == ent.DecisionChoice:
+			reply.Kind = &pb.DecisionAnswer_Choice{Choice: &pb.DecisionChoiceAnswer{
+				Choice: answer.Choice, Probabilities: decisionProbabilities(answer.Probabilities), Confidence: answer.Confidence,
+			}}
+		case answer.Kind == ent.DecisionScore:
+			reply.Kind = &pb.DecisionAnswer_Score{Score: &pb.DecisionScoreAnswer{
+				Score: answer.Score, Probabilities: decisionProbabilities(answer.Probabilities), Confidence: answer.Confidence,
+			}}
+		}
+		out.Answers[i] = reply
+	}
+	return out
+}
+
+func decisionProbabilities(probabilities []ent.DecisionProbability) []*pb.DecisionProbability {
+	out := make([]*pb.DecisionProbability, len(probabilities))
+	for i, p := range probabilities {
+		out[i] = &pb.DecisionProbability{Value: p.Value, Probability: p.Probability}
+	}
+	return out
 }

@@ -1,0 +1,95 @@
+syntax = "proto3";
+
+package weaviate.v1;
+
+option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
+option java_package = "io.weaviate.client.grpc.protocol.v1";
+option java_outer_classname = "WeaviateProtoDecisions";
+
+// Decisions asks the collection's decisions module typed questions about
+// every object a search returns. The answers come back per object in
+// SearchResult.decisions, in the order of the questions.
+message Decisions {
+  repeated DecisionQuestion questions = 1;
+}
+
+message DecisionQuestion {
+  // name identifies the answer; unique within one request.
+  string name = 1;
+  // property is the text property the question is about.
+  string property = 2;
+  string instructions = 3;
+  oneof kind {
+    DecisionPredicate predicate = 4;
+    DecisionChoice choice = 5;
+    DecisionScore score = 6;
+  }
+}
+
+// DecisionPredicate asks whether the instructions hold for the object. The
+// answer is a probability.
+message DecisionPredicate {}
+
+// DecisionChoice picks one of the options. The answer is the option with
+// the highest probability, the probability of every option and a
+// confidence.
+message DecisionChoice {
+  repeated DecisionOption options = 1;
+}
+
+message DecisionOption {
+  string value = 1;
+  optional string description = 2;
+}
+
+// DecisionScore rates the object on ordered levels, lowest first. The
+// answer is the probability-weighted position on the levels, 0 for the
+// first, the probability of every level and a confidence.
+message DecisionScore {
+  repeated DecisionLevel levels = 1;
+}
+
+message DecisionLevel {
+  string label = 1;
+  optional string description = 2;
+}
+
+message DecisionResult {
+  repeated DecisionAnswer answers = 1;
+}
+
+message DecisionAnswer {
+  string name = 1;
+  oneof kind {
+    DecisionPredicateAnswer predicate = 2;
+    DecisionChoiceAnswer choice = 3;
+    DecisionScoreAnswer score = 4;
+    // refusal: the model declined to answer this question for this object.
+    DecisionRefusal refusal = 5;
+  }
+}
+
+message DecisionPredicateAnswer {
+  double probability = 1;
+}
+
+message DecisionChoiceAnswer {
+  string choice = 1;
+  repeated DecisionProbability probabilities = 2;
+  double confidence = 3;
+}
+
+message DecisionScoreAnswer {
+  double score = 1;
+  repeated DecisionProbability probabilities = 2;
+  double confidence = 3;
+}
+
+// DecisionProbability is the probability of one option or one level, named
+// by its value or label.
+message DecisionProbability {
+  string value = 1;
+  double probability = 2;
+}
+
+message DecisionRefusal {}
