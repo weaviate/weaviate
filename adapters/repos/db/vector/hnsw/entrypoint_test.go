@@ -35,6 +35,9 @@ type bootstrapFixture struct {
 	vectors [][]float32
 	gone    sync.Map
 	ctx     context.Context
+	cfg     Config
+	uc      ent.UserConfig
+	store   *lsmkv.Store
 }
 
 func newBootstrapFixture(t *testing.T, compressed bool) *bootstrapFixture {
@@ -44,6 +47,8 @@ func newBootstrapFixture(t *testing.T, compressed bool) *bootstrapFixture {
 	logger, _ := test.NewNullLogger()
 	store := testinghelpers.NewDummyStore(t)
 	t.Cleanup(func() { store.Shutdown(ctx) })
+	dir := t.TempDir()
+	indexID := "entrypoint-bootstrap"
 
 	uc := ent.UserConfig{}
 	uc.SetDefaults()
@@ -55,12 +60,14 @@ func newBootstrapFixture(t *testing.T, compressed bool) *bootstrapFixture {
 		uc.SkipDefaultQuantization = true
 	}
 
-	index, err := New(Config{
-		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-		ID:                    "entrypoint-bootstrap",
-		Logger:                logger,
-		MakeCommitLoggerThunk: MakeNoopCommitLogger,
-		DistanceProvider:      distancer.NewL2SquaredProvider(),
+	f.cfg = Config{
+		RootPath: dir,
+		ID:       indexID,
+		Logger:   logger,
+		MakeCommitLoggerThunk: func() (CommitLogger, error) {
+			return NewCommitLogger(dir, indexID, logger, cyclemanager.NewCallbackGroupNoop())
+		},
+		DistanceProvider: distancer.NewL2SquaredProvider(),
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			if _, gone := f.gone.Load(id); gone {
 				return nil, storobj.NewErrNotFoundf(id, "deleted from object store")
@@ -71,17 +78,31 @@ func newBootstrapFixture(t *testing.T, compressed bool) *bootstrapFixture {
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(f.vectors),
 		AllocChecker:                 memwatch.NewDummyMonitor(),
 		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
-	}, uc, cyclemanager.NewCallbackGroupNoop(), store)
-	require.NoError(t, err)
-	t.Cleanup(func() { index.Drop(ctx, false) })
-	index.randFunc = func() float64 { return 1 }
-	f.index = index
+	}
+	f.uc = uc
+	f.store = store
+	f.open(t)
 
 	for i := range 3 {
-		require.NoError(t, index.Add(ctx, uint64(i), f.vectors[i]))
+		require.NoError(t, f.index.Add(ctx, uint64(i), f.vectors[i]))
 	}
-	require.Equal(t, compressed, index.Compressed())
+	require.Equal(t, compressed, f.index.Compressed())
 	return f
+}
+
+func (f *bootstrapFixture) open(t *testing.T) {
+	index, err := New(f.cfg, f.uc, cyclemanager.NewCallbackGroupNoop(), f.store)
+	require.NoError(t, err)
+	t.Cleanup(func() { index.Shutdown(f.ctx) })
+	index.PostStartup(f.ctx)
+	index.randFunc = func() float64 { return 1 }
+	f.index = index
+}
+
+func (f *bootstrapFixture) restart(t *testing.T) {
+	require.NoError(t, f.index.Flush())
+	require.NoError(t, f.index.Shutdown(f.ctx))
+	f.open(t)
 }
 
 func (f *bootstrapFixture) deleteFromObjectStore(id uint64) {
@@ -173,6 +194,37 @@ func TestEntrypoint_BootstrapLastLiveNode(t *testing.T) {
 
 				f.addWithin(t, 4, 10*time.Second)
 				f.requireReachable(t, 3, 4)
+			})
+
+			t.Run("bootstrapped entrypoint survives restart", func(t *testing.T) {
+				f := newBootstrapFixture(t, variant.compressed)
+				require.NoError(t, f.index.Delete(f.nonEntrypointNodes()...))
+				f.deleteFromObjectStore(f.index.getEntrypoint())
+				f.addWithin(t, 3, 10*time.Second)
+				require.Equal(t, uint64(3), f.index.getEntrypoint())
+
+				f.restart(t)
+				require.Equal(t, uint64(3), f.index.getEntrypoint())
+				f.requireReachable(t, 3)
+				f.addWithin(t, 4, 10*time.Second)
+				f.requireReachable(t, 3, 4)
+
+				f.restart(t)
+				f.requireReachable(t, 3, 4)
+			})
+
+			t.Run("bootstrap publishes a usable entrypoint", func(t *testing.T) {
+				f := newBootstrapFixture(t, variant.compressed)
+				f.leaveGhost(t, 3)
+				require.NoError(t, f.index.Delete(0, 1, 2))
+				node := f.index.nodeByID(3)
+				node.markAsMaintenance()
+
+				ok, err := f.index.bootstrapEntrypoint(3, node)
+				require.NoError(t, err)
+				require.True(t, ok)
+				require.Equal(t, uint64(3), f.index.getEntrypoint())
+				require.False(t, node.isUnderMaintenance())
 			})
 
 			t.Run("ghost retried after the entrypoint lost its object", func(t *testing.T) {

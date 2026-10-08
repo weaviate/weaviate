@@ -764,6 +764,8 @@ func (h *hnsw) bootstrapEntrypoint(id uint64, node *vertex) (bool, error) {
 	if err := h.commitLog.SetEntryPointWithMaxLayer(id, level); err != nil {
 		return false, fmt.Errorf("persist entrypoint: %w", err)
 	}
+	// nothing left to connect, so the node is usable as soon as it is published
+	node.unmarkAsMaintenance()
 	h.entryPointID = id
 	h.currentMaximumLayer = level
 	h.logger.WithFields(logrus.Fields{
