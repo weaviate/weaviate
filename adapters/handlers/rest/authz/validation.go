@@ -123,8 +123,33 @@ func validatePermissions(namespacesEnabled bool, check permissionCheck, permissi
 			// objects segment, so the value never becomes a casbin pattern and there is
 			// nothing left to validate. A value an old client still sends is a no-op.
 		}
-		if p := perm.Backups; p != nil && p.Collection != nil {
-			className(*p.Collection)
+		if p := perm.Backups; p != nil {
+			set := 0
+			for _, target := range []*string{p.Collection, p.User, p.Role} {
+				if target != nil {
+					set++
+				}
+			}
+			if set > 1 {
+				add(errors.New("backups permission must set at most one of collection, user and role"))
+			}
+			if p.Collection != nil {
+				className(*p.Collection)
+			}
+			if p.User != nil {
+				if *p.User == "" {
+					add(errors.New("backup user must not be empty"))
+				} else {
+					add(validateRegexTarget("user", *p.User))
+				}
+			}
+			if p.Role != nil {
+				if *p.Role == "" {
+					add(errors.New("backup role must not be empty"))
+				} else {
+					add(validateRegexTarget("role", *p.Role))
+				}
+			}
 		}
 		if p := perm.Nodes; p != nil && p.Collection != nil {
 			className(*p.Collection)

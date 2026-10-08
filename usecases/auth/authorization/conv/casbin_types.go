@@ -78,6 +78,8 @@ var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/verbosity/verbose/collections/[^/]+$`, authorization.NodesDomain),
 	fmt.Sprintf(`^%s/collections/.*$`, authorization.BackupsDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+$`, authorization.BackupsDomain),
+	fmt.Sprintf(`^%s/%s/.*$`, authorization.BackupsDomain, backupsUsersSegment),
+	fmt.Sprintf(`^%s/%s/.*$`, authorization.BackupsDomain, backupsRolesSegment),
 	fmt.Sprintf(`^%s/collections/.*$`, authorization.SchemaDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+$`, authorization.SchemaDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/.*$`, authorization.SchemaDomain),
@@ -137,6 +139,47 @@ func CasbinBackups(class string) string {
 	}
 	class = casbinSegment(class)
 	return fmt.Sprintf("%s/collections/%s", authorization.BackupsDomain, class)
+}
+
+// The backups-domain path segments naming the non-collection backup targets.
+const (
+	backupsCollectionsSegment = "collections"
+	backupsUsersSegment       = "users"
+	backupsRolesSegment       = "roles"
+)
+
+// CasbinBackupUsers returns the casbin resource for backing up and restoring
+// dynamic users. IDs are case-sensitive, so it does not uppercase.
+func CasbinBackupUsers(user string) string {
+	return casbinBackupPrincipal(backupsUsersSegment, user)
+}
+
+// CasbinBackupRoles is CasbinBackupUsers for custom roles.
+func CasbinBackupRoles(role string) string {
+	return casbinBackupPrincipal(backupsRolesSegment, role)
+}
+
+func casbinBackupPrincipal(segment, id string) string {
+	if id == "" {
+		id = "*"
+	}
+	return fmt.Sprintf("%s/%s/%s", authorization.BackupsDomain, segment, casbinSegment(id))
+}
+
+// BackupPrincipalGrants returns the rows a role gains for holding p, a policy
+// row written before backups/users and backups/roles existed. Only a backups
+// collections grant, wildcard or class-scoped, yields rows: the users and roles
+// wildcards with p's verb, exactly as policy() builds them for a backups
+// permission with user "*" and one with role "*". Any other p yields nil.
+func BackupPrincipalGrants(p authorization.Policy) []authorization.Policy {
+	if p.Domain != authorization.BackupsDomain ||
+		!strings.HasPrefix(p.Resource, authorization.BackupsDomain+"/"+backupsCollectionsSegment+"/") {
+		return nil
+	}
+	return []authorization.Policy{
+		{Resource: CasbinBackupUsers("*"), Verb: p.Verb, Domain: authorization.BackupsDomain},
+		{Resource: CasbinBackupRoles("*"), Verb: p.Verb, Domain: authorization.BackupsDomain},
+	}
 }
 
 // casbinSegment expands '*' to '.*' and wraps the value in a group when it could
@@ -287,12 +330,15 @@ func ContainsNamespaceSeparator(resource string) bool {
 	return strings.IndexByte(resource, schema.NamespaceSeparator[0]) >= 0
 }
 
-// IsOpaqueIDResource reports whether resource addresses a users/<id> or
-// groups/<type>/<name> shape, whose id may legitimately contain ':' (e.g. an
-// OIDC username) as part of the id rather than a namespace qualifier.
+// IsOpaqueIDResource reports whether resource addresses a users/<id>,
+// groups/<type>/<name>, backups/users/<id> or backups/roles/<name> shape, whose
+// id may legitimately contain ':' (e.g. an OIDC username or a namespace-local
+// role name) as part of the id rather than a namespace qualifier.
 func IsOpaqueIDResource(resource string) bool {
 	return strings.HasPrefix(resource, authorization.UsersDomain+"/") ||
-		strings.HasPrefix(resource, authorization.GroupsDomain+"/")
+		strings.HasPrefix(resource, authorization.GroupsDomain+"/") ||
+		strings.HasPrefix(resource, authorization.BackupsDomain+"/"+backupsUsersSegment+"/") ||
+		strings.HasPrefix(resource, authorization.BackupsDomain+"/"+backupsRolesSegment+"/")
 }
 
 func extractFromExtAction(inputAction string) (string, string, error) {
@@ -404,12 +450,23 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		resource = CasbinData(collection, tenant)
 	case authorization.BackupsDomain:
 		collection := "*"
-		if permission.Backups != nil {
-			if permission.Backups.Collection != nil {
-				collection = schema.UppercaseClassName(*permission.Backups.Collection)
-			}
+		b := permission.Backups
+		if b == nil {
+			b = &models.PermissionBackups{}
 		}
-		resource = CasbinBackups(collection)
+		switch {
+		case (b.Collection != nil && (b.User != nil || b.Role != nil)) || (b.User != nil && b.Role != nil):
+			return nil, fmt.Errorf("invalid backups permission: at most one of collection, user and role may be set")
+		case b.User != nil:
+			resource = CasbinBackupUsers(*b.User)
+		case b.Role != nil:
+			resource = CasbinBackupRoles(*b.Role)
+		default:
+			if b.Collection != nil {
+				collection = schema.UppercaseClassName(*b.Collection)
+			}
+			resource = CasbinBackups(collection)
+		}
 	case authorization.NodesDomain:
 		collection := "*"
 		verbosity := "minimal"
@@ -554,9 +611,14 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 			Verbosity:  &verbosity,
 		}
 	case authorization.BackupsDomain:
-		collection := unwrapCasbinSegment(splits[2])
-		permission.Backups = &models.PermissionBackups{
-			Collection: &collection,
+		target := unwrapCasbinSegment(splits[2])
+		switch splits[1] {
+		case backupsUsersSegment:
+			permission.Backups = &models.PermissionBackups{User: &target}
+		case backupsRolesSegment:
+			permission.Backups = &models.PermissionBackups{Role: &target}
+		default:
+			permission.Backups = &models.PermissionBackups{Collection: &target}
 		}
 	case authorization.UsersDomain:
 		user := unwrapCasbinSegment(splits[1])

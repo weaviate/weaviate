@@ -8347,14 +8347,14 @@ func init() {
           }
         },
         "includeRoles": {
-          "description": "List of RBAC roles to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted or null, the whole RBAC state is captured, including built-in roles and assignments. An empty list or wildcards matching nothing omit the RBAC snapshot; restoring it leaves existing roles untouched. Otherwise, only matching roles are captured. An exact role name that does not exist is rejected. Explicit selectors cannot select built-in roles: exact names are rejected and wildcards exclude them. Selected roles, including built-in roles selected by omission, permit a backup with zero collections. No per-role permission check is applied.",
+          "description": "List of RBAC roles to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted or null, the whole RBAC state is captured, including built-in roles and assignments, when the caller may back up all roles (` + "`" + `backups/roles/*` + "`" + `); otherwise the RBAC snapshot is omitted. An empty list or wildcards matching nothing omit the RBAC snapshot; restoring it leaves existing roles untouched. Otherwise, only matching roles are captured. An exact role name that does not exist is rejected. Explicit selectors cannot select built-in roles: exact names are rejected and wildcards exclude them. Selected roles, including built-in roles selected by omission, permit a backup with zero collections. Each named role requires permission on ` + "`" + `backups/roles/\u003cname\u003e` + "`" + `; any wildcard selector requires ` + "`" + `backups/roles/*` + "`" + `.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "includeUsers": {
-          "description": "List of dynamic DB users to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted or null, the whole dynamic-user store is captured. An empty list or wildcards matching nothing omit the user snapshot; restoring it leaves existing users untouched. Otherwise, only matching users are captured. An exact user name that does not exist is rejected. Selected users, including those selected by omission, permit a backup with zero collections. No per-user permission check is applied.",
+          "description": "List of dynamic DB users to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted or null, the whole dynamic-user store is captured when the caller may back up all users (` + "`" + `backups/users/*` + "`" + `); otherwise the user snapshot is omitted. An empty list or wildcards matching nothing omit the user snapshot; restoring it leaves existing users untouched. Otherwise, only matching users are captured. An exact user name that does not exist is rejected. Selected users, including those selected by omission, permit a backup with zero collections. Each named user requires permission on ` + "`" + `backups/users/\u003cid\u003e` + "`" + `; any wildcard selector requires ` + "`" + `backups/users/*` + "`" + `.",
           "type": "array",
           "items": {
             "type": "string"
@@ -10324,13 +10324,23 @@ func init() {
           }
         },
         "backups": {
-          "description": "Resources applicable for backup actions.",
+          "description": "Resources applicable for backup actions. At most one of ` + "`" + `collection` + "`" + `, ` + "`" + `user` + "`" + ` and ` + "`" + `role` + "`" + ` may be set; with none set, the permission applies to all collections.",
           "type": "object",
           "properties": {
             "collection": {
-              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections. Cannot be combined with ` + "`" + `user` + "`" + ` or ` + "`" + `role` + "`" + `.",
               "type": "string",
               "default": "*"
+            },
+            "role": {
+              "description": "A string that specifies which custom roles this permission allows to be backed up and restored. Can be an exact role name or a regex pattern; ` + "`" + `*` + "`" + ` applies the permission to all roles. Cannot be combined with ` + "`" + `collection` + "`" + ` or ` + "`" + `user` + "`" + `.",
+              "type": "string",
+              "x-nullable": true
+            },
+            "user": {
+              "description": "A string that specifies which dynamic users this permission allows to be backed up and restored. Can be an exact user ID or a regex pattern; ` + "`" + `*` + "`" + ` applies the permission to all users. Cannot be combined with ` + "`" + `collection` + "`" + ` or ` + "`" + `role` + "`" + `.",
+              "type": "string",
+              "x-nullable": true
             }
           }
         },
@@ -21144,14 +21154,14 @@ func init() {
           }
         },
         "includeRoles": {
-          "description": "List of RBAC roles to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted or null, the whole RBAC state is captured, including built-in roles and assignments. An empty list or wildcards matching nothing omit the RBAC snapshot; restoring it leaves existing roles untouched. Otherwise, only matching roles are captured. An exact role name that does not exist is rejected. Explicit selectors cannot select built-in roles: exact names are rejected and wildcards exclude them. Selected roles, including built-in roles selected by omission, permit a backup with zero collections. No per-role permission check is applied.",
+          "description": "List of RBAC roles to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted or null, the whole RBAC state is captured, including built-in roles and assignments, when the caller may back up all roles (` + "`" + `backups/roles/*` + "`" + `); otherwise the RBAC snapshot is omitted. An empty list or wildcards matching nothing omit the RBAC snapshot; restoring it leaves existing roles untouched. Otherwise, only matching roles are captured. An exact role name that does not exist is rejected. Explicit selectors cannot select built-in roles: exact names are rejected and wildcards exclude them. Selected roles, including built-in roles selected by omission, permit a backup with zero collections. Each named role requires permission on ` + "`" + `backups/roles/\u003cname\u003e` + "`" + `; any wildcard selector requires ` + "`" + `backups/roles/*` + "`" + `.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "includeUsers": {
-          "description": "List of dynamic DB users to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted or null, the whole dynamic-user store is captured. An empty list or wildcards matching nothing omit the user snapshot; restoring it leaves existing users untouched. Otherwise, only matching users are captured. An exact user name that does not exist is rejected. Selected users, including those selected by omission, permit a backup with zero collections. No per-user permission check is applied.",
+          "description": "List of dynamic DB users to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted or null, the whole dynamic-user store is captured when the caller may back up all users (` + "`" + `backups/users/*` + "`" + `); otherwise the user snapshot is omitted. An empty list or wildcards matching nothing omit the user snapshot; restoring it leaves existing users untouched. Otherwise, only matching users are captured. An exact user name that does not exist is rejected. Selected users, including those selected by omission, permit a backup with zero collections. Each named user requires permission on ` + "`" + `backups/users/\u003cid\u003e` + "`" + `; any wildcard selector requires ` + "`" + `backups/users/*` + "`" + `.",
           "type": "array",
           "items": {
             "type": "string"
@@ -23285,13 +23295,23 @@ func init() {
           }
         },
         "backups": {
-          "description": "Resources applicable for backup actions.",
+          "description": "Resources applicable for backup actions. At most one of ` + "`" + `collection` + "`" + `, ` + "`" + `user` + "`" + ` and ` + "`" + `role` + "`" + ` may be set; with none set, the permission applies to all collections.",
           "type": "object",
           "properties": {
             "collection": {
-              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections. Cannot be combined with ` + "`" + `user` + "`" + ` or ` + "`" + `role` + "`" + `.",
               "type": "string",
               "default": "*"
+            },
+            "role": {
+              "description": "A string that specifies which custom roles this permission allows to be backed up and restored. Can be an exact role name or a regex pattern; ` + "`" + `*` + "`" + ` applies the permission to all roles. Cannot be combined with ` + "`" + `collection` + "`" + ` or ` + "`" + `user` + "`" + `.",
+              "type": "string",
+              "x-nullable": true
+            },
+            "user": {
+              "description": "A string that specifies which dynamic users this permission allows to be backed up and restored. Can be an exact user ID or a regex pattern; ` + "`" + `*` + "`" + ` applies the permission to all users. Cannot be combined with ` + "`" + `collection` + "`" + ` or ` + "`" + `role` + "`" + `.",
+              "type": "string",
+              "x-nullable": true
             }
           }
         },
@@ -23455,13 +23475,23 @@ func init() {
       }
     },
     "PermissionBackups": {
-      "description": "Resources applicable for backup actions.",
+      "description": "Resources applicable for backup actions. At most one of ` + "`" + `collection` + "`" + `, ` + "`" + `user` + "`" + ` and ` + "`" + `role` + "`" + ` may be set; with none set, the permission applies to all collections.",
       "type": "object",
       "properties": {
         "collection": {
-          "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
+          "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections. Cannot be combined with ` + "`" + `user` + "`" + ` or ` + "`" + `role` + "`" + `.",
           "type": "string",
           "default": "*"
+        },
+        "role": {
+          "description": "A string that specifies which custom roles this permission allows to be backed up and restored. Can be an exact role name or a regex pattern; ` + "`" + `*` + "`" + ` applies the permission to all roles. Cannot be combined with ` + "`" + `collection` + "`" + ` or ` + "`" + `user` + "`" + `.",
+          "type": "string",
+          "x-nullable": true
+        },
+        "user": {
+          "description": "A string that specifies which dynamic users this permission allows to be backed up and restored. Can be an exact user ID or a regex pattern; ` + "`" + `*` + "`" + ` applies the permission to all users. Cannot be combined with ` + "`" + `collection` + "`" + ` or ` + "`" + `role` + "`" + `.",
+          "type": "string",
+          "x-nullable": true
         }
       }
     },

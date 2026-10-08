@@ -42,7 +42,7 @@ func newTestManagerAt(t *testing.T, dir string, namespaces rbac.NamespaceLister)
 	t.Helper()
 	authZ, err := rbac.New(dir, rbacconf.Config{Enabled: true}, config.Authentication{}, true, namespaces, logrus.New())
 	require.NoError(t, err)
-	return NewManager(authZ, config.Authentication{}, logrus.New())
+	return NewManager(authZ, config.Authentication{}, logrus.New(), make(chan struct{}, 1))
 }
 
 func applyCreateRole(m *Manager, name string) error {

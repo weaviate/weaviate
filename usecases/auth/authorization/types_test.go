@@ -125,6 +125,46 @@ func TestBackups(t *testing.T) {
 	}
 }
 
+func TestBackupPrincipals(t *testing.T) {
+	tests := []struct {
+		name  string
+		build func(...string) []string
+		ids   []string
+		want  []string
+	}{
+		{"no users is every user", BackupUsers, nil, []string{"backups/users/*"}},
+		{"a lone wildcard is every user", BackupUsers, []string{"*"}, []string{"backups/users/*"}},
+		{"users keep their case and qualifier", BackupUsers, []string{"alice", "ns1:Bob"}, []string{"backups/users/alice", "backups/users/ns1:Bob"}},
+		{"no roles is every role", BackupRoles, nil, []string{"backups/roles/*"}},
+		{"roles keep their case and qualifier", BackupRoles, []string{"editor", "ns1:Reader"}, []string{"backups/roles/editor", "backups/roles/ns1:Reader"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := append([]string(nil), tt.ids...)
+			assert.Equal(t, tt.want, tt.build(input...))
+			assert.Equal(t, tt.ids, input, "the input is not rewritten")
+		})
+	}
+
+	t.Run("admin and root hold both wildcards, viewer and read-only neither", func(t *testing.T) {
+		holds := func(perms []*models.Permission, target *models.PermissionBackups) bool {
+			for _, p := range perms {
+				if p.Action != nil && *p.Action == ManageBackups && p.Backups == target {
+					return true
+				}
+			}
+			return false
+		}
+		for _, namespacesEnabled := range []bool{false, true} {
+			builtIn := BuiltInPermissionsFor(namespacesEnabled)
+			for role, want := range map[string]bool{Admin: !namespacesEnabled, Root: true, Viewer: false, ReadOnly: false} {
+				assert.Equal(t, want, holds(builtIn[role], AllBackupUsers), "%s users, namespaces=%v", role, namespacesEnabled)
+				assert.Equal(t, want, holds(builtIn[role], AllBackupRoles), "%s roles, namespaces=%v", role, namespacesEnabled)
+			}
+		}
+	})
+}
+
 func TestCollections(t *testing.T) {
 	tests := []struct {
 		name     string

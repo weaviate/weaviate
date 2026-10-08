@@ -779,13 +779,19 @@ func (m *PermissionAliases) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// PermissionBackups Resources applicable for backup actions.
+// PermissionBackups Resources applicable for backup actions. At most one of `collection`, `user` and `role` may be set; with none set, the permission applies to all collections.
 //
 // swagger:model PermissionBackups
 type PermissionBackups struct {
 
-	// A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value `*` applies the permission to all collections.
+	// A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value `*` applies the permission to all collections. Cannot be combined with `user` or `role`.
 	Collection *string `json:"collection,omitempty"`
+
+	// A string that specifies which custom roles this permission allows to be backed up and restored. Can be an exact role name or a regex pattern; `*` applies the permission to all roles. Cannot be combined with `collection` or `user`.
+	Role *string `json:"role,omitempty"`
+
+	// A string that specifies which dynamic users this permission allows to be backed up and restored. Can be an exact user ID or a regex pattern; `*` applies the permission to all users. Cannot be combined with `collection` or `role`.
+	User *string `json:"user,omitempty"`
 }
 
 // Validate validates this permission backups

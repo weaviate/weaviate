@@ -61,6 +61,12 @@ var (
 	AllBackups = &models.PermissionBackups{
 		Collection: All,
 	}
+	AllBackupUsers = &models.PermissionBackups{
+		User: All,
+	}
+	AllBackupRoles = &models.PermissionBackups{
+		Role: All,
+	}
 	AllData = &models.PermissionData{
 		Collection: All,
 		Tenant:     All,
@@ -588,6 +594,31 @@ func Backups(classes ...string) []string {
 	return resources
 }
 
+// BackupUsers returns the resources for backing up and restoring the given
+// dynamic users, or "backups/users/*" when none (or a single "" or "*") is given.
+// IDs are case-sensitive, so unlike Backups it neither uppercases nor rewrites
+// its input.
+func BackupUsers(users ...string) []string {
+	return backupPrincipals("users", users)
+}
+
+// BackupRoles is BackupUsers for custom roles: "backups/roles/<name>", or
+// "backups/roles/*".
+func BackupRoles(roles ...string) []string {
+	return backupPrincipals("roles", roles)
+}
+
+func backupPrincipals(kind string, ids []string) []string {
+	if len(ids) == 0 || (len(ids) == 1 && (ids[0] == "" || ids[0] == "*")) {
+		return []string{fmt.Sprintf("%s/%s/*", BackupsDomain, kind)}
+	}
+	resources := make([]string, len(ids))
+	for i, id := range ids {
+		resources[i] = fmt.Sprintf("%s/%s/%s", BackupsDomain, kind, id)
+	}
+	return resources
+}
+
 // Replications generates a replication resource string for a given class and shard.
 //
 // Parameters:
@@ -697,6 +728,12 @@ func adminPermissions() []*models.Permission {
 			Groups:      AllOIDCGroups,
 			Namespaces:  AllNamespaces,
 		})
+	}
+	// A permission names one backups target, so the users and roles wildcards
+	// are grants of their own.
+	for _, target := range []*models.PermissionBackups{AllBackupUsers, AllBackupRoles} {
+		action := ManageBackups
+		perms = append(perms, &models.Permission{Action: &action, Backups: target})
 	}
 
 	return perms
