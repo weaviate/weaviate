@@ -262,6 +262,7 @@ func (c *CopyOpConsumer) Consume(workerCtx context.Context, in <-chan ShardRepli
 			select {
 			// If main context is cancelled here we just continue so that we hit the shutdown logic on the next iteration
 			case <-workerCtx.Done():
+				c.engineOpCallbacks.OnOpSkipped(c.nodeId)
 				continue
 			// The 'tokens' channel limits the number of concurrent workers (`maxWorkers`).
 			// Each worker acquires a token before processing an operation. If no tokens are available,
@@ -324,7 +325,18 @@ func (c *CopyOpConsumer) Consume(workerCtx context.Context, in <-chan ShardRepli
 				c.opsGateway.ScheduleNow(op.Op.ID)
 				wg.Add(1)
 				enterrors.GoWrapper(func() {
+					// ended guards against a panicking pass leaving the started op without an ending.
+					ended := false
+					endWith := func(ending func(node string)) {
+						ended = true
+						ending(c.nodeId)
+					}
 					defer func() {
+						if !ended {
+							c.opsGateway.RegisterFailure(op.Op.ID)
+							c.engineOpCallbacks.OnOpFailed(c.nodeId)
+							opLogger.Error("replication operation pass aborted without an outcome, counted as failed")
+						}
 						<-c.tokens // Release token when completed
 						// Delete the operation from the ongoingOps map when the operation processing is complete
 						c.ongoingOps.DeleteInFlight(op.Op.ID)
@@ -336,6 +348,7 @@ func (c *CopyOpConsumer) Consume(workerCtx context.Context, in <-chan ShardRepli
 					// being processed, we need to cancel it in the FSM and return
 					if c.ongoingOps.HasBeenCancelled(op.Op.ID) {
 						c.logger.Info("replication op cancelled, stopping replication operation")
+						ended = true
 						c.cancelOp(operation, opLogger)
 						return
 					}
@@ -345,32 +358,35 @@ func (c *CopyOpConsumer) Consume(workerCtx context.Context, in <-chan ShardRepli
 					if err == nil {
 						opLogger.Debug("worker completed replication operation")
 						c.opsGateway.RegisterFinished(op.Op.ID)
-						c.engineOpCallbacks.OnOpComplete(c.nodeId)
+						endWith(c.engineOpCallbacks.OnOpComplete)
 						return
 					}
 
 					c.opsGateway.RegisterFailure(op.Op.ID)
 					if errors.Is(err, context.DeadlineExceeded) {
-						c.engineOpCallbacks.OnOpFailed(c.nodeId)
+						endWith(c.engineOpCallbacks.OnOpFailed)
 						opLogger.Errorf("replication operation timed out: %v", err)
 						return
 					}
 					// TODO: Refactor this error handling
 					if errors.Is(err, context.Canceled) && c.ongoingOps.HasBeenCancelled(op.Op.ID) {
 						opLogger.Infof("replication operation cancelled: %v", err)
+						ended = true
 						c.cancelOp(operation, opLogger)
 						return
 					}
 					if errors.Is(err, errOpCancelled) {
 						opLogger.Infof("replication operation cancelled: %v", err)
+						ended = true
 						c.cancelOp(operation, opLogger)
 						return
 					}
 					if IsReversibleRefusal(err) {
+						endWith(c.engineOpCallbacks.OnOpYielded)
 						opLogger.Infof("replication operation deferred: %v", err)
 						return
 					}
-					c.engineOpCallbacks.OnOpFailed(c.nodeId)
+					endWith(c.engineOpCallbacks.OnOpFailed)
 					opLogger.Errorf("replication operation failed: %v", err)
 				}, c.logger)
 			}

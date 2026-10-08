@@ -31,6 +31,8 @@ func TestOpCallbacks(t *testing.T) {
 		callbacks.OnOpComplete("node1")
 		callbacks.OnOpFailed("node1")
 		callbacks.OnOpCancelled("node1")
+		callbacks.OnOpYielded("node1")
+		(&metrics.ReplicationEngineOpsCallbacks{}).OnOpYielded("node1")
 	})
 
 	t.Run("custom callbacks should be called with correct parameters", func(t *testing.T) {
@@ -526,6 +528,61 @@ func TestErrorBudgetMetrics(t *testing.T) {
 				}
 			}
 			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestOpEndingsReleaseGauges(t *testing.T) {
+	activeMovements := func(t *testing.T) float64 {
+		t.Helper()
+		families, err := prometheus.DefaultGatherer.Gather()
+		require.NoError(t, err)
+		for _, mf := range families {
+			if mf.GetName() != "weaviate_background_process_active" {
+				continue
+			}
+			for _, m := range mf.GetMetric() {
+				if m.GetLabel()[0].GetValue() == "replica_movement" {
+					return m.GetGauge().GetValue()
+				}
+			}
+		}
+		return 0
+	}
+	tests := []struct {
+		name string
+		end  func(cb *metrics.ReplicationEngineOpsCallbacks, node string)
+	}{
+		{name: "complete", end: (*metrics.ReplicationEngineOpsCallbacks).OnOpComplete},
+		{name: "failed", end: (*metrics.ReplicationEngineOpsCallbacks).OnOpFailed},
+		{name: "cancelled", end: (*metrics.ReplicationEngineOpsCallbacks).OnOpCancelled},
+		{name: "yielded", end: (*metrics.ReplicationEngineOpsCallbacks).OnOpYielded},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			reg := prometheus.NewPedanticRegistry()
+			callbacks := metrics.NewReplicationEngineOpsCallbacks(reg)
+			callbacks.OnPrepareProcessing("node-1")
+			before := activeMovements(t)
+			for range 3 {
+				callbacks.OnOpPending("node-1")
+				callbacks.OnOpStart("node-1")
+				tc.end(callbacks, "node-1")
+			}
+
+			families, err := reg.Gather()
+			require.NoError(t, err)
+			gauges := map[string]float64{}
+			for _, mf := range families {
+				if mf.GetType() == io_prometheus_client.MetricType_GAUGE {
+					gauges[mf.GetName()] = mf.GetMetric()[0].GetGauge().GetValue()
+				}
+			}
+			require.Equal(t, map[string]float64{
+				"weaviate_replication_pending_operations": 0,
+				"weaviate_replication_ongoing_operations": 0,
+			}, gauges)
+			require.Equal(t, before, activeMovements(t))
 		})
 	}
 }

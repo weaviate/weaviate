@@ -1859,14 +1859,8 @@ func TestConsumer_DefersWithoutBurningErrorBudget(t *testing.T) {
 			}
 			expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 
-			failed := make(chan string, 1)
-			metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
-				WithOpFailedCallback(func(node string) {
-					select {
-					case failed <- node:
-					default:
-					}
-				}).Build()
+			var lifecycle opLifecycle
+			metricsCallbacks := lifecycle.builder().Build()
 
 			consumer := replication.NewCopyOpConsumer(
 				logger,
@@ -1928,11 +1922,14 @@ func TestConsumer_DefersWithoutBurningErrorBudget(t *testing.T) {
 				}
 			}
 			require.Equal(t, tc.deferred, logged, "deferral log presence")
+			lifecycle.requireBalanced(t)
 			if tc.deferred {
-				require.Empty(t, failed, "the op must not be counted as failed")
+				require.Zero(t, lifecycle.failed.Load(), "the op must not be counted as failed")
+				require.Equal(t, int32(1), lifecycle.yielded.Load())
 				return
 			}
-			require.NotEmpty(t, failed, "the op must be counted as failed")
+			require.Equal(t, int32(1), lifecycle.failed.Load(), "the op must be counted as failed")
+			require.Zero(t, lifecycle.yielded.Load())
 		})
 	}
 }
@@ -2238,6 +2235,28 @@ func startConsumer(t *testing.T, consumer *replication.CopyOpConsumer, op replic
 	}
 }
 
+type opLifecycle struct {
+	pending, skipped, started, completed, failed, cancelled, yielded atomic.Int32
+}
+
+func (l *opLifecycle) builder() *metrics.ReplicationEngineOpsCallbacksBuilder {
+	return metrics.NewReplicationEngineOpsCallbacksBuilder().
+		WithOpPendingCallback(func(string) { l.pending.Add(1) }).
+		WithOpSkippedCallback(func(string) { l.skipped.Add(1) }).
+		WithOpStartCallback(func(string) { l.started.Add(1) }).
+		WithOpCompleteCallback(func(string) { l.completed.Add(1) }).
+		WithOpFailedCallback(func(string) { l.failed.Add(1) }).
+		WithOpCancelledCallback(func(string) { l.cancelled.Add(1) }).
+		WithOpYieldedCallback(func(string) { l.yielded.Add(1) })
+}
+
+func (l *opLifecycle) requireBalanced(t *testing.T) {
+	t.Helper()
+	require.Equal(t, l.pending.Load(), l.started.Load()+l.skipped.Load(), "pending must end started or skipped")
+	require.Equal(t, l.started.Load(), l.completed.Load()+l.failed.Load()+l.cancelled.Load()+l.yielded.Load(),
+		"every started pass must end exactly once")
+}
+
 func awaitSignal[T any](t *testing.T, ch <-chan T, failMsg string) T {
 	t.Helper()
 	select {
@@ -2449,6 +2468,121 @@ func TestConsumerCancelReportsGivenUp(t *testing.T) {
 			require.Equal(t, fmt.Sprintf("replication op gave up after %d errors; %s: start change capture: file exists %d",
 				replication.MaxErrors, tc.wantGivenUp, replication.MaxErrors-1), gaveUpLogs[0].Message)
 			require.Equal(t, opID, gaveUpLogs[0].Data["op_id"])
+		})
+	}
+}
+
+func TestConsumerShutdownReleasesPendingGauge(t *testing.T) {
+	const (
+		collection = "TestCollection"
+		shardName  = "shard1"
+	)
+	logger, hook := logrustest.NewNullLogger()
+	fsm := types.NewMockFSMUpdater(t)
+	copier := types.NewMockReplicaCopier(t)
+	fsm.EXPECT().ReplicationGetReplicaOpStatus(mock.Anything, uint64(1)).Return(api.HYDRATING, nil).Once()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	copier.EXPECT().StartChangeCapture(mock.Anything, "node1", collection, shardName, "1", mock.Anything).
+		RunAndReturn(func(context.Context, string, string, string, string, uint64) error {
+			close(started)
+			<-release
+			return context.Canceled
+		}).Once()
+	expectChangeCaptureMocks(copier, fsm)
+
+	var lifecycle opLifecycle
+	consumer := replication.NewCopyOpConsumer(logger, fsm, copier, "node2", &backoff.StopBackOff{},
+		replication.NewOpsCache(), 10*time.Second, 1, lifecycle.builder().Build(),
+		newShardSchemaReader(collection, shardName, "node1"))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	ops := make(chan replication.ShardReplicationOpAndStatus, 2)
+	done := make(chan error, 1)
+	enterrors.GoWrapper(func() { done <- consumer.Consume(ctx, ops) }, logger)
+	for _, id := range []uint64{1, 2} {
+		ops <- replication.NewShardReplicationOpAndStatus(
+			replication.NewShardReplicationOp(id, "node1", "node2", collection, shardName, api.COPY),
+			replication.NewShardReplicationStatus(api.HYDRATING))
+	}
+	awaitSignal(t, started, "first op never started")
+	require.Eventually(t, func() bool { return lifecycle.pending.Load() == 2 }, 5*time.Second, 10*time.Millisecond)
+	cancel()
+	require.Eventually(t, func() bool {
+		for _, e := range hook.AllEntries() {
+			if strings.Contains(e.Message, "worker context canceled") {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 10*time.Millisecond)
+	close(release)
+	require.ErrorIs(t, awaitSignal(t, done, "consumer never stopped"), context.Canceled)
+
+	require.Equal(t, int32(1), lifecycle.started.Load())
+	lifecycle.requireBalanced(t)
+}
+
+func TestConsumerPanickingPassEndsOnce(t *testing.T) {
+	const (
+		opID       = uint64(61)
+		readyOpID  = uint64(62)
+		collection = "TestCollection"
+		shardName  = "shard1"
+	)
+	tests := []struct {
+		name          string
+		cancel        bool
+		wantFailed    int32
+		wantCancelled int32
+	}{
+		{name: "panic while hydrating", wantFailed: 1},
+		{name: "panic inside the cancel cleanup", cancel: true, wantCancelled: 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+			logger, _ := logrustest.NewNullLogger()
+			fsm := types.NewMockFSMUpdater(t)
+			copier := types.NewMockReplicaCopier(t)
+			fsm.EXPECT().ReplicationGetReplicaOpStatus(mock.Anything, opID).Return(api.HYDRATING, nil).Once()
+			fsm.EXPECT().ReplicationGetReplicaOpStatus(mock.Anything, readyOpID).Return(api.READY, nil).Once()
+			if tc.cancel {
+				copier.EXPECT().StopChangeCapture(mock.Anything, "node1", collection, shardName, "61").
+					RunAndReturn(func(context.Context, string, string, string, string) error { panic("injected") }).Once()
+			} else {
+				copier.EXPECT().CopyReplicaFiles(mock.Anything, mock.Anything, "node1", collection, shardName, mock.Anything).
+					RunAndReturn(func(context.Context, strfmt.UUID, string, string, string, uint64) error { panic("injected") }).Once()
+			}
+			expectChangeCaptureMocks(copier, fsm)
+
+			var lifecycle opLifecycle
+			consumer := replication.NewCopyOpConsumer(logger, fsm, copier, "node2", &backoff.StopBackOff{},
+				replication.NewOpsCache(), 10*time.Second, 1, lifecycle.builder().Build(),
+				newShardSchemaReader(collection, shardName, "node1"))
+
+			op := replication.NewShardReplicationOp(opID, "node1", "node2", collection, shardName, api.COPY)
+			status := replication.NewShardReplicationStatus(api.HYDRATING)
+			if tc.cancel {
+				status.TriggerCancellation()
+			}
+			ops, stop := startConsumer(t, consumer, replication.NewShardReplicationOpAndStatus(op, status))
+			require.Eventually(t, func() bool {
+				return lifecycle.failed.Load()+lifecycle.cancelled.Load() > 0
+			}, 10*time.Second, 5*time.Millisecond)
+			if !tc.cancel {
+				ops <- replication.NewShardReplicationOpAndStatus(op, replication.NewShardReplicationStatus(api.HYDRATING))
+			}
+			ops <- replication.NewShardReplicationOpAndStatus(
+				replication.NewShardReplicationOp(readyOpID, "node1", "node2", collection, shardName, api.COPY),
+				replication.NewShardReplicationStatus(api.READY))
+			require.Eventually(t, func() bool { return lifecycle.completed.Load() == 1 }, 10*time.Second, 5*time.Millisecond)
+			stop()
+
+			require.Equal(t, tc.wantFailed, lifecycle.failed.Load())
+			require.Equal(t, tc.wantCancelled, lifecycle.cancelled.Load())
+			require.Equal(t, int32(2), lifecycle.started.Load())
+			lifecycle.requireBalanced(t)
 		})
 	}
 }

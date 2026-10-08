@@ -28,6 +28,7 @@ type ReplicationEngineOpsCallbacks struct {
 	onOpComplete        func(node string)
 	onOpFailed          func(node string)
 	onOpCancelled       func(node string)
+	onOpYielded         func(node string)
 	onOpGivenUp         func(node string)
 }
 
@@ -49,6 +50,7 @@ func NewReplicationEngineOpsCallbacksBuilder() *ReplicationEngineOpsCallbacksBui
 			onOpComplete:        func(node string) {},
 			onOpFailed:          func(node string) {},
 			onOpCancelled:       func(node string) {},
+			onOpYielded:         func(node string) {},
 			onOpGivenUp:         func(node string) {},
 		},
 	}
@@ -104,6 +106,13 @@ func (b *ReplicationEngineOpsCallbacksBuilder) WithOpCancelledCallback(callback 
 	return b
 }
 
+// WithOpYieldedCallback sets a callback to be executed when a started replication
+// operation ends its pass without an outcome (deferred) for the given node.
+func (b *ReplicationEngineOpsCallbacksBuilder) WithOpYieldedCallback(callback func(node string)) *ReplicationEngineOpsCallbacksBuilder {
+	b.callbacks.onOpYielded = callback
+	return b
+}
+
 // WithOpGivenUpCallback sets a callback to be executed when a replication
 // operation is cancelled because it exhausted its error budget for the given node.
 func (b *ReplicationEngineOpsCallbacksBuilder) WithOpGivenUpCallback(callback func(node string)) *ReplicationEngineOpsCallbacksBuilder {
@@ -150,6 +159,15 @@ func (m *ReplicationEngineOpsCallbacks) OnOpCancelled(node string) {
 	m.onOpCancelled(node)
 }
 
+// OnOpYielded invokes the configured callback for when a started replication operation
+// ends its pass without an outcome. Nil-safe for zero-value callbacks.
+func (m *ReplicationEngineOpsCallbacks) OnOpYielded(node string) {
+	if m.onOpYielded == nil {
+		return
+	}
+	m.onOpYielded(node)
+}
+
 // OnOpGivenUp invokes the configured callback for when a replication operation
 // exhausted its error budget and was auto-cancelled. Nil-safe for zero-value callbacks.
 func (m *ReplicationEngineOpsCallbacks) OnOpGivenUp(node string) {
@@ -179,7 +197,8 @@ func (m *ReplicationEngineOpsCallbacks) OnOpGivenUp(node string) {
 // 4. When an operation **completes successfully**, decrement `replication_ongoing_operations` and increment `replication_complete_operations`.
 // 5. When an operation **fails**, decrement `replication_ongoing_operations` and increment `replication_failed_operations`.
 // 6. When an operation **is cancelled**, decrement `replication_ongoing_operations` and increment `replication_cancelled_operations`.
-// 7. When a cancelled operation **exhausted its error budget**, also increment `replication_operations_error_budget_exhausted_total`.
+// 7. When an operation **yields** (deferred), decrement `replication_ongoing_operations` only.
+// 8. When a cancelled operation **exhausted its error budget**, also increment `replication_operations_error_budget_exhausted_total`.
 //
 // This ensures that gauges (`pending`, `ongoing`) reflect the current number of active operations,
 // while counters (`complete`, `failed`) accumulate totals over time.
@@ -257,6 +276,10 @@ func NewReplicationEngineOpsCallbacks(reg prometheus.Registerer) *ReplicationEng
 		WithOpCancelledCallback(func(node string) {
 			ongoingOps.WithLabelValues(node).Dec()
 			cancelledOps.WithLabelValues(node).Inc()
+			monitoring.GetBackgroundProcessMetrics().DecActive(monitoring.ProcessReplicaMovement)
+		}).
+		WithOpYieldedCallback(func(node string) {
+			ongoingOps.WithLabelValues(node).Dec()
 			monitoring.GetBackgroundProcessMetrics().DecActive(monitoring.ProcessReplicaMovement)
 		}).
 		WithOpGivenUpCallback(func(node string) {
