@@ -328,7 +328,7 @@ func (q *DiskQueue) Flush() error {
 }
 
 func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
-	c, err := q.r.ReadChunk()
+	c, err := q.readChunk()
 	if err != nil {
 		return nil, err
 	}
@@ -504,7 +504,56 @@ func (q *DiskQueue) checkIfStale() (*chunk, error) {
 
 	q.m.Unlock()
 
-	return q.r.ReadChunk()
+	return q.readChunk()
+}
+
+// readChunk returns the oldest chunk not processed yet. A chunk whose file is
+// gone or whose header became unreadable is taken out of the queue, and the
+// next one is read.
+func (q *DiskQueue) readChunk() (*chunk, error) {
+	for {
+		c, err := q.r.ReadChunk()
+		var readErr *chunkReadError
+		if !stderrors.As(err, &readErr) {
+			return c, err
+		}
+
+		ref := readErr.ref
+		switch {
+		case stderrors.Is(err, fs.ErrNotExist):
+			q.dropMissingChunk(ref)
+		case isCorruptHeader(err):
+			q.quarantineChunk(&chunk{path: ref.path, count: ref.count, size: ref.size}, err)
+		default:
+			// skip an unreadable chunk rather than failing on it every turn
+			q.r.forget(ref.path)
+			return nil, err
+		}
+	}
+}
+
+func isCorruptHeader(err error) bool {
+	return stderrors.Is(err, errBadMagic) ||
+		stderrors.Is(err, errUnknownVersion) ||
+		stderrors.Is(err, io.EOF) ||
+		stderrors.Is(err, io.ErrUnexpectedEOF)
+}
+
+// dropMissingChunk takes a chunk whose file is gone out of the queue.
+func (q *DiskQueue) dropMissingChunk(ref chunkRef) {
+	q.rmLock.Lock()
+	defer q.rmLock.Unlock()
+
+	q.r.forget(ref.path)
+
+	q.m.Lock()
+	q.recordCount -= ref.count
+	q.diskUsage -= int64(ref.size)
+	q.metrics.DiskUsage(q.diskUsage)
+	q.metrics.Size(q.recordCount)
+	q.m.Unlock()
+
+	q.Logger.WithField("file", ref.path).Errorf("chunk file is missing, its %d records are lost", ref.count)
 }
 
 func (q *DiskQueue) Size() int64 {
@@ -1419,7 +1468,8 @@ func (r *chunkReader) ReadChunk() (*chunk, error) {
 			r.m.Unlock()
 			return nil, nil
 		}
-		path := r.chunkList[0].path
+		ref := r.chunkList[0]
+		path := ref.path
 		f, ok := r.chunks[path]
 		// the chunk closes the handle once read
 		delete(r.chunks, path)
@@ -1433,9 +1483,7 @@ func (r *chunkReader) ReadChunk() (*chunk, error) {
 			c, err = openChunk(path)
 		}
 		if err != nil {
-			// skip an unreadable chunk rather than failing on it every turn
-			r.forget(path)
-			return nil, err
+			return nil, &chunkReadError{ref: ref, err: err}
 		}
 		if c == nil {
 			// empty file, already removed
@@ -1445,6 +1493,19 @@ func (r *chunkReader) ReadChunk() (*chunk, error) {
 		return c, nil
 	}
 }
+
+// chunkReadError is returned by ReadChunk when the oldest chunk cannot be
+// read. The chunk stays in the list.
+type chunkReadError struct {
+	ref chunkRef
+	err error
+}
+
+func (e *chunkReadError) Error() string {
+	return fmt.Sprintf("failed to read chunk %s: %v", e.ref.path, e.err)
+}
+
+func (e *chunkReadError) Unwrap() error { return e.err }
 
 // forget removes a chunk from the list of chunks to read.
 func (r *chunkReader) forget(path string) {

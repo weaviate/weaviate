@@ -1583,3 +1583,71 @@ func (d *undecodableKeyDecoder) DecodeTask(data []byte) (Task, error) {
 	}
 	return d.mockTaskDecoder.DecodeTask(data)
 }
+
+// A chunk that cannot be read anymore after startup must be taken out of the
+// queue, or its records stay counted and the queue never drains.
+func TestDequeueBatchChunkBecameUnreadable(t *testing.T) {
+	tests := []struct {
+		name       string
+		damage     func(t *testing.T, path string)
+		quarantine bool
+	}{
+		{
+			name: "corrupt header",
+			damage: func(t *testing.T, path string) {
+				patchFile(t, path, 0, bytes.Repeat([]byte{'X'}, len(magicHeader)))
+			},
+			quarantine: true,
+		},
+		{
+			name: "file removed",
+			damage: func(t *testing.T, path string) {
+				require.NoError(t, os.Remove(path))
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// not started: the test dequeues itself
+			s := makeScheduler(t)
+			dir := t.TempDir()
+
+			q := makeQueueWith(t, s, discardExecutor(), 0, dir)
+			pushMany(t, q, 1, 1, 2)
+			sealChunk(t, q)
+			pushMany(t, q, 1, 3, 4)
+			sealChunk(t, q)
+			require.NoError(t, q.Close(t.Context()))
+
+			// reopen, so the chunks are read from their path
+			q = makeQueueWith(t, s, discardExecutor(), 0, dir)
+			defer q.Close(t.Context())
+			require.EqualValues(t, 4, q.Size())
+
+			entries, err := os.ReadDir(dir)
+			require.NoError(t, err)
+			first := filepath.Join(dir, entries[0].Name())
+			test.damage(t, first)
+
+			b, err := q.DequeueBatch()
+			require.NoError(t, err)
+			require.NotNil(t, b)
+			require.Len(t, b.Tasks, 2)
+			require.EqualValues(t, 3, b.Tasks[0].Key())
+			b.Done()
+			require.Zero(t, q.Size())
+
+			b, err = q.DequeueBatch()
+			require.NoError(t, err)
+			require.Nil(t, b)
+
+			_, err = os.Stat(first + ".corrupt")
+			if test.quarantine {
+				require.NoError(t, err, "the chunk is kept for inspection")
+			} else {
+				require.ErrorIs(t, err, os.ErrNotExist)
+			}
+		})
+	}
+}
