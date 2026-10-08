@@ -64,7 +64,7 @@ func newBootstrapFixture(t *testing.T, compressed bool) *bootstrapFixture {
 		RootPath: dir,
 		ID:       indexID,
 		Logger:   logger,
-		MakeCommitLoggerThunk: func() (CommitLogger, error) {
+		MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
 			return NewCommitLogger(dir, indexID, logger, cyclemanager.NewCallbackGroupNoop())
 		},
 		DistanceProvider: distancer.NewL2SquaredProvider(),
