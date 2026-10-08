@@ -534,7 +534,7 @@ func (q *DiskQueue) readChunk() (*chunk, error) {
 		ref := readErr.ref
 		switch {
 		case stderrors.Is(err, errChunkProcessed):
-			err := q.finishChunk(&chunk{path: ref.path, count: ref.count, size: ref.size}, ref.corrupt)
+			err := q.finishChunk(&chunk{path: ref.path}, ref.corrupt)
 			if err != nil {
 				return nil, err
 			}
@@ -546,7 +546,7 @@ func (q *DiskQueue) readChunk() (*chunk, error) {
 			}
 			q.dropChunk(ref, "chunk file is empty")
 		case isCorruptHeader(err):
-			err := q.quarantineChunk(&chunk{path: ref.path, count: ref.count, size: ref.size}, err)
+			err := q.quarantineChunk(&chunk{path: ref.path}, err)
 			if err != nil {
 				return nil, err
 			}
@@ -568,7 +568,7 @@ func (q *DiskQueue) dropChunk(ref chunkRef, reason string) {
 	q.rmLock.Lock()
 	defer q.rmLock.Unlock()
 
-	q.forgetChunk(ref.path, ref.count, ref.size)
+	q.forgetChunk(ref.path)
 	q.Logger.WithField("file", ref.path).Errorf("%s, its %d records are lost", reason, ref.count)
 }
 
@@ -737,7 +737,7 @@ func (q *DiskQueue) removeChunk(c *chunk) error {
 		f, err := os.Create(tombstonePath)
 		if err == nil {
 			_ = f.Close()
-			q.forgetChunk(c.path, c.count, c.size)
+			q.forgetChunk(c.path)
 			return nil
 		}
 		q.Logger.WithError(err).WithField("file", c.path).Error("failed to create tombstone, falling back to deletion")
@@ -750,7 +750,7 @@ func (q *DiskQueue) removeChunk(c *chunk) error {
 	if err != nil && !stderrors.Is(err, fs.ErrNotExist) {
 		return errors.Wrap(err, "failed to remove chunk")
 	}
-	q.forgetChunk(c.path, c.count, c.size)
+	q.forgetChunk(c.path)
 	return nil
 }
 
@@ -764,17 +764,18 @@ func (q *DiskQueue) finishChunk(c *chunk, corrupt error) error {
 }
 
 // forgetChunk takes a chunk out of the queue and its accounting: a chunk is
-// counted exactly as long as it is in the reader's list. The caller holds
-// rmLock.
-func (q *DiskQueue) forgetChunk(path string, count, size uint64) {
-	if !q.r.forget(path) {
+// counted exactly as long as it is in the reader's list, with the values it
+// was counted with. The caller holds rmLock.
+func (q *DiskQueue) forgetChunk(path string) {
+	ref, ok := q.r.forget(path)
+	if !ok {
 		return
 	}
 
 	q.m.Lock()
 	defer q.m.Unlock()
-	q.recordCount -= count
-	q.diskUsage -= int64(size)
+	q.recordCount -= ref.count
+	q.diskUsage -= int64(ref.size)
 	q.metrics.DiskUsage(q.diskUsage)
 	q.metrics.Size(q.recordCount)
 }
@@ -793,14 +794,14 @@ func (q *DiskQueue) quarantineChunk(c *chunk, cause error) error {
 	quarantinePath := c.path + ".corrupt"
 	err := os.Rename(c.path, quarantinePath)
 	if stderrors.Is(err, fs.ErrNotExist) {
-		q.forgetChunk(c.path, c.count, c.size)
+		q.forgetChunk(c.path)
 		q.Logger.WithField("file", c.path).Errorf("corrupt chunk file is missing, nothing to quarantine: %v", cause)
 		return nil
 	}
 	if err != nil {
 		return errors.Wrap(err, "failed to quarantine corrupt chunk")
 	}
-	q.forgetChunk(c.path, c.count, c.size)
+	q.forgetChunk(c.path)
 
 	q.Logger.WithField("file", quarantinePath).
 		Errorf("chunk is truncated or corrupt, quarantined it; its unreadable records are lost: %v", cause)
@@ -1539,24 +1540,27 @@ func (r *chunkReader) markProcessed(path string, corrupt error) {
 	}
 }
 
-// forget removes a chunk from the list of chunks to read, and reports whether
+// forget removes a chunk from the list of chunks to read, and returns it if
 // it was there.
-func (r *chunkReader) forget(path string) bool {
+func (r *chunkReader) forget(path string) (chunkRef, bool) {
 	r.m.Lock()
 	defer r.m.Unlock()
 
 	i := slices.IndexFunc(r.chunkList, func(ref chunkRef) bool { return ref.path == path })
-	switch {
-	case i == 0:
+	if i < 0 {
+		return chunkRef{}, false
+	}
+	ref := r.chunkList[i]
+	if i == 0 {
 		// the common case: processed chunks leave from the front. Reslicing
 		// avoids shifting the whole backlog; append reclaims the space once
 		// the list grows.
 		r.chunkList[0] = chunkRef{}
 		r.chunkList = r.chunkList[1:]
-	case i > 0:
+	} else {
 		r.chunkList = slices.Delete(r.chunkList, i, i+1)
 	}
-	return i >= 0
+	return ref, true
 }
 
 func (r *chunkReader) Close() error {

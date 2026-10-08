@@ -1936,3 +1936,48 @@ func TestBatchDoneMissingCorruptChunk(t *testing.T) {
 	b.Done()
 	require.Zero(t, q.Size())
 }
+
+// A chunk cut at a record boundary after startup still has a readable header,
+// so nothing fails while reading it. Taking it out of the queue must still
+// remove exactly what was counted for it.
+func TestDequeueBatchChunkTruncatedAtRecordBoundary(t *testing.T) {
+	// not started: the test dequeues itself
+	s := makeScheduler(t)
+	dir := t.TempDir()
+
+	q := makeQueueWith(t, s, discardExecutor(), 0, dir)
+	pushMany(t, q, 1, 1, 2)
+	sealChunk(t, q)
+	pushMany(t, q, 1, 3, 4)
+	sealChunk(t, q)
+	require.NoError(t, q.Close(t.Context()))
+
+	// reopen, so the chunks are read from their path
+	q = makeQueueWith(t, s, discardExecutor(), 0, dir)
+	defer q.Close(t.Context())
+
+	// drop the last record: 4 bytes of length prefix + 9 bytes of payload
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	first := filepath.Join(dir, entries[0].Name())
+	fi, err := os.Stat(first)
+	require.NoError(t, err)
+	require.NoError(t, os.Truncate(first, fi.Size()-13))
+
+	for _, want := range [][]uint64{{1}, {3, 4}} {
+		b, err := q.DequeueBatch()
+		require.NoError(t, err)
+		require.NotNil(t, b)
+		var keys []uint64
+		for _, task := range b.Tasks {
+			keys = append(keys, task.Key())
+		}
+		require.Equal(t, want, keys)
+		b.Done()
+	}
+
+	require.Zero(t, q.Size())
+	q.m.RLock()
+	defer q.m.RUnlock()
+	require.Zero(t, q.diskUsage)
+}
