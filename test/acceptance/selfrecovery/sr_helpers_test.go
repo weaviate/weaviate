@@ -83,6 +83,7 @@ type srClusterCfg struct {
 	persistentData   bool // keep /data across a stop/start (tmpfs is lost on stop)
 	concurrency      int  // SELF_RECOVERY_CONCURRENCY; 0 keeps the suite default of 2
 	unlicensed       bool // omit LICENSE_KEY: the flag is on but no new recovery may start
+	env              map[string]string
 }
 
 // startSelfRecoveryCluster boots a 3-node cluster, registers teardown, points the client at node-0.
@@ -115,6 +116,9 @@ func startSelfRecoveryCluster(ctx context.Context, t *testing.T, cfg srClusterCf
 	}
 	if cfg.debugPort {
 		b = b.WithWeaviateWithDebugPort()
+	}
+	for k, v := range cfg.env {
+		b = b.WithWeaviateEnv(k, v)
 	}
 	compose, err := b.Start(ctx)
 	require.NoError(t, err)
@@ -477,4 +481,174 @@ func assertNodeRecovered(t *testing.T, class, node string, wantShards int, wantC
 			}
 		}
 	}, 5*time.Minute, 2*time.Second, "wiped node did not report full object count after recovery")
+}
+
+type srOp struct {
+	id     strfmt.UUID
+	source string
+	shard  string
+}
+
+// findSelfRecoveryOp returns the first SELF_RECOVERY op targeting target.
+func findSelfRecoveryOp(t *testing.T, target string) srOp {
+	t.Helper()
+	var op srOp
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		body, err := helper.Client(t).Replication.ListReplication(
+			replication.NewListReplicationParams().WithTargetNode(&target), nil)
+		require.NoError(ct, err)
+		for _, o := range body.Payload {
+			if o.Type != nil && *o.Type == "SELF_RECOVERY" && o.ID != nil && o.SourceNode != nil && o.Shard != nil {
+				op = srOp{id: *o.ID, source: *o.SourceNode, shard: *o.Shard}
+				return
+			}
+		}
+		require.Fail(ct, "no SELF_RECOVERY op yet")
+	}, 5*time.Minute, time.Second)
+	return op
+}
+
+func srOpDetails(t *testing.T, id strfmt.UUID) (*models.ReplicationReplicateDetailsReplicaResponse, error) {
+	t.Helper()
+	history := true
+	resp, err := helper.Client(t).Replication.ReplicationDetails(
+		replication.NewReplicationDetailsParams().WithID(id).WithIncludeHistory(&history), nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
+func srOpAllStatuses(d *models.ReplicationReplicateDetailsReplicaResponse) []*models.ReplicationReplicateDetailsReplicaStatus {
+	out := append([]*models.ReplicationReplicateDetailsReplicaStatus{}, d.StatusHistory...)
+	if d.Status != nil {
+		out = append(out, d.Status)
+	}
+	return out
+}
+
+func srOpStates(d *models.ReplicationReplicateDetailsReplicaResponse) []string {
+	var out []string
+	for _, s := range srOpAllStatuses(d) {
+		if s != nil {
+			out = append(out, s.State)
+		}
+	}
+	return out
+}
+
+func srOpErrorsInState(d *models.ReplicationReplicateDetailsReplicaResponse, state string) []string {
+	var out []string
+	for _, s := range srOpAllStatuses(d) {
+		if s == nil || s.State != state {
+			continue
+		}
+		for _, e := range s.Errors {
+			if e != nil {
+				out = append(out, e.Message)
+			}
+		}
+	}
+	return out
+}
+
+// pollSrOp reads op id every second until done accepts a status-bearing read or timeout passes; returns the last such read and api error.
+func pollSrOp(t *testing.T, id strfmt.UUID, timeout time.Duration,
+	done func(d *models.ReplicationReplicateDetailsReplicaResponse) bool,
+) (*models.ReplicationReplicateDetailsReplicaResponse, bool, error) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	var last *models.ReplicationReplicateDetailsReplicaResponse
+	var lastErr error
+	for time.Now().Before(deadline) {
+		d, err := srOpDetails(t, id)
+		lastErr = err
+		if err == nil && d != nil && d.Status != nil {
+			last = d
+			if done(d) {
+				return d, true, nil
+			}
+		}
+		time.Sleep(time.Second)
+	}
+	return last, false, lastErr
+}
+
+// waitSelfRecoveryOpState polls until op id is in want; a CANCELLED op fails fast.
+func waitSelfRecoveryOpState(t *testing.T, id strfmt.UUID, want string, timeout time.Duration) *models.ReplicationReplicateDetailsReplicaResponse {
+	t.Helper()
+	last, ok, lastErr := pollSrOp(t, id, timeout, func(d *models.ReplicationReplicateDetailsReplicaResponse) bool {
+		switch d.Status.State {
+		case want:
+			return true
+		case "CANCELLED":
+			require.FailNowf(t, "op cancelled", "op %s cancelled while waiting for %s; history %v; errors %v",
+				id, want, srOpStates(d), srOpErrorsInState(d, "HYDRATING"))
+		case "READY":
+			require.FailNowf(t, "op already READY", "op %s reached READY while waiting for %s; history %v", id, want, srOpStates(d))
+		}
+		return false
+	})
+	if ok {
+		return last
+	}
+	var states, opErrs []string
+	if last != nil {
+		states = srOpStates(last)
+		opErrs = srOpErrorsInState(last, last.Status.State)
+	}
+	lastOpErr := ""
+	if len(opErrs) > 0 {
+		lastOpErr = opErrs[len(opErrs)-1]
+	}
+	require.FailNowf(t, "op state timeout", "op %s never reached %s within %s; history %v; %d errors in the current state, last %q; last api error %v",
+		id, want, timeout, states, len(opErrs), lastOpErr, lastErr)
+	return nil
+}
+
+var srNodeNames = []string{docker.Weaviate0, docker.Weaviate1, docker.Weaviate2}
+
+func nodeIndex(t *testing.T, name string) int {
+	t.Helper()
+	for i, n := range srNodeNames {
+		if n == name {
+			return i
+		}
+	}
+	require.FailNow(t, "unknown node", name)
+	return -1
+}
+
+// dumpLogsOnFailure registers a cleanup that dumps every node's log tail when t failed.
+func dumpLogsOnFailure(t *testing.T, compose *docker.DockerCompose) {
+	t.Helper()
+	t.Cleanup(func() {
+		if t.Failed() {
+			var sb strings.Builder
+			compose.DumpWeaviateLogs(context.Background(), &sb, 400)
+			t.Log(sb.String())
+		}
+	})
+}
+
+func srIDs(prefix string, from, to int) []strfmt.UUID {
+	out := make([]strfmt.UUID, 0, to-from)
+	for i := from; i < to; i++ {
+		out = append(out, strfmt.UUID(fmt.Sprintf("%s-%012d", prefix, i+1)))
+	}
+	return out
+}
+
+// assertExactObjectsOnNode blocks until node serves every id in present, reading via uri.
+func assertExactObjectsOnNode(t *testing.T, uri, class, node string, present []strfmt.UUID) {
+	t.Helper()
+	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		var missing []strfmt.UUID
+		for _, id := range present {
+			if _, err := common.GetObjectFromNode(t, uri, class, id, node); err != nil {
+				missing = append(missing, id)
+			}
+		}
+		assert.Empty(ct, missing, "%d objects missing on %s", len(missing), node)
+	}, 2*time.Minute, 2*time.Second, "node %s never served the exact object set of %s", node, class)
 }
