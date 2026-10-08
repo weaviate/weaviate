@@ -74,6 +74,7 @@ var chunkFilePattern = regexp.MustCompile(`^chunk-\d+\.bin$`)
 var (
 	errBadMagic       = errors.New("invalid magic header")
 	errUnknownVersion = errors.New("invalid version")
+	errEmptyChunk     = errors.New("empty chunk file")
 )
 
 // regex pattern for processed chunk tombstone files
@@ -514,7 +515,12 @@ func (q *DiskQueue) readChunk() (*chunk, error) {
 		ref := readErr.ref
 		switch {
 		case stderrors.Is(err, fs.ErrNotExist):
-			q.dropMissingChunk(ref)
+			q.dropChunk(ref, "chunk file is missing")
+		case stderrors.Is(err, errEmptyChunk):
+			if err := os.Remove(ref.path); err != nil && !stderrors.Is(err, fs.ErrNotExist) {
+				return nil, errors.Wrap(err, "failed to remove empty chunk")
+			}
+			q.dropChunk(ref, "chunk file is empty")
 		case isCorruptHeader(err):
 			q.quarantineChunk(&chunk{path: ref.path, count: ref.count, size: ref.size}, err)
 		default:
@@ -530,8 +536,8 @@ func isCorruptHeader(err error) bool {
 		stderrors.Is(err, io.ErrUnexpectedEOF)
 }
 
-// dropMissingChunk takes a chunk whose file is gone out of the queue.
-func (q *DiskQueue) dropMissingChunk(ref chunkRef) {
+// dropChunk takes a chunk whose file is gone out of the queue.
+func (q *DiskQueue) dropChunk(ref chunkRef, reason string) {
 	q.rmLock.Lock()
 	defer q.rmLock.Unlock()
 
@@ -544,7 +550,7 @@ func (q *DiskQueue) dropMissingChunk(ref chunkRef) {
 	q.metrics.Size(q.recordCount)
 	q.m.Unlock()
 
-	q.Logger.WithField("file", ref.path).Errorf("chunk file is missing, its %d records are lost", ref.count)
+	q.Logger.WithField("file", ref.path).Errorf("%s, its %d records are lost", reason, ref.count)
 }
 
 func (q *DiskQueue) Size() int64 {
@@ -983,20 +989,7 @@ func openChunk(path string) (_ *chunk, err error) {
 	}
 
 	if stat.Size() == 0 {
-		// empty file
-		// remove it
-		err = c.f.Close()
-		c.f = nil
-		if err != nil {
-			return nil, err
-		}
-
-		err = os.Remove(path)
-		if err != nil {
-			return nil, err
-		}
-
-		return nil, nil
+		return nil, errEmptyChunk
 	}
 
 	c.r = readerPool.Get().(*bufio.Reader)
@@ -1453,36 +1446,28 @@ func newChunkReader(dir string, chunkList []chunkRef) *chunkReader {
 
 // ReadChunk returns the oldest chunk not processed yet, without removing it.
 func (r *chunkReader) ReadChunk() (*chunk, error) {
-	for {
-		r.m.Lock()
-		if len(r.chunkList) == 0 {
-			r.m.Unlock()
-			return nil, nil
-		}
-		ref := r.chunkList[0]
-		path := ref.path
-		f, ok := r.chunks[path]
-		// the chunk closes the handle once read
-		delete(r.chunks, path)
+	r.m.Lock()
+	if len(r.chunkList) == 0 {
 		r.m.Unlock()
-
-		var c *chunk
-		var err error
-		if ok {
-			c, err = chunkFromFile(f)
-		} else {
-			c, err = openChunk(path)
-		}
-		if err != nil {
-			return nil, &chunkReadError{ref: ref, err: err}
-		}
-		if c == nil {
-			// empty file, already removed
-			r.forget(path)
-			continue
-		}
-		return c, nil
+		return nil, nil
 	}
+	ref := r.chunkList[0]
+	f, ok := r.chunks[ref.path]
+	// the chunk closes the handle once read
+	delete(r.chunks, ref.path)
+	r.m.Unlock()
+
+	var c *chunk
+	var err error
+	if ok {
+		c, err = chunkFromFile(f)
+	} else {
+		c, err = openChunk(ref.path)
+	}
+	if err != nil {
+		return nil, &chunkReadError{ref: ref, err: err}
+	}
+	return c, nil
 }
 
 // chunkReadError is returned by ReadChunk when the oldest chunk cannot be

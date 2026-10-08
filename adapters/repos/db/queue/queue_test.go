@@ -1605,6 +1605,12 @@ func TestDequeueBatchChunkBecameUnreadable(t *testing.T) {
 				require.NoError(t, os.Remove(path))
 			},
 		},
+		{
+			name: "truncated to zero",
+			damage: func(t *testing.T, path string) {
+				require.NoError(t, os.Truncate(path, 0))
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -1642,6 +1648,8 @@ func TestDequeueBatchChunkBecameUnreadable(t *testing.T) {
 			require.NoError(t, err)
 			require.Nil(t, b)
 
+			_, err = os.Stat(first)
+			require.ErrorIs(t, err, os.ErrNotExist)
 			_, err = os.Stat(first + ".corrupt")
 			if test.quarantine {
 				require.NoError(t, err, "the chunk is kept for inspection")
