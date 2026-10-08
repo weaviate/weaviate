@@ -1538,7 +1538,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	// REST requests and public gRPC calls at the same moment.
 	clientCallsCtx, cancelClientCalls := context.WithCancel(context.Background())
 	grpcInFlight := grpcHandler.NewInFlightCancel(clientCallsCtx)
-	grpcOptions = append(grpcOptions, grpc.ChainUnaryInterceptor(grpcInFlight.UnavailableAfterCancel()))
+	grpcOptions = append(grpcOptions, grpc.ChainUnaryInterceptor(grpcInFlight.UnavailableAfterCancel()),
+		grpc.ChainStreamInterceptor(grpcInFlight.CountRunningStreams()))
 	grpcServer, batchDrain := createGrpcServer(appState, telemeter.GetClientTracker(), telemeter.GetIntegrationTracker(), clientCallsCtx, grpcOptions...)
 	restInFlight := newInFlightCancel(clientCallsCtx)
 	grpcWebCtx, refuseGrpcWeb := context.WithCancel(clientCallsCtx)
@@ -1581,9 +1582,16 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	shutdownReport = shutdownreport.New(appState.Cluster.LocalName())
-	var waitGrpcStop func()
+	var waitGrpcStop, stopHeartbeat func()
 	api.PreServerShutdown = func() {
 		shutdownReport.Begin()
+		shutdownLog := appState.ServerConfig.Config.ShutdownLog
+		stopHeartbeat = shutdownReport.StartHeartbeat(appState.Logger, shutdownLog.HeartbeatAfter,
+			shutdownLog.HeartbeatInterval, map[string]func() int64{
+				"rest_requests_running":     restInFlight.requestsRunning,
+				"grpc_calls_running":        grpcInFlight.CallsRunning,
+				"internal_requests_running": appState.InternalServer.RequestsRunning,
+			})
 		restInFlight.startShutdown()
 		time.AfterFunc(inFlightCancelDelay, cancelClientCalls)
 		// Reject new export requests and signal in-flight exports to stop
@@ -1698,6 +1706,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				}
 			},
 		}.run(appState.Logger, shutdownReport)
+		stopHeartbeat()
 		shutdownReport.Log(appState.Logger, shutdownreport.DefaultThresholds())
 	}
 

@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/shutdownreport"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/license"
@@ -858,6 +859,46 @@ func TestEnvironmentHaltForTransferTimeout(t *testing.T) {
 
 			require.NoError(t, err)
 			require.Equal(t, tt.expected, conf.HaltForTransferTimeout)
+		})
+	}
+}
+
+func TestEnvironmentShutdownLog(t *testing.T) {
+	after := func(c Config) time.Duration { return c.ShutdownLog.HeartbeatAfter }
+	interval := func(c Config) time.Duration { return c.ShutdownLog.HeartbeatInterval }
+	tests := []struct {
+		env         string
+		value       string
+		get         func(Config) time.Duration
+		expected    time.Duration
+		expectedErr bool
+	}{
+		{env: "SHUTDOWN_HEARTBEAT_AFTER", get: after, expected: shutdownreport.DefaultHeartbeatAfter},
+		{env: "SHUTDOWN_HEARTBEAT_AFTER", value: "45s", get: after, expected: 45 * time.Second},
+		{env: "SHUTDOWN_HEARTBEAT_AFTER", value: "0s", get: after, expected: 0},
+		{env: "SHUTDOWN_HEARTBEAT_AFTER", value: "abc", expectedErr: true},
+		{env: "SHUTDOWN_HEARTBEAT_AFTER", value: "-1s", expectedErr: true},
+		{env: "SHUTDOWN_HEARTBEAT_INTERVAL", get: interval, expected: shutdownreport.DefaultHeartbeatInterval},
+		{env: "SHUTDOWN_HEARTBEAT_INTERVAL", value: "45s", get: interval, expected: 45 * time.Second},
+		{env: "SHUTDOWN_HEARTBEAT_INTERVAL", value: "1s", get: interval, expected: time.Second},
+		{env: "SHUTDOWN_HEARTBEAT_INTERVAL", value: "999ms", expectedErr: true},
+		{env: "SHUTDOWN_HEARTBEAT_INTERVAL", value: "0s", expectedErr: true},
+		{env: "SHUTDOWN_HEARTBEAT_INTERVAL", value: "abc", expectedErr: true},
+		{env: "SHUTDOWN_HEARTBEAT_INTERVAL", value: "-1s", expectedErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%s=%q", tt.env, tt.value), func(t *testing.T) {
+			t.Setenv(tt.env, tt.value)
+
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, tt.get(conf))
 		})
 	}
 }

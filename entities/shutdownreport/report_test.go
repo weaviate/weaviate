@@ -36,9 +36,10 @@ func runningSteps(r *Report) []string {
 func TestReportConcurrentAggregation(t *testing.T) {
 	const workers = 64
 	tests := []struct {
-		name  string
-		work  func(r *Report, i int)
-		check func(t *testing.T, s summary)
+		name      string
+		heartbeat bool
+		work      func(r *Report, i int)
+		check     func(t *testing.T, s summary)
 	}{
 		{
 			name: "shard and index counts",
@@ -73,20 +74,234 @@ func TestReportConcurrentAggregation(t *testing.T) {
 				assert.Equal(t, [bucketOutcomes]int64{16, 16, 16, 16}, s.db.buckets)
 			},
 		},
+		{
+			name:      "heartbeat reads while workers record",
+			heartbeat: true,
+			work: func(r *Report, i int) {
+				r.IndexStarted(fmt.Sprintf("Class%d", i))
+				r.Time(fmt.Sprintf("step_%d", i), func() {
+					r.ShardTeardownStarted()
+					r.ShardTornDown("Movies", fmt.Sprintf("s%d", i), time.Millisecond)
+					r.BucketDone(BucketFlushed)
+				})
+			},
+			check: func(t *testing.T, s summary) {
+				assert.Zero(t, s.db.shardsInTeardown)
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := New("node-1")
+			logger, hook := test.NewNullLogger()
+			stop := func() {}
+			if tt.heartbeat {
+				stop = r.StartHeartbeat(logger, time.Millisecond, time.Millisecond, nil)
+			}
+			// Workers keep recording until two heartbeats have logged, so -race sees
+			// heartbeatFields read mid-write.
+			deadline := time.Now().Add(5 * time.Second)
 			var wg sync.WaitGroup
 			for i := range workers {
-				wg.Go(func() { tt.work(r, i) })
+				wg.Go(func() {
+					tt.work(r, i)
+					for tt.heartbeat && len(hook.AllEntries()) < 2 && time.Now().Before(deadline) {
+						tt.work(r, i)
+					}
+				})
 			}
 			wg.Wait()
+			stopWithin(t, stop, 5*time.Second)
 
 			tt.check(t, r.summary())
 			assert.Empty(t, runningSteps(r))
+			if tt.heartbeat {
+				assert.GreaterOrEqual(t, len(hook.AllEntries()), 2, "heartbeats")
+			}
 		})
 	}
+}
+
+func TestHeartbeat(t *testing.T) {
+	const after, interval = 10 * time.Second, 5 * time.Second
+	// runBlocked starts run in a goroutine and returns a release func, which the
+	// blocked func passed to run waits for.
+	runBlocked := func(run func(blocked func())) func() {
+		release, ended := make(chan struct{}), make(chan struct{})
+		go func() {
+			defer close(ended)
+			run(func() { <-release })
+		}()
+		synctest.Wait()
+		return func() {
+			close(release)
+			<-ended
+		}
+	}
+	tests := []struct {
+		name       string
+		disabled   bool
+		setup      func(r *Report) (release func())
+		gauges     map[string]func() int64
+		wantFields logrus.Fields
+		wantAbsent []string
+	}{
+		{name: "after of zero disables it", disabled: true},
+		{
+			name: "names the running step, current index and counts",
+			setup: func(r *Report) func() {
+				r.IndexStarted("Movies")
+				for range 3 {
+					r.ShardTeardownStarted()
+				}
+				r.ShardTornDown("Movies", "s0", time.Second)
+				r.BucketDone(BucketFlushed)
+				r.BucketDone(BucketFailed)
+				return runBlocked(func(blocked func()) { r.Time(StepClusterClose, blocked) })
+			},
+			gauges: map[string]func() int64{
+				"grpc_calls_running":    func() int64 { return 2 },
+				"rest_requests_running": func() int64 { return 1 },
+			},
+			wantFields: logrus.Fields{
+				"running": "cluster_close", "current_index": "Movies",
+				"shards_in_teardown": int64(2), "shards_torn_down": int64(1), "buckets_done": int64(2),
+				"grpc_calls_running": int64(2), "rest_requests_running": int64(1),
+			},
+			wantAbsent: []string{"indexes_total"},
+		},
+		{
+			name: "index total once set",
+			setup: func(r *Report) func() {
+				r.SetIndexTotal(4)
+				r.IndexDone("Movies", time.Second)
+				return func() {}
+			},
+			wantFields: logrus.Fields{"indexes_total": int64(4), "indexes_done": int64(1)},
+		},
+		{
+			name: "a closed index is no longer current",
+			setup: func(r *Report) func() {
+				r.IndexStarted("Movies")
+				r.IndexDone("Movies", time.Second)
+				return func() {}
+			},
+			wantFields: logrus.Fields{"current_index": ""},
+		},
+		{
+			name: "nested steps are both running",
+			setup: func(r *Report) func() {
+				return runBlocked(func(blocked func()) {
+					r.Time(StepPreDBSteps, func() { r.Time(StepLeaveCluster, blocked) })
+				})
+			},
+			wantFields: logrus.Fields{"running": "leave_cluster,pre_db_steps"},
+		},
+		{
+			name: "elapsed time and client drain after Begin",
+			setup: func(r *Report) func() {
+				r.Begin()
+				return func() {}
+			},
+			wantFields: logrus.Fields{"running": "client_drain", "elapsed_ms": after.Milliseconds()},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				r := New("node-1")
+				release := func() {}
+				if tt.setup != nil {
+					release = tt.setup(r)
+				}
+				defer release()
+				heartbeatAfter, wantFirst := after, 1
+				if tt.disabled {
+					heartbeatAfter, wantFirst = 0, 0
+				}
+				logger, hook := test.NewNullLogger()
+				stop := r.StartHeartbeat(logger, heartbeatAfter, interval, tt.gauges)
+
+				lines := func(elapsed time.Duration) int {
+					time.Sleep(elapsed)
+					synctest.Wait()
+					return len(hook.AllEntries())
+				}
+				require.Equal(t, 0, lines(after-time.Millisecond), "before after")
+				require.Equal(t, wantFirst, lines(time.Millisecond), "at after")
+				require.Equal(t, 2*wantFirst, lines(interval), "one interval later")
+
+				stopWithin(t, stop, interval)
+				stopWithin(t, stop, interval)
+				assert.Equal(t, 2*wantFirst, lines(3*interval), "after stop")
+
+				if wantFirst == 0 {
+					return
+				}
+				e := hook.AllEntries()[0]
+				assert.Equal(t, logrus.WarnLevel, e.Level)
+				assert.Equal(t, "shutdown still running", e.Message)
+				assert.Equal(t, "shutdown_report", e.Data["action"])
+				assert.Equal(t, "node-1", e.Data["node"])
+				for k, v := range tt.wantFields {
+					assert.Equal(t, v, e.Data[k], k)
+				}
+				for _, k := range tt.wantAbsent {
+					assert.NotContains(t, e.Data, k)
+				}
+			})
+		})
+	}
+}
+
+func stopWithin(t *testing.T, stop func(), d time.Duration) {
+	t.Helper()
+	stopped := make(chan struct{})
+	go func() {
+		stop()
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+	case <-time.After(d):
+		t.Fatal("stop did not return")
+	}
+}
+
+// blockingHook holds the logging goroutine inside a heartbeat line until release closes.
+type blockingHook struct{ release chan struct{} }
+
+func (h blockingHook) Levels() []logrus.Level { return logrus.AllLevels }
+
+func (h blockingHook) Fire(*logrus.Entry) error {
+	<-h.release
+	return nil
+}
+
+// Pins that stop waits for a heartbeat line being written, so none lands after the summary.
+func TestHeartbeatStopWaitsForLineInProgress(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		hook := blockingHook{release: make(chan struct{})}
+		logger.AddHook(hook)
+		stop := New("node-1").StartHeartbeat(logger, time.Second, time.Second, nil)
+		time.Sleep(time.Second)
+		synctest.Wait()
+
+		stopped := make(chan struct{})
+		go func() {
+			stop()
+			close(stopped)
+		}()
+		synctest.Wait()
+		select {
+		case <-stopped:
+			t.Error("stop returned while a heartbeat line was being written")
+		default:
+		}
+		close(hook.release)
+		<-stopped
+	})
 }
 
 func TestReportTime(t *testing.T) {
@@ -461,6 +676,7 @@ func TestNilReport(t *testing.T) {
 			r.CallsUnavailable(1, 2, 3)
 			r.RESTForceClosed(1)
 			r.SetIndexTotal(1)
+			r.IndexStarted("Movies")
 			r.IndexDone("Movies", time.Second)
 			r.ShardTeardownStarted()
 			r.ShardTornDown("Movies", "s0", time.Second)
@@ -468,6 +684,7 @@ func TestNilReport(t *testing.T) {
 			r.HashtreeDumpSkipped()
 			r.BucketDone(BucketFailed)
 			logger, hook := test.NewNullLogger()
+			r.StartHeartbeat(logger, time.Nanosecond, time.Nanosecond, nil)()
 			r.Log(logger, DefaultThresholds())
 
 			assert.True(t, ran, "Time must still run the step")

@@ -13,6 +13,7 @@ package grpc
 
 import (
 	"context"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -128,6 +129,7 @@ func TestInFlightCancelUnavailableAfterCancel(t *testing.T) {
 			resp, err := ic.UnavailableAfterCancel()(callerCtx, nil, &grpc.UnaryServerInfo{},
 				func(ctx context.Context, _ any) (any, error) {
 					handlerRan = true
+					assert.Equal(t, int64(1), ic.CallsRunning(), "calls running inside the handler")
 					return tc.handler(ctx, shutdownCancel, callerCancel)
 				})
 
@@ -141,6 +143,7 @@ func TestInFlightCancelUnavailableAfterCancel(t *testing.T) {
 			assert.Equal(t, tc.wantHandlerCancelled, handlerCancelled, "handler ctx cancellation")
 			assert.Equal(t, !tc.wantHandlerSkipped, handlerRan, "handler ran")
 			assert.Equal(t, int64(0), countingCtx.live.Load(), "AfterFunc registration outlived the call")
+			assert.Equal(t, int64(0), ic.CallsRunning(), "calls running after the call")
 
 			shutdownCancel()
 			assert.Equal(t, tc.wantUnavailable, ic.UnavailableResponses(), "unavailable responses")
@@ -160,4 +163,19 @@ func TestInFlightCancelCountsCallReturningAsCancelFires(t *testing.T) {
 		})
 	assert.Equal(t, codes.Unavailable, status.Code(err))
 	assert.Equal(t, int64(1), ic.UnavailableResponses())
+}
+
+func TestInFlightCancelCountsRunningStreams(t *testing.T) {
+	streamErr := status.Error(codes.Internal, "stream failed")
+	for _, wantErr := range []error{nil, streamErr} {
+		t.Run(fmt.Sprintf("handler returns %v", wantErr), func(t *testing.T) {
+			ic := NewInFlightCancel(context.Background())
+			err := ic.CountRunningStreams()(nil, nil, &grpc.StreamServerInfo{}, func(any, grpc.ServerStream) error {
+				assert.Equal(t, int64(1), ic.CallsRunning(), "calls running inside the handler")
+				return wantErr
+			})
+			assert.Equal(t, wantErr, err)
+			assert.Equal(t, int64(0), ic.CallsRunning(), "calls running after the stream")
+		})
+	}
 }

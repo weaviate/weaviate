@@ -28,6 +28,7 @@ var errServerShuttingDown = status.Error(codes.Unavailable, "server is shutting 
 type InFlightCancel struct {
 	callsCtx             context.Context
 	unavailableResponses atomic.Int64
+	running              atomic.Int64
 }
 
 func NewInFlightCancel(callsCtx context.Context) *InFlightCancel {
@@ -37,6 +38,20 @@ func NewInFlightCancel(callsCtx context.Context) *InFlightCancel {
 // UnavailableResponses returns how many calls were refused or cut short.
 func (c *InFlightCancel) UnavailableResponses() int64 {
 	return c.unavailableResponses.Load()
+}
+
+// CallsRunning returns how many unary calls and streams are being handled.
+func (c *InFlightCancel) CallsRunning() int64 {
+	return c.running.Load()
+}
+
+// CountRunningStreams counts streams in CallsRunning while their handler runs.
+func (c *InFlightCancel) CountRunningStreams() grpc.StreamServerInterceptor {
+	return func(srv any, ss grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		c.running.Add(1)
+		defer c.running.Add(-1)
+		return handler(srv, ss)
+	}
 }
 
 // UnavailableAfterCancel answers codes.Unavailable for a call still running when
@@ -54,6 +69,8 @@ func (c *InFlightCancel) UnavailableAfterCancel() grpc.UnaryServerInterceptor {
 			c.unavailableResponses.Add(1)
 			cancel()
 		})
+		c.running.Add(1)
+		defer c.running.Add(-1)
 		resp, err := handler(ctx, req)
 		if stop() {
 			return resp, err

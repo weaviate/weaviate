@@ -747,6 +747,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	defer db.asyncReplicationScheduler.Close()
 	report.SetIndexTotal(len(db.indices))
 	for id, index := range db.indices {
+		report.IndexStarted(id)
 		start := time.Now()
 		err := index.Shutdown(ctx)
 		report.IndexDone(id, time.Since(start))

@@ -23,6 +23,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // Each timed shutdown step is logged as <name>_ms.
@@ -55,6 +57,12 @@ var allSteps = []string{
 // duration ends at the later of RESTDrained and GRPCStopped.
 const clientDrain = "client_drain"
 
+// FromEnv uses these when SHUTDOWN_HEARTBEAT_AFTER and SHUTDOWN_HEARTBEAT_INTERVAL are unset.
+const (
+	DefaultHeartbeatAfter    = 30 * time.Second
+	DefaultHeartbeatInterval = 30 * time.Second
+)
+
 // Thresholds are the durations above which Log warns about a phase.
 type Thresholds struct {
 	ClientDrain, InternalClose, DB, Total time.Duration
@@ -79,8 +87,11 @@ type Report struct {
 	restDrained time.Duration
 	grpcStopped time.Duration
 	steps       map[string]time.Duration
-	running     map[string]struct{}
-	clients     clientOutcome
+	// running names the steps in progress, plus clientDrain until RESTDrained.
+	// The heartbeat logs it.
+	running      map[string]struct{}
+	currentIndex string
+	clients      clientOutcome
 
 	slowestIndexes, slowestShards slowest
 
@@ -227,6 +238,16 @@ func (r *Report) SetIndexTotal(n int) {
 	r.indexesTotal.Store(int64(n))
 }
 
+// IndexStarted records the index DB.Shutdown is closing, which the heartbeat logs.
+func (r *Report) IndexStarted(id string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.currentIndex = id
+}
+
 func (r *Report) IndexDone(id string, took time.Duration) {
 	if r == nil {
 		return
@@ -235,6 +256,7 @@ func (r *Report) IndexDone(id string, took time.Duration) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.slowestIndexes.add(took, func() string { return id })
+	r.currentIndex = ""
 }
 
 func (r *Report) ShardTeardownStarted() {
@@ -293,6 +315,76 @@ func (r *Report) Log(logger logrus.FieldLogger, th Thresholds) {
 	}
 }
 
+// StartHeartbeat logs "shutdown still running" once after has passed and then
+// every interval, until stop is called. after == 0 disables it.
+func (r *Report) StartHeartbeat(logger logrus.FieldLogger, after, interval time.Duration,
+	gauges map[string]func() int64,
+) (stop func()) {
+	if r == nil || after == 0 {
+		return func() {}
+	}
+	logger = logger.WithFields(logrus.Fields{"action": "shutdown_report", "node": r.node})
+	done, exited := make(chan struct{}), make(chan struct{})
+	enterrors.GoWrapper(func() {
+		defer close(exited)
+		timer := time.NewTimer(after)
+		defer timer.Stop()
+		select {
+		case <-done:
+			return
+		case <-timer.C:
+		}
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			logger.WithFields(r.heartbeatFields(gauges)).Warn("shutdown still running")
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+			}
+		}
+	}, logger)
+	return sync.OnceFunc(func() {
+		close(done)
+		<-exited
+	})
+}
+
+func (r *Report) heartbeatFields(gauges map[string]func() int64) logrus.Fields {
+	tornDown, inTeardown := r.shardCounts()
+	var buckets int64
+	for o := range r.buckets {
+		buckets += r.buckets[o].Load()
+	}
+	f := logrus.Fields{
+		"shards_torn_down":   tornDown,
+		"shards_in_teardown": inTeardown,
+		"indexes_done":       r.indexesDone.Load(),
+		"buckets_done":       buckets,
+	}
+	if total := r.indexesTotal.Load(); total > 0 {
+		f["indexes_total"] = total
+	}
+	for name, gauge := range gauges {
+		f[name] = gauge()
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	f["elapsed_ms"] = r.sinceBegin().Milliseconds()
+	f["running"] = strings.Join(slices.Sorted(maps.Keys(r.running)), ",")
+	f["current_index"] = r.currentIndex
+	return f
+}
+
+// shardCounts loads tornDown before started, so a teardown finishing in
+// between cannot make inTeardown negative.
+func (r *Report) shardCounts() (tornDown, inTeardown int64) {
+	tornDown = r.shardsTornDown.Load()
+	return tornDown, r.shardsStarted.Load() - tornDown
+}
+
 // sinceBegin must be called with r.mu held.
 func (r *Report) sinceBegin() time.Duration {
 	if r.begun.IsZero() {
@@ -302,14 +394,12 @@ func (r *Report) sinceBegin() time.Duration {
 }
 
 func (r *Report) summary() summary {
-	// Loaded before started, so a teardown finishing in between cannot make
-	// shards_in_teardown negative.
-	tornDown := r.shardsTornDown.Load()
+	tornDown, inTeardown := r.shardCounts()
 	db := dbOutcome{
 		indexesTotal:         r.indexesTotal.Load(),
 		indexesDone:          r.indexesDone.Load(),
 		shardsTornDown:       tornDown,
-		shardsInTeardown:     r.shardsStarted.Load() - tornDown,
+		shardsInTeardown:     inTeardown,
 		shardsStillInUse:     r.shardsStillInUse.Load(),
 		hashtreeDumpsSkipped: r.hashtreeDumpsSkipped.Load(),
 	}
