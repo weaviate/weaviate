@@ -49,10 +49,6 @@ var (
 	ErrReplicaNotReady    = errors.New("replica cannot serve yet")
 	ErrReplicaMaintenance = fmt.Errorf("%w: %w: peer in maintenance mode", ErrAsyncReplicationNotActive, ErrReplicaNotReady)
 	ErrReplicaBooting     = fmt.Errorf("%w: %w: peer not ready", ErrAsyncReplicationNotActive, ErrReplicaNotReady)
-	// ErrReplicaNotServedHere is a peer current enough to know it will never serve this shard,
-	// unlike ErrReplicaNotReady which resolves on its own, so it deliberately does not wrap it.
-	// Maps to HTTP 422 / FailedPrecondition on reads.
-	ErrReplicaNotServedHere = errors.New("replica does not serve this shard")
 	// ErrAsyncCheckpointCutoffInPast maps to HTTP 412 / FailedPrecondition.
 	ErrAsyncCheckpointCutoffInPast = errors.New("checkpoint cutoff is not in this node's future")
 	// MsgCLevel consistency level cannot be achieved

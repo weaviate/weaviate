@@ -830,10 +830,9 @@ func newPrometheusMetrics() *PrometheusMetrics {
 
 		// RAFT-based schema metrics.
 		//
-		// Namespaced: a metric exposed without the weaviate_ prefix is dropped by
-		// the collector's name allowlist, so these were invisible outside a direct
-		// pod scrape. SchemaLeaderQueryFailures below already carried the prefix in
-		// its name, which is why it arrived while these did not.
+		// Namespaced for consistency with the rest of the weaviate_* family. It does
+		// not change what gets collected: the collector's allowlist names individual
+		// metrics, so renaming one neither helps nor hurts whether it arrives.
 		SchemaWrites: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: DefaultMetricsNamespace,
 			Name:      "schema_writes_seconds",

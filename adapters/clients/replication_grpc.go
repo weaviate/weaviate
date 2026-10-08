@@ -647,19 +647,14 @@ func asyncNotReadyGRPCError(err error) error {
 	}
 }
 
-// readGRPCError gives gRPC reads the sentinels the REST transport gets from HTTPError.Is, which is
-// what Pull's fail-over classifies on: Unavailable cannot serve yet, FailedPrecondition never will.
-// Only read ops come through here, so FailedPrecondition cannot be the async-replication use.
+// readGRPCError gives gRPC reads the sentinel the REST transport gets from HTTPError.Is, which
+// is the only thing Pull's fail-over classifies on. Unavailable is a replica not worth asking
+// again this attempt; FailedPrecondition is final and deliberately carries no sentinel.
 func readGRPCError(op string, err error) error {
-	switch status.Code(err) {
-	case codes.Unavailable:
+	if status.Code(err) == codes.Unavailable {
 		return fmt.Errorf("gRPC %s: %w: %w", op, replica.ErrReplicaNotReady, err)
-	case codes.FailedPrecondition:
-		return fmt.Errorf("gRPC %s: %w: %w", op, replica.ErrReplicaNotServedHere, err)
-	default:
-		// Anything else carries no sentinel, so the caller keeps asking.
-		return fmt.Errorf("gRPC %s: %w", op, err)
 	}
+	return fmt.Errorf("gRPC %s: %w", op, err)
 }
 
 func (c *grpcReplicationClient) HashTreeLevel(ctx context.Context, host, index, shard string,

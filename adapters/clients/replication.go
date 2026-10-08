@@ -937,16 +937,9 @@ func backOff(d time.Duration) time.Duration {
 	return time.Duration(float64(d.Nanoseconds()*2) * (0.5 + rand.Float64()))
 }
 
-// Is gives callers the sentinels they classify on without parsing the body: 503 is a replica that
-// cannot serve yet, 422 one that knows it never will. unprocessableStatus picks between them.
+// Is reports a 503 as ErrReplicaNotReady, so callers classify a refusal without parsing the body
 func (e *HTTPError) Is(target error) bool {
-	switch target {
-	case replica.ErrReplicaNotReady:
-		return e.Code == http.StatusServiceUnavailable
-	case replica.ErrReplicaNotServedHere:
-		return e.Code == http.StatusUnprocessableEntity
-	}
-	return false
+	return target == replica.ErrReplicaNotReady && e.Code == http.StatusServiceUnavailable
 }
 
 // shouldRetry reports whether the same peer is worth asking again. A 503 is not: it cannot serve
