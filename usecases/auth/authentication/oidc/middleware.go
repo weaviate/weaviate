@@ -17,7 +17,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
-	stderrors "errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -203,19 +202,11 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 }
 
 // namespaceRejectionMessage returns the 401 body for a namespace state error.
-// Suspension and resumption are told apart because a caller can act on those;
-// every other state reads the same so it leaks nothing.
+// The body must match the one ApiKey.ValidateAndExtract returns for the same
+// error, so a caller reads one body per state whichever login it uses.
 func namespaceRejectionMessage(err error) string {
-	switch {
-	case stderrors.Is(err, namespaces.ErrNamespaceSuspended),
-		stderrors.Is(err, namespaces.ErrNamespaceResuming):
-		msg, _ := namespaces.PublicMessage(err)
-		return "unauthorized: " + msg
-	default:
-		// Missing, deleting and unknown states are indistinguishable to the
-		// caller: a bare rejection cannot confirm the namespace exists.
-		return "unauthorized"
-	}
+	msg, _ := namespaces.PublicMessage(err)
+	return "unauthorized: " + msg
 }
 
 // rejectNamespacedRoot returns 401 when the token would produce a

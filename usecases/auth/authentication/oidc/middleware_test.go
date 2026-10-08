@@ -218,11 +218,11 @@ func TestValidateAndExtract_NamespaceState(t *testing.T) {
 			// deleting must be denied too, not fall through to a default pass.
 			name:    "deleting is denied without confirming the namespace exists",
 			state:   api.NamespaceStateDeleting,
-			wantMsg: "unauthorized",
+			wantMsg: "unauthorized: instance unavailable",
 		},
 		{
 			name:    "missing is denied without confirming the namespace exists",
-			wantMsg: "unauthorized",
+			wantMsg: "unauthorized: instance unavailable",
 		},
 	}
 
