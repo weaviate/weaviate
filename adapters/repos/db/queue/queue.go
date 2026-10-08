@@ -205,7 +205,10 @@ func (q *DiskQueue) Init() error {
 	if err != nil {
 		return errors.Wrap(err, "failed to create chunk writer")
 	}
+	// the writer may have cut a torn record off the partial chunk, or started
+	// a new chunk
 	q.recordCount += q.w.recordCount
+	q.diskUsage += int64(q.w.size)
 
 	// set the last push time to now
 	q.lastPushTime = time.Now()
@@ -886,14 +889,13 @@ func (q *DiskQueue) analyzeDisk() ([]chunkRef, error) {
 			continue
 		}
 
-		q.diskUsage += fi.Size()
-
-		// partial chunk
+		// partial chunk, counted once the writer opened it
 		if count == 0 {
 			continue
 		}
 
 		q.recordCount += count
+		q.diskUsage += fi.Size()
 
 		chunkList = append(chunkList, chunkRef{path: filePath, count: count, size: uint64(fi.Size())})
 		continue

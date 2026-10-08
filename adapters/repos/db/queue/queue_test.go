@@ -1982,7 +1982,8 @@ func TestDequeueBatchChunkTruncatedAtRecordBoundary(t *testing.T) {
 	require.Zero(t, q.Size())
 	q.m.RLock()
 	defer q.m.RUnlock()
-	require.Zero(t, q.diskUsage)
+	// only the writer's new, empty chunk is left
+	require.Equal(t, int64(q.w.size), q.diskUsage)
 }
 
 // A backup copies the chunk files listed when it starts, while the queue keeps
@@ -2117,4 +2118,63 @@ func (d *brokenDecoder) DecodeTask([]byte) (Task, error) {
 		panic("simulated decoder panic")
 	}
 	return nil, errors.New("simulated decoding error")
+}
+
+// The chunk the writer resumes after a restart must be counted with the size
+// it has once the writer opened it: the writer cuts a torn last record off a
+// partial chunk, and starts a new chunk, with its header, after a sealed one.
+func TestDiskUsageAcrossRestart(t *testing.T) {
+	tests := []struct {
+		name   string
+		before func(t *testing.T, q *DiskQueue)
+	}{
+		{
+			name: "partial chunk with a torn last record",
+			before: func(t *testing.T, q *DiskQueue) {
+				pushMany(t, q, 1, 1, 2)
+				path := q.w.f.Name()
+				require.NoError(t, q.Close(t.Context()))
+				fi, err := os.Stat(path)
+				require.NoError(t, err)
+				require.NoError(t, os.Truncate(path, fi.Size()-2))
+			},
+		},
+		{
+			name: "sealed last chunk",
+			before: func(t *testing.T, q *DiskQueue) {
+				pushMany(t, q, 1, 1, 2)
+				sealChunk(t, q)
+				require.NoError(t, q.Close(t.Context()))
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// not started: the test dequeues itself
+			s := makeScheduler(t)
+			dir := t.TempDir()
+
+			test.before(t, makeQueueWith(t, s, discardExecutor(), 0, dir))
+
+			q := makeQueueWith(t, s, discardExecutor(), 0, dir)
+			defer q.Close(t.Context())
+			pushMany(t, q, 1, 3)
+			sealChunk(t, q)
+
+			for {
+				b, err := q.DequeueBatch()
+				require.NoError(t, err)
+				if b == nil {
+					break
+				}
+				b.Done()
+			}
+
+			require.Zero(t, q.Size())
+			q.m.RLock()
+			defer q.m.RUnlock()
+			require.Zero(t, q.diskUsage)
+		})
+	}
 }
