@@ -748,7 +748,7 @@ func (q *DiskQueue) removeChunk(path string) error {
 			q.forgetChunk(path)
 			return nil
 		}
-		q.Logger.WithError(err).WithField("file", path).Error("failed to create tombstone, falling back to deletion")
+		q.Logger.WithField("file", path).Errorf("failed to create tombstone, falling back to deletion: %v", err)
 		// fall through to normal deletion
 	}
 
