@@ -2207,3 +2207,44 @@ func TestDiskUsageAcrossRestart(t *testing.T) {
 		})
 	}
 }
+
+// A backup seals the writer's chunk even when it holds no record. If the
+// queue restarts before reading it, that chunk is not the last one, so the
+// writer does not resume it: it must not be left on disk forever.
+func TestStartupRemovesStrayEmptyChunk(t *testing.T) {
+	// not started: the test dequeues itself
+	s := makeScheduler(t)
+	dir := t.TempDir()
+
+	q := makeQueueWith(t, s, discardExecutor(), 0, dir)
+	pushMany(t, q, 1, 1, 2)
+	sealChunk(t, q)
+	require.NoError(t, q.Close(t.Context()))
+
+	// after the restart, the writer starts an empty chunk, sealed as is
+	q = makeQueueWith(t, s, discardExecutor(), 0, dir)
+	empty := q.w.f.Name()
+	sealChunk(t, q)
+	pushMany(t, q, 1, 3)
+	require.NoError(t, q.Close(t.Context()))
+
+	q = makeQueueWith(t, s, discardExecutor(), 0, dir)
+	defer q.Close(t.Context())
+	_, err := os.Stat(empty)
+	require.ErrorIs(t, err, os.ErrNotExist)
+	require.EqualValues(t, 3, q.Size())
+
+	sealChunk(t, q)
+	for {
+		b, err := q.DequeueBatch()
+		require.NoError(t, err)
+		if b == nil {
+			break
+		}
+		b.Done()
+	}
+	require.Zero(t, q.Size())
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Empty(t, entries)
+}

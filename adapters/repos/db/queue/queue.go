@@ -869,6 +869,10 @@ func (q *DiskQueue) analyzeDisk() ([]chunkRef, error) {
 	}
 
 	chunkList := make([]chunkRef, 0, len(entries))
+	// chunks holding nothing but a header, and the last chunk, which the
+	// writer resumes
+	var headerOnly []string
+	var last string
 
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -903,8 +907,13 @@ func (q *DiskQueue) analyzeDisk() ([]chunkRef, error) {
 			continue
 		}
 
+		last = filePath
+
 		// partial chunk, counted once the writer opened it
 		if count == 0 {
+			if fi.Size() == int64(chunkHeaderSize) {
+				headerOnly = append(headerOnly, filePath)
+			}
 			continue
 		}
 
@@ -913,6 +922,18 @@ func (q *DiskQueue) analyzeDisk() ([]chunkRef, error) {
 
 		chunkList = append(chunkList, chunkRef{path: filePath, count: count, size: uint64(fi.Size())})
 		continue
+	}
+
+	// an empty chunk the writer does not resume is never read, e.g. one a
+	// backup sealed before a restart: remove it
+	for _, path := range headerOnly {
+		if path == last {
+			continue
+		}
+		err := os.Remove(path)
+		if err != nil {
+			q.Logger.WithField("file", path).Warnf("failed to remove empty chunk: %v", err)
+		}
 	}
 
 	return chunkList, nil
