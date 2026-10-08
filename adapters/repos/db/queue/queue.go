@@ -439,7 +439,10 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 
 	if len(tasks) == 0 {
 		if corruptChunkErr != nil {
-			q.quarantineChunk(c, corruptChunkErr)
+			err := q.quarantineChunk(c, corruptChunkErr)
+			if err != nil {
+				return nil, err
+			}
 		} else {
 			// empty chunk, remove it
 			q.removeChunk(c)
@@ -451,7 +454,10 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 		// a corrupt chunk is only quarantined once its salvaged records are
 		// processed, so a canceled batch can salvage them again
 		if corruptChunkErr != nil {
-			q.quarantineChunk(c, corruptChunkErr)
+			err := q.quarantineChunk(c, corruptChunkErr)
+			if err != nil {
+				q.Logger.WithField("file", c.path).Error(err)
+			}
 		} else {
 			q.removeChunk(c)
 		}
@@ -522,7 +528,10 @@ func (q *DiskQueue) readChunk() (*chunk, error) {
 			}
 			q.dropChunk(ref, "chunk file is empty")
 		case isCorruptHeader(err):
-			q.quarantineChunk(&chunk{path: ref.path, count: ref.count, size: ref.size}, err)
+			err := q.quarantineChunk(&chunk{path: ref.path, count: ref.count, size: ref.size}, err)
+			if err != nil {
+				return nil, err
+			}
 		default:
 			return nil, err
 		}
@@ -749,18 +758,20 @@ func (q *DiskQueue) removeChunk(c *chunk) {
 // quarantineChunk renames a torn or corrupt chunk file to <name>.corrupt so
 // it is no longer scheduled, and removes its records from the queue's
 // accounting so the queue can drain. The file is kept on disk for inspection.
-func (q *DiskQueue) quarantineChunk(c *chunk, cause error) {
+func (q *DiskQueue) quarantineChunk(c *chunk, cause error) error {
 	q.rmLock.Lock()
 	defer q.rmLock.Unlock()
 
-	q.r.ReleaseChunk(c)
+	q.r.CloseChunk(c)
 
+	// the chunk stays in the queue until it is renamed, so a failure is
+	// retried
 	quarantinePath := c.path + ".corrupt"
 	err := os.Rename(c.path, quarantinePath)
 	if err != nil {
-		q.Logger.WithField("file", c.path).Errorf("failed to quarantine corrupt chunk: %v", err)
-		return
+		return errors.Wrap(err, "failed to quarantine corrupt chunk")
 	}
+	q.r.forget(c.path)
 
 	q.m.Lock()
 	defer q.m.Unlock()
@@ -771,6 +782,7 @@ func (q *DiskQueue) quarantineChunk(c *chunk, cause error) {
 
 	q.Logger.WithField("file", quarantinePath).
 		Errorf("chunk is truncated or corrupt, quarantined it; its unreadable records are lost: %v", cause)
+	return nil
 }
 
 // analyzeDisk is a slow method that determines the number of records
@@ -1550,11 +1562,17 @@ func (r *chunkReader) PromoteChunk(f *os.File, count, size uint64) error {
 // ReleaseChunk closes the chunk's file handle and removes it from the reader
 // without deleting the file from disk. Used during maintenance mode.
 func (r *chunkReader) ReleaseChunk(c *chunk) {
+	r.CloseChunk(c)
+	r.forget(c.path)
+}
+
+// CloseChunk closes the chunk's file handle and drops it from the cache. The
+// chunk stays in the list.
+func (r *chunkReader) CloseChunk(c *chunk) {
 	_ = c.Close()
 	r.m.Lock()
 	delete(r.chunks, c.path)
 	r.m.Unlock()
-	r.forget(c.path)
 }
 
 func (r *chunkReader) RemoveChunk(c *chunk) (bool, error) {

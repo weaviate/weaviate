@@ -1701,3 +1701,76 @@ func TestDequeueBatchIOErrorKeepsChunk(t *testing.T) {
 	}
 	require.Zero(t, q.Size())
 }
+
+// A corrupt chunk that cannot be quarantined, e.g. because its directory is
+// read-only, must stay in the queue and be quarantined once that succeeds.
+func TestDequeueBatchQuarantineFailureKeepsChunk(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("file permissions do not apply to root")
+	}
+
+	tests := []struct {
+		name    string
+		corrupt func(t *testing.T, path string)
+	}{
+		{
+			name: "corrupt header",
+			corrupt: func(t *testing.T, path string) {
+				patchFile(t, path, 0, bytes.Repeat([]byte{'X'}, len(magicHeader)))
+			},
+		},
+		{
+			name: "torn before first record",
+			corrupt: func(t *testing.T, path string) {
+				require.NoError(t, os.Truncate(path, int64(chunkHeaderSize)+1))
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// not started: the test dequeues itself
+			s := makeScheduler(t)
+			dir := t.TempDir()
+
+			q := makeQueueWith(t, s, discardExecutor(), 0, dir)
+			pushMany(t, q, 1, 1, 2)
+			sealChunk(t, q)
+			pushMany(t, q, 1, 3, 4)
+			sealChunk(t, q)
+			require.NoError(t, q.Close(t.Context()))
+
+			// reopen, so the chunks are read from their path
+			q = makeQueueWith(t, s, discardExecutor(), 0, dir)
+			defer q.Close(t.Context())
+
+			entries, err := os.ReadDir(dir)
+			require.NoError(t, err)
+			first := filepath.Join(dir, entries[0].Name())
+			test.corrupt(t, first)
+
+			require.NoError(t, os.Chmod(dir, 0o555))
+			t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+			_, err = q.DequeueBatch()
+			require.ErrorIs(t, err, os.ErrPermission)
+			require.EqualValues(t, 4, q.Size())
+
+			require.NoError(t, os.Chmod(dir, 0o755))
+			// a chunk with nothing to salvage is quarantined without a batch
+			b, err := q.DequeueBatch()
+			require.NoError(t, err)
+			if b == nil {
+				b, err = q.DequeueBatch()
+				require.NoError(t, err)
+			}
+			require.NotNil(t, b)
+			require.EqualValues(t, 3, b.Tasks[0].Key())
+			b.Done()
+			require.Zero(t, q.Size())
+
+			_, err = os.Stat(first + ".corrupt")
+			require.NoError(t, err)
+		})
+	}
+}
