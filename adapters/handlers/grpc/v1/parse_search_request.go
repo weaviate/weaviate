@@ -37,6 +37,7 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/byteops"
 	additional2 "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/decide"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearAudio"
@@ -46,6 +47,7 @@ import (
 	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearThermal"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearVideo"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -387,6 +389,20 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		out.AdditionalProperties.ModuleParams["rerank"] = extractRerank(req)
 	}
 
+	if req.Decide != nil {
+		if req.GroupBy != nil {
+			return dto.GetParams{}, errors.New("decide is not supported with group_by")
+		}
+		decisions, err := extractDecide(req.Decide)
+		if err != nil {
+			return dto.GetParams{}, err
+		}
+		if out.AdditionalProperties.ModuleParams == nil {
+			out.AdditionalProperties.ModuleParams = make(map[string]interface{})
+		}
+		out.AdditionalProperties.ModuleParams["decide"] = decisions
+	}
+
 	if req.Boost != nil {
 		boost, err := p.extractBoost(req.Boost, req.Collection, req.Tenant, p.namespacesEnabled)
 		if err != nil {
@@ -661,6 +677,38 @@ func extractSorting(sortIn []*pb.SortBy) []filters.Sort {
 		sortOut[i] = filters.Sort{Order: order, Path: sortIn[i].Path}
 	}
 	return sortOut
+}
+
+// extractDecide converts the questions of the request. A question without
+// a kind and the checks of decide.Params fail the request before it runs.
+func extractDecide(decisions *pb.Decisions) (*decide.Params, error) {
+	params := &decide.Params{Questions: make([]ent.DecisionQuestion, len(decisions.Questions))}
+	for i, q := range decisions.Questions {
+		question := ent.DecisionQuestion{Name: q.Name, Property: q.Property, Instructions: q.Instructions}
+		switch kind := q.Kind.(type) {
+		case *pb.DecisionQuestion_Predicate:
+			question.Kind = ent.DecisionPredicate
+		case *pb.DecisionQuestion_Choice:
+			question.Kind = ent.DecisionChoice
+			question.Options = make([]ent.DecisionOption, len(kind.Choice.Options))
+			for j, option := range kind.Choice.Options {
+				question.Options[j] = ent.DecisionOption{Value: option.Value, Description: option.GetDescription()}
+			}
+		case *pb.DecisionQuestion_Score:
+			question.Kind = ent.DecisionScore
+			question.Levels = make([]ent.DecisionLevel, len(kind.Score.Levels))
+			for j, level := range kind.Score.Levels {
+				question.Levels[j] = ent.DecisionLevel{Label: level.Label, Description: level.GetDescription()}
+			}
+		default:
+			return nil, fmt.Errorf("decide: question %q has no kind", q.Name)
+		}
+		params.Questions[i] = question
+	}
+	if err := params.Validate(); err != nil {
+		return nil, fmt.Errorf("decide: %w", err)
+	}
+	return params, nil
 }
 
 func extractRerank(req *pb.SearchRequest) *rank.Params {

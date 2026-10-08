@@ -243,6 +243,12 @@ func (f *fakeRanker) Rank(ctx context.Context, query string, documents []string,
 	return out, nil
 }
 
+func (f *fakeRanker) Decide(ctx context.Context, questions []ent.DecisionQuestion, documents []string,
+	cfg moduletools.ClassConfig,
+) ([][]ent.DecisionAnswer, error) {
+	return nil, nil
+}
+
 func (f *fakeRanker) MetaInfo() (map[string]any, error) {
 	return nil, nil
 }
@@ -304,4 +310,20 @@ func TestRerankRejectsOtherParams(t *testing.T) {
 	_, err := fn(context.Background(), results([]string{"a"}), "not rank params", nil, nil, classConfig(nil))
 
 	require.ErrorContains(t, err, "wrong parameters")
+}
+
+// The module serves rerank and decide, both on the Get and the List search.
+func TestModuleServesRerankAndDecide(t *testing.T) {
+	properties := newTestModule(&fakeRanker{}).AdditionalProperties()
+
+	require.Len(t, properties, 2)
+	for _, name := range []string{"rerank", "decide"} {
+		property, ok := properties[name]
+		require.True(t, ok, name)
+		assert.NotNil(t, property.SearchFunctions.ExploreGet, name)
+		assert.NotNil(t, property.SearchFunctions.ExploreList, name)
+	}
+	// decide has no GraphQL field: it is served through gRPC only.
+	assert.Nil(t, properties["decide"].GraphQLFieldFunction)
+	assert.NotNil(t, properties["rerank"].GraphQLFieldFunction)
 }

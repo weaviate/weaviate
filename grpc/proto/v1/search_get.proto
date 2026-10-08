@@ -5,6 +5,7 @@ package weaviate.v1;
 import "v1/base.proto";
 import "v1/base_search.proto";
 import "v1/generative.proto";
+import "v1/decisions.proto";
 import "v1/properties.proto";
 
 option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
@@ -48,6 +49,7 @@ message SearchRequest {
 
   optional GenerativeSearch generative = 60;
   optional Rerank rerank = 61;
+  optional Decisions decide = 63;
 
   optional Boost boost = 62;
 
@@ -165,6 +167,7 @@ message SearchResult {
   PropertiesResult properties = 1;
   MetadataResult metadata = 2;
   optional GenerativeResult generative = 3;
+  optional DecisionResult decisions = 4;
 }
 
 

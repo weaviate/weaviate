@@ -38,6 +38,7 @@ const (
 const (
 	AdditionalPropertyGenerate = additional.PropertyGenerate
 	AdditionalPropertyRerank   = additional.PropertyRerank
+	AdditionalPropertyDecide   = additional.PropertyDecide
 )
 
 func GetGenericArgument(name, className string, argumentType ArgumentType,
