@@ -44,8 +44,7 @@ type RemoteIncomingRepo interface {
 
 type RemoteIncomingSchema interface {
 	ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64) (*models.Class, error)
-	// FSMAppliedIndex is the log index this node's schema FSM has applied, read without waiting.
-	// Not raft's applied index, which runs ahead. 0 means it could not be read.
+	// FSMAppliedIndex is the index the FSM has applied, not raft's. 0 if unreadable.
 	FSMAppliedIndex() uint64
 }
 

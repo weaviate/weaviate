@@ -27,9 +27,8 @@ import (
 type VersionedSchemaReader struct { // TODO TEST
 	schema        *schema
 	WaitForUpdate func(ctx context.Context, version uint64) error
-	// FSMAppliedIndex reads the log index this FSM has applied, without waiting. Distinct from
-	// raft's own applied index, which also counts config changes and election no-ops. Nil when
-	// the caller has no way to read it.
+	// FSMAppliedIndex reads the index the FSM has applied, without waiting -- not raft's, which
+	// advances on hand-off to the FSM goroutine. Nil when the caller cannot read it.
 	FSMAppliedIndex func() uint64
 }
 

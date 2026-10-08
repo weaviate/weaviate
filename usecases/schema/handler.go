@@ -113,8 +113,7 @@ type SchemaReader interface {
 	// WaitForUpdate ensures that the local schema has caught up to version.
 	WaitForUpdate(ctx context.Context, version uint64) error
 
-	// FSMAppliedIndex is the log index this node's schema FSM has applied, read without waiting.
-	// Not raft's applied index, which runs ahead. 0 means it could not be read.
+	// FSMAppliedIndex is the index the FSM has applied, not raft's. 0 if unreadable.
 	FSMAppliedIndex() uint64
 
 	// These schema reads function reads the metadata immediately present in the local schema and can be eventually

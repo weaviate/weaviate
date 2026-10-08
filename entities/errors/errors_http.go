@@ -75,9 +75,8 @@ func IsSchemaLag(err error) bool {
 	return errors.As(err, &missingIndex) || errors.As(err, &missingShard)
 }
 
-// NotServedHere reports whether err is the [ErrNotServedHere] condition. appliedIndex is the
-// comparator rather than the local class version, because it only advances once an entry's store
-// side has run. wantVersion 0 is a sender too old to carry one, so lag cannot be ruled out.
+// NotServedHere reports whether err is the [ErrNotServedHere] condition. appliedIndex must be
+// the FSM's, the counter WaitForAppliedIndex compares. wantVersion 0 is a sender too old.
 func NotServedHere(err error, wantVersion, appliedIndex uint64) bool {
 	return wantVersion > 0 && appliedIndex >= wantVersion && IsSchemaLag(err)
 }

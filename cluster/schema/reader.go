@@ -75,9 +75,7 @@ func (rs SchemaReader) ClassVersion(class string) uint64 {
 	return max(info.ClassVersion, info.ShardVersion)
 }
 
-// FSMAppliedIndex is the log index this node's schema FSM has applied, or 0 when the caller
-// wired no way to read it. Not raft's applied index, which runs ahead of this one by the config
-// changes and election no-ops that never reach the FSM. It does not wait.
+// FSMAppliedIndex is 0 when nothing was wired. See [VersionedSchemaReader.FSMAppliedIndex].
 func (rs SchemaReader) FSMAppliedIndex() uint64 {
 	if rs.versionedSchemaReader.FSMAppliedIndex == nil {
 		return 0
