@@ -455,7 +455,7 @@ func (q *DiskQueue) decodeChunk(c *chunk) (tasks []Task, corrupt error, err erro
 
 		// decode the task. The framing is intact, so a record that cannot
 		// be decoded is skipped and the following ones are still read.
-		t, err := q.taskDecoder.DecodeTask(buf)
+		t, err := q.decodeTask(buf)
 		if err != nil {
 			undecodable++
 			decodeErr = err
@@ -471,6 +471,18 @@ func (q *DiskQueue) decodeChunk(c *chunk) (tasks []Task, corrupt error, err erro
 	}
 
 	return tasks, corrupt, nil
+}
+
+// decodeTask decodes a record. A decoder may panic on a malformed record:
+// that is a decoding error too, or the chunk would fail on every read.
+func (q *DiskQueue) decodeTask(data []byte) (t Task, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = errors.Errorf("panic while decoding task: %v", r)
+		}
+	}()
+
+	return q.taskDecoder.DecodeTask(data)
 }
 
 func (q *DiskQueue) checkIfStale() (*chunk, error) {
