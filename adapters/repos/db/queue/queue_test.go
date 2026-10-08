@@ -16,10 +16,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"math"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"testing"
 	"time"
@@ -1489,4 +1491,44 @@ func sealChunk(t *testing.T, q *DiskQueue) {
 	q.m.Lock()
 	defer q.m.Unlock()
 	require.NoError(t, q.w.Promote())
+}
+
+// A chunk that fails to open must not leave its file open.
+func TestChunkOpenFailureClosesFile(t *testing.T) {
+	writeBadHeader := func(t *testing.T) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), fmt.Sprintf(chunkFileFmt, 1))
+		require.NoError(t, os.WriteFile(path, bytes.Repeat([]byte{0xff}, 2*chunkHeaderSize), 0o644))
+		return path
+	}
+
+	t.Run("cached file", func(t *testing.T) {
+		f, err := os.Open(writeBadHeader(t))
+		require.NoError(t, err)
+
+		_, err = chunkFromFile(f)
+		require.Error(t, err)
+		_, err = f.Stat()
+		require.ErrorIs(t, err, os.ErrClosed)
+	})
+
+	t.Run("file opened by path", func(t *testing.T) {
+		path := writeBadHeader(t)
+		// a leaked file is only closed when garbage collected
+		defer debug.SetGCPercent(debug.SetGCPercent(-1))
+		// new files get the lowest free descriptor, so leaked ones push it up
+		nextFd := func() uintptr {
+			f, err := os.Open(path)
+			require.NoError(t, err)
+			defer f.Close()
+			return f.Fd()
+		}
+
+		before := nextFd()
+		for range 50 {
+			_, err := openChunk(path)
+			require.Error(t, err)
+		}
+		require.Less(t, nextFd()-before, uintptr(25), "failed opens leave their file open")
+	})
 }

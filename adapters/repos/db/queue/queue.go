@@ -912,8 +912,7 @@ type chunk struct {
 	size  uint64
 }
 
-func openChunk(path string) (*chunk, error) {
-	var err error
+func openChunk(path string) (_ *chunk, err error) {
 	c := chunk{
 		path: path,
 	}
@@ -922,6 +921,11 @@ func openChunk(path string) (*chunk, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if err != nil {
+			c.discard()
+		}
+	}()
 
 	stat, err := c.f.Stat()
 	if err != nil {
@@ -932,6 +936,7 @@ func openChunk(path string) (*chunk, error) {
 		// empty file
 		// remove it
 		err = c.f.Close()
+		c.f = nil
 		if err != nil {
 			return nil, err
 		}
@@ -957,12 +962,16 @@ func openChunk(path string) (*chunk, error) {
 	return &c, nil
 }
 
-func chunkFromFile(f *os.File) (*chunk, error) {
-	var err error
+func chunkFromFile(f *os.File) (_ *chunk, err error) {
 	c := chunk{
 		path: f.Name(),
 		f:    f,
 	}
+	defer func() {
+		if err != nil {
+			c.discard()
+		}
+	}()
 
 	_, err = f.Seek(0, 0)
 	if err != nil {
@@ -998,6 +1007,18 @@ func (c *chunk) Close() error {
 	readerPool.Put(c.r)
 	c.f = nil
 	return err
+}
+
+// discard releases the file and reader of a chunk that failed to open.
+func (c *chunk) discard() {
+	if c.f != nil {
+		_ = c.f.Close()
+		c.f = nil
+	}
+	if c.r != nil {
+		readerPool.Put(c.r)
+		c.r = nil
+	}
 }
 
 func readChunkHeader(r io.Reader) (uint64, error) {
