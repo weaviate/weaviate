@@ -1494,14 +1494,8 @@ func (i *indices) deleteAsyncReplicationTargetNode() http.Handler {
 // notCaughtUp reports whether err is this node lagging the schema rather than a fault: the class is
 // not here yet, or the version asked for has not been applied
 func notCaughtUp(err error) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, clusterTypes.ErrDeadlineExceeded) {
-		return true
-	}
 	var missing enterrors.ErrLocalIndexNotFound
-	return errors.As(err, &missing)
+	return errors.Is(err, clusterTypes.ErrDeadlineExceeded) || errors.As(err, &missing)
 }
 
 // unprocessableStatus answers 503 for a class this node does not hold yet: 422 reads as the
