@@ -19,26 +19,21 @@ import (
 )
 
 type Metrics struct {
-	enabled                       bool
-	tombstones                    prometheus.Gauge
-	threads                       prometheus.Gauge
-	insert                        prometheus.Gauge
-	insertTime                    prometheus.ObserverVec
-	delete                        prometheus.Gauge
-	deleteTime                    prometheus.ObserverVec
-	cleaned                       prometheus.Counter
-	size                          prometheus.Gauge
-	grow                          prometheus.Observer
-	startupDurations              prometheus.ObserverVec
-	tombstoneReassignNeighbors    prometheus.Counter
-	tombstoneFindGlobalEntrypoint prometheus.Counter
-	tombstoneFindLocalEntrypoint  prometheus.Counter
-	tombstoneDeleteListSize       prometheus.Gauge
-	tombstoneUnexpected           prometheus.CounterVec
-	tombstoneStart                prometheus.Gauge
-	tombstoneEnd                  prometheus.Gauge
-	tombstoneProgress             prometheus.Gauge
-	memoryAllocationRejected      prometheus.Counter
+	enabled                    bool
+	tombstones                 prometheus.Gauge
+	insert                     prometheus.Gauge
+	insertTime                 prometheus.ObserverVec
+	delete                     prometheus.Gauge
+	deleteTime                 prometheus.ObserverVec
+	size                       prometheus.Gauge
+	grow                       prometheus.Observer
+	startupDurations           prometheus.ObserverVec
+	tombstoneReassignNeighbors prometheus.Counter
+	tombstoneDeleteListSize    prometheus.Gauge
+	tombstoneStart             prometheus.Gauge
+	tombstoneEnd               prometheus.Gauge
+	tombstoneProgress          prometheus.Gauge
+	memoryAllocationRejected   prometheus.Counter
 }
 
 func newMetrics(prom *monitoring.PrometheusMetrics,
@@ -66,8 +61,6 @@ func newMetrics(prom *monitoring.PrometheusMetrics,
 	}
 
 	tombstones := prom.VectorIndexTombstones.With(baseLabels)
-	threads := prom.VectorIndexTombstoneCleanupThreads.With(baseLabels)
-	cleaned := prom.VectorIndexTombstoneCleanedCount.With(baseLabels)
 
 	// In HFresh mode, these metrics are reported by HFresh itself at the
 	// vector level. Registering them here would double-count because
@@ -90,37 +83,29 @@ func newMetrics(prom *monitoring.PrometheusMetrics,
 	startupDurations := prom.StartupDurations.MustCurryWith(baseLabels)
 
 	tombstoneReassignNeighbors := prom.TombstoneReassignNeighbors.With(baseLabels)
-	tombstoneUnexpected := prom.VectorIndexTombstoneUnexpected.MustCurryWith(baseLabels)
 	tombstoneStart := prom.VectorIndexTombstoneCycleStart.With(baseLabels)
 	tombstoneEnd := prom.VectorIndexTombstoneCycleEnd.With(baseLabels)
 	tombstoneProgress := prom.VectorIndexTombstoneCycleProgress.With(baseLabels)
-	tombstoneFindGlobalEntrypoint := prom.TombstoneFindGlobalEntrypoint.With(baseLabels)
-	tombstoneFindLocalEntrypoint := prom.TombstoneFindLocalEntrypoint.With(baseLabels)
 	tombstoneDeleteListSize := prom.TombstoneDeleteListSize.With(baseLabels)
 
 	memoryAllocationRejected := prom.VectorIndexMemoryAllocationRejected
 
 	return &Metrics{
-		enabled:                       true,
-		tombstones:                    tombstones,
-		threads:                       threads,
-		cleaned:                       cleaned,
-		insert:                        insert,
-		insertTime:                    insertTime,
-		delete:                        del,
-		deleteTime:                    deleteTime,
-		size:                          size,
-		grow:                          grow,
-		startupDurations:              startupDurations,
-		tombstoneReassignNeighbors:    tombstoneReassignNeighbors,
-		tombstoneFindGlobalEntrypoint: tombstoneFindGlobalEntrypoint,
-		tombstoneFindLocalEntrypoint:  tombstoneFindLocalEntrypoint,
-		tombstoneDeleteListSize:       tombstoneDeleteListSize,
-		tombstoneUnexpected:           *tombstoneUnexpected,
-		tombstoneStart:                tombstoneStart,
-		tombstoneEnd:                  tombstoneEnd,
-		tombstoneProgress:             tombstoneProgress,
-		memoryAllocationRejected:      memoryAllocationRejected,
+		enabled:                    true,
+		tombstones:                 tombstones,
+		insert:                     insert,
+		insertTime:                 insertTime,
+		delete:                     del,
+		deleteTime:                 deleteTime,
+		size:                       size,
+		grow:                       grow,
+		startupDurations:           startupDurations,
+		tombstoneReassignNeighbors: tombstoneReassignNeighbors,
+		tombstoneDeleteListSize:    tombstoneDeleteListSize,
+		tombstoneStart:             tombstoneStart,
+		tombstoneEnd:               tombstoneEnd,
+		tombstoneProgress:          tombstoneProgress,
+		memoryAllocationRejected:   memoryAllocationRejected,
 	}
 }
 
@@ -130,22 +115,6 @@ func (m *Metrics) TombstoneReassignNeighbor() {
 	}
 
 	m.tombstoneReassignNeighbors.Inc()
-}
-
-func (m *Metrics) TombstoneFindGlobalEntrypoint() {
-	if !m.enabled {
-		return
-	}
-
-	m.tombstoneFindGlobalEntrypoint.Inc()
-}
-
-func (m *Metrics) TombstoneFindLocalEntrypoint() {
-	if !m.enabled {
-		return
-	}
-
-	m.tombstoneFindLocalEntrypoint.Inc()
 }
 
 func (m *Metrics) SetTombstoneDeleteListSize(size int) {
@@ -170,14 +139,6 @@ func (m *Metrics) SetTombstone(count int) {
 	}
 
 	m.tombstones.Set(float64(count))
-}
-
-func (m *Metrics) AddUnexpectedTombstone(operation string) {
-	if !m.enabled {
-		return
-	}
-
-	m.tombstoneUnexpected.With(prometheus.Labels{"operation": operation}).Inc()
 }
 
 func (m *Metrics) StartTombstoneCycle() {
@@ -212,30 +173,6 @@ func (m *Metrics) RemoveTombstone() {
 	}
 
 	m.tombstones.Dec()
-}
-
-func (m *Metrics) StartCleanup(threads int) {
-	if !m.enabled {
-		return
-	}
-
-	m.threads.Add(float64(threads))
-}
-
-func (m *Metrics) EndCleanup(threads int) {
-	if !m.enabled {
-		return
-	}
-
-	m.threads.Sub(float64(threads))
-}
-
-func (m *Metrics) CleanedUp() {
-	if !m.enabled {
-		return
-	}
-
-	m.cleaned.Inc()
 }
 
 func (m *Metrics) InsertVector() {
