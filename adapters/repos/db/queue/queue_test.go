@@ -1774,3 +1774,95 @@ func TestDequeueBatchQuarantineFailureKeepsChunk(t *testing.T) {
 		})
 	}
 }
+
+// A processed chunk that cannot be removed or quarantined, e.g. because its
+// directory is read-only, must stay counted until that succeeds, without its
+// records being processed again.
+func TestBatchDoneRemovalFailureKeepsChunk(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("file permissions do not apply to root")
+	}
+
+	tests := []struct {
+		name       string
+		corrupt    func(t *testing.T, path string)
+		keys       []uint64
+		quarantine bool
+	}{
+		{
+			name: "removal",
+			keys: []uint64{1, 2},
+		},
+		{
+			name: "quarantine",
+			corrupt: func(t *testing.T, path string) {
+				fi, err := os.Stat(path)
+				require.NoError(t, err)
+				require.NoError(t, os.Truncate(path, fi.Size()-2))
+			},
+			keys:       []uint64{1},
+			quarantine: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// not started: the test dequeues itself
+			s := makeScheduler(t)
+			dir := t.TempDir()
+
+			q := makeQueueWith(t, s, discardExecutor(), 0, dir)
+			pushMany(t, q, 1, 1, 2)
+			sealChunk(t, q)
+			pushMany(t, q, 1, 3, 4)
+			sealChunk(t, q)
+			require.NoError(t, q.Close(t.Context()))
+
+			entries, err := os.ReadDir(dir)
+			require.NoError(t, err)
+			first := filepath.Join(dir, entries[0].Name())
+			if test.corrupt != nil {
+				test.corrupt(t, first)
+			}
+
+			// reopen, so the chunks are read from their path
+			q = makeQueueWith(t, s, discardExecutor(), 0, dir)
+			defer q.Close(t.Context())
+
+			b, err := q.DequeueBatch()
+			require.NoError(t, err)
+			var keys []uint64
+			for _, task := range b.Tasks {
+				keys = append(keys, task.Key())
+			}
+			require.Equal(t, test.keys, keys)
+
+			require.NoError(t, os.Chmod(dir, 0o555))
+			t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+			b.Done()
+			require.EqualValues(t, 4, q.Size())
+
+			// the processed chunk is not read again while it cannot be removed
+			_, err = q.DequeueBatch()
+			require.ErrorIs(t, err, os.ErrPermission)
+			require.EqualValues(t, 4, q.Size())
+
+			require.NoError(t, os.Chmod(dir, 0o755))
+			b, err = q.DequeueBatch()
+			require.NoError(t, err)
+			require.NotNil(t, b)
+			require.EqualValues(t, 3, b.Tasks[0].Key())
+			b.Done()
+			require.Zero(t, q.Size())
+
+			_, err = os.Stat(first)
+			require.ErrorIs(t, err, os.ErrNotExist)
+			_, err = os.Stat(first + ".corrupt")
+			if test.quarantine {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, os.ErrNotExist)
+			}
+		})
+	}
+}
