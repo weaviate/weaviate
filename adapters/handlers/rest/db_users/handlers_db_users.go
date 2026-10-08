@@ -975,6 +975,10 @@ func (h *dynUserHandler) importOneUser(ctx context.Context, targetNamespace stri
 		if errors.Is(err, apikey.ErrUserExists) {
 			return errResult("a different credential already exists for this user id")
 		}
+		// CreateUser refuses a namespace that stopped being active after importUsers' pre-check.
+		if msg, ok := namespaces.PublicMessage(err, h.namespaceSuspendedMessage); ok {
+			return errResult(msg)
+		}
 		return errResult(fmt.Sprintf("creating user: %v", err))
 	}
 
