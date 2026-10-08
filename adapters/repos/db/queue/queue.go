@@ -563,6 +563,9 @@ func (q *DiskQueue) readChunk() (*chunk, error) {
 	}
 }
 
+// isCorruptHeader reports whether a chunk's header became unreadable after
+// startup. Unlike at startup, an unknown version is corruption here: this
+// binary already read the header or wrote it.
 func isCorruptHeader(err error) bool {
 	return stderrors.Is(err, errBadMagic) ||
 		stderrors.Is(err, errUnknownVersion) ||
