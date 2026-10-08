@@ -52,6 +52,11 @@ jobs:
           # ignore-error=true prevents the build from failing if the cache export flakes.
           cache-to: |
             type=gha,scope=weaviate-multi,mode=max,ignore-error=true
+          # Rebuild the final stage on every run. Its `apk upgrade` cache key covers the
+          # base image and the Dockerfile line, not Alpine's package index, so a cached
+          # layer keeps serving packages Alpine has since fixed. push_docker.sh then
+          # reuses the freshly built, scanned layer from this builder's local cache.
+          no-cache-filters: weaviate
           build-args: |
             CGO_ENABLED=0
             GIT_REVISION=${{ github.sha }}
@@ -197,6 +202,8 @@ jobs:
           load: true
           cache-from: |
             type=gha,scope=weaviate-multi
+          # Scan a fresh `apk upgrade` layer, not main's cached one (see Multi-Arch-Docker-Build).
+          no-cache-filters: weaviate
           build-args: |
             CGO_ENABLED=0
 
