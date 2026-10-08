@@ -79,8 +79,6 @@ This document is the single source of truth for Prometheus metrics exposed by We
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|
 | `vector_index_tombstones` | Number of active vector index tombstones | `Gauge` | `class_name, shard_name` | ❌ High 
-| `vector_index_tombstone_cleaned` | Total number of deleted objects that have been cleaned up | `Counter` | `class_name, shard_name` | ❌ High 
-| `vector_index_tombstone_unexpected_total` | Total number of unexpected tombstones found | `Counter` | `class_name, operation, shard_name` | ❌ High 
 | `vector_index_operations` | Total number of mutating operations on the vector index | `Gauge` | `class_name, operation, shard_name` | ❌ High 
 | `vector_index_size` | The size of the vector index | `Gauge` | `class_name, shard_name` | ❌ High 
 | `vector_segments_sum` | Total segments in a shard if quantization enabled | `Gauge` | `class_name, collection_namespace, shard_name` | ❌ High 
@@ -99,12 +97,6 @@ This document is the single source of truth for Prometheus metrics exposed by We
 Notes:
 - The three `weaviate_*` series above carry no labels: five series per node whatever the node holds. The two summaries are cumulative over every shard open since the process started, at boot and afterwards alike (tenant activation, replica movement), so for the boot figure read them when `weaviate_startup_duration_seconds` first turns non-zero, or over the boot's time window.
 - Average restore or prefill: `sum(weaviate_vector_index_restore_duration_seconds_sum) / sum(weaviate_vector_index_restore_duration_seconds_count)`, and the same for the prefill summary. Time to ready per node: `max by (instance) (weaviate_startup_duration_seconds)`.
-
-#### Tombstone Metrics
-| Name | Description | Type | Labels | High Cardinality |
-|---|---|---|---|---|
-| `tombstone_find_local_entrypoint` | Total number of tombstone delete local entrypoint calls | `Counter` | `class_name, shard_name` | ❌ High 
-| `tombstone_find_global_entrypoint` | Total number of tombstone delete global entrypoint calls | `Counter` | `class_name, shard_name` | ❌ High 
 
 #### Text-to-Vector (T2V) Metrics
 | Name | Description | Type | Labels | High Cardinality |
@@ -422,7 +414,6 @@ namespace on a namespaces cluster.
 |---|---|---|---|---|
 | `vector_index_queue_insert_count` | Number of insert operations added to the vector index queue | `Counter` | `class_name, shard_name, target_vector` | ❌ High 
 | `vector_index_queue_delete_count` | Number of delete operations added to the vector index queue | `Counter` | `class_name, shard_name, target_vector` | ❌ High 
-| `vector_index_tombstone_cleanup_threads` | Number of threads in use to clean up tombstones | `Gauge` | `class_name, shard_name` | ❌ High 
 | `vector_index_tombstone_cycle_start_timestamp_seconds` | Unix epoch timestamp of the start of the current tombstone cleanup cycle | `Gauge` | `class_name, shard_name` | ❌ High 
 
 #### Startup Metrics
@@ -502,3 +493,8 @@ namespace on a namespaces cluster.
 | Name | Description | Type | Labels | Reason | Removed In |
 |---|---|---|---|---|---|
 | `lsm_bloom_filters_duration_ms` | Duration of bloom filter operations | `Summary` | `class_name, operation, shard_name, strategy` | Removed due to high CPU cost and synchronization on hot path during segment reads; no demonstrated value | v1.31 ([PR #9057](https://github.com/weaviate/weaviate/pull/9057)) |
+| `tombstone_find_local_entrypoint` | Total number of tombstone delete local entrypoint calls | `Counter` | `class_name, shard_name` | Removed to cut per-shard series volume; tombstone cleanup is still observable through `vector_index_tombstones` and the `vector_index_tombstone_cycle_*` gauges | v1.39.11 ([PR #13474](https://github.com/weaviate/weaviate/pull/13474)) |
+| `tombstone_find_global_entrypoint` | Total number of tombstone delete global entrypoint calls | `Counter` | `class_name, shard_name` | Removed to cut per-shard series volume; tombstone cleanup is still observable through `vector_index_tombstones` and the `vector_index_tombstone_cycle_*` gauges | v1.39.11 ([PR #13474](https://github.com/weaviate/weaviate/pull/13474)) |
+| `vector_index_tombstone_cleaned` | Total number of deleted objects that have been cleaned up | `Counter` | `class_name, shard_name` | Removed to cut per-shard series volume; tombstone cleanup is still observable through `vector_index_tombstones` and the `vector_index_tombstone_cycle_*` gauges | v1.39.11 ([PR #13474](https://github.com/weaviate/weaviate/pull/13474)) |
+| `vector_index_tombstone_cleanup_threads` | Number of threads in use to clean up tombstones | `Gauge` | `class_name, shard_name` | Removed to cut per-shard series volume; tombstone cleanup is still observable through `vector_index_tombstones` and the `vector_index_tombstone_cycle_*` gauges | v1.39.11 ([PR #13474](https://github.com/weaviate/weaviate/pull/13474)) |
+| `vector_index_tombstone_unexpected_total` | Total number of unexpected tombstones found | `Counter` | `class_name, operation, shard_name` | Removed to cut per-shard series volume; tombstone cleanup is still observable through `vector_index_tombstones` and the `vector_index_tombstone_cycle_*` gauges | v1.39.11 ([PR #13474](https://github.com/weaviate/weaviate/pull/13474)) |
