@@ -13,6 +13,7 @@ package moddecisionsopenai
 
 import (
 	"context"
+	"maps"
 	"os"
 	"strconv"
 	"time"
@@ -34,12 +35,14 @@ func New() *DecisionsOpenAIModule {
 }
 
 type DecisionsOpenAIModule struct {
-	reranker                     DecisionsOpenAIClient
-	additionalPropertiesProvider modulecapabilities.AdditionalProperties
+	reranker             DecisionsOpenAIClient
+	additionalProperties map[string]modulecapabilities.AdditionalProperty
 }
 
 type DecisionsOpenAIClient interface {
 	Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
+	Decide(ctx context.Context, questions []ent.DecisionQuestion, documents []string,
+		cfg moduletools.ClassConfig) ([][]ent.DecisionAnswer, error)
 	MetaInfo() (map[string]any, error)
 }
 
@@ -70,7 +73,8 @@ func (m *DecisionsOpenAIModule) initAdditional(ctx context.Context, timeout time
 		return err
 	}
 	m.reranker = clients.New(apiKey, timeout, maxConcurrentRequests, logger)
-	m.additionalPropertiesProvider = rerankeradditional.NewRankerProvider(m.reranker)
+	m.additionalProperties = rerankeradditional.NewRankerProvider(m.reranker).AdditionalProperties()
+	maps.Copy(m.additionalProperties, rerankeradditional.NewDecideProvider(m.reranker).AdditionalProperties())
 	return nil
 }
 
@@ -96,7 +100,7 @@ func (m *DecisionsOpenAIModule) MetaInfo() (map[string]any, error) {
 }
 
 func (m *DecisionsOpenAIModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
-	return m.additionalPropertiesProvider.AdditionalProperties()
+	return m.additionalProperties
 }
 
 // verify we implement the modules.Module interface
