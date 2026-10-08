@@ -228,8 +228,10 @@ func TestQueueDecodeTask(t *testing.T) {
 		}
 
 		require.Equal(t, int64(6), q.Size())
+		batch.Done()
+		require.Equal(t, int64(3), q.Size())
 
-		// decoding more tasks should return nil
+		// the remaining tasks are in the partial chunk, which is not read
 		batch, err = q.DequeueBatch()
 		require.NoError(t, err)
 		require.Nil(t, batch)
@@ -377,8 +379,10 @@ func TestQueueDecodeTask(t *testing.T) {
 		}
 
 		require.Equal(t, int64(6), q.Size())
+		batch.Done()
+		require.Equal(t, int64(3), q.Size())
 
-		// decoding more tasks should return nil
+		// the remaining tasks are in the partial chunk, which is not read
 		batch, err = q.DequeueBatch()
 		require.NoError(t, err)
 		require.Nil(t, batch)
@@ -927,6 +931,13 @@ func TestDequeueBatchTornChunk(t *testing.T) {
 			} else {
 				require.NotNil(t, batch)
 				require.Len(t, batch.Tasks, test.tasks)
+
+				// a canceled batch is replayed, salvaged records included
+				batch.Cancel()
+				batch, err = q.DequeueBatch()
+				require.NoError(t, err)
+				require.NotNil(t, batch)
+				require.Len(t, batch.Tasks, test.tasks)
 				batch.Done()
 			}
 
@@ -1467,4 +1478,78 @@ func TestChunkSizeChangeAcrossRestart(t *testing.T) {
 		require.Equal(t, 1, seen[id], "record %d must drain exactly once", id)
 	}
 	require.EqualValues(t, 0, newQ.Size())
+}
+
+// A canceled batch is replayed: its chunk must be read again, before any
+// newer chunk.
+func TestDiskQueueCanceledBatchIsReadAgain(t *testing.T) {
+	keys := func(t *testing.T, b *Batch) []uint64 {
+		t.Helper()
+		require.NotNil(t, b)
+		var res []uint64
+		for _, task := range b.Tasks {
+			res = append(res, task.Key())
+		}
+		return res
+	}
+
+	tests := []struct {
+		name    string
+		cancels int
+	}{
+		{name: "once", cancels: 1},
+		// a chunk failing on every turn must not grow the reader's list
+		{name: "repeatedly", cancels: 1000},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			s := makeScheduler(t)
+			s.Start()
+			defer s.Close(t.Context())
+
+			q := makeQueue(t, s, discardExecutor())
+			defer q.Close(t.Context())
+			require.NoError(t, q.Pause(t.Context()))
+
+			pushMany(t, q, 1, 1, 2)
+			sealChunk(t, q)
+			pushMany(t, q, 1, 3, 4)
+			sealChunk(t, q)
+
+			for range test.cancels {
+				b, err := q.DequeueBatch()
+				require.NoError(t, err)
+				require.Equal(t, []uint64{1, 2}, keys(t, b))
+				b.Cancel()
+			}
+			require.Len(t, q.r.chunkList, 2)
+			require.EqualValues(t, 4, q.Size())
+
+			for _, want := range [][]uint64{{1, 2}, {3, 4}} {
+				b, err := q.DequeueBatch()
+				require.NoError(t, err)
+				require.Equal(t, want, keys(t, b))
+				b.Done()
+			}
+
+			b, err := q.DequeueBatch()
+			require.NoError(t, err)
+			require.Nil(t, b)
+			require.Zero(t, q.Size())
+			require.Empty(t, q.r.chunkList)
+
+			entries, err := os.ReadDir(q.dir)
+			require.NoError(t, err)
+			require.Empty(t, entries)
+		})
+	}
+}
+
+func sealChunk(t *testing.T, q *DiskQueue) {
+	t.Helper()
+
+	q.m.Lock()
+	defer q.m.Unlock()
+	require.NoError(t, q.w.Promote())
 }
