@@ -536,12 +536,13 @@ func (q *DiskQueue) readChunk() (*chunk, error) {
 				return nil, err
 			}
 		case stderrors.Is(err, fs.ErrNotExist):
-			q.dropChunk(ref, "chunk file is missing")
+			q.dropMissingChunk(ref)
 		case stderrors.Is(err, errEmptyChunk):
-			if err := os.Remove(ref.path); err != nil && !stderrors.Is(err, fs.ErrNotExist) {
-				return nil, errors.Wrap(err, "failed to remove empty chunk")
+			err := q.removeChunk(ref.path)
+			if err != nil {
+				return nil, err
 			}
-			q.dropChunk(ref, "chunk file is empty")
+			q.Logger.WithField("file", ref.path).Errorf("chunk file is empty, its %d records are lost", ref.count)
 		case isCorruptHeader(err):
 			err := q.quarantineChunk(ref.path, err)
 			if err != nil {
@@ -560,13 +561,13 @@ func isCorruptHeader(err error) bool {
 		stderrors.Is(err, io.ErrUnexpectedEOF)
 }
 
-// dropChunk takes a chunk whose file is gone out of the queue.
-func (q *DiskQueue) dropChunk(ref chunkRef, reason string) {
+// dropMissingChunk takes a chunk whose file is gone out of the queue.
+func (q *DiskQueue) dropMissingChunk(ref chunkRef) {
 	q.rmLock.Lock()
 	defer q.rmLock.Unlock()
 
 	q.forgetChunk(ref.path)
-	q.Logger.WithField("file", ref.path).Errorf("%s, its %d records are lost", reason, ref.count)
+	q.Logger.WithField("file", ref.path).Errorf("chunk file is missing, its %d records are lost", ref.count)
 }
 
 func (q *DiskQueue) Size() int64 {
@@ -785,7 +786,12 @@ func (q *DiskQueue) quarantineChunk(path string, cause error) error {
 	// the chunk stays in the queue until it is renamed, so a failure is
 	// retried
 	quarantinePath := path + ".corrupt"
-	err := os.Rename(path, quarantinePath)
+	var err error
+	if q.maintenanceMode.Load() {
+		err = quarantineDuringBackup(path, quarantinePath)
+	} else {
+		err = os.Rename(path, quarantinePath)
+	}
 	if stderrors.Is(err, fs.ErrNotExist) {
 		q.forgetChunk(path)
 		q.Logger.WithField("file", path).Errorf("corrupt chunk file is missing, nothing to quarantine: %v", cause)
@@ -799,6 +805,26 @@ func (q *DiskQueue) quarantineChunk(path string, cause error) error {
 	q.Logger.WithField("file", quarantinePath).
 		Errorf("chunk is truncated or corrupt, quarantined it; its unreadable records are lost: %v", cause)
 	return nil
+}
+
+// quarantineDuringBackup quarantines a chunk that a backup may be copying:
+// the quarantined copy is a hard link, and the chunk itself is removed with
+// the processed ones once the backup completes.
+func quarantineDuringBackup(path, quarantinePath string) error {
+	// a leftover from an interrupted attempt
+	_ = os.Remove(quarantinePath)
+
+	err := os.Link(path, quarantinePath)
+	if err != nil {
+		return err
+	}
+
+	f, err := os.Create(path + ".processed")
+	if err != nil {
+		_ = os.Remove(quarantinePath)
+		return err
+	}
+	return f.Close()
 }
 
 // analyzeDisk is a slow method that determines the number of records

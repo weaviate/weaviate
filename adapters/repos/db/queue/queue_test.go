@@ -1984,3 +1984,84 @@ func TestDequeueBatchChunkTruncatedAtRecordBoundary(t *testing.T) {
 	defer q.m.RUnlock()
 	require.Zero(t, q.diskUsage)
 }
+
+// A backup copies the chunk files listed when it starts, while the queue keeps
+// processing: a chunk taken out of the queue during the backup must stay on
+// disk until the backup completes, even when it is quarantined.
+func TestChunkTakenOutDuringBackupStaysOnDisk(t *testing.T) {
+	tests := []struct {
+		name       string
+		damage     func(t *testing.T, path string)
+		quarantine bool
+	}{
+		{
+			name: "torn chunk",
+			damage: func(t *testing.T, path string) {
+				fi, err := os.Stat(path)
+				require.NoError(t, err)
+				require.NoError(t, os.Truncate(path, fi.Size()-2))
+			},
+			quarantine: true,
+		},
+		{
+			name: "empty chunk",
+			damage: func(t *testing.T, path string) {
+				require.NoError(t, os.Truncate(path, 0))
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// not started: the test dequeues itself
+			s := makeScheduler(t)
+			dir := t.TempDir()
+
+			q := makeQueueWith(t, s, discardExecutor(), 0, dir)
+			pushMany(t, q, 1, 1, 2)
+			sealChunk(t, q)
+			pushMany(t, q, 1, 3, 4)
+			sealChunk(t, q)
+			require.NoError(t, q.Close(t.Context()))
+
+			// reopen, so the chunks are read from their path
+			q = makeQueueWith(t, s, discardExecutor(), 0, dir)
+			defer q.Close(t.Context())
+
+			entries, err := os.ReadDir(dir)
+			require.NoError(t, err)
+			first := filepath.Join(dir, entries[0].Name())
+			test.damage(t, first)
+
+			q.EnableMaintenanceMode()
+			for {
+				b, err := q.DequeueBatch()
+				require.NoError(t, err)
+				if b == nil {
+					break
+				}
+				b.Done()
+			}
+			require.Zero(t, q.Size())
+
+			_, err = os.Stat(first)
+			require.NoError(t, err, "a backup may be copying the chunk")
+			_, err = os.Stat(first + ".corrupt")
+			if test.quarantine {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, os.ErrNotExist)
+			}
+
+			require.NoError(t, q.DisableMaintenanceMode())
+			_, err = os.Stat(first)
+			require.ErrorIs(t, err, os.ErrNotExist)
+			_, err = os.Stat(first + ".corrupt")
+			if test.quarantine {
+				require.NoError(t, err, "the quarantined chunk outlives the backup")
+			} else {
+				require.ErrorIs(t, err, os.ErrNotExist)
+			}
+		})
+	}
+}
