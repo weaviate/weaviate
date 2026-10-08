@@ -88,10 +88,14 @@ type UserLister interface {
 // name, custom and built-in, which is the list selectors match against.
 // BuiltInAssignments returns an RBAC snapshot of the admin and viewer
 // assignments the given qualified user ids hold, or nil when they hold none.
+// OIDCBuiltInAssignments returns an RBAC snapshot of the admin and viewer
+// assignments that OIDC users qualified with the given namespaces hold, or nil
+// when they hold none.
 // Nil when RBAC is disabled.
 type RoleLister interface {
 	ListAllRoles() ([]string, error)
 	BuiltInAssignments(userIDs ...string) ([]byte, error)
+	OIDCBuiltInAssignments(namespaces ...string) ([]byte, error)
 }
 
 // coordinator coordinates a distributed backup and restore operation (DBRO):

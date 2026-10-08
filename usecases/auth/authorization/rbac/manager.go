@@ -521,10 +521,9 @@ func (m *Manager) RevokeRolesForUser(userName string, roles ...string) error {
 // every restore, so carrying them would be discarded work.
 var apiManagedBuiltInRoles = []string{authorization.Admin, authorization.Viewer}
 
-// apiManagedBuiltInGroupings returns the admin and viewer assignments whose subject is
-// one of subjects. The match is on the full subject string, so "db:alice" never selects
-// "db:ns1:alice" or "oidc:alice".
-func (m *Manager) apiManagedBuiltInGroupings(subjects map[string]struct{}) ([][]string, error) {
+// apiManagedBuiltInGroupings returns the admin and viewer assignments whose subject
+// keep accepts. keep receives the full subject string, such as "db:ns1:alice".
+func (m *Manager) apiManagedBuiltInGroupings(keep func(subject string) bool) ([][]string, error) {
 	var out [][]string
 	for _, role := range apiManagedBuiltInRoles {
 		gs, err := m.casbin.GetFilteredNamedGroupingPolicy("g", 1, conv.PrefixRoleName(role))
@@ -535,7 +534,7 @@ func (m *Manager) apiManagedBuiltInGroupings(subjects map[string]struct{}) ([][]
 			if len(g) == 0 {
 				continue
 			}
-			if _, ok := subjects[g[0]]; ok {
+			if keep(g[0]) {
 				out = append(out, g)
 			}
 		}
@@ -560,7 +559,10 @@ func (m *Manager) BuiltInAssignments(userIDs ...string) ([]byte, error) {
 	for _, id := range userIDs {
 		subjects[conv.UserNameWithTypeFromId(id, authentication.AuthTypeDb)] = struct{}{}
 	}
-	groupingPolicy, err := m.apiManagedBuiltInGroupings(subjects)
+	groupingPolicy, err := m.apiManagedBuiltInGroupings(func(subject string) bool {
+		_, ok := subjects[subject]
+		return ok
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -578,14 +580,77 @@ func (m *Manager) BuiltInAssignments(userIDs ...string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// MergeSnapshots concatenates two snapshots' rows and unions their namespaces. An empty
-// side returns the other side unchanged. Overlapping sides produce duplicate rows (a
-// participant predating the user-keyed carry uploads namespace-wide built-in rows that
-// repeat carried ones); casbin's batch add skips repeated rows and the strip's collision
-// check counts source names, not rows, so duplicates are tolerated downstream. The
-// result keeps a's Version, so Restore still upgrades a V0 role blob. Callers pass a
-// [Manager.BuiltInAssignments] blob as b, and the V0 upgrade leaves its db-subject rows
-// unchanged.
+// OIDCBuiltInAssignments returns a snapshot holding only the admin and viewer
+// assignments of OIDC users qualified with one of the given namespaces, at
+// [SnapshotVersionLatest], with a namespace list naming those namespaces. A requested
+// name counts only when this cluster lists it as a namespace, so "urn" never selects
+// "oidc:urn:x". Group and db subjects are never selected. It returns nil when no
+// assignment matches.
+func (m *Manager) OIDCBuiltInAssignments(namespaces ...string) ([]byte, error) {
+	if m == nil || m.casbin == nil || m.namespaces == nil {
+		return nil, nil
+	}
+
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
+
+	requested := make(map[string]struct{}, len(namespaces))
+	for _, ns := range namespaces {
+		requested[ns] = struct{}{}
+	}
+	confirmed := map[string]struct{}{}
+	for _, ns := range m.namespaces.List() {
+		if _, ok := requested[ns.Name]; ok {
+			confirmed[ns.Name] = struct{}{}
+		}
+	}
+	if len(confirmed) == 0 {
+		return nil, nil
+	}
+
+	groupingPolicy, err := m.apiManagedBuiltInGroupings(func(subject string) bool {
+		_, authType, ns, err := conv.SubjectNamespace(subject)
+		if err != nil || authType != authentication.AuthTypeOIDC {
+			return false
+		}
+		_, ok := confirmed[ns]
+		return ok
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(groupingPolicy) == 0 {
+		return nil, nil
+	}
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(snapshot{
+		GroupingPolicy: groupingPolicy,
+		Version:        SnapshotVersionLatest,
+		Namespaces:     m.referencedNamespaces(nil, groupingPolicy),
+	}); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// MergeSnapshots concatenates two snapshots' rows. An empty side returns the other
+// side unchanged.
+//
+// The merged namespace list is the union of each side's effective set. A side with a
+// list contributes that list. A side without one contributes its role-name namespaces
+// (roleNameNamespaces) when the other side has a list, because a non-empty merged list
+// turns off the strip's role-name fallback for every row. When neither side has a
+// list, the merged list stays empty and the strip falls back over the merged rows. So
+// each side's rows strip under at least the set they would strip under alone.
+//
+// Overlapping sides produce duplicate rows (a participant predating the user-keyed
+// carry uploads namespace-wide built-in rows that repeat carried ones); casbin's batch
+// add skips repeated rows and the strip's collision check counts source names, not
+// rows, so duplicates are tolerated downstream. The result keeps a's Version, so
+// Restore still upgrades a V0 role blob. Callers pass the carried built-in assignments
+// ([Manager.BuiltInAssignments], [Manager.OIDCBuiltInAssignments]) as b, and the V0
+// upgrade leaves their db and oidc subject rows unchanged.
 func MergeSnapshots(a, b []byte) ([]byte, error) {
 	if len(b) == 0 {
 		return a, nil
@@ -602,7 +667,16 @@ func MergeSnapshots(a, b []byte) ([]byte, error) {
 		return nil, fmt.Errorf("merge snapshots: decode second: %w", err)
 	}
 
-	namespaces := slices.Concat(sa.Namespaces, sb.Namespaces)
+	effective := func(s, other snapshot) []string {
+		if len(s.Namespaces) > 0 {
+			return s.Namespaces
+		}
+		if len(other.Namespaces) > 0 {
+			return roleNameNamespaces(s)
+		}
+		return nil
+	}
+	namespaces := slices.Concat(effective(sa, sb), effective(sb, sa))
 	slices.Sort(namespaces)
 
 	var buf bytes.Buffer
@@ -694,7 +768,8 @@ type snapshot struct {
 // roles' rows: `p` rows are matched on p[0] and `g` rows on g[1], both of which
 // hold the role name, so the assignments and the db:wv_internal_empty placeholder
 // come along too. A selection carries no admin or viewer assignments;
-// [Manager.BuiltInAssignments] provides those for a chosen set of users.
+// [Manager.BuiltInAssignments] provides those for a chosen set of db users and
+// [Manager.OIDCBuiltInAssignments] for the OIDC users of chosen namespaces.
 func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
 	// snapshot isn't always initialized, e.g. when RBAC is disabled
 	if m == nil {

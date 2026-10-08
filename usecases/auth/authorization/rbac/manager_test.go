@@ -256,7 +256,8 @@ func TestSnapshotRolesFilter(t *testing.T) {
 
 // TestSnapshotBuiltInGrantScope covers the admin grants a snapshot carries once
 // namespaces are on. A role selection carries none, not even its own namespace's
-// admin. BuiltInAssignments carries those, per user.
+// admin. BuiltInAssignments carries those per db user, and OIDCBuiltInAssignments per
+// namespace.
 func TestSnapshotBuiltInGrantScope(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
@@ -273,6 +274,10 @@ func TestSnapshotBuiltInGrantScope(t *testing.T) {
 				conv.PrefixRoleName(authorization.Admin))
 			require.NoError(t, err)
 		}
+		_, err = m.casbin.AddRoleForUser(
+			conv.UserNameWithTypeFromId("ns1:someone", authentication.AuthTypeOIDC),
+			conv.PrefixRoleName(authorization.Admin))
+		require.NoError(t, err)
 		return m
 	}
 
@@ -306,7 +311,7 @@ func TestSnapshotBuiltInGrantScope(t *testing.T) {
 		// The no-args path must stay the verbatim store dump, so every admin is
 		// present exactly once.
 		assert.ElementsMatch(t,
-			[]string{"db:ns1:local-admin", "db:ns2:boss", "db:global-admin"},
+			[]string{"db:ns1:local-admin", "db:ns2:boss", "db:global-admin", "oidc:ns1:someone"},
 			grantedAdmins(t, blob))
 	})
 }
@@ -411,6 +416,83 @@ func TestBuiltInAssignments(t *testing.T) {
 	}
 }
 
+func TestOIDCBuiltInAssignments(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	admin := conv.PrefixRoleName(authorization.Admin)
+	oidc := func(id string) string { return conv.UserNameWithTypeFromId(id, authentication.AuthTypeOIDC) }
+
+	src, err := setupNSEnabledTestManager(t, logger, "ns1", "ns2", "ns3")
+	require.NoError(t, err)
+	for _, subject := range []string{
+		oidc("ns1:bob"),
+		oidc("ns10:x"),
+		oidc("ns2:dan"),
+		oidc("urn:x"),
+		conv.UserNameWithTypeFromId("ns1:alice", authentication.AuthTypeDb),
+		conv.PrefixGroupName("ns1:ops"),
+	} {
+		_, err := src.casbin.AddRoleForUser(subject, admin)
+		require.NoError(t, err)
+	}
+
+	tests := []struct {
+		name       string
+		namespaces []string
+		// want is the blob's grouping rows. A nil want means the blob must be nil.
+		want [][]string
+		// restoreAdmins, when set, restores the blob with a strip onto a namespaces-off
+		// manager and checks who holds admin there instead of checking want.
+		restoreAdmins []string
+	}{
+		{
+			name:       "a namespace carries only its own oidc users' grants",
+			namespaces: []string{"ns1"},
+			want:       [][]string{{"oidc:ns1:bob", admin}},
+		},
+		{
+			name:       "names the cluster does not list as namespaces carry nothing",
+			namespaces: []string{"urn", "ghost"},
+		},
+		{
+			name:       "a namespace with no oidc grants carries nothing",
+			namespaces: []string{"ns3"},
+		},
+		{
+			name:          "a carried grant restores stripped onto the unqualified oidc user",
+			namespaces:    []string{"ns1"},
+			restoreAdmins: []string{"oidc:bob"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			blob, err := src.OIDCBuiltInAssignments(tt.namespaces...)
+			require.NoError(t, err)
+
+			if tt.restoreAdmins != nil {
+				dst, err := setupTestManager(t, logger)
+				require.NoError(t, err)
+				require.NoError(t, dst.Restore(blob, true))
+				admins, err := dst.casbin.GetUsersForRole(admin)
+				require.NoError(t, err)
+				assert.ElementsMatch(t, tt.restoreAdmins, admins)
+				return
+			}
+
+			if tt.want == nil {
+				assert.Nil(t, blob)
+				return
+			}
+			var s snapshot
+			require.NoError(t, json.Unmarshal(blob, &s))
+			assert.ElementsMatch(t, tt.want, s.GroupingPolicy)
+			assert.Empty(t, s.Policy)
+			assert.Equal(t, SnapshotVersionLatest, s.Version)
+			assert.Equal(t, tt.namespaces, s.Namespaces)
+		})
+	}
+}
+
 // TestMergeSnapshots covers the merge of a role blob with a carried assignments blob
 // before one Restore applies both.
 func TestMergeSnapshots(t *testing.T) {
@@ -503,6 +585,34 @@ func TestMergeSnapshots(t *testing.T) {
 				hasLegacy, err := dst.casbin.HasRoleForUser("db:test-user", conv.PrefixRoleName("legacy"))
 				require.NoError(t, err)
 				assert.True(t, hasLegacy)
+			},
+		},
+		{
+			name: "a list-less role blob keeps its role-name namespaces next to a listed side",
+			a: encode(t, snapshot{
+				Policy:         [][]string{editorP},
+				GroupingPolicy: [][]string{{"oidc:ns1:carl", editor}},
+				Version:        SnapshotVersionLatest,
+			}),
+			// b has a role named for ns3, but b's Namespaces list leaves ns3 out.
+			// The fallback for a reads only a's rows. So ns3 stays out of the merged list.
+			b: encode(t, snapshot{
+				Policy:         [][]string{{conv.PrefixRoleName("ns3:x"), "collections/ns3:*", authorization.UPDATE, authorization.SchemaDomain}},
+				GroupingPolicy: [][]string{{"oidc:ns2:bob", admin}},
+				Version:        SnapshotVersionLatest,
+				Namespaces:     []string{"ns2"},
+			}),
+			check: func(t *testing.T, merged []byte) {
+				s := decode(t, merged)
+				assert.Equal(t, []string{"ns1", "ns2"}, s.Namespaces)
+				stripped, err := stripRBACSnapshot(s, nil)
+				require.NoError(t, err)
+				assert.Equal(t, conv.PrefixRoleName("editor"), stripped.Policy[0][0])
+				assert.Equal(t, conv.PrefixRoleName("ns3:x"), stripped.Policy[1][0])
+				assert.ElementsMatch(t, [][]string{
+					{"oidc:carl", conv.PrefixRoleName("editor")},
+					{"oidc:bob", admin},
+				}, stripped.GroupingPolicy)
 			},
 		},
 	}

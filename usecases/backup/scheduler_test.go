@@ -521,20 +521,33 @@ func TestValidateBackupRequest(t *testing.T) {
 	}
 
 	assignments := []byte(`{"version":1,"grouping_policies":[["db:alice","role:admin"]]}`)
+	oidcAssignments := []byte(`{"version":1,"grouping_policies":[["oidc:ns1:bob","role:admin"]],"namespaces":["ns1"]}`)
 	for _, tt := range []struct {
 		name         string
+		allClasses   []string
 		allUsers     []string
 		allRoles     []string
 		includeUsers []string
 		includeRoles []string
 		noUsers      bool
+		// oidc is what OIDCBuiltInAssignments returns; nil keeps the carried blob
+		// equal to the BuiltInAssignments one.
+		oidc []byte
 		// wantCarried is the ids of each BuiltInAssignments call; nil means no call.
 		wantCarried [][]string
+		// wantOIDC is the namespaces of each OIDCBuiltInAssignments call; nil means
+		// no call.
+		wantOIDC [][]string
+		// wantRows, when set, is the carried blob's decoded grouping rows and
+		// wantNamespaces its namespace list.
+		wantRows       [][]string
+		wantNamespaces []string
 	}{
 		{
-			name:         "explicit empty includeRoles carries the resolved users' assignments",
+			name:         "explicit empty includeRoles carries the resolved users' assignments and no oidc grants",
 			includeUsers: []string{"alice"},
 			includeRoles: []string{},
+			oidc:         oidcAssignments,
 			wantCarried:  [][]string{{"alice"}},
 		},
 		{
@@ -544,6 +557,44 @@ func TestValidateBackupRequest(t *testing.T) {
 			includeUsers: []string{"ns1:*"},
 			includeRoles: []string{"ns1:*"},
 			wantCarried:  [][]string{{"ns1:alice"}},
+			wantOIDC:     [][]string{{"ns1"}},
+		},
+		{
+			name:           "a namespaced role selection carries oidc grants with users skipped",
+			allClasses:     []string{"Books"},
+			includeUsers:   []string{},
+			includeRoles:   []string{"ns1:*"},
+			oidc:           oidcAssignments,
+			wantOIDC:       [][]string{{"ns1"}},
+			wantRows:       [][]string{{"oidc:ns1:bob", "role:admin"}},
+			wantNamespaces: []string{"ns1"},
+		},
+		{
+			name:           "db and oidc grants merge into one carried blob",
+			allUsers:       []string{"alice", "ns1:alice"},
+			includeUsers:   []string{"ns1:alice"},
+			includeRoles:   []string{"ns1:*"},
+			oidc:           oidcAssignments,
+			wantCarried:    [][]string{{"ns1:alice"}},
+			wantOIDC:       [][]string{{"ns1"}},
+			wantRows:       [][]string{{"db:alice", "role:admin"}, {"oidc:ns1:bob", "role:admin"}},
+			wantNamespaces: []string{"ns1"},
+		},
+		{
+			name:           "an unqualified wildcard takes oidc namespaces from the roles it resolves to",
+			allRoles:       []string{"ns1:editor"},
+			includeUsers:   []string{},
+			includeRoles:   []string{"*"},
+			oidc:           oidcAssignments,
+			wantOIDC:       [][]string{{"ns1"}},
+			wantRows:       [][]string{{"oidc:ns1:bob", "role:admin"}},
+			wantNamespaces: []string{"ns1"},
+		},
+		{
+			name:         "an unqualified wildcard resolving to unqualified roles carries no oidc grants",
+			includeUsers: []string{},
+			includeRoles: []string{"*"},
+			oidc:         oidcAssignments,
 		},
 		{
 			name:         "no carried users, no assignments",
@@ -576,11 +627,15 @@ func TestValidateBackupRequest(t *testing.T) {
 				fs.roleLister.roles = tt.allRoles
 			}
 			fs.roleLister.assignments = assignments
+			fs.roleLister.oidcAssignments = tt.oidc
 			scheduler := fs.scheduler()
 			if tt.noUsers {
 				scheduler.userLister = nil
 			}
-			fs.selector.On("ListClasses", ctx).Return([]string(nil))
+			fs.selector.On("ListClasses", ctx).Return(tt.allClasses)
+			if len(tt.allClasses) > 0 {
+				fs.selector.On("Backupable", ctx, tt.allClasses).Return(nil)
+			}
 
 			id := "carry-test"
 			fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("backups/" + id)
@@ -593,9 +648,19 @@ func TestValidateBackupRequest(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantCarried, fs.roleLister.carried)
-			if tt.wantCarried == nil {
+			assert.Equal(t, tt.wantOIDC, fs.roleLister.oidcCarried)
+			switch {
+			case tt.wantRows != nil:
+				var carried struct {
+					GroupingPolicy [][]string `json:"grouping_policies"`
+					Namespaces     []string   `json:"namespaces"`
+				}
+				require.NoError(t, json.Unmarshal(got.builtInRoleAssignments, &carried))
+				assert.ElementsMatch(t, tt.wantRows, carried.GroupingPolicy)
+				assert.Equal(t, tt.wantNamespaces, carried.Namespaces)
+			case tt.wantCarried == nil:
 				assert.Nil(t, got.builtInRoleAssignments)
-			} else {
+			default:
 				assert.Equal(t, assignments, got.builtInRoleAssignments)
 			}
 		})
@@ -2534,12 +2599,15 @@ type fakeUserLister struct {
 func (f *fakeUserLister) ListAllUsers() []string { return f.users }
 
 // fakeRoleLister is a static RoleLister for scheduler tests. carried records the
-// ids of each BuiltInAssignments call.
+// ids of each BuiltInAssignments call, and oidcCarried the namespaces of each
+// OIDCBuiltInAssignments call.
 type fakeRoleLister struct {
-	roles       []string
-	err         error
-	assignments []byte
-	carried     [][]string
+	roles           []string
+	err             error
+	assignments     []byte
+	carried         [][]string
+	oidcAssignments []byte
+	oidcCarried     [][]string
 }
 
 func (f *fakeRoleLister) ListAllRoles() ([]string, error) { return f.roles, f.err }
@@ -2547,6 +2615,11 @@ func (f *fakeRoleLister) ListAllRoles() ([]string, error) { return f.roles, f.er
 func (f *fakeRoleLister) BuiltInAssignments(userIDs ...string) ([]byte, error) {
 	f.carried = append(f.carried, userIDs)
 	return f.assignments, nil
+}
+
+func (f *fakeRoleLister) OIDCBuiltInAssignments(namespaces ...string) ([]byte, error) {
+	f.oidcCarried = append(f.oidcCarried, namespaces)
+	return f.oidcAssignments, nil
 }
 
 func newFakeScheduler(resolver NodeResolver) *fakeScheduler {
