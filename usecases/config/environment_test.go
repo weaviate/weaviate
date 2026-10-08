@@ -2685,6 +2685,15 @@ func TestNamespaceCleanupIntervalValidation(t *testing.T) {
 	})
 }
 
+func TestNamespaceSuspendedMessageFromEnv(t *testing.T) {
+	t.Setenv("NAMESPACE_SUSPENDED_MESSAGE", "  paused\n")
+	var conf Config
+
+	require.NoError(t, FromEnv(&conf))
+
+	assert.Equal(t, "paused", conf.Namespaces.SuspendedMessage)
+}
+
 func TestBatchStreamFromEnv(t *testing.T) {
 	names := []string{
 		"BATCH_STREAM_GATE_RATIO",

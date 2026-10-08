@@ -14,12 +14,16 @@ package namespaces
 import "errors"
 
 // PublicMessage returns user-facing text for a namespace lifecycle sentinel,
-// for the logins and db user create and import to render. The text never names
-// the namespace or uses the word namespace. Every other refusal keeps the
-// sentinel's own text. ok is false for errors that are not lifecycle
-// sentinels, so callers keep the detail of a genuine internal failure.
-func PublicMessage(err error) (msg string, ok bool) {
+// for the logins and db user create and import to render. Every other refusal
+// keeps the sentinel's own text. The built-in copy never names the namespace
+// or uses the word namespace. A non-empty namespaceSuspendedMessage is
+// returned as written for ErrNamespaceSuspended. ok is false for errors that
+// are not lifecycle sentinels, so callers keep the detail of a genuine
+// internal failure.
+func PublicMessage(err error, namespaceSuspendedMessage string) (msg string, ok bool) {
 	switch {
+	case errors.Is(err, ErrNamespaceSuspended) && namespaceSuspendedMessage != "":
+		return namespaceSuspendedMessage, true
 	case errors.Is(err, ErrNamespaceSuspended), errors.Is(err, ErrCollectionSuspended):
 		return "instance suspended", true
 	case errors.Is(err, ErrNamespaceResuming):

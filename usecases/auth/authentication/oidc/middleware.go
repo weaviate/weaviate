@@ -39,11 +39,12 @@ import (
 // Client handles the OIDC setup at startup and provides a middleware to be
 // used with the goswagger API
 type Client struct {
-	Config            config.OIDC
-	verifier          *oidc.IDTokenVerifier
-	logger            logrus.FieldLogger
-	nsExister         namespaces.Exister
-	namespacesEnabled bool
+	Config                    config.OIDC
+	verifier                  *oidc.IDTokenVerifier
+	logger                    logrus.FieldLogger
+	nsExister                 namespaces.Exister
+	namespacesEnabled         bool
+	namespaceSuspendedMessage string
 	// rbac is consulted on namespace-enabled clusters to reject tokens that
 	// would produce a namespaced principal carrying the root role (root is
 	// cluster-global).
@@ -59,11 +60,12 @@ type Client struct {
 // cluster-level flag passed in from the caller.
 func New(cfg config.Config, nsExister namespaces.Exister, namespacesEnabled bool, logger logrus.FieldLogger) (*Client, error) {
 	client := &Client{
-		Config:            cfg.Authentication.OIDC,
-		logger:            logger.WithField("component", "oidc"),
-		nsExister:         nsExister,
-		namespacesEnabled: namespacesEnabled,
-		rbac:              cfg.Authorization.Rbac,
+		Config:                    cfg.Authentication.OIDC,
+		logger:                    logger.WithField("component", "oidc"),
+		nsExister:                 nsExister,
+		namespacesEnabled:         namespacesEnabled,
+		namespaceSuspendedMessage: cfg.Namespaces.SuspendedMessage,
+		rbac:                      cfg.Authorization.Rbac,
 	}
 
 	if !client.Config.Enabled {
@@ -189,7 +191,7 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 	// namespace's state. The claim value is chosen by the IdP, not the
 	// caller, so a caller cannot probe an arbitrary namespace.
 	if err := namespaces.RequireActive(c.nsExister, namespace); err != nil {
-		return nil, errors.New(401, "%s", namespaceRejectionMessage(err))
+		return nil, errors.New(401, "%s", namespaceRejectionMessage(err, c.namespaceSuspendedMessage))
 	}
 
 	return &models.Principal{
@@ -204,8 +206,8 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 // namespaceRejectionMessage returns the 401 body for a namespace state error.
 // The body must match the one ApiKey.ValidateAndExtract returns for the same
 // error, so a caller reads one body per state whichever login it uses.
-func namespaceRejectionMessage(err error) string {
-	msg, _ := namespaces.PublicMessage(err)
+func namespaceRejectionMessage(err error, namespaceSuspendedMessage string) string {
+	msg, _ := namespaces.PublicMessage(err, namespaceSuspendedMessage)
 	return "unauthorized: " + msg
 }
 

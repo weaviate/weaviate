@@ -232,17 +232,42 @@ func TestImportUsersHandler(t *testing.T) {
 	})
 
 	t.Run("rejects import into an inactive namespace", func(t *testing.T) {
-		authorizer := authorization.NewMockAuthorizer(t)
-		authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(key)[0]).Return(nil)
-		authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(key)[0]).Return(nil)
-		dynUser := NewMockDbUserAndRolesGetter(t)
-		ns := namespaces.NewMockExister(t)
-		ns.On("GetNamespace", mock.AnythingOfType("string")).Return(api.Namespace{}, false).Maybe()
+		tests := []struct {
+			name             string
+			namespace        api.Namespace
+			exists           bool
+			suspendedMessage string
+			wantMsg          string
+		}{
+			{name: "missing", wantMsg: "instance unavailable"},
+			{
+				name:             "suspended renders NAMESPACE_SUSPENDED_MESSAGE",
+				namespace:        api.Namespace{Name: "ns1", State: api.NamespaceStateSuspended},
+				exists:           true,
+				suspendedMessage: "paused",
+				wantMsg:          "paused",
+			},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				authorizer := authorization.NewMockAuthorizer(t)
+				authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(key)[0]).Return(nil)
+				authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(key)[0]).Return(nil)
+				dynUser := NewMockDbUserAndRolesGetter(t)
+				ns := namespaces.NewMockExister(t)
+				ns.On("GetNamespace", "ns1").Return(tc.namespace, tc.exists)
 
-		h := dynUserHandler{expiry: unlicensedExpiry, rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: ns}
-		res := h.importUsers(importOne(strongRecord(true)), principal)
-		_, ok := res.(*experimental.ImportUsersUnprocessableEntity)
-		assert.True(t, ok)
+				h := dynUserHandler{
+					expiry: unlicensedExpiry, rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true,
+					namespacesEnabled: true, namespaceSuspendedMessage: tc.suspendedMessage, namespaces: ns,
+				}
+				res := h.importUsers(importOne(strongRecord(true)), principal)
+				parsed, ok := res.(*experimental.ImportUsersUnprocessableEntity)
+				require.True(t, ok, "got %T", res)
+				require.Len(t, parsed.Payload.Error, 1)
+				assert.Equal(t, tc.wantMsg, parsed.Payload.Error[0].Message)
+			})
+		}
 	})
 
 	t.Run("rejects a supplied namespace on a non-namespaced cluster", func(t *testing.T) {
