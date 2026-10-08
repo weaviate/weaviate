@@ -775,6 +775,11 @@ func (q *DiskQueue) quarantineChunk(c *chunk, cause error) error {
 	// retried
 	quarantinePath := c.path + ".corrupt"
 	err := os.Rename(c.path, quarantinePath)
+	if stderrors.Is(err, fs.ErrNotExist) {
+		q.forgetChunk(c.path, c.count, c.size)
+		q.Logger.WithField("file", c.path).Errorf("corrupt chunk file is missing, nothing to quarantine: %v", cause)
+		return nil
+	}
 	if err != nil {
 		return errors.Wrap(err, "failed to quarantine corrupt chunk")
 	}

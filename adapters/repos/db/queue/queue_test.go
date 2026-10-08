@@ -1866,3 +1866,46 @@ func TestBatchDoneRemovalFailureKeepsChunk(t *testing.T) {
 		})
 	}
 }
+
+// A corrupt chunk whose file disappears before its salvaged records are done
+// has nothing left to quarantine: it must leave the queue rather than block
+// every later chunk.
+func TestBatchDoneMissingCorruptChunk(t *testing.T) {
+	// not started: the test dequeues itself
+	s := makeScheduler(t)
+	dir := t.TempDir()
+
+	q := makeQueueWith(t, s, discardExecutor(), 0, dir)
+	pushMany(t, q, 1, 1, 2)
+	sealChunk(t, q)
+	pushMany(t, q, 1, 3, 4)
+	sealChunk(t, q)
+	require.NoError(t, q.Close(t.Context()))
+
+	// tear the first chunk mid-record: its first record is salvaged
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	first := filepath.Join(dir, entries[0].Name())
+	fi, err := os.Stat(first)
+	require.NoError(t, err)
+	require.NoError(t, os.Truncate(first, fi.Size()-2))
+
+	// reopen, so the chunks are read from their path
+	q = makeQueueWith(t, s, discardExecutor(), 0, dir)
+	defer q.Close(t.Context())
+
+	b, err := q.DequeueBatch()
+	require.NoError(t, err)
+	require.Len(t, b.Tasks, 1)
+
+	require.NoError(t, os.Remove(first))
+	b.Done()
+	require.EqualValues(t, 2, q.Size())
+
+	b, err = q.DequeueBatch()
+	require.NoError(t, err)
+	require.NotNil(t, b)
+	require.EqualValues(t, 3, b.Tasks[0].Key())
+	b.Done()
+	require.Zero(t, q.Size())
+}
