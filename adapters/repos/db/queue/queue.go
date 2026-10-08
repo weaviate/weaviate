@@ -731,7 +731,7 @@ func (q *DiskQueue) quarantineChunk(c *chunk, cause error) {
 // stored on disk and in the partial chunk by reading the header of all the files in the directory.
 // It also calculates the disk usage.
 // It is used when the queue is first initialized.
-func (q *DiskQueue) analyzeDisk() ([]string, error) {
+func (q *DiskQueue) analyzeDisk() ([]chunkRef, error) {
 	q.m.Lock()
 	defer q.m.Unlock()
 
@@ -745,7 +745,7 @@ func (q *DiskQueue) analyzeDisk() ([]string, error) {
 		return nil, errors.Wrap(err, "failed to read directory")
 	}
 
-	chunkList := make([]string, 0, len(entries))
+	chunkList := make([]chunkRef, 0, len(entries))
 
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -789,7 +789,7 @@ func (q *DiskQueue) analyzeDisk() ([]string, error) {
 
 		q.recordCount += count
 
-		chunkList = append(chunkList, filePath)
+		chunkList = append(chunkList, chunkRef{path: filePath, count: count, size: uint64(fi.Size())})
 		continue
 	}
 
@@ -1372,7 +1372,7 @@ func (w *chunkWriter) Promote() error {
 		return errors.Wrap(err, "failed to write record count")
 	}
 
-	err = w.reader.PromoteChunk(w.f)
+	err = w.reader.PromoteChunk(w.f, w.recordCount, w.size)
 	if err != nil {
 		return errors.Wrap(err, "failed to promote chunk")
 	}
@@ -1391,11 +1391,19 @@ type chunkReader struct {
 	dir string
 	// chunks not processed yet, oldest first. A chunk leaves the list when
 	// it is removed, so a batch that is not done is read again.
-	chunkList []string
+	chunkList []chunkRef
 	chunks    map[string]*os.File
 }
 
-func newChunkReader(dir string, chunkList []string) *chunkReader {
+// chunkRef is a chunk as counted by the queue, known even when its header
+// can no longer be read.
+type chunkRef struct {
+	path  string
+	count uint64
+	size  uint64
+}
+
+func newChunkReader(dir string, chunkList []chunkRef) *chunkReader {
 	return &chunkReader{
 		dir:       dir,
 		chunks:    make(map[string]*os.File),
@@ -1411,7 +1419,7 @@ func (r *chunkReader) ReadChunk() (*chunk, error) {
 			r.m.Unlock()
 			return nil, nil
 		}
-		path := r.chunkList[0]
+		path := r.chunkList[0].path
 		f, ok := r.chunks[path]
 		// the chunk closes the handle once read
 		delete(r.chunks, path)
@@ -1443,13 +1451,13 @@ func (r *chunkReader) forget(path string) {
 	r.m.Lock()
 	defer r.m.Unlock()
 
-	i := slices.Index(r.chunkList, path)
+	i := slices.IndexFunc(r.chunkList, func(ref chunkRef) bool { return ref.path == path })
 	switch {
 	case i == 0:
 		// the common case: processed chunks leave from the front. Reslicing
 		// avoids shifting the whole backlog; append reclaims the space once
 		// the list grows.
-		r.chunkList[0] = ""
+		r.chunkList[0] = chunkRef{}
 		r.chunkList = r.chunkList[1:]
 	case i > 0:
 		r.chunkList = slices.Delete(r.chunkList, i, i+1)
@@ -1468,7 +1476,9 @@ func (r *chunkReader) Close() error {
 	return nil
 }
 
-func (r *chunkReader) PromoteChunk(f *os.File) error {
+func (r *chunkReader) PromoteChunk(f *os.File, count, size uint64) error {
+	ref := chunkRef{path: f.Name(), count: count, size: size}
+
 	r.m.Lock()
 	// do not keep more than 10 files open
 	if len(r.chunks) > 10 {
@@ -1487,7 +1497,7 @@ func (r *chunkReader) PromoteChunk(f *os.File) error {
 
 		// add the file to the list
 		r.m.Lock()
-		r.chunkList = append(r.chunkList, f.Name())
+		r.chunkList = append(r.chunkList, ref)
 		r.m.Unlock()
 
 		return nil
@@ -1495,7 +1505,7 @@ func (r *chunkReader) PromoteChunk(f *os.File) error {
 	defer r.m.Unlock()
 
 	r.chunks[f.Name()] = f
-	r.chunkList = append(r.chunkList, f.Name())
+	r.chunkList = append(r.chunkList, ref)
 
 	return nil
 }
