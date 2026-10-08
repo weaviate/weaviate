@@ -30,6 +30,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -768,4 +769,57 @@ func TestShard_ChangeLog_AbandonedStopKeepsRetriedLog(t *testing.T) {
 	lsn, err := idx.IncomingSnapshotChangeLogLSN(ctx, shard.name, opID)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), lsn)
+}
+
+func TestIndex_ChangeLog_RefusesNamesLeavingTheirDir(t *testing.T) {
+	const opID = "op-1"
+	type row struct {
+		name     string
+		shard    string
+		op       string
+		badOp    bool
+		unloaded bool
+	}
+	var tests []row
+	for _, bad := range []string{"..", "../x", "a/b", ".", "", "/x", "x/", "x" + api.RecoveryFolderSuffix} {
+		tests = append(tests, row{name: "shard " + strconv.Quote(bad), shard: bad, op: opID})
+		for _, unloaded := range []bool{false, true} {
+			tests = append(tests, row{name: "op " + strconv.Quote(bad) + ", unloaded " + strconv.FormatBool(unloaded), op: bad, badOp: true, unloaded: unloaded})
+		}
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			shard := setupChangelogTestShard(t, ctx)
+			idx := shard.index
+			shardName := tc.shard
+			wantErr := "invalid shard name"
+			if tc.badOp {
+				shardName = shard.name
+				wantErr = "invalid op id"
+			}
+			if tc.unloaded {
+				loaded, ok := idx.shards.LoadAndDelete(shard.name)
+				require.True(t, ok)
+				require.NoError(t, loaded.Shutdown(ctx))
+				idx.shards.Store(shard.name, NewLazyLoadShard(ctx, nil, shard.name, idx, idx.getClass(), idx.centralJobQueue,
+					idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer, false, idx.bitmapBufPool))
+			}
+			escapedLog := filepath.Join(shardPath(idx.path(), shardName), changelogDirName, tc.op+changelogFileExtension)
+
+			require.ErrorContains(t, idx.IncomingStartChangeCapture(ctx, shardName, tc.op), wantErr)
+			for _, ep := range incomingChangeLogEndpoints {
+				require.ErrorContains(t, ep.call(ctx, idx, shardName, tc.op), wantErr, ep.name)
+			}
+
+			require.NoFileExists(t, escapedLog)
+			if !tc.badOp {
+				require.NoDirExists(t, shardPathLSM(idx.path(), shardName))
+				require.Nil(t, idx.shards.Load(shardName))
+			}
+			if tc.unloaded {
+				require.Nil(t, idx.shards.Loaded(shard.name))
+			}
+		})
+	}
 }

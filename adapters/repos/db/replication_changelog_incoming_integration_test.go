@@ -143,7 +143,7 @@ func TestIncomingChangeLog_UnknownShardCreatesNothing(t *testing.T) {
 
 			for _, shardName := range []string{"never-created-shard", ""} {
 				err := tc.call(ctx, idx, shardName, opID)
-				if tc.errorsOnMissingShard {
+				if tc.errorsOnMissingShard || shardName == "" {
 					require.Error(t, err)
 				} else {
 					require.NoError(t, err)

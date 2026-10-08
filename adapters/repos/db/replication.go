@@ -19,12 +19,14 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -516,7 +518,7 @@ func (i *Index) IncomingReinitShard(ctx context.Context, shardName string) error
 
 func (i *Index) IncomingStartChangeCapture(ctx context.Context, shardName, opID string) error {
 	const action = "incoming start change capture"
-	loaded, err := i.withShardForChangeLog(ctx, shardName, true, func(shard shardChangeLogger) error {
+	loaded, err := i.withShardForChangeLog(ctx, shardName, opID, true, func(shard shardChangeLogger) error {
 		if _, err := shard.ActivateChangeLog(ctx, opID); err != nil {
 			return fmt.Errorf("activate op %q: %w", opID, err)
 		}
@@ -533,14 +535,21 @@ func (i *Index) IncomingStartChangeCapture(ctx context.Context, shardName, opID 
 
 // withShardForChangeLog runs f against the named shard's change-capture
 // surface, owning the pin lifetime, and reports whether the shard was there.
+// It refuses a shard name or opID that would leave its dir.
 //
 // Only activation passes forceInit; it has to load the shard to record
 // anything. Drain reads must not: loading sweeps the changelog dir, so a read
 // that initialized would delete the log it came for, and a shard unloaded
 // since capture began captured nothing.
-func (i *Index) withShardForChangeLog(ctx context.Context, shardName string, forceInit bool,
+func (i *Index) withShardForChangeLog(ctx context.Context, shardName, opID string, forceInit bool,
 	f func(shard shardChangeLogger) error,
 ) (loaded bool, err error) {
+	if !validChangeLogName(shardName) {
+		return false, fmt.Errorf("invalid shard name %q", shardName)
+	}
+	if !validChangeLogName(opID) {
+		return false, fmt.Errorf("invalid op id %q", opID)
+	}
 	var (
 		shard   ShardLike
 		release func()
@@ -582,7 +591,7 @@ func errShardNotLoaded(action, shardName string) error {
 func (i *Index) IncomingGetChangeLog(ctx context.Context, shardName, opID string, untilLSN uint64) (*changelog.Tailer, error) {
 	const action = "incoming get change log"
 	var tailer *changelog.Tailer
-	loaded, err := i.withShardForChangeLog(ctx, shardName, false, func(shard shardChangeLogger) error {
+	loaded, err := i.withShardForChangeLog(ctx, shardName, opID, false, func(shard shardChangeLogger) error {
 		log, ok := shard.GetChangeLog(ctx, opID)
 		if !ok {
 			return fmt.Errorf("%s %q on shard %q", changelog.ErrMsgNoActiveLog, opID, shardName)
@@ -604,7 +613,7 @@ func (i *Index) IncomingGetChangeLog(ctx context.Context, shardName, opID string
 func (i *Index) IncomingSnapshotChangeLogLSN(ctx context.Context, shardName, opID string) (uint64, error) {
 	const action = "incoming snapshot change-log LSN"
 	var lsn uint64
-	loaded, err := i.withShardForChangeLog(ctx, shardName, false, func(shard shardChangeLogger) error {
+	loaded, err := i.withShardForChangeLog(ctx, shardName, opID, false, func(shard shardChangeLogger) error {
 		var err error
 		if lsn, err = shard.SnapshotChangeLogLSN(ctx, opID); err != nil {
 			return fmt.Errorf("op %q: %w", opID, err)
@@ -627,7 +636,7 @@ func (i *Index) IncomingSnapshotChangeLogLSN(ctx context.Context, shardName, opI
 func (i *Index) IncomingFinalizeChangeLog(ctx context.Context, shardName, opID string) (uint64, error) {
 	const action = "incoming finalize change log"
 	var finalLSN uint64
-	loaded, err := i.withShardForChangeLog(ctx, shardName, false, func(shard shardChangeLogger) error {
+	loaded, err := i.withShardForChangeLog(ctx, shardName, opID, false, func(shard shardChangeLogger) error {
 		var err error
 		if finalLSN, err = shard.FinalizeChangeLog(ctx, opID); err != nil {
 			return fmt.Errorf("op %q: %w", opID, err)
@@ -649,7 +658,7 @@ func (i *Index) IncomingFinalizeChangeLog(ctx context.Context, shardName, opID s
 // log file is removed when the shard next loads.
 func (i *Index) IncomingStopChangeCapture(ctx context.Context, shardName, opID string) error {
 	const action = "incoming stop change capture"
-	loaded, err := i.withShardForChangeLog(ctx, shardName, false, func(shard shardChangeLogger) error {
+	loaded, err := i.withShardForChangeLog(ctx, shardName, opID, false, func(shard shardChangeLogger) error {
 		if err := shard.StopChangeCapture(ctx, opID); err != nil {
 			return fmt.Errorf("op %q: %w", opID, err)
 		}
@@ -667,6 +676,12 @@ func (i *Index) IncomingStopChangeCapture(ctx context.Context, shardName, opID s
 		}).Debug("no loaded shard to stop change capture on")
 	}
 	return nil
+}
+
+// validChangeLogName refuses a peer-supplied path element that would leave its directory or name a self-recovery staging dir.
+func validChangeLogName(name string) bool {
+	return name != "" && name != "." && name != ".." && name == filepath.Base(name) &&
+		!strings.HasSuffix(name, api.RecoveryFolderSuffix)
 }
 
 // IncomingAddAsyncReplicationTargetNode adds the given target node override for async replication.
