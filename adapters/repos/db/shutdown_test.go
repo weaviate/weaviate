@@ -21,6 +21,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
@@ -30,6 +31,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/replication"
+	"github.com/weaviate/weaviate/entities/shutdownreport"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -419,9 +421,11 @@ func TestDBShutdownRunsEveryIndexAndCleanup(t *testing.T) {
 	tests := []struct {
 		name            string
 		indices         []indexSpec
+		noReport        bool
 		wantErrContains []string
 		wantErrIs       []error
 	}{
+		{name: "no indexes"},
 		{
 			name:    "no index fails",
 			indices: []indexSpec{{name: "Alpha"}, {name: "Beta"}},
@@ -449,6 +453,13 @@ func TestDBShutdownRunsEveryIndexAndCleanup(t *testing.T) {
 			name:            "index failures beyond the limit are only counted",
 			indices:         failingIndices(maxReportedErrors + 2),
 			wantErrContains: []string{"still in use", "(and 2 more)"},
+			wantErrIs:       []error{errInUse},
+		},
+		{
+			name:            "no report in the ctx",
+			indices:         []indexSpec{{name: "Alpha", shardErr: errInUse}, {name: "Beta"}},
+			noReport:        true,
+			wantErrContains: []string{`shutdown index "Alpha"`, "still in use"},
 			wantErrIs:       []error{errInUse},
 		},
 	}
@@ -482,8 +493,20 @@ func TestDBShutdownRunsEveryIndexAndCleanup(t *testing.T) {
 				db.indices[spec.name] = idx
 			}
 
-			err = db.Shutdown(context.Background())
+			ctx, report := context.Background(), shutdownreport.New("node-1")
+			if !tt.noReport {
+				ctx = shutdownreport.With(ctx, report)
+			}
+			err = db.Shutdown(ctx)
 
+			if !tt.noReport {
+				f := shutdownSummary(t, report)
+				n := int64(len(tt.indices))
+				assert.Equal(t, n, f["indexes_total"])
+				assert.Equal(t, n, f["indexes_done"], "a failing index is still done")
+				assert.Equal(t, true, f["db_reached"])
+				assert.Len(t, slowestEntries(f["slowest_indexes"]), int(min(3, n)))
+			}
 			if len(tt.wantErrContains) == 0 {
 				require.NoError(t, err)
 			} else {

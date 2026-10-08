@@ -1375,31 +1375,36 @@ func (g *dumpPublishGate) cancel() bool {
 }
 
 // dumpHashTreeWithTimeout caps the dump; on timeout the gate guarantees the late writer can never publish.
-func (s *Shard) dumpHashTreeWithTimeout(ht hashtree.AggregatedHashTree, timeout time.Duration) {
+func (s *Shard) dumpHashTreeWithTimeout(ht hashtree.AggregatedHashTree, timeout time.Duration) (published bool) {
 	gate := &dumpPublishGate{}
 	done := make(chan struct{})
+	var dumpErr error
 	enterrors.GoWrapper(func() {
 		defer close(done)
-		if err := s.dumpGatedHashTreeOf(ht, gate); err != nil && !errors.Is(err, errHashtreeDumpCancelled) {
+		dumpErr = s.dumpGatedHashTreeOf(ht, gate)
+		if dumpErr != nil && !errors.Is(dumpErr, errHashtreeDumpCancelled) {
 			s.index.logger.
 				WithField("action", "async_replication").
 				WithField("class_name", s.class.Class).
 				WithField("shard_name", s.name).
-				Errorf("store hashtree failed: %v", err)
+				Errorf("store hashtree failed: %v", dumpErr)
 		}
 	}, s.index.logger)
 	dumpTimer := time.NewTimer(timeout)
 	defer dumpTimer.Stop()
 	select {
 	case <-done:
+		return dumpErr == nil
 	case <-dumpTimer.C:
-		if gate.cancel() {
-			s.index.logger.
-				WithField("action", "async_replication").
-				WithField("class_name", s.class.Class).
-				WithField("shard_name", s.name).
-				Warnf("hashtree dump timed out after %s; skipping — tree will be rebuilt on next startup", timeout)
+		if !gate.cancel() {
+			return true
 		}
+		s.index.logger.
+			WithField("action", "async_replication").
+			WithField("class_name", s.class.Class).
+			WithField("shard_name", s.name).
+			Warnf("hashtree dump timed out after %s; skipping — tree will be rebuilt on next startup", timeout)
+		return false
 	}
 }
 

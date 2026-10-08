@@ -17,7 +17,9 @@ import (
 	"context"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -79,6 +81,12 @@ type Report struct {
 	steps       map[string]time.Duration
 	running     map[string]struct{}
 	clients     clientOutcome
+
+	slowestIndexes, slowestShards slowest
+
+	indexesTotal, indexesDone              atomic.Int64
+	shardsStarted, shardsTornDown          atomic.Int64
+	shardsStillInUse, hashtreeDumpsSkipped atomic.Int64
 }
 
 // clientOutcome is how the REST and gRPC servers stopped serving clients.
@@ -200,6 +208,59 @@ func (r *Report) StartPhase(step string) (end func()) {
 	}
 }
 
+func (r *Report) SetIndexTotal(n int) {
+	if r == nil {
+		return
+	}
+	r.indexesTotal.Store(int64(n))
+}
+
+func (r *Report) IndexDone(id string, took time.Duration) {
+	if r == nil {
+		return
+	}
+	r.indexesDone.Add(1)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.slowestIndexes.add(took, func() string { return id })
+}
+
+func (r *Report) ShardTeardownStarted() {
+	if r == nil {
+		return
+	}
+	r.shardsStarted.Add(1)
+}
+
+// ShardTornDown counts a teardown ShardTeardownStarted counted, failed or not.
+func (r *Report) ShardTornDown(index, shard string, took time.Duration) {
+	if r == nil {
+		return
+	}
+	r.shardsTornDown.Add(1)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.slowestShards.add(took, func() string { return index + "/" + shard })
+}
+
+// ShardStillInUse counts a shard whose shutdown gave up because requests still
+// held it.
+func (r *Report) ShardStillInUse() {
+	if r == nil {
+		return
+	}
+	r.shardsStillInUse.Add(1)
+}
+
+// HashtreeDumpSkipped counts a shard that shut down without saving its
+// hashtree.
+func (r *Report) HashtreeDumpSkipped() {
+	if r == nil {
+		return
+	}
+	r.hashtreeDumpsSkipped.Add(1)
+}
+
 // Log writes the summary line, then the warnings.
 func (r *Report) Log(logger logrus.FieldLogger, th Thresholds) {
 	if r == nil {
@@ -222,13 +283,31 @@ func (r *Report) sinceBegin() time.Duration {
 }
 
 func (r *Report) summary() summary {
+	// Loaded before started, so a teardown finishing in between cannot make
+	// shards_in_teardown negative.
+	tornDown := r.shardsTornDown.Load()
+	db := dbOutcome{
+		indexesTotal:         r.indexesTotal.Load(),
+		indexesDone:          r.indexesDone.Load(),
+		shardsTornDown:       tornDown,
+		shardsInTeardown:     r.shardsStarted.Load() - tornDown,
+		shardsStillInUse:     r.shardsStillInUse.Load(),
+		hashtreeDumpsSkipped: r.hashtreeDumpsSkipped.Load(),
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	_, dbDone := r.steps[StepDB]
+	_, dbRunning := r.running[StepDB]
+	db.reached = dbDone || dbRunning
+	db.slowestIndexes = r.slowestIndexes.entries()
+	db.slowestShards = r.slowestShards.entries()
 	return summary{
 		total:       r.sinceBegin(),
 		clientDrain: max(r.restDrained, r.grpcStopped),
 		steps:       maps.Clone(r.steps),
 		clients:     r.clients,
+		db:          db,
 	}
 }
 
@@ -236,6 +315,67 @@ type summary struct {
 	total, clientDrain time.Duration
 	steps              map[string]time.Duration
 	clients            clientOutcome
+	db                 dbOutcome
+}
+
+// dbOutcome is what DB.Shutdown did to the indexes and shards it held.
+type dbOutcome struct {
+	reached bool
+
+	indexesTotal, indexesDone                          int64
+	shardsTornDown, shardsInTeardown, shardsStillInUse int64
+	hashtreeDumpsSkipped                               int64
+	slowestIndexes, slowestShards                      []timedName
+}
+
+type timedName struct {
+	name string
+	took time.Duration
+}
+
+// slowest holds the three longest durations added, longest first.
+type slowest [3]timedName
+
+// add calls name only when took enters the three, so most callers allocate
+// nothing.
+func (s *slowest) add(took time.Duration, name func() string) {
+	i := slices.IndexFunc(s[:], func(e timedName) bool { return e.name == "" || took > e.took })
+	if i < 0 {
+		return
+	}
+	copy(s[i+1:], s[i:len(s)-1])
+	s[i] = timedName{name: name(), took: took}
+}
+
+func (s *slowest) entries() []timedName {
+	n := slices.IndexFunc(s[:], func(e timedName) bool { return e.name == "" })
+	if n < 0 {
+		n = len(s)
+	}
+	return slices.Clone(s[:n])
+}
+
+// formatSlowest renders entries as name=1.23s,…
+func formatSlowest(entries []timedName) string {
+	var b strings.Builder
+	for i, e := range entries {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(e.name)
+		b.WriteByte('=')
+		b.WriteString(threeDigits(e.took).String())
+	}
+	return b.String()
+}
+
+// threeDigits rounds d to three significant digits, so 1.234567s logs as 1.23s.
+func threeDigits(d time.Duration) time.Duration {
+	unit := time.Duration(1)
+	for d >= 1000*unit {
+		unit *= 10
+	}
+	return d.Round(unit)
 }
 
 type warning struct {
@@ -257,6 +397,16 @@ func (s summary) fields() logrus.Fields {
 		"rest_unavailable":            s.clients.restUnavailable,
 		"grpc_unavailable":            s.clients.grpcUnavailable,
 		"grpc_web_unavailable":        s.clients.grpcWebUnavailable,
+
+		"db_reached":             s.db.reached,
+		"indexes_done":           s.db.indexesDone,
+		"indexes_total":          s.db.indexesTotal,
+		"shards_torn_down":       s.db.shardsTornDown,
+		"shards_in_teardown":     s.db.shardsInTeardown,
+		"shards_still_in_use":    s.db.shardsStillInUse,
+		"hashtree_dumps_skipped": s.db.hashtreeDumpsSkipped,
+		"slowest_indexes":        formatSlowest(s.db.slowestIndexes),
+		"slowest_shards":         formatSlowest(s.db.slowestShards),
 	}
 	for _, step := range allSteps {
 		f[step+"_ms"] = s.steps[step].Milliseconds()
@@ -280,6 +430,23 @@ func (s summary) warnings(th Thresholds) []warning {
 			msg:    "REST server close was forced",
 			fields: logrus.Fields{"rest_handlers_still_running": s.clients.restStillRunning},
 		})
+	}
+	if s.db.shardsStillInUse > 0 {
+		warns = append(warns, warning{
+			msg:    "shutdown skipped shards still in use",
+			fields: logrus.Fields{"shards_still_in_use": s.db.shardsStillInUse},
+		})
+	}
+	if s.db.hashtreeDumpsSkipped > 0 {
+		warns = append(warns, warning{
+			msg:    "shutdown skipped flushes or snapshots",
+			fields: logrus.Fields{"hashtree_dumps_skipped": s.db.hashtreeDumpsSkipped},
+		})
+	}
+	// DB.Shutdown runs inside the cluster close, so a cluster close that never
+	// entered it left the indexes open.
+	if _, clusterClosed := s.steps[StepClusterClose]; clusterClosed && !s.db.reached {
+		warns = append(warns, warning{msg: "shutdown did not close the database"})
 	}
 	return warns
 }

@@ -51,6 +51,7 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/shutdownreport"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/file"
@@ -471,6 +472,9 @@ type Shard struct {
 
 	// shutdownRequested marks shard as requested for shutdown
 	shutdownRequested atomic.Bool
+	// report is the one the last Shutdown call carried in its ctx.
+	// performShutdown records into it, also when refCountSub runs it.
+	report atomic.Pointer[shutdownreport.Report]
 	// dropRequested marks shard as requested for drop.
 	dropRequested atomic.Bool
 

@@ -34,23 +34,49 @@ func runningSteps(r *Report) []string {
 }
 
 func TestReportConcurrentAggregation(t *testing.T) {
+	const workers = 64
 	tests := []struct {
-		name    string
-		workers int
+		name  string
+		work  func(r *Report, i int)
+		check func(t *testing.T, s summary)
 	}{
-		{name: "every worker times its own step", workers: 64},
+		{
+			name: "shard and index counts",
+			work: func(r *Report, i int) {
+				took := time.Duration(i+1) * time.Millisecond
+				r.ShardTeardownStarted()
+				r.ShardTornDown("Movies", fmt.Sprintf("s%d", i), took)
+				r.IndexDone(fmt.Sprintf("Class%d", i), took)
+				r.ShardStillInUse()
+			},
+			check: func(t *testing.T, s summary) {
+				assert.Equal(t, int64(workers), s.db.shardsTornDown)
+				assert.Zero(t, s.db.shardsInTeardown)
+				assert.Equal(t, int64(workers), s.db.shardsStillInUse)
+				assert.Equal(t, int64(workers), s.db.indexesDone)
+				assert.Equal(t, []timedName{
+					{"Movies/s63", 64 * time.Millisecond},
+					{"Movies/s62", 63 * time.Millisecond},
+					{"Movies/s61", 62 * time.Millisecond},
+				}, s.db.slowestShards)
+				assert.Equal(t, []timedName{
+					{"Class63", 64 * time.Millisecond},
+					{"Class62", 63 * time.Millisecond},
+					{"Class61", 62 * time.Millisecond},
+				}, s.db.slowestIndexes)
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := New("node-1")
 			var wg sync.WaitGroup
-			for i := range tt.workers {
-				wg.Go(func() { r.Time(fmt.Sprintf("step_%d", i), func() {}) })
+			for i := range workers {
+				wg.Go(func() { tt.work(r, i) })
 			}
 			wg.Wait()
 
-			s := r.summary()
-			assert.Len(t, s.steps, tt.workers)
+			tt.check(t, r.summary())
 			assert.Empty(t, runningSteps(r))
 		})
 	}
@@ -91,6 +117,8 @@ func TestReportClock(t *testing.T) {
 		run             func(t *testing.T, r *Report)
 		wantTotal       int64
 		wantClientDrain int64
+		wantDB          int64
+		wantDBReached   bool
 	}{
 		{
 			name: "a second Begin does not restart the clock",
@@ -128,6 +156,28 @@ func TestReportClock(t *testing.T) {
 			wantTotal:       5000,
 			wantClientDrain: 4000,
 		},
+		{
+			name: "db phase",
+			run: func(t *testing.T, r *Report) {
+				r.Begin()
+				end := r.StartPhase(StepDB)
+				time.Sleep(7 * time.Second)
+				end()
+			},
+			wantTotal:     7000,
+			wantDB:        7000,
+			wantDBReached: true,
+		},
+		{
+			name: "db entered but not returned",
+			run: func(t *testing.T, r *Report) {
+				r.Begin()
+				r.StartPhase(StepDB)
+				time.Sleep(time.Second)
+			},
+			wantTotal:     1000,
+			wantDBReached: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -137,6 +187,8 @@ func TestReportClock(t *testing.T) {
 				f := r.summary().fields()
 				assert.Equal(t, tt.wantTotal, f["total_ms"])
 				assert.Equal(t, tt.wantClientDrain, f["client_drain_ms"])
+				assert.Equal(t, tt.wantDB, f["db_ms"])
+				assert.Equal(t, tt.wantDBReached, f["db_reached"])
 			})
 		})
 	}
@@ -145,11 +197,21 @@ func TestReportClock(t *testing.T) {
 func TestReportSummaryBounded(t *testing.T) {
 	wantKeys := []string{
 		"action", "batch_drain_ms", "client_drain_ms", "close_conn_managers_ms", "close_db_users_ms",
-		"close_modules_ms", "close_task_scheduler_ms", "cluster_close_ms", "db_ms", "drain_exports_ms",
-		"flush_sentry_ms", "grpc_forced_stop", "grpc_stop_ms", "grpc_unavailable", "grpc_web_unavailable",
+		"close_modules_ms", "close_task_scheduler_ms", "cluster_close_ms", "db_ms", "db_reached",
+		"drain_exports_ms", "flush_sentry_ms", "grpc_forced_stop", "grpc_stop_ms", "grpc_unavailable",
+		"grpc_web_unavailable", "hashtree_dumps_skipped", "indexes_done", "indexes_total",
 		"internal_close_ms", "leave_cluster_ms", "node", "pre_db_steps_ms", "rest_forced_close",
-		"rest_handlers_still_running", "rest_unavailable", "shutdown_otel_ms", "stop_telemetry_ms",
+		"rest_handlers_still_running", "rest_unavailable", "shards_in_teardown", "shards_still_in_use",
+		"shards_torn_down", "shutdown_otel_ms", "slowest_indexes", "slowest_shards", "stop_telemetry_ms",
 		"total_ms", "wait_grpc_stop_ms",
+	}
+	tornDown := func(n int) func(r *Report) {
+		return func(r *Report) {
+			for i := range n {
+				r.ShardTeardownStarted()
+				r.ShardTornDown("Movies", fmt.Sprintf("s%d", i), time.Duration(i+1)*time.Millisecond)
+			}
+		}
 	}
 	tests := []struct {
 		name       string
@@ -171,6 +233,12 @@ func TestReportSummaryBounded(t *testing.T) {
 				"rest_unavailable": int64(1), "grpc_unavailable": int64(2), "grpc_web_unavailable": int64(3),
 			},
 			wantWarns: 1,
+		},
+		{name: "no shard", record: tornDown(0), wantFields: logrus.Fields{"slowest_shards": ""}},
+		{
+			name:       "one shard",
+			record:     tornDown(1),
+			wantFields: logrus.Fields{"shards_torn_down": int64(1), "slowest_shards": "Movies/s0=1ms"},
 		},
 	}
 	for _, tt := range tests {
@@ -256,17 +324,10 @@ func TestReportWarnings(t *testing.T) {
 			wantPhases: totalOverFields(StepLeaveCluster, 19000),
 		},
 		{
-			name: "slow db is named over cluster close",
-			s: summary{total: totalOver, steps: map[string]time.Duration{
-				StepClusterClose: 10 * time.Second, StepDB: 8 * time.Second,
-			}},
-			wantPhases: totalOverFields(StepDB, 8000),
-		},
-		{
 			name: "cluster close is counted without the db",
 			s: summary{total: totalOver, steps: map[string]time.Duration{
 				StepClusterClose: 10 * time.Second, StepDB: time.Second, StepLeaveCluster: 5 * time.Second,
-			}},
+			}, db: dbOutcome{reached: true}},
 			wantPhases: totalOverFields(StepClusterClose, 9000),
 		},
 		{
@@ -291,22 +352,45 @@ func TestReportWarnings(t *testing.T) {
 			}},
 		},
 		{
-			name: "forced REST close with handlers still running",
-			s:    summary{clients: clientOutcome{restForcedClose: true, restStillRunning: 2}},
+			name: "shards still in use warn once",
+			s:    summary{db: dbOutcome{shardsStillInUse: 1000}},
 			wantOthers: []warning{{
-				msg: "REST server close was forced", fields: logrus.Fields{"rest_handlers_still_running": int64(2)},
+				msg: "shutdown skipped shards still in use", fields: logrus.Fields{"shards_still_in_use": int64(1000)},
 			}},
+		},
+		{
+			name: "skipped hashtree dump",
+			s:    summary{db: dbOutcome{hashtreeDumpsSkipped: 1}},
+			wantOthers: []warning{{
+				msg: "shutdown skipped flushes or snapshots", fields: logrus.Fields{"hashtree_dumps_skipped": int64(1)},
+			}},
+		},
+		{
+			name:       "cluster close that never reached the db",
+			s:          summary{steps: map[string]time.Duration{StepClusterClose: time.Second}},
+			wantOthers: []warning{{msg: "shutdown did not close the database"}},
+		},
+		{
+			name: "cluster close that reached the db",
+			s: summary{
+				steps: map[string]time.Duration{StepClusterClose: time.Second, StepDB: time.Second},
+				db:    dbOutcome{reached: true},
+			},
 		},
 		{
 			name: "every kind warns, in order",
 			s: summary{
-				total: totalOver, steps: map[string]time.Duration{StepLeaveCluster: time.Second},
+				total: totalOver, steps: map[string]time.Duration{StepLeaveCluster: time.Second, StepClusterClose: time.Millisecond},
 				clients: clientOutcome{grpcForcedStop: true, grpcStopTook: 21 * time.Second, restForcedClose: true, restStillRunning: 2},
+				db:      dbOutcome{shardsStillInUse: 3, hashtreeDumpsSkipped: 4},
 			},
 			wantPhases: totalOverFields(StepLeaveCluster, 1000),
 			wantOthers: []warning{
 				{msg: "gRPC server stop was forced", fields: logrus.Fields{"grpc_stop_ms": int64(21000)}},
 				{msg: "REST server close was forced", fields: logrus.Fields{"rest_handlers_still_running": int64(2)}},
+				{msg: "shutdown skipped shards still in use", fields: logrus.Fields{"shards_still_in_use": int64(3)}},
+				{msg: "shutdown skipped flushes or snapshots", fields: logrus.Fields{"hashtree_dumps_skipped": int64(4)}},
+				{msg: "shutdown did not close the database"},
 			},
 		},
 	}
@@ -336,11 +420,39 @@ func TestNilReport(t *testing.T) {
 			r.GRPCStopped(time.Second, true)
 			r.CallsUnavailable(1, 2, 3)
 			r.RESTForceClosed(1)
+			r.SetIndexTotal(1)
+			r.IndexDone("Movies", time.Second)
+			r.ShardTeardownStarted()
+			r.ShardTornDown("Movies", "s0", time.Second)
+			r.ShardStillInUse()
+			r.HashtreeDumpSkipped()
 			logger, hook := test.NewNullLogger()
 			r.Log(logger, DefaultThresholds())
 
 			assert.True(t, ran, "Time must still run the step")
 			assert.Empty(t, hook.AllEntries())
+		})
+	}
+}
+
+func TestFormatSlowest(t *testing.T) {
+	tests := []struct {
+		name    string
+		entries []timedName
+		want    string
+	}{
+		{name: "keeps three significant digits", entries: []timedName{{"a", 1234567 * time.Microsecond}}, want: "a=1.23s"},
+		{name: "rounds up", entries: []timedName{{"a", 9999 * time.Microsecond}}, want: "a=10ms"},
+		{name: "short durations stay exact", entries: []timedName{{"a", 999}}, want: "a=999ns"},
+		{
+			name:    "comma separated in order",
+			entries: []timedName{{"a", 3 * time.Second}, {"b", 2 * time.Second}},
+			want:    "a=3s,b=2s",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, formatSlowest(tt.entries))
 		})
 	}
 }

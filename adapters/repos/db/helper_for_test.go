@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -41,6 +42,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/shutdownreport"
 	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -707,4 +709,24 @@ func shutdownIndexOnCleanup(t *testing.T, index *Index) {
 			t.Errorf("shutdown index: %v", err)
 		}
 	})
+}
+
+// shutdownSummary returns the fields of the summary line r logs.
+func shutdownSummary(t testing.TB, r *shutdownreport.Report) logrus.Fields {
+	t.Helper()
+	logger, hook := test.NewNullLogger()
+	r.Log(logger, shutdownreport.DefaultThresholds())
+	for _, e := range hook.AllEntries() {
+		if e.Level == logrus.InfoLevel {
+			return e.Data
+		}
+	}
+	t.Fatal("no shutdown summary logged")
+	return nil
+}
+
+// slowestEntries splits a slowest_indexes or slowest_shards value into its
+// name=duration entries.
+func slowestEntries(field any) []string {
+	return strings.Split(field.(string), ",")
 }

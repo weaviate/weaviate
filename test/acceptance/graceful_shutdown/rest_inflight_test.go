@@ -105,6 +105,9 @@ func TestRESTRequestInFlightAtShutdown(t *testing.T) {
 	assert.Equal(t, 1.0, summary["rest_unavailable"])
 	assert.Equal(t, false, summary["rest_forced_close"])
 	assert.Equal(t, 0.0, summary["rest_handlers_still_running"])
+	// The DB closes inside the cluster close, so this proves the report reached it.
+	assert.Equal(t, 1.0, summary["indexes_done"])
+	assert.Equal(t, true, summary["db_reached"])
 }
 
 // shutdownSummary returns the fields of the one shutdown summary line in logs.
