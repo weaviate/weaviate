@@ -1050,6 +1050,15 @@ func chunkFromFile(f *os.File) (_ *chunk, err error) {
 		}
 	}()
 
+	info, err := c.f.Stat()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to stat chunk file")
+	}
+	if info.Size() == 0 {
+		return nil, errEmptyChunk
+	}
+	c.size = uint64(info.Size())
+
 	_, err = f.Seek(0, 0)
 	if err != nil {
 		return nil, err
@@ -1063,14 +1072,6 @@ func chunkFromFile(f *os.File) (_ *chunk, err error) {
 	if err != nil {
 		return nil, err
 	}
-
-	// get the file size
-	info, err := c.f.Stat()
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to stat chunk file")
-	}
-
-	c.size = uint64(info.Size())
 
 	return &c, nil
 }

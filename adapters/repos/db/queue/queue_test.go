@@ -1605,8 +1605,11 @@ func (d *undecodableKeyDecoder) DecodeTask(data []byte) (Task, error) {
 // queue, or its records stay counted and the queue never drains.
 func TestDequeueBatchChunkBecameUnreadable(t *testing.T) {
 	tests := []struct {
-		name       string
-		damage     func(t *testing.T, path string)
+		name   string
+		damage func(t *testing.T, path string)
+		// read the chunk through the file the reader kept open since it was
+		// sealed, rather than reopening it from its path
+		keepOpen   bool
 		quarantine bool
 	}{
 		{
@@ -1628,6 +1631,13 @@ func TestDequeueBatchChunkBecameUnreadable(t *testing.T) {
 				require.NoError(t, os.Truncate(path, 0))
 			},
 		},
+		{
+			name: "truncated to zero while open",
+			damage: func(t *testing.T, path string) {
+				require.NoError(t, os.Truncate(path, 0))
+			},
+			keepOpen: true,
+		},
 	}
 
 	for _, test := range tests {
@@ -1641,10 +1651,10 @@ func TestDequeueBatchChunkBecameUnreadable(t *testing.T) {
 			sealChunk(t, q)
 			pushMany(t, q, 1, 3, 4)
 			sealChunk(t, q)
-			require.NoError(t, q.Close(t.Context()))
-
-			// reopen, so the chunks are read from their path
-			q = makeQueueWith(t, s, discardExecutor(), 0, dir)
+			if !test.keepOpen {
+				require.NoError(t, q.Close(t.Context()))
+				q = makeQueueWith(t, s, discardExecutor(), 0, dir)
+			}
 			defer q.Close(t.Context())
 			require.EqualValues(t, 4, q.Size())
 
