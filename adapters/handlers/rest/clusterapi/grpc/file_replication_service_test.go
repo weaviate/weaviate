@@ -125,7 +125,7 @@ type fakeSchema struct {
 	err       error  // forced error, overrides the applied check when set
 }
 
-func (s *fakeSchema) AppliedIndex() uint64 { return 0 }
+func (s *fakeSchema) FSMAppliedIndex() uint64 { return 0 }
 
 func (s *fakeSchema) ReadOnlyClassWithVersion(_ context.Context, class string, version uint64) (*models.Class, error) {
 	s.mu.Lock()

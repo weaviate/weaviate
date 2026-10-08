@@ -44,9 +44,9 @@ type RemoteIncomingRepo interface {
 
 type RemoteIncomingSchema interface {
 	ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64) (*models.Class, error)
-	// AppliedIndex is the RAFT log index this node has finished applying, read without waiting.
-	// 0 means it could not be read.
-	AppliedIndex() uint64
+	// FSMAppliedIndex is the log index this node's schema FSM has applied, read without waiting.
+	// Not raft's applied index, which runs ahead. 0 means it could not be read.
+	FSMAppliedIndex() uint64
 }
 
 type RemoteIndexIncomingRepo interface {
@@ -460,7 +460,7 @@ func (rii *RemoteIndexIncoming) finalMiss(err error, indexName, shardName string
 	if err == nil || !enterrors.IsSchemaLag(err) {
 		return nil
 	}
-	appliedIndex := rii.schema.AppliedIndex()
+	appliedIndex := rii.schema.FSMAppliedIndex()
 	if !enterrors.NotServedHere(err, schemaVersion, appliedIndex) {
 		return nil
 	}

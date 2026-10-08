@@ -194,9 +194,9 @@ func (s *SchemaManager) NewSchemaReaderWithWaitFunc(f func(context.Context, uint
 	return NewSchemaReader(
 		s.schema,
 		VersionedSchemaReader{
-			schema:        s.schema,
-			WaitForUpdate: f,
-			AppliedIndex:  appliedIndex,
+			schema:          s.schema,
+			WaitForUpdate:   f,
+			FSMAppliedIndex: appliedIndex,
 		},
 	)
 }

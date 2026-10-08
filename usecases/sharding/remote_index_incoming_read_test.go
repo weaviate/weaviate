@@ -29,7 +29,7 @@ type fakeIncomingSchema struct {
 	appliedIndex uint64
 }
 
-func (f fakeIncomingSchema) AppliedIndex() uint64 { return f.appliedIndex }
+func (f fakeIncomingSchema) FSMAppliedIndex() uint64 { return f.appliedIndex }
 
 func (f fakeIncomingSchema) ReadOnlyClassWithVersion(context.Context, string, uint64) (*models.Class, error) {
 	return nil, nil

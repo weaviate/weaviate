@@ -1280,7 +1280,7 @@ func (db *DB) classifyReplicatedReadMiss(err error, className, shardName string,
 	if err == nil || !enterrors.IsSchemaLag(err) {
 		return err
 	}
-	appliedIndex := db.schemaReader.AppliedIndex()
+	appliedIndex := db.schemaReader.FSMAppliedIndex()
 	if !enterrors.NotServedHere(err, schemaVersion, appliedIndex) {
 		return err
 	}

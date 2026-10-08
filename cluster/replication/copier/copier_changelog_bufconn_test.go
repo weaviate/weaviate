@@ -79,7 +79,7 @@ func (r *bufconnFakeRepo) GetIndexForIncomingSharding(schema.ClassName) sharding
 // these tests pass schemaVersion 0, so the barrier is always a no-op.
 type bufconnFakeSchema struct{}
 
-func (bufconnFakeSchema) AppliedIndex() uint64 { return 0 }
+func (bufconnFakeSchema) FSMAppliedIndex() uint64 { return 0 }
 
 func (bufconnFakeSchema) ReadOnlyClassWithVersion(context.Context, string, uint64) (*models.Class, error) {
 	return nil, nil
