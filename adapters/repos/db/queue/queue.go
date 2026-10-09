@@ -356,11 +356,7 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 
 	if len(tasks) == 0 {
 		// nothing to process
-		err := q.finishChunk(c.path, corruptChunkErr)
-		if err != nil {
-			return nil, err
-		}
-		return nil, nil
+		return nil, q.finishChunk(c.path, corruptChunkErr)
 	}
 
 	doneFn := func() {
