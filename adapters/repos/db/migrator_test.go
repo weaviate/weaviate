@@ -933,10 +933,12 @@ func TestUpdateIndexAddsPropertiesDespiteShardFailure(t *testing.T) {
 			// property-add probe reaches it too. It answers "has the index" so
 			// the probe keeps walking to keep1 instead of stopping here.
 			gone.EXPECT().hasGeoIndexForProp("location").Return(true).Maybe()
+			gone.EXPECT().preventShutdown().Return(func() {}, nil).Maybe()
 			idx.shards.Store("gone1", gone)
 
 			keep := NewMockShardLike(t)
 			keep.EXPECT().hasGeoIndexForProp("location").Return(true)
+			keep.EXPECT().preventShutdown().Return(func() {}, nil)
 			idx.shards.Store("keep1", keep)
 
 			incomingSS := localShardingState([]string{"keep1"})
