@@ -285,23 +285,29 @@ func (s *s3Client) AllBackups(ctx context.Context,
 	}
 
 	return ubak.FetchBackupDescriptors(ctx, s.logger, keys, func(ctx context.Context, key string) ([]byte, error) {
-		obj, err := s.client.GetObject(ctx, s.config.Bucket, key, minio.GetObjectOptions{})
+		contents, err := getObject(ctx, s.client, s.config.Bucket, key)
 		if err != nil {
-			return nil, fmt.Errorf("get object: %w", err)
-		}
-		defer obj.Close()
-
-		var buf bytes.Buffer
-		if _, err = io.Copy(&buf, obj); err != nil {
-			wrapped := fmt.Errorf("read object: %w", err)
+			wrapped := fmt.Errorf("get object: %w", err)
 			var s3Err minio.ErrorResponse
 			if errors.As(err, &s3Err) && s3Err.StatusCode == http.StatusNotFound {
 				return nil, backup.NewErrNotFound(wrapped)
 			}
 			return nil, wrapped
 		}
-		return buf.Bytes(), nil
+		return contents, nil
 	})
+}
+
+// getObject downloads an object into one buffer sized from the GET's
+// Content-Length. minio.Core sends the GET up front and returns that size,
+// where Object.Stat would cost an extra HEAD.
+func getObject(ctx context.Context, client *minio.Client, bucket, objectName string) ([]byte, error) {
+	body, info, _, err := minio.Core{Client: client}.GetObject(ctx, bucket, objectName, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer body.Close()
+	return ubak.ReadAllSized(body, info.Size)
 }
 
 func (s *s3Client) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {
@@ -318,17 +324,7 @@ func (s *s3Client) GetObject(ctx context.Context, backupID, key, overrideBucket,
 		return nil, backup.NewErrContextExpired(errors.Wrapf(err, "context expired in get object %s", remotePath))
 	}
 
-	obj, err := client.GetObject(ctx, bucket, remotePath, minio.GetObjectOptions{})
-	if err != nil {
-		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object %s", remotePath))
-	}
-
-	// Ensure object is closed to prevent connection leaks
-	defer obj.Close()
-
-	// Use a buffer to limit memory usage
-	var buf bytes.Buffer
-	_, err = io.Copy(&buf, obj)
+	contents, err := getObject(ctx, client, bucket, remotePath)
 	if err != nil {
 		var s3Err minio.ErrorResponse
 		if errors.As(err, &s3Err) && s3Err.StatusCode == http.StatusNotFound {
@@ -337,7 +333,6 @@ func (s *s3Client) GetObject(ctx context.Context, backupID, key, overrideBucket,
 		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object contents from %s:%s %s", bucket, remotePath, remotePath))
 	}
 
-	contents := buf.Bytes()
 	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues(Name, "class")
 	if err == nil {
 		metric.Add(float64(len(contents)))

@@ -2001,25 +2001,43 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 	}
 	b.flushLock.Unlock()
 
-	if b.flushing == nil {
-		// active has flushing, no one else was currently flushing, it's safe to
-		// exit
+	// A FlushAndSwitch holds flushAndSwitchMu until it is done, so once the mutex is
+	// free no flush is in progress. A flushing memtable left then is one a flush
+	// failed on: nothing would ever clear it, and waiting for it hung forever.
+	if err := b.lockFlushAndSwitch(ctx); err != nil {
+		return err
+	}
+	defer b.flushAndSwitchMu.Unlock()
+
+	b.flushLock.RLock()
+	failed := b.flushing
+	b.flushLock.RUnlock()
+	if failed == nil {
 		return nil
 	}
 
-	// it seems we still need to wait for someone to finish flushing
+	// its commit log may lack writes that only the memtable holds, so the memtable
+	// is written out rather than left to the commit log
+	b.logger.WithField("action", "lsm_bucket_shutdown").WithField("path", b.dir).
+		Warn("shutting down with the memtable of a failed flush, writing it out")
+	if _, err := failed.flushAfterFailedFlush(); err != nil {
+		return fmt.Errorf("write out memtable of a failed flush: %w", err)
+	}
+	return nil
+}
+
+// lockFlushAndSwitch takes flushAndSwitchMu, or gives up when ctx is done.
+func (b *Bucket) lockFlushAndSwitch(ctx context.Context) error {
 	t := time.NewTicker(50 * time.Millisecond)
 	defer t.Stop()
-	for {
+	for !b.flushAndSwitchMu.TryLock() {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("wait for flush in progress: %w", ctx.Err())
 		case <-t.C:
-			if b.flushing == nil {
-				return nil
-			}
 		}
 	}
+	return nil
 }
 
 func (b *Bucket) shouldReuseWAL() bool {
@@ -2205,14 +2223,18 @@ func (b *Bucket) flushAndSwitchLocked() error {
 	// memtable). Its acknowledged, fsynced writes are readable only through
 	// the flushing memtable — switching over it would orphan them until a
 	// restart's WAL replay (and, mid-drop, leave pre-arm bytes outside every
-	// snapshot). Complete the leftover flush first; if it fails again, this
+	// snapshot). Write the leftover out first; if that fails again, this
 	// attempt fails too and the data stays readable where it is.
 	if b.flushing != nil {
 		b.logger.WithField("action", "lsm_memtable_flush_start").
 			WithField("path", bucketPath).
-			Warn("a previous memtable flush did not complete; retrying it before switching")
-		if err := b.flushFlushingLocked(); err != nil {
-			return fmt.Errorf("retry incomplete previous flush: %w", err)
+			Warn("writing out the memtable of a failed flush before switching")
+		segmentPath, err := b.flushing.flushAfterFailedFlush()
+		if err != nil {
+			return fmt.Errorf("write out memtable of a failed flush: %w", err)
+		}
+		if err := b.addFlushedSegment(segmentPath); err != nil {
+			return fmt.Errorf("write out memtable of a failed flush: %w", err)
 		}
 	}
 
@@ -2250,9 +2272,9 @@ func (b *Bucket) flushAndSwitchLocked() error {
 // flushFlushingLocked completes the flush of the memtable currently in
 // b.flushing (steps 2-4 of FlushAndSwitch): wait out its writers, flush it to
 // a segment, precompute metadata, and atomically add the segment while
-// clearing b.flushing. Split out so flushAndSwitchLocked can also drain a
-// memtable a FAILED earlier flush left behind before switching. The caller
-// must hold flushAndSwitchMu.
+// clearing b.flushing. The caller must hold flushAndSwitchMu. A memtable a
+// FAILED earlier flush left behind is drained by flushAndSwitchLocked through
+// flushAfterFailedFlush instead, since its commit log may already be gone.
 func (b *Bucket) flushFlushingLocked() error {
 	// Before we can start the actual flush, we need to make sure that all
 	// ongoing writers have finished their write, otherwise we could lose the
@@ -2272,6 +2294,13 @@ func (b *Bucket) flushFlushingLocked() error {
 	if err != nil {
 		return fmt.Errorf("flush: %w", err)
 	}
+	return b.addFlushedSegment(segmentPath)
+}
+
+// addFlushedSegment adds the segment b.flushing was written to and clears
+// b.flushing. The caller must hold flushAndSwitchMu.
+func (b *Bucket) addFlushedSegment(segmentPath string) error {
+	var err error
 
 	var tombstones *sroar.Bitmap
 	if b.strategy == StrategyInverted {
@@ -2349,7 +2378,7 @@ func (b *Bucket) atomicallySwitchMemtable(createNewActiveMemtable func() (memtab
 		// Overwriting a leftover flushing memtable would orphan its
 		// acknowledged writes (unreadable until a restart's WAL replay).
 		// Callers must drain it first — flushAndSwitchLocked does.
-		return false, fmt.Errorf("previous flushing memtable still present; refusing to overwrite it")
+		return false, fmt.Errorf("memtable of a failed flush still present; refusing to overwrite it")
 	}
 
 	if b.active.Size() == 0 {

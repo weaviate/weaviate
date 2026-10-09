@@ -68,9 +68,9 @@ func TestFilterDesignatedShards(t *testing.T) {
 
 func TestCollectShardBaseDescrsSkipsShardlessBases(t *testing.T) {
 	idx := &Index{}
-	base := []*backup.ClassDescriptor{
-		{BackupID: "base-1", Shards: []*backup.ShardDescriptor{{Name: "s1", Node: "n1"}}},
-		{BackupID: "base-2", Shards: []*backup.ShardDescriptor{{Name: "s2", Node: "n1"}}},
+	base := []*backup.BaseClassDescriptor{
+		{BackupID: "base-1", Shards: []backup.BaseShardDescriptor{{Name: "s1"}}},
+		{BackupID: "base-2", Shards: []backup.BaseShardDescriptor{{Name: "s2"}}},
 	}
 
 	assert.Nil(t, idx.collectShardBaseDescrs("deduped-away", base))
@@ -90,10 +90,10 @@ func TestCollectedBaseDescrsFeedSkipEntries(t *testing.T) {
 	require.NoError(t, err)
 
 	idx := &Index{}
-	base := []*backup.ClassDescriptor{
-		{BackupID: "base-1", Shards: []*backup.ShardDescriptor{{Name: "s1", Node: "n1"}}},
-		{BackupID: "base-2", Shards: []*backup.ShardDescriptor{{
-			Name: "s2", Node: "n1",
+	base := []*backup.BaseClassDescriptor{
+		{BackupID: "base-1", Shards: []backup.BaseShardDescriptor{{Name: "s1"}}},
+		{BackupID: "base-2", Shards: []backup.BaseShardDescriptor{{
+			Name: "s2",
 			BigFilesChunk: map[string]backup.BigFileInfo{relPath: {
 				Size: info.Size(), ModifiedAt: info.ModTime(), ChunkKeys: []string{"chunk-7"},
 			}},

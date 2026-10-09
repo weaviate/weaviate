@@ -591,7 +591,7 @@ func TestRestoreFanoutFetchesBaseChunksFromSourcePrefix(t *testing.T) {
 	incrSd := e.makeShardDesc("s1", nil)
 	incrSd.Node = "nodeA"
 	require.NoError(t, incrSd.FillFileInfo([]string{"s1/big-segment.db", "s1/changed.db"},
-		[]backup.ShardAndID{{ShardDesc: baseSd, BackupID: baseID}}, e.sourceDir))
+		[]backup.ShardAndID{{ShardDesc: &backup.BaseShardDescriptor{Name: baseSd.Name, BigFilesChunk: baseSd.BigFilesChunk}, BackupID: baseID}}, e.sourceDir))
 	require.Equal(t, []string{"s1/changed.db"}, incrSd.Files)
 	require.NotEmpty(t, incrSd.IncrementalBackupInfo.FilesPerBackup[baseID])
 	incrChunks := upload(incrID+"/nodeA", incrSd)

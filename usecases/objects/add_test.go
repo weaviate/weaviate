@@ -195,6 +195,24 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		assert.Equal(t, NewErrInvalidUserInput("id '%s' already exists", id), err)
 	})
 
+	t.Run("with a uuid whose existence check fails", func(t *testing.T) {
+		reset()
+
+		ctx := context.Background()
+		id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
+		class := &models.Object{
+			ID:    id,
+			Class: "Foo",
+		}
+
+		checkErr := errors.New("owner node unreachable")
+		vectorRepo.On("Exists", "Foo", id).Return(true, checkErr).Once()
+
+		_, err := manager.AddObject(ctx, nil, class, nil)
+		require.ErrorAs(t, err, &ErrInternal{})
+		require.ErrorIs(t, err, checkErr)
+	})
+
 	t.Run("with a uuid that's malformed", func(t *testing.T) {
 		reset()
 

@@ -17,6 +17,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -114,13 +115,21 @@ func (a *Aggregator) performVectorSearch(ctx context.Context,
 ) ([]uint64, []float32, error) {
 	switch vec := searchVector.(type) {
 	case []float32:
+		err := a.checkVectorKind(false)
+		if err != nil {
+			return nil, nil, err
+		}
 		idsFound, dists, err := a.vectorIndex.SearchByVector(ctx, vec, limit, ids)
 		if err != nil {
 			return idsFound, nil, err
 		}
 		return idsFound, dists, nil
 	case [][]float32:
-		idsFound, dists, err := a.vectorIndex.(vectorIndexMulti).SearchByMultiVector(ctx, vec, limit, ids)
+		multiIndex, err := a.multiVectorIndex()
+		if err != nil {
+			return nil, nil, err
+		}
+		idsFound, dists, err := multiIndex.SearchByMultiVector(ctx, vec, limit, ids)
 		if err != nil {
 			return idsFound, nil, err
 		}
@@ -135,10 +144,43 @@ func (a *Aggregator) performVectorDistanceSearch(ctx context.Context,
 ) ([]uint64, []float32, error) {
 	switch vec := searchVector.(type) {
 	case []float32:
+		err := a.checkVectorKind(false)
+		if err != nil {
+			return nil, nil, err
+		}
 		return a.vectorIndex.SearchByVectorDistance(ctx, vec, targetDist, maxLimit, ids)
 	case [][]float32:
-		return a.vectorIndex.(vectorIndexMulti).SearchByMultiVectorDistance(ctx, vec, targetDist, maxLimit, ids)
+		multiIndex, err := a.multiVectorIndex()
+		if err != nil {
+			return nil, nil, err
+		}
+		return multiIndex.SearchByMultiVectorDistance(ctx, vec, targetDist, maxLimit, ids)
 	default:
 		return nil, nil, fmt.Errorf("perform vector distance search: unrecognized search vector type: %T", searchVector)
 	}
+}
+
+// checkVectorKind refuses a search vector whose shape does not match what the
+// target's index is configured for; the noop index takes anything.
+func (a *Aggregator) checkVectorKind(multi bool) error {
+	if a.vectorIndex.Type() == common.IndexTypeNoop || a.vectorIndex.Multivector() == multi {
+		return nil
+	}
+	if multi {
+		return fmt.Errorf("target vector %q: %s index does not support multi-vectors", a.params.TargetVector, a.vectorIndex.Type())
+	}
+	return fmt.Errorf("target vector %q: %s index is configured for multi-vectors and does not accept single vectors",
+		a.params.TargetVector, a.vectorIndex.Type())
+}
+
+func (a *Aggregator) multiVectorIndex() (vectorIndexMulti, error) {
+	err := a.checkVectorKind(true)
+	if err != nil {
+		return nil, err
+	}
+	multiIndex, ok := a.vectorIndex.(vectorIndexMulti)
+	if !ok {
+		return nil, fmt.Errorf("target vector %q: %s index does not support multi-vectors", a.params.TargetVector, a.vectorIndex.Type())
+	}
+	return multiIndex, nil
 }
