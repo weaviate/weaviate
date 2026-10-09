@@ -85,13 +85,10 @@ type UserLister interface {
 }
 
 // RoleLister resolves includeRoles selectors. ListAllRoles returns every role
-// name, custom and built-in, which is the list selectors match against.
-// BuiltInAssignments returns an RBAC snapshot of the admin and viewer
-// assignments the given qualified user ids hold, or nil when they hold none.
-// OIDCBuiltInAssignments returns an RBAC snapshot of the admin and viewer
-// assignments that OIDC users qualified with the given namespaces hold, or nil
-// when they hold none.
-// Nil when RBAC is disabled.
+// RoleLister resolves includeRoles selectors, and is nil when RBAC is disabled.
+// ListAllRoles returns every role name, custom and built-in, which selectors match
+// against. BuiltInAssignments returns an RBAC snapshot of the admin and viewer
+// assignments the given db user ids hold, or nil when they hold none.
 type RoleLister interface {
 	ListAllRoles() ([]string, error)
 	BuiltInAssignments(userIDs ...string) ([]byte, error)
