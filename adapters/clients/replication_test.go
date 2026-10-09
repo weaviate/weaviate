@@ -1248,3 +1248,43 @@ func TestAsyncNotReadyErrorStatusMapping(t *testing.T) {
 		})
 	}
 }
+
+// A 503 outlasts the ladder, so the caller must fail over rather than retry the same node.
+func TestShouldRetryByStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		status      int
+		wantRetried bool
+	}{
+		{name: "503 node or class not ready", status: http.StatusServiceUnavailable, wantRetried: false},
+		{name: "500 internal", status: http.StatusInternalServerError, wantRetried: true},
+		{name: "429 over capacity", status: http.StatusTooManyRequests, wantRetried: true},
+		{name: "422 unprocessable", status: http.StatusUnprocessableEntity, wantRetried: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			var requests atomic.Int64
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				http.Error(w, http.StatusText(test.status), test.status)
+			}))
+			defer server.Close()
+
+			c := newReplicationClient(t, server.Client())
+			_, err := c.DigestObjects(context.Background(), server.URL[len("http://"):],
+				"C1", "S1", []strfmt.UUID{UUID1}, MAX_RETRIES)
+			require.Error(t, err)
+
+			if test.wantRetried {
+				assert.Greater(t, requests.Load(), int64(1), "a retryable status must climb the ladder")
+				return
+			}
+			assert.EqualValues(t, 1, requests.Load(), "the peer must be asked exactly once")
+		})
+	}
+}

@@ -41,6 +41,7 @@ import (
 // grpcReplicationClient implements replica.Client using gRPC.
 type grpcReplicationClient struct {
 	connManager *grpcconn.ConnManager
+	schemaVersionSource
 }
 
 var _ replica.Client = (*grpcReplicationClient)(nil)
@@ -294,12 +295,13 @@ func (c *grpcReplicationClient) FetchObject(ctx context.Context, host, index, sh
 	defer cancel()
 
 	resp, err := client.FetchObject(ctx, &protocol.FetchObjectRequest{
-		Index: index,
-		Shard: shard,
-		Uuid:  id.String(),
+		Index:         index,
+		Shard:         shard,
+		Uuid:          id.String(),
+		SchemaVersion: c.schemaVersion(index),
 	}, grpc_retry.WithMax(uint(numRetries)))
 	if err != nil {
-		return replica.Replica{}, fmt.Errorf("gRPC FetchObject: %w", err)
+		return replica.Replica{}, readGRPCError("FetchObject", err)
 	}
 
 	var r replica.Replica
@@ -323,12 +325,13 @@ func (c *grpcReplicationClient) FetchObjects(ctx context.Context, host, index, s
 	defer cancel()
 
 	resp, err := client.FetchObjects(ctx, &protocol.FetchObjectsRequest{
-		Index: index,
-		Shard: shard,
-		Uuids: clusterapi.UUIDsToStrings(ids),
+		Index:         index,
+		Shard:         shard,
+		Uuids:         clusterapi.UUIDsToStrings(ids),
+		SchemaVersion: c.schemaVersion(index),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("gRPC FetchObjects: %w", err)
+		return nil, readGRPCError("FetchObjects", err)
 	}
 
 	var replicas replica.Replicas
@@ -350,12 +353,13 @@ func (c *grpcReplicationClient) DigestObjects(ctx context.Context, host, index, 
 	defer cancel()
 
 	resp, err := client.DigestObjects(ctx, &protocol.DigestObjectsRequest{
-		Index: index,
-		Shard: shard,
-		Ids:   clusterapi.UUIDsToStrings(ids),
+		Index:         index,
+		Shard:         shard,
+		Ids:           clusterapi.UUIDsToStrings(ids),
+		SchemaVersion: c.schemaVersion(index),
 	}, grpc_retry.WithMax(uint(numRetries)))
 	if err != nil {
-		return nil, fmt.Errorf("gRPC DigestObjects: %w", err)
+		return nil, readGRPCError("DigestObjects", err)
 	}
 
 	return protoToRepairResponses(resp.GetDigests()), nil
@@ -603,13 +607,14 @@ func (c *grpcReplicationClient) FindUUIDs(ctx context.Context, host, index, shar
 	// No explicit timeout — relies on caller's context deadline, matching REST behavior.
 	// Disable retries to match REST behavior, which had no retries for FindUUIDs.
 	resp, err := client.FindUUIDs(ctx, &protocol.FindUUIDsRequest{
-		Index:      index,
-		Shard:      shard,
-		FilterJson: filterJSON,
-		Limit:      int32(limit),
+		Index:         index,
+		Shard:         shard,
+		FilterJson:    filterJSON,
+		Limit:         int32(limit),
+		SchemaVersion: c.schemaVersion(index),
 	}, grpc_retry.Disable())
 	if err != nil {
-		return nil, fmt.Errorf("gRPC FindUUIDs: %w", err)
+		return nil, readGRPCError("FindUUIDs", err)
 	}
 
 	return clusterapi.StringsToUUIDs(resp.GetUuids()), nil
@@ -640,6 +645,16 @@ func asyncNotReadyGRPCError(err error) error {
 	default:
 		return nil
 	}
+}
+
+// readGRPCError gives gRPC reads the sentinel the REST transport gets from HTTPError.Is, which
+// is the only thing Pull's fail-over classifies on. Unavailable is a replica not worth asking
+// again this attempt; FailedPrecondition is final and deliberately carries no sentinel.
+func readGRPCError(op string, err error) error {
+	if status.Code(err) == codes.Unavailable {
+		return fmt.Errorf("gRPC %s: %w: %w", op, replica.ErrReplicaNotReady, err)
+	}
+	return fmt.Errorf("gRPC %s: %w", op, err)
 }
 
 func (c *grpcReplicationClient) HashTreeLevel(ctx context.Context, host, index, shard string,
@@ -716,11 +731,12 @@ func (c *grpcReplicationClient) CountObjects(ctx context.Context, host, index, s
 	defer cancel()
 
 	resp, err := client.CountObjects(ctx, &protocol.CountObjectsRequest{
-		Index: index,
-		Shard: shard,
+		Index:         index,
+		Shard:         shard,
+		SchemaVersion: c.schemaVersion(index),
 	})
 	if err != nil {
-		return 0, fmt.Errorf("gRPC CountObjects: %w", err)
+		return 0, readGRPCError("CountObjects", err)
 	}
 
 	return int(resp.Count), nil

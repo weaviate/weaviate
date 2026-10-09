@@ -307,8 +307,27 @@ type Store struct {
 
 // storeMetrics exposes RAFT store related prometheus metrics
 type storeMetrics struct {
-	applyDuration prometheus.Histogram
+	applyDuration *prometheus.HistogramVec
 	applyFailures prometheus.Counter
+
+	// waitForIndex times every wait for a schema version, by outcome. A read or
+	// write that cannot be served until the local FSM catches up blocks here, so
+	// this is where that latency is visible; _count per outcome also gives the
+	// hit rate of the no-wait fast path.
+	waitForIndex *prometheus.HistogramVec
+
+	// waitForIndexGap is how many entries short a wait was when it gave up. A
+	// node a couple of entries behind points at something other than lag; one
+	// thousands behind is genuinely catching up.
+	waitForIndexGap prometheus.Histogram
+
+	// tenantAddsFiltered counts tenants dropped from an AddTenants proposal
+	// because the local schema already had them, and
+	// tenantAddProposalsSkipped the calls that were left with nothing to
+	// propose. Against schema_writes_seconds_count{type="TYPE_ADD_TENANT"}
+	// these say how much of the tenant-add traffic was redundant.
+	tenantAddsFiltered        prometheus.Counter
+	tenantAddProposalsSkipped prometheus.Counter
 
 	// raftLastAppliedIndex represents current applied index of a raft cluster in local node.
 	// This includes every commands including config changes
@@ -332,12 +351,16 @@ type storeMetrics struct {
 func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 	r := promauto.With(reg)
 	return &storeMetrics{
-		applyDuration: r.NewHistogram(prometheus.HistogramOpts{
+		applyDuration: r.NewHistogramVec(prometheus.HistogramOpts{
 			Name:        "weaviate_cluster_store_fsm_apply_duration_seconds",
-			Help:        "Time to apply cluster store FSM state in local node",
+			Help:        "Time to apply cluster store FSM state in local node, by command type",
 			ConstLabels: prometheus.Labels{"nodeID": nodeID},
-			Buckets:     prometheus.ExponentialBuckets(0.001, 5, 5), // 1ms, 5ms, 25ms, 125ms, 625ms
-		}),
+			// The first five bounds are the original ones, kept so history still
+			// compares. The rest exist because the apply loop is serial: an apply
+			// that runs for seconds delays every command behind it, and capped at
+			// 625ms the metric could not say whether that was happening.
+			Buckets: []float64{0.001, 0.005, 0.025, 0.125, 0.625, 2.5, 10, 30, 60},
+		}, []string{"cmd_type"}),
 		applyFailures: r.NewCounter(prometheus.CounterOpts{
 			Name:        "weaviate_cluster_store_fsm_apply_failures_total",
 			Help:        "Total failure count of cluster store FSM state apply in local node",
@@ -361,6 +384,30 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 		leaderFSMBarriers: r.NewCounter(prometheus.CounterOpts{
 			Name:        "weaviate_cluster_store_leader_fsm_barriers_total",
 			Help:        "Catch-up barriers issued by this node after winning an election",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}),
+		waitForIndex: r.NewHistogramVec(prometheus.HistogramOpts{
+			Name:        "weaviate_cluster_store_wait_for_index_duration_seconds",
+			Help:        "Time spent waiting for the local FSM to reach a schema version, by outcome",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+			Buckets: []float64{
+				0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 25, 60,
+			},
+		}, []string{"outcome"}),
+		waitForIndexGap: r.NewHistogram(prometheus.HistogramOpts{
+			Name:        "weaviate_cluster_store_wait_for_index_gap_entries",
+			Help:        "Entries still missing when a wait for a schema version gave up",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+			Buckets:     []float64{1, 2, 5, 10, 25, 50, 100, 500, 1000, 5000, 10000, 100000},
+		}),
+		tenantAddsFiltered: r.NewCounter(prometheus.CounterOpts{
+			Name:        "weaviate_cluster_store_tenant_adds_filtered_total",
+			Help:        "Tenants dropped from an AddTenants proposal because the local schema already had them",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}),
+		tenantAddProposalsSkipped: r.NewCounter(prometheus.CounterOpts{
+			Name:        "weaviate_cluster_store_tenant_add_proposals_skipped_total",
+			Help:        "AddTenants calls that proposed no RAFT entry because every tenant already existed",
 			ConstLabels: prometheus.Labels{"nodeID": nodeID},
 		}),
 	}
@@ -811,21 +858,50 @@ func (st *Store) trackDBLoadProgress() func() {
 }
 
 // WaitForAppliedIndex waits until the update with the given version is propagated to this follower node
+// Outcomes of a wait for a schema version, as the waitForIndex label.
+const (
+	// waitOutcomeImmediate means the version had already been applied, so
+	// nothing was waited for.
+	waitOutcomeImmediate = "immediate"
+	// waitOutcomeCaughtUp means the wait ended because the FSM reached the
+	// version.
+	waitOutcomeCaughtUp = "caught_up"
+	// waitOutcomeDeadline means the wait ran out of time. The deadline is the
+	// sooner of ConsistencyWaitTimeout and whatever the caller's context had
+	// left, so a short observation here means the request arrived with little
+	// budget rather than that the FSM was slow.
+	waitOutcomeDeadline = "deadline"
+)
+
 func (st *Store) WaitForAppliedIndex(ctx context.Context, period time.Duration, version uint64) error {
-	if idx := st.lastAppliedIndex.Load(); idx >= version {
+	start := time.Now()
+	outcome := waitOutcomeDeadline
+	defer func() {
+		st.metrics.waitForIndex.WithLabelValues(outcome).Observe(time.Since(start).Seconds())
+	}()
+
+	// Kept outside the loop so the deadline branch always reports a real
+	// observation: declaring it there left got=0 whenever the context expired
+	// before the first tick.
+	idx := st.lastAppliedIndex.Load()
+	if idx >= version {
+		outcome = waitOutcomeImmediate
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, st.cfg.ConsistencyWaitTimeout)
 	defer cancel()
 	ticker := time.NewTicker(period)
 	defer ticker.Stop()
-	var idx uint64
 	for {
 		select {
 		case <-ctx.Done():
+			if version > idx {
+				st.metrics.waitForIndexGap.Observe(float64(version - idx))
+			}
 			return fmt.Errorf("%w: version got=%d  want=%d", types.ErrDeadlineExceeded, idx, version)
 		case <-ticker.C:
 			if idx = st.lastAppliedIndex.Load(); idx >= version {
+				outcome = waitOutcomeCaughtUp
 				return nil
 			} else {
 				st.log.WithFields(logrus.Fields{
@@ -849,7 +925,7 @@ func (st *Store) SchemaReader() schema.SchemaReader {
 	f := func(ctx context.Context, version uint64) error {
 		return st.WaitForAppliedIndex(ctx, time.Millisecond*50, version)
 	}
-	return st.schemaManager.NewSchemaReaderWithWaitFunc(f)
+	return st.schemaManager.NewSchemaReaderWithWaitFunc(f, st.lastAppliedIndex.Load)
 }
 
 // Stats returns internal statistics from this store, for informational/debugging purposes only.
@@ -1098,9 +1174,14 @@ func (st *Store) FSMHasCaughtUp() bool {
 }
 
 // shouldLogSlowApply reports whether slow RAFT apply diagnostics should be
-// emitted: current leader, store ready, and past startup FSM catch-up.
+// emitted: store ready and past startup FSM catch-up.
+//
+// Not gated on leadership. A follower's apply loop is serial too, and it is the
+// follower that rejects reads and writes for a version it has not reached, so
+// gating this on IsLeader hid the diagnostic on exactly the nodes that need it.
+// FSMHasCaughtUp already keeps startup replay quiet.
 func (st *Store) shouldLogSlowApply() bool {
-	return st.IsLeader() && st.Ready() && st.FSMHasCaughtUp()
+	return st.Ready() && st.FSMHasCaughtUp()
 }
 
 type Response struct {

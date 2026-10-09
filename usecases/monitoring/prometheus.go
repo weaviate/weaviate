@@ -137,11 +137,13 @@ type PrometheusMetrics struct {
 	// force-resumed mid-stream — compaction may have raced the transfer.
 	ShardHaltForTransferForceResume *prometheus.CounterVec
 
-	// RAFT-based schema metrics
-	SchemaWrites              *prometheus.SummaryVec
-	SchemaReadsLocal          *prometheus.SummaryVec
-	SchemaReadsLeader         *prometheus.SummaryVec
-	SchemaWaitForVersion      *prometheus.SummaryVec
+	// RAFT-based schema metrics. Histograms, not summaries: a summary reports pre-computed
+	// quantiles that cannot be aggregated across pods, and OTel pipelines commonly drop the type
+	// outright, which left these four invisible in the collector we run.
+	SchemaWrites              *prometheus.HistogramVec
+	SchemaReadsLocal          *prometheus.HistogramVec
+	SchemaReadsLeader         *prometheus.HistogramVec
+	SchemaWaitForVersion      *prometheus.HistogramVec
 	SchemaLeaderQueryFailures *prometheus.CounterVec
 
 	TombstoneFindLocalEntrypoint  *prometheus.CounterVec
@@ -401,6 +403,11 @@ var (
 	// LatencyBuckets is default histogram bucket for response time (in seconds).
 	// It also includes request that served *very* fast and *very* slow
 	LatencyBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 25, 50, 100}
+
+	// schemaLocalReadBuckets resolves below LatencyBuckets' 5ms floor. A healthy local schema read
+	// is tens of microseconds, so the signal worth seeing is it degrading into the milliseconds
+	// under lock contention -- which LatencyBuckets would collapse into one bucket.
+	schemaLocalReadBuckets = []float64{.00005, .0001, .00025, .0005, .001, .0025, .005, .01, .05, .1, .5, 1, 5, 10}
 
 	// sizeBuckets defines buckets for request/response body sizes (in bytes).
 	// TODO(kavi): Check with real data once deployed on prod and tweak accordingly.
@@ -821,26 +828,39 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help: "Mean duration of a tx by status",
 		}, []string{"ownership", "status"}),
 
-		// RAFT-based schema metrics
-		SchemaWrites: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "schema_writes_seconds",
-			Help: "Duration of schema writes (which always involve the leader)",
+		// RAFT-based schema metrics.
+		//
+		// Namespaced for consistency with the rest of the weaviate_* family. It does
+		// not change what gets collected: the collector's allowlist names individual
+		// metrics, so renaming one neither helps nor hurts whether it arrives.
+		SchemaWrites: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: DefaultMetricsNamespace,
+			Name:      "schema_writes_seconds",
+			Help:      "Duration of schema writes (which always involve the leader)",
+			Buckets:   LatencyBuckets,
 		}, []string{"type"}),
-		SchemaReadsLocal: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "schema_reads_local_seconds",
-			Help: "Duration of local schema reads that do not involve the leader",
+		SchemaReadsLocal: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: DefaultMetricsNamespace,
+			Name:      "schema_reads_local_seconds",
+			Help:      "Duration of local schema reads that do not involve the leader",
+			Buckets:   schemaLocalReadBuckets,
 		}, []string{"type"}),
-		SchemaReadsLeader: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "schema_reads_leader_seconds",
-			Help: "Duration of schema reads that are passed to the leader",
+		SchemaReadsLeader: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: DefaultMetricsNamespace,
+			Name:      "schema_reads_leader_seconds",
+			Help:      "Duration of schema reads that are passed to the leader",
+			Buckets:   LatencyBuckets,
 		}, []string{"type"}),
-		SchemaWaitForVersion: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "schema_wait_for_version_seconds",
-			Help: "Duration of waiting for a schema version to be reached",
+		SchemaWaitForVersion: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: DefaultMetricsNamespace,
+			Name:      "schema_wait_for_version_seconds",
+			Help:      "Duration of waiting for a schema version to be reached",
+			Buckets:   LatencyBuckets,
 		}, []string{"type"}),
 		SchemaLeaderQueryFailures: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "weaviate_schema_leader_query_failures_total",
-			Help: "Schema queries forwarded to the RAFT leader that failed, by query type and reason (no_leader, conn_closed, ctx_canceled, leader_error)",
+			Namespace: DefaultMetricsNamespace,
+			Name:      "schema_leader_query_failures_total",
+			Help:      "Schema queries forwarded to the RAFT leader that failed, by query type and reason (no_leader, conn_closed, ctx_canceled, leader_error)",
 		}, []string{"query_type", "reason"}),
 
 		TombstoneFindLocalEntrypoint: promauto.NewCounterVec(prometheus.CounterOpts{

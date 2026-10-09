@@ -59,7 +59,7 @@ type addPropertyLazyFixture struct {
 
 // newLazyLoadRepo wires a lazy-load-enabled repo whose shards start cold.
 // It registers no Shutdown cleanup — callers own the repo's lifecycle.
-func newLazyLoadRepo(t *testing.T, shardState *sharding.State) (*DB, *Migrator, *fakeSchemaGetter) {
+func newLazyLoadRepo(t *testing.T, shardState *sharding.State, opts ...func(*Config)) (*DB, *Migrator, *fakeSchemaGetter) {
 	t.Helper()
 	ctx := testCtx()
 	logger, _ := test.NewNullLogger()
@@ -88,13 +88,18 @@ func newLazyLoadRepo(t *testing.T, shardState *sharding.State) (*DB, *Migrator, 
 	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
 	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
 
-	repo, err := New(logger, "node1", Config{
+	cfg := Config{
 		RootPath:                  t.TempDir(),
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		MemtablesFlushDirtyAfter:  int(time.Hour.Seconds()),
 		EnableLazyLoadShards:      boolPtr(true),
-	},
+	}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	repo, err := New(logger, "node1", cfg,
 		&FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{},
 		&FakeReplicationClient{}, metrics, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil,
@@ -110,10 +115,10 @@ func newLazyLoadRepo(t *testing.T, shardState *sharding.State) (*DB, *Migrator, 
 	return repo, NewMigrator(repo, logger, "node1"), schemaGetter
 }
 
-func newAddPropertyLazyFixture(t *testing.T, className string, shardState *sharding.State) *addPropertyLazyFixture {
+func newAddPropertyLazyFixture(t *testing.T, className string, shardState *sharding.State, opts ...func(*Config)) *addPropertyLazyFixture {
 	t.Helper()
 	ctx := testCtx()
-	repo, migrator, schemaGetter := newLazyLoadRepo(t, shardState)
+	repo, migrator, schemaGetter := newLazyLoadRepo(t, shardState, opts...)
 	t.Cleanup(func() { repo.Shutdown(context.Background()) })
 
 	require.NoError(t, migrator.AddClass(ctx, newClassWithWarmProp(className)))
@@ -363,5 +368,88 @@ func TestResumeMaintenanceCycles_DoesNotForceLoadColdShards(t *testing.T) {
 
 	for name, shard := range cold {
 		require.False(t, shard.isLoaded(), "cold shard %q must not be force-loaded", name)
+	}
+}
+
+// Activation is applied from the replicated log and that apply is serial, so a
+// shard loaded here delays every entry behind it on every node.
+func TestUpdateTenants_ActivationDoesNotForceLoadColdShards(t *testing.T) {
+	ctx := testCtx()
+	f := newAddPropertyLazyFixture(t, "TenantActivation", multiShardState())
+	cold := f.coldShards(t)
+
+	updates := make([]*schemaUC.UpdateTenantPayload, 0, len(cold))
+	for name := range cold {
+		updates = append(updates, &schemaUC.UpdateTenantPayload{
+			Name:   name,
+			Status: models.TenantActivityStatusHOT,
+		})
+	}
+
+	require.NoError(t, f.migrator.UpdateTenants(ctx, f.schemaClass, updates, false))
+
+	for name, shard := range cold {
+		require.False(t, shard.isLoaded(),
+			"activating tenant %q must not materialise its shard inside the apply", name)
+	}
+
+	// Still usable: the first touch loads it.
+	for name, shard := range cold {
+		require.NoError(t, shard.Load(ctx), "shard %q must load on demand", name)
+		require.True(t, shard.isLoaded(), "shard %q should be loaded after use", name)
+		break
+	}
+}
+
+// With lazy loading off nothing defers the load, so activation must still open the
+// shard rather than leave it registered with nobody to open it.
+func TestUpdateTenants_ActivationStillLoadsWhenLazyLoadingIsOff(t *testing.T) {
+	ctx := testCtx()
+	f := newAddPropertyLazyFixture(t, "TenantActivationEager", multiShardState(),
+		func(c *Config) { c.EnableLazyLoadShards = boolPtr(false) })
+
+	names := []string{}
+	f.index.shards.Range(func(name string, _ ShardLike) error {
+		names = append(names, name)
+		return nil
+	})
+	require.NotEmpty(t, names)
+
+	updates := make([]*schemaUC.UpdateTenantPayload, 0, len(names))
+	for _, name := range names {
+		updates = append(updates, &schemaUC.UpdateTenantPayload{
+			Name:   name,
+			Status: models.TenantActivityStatusHOT,
+		})
+	}
+
+	require.NoError(t, f.migrator.UpdateTenants(ctx, f.schemaClass, updates, false))
+
+	for _, name := range names {
+		shard := f.index.shards.Load(name)
+		require.NotNil(t, shard, "shard %q should be registered", name)
+		require.True(t, shardIsLoaded(shard),
+			"with lazy loading off, activating tenant %q must open its shard", name)
+	}
+}
+
+// The DB reload after startup catch-up runs from the apply too, so reconciling
+// tenant status must not open every HOT shard it walks.
+func TestUpdateIndex_TenantReconcileDoesNotForceLoadHotShards(t *testing.T) {
+	ctx := testCtx()
+	state := NewMultiTenantShardingStateBuilder().
+		WithIndexName("TenantReconcile").
+		AddTenant("t1", models.TenantActivityStatusHOT).
+		AddTenant("t2", models.TenantActivityStatusHOT).
+		Build()
+
+	f := newAddPropertyLazyFixture(t, "TenantReconcile", state)
+	cold := f.coldShards(t)
+
+	require.NoError(t, f.migrator.UpdateIndex(ctx, f.schemaClass, state))
+
+	for name, shard := range cold {
+		require.False(t, shard.isLoaded(),
+			"reconciling tenant %q must not open its shard inside the apply", name)
 	}
 }

@@ -2163,7 +2163,7 @@ func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
 	defer release()
 
 	if shard == nil {
-		return nil, fmt.Errorf("local %s shard not found", shardName)
+		return nil, enterrors.ErrLocalShardNotFound{Shard: shardName}
 	}
 
 	if err := i.ensureShardLocallyReady(shard); err != nil {
@@ -2183,7 +2183,7 @@ func (i *Index) IncomingMultiGetObjects(ctx context.Context, shardName string,
 	defer release()
 
 	if shard == nil {
-		return nil, fmt.Errorf("local %s shard not found", shardName)
+		return nil, enterrors.ErrLocalShardNotFound{Shard: shardName}
 	}
 
 	if err := i.ensureShardLocallyReady(shard); err != nil {
@@ -2324,7 +2324,7 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 	defer release()
 
 	if shard == nil {
-		return false, fmt.Errorf("local %s shard not found", shardName)
+		return false, enterrors.ErrLocalShardNotFound{Shard: shardName}
 	}
 
 	if err := i.ensureShardLocallyReady(shard); err != nil {
@@ -2911,7 +2911,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	defer release()
 
 	if shard == nil {
-		return nil, nil, nil, fmt.Errorf("local %s shard not found", shardName)
+		return nil, nil, nil, enterrors.ErrLocalShardNotFound{Shard: shardName}
 	}
 
 	if err := i.ensureShardLocallyReady(shard); err != nil {
@@ -3037,6 +3037,19 @@ func (i *Index) initLocalShard(ctx context.Context, shardName string) error {
 	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, false, false)
 }
 
+// EnsureLocalShard makes a shard available, leaving lazy loading to open it on
+// first use. Use it from anything applied off the replicated log: that apply is
+// serial, so opening a shard there delays every entry behind it -- activation
+// measured 55-95ms per shard, enough for a burst to strand reads waiting on a
+// newer version. Still opens eagerly when lazy loading is off, which defers nothing.
+func (i *Index) EnsureLocalShard(ctx context.Context, shardName string, implicitShardLoading bool) error {
+	mustLoad := !i.Config.EnableLazyLoadShards
+	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, implicitShardLoading)
+}
+
+// LoadLocalShard opens the shard now, whatever lazy loading is set to: for background
+// work that needs it materialised before reporting success, such as files a replica
+// movement just streamed. Never from an apply -- use EnsureLocalShard there.
 func (i *Index) LoadLocalShard(ctx context.Context, shardName string, implicitShardLoading bool) error {
 	// TODO: implicitShardLoading needs to be double checked if needed at all
 	// consalidate mustLoad and implicitShardLoading
@@ -3366,7 +3379,7 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 	defer release()
 
 	if shard == nil {
-		return nil, fmt.Errorf("local %s shard not found", shardName)
+		return nil, enterrors.ErrLocalShardNotFound{Shard: shardName}
 	}
 
 	if err := i.ensureShardLocallyReady(shard); err != nil {
@@ -3741,7 +3754,7 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 	defer release()
 
 	if shard == nil {
-		return 0, fmt.Errorf("local %s shard not found", shardName)
+		return 0, enterrors.ErrLocalShardNotFound{Shard: shardName}
 	}
 
 	if err := i.ensureShardLocallyReady(shard); err != nil {
@@ -3797,7 +3810,7 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 	defer release()
 
 	if shard == nil {
-		return "", fmt.Errorf("local %s shard not found", shardName)
+		return "", enterrors.ErrLocalShardNotFound{Shard: shardName}
 	}
 
 	if err := i.ensureShardLocallyReady(shard); err != nil {
@@ -3908,7 +3921,7 @@ func (i *Index) IncomingFindUUIDs(ctx context.Context, shardName string,
 	defer release()
 
 	if shard == nil {
-		return nil, fmt.Errorf("local %s shard not found", shardName)
+		return nil, enterrors.ErrLocalShardNotFound{Shard: shardName}
 	}
 
 	if err := i.ensureShardLocallyReady(shard); err != nil {

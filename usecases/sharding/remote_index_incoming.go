@@ -21,7 +21,6 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
@@ -45,6 +44,9 @@ type RemoteIncomingRepo interface {
 
 type RemoteIncomingSchema interface {
 	ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64) (*models.Class, error)
+	// AppliedIndex is the RAFT log index this node has finished applying, read without waiting.
+	// 0 means it could not be read.
+	AppliedIndex() uint64
 }
 
 type RemoteIndexIncomingRepo interface {
@@ -171,25 +173,21 @@ func (rii *RemoteIndexIncoming) BatchAddReferences(ctx context.Context, indexNam
 
 func (rii *RemoteIndexIncoming) GetObject(ctx context.Context, indexName,
 	shardName string, id strfmt.UUID, selectProperties search.SelectProperties,
-	additional additional.Properties,
+	additional additional.Properties, schemaVersion uint64,
 ) (*storobj.Object, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-	if index == nil {
-		return nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
-	}
-
-	return index.IncomingGetObject(ctx, shardName, id, selectProperties, additional)
+	return incomingRead(rii, indexName, shardName, schemaVersion,
+		func(index RemoteIndexIncomingRepo) (*storobj.Object, error) {
+			return index.IncomingGetObject(ctx, shardName, id, selectProperties, additional)
+		})
 }
 
 func (rii *RemoteIndexIncoming) Exists(ctx context.Context, indexName,
-	shardName string, id strfmt.UUID,
+	shardName string, id strfmt.UUID, schemaVersion uint64,
 ) (bool, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-	if index == nil {
-		return false, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
-	}
-
-	return index.IncomingExists(ctx, shardName, id)
+	return incomingRead(rii, indexName, shardName, schemaVersion,
+		func(index RemoteIndexIncomingRepo) (bool, error) {
+			return index.IncomingExists(ctx, shardName, id)
+		})
 }
 
 func (rii *RemoteIndexIncoming) DeleteObject(ctx context.Context, indexName,
@@ -215,51 +213,50 @@ func (rii *RemoteIndexIncoming) MergeObject(ctx context.Context, indexName,
 }
 
 func (rii *RemoteIndexIncoming) MultiGetObjects(ctx context.Context, indexName,
-	shardName string, ids []strfmt.UUID,
+	shardName string, ids []strfmt.UUID, schemaVersion uint64,
 ) ([]*storobj.Object, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-	if index == nil {
-		return nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
-	}
-
-	return index.IncomingMultiGetObjects(ctx, shardName, ids)
+	return incomingRead(rii, indexName, shardName, schemaVersion,
+		func(index RemoteIndexIncomingRepo) ([]*storobj.Object, error) {
+			return index.IncomingMultiGetObjects(ctx, shardName, ids)
+		})
 }
 
 func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName string,
 	vectors []models.Vector, targetVectors []string, distance float32, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination,
-	properties []string,
+	properties []string, schemaVersion uint64,
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-	if index == nil {
-		return nil, nil, nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
+	type result struct {
+		objects       []*storobj.Object
+		scores        []float32
+		queryProfiles []helpers.ShardQueryProfile
 	}
-
-	return index.IncomingSearch(
-		ctx, shardName, vectors, targetVectors, distance, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, properties)
+	r, err := incomingRead(rii, indexName, shardName, schemaVersion,
+		func(index RemoteIndexIncomingRepo) (result, error) {
+			objs, scores, queryProfiles, err := index.IncomingSearch(
+				ctx, shardName, vectors, targetVectors, distance, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, properties)
+			return result{objs, scores, queryProfiles}, err
+		})
+	return r.objects, r.scores, r.queryProfiles, err
 }
 
 func (rii *RemoteIndexIncoming) Aggregate(ctx context.Context, indexName, shardName string,
-	params aggregation.Params,
+	params aggregation.Params, schemaVersion uint64,
 ) (*aggregation.Result, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-	if index == nil {
-		return nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
-	}
-
-	return index.IncomingAggregate(ctx, shardName, params, rii.modules)
+	return incomingRead(rii, indexName, shardName, schemaVersion,
+		func(index RemoteIndexIncomingRepo) (*aggregation.Result, error) {
+			return index.IncomingAggregate(ctx, shardName, params, rii.modules)
+		})
 }
 
 func (rii *RemoteIndexIncoming) FindUUIDs(ctx context.Context, indexName, shardName string,
-	filters *filters.LocalFilter, limit int,
+	filters *filters.LocalFilter, limit int, schemaVersion uint64,
 ) ([]strfmt.UUID, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-	if index == nil {
-		return nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
-	}
-
-	return index.IncomingFindUUIDs(ctx, shardName, filters, limit)
+	return incomingRead(rii, indexName, shardName, schemaVersion,
+		func(index RemoteIndexIncomingRepo) ([]strfmt.UUID, error) {
+			return index.IncomingFindUUIDs(ctx, shardName, filters, limit)
+		})
 }
 
 func (rii *RemoteIndexIncoming) DeleteObjectBatch(ctx context.Context, indexName, shardName string,
@@ -274,25 +271,21 @@ func (rii *RemoteIndexIncoming) DeleteObjectBatch(ctx context.Context, indexName
 }
 
 func (rii *RemoteIndexIncoming) GetShardQueueSize(ctx context.Context,
-	indexName, shardName string,
+	indexName, shardName string, schemaVersion uint64,
 ) (int64, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-	if index == nil {
-		return 0, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
-	}
-
-	return index.IncomingGetShardQueueSize(ctx, shardName)
+	return incomingRead(rii, indexName, shardName, schemaVersion,
+		func(index RemoteIndexIncomingRepo) (int64, error) {
+			return index.IncomingGetShardQueueSize(ctx, shardName)
+		})
 }
 
 func (rii *RemoteIndexIncoming) GetShardStatus(ctx context.Context,
-	indexName, shardName string,
+	indexName, shardName string, schemaVersion uint64,
 ) (string, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-	if index == nil {
-		return "", enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
-	}
-
-	return index.IncomingGetShardStatus(ctx, shardName)
+	return incomingRead(rii, indexName, shardName, schemaVersion,
+		func(index RemoteIndexIncomingRepo) (string, error) {
+			return index.IncomingGetShardStatus(ctx, shardName)
+		})
 }
 
 func (rii *RemoteIndexIncoming) UpdateShardStatus(ctx context.Context,
@@ -311,7 +304,7 @@ func (rii *RemoteIndexIncoming) FilePutter(ctx context.Context,
 ) (io.WriteCloser, error) {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
-		return nil, errors.Errorf("local index %q not found", indexName)
+		return nil, enterrors.ErrLocalIndexNotFound{Index: indexName}
 	}
 
 	return index.IncomingFilePutter(ctx, shardName, filePath)
@@ -322,7 +315,7 @@ func (rii *RemoteIndexIncoming) CreateShard(ctx context.Context,
 ) error {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
-		return errors.Errorf("local index %q not found", indexName)
+		return enterrors.ErrLocalIndexNotFound{Index: indexName}
 	}
 
 	return index.IncomingCreateShard(ctx, indexName, shardName)
@@ -333,7 +326,7 @@ func (rii *RemoteIndexIncoming) ReInitShard(ctx context.Context,
 ) error {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
-		return errors.Errorf("local index %q not found", indexName)
+		return enterrors.ErrLocalIndexNotFound{Index: indexName}
 	}
 
 	return index.IncomingReinitShard(ctx, shardName)
@@ -432,4 +425,48 @@ func (rii *RemoteIndexIncoming) RemoveAsyncReplicationTargetNode(
 	}
 
 	return index.IncomingRemoveAsyncReplicationTargetNode(ctx, shardName, targetNodeOverride)
+}
+
+// incomingRead resolves the local index for a read and runs f against it. A miss this node is
+// already current enough to be sure about ([enterrors.NotServedHere]) becomes a final
+// ErrNotServedHere, answered 422, so nothing retries a replica that can never serve the shard.
+// Every other outcome is left exactly as it was: a miss while still behind resolves on its own,
+// and the retry that outlasts schema propagation is what keeps the read correct meanwhile.
+func incomingRead[T any](rii *RemoteIndexIncoming, indexName, shardName string,
+	schemaVersion uint64, f func(RemoteIndexIncomingRepo) (T, error),
+) (T, error) {
+	var zero T
+
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	if index == nil {
+		missing := enterrors.ErrLocalIndexNotFound{Index: indexName}
+		if final := rii.finalMiss(missing, indexName, "", schemaVersion); final != nil {
+			return zero, final
+		}
+		return zero, enterrors.NewErrUnprocessable(missing)
+	}
+
+	res, err := f(index)
+	if final := rii.finalMiss(err, indexName, shardName, schemaVersion); final != nil {
+		return zero, final
+	}
+	return res, err
+}
+
+// finalMiss answers the error for a miss that waiting cannot fix, or nil when err is anything
+// else. The applied index is read only once there is a miss to classify, so an all-local read
+// and a successful remote one both stay off the schema.
+func (rii *RemoteIndexIncoming) finalMiss(err error, indexName, shardName string,
+	schemaVersion uint64,
+) error {
+	if err == nil || !enterrors.IsSchemaLag(err) {
+		return nil
+	}
+	appliedIndex := rii.schema.AppliedIndex()
+	if !enterrors.NotServedHere(err, schemaVersion, appliedIndex) {
+		return nil
+	}
+	return enterrors.NewErrUnprocessable(enterrors.ErrNotServedHere{
+		Index: indexName, Shard: shardName, Version: appliedIndex,
+	})
 }

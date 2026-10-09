@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/router"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -122,6 +123,8 @@ type DB struct {
 	nodeSelector   cluster.NodeSelector
 	schemaReader   schemaUC.SchemaReader
 	replicationFSM types.ReplicationFSMReader
+	// Nil keeps the local-only behaviour; see [router.ShardingStateQuerier].
+	shardingStateQuerier router.ShardingStateQuerier
 
 	// reindexAuditMu guards the audit deps installed by
 	// [DB.SetReindexAuditDeps] and the backup-gate activity lookup
@@ -777,6 +780,11 @@ func (db *DB) SetReindexer(reindexer ShardReindexerV3) {
 
 func (db *DB) SetNodeSelector(nodeSelector cluster.NodeSelector) {
 	db.nodeSelector = nodeSelector
+}
+
+// SetShardingStateQuerier is called during startup wiring, before any index is built.
+func (db *DB) SetShardingStateQuerier(q router.ShardingStateQuerier) {
+	db.shardingStateQuerier = q
 }
 
 func (db *DB) SetSchemaReader(schemaReader schemaUC.SchemaReader) {

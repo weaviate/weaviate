@@ -760,6 +760,16 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	repo.SetReplicationFSM(appState.ClusterService.ReplicationFsm())
 	repo.SetSchemaGetter(appState.SchemaManager)
 	repo.SetTenantsActivityManager(appState.SchemaManager)
+	repo.SetShardingStateQuerier(appState.ClusterService)
+
+	// Reads carry the schema version this node resolved them against, so the receiving node can
+	// tell its own schema lag from data it genuinely does not hold. Wired here rather than at
+	// construction because the schema reader does not exist that early; the reader is captured
+	// once, because SchemaReader() builds one per call and this runs on every remote read.
+	clusterSchemaReader := appState.ClusterService.SchemaReader()
+	remoteIndexClient.SetSchemaVersionProvider(clusterSchemaReader.ClassVersion)
+	restReplicationClient.SetSchemaVersionProvider(clusterSchemaReader.ClassVersion)
+	grpcReplicationClient.SetSchemaVersionProvider(clusterSchemaReader.ClassVersion)
 
 	// initialize needed services after all components are ready
 	postInitModules(appState)

@@ -67,6 +67,24 @@ func (rs SchemaReader) ClassInfo(class string) (ci ClassInfo) {
 	return res
 }
 
+// ClassVersion is the later of a class's class and sharding-state versions, or 0 when the class
+// is unknown here. Reads send it so the receiving node can tell schema lag from data it
+// genuinely does not hold. It reads the local schema directly: unlike ClassInfo it skips the
+// timers and the no-op version wait, because this is on the read path of every remote request.
+func (rs SchemaReader) ClassVersion(class string) uint64 {
+	info := rs.schema.ClassInfo(class)
+	return max(info.ClassVersion, info.ShardVersion)
+}
+
+// AppliedIndex is the RAFT log index this node has finished applying, or 0 when the caller
+// wired no way to read it. It does not wait; entities/errors.ClassifyReadMiss compares it.
+func (rs SchemaReader) AppliedIndex() uint64 {
+	if rs.versionedSchemaReader.AppliedIndex == nil {
+		return 0
+	}
+	return rs.versionedSchemaReader.AppliedIndex()
+}
+
 // ClassEqual returns the name of an existing class with a similar name, and "" otherwise
 // strings.EqualFold is used to compare classes
 func (rs SchemaReader) ClassEqual(name string) string {
@@ -261,6 +279,27 @@ func (rs SchemaReader) TenantsShards(class string, tenants ...string) (map[strin
 	defer t.ObserveDuration()
 
 	return rs.TenantsShardsWithVersion(context.TODO(), 0, class, tenants...)
+}
+
+// KnownTenants returns the subset of tenants the local sharding state already
+// lists, reading the same Sharding.Physical map that metaClass.AddTenants checks.
+//
+// Deliberately not routed through TenantsShards: that retries while the result is
+// empty, which is the all-new-tenant case, so a genuine create would pay the
+// 3x50ms ladder before the add. Here an absent tenant is the answer, not a miss.
+func (rs SchemaReader) KnownTenants(class string, tenants []string) map[string]struct{} {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("KnownTenants"))
+	defer t.ObserveDuration()
+
+	shards, _ := rs.schema.TenantsShards(class, tenants...)
+	if len(shards) == 0 {
+		return nil
+	}
+	known := make(map[string]struct{}, len(shards))
+	for tenant := range shards {
+		known[tenant] = struct{}{}
+	}
+	return known
 }
 
 func (rs SchemaReader) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {

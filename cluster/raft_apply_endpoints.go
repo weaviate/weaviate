@@ -253,6 +253,18 @@ func (s *Raft) AddTenants(ctx context.Context, class string, req *cmd.AddTenants
 	if class == "" || req == nil {
 		return 0, fmt.Errorf("empty class name or nil request: %w", schema.ErrBadRequest)
 	}
+
+	filtered, dropped := withoutKnownTenants(s.SchemaReader(), class, req)
+	if dropped > 0 {
+		s.store.metrics.tenantAddsFiltered.Add(float64(dropped))
+	}
+	if len(filtered.Tenants) == 0 {
+		// Nothing to commit, so there is no version for the caller to wait on.
+		s.store.metrics.tenantAddProposalsSkipped.Inc()
+		return 0, nil
+	}
+	req = filtered
+
 	subCommand, err := proto.Marshal(req)
 	if err != nil {
 		return 0, fmt.Errorf("marshal request: %w", err)
@@ -263,6 +275,52 @@ func (s *Raft) AddTenants(ctx context.Context, class string, req *cmd.AddTenants
 		SubCommand: subCommand,
 	}
 	return s.Execute(ctx, command)
+}
+
+// knownTenantsReader is the local schema read withoutKnownTenants needs;
+// [schema.SchemaReader] satisfies it.
+type knownTenantsReader interface {
+	KnownTenants(class string, tenants []string) map[string]struct{}
+}
+
+// withoutKnownTenants drops the tenants the local schema already lists, leaving
+// req untouched when it cannot tell, and reports how many it dropped.
+//
+// metaClass.AddTenants nils out an existing tenant on apply, so such an entry
+// buys a full consensus round trip only to be discarded. That round trip is not
+// cheap: 244ms mean and ~2.5s p99 in production, and auto-tenant creation
+// re-asserts every tenant on every object write, so one node issued 35k adds
+// against 6.6k real tenants in 43 minutes. A tenant the local schema is missing
+// is still sent, so a lagging node behaves exactly as it does today.
+func withoutKnownTenants(reader knownTenantsReader, class string, req *cmd.AddTenantsRequest) (*cmd.AddTenantsRequest, int) {
+	names := make([]string, 0, len(req.Tenants))
+	for _, tenant := range req.Tenants {
+		if tenant != nil {
+			names = append(names, tenant.Name)
+		}
+	}
+
+	known := reader.KnownTenants(class, names)
+	if len(known) == 0 {
+		return req, 0
+	}
+
+	dropped := 0
+	fresh := make([]*cmd.Tenant, 0, len(req.Tenants))
+	for _, tenant := range req.Tenants {
+		if tenant == nil {
+			continue
+		}
+		if _, ok := known[tenant.Name]; ok {
+			dropped++
+			continue
+		}
+		fresh = append(fresh, tenant)
+	}
+
+	// A new request rather than a copy: a proto message carries state that must
+	// not be copied by value.
+	return &cmd.AddTenantsRequest{ClusterNodes: req.ClusterNodes, Tenants: fresh}, dropped
 }
 
 func (s *Raft) UpdateTenants(ctx context.Context, class string, req *cmd.UpdateTenantsRequest) (uint64, error) {
