@@ -279,6 +279,16 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 	if len(docIDs) == 0 {
 		return errors.Errorf("addMultiBatch called with empty lists")
 	}
+	for _, vec := range vectors {
+		if len(vec) == 0 {
+			return errors.Errorf("addMultiBatch called with nil or empty vector")
+		}
+		for _, inner := range vec {
+			if len(inner) == 0 {
+				return errors.Errorf("addMultiBatch called with nil or empty inner vector")
+			}
+		}
+	}
 
 	if h.muvera.Load() {
 		h.trackMuveraOnce.Do(func() {
