@@ -782,7 +782,7 @@ func (i *Index) resetBackupState() {
 func (i *Index) resumeMaintenanceCycles(ctx context.Context) (lastErr error) {
 	// Only loaded shards have maintenance cycles to resume; a cold shard has
 	// none, so skip it rather than force-load every shard after a backup.
-	i.ForEachLoadedShard(func(name string, shard ShardLike) error {
+	i.withEachLoadedShard(func(name string, shard ShardLike) error {
 		if err := shard.resumeMaintenanceCycles(ctx); err != nil {
 			lastErr = err
 			i.logger.WithField("shard", name).WithField("op", "resume_maintenance").Error(err)
