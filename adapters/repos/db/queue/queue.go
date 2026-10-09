@@ -27,6 +27,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -345,6 +346,13 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 		return nil, nil
 	}
 	defer c.Close()
+	defer func() {
+		// skip a chunk that cannot be read rather than failing on it every
+		// turn; it stays on disk
+		if err != nil {
+			q.r.forget(c.path)
+		}
+	}()
 
 	// The record count comes from disk and may be corrupt. It is only used as
 	// a capacity hint: cap it by the number of records that could possibly
@@ -425,12 +433,10 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 		q.Logger.WithField("file", c.path).WithError(err).Warn("failed to close chunk file")
 	}
 
-	if corruptChunkErr != nil {
-		q.quarantineChunk(c, corruptChunkErr)
-	}
-
 	if len(tasks) == 0 {
-		if corruptChunkErr == nil {
+		if corruptChunkErr != nil {
+			q.quarantineChunk(c, corruptChunkErr)
+		} else {
 			// empty chunk, remove it
 			q.removeChunk(c)
 		}
@@ -438,9 +444,11 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 	}
 
 	doneFn := func() {
-		// a quarantined chunk is already renamed and removed from the
-		// queue's accounting
-		if corruptChunkErr == nil {
+		// a corrupt chunk is only quarantined once its salvaged records are
+		// processed, so a canceled batch can salvage them again
+		if corruptChunkErr != nil {
+			q.quarantineChunk(c, corruptChunkErr)
+		} else {
 			q.removeChunk(c)
 		}
 		if q.onBatchProcessed != nil {
@@ -1381,9 +1389,10 @@ func (w *chunkWriter) Promote() error {
 }
 
 type chunkReader struct {
-	m         sync.Mutex
-	dir       string
-	cursor    int
+	m   sync.Mutex
+	dir string
+	// chunks not processed yet, oldest first. A chunk leaves the list when
+	// it is removed, so a batch that is not done is read again.
 	chunkList []string
 	chunks    map[string]*os.File
 }
@@ -1396,29 +1405,57 @@ func newChunkReader(dir string, chunkList []string) *chunkReader {
 	}
 }
 
+// ReadChunk returns the oldest chunk not processed yet, without removing it.
 func (r *chunkReader) ReadChunk() (*chunk, error) {
-	r.m.Lock()
-
-	if r.cursor >= len(r.chunkList) {
-		r.cursor = 0
-		r.chunkList = nil
-		clear(r.chunks)
+	for {
+		r.m.Lock()
+		if len(r.chunkList) == 0 {
+			r.m.Unlock()
+			return nil, nil
+		}
+		path := r.chunkList[0]
+		f, ok := r.chunks[path]
+		// the chunk closes the handle once read
+		delete(r.chunks, path)
 		r.m.Unlock()
-		return nil, nil
+
+		var c *chunk
+		var err error
+		if ok {
+			c, err = chunkFromFile(f)
+		} else {
+			c, err = openChunk(path)
+		}
+		if err != nil {
+			// skip an unreadable chunk rather than failing on it every turn
+			r.forget(path)
+			return nil, err
+		}
+		if c == nil {
+			// empty file, already removed
+			r.forget(path)
+			continue
+		}
+		return c, nil
 	}
+}
 
-	path := r.chunkList[r.cursor]
-	f, ok := r.chunks[path]
+// forget removes a chunk from the list of chunks to read.
+func (r *chunkReader) forget(path string) {
+	r.m.Lock()
+	defer r.m.Unlock()
 
-	r.cursor++
-
-	r.m.Unlock()
-
-	if ok {
-		return chunkFromFile(f)
+	i := slices.Index(r.chunkList, path)
+	switch {
+	case i == 0:
+		// the common case: processed chunks leave from the front. Reslicing
+		// avoids shifting the whole backlog; append reclaims the space once
+		// the list grows.
+		r.chunkList[0] = ""
+		r.chunkList = r.chunkList[1:]
+	case i > 0:
+		r.chunkList = slices.Delete(r.chunkList, i, i+1)
 	}
-
-	return openChunk(path)
 }
 
 func (r *chunkReader) Close() error {
@@ -1465,13 +1502,14 @@ func (r *chunkReader) PromoteChunk(f *os.File) error {
 	return nil
 }
 
-// ReleaseChunk closes the chunk's file handle and removes it from the reader cache
+// ReleaseChunk closes the chunk's file handle and removes it from the reader
 // without deleting the file from disk. Used during maintenance mode.
 func (r *chunkReader) ReleaseChunk(c *chunk) {
 	_ = c.Close()
 	r.m.Lock()
-	defer r.m.Unlock()
 	delete(r.chunks, c.path)
+	r.m.Unlock()
+	r.forget(c.path)
 }
 
 func (r *chunkReader) RemoveChunk(c *chunk) (bool, error) {
@@ -1480,6 +1518,7 @@ func (r *chunkReader) RemoveChunk(c *chunk) (bool, error) {
 	r.m.Lock()
 	delete(r.chunks, c.path)
 	r.m.Unlock()
+	r.forget(c.path)
 
 	err := os.Remove(c.path)
 	if err != nil {

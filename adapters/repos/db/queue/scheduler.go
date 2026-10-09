@@ -58,7 +58,7 @@ type SchedulerOptions struct {
 	Workers int
 	// The interval at which the scheduler checks the queues for tasks. Defaults to 1 second.
 	ScheduleInterval time.Duration
-	// The interval between retries for failed tasks.
+	// How long a queue waits before replaying a batch that failed. Defaults to 5 seconds.
 	RetryInterval time.Duration
 	// Function to be called when the scheduler is closed
 	OnClose func()
@@ -67,8 +67,6 @@ type SchedulerOptions struct {
 }
 
 func NewScheduler(opts SchedulerOptions) *Scheduler {
-	var err error
-
 	if opts.Logger == nil {
 		opts.Logger = logrus.New()
 	}
@@ -78,38 +76,12 @@ func NewScheduler(opts SchedulerOptions) *Scheduler {
 		opts.Workers = max(1, runtime.GOMAXPROCS(0)-1)
 	}
 
-	if opts.ScheduleInterval == 0 {
-		var it time.Duration
-		v := os.Getenv("QUEUE_SCHEDULER_INTERVAL")
-
-		if v != "" {
-			it, err = time.ParseDuration(v)
-			if err != nil {
-				opts.Logger.WithError(err).WithField("value", v).Warn("failed to parse QUEUE_SCHEDULER_INTERVAL, using default")
-			}
-		}
-
-		if it == 0 {
-			it = 1 * time.Second
-		}
-		opts.ScheduleInterval = it
+	if opts.ScheduleInterval <= 0 {
+		opts.ScheduleInterval = intervalFromEnv(opts.Logger, "QUEUE_SCHEDULER_INTERVAL", time.Second)
 	}
 
-	if opts.RetryInterval == 0 {
-		var ri time.Duration
-		v := os.Getenv("QUEUE_RETRY_INTERVAL")
-
-		if v != "" {
-			ri, err = time.ParseDuration(v)
-			if err != nil {
-				opts.Logger.WithError(err).WithField("value", v).Warn("failed to parse QUEUE_RETRY_INTERVAL, using default")
-			}
-		}
-
-		if ri == 0 {
-			ri = 5 * time.Second
-		}
-		opts.RetryInterval = ri
+	if opts.RetryInterval <= 0 {
+		opts.RetryInterval = intervalFromEnv(opts.Logger, "QUEUE_RETRY_INTERVAL", 5*time.Second)
 	}
 
 	s := Scheduler{
@@ -120,6 +92,27 @@ func NewScheduler(opts SchedulerOptions) *Scheduler {
 	s.triggerCh = make(chan chan struct{}, 1)
 
 	return &s
+}
+
+// intervalFromEnv returns the duration set in the given environment variable,
+// or def if it is unset, invalid or not positive.
+func intervalFromEnv(logger logrus.FieldLogger, name string, def time.Duration) time.Duration {
+	v := os.Getenv(name)
+	if v == "" {
+		return def
+	}
+
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		logger.WithField("value", v).Warnf("failed to parse %s, using default: %v", name, err)
+		return def
+	}
+	if d <= 0 {
+		logger.WithField("value", v).Warnf("%s must be positive, using default", name)
+		return def
+	}
+
+	return d
 }
 
 func (s *Scheduler) RegisterQueue(q Queue) {
@@ -447,6 +440,11 @@ func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 			continue
 		}
 
+		// skip if its last batch failed recently
+		if q.Retrying() {
+			continue
+		}
+
 		// mark it as scheduled
 		q.MarkAsScheduled()
 
@@ -523,14 +521,44 @@ func (s *Scheduler) dispatchQueue(q *queueState) (taskCount int64, err error) {
 		partitions[i] = s.compressTasks(partitions[i])
 	}
 
-	// keep track of the number of active tasks
-	// for this chunk to remove it when all tasks are done
-	var counter atomic.Int32
+	// the batch is done once every partition has run, and canceled if any
+	// of them failed: all are counted before the first one is sent, so an
+	// early finisher cannot complete the batch alone.
+	var pending atomic.Int32
+	for _, partition := range partitions {
+		if len(partition) > 0 {
+			pending.Add(1)
+		}
+	}
+	var failed atomic.Bool
+	complete := func(ok bool) {
+		if !ok {
+			failed.Store(true)
+		}
+		if pending.Add(-1) > 0 {
+			return
+		}
+
+		if failed.Load() {
+			// the whole batch is replayed on the queue's next turn, which
+			// must not come right away or a failing queue would spin
+			q.RetryAfter(s.RetryInterval)
+			batch.Cancel()
+			return
+		}
+
+		batch.Done()
+		s.Logger.
+			WithField("queue_id", q.q.ID()).
+			WithField("queue_size", q.q.Size()).
+			WithField("count", taskCount).
+			Debug("tasks processed")
+	}
+
 	for i, partition := range partitions {
 		if len(partition) == 0 {
 			continue
 		}
-		counter.Add(1)
 
 		// increment the global active tasks counter
 		s.activeTasks.Incr()
@@ -539,43 +567,41 @@ func (s *Scheduler) dispatchQueue(q *queueState) (taskCount int64, err error) {
 
 		start := time.Now()
 
+		// decrement the global and queue active tasks counters, after the
+		// batch is completed so the queue is not dequeued before that
+		release := func() {
+			qTaskCount := q.activeTasks.Decr()
+			s.activeTasks.Decr()
+
+			// notify the scheduler to check for more tasks
+			if qTaskCount == 0 {
+				s.triggerSchedule()
+			}
+		}
+
 		// prepare the batch for the worker
 		wb := Batch{
 			Tasks: partitions[i],
 			Ctx:   q.ctx,
 			OnDone: func() {
-				c := counter.Add(-1)
-
-				// once all tasks are done, notify the queue
-				// so that it can clean up its state and get ready
-				// for next scheduling.
-				if c == 0 {
-					batch.Done()
-					s.Logger.
-						WithField("queue_id", q.q.ID()).
-						WithField("queue_size", q.q.Size()).
-						WithField("count", taskCount).
-						Debug("tasks processed")
-				}
-
-				// decrement the global and queue active tasks counters
-				qTaskCount := q.activeTasks.Decr()
-				s.activeTasks.Decr()
+				complete(true)
 				q.q.Metrics().TasksProcessed(start, int(taskCount))
-
-				// notify the scheduler to check for more tasks
-				if qTaskCount == 0 {
-					s.triggerSchedule()
-				}
+				release()
 			},
 			OnCanceled: func() {
-				q.activeTasks.Decr()
-				s.activeTasks.Decr()
+				complete(false)
+				release()
 			},
 		}
 
 		err = s.sendToAvailableWorker(q, &wb)
 		if err != nil {
+			// this partition and the ones not sent yet will never run
+			for _, p := range partitions[i:] {
+				if len(p) > 0 {
+					complete(false)
+				}
+			}
 			s.activeTasks.Decr()
 			q.activeTasks.Decr()
 			return taskCount, errors.Wrap(err, "failed to send batch to worker")
@@ -667,6 +693,7 @@ type queueState struct {
 	m           sync.RWMutex
 	q           Queue
 	paused      bool
+	retryAfter  time.Time
 	scheduled   *common.SharedGauge
 	activeTasks *common.SharedGauge
 	ctx         context.Context
@@ -692,6 +719,22 @@ func (qs *queueState) Paused() bool {
 	defer qs.m.RUnlock()
 
 	return qs.paused
+}
+
+// RetryAfter prevents the queue from being scheduled for the given duration.
+func (qs *queueState) RetryAfter(d time.Duration) {
+	qs.m.Lock()
+	defer qs.m.Unlock()
+
+	qs.retryAfter = time.Now().Add(d)
+}
+
+// Retrying returns true while the queue waits to replay a failed batch.
+func (qs *queueState) Retrying() bool {
+	qs.m.RLock()
+	defer qs.m.RUnlock()
+
+	return time.Now().Before(qs.retryAfter)
 }
 
 func (qs *queueState) Scheduled() bool {

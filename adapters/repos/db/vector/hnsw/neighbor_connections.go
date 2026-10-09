@@ -61,6 +61,7 @@ type neighborFinderConnector struct {
 	denyList        helpers.AllowList
 	// bufLinksLog     BufferedLinksLogger
 	tombstoneCleanupNodes bool
+	bootstrapped          bool // node became the entrypoint, nothing to connect to
 	processedIDs          *sync.Map
 	connectionsBuf        []uint64 // reusable buffer to avoid allocations in CopyLayer
 	pendingBuf            []uint64 // reusable buffer for accumulating pending IDs
@@ -91,6 +92,9 @@ func (n *neighborFinderConnector) Do(ctx context.Context) error {
 		err := n.doAtLevel(ctx, level)
 		if err != nil {
 			return errors.Wrapf(err, "at level %d", level)
+		}
+		if n.bootstrapped {
+			return nil
 		}
 	}
 
@@ -261,6 +265,9 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 	} else {
 		if err := n.pickEntrypoint(); err != nil {
 			return errors.Wrap(err, "pick entrypoint at level beginning")
+		}
+		if n.bootstrapped {
+			return nil
 		}
 		eps := priorityqueue.NewMin[any](1)
 		eps.Insert(n.entryPointID, n.entryPointDist)
@@ -464,6 +471,9 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 
 	candidate, err = n.graph.repairGlobalEntrypoint(candidate, localDeny)
 	if err != nil {
+		if errors.Is(err, errNoUsableEntrypoint) {
+			return n.bootstrapOrFail(fmt.Errorf("global entrypoint repair: %w", err))
+		}
 		return fmt.Errorf("global entrypoint repair: %w", err)
 	}
 
@@ -494,7 +504,7 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 			return err
 		}
 		if localDeny.Contains(alternative) && alternative != n.graph.getEntrypoint() {
-			return fmt.Errorf("%w: local fallback exhausted", errNoUsableEntrypoint)
+			return n.bootstrapOrFail(fmt.Errorf("%w: local fallback exhausted", errNoUsableEntrypoint))
 		}
 		// an alternative on the deny list is retried when it is the current
 		// global entrypoint: a concurrent insert may have promoted a node we
@@ -502,6 +512,18 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 		// while being inserted), so it can be perfectly usable by now
 		candidate = alternative
 	}
+}
+
+func (n *neighborFinderConnector) bootstrapOrFail(cause error) error {
+	bootstrapped, err := n.graph.bootstrapEntrypoint(n.nodeID, n.node)
+	if err != nil {
+		return err
+	}
+	if !bootstrapped {
+		return cause
+	}
+	n.bootstrapped = true
+	return nil
 }
 
 func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error) {
