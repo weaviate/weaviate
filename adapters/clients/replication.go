@@ -806,8 +806,9 @@ func (c *replicationClient) FindUUIDs(ctx context.Context, hostName, indexName,
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(res.Body)
-		return nil, errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
-			body)
+		// Typed, not formatted: HTTPError.Is turns a 503 into the not-ready sentinel, and a
+		// string here left the coordinator retrying this replica to its worker timeout.
+		return nil, &HTTPError{Code: res.StatusCode, Body: body}
 	}
 
 	resBytes, err := io.ReadAll(res.Body)

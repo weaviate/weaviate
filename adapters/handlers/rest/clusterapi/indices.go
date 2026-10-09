@@ -557,6 +557,10 @@ func (i *indices) getObject() http.Handler {
 
 		obj, err := i.shards.GetObject(r.Context(), index, shard, strfmt.UUID(id),
 			selectProperties, additional)
+		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+			http.Error(w, err.Error(), unprocessableStatus(err))
+			return
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -588,6 +592,10 @@ func (i *indices) checkExists(w http.ResponseWriter, r *http.Request,
 		"action": "checkExists",
 	}).Debug("checking if shard exists ...")
 	ok, err := i.shards.Exists(r.Context(), index, shard, strfmt.UUID(id))
+	if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+		http.Error(w, err.Error(), unprocessableStatus(err))
+		return
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -723,6 +731,10 @@ func (i *indices) getObjectsMulti() http.Handler {
 		}).Debug("get multiple objects ...")
 
 		objs, err := i.shards.MultiGetObjects(r.Context(), index, shard, ids)
+		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+			http.Error(w, err.Error(), unprocessableStatus(err))
+			return
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
