@@ -310,12 +310,11 @@ type storeMetrics struct {
 	applyDuration *prometheus.HistogramVec
 	applyFailures prometheus.Counter
 
-	// waitForIndex times every wait for a schema version, by outcome. A read or
-	// write that cannot be served until the local FSM catches up blocks here.
+	// waitForIndex times every wait for a schema version, by outcome.
 	waitForIndex *prometheus.HistogramVec
 
-	// waitForIndexGap is how many entries short a wait was when it gave up. A
-	// couple of entries points at something other than lag; thousands is catching up.
+	// waitForIndexGap is how many entries short a wait was when it gave up: a couple points at
+	// something other than lag, thousands at a node still catching up.
 	waitForIndexGap prometheus.Histogram
 
 	// raftLastAppliedIndex represents current applied index of a raft cluster in local node.
@@ -344,9 +343,8 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 			Name:        "weaviate_cluster_store_fsm_apply_duration_seconds",
 			Help:        "Time to apply cluster store FSM state in local node, by command type",
 			ConstLabels: prometheus.Labels{"nodeID": nodeID},
-			// The first five bounds are the original ones, kept so history still
-			// compares. The rest reach past a second, which the old cap could not:
-			// the apply loop is serial, so a slow apply delays everything behind it.
+			// The first five bounds are the original ones, kept so history still compares.
+			// The rest reach past a second, which the old cap could not.
 			Buckets: []float64{0.001, 0.005, 0.025, 0.125, 0.625, 2.5, 10, 30, 60},
 		}, []string{"cmd_type"}),
 		applyFailures: r.NewCounter(prometheus.CounterOpts{
@@ -839,9 +837,8 @@ func (st *Store) trackDBLoadProgress() func() {
 const (
 	waitOutcomeImmediate = "immediate"
 	waitOutcomeCaughtUp  = "caught_up"
-	// The deadline is the sooner of ConsistencyWaitTimeout and whatever the
-	// caller's context had left, so a short observation here means the request
-	// arrived with little budget rather than that the FSM was slow.
+	// The deadline is the sooner of ConsistencyWaitTimeout and the caller's remaining budget, so
+	// a short observation here can mean a thin budget rather than a slow FSM.
 	waitOutcomeDeadline = "deadline"
 )
 
@@ -1145,12 +1142,9 @@ func (st *Store) FSMHasCaughtUp() bool {
 	return st.lastAppliedIndex.Load() >= st.lastAppliedIndexToDB.Load()
 }
 
-// shouldLogSlowApply reports whether slow RAFT apply diagnostics should be
-// emitted: store ready and past startup FSM catch-up.
-//
-// Not gated on leadership: a follower's apply loop is serial too, and it is the
-// follower that rejects reads and writes for a version it has not reached.
-// FSMHasCaughtUp already keeps startup replay quiet.
+// shouldLogSlowApply reports whether slow RAFT apply diagnostics should be emitted. Not gated on
+// leadership: a follower's apply loop is serial too, and it is the follower that rejects a read
+// for a version it has not reached.
 func (st *Store) shouldLogSlowApply() bool {
 	return st.Ready() && st.FSMHasCaughtUp()
 }

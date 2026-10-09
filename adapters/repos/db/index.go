@@ -3037,12 +3037,11 @@ func (i *Index) initLocalShard(ctx context.Context, shardName string) error {
 	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, false, false)
 }
 
-// LoadLocalShard makes a shard available on this node. mustLoad opens it before
-// returning; otherwise lazy loading opens it on first touch, which is what the
-// serial apply path needs -- opening a shard there delays every entry behind it.
-// With lazy loading off the shard is opened regardless, since nothing else would.
+// LoadLocalShard makes a shard available on this node. mustLoad opens it before returning;
+// otherwise lazy loading opens it on first touch, which is what the serial apply path needs,
+// since a shard opened there delays every entry behind it. With lazy loading off it opens
+// regardless, because nothing else would.
 func (i *Index) LoadLocalShard(ctx context.Context, shardName string, mustLoad, implicitShardLoading bool) error {
-	// TODO: implicitShardLoading needs to be double checked if needed at all
 	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName,
 		mustLoad || !i.Config.EnableLazyLoadShards, implicitShardLoading)
 }
