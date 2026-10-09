@@ -44,6 +44,7 @@ func TestRESTRequestInFlightAtShutdown(t *testing.T) {
 		WithText2VecOpenAI("test-key", "", "").
 		WithWeaviateEnv("SHUTDOWN_HEARTBEAT_AFTER", "1s").
 		WithWeaviateEnv("SHUTDOWN_HEARTBEAT_INTERVAL", "1s").
+		WithWeaviateEnv("SHUTDOWN_SLOW_LOG_TOTAL_THRESHOLD", "1ms").
 		Start(ctx)
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -100,8 +101,8 @@ func TestRESTRequestInFlightAtShutdown(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, strings.Contains(string(out), "refused 1 REST requests"), "shutdown log line missing")
 	summary := shutdownSummary(t, string(out))
-	// The held batch keeps the REST drain open until it is cut.
-	assert.Greater(t, summary["client_drain_ms"], 0.0)
+	// The held batch keeps the REST drain open until it is cut 5s in.
+	assert.GreaterOrEqual(t, summary["client_drain_ms"], 4000.0)
 	assert.LessOrEqual(t, summary["client_drain_ms"], summary["total_ms"])
 	assert.Equal(t, 1.0, summary["rest_unavailable"])
 	// The held batch keeps shutdown running until it is cut, past three 1s heartbeats.
@@ -114,6 +115,13 @@ func TestRESTRequestInFlightAtShutdown(t *testing.T) {
 	assert.Equal(t, 1.0, heartbeats[0]["rest_requests_running"])
 	assert.Equal(t, 0.0, heartbeats[0]["grpc_calls_running"])
 	assert.Contains(t, heartbeats[0], "internal_requests_running")
+	// The 1ms total threshold is already passed, so the heartbeat warns.
+	assert.Equal(t, "warning", heartbeats[0]["level"])
+	slow := logLines(t, string(out), "shutdown phases took longer than their threshold")
+	require.Len(t, slow, 1)
+	assert.Equal(t, 1.0, slow[0]["total_threshold_ms"])
+	assert.NotEmpty(t, slow[0]["slowest_step"])
+	assert.Greater(t, slow[0]["slowest_step_ms"], 0.0)
 }
 
 // shutdownSummary returns the fields of the one shutdown summary line in logs.

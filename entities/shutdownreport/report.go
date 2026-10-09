@@ -58,9 +58,10 @@ var allSteps = []string{
 const clientDrain = "client_drain"
 
 // FromEnv uses these when SHUTDOWN_HEARTBEAT_AFTER and SHUTDOWN_HEARTBEAT_INTERVAL are unset.
+// The first heartbeat comes well before Kubernetes' default 30s terminationGracePeriodSeconds.
 const (
-	DefaultHeartbeatAfter    = 30 * time.Second
-	DefaultHeartbeatInterval = 30 * time.Second
+	DefaultHeartbeatAfter    = 15 * time.Second
+	DefaultHeartbeatInterval = 10 * time.Second
 )
 
 // Thresholds are the durations above which Log warns about a phase.
@@ -68,11 +69,12 @@ type Thresholds struct {
 	ClientDrain, InternalClose, DB, Total time.Duration
 }
 
+// DefaultThresholds sit just above what healthy shutdowns took under load.
 func DefaultThresholds() Thresholds {
 	return Thresholds{
-		ClientDrain:   10 * time.Second,
-		InternalClose: 5 * time.Second,
-		DB:            20 * time.Second,
+		ClientDrain:   15 * time.Second,
+		InternalClose: 10 * time.Second,
+		DB:            30 * time.Second,
 		Total:         30 * time.Second,
 	}
 }

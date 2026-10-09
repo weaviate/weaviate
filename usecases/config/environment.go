@@ -250,7 +250,7 @@ func FromEnv(config *Config) error {
 	); err != nil {
 		return err
 	}
-	// A typo such as 1ms for 1m would log a warning per millisecond.
+	// A typo such as 1ms for 1m would log a heartbeat line every millisecond.
 	if err := parseDurationVerify("SHUTDOWN_HEARTBEAT_INTERVAL",
 		func(val time.Duration) { config.ShutdownLog.HeartbeatInterval = val },
 		shutdownreport.DefaultHeartbeatInterval,
@@ -260,6 +260,31 @@ func FromEnv(config *Config) error {
 			}
 			return nil
 		},
+	); err != nil {
+		return err
+	}
+	thresholds := shutdownreport.DefaultThresholds()
+	if err := parsePositiveDuration("SHUTDOWN_SLOW_LOG_CLIENT_DRAIN_THRESHOLD",
+		func(val time.Duration) { config.ShutdownLog.Thresholds.ClientDrain = val },
+		thresholds.ClientDrain,
+	); err != nil {
+		return err
+	}
+	if err := parsePositiveDuration("SHUTDOWN_SLOW_LOG_INTERNAL_CLOSE_THRESHOLD",
+		func(val time.Duration) { config.ShutdownLog.Thresholds.InternalClose = val },
+		thresholds.InternalClose,
+	); err != nil {
+		return err
+	}
+	if err := parsePositiveDuration("SHUTDOWN_SLOW_LOG_DB_THRESHOLD",
+		func(val time.Duration) { config.ShutdownLog.Thresholds.DB = val },
+		thresholds.DB,
+	); err != nil {
+		return err
+	}
+	if err := parsePositiveDuration("SHUTDOWN_SLOW_LOG_TOTAL_THRESHOLD",
+		func(val time.Duration) { config.ShutdownLog.Thresholds.Total = val },
+		thresholds.Total,
 	); err != nil {
 		return err
 	}

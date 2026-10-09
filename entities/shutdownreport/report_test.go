@@ -538,7 +538,7 @@ func TestReportWarnings(t *testing.T) {
 		{
 			name:       "client drain over",
 			s:          summary{clientDrain: th.ClientDrain + time.Millisecond},
-			wantPhases: logrus.Fields{"client_drain_ms": int64(10001), "client_drain_threshold_ms": int64(10000)},
+			wantPhases: logrus.Fields{"client_drain_ms": int64(15001), "client_drain_threshold_ms": int64(15000)},
 		},
 		{
 			name: "internal close at threshold",
@@ -547,13 +547,13 @@ func TestReportWarnings(t *testing.T) {
 		{
 			name:       "internal close over",
 			s:          summary{steps: map[string]time.Duration{StepInternalClose: th.InternalClose + time.Millisecond}},
-			wantPhases: logrus.Fields{"internal_close_ms": int64(5001), "internal_close_threshold_ms": int64(5000)},
+			wantPhases: logrus.Fields{"internal_close_ms": int64(10001), "internal_close_threshold_ms": int64(10000)},
 		},
 		{name: "db at threshold", s: summary{steps: map[string]time.Duration{StepDB: th.DB}}},
 		{
 			name:       "db over",
 			s:          summary{steps: map[string]time.Duration{StepDB: th.DB + time.Millisecond}},
-			wantPhases: logrus.Fields{"db_ms": int64(20001), "db_threshold_ms": int64(20000)},
+			wantPhases: logrus.Fields{"db_ms": int64(30001), "db_threshold_ms": int64(30000)},
 		},
 		{
 			name: "total at threshold has no slowest step",

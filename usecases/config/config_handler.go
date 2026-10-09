@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
+	"github.com/weaviate/weaviate/entities/shutdownreport"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
@@ -1260,11 +1261,12 @@ type CORS struct {
 	AllowHeaders string `json:"allow_headers" yaml:"allow_headers"`
 }
 
-// ShutdownLog is set only from the environment, because FromEnv would
-// overwrite a value read from the config file.
+// ShutdownLog is filled by FromEnv from the environment or its defaults, so a
+// config-file value never takes effect.
 type ShutdownLog struct {
-	HeartbeatAfter    time.Duration `json:"heartbeat_after"`
-	HeartbeatInterval time.Duration `json:"heartbeat_interval"`
+	HeartbeatAfter    time.Duration             `json:"heartbeat_after"`
+	HeartbeatInterval time.Duration             `json:"heartbeat_interval"`
+	Thresholds        shutdownreport.Thresholds `json:"thresholds"`
 }
 
 // Export holds operator-level configuration for data exports.

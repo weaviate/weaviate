@@ -1707,7 +1707,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			},
 		}.run(appState.Logger, shutdownReport)
 		stopHeartbeat()
-		shutdownReport.Log(appState.Logger, shutdownreport.DefaultThresholds())
+		shutdownReport.Log(appState.Logger, appState.ServerConfig.Config.ShutdownLog.Thresholds())
 	}
 
 	startGrpcServer(grpcServer, appState)
