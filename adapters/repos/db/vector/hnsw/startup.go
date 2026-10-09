@@ -42,7 +42,7 @@ func (h *hnsw) init(cfg Config) error {
 	// Create commit logger for future writes. The logger unconditionally
 	// creates a new raw file and never appends to an existing one — see
 	// createNewCommitFile's comment for why.
-	cl, err := cfg.MakeCommitLoggerThunk()
+	cl, err := cfg.MakeCommitLoggerThunk(WithNodeIDsAreDocIDs(h.nodeIDsAreDocIDs))
 	if err != nil {
 		return errors.Wrap(err, "create commit logger")
 	}
@@ -55,6 +55,15 @@ func (h *hnsw) init(cfg Config) error {
 	h.metrics.SetSize(len(h.nodes))
 
 	return nil
+}
+
+// nodeIDsAreDocIDs reports whether node IDs are bounded by the shard's
+// document-ID counter. Multivector indexes without Muvera number their nodes
+// separately. HFresh's centroid index numbers them by posting ID; it lives in
+// HFresh's own directory, which holds no document-ID counter, so it gets no
+// limit.
+func (h *hnsw) nodeIDsAreDocIDs() bool {
+	return !h.multivector.Load() || h.muvera.Load()
 }
 
 // restoreFromDisk loads the HNSW state from commit log files using compact.Loader.
@@ -80,12 +89,9 @@ func (h *hnsw) restoreFromDisk() error {
 	}
 
 	loader := compact.NewLoader(compact.LoaderConfig{
-		Dir:    dir,
-		Logger: h.logger,
-		// Multivector indexes without Muvera number their nodes separately.
-		// HFresh's centroid index numbers them by posting ID; it lives in HFresh's
-		// own directory, which holds no document-ID counter, so it gets no limit.
-		NodeIDsAreDocIDs: !h.multivector.Load() || h.muvera.Load(),
+		Dir:              dir,
+		Logger:           h.logger,
+		NodeIDsAreDocIDs: h.nodeIDsAreDocIDs(),
 	})
 
 	loadResult, err := loader.Load()
