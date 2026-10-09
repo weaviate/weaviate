@@ -206,8 +206,11 @@ func TestQueueDecodeTask(t *testing.T) {
 	t.Run("a few tasks", func(t *testing.T) {
 		exec := discardExecutor()
 		q := makeQueueSize(t, s, exec, 50)
+		// the test dequeues by hand: keep the running scheduler off the queue
+		q.Pause(t.Context())
 
 		pushMany(t, q, 1, 100, 200, 300, 400, 500, 600)
+		s.Schedule(t.Context())
 
 		entries, err := os.ReadDir(q.dir)
 		require.NoError(t, err)
@@ -344,8 +347,11 @@ func TestQueueDecodeTask(t *testing.T) {
 	t.Run("restart", func(t *testing.T) {
 		exec := discardExecutor()
 		q := makeQueueSize(t, s, exec, 50)
+		// the test dequeues by hand: keep the running scheduler off the queue
+		q.Pause(t.Context())
 
 		pushMany(t, q, 1, 100, 200, 300, 400, 500, 600)
+		s.Schedule(t.Context())
 
 		entries, err := os.ReadDir(q.dir)
 		require.NoError(t, err)
