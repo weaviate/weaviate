@@ -1194,7 +1194,7 @@ func (i *Index) forEachShardStrict(f func(name string, shard ShardLike) error) e
 		return cause
 	}
 	if len(unvisited) > 0 {
-		return fmt.Errorf("%w: %s", errShardsSkipped, strings.Join(reportedShardNames(unvisited), ", "))
+		return fmt.Errorf("%w: %s", errShardsSkipped, strings.Join(ReportedShardNames(unvisited), ", "))
 	}
 	return nil
 }
@@ -1212,10 +1212,10 @@ func (i *Index) shardNameSet() map[string]struct{} {
 	return names
 }
 
-// reportedShardNames orders and caps names at [maxReportedErrors] for an
-// operator-facing message; the cap itself is reported as an entry so the
+// ReportedShardNames orders and caps names at [maxReportedErrors] for an
+// operator-facing message, and reports the cap itself as an entry so the
 // count of unaccounted shards isn't lost.
-func reportedShardNames(names map[string]struct{}) []string {
+func ReportedShardNames(names map[string]struct{}) []string {
 	sorted := make([]string, 0, len(names))
 	for name := range names {
 		sorted = append(sorted, name)

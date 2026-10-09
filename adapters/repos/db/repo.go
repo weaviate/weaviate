@@ -610,6 +610,7 @@ func (db *DB) shuttingDown() bool {
 
 // LocalIndexClassNames returns the sorted class names this node holds an index for,
 // closed ones included, qualified as <ns>:<Class> where the class has a namespace.
+// It covers every namespace, so a caller serving one namespace must drop the rest.
 // Its only error wraps ErrIndexClosing, which it returns after DB.Shutdown has begun.
 // A call that finds DB.Shutdown holding indexLock waits for DB.Shutdown to return.
 func (db *DB) LocalIndexClassNames() ([]string, error) {
