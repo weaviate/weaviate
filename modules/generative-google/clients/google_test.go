@@ -14,9 +14,12 @@ package clients
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -72,6 +75,95 @@ func TestGenerateRejectsForeignEndpoint(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+}
+
+type recordingTransport struct{ got *url.URL }
+
+func (r *recordingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	r.got = req.URL
+	return nil, errors.New("request not sent")
+}
+
+func TestQueryTimeParamsAreInsertedIntoURLPath(t *testing.T) {
+	props := []*modulecapabilities.GenerateProperties{{Text: map[string]string{"p": "text"}}}
+	newClient := func(rt http.RoundTripper) *google {
+		return &google{
+			apiKey:       "key",
+			httpClient:   &http.Client{Transport: rt},
+			googleApiKey: apikey.NewGoogleApiKey(),
+			buildUrlFn:   buildURL,
+			logger:       nullLogger(),
+		}
+	}
+
+	t.Run("baseline", func(t *testing.T) {
+		rt := &recordingTransport{}
+		params := googleparams.Params{
+			ApiEndpoint: "us-central1-aiplatform.googleapis.com",
+			Location:    "us-central1",
+			Region:      "us-central1",
+			ProjectID:   "my-project",
+			Model:       "gemini-2.5-flash",
+		}
+		_, err := newClient(rt).GenerateAllResults(context.Background(), props, "task", params, false, nil)
+		require.Error(t, err)
+		require.NotNil(t, rt.got)
+		assert.Empty(t, rt.got.RawQuery)
+		assert.Equal(t, 9, strings.Count(rt.got.Path, "/"))
+		assert.Contains(t, rt.got.Path, "/projects/my-project/")
+		assert.Contains(t, rt.got.Path, "/models/gemini-2.5-flash:generateContent")
+	})
+
+	for _, tc := range []struct {
+		name, model, endpointID, projectID, property string
+	}{
+		{name: "model", model: "gemini-x?a=b", projectID: "my-project", property: "model"},
+		{name: "endpointId", model: "gemini-2.5-flash", endpointID: "123/../../y", projectID: "my-project", property: "endpointId"},
+		{name: "projectId", model: "gemini-2.5-flash", projectID: "a?b=c", property: "projectId"},
+		{name: "model fragment", model: "gemini#x", projectID: "my-project", property: "model"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rt := &recordingTransport{}
+			params := googleparams.Params{
+				ApiEndpoint: "us-central1-aiplatform.googleapis.com",
+				Location:    "us-central1",
+				Region:      "us-central1",
+				ProjectID:   tc.projectID,
+				Model:       tc.model,
+				EndpointID:  tc.endpointID,
+			}
+			_, err := newClient(rt).GenerateAllResults(context.Background(), props, "task", params, false, nil)
+			require.Error(t, err)
+			assert.Nil(t, rt.got)
+			assert.Contains(t, err.Error(), tc.property)
+		})
+	}
+
+	t.Run("buildURL keeps delimiters inside one segment", func(t *testing.T) {
+		got := buildURL(false, "us-central1-aiplatform.googleapis.com", "a?b=c", "123/../../y", "us-central1", "us-central1")
+		parsed, err := url.Parse(got)
+		require.NoError(t, err)
+		assert.Empty(t, parsed.RawQuery)
+		assert.NotContains(t, parsed.RequestURI(), "/123/../../y")
+		assert.Contains(t, parsed.RequestURI(), "123%2F..%2F..%2Fy")
+		assert.Contains(t, parsed.RequestURI(), "projects/a%3Fb=c/")
+
+		studio := buildURL(true, "", "", "gemini-x?a=b", "", "")
+		parsed, err = url.Parse(studio)
+		require.NoError(t, err)
+		assert.Empty(t, parsed.RawQuery)
+		assert.Contains(t, parsed.RequestURI(), "/models/gemini-x%3Fa=b:generateContent")
+
+		plain := buildURL(false, "us-central1-aiplatform.googleapis.com", "my-project", "text-bison@001", "us-central1", "us-central1")
+		assert.Contains(t, plain, "/projects/my-project/")
+		assert.Contains(t, plain, "/models/text-bison@001:predict")
+
+		encoded := buildURL(false, "us-central1-aiplatform.googleapis.com", "my-project", "gemini%2F..%2Fsecret", "us-central1", "us-central1")
+		parsed, err = url.Parse(encoded)
+		require.NoError(t, err)
+		assert.Empty(t, parsed.RawQuery)
+		assert.Contains(t, parsed.RequestURI(), "/models/gemini%252F..%252Fsecret:generateContent")
+	})
 }
 
 func TestGetAnswer(t *testing.T) {
