@@ -86,6 +86,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/queryadmission"
 	"github.com/weaviate/weaviate/usecases/replica"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -2944,14 +2945,66 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 
 	if i.anyShardHasMultipleReplicasRead(tenant, readPlan.Shards()) {
-		err = i.replicator.CheckConsistency(ctx, cl, outObjects)
-		if err != nil {
-			i.logger.WithField("action", "object_search").
-				Errorf("failed to check consistency of search results: %v", err)
+		if err := i.checkSearchConsistency(ctx, cl, tenant, readPlan.Shards(), outObjects); err != nil {
+			return nil, nil, err
 		}
 	}
 
 	return outObjects, outScores, nil
+}
+
+// checkSearchConsistency enforces the requested consistency level on objects
+// read from replicated shards and returns an error when the level cannot be
+// verified instead of only logging it. The replicator requires every checked
+// object to carry BelongsToNode/BelongsToShard, which is only stamped on
+// objects read from shards with multiple read replicas; results from
+// single-replica shards (e.g. a class at replication factor 1 with an
+// in-flight shard replication) are excluded from the check rather than
+// failing it.
+//
+// A replicated shard that contributed no retained objects never enters the
+// digest vote, which returns immediately for an empty set, so its replicas
+// would not be contacted at all and an unreachable one would stay undetected.
+// Such shards are probed individually: with no objects left to compare, the
+// level is validated against replica availability alone.
+func (i *Index) checkSearchConsistency(ctx context.Context, cl routerTypes.ConsistencyLevel,
+	tenant string, shards []string, outObjects []*storobj.Object,
+) error {
+	checkObjects := outObjects
+	unowned := false
+	for _, obj := range outObjects {
+		if obj == nil || obj.BelongsToNode == "" || obj.BelongsToShard == "" {
+			unowned = true
+			break
+		}
+	}
+	if unowned {
+		checkObjects = make([]*storobj.Object, 0, len(outObjects))
+		for _, obj := range outObjects {
+			if obj != nil && obj.BelongsToNode != "" && obj.BelongsToShard != "" {
+				checkObjects = append(checkObjects, obj)
+			}
+		}
+	}
+	if err := i.replicator.CheckConsistency(ctx, cl, checkObjects); err != nil {
+		return fmt.Errorf("%s %q: %w", replicaerrors.MsgCLevel, cl, err)
+	}
+	voted := make(map[string]struct{}, len(checkObjects))
+	for _, obj := range checkObjects {
+		voted[obj.BelongsToShard] = struct{}{}
+	}
+	for _, shard := range shards {
+		if _, ok := voted[shard]; ok {
+			continue
+		}
+		if !i.shardHasMultipleReplicasRead(tenant, shard) {
+			continue
+		}
+		if err := i.replicator.CheckShardConsistencyLevel(ctx, cl, shard); err != nil {
+			return fmt.Errorf("%s %q: %w", replicaerrors.MsgCLevel, cl, err)
+		}
+	}
+	return nil
 }
 
 // withSlowQueryDetails collects details only when LogIfSlow or AddShardQueryProfile
@@ -3255,8 +3308,18 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			return nil, nil, err
 		}
 		if shard != nil {
-			return i.singleLocalShardObjectVectorSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters,
+			out, dists, err := i.singleLocalShardObjectVectorSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters,
 				sort, groupBy, additionalProps, shard, targetCombination, properties)
+			if err != nil {
+				return nil, nil, err
+			}
+			if i.shardHasMultipleReplicasRead(tenant, readPlan.Shards()[0]) {
+				storobj.AddOwnership(out, i.Config.NodeName, readPlan.Shards()[0])
+				if err := i.checkSearchConsistency(ctx, cl, tenant, readPlan.Shards(), out); err != nil {
+					return nil, nil, err
+				}
+			}
+			return out, dists, nil
 		}
 	}
 
@@ -3365,29 +3428,29 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 	}
 
-	if len(readPlan.Shards()) == 1 {
-		return out, dists, nil
+	// Single-shard results are already ordered and limited by the serving
+	// shard; multi-shard results still need merging. Every path funnels into
+	// the consistency check below so no search shape can skip it.
+	switch {
+	case len(readPlan.Shards()) == 1:
+	case groupBy != nil:
+		out, dists, err = i.mergeGroups(out, dists, groupBy, limit, len(readPlan.Shards()))
+	case len(sort) > 0:
+		out, dists, err = i.sort(out, dists, sort, limit)
+	default:
+		out, dists = newDistancesSorter().sort(out, dists)
+		if limit > 0 && len(out) > limit {
+			out = out[:limit]
+			dists = dists[:limit]
+		}
 	}
-
-	if len(readPlan.Shards()) > 1 && groupBy != nil {
-		return i.mergeGroups(out, dists, groupBy, limit, len(readPlan.Shards()))
-	}
-
-	if len(readPlan.Shards()) > 1 && len(sort) > 0 {
-		return i.sort(out, dists, sort, limit)
-	}
-
-	out, dists = newDistancesSorter().sort(out, dists)
-	if limit > 0 && len(out) > limit {
-		out = out[:limit]
-		dists = dists[:limit]
+	if err != nil {
+		return nil, nil, err
 	}
 
 	if i.anyShardHasMultipleReplicasRead(tenant, readPlan.Shards()) {
-		err = i.replicator.CheckConsistency(ctx, cl, out)
-		if err != nil {
-			i.logger.WithField("action", "object_vector_search").
-				Errorf("failed to check consistency of search results: %v", err)
+		if err := i.checkSearchConsistency(ctx, cl, tenant, readPlan.Shards(), out); err != nil {
+			return nil, nil, err
 		}
 	}
 

@@ -282,6 +282,40 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 	return gr.Wait()
 }
 
+// CheckShardConsistencyLevel verifies that the requested consistency level is
+// achievable for a shard that has no objects to digest-check, e.g. a searched
+// shard that contributed no retained hits. Every replica is asked for an empty
+// digest read and the level is only satisfied when all required replies
+// arrive, so an unreachable replica fails the probe the same way it would fail
+// a digest vote.
+func (f *Finder) CheckShardConsistencyLevel(ctx context.Context,
+	l types.ConsistencyLevel, shard string,
+) error {
+	if l == types.ConsistencyLevelOne { // already consistent
+		return nil
+	}
+	c := NewReadCoordinator[BatchReply](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
+	op := func(ctx context.Context, host string, _ bool) (BatchReply, error) {
+		xs, err := f.client.DigestReads(ctx, host, f.class, shard, nil, 0)
+		return BatchReply{Sender: host, DigestData: xs}, err
+	}
+	replyCh, _, err := c.Pull(ctx, l, op, "", 20*time.Second)
+	if err != nil {
+		return fmt.Errorf("pull shard: %w", replicaerrors.NewNotEnoughReplicasError(err))
+	}
+	// Drain every reply instead of voting: the digest vote short-circuits an
+	// empty batch on the first reply, but the level is only proven once all
+	// required workers have answered.
+	for r := range replyCh {
+		if r.Err != nil {
+			f.log.WithField("op", "check_shard_consistency_level").
+				WithField("shard", shard).Error(r.Err)
+			return replicaerrors.NewReadError(r.Err)
+		}
+	}
+	return nil
+}
+
 // Exists checks if an object exists which satisfies the given consistency
 func (f *Finder) Exists(ctx context.Context,
 	l types.ConsistencyLevel,
