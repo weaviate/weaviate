@@ -795,9 +795,10 @@ func (q *DiskQueue) quarantineChunk(path string, cause error) error {
 	// the chunk stays in the queue until it is renamed, so a failure is
 	// retried
 	quarantinePath := path + ".corrupt"
+	kept := true
 	var err error
 	if q.maintenanceMode.Load() {
-		err = q.quarantineDuringBackup(path, quarantinePath)
+		kept, err = q.quarantineDuringBackup(path, quarantinePath)
 	} else {
 		err = os.Rename(path, quarantinePath)
 	}
@@ -811,6 +812,11 @@ func (q *DiskQueue) quarantineChunk(path string, cause error) error {
 	}
 	q.forgetChunk(path)
 
+	if !kept {
+		q.Logger.WithField("file", path).
+			Errorf("chunk is truncated or corrupt, it will be removed after the backup without a quarantined copy; its unreadable records are lost: %v", cause)
+		return nil
+	}
 	q.Logger.WithField("file", quarantinePath).
 		Errorf("chunk is truncated or corrupt, quarantined it; its unreadable records are lost: %v", cause)
 	return nil
@@ -822,14 +828,15 @@ var hardLink = os.Link
 
 // quarantineDuringBackup quarantines a chunk that a backup may be copying:
 // the quarantined copy is a hard link, and the chunk itself is removed with
-// the processed ones once the backup completes.
-func (q *DiskQueue) quarantineDuringBackup(path, quarantinePath string) error {
+// the processed ones once the backup completes. It reports whether the
+// quarantined copy was kept.
+func (q *DiskQueue) quarantineDuringBackup(path, quarantinePath string) (kept bool, err error) {
 	// a leftover from an interrupted attempt
 	_ = os.Remove(quarantinePath)
 
 	linkErr := hardLink(path, quarantinePath)
 	if stderrors.Is(linkErr, fs.ErrNotExist) {
-		return linkErr
+		return false, linkErr
 	}
 	if linkErr != nil {
 		q.Logger.WithField("file", path).
@@ -841,9 +848,9 @@ func (q *DiskQueue) quarantineDuringBackup(path, quarantinePath string) error {
 		if linkErr == nil {
 			_ = os.Remove(quarantinePath)
 		}
-		return err
+		return false, err
 	}
-	return f.Close()
+	return linkErr == nil, f.Close()
 }
 
 // analyzeDisk is a slow method that determines the number of records
