@@ -150,8 +150,10 @@ func (s *nodeStore) Meta(ctx context.Context, backupID, overrideBucket, override
 	return &result, err
 }
 
-func (s *nodeStore) MetaForBackupID(ctx context.Context, backupID, overrideBucket, overridePath string) (*backup.BackupDescriptor, error) {
-	var result *backup.BackupDescriptor
+// BaseMetaForBackupID reads this node's metadata in backup backupID for an incremental
+// backup built on it.
+func (s *nodeStore) BaseMetaForBackupID(ctx context.Context, backupID, overrideBucket, overridePath string) (*backup.BaseBackupDescriptor, error) {
+	var result *backup.BaseBackupDescriptor
 
 	cs := &objectStore{s.backend, fmt.Sprintf("%s/%s", backupID, s.node), overrideBucket, overridePath, ""} // for backward compatibility
 	if err := cs.meta(ctx, BackupFile, overrideBucket, overridePath, &result); err != nil {
@@ -260,7 +262,7 @@ func (u *uploader) withCompression(cfg zipConfig) *uploader {
 }
 
 // all uploads all files in addition to the metadata file
-func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, baseDescr []*backup.BackupDescriptor, overrideBucket, overridePath string) (err error) {
+func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, baseDescr []*backup.BaseBackupDescriptor, overrideBucket, overridePath string) (err error) {
 	u.slot.set(backup.Transferring)
 	desc.Status = backup.Transferring
 	// all owns the producer's context so it can be stopped before any index is
