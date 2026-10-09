@@ -30,6 +30,7 @@ import (
 
 const (
 	defaultBackOffInitialInterval = time.Millisecond * 250
+	refusalsBeforeUnreachable     = 2
 	defaultBackOffMaxElapsedTime  = time.Second * 128
 )
 
@@ -366,10 +367,15 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 		defer unreachableCancel()
 
 		var unreachableMu sync.Mutex
+		refusals := make(map[string]int, len(hosts))
 		unreachable := make(map[string]struct{}, len(hosts))
 		levelUnreachable := func(host string) bool {
 			unreachableMu.Lock()
 			defer unreachableMu.Unlock()
+			refusals[host]++
+			if refusals[host] < refusalsBeforeUnreachable {
+				return false
+			}
 			unreachable[host] = struct{}{}
 			if len(hosts)-len(unreachable) < level {
 				unreachableCancel()

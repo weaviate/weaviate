@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -622,4 +623,62 @@ func TestPullStopsEveryWorkerWhenTheLevelBecomesUnreachable(t *testing.T) {
 	require.Equal(t, level, replies, "one reply per worker, as the caller depends on")
 	require.Less(t, elapsed, 10*time.Second,
 		"the workers retrying a 500 must stop once the level is unreachable, not sit out their minute (took %s)", elapsed)
+}
+
+// A replica that is merely behind the schema is not one that cannot serve: during a rolling
+// restart a quorum lags for a moment, and the retry ladder exists to outlast that.
+func TestPullOutlastsReplicasThatAreMerelyBehindTheSchema(t *testing.T) {
+	const (
+		cls   = "C1"
+		shard = "S1"
+	)
+
+	hosts := []types.Replica{
+		{NodeName: "A", ShardName: shard, HostAddr: "a:7001"},
+		{NodeName: "B", ShardName: shard, HostAddr: "b:7001"},
+		{NodeName: "C", ShardName: shard, HostAddr: "c:7001"},
+	}
+
+	logger, _ := test.NewNullLogger()
+	metrics, err := replica.NewMetrics(nil)
+	require.NoError(t, err)
+
+	options := types.RoutingPlanBuildOptions{Shard: shard, ConsistencyLevel: types.ConsistencyLevelQuorum}
+	router := types.NewMockRouter(t)
+	router.EXPECT().BuildRoutingPlanOptions(shard, shard, types.ConsistencyLevelQuorum, "").Return(options).Once()
+	router.EXPECT().BuildReadRoutingPlan(options).Return(types.ReadRoutingPlan{
+		Shard:               shard,
+		ReplicaSet:          types.ReadReplicaSet{Replicas: hosts},
+		ConsistencyLevel:    types.ConsistencyLevelQuorum,
+		IntConsistencyLevel: 2,
+	}, nil).Once()
+
+	c := replica.NewReadCoordinator[int](router, metrics, cls, shard, "", logger)
+
+	// Lags once, then catches up. No not-ready marker: this peer is coming, not booting.
+	lagging := &clients.HTTPError{
+		Code: http.StatusServiceUnavailable,
+		Body: []byte("503 local " + shard + " shard not found"),
+	}
+	var asked sync.Map
+	op := func(ctx context.Context, host string, _ bool) (int, error) {
+		if _, seen := asked.LoadOrStore(host, true); !seen {
+			return 0, lagging
+		}
+		return 1, nil
+	}
+
+	replyCh, level, err := c.Pull(context.Background(), types.ConsistencyLevelQuorum, op, "", time.Minute)
+	require.NoError(t, err)
+	require.Equal(t, 2, level)
+
+	var successes int
+	for res := range replyCh {
+		if res.Err == nil {
+			successes++
+		}
+	}
+
+	require.Equal(t, level, successes,
+		"a quorum that lagged only until the retry must still be reached, not abandoned")
 }
