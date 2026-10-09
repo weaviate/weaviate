@@ -77,8 +77,13 @@ func IsSchemaLag(err error) bool {
 
 // NotServedHere reports whether err is the [ErrNotServedHere] condition. appliedIndex must be
 // the FSM's, the counter WaitForAppliedIndex compares. wantVersion 0 is a sender too old.
-func NotServedHere(err error, wantVersion, appliedIndex uint64) bool {
-	return wantVersion > 0 && appliedIndex >= wantVersion && IsSchemaLag(err)
+//
+// Being caught up does not on its own make a miss final: restore, freeze, COLD-to-HOT activation
+// and lazy loading all materialise shards outside the apply path, so the schema reads current
+// while the shard is still arriving. assignedHere settles it from placement, and answers true
+// whenever placement cannot be read, because a miss wrongly called final stops the retry.
+func NotServedHere(err error, wantVersion, appliedIndex uint64, assignedHere func() bool) bool {
+	return wantVersion > 0 && appliedIndex >= wantVersion && IsSchemaLag(err) && !assignedHere()
 }
 
 func NewErrUnprocessable(err error) ErrUnprocessable {

@@ -127,6 +127,10 @@ type fakeSchema struct {
 
 func (s *fakeSchema) FSMAppliedIndex() uint64 { return 0 }
 
+func (s *fakeSchema) ShardReplicas(class, shard string) ([]string, error) {
+	return nil, errors.New("placement is not under test here")
+}
+
 func (s *fakeSchema) ReadOnlyClassWithVersion(_ context.Context, class string, version uint64) (*models.Class, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

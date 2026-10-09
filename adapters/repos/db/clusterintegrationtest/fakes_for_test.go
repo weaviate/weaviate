@@ -177,7 +177,7 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 
 	n.migrator = db.NewMigrator(n.repo, logger, n.name)
 
-	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo, n.schemaManager, modules.NewProvider(logger, config.Config{})),
+	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo, n.schemaManager, modules.NewProvider(logger, config.Config{}), n.name),
 		n.repo, clusterapi.NewNoopAuthHandler(), func() bool { return false }, logger)
 	mux := http.NewServeMux()
 	mux.Handle("/indices/", indices.Indices())

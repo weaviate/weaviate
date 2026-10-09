@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"slices"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/dto"
@@ -46,6 +47,7 @@ type RemoteIncomingSchema interface {
 	ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64) (*models.Class, error)
 	// FSMAppliedIndex is the index the FSM has applied, not raft's. 0 if unreadable.
 	FSMAppliedIndex() uint64
+	ShardReplicas(class, shard string) ([]string, error)
 }
 
 type RemoteIndexIncomingRepo interface {
@@ -127,13 +129,18 @@ type RemoteIndexIncoming struct {
 	repo    RemoteIncomingRepo
 	schema  RemoteIncomingSchema
 	modules interface{}
+	// nodeName is this node's name in placement, which the schema reader does not carry.
+	nodeName string
 }
 
-func NewRemoteIndexIncoming(repo RemoteIncomingRepo, schema RemoteIncomingSchema, modules interface{}) *RemoteIndexIncoming {
+func NewRemoteIndexIncoming(repo RemoteIncomingRepo, schema RemoteIncomingSchema, modules interface{},
+	nodeName string,
+) *RemoteIndexIncoming {
 	return &RemoteIndexIncoming{
-		repo:    repo,
-		schema:  schema,
-		modules: modules,
+		repo:     repo,
+		schema:   schema,
+		modules:  modules,
+		nodeName: nodeName,
 	}
 }
 
@@ -460,10 +467,22 @@ func (rii *RemoteIndexIncoming) finalMiss(err error, indexName, shardName string
 		return nil
 	}
 	appliedIndex := rii.schema.FSMAppliedIndex()
-	if !enterrors.NotServedHere(err, schemaVersion, appliedIndex) {
+	assigned := func() bool { return rii.assignedHere(indexName, shardName) }
+	if !enterrors.NotServedHere(err, schemaVersion, appliedIndex, assigned) {
 		return nil
 	}
 	return enterrors.NewErrUnprocessable(enterrors.ErrNotServedHere{
 		Index: indexName, Shard: shardName, Version: appliedIndex,
 	})
+}
+
+// assignedHere reports whether placement puts the shard on this node, which is what separates a
+// shard still materialising from one that will never be here. See [enterrors.NotServedHere].
+func (rii *RemoteIndexIncoming) assignedHere(indexName, shardName string) bool {
+	replicas, err := rii.schema.ShardReplicas(indexName, shardName)
+	if err != nil {
+		// No answer is not an answer of "never here".
+		return true
+	}
+	return slices.Contains(replicas, rii.nodeName)
 }

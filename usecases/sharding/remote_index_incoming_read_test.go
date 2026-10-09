@@ -24,12 +24,18 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// fakeIncomingSchema reports a fixed applied RAFT index.
+// fakeIncomingSchema reports a fixed applied RAFT index and a fixed placement.
 type fakeIncomingSchema struct {
 	appliedIndex uint64
+	replicas     []string
+	replicasErr  error
 }
 
 func (f fakeIncomingSchema) FSMAppliedIndex() uint64 { return f.appliedIndex }
+
+func (f fakeIncomingSchema) ShardReplicas(class, shard string) ([]string, error) {
+	return f.replicas, f.replicasErr
+}
 
 func (f fakeIncomingSchema) ReadOnlyClassWithVersion(context.Context, string, uint64) (*models.Class, error) {
 	return nil, nil
@@ -64,6 +70,8 @@ func TestIncomingReadTellsLagFromAGenuineMiss(t *testing.T) {
 	)
 	missingShard := enterrors.ErrLocalShardNotFound{Shard: shard}
 	other := errors.New("bucket is corrupt")
+	// elsewhere excludes this node, here includes it.
+	elsewhere, here := []string{"node-2"}, []string{"node-1", "node-2"}
 
 	tests := []struct {
 		name string
@@ -72,6 +80,9 @@ func TestIncomingReadTellsLagFromAGenuineMiss(t *testing.T) {
 		requested    uint64
 		indexAbsent  bool
 		readErr      error
+		// replicas is what placement says holds the shard, replicasErr that it cannot say.
+		replicas    []string
+		replicasErr error
 
 		// wantFinal: rewritten to ErrNotServedHere, which the cluster API answers 422.
 		// wantUnchanged: the error the caller already produced, left alone.
@@ -83,6 +94,7 @@ func TestIncomingReadTellsLagFromAGenuineMiss(t *testing.T) {
 			appliedIndex:  90,
 			requested:     100,
 			readErr:       missingShard,
+			replicas:      elsewhere,
 			wantUnchanged: true,
 		},
 		{
@@ -90,6 +102,7 @@ func TestIncomingReadTellsLagFromAGenuineMiss(t *testing.T) {
 			appliedIndex: 100,
 			requested:    100,
 			readErr:      missingShard,
+			replicas:     elsewhere,
 			wantFinal:    true,
 		},
 		{
@@ -97,6 +110,7 @@ func TestIncomingReadTellsLagFromAGenuineMiss(t *testing.T) {
 			appliedIndex: 150,
 			requested:    100,
 			readErr:      missingShard,
+			replicas:     elsewhere,
 			wantFinal:    true,
 		},
 		{
@@ -104,6 +118,7 @@ func TestIncomingReadTellsLagFromAGenuineMiss(t *testing.T) {
 			appliedIndex:  100,
 			requested:     0,
 			readErr:       missingShard,
+			replicas:      elsewhere,
 			wantUnchanged: true,
 		},
 		{
@@ -111,13 +126,43 @@ func TestIncomingReadTellsLagFromAGenuineMiss(t *testing.T) {
 			appliedIndex: 100,
 			requested:    100,
 			indexAbsent:  true,
+			replicas:     elsewhere,
 			wantFinal:    true,
+		},
+		{
+			// The bug this rule exists for: restore, freeze, COLD-to-HOT activation and lazy
+			// loading materialise shards outside the apply path, so the schema reads current
+			// while the shard is still arriving. Calling that final cost a restored backup
+			// every tenant's object count.
+			name:          "caught up, but placement still puts the shard here, so it is coming",
+			appliedIndex:  100,
+			requested:     100,
+			readErr:       missingShard,
+			replicas:      here,
+			wantUnchanged: true,
+		},
+		{
+			name:          "a missing index whose shard is placed here is coming too",
+			appliedIndex:  100,
+			requested:     100,
+			indexAbsent:   true,
+			replicas:      here,
+			wantUnchanged: true,
+		},
+		{
+			name:          "placement that cannot be read leaves the miss retryable",
+			appliedIndex:  100,
+			requested:     100,
+			readErr:       missingShard,
+			replicasErr:   errors.New("schema is not readable"),
+			wantUnchanged: true,
 		},
 		{
 			name:          "an unrelated failure is neither, whatever the versions",
 			appliedIndex:  100,
 			requested:     100,
 			readErr:       other,
+			replicas:      elsewhere,
 			wantUnchanged: true,
 		},
 		{
@@ -125,6 +170,7 @@ func TestIncomingReadTellsLagFromAGenuineMiss(t *testing.T) {
 			appliedIndex:  90,
 			requested:     100,
 			readErr:       other,
+			replicas:      elsewhere,
 			wantUnchanged: true,
 		},
 	}
@@ -132,8 +178,13 @@ func TestIncomingReadTellsLagFromAGenuineMiss(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			rii := &RemoteIndexIncoming{
-				repo:   fakeIncomingRepo{absent: tc.indexAbsent, index: fakeIncomingIndex{}},
-				schema: fakeIncomingSchema{appliedIndex: tc.appliedIndex},
+				repo: fakeIncomingRepo{absent: tc.indexAbsent, index: fakeIncomingIndex{}},
+				schema: fakeIncomingSchema{
+					appliedIndex: tc.appliedIndex,
+					replicas:     tc.replicas,
+					replicasErr:  tc.replicasErr,
+				},
+				nodeName: "node-1",
 			}
 
 			_, err := incomingRead(rii, index, shard, tc.requested,
@@ -145,7 +196,11 @@ func TestIncomingReadTellsLagFromAGenuineMiss(t *testing.T) {
 				"a final miss must match nothing that reads as lag, or the coordinator keeps retrying")
 
 			if tc.wantUnchanged {
-				assert.ErrorIs(t, err, tc.readErr, "lag must keep the error it had")
+				want := tc.readErr
+				if tc.indexAbsent {
+					want = enterrors.ErrLocalIndexNotFound{Index: index}
+				}
+				assert.ErrorIs(t, err, want, "lag must keep the error it had")
 			}
 		})
 	}

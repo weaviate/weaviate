@@ -776,7 +776,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// initialize needed services after all components are ready
 	postInitModules(appState)
 
-	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.ClusterService.SchemaReader(), appState.Modules)
+	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.ClusterService.SchemaReader(),
+		appState.Modules, appState.Cluster.LocalName())
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
 
 	// Assign only when RBAC is on. A nil *rbac.Manager put into this interface

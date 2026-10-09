@@ -18,6 +18,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -1281,10 +1282,22 @@ func (db *DB) classifyReplicatedReadMiss(err error, className, shardName string,
 		return err
 	}
 	appliedIndex := db.schemaReader.FSMAppliedIndex()
-	if !enterrors.NotServedHere(err, schemaVersion, appliedIndex) {
+	assigned := func() bool { return db.assignedHere(className, shardName) }
+	if !enterrors.NotServedHere(err, schemaVersion, appliedIndex, assigned) {
 		return err
 	}
 	return enterrors.NewErrUnprocessable(enterrors.ErrNotServedHere{
 		Index: className, Shard: shardName, Version: appliedIndex,
 	})
+}
+
+// assignedHere reports whether placement puts the shard on this node, which is what separates a
+// shard still materialising from one that will never be here. See [enterrors.NotServedHere].
+func (db *DB) assignedHere(className, shardName string) bool {
+	replicas, err := db.schemaGetter.ShardReplicas(className, shardName)
+	if err != nil {
+		// No answer is not an answer of "never here".
+		return true
+	}
+	return slices.Contains(replicas, db.schemaGetter.NodeName())
 }

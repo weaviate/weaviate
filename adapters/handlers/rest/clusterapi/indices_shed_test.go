@@ -462,17 +462,17 @@ type laggingShards struct {
 }
 
 func (l laggingShards) GetObject(context.Context, string, string, strfmt.UUID,
-	search.SelectProperties, additional.Properties,
+	search.SelectProperties, additional.Properties, uint64,
 ) (*storobj.Object, error) {
 	return nil, l.err
 }
 
-func (l laggingShards) Exists(context.Context, string, string, strfmt.UUID) (bool, error) {
+func (l laggingShards) Exists(context.Context, string, string, strfmt.UUID, uint64) (bool, error) {
 	return false, l.err
 }
 
 func (l laggingShards) MultiGetObjects(context.Context, string, string,
-	[]strfmt.UUID,
+	[]strfmt.UUID, uint64,
 ) ([]*storobj.Object, error) {
 	return nil, l.err
 }
@@ -480,19 +480,19 @@ func (l laggingShards) MultiGetObjects(context.Context, string, string,
 func (l laggingShards) Search(context.Context, string, string,
 	[]models.Vector, []string, float32, int, *filters.LocalFilter, *searchparams.KeywordRanking,
 	[]filters.Sort, *filters.Cursor, *searchparams.GroupBy, additional.Properties,
-	*dto.TargetCombination, []string,
+	*dto.TargetCombination, []string, uint64,
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
 	return nil, nil, nil, l.err
 }
 
 func (l laggingShards) Aggregate(context.Context, string, string,
-	aggregation.Params,
+	aggregation.Params, uint64,
 ) (*aggregation.Result, error) {
 	return nil, l.err
 }
 
 func (l laggingShards) FindUUIDs(context.Context, string, string,
-	*filters.LocalFilter, int,
+	*filters.LocalFilter, int, uint64,
 ) ([]strfmt.UUID, error) {
 	return nil, l.err
 }
