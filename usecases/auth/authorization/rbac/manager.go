@@ -515,17 +515,11 @@ func (m *Manager) RevokeRolesForUser(userName string, roles ...string) error {
 	return nil
 }
 
-// apiManagedBuiltInRoles are the built-in roles whose assignments are granted through
-// the API and therefore exist only in the policy store. Root and read-only are absent
-// on purpose: applyPredefinedRoles rebuilds their assignments from configuration on
-// every restore, so carrying them would be discarded work.
-var apiManagedBuiltInRoles = []string{authorization.Admin, authorization.Viewer}
-
 // apiManagedBuiltInGroupings returns the admin and viewer assignments whose subject
 // keep accepts. keep receives the full subject string, such as "db:ns1:alice".
 func (m *Manager) apiManagedBuiltInGroupings(keep func(subject string) bool) ([][]string, error) {
 	var out [][]string
-	for _, role := range apiManagedBuiltInRoles {
+	for _, role := range authorization.ApiManagedBuiltInRoles {
 		gs, err := m.casbin.GetFilteredNamedGroupingPolicy("g", 1, conv.PrefixRoleName(role))
 		if err != nil {
 			return nil, fmt.Errorf("GetFilteredNamedGroupingPolicy: %w", err)

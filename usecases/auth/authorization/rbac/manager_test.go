@@ -271,12 +271,14 @@ func TestSnapshotBuiltInGrantScope(t *testing.T) {
 		for _, subject := range []string{"ns1:local-admin", "ns2:boss", "global-admin"} {
 			_, err = m.casbin.AddRoleForUser(
 				conv.UserNameWithTypeFromId(subject, authentication.AuthTypeDb),
-				conv.PrefixRoleName(authorization.Admin))
+				conv.PrefixRoleName(authorization.Admin),
+			)
 			require.NoError(t, err)
 		}
 		_, err = m.casbin.AddRoleForUser(
 			conv.UserNameWithTypeFromId("ns1:someone", authentication.AuthTypeOIDC),
-			conv.PrefixRoleName(authorization.Admin))
+			conv.PrefixRoleName(authorization.Admin),
+		)
 		require.NoError(t, err)
 		return m
 	}
@@ -346,18 +348,11 @@ func TestBuiltInAssignments(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	type restore struct {
-		strip      bool
-		wantAdmins []string
-	}
 	tests := []struct {
 		name string
 		ids  []string
 		// want is the blob's grouping rows. A nil want means the blob must be nil.
 		want [][]string
-		// restore, when set, restores the blob onto a manager with namespaces
-		// disabled and checks who holds admin there instead of checking want.
-		restore *restore
 	}{
 		{
 			name: "a global user carries exactly its own admin and viewer grants",
@@ -383,16 +378,6 @@ func TestBuiltInAssignments(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			blob, err := src.BuiltInAssignments(tt.ids...)
 			require.NoError(t, err)
-
-			if tt.restore != nil {
-				dst, err := setupTestManager(t, logger)
-				require.NoError(t, err)
-				require.NoError(t, dst.Restore(blob, tt.restore.strip))
-				admins, err := dst.casbin.GetUsersForRole(admin)
-				require.NoError(t, err)
-				assert.ElementsMatch(t, tt.restore.wantAdmins, admins)
-				return
-			}
 
 			if tt.want == nil {
 				assert.Nil(t, blob)
@@ -660,7 +645,8 @@ func TestSnapshotRecordsNamespaces(t *testing.T) {
 		m := seed(t, "ns1", "ns2")
 		_, err := m.casbin.AddRoleForUser(
 			conv.UserNameWithTypeFromId("ns2:dave", authentication.AuthTypeOIDC),
-			conv.PrefixRoleName("ns1:editor"))
+			conv.PrefixRoleName("ns1:editor"),
+		)
 		require.NoError(t, err)
 
 		blob, err := m.Snapshot("ns1:editor")
@@ -684,7 +670,8 @@ func TestSnapshotRecordsNamespaces(t *testing.T) {
 		m := seed(t, "ns1", "ns2")
 		_, err := m.casbin.AddRoleForUser(
 			conv.UserNameWithTypeFromId("ns2:bob", authentication.AuthTypeDb),
-			conv.PrefixRoleName("ns1:editor"))
+			conv.PrefixRoleName("ns1:editor"),
+		)
 		require.NoError(t, err)
 
 		blob, err := m.Snapshot("ns1:editor")
@@ -1918,7 +1905,8 @@ func TestPrettyPermissionsResources_NamespaceStripping(t *testing.T) {
 			Tenant:     strPtr("*"),
 			Object:     strPtr("*"), //nolint:staticcheck // the deprecated field is exactly what this case pins
 		}}
-		require.Equal(t,
+		require.Equal(
+			t,
 			"[Domain: data, Collection: customer2:Movies, Tenant: *]",
 			prettyPermissionsResources(nsCaller, perm),
 		)

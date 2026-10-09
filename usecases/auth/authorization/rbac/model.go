@@ -204,7 +204,7 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 
 	if namespacesEnabled {
 		narrowed := authorization.BuiltInPermissionsFor(true)
-		for _, role := range apiManagedBuiltInRoles {
+		for _, role := range authorization.ApiManagedBuiltInRoles {
 			policies, err := conv.PermissionToPolicies(narrowed[role]...)
 			if err != nil {
 				return fmt.Errorf("tenant-safe %s policies: %w", role, err)
