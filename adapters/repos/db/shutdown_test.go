@@ -113,96 +113,6 @@ func TestIndexStopCycleManagers(t *testing.T) {
 	}
 }
 
-func TestWaitForCycleStop(t *testing.T) {
-	expired := func() context.Context {
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-		return ctx
-	}
-	stopResult := func(results ...bool) chan bool {
-		ch := make(chan bool, 1)
-		for _, result := range results {
-			ch <- result
-		}
-		return ch
-	}
-
-	tests := []struct {
-		name string
-		// newCase builds the context and stop result of a single run
-		newCase func() (context.Context, chan bool)
-		// runs repeats the case, as select picks randomly between ready channels
-		runs            int
-		wantErrIs       error
-		wantErrContains string
-	}{
-		{
-			name: "a cycle that stopped",
-			newCase: func() (context.Context, chan bool) {
-				return context.Background(), stopResult(true)
-			},
-		},
-		{
-			name: "a cycle that kept running",
-			newCase: func() (context.Context, chan bool) {
-				return context.Background(), stopResult(false)
-			},
-			wantErrContains: "cycle kept running",
-		},
-		{
-			name: "a cycle that did not stop before ctx expired",
-			newCase: func() (context.Context, chan bool) {
-				return expired(), stopResult()
-			},
-			wantErrIs: context.Canceled,
-		},
-		{
-			name: "a stop landing together with the ctx expiry is not a failure",
-			newCase: func() (context.Context, chan bool) {
-				ch := stopResult()
-				return raceCtx{Context: expired(), stopResult: ch}, ch
-			},
-			runs: 100,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			for range max(tt.runs, 1) {
-				ctx, stopResult := tt.newCase()
-				err := waitForCycleStop(ctx, stopResult)
-
-				if tt.wantErrIs == nil && tt.wantErrContains == "" {
-					require.NoError(t, err)
-					continue
-				}
-				require.Error(t, err)
-				if tt.wantErrIs != nil {
-					require.ErrorIs(t, err, tt.wantErrIs)
-				}
-				if tt.wantErrContains != "" {
-					require.Contains(t, err.Error(), tt.wantErrContains)
-				}
-			}
-		})
-	}
-}
-
-// raceCtx reports a stop while Done is evaluated, so the stop and the expiry
-// reach the same select.
-type raceCtx struct {
-	context.Context
-	stopResult chan bool
-}
-
-func (c raceCtx) Done() <-chan struct{} {
-	select {
-	case c.stopResult <- true:
-	default:
-	}
-	return c.Context.Done()
-}
-
 // stubCycle takes over the stop result of the cycle it wraps. The wrapped cycle
 // is never asked to stop, so it keeps running until the test cleanup stops it.
 type stubCycle struct {
@@ -302,14 +212,24 @@ func newTestCycleCallbacks(logger logrus.FieldLogger) *indexCycleCallbacks {
 }
 
 func testCycles(cc *indexCycleCallbacks) []cyclemanager.CycleManager {
-	return []cyclemanager.CycleManager{
-		cc.compactionCycle,
-		cc.compactionAuxCycle,
-		cc.flushCycle,
-		cc.vectorCommitLoggerCycle,
-		cc.vectorTombstoneCleanupCycle,
-		cc.geoPropsCommitLoggerCycle,
-		cc.geoPropsTombstoneCleanupCycle,
+	pointers := testCyclePointers(cc)
+	cycles := make([]cyclemanager.CycleManager, len(pointers))
+	for i, p := range pointers {
+		cycles[i] = *p
+	}
+	return cycles
+}
+
+// testCyclePointers lets a test replace any of the index's cycles.
+func testCyclePointers(cc *indexCycleCallbacks) []*cyclemanager.CycleManager {
+	return []*cyclemanager.CycleManager{
+		&cc.compactionCycle,
+		&cc.compactionAuxCycle,
+		&cc.flushCycle,
+		&cc.vectorCommitLoggerCycle,
+		&cc.vectorTombstoneCleanupCycle,
+		&cc.geoPropsCommitLoggerCycle,
+		&cc.geoPropsTombstoneCleanupCycle,
 	}
 }
 
@@ -396,6 +316,151 @@ func TestIndexShutdownStopsCycleManagersDespiteShardFailure(t *testing.T) {
 			requireCyclesStopped(t, idx.cycleCallbacks)
 		})
 	}
+}
+
+// TestIndexShutdownStopsCyclesBeforeShards pins that every cycle is asked to stop
+// before the first shard shuts down, and awaited only after the shards.
+func TestIndexShutdownStopsCyclesBeforeShards(t *testing.T) {
+	tests := []struct {
+		name string
+		// compactionInFlight runs a compaction that returns once asked to abort
+		compactionInFlight bool
+		// flushBlocks runs a flush that ignores the abort until the shards started
+		flushBlocks bool
+	}{
+		{name: "idle cycles"},
+		{name: "in-flight compaction is aborted", compactionInFlight: true},
+		{name: "unabortable flush does not hold up the shards", flushBlocks: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			idx := newShutdownTestIndex(t, nil)
+			cc := idx.cycleCallbacks
+
+			aborted := make(chan struct{})
+			if tt.compactionInFlight {
+				cc.compactionCycle = startInFlightCycle(t, cc.compactionCycle, func(shouldAbort cyclemanager.ShouldAbortCallback) {
+					for !shouldAbort() {
+						time.Sleep(time.Millisecond)
+					}
+					close(aborted)
+				})
+			}
+
+			releaseFlush := make(chan struct{})
+			// runs before newShutdownTestIndex's cleanup, which waits for the flush
+			t.Cleanup(func() {
+				select {
+				case <-releaseFlush:
+				default:
+					close(releaseFlush)
+				}
+			})
+			if tt.flushBlocks {
+				cc.flushCycle = startInFlightCycle(t, cc.flushCycle, func(cyclemanager.ShouldAbortCallback) {
+					<-releaseFlush
+				})
+			}
+
+			stopRequested := recordStopRequests(cc)
+			shardNames := []string{"shard1", "shard2"}
+			notAskedAtShardShutdown := make(chan []string, len(shardNames))
+			for _, name := range shardNames {
+				shard := NewMockShardLike(t)
+				shard.EXPECT().Shutdown(mock.Anything).Run(func(context.Context) {
+					notAskedAtShardShutdown <- cyclesNotAskedToStop(stopRequested)
+				}).Return(nil).Once()
+				idx.shards.Store(name, shard)
+			}
+
+			shutdownDone := make(chan error, 1)
+			go func() { shutdownDone <- idx.Shutdown(context.Background()) }()
+
+			for range shardNames {
+				select {
+				case notAsked := <-notAskedAtShardShutdown:
+					require.Empty(t, notAsked, "cycles not asked to stop when a shard started to shut down")
+				case <-time.After(5 * time.Second):
+					t.Fatal("shard shutdown waited for a cycle to stop")
+				}
+			}
+			if tt.compactionInFlight {
+				select {
+				case <-aborted:
+				case <-time.After(5 * time.Second):
+					t.Fatal("in-flight compaction was not aborted")
+				}
+			}
+			close(releaseFlush)
+
+			select {
+			case err := <-shutdownDone:
+				require.NoError(t, err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("Shutdown did not return")
+			}
+		})
+	}
+}
+
+// startInFlightCycle replaces cycle with one running callback every millisecond,
+// and returns once callback is in flight.
+func startInFlightCycle(t *testing.T, cycle cyclemanager.CycleManager,
+	callback func(cyclemanager.ShouldAbortCallback),
+) cyclemanager.CycleManager {
+	t.Helper()
+	require.NoError(t, cycle.StopAndWait(context.Background()))
+
+	logger, _ := test.NewNullLogger()
+	started := make(chan struct{})
+	var once sync.Once
+	replacement := cyclemanager.NewManager("in-flight", cyclemanager.NewFixedTicker(time.Millisecond),
+		func(shouldAbort cyclemanager.ShouldAbortCallback) bool {
+			once.Do(func() { close(started) })
+			callback(shouldAbort)
+			return false
+		}, logger)
+	replacement.Start()
+	<-started
+	return replacement
+}
+
+// stopRecordingCycle closes requested when asked to stop, then stops the cycle it wraps.
+type stopRecordingCycle struct {
+	cyclemanager.CycleManager
+	requested chan struct{}
+	once      *sync.Once
+}
+
+func (c stopRecordingCycle) Stop(ctx context.Context) chan bool {
+	c.once.Do(func() { close(c.requested) })
+	return c.CycleManager.Stop(ctx)
+}
+
+// recordStopRequests wraps every cycle of cc, returning per cycle a channel that
+// closes when it is asked to stop.
+func recordStopRequests(cc *indexCycleCallbacks) []chan struct{} {
+	pointers := testCyclePointers(cc)
+	requested := make([]chan struct{}, len(pointers))
+	for i, p := range pointers {
+		requested[i] = make(chan struct{})
+		*p = stopRecordingCycle{CycleManager: *p, requested: requested[i], once: new(sync.Once)}
+	}
+	return requested
+}
+
+// cyclesNotAskedToStop names the cycles not yet asked to stop, in testCycles order.
+func cyclesNotAskedToStop(requested []chan struct{}) []string {
+	var notAsked []string
+	for i, ch := range requested {
+		select {
+		case <-ch:
+		default:
+			notAsked = append(notAsked, fmt.Sprintf("cycle %d", i))
+		}
+	}
+	return notAsked
 }
 
 func TestDBShutdownRunsEveryIndexAndCleanup(t *testing.T) {

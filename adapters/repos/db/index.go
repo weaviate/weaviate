@@ -4052,8 +4052,12 @@ func (i *Index) Shutdown(ctx context.Context) error {
 		return err
 	}
 
-	ec := errorcompounder.NewSafe()
+	// A cycle starts no new work once asked to stop, so no compaction or flush
+	// competes with the shard teardown. The wait comes after it, as a callback that
+	// ignores the abort would otherwise use up the shards' ctx.
+	cycleStops := i.requestCycleStops()
 
+	ec := errorcompounder.NewSafe()
 	ec.Add(i.shards.RangeConcurrently(i.logger, func(name string, shard ShardLike) error {
 		i.backupLock.RLock(name)
 		defer i.backupLock.RUnlock(name)
@@ -4067,18 +4071,26 @@ func (i *Index) Shutdown(ctx context.Context) error {
 		}
 		return nil
 	}))
-
-	// the cycle managers must stop even when a shard failed to shut down
-	ec.Add(i.stopCycleManagers(ctx, "shutdown"))
+	ec.Add(waitForCycleStops(ctx, "shutdown", cycleStops))
 
 	return ec.ToErrorLimited(maxReportedErrors)
 }
 
 // stopCycleManagers asks every cycle to stop before waiting for any of them, so
-// one slow cycle cannot use up ctx before the others were asked. The index is
-// being closed or deleted, so the cycles are stopped even when ctx already
-// expired; ctx only bounds how long we wait. Joining keeps each failure matchable.
+// one slow cycle cannot use up ctx before the others were asked.
 func (i *Index) stopCycleManagers(ctx context.Context, usecase string) error {
+	return waitForCycleStops(ctx, usecase, i.requestCycleStops())
+}
+
+// cycleStop is a cycle's pending stop result, named for the error that reports it.
+type cycleStop struct {
+	name   string
+	result chan bool
+}
+
+// requestCycleStops asks every cycle to stop without waiting. The index is being
+// closed or deleted, so the request outlives any ctx.
+func (i *Index) requestCycleStops() []cycleStop {
 	// which data each compaction cycle covers depends on SeparateObjectsCompactions
 	compaction, compactionAux := "compaction", "auxiliary compaction"
 	if i.Config.SeparateObjectsCompactions {
@@ -4098,38 +4110,23 @@ func (i *Index) stopCycleManagers(ctx context.Context, usecase string) error {
 		{"geo props tombstone cleanup", i.cycleCallbacks.geoPropsTombstoneCleanupCycle},
 	}
 
-	stopResults := make([]chan bool, len(cycles))
+	stops := make([]cycleStop, len(cycles))
 	for j, c := range cycles {
-		stopResults[j] = c.cycle.Stop(context.Background())
+		stops[j] = cycleStop{name: c.name, result: c.cycle.Stop(context.Background())}
 	}
+	return stops
+}
 
+// waitForCycleStops reports every cycle that kept running or had not stopped when
+// ctx expired. Joining keeps each failure matchable.
+func waitForCycleStops(ctx context.Context, usecase string, stops []cycleStop) error {
 	var errs []error
-	for j, c := range cycles {
-		if err := waitForCycleStop(ctx, stopResults[j]); err != nil {
-			errs = append(errs, fmt.Errorf("%s: stop %s cycle: %w", usecase, c.name, err))
+	for _, stop := range stops {
+		if err := cyclemanager.WaitForStop(ctx, stop.result); err != nil {
+			errs = append(errs, fmt.Errorf("%s: stop %s cycle: %w", usecase, stop.name, err))
 		}
 	}
 	return stderrors.Join(errs...)
-}
-
-// waitForCycleStop waits for a stop result, preferring it over an expired ctx when
-// both are ready, so a cycle that did stop is not reported as a failure.
-func waitForCycleStop(ctx context.Context, stopResult chan bool) error {
-	var stopped bool
-	select {
-	case stopped = <-stopResult:
-	case <-ctx.Done():
-		// select picks randomly when both are ready, so the result is checked again
-		select {
-		case stopped = <-stopResult:
-		default:
-			return ctx.Err()
-		}
-	}
-	if !stopped {
-		return stderrors.New("cycle kept running")
-	}
-	return nil
 }
 
 func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[string]int64, error) {
