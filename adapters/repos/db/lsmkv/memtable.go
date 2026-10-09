@@ -68,7 +68,7 @@ type memtable interface {
 	writeWAL() error
 	flushWAL() error
 	flush() (string, error)
-	flushAfterFailedFlush() error
+	flushAfterFailedFlush() (string, error)
 	setAveragePropertyLength(avgPropLength float64, propLengthCount uint64)
 	getAndUpdateWritesSinceLastSync(logger logrus.FieldLogger) bool
 
