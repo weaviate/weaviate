@@ -44,6 +44,13 @@ type Builder struct {
 	schemaGetter         schema.SchemaGetter
 	schemaReader         schema.SchemaReader
 	replicationFSMReader replicationTypes.ReplicationFSMReader
+	replicaHealth        types.ReplicaHealth
+}
+
+// WithReplicaHealth orders reads away from replicas the data path found unable to serve. Optional.
+func (b *Builder) WithReplicaHealth(h types.ReplicaHealth) *Builder {
+	b.replicaHealth = h
+	return b
 }
 
 // NewBuilder creates a new Builder with the provided configuration.
@@ -88,6 +95,7 @@ func (b *Builder) Build() types.Router {
 			schemaReader:         b.schemaReader,
 			replicationFSMReader: b.replicationFSMReader,
 			nodeSelector:         b.nodeSelector,
+			replicaHealth:        b.replicaHealth,
 		}
 	}
 	return &singleTenantRouter{
@@ -95,6 +103,7 @@ func (b *Builder) Build() types.Router {
 		schemaReader:         b.schemaReader,
 		replicationFSMReader: b.replicationFSMReader,
 		nodeSelector:         b.nodeSelector,
+		replicaHealth:        b.replicaHealth,
 	}
 }
 
@@ -107,6 +116,7 @@ type singleTenantRouter struct {
 	schemaReader         schema.SchemaReader
 	replicationFSMReader replicationTypes.ReplicationFSMReader
 	nodeSelector         cluster.NodeSelector
+	replicaHealth        types.ReplicaHealth
 }
 
 // multiTenantRouter is the implementation of Router for multi-tenant collections.
@@ -118,6 +128,7 @@ type multiTenantRouter struct {
 	schemaReader         schema.SchemaReader
 	replicationFSMReader replicationTypes.ReplicationFSMReader
 	nodeSelector         cluster.NodeSelector
+	replicaHealth        types.ReplicaHealth
 }
 
 // Interface compliance check at compile time.
@@ -144,6 +155,30 @@ func sort(replicas []types.Replica, preferredNodeName string) []types.Replica {
 	}
 
 	return append(orderedReplicas, otherReplicas...)
+}
+
+// sortByHealth orders like sort, then demotes replicas health reports as unable to serve. It only
+// changes which replica is tried first, never the set.
+func sortByHealth(replicas []types.Replica, preferredNodeName string, health types.ReplicaHealth) []types.Replica {
+	ordered := sort(replicas, preferredNodeName)
+	if health == nil || len(ordered) < 2 {
+		return ordered
+	}
+
+	healthy := make([]types.Replica, 0, len(ordered))
+	var unhealthy []types.Replica
+	for _, replica := range ordered {
+		if health.Unhealthy(replica.HostAddr) {
+			unhealthy = append(unhealthy, replica)
+			continue
+		}
+		healthy = append(healthy, replica)
+	}
+	if len(healthy) == 0 {
+		return ordered
+	}
+
+	return append(healthy, unhealthy...)
 }
 
 // preferredNode determines the preferred node for replica ordering by selecting
@@ -343,7 +378,7 @@ func (r *singleTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildO
 		return types.ReadRoutingPlan{}, err
 	}
 
-	orderedReplicas := sort(readReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
+	orderedReplicas := sortByHealth(readReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()), r.replicaHealth)
 
 	plan := types.ReadRoutingPlan{
 		LocalHostname: r.nodeSelector.LocalName(),
@@ -607,7 +642,7 @@ func (r *multiTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOp
 		return types.ReadRoutingPlan{}, err
 	}
 
-	orderedReplicas := sort(readReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
+	orderedReplicas := sortByHealth(readReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()), r.replicaHealth)
 
 	return types.ReadRoutingPlan{
 		LocalHostname: r.nodeSelector.LocalName(),

@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/types"
+	routertypes "github.com/weaviate/weaviate/cluster/router/types"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -178,6 +179,15 @@ func (db *DB) GetSchema() schema.Schema {
 
 func (db *DB) GetConfig() Config {
 	return db.config
+}
+
+// replicaHealthOf hands the client's health view to routing; nil disables the ordering
+func replicaHealthOf(client replica.Client) routertypes.ReplicaHealth {
+	health, ok := client.(routertypes.ReplicaHealth)
+	if !ok {
+		return nil
+	}
+	return health
 }
 
 func (db *DB) GetRemoteIndex() sharding.RemoteIndexClient {
