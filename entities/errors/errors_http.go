@@ -39,6 +39,11 @@ func (e ErrLocalIndexNotFound) Error() string {
 	return fmt.Sprintf("local index %q not found", e.Index)
 }
 
+// HeaderSchemaLag marks a 503 this node sent because its schema is behind rather than because it
+// cannot serve at all. A header rather than the body, so a client classifies without matching
+// prose, and only this response family carries it.
+const HeaderSchemaLag = "X-Weaviate-Schema-Lag"
+
 // ErrLocalShardNotFound is a shard this node does not hold yet, so its schema has not caught up.
 // For a multi-tenant class the shard is the tenant. The message is unchanged, so callers still
 // matching on text keep working.

@@ -445,7 +445,7 @@ func (i *indices) postObjectSingle(w http.ResponseWriter, r *http.Request,
 			writeUsageLimitExceeded(w, le)
 			return
 		}
-		http.Error(w, err.Error(), operationStatus(err))
+		writeLagAware(w, err, operationStatus(err))
 		return
 	}
 
@@ -565,7 +565,7 @@ func (i *indices) getObject() http.Handler {
 		obj, err := i.shards.GetObject(r.Context(), index, shard, strfmt.UUID(id),
 			selectProperties, additional, schemaVersion)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), unprocessableStatus(err))
+			writeLagAware(w, err, unprocessableStatus(err))
 			return
 		}
 		if err != nil {
@@ -600,7 +600,7 @@ func (i *indices) checkExists(w http.ResponseWriter, r *http.Request,
 	}).Debug("checking if shard exists ...")
 	ok, err := i.shards.Exists(r.Context(), index, shard, strfmt.UUID(id), schemaVersion)
 	if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-		http.Error(w, err.Error(), unprocessableStatus(err))
+		writeLagAware(w, err, unprocessableStatus(err))
 		return
 	}
 	if err != nil {
@@ -645,7 +645,7 @@ func (i *indices) deleteObject() http.Handler {
 
 		err = i.shards.DeleteObject(r.Context(), index, shard, strfmt.UUID(id), deletionTime, schemaVersion)
 		if err != nil {
-			http.Error(w, err.Error(), operationStatus(err))
+			writeLagAware(w, err, operationStatus(err))
 			return
 		}
 
@@ -690,7 +690,7 @@ func (i *indices) mergeObject() http.Handler {
 		}
 
 		if err = i.shards.MergeObject(r.Context(), index, shard, mergeDoc, schemaVersion); err != nil {
-			http.Error(w, err.Error(), operationStatus(err))
+			writeLagAware(w, err, operationStatus(err))
 			return
 		}
 
@@ -745,7 +745,7 @@ func (i *indices) getObjectsMulti() http.Handler {
 
 		objs, err := i.shards.MultiGetObjects(r.Context(), index, shard, ids, schemaVersion)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), unprocessableStatus(err))
+			writeLagAware(w, err, unprocessableStatus(err))
 			return
 		}
 		if err != nil {
@@ -810,7 +810,7 @@ func (i *indices) postSearchObjects() http.Handler {
 		results, dists, queryProfiles, err := i.shards.Search(r.Context(), index, shard,
 			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props, schemaVersion)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), unprocessableStatus(err))
+			writeLagAware(w, err, unprocessableStatus(err))
 			return
 		}
 		if errors.Is(err, queryadmission.ErrOverloaded) {
@@ -941,7 +941,7 @@ func (i *indices) postAggregateObjects() http.Handler {
 		aggRes, err := i.shards.Aggregate(r.Context(), index, shard, params, schemaVersion)
 
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), unprocessableStatus(err))
+			writeLagAware(w, err, unprocessableStatus(err))
 			return
 		}
 		if errors.Is(err, queryadmission.ErrOverloaded) {
@@ -1012,7 +1012,7 @@ func (i *indices) postFindUUIDs() http.Handler {
 		results, err := i.shards.FindUUIDs(r.Context(), index, shard, filters, limit, schemaVersion)
 
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), unprocessableStatus(err))
+			writeLagAware(w, err, unprocessableStatus(err))
 			return
 		}
 		if err != nil {
@@ -1110,7 +1110,7 @@ func (i *indices) getObjectsDigest() http.Handler {
 
 		results, err := i.shards.DigestObjects(r.Context(), index, shard, ids)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), unprocessableStatus(err))
+			writeLagAware(w, err, unprocessableStatus(err))
 			return
 		}
 		if err != nil {
@@ -1291,7 +1291,7 @@ func (i *indices) getGetShardQueueSize() http.Handler {
 
 		size, err := i.shards.GetShardQueueSize(r.Context(), index, shard, schemaVersion)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), unprocessableStatus(err))
+			writeLagAware(w, err, unprocessableStatus(err))
 			return
 		}
 
@@ -1336,7 +1336,7 @@ func (i *indices) getGetShardStatus() http.Handler {
 
 		status, err := i.shards.GetShardStatus(r.Context(), index, shard, schemaVersion)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), unprocessableStatus(err))
+			writeLagAware(w, err, unprocessableStatus(err))
 			return
 		}
 		if err != nil {
@@ -1395,7 +1395,7 @@ func (i *indices) postUpdateShardStatus() http.Handler {
 
 		err = i.shards.UpdateShardStatus(r.Context(), index, shard, targetStatus, schemaVersion)
 		if err != nil {
-			http.Error(w, err.Error(), operationStatus(err))
+			writeLagAware(w, err, operationStatus(err))
 			return
 		}
 	})
@@ -1505,7 +1505,7 @@ func (i *indices) postAddAsyncReplicationTargetNode() http.Handler {
 
 		err = i.shards.AddAsyncReplicationTargetNode(r.Context(), indexName, shardName, targetNodeOverride, schemaVersion)
 		if err != nil {
-			http.Error(w, err.Error(), operationStatus(err))
+			writeLagAware(w, err, operationStatus(err))
 			return
 		}
 
@@ -1547,6 +1547,16 @@ func (i *indices) deleteAsyncReplicationTargetNode() http.Handler {
 
 		w.WriteHeader(http.StatusNoContent)
 	})
+}
+
+// writeLagAware answers err with the given status, marking a schema-lag 503 so a peer that is
+// behind is not read as one that cannot serve: the first is what the caller's retry ladder is
+// for, the second counts against its consistency level.
+func writeLagAware(w http.ResponseWriter, err error, status int) {
+	if status == http.StatusServiceUnavailable && notCaughtUp(err) {
+		w.Header().Set(enterrors.HeaderSchemaLag, "1")
+	}
+	http.Error(w, err.Error(), status)
 }
 
 // notCaughtUp reports whether err is this node lagging the schema rather than a fault.
@@ -1594,7 +1604,7 @@ func wroteNotCaughtUp(w http.ResponseWriter, errs []error) bool {
 		return false
 	}
 
-	http.Error(w, lagging.Error(), http.StatusServiceUnavailable)
+	writeLagAware(w, lagging, http.StatusServiceUnavailable)
 	return true
 }
 

@@ -46,7 +46,11 @@ var (
 	// Skip-reason refinements; both wrap ErrAsyncReplicationNotActive so existing errors.Is checks keep matching.
 	// ErrReplicaNotReady is any peer that cannot serve yet; the refinements below wrap it, so one
 	// errors.Is answers whether a replica can serve at all
-	ErrReplicaNotReady    = errors.New("replica cannot serve yet")
+	ErrReplicaNotReady = errors.New("replica cannot serve yet")
+	// ErrReplicaLagging is a peer whose schema is behind, so it cannot serve this request *yet*.
+	// Deliberately outside the ErrReplicaNotReady family: the retry ladder is there to outlast
+	// lag, so a lagging peer must not count against the level the way a booting one does.
+	ErrReplicaLagging     = errors.New("replica is behind the schema")
 	ErrReplicaMaintenance = fmt.Errorf("%w: %w: peer in maintenance mode", ErrAsyncReplicationNotActive, ErrReplicaNotReady)
 	ErrReplicaBooting     = fmt.Errorf("%w: %w: peer not ready", ErrAsyncReplicationNotActive, ErrReplicaNotReady)
 	// ErrAsyncCheckpointCutoffInPast maps to HTTP 412 / FailedPrecondition.

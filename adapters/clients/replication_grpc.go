@@ -648,11 +648,12 @@ func asyncNotReadyGRPCError(err error) error {
 }
 
 // readGRPCError gives gRPC reads the sentinel the REST transport gets from HTTPError.Is, which
-// is the only thing Pull's fail-over classifies on. Unavailable is a replica not worth asking
-// again this attempt; FailedPrecondition is final and deliberately carries no sentinel.
+// is the only thing Pull's fail-over classifies on. Unavailable on these paths is only ever a
+// replica behind the schema -- a final miss is FailedPrecondition, which deliberately carries no
+// sentinel -- so it maps to the lag sentinel and leaves the level alone.
 func readGRPCError(op string, err error) error {
 	if status.Code(err) == codes.Unavailable {
-		return fmt.Errorf("gRPC %s: %w: %w", op, replica.ErrReplicaNotReady, err)
+		return fmt.Errorf("gRPC %s: %w: %w", op, replica.ErrReplicaLagging, err)
 	}
 	return fmt.Errorf("gRPC %s: %w", op, err)
 }

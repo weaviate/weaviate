@@ -35,6 +35,7 @@ import (
 	clusterapi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -155,7 +156,7 @@ func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
 		if err := asyncNotReadyError(res.StatusCode, b); err != nil {
 			return nil, err
 		}
-		return nil, &HTTPError{Code: res.StatusCode, Body: b}
+		return nil, httpError(res, b)
 	}
 
 	if res.Header.Get("X-Response-Encoding") == "binary" {
@@ -254,7 +255,7 @@ func (c *replicationClient) CompareDigests(ctx context.Context,
 		if err := asyncNotReadyError(res.StatusCode, b); err != nil {
 			return nil, err
 		}
-		return nil, &HTTPError{Code: res.StatusCode, Body: b}
+		return nil, httpError(res, b)
 	}
 
 	return readCompareDigestsBinaryStream(res.Body, res.ContentLength, len(digests))
@@ -358,7 +359,7 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 		if err := asyncNotReadyError(code, errBody); err != nil {
 			return nil, err
 		}
-		return nil, &HTTPError{Code: code, Body: errBody}
+		return nil, httpError(res, errBody)
 	}
 
 	if res.Header.Get("X-Response-Encoding") == "binary" {
@@ -393,7 +394,7 @@ func (c *replicationClient) postCompareRoots(req *http.Request, out any) error {
 	}
 	if code := res.StatusCode; !successCode(code) {
 		errBody, _ := io.ReadAll(res.Body)
-		return &HTTPError{Code: code, Body: errBody}
+		return httpError(res, errBody)
 	}
 
 	if err := json.NewDecoder(res.Body).Decode(out); err != nil {
@@ -526,7 +527,7 @@ func (c *replicationClient) CreateAsyncCheckpoint(ctx context.Context,
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
-		return &HTTPError{Code: res.StatusCode, Body: b}
+		return httpError(res, b)
 	}
 	return nil
 }
@@ -551,7 +552,7 @@ func (c *replicationClient) DeleteAsyncCheckpoint(ctx context.Context,
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
-		return &HTTPError{Code: res.StatusCode, Body: b}
+		return httpError(res, b)
 	}
 	return nil
 }
@@ -571,7 +572,7 @@ func (c *replicationClient) GetAsyncCheckpointStatus(ctx context.Context,
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
-		return nil, &HTTPError{Code: res.StatusCode, Body: b}
+		return nil, httpError(res, b)
 	}
 	var raw map[string]asyncCheckpointStatusEntry
 	if err := json.NewDecoder(res.Body).Decode(&raw); err != nil {
@@ -644,7 +645,7 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 		if err := asyncNotReadyError(res.StatusCode, b); err != nil {
 			return nil, err
 		}
-		return nil, &HTTPError{Code: res.StatusCode, Body: b}
+		return nil, httpError(res, b)
 	}
 
 	var resp []types.RepairResponse
@@ -816,7 +817,7 @@ func (c *replicationClient) FindUUIDs(ctx context.Context, hostName, indexName,
 		body, _ := io.ReadAll(res.Body)
 		// Typed, not formatted: HTTPError.Is turns a 503 into the not-ready sentinel, and a
 		// string here left the coordinator retrying this replica to its worker timeout.
-		return nil, &HTTPError{Code: res.StatusCode, Body: body}
+		return nil, httpError(res, body)
 	}
 
 	resBytes, err := io.ReadAll(res.Body)
@@ -916,7 +917,7 @@ func (c *replicationClient) doRetry(req *http.Request, body []byte, resp interfa
 
 		if code := res.StatusCode; code != http.StatusOK {
 			b, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), &HTTPError{Code: code, Body: b}
+			return shouldRetry(code), httpError(res, b)
 		}
 		if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
 			return false, fmt.Errorf("decode response: %w", err)
@@ -938,9 +939,26 @@ func backOff(d time.Duration) time.Duration {
 	return time.Duration(float64(d.Nanoseconds()*2) * (0.5 + rand.Float64()))
 }
 
-// Is reports a 503 as ErrReplicaNotReady, so callers classify a refusal without parsing the body
+// Is reports a 503 as one of two sentinels, so callers classify a refusal without parsing the
+// body: a peer behind the schema answers ErrReplicaLagging, which the retry ladder outlasts, and
+// anything else answers ErrReplicaNotReady, which counts against the consistency level.
 func (e *HTTPError) Is(target error) bool {
-	return target == replica.ErrReplicaNotReady && e.Code == http.StatusServiceUnavailable
+	if e.Code != http.StatusServiceUnavailable {
+		return false
+	}
+	if e.SchemaLag {
+		return target == replica.ErrReplicaLagging
+	}
+	return target == replica.ErrReplicaNotReady
+}
+
+// httpError reads the refusal off a response, so every construction site picks up the lag marker.
+func httpError(res *http.Response, body []byte) *HTTPError {
+	return &HTTPError{
+		Code:      res.StatusCode,
+		Body:      body,
+		SchemaLag: res.Header.Get(enterrors.HeaderSchemaLag) != "",
+	}
 }
 
 // shouldRetry reports whether the same peer is worth asking again. A 503 is not: it cannot serve

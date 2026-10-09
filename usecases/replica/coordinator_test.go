@@ -625,8 +625,12 @@ func TestPullStopsEveryWorkerWhenTheLevelBecomesUnreachable(t *testing.T) {
 		"the workers retrying a 500 must stop once the level is unreachable, not sit out their minute (took %s)", elapsed)
 }
 
-// A replica that is merely behind the schema is not one that cannot serve: during a rolling
-// restart a quorum lags for a moment, and the retry ladder exists to outlast that.
+// A replica that is merely behind the schema is not one that cannot serve, however long it stays
+// behind. Activating a cold tenant takes seconds, far longer than one backoff, so a rule that
+// counted repeated refusals still gave up on it: the MT legs of the rollout benchmark refused 44
+// aggregates with "no nodes reported object count" where the pre-fix build refused none. The lag
+// marker is what separates the two, so the replicas here refuse often enough that counting alone
+// would have abandoned them.
 func TestPullOutlastsReplicasThatAreMerelyBehindTheSchema(t *testing.T) {
 	const (
 		cls   = "C1"
@@ -655,14 +659,22 @@ func TestPullOutlastsReplicasThatAreMerelyBehindTheSchema(t *testing.T) {
 
 	c := replica.NewReadCoordinator[int](router, metrics, cls, shard, "", logger)
 
-	// Lags once, then catches up. No not-ready marker: this peer is coming, not booting.
+	// SchemaLag is what the cluster API marks a lag 503 with; a booting peer's carries no marker.
 	lagging := &clients.HTTPError{
-		Code: http.StatusServiceUnavailable,
-		Body: []byte("503 local " + shard + " shard not found"),
+		Code:      http.StatusServiceUnavailable,
+		Body:      []byte("503 local " + shard + " shard not found"),
+		SchemaLag: true,
 	}
-	var asked sync.Map
+	// Four refusals per host, so any rule that counts them would have given up long before.
+	const refusalsPerHost = 4
+	var mu sync.Mutex
+	asked := map[string]int{}
 	op := func(ctx context.Context, host string, _ bool) (int, error) {
-		if _, seen := asked.LoadOrStore(host, true); !seen {
+		mu.Lock()
+		asked[host]++
+		behind := asked[host] <= refusalsPerHost
+		mu.Unlock()
+		if behind {
 			return 0, lagging
 		}
 		return 1, nil
@@ -680,5 +692,62 @@ func TestPullOutlastsReplicasThatAreMerelyBehindTheSchema(t *testing.T) {
 	}
 
 	require.Equal(t, level, successes,
-		"a quorum that lagged only until the retry must still be reached, not abandoned")
+		"a quorum that was behind for several retries must still be reached, not abandoned")
+}
+
+// The other half of the rule: a peer that cannot serve at all carries no lag marker, so it still
+// counts against the level and the pull still gives up rather than sitting out its timeout.
+func TestPullStillGivesUpOnPeersThatCannotServeAtAll(t *testing.T) {
+	const (
+		cls   = "C1"
+		shard = "S1"
+	)
+
+	hosts := []types.Replica{
+		{NodeName: "A", ShardName: shard, HostAddr: "a:7001"},
+		{NodeName: "B", ShardName: shard, HostAddr: "b:7001"},
+		{NodeName: "C", ShardName: shard, HostAddr: "c:7001"},
+	}
+
+	logger, _ := test.NewNullLogger()
+	metrics, err := replica.NewMetrics(nil)
+	require.NoError(t, err)
+
+	options := types.RoutingPlanBuildOptions{Shard: shard, ConsistencyLevel: types.ConsistencyLevelQuorum}
+	router := types.NewMockRouter(t)
+	router.EXPECT().BuildRoutingPlanOptions(shard, shard, types.ConsistencyLevelQuorum, "").Return(options).Once()
+	router.EXPECT().BuildReadRoutingPlan(options).Return(types.ReadRoutingPlan{
+		Shard:               shard,
+		ReplicaSet:          types.ReadReplicaSet{Replicas: hosts},
+		ConsistencyLevel:    types.ConsistencyLevelQuorum,
+		IntConsistencyLevel: 2,
+	}, nil).Once()
+
+	c := replica.NewReadCoordinator[int](router, metrics, cls, shard, "", logger)
+
+	notReady := &clients.HTTPError{
+		Code: http.StatusServiceUnavailable,
+		Body: []byte("503 " + replica.NodeNotReadyMsg),
+	}
+	op := func(ctx context.Context, host string, _ bool) (int, error) {
+		if host == "b:7001" {
+			return 1, nil
+		}
+		return 0, notReady
+	}
+
+	started := time.Now()
+	replyCh, level, err := c.Pull(context.Background(), types.ConsistencyLevelQuorum, op, "", time.Minute)
+	require.NoError(t, err)
+	require.Equal(t, 2, level)
+
+	var replies int
+	for range replyCh {
+		replies++
+	}
+	elapsed := time.Since(started)
+
+	require.Equal(t, level, replies, "one reply per worker, as the caller depends on")
+	require.Less(t, elapsed, 10*time.Second,
+		"an unmarked 503 is still a peer that cannot serve, so the pull must give up (took %s)", elapsed)
 }

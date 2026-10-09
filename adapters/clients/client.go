@@ -36,6 +36,9 @@ type retryClient struct {
 type HTTPError struct {
 	Code int
 	Body []byte
+	// SchemaLag is set when the peer answered 503 because its schema is behind rather than
+	// because it cannot serve. See entities/errors.HeaderSchemaLag.
+	SchemaLag bool
 }
 
 func (e *HTTPError) Error() string {
