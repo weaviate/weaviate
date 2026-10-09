@@ -108,14 +108,23 @@ func (m *Mapper) NewNestedValue(v interface{}, dt schema.DataType, parent schema
 	}
 	switch dt {
 	case schema.DataTypeObject:
-		if _, ok := v.(map[string]interface{}); !ok {
+		obj, ok := v.(map[string]interface{})
+		if !ok {
+			// the disk read path enriches geo/phone-shaped object maps into
+			// their struct forms; turn them back into maps so they serialize
+			// like any other object property
+			if shaped, err := shapeStructToMap(v); err == nil {
+				obj, ok = shaped.(map[string]interface{})
+			}
+		}
+		if !ok {
 			return nil, protoimpl.X.NewError("invalid type: %T expected map[string]interface{}", v)
 		}
-		obj, err := m.newObject(v.(map[string]interface{}), parent, prop)
+		val, err := m.newObject(obj, parent, prop)
 		if err != nil {
 			return nil, errors.Wrap(err, "creating nested object")
 		}
-		return NewObjectValue(obj), nil
+		return NewObjectValue(val), nil
 	case schema.DataTypeObjectArray:
 		if _, ok := v.([]interface{}); !ok {
 			return nil, protoimpl.X.NewError("invalid type: %T expected []map[string]interface{}", v)
@@ -381,7 +390,37 @@ func newPhoneNumberValue(v *models.PhoneNumber) *pb.Value {
 	}}
 }
 
-// NewNilValue constructs a new nil Value.
+// NewNilValue constructs a nil Value.
 func (m *Mapper) NewNilValue() *pb.Value {
 	return &pb.Value{Kind: &pb.Value_NullValue{}}
+}
+
+// shapeStructToMap converts the enriched disk forms of geo/phone-shaped object
+// properties back into their map representation, mirroring what the request
+// path produces. Other values are returned unchanged (with a nil error).
+func shapeStructToMap(v interface{}) (interface{}, error) {
+	switch val := v.(type) {
+	case *models.GeoCoordinates:
+		out := map[string]interface{}{}
+		if val.Latitude != nil {
+			out["latitude"] = float64(*val.Latitude)
+		}
+		if val.Longitude != nil {
+			out["longitude"] = float64(*val.Longitude)
+		}
+		return out, nil
+	case *models.PhoneNumber:
+		out := map[string]interface{}{
+			"input":                  val.Input,
+			"internationalFormatted": val.InternationalFormatted,
+			"nationalFormatted":      val.NationalFormatted,
+			"national":               float64(val.National),
+			"countryCode":            float64(val.CountryCode),
+			"defaultCountry":         val.DefaultCountry,
+			"valid":                  val.Valid,
+		}
+		return out, nil
+	default:
+		return nil, protoimpl.X.NewError("unexpected type: %T", v)
+	}
 }
