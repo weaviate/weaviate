@@ -12,8 +12,10 @@
 package router_test
 
 import (
+	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -32,6 +34,11 @@ import (
 const (
 	lagCollection = "TestClass"
 	lagTenant     = "tenant-7"
+	// lagLeaderTimeout is long enough that the lookup never expires by accident. Passing 0 here
+	// handed the manager a context that was already done, so these tests passed only because the
+	// mock ignores it -- they would have passed with the timeout broken too. The timeout itself is
+	// exercised by TestMultiTenantPlanGivesUpOnASlowLeader.
+	lagLeaderTimeout = 2 * time.Second
 )
 
 // leaderHolding is a replication manager whose leader answers with shards for the
@@ -40,6 +47,18 @@ func leaderHolding(t *testing.T, shards map[string][]string) replicationTypes.Ma
 	m := replicationTypes.NewMockManager(t)
 	m.EXPECT().QueryShardingStateByCollectionAndShard(mock.Anything, lagCollection, lagTenant).
 		Return(api.ShardingState{Collection: lagCollection, Shards: shards}, nil).Once()
+	return m
+}
+
+// leaderSlow is a leader that neither answers nor refuses, which is what the timeout exists for:
+// it must not hold the read open past its own deadline.
+func leaderSlow(t *testing.T) replicationTypes.Manager {
+	m := replicationTypes.NewMockManager(t)
+	m.EXPECT().QueryShardingStateByCollectionAndShard(mock.Anything, lagCollection, lagTenant).
+		RunAndReturn(func(ctx context.Context, _, _ string) (api.ShardingState, error) {
+			<-ctx.Done()
+			return api.ShardingState{}, ctx.Err()
+		}).Once()
 	return m
 }
 
@@ -54,7 +73,9 @@ func leaderFailing(t *testing.T, err error) replicationTypes.Manager {
 // lagRouter builds a multi-tenant router whose local sharding state does not list the
 // tenant while the leader confirms it is HOT -- the shape behind the production line
 // "shard not found : class %q shard %q". A nil manager is the local-only behaviour.
-func lagRouter(t *testing.T, manager replicationTypes.Manager, write bool) types.Router {
+func lagRouter(t *testing.T, manager replicationTypes.Manager, write bool,
+	leaderTimeout ...time.Duration,
+) types.Router {
 	t.Helper()
 
 	localState := createShardingStateWithShards([]string{})
@@ -83,9 +104,14 @@ func lagRouter(t *testing.T, manager replicationTypes.Manager, write bool) types
 			Return([]string{"node1", "node2"}).Maybe()
 	}
 
+	timeout := lagLeaderTimeout
+	if len(leaderTimeout) > 0 {
+		timeout = leaderTimeout[0]
+	}
+
 	b := router.NewBuilder(lagCollection, true, nodeSelector, schemaGetter, schemaReader, fsm)
 	if manager != nil {
-		b = b.WithReplicationManager(manager, 0)
+		b = b.WithReplicationManager(manager, timeout)
 	}
 	return b.Build()
 }
@@ -150,4 +176,17 @@ func TestMultiTenantPlanKeepsTheLocalErrorWhenTheLeaderCannotHelp(t *testing.T) 
 func TestMultiTenantPlanWithoutAReplicationManagerIsUnchanged(t *testing.T) {
 	_, err := lagRouter(t, nil, false).BuildReadRoutingPlan(lagPlanOptions())
 	require.ErrorIs(t, err, clusterSchema.ErrShardNotFound)
+}
+
+// A leader that goes quiet must cost the read its own deadline and no more, falling back to the
+// local error rather than holding the caller open.
+func TestMultiTenantPlanGivesUpOnASlowLeader(t *testing.T) {
+	started := time.Now()
+	_, err := lagRouter(t, leaderSlow(t), false, 50*time.Millisecond).
+		BuildReadRoutingPlan(lagPlanOptions())
+	require.ErrorIs(t, err, clusterSchema.ErrShardNotFound,
+		"the local error is the one the caller can act on")
+	require.Less(t, time.Since(started), time.Second,
+		"the lookup must be bounded by its timeout, not by the caller giving up (took %s)",
+		time.Since(started))
 }
