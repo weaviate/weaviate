@@ -85,7 +85,7 @@ func lagRouter(t *testing.T, manager replicationTypes.Manager, write bool) types
 
 	b := router.NewBuilder(lagCollection, true, nodeSelector, schemaGetter, schemaReader, fsm)
 	if manager != nil {
-		b = b.WithReplicationManager(manager)
+		b = b.WithReplicationManager(manager, 0)
 	}
 	return b.Build()
 }

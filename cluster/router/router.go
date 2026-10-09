@@ -22,6 +22,7 @@ package router
 import (
 	"context"
 	"fmt"
+	"time"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/types"
@@ -38,13 +39,14 @@ import (
 // either a multi-tenant router or a single tenant router. The multi-tenant router will use the tenant name as the
 // partitioning key to identify a specific tenant's partitioning.
 type Builder struct {
-	collection           string
-	partitioningEnabled  bool
-	nodeSelector         cluster.NodeSelector
-	schemaGetter         schema.SchemaGetter
-	schemaReader         schema.SchemaReader
-	replicationFSMReader replicationTypes.ReplicationFSMReader
-	replicationManager   replicationTypes.Manager
+	collection             string
+	partitioningEnabled    bool
+	nodeSelector           cluster.NodeSelector
+	schemaGetter           schema.SchemaGetter
+	schemaReader           schema.SchemaReader
+	replicationFSMReader   replicationTypes.ReplicationFSMReader
+	replicationManager     replicationTypes.Manager
+	leaderPlacementTimeout time.Duration
 }
 
 // NewBuilder creates a new Builder with the provided configuration.
@@ -79,8 +81,9 @@ func NewBuilder(
 
 // WithReplicationManager is optional: without it a multi-tenant router stays local-only and
 // fails a read whose tenant has not reached this node.
-func (b *Builder) WithReplicationManager(m replicationTypes.Manager) *Builder {
+func (b *Builder) WithReplicationManager(m replicationTypes.Manager, leaderTimeout time.Duration) *Builder {
 	b.replicationManager = m
+	b.leaderPlacementTimeout = leaderTimeout
 	return b
 }
 
@@ -91,12 +94,13 @@ func (b *Builder) WithReplicationManager(m replicationTypes.Manager) *Builder {
 func (b *Builder) Build() types.Router {
 	if b.partitioningEnabled {
 		return &multiTenantRouter{
-			collection:           b.collection,
-			schemaGetter:         b.schemaGetter,
-			schemaReader:         b.schemaReader,
-			replicationFSMReader: b.replicationFSMReader,
-			nodeSelector:         b.nodeSelector,
-			replicationManager:   b.replicationManager,
+			collection:             b.collection,
+			schemaGetter:           b.schemaGetter,
+			schemaReader:           b.schemaReader,
+			replicationFSMReader:   b.replicationFSMReader,
+			nodeSelector:           b.nodeSelector,
+			replicationManager:     b.replicationManager,
+			leaderPlacementTimeout: b.leaderPlacementTimeout,
 		}
 	}
 	return &singleTenantRouter{
@@ -122,12 +126,13 @@ type singleTenantRouter struct {
 // In multi-tenant mode, tenant isolation is achieved through partitioning using
 // the tenant name as the partitioning key. Each tenant effectively becomes its own shard.
 type multiTenantRouter struct {
-	collection           string
-	schemaGetter         schema.SchemaGetter
-	schemaReader         schema.SchemaReader
-	replicationFSMReader replicationTypes.ReplicationFSMReader
-	nodeSelector         cluster.NodeSelector
-	replicationManager   replicationTypes.Manager
+	collection             string
+	schemaGetter           schema.SchemaGetter
+	schemaReader           schema.SchemaReader
+	replicationFSMReader   replicationTypes.ReplicationFSMReader
+	nodeSelector           cluster.NodeSelector
+	replicationManager     replicationTypes.Manager
+	leaderPlacementTimeout time.Duration
 }
 
 // Interface compliance check at compile time.
@@ -517,8 +522,10 @@ func (r *multiTenantRouter) shardReplicas(collection, shard string) ([]string, e
 		return nil, localErr
 	}
 
-	state, err := r.replicationManager.QueryShardingStateByCollectionAndShard(
-		context.Background(), collection, shard)
+	ctx, cancel := context.WithTimeout(context.Background(), r.leaderPlacementTimeout)
+	defer cancel()
+
+	state, err := r.replicationManager.QueryShardingStateByCollectionAndShard(ctx, collection, shard)
 	if err != nil {
 		// Not there either, or unreachable: keep the local error.
 		return nil, localErr

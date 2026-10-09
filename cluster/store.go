@@ -853,8 +853,6 @@ func (st *Store) WaitForAppliedIndex(ctx context.Context, period time.Duration, 
 		st.metrics.waitForIndex.WithLabelValues(outcome).Observe(time.Since(start).Seconds())
 	}()
 
-	// Declared outside the loop so the deadline branch still reports a real
-	// observation when the context expires before the first tick.
 	idx := st.lastAppliedIndex.Load()
 	if idx >= version {
 		outcome = waitOutcomeImmediate
@@ -867,9 +865,11 @@ func (st *Store) WaitForAppliedIndex(ctx context.Context, period time.Duration, 
 	for {
 		select {
 		case <-ctx.Done():
-			if version > idx {
-				st.metrics.waitForIndexGap.Observe(float64(version - idx))
+			if idx = st.lastAppliedIndex.Load(); idx >= version {
+				outcome = waitOutcomeCaughtUp
+				return nil
 			}
+			st.metrics.waitForIndexGap.Observe(float64(version - idx))
 			return fmt.Errorf("%w: version got=%d  want=%d", types.ErrDeadlineExceeded, idx, version)
 		case <-ticker.C:
 			if idx = st.lastAppliedIndex.Load(); idx >= version {
