@@ -19,28 +19,21 @@ import (
 )
 
 type Metrics struct {
-	enabled                       bool
-	tombstones                    prometheus.Gauge
-	threads                       prometheus.Gauge
-	insert                        prometheus.Gauge
-	insertTime                    prometheus.ObserverVec
-	delete                        prometheus.Gauge
-	deleteTime                    prometheus.ObserverVec
-	cleaned                       prometheus.Counter
-	size                          prometheus.Gauge
-	grow                          prometheus.Observer
-	startupProgress               prometheus.Gauge
-	startupDurations              prometheus.ObserverVec
-	startupDiskIO                 prometheus.ObserverVec
-	tombstoneReassignNeighbors    prometheus.Counter
-	tombstoneFindGlobalEntrypoint prometheus.Counter
-	tombstoneFindLocalEntrypoint  prometheus.Counter
-	tombstoneDeleteListSize       prometheus.Gauge
-	tombstoneUnexpected           prometheus.CounterVec
-	tombstoneStart                prometheus.Gauge
-	tombstoneEnd                  prometheus.Gauge
-	tombstoneProgress             prometheus.Gauge
-	memoryAllocationRejected      prometheus.Counter
+	enabled                    bool
+	tombstones                 prometheus.Gauge
+	insert                     prometheus.Gauge
+	insertTime                 prometheus.ObserverVec
+	delete                     prometheus.Gauge
+	deleteTime                 prometheus.ObserverVec
+	size                       prometheus.Gauge
+	grow                       prometheus.Observer
+	startupDurations           prometheus.ObserverVec
+	tombstoneReassignNeighbors prometheus.Counter
+	tombstoneDeleteListSize    prometheus.Gauge
+	tombstoneStart             prometheus.Gauge
+	tombstoneEnd               prometheus.Gauge
+	tombstoneProgress          prometheus.Gauge
+	memoryAllocationRejected   prometheus.Counter
 }
 
 func newMetrics(prom *monitoring.PrometheusMetrics,
@@ -68,8 +61,6 @@ func newMetrics(prom *monitoring.PrometheusMetrics,
 	}
 
 	tombstones := prom.VectorIndexTombstones.With(baseLabels)
-	threads := prom.VectorIndexTombstoneCleanupThreads.With(baseLabels)
-	cleaned := prom.VectorIndexTombstoneCleanedCount.With(baseLabels)
 
 	// In HFresh mode, these metrics are reported by HFresh itself at the
 	// vector level. Registering them here would double-count because
@@ -89,44 +80,32 @@ func newMetrics(prom *monitoring.PrometheusMetrics,
 	}
 
 	grow := prom.VectorIndexMaintenanceDurations.With(opLabels("grow"))
-	startupProgress := prom.StartupProgress.With(opLabels("hnsw_read_commitlogs"))
 	startupDurations := prom.StartupDurations.MustCurryWith(baseLabels)
-	startupDiskIO := prom.StartupDiskIO.MustCurryWith(baseLabels)
 
 	tombstoneReassignNeighbors := prom.TombstoneReassignNeighbors.With(baseLabels)
-	tombstoneUnexpected := prom.VectorIndexTombstoneUnexpected.MustCurryWith(baseLabels)
 	tombstoneStart := prom.VectorIndexTombstoneCycleStart.With(baseLabels)
 	tombstoneEnd := prom.VectorIndexTombstoneCycleEnd.With(baseLabels)
 	tombstoneProgress := prom.VectorIndexTombstoneCycleProgress.With(baseLabels)
-	tombstoneFindGlobalEntrypoint := prom.TombstoneFindGlobalEntrypoint.With(baseLabels)
-	tombstoneFindLocalEntrypoint := prom.TombstoneFindLocalEntrypoint.With(baseLabels)
 	tombstoneDeleteListSize := prom.TombstoneDeleteListSize.With(baseLabels)
 
 	memoryAllocationRejected := prom.VectorIndexMemoryAllocationRejected
 
 	return &Metrics{
-		enabled:                       true,
-		tombstones:                    tombstones,
-		threads:                       threads,
-		cleaned:                       cleaned,
-		insert:                        insert,
-		insertTime:                    insertTime,
-		delete:                        del,
-		deleteTime:                    deleteTime,
-		size:                          size,
-		grow:                          grow,
-		startupProgress:               startupProgress,
-		startupDurations:              startupDurations,
-		startupDiskIO:                 startupDiskIO,
-		tombstoneReassignNeighbors:    tombstoneReassignNeighbors,
-		tombstoneFindGlobalEntrypoint: tombstoneFindGlobalEntrypoint,
-		tombstoneFindLocalEntrypoint:  tombstoneFindLocalEntrypoint,
-		tombstoneDeleteListSize:       tombstoneDeleteListSize,
-		tombstoneUnexpected:           *tombstoneUnexpected,
-		tombstoneStart:                tombstoneStart,
-		tombstoneEnd:                  tombstoneEnd,
-		tombstoneProgress:             tombstoneProgress,
-		memoryAllocationRejected:      memoryAllocationRejected,
+		enabled:                    true,
+		tombstones:                 tombstones,
+		insert:                     insert,
+		insertTime:                 insertTime,
+		delete:                     del,
+		deleteTime:                 deleteTime,
+		size:                       size,
+		grow:                       grow,
+		startupDurations:           startupDurations,
+		tombstoneReassignNeighbors: tombstoneReassignNeighbors,
+		tombstoneDeleteListSize:    tombstoneDeleteListSize,
+		tombstoneStart:             tombstoneStart,
+		tombstoneEnd:               tombstoneEnd,
+		tombstoneProgress:          tombstoneProgress,
+		memoryAllocationRejected:   memoryAllocationRejected,
 	}
 }
 
@@ -136,22 +115,6 @@ func (m *Metrics) TombstoneReassignNeighbor() {
 	}
 
 	m.tombstoneReassignNeighbors.Inc()
-}
-
-func (m *Metrics) TombstoneFindGlobalEntrypoint() {
-	if !m.enabled {
-		return
-	}
-
-	m.tombstoneFindGlobalEntrypoint.Inc()
-}
-
-func (m *Metrics) TombstoneFindLocalEntrypoint() {
-	if !m.enabled {
-		return
-	}
-
-	m.tombstoneFindLocalEntrypoint.Inc()
 }
 
 func (m *Metrics) SetTombstoneDeleteListSize(size int) {
@@ -176,14 +139,6 @@ func (m *Metrics) SetTombstone(count int) {
 	}
 
 	m.tombstones.Set(float64(count))
-}
-
-func (m *Metrics) AddUnexpectedTombstone(operation string) {
-	if !m.enabled {
-		return
-	}
-
-	m.tombstoneUnexpected.With(prometheus.Labels{"operation": operation}).Inc()
 }
 
 func (m *Metrics) StartTombstoneCycle() {
@@ -218,30 +173,6 @@ func (m *Metrics) RemoveTombstone() {
 	}
 
 	m.tombstones.Dec()
-}
-
-func (m *Metrics) StartCleanup(threads int) {
-	if !m.enabled {
-		return
-	}
-
-	m.threads.Add(float64(threads))
-}
-
-func (m *Metrics) EndCleanup(threads int) {
-	if !m.enabled {
-		return
-	}
-
-	m.threads.Sub(float64(threads))
-}
-
-func (m *Metrics) CleanedUp() {
-	if !m.enabled {
-		return
-	}
-
-	m.cleaned.Inc()
 }
 
 func (m *Metrics) InsertVector() {
@@ -305,14 +236,9 @@ func (m *Metrics) TrackDelete(start time.Time, step string) {
 	m.deleteTime.With(prometheus.Labels{"step": step}).Observe(took)
 }
 
-func (m *Metrics) StartupProgress(ratio float64) {
-	if !m.enabled {
-		return
-	}
-
-	m.startupProgress.Set(ratio)
-}
-
+// TrackStartupTotal feeds the legacy startup_durations_ms series for the
+// commit-log read, the same span weaviate_vector_index_restore_duration_seconds
+// reports without the per-class labels.
 func (m *Metrics) TrackStartupTotal(start time.Time) {
 	if !m.enabled {
 		return
@@ -320,25 +246,6 @@ func (m *Metrics) TrackStartupTotal(start time.Time) {
 
 	took := float64(time.Since(start)) / float64(time.Millisecond)
 	m.startupDurations.With(prometheus.Labels{"operation": "hnsw_read_all_commitlogs"}).Observe(took)
-}
-
-func (m *Metrics) TrackStartupIndividual(start time.Time) {
-	if !m.enabled {
-		return
-	}
-
-	took := float64(time.Since(start)) / float64(time.Millisecond)
-	m.startupDurations.With(prometheus.Labels{"operation": "hnsw_read_single_commitlog"}).Observe(took)
-}
-
-func (m *Metrics) TrackStartupReadCommitlogDiskIO(read int64, nanoseconds int64) {
-	if !m.enabled {
-		return
-	}
-
-	seconds := float64(nanoseconds) / float64(time.Second)
-	throughput := float64(read) / float64(seconds)
-	m.startupDiskIO.With(prometheus.Labels{"operation": "hnsw_read_commitlog"}).Observe(throughput)
 }
 
 func (m *Metrics) MemoryAllocationRejected() {

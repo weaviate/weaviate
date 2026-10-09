@@ -100,17 +100,14 @@ type PrometheusMetrics struct {
 	VectorIndexQueueInsertCount *prometheus.CounterVec
 	VectorIndexQueueDeleteCount *prometheus.CounterVec
 
-	VectorIndexTombstones              *prometheus.GaugeVec
-	VectorIndexTombstoneCleanupThreads *prometheus.GaugeVec
-	VectorIndexTombstoneCleanedCount   *prometheus.CounterVec
-	VectorIndexTombstoneUnexpected     *prometheus.CounterVec
-	VectorIndexTombstoneCycleStart     *prometheus.GaugeVec
-	VectorIndexTombstoneCycleEnd       *prometheus.GaugeVec
-	VectorIndexTombstoneCycleProgress  *prometheus.GaugeVec
-	VectorIndexOperations              *prometheus.GaugeVec
-	VectorIndexDurations               *prometheus.SummaryVec
-	VectorIndexSize                    *prometheus.GaugeVec
-	VectorIndexMaintenanceDurations    *prometheus.SummaryVec
+	VectorIndexTombstones             *prometheus.GaugeVec
+	VectorIndexTombstoneCycleStart    *prometheus.GaugeVec
+	VectorIndexTombstoneCycleEnd      *prometheus.GaugeVec
+	VectorIndexTombstoneCycleProgress *prometheus.GaugeVec
+	VectorIndexOperations             *prometheus.GaugeVec
+	VectorIndexDurations              *prometheus.SummaryVec
+	VectorIndexSize                   *prometheus.GaugeVec
+	VectorIndexMaintenanceDurations   *prometheus.SummaryVec
 	// IVF
 	VectorIndexPostings                      *prometheus.GaugeVec
 	VectorIndexPostingSize                   *prometheus.HistogramVec
@@ -153,10 +150,8 @@ type PrometheusMetrics struct {
 	SchemaWaitForVersion      *prometheus.SummaryVec
 	SchemaLeaderQueryFailures *prometheus.CounterVec
 
-	TombstoneFindLocalEntrypoint  *prometheus.CounterVec
-	TombstoneFindGlobalEntrypoint *prometheus.CounterVec
-	TombstoneReassignNeighbors    *prometheus.CounterVec
-	TombstoneDeleteListSize       *prometheus.GaugeVec
+	TombstoneReassignNeighbors *prometheus.CounterVec
+	TombstoneDeleteListSize    *prometheus.GaugeVec
 
 	Group bool
 	// Keeping metering to only the critical buckets (objects, vectors_compressed)
@@ -346,9 +341,6 @@ func (pm *PrometheusMetrics) DeleteShard(className, shardName string) error {
 	pm.VectorIndexQueueInsertCount.DeletePartialMatch(labels)
 	pm.VectorIndexQueueDeleteCount.DeletePartialMatch(labels)
 	pm.VectorIndexTombstones.DeletePartialMatch(labels)
-	pm.VectorIndexTombstoneCleanupThreads.DeletePartialMatch(labels)
-	pm.VectorIndexTombstoneCleanedCount.DeletePartialMatch(labels)
-	pm.VectorIndexTombstoneUnexpected.DeletePartialMatch(labels)
 	pm.VectorIndexTombstoneCycleStart.DeletePartialMatch(labels)
 	pm.VectorIndexTombstoneCycleEnd.DeletePartialMatch(labels)
 	pm.VectorIndexTombstoneCycleProgress.DeletePartialMatch(labels)
@@ -693,18 +685,6 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "vector_index_tombstones",
 			Help: "Number of active vector index tombstones",
 		}, []string{"class_name", "shard_name"}),
-		VectorIndexTombstoneCleanupThreads: promauto.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "vector_index_tombstone_cleanup_threads",
-			Help: "Number of threads in use to clean up tombstones",
-		}, []string{"class_name", "shard_name"}),
-		VectorIndexTombstoneCleanedCount: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "vector_index_tombstone_cleaned",
-			Help: "Total number of deleted objects that have been cleaned up",
-		}, []string{"class_name", "shard_name"}),
-		VectorIndexTombstoneUnexpected: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "vector_index_tombstone_unexpected_total",
-			Help: "Total number of unexpected tombstones that were found, for example because a vector was not found for an existing id in the index",
-		}, []string{"class_name", "shard_name", "operation"}),
 		VectorIndexTombstoneCycleStart: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "vector_index_tombstone_cycle_start_timestamp_seconds",
 			Help: "Unix epoch timestamp of the start of the current tombstone cleanup cycle",
@@ -772,6 +752,9 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		}),
 
 		// Startup metrics
+		// TODO: remove StartupProgress in the next minor release. It was never
+		// set, and the only series minted for it (by the hnsw metrics wrapper)
+		// is gone. Delete the DeletePartialMatch call in DeleteShard with it.
 		StartupProgress: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "startup_progress",
 			Help: "A ratio (percentage) of startup progress for a particular component in a shard",
@@ -894,14 +877,6 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help: "Schema queries forwarded to the RAFT leader that failed, by query type and reason (no_leader, conn_closed, ctx_canceled, leader_error)",
 		}, []string{"query_type", "reason"}),
 
-		TombstoneFindLocalEntrypoint: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "tombstone_find_local_entrypoint",
-			Help: "Total number of tombstone delete local entrypoint calls",
-		}, []string{"class_name", "shard_name"}),
-		TombstoneFindGlobalEntrypoint: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "tombstone_find_global_entrypoint",
-			Help: "Total number of tombstone delete global entrypoint calls",
-		}, []string{"class_name", "shard_name"}),
 		TombstoneReassignNeighbors: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "tombstone_reassign_neighbors",
 			Help: "Total number of tombstone reassign neighbor calls",

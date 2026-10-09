@@ -787,9 +787,9 @@ func (h *hnsw) handleDeletedNode(docID uint64, operation string) {
 	}
 
 	h.addTombstone(docID)
-	h.metrics.AddUnexpectedTombstone(operation)
 	h.logger.WithField("action", "attach_tombstone_to_deleted_node").
 		WithField("node_id", docID).
+		WithField("operation", operation).
 		Debugf("found a deleted node (%d) without a tombstone, "+
 			"tombstone was added", docID)
 }
