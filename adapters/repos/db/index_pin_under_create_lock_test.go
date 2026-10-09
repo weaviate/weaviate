@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -20,6 +21,8 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // A request's lazy load must hold the shard's create lock: a teardown slipping between lookup and pin rebuilds the shard on a wrapper already out of the map.
@@ -88,32 +91,58 @@ func TestGetOrInitShardPinsUnderCreateLock(t *testing.T) {
 	require.Eventually(t, lockAcquired, 10*time.Second, 10*time.Millisecond)
 }
 
+// TestSchemaWalksPinUnderCreateLock pins that a schema walk waits out an unload
+// of a shard it saw loaded, then leaves that shard unloaded. Loading it would
+// rebuild the shard outside the shard map.
 func TestSchemaWalksPinUnderCreateLock(t *testing.T) {
 	ctx := testCtx()
 	walks := map[string]func(f *addPropertyLazyFixture) error{
 		"add property":    func(f *addPropertyLazyFixture) error { return f.index.addProperty(ctx, textProp("late", true)) },
 		"update property": func(f *addPropertyLazyFixture) error { return f.index.updateProperty(ctx, f.schemaClass.Properties[0]) },
+		"update vector index config": func(f *addPropertyLazyFixture) error {
+			return f.index.updateVectorIndexConfig(ctx, enthnsw.NewDefaultUserConfig())
+		},
+		"update vector index configs": func(f *addPropertyLazyFixture) error {
+			return f.index.updateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{})
+		},
+		"add missing properties": func(f *addPropertyLazyFixture) error {
+			return f.migrator.updateIndexAddMissingProperties(ctx, f.index, f.schemaClass)
+		},
 	}
 	for name, walk := range walks {
 		t.Run(name, func(t *testing.T) {
 			f := newAddPropertyLazyFixture(t, "WalkPinUnderCreateLock", singleShardState())
 			var shardName string
-			for n := range f.coldShards(t) {
-				shardName = n
+			var lazy *LazyLoadShard
+			for n, l := range f.coldShards(t) {
+				shardName, lazy = n, l
 			}
 			_, release, err := f.index.getOrInitShard(ctx, shardName)
 			require.NoError(t, err)
 			release()
+			t.Cleanup(func() { lazy.Shutdown(context.Background()) })
 
-			f.index.shardCreateLocks.Lock(shardName)
+			// The read lock held here queues the unload, and the queued unload
+			// blocks the walk's own read lock until the shard is gone.
+			f.index.shardCreateLocks.RLock(shardName)
 			lockHeld := true
 			unlock := func() {
 				if lockHeld {
 					lockHeld = false
-					f.index.shardCreateLocks.Unlock(shardName)
+					f.index.shardCreateLocks.RUnlock(shardName)
 				}
 			}
 			defer unlock()
+
+			unloaded := make(chan error, 1)
+			enterrors.GoWrapper(func() { unloaded <- f.index.UnloadLocalShard(ctx, shardName) }, f.index.logger)
+			require.Eventually(t, func() bool {
+				if f.index.shardCreateLocks.TryRLock(shardName) {
+					f.index.shardCreateLocks.RUnlock(shardName)
+					return false
+				}
+				return true
+			}, 10*time.Second, time.Millisecond, "the unload never queued for the create lock")
 
 			var walkErr error
 			finished := make(chan struct{})
@@ -129,15 +158,18 @@ func TestSchemaWalksPinUnderCreateLock(t *testing.T) {
 					return false
 				}
 			}
-			require.Never(t, walkFinished, 300*time.Millisecond, 20*time.Millisecond, "the walk pinned the shard while its create lock was held")
+			require.Never(t, walkFinished, 300*time.Millisecond, 20*time.Millisecond, "the walk read the shard while an unload was queued")
 
 			unlock()
+			require.NoError(t, <-unloaded)
 			select {
 			case <-finished:
 				require.NoError(t, walkErr)
 			case <-time.After(30 * time.Second):
 				t.Fatal("walk never finished")
 			}
+			require.Nil(t, f.index.shards.Load(shardName))
+			require.False(t, lazy.isLoaded(), "the walk loaded the shard the unload released")
 		})
 	}
 }

@@ -550,7 +550,7 @@ func (m *Migrator) updateIndexAddMissingProperties(ctx context.Context, idx *Ind
 		// don't need to continue iterating over all shards
 		errMissingProp := errors.New("missing prop")
 		// Ensure we iterate over loaded shard to avoid force loading a lazy loaded shard
-		err := idx.ForEachLoadedShard(func(name string, shard ShardLike) error {
+		err := idx.forEachPinnedLoadedShard(func(name string, shard ShardLike) error {
 			if !shardHasProperty(shard, prop) {
 				return errMissingProp
 			}
