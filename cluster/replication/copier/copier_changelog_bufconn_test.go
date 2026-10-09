@@ -13,6 +13,7 @@ package copier_test
 
 import (
 	"context"
+	"errors"
 	"math"
 	"net"
 	"path/filepath"
@@ -83,6 +84,10 @@ func (bufconnFakeSchema) FSMAppliedIndex() uint64 { return 0 }
 
 func (bufconnFakeSchema) ReadOnlyClassWithVersion(context.Context, string, uint64) (*models.Class, error) {
 	return nil, nil
+}
+
+func (bufconnFakeSchema) ShardReplicas(class, shard string) ([]string, error) {
+	return nil, errors.New("placement is not under test here")
 }
 
 // bufconnFixture wires a real FileReplicationService + *changelog.ChangeLog
