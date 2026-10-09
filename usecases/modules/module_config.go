@@ -122,6 +122,11 @@ func (cbmc *ClassBasedModuleConfig) Property(propName string) map[string]interfa
 	}
 
 	moduleCfg, ok := asMap[cbmc.moduleName]
+	// The provider asks for the canonical name. A collection created with the
+	// legacy text2vec-palm key still stores property settings under that key.
+	if !ok && cbmc.moduleName == "text2vec-google" {
+		moduleCfg, ok = asMap["text2vec-palm"]
+	}
 	if !ok {
 		return defaultConf
 	}
