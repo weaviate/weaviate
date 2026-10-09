@@ -14,9 +14,11 @@ package backup
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -447,6 +449,44 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		assert.False(t, legacy.DedupeEffective)
 		assert.Nil(t, legacy.ShardDesignations)
 	})
+}
+
+func TestAttributeDedupedShardSizesWarnsOncePerBackup(t *testing.T) {
+	log, hook := test.NewNullLogger()
+	designations := make(map[string]map[string]string, 30)
+	for i := range 30 {
+		designations[fmt.Sprintf("Class-%02d", i)] = map[string]string{"s1": "N1"}
+	}
+	desc := &backup.DistributedBackupDescriptor{Leader: "N1", DedupeDesignations: designations}
+
+	attributeDedupedShardSizes(log, desc, map[string]*backup.BackupDescriptor{})
+
+	var warns []string
+	for _, e := range hook.AllEntries() {
+		if e.Level <= logrus.WarnLevel {
+			warns = append(warns, e.Message)
+		}
+	}
+	require.Len(t, warns, 1)
+	assert.Contains(t, warns[0], "skipped 30 classes")
+	assert.Contains(t, warns[0], "+20 more]")
+}
+
+func TestCappedNameList(t *testing.T) {
+	tests := []struct {
+		names []string
+		total int
+		want  string
+	}{
+		{want: "[]"},
+		{names: []string{"a", "b"}, total: 2, want: "[a b]"},
+		{names: []string{"a", "b"}, total: 12, want: "[a b +10 more]"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.want, func(t *testing.T) {
+			assert.Equal(t, tc.want, cappedNameList(tc.names, tc.total))
+		})
+	}
 }
 
 func TestAttributeDedupedShardSizes(t *testing.T) {

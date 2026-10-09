@@ -110,7 +110,7 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 // BackupDescriptors returns a channel of class descriptors.
 // Class descriptor records everything needed to restore a class
 // If an error happens a descriptor with an error will be written to the channel just before closing it.
-func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []string, baseDescrs []*backup.BackupDescriptor,
+func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []string, baseDescrs []*backup.BaseBackupDescriptor,
 	shardDesignations map[string]map[string]string,
 ) <-chan backup.ClassDescriptor {
 	ds := make(chan backup.ClassDescriptor, len(classes))
@@ -137,7 +137,7 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 					return
 				}
 				defer idx.exitRead()
-				var classBaseDescr []*backup.ClassDescriptor
+				var classBaseDescr []*backup.BaseClassDescriptor
 				for _, b := range baseDescrs {
 					classbaseDescrTmp := b.GetClassDescriptor(c)
 					if classbaseDescrTmp == nil {
@@ -305,7 +305,7 @@ func (db *DB) ListClasses(ctx context.Context) []string {
 }
 
 // descriptor record everything needed to restore a class
-func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor, designated map[string]string) (err error) {
+func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.BaseClassDescriptor, designated map[string]string) (err error) {
 	if err := i.initBackup(backupID); err != nil {
 		return err
 	}
@@ -326,7 +326,7 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 //
 // It iterates the sharding state (single source of truth) to discover all local shards,
 // then uses the shardMap to determine the backup method per shard under backupLock.Lock.
-func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor, designated map[string]string) (err error) {
+func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.BaseClassDescriptor, designated map[string]string) (err error) {
 	stagingRoot := backupStagingDir(i.Config.RootPath, backupID, i.Config.ClassName)
 	if err := os.MkdirAll(stagingRoot, 0o755); err != nil {
 		return fmt.Errorf("create backup staging dir: %w", err)
@@ -398,7 +398,7 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 // preventShutdown refcount) so concurrent queries — which RLock the same per-shard
 // key in getOptInitLocalShard — don't block for the snapshot duration. See
 // weaviate/0-weaviate-issues#234.
-func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.ClassDescriptor, stagingRoot string) (*backup.ShardDescriptor, error) {
+func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.BaseClassDescriptor, stagingRoot string) (*backup.ShardDescriptor, error) {
 	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
 
 	// Deferred before backupLock so it runs after the unlock: dropping the last
@@ -531,7 +531,7 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 // hardlinks. Compaction remains paused for the entire backup upload duration.
 //
 // Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
-func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor, designated map[string]string) (err error) {
+func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.BaseClassDescriptor, designated map[string]string) (err error) {
 	defer func() {
 		if err != nil {
 			// closelock is hold by the caller
@@ -580,7 +580,7 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 // until ReleaseBackup to block both activation and FREEZE/FROZEN file operations.
 //
 // Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
-func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.ClassDescriptor) (*backup.ShardDescriptor, error) {
+func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.BaseClassDescriptor) (*backup.ShardDescriptor, error) {
 	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
 
 	i.backupLock.Lock(name)
@@ -677,7 +677,7 @@ func (i *Index) backupInactiveShardWithoutHardlinks(name string, sd *backup.Shar
 }
 
 // collectShardBaseDescrs gathers base descriptors for incremental backups of a given shard.
-func (i *Index) collectShardBaseDescrs(shardName string, classBaseDescrs []*backup.ClassDescriptor) []backup.ShardAndID {
+func (i *Index) collectShardBaseDescrs(shardName string, classBaseDescrs []*backup.BaseClassDescriptor) []backup.ShardAndID {
 	var result []backup.ShardAndID
 	for _, classBaseDescr := range classBaseDescrs {
 		shardBaseDescrTmp := classBaseDescr.GetShardDescriptor(shardName)
@@ -782,7 +782,7 @@ func (i *Index) resetBackupState() {
 func (i *Index) resumeMaintenanceCycles(ctx context.Context) (lastErr error) {
 	// Only loaded shards have maintenance cycles to resume; a cold shard has
 	// none, so skip it rather than force-load every shard after a backup.
-	i.ForEachLoadedShard(func(name string, shard ShardLike) error {
+	i.withEachLoadedShard(func(name string, shard ShardLike) error {
 		if err := shard.resumeMaintenanceCycles(ctx); err != nil {
 			lastErr = err
 			i.logger.WithField("shard", name).WithField("op", "resume_maintenance").Error(err)
@@ -842,8 +842,15 @@ func verifyDesignatedLocalShards(designated map[string]string, shardNames []stri
 		return nil
 	}
 	sort.Strings(mine)
-	return fmt.Errorf("shards %v are designated to this node but no longer local; the replica set changed during the backup, retry it", mine)
+	listed := mine
+	if len(mine) > _maxDesignatedShardsInError {
+		listed = append(mine[:_maxDesignatedShardsInError:_maxDesignatedShardsInError], fmt.Sprintf("+%d more", len(mine)-_maxDesignatedShardsInError))
+	}
+	return fmt.Errorf("shards %v are designated to this node but no longer local; the replica set changed during the backup, retry it", listed)
 }
+
+// _maxDesignatedShardsInError caps the shard names in a drift error, which can span every tenant of a class.
+const _maxDesignatedShardsInError = 10
 
 // filterDesignatedShards drops shards designated to another still-replica node; anything else is kept so exclusion never orphans a shard.
 func filterDesignatedShards(shardNames []string, designated map[string]string, replicas map[string][]string, nodeName string) []string {

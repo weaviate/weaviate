@@ -61,8 +61,6 @@ func newShardMetricsHarness(t *testing.T) *shardMetricsHarness {
 
 func newShardMetricsHarnessWithLazyLoading(t *testing.T, lazyLoading bool) *shardMetricsHarness {
 	t.Helper()
-	logger, _ := test.NewNullLogger()
-
 	baseMetrics := monitoring.GetMetrics()
 	metricsCopy := *baseMetrics
 	metricsCopy.Registerer = monitoring.NoopRegisterer
@@ -75,6 +73,14 @@ func newShardMetricsHarnessWithLazyLoading(t *testing.T, lazyLoading bool) *shar
 	for _, labels := range monitoring.AllShardLabels() {
 		metrics.Shards.WithLabelValues(labels...).Set(0)
 	}
+	return newRepoHarness(t, lazyLoading, metrics)
+}
+
+// newRepoHarness builds the harness around metrics. With nil metrics the repo
+// runs as it does with PROMETHEUS_MONITORING_ENABLED off.
+func newRepoHarness(t *testing.T, lazyLoading bool, metrics *monitoring.PrometheusMetrics) *shardMetricsHarness {
+	t.Helper()
+	logger, _ := test.NewNullLogger()
 
 	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
@@ -485,6 +491,28 @@ func TestDropStopsCountingTheShard(t *testing.T) {
 				"a dropped shard must leave every gauge")
 		})
 	}
+}
+
+// TestDropUnloadedShardWithMonitoringOff pins that dropping a shard that was
+// loaded and then shut down removes its files with
+// PROMETHEUS_MONITORING_ENABLED off and vector dimension tracking on.
+func TestDropUnloadedShardWithMonitoringOff(t *testing.T) {
+	ctx := context.Background()
+	const className = "TestDropMonitoringOff"
+	h := newRepoHarness(t, true, nil)
+	shardName := h.addClass(t, className)
+	index := h.repo.GetIndex(className)
+
+	// A load and a shutdown leave the shard's files on disk and the shard
+	// unloaded in the map, as a restart does.
+	lazy := index.shards.Load(shardName).(*LazyLoadShard)
+	_, _, err := lazy.loadIfCold(ctx)
+	require.NoError(t, err)
+	require.NoError(t, lazy.Shutdown(ctx))
+	require.DirExists(t, shardPath(index.path(), shardName))
+
+	require.NoError(t, index.dropShards([]string{shardName}))
+	require.NoDirExists(t, shardPath(index.path(), shardName))
 }
 
 // TestDropDuringDeferredShutdownCountsOnce pins that a shutdown starting while

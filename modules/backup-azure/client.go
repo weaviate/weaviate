@@ -201,8 +201,12 @@ func (a *azureClient) getObject(ctx context.Context, containerName, objectName s
 		return nil, backup.NewErrInternal(errors.Wrapf(err, "download stream for object %s", objectName))
 	}
 
+	size := int64(-1)
+	if blobDownloadResponse.ContentLength != nil {
+		size = *blobDownloadResponse.ContentLength
+	}
 	reader := blobDownloadResponse.Body
-	downloadData, err := io.ReadAll(reader)
+	downloadData, err := ubak.ReadAllSized(reader, size)
 	errClose := reader.Close()
 	if errClose != nil {
 		return nil, backup.NewErrInternal(errors.Wrapf(errClose, "close stream for object %s", objectName))
