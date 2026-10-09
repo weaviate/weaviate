@@ -539,7 +539,8 @@ func TestReportWarnings(t *testing.T) {
 	totalOver := th.Total + time.Millisecond
 	totalOverFields := func(slowest string, took int64) logrus.Fields {
 		return logrus.Fields{
-			"total_ms": totalOver.Milliseconds(), "total_threshold_ms": th.Total.Milliseconds(),
+			"phases_over": "total",
+			"total_ms":    totalOver.Milliseconds(), "total_threshold_ms": th.Total.Milliseconds(),
 			"slowest_step": slowest, "slowest_step_ms": took,
 		}
 	}
@@ -554,27 +555,30 @@ func TestReportWarnings(t *testing.T) {
 		wantPhases logrus.Fields
 		wantOthers []warning
 	}{
-		{name: "nothing over", s: summary{total: time.Second}},
 		{name: "client drain at threshold", s: summary{clientDrain: th.ClientDrain}},
-		{
-			name:       "client drain over",
-			s:          summary{clientDrain: th.ClientDrain + time.Millisecond},
-			wantPhases: logrus.Fields{"client_drain_ms": int64(15001), "client_drain_threshold_ms": int64(15000)},
-		},
 		{
 			name: "internal close at threshold",
 			s:    summary{steps: map[string]time.Duration{StepInternalClose: th.InternalClose}},
 		},
-		{
-			name:       "internal close over",
-			s:          summary{steps: map[string]time.Duration{StepInternalClose: th.InternalClose + time.Millisecond}},
-			wantPhases: logrus.Fields{"internal_close_ms": int64(10001), "internal_close_threshold_ms": int64(10000)},
-		},
 		{name: "db at threshold", s: summary{steps: map[string]time.Duration{StepDB: th.DB}}},
 		{
-			name:       "db over",
-			s:          summary{steps: map[string]time.Duration{StepDB: th.DB + time.Millisecond}},
-			wantPhases: logrus.Fields{"db_ms": int64(30001), "db_threshold_ms": int64(30000)},
+			name: "every phase over, listed in a fixed order",
+			s: summary{
+				clientDrain: th.ClientDrain + time.Millisecond, total: totalOver,
+				steps: map[string]time.Duration{
+					StepInternalClose: th.InternalClose + time.Millisecond,
+					StepDB:            th.DB + time.Millisecond, StepClusterClose: th.DB + time.Millisecond,
+				},
+				db: dbOutcome{reached: true},
+			},
+			wantPhases: logrus.Fields{
+				"phases_over":     "client_drain,internal_close,db,total",
+				"client_drain_ms": int64(15001), "client_drain_threshold_ms": int64(15000),
+				"internal_close_ms": int64(10001), "internal_close_threshold_ms": int64(10000),
+				"db_ms": int64(30001), "db_threshold_ms": int64(30000),
+				"total_ms": totalOver.Milliseconds(), "total_threshold_ms": th.Total.Milliseconds(),
+				"slowest_step": StepDB, "slowest_step_ms": int64(30001),
+			},
 		},
 		{
 			name: "total at threshold has no slowest step",

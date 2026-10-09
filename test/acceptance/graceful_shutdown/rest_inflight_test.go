@@ -120,6 +120,7 @@ func TestRESTRequestInFlightAtShutdown(t *testing.T) {
 	slow := logLines(t, string(out), "shutdown phases took longer than their threshold")
 	require.Len(t, slow, 1)
 	assert.Equal(t, 1.0, slow[0]["total_threshold_ms"])
+	assert.Contains(t, strings.Split(fmt.Sprint(slow[0]["phases_over"]), ","), "total")
 	assert.NotEmpty(t, slow[0]["slowest_step"])
 	assert.Greater(t, slow[0]["slowest_step_ms"], 0.0)
 }

@@ -649,8 +649,10 @@ func (s summary) warnings(th Thresholds) []warning {
 
 func (s summary) phaseWarning(th Thresholds) (warning, bool) {
 	over := logrus.Fields{}
+	var phases []string
 	addIfOver := func(phase string, took, threshold time.Duration) {
 		if took > threshold {
+			phases = append(phases, phase)
 			over[phase+"_ms"] = took.Milliseconds()
 			over[phase+"_threshold_ms"] = threshold.Milliseconds()
 		}
@@ -659,9 +661,10 @@ func (s summary) phaseWarning(th Thresholds) (warning, bool) {
 	addIfOver(StepInternalClose, s.steps[StepInternalClose], th.InternalClose)
 	addIfOver(StepDB, s.steps[StepDB], th.DB)
 	addIfOver("total", s.total, th.Total)
-	if len(over) == 0 {
+	if len(phases) == 0 {
 		return warning{}, false
 	}
+	over["phases_over"] = strings.Join(phases, ",")
 	if s.total > th.Total {
 		if step, took := s.slowestStep(); step != "" {
 			over["slowest_step"] = step
