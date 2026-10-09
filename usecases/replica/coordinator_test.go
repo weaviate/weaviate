@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -563,4 +564,70 @@ func TestPullStopsWhenTheLevelBecomesUnreachable(t *testing.T) {
 	require.Equal(t, level, replies, "one reply per worker, as the caller depends on")
 	require.Less(t, elapsed, 10*time.Second,
 		"the pull must give up as soon as too few replicas can serve, not sit out its minute (took %s)", elapsed)
+}
+
+// The other half of the rule: a replica that is merely behind the schema answers unprocessable,
+// which carries no readiness marker, so it must not count against the level. During a rolling
+// restart a quorum lags for a moment, and the retry ladder is there to outlast that.
+func TestPullOutlastsReplicasThatAreMerelyBehindTheSchema(t *testing.T) {
+	const (
+		cls   = "C1"
+		shard = "S1"
+	)
+
+	hosts := []types.Replica{
+		{NodeName: "A", ShardName: shard, HostAddr: "a:7001"},
+		{NodeName: "B", ShardName: shard, HostAddr: "b:7001"},
+		{NodeName: "C", ShardName: shard, HostAddr: "c:7001"},
+	}
+
+	logger, _ := test.NewNullLogger()
+	metrics, err := replica.NewMetrics(nil)
+	require.NoError(t, err)
+
+	options := types.RoutingPlanBuildOptions{Shard: shard, ConsistencyLevel: types.ConsistencyLevelQuorum}
+	router := types.NewMockRouter(t)
+	router.EXPECT().BuildRoutingPlanOptions(shard, shard, types.ConsistencyLevelQuorum, "").Return(options).Once()
+	router.EXPECT().BuildReadRoutingPlan(options).Return(types.ReadRoutingPlan{
+		Shard:               shard,
+		ReplicaSet:          types.ReadReplicaSet{Replicas: hosts},
+		ConsistencyLevel:    types.ConsistencyLevelQuorum,
+		IntConsistencyLevel: 2,
+	}, nil).Once()
+
+	c := replica.NewReadCoordinator[int](router, metrics, cls, shard, "", logger)
+
+	// What a node that has not caught up answers, with no not-ready marker in it. Four refusals
+	// per host, so a rule that counted them would have given up long before the catch-up.
+	lagging := &clients.HTTPError{
+		Code: http.StatusUnprocessableEntity,
+		Body: []byte("local " + shard + " shard not found"),
+	}
+	const refusalsPerHost = 4
+	var mu sync.Mutex
+	asked := map[string]int{}
+	op := func(ctx context.Context, host string, _ bool) (int, error) {
+		mu.Lock()
+		asked[host]++
+		behind := asked[host] <= refusalsPerHost
+		mu.Unlock()
+		if behind {
+			return 0, lagging
+		}
+		return 1, nil
+	}
+
+	replyCh, level, err := c.Pull(context.Background(), types.ConsistencyLevelQuorum, op, "", time.Minute)
+	require.NoError(t, err)
+	require.Equal(t, 2, level)
+
+	var successes int
+	for res := range replyCh {
+		if res.Err == nil {
+			successes++
+		}
+	}
+
+	require.Equal(t, level, successes,
+		"a quorum that was behind for several retries must still be reached, not abandoned")
 }
