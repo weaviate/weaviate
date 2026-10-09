@@ -58,6 +58,7 @@ func (sv *shardVersioner) init(fileName string, dataPresent bool) error {
 	if err != nil {
 		return err
 	}
+	defer f.Close()
 
 	stat, err := f.Stat()
 	if err != nil {

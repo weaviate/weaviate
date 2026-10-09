@@ -597,6 +597,16 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		startupShards = &startupShardCounters{}
 	}
 
+	var withDirs []string
+	for _, shard := range localShards {
+		// a frozen tenant has no dir, it is prepared when it loads after unfreezing
+		if shard.activityStatus == models.TenantActivityStatusHOT ||
+			shard.activityStatus == models.TenantActivityStatusCOLD {
+			withDirs = append(withDirs, shard.name)
+		}
+	}
+	i.prepareDimensionsOfShards(ctx, class, withDirs)
+
 	hotShardNames := make([]string, 0, len(localShards))
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
@@ -1232,6 +1242,8 @@ type IndexConfig struct {
 	SkipWriteClassNameOnDisk            bool
 	TrackVectorDimensions               bool
 	TrackVectorDimensionsInterval       time.Duration
+	MigrateDimensionsToRoaringSet       bool
+	DimensionsReindex                   *dimensionsReindex
 	UsageEnabled                        bool
 	ShardLoadLimiter                    *loadlimiter.LoadLimiter
 	StartupShards                       *startupShardCounters
@@ -3380,6 +3392,7 @@ func (i *Index) drop() error {
 	if err := i.beginClose(); err != nil {
 		return err
 	}
+	i.Config.DimensionsReindex.forget(i.ID())
 
 	// Terminal registry sweep. Safe because beginClose sets i.closed under
 	// closeLock.Lock and drains every reader admitted before it, and every
@@ -3541,6 +3554,7 @@ func (i *Index) dropShards(names []string) error {
 	ec.Add(eg.Wait())
 
 	i.purgeUnloadedShardRegistry(unloadedNames)
+	i.Config.DimensionsReindex.forget(i.ID(), names...)
 
 	return ec.ToErrorLimited(maxReportedErrors)
 }
