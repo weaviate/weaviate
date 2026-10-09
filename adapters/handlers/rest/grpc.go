@@ -83,7 +83,7 @@ func startGrpcStop(server *grpc.Server, refuseGrpcWeb func(), stopTimeout time.D
 			forced = true
 			server.Stop()
 		}
-		report.GRPCStopped(time.Since(start), forced)
+		report.Clients().GRPCStopped(time.Since(start), forced)
 	}, logger)
 	return func() { <-done }
 }

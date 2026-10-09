@@ -1587,7 +1587,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		shutdownReport.Begin()
 		shutdownLog := appState.ServerConfig.Config.ShutdownLog
 		stopHeartbeat = shutdownReport.StartHeartbeat(appState.Logger, shutdownLog.HeartbeatAfter,
-			shutdownLog.HeartbeatInterval, map[string]func() int64{
+			shutdownLog.HeartbeatInterval, shutdownLog.Thresholds.Total, map[string]func() int64{
 				"rest_requests_running":     restInFlight.requestsRunning,
 				"grpc_calls_running":        grpcInFlight.CallsRunning,
 				"internal_requests_running": appState.InternalServer.RequestsRunning,
@@ -1608,7 +1608,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	api.ServerShutdown = func() {
-		shutdownReport.RESTDrained()
+		shutdownReport.Clients().RESTDrained()
 		serverShutdownCancel(fmt.Errorf("server shutdown"))
 
 		shutdownSteps{
@@ -1627,7 +1627,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				restUnavailable := restInFlight.unavailableResponses.Load()
 				grpcUnavailable := grpcInFlight.UnavailableResponses()
 				grpcWebUnavailable := grpcWebInFlight.unavailableResponses.Load()
-				shutdownReport.CallsUnavailable(restUnavailable, grpcUnavailable, grpcWebUnavailable)
+				shutdownReport.Clients().CallsUnavailable(restUnavailable, grpcUnavailable, grpcWebUnavailable)
 				appState.Logger.WithField("action", "server_shutdown").
 					Infof("refused %d REST requests and %d gRPC calls arriving or still running %s after shutdown began, and %d grpc-web calls once the gRPC server began stopping",
 						restUnavailable, grpcUnavailable, inFlightCancelDelay, grpcWebUnavailable)
@@ -1707,7 +1707,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			},
 		}.run(appState.Logger, shutdownReport)
 		stopHeartbeat()
-		shutdownReport.Log(appState.Logger, appState.ServerConfig.Config.ShutdownLog.Thresholds())
+		shutdownReport.Log(appState.Logger, appState.ServerConfig.Config.ShutdownLog.Thresholds)
 	}
 
 	startGrpcServer(grpcServer, appState)
@@ -1740,7 +1740,7 @@ func (s shutdownSteps) run(logger logrus.FieldLogger, report *shutdownreport.Rep
 	timed := func(step string, fn func()) func() {
 		return func() { report.Time(step, fn) }
 	}
-	endPreDBSteps := report.StartPhase(shutdownreport.StepPreDBSteps)
+	endPreDBSteps := report.StartStep(shutdownreport.StepPreDBSteps)
 	shutdownInPhases(logger,
 		[]func(){
 			timed(shutdownreport.StepLeaveCluster, s.leaveCluster),

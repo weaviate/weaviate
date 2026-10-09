@@ -52,9 +52,8 @@ var allSteps = []string{
 	StepCloseModules, StepCloseConnManagers, StepShutdownOTEL, StepFlushSentry, StepDB,
 }
 
-// clientDrain names the drain of client requests, which starts in Begin and
-// ends in RESTDrained, two callbacks Time cannot wrap as one step. Its logged
-// duration ends at the later of RESTDrained and GRPCStopped.
+// clientDrain stays in running from Begin until RESTDrained, a span Time cannot
+// wrap. Its logged duration is the later of RESTDrained and GRPCStopped.
 const clientDrain = "client_drain"
 
 // FromEnv uses these when SHUTDOWN_HEARTBEAT_AFTER and SHUTDOWN_HEARTBEAT_INTERVAL are unset.
@@ -66,10 +65,13 @@ const (
 
 // Thresholds are the durations above which Log warns about a phase.
 type Thresholds struct {
-	ClientDrain, InternalClose, DB, Total time.Duration
+	ClientDrain   time.Duration `json:"client_drain"`
+	InternalClose time.Duration `json:"internal_close"`
+	DB            time.Duration `json:"db"`
+	Total         time.Duration `json:"total"`
 }
 
-// DefaultThresholds sit just above what healthy shutdowns took under load.
+// DefaultThresholds apply where a SHUTDOWN_SLOW_LOG_*_THRESHOLD variable is unset.
 func DefaultThresholds() Thresholds {
 	return Thresholds{
 		ClientDrain:   15 * time.Second,
@@ -84,23 +86,47 @@ func DefaultThresholds() Thresholds {
 type Report struct {
 	node string
 
-	mu          sync.Mutex
-	begun       time.Time
-	restDrained time.Duration
-	grpcStopped time.Duration
-	steps       map[string]time.Duration
-	// running names the steps in progress, plus clientDrain until RESTDrained.
-	// The heartbeat logs it.
-	running      map[string]struct{}
-	currentIndex string
-	clients      clientOutcome
+	mu    sync.Mutex
+	begun time.Time
+	steps map[string]time.Duration
+	// running names the steps in progress, which StartHeartbeat logs.
+	running map[string]struct{}
 
-	slowestIndexes, slowestShards slowest
+	clients Clients
+	indexes Indexes
+	shards  Shards
+	buckets Buckets
+}
 
-	indexesTotal, indexesDone              atomic.Int64
-	shardsStarted, shardsTornDown          atomic.Int64
-	shardsStillInUse, hashtreeDumpsSkipped atomic.Int64
-	buckets                                [bucketOutcomes]atomic.Int64
+// Clients records how the REST and gRPC servers stopped serving clients.
+type Clients struct {
+	r *Report
+	// r.mu guards the fields below, since restDrained and grpcStopped are
+	// measured from r.begun.
+	restDrained, grpcStopped time.Duration
+	outcome                  clientOutcome
+}
+
+// Indexes records what DB.Shutdown did to the indexes it held.
+type Indexes struct {
+	total, done atomic.Int64
+
+	mu      sync.Mutex
+	current string
+	slowest slowest
+}
+
+// Shards records the shard teardowns.
+type Shards struct {
+	started, tornDown, stillInUse, hashtreeDumpsSkipped atomic.Int64
+
+	mu      sync.Mutex
+	slowest slowest
+}
+
+// Buckets counts bucket shutdowns by outcome.
+type Buckets struct {
+	counts [bucketOutcomes]atomic.Int64
 }
 
 // BucketOutcome is how a bucket's shutdown ended.
@@ -125,11 +151,43 @@ type clientOutcome struct {
 }
 
 func New(node string) *Report {
-	return &Report{
+	r := &Report{
 		node:    node,
 		steps:   map[string]time.Duration{},
 		running: map[string]struct{}{},
 	}
+	r.clients.r = r
+	return r
+}
+
+// Clients, Indexes, Shards and Buckets return nil on a nil *Report, and their
+// methods then record nothing.
+func (r *Report) Clients() *Clients {
+	if r == nil {
+		return nil
+	}
+	return &r.clients
+}
+
+func (r *Report) Indexes() *Indexes {
+	if r == nil {
+		return nil
+	}
+	return &r.indexes
+}
+
+func (r *Report) Shards() *Shards {
+	if r == nil {
+		return nil
+	}
+	return &r.shards
+}
+
+func (r *Report) Buckets() *Buckets {
+	if r == nil {
+		return nil
+	}
+	return &r.buckets
 }
 
 type reportKey struct{}
@@ -160,63 +218,63 @@ func (r *Report) Begin() {
 }
 
 // RESTDrained marks the moment the REST servers stopped serving.
-func (r *Report) RESTDrained() {
-	if r == nil {
+func (c *Clients) RESTDrained() {
+	if c == nil {
 		return
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.restDrained = r.sinceBegin()
-	delete(r.running, clientDrain)
+	c.r.mu.Lock()
+	defer c.r.mu.Unlock()
+	c.restDrained = c.r.sinceBegin()
+	delete(c.r.running, clientDrain)
 }
 
 // GRPCStopped records how long the gRPC server took to stop and whether the
 // stop had to be forced.
-func (r *Report) GRPCStopped(took time.Duration, forced bool) {
-	if r == nil {
+func (c *Clients) GRPCStopped(took time.Duration, forced bool) {
+	if c == nil {
 		return
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.grpcStopped = r.sinceBegin()
-	r.clients.grpcStopTook = took
-	r.clients.grpcForcedStop = forced
+	c.r.mu.Lock()
+	defer c.r.mu.Unlock()
+	c.grpcStopped = c.r.sinceBegin()
+	c.outcome.grpcStopTook = took
+	c.outcome.grpcForcedStop = forced
 }
 
 // CallsUnavailable records the calls answered as unavailable, both those
 // refused after shutdown began and those cut while running.
-func (r *Report) CallsUnavailable(rest, grpc, grpcWeb int64) {
-	if r == nil {
+func (c *Clients) CallsUnavailable(rest, grpc, grpcWeb int64) {
+	if c == nil {
 		return
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.clients.restUnavailable = rest
-	r.clients.grpcUnavailable = grpc
-	r.clients.grpcWebUnavailable = grpcWeb
+	c.r.mu.Lock()
+	defer c.r.mu.Unlock()
+	c.outcome.restUnavailable = rest
+	c.outcome.grpcUnavailable = grpc
+	c.outcome.grpcWebUnavailable = grpcWeb
 }
 
 // RESTForceClosed records that the HTTP servers were closed while still busy,
 // and how many handlers were still running after the wait for them.
-func (r *Report) RESTForceClosed(stillRunning int64) {
-	if r == nil {
+func (c *Clients) RESTForceClosed(stillRunning int64) {
+	if c == nil {
 		return
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.clients.restForcedClose = true
-	r.clients.restStillRunning = stillRunning
+	c.r.mu.Lock()
+	defer c.r.mu.Unlock()
+	c.outcome.restForcedClose = true
+	c.outcome.restStillRunning = stillRunning
 }
 
 // Time runs fn and records its duration under step, also when fn panics.
 func (r *Report) Time(step string, fn func()) {
-	defer r.StartPhase(step)()
+	defer r.StartStep(step)()
 	fn()
 }
 
-// StartPhase marks step as running until the returned func is called, which
+// StartStep marks step as running until the returned func is called, which
 // records its duration.
-func (r *Report) StartPhase(step string) (end func()) {
+func (r *Report) StartStep(step string) (end func()) {
 	if r == nil {
 		return func() {}
 	}
@@ -233,75 +291,75 @@ func (r *Report) StartPhase(step string) (end func()) {
 	}
 }
 
-func (r *Report) SetIndexTotal(n int) {
-	if r == nil {
+func (ix *Indexes) SetTotal(n int) {
+	if ix == nil {
 		return
 	}
-	r.indexesTotal.Store(int64(n))
+	ix.total.Store(int64(n))
 }
 
-// IndexStarted records the index DB.Shutdown is closing, which the heartbeat logs.
-func (r *Report) IndexStarted(id string) {
-	if r == nil {
+// Started records the index DB.Shutdown is closing, which the heartbeat logs.
+func (ix *Indexes) Started(id string) {
+	if ix == nil {
 		return
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.currentIndex = id
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	ix.current = id
 }
 
-func (r *Report) IndexDone(id string, took time.Duration) {
-	if r == nil {
+func (ix *Indexes) Done(id string, took time.Duration) {
+	if ix == nil {
 		return
 	}
-	r.indexesDone.Add(1)
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.slowestIndexes.add(took, func() string { return id })
-	r.currentIndex = ""
+	ix.done.Add(1)
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	ix.slowest.add(took, func() string { return id })
+	ix.current = ""
 }
 
-func (r *Report) ShardTeardownStarted() {
-	if r == nil {
+func (s *Shards) TeardownStarted() {
+	if s == nil {
 		return
 	}
-	r.shardsStarted.Add(1)
+	s.started.Add(1)
 }
 
-// ShardTornDown counts a teardown ShardTeardownStarted counted, failed or not.
-func (r *Report) ShardTornDown(index, shard string, took time.Duration) {
-	if r == nil {
+// TornDown counts a teardown TeardownStarted counted, failed or not.
+func (s *Shards) TornDown(index, shard string, took time.Duration) {
+	if s == nil {
 		return
 	}
-	r.shardsTornDown.Add(1)
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.slowestShards.add(took, func() string { return index + "/" + shard })
+	s.tornDown.Add(1)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.slowest.add(took, func() string { return index + "/" + shard })
 }
 
-// ShardStillInUse counts a shard whose shutdown gave up because requests still
+// StillInUse counts a shard whose shutdown gave up because requests still
 // held it.
-func (r *Report) ShardStillInUse() {
-	if r == nil {
+func (s *Shards) StillInUse() {
+	if s == nil {
 		return
 	}
-	r.shardsStillInUse.Add(1)
+	s.stillInUse.Add(1)
 }
 
 // HashtreeDumpSkipped counts a shard that shut down without saving its
 // hashtree.
-func (r *Report) HashtreeDumpSkipped() {
-	if r == nil {
+func (s *Shards) HashtreeDumpSkipped() {
+	if s == nil {
 		return
 	}
-	r.hashtreeDumpsSkipped.Add(1)
+	s.hashtreeDumpsSkipped.Add(1)
 }
 
-func (r *Report) BucketDone(o BucketOutcome) {
-	if r == nil {
+func (b *Buckets) Done(o BucketOutcome) {
+	if b == nil {
 		return
 	}
-	r.buckets[o].Add(1)
+	b.counts[o].Add(1)
 }
 
 // Log writes the summary line, then the warnings.
@@ -317,9 +375,10 @@ func (r *Report) Log(logger logrus.FieldLogger, th Thresholds) {
 	}
 }
 
-// StartHeartbeat logs "shutdown still running" once after has passed and then
-// every interval, until stop is called. after == 0 disables it.
-func (r *Report) StartHeartbeat(logger logrus.FieldLogger, after, interval time.Duration,
+// StartHeartbeat logs "shutdown still running" first when the after duration
+// has passed, then every interval, until stop is called. after == 0 disables
+// it. A line is Info until the shutdown has run longer than warnAfter.
+func (r *Report) StartHeartbeat(logger logrus.FieldLogger, after, interval, warnAfter time.Duration,
 	gauges map[string]func() int64,
 ) (stop func()) {
 	if r == nil || after == 0 {
@@ -339,7 +398,12 @@ func (r *Report) StartHeartbeat(logger logrus.FieldLogger, after, interval time.
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
-			logger.WithFields(r.heartbeatFields(gauges)).Warn("shutdown still running")
+			fields, elapsed := r.heartbeatFields(gauges)
+			level := logrus.InfoLevel
+			if elapsed > warnAfter {
+				level = logrus.WarnLevel
+			}
+			logger.WithFields(fields).Log(level, "shutdown still running")
 			select {
 			case <-done:
 				return
@@ -353,38 +417,42 @@ func (r *Report) StartHeartbeat(logger logrus.FieldLogger, after, interval time.
 	})
 }
 
-func (r *Report) heartbeatFields(gauges map[string]func() int64) logrus.Fields {
-	tornDown, inTeardown := r.shardCounts()
+func (r *Report) heartbeatFields(gauges map[string]func() int64) (logrus.Fields, time.Duration) {
+	tornDown, inTeardown := r.shards.counts()
 	var buckets int64
-	for o := range r.buckets {
-		buckets += r.buckets[o].Load()
+	for o := range r.buckets.counts {
+		buckets += r.buckets.counts[o].Load()
 	}
 	f := logrus.Fields{
 		"shards_torn_down":   tornDown,
 		"shards_in_teardown": inTeardown,
-		"indexes_done":       r.indexesDone.Load(),
+		"indexes_done":       r.indexes.done.Load(),
 		"buckets_done":       buckets,
 	}
-	if total := r.indexesTotal.Load(); total > 0 {
+	if total := r.indexes.total.Load(); total > 0 {
 		f["indexes_total"] = total
 	}
 	for name, gauge := range gauges {
 		f[name] = gauge()
 	}
 
+	r.indexes.mu.Lock()
+	f["current_index"] = r.indexes.current
+	r.indexes.mu.Unlock()
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	f["elapsed_ms"] = r.sinceBegin().Milliseconds()
+	elapsed := r.sinceBegin()
+	f["elapsed_ms"] = elapsed.Milliseconds()
 	f["running"] = strings.Join(slices.Sorted(maps.Keys(r.running)), ",")
-	f["current_index"] = r.currentIndex
-	return f
+	return f, elapsed
 }
 
-// shardCounts loads tornDown before started, so a teardown finishing in
-// between cannot make inTeardown negative.
-func (r *Report) shardCounts() (tornDown, inTeardown int64) {
-	tornDown = r.shardsTornDown.Load()
-	return tornDown, r.shardsStarted.Load() - tornDown
+// counts loads tornDown before started, so a teardown finishing in between
+// cannot make inTeardown negative.
+func (s *Shards) counts() (tornDown, inTeardown int64) {
+	tornDown = s.tornDown.Load()
+	return tornDown, s.started.Load() - tornDown
 }
 
 // sinceBegin must be called with r.mu held.
@@ -396,31 +464,35 @@ func (r *Report) sinceBegin() time.Duration {
 }
 
 func (r *Report) summary() summary {
-	tornDown, inTeardown := r.shardCounts()
+	tornDown, inTeardown := r.shards.counts()
 	db := dbOutcome{
-		indexesTotal:         r.indexesTotal.Load(),
-		indexesDone:          r.indexesDone.Load(),
+		indexesTotal:         r.indexes.total.Load(),
+		indexesDone:          r.indexes.done.Load(),
 		shardsTornDown:       tornDown,
 		shardsInTeardown:     inTeardown,
-		shardsStillInUse:     r.shardsStillInUse.Load(),
-		hashtreeDumpsSkipped: r.hashtreeDumpsSkipped.Load(),
+		shardsStillInUse:     r.shards.stillInUse.Load(),
+		hashtreeDumpsSkipped: r.shards.hashtreeDumpsSkipped.Load(),
 	}
 	for o := range db.buckets {
-		db.buckets[o] = r.buckets[o].Load()
+		db.buckets[o] = r.buckets.counts[o].Load()
 	}
+	r.indexes.mu.Lock()
+	db.slowestIndexes = r.indexes.slowest.entries()
+	r.indexes.mu.Unlock()
+	r.shards.mu.Lock()
+	db.slowestShards = r.shards.slowest.entries()
+	r.shards.mu.Unlock()
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	_, dbDone := r.steps[StepDB]
 	_, dbRunning := r.running[StepDB]
 	db.reached = dbDone || dbRunning
-	db.slowestIndexes = r.slowestIndexes.entries()
-	db.slowestShards = r.slowestShards.entries()
 	return summary{
 		total:       r.sinceBegin(),
-		clientDrain: max(r.restDrained, r.grpcStopped),
+		clientDrain: max(r.clients.restDrained, r.clients.grpcStopped),
 		steps:       maps.Clone(r.steps),
-		clients:     r.clients,
+		clients:     r.clients.outcome,
 		db:          db,
 	}
 }
@@ -599,14 +671,16 @@ func (s summary) phaseWarning(th Thresholds) (warning, bool) {
 	return warning{msg: "shutdown phases took longer than their threshold", fields: over}, true
 }
 
-// slowestStep skips pre_db_steps, which only groups other steps, and counts
-// cluster_close without the DB close it contains. Ties go to the name that
-// sorts first.
+// slowestStep skips pre_db_steps, which spans the steps before the DB close, and
+// counts cluster_close net of its DB close. client_drain counts whole, batch_drain
+// and wait_grpc_stop inside it included. Ties go to the name that sorts first.
 func (s summary) slowestStep() (string, time.Duration) {
+	steps := map[string]time.Duration{clientDrain: s.clientDrain}
+	maps.Copy(steps, s.steps)
 	var slowest string
 	var slowestTook time.Duration
-	for _, step := range slices.Sorted(maps.Keys(s.steps)) {
-		took := s.steps[step]
+	for _, step := range slices.Sorted(maps.Keys(steps)) {
+		took := steps[step]
 		switch step {
 		case StepPreDBSteps:
 			continue

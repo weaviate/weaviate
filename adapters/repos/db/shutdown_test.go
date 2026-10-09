@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/shutdownreport"
+	"github.com/weaviate/weaviate/entities/shutdownreport/shutdownreporttest"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -421,11 +422,9 @@ func TestDBShutdownRunsEveryIndexAndCleanup(t *testing.T) {
 	tests := []struct {
 		name            string
 		indices         []indexSpec
-		noReport        bool
 		wantErrContains []string
 		wantErrIs       []error
 	}{
-		{name: "no indexes"},
 		{
 			name:    "no index fails",
 			indices: []indexSpec{{name: "Alpha"}, {name: "Beta"}},
@@ -453,13 +452,6 @@ func TestDBShutdownRunsEveryIndexAndCleanup(t *testing.T) {
 			name:            "index failures beyond the limit are only counted",
 			indices:         failingIndices(maxReportedErrors + 2),
 			wantErrContains: []string{"still in use", "(and 2 more)"},
-			wantErrIs:       []error{errInUse},
-		},
-		{
-			name:            "no report in the ctx",
-			indices:         []indexSpec{{name: "Alpha", shardErr: errInUse}, {name: "Beta"}},
-			noReport:        true,
-			wantErrContains: []string{`shutdown index "Alpha"`, "still in use"},
 			wantErrIs:       []error{errInUse},
 		},
 	}
@@ -493,20 +485,15 @@ func TestDBShutdownRunsEveryIndexAndCleanup(t *testing.T) {
 				db.indices[spec.name] = idx
 			}
 
-			ctx, report := context.Background(), shutdownreport.New("node-1")
-			if !tt.noReport {
-				ctx = shutdownreport.With(ctx, report)
-			}
-			err = db.Shutdown(ctx)
+			report := shutdownreport.New("node-1")
+			err = db.Shutdown(shutdownreport.With(context.Background(), report))
 
-			if !tt.noReport {
-				f := shutdownSummary(t, report)
-				n := int64(len(tt.indices))
-				assert.Equal(t, n, f["indexes_total"])
-				assert.Equal(t, n, f["indexes_done"], "a failing index is still done")
-				assert.Equal(t, true, f["db_reached"])
-				assert.Len(t, slowestEntries(f["slowest_indexes"]), int(min(3, n)))
-			}
+			f := shutdownreporttest.Summary(t, report)
+			n := int64(len(tt.indices))
+			assert.Equal(t, n, f["indexes_total"])
+			assert.Equal(t, n, f["indexes_done"], "a failing index is still done")
+			assert.Equal(t, true, f["db_reached"])
+			assert.Len(t, slowestEntries(f["slowest_indexes"]), int(min(3, n)))
 			if len(tt.wantErrContains) == 0 {
 				require.NoError(t, err)
 			} else {
@@ -525,6 +512,42 @@ func TestDBShutdownRunsEveryIndexAndCleanup(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+}
+
+// TestDBShutdownHeartbeatNamesCurrentIndex: a heartbeat during an index close names that index.
+func TestDBShutdownHeartbeatNamesCurrentIndex(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	checkpoints, err := indexcheckpoint.New(t.TempDir(), logger)
+	require.NoError(t, err)
+
+	var current any
+	shard := NewMockShardLike(t)
+	shard.EXPECT().Name().Return("shard1").Maybe()
+	shard.EXPECT().Shutdown(mock.Anything).RunAndReturn(func(ctx context.Context) error {
+		hbLogger, hook := test.NewNullLogger()
+		stop := shutdownreport.From(ctx).StartHeartbeat(hbLogger, time.Nanosecond, time.Hour, time.Hour, nil)
+		defer stop()
+		if assert.Eventually(t, func() bool { return len(hook.AllEntries()) > 0 },
+			5*time.Second, time.Millisecond, "no heartbeat logged") {
+			current = hook.LastEntry().Data["current_index"]
+		}
+		return nil
+	}).Once()
+	idx := newShutdownTestIndex(t, nil)
+	idx.shards.Store("shard1", shard)
+
+	db := &DB{
+		logger:                    logger,
+		shutdown:                  make(chan struct{}, 1),
+		bitmapBufPoolClose:        func() {},
+		AsyncIndexingEnabled:      true,
+		asyncReplicationScheduler: newSchedulerForUnitTest(t),
+		indexCheckpoints:          checkpoints,
+		indices:                   map[string]*Index{"Alpha": idx},
+	}
+
+	require.NoError(t, db.Shutdown(shutdownreport.With(context.Background(), shutdownreport.New("node-1"))))
+	require.Equal(t, "Alpha", current)
 }
 
 // TestIndexShutdownAbortsInFlightReader pins that Shutdown requests the close

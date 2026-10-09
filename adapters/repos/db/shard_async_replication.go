@@ -958,6 +958,9 @@ func (s *Shard) mayStopAsyncReplication(capture bool) hashtree.AggregatedHashTre
 	case <-drained:
 	case <-drainTimer.C:
 		// A surviving worker can still write; a snapshot missing those writes must not be published.
+		if capturedHT != nil {
+			s.report.Load().Shards().HashtreeDumpSkipped()
+		}
 		capturedHT = nil
 		lateLog := s.index.logger.
 			WithField("action", "async_replication").

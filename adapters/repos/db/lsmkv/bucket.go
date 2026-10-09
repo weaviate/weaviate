@@ -1950,7 +1950,7 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 	}()
 
 	walReused := false
-	defer func() { shutdownreport.From(ctx).BucketDone(bucketOutcome(ctx, err, walReused)) }()
+	defer func() { shutdownreport.From(ctx).Buckets().Done(bucketOutcome(ctx, err, walReused)) }()
 
 	if err := b.disk.shutdown(ctx); err != nil {
 		return err

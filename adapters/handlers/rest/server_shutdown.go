@@ -24,9 +24,9 @@ import (
 func (s *Server) ServeAndShutdown() error {
 	serverShutdown := sync.OnceFunc(s.api.ServerShutdown)
 	// handleShutdown calls ServerShutdown only when every server drained in time.
-	var ranInServe atomic.Bool
+	var drainedInTime atomic.Bool
 	s.api.ServerShutdown = func() {
-		ranInServe.Store(true)
+		drainedInTime.Store(true)
 		serverShutdown()
 	}
 
@@ -60,8 +60,8 @@ func (s *Server) ServeAndShutdown() error {
 	if n > 0 {
 		s.Logf("%d HTTP handlers still running %s after their servers closed", n, s.GracefulTimeout)
 	}
-	if !ranInServe.Load() {
-		shutdownReport.RESTForceClosed(n)
+	if !drainedInTime.Load() {
+		shutdownReport.Clients().RESTForceClosed(n)
 	}
 	serverShutdown()
 	return nil
