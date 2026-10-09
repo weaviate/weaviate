@@ -34,10 +34,8 @@ import (
 const (
 	lagCollection = "TestClass"
 	lagTenant     = "tenant-7"
-	// lagLeaderTimeout is long enough that the lookup never expires by accident. Passing 0 here
-	// handed the manager a context that was already done, so these tests passed only because the
-	// mock ignores it -- they would have passed with the timeout broken too. The timeout itself is
-	// exercised by TestMultiTenantPlanGivesUpOnASlowLeader.
+	// lagLeaderTimeout is long enough that the lookup never expires by accident; the timeout
+	// itself is exercised by TestMultiTenantPlanGivesUpOnASlowLeader.
 	lagLeaderTimeout = 2 * time.Second
 )
 
