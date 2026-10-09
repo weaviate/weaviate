@@ -1,0 +1,1352 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package backup
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/config"
+)
+
+// BackupTaskProvider implements the DTM Provider interfaces for backup creation.
+type BackupTaskProvider struct {
+	mu       sync.Mutex
+	node     string
+	logger   logrus.FieldLogger
+	cfg      config.Backup
+	sourcer  Sourcer
+	rbacSrc  RBACSnapshotter
+	userSrc  dynUserSnapshotter
+	backends BackupBackendProvider
+
+	// planner plans replica dedupe inside the flow; nil unless dedupe is
+	// licensed on this node.
+	planner DedupePlanner
+	// planPollInterval is how often a non-leader polls for the published plan.
+	planPollInterval time.Duration
+	// terminalWriteTimeout bounds all backend I/O of one terminal-descriptor write.
+	terminalWriteTimeout time.Duration
+	// predicateReadTimeout bounds the global-descriptor read of each tick predicate.
+	predicateReadTimeout time.Duration
+
+	recorder distributedtask.TaskCompletionRecorder
+
+	// nodeHandler holds the node-wide lastOp latch shared with the legacy 2PC
+	// path. Only one backup (DTM or 2PC) runs per node at a time.
+	// Nil in provider-only unit tests.
+	nodeHandler *Handler
+
+	// appliedIndexProbe returns nil when the local store has replayed past
+	// the given raft index, and an error otherwise.
+	appliedIndexProbe func(ctx context.Context, version uint64) error
+
+	// dataPath is the DB data root. CleanupTask scans it on cache miss.
+	dataPath string
+
+	// payloadCache maps backup ID to the task this process started a flow for.
+	// StartTask fills it, CleanupTask clears it. It holds the descriptor so
+	// GetLocalTasks matches the tick's task list while the record exists. It is
+	// empty after a restart, so OnTaskCompleted reads the task record instead.
+	payloadCache map[string]startedTask
+
+	activeHandles map[string]*backupTaskHandle
+}
+
+// startedTask is what StartTask caches for a started flow. It holds no task
+// pointer: StartTask receives a clone of the task record, which goes stale as
+// units progress.
+type startedTask struct {
+	desc    distributedtask.TaskDescriptor
+	payload []byte
+}
+
+type BackupTaskProviderParams struct {
+	Node              string
+	Logger            logrus.FieldLogger
+	Cfg               config.Backup
+	Sourcer           Sourcer
+	RBACSrc           RBACSnapshotter
+	UserSrc           dynUserSnapshotter
+	Backends          BackupBackendProvider
+	NodeHandler       *Handler
+	AppliedIndexProbe func(ctx context.Context, version uint64) error
+	DataPath          string
+	DedupePlanner     DedupePlanner
+}
+
+func NewBackupTaskProvider(p BackupTaskProviderParams) *BackupTaskProvider {
+	return &BackupTaskProvider{
+		node:                 p.Node,
+		logger:               p.Logger,
+		cfg:                  p.Cfg,
+		sourcer:              p.Sourcer,
+		rbacSrc:              p.RBACSrc,
+		userSrc:              p.UserSrc,
+		backends:             p.Backends,
+		planner:              p.DedupePlanner,
+		planPollInterval:     _DedupePollInterval,
+		terminalWriteTimeout: _TerminalWriteTimeout,
+		predicateReadTimeout: _PredicateReadTimeout,
+		nodeHandler:          p.NodeHandler,
+		appliedIndexProbe:    p.AppliedIndexProbe,
+		dataPath:             p.DataPath,
+		payloadCache:         make(map[string]startedTask),
+		activeHandles:        make(map[string]*backupTaskHandle),
+	}
+}
+
+// --- Provider interface ---
+
+func (p *BackupTaskProvider) SetCompletionRecorder(recorder distributedtask.TaskCompletionRecorder) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.recorder = recorder
+}
+
+// GetLocalTasks reports the descriptor of every flow this process started.
+// The tick calls CleanupTask for a descriptor once no task record with that ID
+// and Version exists.
+func (p *BackupTaskProvider) GetLocalTasks() []distributedtask.TaskDescriptor {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.payloadCache) == 0 {
+		return nil
+	}
+	descs := make([]distributedtask.TaskDescriptor, 0, len(p.payloadCache))
+	for _, started := range p.payloadCache {
+		descs = append(descs, started.desc)
+	}
+	return descs
+}
+
+// CleanupTask releases local backup state. The scheduler calls it once the
+// task record is gone. It is safe to call twice. When the payload cache
+// misses, it scans the staging directories instead.
+func (p *BackupTaskProvider) CleanupTask(desc distributedtask.TaskDescriptor) error {
+	p.mu.Lock()
+	started, ok := p.payloadCache[desc.ID]
+	delete(p.payloadCache, desc.ID)
+	delete(p.activeHandles, desc.ID)
+	p.mu.Unlock()
+
+	var classes []string
+	if ok {
+		if tp, err := unmarshalTaskPayload(started.payload); err == nil {
+			if nd, exists := tp.Nodes[p.node]; exists {
+				classes = nd.Classes
+			}
+		}
+	}
+
+	// After bootstrap the payload cache is empty; scan staging roots instead.
+	if len(classes) == 0 && p.sourcer != nil && p.dataPath != "" {
+		classes = p.scanStagingClasses(desc.ID)
+	}
+
+	for _, cls := range classes {
+		if err := p.sourcer.ReleaseBackup(context.Background(), desc.ID, cls); err != nil {
+			p.logger.WithField("class", cls).WithField("backup_id", desc.ID).
+				Warnf("CleanupTask: failed to release backup: %v", err)
+		}
+	}
+
+	p.logger.WithField("backup_id", desc.ID).Info("CleanupTask: released local backup state")
+	return nil
+}
+
+// scanStagingClasses finds classes with a staging directory for backupID.
+// Layout: <dataPath>/<class>/<shard>/<backupID>.
+func (p *BackupTaskProvider) scanStagingClasses(backupID string) []string {
+	if p.dataPath == "" {
+		return nil
+	}
+	var classes []string
+	seen := map[string]bool{}
+
+	classEntries, err := os.ReadDir(p.dataPath)
+	if err != nil {
+		return nil
+	}
+	for _, classEntry := range classEntries {
+		if !classEntry.IsDir() {
+			continue
+		}
+		classPath := filepath.Join(p.dataPath, classEntry.Name())
+		shardEntries, err := os.ReadDir(classPath)
+		if err != nil {
+			continue
+		}
+		for _, shardEntry := range shardEntries {
+			if !shardEntry.IsDir() {
+				continue
+			}
+			stagingDir := filepath.Join(classPath, shardEntry.Name(), backupID)
+			if info, err := os.Stat(stagingDir); err == nil && info.IsDir() {
+				className := classEntry.Name()
+				if !seen[className] {
+					seen[className] = true
+					classes = append(classes, className)
+				}
+			}
+		}
+	}
+	return classes
+}
+
+func (p *BackupTaskProvider) StartTask(task *distributedtask.Task) (distributedtask.TaskHandle, error) {
+	payload, err := unmarshalTaskPayload(task.Payload)
+	if err != nil {
+		return nil, fmt.Errorf("start backup task: %w", err)
+	}
+
+	if p.appliedIndexProbe != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		err := p.appliedIndexProbe(ctx, task.Version)
+		cancel()
+		if err != nil {
+			return nil, fmt.Errorf("backup %s: local store not caught up to task version %d: %w",
+				task.ID, task.Version, err)
+		}
+	}
+
+	localGroup, hasLocal := payload.Nodes[p.node]
+	if !hasLocal || len(localGroup.Classes) == 0 {
+		return newIdleTaskHandle(), nil
+	}
+	// The scheduler also starts this node when all its own units are terminal
+	// but another node's unit is unclaimed. A flow here would re-upload and
+	// rewrite this node's descriptor. So the node idles until the scheduler
+	// terminates the handle.
+	pending := p.pendingClasses(task, localGroup.Classes)
+	if len(pending) == 0 {
+		return newIdleTaskHandle(), nil
+	}
+
+	p.mu.Lock()
+	if h, running := p.activeHandles[task.ID]; running {
+		p.mu.Unlock()
+		return h, nil
+	}
+	recorder := p.recorder
+	p.mu.Unlock()
+
+	// Acquire the node-wide latch. If another backup (2PC or DTM) holds it,
+	// the local units fail rather than running two backups concurrently.
+	if slot := p.opSlot(); slot != nil {
+		if prevID := slot.renew(task.ID, "", p.nodeHomeDir(payload), payload.Bucket, payload.Path); prevID != "" {
+			if prevID != task.ID {
+				msg := fmt.Sprintf("node %s is already running backup %q", p.node, prevID)
+				p.failAllUnits(context.Background(), task, payload, recorder, msg, false)
+				return nil, fmt.Errorf("backup %s: %s", task.ID, msg)
+			}
+			// The latch holds this ID but there is no local handle, so another
+			// flow in this process owns it. Idle rather than start a second one.
+			p.logger.WithField("backup_id", task.ID).
+				Info("StartTask: latch already holds this backup id, re-attaching idle")
+			return newIdleTaskHandle(), nil
+		}
+	}
+
+	handle := newBackupTaskHandle(task.ID)
+
+	p.mu.Lock()
+	p.payloadCache[task.ID] = startedTask{desc: task.TaskDescriptor, payload: task.Payload}
+	p.activeHandles[task.ID] = handle
+	p.mu.Unlock()
+
+	enterrors.GoWrapper(func() {
+		defer handle.markDone()
+		defer p.releaseNodeSlot(task.ID)
+		p.runNodeBackup(handle, task, payload, localGroup.Classes, pending, recorder)
+	}, p.logger)
+
+	return handle, nil
+}
+
+// pendingClasses returns the classes whose unit on this node is neither
+// COMPLETED nor FAILED. A class without a unit in the record is pending.
+func (p *BackupTaskProvider) pendingClasses(task *distributedtask.Task, classes []string) []string {
+	var pending []string
+	for _, cls := range classes {
+		u := task.Units[fmt.Sprintf("%s/%s", p.node, cls)]
+		if u == nil || (u.Status != distributedtask.UnitStatusCompleted && u.Status != distributedtask.UnitStatusFailed) {
+			pending = append(pending, cls)
+		}
+	}
+	return pending
+}
+
+// opSlot is the node-wide backup latch, nil when no node handler is wired.
+func (p *BackupTaskProvider) opSlot() *backupStat {
+	if p.nodeHandler == nil || p.nodeHandler.backupper == nil {
+		return nil
+	}
+	return &p.nodeHandler.backupper.lastOp
+}
+
+// nodeHomeDir returns the path the latch reports for the operation. It returns
+// empty when the backend cannot be resolved. The flow then fails on the same
+// backend and reports that failure.
+func (p *BackupTaskProvider) nodeHomeDir(payload *taskPayload) string {
+	store, err := nodeBackend(p.node, p.backends, payload.Backend, payload.ID, payload.Bucket, payload.Path)
+	if err != nil {
+		return ""
+	}
+	return store.HomeDir(payload.Bucket, payload.Path)
+}
+
+// releaseNodeSlot drops the node's active-flow state once the flow returns. It
+// releases the latch only while the latch still holds this backup's ID, so a
+// flow that outlived its latch cannot free another operation's latch.
+func (p *BackupTaskProvider) releaseNodeSlot(taskID string) {
+	p.mu.Lock()
+	delete(p.activeHandles, taskID)
+	p.mu.Unlock()
+
+	if slot := p.opSlot(); slot != nil && slot.get().ID == taskID {
+		slot.reset()
+	}
+}
+
+// --- UnitAwareProvider interface ---
+
+func (p *BackupTaskProvider) OnGroupCompleted(task *distributedtask.Task, groupID string, localGroupUnitIDs []string) error {
+	return nil
+}
+
+func (p *BackupTaskProvider) OnSwapRequested(task *distributedtask.Task, groupID string, localGroupUnitIDs []string) error {
+	return nil
+}
+
+func (p *BackupTaskProvider) OnTaskCompleted(task *distributedtask.Task) error {
+	payload, err := unmarshalTaskPayload(task.Payload)
+	if err != nil {
+		return fmt.Errorf("OnTaskCompleted: %w", err)
+	}
+	if _, hasLocal := payload.Nodes[p.node]; !hasLocal {
+		return nil
+	}
+	return p.writeTerminalDescriptor(task, payload)
+}
+
+// --- ConflictDetector interface ---
+
+func (p *BackupTaskProvider) CheckConflict(newPayload []byte, existingTasks []*distributedtask.Task) error {
+	np, err := unmarshalTaskPayload(newPayload)
+	if err != nil {
+		return fmt.Errorf("CheckConflict: unmarshal new payload: %w", err)
+	}
+	for _, t := range existingTasks {
+		if t.ID == np.ID {
+			return fmt.Errorf("backup %q already exists (status %s)", np.ID, t.Status)
+		}
+		if t.Status.IsActive() {
+			return fmt.Errorf("backup %q is already in progress; only one backup at a time is allowed", t.ID)
+		}
+	}
+	return nil
+}
+
+// --- CrossNamespaceConflictDetector interface ---
+
+func (p *BackupTaskProvider) CheckCrossNamespaceConflict(newPayload []byte, allTasks map[string]map[string]*distributedtask.Task) error {
+	for ns, tasks := range allTasks {
+		if ns == BackupTaskNamespace {
+			continue
+		}
+		for id, t := range tasks {
+			if t.Status.IsActive() {
+				return fmt.Errorf("cannot start backup while %s task %q is active", ns, id)
+			}
+		}
+	}
+	return nil
+}
+
+// --- CompletedTaskRetainer interface ---
+
+func (p *BackupTaskProvider) ShouldRetainCompletedTask(task *distributedtask.Task, namespaceTasks map[distributedtask.TaskDescriptor]*distributedtask.Task) bool {
+	payload, err := unmarshalTaskPayload(task.Payload)
+	if err != nil {
+		return true
+	}
+	store, err := coordBackend(p.backends, payload.Backend, payload.ID, payload.Bucket, payload.Path)
+	if err != nil {
+		return true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), p.predicateReadTimeout)
+	defer cancel()
+	meta, err := store.Meta(ctx, GlobalBackupFile, payload.Bucket, payload.Path)
+	if err != nil {
+		return true
+	}
+	return !isFinalStatus(meta.Status)
+}
+
+// --- TerminalCleanupProvider interface ---
+
+func (p *BackupTaskProvider) TerminalCleanupDone(task *distributedtask.Task, localNode string) bool {
+	payload, err := unmarshalTaskPayload(task.Payload)
+	if err != nil {
+		return false
+	}
+	store, err := coordBackend(p.backends, payload.Backend, payload.ID, payload.Bucket, payload.Path)
+	if err != nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), p.predicateReadTimeout)
+	defer cancel()
+	meta, err := store.Meta(ctx, GlobalBackupFile, payload.Bucket, payload.Path)
+	if err != nil {
+		return false
+	}
+	return isFinalStatus(meta.Status)
+}
+
+// --- RecoveryAwareProvider interface ---
+
+// LocalCallbacksDone reports false for a FINISHED task whose global descriptor
+// is not final. Bootstrap then skips the pre-mark, and the next tick re-fires
+// OnTaskCompleted, which writes the global descriptor. An unparseable payload
+// answers false, because the interface requires false for state it cannot
+// read. The reindex provider answers true there. A node outside the payload
+// writes no descriptor, so it answers true.
+func (p *BackupTaskProvider) LocalCallbacksDone(task *distributedtask.Task, localNode string) bool {
+	payload, err := unmarshalTaskPayload(task.Payload)
+	if err != nil {
+		return false
+	}
+	if _, hasLocal := payload.Nodes[localNode]; !hasLocal {
+		return true
+	}
+	return p.TerminalCleanupDone(task, localNode)
+}
+
+// --- internal execution ---
+
+// _TerminalWriteTimeout bounds the backend I/O of one OnTaskCompleted call,
+// and _PredicateReadTimeout bounds the read of each tick predicate. Both run on
+// the scheduler tick, so a hung backend holds a tick at most this long per call.
+// writeTerminalDescriptor makes one PutMeta attempt per call. Retries come from
+// the scheduler re-firing the callback. On the SWAPPING path the scheduler fails the task after
+// maxCompletedCallbackAttempts (5) failed calls, one per tick. So a continuous
+// backend outage of about five ticks marks a completed backup FAILED, with the
+// callback error recorded on the task. FAILED and CANCELLED re-fires have no
+// budget: their descriptor lands whenever the backend returns.
+const (
+	_TerminalWriteTimeout = 30 * time.Second
+	_PredicateReadTimeout = 5 * time.Second
+)
+
+// keepaliveIntervalFor returns how often a flow re-reports its live units, so
+// that a task's stale detector sees fresh UpdatedAt values during slow uploads.
+// It is a sixth of the stale timeout, at least one second. A task without a
+// stale timeout gets 0: stale detection skips it, so it needs no keepalive.
+func keepaliveIntervalFor(staleTimeoutMs int64) time.Duration {
+	if staleTimeoutMs <= 0 {
+		return 0
+	}
+	return max(time.Duration(staleTimeoutMs)*time.Millisecond/6, time.Second)
+}
+
+// descriptorWriteAttempts caps writeStartedDescriptor's write attempts.
+const descriptorWriteAttempts = 3
+
+// planReadAttempts caps consecutive failed reads of the published plan on a
+// non-planner node.
+const planReadAttempts = 3
+
+type classCompletionTracker struct {
+	mu        sync.Mutex
+	total     int
+	completed map[string]bool
+	reported  map[string]bool
+	heldBack  string
+}
+
+func newClassCompletionTracker(total int) *classCompletionTracker {
+	return &classCompletionTracker{
+		total:     total,
+		completed: make(map[string]bool, total),
+		reported:  make(map[string]bool, total),
+	}
+}
+
+func (t *classCompletionTracker) uploaded(className string, record func(string) bool) {
+	t.mu.Lock()
+	t.completed[className] = true
+	holdBack := len(t.completed) == t.total
+	if holdBack {
+		t.heldBack = className
+	}
+	t.mu.Unlock()
+
+	if !holdBack && record(className) {
+		t.mu.Lock()
+		t.reported[className] = true
+		t.mu.Unlock()
+	}
+}
+
+func (t *classCompletionTracker) isReported(className string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.reported[className]
+}
+
+func (t *classCompletionTracker) flush(classes []string, record func(string) bool) {
+	t.mu.Lock()
+	heldBack := t.heldBack
+	reported := make(map[string]bool, len(t.reported))
+	for className := range t.reported {
+		reported[className] = true
+	}
+	t.mu.Unlock()
+
+	for _, className := range classes {
+		if className == heldBack || reported[className] {
+			continue
+		}
+		record(className)
+	}
+	if heldBack != "" {
+		record(heldBack)
+	}
+}
+
+// runNodeBackup uploads every local class in classes. It reports completion
+// only for the units of pending, a subset of classes.
+func (p *BackupTaskProvider) runNodeBackup(
+	handle *backupTaskHandle,
+	task *distributedtask.Task,
+	payload *taskPayload,
+	classes, pending []string,
+	recorder distributedtask.TaskCompletionRecorder,
+) {
+	logFields := logrus.Fields{
+		"action":    "dtm_backup",
+		"backup_id": task.ID,
+		"node":      p.node,
+	}
+
+	store, err := nodeBackend(p.node, p.backends, payload.Backend, payload.ID, payload.Bucket, payload.Path)
+	if err != nil {
+		p.logger.WithFields(logFields).Errorf("failed to init backend: %v", err)
+		p.failAllUnits(context.Background(), task, payload, recorder, err.Error(), false)
+		return
+	}
+
+	if err := store.Initialize(context.Background(), payload.Bucket, payload.Path); err != nil {
+		p.logger.WithFields(logFields).Errorf("failed to initialize backend: %v", err)
+		p.failAllUnits(context.Background(), task, payload, recorder, err.Error(), false)
+		return
+	}
+
+	compressionType := payload.CompressionType
+
+	ctx, cancel := context.WithCancel(context.Background())
+	handle.setCancelFunc(cancel)
+	defer cancel()
+
+	recordClassCompletion := func(className string) bool {
+		unitID := fmt.Sprintf("%s/%s", p.node, className)
+		err := recorder.RecordDistributedTaskUnitCompletion(
+			ctx, BackupTaskNamespace, task.ID, task.Version, p.node, unitID,
+		)
+		if err == nil || errors.Is(err, distributedtask.ErrUnitAlreadyTerminal) ||
+			errors.Is(err, distributedtask.ErrTaskNotRunning) {
+			return true
+		}
+		p.logger.WithField("backup_id", task.ID).WithField("unit", unitID).
+			Warnf("per-class unit completion failed: %v", err)
+		return false
+	}
+
+	// A unit already claimed by this node means an earlier flow on this node ran
+	// and may have started planning. This check runs before the claims below, so
+	// this flow's own claims never count.
+	claimedBefore := false
+	for _, cls := range classes {
+		if u := task.Units[fmt.Sprintf("%s/%s", p.node, cls)]; u != nil && u.NodeID == p.node {
+			claimedBefore = true
+			break
+		}
+	}
+
+	// An earlier flow on this node can write a Success node descriptor and stop
+	// before it reports every unit. Its upload is complete, so this flow only
+	// reports. The StartedAt match rejects a descriptor left by an earlier task
+	// with the same backup ID. Any other read outcome uploads again.
+	if claimedBefore {
+		meta, err := store.Meta(ctx, payload.ID, payload.Bucket, payload.Path)
+		if err == nil && meta.Status == backup.Success && meta.StartedAt.Equal(task.StartedAt) {
+			p.logger.WithFields(logFields).Info("node descriptor is already SUCCESS, reporting pending units without uploading")
+			for _, cls := range pending {
+				recordClassCompletion(cls)
+			}
+			return
+		}
+	}
+
+	// Claim units: progress=0 transitions PENDING to IN_PROGRESS.
+	for _, cls := range classes {
+		unitID := fmt.Sprintf("%s/%s", p.node, cls)
+		if err := recorder.UpdateDistributedTaskUnitProgress(
+			ctx, BackupTaskNamespace, task.ID, task.Version, p.node, unitID, 0,
+		); err != nil {
+			p.logger.WithFields(logFields).WithField("unit", unitID).
+				Warnf("claim write failed: %v", err)
+		}
+	}
+
+	completionTracker := newClassCompletionTracker(len(pending))
+	keepaliveCtx, keepaliveCancel := context.WithCancel(ctx)
+	defer keepaliveCancel()
+	if interval := keepaliveIntervalFor(task.StaleTimeoutMs); interval > 0 {
+		enterrors.GoWrapper(func() {
+			p.runKeepalive(keepaliveCtx, task, pending, completionTracker, recorder, interval)
+		}, p.logger)
+	}
+
+	// Without dedupe, every unit-owning node writes the global descriptor at flow
+	// start. The first write wins, and every writer produces the same content.
+	// With dedupe, no node uploads before the plan is published, and every node
+	// uploads with the plan as stored.
+	version, dedupeReplicas := payload.artifactVersion(), false
+	var designations map[string]map[string]string
+	if payload.DedupeReplicas {
+		published := p.publishedPlan(ctx, task, payload, claimedBefore, recorder, logFields)
+		if published == nil {
+			return
+		}
+		version, dedupeReplicas = published.Version, published.DedupeReplicas
+		designations = published.DedupeDesignations
+	} else if err := p.writeStartedDescriptor(ctx, task, payload, nil); err != nil {
+		p.logger.WithFields(logFields).Errorf("write started descriptor: %v", err)
+		p.failAllUnits(ctx, task, payload, recorder, err.Error(), false)
+		return
+	}
+
+	baseBackupID := payload.BaseBackupID
+	baseDescrs, err := resolveBaseBackupChain(ctx, baseBackupID, time.Now().UTC(), payload.Bucket, payload.Path, compressionType, store.MetaForBackupID)
+	if err != nil {
+		if !errors.As(err, &backup.ErrNotFound{}) {
+			p.logger.WithFields(logFields).Errorf("resolve base backup chain: %v", err)
+			p.failAllUnits(ctx, task, payload, recorder, err.Error(), false)
+			return
+		}
+		p.logger.WithFields(logFields).Warn("node not present in base backup, uploading full backup for this node")
+		baseDescrs = nil
+		baseBackupID = ""
+	}
+
+	desc := backup.BackupDescriptor{
+		StartedAt:       task.StartedAt,
+		ID:              task.ID,
+		Classes:         make([]backup.ClassDescriptor, 0, len(classes)),
+		Version:         version,
+		ServerVersion:   payload.ServerVersion,
+		CompressionType: &compressionType,
+		BaseBackupID:    baseBackupID,
+		DedupeReplicas:  dedupeReplicas,
+	}
+
+	// The node-wide latch doubles as the uploader's status publisher, so the
+	// legacy node status endpoint reports a DTM backup exactly as it reports a
+	// 2PC one.
+	var slot statusPublisher = &noopStatusPublisher{}
+	if s := p.opSlot(); s != nil {
+		slot = s
+	}
+	selection := snapshotSelection{
+		users:     payload.Users,
+		roles:     payload.Roles,
+		skipUsers: payload.SkipUsers,
+		skipRoles: payload.SkipRoles,
+	}
+	// The full map is safe on every node: a node verifies only the shards
+	// designated to itself and skips only local shards designated elsewhere.
+	up := newUploader(p.cfg, p.sourcer, p.rbacSrc, p.userSrc, selection, store, task.ID, slot, p.logger).
+		withCompression(newZipConfig(payload.Compression)).
+		withShardDesignations(designations)
+
+	// Class callbacks can run concurrently. Only pending classes are reported,
+	// and the last of them waits until uploader.all writes the node descriptor.
+	// A re-run still uploads every local class, so the descriptor lists them all.
+	pendingSet := make(map[string]struct{}, len(pending))
+	for _, cls := range pending {
+		pendingSet[cls] = struct{}{}
+	}
+	up.onClassUploaded = func(className string) {
+		if _, ok := pendingSet[className]; ok {
+			completionTracker.uploaded(className, recordClassCompletion)
+		}
+	}
+
+	p.logger.WithFields(logFields).Info("starting DTM backup upload")
+	uploadErr := up.all(ctx, classes, &desc, baseDescrs, payload.Bucket, payload.Path)
+	desc.CompletedAt = time.Now().UTC()
+
+	keepaliveCancel()
+
+	if uploadErr != nil {
+		p.logger.WithFields(logFields).Errorf("DTM backup upload failed: %v", uploadErr)
+		errMsg := uploadErr.Error()
+		retryable := isRetryableUploadError(uploadErr)
+		p.failAllUnits(ctx, task, payload, recorder, errMsg, retryable)
+		return
+	}
+
+	p.logger.WithFields(logFields).Info("DTM backup upload completed")
+
+	// uploader.all has written the node descriptor. Retry failed completion
+	// reports, then report the pending class that finished last.
+	completionTracker.flush(pending, recordClassCompletion)
+}
+
+// runKeepalive re-reports progress=0 every interval for each pending unit that
+// the tracker has not marked reported. This keeps UpdatedAt fresh for the stale
+// detector during slow uploads. A unit whose completion report failed is not
+// marked reported, so its keepalive continues.
+func (p *BackupTaskProvider) runKeepalive(
+	ctx context.Context,
+	task *distributedtask.Task,
+	pending []string,
+	tracker *classCompletionTracker,
+	recorder distributedtask.TaskCompletionRecorder,
+	interval time.Duration,
+) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			for _, cls := range pending {
+				if tracker.isReported(cls) {
+					continue
+				}
+				unitID := fmt.Sprintf("%s/%s", p.node, cls)
+				// progress=0 skips the update throttle, and the FSM always
+				// refreshes UpdatedAt.
+				_ = recorder.UpdateDistributedTaskUnitProgress(
+					ctx, BackupTaskNamespace, task.ID, task.Version, p.node, unitID, 0,
+				)
+			}
+		}
+	}
+}
+
+// failAllUnits records a failure for every local unit. ctx is the flow's
+// context, or Background before the flow ctx exists. The flow ctx is done
+// only after Terminate: on shutdown, on cancel, or for a
+// node whose units are already terminal. None of these is a unit failure, so a
+// done ctx records nothing and the units keep their status. The failure
+// records are written under a background context.
+func (p *BackupTaskProvider) failAllUnits(
+	ctx context.Context,
+	task *distributedtask.Task,
+	payload *taskPayload,
+	recorder distributedtask.TaskCompletionRecorder,
+	errMsg string,
+	retryable bool,
+) {
+	if ctx.Err() != nil {
+		p.logger.WithField("backup_id", task.ID).
+			Infof("flow ended, not recording unit failure: %s", errMsg)
+		return
+	}
+	localGroup, ok := payload.Nodes[p.node]
+	if !ok {
+		return
+	}
+	for _, cls := range localGroup.Classes {
+		unitID := fmt.Sprintf("%s/%s", p.node, cls)
+		var reportErr error
+		if retryable {
+			reportErr = recorder.RecordDistributedTaskRetryableUnitFailure(
+				context.Background(), BackupTaskNamespace, task.ID, task.Version, p.node, unitID, errMsg,
+			)
+		} else {
+			reportErr = recorder.RecordDistributedTaskUnitFailure(
+				context.Background(), BackupTaskNamespace, task.ID, task.Version, p.node, unitID, errMsg,
+			)
+		}
+		if reportErr != nil {
+			if !errors.Is(reportErr, distributedtask.ErrUnitAlreadyTerminal) &&
+				!errors.Is(reportErr, distributedtask.ErrTaskNotRunning) {
+				p.logger.WithField("backup_id", task.ID).WithField("unit", unitID).
+					Warnf("failed to report unit failure: %v", reportErr)
+			}
+		}
+	}
+}
+
+// publishedPlan returns the global Started descriptor that carries a dedupe
+// backup's plan. The leader plans and publishes it; every other node polls until
+// it exists. It returns nil when the flow must stop; a unit failure that stop
+// requires is already recorded.
+func (p *BackupTaskProvider) publishedPlan(
+	ctx context.Context,
+	task *distributedtask.Task,
+	payload *taskPayload,
+	claimedBefore bool,
+	recorder distributedtask.TaskCompletionRecorder,
+	logFields logrus.Fields,
+) *backup.DistributedBackupDescriptor {
+	logger := p.logger.WithFields(logFields)
+	store, err := coordBackend(p.backends, payload.Backend, payload.ID, payload.Bucket, payload.Path)
+	if err != nil {
+		logger.Errorf("replica dedupe: init backend: %v", err)
+		p.failAllUnits(ctx, task, payload, recorder, err.Error(), false)
+		return nil
+	}
+
+	if p.node != payload.Leader {
+		readFailures := 0
+		for {
+			existing, err := globalDescriptor(ctx, store, payload)
+			switch {
+			case err == nil:
+				readFailures = 0
+				if existing != nil && existing.Status == backup.Started {
+					return existing
+				}
+			case ctx.Err() != nil:
+				return nil
+			default:
+				readFailures++
+				if readFailures >= planReadAttempts {
+					logger.Errorf("replica dedupe: read published plan: %v", err)
+					p.failAllUnits(ctx, task, payload, recorder, err.Error(), false)
+					return nil
+				}
+				logger.Warnf("replica dedupe: read published plan: %v", err)
+			}
+			if !sleepUntil(ctx, time.Now().Add(p.planPollInterval)) {
+				return nil
+			}
+		}
+	}
+
+	existing, err := globalDescriptor(ctx, store, payload)
+	if err != nil {
+		logger.Errorf("replica dedupe: read published plan: %v", err)
+		p.failAllUnits(ctx, task, payload, recorder, err.Error(), false)
+		return nil
+	}
+	if existing != nil {
+		if existing.Status != backup.Started {
+			logger.Infof("replica dedupe: global descriptor is already %s, not uploading", existing.Status)
+			return nil
+		}
+		logger.Info("replica dedupe: reusing the published plan")
+		return existing
+	}
+	if claimedBefore {
+		msg := "replica dedupe planning was interrupted before a plan was published; retry the backup with a new backup ID"
+		logger.Error(msg)
+		p.failAllUnits(ctx, task, payload, recorder, msg, false)
+		return nil
+	}
+
+	var preferred map[string]map[string]string
+	if payload.BaseBackupID != "" {
+		base, err := store.GlobalMetaForBackupID(ctx, payload.BaseBackupID, payload.Bucket, payload.Path)
+		switch {
+		case err == nil:
+			preferred = base.DedupeDesignations
+		case ctx.Err() != nil:
+			// The flow ended during the read, so the error says nothing about the
+			// backend. ctx is checked, not err, because err's type is backend-specific.
+			return nil
+		default:
+			logger.Warnf("replica dedupe: base backup %q unreadable, planning without its designations: %v", payload.BaseBackupID, err)
+		}
+	}
+
+	var plan *DedupePlan
+	if p.planner != nil {
+		participants := make(map[string]struct{}, len(payload.Nodes))
+		for node := range payload.Nodes {
+			participants[node] = struct{}{}
+		}
+		budget := time.Duration(payload.DedupeConvergenceTimeoutSeconds) * time.Second
+		// The flow ctx has no deadline, so any ctx error means the flow ended.
+		plan = p.planner.PlanDesignatedShards(ctx, payload.Classes, budget, participants, preferred,
+			func() bool { return ctx.Err() != nil })
+	} else {
+		logger.Warn("replica dedupe: no dedupe planner on this node, every replica is uploaded")
+	}
+	if ctx.Err() != nil {
+		return nil
+	}
+
+	if err := p.writeStartedDescriptor(ctx, task, payload, plan); err != nil {
+		logger.Errorf("write started descriptor: %v", err)
+		p.failAllUnits(ctx, task, payload, recorder, err.Error(), false)
+		return nil
+	}
+	// Uploads use the plan as stored, so the planner and every other node
+	// upload with the same plan.
+	stored, err := globalDescriptor(ctx, store, payload)
+	if err != nil {
+		logger.Errorf("replica dedupe: read published plan: %v", err)
+		p.failAllUnits(ctx, task, payload, recorder, err.Error(), false)
+		return nil
+	}
+	if stored == nil || stored.Status != backup.Started {
+		logger.Info("replica dedupe: no Started descriptor after publishing, not uploading")
+		return nil
+	}
+	return stored
+}
+
+// globalDescriptor reads the backup's global descriptor. It returns nil when
+// none exists yet.
+func globalDescriptor(ctx context.Context, store coordStore, payload *taskPayload) (*backup.DistributedBackupDescriptor, error) {
+	desc, err := store.Meta(ctx, GlobalBackupFile, payload.Bucket, payload.Path)
+	if errors.As(err, &backup.ErrNotFound{}) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return desc, nil
+}
+
+// writeStartedDescriptor writes the global Started descriptor at flow start and
+// stamps it with plan. A nil plan stamps no plan fields.
+// Without dedupe, all fields come from the payload and task record, so writers
+// on different nodes produce identical content. With dedupe, only the leader
+// writes. An existing descriptor is left untouched: the first write wins, and a
+// terminal status never flips back.
+func (p *BackupTaskProvider) writeStartedDescriptor(ctx context.Context, task *distributedtask.Task, payload *taskPayload, plan *DedupePlan) error {
+	store, err := coordBackend(p.backends, payload.Backend, payload.ID, payload.Bucket, payload.Path)
+	if err != nil {
+		return fmt.Errorf("started descriptor: init backend: %w", err)
+	}
+
+	if _, err := store.Meta(ctx, GlobalBackupFile, payload.Bucket, payload.Path); err == nil {
+		return nil
+	} else if !errors.As(err, &backup.ErrNotFound{}) {
+		return fmt.Errorf("started descriptor: read existing: %w", err)
+	}
+
+	descriptor := &backup.DistributedBackupDescriptor{
+		StartedAt:       task.StartedAt,
+		ID:              payload.ID,
+		Nodes:           payload.Nodes,
+		ServerVersion:   payload.ServerVersion,
+		Leader:          payload.Leader,
+		BaseBackupID:    payload.BaseBackupID,
+		Users:           payload.Users,
+		Roles:           payload.Roles,
+		SkipUsers:       payload.SkipUsers,
+		SkipRoles:       payload.SkipRoles,
+		CompressionType: payload.CompressionType,
+		Status:          backup.Started,
+	}
+	plan.stamp(descriptor, payload.BaseChainDeduped)
+
+	var writeErr error
+	for attempt := range descriptorWriteAttempts {
+		writeErr = store.PutMeta(ctx, GlobalBackupFile, descriptor, payload.Bucket, payload.Path)
+		if writeErr == nil {
+			return nil
+		}
+		p.logger.WithField("backup_id", task.ID).WithField("attempt", attempt+1).
+			Warnf("failed to write started descriptor: %v", writeErr)
+		time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
+	}
+	return fmt.Errorf("write started descriptor after retries: %w", writeErr)
+}
+
+func (p *BackupTaskProvider) writeTerminalDescriptor(task *distributedtask.Task, payload *taskPayload) error {
+	store, err := coordBackend(p.backends, payload.Backend, payload.ID, payload.Bucket, payload.Path)
+	if err != nil {
+		return fmt.Errorf("terminal descriptor: init backend: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), p.terminalWriteTimeout)
+	defer cancel()
+
+	existing, err := store.Meta(ctx, GlobalBackupFile, payload.Bucket, payload.Path)
+	if err == nil && isFinalStatus(existing.Status) {
+		return nil
+	}
+	// A terminal descriptor written without the published plan would mislabel
+	// a deduped artifact. Not-found means no plan was published, so no node
+	// filtered a shard and the plan-less descriptor below is accurate.
+	if payload.DedupeReplicas && err != nil && !errors.As(err, &backup.ErrNotFound{}) {
+		return fmt.Errorf("terminal descriptor: read published plan: %w", err)
+	}
+
+	status, errMsg := backupVerdict(task)
+
+	descriptor := &backup.DistributedBackupDescriptor{
+		StartedAt:      task.StartedAt,
+		ID:             payload.ID,
+		Nodes:          payload.Nodes,
+		Version:        payload.artifactVersion(),
+		ServerVersion:  payload.ServerVersion,
+		Leader:         payload.Leader,
+		BaseBackupID:   payload.BaseBackupID,
+		Users:          payload.Users,
+		Roles:          payload.Roles,
+		SkipUsers:      payload.SkipUsers,
+		SkipRoles:      payload.SkipRoles,
+		DedupeReplicas: false,
+		Status:         status,
+		Error:          errMsg,
+		CompletedAt:    time.Now().UTC(),
+	}
+	if payload.DedupeReplicas && err == nil {
+		descriptor.Version = existing.Version
+		descriptor.DedupeReplicas = existing.DedupeReplicas
+		descriptor.DedupeDesignatedShards = existing.DedupeDesignatedShards
+		descriptor.DedupeFallbackShards = existing.DedupeFallbackShards
+		descriptor.DedupeCutoffsMs = existing.DedupeCutoffsMs
+		descriptor.DedupeDesignations = existing.DedupeDesignations
+	}
+
+	// A Success verdict needs every node descriptor to read as Success. Every
+	// payload node holds at least one class, so each one writes a descriptor.
+	// Any read error other than not-found returns an error: nothing is written,
+	// and the scheduler fires OnTaskCompleted again.
+	var totalSize int64
+	var nodeFailures []string
+	nodeMetas := make(map[string]*backup.BackupDescriptor, len(payload.Nodes))
+	for nodeName, nd := range payload.Nodes {
+		ns, nsErr := nodeBackend(nodeName, p.backends, payload.Backend, payload.ID, payload.Bucket, payload.Path)
+		if nsErr != nil {
+			if status == backup.Success {
+				return fmt.Errorf("terminal descriptor: init backend for node %s: %w", nodeName, nsErr)
+			}
+			nd.Error = fmt.Sprintf("cannot init backend for node %s: %v", nodeName, nsErr)
+			continue
+		}
+		meta, readErr := ns.Meta(ctx, payload.ID, payload.Bucket, payload.Path)
+		if readErr != nil {
+			if status != backup.Success {
+				// Fill per-node status/error from the task record when the
+				// node descriptor is missing (e.g. the node died before
+				// writing it).
+				fillNodeFromTaskRecord(nd, nodeName, task, readErr)
+				continue
+			}
+			if !errors.As(readErr, &backup.ErrNotFound{}) {
+				return fmt.Errorf("terminal descriptor: read node %s descriptor: %w", nodeName, readErr)
+			}
+			nd.Error = fmt.Sprintf("missing node descriptor for %s: %v", nodeName, readErr)
+			nodeFailures = append(nodeFailures, nd.Error)
+			continue
+		}
+		nodeMetas[nodeName] = meta
+		nd.PreCompressionSizeBytes = meta.PreCompressionSizeBytes
+		totalSize += meta.PreCompressionSizeBytes
+		nd.Status = meta.Status
+		if status == backup.Success && meta.Status != backup.Success {
+			nodeFailures = append(nodeFailures, fmt.Sprintf("node %s descriptor is %s", nodeName, meta.Status))
+		}
+	}
+	descriptor.PreCompressionSizeBytes = totalSize
+	descriptor.CompressionType = payload.CompressionType
+	if len(nodeFailures) > 0 {
+		slices.Sort(nodeFailures)
+		descriptor.Status = backup.Failed
+		descriptor.Error = strings.Join(nodeFailures, "; ")
+	}
+
+	if descriptor.Status == backup.Success && len(descriptor.DedupeDesignations) > 0 {
+		logger := p.logger.WithField("backup_id", task.ID)
+		verifier := newCoordinator(nil, nil, nil, p.logger, nil, p.backends, nil, nil)
+		statusReq := &StatusRequest{
+			Method:       OpCreate,
+			ID:           payload.ID,
+			Backend:      payload.Backend,
+			Bucket:       payload.Bucket,
+			Path:         payload.Path,
+			BaseBackupID: payload.BaseBackupID,
+		}
+		plan := &DedupePlan{Designations: descriptor.DedupeDesignations}
+		if err := verifier.verifyDesignatedCoverage(ctx, statusReq, plan, nodeMetas); err != nil {
+			descriptor.Status = backup.Failed
+			descriptor.Error = err.Error()
+			logger.Errorf("designated-shard coverage check failed: %v", err)
+		} else if attributed := attributeDedupedShardSizes(p.logger, descriptor, nodeMetas); attributed > 0 {
+			logger.Debugf("%d bytes attributed to skipping replicas for logical backup size", attributed)
+		}
+	}
+
+	if err := store.PutMeta(ctx, GlobalBackupFile, descriptor, payload.Bucket, payload.Path); err != nil {
+		p.logger.WithField("backup_id", task.ID).Warnf("failed to write terminal descriptor: %v", err)
+		return fmt.Errorf("write terminal descriptor: %w", err)
+	}
+	return nil
+}
+
+func backupVerdict(task *distributedtask.Task) (backup.Status, string) {
+	switch task.Status {
+	case distributedtask.TaskStatusCancelled:
+		return backup.Cancelled, "backup canceled"
+	case distributedtask.TaskStatusFailed:
+		return backup.Failed, collectTaskErrors(task)
+	default:
+		if task.AnyUnitFailed() {
+			return backup.Failed, collectTaskErrors(task)
+		}
+		for _, ack := range task.PostCompletionAcks {
+			if !ack.Success {
+				return backup.Failed, ack.Error
+			}
+		}
+		return backup.Success, ""
+	}
+}
+
+// fillNodeFromTaskRecord fills a node's descriptor entry from the task record
+// when the node's backup.json is unreadable on a failure path.
+//   - definite not-found: synthesise status/error from unit data, prefixed with
+//     "per task record:" so the source is visible. Sizes stay zero.
+//   - any other read error: annotate only. A transient error must not overwrite
+//     a durable node file that may exist.
+func fillNodeFromTaskRecord(nd *backup.NodeDescriptor, nodeName string, task *distributedtask.Task, readErr error) {
+	if !errors.As(readErr, &backup.ErrNotFound{}) {
+		nd.Error = fmt.Sprintf("node descriptor unreadable: %v", readErr)
+		return
+	}
+
+	// Definite not-found: the node never wrote its descriptor.
+	var unitErrs []string
+	allFailed := true
+	for id, u := range task.Units {
+		if !strings.HasPrefix(id, nodeName+"/") {
+			continue
+		}
+		if u.Status != distributedtask.UnitStatusFailed {
+			allFailed = false
+		}
+		if u.Error != "" {
+			unitErrs = append(unitErrs, fmt.Sprintf("unit %s: %s", id, u.Error))
+		}
+	}
+
+	if allFailed && len(unitErrs) > 0 {
+		nd.Status = backup.Failed
+		nd.Error = "per task record: " + strings.Join(unitErrs, "; ")
+	} else if len(unitErrs) > 0 {
+		nd.Error = "per task record: " + strings.Join(unitErrs, "; ")
+	} else {
+		nd.Error = fmt.Sprintf("per task record: node %s descriptor not found, no unit errors recorded", nodeName)
+	}
+}
+
+func collectTaskErrors(task *distributedtask.Task) string {
+	var errs []string
+	if task.Error != "" {
+		errs = append(errs, task.Error)
+	}
+	for id, u := range task.Units {
+		if u.Error != "" {
+			errs = append(errs, fmt.Sprintf("unit %s: %s", id, u.Error))
+		}
+	}
+	for node, ack := range task.PostCompletionAcks {
+		if !ack.Success && ack.Error != "" {
+			errs = append(errs, fmt.Sprintf("ack %s: %s", node, ack.Error))
+		}
+	}
+	if len(errs) == 0 {
+		return "backup failed"
+	}
+	return strings.Join(errs, "; ")
+}
+
+// isRetryableUploadError returns true for transport-level object-store failures
+// that the DTM scheduler may retry. Anything unclassified is permanent, matching
+// the 2PC path. Backend SDKs wrap errors, so checks use errors.Is/errors.As.
+func isRetryableUploadError(err error) bool {
+	// Cancellation is the operator's decision, not a transient backend fault.
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	if errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, syscall.ECONNREFUSED) ||
+		errors.Is(err, syscall.EPIPE) ||
+		errors.Is(err, syscall.ETIMEDOUT) {
+		return true
+	}
+	// The flow's own context carries no deadline, so a deadline reported here
+	// came from the backend client's own timeout.
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
+// --- task handle ---
+
+type backupTaskHandle struct {
+	mu       sync.Mutex
+	stopCh   chan struct{}
+	doneCh   chan struct{}
+	cancelFn context.CancelFunc
+}
+
+func newBackupTaskHandle(_ string) *backupTaskHandle {
+	return &backupTaskHandle{
+		stopCh: make(chan struct{}),
+		doneCh: make(chan struct{}),
+	}
+}
+
+func (h *backupTaskHandle) Terminate() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	select {
+	case <-h.stopCh:
+	default:
+		close(h.stopCh)
+	}
+	if h.cancelFn != nil {
+		h.cancelFn()
+	}
+}
+
+func (h *backupTaskHandle) Done() <-chan struct{} {
+	return h.doneCh
+}
+
+// setCancelFunc registers the flow's cancel. A Terminate that arrived before
+// this point is applied here, so a cancel racing StartTask is never lost.
+func (h *backupTaskHandle) setCancelFunc(fn context.CancelFunc) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.cancelFn = fn
+	select {
+	case <-h.stopCh:
+		fn()
+	default:
+	}
+}
+
+func (h *backupTaskHandle) markDone() {
+	close(h.doneCh)
+}
+
+type idleTaskHandle struct {
+	doneCh chan struct{}
+}
+
+func newIdleTaskHandle() *idleTaskHandle {
+	return &idleTaskHandle{doneCh: make(chan struct{})}
+}
+
+func (h *idleTaskHandle) Terminate() {
+	select {
+	case <-h.doneCh:
+	default:
+		close(h.doneCh)
+	}
+}
+
+func (h *idleTaskHandle) Done() <-chan struct{} {
+	return h.doneCh
+}
+
+type noopStatusPublisher struct{}
+
+func (n *noopStatusPublisher) set(_ backup.Status) {}
+func (n *noopStatusPublisher) setFailed(_ string)  {}
+
+// --- DTM status mapping ---
+
+func dtmStatusToBackup(task *distributedtask.Task) (backup.Status, string) {
+	switch task.Status {
+	case distributedtask.TaskStatusStarted:
+		for _, u := range task.Units {
+			if u.Status == distributedtask.UnitStatusInProgress {
+				return backup.Transferring, ""
+			}
+		}
+		return backup.Started, ""
+	case distributedtask.TaskStatusSwapping:
+		return backup.Transferred, ""
+	case distributedtask.TaskStatusFinished:
+		return backup.Success, ""
+	case distributedtask.TaskStatusFailed:
+		return backup.Failed, collectTaskErrors(task)
+	case distributedtask.TaskStatusCancelled:
+		return backup.Cancelled, "backup canceled"
+	default:
+		return backup.Started, ""
+	}
+}
+
+func (p *BackupTaskProvider) dtmTaskToStatus(ctx context.Context, task *distributedtask.Task) *Status {
+	payload, err := unmarshalTaskPayload(task.Payload)
+	if err != nil {
+		return &Status{Status: backup.Failed, Err: err.Error()}
+	}
+
+	st := &Status{
+		StartedAt: task.StartedAt,
+		Path:      "",
+	}
+
+	if task.Status.IsTerminal() {
+		store, storeErr := coordBackend(p.backends, payload.Backend, payload.ID, payload.Bucket, payload.Path)
+		if storeErr == nil {
+			st.Path = store.HomeDir(payload.Bucket, payload.Path)
+			meta, metaErr := store.Meta(ctx, GlobalBackupFile, payload.Bucket, payload.Path)
+			if metaErr == nil {
+				st.Status = meta.Status
+				st.Err = meta.Error
+				st.CompletedAt = meta.CompletedAt
+				st.Size = float64(meta.PreCompressionSizeBytes) / (1024 * 1024 * 1024)
+				st.BaseBackupID = meta.BaseBackupID
+				return st
+			}
+		}
+		st.Status, st.Err = dtmStatusToBackup(task)
+		st.BaseBackupID = payload.BaseBackupID
+		return st
+	}
+
+	store, storeErr := coordBackend(p.backends, payload.Backend, payload.ID, payload.Bucket, payload.Path)
+	if storeErr == nil {
+		st.Path = store.HomeDir(payload.Bucket, payload.Path)
+	}
+	st.Status, st.Err = dtmStatusToBackup(task)
+	st.BaseBackupID = payload.BaseBackupID
+	return st
+}

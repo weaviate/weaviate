@@ -234,6 +234,10 @@ type uploader struct {
 	// until the descriptor is written to the backend.
 	slot statusPublisher
 	log  logrus.FieldLogger
+
+	// onClassUploaded runs after every shard in a class uploads. The node
+	// descriptor is written after all callbacks return.
+	onClassUploaded func(className string)
 }
 
 // statusPublisher is the observable half of a node's operation slot. Failing
@@ -585,16 +589,18 @@ func (u *uploader) submitClass(ctx context.Context, eg *enterrors.ErrorGroupWrap
 		"duration": storeTimeout,
 	}).Debug("context.WithTimeout")
 
-	// finish runs when the last shard job of the class has returned. That is the
-	// earliest the index may be released, since releasing it deletes the staging
-	// dir the jobs read from. It is also late enough for complete to know whether
-	// the class made it into the backup.
+	// finish runs after the last shard job returns. Releasing the index sooner
+	// would delete staging files still in use. At that point, complete can tell
+	// whether the backup contains the class.
 	cu.finish = func() {
 		cancel()
 		observe()
 		u.releaseIndexes([]string{cu.desc.Name}, id)
 		if cu.complete() {
 			u.log.WithField("class", cu.desc.Name).Info("finish uploading files")
+			if u.onClassUploaded != nil {
+				u.onClassUploaded(cu.desc.Name)
+			}
 			return
 		}
 		u.log.WithFields(logrus.Fields{

@@ -346,28 +346,36 @@ type VectorConfigRemovalGate interface {
 // durably complete, the scheduler skips it for that task and the next tick
 // re-dispatches the task's callbacks.
 //
-// Re-dispatch recovers nothing: every callback is a no-op at terminal
-// status. The one durable effect is a re-issued post-completion ack, once
-// per process start — see [RecoveryAwareProvider.LocalCallbacksDone].
+// Re-dispatch may re-run durable terminal work, such as writing a terminal
+// artifact, so every callback must be idempotent at terminal status. The
+// post-completion ack is also re-issued, once per process start — see
+// [RecoveryAwareProvider.LocalCallbacksDone].
 type RecoveryAwareProvider interface {
 	Provider
 
-	// LocalCallbacksDone returns false when durable local state shows
-	// OnGroupCompleted (and any follow-up recovery) did not complete for
-	// every unit assigned to localNode. State it cannot read answers false
-	// too: not knowing is not the same as being done.
+	// LocalCallbacksDone returns false when durable state shows this node's
+	// callback work for the task did not complete. That state may be local,
+	// such as OnGroupCompleted (and any follow-up recovery) for every unit
+	// assigned to localNode. It may also be remote, such as the backup
+	// provider's global descriptor, which OnTaskCompleted writes. State it
+	// cannot read answers false too: not knowing is not the same as being done.
 	//
-	// All false does today is suppress the bootstrap pre-mark. The terminal
-	// task's callbacks are then re-dispatched once on the next tick — each a
-	// no-op at terminal status — and one
+	// False suppresses the bootstrap pre-mark. The terminal task's callbacks
+	// are then re-dispatched on the next tick and may re-run durable terminal
+	// work, so they must be idempotent at terminal status. One
 	// [PostCompletionAckRecorder.RecordDistributedTaskPostCompletionAck] RAFT
 	// write is re-issued, once per process start, until the completed-task
 	// TTL drops the task from the FSM.
 	//
 	// Otherwise it returns true, which is weaker than "verified done": a
-	// task the provider has nothing to recover for (unparseable, wrong
-	// migration kind, no local shards) also returns true, since replaying
-	// callbacks for it would achieve nothing.
+	// task the provider has nothing to recover for also returns true, since
+	// replaying callbacks for it would achieve nothing. Providers differ on
+	// what that covers. The reindex provider returns true for an unparseable
+	// payload, a wrong migration kind or no local shards. The backup provider
+	// returns false for an unparseable payload, under the unreadable-state
+	// rule above, and true for a node outside the payload. The
+	// drop-vector-index provider always returns false: it treats every
+	// terminal task as having replayable cleanup.
 	//
 	// Called from [Scheduler.preMarkTerminalCallbacksLocked] under s.mu, ONCE
 	// per terminal task at bootstrap. Implementations should treat this as a

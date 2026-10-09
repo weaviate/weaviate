@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 
@@ -27,7 +28,8 @@ import (
 
 // DedupePlanner plans a deduplicated backup; nil on coordinators and nodes that never dedupe.
 type DedupePlanner interface {
-	// PlanDesignatedShards designates one archiving node per convergence-proven shard, naming only members of participants; a nil cancelled is never cancelled.
+	// PlanDesignatedShards designates one archiving node per convergence-proven shard, naming only members of participants.
+	// cancelled reports that the backup is ending; once it is true, planning returns early and records no fallback. A nil cancelled is never cancelled.
 	PlanDesignatedShards(ctx context.Context, classes []string, budget time.Duration,
 		participants map[string]struct{}, preferred map[string]map[string]string, cancelled func() bool) *DedupePlan
 }
@@ -55,6 +57,39 @@ func (p *DedupePlan) Designated() int {
 // Fallback counts candidate shards that ended up archived by all replicas.
 func (p *DedupePlan) Fallback() int {
 	return p.CandidateShards - p.Designated()
+}
+
+// stamp writes the planning outcome onto desc and returns whether the artifact is deduped.
+// A nil plan stamps an artifact with no plan fields.
+// An artifact with zero deduped shards is stored in the legacy layout, so pre-3.0 releases can restore it.
+// The exception: if its base chain includes a deduped artifact, it gets the dedupe version.
+func (p *DedupePlan) stamp(desc *backup.DistributedBackupDescriptor, baseChainDeduped bool) bool {
+	dedupeEffective := p != nil && p.Designated() > 0
+	desc.Version = Version
+	if dedupeEffective || baseChainDeduped {
+		desc.Version = VersionDedupeReplicas
+	}
+	desc.DedupeReplicas = dedupeEffective
+	if p == nil {
+		return false
+	}
+	desc.DedupeDesignatedShards = p.Designated()
+	desc.DedupeFallbackShards = p.Fallback()
+	// Maps are copied, not shared. Non-Success artifacts carry them too; that is harmless because chain validation refuses those artifacts.
+	for class, shards := range p.Designations {
+		if len(shards) == 0 {
+			continue
+		}
+		if desc.DedupeCutoffsMs == nil {
+			desc.DedupeCutoffsMs = make(map[string]int64, len(p.Designations))
+		}
+		desc.DedupeCutoffsMs[class] = p.Cutoffs[class]
+		if desc.DedupeDesignations == nil {
+			desc.DedupeDesignations = make(map[string]map[string]string, len(p.Designations))
+		}
+		desc.DedupeDesignations[class] = maps.Clone(shards)
+	}
+	return dedupeEffective
 }
 
 // projectDesignations returns the entries for shards the node replicates; nil when none apply.

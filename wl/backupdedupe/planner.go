@@ -124,7 +124,8 @@ func orDefault(d, def time.Duration) time.Duration {
 
 // PlanDesignatedShards designates one archiving node per convergence-proven shard; failures only downgrade shards to all-replica fallback, and checkpoints are deleted before returning (archiving needs no live checkpoint).
 // Designations only ever name members of participants: a designated non-participant would archive nothing while every replica skips.
-// cancelled reports the operation's external cancel signal; nil means never cancelled.
+// cancelled reports that the backup is ending, by a user cancel or the end of the caller's flow; nil means never cancelled.
+// Once cancelled is true, planning returns early and records no fallback.
 func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, budget time.Duration,
 	participants map[string]struct{}, preferred map[string]map[string]string, cancelled func() bool,
 ) *backup.DedupePlan {
@@ -227,6 +228,9 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 		// Per-class cutoff: one shared cutoff would let serial creates on wide backups overrun the lead and silently reject later classes.
 		cutoffMs := time.Now().Add(p.cutoffLead).UnixMilli()
 		if err := p.checkpointer.CreateAsyncCheckpoints(ctx, class, cutoffMs, candidates[class]); err != nil {
+			if cancelled() {
+				return plan
+			}
 			monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("create_rpc_failed").Add(float64(len(candidates[class])))
 			p.log.WithField("action", backup.OpCreate).WithField("class", class).
 				Warnf("replica dedupe: class falls back to all-replica backup: create checkpoints: %v", err)
@@ -246,7 +250,7 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 		latestCutoffMs = max(latestCutoffMs, cutoffMs)
 	}
 	if !sleepUnlessCancelled(ctx, time.UnixMilli(latestCutoffMs), cancelled) {
-		// A user Cancel kills the whole backup; anything else is the planning deadline silently degrading every candidate.
+		// A cancel kills the whole backup; anything else is the planning deadline silently degrading every candidate.
 		if !cancelled() {
 			remaining := 0
 			for _, shards := range candidates {
@@ -261,6 +265,9 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 	}
 
 	converged := p.pollConvergence(ctx, candidates, plan.Replicas, cutoffs, budget, cancelled)
+	if cancelled() {
+		return plan
+	}
 
 	loads := make(map[string]int)
 	classNames := make([]string, 0, len(converged))
@@ -305,6 +312,9 @@ func (p *Planner) pollConvergence(ctx context.Context, candidates map[string][]s
 			sort.Strings(shardNames)
 
 			statuses, err := p.checkpointer.GetAsyncCheckpointNodeStatuses(ctx, class, shardNames)
+			if cancelled() {
+				return converged
+			}
 			if err != nil {
 				monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("status_failed").Add(float64(len(shards)))
 				p.log.WithField("action", backup.OpCreate).WithField("class", class).
@@ -346,6 +356,9 @@ func (p *Planner) pollConvergence(ctx context.Context, candidates map[string][]s
 		if !sleepUnlessCancelled(ctx, time.Now().Add(p.pollInterval), cancelled) {
 			break
 		}
+	}
+	if cancelled() {
+		return converged
 	}
 	for class, shards := range pending {
 		if len(shards) > 0 {

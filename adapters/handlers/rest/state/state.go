@@ -84,6 +84,7 @@ type State struct {
 	HTTPServerMetrics  *monitoring.HTTPServerMetrics
 	GRPCServerMetrics  *monitoring.GRPCServerMetrics
 	BackupManager      *backup.Handler
+	BackupTaskProvider *backup.BackupTaskProvider
 	ExportParticipant  *exportUsecase.Participant
 	ExportMetrics      *exportUsecase.ExportMetrics
 	DB                 *db.DB
@@ -102,6 +103,9 @@ type State struct {
 	ObjectTTLLocalStatus *objectttl.LocalStatus
 
 	DistributedTaskScheduler *distributedtask.Scheduler
+
+	// BackupDedupePlanner is nil unless replica dedupe is licensed on this node.
+	BackupDedupePlanner backup.DedupePlanner
 
 	// ReindexProvider is the local handle for the runtime-reindex
 	// distributed-task provider. Exposed here so the REST cancel handler
