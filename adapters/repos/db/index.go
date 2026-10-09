@@ -3392,6 +3392,7 @@ func (i *Index) drop() error {
 	if err := i.beginClose(); err != nil {
 		return err
 	}
+	i.Config.DimensionsReindex.forget(i.ID())
 
 	// Terminal registry sweep. Safe because beginClose sets i.closed under
 	// closeLock.Lock and drains every reader admitted before it, and every
@@ -3553,6 +3554,7 @@ func (i *Index) dropShards(names []string) error {
 	ec.Add(eg.Wait())
 
 	i.purgeUnloadedShardRegistry(unloadedNames)
+	i.Config.DimensionsReindex.forget(i.ID(), names...)
 
 	return ec.ToErrorLimited(maxReportedErrors)
 }

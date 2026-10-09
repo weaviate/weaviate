@@ -455,14 +455,14 @@ func TestShard_ReindexDimensionsOnLoad(t *testing.T) {
 			name:    "rebuilt by this process already",
 			reindex: &dimensionsReindex{enabled: true},
 			prepare: func(t *testing.T, shard *Shard, reindex *dimensionsReindex) {
-				reindex.record(shard.ID(), 5, true)
+				reindex.record(shard.index.ID(), shard.Name(), 5, true)
 			},
 		},
 		{
 			name:    "failed in this process before",
 			reindex: &dimensionsReindex{enabled: true},
 			prepare: func(t *testing.T, shard *Shard, reindex *dimensionsReindex) {
-				reindex.record(shard.ID(), 0, false)
+				reindex.record(shard.index.ID(), shard.Name(), 0, false)
 			},
 			expectRebuilt: true,
 		},
@@ -502,12 +502,12 @@ func TestShard_ReindexDimensionsOnLoad(t *testing.T) {
 
 			if tt.expectRebuilt {
 				assert.Equal(t, tracked, rows)
-				assert.True(t, tt.reindex.done(shard.ID()))
+				assert.True(t, tt.reindex.done(shard.index.ID(), shard.Name()))
 			} else {
 				assert.Contains(t, rows, bogus)
 			}
 			if tt.expectDone {
-				assert.True(t, tt.reindex.done(shard.ID()))
+				assert.True(t, tt.reindex.done(shard.index.ID(), shard.Name()))
 			}
 			if tt.expectFailed {
 				_, failed, _ := tt.reindex.summary()
@@ -535,6 +535,99 @@ func TestShard_ReindexDimensionsOnLoad_MapBucket(t *testing.T) {
 	rows := dimensionsBucketRows(t, reloaded.(*Shard))
 	require.Len(t, rows, 1, "the row the map bucket was seeded with belongs to no object")
 	assert.Len(t, rows["\x03\x00\x00\x00"], 10)
+}
+
+func TestDimensionsReindex_Outcomes(t *testing.T) {
+	tests := []struct {
+		name            string
+		forget          func(r *dimensionsReindex)
+		expectedPending map[dimensionsShard]bool
+	}{
+		{
+			name: "names joined by an underscore stay apart",
+			expectedPending: map[dimensionsShard]bool{
+				{"docs", "v2_acme"}: false,
+				{"docs_v2", "acme"}: true,
+			},
+		},
+		{
+			name:   "dropped shard",
+			forget: func(r *dimensionsReindex) { r.forget("docs", "v2_acme") },
+			expectedPending: map[dimensionsShard]bool{
+				{"docs", "v2_acme"}:  true,
+				{"docs", "other"}:    false,
+				{"other", "v2_acme"}: false,
+			},
+		},
+		{
+			name:   "dropped index",
+			forget: func(r *dimensionsReindex) { r.forget("docs") },
+			expectedPending: map[dimensionsShard]bool{
+				{"docs", "v2_acme"}:  true,
+				{"docs", "other"}:    true,
+				{"other", "v2_acme"}: false,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &dimensionsReindex{enabled: true}
+			r.record("docs", "v2_acme", 1, true)
+			r.record("docs", "other", 1, true)
+			r.record("other", "v2_acme", 1, true)
+			if tt.forget != nil {
+				tt.forget(r)
+			}
+			for key, pending := range tt.expectedPending {
+				assert.Equal(t, pending, r.pending(key.index, key.shard), key)
+			}
+		})
+	}
+}
+
+func TestDB_DropForgetsDimensionsReindex(t *testing.T) {
+	class := &models.Class{
+		Class:               "Test",
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+	}
+	tests := []struct {
+		name string
+		drop func(t *testing.T, db *DB, index *Index, shard string)
+	}{
+		{
+			name: "index",
+			drop: func(t *testing.T, db *DB, _ *Index, _ string) {
+				require.NoError(t, db.DeleteIndex(schema.ClassName(class.Class)))
+			},
+		},
+		{
+			name: "shard",
+			drop: func(t *testing.T, _ *DB, index *Index, shard string) {
+				require.NoError(t, index.dropShards([]string{shard}))
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+			db.dimensionsReindex.enabled = true
+			index := db.GetIndex(schema.ClassName(class.Class))
+			require.NoError(t, db.PutObject(testCtx(), &models.Object{Class: class.Class, ID: strfmt.UUID(uuid.NewString())},
+				randVector(3), nil, nil, nil, 0))
+			var shard string
+			require.NoError(t, index.ForEachShard(func(name string, _ ShardLike) error {
+				shard = name
+				return nil
+			}))
+			require.False(t, db.dimensionsReindex.pending(index.ID(), shard), "the shard is reindexed as it loads")
+
+			tt.drop(t, db, index, shard)
+
+			assert.True(t, db.dimensionsReindex.pending(index.ID(), shard),
+				"a restore or a replica copy can bring the shard back with other dimensions")
+		})
+	}
 }
 
 // Complete is reported only when nothing is left, as the operator removes the flag then.
@@ -575,7 +668,7 @@ func TestReportVectorDimensionsReindex(t *testing.T) {
 		{
 			name: "failed shard",
 			prepare: func(t *testing.T, db *DB, _ *Index) {
-				db.dimensionsReindex.record("other", 0, false)
+				db.dimensionsReindex.record("other", "other", 0, false)
 			},
 			expectedErr: "1 failed",
 		},

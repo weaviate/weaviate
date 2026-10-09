@@ -19,6 +19,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -43,36 +44,56 @@ type dimensionsReindex struct {
 	enabled bool
 
 	mu sync.Mutex
-	// by shard id, whether its rebuild succeeded
-	outcomes map[string]bool
+	// whether the rebuild succeeded
+	outcomes map[dimensionsShard]bool
 	objects  int64
 }
 
-func (r *dimensionsReindex) pending(shardID string) bool {
+// dimensionsShard is not keyed by shardId, which joins names that may contain its "_"
+type dimensionsShard struct {
+	index, shard string
+}
+
+func (r *dimensionsReindex) pending(index, shard string) bool {
 	if r == nil || !r.enabled {
 		return false
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return !r.outcomes[shardID]
+	return !r.outcomes[dimensionsShard{index, shard}]
 }
 
-func (r *dimensionsReindex) record(shardID string, objects int, ok bool) {
+func (r *dimensionsReindex) record(index, shard string, objects int, ok bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.outcomes == nil {
-		r.outcomes = map[string]bool{}
+		r.outcomes = map[dimensionsShard]bool{}
 	}
-	r.outcomes[shardID] = ok
+	r.outcomes[dimensionsShard{index, shard}] = ok
 	if ok {
 		r.objects += int64(objects)
 	}
 }
 
-func (r *dimensionsReindex) done(shardID string) bool {
+func (r *dimensionsReindex) done(index, shard string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.outcomes[shardID]
+	return r.outcomes[dimensionsShard{index, shard}]
+}
+
+// forget makes dropped shards pending again, as a restore or a replica copy can bring
+// them back with other dimensions. No shards forgets the whole index.
+func (r *dimensionsReindex) forget(index string, shards ...string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for key := range r.outcomes {
+		if key.index == index && (len(shards) == 0 || slices.Contains(shards, key.shard)) {
+			delete(r.outcomes, key)
+		}
+	}
 }
 
 func (r *dimensionsReindex) summary() (rebuilt, failed int, objects int64) {
@@ -120,9 +141,8 @@ func (i *Index) prepareShardDimensions(ctx context.Context, class *models.Class,
 		return
 	}
 
-	shardID := shardId(i.ID(), name)
 	reindex := i.Config.DimensionsReindex
-	rebuild := reindex.pending(shardID)
+	rebuild := reindex.pending(i.ID(), name)
 
 	// a rebuild writes a RoaringSet bucket anyway
 	migrated, err := i.prepareUnloadedDimensionsBucket(ctx, name, i.Config.MigrateDimensionsToRoaringSet && !rebuild)
@@ -139,7 +159,7 @@ func (i *Index) prepareShardDimensions(ctx context.Context, class *models.Class,
 
 	start := time.Now()
 	objects, err := i.rebuildUnloadedShardDimensions(ctx, class, name)
-	reindex.record(shardID, objects, err == nil)
+	reindex.record(i.ID(), name, objects, err == nil)
 	if err != nil {
 		logger.Errorf("could not reindex dimensions: %v", err)
 		return
@@ -223,19 +243,19 @@ func (r dimensionsRows) set(key []byte, docID uint64) {
 // bucket in place is only logged; one that leaves none fails the load.
 func (s *Shard) reindexDimensionsOnLoad(ctx context.Context) error {
 	reindex := s.index.Config.DimensionsReindex
-	if !s.index.Config.TrackVectorDimensions || !reindex.pending(s.ID()) {
+	if !s.index.Config.TrackVectorDimensions || !reindex.pending(s.index.ID(), s.name) {
 		return nil
 	}
 	// such as a tenant created after startup
 	if s.counter.PreviewNext() == 0 {
-		reindex.record(s.ID(), 0, true)
+		reindex.record(s.index.ID(), s.name, 0, true)
 		return nil
 	}
 	logger := s.index.logger.WithField("action", "reindex_vector_dimensions").WithField("shard", s.ID())
 
 	start := time.Now()
 	objects, err := s.recalculateDimensions(ctx)
-	reindex.record(s.ID(), objects, err == nil)
+	reindex.record(s.index.ID(), s.name, objects, err == nil)
 	if err == nil {
 		logger.WithField("objects", objects).WithField("took", time.Since(start)).Info("dimensions reindexed")
 		return nil

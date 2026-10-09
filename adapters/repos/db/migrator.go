@@ -1042,7 +1042,7 @@ func (db *DB) dimensionsNotReindexed(className string) (notLoaded, inactive int,
 	}
 
 	reindexed := func(name string) bool {
-		return db.dimensionsReindex.done(shardId(indexID(schema.ClassName(className)), name))
+		return db.dimensionsReindex.done(indexID(schema.ClassName(className)), name)
 	}
 	for _, name := range cold {
 		if reindexed(name) {
