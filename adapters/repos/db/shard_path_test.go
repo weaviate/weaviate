@@ -71,3 +71,45 @@ func TestShardFileSanitize(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, file)
 }
+
+func TestShardFilePutterSanitize(t *testing.T) {
+	ctx := testCtx()
+	className := "TestClassFilePutter"
+	shd, idx := testShard(t, ctx, className)
+
+	// Reject path traversal that would write next to the data root.
+	outsideName := "weaviate-outside-data-root.txt"
+	wc, err := shd.filePutter(ctx, filepath.Join("..", outsideName))
+	require.Error(t, err)
+	require.Nil(t, wc)
+	_, err = os.Stat(filepath.Join(filepath.Dir(idx.Config.RootPath), outsideName))
+	require.Error(t, err)
+	require.True(t, os.IsNotExist(err))
+
+	// Reject absolute paths (e.g. /tmp/...).
+	wc, err = shd.filePutter(ctx, filepath.Join(string(filepath.Separator), "tmp", "weaviate-fileputter-probe"))
+	require.Error(t, err)
+	require.Nil(t, wc)
+
+	// Reject writes into another collection/shard under the same data root
+	// (reproduction B from #13099).
+	crossPath := filepath.Join("otherclass", "othershard", "injected.txt")
+	wc, err = shd.filePutter(ctx, crossPath)
+	require.Error(t, err)
+	require.Nil(t, wc)
+	_, err = os.Stat(filepath.Join(idx.Config.RootPath, crossPath))
+	require.Error(t, err)
+	require.True(t, os.IsNotExist(err))
+
+	// A path under this shard (DB-relative) must still be writable.
+	relUnderShard := filepath.Join(idx.ID(), shd.Name(), "safe-putter", "ok.txt")
+	wc, err = shd.filePutter(ctx, relUnderShard)
+	require.NoError(t, err)
+	require.NotNil(t, wc)
+	_, err = wc.Write([]byte("ok"))
+	require.NoError(t, err)
+	require.NoError(t, wc.Close())
+	content, err := os.ReadFile(filepath.Join(idx.Config.RootPath, relUnderShard))
+	require.NoError(t, err)
+	require.Equal(t, []byte("ok"), content)
+}
