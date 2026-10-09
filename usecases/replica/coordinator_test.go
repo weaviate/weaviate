@@ -565,3 +565,61 @@ func TestPullStopsWhenTheLevelBecomesUnreachable(t *testing.T) {
 	require.Less(t, elapsed, 10*time.Second,
 		"the pull must give up as soon as too few replicas can serve, not sit out its minute (took %s)", elapsed)
 }
+
+// At consistency ALL every host has its own worker and the retry queue starts empty, so a
+// worker whose host fails some other way never encounters the refusing one. Quorum does not
+// reproduce this: the shared queue hands the survivor a refusing host, which stops it.
+func TestPullStopsEveryWorkerWhenTheLevelBecomesUnreachable(t *testing.T) {
+	const (
+		cls   = "C1"
+		shard = "S1"
+	)
+
+	hosts := []types.Replica{
+		{NodeName: "A", ShardName: shard, HostAddr: "a:7001"},
+		{NodeName: "B", ShardName: shard, HostAddr: "b:7001"},
+		{NodeName: "C", ShardName: shard, HostAddr: "c:7001"},
+	}
+
+	logger, _ := test.NewNullLogger()
+	metrics, err := replica.NewMetrics(nil)
+	require.NoError(t, err)
+
+	options := types.RoutingPlanBuildOptions{Shard: shard, ConsistencyLevel: types.ConsistencyLevelAll}
+	router := types.NewMockRouter(t)
+	router.EXPECT().BuildRoutingPlanOptions(shard, shard, types.ConsistencyLevelAll, "").Return(options).Once()
+	router.EXPECT().BuildReadRoutingPlan(options).Return(types.ReadRoutingPlan{
+		Shard:               shard,
+		ReplicaSet:          types.ReadReplicaSet{Replicas: hosts},
+		ConsistencyLevel:    types.ConsistencyLevelAll,
+		IntConsistencyLevel: 3,
+	}, nil).Once()
+
+	c := replica.NewReadCoordinator[int](router, metrics, cls, shard, "", logger)
+
+	// A refuses, which puts ALL out of reach on its own. B and C fail retryably and, with
+	// nothing left on the queue, only ever retry themselves.
+	notReady := &clients.HTTPError{Code: http.StatusServiceUnavailable, Body: []byte("503 " + replica.NodeNotReadyMsg)}
+	serverError := &clients.HTTPError{Code: http.StatusInternalServerError, Body: []byte("500 boom")}
+	op := func(ctx context.Context, host string, _ bool) (int, error) {
+		if host == "a:7001" {
+			return 0, notReady
+		}
+		return 0, serverError
+	}
+
+	started := time.Now()
+	replyCh, level, err := c.Pull(context.Background(), types.ConsistencyLevelAll, op, "", time.Minute)
+	require.NoError(t, err)
+	require.Equal(t, 3, level)
+
+	var replies int
+	for range replyCh {
+		replies++
+	}
+	elapsed := time.Since(started)
+
+	require.Equal(t, level, replies, "one reply per worker, as the caller depends on")
+	require.Less(t, elapsed, 10*time.Second,
+		"the workers retrying a 500 must stop once the level is unreachable, not sit out their minute (took %s)", elapsed)
+}

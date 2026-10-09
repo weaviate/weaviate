@@ -359,14 +359,23 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 		}()
 
 		// replicas that said they cannot serve: once too few are left, waiting out the worker
-		// timeout cannot reach level, so the workers stop instead of retrying dead hosts
+		// timeout cannot reach level, so the workers stop instead of retrying dead hosts.
+		// Cancelling reaches every worker, not just the one that saw the refusal: a worker
+		// retrying some other error has no refusing host to learn it from.
+		unreachableCtx, unreachableCancel := context.WithCancel(ctx)
+		defer unreachableCancel()
+
 		var unreachableMu sync.Mutex
 		unreachable := make(map[string]struct{}, len(hosts))
 		levelUnreachable := func(host string) bool {
 			unreachableMu.Lock()
 			defer unreachableMu.Unlock()
 			unreachable[host] = struct{}{}
-			return len(hosts)-len(unreachable) < level
+			if len(hosts)-len(unreachable) < level {
+				unreachableCancel()
+				return true
+			}
+			return false
 		}
 
 		hostRetryQueue := make(chan hostRetry, len(hosts))
@@ -387,7 +396,7 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 			isFullReadWorker := hostIndex == 0 // first worker will perform the fullRead
 			workerFunc := func() {
 				defer wg.Done()
-				workerCtx, workerCancel := context.WithTimeout(ctx, timeout)
+				workerCtx, workerCancel := context.WithTimeout(unreachableCtx, timeout)
 				defer workerCancel()
 				// each worker will first try its corresponding host (eg worker0 tries hosts[0],
 				// worker1 tries hosts[1], etc). We want the fullRead to be tried on hosts[0]

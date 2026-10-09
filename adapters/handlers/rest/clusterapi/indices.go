@@ -1208,10 +1208,13 @@ func (i *indices) deleteObjects() http.Handler {
 		}
 
 		results := i.shards.DeleteObjectBatch(r.Context(), index, shard, uuids, deletionTimeUnix, dryRun, schemaVersion)
+		if wroteNotCaughtUp(w, batchDeleteErrors(results)) {
+			return
+		}
 
 		resBytes, err := shared.IndicesPayloads.BatchDeleteResults.Marshal(results)
 		if err != nil {
-			http.Error(w, err.Error(), operationStatus(err))
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
@@ -1505,6 +1508,16 @@ func unprocessableStatus(err error) int {
 		return http.StatusServiceUnavailable
 	}
 	return http.StatusUnprocessableEntity
+}
+
+// batchDeleteErrors lifts the per-object errors out of a batch delete result, which unlike the
+// other batch paths does not return []error.
+func batchDeleteErrors(results objects.BatchSimpleObjects) []error {
+	errs := make([]error, 0, len(results))
+	for _, result := range results {
+		errs = append(errs, result.Err)
+	}
+	return errs
 }
 
 // wroteNotCaughtUp answers a batch that failed only because this node is behind, and reports
