@@ -101,7 +101,7 @@ func (s *rolesAndUsersStores) createUser(t *testing.T, id, namespace string) {
 	t.Helper()
 	_, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
-	require.NoError(t, s.dynUser.CreateUser(id, hash, identifier, "", namespace, time.Now()))
+	require.NoError(t, s.dynUser.CreateUser(id, hash, identifier, "", namespace, time.Now(), time.Time{}))
 }
 
 func (s *rolesAndUsersStores) customRoles(t *testing.T) []string {

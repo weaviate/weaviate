@@ -2633,7 +2633,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or a record sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7751,6 +7751,12 @@ func init() {
                   "type": "string",
                   "format": "date-time"
                 },
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format at which the user's API key stops authenticating, stored in UTC with millisecond precision. It must be in the future. Setting it needs a Weaviate license key on the node, else the request answers 403. On a node with a license key, a request that also sets ` + "`" + `import` + "`" + ` to true answers 422. Absent means the key never expires.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
                 "import": {
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "type": "boolean",
@@ -7777,7 +7783,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or the body sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7998,6 +8004,85 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.users.db.deactivateUser"
+        ]
+      }
+    },
+    "/users/db/{user_id}/expiration": {
+      "put": {
+        "description": "Set or clear the time at which a database user's (` + "`" + `db` + "`" + ` user type) API key stops authenticating. The body sets exactly one of ` + "`" + `expiresAt` + "`" + `, which must be in the future, and ` + "`" + `neverExpires` + "`" + `, which must be true and clears the expiry. Any other body answers 422, and so do the caller's own user, root users and static users. A node without a Weaviate license key answers 403, so an expired user can then only be deleted and re-created.",
+        "tags": [
+          "users"
+        ],
+        "summary": "Set a user's expiration",
+        "operationId": "setUserExpiration",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the user.",
+            "name": "user_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "Set exactly one of ` + "`" + `expiresAt` + "`" + ` and ` + "`" + `neverExpires` + "`" + `.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format, stored in UTC with millisecond precision, at which the user's API key stops authenticating. It must be in the future.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
+                "neverExpires": {
+                  "description": "True clears the user's expiry, so the API key never expires. False answers 422.",
+                  "type": "boolean",
+                  "x-nullable": true
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User expiration successfully set."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden, because the caller lacks the permission or the node has no Weaviate license key.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "User not found."
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.db.setUserExpiration"
         ]
       }
     },
@@ -9077,6 +9162,12 @@ func init() {
           "type": "string",
           "format": "date-time"
         },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent or null means the key never expires, except that import never changes an existing user's expiry, so a record without one keeps the stored value. A new user takes the record's value, even one that has passed. A differing future value for an existing user gives that record an error result naming ` + "`" + `PUT /v1/users/db/{user_id}/expiration` + "`" + `. A differing past value gives ` + "`" + `skipped_exists` + "`" + ` for a deactivated user. For an active one it gives an error result advising to deactivate the user, or delete it and re-import, because that PUT refuses a past time. A node without a Weaviate license key refuses the whole import with 403 when any record sets a non-null ` + "`" + `expiresAt` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "namespace": {
           "description": "The namespace the user was bound to on the source. Informational on export; import binds the user to the request's target namespace.",
           "type": "string"
@@ -9143,6 +9234,12 @@ func init() {
             "db_user",
             "db_env_user"
           ]
+        },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent means the key never expires. Expiry does not change ` + "`" + `active` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
         },
         "lastUsedAt": {
           "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
@@ -10539,6 +10636,10 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "isDynamicDbUser": {
+          "description": "This is true when the API key resolved to a DB user record, which covers a dynamic DB user's own key and an imported static key. A login through the static API key list leaves it false, even when a DB user shares its name, though both carry userType db.",
+          "type": "boolean"
         },
         "isGlobalOperator": {
           "description": "True for principals that operate across all namespaces (e.g. static API keys). Authoritative marker for operator-level principals; do not infer from an empty namespace.",
@@ -12356,6 +12457,12 @@ func init() {
         "username"
       ],
       "properties": {
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the caller's API key stops authenticating. Absent means the key never expires, the caller is not a DB user, or DB user management is disabled.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "groups": {
           "description": "The groups associated with the user.",
           "type": "array",
@@ -15347,7 +15454,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or a record sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20575,6 +20682,12 @@ func init() {
                   "type": "string",
                   "format": "date-time"
                 },
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format at which the user's API key stops authenticating, stored in UTC with millisecond precision. It must be in the future. Setting it needs a Weaviate license key on the node, else the request answers 403. On a node with a license key, a request that also sets ` + "`" + `import` + "`" + ` to true answers 422. Absent means the key never expires.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
                 "import": {
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "type": "boolean",
@@ -20601,7 +20714,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or the body sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20822,6 +20935,85 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.users.db.deactivateUser"
+        ]
+      }
+    },
+    "/users/db/{user_id}/expiration": {
+      "put": {
+        "description": "Set or clear the time at which a database user's (` + "`" + `db` + "`" + ` user type) API key stops authenticating. The body sets exactly one of ` + "`" + `expiresAt` + "`" + `, which must be in the future, and ` + "`" + `neverExpires` + "`" + `, which must be true and clears the expiry. Any other body answers 422, and so do the caller's own user, root users and static users. A node without a Weaviate license key answers 403, so an expired user can then only be deleted and re-created.",
+        "tags": [
+          "users"
+        ],
+        "summary": "Set a user's expiration",
+        "operationId": "setUserExpiration",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the user.",
+            "name": "user_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "Set exactly one of ` + "`" + `expiresAt` + "`" + ` and ` + "`" + `neverExpires` + "`" + `.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format, stored in UTC with millisecond precision, at which the user's API key stops authenticating. It must be in the future.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
+                "neverExpires": {
+                  "description": "True clears the user's expiry, so the API key never expires. False answers 422.",
+                  "type": "boolean",
+                  "x-nullable": true
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User expiration successfully set."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden, because the caller lacks the permission or the node has no Weaviate license key.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "User not found."
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.db.setUserExpiration"
         ]
       }
     },
@@ -22012,6 +22204,12 @@ func init() {
           "type": "string",
           "format": "date-time"
         },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent or null means the key never expires, except that import never changes an existing user's expiry, so a record without one keeps the stored value. A new user takes the record's value, even one that has passed. A differing future value for an existing user gives that record an error result naming ` + "`" + `PUT /v1/users/db/{user_id}/expiration` + "`" + `. A differing past value gives ` + "`" + `skipped_exists` + "`" + ` for a deactivated user. For an active one it gives an error result advising to deactivate the user, or delete it and re-import, because that PUT refuses a past time. A node without a Weaviate license key refuses the whole import with 403 when any record sets a non-null ` + "`" + `expiresAt` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "namespace": {
           "description": "The namespace the user was bound to on the source. Informational on export; import binds the user to the request's target namespace.",
           "type": "string"
@@ -22078,6 +22276,12 @@ func init() {
             "db_user",
             "db_env_user"
           ]
+        },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent means the key never expires. Expiry does not change ` + "`" + `active` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
         },
         "lastUsedAt": {
           "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
@@ -23695,6 +23899,10 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "isDynamicDbUser": {
+          "description": "This is true when the API key resolved to a DB user record, which covers a dynamic DB user's own key and an imported static key. A login through the static API key list leaves it false, even when a DB user shares its name, though both carry userType db.",
+          "type": "boolean"
         },
         "isGlobalOperator": {
           "description": "True for principals that operate across all namespaces (e.g. static API keys). Authoritative marker for operator-level principals; do not infer from an empty namespace.",
@@ -25521,6 +25729,12 @@ func init() {
         "username"
       ],
       "properties": {
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the caller's API key stops authenticating. Absent means the key never expires, the caller is not a DB user, or DB user management is disabled.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "groups": {
           "description": "The groups associated with the user.",
           "type": "array",

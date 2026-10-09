@@ -185,6 +185,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/traverser"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 	"github.com/weaviate/weaviate/wl/backupdedupe"
+	wldbusers "github.com/weaviate/weaviate/wl/dbusers"
+	wldbusershandlers "github.com/weaviate/weaviate/wl/dbusers/handlers"
 	wlnshandlers "github.com/weaviate/weaviate/wl/namespaces/handlers"
 	"github.com/weaviate/weaviate/wl/selfrecovery"
 	srhandlers "github.com/weaviate/weaviate/wl/selfrecovery/handlers"
@@ -1532,6 +1534,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupAuthnHandlers(api,
 		appState.ClusterService.Raft,
 		appState.ServerConfig.Config.Authorization.Rbac,
+		appState.APIKey.Dynamic,
+		appState.ServerConfig.Config.Authentication.DBUsers.Enabled,
 		appState.Logger)
 	authz.SetupHandlers(api,
 		appState.ClusterService.Raft,
@@ -1546,7 +1550,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	replicationHandlers.SetupHandlers(appState.ServerConfig.Config.Replication.ReplicaMovementEnabled, api, appState.ClusterService.Raft, appState.Metrics, appState.Authorizer, appState.Logger)
 
 	remoteDbUsers := clients.NewRemoteUser(appState.ClusterHttpClient, appState.Cluster)
-	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.APIKey.Dynamic, appState.AuthzController, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.Cluster, appState.ServerConfig.Config.Namespaces.Enabled, appState.NamespacesController, appState.Logger)
+	dbUserExpirationMode := dbUserExpirationModeFor(appState.ServerConfig.Config)
+	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.APIKey.Dynamic, appState.AuthzController, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.Cluster, appState.ServerConfig.Config.Namespaces, appState.NamespacesController, dbUserExpiryResolver(dbUserExpirationMode), appState.Logger)
+	setupDBUserExpirationHandlers(api, dbUserExpirationMode, func(api *operations.WeaviateAPI) {
+		wldbusershandlers.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, wldbusers.NewValidatingExpiry(),
+			appState.ServerConfig.Config.Authorization.Rbac, appState.ServerConfig.Config.Authentication.APIKey, appState.ServerConfig.Config.Namespaces.Enabled)
+	})
 	setupNamespaceHandlers(api, namespaceModeFor(appState.ServerConfig.Config), func(api *operations.WeaviateAPI) {
 		wlnshandlers.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer)
 	})

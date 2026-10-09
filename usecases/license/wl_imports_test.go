@@ -32,6 +32,7 @@ const licensePkgPath = "github.com/weaviate/weaviate/usecases/license"
 // wlImporters are the only non-test files outside wl/ that may import wl/, each calling it only in FeatureLicensed.
 var wlImporters = []string{
 	"adapters/handlers/rest/configure_api.go",
+	"adapters/handlers/rest/db_user_expiration.go",
 	"adapters/handlers/rest/namespace_qualifier.go",
 }
 
@@ -41,6 +42,7 @@ var wlGates = map[string]bool{
 	"setupSelfRecoveryDebugHandlers": true,
 	"dedupePlannerFor":               true,
 	"setupNamespaceHandlers":         true,
+	"setupDBUserExpirationHandlers":  true,
 }
 
 // gateModeArgs maps each function that takes a feature's mode to the index of that argument; the argument must be a variable or a ModeFor call.
@@ -50,6 +52,8 @@ var gateModeArgs = map[string]int{
 	"dedupePlannerFor":               0,
 	"setupNamespaceHandlers":         1,
 	"namespaceQualifier":             0,
+	"setupDBUserExpirationHandlers":  1,
+	"dbUserExpiryResolver":           0,
 }
 
 type goFile struct {
@@ -598,6 +602,8 @@ func f(mode license.Mode) { selfRecoveryFor(mode, nil, nil) }`},
 		{name: "gate mode from another expression", body: `func f(m []license.Mode) { setupNamespaceHandlers(nil, m[0], nil) }`, want: []string{"fixture.go:5: setupNamespaceHandlers mode argument"}},
 		{name: "gate mode from a call that is not ModeFor", body: `func f() { setupSelfRecoveryDebugHandlers(nil, pickMode(), nil) }`, want: []string{"fixture.go:5: setupSelfRecoveryDebugHandlers mode argument"}},
 		{name: "qualifier mode from a literal", body: `func f() { namespaceQualifier(2) }`, want: []string{"fixture.go:5: namespaceQualifier mode argument"}},
+		{name: "expiration gate mode from a literal", body: `func f() { setupDBUserExpirationHandlers(nil, 2, nil) }`, want: []string{"fixture.go:5: setupDBUserExpirationHandlers mode argument"}},
+		{name: "expiry resolver mode from a literal", body: `func f() { dbUserExpiryResolver(2) }`, want: []string{"fixture.go:5: dbUserExpiryResolver mode argument"}},
 		{name: "parenthesised gate", body: `func f() { (selfRecoveryFor)(2, nil, nil) }`, want: []string{"fixture.go:5: selfRecoveryFor mode argument"}},
 		{name: "gate mode from a literal without a license import", imp: `"github.com/weaviate/weaviate/usecases/other"`, body: `func f() { selfRecoveryFor(2, nil, nil) }`, want: []string{"fixture.go:5: selfRecoveryFor mode argument"}},
 		{name: "typed var from another mode", body: `var m license.Mode = license.FeatureOff`, want: []string{"fixture.go:5: license.Mode declaration"}},

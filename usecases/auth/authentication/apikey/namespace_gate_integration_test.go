@@ -87,6 +87,6 @@ func createUser(t *testing.T, w *ApiKey, userId, namespace string) (apiKey strin
 	t.Helper()
 	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
-	require.NoError(t, w.Dynamic.CreateUser(userId, hash, identifier, "", namespace, time.Now()))
+	require.NoError(t, w.Dynamic.CreateUser(userId, hash, identifier, "", namespace, time.Now(), time.Time{}))
 	return apiKey
 }

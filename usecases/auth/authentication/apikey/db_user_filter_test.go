@@ -13,7 +13,9 @@ package apikey
 
 import (
 	"crypto/sha256"
+	"reflect"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -245,4 +247,51 @@ func TestStripDBUserNamespace_RejectsCollision(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), `"alice"`)
 	require.Empty(t, out.Users)
+}
+
+// TestUser_CopiesCarryEveryField pins that view() and stripDBUserNamespace copy
+// every exported User field, so a field added to User reaches GetUsers and a
+// restore with stripped namespaces.
+func TestUser_CopiesCarryEveryField(t *testing.T) {
+	t.Parallel()
+
+	src := &User{}
+	fields := reflect.ValueOf(src).Elem()
+	base := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+	hours := 0
+	for name, value := range exportedFields(fields) {
+		field := fields.FieldByName(name)
+		switch value.(type) {
+		case string:
+			field.SetString(name)
+		case bool:
+			field.SetBool(true)
+		case time.Time:
+			hours++
+			field.Set(reflect.ValueOf(base.Add(time.Duration(hours) * time.Hour)))
+		default:
+			t.Fatalf("no test value for User.%s of type %T", name, value)
+		}
+	}
+	want := exportedFields(fields)
+
+	require.Equal(t, want, exportedFields(reflect.ValueOf(src.view())),
+		"view() must copy every User field into UserView")
+
+	out, err := stripDBUserNamespace(dbUserdata{Users: map[string]*User{"ns1:alice": src}})
+	require.NoError(t, err)
+	want["Id"], want["Namespace"] = "alice", ""
+	require.Equal(t, want, exportedFields(reflect.ValueOf(out.Users["alice"]).Elem()),
+		"stripDBUserNamespace must copy every User field and change only Id and Namespace")
+}
+
+// exportedFields maps each exported, non-embedded field of struct v to its value.
+func exportedFields(v reflect.Value) map[string]any {
+	out := make(map[string]any, v.NumField())
+	for i := 0; i < v.NumField(); i++ {
+		if f := v.Type().Field(i); !f.Anonymous && f.IsExported() {
+			out[f.Name] = v.Field(i).Interface()
+		}
+	}
+	return out
 }

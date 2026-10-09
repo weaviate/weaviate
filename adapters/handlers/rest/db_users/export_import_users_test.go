@@ -15,7 +15,10 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
+	"github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -29,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/namespaces"
+	wldbusers "github.com/weaviate/weaviate/wl/dbusers"
 )
 
 // Import decodes the hash and rejects zero cost parameters, so the valid
@@ -80,11 +84,12 @@ func TestExportUsersHandler(t *testing.T) {
 	})
 
 	t.Run("emits record and sentinel per user", func(t *testing.T) {
+		expiresAt := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
 		authorizer := authorization.NewMockAuthorizer(t)
 		authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users("*")[0]).Return(nil)
 		dynUser := NewMockDbUserAndRolesGetter(t)
 		dynUser.On("ExportUsers").Return(map[string]dbuser.ExportRecord{
-			"strong":   {Id: "strong", UserIdentifier: "identifier-16-ch", ApiKeyFirstLetters: "abc", Active: true, Status: dbuser.ExportStatusExported, SecureHash: strptr(strongHash)},
+			"strong":   {Id: "strong", UserIdentifier: "identifier-16-ch", ApiKeyFirstLetters: "abc", Active: true, Status: dbuser.ExportStatusExported, SecureHash: strptr(strongHash), ExpiresAt: expiresAt},
 			"imported": {Id: "imported", Status: dbuser.ExportStatusImportedKey},
 		}, nil)
 
@@ -100,8 +105,10 @@ func TestExportUsersHandler(t *testing.T) {
 		}
 		require.Equal(t, models.DBUserCredentialStatusExported, byID["strong"].Status)
 		require.Equal(t, strongHash, byID["strong"].SecureHash)
+		require.Equal(t, new(strfmt.DateTime(expiresAt)), byID["strong"].ExpiresAt)
 		require.Equal(t, models.DBUserCredentialStatusImportedKey, byID["imported"].Status)
 		require.Empty(t, byID["imported"].SecureHash)
+		require.Nil(t, byID["imported"].ExpiresAt)
 	})
 
 	t.Run("response ids are stripped to bare form", func(t *testing.T) {
@@ -171,7 +178,7 @@ func TestImportUsersHandler(t *testing.T) {
 	}
 
 	t.Run("forbidden for a non-root caller before any authorization", func(t *testing.T) {
-		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: NewMockDbUserAndRolesGetter(t), authorizer: authorization.NewMockAuthorizer(t), dbUserEnabled: true, namespacesEnabled: true, namespaces: namespaces.NewMockExister(t)}
+		h := dynUserHandler{expiry: unlicensedExpiry, rbacConfig: rootOnly, dbUsers: NewMockDbUserAndRolesGetter(t), authorizer: authorization.NewMockAuthorizer(t), dbUserEnabled: true, namespacesEnabled: true, namespaces: namespaces.NewMockExister(t)}
 		res := h.importUsers(importOne(strongRecord(true)), &models.Principal{Username: "admin", IsGlobalOperator: true})
 		_, ok := res.(*experimental.ImportUsersForbidden)
 		assert.True(t, ok)
@@ -184,9 +191,9 @@ func TestImportUsersHandler(t *testing.T) {
 		dynUser := NewMockDbUserAndRolesGetter(t)
 		dynUser.On("ExportUsers", key).Return(map[string]dbuser.ExportRecord{}, nil)
 		dynUser.On("CheckUserIdentifierExists", "identifier-16-ch").Return(false, nil)
-		dynUser.On("CreateUser", mock.Anything, key, strongHash, "identifier-16-ch", "abc", "ns1", mock.Anything).Return(nil)
+		dynUser.On("CreateUser", mock.Anything, key, strongHash, "identifier-16-ch", "abc", "ns1", mock.Anything, mock.Anything).Return(nil)
 
-		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
+		h := dynUserHandler{expiry: unlicensedExpiry, rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
 		result := firstResult(t, h.importUsers(importOne(strongRecord(true)), principal))
 		require.Equal(t, models.UserImportResultStatusCreated, *result.Status)
 	})
@@ -196,7 +203,7 @@ func TestImportUsersHandler(t *testing.T) {
 		wildcardKey := apikey.MakeUserKey("*", "ns1")
 		authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(wildcardKey)[0]).Return(nil)
 		// No store or namespace calls are mocked: the handler must not touch them.
-		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: NewMockDbUserAndRolesGetter(t), authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: namespaces.NewMockExister(t)}
+		h := dynUserHandler{expiry: unlicensedExpiry, rbacConfig: rootOnly, dbUsers: NewMockDbUserAndRolesGetter(t), authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: namespaces.NewMockExister(t)}
 		res := h.importUsers(experimental.ImportUsersParams{HTTPRequest: req, Body: &models.UserImportRequest{Namespace: "ns1"}}, principal)
 		parsed, ok := res.(*experimental.ImportUsersOK)
 		require.True(t, ok)
@@ -207,7 +214,7 @@ func TestImportUsersHandler(t *testing.T) {
 		authorizer := authorization.NewMockAuthorizer(t)
 		wildcardKey := apikey.MakeUserKey("*", "ns1")
 		authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(wildcardKey)[0]).Return(errors.New("denied"))
-		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: NewMockDbUserAndRolesGetter(t), authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: namespaces.NewMockExister(t)}
+		h := dynUserHandler{expiry: unlicensedExpiry, rbacConfig: rootOnly, dbUsers: NewMockDbUserAndRolesGetter(t), authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: namespaces.NewMockExister(t)}
 		res := h.importUsers(experimental.ImportUsersParams{HTTPRequest: req, Body: &models.UserImportRequest{Namespace: "ns1"}}, principal)
 		_, ok := res.(*experimental.ImportUsersForbidden)
 		assert.True(t, ok)
@@ -218,24 +225,49 @@ func TestImportUsersHandler(t *testing.T) {
 		authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(key)[0]).Return(errors.New("denied"))
 		dynUser := NewMockDbUserAndRolesGetter(t)
 
-		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: namespaces.NewMockExister(t)}
+		h := dynUserHandler{expiry: unlicensedExpiry, rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: namespaces.NewMockExister(t)}
 		res := h.importUsers(importOne(strongRecord(true)), principal)
 		_, ok := res.(*experimental.ImportUsersForbidden)
 		assert.True(t, ok)
 	})
 
 	t.Run("rejects import into an inactive namespace", func(t *testing.T) {
-		authorizer := authorization.NewMockAuthorizer(t)
-		authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(key)[0]).Return(nil)
-		authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(key)[0]).Return(nil)
-		dynUser := NewMockDbUserAndRolesGetter(t)
-		ns := namespaces.NewMockExister(t)
-		ns.On("GetNamespace", mock.AnythingOfType("string")).Return(api.Namespace{}, false).Maybe()
+		tests := []struct {
+			name             string
+			namespace        api.Namespace
+			exists           bool
+			suspendedMessage string
+			wantMsg          string
+		}{
+			{name: "missing", wantMsg: "instance unavailable"},
+			{
+				name:             "suspended renders NAMESPACE_SUSPENDED_MESSAGE",
+				namespace:        api.Namespace{Name: "ns1", State: api.NamespaceStateSuspended},
+				exists:           true,
+				suspendedMessage: "paused",
+				wantMsg:          "paused",
+			},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				authorizer := authorization.NewMockAuthorizer(t)
+				authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(key)[0]).Return(nil)
+				authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(key)[0]).Return(nil)
+				dynUser := NewMockDbUserAndRolesGetter(t)
+				ns := namespaces.NewMockExister(t)
+				ns.On("GetNamespace", "ns1").Return(tc.namespace, tc.exists)
 
-		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: ns}
-		res := h.importUsers(importOne(strongRecord(true)), principal)
-		_, ok := res.(*experimental.ImportUsersUnprocessableEntity)
-		assert.True(t, ok)
+				h := dynUserHandler{
+					expiry: unlicensedExpiry, rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true,
+					namespacesEnabled: true, namespaceSuspendedMessage: tc.suspendedMessage, namespaces: ns,
+				}
+				res := h.importUsers(importOne(strongRecord(true)), principal)
+				parsed, ok := res.(*experimental.ImportUsersUnprocessableEntity)
+				require.True(t, ok, "got %T", res)
+				require.Len(t, parsed.Payload.Error, 1)
+				assert.Equal(t, tc.wantMsg, parsed.Payload.Error[0].Message)
+			})
+		}
 	})
 
 	t.Run("rejects a supplied namespace on a non-namespaced cluster", func(t *testing.T) {
@@ -246,7 +278,7 @@ func TestImportUsersHandler(t *testing.T) {
 		authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(nsKey)[0]).Return(nil)
 		dynUser := NewMockDbUserAndRolesGetter(t)
 
-		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: false}
+		h := dynUserHandler{expiry: unlicensedExpiry, rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: false}
 		res := h.importUsers(importOne(strongRecord(true)), principal)
 		_, ok := res.(*experimental.ImportUsersUnprocessableEntity)
 		assert.True(t, ok)
@@ -261,7 +293,7 @@ func TestImportUsersHandler(t *testing.T) {
 		dynUser.On("CheckUserIdentifierExists", "identifier-16-ch").Return(true, nil)
 		// CreateUser is deliberately not mocked: it must not be called on a clobber.
 
-		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
+		h := dynUserHandler{expiry: unlicensedExpiry, rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
 		result := firstResult(t, h.importUsers(importOne(strongRecord(true)), principal))
 		require.Equal(t, models.UserImportResultStatusError, *result.Status)
 		require.Contains(t, result.Error, "different target user")
@@ -274,7 +306,7 @@ func TestImportUsersHandler(t *testing.T) {
 		dynUser := NewMockDbUserAndRolesGetter(t)
 		dynUser.On("ExportUsers", key).Return(map[string]dbuser.ExportRecord{key: {Id: key, UserIdentifier: "other-identifier", Active: true, Status: dbuser.ExportStatusExported}}, nil)
 
-		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
+		h := dynUserHandler{expiry: unlicensedExpiry, rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
 		result := firstResult(t, h.importUsers(importOne(strongRecord(true)), principal))
 		require.Equal(t, models.UserImportResultStatusError, *result.Status)
 	})
@@ -288,7 +320,7 @@ func TestImportUsersHandler(t *testing.T) {
 		dynUser.On("ExportUsers", key).Return(map[string]dbuser.ExportRecord{key: {Id: key, UserIdentifier: "identifier-16-ch", Active: true, Status: dbuser.ExportStatusExported}}, nil)
 		dynUser.On("DeactivateUser", mock.Anything, key, false).Return(nil)
 
-		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
+		h := dynUserHandler{expiry: unlicensedExpiry, rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
 		result := firstResult(t, h.importUsers(importOne(strongRecord(false)), principal))
 		require.Equal(t, models.UserImportResultStatusReconciled, *result.Status)
 	})
@@ -300,7 +332,7 @@ func TestImportUsersHandler(t *testing.T) {
 		// No store method is mocked: the whole batch is refused before any read or write.
 		dynUser := NewMockDbUserAndRolesGetter(t)
 
-		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: namespaces.NewMockExister(t)}
+		h := dynUserHandler{expiry: unlicensedExpiry, rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: namespaces.NewMockExister(t)}
 		res := h.importUsers(importOne(strongRecord(false)), principal)
 		_, ok := res.(*experimental.ImportUsersForbidden)
 		assert.True(t, ok)
@@ -313,7 +345,7 @@ func TestImportUsersHandler(t *testing.T) {
 		dynUser := NewMockDbUserAndRolesGetter(t)
 		dynUser.On("ExportUsers", key).Return(map[string]dbuser.ExportRecord{key: {Id: key, UserIdentifier: "identifier-16-ch", Active: true, Status: dbuser.ExportStatusExported}}, nil)
 
-		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
+		h := dynUserHandler{expiry: unlicensedExpiry, rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
 		result := firstResult(t, h.importUsers(importOne(strongRecord(true)), principal))
 		require.Equal(t, models.UserImportResultStatusSkippedExists, *result.Status)
 	})
@@ -325,10 +357,10 @@ func TestImportUsersHandler(t *testing.T) {
 		dynUser := NewMockDbUserAndRolesGetter(t)
 		dynUser.On("ExportUsers", key).Return(map[string]dbuser.ExportRecord{}, nil)
 		dynUser.On("CheckUserIdentifierExists", "identifier-16-ch").Return(false, nil)
-		dynUser.On("CreateUser", mock.Anything, key, strongHash, "identifier-16-ch", "abc", "ns1", mock.Anything).Return(nil)
+		dynUser.On("CreateUser", mock.Anything, key, strongHash, "identifier-16-ch", "abc", "ns1", mock.Anything, mock.Anything).Return(nil)
 		dynUser.On("DeactivateUser", mock.Anything, key, false).Return(errors.New("raft down"))
 
-		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
+		h := dynUserHandler{expiry: unlicensedExpiry, rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
 		result := firstResult(t, h.importUsers(importOne(strongRecord(false)), principal))
 		require.Equal(t, models.UserImportResultStatusError, *result.Status)
 		require.Contains(t, result.Error, "re-run to reconcile")
@@ -359,7 +391,7 @@ func TestImportUsersHandler(t *testing.T) {
 				rec := strongRecord(true)
 				rec.SecureHash = tc.hash
 
-				h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
+				h := dynUserHandler{expiry: unlicensedExpiry, rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
 				result := firstResult(t, h.importUsers(importOne(rec), principal))
 				require.Equal(t, models.UserImportResultStatusError, *result.Status)
 				require.Contains(t, result.Error, "argon2id")
@@ -388,7 +420,7 @@ func TestImportUsersHandler(t *testing.T) {
 				rec := strongRecord(true)
 				rec.UserIdentifier = tc.identifier
 
-				h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
+				h := dynUserHandler{expiry: unlicensedExpiry, rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
 				result := firstResult(t, h.importUsers(importOne(rec), principal))
 				require.Equal(t, models.UserImportResultStatusError, *result.Status)
 				require.Contains(t, result.Error, "userIdentifier must be exactly 16 characters")
@@ -404,6 +436,7 @@ func TestImportUsersHandler(t *testing.T) {
 		dynUser := NewMockDbUserAndRolesGetter(t)
 
 		h := dynUserHandler{
+			expiry:               unlicensedExpiry,
 			rbacConfig:           rootOnly,
 			dbUsers:              dynUser,
 			authorizer:           authorizer,
@@ -426,7 +459,7 @@ func TestImportUsersHandler(t *testing.T) {
 		// would be reported as reconciled while the key stays unusable.
 		dynUser.On("ExportUsers", key).Return(map[string]dbuser.ExportRecord{key: {Id: key, UserIdentifier: "identifier-16-ch", Active: false, Status: dbuser.ExportStatusRevoked}}, nil)
 
-		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
+		h := dynUserHandler{expiry: unlicensedExpiry, rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
 		result := firstResult(t, h.importUsers(importOne(strongRecord(true)), principal))
 		require.Equal(t, models.UserImportResultStatusError, *result.Status)
 		require.Contains(t, result.Error, "revoked")
@@ -440,28 +473,54 @@ func TestImportUsersHandler(t *testing.T) {
 		// An imported user authenticates on a weak hash that import cannot replace.
 		dynUser.On("ExportUsers", key).Return(map[string]dbuser.ExportRecord{key: {Id: key, UserIdentifier: "identifier-16-ch", Active: true, Status: dbuser.ExportStatusImportedKey}}, nil)
 
-		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
+		h := dynUserHandler{expiry: unlicensedExpiry, rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
 		result := firstResult(t, h.importUsers(importOne(strongRecord(false)), principal))
 		require.Equal(t, models.UserImportResultStatusError, *result.Status)
 		require.Contains(t, result.Error, "imported static key")
 	})
 
-	t.Run("maps an apply-time user conflict to a per-record error", func(t *testing.T) {
-		authorizer := authorization.NewMockAuthorizer(t)
-		authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(key)[0]).Return(nil)
-		authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(key)[0]).Return(nil)
-		dynUser := NewMockDbUserAndRolesGetter(t)
-		// The pre-checks pass, then the leader refuses: a concurrent create took
-		// the id between the read and the apply.
-		dynUser.On("ExportUsers", key).Return(map[string]dbuser.ExportRecord{}, nil)
-		dynUser.On("CheckUserIdentifierExists", "identifier-16-ch").Return(false, nil)
-		dynUser.On("CreateUser", mock.Anything, key, strongHash, "identifier-16-ch", "abc", "ns1", mock.Anything).
-			Return(fmt.Errorf("creating user: %w", apikey.ErrUserExists))
+	t.Run("maps an apply-time create refusal to a per-record error", func(t *testing.T) {
+		// The pre-checks pass, then the leader refuses the create.
+		tests := []struct {
+			name      string
+			createErr error
+			wantErr   string
+		}{
+			{
+				name:      "a concurrent create took the id",
+				createErr: fmt.Errorf("creating user: %w", apikey.ErrUserExists),
+				wantErr:   "a different credential already exists for this user id",
+			},
+			{
+				name:      "namespace suspended after the pre-check renders NAMESPACE_SUSPENDED_MESSAGE",
+				createErr: fmt.Errorf("creating user: %w", namespaces.ErrNamespaceSuspended),
+				wantErr:   "paused",
+			},
+			{
+				name:      "a non-namespace failure keeps its detail",
+				createErr: errors.New("raft down"),
+				wantErr:   "creating user: raft down",
+			},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				authorizer := authorization.NewMockAuthorizer(t)
+				authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(key)[0]).Return(nil)
+				authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(key)[0]).Return(nil)
+				dynUser := NewMockDbUserAndRolesGetter(t)
+				dynUser.On("ExportUsers", key).Return(map[string]dbuser.ExportRecord{}, nil)
+				dynUser.On("CheckUserIdentifierExists", "identifier-16-ch").Return(false, nil)
+				dynUser.On("CreateUser", mock.Anything, key, strongHash, "identifier-16-ch", "abc", "ns1", mock.Anything, mock.Anything).Return(tc.createErr)
 
-		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
-		result := firstResult(t, h.importUsers(importOne(strongRecord(true)), principal))
-		require.Equal(t, models.UserImportResultStatusError, *result.Status)
-		require.Equal(t, "a different credential already exists for this user id", result.Error)
+				h := dynUserHandler{
+					expiry: unlicensedExpiry, rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true,
+					namespacesEnabled: true, namespaceSuspendedMessage: "paused", namespaces: activeNsExister(t),
+				}
+				result := firstResult(t, h.importUsers(importOne(strongRecord(true)), principal))
+				require.Equal(t, models.UserImportResultStatusError, *result.Status)
+				require.Equal(t, tc.wantErr, result.Error)
+			})
+		}
 	})
 
 	t.Run("reports a null record as an error instead of panicking", func(t *testing.T) {
@@ -471,9 +530,152 @@ func TestImportUsersHandler(t *testing.T) {
 		authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(apikey.MakeUserKey("", "ns1"))[0]).Return(nil)
 		dynUser := NewMockDbUserAndRolesGetter(t)
 
-		h := dynUserHandler{rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
+		h := dynUserHandler{expiry: unlicensedExpiry, rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
 		result := firstResult(t, h.importUsers(importOne(nil), principal))
 		require.Equal(t, models.UserImportResultStatusError, *result.Status)
 		require.Contains(t, result.Error, "null")
+	})
+
+	t.Run("expiresAt", func(t *testing.T) {
+		licensed := wldbusers.NewValidatingExpiry()
+		past := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
+		future := time.Now().Add(time.Hour).UTC().Truncate(time.Millisecond)
+		year10000InUTC := time.Date(9999, 12, 31, 23, 59, 59, 0, time.FixedZone("-01:00", -60*60))
+		record := func(id string, active bool, expiresAt *time.Time) *models.DBUserCredential {
+			rec := strongRecord(active)
+			rec.UserID = strptr(id)
+			rec.ExpiresAt = (*strfmt.DateTime)(expiresAt)
+			return rec
+		}
+		expectCreate := func(expiresAt time.Time) func(*MockDbUserAndRolesGetter) {
+			return func(m *MockDbUserAndRolesGetter) {
+				m.On("ExportUsers", key).Return(map[string]dbuser.ExportRecord{}, nil)
+				m.On("CheckUserIdentifierExists", "identifier-16-ch").Return(false, nil)
+				m.On("CreateUser", mock.Anything, key, strongHash, "identifier-16-ch", "abc", "ns1", mock.Anything, expiresAt).Return(nil).Once()
+			}
+		}
+		expectReconcile := func(m *MockDbUserAndRolesGetter) {
+			m.On("ExportUsers", key).Return(map[string]dbuser.ExportRecord{key: {Id: key, UserIdentifier: "identifier-16-ch", Active: true, Status: dbuser.ExportStatusExported, ExpiresAt: past}}, nil)
+		}
+
+		cases := []struct {
+			name            string
+			expiry          apikey.ExpiryResolver
+			records         []*models.DBUserCredential
+			store           func(*MockDbUserAndRolesGetter)
+			wantResponse    middleware.Responder
+			wantStatuses    []string
+			wantErrContains string
+		}{
+			{
+				name:         "unlicensed refuses the whole batch when a later record carries one",
+				expiry:       unlicensedExpiry,
+				records:      []*models.DBUserCredential{record("bob", true, nil), record("alice", true, &future)},
+				wantResponse: &experimental.ImportUsersForbidden{},
+			},
+			{
+				name:         "licensed refuses the whole batch with 422 when a later record's expiry is invalid",
+				expiry:       licensed,
+				records:      []*models.DBUserCredential{record("bob", true, &past), record("alice", true, &year10000InUTC)},
+				wantResponse: &experimental.ImportUsersUnprocessableEntity{},
+			},
+			{
+				name:         "licensed reports a null record and imports the next",
+				expiry:       licensed,
+				records:      []*models.DBUserCredential{nil, record("bob", true, &past)},
+				store:        expectCreate(past),
+				wantStatuses: []string{models.UserImportResultStatusError, models.UserImportResultStatusCreated},
+			},
+			{
+				name:            "reconcile refuses a different future expiry",
+				expiry:          licensed,
+				records:         []*models.DBUserCredential{record("bob", true, &future)},
+				store:           expectReconcile,
+				wantStatuses:    []string{models.UserImportResultStatusError},
+				wantErrContains: "change it with " + setExpirationRoute,
+			},
+			{
+				name:    "reconcile refuses a different future expiry onto a deactivated user before activating it",
+				expiry:  licensed,
+				records: []*models.DBUserCredential{record("bob", true, &future)},
+				store: func(m *MockDbUserAndRolesGetter) {
+					m.On("ExportUsers", key).Return(map[string]dbuser.ExportRecord{key: {Id: key, UserIdentifier: "identifier-16-ch", Active: false, Status: dbuser.ExportStatusExported, ExpiresAt: past}}, nil)
+				},
+				wantStatuses: []string{models.UserImportResultStatusError},
+			},
+			{
+				name:    "reconcile refuses a passed expiry onto an active user without one, advising deactivation",
+				expiry:  licensed,
+				records: []*models.DBUserCredential{record("bob", true, &past)},
+				store: func(m *MockDbUserAndRolesGetter) {
+					m.On("ExportUsers", key).Return(map[string]dbuser.ExportRecord{key: {Id: key, UserIdentifier: "identifier-16-ch", Active: true, Status: dbuser.ExportStatusExported}}, nil)
+				},
+				wantStatuses:    []string{models.UserImportResultStatusError},
+				wantErrContains: "deactivate the user, or delete it and re-import",
+			},
+			{
+				name:    "reconcile skips a passed expiry onto a deactivated user without re-activating it",
+				expiry:  licensed,
+				records: []*models.DBUserCredential{record("bob", true, &past)},
+				store: func(m *MockDbUserAndRolesGetter) {
+					m.On("ExportUsers", key).Return(map[string]dbuser.ExportRecord{key: {Id: key, UserIdentifier: "identifier-16-ch", Active: false, Status: dbuser.ExportStatusExported}}, nil)
+				},
+				wantStatuses: []string{models.UserImportResultStatusSkippedExists},
+			},
+			{
+				name:         "reconcile without expiry keeps the existing one",
+				expiry:       licensed,
+				records:      []*models.DBUserCredential{record("bob", true, nil)},
+				store:        expectReconcile,
+				wantStatuses: []string{models.UserImportResultStatusSkippedExists},
+			},
+			{
+				name:         "reconcile with an equal expiry skips",
+				expiry:       licensed,
+				records:      []*models.DBUserCredential{record("bob", true, new(past.In(time.FixedZone("+02:00", 2*60*60))))},
+				store:        expectReconcile,
+				wantStatuses: []string{models.UserImportResultStatusSkippedExists},
+			},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				keys := make([]string, 0, len(tc.records))
+				for _, rec := range tc.records {
+					keys = append(keys, apikey.MakeUserKey(bareUserID(rec), "ns1"))
+				}
+				authorizer := authorization.NewMockAuthorizer(t)
+				for _, verb := range []string{authorization.CREATE, authorization.UPDATE} {
+					args := []any{mock.Anything, principal, verb}
+					for _, resource := range authorization.Users(keys...) {
+						args = append(args, resource)
+					}
+					authorizer.On("Authorize", args...).Return(nil)
+				}
+				// A store call the row does not expect fails the test, so a refused
+				// batch writes nothing.
+				dynUser := NewMockDbUserAndRolesGetter(t)
+				if tc.store != nil {
+					tc.store(dynUser)
+				}
+
+				h := dynUserHandler{expiry: tc.expiry, rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
+				res := h.importUsers(experimental.ImportUsersParams{HTTPRequest: req, Body: &models.UserImportRequest{Namespace: "ns1", Users: tc.records}}, principal)
+
+				if tc.wantResponse != nil {
+					require.IsType(t, tc.wantResponse, res)
+					return
+				}
+				parsed, ok := res.(*experimental.ImportUsersOK)
+				require.True(t, ok)
+				statuses := make([]string, 0, len(parsed.Payload.Results))
+				for _, result := range parsed.Payload.Results {
+					statuses = append(statuses, *result.Status)
+				}
+				require.Equal(t, tc.wantStatuses, statuses)
+				if tc.wantErrContains != "" {
+					require.Contains(t, parsed.Payload.Results[0].Error, tc.wantErrContains)
+				}
+			})
+		}
 	})
 }

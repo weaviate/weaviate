@@ -32,8 +32,14 @@ import (
 // RAFT apply, back up).
 func setupRaftForNamespaceTests(t *testing.T) (*Raft, context.Context, func()) {
 	t.Helper()
+	return startSingleNodeRaft(t, NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort()))
+}
+
+// startSingleNodeRaft opens m's store as a single-node RAFT cluster and waits
+// until it has leadership.
+func startSingleNodeRaft(t *testing.T, m MockStore) (*Raft, context.Context, func()) {
+	t.Helper()
 	ctx := context.Background()
-	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
 	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
 
 	m.indexer.On("Open", Anything).Return(nil)

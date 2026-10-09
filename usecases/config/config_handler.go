@@ -1294,6 +1294,11 @@ type Namespaces struct {
 	// below zero. No value of this field stops the sweep — a very long
 	// interval parks it, and Enabled above turns it off.
 	CleanupInterval *runtime.DynamicValue[time.Duration] `json:"cleanup_interval" yaml:"cleanup_interval"`
+
+	// SuspendedMessage, when non-empty, replaces "instance suspended" as the
+	// copy namespaces.PublicMessage returns for a suspended namespace. Every
+	// node must set NAMESPACE_SUSPENDED_MESSAGE to the same value.
+	SuspendedMessage string `json:"-" yaml:"-"`
 }
 
 const (

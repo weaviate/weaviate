@@ -99,6 +99,7 @@ var ungatedApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_SUSPEND_USER:                                               {},
 	api.ApplyRequest_TYPE_ACTIVATE_USER:                                              {},
 	api.ApplyRequest_TYPE_CREATE_USER_WITH_KEY:                                       {},
+	api.ApplyRequest_TYPE_UPDATE_USER:                                                {},
 	api.ApplyRequest_TYPE_DELETE_USERS_IN_NAMESPACE:                                  {},
 	api.ApplyRequest_TYPE_ADD_NAMESPACE:                                              {},
 	api.ApplyRequest_TYPE_UPDATE_NAMESPACE:                                           {},

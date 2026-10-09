@@ -143,7 +143,7 @@ func (o *CreateUserUnauthorized) WriteResponse(rw http.ResponseWriter, producer 
 const CreateUserForbiddenCode int = 403
 
 /*
-CreateUserForbidden Forbidden
+CreateUserForbidden Forbidden, or the body sets `expiresAt` and the node holds no Weaviate license key.
 
 swagger:response createUserForbidden
 */

@@ -13,9 +13,11 @@ package rest
 
 import (
 	"github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
 	cerrors "github.com/weaviate/weaviate/adapters/handlers/rest/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
@@ -29,12 +31,15 @@ import (
 type authNHandlers struct {
 	authzController authorization.Controller
 	rbacConfig      rbacconf.Config
+	localUsers      db_users.LocalUsersGetter
+	dbUsersEnabled  bool
 	logger          logrus.FieldLogger
 }
 
-func setupAuthnHandlers(api *operations.WeaviateAPI, controller authorization.Controller, rbacConfig rbacconf.Config, logger logrus.FieldLogger,
+func setupAuthnHandlers(api *operations.WeaviateAPI, controller authorization.Controller, rbacConfig rbacconf.Config,
+	localUsers db_users.LocalUsersGetter, dbUsersEnabled bool, logger logrus.FieldLogger,
 ) {
-	h := &authNHandlers{authzController: controller, logger: logger, rbacConfig: rbacConfig}
+	h := &authNHandlers{authzController: controller, logger: logger, rbacConfig: rbacConfig, localUsers: localUsers, dbUsersEnabled: dbUsersEnabled}
 	// user handlers
 	api.UsersGetOwnInfoHandler = users.GetOwnInfoHandlerFunc(h.getOwnInfo)
 }
@@ -73,6 +78,11 @@ func (h *authNHandlers) getOwnInfo(_ users.GetOwnInfoParams, principal *models.P
 		}
 	}
 
+	expiresAt, err := h.ownExpiresAt(principal)
+	if err != nil {
+		return users.NewGetOwnInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
 	h.logger.WithFields(logrus.Fields{
 		"action":    "get_own_info",
 		"component": "authN",
@@ -81,8 +91,23 @@ func (h *authNHandlers) getOwnInfo(_ users.GetOwnInfoParams, principal *models.P
 
 	username := namespacing.StripOwnNamespace(principal, principal.Username)
 	return users.NewGetOwnInfoOK().WithPayload(&models.UserOwnInfo{
-		Groups:   principal.Groups,
-		Roles:    namespacing.StripRolesForCaller(principal, roles),
-		Username: &username,
+		ExpiresAt: expiresAt,
+		Groups:    principal.Groups,
+		Roles:     namespacing.StripRolesForCaller(principal, roles),
+		Username:  &username,
 	})
+}
+
+// ownExpiresAt reads the caller's expiry from this node's DB user store, and
+// only for a principal with IsDynamicDbUser set. A static key or OIDC login can
+// share a DB user's name, and that user's expiry is not its own.
+func (h *authNHandlers) ownExpiresAt(principal *models.Principal) (*strfmt.DateTime, error) {
+	if !h.dbUsersEnabled || !principal.IsDynamicDbUser {
+		return nil, nil
+	}
+	records, err := h.localUsers.GetUsers(principal.Username)
+	if err != nil {
+		return nil, err
+	}
+	return db_users.RenderExpiresAt(records[principal.Username].ExpiresAt), nil
 }
