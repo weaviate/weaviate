@@ -49,6 +49,10 @@ type BackupTaskProvider struct {
 	planner DedupePlanner
 	// planPollInterval is how often a non-leader polls for the published plan.
 	planPollInterval time.Duration
+	// terminalWriteTimeout bounds all backend I/O of one terminal-descriptor write.
+	terminalWriteTimeout time.Duration
+	// predicateReadTimeout bounds the global-descriptor read of each tick predicate.
+	predicateReadTimeout time.Duration
 
 	recorder distributedtask.TaskCompletionRecorder
 
@@ -97,20 +101,22 @@ type BackupTaskProviderParams struct {
 
 func NewBackupTaskProvider(p BackupTaskProviderParams) *BackupTaskProvider {
 	return &BackupTaskProvider{
-		node:              p.Node,
-		logger:            p.Logger,
-		cfg:               p.Cfg,
-		sourcer:           p.Sourcer,
-		rbacSrc:           p.RBACSrc,
-		userSrc:           p.UserSrc,
-		backends:          p.Backends,
-		planner:           p.DedupePlanner,
-		planPollInterval:  _DedupePollInterval,
-		nodeHandler:       p.NodeHandler,
-		appliedIndexProbe: p.AppliedIndexProbe,
-		dataPath:          p.DataPath,
-		payloadCache:      make(map[string]startedTask),
-		activeHandles:     make(map[string]*backupTaskHandle),
+		node:                 p.Node,
+		logger:               p.Logger,
+		cfg:                  p.Cfg,
+		sourcer:              p.Sourcer,
+		rbacSrc:              p.RBACSrc,
+		userSrc:              p.UserSrc,
+		backends:             p.Backends,
+		planner:              p.DedupePlanner,
+		planPollInterval:     _DedupePollInterval,
+		terminalWriteTimeout: _TerminalWriteTimeout,
+		predicateReadTimeout: _PredicateReadTimeout,
+		nodeHandler:          p.NodeHandler,
+		appliedIndexProbe:    p.AppliedIndexProbe,
+		dataPath:             p.DataPath,
+		payloadCache:         make(map[string]startedTask),
+		activeHandles:        make(map[string]*backupTaskHandle),
 	}
 }
 
@@ -393,7 +399,7 @@ func (p *BackupTaskProvider) ShouldRetainCompletedTask(task *distributedtask.Tas
 	if err != nil {
 		return true
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), p.predicateReadTimeout)
 	defer cancel()
 	meta, err := store.Meta(ctx, GlobalBackupFile, payload.Bucket, payload.Path)
 	if err != nil {
@@ -413,7 +419,7 @@ func (p *BackupTaskProvider) TerminalCleanupDone(task *distributedtask.Task, loc
 	if err != nil {
 		return false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), p.predicateReadTimeout)
 	defer cancel()
 	meta, err := store.Meta(ctx, GlobalBackupFile, payload.Bucket, payload.Path)
 	if err != nil {
@@ -443,11 +449,32 @@ func (p *BackupTaskProvider) LocalCallbacksDone(task *distributedtask.Task, loca
 
 // --- internal execution ---
 
-// keepaliveInterval is how often unit progress is re-reported to prevent the
-// stale detector from killing slow uploads.
-const keepaliveInterval = 5 * time.Second
+// _TerminalWriteTimeout bounds the backend I/O of one OnTaskCompleted call,
+// and _PredicateReadTimeout bounds the read of each tick predicate. Both run on
+// the scheduler tick, so a hung backend holds a tick at most this long per call.
+// writeTerminalDescriptor makes one PutMeta attempt per call. Retries come from
+// the scheduler re-firing the callback. On the SWAPPING path the scheduler fails the task after
+// maxCompletedCallbackAttempts (5) failed calls, one per tick. So a continuous
+// backend outage of about five ticks marks a completed backup FAILED, with the
+// callback error recorded on the task. FAILED and CANCELLED re-fires have no
+// budget: their descriptor lands whenever the backend returns.
+const (
+	_TerminalWriteTimeout = 30 * time.Second
+	_PredicateReadTimeout = 5 * time.Second
+)
 
-// descriptorWriteAttempts caps retries when writing the global descriptor.
+// keepaliveIntervalFor returns how often a flow re-reports its live units, so
+// that a task's stale detector sees fresh UpdatedAt values during slow uploads.
+// It is a sixth of the stale timeout, at least one second. A task without a
+// stale timeout gets 0: stale detection skips it, so it needs no keepalive.
+func keepaliveIntervalFor(staleTimeoutMs int64) time.Duration {
+	if staleTimeoutMs <= 0 {
+		return 0
+	}
+	return max(time.Duration(staleTimeoutMs)*time.Millisecond/6, time.Second)
+}
+
+// descriptorWriteAttempts caps writeStartedDescriptor's write attempts.
 const descriptorWriteAttempts = 3
 
 // planReadAttempts caps consecutive failed reads of the published plan on a
@@ -484,6 +511,12 @@ func (t *classCompletionTracker) uploaded(className string, record func(string) 
 		t.reported[className] = true
 		t.mu.Unlock()
 	}
+}
+
+func (t *classCompletionTracker) isReported(className string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.reported[className]
 }
 
 func (t *classCompletionTracker) flush(classes []string, record func(string) bool) {
@@ -591,11 +624,14 @@ func (p *BackupTaskProvider) runNodeBackup(
 		}
 	}
 
+	completionTracker := newClassCompletionTracker(len(pending))
 	keepaliveCtx, keepaliveCancel := context.WithCancel(ctx)
 	defer keepaliveCancel()
-	enterrors.GoWrapper(func() {
-		p.runKeepalive(keepaliveCtx, task, classes, recorder)
-	}, p.logger)
+	if interval := keepaliveIntervalFor(task.StaleTimeoutMs); interval > 0 {
+		enterrors.GoWrapper(func() {
+			p.runKeepalive(keepaliveCtx, task, pending, completionTracker, recorder, interval)
+		}, p.logger)
+	}
 
 	// Without dedupe, every unit-owning node writes the global descriptor at flow
 	// start. The first write wins, and every writer produces the same content.
@@ -662,7 +698,6 @@ func (p *BackupTaskProvider) runNodeBackup(
 	// Class callbacks can run concurrently. Only pending classes are reported,
 	// and the last of them waits until uploader.all writes the node descriptor.
 	// A re-run still uploads every local class, so the descriptor lists them all.
-	completionTracker := newClassCompletionTracker(len(pending))
 	pendingSet := make(map[string]struct{}, len(pending))
 	for _, cls := range pending {
 		pendingSet[cls] = struct{}{}
@@ -694,22 +729,29 @@ func (p *BackupTaskProvider) runNodeBackup(
 	completionTracker.flush(pending, recordClassCompletion)
 }
 
-// runKeepalive re-reports progress=0 for each local unit every tick so the
-// stale detector's UpdatedAt check stays fresh during slow uploads.
+// runKeepalive re-reports progress=0 every interval for each pending unit that
+// the tracker has not marked reported. This keeps UpdatedAt fresh for the stale
+// detector during slow uploads. A unit whose completion report failed is not
+// marked reported, so its keepalive continues.
 func (p *BackupTaskProvider) runKeepalive(
 	ctx context.Context,
 	task *distributedtask.Task,
-	classes []string,
+	pending []string,
+	tracker *classCompletionTracker,
 	recorder distributedtask.TaskCompletionRecorder,
+	interval time.Duration,
 ) {
-	ticker := time.NewTicker(keepaliveInterval)
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			for _, cls := range classes {
+			for _, cls := range pending {
+				if tracker.isReported(cls) {
+					continue
+				}
 				unitID := fmt.Sprintf("%s/%s", p.node, cls)
 				// progress=0 skips the update throttle, and the FSM always
 				// refreshes UpdatedAt.
@@ -952,7 +994,8 @@ func (p *BackupTaskProvider) writeTerminalDescriptor(task *distributedtask.Task,
 		return fmt.Errorf("terminal descriptor: init backend: %w", err)
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), p.terminalWriteTimeout)
+	defer cancel()
 
 	existing, err := store.Meta(ctx, GlobalBackupFile, payload.Bucket, payload.Path)
 	if err == nil && isFinalStatus(existing.Status) {
@@ -1062,17 +1105,11 @@ func (p *BackupTaskProvider) writeTerminalDescriptor(task *distributedtask.Task,
 		}
 	}
 
-	var writeErr error
-	for attempt := range descriptorWriteAttempts {
-		writeErr = store.PutMeta(ctx, GlobalBackupFile, descriptor, payload.Bucket, payload.Path)
-		if writeErr == nil {
-			return nil
-		}
-		p.logger.WithField("backup_id", task.ID).WithField("attempt", attempt+1).
-			Warnf("failed to write terminal descriptor: %v", writeErr)
-		time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
+	if err := store.PutMeta(ctx, GlobalBackupFile, descriptor, payload.Bucket, payload.Path); err != nil {
+		p.logger.WithField("backup_id", task.ID).Warnf("failed to write terminal descriptor: %v", err)
+		return fmt.Errorf("write terminal descriptor: %w", err)
 	}
-	return fmt.Errorf("write terminal descriptor after retries: %w", writeErr)
+	return nil
 }
 
 func backupVerdict(task *distributedtask.Task) (backup.Status, string) {

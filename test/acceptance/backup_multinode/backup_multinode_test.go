@@ -612,6 +612,14 @@ func TestBackupMultinode(t *testing.T) {
 		// need the backend.
 		require.NoError(t, compose.DisconnectFromNetwork(ctx, "test-minio"))
 
+		// SUCCESS here means the upload won the race: the backup finished
+		// before the outage began, so the subtest skips. Any other status, and
+		// a failed status read, runs the outage assertions below.
+		if resp, err := helper.CreateBackupStatus(t, backendName, "backend-outage", "", ""); err == nil &&
+			*resp.Payload.Status == "SUCCESS" {
+			t.Skipf("upload finished before the disconnect; outage scenario not exercised")
+		}
+
 		// MinIO stays unreachable for 30s so the in-flight upload fails
 		// against it. The stale timeout is 2m (start3NodeBackupCluster),
 		// longer than this outage.

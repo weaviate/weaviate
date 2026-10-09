@@ -523,34 +523,53 @@ func TestBackupTaskProvider(t *testing.T) {
 		assert.Equal(t, []distributedtask.TaskDescriptor{{ID: "b1", Version: 42}}, provider.GetLocalTasks())
 	})
 
-	t.Run("keepalive writes progress to prevent stale detection", func(t *testing.T) {
+	t.Run("keepalive refreshes only units the flow has not completed", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		recorder := &threadSafeRecorder{}
-
-		ctx, cancel := context.WithCancel(context.Background())
-		task := makeTask("b1", distributedtask.TaskStatusStarted, makePayload("b1"))
-		classes := []string{"Article", "Book"}
-
 		provider := NewBackupTaskProvider(BackupTaskProviderParams{
 			Node:   "node-1",
 			Logger: logger,
 			Cfg:    config.Backup{},
 		})
+		task := makeTask("b1", distributedtask.TaskStatusStarted, makePayload("b1"))
+		pending := []string{"Article", "Book", "Movie"}
+		tracker := newClassCompletionTracker(len(pending))
+		writes := func(className string) int {
+			n := 0
+			for _, p := range recorder.getProgresses() {
+				if p.unitID == "node-1/"+className {
+					n++
+				}
+			}
+			return n
+		}
 
+		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			provider.runKeepalive(ctx, task, classes, recorder)
+			provider.runKeepalive(ctx, task, pending, tracker, recorder, 5*time.Millisecond)
 		}()
 
-		time.Sleep(keepaliveInterval + time.Second)
+		require.Eventually(t, func() bool {
+			return writes("Article") > 0 && writes("Book") > 0 && writes("Movie") > 0
+		}, 5*time.Second, time.Millisecond, "every pending unit is refreshed")
+
+		// Article's completion report succeeds. Book's fails, so Book stays live.
+		tracker.uploaded("Article", func(string) bool { return true })
+		tracker.uploaded("Book", func(string) bool { return false })
+		articleWrites, bookWrites, movieWrites := writes("Article"), writes("Book"), writes("Movie")
+
+		require.Eventually(t, func() bool {
+			return writes("Book") >= bookWrites+3 && writes("Movie") >= movieWrites+3
+		}, 5*time.Second, time.Millisecond, "live units keep being refreshed")
 		cancel()
 		<-done
 
-		progs := recorder.getProgresses()
-		require.NotEmpty(t, progs, "keepalive must write at least one progress update")
-		for _, p := range progs {
-			assert.Equal(t, float32(0), p.progress, "keepalive re-reports progress=0")
+		// Only the tick in flight when Article was reported can write it again.
+		assert.LessOrEqual(t, writes("Article"), articleWrites+1, "a reported unit is no longer refreshed")
+		for _, p := range recorder.getProgresses() {
+			assert.Equal(t, float32(0), p.progress, "keepalive re-reports progress=0, which refreshes UpdatedAt")
 		}
 	})
 
@@ -1560,6 +1579,122 @@ func TestBackupTerminalDescriptor(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestBackupTickPathTimeouts(t *testing.T) {
+	// hang blocks a backend call until its ctx ends.
+	hang := func(a mock.Arguments) { <-a.Get(0).(context.Context).Done() }
+	newProvider := func(be *fakeBackend) *BackupTaskProvider {
+		logger, _ := test.NewNullLogger()
+		return NewBackupTaskProvider(BackupTaskProviderParams{
+			Node:     "node-1",
+			Logger:   logger,
+			Cfg:      config.Backup{},
+			Backends: &fakeBackupBackendProvider{backend: be},
+		})
+	}
+	returnsWithin := func(t *testing.T, d time.Duration, f func()) {
+		t.Helper()
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			f()
+		}()
+		select {
+		case <-done:
+		case <-time.After(d):
+			t.Fatalf("still blocked after %s", d)
+		}
+	}
+	completedTask := func() *distributedtask.Task {
+		return makeTask("b1", distributedtask.TaskStatusFinished, makePayload("b1"))
+	}
+
+	t.Run("OnTaskCompleted gives up at the write bound when the backend reads hang", func(t *testing.T) {
+		be := newFakeBackend()
+		be.On("GetObject", mock.Anything, mock.Anything, mock.Anything).Return(nil, context.DeadlineExceeded).Run(hang)
+		provider := newProvider(be)
+		provider.terminalWriteTimeout = 50 * time.Millisecond
+
+		var err error
+		returnsWithin(t, time.Second, func() { err = provider.OnTaskCompleted(completedTask()) })
+
+		require.Error(t, err)
+		be.AssertNotCalled(t, "PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	t.Run("OnTaskCompleted makes one write attempt, bounded, when the write hangs", func(t *testing.T) {
+		nodeRaw, err := json.Marshal(backup.BackupDescriptor{ID: "b1", Status: backup.Success})
+		require.NoError(t, err)
+		be := newFakeBackend()
+		be.On("GetObject", mock.Anything, "b1", GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+		be.On("GetObject", mock.Anything, "b1", BackupFile).Return(nil, backup.ErrNotFound{})
+		be.On("GetObject", mock.Anything, mock.Anything, BackupFile).Return(nodeRaw, nil)
+		be.On("PutObject", mock.Anything, "b1", GlobalBackupFile, mock.Anything).Return(context.DeadlineExceeded).Run(hang)
+		provider := newProvider(be)
+		provider.terminalWriteTimeout = 50 * time.Millisecond
+
+		returnsWithin(t, time.Second, func() { err = provider.OnTaskCompleted(completedTask()) })
+
+		require.Error(t, err)
+		be.AssertNumberOfCalls(t, "PutObject", 1)
+	})
+
+	t.Run("predicates answer conservatively at the read bound when the read hangs", func(t *testing.T) {
+		tests := []struct {
+			name      string
+			predicate func(p *BackupTaskProvider, task *distributedtask.Task) bool
+			want      bool
+		}{
+			{
+				name: "ShouldRetainCompletedTask retains",
+				predicate: func(p *BackupTaskProvider, task *distributedtask.Task) bool {
+					return p.ShouldRetainCompletedTask(task, nil)
+				},
+				want: true,
+			},
+			{
+				name: "TerminalCleanupDone is not done",
+				predicate: func(p *BackupTaskProvider, task *distributedtask.Task) bool {
+					return p.TerminalCleanupDone(task, "node-1")
+				},
+				want: false,
+			},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				be := newFakeBackend()
+				be.On("GetObject", mock.Anything, mock.Anything, mock.Anything).Return(nil, context.DeadlineExceeded).Run(hang)
+				provider := newProvider(be)
+				provider.predicateReadTimeout = 50 * time.Millisecond
+
+				var got bool
+				returnsWithin(t, time.Second, func() { got = tc.predicate(provider, completedTask()) })
+
+				assert.Equal(t, tc.want, got)
+			})
+		}
+	})
+}
+
+func TestKeepaliveInterval(t *testing.T) {
+	tests := []struct {
+		name         string
+		staleTimeout time.Duration
+		want         time.Duration
+	}{
+		{name: "a 7m stale timeout refreshes every 70s", staleTimeout: 7 * time.Minute, want: 70 * time.Second},
+		{name: "a 2m stale timeout refreshes every 20s", staleTimeout: 2 * time.Minute, want: 20 * time.Second},
+		{name: "a 30s stale timeout refreshes every 5s", staleTimeout: 30 * time.Second, want: 5 * time.Second},
+		{name: "a 3s stale timeout is floored at 1s", staleTimeout: 3 * time.Second, want: time.Second},
+		{name: "no stale timeout disables keepalive", staleTimeout: 0, want: 0},
+		{name: "a negative stale timeout disables keepalive", staleTimeout: -time.Second, want: 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, keepaliveIntervalFor(tc.staleTimeout.Milliseconds()))
+		})
+	}
 }
 
 func TestBackupStatusMapping(t *testing.T) {
