@@ -12,10 +12,12 @@
 package backup
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -76,4 +78,42 @@ func FetchBackupDescriptors(
 		return nil, nil
 	}
 	return meta, nil
+}
+
+// maxPresize caps the buffer ReadAllSized allocates up front at 64 MiB. The size
+// is the backend's claim, and a buggy S3-compatible store or a proxy can overstate it.
+const maxPresize = 64 << 20
+
+// ReadAllSized reads r to EOF into a buffer allocated once for size bytes, the
+// object length the backend reported, so the buffer does not double as it fills.
+// Above maxPresize the buffer starts at maxPresize and then doubles, but never
+// past size, so a 65 MiB object does not end up in a 128 MiB buffer. A negative
+// size means the length is unknown.
+func ReadAllSized(r io.Reader, size int64) ([]byte, error) {
+	if size < 0 {
+		return io.ReadAll(r)
+	}
+	// The MinRead spare bytes leave room for the Read that returns io.EOF, so an
+	// object of size bytes never makes the loop grow the buffer.
+	b := make([]byte, 0, min(size, maxPresize)+bytes.MinRead)
+	for {
+		if len(b) == cap(b) {
+			newCap := 2 * int64(cap(b))
+			// size+MinRead overflows for a size near MaxInt64, so the check subtracts from newCap.
+			if int64(len(b)) < size && size < newCap-bytes.MinRead {
+				newCap = size + bytes.MinRead
+			}
+			grown := make([]byte, len(b), newCap)
+			copy(grown, b)
+			b = grown
+		}
+		n, err := r.Read(b[len(b):cap(b)])
+		b = b[:len(b)+n]
+		if errors.Is(err, io.EOF) {
+			return b, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
 }
