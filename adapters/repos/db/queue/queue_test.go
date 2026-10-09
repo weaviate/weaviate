@@ -1314,6 +1314,10 @@ func TestQueueForceSwitch(t *testing.T) {
 
 	_, e := streamExecutor()
 	q := makeQueueWith(t, s, e, 100, tmpDir)
+	// pause before pushing: a chunk dispatched to the unread stream would
+	// keep Pause waiting forever
+	q.Pause(t.Context())
+	require.NoError(t, q.Wait(ctx))
 
 	// ListFiles on empty queue
 	files, err := q.ListFiles(ctx, tmpDir)
@@ -1326,14 +1330,12 @@ func TestQueueForceSwitch(t *testing.T) {
 		require.NoError(t, err)
 	}
 
+	s.Schedule(ctx)
+
 	// ensure there is a chunk file
 	entries, err := os.ReadDir(tmpDir)
 	require.NoError(t, err)
 	require.Len(t, entries, 8)
-
-	// pause the queue
-	q.Pause(t.Context())
-	require.NoError(t, q.Wait(ctx))
 
 	// call ForceSwitch to promote the last chunk
 	got, err := q.ForceSwitch(ctx, q.dir)
