@@ -447,7 +447,7 @@ func TestLoadLocalShard_ReconcilesAfterPublishing(t *testing.T) {
 	published := make(chan error, 1)
 	f.repo.resourceScanState.transition.Lock()
 	enterrors.GoWrapper(func() {
-		published <- f.index.LoadLocalShard(ctx, shardName, false)
+		published <- f.index.LoadLocalShard(ctx, shardName, true, false)
 	}, f.repo.logger)
 
 	// publishShard reaches the shard map before it reconciles, so the shard is

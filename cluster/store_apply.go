@@ -98,10 +98,12 @@ func (st *Store) Apply(l *raft.Log) any {
 	ret := Response{Version: l.Index}
 
 	start := time.Now()
+	// Resolved once the command is unmarshalled below; the closure reads it then.
+	cmdType := "unknown"
 	defer func() {
 		// this defer is final one that called before returning and thus capturing the
 		// applyDuration correctly.
-		st.metrics.applyDuration.Observe(float64(time.Since(start).Seconds()))
+		st.metrics.applyDuration.WithLabelValues(cmdType).Observe(time.Since(start).Seconds())
 	}()
 
 	if l.Type != raft.LogCommand {
@@ -170,6 +172,8 @@ func (st *Store) Apply(l *raft.Log) any {
 		st.metrics.fsmLastAppliedIndex.Set(float64(l.Index))
 		st.metrics.raftLastAppliedIndex.Set(float64(l.Index))
 	}()
+
+	cmdType = cmd.Type.String()
 
 	cmd.Version = l.Index
 	// Report only when not ready the progress made on applying log entries. This help users with big schema and long
