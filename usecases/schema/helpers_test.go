@@ -37,21 +37,27 @@ import (
 )
 
 func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSchemaManager) {
-	schemaManager := &fakeSchemaManager{}
-	logger, _ := test.NewNullLogger()
 	vectorizerValidator := &fakeVectorizerValidator{
 		valid: []string{"text2vec-contextionary", "model1", "model2"},
 	}
+	return newTestHandlerWithModules(t, db, fakeModulesProvider{}, &fakeModuleConfig{}, vectorizerValidator)
+}
+
+func newTestHandlerWithModules(t *testing.T, db clusterSchema.Indexer, modules modulesProvider, moduleConfig ModuleConfig,
+	vectorizerValidator VectorizerValidator,
+) (*Handler, *fakeSchemaManager) {
+	schemaManager := &fakeSchemaManager{}
+	logger, _ := test.NewNullLogger()
 	cfg := config.Config{
 		DefaultVectorDistanceMetric: "cosine",
 	}
 	fakeClusterState := fakes.NewFakeClusterState()
 	fakeValidator := &fakeValidator{}
-	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, fakeModulesProvider{}, nil, nil)
+	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, modules, nil, nil)
 	handler, err := NewHandler(
 		schemaManager, schemaManager, schemaManager, db, fakeValidator, logger, mocks.NewMockAuthorizer(),
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil, nil, nil, namespacing.Disabled)
+		moduleConfig, fakeClusterState, nil, *schemaParser, nil, nil, nil, namespacing.Disabled)
 	require.NoError(t, err)
 	handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 	return &handler, schemaManager
@@ -235,6 +241,10 @@ func (f *fakeModuleConfig) SetSinglePropertyDefaults(class *models.Class,
 }
 
 func (f *fakeModuleConfig) ValidateClass(ctx context.Context, class *models.Class) error {
+	return nil
+}
+
+func (f *fakeModuleConfig) ValidateModuleConfig(ctx context.Context, class *models.Class, moduleName, targetVector string) error {
 	return nil
 }
 

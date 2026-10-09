@@ -1167,6 +1167,11 @@ func (e *incrementalTestEnv) makeShardDesc(name string, files []string) *backup.
 	}
 }
 
+// baseShard keeps the part of sd that FillFileInfo reads once sd's backup is a base.
+func baseShard(sd *backup.ShardDescriptor) *backup.BaseShardDescriptor {
+	return &backup.BaseShardDescriptor{Name: sd.Name, BigFilesChunk: sd.BigFilesChunk}
+}
+
 func (e *incrementalTestEnv) storeWriterFn(backupID string) func(context.Context, string, string, string, string, backup.ReadCloserWithError) (int64, error) {
 	return func(_ context.Context, _ string, key string, _ string, _ string, r backup.ReadCloserWithError) (int64, error) {
 		data, err := io.ReadAll(r)
@@ -1345,7 +1350,7 @@ func testIncrementalBackupWithChanges(t *testing.T, numShards int) {
 
 		sd := env.makeShardDesc(ss.name, nil)
 		require.NoError(t, sd.FillFileInfo(allFiles, []backup.ShardAndID{
-			{ShardDesc: baseShardDescs[si], BackupID: "base-backup"},
+			{ShardDesc: baseShard(baseShardDescs[si]), BackupID: "base-backup"},
 		}, env.sourceDir))
 
 		t.Logf("shard %s: %d new files, %d skipped",
@@ -1407,7 +1412,7 @@ func TestIncrementalBackupSplitFileVariants(t *testing.T) {
 		allFiles := []string{s + "/small.db", s + "/big.db"}
 		incrSd := env.makeShardDesc(s, nil)
 		require.NoError(t, incrSd.FillFileInfo(allFiles, []backup.ShardAndID{
-			{ShardDesc: baseSd, BackupID: "base"},
+			{ShardDesc: baseShard(baseSd), BackupID: "base"},
 		}, env.sourceDir))
 
 		// big.db size changed → must be re-backed-up, not skipped.
@@ -1454,7 +1459,7 @@ func TestIncrementalBackupSplitFileVariants(t *testing.T) {
 		allFiles := []string{s + "/small.db", s + "/medium.db"}
 		incrSd := env.makeShardDesc(s, nil)
 		require.NoError(t, incrSd.FillFileInfo(allFiles, []backup.ShardAndID{
-			{ShardDesc: baseSd, BackupID: "base"},
+			{ShardDesc: baseShard(baseSd), BackupID: "base"},
 		}, env.sourceDir))
 
 		// medium.db was never in BigFilesChunk → FillFileInfo always includes it.
@@ -1493,7 +1498,7 @@ func TestIncrementalBackupSplitFileVariants(t *testing.T) {
 		allFiles := []string{s + "/small.db", s + "/new-big.db"}
 		incrSd := env.makeShardDesc(s, nil)
 		require.NoError(t, incrSd.FillFileInfo(allFiles, []backup.ShardAndID{
-			{ShardDesc: baseSd, BackupID: "base"},
+			{ShardDesc: baseShard(baseSd), BackupID: "base"},
 		}, env.sourceDir))
 
 		// new-big.db not in base → must be in Files.
@@ -1621,7 +1626,7 @@ func TestIncrementalBackupChainWithManySplitFiles(t *testing.T) {
 	for i := range shardNames {
 		sd := env.makeShardDesc(shardNames[i], nil)
 		require.NoError(t, sd.FillFileInfo(allFiles[i], []backup.ShardAndID{
-			{ShardDesc: baseDescs[i], BackupID: "backup-1"},
+			{ShardDesc: baseShard(baseDescs[i]), BackupID: "backup-1"},
 		}, env.sourceDir))
 		incrDescs2[i] = sd
 	}
@@ -1652,8 +1657,8 @@ func TestIncrementalBackupChainWithManySplitFiles(t *testing.T) {
 	for i := range shardNames {
 		sd := env.makeShardDesc(shardNames[i], nil)
 		require.NoError(t, sd.FillFileInfo(allFiles[i], []backup.ShardAndID{
-			{ShardDesc: incrDescs2[i], BackupID: "backup-2"},
-			{ShardDesc: baseDescs[i], BackupID: "backup-1"},
+			{ShardDesc: baseShard(incrDescs2[i]), BackupID: "backup-2"},
+			{ShardDesc: baseShard(baseDescs[i]), BackupID: "backup-1"},
 		}, env.sourceDir))
 		incrDescs3[i] = sd
 	}
@@ -1781,6 +1786,101 @@ func TestNodeStoreMeta(t *testing.T) {
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
+}
+
+func TestNodeStoreBaseMetaForBackupID(t *testing.T) {
+	var (
+		ctx       = context.Background()
+		backupID  = "base"
+		node      = "Node-1"
+		nodeHome  = backupID + "/" + node
+		zstd      = backup.CompressionZSTD
+		startedAt = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+		bigFiles  = map[string]backup.BigFileInfo{
+			"shard1/big.db": {ChunkKeys: []string{"chunk-1", "chunk-2"}, Size: 600, ModifiedAt: startedAt},
+		}
+	)
+	full := backup.BackupDescriptor{
+		StartedAt: startedAt, CompletedAt: startedAt.Add(time.Minute), ID: backupID,
+		RbacBackups: []byte("rbac"), UserBackups: []byte("users"),
+		Status: backup.Success, Version: Version, ServerVersion: "1.39.0",
+		PreCompressionSizeBytes: 1000, CompressionType: &zstd, BaseBackupID: "older",
+		Classes: []backup.ClassDescriptor{
+			{
+				Name: "Article", BackupID: backupID, Schema: []byte("schema"),
+				ShardingState: []byte("state"), Aliases: []byte("aliases"), AliasesIncluded: true,
+				Chunks: map[int32][]string{1: {"shard1/segment-1.db"}}, PreCompressionSizeBytes: 1000,
+				Shards: []*backup.ShardDescriptor{
+					{
+						Name: "shard1", Node: node, Files: []string{"shard1/segment-1.db"}, BigFilesChunk: bigFiles,
+						IncrementalBackupInfo: backup.IncrementalBackupInfos{FilesPerBackup: map[string][]backup.IncrementalBackupInfo{
+							"older": {{File: "shard1/old.db", ChunkKeys: []string{"chunk-0"}}},
+						}},
+						DocIDCounterPath: "shard1/counter.bin", DocIDCounter: []byte("1"),
+					},
+					{Name: "shard2", Node: node, Files: []string{"shard2/segment-1.db"}},
+				},
+			},
+			{
+				Name: "Paragraph", BackupID: backupID, Schema: []byte("schema"),
+				Shards: []*backup.ShardDescriptor{{Name: "shard3", Node: node, Files: []string{"shard3/segment-1.db"}}},
+			},
+		},
+	}
+	base := backup.BaseBackupDescriptor{
+		StartedAt: startedAt, Status: backup.Success, Version: Version, ServerVersion: "1.39.0",
+		CompressionType: &zstd, BaseBackupID: "older",
+		Classes: []backup.BaseClassDescriptor{
+			{Name: "Article", BackupID: backupID, Shards: []backup.BaseShardDescriptor{
+				{Name: "shard1", BigFilesChunk: bigFiles}, {Name: "shard2"},
+			}},
+			{Name: "Paragraph", BackupID: backupID, Shards: []backup.BaseShardDescriptor{{Name: "shard3"}}},
+		},
+	}
+	fullNoCompression, baseNoCompression := full, base
+	fullNoCompression.CompressionType, baseNoCompression.CompressionType = nil, nil
+	tests := []struct {
+		name            string
+		body            []byte
+		want            *backup.BaseBackupDescriptor
+		wantCompression backup.CompressionType
+	}{
+		{name: "decodes every field an incremental backup reads", body: marshalMeta(full), want: &base, wantCompression: zstd},
+		{name: "base written without compressionType", body: marshalMeta(fullNoCompression), want: &baseNoCompression, wantCompression: backup.CompressionGZIP},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mockBackend := newFakeBackend()
+			returnOrNotFound(mockBackend, ctx, nodeHome, BackupFile, tc.body)
+
+			store := nodeStore{objectStore{backend: mockBackend, node: node}}
+			got, err := store.BaseMetaForBackupID(ctx, backupID, "", "")
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+			assert.Equal(t, tc.wantCompression, got.GetCompressionType())
+		})
+	}
+}
+
+func TestNodeStoreBaseMetaChain(t *testing.T) {
+	ctx, gz, node := context.Background(), backup.CompressionGZIP, "Node-1"
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	meta := func(id, base string, at time.Time) backup.BackupDescriptor {
+		return backup.BackupDescriptor{
+			ID: id, StartedAt: at, Status: backup.Success, Version: Version,
+			ServerVersion: "1.39.0", CompressionType: &gz, BaseBackupID: base,
+		}
+	}
+	fb := newFakeBackend()
+	returnOrNotFound(fb, ctx, "inc-1/"+node, BackupFile, marshalMeta(meta("inc-1", "base-1", t0.Add(time.Hour))))
+	returnOrNotFound(fb, ctx, "base-1/"+node, BackupFile, marshalMeta(meta("base-1", "", t0)))
+	store := nodeStore{objectStore{backend: fb, node: node}}
+
+	got, err := resolveBaseBackupChain(ctx, "inc-1", t0.Add(2*time.Hour), "", "", gz, store.BaseMetaForBackupID)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "base-1", got[0].GetBaseBackupID())
+	assert.Equal(t, "", got[1].GetBaseBackupID())
 }
 
 // returnOrNotFound mocks a metadata read that succeeds with body, or reports the object

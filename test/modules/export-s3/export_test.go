@@ -1256,7 +1256,7 @@ func listParquetKeys(t *testing.T, exportID, className string) []string {
 
 // listTenantParquetKeys lists S3 parquet keys that belong to a specific
 // tenant (shard). Parquet filenames follow the format
-// "{className}_{shardName}_{rangeIndex:04d}.parquet", so matching on the
+// "{className}_{shardName}_{fileIndex:04d}.parquet", so matching on the
 // "{className}_{tenantName}_" prefix isolates a single tenant. The trailing
 // underscore prevents partial-match false positives between tenant names
 // that share a prefix (e.g. "tenant" vs "tenantA"). Tenant names used in

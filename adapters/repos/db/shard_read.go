@@ -674,9 +674,17 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 			var distancer common.QueryVectorDistancer
 			switch v := searchVectors[j].(type) {
 			case []float32:
+				err := checkVectorKind(index, target, false)
+				if err != nil {
+					return err
+				}
 				distancer = index.QueryVectorDistancer(v)
 			case [][]float32:
-				distancer = index.(VectorIndexMulti).QueryMultiVectorDistancer(v)
+				multiIndex, err := asMultiVectorIndex(index, target)
+				if err != nil {
+					return err
+				}
+				distancer = multiIndex.QueryMultiVectorDistancer(v)
 			default:
 				return fmt.Errorf("unsupported vector type: %T", v)
 			}
@@ -771,8 +779,9 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 			if limit < 0 {
 				switch searchVector := searchVectors[i].(type) {
 				case []float32:
-					if vidx.Multivector() {
-						return fmt.Errorf("target vector %q is configured as multi-vector: near-vector search requires a multi-vector query", targetVector)
+					err = checkVectorKind(vidx, targetVector, false)
+					if err != nil {
+						return fmt.Errorf("vector search by distance: %w", err)
 					}
 					ids, dists, err = vidx.SearchByVectorDistance(
 						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
@@ -785,7 +794,11 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 						return err
 					}
 				case [][]float32:
-					ids, dists, err = vidx.(VectorIndexMulti).SearchByMultiVectorDistance(
+					multiIndex, err := asMultiVectorIndex(vidx, targetVector)
+					if err != nil {
+						return fmt.Errorf("multi vector search by distance: %w", err)
+					}
+					ids, dists, err = multiIndex.SearchByMultiVectorDistance(
 						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
@@ -801,8 +814,9 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 			} else {
 				switch searchVector := searchVectors[i].(type) {
 				case []float32:
-					if vidx.Multivector() {
-						return fmt.Errorf("target vector %q is configured as multi-vector: near-vector search requires a multi-vector query", targetVector)
+					err = checkVectorKind(vidx, targetVector, false)
+					if err != nil {
+						return fmt.Errorf("vector search: %w", err)
 					}
 					ids, dists, err = vidx.SearchByVector(ctx, searchVector, limit, allowList)
 					if err != nil {
@@ -816,7 +830,11 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 						return err
 					}
 				case [][]float32:
-					ids, dists, err = vidx.(VectorIndexMulti).SearchByMultiVector(ctx, searchVector, limit, allowList)
+					multiIndex, err := asMultiVectorIndex(vidx, targetVector)
+					if err != nil {
+						return fmt.Errorf("multi vector search: %w", err)
+					}
+					ids, dists, err = multiIndex.SearchByMultiVector(ctx, searchVector, limit, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's

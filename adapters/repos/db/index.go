@@ -535,6 +535,7 @@ func NewIndex(
 		return nil, fmt.Errorf("init index %q: global replication config is required when ReplicationFactor > 1", cfg.ClassName.String())
 	}
 	index.asyncReplicationScheduler = cfg.AsyncReplicationScheduler
+	index.unloadedCheckpoints.metrics = metrics
 
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 
@@ -565,6 +566,10 @@ func NewIndex(
 	index.cycleCallbacks.compactionCycle.Start()
 	index.cycleCallbacks.compactionAuxCycle.Start()
 	index.cycleCallbacks.flushCycle.Start()
+
+	if index.asyncReplicationScheduler != nil {
+		index.asyncReplicationScheduler.registerUnloadedCheckpoints(&index.unloadedCheckpoints)
+	}
 
 	return index, nil
 }
@@ -1255,6 +1260,20 @@ func (i *Index) ForEachLoadedShard(f func(name string, shard ShardLike) error) e
 	})
 }
 
+// withEachLoadedShard calls f on each loaded shard while holding its
+// shutdown pin. It skips a shard whose pin fails and one unloaded after the walk
+// saw it, since loading that one again would leave it where no unload finds it.
+func (i *Index) withEachLoadedShard(f func(name string, shard ShardLike) error) error {
+	return i.ForEachLoadedShard(func(name string, _ ShardLike) error {
+		shard, release, err := i.getLoadedShard(name)
+		defer release()
+		if err != nil || shard == nil {
+			return nil
+		}
+		return f(name, shard)
+	})
+}
+
 // publishShard makes the shard visible under shardName, reconciling it against
 // the resource-pressure flag it may have read before becoming visible.
 func (i *Index) publishShard(shardName string, shard ShardLike) {
@@ -1324,9 +1343,10 @@ func (i *Index) addProperty(ctx context.Context, props ...*models.Property) erro
 
 	// Skip cold shards: they'd only be force-loaded to create empty buckets,
 	// which they build from the refreshed class at their next load anyway.
-	i.ForEachLoadedShard(func(key string, shard ShardLike) error {
-		release, ok := i.pinLoadedShard(key, shard)
-		if !ok {
+	i.ForEachLoadedShard(func(key string, _ ShardLike) error {
+		shard, release, err := i.getLoadedShard(key)
+		if err != nil || shard == nil {
+			release()
 			return nil
 		}
 		releases = append(releases, release)
@@ -1385,13 +1405,7 @@ func (i *Index) updateVectorIndexConfig(ctx context.Context,
 	updated schemaConfig.VectorIndexConfig,
 ) error {
 	// an updated is not specific to one shard, but rather all
-	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
-		release, ok := i.pinLoadedShard(name, shard)
-		if !ok {
-			return nil
-		}
-		defer release()
-
+	err := i.withEachLoadedShard(func(name string, shard ShardLike) error {
 		// At the moment, we don't do anything in an update that could fail, but
 		// technically this should be part of some sort of a two-phase commit  or
 		// have another way to rollback if we have updates that could potentially
@@ -1415,13 +1429,7 @@ func (i *Index) updateVectorIndexConfig(ctx context.Context,
 func (i *Index) updateVectorIndexConfigs(ctx context.Context,
 	updated map[string]schemaConfig.VectorIndexConfig,
 ) error {
-	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
-		release, ok := i.pinLoadedShard(name, shard)
-		if !ok {
-			return nil
-		}
-		defer release()
-
+	err := i.withEachLoadedShard(func(name string, shard ShardLike) error {
 		if err := shard.UpdateVectorIndexConfigs(ctx, updated); err != nil {
 			return fmt.Errorf("shard %q: %w", name, err)
 		}
@@ -4316,7 +4324,7 @@ func (i *Index) dropShards(names []string) error {
 			// on this shard invalidates its usage record as it finishes, which
 			// re-creates the count, and the drop is what waits that reference out.
 			shardusage.ForgetComputedUsageGeneration(i.path(), name)
-			i.unloadedCheckpoints.delete(name)
+			i.unloadedCheckpoints.clear(name)
 
 			return nil
 		})
@@ -5145,6 +5153,12 @@ func (i *Index) beginClose() error {
 	defer lsmkv.GlobalBucketRegistry.RemoveByPrefixes(i.path())
 	i.closingCancel()
 	i.closeLock.Unlock()
+
+	// No put can follow: create re-checks i.closed under closeLock.
+	if i.asyncReplicationScheduler != nil {
+		i.asyncReplicationScheduler.deregisterUnloadedCheckpoints(&i.unloadedCheckpoints)
+	}
+	i.unloadedCheckpoints.clearAll()
 
 	i.inflight.Wait()
 	return nil

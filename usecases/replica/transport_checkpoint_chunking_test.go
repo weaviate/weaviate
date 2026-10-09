@@ -22,7 +22,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
@@ -213,4 +215,64 @@ func TestAsyncCheckpointChunkSizingInvariants(t *testing.T) {
 	}{worstCase, math.MaxInt64, math.MaxInt64})
 	require.NoError(t, err)
 	require.LessOrEqual(t, len(body), replica.AsyncCheckpointMaxBodyBytes)
+}
+
+func TestBroadcastAsyncCheckpointRejectionsWarnOncePerHost(t *testing.T) {
+	const class = "C1"
+	tests := []struct {
+		name      string
+		peer      string
+		broadcast func(*replica.Finder, []string)
+		expect    func(*fakeFactory, string)
+	}{
+		{
+			name: "create",
+			peer: "warn-once-create-peer",
+			broadcast: func(finder *replica.Finder, shards []string) {
+				finder.BroadcastCreateAsyncCheckpoint(context.Background(), shards, 1, time.Now())
+			},
+			expect: func(f *fakeFactory, peer string) {
+				f.RClient.EXPECT().CreateAsyncCheckpoint(mock.Anything, peer, class, mock.Anything, mock.Anything, mock.Anything).
+					Return(fmt.Errorf("create async checkpoint: %s", strings.Repeat("shard not loaded on this node; ", 2000)))
+			},
+		},
+		{
+			name: "delete",
+			peer: "warn-once-delete-peer",
+			broadcast: func(finder *replica.Finder, shards []string) {
+				finder.BroadcastDeleteAsyncCheckpoint(context.Background(), shards)
+			},
+			expect: func(f *fakeFactory, peer string) {
+				f.RClient.EXPECT().DeleteAsyncCheckpoint(mock.Anything, peer, class, mock.Anything).
+					Return(fmt.Errorf("connection refused"))
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			peer := fmt.Sprintf("%s-%d", tc.peer, time.Now().UnixNano())
+			shards := checkpointShardNames(50)
+			f := newFakeFactory(t, class, shards[0], []string{"A", peer}, true)
+			for _, s := range shards[1:] {
+				f.AddShard(s, []string{"A", peer})
+			}
+			tc.expect(f, peer)
+			finder := f.newFinder("A")
+
+			for range 200 {
+				tc.broadcast(finder, shards)
+			}
+
+			var warns []*logrus.Entry
+			for _, e := range f.hook.AllEntries() {
+				if e.Level <= logrus.WarnLevel {
+					warns = append(warns, e)
+				}
+			}
+			require.Len(t, warns, 1)
+			assert.Equal(t, len(shards), warns[0].Data["shard_count"])
+			assert.NotContains(t, warns[0].Data, "shards")
+			assert.Less(t, len(warns[0].Message), 2048)
+		})
+	}
 }
