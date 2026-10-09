@@ -48,7 +48,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if err := ic.propertyValuesHelper.ValidateBaseURL(ic.BaseURL()); err != nil {
 		return err
 	}
-	return nil
+	return ic.propertyValuesHelper.ValidateIntegers(ic.cfg, maxTokensProperty)
 }
 
 func (ic *classSettings) BaseURL() string {

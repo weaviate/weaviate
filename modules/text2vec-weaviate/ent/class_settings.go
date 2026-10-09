@@ -55,5 +55,5 @@ func (cs *classSettings) Validate(class *models.Class) error {
 		return err
 	}
 
-	return nil
+	return cs.BaseClassSettings.ValidateIntegers("dimensions")
 }
