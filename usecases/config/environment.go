@@ -1115,6 +1115,7 @@ func FromEnv(config *Config) error {
 		func(val *configRuntime.DynamicValue[time.Duration]) { config.Namespaces.CleanupInterval = val }); err != nil {
 		return err
 	}
+	config.Namespaces.SuspendedMessage = strings.TrimSpace(os.Getenv("NAMESPACE_SUSPENDED_MESSAGE"))
 
 	if config.Raft, err = parseRAFTConfig(config.Cluster.Hostname); err != nil {
 		return fmt.Errorf("parse raft config: %w", err)

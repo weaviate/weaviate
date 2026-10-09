@@ -112,13 +112,16 @@ func declaredSentinelNames(t *testing.T) []string {
 
 func TestPublicMessage(t *testing.T) {
 	tests := []struct {
-		name    string
-		err     error
-		wantMsg string
-		wantOK  bool
+		name             string
+		err              error
+		suspendedMessage string
+		wantMsg          string
+		wantOK           bool
 	}{
 		{name: "suspended", err: ErrNamespaceSuspended, wantMsg: "instance suspended", wantOK: true},
+		{name: "suspended renders the override", err: ErrNamespaceSuspended, suspendedMessage: "paused", wantMsg: "paused", wantOK: true},
 		{name: "collection suspended", err: ErrCollectionSuspended, wantMsg: "instance suspended", wantOK: true},
+		{name: "collection suspended ignores the override", err: ErrCollectionSuspended, suspendedMessage: "paused", wantMsg: "instance suspended", wantOK: true},
 		{name: "resuming", err: ErrNamespaceResuming, wantMsg: "instance resuming, retry shortly", wantOK: true},
 		{name: "gone", err: ErrNamespaceGone, wantMsg: "instance unavailable", wantOK: true},
 		{name: "deleting", err: ErrNamespaceDeleting, wantMsg: "instance unavailable", wantOK: true},
@@ -138,7 +141,7 @@ func TestPublicMessage(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			msg, ok := PublicMessage(tc.err)
+			msg, ok := PublicMessage(tc.err, tc.suspendedMessage)
 			assert.Equal(t, tc.wantOK, ok)
 			assert.Equal(t, tc.wantMsg, msg)
 		})
@@ -147,7 +150,7 @@ func TestPublicMessage(t *testing.T) {
 
 func TestPublicMessage_NeverNamesTheConcept(t *testing.T) {
 	for name, err := range lifecycleSentinels {
-		msg, ok := PublicMessage(err)
+		msg, ok := PublicMessage(err, "")
 		require.True(t, ok, name)
 		for _, word := range []string{"namespace", "collection"} {
 			assert.NotContains(t, strings.ToLower(msg), word, name)
@@ -161,7 +164,7 @@ func TestPublicMessage_NeverNamesTheConcept(t *testing.T) {
 // ..." text renders to the user.
 func TestPublicMessage_EverySentinelIsClassified(t *testing.T) {
 	for name, err := range managementOnlySentinels {
-		_, ok := PublicMessage(err)
+		_, ok := PublicMessage(err, "")
 		assert.False(t, ok, "%s is listed management-only but PublicMessage neutralizes it", name)
 	}
 

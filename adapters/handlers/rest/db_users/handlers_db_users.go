@@ -57,20 +57,21 @@ import (
 )
 
 type dynUserHandler struct {
-	authorizer           authorization.Authorizer
-	dbUsers              DbUserAndRolesGetter
-	localUsers           LocalUsersGetter
-	localRoles           authorization.Controller // nil when RBAC is disabled
-	staticApiKeysConfigs config.StaticAPIKey
-	rbacConfig           rbacconf.Config
-	adminListConfig      adminlist.Config
-	logger               logrus.FieldLogger
-	dbUserEnabled        bool
-	remoteUser           *clients.RemoteUser
-	nodesGetter          cluster.NodeLister
-	namespacesEnabled    bool
-	namespaces           namespaces.Exister
-	expiry               apikey.ExpiryResolver
+	authorizer                authorization.Authorizer
+	dbUsers                   DbUserAndRolesGetter
+	localUsers                LocalUsersGetter
+	localRoles                authorization.Controller // nil when RBAC is disabled
+	staticApiKeysConfigs      config.StaticAPIKey
+	rbacConfig                rbacconf.Config
+	adminListConfig           adminlist.Config
+	logger                    logrus.FieldLogger
+	dbUserEnabled             bool
+	remoteUser                *clients.RemoteUser
+	nodesGetter               cluster.NodeLister
+	namespacesEnabled         bool
+	namespaceSuspendedMessage string
+	namespaces                namespaces.Exister
+	expiry                    apikey.ExpiryResolver
 }
 
 type DbUserAndRolesGetter interface {
@@ -90,22 +91,23 @@ var validateUserNameRegex = regexp.MustCompile(`^` + apikey.UserNameRegexCore + 
 func SetupHandlers(
 	api *operations.WeaviateAPI, dbUsers DbUserAndRolesGetter, localUsers LocalUsersGetter, localRoles authorization.Controller, authorizer authorization.Authorizer,
 	authNConfig config.Authentication, authZConfig config.Authorization, remoteUser *clients.RemoteUser, nodesGetter cluster.NodeLister,
-	namespacesEnabled bool, ns namespaces.Exister, expiry apikey.ExpiryResolver, logger logrus.FieldLogger,
+	nsConfig config.Namespaces, ns namespaces.Exister, expiry apikey.ExpiryResolver, logger logrus.FieldLogger,
 ) {
 	h := &dynUserHandler{
-		authorizer:           authorizer,
-		dbUsers:              dbUsers,
-		localUsers:           localUsers,
-		localRoles:           localRoles,
-		staticApiKeysConfigs: authNConfig.APIKey,
-		dbUserEnabled:        authNConfig.DBUsers.Enabled,
-		rbacConfig:           authZConfig.Rbac,
-		remoteUser:           remoteUser,
-		nodesGetter:          nodesGetter,
-		namespacesEnabled:    namespacesEnabled,
-		namespaces:           ns,
-		expiry:               expiry,
-		logger:               logger,
+		authorizer:                authorizer,
+		dbUsers:                   dbUsers,
+		localUsers:                localUsers,
+		localRoles:                localRoles,
+		staticApiKeysConfigs:      authNConfig.APIKey,
+		dbUserEnabled:             authNConfig.DBUsers.Enabled,
+		rbacConfig:                authZConfig.Rbac,
+		remoteUser:                remoteUser,
+		nodesGetter:               nodesGetter,
+		namespacesEnabled:         nsConfig.Enabled,
+		namespaceSuspendedMessage: nsConfig.SuspendedMessage,
+		namespaces:                ns,
+		expiry:                    expiry,
+		logger:                    logger,
 	}
 
 	api.UsersCreateUserHandler = users.CreateUserHandlerFunc(h.createUser)
@@ -477,7 +479,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 	// Skip the RAFT round-trip when the namespace is locally known not to be
 	// active; the apply path re-validates authoritatively.
 	if err := namespaces.RequireActive(h.namespaces, ns); err != nil {
-		return renderCreateUserNamespaceErr(principal, err)
+		return h.renderCreateUserNamespaceErr(principal, err)
 	}
 
 	if h.staticUserExists(internalKey) {
@@ -508,7 +510,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		// The namespace changed state between the pre-check above and the
 		// apply. Deleting renders 422 like the pre-check does — the namespace
 		// never returns to active, so the create is not retryable.
-		return renderCreateUserNamespaceErr(principal, fmt.Errorf("creating user: %w", err))
+		return h.renderCreateUserNamespaceErr(principal, fmt.Errorf("creating user: %w", err))
 	}
 
 	return users.NewCreateUserCreated().WithPayload(&models.UserAPIKey{Apikey: &apiKey})
@@ -840,7 +842,7 @@ func (h *dynUserHandler) importUsers(params experimental.ImportUsersParams, prin
 	// The apply re-checks the namespace; this only saves a round-trip per user
 	// when this node already knows it is inactive.
 	if err := namespaces.RequireActive(h.namespaces, targetNamespace); err != nil {
-		return renderImportUsersNamespaceErr(principal, err)
+		return h.renderImportUsersNamespaceErr(principal, err)
 	}
 
 	response := &models.UserImportResponse{Results: make([]*models.UserImportResult, 0, len(params.Body.Users))}
@@ -973,6 +975,10 @@ func (h *dynUserHandler) importOneUser(ctx context.Context, targetNamespace stri
 		if errors.Is(err, apikey.ErrUserExists) {
 			return errResult("a different credential already exists for this user id")
 		}
+		// CreateUser refuses a namespace that stopped being active after importUsers' pre-check.
+		if msg, ok := namespaces.PublicMessage(err, h.namespaceSuspendedMessage); ok {
+			return errResult(msg)
+		}
 		return errResult(fmt.Sprintf("creating user: %v", err))
 	}
 
@@ -1074,10 +1080,10 @@ func validateUserName(name string) error {
 }
 
 // renderCreateUserNamespaceErr renders err for a caller that must not learn
-// about namespaces. A lifecycle sentinel becomes neutral copy; anything else
-// is a genuine internal failure and keeps its detail.
-func renderCreateUserNamespaceErr(principal *models.Principal, err error) middleware.Responder {
-	msg, lifecycle := namespaces.PublicMessage(err)
+// about namespaces. A lifecycle sentinel becomes namespaces.PublicMessage's
+// copy. Anything else is a genuine internal failure and keeps its detail.
+func (h *dynUserHandler) renderCreateUserNamespaceErr(principal *models.Principal, err error) middleware.Responder {
+	msg, lifecycle := namespaces.PublicMessage(err, h.namespaceSuspendedMessage)
 	if !lifecycle {
 		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
@@ -1088,12 +1094,11 @@ func renderCreateUserNamespaceErr(principal *models.Principal, err error) middle
 	return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, public))
 }
 
-// renderImportUsersNamespaceErr maps a target-namespace error from importUsers
-// to a response. A known lifecycle error becomes a safe public message (422 or
-// 500); any other error is a real internal failure and keeps its detail.
-// Mirrors renderCreateUserNamespaceErr.
-func renderImportUsersNamespaceErr(principal *models.Principal, err error) middleware.Responder {
-	msg, lifecycle := namespaces.PublicMessage(err)
+// renderImportUsersNamespaceErr renders importUsers' target-namespace err. A
+// lifecycle sentinel becomes namespaces.PublicMessage's copy (422 or 500).
+// Anything else is a real internal failure and keeps its detail.
+func (h *dynUserHandler) renderImportUsersNamespaceErr(principal *models.Principal, err error) middleware.Responder {
+	msg, lifecycle := namespaces.PublicMessage(err, h.namespaceSuspendedMessage)
 	if !lifecycle {
 		return experimental.NewImportUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}

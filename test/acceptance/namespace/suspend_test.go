@@ -23,6 +23,7 @@ import (
 
 	"github.com/weaviate/weaviate/client/namespaces"
 	"github.com/weaviate/weaviate/client/schema"
+	"github.com/weaviate/weaviate/client/users"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 )
@@ -73,8 +74,9 @@ func TestNamespaces_SuspendResumeRoundTrip(t *testing.T) {
 }
 
 // TestNamespaces_SuspendRejectsTheNamespacesKeys pins that a suspended
-// namespace's DB user stops authenticating on every replica, with copy that
-// names no namespace, and that resuming restores access.
+// namespace's DB user stops authenticating on every replica, that the login
+// and a user create in that namespace render suspendedMessage, and that
+// resuming restores access.
 //
 // Not parallel: the per-node check retargets the shared client.
 func TestNamespaces_SuspendRejectsTheNamespacesKeys(t *testing.T) {
@@ -113,8 +115,17 @@ func TestNamespaces_SuspendRejectsTheNamespacesKeys(t *testing.T) {
 	// directly: the rendered copy is the point of this assertion.
 	status, body := rawSchemaDump(t, userKey)
 	assert.Equal(t, http.StatusUnauthorized, status)
-	assert.Contains(t, body, "instance suspended")
+	assert.Contains(t, body, suspendedMessage)
 	assert.NotContains(t, body, ns, "the 401 must not disclose the namespace name")
+
+	_, err = helper.Client(t).Users.CreateUser(
+		users.NewCreateUserParams().WithUserID(ns+":late").WithBody(users.CreateUserBody{}),
+		helper.CreateAuth(adminKey),
+	)
+	var unproc *users.CreateUserUnprocessableEntity
+	require.ErrorAs(t, err, &unproc)
+	require.Len(t, unproc.Payload.Error, 1)
+	assert.Equal(t, suspendedMessage, unproc.Payload.Error[0].Message)
 
 	helper.ResumeNamespace(t, ns, adminKey)
 	require.Eventually(t, func() bool {

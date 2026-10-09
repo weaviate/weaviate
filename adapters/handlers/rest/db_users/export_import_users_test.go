@@ -232,17 +232,42 @@ func TestImportUsersHandler(t *testing.T) {
 	})
 
 	t.Run("rejects import into an inactive namespace", func(t *testing.T) {
-		authorizer := authorization.NewMockAuthorizer(t)
-		authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(key)[0]).Return(nil)
-		authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(key)[0]).Return(nil)
-		dynUser := NewMockDbUserAndRolesGetter(t)
-		ns := namespaces.NewMockExister(t)
-		ns.On("GetNamespace", mock.AnythingOfType("string")).Return(api.Namespace{}, false).Maybe()
+		tests := []struct {
+			name             string
+			namespace        api.Namespace
+			exists           bool
+			suspendedMessage string
+			wantMsg          string
+		}{
+			{name: "missing", wantMsg: "instance unavailable"},
+			{
+				name:             "suspended renders NAMESPACE_SUSPENDED_MESSAGE",
+				namespace:        api.Namespace{Name: "ns1", State: api.NamespaceStateSuspended},
+				exists:           true,
+				suspendedMessage: "paused",
+				wantMsg:          "paused",
+			},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				authorizer := authorization.NewMockAuthorizer(t)
+				authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(key)[0]).Return(nil)
+				authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(key)[0]).Return(nil)
+				dynUser := NewMockDbUserAndRolesGetter(t)
+				ns := namespaces.NewMockExister(t)
+				ns.On("GetNamespace", "ns1").Return(tc.namespace, tc.exists)
 
-		h := dynUserHandler{expiry: unlicensedExpiry, rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: ns}
-		res := h.importUsers(importOne(strongRecord(true)), principal)
-		_, ok := res.(*experimental.ImportUsersUnprocessableEntity)
-		assert.True(t, ok)
+				h := dynUserHandler{
+					expiry: unlicensedExpiry, rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true,
+					namespacesEnabled: true, namespaceSuspendedMessage: tc.suspendedMessage, namespaces: ns,
+				}
+				res := h.importUsers(importOne(strongRecord(true)), principal)
+				parsed, ok := res.(*experimental.ImportUsersUnprocessableEntity)
+				require.True(t, ok, "got %T", res)
+				require.Len(t, parsed.Payload.Error, 1)
+				assert.Equal(t, tc.wantMsg, parsed.Payload.Error[0].Message)
+			})
+		}
 	})
 
 	t.Run("rejects a supplied namespace on a non-namespaced cluster", func(t *testing.T) {
@@ -454,22 +479,48 @@ func TestImportUsersHandler(t *testing.T) {
 		require.Contains(t, result.Error, "imported static key")
 	})
 
-	t.Run("maps an apply-time user conflict to a per-record error", func(t *testing.T) {
-		authorizer := authorization.NewMockAuthorizer(t)
-		authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(key)[0]).Return(nil)
-		authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(key)[0]).Return(nil)
-		dynUser := NewMockDbUserAndRolesGetter(t)
-		// The pre-checks pass, then the leader refuses: a concurrent create took
-		// the id between the read and the apply.
-		dynUser.On("ExportUsers", key).Return(map[string]dbuser.ExportRecord{}, nil)
-		dynUser.On("CheckUserIdentifierExists", "identifier-16-ch").Return(false, nil)
-		dynUser.On("CreateUser", mock.Anything, key, strongHash, "identifier-16-ch", "abc", "ns1", mock.Anything, mock.Anything).
-			Return(fmt.Errorf("creating user: %w", apikey.ErrUserExists))
+	t.Run("maps an apply-time create refusal to a per-record error", func(t *testing.T) {
+		// The pre-checks pass, then the leader refuses the create.
+		tests := []struct {
+			name      string
+			createErr error
+			wantErr   string
+		}{
+			{
+				name:      "a concurrent create took the id",
+				createErr: fmt.Errorf("creating user: %w", apikey.ErrUserExists),
+				wantErr:   "a different credential already exists for this user id",
+			},
+			{
+				name:      "namespace suspended after the pre-check renders NAMESPACE_SUSPENDED_MESSAGE",
+				createErr: fmt.Errorf("creating user: %w", namespaces.ErrNamespaceSuspended),
+				wantErr:   "paused",
+			},
+			{
+				name:      "a non-namespace failure keeps its detail",
+				createErr: errors.New("raft down"),
+				wantErr:   "creating user: raft down",
+			},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				authorizer := authorization.NewMockAuthorizer(t)
+				authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(key)[0]).Return(nil)
+				authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(key)[0]).Return(nil)
+				dynUser := NewMockDbUserAndRolesGetter(t)
+				dynUser.On("ExportUsers", key).Return(map[string]dbuser.ExportRecord{}, nil)
+				dynUser.On("CheckUserIdentifierExists", "identifier-16-ch").Return(false, nil)
+				dynUser.On("CreateUser", mock.Anything, key, strongHash, "identifier-16-ch", "abc", "ns1", mock.Anything, mock.Anything).Return(tc.createErr)
 
-		h := dynUserHandler{expiry: unlicensedExpiry, rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true, namespacesEnabled: true, namespaces: activeNsExister(t)}
-		result := firstResult(t, h.importUsers(importOne(strongRecord(true)), principal))
-		require.Equal(t, models.UserImportResultStatusError, *result.Status)
-		require.Equal(t, "a different credential already exists for this user id", result.Error)
+				h := dynUserHandler{
+					expiry: unlicensedExpiry, rbacConfig: rootOnly, dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true,
+					namespacesEnabled: true, namespaceSuspendedMessage: "paused", namespaces: activeNsExister(t),
+				}
+				result := firstResult(t, h.importUsers(importOne(strongRecord(true)), principal))
+				require.Equal(t, models.UserImportResultStatusError, *result.Status)
+				require.Equal(t, tc.wantErr, result.Error)
+			})
+		}
 	})
 
 	t.Run("reports a null record as an error instead of panicking", func(t *testing.T) {
