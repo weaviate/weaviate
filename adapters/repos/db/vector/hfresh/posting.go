@@ -83,7 +83,7 @@ func (p Posting) GarbageCollect(versionMap *VersionMap) (Posting, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !version.Deleted() && version.Version() <= v.Version().Version() {
+		if !version.Deleted() && version == v.Version() {
 			continue
 		}
 
