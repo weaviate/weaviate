@@ -1269,10 +1269,10 @@ func (i *Index) ForEachLoadedShard(f func(name string, shard ShardLike) error) e
 	})
 }
 
-// forEachPinnedLoadedShard calls f on each loaded shard while holding its
+// withEachLoadedShard calls f on each loaded shard while holding its
 // shutdown pin. It skips a shard whose pin fails and one unloaded after the walk
 // saw it, since loading that one again would leave it where no unload finds it.
-func (i *Index) forEachPinnedLoadedShard(f func(name string, shard ShardLike) error) error {
+func (i *Index) withEachLoadedShard(f func(name string, shard ShardLike) error) error {
 	return i.ForEachLoadedShard(func(name string, _ ShardLike) error {
 		shard, release, err := i.getLoadedShard(name)
 		defer release()
@@ -1414,7 +1414,7 @@ func (i *Index) updateVectorIndexConfig(ctx context.Context,
 	updated schemaConfig.VectorIndexConfig,
 ) error {
 	// an updated is not specific to one shard, but rather all
-	err := i.forEachPinnedLoadedShard(func(name string, shard ShardLike) error {
+	err := i.withEachLoadedShard(func(name string, shard ShardLike) error {
 		// At the moment, we don't do anything in an update that could fail, but
 		// technically this should be part of some sort of a two-phase commit  or
 		// have another way to rollback if we have updates that could potentially
@@ -1438,7 +1438,7 @@ func (i *Index) updateVectorIndexConfig(ctx context.Context,
 func (i *Index) updateVectorIndexConfigs(ctx context.Context,
 	updated map[string]schemaConfig.VectorIndexConfig,
 ) error {
-	err := i.forEachPinnedLoadedShard(func(name string, shard ShardLike) error {
+	err := i.withEachLoadedShard(func(name string, shard ShardLike) error {
 		if err := shard.UpdateVectorIndexConfigs(ctx, updated); err != nil {
 			return fmt.Errorf("shard %q: %w", name, err)
 		}
