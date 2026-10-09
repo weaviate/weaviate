@@ -109,6 +109,13 @@ var (
 // apply rejections crossing the RAFT/gRPC boundary).
 var ErrTaskCompletionPermanent = errors.New("permanent task-completion failure")
 
+// ErrTaskCompletionAwaiting marks an [UnitAwareProvider.OnTaskCompleted]
+// error as "another node owns the completion work". On any status the
+// [Scheduler] retries next tick, never counts the error against
+// maxCompletedCallbackAttempts, and never fails the task for it. It is an
+// in-process value; nothing serializes it across RPC.
+var ErrTaskCompletionAwaiting = errors.New("task completion awaiting another node")
+
 // PermanentRejectionRPCCode is the gRPC status code used to discriminate
 // permanent FSM rejections from generic Internal errors on the wire. It
 // is intentionally codes.FailedPrecondition: the FSM is internally

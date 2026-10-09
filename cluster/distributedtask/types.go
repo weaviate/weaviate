@@ -433,6 +433,9 @@ type UnitAwareProvider interface {
 	// failure to fail the task immediately; a plain error is transient and
 	// retried up to a bounded count before failing. Errors on terminal-status
 	// invocations are best-effort and must not reopen the task (return nil).
+	// Wrap in [ErrTaskCompletionAwaiting] when another node owns the
+	// completion work: on any status the scheduler retries next tick, never
+	// counts it against the bound, and never fails the task for it.
 	//
 	// A per-property index flag flipped from here must land before the task
 	// reaches FINISHED: GET /v1/schema/{class}/indexes reads both from one
