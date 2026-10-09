@@ -242,10 +242,10 @@ var (
 	// to cluster metadata (schema, tenants, nodes, cluster, aliases, replication
 	// status) and no access to objects or vectors. The operator_ prefix keeps it
 	// hidden from namespace-confined callers on namespace-enabled clusters.
-	MetadataReader = "operator_metadata_reader"
-	BuiltInRoles   = []string{Viewer, Admin, Root, ReadOnly, MetadataReader}
-
-	EnvVarRoles = []string{ReadOnly, Root, MetadataReader}
+	MetadataReader         = "operator_metadata_reader"
+	BuiltInRoles           = []string{Viewer, Admin, Root, ReadOnly, MetadataReader}
+	ApiManagedBuiltInRoles = []string{Admin, Viewer}
+	EnvVarRoles            = []string{ReadOnly, Root, MetadataReader}
 
 	// WildcardRoles are the built-in roles registered as a single wildcard
 	// policy. MetadataReader is deliberately absent: a wildcard READ would

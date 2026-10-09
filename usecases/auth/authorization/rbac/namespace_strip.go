@@ -66,20 +66,8 @@ func stripRBACSnapshot(s snapshot, staticAPIKeyUsers []string) (snapshot, error)
 		namespaces[ns] = struct{}{}
 	}
 	if len(namespaces) == 0 {
-		addNamespace := func(roleKey string) {
-			if ns := namespacing.NamespaceFromQualified(conv.TrimRoleNamePrefix(roleKey)); ns != "" {
-				namespaces[ns] = struct{}{}
-			}
-		}
-		for _, p := range s.Policy {
-			if len(p) > 0 {
-				addNamespace(p[0])
-			}
-		}
-		for _, g := range s.GroupingPolicy {
-			if len(g) > 1 {
-				addNamespace(g[1])
-			}
+		for _, ns := range roleNameNamespaces(s) {
+			namespaces[ns] = struct{}{}
 		}
 	}
 
@@ -250,6 +238,29 @@ func stripRBACSnapshot(s snapshot, staticAPIKeyUsers []string) (snapshot, error)
 	}
 
 	return out, nil
+}
+
+// roleNameNamespaces returns, sorted, the namespaces s's role names carry:
+// p[0] of every policy row and g[1] of every grouping row. It ignores
+// s.Namespaces.
+func roleNameNamespaces(s snapshot) []string {
+	seen := map[string]struct{}{}
+	add := func(roleKey string) {
+		if ns := namespacing.NamespaceFromQualified(conv.TrimRoleNamePrefix(roleKey)); ns != "" {
+			seen[ns] = struct{}{}
+		}
+	}
+	for _, p := range s.Policy {
+		if len(p) > 0 {
+			add(p[0])
+		}
+	}
+	for _, g := range s.GroupingPolicy {
+		if len(g) > 1 {
+			add(g[1])
+		}
+	}
+	return slices.Sorted(maps.Keys(seen))
 }
 
 // hasNamespacedSource reports whether the strip actually changed any of the

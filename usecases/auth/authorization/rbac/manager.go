@@ -515,54 +515,166 @@ func (m *Manager) RevokeRolesForUser(userName string, roles ...string) error {
 	return nil
 }
 
-// apiManagedBuiltInRoles are the built-in roles whose assignments are granted through
-// the API and therefore exist only in the policy store. Root and read-only are absent
-// on purpose: applyPredefinedRoles rebuilds their assignments from configuration on
-// every restore, so carrying them would be discarded work.
-var apiManagedBuiltInRoles = []string{authorization.Admin, authorization.Viewer}
-
-// apiManagedBuiltInGroupings returns the admin and viewer assignments held by subjects
-// qualified with a namespace the selection named. A built-in role can never be selected,
-// so without these rows a namespace's own admin is absent from the snapshot and a fresh
-// cluster has nothing to rebuild it from.
-//
-// Anything outside that namespace stays behind. A db subject strips unconditionally, so
-// another namespace's admin would arrive on the restored cluster as a global identity
-// holding admin. A global or group subject belongs to the source cluster rather than to
-// the namespace being moved.
-func (m *Manager) apiManagedBuiltInGroupings(roles []string) ([][]string, error) {
-	namespaces := make(map[string]struct{}, len(roles))
-	for _, name := range roles {
-		if ns := namespacing.NamespaceFromQualified(name); ns != "" {
-			namespaces[ns] = struct{}{}
-		}
-	}
-	if len(namespaces) == 0 {
-		return nil, nil
-	}
-
-	inScope := func(subject string) bool {
-		_, _, ns, err := conv.SubjectNamespace(subject)
-		if err != nil || ns == "" {
-			return false
-		}
-		_, ok := namespaces[ns]
-		return ok
-	}
-
+// apiManagedBuiltInGroupings returns the admin and viewer assignments whose subject
+// keep accepts. keep receives the full subject string, such as "db:ns1:alice".
+func (m *Manager) apiManagedBuiltInGroupings(keep func(subject string) bool) ([][]string, error) {
 	var out [][]string
-	for _, role := range apiManagedBuiltInRoles {
+	for _, role := range authorization.ApiManagedBuiltInRoles {
 		gs, err := m.casbin.GetFilteredNamedGroupingPolicy("g", 1, conv.PrefixRoleName(role))
 		if err != nil {
 			return nil, fmt.Errorf("GetFilteredNamedGroupingPolicy: %w", err)
 		}
 		for _, g := range gs {
-			if len(g) > 0 && inScope(g[0]) {
+			if len(g) == 0 {
+				continue
+			}
+			if keep(g[0]) {
 				out = append(out, g)
 			}
 		}
 	}
 	return out, nil
+}
+
+// BuiltInAssignments returns a snapshot of the given db users' admin and viewer
+// assignments, nil when they hold none. Each id matches the subject "db:<id>"
+// exactly, so a namespaced user is passed qualified ("ns1:alice").
+func (m *Manager) BuiltInAssignments(userIDs ...string) ([]byte, error) {
+	if m == nil || m.casbin == nil {
+		return nil, nil
+	}
+
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
+
+	subjects := make(map[string]struct{}, len(userIDs))
+	for _, id := range userIDs {
+		subjects[conv.UserNameWithTypeFromId(id, authentication.AuthTypeDb)] = struct{}{}
+	}
+	groupingPolicy, err := m.apiManagedBuiltInGroupings(func(subject string) bool {
+		_, ok := subjects[subject]
+		return ok
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(groupingPolicy) == 0 {
+		return nil, nil
+	}
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(snapshot{
+		GroupingPolicy: groupingPolicy,
+		Version:        SnapshotVersionLatest,
+	}); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// OIDCBuiltInAssignments returns a snapshot of the admin and viewer assignments
+// held by OIDC users of the given namespaces, nil when none match. A requested
+// name counts only when this cluster lists it as a namespace, so "urn" never
+// selects "oidc:urn:x". The blob names its namespaces so a restore can strip its rows.
+func (m *Manager) OIDCBuiltInAssignments(namespaces ...string) ([]byte, error) {
+	if m == nil || m.casbin == nil || m.namespaces == nil {
+		return nil, nil
+	}
+
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
+
+	requested := make(map[string]struct{}, len(namespaces))
+	for _, ns := range namespaces {
+		requested[ns] = struct{}{}
+	}
+	confirmed := map[string]struct{}{}
+	for _, ns := range m.namespaces.List() {
+		if _, ok := requested[ns.Name]; ok {
+			confirmed[ns.Name] = struct{}{}
+		}
+	}
+	if len(confirmed) == 0 {
+		return nil, nil
+	}
+
+	groupingPolicy, err := m.apiManagedBuiltInGroupings(func(subject string) bool {
+		_, authType, ns, err := conv.SubjectNamespace(subject)
+		if err != nil || authType != authentication.AuthTypeOIDC {
+			return false
+		}
+		_, ok := confirmed[ns]
+		return ok
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(groupingPolicy) == 0 {
+		return nil, nil
+	}
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(snapshot{
+		GroupingPolicy: groupingPolicy,
+		Version:        SnapshotVersionLatest,
+		Namespaces:     m.referencedNamespaces(nil, groupingPolicy),
+	}); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// MergeSnapshots concatenates two snapshots' rows into one blob that strips and
+// restores as each side would alone. An empty side returns the other unchanged;
+// duplicate rows are kept; the result carries a's Version. Callers pass the
+// carried built-in assignments as b.
+func MergeSnapshots(a, b []byte) ([]byte, error) {
+	if len(b) == 0 {
+		return a, nil
+	}
+	if len(a) == 0 {
+		return b, nil
+	}
+
+	var sa, sb snapshot
+	if err := json.Unmarshal(a, &sa); err != nil {
+		return nil, fmt.Errorf("merge snapshots: decode first: %w", err)
+	}
+	if err := json.Unmarshal(b, &sb); err != nil {
+		return nil, fmt.Errorf("merge snapshots: decode second: %w", err)
+	}
+
+	// A non-empty merged list turns off the strip's role-name fallback for every
+	// row, so a side without its own list contributes its role-name namespaces
+	// whenever the other side would make the merged list non-empty. Each side's
+	// rows then strip under at least the set they would strip under alone.
+	effective := func(s, other snapshot) []string {
+		if len(s.Namespaces) > 0 {
+			return s.Namespaces
+		}
+		if len(other.Namespaces) > 0 {
+			return roleNameNamespaces(s)
+		}
+		return nil
+	}
+	namespaces := slices.Concat(effective(sa, sb), effective(sb, sa))
+	slices.Sort(namespaces)
+
+	// Overlaps duplicate rows (an older participant uploads a namespace's whole
+	// built-in set, repeating carried ones); casbin's batch add skips repeats and
+	// the strip's collision check counts source names, not rows. Keeping a's
+	// Version lets Restore run the V0 upgrade, which leaves b's carried db and
+	// oidc subject rows unchanged.
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(snapshot{
+		Policy:         slices.Concat(sa.Policy, sb.Policy),
+		GroupingPolicy: slices.Concat(sa.GroupingPolicy, sb.GroupingPolicy),
+		Version:        sa.Version,
+		Namespaces:     slices.Compact(namespaces),
+	}); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // referencedNamespaces returns the namespaces the given rows refer to, in sorted order.
@@ -641,8 +753,8 @@ type snapshot struct {
 // no roles it captures the whole store. Called with roles it keeps only those
 // roles' rows: `p` rows are matched on p[0] and `g` rows on g[1], both of which
 // hold the role name, so the assignments and the db:wv_internal_empty placeholder
-// come along too. A selection also carries the admin and viewer grants held by
-// the principals it covers, for the reason given on apiManagedBuiltInGroupings.
+// come along too. A selection of custom roles carries no admin or viewer assignments
+// ([Manager.BuiltInAssignments] and [Manager.OIDCBuiltInAssignments] carry those).
 func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
 	// snapshot isn't always initialized, e.g. when RBAC is disabled
 	if m == nil {
@@ -686,11 +798,6 @@ func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
 			policy = append(policy, ps...)
 			groupingPolicy = append(groupingPolicy, gs...)
 		}
-		gs, err := m.apiManagedBuiltInGroupings(roles)
-		if err != nil {
-			return nil, err
-		}
-		groupingPolicy = append(groupingPolicy, gs...)
 	}
 
 	// Use a buffer to stream the JSON encoding
