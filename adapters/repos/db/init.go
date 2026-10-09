@@ -124,7 +124,7 @@ func (db *DB) init(ctx context.Context) error {
 				db.schemaGetter,
 				db.schemaReader,
 				db.replicationFSM,
-			).WithReplicationManager(db.replicationManager).Build()
+			).WithReplicationManager(db.replicationManager, db.leaderPlacementTimeout).Build()
 			shardResolver := resolver.NewShardResolver(collection, multitenancy.IsMultiTenant(class.MultiTenancyConfig), db.schemaGetter)
 			var lazyLoadShardEnabled bool
 			idx, err := NewIndex(ctx, db, IndexConfig{
