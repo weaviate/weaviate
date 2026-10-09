@@ -17,6 +17,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -66,6 +67,33 @@ func TestBuildURL(t *testing.T) {
 			location:        "europe-west1",
 			expectedURL:     "https://generativelanguage.googleapis.com/v1beta3/models/embedding-gecko-001:batchEmbedText",
 		},
+		{
+			name:            "Vertex AI escapes project ID characters that would reshape the URL",
+			useGenerativeAI: false,
+			apiEndpoint:     "us-central1-aiplatform.googleapis.com",
+			projectID:       "a?b=c",
+			modelID:         "gemini-embedding-001",
+			location:        "us-central1",
+			expectedURL:     "https://us-central1-aiplatform.googleapis.com/v1/projects/a%3Fb=c/locations/us-central1/publishers/google/models/gemini-embedding-001:predict",
+		},
+		{
+			name:            "Vertex AI escapes model ID characters that would reshape the URL",
+			useGenerativeAI: false,
+			apiEndpoint:     "us-central1-aiplatform.googleapis.com",
+			projectID:       "my-project",
+			modelID:         "a/../../other",
+			location:        "us-central1",
+			expectedURL:     "https://us-central1-aiplatform.googleapis.com/v1/projects/my-project/locations/us-central1/publishers/google/models/a%2F..%2F..%2Fother:predict",
+		},
+		{
+			name:            "Generative AI leaves model IDs like text-bison@001 unchanged",
+			useGenerativeAI: true,
+			apiEndpoint:     "generativelanguage.googleapis.com",
+			projectID:       "",
+			modelID:         "text-bison@001",
+			location:        "us-central1",
+			expectedURL:     "https://generativelanguage.googleapis.com/v1beta/models/text-bison@001:batchEmbedContents",
+		},
 	}
 
 	for _, tt := range tests {
@@ -107,6 +135,53 @@ func TestVectorizeRejectsForeignEndpoint(t *testing.T) {
 
 			require.Error(t, err)
 		})
+	}
+}
+
+type recordingTransport struct{ got *url.URL }
+
+func (r *recordingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	r.got = req.URL
+	return nil, errors.New("stop: request not sent")
+}
+
+func TestProjectIDIsInsertedIntoURLPath(t *testing.T) {
+	// Explicit expected tokens: url.PathEscape must NOT be used to compute
+	// expectations here because it leaves "." and ".." unencoded.
+	cases := []struct{ projectID, wantToken string }{
+		{"my-project", "my-project"},
+		{"a?b=c", "a%3Fb=c"},
+		{"a#b", "a%23b"},
+		{"a%2Fb", "a%252Fb"},
+		{"a/../../other", "a%2F..%2F..%2Fother"},
+		{".", "%2E"},
+		{"..", "%2E%2E"},
+	}
+	for _, tc := range cases {
+		rt := &recordingTransport{}
+		c := &google{
+			apiKey:       "apiKey",
+			httpClient:   &http.Client{Transport: rt},
+			googleApiKey: apikey.NewGoogleApiKey(),
+			urlBuilderFn: buildURL,
+			logger:       nullLogger(),
+		}
+		_, _ = c.vectorize(context.Background(), []string{"text"}, retrievalDocument, "", settings{
+			ApiEndpoint: "us-central1-aiplatform.googleapis.com",
+			ProjectID:   tc.projectID,
+			Model:       "gemini-embedding-001",
+			Location:    "us-central1",
+		})
+
+		if rt.got == nil {
+			t.Logf("projectId=%q: rejected before sending", tc.projectID)
+			continue
+		}
+		want := "/v1/projects/" + tc.wantToken + "/locations/us-central1/publishers/google/models/gemini-embedding-001:predict"
+		t.Logf("projectId=%q\n  url=%s\n  path=%s query=%q", tc.projectID, rt.got, rt.got.Path, rt.got.RawQuery)
+		if rt.got.EscapedPath() != want || rt.got.RawQuery != "" {
+			t.Errorf("projectId=%q changed the request path or query", tc.projectID)
+		}
 	}
 }
 

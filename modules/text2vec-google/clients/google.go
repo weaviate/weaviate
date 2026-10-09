@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -57,6 +58,12 @@ var (
 )
 
 func buildURL(useGenerativeAI bool, apiEndpoint, projectID, modelID, location string) string {
+	// projectID and modelID are user-controlled values interpolated into the
+	// request path: percent-encode the characters that could otherwise reshape
+	// the path or introduce a query string. Values without those characters
+	// (e.g. model IDs like text-bison@001) are returned unchanged.
+	projectID = escapeVertexPathToken(projectID)
+	modelID = escapeVertexPathToken(modelID)
 	if useGenerativeAI {
 		if isLegacyModel(modelID) {
 			// legacy PaLM API
@@ -66,6 +73,25 @@ func buildURL(useGenerativeAI bool, apiEndpoint, projectID, modelID, location st
 	}
 	urlTemplate := "https://%s/v1/projects/%s/locations/%s/publishers/google/models/%s:predict"
 	return fmt.Sprintf(urlTemplate, apiEndpoint, projectID, location, modelID)
+}
+
+// escapeVertexPathToken percent-encodes the characters of a user-supplied value
+// (project ID, model ID) that could reshape the request path or introduce a
+// query string when interpolated into the Vertex AI request URL.
+func escapeVertexPathToken(value string) string {
+	// Exact dot segments must be encoded even though they contain none of the
+	// characters below: a literal "." or ".." would otherwise survive as a
+	// normalizable RFC 3986 dot segment in the request path.
+	if value == "." {
+		return "%2E"
+	}
+	if value == ".." {
+		return "%2E%2E"
+	}
+	if !strings.ContainsAny(value, "%/?#") {
+		return value
+	}
+	return strings.NewReplacer("%", "%25", "/", "%2F", "?", "%3F", "#", "%23").Replace(value)
 }
 
 type settings struct {
