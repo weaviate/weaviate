@@ -118,10 +118,12 @@ type DB struct {
 	// covering both local and coordinator ingress.
 	queryAdmission *queryadmission.Limiter
 
-	reindexer      ShardReindexerV3
-	nodeSelector   cluster.NodeSelector
-	schemaReader   schemaUC.SchemaReader
-	replicationFSM types.ReplicationFSMReader
+	reindexer              ShardReindexerV3
+	nodeSelector           cluster.NodeSelector
+	schemaReader           schemaUC.SchemaReader
+	replicationFSM         types.ReplicationFSMReader
+	replicationManager     types.Manager
+	leaderPlacementTimeout time.Duration
 
 	// reindexAuditMu guards the audit deps installed by
 	// [DB.SetReindexAuditDeps] and the backup-gate activity lookup
@@ -777,6 +779,13 @@ func (db *DB) SetReindexer(reindexer ShardReindexerV3) {
 
 func (db *DB) SetNodeSelector(nodeSelector cluster.NodeSelector) {
 	db.nodeSelector = nodeSelector
+}
+
+// SetReplicationManager must run before any index is built. leaderTimeout bounds the
+// leader placement lookup and should be RAFT_CONSISTENCY_WAIT_TIMEOUT.
+func (db *DB) SetReplicationManager(m types.Manager, leaderTimeout time.Duration) {
+	db.replicationManager = m
+	db.leaderPlacementTimeout = leaderTimeout
 }
 
 func (db *DB) SetSchemaReader(schemaReader schemaUC.SchemaReader) {

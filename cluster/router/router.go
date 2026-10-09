@@ -22,6 +22,7 @@ package router
 import (
 	"context"
 	"fmt"
+	"time"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/types"
@@ -38,12 +39,14 @@ import (
 // either a multi-tenant router or a single tenant router. The multi-tenant router will use the tenant name as the
 // partitioning key to identify a specific tenant's partitioning.
 type Builder struct {
-	collection           string
-	partitioningEnabled  bool
-	nodeSelector         cluster.NodeSelector
-	schemaGetter         schema.SchemaGetter
-	schemaReader         schema.SchemaReader
-	replicationFSMReader replicationTypes.ReplicationFSMReader
+	collection             string
+	partitioningEnabled    bool
+	nodeSelector           cluster.NodeSelector
+	schemaGetter           schema.SchemaGetter
+	schemaReader           schema.SchemaReader
+	replicationFSMReader   replicationTypes.ReplicationFSMReader
+	replicationManager     replicationTypes.Manager
+	leaderPlacementTimeout time.Duration
 }
 
 // NewBuilder creates a new Builder with the provided configuration.
@@ -76,6 +79,14 @@ func NewBuilder(
 	}
 }
 
+// WithReplicationManager is optional: without it a multi-tenant router stays local-only and
+// fails a read whose tenant has not reached this node.
+func (b *Builder) WithReplicationManager(m replicationTypes.Manager, leaderTimeout time.Duration) *Builder {
+	b.replicationManager = m
+	b.leaderPlacementTimeout = leaderTimeout
+	return b
+}
+
 // Build builds and returns the appropriate router implementation based on the partitioning configuration.
 //
 // Returns:
@@ -83,11 +94,13 @@ func NewBuilder(
 func (b *Builder) Build() types.Router {
 	if b.partitioningEnabled {
 		return &multiTenantRouter{
-			collection:           b.collection,
-			schemaGetter:         b.schemaGetter,
-			schemaReader:         b.schemaReader,
-			replicationFSMReader: b.replicationFSMReader,
-			nodeSelector:         b.nodeSelector,
+			collection:             b.collection,
+			schemaGetter:           b.schemaGetter,
+			schemaReader:           b.schemaReader,
+			replicationFSMReader:   b.replicationFSMReader,
+			nodeSelector:           b.nodeSelector,
+			replicationManager:     b.replicationManager,
+			leaderPlacementTimeout: b.leaderPlacementTimeout,
 		}
 	}
 	return &singleTenantRouter{
@@ -113,11 +126,13 @@ type singleTenantRouter struct {
 // In multi-tenant mode, tenant isolation is achieved through partitioning using
 // the tenant name as the partitioning key. Each tenant effectively becomes its own shard.
 type multiTenantRouter struct {
-	collection           string
-	schemaGetter         schema.SchemaGetter
-	schemaReader         schema.SchemaReader
-	replicationFSMReader replicationTypes.ReplicationFSMReader
-	nodeSelector         cluster.NodeSelector
+	collection             string
+	schemaGetter           schema.SchemaGetter
+	schemaReader           schema.SchemaReader
+	replicationFSMReader   replicationTypes.ReplicationFSMReader
+	nodeSelector           cluster.NodeSelector
+	replicationManager     replicationTypes.Manager
+	leaderPlacementTimeout time.Duration
 }
 
 // Interface compliance check at compile time.
@@ -482,7 +497,43 @@ func (r *multiTenantRouter) getReadReplicasLocation(collection string, tenant, s
 		return types.ReadReplicaSet{}, err
 	}
 
-	return r.readReplicasFromLocalSchema(collection, shard)
+	replicas, err := r.shardReplicas(collection, shard)
+	if err != nil {
+		return types.ReadReplicaSet{}, err
+	}
+
+	return r.readReplicaSet(collection, shard, replicas), nil
+}
+
+func (r *multiTenantRouter) readReplicaSet(collection, shard string, replicas []string) types.ReadReplicaSet {
+	readNodeNames := r.replicationFSMReader.FilterOneShardReplicasRead(collection, shard, replicas)
+	return types.ReadReplicaSet{Replicas: buildReplicas(readNodeNames, shard, r.nodeSelector.NodeHostname)}
+}
+
+// shardReplicas resolves a shard's replica nodes, falling back to the leader when the local
+// sharding state cannot. The status check above consults the leader precisely when local state
+// does not list the tenant, so resolving placement locally repeats the lookup that just missed.
+func (r *multiTenantRouter) shardReplicas(collection, shard string) ([]string, error) {
+	replicas, localErr := r.schemaReader.ShardReplicas(collection, shard)
+	if localErr == nil {
+		return replicas, nil
+	}
+	if r.replicationManager == nil {
+		return nil, localErr
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), r.leaderPlacementTimeout)
+	defer cancel()
+
+	state, err := r.replicationManager.QueryShardingStateByCollectionAndShard(ctx, collection, shard)
+	if err != nil {
+		// Not there either, or unreachable: keep the local error.
+		return nil, localErr
+	}
+	if leaderReplicas := state.Shards[shard]; len(leaderReplicas) > 0 {
+		return leaderReplicas, nil
+	}
+	return nil, localErr
 }
 
 // readReplicasForPlan resolves read replicas honoring LocalOnly: local schema only
@@ -502,10 +553,7 @@ func (r *multiTenantRouter) readReplicasFromLocalSchema(collection, shard string
 		return types.ReadReplicaSet{}, err
 	}
 
-	readNodeNames := r.replicationFSMReader.FilterOneShardReplicasRead(collection, shard, replicas)
-	readReplicas := buildReplicas(readNodeNames, shard, r.nodeSelector.NodeHostname)
-
-	return types.ReadReplicaSet{Replicas: readReplicas}, nil
+	return r.readReplicaSet(collection, shard, replicas), nil
 }
 
 // getWriteReplicasLocation returns only write replicas for multi-tenant collections.
@@ -519,7 +567,7 @@ func (r *multiTenantRouter) getWriteReplicasLocation(collection string, tenant, 
 		return types.WriteReplicaSet{}, err
 	}
 
-	replicas, err := r.schemaReader.ShardReplicas(collection, shard)
+	replicas, err := r.shardReplicas(collection, shard)
 	if err != nil {
 		return types.WriteReplicaSet{}, err
 	}
