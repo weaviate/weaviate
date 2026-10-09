@@ -123,7 +123,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		m.db.schemaGetter,
 		m.db.schemaReader,
 		m.db.replicationFSM,
-	).WithReplicationManager(m.db.replicationManager).Build()
+	).WithReplicationManager(m.db.replicationManager, m.db.leaderPlacementTimeout).Build()
 	shardResolver := resolver.NewShardResolver(collection, multitenancy.IsMultiTenant(class.MultiTenancyConfig), m.db.schemaGetter)
 	var totalShardSizeBytes uint64
 	var localActiveShardsCount int
