@@ -563,8 +563,13 @@ func streamExecutor() (chan uint64, *mockTaskDecoder) {
 
 	return ch, &mockTaskDecoder{
 		execFn: func(ctx context.Context, t *mockTask) error {
-			ch <- t.key
-			return nil
+			// honor cancellation, or Close hangs on a task nobody reads
+			select {
+			case ch <- t.key:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
 		},
 	}
 }
@@ -873,4 +878,24 @@ func (q *erroringQueue) Metrics() *Metrics { return q.metrics }
 func (q *erroringQueue) DequeueBatch() (*Batch, error) {
 	q.calls.Add(1)
 	return nil, errors.New("simulated I/O error")
+}
+
+// A dispatched streamExecutor task nobody reads from must not hang Close.
+func TestStreamExecutorTaskDoesNotBlockClose(t *testing.T) {
+	s := makeScheduler(t, 1)
+	s.Start()
+
+	_, e := streamExecutor()
+	q := makeQueue(t, s, e)
+	q.w.maxSize = 90 // 10 records per chunk
+
+	pushMany(t, q, 1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+	s.Schedule(t.Context())
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, q.Close(ctx))
+	require.NoError(t, ctx.Err(), "Close waited for a task blocked on the stream channel")
+
+	require.NoError(t, s.Close(t.Context()))
 }

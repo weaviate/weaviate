@@ -206,8 +206,11 @@ func TestQueueDecodeTask(t *testing.T) {
 	t.Run("a few tasks", func(t *testing.T) {
 		exec := discardExecutor()
 		q := makeQueueSize(t, s, exec, 50)
+		// the test dequeues by hand: keep the running scheduler off the queue
+		q.Pause(t.Context())
 
 		pushMany(t, q, 1, 100, 200, 300, 400, 500, 600)
+		s.Schedule(t.Context())
 
 		entries, err := os.ReadDir(q.dir)
 		require.NoError(t, err)
@@ -344,8 +347,11 @@ func TestQueueDecodeTask(t *testing.T) {
 	t.Run("restart", func(t *testing.T) {
 		exec := discardExecutor()
 		q := makeQueueSize(t, s, exec, 50)
+		// the test dequeues by hand: keep the running scheduler off the queue
+		q.Pause(t.Context())
 
 		pushMany(t, q, 1, 100, 200, 300, 400, 500, 600)
+		s.Schedule(t.Context())
 
 		entries, err := os.ReadDir(q.dir)
 		require.NoError(t, err)
@@ -1308,6 +1314,10 @@ func TestQueueForceSwitch(t *testing.T) {
 
 	_, e := streamExecutor()
 	q := makeQueueWith(t, s, e, 100, tmpDir)
+	// pause before pushing: a chunk dispatched to the unread stream would
+	// keep Pause waiting forever
+	q.Pause(t.Context())
+	require.NoError(t, q.Wait(ctx))
 
 	// ListFiles on empty queue
 	files, err := q.ListFiles(ctx, tmpDir)
@@ -1320,14 +1330,12 @@ func TestQueueForceSwitch(t *testing.T) {
 		require.NoError(t, err)
 	}
 
+	s.Schedule(ctx)
+
 	// ensure there is a chunk file
 	entries, err := os.ReadDir(tmpDir)
 	require.NoError(t, err)
 	require.Len(t, entries, 8)
-
-	// pause the queue
-	q.Pause(t.Context())
-	require.NoError(t, q.Wait(ctx))
 
 	// call ForceSwitch to promote the last chunk
 	got, err := q.ForceSwitch(ctx, q.dir)
