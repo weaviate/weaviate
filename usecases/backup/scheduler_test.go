@@ -606,6 +606,19 @@ func TestValidateBackupRequest(t *testing.T) {
 			wantCarried:  [][]string{{"alice", "bob"}},
 		},
 		{
+			name:         "includeUsers omitted with namespaced selectors carries only their namespaces' users",
+			allUsers:     []string{"ns1:alice", "ns2:boss"},
+			allRoles:     []string{authorization.Admin, authorization.Viewer},
+			includeRoles: []string{"ns1:*"},
+			wantCarried:  [][]string{{"ns1:alice"}},
+			wantOIDC:     [][]string{{"ns1"}},
+		},
+		{
+			name:         "includeUsers omitted with explicit empty includeRoles carries every dynamic user",
+			includeRoles: []string{},
+			wantCarried:  [][]string{{"alice", "bob"}},
+		},
+		{
 			name:         "dynamic users disabled carries nothing",
 			includeRoles: []string{"reader"},
 			noUsers:      true,

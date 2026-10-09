@@ -932,11 +932,28 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 			Warnf("'includeRoles' %v matches no role, backing up no custom roles", req.IncludeRoles)
 	}
 
+	// The namespaces the includeRoles selectors and the roles they resolve to
+	// name. They key the carried OIDC grants and bound an omitted includeUsers.
+	var namespaces []string
+	if req.IncludeRoles != nil {
+		for _, name := range slices.Concat(req.IncludeRoles, roles) {
+			if ns := namespacing.NamespaceFromQualified(name); ns != "" && !slices.Contains(namespaces, ns) {
+				namespaces = append(namespaces, ns)
+			}
+		}
+	}
+
 	if req.IncludeRoles != nil && !selections.skipUsers && s.roleLister != nil {
 		carried := users
 		if req.IncludeUsers == nil && s.userLister != nil {
 			// An omitted includeUsers backs up every dynamic user.
 			carried = s.userLister.ListAllUsers()
+			// If includeRoles specifies namespaces, only users from those namespaces are carried.
+			if len(namespaces) > 0 {
+				carried = slices.DeleteFunc(slices.Clone(carried), func(id string) bool {
+					return !slices.Contains(namespaces, namespacing.NamespaceFromQualified(id))
+				})
+			}
 		}
 		if len(carried) > 0 {
 			if selections.builtInRoleAssignments, err = s.roleLister.BuiltInAssignments(carried...); err != nil {
@@ -946,23 +963,14 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	}
 
 	// An OIDC grant has no user record to travel with, so it is keyed to the
-	// namespaces of the includeRoles selectors and of the roles they resolve to,
-	// and is carried even when users are skipped.
-	if req.IncludeRoles != nil && s.roleLister != nil {
-		var namespaces []string
-		for _, name := range slices.Concat(req.IncludeRoles, roles) {
-			if ns := namespacing.NamespaceFromQualified(name); ns != "" && !slices.Contains(namespaces, ns) {
-				namespaces = append(namespaces, ns)
-			}
+	// selector-named namespaces and is carried even when users are skipped.
+	if s.roleLister != nil && len(namespaces) > 0 {
+		oidc, err := s.roleLister.OIDCBuiltInAssignments(namespaces...)
+		if err != nil {
+			return selections, fmt.Errorf("collect oidc built-in role assignments: %w", err)
 		}
-		if len(namespaces) > 0 {
-			oidc, err := s.roleLister.OIDCBuiltInAssignments(namespaces...)
-			if err != nil {
-				return selections, fmt.Errorf("collect oidc built-in role assignments: %w", err)
-			}
-			if selections.builtInRoleAssignments, err = rbac.MergeSnapshots(selections.builtInRoleAssignments, oidc); err != nil {
-				return selections, fmt.Errorf("merge built-in role assignments: %w", err)
-			}
+		if selections.builtInRoleAssignments, err = rbac.MergeSnapshots(selections.builtInRoleAssignments, oidc); err != nil {
+			return selections, fmt.Errorf("merge built-in role assignments: %w", err)
 		}
 	}
 
