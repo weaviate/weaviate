@@ -167,11 +167,13 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 
 	subsearchWrap.ModuleParams["nearText"] = &subSearchParams
 
-	subsearchWrap.HybridSearch = nil
 	subsearchWrap.Boost = nil
 	subsearchWrap.Selection = nil
 	subsearchWrap.Group = nil
 	subsearchWrap.GroupBy = nil
+	// HybridSearch stays set so that searchForTargets leaves the additional
+	// properties of the modules to the fused results. Do not clear
+	// AdditionalProperties.ModuleParams for that: the store reads them.
 	partialResults, vectors, err := e.searchForTargets(ctx, subsearchWrap, targetVectors, nil)
 	if err != nil {
 		return nil, "", err
