@@ -510,9 +510,8 @@ func Test_coordinatorPull(t *testing.T) {
 	}
 }
 
-// Once too few replicas can serve, no amount of retrying reaches the level, so the read must say so
-// at once. CountObjects gives its pull a minute: waiting that out is what turned two dead replicas
-// into ~58s queries.
+// CountObjects gives its pull a minute, and waiting that out is what turned two dead replicas into
+// ~58s queries.
 func TestPullStopsWhenTheLevelBecomesUnreachable(t *testing.T) {
 	const (
 		cls   = "C1"
@@ -566,9 +565,9 @@ func TestPullStopsWhenTheLevelBecomesUnreachable(t *testing.T) {
 		"the pull must give up as soon as too few replicas can serve, not sit out its minute (took %s)", elapsed)
 }
 
-// The other half of the rule: a replica that is merely behind the schema answers unprocessable,
-// which carries no readiness marker, so it must not count against the level. During a rolling
-// restart a quorum lags for a moment, and the retry ladder is there to outlast that.
+// The other half of the rule: a replica that is merely behind answers unprocessable, which carries
+// no readiness marker, so it must not count against the level -- during a rolling restart a quorum
+// lags for a moment and the ladder is there to outlast it.
 func TestPullOutlastsReplicasThatAreMerelyBehindTheSchema(t *testing.T) {
 	const (
 		cls   = "C1"
