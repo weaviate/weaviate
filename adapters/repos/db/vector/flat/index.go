@@ -434,6 +434,7 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 
 func (index *flat) Delete(ids ...uint64) error {
 	for i := range ids {
+		existed := index.ContainsDoc(ids[i])
 		if index.Cached() {
 			index.cache.Delete(context.Background(), ids[i])
 		}
@@ -442,6 +443,19 @@ func (index *flat) Delete(ids ...uint64) error {
 
 		if err := index.deleteFromBuckets(idBytes); err != nil {
 			return err
+		}
+		if !existed {
+			continue
+		}
+		// Keep AlreadyIndexed() aligned with the live vector set (#12958).
+		for {
+			oldCount := atomic.LoadUint64(&index.count)
+			if oldCount == 0 {
+				break
+			}
+			if atomic.CompareAndSwapUint64(&index.count, oldCount, oldCount-1) {
+				break
+			}
 		}
 	}
 	return nil
