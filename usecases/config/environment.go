@@ -78,6 +78,7 @@ const (
 	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
 
 	DefaultNamespaceCleanupInterval = 30 * time.Second
+	DefaultSuspendReconcileInterval = 30 * time.Second
 
 	DefaultReplicaMovementCleanupMaxAge   = 168 * time.Hour
 	DefaultReplicaMovementCleanupInterval = time.Hour
@@ -1120,6 +1121,13 @@ func FromEnv(config *Config) error {
 		return err
 	}
 	config.Namespaces.SuspendedMessage = strings.TrimSpace(os.Getenv("NAMESPACE_SUSPENDED_MESSAGE"))
+
+	if err := parser.ParseDynamicDurationWithValidation("SUSPEND_RECONCILE_INTERVAL",
+		DefaultSuspendReconcileInterval,
+		parser.ValidateCronInterval,
+		func(val *configRuntime.DynamicValue[time.Duration]) { config.Namespaces.SuspendReconcileInterval = val }); err != nil {
+		return err
+	}
 
 	if config.Raft, err = parseRAFTConfig(config.Cluster.Hostname); err != nil {
 		return fmt.Errorf("parse raft config: %w", err)

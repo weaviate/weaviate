@@ -82,6 +82,7 @@ type WeaviateRuntimeConfig struct {
 	DisableGraphQL                            *runtime.DynamicValue[bool]          `json:"disable_graphql" yaml:"disable_graphql"`
 
 	NamespaceCleanupInterval *runtime.DynamicValue[time.Duration] `json:"namespace_cleanup_interval" yaml:"namespace_cleanup_interval"`
+	SuspendReconcileInterval *runtime.DynamicValue[time.Duration] `json:"suspend_reconcile_interval" yaml:"suspend_reconcile_interval"`
 
 	ReplicaMovementEnabled                 *runtime.DynamicValue[bool]          `json:"replica_movement_enabled" yaml:"replica_movement_enabled"`
 	ReplicaMovementCleanupEnabled          *runtime.DynamicValue[bool]          `json:"replica_movement_cleanup_enabled" yaml:"replica_movement_cleanup_enabled"`
@@ -468,6 +469,7 @@ func BuildRegisteredRuntimeConfig(cfg *Config) *WeaviateRuntimeConfig {
 	registered.OperationalMode = cfg.OperationalMode
 	registered.DisableDimensionMetrics = cfg.DisableDimensionMetrics
 	registered.NamespaceCleanupInterval = cfg.Namespaces.CleanupInterval
+	registered.SuspendReconcileInterval = cfg.Namespaces.SuspendReconcileInterval
 	registered.ObjectsTTLDeleteSchedule = cfg.ObjectsTTLDeleteSchedule
 	registered.ObjectsTTLBatchSize = cfg.ObjectsTTLBatchSize
 	registered.ObjectsTTLPauseEveryNoBatches = cfg.ObjectsTTLPauseEveryNoBatches
