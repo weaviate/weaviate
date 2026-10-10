@@ -52,12 +52,18 @@ func migrationTrackerDirAbsent(lsmPath, dirName string) bool {
 //
 // `scope` is the tracker dirs of the (propName, indexType) tuple; see
 // [migrationDirScope].
-func completedMigrationGens(scope migrationDirScope) map[int]bool {
+//
+// An error means the generations could not be determined, which is not the same
+// answer as none: every caller here deletes or reports on the strength of this
+// set, so each refuses rather than acting on a set it knows is incomplete.
+func completedMigrationGens(scope migrationDirScope) (map[int]bool, error) {
 	out := map[int]bool{}
-	forEachCompletedMigration(scope, func(base string, gen int) {
+	if err := forEachCompletedMigration(scope, func(base string, gen int) {
 		out[gen] = true
-	})
-	return out
+	}); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // completedMigrationSidecarSuffixes returns the gen-suffixed sidecar dir
@@ -65,9 +71,13 @@ func completedMigrationGens(scope migrationDirScope) map[int]bool {
 // migrations in `scope`. Keying by (suffix-base, gen) instead of
 // bare gen stops one strategy's completed gen from shielding — or failing
 // to shield — a different strategy's sidecar at the same gen (issue #295).
-func completedMigrationSidecarSuffixes(scope migrationDirScope) map[string]bool {
+//
+// An error means the set could not be computed, which is not the same answer as
+// an empty one: a caller about to delete sidecars cannot tell a live dir from a
+// stale one, and must refuse rather than treat everything as unpreserved.
+func completedMigrationSidecarSuffixes(scope migrationDirScope) (map[string]bool, error) {
 	out := map[string]bool{}
-	forEachCompletedMigration(scope, func(base string, gen int) {
+	err := forEachCompletedMigration(scope, func(base string, gen int) {
 		suffixes := migrationSuffixes(base)
 		if suffixes == nil {
 			return
@@ -79,7 +89,10 @@ func completedMigrationSidecarSuffixes(scope migrationDirScope) map[string]bool 
 			out[rs+tail] = true
 		}
 	})
-	return out
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // forEachCompletedMigration invokes fn for every tracker dir in `scope` that
@@ -90,11 +103,19 @@ func completedMigrationSidecarSuffixes(scope migrationDirScope) map[string]bool 
 // shard reads its .migrations dir once; a nil cache reads the filesystem every
 // time, which is what most callers pass. The sentinel Stats per matching dir
 // are never cached.
-func forEachCompletedMigration(scope migrationDirScope, fn func(base string, gen int)) {
+//
+// A directory or sentinel that cannot be read is reported, not read as "no
+// completed migrations": callers that delete on the strength of this answer
+// would otherwise wipe live sidecars they could not tell apart from stale ones
+// (#12647). Absence is no migrations and no error.
+func forEachCompletedMigration(scope migrationDirScope, fn func(base string, gen int)) error {
 	migrationsDir := filepath.Join(scope.lsmPath, ".migrations")
 	names, err := scope.dirs.list(migrationsDir)
 	if err != nil {
-		return
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("list %s for completed-migration scan: %w", migrationsDir, err)
 	}
 	for _, name := range names {
 		base, gen, ok := parseMigrationDirName(name)
@@ -105,10 +126,40 @@ func forEachCompletedMigration(scope migrationDirScope, fn func(base string, gen
 			continue
 		}
 		dirPath := filepath.Join(migrationsDir, name)
-		if fileExistsInDir(dirPath, "tidied.mig") || fileExistsInDir(dirPath, "merged.mig") {
+		completed, err := migrationDirCompleted(dirPath)
+		if err != nil {
+			return err
+		}
+		if completed {
 			fn(base, gen)
 		}
 	}
+	return nil
+}
+
+// migrationDirCompleted reports whether a tracker dir carries tidied.mig or
+// merged.mig. Unlike [fileExistsInDir], which the non-preserve callers share, a
+// stat that fails for a reason other than absence is an error rather than a
+// "no": the preserve set is what stops a sweep deleting live sidecars, so a
+// sentinel it cannot read must stop the sweep instead (#12647).
+func migrationDirCompleted(dirPath string) (bool, error) {
+	var unreadable error
+	for _, sentinel := range []string{"tidied.mig", "merged.mig"} {
+		path := filepath.Join(dirPath, sentinel)
+		info, err := os.Stat(path)
+		if err != nil {
+			if !os.IsNotExist(err) && unreadable == nil {
+				unreadable = fmt.Errorf("stat %s: %w", path, err)
+			}
+			continue
+		}
+		if !info.IsDir() {
+			return true, nil
+		}
+	}
+	// Either sentinel alone proves completion, so one that cannot be read only
+	// matters when the other did not prove it.
+	return false, unreadable
 }
 
 // fileExistsInDir is a small helper for [completedMigrationGens]; returns

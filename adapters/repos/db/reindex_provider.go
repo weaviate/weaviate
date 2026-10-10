@@ -1913,20 +1913,28 @@ func hasCompletedMigrationTracker(
 	// ChangeAlgorithm keeps a class-level tracker dir, which the
 	// per-property scope deliberately omits.
 	if migrationType == ReindexTypeChangeAlgorithm &&
-		len(completedMigrationGens(
-			classLevelMigrationDirsOf(lsmPath, MigrationDirSearchableMapToBlockmax).
-				cachingDirs(dirs).cachingProps(props))) > 0 {
+		anyCompletedGen(classLevelMigrationDirsOf(lsmPath, MigrationDirSearchableMapToBlockmax).
+			cachingDirs(dirs).cachingProps(props)) {
 		return true
 	}
 	for _, indexType := range semanticMigrationIndexTypes(migrationType) {
 		for _, propName := range properties {
-			if len(completedMigrationGens(
-				migrationDirsOf(lsmPath, dirs, propName, indexType).cachingProps(props))) > 0 {
+			if anyCompletedGen(migrationDirsOf(lsmPath, dirs, propName, indexType).
+				cachingProps(props)) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// anyCompletedGen reports whether scope holds a completed generation, counting
+// a scope it could not read as one. The callers use the answer to decide whether
+// to tell an operator a rebuild is needed, so an unreadable .migrations should
+// raise that rather than silence it.
+func anyCompletedGen(scope migrationDirScope) bool {
+	gens, err := completedMigrationGens(scope)
+	return err != nil || len(gens) > 0
 }
 
 // uniqueShardsFromPayload returns the distinct shard names referenced

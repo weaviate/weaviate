@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -60,6 +61,27 @@ func cleanSweep(t *testing.T, ctx context.Context, shard *Shard, propName, index
 	reads, err := shard.CleanStalePartialReindexState(ctx, propName, indexType)
 	require.NoError(t, err)
 	return reads
+}
+
+// newCategoryShard builds a shard with one "category" property and returns it
+// with its LSM path, for the cleanup tests that only need somewhere to plant
+// tracker and sidecar dirs.
+func newCategoryShard(t *testing.T, ctx context.Context, namePrefix string) (*Shard, string) {
+	t.Helper()
+	class := newTestClassWithProps(namePrefix+uuid.NewString()[:8], []string{"category"})
+	shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false)
+	shard := shd.(*Shard)
+	t.Cleanup(func() { shard.Shutdown(ctx) })
+	return shard, shard.pathLSM()
+}
+
+// mustCompletedGens is [completedMigrationGens] for fixtures that are readable
+// by construction, so a listing or sentinel error is a broken fixture.
+func mustCompletedGens(t *testing.T, scope migrationDirScope) map[int]bool {
+	t.Helper()
+	gens, err := completedMigrationGens(scope)
+	require.NoError(t, err)
+	return gens
 }
 
 func dirExistsAt(t *testing.T, lsmPath, name string) bool {
@@ -326,6 +348,143 @@ func TestCleanStalePartialReindexState_ShutdownSkipsOtherPropertiesBuckets(t *te
 			}
 			require.NotNil(t, shard.store.Bucket(tc.bucket), tc.reason)
 			require.True(t, dirExistsAt(t, lsm, tc.bucket), tc.reason)
+		})
+	}
+}
+
+// TestCleanStalePartialReindexState_UnreadablePreserveSource pins issue #12647:
+// when the preserve set cannot be computed, the sweep must refuse before it
+// deletes state it cannot tell is live. Both faults are triggered without chmod,
+// so they reproduce for root too; EACCES, EIO and fd exhaustion land in the same
+// branches.
+func TestCleanStalePartialReindexState_UnreadablePreserveSource(t *testing.T) {
+	tracker := "filterable_roaringset_refresh_2"
+	liveSidecar := "property_category__roaringset_ingest_2"
+
+	tests := []struct {
+		name string
+		// break makes the preserve source unreadable for a shard at lsmPath.
+		break_ func(t *testing.T, lsmPath string)
+		// wantErr is a fragment the refusal must name.
+		wantErr string
+	}{
+		{
+			name:    "the .migrations listing fails",
+			wantErr: ".migrations",
+			break_: func(t *testing.T, lsmPath string) {
+				// A regular file where the dir belongs: ReadDir gives ENOTDIR.
+				require.NoError(t, os.WriteFile(
+					filepath.Join(lsmPath, ".migrations"), []byte("x"), 0o644))
+			},
+		},
+		{
+			name:    "a completed-migration sentinel cannot be statted",
+			wantErr: "tidied.mig",
+			break_: func(t *testing.T, lsmPath string) {
+				mkTrackerDir(t, lsmPath, tracker, "started.mig", "swapped.mig")
+				// A symlink to itself: Stat gives ELOOP, so whether this
+				// migration completed is unknowable rather than false.
+				require.NoError(t, os.Symlink("tidied.mig",
+					filepath.Join(lsmPath, ".migrations", tracker, "tidied.mig")))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			shard, lsm := newCategoryShard(t, ctx, "CleanupUnreadable_")
+
+			mkSidecarDir(t, lsm, liveSidecar)
+			tc.break_(t, lsm)
+
+			_, err := shard.CleanStalePartialReindexState(ctx, "category", "filterable")
+
+			require.ErrorContains(t, err, tc.wantErr,
+				"the refusal must name what could not be read, so an operator "+
+					"knows which fault to repair")
+			require.True(t, dirExistsAt(t, lsm, liveSidecar),
+				"sidecar %s must survive a sweep that could not compute the preserve "+
+					"set; after a tidied swap it holds the only copy of the property's data",
+				liveSidecar)
+		})
+	}
+}
+
+// TestCleanStalePartialReindexState_OneReadableSentinelIsEnough pins that an
+// unreadable sentinel only refuses the sweep when the other one did not already
+// prove the migration completed. Either sentinel alone is proof, so refusing
+// here would strand reclaimable state on a shard whose state is knowable.
+func TestCleanStalePartialReindexState_OneReadableSentinelIsEnough(t *testing.T) {
+	ctx := testCtx()
+	shard, lsm := newCategoryShard(t, ctx, "CleanupOneSentinel_")
+
+	tracker := "enable_filterable_category_1"
+	liveSidecar := "property_category__enable_filterable_ingest_1"
+	mkTrackerDir(t, lsm, tracker, "started.mig", "swapped.mig", "merged.mig")
+	require.NoError(t, os.Symlink("tidied.mig",
+		filepath.Join(lsm, ".migrations", tracker, "tidied.mig")))
+	mkSidecarDir(t, lsm, liveSidecar)
+
+	cleanSweep(t, ctx, shard, "category", "filterable")
+
+	require.True(t, dirExistsAt(t, lsm, liveSidecar),
+		"merged.mig proves gen 1 completed, so its ingest dir %s stays preserved",
+		liveSidecar)
+}
+
+// TestCleanStaleMigrationDirs_UnreadableSentinelKeepsTrackerDir pins the
+// tracker-dir half of #12647: the DELETE-path sweep reads the same preserve
+// source, so an unreadable sentinel must stop it deleting a tracker dir whose
+// generation it could not classify.
+func TestCleanStaleMigrationDirs_UnreadableSentinelKeepsTrackerDir(t *testing.T) {
+	lsm := t.TempDir()
+	// Per-property, not class-level: the deletion pass scope omits the class dir.
+	tracker := "enable_filterable_category_1"
+	mkTrackerDir(t, lsm, tracker, "started.mig", "swapped.mig")
+	require.NoError(t, os.Symlink("merged.mig",
+		filepath.Join(lsm, ".migrations", tracker, "merged.mig")))
+
+	logger, _ := test.NewNullLogger()
+	scope := migrationDirsOf(lsm, nil, "category", "filterable")
+	err := cleanStaleMigrationDirsIn(testCtx(), scope, logger)
+
+	require.ErrorContains(t, err, "merged.mig",
+		"the refusal must name the sentinel it could not read")
+	require.True(t, dirExistsAt(t, filepath.Join(lsm, ".migrations"), tracker),
+		"tracker dir %s must survive: an unclassifiable generation may be a "+
+			"completed migration awaiting deferred finalize", tracker)
+}
+
+// TestHasStalePartialReindexState_UnreadableSentinelFailsOpen pins the gate
+// half of #12647: a tracker whose completion can't be read must send the shard
+// to hydration, where the sweep refuses, rather than let the gate skip it.
+func TestHasStalePartialReindexState_UnreadableSentinelFailsOpen(t *testing.T) {
+	tracker := "enable_filterable_category_1"
+
+	tests := []struct {
+		name    string
+		sidecar string
+	}{
+		{name: "a sidecar to classify", sidecar: "property_category__enable_filterable_ingest_1"},
+		{name: "only the tracker dir"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			lsm := t.TempDir()
+			mkTrackerDir(t, lsm, tracker, "started.mig", "swapped.mig")
+			require.NoError(t, os.Symlink("tidied.mig",
+				filepath.Join(lsm, ".migrations", tracker, "tidied.mig")))
+			if tc.sidecar != "" {
+				mkSidecarDir(t, lsm, tc.sidecar)
+			}
+
+			stale, finalizable := hasStalePartialReindexState(lsm, "category", "filterable", nil, nil)
+
+			require.True(t, stale,
+				"a generation the gate can't classify must not read as clean")
+			require.False(t, finalizable)
 		})
 	}
 }
