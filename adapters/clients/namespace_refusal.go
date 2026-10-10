@@ -15,6 +15,9 @@ import (
 	"net/http"
 	"strings"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
@@ -47,6 +50,16 @@ func rebuildHTTPRefusal(err error, code int, body []byte) error {
 		return err
 	}
 	return rebuildRefusal(err, string(body))
+}
+
+// rebuildGRPCRefusal calls rebuildRefusal on the message of a
+// FailedPrecondition, the code an owning node answers a namespace refusal with.
+func rebuildGRPCRefusal(err error) error {
+	st, ok := status.FromError(err)
+	if !ok || st.Code() != codes.FailedPrecondition {
+		return err
+	}
+	return rebuildRefusal(err, st.Message())
 }
 
 // rebuildObjectRefusal calls rebuildRefusal on a per-object error decoded from
