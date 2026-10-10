@@ -806,8 +806,7 @@ func (c *replicationClient) FindUUIDs(ctx context.Context, hostName, indexName,
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(res.Body)
-		return nil, rebuildHTTPRefusal(errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
-			body), res.StatusCode, body)
+		return nil, unexpectedStatusError(res.StatusCode, body)
 	}
 
 	resBytes, err := io.ReadAll(res.Body)
