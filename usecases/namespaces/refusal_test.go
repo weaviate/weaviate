@@ -46,3 +46,29 @@ func TestRefusalText(t *testing.T) {
 		}
 	})
 }
+
+func TestRefusalFromText(t *testing.T) {
+	type testCase struct {
+		name string
+		msg  string
+		want error
+	}
+	tests := []testCase{
+		{
+			name: "a sentinel's text followed by more text is no refusal",
+			msg:  ErrNamespaceSuspended.Error() + `: shard "s"` + "\n",
+		},
+	}
+	for _, sentinel := range refusalSentinels {
+		tests = append(tests, testCase{
+			name: sentinel.Error() + " ending the text before its newline",
+			msg:  `get shard "s": ` + sentinel.Error() + "\n",
+			want: sentinel,
+		})
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, RefusalFromText(tc.msg))
+		})
+	}
+}

@@ -41,3 +41,15 @@ func RefusalText(err error) (string, bool) {
 	}
 	return "", false
 }
+
+// RefusalFromText returns the error RequireShardLoadable returns whose text msg
+// ends with, else nil. The trim drops the newline http.Error appends.
+func RefusalFromText(msg string) error {
+	msg = strings.TrimSpace(msg)
+	for _, sentinel := range refusalSentinels {
+		if strings.HasSuffix(msg, sentinel.Error()) {
+			return sentinel
+		}
+	}
+	return nil
+}
