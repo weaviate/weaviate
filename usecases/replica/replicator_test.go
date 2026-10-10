@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -29,7 +30,9 @@ import (
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	clusterRouter "github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	clusterMocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
@@ -854,6 +857,136 @@ func TestReplicatorAddReferences(t *testing.T) {
 			assert.Equal(t, len(errs), 2)
 			assert.ErrorIs(t, errs[0], errAny)
 			assert.ErrorIs(t, errs[1], errAny)
+		})
+	}
+}
+
+func TestReplicatorReachabilityCheck(t *testing.T) {
+	var (
+		cls     = "C1"
+		shard   = "SH1"
+		id      = strfmt.UUID("123")
+		ctx     = context.Background()
+		obj     = &storobj.Object{}
+		adds    = additional.Properties{}
+		proj    = search.SelectProperties{}
+		item    = replica.Replica{ID: id, Object: object(id, 3)}
+		digestR = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
+		levels  = []types.ConsistencyLevel{types.ConsistencyLevelQuorum, types.ConsistencyLevelAll}
+	)
+
+	// newFactory returns a factory whose shard lives on replicas while only the
+	// reachable nodes are known to the router's node selector.
+	newFactory := func(t *testing.T, isMultiTenant bool, replicas, reachable []string) *fakeFactory {
+		f := newFakeFactory(t, cls, shard, replicas, isMultiTenant)
+		f.Nodes = reachable
+		return f
+	}
+
+	assertRejected := func(t *testing.T, f *fakeFactory, level types.ConsistencyLevel, cause string) {
+		t.Helper()
+		rep := f.newReplicator()
+
+		err := rep.PutObject(ctx, shard, obj, level, 123)
+		assert.ErrorIs(t, err, replicaerrors.ErrReplicas)
+		assert.Equal(t, 1, strings.Count(fmt.Sprint(err), "cannot reach enough replicas"), "error text: %v", err)
+		assert.ErrorContains(t, err, cause)
+
+		got, err := rep.GetOne(ctx, level, shard, id, proj, adds)
+		assert.ErrorIs(t, err, replicaerrors.ErrReplicas)
+		assert.Equal(t, 1, strings.Count(fmt.Sprint(err), "cannot reach enough replicas"), "error text: %v", err)
+		assert.ErrorContains(t, err, cause)
+		assert.Nil(t, got)
+
+		assert.Empty(t, f.WClient.Calls)
+		assert.Empty(t, f.RClient.Calls)
+	}
+
+	for _, tc := range []struct {
+		name          string
+		isMultiTenant bool
+	}{
+		{"single_tenant", false},
+		{"multi_tenant", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Run("two_unreachable_quorum_all", func(t *testing.T) {
+				for _, level := range levels {
+					t.Run(string(level), func(t *testing.T) {
+						f := newFactory(t, tc.isMultiTenant, []string{"A", "B", "C"}, []string{"A"})
+						assertRejected(t, f, level, "1 of 3 replicas reachable")
+					})
+				}
+			})
+
+			t.Run("two_unreachable_one", func(t *testing.T) {
+				f := newFactory(t, tc.isMultiTenant, []string{"A", "B", "C"}, []string{"A"})
+				rep := f.newReplicator()
+				f.WClient.On("PutObject", mock.Anything, "A", cls, shard, anyVal, obj, uint64(123)).Return(replica.SimpleResponse{}, nil)
+				f.WClient.On("Commit", ctx, "A", cls, shard, anyVal, anyVal).Return(nil)
+				f.RClient.EXPECT().FetchObject(anyVal, "A", cls, shard, id, proj, adds, 0).Return(item, nil)
+
+				assert.NoError(t, rep.PutObject(ctx, shard, obj, types.ConsistencyLevelOne, 123))
+
+				got, err := rep.GetOne(ctx, types.ConsistencyLevelOne, shard, id, proj, adds)
+				assert.NoError(t, err)
+				assert.Equal(t, item.Object, got)
+			})
+
+			t.Run("one_unreachable", func(t *testing.T) {
+				for _, level := range levels {
+					t.Run(string(level), func(t *testing.T) {
+						f := newFactory(t, tc.isMultiTenant, []string{"A", "B", "C"}, []string{"A", "B"})
+						rep := f.newReplicator()
+						for _, n := range []string{"A", "B"} {
+							f.WClient.On("PutObject", mock.Anything, n, cls, shard, anyVal, obj, uint64(123)).Return(replica.SimpleResponse{}, nil)
+							f.WClient.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil)
+						}
+						f.RClient.EXPECT().FetchObject(anyVal, "A", cls, shard, id, proj, adds, 0).Return(item, nil)
+						f.RClient.EXPECT().DigestObjects(anyVal, "B", cls, shard, []strfmt.UUID{id}, 0).Return(digestR, nil)
+
+						assert.NoError(t, rep.PutObject(ctx, shard, obj, level, 123))
+
+						got, err := rep.GetOne(ctx, level, shard, id, proj, adds)
+						assert.NoError(t, err)
+						assert.Equal(t, item.Object, got)
+					})
+				}
+			})
+
+			t.Run("all_reachable_all", func(t *testing.T) {
+				for _, cFails := range []bool{false, true} {
+					t.Run(fmt.Sprintf("c_commit_fails=%v", cFails), func(t *testing.T) {
+						nodes := []string{"A", "B", "C"}
+						f := newFactory(t, tc.isMultiTenant, nodes, nodes)
+						rep := f.newReplicator()
+						for _, n := range nodes {
+							var commitErr error
+							if n == "C" && cFails {
+								commitErr = errAny
+							}
+							f.WClient.On("PutObject", mock.Anything, n, cls, shard, anyVal, obj, uint64(123)).Return(replica.SimpleResponse{}, nil)
+							f.WClient.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(commitErr)
+						}
+
+						err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelAll, 123)
+						if cFails {
+							assert.ErrorIs(t, err, errAny)
+						} else {
+							assert.NoError(t, err)
+						}
+					})
+				}
+			})
+
+			t.Run("rf2_one_unreachable", func(t *testing.T) {
+				for _, level := range levels {
+					t.Run(string(level), func(t *testing.T) {
+						f := newFactory(t, tc.isMultiTenant, []string{"A", "B"}, []string{"A"})
+						assertRejected(t, f, level, "1 of 2 replicas reachable")
+					})
+				}
+			})
 		})
 	}
 }
