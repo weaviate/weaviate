@@ -22,42 +22,36 @@ import (
 
 var errServerShuttingDown = status.Error(codes.Unavailable, "server is shutting down")
 
-// InFlightCancel cancels the ctx of every unary call running through its
-// interceptor when Cancel is called, so a graceful server stop waits only for
-// handlers that ignore it.
+// InFlightCancel refuses unary gRPC calls once callsCtx is cancelled, and
+// cancels those still running, so a graceful stop waits only for handlers that
+// ignore it.
 type InFlightCancel struct {
-	ctx      context.Context
-	cancel   context.CancelFunc
-	cutShort atomic.Int64
+	callsCtx             context.Context
+	unavailableResponses atomic.Int64
 }
 
-func NewInFlightCancel() *InFlightCancel {
-	ctx, cancel := context.WithCancel(context.Background())
-	return &InFlightCancel{ctx: ctx, cancel: cancel}
+func NewInFlightCancel(callsCtx context.Context) *InFlightCancel {
+	return &InFlightCancel{callsCtx: callsCtx}
 }
 
-func (c *InFlightCancel) Cancel() {
-	c.cancel()
+// UnavailableResponses returns how many calls were refused or cut short.
+func (c *InFlightCancel) UnavailableResponses() int64 {
+	return c.unavailableResponses.Load()
 }
 
-// CutShort returns how many calls Cancel cut short or refused.
-func (c *InFlightCancel) CutShort() int64 {
-	return c.cutShort.Load()
-}
-
-// UnaryInterceptor answers codes.Unavailable for a call Cancel cut short, and
-// refuses one arriving after Cancel without running it. Clients retry neither
-// Canceled nor the per-object errors a cancelled BatchObjects replies with.
-func (c *InFlightCancel) UnaryInterceptor() grpc.UnaryServerInterceptor {
+// UnavailableAfterCancel answers codes.Unavailable for a call the cancel cut
+// short, and refuses one arriving after it without running it. Clients retry
+// neither Canceled nor the per-object errors a cancelled BatchObjects replies with.
+func (c *InFlightCancel) UnavailableAfterCancel() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		if c.ctx.Err() != nil {
-			c.cutShort.Add(1)
+		if c.callsCtx.Err() != nil {
+			c.unavailableResponses.Add(1)
 			return nil, errServerShuttingDown
 		}
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
-		stop := context.AfterFunc(c.ctx, func() {
-			c.cutShort.Add(1)
+		stop := context.AfterFunc(c.callsCtx, func() {
+			c.unavailableResponses.Add(1)
 			cancel()
 		})
 		resp, err := handler(ctx, req)

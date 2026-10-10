@@ -145,23 +145,23 @@ func TestShutdownStepsRun(t *testing.T) {
 		return func(context.Context) { step(name)() }
 	}
 
-	grpcStarted := make(chan struct{})
+	grpcWaitStarted := make(chan struct{})
 	var otelCtxErr error
 	steps := shutdownSteps{
+		// leaveCluster returns only once the gRPC wait is running, so running
+		// the two in sequence shows up as waitGRPCStop starting after it ended.
 		leaveCluster: func() {
 			record("leaveCluster start")
-			// Correct code never starts the gRPC stop while leaveCluster runs,
-			// so this window cannot flake.
 			select {
-			case <-grpcStarted:
-			case <-time.After(100 * time.Millisecond):
+			case <-grpcWaitStarted:
+			case <-time.After(5 * time.Second):
 			}
 			record("leaveCluster end")
 		},
-		stopGRPCServer: func() {
-			record("stopGRPCServer start")
-			close(grpcStarted)
-			record("stopGRPCServer end")
+		waitGRPCStop: func() {
+			record("waitGRPCStop start")
+			close(grpcWaitStarted)
+			record("waitGRPCStop end")
 		},
 		drainExports:        step("drainExports"),
 		stopTelemetry:       step("stopTelemetry"),
@@ -186,11 +186,11 @@ func TestShutdownStepsRun(t *testing.T) {
 	}()
 	select {
 	case <-finished:
-	case <-time.After(5 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("timed out waiting for shutdown to return")
 	}
 
-	stopsDBUsers := []string{"leaveCluster", "stopGRPCServer", "drainExports", "stopTelemetry", "closeTaskScheduler"}
+	stopsDBUsers := []string{"leaveCluster", "waitGRPCStop", "drainExports", "stopTelemetry", "closeTaskScheduler"}
 	closesDB := []string{"closeInternalServer", "closeClusterService", "closeDBUsers", "closeModules", "closeConnManagers"}
 	type order struct{ earlier, later string }
 	var orders []order
@@ -200,10 +200,7 @@ func TestShutdownStepsRun(t *testing.T) {
 	for _, s := range closesDB {
 		orders = append(orders, order{s, "shutdownOTEL"}, order{s, "flushSentry"})
 	}
-	orders = append(orders,
-		order{"leaveCluster", "stopGRPCServer"},
-		order{"closeClusterService", "closeConnManagers"},
-	)
+	orders = append(orders, order{"closeClusterService", "closeConnManagers"})
 	for _, o := range orders {
 		t.Run(o.earlier+" returns before "+o.later+" starts", func(t *testing.T) {
 			end := slices.Index(events, o.earlier+" end")
@@ -213,5 +210,7 @@ func TestShutdownStepsRun(t *testing.T) {
 			assert.Less(t, end, start, "events: %v", events)
 		})
 	}
+	assert.Less(t, slices.Index(events, "waitGRPCStop start"), slices.Index(events, "leaveCluster end"),
+		"leaveCluster held back the gRPC wait, events: %v", events)
 	require.NoError(t, otelCtxErr, "shutdownOTEL got a cancelled ctx")
 }

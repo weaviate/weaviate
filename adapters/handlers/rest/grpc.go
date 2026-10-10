@@ -37,28 +37,29 @@ func startGrpcServer(server *grpc.Server, state *state.State) {
 	}, state.Logger)
 }
 
-// stopGrpcServer stops server gracefully and cancels the calls still running
-// cancelDelay later. After stopTimeout it forces Stop, which disconnects clients.
-// A handler that ignores its ctx can keep this from returning, or still be
-// running when it does.
-func stopGrpcServer(server *grpc.Server, inFlight *grpcHandler.InFlightCancel,
-	cancelDelay, stopTimeout time.Duration, logger logrus.FieldLogger,
-) {
-	cancelTimer := time.AfterFunc(cancelDelay, inFlight.Cancel)
-	defer cancelTimer.Stop()
-
+// startGrpcStop refuses grpc-web calls, which a graceful stop answers with a
+// non-retryable Unknown, then starts the graceful stop and forces Stop
+// stopTimeout later. wait only joins it, and a handler ignoring its ctx may outlive it.
+func startGrpcStop(server *grpc.Server, refuseGrpcWeb func(), stopTimeout time.Duration,
+	logger logrus.FieldLogger,
+) (wait func()) {
+	refuseGrpcWeb()
 	stopped := make(chan struct{})
 	enterrors.GoWrapper(func() {
 		server.GracefulStop()
 		close(stopped)
 	}, logger)
-	select {
-	case <-stopped:
-	case <-time.After(stopTimeout):
-		logger.Warn("grpc graceful stop timed out, forcing stop")
-		server.Stop()
-	}
-	logger.WithField("action", "grpc_shutdown").
-		Infof("cut short or refused %d grpc calls still running %s after graceful stop began",
-			inFlight.CutShort(), cancelDelay)
+	done := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		defer close(done)
+		deadline := time.NewTimer(stopTimeout)
+		defer deadline.Stop()
+		select {
+		case <-stopped:
+		case <-deadline.C:
+			logger.Warn("grpc graceful stop timed out, forcing stop")
+			server.Stop()
+		}
+	}, logger)
+	return func() { <-done }
 }

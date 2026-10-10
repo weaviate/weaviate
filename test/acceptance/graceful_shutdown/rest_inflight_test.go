@@ -96,7 +96,7 @@ func TestRESTRequestInFlightAtShutdown(t *testing.T) {
 	defer logs.Close()
 	out, err := io.ReadAll(logs)
 	require.NoError(t, err)
-	assert.True(t, strings.Contains(string(out), "refused 1 requests on the REST port"), "shutdown log line missing")
+	assert.True(t, strings.Contains(string(out), "refused 1 REST requests"), "shutdown log line missing")
 }
 
 // hangingEmbeddings is an OpenAI-compatible embeddings endpoint that holds every
