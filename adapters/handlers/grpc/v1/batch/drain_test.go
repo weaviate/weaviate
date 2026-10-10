@@ -16,6 +16,7 @@ import (
 	"errors"
 	"io"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -100,7 +101,11 @@ func TestDrainOfInProgressBatch(t *testing.T) {
 	mockStream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Once()
 
 	numWorkers := 1
-	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false)
+	// The client finishes before the cut, as a well-behaved one does.
+	clientCallsCtx, cancelClientCalls := context.WithCancel(context.Background())
+	t.Cleanup(cancelClientCalls)
+	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false,
+		batch.WithClientCallsCtx(clientCallsCtx))
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -277,7 +282,8 @@ func TestDrainAfterBrokenStream(t *testing.T) {
 }
 
 func TestDrainWithHangingClient(t *testing.T) {
-	testDuration := 5 * time.Minute
+	testDuration := 10 * time.Second
+	gracePeriod := 100 * time.Millisecond
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, testDuration)
 	defer cancel()
@@ -351,7 +357,7 @@ func TestDrainWithHangingClient(t *testing.T) {
 	mockStream.EXPECT().Send(newBatchStreamShuttingDownReply()).Return(nil).Once()
 
 	numWorkers := 1
-	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false)
+	handler, drain := batch.StartWithGracePeriod(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false, gracePeriod)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -362,11 +368,12 @@ func TestDrainWithHangingClient(t *testing.T) {
 	err := handler.Handle(mockStream)
 	wg.Wait()
 	require.NotNil(t, err, "handler should return error shutting down")
-	require.ErrorAs(t, err, &context.Canceled, "handler should return context.Canceled error")
+	require.ErrorIs(t, err, context.Canceled, "handler should return context.Canceled error")
 }
 
 func TestDrainWithMisbehavingClient(t *testing.T) {
-	testDuration := 5 * time.Minute
+	testDuration := 10 * time.Second
+	gracePeriod := 100 * time.Millisecond
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, testDuration)
 	defer cancel()
@@ -437,7 +444,7 @@ func TestDrainWithMisbehavingClient(t *testing.T) {
 	// Will not emit shutdown message since client never stops sending messages, it gets hung up on instead
 
 	numWorkers := 1
-	handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false)
+	handler, drain := batch.StartWithGracePeriod(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false, gracePeriod)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -448,7 +455,213 @@ func TestDrainWithMisbehavingClient(t *testing.T) {
 	err := handler.Handle(mockStream)
 	wg.Wait()
 	require.NotNil(t, err, "handler should return error shutting down")
-	require.ErrorAs(t, err, &context.Canceled, "handler should return context.Canceled error")
+	require.ErrorIs(t, err, context.Canceled, "handler should return context.Canceled error")
+}
+
+// A stream still receiving after the shutdown message is cut when client calls
+// are cancelled, long before SHUTDOWN_GRACE_PERIOD.
+func TestDrainClosesStreamsWhenClientCallsCancelled(t *testing.T) {
+	const waitLimit = 5 * time.Second
+	collection := "TestClass"
+
+	cases := []struct {
+		name string
+		// keepSending makes the client send data after the shutdown message instead of going silent.
+		keepSending bool
+		// batchWaitsForCtx makes the batcher hold the first batch until its ctx ends,
+		// so it is still unwritten when client calls are cancelled.
+		batchWaitsForCtx bool
+	}{
+		{name: "client keeps sending", keepSending: true},
+		{name: "client goes silent"},
+		{name: "batch not yet written is abandoned", batchWaitsForCtx: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+			clientCallsCtx, cancelClientCalls := context.WithCancel(context.Background())
+			t.Cleanup(cancelClientCalls)
+
+			var written atomic.Int32
+			batchEntered := make(chan struct{}, 1)
+			batcher := mocks.NewMockBatcher(t)
+			batcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(
+				func(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+					select {
+					case batchEntered <- struct{}{}:
+					default:
+					}
+					if tc.batchWaitsForCtx {
+						<-ctx.Done()
+					}
+					// the LSM write is skipped once ctx is done
+					if err := ctx.Err(); err != nil {
+						return nil, err
+					}
+					written.Add(int32(len(req.Objects)))
+					return &pb.BatchObjectsReply{}, nil
+				}).Maybe()
+			schemaManager := newSchemaManagerFor(t, collection)
+			authenticator := mocks.NewMockauthenticator(t)
+			authenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
+
+			stream := newMockStream(t)
+			stream.EXPECT().Context().Return(ctx).Maybe()
+			shutdownSent := make(chan struct{})
+			stream.EXPECT().Send(newBatchStreamShuttingDownReply()).RunAndReturn(func(*pb.BatchStreamReply) error {
+				close(shutdownSent)
+				return nil
+			}).Once()
+			stream.EXPECT().Send(mock.Anything).Return(nil).Maybe()
+			objs := []*pb.BatchObject{{Collection: collection, Uuid: "5f8e0d34-1c6a-4a1e-9f0c-6f9b6e0f0a11"}}
+			recvCount := 0
+			stream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
+				recvCount++
+				switch {
+				case recvCount == 1:
+					return newBatchStreamStartRequest(), nil
+				case recvCount == 2 || tc.keepSending:
+					return newBatchStreamObjsRequest(objs), nil
+				default:
+					<-ctx.Done()
+					return nil, io.EOF
+				}
+			}).Maybe()
+
+			handler, drain := batch.Start(authenticator, nil, batcher, schemaManager, nil, 1, logrus.New(), false,
+				batch.WithClientCallsCtx(clientCallsCtx))
+			handled := make(chan error, 1)
+			go func() { handled <- handler.Handle(stream) }()
+
+			select {
+			case <-batchEntered:
+			case <-time.After(waitLimit):
+				require.FailNow(t, "first batch never reached the batcher")
+			}
+			drained := make(chan struct{})
+			go func() {
+				drain()
+				close(drained)
+			}()
+			select {
+			case <-shutdownSent:
+			case <-time.After(waitLimit):
+				require.FailNow(t, "shutdown message never sent")
+			}
+			cancelClientCalls()
+
+			select {
+			case err := <-handled:
+				require.ErrorIs(t, err, context.Canceled)
+				require.ErrorContains(t, err, "recv stream closed as client calls were cancelled")
+			case <-time.After(waitLimit):
+				require.FailNow(t, "stream not closed after client calls were cancelled")
+			}
+			select {
+			case <-drained:
+			case <-time.After(waitLimit):
+				require.FailNow(t, "drain did not finish after the stream was closed")
+			}
+			if tc.batchWaitsForCtx {
+				require.Zero(t, written.Load(), "the batch unwritten at the cut must stay unwritten")
+			}
+		})
+	}
+}
+
+// A receiver blocked sending acks never polls the cut, yet its workers' ctx must still end.
+func TestClientCallsCancelReachesWorkersOfBlockedReceiver(t *testing.T) {
+	const waitLimit = 2 * time.Second
+	collection := "TestClass"
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	clientCallsCtx, cancelClientCalls := context.WithCancel(context.Background())
+	t.Cleanup(cancelClientCalls)
+
+	batchEntered := make(chan struct{})
+	workerCancelled := make(chan struct{})
+	batcher := mocks.NewMockBatcher(t)
+	batcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(
+		func(batchCtx context.Context, _ *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+			close(batchEntered)
+			select {
+			case <-batchCtx.Done():
+				close(workerCancelled)
+			case <-ctx.Done():
+			}
+			return &pb.BatchObjectsReply{}, nil
+		}).Once()
+	authenticator := mocks.NewMockauthenticator(t)
+	authenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
+
+	stream := newMockStream(t)
+	stream.EXPECT().Context().Return(ctx).Maybe()
+	acksBlocked := make(chan struct{})
+	stream.EXPECT().Send(mock.MatchedBy(func(r *pb.BatchStreamReply) bool { return r.GetAcks() != nil })).
+		RunAndReturn(func(*pb.BatchStreamReply) error {
+			close(acksBlocked)
+			<-ctx.Done()
+			return ctx.Err()
+		}).Once()
+	stream.EXPECT().Send(mock.Anything).Return(nil).Maybe()
+	objs := []*pb.BatchObject{{Collection: collection, Uuid: "5f8e0d34-1c6a-4a1e-9f0c-6f9b6e0f0a11"}}
+	recvCount := 0
+	stream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
+		recvCount++
+		switch recvCount {
+		case 1:
+			return newBatchStreamStartRequest(), nil
+		case 2:
+			return newBatchStreamObjsRequest(objs), nil
+		default:
+			<-ctx.Done()
+			return nil, io.EOF
+		}
+	}).Maybe()
+
+	handler, _ := batch.Start(authenticator, nil, batcher, newSchemaManagerFor(t, collection), nil, 1, logrus.New(), false,
+		batch.WithClientCallsCtx(clientCallsCtx))
+	handled := make(chan struct{})
+	go func() {
+		defer close(handled)
+		_ = handler.Handle(stream)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-handled:
+		case <-time.After(waitLimit):
+			t.Error("handler did not return after the stream ended")
+		}
+	})
+
+	for _, step := range []struct {
+		name string
+		ch   chan struct{}
+	}{{"batch reached the batcher", batchEntered}, {"receiver blocked sending acks", acksBlocked}} {
+		select {
+		case <-step.ch:
+		case <-time.After(waitLimit):
+			require.FailNowf(t, "timed out", "waiting until %s", step.name)
+		}
+	}
+	cancelClientCalls()
+
+	select {
+	case <-workerCancelled:
+	case <-time.After(waitLimit):
+		require.FailNow(t, "worker ctx not cancelled after client calls were cancelled")
+	}
+}
+
+func newSchemaManagerFor(t *testing.T, collection string) *mocks.MockschemaManager {
+	schemaManager := mocks.NewMockschemaManager(t)
+	schemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
+	schemaManager.EXPECT().GetCachedClassNoAuth(mock.Anything, collection).
+		Return(map[string]versioned.Class{collection: {Class: &models.Class{Class: collection}}}, nil).Maybe()
+	return schemaManager
 }
 
 func newBatchStreamShuttingDownReply() *pb.BatchStreamReply {

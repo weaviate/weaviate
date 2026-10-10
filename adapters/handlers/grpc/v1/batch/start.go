@@ -29,6 +29,7 @@ type Drain func()
 type options struct {
 	admissionChecker  admissionChecker
 	batchStreamConfig config.BatchStream
+	clientCallsCtx    context.Context
 }
 
 type Option func(*options)
@@ -47,6 +48,14 @@ func WithAdmissionChecker(c admissionChecker) Option {
 func WithStreamConfig(cfg config.BatchStream) Option {
 	return func(o *options) {
 		o.batchStreamConfig = cfg
+	}
+}
+
+// WithClientCallsCtx closes every stream still receiving once ctx is
+// cancelled, as the shutdown grace period expiring would.
+func WithClientCallsCtx(ctx context.Context) Option {
+	return func(o *options) {
+		o.clientCallsCtx = ctx
 	}
 }
 
@@ -70,14 +79,32 @@ func Start(
 	namespacesEnabled bool,
 	opts ...Option,
 ) (*StreamHandler, Drain) {
-	o := &options{}
+	return startWithGracePeriod(authenticator, authorizer, batchHandler, schemaManager, reg, numWorkers, logger, namespacesEnabled,
+		SHUTDOWN_GRACE_PERIOD, opts...)
+}
+
+// startWithGracePeriod is Start with gracePeriod bounding how long a stream may
+// keep receiving after shutdown begins.
+func startWithGracePeriod(
+	authenticator authenticator,
+	authorizer authorization.Authorizer,
+	batchHandler Batcher,
+	schemaManager schemaManager,
+	reg prometheus.Registerer,
+	numWorkers int,
+	logger logrus.FieldLogger,
+	namespacesEnabled bool,
+	gracePeriod time.Duration,
+	opts ...Option,
+) (*StreamHandler, Drain) {
+	o := &options{clientCallsCtx: context.Background()}
 	for _, opt := range opts {
 		opt(o)
 	}
 	// While a receiver holds for memory, drain is stuck waiting on recvWg. The
 	// hold must therefore not outlast the grace period drain allows. The clamp
 	// gets a fresh pointer so it never writes into the caller's config.
-	backpressure := o.batchStreamConfig.WithHoldSeconds(min(o.batchStreamConfig.HoldSeconds(), int(SHUTDOWN_GRACE_PERIOD/time.Second)))
+	backpressure := o.batchStreamConfig.WithHoldSeconds(min(o.batchStreamConfig.HoldSeconds(), int(gracePeriod/time.Second)))
 	if o.admissionChecker == nil {
 		// The batch stream gets its own memory monitor with a lower threshold than
 		// the global one (0.9 vs 0.97 of GOMEMLIMIT by default). Imports should slow
@@ -101,6 +128,8 @@ func Start(
 		authorizer,
 		shuttingDownCtx,
 		triggerShuttingDown,
+		o.clientCallsCtx,
+		gracePeriod,
 		&recvWg,
 		&sendWg,
 		reportingQueues,
