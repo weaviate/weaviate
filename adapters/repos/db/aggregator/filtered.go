@@ -124,15 +124,20 @@ func (fa *filteredAggregator) filtered(ctx context.Context) (*aggregation.Result
 	return fa.prepareResult(ctx, foundIDs)
 }
 
+// properties aggregates the requested properties over the objects behind ids and
+// returns how many of them exist. A doc id with no object behind it is skipped.
 func (fa *filteredAggregator) properties(ctx context.Context,
 	ids []uint64,
-) (map[string]aggregation.Property, error) {
+) (map[string]aggregation.Property, int, error) {
 	propAggs, err := fa.prepareAggregatorsForProps()
 	if err != nil {
-		return nil, errors.Wrap(err, "prepare aggregators for props")
+		return nil, 0, errors.Wrap(err, "prepare aggregators for props")
 	}
 
+	// ScanObjectsLSM calls scan for one object at a time, so found needs no lock.
+	found := 0
 	scan := func(ctx context.Context, properties *models.PropertySchema, docID uint64) error {
+		found++
 		if err := fa.AnalyzeObject(ctx, properties, propAggs); err != nil {
 			return errors.Wrapf(err, "analyze object %d", docID)
 		}
@@ -145,10 +150,14 @@ func (fa *filteredAggregator) properties(ctx context.Context,
 
 	err = docid.ScanObjectsLSM(ctx, fa.store, ids, scan, propertyNames, fa.logger)
 	if err != nil {
-		return nil, errors.Wrap(err, "properties view tx")
+		return nil, 0, errors.Wrap(err, "properties view tx")
 	}
 
-	return propAggs.results()
+	props, err := propAggs.results()
+	if err != nil {
+		return nil, 0, err
+	}
+	return props, found, nil
 }
 
 func (fa *filteredAggregator) AnalyzeObject(ctx context.Context,
@@ -333,13 +342,16 @@ func (fa *filteredAggregator) prepareResult(ctx context.Context, foundIDs []uint
 	// without grouping there is always exactly one group
 	out.Groups = make([]aggregation.Group, 1)
 
-	if fa.params.IncludeMetaCount {
-		out.Groups[0].Count = len(foundIDs)
-	}
-
-	props, err := fa.properties(ctx, foundIDs)
+	props, found, err := fa.properties(ctx, foundIDs)
 	if err != nil {
 		return nil, errors.Wrap(err, "aggregate properties")
+	}
+
+	// Count the objects the scan found, not the doc ids it was given: a deny-list
+	// filter inverts against a doc id universe that holds deleted ids until a read
+	// drops them, and after a shard init it holds every id ever allocated.
+	if fa.params.IncludeMetaCount {
+		out.Groups[0].Count = found
 	}
 
 	out.Groups[0].Properties = props
