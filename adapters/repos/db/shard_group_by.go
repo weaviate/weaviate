@@ -110,7 +110,6 @@ func (g *grouper) Do(ctx context.Context) ([]*storobj.Object, []float32, error) 
 	// because ParseAndExtractProperty and FromBinaryOptionalDisk copy every value
 	// out before the next lookup overwrites the buffer.
 	var lsmBuf []byte
-DOCS_LOOP:
 	for i, docID := range g.ids {
 		binary.LittleEndian.PutUint64(docIDBytes, docID)
 		objData, newBuf, err := g.objBucket.GetBySecondaryWithBuffer(ctx, 0, docIDBytes, lsmBuf)
@@ -138,7 +137,10 @@ DOCS_LOOP:
 			}
 
 			if !groupExists && len(groups) >= g.groupBy.Groups {
-				continue DOCS_LOOP
+				// The groups limit is reached: this value must not create
+				// another group, but the object can still join groups that
+				// already exist, so only skip this value.
+				continue
 			}
 
 			groups[val] = append(current, docID)
