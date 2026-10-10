@@ -841,7 +841,9 @@ func protoToSimpleResponse(r *protocol.SimpleReplicaResponse) replica.SimpleResp
 			Msg:  e.GetMsg(),
 		}
 	}
-	return replica.SimpleResponse{Errors: errs}
+	resp := replica.SimpleResponse{Errors: errs}
+	rebuildResponseRefusals(&resp)
+	return resp
 }
 
 func protoToRepairResponses(results []*protocol.RepairResponse) []types.RepairResponse {

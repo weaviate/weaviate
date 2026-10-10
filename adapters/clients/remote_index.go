@@ -147,6 +147,9 @@ func (c *RemoteIndex) BatchPutObjects(ctx context.Context, host, index,
 		return duplicateErr(err, len(objs))
 	}
 
+	for i := range resp {
+		resp[i] = rebuildObjectRefusal(resp[i])
+	}
 	return resp
 }
 
@@ -191,7 +194,11 @@ func (c *RemoteIndex) BatchAddReferences(ctx context.Context, hostName, indexNam
 		return duplicateErr(errors.Wrap(err, "ready body"), len(refs))
 	}
 
-	return clusterapi.IndicesPayloads.ErrorList.Unmarshal(resBytes)
+	errs := clusterapi.IndicesPayloads.ErrorList.Unmarshal(resBytes)
+	for i := range errs {
+		errs[i] = rebuildObjectRefusal(errs[i])
+	}
+	return errs
 }
 
 func (c *RemoteIndex) GetObject(ctx context.Context, hostName, indexName,
@@ -574,6 +581,9 @@ func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName
 		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
 	}
 
+	for i := range batchDeleteResults {
+		batchDeleteResults[i].Err = rebuildObjectRefusal(batchDeleteResults[i].Err)
+	}
 	return batchDeleteResults
 }
 

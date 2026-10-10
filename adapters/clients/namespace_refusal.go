@@ -13,8 +13,10 @@ package clients
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/weaviate/weaviate/usecases/namespaces"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 // refusalError is err with a namespace refusal added to its chain. Error keeps
@@ -45,4 +47,28 @@ func rebuildHTTPRefusal(err error, code int, body []byte) error {
 		return err
 	}
 	return rebuildRefusal(err, string(body))
+}
+
+// rebuildObjectRefusal calls rebuildRefusal on a per-object error decoded from
+// a 200 body, which carries no status to gate on.
+func rebuildObjectRefusal(err error) error {
+	if err == nil {
+		return nil
+	}
+	return rebuildRefusal(err, err.Error())
+}
+
+// rebuildResponseRefusals sets Err to the namespace refusal each entry's Msg
+// ends with. It trims that text and the ": " before it from Msg, so the entry's
+// Error prints the refusal once.
+func rebuildResponseRefusals(resp *replica.SimpleResponse) {
+	for i := range resp.Errors {
+		e := &resp.Errors[i]
+		sentinel := namespaces.RefusalFromText(e.Msg)
+		if sentinel == nil || e.Err != nil {
+			continue
+		}
+		msg := strings.TrimSuffix(strings.TrimSpace(e.Msg), sentinel.Error())
+		e.Msg, e.Err = strings.TrimSuffix(msg, ": "), sentinel
+	}
 }

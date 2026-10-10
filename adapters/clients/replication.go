@@ -911,6 +911,9 @@ func (c *replicationClient) doRetry(req *http.Request, body []byte, resp interfa
 		if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
 			return false, fmt.Errorf("decode response: %w", err)
 		}
+		if r, ok := resp.(*replica.SimpleResponse); ok {
+			rebuildResponseRefusals(r)
+		}
 		return false, nil
 	}
 	return c.retry(req.Context(), numRetries, try)
