@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"os"
 	"sync"
 	"testing"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -116,6 +118,121 @@ func TestShard_ParallelBatches(t *testing.T) {
 
 	require.Equal(t, totalObjects, int(shd.Counter().Get()))
 	require.Nil(t, idx.drop())
+}
+
+// cancelOnLogAction cancels a write's ctx when the shard logs action, which
+// pins the cancel to a known point in the write path.
+type cancelOnLogAction struct {
+	action string
+	cancel context.CancelFunc
+}
+
+func (h *cancelOnLogAction) Levels() []logrus.Level { return logrus.AllLevels }
+
+func (h *cancelOnLogAction) Fire(e *logrus.Entry) error {
+	if e.Data["action"] == h.action {
+		h.cancel()
+	}
+	return nil
+}
+
+func withCancelOnLogAction(action string, cancel context.CancelFunc) func(*Index) {
+	return func(idx *Index) {
+		logger := logrus.New()
+		logger.SetOutput(io.Discard)
+		logger.SetLevel(logrus.TraceLevel)
+		logger.AddHook(&cancelOnLogAction{action: action, cancel: cancel})
+		idx.logger = logger
+	}
+}
+
+// requireStoredObjectsIndexed checks that every object of a write either failed
+// and was not stored, or was stored and reached the vector index.
+func requireStoredObjectsIndexed(t *testing.T, shd ShardLike, objs []*storobj.Object, errs []error) {
+	t.Helper()
+	for i, obj := range objs {
+		exists, err := shd.Exists(context.Background(), obj.ID())
+		require.NoError(t, err)
+		if errs[i] != nil {
+			require.ErrorIs(t, errs[i], context.Canceled)
+			require.False(t, exists, "object %d failed but was stored", i)
+			continue
+		}
+		require.True(t, exists, "object %d", i)
+		index, _ := getVectorIndexAndQueue(t, shd, "")
+		require.True(t, index.ContainsDoc(obj.DocID), "stored object %d is missing from the vector index", i)
+	}
+}
+
+// A ctx cancelled once objects are stored must not keep them out of the vector index.
+func TestShard_CancelAfterObjectStoreStillIndexesVectors(t *testing.T) {
+	cases := []struct {
+		name        string
+		asyncIndex  bool
+		cancelAt    string
+		batch       bool
+		merge       bool
+		wantRejects bool
+	}{
+		{name: "batch, cancelled after the object store phase", cancelAt: "store_object_store", batch: true},
+		{name: "batch with async indexing, cancelled after the object store phase", asyncIndex: true, cancelAt: "store_object_store", batch: true},
+		{name: "batch, cancelled after the first object is stored", cancelAt: "store_object_store_single_object_in_tx", batch: true, wantRejects: true},
+		{name: "single put, cancelled after the object is stored", cancelAt: "store_object_store_single_object_in_tx"},
+		{name: "merge with a ctx cancelled before the call", cancelAt: "store_object_store_single_object_in_tx", merge: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			className := "CancelAfterStore"
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+			shd, idx := testShardWithSettings(t, context.Background(), &models.Class{Class: className},
+				hnsw.UserConfig{}, false, tc.asyncIndex, tc.asyncIndex, withCancelOnLogAction(tc.cancelAt, cancel))
+			t.Cleanup(func() { require.NoError(t, idx.drop()) })
+
+			count := 1
+			if tc.batch {
+				count = 200
+			}
+			objs := createRandomObjects(getRandomSeed(), className, count, 4)
+			var errs []error
+			if tc.batch {
+				errs = shd.PutObjectBatch(ctx, objs)
+			} else {
+				errs = []error{shd.PutObject(ctx, objs[0])}
+			}
+			require.Error(t, ctx.Err(), "the hook never cancelled the write")
+
+			if tc.merge {
+				require.NoError(t, errs[0])
+				errs[0] = shd.MergeObject(ctx, objects.MergeDocument{
+					Class:      className,
+					ID:         objs[0].ID(),
+					Vector:     []float32{1, 2, 3, 4},
+					UpdateTime: objs[0].LastUpdateTimeUnix() + 1,
+				})
+				merged, err := shd.ObjectByID(context.Background(), objs[0].ID(), nil, additional.Properties{})
+				require.NoError(t, err)
+				objs[0] = merged
+			}
+
+			if tc.asyncIndex {
+				waitForVectorQueue(t, shd, "")
+			}
+			requireStoredObjectsIndexed(t, shd, objs, errs)
+
+			rejected := 0
+			for _, err := range errs {
+				if err != nil {
+					rejected++
+				}
+			}
+			if tc.wantRejects {
+				require.Positive(t, rejected, "objects not yet stored at the cancel must be rejected")
+			} else {
+				require.Zero(t, rejected)
+			}
+		})
+	}
 }
 
 func TestShard_InvalidVectorBatches(t *testing.T) {
