@@ -898,30 +898,19 @@ func TestListUsersMultinode(t *testing.T) {
 	compose, down := composeUpSharedCluster(t)
 	defer down()
 
-	nodeURIs := []string{compose.GetWeaviate().URI(), compose.GetWeaviateNode2().URI(), compose.GetWeaviateNode3().URI()}
 	// requireListedOnEveryNode waits until each node lists dynUser with wantRoles,
 	// or does not list it at all when listed is false.
 	requireListedOnEveryNode := func(t *testing.T, listed bool, wantRoles []string) {
 		t.Helper()
-		for _, uri := range nodeURIs {
-			helper.SetupClient(uri)
-			require.EventuallyWithT(t, func(c *assert.CollectT) {
-				var found *models.DBUserInfo
-				for _, user := range helper.ListAllUsers(t, adminKey) {
-					if *user.UserID == dynUser {
-						found = user
-					}
-				}
-				if !listed {
-					assert.Nil(c, found, "node %s still lists %s", uri, dynUser)
-					return
-				}
-				if assert.NotNil(c, found, "node %s does not list %s", uri, dynUser) {
-					assert.ElementsMatch(c, wantRoles, found.Roles, "node %s", uri)
-				}
-			}, 10*time.Second, 100*time.Millisecond)
-		}
-		helper.SetupClient(nodeURIs[0])
+		waitForUserOnEveryNode(t, compose, dynUser, func(c *assert.CollectT, node int, found *models.DBUserInfo) {
+			if !listed {
+				assert.Nil(c, found, "node %d still lists %s", node, dynUser)
+				return
+			}
+			if assert.NotNil(c, found, "node %d does not list %s", node, dynUser) {
+				assert.ElementsMatch(c, wantRoles, found.Roles, "node %d", node)
+			}
+		})
 	}
 
 	helper.DeleteUser(t, dynUser, adminKey)

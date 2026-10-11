@@ -26,10 +26,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // fsmStep is one applied-index position: the task list and the class as this
@@ -45,6 +47,8 @@ type fsmStep struct {
 //	step 0 — task STARTED,  searchable flag off
 //	step 1 — task FINISHED, searchable flag on
 type advancingFSM struct {
+	// Left unset: only the methods defined below are expected.
+	local.ClassReader
 	step                int
 	advanceBetweenReads bool
 	steps               []fsmStep
@@ -199,7 +203,7 @@ func TestGetIndexes_NilClusterService_AnswersSchemaOnly(t *testing.T) {
 	require.Nil(t, resolveTaskSource(&state.State{}),
 		"a nil ClusterService must produce a nil interface, not a boxed nil")
 
-	reader := schemaUC.NewMockSchemaReader(t)
+	reader := local.NewMockSchemaReader(t)
 	reader.EXPECT().ResolveAlias("C").Return("")
 	reader.EXPECT().ClassInfo("C").Return(clusterSchema.ClassInfo{Exists: true})
 	reader.EXPECT().ReadOnlyClass("C").Return(&models.Class{
@@ -208,10 +212,11 @@ func TestGetIndexes_NilClusterService_AnswersSchemaOnly(t *testing.T) {
 	})
 
 	h := &indexesHandlers{appState: &state.State{
-		Authorizer:    &authorization.DummyAuthorizer{},
-		SchemaManager: &schemaUC.Manager{SchemaReader: reader},
-		ServerConfig:  &config.WeaviateConfig{},
-		Logger:        logrus.New(),
+		Authorizer:         &authorization.DummyAuthorizer{},
+		SchemaManager:      &schemaUC.Manager{SchemaReader: reader},
+		ServerConfig:       &config.WeaviateConfig{},
+		NamespaceQualifier: namespacing.Disabled,
+		Logger:             logrus.New(),
 	}}
 
 	resp := h.getIndexes(schema.SchemaObjectsIndexesGetParams{
@@ -271,7 +276,7 @@ func TestGetIndexes_AForeignCollectionsTaskReachesNoEntry(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			flagOn := true
-			reader := schemaUC.NewMockSchemaReader(t)
+			reader := local.NewMockSchemaReader(t)
 			reader.EXPECT().ResolveAlias("C").Return("")
 			reader.EXPECT().ClassInfo("C").Return(clusterSchema.ClassInfo{Exists: true})
 			reader.EXPECT().ReadOnlyClass("C").Return(&models.Class{
@@ -294,10 +299,11 @@ func TestGetIndexes_AForeignCollectionsTaskReachesNoEntry(t *testing.T) {
 
 			h := &indexesHandlers{
 				appState: &state.State{
-					Authorizer:    &authorization.DummyAuthorizer{},
-					SchemaManager: &schemaUC.Manager{SchemaReader: reader},
-					ServerConfig:  &config.WeaviateConfig{},
-					Logger:        logrus.New(),
+					Authorizer:         &authorization.DummyAuthorizer{},
+					SchemaManager:      &schemaUC.Manager{SchemaReader: reader},
+					ServerConfig:       &config.WeaviateConfig{},
+					NamespaceQualifier: namespacing.Disabled,
+					Logger:             logrus.New(),
 				},
 				taskSource: staticTasks{db.ReindexNamespace: {task}},
 			}

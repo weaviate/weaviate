@@ -23,8 +23,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	localschema "github.com/weaviate/weaviate/cluster/schema/local"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 type unloadedCheckpointFixture struct {
@@ -38,7 +39,7 @@ func newUnloadedCheckpointFixture(t *testing.T, className string, replicated boo
 	t.Helper()
 	f := newAddPropertyLazyFixture(t, className, singleShardState())
 	if replicated {
-		m, ok := f.index.schemaReader.(*schemaUC.MockSchemaReader)
+		m, ok := f.index.schemaReader.(*localschema.MockSchemaReader)
 		require.True(t, ok)
 		for _, c := range m.ExpectedCalls {
 			if c.Method == "ShardReplicas" {
@@ -234,4 +235,27 @@ func TestUnloadedAsyncCheckpoint_OrphanedSnapshotIsRefused(t *testing.T) {
 	require.NoError(t, f.index.createAsyncCheckpoint(ctx, f.name, cutoffMs, createdAt.Add(time.Second)))
 	_, registered = f.index.unloadedCheckpoints.get(f.name)
 	require.True(t, registered)
+}
+
+func TestUnloadedAsyncCheckpoint_RecoveringShardIsRefusedAsRecovering(t *testing.T) {
+	ctx := testCtx()
+	f := newUnloadedCheckpointFixture(t, "UnloadedCkptRecovering", true)
+	writePersistedHashtree(t, f.dir, "hashtree-0000000000000001.ht", 7)
+	createdAt := time.Now().UTC()
+	cutoffMs := createdAt.Add(time.Hour).UnixMilli()
+	require.NoError(t, f.index.createAsyncCheckpoint(ctx, f.name, cutoffMs, createdAt))
+
+	f.lazy.blockLoad(enterrors.ErrShardRecovering)
+	f.index.shardCreateLocks.Lock(f.name)
+	f.index.shards.Store(f.name, &RecoveringShard{LazyLoadShard: f.lazy})
+	f.index.shardCreateLocks.Unlock(f.name)
+
+	err := f.index.createAsyncCheckpoint(ctx, f.name, cutoffMs+1, createdAt.Add(time.Second))
+	require.ErrorIs(t, err, errAsyncReplicationNotActive)
+	require.ErrorIs(t, err, enterrors.ErrShardRecovering)
+
+	_, _, _, ok := f.status(t, ctx)
+	require.False(t, ok)
+	_, registered := f.index.unloadedCheckpoints.get(f.name)
+	require.False(t, registered)
 }

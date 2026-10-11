@@ -17,6 +17,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 
@@ -41,10 +42,6 @@ import (
 
 type IncomingRepo interface {
 	GetIndexForIncomingSharding(className schema.ClassName) IndexIncomingRepo
-}
-
-type IncomingSchema interface {
-	ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64) (*models.Class, error)
 }
 
 type IndexIncomingRepo interface {
@@ -99,12 +96,13 @@ type IndexIncomingRepo interface {
 	IncomingCreateShard(ctx context.Context, className string, shardName string) error
 	IncomingReinitShard(ctx context.Context, shardName string) error
 	IncomingCreateReplicaSnapshot(ctx context.Context, shardName, opID string) ([]string, error)
+	IncomingProbeShardData(ctx context.Context, shardName string) (hasData, hosted bool, err error)
 	IncomingReleaseReplicaSnapshot(ctx context.Context, opID string) error
 	IncomingGetReplicaSnapshotFileMetadata(ctx context.Context, opID, relativeFilePath string) (file.FileMetadata, error)
 	IncomingGetReplicaSnapshotFile(ctx context.Context, opID, relativeFilePath string) (io.ReadCloser, error)
-	// IncomingAddAsyncReplicationTargetNode See adapters/clients.Index.AddAsyncReplicationTargetNode
+	// IncomingAddAsyncReplicationTargetNode See adapters/clients.RemoteIndex.AddAsyncReplicationTargetNode
 	IncomingAddAsyncReplicationTargetNode(ctx context.Context, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
-	// IncomingRemoveAsyncReplicationTargetNode See adapters/clients.Index.RemoveAsyncReplicationTargetNode
+	// IncomingRemoveAsyncReplicationTargetNode See adapters/clients.RemoteIndex.RemoveAsyncReplicationTargetNode
 	IncomingRemoveAsyncReplicationTargetNode(ctx context.Context, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
 
 	// IncomingStartChangeCapture activates a new change-capture log on the shard.
@@ -124,11 +122,11 @@ type IndexIncomingRepo interface {
 
 type IndexIncoming struct {
 	repo    IncomingRepo
-	schema  IncomingSchema
+	schema  local.VersionedReader
 	modules interface{}
 }
 
-func NewIndexIncoming(repo IncomingRepo, schema IncomingSchema, modules interface{}) *IndexIncoming {
+func NewIndexIncoming(repo IncomingRepo, schema local.VersionedReader, modules interface{}) *IndexIncoming {
 	return &IndexIncoming{
 		repo:    repo,
 		schema:  schema,

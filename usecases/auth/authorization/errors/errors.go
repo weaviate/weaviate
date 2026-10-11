@@ -18,12 +18,14 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// Forbidden indicates a failed authorization or namespace requirement.
+// Forbidden indicates a failed authorization, namespace requirement, or a
+// missing license (see NewForbiddenWithCause).
 type Forbidden struct {
 	principal   *models.Principal
 	verb        string
 	resources   []string
 	isNamespace bool // true for namespace-required errors
+	cause       error
 }
 
 type Unauthenticated struct{}
@@ -58,7 +60,18 @@ func NewNamespaceForbidden(principal *models.Principal) Forbidden {
 	}
 }
 
+// NewForbiddenWithCause creates a Forbidden whose Error is cause's text and
+// that unwraps to cause.
+func NewForbiddenWithCause(cause error) Forbidden {
+	return Forbidden{cause: cause}
+}
+
+func (f Forbidden) Unwrap() error { return f.cause }
+
 func (f Forbidden) Error() string {
+	if f.cause != nil {
+		return f.cause.Error()
+	}
 	if f.isNamespace {
 		username := "unknown"
 		if f.principal != nil {

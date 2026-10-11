@@ -27,6 +27,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 func TestValidator_extractAndValidateProperty(t *testing.T) {
@@ -210,7 +212,7 @@ func TestProperties(t *testing.T) {
 	}
 	for name, spec := range specs {
 		t.Run(name, func(t *testing.T) {
-			validator := &Validator{exists: func(_ context.Context, class string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error) {
+			validator := &Validator{qualifier: namespacing.Disabled, exists: func(_ context.Context, class string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error) {
 				return true, nil
 			}}
 			gotErr := validator.properties(context.Background(), spec.class, spec.obj, nil)
@@ -264,7 +266,7 @@ func TestProperties_MultiTargetClasslessBeacon_NSGate(t *testing.T) {
 	t.Run("NS-enabled: classless multi-target ref is rejected before existence check", func(t *testing.T) {
 		existsCalled := false
 		v := &Validator{
-			namespacesEnabled: true,
+			qualifier: wlnamespaces.NewPrefixing(),
 			exists: func(_ context.Context, _ string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error) {
 				existsCalled = true
 				return true, nil
@@ -283,7 +285,7 @@ func TestProperties_MultiTargetClasslessBeacon_NSGate(t *testing.T) {
 		// classless stored beacon is matched only by a classless delete.
 		// Preserve the legacy behaviour to avoid breaking pre-NS callers.
 		v := &Validator{
-			namespacesEnabled: false,
+			qualifier: namespacing.Disabled,
 			exists: func(_ context.Context, _ string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error) {
 				return true, nil
 			},

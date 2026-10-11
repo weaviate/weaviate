@@ -222,11 +222,11 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 				assertTotalMetrics = func(expectDims, expectSegs float64) {
 					metrics := monitoring.GetMetrics()
 					require.EventuallyWithT(t, func(c *assert.CollectT) {
-						metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues(class.Class, shardName)
+						metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues(class.Class, shardName, "")
 						require.NoError(c, err)
 						assert.Equal(c, expectDims, testutil.ToFloat64(metric))
 
-						metric, err = metrics.VectorSegmentsSum.GetMetricWithLabelValues(class.Class, shardName)
+						metric, err = metrics.VectorSegmentsSum.GetMetricWithLabelValues(class.Class, shardName, "")
 						require.NoError(c, err)
 						assert.Equal(c, expectSegs, testutil.ToFloat64(metric))
 					}, 10*time.Second, 50*time.Millisecond)

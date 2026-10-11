@@ -63,7 +63,7 @@ type schemaHandlers struct {
 	reindexTaskLister  distributedtask.TaskLister
 	reindexSubmitLocks reindexSubmitLockProvider
 	logger             logrus.FieldLogger
-	namespacesEnabled  bool
+	qualifier          namespacing.Qualifier
 }
 
 func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
@@ -204,9 +204,13 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 
 	// Conflict check and submit lock key on the qualified class (the reindex-task
 	// key); the manager delete call qualifies internally, so it gets the raw name.
-	qualifiedClass, qErr := namespacing.QualifyClass(principal, s.namespacesEnabled, params.ClassName)
+	qualifiedClass, qErr := namespacing.QualifyClass(principal, s.qualifier, params.ClassName)
 	if qErr != nil {
 		s.metricRequestsTotal.logError(params.ClassName, qErr)
+		if errors.As(qErr, &authzerrors.Forbidden{}) {
+			return schema.NewSchemaObjectsPropertiesDeleteForbidden().
+				WithPayload(errPayloadFromSingleErr(principal, qErr))
+		}
 		return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(principal, qErr))
 	}
@@ -375,24 +379,34 @@ func (s *schemaHandlers) deleteClassVectorIndex(params schema.SchemaObjectsVecto
 	err := s.manager.DeleteClassVectorIndex(ctx, principal, params.ClassName, params.VectorIndexName)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
-		switch {
-		case errors.As(err, &authzerrors.Forbidden{}):
-			return schema.NewSchemaObjectsVectorsDeleteForbidden().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		case errors.Is(err, schemaUC.ErrNotFound):
-			return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		case errors.Is(err, schemaUC.ErrValidation):
-			return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		default:
-			return schema.NewSchemaObjectsVectorsDeleteInternalServerError().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		}
+		return vectorIndexDeleteErrResponder(principal, err)
 	}
 
 	s.metricRequestsTotal.logOk(params.ClassName)
 	return schema.NewSchemaObjectsVectorsDeleteOK()
+}
+
+// vectorIndexDeleteErrResponder maps a failed vector index drop to its response.
+// A namespace that refuses the drop answers 422 rather than the 500 an
+// unrecognized error gets, so a suspended instance does not read as a fault.
+func vectorIndexDeleteErrResponder(principal *models.Principal, err error) middleware.Responder {
+	switch {
+	case errors.As(err, &authzerrors.Forbidden{}):
+		return schema.NewSchemaObjectsVectorsDeleteForbidden().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	case errors.Is(err, schemaUC.ErrNotFound):
+		return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	case errors.Is(err, schemaUC.ErrValidation):
+		return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	case cerrors.NamespaceErrRendersUnprocessable(err):
+		return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	default:
+		return schema.NewSchemaObjectsVectorsDeleteInternalServerError().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	}
 }
 
 func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *models.Principal) middleware.Responder {
@@ -651,7 +665,7 @@ func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principa
 	return schema.NewTenantExistsOK()
 }
 
-func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, authorizer authorization.Authorizer, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister distributedtask.TaskLister, reindexSubmitLocks reindexSubmitLockProvider, namespacesEnabled bool) {
+func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, authorizer authorization.Authorizer, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister distributedtask.TaskLister, reindexSubmitLocks reindexSubmitLockProvider, qualifier namespacing.Qualifier) {
 	h := &schemaHandlers{
 		manager:             manager,
 		authorizer:          authorizer,
@@ -659,7 +673,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager,
 		reindexTaskLister:   reindexTaskLister,
 		reindexSubmitLocks:  reindexSubmitLocks,
 		logger:              logger,
-		namespacesEnabled:   namespacesEnabled,
+		qualifier:           qualifier,
 	}
 
 	api.SchemaSchemaObjectsCreateHandler = schema.

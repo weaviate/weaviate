@@ -53,6 +53,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/file"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -212,6 +213,7 @@ type ShardLike interface {
 	Activity() (int32, int32)
 	// Debug methods
 	DebugResetVectorIndex(ctx context.Context, targetVector string) error
+	DebugResetGeoIndex(ctx context.Context, propName string) error
 	RepairIndex(ctx context.Context, targetVector string) error
 	RequantizeIndex(ctx context.Context, targetVector string) error
 
@@ -409,6 +411,9 @@ type Shard struct {
 	// allocated the id and not yet written the row; dropping that one would hide a live
 	// object from every deny-list filter until the next shard init.
 	docIDPruneWatermark uint64
+	// unreadableRowSampler rate-limits FindUUIDs' warning about rows with no readable id.
+	// Such a row is never pruned or deleted, so every later call would warn about it again.
+	unreadableRowSampler *logrusext.Sampler
 
 	activityTrackerRead  atomic.Int32
 	activityTrackerWrite atomic.Int32

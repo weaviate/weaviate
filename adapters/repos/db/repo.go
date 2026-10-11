@@ -18,6 +18,7 @@ import (
 	"maps"
 	"math"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -34,6 +35,7 @@ import (
 	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -122,7 +124,7 @@ type DB struct {
 
 	reindexer      ShardReindexerV3
 	nodeSelector   cluster.NodeSelector
-	schemaReader   schemaUC.SchemaReader
+	schemaReader   local.SchemaReader
 	replicationFSM types.ReplicationFSMReader
 
 	// reindexAuditMu guards the audit deps installed by
@@ -156,6 +158,8 @@ type DB struct {
 	AsyncIndexingEnabled bool
 
 	tenantsManager schemaUC.TenantsActivityManager
+	// membership reports RAFT statistics for the node status.
+	membership cluster.RaftMembership
 
 	// usageLimits is propagated to each Index when it is created, so
 	// Shard.PutObject{,Batch} can call CheckObjects on the write path.
@@ -166,6 +170,9 @@ type DB struct {
 	// shard decision can read its namespace's state. nil is only for tests
 	// that build no namespaced class; a namespaced one then fails closed.
 	namespacesExister namespaces.Exister
+
+	// Set after the cluster service is up. Nil-safe: nil keeps MkdirAll behavior.
+	selfRecoveryOrchestrator SelfRecoveryOrchestrator
 }
 
 // SetUsageLimits installs the usage-limits Manager on the DB. Must be
@@ -175,12 +182,48 @@ func (db *DB) SetUsageLimits(m *usagelimits.Manager) {
 	db.usageLimits = m
 }
 
+// SelfRecoveryOrchestrator is the narrow surface avoiding an import cycle on cluster/replication.
+type SelfRecoveryOrchestrator interface {
+	// Enabled must be checked before installing a wrapper, else it blocks load forever.
+	// True whenever the flag is on, licensed or not (UnlicensedSelfRecovery), so a resuming op is still recognised.
+	Enabled() bool
+	// SubmitRecovery is non-blocking; false = not queued and the caller MUST fall back to normal init.
+	SubmitRecovery(ctx context.Context, collection, shard string, startedWithoutRaftState bool) bool
+	// SubmitActivationRecovery queues a tenant activation whose local folder is missing; same contract as SubmitRecovery.
+	SubmitActivationRecovery(ctx context.Context, collection, shard string) bool
+	// Close stops submissions and drains in-flight workers, bounded by ctx; idempotent.
+	Close(ctx context.Context) error
+}
+
+// SetSelfRecoveryOrchestrator must be called before WaitForStartup.
+func (db *DB) SetSelfRecoveryOrchestrator(o SelfRecoveryOrchestrator) {
+	db.selfRecoveryOrchestrator = o
+}
+
+// ShardPath returns the on-disk directory for (collection, shard).
+func (db *DB) ShardPath(collection, shard string) string {
+	return shardPath(
+		path.Join(db.config.RootPath, indexID(schema.ClassName(collection))),
+		shard,
+	)
+}
+
+// LoadLocalShard is the self-recovery promote callback: never creates a shard, wraps the *NotRegistered sentinels for the orchestrator.
+func (db *DB) LoadLocalShard(ctx context.Context, collection, shard string) error {
+	idx := db.GetIndex(schema.ClassName(collection))
+	if idx == nil {
+		return fmt.Errorf("load local shard: index %q: %w", collection, enterrors.ErrIndexNotRegistered)
+	}
+	return idx.PromoteRecoveringLocalShard(ctx, shard)
+}
+
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
 	return db.schemaGetter
 }
 
 func (db *DB) GetSchema() schema.Schema {
-	return db.schemaGetter.GetSchemaSkipAuth()
+	s := db.schemaGetter.ReadOnlySchema()
+	return schema.Schema{Objects: &s}
 }
 
 func (db *DB) GetConfig() Config {
@@ -237,12 +280,9 @@ func (db *DB) StartupLoadingProgress() *StartupProgressSnapshot {
 
 // startupClassNames returns the current class names for the startup progress scan
 func (db *DB) startupClassNames() []string {
-	s := db.schemaGetter.GetSchemaSkipAuth()
-	if s.Objects == nil {
-		return nil
-	}
-	names := make([]string, 0, len(s.Objects.Classes))
-	for _, class := range s.Objects.Classes {
+	classes := db.schemaGetter.ReadOnlySchema().Classes
+	names := make([]string, 0, len(classes))
+	for _, class := range classes {
 		names = append(names, class.Class)
 	}
 	return names
@@ -311,7 +351,7 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 	remoteIndex remote.IndexClient, nodeResolver cluster.NodeResolver,
 	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics, memMonitor *memwatch.Monitor,
-	nodeSelector cluster.NodeSelector, schemaReader schemaUC.SchemaReader, replicationFSM types.ReplicationFSMReader,
+	nodeSelector cluster.NodeSelector, schemaReader local.SchemaReader, replicationFSM types.ReplicationFSMReader,
 	namespacesExister namespaces.Exister,
 ) (*DB, error) {
 	if memMonitor == nil {
@@ -495,10 +535,6 @@ type Config struct {
 	OperationalMode *configRuntime.DynamicValue[string]
 
 	DisableDimensionMetrics *configRuntime.DynamicValue[bool]
-
-	// Plumbed through for future callers under the "wl" directory; nothing in
-	// the DB layer reads it yet.
-	WeaviateLicense bool
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
@@ -791,6 +827,12 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	// Close, never send: a send reaches one receiver, and a recovered panic in
 	// scanResourceUsage would hang the whole shutdown on it until SIGKILL.
 	db.shutdownOnce.Do(func() { close(db.shutdown) })
+	// Stop self-recovery workers first so in-flight promote callbacks don't race Index.Shutdown.
+	if db.selfRecoveryOrchestrator != nil {
+		if err := db.selfRecoveryOrchestrator.Close(ctx); err != nil {
+			db.logger.Warnf("self-recovery: Close did not drain in time; workers may still be running: %v", err)
+		}
+	}
 	db.bitmapBufPoolClose()
 
 	if !db.AsyncIndexingEnabled {
@@ -869,7 +911,7 @@ func (db *DB) SetNodeSelector(nodeSelector cluster.NodeSelector) {
 	db.nodeSelector = nodeSelector
 }
 
-func (db *DB) SetSchemaReader(schemaReader schemaUC.SchemaReader) {
+func (db *DB) SetSchemaReader(schemaReader local.SchemaReader) {
 	db.schemaReader = schemaReader
 }
 
@@ -884,4 +926,8 @@ func (db *DB) SetBitmapBufPool(bufPool roaringset.BitmapBufPool, close func()) {
 
 func (db *DB) SetTenantsActivityManager(tenantsManager schemaUC.TenantsActivityManager) {
 	db.tenantsManager = tenantsManager
+}
+
+func (db *DB) SetRaftMembership(membership cluster.RaftMembership) {
+	db.membership = membership
 }

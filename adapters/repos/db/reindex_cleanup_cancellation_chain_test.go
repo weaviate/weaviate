@@ -70,7 +70,7 @@ func loadStoppedByACancelledContext(t *testing.T) error {
 	t.Cleanup(func() { signalCloseRequested(nil) })
 
 	idx := &Index{
-		Config:               IndexConfig{RootPath: t.TempDir(), ClassName: "Movies"},
+		Config:               IndexConfig{NodeName: "node1", RootPath: t.TempDir(), ClassName: "Movies"},
 		closingCtx:           closingCtx,
 		closeRequestedCtx:    closeRequestedCtx,
 		signalCloseRequested: signalCloseRequested,

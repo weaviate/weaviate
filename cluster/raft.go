@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
@@ -148,6 +149,18 @@ func (s *Raft) ReplicationAllPeersAtLeast(opID uint64, target cmd.ShardReplicati
 	return s.store.replicationManager.GetReplicationFSM().AllPeersAtLeast(opID, target, peers), nil
 }
 
+func (s *Raft) ReplicationLocalOpCancelState(opID uint64) (replicationTypes.OpCancelState, error) {
+	op, ok := s.store.replicationManager.GetReplicationFSM().GetOpById(opID)
+	if !ok {
+		return replicationTypes.OpCancelState{}, fmt.Errorf("op %d: %w", opID, replicationTypes.ErrReplicationOperationNotFound)
+	}
+	return replicationTypes.OpCancelState{
+		State:         op.Status.GetCurrentState(),
+		ShouldCancel:  op.Status.ShouldCancel,
+		UnCancellable: op.Status.UnCancellable,
+	}, nil
+}
+
 func (s *Raft) NodeSelector() cluster.NodeSelector {
 	return s.nodeSelector
 }
@@ -167,4 +180,9 @@ func (s *Raft) IsLeader() bool {
 // ClusterID returns the stable cluster identity UUIDv7, or "" if not yet committed.
 func (s *Raft) ClusterID() string {
 	return s.store.ClusterID()
+}
+
+// ForceSnapshot triggers an immediate RAFT snapshot. See Store.ForceSnapshot.
+func (s *Raft) ForceSnapshot() error {
+	return s.store.ForceSnapshot()
 }

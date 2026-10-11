@@ -261,6 +261,69 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "should not pass on Vertex AI without location",
+			fields: fields{
+				cfg: newConfigBuilder().
+					addSetting("projectId", "projectId").
+					addSetting("imageFields", []any{"image1"}).
+					build(),
+			},
+			wantErr: true,
+		},
+		{
+			name: "should not pass on Vertex AI without projectId",
+			fields: fields{
+				cfg: newConfigBuilder().
+					addSetting("location", "us-central1").
+					addSetting("imageFields", []any{"image1"}).
+					build(),
+			},
+			wantErr: true,
+		},
+		{
+			name: "should not pass on Vertex AI with an explicit regional apiEndpoint and no location",
+			fields: fields{
+				cfg: newConfigBuilder().
+					addSetting("apiEndpoint", "europe-west4-aiplatform.googleapis.com").
+					addSetting("projectId", "projectId").
+					addSetting("imageFields", []any{"image1"}).
+					build(),
+			},
+			wantErr: true,
+		},
+		{
+			name: "should not pass on Vertex AI with gemini-embedding-2 and no location",
+			fields: fields{
+				cfg: newConfigBuilder().
+					addSetting("model", "gemini-embedding-2").
+					addSetting("projectId", "projectId").
+					addSetting("imageFields", []any{"image1"}).
+					build(),
+			},
+			wantErr: true,
+		},
+		{
+			name: "should not pass on Vertex AI with gemini-embedding-2 and no projectId",
+			fields: fields{
+				cfg: newConfigBuilder().
+					addSetting("model", "gemini-embedding-2").
+					addSetting("location", "global").
+					addSetting("imageFields", []any{"image1"}).
+					build(),
+			},
+			wantErr: true,
+		},
+		{
+			name: "should pass on AI Studio without location and projectId",
+			fields: fields{
+				cfg: newConfigBuilder().
+					addSetting("apiEndpoint", "generativelanguage.googleapis.com").
+					addSetting("model", "gemini-embedding-2").
+					addSetting("imageFields", []any{"image1"}).
+					build(),
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

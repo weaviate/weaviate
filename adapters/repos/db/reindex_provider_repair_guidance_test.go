@@ -231,7 +231,7 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.
 				logger:    logger,
 				serverCtx: context.Background(),
 				// Terminal-status cleanup needs a DB; an empty one is a no-op.
-				db: &DB{},
+				db: &DB{localNodeName: "node1"},
 			}
 
 			require.NoError(t, p.OnTaskCompleted(&distributedtask.Task{
@@ -360,7 +360,7 @@ func postMergeEvidenceFixture(t *testing.T, ctx context.Context) (*ReindexProvid
 		UnitToShard:   map[string]string{"u1": shard.Name()},
 	}
 	p := NewReindexProvider(
-		&DB{indices: map[string]*Index{indexID(entschema.ClassName("C")): idx}},
+		&DB{localNodeName: "node1", indices: map[string]*Index{indexID(entschema.ClassName("C")): idx}},
 		nil, nil, logrus.New(), "n1", nil, ctx)
 	return p, payload, trackerDir
 }
@@ -430,7 +430,7 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceFromDiskEvidence(t *testing.
 
 	logger, hook := logrustest.NewNullLogger()
 	p := NewReindexProvider(
-		&DB{indices: map[string]*Index{indexID(entschema.ClassName("C")): idx}},
+		&DB{localNodeName: "node1", indices: map[string]*Index{indexID(entschema.ClassName("C")): idx}},
 		nil, nil, logger, "n1", nil, ctx)
 
 	require.NoError(t, p.OnTaskCompleted(&distributedtask.Task{
@@ -470,7 +470,7 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceWhenTheDrainTimesOut(t *test
 	defer cancel()
 	logger, hook := logrustest.NewNullLogger()
 	p := NewReindexProvider(
-		&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
+		&DB{localNodeName: "node1", indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
 		nil, nil, logger, "n1", nil, expired)
 
 	desc := distributedtask.TaskDescriptor{ID: "T_cancel_drain", Version: 1}
@@ -571,7 +571,7 @@ func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
 
 			logger, _ := logrustest.NewNullLogger()
 			p := NewReindexProvider(
-				&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
+				&DB{localNodeName: "node1", indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
 				nil, nil, logger, "n1", nil, ctx)
 
 			got := p.hasLocalPostMergeState(ctx, &ReindexTaskPayload{

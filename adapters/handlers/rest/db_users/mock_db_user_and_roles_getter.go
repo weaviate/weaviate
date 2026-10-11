@@ -142,17 +142,17 @@ func (_c *MockDbUserAndRolesGetter_CheckUserIdentifierExists_Call) RunAndReturn(
 	return _c
 }
 
-// CreateUser provides a mock function with given fields: ctx, userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace, createdAt
-func (_m *MockDbUserAndRolesGetter) CreateUser(ctx context.Context, userId string, secureHash string, userIdentifier string, apiKeyFirstLetters string, namespace string, createdAt time.Time) error {
-	ret := _m.Called(ctx, userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace, createdAt)
+// CreateUser provides a mock function with given fields: ctx, userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace, createdAt, expiresAt
+func (_m *MockDbUserAndRolesGetter) CreateUser(ctx context.Context, userId string, secureHash string, userIdentifier string, apiKeyFirstLetters string, namespace string, createdAt time.Time, expiresAt time.Time) error {
+	ret := _m.Called(ctx, userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace, createdAt, expiresAt)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CreateUser")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, string, time.Time) error); ok {
-		r0 = rf(ctx, userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace, createdAt)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, string, time.Time, time.Time) error); ok {
+		r0 = rf(ctx, userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace, createdAt, expiresAt)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -173,13 +173,14 @@ type MockDbUserAndRolesGetter_CreateUser_Call struct {
 //   - apiKeyFirstLetters string
 //   - namespace string
 //   - createdAt time.Time
-func (_e *MockDbUserAndRolesGetter_Expecter) CreateUser(ctx interface{}, userId interface{}, secureHash interface{}, userIdentifier interface{}, apiKeyFirstLetters interface{}, namespace interface{}, createdAt interface{}) *MockDbUserAndRolesGetter_CreateUser_Call {
-	return &MockDbUserAndRolesGetter_CreateUser_Call{Call: _e.mock.On("CreateUser", ctx, userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace, createdAt)}
+//   - expiresAt time.Time
+func (_e *MockDbUserAndRolesGetter_Expecter) CreateUser(ctx interface{}, userId interface{}, secureHash interface{}, userIdentifier interface{}, apiKeyFirstLetters interface{}, namespace interface{}, createdAt interface{}, expiresAt interface{}) *MockDbUserAndRolesGetter_CreateUser_Call {
+	return &MockDbUserAndRolesGetter_CreateUser_Call{Call: _e.mock.On("CreateUser", ctx, userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace, createdAt, expiresAt)}
 }
 
-func (_c *MockDbUserAndRolesGetter_CreateUser_Call) Run(run func(ctx context.Context, userId string, secureHash string, userIdentifier string, apiKeyFirstLetters string, namespace string, createdAt time.Time)) *MockDbUserAndRolesGetter_CreateUser_Call {
+func (_c *MockDbUserAndRolesGetter_CreateUser_Call) Run(run func(ctx context.Context, userId string, secureHash string, userIdentifier string, apiKeyFirstLetters string, namespace string, createdAt time.Time, expiresAt time.Time)) *MockDbUserAndRolesGetter_CreateUser_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string), args[5].(string), args[6].(time.Time))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string), args[5].(string), args[6].(time.Time), args[7].(time.Time))
 	})
 	return _c
 }
@@ -189,7 +190,7 @@ func (_c *MockDbUserAndRolesGetter_CreateUser_Call) Return(_a0 error) *MockDbUse
 	return _c
 }
 
-func (_c *MockDbUserAndRolesGetter_CreateUser_Call) RunAndReturn(run func(context.Context, string, string, string, string, string, time.Time) error) *MockDbUserAndRolesGetter_CreateUser_Call {
+func (_c *MockDbUserAndRolesGetter_CreateUser_Call) RunAndReturn(run func(context.Context, string, string, string, string, string, time.Time, time.Time) error) *MockDbUserAndRolesGetter_CreateUser_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -658,7 +659,8 @@ func (_c *MockDbUserAndRolesGetter_RotateKey_Call) RunAndReturn(run func(context
 func NewMockDbUserAndRolesGetter(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockDbUserAndRolesGetter {
+},
+) *MockDbUserAndRolesGetter {
 	mock := &MockDbUserAndRolesGetter{}
 	mock.Mock.Test(t)
 

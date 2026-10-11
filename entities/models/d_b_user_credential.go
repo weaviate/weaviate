@@ -42,6 +42,10 @@ type DBUserCredential struct {
 	// Format: date-time
 	CreatedAt strfmt.DateTime `json:"createdAt,omitempty"`
 
+	// Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent or null means the key never expires, except that import never changes an existing user's expiry, so a record without one keeps the stored value. A new user takes the record's value, even one that has passed. A differing future value for an existing user gives that record an error result naming `PUT /v1/users/db/{user_id}/expiration`. A differing past value gives `skipped_exists` for a deactivated user. For an active one it gives an error result advising to deactivate the user, or delete it and re-import, because that PUT refuses a past time. A node without a Weaviate license key refuses the whole import with 403 when any record sets a non-null `expiresAt`.
+	// Format: date-time
+	ExpiresAt *strfmt.DateTime `json:"expiresAt,omitempty"`
+
 	// The namespace the user was bound to on the source. Informational on export; import binds the user to the request's target namespace.
 	Namespace string `json:"namespace,omitempty"`
 
@@ -69,6 +73,10 @@ func (m *DBUserCredential) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateCreatedAt(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateExpiresAt(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -104,6 +112,18 @@ func (m *DBUserCredential) validateCreatedAt(formats strfmt.Registry) error {
 	}
 
 	if err := validate.FormatOf("createdAt", "body", "date-time", m.CreatedAt.String(), formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *DBUserCredential) validateExpiresAt(formats strfmt.Registry) error {
+	if swag.IsZero(m.ExpiresAt) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("expiresAt", "body", "date-time", m.ExpiresAt.String(), formats); err != nil {
 		return err
 	}
 

@@ -27,6 +27,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -35,7 +36,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -95,7 +95,7 @@ func newLazyLoadRepoWithConfig(t *testing.T, shardState *sharding.State,
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		return readFunc(&models.Class{Class: className}, shardState)
@@ -771,4 +771,45 @@ func TestLazyLoadShard_TransferTimerNotResetAfterShutdown(t *testing.T) {
 		"a shut down shard's transfer deadline must not be pushed forward")
 
 	require.NoError(t, repo.Shutdown(context.Background()))
+}
+
+// The shards status endpoint reports on cold shards without loading them,
+// locally and for a remote node asking this one.
+func TestShardsStatusEndpoint_DoesNotForceLoadColdShards(t *testing.T) {
+	ctx := testCtx()
+	const className = "ShardsStatusCold"
+	f := newAddPropertyLazyFixture(t, className, multiShardState())
+	cold := f.coldShards(t)
+
+	perNode, statuses, err := f.migrator.GetShardsStorageStatus(ctx, className, "")
+	require.NoError(t, err)
+	sizes, err := f.migrator.GetShardsQueueSize(ctx, className, "")
+	require.NoError(t, err)
+
+	for name, shard := range cold {
+		require.Equal(t, storagestate.StatusLazyLoading.String(), statuses[name])
+		for node, status := range perNode[name] {
+			require.Equal(t, storagestate.StatusLazyLoading.String(), status, "node %s", node)
+		}
+		require.Zero(t, sizes[name])
+
+		status, err := f.index.IncomingGetShardStatus(ctx, name)
+		require.NoError(t, err)
+		require.Equal(t, storagestate.StatusLazyLoading.String(), status)
+		size, err := f.index.IncomingGetShardQueueSize(ctx, name)
+		require.NoError(t, err)
+		require.Zero(t, size)
+
+		require.False(t, shard.isLoaded(), "cold shard %q must not be force-loaded", name)
+	}
+
+	// a loaded shard still reports its own status
+	for name, shard := range cold {
+		_, _, err := shard.loadIfCold(ctx)
+		require.NoError(t, err)
+		_, statuses, err := f.migrator.GetShardsStorageStatus(ctx, className, "")
+		require.NoError(t, err)
+		require.Equal(t, storagestate.StatusReady.String(), statuses[name])
+		break
+	}
 }

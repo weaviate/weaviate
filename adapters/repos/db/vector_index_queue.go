@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -61,13 +62,26 @@ func NewGeoIndexQueue(
 	propName string,
 	index VectorIndex,
 ) (*VectorIndexQueue, error) {
-	return newVectorIndexQueueWithID(shard, geoPropID(propName), "geo_"+propName, index)
+	id := geoPropID(propName)
+	// No target_vector, like the geo index's own lines: a geo index has no
+	// object-vector identity. The Prometheus label keeps "geo_<prop>" so geo
+	// series stay apart from the object vectors'.
+	logger := shard.index.logger.WithFields(logrus.Fields{
+		"class":    shard.index.Config.ClassName.String(),
+		"shard":    shard.name,
+		"index_id": id,
+	})
+	return newVectorIndexQueueWithID(shard, id, logger, "geo_"+propName, index)
 }
 
+// newVectorIndexQueueWithID builds the queue draining into index. logger is
+// the index's identified logger; metricsTargetVector labels the queue's
+// Prometheus series.
 func newVectorIndexQueueWithID(
 	shard *Shard,
 	indexID string,
-	logLabel string,
+	logger logrus.FieldLogger,
+	metricsTargetVector string,
 	index VectorIndex,
 ) (*VectorIndexQueue, error) {
 	viq := VectorIndexQueue{
@@ -77,9 +91,7 @@ func newVectorIndexQueueWithID(
 	}
 	viq.vectorIndex = index
 
-	logger := shard.vectorIndexLogger(logLabel, indexID).
-		WithField("component", "vector_index_queue").
-		WithField("shard_id", shard.ID())
+	logger = logger.WithField("component", "vector_index_queue")
 
 	staleTimeout, _ := time.ParseDuration(os.Getenv("ASYNC_INDEXING_STALE_TIMEOUT"))
 	batchSize, _ := strconv.Atoi(os.Getenv("ASYNC_INDEXING_BATCH_SIZE"))
@@ -87,7 +99,7 @@ func newVectorIndexQueueWithID(
 		viq.batchSize = batchSize
 	}
 
-	viq.metrics = NewVectorIndexQueueMetrics(logger, shard.promMetrics, shard.index.Config.ClassName.String(), shard.Name(), logLabel)
+	viq.metrics = NewVectorIndexQueueMetrics(logger, shard.promMetrics, shard.index.Config.ClassName.String(), shard.Name(), metricsTargetVector)
 
 	q, err := queue.NewDiskQueue(
 		queue.DiskQueueOptions{

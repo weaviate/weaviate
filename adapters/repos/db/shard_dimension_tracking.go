@@ -29,6 +29,7 @@ import (
 	hfreshent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type DimensionCategory int
@@ -154,12 +155,13 @@ func clearDimensionMetrics(cfg IndexConfig, promMetrics *monitoring.PrometheusMe
 	if !cfg.TrackVectorDimensions || promMetrics.Group {
 		return
 	}
+	namespace := namespacing.NamespaceFromQualified(className)
 	if g, err := promMetrics.VectorDimensionsSum.
-		GetMetricWithLabelValues(className, shardName); err == nil {
+		GetMetricWithLabelValues(className, shardName, namespace); err == nil {
 		g.Set(0)
 	}
 	if g, err := promMetrics.VectorSegmentsSum.
-		GetMetricWithLabelValues(className, shardName); err == nil {
+		GetMetricWithLabelValues(className, shardName, namespace); err == nil {
 		g.Set(0)
 	}
 }

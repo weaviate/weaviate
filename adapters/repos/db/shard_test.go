@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	dynamicindex "github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
+	hnswindex "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -246,6 +247,7 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 	var objs []*storobj.Object
 	for i := 0; i < amount; i++ {
 		obj := testObject(className)
+		obj.Vector = randVector(3)
 		objs = append(objs, obj)
 	}
 
@@ -266,21 +268,22 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 	err := shd.DebugResetVectorIndex(ctx, "")
 	require.Nil(t, err)
 
-	newIdx, q := getVectorIndexAndQueue(t, shd, "")
+	newIdx, _ := getVectorIndexAndQueue(t, shd, "")
 
 	// the new index should be different from the old one.
 	// pointer comparison is enough here
 	require.NotEqual(t, oldIdx, newIdx)
 
-	// queue should be empty after reset
-	require.EqualValues(t, 0, q.Size())
-
-	// make sure the new index does not contain any of the objects
-	for _, obj := range objs {
-		if newIdx.ContainsDoc(obj.DocID) {
-			t.Fatalf("node %d should not be in the vector index", obj.DocID)
+	// the reset refills the new index from the object store in the background
+	require.Eventually(t, func() bool {
+		for _, obj := range objs {
+			if !newIdx.ContainsDoc(obj.DocID) {
+				return false
+			}
 		}
-	}
+		return true
+	}, time.Minute, 100*time.Millisecond, "not every object made it into the rebuilt index")
+	waitForVectorQueue(t, shd, "")
 
 	// the reset rebuilt at the recorded ID: record ready, storage present
 	s := underlyingShard(t, shd)
@@ -414,21 +417,22 @@ func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
 	err := shd.DebugResetVectorIndex(ctx, "foo")
 	require.Nil(t, err)
 
-	newIdx, q := getVectorIndexAndQueue(t, shd, "foo")
+	newIdx, _ := getVectorIndexAndQueue(t, shd, "foo")
 
 	// the new index should be different from the old one.
 	// pointer comparison is enough here
 	require.NotEqual(t, oldIdx, newIdx)
 
-	// queue should be empty after reset
-	require.EqualValues(t, 0, q.Size())
-
-	// make sure the new index does not contain any of the objects
-	for _, obj := range objs {
-		if newIdx.ContainsDoc(obj.DocID) {
-			t.Fatalf("node %d should not be in the vector index", obj.DocID)
+	// the reset refills the new index from the object store in the background
+	require.Eventually(t, func() bool {
+		for _, obj := range objs {
+			if !newIdx.ContainsDoc(obj.DocID) {
+				return false
+			}
 		}
-	}
+		return true
+	}, time.Minute, 100*time.Millisecond, "not every object made it into the rebuilt index")
+	waitForVectorQueue(t, shd, "foo")
 
 	require.Nil(t, idx.drop())
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
@@ -781,4 +785,64 @@ func TestShard_OpensMetadataDBForEveryShard(t *testing.T) {
 	// the loaded shard holds the lock
 	_, _, err = shardmeta.GetOffline(s.path(), dynamicindex.StateNamespace, []byte("upgraded"))
 	require.Error(t, err)
+}
+
+func TestShard_TombstoneCleanupInterval_NamedVector(t *testing.T) {
+	ctx := testCtx()
+	className := "TestClass"
+	shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className},
+		hnsw.UserConfig{}, false, false,
+		func(i *Index) {
+			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+				"foo": hnsw.UserConfig{
+					CleanupIntervalSeconds: 1,
+					MaxConnections:         16,
+					EFConstruction:         64,
+					VectorCacheMaxObjects:  100000,
+				},
+			}
+			// the helper installs noop cycle callbacks; the real ticker is under test
+			i.initCycleCallbacks()
+		},
+	)
+	defer func() {
+		require.NoError(t, idx.drop())
+		require.NoError(t, os.RemoveAll(idx.Config.RootPath))
+	}()
+
+	amount := 100
+	objs := make([]*storobj.Object, 0, amount)
+	for i := 0; i < amount; i++ {
+		obj := testObject(className)
+		obj.Vectors = map[string][]float32{
+			"foo": {float32(i), float32(i % 7), float32(i % 3)},
+		}
+		objs = append(objs, obj)
+	}
+	for _, err := range shd.PutObjectBatch(ctx, objs) {
+		require.NoError(t, err)
+	}
+
+	deleted := 20
+	for _, obj := range objs[:deleted] {
+		require.NoError(t, shd.DeleteObject(ctx, obj.ID(), time.Now()))
+	}
+
+	vi, release, ok := shd.AcquireVectorIndex("foo")
+	require.True(t, ok)
+	defer release()
+	hnswIdx, ok := vi.(*hnswindex.HNSW)
+	require.True(t, ok)
+
+	numTombstones := func() int {
+		stats, err := hnswIdx.Stats()
+		require.NoError(t, err)
+		return stats.NumTombstones
+	}
+
+	// Cleanup runs every second, so the tombstones must drain well before the
+	// 300s default would have fired.
+	require.Eventually(t, func() bool { return numTombstones() == 0 },
+		20*time.Second, 200*time.Millisecond,
+		"tombstones did not drain: %d remaining", numTombstones())
 }

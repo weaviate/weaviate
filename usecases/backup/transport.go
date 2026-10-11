@@ -53,8 +53,8 @@ type Request struct {
 	// unless SkipRoles is set.
 	Roles []string
 
-	// SkipUsers is set when IncludeUsers was given but matched no user. The
-	// participant then uploads no user snapshot.
+	// SkipUsers excludes the user snapshot for an explicit empty list or
+	// wildcards that matched no user.
 	SkipUsers bool
 
 	// SkipRoles is the IncludeRoles counterpart of SkipUsers.

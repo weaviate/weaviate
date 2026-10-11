@@ -162,6 +162,37 @@ func TestReplicate_Admission(t *testing.T) {
 			final:   admissionOp{id: 2, srcNode: "node3", tgtNode: "node2", transferType: api.COPY, state: api.REGISTERED},
 			wantErr: false,
 		},
+		// --- SELF_RECOVERY: no duplicate in-flight writer per target dir; READY settles the replica ---
+		{
+			name:    "target: active SELF_RECOVERY then duplicate SELF_RECOVERY rejected",
+			setup:   []admissionOp{{id: 1, srcNode: "node1", tgtNode: "node2", transferType: api.SELF_RECOVERY, state: api.HYDRATING}},
+			final:   admissionOp{id: 2, srcNode: "node1", tgtNode: "node2", transferType: api.SELF_RECOVERY, state: api.REGISTERED},
+			wantErr: true,
+		},
+		{
+			name:    "target: active COPY then SELF_RECOVERY into same target rejected",
+			setup:   []admissionOp{{id: 1, srcNode: "node1", tgtNode: "node2", transferType: api.COPY, state: api.HYDRATING}},
+			final:   admissionOp{id: 2, srcNode: "node3", tgtNode: "node2", transferType: api.SELF_RECOVERY, state: api.REGISTERED},
+			wantErr: true,
+		},
+		{
+			name:    "target: completed SELF_RECOVERY (READY) then MOVE allowed",
+			setup:   []admissionOp{{id: 1, srcNode: "node1", tgtNode: "node2", transferType: api.SELF_RECOVERY, state: api.READY}},
+			final:   admissionOp{id: 2, srcNode: "node3", tgtNode: "node2", transferType: api.MOVE, state: api.REGISTERED},
+			wantErr: false,
+		},
+		{
+			name:    "target: completed SELF_RECOVERY (READY) then new SELF_RECOVERY allowed",
+			setup:   []admissionOp{{id: 1, srcNode: "node1", tgtNode: "node2", transferType: api.SELF_RECOVERY, state: api.READY}},
+			final:   admissionOp{id: 2, srcNode: "node1", tgtNode: "node2", transferType: api.SELF_RECOVERY, state: api.REGISTERED},
+			wantErr: false,
+		},
+		{
+			name:    "target: cancelled SELF_RECOVERY then new SELF_RECOVERY allowed",
+			setup:   []admissionOp{{id: 1, srcNode: "node1", tgtNode: "node2", transferType: api.SELF_RECOVERY, state: api.CANCELLED}},
+			final:   admissionOp{id: 2, srcNode: "node1", tgtNode: "node2", transferType: api.SELF_RECOVERY, state: api.REGISTERED},
+			wantErr: false,
+		},
 	}
 
 	for _, tc := range cases {

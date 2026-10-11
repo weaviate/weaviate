@@ -26,10 +26,11 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
-	"github.com/weaviate/weaviate/entities/versioned"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -44,11 +45,6 @@ func errShutdown(err error) error {
 
 type authenticator interface {
 	PrincipalFromContext(ctx context.Context) (*models.Principal, error)
-}
-
-type schemaManager interface {
-	GetCachedClassNoAuth(ctx context.Context, names ...string) (map[string]versioned.Class, error)
-	ResolveAlias(alias string) string
 }
 
 type StreamHandler struct {
@@ -69,8 +65,8 @@ type StreamHandler struct {
 	admissionChecker     admissionChecker
 	admitMu              sync.Mutex // taken only by tryAdmit, to check and reserve as one step
 	memInFlight          atomic.Int64
-	schemaManager        schemaManager
-	namespacesEnabled    bool
+	schemaManager        objects.ClassResolver
+	qualifier            namespacing.Qualifier
 	config               config.BatchStream
 }
 
@@ -84,8 +80,8 @@ func NewStreamHandler(
 	processingQueue processingQueue,
 	metrics *BatchStreamingMetrics,
 	logger logrus.FieldLogger,
-	schemaManager schemaManager,
-	namespacesEnabled bool,
+	schemaManager objects.ClassResolver,
+	qualifier namespacing.Qualifier,
 	admissionChecker admissionChecker,
 	cfg config.BatchStream,
 ) *StreamHandler {
@@ -104,7 +100,7 @@ func NewStreamHandler(
 		stoppingPerStream:    &sync.Map{},
 		admissionChecker:     admissionChecker,
 		schemaManager:        schemaManager,
-		namespacesEnabled:    namespacesEnabled,
+		qualifier:            qualifier,
 		config:               cfg,
 	}
 }
@@ -185,6 +181,7 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) (retErr err
 	if startReq == nil {
 		return fmt.Errorf("first message must be a start message")
 	}
+	CountConsistencyLevel(monitoring.ConsistencyLevelWrite, startReq.ConsistencyLevel)
 
 	h.setup(streamId)
 	defer h.teardown(streamId)
@@ -604,7 +601,7 @@ func (h *StreamHandler) enqueue(ctx context.Context, stream pb.Weaviate_BatchStr
 		if _, ok := resolvedByRaw[obj.Collection]; ok {
 			continue
 		}
-		resolved, _, err := namespacing.Resolve(principal, h.schemaManager, h.namespacesEnabled, obj.Collection)
+		resolved, _, err := namespacing.Resolve(principal, h.schemaManager, h.qualifier, obj.Collection)
 		if err != nil {
 			h.reportRejectedBatch(stream, log, principal, objs, refs, err)
 			return err

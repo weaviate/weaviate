@@ -143,7 +143,7 @@ func (o *ImportUsersUnauthorized) WriteResponse(rw http.ResponseWriter, producer
 const ImportUsersForbiddenCode int = 403
 
 /*
-ImportUsersForbidden Forbidden
+ImportUsersForbidden Forbidden, or a record sets `expiresAt` and the node holds no Weaviate license key.
 
 swagger:response importUsersForbidden
 */

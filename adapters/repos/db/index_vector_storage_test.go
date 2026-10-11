@@ -32,6 +32,7 @@ import (
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
@@ -180,7 +181,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				Workers: 1,
 			})
 
-			mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+			mockSchemaReader := local.NewMockSchemaReader(t)
 			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 				return readerFunc(class, shardState)
 			}).Maybe()
@@ -190,9 +191,8 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 
 			// Create mock schema getter
 			mockSchema := schemaUC.NewMockSchemaGetter(t)
-			mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
+			mockSchema.EXPECT().ReadOnlySchema().Maybe().Return(*fakeSchema.Objects)
 			mockSchema.EXPECT().ReadOnlyClass(tt.className).Maybe().Return(class)
-			mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
 			mockSchema.EXPECT().ShardFromUUID("TestClass", mock.Anything).Return(tt.shardName).Maybe()
 			// Add ShardOwner expectation for all test cases
 			mockSchema.EXPECT().ShardOwner(tt.className, tt.shardName).Maybe().Return("test-node", nil)
@@ -226,6 +226,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				}, nil).Maybe()
 			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
 			index, err := NewIndex(ctx, nil, IndexConfig{
+				NodeName:              "test-node",
 				RootPath:              dirName,
 				ClassName:             schema.ClassName(tt.className),
 				ReplicationFactor:     1,
@@ -515,7 +516,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				Workers: 1,
 			})
 
-			mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+			mockSchemaReader := local.NewMockSchemaReader(t)
 			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 				return readerFunc(class, shardState)
 			}).Maybe()
@@ -525,9 +526,8 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 
 			// Create mock schema getter
 			mockSchema := schemaUC.NewMockSchemaGetter(t)
-			mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
+			mockSchema.EXPECT().ReadOnlySchema().Maybe().Return(*fakeSchema.Objects)
 			mockSchema.EXPECT().ReadOnlyClass(tt.className).Maybe().Return(class)
-			mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
 			mockSchema.EXPECT().ShardFromUUID("TestClass", mock.Anything).Return("test-shard").Maybe()
 
 			// Create index with named vector config
@@ -543,6 +543,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				}, nil).Maybe()
 			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
 			index, err := NewIndex(ctx, nil, IndexConfig{
+				NodeName:              "test-node",
 				EnableLazyLoadShards:  true,
 				RootPath:              dirName,
 				ClassName:             schema.ClassName(tt.className),
@@ -733,7 +734,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 		Workers: 1,
 	})
 
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 		return readerFunc(class, shardState)
 	}).Maybe()
@@ -743,9 +744,8 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 
 	// Create mock schema getter
 	mockSchema := schemaUC.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
+	mockSchema.EXPECT().ReadOnlySchema().Maybe().Return(*fakeSchema.Objects)
 	mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
-	mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
 	mockSchema.EXPECT().TenantsShardsStatus(ctx, className, tenantNamePopulated).Maybe().
 		Return(map[string]string{tenantNamePopulated: models.TenantActivityStatusHOT}, nil)
 
@@ -760,6 +760,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	seedShardObjectCounter(t, dirName, className, tenantNamePopulated)
 	// Create index with lazy loading disabled to test active calculation methods
 	index, err := NewIndex(ctx, nil, IndexConfig{
+		NodeName:              "test-node",
 		RootPath:              dirName,
 		ClassName:             schema.ClassName(className),
 		ReplicationFactor:     1,
@@ -895,7 +896,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	// Shut down the entire index to ensure all store metadata is persisted
 	require.NoError(t, index.Shutdown(ctx))
 
-	mockSchemaReader = schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader = local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
 		func(_ string, _ bool, fn func(*models.Class, *sharding.State) error) error {
 			return fn(nil, shardState)
@@ -907,6 +908,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	// Create a new index instance to test inactive calculation methods
 	// This ensures we're testing the inactive methods on a fresh index that reads from disk
 	newIndex, err := NewIndex(ctx, nil, IndexConfig{
+		NodeName:              "test-node",
 		RootPath:              dirName,
 		ClassName:             schema.ClassName(className),
 		ReplicationFactor:     1,

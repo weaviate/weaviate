@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // TestSubmitRefusedWhileRuntimeReindexDisabled pins the wire response for
@@ -114,6 +115,7 @@ func TestSubmitRefusedWhileRuntimeReindexDisabled(t *testing.T) {
 				Authorizer:         &authorization.DummyAuthorizer{},
 				ServerConfig:       &config.WeaviateConfig{Config: config.Config{RuntimeReindexEnabled: false}},
 				ReindexSubmitLocks: state.NewReindexSubmitLocks(),
+				NamespaceQualifier: namespacing.Disabled,
 			}}
 
 			rec := httptest.NewRecorder()

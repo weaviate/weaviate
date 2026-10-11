@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -97,6 +98,8 @@ func TestShardFindUUIDs(t *testing.T) {
 		wantWarnSkipped   int
 		wantErr           error
 		wantErrText       string
+		// earlierCalls is how many calls run on the same shard before the one checked.
+		earlierCalls int
 	}
 	cases := []testCase{
 		{name: "no match", other: 5, wantCount: 0},
@@ -117,6 +120,10 @@ func TestShardFindUUIDs(t *testing.T) {
 			// The only case resolved from a flushed segment, exercising the
 			// worker read buffer.
 			name: "matches resolved from a flushed segment", matching: 600, other: 5, flushObjects: true, wantCount: 600,
+		},
+		{
+			name: "an unreadable row seen by repeated calls is warned about once", matching: 10,
+			unreadable: 1, earlierCalls: 2, wantCount: 9, wantWarnSkipped: 1,
 		},
 		{name: "cancelled context", matching: 5, cancelCtx: true, wantErr: context.Canceled},
 		{name: "a missing objects bucket fails the call instead of skipping", matching: 5, objectsBucketGone: true, wantErr: lsmkv.ErrBucketNotFound, wantErrText: "objects bucket"},
@@ -166,6 +173,10 @@ func TestShardFindUUIDs(t *testing.T) {
 				cancel()
 			}
 
+			for range tc.earlierCalls {
+				_, err := shard.FindUUIDs(findCtx, nameEquals(class, "match"), tc.limit)
+				require.NoError(t, err)
+			}
 			uuids, err := shard.FindUUIDs(findCtx, nameEquals(class, "match"), tc.limit)
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
@@ -305,10 +316,7 @@ func rowStateObject(t *testing.T, id strfmt.UUID) []byte {
 	return data
 }
 
-// TestResolveUUIDsTellsRowStatesApart covers the four states one doc id can land in. The
-// caller has to tell them apart: a missing row means the object is gone and its doc id may
-// be pruned, a row with no readable id is skipped and reported but never pruned, and a read
-// error means the store could not answer and the resolve fails.
+// TestResolveUUIDsTellsRowStatesApart pins how the resolve treats a present, absent, unreadable and failing row.
 func TestResolveUUIDsTellsRowStatesApart(t *testing.T) {
 	const docID = 42
 	id := strfmt.UUID(uuid.NewString())
@@ -358,9 +366,7 @@ func TestResolveUUIDsTellsRowStatesApart(t *testing.T) {
 	}
 }
 
-// TestResolveUUIDsLimitCountsUUIDsProduced pins that the limit counts UUIDs returned, not
-// doc ids read: a missing row and an unreadable one in front of the live objects cost a
-// read each and no slot, so the resolve walks past both to fill the limit.
+// TestResolveUUIDsLimitCountsUUIDsProduced pins that missing and unreadable rows cost a read, not a limit slot.
 func TestResolveUUIDsLimitCountsUUIDsProduced(t *testing.T) {
 	first, second := strfmt.UUID(uuid.NewString()), strfmt.UUID(uuid.NewString())
 	bucket := &stubDocIDBucket{failAfter: 100, objects: map[uint64][]byte{
@@ -416,10 +422,7 @@ func TestResolveUUIDsSetsConcurrencyBudget(t *testing.T) {
 	}
 }
 
-// TestShardObjectSearchSummarisesBatchedLookups pins the slow-query record a
-// filtered search leaves when it resolves its doc ids through the batch: one
-// summary under the with-view key that counts every lookup a segment served,
-// across more than one chunk.
+// TestShardObjectSearchSummarisesBatchedLookups pins one slow-query summary for all of a filtered search's lookups.
 func TestShardObjectSearchSummarisesBatchedLookups(t *testing.T) {
 	ctx := context.Background()
 	class := textNameClass("SlowLogSummaryTest")
@@ -442,4 +445,75 @@ func TestShardObjectSearchSummarisesBatchedLookups(t *testing.T) {
 	stats, ok := helpers.ExtractSlowQueryDetails(slowLogCtx)[lsmkv.SlowLogKeyGetBySecondaryWithView].(lsmkv.BucketSlowLogEntryStats)
 	require.True(t, ok, "the lookups must be summarised, not listed one per doc id")
 	require.Equal(t, matches, stats.Count, "every batched lookup must reach the summary")
+}
+
+func TestBatchDeleteReportsAnUnprocessedObject(t *testing.T) {
+	// the integration job sets DISABLE_RECOVERY_ON_PANIC=true, under which the
+	// malformed id takes the test binary down instead of failing one slot
+	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+
+	ctx := context.Background()
+	shard, _ := testShard(t, ctx, "TestBatchDeleteUnprocessed")
+
+	cases := []struct {
+		name   string
+		uuids  []strfmt.UUID
+		badIdx int
+	}{
+		// batchDeleteObject parses the id with uuid.MustParse, which panics
+		// rather than erroring; the group recovers it and the slot is never written
+		{name: "one malformed id", uuids: []strfmt.UUID{"not-a-uuid"}, badIdx: 0},
+		{name: "malformed first", uuids: []strfmt.UUID{
+			"not-a-uuid", "11111111-1111-1111-1111-111111111111",
+		}, badIdx: 0},
+		{name: "malformed among valid", uuids: []strfmt.UUID{
+			"11111111-1111-1111-1111-111111111111", "not-a-uuid",
+			"22222222-2222-2222-2222-222222222222",
+		}, badIdx: 1},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			res := shard.DeleteObjectBatch(ctx, tt.uuids, time.Now(), false)
+			require.Len(t, res, len(tt.uuids))
+
+			require.Equal(t, tt.uuids[tt.badIdx], res[tt.badIdx].UUID,
+				"the slot must name the object it stands for, not stay at its zero value")
+			require.Error(t, res[tt.badIdx].Err,
+				"a delete that panicked must not come back as a deleted object")
+
+			for i := range res {
+				if i == tt.badIdx {
+					continue
+				}
+				require.NoError(t, res[i].Err,
+					"slot %d: the seed must be overwritten by the delete that ran", i)
+			}
+		})
+	}
+}
+
+// TestBatchDeleteNamesItsObjectsWhenTheContextIsDead guards the arm that fails
+// every object at once: without the uuid, a caller has no way to match an
+// error to the object it belongs to.
+func TestBatchDeleteNamesItsObjectsWhenTheContextIsDead(t *testing.T) {
+	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+
+	shard, _ := testShard(t, context.Background(), "TestBatchDeleteDeadContext")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	uuids := []strfmt.UUID{
+		"11111111-1111-1111-1111-111111111111",
+		"22222222-2222-2222-2222-222222222222",
+	}
+	res := shard.DeleteObjectBatch(ctx, uuids, time.Now(), false)
+	require.Len(t, res, len(uuids))
+
+	for i := range res {
+		require.Equal(t, uuids[i], res[i].UUID,
+			"slot %d must name the object it stands for", i)
+		require.Error(t, res[i].Err, "slot %d: nothing was deleted", i)
+	}
 }

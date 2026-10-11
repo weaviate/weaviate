@@ -26,7 +26,7 @@ import (
 )
 
 func TestAuditOrphanReindexTrackers_NilLookup_Refuses(t *testing.T) {
-	db := &DB{}
+	db := &DB{localNodeName: "node1"}
 	logger := logrus.New()
 	outcome, err := db.AuditOrphanReindexTrackers(context.Background(), nil, logger)
 	require.Error(t, err)
@@ -151,8 +151,9 @@ func TestAuditOrphanReindexTrackers_KnownTaskSkipped_OrphanCleaned(t *testing.T)
 	writePreAgedQuarantineSentinel(t, orphanDir)
 
 	db := &DB{
-		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
-		config:  Config{RootPath: idx.Config.RootPath},
+		localNodeName: "node1",
+		indices:       map[string]*Index{indexID(idx.Config.ClassName): idx},
+		config:        Config{RootPath: idx.Config.RootPath},
 	}
 	known := func(taskID string, taskVersion uint64) bool {
 		return taskID == "task-known" && taskVersion == 5
@@ -207,8 +208,9 @@ func TestAuditOrphanReindexTrackers_MultipleOrphansOnOneShard(t *testing.T) {
 	}
 
 	db := &DB{
-		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
-		config:  Config{RootPath: idx.Config.RootPath},
+		localNodeName: "node1",
+		indices:       map[string]*Index{indexID(idx.Config.ClassName): idx},
+		config:        Config{RootPath: idx.Config.RootPath},
 	}
 	knownNothing := func(string, uint64) bool { return false }
 	outcome, err := db.AuditOrphanReindexTrackers(ctx, knownNothing, logrus.New())
@@ -242,8 +244,9 @@ func TestAuditOrphanReindexTrackers_TidiedTrackerLeftAlone(t *testing.T) {
 		ReindexTypeChangeTokenization, []string{"body"})
 
 	db := &DB{
-		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
-		config:  Config{RootPath: idx.Config.RootPath},
+		localNodeName: "node1",
+		indices:       map[string]*Index{indexID(idx.Config.ClassName): idx},
+		config:        Config{RootPath: idx.Config.RootPath},
 	}
 	knownNothing := func(string, uint64) bool { return false }
 	outcome, err := db.AuditOrphanReindexTrackers(ctx, knownNothing, logrus.New())
@@ -297,8 +300,9 @@ func TestAuditOrphanReindexTrackers_NoMigrationsDir(t *testing.T) {
 	_, idx := testShard(t, ctx, className)
 
 	db := &DB{
-		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
-		config:  Config{RootPath: idx.Config.RootPath},
+		localNodeName: "node1",
+		indices:       map[string]*Index{indexID(idx.Config.ClassName): idx},
+		config:        Config{RootPath: idx.Config.RootPath},
 	}
 	outcome, err := db.AuditOrphanReindexTrackers(ctx, func(string, uint64) bool { return false }, logrus.New())
 	require.NoError(t, err)
@@ -327,7 +331,7 @@ func TestAuditOutcomeStatus_StringLabels(t *testing.T) {
 // TestAuditOrphanReindexTrackers_EmptyRootPath pins the typed Skipped
 // outcome and SkipReason when the DB has no RootPath configured.
 func TestAuditOrphanReindexTrackers_EmptyRootPath(t *testing.T) {
-	db := &DB{config: Config{RootPath: ""}}
+	db := &DB{localNodeName: "node1", config: Config{RootPath: ""}}
 	outcome, err := db.AuditOrphanReindexTrackers(context.Background(),
 		func(string, uint64) bool { return false }, logrus.New())
 	require.NoError(t, err)
@@ -338,7 +342,7 @@ func TestAuditOrphanReindexTrackers_EmptyRootPath(t *testing.T) {
 // TestAuditOrphanReindexTrackers_RootPathMissing pins the typed
 // Skipped outcome when RootPath points at a non-existent directory.
 func TestAuditOrphanReindexTrackers_RootPathMissing(t *testing.T) {
-	db := &DB{config: Config{RootPath: filepath.Join(t.TempDir(), "does-not-exist")}}
+	db := &DB{localNodeName: "node1", config: Config{RootPath: filepath.Join(t.TempDir(), "does-not-exist")}}
 	outcome, err := db.AuditOrphanReindexTrackers(context.Background(),
 		func(string, uint64) bool { return false }, logrus.New())
 	require.NoError(t, err)
@@ -350,7 +354,7 @@ func TestAuditOrphanReindexTrackers_RootPathMissing(t *testing.T) {
 // post-restore wrapper's Skipped outcome path used by the
 // per-class-dir restore hook before SetReindexAuditDeps lands (B2).
 func TestAuditOrphanReindexTrackersIfReady_DepsMissing(t *testing.T) {
-	db := &DB{}
+	db := &DB{localNodeName: "node1"}
 	outcome, err := db.AuditOrphanReindexTrackersIfReady(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, AuditStatusSkipped, outcome.Status)
@@ -380,8 +384,9 @@ func TestSetReindexAuditDeps_ReplaysDeferredRequests(t *testing.T) {
 	writePreAgedQuarantineSentinel(t, dir)
 
 	db := &DB{
-		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
-		config:  Config{RootPath: idx.Config.RootPath},
+		localNodeName: "node1",
+		indices:       map[string]*Index{indexID(idx.Config.ClassName): idx},
+		config:        Config{RootPath: idx.Config.RootPath},
 	}
 	// First call: deps not installed, so audit must Skip and increment
 	// the deferred-requests counter.
@@ -439,8 +444,9 @@ func TestSetReindexAuditDeps_NoReplayWhenCounterZero(t *testing.T) {
 		ReindexTypeChangeTokenization, []string{"body"})
 
 	db := &DB{
-		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
-		config:  Config{RootPath: idx.Config.RootPath},
+		localNodeName: "node1",
+		indices:       map[string]*Index{indexID(idx.Config.ClassName): idx},
+		config:        Config{RootPath: idx.Config.RootPath},
 	}
 	_ = ctx
 	knownNothing := func(string, uint64) bool { return false }
@@ -472,8 +478,9 @@ func TestAuditOrphanReindexTrackers_TwoSweepCycle_ClassicalOrphan(t *testing.T) 
 		ReindexTypeChangeTokenization, []string{"body"})
 
 	db := &DB{
-		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
-		config:  Config{RootPath: idx.Config.RootPath},
+		localNodeName: "node1",
+		indices:       map[string]*Index{indexID(idx.Config.ClassName): idx},
+		config:        Config{RootPath: idx.Config.RootPath},
 	}
 	knownNothing := func(string, uint64) bool { return false }
 
@@ -519,8 +526,9 @@ func TestAuditOrphanReindexTrackers_FirstSweep_OnlyQuarantines(t *testing.T) {
 		ReindexTypeChangeTokenization, []string{"body"})
 
 	db := &DB{
-		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
-		config:  Config{RootPath: idx.Config.RootPath},
+		localNodeName: "node1",
+		indices:       map[string]*Index{indexID(idx.Config.ClassName): idx},
+		config:        Config{RootPath: idx.Config.RootPath},
 	}
 	knownNothing := func(string, uint64) bool { return false }
 	outcome, err := db.AuditOrphanReindexTrackers(ctx, knownNothing, logrus.New())
@@ -560,8 +568,9 @@ func TestAuditOrphanReindexTrackers_SecondSweep_ClearsSentinelWhenTaskLive(t *te
 	writePreAgedQuarantineSentinel(t, dir)
 
 	db := &DB{
-		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
-		config:  Config{RootPath: idx.Config.RootPath},
+		localNodeName: "node1",
+		indices:       map[string]*Index{indexID(idx.Config.ClassName): idx},
+		config:        Config{RootPath: idx.Config.RootPath},
 	}
 	// Second sweep: this time the task IS known live (fresh DTM
 	// snapshot from the leader). The audit must clear the sentinel
@@ -723,8 +732,9 @@ func TestAuditOrphanReindexTrackers_LegacyTrackerWithoutPayload_Cleaned(t *testi
 	require.NoError(t, os.Chtimes(dir, legacyMtime, legacyMtime))
 
 	db := &DB{
-		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
-		config:  Config{RootPath: idx.Config.RootPath},
+		localNodeName: "node1",
+		indices:       map[string]*Index{indexID(idx.Config.ClassName): idx},
+		config:        Config{RootPath: idx.Config.RootPath},
 	}
 	knownNothing := func(string, uint64) bool { return false }
 	outcome, err := db.AuditOrphanReindexTrackers(ctx, knownNothing, logrus.New())
@@ -757,8 +767,9 @@ func TestAuditOrphanReindexTrackers_TrackerWithoutPayloadButFresh_LeftAlone(t *t
 	require.NoError(t, os.Chtimes(dir, freshMtime, freshMtime))
 
 	db := &DB{
-		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
-		config:  Config{RootPath: idx.Config.RootPath},
+		localNodeName: "node1",
+		indices:       map[string]*Index{indexID(idx.Config.ClassName): idx},
+		config:        Config{RootPath: idx.Config.RootPath},
 	}
 	knownNothing := func(string, uint64) bool { return false }
 	outcome, err := db.AuditOrphanReindexTrackers(ctx, knownNothing, logrus.New())

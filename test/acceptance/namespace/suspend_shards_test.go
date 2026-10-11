@@ -103,7 +103,8 @@ func nodeIndexFromName(t *testing.T, nodeName string) int {
 func uriForNode(t *testing.T, nodeName string) string {
 	t.Helper()
 
-	return sharedCompose.GetWeaviateNode(nodeIndexFromName(t, nodeName)).URI()
+	restURI, _ := nodeURIs(t, nodeName)
+	return restURI
 }
 
 // requireShardsEventually waits for the cluster-wide shard set to settle on
@@ -395,10 +396,9 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 		})
 	}
 
-	// A read cannot materialize a shard, so a write is what puts the request
-	// path's namespace check on a shard the boot skipped. As the global
-	// operator, since the namespace's own key stops authenticating while it is
-	// suspended and would be turned away before ever reaching a shard.
+	// These writes name a collection the boot skipped, and the gate refuses them
+	// before any shard is consulted. They run as the global operator, because the
+	// namespace's own key stops authenticating while it is suspended.
 	//
 	// The client is process-wide, so each write below puts it back before the
 	// next subtest reads it.
@@ -413,12 +413,8 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 		return err
 	}
 
-	// Someone suspended this on purpose, so the write should be turned away with
-	// a 422. It answers 500 instead: the object endpoints map only invalid-input
-	// and multi-tenancy errors to 422, so a namespace refusal falls through to
-	// the default arm the way the alias handlers used to. What is pinned here is
-	// that the write is refused and still says why; swap the type for
-	// ObjectsCreateUnprocessableEntity once the object endpoints gain the arm.
+	// Someone suspended this on purpose, so the write is turned away with a 422
+	// that still says why.
 	//
 	// These run as the operator, who sees the full message; the shorter one a
 	// namespaced user gets is out of reach here, because their key stops working
@@ -437,7 +433,7 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 
 			// The responder renders its payload as a pointer, so the message has
 			// to be read off the typed error rather than its Error() string.
-			var refused *objects.ObjectsCreateInternalServerError
+			var refused *objects.ObjectsCreateUnprocessableEntity
 			require.ErrorAs(t, err, &refused)
 			require.NotEmpty(t, refused.Payload.Error)
 			assert.Contains(t, refused.Payload.Error[0].Message, "namespace is suspended")
@@ -446,9 +442,8 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 
 	// A batch delete answers with one status for the whole request, on a ladder
 	// of its own, so the status the single-object endpoints give does not cover
-	// it. (A batch create cannot stand in here: it reports per-object failures
-	// inside a 200 and never reaches that ladder.) Its ladder has the same gap,
-	// and inverts with the one above.
+	// it. The request path refuses this before the shard is reached, so the
+	// message below is the gate's rather than the closed shard's.
 	t.Run("a batch delete in the suspended namespace is refused", func(t *testing.T) {
 		helper.SetupClient(uriForNode(t, shardOwner))
 		t.Cleanup(func() { helper.SetupClient(originalURI) })
@@ -466,7 +461,7 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 			}), helper.CreateAuth(adminKey))
 		require.Error(t, err)
 
-		var refused *batch.BatchObjectsDeleteInternalServerError
+		var refused *batch.BatchObjectsDeleteUnprocessableEntity
 		require.ErrorAs(t, err, &refused)
 		require.NotEmpty(t, refused.Payload.Error)
 		assert.Contains(t, refused.Payload.Error[0].Message, "namespace is suspended")

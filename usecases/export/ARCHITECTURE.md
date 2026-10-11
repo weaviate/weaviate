@@ -92,17 +92,22 @@ files are copied. Offloaded/frozen tenants are skipped with a `SkipReason`.
 ## Parallel Scan and Parquet Writing
 
 Each shard snapshot is split into key ranges scanned by a worker pool
-(`GOMAXPROCS * 2` workers), producing one Parquet file per range.
+(`EXPORT_PARALLELISM` workers, GOMAXPROCS by default, capped at
+`GOMAXPROCS * 4`), producing one Parquet file per range.
 
 **Range computation:** `computeRanges` uses `QuantileKeys` to split the key
 space. Range count is bounded between `count / maxObjectsPerRange` and
 `count / minObjectsPerRange` (50K--500K objects, targeting ~2--3 GB files after
 Zstd compression).
 
-**Per-range pipeline:** Each `scanJob` creates an `io.Pipe` connecting a
-`ParquetWriter` (10K-row buffer, Zstd, 8 MB page buffer) to a backend upload
-goroutine. The scan seeks to its start key with a bucket cursor, deserializes
-each object via `storobj.ExportFieldsFromBinary`, and writes a `ParquetRow`.
+**Per-range pipeline:** Each `scanJob` creates a 16 MiB buffered pipe
+connecting a `ParquetWriter` to a backend upload goroutine. The writer flushes
+its row buffer at 256 rows or 4 MiB and ends a row group at 32 MiB. parquet-go
+holds the open row group in memory, so its bytes reach the pipe only when the
+row group ends. The writer starts a new page in a column at about 8 MiB before
+Zstd compression, so a very large row makes a larger page. The scan seeks to
+its start key with a bucket cursor, deserializes each object via
+`storobj.ExportFieldsFromBinary`, and writes a `ParquetRow`.
 Cleanup goroutines shut down snapshot buckets and remove directories after all
 ranges of a shard complete.
 

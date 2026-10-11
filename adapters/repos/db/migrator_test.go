@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -72,7 +73,6 @@ func TestUpdateIndexTenants(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
-			mockSchemaGetter.On("NodeName").Return("node1").Maybe()
 
 			class := &models.Class{
 				Class:               "TestClass",
@@ -102,12 +102,13 @@ func TestUpdateIndexTenants(t *testing.T) {
 				PartitioningEnabled: true,
 			}
 
-			mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+			mockSchemaReader := local.NewMockSchemaReader(t)
 			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				return readFunc(class, originalSS)
 			}).Maybe()
 			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
 			index, err := NewIndex(context.Background(), nil, IndexConfig{
+				NodeName:          "node1",
 				ClassName:         schema.ClassName("TestClass"),
 				RootPath:          t.TempDir(),
 				ReplicationFactor: 1,
@@ -127,7 +128,8 @@ func TestUpdateIndexTenants(t *testing.T) {
 
 			migrator := &Migrator{
 				db: &DB{
-					schemaGetter: mockSchemaGetter,
+					localNodeName: "node1",
+					schemaGetter:  mockSchemaGetter,
 				},
 				nodeId: "node1",
 			}
@@ -370,7 +372,6 @@ func TestUpdateIndexTenantsCompletesDespiteFailures(t *testing.T) {
 
 			idx, _ := newDropTestIndex(t)
 			sg := schemaUC.NewMockSchemaGetter(t)
-			sg.EXPECT().NodeName().Return("node1").Maybe()
 			sg.EXPECT().ReadOnlyClass(mock.Anything).
 				Return(&models.Class{Class: idx.Config.ClassName.String()}).Maybe()
 			idx.getSchema = sg
@@ -380,7 +381,7 @@ func TestUpdateIndexTenantsCompletesDespiteFailures(t *testing.T) {
 				idx.metrics = metrics
 				idx.allocChecker = failingAllocChecker{}
 			}
-			m := &Migrator{db: &DB{schemaGetter: sg}, logger: idx.logger}
+			m := &Migrator{db: &DB{localNodeName: "node1", schemaGetter: sg}, logger: idx.logger}
 
 			residentDirs := make(map[string]string, len(tt.resident))
 			for _, name := range tt.resident {
@@ -538,7 +539,6 @@ func TestUpdateIndexShards(t *testing.T) {
 			logger := logrus.New()
 
 			mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
-			mockSchemaGetter.On("NodeName").Return("node1").Maybe()
 
 			// Create a test class
 			class := &models.Class{
@@ -566,7 +566,7 @@ func TestUpdateIndexShards(t *testing.T) {
 				Logger:  logger,
 				Workers: 1,
 			})
-			mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+			mockSchemaReader := local.NewMockSchemaReader(t)
 			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				return readFunc(class, initialState)
 			}).Maybe()
@@ -588,6 +588,7 @@ func TestUpdateIndexShards(t *testing.T) {
 			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
 			// Create index with proper configuration
 			index, err := NewIndex(ctx, nil, IndexConfig{
+				NodeName:             "node1",
 				ClassName:            schema.ClassName("TestClass"),
 				RootPath:             rootPath,
 				ReplicationFactor:    1,
@@ -607,7 +608,8 @@ func TestUpdateIndexShards(t *testing.T) {
 
 			migrator := &Migrator{
 				db: &DB{
-					schemaGetter: mockSchemaGetter,
+					localNodeName: "node1",
+					schemaGetter:  mockSchemaGetter,
 				},
 				nodeId: "node1",
 			}
@@ -912,13 +914,13 @@ func TestUpdateIndexAddsPropertiesDespiteShardFailure(t *testing.T) {
 			}
 
 			sg := schemaUC.NewMockSchemaGetter(t)
-			sg.EXPECT().NodeName().Return("node1").Maybe()
 			sg.EXPECT().ReadOnlyClass(mock.Anything).Return(class).Maybe()
 			idx.getSchema = sg
 			m := &Migrator{
 				db: &DB{
-					schemaGetter: sg,
-					indices:      map[string]*Index{indexID(idx.Config.ClassName): idx},
+					localNodeName: "node1",
+					schemaGetter:  sg,
+					indices:       map[string]*Index{indexID(idx.Config.ClassName): idx},
 				},
 				logger: idx.logger,
 			}
@@ -981,7 +983,7 @@ func numberedShards(n int) []string {
 // schemaUC.ErrNotFound so the REST handler maps them to 404 rather than 500.
 func TestShardsStatusNonExistingIndexWrapsNotFound(t *testing.T) {
 	logger := logrus.New()
-	migrator := NewMigrator(&DB{}, logger, "node1")
+	migrator := NewMigrator(&DB{localNodeName: "node1"}, logger, "node1")
 
 	tests := []struct {
 		name string
@@ -1020,7 +1022,6 @@ func TestShardsStatusNonExistingIndexWrapsNotFound(t *testing.T) {
 
 func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
-	mockSchemaGetter.On("NodeName").Return("node1")
 
 	class := &models.Class{
 		Class:               "TestClass",
@@ -1049,12 +1050,13 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 		PartitioningEnabled: true,
 	}
 
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		return readFunc(class, originalSS)
 	}).Maybe()
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
 	index, err := NewIndex(context.Background(), nil, IndexConfig{
+		NodeName:          "node1",
 		ClassName:         schema.ClassName("TestClass"),
 		RootPath:          t.TempDir(),
 		ReplicationFactor: 1,
@@ -1320,7 +1322,7 @@ func storeDroppableShard(t *testing.T, idx *Index, name string, dropErr error) {
 // newDropTestMigrator returns a migrator serving idx under className, offloading
 // to cloud unless it is nil.
 func newDropTestMigrator(idx *Index, className string, cloud modulecapabilities.OffloadCloud) *Migrator {
-	db := &DB{indices: map[string]*Index{indexID(schema.ClassName(className)): idx}}
+	db := &DB{localNodeName: "node1", indices: map[string]*Index{indexID(schema.ClassName(className)): idx}}
 	m := NewMigrator(db, idx.logger, "node1")
 	m.nodeId = "node1"
 	m.cloud = cloud

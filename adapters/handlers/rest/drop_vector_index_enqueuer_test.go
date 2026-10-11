@@ -25,9 +25,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
-	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -146,16 +147,17 @@ func (p *probeRecordingEnqueuer) ListDistributedTasks(ctx context.Context) (map[
 
 // orderLister records whether the schema was read before or after the probe.
 type orderLister struct {
+	local.ClassReader
 	probed  *bool
 	orderOK *bool
 	classes []*models.Class
 }
 
-func (l orderLister) GetSchemaSkipAuth() entschema.Schema {
+func (l orderLister) ReadOnlySchema() models.Schema {
 	if *l.probed {
 		*l.orderOK = true
 	}
-	return entschema.Schema{Objects: &models.Schema{Classes: l.classes}}
+	return models.Schema{Classes: l.classes}
 }
 
 // TestReconciliationAtStartup_ReadsSchemaAfterProbe pins the restore race fix:
@@ -349,9 +351,11 @@ func mustDropPayload(t *testing.T, collection string, targets ...string) []byte 
 // shard -> (status, nodes), and a class whose VectorConfig is vectorCfg (defaults
 // to the targets-still-dropped happy path for "v1").
 type fakeShardingState struct {
+	// leader.SchemaReader is left unset: only the methods below are expected.
+	leader.SchemaReader
 	state     *sharding.State
 	vectorCfg map[string]models.VectorConfig
-	// missingClasses lists collection names QueryReadOnlyClasses reports as
+	// missingClasses lists collection names ReadOnlyClassesFromLeader reports as
 	// absent (deleted class). Without it the fake fabricates a class for ANY
 	// name, and the class-gone sweep arm of LiveOpIDs is untestable.
 	missingClasses []string
@@ -359,11 +363,11 @@ type fakeShardingState struct {
 	err            error
 }
 
-func (f *fakeShardingState) QueryShardingState(class string) (*sharding.State, uint64, error) {
+func (f *fakeShardingState) ShardingStateFromLeader(class string) (*sharding.State, uint64, error) {
 	return f.state, 0, f.err
 }
 
-func (f *fakeShardingState) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error) {
+func (f *fakeShardingState) ReadOnlyClassesFromLeader(classes ...string) (map[string]versioned.Class, error) {
 	f.classReads++
 	if f.err != nil {
 		return nil, f.err
@@ -1157,7 +1161,7 @@ func TestEnqueuerGuardConsistency(t *testing.T) {
 
 			// Re-prove the enqueuer's claim exactly as the raft apply would.
 			logger, _ := test.NewNullLogger()
-			provider := db.NewDropVectorIndexProvider(nil, nil, nil, logger, "n1", context.Background(), nil)
+			provider := db.NewDropVectorIndexProvider(nil, nil, nil, nil, logger, "n1", context.Background(), nil)
 			enc, err := json.Marshal(payload)
 			require.NoError(t, err)
 			require.NoError(t, provider.CheckConflict(enc, sc.tasks),
