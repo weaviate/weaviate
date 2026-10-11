@@ -252,7 +252,7 @@ func (kv MapPair) Bytes() ([]byte, error) {
 	}
 	valueLen := uint16(len(kv.Value))
 
-	data := make([]byte, byteops.Uint16Len+keyLen+byteops.Uint16Len+valueLen)
+	data := make([]byte, kv.Size())
 	rw := byteops.NewReadWriter(data)
 	rw.WriteUint16(keyLen)
 
@@ -290,7 +290,7 @@ func (kv *MapPair) BytesInverted() ([]byte, error) {
 }
 
 func (kv *MapPair) FromBytes(in []byte, keyOnly bool) error {
-	var read uint16
+	var read int
 
 	// NOTE: A previous implementation was using copy statements in here to avoid
 	// sharing the memory. The general idea of that is good (protect against the
@@ -303,7 +303,7 @@ func (kv *MapPair) FromBytes(in []byte, keyOnly bool) error {
 	// method. As a result all memory used here can now be considered read-only
 	// and is safe to be used indefinitely.
 
-	keyLen := binary.LittleEndian.Uint16(in[:2])
+	keyLen := int(binary.LittleEndian.Uint16(in[:2]))
 	read += 2 // uint16 -> 2 bytes
 
 	kv.Key = in[read : read+keyLen]
@@ -313,13 +313,13 @@ func (kv *MapPair) FromBytes(in []byte, keyOnly bool) error {
 		return nil
 	}
 
-	valueLen := binary.LittleEndian.Uint16(in[read : read+2])
+	valueLen := int(binary.LittleEndian.Uint16(in[read : read+2]))
 	read += 2
 
 	kv.Value = in[read : read+valueLen]
 	read += valueLen
 
-	if read != uint16(len(in)) {
+	if read != len(in) {
 		return errors.Errorf("inconsistent map pair: read %d out of %d bytes",
 			read, len(in))
 	}
@@ -328,12 +328,12 @@ func (kv *MapPair) FromBytes(in []byte, keyOnly bool) error {
 }
 
 func (kv *MapPair) FromBytesReusable(in []byte, keyOnly bool) error {
-	var read uint16
+	var read int
 
-	keyLen := binary.LittleEndian.Uint16(in[:2])
+	keyLen := int(binary.LittleEndian.Uint16(in[:2]))
 	read += 2 // uint16 -> 2 bytes
 
-	if int(keyLen) > cap(kv.Key) {
+	if keyLen > cap(kv.Key) {
 		kv.Key = make([]byte, keyLen)
 	} else {
 		kv.Key = kv.Key[:keyLen]
@@ -345,10 +345,10 @@ func (kv *MapPair) FromBytesReusable(in []byte, keyOnly bool) error {
 		return nil
 	}
 
-	valueLen := binary.LittleEndian.Uint16(in[read : read+2])
+	valueLen := int(binary.LittleEndian.Uint16(in[read : read+2]))
 	read += 2
 
-	if int(valueLen) > cap(kv.Value) {
+	if valueLen > cap(kv.Value) {
 		kv.Value = make([]byte, valueLen)
 	} else {
 		kv.Value = kv.Value[:valueLen]
@@ -356,7 +356,7 @@ func (kv *MapPair) FromBytesReusable(in []byte, keyOnly bool) error {
 	copy(kv.Value, in[read:read+valueLen])
 	read += valueLen
 
-	if read != uint16(len(in)) {
+	if read != len(in) {
 		return errors.Errorf("inconsistent map pair: read %d out of %d bytes",
 			read, len(in))
 	}

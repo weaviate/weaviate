@@ -12,6 +12,7 @@
 package filters_tests
 
 import (
+	"acceptance_tests_with_client/fixtures"
 	"context"
 	"fmt"
 	"testing"
@@ -47,10 +48,8 @@ func testContains(host string) func(t *testing.T) {
 		t.Run("create class", func(t *testing.T) {
 			cleanup()
 			class := &models.Class{
-				Class: className,
-				// one of the cases below filters with nearText, which needs a
-				// vectorizer module
-				Vectorizer: "text2vec-contextionary",
+				Class:        className,
+				VectorConfig: fixtures.DefaultVectorConfig(),
 				Properties: []*models.Property{
 					{
 						Name:     "color",
@@ -901,7 +900,8 @@ func testContainsMovies(host string) func(t *testing.T) {
 		t.Run("create and populate collection", func(t *testing.T) {
 			cleanup()
 			class := &models.Class{
-				Class: collectionName,
+				Class:        collectionName,
+				VectorConfig: fixtures.DefaultVectorConfig(),
 				Properties: []*models.Property{
 					{
 						Name:         "title",

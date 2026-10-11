@@ -21,6 +21,12 @@ type TaskLister interface {
 	ListDistributedTasks(ctx context.Context) (map[string][]*Task, error)
 }
 
+// LocalTaskLister lists the distributed tasks from this node's copy of the task
+// state, without a round-trip to the leader; it can lag the leader.
+type LocalTaskLister interface {
+	LocalDistributedTasks() map[string][]*Task
+}
+
 // SchedulerNotifier is implemented by the [Scheduler] and consumed by the
 // [Manager] to request an immediate scheduling cycle after a task-state
 // change applies via Raft. Without this hook the scheduler only reacts on

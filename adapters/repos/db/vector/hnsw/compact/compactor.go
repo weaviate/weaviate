@@ -342,8 +342,10 @@ func (c *Compactor) convertFileToSorted(f FileInfo) (bool, error) {
 	}
 	defer srcFile.Close()
 
-	// Read into memory using WALCommitReader + InMemoryReader
-	walReader := NewWALCommitReader(srcFile, c.logger)
+	// Read into memory using WALCommitReader + InMemoryReader. The layout
+	// check keeps a garbage ResetIndex in a .condensed file from discarding
+	// every older file below.
+	walReader := NewWALCommitReaderForFile(srcFile, f.Type, 0, c.logger)
 	inMemReader := NewInMemoryReader(walReader, c.logger)
 	result, err := inMemReader.Do(nil, true) // keepLinkReplaceInformation = true
 	if err != nil {
@@ -401,8 +403,9 @@ func (c *Compactor) decideAction(state *DirectoryState) Action {
 	action, reason := c.chooseAction(state, totalSize, sortedRatio)
 
 	// RunCycle decides on every maintenance cycle, so skip building fields a
-	// logger below debug would discard.
-	if c.debugEnabled() {
+	// logger below debug would discard. ActionNone is the idle steady state
+	// and would repeat every cycle for every graph, so only real work is logged.
+	if action != ActionNone && c.debugEnabled() {
 		c.logger.WithFields(logrus.Fields{
 			"action":        "hnsw_compactor_decide",
 			"snapshot_size": snapshotSize,
@@ -423,6 +426,12 @@ func (c *Compactor) chooseAction(state *DirectoryState, totalSize int64, sortedR
 	sortedCount := len(state.SortedFiles)
 
 	if totalSize == 0 {
+		// Forced rotations of a never-written log leave 0-byte sorted files
+		// behind. They carry nothing to snapshot, but must still be collapsed
+		// or one accumulates per rotation.
+		if sortedCount > 1 {
+			return ActionMergeSorted, "no data to snapshot, merging empty sorted files to reduce count"
+		}
 		return ActionNone, "no data to compact (total size is 0)"
 	}
 
@@ -493,7 +502,7 @@ func (c *Compactor) mergeSorted(state *DirectoryState, shouldAbort func() bool) 
 		}
 		openedFiles = append(openedFiles, file)
 
-		walReader := NewWALCommitReader(file, c.logger)
+		walReader := NewWALCommitReaderForFile(file, f.Type, 0, c.logger)
 		it, err := NewIterator(walReader, i, c.logger)
 		if err != nil {
 			return errors.Wrapf(err, "create iterator for %s", f.Path)
@@ -622,7 +631,7 @@ func (c *Compactor) createSnapshot(state *DirectoryState, shouldAbort func() boo
 			}
 			openedFiles = append(openedFiles, file)
 
-			walReader := NewWALCommitReader(file, c.logger)
+			walReader := NewWALCommitReaderForFile(file, f.Type, 0, c.logger)
 			it, err = NewIterator(walReader, i, c.logger)
 		}
 

@@ -45,6 +45,7 @@ type Metrics struct {
 
 	// async replication metrics
 	asyncReplicationHashTreeInitCount        prometheus.Counter
+	asyncReplicationHashTreeInitQueued       prometheus.Gauge
 	asyncReplicationHashTreeInitRunning      prometheus.Gauge
 	asyncReplicationHashTreeInitFailureCount prometheus.Counter
 	asyncReplicationHashTreeInitDuration     prometheus.Histogram
@@ -208,6 +209,21 @@ func NewMetrics(
 	}
 	if !alreadyRegistered {
 		m.asyncReplicationHashTreeInitCount.Add(0)
+	}
+
+	m.asyncReplicationHashTreeInitQueued, alreadyRegistered, err = monitoring.EnsureRegisteredMetric(
+		prom.Registerer,
+		prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "weaviate",
+			Name:      "async_replication_hashtree_init_queued",
+			Help:      "Number of hashtree initializations waiting for an init slot",
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("registering async_replication_hashtree_init_queued: %w", err)
+	}
+	if !alreadyRegistered {
+		m.asyncReplicationHashTreeInitQueued.Set(0)
 	}
 
 	m.asyncReplicationHashTreeInitRunning, alreadyRegistered, err = monitoring.EnsureRegisteredMetric(
@@ -839,6 +855,18 @@ func (m *Metrics) FilteredVectorSort(dur time.Duration) {
 func (m *Metrics) IncAsyncReplicationHashTreeInitCount() {
 	if m.monitoring {
 		m.asyncReplicationHashTreeInitCount.Inc()
+	}
+}
+
+func (m *Metrics) IncAsyncReplicationHashTreeInitQueued() {
+	if m.monitoring {
+		m.asyncReplicationHashTreeInitQueued.Inc()
+	}
+}
+
+func (m *Metrics) DecAsyncReplicationHashTreeInitQueued() {
+	if m.monitoring {
+		m.asyncReplicationHashTreeInitQueued.Dec()
 	}
 }
 

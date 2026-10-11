@@ -420,7 +420,7 @@ func (m *Migrator) convertCondensedToSorted(ctx context.Context, path string) er
 	defer srcFile.Close()
 
 	// Read into memory using WALCommitReader + InMemoryReader
-	walReader := NewWALCommitReader(srcFile, m.logger)
+	walReader := NewWALCommitReaderForFile(srcFile, FileTypeCondensed, 0, m.logger)
 	inMemReader := NewInMemoryReader(walReader, m.logger)
 	result, err := inMemReader.Do(nil, true) // keepLinkReplaceInformation = true
 	if err != nil {

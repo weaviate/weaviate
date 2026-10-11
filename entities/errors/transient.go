@@ -39,12 +39,22 @@ func IsTransient(err error) bool {
 		return true
 	}
 
+	// An HNSW insert that finds no node to start its neighbor search from is
+	// retried: the state is created by concurrent inserts and tombstone cleanup
+	// holding the few live nodes of a small graph under maintenance, and it
+	// clears within milliseconds. Discarding the batch would silently leave the
+	// vectors unindexed.
+	if errors.Is(err, ErrNoUsableEntrypoint) {
+		return true
+	}
+
 	return false
 }
 
 var (
-	ErrNotEnoughMemory   = fmt.Errorf("not enough memory")
-	ErrNotEnoughMappings = fmt.Errorf("not enough memory mappings")
+	ErrNotEnoughMemory    = fmt.Errorf("not enough memory")
+	ErrNotEnoughMappings  = fmt.Errorf("not enough memory mappings")
+	ErrNoUsableEntrypoint = fmt.Errorf("no usable entrypoint")
 )
 
 func NewNotEnoughMemory(msg string) error {

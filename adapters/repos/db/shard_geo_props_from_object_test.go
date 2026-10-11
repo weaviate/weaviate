@@ -26,7 +26,7 @@ import (
 const geoFromObjectClass = "GeoPropScan"
 
 func geoScanShard() *Shard {
-	return &Shard{index: &Index{Config: IndexConfig{ClassName: schema.ClassName(geoFromObjectClass)}}}
+	return &Shard{index: &Index{Config: IndexConfig{NodeName: "node1", ClassName: schema.ClassName(geoFromObjectClass)}}}
 }
 
 func geoCoordinates(lat, lon float32) *models.GeoCoordinates {

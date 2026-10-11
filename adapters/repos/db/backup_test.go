@@ -28,13 +28,12 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/sharding"
-
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 func TestBackupMutex(t *testing.T) {
@@ -345,7 +344,7 @@ func TestListInactiveShardFiles(t *testing.T) {
 			// Build a minimal Index to call listInactiveShardFiles.
 			// fakeSchemaGetter is defined in fakes_for_tests.go with NodeName() returning "node1".
 			idx := &Index{
-				Config:    IndexConfig{RootPath: rootDir, ClassName: "MyClass"},
+				Config:    IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: "MyClass"},
 				getSchema: &fakeSchemaGetter{},
 				db:        stubDBWithNoLiveReindex(),
 			}
@@ -522,7 +521,7 @@ func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 	require.NoError(t, os.MkdirAll(stagingRoot, 0o755))
 
 	idx := &Index{
-		Config:    IndexConfig{RootPath: rootDir, ClassName: "MyClass"},
+		Config:    IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: "MyClass"},
 		getSchema: &fakeSchemaGetter{},
 		db:        stubDBWithNoLiveReindex(),
 	}
@@ -580,7 +579,7 @@ func TestBackupProtectedShardsBlockActivation(t *testing.T) {
 
 	newTestIndex := func() *Index {
 		return &Index{
-			Config: IndexConfig{RootPath: rootDir, ClassName: schema.ClassName(className)},
+			Config: IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: schema.ClassName(className)},
 			getSchema: &fakeSchemaGetter{
 				schema: schema.Schema{
 					Objects: &models.Schema{
@@ -686,7 +685,7 @@ func TestBackupFrozenShardOmitted(t *testing.T) {
 	require.NoError(t, os.MkdirAll(stagingRoot, 0o755))
 
 	idx := &Index{
-		Config:    IndexConfig{RootPath: rootDir, ClassName: "MyClass"},
+		Config:    IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: "MyClass"},
 		getSchema: &fakeSchemaGetter{},
 		db:        stubDBWithNoLiveReindex(),
 	}
@@ -714,14 +713,14 @@ func newDescriptorTestIndex(t *testing.T, rootDir, className string, shardState 
 	logger, _ := tlog.NewNullLogger()
 
 	class := &models.Class{Class: className}
-	mockReader := schemaUC.NewMockSchemaReader(t)
+	mockReader := local.NewMockSchemaReader(t)
 	mockReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(_ string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
 			return readFunc(class, shardState)
 		}).Maybe()
 
 	return &Index{
-		Config: IndexConfig{RootPath: rootDir, ClassName: schema.ClassName(className)},
+		Config: IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: schema.ClassName(className)},
 		getSchema: &fakeSchemaGetter{
 			schema: schema.Schema{
 				Objects: &models.Schema{
@@ -1215,7 +1214,7 @@ func TestBackupShardWithHardlinks_PreventShutdownErrorReleasesLocks(t *testing.T
 // that returns without closing leaves the backup waiting on a channel with no sender.
 func TestBackupDescriptorsClosesChannelWhenCancelled(t *testing.T) {
 	logger, _ := tlog.NewNullLogger()
-	db := &DB{logger: logger, indices: map[string]*Index{}}
+	db := &DB{localNodeName: "node1", logger: logger, indices: map[string]*Index{}}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -1249,7 +1248,7 @@ func TestBackupDescriptorsClosesChannelOnPanic(t *testing.T) {
 
 	logger, hook := tlog.NewNullLogger()
 	// A zero-value Index panics inside descriptor on its nil logger.
-	db := &DB{logger: logger, indices: map[string]*Index{indexID("Class-A"): {}}}
+	db := &DB{localNodeName: "node1", logger: logger, indices: map[string]*Index{indexID("Class-A"): {}}}
 
 	ch := db.BackupDescriptors(context.Background(), "backup-1", []string{"Class-A"}, nil, nil)
 
@@ -1277,7 +1276,7 @@ func TestDB_ShardReplicas(t *testing.T) {
 	logger, _ := tlog.NewNullLogger()
 
 	newDB := func(t *testing.T, className string, state *sharding.State) *DB {
-		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+		mockSchemaReader := local.NewMockSchemaReader(t)
 		mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
 			func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				return readFunc(&models.Class{Class: className}, state)

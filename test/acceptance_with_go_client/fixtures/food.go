@@ -114,16 +114,6 @@ func CreateSchemaPizzaForTenants(t *testing.T, client *weaviate.Client) {
 	createSchema(t, client, classForTenants(classPizza()))
 }
 
-// CreateSchemaPizzaForTenantsWithVectorizer creates the multi-tenant Pizza
-// class with a vectorizer module, for tests whose assertions depend on the
-// vector search path being reachable. Every other fixture here brings its own
-// vectors, so it works on a Weaviate without any vectorizer module.
-func CreateSchemaPizzaForTenantsWithVectorizer(t *testing.T, client *weaviate.Client, vectorizer string) {
-	class := classForTenants(classPizza())
-	class.Vectorizer = vectorizer
-	createSchema(t, client, class)
-}
-
 func CreateSchemaPizzaForTenantsWithReplication(t *testing.T, client *weaviate.Client, replicationFactor int64) {
 	createSchema(t, client, classWithReplication(classForTenants(classPizza()), replicationFactor))
 }
@@ -164,16 +154,16 @@ func classPizza() *models.Class {
 		Description:         "A delicious religion like food and arguably the best export of Italy.",
 		InvertedIndexConfig: &models.InvertedIndexConfig{IndexTimestamps: true, UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND},
 		Properties:          classPropertiesFood(),
-		Vectorizer:          "none",
+		VectorConfig:        DefaultVectorConfig(),
 	}
 }
 
 func classSoup() *models.Class {
 	return &models.Class{
-		Class:       "Soup",
-		Description: "Mostly water based brew of sustenance for humans.",
-		Properties:  classPropertiesFood(),
-		Vectorizer:  "none",
+		Class:        "Soup",
+		Description:  "Mostly water based brew of sustenance for humans.",
+		Properties:   classPropertiesFood(),
+		VectorConfig: DefaultVectorConfig(),
 	}
 }
 
@@ -183,7 +173,7 @@ func classRisotto() *models.Class {
 		Description:         "Risotto is a northern Italian rice dish cooked with broth.",
 		InvertedIndexConfig: &models.InvertedIndexConfig{IndexTimestamps: true, UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND},
 		Properties:          classPropertiesFood(),
-		Vectorizer:          "none",
+		VectorConfig:        DefaultVectorConfig(),
 	}
 }
 
@@ -222,6 +212,11 @@ func classPropertiesFood() []*models.Property {
 		Name:        "price",
 		Description: "price",
 		DataType:    schema.DataTypeNumber.PropString(),
+		ModuleConfig: map[string]interface{}{
+			Text2VecModel2Vec: map[string]interface{}{
+				"skip": true,
+			},
+		},
 	}
 
 	return []*models.Property{

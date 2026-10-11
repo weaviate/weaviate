@@ -82,7 +82,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(ctx)
 	defer func() {
@@ -105,7 +105,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor: 1,
 		}
-		paragraphClass.Vectorizer = "text2vec-contextionary"
+		paragraphClass.Vectorizer = "text2vec-model2vec"
 		helper.CreateClass(t, paragraphClass)
 		articleClass.ShardingConfig = map[string]any{"desiredCount": 1}
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
@@ -265,7 +265,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantHappyPath()
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(ctx)
 	defer func() {
@@ -288,7 +288,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantHappyPath()
 			AutoTenantActivation: true,
 			AutoTenantCreation:   true,
 		}
-		paragraphClass.Vectorizer = "text2vec-contextionary"
+		paragraphClass.Vectorizer = "text2vec-model2vec"
 		helper.CreateClass(t, paragraphClass)
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor: 1,
@@ -453,7 +453,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 	clusterSize := 3
 	compose, err := docker.New().
 		WithWeaviateCluster(clusterSize).
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		WithWeaviateEnv("REPLICATION_ENGINE_MAX_WORKERS", "10").
 		Start(mainCtx)
@@ -479,7 +479,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 		paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{
 			Enabled: true,
 		}
-		paragraphClass.Vectorizer = "text2vec-contextionary"
+		paragraphClass.Vectorizer = "text2vec-model2vec"
 		helper.CreateClass(t, paragraphClass)
 		helper.CreateTenants(t, paragraphClass.Class, []*models.Tenant{{Name: tenant}})
 		articleClass.ReplicationConfig = &models.ReplicationConfig{

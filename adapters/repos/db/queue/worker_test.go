@@ -59,6 +59,39 @@ func TestWorkerDo_RetryOnTransient(t *testing.T) {
 	require.Equal(t, int32(1), atomic.LoadInt32(&t2.execCnt), "t2 should execute once")
 }
 
+func TestWorker_NoUsableEntrypointIsRetried(t *testing.T) {
+	logger, hook := test.NewNullLogger()
+	w := &Worker{logger: logger}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	var execCnt atomic.Int32
+	task := &mockWorkerTask{executeFunc: func(context.Context) error {
+		if execCnt.Add(1) == 1 {
+			return errors.Wrap(fmt.Errorf("%w: local fallback exhausted", enterrors.ErrNoUsableEntrypoint),
+				"find and connect neighbors")
+		}
+		return nil
+	}}
+
+	var done, canceled atomic.Int32
+	batch := &Batch{
+		Ctx:        ctx,
+		Tasks:      []Task{task},
+		OnDone:     func() { done.Add(1) },
+		OnCanceled: func() { canceled.Add(1) },
+	}
+
+	require.NoError(t, w.do(batch))
+	require.Equal(t, int32(2), execCnt.Load(), "task must run again after the transient failure")
+	require.Equal(t, int32(1), done.Load())
+	require.Equal(t, int32(0), canceled.Load())
+	for _, e := range hook.Entries {
+		require.NotContains(t, e.Message, "discarding batch")
+	}
+}
+
 // fakeTask fails with a transient error `failures` times, then succeeds.
 type fakeTask struct {
 	name     string

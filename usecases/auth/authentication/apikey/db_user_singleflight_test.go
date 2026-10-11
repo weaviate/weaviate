@@ -40,7 +40,7 @@ func TestValidateAndExtractSingleFlightPerKey(t *testing.T) {
 
 	goodKey, goodHash, goodIdentifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
-	require.NoError(t, dynUsers.CreateUser("bob", goodHash, goodIdentifier, "", "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser("bob", goodHash, goodIdentifier, "", "", time.Now(), time.Time{}))
 
 	goodSecret, _, err := keys.DecodeApiKey(goodKey)
 	require.NoError(t, err)

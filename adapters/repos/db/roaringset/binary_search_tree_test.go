@@ -894,10 +894,9 @@ func BenchmarkBinarySearchTreeFlatten(b *testing.B) {
 
 // BenchmarkBinarySearchTreeCopyWithSlack sweeps the per-node copy shallowCopy
 // could use, over bitmaps carrying container slack that
-// BenchmarkBinarySearchTreeFlatten's single-value nodes have none of: a buffer copy keeps the slack,
-// a union rebuilds the values, and a compacted copy sizes each container to what
-// it holds. Reading the three together is what says which one a cursor should
-// pay for.
+// BenchmarkBinarySearchTreeFlatten's single-value nodes have none of: a buffer copy
+// keeps the slack, and a compacted copy sizes each container to what it holds.
+// Reading the two together is what says which one a cursor should pay for.
 //
 // retained-B is the held size. B/op cannot stand in for it: it also counts
 // sroar's buffer slop beyond what ToBuffer reports, which understates the
@@ -918,9 +917,6 @@ func BenchmarkBinarySearchTreeCopyWithSlack(b *testing.B) {
 	}{
 		{"compacted", func(l BitmapLayer) BitmapLayer { return l.Compacted() }},
 		{"clone", func(l BitmapLayer) BitmapLayer { return l.Clone() }},
-		{"condense", func(l BitmapLayer) BitmapLayer {
-			return BitmapLayer{Additions: Condense(l.Additions), Deletions: Condense(l.Deletions)}
-		}},
 	}
 
 	// The tree's own nodes, not FlattenInOrder's output: that output is already a

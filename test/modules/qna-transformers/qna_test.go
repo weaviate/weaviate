@@ -26,13 +26,13 @@ import (
 
 func Test_QnATransformers(t *testing.T) {
 	helper.SetupClient(os.Getenv(weaviateEndpoint))
-	// Contextionary with QnA module config present
-	booksClass := books.ClassContextionaryVectorizerWithQnATransformers()
+	// vectorizer with QnA module config present
+	booksClass := books.ClassModel2VecVectorizerWithQnATransformers()
 	helper.CreateClass(t, booksClass)
 	defer helper.DeleteClass(t, booksClass.Class)
-	// Contextionary without QnA module config present
+	// vectorizer without QnA module config present
 	booksWithoutQnAConfig := "BooksWithoutConfig"
-	booksWithoutQnAConfigClass := books.ClassContextionaryVectorizerWithName(booksWithoutQnAConfig)
+	booksWithoutQnAConfigClass := books.ClassModel2VecVectorizerWithName(booksWithoutQnAConfig)
 	helper.CreateClass(t, booksWithoutQnAConfigClass)
 	defer helper.DeleteClass(t, booksWithoutQnAConfigClass.Class)
 	// Text2VecTransformers with QnA module config present

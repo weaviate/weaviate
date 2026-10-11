@@ -37,7 +37,7 @@ func TestWorkerLoop(t *testing.T) {
 	logger := logrus.New()
 
 	t.Run("should process separate objs & refs requests from the queue and send data without error", func(t *testing.T) {
-		mockBatcher := mocks.NewMockbatcher(t)
+		mockBatcher := mocks.NewMockBatcher(t)
 
 		reportingQueues := NewReportingQueues()
 		reportingQueues.Make(StreamId)
@@ -118,7 +118,7 @@ func TestWorkerLoop(t *testing.T) {
 	})
 
 	t.Run("should process combined objs & refs request from the queue and send data returning errors", func(t *testing.T) {
-		mockBatcher := mocks.NewMockbatcher(t)
+		mockBatcher := mocks.NewMockBatcher(t)
 
 		reportingQueues := NewReportingQueues()
 		reportingQueues.Make(StreamId)
@@ -221,7 +221,7 @@ func TestWorkerLoop(t *testing.T) {
 	})
 
 	t.Run("should fanout if request uses vectorisation", func(t *testing.T) {
-		mockBatcher := mocks.NewMockbatcher(t)
+		mockBatcher := mocks.NewMockBatcher(t)
 
 		reportingQueues := NewReportingQueues()
 		reportingQueues.Make(StreamId)
@@ -276,7 +276,7 @@ func TestWorkerLoop(t *testing.T) {
 	})
 
 	t.Run("worker exits cleanly when streamCtx cancels mid-process and remains available", func(t *testing.T) {
-		mockBatcher := mocks.NewMockbatcher(t)
+		mockBatcher := mocks.NewMockBatcher(t)
 
 		reportingQueues := NewReportingQueues()
 		reportingQueues.Make(StreamId)
@@ -361,7 +361,7 @@ func TestWorkerLoop(t *testing.T) {
 	})
 
 	t.Run("should fanout if request uses vectorisation returning errors correctly", func(t *testing.T) {
-		mockBatcher := mocks.NewMockbatcher(t)
+		mockBatcher := mocks.NewMockBatcher(t)
 
 		reportingQueues := NewReportingQueues()
 		reportingQueues.Make(StreamId)
@@ -429,7 +429,7 @@ func TestWorkerLoop(t *testing.T) {
 
 // processOneRequest runs one batch through a real worker. No report means the
 // worker died in the recovery wrapper, which is itself a failure.
-func processOneRequest(t *testing.T, batcher batcher, objs []*pb.BatchObject, refs []*pb.BatchReference, usesVectorisationByCollection map[string]bool) *report {
+func processOneRequest(t *testing.T, batcher Batcher, objs []*pb.BatchObject, refs []*pb.BatchReference, usesVectorisationByCollection map[string]bool) *report {
 	t.Helper()
 
 	reportingQueues := NewReportingQueues()
@@ -521,7 +521,7 @@ func TestSendObjectsSubBatchTransportErrorScope(t *testing.T) {
 	// fanout is 10 for a vectorising collection, so sub-batches are objs[2i:2i+2]
 	failFirstUuid := objs[4].GetUuid()
 
-	mockBatcher := mocks.NewMockbatcher(t)
+	mockBatcher := mocks.NewMockBatcher(t)
 	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
 		require.Len(t, req.Objects, 2)
 		if req.Objects[0].GetUuid() == failFirstUuid {
@@ -546,7 +546,7 @@ func TestSendObjectsMultiCollectionPartition(t *testing.T) {
 	objsB := newObjs(collectionB, 2)
 	objs := []*pb.BatchObject{objsA[0], objsA[1], objsB[0], objsB[1]}
 
-	mockBatcher := mocks.NewMockbatcher(t)
+	mockBatcher := mocks.NewMockBatcher(t)
 	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
 		if req.Objects[0].GetCollection() == collectionB {
 			return &pb.BatchObjectsReply{Took: 1, Errors: []*pb.BatchObjectsReply_BatchError{
@@ -612,7 +612,7 @@ func TestSendReferencesReplyIndexGuards(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			mockBatcher := mocks.NewMockbatcher(t)
+			mockBatcher := mocks.NewMockBatcher(t)
 			mockBatcher.EXPECT().BatchReferences(mock.Anything, mock.Anything).Return(&pb.BatchReferencesReply{
 				Took:   1,
 				Errors: tc.replyErrors,

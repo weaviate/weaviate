@@ -44,11 +44,11 @@ func (b *Bucket) RoaringSetAddOne(key []byte, value uint64) error {
 		return err
 	}
 
-	active, release, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer active.decWriterCount()
 
 	return active.roaringSetAddOne(key, value)
 }
@@ -61,11 +61,11 @@ func (b *Bucket) RoaringSetRemoveOne(key []byte, value uint64) error {
 		return err
 	}
 
-	active, release, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer active.decWriterCount()
 
 	return active.roaringSetRemoveOne(key, value)
 }
@@ -78,11 +78,11 @@ func (b *Bucket) RoaringSetAddList(key []byte, values []uint64) error {
 		return err
 	}
 
-	active, release, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer active.decWriterCount()
 
 	return active.roaringSetAddList(key, values)
 }
@@ -105,11 +105,11 @@ func (b *Bucket) RoaringSetAddBatch(entries []RoaringSetBatchEntry) error {
 		}
 	}
 
-	active, release, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer active.decWriterCount()
 
 	return active.roaringSetAddBatch(entries)
 }
@@ -126,11 +126,11 @@ func (b *Bucket) RoaringSetRemoveBatch(entries []RoaringSetBatchEntry) error {
 		}
 	}
 
-	active, release, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer active.decWriterCount()
 
 	return active.roaringSetRemoveBatch(entries)
 }
@@ -143,11 +143,11 @@ func (b *Bucket) RoaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 		return err
 	}
 
-	active, release, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer active.decWriterCount()
 
 	return active.roaringSetAddBitmap(key, bm)
 }

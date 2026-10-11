@@ -63,6 +63,16 @@ func TestIsTransient(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "no usable entrypoint",
+			err:  ErrNoUsableEntrypoint,
+			want: true,
+		},
+		{
+			name: "no usable entrypoint wrapped through the insert path",
+			err:  pkgerrors.Wrap(fmt.Errorf("%w: local fallback exhausted", ErrNoUsableEntrypoint), "find and connect neighbors"),
+			want: true,
+		},
+		{
 			name: "unrelated permanent error",
 			err:  fmt.Errorf("some permanent error"),
 			want: false,

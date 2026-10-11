@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -28,12 +29,13 @@ import (
 
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/namespaces"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/remote"
 )
 
 // noopStreamServer satisfies grpc.ServerStreamingServer[T], which every streaming
@@ -57,7 +59,7 @@ func (s *noopStreamServer[T]) RecvMsg(any) error            { return nil }
 // fakeIndex stubs the changelog methods; other interface methods panic
 // via the embedded nil interface so handlers can't touch them undetected.
 type fakeIndex struct {
-	sharding.RemoteIndexIncomingRepo
+	remote.IndexIncomingRepo
 
 	startErr           error
 	replicaSnapshotErr error
@@ -71,6 +73,9 @@ type fakeIndex struct {
 	finalizeLSN        uint64
 	finalizeErr        error
 	stopErr            error
+	probeHasData       bool
+	probeHosted        bool
+	probeErr           error
 
 	startCalls    []startCall
 	snapshotCalls []opCall
@@ -112,6 +117,10 @@ func (f *fakeIndex) IncomingGetReplicaSnapshotFile(_ context.Context, _, _ strin
 	return io.NopCloser(strings.NewReader(f.fileContent)), nil
 }
 
+func (f *fakeIndex) IncomingProbeShardData(_ context.Context, _ string) (bool, bool, error) {
+	return f.probeHasData, f.probeHosted, f.probeErr
+}
+
 func (f *fakeIndex) IncomingSnapshotChangeLogLSN(_ context.Context, shardName, opID string) (uint64, error) {
 	f.snapshotCalls = append(f.snapshotCalls, opCall{shardName, opID})
 	return f.snapshotLSN, f.snapshotErr
@@ -140,7 +149,7 @@ type fakeRepo struct {
 	indices map[string]*fakeIndex
 }
 
-func (r *fakeRepo) GetIndexForIncomingSharding(className schema.ClassName) sharding.RemoteIndexIncomingRepo {
+func (r *fakeRepo) GetIndexForIncomingSharding(className schema.ClassName) remote.IndexIncomingRepo {
 	idx, ok := r.indices[string(className)]
 	if !ok {
 		return nil
@@ -148,11 +157,13 @@ func (r *fakeRepo) GetIndexForIncomingSharding(className schema.ClassName) shard
 	return idx
 }
 
-// fakeSchema implements sharding.RemoteIncomingSchema. ReadOnlyClassWithVersion
+// fakeSchema stands in for local.VersionedReader. ReadOnlyClassWithVersion
 // records every requested version and errors when asked for a version higher
 // than `applied`, simulating a source node that has not yet applied that schema
 // command — which is exactly the wait the StartChangeCapture barrier relies on.
 type fakeSchema struct {
+	// Left unset: only the methods defined below are expected.
+	local.VersionedReader
 	mu        sync.Mutex
 	requested []uint64
 	applied   uint64 // highest applied schema version; requests above this fail
@@ -184,9 +195,9 @@ func newService(t *testing.T, indices map[string]*fakeIndex) *FileReplicationSer
 	return newServiceWithSchema(t, indices, &fakeSchema{applied: math.MaxUint64})
 }
 
-func newServiceWithSchema(t *testing.T, indices map[string]*fakeIndex, sc sharding.RemoteIncomingSchema) *FileReplicationService {
+func newServiceWithSchema(t *testing.T, indices map[string]*fakeIndex, sc local.VersionedReader) *FileReplicationService {
 	t.Helper()
-	return NewFileReplicationService(&fakeRepo{indices: indices}, sc, 64*1024)
+	return NewFileReplicationService(&fakeRepo{indices: indices}, sc, 64*1024, 0)
 }
 
 func TestStartChangeCapture_HappyPath(t *testing.T) {
@@ -581,4 +592,65 @@ func TestGetReplicaSnapshotFile_CompressionUnsupported(t *testing.T) {
 	}, &noopStreamServer[pb.FileChunk]{ctx: context.Background()})
 	require.Error(t, err)
 	require.Equal(t, codes.Unimplemented, status.Code(err))
+}
+
+func TestAcquireTransferSlotBounds(t *testing.T) {
+	fps := NewFileReplicationService(nil, nil, 1024, 2)
+
+	rel1, err := fps.acquireTransferSlot(context.Background())
+	require.NoError(t, err)
+	rel2, err := fps.acquireTransferSlot(context.Background())
+	require.NoError(t, err)
+
+	blockedCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err = fps.acquireTransferSlot(blockedCtx)
+	require.Error(t, err, "third acquire must block until a slot frees")
+
+	rel1()
+	rel3, err := fps.acquireTransferSlot(context.Background())
+	require.NoError(t, err)
+	rel3()
+	rel2()
+}
+
+func TestAcquireTransferSlotUnbounded(t *testing.T) {
+	fps := NewFileReplicationService(nil, nil, 1024, 0)
+	for i := 0; i < 100; i++ {
+		_, err := fps.acquireTransferSlot(context.Background())
+		require.NoError(t, err)
+	}
+}
+
+func TestProbeShardData_PropagatesHosted(t *testing.T) {
+	cases := []struct {
+		name       string
+		hasData    bool
+		hosted     bool
+		err        error
+		wantCode   codes.Code
+		wantData   bool
+		wantHosted bool
+	}{
+		{name: "hosted empty", hosted: true, wantCode: codes.OK, wantHosted: true},
+		{name: "hosted with data", hasData: true, hosted: true, wantCode: codes.OK, wantData: true, wantHosted: true},
+		{name: "not hosted", wantCode: codes.OK},
+		{name: "recovering", err: fmt.Errorf("probe: %w", enterrors.ErrShardRecovering), wantCode: codes.Unavailable},
+		{name: "absent", err: errors.New("incoming probe shard data get shard is nil: S"), wantCode: codes.NotFound},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fi := &fakeIndex{probeHasData: tc.hasData, probeHosted: tc.hosted, probeErr: tc.err}
+			svc := newService(t, map[string]*fakeIndex{"MyClass": fi})
+
+			resp, err := svc.ProbeShardData(context.Background(), &pb.ProbeShardDataRequest{IndexName: "MyClass", ShardName: "S"})
+			require.Equal(t, tc.wantCode, status.Code(err))
+			if tc.wantCode != codes.OK {
+				require.Nil(t, resp)
+				return
+			}
+			require.Equal(t, tc.wantData, resp.GetHasData())
+			require.Equal(t, tc.wantHosted, resp.GetHosted())
+		})
+	}
 }

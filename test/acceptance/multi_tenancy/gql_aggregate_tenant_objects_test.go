@@ -41,12 +41,15 @@ func TestGQLAggregateTenantObjects(t *testing.T) {
 			},
 		},
 		// the aggregate cases below include a nearObject filter
-		Vectorizer: "text2vec-contextionary",
+		Vectorizer: "text2vec-model2vec",
 	}
 	tenantName1 := "Tenant1"
 	tenantName2 := "Tenant2"
-	numTenantObjs1 := 5
-	numTenantObjs2 := 3
+	// The nodes API only counts flushed objects and a memtable is not flushed
+	// until its WAL outgrows PERSISTENCE_MAX_REUSE_WAL_SIZE (4kb), so every
+	// tenant needs enough objects to get there.
+	numTenantObjs1 := 10
+	numTenantObjs2 := 8
 
 	defer func() {
 		helper.DeleteClass(t, testClass.Class)

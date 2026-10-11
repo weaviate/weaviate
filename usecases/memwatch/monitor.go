@@ -42,6 +42,11 @@ const (
 const (
 	MappingDelayInS = 2
 	mappingsEntries = 60 + MappingDelayInS
+
+	mappingsRefreshFarFromLimit = 30 * time.Second
+	// MappingsReadDue accepts a read this early, because ticker times jitter.
+	// A value below the caller's tick keeps reads from coming a tick early.
+	mappingsReadTolerance = 250 * time.Millisecond
 )
 
 // Monitor allows making statements about the memory ratio used by the application
@@ -58,7 +63,12 @@ type Monitor struct {
 	usedMappings           int64
 	reservedMappings       int64
 	reservedMappingsBuffer []int64
-	lastReservationsClear  time.Time
+	createdAt              time.Time // reservation seconds count from here
+	lastClearedSecond      int64     // the last second whose reservations were cleared
+	lastMappingsRead       time.Time // start of the last successful ReadMappings
+	lastMappingsReadFailed time.Time // start of the last failed ReadMappings
+	lastMappingsAdmitted   time.Time // when CheckMappingAndReserve last admitted mappings
+	mapsPath               string    // empty outside Linux
 	mappingsBuf            []byte
 }
 
@@ -68,7 +78,8 @@ func (m *Monitor) Refresh(updateMappings bool) {
 	m.obtainCurrentUsage()
 	m.updateLimit()
 	if updateMappings {
-		m.obtainCurrentMappings()
+		// MappingsReadDue retries a failed read
+		_ = m.ReadMappings(time.Now())
 	}
 }
 
@@ -90,7 +101,8 @@ func NewMonitor(metricsReader metricsReader, limitSetter limitSetter,
 		maxRatio:               maxRatio,
 		maxMemoryMappings:      getMaxMemoryMappings(),
 		reservedMappingsBuffer: make([]int64, mappingsEntries), // one entry per second + buffer to handle delays
-		lastReservationsClear:  time.Now(),
+		createdAt:              time.Now(),
+		mapsPath:               procMapsPath(),
 		mappingsBuf:            make([]byte, 32*1024),
 	}
 	m.Refresh(true)
@@ -112,7 +124,8 @@ func (m *Monitor) CheckMappingAndReserve(numberMappings int64, reservationTimeIn
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// mappings are only updated every Xs, so we need to extend the reservation time
+	// Near the limit a read comes every MappingDelayInS, so one counts these
+	// mappings before their reservation expires.
 	if reservationTimeInS > 0 {
 		reservationTimeInS += MappingDelayInS
 	}
@@ -120,48 +133,79 @@ func (m *Monitor) CheckMappingAndReserve(numberMappings int64, reservationTimeIn
 		reservationTimeInS = len(m.reservedMappingsBuffer)
 	}
 
-	// expire old mappings
 	now := time.Now()
-	m.reservedMappings -= clearReservedMappings(m.lastReservationsClear, now, m.reservedMappingsBuffer)
+	m.expireReservations(now)
 
 	if m.usedMappings+numberMappings+m.reservedMappings > m.maxMemoryMappings {
 		return enterrors.ErrNotEnoughMappings
 	}
 	if reservationTimeInS > 0 {
 		m.reservedMappings += numberMappings
-		m.reservedMappingsBuffer[(now.Second()+reservationTimeInS)%mappingsEntries] += numberMappings
+		m.reservedMappingsBuffer[reservationSlot(m.secondsSinceCreated(now)+int64(reservationTimeInS))] += numberMappings
 	}
-
-	m.lastReservationsClear = now
+	m.lastMappingsAdmitted = now
 
 	return nil
 }
 
-func clearReservedMappings(lastClear time.Time, now time.Time, reservedMappingsBuffer []int64) int64 {
+// MappingsReadDue reports whether the memory mappings should be read at now.
+func (m *Monitor) MappingsReadDue(now time.Time) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	lastAttempt := m.lastMappingsRead
+	if m.lastMappingsReadFailed.After(lastAttempt) {
+		lastAttempt = m.lastMappingsReadFailed
+	}
+	return now.Sub(lastAttempt) >= m.mappingsRefreshInterval(now)-mappingsReadTolerance
+}
+
+// mappingsRefreshInterval is the wait between reads. It is long only far from the
+// limit, because a read walks every mapping. The caller holds m.mu.
+func (m *Monitor) mappingsRefreshInterval(now time.Time) time.Duration {
+	m.expireReservations(now)
+	nearLimit := m.usedMappings+m.reservedMappings >= m.maxMemoryMappings/2
+	readFailed := m.lastMappingsReadFailed.After(m.lastMappingsRead)
+	if nearLimit || readFailed || m.lastMappingsAdmitted.After(m.lastMappingsRead) {
+		return MappingDelayInS * time.Second
+	}
+	return mappingsRefreshFarFromLimit
+}
+
+// expireReservations drops the reservations that expired by now. It ignores a now
+// before the last clear, because clearing a second twice drops the full-length
+// reservations made in it.
+func (m *Monitor) expireReservations(now time.Time) {
+	second := m.secondsSinceCreated(now)
+	if second <= m.lastClearedSecond {
+		return
+	}
+	m.reservedMappings -= clearReservedMappings(m.lastClearedSecond, second, m.reservedMappingsBuffer)
+	m.lastClearedSecond = second
+}
+
+// secondsSinceCreated relies on the monotonic reading that time.Now and ticker
+// times carry, so a wall-clock step moves no reservation's expiry.
+func (m *Monitor) secondsSinceCreated(now time.Time) int64 {
+	return max(0, int64(now.Sub(m.createdAt)/time.Second))
+}
+
+// reservationSlot is the reservedMappingsBuffer index for reservations expiring in second.
+func reservationSlot(second int64) int {
+	return int(second % mappingsEntries)
+}
+
+// clearReservedMappings empties the slots for seconds lastCleared+1 through now
+// and returns the mappings they held.
+func clearReservedMappings(lastCleared, now int64, reservedMappingsBuffer []int64) int64 {
+	// a gap longer than the buffer clears every slot once
+	from := max(lastCleared+1, now-mappingsEntries+1)
+
 	clearedMappings := int64(0)
-	if now.Sub(lastClear) >= mappingsEntries*time.Second {
-		for i := 0; i < len(reservedMappingsBuffer); i++ {
-			clearedMappings += reservedMappingsBuffer[i]
-			reservedMappingsBuffer[i] = 0
-		}
-	} else if now.Second() == lastClear.Second() {
-		// do nothing
-	} else if now.Second() > lastClear.Second() {
-		// the value of the last refresh was already cleared
-		for i := lastClear.Second() + 1; i <= now.Second(); i++ {
-			clearedMappings += reservedMappingsBuffer[i]
-			reservedMappingsBuffer[i] = 0
-		}
-	} else {
-		// wrap around, the value of the last refresh was already cleared
-		for i := lastClear.Second() + 1; i < len(reservedMappingsBuffer); i++ {
-			clearedMappings += reservedMappingsBuffer[i]
-			reservedMappingsBuffer[i] = 0
-		}
-		for i := 0; i < now.Second(); i++ {
-			clearedMappings += reservedMappingsBuffer[i]
-			reservedMappingsBuffer[i] = 0
-		}
+	for s := from; s <= now; s++ {
+		i := reservationSlot(s)
+		clearedMappings += reservedMappingsBuffer[i]
+		reservedMappingsBuffer[i] = 0
 	}
 	return clearedMappings
 }
@@ -178,30 +222,43 @@ func (m *Monitor) obtainCurrentUsage() {
 	m.setUsed(m.metricsReader())
 }
 
-func (m *Monitor) obtainCurrentMappings() {
-	used := getCurrentMappings(m.mappingsBuf)
-	monitoring.GetMetrics().MmapProcMaps.Set(float64(used))
+// ReadMappings counts the mappings in mapsPath and records now as the read's
+// start. A failed read keeps the last count.
+func (m *Monitor) ReadMappings(now time.Time) error {
+	used, err := getCurrentMappings(m.mapsPath, m.mappingsBuf)
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err != nil {
+		m.lastMappingsReadFailed = now
+		return err
+	}
+	monitoring.GetMetrics().MmapProcMaps.Set(float64(used))
 	m.usedMappings = used
+	m.lastMappingsRead = now
+	return nil
 }
 
-func getCurrentMappings(buf []byte) int64 {
-	switch runtime.GOOS {
-	case "linux":
-		filePath := fmt.Sprintf("/proc/%d/maps", os.Getpid())
-		return currentMappingsLinux(filePath, buf)
-	default:
-		return 0
+// procMapsPath is this process's /proc/<pid>/maps, or empty outside Linux.
+func procMapsPath() string {
+	if runtime.GOOS != "linux" {
+		return ""
 	}
+	return fmt.Sprintf("/proc/%d/maps", os.Getpid())
+}
+
+func getCurrentMappings(mapsPath string, buf []byte) (int64, error) {
+	if mapsPath == "" {
+		return 0, nil
+	}
+	return currentMappingsLinux(mapsPath, buf)
 }
 
 // Counts the number of mappings by counting the number of lines within the maps file
 // Optimized version that counts newlines in chunks without string allocation
-func currentMappingsLinux(filePath string, buf []byte) int64 {
+func currentMappingsLinux(filePath string, buf []byte) (int64, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
-		return 0
+		return 0, err
 	}
 	defer file.Close()
 
@@ -215,11 +272,11 @@ func currentMappingsLinux(filePath string, buf []byte) int64 {
 			break
 		}
 		if err != nil {
-			return 0
+			return 0, err
 		}
 	}
 
-	return count
+	return count, nil
 }
 
 func getMaxMemoryMappings() int64 {
@@ -297,7 +354,8 @@ func NewDummyMonitor() *Monitor {
 		maxRatio:               1,
 		maxMemoryMappings:      10000000,
 		reservedMappingsBuffer: make([]int64, mappingsEntries),
-		lastReservationsClear:  time.Now(),
+		createdAt:              time.Now(),
+		mapsPath:               procMapsPath(),
 		mappingsBuf:            make([]byte, 32*1024),
 	}
 	m.Refresh(true)

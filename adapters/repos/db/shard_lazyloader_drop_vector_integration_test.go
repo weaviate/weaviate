@@ -94,7 +94,8 @@ func newLazyDropTenant(t *testing.T) (lazy *LazyLoadShard, reload func() *LazyLo
 	}
 
 	lazy = reload()
-	require.NoError(t, lazy.Load(ctx))
+	_, _, err := lazy.loadIfCold(ctx)
+	require.NoError(t, err)
 	for i := 0; i < objects; i++ {
 		require.NoError(t, lazy.PutObject(ctx, &storobj.Object{
 			MarshallerVersion: 1,
@@ -114,7 +115,7 @@ func newLazyDropTenant(t *testing.T) (lazy *LazyLoadShard, reload func() *LazyLo
 // runs that teardown on the releasing goroutine.
 func holdShutdownPending(t *testing.T, lazy *LazyLoadShard) (release func()) {
 	t.Helper()
-	release, err := lazy.shard.preventShutdown()
+	release, err := lazy.loadedShard().preventShutdown()
 	require.NoError(t, err)
 	require.ErrorIs(t, lazy.Shutdown(t.Context()), errShardStillInUse)
 	require.True(t, lazy.isLoaded(), "precondition: a timed-out deactivation leaves the shard loaded")
@@ -130,7 +131,8 @@ func requireTenantReloads(t *testing.T, lazy *LazyLoadShard, reload func() *Lazy
 		"the teardown failed: the drop removed the vector's files from disk while the store "+
 			"still held them, so its flush wrote into directories that were gone")
 	again := reload()
-	require.NoError(t, again.Load(t.Context()), "the tenant cannot be loaded again")
+	_, _, err := again.loadIfCold(t.Context())
+	require.NoError(t, err, "the tenant cannot be loaded again")
 	require.NoError(t, again.Shutdown(t.Context()))
 }
 
@@ -145,7 +147,7 @@ func TestLazyDropVectorIndex_PendingShutdownGoesThroughTheShard(t *testing.T) {
 	require.NoError(t, lazy.DropVectorIndex(ctx, lazyDropDropped))
 
 	release()
-	require.Eventually(t, lazy.shard.shut.Load, 10*time.Second, 50*time.Millisecond,
+	require.Eventually(t, lazy.loadedShard().shut.Load, 10*time.Second, 50*time.Millisecond,
 		"precondition: releasing the last reference completes the pending shutdown")
 	requireTenantReloads(t, lazy, reload)
 }
@@ -159,10 +161,10 @@ func TestLazyDropVectorIndex_WaitsOutATeardownInProgress(t *testing.T) {
 	lazy, reload := newLazyDropTenant(t)
 
 	compressed := helpers.GetCompressedBucketName(lazyDropDropped)
-	compressedDir := filepath.Join(lazy.shard.path(), "lsm", compressed)
+	compressedDir := filepath.Join(lazy.loadedShard().path(), "lsm", compressed)
 
 	// The pin stalls the store's shutdown at this bucket, before it is flushed.
-	bucket, unpinBucket := lazy.shard.store.AcquireBucketForRead(compressed)
+	bucket, unpinBucket := lazy.loadedShard().store.AcquireBucketForRead(compressed)
 	require.NotNil(t, bucket, "precondition: the dropped vector has a compressed bucket")
 	unpin := sync.OnceFunc(unpinBucket)
 	t.Cleanup(unpin)
@@ -173,7 +175,7 @@ func TestLazyDropVectorIndex_WaitsOutATeardownInProgress(t *testing.T) {
 		defer close(teardownDone)
 		release()
 	}()
-	require.Eventually(t, lazy.shard.shut.Load, 10*time.Second, 10*time.Millisecond,
+	require.Eventually(t, lazy.loadedShard().shut.Load, 10*time.Second, 10*time.Millisecond,
 		"precondition: the teardown has started")
 
 	dropErr := make(chan error, 1)

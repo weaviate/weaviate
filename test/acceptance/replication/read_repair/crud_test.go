@@ -79,7 +79,7 @@ func (suite *ReplicationTestSuite) SetupSuite() {
 
 	compose, err := docker.New().
 		With3NodeCluster().
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		Start(ctx)
 	require.NoError(t, err)
 	suite.compose = compose
@@ -121,7 +121,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 	articleClass := articles.ArticlesClass()
 	// the PatchObjectVector* cases below assert that the title is vectorized by
 	// a module, so this class needs a real vectorizer rather than its own vectors
-	articleClass.Vectorizer = "text2vec-contextionary"
+	articleClass.Vectorizer = "text2vec-model2vec"
 
 	t.Run("CreateSchema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
@@ -289,7 +289,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 
 	t.Run("PatchObjectVectorPreservation", func(t *testing.T) {
 		// This test verifies that vectors are preserved when PATCH only updates NON-vectorized properties
-		// Uses an Article object which gets vectorized by text2vec-contextionary
+		// Uses an Article object which gets vectorized by text2vec-model2vec
 		// We PATCH only the "hasParagraphs" reference (not vectorized), keeping "title" unchanged
 		// NOTE: Depends on CreateSchema having run first
 
@@ -459,7 +459,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 	t.Run("PatchObjectVectorChangedByVectorizer", func(t *testing.T) {
 		// This test verifies that when a vectorizer is present and we PATCH a vectorized property,
 		// the vectorizer re-generates the vector and the new vector is propagated to all replicas
-		// Uses Article class with text2vec-contextionary vectorizer
+		// Uses Article class with text2vec-model2vec vectorizer
 		// NOTE: Depends on CreateSchema having run first
 
 		// Create an Article with a title that will be vectorized

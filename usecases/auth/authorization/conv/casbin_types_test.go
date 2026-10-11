@@ -64,6 +64,7 @@ var (
 	}
 	backupsTests = []innerTest{
 		{permissionAction: authorization.ManageBackups, testDescription: manageDesc, policyVerb: manageVerb},
+		{permissionAction: authorization.ReadBackups, testDescription: readDesc, policyVerb: readVerb},
 	}
 	collectionsTests = []innerTest{
 		{permissionAction: authorization.CreateCollections, testDescription: createDesc, policyVerb: createVerb},

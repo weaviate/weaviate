@@ -15,7 +15,6 @@ package rest_search
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -27,7 +26,6 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -191,7 +189,7 @@ func assertScoredHits(t *testing.T, out map[string]any, wantHits int, requirePos
 func movieClass() *models.Class {
 	return &models.Class{
 		Class:      "Movie",
-		Vectorizer: "text2vec-contextionary",
+		Vectorizer: "text2vec-model2vec",
 		Properties: []*models.Property{
 			{Name: "title", DataType: schema.DataTypeText.PropString()},
 			{Name: "year", DataType: schema.DataTypeInt.PropString()},
@@ -218,18 +216,8 @@ func movieClass() *models.Class {
 }
 
 func TestRESTSearchNearText(t *testing.T) {
-	ctx := context.Background()
-	compose, err := docker.New().
-		WithWeaviate().
-		WithText2VecContextionary().
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
-
 	defer helper.SetupClient(fmt.Sprintf("%s:%s", helper.ServerHost, helper.ServerPort))
-	helper.SetupClient(compose.GetWeaviate().URI())
+	helper.SetupClient(restSearchServerURI(t))
 
 	studioClass := &models.Class{
 		Class:      "Studio",
@@ -241,7 +229,7 @@ func TestRESTSearchNearText(t *testing.T) {
 	}
 	authorClass := &models.Class{
 		Class:      "Author",
-		Vectorizer: "text2vec-contextionary",
+		Vectorizer: "text2vec-model2vec",
 		Properties: []*models.Property{
 			{Name: "name", DataType: schema.DataTypeText.PropString()},
 			// second hop: Movie -> hasAuthor -> Author -> worksFor -> Studio
@@ -275,7 +263,7 @@ func TestRESTSearchNearText(t *testing.T) {
 	// non-cosine index: certainty cannot be computed
 	paintingClass := &models.Class{
 		Class:             "Painting",
-		Vectorizer:        "text2vec-contextionary",
+		Vectorizer:        "text2vec-model2vec",
 		VectorIndexConfig: map[string]any{"distance": "l2-squared"},
 		Properties: []*models.Property{
 			{Name: "title", DataType: schema.DataTypeText.PropString()},
@@ -283,7 +271,7 @@ func TestRESTSearchNearText(t *testing.T) {
 	}
 	journalClass := &models.Class{
 		Class:      "Journal",
-		Vectorizer: "text2vec-contextionary",
+		Vectorizer: "text2vec-model2vec",
 		Properties: []*models.Property{
 			{Name: "title", DataType: schema.DataTypeText.PropString()},
 		},

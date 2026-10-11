@@ -20,7 +20,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -102,7 +101,7 @@ func (b *S3Backend) Start(ctx context.Context) error {
 	}
 
 	// Start MinIO container
-	port := nat.Port(s3Port)
+	port := s3Port
 	req := testcontainers.ContainerRequest{
 		Image:        s3Image,
 		ExposedPorts: []string{s3Port},

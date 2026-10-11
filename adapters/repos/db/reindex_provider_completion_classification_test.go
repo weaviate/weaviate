@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
@@ -30,7 +31,7 @@ import (
 // classReaderStub implements only ReadOnlyClass; other SchemaReader calls
 // panic via the nil embedded interface, surfacing unexpected dependencies.
 type classReaderStub struct {
-	schema.SchemaReader
+	local.SchemaReader
 	class *models.Class
 }
 

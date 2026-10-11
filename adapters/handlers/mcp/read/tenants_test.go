@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 // recordingAuthorizer captures the resources and verbs passed to Authorize.
@@ -36,6 +37,10 @@ type recordingAuthorizer struct {
 func (r *recordingAuthorizer) Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
 	r.gotResources = append(r.gotResources, resources...)
 	return nil
+}
+
+func (r *recordingAuthorizer) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error {
+	return r.Authorize(ctx, principal, verb, resources...)
 }
 
 func (r *recordingAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
@@ -102,7 +107,7 @@ func TestGetTenants_PassThrough(t *testing.T) {
 				authHandler,
 				reader,
 				stubSchemaManager{},
-				true,
+				wlnamespaces.NewPrefixing(),
 				stubObjectsManager{},
 				logger,
 			)

@@ -32,11 +32,11 @@ import (
 func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Principal,
 	className string, merge bool, newProps ...*models.Property,
 ) (*models.Class, uint64, error) {
-	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	className, err := namespacing.QualifyClass(principal, h.qualifier, className)
 	if err != nil {
 		return nil, 0, err
 	}
-	if err := namespacing.QualifyPropertyDataTypes(principal, h.config.Namespaces.Enabled, newProps); err != nil {
+	if err := namespacing.QualifyPropertyDataTypes(principal, h.qualifier, className, newProps); err != nil {
 		return nil, 0, err
 	}
 
@@ -127,14 +127,15 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *models.Principal,
 	className, propertyName, indexName string,
 ) error {
-	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	className, err := namespacing.QualifyClass(principal, h.qualifier, className)
 	if err != nil {
 		return err
 	}
 
 	// Collections (data+metadata), matching the REST pre-authz and the other
 	// index write verbs: dropping an index rewrites data, not metadata only.
-	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Collections(className)...); err != nil {
+	// An index already off returns below without proposing, so the namespace check runs here.
+	if err := h.Authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.UPDATE, className, authorization.Collections(className)...); err != nil {
 		return err
 	}
 
@@ -250,7 +251,7 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.Principal,
 	className, vectorIndexName string,
 ) error {
-	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	className, err := namespacing.QualifyClass(principal, h.qualifier, className)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrValidation, err)
 	}
@@ -259,7 +260,8 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 	// a vector index irreversibly rewrites every object in the collection
 	// (vectors stripped cluster-wide), not metadata only — a metadata-only
 	// principal must not be able to trigger it.
-	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Collections(className)...); err != nil {
+	// A re-issued drop returns below without a class update, so the namespace check runs here.
+	if err := h.Authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.UPDATE, className, authorization.Collections(className)...); err != nil {
 		return err
 	}
 
@@ -267,7 +269,7 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 		return fmt.Errorf("%w: vector index name cannot be empty", ErrValidation)
 	}
 
-	vclasses, err := h.schemaManager.QueryReadOnlyClasses(className)
+	vclasses, err := h.schemaManager.ReadOnlyClassesFromLeader(className)
 	if err != nil {
 		return fmt.Errorf("querying class %q: %w", className, err)
 	}
@@ -305,7 +307,7 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 		VectorIndexType: vectorindex.VectorIndexTypeNone,
 	}
 
-	if _, err = h.schemaManager.UpdateClass(ctx, class, nil); err != nil {
+	if _, err = h.schemaManager.UpdateClass(ctx, class, nil, command.ClassUpdateOriginUser); err != nil {
 		// The FSM's retryable refusals (e.g. the previous drop of this name is
 		// still completing) arrive wrapped in the cluster-layer bad-request
 		// sentinel; translate to the domain sentinel so the REST handler
@@ -331,7 +333,7 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 func (h *Handler) DeleteClassProperty(ctx context.Context, principal *models.Principal,
 	class string, property string,
 ) error {
-	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+	class, err := namespacing.QualifyClass(principal, h.qualifier, class)
 	if err != nil {
 		return err
 	}

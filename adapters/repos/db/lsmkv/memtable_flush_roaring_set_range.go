@@ -20,18 +20,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 )
 
-const (
-	// A node opens with these three fixed-size fields. The length indicator
-	// precedes each bitmap, so a key 0 node carries two of them.
-	roaringSetRangeNodeLengthSize      = 8
-	roaringSetRangeKeySize             = 1
-	roaringSetRangeLengthIndicatorSize = 8
-
-	// The prefix is what the writer fills into one scratch array.
-	roaringSetRangeNodePrefixSize = roaringSetRangeNodeLengthSize +
-		roaringSetRangeKeySize + roaringSetRangeLengthIndicatorSize
-)
-
 func (m *Memtable) flushDataRoaringSetRange(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
 	nodes := m.roaringSetRangeNodes()
 
@@ -49,9 +37,10 @@ func (m *Memtable) flushDataRoaringSetRange(f *segmentindex.SegmentFile) ([]segm
 		return nil, err
 	}
 
-	// BodyWriter's writers copy synchronously, so refilling scratch after a Write
-	// is safe and one array serves every node.
-	var scratch [roaringSetRangeNodePrefixSize]byte
+	// scratch holds the fixed fields a node opens with. BodyWriter's writers copy
+	// synchronously, so refilling it after a Write is safe and one array serves
+	// every node.
+	var scratch [roaringsetrange.AdditionsStart]byte
 
 	for i, node := range nodes {
 		if err := writeRoaringSetRangeNode(f.BodyWriter(), node, &scratch); err != nil {
@@ -65,14 +54,14 @@ func (m *Memtable) flushDataRoaringSetRange(f *segmentindex.SegmentFile) ([]segm
 // writeRoaringSetRangeNode emits one node in the layout documented on
 // roaringsetrange.SegmentNode, whose readers seek to these exact offsets.
 func writeRoaringSetRangeNode(w io.Writer, node *roaringsetrange.MemtableNode,
-	scratch *[roaringSetRangeNodePrefixSize]byte,
+	scratch *[roaringsetrange.AdditionsStart]byte,
 ) error {
 	additions, deletions := roaringSetRangeNodeBuffers(node)
 
-	binary.LittleEndian.PutUint64(scratch[:roaringSetRangeNodeLengthSize],
+	binary.LittleEndian.PutUint64(scratch[:roaringsetrange.NodeLengthSize],
 		uint64(payloadSizeRoaringSetRangeNode(node.Key, additions, deletions)))
-	scratch[roaringSetRangeNodeLengthSize] = node.Key
-	binary.LittleEndian.PutUint64(scratch[roaringSetRangeNodeLengthSize+roaringSetRangeKeySize:],
+	scratch[roaringsetrange.NodeLengthSize] = node.Key
+	binary.LittleEndian.PutUint64(scratch[roaringsetrange.NodeLengthSize+roaringsetrange.KeySize:],
 		uint64(len(additions)))
 
 	if _, err := w.Write(scratch[:]); err != nil {
@@ -85,9 +74,9 @@ func writeRoaringSetRangeNode(w io.Writer, node *roaringsetrange.MemtableNode,
 		return nil
 	}
 
-	binary.LittleEndian.PutUint64(scratch[:roaringSetRangeLengthIndicatorSize],
+	binary.LittleEndian.PutUint64(scratch[:roaringsetrange.BitmapLengthSize],
 		uint64(len(deletions)))
-	if _, err := w.Write(scratch[:roaringSetRangeLengthIndicatorSize]); err != nil {
+	if _, err := w.Write(scratch[:roaringsetrange.BitmapLengthSize]); err != nil {
 		return err
 	}
 	_, err := w.Write(deletions)
@@ -107,9 +96,9 @@ func roaringSetRangeNodeBuffers(node *roaringsetrange.MemtableNode) (additions, 
 // payloadSizeRoaringSetRangeNode is what writeRoaringSetRangeNode emits for
 // these payloads, and the total length it records in the node's first field.
 func payloadSizeRoaringSetRangeNode(key uint8, additions, deletions []byte) int {
-	size := roaringSetRangeNodePrefixSize + len(additions)
+	size := roaringsetrange.AdditionsStart + len(additions)
 	if key == 0 {
-		size += roaringSetRangeLengthIndicatorSize + len(deletions)
+		size += roaringsetrange.BitmapLengthSize + len(deletions)
 	}
 	return size
 }

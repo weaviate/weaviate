@@ -44,11 +44,13 @@ func newTestBucketWithFlushCycle(t *testing.T, opts ...BucketOption) *Bucket {
 	flushCallbacks := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
 	flushCycle := cyclemanager.NewManager("flush", cyclemanager.MemtableFlushCycleTicker(false), flushCallbacks.CycleCallback, logger)
 	flushCycle.Start()
-	t.Cleanup(func() {
+	// StopAndWait is a no-op once stopped, so the bucket teardown may call it again.
+	stopFlushCycle := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
-		require.Nil(t, flushCycle.StopAndWait(ctx))
-	})
+		require.NoError(t, flushCycle.StopAndWait(ctx))
+	}
+	t.Cleanup(stopFlushCycle)
 
 	bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 		cyclemanager.NewCallbackGroupNoop(), flushCallbacks,
@@ -56,6 +58,11 @@ func newTestBucketWithFlushCycle(t *testing.T, opts ...BucketOption) *Bucket {
 	)
 	require.Nil(t, err)
 	t.Cleanup(func() {
+		// Drain the cycle before Shutdown, which blocks on flushAndSwitchMu while
+		// an in-flight flush polls for writers on a ticker. A mutex wait is not
+		// durably blocking, so it would freeze the bubble's clock and stall the poll.
+		stopFlushCycle()
+
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 		require.Nil(t, bucket.Shutdown(ctx))

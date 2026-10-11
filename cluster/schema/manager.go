@@ -414,7 +414,7 @@ func (s *SchemaManager) Load(ctx context.Context, nodeID string) error {
 	return nil
 }
 
-func (s *SchemaManager) ReloadDBFromSchema() {
+func (s *SchemaManager) ReloadDBFromSchema(ctx context.Context) {
 	classes := s.schema.MetaClasses()
 
 	cs := make([]command.UpdateClassRequest, len(classes))
@@ -428,7 +428,7 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 	}
 	s.db.TriggerSchemaUpdateCallbacks()
 	s.log.Info("reload local db: update schema ...")
-	s.db.ReloadLocalDB(context.Background(), cs)
+	s.db.ReloadLocalDB(ctx, cs)
 
 	// ReloadLocalDB only opens classes the schema still names.
 	s.dropOrphanedClasses()
@@ -869,8 +869,16 @@ func (s *SchemaManager) UpdateProperty(cmd *command.ApplyRequest, schemaOnly boo
 		applyOp{
 			op: cmd.GetType().String(),
 			updateSchema: func() error {
-				_, err := s.schema.updateProperty(cmd.Class, cmd.Version, req.Property, req.FieldsToUpdate)
-				return err
+				merged, err := s.schema.updateProperty(cmd.Class, cmd.Version, req.Property, req.FieldsToUpdate)
+				if err != nil {
+					return err
+				}
+				if merged != nil {
+					// The store half drops the buckets of every index type its
+					// property says is off, so hand it what the schema kept.
+					req.Property = merged
+				}
+				return nil
 			},
 			updateStore:          func() error { return s.db.UpdateProperty(cmd.Class, req) },
 			schemaOnly:           schemaOnly,

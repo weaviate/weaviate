@@ -136,7 +136,7 @@ func TestUnloadedAsyncCheckpoint_ConcurrentLoadUnloadReinit(t *testing.T) {
 			}
 		}
 		release()
-		if err := f.index.UnloadLocalShard(ctx, f.name); err != nil {
+		if _, err := f.index.UnloadLocalShard(ctx, f.name); err != nil {
 			return err
 		}
 		if _, _, err := newestPersistedHashTreeRoot(f.dir); err == nil {
