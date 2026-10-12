@@ -598,10 +598,20 @@ func (db *DB) GetIndexForIncomingSharding(className schema.ClassName) sharding.R
 // DropOrphanedClass removes the data of a class the schema already dropped.
 // Unlike DeleteIndex it removes files with no index loaded, the state a
 // schema-only delete leaves behind, so callers must know this node held it.
-func (db *DB) DropOrphanedClass(className schema.ClassName) error {
+// It reports a live class that shares the lowercased index ID; that class's
+// data, offloaded included, is not the orphan's to drop.
+func (db *DB) DropOrphanedClass(className schema.ClassName) (collided bool, err error) {
 	if idx := db.GetIndex(className); idx != nil {
+		if live := idx.Config.ClassName; live != className {
+			db.logger.WithFields(logrus.Fields{
+				"action":     "drop_orphaned_class",
+				"class":      className.String(),
+				"live_class": live.String(),
+			}).Warn("left class data in place: directory belongs to a live class that differs only by case")
+			return true, nil
+		}
 		if err := db.DeleteIndex(className); err != nil {
-			return err
+			return false, err
 		}
 	}
 
@@ -613,9 +623,9 @@ func (db *DB) DropOrphanedClass(className schema.ClassName) error {
 			"class":  className.String(),
 			"path":   path,
 		}).Warn("left class data in place: no shard store, so not our index")
-		return nil
+		return false, nil
 	}
-	return db.dropIndexData(className)
+	return false, db.dropIndexData(className)
 }
 
 // hasShardStore reports whether path holds a shard directory: a child with the
