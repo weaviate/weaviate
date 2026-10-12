@@ -63,25 +63,64 @@ func HashBlobHashProperties(class *models.Class, obj *models.Object) {
 	HashBlobHashPrimitiveProperties(class, props)
 }
 
-// HashBlobHashPrimitiveProperties replaces the base64 data of all BlobHash
-// properties in the given property map with their SHA-256 hashes. This
-// variant operates on a raw property map and is used by the merge/patch path
-// where properties have already been split from references.
 func HashBlobHashPrimitiveProperties(class *models.Class, props map[string]interface{}) {
 	if class == nil || props == nil {
 		return
 	}
 
 	for _, prop := range class.Properties {
-		if !IsBlobHashDataType(prop.DataType) {
-			continue
-		}
-		val, exists := props[prop.Name]
-		if !exists {
-			continue
-		}
+		hashPropValue(prop.Name, prop.DataType, prop.NestedProperties, props)
+	}
+}
+
+func hashNestedProperties(nestedProps []*models.NestedProperty, props map[string]interface{}) {
+	if len(nestedProps) == 0 || props == nil {
+		return
+	}
+
+	for _, nestedProp := range nestedProps {
+		hashPropValue(nestedProp.Name, nestedProp.DataType, nestedProp.NestedProperties, props)
+	}
+}
+
+func hashPropValue(name string, dataType []string, nestedProps []*models.NestedProperty, props map[string]interface{}) {
+	if props == nil {
+		return
+	}
+	val, exists := props[name]
+	if !exists || val == nil {
+		return
+	}
+
+	if IsBlobHashDataType(dataType) {
 		if base64Str, ok := val.(string); ok {
-			props[prop.Name] = HashBlob(base64Str)
+			props[name] = HashBlob(base64Str)
+		}
+		return
+	}
+
+	if len(dataType) == 1 {
+		hashNestedType(dataType[0], nestedProps, val)
+	}
+}
+
+func hashNestedType(dataType string, nestedProps []*models.NestedProperty, val interface{}) {
+	switch dataType {
+	case string(DataTypeObject):
+		if objMap, ok := val.(map[string]interface{}); ok {
+			hashNestedProperties(nestedProps, objMap)
+		}
+	case string(DataTypeObjectArray):
+		if objList, ok := val.([]interface{}); ok {
+			hashObjectList(nestedProps, objList)
+		}
+	}
+}
+
+func hashObjectList(nestedProps []*models.NestedProperty, objList []interface{}) {
+	for _, item := range objList {
+		if objMap, ok := item.(map[string]interface{}); ok {
+			hashNestedProperties(nestedProps, objMap)
 		}
 	}
 }
