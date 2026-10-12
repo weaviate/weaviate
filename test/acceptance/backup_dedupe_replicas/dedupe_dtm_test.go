@@ -139,6 +139,30 @@ func TestBackupDedupeDTM(t *testing.T) {
 		restoreAndVerify(t, host, className, backupID, ids)
 	})
 
+	t.Run("flag-off incremental on a deduped base restores", func(t *testing.T) {
+		const baseID, backupID = "dedupe-dtm-1", "dedupe-dtm-flag-off-incr-1"
+
+		_, err := helper.CreateBackupWithBase(t, helper.DefaultBackupConfig(), className, backendS3, backupID, baseID)
+		require.NoError(t, err)
+		helper.ExpectBackupEventuallyCreated(t, backupID, backendS3, nil, helper.WithDeadline(4*time.Minute))
+
+		global := readGlobalMeta(t, minioC, backupID)
+		assert.Equal(t, entbackup.Success, global.Status)
+		assert.Equal(t, ubak.VersionDedupeReplicas, global.Version)
+		assert.False(t, global.DedupeReplicas)
+		assert.Equal(t, baseID, global.BaseBackupID)
+
+		_, metas := shardHolders(t, minioC, backupID, className)
+		require.Len(t, metas, len(nodeNames), "every node must write its meta")
+		for node, meta := range metas {
+			assert.Equal(t, ubak.Version, meta.Version, "node %s meta version", node)
+			assert.False(t, meta.DedupeReplicas, "node %s meta flag", node)
+		}
+
+		helper.DeleteClass(t, className)
+		restoreAndVerify(t, host, className, backupID, ids)
+	})
+
 	t.Run("cancel during convergence stops planning and uploads", func(t *testing.T) {
 		const backupID = "dedupe-dtm-cancel-1"
 		waitForCheckpointCapability(t, compose, className, shards)
