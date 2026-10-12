@@ -240,6 +240,15 @@ type uploader struct {
 	// onClassUploaded runs after every shard in a class uploads. The node
 	// descriptor is written after all callbacks return.
 	onClassUploaded func(className string)
+
+	// releases counts the ReleaseBackup calls releaseIndexes has in flight.
+	// Every releaseIndexes call runs on all's goroutine or in a pool job that
+	// eg.Wait drains before all's final defer, so each Add happens before the
+	// Wait there. A call from any other goroutine breaks that ordering.
+	releases sync.WaitGroup
+	// awaitRelease makes all wait for every release before it writes the node
+	// descriptor, so the node reports done only once its indexes are free.
+	awaitRelease bool
 }
 
 // statusPublisher is the observable half of a node's operation slot. Failing
@@ -288,6 +297,11 @@ func (u *uploader) withShardDesignations(designations map[string]map[string]stri
 	return u
 }
 
+func (u *uploader) withReleaseWait() *uploader {
+	u.awaitRelease = true
+	return u
+}
+
 // all uploads all files in addition to the metadata file
 func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, baseDescr []*backup.BaseBackupDescriptor, overrideBucket, overridePath string) (err error) {
 	u.slot.set(backup.Transferring)
@@ -316,6 +330,9 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 	defer func() {
 		//  release indexes under all conditions
 		u.releaseIndexes(classes, desc.ID)
+		if u.awaitRelease {
+			u.releases.Wait()
+		}
 
 		//  make sure context is not cancelled when uploading metadata. Its own
 		//  name, so the cancellation check below still reads the operation's
@@ -525,7 +542,9 @@ func labelErr(label string, err error) error {
 func (u *uploader) releaseIndexes(classes []string, bakID string) {
 	for _, class := range classes {
 		className := class
+		u.releases.Add(1)
 		enterrors.GoWrapper(func() {
+			defer u.releases.Done()
 			if err := u.sourcer.ReleaseBackup(context.Background(), bakID, className); err != nil {
 				u.log.WithFields(logrus.Fields{
 					"class":    className,

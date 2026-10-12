@@ -258,34 +258,49 @@ func (p *BackupTaskProvider) StartTask(task *distributedtask.Task) (distributedt
 		return newIdleTaskHandle(), nil
 	}
 
+	slot := p.opSlot()
+	homeDir := ""
+	if slot != nil {
+		homeDir = p.nodeHomeDir(payload)
+	}
+
+	// p.mu covers the latch renew, the holder check and the handle record.
+	// releaseNodeSlot drops a flow's handle and latch under p.mu too, so a
+	// latch held by this provider's flow always has that flow's handle here.
 	p.mu.Lock()
 	if h, running := p.activeHandles[task.ID]; running {
 		p.mu.Unlock()
 		return h, nil
 	}
 	recorder := p.recorder
-	p.mu.Unlock()
 
-	// Acquire the node-wide latch. If another backup (2PC or DTM) holds it,
-	// the local units fail rather than running two backups concurrently.
-	if slot := p.opSlot(); slot != nil {
-		if prevID := slot.renew(task.ID, "", p.nodeHomeDir(payload), payload.Bucket, payload.Path); prevID != "" {
-			if prevID != task.ID {
+	if slot != nil {
+		if prevID := slot.renew(task.ID, "", homeDir, payload.Bucket, payload.Path); prevID != "" {
+			_, releasing := p.activeHandles[prevID]
+			p.mu.Unlock()
+			switch {
+			case prevID == task.ID:
+				// The latch holds this ID but there is no local handle, so another
+				// flow in this process owns it. Idle rather than start a second one.
+				p.logger.WithField("backup_id", task.ID).
+					Info("StartTask: latch already holds this backup id, re-attaching idle")
+				return newIdleTaskHandle(), nil
+			case releasing:
+				// This provider's earlier flow still holds the latch while it
+				// unwinds. The scheduler retries StartTask on its next tick, and
+				// stale detection bounds the wait.
+				return nil, fmt.Errorf("backup %s: node %s is still releasing backup %q", task.ID, p.node, prevID)
+			default:
+				// A legacy 2PC backup holds the latch. The local units fail rather
+				// than running two backups at once.
 				msg := fmt.Sprintf("node %s is already running backup %q", p.node, prevID)
 				p.failAllUnits(context.Background(), task, payload, recorder, msg, false)
 				return nil, fmt.Errorf("backup %s: %s", task.ID, msg)
 			}
-			// The latch holds this ID but there is no local handle, so another
-			// flow in this process owns it. Idle rather than start a second one.
-			p.logger.WithField("backup_id", task.ID).
-				Info("StartTask: latch already holds this backup id, re-attaching idle")
-			return newIdleTaskHandle(), nil
 		}
 	}
 
 	handle := newBackupTaskHandle(task.ID)
-
-	p.mu.Lock()
 	p.payloadCache[task.ID] = startedTask{desc: task.TaskDescriptor, payload: task.Payload}
 	p.activeHandles[task.ID] = handle
 	p.mu.Unlock()
@@ -333,12 +348,12 @@ func (p *BackupTaskProvider) nodeHomeDir(payload *taskPayload) string {
 
 // releaseNodeSlot drops the node's active-flow state once the flow returns. It
 // releases the latch only while the latch still holds this backup's ID, so a
-// flow that outlived its latch cannot free another operation's latch.
+// flow that outlived its latch cannot free another operation's latch. The
+// handle and the latch drop together under p.mu, which StartTask relies on.
 func (p *BackupTaskProvider) releaseNodeSlot(taskID string) {
 	p.mu.Lock()
+	defer p.mu.Unlock()
 	delete(p.activeHandles, taskID)
-	p.mu.Unlock()
-
 	if slot := p.opSlot(); slot != nil && slot.get().ID == taskID {
 		slot.reset()
 	}
@@ -743,9 +758,13 @@ func (p *BackupTaskProvider) runNodeBackup(
 	}
 	// The full map is safe on every node: a node verifies only the shards
 	// designated to itself and skips only local shards designated elsewhere.
+	// The release wait keeps this node's descriptor and unit reports behind the
+	// index releases, so the task finishes only once every node can start the
+	// next backup.
 	up := newUploader(p.cfg, p.sourcer, p.rbacSrc, p.userSrc, selection, store, task.ID, slot, p.logger).
 		withCompression(newZipConfig(payload.Compression)).
-		withShardDesignations(designations)
+		withShardDesignations(designations).
+		withReleaseWait()
 
 	// Class callbacks can run concurrently. Only pending classes are reported,
 	// and the last of them waits until uploader.all writes the node descriptor.

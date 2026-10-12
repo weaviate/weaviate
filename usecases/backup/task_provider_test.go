@@ -344,6 +344,67 @@ func TestBackupTaskProvider(t *testing.T) {
 			"the refused start must not steal the latch")
 	})
 
+	t.Run("a latch held by this node's own earlier flow defers the start", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		recorder := &threadSafeRecorder{}
+		blockCh := make(chan backup.ClassDescriptor)
+		closedCh := make(chan backup.ClassDescriptor)
+		close(closedCh)
+		sourcer := &fakeSourcer{}
+		sourcer.On("BackupDescriptors", mock.Anything, "b1", mock.Anything, mock.Anything, mock.Anything).
+			Return((<-chan backup.ClassDescriptor)(blockCh)).
+			Run(func(a mock.Arguments) {
+				context.AfterFunc(a.Get(0).(context.Context), func() { close(blockCh) })
+			})
+		sourcer.On("BackupDescriptors", mock.Anything, "b2", mock.Anything, mock.Anything, mock.Anything).
+			Return((<-chan backup.ClassDescriptor)(closedCh))
+		sourcer.On("ReleaseBackup", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+		be := newFakeBackend()
+		be.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+		be.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("/test")
+		be.On("SourceDataPath").Return("/data")
+		be.On("GetObject", mock.Anything, mock.Anything, mock.Anything).Return(nil, backup.ErrNotFound{})
+		be.On("PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+		handler := nodeHandlerWithLatch(t, "node-1", sourcer, &fakeBackupBackendProvider{backend: be})
+		provider := NewBackupTaskProvider(BackupTaskProviderParams{
+			Node:        "node-1",
+			Logger:      logger,
+			Cfg:         config.Backup{},
+			Sourcer:     sourcer,
+			Backends:    &fakeBackupBackendProvider{backend: be},
+			NodeHandler: handler,
+		})
+		provider.SetCompletionRecorder(recorder)
+
+		h1, err := provider.StartTask(makeTask("b1", distributedtask.TaskStatusStarted, makePayload("b1")))
+		require.NoError(t, err)
+		require.Equal(t, "b1", handler.backupper.lastOp.get().ID)
+
+		b2 := makeTask("b2", distributedtask.TaskStatusStarted, makePayload("b2"))
+		h2, err := provider.StartTask(b2)
+		require.Error(t, err, "the start must wait for b1 to release")
+		assert.Nil(t, h2)
+		assert.Contains(t, err.Error(), "b1")
+		assert.Empty(t, recorder.getFailures(), "a deferred start must not fail the units")
+		assert.Equal(t, "b1", handler.backupper.lastOp.get().ID, "the deferred start must not steal the latch")
+
+		h1.Terminate()
+		select {
+		case <-h1.Done():
+		case <-time.After(10 * time.Second):
+			t.Fatal("b1's flow did not exit after Terminate")
+		}
+
+		h2, err = provider.StartTask(b2)
+		require.NoError(t, err, "the start succeeds once b1 has released the latch")
+		require.NotNil(t, h2)
+		assert.Empty(t, recorder.getFailures())
+		h2.Terminate()
+		<-h2.Done()
+	})
+
 	t.Run("the same id in the node latch re-attaches without a second flow", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		recorder := &threadSafeRecorder{}
