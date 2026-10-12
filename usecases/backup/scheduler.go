@@ -745,10 +745,8 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 	if s.dtm != nil {
 		dtmTask, dtmErr := s.dtm.GetDistributedTask(ctx, BackupTaskNamespace, backupID)
 		if dtmErr != nil {
-			// Falling back to the legacy path is safe: the rollout gate means no
-			// DTM backup exists while an old node could be leader.
-			s.logger.WithField("backup_id", backupID).
-				Warnf("DTM status query failed, falling back to legacy path: %v", dtmErr)
+			return nil, fmt.Errorf("backup status: DTM query failed: %w", dtmErr)
+		}
 		} else if dtmTask != nil {
 			// The authorize above reads the global descriptor, which does not
 			// exist until the first node writes it. Until then, the task

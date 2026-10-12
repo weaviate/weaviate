@@ -1271,8 +1271,9 @@ func (s *Scheduler) runCompletedCallbackPhase(
 
 	if errors.Is(cbErr, ErrTaskCompletionAwaiting) {
 		s.completionAwaitingLogger.WithSampling(func(l logrus.FieldLogger) {
-			s.loggerWithTask(namespace, desc).
-				Infof("OnTaskCompleted is awaiting another node on status %s; will retry next tick: %v", effectiveStatus, cbErr)
+			l.WithFields(logrus.Fields{
+				"namespace": namespace, "taskID": desc.ID, "taskVersion": desc.Version,
+			}).Infof("OnTaskCompleted is awaiting another node on status %s; will retry next tick: %v", effectiveStatus, cbErr)
 		})
 		func() {
 			s.mu.Lock()

@@ -1075,11 +1075,8 @@ func (p *BackupTaskProvider) writeTerminalDescriptor(task *distributedtask.Task,
 	if err == nil && isFinalStatus(existing.Status) {
 		return nil
 	}
-	// A terminal descriptor written without the published plan would mislabel
-	// a deduped artifact. Not-found means no plan was published, so no node
-	// filtered a shard and the plan-less descriptor below is accurate.
-	if payload.DedupeReplicas && err != nil && !errors.As(err, &backup.ErrNotFound{}) {
-		return fmt.Errorf("terminal descriptor: read published plan: %w", err)
+	if err != nil && !errors.As(err, &backup.ErrNotFound{}) {
+		return fmt.Errorf("terminal descriptor: read existing descriptor: %w", err)
 	}
 
 	status, errMsg := backupVerdict(task)

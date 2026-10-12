@@ -850,6 +850,9 @@ func FromEnv(config *Config) error {
 		if err != nil {
 			return fmt.Errorf("parse BACKUP_STALE_TIMEOUT: %w", err)
 		}
+		if parsed <= 0 {
+			return fmt.Errorf("BACKUP_STALE_TIMEOUT must be greater than zero")
+		}
 		config.Backup.StaleTimeout = parsed
 	} else if config.Backup.StaleTimeout == 0 {
 		config.Backup.StaleTimeout = DefaultBackupStaleTimeout
