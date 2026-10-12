@@ -94,11 +94,17 @@ type UserLister interface {
 	ListAllUsers() []string
 }
 
-// RoleLister resolves includeRoles selectors. ListAllRoles returns every role
-// name, custom and built-in, which is the list selectors match against. Nil when
-// RBAC is disabled.
+// RoleLister resolves includeRoles selectors, and is nil when RBAC is disabled.
+//
+// ListAllRoles returns every role name, custom and built-in, which selectors match against.
+//
+// BuiltInAssignments returns an RBAC snapshot of the admin and viewer assignments the given db user ids hold, or nil when they hold none.
+//
+// OIDCBuiltInAssignments returns an RBAC snapshot of the oidc-specific admin and viewer assignments for the given namespaces, or nil when there are none.
 type RoleLister interface {
 	ListAllRoles() ([]string, error)
+	BuiltInAssignments(userIDs ...string) ([]byte, error)
+	OIDCBuiltInAssignments(namespaces ...string) ([]byte, error)
 }
 
 // coordinator coordinates a distributed backup and restore operation (DBRO):
@@ -260,6 +266,8 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		SkipUsers:       req.SkipUsers,
 		SkipRoles:       req.SkipRoles,
 		DedupeReplicas:  dedupeEffective,
+
+		BuiltInRoleAssignments: req.BuiltInRoleAssignments,
 	}
 	if plan != nil {
 		c.descriptor.DedupeDesignatedShards = plan.Designated()
