@@ -29,40 +29,8 @@ import (
 const (
 	minProbabilityHeader = "X-Typesafeai-Min-Probability"
 	minScoreHeader       = "X-Typesafeai-Min-Score"
-	fetchDepthHeader     = "X-Typesafeai-Fetch-Depth"
 	orderHeader          = "X-Typesafeai-Order"
 )
-
-// RerankFetchDepth returns the candidates to fetch before the rerank: the
-// depth from the request header or the class setting, or pageEnd when the
-// page reaches further. The same maxDocuments bound as Rank applies, so a
-// page that ends beyond it fails here instead of after the search. The
-// explorer only asks when the query can be over-fetched; a search with
-// grouping, autocut, boost or MMR ignores the header and the setting.
-func (m *DecisionsTypeSafeAIModule) RerankFetchDepth(ctx context.Context, cfg moduletools.ClassConfig, pageEnd int,
-) (int, error) {
-	settings := config.NewClassSettings(cfg)
-	maxDocuments := min(settings.MaxDocuments(), config.MaxDocumentsLimit)
-	depth := settings.FetchDepth()
-	if header := modulecomponents.GetValueFromContext(ctx, fetchDepthHeader); header != "" {
-		value, err := strconv.Atoi(header)
-		if err != nil || value < 0 || value > maxDocuments {
-			return 0, fmt.Errorf("%s must be a whole number between 0 and maxDocuments %d, got %q",
-				fetchDepthHeader, maxDocuments, header)
-		}
-		depth = value
-	} else if depth < 0 || depth > maxDocuments {
-		return 0, fmt.Errorf("fetchDepth must be between 0 and maxDocuments %d, got %d", maxDocuments, depth)
-	}
-	if depth == 0 {
-		return 0, nil
-	}
-	if pageEnd > maxDocuments {
-		return 0, fmt.Errorf("the page ends at %d, beyond maxDocuments %d: lower offset+limit or raise maxDocuments",
-			pageEnd, maxDocuments)
-	}
-	return max(depth, pageEnd), nil
-}
 
 // withTypeSafeAIRerank replaces the search functions of the rerank property. The
 // GraphQL parts of the shared reranker property stay as they are.

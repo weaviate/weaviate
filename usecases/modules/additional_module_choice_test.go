@@ -65,13 +65,13 @@ func rerankSchemaReader(t *testing.T) schemaGetter {
 			Classes: []*models.Class{
 				{
 					Class:        "ClassA",
-					ModuleConfig: map[string]interface{}{"reranker-a": map[string]interface{}{"fetchDepth": 30}},
+					ModuleConfig: map[string]interface{}{"reranker-a": map[string]interface{}{}},
 				},
 				{
 					Class: "ClassBoth",
 					ModuleConfig: map[string]interface{}{
-						"reranker-a": map[string]interface{}{"fetchDepth": 30},
-						"reranker-z": map[string]interface{}{"fetchDepth": 55},
+						"reranker-a": map[string]interface{}{},
+						"reranker-z": map[string]interface{}{},
 					},
 				},
 				{

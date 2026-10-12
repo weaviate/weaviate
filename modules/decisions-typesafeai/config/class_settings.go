@@ -31,7 +31,6 @@ const (
 	DefaultTypeSafeAIModel = "jev-latest"
 	DefaultMaxDocuments    = 100
 	DefaultMinProbability  = 0.0
-	DefaultFetchDepth      = 0
 
 	// OrderSearch keeps the results in the order the search gave them: the
 	// probability only decides which ones are dropped. OrderProbability
@@ -87,9 +86,6 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	}
 	if batchSize := ic.BatchSize(); batchSize < 1 || batchSize > MaxBatchSize {
 		return fmt.Errorf("batchSize must be between 1 and %d, got %d", MaxBatchSize, batchSize)
-	}
-	if fetchDepth := ic.FetchDepth(); fetchDepth < 0 || fetchDepth > ic.MaxDocuments() {
-		return fmt.Errorf("fetchDepth must be between 0 and maxDocuments %d, got %d", ic.MaxDocuments(), fetchDepth)
 	}
 	levels, err := ic.ScoreLevels()
 	if err != nil {
@@ -156,15 +152,6 @@ func (ic *classSettings) BatchSize() int {
 	// A value of the wrong type maps to 0, which Validate rejects.
 	wrongValue := 0
 	return *ic.propertyValuesHelper.GetPropertyAsIntWithNotExists(ic.cfg, "batchSize", &wrongValue, &defaultValue)
-}
-
-// FetchDepth is how many candidates a search fetches before the rerank, so
-// the page can be filled after results are dropped. 0 fetches the page only.
-func (ic *classSettings) FetchDepth() int {
-	defaultValue := DefaultFetchDepth
-	// A value of the wrong type maps to -1, which Validate rejects.
-	wrongValue := -1
-	return *ic.propertyValuesHelper.GetPropertyAsIntWithNotExists(ic.cfg, "fetchDepth", &wrongValue, &defaultValue)
 }
 
 // MinProbability is the threshold below which a result is dropped from the

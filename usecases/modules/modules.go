@@ -653,7 +653,7 @@ func (p *Provider) ExtractAdditionalField(className, name string, params []*ast.
 	}
 	if name != modulecomponents.AdditionalPropertyGenerate {
 		// The same module that serves the property on the search path.
-		properties, _ := p.classAdditionalProperties(class)
+		properties := p.classAdditionalProperties(class)
 		if additionalProperty, ok := properties[name]; ok {
 			return additionalProperty.GraphQLExtractFunction(params, class)
 		}
@@ -734,7 +734,7 @@ func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, mod
 				}
 			}
 		}
-		allAdditionalProperties, _ := p.classAdditionalProperties(class)
+		allAdditionalProperties := p.classAdditionalProperties(class)
 		if len(additionalGenerativeParameters) > 0 {
 			if generateFn := modulecomponents.GetGenericGenerateProperty(class.Class, additionalGenerativeParameters, additionalGenerativeDefaultProvider, p.logger); generateFn != nil {
 				allAdditionalProperties[modulecomponents.AdditionalPropertyGenerate] = *generateFn
@@ -811,14 +811,12 @@ func (p *Provider) modulesByName() []modulecapabilities.Module {
 }
 
 // classAdditionalProperties returns the additional properties that the
-// non-generative modules provide for the class, and the module each one comes
-// from. Two modules can provide the same property, for example a class that
-// names two rerankers. The name order makes the choice the same on every
-// request: the last module by name wins.
-func (p *Provider) classAdditionalProperties(class *models.Class,
-) (map[string]modulecapabilities.AdditionalProperty, map[string]modulecapabilities.Module) {
+// non-generative modules provide for the class. Two modules can provide the
+// same property, for example a class that names two rerankers. The name
+// order makes the choice the same on every request: the last module by name
+// wins.
+func (p *Provider) classAdditionalProperties(class *models.Class) map[string]modulecapabilities.AdditionalProperty {
 	properties := map[string]modulecapabilities.AdditionalProperty{}
-	owners := map[string]modulecapabilities.Module{}
 	for _, module := range p.modulesByName() {
 		if p.isGenerativeModule(module.Type()) ||
 			!p.shouldIncludeClassArgument(class, module.Name(), module.Type(), p.getModuleAltNames(module)) {
@@ -828,10 +826,7 @@ func (p *Provider) classAdditionalProperties(class *models.Class,
 		if !ok || provider == nil {
 			continue
 		}
-		for name, property := range provider.AdditionalProperties() {
-			properties[name] = property
-			owners[name] = module
-		}
+		maps.Copy(properties, provider.AdditionalProperties())
 	}
 	// A reranker and a decisions module both serve rerank. The reranker
 	// serves it unless the request asks for a decision.
@@ -839,34 +834,10 @@ func (p *Provider) classAdditionalProperties(class *models.Class,
 		if provider, ok := module.(modulecapabilities.AdditionalProperties); ok && provider != nil {
 			if property, ok := provider.AdditionalProperties()[modulecomponents.AdditionalPropertyRerank]; ok {
 				properties[modulecomponents.AdditionalPropertyRerank] = property
-				owners[modulecomponents.AdditionalPropertyRerank] = module
 			}
 		}
 	}
-	return properties, owners
-}
-
-// RerankFetchDepth asks the module that serves the rerank additional property
-// for the class how many candidates to fetch before reranking a page that
-// ends at pageEnd. It returns 0 when the class has no reranker or the
-// reranker does not drop results.
-func (p *Provider) RerankFetchDepth(ctx context.Context, className string, pageEnd int) (int, error) {
-	class, err := p.getClass(className)
-	if err != nil {
-		return 0, err
-	}
-	_, owners := p.classAdditionalProperties(class)
-	reranker := owners[modulecomponents.AdditionalPropertyRerank]
-	depthProvider, ok := reranker.(modulecapabilities.RerankFetchDepthProvider)
-	if !ok {
-		return 0, nil
-	}
-	cfg := NewClassBasedModuleConfig(class, reranker.Name(), "", "", &p.cfg)
-	depth, err := depthProvider.RerankFetchDepth(ctx, cfg, pageEnd)
-	if err != nil {
-		return 0, errors.Wrapf(err, "module '%s'", reranker.Name())
-	}
-	return depth, nil
+	return properties
 }
 
 // rerankModule returns the module that serves a rerank on the class: the
