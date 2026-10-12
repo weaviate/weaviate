@@ -324,11 +324,11 @@ func (s *shardedLockCache[T]) GetAllInCurrentLock(ctx context.Context, id uint64
 	end := start + s.shardedLocks.PageSize
 	cacheMiss := false
 
+	s.shardedLocks.RLock(start)
+	// read the length under the lock: Drop swaps the slice for nil
 	if end > uint64(len(s.cache)) {
 		end = uint64(len(s.cache))
 	}
-
-	s.shardedLocks.RLock(start)
 	for i := start; i < end; i++ {
 		vec := s.cache[i]
 		if vec == nil {
