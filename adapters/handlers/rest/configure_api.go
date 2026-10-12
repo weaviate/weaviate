@@ -1115,6 +1115,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			return appState.ClusterService.WaitForUpdate(ctx, version)
 		},
 		DedupePlanner: dedupePlanner,
+		IsLeader:      appState.ClusterService.IsLeader,
 	})
 	providers[backup.BackupTaskNamespace] = backupTaskProvider
 	appState.BackupTaskProvider = backupTaskProvider

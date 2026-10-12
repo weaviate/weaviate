@@ -56,6 +56,14 @@ type BackupTaskProvider struct {
 
 	recorder distributedtask.TaskCompletionRecorder
 
+	// isLeader reports whether this node is the raft leader. Nil counts as
+	// leader.
+	isLeader func() bool
+	// descMu serializes this process's global-descriptor writes. A Started
+	// write holds it for one read-then-write attempt, never across a backoff
+	// sleep. A terminal write holds it for the whole call.
+	descMu sync.Mutex
+
 	// nodeHandler holds the node-wide lastOp latch shared with the legacy 2PC
 	// path. Only one backup (DTM or 2PC) runs per node at a time.
 	// Nil in provider-only unit tests.
@@ -97,6 +105,7 @@ type BackupTaskProviderParams struct {
 	AppliedIndexProbe func(ctx context.Context, version uint64) error
 	DataPath          string
 	DedupePlanner     DedupePlanner
+	IsLeader          func() bool
 }
 
 func NewBackupTaskProvider(p BackupTaskProviderParams) *BackupTaskProvider {
@@ -114,6 +123,7 @@ func NewBackupTaskProvider(p BackupTaskProviderParams) *BackupTaskProvider {
 		predicateReadTimeout: _PredicateReadTimeout,
 		nodeHandler:          p.NodeHandler,
 		appliedIndexProbe:    p.AppliedIndexProbe,
+		isLeader:             p.IsLeader,
 		dataPath:             p.DataPath,
 		payloadCache:         make(map[string]startedTask),
 		activeHandles:        make(map[string]*backupTaskHandle),
@@ -343,13 +353,23 @@ func (p *BackupTaskProvider) OnSwapRequested(task *distributedtask.Task, groupID
 	return nil
 }
 
+// OnTaskCompleted lets only the raft leader write the terminal global
+// descriptor. Every other node returns nil once it reads a final descriptor,
+// and until then returns an error wrapping
+// distributedtask.ErrTaskCompletionAwaiting, which the scheduler retries
+// without a budget. The leader's write errors stay plain, so a backend outage
+// still exhausts the SWAPPING budget.
 func (p *BackupTaskProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	payload, err := unmarshalTaskPayload(task.Payload)
 	if err != nil {
 		return fmt.Errorf("OnTaskCompleted: %w", err)
 	}
-	if _, hasLocal := payload.Nodes[p.node]; !hasLocal {
-		return nil
+	if p.isLeader != nil && !p.isLeader() {
+		if p.TerminalCleanupDone(task, p.node) {
+			return nil
+		}
+		return fmt.Errorf("backup %s: raft leader has not written a final global descriptor: %w",
+			task.ID, distributedtask.ErrTaskCompletionAwaiting)
 	}
 	return p.writeTerminalDescriptor(task, payload)
 }
@@ -432,18 +452,12 @@ func (p *BackupTaskProvider) TerminalCleanupDone(task *distributedtask.Task, loc
 
 // LocalCallbacksDone reports false for a FINISHED task whose global descriptor
 // is not final. Bootstrap then skips the pre-mark, and the next tick re-fires
-// OnTaskCompleted, which writes the global descriptor. An unparseable payload
-// answers false, because the interface requires false for state it cannot
-// read. The reindex provider answers true there. A node outside the payload
-// writes no descriptor, so it answers true.
+// OnTaskCompleted: the raft leader writes the global descriptor, and every
+// other node waits for it. An unparseable payload answers false, because the
+// interface requires false for state it cannot read. The reindex provider
+// answers true there. A node outside the payload answers the same way, because
+// it can become the leader that writes the descriptor.
 func (p *BackupTaskProvider) LocalCallbacksDone(task *distributedtask.Task, localNode string) bool {
-	payload, err := unmarshalTaskPayload(task.Payload)
-	if err != nil {
-		return false
-	}
-	if _, hasLocal := payload.Nodes[localNode]; !hasLocal {
-		return true
-	}
 	return p.TerminalCleanupDone(task, localNode)
 }
 
@@ -453,11 +467,18 @@ func (p *BackupTaskProvider) LocalCallbacksDone(task *distributedtask.Task, loca
 // and _PredicateReadTimeout bounds the read of each tick predicate. Both run on
 // the scheduler tick, so a hung backend holds a tick at most this long per call.
 // writeTerminalDescriptor makes one PutMeta attempt per call. Retries come from
-// the scheduler re-firing the callback. On the SWAPPING path the scheduler fails the task after
-// maxCompletedCallbackAttempts (5) failed calls, one per tick. So a continuous
-// backend outage of about five ticks marks a completed backup FAILED, with the
-// callback error recorded on the task. FAILED and CANCELLED re-fires have no
-// budget: their descriptor lands whenever the backend returns.
+// the scheduler re-firing the callback. On the SWAPPING path the scheduler fails
+// the task after maxCompletedCallbackAttempts (5) failed calls on the raft
+// leader, one per tick. So a continuous backend outage of about five ticks
+// marks a completed backup FAILED, with the callback error recorded on the
+// task. A non-leader's wait for the descriptor counts against no budget. FAILED
+// and CANCELLED re-fires have no budget: their descriptor lands whenever the
+// backend returns. writeTerminalDescriptor first waits for descMu, with no
+// timeout. The only other holder is a Started write attempt. The scheduler
+// terminates that attempt's flow earlier in the same tick that fires the
+// terminal callback. An in-flight attempt keeps descMu until its Meta or
+// PutMeta returns, so the tick bound depends on backends honouring ctx
+// cancellation during those calls.
 const (
 	_TerminalWriteTimeout = 30 * time.Second
 	_PredicateReadTimeout = 5 * time.Second
@@ -633,10 +654,9 @@ func (p *BackupTaskProvider) runNodeBackup(
 		}, p.logger)
 	}
 
-	// Without dedupe, every unit-owning node writes the global descriptor at flow
-	// start. The first write wins, and every writer produces the same content.
-	// With dedupe, no node uploads before the plan is published, and every node
-	// uploads with the plan as stored.
+	// Only payload.Leader writes the global Started descriptor. Without dedupe,
+	// no node reads it before uploading. With dedupe, no node uploads before the
+	// plan is published, and every node uploads with the plan as stored.
 	version, dedupeReplicas := payload.artifactVersion(), false
 	var designations map[string]map[string]string
 	if payload.DedupeReplicas {
@@ -646,10 +666,11 @@ func (p *BackupTaskProvider) runNodeBackup(
 		}
 		version, dedupeReplicas = published.Version, published.DedupeReplicas
 		designations = published.DedupeDesignations
-	} else if err := p.writeStartedDescriptor(ctx, task, payload, nil); err != nil {
-		p.logger.WithFields(logFields).Errorf("write started descriptor: %v", err)
-		p.failAllUnits(ctx, task, payload, recorder, err.Error(), false)
-		return
+	} else if p.node == payload.Leader {
+		if err := p.writeStartedDescriptor(ctx, task, payload, nil); err != nil {
+			p.failStartedWrite(ctx, p.logger.WithFields(logFields), task, payload, recorder, err)
+			return
+		}
 	}
 
 	baseBackupID := payload.BaseBackupID
@@ -808,6 +829,25 @@ func (p *BackupTaskProvider) failAllUnits(
 	}
 }
 
+// failStartedWrite reports a failed Started descriptor write. The flow ctx ends
+// only through Terminate. Terminate is not a unit failure, so an ended flow
+// logs at Info and records nothing.
+func (p *BackupTaskProvider) failStartedWrite(
+	ctx context.Context,
+	logger logrus.FieldLogger,
+	task *distributedtask.Task,
+	payload *taskPayload,
+	recorder distributedtask.TaskCompletionRecorder,
+	err error,
+) {
+	if ctx.Err() != nil {
+		logger.Infof("flow ended before the started descriptor was written: %v", err)
+		return
+	}
+	logger.Errorf("write started descriptor: %v", err)
+	p.failAllUnits(ctx, task, payload, recorder, err.Error(), false)
+}
+
 // publishedPlan returns the global Started descriptor that carries a dedupe
 // backup's plan. The leader plans and publishes it; every other node polls until
 // it exists. It returns nil when the flow must stop; a unit failure that stop
@@ -909,8 +949,7 @@ func (p *BackupTaskProvider) publishedPlan(
 	}
 
 	if err := p.writeStartedDescriptor(ctx, task, payload, plan); err != nil {
-		logger.Errorf("write started descriptor: %v", err)
-		p.failAllUnits(ctx, task, payload, recorder, err.Error(), false)
+		p.failStartedWrite(ctx, logger, task, payload, recorder, err)
 		return nil
 	}
 	// Uploads use the plan as stored, so the planner and every other node
@@ -942,21 +981,15 @@ func globalDescriptor(ctx context.Context, store coordStore, payload *taskPayloa
 }
 
 // writeStartedDescriptor writes the global Started descriptor at flow start and
-// stamps it with plan. A nil plan stamps no plan fields.
-// Without dedupe, all fields come from the payload and task record, so writers
-// on different nodes produce identical content. With dedupe, only the leader
-// writes. An existing descriptor is left untouched: the first write wins, and a
-// terminal status never flips back.
+// stamps it with plan. A nil plan stamps no plan fields. Only payload.Leader
+// calls it. Each attempt re-reads the descriptor under descMu and writes only
+// when none exists. So it never replaces a descriptor that existed at the
+// attempt's read, and no terminal write in this process lands between that
+// read and the write. It returns ctx.Err() once the flow ends.
 func (p *BackupTaskProvider) writeStartedDescriptor(ctx context.Context, task *distributedtask.Task, payload *taskPayload, plan *DedupePlan) error {
 	store, err := coordBackend(p.backends, payload.Backend, payload.ID, payload.Bucket, payload.Path)
 	if err != nil {
 		return fmt.Errorf("started descriptor: init backend: %w", err)
-	}
-
-	if _, err := store.Meta(ctx, GlobalBackupFile, payload.Bucket, payload.Path); err == nil {
-		return nil
-	} else if !errors.As(err, &backup.ErrNotFound{}) {
-		return fmt.Errorf("started descriptor: read existing: %w", err)
 	}
 
 	descriptor := &backup.DistributedBackupDescriptor{
@@ -977,18 +1010,49 @@ func (p *BackupTaskProvider) writeStartedDescriptor(ctx context.Context, task *d
 
 	var writeErr error
 	for attempt := range descriptorWriteAttempts {
-		writeErr = store.PutMeta(ctx, GlobalBackupFile, descriptor, payload.Bucket, payload.Path)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		var readErr error
+		readErr, writeErr = p.putStartedDescriptorOnce(ctx, store, payload, descriptor)
+		if readErr != nil {
+			return fmt.Errorf("started descriptor: read existing: %w", readErr)
+		}
 		if writeErr == nil {
 			return nil
 		}
 		p.logger.WithField("backup_id", task.ID).WithField("attempt", attempt+1).
 			Warnf("failed to write started descriptor: %v", writeErr)
-		time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
+		if attempt+1 < descriptorWriteAttempts && !sleepUntil(ctx, time.Now().Add(time.Duration(attempt+1)*500*time.Millisecond)) {
+			return ctx.Err()
+		}
 	}
 	return fmt.Errorf("write started descriptor after retries: %w", writeErr)
 }
 
+// putStartedDescriptorOnce makes one write attempt under descMu. It writes
+// only when the read finds no global descriptor. A read error other than
+// not-found returns as readErr with nothing written.
+func (p *BackupTaskProvider) putStartedDescriptorOnce(ctx context.Context, store coordStore, payload *taskPayload,
+	descriptor *backup.DistributedBackupDescriptor,
+) (readErr, writeErr error) {
+	p.descMu.Lock()
+	defer p.descMu.Unlock()
+	if _, err := store.Meta(ctx, GlobalBackupFile, payload.Bucket, payload.Path); err == nil {
+		return nil, nil
+	} else if !errors.As(err, &backup.ErrNotFound{}) {
+		return err, nil
+	}
+	return nil, store.PutMeta(ctx, GlobalBackupFile, descriptor, payload.Bucket, payload.Path)
+}
+
+// writeTerminalDescriptor writes the global terminal descriptor. Only the raft
+// leader calls it. It holds descMu for the whole call, so no Started write
+// attempt in this process runs between its read and its write.
 func (p *BackupTaskProvider) writeTerminalDescriptor(task *distributedtask.Task, payload *taskPayload) error {
+	p.descMu.Lock()
+	defer p.descMu.Unlock()
+
 	store, err := coordBackend(p.backends, payload.Backend, payload.ID, payload.Bucket, payload.Path)
 	if err != nil {
 		return fmt.Errorf("terminal descriptor: init backend: %w", err)

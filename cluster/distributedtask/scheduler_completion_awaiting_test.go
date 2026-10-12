@@ -105,4 +105,59 @@ func TestOnTaskCompletedAwaitingIsBudgetExempt(t *testing.T) {
 		require.Equal(t, TaskStatusFailed, statusOf(t, h))
 		require.Equal(t, maxCompletedCallbackAttempts, prov.calls())
 	})
+
+	t.Run("awaiting errors re-fire on a terminal status", func(t *testing.T) {
+		defer leaktest.Check(t)()
+
+		prov := &terminalAwaitingProvider{testTaskProvider: newTestTaskProvider(t, nil)}
+		h := submitTaskToSwapping(t, prov, prov.testTaskProvider, "terminal-awaiting-task")
+		defer h.Close()
+
+		h.advanceClock(h.schedulerTickInterval)
+		require.Equal(t, TaskStatusFailed, statusOf(t, h))
+
+		const awaitingTicks = 3
+		for i := 1; i <= awaitingTicks; i++ {
+			h.advanceClock(h.schedulerTickInterval)
+			require.Equal(t, TaskStatusFailed, statusOf(t, h),
+				"task must stay FAILED while awaiting (tick %d)", i)
+		}
+		require.Equal(t, awaitingTicks, prov.calls(),
+			"the callback must re-fire every tick although the provider is no TerminalCleanupProvider")
+	})
+}
+
+// terminalAwaitingProvider fails the task permanently on SWAPPING and returns
+// ErrTaskCompletionAwaiting on every later call. It is not a
+// TerminalCleanupProvider, so only the awaiting branch re-fires its callback
+// on a terminal status.
+type terminalAwaitingProvider struct {
+	*testTaskProvider
+
+	mu            sync.Mutex
+	terminalCalls int
+}
+
+func (p *terminalAwaitingProvider) OnGroupCompleted(_ *Task, _ string, _ []string) error {
+	return nil
+}
+
+func (p *terminalAwaitingProvider) OnSwapRequested(_ *Task, _ string, _ []string) error {
+	return nil
+}
+
+func (p *terminalAwaitingProvider) OnTaskCompleted(task *Task) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if task.Status == TaskStatusSwapping {
+		return fmt.Errorf("fail the task: %w", ErrTaskCompletionPermanent)
+	}
+	p.terminalCalls++
+	return fmt.Errorf("leader writes the descriptor: %w", ErrTaskCompletionAwaiting)
+}
+
+func (p *terminalAwaitingProvider) calls() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.terminalCalls
 }

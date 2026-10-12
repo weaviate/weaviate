@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -482,6 +483,206 @@ func TestBackupTaskProvider(t *testing.T) {
 		be.AssertNotCalled(t, "PutObject", mock.Anything, mock.Anything, GlobalBackupFile, mock.Anything)
 	})
 
+	t.Run("a retried Started write never replaces a terminal descriptor", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		be := newFakeBackend()
+		be.On("GetObject", mock.Anything, "b1", GlobalBackupFile).Return(nil, backup.ErrNotFound{}).Once()
+		// A terminal write lands while the first failed attempt backs off.
+		be.On("GetObject", mock.Anything, "b1", GlobalBackupFile).
+			Return(marshalDescriptor(t, backup.DistributedBackupDescriptor{ID: "b1", Status: backup.Failed}), nil)
+		// coordStore.Meta probes the legacy per-node descriptor when the global one is missing.
+		be.On("GetObject", mock.Anything, "b1", BackupFile).Return(nil, backup.ErrNotFound{})
+		be.On("PutObject", mock.Anything, "b1", GlobalBackupFile, mock.Anything).Return(errors.New("backend unavailable")).Once()
+		be.On("PutObject", mock.Anything, "b1", GlobalBackupFile, mock.Anything).Return(nil)
+		provider := NewBackupTaskProvider(BackupTaskProviderParams{
+			Node:     "node-1",
+			Logger:   logger,
+			Cfg:      config.Backup{},
+			Backends: &fakeBackupBackendProvider{backend: be},
+		})
+
+		payload := makePayload("b1")
+		task := makeTask("b1", distributedtask.TaskStatusStarted, payload)
+		require.NoError(t, provider.writeStartedDescriptor(context.Background(), task, payload, nil))
+		// Exactly one global PutObject: the failed first attempt. The retry reads FAILED and writes nothing.
+		be.AssertNumberOfCalls(t, "PutObject", 1)
+	})
+
+	t.Run("a terminated flow makes no further Started write attempt", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		be := newFakeBackend()
+		be.On("GetObject", mock.Anything, "b1", GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+		be.On("GetObject", mock.Anything, "b1", BackupFile).Return(nil, backup.ErrNotFound{})
+		be.On("PutObject", mock.Anything, "b1", GlobalBackupFile, mock.Anything).Return(errors.New("backend unavailable")).
+			Run(func(mock.Arguments) { cancel() })
+		provider := NewBackupTaskProvider(BackupTaskProviderParams{
+			Node:     "node-1",
+			Logger:   logger,
+			Cfg:      config.Backup{},
+			Backends: &fakeBackupBackendProvider{backend: be},
+		})
+
+		payload := makePayload("b1")
+		task := makeTask("b1", distributedtask.TaskStatusStarted, payload)
+		require.Error(t, provider.writeStartedDescriptor(ctx, task, payload, nil))
+		be.AssertNumberOfCalls(t, "PutObject", 1)
+	})
+
+	t.Run("an in-process terminal write is never overwritten by a Started write", func(t *testing.T) {
+		// fakeBackend holds its own lock across each mock call, which would
+		// serialize the two writers by itself. This backend holds no lock
+		// while a call runs.
+		var (
+			mu      sync.Mutex
+			objects = map[string][]byte{}
+		)
+		startedReading := make(chan struct{})
+		releaseStarted := make(chan struct{})
+		terminalWritten := make(chan struct{})
+		var globalReads atomic.Int32
+		be := modulecapabilities.NewMockBackupBackend(t)
+		be.EXPECT().GetObject(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			RunAndReturn(func(_ context.Context, backupID, key, _, _ string) ([]byte, error) {
+				mu.Lock()
+				raw, ok := objects[backupID+"/"+key]
+				mu.Unlock()
+				// The Started writer makes the first global read and pauses
+				// after it, so a racing terminal write can land before its write.
+				if key == GlobalBackupFile && globalReads.Add(1) == 1 {
+					close(startedReading)
+					<-releaseStarted
+				}
+				if !ok {
+					return nil, backup.ErrNotFound{}
+				}
+				return raw, nil
+			})
+		be.EXPECT().PutObject(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			RunAndReturn(func(_ context.Context, backupID, key, _, _ string, raw []byte) error {
+				mu.Lock()
+				objects[backupID+"/"+key] = raw
+				mu.Unlock()
+				var desc backup.DistributedBackupDescriptor
+				if key == GlobalBackupFile && json.Unmarshal(raw, &desc) == nil && isFinalStatus(desc.Status) {
+					close(terminalWritten)
+				}
+				return nil
+			})
+		logger, _ := test.NewNullLogger()
+		provider := NewBackupTaskProvider(BackupTaskProviderParams{
+			Node:     "node-1",
+			Logger:   logger,
+			Cfg:      config.Backup{},
+			Backends: &fakeBackupBackendProvider{backend: be},
+		})
+		payload := makePayload("b1")
+
+		startedDone := make(chan error, 1)
+		go func() {
+			startedDone <- provider.writeStartedDescriptor(context.Background(),
+				makeTask("b1", distributedtask.TaskStatusStarted, payload), payload, nil)
+		}()
+		<-startedReading
+		terminalDone := make(chan error, 1)
+		go func() {
+			terminalDone <- provider.writeTerminalDescriptor(
+				makeTask("b1", distributedtask.TaskStatusFailed, payload), payload)
+		}()
+		select {
+		case <-terminalWritten:
+		case <-time.After(200 * time.Millisecond):
+		}
+		close(releaseStarted)
+		require.NoError(t, <-startedDone)
+		require.NoError(t, <-terminalDone)
+
+		var stored backup.DistributedBackupDescriptor
+		require.NoError(t, json.Unmarshal(objects["b1/"+GlobalBackupFile], &stored))
+		assert.Equal(t, backup.Failed, stored.Status, "the terminal write lands last")
+	})
+
+	t.Run("a user cancellation during the Started write is not logged as an error", func(t *testing.T) {
+		// failGlobalWritesOnCancel makes every global write signal writing,
+		// block until the call's ctx ends, then fail.
+		failGlobalWritesOnCancel := func(be *fakeBackend, writing chan<- struct{}) {
+			be.On("PutObject", mock.Anything, "b1", GlobalBackupFile, mock.Anything).
+				Return(errors.New("write aborted")).
+				Run(func(a mock.Arguments) {
+					writing <- struct{}{}
+					<-a.Get(0).(context.Context).Done()
+				})
+		}
+		type flow struct {
+			handle   distributedtask.TaskHandle
+			hook     *test.Hook
+			backend  *fakeBackend
+			recorder *threadSafeRecorder
+		}
+		tests := []struct {
+			name  string
+			start func(t *testing.T, writing chan<- struct{}) flow
+		}{
+			{
+				name: "non-dedupe flow",
+				start: func(t *testing.T, writing chan<- struct{}) flow {
+					be := newFakeBackend()
+					failGlobalWritesOnCancel(be, writing)
+					recorder := &threadSafeRecorder{}
+					provider := newFlowProvider(t, be, describingSourcer("Article", "Book"), recorder)
+					var hook *test.Hook
+					provider.logger, hook = test.NewNullLogger()
+					handle, err := provider.StartTask(makeTask("b1", distributedtask.TaskStatusStarted, makePayload("b1")))
+					require.NoError(t, err)
+					return flow{handle: handle, hook: hook, backend: be, recorder: recorder}
+				},
+			},
+			{
+				name: "dedupe leader",
+				start: func(t *testing.T, writing chan<- struct{}) flow {
+					fx := newDedupeFlow(t, "node-1")
+					// newDedupeFlow lets every write succeed; drop that expectation.
+					for _, call := range fx.backend.ExpectedCalls {
+						if call.Method == "PutObject" {
+							call.Unset()
+							break
+						}
+					}
+					failGlobalWritesOnCancel(fx.backend, writing)
+					fx.serveGlobal(nil, backup.ErrNotFound{})
+					return flow{handle: fx.start(t), hook: fx.hook, backend: fx.backend, recorder: fx.recorder}
+				},
+			},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				writing := make(chan struct{}, descriptorWriteAttempts)
+				fl := tc.start(t, writing)
+				select {
+				case <-writing:
+				case <-time.After(5 * time.Second):
+					t.Fatal("the flow never wrote the Started descriptor")
+				}
+				fl.handle.Terminate()
+				waitDone(t, fl.handle)
+
+				ended := 0
+				for _, entry := range fl.hook.AllEntries() {
+					if entry.Level == logrus.ErrorLevel {
+						assert.NotContains(t, entry.Message, "started descriptor")
+					}
+					if entry.Level == logrus.InfoLevel && strings.Contains(entry.Message, "flow ended before the started descriptor was written") {
+						ended++
+					}
+				}
+				assert.Equal(t, 1, ended, "the ended flow is logged once at Info")
+				fl.backend.AssertNumberOfCalls(t, "PutObject", 1)
+				assert.Empty(t, fl.recorder.getFailures())
+			})
+		}
+	})
+
 	t.Run("bootstrap CleanupTask on a still-active task releases local state only", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		sourcer := &fakeSourcer{}
@@ -735,7 +936,7 @@ func TestBackupTaskProvider(t *testing.T) {
 			{name: "an unparseable payload is not done", localNode: "node-1", payload: []byte("not json")},
 			{name: "a Started descriptor is not done", localNode: "node-1", global: globalDescriptor(backup.Started)},
 			{name: "a Success descriptor is done", localNode: "node-1", global: globalDescriptor(backup.Success), want: true},
-			{name: "a node outside the payload is done without a read", localNode: "node-3", want: true},
+			{name: "a node outside the payload reads the descriptor", localNode: "node-3", global: globalDescriptor(backup.Started)},
 		}
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
@@ -1567,6 +1768,7 @@ func TestBackupTerminalDescriptor(t *testing.T) {
 				if tc.wantStatus == "" {
 					require.Error(t, err)
 					assert.Contains(t, err.Error(), "backend unavailable")
+					assert.NotErrorIs(t, err, distributedtask.ErrTaskCompletionAwaiting)
 					be.AssertNotCalled(t, "PutObject", mock.Anything, mock.Anything, GlobalBackupFile, mock.Anything)
 					return
 				}
