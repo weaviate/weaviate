@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -307,6 +308,7 @@ func (s *SchemaManager) recordOrphan(class string, hasFrozen bool) {
 // dropOrphanedClasses removes the recorded classes' data, skipping any the
 // schema names again: catching up over [DELETE_CLASS C, ADD_CLASS C] records C
 // on the way past, and dropping it here would destroy what the re-add created.
+// Case-insensitive: "FooBar" and "Foobar" share one index directory.
 func (s *SchemaManager) dropOrphanedClasses() {
 	s.orphansMu.Lock()
 	orphans := s.orphanedClasses
@@ -314,8 +316,12 @@ func (s *SchemaManager) dropOrphanedClasses() {
 	s.orphansMu.Unlock()
 
 	present := s.schema.classNames()
+	presentFolded := make(map[string]struct{}, len(present))
+	for name := range present {
+		presentFolded[strings.ToLower(name)] = struct{}{}
+	}
 	for class, hasFrozen := range orphans {
-		if _, revived := present[class]; revived {
+		if _, revived := presentFolded[strings.ToLower(class)]; revived {
 			continue
 		}
 		// DropOrphanedClass, not DeleteClass: no index is loaded to delete.
