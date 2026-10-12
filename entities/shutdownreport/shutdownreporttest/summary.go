@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/shutdownreport"
 )
 
-// Summary returns the fields of the summary line r logs.
+// Summary returns the fields of the summary line that r logs.
 func Summary(t testing.TB, r *shutdownreport.Report) logrus.Fields {
 	t.Helper()
 	logger, hook := test.NewNullLogger()

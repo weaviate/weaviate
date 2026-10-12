@@ -1585,6 +1585,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	var waitGrpcStop, stopHeartbeat func()
 	api.PreServerShutdown = func() {
 		shutdownReport.Begin()
+		grpcInFlight.StartShutdown()
 		shutdownLog := appState.ServerConfig.Config.ShutdownLog
 		stopHeartbeat = shutdownReport.StartHeartbeat(appState.Logger, shutdownLog.HeartbeatAfter,
 			shutdownLog.HeartbeatInterval, shutdownLog.Thresholds.Total, map[string]func() int64{
