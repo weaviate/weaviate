@@ -74,7 +74,7 @@ func TestDocBitmapInvertedRoaringSet_RowMergeBudget(t *testing.T) {
 		}
 
 		budget1 := concurrency.CtxWithBudget(ctx, 1)
-		// budget=1 spawns no extra workers; slack absorbs sampler/GC noise
+		// budget=1 spawns no extra workers
 		testinghelpers.AssertGoroutineCeiling(t, numMergeWorkers, 1, 8, 200*time.Millisecond, func() error {
 			s := &Searcher{}
 			bm, err := s.docBitmapInvertedRoaringSet(budget1, b, 0, pv)
