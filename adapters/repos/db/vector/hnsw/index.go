@@ -110,6 +110,7 @@ type hnsw struct {
 	nodes []*vertex
 
 	vectorForID                       common.VectorForID[float32]
+	uncachedVectorForID               common.VectorForID[float32]
 	TempMultiVectorForIDThunk         common.TempVectorForID[[]float32]
 	GetViewThunk                      common.GetViewThunk
 	TempVectorForIDWithViewThunk      common.TempVectorForIDWithView[float32]
@@ -310,6 +311,7 @@ func New(cfg Config, uc ent.UserConfig,
 	normalizeOnRead := cfg.DistanceProvider.Type() == "cosine-dot"
 
 	var vectorCache cache.Cache[float32]
+	uncachedVectorForID := cfg.VectorForIDThunk
 
 	var muveraEncoder *multivector.MuveraEncoder
 	if uc.Multivector.Enabled && !uc.Multivector.MuveraEnabled() {
@@ -326,17 +328,12 @@ func New(cfg Config, uc ent.UserConfig,
 			if err != nil {
 				return nil, errors.Wrapf(err, "Create or load bucket (muvera store)")
 			}
-			muveraVectorForID := func(ctx context.Context, id uint64) ([]float32, error) {
+			uncachedVectorForID = func(ctx context.Context, id uint64) ([]float32, error) {
 				return muveraEncoder.GetMuveraVectorForID(id, helpers.MuveraBucketName(cfg.ID))
 			}
-			vectorCache = cache.NewShardedFloat32LockCache(
-				muveraVectorForID, cfg.MultiVectorForIDThunk, uc.VectorCacheMaxObjects, 1, cfg.Logger,
-				normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
-
-		} else {
-			vectorCache = cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, cfg.MultiVectorForIDThunk, uc.VectorCacheMaxObjects, 1, cfg.Logger,
-				normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
 		}
+		vectorCache = cache.NewShardedFloat32LockCache(uncachedVectorForID, cfg.MultiVectorForIDThunk, uc.VectorCacheMaxObjects, 1, cfg.Logger,
+			normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
 	}
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
 	shutdownCtx, shutdownCtxCancel := context.WithCancel(context.Background())
@@ -359,6 +356,7 @@ func New(cfg Config, uc ent.UserConfig,
 		waitForCachePrefill:   cfg.WaitForCachePrefill,
 		cachePrefilled:        atomic.Bool{}, // Will be set appropriately in init()
 		vectorForID:           vectorCache.Get,
+		uncachedVectorForID:   uncachedVectorForID,
 		multiVectorForID:      vectorCache.MultiGet,
 		id:                    cfg.ID,
 		rootPath:              cfg.RootPath,
@@ -438,7 +436,7 @@ func New(cfg Config, uc ent.UserConfig,
 		} else {
 			index.compressor, err = compressionhelpers.NewBQCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector(), index.vectorForID)
+				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector(), index.vectorForNodeID)
 		}
 		if err != nil {
 			return nil, err

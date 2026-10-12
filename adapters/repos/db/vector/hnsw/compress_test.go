@@ -14,6 +14,7 @@ package hnsw
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -26,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -161,6 +163,114 @@ func Test_CompressedEntrypointRecoveryOnRestart(t *testing.T) {
 	results, _, err := index.SearchByVector(ctx, queries[0], vectorsSize, nil)
 	require.NoError(t, err)
 	assert.ElementsMatch(t, control, results, "search results should match after entrypoint recovery")
+}
+
+// Compression drops the float32 vector cache. Recovering a missing compressed
+// vector must read past that cache, or the read regrows it to cover the node.
+func Test_CompressedVectorRecoveryBypassesFloatCache(t *testing.T) {
+	dimensions := 20
+	vectorsSize := 50
+	vectors, _ := testinghelpers.RandomVecs(vectorsSize, 0, dimensions)
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+
+	withCompression := func(enable func(*ent.UserConfig)) ent.UserConfig {
+		uc := userConfig(dimensions/10, 5, 32, 64, 32, vectorsSize)
+		uc.PQ.Enabled = false
+		enable(&uc)
+		return uc
+	}
+	tests := []struct {
+		name string
+		uc   ent.UserConfig
+	}{
+		{name: "PQ", uc: withCompression(func(uc *ent.UserConfig) { uc.PQ.Enabled = true })},
+		{name: "SQ", uc: withCompression(func(uc *ent.UserConfig) { uc.SQ = ent.SQConfig{Enabled: true} })},
+		{name: "BQ", uc: withCompression(func(uc *ent.UserConfig) { uc.BQ.Enabled = true })},
+		{name: "RQ 8 bits", uc: withCompression(func(uc *ent.UserConfig) { uc.RQ = ent.RQConfig{Enabled: true, Bits: 8} })},
+		{name: "RQ 1 bit", uc: withCompression(func(uc *ent.UserConfig) { uc.RQ = ent.RQConfig{Enabled: true, Bits: 1} })},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			store := testinghelpers.NewDummyStoreFromFolder(tempDir, t)
+			// readErrs holds the error the object store returns per id
+			var readErrs sync.Map
+			cfg := indexConfig("recovery", tempDir, logger, vectors, distancer.NewCosineDistanceProvider())
+			cfg.WaitForCachePrefill = true
+			cfg.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
+				if err, ok := readErrs.Load(id); ok {
+					return nil, err.(error)
+				}
+				if int(id) >= len(vectors) {
+					return nil, storobj.NewErrNotFoundf(id, "deleted")
+				}
+				return vectors[id], nil
+			}
+
+			index, err := New(cfg, withCompression(func(*ent.UserConfig) {}), cyclemanager.NewCallbackGroupNoop(), store)
+			require.NoError(t, err)
+			floatCache := index.cache
+			require.NoError(t, compressionhelpers.ConcurrentlyWithError(logger, uint64(vectorsSize), func(id uint64) error {
+				return index.Add(ctx, id, vectors[id])
+			}))
+			compressed := make(chan struct{})
+			require.NoError(t, index.UpdateUserConfig(tt.uc, func() { close(compressed) }))
+			<-compressed
+			require.True(t, index.compressed.Load())
+			requireRecoveryBypassesFloatCache(t, index, floatCache, &readErrs, 1, 2, 3)
+
+			require.NoError(t, index.Flush())
+			require.NoError(t, index.Shutdown(ctx))
+			store.FlushMemtables(ctx)
+
+			index, err = New(cfg, tt.uc, cyclemanager.NewCallbackGroupNoop(), store)
+			require.NoError(t, err)
+			defer index.Shutdown(ctx)
+			index.PostStartup(ctx)
+			require.True(t, index.compressed.Load())
+			// New sets index.cache to nil when it compresses a BQ index
+			requireRecoveryBypassesFloatCache(t, index, index.cache, &readErrs, 4, 5, 6)
+		})
+	}
+}
+
+// requireRecoveryBypassesFloatCache drops the compressed vectors of a live, a
+// deleted and an unreadable node, then reads each back through the
+// compressor's recovery.
+func requireRecoveryBypassesFloatCache(t *testing.T, index *hnsw, floatCache cache.Cache[float32],
+	readErrs *sync.Map, live, gone, unreadable uint64,
+) {
+	t.Helper()
+	ctx := context.Background()
+	errStore := errors.New("object store read failed")
+	want, err := index.compressor.GetCompressed(live)
+	require.NoError(t, err)
+	readErrs.Store(gone, storobj.NewErrNotFoundf(gone, "deleted"))
+	readErrs.Store(unreadable, errStore)
+	for _, id := range []uint64{live, gone, unreadable} {
+		index.compressor.Delete(ctx, id)
+	}
+
+	got, err := index.compressor.GetCompressed(live)
+	require.NoError(t, err)
+	require.Equal(t, want, got, "recovery must encode the normalized vector, as insert does")
+
+	var notFound storobj.ErrNotFound
+	_, err = index.compressor.GetCompressed(gone)
+	require.ErrorAs(t, err, &notFound)
+	_, err = index.compressor.GetCompressed(unreadable)
+	require.ErrorIs(t, err, errStore, "a failed read must not look like a deleted object")
+
+	// a recovery that went through a float32 cache would serve the vector again
+	readErrs.Store(live, storobj.NewErrNotFoundf(live, "deleted"))
+	index.compressor.Delete(ctx, live)
+	_, err = index.compressor.GetCompressed(live)
+	require.ErrorAs(t, err, &notFound)
+
+	if floatCache != nil {
+		require.Zero(t, floatCache.Len(), "the dropped float32 cache must stay empty")
+	}
 }
 
 func Test_CompressAndInsertDoNotRace(t *testing.T) {

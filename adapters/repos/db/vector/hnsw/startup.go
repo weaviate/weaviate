@@ -164,7 +164,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 						h.makeBucketOptions,
 						h.allocChecker,
 						h.getTargetVector(),
-						h.vectorForID,
+						h.vectorForNodeID,
 					)
 				} else {
 					h.compressor, err = compressionhelpers.RestoreHNSWPQMultiCompressor(
@@ -200,7 +200,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 					h.makeBucketOptions,
 					h.allocChecker,
 					h.getTargetVector(),
-					h.vectorForID,
+					h.vectorForNodeID,
 				)
 			} else {
 				h.compressor, err = compressionhelpers.RestoreHNSWSQMultiCompressor(
@@ -289,7 +289,7 @@ func (h *hnsw) restoreRotationalQuantization(data *compression.RQData) error {
 				h.allocChecker,
 				h.makeBucketOptions,
 				h.getTargetVector(),
-				h.vectorForID,
+				h.vectorForNodeID,
 			)
 		})
 	} else {
@@ -336,7 +336,7 @@ func (h *hnsw) restoreBinaryRotationalQuantization(data *compression.BRQData) er
 				h.allocChecker,
 				h.makeBucketOptions,
 				h.getTargetVector(),
-				h.vectorForID,
+				h.vectorForNodeID,
 			)
 		})
 	} else {
@@ -443,6 +443,17 @@ func (h *hnsw) populateKeys() {
 			}
 		}
 	}
+}
+
+// vectorForNodeID is the recovery callback of single-vector compressors. It
+// reads a node's vector the way the float32 cache does on a miss. Compression
+// drops that cache, and reading through h.vectorForID would regrow it.
+func (h *hnsw) vectorForNodeID(ctx context.Context, nodeID uint64) ([]float32, error) {
+	vec, err := h.uncachedVectorForID(ctx, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	return h.normalizeVec(vec), nil
 }
 
 // multiVectorForNodeID resolves a nodeID to its raw float32 vector by looking
