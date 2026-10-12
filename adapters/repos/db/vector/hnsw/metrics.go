@@ -348,3 +348,61 @@ func (m *Metrics) MemoryAllocationRejected() {
 
 	m.memoryAllocationRejected.Inc()
 }
+
+// Cleanup checkpoint metrics - these are stub implementations that can be
+// enhanced with full Prometheus integration later. For now they enable
+// the checkpoint functionality without requiring changes to the monitoring package.
+
+// SetTombstoneCounts updates the tombstone count metrics.
+// totalTombstones: all pending tombstones
+// activeGeneration: tombstones in current cleanup deleteList
+// deferred: tombstones pending for future generations
+func (m *Metrics) SetTombstoneCounts(totalTombstones, activeGeneration, deferred int) {
+	if !m.enabled {
+		return
+	}
+	// Use existing tombstones gauge for total
+	m.tombstones.Set(float64(totalTombstones))
+	// Active generation and deferred would need new gauges - stub for now
+}
+
+// SetCleanupGenerationID sets the current cleanup generation ID.
+func (m *Metrics) SetCleanupGenerationID(generationID uint64) {
+	// Stub - would need new gauge for full implementation
+}
+
+// SetCleanupWatermark sets the current cleanup watermark and total nodes.
+func (m *Metrics) SetCleanupWatermark(watermark, totalNodes uint64) {
+	if !m.enabled {
+		return
+	}
+	// Use existing progress metric as approximation
+	if totalNodes > 0 {
+		m.tombstoneProgress.Set(float64(watermark) / float64(totalNodes))
+	}
+}
+
+// CleanupGenerationStarted increments the counter for fresh generation starts.
+func (m *Metrics) CleanupGenerationStarted() {
+	// Stub - would need new counter for full implementation
+}
+
+// CleanupGenerationResumed increments the counter for resumed generations.
+func (m *Metrics) CleanupGenerationResumed() {
+	// Stub - would need new counter for full implementation
+}
+
+// CleanupGenerationCompleted increments the counter for completed generations.
+func (m *Metrics) CleanupGenerationCompleted() {
+	// Stub - would need new counter for full implementation
+}
+
+// CleanupGenerationInterrupted increments the counter for interrupted generations.
+func (m *Metrics) CleanupGenerationInterrupted(reason string) {
+	// Stub - would need new counter with label for full implementation
+}
+
+// CleanupCheckpointCorrupt increments the counter for corrupt checkpoints.
+func (m *Metrics) CleanupCheckpointCorrupt() {
+	// Stub - would need new counter for full implementation
+}

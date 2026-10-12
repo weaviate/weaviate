@@ -18,6 +18,7 @@ import (
 	"os"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1027,10 +1028,9 @@ func TestDelete_ResetLockDoesNotLockForever(t *testing.T) {
 
 		go func() {
 			defer wg.Done()
-			allowList := helpers.NewAllowList(deletedIds...)
-			ok, err := vectorIndex.reassignNeighborsOf(ctx, allowList, slowNeverStop)
+			// Use the production cleanup path which includes checkpoint support
+			err := vectorIndex.CleanUpTombstonedNodes(slowNeverStop)
 			require.Nil(t, err)
-			require.True(t, ok)
 		}()
 		elapsed := time.Duration(0)
 		go func() {
@@ -2236,5 +2236,168 @@ func TestDelete_EntrypointWithLowerLevelThanOtherNodes(t *testing.T) {
 		// After deletion, node 1 should become the new entrypoint
 		require.Equal(t, uint64(1), index.entryPointID)
 		require.Equal(t, 3, index.currentMaximumLayer)
+	})
+}
+
+// TestCleanupCheckpoint_ProductionPath tests the full production call path for
+// resumable tombstone cleanup with checkpoints:
+//
+//	cleanUpTombstonedNodes()
+//	   -> checkpoint creation
+//	   -> interruption (via abort callback)
+//	   -> resume (loads checkpoint)
+//	   -> completion
+//
+// This test proves that:
+//  1. Cleanup creates a checkpoint at generation start
+//  2. Progress is saved when cleanup is interrupted
+//  3. New tombstones added during interruption are NOT in the checkpoint
+//  4. Resume loads the checkpoint and uses the original deleteList
+//  5. Only original tombstones are removed; new ones remain pending
+func TestCleanupCheckpoint_ProductionPath(t *testing.T) {
+	ctx := context.Background()
+	rootPath := t.TempDir()
+
+	// Create vectors - we need enough to make cleanup take measurable time
+	vectors := make([][]float32, 200)
+	for i := range vectors {
+		vectors[i] = make([]float32, 32)
+		for j := range vectors[i] {
+			vectors[i][j] = rand.Float32()
+		}
+	}
+
+	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
+
+	var vectorIndex *hnsw
+
+	t.Run("create index and import vectors", func(t *testing.T) {
+		index, err := New(Config{
+			RootPath:              rootPath,
+			ID:                    "checkpoint-test",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewCosineDistanceProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				if int(id) >= len(vectors) {
+					return nil, storobj.NewErrNotFoundf(id, "out of range")
+				}
+				return vectors[int(id)], nil
+			},
+			GetViewThunk:                 GetViewThunk,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			AllocChecker:                 memwatch.NewDummyMonitor(),
+		}, ent.UserConfig{
+			MaxConnections:        16,
+			EFConstruction:        64,
+			VectorCacheMaxObjects: 100000,
+		}, cyclemanager.NewCallbackGroupNoop(), store)
+		require.NoError(t, err)
+		vectorIndex = index
+
+		for i, vec := range vectors {
+			err := vectorIndex.Add(ctx, uint64(i), vec)
+			require.NoError(t, err)
+		}
+	})
+
+	// Delete vectors 10, 20, 30 (these will be in generation 1's deleteList)
+	originalTombstones := []uint64{10, 20, 30}
+	t.Run("delete original tombstones", func(t *testing.T) {
+		for _, id := range originalTombstones {
+			err := vectorIndex.Delete(id)
+			require.NoError(t, err)
+		}
+		require.Len(t, vectorIndex.tombstones, 3)
+	})
+
+	// Run cleanup but abort after some progress
+	var abortCount atomic.Int64
+	abortAfterCalls := int64(50) // Abort after 50 calls to shouldAbort
+	var aborted atomic.Bool
+
+	t.Run("start cleanup and interrupt partway", func(t *testing.T) {
+		shouldAbort := func() bool {
+			count := abortCount.Add(1)
+			if count >= abortAfterCalls {
+				aborted.Store(true)
+				return true
+			}
+			return false
+		}
+
+		err := vectorIndex.CleanUpTombstonedNodes(shouldAbort)
+		require.NoError(t, err)
+		require.True(t, aborted.Load(), "cleanup should have been aborted")
+	})
+
+	// Verify checkpoint file was created
+	checkpointPath := cleanupCheckpointPath(rootPath, "checkpoint-test")
+	t.Run("verify checkpoint exists", func(t *testing.T) {
+		_, err := os.Stat(checkpointPath)
+		require.NoError(t, err, "checkpoint file should exist after interrupted cleanup")
+
+		// Load and verify checkpoint contents
+		cp, err := loadCleanupCheckpointOS(checkpointPath)
+		require.NoError(t, err)
+		require.NotNil(t, cp)
+		require.Equal(t, uint64(1), cp.GenerationID)
+		require.ElementsMatch(t, originalTombstones, cp.TombstoneIDs)
+		t.Logf("Checkpoint watermark: %d, total nodes: %d", cp.Watermark, cp.TotalNodes)
+	})
+
+	// Add a NEW tombstone while cleanup is interrupted
+	// This tombstone should NOT be removed by the resumed generation
+	newTombstone := uint64(40)
+	t.Run("add new tombstone during interruption", func(t *testing.T) {
+		err := vectorIndex.Delete(newTombstone)
+		require.NoError(t, err)
+		// Now we have 3 original + 1 new = 4 tombstones in the live map
+		// But the checkpoint only has the 3 original ones
+	})
+
+	// Resume cleanup - this should load the checkpoint and continue
+	t.Run("resume cleanup from checkpoint", func(t *testing.T) {
+		err := vectorIndex.CleanUpTombstonedNodes(neverStop)
+		require.NoError(t, err)
+	})
+
+	// Verify: original tombstones should be removed, new tombstone should remain
+	t.Run("verify only original tombstones removed", func(t *testing.T) {
+		// Original tombstones should be gone
+		for _, id := range originalTombstones {
+			require.False(t, vectorIndex.hasTombstone(id),
+				"original tombstone %d should have been removed", id)
+		}
+
+		// New tombstone should still be present (deferred to next generation)
+		require.True(t, vectorIndex.hasTombstone(newTombstone),
+			"new tombstone %d should remain pending for next generation", newTombstone)
+
+		// Verify tombstone count
+		require.Len(t, vectorIndex.tombstones, 1,
+			"should have exactly 1 tombstone remaining (the new one)")
+	})
+
+	// Verify checkpoint was deleted after successful completion
+	t.Run("verify checkpoint deleted after completion", func(t *testing.T) {
+		_, err := os.Stat(checkpointPath)
+		require.True(t, os.IsNotExist(err),
+			"checkpoint file should be deleted after successful completion")
+	})
+
+	// Run cleanup again to clean up the new tombstone
+	t.Run("second cleanup removes the new tombstone", func(t *testing.T) {
+		err := vectorIndex.CleanUpTombstonedNodes(neverStop)
+		require.NoError(t, err)
+
+		require.False(t, vectorIndex.hasTombstone(newTombstone),
+			"new tombstone should be removed in second generation")
+		require.Len(t, vectorIndex.tombstones, 0,
+			"all tombstones should be removed after second cleanup")
+	})
+
+	t.Run("destroy the index", func(t *testing.T) {
+		require.NoError(t, vectorIndex.Drop(context.Background(), false))
 	})
 }
