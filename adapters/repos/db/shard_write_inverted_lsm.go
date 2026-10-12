@@ -12,13 +12,11 @@
 package db
 
 import (
-	"context"
 	"encoding/binary"
 	"fmt"
 	"math"
 	"math/bits"
 	"strings"
-	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -274,49 +272,6 @@ func (s *Shard) subtractPropLengths(props []inverted.Property) error {
 			return err
 		}
 
-	}
-
-	return nil
-}
-
-var uniqueCounter atomic.Uint64
-
-// GenerateUniqueString generates a random string of the specified length
-func GenerateUniqueString(length int) (string, error) {
-	uniqueCounter.Add(1)
-	return fmt.Sprintf("%v", uniqueCounter.Load()), nil
-}
-
-// Empty the dimensions bucket, quickly and efficiently
-func (s *Shard) resetDimensionsLSM(ctx context.Context) error {
-	// Load the current one, or an empty one if it doesn't exist
-	err := s.createDimensionsBucket(context.Background(), helpers.DimensionsBucketLSM)
-	if err != nil {
-		return fmt.Errorf("create dimensions bucket: %w", err)
-	}
-
-	// Fetch the actual bucket
-	b := s.store.Bucket(helpers.DimensionsBucketLSM)
-	if b == nil {
-		return errors.Errorf("resetDimensionsLSM: no bucket dimensions")
-	}
-
-	// Create random bucket name
-	name, err := GenerateUniqueString(32)
-	if err != nil {
-		return errors.Wrap(err, "generate unique bucket name")
-	}
-
-	// Create a new bucket with the unique name
-	err = s.createDimensionsBucket(context.Background(), name)
-	if err != nil {
-		return errors.Wrap(err, "create temporary dimensions bucket")
-	}
-
-	// Replace the old bucket with the new one
-	err = s.store.ReplaceBuckets(context.Background(), helpers.DimensionsBucketLSM, name)
-	if err != nil {
-		return errors.Wrap(err, "replace dimensions bucket")
 	}
 
 	return nil

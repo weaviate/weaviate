@@ -579,7 +579,7 @@ func NewIndex(
 func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	promMetrics *monitoring.PrometheusMetrics,
 ) error {
-	var openLocalShards []string
+	var openLocalShards, coldLocalShards []string
 	className := i.Config.ClassName.String()
 
 	state, err := i.namespaceState()
@@ -607,6 +607,13 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		shardingState.ForEachLocalOpenPhysical(func(name string) {
 			openLocalShards = append(openLocalShards, name)
 		})
+		// a frozen tenant has no dir, it is prepared when it loads after unfreezing
+		for name, physical := range shardingState.Physical {
+			if shardingState.IsLocalPhysical(physical) &&
+				physical.ActivityStatus() == models.TenantActivityStatusCOLD {
+				coldLocalShards = append(coldLocalShards, name)
+			}
+		}
 
 		return nil
 	})
@@ -620,6 +627,9 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	if startupShards == nil {
 		startupShards = &startupShardCounters{}
 	}
+
+	withDirs := append(slices.Clone(openLocalShards), coldLocalShards...)
+	i.prepareDimensionsOfShards(ctx, class, withDirs)
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
@@ -1739,6 +1749,8 @@ type IndexConfig struct {
 	SkipWriteClassNameOnDisk            bool
 	TrackVectorDimensions               bool
 	TrackVectorDimensionsInterval       time.Duration
+	MigrateDimensionsToRoaringSet       bool
+	DimensionsReindex                   *dimensionsReindex
 	UsageEnabled                        bool
 	ShardLoadLimiter                    *loadlimiter.LoadLimiter
 	StartupShards                       *startupShardCounters
@@ -4172,6 +4184,7 @@ func (i *Index) drop() error {
 	if err := i.beginClose(); err != nil {
 		return err
 	}
+	i.Config.DimensionsReindex.forget(i.ID())
 
 	// Check if a backup is in progress. Dont delete files in this case so the backup process can complete successfully
 	// The files will be deleted after the backup is completed and in case of a crash on next startup.
@@ -4335,6 +4348,7 @@ func (i *Index) dropShards(names []string) error {
 	ec.Add(eg.Wait())
 
 	i.purgeUnloadedShardRegistry(unloadedNames)
+	i.Config.DimensionsReindex.forget(i.ID(), names...)
 
 	return ec.ToErrorLimited(maxReportedErrors)
 }
