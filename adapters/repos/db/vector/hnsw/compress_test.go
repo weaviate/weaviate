@@ -273,6 +273,96 @@ func requireRecoveryBypassesFloatCache(t *testing.T, index *hnsw, floatCache cac
 	}
 }
 
+// A multivector or muvera BQ index compresses in New on every start.
+// Recovering a node's missing compressed vector must read that node's own vector.
+func Test_MultiVectorBQRecoveryOnRestart(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	// BQ keeps only signs, so doc 0's token encodes differently from doc 1's
+	docs := [][][]float32{
+		{{-1, -2, -3}},
+		{{1, 2, 3}, {3, 2, 1}},
+	}
+	tests := []struct {
+		name   string
+		muvera ent.MuveraConfig
+		// node returns the node holding doc 1's first token, or doc 1's
+		// muvera encoding when muvera is on
+		node func(*hnsw) uint64
+	}{
+		{
+			name: "multivector",
+			node: func(index *hnsw) uint64 { return index.docIDVectors[1][0] },
+		},
+		{
+			name:   "muvera",
+			muvera: ent.MuveraConfig{Enabled: true, KSim: 2, DProjections: 3, Repetitions: 5},
+			node:   func(*hnsw) uint64 { return 1 },
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			store := testinghelpers.NewDummyStoreFromFolder(tempDir, t)
+			id := "vectors_multi_bq"
+			cfg := Config{
+				RootPath: tempDir,
+				ID:       id,
+				MakeCommitLoggerThunk: func() (CommitLogger, error) {
+					return NewCommitLogger(tempDir, id, logger, cyclemanager.NewCallbackGroupNoop())
+				},
+				DistanceProvider: distancer.NewDotProductProvider(),
+				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+					return nil, errors.New("multivector index reads MultiVectorForIDThunk")
+				},
+				MultiVectorForIDThunk: func(ctx context.Context, id uint64) ([][]float32, error) {
+					return docs[id], nil
+				},
+				GetViewThunk:        func() common.BucketView { return &noopBucketView{} },
+				MakeBucketOptions:   lsmkv.MakeNoopBucketOptions,
+				AllocChecker:        memwatch.NewDummyMonitor(),
+				WaitForCachePrefill: true,
+			}
+			uc := ent.UserConfig{
+				VectorCacheMaxObjects: 1e12,
+				MaxConnections:        8,
+				EFConstruction:        64,
+				EF:                    64,
+				Multivector:           ent.MultivectorConfig{Enabled: true, MuveraConfig: tt.muvera},
+				BQ:                    ent.BQConfig{Enabled: true},
+			}
+
+			index, err := New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), store)
+			require.NoError(t, err)
+			for docID, vecs := range docs {
+				require.NoError(t, index.AddMulti(ctx, uint64(docID), vecs))
+			}
+			node := tt.node(index)
+			want, err := index.compressor.GetCompressed(node)
+			require.NoError(t, err)
+			require.NoError(t, index.Flush())
+			require.NoError(t, index.Shutdown(ctx))
+			store.FlushMemtables(ctx)
+
+			bucket := store.Bucket(helpers.GetCompressedBucketName("multi_bq"))
+			require.NotNil(t, bucket)
+			idBytes := make([]byte, 8)
+			binary.BigEndian.PutUint64(idBytes, node)
+			require.NoError(t, bucket.Delete(idBytes))
+			store.FlushMemtables(ctx)
+
+			index, err = New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), store)
+			require.NoError(t, err)
+			defer index.Shutdown(ctx)
+			index.PostStartup(ctx)
+
+			got, err := index.compressor.GetCompressed(node)
+			require.NoError(t, err)
+			require.Equal(t, want, got)
+		})
+	}
+}
+
 func Test_CompressAndInsertDoNotRace(t *testing.T) {
 	efConstruction := 64
 	ef := 32
