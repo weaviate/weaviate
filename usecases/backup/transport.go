@@ -60,6 +60,11 @@ type Request struct {
 	// SkipRoles is the IncludeRoles counterpart of SkipUsers.
 	SkipRoles bool
 
+	// BuiltInRoleAssignments goes from the scheduler to the coordinator's global
+	// descriptor only. canCommit leaves it off participant requests, and the tag
+	// keeps it off the wire.
+	BuiltInRoleAssignments []byte `json:"-"`
+
 	// Duration
 	Duration time.Duration
 
