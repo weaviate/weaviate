@@ -850,15 +850,21 @@ func FromEnv(config *Config) error {
 	} else if config.Backup.StaleTimeout == 0 {
 		config.Backup.StaleTimeout = DefaultBackupStaleTimeout
 	}
+	if config.Backup.StaleTimeout < 0 {
+		return fmt.Errorf("BACKUP_STALE_TIMEOUT must be non-negative")
+	}
 
 	if v := os.Getenv("BACKUP_MAX_UNIT_RETRIES"); v != "" {
-		parsed, err := strconv.Atoi(v)
+		parsed, err := strconv.ParseInt(v, 10, 32)
 		if err != nil {
 			return fmt.Errorf("parse BACKUP_MAX_UNIT_RETRIES: %w", err)
 		}
 		config.Backup.MaxUnitRetries = int32(parsed)
 	} else if config.Backup.MaxUnitRetries == 0 {
 		config.Backup.MaxUnitRetries = DefaultBackupMaxUnitRetries
+	}
+	if config.Backup.MaxUnitRetries < 0 {
+		return fmt.Errorf("BACKUP_MAX_UNIT_RETRIES must be non-negative")
 	}
 
 	if v := os.Getenv("QUERY_DEFAULTS_LIMIT_GRAPHQL"); v != "" {

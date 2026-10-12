@@ -665,8 +665,8 @@ func (p *BackupTaskProvider) runNodeBackup(
 				return
 			}
 			p.logger.WithFields(logFields).WithField("unit", unitID).
-				Warnf("claim write failed: %v", err)
-		}
+				Warnf("claim write failed, not uploading: %v", err)
+			return
 	}
 
 	completionTracker := newClassCompletionTracker(len(pending))
