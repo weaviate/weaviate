@@ -191,8 +191,8 @@ func (sq *ScalarQuantizer) FromCompressedBytes(compressed []byte) []byte {
 	return compressed
 }
 
-func (sq *ScalarQuantizer) PersistCompression(logger CommitLogger) {
-	logger.AddSQCompression(compression.SQData{
+func (sq *ScalarQuantizer) PersistCompression(logger CommitLogger) error {
+	return logger.AddSQCompression(compression.SQData{
 		A:          sq.a,
 		B:          sq.b,
 		Dimensions: uint16(sq.dimensions),
