@@ -152,5 +152,6 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 	h.compressor.PersistCompression(h.commitLog)
 	h.compressed.Store(true)
 	h.cache.Drop()
+	h.cache = nil
 	return nil
 }

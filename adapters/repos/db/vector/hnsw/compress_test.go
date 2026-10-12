@@ -218,6 +218,7 @@ func Test_CompressedVectorRecoveryBypassesFloatCache(t *testing.T) {
 			require.NoError(t, index.UpdateUserConfig(tt.uc, func() { close(compressed) }))
 			<-compressed
 			require.True(t, index.compressed.Load())
+			require.Nil(t, index.cache, "a compressed index holds no float32 cache")
 			requireRecoveryBypassesFloatCache(t, index, floatCache, &readErrs, 1, 2, 3)
 
 			require.NoError(t, index.Flush())
@@ -229,8 +230,8 @@ func Test_CompressedVectorRecoveryBypassesFloatCache(t *testing.T) {
 			defer index.Shutdown(ctx)
 			index.PostStartup(ctx)
 			require.True(t, index.compressed.Load())
-			// New sets index.cache to nil when it compresses a BQ index
-			requireRecoveryBypassesFloatCache(t, index, index.cache, &readErrs, 4, 5, 6)
+			require.Nil(t, index.cache, "a restored compressed index holds no float32 cache")
+			requireRecoveryBypassesFloatCache(t, index, nil, &readErrs, 4, 5, 6)
 		})
 	}
 }

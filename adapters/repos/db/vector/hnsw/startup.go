@@ -142,6 +142,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 	if state.Compressed {
 		h.compressed.Store(state.Compressed)
 		h.cache.Drop()
+		h.cache = nil
 		if state.CompressionPQData != nil {
 			data := state.CompressionPQData
 			h.dims.Store(int32(data.Dimensions))
