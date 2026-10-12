@@ -2252,7 +2252,7 @@ func TestBackupDTMProposeCarriesBuiltInRoleAssignments(t *testing.T) {
 
 func TestBackupProposeRetry(t *testing.T) {
 	// One clean propose first, to capture the exact bytes the propose path
-	// marshals for this request. Every subtest compares against these.
+	// marshals for this request. Stored-payload subtests start from these.
 	fixture := newDTMProposeFixture(t)
 	_, err := fixture.scheduler.Backup(context.Background(), nil, fixture.req)
 	require.NoError(t, err)
@@ -2311,6 +2311,88 @@ func TestBackupProposeRetry(t *testing.T) {
 		require.Error(t, err)
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 		assert.Contains(t, err.Error(), "already in use")
+	})
+
+	t.Run("a retry matches on request fields, not derived ones", func(t *testing.T) {
+		restamp := func(mutate func(p *taskPayload)) []byte {
+			p, err := unmarshalTaskPayload(proposedPayload)
+			require.NoError(t, err)
+			mutate(p)
+			b, err := marshalTaskPayload(p)
+			require.NoError(t, err)
+			return b
+		}
+		tests := []struct {
+			name     string
+			stored   []byte
+			wantSame bool
+		}{
+			{"the leader moved after a failover", restamp(func(p *taskPayload) { p.Leader = "Node-B" }), true},
+			{"every derived field was recomputed", restamp(func(p *taskPayload) {
+				p.Leader = "Node-B"
+				p.Nodes = map[string]*backup.NodeDescriptor{"Node-B": {Classes: p.Classes}}
+				p.ServerVersion = "0.0.0-other"
+				p.BuiltInRoleAssignments = []byte(`{"version":1}`)
+				p.CompressionType = backup.CompressionZSTD
+			}), true},
+			{"the classes differ", restamp(func(p *taskPayload) { p.Classes = []string{"Class-B"} }), false},
+			{"the bucket differs", restamp(func(p *taskPayload) { p.Bucket = "other-bucket" }), false},
+			{"the stored payload is unreadable", []byte("{"), false},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				f := newDTMProposeFixture(t)
+				f.dtm.proposeErr = distributedtask.ErrTaskAlreadyRunning
+				f.dtm.getTask = &distributedtask.Task{
+					Namespace:      BackupTaskNamespace,
+					TaskDescriptor: distributedtask.TaskDescriptor{ID: f.req.ID},
+					Payload:        tc.stored,
+					Status:         distributedtask.TaskStatusStarted,
+				}
+
+				resp, err := f.scheduler.Backup(context.Background(), nil, f.req)
+				if tc.wantSame {
+					require.NoError(t, err)
+					require.NotNil(t, resp)
+					assert.Equal(t, f.req.ID, resp.ID)
+					return
+				}
+				assert.Nil(t, resp)
+				require.Error(t, err)
+				assert.IsType(t, backup.ErrUnprocessable{}, err)
+				assert.Contains(t, err.Error(), "different configuration")
+			})
+		}
+	})
+
+	t.Run("classes stored in another order are the same request", func(t *testing.T) {
+		ctx := context.Background()
+		f := newDTMProposeFixture(t)
+		selector := f.scheduler.backupper.selector.(*fakeSelector)
+		selector.On("Backupable", ctx, []string{"Class-A", "Class-B"}).Return(nil)
+		selector.On("Shards", ctx, "Class-B").Return([]string{"Node-A"}, nil)
+		f.req.Include = []string{"Class-A", "Class-B"}
+		_, err := f.scheduler.Backup(ctx, nil, f.req)
+		require.NoError(t, err)
+		stored, err := unmarshalTaskPayload(f.dtm.proposedPayload)
+		require.NoError(t, err)
+		require.Equal(t, []string{"Class-A", "Class-B"}, stored.Classes)
+		stored.Classes = []string{"Class-B", "Class-A"}
+		storedBytes, err := marshalTaskPayload(stored)
+		require.NoError(t, err)
+
+		f.dtm.proposeErr = distributedtask.ErrTaskAlreadyRunning
+		f.dtm.getTask = &distributedtask.Task{
+			Namespace:      BackupTaskNamespace,
+			TaskDescriptor: distributedtask.TaskDescriptor{ID: f.req.ID},
+			Payload:        storedBytes,
+			Status:         distributedtask.TaskStatusStarted,
+		}
+
+		resp, err := f.scheduler.Backup(ctx, nil, f.req)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.Equal(t, f.req.ID, resp.ID)
 	})
 
 	t.Run("a nil-nil miss passes the conflict through", func(t *testing.T) {

@@ -12,7 +12,6 @@
 package backup
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -422,7 +421,9 @@ func (s *Scheduler) backupViaDTM(ctx context.Context, req *BackupRequest, sel ba
 			if existing == nil {
 				return nil, backup.NewErrUnprocessable(fmt.Errorf("backup %q conflicts with another operation: %w", req.ID, addErr))
 			}
-			if bytes.Equal(existing.Payload, payloadBytes) {
+			// An unreadable stored payload cannot prove the same request, so it
+			// takes the mismatch path.
+			if stored, err := unmarshalTaskPayload(existing.Payload); err == nil && payload.sameRequestConfig(stored) {
 				return s.buildDTMCreateResponse(req, sel, store, existing), nil
 			}
 			return nil, backup.NewErrUnprocessable(fmt.Errorf("backup ID %q is already in use with a different configuration", req.ID))

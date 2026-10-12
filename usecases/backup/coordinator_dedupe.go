@@ -125,7 +125,10 @@ func projectDesignations(plan *DedupePlan, nodeName string) map[string]map[strin
 
 // verifyDesignatedCoverage confirms every designated shard is present in its designated node's uploaded descriptor.
 // A miss means the shard is in nobody's archive (replica set changed mid-backup) and the backup must fail rather than report Success over silent loss.
-func (c *coordinator) verifyDesignatedCoverage(ctx context.Context, req *StatusRequest, plan *DedupePlan, nodeMetas map[string]*backup.BackupDescriptor) error {
+// pollInterval paces readNodeMeta's retries.
+func verifyDesignatedCoverage(ctx context.Context, backends BackupBackendProvider, pollInterval time.Duration,
+	req *StatusRequest, plan *DedupePlan, nodeMetas map[string]*backup.BackupDescriptor,
+) error {
 	byNode := make(map[string]map[string][]string)
 	for class, shards := range plan.Designations {
 		for shard, node := range shards {
@@ -141,11 +144,11 @@ func (c *coordinator) verifyDesignatedCoverage(ctx context.Context, req *StatusR
 	}
 	sort.Strings(nodes)
 	for _, node := range nodes {
-		// commit already fetched most per-node descriptors; re-read only the ones it could not.
+		// The caller already fetched most per-node descriptors; re-read only the ones it could not.
 		meta := nodeMetas[node]
 		if meta == nil {
 			var err error
-			meta, err = c.readNodeMeta(ctx, req, node)
+			meta, err = readNodeMeta(ctx, backends, pollInterval, req, node)
 			if err != nil {
 				return fmt.Errorf("verify designated shards of node %q: %w", node, err)
 			}
@@ -168,9 +171,9 @@ func (c *coordinator) verifyDesignatedCoverage(ctx context.Context, req *StatusR
 	return nil
 }
 
-// readNodeMeta reads one node's per-node descriptor, retrying backend errors on the poll cadence; a missing descriptor is deterministic and fails immediately.
-func (c *coordinator) readNodeMeta(ctx context.Context, req *StatusRequest, node string) (*backup.BackupDescriptor, error) {
-	backend, err := c.backends.BackupBackend(req.Backend, modulecapabilities.BackendUseCaseBackup)
+// readNodeMeta reads one node's per-node descriptor, retrying backend errors every pollInterval; a missing descriptor is deterministic and fails immediately.
+func readNodeMeta(ctx context.Context, backends BackupBackendProvider, pollInterval time.Duration, req *StatusRequest, node string) (*backup.BackupDescriptor, error) {
+	backend, err := backends.BackupBackend(req.Backend, modulecapabilities.BackendUseCaseBackup)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +193,7 @@ func (c *coordinator) readNodeMeta(ctx context.Context, req *StatusRequest, node
 		if errors.As(err, &notFound) {
 			return nil, err
 		}
-		if attempt >= 2 || !sleepUntil(ctx, time.Now().Add(c.dedupePollInterval)) {
+		if attempt >= 2 || !sleepUntil(ctx, time.Now().Add(pollInterval)) {
 			return nil, err
 		}
 	}

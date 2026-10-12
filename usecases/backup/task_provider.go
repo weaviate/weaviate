@@ -1015,22 +1015,7 @@ func (p *BackupTaskProvider) writeStartedDescriptor(ctx context.Context, task *d
 		return fmt.Errorf("started descriptor: init backend: %w", err)
 	}
 
-	descriptor := &backup.DistributedBackupDescriptor{
-		StartedAt:       task.StartedAt,
-		ID:              payload.ID,
-		Nodes:           payload.Nodes,
-		ServerVersion:   payload.ServerVersion,
-		Leader:          payload.Leader,
-		BaseBackupID:    payload.BaseBackupID,
-		Users:           payload.Users,
-		Roles:           payload.Roles,
-		SkipUsers:       payload.SkipUsers,
-		SkipRoles:       payload.SkipRoles,
-		CompressionType: payload.CompressionType,
-		Status:          backup.Started,
-
-		BuiltInRoleAssignments: payload.BuiltInRoleAssignments,
-	}
+	descriptor := payload.descriptorSeed().descriptor(task.StartedAt, backup.Started)
 	plan.stamp(descriptor, payload.BaseChainDeduped)
 
 	var writeErr error
@@ -1099,25 +1084,10 @@ func (p *BackupTaskProvider) writeTerminalDescriptor(task *distributedtask.Task,
 
 	status, errMsg := backupVerdict(task)
 
-	descriptor := &backup.DistributedBackupDescriptor{
-		StartedAt:      task.StartedAt,
-		ID:             payload.ID,
-		Nodes:          payload.Nodes,
-		Version:        payload.artifactVersion(),
-		ServerVersion:  payload.ServerVersion,
-		Leader:         payload.Leader,
-		BaseBackupID:   payload.BaseBackupID,
-		Users:          payload.Users,
-		Roles:          payload.Roles,
-		SkipUsers:      payload.SkipUsers,
-		SkipRoles:      payload.SkipRoles,
-		DedupeReplicas: false,
-		Status:         status,
-		Error:          errMsg,
-		CompletedAt:    time.Now().UTC(),
-
-		BuiltInRoleAssignments: payload.BuiltInRoleAssignments,
-	}
+	descriptor := payload.descriptorSeed().descriptor(task.StartedAt, status)
+	descriptor.Version = payload.artifactVersion()
+	descriptor.Error = errMsg
+	descriptor.CompletedAt = time.Now().UTC()
 	if payload.DedupeReplicas && err == nil {
 		descriptor.Version = existing.Version
 		descriptor.DedupeReplicas = existing.DedupeReplicas
@@ -1168,7 +1138,6 @@ func (p *BackupTaskProvider) writeTerminalDescriptor(task *distributedtask.Task,
 		}
 	}
 	descriptor.PreCompressionSizeBytes = totalSize
-	descriptor.CompressionType = payload.CompressionType
 	if len(nodeFailures) > 0 {
 		slices.Sort(nodeFailures)
 		descriptor.Status = backup.Failed
@@ -1177,7 +1146,6 @@ func (p *BackupTaskProvider) writeTerminalDescriptor(task *distributedtask.Task,
 
 	if descriptor.Status == backup.Success && len(descriptor.DedupeDesignations) > 0 {
 		logger := p.logger.WithField("backup_id", task.ID)
-		verifier := newCoordinator(nil, nil, nil, p.logger, nil, p.backends, nil, nil)
 		statusReq := &StatusRequest{
 			Method:       OpCreate,
 			ID:           payload.ID,
@@ -1187,7 +1155,7 @@ func (p *BackupTaskProvider) writeTerminalDescriptor(task *distributedtask.Task,
 			BaseBackupID: payload.BaseBackupID,
 		}
 		plan := &DedupePlan{Designations: descriptor.DedupeDesignations}
-		if err := verifier.verifyDesignatedCoverage(ctx, statusReq, plan, nodeMetas); err != nil {
+		if err := verifyDesignatedCoverage(ctx, p.backends, _DedupePollInterval, statusReq, plan, nodeMetas); err != nil {
 			descriptor.Status = backup.Failed
 			descriptor.Error = err.Error()
 			logger.Errorf("designated-shard coverage check failed: %v", err)

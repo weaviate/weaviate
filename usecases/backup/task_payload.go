@@ -14,6 +14,7 @@ package backup
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/weaviate/weaviate/entities/backup"
 )
@@ -51,6 +52,54 @@ func (p *taskPayload) artifactVersion() string {
 		return VersionDedupeReplicas
 	}
 	return Version
+}
+
+func (p *taskPayload) descriptorSeed() descriptorSeed {
+	return descriptorSeed{
+		ID:                     p.ID,
+		Nodes:                  p.Nodes,
+		ServerVersion:          p.ServerVersion,
+		Leader:                 p.Leader,
+		BaseBackupID:           p.BaseBackupID,
+		Users:                  p.Users,
+		Roles:                  p.Roles,
+		SkipUsers:              p.SkipUsers,
+		SkipRoles:              p.SkipRoles,
+		CompressionType:        p.CompressionType,
+		BuiltInRoleAssignments: p.BuiltInRoleAssignments,
+	}
+}
+
+// sameRequestConfig reports whether p and other carry the same client request.
+// Request-determined fields define the idempotency key. Derived fields
+// (Leader, Nodes, ServerVersion, BuiltInRoleAssignments, CompressionType,
+// BaseChainDeduped) are recomputed on retry and may legitimately differ.
+func (p *taskPayload) sameRequestConfig(other *taskPayload) bool {
+	return p.Backend == other.Backend &&
+		sameStringSet(p.Classes, other.Classes) &&
+		sameStringSet(p.Users, other.Users) &&
+		sameStringSet(p.Roles, other.Roles) &&
+		p.SkipUsers == other.SkipUsers &&
+		p.SkipRoles == other.SkipRoles &&
+		p.Compression == other.Compression &&
+		p.Bucket == other.Bucket &&
+		p.Path == other.Path &&
+		p.BaseBackupID == other.BaseBackupID &&
+		p.DedupeReplicas == other.DedupeReplicas &&
+		p.DedupeConvergenceTimeoutSeconds == other.DedupeConvergenceTimeoutSeconds
+}
+
+// sameStringSet compares order-insensitively: Classes, Users and Roles come
+// from server-side selection (ListClasses, lister expansion), whose order is
+// not stable across nodes.
+func sameStringSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	a, b = slices.Clone(a), slices.Clone(b)
+	slices.Sort(a)
+	slices.Sort(b)
+	return slices.Equal(a, b)
 }
 
 func marshalTaskPayload(p *taskPayload) ([]byte, error) {

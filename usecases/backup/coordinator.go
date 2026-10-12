@@ -243,22 +243,19 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 			func() bool { return c.lastOp.get().cancelSignalled() })
 	}
 
-	c.descriptor = &backup.DistributedBackupDescriptor{
-		StartedAt:       time.Now().UTC(),
-		Status:          backup.Started,
-		ID:              req.ID,
-		Nodes:           groups,
-		ServerVersion:   config.ServerVersion,
-		Leader:          leader,
-		CompressionType: compressionType,
-		BaseBackupID:    req.BaseBackupID,
-		Users:           req.Users,
-		Roles:           req.Roles,
-		SkipUsers:       req.SkipUsers,
-		SkipRoles:       req.SkipRoles,
-
+	c.descriptor = descriptorSeed{
+		ID:                     req.ID,
+		Nodes:                  groups,
+		ServerVersion:          config.ServerVersion,
+		Leader:                 leader,
+		BaseBackupID:           req.BaseBackupID,
+		Users:                  req.Users,
+		Roles:                  req.Roles,
+		SkipUsers:              req.SkipUsers,
+		SkipRoles:              req.SkipRoles,
+		CompressionType:        compressionType,
 		BuiltInRoleAssignments: req.BuiltInRoleAssignments,
-	}
+	}.descriptor(time.Now().UTC(), backup.Started)
 	dedupeEffective := plan.stamp(c.descriptor, req.BaseChainDeduped)
 	req.DedupeEffective = dedupeEffective
 
@@ -309,7 +306,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		nodeMetas := c.commit(ctx, &statusReq, nodes, false, true)
 		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
 		if dedupeEffective && c.descriptor.Status == backup.Success {
-			if err := c.verifyDesignatedCoverage(ctx, &statusReq, plan, nodeMetas); err != nil {
+			if err := verifyDesignatedCoverage(ctx, c.backends, c.dedupePollInterval, &statusReq, plan, nodeMetas); err != nil {
 				c.descriptor.Status = backup.Failed
 				c.descriptor.Error = err.Error()
 				c.log.WithFields(logFields).Errorf("coordinator: designated-shard coverage check failed: %v", err)
