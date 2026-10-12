@@ -20,7 +20,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
@@ -297,4 +300,62 @@ func TestParamsPropertiesToExtract(t *testing.T) {
 	}}
 
 	assert.Equal(t, []string{"text", "title"}, params.GetPropertiesToExtract())
+}
+
+func TestParamsValidateFor(t *testing.T) {
+	class := &models.Class{Class: "Tickets", Properties: []*models.Property{
+		{Name: "text", DataType: schema.DataTypeText.PropString()},
+		{Name: "count", DataType: schema.DataTypeInt.PropString()},
+		{Name: "photo", DataType: schema.DataTypeBlob.PropString()},
+	}}
+	text := Limits{Module: "decisions-x", DecisionLimits: modulecapabilities.DecisionLimits{
+		MaxDocuments: 100, MaxOptions: 3, MaxLevels: 2, DataTypes: []schema.DataType{schema.DataTypeText},
+	}}
+	images := Limits{Module: "decisions-y", DecisionLimits: modulecapabilities.DecisionLimits{
+		DataTypes: []schema.DataType{schema.DataTypeText, schema.DataTypeBlob},
+	}}
+	options := func(n int) []ent.DecisionOption {
+		out := make([]ent.DecisionOption, n)
+		for i := range out {
+			out[i] = ent.DecisionOption{Value: strings.Repeat("o", i+1)}
+		}
+		return out
+	}
+	levels := func(n int) []ent.DecisionLevel {
+		out := make([]ent.DecisionLevel, n)
+		for i := range out {
+			out[i] = ent.DecisionLevel{Label: strings.Repeat("l", i+1)}
+		}
+		return out
+	}
+	tests := []struct {
+		name      string
+		questions []ent.DecisionQuestion
+		limits    Limits
+		pageEnd   int
+		wantErr   string
+	}{
+		{name: "text within the limits", questions: []ent.DecisionQuestion{predicate("a", "text")}, limits: text, pageEnd: 100},
+		{name: "page beyond maxDocuments", questions: []ent.DecisionQuestion{predicate("a", "text")}, limits: text, pageEnd: 101, wantErr: "the page ends at 101, beyond maxDocuments 100 of decisions-x: lower offset+limit or raise maxDocuments"},
+		{name: "no maxDocuments means no page bound", questions: []ent.DecisionQuestion{predicate("a", "text")}, limits: images, pageEnd: 100000},
+		{name: "unknown property", questions: []ent.DecisionQuestion{predicate("a", "nope")}, limits: text, wantErr: `question "a": class "Tickets" has no property "nope"`},
+		{name: "property of another type", questions: []ent.DecisionQuestion{predicate("a", "count")}, limits: text, wantErr: `question "a": property "count" is of type "int", decisions-x judges [text]`},
+		{name: "image on a text-only module", questions: []ent.DecisionQuestion{predicate("a", "photo")}, limits: text, wantErr: `question "a": property "photo" is of type "blob", decisions-x judges [text]`},
+		{name: "image on a module that judges images", questions: []ent.DecisionQuestion{predicate("a", "photo")}, limits: images},
+		{name: "options at the module's limit", questions: []ent.DecisionQuestion{{Name: "a", Property: "text", Instructions: "x", Kind: ent.DecisionChoice, Options: options(3)}}, limits: text},
+		{name: "options above the module's limit", questions: []ent.DecisionQuestion{{Name: "a", Property: "text", Instructions: "x", Kind: ent.DecisionChoice, Options: options(4)}}, limits: text, wantErr: `question "a": 4 options exceed the limit of 3 of decisions-x`},
+		{name: "levels above the module's limit", questions: []ent.DecisionQuestion{{Name: "a", Property: "text", Instructions: "x", Kind: ent.DecisionScore, Levels: levels(3)}}, limits: text, wantErr: `question "a": 3 levels exceed the limit of 2 of decisions-x`},
+		{name: "no level limit means the ceiling", questions: []ent.DecisionQuestion{{Name: "a", Property: "text", Instructions: "x", Kind: ent.DecisionScore, Levels: levels(MaxLevels)}}, limits: images},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := (&Params{Questions: tt.questions}).ValidateFor(class, tt.limits, tt.pageEnd)
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
 }

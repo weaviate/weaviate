@@ -23,6 +23,7 @@ package clients
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -30,6 +31,37 @@ import (
 )
 
 const RefuseInstructions = "refuse"
+
+// DefaultMaxDocuments is the page the module judges unless the class
+// setting maxDocuments says otherwise.
+const DefaultMaxDocuments = 100
+
+// MaxDocuments reads the maxDocuments class setting; a missing or wrong
+// value is the default.
+func MaxDocuments(cfg moduletools.ClassConfig) int {
+	if cfg == nil {
+		return DefaultMaxDocuments
+	}
+	settings := cfg.ClassByModuleName("decisions-dummy")
+	if settings == nil {
+		settings = cfg.Class()
+	}
+	switch value := settings["maxDocuments"].(type) {
+	case int:
+		if value > 0 {
+			return value
+		}
+	case float64:
+		if value > 0 {
+			return int(value)
+		}
+	case json.Number:
+		if n, err := value.Int64(); err == nil && n > 0 {
+			return int(n)
+		}
+	}
+	return DefaultMaxDocuments
+}
 
 type Client struct{}
 

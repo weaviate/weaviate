@@ -70,6 +70,7 @@ type Service struct {
 	batchHandler       batch.Batcher
 	batchStreamHandler *batch.StreamHandler
 	batchObjectsSem    *semaphore.Weighted
+	decideLimits       decideLimitsFunc
 }
 
 func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *state.State) (*Service, batch.Drain) {
@@ -93,7 +94,12 @@ func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *sta
 		state.ServerConfig.Config.Namespaces.Enabled,
 		batch.WithStreamConfig(state.ServerConfig.Config.BatchStream),
 	)
+	var decideLimits decideLimitsFunc
+	if state.Modules != nil {
+		decideLimits = state.Modules.DecideLimits
+	}
 	return &Service{
+		decideLimits:         decideLimits,
 		traverser:            state.Traverser,
 		authComposer:         authComposer,
 		allowAnonymousAccess: state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled,
@@ -363,6 +369,7 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (reply *pb.
 		getClass,
 		principal,
 		s.config.Namespaces.Enabled,
+		s.decideLimits,
 	)
 	replier := NewReplier(
 		req.Uses_127Api,

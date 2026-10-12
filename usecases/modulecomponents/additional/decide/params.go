@@ -13,7 +13,11 @@ package decide
 
 import (
 	"fmt"
+	"slices"
 
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
@@ -113,6 +117,56 @@ func validateNames(what string, lowest, highest, count int, name func(int) strin
 			return fmt.Errorf("%s %q is listed twice", what, name(i))
 		}
 		seen[name(i)] = struct{}{}
+	}
+	return nil
+}
+
+// Limits are the limits of the class's decisions module, with the module's
+// name for the errors.
+type Limits struct {
+	Module string
+	modulecapabilities.DecisionLimits
+}
+
+// ValidateFor checks the questions against the class and the limits of its
+// decisions module, and the page against the module's maxDocuments. pageEnd
+// is offset+limit. It runs before the search, after Validate.
+func (p *Params) ValidateFor(class *models.Class, limits Limits, pageEnd int) error {
+	if limits.MaxDocuments > 0 && pageEnd > limits.MaxDocuments {
+		return fmt.Errorf("the page ends at %d, beyond maxDocuments %d of %s: lower offset+limit or raise maxDocuments",
+			pageEnd, limits.MaxDocuments, limits.Module)
+	}
+	for _, question := range p.Questions {
+		if err := validateQuestionFor(question, class, limits); err != nil {
+			return fmt.Errorf("question %q: %w", question.Name, err)
+		}
+	}
+	return nil
+}
+
+func validateQuestionFor(question ent.DecisionQuestion, class *models.Class, limits Limits) error {
+	property := propertyOf(class, question.Property)
+	if property == nil {
+		return fmt.Errorf("class %q has no property %q", class.Class, question.Property)
+	}
+	dataType, _ := schema.AsPrimitive(property.DataType)
+	if !slices.Contains(limits.DataTypes, dataType) {
+		return fmt.Errorf("property %q is of type %q, %s judges %v", question.Property, dataType, limits.Module, limits.DataTypes)
+	}
+	if limits.MaxOptions > 0 && len(question.Options) > limits.MaxOptions {
+		return fmt.Errorf("%d options exceed the limit of %d of %s", len(question.Options), limits.MaxOptions, limits.Module)
+	}
+	if limits.MaxLevels > 0 && len(question.Levels) > limits.MaxLevels {
+		return fmt.Errorf("%d levels exceed the limit of %d of %s", len(question.Levels), limits.MaxLevels, limits.Module)
+	}
+	return nil
+}
+
+func propertyOf(class *models.Class, name string) *models.Property {
+	for _, property := range class.Properties {
+		if property.Name == name {
+			return property
+		}
 	}
 	return nil
 }

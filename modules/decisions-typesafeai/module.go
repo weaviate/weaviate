@@ -23,7 +23,9 @@ import (
 
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/modules/decisions-typesafeai/clients"
+	"github.com/weaviate/weaviate/modules/decisions-typesafeai/config"
 	rerankeradditional "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
@@ -109,9 +111,21 @@ func (m *DecisionsTypeSafeAIModule) AdditionalProperties() map[string]modulecapa
 	return m.additionalProperties
 }
 
+// DecisionLimits: the API accepts at most 10 levels per score and judges
+// text; the options of a choice stay within the Weaviate ceiling.
+func (m *DecisionsTypeSafeAIModule) DecisionLimits(cfg moduletools.ClassConfig) modulecapabilities.DecisionLimits {
+	settings := config.NewClassSettings(cfg)
+	return modulecapabilities.DecisionLimits{
+		MaxDocuments: min(settings.MaxDocuments(), config.MaxDocumentsLimit),
+		MaxLevels:    config.MaxScoreLevels,
+		DataTypes:    []schema.DataType{schema.DataTypeText},
+	}
+}
+
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
 	_ = modulecapabilities.AdditionalProperties(New())
 	_ = modulecapabilities.MetaProvider(New())
+	_ = modulecapabilities.DecisionLimitsProvider(New())
 )

@@ -60,19 +60,26 @@ type generativeParser interface {
 	ReturnDebugForGrouped() bool
 }
 
+// decideLimitsFunc returns the limits of a class's decisions module for the
+// decide argument, see decide.Limits. nil skips the module's checks.
+type decideLimitsFunc func(className string) (decide.Limits, error)
+
 type Parser struct {
 	generative         generativeParser
 	authorizedGetClass classGetterWithAuthzFunc
 	principal          *models.Principal
 	namespacesEnabled  bool
+	decideLimits       decideLimitsFunc
 }
 
 func NewParser(uses127Api bool,
 	authorizedGetClass classGetterWithAuthzFunc,
 	principal *models.Principal,
 	namespacesEnabled bool,
+	decideLimits decideLimitsFunc,
 ) *Parser {
 	return &Parser{
+		decideLimits:       decideLimits,
 		generative:         generative.NewParser(uses127Api),
 		authorizedGetClass: authorizedGetClass,
 		principal:          principal,
@@ -396,6 +403,15 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		decisions, err := extractDecide(req.Decide)
 		if err != nil {
 			return dto.GetParams{}, err
+		}
+		if p.decideLimits != nil {
+			limits, err := p.decideLimits(class.Class)
+			if err != nil {
+				return dto.GetParams{}, fmt.Errorf("decide: %w", err)
+			}
+			if err := decisions.ValidateFor(class, limits, out.Pagination.Offset+out.Pagination.Limit); err != nil {
+				return dto.GetParams{}, fmt.Errorf("decide: %w", err)
+			}
 		}
 		if out.AdditionalProperties.ModuleParams == nil {
 			out.AdditionalProperties.ModuleParams = make(map[string]interface{})

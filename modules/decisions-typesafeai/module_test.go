@@ -16,6 +16,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func TestMaxConcurrentRequestsFromEnv(t *testing.T) {
@@ -45,6 +47,29 @@ func TestMaxConcurrentRequestsFromEnv(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestDecisionLimits(t *testing.T) {
+	tests := []struct {
+		name             string
+		settings         map[string]any
+		wantMaxDocuments int
+	}{
+		{name: "defaults", settings: map[string]any{}, wantMaxDocuments: 100},
+		{name: "maxDocuments from the class", settings: map[string]any{"maxDocuments": 40}, wantMaxDocuments: 40},
+		{name: "maxDocuments above the upper bound is capped", settings: map[string]any{"maxDocuments": 5000}, wantMaxDocuments: 1000},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			limits := New().DecisionLimits(classConfig(tt.settings))
+
+			assert.Equal(t, modulecapabilities.DecisionLimits{
+				MaxDocuments: tt.wantMaxDocuments,
+				MaxLevels:    10,
+				DataTypes:    []schema.DataType{schema.DataTypeText},
+			}, limits)
 		})
 	}
 }
