@@ -272,7 +272,10 @@ func (s *shardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([
 
 	if len(vec) != 0 {
 		s.shardedLocks.Lock(id)
-		s.storeLocked(id, vec)
+		// Drop can release the slice while vectorForID runs
+		if int(id) < len(s.cache) {
+			s.storeLocked(id, vec)
+		}
 		s.shardedLocks.Unlock(id)
 	}
 
@@ -470,8 +473,16 @@ func (s *shardedLockCache[T]) CountVectors() int64 {
 	return atomic.LoadInt64(&s.count)
 }
 
+// Drop releases the backing slice along with the vectors, since an empty slot
+// still costs a slice header per id.
 func (s *shardedLockCache[T]) Drop() {
-	s.deleteAllVectors()
+	s.maintenanceLock.Lock()
+	s.shardedLocks.LockAll()
+	s.cache = nil
+	atomic.StoreInt64(&s.count, 0)
+	s.shardedLocks.UnlockAll()
+	s.maintenanceLock.Unlock()
+
 	if s.deletionInterval != 0 {
 		s.cancel <- true
 	}

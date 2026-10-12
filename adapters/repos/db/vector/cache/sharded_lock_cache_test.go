@@ -679,6 +679,23 @@ func TestShardedLockCache_OpsOnFreshCache(t *testing.T) {
 	c.Drop()
 }
 
+// A miss still reading its vector when Drop releases the backing slice must
+// hand the vector back without storing it.
+func TestShardedLockCache_DropDuringMiss(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	var c Cache[float32]
+	c = NewShardedFloat32LockCache(func(ctx context.Context, id uint64) ([]float32, error) {
+		c.Drop()
+		return []float32{1, 2}, nil
+	}, nil, 1e12, 1, logger, false, 0, nil)
+
+	vec, err := c.Get(context.Background(), 0)
+	require.NoError(t, err)
+	assert.Equal(t, []float32{1, 2}, vec)
+	assert.EqualValues(t, 0, c.Len(), "Drop must release the backing slice")
+	assert.EqualValues(t, 0, c.CountVectors())
+}
+
 func TestShardedLockCache_GetAllInCurrentLockOnFreshCache(t *testing.T) {
 	t.Run("default max size does not fetch through", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
