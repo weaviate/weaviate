@@ -71,13 +71,10 @@ type DB struct {
 	shutdownOnce              sync.Once
 	startupComplete           atomic.Bool
 	startupShards             startupShardCounters
-	dimensionsReindex         dimensionsReindex
+	dimensionsReindex         startupRebuild
+	propLengthsRecount        startupRebuild
 	resourceScanState         *resourceScanState
 	memMonitor                *memwatch.Monitor
-
-	// propLengthsRecounted holds the ids of the shards whose property lengths
-	// were recounted in this process, see [Config.RecountPropertiesAtStartup].
-	propLengthsRecounted sync.Map
 
 	// indexLock is an RWMutex which allows concurrent access to various indexes,
 	// but only one modification at a time. R/W can be a bit confusing here,
@@ -349,7 +346,8 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		logger:                    logger,
 		localNodeName:             localNodeName,
 		config:                    config,
-		dimensionsReindex:         dimensionsReindex{enabled: config.ReindexVectorDimensions && config.TrackVectorDimensions},
+		dimensionsReindex:         startupRebuild{enabled: config.ReindexVectorDimensions && config.TrackVectorDimensions},
+		propLengthsRecount:        startupRebuild{enabled: config.RecountPropertiesAtStartup},
 		indices:                   map[string]*Index{},
 		remoteIndex:               remoteIndex,
 		nodeResolver:              nodeResolver,
@@ -442,7 +440,7 @@ type Config struct {
 	AvoidMMap                      bool
 
 	// RecountPropertiesAtStartup rebuilds the property lengths of every shard
-	// on its first load in this process.
+	// once in this process: before it loads, or as it loads if that failed.
 	RecountPropertiesAtStartup bool
 
 	// EnableLazyLoadShards controls lazy shard loading.

@@ -606,6 +606,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		}
 	}
 	i.prepareDimensionsOfShards(ctx, class, withDirs)
+	i.recountPropertyLengthsOfShards(ctx, class, withDirs)
 
 	hotShardNames := make([]string, 0, len(localShards))
 
@@ -1243,7 +1244,8 @@ type IndexConfig struct {
 	TrackVectorDimensions               bool
 	TrackVectorDimensionsInterval       time.Duration
 	MigrateDimensionsToRoaringSet       bool
-	DimensionsReindex                   *dimensionsReindex
+	DimensionsReindex                   *startupRebuild
+	PropertyLengthsRecount              *startupRebuild
 	UsageEnabled                        bool
 	ShardLoadLimiter                    *loadlimiter.LoadLimiter
 	StartupShards                       *startupShardCounters
@@ -3393,6 +3395,7 @@ func (i *Index) drop() error {
 		return err
 	}
 	i.Config.DimensionsReindex.forget(i.ID())
+	i.Config.PropertyLengthsRecount.forget(i.ID())
 
 	// Terminal registry sweep. Safe because beginClose sets i.closed under
 	// closeLock.Lock and drains every reader admitted before it, and every
@@ -3555,6 +3558,7 @@ func (i *Index) dropShards(names []string) error {
 
 	i.purgeUnloadedShardRegistry(unloadedNames)
 	i.Config.DimensionsReindex.forget(i.ID(), names...)
+	i.Config.PropertyLengthsRecount.forget(i.ID(), names...)
 
 	return ec.ToErrorLimited(maxReportedErrors)
 }
@@ -4240,4 +4244,70 @@ func (i *Index) beginClose() error {
 
 	i.inflight.Wait()
 	return nil
+}
+
+// recountPropertyLengthsOfShards recounts the property lengths of active and cold
+// shards before they load, without loading them. A failed shard is retried at load.
+func (i *Index) recountPropertyLengthsOfShards(ctx context.Context, class *models.Class, shardNames []string) {
+	recount := i.Config.PropertyLengthsRecount
+	if recount == nil || !recount.enabled || len(shardNames) == 0 {
+		return
+	}
+
+	start := time.Now()
+	eg := enterrors.NewErrorGroupWrapper(i.logger)
+	eg.SetLimit(_NUMCPU)
+	for _, name := range shardNames {
+		eg.Go(func() error {
+			i.recountUnloadedShardPropertyLengths(ctx, class, name)
+			return nil
+		}, name)
+	}
+	_ = eg.Wait()
+	i.logger.WithField("action", "recount_property_lengths").WithField("shards", len(shardNames)).
+		WithField("took", time.Since(start)).Info("property lengths recounted")
+}
+
+func (i *Index) recountUnloadedShardPropertyLengths(ctx context.Context, class *models.Class, name string) {
+	recount := i.Config.PropertyLengthsRecount
+	if !recount.pending(i.ID(), name) {
+		return
+	}
+	logger := i.logger.WithField("action", "recount_property_lengths").WithField("shard", name)
+	if _, err := os.Stat(shardPath(i.path(), name)); err != nil {
+		if !os.IsNotExist(err) {
+			logger.Errorf("could not recount property lengths: %v", err)
+		}
+		return
+	}
+
+	start := time.Now()
+	objects, err := i.recountUnloadedShard(ctx, class, name)
+	recount.record(i.ID(), name, objects, err == nil)
+	if err != nil {
+		logger.Errorf("could not recount property lengths, retrying when the shard loads: %v", err)
+		return
+	}
+	logger.WithField("objects", objects).WithField("took", time.Since(start)).Info("property lengths recounted")
+}
+
+func (i *Index) recountUnloadedShard(ctx context.Context, class *models.Class, name string) (objects int, err error) {
+	if i.unloadedShardIsEmpty(name) {
+		return 0, nil
+	}
+	s, closeShard, err := i.openUnloadedShard(ctx, class, name)
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		if closeErr := closeShard(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}()
+
+	r := newPropertyLengthsRecounter(s)
+	if objects, err = r.count(ctx); err != nil {
+		return 0, err
+	}
+	return objects, r.replaceTrackerFile()
 }
