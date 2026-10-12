@@ -516,6 +516,46 @@ func Test_AddClass(t *testing.T) {
 	})
 }
 
+// keepModuleConfig is a module config fake whose defaults leave the class's
+// moduleConfig as the test wrote it.
+type keepModuleConfig struct{ fakeModuleConfig }
+
+func (keepModuleConfig) SetClassDefaults(*models.Class) {}
+
+// A class holds at most one reranker and one decisions module.
+func Test_AddClass_ModuleKinds(t *testing.T) {
+	tests := []struct {
+		name    string
+		modules map[string]interface{}
+		wantErr string
+	}{
+		{name: "a reranker and a decisions module", modules: map[string]interface{}{"reranker-a": map[string]interface{}{}, "decisions-b": map[string]interface{}{}}},
+		{name: "two rerankers", modules: map[string]interface{}{"reranker-b": map[string]interface{}{}, "reranker-a": map[string]interface{}{}}, wantErr: `class "Kinds" names 2 reranker modules, at most one is allowed: [reranker-a reranker-b]`},
+		{name: "two decisions modules", modules: map[string]interface{}{"decisions-b": map[string]interface{}{}, "decisions-a": map[string]interface{}{}}, wantErr: `class "Kinds" names 2 decisions modules, at most one is allowed: [decisions-a decisions-b]`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, fakeSchemaManager := newTestHandlerWithModules(t, fakeModulesProvider{}, &keepModuleConfig{},
+				&fakeVectorizerValidator{valid: []string{"none"}})
+			fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+			class := &models.Class{
+				Class:             "Kinds",
+				Vectorizer:        "none",
+				ModuleConfig:      tt.modules,
+				ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+			}
+
+			_, _, err := handler.AddClass(context.Background(), nil, class)
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func Test_AddClassWithLimits(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

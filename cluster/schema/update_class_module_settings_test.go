@@ -51,6 +51,7 @@ func (acceptAllIndexUpdates) ValidateVectorIndexConfigsUpdate(old, updated map[s
 type endpointModules struct{}
 
 func (endpointModules) IsReranker(string) bool                  { return false }
+func (endpointModules) IsDecisions(string) bool                 { return false }
 func (endpointModules) IsGenerative(string) bool                { return false }
 func (endpointModules) IsMultiVector(string) bool               { return false }
 func (endpointModules) HasModule(string) bool                   { return true }

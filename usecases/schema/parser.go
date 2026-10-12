@@ -39,6 +39,7 @@ var errPropertiesUpdatedInClassUpdate = errors.Errorf(
 type modulesProvider interface {
 	IsGenerative(string) bool
 	IsReranker(string) bool
+	IsDecisions(string) bool
 	IsMultiVector(string) bool
 	HasModule(string) bool
 	MigrateVectorizerSettings(any, any) bool
@@ -479,12 +480,13 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 
 	// this part:
 	// - allow adding new modules
-	// - allows updating generative and rerankers
-	// - only one gen/rerank module can be present. Existing ones will be replaced, updating with more than one is not
-	//   allowed
+	// - allows updating generative, reranker and decisions modules
+	// - only one generative, one reranker and one decisions module can be present. An existing one is replaced
+	//   by an update of the same kind, updating with more than one of a kind is not allowed
 	// - other modules keep EXACTLY the same settings, except changes the module allows (MutableSettings)
 	hasGenerativeUpdate := false
 	hasRerankerUpdate := false
+	hasDecisionsUpdate := false
 	for module := range updatedModConf {
 		if p.modules.IsGenerative(module) {
 			if hasGenerativeUpdate {
@@ -499,6 +501,14 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 				return fmt.Errorf("updated moduleconfig has multiple reranker modules: %v", updatedModConf)
 			}
 			hasRerankerUpdate = true
+			continue
+		}
+
+		if p.modules.IsDecisions(module) {
+			if hasDecisionsUpdate {
+				return fmt.Errorf("updated moduleconfig has multiple decisions modules: %v", updatedModConf)
+			}
+			hasDecisionsUpdate = true
 			continue
 		}
 
@@ -549,6 +559,15 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 		// clear out old reranker module
 		for module := range initialModConf {
 			if p.modules.IsReranker(module) {
+				delete(initialModConf, module)
+			}
+		}
+	}
+
+	if hasDecisionsUpdate {
+		// clear out old decisions module
+		for module := range initialModConf {
+			if p.modules.IsDecisions(module) {
 				delete(initialModConf, module)
 			}
 		}

@@ -25,6 +25,7 @@ type ModuleType string
 const (
 	Offload             ModuleType = "Offload"
 	Backup              ModuleType = "Backup"
+	Decisions           ModuleType = "Decisions" // typed questions about objects: predicate, choice, score; may serve rerank
 	Extension           ModuleType = "Extension"
 	Img2Vec             ModuleType = "Img2Vec"
 	Multi2Vec           ModuleType = "Multi2Vec"

@@ -256,6 +256,10 @@ func (f *fakeModuleConfig) IsReranker(moduleName string) bool {
 	return strings.Contains(moduleName, "reranker")
 }
 
+func (f *fakeModuleConfig) IsDecisions(moduleName string) bool {
+	return strings.HasPrefix(moduleName, "decisions-")
+}
+
 func (f *fakeModuleConfig) IsMultiVector(moduleName string) bool {
 	return strings.Contains(moduleName, "colbert")
 }
