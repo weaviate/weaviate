@@ -618,11 +618,6 @@ func (db *DB) DropOrphanedClass(className schema.ClassName) (collided bool, err 
 	// The caller knows the class was ours; only the directory knows the path is.
 	path := filepath.Join(db.config.RootPath, indexID(className))
 	if !hasShardStore(path) {
-		db.logger.WithFields(logrus.Fields{
-			"action": "drop_orphaned_class",
-			"class":  className.String(),
-			"path":   path,
-		}).Warn("left class data in place: no shard store, so not our index")
 		return false, nil
 	}
 	return false, db.dropIndexData(className)
