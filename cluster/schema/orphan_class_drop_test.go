@@ -292,3 +292,72 @@ func addFrozenTenantClass(t *testing.T, sm *SchemaManager, class string) {
 		Type: command.ApplyRequest_TYPE_ADD_CLASS, Class: class, SubCommand: sub,
 	}, "node1", true, false))
 }
+
+func TestReloadNeverDropsAClassThatDiffersOnlyByCase(t *testing.T) {
+	tests := []struct {
+		name        string
+		seed        func(t *testing.T, sm *SchemaManager)
+		wantDeleted []string
+	}{
+		{
+			name: "delete then re-add with different case during catch-up",
+			seed: func(t *testing.T, sm *SchemaManager) {
+				addClass(t, sm, "Maestro_Updated")
+				deleteClassSchemaOnly(t, sm, "Maestro_Updated")
+				addClass(t, sm, "Maestro_updated")
+			},
+			wantDeleted: nil,
+		},
+		{
+			name: "snapshot drops one case variant and names the other",
+			seed: func(t *testing.T, sm *SchemaManager) {
+				addClass(t, sm, "Global_WebflowPages")
+				snap := snapshotWithout(t, sm, "Global_WebflowPages")
+				var classes map[string]*metaClass
+				require.NoError(t, json.Unmarshal(snap, &classes))
+				live := sm.schema.MetaClasses()["Global_WebflowPages"]
+				live.Class.Class = "Global_webflowPages"
+				classes["Global_webflowPages"] = live
+				data, err := json.Marshal(classes)
+				require.NoError(t, err)
+				require.NoError(t, sm.Restore(data, sm.parser))
+			},
+			wantDeleted: nil,
+		},
+		{
+			name: "a case-colliding orphan does not shield an unrelated orphan",
+			seed: func(t *testing.T, sm *SchemaManager) {
+				addClass(t, sm, "Call_Data")
+				addClass(t, sm, "Orphan")
+				deleteClassSchemaOnly(t, sm, "Call_Data")
+				deleteClassSchemaOnly(t, sm, "Orphan")
+				addClass(t, sm, "Call_data")
+			},
+			wantDeleted: []string{"Orphan"},
+		},
+		{
+			name: "both case variants deleted still drops",
+			seed: func(t *testing.T, sm *SchemaManager) {
+				addClass(t, sm, "Churn_A")
+				deleteClassSchemaOnly(t, sm, "Churn_A")
+				addClass(t, sm, "Churn_a")
+				deleteClassSchemaOnly(t, sm, "Churn_a")
+			},
+			wantDeleted: []string{"Churn_A", "Churn_a"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			idx := &recordingIndexer{}
+			parser := fakes.NewMockParser()
+			parser.On("ParseClass", mock.Anything).Return(nil)
+			sm := NewSchemaManager("node1", idx, parser, prometheus.NewPedanticRegistry(), logrus.New())
+
+			tt.seed(t, sm)
+			sm.ReloadDBFromSchema()
+
+			require.ElementsMatch(t, tt.wantDeleted, idx.deleted)
+		})
+	}
+}
