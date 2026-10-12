@@ -987,9 +987,17 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	if appState.ServerConfig.Config.RecountPropertiesAtStartup {
-		appState.Logger.WithField("action", "startup").
-			Warn("RECOUNT_PROPERTIES_AT_STARTUP is set: every shard recounts its property lengths on its first load, " +
-				"which slows loading it. Remove it once the shards have been recounted")
+		enterrors.GoWrapper(func() {
+			l := appState.Logger.WithField("action", "startup")
+			if err := metaStoreReady.waitForMetaStore(); err != nil {
+				l.Errorf("Recounting property lengths not reported: %v", err)
+				return
+			}
+			if err := migrator.ReportPropertyLengthsRecount(reindexCtx); err != nil {
+				l.Errorf("Recounting property lengths incomplete, keep environment variable "+
+					"RECOUNT_PROPERTIES_AT_STARTUP set: %v", err)
+			}
+		}, appState.Logger)
 	}
 
 	providers := map[string]distributedtask.Provider{}

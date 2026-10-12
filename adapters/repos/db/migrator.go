@@ -179,6 +179,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			TrackVectorDimensionsInterval:  m.db.config.TrackVectorDimensionsInterval,
 			MigrateDimensionsToRoaringSet:  m.db.config.MigrateDimensionsToRoaringSet,
 			DimensionsReindex:              &m.db.dimensionsReindex,
+			PropertyLengthsRecount:         &m.db.propLengthsRecount,
 			UsageEnabled:                   m.db.config.UsageEnabled,
 			AvoidMMap:                      m.db.config.AvoidMMap,
 			EnableLazyLoadShards: func() bool {
@@ -954,15 +955,46 @@ func (m *Migrator) UpdateReplicationConfig(ctx context.Context, className string
 // ReportVectorDimensionsReindex logs the outcome once the indexes have loaded their
 // shards. The error lists the shards left.
 func (m *Migrator) ReportVectorDimensionsReindex(ctx context.Context) error {
+	rebuilt, objects, err := m.waitForStartupRebuild(ctx, &m.db.dimensionsReindex, "reindexed")
+	if err != nil {
+		return fmt.Errorf("report dimensions reindex: %w", err)
+	}
+	m.logger.WithField("action", "reindex_vector_dimensions").
+		WithField("shards", rebuilt).
+		WithField("objects", objects).
+		Warn("Reindexing dimensions complete. Please remove environment variable " +
+			"REINDEX_VECTOR_DIMENSIONS_AT_STARTUP before next startup")
+	return nil
+}
+
+// ReportPropertyLengthsRecount logs the outcome once the indexes have loaded their
+// shards. The error lists the shards left.
+func (m *Migrator) ReportPropertyLengthsRecount(ctx context.Context) error {
+	recounted, objects, err := m.waitForStartupRebuild(ctx, &m.db.propLengthsRecount, "recounted")
+	if err != nil {
+		return fmt.Errorf("report property lengths recount: %w", err)
+	}
+	m.logger.WithField("action", "recount_property_lengths").
+		WithField("shards", recounted).
+		WithField("objects", objects).
+		Warn("Recounting property lengths complete. Please remove environment variable " +
+			"RECOUNT_PROPERTIES_AT_STARTUP before next startup")
+	return nil
+}
+
+// waitForStartupRebuild waits for the indexes to load their shards and tallies the
+// rebuild. It fails if any local shard with objects was not rebuilt.
+func (m *Migrator) waitForStartupRebuild(ctx context.Context, rebuild *startupRebuild, verb string,
+) (rebuilt int, objects int64, err error) {
 	if !m.db.StartupComplete() {
-		return errors.New("report dimensions reindex: db has not completed startup")
+		return 0, 0, errors.New("db has not completed startup")
 	}
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for !m.db.allShardsReady() {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("wait for shards to load: %w", context.Cause(ctx))
+			return 0, 0, fmt.Errorf("wait for shards to load: %w", context.Cause(ctx))
 		case <-ticker.C:
 		}
 	}
@@ -973,26 +1005,21 @@ func (m *Migrator) ReportVectorDimensionsReindex(ctx context.Context) error {
 		classes = objects.Classes
 	}
 	for _, class := range classes {
-		n, i, err := m.db.dimensionsNotReindexed(class.Class)
+		n, i, err := m.db.notRebuilt(class.Class, rebuild)
 		if err != nil {
-			return err
+			return 0, 0, err
 		}
 		notLoaded += n
 		inactive += i
 	}
 
-	rebuilt, failed, objects := m.db.dimensionsReindex.summary()
+	rebuilt, failed, objects := rebuild.summary()
 	if failed > 0 || notLoaded > 0 || inactive > 0 {
-		return fmt.Errorf("%d shards reindexed, %d failed, %d active shards not loaded, "+
-			"%d inactive tenants with objects: these are reindexed once loaded while it is set",
-			rebuilt, failed, notLoaded, inactive)
+		return 0, 0, fmt.Errorf("%d shards %s, %d failed, %d active shards not loaded, "+
+			"%d inactive tenants with objects: these are %s once loaded while it is set",
+			rebuilt, verb, failed, notLoaded, inactive, verb)
 	}
-	m.logger.WithField("action", "reindex_vector_dimensions").
-		WithField("shards", rebuilt).
-		WithField("objects", objects).
-		Warn("Reindexing dimensions complete. Please remove environment variable " +
-			"REINDEX_VECTOR_DIMENSIONS_AT_STARTUP before next startup")
-	return nil
+	return rebuilt, objects, nil
 }
 
 func (db *DB) allShardsReady() bool {
@@ -1006,9 +1033,9 @@ func (db *DB) allShardsReady() bool {
 	return true
 }
 
-// dimensionsNotReindexed counts the local shards of the class that were not reindexed
-// and are not known to be empty.
-func (db *DB) dimensionsNotReindexed(className string) (notLoaded, inactive int, err error) {
+// notRebuilt counts the local shards of the class that were not rebuilt and are not
+// known to be empty.
+func (db *DB) notRebuilt(className string, rebuild *startupRebuild) (notLoaded, inactive int, err error) {
 	db.indexLock.RLock()
 	index := db.indices[indexID(schema.ClassName(className))]
 	db.indexLock.RUnlock()
@@ -1039,14 +1066,14 @@ func (db *DB) dimensionsNotReindexed(className string) (notLoaded, inactive int,
 		return 0, 0, nil
 	}
 	if err != nil {
-		return 0, 0, fmt.Errorf("report dimensions reindex: %w", err)
+		return 0, 0, err
 	}
 
-	reindexed := func(name string) bool {
-		return db.dimensionsReindex.done(indexID(schema.ClassName(className)), name)
+	rebuilt := func(name string) bool {
+		return rebuild.done(indexID(schema.ClassName(className)), name)
 	}
 	for _, name := range cold {
-		if reindexed(name) {
+		if rebuilt(name) {
 			continue
 		}
 		if index == nil || !index.unloadedShardIsEmpty(name) {
@@ -1054,7 +1081,7 @@ func (db *DB) dimensionsNotReindexed(className string) (notLoaded, inactive int,
 		}
 	}
 	for _, name := range active {
-		if reindexed(name) {
+		if rebuilt(name) {
 			continue
 		}
 		if index == nil {
@@ -1069,7 +1096,7 @@ func (db *DB) dimensionsNotReindexed(className string) (notLoaded, inactive int,
 				continue
 			}
 		default:
-			// reindexed as it loaded, or counted as failed
+			// rebuilt as it loaded, or counted as failed
 			continue
 		}
 		if !index.unloadedShardIsEmpty(name) {

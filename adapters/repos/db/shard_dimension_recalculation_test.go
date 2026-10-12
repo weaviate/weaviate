@@ -412,7 +412,7 @@ func TestShard_RecalculateDimensions_FailedSwitchLeavesNoBucket(t *testing.T) {
 			require.Nil(t, shard.store.Bucket(helpers.DimensionsBucketLSM))
 
 			// as it happens while the shard loads, which must then fail
-			idx.Config.DimensionsReindex = &dimensionsReindex{enabled: true}
+			idx.Config.DimensionsReindex = &startupRebuild{enabled: true}
 			require.Error(t, shard.reindexDimensionsOnLoad(ctx))
 
 			repair()
@@ -442,40 +442,40 @@ func TestShard_ReindexDimensionsOnLoad(t *testing.T) {
 	tests := []struct {
 		name string
 		// prepare runs with the shard shut down, before it loads with reindex
-		prepare       func(t *testing.T, shard *Shard, reindex *dimensionsReindex)
-		reindex       *dimensionsReindex
+		prepare       func(t *testing.T, shard *Shard, reindex *startupRebuild)
+		reindex       *startupRebuild
 		neverWritten  bool
 		expectRebuilt bool
 		expectDone    bool
 		expectFailed  bool
 	}{
 		{name: "not enabled", reindex: nil},
-		{name: "enabled", reindex: &dimensionsReindex{enabled: true}, expectRebuilt: true},
+		{name: "enabled", reindex: &startupRebuild{enabled: true}, expectRebuilt: true},
 		{
 			name:    "rebuilt by this process already",
-			reindex: &dimensionsReindex{enabled: true},
-			prepare: func(t *testing.T, shard *Shard, reindex *dimensionsReindex) {
+			reindex: &startupRebuild{enabled: true},
+			prepare: func(t *testing.T, shard *Shard, reindex *startupRebuild) {
 				reindex.record(shard.index.ID(), shard.Name(), 5, true)
 			},
 		},
 		{
 			name:    "failed in this process before",
-			reindex: &dimensionsReindex{enabled: true},
-			prepare: func(t *testing.T, shard *Shard, reindex *dimensionsReindex) {
+			reindex: &startupRebuild{enabled: true},
+			prepare: func(t *testing.T, shard *Shard, reindex *startupRebuild) {
 				reindex.record(shard.index.ID(), shard.Name(), 0, false)
 			},
 			expectRebuilt: true,
 		},
 		{
 			// such as a tenant created after startup, nothing to rebuild
-			name: "never written to", reindex: &dimensionsReindex{enabled: true},
+			name: "never written to", reindex: &startupRebuild{enabled: true},
 			neverWritten: true, expectDone: true,
 		},
 		{
 			// the shard serves with the dimensions it had
 			name:    "failed, the bucket is kept",
-			reindex: &dimensionsReindex{enabled: true},
-			prepare: func(t *testing.T, shard *Shard, _ *dimensionsReindex) {
+			reindex: &startupRebuild{enabled: true},
+			prepare: func(t *testing.T, shard *Shard, _ *startupRebuild) {
 				stuckDir(t, filepath.Join(shard.pathLSM(), helpers.DimensionsBucketLSM+"__to_roaringset_ready"))
 			},
 			expectFailed: true,
@@ -527,7 +527,7 @@ func TestShard_ReindexDimensionsOnLoad_MapBucket(t *testing.T) {
 	shard, idx, class, _ := dimsMigrationShard(t, ctx, 10)
 	require.NoError(t, shard.Shutdown(ctx))
 
-	idx.Config.DimensionsReindex = &dimensionsReindex{enabled: true}
+	idx.Config.DimensionsReindex = &startupRebuild{enabled: true}
 	reloaded, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
 	require.NoError(t, err)
 	defer reloaded.Shutdown(ctx)
@@ -540,20 +540,20 @@ func TestShard_ReindexDimensionsOnLoad_MapBucket(t *testing.T) {
 func TestDimensionsReindex_Outcomes(t *testing.T) {
 	tests := []struct {
 		name            string
-		forget          func(r *dimensionsReindex)
-		expectedPending map[dimensionsShard]bool
+		forget          func(r *startupRebuild)
+		expectedPending map[rebuiltShard]bool
 	}{
 		{
 			name: "names joined by an underscore stay apart",
-			expectedPending: map[dimensionsShard]bool{
+			expectedPending: map[rebuiltShard]bool{
 				{"docs", "v2_acme"}: false,
 				{"docs_v2", "acme"}: true,
 			},
 		},
 		{
 			name:   "dropped shard",
-			forget: func(r *dimensionsReindex) { r.forget("docs", "v2_acme") },
-			expectedPending: map[dimensionsShard]bool{
+			forget: func(r *startupRebuild) { r.forget("docs", "v2_acme") },
+			expectedPending: map[rebuiltShard]bool{
 				{"docs", "v2_acme"}:  true,
 				{"docs", "other"}:    false,
 				{"other", "v2_acme"}: false,
@@ -561,8 +561,8 @@ func TestDimensionsReindex_Outcomes(t *testing.T) {
 		},
 		{
 			name:   "dropped index",
-			forget: func(r *dimensionsReindex) { r.forget("docs") },
-			expectedPending: map[dimensionsShard]bool{
+			forget: func(r *startupRebuild) { r.forget("docs") },
+			expectedPending: map[rebuiltShard]bool{
 				{"docs", "v2_acme"}:  true,
 				{"docs", "other"}:    true,
 				{"other", "v2_acme"}: false,
@@ -571,7 +571,7 @@ func TestDimensionsReindex_Outcomes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := &dimensionsReindex{enabled: true}
+			r := &startupRebuild{enabled: true}
 			r.record("docs", "v2_acme", 1, true)
 			r.record("docs", "other", 1, true)
 			r.record("other", "v2_acme", 1, true)
@@ -585,7 +585,7 @@ func TestDimensionsReindex_Outcomes(t *testing.T) {
 	}
 }
 
-func TestDB_DropForgetsDimensionsReindex(t *testing.T) {
+func TestDB_DropForgetsStartupRebuilds(t *testing.T) {
 	class := &models.Class{
 		Class:               "Test",
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
@@ -612,6 +612,7 @@ func TestDB_DropForgetsDimensionsReindex(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
 			db.dimensionsReindex.enabled = true
+			db.propLengthsRecount.enabled = true
 			index := db.GetIndex(schema.ClassName(class.Class))
 			require.NoError(t, db.PutObject(testCtx(), &models.Object{Class: class.Class, ID: strfmt.UUID(uuid.NewString())},
 				randVector(3), nil, nil, nil, 0))
@@ -621,11 +622,14 @@ func TestDB_DropForgetsDimensionsReindex(t *testing.T) {
 				return nil
 			}))
 			require.False(t, db.dimensionsReindex.pending(index.ID(), shard), "the shard is reindexed as it loads")
+			require.False(t, db.propLengthsRecount.pending(index.ID(), shard), "the shard is recounted as it loads")
 
 			tt.drop(t, db, index, shard)
 
 			assert.True(t, db.dimensionsReindex.pending(index.ID(), shard),
 				"a restore or a replica copy can bring the shard back with other dimensions")
+			assert.True(t, db.propLengthsRecount.pending(index.ID(), shard),
+				"a restore or a replica copy can bring the shard back with other property lengths")
 		})
 	}
 }
@@ -813,7 +817,7 @@ func TestShard_ReindexDimensionsOnLoad_CorruptObjectsSegment(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, f.Close())
 
-	reindex := &dimensionsReindex{enabled: true}
+	reindex := &startupRebuild{enabled: true}
 	idx.Config.DimensionsReindex = reindex
 	reloaded, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
 	require.NoError(t, err, "the shard must load")

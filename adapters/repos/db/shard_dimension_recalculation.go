@@ -19,8 +19,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"slices"
-	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -37,77 +35,6 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
-
-// dimensionsReindex makes REINDEX_VECTOR_DIMENSIONS_AT_STARTUP rebuild a shard once
-// per process, not on every lazy reload.
-type dimensionsReindex struct {
-	enabled bool
-
-	mu sync.Mutex
-	// whether the rebuild succeeded
-	outcomes map[dimensionsShard]bool
-	objects  int64
-}
-
-// dimensionsShard is not keyed by shardId, which joins names that may contain its "_"
-type dimensionsShard struct {
-	index, shard string
-}
-
-func (r *dimensionsReindex) pending(index, shard string) bool {
-	if r == nil || !r.enabled {
-		return false
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return !r.outcomes[dimensionsShard{index, shard}]
-}
-
-func (r *dimensionsReindex) record(index, shard string, objects int, ok bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.outcomes == nil {
-		r.outcomes = map[dimensionsShard]bool{}
-	}
-	r.outcomes[dimensionsShard{index, shard}] = ok
-	if ok {
-		r.objects += int64(objects)
-	}
-}
-
-func (r *dimensionsReindex) done(index, shard string) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.outcomes[dimensionsShard{index, shard}]
-}
-
-// forget makes dropped shards pending again, as a restore or a replica copy can bring
-// them back with other dimensions. No shards forgets the whole index.
-func (r *dimensionsReindex) forget(index string, shards ...string) {
-	if r == nil {
-		return
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for key := range r.outcomes {
-		if key.index == index && (len(shards) == 0 || slices.Contains(shards, key.shard)) {
-			delete(r.outcomes, key)
-		}
-	}
-}
-
-func (r *dimensionsReindex) summary() (rebuilt, failed int, objects int64) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for _, ok := range r.outcomes {
-		if ok {
-			rebuilt++
-		} else {
-			failed++
-		}
-	}
-	return rebuilt, failed, r.objects
-}
 
 // prepareDimensionsOfShards migrates or rebuilds the dimensions buckets of active and
 // cold shards before they load, without loading them. A failed shard is retried at load.
@@ -190,7 +117,27 @@ func (i *Index) rebuildUnloadedShardDimensions(ctx context.Context, class *model
 	if i.unloadedShardIsEmpty(name) {
 		return 0, nil
 	}
-	s := &Shard{
+	s, closeShard, err := i.openUnloadedShard(ctx, class, name)
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		if closeErr := closeShard(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}()
+
+	if err := s.loadDimensionsBucket(ctx, helpers.DimensionsBucketLSM); err != nil {
+		return 0, err
+	}
+	return s.recalculateDimensions(ctx)
+}
+
+// openUnloadedShard opens a shard that is not loaded with only its objects bucket,
+// for a rebuild before it loads. closeShard shuts its store down.
+func (i *Index) openUnloadedShard(ctx context.Context, class *models.Class, name string,
+) (s *Shard, closeShard func() error, err error) {
+	s = &Shard{
 		index:         i,
 		class:         class,
 		name:          name,
@@ -200,32 +147,31 @@ func (i *Index) rebuildUnloadedShardDimensions(ctx context.Context, class *model
 	// the options of a MapCollection bucket depend on the shard version
 	count, err := indexcounter.Read(s.path())
 	if err != nil {
-		return 0, fmt.Errorf("read index counter: %w", err)
+		return nil, nil, fmt.Errorf("read index counter: %w", err)
 	}
 	if s.versioner, err = newShardVersioner(path.Join(s.path(), "version"), count > 0); err != nil {
-		return 0, fmt.Errorf("init shard versioner: %w", err)
+		return nil, nil, fmt.Errorf("init shard versioner: %w", err)
 	}
 
 	noop := cyclemanager.NewCallbackGroupNoop()
 	store, err := lsmkv.New(s.pathLSM(), s.path(), i.logger.WithField("shard", name), nil,
 		i.bucketLoadLimiter, noop, noop, noop)
 	if err != nil {
-		return 0, fmt.Errorf("init store: %w", err)
+		return nil, nil, fmt.Errorf("init store: %w", err)
 	}
 	s.store = store
-	defer func() {
-		if shutdownErr := store.Shutdown(context.WithoutCancel(ctx)); shutdownErr != nil && err == nil {
-			err = fmt.Errorf("shutdown store: %w", shutdownErr)
+	closeShard = func() error {
+		if err := store.Shutdown(context.WithoutCancel(ctx)); err != nil {
+			return fmt.Errorf("shutdown store: %w", err)
 		}
-	}()
+		return nil
+	}
 
 	if err := s.initObjectBucket(ctx); err != nil {
-		return 0, err
+		_ = closeShard()
+		return nil, nil, err
 	}
-	if err := s.loadDimensionsBucket(ctx, helpers.DimensionsBucketLSM); err != nil {
-		return 0, err
-	}
-	return s.recalculateDimensions(ctx)
+	return s, closeShard, nil
 }
 
 type dimensionsRows map[string]*sroar.Bitmap

@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"time"
 
 	"github.com/sirupsen/logrus"
 
@@ -31,8 +30,8 @@ const (
 	propLengthsRecountFile = propLengthsFile + ".recount"
 )
 
-// propertyLengthsRecounter rebuilds the property lengths of a loading shard
-// from its objects bucket.
+// propertyLengthsRecounter rebuilds the property lengths of a shard that does not
+// serve yet from its objects bucket.
 type propertyLengthsRecounter struct {
 	shard       *Shard
 	logger      logrus.FieldLogger
@@ -49,31 +48,6 @@ func newPropertyLengthsRecounter(s *Shard) *propertyLengthsRecounter {
 	}
 }
 
-// recountProperties rebuilds the shard's property lengths and reports whether
-// it did. It runs while the shard is loading, before any write can reach it: a
-// write landing during the scan would be counted twice or not at all.
-//
-// An error means the shard must not load. A failed count keeps the previous
-// property lengths, and is an error only if ctx was cancelled. A failed swap
-// always is, as it leaves no usable tracker.
-func (r *propertyLengthsRecounter) recountProperties(ctx context.Context) (bool, error) {
-	id := r.shard.ID()
-	start := time.Now()
-	count, err := r.count(ctx)
-	if err != nil {
-		if ctx.Err() != nil {
-			return false, fmt.Errorf("count of shard %q: %w", id, err)
-		}
-		r.logger.Errorf("recounting property lengths failed, keeping the previous ones: %v", err)
-		return false, nil
-	}
-	if err := r.swapIn(); err != nil {
-		return false, fmt.Errorf("swap of shard %q: %w", id, err)
-	}
-	r.logger.Infof("recounted property lengths of %d objects in %s", count, time.Since(start))
-	return true, nil
-}
-
 // count builds the property lengths from the objects bucket in a separate
 // file, so a failure or a crash halfway leaves the previous ones in place. It
 // returns the number of objects counted.
@@ -88,10 +62,29 @@ func (r *propertyLengthsRecounter) count(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("create recount tracker: %w", err)
 	}
 
-	// the shard is not published yet, so nothing else uses its tracker meanwhile
+	// the shard does not serve yet, so nothing else uses its tracker meanwhile
 	previous := s.propLenTracker
 	s.propLenTracker = tracker
-	count := 0
+	count, err := r.scan(ctx)
+	s.propLenTracker = previous
+	if err == nil {
+		err = tracker.Close()
+	}
+	if err != nil {
+		tracker.Drop(false)
+		return 0, err
+	}
+	return count, nil
+}
+
+func (r *propertyLengthsRecounter) scan(ctx context.Context) (count int, err error) {
+	s := r.shard
+	// a corrupt segment makes the cursor panic; the scan only reads
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("scan objects: panic: %v", p)
+		}
+	}()
 	err = s.store.Bucket(helpers.ObjectsBucketLSM).IterateObjects(ctx, func(object *storobj.Object) error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -106,27 +99,26 @@ func (r *propertyLengthsRecounter) count(ctx context.Context) (int, error) {
 		count++
 		return nil
 	})
-	s.propLenTracker = previous
-	if err == nil {
-		err = tracker.Close()
-	}
-	if err != nil {
-		tracker.Drop(false)
-		return 0, err
-	}
-	return count, nil
+	return count, err
 }
 
 // swapIn replaces the shard's tracker with the one count built. It closes the
-// current tracker first, so on failure the shard has no usable tracker. The
-// rename keeps a crash safe: the next load finds either the previous file or
-// the recounted one.
+// current tracker first, so on failure the shard has no usable tracker.
 func (r *propertyLengthsRecounter) swapIn() error {
 	if err := r.shard.propLenTracker.Close(); err != nil {
 		return fmt.Errorf("close previous tracker: %w", err)
 	}
+	if err := r.replaceTrackerFile(); err != nil {
+		return err
+	}
+	return r.shard.initProplenTracker()
+}
+
+// replaceTrackerFile keeps a crash safe: the next load finds either the previous
+// file or the recounted one.
+func (r *propertyLengthsRecounter) replaceTrackerFile() error {
 	if err := os.Rename(r.recountPath, r.trackerPath); err != nil {
 		return fmt.Errorf("replace tracker file: %w", err)
 	}
-	return r.shard.initProplenTracker()
+	return nil
 }
