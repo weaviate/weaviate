@@ -23,6 +23,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
+	esync "github.com/weaviate/weaviate/entities/sync"
 )
 
 // panickingOffloader fails any test that reaches the cloud.
@@ -238,4 +239,28 @@ func TestMigratorDropOrphanedClassLooksUpTheIndexOnce(t *testing.T) {
 		require.NoError(t, m.DropOrphanedClass(context.Background(), class, false))
 	}
 	require.Less(t, time.Since(start), 900*time.Millisecond)
+}
+
+// DELETE_CLASS validates nothing, so a delete naming another spelling of a live
+// class reaches the store while the schema keeps the live class.
+func TestDropClassNeverTouchesALiveClassOfDifferentCase(t *testing.T) {
+	root := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	const live, other = "Foo_bar", "Foo_Bar"
+	liveIdx := &Index{Config: IndexConfig{ClassName: schema.ClassName(live)}}
+	db := &DB{
+		config:  Config{RootPath: root},
+		logger:  logger,
+		indices: map[string]*Index{indexID(schema.ClassName(live)): liveIdx},
+	}
+	dir := filepath.Join(root, indexID(schema.ClassName(live)))
+	writeShardSignature(t, dir)
+	m := &Migrator{db: db, cloud: panickingOffloader{}, classLocks: esync.NewKeyLocker()}
+
+	require.NoError(t, m.DropClass(context.Background(), other, true))
+
+	require.Same(t, liveIdx, db.GetIndex(schema.ClassName(live)), "live index was unloaded")
+	_, err := os.Stat(dir)
+	require.NoError(t, err, "live class directory was removed")
 }

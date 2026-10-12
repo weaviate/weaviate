@@ -601,18 +601,8 @@ func (db *DB) GetIndexForIncomingSharding(className schema.ClassName) sharding.R
 // It reports a live class that shares the lowercased index ID; that class's
 // data, offloaded included, is not the orphan's to drop.
 func (db *DB) DropOrphanedClass(className schema.ClassName) (collided bool, err error) {
-	if idx := db.GetIndex(className); idx != nil {
-		if live := idx.Config.ClassName; live != className {
-			db.logger.WithFields(logrus.Fields{
-				"action":     "drop_orphaned_class",
-				"class":      className.String(),
-				"live_class": live.String(),
-			}).Warn("left class data in place: directory belongs to a live class that differs only by case")
-			return true, nil
-		}
-		if err := db.DeleteIndex(className); err != nil {
-			return false, err
-		}
+	if collided, err = db.deleteIndex(className); err != nil || collided {
+		return collided, err
 	}
 
 	// The caller knows the class was ours; only the directory knows the path is.
@@ -672,9 +662,25 @@ func (db *DB) droppingIndex(id string) *Index {
 
 // DeleteIndex deletes the index
 func (db *DB) DeleteIndex(className schema.ClassName) error {
+	_, err := db.deleteIndex(className)
+	return err
+}
+
+// deleteIndex reports a live class that shares the lowercased index ID and
+// leaves it alone: DELETE_CLASS validates nothing, so a name differing only by
+// case reaches the store while the schema keeps the live class.
+func (db *DB) deleteIndex(className schema.ClassName) (collided bool, err error) {
 	index := db.GetIndex(className)
 	if index == nil {
-		return nil
+		return false, nil
+	}
+	if live := index.Config.ClassName; live != className {
+		db.logger.WithFields(logrus.Fields{
+			"action":     "delete_index",
+			"class":      className.String(),
+			"live_class": live.String(),
+		}).Warn("left class data in place: index belongs to a live class that differs only by case")
+		return true, nil
 	}
 	id := indexID(className)
 
@@ -700,7 +706,7 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 	if err := db.promMetrics.DeleteClass(className.String()); err != nil {
 		db.logger.Errorf("can't delete prometheus metrics: %v", err)
 	}
-	return nil
+	return false, nil
 }
 
 func (db *DB) Shutdown(ctx context.Context) error {

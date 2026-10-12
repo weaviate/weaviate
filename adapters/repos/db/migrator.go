@@ -305,11 +305,12 @@ func (m *Migrator) DropClass(ctx context.Context, className string, hasFrozen bo
 	m.classLocks.Lock(indexID)
 	defer m.classLocks.Unlock(indexID)
 
-	if err := m.db.DeleteIndex(schema.ClassName(className)); err != nil {
+	collided, err := m.db.deleteIndex(schema.ClassName(className))
+	if err != nil {
 		return err
 	}
 
-	if m.cloud != nil && hasFrozen {
+	if m.cloud != nil && hasFrozen && !collided {
 		return m.cloud.Delete(ctx, className, "", "")
 	}
 
