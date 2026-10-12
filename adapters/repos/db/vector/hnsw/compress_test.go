@@ -364,6 +364,109 @@ func Test_MultiVectorBQRecoveryOnRestart(t *testing.T) {
 	}
 }
 
+// A distancer built before compression keeps reading through the float32
+// path. Compression drops that cache; the straggler must not bring it back.
+func Test_StragglerReadAfterCompressionLeavesCacheDropped(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	t.Run("single vector reads through to the object store", func(t *testing.T) {
+		dimensions, vectorsSize := 20, 50
+		vectors, _ := testinghelpers.RandomVecs(vectorsSize, 0, dimensions)
+		tempDir := t.TempDir()
+		store := testinghelpers.NewDummyStoreFromFolder(tempDir, t)
+		cfg := indexConfig("straggler", tempDir, logger, vectors, distancer.NewCosineDistanceProvider())
+		cfg.WaitForCachePrefill = true
+		uc := userConfig(dimensions/10, 5, 32, 64, 32, vectorsSize)
+		uc.PQ.Enabled = false
+
+		index, err := New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), store)
+		require.NoError(t, err)
+		defer index.Shutdown(ctx)
+		floatCache := index.cache
+		for id := range vectors {
+			require.NoError(t, index.Add(ctx, uint64(id), vectors[id]))
+		}
+		straggler := index.QueryVectorDistancer(vectors[0])
+		want, err := straggler.DistanceFunc(1)
+		require.NoError(t, err)
+
+		uc.BQ.Enabled = true
+		compressed := make(chan struct{})
+		require.NoError(t, index.UpdateUserConfig(uc, func() { close(compressed) }))
+		<-compressed
+		require.Zero(t, floatCache.Len())
+
+		got, err := straggler.DistanceFunc(1)
+		require.NoError(t, err)
+		assert.InDelta(t, want, got, 1e-6, "a straggler still reads the right vector")
+		assert.Zero(t, floatCache.Len(), "but must not bring the dropped cache back")
+		assert.Zero(t, floatCache.CountVectors())
+	})
+
+	t.Run("multivector fails without looking deleted", func(t *testing.T) {
+		docs := [][][]float32{
+			{{-1, -2, -3}},
+			{{1, 2, 3}, {3, 2, 1}},
+		}
+		tempDir := t.TempDir()
+		store := testinghelpers.NewDummyStoreFromFolder(tempDir, t)
+		id := "straggler_multi"
+		cfg := Config{
+			RootPath: tempDir,
+			ID:       id,
+			MakeCommitLoggerThunk: func() (CommitLogger, error) {
+				return NewCommitLogger(tempDir, id, logger, cyclemanager.NewCallbackGroupNoop())
+			},
+			DistanceProvider: distancer.NewDotProductProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return nil, errors.New("multivector index reads MultiVectorForIDThunk")
+			},
+			MultiVectorForIDThunk: func(ctx context.Context, id uint64) ([][]float32, error) {
+				return docs[id], nil
+			},
+			GetViewThunk:        func() common.BucketView { return &noopBucketView{} },
+			MakeBucketOptions:   lsmkv.MakeNoopBucketOptions,
+			AllocChecker:        memwatch.NewDummyMonitor(),
+			WaitForCachePrefill: true,
+		}
+		uc := ent.UserConfig{
+			VectorCacheMaxObjects: 1e12,
+			MaxConnections:        8,
+			EFConstruction:        64,
+			EF:                    64,
+			Multivector:           ent.MultivectorConfig{Enabled: true},
+		}
+
+		index, err := New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), store)
+		require.NoError(t, err)
+		defer index.Shutdown(ctx)
+		floatCache := index.cache
+		for docID, vecs := range docs {
+			require.NoError(t, index.AddMulti(ctx, uint64(docID), vecs))
+		}
+		node := index.docIDVectors[1][0]
+		straggler := index.QueryVectorDistancer(docs[1][0])
+		_, err = straggler.DistanceFunc(node)
+		require.NoError(t, err)
+
+		uc.BQ.Enabled = true
+		compressed := make(chan struct{})
+		require.NoError(t, index.UpdateUserConfig(uc, func() { close(compressed) }))
+		<-compressed
+		require.Zero(t, floatCache.Len())
+
+		// the keys a read needs went with the cache, so there is nothing left
+		// to read through to; a not-found here would tombstone a live node
+		_, err = straggler.DistanceFunc(node)
+		require.ErrorIs(t, err, cache.ErrDropped)
+		var notFound storobj.ErrNotFound
+		assert.False(t, errors.As(err, &notFound))
+		assert.Zero(t, floatCache.Len(), "the straggler must not bring the dropped cache back")
+		assert.Zero(t, floatCache.CountVectors())
+	})
+}
+
 func Test_CompressAndInsertDoNotRace(t *testing.T) {
 	efConstruction := 64
 	ef := 32
