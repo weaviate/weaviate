@@ -12,12 +12,19 @@
 package moddecisionstypesafeai
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
+	"github.com/weaviate/weaviate/usecases/modules"
 )
 
 func TestMaxConcurrentRequestsFromEnv(t *testing.T) {
@@ -78,6 +85,73 @@ func TestDecisionLimits(t *testing.T) {
 				MaxLevels:    10,
 				DataTypes:    []schema.DataType{schema.DataTypeText},
 			}, limits)
+		})
+	}
+}
+
+func classConfig(settings map[string]any) moduletools.ClassConfig {
+	class := &models.Class{
+		Class:        "Ticket",
+		ModuleConfig: map[string]any{Name: settings},
+	}
+	// The module name is empty here because that is how the modules provider
+	// builds the config it passes to additional properties.
+	return modules.NewClassBasedModuleConfig(class, "", "", "", &config.Config{})
+}
+
+type fakeRanker struct{}
+
+func (fakeRanker) Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error) {
+	return &ent.RankResult{Query: query}, nil
+}
+
+func (fakeRanker) Decide(ctx context.Context, questions []ent.DecisionQuestion, documents []string, cfg moduletools.ClassConfig) ([][]ent.DecisionAnswer, error) {
+	return nil, nil
+}
+
+func (fakeRanker) MetaInfo() (map[string]any, error) {
+	return nil, nil
+}
+
+func TestModuleServesRerankAndDecide(t *testing.T) {
+	m := New()
+	m.setClient(fakeRanker{})
+	properties := m.AdditionalProperties()
+
+	require.Len(t, properties, 2)
+	for _, name := range []string{"rerank", "decide"} {
+		property, ok := properties[name]
+		require.True(t, ok, name)
+		assert.NotNil(t, property.SearchFunctions.ExploreGet, name)
+		assert.NotNil(t, property.SearchFunctions.ExploreList, name)
+	}
+	// decide has no GraphQL field: it is served through gRPC only.
+	assert.Nil(t, properties["decide"].GraphQLFieldFunction)
+	assert.NotNil(t, properties["rerank"].GraphQLFieldFunction)
+}
+
+func TestDecisionDefaults(t *testing.T) {
+	tests := []struct {
+		name     string
+		settings map[string]any
+		want     rank.DecisionSettings
+		wantErr  string
+	}{
+		{name: "defaults", settings: map[string]any{}, want: rank.DecisionSettings{Order: rank.OrderSearch}},
+		{name: "from the class", settings: map[string]any{"minProbability": 0.7, "order": "probability"}, want: rank.DecisionSettings{MinProbability: 0.7, Order: rank.OrderProbability}},
+		{name: "minProbability above 1", settings: map[string]any{"minProbability": 1.5}, wantErr: "minProbability must be between 0 and 1, got 1.5"},
+		{name: "unknown order", settings: map[string]any{"order": "newest"}, wantErr: `order must be "search" or "probability", got "newest"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := decisionDefaults(classConfig(tt.settings))
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

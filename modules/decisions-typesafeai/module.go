@@ -99,9 +99,24 @@ func maxConcurrentRequestsFromEnv() (int, error) {
 
 func (m *DecisionsTypeSafeAIModule) setClient(client DecisionsTypeSafeAIClient) {
 	m.reranker = client
-	m.additionalProperties = withTypeSafeAIRerank(
-		rerankeradditional.NewRankerProvider(client).AdditionalProperties(), rank.New(client))
+	m.additionalProperties = rerankeradditional.NewDecisionsRankerProvider(client, decisionDefaults).AdditionalProperties()
 	maps.Copy(m.additionalProperties, rerankeradditional.NewDecideProvider(client).AdditionalProperties())
+}
+
+// decisionDefaults are the class settings a rerank uses where the request
+// leaves a field unset. Validated here as well because a class that never
+// names this module in its moduleConfig is not validated on creation.
+func decisionDefaults(cfg moduletools.ClassConfig) (rank.DecisionSettings, error) {
+	settings := config.NewClassSettings(cfg)
+	minProbability := settings.MinProbability()
+	if !config.ValidProbability(minProbability) {
+		return rank.DecisionSettings{}, fmt.Errorf("minProbability must be between 0 and 1, got %v", minProbability)
+	}
+	order := rank.Order(settings.Order())
+	if !rank.ValidOrder(order) {
+		return rank.DecisionSettings{}, fmt.Errorf("order must be %q or %q, got %q", rank.OrderSearch, rank.OrderProbability, order)
+	}
+	return rank.DecisionSettings{MinProbability: minProbability, Order: order}, nil
 }
 
 func (m *DecisionsTypeSafeAIModule) MetaInfo() (map[string]any, error) {

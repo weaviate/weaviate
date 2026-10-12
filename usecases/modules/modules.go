@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/decide"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
 )
 
 var (
@@ -738,6 +739,17 @@ func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, mod
 		if len(additionalGenerativeParameters) > 0 {
 			if generateFn := modulecomponents.GetGenericGenerateProperty(class.Class, additionalGenerativeParameters, additionalGenerativeDefaultProvider, p.logger); generateFn != nil {
 				allAdditionalProperties[modulecomponents.AdditionalPropertyGenerate] = *generateFn
+			}
+		}
+		// A rerank that asks for a decision goes to the decisions module,
+		// whichever module serves rerank otherwise.
+		if params, ok := moduleParams[modulecomponents.AdditionalPropertyRerank].(*rank.Params); ok && params != nil && params.Decision != nil {
+			module, err := p.rerankModule(class, true)
+			if err != nil {
+				return nil, err
+			}
+			if provider, ok := module.(modulecapabilities.AdditionalProperties); ok && provider != nil {
+				allAdditionalProperties[modulecomponents.AdditionalPropertyRerank] = provider.AdditionalProperties()[modulecomponents.AdditionalPropertyRerank]
 			}
 		}
 

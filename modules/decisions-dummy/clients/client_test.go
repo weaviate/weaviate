@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
@@ -75,6 +76,42 @@ func TestMaxDocuments(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, MaxDocuments(tt.cfg))
+		})
+	}
+}
+
+func TestRankIsTheShareOfTheQueryWords(t *testing.T) {
+	out, err := New().Rank(context.Background(), "customer angry", []string{"the customer is angry", "the customer is happy", "", "fine"}, nil)
+
+	require.NoError(t, err)
+	scores := make([]float64, len(out.DocumentScores))
+	for i, score := range out.DocumentScores {
+		scores[i] = score.Score
+	}
+	assert.Equal(t, []float64{1, 0.5, 0, 0}, scores)
+
+	_, err = New().Rank(context.Background(), "", []string{"x"}, nil)
+	require.EqualError(t, err, "no query provided")
+}
+
+func TestDecisionDefaults(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  moduletools.ClassConfig
+		want rank.DecisionSettings
+	}{
+		{name: "nil config", want: rank.DecisionSettings{Order: rank.OrderSearch}},
+		{name: "unset", cfg: classConfig{}, want: rank.DecisionSettings{Order: rank.OrderSearch}},
+		{name: "from the class", cfg: classConfig{"minProbability": 0.5, "order": "probability"}, want: rank.DecisionSettings{MinProbability: 0.5, Order: rank.OrderProbability}},
+		{name: "json number", cfg: classConfig{"minProbability": json.Number("0.25")}, want: rank.DecisionSettings{MinProbability: 0.25, Order: rank.OrderSearch}},
+		{name: "unknown order is the default", cfg: classConfig{"order": "newest"}, want: rank.DecisionSettings{Order: rank.OrderSearch}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := DecisionDefaults(tt.cfg)
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

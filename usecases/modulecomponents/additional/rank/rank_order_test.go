@@ -99,3 +99,80 @@ func TestScoreKeepsTheInputOrder(t *testing.T) {
 		assert.Equal(t, want, *scores[0].Score)
 	}
 }
+
+func decisionProvider(settings DecisionSettings, err error) *ReRankerProvider {
+	return NewForDecisions(scoreFromText{}, func(moduletools.ClassConfig) (DecisionSettings, error) {
+		return settings, err
+	})
+}
+
+func decisionParams(minProbability *float64, order *Order) *Params {
+	params := orderParams()
+	if minProbability != nil || order != nil {
+		params.Decision = &Decision{MinProbability: minProbability, Order: order}
+	}
+	return params
+}
+
+func ptr[T any](v T) *T { return &v }
+
+// A decisions module keeps the search order and drops nothing unless the
+// class settings or the request say otherwise; the request wins.
+func TestRerankByDecision(t *testing.T) {
+	texts := []string{"0.2 c", "0.9 a", "0.1 d", "0.5 b"}
+	tests := []struct {
+		name     string
+		settings DecisionSettings
+		params   *Params
+		want     []string
+		wantErr  string
+	}{
+		{name: "defaults keep the search order and every result", settings: DecisionSettings{Order: OrderSearch}, params: decisionParams(nil, nil), want: texts},
+		{name: "class order probability", settings: DecisionSettings{Order: OrderProbability}, params: decisionParams(nil, nil), want: []string{"0.9 a", "0.5 b", "0.2 c", "0.1 d"}},
+		{name: "class threshold", settings: DecisionSettings{MinProbability: 0.5, Order: OrderSearch}, params: decisionParams(nil, nil), want: []string{"0.9 a", "0.5 b"}},
+		{name: "request threshold overrides the class", settings: DecisionSettings{MinProbability: 0.5, Order: OrderSearch}, params: decisionParams(ptr(0.15), nil), want: []string{"0.2 c", "0.9 a", "0.5 b"}},
+		{name: "request order overrides the class", settings: DecisionSettings{Order: OrderSearch}, params: decisionParams(nil, ptr(OrderProbability)), want: []string{"0.9 a", "0.5 b", "0.2 c", "0.1 d"}},
+		{name: "request threshold and order", settings: DecisionSettings{}, params: decisionParams(ptr(0.3), ptr(OrderProbability)), want: []string{"0.9 a", "0.5 b"}},
+		{name: "threshold above every score", settings: DecisionSettings{}, params: decisionParams(ptr(0.95), nil), want: []string{}},
+		{name: "threshold out of range", settings: DecisionSettings{}, params: decisionParams(ptr(1.5), nil), wantErr: "rerank.decision.min_probability must be between 0 and 1, got 1.5"},
+		{name: "unknown order", settings: DecisionSettings{}, params: decisionParams(nil, ptr(Order("newest"))), wantErr: `rerank.decision.order must be "search" or "probability", got "newest"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := decisionProvider(tt.settings, nil).AdditionalPropertyFn(context.Background(),
+				orderResults(texts...), tt.params, nil, nil, nil)
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, textsOf(out))
+		})
+	}
+
+	t.Run("invalid class settings fail before any document is scored", func(t *testing.T) {
+		counting := &countingRanker{}
+		provider := NewForDecisions(counting, func(moduletools.ClassConfig) (DecisionSettings, error) {
+			return DecisionSettings{}, fmt.Errorf("order must be \"search\" or \"probability\", got \"newest\"")
+		})
+
+		_, err := provider.AdditionalPropertyFn(context.Background(), orderResults(texts...), decisionParams(nil, nil), nil, nil, nil)
+
+		require.EqualError(t, err, `order must be "search" or "probability", got "newest"`)
+		assert.Equal(t, 0, counting.calls)
+	})
+
+	t.Run("a reranker rejects a decision", func(t *testing.T) {
+		_, err := New(scoreFromText{}).AdditionalPropertyFn(context.Background(), orderResults(texts...), decisionParams(ptr(0.5), nil), nil, nil, nil)
+
+		require.EqualError(t, err, "rerank.decision needs a decisions module")
+	})
+}
+
+type countingRanker struct{ calls int }
+
+func (c *countingRanker) Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error) {
+	c.calls++
+	return scoreFromText{}.Rank(ctx, query, documents, cfg)
+}

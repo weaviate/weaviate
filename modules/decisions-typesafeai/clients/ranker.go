@@ -90,11 +90,8 @@ func New(apiKey string, timeout time.Duration, maxConcurrentRequests int, logger
 	}
 }
 
-// Rank asks Jev about each document and returns the answer as the score. By
-// default the query is a condition and the answer is the probability that it
-// is true. With a rubric (config.ScoreLevels) the query is a question of
-// degree and the answer is the document's position on the rubric, from 0 for
-// the first level.
+// Rank asks Jev about each document and returns the answer as the score: the
+// query is a condition and the answer is the probability that it is true.
 //
 // Documents are sent in batches, see MaxBatchDocuments. The probability of a
 // document then depends a little on the documents it shares the request
@@ -117,11 +114,7 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 	if err != nil {
 		return nil, err
 	}
-	levels, err := config.ScoreLevels(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	request := judgeRequest{url: typesafeaiURL, apiKey: apiKey, model: settings.Model(), query: query, levels: levels}
+	request := judgeRequest{url: typesafeaiURL, apiKey: apiKey, model: settings.Model(), query: query}
 
 	// Documents with the same content share one judgment. firstIndex maps a
 	// document to the position that holds its score.
@@ -218,8 +211,6 @@ type judgeRequest struct {
 	apiKey string
 	model  string
 	query  string
-	// levels is the rubric of a score question. Empty for a yes/no question.
-	levels []string
 }
 
 // judge sends one batch and retries when the API is rate limiting or failing.
@@ -255,7 +246,7 @@ func (c *client) judgeBatch(ctx context.Context, request judgeRequest, documents
 	if err != nil {
 		return nil, typesafeaiUsage{}, result, err
 	}
-	values, err := response.values(len(documents), len(request.levels))
+	values, err := response.values(len(documents))
 	if err != nil {
 		return nil, typesafeaiUsage{}, sendResult{}, err
 	}
@@ -436,10 +427,6 @@ type typesafeaiQuestion struct {
 // document that names the document it is about.
 func newTypeSafeAIRequest(request judgeRequest, documents []string) typesafeaiRequest {
 	question := typesafeaiQuestion{Type: noulType, Instructions: request.query}
-	if len(request.levels) > 0 {
-		question.Type = scoreType
-		question.Criteria = request.levels
-	}
 	if len(documents) == 1 {
 		return typesafeaiRequest{
 			Model:     request.model,
@@ -484,11 +471,11 @@ type typesafeaiUsage struct {
 	InputTokens int64 `json:"input_tokens"`
 }
 
-// values returns the answers of a batch of the given size, in the order of
-// its documents. levels is the length of the rubric, 0 for a yes/no question.
-func (r typesafeaiResponse) values(documents, levels int) ([]float64, error) {
+// values returns the probabilities of a batch of the given size, in the
+// order of its documents.
+func (r typesafeaiResponse) values(documents int) ([]float64, error) {
 	if documents == 1 {
-		value, err := r.value(questionKey, levels)
+		value, err := r.value(questionKey)
 		if err != nil {
 			return nil, err
 		}
@@ -496,7 +483,7 @@ func (r typesafeaiResponse) values(documents, levels int) ([]float64, error) {
 	}
 	out := make([]float64, documents)
 	for i := range out {
-		value, err := r.value(batchKey(i), levels)
+		value, err := r.value(batchKey(i))
 		if err != nil {
 			return nil, err
 		}
@@ -505,23 +492,10 @@ func (r typesafeaiResponse) values(documents, levels int) ([]float64, error) {
 	return out, nil
 }
 
-func (r typesafeaiResponse) value(key string, levels int) (float64, error) {
+func (r typesafeaiResponse) value(key string) (float64, error) {
 	answer, ok := r.Answers[key]
 	if !ok {
 		return 0, errors.Errorf("no answer in response for %q", key)
-	}
-	if levels > 0 {
-		if answer.Type != scoreType {
-			return 0, errors.Errorf("unexpected answer type %q", answer.Type)
-		}
-		if answer.Score == nil {
-			return 0, errors.New("no score in response")
-		}
-		// A score is a position on the rubric, 0 for the first level.
-		if s := *answer.Score; s < 0 || s > float64(levels-1) {
-			return 0, errors.Errorf("score %v out of range", s)
-		}
-		return *answer.Score, nil
 	}
 	if answer.Type != noulType {
 		return 0, errors.Errorf("unexpected answer type %q", answer.Type)

@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearVideo"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -3210,6 +3211,69 @@ func TestGRPCSearchRequestDecideLimits(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
+		})
+	}
+}
+
+func TestGRPCSearchRequestRerankDecision(t *testing.T) {
+	property := "name"
+	tests := []struct {
+		name    string
+		rerank  *pb.Rerank
+		want    *rank.Params
+		wantErr string
+	}{
+		{
+			name:   "no decision",
+			rerank: &pb.Rerank{Property: property},
+			want:   &rank.Params{Property: &property},
+		},
+		{
+			name:   "empty decision",
+			rerank: &pb.Rerank{Property: property, Decision: &pb.RerankDecision{}},
+			want:   &rank.Params{Property: &property, Decision: &rank.Decision{}},
+		},
+		{
+			name: "threshold and order",
+			rerank: &pb.Rerank{Property: property, Decision: &pb.RerankDecision{
+				MinProbability: ptr(0.6), Order: pb.RerankOrder_RERANK_ORDER_PROBABILITY.Enum(),
+			}},
+			want: &rank.Params{Property: &property, Decision: &rank.Decision{MinProbability: ptr(0.6), Order: ptr(rank.OrderProbability)}},
+		},
+		{
+			name:   "search order",
+			rerank: &pb.Rerank{Property: property, Decision: &pb.RerankDecision{Order: pb.RerankOrder_RERANK_ORDER_SEARCH.Enum()}},
+			want:   &rank.Params{Property: &property, Decision: &rank.Decision{Order: ptr(rank.OrderSearch)}},
+		},
+		{
+			name:   "unspecified order is left to the class",
+			rerank: &pb.Rerank{Property: property, Decision: &pb.RerankDecision{Order: pb.RerankOrder_RERANK_ORDER_UNSPECIFIED.Enum()}},
+			want:   &rank.Params{Property: &property, Decision: &rank.Decision{}},
+		},
+		{
+			name:    "threshold out of range",
+			rerank:  &pb.Rerank{Property: property, Decision: &pb.RerankDecision{MinProbability: ptr(-0.1)}},
+			wantErr: "rerank.decision.min_probability must be between 0 and 1, got -0.1",
+		},
+		{
+			name:    "unknown order",
+			rerank:  &pb.Rerank{Property: property, Decision: &pb.RerankDecision{Order: pb.RerankOrder(7).Enum()}},
+			wantErr: "rerank.decision.order 7 is not known",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parser := NewParser(false, getClass, nil, false, nil)
+
+			out, err := parser.Search(&pb.SearchRequest{Collection: classname, Rerank: tt.rerank},
+				&config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, out.AdditionalProperties.ModuleParams["rerank"])
 		})
 	}
 }

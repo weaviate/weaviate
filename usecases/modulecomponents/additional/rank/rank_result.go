@@ -23,17 +23,41 @@ import (
 	rerankmodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
 
-// getScore scores the results and sorts them by score, highest first. Results
-// with the same score keep the order the search gave them.
+// getScore scores the results. A reranker sorts them by score, highest
+// first; results with the same score keep the order the search gave them. A
+// decisions module drops the results below the threshold and keeps the
+// search order or sorts by probability, see Decision. The settings are
+// resolved before any document is sent, so an invalid one costs nothing.
 func (p *ReRankerProvider) getScore(ctx context.Context, cfg moduletools.ClassConfig,
 	in []search.Result, params *Params,
 ) ([]search.Result, error) {
+	if p.decisionDefaults == nil {
+		if params != nil && params.Decision != nil {
+			return nil, errors.New("rerank.decision needs a decisions module")
+		}
+		scored, err := p.Score(ctx, cfg, in, params)
+		if err != nil || len(scored) == 0 {
+			return scored, err
+		}
+		SortByScore(scored)
+		return scored, nil
+	}
+	if params == nil {
+		return nil, fmt.Errorf("no params provided")
+	}
+	if err := params.Decision.Validate(); err != nil {
+		return nil, err
+	}
+	settings, err := p.decisionDefaults(cfg)
+	if err != nil {
+		return nil, err
+	}
+	settings = resolveDecision(params.Decision, settings)
 	scored, err := p.Score(ctx, cfg, in, params)
 	if err != nil || len(scored) == 0 {
 		return scored, err
 	}
-	SortByScore(scored)
-	return scored, nil
+	return applyDecision(scored, settings)
 }
 
 // SortByScore sorts scored results by their rerank score, highest first.

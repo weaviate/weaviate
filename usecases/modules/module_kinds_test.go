@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/decide"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
 )
 
 // typedModule is a module of any type that serves the given additional
@@ -303,6 +304,50 @@ func TestDecideLimits(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, limits)
+		})
+	}
+}
+
+// A rerank that asks for a decision goes to the decisions module whatever
+// module serves rerank otherwise, and fails on a class without one.
+func TestRerankDecisionRoutesToTheDecisionsModule(t *testing.T) {
+	property := "text"
+	plain := &rank.Params{Property: &property}
+	decision := &rank.Params{Property: &property, Decision: &rank.Decision{}}
+	tests := []struct {
+		name    string
+		class   string
+		params  *rank.Params
+		want    string
+		wantErr string
+	}{
+		{name: "both kinds, plain rerank", class: "Both", params: plain, want: "reranker-a"},
+		{name: "both kinds, decision", class: "Both", params: decision, want: "decisions-z"},
+		{name: "decisions only, plain rerank", class: "Decisions", params: plain, want: "decisions-z"},
+		{name: "decisions only, decision", class: "Decisions", params: decision, want: "decisions-z"},
+		{name: "reranker only, decision", class: "Reranker", params: decision, wantErr: `rerank.decision needs a decisions module, class "Reranker" has none`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			var served []string
+			p := NewProvider(logger, config.Config{})
+			p.SetSchemaGetter(kindsSchemaReader())
+			p.Register(rerankerModule("reranker-a", &served))
+			p.Register(decisionsModule("decisions-z", &served))
+			p.Register(rerankerModule("reranker-b", &served))
+			p.Register(decisionsModule("decisions-y", &served))
+			in := []search.Result{{ClassName: tt.class}}
+
+			_, err := p.GetExploreAdditionalExtend(context.Background(), in, map[string]any{"rerank": tt.params}, nil, nil)
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				assert.Empty(t, served)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, []string{tt.want}, served)
 		})
 	}
 }

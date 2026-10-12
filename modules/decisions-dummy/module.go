@@ -47,7 +47,7 @@ func (m *DecisionsDummyModule) Type() modulecapabilities.ModuleType {
 
 func (m *DecisionsDummyModule) Init(ctx context.Context, params moduletools.ModuleInitParams) error {
 	m.client = clients.New()
-	m.additionalProperties = rerankeradditional.NewRankerProvider(m.client).AdditionalProperties()
+	m.additionalProperties = rerankeradditional.NewDecisionsRankerProvider(m.client, clients.DecisionDefaults).AdditionalProperties()
 	maps.Copy(m.additionalProperties, rerankeradditional.NewDecideProvider(m.client).AdditionalProperties())
 	return nil
 }

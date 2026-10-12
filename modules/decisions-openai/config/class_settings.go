@@ -41,6 +41,13 @@ const (
 	QuestionRelevance = "relevance"
 	QuestionStatement = "statement"
 	DefaultQuestion   = QuestionRelevance
+
+	// OrderSearch and OrderProbability are the orders of a rerank, see
+	// rank.Order. The probability only drops results in OrderSearch.
+	OrderSearch           = "search"
+	OrderProbability      = "probability"
+	DefaultOrder          = OrderSearch
+	DefaultMinProbability = 0.0
 )
 
 // Settings are the class settings with the defaults filled in.
@@ -53,6 +60,11 @@ type Settings struct {
 	// MaxDocuments is the highest number of documents one Rank or Decide
 	// call may have judged by the API.
 	MaxDocuments int
+	// MinProbability and Order are the rerank defaults a request's decision
+	// overrides: drop results below the probability, keep the search order
+	// or sort by probability.
+	MinProbability float64
+	Order          string
 }
 
 type classSettings struct {
@@ -112,7 +124,55 @@ func (ic *classSettings) Resolve() (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
-	return Settings{Model: model, Question: question, BaseURL: baseURL, MaxDocuments: maxDocuments}, nil
+	minProbability, err := ic.probabilitySetting("minProbability", DefaultMinProbability)
+	if err != nil {
+		return Settings{}, err
+	}
+	order, err := ic.stringSetting("order", DefaultOrder)
+	if err != nil {
+		return Settings{}, err
+	}
+	if order != OrderSearch && order != OrderProbability {
+		return Settings{}, fmt.Errorf("order must be %q or %q, got %q", OrderSearch, OrderProbability, order)
+	}
+	return Settings{
+		Model: model, Question: question, BaseURL: baseURL, MaxDocuments: maxDocuments,
+		MinProbability: minProbability, Order: order,
+	}, nil
+}
+
+// probabilitySetting reads a number in [0, 1].
+func (ic *classSettings) probabilitySetting(name string, defaultValue float64) (float64, error) {
+	value := ic.setting(name)
+	var number float64
+	switch v := value.(type) {
+	case nil:
+		return defaultValue, nil
+	case int:
+		number = float64(v)
+	case int16:
+		number = float64(v)
+	case int32:
+		number = float64(v)
+	case int64:
+		number = float64(v)
+	case float32:
+		number = float64(v)
+	case float64:
+		number = v
+	case json.Number:
+		parsed, err := v.Float64()
+		if err != nil {
+			return 0, fmt.Errorf("%s must be a number between 0 and 1, got %v", name, v)
+		}
+		number = parsed
+	default:
+		return 0, fmt.Errorf("%s must be a number between 0 and 1, got %s", name, typeName(value))
+	}
+	if !(number >= 0 && number <= 1) {
+		return 0, fmt.Errorf("%s must be a number between 0 and 1, got %v", name, number)
+	}
+	return number, nil
 }
 
 // NormalizeBaseURL removes a trailing "/" and a trailing "/v1" from baseURL,
