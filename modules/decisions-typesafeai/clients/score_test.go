@@ -46,12 +46,13 @@ func TestRankWithARubric(t *testing.T) {
 			{Document: "data lost", Score: 2.94},
 			{Document: "invoice typo", Score: 1},
 		}, res.DocumentScores)
+		// One request for the three documents, with the rubric in every question.
 		requests := handler.received()
-		require.Len(t, requests, 3)
-		for _, request := range requests {
-			question := request.body.Questions[questionKey]
+		require.Len(t, requests, 1)
+		require.Len(t, requests[0].body.Questions, 3)
+		for key, question := range requests[0].body.Questions {
 			assert.Equal(t, "score", question.Type)
-			assert.Equal(t, "how urgent is this ticket?", question.Instructions)
+			assert.Equal(t, "In "+key+": how urgent is this ticket?", question.Instructions)
 			assert.Equal(t, levels, question.Criteria)
 		}
 	})
@@ -68,25 +69,6 @@ func TestRankWithARubric(t *testing.T) {
 		question := handler.received()[0].body.Questions[questionKey]
 		assert.Equal(t, "score", question.Type)
 		assert.Equal(t, []string{"low", "high"}, question.Criteria)
-	})
-
-	t.Run("a batch carries the rubric in every question", func(t *testing.T) {
-		handler := &typesafeaiHandler{t: t, scores: scores}
-		server := httptest.NewServer(handler)
-		defer server.Close()
-
-		res, err := newTestClient("apiKey").Rank(withLevels(urgency), "q", documents,
-			classConfig(server.URL, map[string]any{"batchSize": 3}))
-
-		require.NoError(t, err)
-		assert.Equal(t, 2.94, res.DocumentScores[1].Score)
-		requests := handler.received()
-		require.Len(t, requests, 1)
-		require.Len(t, requests[0].body.Questions, 3)
-		for _, question := range requests[0].body.Questions {
-			assert.Equal(t, "score", question.Type)
-			assert.Equal(t, levels, question.Criteria)
-		}
 	})
 
 	t.Run("a yes/no question carries no rubric", func(t *testing.T) {
@@ -112,31 +94,6 @@ func TestRankWithARubric(t *testing.T) {
 		require.ErrorContains(t, err, "X-Typesafeai-Score-Levels must list between 2 and 10 levels, got 1")
 		assert.Empty(t, handler.received())
 	})
-}
-
-// A yes/no answer, an answer for another rubric and an answer for the same
-// rubric must not be served for each other.
-func TestRankCacheIsSeparatedByQuestionType(t *testing.T) {
-	handler := &typesafeaiHandler{t: t, scores: map[string]float64{"doc": 1}}
-	server := httptest.NewServer(handler)
-	defer server.Close()
-	c := newTestClient("apiKey")
-	cfg := classConfig(server.URL, nil)
-
-	for _, ctx := range []context.Context{
-		context.Background(),
-		withLevels("low|high"),
-		withLevels("low|medium|high"),
-		withLevels("lowh|igh"),
-		context.Background(),
-		withLevels("low|high"),
-	} {
-		_, err := c.Rank(ctx, "q", []string{"doc"}, cfg)
-		require.NoError(t, err)
-	}
-
-	// The last two repeat the first two and are served from the cache.
-	assert.Len(t, handler.received(), 4)
 }
 
 func TestRankRubricMalformedResponses(t *testing.T) {

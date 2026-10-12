@@ -29,8 +29,6 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantBaseURL      string
 		wantMaxDocuments int
 		wantMinProb      float64
-		// wantBatchSize of 0 stands for the default.
-		wantBatchSize int
 		// wantOrder empty stands for the default.
 		wantOrder string
 		wantErr   string
@@ -114,37 +112,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: `order must be "search" or "probability", got "newest"`,
 		},
 		{
-			name: "batchSize at the maximum",
-			cfg: fakeClassConfig{classConfig: map[string]any{
-				"batchSize": 25,
-			}},
-			wantModel:        "jev-latest",
-			wantBaseURL:      "https://api.typesafe.ai",
-			wantMaxDocuments: 100,
-			wantBatchSize:    25,
-		},
-		{
-			name: "batchSize zero",
-			cfg: fakeClassConfig{classConfig: map[string]any{
-				"batchSize": 0,
-			}},
-			wantErr: "batchSize must be between 1 and 25, got 0",
-		},
-		{
-			name: "batchSize above the maximum",
-			cfg: fakeClassConfig{classConfig: map[string]any{
-				"batchSize": 26,
-			}},
-			wantErr: "batchSize must be between 1 and 25, got 26",
-		},
-		{
-			name: "batchSize of the wrong type",
-			cfg: fakeClassConfig{classConfig: map[string]any{
-				"batchSize": "big",
-			}},
-			wantErr: "batchSize must be between 1 and 25, got 0",
-		},
-		{
 			name: "minProbability of 1",
 			cfg: fakeClassConfig{classConfig: map[string]any{
 				"minProbability": 1,
@@ -189,11 +156,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			assert.Equal(t, tt.wantBaseURL, ic.BaseURL())
 			assert.Equal(t, tt.wantMaxDocuments, ic.MaxDocuments())
 			assert.Equal(t, tt.wantMinProb, ic.MinProbability())
-			wantBatchSize := tt.wantBatchSize
-			if wantBatchSize == 0 {
-				wantBatchSize = 1
-			}
-			assert.Equal(t, wantBatchSize, ic.BatchSize())
 			wantOrder := tt.wantOrder
 			if wantOrder == "" {
 				wantOrder = "search"

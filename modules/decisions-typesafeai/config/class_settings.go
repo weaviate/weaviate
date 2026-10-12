@@ -34,10 +34,9 @@ const (
 
 	// OrderSearch keeps the results in the order the search gave them: the
 	// probability only decides which ones are dropped. OrderProbability
-	// sorts them by probability, highest first. With OrderProbability, or
-	// with the cache off, the pages of one query are cut from candidate
-	// sets judged separately, so a document can appear on two pages or on
-	// none; pages are only consistent with the cache on and OrderSearch.
+	// sorts them by probability, highest first. The pages of one query are
+	// cut from candidate sets judged separately, so a document whose answer
+	// is close to the threshold can appear on two pages or on none.
 	OrderSearch      = "search"
 	OrderProbability = "probability"
 	DefaultOrder     = OrderSearch
@@ -51,13 +50,6 @@ const (
 	ScoreLevelsHeader   = "X-Typesafeai-Score-Levels"
 	// MaxDocumentsLimit bounds the per-query API spend.
 	MaxDocumentsLimit = 1000
-	// DefaultBatchSize is 1 because a document judged together with others
-	// gets a less stable probability: measured on the same document, it
-	// stayed within 0.04 alone and moved by up to 0.21 in batches of 10.
-	DefaultBatchSize = 1
-	// MaxBatchSize is where accuracy is reported to drop when more documents
-	// share one request.
-	MaxBatchSize = 25
 )
 
 type classSettings struct {
@@ -83,9 +75,6 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	}
 	if order := ic.Order(); !ValidOrder(order) {
 		return fmt.Errorf("order must be %q or %q, got %q", OrderSearch, OrderProbability, order)
-	}
-	if batchSize := ic.BatchSize(); batchSize < 1 || batchSize > MaxBatchSize {
-		return fmt.Errorf("batchSize must be between 1 and %d, got %d", MaxBatchSize, batchSize)
 	}
 	levels, err := ic.ScoreLevels()
 	if err != nil {
@@ -144,14 +133,6 @@ func ValidOrder(order string) bool {
 // OrderProbability.
 func (ic *classSettings) Order() string {
 	return ic.getStringProperty("order", DefaultOrder)
-}
-
-// BatchSize is how many documents share one request to the TypeSafeAI API.
-func (ic *classSettings) BatchSize() int {
-	defaultValue := DefaultBatchSize
-	// A value of the wrong type maps to 0, which Validate rejects.
-	wrongValue := 0
-	return *ic.propertyValuesHelper.GetPropertyAsIntWithNotExists(ic.cfg, "batchSize", &wrongValue, &defaultValue)
 }
 
 // MinProbability is the threshold below which a result is dropped from the

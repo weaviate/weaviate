@@ -76,15 +76,22 @@ func TestRank(t *testing.T) {
 		}
 		assert.Equal(t, expected, res.DocumentScores)
 
+		// The documents share one request: one state entry and one question
+		// per document, the question naming its document.
 		requests := handler.received()
-		require.Len(t, requests, len(documents))
-		for _, req := range requests {
-			assert.Equal(t, "Bearer apiKey", req.authorization)
-			assert.Equal(t, "jev-latest", req.body.Model)
-			require.Len(t, req.body.Questions, 1)
-			question := req.body.Questions[questionKey]
+		require.Len(t, requests, 1)
+		req := requests[0]
+		assert.Equal(t, "Bearer apiKey", req.authorization)
+		assert.Equal(t, "jev-latest", req.body.Model)
+		state, ok := req.body.State.(map[string]any)
+		require.True(t, ok)
+		require.Len(t, state, len(documents))
+		require.Len(t, req.body.Questions, len(documents))
+		for key, document := range state {
+			assert.Contains(t, documents, document)
+			question := req.body.Questions[key]
 			assert.Equal(t, "noul", question.Type)
-			assert.Equal(t, query, question.Instructions)
+			assert.Equal(t, "In "+key+": "+query, question.Instructions)
 		}
 	})
 
@@ -145,7 +152,9 @@ func TestRank(t *testing.T) {
 			{Document: "other", Score: 0.1},
 			{Document: "same", Score: 0.7},
 		}, res.DocumentScores)
-		assert.Len(t, handler.received(), 2)
+		requests := handler.received()
+		require.Len(t, requests, 1)
+		assert.Len(t, requests[0].body.State, 2)
 	})
 
 	t.Run("api key from the request header wins", func(t *testing.T) {
@@ -160,6 +169,19 @@ func TestRank(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, handler.received(), 1)
 		assert.Equal(t, "Bearer headerKey", handler.received()[0].authorization)
+	})
+
+	t.Run("a base URL from the request header needs a key from the request header", func(t *testing.T) {
+		handler := &typesafeaiHandler{t: t, scores: map[string]float64{"doc": 0.5}}
+		server := httptest.NewServer(handler)
+		defer server.Close()
+
+		c := newTestClient("envKey")
+		ctx := context.WithValue(context.Background(), "X-Typesafeai-Baseurl", []string{"https://proxy.example.com"})
+		_, err := c.Rank(ctx, query, []string{"doc"}, classConfig(server.URL, nil))
+
+		require.EqualError(t, err, "X-Typesafeai-Baseurl needs X-Typesafeai-Api-Key: the server's key is not sent to a host named by the request")
+		assert.Empty(t, handler.received())
 	})
 }
 
@@ -349,8 +371,9 @@ func TestRankStopsOnContextCancel(t *testing.T) {
 
 func TestRankBoundsRequestsInFlight(t *testing.T) {
 	const limit = 4
+	// 120 documents are three requests, so two queries send six at once.
 	documents := func(prefix string) ([]string, map[string]float64) {
-		out := make([]string, 30)
+		out := make([]string, 120)
 		scores := map[string]float64{}
 		for i := range out {
 			out[i] = fmt.Sprintf("%s %d", prefix, i)
@@ -375,63 +398,84 @@ func TestRankBoundsRequestsInFlight(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, errs[i] = c.Rank(context.Background(), "q", docs, classConfig(server.URL, nil))
+			_, errs[i] = c.Rank(context.Background(), "q", docs, classConfig(server.URL, map[string]any{"maxDocuments": 200}))
 		}()
 	}
 	wg.Wait()
 
 	require.NoError(t, errs[0])
 	require.NoError(t, errs[1])
-	assert.Len(t, handler.received(), len(first)+len(second))
+	assert.Len(t, handler.received(), 6)
 	assert.LessOrEqual(t, handler.maxInFlight, limit)
 	assert.Greater(t, handler.maxInFlight, 1)
 }
 
 func TestRankBatches(t *testing.T) {
-	documents := make([]string, 25)
+	documents := make([]string, 120)
 	scores := map[string]float64{}
 	for i := range documents {
 		documents[i] = fmt.Sprintf("doc %d", i)
-		scores[documents[i]] = float64(i) / 100
+		scores[documents[i]] = float64(i) / 1000
 	}
-
-	tests := []struct {
-		name         string
-		settings     map[string]any
-		wantRequests []int
-	}{
-		{name: "default is one document per request", settings: map[string]any{"batchSize": nil}, wantRequests: make([]int, 25)},
-		{name: "batch size of 10", settings: map[string]any{"batchSize": 10}, wantRequests: []int{5, 10, 10}},
-		{name: "batch size of 7", settings: map[string]any{"batchSize": 7}, wantRequests: []int{4, 7, 7, 7}},
-		{name: "batch larger than the documents", settings: map[string]any{"batchSize": 25}, wantRequests: []int{25}},
-		{name: "batch size above the maximum is capped", settings: map[string]any{"batchSize": 500}, wantRequests: []int{25}},
-		{name: "batch size of 1", settings: map[string]any{"batchSize": 1}, wantRequests: make([]int, 25)},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			handler := &typesafeaiHandler{t: t, scores: scores}
-			server := httptest.NewServer(handler)
-			defer server.Close()
-
-			res, err := newTestClient("apiKey").Rank(context.Background(), "q", documents,
-				classConfig(server.URL, tt.settings))
-
-			require.NoError(t, err)
-			for i, document := range documents {
-				assert.Equal(t, ent.DocumentScore{Document: document, Score: scores[document]}, res.DocumentScores[i])
+	// sizes returns the number of documents of every request, sorted.
+	sizes := func(requests []receivedRequest) []int {
+		var out []int
+		for _, request := range requests {
+			if state, ok := request.body.State.(map[string]any); ok {
+				out = append(out, len(state))
+			} else {
+				out = append(out, 1)
 			}
-			var sizes []int
-			for _, request := range handler.received() {
-				if state, ok := request.body.State.(map[string]any); ok {
-					sizes = append(sizes, len(state))
-				} else {
-					sizes = append(sizes, 0)
-				}
-			}
-			sort.Ints(sizes)
-			assert.Equal(t, tt.wantRequests, sizes)
-		})
+		}
+		sort.Ints(out)
+		return out
 	}
+
+	t.Run("up to MaxBatchDocuments documents share one request", func(t *testing.T) {
+		handler := &typesafeaiHandler{t: t, scores: scores}
+		server := httptest.NewServer(handler)
+		defer server.Close()
+
+		res, err := newTestClient("apiKey").Rank(context.Background(), "q", documents,
+			classConfig(server.URL, map[string]any{"maxDocuments": 200}))
+
+		require.NoError(t, err)
+		for i, document := range documents {
+			assert.Equal(t, ent.DocumentScore{Document: document, Score: scores[document]}, res.DocumentScores[i])
+		}
+		assert.Equal(t, []int{20, 50, 50}, sizes(handler.received()))
+	})
+
+	t.Run("a request holds at most MaxBatchCharacters of documents", func(t *testing.T) {
+		long := make([]string, 7)
+		longScores := map[string]float64{}
+		for i := range long {
+			long[i] = strings.Repeat(string(rune('a'+i)), 30_000)
+			longScores[long[i]] = 0.5
+		}
+		handler := &typesafeaiHandler{t: t, scores: longScores}
+		server := httptest.NewServer(handler)
+		defer server.Close()
+
+		_, err := newTestClient("apiKey").Rank(context.Background(), "q", long, classConfig(server.URL, nil))
+
+		require.NoError(t, err)
+		// 30,000 characters each: three per request, the seventh alone.
+		assert.Equal(t, []int{1, 3, 3}, sizes(handler.received()))
+	})
+
+	t.Run("a document longer than MaxBatchCharacters goes alone", func(t *testing.T) {
+		huge := strings.Repeat("h", MaxBatchCharacters+1)
+		handler := &typesafeaiHandler{t: t, scores: map[string]float64{"a": 0.1, huge: 0.2, "b": 0.3}}
+		server := httptest.NewServer(handler)
+		defer server.Close()
+
+		res, err := newTestClient("apiKey").Rank(context.Background(), "q", []string{"a", huge, "b"}, classConfig(server.URL, nil))
+
+		require.NoError(t, err)
+		assert.Equal(t, 0.2, res.DocumentScores[1].Score)
+		assert.Equal(t, []int{1, 1, 1}, sizes(handler.received()))
+	})
 
 	t.Run("a batch the API rejects for its size is sent as halves", func(t *testing.T) {
 		// Jev accepts at most 3 documents per request here: 10 -> 5 + 5 -> 2 + 3 each.
@@ -439,21 +483,13 @@ func TestRankBatches(t *testing.T) {
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
-		res, err := newTestClient("apiKey").Rank(context.Background(), "q", documents[:10],
-			classConfig(server.URL, map[string]any{"batchSize": 10}))
+		res, err := newTestClient("apiKey").Rank(context.Background(), "q", documents[:10], classConfig(server.URL, nil))
 
 		require.NoError(t, err)
 		for i, document := range documents[:10] {
 			assert.Equal(t, ent.DocumentScore{Document: document, Score: scores[document]}, res.DocumentScores[i])
 		}
-		var sizes []int
-		for _, request := range handler.received() {
-			if state, ok := request.body.State.(map[string]any); ok {
-				sizes = append(sizes, len(state))
-			}
-		}
-		sort.Ints(sizes)
-		assert.Equal(t, []int{2, 2, 3, 3, 5, 5, 10}, sizes)
+		assert.Equal(t, []int{2, 2, 3, 3, 5, 5, 10}, sizes(handler.received()))
 	})
 
 	t.Run("a single document the API rejects for its size is an error", func(t *testing.T) {
@@ -461,8 +497,7 @@ func TestRankBatches(t *testing.T) {
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
-		_, err := newTestClient("apiKey").Rank(context.Background(), "q", documents[:1],
-			classConfig(server.URL, map[string]any{"batchSize": 1}))
+		_, err := newTestClient("apiKey").Rank(context.Background(), "q", documents[:1], classConfig(server.URL, nil))
 
 		require.ErrorContains(t, err, "max_tokens_exceeded")
 		assert.Len(t, handler.received(), 1)
@@ -473,8 +508,7 @@ func TestRankBatches(t *testing.T) {
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
-		_, err := newTestClient("apiKey").Rank(context.Background(), "q", documents[:11],
-			classConfig(server.URL, map[string]any{"batchSize": 10}))
+		_, err := newTestClient("apiKey").Rank(context.Background(), "q", documents[:MaxBatchDocuments+1], classConfig(server.URL, nil))
 
 		require.NoError(t, err)
 		requests := handler.received()
@@ -483,7 +517,7 @@ func TestRankBatches(t *testing.T) {
 		for _, request := range requests {
 			if state, ok := request.body.State.(string); ok {
 				single++
-				assert.Equal(t, "doc 10", state)
+				assert.Equal(t, documents[MaxBatchDocuments], state)
 				assert.Equal(t, "q", request.body.Questions[questionKey].Instructions)
 			}
 		}
@@ -495,29 +529,50 @@ func TestRankBatches(t *testing.T) {
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
-		_, err := newTestClient("apiKey").Rank(context.Background(), "q", documents[:5],
-			classConfig(server.URL, map[string]any{"batchSize": 5}))
+		_, err := newTestClient("apiKey").Rank(context.Background(), "q", documents[:5], classConfig(server.URL, nil))
 
 		require.ErrorContains(t, err, `no answer in response for "document_2"`)
 	})
+}
 
-	t.Run("only documents not judged before are batched", func(t *testing.T) {
-		handler := &typesafeaiHandler{t: t, scores: scores}
-		server := httptest.NewServer(handler)
-		defer server.Close()
-		c := newTestClient("apiKey")
-		cfg := classConfig(server.URL, map[string]any{"batchSize": 10})
+func TestBatches(t *testing.T) {
+	short := "short"
+	half := strings.Repeat("x", MaxBatchCharacters/2)
+	tests := []struct {
+		name      string
+		documents []string
+		want      [][]int
+	}{
+		{name: "none", documents: nil, want: nil},
+		{name: "one", documents: []string{short}, want: [][]int{{0}}},
+		{name: "two halves fill one request", documents: []string{half, half}, want: [][]int{{0, 1}}},
+		{name: "a third half starts another", documents: []string{half, half, short}, want: [][]int{{0, 1}, {2}}},
+		{name: "a long one closes the batch before it", documents: []string{short, strings.Repeat("x", MaxBatchCharacters)}, want: [][]int{{0}, {1}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			indexes := make([]int, len(tt.documents))
+			for i := range indexes {
+				indexes[i] = i
+			}
 
-		_, err := c.Rank(context.Background(), "q", documents[:8], cfg)
-		require.NoError(t, err)
-		res, err := c.Rank(context.Background(), "q", documents[:12], cfg)
-		require.NoError(t, err)
+			assert.Equal(t, tt.want, batches(indexes, tt.documents))
+		})
+	}
 
-		requests := handler.received()
-		require.Len(t, requests, 2)
-		assert.Len(t, requests[1].body.State, 4)
-		assert.Equal(t, scores["doc 3"], res.DocumentScores[3].Score)
-		assert.Equal(t, scores["doc 11"], res.DocumentScores[11].Score)
+	t.Run("MaxBatchDocuments documents per request", func(t *testing.T) {
+		documents := make([]string, 2*MaxBatchDocuments+1)
+		indexes := make([]int, len(documents))
+		for i := range documents {
+			documents[i], indexes[i] = short, i
+		}
+
+		got := batches(indexes, documents)
+
+		require.Len(t, got, 3)
+		assert.Len(t, got[0], MaxBatchDocuments)
+		assert.Len(t, got[1], MaxBatchDocuments)
+		assert.Equal(t, []int{2 * MaxBatchDocuments}, got[2])
 	})
 }
 
@@ -728,8 +783,6 @@ func (h *typesafeaiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	assert.NoError(h.t, json.NewEncoder(w).Encode(resp))
 }
 
-// classConfig sends one document per request unless the settings say
-// otherwise, which keeps the request count of a test equal to its documents.
 // answerFor answers in the type of the question.
 func answerFor(question typesafeaiQuestion, value float64) typesafeaiAnswer {
 	if question.Type == scoreType {
@@ -739,7 +792,7 @@ func answerFor(question typesafeaiQuestion, value float64) typesafeaiAnswer {
 }
 
 func classConfig(baseURL string, settings map[string]any) moduletools.ClassConfig {
-	cfg := map[string]any{"baseURL": baseURL, "batchSize": 1}
+	cfg := map[string]any{"baseURL": baseURL}
 	for k, v := range settings {
 		if v == nil {
 			delete(cfg, k)

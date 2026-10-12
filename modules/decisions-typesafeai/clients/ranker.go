@@ -49,19 +49,26 @@ const (
 	maxAttempts = 4
 	// maxRetryAfter caps how long a Retry-After header can delay a retry.
 	maxRetryAfter = 10 * time.Second
-	// cacheCapacity bounds the memory of the judgment cache. An entry is a
-	// fixed-size hash and a float, so 100,000 entries stay below 20 MB.
-	cacheCapacity = 100_000
 	// maxErrorBodyBytes bounds how much of an error response ends up in the
 	// error message.
 	maxErrorBodyBytes = 512
+
+	// MaxBatchDocuments and MaxBatchCharacters bound one request to the
+	// API, whichever is reached first. The API judges one state per request
+	// and the documents of a batch share it, so a request costs its fixed
+	// tokens once for all of them. The size the API accepts is not
+	// published: 141,000 characters of documents were accepted and 149,000
+	// rejected, so 100,000 leaves room for the questions. Beyond 50
+	// documents a request saves almost no tokens and answers more slowly
+	// than two sent in parallel.
+	MaxBatchDocuments  = 50
+	MaxBatchCharacters = 100_000
 )
 
 type client struct {
 	apiKey       string
 	httpClient   *http.Client
 	retryBackoff time.Duration
-	cache        *judgmentCache
 	// inFlight holds one token per request being sent. It is shared by all
 	// Rank calls, so it limits the load on the TypeSafeAI API however many queries
 	// run at once.
@@ -74,7 +81,6 @@ func New(apiKey string, timeout time.Duration, maxConcurrentRequests int, logger
 		apiKey:       apiKey,
 		httpClient:   modulecomponents.NewBaseHttpClient(timeout),
 		retryBackoff: 500 * time.Millisecond,
-		cache:        newJudgmentCache(cacheCapacity),
 		inFlight:     make(chan struct{}, maxConcurrentRequests),
 		logger:       logger,
 	}
@@ -86,12 +92,10 @@ func New(apiKey string, timeout time.Duration, maxConcurrentRequests int, logger
 // degree and the answer is the document's position on the rubric, from 0 for
 // the first level.
 //
-// Documents are sent in batches of the class's batchSize. One request costs a
-// fixed number of tokens on top of its documents, so batches are cheaper and
-// need fewer requests, but the probability of a document then depends on the
-// documents it shares the request with. Identical documents and documents
-// judged before are not sent again. Requests above the class's maxDocuments
-// are rejected rather than truncated.
+// Documents are sent in batches, see MaxBatchDocuments. The probability of a
+// document then depends a little on the documents it shares the request
+// with. Identical documents are judged once. Requests above the class's
+// maxDocuments are rejected rather than truncated.
 func (c *client) Rank(ctx context.Context, query string, documents []string,
 	cfg moduletools.ClassConfig,
 ) (*ent.RankResult, error) {
@@ -105,12 +109,7 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 	if maxDocuments := min(settings.MaxDocuments(), config.MaxDocumentsLimit); len(documents) > maxDocuments {
 		return nil, errors.Errorf("%d documents exceed maxDocuments %d", len(documents), maxDocuments)
 	}
-	batchSize := min(max(settings.BatchSize(), 1), config.MaxBatchSize)
-	apiKey, err := c.getApiKey(ctx)
-	if err != nil {
-		return nil, errors.Wrap(err, "TypeSafeAI API Key")
-	}
-	typesafeaiURL, err := c.getTypeSafeAIURL(ctx, settings.BaseURL())
+	typesafeaiURL, apiKey, err := c.endpoint(ctx, settings.BaseURL())
 	if err != nil {
 		return nil, err
 	}
@@ -118,21 +117,12 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 	if err != nil {
 		return nil, err
 	}
-	cache, err := cacheModeOf(ctx)
-	if err != nil {
-		return nil, err
-	}
-	request := judgeRequest{
-		url: typesafeaiURL, apiKey: apiKey, model: settings.Model(), query: query, batchSize: batchSize,
-		levels: levels,
-	}
+	request := judgeRequest{url: typesafeaiURL, apiKey: apiKey, model: settings.Model(), query: query, levels: levels}
 
 	// Documents with the same content share one judgment. firstIndex maps a
 	// document to the position that holds its score.
 	firstIndex := make(map[string]int, len(documents))
 	scores := make([]float64, len(documents))
-	// keys holds the cache keys of every document that has to be judged.
-	keys := make(map[int]documentKeys)
 	var pending []int
 	for i, document := range documents {
 		if document == "" {
@@ -142,22 +132,6 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 			continue
 		}
 		firstIndex[document] = i
-		documentKeys := request.cacheKeys(document)
-		if cache == cacheOn {
-			if score, ok := c.cache.get(documentKeys.batched); ok {
-				scores[i] = score
-				continue
-			}
-			// A judgment made alone is the stable one, so every batch size
-			// may use it.
-			if documentKeys.batched != documentKeys.single {
-				if score, ok := c.cache.get(documentKeys.single); ok {
-					scores[i] = score
-					continue
-				}
-			}
-		}
-		keys[i] = documentKeys
 		pending = append(pending, i)
 	}
 
@@ -171,8 +145,7 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 	var inputTokens, requests atomic.Int64
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(c.logger, ctx)
 	eg.SetLimit(cap(c.inFlight))
-	for start := 0; start < len(pending); start += batchSize {
-		batch := pending[start:min(start+batchSize, len(pending))]
+	for _, batch := range batches(pending, documents) {
 		eg.Go(func() error {
 			batchDocuments := make([]string, len(batch))
 			for j, index := range batch {
@@ -183,29 +156,7 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 				return err
 			}
 			for j, index := range batch {
-				// A document that was sent alone is a single judgment even
-				// when the class batches: the last batch can hold one
-				// document.
-				key := keys[index].batched
-				if len(batch) == 1 {
-					key = keys[index].single
-				}
-				switch cache {
-				case cacheOff:
-					scores[index] = probabilities[j]
-				case cacheRefresh:
-					// A batched class reads the batched key first, so a stale
-					// answer must not survive under either key.
-					c.cache.put(key, probabilities[j])
-					if other := keys[index].batched; other != key {
-						c.cache.remove(other)
-					}
-					scores[index] = probabilities[j]
-				default:
-					// Another query may have judged the document meanwhile.
-					// The answer stored first is the one every query uses.
-					scores[index] = c.cache.putIfAbsent(key, probabilities[j])
-				}
+				scores[index] = probabilities[j]
 			}
 			inputTokens.Add(usage.InputTokens)
 			requests.Add(1)
@@ -234,65 +185,37 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 	return &ent.RankResult{Query: query, DocumentScores: documentScores}, nil
 }
 
-// The cache modes a request can ask for with the X-Typesafeai-Cache header.
-const (
-	cacheHeader = "X-Typesafeai-Cache"
-	// cacheOn reads stored answers and stores new ones. It is the default.
-	cacheOn = "on"
-	// cacheRefresh judges every document again and replaces what is stored.
-	cacheRefresh = "refresh"
-	// cacheOff judges every document again and stores nothing.
-	cacheOff = "off"
-)
-
-func cacheModeOf(ctx context.Context) (string, error) {
-	switch mode := modulecomponents.GetValueFromContext(ctx, cacheHeader); mode {
-	case "":
-		return cacheOn, nil
-	case cacheOn, cacheRefresh, cacheOff:
-		return mode, nil
-	default:
-		return "", errors.Errorf("%s must be %q, %q or %q, got %q", cacheHeader, cacheOn, cacheRefresh, cacheOff, mode)
+// batches splits the positions of the documents to judge into requests of
+// at most MaxBatchDocuments documents and MaxBatchCharacters characters,
+// in order. A document longer than that goes alone; judge halves a request
+// the API still rejects.
+func batches(indexes []int, documents []string) [][]int {
+	var out [][]int
+	var batch []int
+	characters := 0
+	for _, index := range indexes {
+		length := len(documents[index])
+		if len(batch) > 0 && (len(batch) == MaxBatchDocuments || characters+length > MaxBatchCharacters) {
+			out = append(out, batch)
+			batch, characters = nil, 0
+		}
+		batch = append(batch, index)
+		characters += length
 	}
+	if len(batch) > 0 {
+		out = append(out, batch)
+	}
+	return out
 }
 
 // judgeRequest is what all batches of one Rank call have in common.
 type judgeRequest struct {
-	url       string
-	apiKey    string
-	model     string
-	query     string
-	batchSize int
+	url    string
+	apiKey string
+	model  string
+	query  string
 	// levels is the rubric of a score question. Empty for a yes/no question.
 	levels []string
-}
-
-// documentKeys are the cache keys of one document: for a judgment made in a
-// batch of the class's batch size, and for one made alone. They are equal
-// when the class does not batch.
-type documentKeys struct {
-	batched judgmentKey
-	single  judgmentKey
-}
-
-// cacheKeys covers everything that can change the answer or who may read it.
-// Another endpoint or API key must not see judgments made for this one, a
-// probability judged in a batch differs from one judged alone, and the
-// rubric decides what the number means.
-func (r judgeRequest) cacheKeys(document string) documentKeys {
-	single := r.cacheKey(document, 1)
-	if r.batchSize == 1 {
-		return documentKeys{batched: single, single: single}
-	}
-	return documentKeys{batched: r.cacheKey(document, r.batchSize), single: single}
-}
-
-func (r judgeRequest) cacheKey(document string, batchSize int) judgmentKey {
-	parts := make([]string, 0, 7+len(r.levels))
-	parts = append(parts, r.url, r.apiKey, r.model, strconv.Itoa(batchSize), strconv.Itoa(len(r.levels)))
-	parts = append(parts, r.levels...)
-	parts = append(parts, r.query, document)
-	return newJudgmentKey(parts...)
 }
 
 // judge sends one batch and retries when the API is rate limiting or failing.
@@ -442,24 +365,38 @@ func wait(ctx context.Context, delay time.Duration) error {
 	}
 }
 
-func (c *client) getApiKey(ctx context.Context) (string, error) {
-	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Typesafeai-Api-Key"); apiKey != "" {
-		return apiKey, nil
-	}
-	if c.apiKey != "" {
-		return c.apiKey, nil
-	}
-	return "", errors.New("no api key found " +
-		"neither in request header: X-Typesafeai-Api-Key " +
-		"nor in environment variable under TYPESAFEAI_APIKEY")
-}
+const (
+	apiKeyHeader  = "X-Typesafeai-Api-Key"
+	baseURLHeader = "X-Typesafeai-Baseurl"
+)
 
-func (c *client) getTypeSafeAIURL(ctx context.Context, baseURL string) (string, error) {
-	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Typesafeai-Baseurl", baseURL)
-	if err != nil {
-		return "", err
+// endpoint returns the URL and the API key of the requests. A base URL from
+// the request header is only used with an API key from the request header,
+// so the server's key goes to the class's baseURL or the default and nowhere
+// else.
+func (c *client) endpoint(ctx context.Context, classBaseURL string) (endpointURL, apiKey string, err error) {
+	apiKey = modulecomponents.GetValueFromContext(ctx, apiKeyHeader)
+	baseURL := classBaseURL
+	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, baseURLHeader); headerBaseURL != "" {
+		if apiKey == "" {
+			return "", "", errors.Errorf("%s needs %s: the server's key is not sent to a host named by the request",
+				baseURLHeader, apiKeyHeader)
+		}
+		if err := modulecomponents.ValidateBaseURL(headerBaseURL); err != nil {
+			return "", "", err
+		}
+		baseURL = headerBaseURL
 	}
-	return url.JoinPath(passedBaseURL, apiPath)
+	if apiKey == "" {
+		apiKey = c.apiKey
+	}
+	if apiKey == "" {
+		return "", "", errors.Errorf("TypeSafeAI API Key: no api key found "+
+			"neither in request header: %s "+
+			"nor in environment variable under TYPESAFEAI_APIKEY", apiKeyHeader)
+	}
+	endpointURL, err = url.JoinPath(baseURL, apiPath)
+	return endpointURL, apiKey, err
 }
 
 type typesafeaiRequest struct {
