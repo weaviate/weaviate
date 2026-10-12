@@ -406,6 +406,8 @@ func TestShard_RecalculateDimensions_FailedSwitchLeavesNoBucket(t *testing.T) {
 			tracked := dimensionsBucketRows(t, shard)
 			bucketPath := filepath.Join(shard.pathLSM(), helpers.DimensionsBucketLSM)
 
+			// with nothing left to flush, shutting the bucket down cannot hit the injected failure
+			require.NoError(t, shard.store.Bucket(helpers.DimensionsBucketLSM).FlushAndSwitch())
 			repair, switchErr := tt.fail(t, bucketPath)
 			err := shard.recoverFailedDimensionsSwitch(ctx, bucketPath, switchErr)
 			require.ErrorIs(t, err, switchErr)
