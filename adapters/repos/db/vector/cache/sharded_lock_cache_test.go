@@ -696,6 +696,39 @@ func TestShardedLockCache_DropDuringMiss(t *testing.T) {
 	assert.EqualValues(t, 0, c.CountVectors())
 }
 
+// A dropped cache looks like a fresh one. Reads after Drop must still serve
+// the vector, but nothing may bring the released slice back.
+func TestShardedLockCache_OpsAfterDrop(t *testing.T) {
+	fetch, calls := countingFetcher[float32]()
+	c := newLazyTestCache[float32](t, fetch)
+	_, err := c.Get(context.Background(), 5)
+	require.NoError(t, err)
+	require.Positive(t, c.Len())
+	c.Drop()
+	require.Zero(t, c.Len())
+
+	vec, err := c.Get(context.Background(), 100)
+	require.NoError(t, err)
+	assert.Equal(t, []float32{100}, vec, "a dropped cache still serves reads")
+
+	vecs, errs := c.MultiGet(context.Background(), []uint64{7, 8})
+	for _, err := range errs {
+		require.NoError(t, err)
+	}
+	assert.Equal(t, [][]float32{{7}, {8}}, vecs)
+	assert.EqualValues(t, 4, atomic.LoadInt64(calls), "every read after Drop is a fetch")
+
+	c.Preload(200, []float32{1})
+	assert.False(t, c.(IfAbsentPreloader[float32]).PreloadIfAbsent(201, []float32{1}))
+	c.Grow(300)
+	c.LockAll()
+	c.SetSizeAndGrowNoLock(400)
+	c.UnlockAll()
+
+	assert.Zero(t, c.Len(), "nothing may reallocate a dropped cache")
+	assert.Zero(t, c.CountVectors())
+}
+
 func TestShardedLockCache_GetAllInCurrentLockOnFreshCache(t *testing.T) {
 	t.Run("default max size does not fetch through", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()

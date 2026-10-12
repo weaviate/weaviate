@@ -42,6 +42,10 @@ type shardedLockCache[T float32 | byte | uint64] struct {
 	deletionInterval       time.Duration
 	allocChecker           memwatch.AllocChecker
 
+	// dropped tells a dropped cache apart from a fresh one, which it otherwise
+	// looks like: reads still pass through, but nothing reallocates the slice.
+	dropped atomic.Bool
+
 	// The maintenanceLock makes sure that only one maintenance operation, such
 	// as growing the cache or clearing the cache happens at the same time.
 	maintenanceLock sync.RWMutex
@@ -272,7 +276,7 @@ func (s *shardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([
 
 	if len(vec) != 0 {
 		s.shardedLocks.Lock(id)
-		// Drop can release the slice while vectorForID runs
+		// Drop can release the slice before or while vectorForID runs
 		if int(id) < len(s.cache) {
 			s.storeLocked(id, vec)
 		}
@@ -411,6 +415,11 @@ func (s *shardedLockCache[T]) preload(id uint64, vec []T, ifAbsent bool) bool {
 		}
 		s.shardedLocks.Unlock(id)
 
+		// Grow never covers id on a dropped cache, so looping would spin
+		if s.dropped.Load() {
+			return false
+		}
+
 		// slow path: the cache doesn't cover id yet — preloaders (e.g. the
 		// HNSW insert path) don't grow the cache themselves. Grow guarantees
 		// coverage of id, so the next iteration stores.
@@ -423,7 +432,7 @@ func (s *shardedLockCache[T]) PreloadNoLock(id uint64, vec []T) {
 }
 
 func (s *shardedLockCache[T]) SetSizeAndGrowNoLock(size uint64) {
-	if size < uint64(len(s.cache)) {
+	if s.dropped.Load() || size < uint64(len(s.cache)) {
 		return
 	}
 	newSize := growTargetFor(size)
@@ -434,7 +443,7 @@ func (s *shardedLockCache[T]) SetSizeAndGrowNoLock(size uint64) {
 
 func (s *shardedLockCache[T]) Grow(node uint64) {
 	s.maintenanceLock.RLock()
-	if node < uint64(len(s.cache)) {
+	if s.dropped.Load() || node < uint64(len(s.cache)) {
 		s.maintenanceLock.RUnlock()
 		return
 	}
@@ -443,9 +452,9 @@ func (s *shardedLockCache[T]) Grow(node uint64) {
 	s.maintenanceLock.Lock()
 	defer s.maintenanceLock.Unlock()
 
-	// make sure cache still needs growing
-	// (it could have grown while waiting for maintenance lock)
-	if node < uint64(len(s.cache)) {
+	// make sure cache still needs growing (it could have grown or been
+	// dropped while waiting for maintenance lock)
+	if s.dropped.Load() || node < uint64(len(s.cache)) {
 		return
 	}
 
@@ -474,8 +483,10 @@ func (s *shardedLockCache[T]) CountVectors() int64 {
 }
 
 // Drop releases the backing slice along with the vectors, since an empty slot
-// still costs a slice header per id.
+// still costs a slice header per id. Later reads pass through to vectorForID
+// without reallocating it.
 func (s *shardedLockCache[T]) Drop() {
+	s.dropped.Store(true)
 	s.maintenanceLock.Lock()
 	s.shardedLocks.LockAll()
 	s.cache = nil
