@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,8 +21,15 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
+	esync "github.com/weaviate/weaviate/entities/sync"
 )
+
+// panickingOffloader fails any test that reaches the cloud.
+type panickingOffloader struct {
+	modulecapabilities.OffloadCloud
+}
 
 // TestDropOrphanedClassRemovesDataWithNoLoadedIndex covers the state both orphan
 // issues leave behind: data on disk with no *Index, because the class was gone
@@ -48,7 +56,8 @@ func TestDropOrphanedClassRemovesDataWithNoLoadedIndex(t *testing.T) {
 				writeShardSignature(t, dir)
 			}
 
-			require.NoError(t, db.DropOrphanedClass(schema.ClassName(class)))
+			_, err := db.DropOrphanedClass(schema.ClassName(class))
+			require.NoError(t, err)
 
 			if !tt.wantRemove {
 				return
@@ -102,7 +111,7 @@ func TestDropOrphanedClassReportsAFailedDrop(t *testing.T) {
 	require.NoError(t, os.Chmod(root, 0o555))
 	t.Cleanup(func() { os.Chmod(root, 0o755) })
 
-	err := db.DropOrphanedClass(schema.ClassName(class))
+	_, err := db.DropOrphanedClass(schema.ClassName(class))
 	require.Error(t, err, "a drop that left the files in place must not report success")
 }
 
@@ -150,7 +159,8 @@ func TestDropOrphanedClassLeavesADirectoryThatIsNotAnIndex(t *testing.T) {
 			dir := filepath.Join(root, indexID(schema.ClassName(tt.class)))
 			tt.build(t, dir)
 
-			require.NoError(t, db.DropOrphanedClass(schema.ClassName(tt.class)))
+			_, err := db.DropOrphanedClass(schema.ClassName(tt.class))
+			require.NoError(t, err)
 
 			if tt.removed {
 				require.Eventually(t, func() bool {
@@ -173,4 +183,84 @@ func writeShardSignature(t *testing.T, indexDir string) {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(filepath.Join(indexDir, "shard1", "lsm"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(indexDir, "shard1", "version"), []byte{1, 0}, 0o644))
+}
+
+// indexID lowercases, so orphan "Foo_Bar" resolves to live "Foo_bar".
+func TestDropOrphanedClassNeverTouchesALiveClassOfDifferentCase(t *testing.T) {
+	root := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	const live, orphan = "Foo_bar", "Foo_Bar"
+	liveIdx := &Index{Config: IndexConfig{ClassName: schema.ClassName(live)}}
+	db := &DB{
+		config:  Config{RootPath: root},
+		logger:  logger,
+		indices: map[string]*Index{indexID(schema.ClassName(live)): liveIdx},
+	}
+	dir := filepath.Join(root, indexID(schema.ClassName(live)))
+	writeShardSignature(t, dir)
+
+	collided, err := db.DropOrphanedClass(schema.ClassName(orphan))
+	require.NoError(t, err)
+	require.True(t, collided)
+
+	require.Same(t, liveIdx, db.GetIndex(schema.ClassName(live)), "live index was unloaded")
+	require.Never(t, func() bool {
+		_, err := os.Stat(dir)
+		return os.IsNotExist(err)
+	}, time.Second, 50*time.Millisecond, "live class directory %s was removed", dir)
+}
+
+// Offload paths are lowercased too.
+func TestMigratorDropOrphanedClassSkipsCloudForALiveClassOfDifferentCase(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	const live, orphan = "Foo_bar", "Foo_Bar"
+	db := &DB{
+		config: Config{RootPath: t.TempDir()},
+		logger: logger,
+		indices: map[string]*Index{
+			indexID(schema.ClassName(live)): {Config: IndexConfig{ClassName: schema.ClassName(live)}},
+		},
+	}
+	m := &Migrator{db: db, cloud: panickingOffloader{}}
+
+	require.NoError(t, m.DropOrphanedClass(context.Background(), orphan, true))
+}
+
+// GetIndex retries a miss for ~150ms, which every real orphan hits: one lookup
+// per orphan, or a sweep over thousands of them stalls startup.
+func TestMigratorDropOrphanedClassLooksUpTheIndexOnce(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	db := &DB{config: Config{RootPath: t.TempDir()}, logger: logger, indices: map[string]*Index{}}
+	m := &Migrator{db: db}
+
+	start := time.Now()
+	for _, class := range []string{"OrphanA", "OrphanB", "OrphanC"} {
+		require.NoError(t, m.DropOrphanedClass(context.Background(), class, false))
+	}
+	require.Less(t, time.Since(start), 900*time.Millisecond)
+}
+
+// DELETE_CLASS validates nothing, so a delete naming another spelling of a live
+// class reaches the store while the schema keeps the live class.
+func TestDropClassNeverTouchesALiveClassOfDifferentCase(t *testing.T) {
+	root := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	const live, other = "Foo_bar", "Foo_Bar"
+	liveIdx := &Index{Config: IndexConfig{ClassName: schema.ClassName(live)}}
+	db := &DB{
+		config:  Config{RootPath: root},
+		logger:  logger,
+		indices: map[string]*Index{indexID(schema.ClassName(live)): liveIdx},
+	}
+	dir := filepath.Join(root, indexID(schema.ClassName(live)))
+	writeShardSignature(t, dir)
+	m := &Migrator{db: db, cloud: panickingOffloader{}, classLocks: esync.NewKeyLocker()}
+
+	require.NoError(t, m.DropClass(context.Background(), other, true))
+
+	require.Same(t, liveIdx, db.GetIndex(schema.ClassName(live)), "live index was unloaded")
+	_, err := os.Stat(dir)
+	require.NoError(t, err, "live class directory was removed")
 }
