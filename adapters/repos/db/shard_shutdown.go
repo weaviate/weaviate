@@ -184,6 +184,9 @@ const (
 	ShardUnloadOutcomeIndexClosing ShardUnloadOutcome = "index_closing"
 	// ShardUnloadOutcomeFailed covers every other failure, including an unknown class.
 	ShardUnloadOutcomeFailed ShardUnloadOutcome = "failed"
+	// ShardUnloadOutcomeRecovering says DB.UnloadShard left a self-recovery
+	// placeholder in the map. A later call unloads the shard once it is promoted.
+	ShardUnloadOutcomeRecovering ShardUnloadOutcome = "recovering"
 )
 
 // This map is only a checklist: it makes the exhaustive lint fail until a new
@@ -197,6 +200,7 @@ var _ = map[ShardUnloadOutcome]struct{}{
 	ShardUnloadOutcomeTorn:         {},
 	ShardUnloadOutcomeIndexClosing: {},
 	ShardUnloadOutcomeFailed:       {},
+	ShardUnloadOutcomeRecovering:   {},
 }
 
 // shutdownOrRestoreShard closes a shard removed from the shard map. A live shard

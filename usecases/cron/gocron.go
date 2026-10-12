@@ -49,6 +49,7 @@ type registrant interface {
 type Crons struct {
 	objectsttl       *cronsObjectsTTL
 	namespaceCleanup *cronsNamespaceCleanup
+	suspendReconcile *cronsSuspendReconcile
 
 	registrations []registrant
 
@@ -69,10 +70,15 @@ func NewCrons(serverShutdownCtx context.Context, logger logrus.FieldLogger, conf
 	if err != nil {
 		return nil, err
 	}
+	suspendReconcile, err := newCronsSuspendReconcile(serverShutdownCtx, logger, gocronLogger, configGetter)
+	if err != nil {
+		return nil, err
+	}
 
 	c := &Crons{
 		objectsttl:        objectsTTL,
 		namespaceCleanup:  namespaceCleanup,
+		suspendReconcile:  suspendReconcile,
 		logger:            logger,
 		gocronLogger:      gocronLogger,
 		serverShutdownCtx: serverShutdownCtx,
@@ -81,7 +87,7 @@ func NewCrons(serverShutdownCtx context.Context, logger logrus.FieldLogger, conf
 	// Registering here rather than in Init is what makes RuntimeConfigHooks
 	// complete: startup collects the hook map before the goroutine running
 	// Init exists, so a slice filled in Init would hand it no keys at all.
-	for _, r := range []registrant{c.objectsttl, c.namespaceCleanup} {
+	for _, r := range []registrant{c.objectsttl, c.namespaceCleanup, c.suspendReconcile} {
 		if err := c.add(r); err != nil {
 			return nil, err
 		}
@@ -116,13 +122,22 @@ func (c *Crons) add(r registrant) error {
 	return nil
 }
 
+// ShardUnloadInFlight reports whether the suspend reconcile job is unloading the
+// shard. Call it only after the resume has applied on this node, because only
+// then does false mean that no sweep will unload the shard. It answers false
+// before Init has built the sweep and on a node that runs none.
+func (c *Crons) ShardUnloadInFlight(className, shardName string) bool {
+	sweep := c.suspendReconcile.sweep.Load()
+	return sweep != nil && (*sweep).UnloadInFlight(className, shardName)
+}
+
 // blocking
 func (c *Crons) Init(clusterService *cluster.Service, ttlCoordinator *objectttl.Coordinator,
-	nsCleanupCoordinator *namespacecleanup.Coordinator,
+	nsCleanupCoordinator *namespacecleanup.Coordinator, newSweep NewSuspendSweep,
 ) error {
 	cr := initGoCron(c.serverShutdownCtx, c.gocronLogger)
 
-	if err := c.initJobs(cr, clusterService.IsLeader, ttlCoordinator, nsCleanupCoordinator); err != nil {
+	if err := c.initJobs(cr, clusterService.IsLeader, newSweep, ttlCoordinator, nsCleanupCoordinator); err != nil {
 		return err
 	}
 
@@ -171,10 +186,10 @@ func (c *Crons) waitForRegistrations() {
 	}
 }
 
-// initJobs starts each job's registration loop on cr, handing each job
-// isLeader as its tick gate. Init blocks on serverShutdownCtx straight after
-// this call, so anything Init must do before cr.Start() goes here.
-func (c *Crons) initJobs(cr *gocron.Cron, isLeader func() bool,
+// initJobs starts each job's registration loop on cr with its tick gate. Init
+// blocks on serverShutdownCtx straight after this call, so anything Init must do
+// before cr.Start() goes here.
+func (c *Crons) initJobs(cr *gocron.Cron, isLeader func() bool, newSweep NewSuspendSweep,
 	ttlCoordinator *objectttl.Coordinator, nsCleanupCoordinator *namespacecleanup.Coordinator,
 ) error {
 	if err := c.objectsttl.Init(cr, isLeader, ttlCoordinator); err != nil {
@@ -182,6 +197,9 @@ func (c *Crons) initJobs(cr *gocron.Cron, isLeader func() bool,
 	}
 	if err := c.namespaceCleanup.Init(cr, isLeader, nsCleanupCoordinator); err != nil {
 		return fmt.Errorf("init namespace cleanup cron: %w", err)
+	}
+	if err := c.suspendReconcile.Init(cr, cron.RunOnEveryNode, newSweep); err != nil {
+		return fmt.Errorf("init suspend reconcile cron: %w", err)
 	}
 	return nil
 }
