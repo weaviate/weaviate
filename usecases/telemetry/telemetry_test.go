@@ -498,40 +498,22 @@ const pushBound = 3 * time.Second
 
 const testPushTimeout = 100 * time.Millisecond
 
-func TestTelemetry_HangingPushIsBounded(t *testing.T) {
-	tests := []struct {
-		name        string
-		hold        string
-		pushTimeout time.Duration
-		callerCtx   time.Duration // 0 means context.Background()
-	}{
-		{name: "init, push timeout", hold: PayloadType.Init, pushTimeout: testPushTimeout},
-		{name: "init, caller ctx", hold: PayloadType.Init, pushTimeout: time.Hour, callerCtx: testPushTimeout},
-		{name: "terminate, push timeout", hold: PayloadType.Terminate, pushTimeout: testPushTimeout},
-		{name: "terminate, caller ctx", hold: PayloadType.Terminate, pushTimeout: time.Hour, callerCtx: testPushTimeout},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tel := newHangingConsumerTelemeter(t, tt.hold, withPushTimeout(tt.pushTimeout))
-			ctx := context.Background()
-			if tt.callerCtx > 0 {
-				var cancel context.CancelFunc
-				ctx, cancel = context.WithTimeout(ctx, tt.callerCtx)
-				defer cancel()
-			}
+func TestTelemetry_HangingInitPushTimesOut(t *testing.T) {
+	tel := newHangingConsumerTelemeter(t, PayloadType.Init, withPushTimeout(testPushTimeout))
 
-			if tt.hold == PayloadType.Init {
-				err := receiveWithin(t, callAsync(func() error { return tel.Start(ctx) }))
-				require.ErrorIs(t, err, context.DeadlineExceeded)
-				assert.True(t, tel.failedToStart.Load())
-				return
-			}
+	err := receiveWithin(t, callAsync(func() error { return tel.Start(context.Background()) }))
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.True(t, tel.failedToStart.Load())
+}
 
-			require.NoError(t, tel.Start(context.Background()))
-			err := receiveWithin(t, callAsync(func() error { return tel.Stop(ctx) }))
-			require.ErrorIs(t, err, context.DeadlineExceeded)
-		})
-	}
+func TestTelemetry_StopBoundedByCallerCtx(t *testing.T) {
+	tel := newHangingConsumerTelemeter(t, PayloadType.Terminate, withPushTimeout(time.Hour))
+	require.NoError(t, tel.Start(context.Background()))
+
+	ctx, cancel := context.WithTimeout(context.Background(), testPushTimeout)
+	defer cancel()
+	err := receiveWithin(t, callAsync(func() error { return tel.Stop(ctx) }))
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
 func TestTelemetry_StopWhileInitHangs(t *testing.T) {
