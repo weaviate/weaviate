@@ -65,11 +65,12 @@ func (m *DecisionsOpenAIModule) initAdditional(ctx context.Context, timeout time
 	logger logrus.FieldLogger,
 ) error {
 	apiKey := os.Getenv("OPENAI_APIKEY")
+	organization := os.Getenv("OPENAI_ORGANIZATION")
 	maxConcurrentRequests, err := maxConcurrentRequestsFromEnv()
 	if err != nil {
 		return err
 	}
-	m.reranker = clients.New(apiKey, timeout, maxConcurrentRequests, logger)
+	m.reranker = clients.New(apiKey, organization, timeout, maxConcurrentRequests, logger)
 	m.additionalPropertiesProvider = rerankeradditional.NewRankerProvider(m.reranker)
 	return nil
 }

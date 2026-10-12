@@ -42,7 +42,7 @@ func nullLogger() logrus.FieldLogger {
 }
 
 func newTestClient(apiKey string) *client {
-	c := New(apiKey, 0, DefaultMaxConcurrentRequests, nullLogger())
+	c := New(apiKey, "", 0, DefaultMaxConcurrentRequests, nullLogger())
 	c.retryBackoff = time.Millisecond
 	return c
 }
@@ -259,6 +259,39 @@ func TestRankRequestShape(t *testing.T) {
 					"instructions": "Does the document answer or directly address this query? Query: how do I reset my password"
 				}]
 			}`, request.rawBody)
+		})
+	}
+}
+
+func TestRankOrganizationHeader(t *testing.T) {
+	tests := []struct {
+		name         string
+		organization string
+		ctx          context.Context
+		want         string
+	}{
+		{name: "none", ctx: context.Background(), want: ""},
+		{name: "from the environment", organization: "org-env", ctx: context.Background(), want: "org-env"},
+		{
+			name:         "from the header wins",
+			organization: "org-env",
+			ctx:          context.WithValue(context.Background(), "X-Openai-Organization", []string{"org-header"}),
+			want:         "org-header",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler := &openAIHandler{t: t, answers: map[string]answer{"doc": probability(0.5)}}
+			server := httptest.NewServer(handler)
+			defer server.Close()
+			c := New("apiKey", tt.organization, 0, DefaultMaxConcurrentRequests, nullLogger())
+
+			_, err := c.Rank(tt.ctx, testQuery, []string{"doc"}, classConfig(server.URL, nil))
+
+			require.NoError(t, err)
+			requests := handler.received()
+			require.Len(t, requests, 1)
+			assert.Equal(t, tt.want, requests[0].organization)
 		})
 	}
 }
@@ -836,7 +869,7 @@ func TestRankLogsUsage(t *testing.T) {
 	}
 	server := httptest.NewServer(handler)
 	defer server.Close()
-	c := New("apiKey", 0, DefaultMaxConcurrentRequests, logger)
+	c := New("apiKey", "", 0, DefaultMaxConcurrentRequests, logger)
 
 	res, err := c.Rank(context.Background(), testQuery, []string{"a", "b", "c", "a", ""}, classConfig(server.URL, nil))
 
@@ -861,7 +894,7 @@ func TestRankRefusalScoresZero(t *testing.T) {
 	handler := &openAIHandler{t: t, answers: map[string]answer{"a": probability(0.75), "b": refusal()}}
 	server := httptest.NewServer(handler)
 	defer server.Close()
-	c := New("apiKey", 0, DefaultMaxConcurrentRequests, logger)
+	c := New("apiKey", "", 0, DefaultMaxConcurrentRequests, logger)
 
 	res, err := c.Rank(context.Background(), testQuery, []string{"a", "b"}, classConfig(server.URL, nil))
 
@@ -919,7 +952,7 @@ func TestRankLogsUsageOnFailure(t *testing.T) {
 			server := httptest.NewServer(handler)
 			defer server.Close()
 			// One request at a time, so the documents are judged in order.
-			c := New("apiKey", 0, 1, logger)
+			c := New("apiKey", "", 0, 1, logger)
 
 			_, err := c.Rank(context.Background(), testQuery, tt.documents, classConfig(server.URL, nil))
 
@@ -958,7 +991,7 @@ func TestRankBoundsRequestsInFlight(t *testing.T) {
 	handler := &openAIHandler{t: t, answers: answers, delay: 10 * time.Millisecond}
 	server := httptest.NewServer(handler)
 	defer server.Close()
-	c := New("apiKey", 0, limit, nullLogger())
+	c := New("apiKey", "", 0, limit, nullLogger())
 
 	// Two queries at once: the limit is for the process, not per query.
 	var wg sync.WaitGroup
@@ -983,7 +1016,7 @@ func TestRankDoesNotRetryATimeout(t *testing.T) {
 	handler := &openAIHandler{t: t, answers: map[string]answer{"doc": probability(0.5)}, delay: 300 * time.Millisecond}
 	server := httptest.NewServer(handler)
 	defer server.Close()
-	c := New("apiKey", 50*time.Millisecond, DefaultMaxConcurrentRequests, nullLogger())
+	c := New("apiKey", "", 50*time.Millisecond, DefaultMaxConcurrentRequests, nullLogger())
 	c.retryBackoff = time.Millisecond
 
 	start := time.Now()
@@ -1091,6 +1124,7 @@ type receivedRequest struct {
 	method        string
 	path          string
 	authorization string
+	organization  string
 	contentType   string
 	rawBody       string
 	document      string
@@ -1156,6 +1190,7 @@ func (h *openAIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		method:        r.Method,
 		path:          r.URL.Path,
 		authorization: r.Header.Get("Authorization"),
+		organization:  r.Header.Get("OpenAI-Organization"),
 		contentType:   r.Header.Get("Content-Type"),
 		rawBody:       string(rawBody),
 		document:      document,

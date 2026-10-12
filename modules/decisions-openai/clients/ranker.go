@@ -70,14 +70,18 @@ const (
 	// decision with one answer is a few hundred bytes.
 	maxResponseBodyBytes = 1 << 20
 
-	apiKeyHeader  = "X-Openai-Api-Key"
-	baseURLHeader = "X-Openai-Baseurl"
+	apiKeyHeader       = "X-Openai-Api-Key"
+	baseURLHeader      = "X-Openai-Baseurl"
+	organizationHeader = "X-Openai-Organization"
 
 	insufficientQuota = "insufficient_quota"
 )
 
 type client struct {
-	apiKey       string
+	apiKey string
+	// organization is sent as the OpenAI-Organization header when set, as
+	// the other OpenAI modules send it. A request header overrides it.
+	organization string
 	httpClient   *http.Client
 	retryBackoff time.Duration
 	// inFlight holds one token per request being sent. It is shared by all
@@ -87,9 +91,10 @@ type client struct {
 	logger   logrus.FieldLogger
 }
 
-func New(apiKey string, timeout time.Duration, maxConcurrentRequests int, logger logrus.FieldLogger) *client {
+func New(apiKey, organization string, timeout time.Duration, maxConcurrentRequests int, logger logrus.FieldLogger) *client {
 	return &client{
 		apiKey:       apiKey,
+		organization: organization,
 		httpClient:   modulecomponents.NewBaseHttpClient(timeout),
 		retryBackoff: 500 * time.Millisecond,
 		inFlight:     make(chan struct{}, maxConcurrentRequests),
@@ -123,7 +128,7 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 		return nil, err
 	}
 	request := judgeRequest{
-		url: openAIURL, apiKey: apiKey, model: settings.Model, query: query,
+		url: openAIURL, apiKey: apiKey, organization: c.organizationFor(ctx), model: settings.Model, query: query,
 		statement: settings.Question == config.QuestionStatement,
 	}
 
@@ -198,10 +203,11 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 
 // judgeRequest is what all requests of one Rank call have in common.
 type judgeRequest struct {
-	url    string
-	apiKey string
-	model  string
-	query  string
+	url          string
+	apiKey       string
+	organization string
+	model        string
+	query        string
 	// statement selects the statement question instead of the relevance one.
 	statement bool
 }
@@ -286,6 +292,9 @@ func (c *client) send(ctx context.Context, request judgeRequest, body []byte) (s
 	}
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", request.apiKey))
 	req.Header.Add("Content-Type", "application/json")
+	if request.organization != "" {
+		req.Header.Add("OpenAI-Organization", request.organization)
+	}
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
@@ -399,6 +408,15 @@ func wait(ctx context.Context, delay time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+// organizationFor returns the organization of the requests: the request
+// header, else the server's.
+func (c *client) organizationFor(ctx context.Context) string {
+	if value := modulecomponents.GetValueFromContext(ctx, organizationHeader); value != "" {
+		return value
+	}
+	return c.organization
 }
 
 // endpoint returns the URL and the API key of the requests. A base URL from
