@@ -43,6 +43,7 @@ type taskPayload struct {
 	BaseChainDeduped                bool                              `json:"baseChainDeduped,omitempty"`
 	DedupeReplicas                  bool                              `json:"dedupeReplicas,omitempty"`
 	DedupeConvergenceTimeoutSeconds int                               `json:"dedupeConvergenceTimeoutSeconds,omitempty"` // 0 = default budget
+	BuiltInRoleAssignments          []byte                            `json:"builtInRoleAssignments,omitempty"`          // global descriptor only; nodes never upload it
 }
 
 func (p *taskPayload) artifactVersion() string {

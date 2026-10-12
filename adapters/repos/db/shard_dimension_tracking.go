@@ -152,7 +152,7 @@ func (s *Shard) clearDimensionMetrics() {
 // accounted for the next time nodeWideMetricsObserver recalculates
 // total vector dimensions, because only _active_ shards are considered.
 func clearDimensionMetrics(cfg IndexConfig, promMetrics *monitoring.PrometheusMetrics, className, shardName string) {
-	if !cfg.TrackVectorDimensions || promMetrics.Group {
+	if promMetrics == nil || !cfg.TrackVectorDimensions || promMetrics.Group {
 		return
 	}
 	namespace := namespacing.NamespaceFromQualified(className)

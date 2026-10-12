@@ -13,6 +13,7 @@ package vectorizer
 
 import (
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -52,6 +53,24 @@ var DefaultDimensions int64 = 768
 
 var defaultModelDimensions = map[string]*int64{
 	"gemini-embedding-001": &DefaultDimensions,
+}
+
+// MutableSettings reports whether updated differs from current only in the endpoint settings.
+func MutableSettings(current, updated moduletools.ClassConfig) bool {
+	return onlyEndpointSettingsChanged(current.Class(), updated.Class())
+}
+
+var endpointSettings = []string{apiEndpointProperty, projectIDProperty, locationProperty}
+
+func onlyEndpointSettingsChanged(current, updated map[string]any) bool {
+	for _, settings := range []map[string]any{current, updated} {
+		for key := range settings {
+			if !slices.Contains(endpointSettings, key) && !reflect.DeepEqual(current[key], updated[key]) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 var availableTaskTypes = []string{

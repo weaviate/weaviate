@@ -34,6 +34,7 @@ import (
 	hnswindex "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -43,6 +44,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 func TestShard_UpdateStatus(t *testing.T) {
@@ -845,4 +847,105 @@ func TestShard_TombstoneCleanupInterval_NamedVector(t *testing.T) {
 	require.Eventually(t, func() bool { return numTombstones() == 0 },
 		20*time.Second, 200*time.Millisecond,
 		"tombstones did not drain: %d remaining", numTombstones())
+}
+
+// A vector payload whose shape does not match the target's index must be
+// refused before anything is written, never panic or fail later in indexing.
+// Flat, dynamic and hfresh never take multi-vectors; hnsw only takes the kind
+// its multivector setting selects.
+func TestShard_MultiVectorOnIndexWithoutMultiSupport(t *testing.T) {
+	singleVector := []float32{0.1, 0.2, 0.3, 0.4}
+	multiVector := [][]float32{{0.1, 0.2, 0.3, 0.4}, {0.5, 0.6, 0.7, 0.8}}
+
+	// The dynamic index can only be created with async indexing enabled.
+	indexes := []struct {
+		name    string
+		cfg     schemaConfig.VectorIndexConfig
+		async   []bool
+		payload models.Vector
+	}{
+		{name: "flat", cfg: flat.NewDefaultUserConfig(), async: []bool{false, true}, payload: multiVector},
+		{name: "dynamic", cfg: dynamic.NewDefaultUserConfig(), async: []bool{true}, payload: multiVector},
+		{name: "hfresh", cfg: hfresh.NewDefaultUserConfig(), async: []bool{false, true}, payload: multiVector},
+		{name: "hnsw", cfg: hnsw.NewDefaultUserConfig(), async: []bool{false, true}, payload: multiVector},
+		{name: "hnsw multivector", cfg: hnsw.NewDefaultMultiVectorUserConfig(), async: []bool{false, true}, payload: singleVector},
+	}
+
+	objWith := func(payload models.Vector) *storobj.Object {
+		obj := testObject("TestClass")
+		switch v := payload.(type) {
+		case []float32:
+			obj.Vectors = map[string][]float32{"foo": v}
+		case [][]float32:
+			obj.MultiVectors = map[string][][]float32{"foo": v}
+		}
+		return obj
+	}
+
+	ops := map[string]func(t *testing.T, ctx context.Context, shd ShardLike, payload models.Vector) error{
+		"put": func(t *testing.T, ctx context.Context, shd ShardLike, payload models.Vector) error {
+			return shd.PutObject(ctx, objWith(payload))
+		},
+		"merge": func(t *testing.T, ctx context.Context, shd ShardLike, payload models.Vector) error {
+			return shd.MergeObject(ctx, objects.MergeDocument{
+				Class:   "TestClass",
+				ID:      strfmt.UUID(uuid.NewString()),
+				Vectors: models.Vectors{"foo": payload},
+			})
+		},
+		"batch": func(t *testing.T, ctx context.Context, shd ShardLike, payload models.Vector) error {
+			errs := shd.PutObjectBatch(ctx, []*storobj.Object{objWith(payload)})
+			require.Len(t, errs, 1)
+			return errs[0]
+		},
+		"search": func(t *testing.T, ctx context.Context, shd ShardLike, payload models.Vector) error {
+			_, _, err := shd.ObjectVectorSearch(ctx, []models.Vector{payload}, []string{"foo"}, 0, 10,
+				nil, nil, nil, additional.Properties{}, nil, nil)
+			return err
+		},
+		"search by distance": func(t *testing.T, ctx context.Context, shd ShardLike, payload models.Vector) error {
+			_, _, err := shd.ObjectVectorSearch(ctx, []models.Vector{payload}, []string{"foo"}, 0.5, -1,
+				nil, nil, nil, additional.Properties{}, nil, nil)
+			return err
+		},
+		"distance for query": func(t *testing.T, ctx context.Context, shd ShardLike, payload models.Vector) error {
+			_, err := shd.VectorDistanceForQuery(ctx, 0, []models.Vector{payload}, []string{"foo"})
+			return err
+		},
+		"aggregate": func(t *testing.T, ctx context.Context, shd ShardLike, payload models.Vector) error {
+			limit := 10
+			_, err := shd.Aggregate(ctx, aggregation.Params{
+				ClassName: "TestClass", IncludeMetaCount: true,
+				SearchVector: payload, TargetVector: "foo", ObjectLimit: &limit,
+			}, nil)
+			return err
+		},
+		"aggregate by distance": func(t *testing.T, ctx context.Context, shd ShardLike, payload models.Vector) error {
+			_, err := shd.Aggregate(ctx, aggregation.Params{
+				ClassName: "TestClass", IncludeMetaCount: true,
+				SearchVector: payload, TargetVector: "foo", Certainty: 0.5,
+			}, nil)
+			return err
+		},
+	}
+
+	for _, index := range indexes {
+		for _, async := range index.async {
+			for opName, op := range ops {
+				t.Run(fmt.Sprintf("%s/async=%t/%s", index.name, async, opName), func(t *testing.T) {
+					ctx := testCtx()
+					class := &models.Class{Class: "TestClass"}
+					shd, idx := testShardWithSettings(t, ctx, class, hnsw.NewDefaultUserConfig(), false, async,
+						func(i *Index) {
+							i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{"foo": index.cfg}
+						})
+					defer func() { require.NoError(t, idx.drop()) }()
+
+					err := op(t, ctx, shd, index.payload)
+					require.ErrorContains(t, err, "multi-vector")
+					require.Equal(t, 0, int(shd.Counter().Get()))
+				})
+			}
+		}
+	}
 }

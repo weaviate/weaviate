@@ -698,7 +698,7 @@ func (p *BackupTaskProvider) runNodeBackup(
 	}
 
 	baseBackupID := payload.BaseBackupID
-	baseDescrs, err := resolveBaseBackupChain(ctx, baseBackupID, time.Now().UTC(), payload.Bucket, payload.Path, compressionType, store.MetaForBackupID)
+	baseDescrs, err := resolveBaseBackupChain(ctx, baseBackupID, time.Now().UTC(), payload.Bucket, payload.Path, compressionType, store.BaseMetaForBackupID)
 	if err != nil {
 		if !errors.As(err, &backup.ErrNotFound{}) {
 			p.logger.WithFields(logFields).Errorf("resolve base backup chain: %v", err)
@@ -1028,6 +1028,8 @@ func (p *BackupTaskProvider) writeStartedDescriptor(ctx context.Context, task *d
 		SkipRoles:       payload.SkipRoles,
 		CompressionType: payload.CompressionType,
 		Status:          backup.Started,
+
+		BuiltInRoleAssignments: payload.BuiltInRoleAssignments,
 	}
 	plan.stamp(descriptor, payload.BaseChainDeduped)
 
@@ -1113,6 +1115,8 @@ func (p *BackupTaskProvider) writeTerminalDescriptor(task *distributedtask.Task,
 		Status:         status,
 		Error:          errMsg,
 		CompletedAt:    time.Now().UTC(),
+
+		BuiltInRoleAssignments: payload.BuiltInRoleAssignments,
 	}
 	if payload.DedupeReplicas && err == nil {
 		descriptor.Version = existing.Version

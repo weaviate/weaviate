@@ -36,12 +36,20 @@ func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) er
 		found, err := s.WithVectorIndex(targetVector, func(vectorIndex VectorIndex) error {
 			switch v := vector.(type) {
 			case []float32:
-				err := vectorIndex.ValidateBeforeInsert(v)
+				err := checkVectorKind(vectorIndex, targetVector, false)
+				if err != nil {
+					return errors.Wrapf(err, "validate vector index for update of %v for target vector %s", merge.ID, targetVector)
+				}
+				err = vectorIndex.ValidateBeforeInsert(v)
 				if err != nil {
 					return errors.Wrapf(err, "validate vector index for update of %v for target vector %s", merge.ID, targetVector)
 				}
 			case [][]float32:
-				err := vectorIndex.(VectorIndexMulti).ValidateMultiBeforeInsert(v)
+				multiIndex, err := asMultiVectorIndex(vectorIndex, targetVector)
+				if err != nil {
+					return errors.Wrapf(err, "validate multi vector index for update of %v for target vector %s", merge.ID, targetVector)
+				}
+				err = multiIndex.ValidateMultiBeforeInsert(v)
 				if err != nil {
 					return errors.Wrapf(err, "validate multi vector index for update of %v for target vector %s", merge.ID, targetVector)
 				}
@@ -61,6 +69,10 @@ func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) er
 	if len(merge.Vector) > 0 {
 		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
 		found, err := s.WithVectorIndex("", func(vectorIndex VectorIndex) error {
+			err := checkVectorKind(vectorIndex, "", false)
+			if err != nil {
+				return err
+			}
 			return vectorIndex.ValidateBeforeInsert(merge.Vector)
 		})
 		if !found {

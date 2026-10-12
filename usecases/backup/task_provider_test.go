@@ -459,12 +459,14 @@ func TestBackupTaskProvider(t *testing.T) {
 		payload.SkipUsers = true
 		payload.SkipRoles = true
 		payload.BaseChainDeduped = true
+		payload.BuiltInRoleAssignments = []byte(`{"version":1,"grouping_policies":[["db:alice","role:admin"]]}`)
 
 		require.NoError(t, provider.writeStartedDescriptor(
 			context.Background(), makeTask("b1", distributedtask.TaskStatusStarted, payload), payload, nil,
 		))
 		assert.True(t, be.glMeta.SkipUsers)
 		assert.True(t, be.glMeta.SkipRoles)
+		assert.Equal(t, payload.BuiltInRoleAssignments, be.glMeta.BuiltInRoleAssignments)
 		assert.False(t, be.glMeta.DedupeReplicas)
 		assert.Equal(t, VersionDedupeReplicas, be.glMeta.Version)
 	})
@@ -1868,7 +1870,9 @@ func TestBackupTerminalDescriptor(t *testing.T) {
 					Backends: &fakeBackupBackendProvider{backend: be},
 				})
 
-				err := provider.OnTaskCompleted(makeTask("b1", distributedtask.TaskStatusFinished, makePayload("b1")))
+				payload := makePayload("b1")
+				payload.BuiltInRoleAssignments = []byte(`{"version":1,"grouping_policies":[["db:alice","role:admin"]]}`)
+				err := provider.OnTaskCompleted(makeTask("b1", distributedtask.TaskStatusFinished, payload))
 
 				if tc.wantStatus == "" {
 					require.Error(t, err)
@@ -1879,6 +1883,7 @@ func TestBackupTerminalDescriptor(t *testing.T) {
 				}
 				require.NoError(t, err)
 				assert.Equal(t, tc.wantStatus, be.glMeta.Status)
+				assert.Equal(t, payload.BuiltInRoleAssignments, be.glMeta.BuiltInRoleAssignments)
 				if tc.wantStatus == backup.Failed {
 					assert.Contains(t, be.glMeta.Error, "node-2")
 					assert.NotContains(t, be.glMeta.Error, "node-1", "a node with a Success descriptor is not blamed")
@@ -2227,6 +2232,22 @@ func TestBackupDTMDedupe(t *testing.T) {
 		require.Error(t, err)
 		assert.Empty(t, fixture.dtm.proposedPayload)
 	})
+}
+
+func TestBackupDTMProposeCarriesBuiltInRoleAssignments(t *testing.T) {
+	fixture := newDTMProposeFixture(t)
+	assignments := []byte(`{"version":1,"grouping_policies":[["db:ns1:alice","role:admin"]]}`)
+	fixture.scheduler.userLister.(*fakeUserLister).users = []string{"ns1:alice"}
+	roles := fixture.scheduler.roleLister.(*fakeRoleLister)
+	roles.roles = []string{"ns1:reader"}
+	roles.assignments = assignments
+	fixture.req.IncludeRoles = []string{"ns1:*"}
+
+	_, err := fixture.scheduler.Backup(context.Background(), nil, fixture.req)
+	require.NoError(t, err)
+	proposed, err := unmarshalTaskPayload(fixture.dtm.proposedPayload)
+	require.NoError(t, err)
+	assert.Equal(t, assignments, proposed.BuiltInRoleAssignments)
 }
 
 func TestBackupProposeRetry(t *testing.T) {

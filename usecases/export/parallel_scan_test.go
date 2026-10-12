@@ -258,6 +258,9 @@ func scanToRows(t *testing.T, ctx context.Context, bucket *lsmkv.Bucket, start, 
 	var writer *ParquetWriter
 
 	scanErr := scanRangeToWriter(ctx, bucket, start, end, func() (*ParquetWriter, error) {
+		if writer != nil {
+			return writer, nil
+		}
 		var err error
 		writer, err = NewParquetWriter(&buf)
 		return writer, err
@@ -712,91 +715,174 @@ func (b *failingWriteBackend) Write(_ context.Context, _, _, _, _ string, r back
 func TestScanJobExecute(t *testing.T) {
 	t.Parallel()
 
-	t.Run("happy path writes rows and reports count", func(t *testing.T) {
-		t.Parallel()
+	// A maxFileBytes of 1 ends each file after its first flushed batch of
+	// defaultBatchSize rows. Ranges split at splitKeys run concurrently on one
+	// rangeWriterConfig, as a shard's ranges do, and each ends at a full file.
+	writeTests := []struct {
+		name         string
+		numObjects   int
+		maxFileBytes int64
+		splitKeys    []uint64
+		wantFiles    int
+	}{
+		{
+			name:         "range below the cap writes one file",
+			numObjects:   10,
+			maxFileBytes: maxFileBytes,
+			wantFiles:    1,
+		},
+		{
+			name:         "range past the cap continues in new files",
+			numObjects:   2*defaultBatchSize + 88,
+			maxFileBytes: 1,
+			wantFiles:    3,
+		},
+		{
+			name:         "unset cap falls back to the default",
+			numObjects:   2*defaultBatchSize + 88,
+			maxFileBytes: 0,
+			wantFiles:    1,
+		},
+		{
+			name:         "negative cap falls back to the default",
+			numObjects:   2*defaultBatchSize + 88,
+			maxFileBytes: -1,
+			wantFiles:    1,
+		},
+		{
+			name:         "ranges of one shard number their files without collisions",
+			numObjects:   4 * defaultBatchSize,
+			maxFileBytes: 1,
+			splitKeys:    []uint64{2 * defaultBatchSize},
+			wantFiles:    4,
+		},
+	}
 
-		store, _ := createTestStore(t, 10)
-		t.Cleanup(func() { store.Shutdown(context.Background()) })
-		bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	for _, tc := range writeTests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		backend := &fakeBackend{}
-		logger, _ := test.NewNullLogger()
+			store, _ := createTestStore(t, tc.numObjects)
+			t.Cleanup(func() { store.Shutdown(context.Background()) })
+			bucket := store.Bucket(helpers.ObjectsBucketLSM)
 
-		cfg := &rangeWriterConfig{
-			backend:   backend,
-			req:       &ExportRequest{ID: "test", Bucket: "b", Path: "p"},
-			className: "TestClass",
-			shardName: "shard0",
-			logger:    logger,
-		}
+			backend := &fakeBackend{}
+			logger, _ := test.NewNullLogger()
+			cfg := &rangeWriterConfig{
+				backend:      backend,
+				req:          &ExportRequest{ID: "test", Bucket: "b", Path: "p"},
+				className:    "TestClass",
+				shardName:    "shard0",
+				maxFileBytes: tc.maxFileBytes,
+				logger:       logger,
+			}
+			var written atomic.Int64
+			cfg.onFlush = func(n int64) { written.Add(n) }
 
-		var wg sync.WaitGroup
-		var gotErr error
-		var written int64
-		cfg.onFlush = func(n int64) { written += n }
+			ranges := []keyRange{{}}
+			for _, k := range tc.splitKeys {
+				key := make([]byte, 8)
+				binary.BigEndian.PutUint64(key, k)
+				ranges[len(ranges)-1].end = key
+				ranges = append(ranges, keyRange{start: key})
+			}
 
-		wg.Add(1)
-		job := scanJob{
-			ctx:        context.Background(),
-			bucket:     bucket,
-			keyRange:   keyRange{start: nil, end: nil},
-			rangeIndex: 0,
-			writerCfg:  cfg,
-			wg:         &wg,
-			setErr:     func(err error) { gotErr = err },
-		}
-		job.execute()
-		wg.Wait()
+			var wg sync.WaitGroup
+			for i, r := range ranges {
+				wg.Add(1)
+				job := scanJob{
+					ctx:        context.Background(),
+					bucket:     bucket,
+					keyRange:   r,
+					rangeIndex: i,
+					writerCfg:  cfg,
+					wg:         &wg,
+					setErr:     func(err error) { t.Errorf("range %d: %v", i, err) },
+				}
+				go job.execute()
+			}
+			wg.Wait()
 
-		require.NoError(t, gotErr)
-		assert.Equal(t, int64(10), written)
+			assert.Equal(t, int64(tc.numObjects), written.Load())
 
-		data := backend.getWritten("TestClass_shard0_0000.parquet")
-		require.NotNil(t, data)
-		assert.Len(t, readParquetRows(t, data), 10)
-	})
+			var rows []ParquetRow
+			for i := range tc.wantFiles {
+				data := backend.getWritten(fmt.Sprintf("TestClass_shard0_%04d.parquet", i))
+				require.NotNil(t, data, "file %d", i)
+				rows = append(rows, readParquetRows(t, data)...)
+			}
+			assert.Nil(t, backend.getWritten(fmt.Sprintf("TestClass_shard0_%04d.parquet", tc.wantFiles)))
+			assert.Len(t, rows, tc.numObjects)
+			assertUniqueIDs(t, rows)
+		})
+	}
 
-	t.Run("upload error calls setErr", func(t *testing.T) {
-		t.Parallel()
+	uploadErrorTests := []struct {
+		name         string
+		numObjects   int
+		maxFileBytes int64
+		wantWritten  int64
+	}{
+		{
+			// onFlush counts the last batch when Shutdown closes the writer,
+			// before it reads the upload error.
+			name:         "upload error calls setErr",
+			numObjects:   10,
+			maxFileBytes: maxFileBytes,
+			wantWritten:  10,
+		},
+		{
+			// The range waits for the full file's upload before it opens the
+			// next file, so it stops after the first batch.
+			name:         "upload error on a full file stops the range",
+			numObjects:   2*defaultBatchSize + 88,
+			maxFileBytes: 1,
+			wantWritten:  defaultBatchSize,
+		},
+	}
 
-		store, _ := createTestStore(t, 10)
-		t.Cleanup(func() { store.Shutdown(context.Background()) })
-		bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	for _, tc := range uploadErrorTests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		logger, _ := test.NewNullLogger()
-		cfg := &rangeWriterConfig{
-			backend:   &failingWriteBackend{writeErr: fmt.Errorf("s3 upload failed")},
-			req:       &ExportRequest{ID: "test", Bucket: "b", Path: "p"},
-			className: "TestClass",
-			shardName: "shard0",
-			logger:    logger,
-		}
+			store, _ := createTestStore(t, tc.numObjects)
+			t.Cleanup(func() { store.Shutdown(context.Background()) })
+			bucket := store.Bucket(helpers.ObjectsBucketLSM)
 
-		var wg sync.WaitGroup
-		var gotErr error
-		var written int64
-		cfg.onFlush = func(n int64) { written += n }
+			backend := &failingWriteBackend{writeErr: fmt.Errorf("s3 upload failed")}
+			logger, _ := test.NewNullLogger()
+			cfg := &rangeWriterConfig{
+				backend:      backend,
+				req:          &ExportRequest{ID: "test", Bucket: "b", Path: "p"},
+				className:    "TestClass",
+				shardName:    "shard0",
+				maxFileBytes: tc.maxFileBytes,
+				logger:       logger,
+			}
 
-		wg.Add(1)
-		job := scanJob{
-			ctx:        context.Background(),
-			bucket:     bucket,
-			keyRange:   keyRange{start: nil, end: nil},
-			rangeIndex: 0,
-			writerCfg:  cfg,
-			wg:         &wg,
-			setErr:     func(err error) { gotErr = err },
-		}
-		job.execute()
-		wg.Wait()
+			var wg sync.WaitGroup
+			var gotErr error
+			var written int64
+			cfg.onFlush = func(n int64) { written += n }
 
-		require.Error(t, gotErr)
-		assert.Contains(t, gotErr.Error(), "s3 upload failed")
-		// The scan succeeded and the final flush wrote all 10 objects to
-		// the pipe before the upload error was detected. onFlush fires
-		// during writer.Close() which happens before we read uploadDone.
-		assert.Equal(t, int64(10), written)
-	})
+			wg.Add(1)
+			job := scanJob{
+				ctx:        context.Background(),
+				bucket:     bucket,
+				keyRange:   keyRange{start: nil, end: nil},
+				rangeIndex: 0,
+				writerCfg:  cfg,
+				wg:         &wg,
+				setErr:     func(err error) { gotErr = err },
+			}
+			job.execute()
+			wg.Wait()
+
+			require.ErrorContains(t, gotErr, "s3 upload failed")
+			assert.Equal(t, int64(1), backend.writeCalls.Load(), "backend.Write call count")
+			assert.Equal(t, tc.wantWritten, written)
+		})
+	}
 
 	// An empty range must not create the upload pipeline or call
 	// backend.Write at all.
@@ -813,12 +899,13 @@ func TestScanJobExecute(t *testing.T) {
 		backend := &failingWriteBackend{writeErr: fmt.Errorf("unexpected Write on empty range")}
 		logger, _ := test.NewNullLogger()
 		cfg := &rangeWriterConfig{
-			backend:   backend,
-			req:       &ExportRequest{ID: "test", Bucket: "b", Path: "p"},
-			className: "TestClass",
-			shardName: "Tenant-134",
-			isMT:      true,
-			logger:    logger,
+			backend:      backend,
+			req:          &ExportRequest{ID: "test", Bucket: "b", Path: "p"},
+			className:    "TestClass",
+			shardName:    "Tenant-134",
+			isMT:         true,
+			maxFileBytes: maxFileBytes,
+			logger:       logger,
 		}
 
 		var wg sync.WaitGroup
@@ -880,11 +967,12 @@ func TestScanJobExecute(t *testing.T) {
 			backend := &failingWriteBackend{writeErr: fmt.Errorf("upload error")}
 			logger, _ := test.NewNullLogger()
 			cfg := &rangeWriterConfig{
-				backend:   backend,
-				req:       &ExportRequest{ID: "test", Bucket: "b", Path: "p"},
-				className: "TestClass",
-				shardName: "shard0",
-				logger:    logger,
+				backend:      backend,
+				req:          &ExportRequest{ID: "test", Bucket: "b", Path: "p"},
+				className:    "TestClass",
+				shardName:    "shard0",
+				maxFileBytes: maxFileBytes,
+				logger:       logger,
 			}
 
 			var wg sync.WaitGroup
