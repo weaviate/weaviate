@@ -20,6 +20,26 @@ import (
 	"github.com/tailor-platform/graphql/language/ast"
 )
 
+func parseScalarOrArray[T any](value interface{}, parseScalar func(interface{}) interface{}) interface{} {
+	switch v := value.(type) {
+	case []T:
+		return v
+	case []interface{}:
+		res := make([]T, len(v))
+		for i := range v {
+			parsed := parseScalar(v[i])
+			if val, ok := parsed.(T); ok {
+				res[i] = val
+			} else {
+				return nil
+			}
+		}
+		return res
+	default:
+		return parseScalar(value)
+	}
+}
+
 func newValueTextType(path string) graphql.Input {
 	return graphql.NewScalar(graphql.ScalarConfig{
 		Name:        fmt.Sprintf("Text%v", path),
@@ -28,7 +48,7 @@ func newValueTextType(path string) graphql.Input {
 			return graphql.String.Serialize(value)
 		},
 		ParseValue: func(value interface{}) interface{} {
-			return graphql.String.ParseValue(value)
+			return parseScalarOrArray[string](value, graphql.String.ParseValue)
 		},
 		ParseLiteral: func(valueAST ast.Value) interface{} {
 			switch valueAST := valueAST.(type) {
@@ -62,7 +82,7 @@ func newValueIntType(path string) graphql.Input {
 			return graphql.Int.Serialize(value)
 		},
 		ParseValue: func(value interface{}) interface{} {
-			return graphql.Int.ParseValue(value)
+			return parseScalarOrArray[int](value, graphql.Int.ParseValue)
 		},
 		ParseLiteral: func(valueAST ast.Value) interface{} {
 			switch valueAST := valueAST.(type) {
@@ -92,7 +112,7 @@ func newValueNumberType(path string) graphql.Input {
 			return graphql.Float.Serialize(value)
 		},
 		ParseValue: func(value interface{}) interface{} {
-			return graphql.Float.ParseValue(value)
+			return parseScalarOrArray[float64](value, graphql.Float.ParseValue)
 		},
 		ParseLiteral: func(valueAST ast.Value) interface{} {
 			switch valueAST := valueAST.(type) {
@@ -126,7 +146,7 @@ func newValueBooleanType(path string) graphql.Input {
 			return graphql.Boolean.Serialize(value)
 		},
 		ParseValue: func(value interface{}) interface{} {
-			return graphql.Boolean.ParseValue(value)
+			return parseScalarOrArray[bool](value, graphql.Boolean.ParseValue)
 		},
 		ParseLiteral: func(valueAST ast.Value) interface{} {
 			switch valueAST := valueAST.(type) {
