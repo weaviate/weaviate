@@ -284,8 +284,9 @@ type Shard struct {
 	// Async checkpoint, guarded by asyncReplicationRWMux. The hashtree is a
 	// frozen clone of s.hashtree taken at create time. All in-memory only
 	// (not persisted, not replicated via RAFT); a restart drops it and the
-	// operator must re-create. activatedAt is local-clock so the lifetime
-	// histogram doesn't depend on cross-node clock skew.
+	// operator must re-create; an undeleted one expires after
+	// replica.AsyncCheckpointMaxLifetime. activatedAt is local-clock so the
+	// lifetime histogram and expiry don't depend on cross-node clock skew.
 	asyncCheckpointHashtree    hashtree.AggregatedHashTree
 	asyncCheckpointCutoff      int64
 	asyncCheckpointCreatedAt   time.Time
@@ -345,7 +346,11 @@ type Shard struct {
 	haltForTransferCount     atomic.Int64
 	haltForTransferCtxCancel context.CancelFunc
 
-	status              ShardStatus
+	status ShardStatus
+	// countedStatus is the weaviate_index_shards_total bucket this shard is in, ""
+	// if uncounted. Separate from status.Status so a failed update cannot make
+	// release decrement a bucket never entered. Guarded by statusLock.
+	countedStatus       string
 	statusLock          sync.RWMutex
 	propertyIndicesLock sync.RWMutex
 	// geoInitLock serializes initGeoProp so a prop never has two indexes under

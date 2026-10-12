@@ -275,6 +275,10 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 	// unchanged on the retry and never indexed
 	for targetVector, vector := range obj.Vectors {
 		found, err := s.WithVectorIndex(targetVector, func(vectorIndex VectorIndex) error {
+			err := checkVectorKind(vectorIndex, targetVector, false)
+			if err != nil {
+				return err
+			}
 			return vectorIndex.ValidateBeforeInsert(vector)
 		})
 		if !found {
@@ -287,7 +291,11 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 
 	for targetVector, vector := range obj.MultiVectors {
 		found, err := s.WithVectorIndex(targetVector, func(vectorIndex VectorIndex) error {
-			return vectorIndex.(VectorIndexMulti).ValidateMultiBeforeInsert(vector)
+			multiIndex, err := asMultiVectorIndex(vectorIndex, targetVector)
+			if err != nil {
+				return err
+			}
+			return multiIndex.ValidateMultiBeforeInsert(vector)
 		})
 		if !found {
 			return status, fmt.Errorf("vector index not found for %q", targetVector)
@@ -300,6 +308,10 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 	// the legacy vector needs an index when the schema has one
 	if len(obj.Vector) > 0 && s.index.GetVectorIndexConfig("") != nil {
 		found, err := s.WithVectorIndex("", func(index VectorIndex) error {
+			err := checkVectorKind(index, "", false)
+			if err != nil {
+				return err
+			}
 			return index.ValidateBeforeInsert(obj.Vector)
 		})
 		if !found {

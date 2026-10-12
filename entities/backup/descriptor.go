@@ -363,7 +363,7 @@ FilesLoop:
 }
 
 type ShardAndID struct {
-	ShardDesc *ShardDescriptor
+	ShardDesc *BaseShardDescriptor
 	BackupID  string
 }
 
@@ -535,11 +535,15 @@ type BackupDescriptor struct {
 }
 
 func (d *BackupDescriptor) GetCompressionType() CompressionType {
-	if d.CompressionType == nil {
-		// backward compatibility with old backups that don't have this field and default to gzip
+	return compressionTypeOrGZIP(d.CompressionType)
+}
+
+// compressionTypeOrGZIP returns CompressionGZIP for backup metadata written without a compressionType field.
+func compressionTypeOrGZIP(c *CompressionType) CompressionType {
+	if c == nil {
 		return CompressionGZIP
 	}
-	return *d.CompressionType
+	return *c
 }
 
 func (d *BackupDescriptor) GetStatus() Status {
@@ -657,6 +661,74 @@ func (d *BackupDescriptor) Validate() error {
 			if s.Name == "" || s.Node == "" {
 				return fmt.Errorf("class=%q: invalid shard %q node=%q", c.Name, s.Name, s.Node)
 			}
+		}
+	}
+	return nil
+}
+
+// BaseBackupDescriptor holds the fields of a node's backup metadata that an
+// incremental backup reads from the backups it builds on. Decoding into it skips
+// the metadata's file lists, so a chain of bases stays small in memory.
+type BaseBackupDescriptor struct {
+	StartedAt       time.Time             `json:"startedAt"`
+	Status          Status                `json:"status"`
+	Version         string                `json:"version"`
+	ServerVersion   string                `json:"serverVersion"`
+	CompressionType *CompressionType      `json:"compressionType,omitempty"`
+	BaseBackupID    string                `json:"baseBackupId,omitempty"`
+	Classes         []BaseClassDescriptor `json:"classes"`
+}
+
+type BaseClassDescriptor struct {
+	Name     string                `json:"name"`
+	BackupID string                `json:"backupId"`
+	Shards   []BaseShardDescriptor `json:"shards"`
+}
+
+// BaseShardDescriptor holds the big-file chunks FillFileInfo reuses for a file
+// that is unchanged since the base backup.
+type BaseShardDescriptor struct {
+	Name          string                 `json:"name"`
+	BigFilesChunk map[string]BigFileInfo `json:"bigFilesChunk,omitempty"`
+}
+
+func (d *BaseBackupDescriptor) GetCompressionType() CompressionType {
+	return compressionTypeOrGZIP(d.CompressionType)
+}
+
+func (d *BaseBackupDescriptor) GetStatus() Status {
+	return d.Status
+}
+
+func (d *BaseBackupDescriptor) GetVersion() string {
+	return d.Version
+}
+
+func (d *BaseBackupDescriptor) GetServerVersion() string {
+	return d.ServerVersion
+}
+
+func (d *BaseBackupDescriptor) GetBaseBackupID() string {
+	return d.BaseBackupID
+}
+
+func (d *BaseBackupDescriptor) GetStartedAt() time.Time {
+	return d.StartedAt
+}
+
+func (d *BaseBackupDescriptor) GetClassDescriptor(className string) *BaseClassDescriptor {
+	for i := range d.Classes {
+		if d.Classes[i].Name == className {
+			return &d.Classes[i]
+		}
+	}
+	return nil
+}
+
+func (c *BaseClassDescriptor) GetShardDescriptor(shardName string) *BaseShardDescriptor {
+	for i := range c.Shards {
+		if c.Shards[i].Name == shardName {
+			return &c.Shards[i]
 		}
 	}
 	return nil

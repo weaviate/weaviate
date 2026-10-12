@@ -16,6 +16,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -31,9 +32,8 @@ type keyRange struct {
 	start, end []byte
 }
 
-// scanJob is a self-contained unit of work: scan one key range, lazily
-// create a per-range writer pipeline on the first row, write directly to
-// it, and upload.
+// scanJob scans one key range into one or more parquet files and uploads
+// them.
 type scanJob struct {
 	ctx        context.Context // per-shard context
 	bucket     *lsmkv.Bucket
@@ -47,28 +47,33 @@ type scanJob struct {
 func (j *scanJob) execute() {
 	defer j.wg.Done()
 
-	// Lazy pipeline creation: defer creating the upload pipeline (and
-	// starting the upload goroutine) until the first row is actually
-	// scanned. This avoids any backend interaction for empty ranges —
-	// no upload goroutine, no backend object, no misleading "closed pipe"
-	// log noise on shards that have no data (e.g. an empty MT tenant).
+	// getWriter opens a file on the first row and on the first row after the
+	// open file reaches maxFileBytes, so a range never uploads an empty file.
+	// It waits for the full file's upload, so an upload error stops the scan.
+	// A cap of zero or below means the default; otherwise every row would get
+	// its own file.
+	fileCap := j.writerCfg.maxFileBytes
+	if fileCap <= 0 {
+		fileCap = maxFileBytes
+	}
 	var pipeline *rangePipeline
-	// getWriter is guarded by sync.Once so that at most one pipeline is
-	// ever created per range, regardless of how scanRangeToWriter evolves.
-	// If the range is empty, getWriter is never called at all.
-	var once sync.Once
-	var initErr error
 	getWriter := func() (*ParquetWriter, error) {
-		once.Do(func() {
-			p, err := startRangeWriter(j.ctx, j.writerCfg, j.rangeIndex)
+		if pipeline != nil && pipeline.writer.Size() >= fileCap {
+			// Detach the full file before shutting it down. If Shutdown fails, its
+			// error comes back as scanErr with pipeline nil, so execute passes it
+			// to setErr and doesn't shut the same pipeline down a second time.
+			full := pipeline
+			pipeline = nil
+			if err := full.Shutdown(nil); err != nil {
+				return nil, err
+			}
+		}
+		if pipeline == nil {
+			p, err := startRangeWriter(j.ctx, j.writerCfg)
 			if err != nil {
-				initErr = fmt.Errorf("start range writer %d: %w", j.rangeIndex, err)
-				return
+				return nil, fmt.Errorf("start range writer %d: %w", j.rangeIndex, err)
 			}
 			pipeline = p
-		})
-		if initErr != nil {
-			return nil, initErr
 		}
 		return pipeline.writer, nil
 	}
@@ -76,9 +81,8 @@ func (j *scanJob) execute() {
 	scanErr := scanRangeToWriter(j.ctx, j.bucket, j.keyRange.start, j.keyRange.end, getWriter)
 
 	if pipeline == nil {
-		// Empty range — no upload was started. Propagate any scan
-		// error (e.g. context cancellation, malformed first row, or
-		// pipeline creation failure).
+		// No file is open, because the range was empty, the scan failed before its
+		// first row, or opening a file or shutting down the full one failed.
 		if scanErr != nil {
 			j.setErr(scanErr)
 		}
@@ -96,13 +100,14 @@ const (
 	// we reduce the number of ranges so that each range has meaningful work.
 	minObjectsPerRange = 50_000
 
-	// maxObjectsPerRange bounds the maximum objects per range, ensuring each
-	// parquet file stays a manageable size for upload and retry. With a typical
-	// row of ~7-8 KB (1536-dim vector + properties), 500K rows produce roughly
-	// 3.5-4 GB uncompressed. Zstd compression brings this down to ~2-3 GB per
-	// file, which keeps individual uploads recoverable without excessive memory
-	// or retry cost.
+	// maxObjectsPerRange bounds the objects per range, so a large shard splits
+	// into more ranges than there are workers.
 	maxObjectsPerRange = 500_000
+
+	// maxFileBytes caps a parquet file's size. parquet-go keeps a file's page
+	// index and footer metadata in memory until Close, and both grow with the
+	// file.
+	maxFileBytes = 1 << 30 // 1 GiB
 )
 
 // computeRanges splits a bucket's key space into ranges using QuantileKeys.
@@ -134,8 +139,8 @@ func computeRanges(bucket *lsmkv.Bucket, parallelism int) []keyRange {
 }
 
 // computeNumRanges determines how many key ranges to create given the object
-// count and desired parallelism. The result is bounded by minObjectsPerRange
-// (so ranges aren't too small) and maxObjectsPerRange (so files aren't too large).
+// count and desired parallelism. minObjectsPerRange and maxObjectsPerRange
+// bound the objects per range.
 func computeNumRanges(count, parallelism int) int {
 	numRanges := parallelism
 	if count > 0 {
@@ -148,10 +153,9 @@ func computeNumRanges(count, parallelism int) int {
 	return max(numRanges, 1)
 }
 
-// scanRangeToWriter scans [startKey, endKey) using a Cursor. The writer
-// is obtained lazily via getWriter on the first row, so empty ranges
-// never create a writer (and thus never start an upload). If endKey is
-// nil, scans to the end.
+// scanRangeToWriter scans [startKey, endKey) using a Cursor and writes each
+// row to the writer getWriter returns for it. An empty range never calls
+// getWriter, so it starts no upload. If endKey is nil, it scans to the end.
 //
 // The writer's onFlush callback reports progress when a batch enters the open
 // row group, up to one row group before its bytes reach the upload pipe.
@@ -171,7 +175,6 @@ func scanRangeToWriter(
 		key, val = cursor.Seek(startKey)
 	}
 
-	var writer *ParquetWriter
 	for key != nil {
 		if endKey != nil && bytes.Compare(key, endKey) >= 0 {
 			break
@@ -188,10 +191,9 @@ func scanRangeToWriter(
 			return fmt.Errorf("extract export fields: %w", err)
 		}
 
-		if writer == nil {
-			if writer, err = getWriter(); err != nil {
-				return err
-			}
+		writer, err := getWriter()
+		if err != nil {
+			return err
 		}
 
 		row := ParquetRow{
@@ -216,22 +218,20 @@ func scanRangeToWriter(
 
 // rangeWriterConfig holds shared configuration for all range writers of a shard.
 type rangeWriterConfig struct {
-	backend   modulecapabilities.BackupBackend
-	req       *ExportRequest
-	className string
-	shardName string
-	isMT      bool
-	logger    logrus.FieldLogger
-	onFlush   func(int64) // called after each successful ParquetWriter flush
+	backend      modulecapabilities.BackupBackend
+	req          *ExportRequest
+	className    string
+	shardName    string
+	isMT         bool
+	maxFileBytes int64 // scanJob.execute starts a new file once the open one reaches this size; <= 0 means maxFileBytes
+	logger       logrus.FieldLogger
+	onFlush      func(int64)  // called after each successful ParquetWriter flush
+	filesOpened  atomic.Int32 // numbers the shard's files across all its ranges
 }
 
-// rangePipeline bundles a per-range ParquetWriter, buffered pipe, and upload
+// rangePipeline bundles one file's ParquetWriter, buffered pipe, and upload
 // goroutine. Once the pipe is full (defaultPipeBufferSize), the scan waits for
 // the upload with its LSM cursor open.
-//
-// The pipeline is created lazily by scanJob.execute on the first row scanned,
-// so empty ranges never instantiate a pipeline at all — there is no
-// CloseEmpty/abort path to worry about.
 type rangePipeline struct {
 	pw         *bufferedPipeWriter
 	writer     *ParquetWriter
@@ -269,11 +269,12 @@ func (rp *rangePipeline) Shutdown(scanErr error) error {
 	return nil
 }
 
-// startRangeWriter creates a rangePipeline for a single key range.
-func startRangeWriter(ctx context.Context, cfg *rangeWriterConfig, rangeIndex int) (*rangePipeline, error) {
+// startRangeWriter creates a rangePipeline for the shard's next file.
+func startRangeWriter(ctx context.Context, cfg *rangeWriterConfig) (*rangePipeline, error) {
 	pr, pw := newBufferedPipe(defaultPipeBufferSize)
 
-	fileName := fmt.Sprintf("%s_%s_%04d.parquet", cfg.className, cfg.shardName, rangeIndex)
+	fileIndex := cfg.filesOpened.Add(1) - 1
+	fileName := fmt.Sprintf("%s_%s_%04d.parquet", cfg.className, cfg.shardName, fileIndex)
 
 	uploadDone := make(chan error, 1)
 	uploadStart := time.Now()
