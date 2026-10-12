@@ -729,6 +729,63 @@ func TestShardedLockCache_OpsAfterDrop(t *testing.T) {
 	assert.Zero(t, c.CountVectors())
 }
 
+// A miss still reading its vector when Drop releases the multivector cache's
+// slices must hand the vector back without storing it.
+func TestShardedMultipleLockCache_DropDuringMiss(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	var c Cache[float32]
+	c = NewShardedMultiFloat32LockCache(func(ctx context.Context, docID uint64) ([][]float32, error) {
+		c.Drop()
+		return [][]float32{{1, 2}}, nil
+	}, 1e12, logger, false, 0, nil)
+	c.PreloadPassage(0, 0, 0, nil)
+
+	vec, err := c.Get(context.Background(), 0)
+	require.NoError(t, err)
+	assert.Equal(t, []float32{1, 2}, vec)
+	assert.EqualValues(t, 0, c.Len(), "Drop must release the backing slices")
+	assert.EqualValues(t, 0, c.CountVectors())
+}
+
+// Drop releases the multivector cache's keys with its vectors, so a read
+// after Drop fails instead of fetching doc 0, and nothing brings the slices
+// back.
+func TestShardedMultipleLockCache_OpsAfterDrop(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	var fetches int64
+	c := NewShardedMultiFloat32LockCache(func(_ context.Context, docID uint64) ([][]float32, error) {
+		atomic.AddInt64(&fetches, 1)
+		return [][]float32{{float32(docID)}}, nil
+	}, 1e12, logger, false, 0, nil)
+	c.PreloadPassage(5, 50, 0, []float32{50})
+	require.Positive(t, c.Len())
+	c.Drop()
+	require.Zero(t, c.Len())
+
+	var notFound storobj.ErrNotFound
+	_, err := c.Get(context.Background(), 5)
+	require.ErrorIs(t, err, ErrDropped)
+	assert.False(t, errors.As(err, &notFound), "a dropped cache must not look like a deleted object")
+	_, errs := c.MultiGet(context.Background(), []uint64{5, 6})
+	for _, err := range errs {
+		require.ErrorIs(t, err, ErrDropped)
+	}
+	assert.Zero(t, atomic.LoadInt64(&fetches), "the keys are gone, there is nothing to fetch with")
+
+	docID, relativeID := c.GetKeys(5)
+	assert.Zero(t, docID)
+	assert.Zero(t, relativeID)
+	c.SetKeys(5, 50, 0)
+	c.Prefetch(5)
+	c.Delete(context.Background(), 5)
+	c.PreloadPassage(5, 50, 0, []float32{50})
+	c.PreloadMulti(60, []uint64{6, 7}, [][]float32{{6}, {7}})
+	c.Grow(300)
+
+	assert.Zero(t, c.Len(), "nothing may reallocate a dropped cache")
+	assert.Zero(t, c.CountVectors())
+}
+
 func TestShardedLockCache_GetAllInCurrentLockOnFreshCache(t *testing.T) {
 	t.Run("default max size does not fetch through", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
