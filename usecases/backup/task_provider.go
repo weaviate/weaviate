@@ -472,7 +472,7 @@ func (p *BackupTaskProvider) LocalCallbacksDone(task *distributedtask.Task, loca
 // the task after maxCompletedCallbackAttempts (5) failed calls on the raft
 // leader, one per tick. So a continuous backend outage of about five ticks
 // marks a completed backup FAILED, with the callback error recorded on the
-// task. A non-leader's wait for the descriptor counts against no budget. FAILED
+// task. A non-leader's wait for the descriptor never consumes that budget. FAILED
 // and CANCELLED re-fires have no budget: their descriptor lands whenever the
 // backend returns. writeTerminalDescriptor first waits for descMu, with no
 // timeout. The only other holder is a Started write attempt. The scheduler
@@ -610,8 +610,8 @@ func (p *BackupTaskProvider) runNodeBackup(
 	}
 
 	// A unit already claimed by this node means an earlier flow on this node ran.
-	// This check runs before the claims below, so this flow's own claims never
-	// count.
+	// This check runs before the claims below, so this flow's own claims cannot
+	// set claimedBefore.
 	claimedBefore := false
 	for _, cls := range classes {
 		if u := task.Units[fmt.Sprintf("%s/%s", p.node, cls)]; u != nil && u.NodeID == p.node {
@@ -627,7 +627,7 @@ func (p *BackupTaskProvider) runNodeBackup(
 	// unknown, so the flow stops without uploading. The scheduler restarts it on
 	// a later tick. Bytes that fail to decode stay corrupt. Only this node's
 	// flow writes this descriptor, so uploading again cannot overwrite a good
-	// copy. A decode failure, not-found, or any other descriptor uploads again.
+	// copy.
 	if claimedBefore {
 		meta, err := store.Meta(ctx, payload.ID, payload.Bucket, payload.Path)
 		var syntaxErr *json.SyntaxError
@@ -652,8 +652,8 @@ func (p *BackupTaskProvider) runNodeBackup(
 
 	// Claim units: progress=0 transitions PENDING to IN_PROGRESS. If the task is
 	// no longer running, the flow returns before writing or uploading the
-	// descriptor. That flow is terminated, and a terminated upload writes
-	// CANCELED over backup.json.
+	// descriptor. The scheduler terminates such a flow, and a terminated upload
+	// writes CANCELED over backup.json.
 	for _, cls := range classes {
 		unitID := fmt.Sprintf("%s/%s", p.node, cls)
 		if err := recorder.UpdateDistributedTaskUnitProgress(

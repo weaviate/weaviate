@@ -509,7 +509,7 @@ func TestBackupTaskProvider(t *testing.T) {
 		payload := makePayload("b1")
 		task := makeTask("b1", distributedtask.TaskStatusStarted, payload)
 		require.NoError(t, provider.writeStartedDescriptor(context.Background(), task, payload, nil))
-		// Exactly one global PutObject: the failed first attempt. The retry reads FAILED and writes nothing.
+		// Only the failed first attempt reaches PutObject. The retry reads FAILED and writes nothing.
 		be.AssertNumberOfCalls(t, "PutObject", 1)
 	})
 
