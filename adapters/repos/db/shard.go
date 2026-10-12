@@ -163,9 +163,6 @@ type ShardLike interface {
 	Dimensions(ctx context.Context, targetVector string) (int, error)
 	QuantizedDimensions(ctx context.Context, targetVector string, segments int) (int, error)
 
-	extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error
-	resetDimensionsLSM(ctx context.Context) error
-
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	addToPropertyMapBucket(bucket *lsmkv.Bucket, docID uint64, key []byte, tf, propLen float32) error

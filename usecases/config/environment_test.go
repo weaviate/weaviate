@@ -2671,3 +2671,39 @@ func TestEnvironmentReindexIndexesAtStartupRejectsAllProperties(t *testing.T) {
 		})
 	}
 }
+
+func TestEnvironmentReindexVectorDimensions(t *testing.T) {
+	tests := []struct {
+		name                 string
+		env                  map[string]string
+		expectedReindex      bool
+		expectedToRoaringSet bool
+	}{
+		{name: "not given", env: nil},
+		{
+			name:            "reindex",
+			env:             map[string]string{"REINDEX_VECTOR_DIMENSIONS_AT_STARTUP": "true"},
+			expectedReindex: true,
+		},
+		{
+			name:                 "to roaring set",
+			env:                  map[string]string{"REINDEX_VECTOR_DIMENSIONS_TO_ROARINGSET_AT_STARTUP": "true"},
+			expectedToRoaringSet: true,
+		},
+		{
+			name: "to roaring set disabled",
+			env:  map[string]string{"REINDEX_VECTOR_DIMENSIONS_TO_ROARINGSET_AT_STARTUP": "false"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for name, value := range tt.env {
+				t.Setenv(name, value)
+			}
+			conf := Config{}
+			require.NoError(t, FromEnv(&conf))
+			require.Equal(t, tt.expectedReindex, conf.ReindexVectorDimensionsAtStartup)
+			require.Equal(t, tt.expectedToRoaringSet, conf.ReindexVectorDimensionsToRoaringsetAtStartup)
+		})
+	}
+}

@@ -71,6 +71,7 @@ type DB struct {
 	shutdownOnce              sync.Once
 	startupComplete           atomic.Bool
 	startupShards             startupShardCounters
+	dimensionsReindex         dimensionsReindex
 	resourceScanState         *resourceScanState
 	memMonitor                *memwatch.Monitor
 
@@ -344,6 +345,7 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		logger:                    logger,
 		localNodeName:             localNodeName,
 		config:                    config,
+		dimensionsReindex:         dimensionsReindex{enabled: config.ReindexVectorDimensions && config.TrackVectorDimensions},
 		indices:                   map[string]*Index{},
 		remoteIndex:               remoteIndex,
 		nodeResolver:              nodeResolver,
@@ -428,6 +430,8 @@ type Config struct {
 	MaxSegmentSize                 int64
 	TrackVectorDimensions          bool
 	TrackVectorDimensionsInterval  time.Duration
+	MigrateDimensionsToRoaringSet  bool
+	ReindexVectorDimensions        bool
 	UsageEnabled                   bool
 	ServerVersion                  string
 	GitHash                        string
