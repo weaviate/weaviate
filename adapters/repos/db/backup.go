@@ -715,9 +715,10 @@ func backupStagingDir(rootPath, backupID string, className schema.ClassName) str
 	return filepath.Join(rootPath, name)
 }
 
-// ReleaseBackup marks the specified backup as inactive and restarts all
-// async background and maintenance processes. It errors if the backup does not exist
-// or is already inactive.
+// ReleaseBackup always removes the staging directory of backup id. Only when
+// id matches lastBackup does it also release the shard protections, reset the
+// backup state and resume maintenance cycles. Those belong to the backup in
+// lastBackup, so a release for any other id leaves them in place.
 func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 	i.logger.WithField("backup_id", id).WithField("class", i.Config.ClassName).Info("release backup")
 
@@ -725,6 +726,10 @@ func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 	stagingDir := backupStagingDir(i.Config.RootPath, id, i.Config.ClassName)
 	if err := os.RemoveAll(stagingDir); err != nil {
 		i.logger.WithField("staging_dir", stagingDir).WithError(err).Warn("failed to remove backup staging dir")
+	}
+
+	if current := i.lastBackup.Load(); current == nil || current.BackupID != id {
+		return nil
 	}
 
 	// Release non-hardlink backup protections: clear the protection flag and

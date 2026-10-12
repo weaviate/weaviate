@@ -76,6 +76,8 @@ type threadSafeRecorder struct {
 	claimTask *distributedtask.Task
 	// onCompletion, when set, runs on every unit completion, before it is recorded.
 	onCompletion func(unitID string)
+	// progressErr, when set, is returned by every progress update.
+	progressErr error
 }
 
 type progressEntry struct {
@@ -111,6 +113,9 @@ func (r *threadSafeRecorder) RecordDistributedTaskRetryableUnitFailure(_ context
 }
 
 func (r *threadSafeRecorder) UpdateDistributedTaskUnitProgress(_ context.Context, _, _ string, _ uint64, nodeID, unitID string, progress float32) error {
+	if r.progressErr != nil {
+		return r.progressErr
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.progresses = append(r.progresses, progressEntry{unitID, progress})
@@ -902,6 +907,58 @@ func TestBackupTaskProvider(t *testing.T) {
 		}
 	})
 
+	t.Run("a re-run that cannot read its node descriptor uploads nothing", func(t *testing.T) {
+		be := newFakeBackend()
+		be.On("GetObject", mock.Anything, "b1/node-1", BackupFile).Return(nil, errors.New("backend unavailable"))
+		sourcer := describingSourcer("Book", "Article")
+		recorder := &threadSafeRecorder{}
+		provider := newFlowProvider(t, be, sourcer, recorder)
+
+		handle, err := provider.StartTask(rerunTask())
+		require.NoError(t, err)
+		waitDone(t, handle)
+
+		sourcer.AssertNotCalled(t, "BackupDescriptors", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		be.AssertNotCalled(t, "PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		assert.Empty(t, recorder.getCompletions())
+		assert.Empty(t, recorder.getFailures())
+	})
+
+	t.Run("a re-run whose node descriptor is corrupt re-uploads", func(t *testing.T) {
+		be := newFakeBackend()
+		be.On("GetObject", mock.Anything, "b1/node-1", BackupFile).Return([]byte(`{"id":"b1","status":`), nil)
+		sourcer := describingSourcer("Book", "Article")
+		recorder := &threadSafeRecorder{}
+		provider := newFlowProvider(t, be, sourcer, recorder)
+
+		handle, err := provider.StartTask(rerunTask())
+		require.NoError(t, err)
+		waitDone(t, handle)
+
+		sourcer.AssertNumberOfCalls(t, "BackupDescriptors", 1)
+		be.AssertCalled(t, "PutObject", mock.Anything, "b1/node-1", BackupFile, mock.Anything)
+		status, _ := be.getMetaStatus()
+		assert.Equal(t, backup.Success, status)
+		assert.Equal(t, []string{"node-1/Book"}, recorder.getCompletions())
+		assert.Empty(t, recorder.getFailures())
+	})
+
+	t.Run("a flow whose task is no longer running uploads nothing", func(t *testing.T) {
+		be := newFakeBackend()
+		sourcer := describingSourcer("Article", "Book")
+		recorder := &threadSafeRecorder{progressErr: distributedtask.ErrTaskNotRunning}
+		provider := newFlowProvider(t, be, sourcer, recorder)
+
+		handle, err := provider.StartTask(makeTask("b1", distributedtask.TaskStatusStarted, makePayload("b1")))
+		require.NoError(t, err)
+		waitDone(t, handle)
+
+		sourcer.AssertNotCalled(t, "BackupDescriptors", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		be.AssertNotCalled(t, "PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		assert.Empty(t, recorder.getCompletions())
+		assert.Empty(t, recorder.getFailures())
+	})
+
 	t.Run("Terminate of a running flow records no unit failure", func(t *testing.T) {
 		sourcer, describing := blockingSourcer()
 		recorder := &threadSafeRecorder{}
@@ -1443,22 +1500,19 @@ func TestBackupTaskProviderDedupe(t *testing.T) {
 		assert.Empty(t, fx.recorder.getFailures())
 	})
 
-	t.Run("restart after claim with no published plan fails with a planning-interruption reason", func(t *testing.T) {
+	t.Run("restart after claim with no published plan plans again and uploads", func(t *testing.T) {
 		fx := newDedupeFlow(t, "node-1")
 		fx.claimedBy = "node-1"
-		fx.serveGlobal(nil, backup.ErrNotFound{})
+		fx.serveGlobal(nil, backup.ErrNotFound{}).Twice()
+		fx.serveGlobal(marshalDescriptor(t, published), nil)
 
 		fx.run(t)
 
-		assert.ElementsMatch(t, []string{"node-1/Article", "node-1/Book"}, fx.recorder.getFailures())
-		assert.Empty(t, fx.recorder.getRetryableFailures())
-		for _, msg := range fx.recorder.getFailureMessages() {
-			assert.Contains(t, msg, "interrupted")
-			assert.Contains(t, msg, "new backup ID")
-		}
-		assert.Empty(t, fx.planner.recordedCalls())
-		assert.Zero(t, fx.globalWrites())
-		fx.sourcer.AssertNotCalled(t, "BackupDescriptors", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		assert.Len(t, fx.planner.recordedCalls(), 1)
+		assert.Equal(t, 1, fx.globalWrites())
+		assert.Len(t, fx.getUploads(), 1)
+		assert.ElementsMatch(t, []string{"node-1/Article", "node-1/Book"}, fx.recorder.getCompletions())
+		assert.Empty(t, fx.recorder.getFailures())
 	})
 
 	t.Run("restart after publication reuses the plan without replanning", func(t *testing.T) {
@@ -1474,6 +1528,57 @@ func TestBackupTaskProviderDedupe(t *testing.T) {
 		require.Len(t, uploads, 1)
 		assert.Equal(t, published.DedupeDesignations, uploads[0].designations)
 		assert.Empty(t, fx.recorder.getFailures())
+	})
+}
+
+func TestBackupNodeDescriptorStamp(t *testing.T) {
+	t.Run("restore accepts the node descriptor of every run shape", func(t *testing.T) {
+		designated := &DedupePlan{Designations: map[string]map[string]string{"Article": {"s1": "node-1"}}, CandidateShards: 1}
+		tests := []struct {
+			name             string
+			dedupe           bool
+			baseChainDeduped bool
+			plan             *DedupePlan
+			wantGlobal       string
+		}{
+			{name: "without dedupe", wantGlobal: Version},
+			{name: "without dedupe on a deduped base chain", baseChainDeduped: true, wantGlobal: VersionDedupeReplicas},
+			{name: "dedupe with designated shards", dedupe: true, plan: designated, wantGlobal: VersionDedupeReplicas},
+			{name: "dedupe with no designated shard on a deduped base chain", dedupe: true, baseChainDeduped: true, plan: &DedupePlan{}, wantGlobal: VersionDedupeReplicas},
+			{name: "dedupe with no designated shard", dedupe: true, plan: &DedupePlan{}, wantGlobal: Version},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				described := make(chan backup.ClassDescriptor, 2)
+				for _, cls := range []string{"Article", "Book"} {
+					described <- backup.ClassDescriptor{Name: cls, Schema: []byte("{}"), ShardingState: []byte("{}")}
+				}
+				close(described)
+				sourcer := &fakeSourcer{}
+				sourcer.On("BackupDescriptors", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					Return((<-chan backup.ClassDescriptor)(described)).Once()
+				sourcer.On("ReleaseBackup", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				be := newFakeBackend()
+				be.serveWrittenGlobalBackupMeta = true
+				recorder := &threadSafeRecorder{}
+				provider := newFlowProvider(t, be, sourcer, recorder)
+				provider.planner = &fakeDedupePlanner{plan: tc.plan}
+				payload := makePayload("b1")
+				payload.DedupeReplicas = tc.dedupe
+				payload.BaseChainDeduped = tc.baseChainDeduped
+
+				handle, err := provider.StartTask(makeTask("b1", distributedtask.TaskStatusStarted, payload))
+				require.NoError(t, err)
+				waitDone(t, handle)
+
+				require.Empty(t, recorder.getFailures())
+				be.RLock()
+				nodeMeta, global := be.meta, be.glMeta
+				be.RUnlock()
+				assert.NoError(t, validateNodeMeta(&nodeMeta, "b1/node-1", "b1"))
+				assert.Equal(t, tc.wantGlobal, global.Version, "the global descriptor keeps the base-chain stamp")
+			})
+		}
 	})
 }
 

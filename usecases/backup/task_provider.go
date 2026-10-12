@@ -13,6 +13,7 @@ package backup
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -608,9 +609,9 @@ func (p *BackupTaskProvider) runNodeBackup(
 		return false
 	}
 
-	// A unit already claimed by this node means an earlier flow on this node ran
-	// and may have started planning. This check runs before the claims below, so
-	// this flow's own claims never count.
+	// A unit already claimed by this node means an earlier flow on this node ran.
+	// This check runs before the claims below, so this flow's own claims never
+	// count.
 	claimedBefore := false
 	for _, cls := range classes {
 		if u := task.Units[fmt.Sprintf("%s/%s", p.node, cls)]; u != nil && u.NodeID == p.node {
@@ -622,9 +623,24 @@ func (p *BackupTaskProvider) runNodeBackup(
 	// An earlier flow on this node can write a Success node descriptor and stop
 	// before it reports every unit. Its upload is complete, so this flow only
 	// reports. The StartedAt match rejects a descriptor left by an earlier task
-	// with the same backup ID. Any other read outcome uploads again.
+	// with the same backup ID. After a transport error the descriptor state is
+	// unknown, so the flow stops without uploading. The scheduler restarts it on
+	// a later tick. Bytes that fail to decode stay corrupt. Only this node's
+	// flow writes this descriptor, so uploading again cannot overwrite a good
+	// copy. A decode failure, not-found, or any other descriptor uploads again.
 	if claimedBefore {
 		meta, err := store.Meta(ctx, payload.ID, payload.Bucket, payload.Path)
+		var syntaxErr *json.SyntaxError
+		var typeErr *json.UnmarshalTypeError
+		switch {
+		case err == nil, errors.As(err, &backup.ErrNotFound{}):
+		case errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+			p.logger.WithFields(logFields).Warnf("node descriptor %s/%s/%s is corrupt, uploading again: %v",
+				payload.ID, p.node, BackupFile, err)
+		default:
+			p.logger.WithFields(logFields).Warnf("read node descriptor, not uploading: %v", err)
+			return
+		}
 		if err == nil && meta.Status == backup.Success && meta.StartedAt.Equal(task.StartedAt) {
 			p.logger.WithFields(logFields).Info("node descriptor is already SUCCESS, reporting pending units without uploading")
 			for _, cls := range pending {
@@ -634,12 +650,20 @@ func (p *BackupTaskProvider) runNodeBackup(
 		}
 	}
 
-	// Claim units: progress=0 transitions PENDING to IN_PROGRESS.
+	// Claim units: progress=0 transitions PENDING to IN_PROGRESS. If the task is
+	// no longer running, the flow returns before writing or uploading the
+	// descriptor. That flow is terminated, and a terminated upload writes
+	// CANCELED over backup.json.
 	for _, cls := range classes {
 		unitID := fmt.Sprintf("%s/%s", p.node, cls)
 		if err := recorder.UpdateDistributedTaskUnitProgress(
 			ctx, BackupTaskNamespace, task.ID, task.Version, p.node, unitID, 0,
 		); err != nil {
+			if errors.Is(err, distributedtask.ErrTaskNotRunning) {
+				p.logger.WithFields(logFields).WithField("unit", unitID).
+					Infof("task is no longer running, not uploading: %v", err)
+				return
+			}
 			p.logger.WithFields(logFields).WithField("unit", unitID).
 				Warnf("claim write failed: %v", err)
 		}
@@ -657,14 +681,14 @@ func (p *BackupTaskProvider) runNodeBackup(
 	// Only payload.Leader writes the global Started descriptor. Without dedupe,
 	// no node reads it before uploading. With dedupe, no node uploads before the
 	// plan is published, and every node uploads with the plan as stored.
-	version, dedupeReplicas := payload.artifactVersion(), false
+	dedupeReplicas := false
 	var designations map[string]map[string]string
 	if payload.DedupeReplicas {
-		published := p.publishedPlan(ctx, task, payload, claimedBefore, recorder, logFields)
+		published := p.publishedPlan(ctx, task, payload, recorder, logFields)
 		if published == nil {
 			return
 		}
-		version, dedupeReplicas = published.Version, published.DedupeReplicas
+		dedupeReplicas = published.DedupeReplicas
 		designations = published.DedupeDesignations
 	} else if p.node == payload.Leader {
 		if err := p.writeStartedDescriptor(ctx, task, payload, nil); err != nil {
@@ -686,6 +710,13 @@ func (p *BackupTaskProvider) runNodeBackup(
 		baseBackupID = ""
 	}
 
+	// Restore rejects a 3.x node descriptor without dedupeReplicas, so the node
+	// stamp follows this run's dedupe outcome. A deduped base chain stamps only
+	// the global descriptor.
+	version := Version
+	if dedupeReplicas {
+		version = VersionDedupeReplicas
+	}
 	desc := backup.BackupDescriptor{
 		StartedAt:       task.StartedAt,
 		ID:              task.ID,
@@ -856,7 +887,6 @@ func (p *BackupTaskProvider) publishedPlan(
 	ctx context.Context,
 	task *distributedtask.Task,
 	payload *taskPayload,
-	claimedBefore bool,
 	recorder distributedtask.TaskCompletionRecorder,
 	logFields logrus.Fields,
 ) *backup.DistributedBackupDescriptor {
@@ -909,13 +939,6 @@ func (p *BackupTaskProvider) publishedPlan(
 		logger.Info("replica dedupe: reusing the published plan")
 		return existing
 	}
-	if claimedBefore {
-		msg := "replica dedupe planning was interrupted before a plan was published; retry the backup with a new backup ID"
-		logger.Error(msg)
-		p.failAllUnits(ctx, task, payload, recorder, msg, false)
-		return nil
-	}
-
 	var preferred map[string]map[string]string
 	if payload.BaseBackupID != "" {
 		base, err := store.GlobalMetaForBackupID(ctx, payload.BaseBackupID, payload.Bucket, payload.Path)
