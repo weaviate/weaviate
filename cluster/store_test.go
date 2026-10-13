@@ -30,6 +30,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	clusterTypes "github.com/weaviate/weaviate/cluster/types"
 	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
@@ -1694,4 +1695,67 @@ func TestStoreWaitToRestoreDBAnnouncesOnce(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("WaitToRestoreDB did not return once dbLoaded flipped")
 	}
+}
+
+// The deadline branch decides three things from one wakeup, and all three were wrong at some
+// point: it must re-read the applied index rather than trust the last tick, must not report a
+// gap it did not measure, and must not file a caller that went away under the outcome that
+// means the FSM was slow.
+func TestStoreWaitForAppliedIndexDeadlineBranch(t *testing.T) {
+	newStore := func(t *testing.T, waitTimeout time.Duration) (*Store, prometheus.Histogram) {
+		t.Helper()
+		logger, _ := logrustest.NewNullLogger()
+		m := newStoreMetrics(t.Name(), prometheus.NewPedanticRegistry())
+		return &Store{
+			log:     logger,
+			metrics: m,
+			cfg:     Config{ConsistencyWaitTimeout: waitTimeout},
+		}, m.waitForIndexGap
+	}
+
+	gapCount := func(t *testing.T, h prometheus.Histogram) uint64 {
+		t.Helper()
+		var m dto.Metric
+		require.NoError(t, h.(prometheus.Metric).Write(&m))
+		return m.Histogram.GetSampleCount()
+	}
+
+	t.Run("a caller that goes away is canceled, not a deadline", func(t *testing.T) {
+		st, gap := newStore(t, time.Minute)
+		st.lastAppliedIndex.Store(5)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err := st.WaitForAppliedIndex(ctx, 10*time.Millisecond, 10)
+		require.ErrorIs(t, err, context.Canceled)
+		require.NotErrorIs(t, err, clusterTypes.ErrDeadlineExceeded,
+			"a disconnect must not land in the series that means the FSM was slow")
+		require.Zero(t, gapCount(t, gap),
+			"no gap was measured, so none may be reported")
+	})
+
+	t.Run("an exhausted budget is a deadline, and reports its gap", func(t *testing.T) {
+		st, gap := newStore(t, 20*time.Millisecond)
+		st.lastAppliedIndex.Store(5)
+
+		err := st.WaitForAppliedIndex(context.Background(), time.Hour, 10)
+		require.ErrorIs(t, err, clusterTypes.ErrDeadlineExceeded)
+		require.EqualValues(t, 1, gapCount(t, gap))
+	})
+
+	t.Run("catching up between the last tick and the deadline still succeeds", func(t *testing.T) {
+		st, gap := newStore(t, 40*time.Millisecond)
+		st.lastAppliedIndex.Store(5)
+
+		// The ticker never fires, so the only read of the index is the deadline branch's own.
+		// Trusting the value sampled before the loop would fail a wait that has caught up.
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			st.lastAppliedIndex.Store(10)
+		}()
+
+		require.NoError(t, st.WaitForAppliedIndex(context.Background(), time.Hour, 10))
+		require.Zero(t, gapCount(t, gap), "a wait that caught up has no gap to report")
+	})
 }

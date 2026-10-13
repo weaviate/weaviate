@@ -837,9 +837,8 @@ func (st *Store) trackDBLoadProgress() func() {
 const (
 	waitOutcomeImmediate = "immediate"
 	waitOutcomeCaughtUp  = "caught_up"
-	// The deadline is the sooner of ConsistencyWaitTimeout and the caller's remaining budget, so
-	// a short observation here can mean a thin budget rather than a slow FSM.
-	waitOutcomeDeadline = "deadline"
+	waitOutcomeDeadline  = "deadline"
+	waitOutcomeCanceled  = "canceled"
 )
 
 // WaitForAppliedIndex waits until the update with the given version is propagated to this follower node
@@ -850,8 +849,6 @@ func (st *Store) WaitForAppliedIndex(ctx context.Context, period time.Duration, 
 		st.metrics.waitForIndex.WithLabelValues(outcome).Observe(time.Since(start).Seconds())
 	}()
 
-	// Declared outside the loop so the deadline branch still reports a real
-	// observation when the context expires before the first tick.
 	idx := st.lastAppliedIndex.Load()
 	if idx >= version {
 		outcome = waitOutcomeImmediate
@@ -864,9 +861,18 @@ func (st *Store) WaitForAppliedIndex(ctx context.Context, period time.Duration, 
 	for {
 		select {
 		case <-ctx.Done():
-			if version > idx {
-				st.metrics.waitForIndexGap.Observe(float64(version - idx))
+			// Re-read rather than trust the last tick: the FSM can advance in the gap before the
+			// deadline, and reporting that stale value records too large a gap and fails a wait
+			// that has in fact caught up.
+			if idx = st.lastAppliedIndex.Load(); idx >= version {
+				outcome = waitOutcomeCaughtUp
+				return nil
 			}
+			if errors.Is(ctx.Err(), context.Canceled) {
+				outcome = waitOutcomeCanceled
+				return fmt.Errorf("%w: version got=%d  want=%d", ctx.Err(), idx, version)
+			}
+			st.metrics.waitForIndexGap.Observe(float64(version - idx))
 			return fmt.Errorf("%w: version got=%d  want=%d", types.ErrDeadlineExceeded, idx, version)
 		case <-ticker.C:
 			if idx = st.lastAppliedIndex.Load(); idx >= version {
