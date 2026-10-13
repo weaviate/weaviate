@@ -130,9 +130,11 @@ func (m *DecisionsOpenAIModule) DecisionLimits(cfg moduletools.ClassConfig) (mod
 	if settings.MaxDocuments < 1 || settings.MaxDocuments > config.MaxDocumentsLimit {
 		return modulecapabilities.DecisionLimits{}, fmt.Errorf("maxDocuments must be between 1 and %d, got %d", config.MaxDocumentsLimit, settings.MaxDocuments)
 	}
+	// The Decisions API judges text and inline images; a blob property
+	// holds an image.
 	return modulecapabilities.DecisionLimits{
 		MaxDocuments: settings.MaxDocuments,
-		DataTypes:    []schema.DataType{schema.DataTypeText},
+		DataTypes:    []schema.DataType{schema.DataTypeText, schema.DataTypeBlob},
 	}, nil
 }
 

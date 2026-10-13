@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
 	rerankmodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
 // getScore scores the results. A reranker sorts them by score, highest
@@ -106,7 +107,13 @@ func (p *ReRankerProvider) Score(ctx context.Context, cfg moduletools.ClassConfi
 	}
 
 	// rank results
-	result, err := p.client.Rank(ctx, query, documents, cfg)
+	var result *ent.RankResult
+	var err error
+	if ranker, ok := p.client.(PropertyRanker); ok {
+		result, err = ranker.RankProperty(ctx, query, rankProperty, documents, cfg)
+	} else {
+		result, err = p.client.Rank(ctx, query, documents, cfg)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("client rank: %w", err)
 	}

@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
@@ -98,7 +99,7 @@ func (h *decideHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if i < len(h.answerNames) {
 			name = h.answerNames[i]
 		}
-		answers[i] = h.answer(question, name, req.Input)
+		answers[i] = h.answer(question, name, documentOf(req.Input))
 	}
 	response := map[string]any{
 		"model":   req.Model,
@@ -176,6 +177,40 @@ func TestDecideRequestShape(t *testing.T) {
 			{Label: "can wait"}, {Label: "today", Description: &levelDescription}, {Label: "now"},
 		}},
 	}, requests[0].Questions)
+}
+
+// The questions about a blob property are asked about an inline image.
+func TestDecideImageProperty(t *testing.T) {
+	dataURL := "data:image/png;base64," + pngBase64
+	damaged := ent.DecisionQuestion{Name: "damaged", Property: "photo", Instructions: "is the car damaged?", Kind: ent.DecisionPredicate}
+
+	t.Run("a blob property is sent as an image", func(t *testing.T) {
+		handler := &decideHandler{t: t, scores: map[string]float64{dataURL: 0.9}}
+		c, server := decideTestClient(t, handler)
+		cfg := classConfigWithTypes(server.URL, map[string]schema.DataType{"photo": schema.DataTypeBlob})
+
+		out, err := c.Decide(context.Background(), []ent.DecisionQuestion{damaged}, []string{pngBase64, ""}, cfg)
+
+		require.NoError(t, err)
+		assert.Equal(t, 0.9, out[0][0].Probability)
+		assert.True(t, out[1][0].Refused, "an empty blob is refused, not sent")
+		requests := handler.received()
+		require.Len(t, requests, 1)
+		assert.Equal(t, []any{map[string]any{"role": "user", "content": []any{
+			map[string]any{"type": "input_image", "image_url": dataURL},
+		}}}, requests[0].Input)
+	})
+
+	t.Run("a blob that is not an image fails before a request", func(t *testing.T) {
+		handler := &decideHandler{t: t}
+		c, server := decideTestClient(t, handler)
+		cfg := classConfigWithTypes(server.URL, map[string]schema.DataType{"photo": schema.DataTypeBlob})
+
+		_, err := c.Decide(context.Background(), []ent.DecisionQuestion{damaged}, []string{textBase64}, cfg)
+
+		require.EqualError(t, err, "image: not a PNG, JPEG, GIF or WebP image")
+		assert.Empty(t, handler.received())
+	})
 }
 
 func TestDecideAnswers(t *testing.T) {

@@ -3289,6 +3289,18 @@ func TestGRPCSearchRequestRerankDecision(t *testing.T) {
 			wantErr: "rerank.decision: limit 60 exceeds maxDocuments 50 of decisions-x: lower the limit or raise maxDocuments",
 		},
 		{
+			name:    "a decision about a property of another type",
+			rerank:  &pb.Rerank{Property: "int", Decision: &pb.RerankDecision{}},
+			limits:  limitsOf(textOnly, nil),
+			wantErr: `rerank.decision: property "int" is of type "int", decisions-x judges [text]`,
+		},
+		{
+			name:    "a decision about a property the class does not have",
+			rerank:  &pb.Rerank{Property: "nope", Decision: &pb.RerankDecision{}},
+			limits:  limitsOf(textOnly, nil),
+			wantErr: `rerank.decision: class "TestClass" has no property "nope"`,
+		},
+		{
 			// Only a decision asks the decisions module for its limits.
 			name:   "a plain rerank on a class without a decisions module",
 			rerank: &pb.Rerank{Property: property},

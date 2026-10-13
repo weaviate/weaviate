@@ -196,6 +196,52 @@ func TestRankScoresInInputOrder(t *testing.T) {
 	assert.Len(t, handler.received(), len(documents))
 }
 
+// The content of a blob property goes to the API as an inline image.
+func TestRankImageProperty(t *testing.T) {
+	dataURL := "data:image/png;base64," + pngBase64
+	cfg := classConfigWithTypes("", map[string]schema.DataType{"photo": schema.DataTypeBlob, "text": schema.DataTypeText})
+
+	t.Run("a blob property is sent as an image", func(t *testing.T) {
+		handler := &openAIHandler{t: t, answers: map[string]answer{dataURL: probability(0.8)}}
+		server := httptest.NewServer(handler)
+		defer server.Close()
+		cfg := classConfigWithTypes(server.URL, map[string]schema.DataType{"photo": schema.DataTypeBlob})
+
+		res, err := newTestClient("apiKey").RankProperty(context.Background(), "the car is damaged", "photo", []string{pngBase64}, cfg)
+
+		require.NoError(t, err)
+		assert.Equal(t, 0.8, res.DocumentScores[0].Score)
+		requests := handler.received()
+		require.Len(t, requests, 1)
+		assert.Contains(t, requests[0].rawBody, `"input":[{"role":"user","content":[{"type":"input_image","image_url":"`+dataURL+`"}]}]`)
+	})
+
+	t.Run("a text property is sent as text", func(t *testing.T) {
+		handler := &openAIHandler{t: t, answers: map[string]answer{"a document": probability(0.8)}}
+		server := httptest.NewServer(handler)
+		defer server.Close()
+		cfg := classConfigWithTypes(server.URL, map[string]schema.DataType{"photo": schema.DataTypeBlob, "text": schema.DataTypeText})
+
+		_, err := newTestClient("apiKey").RankProperty(context.Background(), "q", "text", []string{"a document"}, cfg)
+
+		require.NoError(t, err)
+		assert.Contains(t, handler.received()[0].rawBody, `"input":"a document"`)
+	})
+
+	t.Run("a blob that is not an image fails before a request", func(t *testing.T) {
+		handler := &openAIHandler{t: t}
+		server := httptest.NewServer(handler)
+		defer server.Close()
+		cfg := classConfigWithTypes(server.URL, map[string]schema.DataType{"photo": schema.DataTypeBlob})
+
+		_, err := newTestClient("apiKey").RankProperty(context.Background(), "q", "photo", []string{textBase64}, cfg)
+
+		require.EqualError(t, err, "image: not a PNG, JPEG, GIF or WebP image")
+		assert.Empty(t, handler.received())
+	})
+	_ = cfg
+}
+
 func TestRankRequestShape(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -1183,7 +1229,7 @@ func (h *openAIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	document := body.Input
+	document := documentOf(body.Input)
 
 	h.mu.Lock()
 	h.requests = append(h.requests, receivedRequest{
@@ -1258,6 +1304,31 @@ func classConfig(baseURL string, settings map[string]any) moduletools.ClassConfi
 
 type fakeClassConfig struct {
 	classConfig map[string]any
+	dataTypes   map[string]schema.DataType
+}
+
+// classConfigWithTypes is classConfig with the data types of the class's
+// properties, which decide whether a document is sent as an image.
+func classConfigWithTypes(baseURL string, dataTypes map[string]schema.DataType) moduletools.ClassConfig {
+	return fakeClassConfig{classConfig: map[string]any{"baseURL": baseURL}, dataTypes: dataTypes}
+}
+
+// documentOf is the document a fake endpoint received: the text, or the
+// data URL of the image part.
+func documentOf(input any) string {
+	if text, ok := input.(string); ok {
+		return text
+	}
+	messages, _ := input.([]any)
+	for _, message := range messages {
+		content, _ := message.(map[string]any)["content"].([]any)
+		for _, part := range content {
+			if url, ok := part.(map[string]any)["image_url"].(string); ok {
+				return url
+			}
+		}
+	}
+	return ""
 }
 
 func (f fakeClassConfig) Class() map[string]any {
@@ -1281,7 +1352,7 @@ func (f fakeClassConfig) TargetVector() string {
 }
 
 func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
-	return nil
+	return f.dataTypes
 }
 
 func (f fakeClassConfig) Config() *config.Config {

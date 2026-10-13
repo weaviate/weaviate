@@ -111,6 +111,14 @@ func New(apiKey, organization string, timeout time.Duration, maxConcurrentReques
 func (c *client) Rank(ctx context.Context, query string, documents []string,
 	cfg moduletools.ClassConfig,
 ) (*ent.RankResult, error) {
+	return c.RankProperty(ctx, query, "", documents, cfg)
+}
+
+// RankProperty is Rank for the documents of a named property: the content
+// of a blob property is sent as an image.
+func (c *client) RankProperty(ctx context.Context, query, property string, documents []string,
+	cfg moduletools.ClassConfig,
+) (*ent.RankResult, error) {
 	// The settings are checked here as well because a class that never names
 	// this module in its moduleConfig is not validated on creation.
 	settings, err := config.NewClassSettings(cfg).Resolve()
@@ -131,6 +139,7 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 		endpointAuth: endpointAuth{url: openAIURL, apiKey: apiKey, organization: c.organizationFor(ctx)},
 		model:        settings.Model, query: query,
 		statement: settings.Question == config.QuestionStatement,
+		image:     isImageProperty(cfg, property),
 	}
 
 	// Documents with the same content share one judgment. firstIndex maps a
@@ -216,6 +225,8 @@ type judgeRequest struct {
 	query string
 	// statement selects the statement question instead of the relevance one.
 	statement bool
+	// image says that the documents are the content of a blob property.
+	image bool
 }
 
 // questionName is the name the request gives its question and the answer
@@ -238,7 +249,11 @@ type judgment struct {
 // judge sends one document and retries when the API is rate limiting or
 // failing.
 func (c *client) judge(ctx context.Context, request judgeRequest, document string) (judgment, error) {
-	body, err := json.Marshal(newDecisionRequest(request, document))
+	decision, err := newDecisionRequest(request, document)
+	if err != nil {
+		return judgment{}, err
+	}
+	body, err := json.Marshal(decision)
 	if err != nil {
 		return judgment{}, errors.Wrap(err, "marshal body")
 	}
@@ -468,8 +483,9 @@ func (c *client) endpoint(ctx context.Context, classBaseURL string) (endpointURL
 // decisionRequest is the body of POST /v1/decisions: the document as the
 // input and one predicate question about it.
 type decisionRequest struct {
-	Model     string             `json:"model"`
-	Input     string             `json:"input"`
+	Model string `json:"model"`
+	// Input is the document: a string, or the messages of newInput.
+	Input     any                `json:"input"`
 	Questions []decisionQuestion `json:"questions"`
 }
 
@@ -492,18 +508,22 @@ type decisionLevel struct {
 	Description *string `json:"description,omitempty"`
 }
 
-func newDecisionRequest(request judgeRequest, document string) decisionRequest {
+func newDecisionRequest(request judgeRequest, document string) (decisionRequest, error) {
 	instructions := fmt.Sprintf(relevanceInstructions, request.query)
 	if request.statement {
 		instructions = request.query
 	}
+	input, err := newInput(document, request.image)
+	if err != nil {
+		return decisionRequest{}, err
+	}
 	return decisionRequest{
 		Model: request.model,
-		Input: document,
+		Input: input,
 		Questions: []decisionQuestion{
 			{Type: predicateType, Name: request.questionName(), Instructions: instructions},
 		},
-	}
+	}, nil
 }
 
 type decisionResponse struct {
