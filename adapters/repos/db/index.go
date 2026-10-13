@@ -4293,7 +4293,7 @@ func (i *Index) recountUnloadedShardPropertyLengths(ctx context.Context, class *
 
 func (i *Index) recountUnloadedShard(ctx context.Context, class *models.Class, name string) (objects int, err error) {
 	if i.unloadedShardIsEmpty(name) {
-		return 0, nil
+		return 0, writeEmptyPropertyLengths(shardPath(i.path(), name), i.logger)
 	}
 	s, closeShard, err := i.openUnloadedShard(ctx, class, name)
 	if err != nil {
