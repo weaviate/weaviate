@@ -34,6 +34,12 @@ func NewRankerProvider(client reRankerClient) *GraphQLAdditionalRankerProvider {
 	return &GraphQLAdditionalRankerProvider{rankerrank.New(client)}
 }
 
+// NewDecisionsRankerProvider serves rerank for a decisions module, see
+// rank.NewForDecisions.
+func NewDecisionsRankerProvider(client reRankerClient, defaults rankerrank.DecisionDefaults) *GraphQLAdditionalRankerProvider {
+	return &GraphQLAdditionalRankerProvider{rankerrank.NewForDecisions(client, defaults)}
+}
+
 func (p *GraphQLAdditionalRankerProvider) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	additionalProperties := map[string]modulecapabilities.AdditionalProperty{}
 	additionalProperties[PropertyRerank] = p.getReRanker()

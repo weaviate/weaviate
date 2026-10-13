@@ -287,6 +287,38 @@ func Test_classSettings_Validate(t *testing.T) {
 	}
 }
 
+func Test_classSettings_RerankDefaults(t *testing.T) {
+	tests := []struct {
+		name               string
+		settings           map[string]any
+		wantMinProbability float64
+		wantOrder          string
+		wantErr            string
+	}{
+		{name: "defaults", settings: map[string]any{}, wantOrder: "search"},
+		{name: "from the class", settings: map[string]any{"minProbability": 0.7, "order": "probability"}, wantMinProbability: 0.7, wantOrder: "probability"},
+		{name: "a whole number", settings: map[string]any{"minProbability": 1}, wantMinProbability: 1, wantOrder: "search"},
+		{name: "from JSON", settings: map[string]any{"minProbability": json.Number("0.25")}, wantMinProbability: 0.25, wantOrder: "search"},
+		{name: "minProbability above 1", settings: map[string]any{"minProbability": 1.5}, wantErr: "minProbability must be a number between 0 and 1, got 1.5"},
+		{name: "minProbability of the wrong type", settings: map[string]any{"minProbability": "high"}, wantErr: "minProbability must be a number between 0 and 1, got string"},
+		{name: "unknown order", settings: map[string]any{"order": "newest"}, wantErr: `order must be "search" or "probability", got "newest"`},
+		{name: "order of the wrong type", settings: map[string]any{"order": 1}, wantErr: "order must be a string, got a number"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			settings, err := NewClassSettings(fakeClassConfig{classConfig: tt.settings}).Resolve()
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantMinProbability, settings.MinProbability)
+			assert.Equal(t, tt.wantOrder, settings.Order)
+		})
+	}
+}
+
 func Test_classSettings_ValidateBaseURL(t *testing.T) {
 	t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
 	tests := []struct {

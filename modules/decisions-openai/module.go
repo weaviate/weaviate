@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/modules/decisions-openai/clients"
 	"github.com/weaviate/weaviate/modules/decisions-openai/config"
 	rerankeradditional "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
@@ -77,9 +78,19 @@ func (m *DecisionsOpenAIModule) initAdditional(ctx context.Context, timeout time
 		return err
 	}
 	m.reranker = clients.New(apiKey, organization, timeout, maxConcurrentRequests, logger)
-	m.additionalProperties = rerankeradditional.NewRankerProvider(m.reranker).AdditionalProperties()
+	m.additionalProperties = rerankeradditional.NewDecisionsRankerProvider(m.reranker, decisionDefaults).AdditionalProperties()
 	maps.Copy(m.additionalProperties, rerankeradditional.NewDecideProvider(m.reranker).AdditionalProperties())
 	return nil
+}
+
+// decisionDefaults are the class settings a rerank uses where the request
+// leaves a field unset.
+func decisionDefaults(cfg moduletools.ClassConfig) (rank.DecisionSettings, error) {
+	settings, err := config.NewClassSettings(cfg).Resolve()
+	if err != nil {
+		return rank.DecisionSettings{}, err
+	}
+	return rank.DecisionSettings{MinProbability: settings.MinProbability, Order: rank.Order(settings.Order)}, nil
 }
 
 const maxConcurrentRequestsEnv = "DECISIONS_OPENAI_MAX_CONCURRENT_REQUESTS"

@@ -390,10 +390,26 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 
 	if req.Rerank != nil {
+		rerank, err := extractRerank(req)
+		if err != nil {
+			return dto.GetParams{}, err
+		}
+		// A rerank by a decision needs the class's decisions module and a
+		// page within its maxDocuments, checked before the search as for
+		// decide.
+		if rerank.Decision != nil && p.decideLimits != nil {
+			limits, err := p.decideLimits(class)
+			if err != nil {
+				return dto.GetParams{}, fmt.Errorf("rerank.decision: %w", err)
+			}
+			if err := limits.BoundLimit(out.Pagination.Limit); err != nil {
+				return dto.GetParams{}, fmt.Errorf("rerank.decision: %w", err)
+			}
+		}
 		if out.AdditionalProperties.ModuleParams == nil {
 			out.AdditionalProperties.ModuleParams = make(map[string]interface{})
 		}
-		out.AdditionalProperties.ModuleParams["rerank"] = extractRerank(req)
+		out.AdditionalProperties.ModuleParams["rerank"] = rerank
 	}
 
 	if req.Decide != nil {
@@ -727,14 +743,33 @@ func extractDecide(decisions *pb.Decisions) (*decide.Params, error) {
 	return params, nil
 }
 
-func extractRerank(req *pb.SearchRequest) *rank.Params {
+// extractRerank converts the rerank argument. The decision sub-message is
+// checked here, so an invalid threshold or order fails before the search.
+func extractRerank(req *pb.SearchRequest) (*rank.Params, error) {
 	rerank := rank.Params{
 		Property: &req.Rerank.Property,
 	}
 	if req.Rerank.Query != nil {
 		rerank.Query = req.Rerank.Query
 	}
-	return &rerank
+	if decision := req.Rerank.Decision; decision != nil {
+		rerank.Decision = &rank.Decision{MinProbability: decision.MinProbability}
+		switch decision.GetOrder() {
+		case pb.RerankOrder_RERANK_ORDER_UNSPECIFIED:
+		case pb.RerankOrder_RERANK_ORDER_SEARCH:
+			order := rank.OrderSearch
+			rerank.Decision.Order = &order
+		case pb.RerankOrder_RERANK_ORDER_PROBABILITY:
+			order := rank.OrderProbability
+			rerank.Decision.Order = &order
+		default:
+			return nil, fmt.Errorf("rerank.decision.order %v is not known", decision.GetOrder())
+		}
+		if err := rerank.Decision.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	return &rerank, nil
 }
 
 func (p *Parser) extractBoost(boost *pb.Boost, className, tenant string, namespacesEnabled bool) (*filters.Boost, error) {

@@ -14,6 +14,8 @@ package rank
 type Params struct {
 	Property *string
 	Query    *string
+	// Decision is set when a decision model reranks, see Decision.
+	Decision *Decision
 }
 
 func (n Params) GetQuery() string {

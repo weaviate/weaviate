@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearVideo"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -3210,6 +3211,104 @@ func TestGRPCSearchRequestDecideLimits(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
+		})
+	}
+}
+
+func TestGRPCSearchRequestRerankDecision(t *testing.T) {
+	property := "name"
+	textOnly := decide.Limits{Module: "decisions-x", DecisionLimits: modulecapabilities.DecisionLimits{
+		MaxDocuments: 50, DataTypes: []schema.DataType{schema.DataTypeText},
+	}}
+	limitsOf := func(limits decide.Limits, err error) decideLimitsFunc {
+		return func(*models.Class) (decide.Limits, error) { return limits, err }
+	}
+	tests := []struct {
+		name    string
+		rerank  *pb.Rerank
+		limit   uint32
+		limits  decideLimitsFunc
+		want    *rank.Params
+		wantErr string
+	}{
+		{
+			name:   "no decision",
+			rerank: &pb.Rerank{Property: property},
+			want:   &rank.Params{Property: &property},
+		},
+		{
+			name:   "empty decision",
+			rerank: &pb.Rerank{Property: property, Decision: &pb.RerankDecision{}},
+			want:   &rank.Params{Property: &property, Decision: &rank.Decision{}},
+		},
+		{
+			name: "threshold and order",
+			rerank: &pb.Rerank{Property: property, Decision: &pb.RerankDecision{
+				MinProbability: ptr(0.6), Order: pb.RerankOrder_RERANK_ORDER_PROBABILITY.Enum(),
+			}},
+			want: &rank.Params{Property: &property, Decision: &rank.Decision{MinProbability: ptr(0.6), Order: ptr(rank.OrderProbability)}},
+		},
+		{
+			name:   "search order",
+			rerank: &pb.Rerank{Property: property, Decision: &pb.RerankDecision{Order: pb.RerankOrder_RERANK_ORDER_SEARCH.Enum()}},
+			want:   &rank.Params{Property: &property, Decision: &rank.Decision{Order: ptr(rank.OrderSearch)}},
+		},
+		{
+			name:   "unspecified order is left to the class",
+			rerank: &pb.Rerank{Property: property, Decision: &pb.RerankDecision{Order: pb.RerankOrder_RERANK_ORDER_UNSPECIFIED.Enum()}},
+			want:   &rank.Params{Property: &property, Decision: &rank.Decision{}},
+		},
+		{
+			name:    "threshold out of range",
+			rerank:  &pb.Rerank{Property: property, Decision: &pb.RerankDecision{MinProbability: ptr(-0.1)}},
+			wantErr: "rerank.decision.min_probability must be between 0 and 1, got -0.1",
+		},
+		{
+			name:    "unknown order",
+			rerank:  &pb.Rerank{Property: property, Decision: &pb.RerankDecision{Order: pb.RerankOrder(7).Enum()}},
+			wantErr: "rerank.decision.order 7 is not known",
+		},
+		{
+			name:   "a decision within the module's maxDocuments",
+			rerank: &pb.Rerank{Property: property, Decision: &pb.RerankDecision{}},
+			limit:  50,
+			limits: limitsOf(textOnly, nil),
+			want:   &rank.Params{Property: &property, Decision: &rank.Decision{}},
+		},
+		{
+			name:    "a decision on a class without a decisions module",
+			rerank:  &pb.Rerank{Property: property, Decision: &pb.RerankDecision{}},
+			limits:  limitsOf(decide.Limits{}, errors.New(`class "TestClass" has no decisions module`)),
+			wantErr: `rerank.decision: class "TestClass" has no decisions module`,
+		},
+		{
+			name:    "a decision with a limit above maxDocuments",
+			rerank:  &pb.Rerank{Property: property, Decision: &pb.RerankDecision{}},
+			limit:   60,
+			limits:  limitsOf(textOnly, nil),
+			wantErr: "rerank.decision: limit 60 exceeds maxDocuments 50 of decisions-x: lower the limit or raise maxDocuments",
+		},
+		{
+			// Only a decision asks the decisions module for its limits.
+			name:   "a plain rerank on a class without a decisions module",
+			rerank: &pb.Rerank{Property: property},
+			limits: limitsOf(decide.Limits{}, errors.New(`class "TestClass" has no decisions module`)),
+			want:   &rank.Params{Property: &property},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parser := NewParser(false, getClass, nil, false, tt.limits)
+
+			out, err := parser.Search(&pb.SearchRequest{Collection: classname, Rerank: tt.rerank, Limit: tt.limit},
+				&config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, out.AdditionalProperties.ModuleParams["rerank"])
 		})
 	}
 }

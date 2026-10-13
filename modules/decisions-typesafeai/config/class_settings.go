@@ -12,15 +12,11 @@
 package config
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"slices"
-	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
@@ -41,13 +37,9 @@ const (
 	OrderProbability = "probability"
 	DefaultOrder     = OrderSearch
 
-	// A rubric has between MinScoreLevels and MaxScoreLevels levels, which is
+	// MaxScoreLevels is how many levels a score question may have, which is
 	// what the TypeSafeAI API accepts.
-	MinScoreLevels      = 2
-	MaxScoreLevels      = 10
-	MaxScoreLevelLength = 200
-	DefaultMinScore     = 0.0
-	ScoreLevelsHeader   = "X-Typesafeai-Score-Levels"
+	MaxScoreLevels = 10
 	// MaxDocumentsLimit bounds the per-query API spend.
 	MaxDocumentsLimit = 1000
 )
@@ -75,22 +67,6 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	}
 	if order := ic.Order(); !ValidOrder(order) {
 		return fmt.Errorf("order must be %q or %q, got %q", OrderSearch, OrderProbability, order)
-	}
-	levels, err := ic.ScoreLevels()
-	if err != nil {
-		return err
-	}
-	highestScore := MaxScoreLevels - 1
-	if len(levels) > 0 {
-		if err := validateScoreLevels("scoreLevels", levels); err != nil {
-			return err
-		}
-		highestScore = len(levels) - 1
-	}
-	// Against the class's own rubric when it has one: a minScore that no
-	// score can reach would fail every query.
-	if minScore := ic.MinScore(); !(minScore >= 0 && minScore <= float64(highestScore)) {
-		return fmt.Errorf("minScore must be between 0 and %d, got %v", highestScore, minScore)
 	}
 	if minProbability := ic.MinProbability(); !ValidProbability(minProbability) {
 		return fmt.Errorf("minProbability must be between 0 and 1, got %v", minProbability)
@@ -142,88 +118,6 @@ func (ic *classSettings) MinProbability() float64 {
 	// A value of the wrong type maps to -1, which Validate rejects.
 	wrongValue := -1.0
 	return *ic.propertyValuesHelper.GetPropertyAsFloat64WithNotExists(ic.cfg, "minProbability", &wrongValue, &defaultValue)
-}
-
-// ScoreLevels is the rubric of a score question, lowest level first. Without
-// levels the module asks a yes/no question. A setting that is not a list of
-// strings is an error: ignoring it would silently change the question type.
-func (ic *classSettings) ScoreLevels() ([]string, error) {
-	if ic.cfg == nil {
-		return nil, nil
-	}
-	settings := ic.cfg.ClassByModuleName(moduleName)
-	if len(settings) == 0 {
-		settings = ic.cfg.Class()
-	}
-	switch value := settings["scoreLevels"].(type) {
-	case nil:
-		return nil, nil
-	case []string:
-		return slices.Clone(value), nil
-	case []any:
-		levels := make([]string, len(value))
-		for i, level := range value {
-			text, ok := level.(string)
-			if !ok {
-				return nil, fmt.Errorf("scoreLevels must be a list of level names, got %T at position %d", level, i+1)
-			}
-			levels[i] = text
-		}
-		return levels, nil
-	default:
-		return nil, fmt.Errorf("scoreLevels must be a list of level names, got %T", value)
-	}
-}
-
-// MinScore is the score below which a result is dropped when the module asks
-// a score question. A score is a position on the rubric, 0 for the first
-// level. 0 keeps every result.
-func (ic *classSettings) MinScore() float64 {
-	defaultValue := DefaultMinScore
-	// A value of the wrong type maps to -1, which Validate rejects.
-	wrongValue := -1.0
-	return *ic.propertyValuesHelper.GetPropertyAsFloat64WithNotExists(ic.cfg, "minScore", &wrongValue, &defaultValue)
-}
-
-// ScoreLevels returns the rubric from the request header, one level per "|",
-// and falls back to the class setting. No levels means a yes/no question.
-func ScoreLevels(ctx context.Context, cfg moduletools.ClassConfig) ([]string, error) {
-	if header := modulecomponents.GetValueFromContext(ctx, ScoreLevelsHeader); header != "" {
-		levels := strings.Split(header, "|")
-		return levels, validateScoreLevels(ScoreLevelsHeader, levels)
-	}
-	levels, err := NewClassSettings(cfg).ScoreLevels()
-	if err != nil || len(levels) == 0 {
-		return nil, err
-	}
-	return levels, validateScoreLevels("scoreLevels", levels)
-}
-
-// validateScoreLevels trims the levels in place and rejects an empty, too
-// long or repeated one: a repeated name would make the returned position
-// ambiguous.
-func validateScoreLevels(source string, levels []string) error {
-	if len(levels) < MinScoreLevels || len(levels) > MaxScoreLevels {
-		return fmt.Errorf("%s must list between %d and %d levels, got %d",
-			source, MinScoreLevels, MaxScoreLevels, len(levels))
-	}
-	seen := make(map[string]int, len(levels))
-	for i, level := range levels {
-		level = strings.TrimSpace(level)
-		levels[i] = level
-		if level == "" {
-			return fmt.Errorf("%s has an empty level at position %d", source, i+1)
-		}
-		if len(level) > MaxScoreLevelLength {
-			return fmt.Errorf("%s has a level of %d bytes at position %d, the maximum is %d",
-				source, len(level), i+1, MaxScoreLevelLength)
-		}
-		if first, ok := seen[level]; ok {
-			return fmt.Errorf("%s repeats the level %q at positions %d and %d", source, level, first, i+1)
-		}
-		seen[level] = i + 1
-	}
-	return nil
 }
 
 func (ic *classSettings) getStringProperty(name string, defaultValue string) string {

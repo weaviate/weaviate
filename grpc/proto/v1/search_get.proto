@@ -115,6 +115,29 @@ message RefPropertiesRequest {
 message Rerank {
   string property = 1;
   optional string query = 2;
+  // decision makes the collection's decisions module rerank, with the query
+  // as a predicate about every candidate. A class without a decisions
+  // module rejects it.
+  optional RerankDecision decision = 3;
+}
+
+// RerankOrder is the order of the results a decision model reranks.
+enum RerankOrder {
+  // RERANK_ORDER_UNSPECIFIED takes the class setting, search by default.
+  RERANK_ORDER_UNSPECIFIED = 0;
+  // RERANK_ORDER_SEARCH keeps the order of the search; the probability only
+  // decides which results are dropped.
+  RERANK_ORDER_SEARCH = 1;
+  // RERANK_ORDER_PROBABILITY sorts by the probability, highest first.
+  RERANK_ORDER_PROBABILITY = 2;
+}
+
+// RerankDecision are the options of a rerank by a decision model. A field
+// left unset takes the class setting of the module.
+message RerankDecision {
+  // min_probability drops the candidates whose probability is below it.
+  optional double min_probability = 1;
+  optional RerankOrder order = 2;
 }
 
 message SearchReply {

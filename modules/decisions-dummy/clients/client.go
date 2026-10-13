@@ -11,7 +11,8 @@
 
 // Package clients answers rerank and decide questions from the document
 // text alone, so that a test can predict every answer:
-//   - Rank scores a document with its length.
+//   - Rank answers the query as a predicate: the share of the words of the
+//     query that appear in the document.
 //   - A predicate's probability is the share of the words of its
 //     instructions that appear in the document.
 //   - A choice picks the first option whose value appears in the document,
@@ -24,9 +25,11 @@ package clients
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
@@ -39,14 +42,7 @@ const DefaultMaxDocuments = 100
 // MaxDocuments reads the maxDocuments class setting; a missing or wrong
 // value is the default.
 func MaxDocuments(cfg moduletools.ClassConfig) int {
-	if cfg == nil {
-		return DefaultMaxDocuments
-	}
-	settings := cfg.ClassByModuleName("decisions-dummy")
-	if settings == nil {
-		settings = cfg.Class()
-	}
-	switch value := settings["maxDocuments"].(type) {
+	switch value := classSettings(cfg)["maxDocuments"].(type) {
 	case int:
 		if value > 0 {
 			return value
@@ -72,11 +68,63 @@ func New() *Client {
 func (c *Client) Rank(ctx context.Context, query string, documents []string,
 	cfg moduletools.ClassConfig,
 ) (*ent.RankResult, error) {
+	if query == "" {
+		return nil, errors.New("no query provided")
+	}
 	scores := make([]ent.DocumentScore, len(documents))
 	for i, document := range documents {
-		scores[i] = ent.DocumentScore{Document: document, Score: float64(len(document))}
+		scores[i] = ent.DocumentScore{Document: document, Score: wordShare(query, document)}
 	}
 	return &ent.RankResult{Query: query, DocumentScores: scores}, nil
+}
+
+// wordShare is the share of the words of instructions that appear in the
+// document, ignoring case.
+func wordShare(instructions, document string) float64 {
+	words := strings.Fields(strings.ToLower(instructions))
+	if len(words) == 0 {
+		return 0
+	}
+	text := strings.ToLower(document)
+	found := 0
+	for _, word := range words {
+		if strings.Contains(text, word) {
+			found++
+		}
+	}
+	return float64(found) / float64(len(words))
+}
+
+// DecisionDefaults reads the minProbability and order class settings; a
+// missing or wrong value is the default.
+func DecisionDefaults(cfg moduletools.ClassConfig) (rank.DecisionSettings, error) {
+	out := rank.DecisionSettings{Order: rank.OrderSearch}
+	settings := classSettings(cfg)
+	switch value := settings["minProbability"].(type) {
+	case float64:
+		out.MinProbability = value
+	case int:
+		out.MinProbability = float64(value)
+	case json.Number:
+		if f, err := value.Float64(); err == nil {
+			out.MinProbability = f
+		}
+	}
+	if order, ok := settings["order"].(string); ok && rank.ValidOrder(rank.Order(order)) {
+		out.Order = rank.Order(order)
+	}
+	return out, nil
+}
+
+func classSettings(cfg moduletools.ClassConfig) map[string]any {
+	if cfg == nil {
+		return nil
+	}
+	settings := cfg.ClassByModuleName("decisions-dummy")
+	if settings == nil {
+		settings = cfg.Class()
+	}
+	return settings
 }
 
 func (c *Client) Decide(ctx context.Context, questions []ent.DecisionQuestion, documents []string,
@@ -101,16 +149,7 @@ func answer(question ent.DecisionQuestion, document string) ent.DecisionAnswer {
 	text := strings.ToLower(document)
 	switch question.Kind {
 	case ent.DecisionPredicate:
-		words := strings.Fields(strings.ToLower(question.Instructions))
-		found := 0
-		for _, word := range words {
-			if strings.Contains(text, word) {
-				found++
-			}
-		}
-		if len(words) > 0 {
-			out.Probability = float64(found) / float64(len(words))
-		}
+		out.Probability = wordShare(question.Instructions, document)
 	case ent.DecisionChoice:
 		chosen := 0
 		for i, option := range question.Options {

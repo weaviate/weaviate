@@ -31,10 +31,19 @@ type ReRankerClient interface {
 
 type ReRankerProvider struct {
 	client ReRankerClient
+	// decisionDefaults is set for a decisions module, see DecisionDefaults.
+	decisionDefaults DecisionDefaults
 }
 
 func New(reranker ReRankerClient) *ReRankerProvider {
-	return &ReRankerProvider{reranker}
+	return &ReRankerProvider{client: reranker}
+}
+
+// NewForDecisions is the provider of a decisions module: the score is a
+// probability, the results below the threshold are dropped and the order is
+// the search's or the probability's, from the request or the class settings.
+func NewForDecisions(reranker ReRankerClient, defaults DecisionDefaults) *ReRankerProvider {
+	return &ReRankerProvider{client: reranker, decisionDefaults: defaults}
 }
 
 func (p *ReRankerProvider) AdditionalPropertyDefaultValue() interface{} {
