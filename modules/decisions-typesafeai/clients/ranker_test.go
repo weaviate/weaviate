@@ -316,6 +316,11 @@ func TestRankMalformedResponses(t *testing.T) {
 			wantErr: "parse response",
 		},
 		{
+			name:    "body at the size limit",
+			body:    `{"answers":{"q":{"type":"noul","probability":0.5}}}` + strings.Repeat(" ", maxResponseBodyBytes),
+			wantErr: "response body reaches the limit of 1048576 bytes",
+		},
+		{
 			name:    "answer missing",
 			body:    `{"model":"jev-latest","answers":{},"usage":{"input_tokens":1,"output_tokens":1}}`,
 			wantErr: "no answer in response",

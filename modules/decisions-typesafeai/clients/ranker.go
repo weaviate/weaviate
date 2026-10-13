@@ -52,6 +52,10 @@ const (
 	// maxErrorBodyBytes bounds how much of an error response ends up in the
 	// error message.
 	maxErrorBodyBytes = 512
+	// maxResponseBodyBytes bounds how much of a 200 response is read. A
+	// response holds one short answer per document, so a body this large is
+	// not from the API.
+	maxResponseBodyBytes = 1 << 20
 
 	// MaxBatchDocuments and MaxBatchCharacters bound one request to the
 	// API, whichever is reached first. The API judges one state per request
@@ -329,9 +333,12 @@ func (c *client) send(ctx context.Context, request judgeRequest, body []byte, do
 				"connection to TypeSafeAI API failed with status %d: %s", res.StatusCode, errorBody)
 	}
 
-	bodyBytes, err := io.ReadAll(res.Body)
+	bodyBytes, err := io.ReadAll(io.LimitReader(res.Body, maxResponseBodyBytes))
 	if err != nil {
 		return sendResult{}, errors.Wrap(err, "read response body")
+	}
+	if len(bodyBytes) >= maxResponseBodyBytes {
+		return sendResult{}, errors.Errorf("response body reaches the limit of %d bytes", maxResponseBodyBytes)
 	}
 	var response typesafeaiResponse
 	if err := json.Unmarshal(bodyBytes, &response); err != nil {

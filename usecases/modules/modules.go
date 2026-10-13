@@ -653,8 +653,7 @@ func (p *Provider) ExtractAdditionalField(className, name string, params []*ast.
 	}
 	if name != modulecomponents.AdditionalPropertyGenerate {
 		// The same module that serves the property on the search path.
-		properties := p.classAdditionalProperties(class)
-		if additionalProperty, ok := properties[name]; ok {
+		if additionalProperty, ok := p.classAdditionalProperties(class)[name]; ok {
 			return additionalProperty.GraphQLExtractFunction(params, class)
 		}
 		return nil
