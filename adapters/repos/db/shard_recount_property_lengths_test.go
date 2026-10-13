@@ -261,6 +261,48 @@ func TestRecountPropertyLengthsBeforeLoad_FailureRetriedOnLoad(t *testing.T) {
 	assert.Equal(t, []int{1, 0, 2}, []int{recounted, failed, int(objects)})
 }
 
+func TestRecountPropertyLengthsBeforeLoad_UnreadableTracker(t *testing.T) {
+	tests := []struct {
+		name      string
+		objects   []string
+		wantSum   int
+		wantCount int
+	}{
+		{name: "objects", objects: recountTestNames, wantSum: 5, wantCount: 2},
+		{name: "no objects"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo, _ := openRecountTestDB(t, t.TempDir(), singleShardState(), false, false)
+			defer repo.Shutdown(context.Background())
+			for _, name := range tt.objects {
+				require.NoError(t, repo.PutObject(testCtx(), &models.Object{
+					Class:      recountTestClass,
+					ID:         strfmt.UUID(uuid.NewString()),
+					Properties: map[string]any{"name": name},
+				}, []float32{1, 2, 3}, nil, nil, nil, 0))
+			}
+			shard := recountTestShard(t, repo)
+			idx, name, class := shard.index, shard.name, shard.class
+			trackerPath := shard.GetPropertyLengthTracker().FileName()
+			require.NoError(t, shard.Shutdown(testCtx()))
+			idx.shards.LoadAndDelete(name)
+			require.NoError(t, os.WriteFile(trackerPath, nil, 0o644))
+
+			recount := &startupRebuild{enabled: true}
+			idx.Config.PropertyLengthsRecount = recount
+			idx.recountPropertyLengthsOfShards(testCtx(), class, []string{name})
+			sum, count := diskTally(t, trackerPath)
+			require.Equal(t, []int{tt.wantSum, tt.wantCount}, []int{sum, count})
+
+			loaded, err := idx.initShard(testCtx(), name, class, nil, true, true)
+			require.NoError(t, err)
+			defer loaded.Shutdown(testCtx())
+			requireTally(t, loaded.(*Shard), tt.wantSum, tt.wantCount, "")
+		})
+	}
+}
+
 // A corrupt segment makes the cursor panic, which must not fail the load.
 func TestRecountPropertyLengthsOnLoad_CorruptObjectsSegment(t *testing.T) {
 	ctx := testCtx()

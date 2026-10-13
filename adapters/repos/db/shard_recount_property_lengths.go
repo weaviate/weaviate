@@ -122,3 +122,23 @@ func (r *propertyLengthsRecounter) replaceTrackerFile() error {
 	}
 	return nil
 }
+
+// writeEmptyPropertyLengths replaces the tracker file of a shard without objects,
+// which may not be readable.
+func writeEmptyPropertyLengths(shardPath string, logger logrus.FieldLogger) error {
+	recountPath := path.Join(shardPath, propLengthsRecountFile)
+	if err := os.Remove(recountPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove leftover recount file: %w", err)
+	}
+	tracker, err := inverted.NewJsonShardMetaData(recountPath, logger)
+	if err != nil {
+		return fmt.Errorf("create recount tracker: %w", err)
+	}
+	if err := tracker.Close(); err != nil {
+		return fmt.Errorf("close recount tracker: %w", err)
+	}
+	if err := os.Rename(recountPath, path.Join(shardPath, propLengthsFile)); err != nil {
+		return fmt.Errorf("replace tracker file: %w", err)
+	}
+	return nil
+}
