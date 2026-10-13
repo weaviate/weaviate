@@ -25,6 +25,9 @@ var (
 	googleAPIHostPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.googleapis\.com$`)
 	// A single DNS label, e.g. us-central1 or global.
 	googleLocationPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
+	// A project id (my-project), a project number (123456789012) or a
+	// domain-scoped project id (example.com:my-project).
+	googleProjectIDPattern = regexp.MustCompile(`^([a-z0-9]([a-z0-9.-]*[a-z0-9])?:)?[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 )
 
 // ValidateGoogleApiEndpoint rejects an apiEndpoint outside Google's API domain.
@@ -55,6 +58,32 @@ func ValidateGoogleLocation(property, location string) error {
 	}
 	if !googleLocationPattern.MatchString(strings.ToLower(location)) {
 		return fmt.Errorf("%s must be a Google region name, got %q", property, location)
+	}
+	return nil
+}
+
+// ValidateGoogleProjectID rejects a projectId that is not a Google Cloud project
+// id or number. The Google modules put it into the request path, so a value
+// carrying a "/", "?" or ".." would change which API the request reaches. An
+// empty value is left to the callers, which decide whether it is required.
+func ValidateGoogleProjectID(projectID string) error {
+	if projectID == "" {
+		return nil
+	}
+	if !googleProjectIDPattern.MatchString(strings.ToLower(projectID)) {
+		return fmt.Errorf("projectId must be a Google Cloud project id, got %q", projectID)
+	}
+	return nil
+}
+
+// ValidateGoogleModel rejects a model or endpoint id that carries a "/", "?" or
+// "#", or is a "." or ".." path segment. The Google modules put it into the
+// request path, so such a value would move the request to a different API path
+// or add a query string. A dot segment survives the path escaping the modules
+// apply, which is why it is rejected here as well.
+func ValidateGoogleModel(model string) error {
+	if model == "." || model == ".." || strings.ContainsAny(model, "/?#") {
+		return fmt.Errorf("model must be a Google model name, got %q", model)
 	}
 	return nil
 }

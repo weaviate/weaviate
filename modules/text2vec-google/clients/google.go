@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -62,10 +63,10 @@ func buildURL(useGenerativeAI bool, apiEndpoint, projectID, modelID, location st
 			// legacy PaLM API
 			return "https://generativelanguage.googleapis.com/v1beta3/models/embedding-gecko-001:batchEmbedText"
 		}
-		return fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:batchEmbedContents", modelID)
+		return fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:batchEmbedContents", url.PathEscape(modelID))
 	}
 	urlTemplate := "https://%s/v1/projects/%s/locations/%s/publishers/google/models/%s:predict"
-	return fmt.Sprintf(urlTemplate, apiEndpoint, projectID, location, modelID)
+	return fmt.Sprintf(urlTemplate, apiEndpoint, url.PathEscape(projectID), location, url.PathEscape(modelID))
 }
 
 type settings struct {
@@ -157,6 +158,12 @@ func (v *google) vectorize(ctx context.Context, input []string, taskType taskTyp
 		return nil, err
 	}
 	if err := modulecomponents.ValidateGoogleLocation("location", config.Location); err != nil {
+		return nil, err
+	}
+	if err := modulecomponents.ValidateGoogleProjectID(config.ProjectID); err != nil {
+		return nil, err
+	}
+	if err := modulecomponents.ValidateGoogleModel(config.Model); err != nil {
 		return nil, err
 	}
 

@@ -82,3 +82,68 @@ func TestValidateGoogleLocation(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateGoogleProjectID(t *testing.T) {
+	tests := []struct {
+		name      string
+		projectID string
+		wantErr   bool
+	}{
+		{name: "empty is left to the caller", projectID: ""},
+		{name: "project id", projectID: "my-project-123"},
+		{name: "project number", projectID: "123456789012"},
+		{name: "domain-scoped project id", projectID: "example.com:my-project"},
+		{name: "upper case", projectID: "My-Project"},
+		{name: "query injection", projectID: "a?b=c", wantErr: true},
+		{name: "fragment injection", projectID: "a#b", wantErr: true},
+		{name: "path injection", projectID: "a/../../other", wantErr: true},
+		{name: "dot segment", projectID: "..", wantErr: true},
+		{name: "escaped slash", projectID: "a%2Fb", wantErr: true},
+		{name: "whitespace", projectID: "my project", wantErr: true},
+		{name: "leading hyphen", projectID: "-my-project", wantErr: true},
+		{name: "trailing hyphen", projectID: "my-project-", wantErr: true},
+		{name: "empty domain", projectID: ":my-project", wantErr: true},
+		{name: "empty project after domain", projectID: "example.com:", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateGoogleProjectID(tt.projectID)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "projectId must be a Google Cloud project id")
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestValidateGoogleModel(t *testing.T) {
+	tests := []struct {
+		name    string
+		model   string
+		wantErr bool
+	}{
+		{name: "empty means module default", model: ""},
+		{name: "model name", model: "gemini-2.5-flash"},
+		{name: "versioned model name", model: "multimodalembedding@001"},
+		{name: "numeric endpoint id", model: "1234567890"},
+		{name: "current directory segment", model: ".", wantErr: true},
+		{name: "parent directory segment", model: "..", wantErr: true},
+		{name: "query injection", model: "gemini-x?a=b", wantErr: true},
+		{name: "fragment injection", model: "gemini-x#a", wantErr: true},
+		{name: "path injection", model: "123/../../y", wantErr: true},
+		{name: "dots inside a name", model: "gemini-2.5..flash"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateGoogleModel(tt.model)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "model must be a Google model name")
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}

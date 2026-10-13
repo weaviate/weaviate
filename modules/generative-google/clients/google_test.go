@@ -35,7 +35,7 @@ func nullLogger() logrus.FieldLogger {
 	return l
 }
 
-func TestGenerateRejectsForeignEndpoint(t *testing.T) {
+func TestGenerateRejectsUnsafeURLSettings(t *testing.T) {
 	tests := []struct {
 		name   string
 		params googleparams.Params
@@ -52,6 +52,34 @@ func TestGenerateRejectsForeignEndpoint(t *testing.T) {
 			name:   "location carrying a host",
 			params: googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com", Location: "attacker.example.com/"},
 		},
+		{
+			name:   "projectId carrying a query",
+			params: googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "a?b=c"},
+		},
+		{
+			name:   "projectId carrying path segments",
+			params: googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "a/../../other"},
+		},
+		{
+			name:   "Vertex AI model that is a dot segment",
+			params: googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "project", Model: ".."},
+		},
+		{
+			name:   "model carrying a query",
+			params: googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "project", Model: "gemini-x?a=b"},
+		},
+		{
+			name:   "endpointId carrying path segments",
+			params: googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "project", EndpointID: "123/../../y"},
+		},
+		{
+			name:   "endpointId that is a dot segment",
+			params: googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "project", EndpointID: ".."},
+		},
+		{
+			name:   "AI Studio model that is a dot segment",
+			params: googleparams.Params{ApiEndpoint: "generativelanguage.googleapis.com", Model: ".."},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -60,7 +88,7 @@ func TestGenerateRejectsForeignEndpoint(t *testing.T) {
 				httpClient:   &http.Client{},
 				googleApiKey: apikey.NewGoogleApiKey(),
 				buildUrlFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID, region, location string) string {
-					t.Fatal("must not build a request URL for a rejected endpoint")
+					t.Fatal("must not build a request URL for rejected settings")
 					return ""
 				},
 				logger: nullLogger(),
@@ -262,4 +290,41 @@ func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func ptString(in string) *string {
 	return &in
+}
+
+func TestBuildURLEscapesPathSegments(t *testing.T) {
+	tests := []struct {
+		name            string
+		useGenerativeAI bool
+		apiEndpoint     string
+		projectID       string
+		modelID         string
+		want            string
+	}{
+		{
+			name:            "AI Studio gemini model",
+			useGenerativeAI: true,
+			modelID:         "gemini/../x?y#z",
+			want:            "https://generativelanguage.googleapis.com/v1beta/models/gemini%2F..%2Fx%3Fy%23z:generateContent",
+		},
+		{
+			name:      "Vertex AI gemini model",
+			projectID: "a/../../other?b=c",
+			modelID:   "gemini/../x?y#z",
+			want:      "https://us-central1-aiplatform.googleapis.com/v1/projects/a%2F..%2F..%2Fother%3Fb=c/locations/us-central1/publishers/google/models/gemini%2F..%2Fx%3Fy%23z:generateContent",
+		},
+		{
+			name:        "Vertex AI predict model",
+			apiEndpoint: "us-central1-aiplatform.googleapis.com",
+			projectID:   "a/../../other?b=c",
+			modelID:     "m/../x?y#z",
+			want:        "https://us-central1-aiplatform.googleapis.com/v1/projects/a%2F..%2F..%2Fother%3Fb=c/locations/us-central1/publishers/google/models/m%2F..%2Fx%3Fy%23z:predict",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildURL(tt.useGenerativeAI, tt.apiEndpoint, tt.projectID, tt.modelID, "us-central1", "us-central1")
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }
