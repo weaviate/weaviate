@@ -696,6 +696,28 @@ func TestShardedLockCache_DropDuringMiss(t *testing.T) {
 	assert.EqualValues(t, 0, c.CountVectors())
 }
 
+// Shutdown and an in-flight compression can both drop the cache. The second
+// Drop must return rather than block on the exited eviction watcher.
+func TestShardedLockCache_DropTwice(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	c := NewShardedFloat32LockCache(nil, nil, 1e12, 1, logger, false, time.Hour, nil)
+	c.Preload(0, []float32{1})
+	c.Drop()
+
+	done := make(chan struct{})
+	go func() {
+		c.Drop()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("second Drop blocked")
+	}
+	assert.Zero(t, c.Len())
+	assert.Zero(t, c.CountVectors())
+}
+
 // A dropped cache looks like a fresh one. Reads after Drop must still serve
 // the vector, but nothing may bring the released slice back.
 func TestShardedLockCache_OpsAfterDrop(t *testing.T) {

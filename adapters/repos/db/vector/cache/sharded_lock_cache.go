@@ -495,7 +495,7 @@ func (s *shardedLockCache[T]) CountVectors() int64 {
 // still costs a slice header per id. Later reads pass through to vectorForID
 // without reallocating it.
 func (s *shardedLockCache[T]) Drop() {
-	s.dropped.Store(true)
+	first := s.dropped.CompareAndSwap(false, true)
 	s.maintenanceLock.Lock()
 	s.shardedLocks.LockAll()
 	s.cache = nil
@@ -503,7 +503,9 @@ func (s *shardedLockCache[T]) Drop() {
 	s.shardedLocks.UnlockAll()
 	s.maintenanceLock.Unlock()
 
-	if s.deletionInterval != 0 {
+	// the watcher exits on the first notification; a second send would block
+	// forever (shutdown and an in-flight compression can both drop the cache)
+	if first && s.deletionInterval != 0 {
 		s.cancel <- true
 	}
 }
