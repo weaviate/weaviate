@@ -330,7 +330,9 @@ func replicaCannotServe(err error) bool {
 		return true
 	}
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, NodeNotReadyMsg) || strings.Contains(msg, LocalIndexNotReadyMsg)
+	return strings.Contains(msg, NodeNotReadyMsg) ||
+		strings.Contains(msg, LocalIndexNotReadyMsg) ||
+		strings.Contains(msg, MaintenanceModeMsg)
 }
 
 // Pull data from replica depending on consistency level, trying to reach level successful calls
@@ -375,13 +377,23 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 
 		// replicas that said they cannot serve: once too few are left, waiting out the worker
 		// timeout cannot reach level, so the workers stop instead of retrying dead hosts
+		// Cancelling reaches every worker, not just the one that saw the refusal: a worker blocked
+		// in op, or retrying some other error, has no refusing host to learn it from and would
+		// otherwise sit out its whole timeout after the level is already lost.
+		unreachableCtx, unreachableCancel := context.WithCancel(ctx)
+		defer unreachableCancel()
+
 		var unreachableMu sync.Mutex
 		unreachable := make(map[string]struct{}, len(hosts))
 		levelUnreachable := func(host string) bool {
 			unreachableMu.Lock()
 			defer unreachableMu.Unlock()
 			unreachable[host] = struct{}{}
-			return len(hosts)-len(unreachable) < level
+			if len(hosts)-len(unreachable) < level {
+				unreachableCancel()
+				return true
+			}
+			return false
 		}
 
 		hostRetryQueue := make(chan hostRetry, len(hosts))
@@ -402,7 +414,7 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 			isFullReadWorker := hostIndex == 0 // first worker will perform the fullRead
 			workerFunc := func() {
 				defer wg.Done()
-				workerCtx, workerCancel := context.WithTimeout(ctx, timeout)
+				workerCtx, workerCancel := context.WithTimeout(unreachableCtx, timeout)
 				defer workerCancel()
 				// each worker will first try its corresponding host (eg worker0 tries hosts[0],
 				// worker1 tries hosts[1], etc). We want the fullRead to be tried on hosts[0]

@@ -68,6 +68,7 @@ const AsyncCheckpointMaxShardsPerRequest = 10_000
 const (
 	NodeNotReadyMsg       = "node not ready"
 	LocalIndexNotReadyMsg = "local index not ready"
+	MaintenanceModeMsg    = "maintenance mode"
 )
 
 // AsyncReplicationSkipReason returns the skip-metric label for a retry-later error.
