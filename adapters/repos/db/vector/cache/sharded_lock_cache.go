@@ -254,7 +254,8 @@ func (s *shardedLockCache[T]) storeLocked(id uint64, vec []T) {
 }
 
 func (s *shardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([]T, error) {
-	if s.allocChecker != nil {
+	// a dropped cache keeps nothing, so memory pressure is no reason to refuse
+	if s.allocChecker != nil && !s.dropped.Load() {
 		// we don't really know the exact size here, but we don't have to be
 		// accurate. If mem pressure is this high, we basically want to prevent any
 		// new permanent heap alloc. If we underestimate the size of a vector a

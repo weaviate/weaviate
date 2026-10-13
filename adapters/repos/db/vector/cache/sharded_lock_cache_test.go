@@ -718,6 +718,29 @@ func TestShardedLockCache_DropTwice(t *testing.T) {
 	assert.Zero(t, c.CountVectors())
 }
 
+// rejectingAllocChecker refuses every allocation, as memwatch does under pressure.
+type rejectingAllocChecker struct{}
+
+func (rejectingAllocChecker) CheckAlloc(int64) error                  { return errors.New("out of memory") }
+func (rejectingAllocChecker) CheckMappingAndReserve(int64, int) error { return nil }
+func (rejectingAllocChecker) Refresh(bool)                            {}
+
+// A dropped cache keeps nothing, so memory pressure must not refuse the reads
+// it passes through.
+func TestShardedLockCache_ReadAfterDropUnderMemoryPressure(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	fetch, _ := countingFetcher[float32]()
+	c := NewShardedFloat32LockCache(fetch, nil, 1e12, 1, logger, false, 0, rejectingAllocChecker{})
+	_, err := c.Get(context.Background(), 1)
+	require.Error(t, err, "a live cache under pressure refuses the load")
+
+	c.Drop()
+	vec, err := c.Get(context.Background(), 1)
+	require.NoError(t, err)
+	assert.Equal(t, []float32{1}, vec)
+	assert.Zero(t, c.Len())
+}
+
 // A dropped cache looks like a fresh one. Reads after Drop must still serve
 // the vector, but nothing may bring the released slice back.
 func TestShardedLockCache_OpsAfterDrop(t *testing.T) {

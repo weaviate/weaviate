@@ -183,7 +183,9 @@ type hnsw struct {
 	compressed atomic.Bool
 	// compressing spans Upgrade() through compressThenCallback completion;
 	// HaltForTransfer reads it via UpgradeInProgress() to defer a replica movement.
-	compressing      atomic.Bool
+	compressing atomic.Bool
+	// compressWg tracks the compression goroutine so Shutdown can wait for it
+	compressWg       sync.WaitGroup
 	doNotRescore     bool
 	acornSearch      atomic.Bool
 	acornFilterRatio float64
@@ -822,6 +824,8 @@ func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
 func (h *hnsw) Shutdown(ctx context.Context) error {
 	h.shutdownCtxCancel()
 	h.prefillWg.Wait()
+	// before the commit log shuts down, so a finishing compression can persist
+	h.compressWg.Wait()
 
 	ec := errorcompounder.New()
 	ec.AddWrapf(h.commitLog.Shutdown(ctx), "shutdown commit log")
