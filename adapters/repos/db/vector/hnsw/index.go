@@ -840,6 +840,11 @@ func (h *hnsw) Shutdown(ctx context.Context) error {
 func (h *hnsw) releaseVectors() error {
 	var err error
 	h.releaseVectorsOnce.Do(func() {
+		// compression holds this lock for its whole run; without waiting for
+		// it, shutdown drops the float32 cache and leaves the compressed one
+		// that compression fills afterwards
+		h.compressActionLock.RLock()
+		defer h.compressActionLock.RUnlock()
 		if h.compressed.Load() {
 			err = errors.Wrap(h.compressor.Drop(), "drop compressed store")
 		} else {
