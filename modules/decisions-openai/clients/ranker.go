@@ -164,6 +164,12 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 		return nil, errors.New("no document has content: check the rerank property")
 	}
 
+	if request.image {
+		if err := checkImages(documents, pending); err != nil {
+			return nil, err
+		}
+	}
+
 	var inputTokens, outputTokens, requests, unanswered atomic.Int64
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(c.logger, ctx)
 	eg.SetLimit(cap(c.inFlight))

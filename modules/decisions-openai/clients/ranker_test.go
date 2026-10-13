@@ -199,7 +199,6 @@ func TestRankScoresInInputOrder(t *testing.T) {
 // The content of a blob property goes to the API as an inline image.
 func TestRankImageProperty(t *testing.T) {
 	dataURL := "data:image/png;base64," + pngBase64
-	cfg := classConfigWithTypes("", map[string]schema.DataType{"photo": schema.DataTypeBlob, "text": schema.DataTypeText})
 
 	t.Run("a blob property is sent as an image", func(t *testing.T) {
 		handler := &openAIHandler{t: t, answers: map[string]answer{dataURL: probability(0.8)}}
@@ -228,18 +227,17 @@ func TestRankImageProperty(t *testing.T) {
 		assert.Contains(t, handler.received()[0].rawBody, `"input":"a document"`)
 	})
 
-	t.Run("a blob that is not an image fails before a request", func(t *testing.T) {
-		handler := &openAIHandler{t: t}
+	t.Run("a blob that is not an image fails before any request", func(t *testing.T) {
+		handler := &openAIHandler{t: t, answers: map[string]answer{dataURL: probability(0.8)}}
 		server := httptest.NewServer(handler)
 		defer server.Close()
 		cfg := classConfigWithTypes(server.URL, map[string]schema.DataType{"photo": schema.DataTypeBlob})
 
-		_, err := newTestClient("apiKey").RankProperty(context.Background(), "q", "photo", []string{textBase64}, cfg)
+		_, err := newTestClient("apiKey").RankProperty(context.Background(), "q", "photo", []string{pngBase64, textBase64}, cfg)
 
-		require.EqualError(t, err, "image: not a PNG, JPEG, GIF or WebP image")
-		assert.Empty(t, handler.received())
+		require.EqualError(t, err, "document 1: image: not a PNG, JPEG, GIF or WebP image")
+		assert.Empty(t, handler.received(), "the other documents are not sent either")
 	})
-	_ = cfg
 }
 
 func TestRankRequestShape(t *testing.T) {

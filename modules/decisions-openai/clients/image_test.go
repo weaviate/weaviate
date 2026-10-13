@@ -12,6 +12,7 @@
 package clients
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -45,6 +46,7 @@ func TestImageDataURL(t *testing.T) {
 		{name: "base64 of text", encoded: textBase64, wantErr: "not a PNG, JPEG, GIF or WebP image"},
 		{name: "not base64", encoded: "%%%%", wantErr: "not base64"},
 		{name: "empty", encoded: "", wantErr: "not a PNG, JPEG, GIF or WebP image"},
+		{name: "above the size limit", encoded: pngBase64 + strings.Repeat("A", maxImageChars), wantErr: "20 MB exceed the limit of 20 MB per image"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -58,6 +60,13 @@ func TestImageDataURL(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestCheckImages(t *testing.T) {
+	documents := []string{pngBase64, textBase64, "", jpegBase64}
+
+	assert.NoError(t, checkImages(documents, []int{0, 3}))
+	assert.EqualError(t, checkImages(documents, []int{0, 1, 3}), "document 1: image: not a PNG, JPEG, GIF or WebP image")
 }
 
 func TestIsImageProperty(t *testing.T) {

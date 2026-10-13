@@ -52,16 +52,24 @@ var imageTypes = []struct {
 	{"image/webp", 8, []byte("WEBP")},
 }
 
-// magicBytes is how many decoded bytes decide the format, and magicChars
-// the base64 characters that hold them.
+// magicChars is how many base64 characters hold the bytes that decide the
+// format (12 bytes).
+const magicChars = 16
+
+// maxImageBytes bounds the image one request carries: the API rejects
+// larger ones, and the data URL and the JSON body copy the whole content.
+// maxImageChars is the same bound on the base64.
 const (
-	magicBytes = 12
-	magicChars = 16
+	maxImageBytes = 20 << 20
+	maxImageChars = maxImageBytes / 3 * 4
 )
 
 // imageDataURL turns the base64 content of a blob property into the data
 // URL the API takes, with the MIME type read from the first bytes.
 func imageDataURL(encoded string) (string, error) {
+	if len(encoded) > maxImageChars {
+		return "", errors.Errorf("%d MB exceed the limit of %d MB per image", len(encoded)/4*3>>20, maxImageBytes>>20)
+	}
 	head := encoded
 	if len(head) > magicChars {
 		head = head[:magicChars]
@@ -91,6 +99,17 @@ func isImageProperty(cfg moduletools.ClassConfig, property string) bool {
 		return false
 	}
 	return cfg.PropertiesDataTypes()[property] == schema.DataTypeBlob
+}
+
+// checkImages fails on the first document at the given positions that is
+// not an image the API takes, before any request is sent and billed.
+func checkImages(documents []string, positions []int) error {
+	for _, position := range positions {
+		if _, err := imageDataURL(documents[position]); err != nil {
+			return errors.Wrapf(err, "document %d: image", position)
+		}
+	}
+	return nil
 }
 
 // newInput is the input of a request: the document as text, or as an image

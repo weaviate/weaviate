@@ -201,15 +201,15 @@ func TestDecideImageProperty(t *testing.T) {
 		}}}, requests[0].Input)
 	})
 
-	t.Run("a blob that is not an image fails before a request", func(t *testing.T) {
-		handler := &decideHandler{t: t}
+	t.Run("a blob that is not an image fails before any request", func(t *testing.T) {
+		handler := &decideHandler{t: t, scores: map[string]float64{dataURL: 0.9}}
 		c, server := decideTestClient(t, handler)
 		cfg := classConfigWithTypes(server.URL, map[string]schema.DataType{"photo": schema.DataTypeBlob})
 
-		_, err := c.Decide(context.Background(), []ent.DecisionQuestion{damaged}, []string{textBase64}, cfg)
+		_, err := c.Decide(context.Background(), []ent.DecisionQuestion{damaged}, []string{pngBase64, textBase64, pngBase64}, cfg)
 
-		require.EqualError(t, err, "image: not a PNG, JPEG, GIF or WebP image")
-		assert.Empty(t, handler.received())
+		require.EqualError(t, err, "document 1: image: not a PNG, JPEG, GIF or WebP image")
+		assert.Empty(t, handler.received(), "the other documents are not sent either")
 	})
 }
 
@@ -282,6 +282,11 @@ func TestDecideRejectedBeforeAnyRequest(t *testing.T) {
 		wantErr   string
 	}{
 		{name: "no questions", apiKey: "apiKey", documents: []string{"a"}, wantErr: "no questions provided"},
+		{
+			name: "questions about two properties", apiKey: "apiKey", documents: []string{"a"},
+			questions: []ent.DecisionQuestion{angryQuestion, {Name: "photo", Property: "photo", Instructions: "x", Kind: ent.DecisionPredicate}},
+			wantErr:   `questions about "text" and "photo" in one call: a call judges one property`,
+		},
 		{
 			name: "more documents than maxDocuments", apiKey: "apiKey", questions: allQuestions, documents: []string{"a", "b"},
 			settings: map[string]any{"maxDocuments": 1}, wantErr: "2 documents exceed maxDocuments 1",

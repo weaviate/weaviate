@@ -61,7 +61,13 @@ func (c *client) Decide(ctx context.Context, questions []ent.DecisionQuestion, d
 	if err != nil {
 		return nil, err
 	}
-	// The questions of one call are about one property, see the provider.
+	// The questions of one call are about one property, see the provider;
+	// a call about several would send the documents of one as the other.
+	for _, question := range questions[1:] {
+		if question.Property != questions[0].Property {
+			return nil, errors.Errorf("questions about %q and %q in one call: a call judges one property", questions[0].Property, question.Property)
+		}
+	}
 	request := decideRequest{
 		endpointAuth: endpointAuth{url: openAIURL, apiKey: apiKey, organization: c.organizationFor(ctx)},
 		model:        settings.Model, questions: questions,
@@ -80,6 +86,12 @@ func (c *client) Decide(ctx context.Context, questions []ent.DecisionQuestion, d
 		}
 		firstIndex[document] = i
 		pending = append(pending, i)
+	}
+
+	if request.image {
+		if err := checkImages(documents, pending); err != nil {
+			return nil, err
+		}
 	}
 
 	var inputTokens, outputTokens, requests atomic.Int64
