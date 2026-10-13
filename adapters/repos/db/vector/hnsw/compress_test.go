@@ -219,7 +219,7 @@ func Test_CompressedVectorRecoveryBypassesFloatCache(t *testing.T) {
 			require.NoError(t, index.UpdateUserConfig(tt.uc, func() { close(compressed) }))
 			<-compressed
 			require.True(t, index.compressed.Load())
-			require.Nil(t, index.cache, "a compressed index holds no float32 cache")
+			require.NotNil(t, index.cache, "a reader racing the compressed flag must find a dropped cache, not nil")
 			requireRecoveryBypassesFloatCache(t, index, floatCache, &readErrs, 1, 2, 3)
 
 			require.NoError(t, index.Flush())
