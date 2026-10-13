@@ -341,7 +341,7 @@ func TestDecide(t *testing.T) {
 			})
 
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), `rerank.decision needs a decisions module, class "DecideRerankerOnly" has none`)
+			assert.Contains(t, err.Error(), `rerank.decision: class "DecideRerankerOnly" has no decisions module`)
 		})
 
 		t.Run("a threshold out of range fails before the search", func(t *testing.T) {
@@ -352,6 +352,20 @@ func TestDecide(t *testing.T) {
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "rerank.decision.min_probability must be between 0 and 1, got 1.5")
+		})
+
+		t.Run("a limit above the module's maxDocuments fails before the search", func(t *testing.T) {
+			const smallPage = "DecideSmallPageRerank"
+			createClass(t, smallPage, map[string]any{"decisions-dummy": map[string]any{"maxDocuments": 2}})
+			defer helper.DeleteClass(t, smallPage)
+
+			_, err := grpchelper.Search(t, &pb.SearchRequest{
+				Collection: smallPage, Limit: 3,
+				Rerank: &pb.Rerank{Property: "text", Query: ptr("x"), Decision: &pb.RerankDecision{}},
+			})
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "rerank.decision: limit 3 exceeds maxDocuments 2 of decisions-dummy")
 		})
 	})
 

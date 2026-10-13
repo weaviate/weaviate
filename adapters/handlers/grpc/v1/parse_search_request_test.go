@@ -3217,9 +3217,17 @@ func TestGRPCSearchRequestDecideLimits(t *testing.T) {
 
 func TestGRPCSearchRequestRerankDecision(t *testing.T) {
 	property := "name"
+	textOnly := decide.Limits{Module: "decisions-x", DecisionLimits: modulecapabilities.DecisionLimits{
+		MaxDocuments: 50, DataTypes: []schema.DataType{schema.DataTypeText},
+	}}
+	limitsOf := func(limits decide.Limits, err error) decideLimitsFunc {
+		return func(*models.Class) (decide.Limits, error) { return limits, err }
+	}
 	tests := []struct {
 		name    string
 		rerank  *pb.Rerank
+		limit   uint32
+		limits  decideLimitsFunc
 		want    *rank.Params
 		wantErr string
 	}{
@@ -3260,12 +3268,39 @@ func TestGRPCSearchRequestRerankDecision(t *testing.T) {
 			rerank:  &pb.Rerank{Property: property, Decision: &pb.RerankDecision{Order: pb.RerankOrder(7).Enum()}},
 			wantErr: "rerank.decision.order 7 is not known",
 		},
+		{
+			name:   "a decision within the module's maxDocuments",
+			rerank: &pb.Rerank{Property: property, Decision: &pb.RerankDecision{}},
+			limit:  50,
+			limits: limitsOf(textOnly, nil),
+			want:   &rank.Params{Property: &property, Decision: &rank.Decision{}},
+		},
+		{
+			name:    "a decision on a class without a decisions module",
+			rerank:  &pb.Rerank{Property: property, Decision: &pb.RerankDecision{}},
+			limits:  limitsOf(decide.Limits{}, errors.New(`class "TestClass" has no decisions module`)),
+			wantErr: `rerank.decision: class "TestClass" has no decisions module`,
+		},
+		{
+			name:    "a decision with a limit above maxDocuments",
+			rerank:  &pb.Rerank{Property: property, Decision: &pb.RerankDecision{}},
+			limit:   60,
+			limits:  limitsOf(textOnly, nil),
+			wantErr: "rerank.decision: limit 60 exceeds maxDocuments 50 of decisions-x: lower the limit or raise maxDocuments",
+		},
+		{
+			// Only a decision asks the decisions module for its limits.
+			name:   "a plain rerank on a class without a decisions module",
+			rerank: &pb.Rerank{Property: property},
+			limits: limitsOf(decide.Limits{}, errors.New(`class "TestClass" has no decisions module`)),
+			want:   &rank.Params{Property: &property},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			parser := NewParser(false, getClass, nil, false, nil)
+			parser := NewParser(false, getClass, nil, false, tt.limits)
 
-			out, err := parser.Search(&pb.SearchRequest{Collection: classname, Rerank: tt.rerank},
+			out, err := parser.Search(&pb.SearchRequest{Collection: classname, Rerank: tt.rerank, Limit: tt.limit},
 				&config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
 
 			if tt.wantErr != "" {
