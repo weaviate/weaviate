@@ -14,7 +14,6 @@ package modules
 import (
 	"context"
 	"fmt"
-	"maps"
 	"regexp"
 	"slices"
 	"sync"
@@ -1169,6 +1168,7 @@ func (p *Provider) settingsConfig(moduleName string, settings map[string]any) mo
 // MigrateVectorizerSettings compares and migrates module settings if module settings
 // changed, an example would be renaming of baseUrl property setting to baseURL
 // in that case we need to migrate baseURL value to new property name.
+// Both configs are changed in place, so a stored config must be passed as a copy.
 func (p *Provider) MigrateVectorizerSettings(oldVectorizerConfig, newVectorizerConfig any) bool {
 	migratedSettings := false
 	oldVectorizerCfg, oldVectorizerCfgOk := oldVectorizerConfig.(map[string]any)
@@ -1177,17 +1177,44 @@ func (p *Provider) MigrateVectorizerSettings(oldVectorizerConfig, newVectorizerC
 		for modName, modSettings := range newVectorizerCfg {
 			migratedNewVectorizer := p.migrateVectorizerSettings(modName, modSettings)
 			migratedOldVectorizer := p.migrateVectorizerSettings(modName, oldVectorizerCfg[modName])
-			if settings, ok := modSettings.(map[string]any); ok {
-				if oldSettings, ok := oldVectorizerCfg[modName].(map[string]any); ok {
-					maps.Copy(oldSettings, settings)
-				}
-			}
+			p.copyOnlyMigratedSettings(modName, oldVectorizerCfg[modName], modSettings)
 			if migratedNewVectorizer || migratedOldVectorizer {
 				migratedSettings = true
 			}
 		}
 	}
 	return migratedSettings
+}
+
+// copyOnlyMigratedSettings copies settings that were added to the module's configuration from the new settings
+// into the old ones when the old settings lack them. Every other setting is left as is so that a changed value
+// still fails the comparison that follows the migration.
+func (p *Provider) copyOnlyMigratedSettings(modName string, oldModuleSettings, newModuleSettings any) {
+	mod := p.GetByName(modName)
+	if mod == nil {
+		return
+	}
+	migrate, ok := mod.(modulecapabilities.MigrateProperties)
+	if !ok {
+		return
+	}
+	oldSettings, oldOk := oldModuleSettings.(map[string]any)
+	newSettings, newOk := newModuleSettings.(map[string]any)
+	if !oldOk || !newOk {
+		return
+	}
+	for _, prop := range migrate.MigrateProperties() {
+		if prop.NewName != "" || prop.IsDeleted {
+			continue
+		}
+		newValue, ok := newSettings[prop.Name]
+		if !ok {
+			continue
+		}
+		if oldValue, ok := oldSettings[prop.Name]; !ok || oldValue == "" {
+			oldSettings[prop.Name] = newValue
+		}
+	}
 }
 
 func (p *Provider) migrateVectorizerSettings(modName string, moduleSettings any) bool {
