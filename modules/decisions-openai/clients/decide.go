@@ -14,6 +14,7 @@ package clients
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
@@ -228,7 +229,7 @@ func decideAnswer(question ent.DecisionQuestion, answer decisionAnswer) (ent.Dec
 		if answer.Type != choiceType {
 			return out, errors.Errorf("unexpected answer type %q", answer.Type)
 		}
-		choice, ok := answer.Choice.(string)
+		choice, ok := choiceValue(answer.Choice)
 		if !ok {
 			return out, errors.Errorf("choice %v in response is not one of the options", answer.Choice)
 		}
@@ -242,7 +243,7 @@ func decideAnswer(question ent.DecisionQuestion, answer decisionAnswer) (ent.Dec
 		out.Choice = choice
 		byValue := make(map[string]float64, len(answer.Probabilities))
 		for _, p := range answer.Probabilities {
-			if value, ok := p.Value.(string); ok {
+			if value, ok := choiceValue(p.Value); ok {
 				byValue[value] = p.Probability
 			}
 		}
@@ -293,6 +294,21 @@ func decideAnswer(question ent.DecisionQuestion, answer decisionAnswer) (ent.Dec
 		out.Confidence = *answer.Confidence
 	}
 	return out, nil
+}
+
+// choiceValue is the option an answer names. The options are sent as
+// strings, and the API echoes them typed when they read as a bool or a
+// number, so those come back in their string form.
+func choiceValue(value any) (string, bool) {
+	switch v := value.(type) {
+	case string:
+		return v, true
+	case bool:
+		return strconv.FormatBool(v), true
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64), true
+	}
+	return "", false
 }
 
 func namedProbability(probabilities map[string]float64, name, what string) (float64, error) {

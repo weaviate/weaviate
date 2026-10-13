@@ -85,8 +85,8 @@ type client struct {
 	httpClient   *http.Client
 	retryBackoff time.Duration
 	// inFlight holds one token per request being sent. It is shared by all
-	// Rank calls, so it limits the load on the OpenAI API however many
-	// queries run at once.
+	// Rank and Decide calls, so it limits the load on the OpenAI API however
+	// many queries run at once.
 	inFlight chan struct{}
 	logger   logrus.FieldLogger
 }
@@ -202,7 +202,6 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 	return &ent.RankResult{Query: query, DocumentScores: documentScores}, nil
 }
 
-// judgeRequest is what all requests of one Rank call have in common.
 // endpointAuth is where the requests of one call go and how they
 // authenticate.
 type endpointAuth struct {
@@ -211,6 +210,7 @@ type endpointAuth struct {
 	organization string
 }
 
+// judgeRequest is what all requests of one Rank call have in common.
 type judgeRequest struct {
 	endpointAuth
 	model string
@@ -528,10 +528,9 @@ type decisionAnswer struct {
 }
 
 // decisionProbability is the probability of one option (value is the
-// option) or one level (value is the level index, label its label).
+// option) or one level (value is the level index).
 type decisionProbability struct {
 	Value       any     `json:"value"`
-	Label       string  `json:"label"`
 	Probability float64 `json:"probability"`
 }
 

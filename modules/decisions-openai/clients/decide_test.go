@@ -283,7 +283,8 @@ func TestDecideMalformedAnswers(t *testing.T) {
 		{name: "predicate of another type", questions: []ent.DecisionQuestion{angryQuestion}, body: `{"answers":[{"type":"score","name":"angry","score":1}]}`, wantErr: `answer "angry": unexpected answer type "score"`},
 		{name: "predicate without probability", questions: []ent.DecisionQuestion{angryQuestion}, body: `{"answers":[{"type":"predicate","name":"angry"}]}`, wantErr: `answer "angry": no probability in response`},
 		{name: "choice that is not an option", questions: []ent.DecisionQuestion{teamQuestion}, body: `{"answers":[{"type":"choice","name":"team","choice":"sales","probabilities":[],"confidence":1}]}`, wantErr: `answer "team": choice "sales" in response is not one of the options`},
-		{name: "choice that is a bool", questions: []ent.DecisionQuestion{teamQuestion}, body: `{"answers":[{"type":"choice","name":"team","choice":true,"probabilities":[],"confidence":1}]}`, wantErr: `answer "team": choice true in response is not one of the options`},
+		{name: "choice that is a bool", questions: []ent.DecisionQuestion{teamQuestion}, body: `{"answers":[{"type":"choice","name":"team","choice":true,"probabilities":[],"confidence":1}]}`, wantErr: `answer "team": choice "true" in response is not one of the options`},
+		{name: "choice that is an object", questions: []ent.DecisionQuestion{teamQuestion}, body: `{"answers":[{"type":"choice","name":"team","choice":{"a":1},"probabilities":[],"confidence":1}]}`, wantErr: `answer "team": choice map[a:1] in response is not one of the options`},
 		{name: "choice without the probability of an option", questions: []ent.DecisionQuestion{teamQuestion}, body: `{"answers":[{"type":"choice","name":"team","choice":"billing","probabilities":[{"value":"billing","probability":1}],"confidence":1}]}`, wantErr: `answer "team": no probability for option "other"`},
 		{name: "score out of range", questions: []ent.DecisionQuestion{urgencyQuestion}, body: `{"answers":[{"type":"score","name":"urgency","score":2.5,"probabilities":[],"confidence":1}]}`, wantErr: `answer "urgency": score 2.5 in response is out of range`},
 		{name: "score without the probability of a level", questions: []ent.DecisionQuestion{urgencyQuestion}, body: `{"answers":[{"type":"score","name":"urgency","score":1,"probabilities":[{"value":0,"label":"can wait","probability":0},{"value":1,"label":"today","probability":1}],"confidence":1}]}`, wantErr: `answer "urgency": no probability for level "now"`},
@@ -302,6 +303,31 @@ func TestDecideMalformedAnswers(t *testing.T) {
 			assert.Len(t, handler.received(), 1, "a malformed answer is not retried")
 		})
 	}
+}
+
+// Options that read as a bool or a number come back typed from the API.
+func TestDecideChoiceEchoedTyped(t *testing.T) {
+	flag := ent.DecisionQuestion{
+		Name: "flag", Property: "text", Instructions: "is it on?", Kind: ent.DecisionChoice,
+		Options: []ent.DecisionOption{{Value: "true"}, {Value: "false"}},
+	}
+	number := ent.DecisionQuestion{
+		Name: "number", Property: "text", Instructions: "how many?", Kind: ent.DecisionChoice,
+		Options: []ent.DecisionOption{{Value: "1"}, {Value: "2.5"}},
+	}
+	handler := &decideHandler{t: t, rawBody: `{"answers":[` +
+		`{"type":"choice","name":"flag","choice":true,"probabilities":[{"value":true,"probability":0.7},{"value":false,"probability":0.3}],"confidence":0.7},` +
+		`{"type":"choice","name":"number","choice":2.5,"probabilities":[{"value":1,"probability":0.2},{"value":2.5,"probability":0.8}],"confidence":0.8}]}`}
+	c, server := decideTestClient(t, handler)
+
+	out, err := c.Decide(context.Background(), []ent.DecisionQuestion{flag, number}, []string{"a document"}, classConfig(server.URL, nil))
+
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	assert.Equal(t, "true", out[0][0].Choice)
+	assert.Equal(t, []ent.DecisionProbability{{Value: "true", Probability: 0.7}, {Value: "false", Probability: 0.3}}, out[0][0].Probabilities)
+	assert.Equal(t, "2.5", out[0][1].Choice)
+	assert.Equal(t, []ent.DecisionProbability{{Value: "1", Probability: 0.2}, {Value: "2.5", Probability: 0.8}}, out[0][1].Probabilities)
 }
 
 func TestDecideRetriesAServerError(t *testing.T) {

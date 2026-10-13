@@ -168,16 +168,24 @@ func TestDecisionLimits(t *testing.T) {
 		name             string
 		settings         map[string]any
 		wantMaxDocuments int
+		wantErr          string
 	}{
 		{name: "defaults", settings: map[string]any{}, wantMaxDocuments: 100},
 		{name: "maxDocuments from the class", settings: map[string]any{"maxDocuments": 40}, wantMaxDocuments: 40},
-		{name: "a setting Resolve rejects leaves no page bound", settings: map[string]any{"maxDocuments": "many"}, wantMaxDocuments: 0},
+		// A class created before the module was enabled was never validated.
+		{name: "a setting Resolve rejects is the error", settings: map[string]any{"maxDocuments": "many"}, wantErr: "maxDocuments"},
+		{name: "maxDocuments above the upper bound", settings: map[string]any{"maxDocuments": 5000}, wantErr: "maxDocuments must be between 1 and 1000, got 5000"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			class := &models.Class{Class: "Ticket", ModuleConfig: map[string]any{Name: tt.settings}}
-			limits := New().DecisionLimits(modules.NewClassBasedModuleConfig(class, Name, "", "", &config.Config{}))
+			limits, err := New().DecisionLimits(modules.NewClassBasedModuleConfig(class, Name, "", "", &config.Config{}))
 
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
 			assert.Equal(t, modulecapabilities.DecisionLimits{
 				MaxDocuments: tt.wantMaxDocuments,
 				DataTypes:    []schema.DataType{schema.DataTypeText},

@@ -13,6 +13,7 @@ package moddecisionsopenai
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"os"
 	"strconv"
@@ -109,12 +110,20 @@ func (m *DecisionsOpenAIModule) AdditionalProperties() map[string]modulecapabili
 // DecisionLimits: OpenAI publishes no caps for the Decisions API, so the
 // Weaviate ceilings apply; the module judges text. A maxDocuments setting
 // Resolve rejects is left to the module's own validation.
-func (m *DecisionsOpenAIModule) DecisionLimits(cfg moduletools.ClassConfig) modulecapabilities.DecisionLimits {
-	limits := modulecapabilities.DecisionLimits{DataTypes: []schema.DataType{schema.DataTypeText}}
-	if settings, err := config.NewClassSettings(cfg).Resolve(); err == nil {
-		limits.MaxDocuments = min(settings.MaxDocuments, config.MaxDocumentsLimit)
+func (m *DecisionsOpenAIModule) DecisionLimits(cfg moduletools.ClassConfig) (modulecapabilities.DecisionLimits, error) {
+	// A class created before the module was enabled was never validated,
+	// so a setting Resolve rejects fails the request here, before the search.
+	settings, err := config.NewClassSettings(cfg).Resolve()
+	if err != nil {
+		return modulecapabilities.DecisionLimits{}, err
 	}
-	return limits
+	if settings.MaxDocuments < 1 || settings.MaxDocuments > config.MaxDocumentsLimit {
+		return modulecapabilities.DecisionLimits{}, fmt.Errorf("maxDocuments must be between 1 and %d, got %d", config.MaxDocumentsLimit, settings.MaxDocuments)
+	}
+	return modulecapabilities.DecisionLimits{
+		MaxDocuments: settings.MaxDocuments,
+		DataTypes:    []schema.DataType{schema.DataTypeText},
+	}, nil
 }
 
 // verify we implement the modules.Module interface

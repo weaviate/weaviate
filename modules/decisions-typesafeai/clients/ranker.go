@@ -74,8 +74,8 @@ type client struct {
 	httpClient   *http.Client
 	retryBackoff time.Duration
 	// inFlight holds one token per request being sent. It is shared by all
-	// Rank calls, so it limits the load on the TypeSafeAI API however many queries
-	// run at once.
+	// Rank and Decide calls, so it limits the load on the TypeSafeAI API
+	// however many queries run at once.
 	inFlight chan struct{}
 	logger   logrus.FieldLogger
 }
