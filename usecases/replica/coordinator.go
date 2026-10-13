@@ -330,9 +330,7 @@ func replicaCannotServe(err error) bool {
 		return true
 	}
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, NodeNotReadyMsg) ||
-		strings.Contains(msg, LocalIndexNotReadyMsg) ||
-		strings.Contains(msg, MaintenanceModeMsg)
+	return strings.Contains(msg, NodeNotReadyMsg) || strings.Contains(msg, LocalIndexNotReadyMsg)
 }
 
 // Pull data from replica depending on consistency level, trying to reach level successful calls

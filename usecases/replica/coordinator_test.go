@@ -14,7 +14,6 @@ package replica_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -630,72 +629,6 @@ func TestPullOutlastsReplicasThatAreMerelyBehindTheSchema(t *testing.T) {
 
 	require.Equal(t, level, successes,
 		"a quorum that was behind for several retries must still be reached, not abandoned")
-}
-
-// A peer in maintenance mode refuses with a marker and no sentinel: only the async-replication
-// paths attach ErrReplicaMaintenance, so a coordinated read sees `418 Maintenance mode` over REST
-// or `maintenance mode` over gRPC and nothing else. Unrecognised, those replicas were retried to
-// the worker timeout -- the case this helper exists to stop.
-func TestPullTreatsAMaintenanceRefusalAsUnableToServe(t *testing.T) {
-	const (
-		cls   = "C1"
-		shard = "S1"
-	)
-
-	hosts := []types.Replica{
-		{NodeName: "A", ShardName: shard, HostAddr: "a:7001"},
-		{NodeName: "B", ShardName: shard, HostAddr: "b:7001"},
-		{NodeName: "C", ShardName: shard, HostAddr: "c:7001"},
-	}
-
-	for _, tc := range []struct {
-		name string
-		err  error
-	}{
-		{"REST", &clients.HTTPError{Code: http.StatusTeapot, Body: []byte("418 Maintenance mode")}},
-		{"gRPC", errors.New("gRPC CountObjects: server is in maintenance mode")},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			logger, _ := test.NewNullLogger()
-			metrics, err := replica.NewMetrics(nil)
-			require.NoError(t, err)
-
-			options := types.RoutingPlanBuildOptions{Shard: shard, ConsistencyLevel: types.ConsistencyLevelQuorum}
-			router := types.NewMockRouter(t)
-			router.EXPECT().BuildRoutingPlanOptions(shard, shard, types.ConsistencyLevelQuorum, "").Return(options).Once()
-			router.EXPECT().BuildReadRoutingPlan(options).Return(types.ReadRoutingPlan{
-				Shard:               shard,
-				ReplicaSet:          types.ReadReplicaSet{Replicas: hosts},
-				ConsistencyLevel:    types.ConsistencyLevelQuorum,
-				IntConsistencyLevel: 2,
-			}, nil).Once()
-
-			c := replica.NewReadCoordinator[int](router, metrics, cls, shard, "", logger)
-
-			// Two of three in maintenance puts quorum out of reach.
-			op := func(ctx context.Context, host string, _ bool) (int, error) {
-				if host == "b:7001" {
-					return 1, nil
-				}
-				return 0, tc.err
-			}
-
-			started := time.Now()
-			replyCh, level, err := c.Pull(context.Background(), types.ConsistencyLevelQuorum, op, "", time.Minute)
-			require.NoError(t, err)
-			require.Equal(t, 2, level)
-
-			var replies int
-			for range replyCh {
-				replies++
-			}
-
-			require.Equal(t, level, replies, "one reply per worker, as the caller depends on")
-			require.Less(t, time.Since(started), 10*time.Second,
-				"a maintenance refusal must count against the level, not be retried out (took %s)",
-				time.Since(started))
-		})
-	}
 }
 
 // The refusal reaches one worker, but the level it loses is shared. A worker parked inside op
