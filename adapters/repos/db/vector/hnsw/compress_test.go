@@ -165,8 +165,9 @@ func Test_CompressedEntrypointRecoveryOnRestart(t *testing.T) {
 	assert.ElementsMatch(t, control, results, "search results should match after entrypoint recovery")
 }
 
-// Compression drops the float32 vector cache. Recovering a missing compressed
-// vector must read past that cache, or the read regrows it to cover the node.
+// Compression drops the float32 vector cache, and recovering a missing
+// compressed vector reads through it. The read must serve the vector without
+// regrowing the dropped cache.
 func Test_CompressedVectorRecoveryBypassesFloatCache(t *testing.T) {
 	dimensions := 20
 	vectorsSize := 50
