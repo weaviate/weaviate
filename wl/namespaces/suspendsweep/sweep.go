@@ -14,8 +14,11 @@ package suspendsweep
 import (
 	"context"
 	"errors"
+	"maps"
 	"slices"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/semaphore"
@@ -34,7 +37,17 @@ type DB interface {
 	UnloadShard(ctx context.Context, className, shardName string) (db.ShardUnloadOutcome, error)
 }
 
+// outcomeUnloading says an unload is still running. Sweep records it for a
+// progress report, and DB.UnloadShard never returns it.
+const outcomeUnloading db.ShardUnloadOutcome = "unloading"
+
 type shardKey struct{ className, shardName string }
+
+// shardOutcomes holds one class's shard names by their latest unload outcome.
+type shardOutcomes map[db.ShardUnloadOutcome]map[string]struct{}
+
+// progressInterval is how often a batch of unloads reports while it runs.
+const progressInterval = 30 * time.Second
 
 // Sweep unloads the local shards of suspended namespaces. Its state outlives a
 // tick, so slots caps the running unloads across classes and ticks.
@@ -44,8 +57,13 @@ type Sweep struct {
 	slots  *semaphore.Weighted // one slot per running unload
 
 	// mu is never held across a DB call or slots.Acquire.
-	mu       sync.Mutex
-	inFlight map[shardKey]struct{} // guarded by mu
+	mu          sync.Mutex
+	inFlight    map[shardKey]struct{}    // guarded by mu
+	outcomes    map[string]shardOutcomes // guarded by mu, keyed by class name
+	dispatching bool                     // guarded by mu, true while Run dispatches
+	// stopProgress is guarded by mu. It is non-nil while a batch runs, and
+	// closing it stops the batch's progress reports.
+	stopProgress chan struct{}
 }
 
 // New returns a sweep over repo that runs at most limit unloads at once.
@@ -55,6 +73,7 @@ func New(logger *logrus.Entry, repo DB, limit int) *Sweep {
 		db:       repo,
 		slots:    semaphore.NewWeighted(int64(limit)),
 		inFlight: map[shardKey]struct{}{},
+		outcomes: map[string]shardOutcomes{},
 	}
 }
 
@@ -63,6 +82,9 @@ func New(logger *logrus.Entry, repo DB, limit int) *Sweep {
 // running on ctx. Calls must not overlap, and the suspend reconcile cron job
 // never overlaps them.
 func (s *Sweep) Run(ctx context.Context) {
+	s.startDispatch(ctx)
+	defer s.endDispatch(ctx)
+
 	classNames, err := s.db.LocalIndexClassNames()
 	if err != nil {
 		s.logger.Logf(accessorErrLevel(err), "cannot list local classes, ending the sweep: %v", err)
@@ -74,6 +96,30 @@ func (s *Sweep) Run(ctx context.Context) {
 		}
 		s.reconcileClass(ctx, className)
 	}
+}
+
+// startDispatch starts a batch and its progress reports, or joins the running
+// batch of an earlier tick. A batch ends once its last unload returns with no
+// tick dispatching.
+func (s *Sweep) startDispatch(ctx context.Context) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.dispatching = true
+	if s.stopProgress != nil {
+		return
+	}
+	stop := make(chan struct{})
+	s.stopProgress = stop
+	enterrors.GoWrapper(func() { s.reportProgressUntil(ctx, stop) }, s.logger)
+}
+
+// endDispatch ends the batch if no unload is running.
+func (s *Sweep) endDispatch(ctx context.Context) {
+	s.mu.Lock()
+	s.dispatching = false
+	outcomes := s.endBatchLocked()
+	s.mu.Unlock()
+	s.reportBatch(ctx, outcomes)
 }
 
 // reconcileClass dispatches an unload for each local shard of a suspended class
@@ -108,7 +154,8 @@ func (s *Sweep) reconcileClass(ctx context.Context, className string) {
 		if err := s.slots.Acquire(ctx, 1); err != nil {
 			return
 		}
-		if !stillSuspended() {
+		// A cancel can free a slot before Acquire sees it.
+		if ctx.Err() != nil || !stillSuspended() {
 			s.slots.Release(1)
 			return
 		}
@@ -119,15 +166,49 @@ func (s *Sweep) reconcileClass(ctx context.Context, className string) {
 	}
 }
 
+func (s *Sweep) reportProgressUntil(ctx context.Context, stop chan struct{}) {
+	ticker := time.NewTicker(progressInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			s.reportProgress(ctx, stop)
+		case <-stop:
+			return
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// endBatchLocked ends the batch once no tick dispatches and no unload runs. It
+// stops the progress reports and returns the outcomes for the last report, or
+// nil while the batch runs. The caller holds mu.
+func (s *Sweep) endBatchLocked() map[string]shardOutcomes {
+	if s.dispatching || len(s.inFlight) > 0 {
+		return nil
+	}
+	close(s.stopProgress)
+	s.stopProgress = nil
+	return s.takeOutcomesLocked()
+}
+
 // unload closes the shard unless its class no longer reads suspended. It reads
 // the state after reconcileClass has added the shard to inFlight, so once a
 // resume has applied, a false UnloadInFlight means this unload closes nothing.
 func (s *Sweep) unload(ctx context.Context, className, shardName string) {
 	logger := s.logger.WithFields(logrus.Fields{"class": className, "shard": shardName})
+	var record db.ShardUnloadOutcome // stays empty on the exits that record nothing
 	defer func() {
 		s.mu.Lock()
 		delete(s.inFlight, shardKey{className, shardName})
+		if record != "" {
+			s.recordOutcomeLocked(className, shardName, record)
+		}
+		outcomes := s.endBatchLocked()
 		s.mu.Unlock()
+		// Report before the release, so every outcome is logged once every slot is free.
+		s.reportBatch(ctx, outcomes)
 		s.slots.Release(1)
 	}()
 
@@ -141,11 +222,113 @@ func (s *Sweep) unload(ctx context.Context, className, shardName string) {
 		logger.WithField("state", state).Debug("namespace no longer suspended, leaving the shard loaded")
 		return
 	}
-	// shutdownOrRestoreShard logs a shutdown that fails, and RunRecovered logs a panic.
-	_ = enterrors.RunRecovered(logger, func() error {
-		_, err := s.db.UnloadShard(ctx, className, shardName)
+	outcome := db.ShardUnloadOutcomeFailed // kept when UnloadShard panics
+	err = enterrors.RunRecovered(logger, func() error {
+		var err error
+		outcome, err = s.db.UnloadShard(ctx, className, shardName)
 		return err
 	})
+	if errors.Is(err, clusterSchema.ErrClassNotFound) {
+		logger.Debugf("class dropped, nothing left to unload: %v", err)
+		return
+	}
+	record = outcome
+}
+
+// recordOutcomeLocked makes outcome the shard's only recorded outcome. The
+// caller holds mu.
+func (s *Sweep) recordOutcomeLocked(className, shardName string, outcome db.ShardUnloadOutcome) {
+	outcomes, ok := s.outcomes[className]
+	if !ok {
+		outcomes = shardOutcomes{}
+		s.outcomes[className] = outcomes
+	}
+	for _, names := range outcomes {
+		delete(names, shardName)
+	}
+	names, ok := outcomes[outcome]
+	if !ok {
+		names = map[string]struct{}{}
+		outcomes[outcome] = names
+	}
+	names[shardName] = struct{}{}
+}
+
+// reportBatch logs the outcomes endBatchLocked returned, unless ctx has ended.
+// A stopping node cancels its running unloads, which then read as
+// refused_in_use.
+func (s *Sweep) reportBatch(ctx context.Context, outcomes map[string]shardOutcomes) {
+	if ctx.Err() == nil {
+		s.logOutcomes(outcomes)
+	}
+}
+
+// reportProgress records every running unload as unloading and reports, under
+// one hold of mu so no unloading entry outlives the report.
+func (s *Sweep) reportProgress(ctx context.Context, stop chan struct{}) {
+	s.mu.Lock()
+	// A report that fires as its batch ends must not report the next batch.
+	if s.stopProgress != stop {
+		s.mu.Unlock()
+		return
+	}
+	for key := range s.inFlight {
+		s.recordOutcomeLocked(key.className, key.shardName, outcomeUnloading)
+	}
+	outcomes := s.takeOutcomesLocked()
+	s.mu.Unlock()
+	if ctx.Err() == nil {
+		s.logOutcomes(outcomes)
+	}
+}
+
+// takeOutcomesLocked clears the record and returns what it held, so each
+// outcome is logged once. The caller holds mu.
+func (s *Sweep) takeOutcomesLocked() map[string]shardOutcomes {
+	outcomes := s.outcomes
+	s.outcomes = map[string]shardOutcomes{}
+	return outcomes
+}
+
+func (s *Sweep) logOutcomes(outcomes map[string]shardOutcomes) {
+	for _, className := range slices.Sorted(maps.Keys(outcomes)) {
+		s.reportClass(className, outcomes[className])
+	}
+}
+
+// reportClass logs at Info the unloads still running or refused as in use, at
+// Error those that need a restart, and each other outcome at Debug, a recovering
+// shard included.
+func (s *Sweep) reportClass(className string, outcomes shardOutcomes) {
+	logger := s.logger.WithField("class", className)
+	pending, broken := logrus.Fields{}, logrus.Fields{}
+	var pendingMsgs []string
+	for _, outcome := range slices.Sorted(maps.Keys(outcomes)) {
+		if len(outcomes[outcome]) == 0 {
+			continue
+		}
+		key, names := string(outcome), db.ReportedShardNames(outcomes[outcome])
+		switch outcome {
+		case outcomeUnloading:
+			pending[key] = names
+			pendingMsgs = append(pendingMsgs, "shard unloads still running")
+		case db.ShardUnloadOutcomeRefusedInUse:
+			pending[key] = names
+			pendingMsgs = append(pendingMsgs,
+				"shards in use, a later sweep retries them while the namespace stays suspended")
+		case db.ShardUnloadOutcomeTorn, db.ShardUnloadOutcomeFailed:
+			broken[key] = names
+		case db.ShardUnloadOutcomeIndexClosing, db.ShardUnloadOutcomeRecovering, db.ShardUnloadOutcomeUnloaded:
+			logger.WithField(key, names).Debug("shard unload outcome")
+		}
+	}
+	if len(pending) > 0 {
+		logger.WithFields(pending).Info(strings.Join(pendingMsgs, "; "))
+	}
+	if len(broken) > 0 {
+		logger.WithFields(broken).
+			Error("shard unloads failed, restart the node to clear these shards before resuming the namespace")
+	}
 }
 
 // UnloadInFlight reports whether a sweep dispatched the shard's unload and the
