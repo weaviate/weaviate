@@ -2116,7 +2116,7 @@ var File_v1_search_get_proto protoreflect.FileDescriptor
 
 const file_v1_search_get_proto_rawDesc = "" +
 	"\n" +
-	"\x13v1/search_get.proto\x12\vweaviate.v1\x1a\rv1/base.proto\x1a\x14v1/base_search.proto\x1a\x13v1/generative.proto\x1a\x12v1/decisions.proto\x1a\x13v1/properties.proto\"\xc0\x0e\n" +
+	"\x13v1/search_get.proto\x12\vweaviate.v1\x1a\rv1/base.proto\x1a\x14v1/base_search.proto\x1a\x12v1/decisions.proto\x1a\x13v1/generative.proto\x1a\x13v1/properties.proto\"\xc0\x0e\n" +
 	"\rSearchRequest\x12\x1e\n" +
 	"\n" +
 	"collection\x18\x01 \x01(\tR\n" +
@@ -2512,8 +2512,8 @@ func file_v1_search_get_proto_init() {
 	}
 	file_v1_base_proto_init()
 	file_v1_base_search_proto_init()
-	file_v1_generative_proto_init()
 	file_v1_decisions_proto_init()
+	file_v1_generative_proto_init()
 	file_v1_properties_proto_init()
 	file_v1_search_get_proto_msgTypes[0].OneofWrappers = []any{}
 	file_v1_search_get_proto_msgTypes[7].OneofWrappers = []any{}

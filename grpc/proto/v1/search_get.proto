@@ -4,8 +4,8 @@ package weaviate.v1;
 
 import "v1/base.proto";
 import "v1/base_search.proto";
-import "v1/generative.proto";
 import "v1/decisions.proto";
+import "v1/generative.proto";
 import "v1/properties.proto";
 
 option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";

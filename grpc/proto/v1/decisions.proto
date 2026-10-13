@@ -28,7 +28,8 @@ message DecisionQuestion {
 
 // DecisionPredicate asks whether the instructions hold for the object. The
 // answer is a probability.
-message DecisionPredicate {}
+message DecisionPredicate {
+}
 
 // DecisionChoice picks one of the options. The answer is the option with
 // the highest probability, the probability of every option and a
@@ -92,4 +93,5 @@ message DecisionProbability {
   double probability = 2;
 }
 
-message DecisionRefusal {}
+message DecisionRefusal {
+}
