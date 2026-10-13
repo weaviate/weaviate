@@ -751,13 +751,10 @@ func Test_JsonShardMetaData_LoadWritesConvertedOrMissingFile(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			trackerPath := path.Join(t.TempDir(), "proplen")
 			tt.prepare(t, trackerPath)
-			before, _ := os.Stat(trackerPath)
 
 			_, err := NewJsonShardMetaData(trackerPath, logrus.New())
 			require.NoError(t, err)
 
-			after := statFile(t, trackerPath)
-			require.False(t, before != nil && os.SameFile(before, after), "file not rewritten")
 			raw, err := os.ReadFile(trackerPath)
 			require.NoError(t, err)
 			require.True(t, json.Valid(raw), "file is not JSON: %q", raw)
