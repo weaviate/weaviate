@@ -60,8 +60,8 @@ func (m *DecisionsDummyModule) AdditionalProperties() map[string]modulecapabilit
 	return m.additionalProperties
 }
 
-// DecisionLimits: the Weaviate ceilings, text, and the maxDocuments class
-// setting (default 100) so that tests can exercise the page bound.
+// DecisionLimits: the Weaviate ceilings, text and blob, and the maxDocuments
+// class setting (default 100) so that tests can exercise the page bound.
 func (m *DecisionsDummyModule) DecisionLimits(cfg moduletools.ClassConfig) (modulecapabilities.DecisionLimits, error) {
 	return modulecapabilities.DecisionLimits{
 		MaxDocuments: clients.MaxDocuments(cfg),

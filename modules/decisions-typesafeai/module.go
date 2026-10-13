@@ -119,7 +119,15 @@ func (m *DecisionsTypeSafeAIModule) DecisionLimits(cfg moduletools.ClassConfig) 
 	// so the setting is checked here as Validate checks it.
 	maxDocuments := config.NewClassSettings(cfg).MaxDocuments()
 	if maxDocuments < 1 || maxDocuments > config.MaxDocumentsLimit {
-		return modulecapabilities.DecisionLimits{}, fmt.Errorf("maxDocuments must be between 1 and %d, got %d", config.MaxDocumentsLimit, maxDocuments)
+		// MaxDocuments maps a value of another type to 0; the error names
+		// what the class holds.
+		stored := any(maxDocuments)
+		if cfg != nil {
+			if value, ok := cfg.ClassByModuleName(Name)["maxDocuments"]; ok {
+				stored = value
+			}
+		}
+		return modulecapabilities.DecisionLimits{}, fmt.Errorf("maxDocuments must be a whole number between 1 and %d, got %v", config.MaxDocumentsLimit, stored)
 	}
 	return modulecapabilities.DecisionLimits{
 		MaxDocuments: maxDocuments,

@@ -61,8 +61,8 @@ func TestDecisionLimits(t *testing.T) {
 		{name: "defaults", settings: map[string]any{}, wantMaxDocuments: 100},
 		{name: "maxDocuments from the class", settings: map[string]any{"maxDocuments": 40}, wantMaxDocuments: 40},
 		// A class created before the module was enabled was never validated.
-		{name: "maxDocuments above the upper bound", settings: map[string]any{"maxDocuments": 5000}, wantErr: "maxDocuments must be between 1 and 1000, got 5000"},
-		{name: "maxDocuments of another type", settings: map[string]any{"maxDocuments": "many"}, wantErr: "maxDocuments must be between 1 and 1000, got 0"},
+		{name: "maxDocuments above the upper bound", settings: map[string]any{"maxDocuments": 5000}, wantErr: "maxDocuments must be a whole number between 1 and 1000, got 5000"},
+		{name: "maxDocuments of another type", settings: map[string]any{"maxDocuments": "many"}, wantErr: "maxDocuments must be a whole number between 1 and 1000, got many"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

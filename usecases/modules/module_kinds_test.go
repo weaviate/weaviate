@@ -269,8 +269,8 @@ func TestDecideLimits(t *testing.T) {
 		},
 		{
 			name: "a class setting the module cannot work with", class: "Decisions",
-			module:  limitedDecisions{decisionsModule("decisions-z", nil), declared, errors.New("maxDocuments must be between 1 and 1000, got 0")},
-			wantErr: "decisions-z: maxDocuments must be between 1 and 1000, got 0",
+			module:  limitedDecisions{decisionsModule("decisions-z", nil), declared, errors.New("maxDocuments must be a whole number between 1 and 1000, got many")},
+			wantErr: "decisions-z: maxDocuments must be a whole number between 1 and 1000, got many",
 		},
 		{
 			name: "a module that declares none judges text within the ceilings", class: "Decisions",
