@@ -151,8 +151,6 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 
 	h.compressor.PersistCompression(h.commitLog)
 	h.compressed.Store(true)
-	// the field stays set: readers that checked h.compressed before the flip
-	// hold no lock against us and must find a dropped cache, not nil
 	h.cache.Drop()
 	return nil
 }
