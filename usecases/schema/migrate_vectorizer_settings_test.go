@@ -45,6 +45,10 @@ func TestParseClassUpdate_ModuleWithMigrateProperties(t *testing.T) {
 		delete(settings, "baseURL")
 		return settings
 	}
+	// A named vector created on v1.24 is stored with only the settings the client sent.
+	createdOnV124 := func() map[string]any {
+		return map[string]any{"properties": []any{"text"}, "vectorizeClassName": false, "vectorizePropertyName": false}
+	}
 	with := func(settings map[string]any, key string, value any) map[string]any {
 		settings[key] = value
 		return settings
@@ -72,6 +76,19 @@ func TestParseClassUpdate_ModuleWithMigrateProperties(t *testing.T) {
 	}{
 		{name: "unchanged", stored: stored(), updated: stored()},
 		{name: "baseURL missing from the stored settings", stored: withoutBaseURL(stored()), updated: stored()},
+		{
+			name: "custom baseURL, baseURL missing from the stored settings", stored: withoutBaseURL(stored()),
+			updated: with(stored(), "baseURL", "https://example.com"), wantErr: true,
+		},
+		{
+			name: "model and baseURL missing from the stored settings, update fills the defaults", stored: createdOnV124(),
+			updated: with(with(createdOnV124(), "model", "text-embedding-3-small"), "baseURL", "https://api.openai.com"),
+		},
+		{
+			name: "model missing from the stored settings, update sets another model", stored: createdOnV124(),
+			updated: with(with(createdOnV124(), "model", "text-embedding-3-large"), "baseURL", "https://api.openai.com"),
+			wantErr: true,
+		},
 		{name: "changed model", stored: stored(), updated: with(stored(), "model", "text-embedding-3-large"), wantErr: true},
 		{name: "changed baseURL", stored: stored(), updated: with(stored(), "baseURL", "https://example.com"), wantErr: true},
 		{
