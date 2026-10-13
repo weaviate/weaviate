@@ -73,7 +73,8 @@ type AdditionalProperties interface {
 // search runs, so a question the provider would reject costs no search and
 // no provider call. A count of 0 means the Weaviate ceiling applies.
 type DecisionLimits struct {
-	// MaxDocuments bounds the page a query judges.
+	// MaxDocuments bounds the documents a query judges: its limit. The
+	// offset does not count, the module only sees the page.
 	MaxDocuments int
 	// MaxOptions bounds the options of a choice, MaxLevels the levels of a
 	// score.
@@ -84,7 +85,9 @@ type DecisionLimits struct {
 }
 
 // DecisionLimitsProvider is implemented by a decisions module. The limits
-// may depend on the class settings of the module.
+// may depend on the class settings of the module; a class setting the module
+// cannot work with is the error, so that the request fails before the
+// search.
 type DecisionLimitsProvider interface {
-	DecisionLimits(cfg moduletools.ClassConfig) DecisionLimits
+	DecisionLimits(cfg moduletools.ClassConfig) (DecisionLimits, error)
 }

@@ -307,6 +307,7 @@ func TestParamsValidateFor(t *testing.T) {
 		{Name: "text", DataType: schema.DataTypeText.PropString()},
 		{Name: "count", DataType: schema.DataTypeInt.PropString()},
 		{Name: "photo", DataType: schema.DataTypeBlob.PropString()},
+		{Name: "tags", DataType: schema.DataTypeTextArray.PropString()},
 	}}
 	text := Limits{Module: "decisions-x", DecisionLimits: modulecapabilities.DecisionLimits{
 		MaxDocuments: 100, MaxOptions: 3, MaxLevels: 2, DataTypes: []schema.DataType{schema.DataTypeText},
@@ -332,12 +333,13 @@ func TestParamsValidateFor(t *testing.T) {
 		name      string
 		questions []ent.DecisionQuestion
 		limits    Limits
-		pageEnd   int
+		limit     int
 		wantErr   string
 	}{
-		{name: "text within the limits", questions: []ent.DecisionQuestion{predicate("a", "text")}, limits: text, pageEnd: 100},
-		{name: "page beyond maxDocuments", questions: []ent.DecisionQuestion{predicate("a", "text")}, limits: text, pageEnd: 101, wantErr: "the page ends at 101, beyond maxDocuments 100 of decisions-x: lower offset+limit or raise maxDocuments"},
-		{name: "no maxDocuments means no page bound", questions: []ent.DecisionQuestion{predicate("a", "text")}, limits: images, pageEnd: 100000},
+		{name: "text within the limits", questions: []ent.DecisionQuestion{predicate("a", "text")}, limits: text, limit: 100},
+		{name: "limit above maxDocuments", questions: []ent.DecisionQuestion{predicate("a", "text")}, limits: text, limit: 101, wantErr: "limit 101 exceeds maxDocuments 100 of decisions-x: lower the limit or raise maxDocuments"},
+		{name: "no maxDocuments means no page bound", questions: []ent.DecisionQuestion{predicate("a", "text")}, limits: images, limit: 100000},
+		{name: "array property", questions: []ent.DecisionQuestion{predicate("a", "tags")}, limits: text, wantErr: `question "a": property "tags" is of type "text[]", decisions-x judges [text]`},
 		{name: "unknown property", questions: []ent.DecisionQuestion{predicate("a", "nope")}, limits: text, wantErr: `question "a": class "Tickets" has no property "nope"`},
 		{name: "property of another type", questions: []ent.DecisionQuestion{predicate("a", "count")}, limits: text, wantErr: `question "a": property "count" is of type "int", decisions-x judges [text]`},
 		{name: "image on a text-only module", questions: []ent.DecisionQuestion{predicate("a", "photo")}, limits: text, wantErr: `question "a": property "photo" is of type "blob", decisions-x judges [text]`},
@@ -349,7 +351,7 @@ func TestParamsValidateFor(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := (&Params{Questions: tt.questions}).ValidateFor(class, tt.limits, tt.pageEnd)
+			err := (&Params{Questions: tt.questions}).ValidateFor(class, tt.limits, tt.limit)
 
 			if tt.wantErr != "" {
 				require.EqualError(t, err, tt.wantErr)

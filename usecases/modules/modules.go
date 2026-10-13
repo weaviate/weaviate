@@ -877,11 +877,7 @@ func (p *Provider) rerankModule(class *models.Class, decision bool) (modulecapab
 // DecideLimits returns the limits of the class's decisions module for the
 // decide property, read from the module's class settings. A module that
 // declares none judges text within the Weaviate ceilings.
-func (p *Provider) DecideLimits(className string) (decide.Limits, error) {
-	class, err := p.getClass(className)
-	if err != nil {
-		return decide.Limits{}, err
-	}
+func (p *Provider) DecideLimits(class *models.Class) (decide.Limits, error) {
 	_, module := p.classModulesByKind(class)
 	if module == nil {
 		return decide.Limits{}, fmt.Errorf("class %q has no decisions module", class.Class)
@@ -891,7 +887,11 @@ func (p *Provider) DecideLimits(className string) (decide.Limits, error) {
 		DecisionLimits: modulecapabilities.DecisionLimits{DataTypes: []schema.DataType{schema.DataTypeText}},
 	}
 	if provider, ok := module.(modulecapabilities.DecisionLimitsProvider); ok {
-		limits.DecisionLimits = provider.DecisionLimits(NewClassBasedModuleConfig(class, module.Name(), "", "", &p.cfg))
+		declared, err := provider.DecisionLimits(NewClassBasedModuleConfig(class, module.Name(), "", "", &p.cfg))
+		if err != nil {
+			return decide.Limits{}, fmt.Errorf("%s: %w", module.Name(), err)
+		}
+		limits.DecisionLimits = declared
 	}
 	return limits, nil
 }

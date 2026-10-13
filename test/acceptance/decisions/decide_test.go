@@ -233,9 +233,13 @@ func TestDecide(t *testing.T) {
 
 		_, err := grpchelper.Search(t, &pb.SearchRequest{Collection: smallPage, Limit: 3, Decide: questions})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "the page ends at 3, beyond maxDocuments 2 of decisions-dummy")
+		assert.Contains(t, err.Error(), "limit 3 exceeds maxDocuments 2 of decisions-dummy")
 
 		reply := grpchelper.AssertSearch(t, &pb.SearchRequest{Collection: smallPage, Limit: 2, Decide: questions})
+		assert.Len(t, reply.Results, 2)
+
+		// The module judges the page, so the offset does not count.
+		reply = grpchelper.AssertSearch(t, &pb.SearchRequest{Collection: smallPage, Limit: 2, Offset: 1, Decide: questions})
 		assert.Len(t, reply.Results, 2)
 	})
 

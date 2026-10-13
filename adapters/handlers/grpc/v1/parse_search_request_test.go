@@ -3135,7 +3135,7 @@ func TestGRPCSearchRequestDecideLimits(t *testing.T) {
 		MaxDocuments: 50, MaxLevels: 3, DataTypes: []schema.DataType{schema.DataTypeText},
 	}}
 	limitsOf := func(limits decide.Limits, err error) decideLimitsFunc {
-		return func(string) (decide.Limits, error) { return limits, err }
+		return func(*models.Class) (decide.Limits, error) { return limits, err }
 	}
 	tests := []struct {
 		name    string
@@ -3180,17 +3180,23 @@ func TestGRPCSearchRequestDecideLimits(t *testing.T) {
 			wantErr: `decide: question "a": 4 levels exceed the limit of 3 of decisions-x`,
 		},
 		{
-			name:    "page beyond maxDocuments",
+			name:    "limit above maxDocuments",
 			limits:  limitsOf(textOnly, nil),
-			req:     &pb.SearchRequest{Collection: classname, Limit: 40, Offset: 20, Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{predicate("a", "name")}}},
-			wantErr: "decide: the page ends at 60, beyond maxDocuments 50 of decisions-x: lower offset+limit or raise maxDocuments",
+			req:     &pb.SearchRequest{Collection: classname, Limit: 60, Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{predicate("a", "name")}}},
+			wantErr: "decide: limit 60 exceeds maxDocuments 50 of decisions-x: lower the limit or raise maxDocuments",
+		},
+		{
+			// The module judges the page, so the offset does not count.
+			name:   "a page beyond maxDocuments with a limit within it",
+			limits: limitsOf(textOnly, nil),
+			req:    &pb.SearchRequest{Collection: classname, Limit: 40, Offset: 20, Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{predicate("a", "name")}}},
 		},
 		{
 			name:   "the default limit counts as the page",
 			limits: limitsOf(decide.Limits{Module: "decisions-x", DecisionLimits: modulecapabilities.DecisionLimits{MaxDocuments: 5, DataTypes: []schema.DataType{schema.DataTypeText}}}, nil),
 			req:    &pb.SearchRequest{Collection: classname, Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{predicate("a", "name")}}},
 			// The default limit of the test config is 10.
-			wantErr: "decide: the page ends at 10, beyond maxDocuments 5 of decisions-x: lower offset+limit or raise maxDocuments",
+			wantErr: "decide: limit 10 exceeds maxDocuments 5 of decisions-x: lower the limit or raise maxDocuments",
 		},
 	}
 	for _, tt := range tests {

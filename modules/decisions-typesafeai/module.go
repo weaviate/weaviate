@@ -13,6 +13,7 @@ package moddecisionstypesafeai
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"os"
 	"strconv"
@@ -113,13 +114,18 @@ func (m *DecisionsTypeSafeAIModule) AdditionalProperties() map[string]modulecapa
 
 // DecisionLimits: the API accepts at most 10 levels per score and judges
 // text; the options of a choice stay within the Weaviate ceiling.
-func (m *DecisionsTypeSafeAIModule) DecisionLimits(cfg moduletools.ClassConfig) modulecapabilities.DecisionLimits {
-	settings := config.NewClassSettings(cfg)
+func (m *DecisionsTypeSafeAIModule) DecisionLimits(cfg moduletools.ClassConfig) (modulecapabilities.DecisionLimits, error) {
+	// A class created before the module was enabled was never validated,
+	// so the setting is checked here as Validate checks it.
+	maxDocuments := config.NewClassSettings(cfg).MaxDocuments()
+	if maxDocuments < 1 || maxDocuments > config.MaxDocumentsLimit {
+		return modulecapabilities.DecisionLimits{}, fmt.Errorf("maxDocuments must be between 1 and %d, got %d", config.MaxDocumentsLimit, maxDocuments)
+	}
 	return modulecapabilities.DecisionLimits{
-		MaxDocuments: min(settings.MaxDocuments(), config.MaxDocumentsLimit),
+		MaxDocuments: maxDocuments,
 		MaxLevels:    config.MaxScoreLevels,
 		DataTypes:    []schema.DataType{schema.DataTypeText},
-	}
+	}, nil
 }
 
 // verify we implement the modules.Module interface

@@ -14,6 +14,7 @@ package decide
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -129,12 +130,13 @@ type Limits struct {
 }
 
 // ValidateFor checks the questions against the class and the limits of its
-// decisions module, and the page against the module's maxDocuments. pageEnd
-// is offset+limit. It runs before the search, after Validate.
-func (p *Params) ValidateFor(class *models.Class, limits Limits, pageEnd int) error {
-	if limits.MaxDocuments > 0 && pageEnd > limits.MaxDocuments {
-		return fmt.Errorf("the page ends at %d, beyond maxDocuments %d of %s: lower offset+limit or raise maxDocuments",
-			pageEnd, limits.MaxDocuments, limits.Module)
+// decisions module, and the limit against the module's maxDocuments: the
+// module judges the page, so the offset does not count. It runs before the
+// search, after Validate.
+func (p *Params) ValidateFor(class *models.Class, limits Limits, limit int) error {
+	if limits.MaxDocuments > 0 && limit > limits.MaxDocuments {
+		return fmt.Errorf("limit %d exceeds maxDocuments %d of %s: lower the limit or raise maxDocuments",
+			limit, limits.MaxDocuments, limits.Module)
 	}
 	for _, question := range p.Questions {
 		if err := validateQuestionFor(question, class, limits); err != nil {
@@ -149,9 +151,12 @@ func validateQuestionFor(question ent.DecisionQuestion, class *models.Class, lim
 	if property == nil {
 		return fmt.Errorf("class %q has no property %q", class.Class, question.Property)
 	}
+	// AsPrimitive is "" for an array, an object or a reference, so the
+	// message names the type as the schema does.
 	dataType, _ := schema.AsPrimitive(property.DataType)
 	if !slices.Contains(limits.DataTypes, dataType) {
-		return fmt.Errorf("property %q is of type %q, %s judges %v", question.Property, dataType, limits.Module, limits.DataTypes)
+		return fmt.Errorf("property %q is of type %q, %s judges %v",
+			question.Property, strings.Join(property.DataType, ","), limits.Module, limits.DataTypes)
 	}
 	if limits.MaxOptions > 0 && len(question.Options) > limits.MaxOptions {
 		return fmt.Errorf("%d options exceed the limit of %d of %s", len(question.Options), limits.MaxOptions, limits.Module)

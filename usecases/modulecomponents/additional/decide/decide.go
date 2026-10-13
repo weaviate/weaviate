@@ -156,7 +156,7 @@ func groupByProperty(questions []ent.DecisionQuestion) []propertyGroup {
 // propertyText returns the text of the property, or "" when the object has
 // none or it is not text.
 func propertyText(result search.Result, property string) string {
-	properties, ok := result.Object().Properties.(map[string]any)
+	properties, ok := result.Schema.(map[string]any)
 	if !ok {
 		return ""
 	}

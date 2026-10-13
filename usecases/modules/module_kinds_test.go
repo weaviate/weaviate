@@ -13,6 +13,7 @@ package modules
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -245,10 +246,11 @@ func TestImplicitInclusionCountsPerKind(t *testing.T) {
 type limitedDecisions struct {
 	typedModule
 	limits modulecapabilities.DecisionLimits
+	err    error
 }
 
-func (m limitedDecisions) DecisionLimits(moduletools.ClassConfig) modulecapabilities.DecisionLimits {
-	return m.limits
+func (m limitedDecisions) DecisionLimits(moduletools.ClassConfig) (modulecapabilities.DecisionLimits, error) {
+	return m.limits, m.err
 }
 
 func TestDecideLimits(t *testing.T) {
@@ -262,8 +264,13 @@ func TestDecideLimits(t *testing.T) {
 	}{
 		{
 			name: "a module that declares its limits", class: "Decisions",
-			module: limitedDecisions{decisionsModule("decisions-z", nil), declared},
+			module: limitedDecisions{decisionsModule("decisions-z", nil), declared, nil},
 			want:   decide.Limits{Module: "decisions-z", DecisionLimits: declared},
+		},
+		{
+			name: "a class setting the module cannot work with", class: "Decisions",
+			module:  limitedDecisions{decisionsModule("decisions-z", nil), declared, errors.New("maxDocuments must be between 1 and 1000, got 0")},
+			wantErr: "decisions-z: maxDocuments must be between 1 and 1000, got 0",
 		},
 		{
 			name: "a module that declares none judges text within the ceilings", class: "Decisions",
@@ -288,7 +295,7 @@ func TestDecideLimits(t *testing.T) {
 			p.Register(tt.module)
 			p.Register(decisionsModule("decisions-y", nil))
 
-			limits, err := p.DecideLimits(tt.class)
+			limits, err := p.DecideLimits(kindsSchemaReader().ReadOnlyClass(tt.class))
 
 			if tt.wantErr != "" {
 				require.EqualError(t, err, tt.wantErr)

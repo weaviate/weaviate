@@ -60,9 +60,9 @@ type generativeParser interface {
 	ReturnDebugForGrouped() bool
 }
 
-// decideLimitsFunc returns the limits of a class's decisions module for the
-// decide argument, see decide.Limits. nil skips the module's checks.
-type decideLimitsFunc func(className string) (decide.Limits, error)
+// decideLimitsFunc returns the limits of the class's decisions module for
+// the decide argument, see decide.Limits. nil skips the module's checks.
+type decideLimitsFunc func(class *models.Class) (decide.Limits, error)
 
 type Parser struct {
 	generative         generativeParser
@@ -405,11 +405,11 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 			return dto.GetParams{}, err
 		}
 		if p.decideLimits != nil {
-			limits, err := p.decideLimits(class.Class)
+			limits, err := p.decideLimits(class)
 			if err != nil {
 				return dto.GetParams{}, fmt.Errorf("decide: %w", err)
 			}
-			if err := decisions.ValidateFor(class, limits, out.Pagination.Offset+out.Pagination.Limit); err != nil {
+			if err := decisions.ValidateFor(class, limits, out.Pagination.Limit); err != nil {
 				return dto.GetParams{}, fmt.Errorf("decide: %w", err)
 			}
 		}
