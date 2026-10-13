@@ -14,6 +14,7 @@ package clients
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -283,7 +284,7 @@ func TestDecideMalformedAnswers(t *testing.T) {
 		{name: "predicate of another type", questions: []ent.DecisionQuestion{angryQuestion}, body: `{"answers":[{"type":"score","name":"angry","score":1}]}`, wantErr: `answer "angry": unexpected answer type "score"`},
 		{name: "predicate without probability", questions: []ent.DecisionQuestion{angryQuestion}, body: `{"answers":[{"type":"predicate","name":"angry"}]}`, wantErr: `answer "angry": no probability in response`},
 		{name: "choice that is not an option", questions: []ent.DecisionQuestion{teamQuestion}, body: `{"answers":[{"type":"choice","name":"team","choice":"sales","probabilities":[],"confidence":1}]}`, wantErr: `answer "team": choice "sales" in response is not one of the options`},
-		{name: "choice that is a bool", questions: []ent.DecisionQuestion{teamQuestion}, body: `{"answers":[{"type":"choice","name":"team","choice":true,"probabilities":[],"confidence":1}]}`, wantErr: `answer "team": choice "true" in response is not one of the options`},
+		{name: "choice that is a bool", questions: []ent.DecisionQuestion{teamQuestion}, body: `{"answers":[{"type":"choice","name":"team","choice":true,"probabilities":[],"confidence":1}]}`, wantErr: `answer "team": choice true in response is not one of the options`},
 		{name: "choice that is an object", questions: []ent.DecisionQuestion{teamQuestion}, body: `{"answers":[{"type":"choice","name":"team","choice":{"a":1},"probabilities":[],"confidence":1}]}`, wantErr: `answer "team": choice map[a:1] in response is not one of the options`},
 		{name: "choice without the probability of an option", questions: []ent.DecisionQuestion{teamQuestion}, body: `{"answers":[{"type":"choice","name":"team","choice":"billing","probabilities":[{"value":"billing","probability":1}],"confidence":1}]}`, wantErr: `answer "team": no probability for option "other"`},
 		{name: "score out of range", questions: []ent.DecisionQuestion{urgencyQuestion}, body: `{"answers":[{"type":"score","name":"urgency","score":2.5,"probabilities":[],"confidence":1}]}`, wantErr: `answer "urgency": score 2.5 in response is out of range`},
@@ -313,7 +314,8 @@ func TestDecideChoiceEchoedTyped(t *testing.T) {
 	}
 	number := ent.DecisionQuestion{
 		Name: "number", Property: "text", Instructions: "how many?", Kind: ent.DecisionChoice,
-		Options: []ent.DecisionOption{{Value: "1"}, {Value: "2.5"}},
+		// "1.0" and "2.50" read as the numbers 1 and 2.5.
+		Options: []ent.DecisionOption{{Value: "1.0"}, {Value: "2.50"}},
 	}
 	handler := &decideHandler{t: t, rawBody: `{"answers":[` +
 		`{"type":"choice","name":"flag","choice":true,"probabilities":[{"value":true,"probability":0.7},{"value":false,"probability":0.3}],"confidence":0.7},` +
@@ -326,8 +328,36 @@ func TestDecideChoiceEchoedTyped(t *testing.T) {
 	require.Len(t, out, 1)
 	assert.Equal(t, "true", out[0][0].Choice)
 	assert.Equal(t, []ent.DecisionProbability{{Value: "true", Probability: 0.7}, {Value: "false", Probability: 0.3}}, out[0][0].Probabilities)
-	assert.Equal(t, "2.5", out[0][1].Choice)
-	assert.Equal(t, []ent.DecisionProbability{{Value: "1", Probability: 0.2}, {Value: "2.5", Probability: 0.8}}, out[0][1].Probabilities)
+	assert.Equal(t, "2.50", out[0][1].Choice, "the option as the question names it")
+	assert.Equal(t, []ent.DecisionProbability{{Value: "1.0", Probability: 0.2}, {Value: "2.50", Probability: 0.8}}, out[0][1].Probabilities)
+}
+
+func TestOptionMatches(t *testing.T) {
+	tests := []struct {
+		option string
+		value  any
+		want   bool
+	}{
+		{"billing", "billing", true},
+		{"billing", "Billing", false},
+		{"true", true, true},
+		{"True", true, true},
+		{"false", true, false},
+		{"yes", true, false},
+		{"1.0", 1.0, true},
+		{"1", 1.0, true},
+		{"2.50", 2.5, true},
+		{"2.5", 2.0, false},
+		{"1e3", 1000.0, true},
+		{"one", 1.0, false},
+		{"billing", map[string]any{"a": 1}, false},
+		{"billing", nil, false},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%s vs %v", tt.option, tt.value), func(t *testing.T) {
+			assert.Equal(t, tt.want, optionMatches(tt.option, tt.value))
+		})
+	}
 }
 
 func TestDecideRetriesAServerError(t *testing.T) {

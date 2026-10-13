@@ -149,11 +149,10 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 		pending = append(pending, i)
 	}
 
-	// Every text empty means the rerank property is not a text property of
-	// these objects, most likely a typo. Scoring nothing would look like
-	// "nothing matched".
+	// Every document empty means the rerank property holds nothing on these
+	// objects. Scoring nothing would look like "nothing matched".
 	if len(documents) > 0 && len(firstIndex) == 0 {
-		return nil, errors.New("no document has text: check the rerank property")
+		return nil, errors.New("no document has content: check the rerank property")
 	}
 
 	var inputTokens, outputTokens, requests, unanswered atomic.Int64

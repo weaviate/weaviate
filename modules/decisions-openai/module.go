@@ -108,8 +108,7 @@ func (m *DecisionsOpenAIModule) AdditionalProperties() map[string]modulecapabili
 }
 
 // DecisionLimits: OpenAI publishes no caps for the Decisions API, so the
-// Weaviate ceilings apply; the module judges text. A maxDocuments setting
-// Resolve rejects is left to the module's own validation.
+// Weaviate ceilings apply; the module judges text.
 func (m *DecisionsOpenAIModule) DecisionLimits(cfg moduletools.ClassConfig) (modulecapabilities.DecisionLimits, error) {
 	// A class created before the module was enabled was never validated,
 	// so a setting Resolve rejects fails the request here, before the search.

@@ -14,6 +14,7 @@ package clients
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"sync/atomic"
 
@@ -229,31 +230,34 @@ func decideAnswer(question ent.DecisionQuestion, answer decisionAnswer) (ent.Dec
 		if answer.Type != choiceType {
 			return out, errors.Errorf("unexpected answer type %q", answer.Type)
 		}
-		choice, ok := choiceValue(answer.Choice)
-		if !ok {
-			return out, errors.Errorf("choice %v in response is not one of the options", answer.Choice)
-		}
-		known := false
-		for _, option := range question.Options {
-			known = known || option.Value == choice
-		}
-		if !known {
-			return out, errors.Errorf("choice %q in response is not one of the options", choice)
-		}
-		out.Choice = choice
-		byValue := make(map[string]float64, len(answer.Probabilities))
-		for _, p := range answer.Probabilities {
-			if value, ok := choiceValue(p.Value); ok {
-				byValue[value] = p.Probability
+		chosen := -1
+		for i, option := range question.Options {
+			if optionMatches(option.Value, answer.Choice) {
+				chosen = i
+				break
 			}
 		}
+		if chosen < 0 {
+			return out, errors.Errorf("choice %s in response is not one of the options", shown(answer.Choice))
+		}
+		out.Choice = question.Options[chosen].Value
 		out.Probabilities = make([]ent.DecisionProbability, len(question.Options))
 		for i, option := range question.Options {
-			probability, err := namedProbability(byValue, option.Value, "option")
-			if err != nil {
-				return out, err
+			found := false
+			for _, p := range answer.Probabilities {
+				if !optionMatches(option.Value, p.Value) {
+					continue
+				}
+				if p.Probability < 0 || p.Probability > 1 {
+					return out, errors.Errorf("probability %v of option %q is outside [0, 1]", p.Probability, option.Value)
+				}
+				out.Probabilities[i] = ent.DecisionProbability{Value: option.Value, Probability: p.Probability}
+				found = true
+				break
 			}
-			out.Probabilities[i] = ent.DecisionProbability{Value: option.Value, Probability: probability}
+			if !found {
+				return out, errors.Errorf("no probability for option %q", option.Value)
+			}
 		}
 	case ent.DecisionScore:
 		if answer.Type != scoreType {
@@ -296,28 +300,28 @@ func decideAnswer(question ent.DecisionQuestion, answer decisionAnswer) (ent.Dec
 	return out, nil
 }
 
-// choiceValue is the option an answer names. The options are sent as
-// strings, and the API echoes them typed when they read as a bool or a
-// number, so those come back in their string form.
-func choiceValue(value any) (string, bool) {
+// optionMatches says whether a value the API echoed names the option. The
+// options are sent as strings; the API echoes an option that reads as a
+// bool or a number typed, so those are compared by their parsed value
+// ("1.0" matches 1, "True" matches true).
+func optionMatches(option string, value any) bool {
 	switch v := value.(type) {
 	case string:
-		return v, true
+		return v == option
 	case bool:
-		return strconv.FormatBool(v), true
+		parsed, err := strconv.ParseBool(option)
+		return err == nil && parsed == v
 	case float64:
-		return strconv.FormatFloat(v, 'f', -1, 64), true
+		parsed, err := strconv.ParseFloat(option, 64)
+		return err == nil && parsed == v
 	}
-	return "", false
+	return false
 }
 
-func namedProbability(probabilities map[string]float64, name, what string) (float64, error) {
-	probability, ok := probabilities[name]
-	if !ok {
-		return 0, errors.Errorf("no probability for %s %q", what, name)
+// shown is the value as the error names it: quoted when it is a string.
+func shown(value any) string {
+	if text, ok := value.(string); ok {
+		return strconv.Quote(text)
 	}
-	if probability < 0 || probability > 1 {
-		return 0, errors.Errorf("probability %v of %s %q is outside [0, 1]", probability, what, name)
-	}
-	return probability, nil
+	return fmt.Sprintf("%v", value)
 }
