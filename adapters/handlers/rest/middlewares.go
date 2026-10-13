@@ -254,25 +254,42 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 		}
 
 		if r.URL.String() == "/v1/.well-known/ready" {
-			code := http.StatusOK
-			// if this node is in maintenance mode, we want to return live but not ready
-			// so that kubernetes will allow this pod to run but not send traffic to it
-			if state.Cluster.MaintenanceModeEnabledForLocalhost() {
-				code = http.StatusServiceUnavailable
-			} else if !state.ClusterService.Ready() || state.Cluster.ClusterHealthScore() != 0 {
-				code = http.StatusServiceUnavailable
-			} else if state.Modules != nil {
+			modulesReady := true
+			if state.Modules != nil {
 				_, err := state.Modules.GetMeta()
-				if err != nil {
-					code = http.StatusServiceUnavailable
-				}
+				modulesReady = err == nil
 			}
-			w.WriteHeader(code)
+			w.WriteHeader(readyCode(readiness{
+				maintenance:  state.Cluster.MaintenanceModeEnabledForLocalhost(),
+				clusterReady: state.ClusterService.Ready(),
+				healthScore:  state.Cluster.ClusterHealthScore(),
+				dbStarted:    state.DB == nil || state.DB.StartupComplete(),
+				modulesReady: modulesReady,
+			}))
 			return
 		}
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// readiness is what the ready probe decides on, as data so the decision is testable.
+type readiness struct {
+	maintenance  bool
+	clusterReady bool
+	healthScore  int
+	dbStarted    bool
+	modulesReady bool
+}
+
+// readyCode answers 503 until this node can serve. dbStarted is the easily missed one: RAFT comes
+// up before db.init returns, and until it does there are no indices to read -- the cluster API
+// already refuses peers with "startup is not complete" in that window.
+func readyCode(r readiness) int {
+	if r.maintenance || !r.clusterReady || r.healthScore != 0 || !r.dbStarted || !r.modulesReady {
+		return http.StatusServiceUnavailable
+	}
+	return http.StatusOK
 }
 
 func addOperationalMode(state *state.State, next http.Handler) http.Handler {
