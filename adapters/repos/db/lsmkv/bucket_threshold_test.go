@@ -44,11 +44,11 @@ func newTestBucketWithFlushCycle(t *testing.T, opts ...BucketOption) *Bucket {
 	flushCallbacks := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
 	flushCycle := cyclemanager.NewManager("flush", cyclemanager.MemtableFlushCycleTicker(false), flushCallbacks.CycleCallback, logger)
 	flushCycle.Start()
-	// StopAndWait is a no-op once stopped, so the bucket teardown may call it again.
+	// Stop is a no-op once stopped, so the bucket teardown may call it again.
 	stopFlushCycle := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
-		require.NoError(t, flushCycle.StopAndWait(ctx))
+		require.NoError(t, cyclemanager.WaitForStop(ctx, flushCycle.Stop(ctx)))
 	}
 	t.Cleanup(stopFlushCycle)
 
