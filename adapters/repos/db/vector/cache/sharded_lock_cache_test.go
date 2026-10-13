@@ -721,8 +721,10 @@ func TestShardedLockCache_OpsAfterDrop(t *testing.T) {
 	c.Preload(200, []float32{1})
 	assert.False(t, c.(IfAbsentPreloader[float32]).PreloadIfAbsent(201, []float32{1}))
 	c.Grow(300)
+	// the flat index's fill sequence: grow then preload, all under LockAll
 	c.LockAll()
 	c.SetSizeAndGrowNoLock(400)
+	c.PreloadNoLock(400, []float32{1})
 	c.UnlockAll()
 
 	assert.Zero(t, c.Len(), "nothing may reallocate a dropped cache")

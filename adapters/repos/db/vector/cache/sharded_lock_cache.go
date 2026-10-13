@@ -433,6 +433,10 @@ func (s *shardedLockCache[T]) preload(id uint64, vec []T, ifAbsent bool) bool {
 }
 
 func (s *shardedLockCache[T]) PreloadNoLock(id uint64, vec []T) {
+	// SetSizeAndGrowNoLock leaves a dropped cache uncovered
+	if int(id) >= len(s.cache) {
+		return
+	}
 	s.storeLocked(id, vec)
 }
 
