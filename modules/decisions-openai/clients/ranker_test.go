@@ -487,7 +487,7 @@ func TestRankDocumentsSent(t *testing.T) {
 		{
 			name:      "only empty documents",
 			documents: []string{"", ""},
-			wantErr:   "no document has text: check the rerank property",
+			wantErr:   "no document has content: check the rerank property",
 		},
 		{
 			name:      "no documents",

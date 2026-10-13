@@ -85,8 +85,8 @@ type client struct {
 	httpClient   *http.Client
 	retryBackoff time.Duration
 	// inFlight holds one token per request being sent. It is shared by all
-	// Rank calls, so it limits the load on the OpenAI API however many
-	// queries run at once.
+	// Rank and Decide calls, so it limits the load on the OpenAI API however
+	// many queries run at once.
 	inFlight chan struct{}
 	logger   logrus.FieldLogger
 }
@@ -128,7 +128,8 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 		return nil, err
 	}
 	request := judgeRequest{
-		url: openAIURL, apiKey: apiKey, organization: c.organizationFor(ctx), model: settings.Model, query: query,
+		endpointAuth: endpointAuth{url: openAIURL, apiKey: apiKey, organization: c.organizationFor(ctx)},
+		model:        settings.Model, query: query,
 		statement: settings.Question == config.QuestionStatement,
 	}
 
@@ -148,11 +149,10 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 		pending = append(pending, i)
 	}
 
-	// Every text empty means the rerank property is not a text property of
-	// these objects, most likely a typo. Scoring nothing would look like
-	// "nothing matched".
+	// Every document empty means the rerank property holds nothing on these
+	// objects. Scoring nothing would look like "nothing matched".
 	if len(documents) > 0 && len(firstIndex) == 0 {
-		return nil, errors.New("no document has text: check the rerank property")
+		return nil, errors.New("no document has content: check the rerank property")
 	}
 
 	var inputTokens, outputTokens, requests, unanswered atomic.Int64
@@ -201,13 +201,19 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 	return &ent.RankResult{Query: query, DocumentScores: documentScores}, nil
 }
 
-// judgeRequest is what all requests of one Rank call have in common.
-type judgeRequest struct {
+// endpointAuth is where the requests of one call go and how they
+// authenticate.
+type endpointAuth struct {
 	url          string
 	apiKey       string
 	organization string
-	model        string
-	query        string
+}
+
+// judgeRequest is what all requests of one Rank call have in common.
+type judgeRequest struct {
+	endpointAuth
+	model string
+	query string
 	// statement selects the statement question instead of the relevance one.
 	statement bool
 }
@@ -237,30 +243,44 @@ func (c *client) judge(ctx context.Context, request judgeRequest, document strin
 		return judgment{}, errors.Wrap(err, "marshal body")
 	}
 
+	response, err := c.postWithRetry(ctx, request.endpointAuth, body)
+	if err != nil {
+		return judgment{}, err
+	}
+	score, answered, err := response.score(request.questionName())
+	if err != nil {
+		return judgment{}, err
+	}
+	return judgment{score: score, answered: answered, usage: response.Usage}, nil
+}
+
+// postWithRetry sends the body and retries when the API is rate limiting or
+// failing.
+func (c *client) postWithRetry(ctx context.Context, target endpointAuth, body []byte) (decisionResponse, error) {
 	var lastErr error
 	retryAfter := time.Duration(0)
 	for attempt := range maxAttempts {
 		if attempt > 0 {
 			if err := wait(ctx, c.retryDelay(attempt, retryAfter)); err != nil {
-				return judgment{}, err
+				return decisionResponse{}, err
 			}
 		}
-		result, err := c.send(ctx, request, body)
+		response, result, err := c.send(ctx, target, body)
 		if err == nil {
-			return result.judgment, nil
+			return response, nil
 		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return judgment{}, ctxErr
+			return decisionResponse{}, ctxErr
 		}
 		if !result.retryable {
-			return judgment{}, err
+			return decisionResponse{}, err
 		}
 		c.logger.WithField("action", "decisions_openai_retry").WithField("attempt", attempt+1).
 			Debugf("openai request failed, retrying: %v", err)
 		lastErr = err
 		retryAfter = result.retryAfter
 	}
-	return judgment{}, errors.Wrapf(lastErr, "after %d attempts", maxAttempts)
+	return decisionResponse{}, errors.Wrapf(lastErr, "after %d attempts", maxAttempts)
 }
 
 // retryDelay doubles with every attempt and is spread over half its length,
@@ -272,41 +292,41 @@ func (c *client) retryDelay(attempt int, retryAfter time.Duration) time.Duration
 	return max(delay, min(retryAfter, maxRetryAfter))
 }
 
+// sendResult says how a failed request may be handled.
 type sendResult struct {
-	judgment   judgment
 	retryable  bool
 	retryAfter time.Duration
 }
 
-func (c *client) send(ctx context.Context, request judgeRequest, body []byte) (sendResult, error) {
+func (c *client) send(ctx context.Context, target endpointAuth, body []byte) (decisionResponse, sendResult, error) {
 	select {
 	case c.inFlight <- struct{}{}:
 		defer func() { <-c.inFlight }()
 	case <-ctx.Done():
-		return sendResult{}, ctx.Err()
+		return decisionResponse{}, sendResult{}, ctx.Err()
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, request.url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.url, bytes.NewReader(body))
 	if err != nil {
-		return sendResult{}, errors.Wrap(err, "create POST request")
+		return decisionResponse{}, sendResult{}, errors.Wrap(err, "create POST request")
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", request.apiKey))
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", target.apiKey))
 	req.Header.Add("Content-Type", "application/json")
-	if request.organization != "" {
-		req.Header.Add("OpenAI-Organization", request.organization)
+	if target.organization != "" {
+		req.Header.Add("OpenAI-Organization", target.organization)
 	}
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
 		// Not retried: the base client already resends on a broken
 		// connection, and retrying a timeout multiplies the wait.
-		return sendResult{}, errors.Wrap(err, "send POST request")
+		return decisionResponse{}, sendResult{}, errors.Wrap(err, "send POST request")
 	}
 	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
 		apiErr := readAPIError(res.Body)
-		return sendResult{
+		return decisionResponse{}, sendResult{
 			retryable:  retryable(res.StatusCode, apiErr),
 			retryAfter: parseRetryAfter(res.Header.Get("Retry-After")),
 		}, statusError(res.StatusCode, apiErr)
@@ -314,26 +334,22 @@ func (c *client) send(ctx context.Context, request judgeRequest, body []byte) (s
 
 	bodyBytes, err := io.ReadAll(io.LimitReader(res.Body, maxResponseBodyBytes))
 	if err != nil {
-		return sendResult{}, errors.Wrap(err, "read response body")
+		return decisionResponse{}, sendResult{}, errors.Wrap(err, "read response body")
 	}
 	if len(bodyBytes) >= maxResponseBodyBytes {
-		return sendResult{}, errors.Errorf("response body reaches the limit of %d bytes", maxResponseBodyBytes)
+		return decisionResponse{}, sendResult{}, errors.Errorf("response body reaches the limit of %d bytes", maxResponseBodyBytes)
 	}
 	var response decisionResponse
 	if err := json.Unmarshal(bodyBytes, &response); err != nil {
-		return sendResult{}, errors.Wrap(err, "parse response")
+		return decisionResponse{}, sendResult{}, errors.Wrap(err, "parse response")
 	}
 	if response.Error != nil {
 		if message := response.Error.message(); message != "" {
-			return sendResult{}, errors.Errorf("OpenAI API returned an error: %s", message)
+			return decisionResponse{}, sendResult{}, errors.Errorf("OpenAI API returned an error: %s", message)
 		}
-		return sendResult{}, errors.New("OpenAI API returned an error without a message")
+		return decisionResponse{}, sendResult{}, errors.New("OpenAI API returned an error without a message")
 	}
-	score, answered, err := response.score(request.questionName())
-	if err != nil {
-		return sendResult{}, err
-	}
-	return sendResult{judgment: judgment{score: score, answered: answered, usage: response.Usage}}, nil
+	return response, sendResult{}, nil
 }
 
 // apiError is the "error" object of an OpenAI response.
@@ -461,6 +477,19 @@ type decisionQuestion struct {
 	Type         string `json:"type"`
 	Name         string `json:"name"`
 	Instructions string `json:"instructions"`
+	// Choices of a choice question, Levels of a score question.
+	Choices []decisionChoice `json:"choices,omitempty"`
+	Levels  []decisionLevel  `json:"levels,omitempty"`
+}
+
+type decisionChoice struct {
+	Value       string  `json:"value"`
+	Description *string `json:"description,omitempty"`
+}
+
+type decisionLevel struct {
+	Label       string  `json:"label"`
+	Description *string `json:"description,omitempty"`
 }
 
 func newDecisionRequest(request judgeRequest, document string) decisionRequest {
@@ -483,13 +512,25 @@ type decisionResponse struct {
 	Error   *apiError        `json:"error"`
 }
 
-// decisionAnswer is a predicate answer or a refusal. The fields of the
-// other answer types are not read.
+// decisionAnswer is an answer of any type, or a refusal. Pointers, because
+// a missing value must not read as 0.
 type decisionAnswer struct {
 	Type string  `json:"type"`
 	Name *string `json:"name"`
-	// Probability is a pointer because a missing value must not read as 0.
+	// Probability of a predicate.
 	Probability *float64 `json:"probability"`
+	// Choice is a string or a bool: the API types the values of a choice.
+	Choice        any                   `json:"choice"`
+	Score         *float64              `json:"score"`
+	Probabilities []decisionProbability `json:"probabilities"`
+	Confidence    *float64              `json:"confidence"`
+}
+
+// decisionProbability is the probability of one option (value is the
+// option) or one level (value is the level index).
+type decisionProbability struct {
+	Value       any     `json:"value"`
+	Probability float64 `json:"probability"`
 }
 
 // decisionUsage is the part of the API's usage report that is billed. The

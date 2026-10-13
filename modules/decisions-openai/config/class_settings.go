@@ -50,8 +50,8 @@ type Settings struct {
 	Question string
 	// BaseURL is the API endpoint without a trailing "/" or "/v1".
 	BaseURL string
-	// MaxDocuments is the highest number of documents a single rerank
-	// request may send to the OpenAI API. Resolve does not check its range.
+	// MaxDocuments is the highest number of documents one Rank or Decide
+	// call may have judged by the API.
 	MaxDocuments int
 }
 

@@ -13,6 +13,8 @@ package moddecisionsopenai
 
 import (
 	"context"
+	"fmt"
+	"maps"
 	"os"
 	"strconv"
 	"time"
@@ -22,7 +24,9 @@ import (
 
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/modules/decisions-openai/clients"
+	"github.com/weaviate/weaviate/modules/decisions-openai/config"
 	rerankeradditional "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
@@ -34,12 +38,14 @@ func New() *DecisionsOpenAIModule {
 }
 
 type DecisionsOpenAIModule struct {
-	reranker                     DecisionsOpenAIClient
-	additionalPropertiesProvider modulecapabilities.AdditionalProperties
+	reranker             DecisionsOpenAIClient
+	additionalProperties map[string]modulecapabilities.AdditionalProperty
 }
 
 type DecisionsOpenAIClient interface {
 	Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
+	Decide(ctx context.Context, questions []ent.DecisionQuestion, documents []string,
+		cfg moduletools.ClassConfig) ([][]ent.DecisionAnswer, error)
 	MetaInfo() (map[string]any, error)
 }
 
@@ -71,7 +77,8 @@ func (m *DecisionsOpenAIModule) initAdditional(ctx context.Context, timeout time
 		return err
 	}
 	m.reranker = clients.New(apiKey, organization, timeout, maxConcurrentRequests, logger)
-	m.additionalPropertiesProvider = rerankeradditional.NewRankerProvider(m.reranker)
+	m.additionalProperties = rerankeradditional.NewRankerProvider(m.reranker).AdditionalProperties()
+	maps.Copy(m.additionalProperties, rerankeradditional.NewDecideProvider(m.reranker).AdditionalProperties())
 	return nil
 }
 
@@ -97,7 +104,25 @@ func (m *DecisionsOpenAIModule) MetaInfo() (map[string]any, error) {
 }
 
 func (m *DecisionsOpenAIModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
-	return m.additionalPropertiesProvider.AdditionalProperties()
+	return m.additionalProperties
+}
+
+// DecisionLimits: OpenAI publishes no caps for the Decisions API, so the
+// Weaviate ceilings apply; the module judges text.
+func (m *DecisionsOpenAIModule) DecisionLimits(cfg moduletools.ClassConfig) (modulecapabilities.DecisionLimits, error) {
+	// A class created before the module was enabled was never validated,
+	// so a setting Resolve rejects fails the request here, before the search.
+	settings, err := config.NewClassSettings(cfg).Resolve()
+	if err != nil {
+		return modulecapabilities.DecisionLimits{}, err
+	}
+	if settings.MaxDocuments < 1 || settings.MaxDocuments > config.MaxDocumentsLimit {
+		return modulecapabilities.DecisionLimits{}, fmt.Errorf("maxDocuments must be between 1 and %d, got %d", config.MaxDocumentsLimit, settings.MaxDocuments)
+	}
+	return modulecapabilities.DecisionLimits{
+		MaxDocuments: settings.MaxDocuments,
+		DataTypes:    []schema.DataType{schema.DataTypeText},
+	}, nil
 }
 
 // verify we implement the modules.Module interface
@@ -105,4 +130,5 @@ var (
 	_ = modulecapabilities.Module(New())
 	_ = modulecapabilities.AdditionalProperties(New())
 	_ = modulecapabilities.MetaProvider(New())
+	_ = modulecapabilities.DecisionLimitsProvider(New())
 )
