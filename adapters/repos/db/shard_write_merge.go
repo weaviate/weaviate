@@ -33,34 +33,51 @@ func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) er
 
 	for targetVector, vector := range merge.Vectors {
 		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
-		vectorIndex, ok := s.GetVectorIndex(targetVector)
-		if !ok {
+		found, err := s.WithVectorIndex(targetVector, func(vectorIndex VectorIndex) error {
+			switch v := vector.(type) {
+			case []float32:
+				err := checkVectorKind(vectorIndex, targetVector, false)
+				if err != nil {
+					return errors.Wrapf(err, "validate vector index for update of %v for target vector %s", merge.ID, targetVector)
+				}
+				err = vectorIndex.ValidateBeforeInsert(v)
+				if err != nil {
+					return errors.Wrapf(err, "validate vector index for update of %v for target vector %s", merge.ID, targetVector)
+				}
+			case [][]float32:
+				multiIndex, err := asMultiVectorIndex(vectorIndex, targetVector)
+				if err != nil {
+					return errors.Wrapf(err, "validate multi vector index for update of %v for target vector %s", merge.ID, targetVector)
+				}
+				err = multiIndex.ValidateMultiBeforeInsert(v)
+				if err != nil {
+					return errors.Wrapf(err, "validate multi vector index for update of %v for target vector %s", merge.ID, targetVector)
+				}
+			default:
+				return errors.Errorf("validate vector index for update of %v for target vector %s: unrecongnized vector type: %T", merge.ID, targetVector, vector)
+			}
+			return nil
+		})
+		if !found {
 			return errors.Errorf("validate vector index for update of %v for target vector %s: vector index not found", merge.ID, targetVector)
 		}
-		switch v := vector.(type) {
-		case []float32:
-			err := vectorIndex.ValidateBeforeInsert(v)
-			if err != nil {
-				return errors.Wrapf(err, "validate vector index for update of %v for target vector %s", merge.ID, targetVector)
-			}
-		case [][]float32:
-			err := vectorIndex.(VectorIndexMulti).ValidateMultiBeforeInsert(v)
-			if err != nil {
-				return errors.Wrapf(err, "validate multi vector index for update of %v for target vector %s", merge.ID, targetVector)
-			}
-		default:
-			return errors.Errorf("validate vector index for update of %v for target vector %s: unrecongnized vector type: %T", merge.ID, targetVector, vector)
+		if err != nil {
+			return err
 		}
 	}
 
 	if len(merge.Vector) > 0 {
-		vectorIndex, ok := s.GetVectorIndex("")
-		if !ok {
+		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
+		found, err := s.WithVectorIndex("", func(vectorIndex VectorIndex) error {
+			err := checkVectorKind(vectorIndex, "", false)
+			if err != nil {
+				return err
+			}
+			return vectorIndex.ValidateBeforeInsert(merge.Vector)
+		})
+		if !found {
 			return errors.Errorf("validate vector index for update of %v for vector: vector index not found", merge.ID)
 		}
-
-		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
-		err := vectorIndex.ValidateBeforeInsert(merge.Vector)
 		if err != nil {
 			return errors.Wrapf(err, "validate vector index for update of %v", merge.ID)
 		}
@@ -137,10 +154,11 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDocument,
 	idBytes []byte, class *models.Class,
 ) (*storobj.Object, objectInsertStatus, error) {
-	bucket, err := s.objectsBucket()
+	bucket, release, err := s.objectsBucket()
 	if err != nil {
 		return nil, objectInsertStatus{}, err
 	}
+	defer release()
 
 	var prevObj, obj *storobj.Object
 	var status objectInsertStatus
@@ -179,6 +197,13 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 		// A property-only merge carries the previous version's vectors forward;
 		// a dropped one must not be re-persisted into a new segment.
 		stripDroppedVectors(class, obj)
+
+		// the merged object carries the stored version's vectors: a missing
+		// index fails the merge here, before it is stored, as for a put
+		err = s.requireVectorIndexes(obj.Vectors, obj.MultiVectors, obj.Vector)
+		if err != nil {
+			return err
+		}
 
 		status, err = s.determineInsertStatus(prevObj, obj)
 		if err != nil {
@@ -245,10 +270,11 @@ func (s *Shard) mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDo
 ) (mutableMergeResult, error) {
 	out := mutableMergeResult{}
 
-	bucket, err := s.objectsBucket()
+	bucket, release, err := s.objectsBucket()
 	if err != nil {
 		return out, err
 	}
+	defer release()
 
 	// Wait outside the RLock; see shard_write_put.go (calling it under RLock is a recursive read-lock deadlock).
 	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {

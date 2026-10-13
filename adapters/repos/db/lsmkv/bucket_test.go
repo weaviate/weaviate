@@ -22,7 +22,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"sync"
 	"testing"
 	"time"
 
@@ -40,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -638,13 +638,7 @@ func TestBucketCompactionFileName(t *testing.T) {
 
 func countDbAndWalFiles(t *testing.T, path string) (int, int) {
 	t.Helper()
-	fileTypes := map[string]int{}
-	entries, err := os.ReadDir(path)
-	require.NoError(t, err)
-	for _, entry := range entries {
-		fileTypes[filepath.Ext(entry.Name())] += 1
-	}
-	return fileTypes[".db"], fileTypes[".wal"]
+	return len(filesWithExt(t, path, ".db")), len(filesWithExt(t, path, ".wal"))
 }
 
 func verifyFileInfo(t *testing.T, path string, oldEntries []string, segmentInfo bool, level int) []string {
@@ -797,6 +791,9 @@ func TestCountApproximate(t *testing.T) {
 		switched, err := b.atomicallySwitchMemtable(b.createNewActiveMemtable)
 		require.NoError(t, err)
 		require.True(t, switched)
+		// Registered above the assertions so a failure among them still lands the
+		// flush: Shutdown waits on b.flushing with no bound.
+		t.Cleanup(func() { completeParkedFlush(t, b) })
 
 		require.NoError(t, b.Put([]byte("key-new"), []byte("value")))
 		require.NoError(t, b.Put([]byte("key-new-2"), []byte("value")))
@@ -804,13 +801,7 @@ func TestCountApproximate(t *testing.T) {
 		requireApprox(t, b, 6)
 		requireExact(t, b, 6)
 
-		// complete the flush the way FlushAndSwitch does
-		b.waitForZeroWriters(b.flushing)
-		segmentPath, err := b.flushing.flush()
-		require.NoError(t, err)
-		segment, err := b.disk.initAndPrecomputeNewSegment(segmentPath)
-		require.NoError(t, err)
-		require.NoError(t, b.atomicallyAddDiskSegmentAndRemoveFlushing(segment))
+		completeParkedFlush(t, b)
 		requireApprox(t, b, 6)
 	})
 
@@ -1038,8 +1029,9 @@ func TestBucketReplaceStrategyWriteVsFlush(t *testing.T) {
 		logger:   nullLogger(),
 	}
 
-	active, freeRefs, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	require.NoError(t, err)
+	freeRefs := active.decWriterCount
 
 	// perform first write in initial state
 	active.put([]byte("key2"), []byte("value2"), nil)
@@ -1134,7 +1126,7 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 		}
 
 		for k, expectedV := range expected {
-			v, release, err := b.roaringSetGetFromConsistentView(context.Background(), view, []byte(k))
+			v, release, err := b.roaringSetGetFromConsistentView(view, []byte(k), concurrency.SROAR_MERGE)
 			require.NoError(t, err)
 			require.Equal(t, expectedV.ToArray(), v.ToArray())
 			release()
@@ -1163,7 +1155,7 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 		}
 
 		for k, expectedV := range expected {
-			v, release, err := b.roaringSetGetFromConsistentView(context.Background(), view, []byte(k))
+			v, release, err := b.roaringSetGetFromConsistentView(view, []byte(k), concurrency.SROAR_MERGE)
 			require.NoError(t, err)
 			require.Equal(t, expectedV.ToArray(), v.ToArray())
 			release()
@@ -1184,7 +1176,7 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 
 	// the original memtable was flushed to disk
 	v, release, err := b.disk.roaringSetGet([]byte("key1"), view3.Disk, concurrency.SROAR_MERGE)
-	assert.Equal(t, []uint64{1, 2}, roaringset.BitmapLayers{v}.Flatten(true, concurrency.SROAR_MERGE).ToArray())
+	assert.Equal(t, []uint64{1, 2}, v.ToArray())
 	require.NoError(t, err)
 	release()
 }
@@ -1216,8 +1208,9 @@ func TestBucketRoaringSetStrategyWriteVsFlush(t *testing.T) {
 		logger:   nullLogger(),
 	}
 
-	active, freeRefs, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	require.NoError(t, err)
+	freeRefs := active.decWriterCount
 	require.NoError(t, active.roaringSetAddBitmap([]byte("key1"), bitmapFromSlice([]uint64{2})))
 
 	// Simulate a FlushAndSwitch() running concurrently
@@ -1255,7 +1248,7 @@ func TestBucketRoaringSetStrategyWriteVsFlush(t *testing.T) {
 
 	bm, release, err := b.disk.roaringSetGet([]byte("key1"), view.Disk, concurrency.SROAR_MERGE)
 	require.NoError(t, err)
-	assert.Equal(t, []uint64{1, 2, 3}, roaringset.BitmapLayers{bm}.Flatten(true, concurrency.SROAR_MERGE).ToArray())
+	assert.Equal(t, []uint64{1, 2, 3}, bm.ToArray())
 	release()
 }
 
@@ -1470,8 +1463,9 @@ func TestBucketRoaringSetRangeStrategyWriteVsFlush(t *testing.T) {
 		logger:   nullLogger(),
 	}
 
-	active, freeRefs, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	require.NoError(t, err)
+	freeRefs := active.decWriterCount
 	require.NoError(t, active.roaringSetRangeAdd(key1, 2))
 
 	// Simulate a FlushAndSwitch() running concurrently
@@ -1546,8 +1540,9 @@ func TestBucketRoaringSetRangeStrategyWriteVsFlushInMemo(t *testing.T) {
 		logger:               nullLogger(),
 	}
 
-	active, freeRefs, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	require.NoError(t, err)
+	freeRefs := active.decWriterCount
 	require.NoError(t, active.roaringSetRangeAdd(key1, 2))
 
 	// Simulate a FlushAndSwitch() running concurrently
@@ -1710,8 +1705,9 @@ func TestBucketSetStrategyWriteVsFlush(t *testing.T) {
 		logger:   nullLogger(),
 	}
 
-	active, freeRefs, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	require.NoError(t, err)
+	freeRefs := active.decWriterCount
 	err = active.append([]byte("key1"), newSetEncoder().Do([][]byte{[]byte("v2")}))
 	require.NoError(t, err)
 
@@ -2006,8 +2002,9 @@ func TestBucketMapStrategyWriteVsFlush(t *testing.T) {
 		logger:   nullLogger(),
 	}
 
-	active, freeRefs, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	require.NoError(t, err)
+	freeRefs := active.decWriterCount
 	err = active.appendMapSorted([]byte("key1"), MapPair{
 		Key: []byte("k2"), Value: []byte("v2"),
 	})
@@ -2179,11 +2176,10 @@ func TestBucketInvertedStrategyWriteVsFlush(t *testing.T) {
 		logger:   nullLogger(),
 	}
 
-	active, freeRefs, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	require.NoError(t, err)
-	err = active.appendMapSorted([]byte("key1"),
-		NewMapPairFromDocIdAndTf(1, 2, 1, false),
-	)
+	freeRefs := active.decWriterCount
+	err = active.appendInverted([]byte("key1"), newInvertedPair(1, 2, 1, false))
 	require.NoError(t, err)
 
 	switchDone := make(chan struct{})
@@ -2207,9 +2203,7 @@ func TestBucketInvertedStrategyWriteVsFlush(t *testing.T) {
 	<-switchDone
 
 	// Second write (post-switch) through the old active reference
-	err = active.appendMapSorted([]byte("key1"),
-		NewMapPairFromDocIdAndTf(2, 2, 1, false),
-	)
+	err = active.appendInverted([]byte("key1"), newInvertedPair(2, 2, 1, false))
 	require.NoError(t, err)
 
 	// Release and let flush proceed
@@ -2248,6 +2242,25 @@ type testMemtable struct {
 	// roaringSetGetErr, when set, makes roaringSetGet fail, simulating a
 	// memtable read error mid-way through a consistent-view lookup.
 	roaringSetGetErr error
+	// roaringSetGetWindowErr is the same for the windowed read, which fails a
+	// whole window rather than one key. No Memtable produces either error today:
+	// its two argument guards are ones fillWindow satisfies by construction, and
+	// the walk itself only errors from a cursor that returns none.
+	// roaringSetGetWindowErrBytes is what a failing read reports having copied
+	// already, which is what fillWindow's counting arm exists for.
+	roaringSetGetWindowErr      error
+	roaringSetGetWindowErrBytes int
+	// Call counts for the two ways a memtable is read. Each is one acquisition
+	// of its read lock, which is the cost the batch path exists to reduce, so
+	// counting them is how a test states that reduction rather than inferring
+	// it from a timing.
+	roaringSetGetCalls       int
+	roaringSetGetWindowCalls int
+	// ranges is [from, To) per windowed read, for a test stating that no key is
+	// read twice across a batch. Every read of this double lands here, a
+	// fixture's own pricing probe included, and a read that failed records the
+	// range it was asked for rather than what it filled.
+	ranges [][2]int
 }
 
 func (t *testMemtable) incWriterCount() {
@@ -2255,7 +2268,30 @@ func (t *testMemtable) incWriterCount() {
 	t.Memtable.incWriterCount()
 }
 
+func (t *testMemtable) roaringSetGetWindow(
+	keys inverted.SortedKeys, from, to int, into []roaringset.BitmapLayer, budget int,
+) (windowFill, error) {
+	t.roaringSetGetWindowCalls++
+
+	// To as the real walk reports it when a read fails part way: the range it
+	// was asked for, since it cannot say how far it got. The caller drops To on
+	// an error but does count Bytes, so the rows copied before the failure are
+	// what a test sets roaringSetGetWindowErrBytes to describe.
+	fill, err := windowFill{To: to, Bytes: t.roaringSetGetWindowErrBytes}, t.roaringSetGetWindowErr
+	if err == nil {
+		fill, err = t.Memtable.roaringSetGetWindow(keys, from, to, into, budget)
+	} else {
+		// The real walk clears dst before it reads anything, so an injected
+		// failure has to leave the same zeroed slots behind it.
+		clear(into)
+	}
+
+	t.ranges = append(t.ranges, [2]int{from, fill.To})
+	return fill, err
+}
+
 func (t *testMemtable) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
+	t.roaringSetGetCalls++
 	if t.roaringSetGetErr != nil {
 		return roaringset.BitmapLayer{}, t.roaringSetGetErr
 	}
@@ -2309,6 +2345,19 @@ func newTestMemtableRoaringSet(initialData map[string][]uint64) *testMemtable {
 	return &testMemtable{Memtable: m}
 }
 
+// docsOrNil is ToArray with one difference that matters to a differential test:
+// a bitmap holding nothing reads as nil whether it is nil or merely empty.
+// ToArray keeps those apart, as an empty slice and a nil one, and require.Equal
+// calls them unequal — so a path returning one and a path returning the other
+// would fail over a representation rather than over a document.
+func docsOrNil(bm *sroar.Bitmap) []uint64 {
+	out := bm.ToArray()
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 func newTestMemtableRoaringSetRange(initialData map[uint64][]uint64) *testMemtable {
 	logger, _ := test.NewNullLogger()
 	metrics, err := newMemtableMetrics(nil, "", "")
@@ -2359,7 +2408,7 @@ func newTestMemtableMap(initialData map[string][]MapPair) *testMemtable {
 
 	m := &Memtable{
 		strategy:  StrategyMapCollection,
-		keyMap:    &binarySearchTreeMap{},
+		keyMap:    &binarySearchTreeMap[MapPair]{},
 		commitlog: newDummyCommitLogger(),
 		metrics:   metrics,
 	}
@@ -2381,7 +2430,7 @@ func newTestMemtableInverted(initialData map[string][]MapPair) *testMemtable {
 
 	m := &Memtable{
 		strategy:         StrategyInverted,
-		keyMap:           &binarySearchTreeMap{},
+		keyInverted:      &binarySearchTreeMap[invertedPair]{},
 		commitlog:        newDummyCommitLogger(),
 		metrics:          metrics,
 		tombstones:       sroar.NewBitmap(),
@@ -2390,7 +2439,15 @@ func newTestMemtableInverted(initialData map[string][]MapPair) *testMemtable {
 
 	for k, v := range initialData {
 		for _, mp := range v {
-			m.appendMapSorted([]byte(k), mp)
+			pair := invertedPair{
+				docID:     binary.BigEndian.Uint64(mp.Key),
+				tombstone: mp.Tombstone,
+			}
+			if !mp.Tombstone {
+				pair.tfBits = binary.LittleEndian.Uint32(mp.Value[0:4])
+				pair.propLenBits = binary.LittleEndian.Uint32(mp.Value[4:8])
+			}
+			m.appendInverted([]byte(k), pair)
 		}
 	}
 
@@ -2447,12 +2504,10 @@ func flushMapTestMemtableIntoTestSegment(m memtable) *fakeSegment {
 }
 
 func flushInvertedTestMemtableIntoTestSegment(m memtable) *fakeSegment {
-	allEntries := m.(*testMemtable).keyMap.flattenInOrder()
+	allEntries := m.(*testMemtable).keyInverted.flattenInOrder()
 	data := map[string][]MapPair{}
 	for _, e := range allEntries {
-		valuesCopy := make([]MapPair, len(e.values))
-		copy(valuesCopy, e.values)
-		data[string(e.key)] = valuesCopy
+		data[string(e.key)] = invertedPairsToMapPairs(e.values)
 	}
 	return newFakeInvertedSegment(data)
 }
@@ -2514,6 +2569,15 @@ func mapFromDocPointers(id uint64, frequency, proplength float32) MapPair {
 
 func docPointers(id uint64, frequency, proplength float32) terms.DocPointerWithScore {
 	return terms.DocPointerWithScore{Id: id, Frequency: frequency, PropLength: proplength}
+}
+
+func newInvertedPair(docID uint64, tf, propLength float32, isTombstone bool) invertedPair {
+	return invertedPair{
+		docID:       docID,
+		tfBits:      math.Float32bits(tf),
+		propLenBits: math.Float32bits(propLength),
+		tombstone:   isTombstone,
+	}
 }
 
 // moved from an intregation test, so we can use it both in unit and
@@ -2902,13 +2966,20 @@ func bucket_SecondaryPrimaryMismatch(ctx context.Context, t *testing.T, opts []B
 	// old secondary key should not be found in the new view, and the new secondary key should not be found in the old view, since they are in different segments
 	seckey := []byte("bonjour")
 	buffer := make([]byte, 100)
-	_, _, err = b2.getBySecondaryCore(ctx, 0, seckey, buffer, view, time.Duration(0), "")
+	_, _, _, _, err = b2.getBySecondaryCore(0, seckey, buffer, view, time.Duration(0))
 	require.EqualError(t, err, lsmkv.NotFound.Error())
 
 	// new secondary key should be found in the new view, and should be in the same segment as the primary key
 	seckey = []byte("olá")
-	_, _, err = b2.getBySecondaryCore(ctx, 0, seckey, buffer, view, time.Duration(0), "")
+	_, _, _, _, err = b2.getBySecondaryCore(0, seckey, buffer, view, time.Duration(0))
 	require.Nil(t, err)
+
+	// a position outside the bucket's secondary indices is answered with an
+	// error rather than used to index the segment's secondary slices
+	for _, pos := range []int{-1, 1} {
+		_, _, _, _, err = b2.getBySecondaryCore(pos, seckey, buffer, view, time.Duration(0))
+		require.EqualError(t, err, fmt.Sprintf("no secondary index at pos %d", pos))
+	}
 }
 
 func TestDeleteRequiresSecondaryKeys(t *testing.T) {
@@ -3132,15 +3203,9 @@ func TestApplyToObjectDigestsWithFlushingMemtable(t *testing.T) {
 	require.True(t, switched)
 	require.NotNil(t, b.flushing, "the scan must run against a live flushing memtable")
 
-	// Shutdown blocks until b.flushing clears, so land it even if an assertion below fails.
-	landFlushing := sync.OnceFunc(func() {
-		segmentPath, err := b.flushing.flush()
-		require.NoError(t, err)
-		segment, err := b.disk.initAndPrecomputeNewSegment(segmentPath)
-		require.NoError(t, err)
-		require.NoError(t, b.atomicallyAddDiskSegmentAndRemoveFlushing(segment))
-	})
-	t.Cleanup(landFlushing)
+	// Registered above the assertions so a failure among them still lands the
+	// flush: Shutdown waits on b.flushing with no bound.
+	t.Cleanup(func() { completeParkedFlush(t, b) })
 
 	require.NoError(t, b.Delete(keyB))
 	require.NoError(t, b.Put(keyD, objValue(t, keyD, 5, updateTime)))
@@ -3152,7 +3217,7 @@ func TestApplyToObjectDigestsWithFlushingMemtable(t *testing.T) {
 	}
 	require.Equal(t, want, scan(t, b))
 
-	landFlushing()
+	completeParkedFlush(t, b)
 
 	require.Equal(t, want, scan(t, b), "root must not depend on whether the flushing memtable had landed")
 }

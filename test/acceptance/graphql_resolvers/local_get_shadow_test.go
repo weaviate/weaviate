@@ -81,6 +81,9 @@ func runningAggregateNearObjectWithShadowedObjects(t *testing.T) {
 	})
 }
 
+// Explore searches from the centroid of all objects with the given id. The two
+// classes vectorize their (different) class names, so neither object matches
+// the centroid exactly.
 func runningExploreNearObjectWithShadowedObjects(t *testing.T) {
 	t.Run("running Explore nearObject against shadow class with same contents", func(t *testing.T) {
 		query := `
@@ -88,7 +91,7 @@ func runningExploreNearObjectWithShadowedObjects(t *testing.T) {
 				Explore (
 					nearObject: {
 						id : "aa44bbee-ca5f-4db7-a412-5fc6a2300011"
-						certainty: 0.98
+						certainty: 0.9
 					}
 				) {
 					beacon
@@ -116,7 +119,7 @@ func runningExploreNearObjectWithShadowedObjects(t *testing.T) {
 				Explore (
 					nearObject: {
 						id : "aa44bbee-ca5f-4db7-a412-5fc6a2300001"
-						certainty: 0.98
+						certainty: 0.9
 					}
 				) {
 					beacon

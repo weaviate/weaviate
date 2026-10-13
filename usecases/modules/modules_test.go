@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tailor-platform/graphql"
 
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -46,7 +47,7 @@ func TestModulesProvider(t *testing.T) {
 		schema := &models.Schema{
 			Classes: []*models.Class{class},
 		}
-		schemaGetter := getFakeSchemaGetter()
+		schemaGetter := getMockSchemaReader(t)
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		params := map[string]interface{}{}
@@ -75,7 +76,7 @@ func TestModulesProvider(t *testing.T) {
 		// given
 		logger, _ := test.NewNullLogger()
 		modulesProvider := NewProvider(logger, config.Config{})
-		schemaGetter := getFakeSchemaGetter()
+		schemaGetter := getMockSchemaReader(t)
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		// when
@@ -91,7 +92,7 @@ func TestModulesProvider(t *testing.T) {
 		// given
 		logger, _ := test.NewNullLogger()
 		modulesProvider := NewProvider(logger, config.Config{})
-		schemaGetter := getFakeSchemaGetter()
+		schemaGetter := getMockSchemaReader(t)
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		// when
@@ -118,7 +119,7 @@ func TestModulesProvider(t *testing.T) {
 		// given
 		logger, _ := test.NewNullLogger()
 		modulesProvider := NewProvider(logger, config.Config{})
-		schemaGetter := getFakeSchemaGetter()
+		schemaGetter := getMockSchemaReader(t)
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		// when
@@ -153,7 +154,7 @@ func TestModulesProvider(t *testing.T) {
 		schema := &models.Schema{
 			Classes: []*models.Class{class},
 		}
-		schemaGetter := getFakeSchemaGetter()
+		schemaGetter := getMockSchemaReader(t)
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		params := map[string]interface{}{}
@@ -195,7 +196,7 @@ func TestModulesProvider(t *testing.T) {
 		// given
 		logger, _ := test.NewNullLogger()
 		modulesProvider := NewProvider(logger, config.Config{})
-		schemaGetter := getFakeSchemaGetter()
+		schemaGetter := getMockSchemaReader(t)
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		// when
@@ -219,7 +220,7 @@ func TestModulesProvider(t *testing.T) {
 		// given
 		logger, _ := test.NewNullLogger()
 		modulesProvider := NewProvider(logger, config.Config{})
-		schemaGetter := getFakeSchemaGetter()
+		schemaGetter := getMockSchemaReader(t)
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		// when
@@ -274,7 +275,7 @@ func TestModulesProvider(t *testing.T) {
 		// given
 		logger, _ := test.NewNullLogger()
 		modulesProvider := NewProvider(logger, config.Config{})
-		schemaGetter := getFakeSchemaGetter()
+		schemaGetter := getMockSchemaReader(t)
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		// when
@@ -453,7 +454,7 @@ func (m *dummyAdditionalModule) AdditionalProperties() map[string]modulecapabili
 	return m.additionalProperties
 }
 
-func getFakeSchemaGetter() schemaGetter {
+func getMockSchemaReader(t *testing.T) *local.MockSchemaReader {
 	sch := enitiesSchema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
@@ -487,7 +488,7 @@ func getFakeSchemaGetter() schemaGetter {
 			},
 		},
 	}
-	return &fakeSchemaGetter{schema: sch}
+	return newMockSchemaReader(t, sch)
 }
 
 type dummyBackupModuleWithAltNames struct{}
@@ -553,7 +554,7 @@ func (m *dummyBackupModuleWithAltNames) Initialize(ctx context.Context, backupID
 func TestVectorFromSearchParamNoVectorizerTypedError(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	p := NewProvider(logger, config.Config{})
-	p.SetSchemaGetter(getFakeSchemaGetter())
+	p.SetSchemaGetter(getMockSchemaReader(t))
 
 	_, err := p.VectorFromSearchParam(context.Background(),
 		"ClassOne", "", "", "nearText", nil, nil)
@@ -579,6 +580,44 @@ func TestBatchUpdateVector_VectorlessClassIsNoop(t *testing.T) {
 				[]*models.Object{{Class: "C"}}, nil, logger)
 			require.NoError(t, err)
 			require.Empty(t, errs)
+		})
+	}
+}
+
+type dummyMutableSettingsModule struct {
+	dummyText2VecModuleNoCapabilities
+}
+
+func (m dummyMutableSettingsModule) AltNames() []string {
+	return []string{"text2vec-old"}
+}
+
+func (m dummyMutableSettingsModule) MutableSettings(current, updated moduletools.ClassConfig) bool {
+	return current.Class()["model"] == updated.Class()["model"]
+}
+
+func TestProviderMutableSettings(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	p := NewProvider(logger, config.Config{})
+	p.Register(dummyMutableSettingsModule{newDummyText2VecModule("text2vec-mutable", nil)})
+	p.Register(newDummyText2VecModule("text2vec-fixed", nil))
+
+	current := map[string]any{"endpoint": "a", "model": "m"}
+	tests := []struct {
+		name    string
+		module  string
+		updated map[string]any
+		want    bool
+	}{
+		{name: "change the module allows", module: "text2vec-mutable", updated: map[string]any{"endpoint": "b", "model": "m"}, want: true},
+		{name: "change the module rejects", module: "text2vec-mutable", updated: map[string]any{"endpoint": "b", "model": "other"}},
+		{name: "alt name", module: "text2vec-old", updated: map[string]any{"endpoint": "b", "model": "m"}, want: true},
+		{name: "module without the capability", module: "text2vec-fixed", updated: map[string]any{"endpoint": "b", "model": "m"}},
+		{name: "unknown module", module: "text2vec-unknown", updated: map[string]any{"endpoint": "b", "model": "m"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, p.MutableSettings(tt.module, current, tt.updated))
 		})
 	}
 }

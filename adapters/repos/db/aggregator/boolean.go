@@ -12,8 +12,6 @@
 package aggregator
 
 import (
-	"bytes"
-	"encoding/binary"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -31,12 +29,10 @@ type boolAggregator struct {
 }
 
 func (a *boolAggregator) AddBoolRow(value []byte, count uint64) error {
-	var valueParsed bool
-
-	if err := binary.Read(bytes.NewReader(value), binary.LittleEndian,
-		&valueParsed); err != nil {
-		return errors.Wrap(err, "read bool")
+	if len(value) == 0 {
+		return errors.New("read bool: empty value")
 	}
+	valueParsed := value[0] != 0
 
 	if count == 0 {
 		// skip

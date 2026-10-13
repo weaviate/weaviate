@@ -85,6 +85,11 @@ type fakeGRPCReplicationServer struct {
 	digestsInRangeResp    *pb.DigestObjectsInRangeResponse
 	lastCompareDigestsReq atomic.Pointer[pb.CompareDigestsRequest]
 	lastDigestsInRangeReq atomic.Pointer[pb.DigestObjectsInRangeRequest]
+
+	compareRootsMultiErr     error
+	compareRootsMultiHandler func(*pb.CompareHashTreeRootsMultiRequest) (*pb.CompareHashTreeRootsMultiResponse, error)
+	compareRootsMultiCalls   atomic.Int32
+	lastCompareRootsMultiReq atomic.Pointer[pb.CompareHashTreeRootsMultiRequest]
 }
 
 func newFakeGRPCReplicationServer(t *testing.T) *fakeGRPCReplicationServer {
@@ -145,6 +150,18 @@ func (f *fakeGRPCReplicationServer) CompareDigests(_ context.Context, req *pb.Co
 		return f.compareDigestsResp, nil
 	}
 	return &pb.CompareDigestsResponse{}, nil
+}
+
+func (f *fakeGRPCReplicationServer) CompareHashTreeRootsMulti(_ context.Context, req *pb.CompareHashTreeRootsMultiRequest) (*pb.CompareHashTreeRootsMultiResponse, error) {
+	f.lastCompareRootsMultiReq.Store(req)
+	f.compareRootsMultiCalls.Add(1)
+	if f.compareRootsMultiHandler != nil {
+		return f.compareRootsMultiHandler(req)
+	}
+	if f.compareRootsMultiErr != nil {
+		return nil, f.compareRootsMultiErr
+	}
+	return &pb.CompareHashTreeRootsMultiResponse{}, nil
 }
 
 func (f *fakeGRPCReplicationServer) DigestObjectsInRange(_ context.Context, req *pb.DigestObjectsInRangeRequest) (*pb.DigestObjectsInRangeResponse, error) {

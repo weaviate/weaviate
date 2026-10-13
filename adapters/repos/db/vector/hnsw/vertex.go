@@ -19,10 +19,10 @@ import (
 )
 
 type vertex struct {
-	id uint64
+	// connections first so the GC scans only the pointer-bearing prefix
+	connections packedconn.Connections
 	sync.Mutex
-	connections *packedconn.Connections
-	level       int
+	level       uint16
 	maintenance bool
 }
 
@@ -50,7 +50,7 @@ func (v *vertex) connectionsAtLevelNoLock(level int) []uint64 {
 }
 
 func (v *vertex) upgradeToLevelNoLock(level int) {
-	v.level = level
+	v.level = uint16(level)
 	v.connections.GrowLayersTo(uint8(level))
 }
 
@@ -90,10 +90,9 @@ func convertEntityNodes(entNodes []*ent.Vertex) []*vertex {
 	nodes := make([]*vertex, len(entNodes))
 	for i, en := range entNodes {
 		if en != nil {
-			nodes[i] = &vertex{
-				id:          en.ID,
-				level:       en.Level,
-				connections: en.Connections,
+			nodes[i] = &vertex{level: uint16(en.Level)}
+			if en.Connections != nil {
+				nodes[i].connections = *en.Connections
 			}
 		}
 	}

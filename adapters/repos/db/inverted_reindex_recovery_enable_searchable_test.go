@@ -133,7 +133,7 @@ func TestRecoveryConvergence_EnableSearchable_Baseline(t *testing.T) {
 	class := newEnableSearchableTestClass(className, []string{propName})
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 

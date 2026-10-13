@@ -23,10 +23,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modelsext"
-	"github.com/weaviate/weaviate/entities/versioned"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // defaultDropVectorPollInterval is how often a running unit polls the edit-ops
@@ -78,6 +77,9 @@ type dropVectorShards interface {
 	// deletes so replayed callbacks can't mass-load inactive shards.
 	EditOpBucketsForLoadedShards(collection string, shardNames []string) (map[string]editOpBucket, error)
 	EnsureDroppedVectorFilesRemoved(collection, shard string, targets []string) error
+	// RemoveDroppedVectorDimensions clears a shard's dimension rows for the
+	// dropped vectors. Called per unit before the unit is recorded complete.
+	RemoveDroppedVectorDimensions(ctx context.Context, collection, shard string, targets []string) error
 }
 
 // dropVectorSchemaFinalizer removes the dropped named-vector entries from a
@@ -85,16 +87,6 @@ type dropVectorShards interface {
 // re-running after the entries are already gone is a no-op.
 type dropVectorSchemaFinalizer interface {
 	RemoveDroppedVectorConfig(ctx context.Context, collection string, targets []string) error
-}
-
-// dropVectorSchemaReader provides leader-consistent schema reads: the sharding
-// state (so the finalize path can tell whether this task covered every current
-// shard/tenant) and the class (so op-arming can re-verify the targets are still
-// marked dropped). cluster.Raft satisfies it.
-type dropVectorSchemaReader interface {
-	QueryShardingState(class string) (*sharding.State, uint64, error)
-	QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error)
-	ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error)
 }
 
 // DropVectorIndexProvider executes drop-vector-index distributed tasks: each
@@ -105,9 +97,13 @@ type dropVectorSchemaReader interface {
 type DropVectorIndexProvider struct {
 	recorder distributedtask.TaskCompletionRecorder
 
-	shards    dropVectorShards
-	schema    dropVectorSchemaFinalizer
-	sharding  dropVectorSchemaReader
+	shards dropVectorShards
+	schema dropVectorSchemaFinalizer
+	// leader answers the leader-consistent reads: the sharding state (which nodes
+	// hold each shard/tenant) and the class, so op-arming can re-verify the targets
+	// are still marked dropped.
+	leader    leader.SchemaReader
+	tasks     distributedtask.TaskLister
 	logger    logrus.FieldLogger
 	localNode string
 
@@ -155,7 +151,8 @@ type DropVectorIndexProvider struct {
 func NewDropVectorIndexProvider(
 	shards dropVectorShards,
 	schema dropVectorSchemaFinalizer,
-	sharding dropVectorSchemaReader,
+	leaderReader leader.SchemaReader,
+	tasks distributedtask.TaskLister,
 	logger logrus.FieldLogger,
 	localNode string,
 	serverCtx context.Context,
@@ -164,7 +161,8 @@ func NewDropVectorIndexProvider(
 	return &DropVectorIndexProvider{
 		shards:               shards,
 		schema:               schema,
-		sharding:             sharding,
+		leader:               leaderReader,
+		tasks:                tasks,
 		logger:               logger,
 		localNode:            localNode,
 		serverCtx:            serverCtx,
@@ -370,6 +368,24 @@ func (p *DropVectorIndexProvider) drainUnit(
 		if shard := payload.UnitToShard[unitID]; !p.shardLocallyLoaded(payload.Collection, shard) {
 			msg += " (shard no longer locally available — tenant deactivated, offloaded, or deleted; " +
 				"reconciliation re-covers the remaining shards and the tenant on reactivation)"
+		}
+		p.failUnit(ctx, task, unitID, msg)
+		return
+	}
+
+	// Before the completion is recorded, not after: a completed unit stays
+	// credited to the drop's coverage even when its round fails, so a clear
+	// that failed later would leave this shard skipped by every later round
+	// while the rows are still on disk.
+	if err := p.shards.RemoveDroppedVectorDimensions(ctx, payload.Collection,
+		payload.UnitToShard[unitID], payload.Targets); err != nil {
+		if ctx.Err() != nil {
+			return // shutdown: resume after restart, do not mark failed
+		}
+		msg := "clear dimension rows: " + err.Error()
+		if errors.Is(err, errDimensionsShardNotLoaded) {
+			msg += " (tenant deactivated, offloaded, or deleted after its drain; reconciliation " +
+				"re-covers the tenant on reactivation, and loading it clears the rows)"
 		}
 		p.failUnit(ctx, task, unitID, msg)
 		return
@@ -792,7 +808,7 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) er
 // activeOverlappingDrop reports whether another ACTIVE drop task overlaps this
 // payload's collection+targets.
 func (p *DropVectorIndexProvider) activeOverlappingDrop(task *distributedtask.Task, payload *DropVectorIndexTaskPayload) (bool, error) {
-	tasks, err := p.sharding.ListDistributedTasks(p.serverCtx)
+	tasks, err := p.tasks.ListDistributedTasks(p.serverCtx)
 	if err != nil {
 		return false, err
 	}
@@ -810,7 +826,7 @@ func (p *DropVectorIndexProvider) activeOverlappingDrop(task *distributedtask.Ta
 // deliberately folds ANY instead — recorded progress stays valuable while any
 // target still owes a round.
 func (p *DropVectorIndexProvider) targetsStillDropped(payload *DropVectorIndexTaskPayload) (bool, error) {
-	vclasses, err := p.sharding.QueryReadOnlyClasses(payload.Collection)
+	vclasses, err := p.leader.ReadOnlyClassesFromLeader(payload.Collection)
 	if err != nil {
 		return false, err
 	}
@@ -889,7 +905,7 @@ func (p *DropVectorIndexProvider) memoizedTargetsStillDropped(
 // with no unit in this task and no entry in its inherited cleaned-shard set
 // (shards cleaned by the same epoch's earlier tasks).
 func (p *DropVectorIndexProvider) uncoveredShards(payload *DropVectorIndexTaskPayload) ([]string, error) {
-	state, _, err := p.sharding.QueryShardingState(payload.Collection)
+	state, _, err := p.leader.ShardingStateFromLeader(payload.Collection)
 	if err != nil {
 		return nil, err
 	}

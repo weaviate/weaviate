@@ -249,11 +249,56 @@ func (o *SearchNearObjectNotFound) WriteResponse(rw http.ResponseWriter, produce
 	}
 }
 
+// SearchNearObjectRequestEntityTooLargeCode is the HTTP code returned for type SearchNearObjectRequestEntityTooLarge
+const SearchNearObjectRequestEntityTooLargeCode int = 413
+
+/*
+SearchNearObjectRequestEntityTooLarge The request body exceeded the 4194304 byte (4 MiB) limit.
+
+swagger:response searchNearObjectRequestEntityTooLarge
+*/
+type SearchNearObjectRequestEntityTooLarge struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewSearchNearObjectRequestEntityTooLarge creates SearchNearObjectRequestEntityTooLarge with default headers values
+func NewSearchNearObjectRequestEntityTooLarge() *SearchNearObjectRequestEntityTooLarge {
+
+	return &SearchNearObjectRequestEntityTooLarge{}
+}
+
+// WithPayload adds the payload to the search near object request entity too large response
+func (o *SearchNearObjectRequestEntityTooLarge) WithPayload(payload *models.ErrorResponse) *SearchNearObjectRequestEntityTooLarge {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the search near object request entity too large response
+func (o *SearchNearObjectRequestEntityTooLarge) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *SearchNearObjectRequestEntityTooLarge) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(413)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // SearchNearObjectUnprocessableEntityCode is the HTTP code returned for type SearchNearObjectUnprocessableEntity
 const SearchNearObjectUnprocessableEntityCode int = 422
 
 /*
-SearchNearObjectUnprocessableEntity Either a request-schema violation (a missing, null or structurally invalid required `id`, or an invalid enum value), or a well-formed request that cannot run: the source object has no stored vector for the (target) vector searched, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).
+SearchNearObjectUnprocessableEntity Either a request-schema violation (a missing, null or structurally invalid required `id`, or an invalid enum value), or a well-formed request that cannot run: the source object has no stored vector for the (target) vector searched, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.
 
 swagger:response searchNearObjectUnprocessableEntity
 */

@@ -12,6 +12,8 @@
 package compact
 
 import (
+	"encoding/binary"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -791,6 +793,37 @@ func TestLoader_CompressionSurvivesPresizedReplay(t *testing.T) {
 			require.Equal(t, 101, len(res.State.Graph.Nodes), "slice pre-sized to cover node 100")
 			require.NotNil(t, res.State.Graph.Nodes[100], "beyond-snapshot node loaded")
 			tc.verify(t, res.State)
+		})
+	}
+}
+
+func TestLoader_NodeIDLimit(t *testing.T) {
+	counter := func(n uint64) []byte { return binary.LittleEndian.AppendUint64(nil, n) }
+	tests := []struct {
+		name        string
+		docIDs      bool
+		counterFile []byte
+		want        uint64
+	}{
+		{name: "node IDs are not document IDs", counterFile: counter(10), want: 0},
+		{name: "no counter file", docIDs: true, want: 0},
+		{name: "zero counter", docIDs: true, counterFile: counter(0), want: 0},
+		{name: "unreadable counter", docIDs: true, counterFile: []byte{1, 2, 3}, want: 0},
+		{name: "counter beyond maxNodeID", docIDs: true, counterFile: counter(math.MaxUint64), want: 0},
+		{name: "counter plus slack", docIDs: true, counterFile: counter(10), want: 10 + docIDCounterSlack},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			shardDir := t.TempDir()
+			if tc.counterFile != nil {
+				require.NoError(t, os.WriteFile(filepath.Join(shardDir, "indexcount"), tc.counterFile, 0o644))
+			}
+			l := NewLoader(LoaderConfig{
+				Dir:              filepath.Join(shardDir, "main.hnsw.commitlog.d"),
+				Logger:           loaderTestLogger(),
+				NodeIDsAreDocIDs: tc.docIDs,
+			})
+			assert.Equal(t, tc.want, l.nodeIDLimit())
 		})
 	}
 }

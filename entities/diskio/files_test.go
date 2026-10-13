@@ -12,6 +12,7 @@
 package diskio
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -154,6 +155,78 @@ func TestSanitizeFilePathJoin(t *testing.T) {
 			require.NoError(t, err)
 
 			require.Equal(t, filepath.Join(rootPath, "sub", "file.txt"), got)
+		})
+	}
+}
+
+func TestRenameAndSync(t *testing.T) {
+	tests := []struct {
+		name          string
+		from, to      string
+		missingSource bool
+		wantSyncs     []string
+		syncFails     bool
+		wantErr       bool
+		// Set only where the rename succeeded and just the sync failed.
+		wantPublished bool
+	}{
+		{name: "within one directory", from: "a.tmp", to: "a", wantSyncs: []string{"."}},
+		{name: "across two directories", from: "a.tmp", to: "d/a", wantSyncs: []string{"d", "."}},
+		{name: "over an existing name", from: "a.tmp", to: "taken", wantSyncs: []string{"."}},
+		{name: "source is not there", from: "gone.tmp", to: "a", missingSource: true, wantErr: true},
+		{name: "target directory is not there", from: "a.tmp", to: "absent/a", wantErr: true},
+		{
+			name: "a sync that fails fails the rename", from: "a.tmp", to: "a",
+			syncFails: true, wantSyncs: []string{"."}, wantErr: true, wantPublished: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			require.NoError(t, os.Mkdir(filepath.Join(root, "d"), 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(root, "taken"), []byte("old"), 0o600))
+			from, to := filepath.Join(root, tc.from), filepath.Join(root, tc.to)
+			if !tc.missingSource {
+				require.NoError(t, os.WriteFile(from, []byte("new"), 0o600))
+			}
+
+			var synced []string
+			publishedBeforeFirstSync := false
+			err := renameAndSync(from, to, func(dir string) error {
+				if len(synced) == 0 {
+					_, statErr := os.Stat(to)
+					publishedBeforeFirstSync = statErr == nil
+				}
+				rel, relErr := filepath.Rel(root, dir)
+				require.NoError(t, relErr)
+				synced = append(synced, rel)
+				if tc.syncFails {
+					return errors.New("no space")
+				}
+				return nil
+			})
+
+			require.Equal(t, tc.wantSyncs, synced,
+				"a rename is durable only once the directories holding its names are synced")
+			if len(tc.wantSyncs) > 0 {
+				require.True(t, publishedBeforeFirstSync,
+					"the sync has to follow the rename it makes durable")
+			}
+
+			if tc.wantErr {
+				require.Error(t, err)
+				_, statErr := os.Stat(to)
+				require.Equal(t, tc.wantPublished, statErr == nil,
+					"only a post-rename failure may leave the target name published")
+				return
+			}
+			require.NoError(t, err)
+			moved, err := os.ReadFile(to)
+			require.NoError(t, err)
+			require.Equal(t, "new", string(moved), "the target must hold what the source held")
+			_, statErr := os.Stat(from)
+			require.True(t, os.IsNotExist(statErr), "the source name must be gone")
 		})
 	}
 }

@@ -184,7 +184,7 @@ func (a *Client) GetNamespace(params *GetNamespaceParams, authInfo runtime.Clien
 /*
 ListNamespaces lists namespaces
 
-Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable `manage_namespaces` permission receive an empty list (never 403).
+Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable `manage_namespaces` permission receive an empty list rather than 403.
 */
 func (a *Client) ListNamespaces(params *ListNamespacesParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ListNamespacesOK, error) {
 	// TODO: Validate the params before sending

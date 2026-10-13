@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -184,6 +185,7 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 			if !ok {
 				return fmt.Errorf("cannot remove %s index for %s property: no main bucket for this index type", indexType, prop.Name)
 			}
+			s.retirePropertyOverlay(prop.Name, indexType)
 			if err := s.removeBucket(ctx, mainBucket); err != nil {
 				return fmt.Errorf("cannot remove %s index for %s property: %w", indexType, prop.Name, err)
 			}
@@ -234,7 +236,7 @@ func (s *Shard) cleanStaleMigrationDirs(ctx context.Context, propName, indexType
 // [Shard.cleanStaleMigrationDirs]: takes an explicit lsmPath + logger so the
 // preservation logic can be unit-tested without standing up a Shard.
 //
-// Every migration tracker dir on disk carries a per-node generation
+// Every migration tracker dir on disk carries a generation
 // suffix (`_<N>`); a single (prop, indexType) tuple can have multiple
 // generations on disk simultaneously when the last migration's trim
 // hasn't run (e.g. crash before markTidied → next-restart finalize
@@ -543,7 +545,7 @@ func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, preser
 // the numeric generation tail is off. Keep in lockstep with the strategies'
 // ReindexSuffix / IngestSuffix / BackupSuffix; [TestEverySidecarSuffixIsASidecar]
 // pins that a new strategy either reuses one of these or extends the list.
-var sidecarRoleWords = []string{"reindex", "ingest", "backup", "map"}
+var sidecarRoleWords = schema.SidecarRoleWords
 
 // isSidecarDirOf reports whether name is a per-property sidecar of
 // mainBucketName. "__" alone isn't enough: property names may contain "__"
@@ -573,42 +575,28 @@ func isSidecarDirOf(name, mainBucketName string) bool {
 }
 
 // sidecarRoleWord returns a sidecar suffix's trailing word, ignoring the
-// "_<gen>" tail [genSuffix] appends.
-//
-// Only an all-digit tail is dropped: a non-numeric tail is part of the
-// property's own name, not a generation. This also covers generation 0,
-// which a buggy writer could leave even though [parseMigrationDirName] only
-// accepts generations >= 1.
+// "_<gen>" tail [genSuffix] appends. Shared with the property-name check that
+// refuses a name of this shape at creation time.
 func sidecarRoleWord(suffix string) string {
-	if i := strings.LastIndexByte(suffix, '_'); i >= 0 && isAllDigits(suffix[i+1:]) {
-		suffix = suffix[:i]
-	}
-	return suffix[strings.LastIndexByte(suffix, '_')+1:]
-}
-
-func isAllDigits(s string) bool {
-	return s != "" && strings.TrimLeft(s, "0123456789") == ""
+	return schema.SidecarRoleWord(suffix)
 }
 
 func (s *Shard) removeBucket(ctx context.Context, bucketName string) error {
-	bucket := s.store.Bucket(bucketName)
-	if bucket == nil {
-		return nil // bucket doesn't exist, nothing to remove
-	}
 	// Shutdown the bucket first - after this point, the bucket cannot be used
-	if err := s.store.ShutdownBucket(ctx, bucketName); err != nil {
-		return fmt.Errorf("failed to shutdown bucket %s: %w", bucketName, err)
+	if s.store.Bucket(bucketName) != nil {
+		if err := s.store.ShutdownBucket(ctx, bucketName); err != nil {
+			return fmt.Errorf("failed to shutdown bucket %s: %w", bucketName, err)
+		}
 	}
-	// Remove the bucket's directory from disk
-	// If this fails after successful shutdown, we're in an inconsistent state:
-	// the bucket is removed from the store but its data remains on disk
-	if err := s.removeDirIfExists(s.pathLSM(), bucketName); err != nil {
+	// Remove the directory even if the store forgot the bucket: a removal
+	// that failed here after the shutdown left it behind.
+	if err := removeDirIfExists(s.pathLSM(), bucketName); err != nil {
 		return fmt.Errorf("bucket %s shut down successfully but directory removal failed: %w", bucketName, err)
 	}
 	return nil
 }
 
-func (s *Shard) removeDirIfExists(parentDir, dirName string) error {
+func removeDirIfExists(parentDir, dirName string) error {
 	dirPath := filepath.Join(parentDir, dirName)
 	if _, err := os.Stat(dirPath); !os.IsNotExist(err) {
 		if err := os.RemoveAll(dirPath); err != nil {
@@ -668,15 +656,23 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 			return err
 		}
 
-		if actualStrategy := s.store.Bucket(bucketName).Strategy(); actualStrategy == lsmkv.StrategyInverted {
+		bucket, release := s.store.AcquireBucketForRead(bucketName)
+		if bucket == nil {
+			return fmt.Errorf("searchable bucket %q of shard %q: %w", bucketName, s.name, lsmkv.ErrBucketNotFound)
+		}
+		actualStrategy := bucket.Strategy()
+		release()
+		if actualStrategy == lsmkv.StrategyInverted {
 			s.markSearchableBlockmaxProperties(prop.Name)
 		}
 	}
 
 	if inverted.HasRangeableIndex(prop) {
+		// Appended last so it wins over makeDefaultBucketOptions' value.
+		opts := append(makeBucketOptions(lsmkv.StrategyRoaringSetRange),
+			lsmkv.WithKeepSegmentsInMemory(s.index.Config.keepRangeableInMemory(prop.Name)))
 		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketRangeableFromPropNameLSM(prop.Name),
-			makeBucketOptions(lsmkv.StrategyRoaringSetRange)...,
+			helpers.BucketRangeableFromPropNameLSM(prop.Name), opts...,
 		); err != nil {
 			return err
 		}
@@ -738,7 +734,11 @@ func (s *Shard) createDimensionsBucket(ctx context.Context, name string) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
+	return s.loadDimensionsBucket(ctx, name)
+}
 
+// loadDimensionsBucket, unlike createDimensionsBucket, does not refuse a read only shard.
+func (s *Shard) loadDimensionsBucket(ctx context.Context, name string) error {
 	bucketPath := filepath.Join(s.pathLSM(), name)
 	strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, lsmkv.DimensionsBucketPrioritizedStrategies)
 	if err != nil {
@@ -756,10 +756,20 @@ func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 		return err
 	}
 
-	// Note: this data would fit the "Set" type better, but since the "Map" type
-	// is currently optimized better, it is more efficient to use a Map here.
-	err := s.createDimensionsBucket(ctx, helpers.DimensionsBucketLSM)
+	// a usage scan that takes the shard for unloaded must not open the bucket meanwhile
+	unlock, err := shardusage.LockUnloadedDimensionsBucket(ctx, s.index.path(), s.name)
 	if err != nil {
+		return fmt.Errorf("create dimensions tracking property: %w", err)
+	}
+	defer unlock()
+
+	// nothing can read or write the bucket yet, so a migration needs no double writes
+	if _, err := shardusage.PrepareDimensionsBucket(ctx, s.index.logger, s.index.path(), s.name,
+		s.index.Config.MigrateDimensionsToRoaringSet); err != nil {
+		return fmt.Errorf("create dimensions tracking property: %w", err)
+	}
+
+	if err := s.createDimensionsBucket(ctx, helpers.DimensionsBucketLSM); err != nil {
 		return fmt.Errorf("create dimensions tracking property: %w", err)
 	}
 

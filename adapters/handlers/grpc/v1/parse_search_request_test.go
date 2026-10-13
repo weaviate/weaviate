@@ -43,6 +43,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 const (
@@ -2958,7 +2959,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 		},
 	}
 
-	parser := NewParser(false, getClass, nil, false)
+	parser := NewParser(false, getClass, nil, namespacing.Disabled)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			out, err := parser.Search(tt.req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
@@ -3017,7 +3018,7 @@ func TestGRPCSearchRequestBoostPropertyTypeValidation(t *testing.T) {
 		{"numeric_decay on nested path errors", numericDecay("number.foo"), true},
 	}
 
-	parser := NewParser(false, getClass, nil, false)
+	parser := NewParser(false, getClass, nil, namespacing.Disabled)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := &pb.SearchRequest{

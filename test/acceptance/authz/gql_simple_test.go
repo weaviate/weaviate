@@ -44,7 +44,7 @@ func TestAuthZGraphQLSingleTenancy(t *testing.T) {
 		WithWeaviate().
 		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
 		WithRBAC().WithRbacRoots(adminUser).
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		WithWeaviateEnv("API_BASED_MODULES_DISABLED", "true").
 		Start(ctx)
 
@@ -58,7 +58,7 @@ func TestAuthZGraphQLSingleTenancy(t *testing.T) {
 	helper.SetupClient(compose.GetWeaviate().URI())
 	defer helper.ResetClient()
 
-	class := books.ClassContextionaryVectorizer()
+	class := books.ClassModel2VecVectorizer()
 	readBooksRole := "read-books"
 
 	t.Run("create books class", func(t *testing.T) {
@@ -188,7 +188,7 @@ func TestAuthZGraphQLMultiTenancy(t *testing.T) {
 		WithWeaviate().
 		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
 		WithRBAC().WithRbacRoots(adminUser).
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		Start(ctx)
 
 	require.Nil(t, err)
@@ -201,7 +201,7 @@ func TestAuthZGraphQLMultiTenancy(t *testing.T) {
 	helper.SetupClient(compose.GetWeaviate().URI())
 	defer helper.ResetClient()
 
-	class := books.ClassContextionaryVectorizer()
+	class := books.ClassModel2VecVectorizer()
 	readBooksRole := "read-books"
 
 	t.Run("create books class", func(t *testing.T) {

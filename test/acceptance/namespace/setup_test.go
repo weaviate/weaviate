@@ -67,6 +67,10 @@ func retryOnAliasLag(t *testing.T, op func() error) {
 // createNamespacedUser and granted the built-in admin role by this root.
 const adminUser, adminKey = "admin-user", "admin-key"
 
+// suspendedMessage is the NAMESPACE_SUSPENDED_MESSAGE every node of the shared
+// cluster runs with.
+const suspendedMessage = "paused by the operator, contact support"
+
 // Two extra static API-key users for TestGlobalCallerColonUserIDAuthz. Static
 // keys are global operators (ns==""), the journey the matcher fix targets. The
 // test grants gCaller a narrow role at runtime; gTarget just needs to exist.
@@ -103,6 +107,7 @@ func TestMain(m *testing.M) {
 		WithRbacRoots(adminUser).
 		WithDbUsers().
 		WithNamespaces().
+		WithWeaviateEnv("NAMESPACE_SUSPENDED_MESSAGE", suspendedMessage).
 		WithMCP().
 		WithOffloadS3("offloading", "us-west-1").
 		// Bounds the upload TestNamespaces_SuspendDuringOffloadAbort fails on
@@ -117,7 +122,6 @@ func TestMain(m *testing.M) {
 		WithWeaviateEnv("EXPORT_ENABLED", "true").
 		WithWeaviateEnv("EXPORT_DEFAULT_BUCKET", "backups").
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
-		WithWeaviateEnv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true").
 		WithWeaviateClusterWithGRPC().
 		Start(ctx)
 	if err != nil {

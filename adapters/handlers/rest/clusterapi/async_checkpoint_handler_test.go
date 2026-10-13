@@ -94,6 +94,39 @@ func TestAsyncCheckpoint_CreatedAtSkewGuard_Rejects(t *testing.T) {
 	assert.Contains(t, respBody, "created_at_ms is too far in the future")
 }
 
+func TestAsyncCheckpoint_OversizedBodyRejected(t *testing.T) {
+	rep := replicaTypes.NewMockReplicator(t)
+	server, cleanup := asyncCheckpointHandlerTestServer(t, rep)
+	defer cleanup()
+
+	shards := make([]string, replica.AsyncCheckpointMaxBodyBytes/64)
+	for i := range shards {
+		shards[i] = fmt.Sprintf("%064d", i)
+	}
+	for _, method := range []string{http.MethodPost, http.MethodDelete} {
+		t.Run(method, func(t *testing.T) {
+			body := map[string]any{
+				"shards":        shards,
+				"cutoff_ms":     time.Now().Add(time.Minute).UnixMilli(),
+				"created_at_ms": time.Now().UnixMilli(),
+			}
+			raw, _ := json.Marshal(body)
+			require.Greater(t, len(raw), replica.AsyncCheckpointMaxBodyBytes)
+			req, err := http.NewRequest(method, asyncCheckpointURL(server.URL, "MyClass"), bytes.NewReader(raw))
+			require.NoError(t, err)
+			req.Header.Set("Content-Type", "application/json")
+
+			res, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			defer res.Body.Close()
+
+			respBody := readBodyOnce(t, res)
+			assert.Equal(t, http.StatusRequestEntityTooLarge, res.StatusCode, "body: %s", respBody)
+			assert.Contains(t, respBody, "request body too large")
+		})
+	}
+}
+
 func TestAsyncCheckpoint_CreatedAtSkewGuard_AcceptsWithinTolerance(t *testing.T) {
 	// 1 minute ahead is comfortably inside the 5-minute tolerance; the
 	// handler must forward to the Replicator.

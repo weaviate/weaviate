@@ -195,6 +195,8 @@ func FromBinaryOptionalNetwork(data []byte,
 
 // FromBinaryOptionalDisk lets the caller supply an authoritative
 // class name; an empty className falls back to the on-disk bytes.
+// properties is only read, so several decodes may share one value, but nothing
+// may mutate it while they run.
 func FromBinaryOptionalDisk(data []byte, className string,
 	addProp additional.Properties, properties *PropertyExtraction,
 ) (*Object, error) {
@@ -397,6 +399,9 @@ func fromBinaryOptionalInternal(data []byte, className string,
 	return ko, nil
 }
 
+// PropertyExtraction names the properties a decode should read from a stored
+// object. Decodes only read it, so one value may be shared across concurrent
+// decodes; Add mutates it, so never call Add while a decode is in flight.
 type PropertyExtraction struct {
 	PropertyPaths [][]string
 }
@@ -1380,6 +1385,7 @@ func UnmarshalPropertiesFromObject(data []byte, resultProperties map[string]inte
 }
 
 // UnmarshalProperties accepts serialized properties as data and populates resultProperties map with the properties specified by propertyPaths.
+// Every value it writes is copied out of data, which the caller may then overwrite.
 func UnmarshalProperties(data []byte, properties map[string]interface{}, propertyPaths [][]string) error {
 	var returnError error
 	jsonparser.EachKey(data, func(idx int, value []byte, dataType jsonparser.ValueType, err error) {
@@ -1406,7 +1412,7 @@ func UnmarshalProperties(data []byte, properties map[string]interface{}, propert
 				// there can be more than one
 				var beacons []interface{}
 				handler := func(beaconByte []byte, dataType jsonparser.ValueType, offset int, err error) {
-					beaconVal, err2 := jsonparser.GetString(beaconByte, "beacon") // this points to the underlying memory
+					beaconVal, err2 := jsonparser.GetString(beaconByte, "beacon")
 					returnError = err2
 					beacons = append(beacons, map[string]interface{}{"beacon": beaconVal})
 				}

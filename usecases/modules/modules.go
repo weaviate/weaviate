@@ -24,6 +24,7 @@ import (
 	"github.com/tailor-platform/graphql"
 	"github.com/tailor-platform/graphql/language/ast"
 
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -49,15 +50,11 @@ type Provider struct {
 	vectorsLock               sync.RWMutex
 	registered                map[string]modulecapabilities.Module
 	altNames                  map[string]string
-	schemaGetter              schemaGetter
+	schemaGetter              local.ClassReader
 	hasMultipleVectorizers    bool
 	targetVectorNameValidator *regexp.Regexp
 	logger                    logrus.FieldLogger
 	cfg                       config.Config
-}
-
-type schemaGetter interface {
-	ReadOnlyClass(name string) *models.Class
 }
 
 func NewProvider(logger logrus.FieldLogger, cfg config.Config) *Provider {
@@ -108,17 +105,6 @@ func (p *Provider) GetAll() []modulecapabilities.Module {
 	return out
 }
 
-func (p *Provider) GetAllWithHTTPHandlers() []modulecapabilities.ModuleWithHTTPHandlers {
-	out := make([]modulecapabilities.ModuleWithHTTPHandlers, 0)
-	for _, mod := range p.registered {
-		if modWithHTTPHandlers, ok := mod.(modulecapabilities.ModuleWithHTTPHandlers); ok {
-			out = append(out, modWithHTTPHandlers)
-		}
-	}
-
-	return out
-}
-
 func (p *Provider) GetAllExclude(module string) []modulecapabilities.Module {
 	filtered := []modulecapabilities.Module{}
 	for _, mod := range p.GetAll() {
@@ -141,7 +127,7 @@ func (p *Provider) Close() error {
 	return nil
 }
 
-func (p *Provider) SetSchemaGetter(sg schemaGetter) {
+func (p *Provider) SetSchemaGetter(sg local.ClassReader) {
 	p.schemaGetter = sg
 }
 
@@ -1162,6 +1148,19 @@ func (p *Provider) UsageEnabled() bool {
 		}
 	}
 	return false
+}
+
+func (p *Provider) MutableSettings(moduleName string, current, updated map[string]any) bool {
+	mod, ok := p.GetByName(moduleName).(modulecapabilities.MutableSettings)
+	if !ok {
+		return false
+	}
+	return mod.MutableSettings(p.settingsConfig(moduleName, current), p.settingsConfig(moduleName, updated))
+}
+
+func (p *Provider) settingsConfig(moduleName string, settings map[string]any) moduletools.ClassConfig {
+	class := &models.Class{ModuleConfig: map[string]any{moduleName: settings}}
+	return NewClassBasedModuleConfig(class, moduleName, "", "", &p.cfg)
 }
 
 // MigrateVectorizerSettings compares and migrates module settings if module settings

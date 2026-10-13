@@ -14,7 +14,9 @@ package compact
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"hash/crc32"
+	"os"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -832,8 +834,8 @@ func TestSnapshotWriter_PackConnections_Overflow(t *testing.T) {
 }
 
 // TestSnapshotWriter_OversizedNodeReturnsError ensures a single node entry that
-// cannot fit in one block fails loudly from Flush instead of panicking on the
-// negative padding math in flushBlock or being silently dropped. It uses a tiny
+// cannot fit in one block fails loudly from Flush instead of being written as an
+// oversized block or silently dropped. It uses a tiny
 // block size so one node with a handful of connections already overflows an
 // otherwise-empty block. This pins the writeSlot capacity guard; without it the
 // merge would carry the fix but not its regression test.
@@ -856,4 +858,258 @@ func TestSnapshotWriter_OversizedNodeReturnsError(t *testing.T) {
 	err := sw.Flush()
 	require.Error(t, err, "a node larger than a block must be rejected, not dropped or panic")
 	assert.Contains(t, err.Error(), "exceeds block capacity")
+}
+
+// TestSnapshotWriter_ExactBlockFit pins where an entry that exactly fills the
+// rest of a block lands. It must stay in that block: pushing it to the next one
+// flushed an empty first block with the same start-node-ID as the block after
+// it, and the reader failed with an overlap whenever it sorted that empty block
+// second. The blocks are tiny so the filling entry is a live node without
+// connections (9 bytes) or an absent slot (1 byte). A block holds blockSize-16
+// bytes of entries: CRC, length and start-node-ID take the rest.
+func TestSnapshotWriter_ExactBlockFit(t *testing.T) {
+	tests := []struct {
+		name       string
+		blockSize  int64
+		write      func(sw *SnapshotWriter)
+		wantErr    string
+		wantBlocks []testBodyBlock
+		nodeCount  int
+		live       []uint64
+	}{
+		{
+			name:      "live node fills the empty first block",
+			blockSize: 16 + 9,
+			write: func(sw *SnapshotWriter) {
+				sw.AddNode(0, 0, nil, false)
+				sw.AddNode(1, 0, nil, false)
+			},
+			wantBlocks: []testBodyBlock{{start: 0, len: 8 + 9}, {start: 1, len: 8 + 9}},
+			nodeCount:  2,
+			live:       []uint64{0, 1},
+		},
+		{
+			name:      "absent slot fills the empty first block",
+			blockSize: 16 + 1,
+			write: func(sw *SnapshotWriter) {
+				sw.AddTombstone(1)
+			},
+			wantBlocks: []testBodyBlock{{start: 0, len: 8 + 1}, {start: 1, len: 8 + 1}},
+			nodeCount:  2,
+		},
+		{
+			name:      "live node fills the rest of a block",
+			blockSize: 16 + 9 + 9,
+			write: func(sw *SnapshotWriter) {
+				sw.AddNode(0, 0, nil, false)
+				sw.AddNode(1, 0, nil, false)
+				sw.AddNode(2, 0, nil, false)
+			},
+			wantBlocks: []testBodyBlock{{start: 0, len: 8 + 9 + 9}, {start: 2, len: 8 + 9}},
+			nodeCount:  3,
+			live:       []uint64{0, 1, 2},
+		},
+		{
+			name:      "gap slot fills the rest of a block",
+			blockSize: 16 + 9 + 1,
+			write: func(sw *SnapshotWriter) {
+				sw.AddNode(0, 0, nil, false)
+				sw.AddNode(2, 0, nil, false)
+			},
+			wantBlocks: []testBodyBlock{{start: 0, len: 8 + 9 + 1}, {start: 2, len: 8 + 9}},
+			nodeCount:  3,
+			live:       []uint64{0, 2},
+		},
+		{
+			name:      "trailing absent slot fills the rest of the last block",
+			blockSize: 16 + 9 + 1,
+			write: func(sw *SnapshotWriter) {
+				sw.AddNode(0, 0, nil, false)
+				sw.AddTombstone(1)
+			},
+			wantBlocks: []testBodyBlock{{start: 0, len: 8 + 9 + 1}},
+			nodeCount:  2,
+			live:       []uint64{0},
+		},
+		{
+			name:      "live node one byte over the rest of a block starts the next block",
+			blockSize: 16 + 9 + 8,
+			write: func(sw *SnapshotWriter) {
+				sw.AddNode(0, 0, nil, false)
+				sw.AddNode(1, 0, nil, false)
+			},
+			wantBlocks: []testBodyBlock{{start: 0, len: 8 + 9}, {start: 1, len: 8 + 9}},
+			nodeCount:  2,
+			live:       []uint64{0, 1},
+		},
+		{
+			name:      "live node one byte over the empty first block fails",
+			blockSize: 16 + 8,
+			write: func(sw *SnapshotWriter) {
+				sw.AddNode(0, 0, nil, false)
+			},
+			wantErr: "exceeds block capacity",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			sw := NewSnapshotWriterWithBlockSize(&buf, tt.blockSize)
+			sw.SetEntrypoint(0, 0)
+			tt.write(sw)
+
+			err := sw.Flush()
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantBlocks, snapshotBodyBlocks(t, buf.Bytes(), int(tt.blockSize)))
+
+			result, err := NewSnapshotReaderWithBlockSize(logrus.New(), tt.blockSize).Read(bytes.NewReader(buf.Bytes()))
+			require.NoError(t, err)
+			require.Len(t, result.Graph.Nodes, tt.nodeCount)
+			var live []uint64
+			for id, node := range result.Graph.Nodes {
+				if node != nil {
+					live = append(live, uint64(id))
+				}
+			}
+			require.Equal(t, tt.live, live)
+		})
+	}
+}
+
+// testBodyBlock is the start-node-ID and block length of one snapshot body
+// block.
+type testBodyBlock struct {
+	start uint64
+	len   uint32
+}
+
+// snapshotBodyBlocks returns the start-node-ID and block length of every block
+// in the body of the V3 snapshot data.
+func snapshotBodyBlocks(t *testing.T, data []byte, blockSize int) []testBodyBlock {
+	t.Helper()
+	metadataSize := binary.LittleEndian.Uint32(data[5:9])
+	body := data[9+int(metadataSize):]
+	require.Zero(t, len(body)%blockSize, "body must be whole blocks")
+
+	var blocks []testBodyBlock
+	for off := 0; off < len(body); off += blockSize {
+		block := body[off : off+blockSize]
+		blocks = append(blocks, testBodyBlock{
+			start: binary.LittleEndian.Uint64(block[4:12]),
+			len:   binary.LittleEndian.Uint32(block[blockSize-4:]),
+		})
+	}
+	return blocks
+}
+
+// TestWriteZeros pins writeZeros at the zeroChunk boundaries, and that it
+// returns the error of a failed write instead of dropping it.
+func TestWriteZeros(t *testing.T) {
+	tests := []struct {
+		name string
+		n    int
+	}{
+		{"negative", -1},
+		{"zero", 0},
+		{"one", 1},
+		{"one chunk", len(zeroChunk)},
+		{"past two chunks", 2*len(zeroChunk) + 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			require.NoError(t, writeZeros(&buf, tt.n))
+			assert.True(t, bytes.Equal(make([]byte, max(tt.n, 0)), buf.Bytes()),
+				"want %d zero bytes, got %d bytes", max(tt.n, 0), buf.Len())
+		})
+	}
+
+	t.Run("write error", func(t *testing.T) {
+		f, err := os.CreateTemp(t.TempDir(), "zeros-*")
+		require.NoError(t, err)
+		require.NoError(t, f.Close())
+		require.Error(t, writeZeros(f, 1))
+	})
+}
+
+// errWriteFailed is the I/O failure failAfterWriter reports.
+var errWriteFailed = errors.New("no space left on device")
+
+// failAfterWriter passes the first remaining bytes through and fails every
+// write after that, so a test can put an I/O failure in a chosen part of a
+// block.
+type failAfterWriter struct {
+	remaining int
+}
+
+func (w *failAfterWriter) Write(p []byte) (int, error) {
+	if len(p) <= w.remaining {
+		w.remaining -= len(p)
+		return len(p), nil
+	}
+	n := w.remaining
+	w.remaining = 0
+	return n, errWriteFailed
+}
+
+// TestBodyStreamer_WriteBlockTo_WriteErrors pins that each of the four writes
+// in writeBlockTo reports a failure instead of dropping it. A dropped error
+// would leave a body block that stopped short (disk full, I/O error) to be
+// copied behind a valid header, so the snapshot would look loadable.
+func TestBodyStreamer_WriteBlockTo_WriteErrors(t *testing.T) {
+	const blockSize = 128
+	entry := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+
+	// A block is: 4-byte checksum, 8-byte start-node-ID, the entries, zero
+	// padding up to maxBlockSize (blockSize-8), 4-byte length.
+	contentLen := 8 + len(entry)
+	pad := blockSize - 8 - contentLen
+
+	tests := []struct {
+		name string
+		// bytes the destination takes before every further write fails
+		accept  int
+		wantErr string
+	}{
+		{"checksum", 0, "write block checksum"},
+		{"entries", 4, "write block entries"},
+		{"padding", 4 + contentLen, "write block padding"},
+		{"length", 4 + contentLen + pad, "write block length"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := newTestBodyStreamer(t, blockSize, entry)
+			defer b.close()
+
+			err := b.writeBlockTo(&failAfterWriter{remaining: tt.accept})
+			require.ErrorIs(t, err, errWriteFailed)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+
+	t.Run("every write succeeds", func(t *testing.T) {
+		b := newTestBodyStreamer(t, blockSize, entry)
+		defer b.close()
+
+		var buf bytes.Buffer
+		require.NoError(t, b.writeBlockTo(&buf))
+		// Pins the byte offsets the failure cases above aim at.
+		assert.Equal(t, blockSize, buf.Len())
+	})
+}
+
+// newTestBodyStreamer returns a body streamer holding one unflushed block with
+// entry in it.
+func newTestBodyStreamer(t *testing.T, blockSize int64, entry []byte) *bodyStreamer {
+	t.Helper()
+	b, err := newBodyStreamer(t.TempDir(), blockSize)
+	require.NoError(t, err)
+	require.NoError(t, b.writeSlot(0, entry))
+	return b
 }

@@ -144,7 +144,7 @@ func TestDeleteSweepSharesOnePayloadMemoAndReportsItsReads(t *testing.T) {
 	class := newTestClassWithProps(className, []string{"cat", "dog"})
 	hookLogger, hook := test.NewNullLogger()
 	shd, idx := testShardWithSettings(t, ctx, class,
-		enthnsw.UserConfig{Skip: true}, false, false, false,
+		enthnsw.UserConfig{Skip: true}, false, false,
 		func(i *Index) { i.logger = hookLogger })
 	defer shd.Shutdown(ctx)
 
@@ -267,7 +267,7 @@ func TestSweepReportsOnlyWhatItSwept(t *testing.T) {
 			class := newTestClassWithProps("SweepReport_"+uuid.NewString()[:8], []string{"cat", "dog"})
 			hookLogger, hook := test.NewNullLogger()
 			shd, idx := testShardWithSettings(t, ctx, class,
-				enthnsw.UserConfig{Skip: true}, false, false, false,
+				enthnsw.UserConfig{Skip: true}, false, false,
 				func(i *Index) { i.logger = hookLogger })
 			defer shd.Shutdown(ctx)
 

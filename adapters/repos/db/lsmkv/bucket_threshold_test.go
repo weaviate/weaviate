@@ -44,11 +44,13 @@ func newTestBucketWithFlushCycle(t *testing.T, opts ...BucketOption) *Bucket {
 	flushCallbacks := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
 	flushCycle := cyclemanager.NewManager("flush", cyclemanager.MemtableFlushCycleTicker(false), flushCallbacks.CycleCallback, logger)
 	flushCycle.Start()
-	t.Cleanup(func() {
+	// StopAndWait is a no-op once stopped, so the bucket teardown may call it again.
+	stopFlushCycle := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
-		require.Nil(t, flushCycle.StopAndWait(ctx))
-	})
+		require.NoError(t, flushCycle.StopAndWait(ctx))
+	}
+	t.Cleanup(stopFlushCycle)
 
 	bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 		cyclemanager.NewCallbackGroupNoop(), flushCallbacks,
@@ -56,6 +58,11 @@ func newTestBucketWithFlushCycle(t *testing.T, opts ...BucketOption) *Bucket {
 	)
 	require.Nil(t, err)
 	t.Cleanup(func() {
+		// Drain the cycle before Shutdown, which blocks on flushAndSwitchMu while
+		// an in-flight flush polls for writers on a ticker. A mutex wait is not
+		// durably blocking, so it would freeze the bubble's clock and stall the poll.
+		stopFlushCycle()
+
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 		require.Nil(t, bucket.Shutdown(ctx))
@@ -190,6 +197,58 @@ func TestMemtableThreshold_Replace(t *testing.T) {
 		require.Truef(t, isSizeWithinTolerance(t, sizeBeforeFlush, memtableThreshold, tolerance),
 			"Memtable size (%d) was allowed to increase beyond threshold (%d) with tolerance of (%f)%%",
 			sizeBeforeFlush, memtableThreshold, tolerance*100)
+	})
+}
+
+// TestMemtableThreshold_RoaringSet writes keys whose cost is per-key structure
+// rather than doc IDs, so 1000 of them have to cross a 64 KB threshold.
+func TestMemtableThreshold_RoaringSet(t *testing.T) {
+	amount := 1000
+	memtableThreshold := uint64(65536)
+	tolerance := 4.
+
+	keys := make([][]byte, amount)
+	for i := range keys {
+		n, err := json.Marshal(i)
+		require.NoError(t, err)
+		keys[i] = n
+	}
+
+	synctest.Test(t, func(t *testing.T) {
+		bucket := newTestBucketWithFlushCycle(t,
+			WithStrategy(StrategyRoaringSet),
+			WithMemtableThreshold(memtableThreshold),
+			WithMinWalThreshold(0),
+		)
+
+		bucket.flushLock.RLock()
+		initialPath := bucket.active.Path()
+		bucket.flushLock.RUnlock()
+
+		var sizeBeforeFlush uint64
+		flushed := false
+		for i := 0; i < amount; i++ {
+			require.NoError(t, bucket.RoaringSetAddOne(keys[i], uint64(i)))
+			time.Sleep(800 * time.Microsecond)
+
+			bucket.flushLock.RLock()
+			currentPath := bucket.active.Path()
+			currentSize := bucket.active.Size()
+			bucket.flushLock.RUnlock()
+
+			if currentPath != initialPath {
+				flushed = true
+				break
+			}
+			sizeBeforeFlush = currentSize
+		}
+
+		require.Truef(t, flushed,
+			"Memtable was never flushed; last observed size was (%d)", sizeBeforeFlush)
+		require.NotZerof(t, sizeBeforeFlush, "the flush fired before any size was observed")
+		require.Truef(t, isSizeWithinTolerance(t, sizeBeforeFlush, memtableThreshold, tolerance),
+			"Memtable size (%d) was allowed to exceed the bound the check applied (%.0f)",
+			sizeBeforeFlush, float64(memtableThreshold)*(tolerance+1))
 	})
 }
 

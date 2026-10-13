@@ -36,7 +36,7 @@ func variedKeys(n int) []Key {
 	return keys
 }
 
-func marshalTree(t *testing.T, keys []Key) []byte {
+func marshalTree(t testing.TB, keys []Key) []byte {
 	t.Helper()
 	var buf bytes.Buffer
 	_, err := MarshalSortedKeysFromKeys(&buf, keys)

@@ -107,7 +107,7 @@ func (c *cacheReader) Read(p []byte) (n int, err error) {
 }
 
 func (c *cacheReader) loadDataIntoCache(readLength int) error {
-	at, err := c.segment.newNodeReader(nodeOffset{start: c.positionInSegment}, "CursorCollectionReusable")
+	at, err := c.segment.newNodeReader(nodeOffset{start: c.positionInSegment}, cursorCollectionReusableOp)
 	if err != nil {
 		return err
 	}

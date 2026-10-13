@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -38,8 +39,7 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/objects"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/remote"
 )
 
 // refCountTestIndex returns a single-shard index plus its only shard. The shard
@@ -52,9 +52,9 @@ func refCountTestIndex(t *testing.T, className string) (*Index, *Shard) {
 	nodeResolver.EXPECT().NodeHostname(mock.Anything).Return("", false).Maybe()
 
 	shard, idx := testShardWithSettings(t, t.Context(), &models.Class{Class: className},
-		enthnsw.NewDefaultUserConfig(), false, false, false, func(i *Index) {
+		enthnsw.NewDefaultUserConfig(), false, false, func(i *Index) {
 			i.shardResolver = resolver.NewShardResolver(className, false, i.getSchema)
-			i.remote = sharding.NewRemoteIndex(className, i.getSchema,
+			i.remote = remote.NewIndex(className, i.getSchema,
 				nodeResolver, &FakeRemoteClient{})
 		})
 
@@ -387,7 +387,7 @@ func TestShardRefCountSchemaWaitFailure(t *testing.T) {
 			idx, shard := refCountTestIndex(t, className)
 
 			// the caller's own wait succeeds, the one inside the shard lookup does not
-			schemaReader := idx.schemaReader.(*schemaUC.MockSchemaReader)
+			schemaReader := idx.schemaReader.(*local.MockSchemaReader)
 			schemaReader.EXPECT().WaitForUpdate(mock.Anything, schemaVersion).Return(nil).Once()
 			schemaReader.EXPECT().WaitForUpdate(mock.Anything, schemaVersion).
 				Return(context.Canceled).Once()
@@ -454,7 +454,7 @@ func TestWithShardOrRemoteRunsOneArm(t *testing.T) {
 			var version uint64
 			if test.failSchemaWait {
 				version = schemaVersion
-				schemaReader := idx.schemaReader.(*schemaUC.MockSchemaReader)
+				schemaReader := idx.schemaReader.(*local.MockSchemaReader)
 				schemaReader.EXPECT().WaitForUpdate(mock.Anything, schemaVersion).
 					Return(context.Canceled).Once()
 			}

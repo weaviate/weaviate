@@ -24,18 +24,19 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type AggregateParser struct {
 	authorizedGetClass classGetterWithAuthzFunc
-	namespacesEnabled  bool
+	qualifier          namespacing.Qualifier
 	principal          *models.Principal
 }
 
-func NewAggregateParser(authorizedGetClass classGetterWithAuthzFunc, namespacesEnabled bool, principal *models.Principal) *AggregateParser {
+func NewAggregateParser(authorizedGetClass classGetterWithAuthzFunc, qualifier namespacing.Qualifier, principal *models.Principal) *AggregateParser {
 	return &AggregateParser{
 		authorizedGetClass: authorizedGetClass,
-		namespacesEnabled:  namespacesEnabled,
+		qualifier:          qualifier,
 		principal:          principal,
 	}
 }
@@ -80,7 +81,7 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 	}
 
 	if req.Filters != nil {
-		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection, req.Tenant, p.namespacesEnabled, p.principal)
+		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection, req.Tenant, p.qualifier, p.principal)
 		if err != nil {
 			return nil, fmt.Errorf("extract filters: %w", err)
 		}

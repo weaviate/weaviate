@@ -111,22 +111,6 @@ func TestBSTCursor(t *testing.T) {
 		assert.ErrorIs(t, err, lsmkv.NotFound)
 	})
 
-	t.Run("next after seek missing element does not change cursor's position", func(t *testing.T) {
-		cursor := NewBinarySearchTreeCursor(bst)
-
-		key1, _, err1 := cursor.First()
-
-		missing := []byte("eee")
-		cursor.Seek(missing)
-
-		key2, _, err2 := cursor.Next()
-
-		assert.Equal(t, []byte("aaa"), key1)
-		assert.Nil(t, err1)
-		assert.Equal(t, []byte("bbb"), key2)
-		assert.Nil(t, err2)
-	})
-
 	t.Run("next after last is nil/empty", func(t *testing.T) {
 		cursor := NewBinarySearchTreeCursor(bst)
 

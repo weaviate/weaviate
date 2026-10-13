@@ -104,7 +104,7 @@ banner: ## Add Weaviate banner with license details
 
 .PHONY: mocks
 mocks: ## Regenerate test mocks
-	docker run --rm -v $(PWD):/src -w /src vektra/mockery:v2.53.6
+	docker run --rm -v $(PWD):/src -w /src vektra/mockery:v2.53.7
 	$(MAKE) banner
 
 .PHONY: grpc
@@ -112,4 +112,4 @@ grpc:
 	./tools/dev/grpc_regenerate.sh
 
 deps:
-	@echo "Sync go deps in Weaviate, e2e with Go client and benchmark_bm25" && go mod tidy && go mod vendor && cd test/acceptance_with_go_client/ && go mod tidy && go mod vendor && cd ../benchmark_bm25/ && go mod tidy && go mod vendor && cd ../.. && echo "Success" || echo "Failed"
+	@echo "Sync go deps in Weaviate, generated gRPC stubs, e2e with Go client and benchmark_bm25" && go mod tidy && go mod vendor && cd grpc/generated/protocol && go mod tidy && go mod vendor && cd ../../../test/acceptance_with_go_client/ && go mod tidy && go mod vendor && cd ../benchmark_bm25/ && go mod tidy && go mod vendor && cd ../.. && echo "Success" || echo "Failed"

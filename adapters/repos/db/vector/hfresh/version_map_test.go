@@ -342,7 +342,7 @@ func TestVersionMapWarmup(t *testing.T) {
 	}
 
 	// flush so the sweep reads from disk segments, as after a real restart
-	require.NoError(t, bucket.FlushAndSwitch())
+	require.NoError(t, mustBucket(t, bucket).FlushAndSwitch())
 
 	// simulate the restart: fresh map over the same bucket, then warm up
 	m := NewVersionMap(bucket)
@@ -394,7 +394,7 @@ func TestVersionMapWarmupConcurrentWithInserts(t *testing.T) {
 	cfg, uc := makeHFreshConfig(t)
 	logger, _ := test.NewNullLogger()
 	cfg.Logger = logger
-	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector,
+	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk("",
 		func(ctx context.Context, id uint64, _ string) ([]float32, error) {
 			return vectors[id], nil
 		})

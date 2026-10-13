@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
-	"unicode"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -73,7 +72,9 @@ func ParseSource(uriString string) (*RefSource, error) {
 		return nil, fmt.Errorf("className cannot be empty")
 	}
 
-	if unicode.IsLower(rune(class[0])) {
+	// A global principal writes the lowercase namespace in front of the class,
+	// so the case rule reads the part after the separator.
+	if !schema.ClassPartStartsUpper(class) {
 		return nil, fmt.Errorf("className must start with an uppercase letter, but got %s", class)
 	}
 

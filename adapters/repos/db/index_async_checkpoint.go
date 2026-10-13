@@ -24,9 +24,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-// createAsyncCheckpoint applies a fan-out create. createdAt must be the
-// initiator's timestamp (convergence tie-breaker). Returns nil for shards
-// not hosted on this node so a class-wide broadcast can no-op safely.
+// createAsyncCheckpoint applies a fan-out create; createdAt is the initiator's tie-breaker.
+// An unloaded shard answers from its persisted hashtree without loading; otherwise nil when not hosted, 412 when unloaded.
 func (i *Index) createAsyncCheckpoint(ctx context.Context, shardName string, cutoffMs int64, createdAt time.Time) error {
 	// Never load a shard from async replication.
 	shard, release, err := i.getLoadedShard(shardName)
@@ -34,13 +33,10 @@ func (i *Index) createAsyncCheckpoint(ctx context.Context, shardName string, cut
 		return fmt.Errorf("get shard %q: %w", shardName, err)
 	}
 	if shard == nil {
-		// Not hosted here is benign for a fan-out create; hosted-but-unloaded is a visible 412.
-		if i.shards.Load(shardName) == nil {
-			return nil
-		}
-		return fmt.Errorf("%w: shard %q not loaded on this node", errAsyncReplicationNotActive, shardName)
+		return i.createUnloadedAsyncCheckpoint(ctx, shardName, cutoffMs, createdAt)
 	}
 	defer release()
+	i.unloadedCheckpoints.clear(shardName)
 	return shard.CreateAsyncCheckpoint(ctx, cutoffMs, createdAt)
 }
 
@@ -100,8 +96,9 @@ func (i *Index) deleteAsyncCheckpointShards(ctx context.Context, shardNames []st
 	return errors.Join(errs...)
 }
 
-// deleteAsyncCheckpoint is idempotent; checkpoints are not persisted, so an unloaded shard has nothing to delete.
+// deleteAsyncCheckpoint is idempotent.
 func (i *Index) deleteAsyncCheckpoint(ctx context.Context, shardName string) error {
+	i.unloadedCheckpoints.delete(shardName)
 	shard, release, err := i.getLoadedShard(shardName)
 	if err != nil {
 		return fmt.Errorf("get shard %q: %w", shardName, err)
@@ -113,11 +110,16 @@ func (i *Index) deleteAsyncCheckpoint(ctx context.Context, shardName string) err
 	return shard.DeleteAsyncCheckpoint(ctx)
 }
 
-// getAsyncCheckpointShardStatus omits shards not loaded here (without loading them) so the aggregator can distinguish "not on this node" from "loaded but inactive" (CutoffMs == 0).
+// getAsyncCheckpointShardStatus omits unloaded shards without a persisted-hashtree checkpoint, so absence still means "not on this node" and CutoffMs == 0 "loaded but inactive".
 // Per-shard failures are logged and dropped so one bad shard can't deny status for the rest.
 func (i *Index) getAsyncCheckpointShardStatus(ctx context.Context, shardNames []string) (map[string]replica.AsyncCheckpointShardStatus, error) {
 	out := make(map[string]replica.AsyncCheckpointShardStatus, len(shardNames))
 	var mu sync.Mutex
+	record := func(shardName string, status replica.AsyncCheckpointShardStatus) {
+		mu.Lock()
+		defer mu.Unlock()
+		out[shardName] = status
+	}
 
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
 	eg.SetLimit(_NUMCPU)
@@ -138,20 +140,24 @@ func (i *Index) getAsyncCheckpointShardStatus(ctx context.Context, shardNames []
 				return nil
 			}
 			if shard == nil {
+				status, ok := i.unloadedAsyncCheckpointStatus(shardName)
+				if !ok {
+					return nil
+				}
+				record(shardName, status)
 				return nil
 			}
 			defer release()
-			if lazy, ok := shard.(*LazyLoadShard); ok && !lazy.IsAsyncCheckpointHostable() {
+			i.unloadedCheckpoints.clear(shardName)
+			if lazy, ok := asLazyLoadShard(shard); ok && !lazy.IsAsyncCheckpointHostable() {
 				return nil
 			}
 			root, cutoffMs, createdAt, _ := shard.AsyncCheckpointRoot(ctx)
-			mu.Lock()
-			out[shardName] = replica.AsyncCheckpointShardStatus{
+			record(shardName, replica.AsyncCheckpointShardStatus{
 				Root:      root,
 				CutoffMs:  cutoffMs,
 				CreatedAt: createdAt,
-			}
-			mu.Unlock()
+			})
 			return nil
 		})
 	}
@@ -191,7 +197,8 @@ type asyncCheckpointBroadcaster interface {
 // CreateAsyncCheckpoints picks one createdAt for the whole fan-out so every
 // replica records the same convergence tie-breaker. Best-effort: per-shard
 // failures are logged, but the call returns nil and divergence reconciles
-// on the next cycle.
+// on the next cycle. An error means nothing was created: a ctx dead on entry
+// fails, but one cancelled mid-fan-out returns nil since a replica may have applied it.
 func (i *Index) CreateAsyncCheckpoints(ctx context.Context, cutoffMs int64, shards []string) error {
 	return i.createAsyncCheckpoints(ctx, cutoffMs, shards, i.replicator)
 }
@@ -199,6 +206,9 @@ func (i *Index) CreateAsyncCheckpoints(ctx context.Context, cutoffMs int64, shar
 func (i *Index) createAsyncCheckpoints(ctx context.Context, cutoffMs int64, shards []string, broadcaster asyncCheckpointBroadcaster) error {
 	if cutoffMs <= 0 {
 		return fmt.Errorf("cutoffMs must be > 0, got %d", cutoffMs)
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("create async checkpoints: %w", err)
 	}
 	targets := i.resolveShardNames(shards)
 	createdAt := time.Now().UTC()
@@ -217,7 +227,7 @@ func (i *Index) createAsyncCheckpoints(ctx context.Context, cutoffMs int64, shar
 					"op":     "create",
 					"class":  i.Config.ClassName,
 					"shard":  shardName,
-				}).WithError(err).Debug("async-checkpoint local create failed")
+				}).Debugf("async-checkpoint local create failed: %v", err)
 				return nil
 			}
 			localSuccesses.Add(1)
@@ -245,7 +255,7 @@ func (i *Index) createAsyncCheckpoints(ctx context.Context, cutoffMs int64, shar
 		"local_failures":   int(localFailures.Load()),
 		"remote_successes": remoteSuccesses,
 		"remote_failures":  remoteFailures,
-	}).Info("async-checkpoint create completed")
+	}).Debug("async-checkpoint create completed")
 	return nil
 }
 
@@ -268,7 +278,7 @@ func (i *Index) deleteAsyncCheckpoints(ctx context.Context, shards []string, bro
 					"op":     "delete",
 					"class":  i.Config.ClassName,
 					"shard":  shardName,
-				}).WithError(err).Debug("local async-checkpoint delete failed")
+				}).Debugf("local async-checkpoint delete failed: %v", err)
 				return nil
 			}
 			localSuccesses.Add(1)
@@ -292,7 +302,7 @@ func (i *Index) deleteAsyncCheckpoints(ctx context.Context, shards []string, bro
 		"local_failures":   int(localFailures.Load()),
 		"remote_successes": remoteSuccesses,
 		"remote_failures":  remoteFailures,
-	}).Info("async-checkpoint delete completed")
+	}).Debug("async-checkpoint delete completed")
 	return nil
 }
 
@@ -319,6 +329,7 @@ func (i *Index) getAsyncCheckpointStatus(ctx context.Context, shards []string, b
 		})
 	}
 
+	// Debug: convergence planning polls this every few seconds per class.
 	i.logger.WithFields(logrus.Fields{
 		"action":           "async_checkpoint",
 		"op":               "status",
@@ -327,6 +338,6 @@ func (i *Index) getAsyncCheckpointStatus(ctx context.Context, shards []string, b
 		"local_present":    len(localStatuses),
 		"remote_successes": remoteSuccesses,
 		"remote_failures":  remoteFailures,
-	}).Info("async-checkpoint status completed")
+	}).Debug("async-checkpoint status completed")
 	return out, nil
 }

@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -126,4 +127,66 @@ func overridePropertyDescriptions(raw json.RawMessage, overrides map[string]stri
 		return raw
 	}
 	return result
+}
+
+// AllowNullForOptionalArguments lets every optional argument in the tool's
+// input schema be null, which the handlers treat as not set. Required
+// arguments reject null.
+func AllowNullForOptionalArguments(tool *mcp.Tool) {
+	var schema map[string]any
+	if err := json.Unmarshal(tool.RawInputSchema, &schema); err != nil {
+		return
+	}
+	setNullable(schema)
+	if raw, err := json.Marshal(schema); err == nil {
+		tool.RawInputSchema = raw
+	}
+}
+
+// setNullable allows null for the optional properties of an object schema and
+// removes it from the required ones, including nested objects and array items.
+func setNullable(schema map[string]any) {
+	props, _ := schema["properties"].(map[string]any)
+	required, _ := schema["required"].([]any)
+	for name, p := range props {
+		prop, ok := p.(map[string]any)
+		if !ok {
+			continue
+		}
+		setNullable(prop)
+		if items, ok := prop["items"].(map[string]any); ok {
+			setNullable(items)
+		}
+		setNull(prop, !slices.Contains(required, any(name)))
+	}
+}
+
+// setNull adds null to a property's types, and to its enum if it has one, or
+// removes it from both.
+func setNull(prop map[string]any, allowed bool) {
+	var types []any
+	switch t := prop["type"].(type) {
+	case string:
+		types = []any{t}
+	case []any:
+		types = slices.Clone(t)
+	default:
+		return
+	}
+	types = slices.DeleteFunc(types, func(v any) bool { return v == "null" })
+	if allowed {
+		types = append(types, "null")
+	}
+	if len(types) == 1 {
+		prop["type"] = types[0]
+	} else {
+		prop["type"] = types
+	}
+	if enum, ok := prop["enum"].([]any); ok {
+		enum = slices.DeleteFunc(slices.Clone(enum), func(v any) bool { return v == nil })
+		if allowed {
+			enum = append(enum, nil)
+		}
+		prop["enum"] = enum
+	}
 }

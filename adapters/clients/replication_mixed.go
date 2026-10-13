@@ -210,13 +210,29 @@ func (s *switchReplicationClient) CompareHashTreeRoots(ctx context.Context, host
 	return s.restClient.CompareHashTreeRoots(ctx, host, index, roots)
 }
 
-func (s *switchReplicationClient) CompareHashTreeRootsMulti(ctx context.Context, host string,
+var _ replica.CompareRootsSessionFactory = (*switchReplicationClient)(nil)
+
+func (s *switchReplicationClient) NewCompareRootsSession() replica.CompareRootsSession {
+	return &switchCompareRootsSession{client: s}
+}
+
+// switchCompareRootsSession lazily holds a gRPC sub-session, dispatching per call like the client.
+type switchCompareRootsSession struct {
+	client *switchReplicationClient
+	grpc   replica.CompareRootsSession
+}
+
+func (s *switchCompareRootsSession) CompareHashTreeRootsMulti(ctx context.Context, host string,
 	classes map[string]map[string]hashtree.Digest,
 ) (*replica.CompareHashTreeRootsMultiResp, error) {
-	if s.useGRPC() {
-		return s.grpcClient.CompareHashTreeRootsMulti(ctx, host, classes)
+	if s.client.useGRPC() {
+		if s.grpc == nil {
+			s.grpc = s.client.grpcClient.NewCompareRootsSession()
+		}
+		return s.grpc.CompareHashTreeRootsMulti(ctx, host, classes)
 	}
-	return s.restClient.CompareHashTreeRootsMulti(ctx, host, classes)
+	// REST leg stays unpooled: it is being deprecated for async replication.
+	return s.client.restClient.CompareHashTreeRootsMulti(ctx, host, classes)
 }
 
 func (s *switchReplicationClient) CountObjects(ctx context.Context, host string, index string, shard string) (int, error) {

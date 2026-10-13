@@ -25,7 +25,7 @@ func Test_growIndexToAccomodateNode(t *testing.T) {
 	createVertexSlice := func(size int) []*vertex {
 		index := make([]*vertex, size)
 		for i := 0; i < len(index); i++ {
-			index[i] = &vertex{id: uint64(i)}
+			index[i] = &vertex{}
 		}
 		return index
 	}

@@ -38,8 +38,7 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return false, err
 	}
 
-	// Wait for hashtree initialization before acquiring the RLock.
-	// See shard_write_put.go for the deadlock explanation.
+	// Wait outside the RLock; see shard_write_put.go.
 	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
 		return false, err
 	}
@@ -52,10 +51,11 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return false, err
 	}
 
-	bucket, err := s.objectsBucket()
+	bucket, release, err := s.objectsBucket()
 	if err != nil {
 		return false, err
 	}
+	defer release()
 
 	// see comment in shard_write_put.go::putObjectLSM
 	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
@@ -161,10 +161,11 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 }
 
 func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) error {
-	bucket, err := s.objectsBucket()
+	bucket, release, err := s.objectsBucket()
 	if err != nil {
 		return err
 	}
+	defer release()
 	className, err := bucket.ClassName()
 	if err != nil {
 		return fmt.Errorf("getting bucket class name: %w", err)
