@@ -2523,9 +2523,9 @@ var (
 	file_v1_search_get_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
 	file_v1_search_get_proto_msgTypes  = make([]protoimpl.MessageInfo, 26)
 	file_v1_search_get_proto_goTypes   = []any{
-		RerankOrder(0),                      // 0: weaviate.v1.RerankOrder
-		Boost_PropertyValueModifier(0),      // 1: weaviate.v1.Boost.PropertyValueModifier
-		Boost_DecayCurve(0),                 // 2: weaviate.v1.Boost.DecayCurve
+		(RerankOrder)(0),                    // 0: weaviate.v1.RerankOrder
+		(Boost_PropertyValueModifier)(0),    // 1: weaviate.v1.Boost.PropertyValueModifier
+		(Boost_DecayCurve)(0),               // 2: weaviate.v1.Boost.DecayCurve
 		(*SearchRequest)(nil),               // 3: weaviate.v1.SearchRequest
 		(*GroupBy)(nil),                     // 4: weaviate.v1.GroupBy
 		(*SortBy)(nil),                      // 5: weaviate.v1.SortBy
@@ -2552,7 +2552,7 @@ var (
 		(*Boost_TimeDecayFunction)(nil),     // 26: weaviate.v1.Boost.TimeDecayFunction
 		(*Boost_NumericDecayFunction)(nil),  // 27: weaviate.v1.Boost.NumericDecayFunction
 		(*Boost_Condition)(nil),             // 28: weaviate.v1.Boost.Condition
-		ConsistencyLevel(0),                 // 29: weaviate.v1.ConsistencyLevel
+		(ConsistencyLevel)(0),               // 29: weaviate.v1.ConsistencyLevel
 		(*Filters)(nil),                     // 30: weaviate.v1.Filters
 		(*Hybrid)(nil),                      // 31: weaviate.v1.Hybrid
 		(*BM25)(nil),                        // 32: weaviate.v1.BM25
