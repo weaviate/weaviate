@@ -16,6 +16,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func TestMaxConcurrentRequestsFromEnv(t *testing.T) {
@@ -45,6 +47,37 @@ func TestMaxConcurrentRequestsFromEnv(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestDecisionLimits(t *testing.T) {
+	tests := []struct {
+		name             string
+		settings         map[string]any
+		wantMaxDocuments int
+		wantErr          string
+	}{
+		{name: "defaults", settings: map[string]any{}, wantMaxDocuments: 100},
+		{name: "maxDocuments from the class", settings: map[string]any{"maxDocuments": 40}, wantMaxDocuments: 40},
+		// A class created before the module was enabled was never validated.
+		{name: "maxDocuments above the upper bound", settings: map[string]any{"maxDocuments": 5000}, wantErr: "maxDocuments must be a whole number between 1 and 1000, got 5000"},
+		{name: "maxDocuments of another type", settings: map[string]any{"maxDocuments": "many"}, wantErr: "maxDocuments must be a whole number between 1 and 1000, got many"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			limits, err := New().DecisionLimits(classConfig(tt.settings))
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, modulecapabilities.DecisionLimits{
+				MaxDocuments: tt.wantMaxDocuments,
+				MaxLevels:    10,
+				DataTypes:    []schema.DataType{schema.DataTypeText},
+			}, limits)
 		})
 	}
 }

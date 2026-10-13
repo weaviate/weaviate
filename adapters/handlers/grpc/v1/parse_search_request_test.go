@@ -12,6 +12,7 @@
 package v1
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -20,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/decide"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearAudio"
@@ -29,12 +31,14 @@ import (
 	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearThermal"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearVideo"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
@@ -2326,6 +2330,68 @@ func TestGRPCSearchRequest(t *testing.T) {
 			error: false,
 		},
 		{
+			name: "Decide with a question of each kind",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{
+					{Name: "angry", Property: someString1, Instructions: "the customer is angry", Kind: &pb.DecisionQuestion_Predicate{Predicate: &pb.DecisionPredicate{}}},
+					{Name: "team", Property: someString1, Instructions: "which team", Kind: &pb.DecisionQuestion_Choice{Choice: &pb.DecisionChoice{Options: []*pb.DecisionOption{
+						{Value: "billing", Description: &someString2}, {Value: "other"},
+					}}}},
+					{Name: "urgency", Property: someString1, Instructions: "how urgent", Kind: &pb.DecisionQuestion_Score{Score: &pb.DecisionScore{Levels: []*pb.DecisionLevel{
+						{Label: "low"}, {Label: "high", Description: &someString2},
+					}}}},
+				}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties: append(defaultTestClassProps, search.SelectProperty{Name: someString1, IsPrimitive: true}),
+				AdditionalProperties: additional.Properties{
+					NoProps: false,
+					ModuleParams: map[string]interface{}{"decide": &decide.Params{Questions: []ent.DecisionQuestion{
+						{Name: "angry", Property: someString1, Instructions: "the customer is angry", Kind: ent.DecisionPredicate},
+						{Name: "team", Property: someString1, Instructions: "which team", Kind: ent.DecisionChoice, Options: []ent.DecisionOption{
+							{Value: "billing", Description: someString2}, {Value: "other"},
+						}},
+						{Name: "urgency", Property: someString1, Instructions: "how urgent", Kind: ent.DecisionScore, Levels: []ent.DecisionLevel{
+							{Label: "low"}, {Label: "high", Description: someString2},
+						}},
+					}}},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "Decide question without a kind",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Decide:     &pb.Decisions{Questions: []*pb.DecisionQuestion{{Name: "angry", Property: someString1, Instructions: "x"}}},
+			},
+			error: true,
+		},
+		{
+			name: "Decide with two questions of the same name",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{
+					{Name: "angry", Property: someString1, Instructions: "x", Kind: &pb.DecisionQuestion_Predicate{Predicate: &pb.DecisionPredicate{}}},
+					{Name: "angry", Property: someString1, Instructions: "y", Kind: &pb.DecisionQuestion_Predicate{Predicate: &pb.DecisionPredicate{}}},
+				}},
+			},
+			error: true,
+		},
+		{
+			name: "Decide with group by",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				GroupBy:    &pb.GroupBy{Path: []string{"name"}, NumberOfGroups: 2, ObjectsPerGroup: 3},
+				Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{
+					{Name: "angry", Property: someString1, Instructions: "x", Kind: &pb.DecisionQuestion_Predicate{Predicate: &pb.DecisionPredicate{}}},
+				}},
+			},
+			error: true,
+		},
+		{
 			name: "Rerank with query",
 			req: &pb.SearchRequest{
 				Collection: classname,
@@ -2958,7 +3024,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 		},
 	}
 
-	parser := NewParser(false, getClass, nil, false)
+	parser := NewParser(false, getClass, nil, false, nil)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			out, err := parser.Search(tt.req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
@@ -3017,7 +3083,7 @@ func TestGRPCSearchRequestBoostPropertyTypeValidation(t *testing.T) {
 		{"numeric_decay on nested path errors", numericDecay("number.foo"), true},
 	}
 
-	parser := NewParser(false, getClass, nil, false)
+	parser := NewParser(false, getClass, nil, false, nil)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := &pb.SearchRequest{
@@ -3050,4 +3116,100 @@ func sortNamedVecs(vecs []string) {
 
 func ptr[T any](t T) *T {
 	return &t
+}
+
+// With a limits function the parser checks the questions against the class
+// and the decisions module before the search.
+func TestGRPCSearchRequestDecideLimits(t *testing.T) {
+	predicate := func(name, property string) *pb.DecisionQuestion {
+		return &pb.DecisionQuestion{Name: name, Property: property, Instructions: "x", Kind: &pb.DecisionQuestion_Predicate{Predicate: &pb.DecisionPredicate{}}}
+	}
+	levels := func(n int) []*pb.DecisionLevel {
+		out := make([]*pb.DecisionLevel, n)
+		for i := range out {
+			out[i] = &pb.DecisionLevel{Label: fmt.Sprintf("level %d", i)}
+		}
+		return out
+	}
+	textOnly := decide.Limits{Module: "decisions-x", DecisionLimits: modulecapabilities.DecisionLimits{
+		MaxDocuments: 50, MaxLevels: 3, DataTypes: []schema.DataType{schema.DataTypeText},
+	}}
+	limitsOf := func(limits decide.Limits, err error) decideLimitsFunc {
+		return func(*models.Class) (decide.Limits, error) { return limits, err }
+	}
+	tests := []struct {
+		name    string
+		limits  decideLimitsFunc
+		req     *pb.SearchRequest
+		wantErr string
+	}{
+		{
+			name:   "no limits function skips the module checks",
+			limits: nil,
+			req:    &pb.SearchRequest{Collection: classname, Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{predicate("a", "int")}}},
+		},
+		{
+			name:   "text question within the limits",
+			limits: limitsOf(textOnly, nil),
+			req:    &pb.SearchRequest{Collection: classname, Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{predicate("a", "name")}}},
+		},
+		{
+			name:    "class without a decisions module",
+			limits:  limitsOf(decide.Limits{}, errors.New(`class "TestClass" has no decisions module`)),
+			req:     &pb.SearchRequest{Collection: classname, Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{predicate("a", "name")}}},
+			wantErr: `decide: class "TestClass" has no decisions module`,
+		},
+		{
+			name:    "property of another type",
+			limits:  limitsOf(textOnly, nil),
+			req:     &pb.SearchRequest{Collection: classname, Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{predicate("a", "int")}}},
+			wantErr: `decide: question "a": property "int" is of type "int", decisions-x judges [text]`,
+		},
+		{
+			name:    "unknown property",
+			limits:  limitsOf(textOnly, nil),
+			req:     &pb.SearchRequest{Collection: classname, Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{predicate("a", "nope")}}},
+			wantErr: `decide: question "a": class "TestClass" has no property "nope"`,
+		},
+		{
+			name:   "levels above the module's limit",
+			limits: limitsOf(textOnly, nil),
+			req: &pb.SearchRequest{Collection: classname, Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{
+				{Name: "a", Property: "name", Instructions: "x", Kind: &pb.DecisionQuestion_Score{Score: &pb.DecisionScore{Levels: levels(4)}}},
+			}}},
+			wantErr: `decide: question "a": 4 levels exceed the limit of 3 of decisions-x`,
+		},
+		{
+			name:    "limit above maxDocuments",
+			limits:  limitsOf(textOnly, nil),
+			req:     &pb.SearchRequest{Collection: classname, Limit: 60, Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{predicate("a", "name")}}},
+			wantErr: "decide: limit 60 exceeds maxDocuments 50 of decisions-x: lower the limit or raise maxDocuments",
+		},
+		{
+			// The module judges the page, so the offset does not count.
+			name:   "a page beyond maxDocuments with a limit within it",
+			limits: limitsOf(textOnly, nil),
+			req:    &pb.SearchRequest{Collection: classname, Limit: 40, Offset: 20, Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{predicate("a", "name")}}},
+		},
+		{
+			name:   "the default limit counts as the page",
+			limits: limitsOf(decide.Limits{Module: "decisions-x", DecisionLimits: modulecapabilities.DecisionLimits{MaxDocuments: 5, DataTypes: []schema.DataType{schema.DataTypeText}}}, nil),
+			req:    &pb.SearchRequest{Collection: classname, Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{predicate("a", "name")}}},
+			// The default limit of the test config is 10.
+			wantErr: "decide: limit 10 exceeds maxDocuments 5 of decisions-x: lower the limit or raise maxDocuments",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parser := NewParser(false, getClass, nil, false, tt.limits)
+
+			_, err := parser.Search(tt.req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
 }

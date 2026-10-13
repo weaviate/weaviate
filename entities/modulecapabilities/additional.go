@@ -20,6 +20,7 @@ import (
 	"github.com/tailor-platform/graphql"
 	"github.com/tailor-platform/graphql/language/ast"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 )
 
@@ -65,4 +66,28 @@ type AdditionalProperty struct {
 // for adding the capability of additional properties
 type AdditionalProperties interface {
 	AdditionalProperties() map[string]AdditionalProperty
+}
+
+// DecisionLimits are the limits of a decisions module's provider for the
+// decide additional property. The shared validation applies them before the
+// search runs, so a question the provider would reject costs no search and
+// no provider call. A count of 0 means the Weaviate ceiling applies.
+type DecisionLimits struct {
+	// MaxDocuments bounds the documents a query judges: its limit. The
+	// offset does not count, the module only sees the page.
+	MaxDocuments int
+	// MaxOptions bounds the options of a choice, MaxLevels the levels of a
+	// score.
+	MaxOptions int
+	MaxLevels  int
+	// DataTypes are the property types the module judges.
+	DataTypes []schema.DataType
+}
+
+// DecisionLimitsProvider is implemented by a decisions module. The limits
+// may depend on the class settings of the module; a class setting the module
+// cannot work with is the error, so that the request fails before the
+// search.
+type DecisionLimitsProvider interface {
+	DecisionLimits(cfg moduletools.ClassConfig) (DecisionLimits, error)
 }

@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/decide"
 )
 
 var (
@@ -839,12 +840,9 @@ func (p *Provider) classAdditionalProperties(class *models.Class) map[string]mod
 	return properties
 }
 
-// rerankModule returns the module that serves a rerank on the class: the
-// decisions module when the request asks for a decision, otherwise the
-// reranker, or the decisions module in its place when the class has none.
-// It is nil when the class has neither.
-func (p *Provider) rerankModule(class *models.Class, decision bool) (modulecapabilities.Module, error) {
-	var reranker, decisions modulecapabilities.Module
+// classModulesByKind returns the class's reranker and decisions module; each
+// is nil when the class has none.
+func (p *Provider) classModulesByKind(class *models.Class) (reranker, decisions modulecapabilities.Module) {
 	for _, module := range p.modulesByName() {
 		if !p.shouldIncludeClassArgument(class, module.Name(), module.Type(), p.getModuleAltNames(module)) {
 			continue
@@ -855,6 +853,15 @@ func (p *Provider) rerankModule(class *models.Class, decision bool) (modulecapab
 			decisions = module
 		}
 	}
+	return reranker, decisions
+}
+
+// rerankModule returns the module that serves a rerank on the class: the
+// decisions module when the request asks for a decision, otherwise the
+// reranker, or the decisions module in its place when the class has none.
+// It is nil when the class has neither.
+func (p *Provider) rerankModule(class *models.Class, decision bool) (modulecapabilities.Module, error) {
+	reranker, decisions := p.classModulesByKind(class)
 	if decision {
 		if decisions == nil {
 			return nil, fmt.Errorf("rerank.decision needs a decisions module, class %q has none", class.Class)
@@ -865,6 +872,28 @@ func (p *Provider) rerankModule(class *models.Class, decision bool) (modulecapab
 		return reranker, nil
 	}
 	return decisions, nil
+}
+
+// DecideLimits returns the limits of the class's decisions module for the
+// decide property, read from the module's class settings. A module that
+// declares none judges text within the Weaviate ceilings.
+func (p *Provider) DecideLimits(class *models.Class) (decide.Limits, error) {
+	_, module := p.classModulesByKind(class)
+	if module == nil {
+		return decide.Limits{}, fmt.Errorf("class %q has no decisions module", class.Class)
+	}
+	limits := decide.Limits{
+		Module:         module.Name(),
+		DecisionLimits: modulecapabilities.DecisionLimits{DataTypes: []schema.DataType{schema.DataTypeText}},
+	}
+	if provider, ok := module.(modulecapabilities.DecisionLimitsProvider); ok {
+		declared, err := provider.DecisionLimits(NewClassBasedModuleConfig(class, module.Name(), "", "", &p.cfg))
+		if err != nil {
+			return decide.Limits{}, fmt.Errorf("%s: %w", module.Name(), err)
+		}
+		limits.DecisionLimits = declared
+	}
+	return limits, nil
 }
 
 func (p *Provider) getClassFromSearchResult(in []search.Result) (*models.Class, error) {

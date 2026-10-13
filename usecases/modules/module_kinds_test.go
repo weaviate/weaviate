@@ -13,6 +13,7 @@ package modules
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -21,9 +22,11 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
 	enitiesSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/decide"
 )
 
 // typedModule is a module of any type that serves the given additional
@@ -235,6 +238,71 @@ func TestImplicitInclusionCountsPerKind(t *testing.T) {
 				got := p.shouldIncludeClassArgument(class, name, module.Type(), p.getModuleAltNames(module))
 				assert.Equal(t, want, got, name)
 			}
+		})
+	}
+}
+
+// limitedDecisions is a decisions module that declares its limits.
+type limitedDecisions struct {
+	typedModule
+	limits modulecapabilities.DecisionLimits
+	err    error
+}
+
+func (m limitedDecisions) DecisionLimits(moduletools.ClassConfig) (modulecapabilities.DecisionLimits, error) {
+	return m.limits, m.err
+}
+
+func TestDecideLimits(t *testing.T) {
+	declared := modulecapabilities.DecisionLimits{MaxDocuments: 7, MaxLevels: 10, DataTypes: []enitiesSchema.DataType{enitiesSchema.DataTypeText}}
+	tests := []struct {
+		name    string
+		class   string
+		module  modulecapabilities.Module
+		want    decide.Limits
+		wantErr string
+	}{
+		{
+			name: "a module that declares its limits", class: "Decisions",
+			module: limitedDecisions{decisionsModule("decisions-z", nil), declared, nil},
+			want:   decide.Limits{Module: "decisions-z", DecisionLimits: declared},
+		},
+		{
+			name: "a class setting the module cannot work with", class: "Decisions",
+			module:  limitedDecisions{decisionsModule("decisions-z", nil), declared, errors.New("maxDocuments must be a whole number between 1 and 1000, got many")},
+			wantErr: "decisions-z: maxDocuments must be a whole number between 1 and 1000, got many",
+		},
+		{
+			name: "a module that declares none judges text within the ceilings", class: "Decisions",
+			module: decisionsModule("decisions-z", nil),
+			want: decide.Limits{Module: "decisions-z", DecisionLimits: modulecapabilities.DecisionLimits{
+				DataTypes: []enitiesSchema.DataType{enitiesSchema.DataTypeText},
+			}},
+		},
+		{
+			name: "a class without a decisions module", class: "Reranker",
+			module:  decisionsModule("decisions-z", nil),
+			wantErr: `class "Reranker" has no decisions module`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			p := NewProvider(logger, config.Config{})
+			p.SetSchemaGetter(kindsSchemaReader())
+			p.Register(rerankerModule("reranker-a", nil))
+			p.Register(rerankerModule("reranker-b", nil))
+			p.Register(tt.module)
+			p.Register(decisionsModule("decisions-y", nil))
+
+			limits, err := p.DecideLimits(kindsSchemaReader().ReadOnlyClass(tt.class))
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, limits)
 		})
 	}
 }

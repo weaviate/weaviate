@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 	addModels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
 const (
@@ -1231,6 +1232,50 @@ func TestGRPCReply(t *testing.T) {
 			},
 		},
 		{
+			name: "decide only",
+			res: []interface{}{
+				map[string]interface{}{
+					"_additional": map[string]interface{}{
+						"id": UUID1,
+						"decide": []ent.DecisionAnswer{
+							{Name: "angry", Kind: ent.DecisionPredicate, Probability: 0.9},
+							{
+								Name: "team", Kind: ent.DecisionChoice, Choice: "billing", Confidence: 0.7,
+								Probabilities: []ent.DecisionProbability{{Value: "billing", Probability: 0.8}, {Value: "other", Probability: 0.2}},
+							},
+							{
+								Name: "urgency", Kind: ent.DecisionScore, Score: 1.5, Confidence: 0.4,
+								Probabilities: []ent.DecisionProbability{{Value: "low", Probability: 0.5}, {Value: "high", Probability: 0.5}},
+							},
+							{Name: "refused", Kind: ent.DecisionPredicate, Refused: true},
+						},
+					},
+				},
+			},
+			searchParams: dto.GetParams{AdditionalProperties: additional.Properties{
+				ID:           true,
+				ModuleParams: map[string]interface{}{"decide": "must be present for extraction"},
+			}},
+			outSearch: []*pb.SearchResult{
+				{
+					Metadata:   &pb.MetadataResult{Id: string(UUID1), IdAsBytes: idByte(UUID1.String())},
+					Properties: &pb.PropertiesResult{},
+					Decisions: &pb.DecisionResult{Answers: []*pb.DecisionAnswer{
+						{Name: "angry", Kind: &pb.DecisionAnswer_Predicate{Predicate: &pb.DecisionPredicateAnswer{Probability: 0.9}}},
+						{Name: "team", Kind: &pb.DecisionAnswer_Choice{Choice: &pb.DecisionChoiceAnswer{
+							Choice: "billing", Confidence: 0.7,
+							Probabilities: []*pb.DecisionProbability{{Value: "billing", Probability: 0.8}, {Value: "other", Probability: 0.2}},
+						}}},
+						{Name: "urgency", Kind: &pb.DecisionAnswer_Score{Score: &pb.DecisionScoreAnswer{
+							Score: 1.5, Confidence: 0.4,
+							Probabilities: []*pb.DecisionProbability{{Value: "low", Probability: 0.5}, {Value: "high", Probability: 0.5}},
+						}}},
+						{Name: "refused", Kind: &pb.DecisionAnswer_Refusal{Refusal: &pb.DecisionRefusal{}}},
+					}},
+				},
+			},
+		},
+		{
 			name: "generate, group by, & rerank",
 			res: []interface{}{
 				map[string]interface{}{
@@ -1346,6 +1391,7 @@ func TestGRPCReply(t *testing.T) {
 					out.Results[i].Metadata.Vectors = nil
 					tt.outSearch[i].Metadata.Vectors = nil
 					require.Equal(t, tt.outSearch[i].Metadata.String(), out.Results[i].Metadata.String())
+					require.Equal(t, tt.outSearch[i].Decisions.String(), out.Results[i].Decisions.String())
 				}
 				require.Equal(t, tt.outGenerative, *out.GenerativeGroupedResult)
 			}

@@ -13,6 +13,8 @@ package moddecisionstypesafeai
 
 import (
 	"context"
+	"fmt"
+	"maps"
 	"os"
 	"strconv"
 	"time"
@@ -22,7 +24,9 @@ import (
 
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/modules/decisions-typesafeai/clients"
+	"github.com/weaviate/weaviate/modules/decisions-typesafeai/config"
 	rerankeradditional "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
@@ -41,6 +45,8 @@ type DecisionsTypeSafeAIModule struct {
 
 type DecisionsTypeSafeAIClient interface {
 	Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
+	Decide(ctx context.Context, questions []ent.DecisionQuestion, documents []string,
+		cfg moduletools.ClassConfig) ([][]ent.DecisionAnswer, error)
 	MetaInfo() (map[string]any, error)
 }
 
@@ -95,6 +101,7 @@ func (m *DecisionsTypeSafeAIModule) setClient(client DecisionsTypeSafeAIClient) 
 	m.reranker = client
 	m.additionalProperties = withTypeSafeAIRerank(
 		rerankeradditional.NewRankerProvider(client).AdditionalProperties(), rank.New(client))
+	maps.Copy(m.additionalProperties, rerankeradditional.NewDecideProvider(client).AdditionalProperties())
 }
 
 func (m *DecisionsTypeSafeAIModule) MetaInfo() (map[string]any, error) {
@@ -105,9 +112,34 @@ func (m *DecisionsTypeSafeAIModule) AdditionalProperties() map[string]modulecapa
 	return m.additionalProperties
 }
 
+// DecisionLimits: the API accepts at most 10 levels per score and judges
+// text; the options of a choice stay within the Weaviate ceiling.
+func (m *DecisionsTypeSafeAIModule) DecisionLimits(cfg moduletools.ClassConfig) (modulecapabilities.DecisionLimits, error) {
+	// A class created before the module was enabled was never validated,
+	// so the setting is checked here as Validate checks it.
+	maxDocuments := config.NewClassSettings(cfg).MaxDocuments()
+	if maxDocuments < 1 || maxDocuments > config.MaxDocumentsLimit {
+		// MaxDocuments maps a value of another type to 0; the error names
+		// what the class holds.
+		stored := any(maxDocuments)
+		if cfg != nil {
+			if value, ok := cfg.ClassByModuleName(Name)["maxDocuments"]; ok {
+				stored = value
+			}
+		}
+		return modulecapabilities.DecisionLimits{}, fmt.Errorf("maxDocuments must be a whole number between 1 and %d, got %v", config.MaxDocumentsLimit, stored)
+	}
+	return modulecapabilities.DecisionLimits{
+		MaxDocuments: maxDocuments,
+		MaxLevels:    config.MaxScoreLevels,
+		DataTypes:    []schema.DataType{schema.DataTypeText},
+	}, nil
+}
+
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
 	_ = modulecapabilities.AdditionalProperties(New())
 	_ = modulecapabilities.MetaProvider(New())
+	_ = modulecapabilities.DecisionLimitsProvider(New())
 )

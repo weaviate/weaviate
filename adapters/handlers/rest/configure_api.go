@@ -87,6 +87,7 @@ import (
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
+	moddecisionsdummy "github.com/weaviate/weaviate/modules/decisions-dummy"
 	moddecisionsopenai "github.com/weaviate/weaviate/modules/decisions-openai"
 	moddecisionstypesafeai "github.com/weaviate/weaviate/modules/decisions-typesafeai"
 	modgenerativeanthropic "github.com/weaviate/weaviate/modules/generative-anthropic"
@@ -1949,6 +1950,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modrerankerdummy.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[moddecisionsdummy.Name]; ok {
+		appState.Modules.Register(moddecisionsdummy.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", moddecisionsdummy.Name).
 			Debug("enabled module")
 	}
 
