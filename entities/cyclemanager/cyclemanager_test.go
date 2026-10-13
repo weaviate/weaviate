@@ -105,39 +105,6 @@ func TestCycleManager_beforeTimeout(t *testing.T) {
 	})
 }
 
-func TestCycleManager_beforeTimeoutWithWait(t *testing.T) {
-	cycleInterval := 5 * time.Millisecond
-	cycleDuration := 1 * time.Millisecond
-	stopTimeout := 12 * time.Millisecond
-
-	p := newProvider(cycleDuration, 1)
-	var cm CycleManager
-
-	t.Run("create new", func(t *testing.T) {
-		cm = NewManager("test", NewFixedTicker(cycleInterval), p.cycleCallback, logger)
-
-		assert.False(t, cm.Running())
-	})
-
-	t.Run("start", func(t *testing.T) {
-		cm.Start()
-		<-p.firstCycleStarted
-
-		assert.True(t, cm.Running())
-	})
-
-	t.Run("stop", func(t *testing.T) {
-		timeoutCtx, cancel := context.WithTimeout(context.Background(), stopTimeout)
-		defer cancel()
-
-		err := cm.StopAndWait(timeoutCtx)
-
-		assert.NoError(t, err)
-		assert.False(t, cm.Running())
-		assert.Equal(t, "something wonderful...", <-p.results)
-	})
-}
-
 func TestCycleManager_timeout(t *testing.T) {
 	cycleInterval := 5 * time.Millisecond
 	cycleDuration := 20 * time.Millisecond
@@ -175,38 +142,6 @@ func TestCycleManager_timeout(t *testing.T) {
 	})
 }
 
-func TestCycleManager_timeoutWithWait(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		cycleInterval := 5 * time.Millisecond
-		cycleDuration := 20 * time.Millisecond
-		stopTimeout := 12 * time.Millisecond
-
-		p := newProvider(cycleDuration, 1)
-		cm := NewManager("test", NewFixedTicker(cycleInterval), p.cycleCallback, logger)
-		// a running cycle left behind by a failed assertion would deadlock the bubble
-		t.Cleanup(func() { <-cm.Stop(context.Background()) })
-		timeoutCtx, cancel := context.WithTimeout(context.Background(), stopTimeout)
-		defer cancel()
-
-		cm.Start()
-		<-p.firstCycleStarted
-
-		err := cm.StopAndWait(timeoutCtx)
-
-		require.EqualError(t, err, "context deadline exceeded")
-		assert.True(t, cm.Running())
-		select {
-		case result := <-p.results:
-			assert.Equal(t, "something wonderful...", result)
-		case <-time.After(2 * cycleDuration):
-			t.Fatal("the cycle callback did not complete")
-		}
-
-		assert.True(t, <-cm.Stop(context.Background()))
-		assert.False(t, cm.Running())
-	})
-}
-
 func TestCycleManager_doesNotStartMultipleTimes(t *testing.T) {
 	cycleInterval := 5 * time.Millisecond
 	cycleDuration := 1 * time.Millisecond
@@ -225,30 +160,6 @@ func TestCycleManager_doesNotStartMultipleTimes(t *testing.T) {
 		stopResult := cm.Stop(context.Background())
 
 		assert.True(t, <-stopResult)
-		assert.False(t, cm.Running())
-		// just one result produced
-		assert.Equal(t, 1, len(p.results))
-	})
-}
-
-func TestCycleManager_doesNotStartMultipleTimesWithWait(t *testing.T) {
-	cycleInterval := 5 * time.Millisecond
-	cycleDuration := 1 * time.Millisecond
-
-	startCount := 5
-
-	p := newProvider(cycleDuration, uint(startCount))
-	cm := NewManager("test", NewFixedTicker(cycleInterval), p.cycleCallback, logger)
-
-	t.Run("multiple starts", func(t *testing.T) {
-		for i := 0; i < startCount; i++ {
-			cm.Start()
-		}
-		<-p.firstCycleStarted
-
-		err := cm.StopAndWait(context.Background())
-
-		assert.NoError(t, err)
 		assert.False(t, cm.Running())
 		// just one result produced
 		assert.Equal(t, 1, len(p.results))
@@ -284,7 +195,7 @@ func TestCycleManager_handlesConcurrentStarts(t *testing.T) {
 			wg.Wait()
 
 			assert.True(t, cm.Running())
-			assert.NoError(t, cm.StopAndWait(context.Background()))
+			assert.True(t, <-cm.Stop(context.Background()))
 			assert.False(t, cm.Running())
 		})
 	}
@@ -402,7 +313,7 @@ func TestCycleManager_cycleCallbackStoppedDueToFrequentStopChecks(t *testing.T) 
 		cm.Start()
 		<-p.firstCycleStarted
 
-		err := cm.StopAndWait(timeoutCtx)
+		err := WaitForStop(timeoutCtx, cm.Stop(timeoutCtx))
 
 		assert.NoError(t, err)
 		assert.False(t, cm.Running())
@@ -433,7 +344,7 @@ func TestCycleManager_cycleCallbackNotStoppedDueToRareStopChecks(t *testing.T) {
 		cm.Start()
 		<-p.firstCycleStarted
 
-		err := cm.StopAndWait(timeoutCtx)
+		err := WaitForStop(timeoutCtx, cm.Stop(timeoutCtx))
 
 		require.EqualError(t, err, "context deadline exceeded")
 		assert.True(t, cm.Running())

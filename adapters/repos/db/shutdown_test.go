@@ -155,6 +155,16 @@ func requireCyclesStopped(t *testing.T, cc *indexCycleCallbacks) {
 	}, time.Second, 10*time.Millisecond, "cycle managers left running")
 }
 
+// stopTestCycle stops cycle, or for a stubCycle the cycle it wraps, as the stub's
+// own Stop never reaches it.
+func stopTestCycle(t *testing.T, cycle cyclemanager.CycleManager) {
+	t.Helper()
+	if stub, ok := cycle.(stubCycle); ok {
+		cycle = stub.CycleManager
+	}
+	require.True(t, <-cycle.Stop(context.Background()))
+}
+
 // failingShards names count shards that all fail to shut down with err.
 func failingShards(count int, err error) map[string]error {
 	shardErrs := make(map[string]error, count)
@@ -189,7 +199,7 @@ func newShutdownTestIndex(t *testing.T, shardErrs map[string]error) *Index {
 	t.Cleanup(func() {
 		// a cycle the index left running would otherwise outlive the test
 		for _, cycle := range testCycles(idx.cycleCallbacks) {
-			require.NoError(t, cycle.StopAndWait(context.Background()))
+			stopTestCycle(t, cycle)
 		}
 	})
 	return idx
@@ -376,7 +386,7 @@ func startInFlightCycle(t *testing.T, cycle cyclemanager.CycleManager,
 	callback func(cyclemanager.ShouldAbortCallback),
 ) cyclemanager.CycleManager {
 	t.Helper()
-	require.NoError(t, cycle.StopAndWait(context.Background()))
+	require.True(t, <-cycle.Stop(context.Background()))
 
 	logger, _ := test.NewNullLogger()
 	started := make(chan struct{})

@@ -31,7 +31,6 @@ type (
 type CycleManager interface {
 	Start()
 	Stop(ctx context.Context) chan bool
-	StopAndWait(ctx context.Context) error
 	Running() bool
 }
 
@@ -124,12 +123,6 @@ func (c *cycleManager) Stop(ctx context.Context) (stopResult chan bool) {
 	c.stopResults = append(c.stopResults, stopResult)
 
 	return stopResult
-}
-
-// Stops running instance, waits for stop to occur or context to expire (which comes first)
-// Returns error if instance was not stopped
-func (c *cycleManager) StopAndWait(ctx context.Context) error {
-	return WaitForStop(ctx, c.Stop(ctx))
 }
 
 // WaitForStop waits for a result of Stop, preferring it over an expired ctx when
@@ -236,13 +229,6 @@ func (c *cycleManagerNoop) Stop(ctx context.Context) chan bool {
 
 	c.running = false
 	return c.closedChan(true)
-}
-
-func (c *cycleManagerNoop) StopAndWait(ctx context.Context) error {
-	if <-c.Stop(ctx) {
-		return nil
-	}
-	return ctx.Err()
 }
 
 func (c *cycleManagerNoop) Running() bool {
