@@ -309,7 +309,12 @@ func TestDecide(t *testing.T) {
 			})
 
 			require.Len(t, reply.Results, 3)
-			assert.Equal(t, 1.0, reply.Results[0].Metadata.RerankScore)
+			// The search order is the object order, so the score is read by text.
+			byText := map[string]float64{}
+			for _, result := range reply.Results {
+				byText[result.Properties.NonRefProps.Fields["text"].GetTextValue()] = result.Metadata.RerankScore
+			}
+			assert.Equal(t, map[string]float64{angryText: 1, calmText: 0, "": 0}, byText)
 		})
 
 		t.Run("the class setting applies and the request overrides it", func(t *testing.T) {
