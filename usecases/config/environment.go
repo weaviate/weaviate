@@ -850,12 +850,16 @@ func FromEnv(config *Config) error {
 		if err != nil {
 			return fmt.Errorf("parse BACKUP_STALE_TIMEOUT: %w", err)
 		}
-		if parsed <= 0 {
-			return fmt.Errorf("BACKUP_STALE_TIMEOUT must be greater than zero")
-		}
 		config.Backup.StaleTimeout = parsed
 	} else if config.Backup.StaleTimeout == 0 {
 		config.Backup.StaleTimeout = DefaultBackupStaleTimeout
+	}
+	// The DTM stores the timeout in whole milliseconds and reads 0 as disabled,
+	// so a positive value under 1ms would silently disable stale detection.
+	if st := config.Backup.StaleTimeout; st < 0 {
+		return fmt.Errorf("BACKUP_STALE_TIMEOUT must be non-negative, got %s", st)
+	} else if st > 0 && st < time.Millisecond {
+		return fmt.Errorf("BACKUP_STALE_TIMEOUT must be 0 (disabled) or at least 1ms, got %s", st)
 	}
 
 	if v := os.Getenv("BACKUP_MAX_UNIT_RETRIES"); v != "" {

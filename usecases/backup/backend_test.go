@@ -2026,10 +2026,14 @@ func TestUploaderReleaseWait(t *testing.T) {
 			descriptors <- cdesc
 			close(descriptors)
 
+			// Only the first release to start blocks on the gate. all's deferred
+			// release of the same class passes, so all can wait on nothing but the
+			// gated one.
 			gate := make(chan struct{})
 			var openOnce sync.Once
 			openGate := func() { openOnce.Do(func() { close(gate) }) }
 			t.Cleanup(openGate)
+			firstStarted := make(chan struct{})
 			var releasing atomic.Int32
 
 			sourcer := &fakeSourcer{}
@@ -2037,8 +2041,10 @@ func TestUploaderReleaseWait(t *testing.T) {
 				Return((<-chan backup.ClassDescriptor)(descriptors))
 			sourcer.On("ReleaseBackup", mock.Anything, backupID, class).Return(nil).
 				Run(func(mock.Arguments) {
-					releasing.Add(1)
-					<-gate
+					if releasing.Add(1) == 1 {
+						close(firstStarted)
+						<-gate
+					}
 				})
 
 			backend := newFakeBackend()
@@ -2056,6 +2062,14 @@ func TestUploaderReleaseWait(t *testing.T) {
 			u := newUploader(config.Backup{}, sourcer, &countingSnapshotter{}, &countingSnapshotter{}, sel, store, backupID, &bp.lastOp, logger)
 			if tt.wait {
 				u = u.withReleaseWait()
+			}
+			// onClassUploaded runs inside the class's finish, after finish started
+			// its release and before all's deferred release can start. Holding it
+			// until the first release starts makes the gated release finish's.
+			var finishGated atomic.Bool
+			u.onClassUploaded = func(string) {
+				<-firstStarted
+				finishGated.Store(true)
 			}
 
 			ctx, cancel := context.WithCancel(context.Background())
@@ -2096,6 +2110,9 @@ func TestUploaderReleaseWait(t *testing.T) {
 				t.Fatal("all did not return after the release finished")
 			}
 			backend.AssertCalled(t, "PutObject", mock.Anything, backupID, BackupFile, mock.Anything)
+			if tt.shards {
+				assert.True(t, finishGated.Load(), "the gated release must be the one finish started")
+			}
 			want := backup.Success
 			if tt.cancel {
 				want = backup.Cancelled

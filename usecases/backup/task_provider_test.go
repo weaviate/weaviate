@@ -1897,6 +1897,47 @@ func TestBackupTerminalDescriptor(t *testing.T) {
 		be.AssertNotCalled(t, "PutObject", mock.Anything, mock.Anything, GlobalBackupFile, mock.Anything)
 	})
 
+	t.Run("the existing-descriptor read gates the write", func(t *testing.T) {
+		nodeRaw, err := json.Marshal(backup.BackupDescriptor{ID: "b1", Status: backup.Success})
+		require.NoError(t, err)
+		tests := []struct {
+			name      string
+			globalErr error
+			wantWrite bool
+		}{
+			{name: "a read error other than not-found writes nothing", globalErr: errors.New("backend unavailable")},
+			{name: "not-found is the first write and proceeds", globalErr: backup.ErrNotFound{}, wantWrite: true},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				logger, _ := test.NewNullLogger()
+				be := newFakeBackend()
+				be.On("GetObject", mock.Anything, "b1", GlobalBackupFile).Return(nil, tc.globalErr)
+				be.On("GetObject", mock.Anything, "b1", BackupFile).Return(nil, backup.ErrNotFound{})
+				be.On("GetObject", mock.Anything, mock.Anything, BackupFile).Return(nodeRaw, nil)
+				be.On("PutObject", mock.Anything, "b1", GlobalBackupFile, mock.Anything).Return(nil)
+				provider := NewBackupTaskProvider(BackupTaskProviderParams{
+					Node:     "node-1",
+					Logger:   logger,
+					Cfg:      config.Backup{},
+					Backends: &fakeBackupBackendProvider{backend: be},
+				})
+
+				err := provider.OnTaskCompleted(makeTask("b1", distributedtask.TaskStatusFinished, makePayload("b1")))
+
+				if !tc.wantWrite {
+					be.AssertNotCalled(t, "PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+					require.Error(t, err)
+					assert.Contains(t, err.Error(), "backend unavailable")
+					return
+				}
+				require.NoError(t, err)
+				be.AssertNumberOfCalls(t, "PutObject", 1)
+				assert.Equal(t, backup.Success, be.glMeta.Status)
+			})
+		}
+	})
+
 	t.Run("a Success verdict requires every node descriptor to be Success", func(t *testing.T) {
 		nodeDescriptor := func(status backup.Status) []byte {
 			raw, err := json.Marshal(backup.BackupDescriptor{ID: "b1", Status: status})
@@ -2395,6 +2436,7 @@ func TestBackupProposeRetry(t *testing.T) {
 				p.ServerVersion = "0.0.0-other"
 				p.BuiltInRoleAssignments = []byte(`{"version":1}`)
 				p.CompressionType = backup.CompressionZSTD
+				p.BaseChainDeduped = !p.BaseChainDeduped
 			}), true},
 			{"the classes differ", restamp(func(p *taskPayload) { p.Classes = []string{"Class-B"} }), false},
 			{"the bucket differs", restamp(func(p *taskPayload) { p.Bucket = "other-bucket" }), false},
@@ -2454,6 +2496,61 @@ func TestBackupProposeRetry(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		assert.Equal(t, f.req.ID, resp.ID)
+	})
+
+	t.Run("selector namespaces are part of the request", func(t *testing.T) {
+		withRoles := func(t *testing.T, includeRoles []string) *dtmProposeFixture {
+			f := newDTMProposeFixture(t)
+			f.scheduler.roleLister.(*fakeRoleLister).roles = []string{"ns1:reader"}
+			f.req.IncludeRoles = includeRoles
+			return f
+		}
+		tests := []struct {
+			name            string
+			stored, retried []string
+			wantSame        bool
+		}{
+			{name: "another namespace with the same roles is refused", stored: []string{"ns1:reader"}, retried: []string{"ns1:reader", "ns2:*"}},
+			{name: "the same namespaces in another order ack", stored: []string{"ns1:*", "ns2:*"}, retried: []string{"ns2:*", "ns1:*"}, wantSame: true},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				ctx := context.Background()
+				first := withRoles(t, tc.stored)
+				_, err := first.scheduler.Backup(ctx, nil, first.req)
+				require.NoError(t, err)
+				storedPayload := first.dtm.proposedPayload
+
+				f := withRoles(t, tc.retried)
+				f.dtm.proposeErr = distributedtask.ErrTaskAlreadyRunning
+				f.dtm.getTask = &distributedtask.Task{
+					Namespace:      BackupTaskNamespace,
+					TaskDescriptor: distributedtask.TaskDescriptor{ID: f.req.ID},
+					Payload:        storedPayload,
+					Status:         distributedtask.TaskStatusStarted,
+				}
+
+				resp, err := f.scheduler.Backup(ctx, nil, f.req)
+
+				stored, uerr := unmarshalTaskPayload(storedPayload)
+				require.NoError(t, uerr)
+				retried, uerr := unmarshalTaskPayload(f.dtm.proposedPayload)
+				require.NoError(t, uerr)
+				require.Equal(t, []string{"ns1:reader"}, stored.Roles)
+				require.Equal(t, stored.Roles, retried.Roles, "both requests resolve the same roles")
+				if tc.wantSame {
+					require.NotEqual(t, stored.RoleNamespaces, retried.RoleNamespaces, "the namespaces arrive in another order")
+					require.NoError(t, err)
+					require.NotNil(t, resp)
+					assert.Equal(t, f.req.ID, resp.ID)
+					return
+				}
+				assert.Nil(t, resp)
+				require.Error(t, err)
+				assert.IsType(t, backup.ErrUnprocessable{}, err)
+				assert.Contains(t, err.Error(), "different configuration")
+			})
+		}
 	})
 
 	t.Run("a nil-nil miss passes the conflict through", func(t *testing.T) {

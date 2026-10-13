@@ -574,6 +574,44 @@ func TestEnvironmentBackupMaxIndividualFiles(t *testing.T) {
 	}
 }
 
+func TestEnvironmentBackupStaleTimeout(t *testing.T) {
+	tests := []struct {
+		name    string
+		env     string // empty = unset
+		yaml    time.Duration
+		want    time.Duration
+		wantErr string
+	}{
+		{name: "env and YAML unset use the default", want: DefaultBackupStaleTimeout},
+		{name: "YAML value is used when env is unset", yaml: 2 * time.Minute, want: 2 * time.Minute},
+		{name: "env overrides YAML", env: "90s", yaml: 2 * time.Minute, want: 90 * time.Second},
+		{name: "env 0 disables stale detection", env: "0", want: 0},
+		{name: "env 0 overrides YAML", env: "0s", yaml: 2 * time.Minute, want: 0},
+		{name: "env 1ms is the smallest enabled value", env: "1ms", want: time.Millisecond},
+		{name: "unparsable env is rejected", env: "soon", wantErr: "parse BACKUP_STALE_TIMEOUT"},
+		{name: "negative env is rejected", env: "-1s", wantErr: "BACKUP_STALE_TIMEOUT must be non-negative"},
+		{name: "negative YAML is rejected", yaml: -time.Second, wantErr: "BACKUP_STALE_TIMEOUT must be non-negative"},
+		{name: "sub-millisecond env is rejected", env: "500us", wantErr: "1ms"},
+		{name: "sub-millisecond YAML is rejected", yaml: 500 * time.Microsecond, wantErr: "1ms"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("BACKUP_STALE_TIMEOUT", tc.env)
+
+			conf := Config{Backup: Backup{StaleTimeout: tc.yaml}}
+			err := FromEnv(&conf)
+			if tc.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, conf.Backup.StaleTimeout)
+		})
+	}
+}
+
 func TestEnvironmentSkipAccessCheck(t *testing.T) {
 	t.Run("unset defaults to false for both", func(t *testing.T) {
 		t.Setenv("BACKUP_SKIP_ACCESS_CHECK", "")

@@ -31,8 +31,9 @@ type taskPayload struct {
 	Nodes                           map[string]*backup.NodeDescriptor `json:"nodes"`  // frozen at propose time via groupByShard
 	Leader                          string                            `json:"leader"` // always a participant carrying the full class list
 	Classes                         []string                          `json:"classes"`
-	Users                           []string                          `json:"users,omitempty"` // nil = whole-cluster user snapshot
-	Roles                           []string                          `json:"roles,omitempty"` // nil = whole-cluster RBAC snapshot
+	Users                           []string                          `json:"users,omitempty"`          // nil = whole-cluster user snapshot
+	Roles                           []string                          `json:"roles,omitempty"`          // nil = whole-cluster RBAC snapshot
+	RoleNamespaces                  []string                          `json:"roleNamespaces,omitempty"` // namespaces includeRoles names; idempotency key only, nodes never upload it
 	SkipUsers                       bool                              `json:"skipUsers,omitempty"`
 	SkipRoles                       bool                              `json:"skipRoles,omitempty"`
 	Compression                     Compression                       `json:"compression"`
@@ -79,6 +80,7 @@ func (p *taskPayload) sameRequestConfig(other *taskPayload) bool {
 		sameStringSet(p.Classes, other.Classes) &&
 		sameStringSet(p.Users, other.Users) &&
 		sameStringSet(p.Roles, other.Roles) &&
+		sameStringSet(p.RoleNamespaces, other.RoleNamespaces) &&
 		p.SkipUsers == other.SkipUsers &&
 		p.SkipRoles == other.SkipRoles &&
 		p.Compression == other.Compression &&
@@ -91,7 +93,8 @@ func (p *taskPayload) sameRequestConfig(other *taskPayload) bool {
 
 // sameStringSet compares order-insensitively: Classes, Users and Roles come
 // from server-side selection (ListClasses, lister expansion), whose order is
-// not stable across nodes.
+// not stable across nodes, and RoleNamespaces follows the selector order the
+// client sent.
 func sameStringSet(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

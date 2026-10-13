@@ -886,7 +886,9 @@ type Backup struct {
 	// StaleTimeout is the per-task stale-detection timeout for DTM backup
 	// tasks. A unit whose fingerprint is unchanged for this duration is
 	// force-failed. Env: BACKUP_STALE_TIMEOUT. Default: 7m (parity with
-	// the legacy 7-minute node-down check).
+	// the legacy 7-minute node-down check) when env is unset and this field
+	// is 0. Env 0 disables stale detection. Any set value must be 0 or at
+	// least 1ms.
 	StaleTimeout time.Duration `json:"stale_timeout" yaml:"stale_timeout"`
 
 	// MaxUnitRetries is the per-unit retry budget for transient failures.

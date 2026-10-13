@@ -376,6 +376,7 @@ func (s *Scheduler) backupViaDTM(ctx context.Context, req *BackupRequest, sel ba
 		Classes:                         sel.classes,
 		Users:                           sel.users,
 		Roles:                           sel.roles,
+		RoleNamespaces:                  sel.roleNamespaces,
 		SkipUsers:                       sel.skipUsers,
 		SkipRoles:                       sel.skipRoles,
 		Compression:                     req.Compression,
@@ -1192,6 +1193,9 @@ type backupSelections struct {
 	// and those of the OIDC users in the namespaces includeRoles names. It is
 	// nil when includeRoles is omitted, because the full snapshot holds them.
 	builtInRoleAssignments []byte
+	// roleNamespaces is the namespace set the OIDC grants are keyed to; nil
+	// when includeRoles is omitted.
+	roleNamespaces []string
 }
 
 // validateBackupRequest resolves the request into classes, users, and roles.
@@ -1352,6 +1356,7 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	selections.classes = classes
 	selections.users = users
 	selections.roles = roles
+	selections.roleNamespaces = namespaces
 
 	return
 }

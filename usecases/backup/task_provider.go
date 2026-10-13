@@ -265,8 +265,9 @@ func (p *BackupTaskProvider) StartTask(task *distributedtask.Task) (distributedt
 	}
 
 	// p.mu covers the latch renew, the holder check and the handle record.
-	// releaseNodeSlot drops a flow's handle and latch under p.mu too, so a
-	// latch held by this provider's flow always has that flow's handle here.
+	// releaseNodeSlot drops a flow's handle and latch together under p.mu.
+	// CleanupTask drops only the handle, so a latch held by this provider's
+	// flow has that flow's handle here until CleanupTask runs for it.
 	p.mu.Lock()
 	if h, running := p.activeHandles[task.ID]; running {
 		p.mu.Unlock()
@@ -291,8 +292,9 @@ func (p *BackupTaskProvider) StartTask(task *distributedtask.Task) (distributedt
 				// stale detection bounds the wait.
 				return nil, fmt.Errorf("backup %s: node %s is still releasing backup %q", task.ID, p.node, prevID)
 			default:
-				// A legacy 2PC backup holds the latch. The local units fail rather
-				// than running two backups at once.
+				// A legacy 2PC backup, or a flow whose handle CleanupTask dropped,
+				// holds the latch. The local units fail rather than running two
+				// backups at once.
 				msg := fmt.Sprintf("node %s is already running backup %q", p.node, prevID)
 				p.failAllUnits(context.Background(), task, payload, recorder, msg, false)
 				return nil, fmt.Errorf("backup %s: %s", task.ID, msg)
@@ -758,9 +760,9 @@ func (p *BackupTaskProvider) runNodeBackup(
 	}
 	// The full map is safe on every node: a node verifies only the shards
 	// designated to itself and skips only local shards designated elsewhere.
-	// The release wait keeps this node's descriptor and unit reports behind the
-	// index releases, so the task finishes only once every node can start the
-	// next backup.
+	// The release wait holds this node's descriptor and unit reports until the
+	// index releases return. A task that ends through these reports ends only
+	// after the releases; a cancelled or force-failed task can end first.
 	up := newUploader(p.cfg, p.sourcer, p.rbacSrc, p.userSrc, selection, store, task.ID, slot, p.logger).
 		withCompression(newZipConfig(payload.Compression)).
 		withShardDesignations(designations).
@@ -1094,6 +1096,8 @@ func (p *BackupTaskProvider) writeTerminalDescriptor(task *distributedtask.Task,
 	if err == nil && isFinalStatus(existing.Status) {
 		return nil
 	}
+	// Not-found means this is the first write, so it proceeds. Version and the
+	// Dedupe* fields are copied only from a descriptor that was read.
 	if err != nil && !errors.As(err, &backup.ErrNotFound{}) {
 		return fmt.Errorf("terminal descriptor: read existing descriptor: %w", err)
 	}
