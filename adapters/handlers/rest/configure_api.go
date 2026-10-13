@@ -87,6 +87,7 @@ import (
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
+	moddecisionstypesafeai "github.com/weaviate/weaviate/modules/decisions-typesafeai"
 	modgenerativeanthropic "github.com/weaviate/weaviate/modules/generative-anthropic"
 	modgenerativeanyscale "github.com/weaviate/weaviate/modules/generative-anyscale"
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
@@ -1831,6 +1832,7 @@ func registerModules(appState *state.State) error {
 		modrerankervoyageai.Name,
 		modrerankerjinaai.Name,
 		modrerankernvidia.Name,
+		moddecisionstypesafeai.Name,
 	}
 
 	defaultModules := append(defaultVectorizers, defaultGenerative...)
@@ -1905,6 +1907,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modrerankertransformers.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[moddecisionstypesafeai.Name]; ok {
+		appState.Modules.Register(moddecisionstypesafeai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", moddecisionstypesafeai.Name).
 			Debug("enabled module")
 	}
 
