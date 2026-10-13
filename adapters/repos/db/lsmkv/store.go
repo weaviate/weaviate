@@ -312,6 +312,10 @@ func (s *Store) Shutdown(ctx context.Context) error {
 // error normally.
 var ErrBucketNotFound = errors.New("bucket not found")
 
+// ErrReplacedBucketNotShutDown: the replaced bucket may still be flushing into its dir,
+// which must not be opened again.
+var ErrReplacedBucketNotShutDown = errors.New("replaced bucket not shut down")
+
 func (s *Store) ShutdownBucket(ctx context.Context, bucketName string) error {
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()
@@ -547,7 +551,7 @@ func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, re
 	newReplacementBucketDir := currBucketDir
 
 	if err := bucket.Shutdown(ctx); err != nil {
-		return "", "", "", "", errors.Wrapf(err, "failed shutting down bucket old '%s'", bucketName)
+		return "", "", "", "", fmt.Errorf("%w: failed shutting down bucket old '%s': %w", ErrReplacedBucketNotShutDown, bucketName, err)
 	}
 
 	s.logger.WithField("action", "lsm_replace_bucket").
