@@ -542,34 +542,31 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 	// collection that dropped its last vector carries an inert legacy config in
 	// the schema, but its shards were built without a legacy index and there is
 	// nothing to reconfigure.
-	found, err := s.WithVectorIndex("", func(index VectorIndex) error {
-		return index.UpdateUserConfig(updated, noopCallback)
+	_, err := s.WithVectorIndex("", func(index VectorIndex) error {
+		err := index.UpdateUserConfig(updated, noopCallback)
+		if err != nil {
+			return err
+		}
+		return s.recordAdoptedVectorIndexConfig("", updated)
 	})
-	if err != nil || !found {
-		return err
-	}
-	return s.recordAdoptedVectorIndexConfig("", updated)
+	return err
 }
 
 // recordAdoptedVectorIndexConfig writes the config the index of targetVector
 // just accepted into its mapping record, so the record never says a config
 // the index is not running with. A vector without a record, a skipped one,
-// has nothing to record. This is the bridge that keeps the records correct
-// while the schema still pushes config into loaded shards directly; it goes
-// when that push does.
+// has nothing to record, and a record that is not ready belongs to a
+// creation or a drop. Called under the index's lease, so a drop cannot
+// remove the index between the update and the write. This is the bridge
+// that keeps the records correct while the schema still pushes config into
+// loaded shards directly; it goes when that push does.
 func (s *Shard) recordAdoptedVectorIndexConfig(targetVector string, cfg schemaConfig.VectorIndexConfig) error {
-	rec, ok, err := s.mapping.Get(targetVector)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return nil
-	}
-	rec, changed := rec.adopted(cfg)
-	if !changed {
-		return nil
-	}
-	return s.mapping.Put(targetVector, rec)
+	return s.mapping.Update(targetVector, func(rec vectorIndexRecord) (vectorIndexRecord, bool) {
+		if rec.State != vectorIndexStateReady {
+			return rec, false
+		}
+		return rec.adopted(cfg)
+	})
 }
 
 func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error {
@@ -591,13 +588,14 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 	for targetVector, targetCfg := range updated {
 		var found bool
 		found, err = s.WithVectorIndex(targetVector, func(index VectorIndex) error {
-			return index.UpdateUserConfig(targetCfg, noopCallback)
+			err := index.UpdateUserConfig(targetCfg, noopCallback)
+			if err != nil {
+				return err
+			}
+			return s.recordAdoptedVectorIndexConfig(targetVector, targetCfg)
 		})
 		if found {
 			if err != nil {
-				break
-			}
-			if err = s.recordAdoptedVectorIndexConfig(targetVector, targetCfg); err != nil {
 				break
 			}
 		} else {
