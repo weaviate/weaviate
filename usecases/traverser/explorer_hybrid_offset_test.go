@@ -65,11 +65,13 @@ func newOffsetTestSearcher(fetched func(filters.Pagination)) *fakeVectorSearcher
 // page: the page is cut from the fused list afterwards.
 func TestExplorerHybridLegsReachThePage(t *testing.T) {
 	legs := []struct {
-		name  string
-		alpha float64
+		name     string
+		alpha    float64
+		searches int
 	}{
-		{name: "vector", alpha: 1},
-		{name: "keyword", alpha: 0},
+		{name: "vector", alpha: 1, searches: 1},
+		{name: "keyword", alpha: 0, searches: 1},
+		{name: "vector and keyword", alpha: 0.5, searches: 2},
 	}
 	pages := []struct {
 		name        string
@@ -86,8 +88,15 @@ func TestExplorerHybridLegsReachThePage(t *testing.T) {
 	for _, leg := range legs {
 		for _, tt := range pages {
 			t.Run(leg.name+"/"+tt.name, func(t *testing.T) {
-				var seen filters.Pagination
-				explorer := newHybridDepthTestExplorer(newOffsetTestSearcher(func(p filters.Pagination) { seen = p }))
+				var (
+					mu   sync.Mutex
+					seen []filters.Pagination
+				)
+				explorer := newHybridDepthTestExplorer(newOffsetTestSearcher(func(p filters.Pagination) {
+					mu.Lock()
+					defer mu.Unlock()
+					seen = append(seen, p)
+				}))
 				params := dto.GetParams{
 					ClassName:    "TestClass",
 					Pagination:   &filters.Pagination{Offset: tt.offset, Limit: tt.limit},
@@ -97,8 +106,11 @@ func TestExplorerHybridLegsReachThePage(t *testing.T) {
 				res, err := explorer.GetClass(context.Background(), params)
 
 				require.NoError(t, err)
-				assert.Equal(t, tt.wantFetched, seen.Limit)
-				assert.Equal(t, 0, seen.Offset)
+				require.Len(t, seen, leg.searches)
+				for _, p := range seen {
+					assert.Equal(t, tt.wantFetched, p.Limit)
+					assert.Equal(t, 0, p.Offset)
+				}
 				require.Len(t, res, tt.limit)
 				assert.Equal(t, tt.wantFirst, idsFromResponse(res)[0])
 			})
