@@ -108,8 +108,9 @@ func addHandleRoot(next http.Handler) http.Handler {
 // The middleware configuration happens before anything, this middleware also applies to serving the swagger.json document.
 // So this is a good place to plug in a panic handling middleware, logging and metrics
 // Contains "x-api-key", "x-api-token" for legacy reasons, older interfaces might need these headers.
-func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Context, telemeter *telemetry.Telemeter) func(http.Handler) http.Handler {
+func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Context, telemeter *telemetry.Telemeter, inFlight *inFlightCancel) func(http.Handler) http.Handler {
 	return func(handler http.Handler) http.Handler {
+		handler = inFlight.unavailableAfterCancel(handler)
 		handleCORS := cors.New(cors.Options{
 			OptionsPassthrough: true,
 			AllowedMethods:     strings.Split(appState.ServerConfig.Config.CORS.AllowMethods, ","),
@@ -123,7 +124,7 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 			handler = makeAddMonitoring(appState.Metrics)(handler)
 		}
 		handler = addPreflight(handler, appState.ServerConfig.Config.CORS)
-		handler = addLiveAndReadyness(appState, handler)
+		handler = addLiveAndReadyness(appState, inFlight, handler)
 		handler = addHandleRoot(handler)
 		// Add client tracking middleware early in the chain to capture all requests
 		if telemeter != nil {
@@ -278,7 +279,7 @@ func addInjectHeadersIntoContext(next http.Handler) http.Handler {
 	})
 }
 
-func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
+func addLiveAndReadyness(state *state.State, inFlight *inFlightCancel, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.String() == "/v1/.well-known/live" {
 			w.WriteHeader(http.StatusOK)
@@ -286,6 +287,10 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 		}
 
 		if r.URL.String() == "/v1/.well-known/ready" {
+			if inFlight.shutdownStarted.Load() {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
 			code := http.StatusOK
 			// if this node is in maintenance mode, we want to return live but not ready
 			// so that kubernetes will allow this pod to run but not send traffic to it
