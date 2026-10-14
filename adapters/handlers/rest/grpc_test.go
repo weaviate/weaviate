@@ -117,6 +117,55 @@ func TestStartGrpcStopTimeoutCountsFromStart(t *testing.T) {
 	assert.True(t, forcedStop, "forced Stop")
 }
 
+// A finished drain is waited for in full, and one still blocked is left at the
+// timeout with a warning.
+func TestWaitBatchDrain(t *testing.T) {
+	cases := []struct {
+		name        string
+		timeout     time.Duration
+		drainBlocks bool
+	}{
+		{name: "drain finishes", timeout: time.Hour},
+		{name: "drain blocks past the timeout", timeout: 100 * time.Millisecond, drainBlocks: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			release := make(chan struct{})
+			t.Cleanup(func() { close(release) })
+			drain := func() {
+				if tc.drainBlocks {
+					<-release
+				}
+			}
+			logger, hook := test.NewNullLogger()
+			waited := make(chan time.Duration, 1)
+			go func() {
+				start := time.Now()
+				waitBatchDrain(drain, tc.timeout, logger)
+				waited <- time.Since(start)
+			}()
+			select {
+			case took := <-waited:
+				if tc.drainBlocks {
+					assert.GreaterOrEqual(t, took, tc.timeout)
+				}
+			case <-time.After(5 * time.Second):
+				require.FailNow(t, "waitBatchDrain did not return")
+			}
+			assert.Equal(t, tc.drainBlocks, loggedDrainTimeout(hook))
+		})
+	}
+}
+
+func loggedDrainTimeout(hook *test.Hook) bool {
+	for _, e := range hook.AllEntries() {
+		if e.Level == logrus.WarnLevel && e.Data["action"] == "shutdown_drain" {
+			return true
+		}
+	}
+	return false
+}
+
 // wait must not return while the graceful stop it joins is still draining a call.
 func TestStartGrpcStopWaitJoinsDrain(t *testing.T) {
 	health := &blockingHealthServer{entered: make(chan struct{}, 1), release: make(chan struct{})}

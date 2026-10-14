@@ -57,7 +57,8 @@ import (
 
 // CreateGRPCServer creates *grpc.Server with optional grpc.Serveroption passed.
 // clientTracker is optional; when non-nil, a gRPC interceptor is added to track client SDK usage.
-func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker, integrationTracker *telemetry.IntegrationTracker, options ...grpc.ServerOption) (*grpc.Server, batch.Drain) {
+// Batch streams still receiving are closed once clientCallsCtx is cancelled.
+func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker, integrationTracker *telemetry.IntegrationTracker, clientCallsCtx context.Context, options ...grpc.ServerOption) (*grpc.Server, batch.Drain) {
 	o := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
 		grpc.MaxSendMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
@@ -135,7 +136,7 @@ func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker
 
 	s := grpc.NewServer(o...)
 	weaviateV0 := v0.NewService()
-	weaviateV1, drainBatch := v1.NewService(allowAnonymous, authComposer, state)
+	weaviateV1, drainBatch := v1.NewService(allowAnonymous, authComposer, state, clientCallsCtx)
 	pbv0.RegisterWeaviateServer(s, weaviateV0)
 	pbv1.RegisterWeaviateServer(s, weaviateV1)
 
