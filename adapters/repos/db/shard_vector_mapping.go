@@ -15,13 +15,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/vectorindex"
 )
 
 // The mapping's on-disk layout inside index.db. Every key and field name
-// below is read by later versions; changing one is a format change.
+// below is read by later versions; changing one is a format change. New
+// information goes into fields of the existing records, never into a new
+// key or a new state: a reader from before the field ignores it.
 // A named vector is keyed by its name. The two other keys start with a dot,
 // which a vector name cannot, so they can never collide with one.
 const (
@@ -46,12 +51,72 @@ var (
 )
 
 // vectorIndexRecord is what the shard persists about one logical vector:
-// where its index lives on disk, which implementation opens it, and whether
-// creation completed.
+// where its index lives on disk, which implementation opens it, whether
+// creation completed, which queue feeds it, and the config the index
+// adopted.
+//
+// QueueID and Config were added after the first records were written, as
+// fields inside the record so an older reader ignores them. A record from
+// before then has neither: the shard fills both in when it loads, the queue
+// ID from the physical ID (the queue has always lived under the index's ID)
+// and the config from the schema. A later rebuild changes the physical ID
+// and keeps the queue ID.
 type vectorIndexRecord struct {
 	PhysicalID string `json:"physical_id"`
 	IndexType  string `json:"index_type"`
 	State      string `json:"state"`
+	// QueueID names the queue directory, "<QueueID>.queue.d". Empty in a
+	// record written before the field existed.
+	QueueID string `json:"queue_id,omitempty"`
+	// Config is the parsed config the index was built or last updated with,
+	// a hnsw, flat, dynamic or hfresh UserConfig written with its API field
+	// names, every default filled in. Nil in a record written before the
+	// field existed.
+	Config schemaConfig.VectorIndexConfig `json:"config,omitempty"`
+}
+
+// UnmarshalJSON decodes Config by IndexType; the field is an interface the
+// standard decoder cannot fill on its own.
+func (r *vectorIndexRecord) UnmarshalJSON(data []byte) error {
+	type plain vectorIndexRecord
+	var aux struct {
+		plain
+		Config json.RawMessage `json:"config"`
+	}
+	err := json.Unmarshal(data, &aux)
+	if err != nil {
+		return err
+	}
+	*r = vectorIndexRecord(aux.plain)
+	r.Config = nil
+	if len(aux.Config) == 0 || string(aux.Config) == "null" {
+		return nil
+	}
+	cfg, err := vectorindex.UnmarshalConfig(r.IndexType, aux.Config)
+	if err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+	r.Config = cfg
+	return nil
+}
+
+// queueIDOrDefault is the queue ID a record names, or the physical ID for a
+// record from before the field existed: the queue has always lived under
+// the index's ID.
+func (r vectorIndexRecord) queueIDOrDefault() string {
+	if r.QueueID == "" {
+		return r.PhysicalID
+	}
+	return r.QueueID
+}
+
+// adopted is r with cfg recorded as its config, and a missing queue ID
+// filled in. changed reports whether the record differs from r.
+func (r vectorIndexRecord) adopted(cfg schemaConfig.VectorIndexConfig) (rec vectorIndexRecord, changed bool) {
+	rec = r
+	rec.QueueID = r.queueIDOrDefault()
+	rec.Config = cfg
+	return rec, !reflect.DeepEqual(rec, r)
 }
 
 // vectorIndexMapping is a shard's persisted view of which physical vector
@@ -96,10 +161,13 @@ func (r vectorIndexRecord) validate() error {
 	}
 	switch r.State {
 	case vectorIndexStateCreating, vectorIndexStateReady, vectorIndexStateDropping:
-		return nil
 	default:
 		return fmt.Errorf("unknown state %q", r.State)
 	}
+	if r.Config != nil && r.Config.IndexType() != r.IndexType {
+		return fmt.Errorf("config is for a %s index, the record says %s", r.Config.IndexType(), r.IndexType)
+	}
+	return nil
 }
 
 // Load reads every record, keyed by logical name. initialized is false when
