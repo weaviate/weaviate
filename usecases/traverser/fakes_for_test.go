@@ -81,7 +81,9 @@ type fakeVectorSearcher struct {
 	diversifyCalledRelevanceFromDist bool
 
 	sparseObjectSearchFn func(params dto.GetParams) ([]*storobj.Object, []float32, error)
-	crossClassErr        error
+	// vectorSearchFn replaces the mock expectations when set.
+	vectorSearchFn func(params dto.GetParams) ([]search.Result, error)
+	crossClassErr  error
 }
 
 func (f *fakeVectorSearcher) CrossClassVectorSearch(ctx context.Context,
@@ -103,6 +105,9 @@ func (f *fakeVectorSearcher) Aggregate(ctx context.Context,
 func (f *fakeVectorSearcher) VectorSearch(ctx context.Context,
 	params dto.GetParams, targetVectors []string, searchVectors []models.Vector,
 ) ([]search.Result, error) {
+	if f.vectorSearchFn != nil {
+		return f.vectorSearchFn(params)
+	}
 	args := f.Called(params, searchVectors)
 	return args.Get(0).([]search.Result), args.Error(1)
 }
