@@ -35,10 +35,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
-// The predicate question asked about every document. The wording of the
-// relevance question is generic on purpose: it is not tuned to a dataset or
-// a kind of query. With the statement question the rerank query is the
-// instruction itself.
+// The predicate question asked about every document. A plain rerank asks
+// the relevance question, whose wording is generic on purpose: it is not
+// tuned to a dataset or a kind of query. A rerank by a decision sends its
+// query as the statement itself.
 const (
 	relevanceInstructions = "Does the document answer or directly address this query? Query: %s"
 
@@ -102,10 +102,9 @@ func New(apiKey, organization string, timeout time.Duration, maxConcurrentReques
 	}
 }
 
-// Rank asks the Decisions API, once per document, the class's question
-// about the query (by default, whether the document answers it). The score
-// is the probability the API returns for that predicate. A document the
-// model refuses to judge scores 0.
+// Rank asks the Decisions API, once per document, whether the document
+// answers the query. The score is the probability the API returns for that
+// predicate. A document the model refuses to judge scores 0.
 //
 // Identical documents share one request and empty documents are not sent.
 // Requests above the class's maxDocuments are rejected rather than truncated.
@@ -117,8 +116,7 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 
 // RankProperty is Rank for the documents of a named property: the content
 // of a blob property is sent as an image. A decision rerank sends the query
-// as the statement question whatever the class's question setting says: its
-// query is a condition, not a search query.
+// as the statement question: its query is a condition, not a search query.
 func (c *client) RankProperty(ctx context.Context, query, property string, decision bool, documents []string,
 	cfg moduletools.ClassConfig,
 ) (*ent.RankResult, error) {
@@ -141,7 +139,7 @@ func (c *client) RankProperty(ctx context.Context, query, property string, decis
 	request := judgeRequest{
 		endpointAuth: endpointAuth{url: openAIURL, apiKey: apiKey, organization: c.organizationFor(ctx)},
 		model:        settings.Model, query: query,
-		statement: decision || settings.Question == config.QuestionStatement,
+		statement: decision,
 		image:     isImageProperty(cfg, property),
 	}
 
@@ -232,7 +230,8 @@ type judgeRequest struct {
 	endpointAuth
 	model string
 	query string
-	// statement selects the statement question instead of the relevance one.
+	// statement selects the statement question (a rerank by a decision)
+	// instead of the relevance one (a plain rerank).
 	statement bool
 	// image says that the documents are the content of a blob property.
 	image bool

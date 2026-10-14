@@ -110,19 +110,9 @@ func TestScore(t *testing.T) {
 			wantErr: "expected one answer in response, got 2",
 		},
 		{
-			name:     "answer to another question",
-			response: `{"answers":[{"type":"predicate","name":"other","probability":0.9}]}`,
-			wantErr:  `answer in response is for "other", not for "relevance"`,
-		},
-		{
 			name:     "answer without a name",
 			response: `{"answers":[{"type":"predicate","name":null,"probability":0.9}]}`,
 			wantErr:  `answer in response is for no name, not for "relevance"`,
-		},
-		{
-			name:     "refusal to another question",
-			response: `{"answers":[{"type":"refusal","name":"other"}]}`,
-			wantErr:  `answer in response is for "other", not for "relevance"`,
 		},
 		{
 			name:     "predicate without a probability",
@@ -340,29 +330,6 @@ func TestRankOrganizationHeader(t *testing.T) {
 	}
 }
 
-func TestRankStatementQuestion(t *testing.T) {
-	handler := &openAIHandler{t: t, answers: map[string]answer{"doc": probability(0.9)}}
-	server := httptest.NewServer(handler)
-	defer server.Close()
-
-	res, err := newTestClient("key").Rank(context.Background(), "the customer is angry", []string{"doc"},
-		classConfig(server.URL, map[string]any{"question": "statement"}))
-
-	require.NoError(t, err)
-	assert.InDelta(t, 0.9, res.DocumentScores[0].Score, 1e-9)
-	requests := handler.received()
-	require.Len(t, requests, 1)
-	assert.JSONEq(t, `{
-		"model": "gpt-6-luna",
-		"input": "doc",
-		"questions": [{
-			"type": "predicate",
-			"name": "statement",
-			"instructions": "the customer is angry"
-		}]
-	}`, requests[0].rawBody)
-}
-
 // A decision rerank sends the query as the statement even on a class with
 // the default relevance question: the query is a condition.
 func TestRankDecisionSendsTheStatement(t *testing.T) {
@@ -393,12 +360,12 @@ func TestRankDecisionSendsTheStatement(t *testing.T) {
 func TestRankChecksTheAnswerName(t *testing.T) {
 	tests := []struct {
 		name     string
-		settings map[string]any
+		decision bool
 		answered string
 		wantErr  string
 	}{
 		{name: "relevance answered", answered: "relevance"},
-		{name: "statement answered", settings: map[string]any{"question": "statement"}, answered: "statement"},
+		{name: "statement answered", decision: true, answered: "statement"},
 		{
 			name:     "relevance asked, statement answered",
 			answered: "statement",
@@ -406,7 +373,7 @@ func TestRankChecksTheAnswerName(t *testing.T) {
 		},
 		{
 			name:     "statement asked, relevance answered",
-			settings: map[string]any{"question": "statement"},
+			decision: true,
 			answered: "relevance",
 			wantErr:  `answer in response is for "relevance", not for "statement"`,
 		},
@@ -417,8 +384,8 @@ func TestRankChecksTheAnswerName(t *testing.T) {
 			server := httptest.NewServer(handler)
 			defer server.Close()
 
-			res, err := newTestClient("key").Rank(context.Background(), testQuery, []string{"doc"},
-				classConfig(server.URL, tt.settings))
+			res, err := newTestClient("key").RankProperty(context.Background(), testQuery, "text", tt.decision,
+				[]string{"doc"}, classConfig(server.URL, nil))
 
 			if tt.wantErr != "" {
 				require.EqualError(t, err, tt.wantErr)
@@ -602,22 +569,6 @@ func TestRankRejectedBeforeAnyRequest(t *testing.T) {
 		wantErr   string
 	}{
 		{
-			name:      "unknown question",
-			apiKey:    "apiKey",
-			query:     testQuery,
-			documents: []string{"a"},
-			settings:  map[string]any{"question": "summary"},
-			wantErr:   `question must be "relevance" or "statement", got "summary"`,
-		},
-		{
-			name:      "empty question",
-			apiKey:    "apiKey",
-			query:     testQuery,
-			documents: []string{"a"},
-			settings:  map[string]any{"question": ""},
-			wantErr:   `question must be "relevance" or "statement", got ""`,
-		},
-		{
 			name:      "empty model",
 			apiKey:    "apiKey",
 			query:     testQuery,
@@ -632,14 +583,6 @@ func TestRankRejectedBeforeAnyRequest(t *testing.T) {
 			documents: []string{"a"},
 			settings:  map[string]any{"model": json.Number("4")},
 			wantErr:   "model must be a string, got a number",
-		},
-		{
-			name:      "question of the wrong type",
-			apiKey:    "apiKey",
-			query:     testQuery,
-			documents: []string{"a"},
-			settings:  map[string]any{"question": true},
-			wantErr:   "question must be a string, got a boolean",
 		},
 		{
 			name:      "baseURL of the wrong type",
