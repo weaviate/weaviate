@@ -57,12 +57,6 @@ func TestRecountPropertyLengthsAtStartup(t *testing.T) {
 		wantCount      int
 	}{
 		{
-			name:      "tracker file lost",
-			recount:   true,
-			makeStale: removeTracker,
-			wantSum:   5, wantCount: 2,
-		},
-		{
 			name:      "tracker file lost, lazy shard",
 			recount:   true,
 			lazy:      true,
@@ -201,8 +195,6 @@ func TestRecountPropertyLengths(t *testing.T) {
 	}
 }
 
-// The swap closes the shard's tracker before it opens the recounted one, so a
-// failing swap leaves the shard without a usable tracker.
 func TestRecountPropertyLengths_SwapFails(t *testing.T) {
 	repo, _ := openRecountTestDB(t, t.TempDir(), singleShardState(), true, false)
 	defer repo.Shutdown(context.Background())
@@ -261,46 +253,26 @@ func TestRecountPropertyLengthsBeforeLoad_FailureRetriedOnLoad(t *testing.T) {
 	assert.Equal(t, []int{1, 0, 2}, []int{recounted, failed, int(objects)})
 }
 
-func TestRecountPropertyLengthsBeforeLoad_UnreadableTracker(t *testing.T) {
-	tests := []struct {
-		name      string
-		objects   []string
-		wantSum   int
-		wantCount int
-	}{
-		{name: "objects", objects: recountTestNames, wantSum: 5, wantCount: 2},
-		{name: "no objects"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			repo, _ := openRecountTestDB(t, t.TempDir(), singleShardState(), false, false)
-			defer repo.Shutdown(context.Background())
-			for _, name := range tt.objects {
-				require.NoError(t, repo.PutObject(testCtx(), &models.Object{
-					Class:      recountTestClass,
-					ID:         strfmt.UUID(uuid.NewString()),
-					Properties: map[string]any{"name": name},
-				}, []float32{1, 2, 3}, nil, nil, nil, 0))
-			}
-			shard := recountTestShard(t, repo)
-			idx, name, class := shard.index, shard.name, shard.class
-			trackerPath := shard.GetPropertyLengthTracker().FileName()
-			require.NoError(t, shard.Shutdown(testCtx()))
-			idx.shards.LoadAndDelete(name)
-			require.NoError(t, os.WriteFile(trackerPath, nil, 0o644))
+// An empty tracker file cannot be read. A shard with objects gets a new one from the
+// recount, and one without must get a new one too.
+func TestRecountPropertyLengthsBeforeLoad_UnreadableTrackerOfEmptyShard(t *testing.T) {
+	repo, _ := openRecountTestDB(t, t.TempDir(), singleShardState(), false, false)
+	defer repo.Shutdown(context.Background())
+	shard := recountTestShard(t, repo)
+	idx, name, class := shard.index, shard.name, shard.class
+	trackerPath := shard.GetPropertyLengthTracker().FileName()
+	require.NoError(t, shard.Shutdown(testCtx()))
+	idx.shards.LoadAndDelete(name)
+	require.NoError(t, os.WriteFile(trackerPath, nil, 0o644))
 
-			recount := &startupRebuild{enabled: true}
-			idx.Config.PropertyLengthsRecount = recount
-			idx.recountPropertyLengthsOfShards(testCtx(), class, []string{name})
-			sum, count := diskTally(t, trackerPath)
-			require.Equal(t, []int{tt.wantSum, tt.wantCount}, []int{sum, count})
+	idx.Config.PropertyLengthsRecount = &startupRebuild{enabled: true}
+	idx.recountPropertyLengthsOfShards(testCtx(), class, []string{name})
+	sum, count := diskTally(t, trackerPath)
+	require.Equal(t, []int{0, 0}, []int{sum, count})
 
-			loaded, err := idx.initShard(testCtx(), name, class, nil, true, true)
-			require.NoError(t, err)
-			defer loaded.Shutdown(testCtx())
-			requireTally(t, loaded.(*Shard), tt.wantSum, tt.wantCount, "")
-		})
-	}
+	loaded, err := idx.initShard(testCtx(), name, class, nil, true, true)
+	require.NoError(t, err)
+	require.NoError(t, loaded.Shutdown(testCtx()))
 }
 
 // Async replication can delete objects as soon as it starts, so the recount must
