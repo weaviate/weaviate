@@ -687,7 +687,8 @@ var (
 	querySafeLeaves = []string{
 		"hnsw.Skip", "hnsw.CleanupIntervalSeconds", "hnsw.MaxConnections", "hnsw.EFConstruction", "hnsw.EF",
 		"hnsw.DynamicEFMin", "hnsw.DynamicEFMax", "hnsw.DynamicEFFactor", "hnsw.VectorCacheMaxObjects", "hnsw.FlatSearchCutoff",
-		"hnsw.FilterStrategy", "hnsw.SkipDefaultQuantization", "hnsw.TrackDefaultQuantization", "hnsw.SQ.RescoreLimit", "hnsw.RQ.RescoreLimit",
+		"hnsw.FilterStrategy", "hnsw.SkipDefaultQuantization", "hnsw.TrackDefaultQuantization",
+		"hnsw.PQ.RescoreLimit", "hnsw.BQ.RescoreLimit", "hnsw.SQ.RescoreLimit", "hnsw.RQ.RescoreLimit",
 		"hnsw.Multivector.Enabled", "hnsw.Multivector.Aggregation", "hnsw.Multivector.MuveraConfig.Enabled",
 		"hnsw.Multivector.MuveraConfig.KSim", "hnsw.Multivector.MuveraConfig.DProjections", "hnsw.Multivector.MuveraConfig.Repetitions",
 		"flat.VectorCacheMaxObjects", "flat.SkipDefaultQuantization", "flat.TrackDefaultQuantization",

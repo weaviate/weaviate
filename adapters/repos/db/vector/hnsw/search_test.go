@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"sync/atomic"
 	"testing"
 
 	"github.com/pkg/errors"
@@ -379,3 +380,184 @@ func (f *fakeCompressionDistancer) DistanceToFloat(vec []float32) (float32, erro
 type noopBucketView struct{}
 
 func (n *noopBucketView) ReleaseView() {}
+
+// TestShouldRescore pins that rescoring is gated the same way for every hnsw
+// quantizer: a compressed index rescores unless the active quantizer's
+// rescoreLimit is 0; automatic (-1) rescores with the quantizer's default.
+func TestShouldRescore(t *testing.T) {
+	type test struct {
+		name       string
+		compressed bool
+		configure  func(h *hnsw)
+		expected   bool
+	}
+
+	quantizers := map[string]func(h *hnsw, limit int){
+		"pq": func(h *hnsw, limit int) { h.pqConfig = ent.PQConfig{Enabled: true, RescoreLimit: limit} },
+		"bq": func(h *hnsw, limit int) { h.bqConfig = ent.BQConfig{Enabled: true, RescoreLimit: limit} },
+		"sq": func(h *hnsw, limit int) { h.sqConfig = ent.SQConfig{Enabled: true, RescoreLimit: limit} },
+		"rq": func(h *hnsw, limit int) { h.rqConfig = ent.RQConfig{Enabled: true, Bits: 8, RescoreLimit: limit} },
+		"rq centered": func(h *hnsw, limit int) {
+			h.rqConfig = ent.RQConfig{Enabled: true, Bits: 4, Centering: true, RescoreLimit: limit}
+		},
+	}
+
+	var tests []test
+	for name, configure := range quantizers {
+		for _, limit := range []int{ent.RescoreLimitAuto, ent.RescoreLimitDisabled, 1, 20, 512} {
+			tests = append(tests, test{
+				name:       fmt.Sprintf("%s limit %d compressed", name, limit),
+				compressed: true,
+				configure:  func(h *hnsw) { configure(h, limit) },
+				expected:   limit != ent.RescoreLimitDisabled,
+			}, test{
+				name:       fmt.Sprintf("%s limit %d uncompressed", name, limit),
+				compressed: false,
+				configure:  func(h *hnsw) { configure(h, limit) },
+				expected:   false,
+			})
+		}
+	}
+	tests = append(tests, test{
+		name:       "compressed without a quantizer in the config",
+		compressed: true,
+		configure:  func(h *hnsw) {},
+		expected:   true,
+	})
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			h := &hnsw{}
+			h.compressed.Store(test.compressed)
+			test.configure(h)
+			assert.Equal(t, test.expected, h.shouldRescore())
+		})
+	}
+}
+
+// TestRescoreLimitBoundsCandidates pins the rescore budget shared by every
+// hnsw quantizer: of the candidates the graph search returned, exactly
+// min(candidates, max(k, rescoreLimit)) are read back uncompressed, and the
+// result is the exact top k of that set. A limit below k must not fall back to
+// rescoring every candidate, and must not return fewer than k results either.
+// Automatic resolves to the quantizer's own default before the bound applies.
+func TestRescoreLimitBoundsCandidates(t *testing.T) {
+	type test struct {
+		name      string
+		configure func(h *hnsw, limit int)
+		// limit is what the config carries, effective what it resolves to
+		limit      int
+		effective  int
+		k          int
+		candidates int
+		// keepAll marks the compressed-without-quantizer case, which rescores
+		// every candidate regardless of limit
+		keepAll bool
+	}
+
+	quantizers := []struct {
+		name      string
+		configure func(h *hnsw, limit int)
+		auto      int
+	}{
+		{"pq", func(h *hnsw, limit int) { h.pqConfig = ent.PQConfig{Enabled: true, RescoreLimit: limit} }, ent.DefaultPQRescoreLimit},
+		{"bq", func(h *hnsw, limit int) { h.bqConfig = ent.BQConfig{Enabled: true, RescoreLimit: limit} }, ent.DefaultBQRescoreLimit},
+		{"sq", func(h *hnsw, limit int) { h.sqConfig = ent.SQConfig{Enabled: true, RescoreLimit: limit} }, ent.DefaultSQRescoreLimit},
+		{"rq 8 bit", func(h *hnsw, limit int) { h.rqConfig = ent.RQConfig{Enabled: true, Bits: 8, RescoreLimit: limit} }, ent.DefaultRQRescoreLimit},
+		{"rq 1 bit", func(h *hnsw, limit int) { h.rqConfig = ent.RQConfig{Enabled: true, Bits: 1, RescoreLimit: limit} }, ent.DefaultBRQRescoreLimit},
+	}
+	shapes := []struct {
+		name       string
+		limit      int
+		k          int
+		candidates int
+	}{
+		{name: "limit above k trims to limit", limit: 20, k: 10, candidates: 100},
+		{name: "limit below k rescores exactly k", limit: 20, k: 30, candidates: 100},
+		{name: "limit equal to k", limit: 10, k: 10, candidates: 100},
+		{name: "limit above candidates keeps all", limit: 512, k: 10, candidates: 100},
+		{name: "k above candidates keeps all", limit: 20, k: 150, candidates: 100},
+		{name: "automatic resolves to the quantizer default", limit: ent.RescoreLimitAuto, k: 10, candidates: 100},
+		{name: "automatic with k above the default rescores k", limit: ent.RescoreLimitAuto, k: 60, candidates: 100},
+	}
+
+	var tests []test
+	for _, q := range quantizers {
+		for _, shape := range shapes {
+			limit := shape.limit
+			if limit == ent.RescoreLimitAuto {
+				limit = q.auto
+			}
+			tests = append(tests, test{
+				name:       q.name + " " + shape.name,
+				configure:  q.configure,
+				limit:      shape.limit,
+				effective:  limit,
+				k:          shape.k,
+				candidates: shape.candidates,
+			})
+		}
+	}
+	tests = append(tests, test{
+		name:       "no quantizer in config keeps every candidate",
+		configure:  func(h *hnsw, limit int) {},
+		limit:      20,
+		k:          10,
+		candidates: 100,
+		keepAll:    true,
+	})
+
+	logger := logrus.New()
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			vectors, queries := testinghelpers.RandomVecs(test.candidates, 1, 32)
+			d := distancer.NewL2SquaredProvider()
+			distFn := func(a, b []float32) float32 {
+				dist, _ := d.SingleDist(a, b)
+				return dist
+			}
+
+			// the compressed distance of candidate i is i, so the best
+			// candidates by compressed distance are the lowest ids
+			res := priorityqueue.NewMax[any](test.candidates)
+			for i := 0; i < test.candidates; i++ {
+				res.Insert(uint64(i), float32(i))
+			}
+
+			expectedReads := min(test.candidates, max(test.k, test.effective))
+			if test.keepAll {
+				expectedReads = test.candidates
+			}
+			expectedIDs, _ := testinghelpers.BruteForce(logger, vectors[:expectedReads], queries[0],
+				min(test.k, expectedReads), distFn)
+
+			var reads atomic.Int64
+			h := &hnsw{
+				rescoreConcurrency: 4,
+				logger:             logger,
+				allocChecker:       memwatch.NewDummyMonitor(),
+				GetViewThunk:       func() common.BucketView { return &noopBucketView{} },
+				TempVectorForIDWithViewThunk: func(
+					ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView,
+				) ([]float32, error) {
+					reads.Add(1)
+					return vectors[id], nil
+				},
+				pools:             newPools(32, 1),
+				distancerProvider: d,
+			}
+			test.configure(h, test.limit)
+
+			err := h.rescore(context.Background(), res, test.k, newFakeCompressionDistancer(queries[0], distFn))
+			require.NoError(t, err)
+			assert.Equal(t, int64(expectedReads), reads.Load(), "uncompressed vector reads")
+
+			resultIDs := make([]uint64, res.Len())
+			for res.Len() > 0 {
+				item := res.Pop()
+				resultIDs[res.Len()] = item.ID
+			}
+			assert.Equal(t, expectedIDs, resultIDs)
+		})
+	}
+}

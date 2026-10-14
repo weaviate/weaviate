@@ -16,7 +16,8 @@ import "github.com/weaviate/weaviate/entities/vectorindex/common"
 const (
 	DefaultSQEnabled       = false
 	DefaultSQTrainingLimit = 100000
-	DefaultSQRescoreLimit  = 20
+	// DefaultSQRescoreLimit is what RescoreLimitAuto resolves to.
+	DefaultSQRescoreLimit = 20
 )
 
 type SQConfig struct {
@@ -48,7 +49,7 @@ func parseSQMap(in map[string]interface{}, sq *SQConfig) error {
 		return err
 	}
 
-	if err := common.OptionalIntFromMap(sqConfigMap, "rescoreLimit", func(v int) {
+	if err := parseRescoreLimit(sqConfigMap, "sq", func(v int) {
 		sq.RescoreLimit = v
 	}); err != nil {
 		return err
