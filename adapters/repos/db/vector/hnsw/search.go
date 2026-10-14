@@ -382,16 +382,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 				realLen := 0
 				index := 0
 
-				// Not re-sliced to the advertised count first: a vertex can hold
-				// more connections than maximumConnectionsLayerZero, which the
-				// pooled buffer is sized for, and re-slicing past its capacity
-				// panics. Indexes written before v1.12.0 could overflow the cap
-				// (https://github.com/weaviate/weaviate/issues/1868) and nothing
-				// enforces it on write today, so the SWEEPING branch above has
-				// tolerated it since
-				// https://github.com/weaviate/weaviate/issues/1897. CopyLayer
-				// sizes the result itself and allocates when the capacity is
-				// short.
+				// A vertex can exceed the pooled buffer's capacity, so let CopyLayer size it.
 				pendingNextRound = candidateNode.connections.CopyLayer(pendingNextRound[:0], uint8(level))
 
 				// Release before the expansion, which locks each neighbor on
