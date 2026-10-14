@@ -29,6 +29,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/KimMachineGun/automemlimit/memlimit"
@@ -1461,11 +1462,16 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}, appState.Logger)
 	}
 
-	api.PreServerShutdown = func() {
-		// Announce the departure before the listeners close rather than after.
+	// Peers resolve replicas from memberlist, so a node stays in their replica sets until they
+	// see it leave: announce it before the listeners close.
+	leaveCluster := sync.OnceFunc(func() {
 		if err := appState.Cluster.Leave(); err != nil {
 			appState.Logger.Errorf("leave node from cluster: %v", err)
 		}
+	})
+
+	api.PreServerShutdown = func() {
+		leaveCluster()
 
 		// Reject new export requests and signal in-flight exports to stop
 		// early, while the server can still serve other requests. The actual
@@ -1473,15 +1479,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		exportScheduler.StartShutdown()
 		appState.ExportParticipant.StartShutdown()
 		batchDrain()
-
-		// Keep serving while the departure propagates, so that in-flight work finishes on a
-		// node the peers have already stopped choosing.
-		time.Sleep(appState.ServerConfig.Config.Raft.DrainSleep.Get())
 	}
 
 	api.ServerShutdown = func() {
-		// The memberlist departure and the drain that follows it happen in PreServerShutdown,
-		// while this node can still serve: by the time this runs the listeners are already closed.
+		leaveCluster()
 
 		// PreServerShutdown already called StartShutdown so exports are signaled to stop, wait here until completion.
 		exportDone := make(chan struct{})
