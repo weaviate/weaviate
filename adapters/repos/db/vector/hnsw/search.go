@@ -185,13 +185,30 @@ func (h *hnsw) initMuveraEncoder(vectors [][]float32) error {
 	return nil
 }
 
-func (h *hnsw) shouldRescore() bool {
-	if h.compressed.Load() {
-		if (h.sqConfig.Enabled && h.sqConfig.RescoreLimit == 0) || (h.rqConfig.Enabled && h.rqConfig.RescoreLimit == 0) {
-			return false
-		}
+// rescoreLimit returns the effective rescoreLimit of the quantizer compress()
+// picks for this config, in the same precedence order, with
+// ent.RescoreLimitAuto resolved to that quantizer's default. 0 disables
+// rescoring. A compressed index whose config no longer names a quantizer keeps
+// every candidate, as it always has.
+func (h *hnsw) rescoreLimit() int {
+	switch {
+	case h.rqConfig.Enabled && h.rqConfig.Centering:
+		return h.rqConfig.EffectiveRescoreLimit()
+	case h.pqConfig.Enabled:
+		return h.pqConfig.EffectiveRescoreLimit()
+	case h.sqConfig.Enabled:
+		return h.sqConfig.EffectiveRescoreLimit()
+	case h.bqConfig.Enabled:
+		return h.bqConfig.EffectiveRescoreLimit()
+	case h.rqConfig.Enabled:
+		return h.rqConfig.EffectiveRescoreLimit()
+	default:
+		return math.MaxInt
 	}
-	return h.compressed.Load() && !h.doNotRescore
+}
+
+func (h *hnsw) shouldRescore() bool {
+	return h.compressed.Load() && !h.doNotRescore && h.rescoreLimit() != 0
 }
 
 func (h *hnsw) cacheSize() int64 {
@@ -1455,16 +1472,15 @@ func (h *hnsw) QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVe
 	return common.QueryVectorDistancer{DistanceFunc: f}
 }
 
+// rescore re-ranks the best min(ef, max(k, rescoreLimit)) candidates of res
+// with their uncompressed vectors and leaves the top k in res. Every candidate
+// is one random read of the objects bucket, so the bound is what keeps a large
+// k from turning the whole ef into disk reads; a limit below k still rescores
+// k so the caller gets k results.
 func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int, compressorDistancer compressionhelpers.CompressorDistancer) error {
-	if h.sqConfig.Enabled && h.sqConfig.RescoreLimit >= k {
-		for res.Len() > h.sqConfig.RescoreLimit {
-			res.Pop()
-		}
-	}
-	if h.rqConfig.Enabled && h.rqConfig.RescoreLimit >= k {
-		for res.Len() > h.rqConfig.RescoreLimit {
-			res.Pop()
-		}
+	limit := max(k, h.rescoreLimit())
+	for res.Len() > limit {
+		res.Pop()
 	}
 	ids := make([]uint64, res.Len())
 	i := len(ids) - 1
