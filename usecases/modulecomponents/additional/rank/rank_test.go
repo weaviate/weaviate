@@ -125,6 +125,22 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.True(t, rankClient.decision)
 	})
 
+	t.Run("a plain rerank through a decisions module is not a decision", func(t *testing.T) {
+		rankClient := &fakePropertyRanker{}
+		rankProvider := NewForDecisions(rankClient, func(moduletools.ClassConfig) (DecisionSettings, error) {
+			return DecisionSettings{Order: OrderSearch}, nil
+		})
+		in := []search.Result{{ID: "some-uuid", Schema: map[string]interface{}{"photo": "aW1hZ2U="}}}
+		property := "photo"
+		query := "the car is damaged"
+		limit := 1
+
+		_, err := rankProvider.AdditionalPropertyFn(context.Background(), in, &Params{Property: &property, Query: &query}, &limit, map[string]interface{}{}, nil)
+
+		require.NoError(t, err)
+		assert.False(t, rankClient.decision)
+	})
+
 	t.Run("should rank", func(t *testing.T) {
 		rankClient := &fakeRankClient{}
 		rankProvider := New(rankClient)

@@ -38,6 +38,8 @@ const (
 	// QuestionRelevance asks whether the document answers the rerank query.
 	// QuestionStatement sends the rerank query as the predicate itself: a
 	// statement about the document that the model judges true or false.
+	// The setting shapes a plain rerank only; a rerank by a decision
+	// (rerank.decision) always sends its query as the statement.
 	QuestionRelevance = "relevance"
 	QuestionStatement = "statement"
 	DefaultQuestion   = QuestionRelevance
@@ -53,7 +55,8 @@ const (
 // Settings are the class settings with the defaults filled in.
 type Settings struct {
 	Model string
-	// Question is what the model is asked about every document.
+	// Question is what a plain rerank asks about every document, see
+	// QuestionRelevance.
 	Question string
 	// BaseURL is the API endpoint without a trailing "/" or "/v1".
 	BaseURL string

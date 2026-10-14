@@ -102,9 +102,10 @@ func New(apiKey, organization string, timeout time.Duration, maxConcurrentReques
 	}
 }
 
-// Rank asks the Decisions API, once per document, whether the document
-// answers the query. The score is the probability the API returns for that
-// predicate. A document the model refuses to judge scores 0.
+// Rank asks the Decisions API, once per document, the class's question
+// about the query (by default, whether the document answers it). The score
+// is the probability the API returns for that predicate. A document the
+// model refuses to judge scores 0.
 //
 // Identical documents share one request and empty documents are not sent.
 // Requests above the class's maxDocuments are rejected rather than truncated.
