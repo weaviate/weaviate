@@ -989,12 +989,9 @@ func (s *Shard) tenant() string {
 }
 
 // recountPropertyLengthsOnLoad recounts a shard the recount before load missed. It
-// runs before async replication starts and the shard is published, as a write
-// landing during the scan would be counted twice or not at all.
-//
-// An error means the shard must not load. A failed count keeps the previous
-// property lengths, and is an error only if ctx was cancelled. A failed swap
-// always is, as it leaves no usable tracker.
+// runs before async replication starts, as a write during the scan would be counted
+// twice or not at all. A failed count keeps the previous lengths and fails the load
+// only if ctx was cancelled. A failed swap always fails it.
 func (s *Shard) recountPropertyLengthsOnLoad(ctx context.Context) error {
 	recount := s.index.Config.PropertyLengthsRecount
 	if !recount.pending(s.index.ID(), s.name) {

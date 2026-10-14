@@ -61,7 +61,7 @@ func (r *startupRebuild) done(index, shard string) bool {
 }
 
 // forget makes dropped shards pending again, as a restore or a replica copy can bring
-// them back with other dimensions. No shards forgets the whole index.
+// them back with other data. No shards forgets the whole index.
 func (r *startupRebuild) forget(index string, shards ...string) {
 	if r == nil {
 		return

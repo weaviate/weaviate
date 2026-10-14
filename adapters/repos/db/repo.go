@@ -439,8 +439,8 @@ type Config struct {
 	GitHash                        string
 	AvoidMMap                      bool
 
-	// RecountPropertiesAtStartup rebuilds the property lengths of every shard
-	// once in this process: before it loads, or as it loads if that failed.
+	// RecountPropertiesAtStartup rebuilds the property lengths of every shard once
+	// per process, before the shard loads or, if that fails, as it loads.
 	RecountPropertiesAtStartup bool
 
 	// EnableLazyLoadShards controls lazy shard loading.

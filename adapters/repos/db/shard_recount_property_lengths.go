@@ -79,7 +79,7 @@ func (r *propertyLengthsRecounter) count(ctx context.Context) (int, error) {
 
 func (r *propertyLengthsRecounter) scan(ctx context.Context) (count int, err error) {
 	s := r.shard
-	// a corrupt segment makes the cursor panic; the scan only reads
+	// a corrupt segment makes the cursor panic, which the scan can recover as it only reads
 	defer func() {
 		if p := recover(); p != nil {
 			err = fmt.Errorf("scan objects: panic: %v", p)
@@ -114,8 +114,8 @@ func (r *propertyLengthsRecounter) swapIn() error {
 	return r.shard.initProplenTracker()
 }
 
-// replaceTrackerFile keeps a crash safe: the next load finds either the previous
-// file or the recounted one.
+// replaceTrackerFile renames, so after a crash the next load finds either the
+// previous tracker file or the recounted one.
 func (r *propertyLengthsRecounter) replaceTrackerFile() error {
 	if err := os.Rename(r.recountPath, r.trackerPath); err != nil {
 		return fmt.Errorf("replace tracker file: %w", err)
@@ -123,8 +123,8 @@ func (r *propertyLengthsRecounter) replaceTrackerFile() error {
 	return nil
 }
 
-// writeEmptyPropertyLengths replaces the tracker file of a shard without objects,
-// which may not be readable.
+// writeEmptyPropertyLengths replaces the tracker file of a shard without objects, as
+// that file may not be readable.
 func writeEmptyPropertyLengths(shardPath string, logger logrus.FieldLogger) error {
 	recountPath := path.Join(shardPath, propLengthsRecountFile)
 	if err := os.Remove(recountPath); err != nil && !errors.Is(err, os.ErrNotExist) {
