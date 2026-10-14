@@ -116,8 +116,18 @@ func TestDeleteObject_RbacResolveAlias(t *testing.T) {
 	assert.Contains(t, auth.Calls()[0].Resources[0], class) // make sure rbac is called with "resolved class" name
 }
 
-func newDeleteDependency() (*Manager, *fakeVectorRepo, *mocks.FakeAuthorizer, *fakeSchemaManager) {
-	vectorRepo := new(fakeVectorRepo)
+func TestDeleteObject_InvalidClassNameIsInvalidUserInput(t *testing.T) {
+	manager, repo, auth, _ := newDeleteDependency()
+	err := manager.DeleteObject(context.Background(), nil, "a:Foo",
+		strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc"), nil, "")
+	require.ErrorAs(t, err, &ErrInvalidUserInput{})
+	assert.Contains(t, err.Error(), "is not a valid class name")
+	assert.Empty(t, auth.Calls())
+	repo.AssertExpectations(t)
+}
+
+func newDeleteDependency() (*Manager, *fakeObjectFinder, *mocks.FakeAuthorizer, *fakeSchemaManager) {
+	vectorRepo := new(fakeObjectFinder)
 	logger, _ := test.NewNullLogger()
 	authorizer := mocks.NewMockAuthorizer()
 	smanager := new(fakeSchemaManager)

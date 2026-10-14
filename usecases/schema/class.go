@@ -134,7 +134,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 	cls.Class = qualified
-	if err := namespacing.QualifyPropertyDataTypes(principal, h.config.Namespaces.Enabled, cls.Properties); err != nil {
+	if err := namespacing.QualifyPropertyDataTypes(principal, h.config.Namespaces.Enabled, cls.Class, cls.Properties); err != nil {
 		return nil, 0, err
 	}
 
@@ -481,7 +481,9 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 			return fmt.Errorf("%w: class name in body %q does not match path %q", ErrValidation, updated.Class, namespacing.StripOwnNamespace(principal, className))
 		}
 		updated.Class = qualifiedBody
-		if err := namespacing.QualifyPropertyDataTypes(principal, h.config.Namespaces.Enabled, updated.Properties); err != nil {
+	}
+	if updated != nil {
+		if err := namespacing.QualifyPropertyDataTypes(principal, h.config.Namespaces.Enabled, className, updated.Properties); err != nil {
 			return fmt.Errorf("%w: %w", ErrValidation, err)
 		}
 	}
@@ -637,7 +639,13 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 			}
 		}
 
-		if err := validateImmutableFields(initial, updated, h.parser.modules); err != nil {
+		allowed, err := mutableSettingsChanges(h.parser.modules, initial, updated, func(module, targetVector string) error {
+			return h.moduleConfig.ValidateModuleConfig(ctx, updated, module, targetVector)
+		})
+		if err != nil {
+			return err
+		}
+		if err := validateImmutableFields(initial, updated, h.parser.modules, allowed); err != nil {
 			return err
 		}
 	}
@@ -700,12 +708,7 @@ func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, p
 // h.schemaManager.UpdateProperty directly) so the MutationGuard
 // applies to external mutations.
 //
-// Returns only after the local FSM has applied the update. The reindex
-// provider's OnTaskCompleted clears the per-shard tokenization overlay
-// immediately after this returns; without the local-apply wait the
-// overlay would be cleared while this node's schema reader still has
-// the OLD tokenization, opening a query-side misalignment window
-// between local-apply and RAFT-commit on slow followers.
+// Returns only after the local FSM has applied the update.
 func UpdatePropertyInternalFromMigration(h *Handler, ctx context.Context, className string, prop *models.Property,
 	fields ...string,
 ) error {
@@ -1811,7 +1814,7 @@ func validateUpdatingMT(current, update *models.Class) (enabled bool, err error)
 	return enabled, err
 }
 
-func validateImmutableFields(initial, updated *models.Class, modulesProvider modulesProvider) error {
+func validateImmutableFields(initial, updated *models.Class, modulesProvider modulesProvider, allowed map[string][]string) error {
 	immutableFields := []immutableText{
 		{
 			name:     "class name",
@@ -1856,6 +1859,10 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 		updated.VectorConfig[k] = v
 
 		if !deepEqualVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+			if _, ok := allowed[k]; ok {
+				continue
+			}
+
 			// There might be module settings that need to be migrated to new names, for example
 			// if baseUrl property setting was renamed to baseURL then we need to adjust module settings
 			// and migrate baseUrl to baseURL
@@ -1894,6 +1901,42 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 
 func deepEqualVectorizerSettings(initial, updated any) bool {
 	return reflect.DeepEqual(structToMap(initial), structToMap(updated))
+}
+
+// mutableSettingsChanges returns the modules whose settings changed in a way the module allows, keyed by target
+// vector ("" for the class-level moduleConfig), and stops at the first error validate returns for one of them.
+// It must run before MigrateVectorizerSettings overwrites initial.
+func mutableSettingsChanges(modulesProvider modulesProvider, initial, updated *models.Class,
+	validate func(module, targetVector string) error,
+) (map[string][]string, error) {
+	changes := map[string][]string{}
+	collect := func(targetVector string, initialConfig, updatedConfig map[string]any) error {
+		for module := range updatedConfig {
+			initialSettings, _ := initialConfig[module].(map[string]any)
+			updatedSettings, _ := updatedConfig[module].(map[string]any)
+			if initialSettings != nil && updatedSettings != nil && !reflect.DeepEqual(initialSettings, updatedSettings) &&
+				modulesProvider.MutableSettings(module, initialSettings, updatedSettings) {
+				if err := validate(module, targetVector); err != nil {
+					return err
+				}
+				changes[targetVector] = append(changes[targetVector], module)
+			}
+		}
+		return nil
+	}
+
+	if err := collect("", structToMap(initial.ModuleConfig), structToMap(updated.ModuleConfig)); err != nil {
+		return nil, err
+	}
+	for name, vectorConfig := range updated.VectorConfig {
+		initialVectorizer, updatedVectorizer := structToMap(initial.VectorConfig[name].Vectorizer), structToMap(vectorConfig.Vectorizer)
+		if len(initialVectorizer) == 1 && len(updatedVectorizer) == 1 {
+			if err := collect(name, initialVectorizer, updatedVectorizer); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return changes, nil
 }
 
 func structToMap(obj any) (objMap map[string]any) {

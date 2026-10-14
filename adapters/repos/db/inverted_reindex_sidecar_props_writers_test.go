@@ -77,7 +77,7 @@ func TestEveryPerPropertyStrategyWritesASidecarThatRebuildsItsDirName(t *testing
 		{
 			name: "filterable to rangeable", prefix: MigrationDirPrefixFilterableToRangeable, multiProp: true,
 			newTask: func(l logrus.FieldLogger, p []string, g int) *ShardReindexTaskGeneric {
-				return NewRuntimeFilterableToRangeableTask(l, nil, p, collection, g)
+				return NewRuntimeFilterableToRangeableTask(l, p, collection, g)
 			},
 		},
 		{
@@ -238,14 +238,13 @@ func TestPersistRecoveryRecordWritesThePropsSidecar(t *testing.T) {
 				BucketStrategy:     tc.bucketStrategy,
 				UnitToShard:        map[string]string{"unit-1": shard.Name()},
 			}
-			tasks, err := p.createReindexTasks(payload, lsm, false)
-			require.NoError(t, err)
-			require.NotEmpty(t, tasks)
-
 			dtmTask := &distributedtask.Task{
 				Namespace:      ReindexNamespace,
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "task-1", Version: 1},
 			}
+			tasks, err := p.createReindexTasks(dtmTask.TaskDescriptor, payload, lsm, false)
+			require.NoError(t, err)
+			require.NotEmpty(t, tasks)
 			require.NoError(t, p.persistRecoveryRecord(dtmTask, payload, "unit-1", shard, tasks, &selectedPropsFailures{}))
 
 			want := slices.Clone(tc.props)

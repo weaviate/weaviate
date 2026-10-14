@@ -31,7 +31,7 @@ func getsWithExpectedFailures(t *testing.T) {
 			createObjectClass(t, &models.Class{
 				Class: className,
 				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					"text2vec-model2vec": map[string]interface{}{
 						"vectorizeClassName": true,
 					},
 				},
@@ -74,7 +74,7 @@ func getsWithExpectedFailures(t *testing.T) {
 			createObjectClass(t, &models.Class{
 				Class: className,
 				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					"text2vec-model2vec": map[string]interface{}{
 						"vectorizeClassName": true,
 					},
 				},

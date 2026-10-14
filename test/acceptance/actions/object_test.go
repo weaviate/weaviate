@@ -136,7 +136,7 @@ func TestPutObject(t *testing.T) {
 	helper.AssertCreateObjectClass(t, &models.Class{
 		Class: cls,
 		ModuleConfig: map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
+			"text2vec-model2vec": map[string]interface{}{
 				"vectorizeClassName": true,
 			},
 		},
@@ -208,7 +208,7 @@ func TestPatchObject(t *testing.T) {
 		cls        = "TestObjectHTTPPatch"
 		friend_cls = "TestObjectHTTPPatchFriend"
 		mconfig    = map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
+			"text2vec-model2vec": map[string]interface{}{
 				"vectorizeClassName": true,
 			},
 		}
@@ -406,7 +406,7 @@ func TestPostReference(t *testing.T) {
 		cls        = "TestObjectHTTPAddReference"
 		friend_cls = "TestObjectHTTPAddReferenceFriend"
 		mconfig    = map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
+			"text2vec-model2vec": map[string]interface{}{
 				"vectorizeClassName": true,
 			},
 		}
@@ -481,7 +481,7 @@ func TestPutReferences(t *testing.T) {
 		first_friend  = "TestObjectHTTPUpdateReferencesFriendFirst"
 		second_friend = "TestObjectHTTPUpdateReferencesFriendSecond"
 		mconfig       = map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
+			"text2vec-model2vec": map[string]interface{}{
 				"vectorizeClassName": true,
 			},
 		}
@@ -602,7 +602,7 @@ func TestDeleteReference(t *testing.T) {
 		first_friend  = "TestObjectHTTPDeleteReferenceFriendFirst"
 		second_friend = "TestObjectHTTPDeleteReferenceFriendSecond"
 		mconfig       = map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
+			"text2vec-model2vec": map[string]interface{}{
 				"vectorizeClassName": true,
 			},
 		}

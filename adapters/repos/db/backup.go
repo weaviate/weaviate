@@ -108,7 +108,7 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 // BackupDescriptors returns a channel of class descriptors.
 // Class descriptor records everything needed to restore a class
 // If an error happens a descriptor with an error will be written to the channel just before closing it.
-func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []string, baseDescrs []*backup.BackupDescriptor,
+func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []string, baseDescrs []*backup.BaseBackupDescriptor,
 ) <-chan backup.ClassDescriptor {
 	ds := make(chan backup.ClassDescriptor, len(classes))
 	f := func() {
@@ -134,7 +134,7 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 					return
 				}
 				defer idx.exitRead()
-				var classBaseDescr []*backup.ClassDescriptor
+				var classBaseDescr []*backup.BaseClassDescriptor
 				for _, b := range baseDescrs {
 					classbaseDescrTmp := b.GetClassDescriptor(c)
 					if classbaseDescrTmp == nil {
@@ -260,7 +260,7 @@ func (db *DB) ListClasses(ctx context.Context) []string {
 }
 
 // descriptor record everything needed to restore a class
-func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor) (err error) {
+func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.BaseClassDescriptor) (err error) {
 	if err := i.initBackup(backupID); err != nil {
 		return err
 	}
@@ -281,7 +281,7 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 //
 // It iterates the sharding state (single source of truth) to discover all local shards,
 // then uses the shardMap to determine the backup method per shard under backupLock.Lock.
-func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor) (err error) {
+func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.BaseClassDescriptor) (err error) {
 	stagingRoot := backupStagingDir(i.Config.RootPath, backupID, i.Config.ClassName)
 	if err := os.MkdirAll(stagingRoot, 0o755); err != nil {
 		return fmt.Errorf("create backup staging dir: %w", err)
@@ -349,7 +349,7 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 // preventShutdown refcount) so concurrent queries — which RLock the same per-shard
 // key in getOptInitLocalShard — don't block for the snapshot duration. See
 // weaviate/0-weaviate-issues#234.
-func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.ClassDescriptor, stagingRoot string) (*backup.ShardDescriptor, error) {
+func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.BaseClassDescriptor, stagingRoot string) (*backup.ShardDescriptor, error) {
 	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
 
 	// Deferred before backupLock so it runs after the unlock: dropping the last
@@ -482,7 +482,7 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 // hardlinks. Compaction remains paused for the entire backup upload duration.
 //
 // Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
-func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor) (err error) {
+func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.BaseClassDescriptor) (err error) {
 	defer func() {
 		if err != nil {
 			// closelock is hold by the caller
@@ -527,7 +527,7 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 // until ReleaseBackup to block both activation and FREEZE/FROZEN file operations.
 //
 // Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
-func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.ClassDescriptor) (*backup.ShardDescriptor, error) {
+func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.BaseClassDescriptor) (*backup.ShardDescriptor, error) {
 	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
 
 	i.backupLock.Lock(name)
@@ -624,7 +624,7 @@ func (i *Index) backupInactiveShardWithoutHardlinks(name string, sd *backup.Shar
 }
 
 // collectShardBaseDescrs gathers base descriptors for incremental backups of a given shard.
-func (i *Index) collectShardBaseDescrs(shardName string, classBaseDescrs []*backup.ClassDescriptor) []backup.ShardAndID {
+func (i *Index) collectShardBaseDescrs(shardName string, classBaseDescrs []*backup.BaseClassDescriptor) []backup.ShardAndID {
 	var result []backup.ShardAndID
 	for _, classBaseDescr := range classBaseDescrs {
 		shardBaseDescrTmp := classBaseDescr.GetShardDescriptor(shardName)
@@ -791,7 +791,7 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 	// first (required to ingest data), and Shard.Shutdown writes indexcount,
 	// proplengths, and version during the flush/close sequence.
 	counterPath := filepath.Join(shardDir, "indexcount")
-	data, err := os.ReadFile(counterPath)
+	data, err := diskio.ReadFileExact(counterPath)
 	if err != nil {
 		return nil, fmt.Errorf("read counter: %w", err)
 	}
@@ -801,7 +801,7 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 	}
 
 	plPath := filepath.Join(shardDir, "proplengths")
-	data, err = os.ReadFile(plPath)
+	data, err = diskio.ReadFileExact(plPath)
 	if err != nil {
 		return nil, fmt.Errorf("read proplengths: %w", err)
 	}
@@ -811,7 +811,7 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 	}
 
 	versionPath := filepath.Join(shardDir, "version")
-	data, err = os.ReadFile(versionPath)
+	data, err = diskio.ReadFileExact(versionPath)
 	if err != nil {
 		return nil, fmt.Errorf("read version: %w", err)
 	}
@@ -875,27 +875,39 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 			continue
 		}
 		vectorDir := filepath.Join(shardDir, entry.Name())
-		if err := filepath.WalkDir(vectorDir, func(fpath string, d os.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if d.IsDir() {
-				return nil
-			}
-			if filepath.Ext(d.Name()) == tmpExt {
-				return nil
-			}
-			relPath, relErr := filepath.Rel(rootPath, fpath)
-			if relErr != nil {
-				return relErr
-			}
-			files = append(files, relPath)
-			return nil
-		}); err != nil {
+		if files, err = appendFilesBelow(files, vectorDir, rootPath); err != nil {
 			return nil, fmt.Errorf("list vector index %s files: %w", entry.Name(), err)
 		}
 	}
 
+	return files, nil
+}
+
+// appendFilesBelow appends every file below dir except .tmp files, as paths
+// relative to rootPath. It uses os.ReadDir because filepath.WalkDir pays an
+// Lstat on the directory it starts from.
+func appendFilesBelow(files []string, dir, rootPath string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		fpath := filepath.Join(dir, entry.Name())
+		if entry.IsDir() {
+			if files, err = appendFilesBelow(files, fpath, rootPath); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if filepath.Ext(entry.Name()) == tmpExt {
+			continue
+		}
+		relPath, relErr := filepath.Rel(rootPath, fpath)
+		if relErr != nil {
+			return nil, relErr
+		}
+		files = append(files, relPath)
+	}
 	return files, nil
 }
 

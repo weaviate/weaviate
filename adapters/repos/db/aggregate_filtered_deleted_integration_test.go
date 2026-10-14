@@ -110,8 +110,7 @@ func TestFilteredAggregateMetaCountSkipsDeletedIDs(t *testing.T) {
 			// mimic a restart: shard init prefills the bitmap factory's universe
 			// from the doc id counter's high-water mark (shard_init_lsm.go), which
 			// brings the deleted doc ids back into the universe
-			s.bitmapFactory = roaringset.NewBitmapFactory(s.bitmapBufPool,
-				func() uint64 { return s.counter.Get() - 1 })
+			s.bitmapFactory = roaringset.NewBitmapFactory(s.bitmapBufPool, s.counter.Get)
 
 			params := aggregation.Params{
 				ClassName:        schema.ClassName(aggDeletedIDsClass),
@@ -224,8 +223,7 @@ func TestGroupedAggregateCountSkipsDeletedIDs(t *testing.T) {
 			// mimic a restart: shard init prefills the bitmap factory's universe
 			// from the doc id counter's high-water mark (shard_init_lsm.go), which
 			// brings the deleted doc ids back into the universe
-			s.bitmapFactory = roaringset.NewBitmapFactory(s.bitmapBufPool,
-				func() uint64 { return s.counter.Get() - 1 })
+			s.bitmapFactory = roaringset.NewBitmapFactory(s.bitmapBufPool, s.counter.Get)
 
 			res, err := s.Aggregate(ctx, aggregation.Params{
 				ClassName:        schema.ClassName(aggDeletedIDsClass),

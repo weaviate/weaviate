@@ -13,6 +13,7 @@ package helper
 
 import (
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -202,12 +203,30 @@ func ListAllUsers(t *testing.T, key string) []*models.DBUserInfo {
 	return resp.Payload
 }
 
-func ListAllUsersWithIncludeTime(t *testing.T, key string, includeLastUsedTime bool) []*models.DBUserInfo {
+// WaitForUsersListed lists the users key can see until every id in userIDs is
+// among them, and returns that list. A follower lists users from its own state,
+// which can briefly be behind a write the leader has already applied.
+func WaitForUsersListed(t *testing.T, key string, userIDs ...string) []*models.DBUserInfo {
 	t.Helper()
-	resp, err := Client(t).Users.ListAllUsers(users.NewListAllUsersParams().WithIncludeLastUsedTime(&includeLastUsedTime), CreateAuth(key))
-	AssertRequestOk(t, resp, err, nil)
-	require.Nil(t, err)
-	return resp.Payload
+	return WaitForUsersListedWithIncludeTime(t, key, false, userIDs...)
+}
+
+func WaitForUsersListedWithIncludeTime(t *testing.T, key string, includeLastUsedTime bool, userIDs ...string) []*models.DBUserInfo {
+	t.Helper()
+	var listed []*models.DBUserInfo
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		resp, err := Client(t).Users.ListAllUsers(users.NewListAllUsersParams().WithIncludeLastUsedTime(&includeLastUsedTime), CreateAuth(key))
+		if !assert.NoError(c, err) {
+			return
+		}
+		for _, id := range userIDs {
+			assert.True(c, slices.ContainsFunc(resp.Payload, func(u *models.DBUserInfo) bool {
+				return u.UserID != nil && *u.UserID == id
+			}), "user %q not listed", id)
+		}
+		listed = resp.Payload
+	}, 10*time.Second, 50*time.Millisecond)
+	return listed
 }
 
 func DeleteRole(t *testing.T, key, role string) {
@@ -511,14 +530,6 @@ func (p *DataPermission) WithTenant(tenant string) *DataPermission {
 		p.Data = &models.PermissionData{}
 	}
 	p.Data.Tenant = authorization.String(tenant)
-	return p
-}
-
-func (p *DataPermission) WithObject(object string) *DataPermission {
-	if p.Data == nil {
-		p.Data = &models.PermissionData{}
-	}
-	p.Data.Object = authorization.String(object)
 	return p
 }
 

@@ -316,6 +316,9 @@ func (h *objectHandlers) query(params objects.ObjectsListParams,
 		case uco.StatusUnprocessableEntity:
 			return objects.NewObjectsListUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, rerr))
+		case uco.StatusTooManyRequests:
+			// No generated 429 responder for this operation.
+			return tooManyRequestsResponder(principal, rerr)
 		default:
 			return objects.NewObjectsListInternalServerError().
 				WithPayload(errPayloadFromSingleErr(principal, rerr))
@@ -363,7 +366,7 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &uco.ErrNotFound{}):
 			return objects.NewObjectsClassDeleteNotFound()
-		case errors.As(err, &uco.ErrMultiTenancy{}):
+		case errors.As(err, &uco.ErrMultiTenancy{}), errors.As(err, &uco.ErrInvalidUserInput{}):
 			return objects.NewObjectsClassDeleteUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:

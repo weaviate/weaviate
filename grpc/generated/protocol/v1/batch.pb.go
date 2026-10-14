@@ -948,8 +948,9 @@ type BatchStreamReply_OutOfMemory struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	Uuids   []string               `protobuf:"bytes,1,rep,name=uuids,proto3" json:"uuids,omitempty"`
 	Beacons []string               `protobuf:"bytes,2,rep,name=beacons,proto3" json:"beacons,omitempty"`
-	// How long to wait until ShuttingDown is sent, in seconds
-	// If ShuttingDown is not set by this time, the client should exit the stream
+	// How long the client should wait, in seconds, before reopening the stream.
+	// The server closes its side after sending this message and sends nothing
+	// further on this stream.
 	WaitTime      int32 `protobuf:"varint,3,opt,name=wait_time,json=waitTime,proto3" json:"wait_time,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

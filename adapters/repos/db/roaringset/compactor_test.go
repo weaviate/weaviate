@@ -23,7 +23,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/testinghelpers"
 )
 
 func Test_Compactor(t *testing.T) {
@@ -480,7 +482,7 @@ func cursorCompactor(t *testing.T, leftCursor, rightCursor SegmentCursor, maxNew
 	f, err := os.Create(segmentFile)
 	require.NoError(t, err)
 
-	c := NewCompactor(f, leftCursor, rightCursor, 5, cleanup, checkSum, maxNewFileSize, nil)
+	c := NewCompactor(f, leftCursor, rightCursor, 5, cleanup, checkSum, maxNewFileSize)
 	require.NoError(t, c.Do(context.Background()))
 
 	require.NoError(t, f.Close())
@@ -527,7 +529,7 @@ func TestCompactor_InMemoryWritesEfficency(t *testing.T) {
 			maxNewFileSize = compactor.SegmentWriterBufferSize + 1
 		}
 
-		c := NewCompactor(ws, leftCursor, rightCursor, 0, true, true, maxNewFileSize, nil)
+		c := NewCompactor(ws, leftCursor, rightCursor, 0, true, true, maxNewFileSize)
 
 		err = c.Do(context.Background())
 		require.Nil(t, err)
@@ -558,7 +560,7 @@ type keyWithBML struct {
 	deletions []uint64
 }
 
-func createSegmentsFromKeys(t *testing.T, keys []keyWithBML) []byte {
+func createSegmentsFromKeys(t testing.TB, keys []keyWithBML) []byte {
 	out := []byte{}
 
 	for _, k := range keys {
@@ -630,3 +632,370 @@ func (c *CountingWriteSeeker) Bytes() ([]byte, error) {
 
 // Close closes the underlying file.
 func (c *CountingWriteSeeker) Close() error { return c.f.Close() }
+
+// TestCompactorStoresNoEmptyBitmap is the compaction-side pair of
+// TestFlushRoaringSetStoresNoEmptyBitmap: whatever a compaction re-encodes, an
+// empty side must still cost a zero length indicator and no payload. Both
+// writers share one encoder, so what this adds over the flush's pair is
+// cleanupValues: with cleanup on, a node holding only deletions goes, and one
+// holding both keeps no deletions payload.
+//
+// It also walks the body to IndexStart, which is the structural check that a
+// recorded byte-for-byte manifest would otherwise be carrying.
+func TestCompactorStoresNoEmptyBitmap(t *testing.T) {
+	// cleanup=true drops nodes holding only deletions, so both arms of
+	// cleanupValues are exercised across the two rows.
+	for _, cleanup := range []bool{false, true} {
+		t.Run(fmt.Sprintf("cleanup=%t", cleanup), func(t *testing.T) {
+			left := createSegmentsFromKeys(t, []keyWithBML{
+				{key: []byte("additions only"), additions: slice(0, 10)},
+				{key: []byte("both sides"), additions: slice(20, 30), deletions: slice(40, 50)},
+			})
+			right := createSegmentsFromKeys(t, []keyWithBML{
+				{key: []byte("deletions only"), deletions: slice(100, 110)},
+			})
+
+			data := cursorCompactor(t, NewSegmentCursor(left, nil), NewSegmentCursor(right, nil),
+				compactor.SegmentWriterBufferSize+1, cleanup, false)
+
+			header, err := segmentindex.ParseHeader(data[:segmentindex.HeaderSize])
+			require.NoError(t, err)
+
+			sides := testinghelpers.SegmentSideLengths(t, data[segmentindex.HeaderSize:header.IndexStart])
+
+			require.NotZero(t, sides["additions only"][0])
+			require.Zero(t, sides["additions only"][1], "an empty deletions side must store no payload")
+
+			if cleanup {
+				// Deletions are dropped once nothing older can be masked, so a node
+				// holding only deletions goes with them.
+				require.NotContains(t, sides, "deletions only")
+				require.Zero(t, sides["both sides"][1], "cleanup must leave no deletions payload")
+			} else {
+				require.Zero(t, sides["deletions only"][0], "an empty additions side must store no payload")
+				require.NotZero(t, sides["deletions only"][1])
+				require.NotZero(t, sides["both sides"][1])
+			}
+		})
+	}
+}
+
+// TestCompactorIndexNamesTheNodesItPointsAt pins the half of the output the
+// value tests never read: the index. Every entry must carry the key of the node
+// its offsets land on.
+//
+// The compactor builds each node in one reused buffer, so an entry that took
+// its key from the node — as SegmentNode.PrimaryKey returns it — would be left
+// pointing at whatever the next node overwrote. The body would still be
+// correct, and every value test would still pass.
+func TestCompactorIndexNamesTheNodesItPointsAt(t *testing.T) {
+	// Node sizes repeat, so a later node is built in the buffer an earlier one
+	// used and writes over that node's key bytes. Sizes that only grow give
+	// every node a fresh allocation, and no stale key is ever disturbed.
+	keys := make([]keyWithBML, 0, 40)
+	for i := 0; i < 40; i++ {
+		keys = append(keys, keyWithBML{
+			key:       []byte(fmt.Sprintf("key-%05d", i)),
+			additions: slice(uint64(i)*1000, uint64(i)*1000+uint64(10+(i%4)*20)),
+		})
+	}
+
+	data := cursorCompactor(t,
+		NewSegmentCursor(createSegmentsFromKeys(t, keys[:20]), nil),
+		NewSegmentCursor(createSegmentsFromKeys(t, keys[20:]), nil),
+		compactor.SegmentWriterBufferSize+1, false, false)
+
+	header, err := segmentindex.ParseHeader(data[:segmentindex.HeaderSize])
+	require.NoError(t, err)
+
+	tree := segmentindex.NewDiskTree(data[header.IndexStart:])
+	require.Equal(t, len(keys), tree.KeyCount())
+
+	for _, k := range keys {
+		node, err := tree.Get(k.key)
+		require.NoError(t, err, "the index does not hold key %q", k.key)
+
+		// Where the index says this key lives, a node carrying it must start.
+		require.LessOrEqual(t, node.End, header.IndexStart,
+			"index entry for %q points past the body", k.key)
+		require.GreaterOrEqual(t, node.Start, uint64(segmentindex.HeaderSize),
+			"index entry for %q points into the header", k.key)
+		at := NewSegmentNodeFromBuffer(data[node.Start:node.End])
+		require.Equal(t, k.key, at.PrimaryKey(),
+			"the index entry for %q points at a node holding %q", k.key, at.PrimaryKey())
+	}
+}
+
+// benchmarkCompactorKeys is the compaction fixture: two segments of equal size
+// under disjoint keys, so every node takes the takeLeftKey or takeRightKey arm
+// and the count of nodes built is the count of keys.
+func benchmarkCompactorKeys(t testing.TB, perSegment int) (left, right []byte) {
+	t.Helper()
+
+	keys := make([]keyWithBML, 0, perSegment*2)
+	for i := 0; i < perSegment*2; i++ {
+		keys = append(keys, keyWithBML{
+			key:       []byte(fmt.Sprintf("key-%05d", i)),
+			additions: slice(uint64(i)*1000, uint64(i)*1000+500),
+		})
+	}
+	return createSegmentsFromKeys(t, keys[:perSegment]),
+		createSegmentsFromKeys(t, keys[perSegment:])
+}
+
+// BenchmarkCompactorRoaringSet reports what one compaction allocates. The
+// figure a commit message quotes for this path comes from here: the nodes are
+// built into one buffer the compaction carries, so allocs/op is what says the
+// buffer is still being reused rather than re-made per node.
+func BenchmarkCompactorRoaringSet(b *testing.B) {
+	const perSegment = 100
+
+	left, right := benchmarkCompactorKeys(b, perSegment)
+	dir := b.TempDir()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		f, err := os.Create(filepath.Join(dir, "compacted.db"))
+		require.NoError(b, err)
+		b.StartTimer()
+
+		c := NewCompactor(f, NewSegmentCursor(left, nil), NewSegmentCursor(right, nil),
+			5, false, false, int64(compactor.SegmentWriterBufferSize+1))
+		require.NoError(b, c.Do(context.Background()))
+
+		b.StopTimer()
+		require.NoError(b, f.Close())
+		b.StartTimer()
+	}
+}
+
+// TestCompactorSegmentChecksumValidates reads a compacted segment back the way
+// a startup does. The index is marshalled through SegmentFile.BodyWriter, which
+// is the writer the CRC is computed over, so a change routing those bytes past
+// it would leave a segment that parses and fails validation on the next load.
+func TestCompactorSegmentChecksumValidates(t *testing.T) {
+	// Deletions on both sides, so the cleanup arm has nodes to drop and the two
+	// rows do not compact to the same bytes.
+	left := createSegmentsFromKeys(t, []keyWithBML{
+		{key: []byte("aaa"), additions: slice(0, 200), deletions: slice(500, 520)},
+		{key: []byte("ccc"), deletions: slice(600, 620)},
+	})
+	right := createSegmentsFromKeys(t, []keyWithBML{
+		{key: []byte("bbb"), additions: slice(1000, 1200), deletions: slice(1500, 1520)},
+	})
+
+	for _, cleanup := range []bool{false, true} {
+		t.Run(fmt.Sprintf("cleanup=%t", cleanup), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "compacted.db")
+			f, err := os.Create(path)
+			require.NoError(t, err)
+
+			c := NewCompactor(f, NewSegmentCursor(left, nil), NewSegmentCursor(right, nil),
+				5, cleanup, true, int64(compactor.SegmentWriterBufferSize+1))
+			require.NoError(t, c.Do(context.Background()))
+			require.NoError(t, f.Close())
+
+			rf, err := os.Open(path)
+			require.NoError(t, err)
+			defer rf.Close()
+
+			info, err := rf.Stat()
+			require.NoError(t, err)
+
+			sf := segmentindex.NewSegmentFile(segmentindex.WithReader(rf))
+			require.NoError(t, sf.ValidateChecksum(info.Size(), segmentindex.HeaderSize),
+				"a compacted segment must validate against the checksum it wrote")
+		})
+	}
+}
+
+// TestCompactorReportsWriteFailures walks the error paths an ENOSPC or EIO
+// reaches during an ordinary compaction. The header patch is the one worth most:
+// it is the only failure that lands after a complete body and index are already
+// written, so what it leaves behind looks finished.
+//
+// nodesPerSegment selects the path. compactor.NewWriter buffers 256 KiB, so a
+// small fixture reaches the segment file only at the explicit Flush, while one
+// past that size pushes node writes straight through.
+func TestCompactorReportsWriteFailures(t *testing.T) {
+	tests := []struct {
+		name            string
+		nodesPerSegment int
+		failOnWrite     int
+		failSeek        bool
+		// maxNewFileSize selects the writer: compactor.NewWriter installs the
+		// size-capping in-memory writer only below its buffer size, and above it
+		// hands back a plain bufio. Zero means the file-writer default.
+		maxNewFileSize int64
+		wantErr        string
+	}{
+		{
+			name:            "a node write fails",
+			nodesPerSegment: 200,
+			failOnWrite:     1,
+			wantErr:         "write keys",
+		},
+		{
+			name:            "the body and index flush fails",
+			nodesPerSegment: 4,
+			failOnWrite:     1,
+			wantErr:         "flush buffered",
+		},
+		{
+			name:            "the header patch fails after the body is written",
+			nodesPerSegment: 4,
+			failOnWrite:     2,
+			wantErr:         "write header",
+		},
+		{
+			name:            "seeking back to patch the header fails",
+			nodesPerSegment: 4,
+			failSeek:        true,
+			wantErr:         "write header",
+		},
+		{
+			// The in-memory writer buffers the whole segment and flushes it at
+			// the end, so the failure lands on a different call than any row
+			// above and skips the explicit bufw.Flush entirely.
+			name:            "a write fails on the in-memory writer",
+			nodesPerSegment: 4,
+			failOnWrite:     1,
+			maxNewFileSize:  1024,
+			wantErr:         "write",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			left, right := benchmarkCompactorKeys(t, tt.nodesPerSegment)
+
+			ws := &testinghelpers.FailingWriteSeeker{
+				FailOnWrite: tt.failOnWrite,
+				FailSeek:    tt.failSeek,
+			}
+
+			maxNewFileSize := tt.maxNewFileSize
+			if maxNewFileSize == 0 {
+				maxNewFileSize = int64(compactor.SegmentWriterBufferSize + 1)
+			}
+
+			c := NewCompactor(ws, NewSegmentCursor(left, nil), NewSegmentCursor(right, nil),
+				5, false, true, maxNewFileSize)
+
+			err := c.Do(context.Background())
+			require.ErrorContains(t, err, tt.wantErr)
+			require.ErrorIs(t, err, testinghelpers.ErrDiskFull,
+				"the underlying failure must survive the wrap")
+		})
+	}
+}
+
+// TestCompactorCompactsWhatItStores is the compaction-side pair of
+// TestFlushRoaringSetCompactsWhatItStores. Both writers share one encoder, but
+// the flush's fixture cannot reach this path: a compaction's inputs are segments
+// already on disk, and one written before the encoder compacted still carries
+// the slack this must shed.
+func TestCompactorCompactsWhatItStores(t *testing.T) {
+	const key = "grown then emptied"
+
+	grown := NewBitmap(slice(3000, 8000)...)
+	for _, v := range slice(3100, 8000) {
+		grown.Remove(v)
+	}
+	compacted := len(grown.Compacted().ToBuffer())
+	require.Less(t, compacted, len(grown.ToBuffer()),
+		"the fixture no longer carries slack; sroar's container threshold may have moved")
+
+	// NewSegmentNode stores the buffer as it stands, which is how a segment
+	// written before the encoder compacted looks on disk.
+	sn, err := NewSegmentNode([]byte(key), grown, NewBitmap())
+	require.NoError(t, err)
+
+	right := createSegmentsFromKeys(t, []keyWithBML{
+		{key: []byte("untouched"), additions: slice(0, 4)},
+	})
+
+	data := cursorCompactor(t, NewSegmentCursor(sn.ToBuffer(), nil), NewSegmentCursor(right, nil),
+		compactor.SegmentWriterBufferSize+1, false, false)
+
+	header, err := segmentindex.ParseHeader(data[:segmentindex.HeaderSize])
+	require.NoError(t, err)
+
+	sides := testinghelpers.SegmentSideLengths(t, data[segmentindex.HeaderSize:header.IndexStart])
+	require.Equal(t, uint64(compacted), sides[key][0],
+		"the compaction must shed the source's slack, not carry it forward")
+}
+
+// TestCompactorEdgeShapes covers three inputs the tables above never build: a
+// compaction whose cleanup drops every node, a zero-length key, and a context
+// cancelled before any node is read. The first is what a mass delete leaves, and
+// its empty-index branch is the one this change rewrote.
+func TestCompactorEdgeShapes(t *testing.T) {
+	t.Run("cleanup drops every node", func(t *testing.T) {
+		left := createSegmentsFromKeys(t, []keyWithBML{
+			{key: []byte("aaa"), deletions: slice(0, 10)},
+		})
+		right := createSegmentsFromKeys(t, []keyWithBML{
+			{key: []byte("bbb"), deletions: slice(20, 30)},
+		})
+
+		data := cursorCompactor(t, NewSegmentCursor(left, nil), NewSegmentCursor(right, nil),
+			compactor.SegmentWriterBufferSize+1, true, true)
+
+		header, err := segmentindex.ParseHeader(data[:segmentindex.HeaderSize])
+		require.NoError(t, err)
+		require.Equal(t, uint64(segmentindex.HeaderSize), header.IndexStart,
+			"a segment with no nodes must start its index where the body would have")
+		require.Equal(t, 0, segmentindex.NewDiskTree(data[header.IndexStart:]).KeyCount())
+	})
+
+	t.Run("a zero-length key survives the merge", func(t *testing.T) {
+		left := createSegmentsFromKeys(t, []keyWithBML{
+			{key: []byte{}, additions: slice(0, 4)},
+		})
+		right := createSegmentsFromKeys(t, []keyWithBML{
+			{key: []byte("bbb"), additions: slice(10, 14)},
+		})
+
+		data := cursorCompactor(t, NewSegmentCursor(left, nil), NewSegmentCursor(right, nil),
+			compactor.SegmentWriterBufferSize+1, false, true)
+
+		header, err := segmentindex.ParseHeader(data[:segmentindex.HeaderSize])
+		require.NoError(t, err)
+
+		sides := testinghelpers.SegmentSideLengths(t, data[segmentindex.HeaderSize:header.IndexStart])
+		require.Contains(t, sides, "", "the zero-length key must reach the segment")
+
+		node, err := segmentindex.NewDiskTree(data[header.IndexStart:]).Get([]byte{})
+		require.NoError(t, err)
+		// "" sorts before every other key, so it is the first node in the body.
+		require.EqualValues(t, segmentindex.HeaderSize, node.Start,
+			"the zero-length key must be indexed at the first node, not merged away or reordered")
+	})
+
+	// A real writer, not a zero-value one: with a nil file every Write returns
+	// os.ErrInvalid, so a compaction that got further than this one expects would
+	// report "invalid argument" and send the next reader after a phantom
+	// cancellation bug.
+	t.Run("a cancelled context stops the merge", func(t *testing.T) {
+		left, right := benchmarkCompactorKeys(t, 2*compactor.AbortCheckEveryN)
+
+		ws, err := NewCountingWriteSeeker()
+		require.NoError(t, err)
+		defer ws.Close()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		c := NewCompactor(ws, NewSegmentCursor(left, nil),
+			NewSegmentCursor(right, nil), 5, false, true,
+			int64(compactor.SegmentWriterBufferSize+1))
+
+		require.ErrorIs(t, c.Do(ctx), context.Canceled)
+		require.Zero(t, ws.BytesWritten,
+			"the abort fires before the first node, so this proves only that entry check")
+	})
+}

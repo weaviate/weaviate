@@ -202,9 +202,6 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 					require.NoError(t, err)
 				}
 
-				// Wait for indexing to complete
-				time.Sleep(2 * time.Second)
-
 				// Test object storage size
 				shard, release, err := index.GetShard(ctx, tt.shardName)
 				require.NoError(t, err)

@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
@@ -139,16 +140,20 @@ func (ic *classSettings) Validate() error {
 
 	var errorMessages []string
 
+	if err := modulecomponents.ValidateGoogleApiEndpoint(ic.ApiEndpoint()); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
+	if err := modulecomponents.ValidateGoogleLocation(locationProperty, ic.Location()); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
+
 	model := ic.Model()
-	if ic.ApiEndpoint() == "" {
+	if ic.ApiEndpoint() != DefaultAIStudioEndpoint {
 		// Google Vertex AI mandatory settings validation
-		location := ic.Location()
-		if location == "" {
+		if ic.Location() == "" {
 			errorMessages = append(errorMessages, "location setting needs to be present")
 		}
-
-		projectID := ic.ProjectID()
-		if projectID == "" {
+		if ic.ProjectID() == "" {
 			errorMessages = append(errorMessages, "projectId setting needs to be present")
 		}
 	}

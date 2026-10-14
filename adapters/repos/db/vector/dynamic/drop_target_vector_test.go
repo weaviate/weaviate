@@ -106,10 +106,10 @@ func TestDropTargetVector_LeavesTheSharedStateDBUsable(t *testing.T) {
 }
 
 // TestDropTargetVector_ClearsOnlyItsOwnKey pins both halves of the key
-// handling: the dropped vector's upgrade verdict must go, or a re-created
-// vector of the same name inherits "already upgraded" and boots straight into
-// an empty hnsw, skipping its flat stage; and the sibling's verdict must stay,
-// or the sibling silently restarts its own upgrade.
+// handling: the dropped vector's upgrade verdict and upgrading marker must go,
+// or a re-created vector of the same name inherits "already upgraded" (booting
+// straight into an empty hnsw) or "interrupted upgrade"; and the sibling's
+// keys must stay, or the sibling silently restarts its own upgrade.
 func TestDropTargetVector_ClearsOnlyItsOwnKey(t *testing.T) {
 	ctx := context.Background()
 	rootPath := t.TempDir()
@@ -126,10 +126,12 @@ func TestDropTargetVector_ClearsOnlyItsOwnKey(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if err := b.Put(dropped.dbKey(), []byte("1")); err != nil {
-			return err
+		for _, k := range [][]byte{dropped.dbKey(), sibling.dbKey(), dropped.upgradingKey(), sibling.upgradingKey()} {
+			if err := b.Put(k, []byte("1")); err != nil {
+				return err
+			}
 		}
-		return b.Put(sibling.dbKey(), []byte("1"))
+		return nil
 	}))
 
 	require.NoError(t, dropped.DropTargetVector(ctx))
@@ -141,6 +143,10 @@ func TestDropTargetVector_ClearsOnlyItsOwnKey(t *testing.T) {
 			"the dropped vector's upgrade verdict must go, or a re-created name skips its flat stage")
 		assert.Equal(t, []byte("1"), b.Get(sibling.dbKey()),
 			"a sibling's upgrade verdict must survive")
+		assert.Empty(t, b.Get(dropped.upgradingKey()),
+			"the dropped vector's upgrading marker must go, or a re-created name loads as an interrupted upgrade")
+		assert.Equal(t, []byte("1"), b.Get(sibling.upgradingKey()),
+			"a sibling's upgrading marker must survive")
 		return nil
 	}))
 }

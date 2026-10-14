@@ -23,16 +23,32 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
+// checkRoaringSetKey refuses a nil key. A roaring-set bucket indexes values, and
+// an absent one is indexed by the null pseudo-property's own bucket under a
+// one-byte key, so nil is a caller's mistake rather than a value. It is also the
+// end-of-walk marker every cursor over a memtable reads, so a stored nil key
+// would end a walk at that node: the flush would rename a header-only segment
+// into place and delete the commit log behind it.
+func checkRoaringSetKey(key []byte) error {
+	if key == nil {
+		return fmt.Errorf("roaring set key must not be nil")
+	}
+	return nil
+}
+
 func (b *Bucket) RoaringSetAddOne(key []byte, value uint64) error {
 	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
 		return err
 	}
+	if err := checkRoaringSetKey(key); err != nil {
+		return err
+	}
 
-	active, release, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer active.decWriterCount()
 
 	return active.roaringSetAddOne(key, value)
 }
@@ -41,12 +57,15 @@ func (b *Bucket) RoaringSetRemoveOne(key []byte, value uint64) error {
 	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
 		return err
 	}
+	if err := checkRoaringSetKey(key); err != nil {
+		return err
+	}
 
-	active, release, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer active.decWriterCount()
 
 	return active.roaringSetRemoveOne(key, value)
 }
@@ -55,12 +74,15 @@ func (b *Bucket) RoaringSetAddList(key []byte, values []uint64) error {
 	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
 		return err
 	}
+	if err := checkRoaringSetKey(key); err != nil {
+		return err
+	}
 
-	active, release, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer active.decWriterCount()
 
 	return active.roaringSetAddList(key, values)
 }
@@ -77,12 +99,17 @@ func (b *Bucket) RoaringSetAddBatch(entries []RoaringSetBatchEntry) error {
 	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
 		return err
 	}
+	for i := range entries {
+		if err := checkRoaringSetKey(entries[i].Key); err != nil {
+			return fmt.Errorf("entry %d: %w", i, err)
+		}
+	}
 
-	active, release, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer active.decWriterCount()
 
 	return active.roaringSetAddBatch(entries)
 }
@@ -93,12 +120,17 @@ func (b *Bucket) RoaringSetRemoveBatch(entries []RoaringSetBatchEntry) error {
 	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
 		return err
 	}
+	for i := range entries {
+		if err := checkRoaringSetKey(entries[i].Key); err != nil {
+			return fmt.Errorf("entry %d: %w", i, err)
+		}
+	}
 
-	active, release, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer active.decWriterCount()
 
 	return active.roaringSetRemoveBatch(entries)
 }
@@ -107,12 +139,15 @@ func (b *Bucket) RoaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
 		return err
 	}
+	if err := checkRoaringSetKey(key); err != nil {
+		return err
+	}
 
-	active, release, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer active.decWriterCount()
 
 	return active.roaringSetAddBitmap(key, bm)
 }
@@ -260,8 +295,8 @@ type RoaringSetBatchReader struct {
 	keys             inverted.SortedKeys
 	pos              int
 	winStart, winEnd int
-	// windowSize/windowBytes bound one window; see memtableWindowKeys and
-	// readerWindowBytes.
+	// windowSize/windowBytes bound one window; see BatchReaderWindowKeys and
+	// BatchReaderWindowBytes.
 	windowSize  int
 	windowBytes int
 
@@ -307,6 +342,21 @@ type RoaringSetBatchReaderStats struct {
 	Memtables int
 }
 
+// Add folds another reader's stats into these, so a fold running a reader per
+// worker reports one figure per statistic. Counts sum; Memtables is a max,
+// since every reader was opened on the same narrowed view and saw the same
+// memtables. BytesPeak sums rather than maxing: the workers hold their windows
+// at the same time, so what the fold can peak at is the total.
+func (s *RoaringSetBatchReaderStats) Add(other RoaringSetBatchReaderStats) {
+	s.Fills += other.Fills
+	s.NarrowedFills += other.NarrowedFills
+	s.MemtableReads += other.MemtableReads
+	s.KeysServed += other.KeysServed
+	s.BytesPeak += other.BytesPeak
+	s.BytesCopied += other.BytesCopied
+	s.Memtables = max(s.Memtables, other.Memtables)
+}
+
 // Stats reports what this reader did. Safe to call once the caller has stopped
 // calling Next.
 func (r *RoaringSetBatchReader) Stats() RoaringSetBatchReaderStats {
@@ -321,16 +371,16 @@ func (r *RoaringSetBatchReader) Stats() RoaringSetBatchReaderStats {
 	}
 }
 
-// memtableWindowKeys caps how many keys one lock acquisition reads ahead;
-// readerWindowBytes caps what those keys may cost to copy, whichever is hit
+// BatchReaderWindowKeys caps how many keys one lock acquisition reads ahead;
+// BatchReaderWindowBytes caps what those keys may cost to copy, whichever is hit
 // first. Bigger windows lock less often but raise writer p99 once readers reach
 // the core count.
 //
 // [BenchmarkRoaringSetWindowRead] sweeps this against three row shapes, and
 // [BenchmarkRoaringSetWindowUnderWrite] the same under contention.
-const memtableWindowKeys = 1024
+const BatchReaderWindowKeys = 1024
 
-// readerWindowBytes is the reader's whole allowance, not each memtable's, so a
+// BatchReaderWindowBytes is the reader's whole allowance, not each memtable's, so a
 // flush in flight halves each share rather than doubling what the query holds.
 // It is not a ceiling: a window's first key is taken whatever it costs.
 //
@@ -341,7 +391,7 @@ const memtableWindowKeys = 1024
 //
 // Nothing bounds the fan-out this multiplies across (filter children, shards,
 // concurrent requests).
-const readerWindowBytes = 8 << 20
+const BatchReaderWindowBytes = 8 << 20
 
 // NewRoaringSetBatchReader opens a reader on this view for one sorted batch,
 // served in order through Next. The view stays the caller's to release and
@@ -353,16 +403,19 @@ const readerWindowBytes = 8 << 20
 // memtable holds nothing": the disk row is then served with that memtable's
 // deletions unapplied, and a ContainsAny returns a deleted document.
 //
-// view.Active must be set, and this panics rather than erroring if it is not.
+// The view it was narrowed from must carry its Bucket, and this panics rather
+// than erroring if it does not.
 // No producer builds one that way, and the sibling read paths on this bucket
-// already dereference it unchecked.
+// already dereference it unchecked. Its memtables are whatever the narrowing
+// left: possibly none, which is an empty active memtable with no flush behind
+// it, and is answered from the segments alone.
 func NewRoaringSetBatchReader(
-	view BucketConsistentView, keys inverted.SortedKeys,
+	nv NarrowedConsistentView, keys inverted.SortedKeys,
 ) (*RoaringSetBatchReader, error) {
-	if err := CheckStrategyRoaringSet(view.Bucket.strategy); err != nil {
+	if err := CheckStrategyRoaringSet(nv.view.Bucket.strategy); err != nil {
 		return nil, err
 	}
-	return newRoaringSetBatchReaderWithBounds(view, keys, memtableWindowKeys, readerWindowBytes)
+	return newRoaringSetBatchReaderWithBounds(nv, keys, BatchReaderWindowKeys, BatchReaderWindowBytes)
 }
 
 // newRoaringSetBatchReaderWithBounds builds a reader with an explicit window
@@ -372,7 +425,7 @@ func NewRoaringSetBatchReader(
 // It checks those bounds and not the strategy, which is the one check
 // [NewRoaringSetBatchReader] adds on top of it.
 func newRoaringSetBatchReaderWithBounds(
-	view BucketConsistentView, keys inverted.SortedKeys, window, budget int,
+	nv NarrowedConsistentView, keys inverted.SortedKeys, window, budget int,
 ) (*RoaringSetBatchReader, error) {
 	if window <= 0 {
 		return nil, fmt.Errorf("roaring set batch reader: window size must be positive, got %d", window)
@@ -382,20 +435,13 @@ func newRoaringSetBatchReaderWithBounds(
 		// always-taken first key: correct, but a fill per key and no windowing.
 		return nil, fmt.Errorf("roaring set batch reader: byte budget must be positive, got %d", budget)
 	}
-	mts, count := viewMemtablesOldestFirst(view)
-
-	// Drop the active memtable if empty (size never decreases, so a racing write
-	// only makes this stale-low, never stale-high). Only the active one can be
-	// empty like this: the switch refuses to run on an empty memtable, so a
-	// flushing one always held something. No nil check: a bucket always has an
-	// active memtable.
-	if mts[count-1].Size() == 0 {
-		count--
-	}
+	// The view arrives already narrowed, so every reader opened on it sees the
+	// same memtables — see [BucketConsistentView.WithoutEmptyActiveMemtable].
+	mts, count := nv.memtablesOldestFirst()
 
 	r := &RoaringSetBatchReader{
-		bucket:      view.Bucket,
-		segments:    view.Disk,
+		bucket:      nv.view.Bucket,
+		segments:    nv.view.Disk,
 		keys:        keys,
 		windowSize:  window,
 		windowBytes: budget,
@@ -491,7 +537,7 @@ func (r *RoaringSetBatchReader) fillWindow() error {
 	}
 
 	// Shared across the memtables rather than given to each in full — see
-	// readerWindowBytes. Never zero: a share of nothing reads nothing, and a
+	// BatchReaderWindowBytes. Never zero: a share of nothing reads nothing, and a
 	// window no memtable read answers every key it holds as absent.
 	share := max(1, r.windowBytes/r.mtCount)
 	// What this window holds is carriedIn plus copied: rows kept from an earlier

@@ -19,6 +19,8 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strconv"
+	"syscall"
 	"testing"
 	"time"
 
@@ -46,6 +48,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -273,6 +276,16 @@ func testShardMultiTenant(t testing.TB, ctx context.Context, className string, i
 
 func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMetrics, classes ...*models.Class) *DB {
 	t.Helper()
+	return createTestDatabaseWithNamespaces(t, metrics, nil, classes...)
+}
+
+// createTestDatabaseWithNamespaces is createTestDatabaseWithClass with a
+// namespace lookup. Qualified class names need one: the shard guard refuses to
+// create a shard for a namespaced class it cannot look up.
+func createTestDatabaseWithNamespaces(t *testing.T, metrics *monitoring.PrometheusMetrics,
+	namespacesExister namespaces.Exister, classes ...*models.Class,
+) *DB {
+	t.Helper()
 
 	require.NotNil(t, metrics, "metrics parameter cannot be nil")
 	metricsCopy := *metrics
@@ -308,7 +321,7 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 		TrackVectorDimensions:     true,
 		EnableLazyLoadShards:      boolPtr(true),
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, namespacesExister)
 	require.Nil(t, err)
 
 	db.SetSchemaGetter(&fakeSchemaGetter{
@@ -337,7 +350,10 @@ func publishVectorMetricsFromDB(t *testing.T, db *DB) {
 		t.Logf("Vector dimensions tracking is disabled, returning 0")
 		return
 	}
-	db.metricsObserver.publishVectorMetrics(t.Context())
+	// A throwaway observer, not db.metricsObserver: db.metricsObserver's own
+	// goroutine keeps prune state between passes, and a second publisher
+	// would race it.
+	(&nodeWideMetricsObserver{db: db}).publishVectorMetrics(t.Context())
 }
 
 func getSingleShardNameFromRepo(repo *DB, className string) string {
@@ -387,6 +403,7 @@ func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models
 		return &models.Class{Class: name}
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -558,6 +575,36 @@ func testShardWithSettings(t testing.TB, ctx context.Context, class *models.Clas
 	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
 	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, withCheckpoints, false, withAsyncIndexingEnabled, indexOpts...)
+}
+
+// openDescriptorCount returns how many of this process's file descriptors
+// refer to the file at filePath, matched by device and inode.
+func openDescriptorCount(t *testing.T, filePath string) int {
+	t.Helper()
+
+	info, err := os.Stat(filePath)
+	require.NoError(t, err)
+	want := info.Sys().(*syscall.Stat_t)
+
+	entries, err := os.ReadDir("/dev/fd")
+	require.NoError(t, err)
+
+	count := 0
+	for _, entry := range entries {
+		fd, err := strconv.Atoi(entry.Name())
+		if err != nil {
+			continue
+		}
+		var got syscall.Stat_t
+		// ReadDir closed the descriptor it listed /dev/fd through, so Fstat fails on it
+		if err := syscall.Fstat(fd, &got); err != nil {
+			continue
+		}
+		if got.Dev == want.Dev && got.Ino == want.Ino {
+			count++
+		}
+	}
+	return count
 }
 
 func testObject(className string) *storobj.Object {

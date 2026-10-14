@@ -58,6 +58,11 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 	if !needsReassign {
 		return nil
 	}
+	if replicas.Len() == 0 {
+		// Preserve the surviving copies if the centroid graph has no usable
+		// destination. EnqueueReassignAll can bootstrap one before retrying.
+		return errors.Errorf("no destination postings for vector %d", op.VectorID)
+	}
 
 	// increment the vector version. this will invalidate all the existing copies
 	// of the vector in other postings.

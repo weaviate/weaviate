@@ -17,11 +17,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
@@ -83,6 +82,10 @@ func (h *hnsw) restoreFromDisk() error {
 	loader := compact.NewLoader(compact.LoaderConfig{
 		Dir:    dir,
 		Logger: h.logger,
+		// Multivector indexes without Muvera number their nodes separately.
+		// HFresh's centroid index numbers them by posting ID; it lives in HFresh's
+		// own directory, which holds no document-ID counter, so it gets no limit.
+		NodeIDsAreDocIDs: !h.multivector.Load() || h.muvera.Load(),
 	})
 
 	loadResult, err := loader.Load()
@@ -99,13 +102,12 @@ func (h *hnsw) restoreFromDisk() error {
 		return nil
 	}
 
-	// A corrupt WAL was detected during load: either a raw file's torn tail
-	// was truncated, or an unreadable compacted segment was dropped in favour
-	// of the snapshot + clean segments. Log for diagnostic visibility. The
-	// commit logger will start a fresh raw file regardless, so no further
-	// action is needed here.
+	// A corrupt WAL was detected during load: a raw file's torn tail or a
+	// compacted segment's corrupt tail was truncated. Log for diagnostic
+	// visibility. The commit logger will start a fresh raw file regardless, so
+	// no further action is needed here.
 	if loadResult.RecoveredFromCrash {
-		h.logger.Info("recovered from crash during restore - corrupt WAL tail truncated or compacted segment dropped")
+		h.logger.Info("recovered from crash during restore - corrupt commit log tail truncated")
 	}
 
 	// Apply loaded state to index
@@ -186,6 +188,8 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 				if err != nil {
 					return errors.Wrap(err, "Restoring compressed data.")
 				}
+			} else {
+				return errors.New("restoring compressed data: pq data has no encoders")
 			}
 		} else if sqData := state.CompressionSQData(); sqData != nil {
 			h.dims.Store(int32(sqData.Dimensions))
@@ -263,9 +267,26 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 }
 
 func (h *hnsw) setDimensionsFromEntrypoint() {
-	if len(h.nodes) > 0 {
-		if vec, err := h.VectorForIDThunk(context.Background(), h.entryPointID); err == nil {
+	if len(h.nodes) == 0 {
+		return
+	}
+	if vec, err := h.VectorForIDThunk(context.Background(), h.entryPointID); err == nil && len(vec) > 0 {
+		h.dims.Store(int32(len(vec)))
+		return
+	}
+	// the entrypoint's object may already be gone (e.g. a torn crash
+	// recovery where the entrypoint id is tombstoned but still set): fall
+	// back to any live node rather than leaving dims at 0, which would
+	// disable dimension validation for every subsequent insert and let a
+	// single wrong-length insert poison the recorded dimensionality
+	for i, node := range h.nodes {
+		id := uint64(i)
+		if node == nil || id == h.entryPointID {
+			continue
+		}
+		if vec, err := h.VectorForIDThunk(context.Background(), id); err == nil && len(vec) > 0 {
 			h.dims.Store(int32(len(vec)))
+			return
 		}
 	}
 }
@@ -375,30 +396,34 @@ func (h *hnsw) restoreDocMappings() error {
 	maxDocID := uint64(0)
 	buf := make([]byte, 8)
 
-	// Get the mappings bucket - handle case where it might be nil
-	bucket := h.store.Bucket(helpers.MVMappingsBucketName(h.id))
-	if bucket == nil {
-		err := errors.New("multivector mappings bucket not found")
+	// pinned for the whole scan below: without it a teardown racing this
+	// lookup could unmap the segments the Gets read from
+	bucket, release, err := h.getBucket(helpers.MVMappingsBucketName(h.id))
+	if err != nil {
 		h.logger.WithField("action", "restore_doc_mappings").
-			WithError(err)
-		return err
+			Errorf("multivector mappings bucket not found: %v", err)
+		return errors.Wrap(err, "multivector mappings bucket not found")
 	}
+	defer release()
 
-	for _, node := range h.nodes {
+	var removed []uint64
+	for i, node := range h.nodes {
 		if node == nil {
 			continue
 		}
-		binary.BigEndian.PutUint64(buf, node.id)
+		id := uint64(i)
+		binary.BigEndian.PutUint64(buf, id)
 		docIDBytes, err := bucket.Get(buf)
 		if err != nil {
 			// If the mapping is not found (e.g., due to corrupted state after ungraceful shutdown),
 			// log a warning and skip this node instead of failing completely
 			h.logger.WithFields(map[string]interface{}{
 				"action":  "restore_doc_mappings",
-				"node_id": node.id,
+				"node_id": id,
 				"error":   err.Error(),
 			}).Error("skipping node with missing doc mapping")
-			h.nodes[node.id] = nil
+			h.nodes[id] = nil
+			removed = append(removed, id)
 			continue
 		}
 
@@ -406,10 +431,11 @@ func (h *hnsw) restoreDocMappings() error {
 		if len(docIDBytes) < 8 {
 			h.logger.WithFields(map[string]interface{}{
 				"action":       "restore_doc_mappings",
-				"node_id":      node.id,
+				"node_id":      id,
 				"bytes_length": len(docIDBytes),
 			}).Error("skipping node with invalid doc mapping data")
-			h.nodes[node.id] = nil
+			h.nodes[id] = nil
+			removed = append(removed, id)
 			continue
 		}
 
@@ -419,11 +445,11 @@ func (h *hnsw) restoreDocMappings() error {
 			prevDocID = docID
 		}
 		h.Lock()
-		h.docIDVectors[docID] = append(h.docIDVectors[docID], node.id)
+		h.docIDVectors[docID] = append(h.docIDVectors[docID], id)
 		h.Unlock()
 		relativeID++
-		if node.id > maxNodeID {
-			maxNodeID = node.id
+		if id > maxNodeID {
+			maxNodeID = id
 		}
 		if docID > maxDocID {
 			maxDocID = docID
@@ -433,6 +459,24 @@ func (h *hnsw) restoreDocMappings() error {
 	h.vecIDcounter = maxNodeID + 1
 	h.maxDocID = maxDocID
 	h.Unlock()
+
+	if len(removed) > 0 {
+		// tombstone the removed nodes in memory only — the commit logger is
+		// wired up after restoreFromDisk returns, so persisting here would
+		// nil-panic; that is fine, since a crash before the next cleanup
+		// cycle re-detects the missing mappings on the next restore. The
+		// tombstones make the next cleanup cycle reassign the edges still
+		// pointing at the removed nodes and, when one of them is the
+		// entrypoint, move the entrypoint off the dangling id.
+		h.tombstoneLock.Lock()
+		if h.tombstones == nil {
+			h.tombstones = make(map[uint64]struct{}, len(removed))
+		}
+		for _, id := range removed {
+			h.tombstones[id] = struct{}{}
+		}
+		h.tombstoneLock.Unlock()
+	}
 	return nil
 }
 

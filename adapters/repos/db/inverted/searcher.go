@@ -13,7 +13,6 @@ package inverted
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"strconv"
@@ -44,19 +43,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
-// IsRangeableLocallyReady returns true when this shard's local rangeable
-// bucket for the given property is fully populated and safe to query.
-// During an enable-rangeable migration the cluster-wide schema flag
-// `IndexRangeFilters` can flip to true as soon as the first replica
-// completes its swap, but other replicas may still be mid-iteration
-// with an empty PreReindexHook-created rangeable bucket — so a query
-// using the rangeable bucket on those replicas would return partial /
-// zero counts. When this callback returns false, the filter resolver
-// treats the property as if it had no rangeable index for THIS shard
-// only and falls back to the filterable bucket walk (slow but correct).
-// Returns true for properties that have no in-flight migration on disk
-// — i.e. either never migrated (native rangeable from collection
-// creation) or already-completed migrations.
+// IsRangeableLocallyReady reports whether this shard's rangeable bucket for
+// the property is safe to query; true when no migration is in flight. False
+// makes the filter resolver fall back to the filterable bucket walk on THIS
+// shard only — slow but correct while a repair-rangeable rebuild runs with
+// the schema flag already true.
 type IsRangeableLocallyReady func(propName string) bool
 
 type Searcher struct {
@@ -165,7 +156,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	className schema.ClassName, properties []string,
 	disableInvertedSorter *runtime.DynamicValue[bool],
 ) ([]*storobj.Object, error) {
-	ctx = concurrency.CtxWithBudget(ctx, concurrency.TimesGOMAXPROCS(2))
+	ctx = concurrency.CtxWithBudgetIfAbsent(ctx, concurrency.TimesGOMAXPROCS(2))
 	beforeFilters := time.Now()
 	allowList, err := s.docIDs(ctx, filter, className, limit)
 	if err != nil {
@@ -221,22 +212,11 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 		return nil, fmt.Errorf("getting objects bucket class name: %w", err)
 	}
 
-	// Prevent unbounded iteration
-	if limit == 0 {
+	// Prevent unbounded iteration: an unset (zero) limit and a negative one both
+	// fall back to the default.
+	if limit <= 0 {
 		limit = int(config.DefaultQueryMaximumResults)
 	}
-	outlen := it.Len()
-	if outlen > limit {
-		outlen = limit
-	}
-
-	out := make([]*storobj.Object, outlen)
-	docIDBytes := make([]byte, 8)
-
-	// Reused across iterations and grown to fit the largest object seen. Safe to
-	// reuse because FromBinary*Disk copies every value out of the returned bytes
-	// before the next lookup overwrites the buffer.
-	var objBuf []byte
 
 	propertyPaths := make([][]string, len(properties))
 	for j := range properties {
@@ -264,45 +244,30 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 		}
 	}()
 
-	i := 0
-	loop := 0
-	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
-		if loop%1000 == 0 && ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		loop++
-
-		binary.LittleEndian.PutUint64(docIDBytes, docID)
-		res, newBuf, err := bucket.GetBySecondaryWithBuffer(ctx, 0, docIDBytes, objBuf)
-		if err != nil {
-			return nil, err
-		}
-		objBuf = newBuf
-
+	// decode runs on the bucket's lookup workers and shares props (read-only);
+	// it copies every value it keeps, since res is overwritten by the next lookup.
+	out, err := storobj.DecodeByDocID(ctx, bucket, it, limit, func(docID uint64, res []byte) (*storobj.Object, bool, error) {
 		if res == nil {
 			handleDeletedId(docID)
-			continue
+			return nil, false, nil
 		}
 
 		var unmarshalled *storobj.Object
+		var err error
 		if additional.ReferenceQuery {
 			unmarshalled, err = storobj.FromBinaryUUIDOnlyDisk(res, className)
 		} else {
 			unmarshalled, err = storobj.FromBinaryOptionalDisk(res, className, additional, props)
 		}
 		if err != nil {
-			return nil, fmt.Errorf("unmarshal data object at position %d: %w", i, err)
+			return nil, false, fmt.Errorf("unmarshal data object for doc id %d: %w", docID, err)
 		}
-
-		out[i] = unmarshalled
-		i++
-
-		if i >= limit {
-			break
-		}
+		return unmarshalled, true, nil
+	})
+	if err != nil {
+		return nil, err
 	}
-
-	return out[:i], nil
+	return out, nil
 }
 
 // DocIDs is similar to Objects, but does not actually resolve the docIDs to
@@ -318,14 +283,14 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 ) (helpers.AllowList, error) {
-	ctx = concurrency.CtxWithBudget(ctx, concurrency.GOMAXPROCSx2)
+	ctx = concurrency.CtxWithBudgetIfAbsent(ctx, concurrency.GOMAXPROCSx2)
 	return s.docIDs(ctx, filter, className, 0)
 }
 
 func (s *Searcher) DocIDsLimited(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName, limit int,
 ) (helpers.AllowList, error) {
-	ctx = concurrency.CtxWithBudget(ctx, concurrency.GOMAXPROCSx2)
+	ctx = concurrency.CtxWithBudgetIfAbsent(ctx, concurrency.GOMAXPROCSx2)
 	return s.docIDs(ctx, filter, className, max(0, limit))
 }
 
@@ -555,7 +520,7 @@ func (s *Searcher) buildPropValuePair(
 	}
 
 	if s.onRefProp(property) && len(props) != 1 {
-		return s.extractReferenceFilter(property, filter, class)
+		return s.extractReferenceFilter(ctx, property, filter, class)
 	}
 
 	if s.onRefProp(property) && filter.Value.Type == schema.DataTypeInt {
@@ -649,10 +614,16 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 	return children, nil
 }
 
-func (s *Searcher) extractReferenceFilter(prop *models.Property,
+// extractReferenceFilter runs the nested cross-reference search for a ref
+// filter. It threads the caller's ctx through the nested search so that (1) an
+// admission grant already held on this node is inherited by the nested search
+// (re-entrancy) instead of the nested search re-entering admission as a fresh
+// acquirer, and (2) the per-query merge budget and any deadline/cancellation
+// propagate. Passing a fresh context here previously caused a permanent
+// admission wedge under a saturated node budget.
+func (s *Searcher) extractReferenceFilter(ctx context.Context, prop *models.Property,
 	filter *filters.Clause, class *models.Class,
 ) (*propValuePair, error) {
-	ctx := context.TODO()
 	return newRefFilterExtractor(s.logger, s.classSearcher, filter, class, prop, s.tenant, s.nestedCrossRefLimit).
 		Do(ctx)
 }

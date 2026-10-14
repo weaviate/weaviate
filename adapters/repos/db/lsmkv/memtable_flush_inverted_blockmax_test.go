@@ -39,7 +39,7 @@ func TestInvertedFlushBakesImpactArgmax(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, b.Shutdown(context.Background())) })
 
 	put := func(id uint64, key string, tf, pl float32) {
-		require.NoError(t, b.MapSet([]byte(key), NewMapPairFromDocIdAndTf(id, tf, pl, false)))
+		require.NoError(t, b.InvertedSet([]byte(key), id, tf, pl))
 	}
 
 	// One posting block (14 docs), k1=1.2 / b=0.75, corpus average exactly 100:

@@ -138,7 +138,7 @@ func (fa *filteredAggregator) properties(ctx context.Context,
 	// only invoked for ids that resolved to a live object; the scanner
 	// serializes the calls, so the count needs no synchronization of its own
 	liveCount := 0
-	scan := func(properties *models.PropertySchema, docID uint64) error {
+	scan := func(ctx context.Context, properties *models.PropertySchema, docID uint64) error {
 		liveCount++
 		if err := fa.AnalyzeObject(ctx, properties, propAggs); err != nil {
 			return errors.Wrapf(err, "analyze object %d", docID)
@@ -150,7 +150,7 @@ func (fa *filteredAggregator) properties(ctx context.Context,
 		propertyNames = append(propertyNames, k)
 	}
 
-	err = docid.ScanObjectsLSM(fa.store, ids, scan, propertyNames, fa.logger)
+	err = docid.ScanObjectsLSM(ctx, fa.store, ids, scan, propertyNames, fa.logger)
 	if err != nil {
 		return nil, 0, errors.Wrap(err, "properties view tx")
 	}

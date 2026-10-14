@@ -101,7 +101,7 @@ func (p *uploadProbe) Backupable(context.Context, []string) error { return nil }
 // BackupDescriptors produces one descriptor at a time from its own goroutine and
 // stops between classes once ctx is cancelled, as DB.BackupDescriptors does. A
 // test can then observe the pool while a later class has not been snapshotted yet.
-func (p *uploadProbe) BackupDescriptors(ctx context.Context, _ string, _ []string, _ []*backup.BackupDescriptor,
+func (p *uploadProbe) BackupDescriptors(ctx context.Context, _ string, _ []string, _ []*backup.BaseBackupDescriptor,
 ) <-chan backup.ClassDescriptor {
 	ch := make(chan backup.ClassDescriptor, len(p.descs))
 	go func() {
@@ -257,7 +257,7 @@ func newProbeUploader(t *testing.T, p *uploadProbe, poolSize int) (*uploader, *b
 	logger, _ := test.NewNullLogger()
 	store := nodeStore{objectStore{backend: p, backupId: "backup-1"}}
 	stat := &backupStat{}
-	u := newUploader(config.Backup{}, p, nil, nil, nil, nil, store, "backup-1", stat, logger).
+	u := newUploader(config.Backup{}, p, nil, nil, snapshotSelection{}, store, "backup-1", stat, logger).
 		withCompression(zipConfig{Level: int(NoCompression), GoPoolSize: poolSize})
 
 	desc := &backup.BackupDescriptor{ID: "backup-1", Classes: make([]backup.ClassDescriptor, 0, len(names))}

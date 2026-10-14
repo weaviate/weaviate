@@ -286,6 +286,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 	var sliceConnectionsReusable *common.VectorUint64Slice
 	var slicePendingNextRound *common.VectorUint64Slice
 	var slicePendingThisRound *common.VectorUint64Slice
+	var sliceNeighborConnections *common.VectorUint64Slice
 
 	if allowList == nil {
 		strategy = SWEEPING
@@ -294,6 +295,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		sliceConnectionsReusable = h.pools.tempVectorsUint64.Get(8 * h.maximumConnectionsLayerZero)
 		slicePendingNextRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
 		slicePendingThisRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
+		sliceNeighborConnections = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
 	} else {
 		connectionsReusable = make([]uint64, h.maximumConnectionsLayerZero)
 	}
@@ -325,7 +327,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		}
 
 		candidateNode.Lock()
-		if candidateNode.level < level {
+		if int(candidateNode.level) < level {
 			// a node level could have been downgraded as part of a delete-reassign,
 			// but the connections pointing to it not yet cleaned up. In this case
 			// the node doesn't have any outgoing connections at this level and we
@@ -334,12 +336,19 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 			continue
 		}
 
+		candidateLocked := true
+		var lockedNeighbor *vertex
 		func() {
-			// ensure we unlock the node even if we panic while
-			// accessing its connections
+			// a restored layer can advertise more entries than it stores, so
+			// the decode below panics on corrupt data while a vertex is held
 			defer func() {
 				if err := recover(); err != nil {
-					candidateNode.Unlock()
+					if lockedNeighbor != nil {
+						lockedNeighbor.Unlock()
+					}
+					if candidateLocked {
+						candidateNode.Unlock()
+					}
 					panic(errors.Errorf("shard: %s, collection: %s, vectorIndex: %s, panic: %v", h.shardName, h.className, h.id, err))
 				}
 			}()
@@ -362,16 +371,26 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					connectionsReusable = connectionsReusable[:candidateNode.connections.LenAtLayer(uint8(level))]
 				}
 				connectionsReusable = candidateNode.connections.CopyLayer(connectionsReusable, uint8(level))
+				candidateNode.Unlock()
+				candidateLocked = false
 			} else {
 				connectionsReusable = sliceConnectionsReusable.Slice
 				pendingNextRound := slicePendingNextRound.Slice
 				pendingThisRound := slicePendingThisRound.Slice
+				neighborConnections := sliceNeighborConnections.Slice
 
 				realLen := 0
 				index := 0
 
-				pendingNextRound = pendingNextRound[:candidateNode.connections.LenAtLayer(uint8(level))]
-				pendingNextRound = candidateNode.connections.CopyLayer(pendingNextRound, uint8(level))
+				// A vertex can exceed the pooled buffer's capacity, so let CopyLayer size it.
+				pendingNextRound = candidateNode.connections.CopyLayer(pendingNextRound[:0], uint8(level))
+
+				// Release before the expansion, which locks each neighbor on
+				// its own: two searches expanding each other's vertices would
+				// deadlock if either held a second vertex mutex.
+				candidateNode.Unlock()
+				candidateLocked = false
+
 				hop := 1
 				maxHops := 2
 				for hop <= maxHops && realLen < 8*h.maximumConnectionsLayerZero && len(pendingNextRound) > 0 {
@@ -422,9 +441,12 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 						if node == nil {
 							continue
 						}
-						iterator := node.connections.ElementIterator(uint8(level))
-						for iterator.Next() {
-							_, expId := iterator.Current()
+						node.Lock()
+						lockedNeighbor = node
+						neighborConnections = node.connections.CopyLayer(neighborConnections[:0], uint8(level))
+						lockedNeighbor = nil
+						node.Unlock()
+						for _, expId := range neighborConnections {
 							if visitedExp.CheckAndVisit(expId) {
 								continue
 							}
@@ -462,11 +484,10 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					hop++
 				}
 				slicePendingNextRound.Slice = pendingNextRound
+				sliceNeighborConnections.Slice = neighborConnections
 				connectionsReusable = connectionsReusable[:realLen]
 			}
 		}()
-
-		candidateNode.Unlock()
 
 		unvisited := connectionsReusable[:0]
 		for _, neighborID := range connectionsReusable {
@@ -560,6 +581,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		h.pools.tempVectorsUint64.Put(sliceConnectionsReusable)
 		h.pools.tempVectorsUint64.Put(slicePendingNextRound)
 		h.pools.tempVectorsUint64.Put(slicePendingThisRound)
+		h.pools.tempVectorsUint64.Put(sliceNeighborConnections)
 	}
 
 	h.pools.pqCandidates.Put(candidates)
@@ -577,7 +599,13 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	isMultivec := h.multivector.Load() && !h.muvera.Load()
 	for entrypoints.Len() > 0 {
 		ep := entrypoints.Pop()
-		visitedList.Visit(ep.ID)
+		// the same node can be enqueued twice — the level-descent entry and
+		// an allow-list seed coincide whenever the entrypoint is allowed
+		// and the descent could not improve on it — and inserting both
+		// copies makes the search return a duplicate id
+		if visitedList.CheckAndVisit(ep.ID) {
+			continue
+		}
 		candidates.Insert(ep.ID, ep.Dist)
 		if level == 0 && allowList != nil {
 			// we are on the lowest level containing the actual candidates and we
@@ -945,10 +973,20 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 			strategy = RRE
 		} else {
 			counter := float32(0)
-			entryPointNode.Lock()
-			if entryPointNode.connections.Layers() < 1 {
-				strategy = ACORN
-			} else {
+			var hasLayers bool
+			var connectionCount int
+			func() {
+				entryPointNode.Lock()
+				// deferred because the decode below panics on a restored layer
+				// that advertises more entries than it stores
+				defer entryPointNode.Unlock()
+
+				hasLayers = entryPointNode.connections.Layers() >= 1
+				connectionCount = entryPointNode.connections.LenAtLayer(0)
+				if !hasLayers {
+					return
+				}
+
 				iterator := entryPointNode.connections.ElementIterator(0)
 				for iterator.Next() {
 					_, value := iterator.Current()
@@ -963,12 +1001,12 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 						counter++
 					}
 				}
-				entryPointNode.Unlock()
-				if counter/float32(h.nodes[entryPointID].connections.LenAtLayer(0)) > float32(h.acornFilterRatio) {
-					strategy = RRE
-				} else {
-					strategy = ACORN
-				}
+			}()
+
+			if hasLayers && counter/float32(connectionCount) > float32(h.acornFilterRatio) {
+				strategy = RRE
+			} else {
+				strategy = ACORN
 			}
 		}
 	} else {
@@ -980,17 +1018,27 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		it := allowList.Iterator()
 		defer it.Stop()
 		idx, ok := it.Next()
-		h.shardedNodeLocks.RLockAll()
 		for seeds > 0 {
 			if !isMultivec {
-				for ok && (h.nodes[idx] == nil || h.hasTombstone(idx)) {
+				// Only the h.nodes[idx] read needs a node-shard lock, and it is
+				// released before hasTombstone/distToNode. Those take
+				// tombstoneLock, and holding a node-shard lock across that
+				// acquisition inverts the delete/reset order (tombstoneLock ->
+				// shardedNodeLocks in resetIfEmpty/resetIfOnlyNode) and
+				// deadlocks with a concurrent delete. See the ACORN
+				// filtered-search + delete + insert deadlock.
+				for ok {
+					absent := h.nodeAbsent(idx)
+					if !absent && !h.hasTombstone(idx) {
+						break
+					}
 					idx, ok = it.Next()
 				}
 			} else {
-				_, exists := h.docIDVectors[idx]
+				exists := h.docIDVectorExists(idx)
 				for ok && !exists {
 					idx, ok = it.Next()
-					_, exists = h.docIDVectors[idx]
+					exists = h.docIDVectorExists(idx)
 				}
 			}
 
@@ -1003,7 +1051,6 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 			idx, ok = it.Next()
 			seeds--
 		}
-		h.shardedNodeLocks.RUnlockAll()
 	}
 	res, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer, strategy)
 	if err != nil {

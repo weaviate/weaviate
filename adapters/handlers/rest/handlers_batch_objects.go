@@ -38,6 +38,7 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	restCtx.SetBatchNamespace(ctx, namespacing.ConfinedNamespace(principal))
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)

@@ -39,12 +39,20 @@ func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) er
 		}
 		switch v := vector.(type) {
 		case []float32:
-			err := vectorIndex.ValidateBeforeInsert(v)
+			err := checkVectorKind(vectorIndex, targetVector, false)
+			if err != nil {
+				return errors.Wrapf(err, "validate vector index for update of %v for target vector %s", merge.ID, targetVector)
+			}
+			err = vectorIndex.ValidateBeforeInsert(v)
 			if err != nil {
 				return errors.Wrapf(err, "validate vector index for update of %v for target vector %s", merge.ID, targetVector)
 			}
 		case [][]float32:
-			err := vectorIndex.(VectorIndexMulti).ValidateMultiBeforeInsert(v)
+			multiIndex, err := asMultiVectorIndex(vectorIndex, targetVector)
+			if err != nil {
+				return errors.Wrapf(err, "validate multi vector index for update of %v for target vector %s", merge.ID, targetVector)
+			}
+			err = multiIndex.ValidateMultiBeforeInsert(v)
 			if err != nil {
 				return errors.Wrapf(err, "validate multi vector index for update of %v for target vector %s", merge.ID, targetVector)
 			}
@@ -60,7 +68,11 @@ func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) er
 		}
 
 		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
-		err := vectorIndex.ValidateBeforeInsert(merge.Vector)
+		err := checkVectorKind(vectorIndex, "", false)
+		if err != nil {
+			return errors.Wrapf(err, "validate vector index for update of %v", merge.ID)
+		}
+		err = vectorIndex.ValidateBeforeInsert(merge.Vector)
 		if err != nil {
 			return errors.Wrapf(err, "validate vector index for update of %v", merge.ID)
 		}
@@ -137,10 +149,11 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDocument,
 	idBytes []byte, class *models.Class,
 ) (*storobj.Object, objectInsertStatus, error) {
-	bucket, err := s.objectsBucket()
+	bucket, release, err := s.objectsBucket()
 	if err != nil {
 		return nil, objectInsertStatus{}, err
 	}
+	defer release()
 
 	var prevObj, obj *storobj.Object
 	var status objectInsertStatus
@@ -245,10 +258,11 @@ func (s *Shard) mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDo
 ) (mutableMergeResult, error) {
 	out := mutableMergeResult{}
 
-	bucket, err := s.objectsBucket()
+	bucket, release, err := s.objectsBucket()
 	if err != nil {
 		return out, err
 	}
+	defer release()
 
 	// Wait outside the RLock; see shard_write_put.go (calling it under RLock is a recursive read-lock deadlock).
 	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {

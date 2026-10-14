@@ -137,22 +137,29 @@ func TestListInactiveLSMFiles(t *testing.T) {
 			},
 		},
 		{
-			name: "migrations tmp leftovers are excluded, checkpoints are not",
+			name: "migrations tmp leftovers are excluded, records and sentinels are not",
 			setup: func(t *testing.T, lsmDir string) {
 				trackerDir := filepath.Join(lsmDir, migrationsDir, "searchable_retokenize_text_1")
+				recordsDir := filepath.Join(lsmDir, migrationsDir, "records")
 				require.NoError(t, os.MkdirAll(trackerDir, 0o755))
-				for _, name := range []string{"started.mig", "properties.mig", "progress.mig.000000001"} {
+				require.NoError(t, os.MkdirAll(recordsDir, 0o755))
+				for _, name := range []string{
+					"payload.mig", "started.mig", "properties.mig", "progress.mig.000000001",
+				} {
 					require.NoError(t, os.WriteFile(filepath.Join(trackerDir, name), []byte("x"), 0o644))
 				}
+				require.NoError(t, os.WriteFile(
+					filepath.Join(recordsDir, "7_searchable_retokenize_shard-1__node-0.json"), []byte("{}"), 0o644))
 
-				// Same call the tracker's atomic properties.mig write makes, so
-				// the name carries the real random infix rather than one the
-				// test picked.
-				leftover, err := os.CreateTemp(trackerDir, "properties.mig.*.tmp")
+				// Same call the record store's atomic write makes, so the name
+				// carries the real random infix rather than one the test picked.
+				leftover, err := os.CreateTemp(recordsDir, "7_searchable_retokenize_shard-1__node-0.json.*.tmp")
 				require.NoError(t, err)
 				require.NoError(t, leftover.Close())
 			},
 			expected: []string{
+				filepath.Join(migrationsDir, "records", "7_searchable_retokenize_shard-1__node-0.json"),
+				filepath.Join(migrationsDir, "searchable_retokenize_text_1", "payload.mig"),
 				filepath.Join(migrationsDir, "searchable_retokenize_text_1", "progress.mig.000000001"),
 				filepath.Join(migrationsDir, "searchable_retokenize_text_1", "properties.mig"),
 				filepath.Join(migrationsDir, "searchable_retokenize_text_1", "started.mig"),
@@ -213,12 +220,14 @@ func TestListInactiveShardFiles(t *testing.T) {
 
 	// rootFiles are written as regular files at the shard root, where the vector
 	// indexes keep their state. extraDirs maps a shard subdirectory to the files
-	// created inside it.
+	// created inside it. unreadableDir is a shard subdirectory made unreadable.
 	tests := []struct {
 		name          string
 		rootFiles     []string
 		extraDirs     map[string][]string
+		unreadableDir string
 		extraExpected []string
+		wantErr       bool
 	}{
 		{
 			name: "no vector index state",
@@ -261,6 +270,27 @@ func TestListInactiveShardFiles(t *testing.T) {
 				changelogDirName: {"op-1.log"},
 			},
 		},
+		{
+			name: "nested vector index files are listed, nested .tmp files are not",
+			extraDirs: map[string][]string{
+				"main.hfresh.d":          {"centroids.bin"},
+				"main.hfresh.d/postings": {"postings-1.bin", "postings-2.bin.tmp"},
+			},
+			extraExpected: []string{
+				filepath.Join(indexID, shardName, "main.hfresh.d", "centroids.bin"),
+				filepath.Join(indexID, shardName, "main.hfresh.d", "postings", "postings-1.bin"),
+			},
+		},
+		{
+			name:      "empty vector index directory",
+			extraDirs: map[string][]string{"main.queue.d": nil},
+		},
+		{
+			name:          "unreadable nested vector index directory fails the listing",
+			extraDirs:     map[string][]string{"main.hfresh.d/postings": {"postings-1.bin"}},
+			unreadableDir: "main.hfresh.d/postings",
+			wantErr:       true,
+		},
 	}
 
 	for _, test := range tests {
@@ -289,6 +319,15 @@ func TestListInactiveShardFiles(t *testing.T) {
 				}
 			}
 
+			if test.unreadableDir != "" {
+				if os.Getuid() == 0 {
+					t.Skip("root ignores directory permissions")
+				}
+				dir := filepath.Join(shardDir, test.unreadableDir)
+				require.NoError(t, os.Chmod(dir, 0o000))
+				t.Cleanup(func() { os.Chmod(dir, 0o755) })
+			}
+
 			// LSM bucket with segment and WAL
 			bucketDir := filepath.Join(shardDir, "lsm", "objects")
 			require.NoError(t, os.MkdirAll(bucketDir, 0o755))
@@ -313,6 +352,10 @@ func TestListInactiveShardFiles(t *testing.T) {
 
 			var sd backup.ShardDescriptor
 			files, err := idx.listInactiveShardFiles(shardName, &sd)
+			if test.wantErr {
+				require.Error(t, err)
+				return
+			}
 			require.NoError(t, err)
 
 			// Verify metadata
@@ -321,6 +364,10 @@ func TestListInactiveShardFiles(t *testing.T) {
 			assert.Equal(t, []byte("42"), sd.DocIDCounter)
 			assert.Equal(t, []byte(`{"len":1}`), sd.PropLengthTracker)
 			assert.Equal(t, []byte("2"), sd.Version)
+			// The descriptor holds these for the whole backup, once per shard.
+			assert.Equal(t, len(sd.DocIDCounter), cap(sd.DocIDCounter))
+			assert.Equal(t, len(sd.PropLengthTracker), cap(sd.PropLengthTracker))
+			assert.Equal(t, len(sd.Version), cap(sd.Version))
 
 			// Verify relative paths for metadata
 			assert.Equal(t, filepath.Join(indexID, shardName, "indexcount"), sd.DocIDCounterPath)
@@ -1105,11 +1152,11 @@ func TestBackupShardWithHardlinks_ReleasesShardAfterBackupLock(t *testing.T) {
 				})
 			idx.shards.Store(shardName, mockShard)
 
-			var baseDescrs []*backup.ClassDescriptor
+			var baseDescrs []*backup.BaseClassDescriptor
 			if tt.missingBigFile {
-				baseDescrs = []*backup.ClassDescriptor{{
+				baseDescrs = []*backup.BaseClassDescriptor{{
 					BackupID: "base-backup",
-					Shards: []*backup.ShardDescriptor{{
+					Shards: []backup.BaseShardDescriptor{{
 						Name:          shardName,
 						BigFilesChunk: map[string]backup.BigFileInfo{snapshotFile: {Size: 1}},
 					}},

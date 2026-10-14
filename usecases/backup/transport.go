@@ -44,12 +44,26 @@ type Request struct {
 	Classes []string
 
 	// Resolved from BackupRequest.IncludeUsers by the scheduler. Empty
-	// means the participant keeps its whole-cluster user-snapshot default.
+	// means the participant keeps its whole-cluster user-snapshot default
+	// unless SkipUsers is set.
 	Users []string
 
 	// Resolved from BackupRequest.IncludeRoles by the scheduler. Empty
-	// means the participant keeps its whole-cluster RBAC-snapshot default.
+	// means the participant keeps its whole-cluster RBAC-snapshot default
+	// unless SkipRoles is set.
 	Roles []string
+
+	// SkipUsers excludes the user snapshot for an explicit empty list or
+	// wildcards that matched no user.
+	SkipUsers bool
+
+	// SkipRoles is the IncludeRoles counterpart of SkipUsers.
+	SkipRoles bool
+
+	// BuiltInRoleAssignments goes from the scheduler to the coordinator's global
+	// descriptor only. canCommit leaves it off participant requests, and the tag
+	// keeps it off the wire.
+	BuiltInRoleAssignments []byte `json:"-"`
 
 	// Duration
 	Duration time.Duration

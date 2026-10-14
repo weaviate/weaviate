@@ -103,7 +103,7 @@ func TestAddAndRemoveObjectClass(t *testing.T) {
 	tc := &models.Class{
 		Class: randomObjectClassName,
 		ModuleConfig: map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
+			"text2vec-model2vec": map[string]interface{}{
 				"vectorizeClassName": true,
 			},
 		},

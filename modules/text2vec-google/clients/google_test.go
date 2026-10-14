@@ -76,6 +76,40 @@ func TestBuildURL(t *testing.T) {
 	}
 }
 
+func TestVectorizeRejectsForeignEndpoint(t *testing.T) {
+	tests := []struct {
+		name   string
+		config settings
+	}{
+		{
+			name:   "apiEndpoint outside the Google API domain",
+			config: settings{ApiEndpoint: "attacker.example.com", ProjectID: "project", Model: "model", Location: "us-central1"},
+		},
+		{
+			name:   "location carrying a host",
+			config: settings{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "project", Model: "model", Location: "attacker.example.com/"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &google{
+				apiKey:       "apiKey",
+				httpClient:   &http.Client{},
+				googleApiKey: apikey.NewGoogleApiKey(),
+				urlBuilderFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID, location string) string {
+					t.Fatal("must not build a request URL for a rejected endpoint")
+					return ""
+				},
+				logger: nullLogger(),
+			}
+
+			_, err := c.vectorize(context.Background(), []string{"This is my text"}, retrievalDocument, "", tt.config)
+
+			require.Error(t, err)
+		})
+	}
+}
+
 func TestClient(t *testing.T) {
 	t.Run("when all is fine", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
@@ -85,7 +119,7 @@ func TestClient(t *testing.T) {
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
 			urlBuilderFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID, location string) string {
-				assert.Equal(t, "endpoint", apiEndpoint)
+				assert.Equal(t, "us-central1-aiplatform.googleapis.com", apiEndpoint)
 				assert.Equal(t, "project", projectID)
 				assert.Equal(t, "model", modelID)
 				assert.Equal(t, "us-central1", location)
@@ -96,7 +130,7 @@ func TestClient(t *testing.T) {
 		expected := expectedTextVectorization("This is my text")
 		res, err := c.vectorize(context.Background(), []string{"This is my text"}, retrievalDocument, "",
 			settings{
-				ApiEndpoint: "endpoint",
+				ApiEndpoint: "us-central1-aiplatform.googleapis.com",
 				ProjectID:   "project",
 				Model:       "model",
 				Location:    "us-central1",

@@ -547,7 +547,11 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 
 		// cleanup index checkpoints
 		if l.shardOpts.indexCheckpoints != nil {
-			if err := l.shardOpts.index.indexCheckpoints.DeleteShard(l.ID()); err != nil {
+			targetVectors := make([]string, 0)
+			for targetVector := range idx.GetVectorIndexConfigs() {
+				targetVectors = append(targetVectors, targetVector)
+			}
+			if err := l.shardOpts.index.indexCheckpoints.DeleteShard(l.ID(), targetVectors); err != nil {
 				return fmt.Errorf("delete shard index checkpoints: %w", err)
 			}
 		}
@@ -581,6 +585,13 @@ func (l *LazyLoadShard) DebugResetVectorIndex(ctx context.Context, targetVector 
 		return err
 	}
 	return l.shard.DebugResetVectorIndex(ctx, targetVector)
+}
+
+func (l *LazyLoadShard) DebugResetGeoIndex(ctx context.Context, propName string) error {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+	return l.shard.DebugResetGeoIndex(ctx, propName)
 }
 
 func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
@@ -624,12 +635,26 @@ func (l *LazyLoadShard) updateUnloadedPropertyBuckets(ctx context.Context,
 	})
 }
 
+// DropVectorIndex routes to the loaded shard or to disk, deciding and acting
+// under l.mutex, which Shutdown, drop and loadIfCold all take.
+//
+// Disk is only for a shard whose teardown has finished. A deactivation that
+// timed out on a held reference leaves the shard loaded with its shutdown
+// pending, and the last reference's release later runs that teardown on its own
+// goroutine, without l.mutex. Deleting the vector's files while the store still
+// holds them, before or during that teardown, fails its flush, and the tenant
+// cannot reactivate until the process restarts.
+//
+// No reference is taken. This runs in the RAFT apply, and releasing a reference
+// runs a pending shutdown inline on the releasing goroutine.
 func (l *LazyLoadShard) DropVectorIndex(ctx context.Context, targetVector string) error {
-	if l.isLoaded() {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	if l.loaded && l.shard != nil && !l.shard.teardownFinished() {
 		return l.shard.DropVectorIndex(ctx, targetVector)
-	} else {
-		return l.dropUnloadedVectorIndex(targetVector)
 	}
+	return l.dropUnloadedVectorIndex(targetVector)
 }
 
 func (l *LazyLoadShard) dropUnloadedVectorIndex(targetVector string) error {
@@ -653,7 +678,17 @@ func (l *LazyLoadShard) dropUnloadedVectorIndex(targetVector string) error {
 			return fmt.Errorf("delete checkpoint for vector %q: %w", targetVector, err)
 		}
 	}
-	return nil
+
+	// The dimension rows stay for now: opening the bucket from disk to clear
+	// them would put an O(objects) walk inside the RAFT apply, for every
+	// inactive tenant of the collection, under this shard's mutex. The drop
+	// task clears them per unit, and this tenant clears them when it next
+	// loads. Dropping the saved usage record is what stops the gap being
+	// visible: the record is keyed by a hash of the active vector configs
+	// alone, so without this a re-created name with the same config would
+	// serve the pre-drop numbers straight from cache.
+	return shardusage.RemoveComputedUsageDataForUnloadedShard(
+		l.shardOpts.index.path(), l.shardOpts.name)
 }
 
 func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error {
@@ -759,11 +794,6 @@ func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (in
 func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) (int, error) {
 	l.mustLoad()
 	return l.shard.QuantizedDimensions(ctx, targetVector, segments)
-}
-
-func (l *LazyLoadShard) resetDimensionsLSM(ctx context.Context) error {
-	l.mustLoad()
-	return l.shard.resetDimensionsLSM(ctx)
 }
 
 func (l *LazyLoadShard) Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error) {
@@ -980,26 +1010,14 @@ func (l *LazyLoadShard) filePutter(ctx context.Context, shardID string) (io.Writ
 	return l.shard.filePutter(ctx, shardID)
 }
 
-func (l *LazyLoadShard) extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error {
-	if err := l.Load(context.Background()); err != nil {
-		return err
-	}
-	return l.shard.extendDimensionTrackerLSM(dimLength, docID, targetVector)
-}
-
 func (l *LazyLoadShard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
 	l.mustLoad()
 	return l.shard.addToPropertySetBucket(bucket, docID, key)
 }
 
-func (l *LazyLoadShard) addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error {
+func (l *LazyLoadShard) addToPropertyMapBucket(bucket *lsmkv.Bucket, docID uint64, key []byte, tf, propLen float32) error {
 	l.mustLoad()
-	return l.shard.addToPropertyMapBucket(bucket, pair, key)
-}
-
-func (l *LazyLoadShard) pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair {
-	l.mustLoad()
-	return l.shard.pairPropertyWithFrequency(docID, freq, propLen)
+	return l.shard.addToPropertyMapBucket(bucket, docID, key, tf, propLen)
 }
 
 func (l *LazyLoadShard) setFallbackToSearchable(fallback bool) {

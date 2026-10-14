@@ -98,6 +98,11 @@ func TestShardStatusErrResponder(t *testing.T) {
 			want: schema.NewSchemaObjectsShardsUpdateNotFound(),
 		},
 		{
+			name: "an invalid class name is unprocessable",
+			err:  fmt.Errorf("%w: %w", schemaUC.ErrValidation, errors.New("'a:Foo' is not a valid class name")),
+			want: schema.NewSchemaObjectsShardsUpdateUnprocessableEntity(),
+		},
+		{
 			name: "anything else stays a server error",
 			err:  errors.New("boom"),
 			want: schema.NewSchemaObjectsShardsUpdateInternalServerError(),
@@ -107,6 +112,41 @@ func TestShardStatusErrResponder(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			require.IsType(t, tt.want, shardStatusErrResponder(nil, tt.err))
+		})
+	}
+}
+
+func TestShardsStorageStatusErrResponder(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want middleware.Responder
+	}{
+		{
+			name: "a forbidden error maps to forbidden",
+			err:  authzerrors.Forbidden{},
+			want: schema.NewSchemaObjectsShardsGetForbidden(),
+		},
+		{
+			name: "an unknown class maps to not found",
+			err:  fmt.Errorf("class: %w", schemaUC.ErrNotFound),
+			want: schema.NewSchemaObjectsShardsGetNotFound(),
+		},
+		{
+			name: "an invalid class name maps to unprocessable entity",
+			err:  fmt.Errorf("%w: %w", schemaUC.ErrValidation, errors.New("'a:Foo' is not a valid class name")),
+			want: schema.NewSchemaObjectsShardsGetUnprocessableEntity(),
+		},
+		{
+			name: "anything else stays a server error",
+			err:  errors.New("boom"),
+			want: schema.NewSchemaObjectsShardsGetInternalServerError(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.IsType(t, tt.want, shardsStorageStatusErrResponder(nil, tt.err))
 		})
 	}
 }

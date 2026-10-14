@@ -296,37 +296,77 @@ func TestSchemaReaderClass(t *testing.T) {
 	assert.Empty(t, shards)
 }
 
-// TestPropertiesMigration ensures that our migration function sets proper default values
-// The test verifies that we migrate top level properties and then at least one layer deep nested properties
+// TestPropertiesMigration pins that migratePropertiesIfNecessary defaults an unset
+// IndexRangeFilters to false at every nesting depth and keeps a set one.
 func TestPropertiesMigration(t *testing.T) {
-	class := &models.Class{
-		Class: "C",
-		Properties: []*models.Property{
-			{
-				NestedProperties: []*models.NestedProperty{
-					{
-						NestedProperties: []*models.NestedProperty{
-							{},
-						},
-					},
-				},
-			},
-		},
+	vTrue, vFalse := true, false
+	tests := []struct {
+		name string
+		set  *bool
+		want bool
+	}{
+		{name: "unset defaults to false", set: nil, want: false},
+		{name: "enabled stays enabled", set: &vTrue, want: true},
+		{name: "disabled stays disabled", set: &vFalse, want: false},
 	}
 
-	// Set the values to nil, which would be the case if we're upgrading a cluster with "old" classes in it
-	class.Properties[0].IndexRangeFilters = nil
-	class.Properties[0].NestedProperties[0].IndexRangeFilters = nil
-	class.Properties[0].NestedProperties[0].NestedProperties[0].IndexRangeFilters = nil
-	migratePropertiesIfNecessary(class)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deepest := &models.NestedProperty{IndexRangeFilters: tt.set}
+			nested := &models.NestedProperty{
+				IndexRangeFilters: tt.set,
+				NestedProperties:  []*models.NestedProperty{deepest},
+			}
+			prop := &models.Property{
+				IndexRangeFilters: tt.set,
+				NestedProperties:  []*models.NestedProperty{nested},
+			}
+			migratePropertiesIfNecessary(&models.Class{Class: "C", Properties: []*models.Property{prop}})
 
-	// Check
-	require.NotNil(t, class.Properties[0].IndexRangeFilters)
-	require.False(t, *class.Properties[0].IndexRangeFilters)
-	require.NotNil(t, class.Properties[0].NestedProperties[0].IndexRangeFilters)
-	require.False(t, *class.Properties[0].NestedProperties[0].IndexRangeFilters)
-	require.NotNil(t, class.Properties[0].NestedProperties[0].NestedProperties[0].IndexRangeFilters)
-	require.False(t, *class.Properties[0].NestedProperties[0].NestedProperties[0].IndexRangeFilters)
+			for level, got := range map[string]*bool{
+				"property": prop.IndexRangeFilters,
+				"nested":   nested.IndexRangeFilters,
+				"deepest":  deepest.IndexRangeFilters,
+			} {
+				require.NotNil(t, got, level)
+				require.Equal(t, tt.want, *got, level)
+			}
+		})
+	}
+}
+
+// TestReloadKeepsNestedRangeFiltersInSchema pins that a node restart leaves a
+// nested property's enabled range index enabled in the schema it serves.
+func TestReloadKeepsNestedRangeFiltersInSchema(t *testing.T) {
+	parser := fakes.NewMockParser()
+	parser.On("ParseClass", mock.Anything).Return(nil)
+	sm := NewSchemaManager("node1", &recordingIndexer{}, parser, prometheus.NewPedanticRegistry(), logrus.New())
+
+	vTrue := true
+	sub, err := json.Marshal(cmd.AddClassRequest{
+		Class: &models.Class{Class: "C", Properties: []*models.Property{{
+			Name:     "obj",
+			DataType: []string{"object"},
+			NestedProperties: []*models.NestedProperty{{
+				Name: "n", DataType: []string{"int"}, IndexRangeFilters: &vTrue,
+			}},
+		}}},
+		State: &sharding.State{Physical: map[string]sharding.Physical{
+			"shard1": {Name: "shard1", BelongsToNodes: []string{"node1"}},
+		}},
+	})
+	require.NoError(t, err)
+	require.NoError(t, sm.AddClass(&cmd.ApplyRequest{
+		Type: cmd.ApplyRequest_TYPE_ADD_CLASS, Class: "C", SubCommand: sub,
+	}, "node1", true, false))
+
+	sm.ReloadDBFromSchema()
+
+	class, _ := sm.schema.ReadOnlyClass("C")
+	require.NotNil(t, class)
+	got := class.Properties[0].NestedProperties[0].IndexRangeFilters
+	require.NotNil(t, got)
+	require.True(t, *got, "reload disabled the nested range index")
 }
 
 // TestApplyPartialSchemaErr verifies that apply() respects the partialSchemaErr flag:
@@ -1330,6 +1370,99 @@ func TestSchemaManager_PreApplyFilterRestoreClassCollision(t *testing.T) {
 			}
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+// propertyRecordingIndexer captures the property the store half applies.
+type propertyRecordingIndexer struct {
+	Indexer
+
+	got *models.Property
+}
+
+func (r *propertyRecordingIndexer) UpdateProperty(_ string, req cmd.UpdatePropertyRequest) error {
+	r.got = req.Property
+	return nil
+}
+
+func (r *propertyRecordingIndexer) TriggerSchemaUpdateCallbacks() {}
+
+// TestUpdatePropertyStoreSeesTheMergedProperty pins that the DB half applies
+// the merged property: it drops buckets by the index flags it is handed, and a
+// mask leaves the omitted ones to the schema.
+func TestUpdatePropertyStoreSeesTheMergedProperty(t *testing.T) {
+	vTrue, vFalse := true, false
+
+	tests := []struct {
+		name            string
+		mask            []string
+		payload         *models.Property
+		wantFilterable  bool
+		wantSearchable  bool
+		wantRangeFilter bool
+	}{
+		{
+			name:            "masked update keeps the fields it does not name",
+			mask:            []string{cmd.PropertyFieldIndexSearchable},
+			payload:         &models.Property{Name: "p", IndexFilterable: &vFalse, IndexSearchable: &vFalse, IndexRangeFilters: &vFalse},
+			wantFilterable:  true,
+			wantSearchable:  false,
+			wantRangeFilter: true,
+		},
+		{
+			name:            "masked update applies the field it names",
+			mask:            []string{cmd.PropertyFieldIndexFilterable},
+			payload:         &models.Property{Name: "p", IndexFilterable: &vFalse, IndexSearchable: &vFalse, IndexRangeFilters: &vFalse},
+			wantFilterable:  false,
+			wantSearchable:  true,
+			wantRangeFilter: true,
+		},
+		{
+			name:            "no mask merges everything",
+			mask:            nil,
+			payload:         &models.Property{Name: "p", IndexFilterable: &vFalse, IndexSearchable: &vFalse, IndexRangeFilters: &vFalse},
+			wantFilterable:  false,
+			wantSearchable:  false,
+			wantRangeFilter: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			idx := &propertyRecordingIndexer{}
+			parser := fakes.NewMockParser()
+			parser.On("ParseClass", mock.Anything).Return(nil)
+			sm := NewSchemaManager("node1", idx, parser, prometheus.NewPedanticRegistry(), logrus.New())
+
+			require.NoError(t, sm.schema.addClass(&models.Class{
+				Class: "C",
+				Properties: []*models.Property{{
+					Name: "p", DataType: []string{"text"},
+					IndexFilterable: &vTrue, IndexSearchable: &vTrue, IndexRangeFilters: &vTrue,
+				}},
+			}, &sharding.State{Physical: map[string]sharding.Physical{}}, 1))
+
+			sub, err := json.Marshal(cmd.UpdatePropertyRequest{
+				Property: test.payload, FieldsToUpdate: test.mask,
+			})
+			require.NoError(t, err)
+			require.NoError(t, sm.UpdateProperty(&cmd.ApplyRequest{
+				Type: cmd.ApplyRequest_TYPE_UPDATE_PROPERTY, Class: "C", Version: 2, SubCommand: sub,
+			}, false, false))
+
+			require.NotNil(t, idx.got, "the store half must run")
+			require.Equal(t, test.wantFilterable, *idx.got.IndexFilterable, "filterable")
+			require.Equal(t, test.wantSearchable, *idx.got.IndexSearchable, "searchable")
+			require.Equal(t, test.wantRangeFilter, *idx.got.IndexRangeFilters, "rangeable")
+
+			cls, _ := sm.schema.ReadOnlyClass("C")
+			require.NotNil(t, cls)
+			schemaProp := findProp(cls, "p")
+			require.NotNil(t, schemaProp)
+			require.Equal(t, *schemaProp.IndexFilterable, *idx.got.IndexFilterable)
+			require.Equal(t, *schemaProp.IndexSearchable, *idx.got.IndexSearchable)
+			require.Equal(t, *schemaProp.IndexRangeFilters, *idx.got.IndexRangeFilters)
 		})
 	}
 }

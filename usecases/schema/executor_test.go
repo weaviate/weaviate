@@ -351,16 +351,29 @@ func TestExecutor(t *testing.T) {
 
 	t.Run("GetShardsStatus", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		status := map[string]string{"A": "B"}
+		status := map[string]string{"S1": "INDEXING", "S2": "READY"}
 		migrator.On("GetShardsStatus", Anything, "A", "").Return(status, nil)
+		migrator.On("GetShardsQueueSize", Anything, "A", "").Return(map[string]int64{"S1": 42, "S2": 0}, nil)
 		x := newMockExecutor(migrator, store)
-		_, err := x.GetShardsStatus("A", "")
+		got, err := x.GetShardsStatus("A", "")
 		assert.Nil(t, err)
+		assert.ElementsMatch(t, models.ShardStatusList{
+			{Name: "S1", Status: "INDEXING", VectorQueueSize: 42},
+			{Name: "S2", Status: "READY", VectorQueueSize: 0},
+		}, got)
 	})
 	t.Run("GetShardsStatusError", func(t *testing.T) {
 		migrator := &fakeMigrator{}
 		status := map[string]string{"A": "B"}
 		migrator.On("GetShardsStatus", Anything, "A", "").Return(status, ErrAny)
+		x := newMockExecutor(migrator, store)
+		_, err := x.GetShardsStatus("A", "")
+		assert.ErrorIs(t, err, ErrAny)
+	})
+	t.Run("GetShardsStatusQueueSizeError", func(t *testing.T) {
+		migrator := &fakeMigrator{}
+		migrator.On("GetShardsStatus", Anything, "A", "").Return(map[string]string{"S1": "READY"}, nil)
+		migrator.On("GetShardsQueueSize", Anything, "A", "").Return(map[string]int64(nil), ErrAny)
 		x := newMockExecutor(migrator, store)
 		_, err := x.GetShardsStatus("A", "")
 		assert.ErrorIs(t, err, ErrAny)

@@ -1361,6 +1361,9 @@ func createSchema() *schema.Schema {
 	}
 }
 
+// newFakeMaxIDGetter builds the doc-ID count getter a shard whose highest
+// allocated ID is maxID would have. Callers state the highest ID because that
+// is what a fixture knows; the factory wants the count, which is one past it.
 func newFakeMaxIDGetter(maxID uint64) func() uint64 {
-	return func() uint64 { return maxID }
+	return func() uint64 { return maxID + 1 }
 }

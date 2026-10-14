@@ -35,7 +35,8 @@ func (s *Raft) LeaderWithID() (string, string) {
 // StorageCandidates return the nodes in the raft configuration or memberlist storage nodes
 // based on the current configuration of the cluster if it does have  MetadataVoterOnly nodes.
 func (s *Raft) StorageCandidates() []string {
-	if s.store.raft == nil {
+	rn := s.store.raft.Load()
+	if rn == nil {
 		// get candidates from memberlist
 		return s.nodeSelector.StorageCandidates()
 	}
@@ -47,7 +48,7 @@ func (s *Raft) StorageCandidates() []string {
 		nonStorageCandidates  = s.nodeSelector.NonStorageNodes()
 	)
 
-	for _, server := range s.store.raft.GetConfiguration().Configuration().Servers {
+	for _, server := range rn.GetConfiguration().Configuration().Servers {
 		existedRaftCandidates = append(existedRaftCandidates, string(server.ID))
 	}
 

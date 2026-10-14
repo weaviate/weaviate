@@ -79,7 +79,7 @@ func (m *Module) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	m.logger = params.GetLogger()
-	m.dataPath = params.GetStorageProvider().DataPath()
+	m.dataPath = params.GetDataPath()
 
 	config := &clientConfig{
 		Container:       os.Getenv(azureContainer),

@@ -54,6 +54,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/file"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -81,7 +82,7 @@ type ShardLike interface {
 	UpdateStatus(status, reason string) error                                                      // Set shard status
 	UpdateStatusIf(cond func(ShardStatus) bool, status, reason string) error                       // Set shard status if cond holds, without loading an unloaded shard
 	SetStatusReadonly(reason string) error                                                         // Set shard status to readonly with reason
-	FindUUIDs(ctx context.Context, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error) // Search and return document ids
+	FindUUIDs(ctx context.Context, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error) // Resolve a filter to the UUIDs it matches; see Shard.FindUUIDs
 
 	Counter() *indexcounter.Counter
 	ObjectCount(ctx context.Context) (int, error)
@@ -149,6 +150,7 @@ type ShardLike interface {
 
 	isReadOnly() error
 	pathLSM() string
+	migrationRecordStore() *MigrationRecordStore
 
 	preparePutObject(context.Context, string, *storobj.Object) replica.SimpleResponse
 	preparePutObjects(context.Context, string, []*storobj.Object) replica.SimpleResponse
@@ -165,12 +167,8 @@ type ShardLike interface {
 	Dimensions(ctx context.Context, targetVector string) (int, error)
 	QuantizedDimensions(ctx context.Context, targetVector string, segments int) (int, error)
 
-	extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error
-	resetDimensionsLSM(ctx context.Context) error
-
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
-	addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error
-	pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair
+	addToPropertyMapBucket(bucket *lsmkv.Bucket, docID uint64, key []byte, tf, propLen float32) error
 
 	setFallbackToSearchable(fallback bool)
 	addJobToQueue(job job)
@@ -225,6 +223,7 @@ type ShardLike interface {
 	Activity() (int32, int32)
 	// Debug methods
 	DebugResetVectorIndex(ctx context.Context, targetVector string) error
+	DebugResetGeoIndex(ctx context.Context, propName string) error
 	RepairIndex(ctx context.Context, targetVector string) error
 	RequantizeIndex(ctx context.Context, targetVector string) error
 
@@ -278,11 +277,14 @@ type Shard struct {
 	geoQueues map[string]*VectorIndexQueue
 
 	// async replication
-	asyncReplicationRWMux           sync.RWMutex
-	targetNodeOverrides             additional.AsyncReplicationTargetNodeOverrides
-	asyncReplicationConfig          AsyncReplicationConfig
-	hashtree                        hashtree.AggregatedHashTree
-	hashtreeFullyInitialized        bool
+	asyncReplicationRWMux  sync.RWMutex
+	targetNodeOverrides    additional.AsyncReplicationTargetNodeOverrides
+	asyncReplicationConfig AsyncReplicationConfig
+	// hashtree is non-nil iff async replication is enabled; until hashtreeFullyInitialized it is the enable-time placeholder or an in-progress scan's tree and must not be served.
+	hashtree hashtree.AggregatedHashTree
+	// hashtreeFullyInitialized gates readers (hashbeat, HashTreeLevel/Root, checkpoints, .ht capture); set only after a complete scan or a cached load.
+	hashtreeFullyInitialized bool
+	// minimalHashtreeInitializationCh is nil while init is queued or done and non-nil only from a scan's snapshot until its in-memory pass ends; writers park on it best-effort.
 	minimalHashtreeInitializationCh chan struct{}
 	asyncReplicationCancelFunc      context.CancelFunc
 
@@ -302,32 +304,16 @@ type Shard struct {
 	asyncCheckpointCreatedAt   time.Time
 	asyncCheckpointActivatedAt time.Time
 
-	// asyncRepCtx is the per-shard context for the hashbeat cycle. It is
-	// derived from context.Background() and cancelled by asyncReplicationCancelFunc
-	// when async replication is stopped. Workers receive this context so that
-	// in-flight cycles terminate promptly when the shard is deregistered.
+	// asyncRepCtx is the per-shard hashbeat context, derived from the scheduler's ctx (Background only when there is no scheduler) and cancelled by asyncReplicationCancelFunc.
 	asyncRepCtx context.Context
 
-	// asyncRepWg tracks all async replication goroutines that may access shard
-	// resources: in-flight hashbeat cycles, hashtree init goroutines, and
-	// scheduler-register goroutines. The counter is usually 0 or 1 but may
-	// briefly exceed 1 when an init goroutine overlaps with a dispatch.
-	// Done() for hashbeat cycles is called before the result is sent back to
-	// the dispatcher, so the scheduler cannot re-dispatch until Done() fires.
-	// Callers that need a strict happens-before guarantee call asyncRepWg.Wait()
-	// after Deregister; Deregister settles Done()s for batches still queued, so
-	// Wait() only covers cycles that actually started.
-	// A theoretical Add-vs-Wait reuse race degrades to a recovered panic, not a wedge (observers and pool are panic-safe).
-	asyncRepWg sync.WaitGroup
-
-	// asyncRepDrainObserver (guarded by asyncRepDrainMu) is shared by bounded drain waits so retries against a wedged worker don't accumulate waiter goroutines.
-	asyncRepDrainMu       sync.Mutex
-	asyncRepDrainObserver chan struct{}
+	// asyncRepWg tracks async replication goroutines touching shard resources: hashbeat cycles, hashtree init, scheduler register.
+	// Done() before the result plus Wait()/Drained() after Deregister gives a strict happens-before against a stopped cycle.
+	asyncRepWg drainLatch
 
 	// asyncRepNeedsRebuild is set by runEntry when the effective hashtree height
 	// (after applying runtime-config overrides) differs from the current hashtree
-	// height. The scheduler spawns a rebuild goroutine after asyncRepWg.Done()
-	// so that DisableAsyncReplication can safely call Deregister+Wait.
+	// height. The scheduler spawns the rebuild after asyncRepWg.Done() so a teardown's Deregister+drain is never pinned by the cycle that armed it.
 	asyncRepNeedsRebuild atomic.Bool
 
 	// asyncRepRebuildInFlight prevents concurrent rebuildHashtree goroutines.
@@ -372,7 +358,11 @@ type Shard struct {
 	haltForTransferCount     atomic.Int64
 	haltForTransferCtxCancel context.CancelFunc
 
-	status              ShardStatus
+	status ShardStatus
+	// countedStatus is the weaviate_index_shards_total bucket this shard is in, ""
+	// if uncounted. Separate from status.Status so a failed update cannot make
+	// release decrement a bucket never entered. Guarded by statusLock.
+	countedStatus       string
 	statusLock          sync.RWMutex
 	propertyIndicesLock sync.RWMutex
 	// geoInitLock serializes initGeoProp so a prop never has two indexes under
@@ -410,15 +400,11 @@ type Shard struct {
 	// False means the rangeable bucket is mid-migration on THIS replica:
 	// a PreReindexHook created an empty main bucket but the per-shard
 	// runtimeSwap that prepends ingest+reindex segments into it hasn't
-	// run yet on this node. During this window the cluster-wide schema
-	// flag may already be true (the first replica to swap fires
-	// strategy.OnMigrationComplete which RAFTs the flip cluster-wide),
-	// so the inverted query path would otherwise route range queries to
-	// the empty bucket and return partial / zero counts. The
-	// IsRangeableLocallyReady callback wired into the Searcher
-	// overrides hasRangeableIndex=false for this prop on this shard,
-	// forcing a fallback to the filterable bucket walk until our local
-	// swap catches up.
+	// run yet on this node.
+	//
+	// repair-rangeable is where the false earns its keep: it runs with
+	// the cluster-wide flag already true, so only this entry keeps range
+	// queries off the empty bucket until the local swap catches up.
 	//
 	// Read on every range-filter query plan, so kept under a fast
 	// RWMutex rather than a sync.Map. Default value (missing key)
@@ -428,56 +414,23 @@ type Shard struct {
 	rangeableLocalReadyMu sync.RWMutex
 	rangeableLocalReady   map[string]bool
 
-	// tokenizationOverlayMu guards tokenizationOverlay. Holds the per-prop
-	// "what tokenization should query input use on this shard?" override
-	// that closes the FINALIZING-window misalignment of a
-	// change-tokenization migration.
-	//
-	// Mechanism: a change-tokenization (or change-tokenization-filterable)
-	// migration's per-shard runtimeSwap flips the canonical bucket pointer
-	// to NEW-tokenization data BEFORE the cluster-wide schema flip in
-	// OnTaskCompleted.flipSemanticMigrationSchema commits via RAFT. During
-	// that seconds-long window on each replica:
-	//   - Bucket content on this shard: NEW tokenization (post-swap)
-	//   - Live schema as seen by the analyzer: OLD tokenization (pre-flip)
-	// Query input gets tokenized against OLD; lookup hits NEW bucket;
-	// counts don't match. The empirical signature is a per-replica count
-	// flap (e.g. `7→4→1→7→3→2`) on a steady probe across the window.
-	//
-	// Lifecycle (see reindex_provider.go's OnGroupCompleted +
-	// OnTaskCompleted):
-	//   1. SET: per prop, atomic with each bucket-pointer flip (onPropSwapped
-	//      hook), so the overlay≠bucket window is one in-memory map write.
-	//      See maybeWirePerPropOverlaySet for why setting it once up front
-	//      was a correctness bug.
-	//   2. CLEAR (defensive, all-failed path): if every per-task swap on
-	//      this shard fails before flipping its bucket pointer (e.g.
-	//      ctx.Canceled during graceful shutdown), the post-loop branch
-	//      clears the overlay. Without this, an all-failed swap path
-	//      would leave overlay=NEW against unchanged OLD buckets —
-	//      permanent misalignment because the FAILED transition skips
-	//      the cluster-wide schema flip and the explicit clear hook
-	//      never runs.
-	//   3. CLEAR (success path): once flipSemanticMigrationSchema
-	//      commits the cluster-wide schema flip, OnTaskCompleted clears
-	//      the overlay per-shard so the steady-state map is empty.
-	//   4. CLEAR (self-clear backstop): TokenizationFor below clears
-	//      the entry on the next read where the live schema has caught
-	//      up to the overlay value — defensive against any callback-
-	//      ordering edge case.
-	//
-	// Read on every query that touches the affected property, so kept
-	// under a fast RWMutex rather than a sync.Map (consistent with
-	// rangeableLocalReady above). Per-shard, in-memory only — the
-	// cluster-wide schema flip is the authoritative cross-replica
-	// signal; this overlay just bridges the local seconds-long gap
-	// between bucket-swap-here and schema-flip-observed-here.
-	tokenizationOverlayMu sync.RWMutex
-	tokenizationOverlay   map[string]string
+	// Bridges this shard's bucket swap and the cluster-wide schema flip: a
+	// write in that window is otherwise lost (weaviate/etienne-claude-issues#449).
+	propertyOverlayMu sync.RWMutex
+	propertyOverlay   map[string]inverted.PropertyOverlay
 
 	cycleCallbacks *shardCycleCallbacks
 	bitmapFactory  *roaringset.BitmapFactory
 	bitmapBufPool  roaringset.BitmapBufPool
+	// docIDPruneWatermark is the doc id counter read at shard init. Every id below it
+	// is written or dead forever, so a scan that finds no object row for it may drop it
+	// from the doc id universe. An id at or above it may belong to an insert that has
+	// allocated the id and not yet written the row; dropping that one would hide a live
+	// object from every deny-list filter until the next shard init.
+	docIDPruneWatermark uint64
+	// unreadableRowSampler rate-limits FindUUIDs' warning about rows with no readable id.
+	// Such a row is never pruned or deleted, so every later call would warn about it again.
+	unreadableRowSampler *logrusext.Sampler
 
 	activityTrackerRead  atomic.Int32
 	activityTrackerWrite atomic.Int32
@@ -506,6 +459,8 @@ type Shard struct {
 	// path; registration/arm/disarm publish a fresh copy under the mutex.
 	propValueIndexState           atomic.Value // *propValueIndexState
 	propertyValueIndexCallbacksMu sync.Mutex
+
+	migrationRecords *MigrationRecordStore
 	// stores names of properties that are searchable and use buckets of
 	// inverted strategy. for such properties delta analyzer should avoid
 	// computing delta between previous and current values of properties
@@ -562,10 +517,7 @@ func (s *Shard) vectorIndexID(targetVector string) string {
 // vectorIndexID names the files a target vector's index owns inside the shard
 // directory. Unloaded shards need it too, so it does not hang off [Shard].
 func vectorIndexID(targetVector string) string {
-	if targetVector != "" {
-		return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, targetVector)
-	}
-	return "main"
+	return helpers.VectorIndexIDForTarget(targetVector)
 }
 
 // uuidToIdLockPoolId computes a lock pool id for a given uuid. The lock pool
@@ -661,16 +613,19 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 	return err
 }
 
-// objectsBucket returns the shard's objects bucket, or an error once the store
-// is torn down
-func (s *Shard) objectsBucket() (*lsmkv.Bucket, error) {
-	b := s.store.Bucket(helpers.ObjectsBucketLSM)
+// objectsBucket returns the shard's objects bucket pinned for the caller's
+// operation, or an error once the store is torn down. The release closure is
+// always non-nil and must be called exactly once: it drops the lifetime pin
+// that keeps a concurrent [lsmkv.Bucket.Shutdown] from unmapping the segments
+// the operation is reading.
+func (s *Shard) objectsBucket() (*lsmkv.Bucket, func(), error) {
+	b, release := s.store.AcquireBucketForRead(helpers.ObjectsBucketLSM)
 	if b == nil {
 		err := fmt.Errorf("objects bucket of shard %q: %w", s.name, lsmkv.ErrBucketNotFound)
 		s.reportTornStoreAccess(err)
-		return nil, err
+		return nil, release, err
 	}
-	return b, nil
+	return b, release, nil
 }
 
 // reportTornStoreAccess makes an outrun drain visible
@@ -682,7 +637,7 @@ func (s *Shard) reportTornStoreAccess(err error) {
 		"action": "objects_bucket_missing",
 		"class":  s.index.Config.ClassName.String(),
 		"shard":  s.name,
-	}).Warnf("mutation reached a torn-down store, a teardown drain was outrun, %v", err)
+	}).Warnf("request reached a torn-down store, a teardown drain was outrun, %v", err)
 }
 
 // ObjectCount returns the exact count at any moment
@@ -769,14 +724,11 @@ func (s *Shard) isFallbackToSearchable() bool {
 // Returns false when:
 //   - The per-shard map has an explicit `false` entry (set by the
 //     migration's PreReindexHook), OR
-//   - There is no explicit entry AND the rangeable bucket does not
-//     exist in the LSM store yet. This catches the narrow window where
-//     another replica's runtimeSwap has already flipped the
-//     cluster-wide schema flag to `IndexRangeFilters=true` but THIS
-//     replica's PreReindexHook hasn't fired yet — without this
-//     bucket-existence default-false, the inverted query path would
-//     try to look up a bucket that isn't there and return
-//     "bucket for prop %s not found - is it indexed?" to the LB.
+//   - There is no explicit entry AND the rangeable bucket does not exist in
+//     the LSM store yet. repair-rangeable runs with `IndexRangeFilters`
+//     already true, so between this replica joining the task and its
+//     PreReindexHook firing the query path would otherwise look up a bucket
+//     that isn't there and fail with "bucket for prop %s not found".
 func (s *Shard) IsRangeableLocallyReady(propName string) bool {
 	s.rangeableLocalReadyMu.RLock()
 	if s.rangeableLocalReady != nil {
@@ -810,70 +762,60 @@ func (s *Shard) setRangeableLocallyReady(propName string, ready bool) {
 	s.rangeableLocalReady[propName] = ready
 }
 
-// SetTokenizationOverlay records that propName's query-time tokenization on
-// this shard should be `target` instead of the schema-stored value until
-// the live schema catches up. Set by the change-tokenization migration's
-// reindex hook (reindex_provider.OnGroupCompleted) just BEFORE the
-// per-task RunSwapOnShard loop kicks off — setting pre-swap means the
-// brief window between bucket-pointer flip and overlay visibility is
-// bounded by the in-memory swap latency (microseconds), not by the
-// cluster-wide cutover spread. The same caller clears the overlay if
-// every per-task swap failed (defensive: no bucket flipped → overlay
-// must not stay set against unchanged buckets). On success, the overlay
-// is cleared explicitly by OnTaskCompleted after the cluster-wide
-// schema flip commits, with [TokenizationFor]'s self-clear-on-catchup
-// branch as a backstop. See the [tokenizationOverlay] field godoc for
-// the full rationale and lifecycle.
-//
-// Empty target is a no-op — used by the migration cleanup path to avoid
-// having every caller guard the call.
-func (s *Shard) SetTokenizationOverlay(propName, target string) {
-	if propName == "" || target == "" {
+func (s *Shard) SetPropertyOverlay(propName string, o inverted.PropertyOverlay) {
+	if propName == "" || o.Empty() {
 		return
 	}
-	s.tokenizationOverlayMu.Lock()
-	defer s.tokenizationOverlayMu.Unlock()
-	if s.tokenizationOverlay == nil {
-		s.tokenizationOverlay = map[string]string{}
+	s.propertyOverlayMu.Lock()
+	defer s.propertyOverlayMu.Unlock()
+	if s.propertyOverlay == nil {
+		s.propertyOverlay = map[string]inverted.PropertyOverlay{}
 	}
-	s.tokenizationOverlay[propName] = target
+	s.propertyOverlay[propName] = mergePropertyOverlay(s.propertyOverlay[propName], o)
+}
+
+// A tokenization change that failed after a partial swap keeps its entry on
+// purpose, so a second migration must fold into it rather than replace it.
+func mergePropertyOverlay(prev, o inverted.PropertyOverlay) inverted.PropertyOverlay {
+	o.ForceFilterable = o.ForceFilterable || prev.ForceFilterable
+	o.ForceSearchable = o.ForceSearchable || prev.ForceSearchable
+	o.ForceRangeable = o.ForceRangeable || prev.ForceRangeable
+	if o.Tokenization == "" {
+		o.Tokenization = prev.Tokenization
+	}
+	return o
 }
 
 // SwapBucketAndSetOverlay runs propName's bucket flip and overlay set as ONE
-// critical section under tokenizationOverlayMu (read side:
-// [Shard.PinTokenizationAndSearchableBucket]), so no query sees a mixed pair.
+// critical section, so no query sees a mixed pair.
 //
 // CONTRACT: flip must not call Bucket.Shutdown or take lifetimeLock — a
-// pinned query may need tokenizationOverlayMu next (self-clear path), so
+// query may hold another prop's pin and need propertyOverlayMu next, so
 // draining here would invert lock order and deadlock. Phase-2b teardown
 // must happen strictly after this method returns.
-func (s *Shard) SwapBucketAndSetOverlay(propName, target string,
+func (s *Shard) SwapBucketAndSetOverlay(propName string, o inverted.PropertyOverlay,
 	flip func() (*lsmkv.Bucket, error),
 ) (*lsmkv.Bucket, error) {
-	s.tokenizationOverlayMu.Lock()
-	defer s.tokenizationOverlayMu.Unlock()
+	s.propertyOverlayMu.Lock()
+	defer s.propertyOverlayMu.Unlock()
 
 	oldMainBucket, err := flip()
 	if err != nil {
 		return nil, err
 	}
 
-	if propName != "" && target != "" {
-		if s.tokenizationOverlay == nil {
-			s.tokenizationOverlay = map[string]string{}
+	if propName != "" && !o.Empty() {
+		if s.propertyOverlay == nil {
+			s.propertyOverlay = map[string]inverted.PropertyOverlay{}
 		}
-		s.tokenizationOverlay[propName] = target
+		s.propertyOverlay[propName] = mergePropertyOverlay(s.propertyOverlay[propName], o)
 	}
 
 	return oldMainBucket, nil
 }
 
 // PinTokenizationAndSearchableBucket resolves propName's tokenization AND
-// pins its searchable bucket under one tokenizationOverlayMu.RLock (write
-// side: [Shard.SwapBucketAndSetOverlay]), so a query never sees a mixed
-// pre-/post-swap pair; the pin makes a concurrent swap's Shutdown drain
-// first. Caller MUST release exactly once (bucket may be nil). Lock order:
-// tokenizationOverlayMu → bucketAccessLock → lifetimeLock.
+// pins its bucket under one RLock. Lock order: propertyOverlayMu → bucketAccessLock → lifetimeLock.
 func (s *Shard) PinTokenizationAndSearchableBucket(propName, liveTokenization string,
 ) (string, *lsmkv.Bucket, func()) {
 	bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
@@ -883,119 +825,83 @@ func (s *Shard) PinTokenizationAndSearchableBucket(propName, liveTokenization st
 		return liveTokenization, bucket, release
 	}
 
-	s.tokenizationOverlayMu.RLock()
-	overlay, ok := "", false
-	if s.tokenizationOverlay != nil {
-		overlay, ok = s.tokenizationOverlay[propName]
+	s.propertyOverlayMu.RLock()
+	var overlay inverted.PropertyOverlay
+	if s.propertyOverlay != nil {
+		overlay = s.propertyOverlay[propName]
 	}
 	// Pin the bucket pointer under the SAME RLock as the overlay so the
 	// (tokenization, pinned bucket) pair is a single consistent snapshot.
 	bucket, release := s.store.AcquireBucketForRead(bucketName)
-	s.tokenizationOverlayMu.RUnlock()
+	s.propertyOverlayMu.RUnlock()
 
-	if !ok {
+	if overlay.Tokenization == "" {
 		return liveTokenization, bucket, release
 	}
-	if overlay == liveTokenization {
-		// Live schema has caught up: self-clear so future calls take the
-		// fast path (same defensive self-clear as TokenizationFor).
-		s.tokenizationOverlayMu.Lock()
-		if s.tokenizationOverlay != nil {
-			if current, ok := s.tokenizationOverlay[propName]; ok && current == liveTokenization {
-				delete(s.tokenizationOverlay, propName)
-			}
-		}
-		s.tokenizationOverlayMu.Unlock()
-		return liveTokenization, bucket, release
-	}
-	return overlay, bucket, release
+	return overlay.Tokenization, bucket, release
 }
 
-// ClearTokenizationOverlay removes any tokenization-overlay entry for
-// propName. Idempotent — called by the schema-update callback when the
-// live schema's tokenization for propName matches the overlay's target,
-// indicating OnTaskCompleted's flipSemanticMigrationSchema has applied
-// on this node and the overlay is no longer needed.
-func (s *Shard) ClearTokenizationOverlay(propName string) {
+// Runs ahead of the indexType bucket's removal, so a removal that fails after
+// the store dropped the bucket leaves no overlay field aimed at it.
+func (s *Shard) retirePropertyOverlay(propName, indexType string) {
 	if propName == "" {
 		return
 	}
-	s.tokenizationOverlayMu.Lock()
-	defer s.tokenizationOverlayMu.Unlock()
-	if s.tokenizationOverlay == nil {
+	s.propertyOverlayMu.Lock()
+	defer s.propertyOverlayMu.Unlock()
+	entry, ok := s.propertyOverlay[propName]
+	if !ok {
 		return
 	}
-	delete(s.tokenizationOverlay, propName)
+	switch indexType {
+	case "filterable":
+		entry.ForceFilterable = false
+	case "searchable":
+		entry.ForceSearchable = false
+		entry.Tokenization = ""
+	case "rangeable":
+		entry.ForceRangeable = false
+	default:
+		return
+	}
+	if entry.Empty() {
+		delete(s.propertyOverlay, propName)
+		return
+	}
+	s.propertyOverlay[propName] = entry
 }
 
 // TokenizationFor returns the active query-time tokenization for propName
-// on this shard. Consults the overlay first; if the overlay's value
-// matches the live schema's `liveTokenization` the overlay is self-
-// cleared (defensive against schema-update-callback ordering) and the
-// live value is returned. Otherwise the overlay value is returned if
-// present, else liveTokenization.
-//
-// liveTokenization is the value the caller would have used in the
-// absence of any overlay — typically `prop.Tokenization`. Passing the
-// live value as a parameter (rather than re-reading the schema here)
-// keeps this helper cheap and avoids a schema-manager dependency in the
-// query hot path.
 func (s *Shard) TokenizationFor(propName, liveTokenization string) string {
 	if propName == "" {
 		return liveTokenization
 	}
-	s.tokenizationOverlayMu.RLock()
-	if s.tokenizationOverlay == nil {
-		s.tokenizationOverlayMu.RUnlock()
+	s.propertyOverlayMu.RLock()
+	var overlay inverted.PropertyOverlay
+	if s.propertyOverlay != nil {
+		overlay = s.propertyOverlay[propName]
+	}
+	s.propertyOverlayMu.RUnlock()
+	if overlay.Tokenization == "" {
 		return liveTokenization
 	}
-	overlay, ok := s.tokenizationOverlay[propName]
-	s.tokenizationOverlayMu.RUnlock()
-	if !ok {
-		return liveTokenization
-	}
-	if overlay == liveTokenization {
-		// Live schema has caught up. Self-clear so future calls take the
-		// fast path — write under the write lock so concurrent self-
-		// clears don't race the migration's explicit clear.
-		s.tokenizationOverlayMu.Lock()
-		if s.tokenizationOverlay != nil {
-			if current, ok := s.tokenizationOverlay[propName]; ok && current == liveTokenization {
-				delete(s.tokenizationOverlay, propName)
-			}
-		}
-		s.tokenizationOverlayMu.Unlock()
-		return liveTokenization
-	}
-	return overlay
+	return overlay.Tokenization
 }
 
-// SnapshotTokenizationOverlay returns a fixed-allocation map of
-// {propName → target} entries for the supplied propNames, restricted
-// to entries that currently exist in the overlay. Used by query setup
-// paths that need to populate inverted.PropertyOverlay values for the
-// analyzer's WithSchemaOverlay mechanism (see
-// adapters/repos/db/inverted/analyzer.go).
-//
-// Avoids cloning the entire underlying overlay map on every query —
-// only the requested props are snapshotted, and an empty result
-// returns nil so the analyzer can take its fast path.
-//
-// The returned map is owned by the caller.
-func (s *Shard) SnapshotTokenizationOverlay(propNames []string) map[string]string {
+func (s *Shard) SnapshotPropertyOverlay(propNames []string) map[string]inverted.PropertyOverlay {
 	if len(propNames) == 0 {
 		return nil
 	}
-	s.tokenizationOverlayMu.RLock()
-	defer s.tokenizationOverlayMu.RUnlock()
-	if len(s.tokenizationOverlay) == 0 {
+	s.propertyOverlayMu.RLock()
+	defer s.propertyOverlayMu.RUnlock()
+	if len(s.propertyOverlay) == 0 {
 		return nil
 	}
-	var out map[string]string
+	var out map[string]inverted.PropertyOverlay
 	for _, name := range propNames {
-		if v, ok := s.tokenizationOverlay[name]; ok {
+		if v, ok := s.propertyOverlay[name]; ok {
 			if out == nil {
-				out = make(map[string]string, len(propNames))
+				out = make(map[string]inverted.PropertyOverlay, len(propNames))
 			}
 			out[name] = v
 		}

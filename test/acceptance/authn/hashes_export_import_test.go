@@ -17,10 +17,12 @@ import (
 	"testing"
 	"time"
 
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/client/experimental"
 	"github.com/weaviate/weaviate/client/users"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
@@ -40,27 +42,43 @@ func TestHashesExportImport(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
-	// Source cluster with namespaces off, where the credentials are created.
-	source, err := docker.New().WithWeaviate().
-		WithApiKey().
-		WithUserApiKey(root, rootKey).
-		WithUserApiKey(staticUser, staticUserKey).
-		WithRBAC().WithRbacRoots(root).
-		WithDbUsers().
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, source.Terminate(ctx)) }()
-
-	// Namespace-enabled target cluster, where credentials are imported.
-	target, err := docker.New().WithWeaviate().
-		WithApiKey().
-		WithUserApiKey(root, rootKey).
-		WithRBAC().WithRbacRoots(root).
-		WithDbUsers().
-		WithNamespaces().
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, target.Terminate(ctx)) }()
+	var source, target *docker.DockerCompose
+	logger, _ := logrustest.NewNullLogger()
+	eg := enterrors.NewErrorGroupWrapper(logger)
+	eg.Go(func() error {
+		// Source cluster with namespaces off, where the credentials are created.
+		var err error
+		source, err = docker.New().WithWeaviate().
+			WithApiKey().
+			WithUserApiKey(root, rootKey).
+			WithUserApiKey(staticUser, staticUserKey).
+			WithRBAC().WithRbacRoots(root).
+			WithDbUsers().
+			Start(ctx)
+		return err
+	})
+	eg.Go(func() error {
+		// Namespace-enabled target cluster, where credentials are imported.
+		var err error
+		target, err = docker.New().WithWeaviate().
+			WithApiKey().
+			WithUserApiKey(root, rootKey).
+			WithRBAC().WithRbacRoots(root).
+			WithDbUsers().
+			WithNamespaces().
+			Start(ctx)
+		return err
+	})
+	startErr := eg.Wait()
+	defer func() {
+		if source != nil {
+			require.NoError(t, source.Terminate(ctx))
+		}
+		if target != nil {
+			require.NoError(t, target.Terminate(ctx))
+		}
+	}()
+	require.NoError(t, startErr)
 
 	sourceURI := source.GetWeaviate().URI()
 	targetURI := target.GetWeaviate().URI()

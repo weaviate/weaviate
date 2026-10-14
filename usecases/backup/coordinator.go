@@ -52,6 +52,7 @@ const (
 	_TimeoutQueryStatus = 5 * time.Second
 	_TimeoutCanCommit   = 8 * time.Second
 	_NextRoundPeriod    = 10 * time.Second
+	_FirstRoundPeriod   = 100 * time.Millisecond
 	_MaxNumberConns     = 16
 )
 
@@ -83,11 +84,17 @@ type UserLister interface {
 	ListAllUsers() []string
 }
 
-// RoleLister resolves includeRoles selectors. ListAllRoles returns every role
-// name, custom and built-in, which is the list selectors match against. Nil when
-// RBAC is disabled.
+// RoleLister resolves includeRoles selectors, and is nil when RBAC is disabled.
+//
+// ListAllRoles returns every role name, custom and built-in, which selectors match against.
+//
+// BuiltInAssignments returns an RBAC snapshot of the admin and viewer assignments the given db user ids hold, or nil when they hold none.
+//
+// OIDCBuiltInAssignments returns an RBAC snapshot of the oidc-specific admin and viewer assignments for the given namespaces, or nil when there are none.
 type RoleLister interface {
 	ListAllRoles() ([]string, error)
+	BuiltInAssignments(userIDs ...string) ([]byte, error)
+	OIDCBuiltInAssignments(namespaces ...string) ([]byte, error)
 }
 
 // coordinator coordinates a distributed backup and restore operation (DBRO):
@@ -209,6 +216,10 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		BaseBackupID:    req.BaseBackupID,
 		Users:           req.Users,
 		Roles:           req.Roles,
+		SkipUsers:       req.SkipUsers,
+		SkipRoles:       req.SkipRoles,
+
+		BuiltInRoleAssignments: req.BuiltInRoleAssignments,
 	}
 
 	for key := range c.Participants {
@@ -591,6 +602,8 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 				Classes:           gr.Classes,
 				Users:             req.Users,
 				Roles:             req.Roles,
+				SkipUsers:         req.SkipUsers,
+				SkipRoles:         req.SkipRoles,
 				Duration:          _BookingPeriod,
 				NodeMapping:       c.descriptor.NodeMapping,
 				Compression:       req.Compression,
@@ -651,7 +664,9 @@ func (c *coordinator) commit(ctx context.Context,
 	}
 
 	nFailures := c.commitAll(ctx, req, node2Host)
-	retryAfter := c.timeoutNextRound / 5 // 2s for first time
+	// Poll quickly at first so small operations finish fast, then back off
+	// to timeoutNextRound.
+	retryAfter := min(_FirstRoundPeriod, c.timeoutNextRound)
 	canContinue := len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
 	for canContinue {
 		// Check for external cancellation in polling loop
@@ -678,7 +693,7 @@ func (c *coordinator) commit(ctx context.Context,
 			c.descriptor.Error = "restore cancelled: context cancelled"
 			return
 		}
-		retryAfter = c.timeoutNextRound
+		retryAfter = min(2*retryAfter, c.timeoutNextRound)
 		nFailures += c.queryAll(ctx, req, node2Host)
 		canContinue = len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
 	}
@@ -736,6 +751,15 @@ func (c *coordinator) commit(ctx context.Context,
 					}
 
 					if meta, err := nodeStore.Meta(ctx, req.ID, req.Bucket, req.Path); err == nil {
+						// A node predating Request.SkipUsers/SkipRoles ignores the flag
+						// and uploads a whole-cluster snapshot. Fail rather than leave a
+						// backup that older restore code would apply in full.
+						if (c.descriptor.SkipUsers && len(meta.UserBackups) > 0) ||
+							(c.descriptor.SkipRoles && len(meta.RbacBackups) > 0) {
+							status = backup.Failed
+							st.Status = backup.Failed
+							reason = fmt.Sprintf("node %q uploaded a user or RBAC snapshot the request excluded; it predates the includeUsers/includeRoles skip, retry after the upgrade", node)
+						}
 						st.PreCompressionSizeBytes = meta.PreCompressionSizeBytes
 						totalPreCompressionSize += meta.PreCompressionSizeBytes
 						c.log.WithFields(logrus.Fields{
@@ -835,17 +859,18 @@ func (c *coordinator) queryAll(ctx context.Context, req *StatusRequest, nodes ma
 	return n
 }
 
-// commitAll tells all participants to proceed with their backup operations
-// It returns the number of failures
+// commitAll tells each participant to proceed and returns the failure count.
 func (c *coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes map[string]string) int {
+	if len(nodes) == 0 {
+		return 0
+	}
+
 	type pair struct {
 		node string
 		err  error
 	}
-	// Buffer one slot per node so a failing worker never blocks on the send.
-	// The consumer only runs after the submit loop finishes, so an unbuffered
-	// channel would let the first _MaxNumberConns failures hold every g.Go slot
-	// while blocked on the send, deadlocking the submit loop.
+	// Each worker can report one failure. Buffering all reports prevents workers
+	// from filling the concurrency limit while the caller is still submitting work.
 	errChan := make(chan pair, len(nodes))
 	aCounter := int64(len(nodes))
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx)

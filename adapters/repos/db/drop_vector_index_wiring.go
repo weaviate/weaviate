@@ -14,11 +14,14 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	entschema "github.com/weaviate/weaviate/entities/schema"
@@ -47,6 +50,7 @@ func (db *DB) EditOpBucketsForShards(ctx context.Context, collection string, sha
 		if lazy, ok := s.(*LazyLoadShard); ok {
 			if err := lazy.Load(ctx); err != nil {
 				db.logger.WithField("collection", collection).WithField("shard", name).
+					WithFields(enterrors.DocsLinkFields(err)).
 					Warnf("drop-vector: load lazy shard: %v", err)
 				continue // absent from result; the unit fails instead of panicking
 			}
@@ -106,6 +110,101 @@ func (db *DB) EnsureDroppedVectorFilesRemoved(collection, shardName string, targ
 			otherTargetVectors(class, target)); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// RemoveDroppedVectorDimensions clears the dropped vectors' dimension rows on
+// one shard and drops its saved usage record.
+//
+// It runs per unit, before that unit is recorded complete, so a failure fails
+// the unit and the next round retries it. Group completion would be too late:
+// a completed unit stays credited even when its round fails, so the next round
+// would skip the shard and the rows could outlive the drop.
+func (db *DB) RemoveDroppedVectorDimensions(ctx context.Context, collection, shardName string, targets []string) error {
+	idx := db.GetIndex(entschema.ClassName(collection))
+	if idx == nil {
+		return fmt.Errorf("index for collection %q not found", collection)
+	}
+	for _, target := range targets {
+		if err := removeDimensionsForDroppedVector(ctx, idx, shardName, target); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// errDimensionsShardNotLoaded reports a unit whose shard left memory between
+// its drain and its clear.
+var errDimensionsShardNotLoaded = errors.New("shard is no longer loaded on this node")
+
+// removeDimensionsForDroppedVector clears target's rows through the loaded
+// shard, and fails when the shard is not loaded rather than opening its bucket
+// from disk. A clear from disk holds the bucket's registry claim for O(objects)
+// under no shard lock, so an activation, backup or delete of the same tenant
+// collides with it. Failing costs nothing: the unit is not credited, a later
+// round re-covers the tenant once it loads, and the load clears the rows itself
+// while the drop is still marked.
+func removeDimensionsForDroppedVector(ctx context.Context, idx *Index, shardName, target string) error {
+	shard, release, err := loadedShardForDimensionsClear(idx, shardName)
+	if err != nil {
+		return err
+	}
+	defer release()
+	if err := shard.removeAllDimensionsLSM(ctx, target); err != nil {
+		return err
+	}
+	return invalidateComputedUsage(idx, shardName)
+}
+
+// loadedShardForDimensionsClear returns the loaded shard with a reference held,
+// so it cannot be torn down mid-clear. It never loads a lazy shard. The locks
+// are held for the lookup only: the clear is O(objects), and a delete of the
+// tenant and every request routed to it would queue behind them.
+func loadedShardForDimensionsClear(idx *Index, shardName string) (*Shard, func(), error) {
+	notLoaded := fmt.Errorf("clear dimensions on %q: %w", shardName, errDimensionsShardNotLoaded)
+
+	// The locks getLoadedShard takes, for its reason: every teardown holds one
+	// of them, so none can land between the lookup and the reference.
+	idx.closeLock.RLock()
+	defer idx.closeLock.RUnlock()
+	if idx.closed {
+		return nil, nil, notLoaded
+	}
+	idx.shardCreateLocks.RLock(shardName)
+	defer idx.shardCreateLocks.RUnlock(shardName)
+
+	var shard *Shard
+	switch s := idx.shards.Load(shardName).(type) {
+	case *Shard:
+		shard = s
+	case *LazyLoadShard:
+		s.mutex.Lock()
+		if s.loaded {
+			shard = s.shard
+		}
+		s.mutex.Unlock()
+	}
+	if shard == nil {
+		return nil, nil, notLoaded
+	}
+	release, err := shard.preventShutdown()
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w: %w", notLoaded, err)
+	}
+	return shard, release, nil
+}
+
+// invalidateComputedUsage drops a shard's saved usage record, which is keyed
+// only by a hash of the active vector configs. Dropping a vector and
+// re-creating it with the same config produces the same hash, so a record
+// written before the drop is served again afterwards — reporting the old
+// vector's count against a vector that holds nothing. Nothing else invalidates
+// it: NewShard is the only other caller, and re-creating a vector does not load
+// a cold shard.
+func invalidateComputedUsage(idx *Index, shardName string) error {
+	if err := shardusage.RemoveComputedUsageDataForUnloadedShard(idx.path(), shardName); err != nil {
+		return fmt.Errorf("invalidate computed usage for shard %q: %w", shardName, err)
 	}
 	return nil
 }

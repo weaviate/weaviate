@@ -45,6 +45,11 @@ func (s *stubDiskIndex) GetOffsets(key []byte) (start, end uint64, err error) {
 }
 
 func (s *stubDiskIndex) Seek(key []byte) (segmentindex.Node, error) { panic("not implemented") }
+
+func (s *stubDiskIndex) SeekOffsets(key []byte) (start, end uint64, err error) {
+	panic("not implemented")
+}
+
 func (s *stubDiskIndex) Next(key []byte) (segmentindex.Node, error) { panic("not implemented") }
 func (s *stubDiskIndex) AllKeys() ([][]byte, error)                 { panic("not implemented") }
 func (s *stubDiskIndex) Size() int                                  { panic("not implemented") }
@@ -108,12 +113,23 @@ func TestCheckNodeValueLen(t *testing.T) {
 	require.Error(t, checkNodeValueLen(^uint64(0), n))
 }
 
+// probeErrSegment fails indexContainsKey with err. answerHeld makes it answer
+// for the keys its map holds instead, so a caller can tell a segment that said
+// "yes" from one that could not say at all.
 type probeErrSegment struct {
 	*fakeSegment
-	err error
+	err        error
+	answerHeld bool
 }
 
-func (s *probeErrSegment) indexContainsKey(key []byte) (bool, error) { return false, s.err }
+func (s *probeErrSegment) indexContainsKey(key []byte) (bool, error) {
+	if s.answerHeld {
+		if held, err := s.fakeSegment.indexContainsKey(key); err == nil && held {
+			return true, nil
+		}
+	}
+	return false, s.err
+}
 
 type oneNodeSegment struct {
 	*fakeSegment

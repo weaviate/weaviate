@@ -36,7 +36,7 @@ func (s *segment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPo
 	}
 	start, end, err := s.index.GetOffsets(key)
 	if err != nil {
-		return nil, noopRelease, err
+		return nil, noopRelease, s.reportIndexErr(err)
 	}
 
 	offset := nodeOffset{start, end}
@@ -89,7 +89,7 @@ func (s *segment) roaringSetMergeWith(key []byte, additions *sroar.Bitmap, bitma
 		if errors.Is(err, lsmkv.NotFound) {
 			return nil
 		}
-		return err
+		return s.reportIndexErr(err)
 	}
 
 	var sn *roaringset.SegmentNode
@@ -118,18 +118,11 @@ func (s *segment) segmentNodeFromBufferMmap(offset nodeOffset,
 
 func (s *segment) segmentNodeFromBufferPread(offset nodeOffset, bitmapBufPool roaringset.BitmapBufPool,
 ) (sn *roaringset.SegmentNode, release func(), err error) {
-	reader, readerRelease, err := s.bufferedReaderAt(offset.start, "roaringSetRead")
-	if err != nil {
-		return nil, noopRelease, err
-	}
-	defer readerRelease()
-
 	ln := int(offset.end - offset.start)
 	contents, release := bitmapBufPool.Get(ln)
 	contents = contents[:ln]
 
-	_, err = reader.Read(contents)
-	if err != nil {
+	if err := s.preadInto(contents, offset.start, roaringSetReadOp); err != nil {
 		release()
 		return nil, noopRelease, err
 	}

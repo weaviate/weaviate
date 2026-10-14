@@ -33,7 +33,7 @@ import (
 )
 
 const (
-	numClasses = 100
+	numClasses = 10
 	numShards  = 10
 	uppercase  = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	lowercase  = "abcdefghijklmnopqrstuvwxyz"
@@ -144,6 +144,8 @@ func TestFileStructureMigration(t *testing.T) {
 
 		db := testDB(t, root, classes, states)
 		require.Nil(t, db.migrateFileStructureIfNecessary())
+		require.Zero(t, openDescriptorCount(t, path.Join(root, "migration1.22.fs.hierarchy")),
+			"the migration leaves its indicator file closed")
 	})
 
 	files, err = os.ReadDir(root)

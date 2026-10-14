@@ -25,14 +25,14 @@ import (
 
 // buildUnitMaps creates per-replica unit IDs and maps from shard ownership.
 // ShardOwnership returns map[nodeName][]shardName (node→shards it owns).
-// Unit ID format: "shardName__nodeName".
+// Unit ID format is [db.MigrationUnitID]: "shardName__nodeName".
 func buildUnitMaps(shardOwnership map[string][]string) (unitIDs []string, unitToShard, unitToNode map[string]string) {
 	unitToShard = make(map[string]string)
 	unitToNode = make(map[string]string)
 
 	for nodeName, shards := range shardOwnership {
 		for _, shardName := range shards {
-			unitID := fmt.Sprintf("%s__%s", shardName, nodeName)
+			unitID := db.MigrationUnitID(shardName, nodeName)
 			unitIDs = append(unitIDs, unitID)
 			unitToShard[unitID] = shardName
 			unitToNode[unitID] = nodeName
@@ -298,7 +298,7 @@ func buildUnitSpecs(shardOwnership map[string][]string) []distributedtask.UnitSp
 	var specs []distributedtask.UnitSpec
 	for nodeName, shards := range shardOwnership {
 		for _, shardName := range shards {
-			unitID := fmt.Sprintf("%s__%s", shardName, nodeName)
+			unitID := db.MigrationUnitID(shardName, nodeName)
 			specs = append(specs, distributedtask.UnitSpec{
 				ID:      unitID,
 				GroupID: shardName,

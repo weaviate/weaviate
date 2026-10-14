@@ -15,26 +15,38 @@ import (
 	"context"
 	"runtime/debug"
 	"sync"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type Drain func()
 
 type options struct {
-	allocChecker memwatch.AllocChecker
+	admissionChecker  admissionChecker
+	batchStreamConfig config.BatchStream
 }
 
 type Option func(*options)
 
-// WithAllocChecker replaces the allocation checker that decides whether a batch
-// message is accepted.
-func WithAllocChecker(c memwatch.AllocChecker) Option {
+// WithAdmissionChecker replaces the admission checker that decides whether a batch
+// message is accepted. The same checker reports the live heap ratio that sets
+// the ack delay.
+func WithAdmissionChecker(c admissionChecker) Option {
 	return func(o *options) {
-		o.allocChecker = c
+		o.admissionChecker = c
+	}
+}
+
+// WithStreamConfig replaces the backpressure configuration the receiver applies
+// to incoming messages. Nil fields take their defaults.
+func WithStreamConfig(cfg config.BatchStream) Option {
+	return func(o *options) {
+		o.batchStreamConfig = cfg
 	}
 }
 
@@ -50,7 +62,7 @@ func WithAllocChecker(c memwatch.AllocChecker) Option {
 func Start(
 	authenticator authenticator,
 	authorizer authorization.Authorizer,
-	batchHandler batcher,
+	batchHandler Batcher,
 	schemaManager schemaManager,
 	reg prometheus.Registerer,
 	numWorkers int,
@@ -58,15 +70,20 @@ func Start(
 	namespacesEnabled bool,
 	opts ...Option,
 ) (*StreamHandler, Drain) {
-	o := &options{
-		// The batch stream gets its own memory monitor with a lower threshold than
-		// the global one (0.9 vs 0.97 of GOMEMLIMIT). Imports should slow down
-		// before the rest of the process runs short of memory, because accepted
-		// batches sit in memory until the workers drain them.
-		allocChecker: memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.9),
-	}
+	o := &options{}
 	for _, opt := range opts {
 		opt(o)
+	}
+	// While a receiver holds for memory, drain is stuck waiting on recvWg. The
+	// hold must therefore not outlast the grace period drain allows. The clamp
+	// gets a fresh pointer so it never writes into the caller's config.
+	backpressure := o.batchStreamConfig.WithHoldSeconds(min(o.batchStreamConfig.HoldSeconds(), int(SHUTDOWN_GRACE_PERIOD/time.Second)))
+	if o.admissionChecker == nil {
+		// The batch stream gets its own memory monitor with a lower threshold than
+		// the global one (0.9 vs 0.97 of GOMEMLIMIT by default). Imports should slow
+		// down before the rest of the process runs short of memory, because accepted
+		// batches sit in memory until the workers drain them.
+		o.admissionChecker = memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, o.batchStreamConfig.GateRatio())
 	}
 
 	recvWg := sync.WaitGroup{}
@@ -92,7 +109,8 @@ func Start(
 		logger,
 		schemaManager,
 		namespacesEnabled,
-		o.allocChecker,
+		o.admissionChecker,
+		backpressure,
 	)
 
 	drain := func() {

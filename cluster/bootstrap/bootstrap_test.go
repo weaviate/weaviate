@@ -14,11 +14,13 @@ package bootstrap
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/status"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
@@ -133,6 +135,52 @@ func TestBootstrapper(t *testing.T) {
 			} else if !test.success && err == nil {
 				t.Errorf("%s: test must fail", test.name)
 			}
+			m.AssertExpectations(t)
+		})
+	}
+}
+
+// TestBootstrapperDoesNotWaitForRetryPeriod pins that the first attempt runs at
+// once and that a node that becomes ready between attempts exits without
+// waiting for the next one.
+func TestBootstrapperDoesNotWaitForRetryPeriod(t *testing.T) {
+	tests := []struct {
+		name     string
+		doBefore func(m *MockNodeClient, ready *atomic.Bool)
+	}{
+		{
+			name: "first attempt joins",
+			doBefore: func(m *MockNodeClient, ready *atomic.Bool) {
+				m.On("Join", mock.Anything, mock.Anything, mock.Anything).Return(&cmd.JoinPeerResponse{}, nil)
+			},
+		},
+		{
+			name: "ready after notifying",
+			doBefore: func(m *MockNodeClient, ready *atomic.Bool) {
+				m.On("Join", mock.Anything, mock.Anything, mock.Anything).Return(&cmd.JoinPeerResponse{}, errAny)
+				m.On("Notify", mock.Anything, mock.Anything, mock.Anything).
+					Run(func(mock.Arguments) { ready.Store(true) }).
+					Return(&cmd.NotifyPeerResponse{}, nil)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &MockNodeClient{}
+			var ready atomic.Bool
+			tt.doBefore(m, &ready)
+
+			b := NewBootstrapper(m, "RID", "ADDR", true, mocks.NewMockNodeSelector("S1"), ready.Load)
+			b.retryPeriod = time.Hour
+			b.jitter = time.Millisecond
+			b.readyPollPeriod = time.Millisecond
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			logger, _ := logrustest.NewNullLogger()
+
+			start := time.Now()
+			require.NoError(t, b.Do(ctx, map[string]int{"S1": 1}, logger, make(chan struct{})))
+			require.Less(t, time.Since(start), time.Second)
 			m.AssertExpectations(t)
 		})
 	}

@@ -48,6 +48,19 @@ func namedVectorsClass(vectors ...string) *models.Class {
 	return class
 }
 
+// multiVectorClass turns one of the class's named vectors into a multi-vector
+// index. Only named vectors can carry one: the schema parser rejects a
+// multi-vector config on the legacy class-level index.
+func multiVectorClass(class *models.Class, vector string) *models.Class {
+	vectorConfig := class.VectorConfig[vector]
+	vectorConfig.VectorIndexConfig = hnsw.UserConfig{
+		Distance:    "cosine",
+		Multivector: hnsw.MultivectorConfig{Enabled: true},
+	}
+	class.VectorConfig[vector] = vectorConfig
+	return class
+}
+
 // decodeModel unmarshals a JSON body into the typed request model, the way
 // the swagger JSON consumer does (unknown fields ignored, type mismatches
 // fail). A decode failure maps to the 400 the consumer returns live.
@@ -810,8 +823,8 @@ func assertQueryPropertiesParsing(t *testing.T,
 		{"boost suffix passes through", `{"query":"space","queryProperties":["title^2"]}`, []string{"title^2"}},
 		{
 			"first letter lowercased (gRPC parity)",
-			`{"query":"space","queryProperties":["Title^2","Year"]}`,
-			[]string{"title^2", "year"},
+			`{"query":"space","queryProperties":["Title^2"]}`,
+			[]string{"title^2"},
 		},
 		{"omitted searches all searchable properties", `{"query":"space"}`, nil},
 		{"empty searches all searchable properties", `{"query":"space","queryProperties":[]}`, nil},
@@ -867,10 +880,76 @@ func TestBm25QueryProperties(t *testing.T) {
 	})
 }
 
+// TestQueryPropertiesBoost: the "^boost" suffix is validated at the handler,
+// where the searcher would otherwise read a malformed one as 0.
+func TestQueryPropertiesBoost(t *testing.T) {
+	tests := []struct {
+		name  string
+		props string
+		want  string
+	}{
+		{"non-numeric", `["title^abc"]`, "boost must be a positive number"},
+		{"empty", `["title^"]`, "boost must be a positive number"},
+		{"zero", `["title^0"]`, "boost must be a positive number"},
+		{"negative", `["title^-1"]`, "boost must be a positive number"},
+		{"infinite", `["title^inf"]`, "boost must be a positive number"},
+		{"nan", `["title^nan"]`, "boost must be a positive number"},
+		{"two suffixes", `["title^2^3"]`, "more than one ^boost"},
+		{"empty property", `["^2"]`, "must not be empty"},
+		{"duplicate property", `["title","title^2"]`, "listed more than once"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for endpoint, body := range map[string]string{
+				"bm25":   fmt.Sprintf(`{"query":"x","queryProperties":%s}`, tt.props),
+				"hybrid": fmt.Sprintf(`{"query":"x","alpha":1,"queryProperties":%s}`, tt.props),
+			} {
+				var apiErr *APIError
+				if endpoint == "bm25" {
+					_, apiErr = buildBm25(t, movieClass(), body)
+				} else {
+					_, apiErr = buildHybrid(t, movieClass(), body)
+				}
+				require.NotNil(t, apiErr, endpoint)
+				assert.Equal(t, http.StatusBadRequest, apiErr.Status, endpoint)
+				assert.Contains(t, apiErr.Error(), tt.want, endpoint)
+			}
+		})
+	}
+
+	t.Run("a valid boost passes through", func(t *testing.T) {
+		searcher, apiErr := buildBm25(t, movieClass(), `{"query":"x","queryProperties":["Title^2.5"]}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, []string{"title^2.5"}, searcher.lastParams.KeywordRanking.Properties)
+	})
+}
+
+// TestDotPathsRejected: a dot path selects nothing in the engine, so each
+// place that takes a property name rejects one.
+func TestDotPathsRejected(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"returnProperties nested field", `{"query":"x","returnProperties":["meta.isbn"]}`, "dot paths are not supported"},
+		{"returnProperties through a reference", `{"query":"x","returnProperties":["hasAuthor.name"]}`, "dot paths are not supported"},
+		{"linkOn with a dot", `{"query":"x","returnReferences":[{"linkOn":"hasAuthor.name"}]}`, "must be a reference property name"},
+		{"queryProperties nested field", `{"query":"x","queryProperties":["meta.isbn"]}`, "nested fields cannot be keyword-searched"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, apiErr := doBm25(t, newCatalogHandler(t, false), nil, "Catalog", tt.body)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), tt.want)
+		})
+	}
+}
+
 func TestBm25UnknownQueryProperty(t *testing.T) {
 	// an entry naming no schema property is a 400 like returnProperties;
-	// only an existing property without a searchable index is the
-	// searcher's typed 422
+	// an existing property without a searchable index is a 422
 	for name, body := range map[string]string{
 		"unknown":            `{"query":"space","queryProperties":["titel"]}`,
 		"unknown with boost": `{"query":"space","queryProperties":["titel^2"]}`,
@@ -883,9 +962,11 @@ func TestBm25UnknownQueryProperty(t *testing.T) {
 		})
 	}
 
-	t.Run("existing but non-searchable is the searcher's to reject", func(t *testing.T) {
+	t.Run("existing but non-searchable is a 422", func(t *testing.T) {
 		_, apiErr := buildBm25(t, unsearchableClass(), `{"query":"space","queryProperties":["code"]}`)
-		assert.Nil(t, apiErr)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+		assert.Contains(t, apiErr.Error(), "no searchable index")
 	})
 }
 
@@ -986,12 +1067,10 @@ func TestBm25NoSearchableProperties(t *testing.T) {
 		})
 	}
 
-	t.Run("explicit queryProperties are the searcher's to reject", func(t *testing.T) {
-		// the pre-check only guards the empty-list expansion; an explicit
-		// non-searchable property reaches the searcher (typed
-		// MissingIndexError, mapped to 422 live)
+	t.Run("explicit non-searchable queryProperties are a 422", func(t *testing.T) {
 		_, apiErr := buildBm25(t, unsearchableClass(), `{"query":"space","queryProperties":["code"]}`)
-		assert.Nil(t, apiErr)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
 	})
 }
 
@@ -1181,6 +1260,198 @@ func TestNearObjectReturnMetadata(t *testing.T) {
 // search types.
 func TestNearObjectSharedFields(t *testing.T) {
 	assertSharedFieldsFlow(t, fmt.Sprintf(`"id":%q`, nearObjectSourceID), buildNearObject)
+}
+
+// decodeNearVectorModel unmarshals a JSON body into the typed near-vector
+// request model, the way the swagger JSON consumer does (unknown fields
+// ignored, type mismatches fail). A decode failure maps to the 400 the
+// consumer returns live.
+func decodeNearVectorModel(body string) (*models.SearchNearVectorRequest, *APIError) {
+	var req models.SearchNearVectorRequest
+	if err := json.Unmarshal([]byte(body), &req); err != nil {
+		return nil, newAPIError(http.StatusBadRequest, "invalid request body: %v", err)
+	}
+	return &req, nil
+}
+
+// buildNearVector runs the full near-vector body -> dto.GetParams conversion
+// against the fixture schema, including the reserved-field 422 check that the
+// handler runs before buildNearVectorParams.
+func buildNearVector(t *testing.T, class *models.Class, body string) (*fakeSearcher, *APIError) {
+	t.Helper()
+	deps := newTestHandler(t)
+	deps.schemaReader.classes[class.Class] = class
+
+	parsed, apiErr := decodeNearVectorModel(body)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	if apiErr := checkReservedFields(&parsed.SearchCommon); apiErr != nil {
+		return nil, apiErr
+	}
+
+	params, apiErr := deps.handler.buildNearVectorParams(class, class.Class, parsed, fixtureGetClass(deps), nil)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	deps.searcher.lastParams = params
+	return deps.searcher, nil
+}
+
+func TestNearVectorParams(t *testing.T) {
+	t.Run("vector maps to NearVector, not module or keyword params", func(t *testing.T) {
+		searcher, apiErr := buildNearVector(t, movieClass(), `{"vector":[0.1,-0.2,0.3]}`)
+		require.Nil(t, apiErr)
+		nearVector := searcher.lastParams.NearVector
+		require.NotNil(t, nearVector)
+		require.Len(t, nearVector.Vectors, 1)
+		assert.Equal(t, []float32{0.1, -0.2, 0.3}, nearVector.Vectors[0])
+		assert.Empty(t, searcher.lastParams.ModuleParams)
+		assert.Nil(t, searcher.lastParams.KeywordRanking)
+		assert.Nil(t, searcher.lastParams.HybridSearch)
+	})
+
+	t.Run("whole numbers are read as a vector", func(t *testing.T) {
+		searcher, apiErr := buildNearVector(t, movieClass(), `{"vector":[1,0,-2]}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, []float32{1, 0, -2}, searcher.lastParams.NearVector.Vectors[0])
+	})
+}
+
+// TestNearVectorShape: the spec leaves `vector` untyped (a vector and a
+// multi-vector share the field), so the handler checks the shape. swagger's
+// required validation rejects an absent or null vector with 422 live; the
+// handler's 400 covers the direct-call path.
+func TestNearVectorShape(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+		want       string
+	}{
+		{"missing", `{}`, http.StatusBadRequest, errVectorNotNumbers},
+		{"null", `{"vector":null}`, http.StatusBadRequest, errVectorNotNumbers},
+		{"empty array", `{"vector":[]}`, http.StatusBadRequest, errVectorNotNumbers},
+		{"string entry", `{"vector":["0.1"]}`, http.StatusBadRequest, errVectorNotNumbers},
+		{"null entry", `{"vector":[0.1,null]}`, http.StatusBadRequest, errVectorNotNumbers},
+		{"boolean entry", `{"vector":[true]}`, http.StatusBadRequest, errVectorNotNumbers},
+		{"bare number", `{"vector":0.5}`, http.StatusBadRequest, errVectorNotNumbers},
+		{"object", `{"vector":{"title_vec":[0.1]}}`, http.StatusBadRequest, errVectorNotNumbers},
+		{"outside float32 range", `{"vector":[0.1,1e39]}`, http.StatusBadRequest, "vector[1] does not fit a 32-bit float"},
+		{"array of vectors", `{"vector":[[0.1,0.2],[0.3,0.4]]}`, http.StatusUnprocessableEntity, "multi-vector"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, apiErr := buildNearVector(t, movieClass(), tt.body)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, tt.wantStatus, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), tt.want)
+		})
+	}
+}
+
+// TestNearVectorCertaintyAndDistance: the cutoffs reach the near-vector
+// params; their rules are pinned on near-object, through the shared
+// parseCertaintyDistance.
+func TestNearVectorCertaintyAndDistance(t *testing.T) {
+	body := func(fields string) string {
+		return fmt.Sprintf(`{"vector":[0.1,0.2]%s}`, fields)
+	}
+
+	t.Run("distance sets the cutoff", func(t *testing.T) {
+		searcher, apiErr := buildNearVector(t, movieClass(), body(`,"distance":0.4`))
+		require.Nil(t, apiErr)
+		nearVector := searcher.lastParams.NearVector
+		assert.Equal(t, 0.4, nearVector.Distance)
+		assert.True(t, nearVector.WithDistance)
+	})
+
+	t.Run("certainty on a cosine index", func(t *testing.T) {
+		searcher, apiErr := buildNearVector(t, movieClass(), body(`,"certainty":0.8`))
+		require.Nil(t, apiErr)
+		nearVector := searcher.lastParams.NearVector
+		assert.Equal(t, 0.8, nearVector.Certainty)
+		assert.False(t, nearVector.WithDistance)
+	})
+}
+
+// TestNearVectorNeedsNoVectorizer: the caller brings the query vector, so
+// collections without any vectorizer module — the endpoint's main audience —
+// are fully searchable.
+func TestNearVectorNeedsNoVectorizer(t *testing.T) {
+	class := movieClass()
+	class.Vectorizer = "none"
+	_, apiErr := buildNearVector(t, class, `{"vector":[0.1,0.2]}`)
+	assert.Nil(t, apiErr)
+}
+
+func TestNearVectorTargetVectors(t *testing.T) {
+	t.Run("sole named vector selected implicitly", func(t *testing.T) {
+		searcher, apiErr := buildNearVector(t, namedVectorsClass("title_vec"), `{"vector":[0.1,0.2]}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, []string{"title_vec"}, searcher.lastParams.NearVector.TargetVectors)
+	})
+
+	t.Run("multiple named vectors require targetVector", func(t *testing.T) {
+		_, apiErr := buildNearVector(t, namedVectorsClass("title_vec", "summary_vec"), `{"vector":[0.1,0.2]}`)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+
+		searcher, apiErr := buildNearVector(t, namedVectorsClass("title_vec", "summary_vec"),
+			`{"vector":[0.1,0.2],"targetVector":"summary_vec"}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, []string{"summary_vec"}, searcher.lastParams.NearVector.TargetVectors)
+	})
+
+	t.Run("unknown targetVector is a 400", func(t *testing.T) {
+		_, apiErr := buildNearVector(t, namedVectorsClass("title_vec"),
+			`{"vector":[0.1,0.2],"targetVector":"nope"}`)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+	})
+
+	// a flat vector cannot search a multi-vector index; gRPC rejects the same
+	// direction, so the endpoint must not fall through to the engine
+	t.Run("multi-vector target is a 422", func(t *testing.T) {
+		tests := []struct {
+			name  string
+			class *models.Class
+			body  string
+		}{
+			{
+				name:  "sole named vector, selected implicitly",
+				class: multiVectorClass(namedVectorsClass("colbert_vec"), "colbert_vec"),
+				body:  `{"vector":[0.1,0.2]}`,
+			},
+			{
+				name:  "named explicitly beside a regular vector",
+				class: multiVectorClass(namedVectorsClass("title_vec", "colbert_vec"), "colbert_vec"),
+				body:  `{"vector":[0.1,0.2],"targetVector":"colbert_vec"}`,
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				_, apiErr := buildNearVector(t, tt.class, tt.body)
+				require.NotNil(t, apiErr)
+				assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+				assert.Contains(t, apiErr.Error(), `target vector "colbert_vec" is a multi-vector index`)
+			})
+		}
+	})
+
+	t.Run("regular target beside a multi-vector one is searchable", func(t *testing.T) {
+		searcher, apiErr := buildNearVector(t, multiVectorClass(namedVectorsClass("title_vec", "colbert_vec"), "colbert_vec"),
+			`{"vector":[0.1,0.2],"targetVector":"title_vec"}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, []string{"title_vec"}, searcher.lastParams.NearVector.TargetVectors)
+	})
+}
+
+// TestNearVectorSharedFields smoke-tests that the SearchCommon fields flow
+// through the shared parsers for near-vector exactly as for the other search
+// types.
+func TestNearVectorSharedFields(t *testing.T) {
+	assertSharedFieldsFlow(t, `"vector":[0.1,0.2]`, buildNearVector)
 }
 
 // decodeHybridModel unmarshals a JSON body into the typed hybrid request
@@ -1402,15 +1673,24 @@ func TestHybridNoSearchableProperties(t *testing.T) {
 		assert.Nil(t, apiErr)
 	})
 
-	t.Run("explicit queryProperties are the searcher's to reject", func(t *testing.T) {
-		_, apiErr := buildHybrid(t, unsearchableClass(), `{"query":"space","alpha":0,"queryProperties":["code"]}`)
-		assert.Nil(t, apiErr)
-	})
+	// the searchability of an explicit property is checked at every alpha:
+	// the searcher only ever sees the keyword part below alpha 1
+	for name, body := range map[string]string{
+		"alpha 0":   `{"query":"space","alpha":0,"queryProperties":["code"]}`,
+		"alpha 0.5": `{"query":"space","alpha":0.5,"queryProperties":["code"]}`,
+		"alpha 1":   `{"query":"space","alpha":1,"queryProperties":["code"]}`,
+	} {
+		t.Run("explicit non-searchable queryProperties are a 422 at "+name, func(t *testing.T) {
+			_, apiErr := buildHybrid(t, unsearchableClass(), body)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+		})
+	}
 }
 
 func TestHybridUnknownQueryProperty(t *testing.T) {
 	// same contract as bm25: an entry naming no schema property is a 400;
-	// an existing property without a searchable index is the searcher's 422
+	// an existing property without a searchable index is a 422
 	for name, body := range map[string]string{
 		"unknown":            `{"query":"space","queryProperties":["titel"]}`,
 		"unknown with boost": `{"query":"space","queryProperties":["titel^2"]}`,

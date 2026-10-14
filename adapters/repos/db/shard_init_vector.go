@@ -260,7 +260,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				HNSWConfig: &hnsw.Config{
 					Logger:                            s.index.logger,
 					RootPath:                          rootPath,
-					ID:                                hfreshConfigID + "_centroids",
+					ID:                                helpers.CentroidsID(hfreshConfigID),
 					ShardName:                         s.name,
 					ClassName:                         s.index.Config.ClassName.String(),
 					PrometheusMetrics:                 s.promMetrics,
@@ -276,7 +276,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 							// consistent with previous logic where the individual limit is 1/5 of the combined limit
 							hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize / 5),
 						}, opts...)
-						return hnsw.NewCommitLogger(rootPath, hfreshConfigID+"_centroids",
+						return hnsw.NewCommitLogger(rootPath, helpers.CentroidsID(hfreshConfigID),
 							s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
 							allOpts...,
 						)
@@ -430,6 +430,12 @@ func dropOneVectorIndex(ctx context.Context, index VectorIndex) error {
 // DropVectorIndex shuts down and removes the named vector index and its queue
 // from this shard, deleting associated files from disk. It also removes the
 // LSM buckets that store the raw and compressed vector data.
+//
+// The vector's dimension rows are not cleared here. This runs inline in the
+// RAFT apply, for every shard of the collection, and that clear is O(objects)
+// where everything else here is O(files). The drop task clears the rows per
+// unit instead, and a shard that was inactive throughout clears them when it
+// next loads.
 func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error {
 	s.vectorIndexMu.Lock()
 	defer s.vectorIndexMu.Unlock()

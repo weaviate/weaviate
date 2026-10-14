@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -25,12 +26,12 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -42,8 +43,18 @@ type objectTTLAndVersion struct {
 	ttlConfig *models.ObjectTTLConfig
 }
 
+// expiredObjectsDeleter dispatches a collection's deletions.
+// triggerDeletionObjectsExpiredLocalNode reads the counters as soon as eg.Wait
+// returns, so countDeleted must not be called later.
+type expiredObjectsDeleter interface {
+	DeleteExpiredObjects(ctx context.Context, eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder,
+		className, deleteOnPropName string, ttlThreshold, deletionTime time.Time, countDeleted func(int32),
+		schemaVersion uint64)
+}
+
 func NewCoordinator(schemaReader schemaUC.SchemaReader, schemaGetter schemaUC.SchemaGetter,
-	namespacesExister namespaces.Exister, db *db.DB, logger logrus.FieldLogger,
+	namespacesExister namespaces.Exister, db expiredObjectsDeleter,
+	concurrencyFactor *configRuntime.DynamicValue[float64], logger logrus.FieldLogger,
 	clusterClient *http.Client, nodeResolver nodeResolver, localStatus *LocalStatus,
 ) *Coordinator {
 	return &Coordinator{
@@ -54,6 +65,7 @@ func NewCoordinator(schemaReader schemaUC.SchemaReader, schemaGetter schemaUC.Sc
 		clusterClient:     clusterClient,
 		nodeResolver:      nodeResolver,
 		db:                db,
+		concurrencyFactor: concurrencyFactor,
 		objectTTLOngoing:  atomic.Bool{},
 		remoteObjectTTL:   newRemoteObjectTTL(clusterClient, nodeResolver),
 		localStatus:       localStatus,
@@ -64,7 +76,8 @@ type Coordinator struct {
 	schemaReader      schemaUC.SchemaReader
 	schemaGetter      schemaUC.SchemaGetter
 	namespacesExister namespaces.Exister
-	db                *db.DB
+	db                expiredObjectsDeleter
+	concurrencyFactor *configRuntime.DynamicValue[float64]
 	objectTTLOngoing  atomic.Bool
 	logger            logrus.FieldLogger
 	objectTTLLastNode string
@@ -160,7 +173,7 @@ func (c *Coordinator) Abort(ctx context.Context, targetOwnNode bool) (bool, erro
 		}
 	}
 
-	localAborted := c.localStatus.ResetRunning("aborted")
+	localAborted := c.localStatus.Abort()
 
 	// abort just on local node
 	if targetOwnNode || len(remoteNodes) == 0 {
@@ -175,10 +188,15 @@ func (c *Coordinator) Abort(ctx context.Context, targetOwnNode bool) (bool, erro
 	// abort also on all remote nodes
 	ec := errorcompounder.NewSafe()
 	eg := enterrors.NewErrorGroupWrapper(c.logger)
-	eg.SetLimit(concurrency.TimesFloatGOMAXPROCS(c.db.GetConfig().ObjectsTTLConcurrencyFactor.Get()))
+	eg.SetLimit(concurrency.TimesFloatGOMAXPROCS(c.concurrencyFactor.Get()))
 
 	abortedNodes := make(map[string]bool, len(remoteNodes)+1)
 	abortedNodes[localNode] = localAborted
+	// a panicking goroutine never reaches its write below, and a node missing
+	// from the map reads as one the abort never asked
+	for _, nodeName := range remoteNodes {
+		abortedNodes[nodeName] = false
+	}
 	anyAborted := localAborted
 	abortedLock := new(sync.Mutex)
 
@@ -193,9 +211,11 @@ func (c *Coordinator) Abort(ctx context.Context, targetOwnNode bool) (bool, erro
 			abortedNodes[nodeName] = aborted
 			abortedLock.Unlock()
 			return nil
-		})
+		}, nodeName)
 	}
-	eg.Wait()
+	// every closure returns nil, so a recovered panic is all Wait can report,
+	// and the collector files it under the node that raised it
+	_ = eg.WaitAndCollect(ec.AddGroups)
 	err := ec.ToError()
 
 	l := c.logger.WithFields(logrus.Fields{
@@ -204,9 +224,10 @@ func (c *Coordinator) Abort(ctx context.Context, targetOwnNode bool) (bool, erro
 		"nodes":   abortedNodes,
 	})
 	if err != nil {
-		l.WithError(err)
+		l.Warnf("abort ttl deletion on all nodes: %v", err)
+	} else {
+		l.Warn("abort ttl deletion on all nodes")
 	}
-	l.Warn("abort ttl deletion on all nodes")
 
 	return anyAborted, err
 }
@@ -218,7 +239,7 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 	if !ok {
 		return fmt.Errorf("another request is still being processed")
 	}
-	defer c.localStatus.ResetRunning("finished")
+	defer c.localStatus.Finish()
 
 	started := time.Now()
 
@@ -263,19 +284,20 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 
 	ec := errorcompounder.NewSafe()
 	eg := enterrors.NewErrorGroupWrapper(c.logger)
-	eg.SetLimit(concurrency.TimesFloatGOMAXPROCS(c.db.GetConfig().ObjectsTTLConcurrencyFactor.Get()))
+	eg.SetLimit(concurrency.TimesFloatGOMAXPROCS(c.concurrencyFactor.Get()))
 
 	for name, collection := range classesWithTTL {
 		if err := ctx.Err(); err != nil {
 			break
 		}
-		objsDeletedCounters[name] = &atomic.Int32{}
-		countDeleted := func(count int32) { objsDeletedCounters[name].Add(count) }
+		countDeleted := objsDeletedCounters.CounterFor(name)
 		deleteOnPropName, ttlThreshold := c.extractTtlDataFromCollection(collection.ttlConfig, ttlTime)
 		c.db.DeleteExpiredObjects(ttlCtx, eg, ec, name, deleteOnPropName, ttlThreshold, deletionTime, countDeleted, collection.version)
 	}
 
-	eg.Wait() // ignore errors from eg as they are already collected in ec
+	// every closure returns nil, so a recovered panic is all Wait can report,
+	// and the collector files it beside the errors the closures added themselves
+	_ = eg.WaitAndCollect(ec.AddGroups)
 
 	if err := ec.ToError(); err != nil {
 		return fmt.Errorf("deletion of expired objects on local node: %w", err)
@@ -476,6 +498,15 @@ func (c *remoteObjectTTL) AbortRemoteDelete(ctx context.Context, nodeName string
 
 type DeletedCounters map[string]*atomic.Int32
 
+// CounterFor registers a counter for name and returns the callback that adds to
+// it. The callback closes over the counter rather than over name, because a
+// delete goroutine indexing the map would race the next registration's write.
+func (dc DeletedCounters) CounterFor(name string) func(int32) {
+	counter := &atomic.Int32{}
+	dc[name] = counter
+	return func(count int32) { counter.Add(count) }
+}
+
 func (dc DeletedCounters) ToLogFields(maxCollectionNameLen int) (fields logrus.Fields, total int32) {
 	prefixLen := maxCollectionNameLen / 2
 	suffixLen := maxCollectionNameLen - 1 - prefixLen
@@ -499,6 +530,13 @@ func (dc DeletedCounters) ToLogFields(maxCollectionNameLen int) (fields logrus.F
 }
 
 // ----------------------------------------------------------------------------
+
+// A TTL deletion's context is cancelled with one of these, so a caller can match
+// on it with errors.Is instead of reading the message.
+var (
+	ErrAborted  = errors.New("aborted")
+	ErrFinished = errors.New("finished")
+)
 
 // LocalStatus keeps status of ongoing TTL deletion on local node.
 // isRunning is set to true when TTL deletion start and reset when finishes.
@@ -542,7 +580,10 @@ func (s *LocalStatus) SetRunning() (success bool, ctx context.Context) {
 	return true, s.runningCtx
 }
 
-func (s *LocalStatus) ResetRunning(cause string) (success bool) {
+// Abort cancels the running deletion and reports whether there was one. The slot
+// stays reserved until that deletion finishes, because it observes the
+// cancellation only between batches.
+func (s *LocalStatus) Abort() (aborted bool) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -550,9 +591,23 @@ func (s *LocalStatus) ResetRunning(cause string) (success bool) {
 		return false
 	}
 
-	s.runningCancel(enterrors.NewCanceledCause(cause))
+	s.runningCancel(enterrors.NewCanceledCause(ErrAborted))
+	return true
+}
+
+// Finish releases the slot, cancelling so that nothing still reading the
+// context keeps going. A deletion already aborted keeps the cause it was
+// cancelled with.
+func (s *LocalStatus) Finish() {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	if !s.isRunning {
+		return
+	}
+
+	s.runningCancel(enterrors.NewCanceledCause(ErrFinished))
 
 	s.isRunning = false
 	s.runningCtx, s.runningCancel = nil, nil
-	return true
 }

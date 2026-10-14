@@ -63,6 +63,8 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 		}).Errorf("proceeding with drop while references are still held; in-flight requests on this shard will fail: %v", drainErr)
 	}
 
+	defer s.releaseCountedStatus()
+
 	s.shutCtxCancel(fmt.Errorf("drop %q", s.ID()))
 
 	s.metrics.DeleteShardLabels(s.index.Config.ClassName.String(), s.name)

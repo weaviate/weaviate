@@ -44,6 +44,8 @@ const (
 	replicationEngineShutdownTimeout = 20 * time.Second
 	replicationOperationTimeout      = 24 * time.Hour
 	catchUpInterval                  = 5 * time.Second
+	// readyPollPeriod is how often startup checks for a leader or a loaded DB.
+	readyPollPeriod = 50 * time.Millisecond
 
 	// Fallbacks used only when the config seam left a cleanup knob unwired.
 	defaultReplicaMovementCleanupMaxAge   = 168 * time.Hour
@@ -102,6 +104,7 @@ type Service struct {
 
 	// closing channels
 	cancelReplicationEngine context.CancelFunc
+	engineDone              chan struct{}
 	cancelOpCleaner         context.CancelFunc
 	closeBootstrapper       chan struct{}
 	closeOnFSMCaughtUp      chan struct{}
@@ -189,33 +192,24 @@ func New(cfg Config, authZController authorization.Controller, svrMetrics *monit
 	}
 }
 
+// onFSMCaughtUp waits for the metadata FSM to catch up, then runs the
+// replication engine on the calling goroutine until ctx is cancelled.
 func (c *Service) onFSMCaughtUp(ctx context.Context) {
-	if !c.config.ReplicaMovementEnabled {
-		return
-	}
-
 	ticker := time.NewTicker(catchUpInterval)
 	defer ticker.Stop()
-	for {
+	for !c.Raft.store.FSMHasCaughtUp() {
 		select {
+		case <-ctx.Done():
+			return
 		case <-c.closeOnFSMCaughtUp:
 			return
 		case <-ticker.C:
-			if c.Raft.store.FSMHasCaughtUp() {
-				c.logger.Infof("Metadata FSM reported caught up, starting replication engine")
-				engineCtx, engineCancel := context.WithCancel(ctx)
-				c.cancelReplicationEngine = engineCancel
-				enterrors.GoWrapper(func() {
-					// The context is cancelled by the engine itself when it is stopped
-					if err := c.replicationEngine.Start(engineCtx); err != nil {
-						if !errors.Is(err, context.Canceled) {
-							c.logger.WithError(err).Error("replication engine failed to start after FSM caught up")
-						}
-					}
-				}, c.logger)
-				return
-			}
 		}
+	}
+
+	c.logger.Infof("Metadata FSM reported caught up, starting replication engine")
+	if err := c.replicationEngine.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		c.logger.WithError(err).Error("replication engine failed to start after FSM caught up")
 	}
 }
 
@@ -245,11 +239,12 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 	defer bCancel()
 	if hasState {
 		joiner := bootstrap.NewJoiner(c.rpcClient, c.config.NodeID, c.raftAddr, c.config.Voter)
-		err = backoff.Retry(func() error {
-			joinNodes := bootstrap.ResolveRemoteNodes(c.config.NodeSelector, c.config.NodeNameToPortMap)
-			_, err := joiner.Do(bootstrapCtx, c.logger, joinNodes)
-			return err
-		}, backoff.WithContext(backoff.NewConstantBackOff(1*time.Second), bootstrapCtx))
+		err = joiner.Rejoin(bootstrapCtx, c.logger,
+			func() map[string]string {
+				return bootstrap.ResolveRemoteNodes(c.config.NodeSelector, c.config.NodeNameToPortMap)
+			},
+			func() bool { return c.Raft.store.Leader() != "" },
+			time.Second, readyPollPeriod)
 		if err != nil {
 			return fmt.Errorf("could not join raft join list: %w. Weaviate detected this node to have state stored. If the DB is still loading up we will hit this timeout. You can try increasing/setting RAFT_BOOTSTRAP_TIMEOUT env variable to a higher value", err)
 		}
@@ -271,17 +266,18 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		}
 	}
 
-	if err := c.WaitUntilDBRestored(ctx, 1*time.Second, c.closeWaitForDB); err != nil {
+	if err := c.WaitUntilDBRestored(ctx, readyPollPeriod, c.closeWaitForDB); err != nil {
 		return fmt.Errorf("restore database: %w", err)
 	}
 
+	engineCtx, engineCancel := context.WithCancel(ctx)
+	c.cancelReplicationEngine = engineCancel
+	c.engineDone = make(chan struct{})
 	enterrors.GoWrapper(func() {
-		c.onFSMCaughtUp(ctx)
+		defer close(c.engineDone)
+		c.onFSMCaughtUp(engineCtx)
 	}, c.logger)
 
-	// Outside onFSMCaughtUp: that function returns early when
-	// ReplicaMovementEnabled is false while the FSM keeps accumulating ops, so
-	// the sweeper must not inherit that gate.
 	if c.opCleaner != nil {
 		cleanerCtx, cleanerCancel := context.WithCancel(ctx)
 		c.cancelOpCleaner = cleanerCancel
@@ -303,17 +299,12 @@ func (c *Service) Close(ctx context.Context) error {
 		c.closeOnFSMCaughtUp <- struct{}{}
 	}, c.logger)
 
-	if c.config.ReplicaMovementEnabled {
+	if c.cancelReplicationEngine != nil {
 		c.logger.Info("closing replication engine ...")
-		if c.cancelReplicationEngine != nil {
-			c.cancelReplicationEngine()
-		}
-		c.replicationEngine.Stop()
+		c.cancelReplicationEngine()
+		<-c.engineDone
 	}
 
-	// Outside the conditional: the cleanup loop runs regardless of
-	// ReplicaMovementEnabled. Nil-guarded because Open has early-return paths
-	// that leave the cancel unset.
 	if c.cancelOpCleaner != nil {
 		c.cancelOpCleaner()
 	}

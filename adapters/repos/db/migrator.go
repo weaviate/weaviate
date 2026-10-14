@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/router"
+	clusterschema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -134,11 +135,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		if err != nil {
 			return fmt.Errorf("get local shards count for class %q: %w", class.Class, err)
 		}
-		// Only calculate shard sizes if the shard-count condition alone wouldn't
-		// already trigger lazy-loading. This avoids walking all shard directories
-		// on large MT setups where the count exceeds the threshold.
-		if localActiveShardsCount <= m.db.config.LazyLoadShardCountThreshold &&
-			m.db.config.LazyLoadShardSizeThresholdGB > 0 {
+		if shouldComputeShardSizes(m.db.config.EnableLazyLoadShards, localActiveShardsCount,
+			m.db.config.LazyLoadShardCountThreshold, m.db.config.LazyLoadShardSizeThresholdGB) {
 			// we do need to calculate shard size if it's MT to be able to decide
 			// to enable lazy load shards based on total size
 			localShards, err := m.db.schemaReader.LocalShards(class.Class)
@@ -173,19 +171,23 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			SeparateObjectsCompactions:     m.db.config.SeparateObjectsCompactions,
 			CycleManagerRoutinesFactor:     m.db.config.CycleManagerRoutinesFactor,
 			IndexRangeableInMemory:         m.db.config.IndexRangeableInMemory,
+			IndexRangeableInMemoryProps:    m.db.config.IndexRangeableInMemoryProps[class.Class],
 			ObjectsTTLBatchSize:            m.db.config.ObjectsTTLBatchSize,
 			ObjectsTTLPauseEveryNoBatches:  m.db.config.ObjectsTTLPauseEveryNoBatches,
 			ObjectsTTLPauseDuration:        m.db.config.ObjectsTTLPauseDuration,
 			MaxSegmentSize:                 m.db.config.MaxSegmentSize,
 			TrackVectorDimensions:          m.db.config.TrackVectorDimensions,
 			TrackVectorDimensionsInterval:  m.db.config.TrackVectorDimensionsInterval,
+			MigrateDimensionsToRoaringSet:  m.db.config.MigrateDimensionsToRoaringSet,
+			DimensionsReindex:              &m.db.dimensionsReindex,
 			UsageEnabled:                   m.db.config.UsageEnabled,
 			AvoidMMap:                      m.db.config.AvoidMMap,
 			EnableLazyLoadShards: func() bool {
 				// If explicitly set (true = always lazy, false = always eager),
 				// skip auto-detection entirely.
 				if m.db.config.EnableLazyLoadShards != nil {
-					return *m.db.config.EnableLazyLoadShards
+					lazyLoadShardEnabled = *m.db.config.EnableLazyLoadShards
+					return lazyLoadShardEnabled
 				}
 
 				lazyLoadShardEnabled = shouldAutoLazyLoadShards(
@@ -211,6 +213,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			StartupShards:                       &m.db.startupShards,
 			BucketLoadLimiter:                   m.db.bucketLoadLimiter,
 			NamespacesExister:                   m.db.namespacesExister,
+			QueryAdmission:                      m.db.queryAdmission,
 			HNSWMaxLogSize:                      m.db.config.HNSWMaxLogSize,
 			HNSWWaitForCachePrefill: func() bool {
 				// don't wait if lazy load shard is enabled
@@ -285,11 +288,12 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		"enable_lazy_load_shards": lazyLoadShardEnabled,
 		"background_warmup":       idx.Config.backgroundWarmupEnabled(),
 		"warmup_min_objects":      m.db.config.LazyLoadShardWarmupMinObjects,
+		"auto_detected":           m.db.config.EnableLazyLoadShards == nil,
 		"local_shard_count":       localActiveShardsCount,
 		"total_shard_size_bytes":  totalShardSizeBytes,
 		"count_threshold":         m.db.config.LazyLoadShardCountThreshold,
 		"size_threshold_gb":       m.db.config.LazyLoadShardSizeThresholdGB,
-	}).Info("lazy load shard auto-detection result")
+	}).Warn("lazy load shard auto-detection result")
 	return nil
 }
 
@@ -299,14 +303,26 @@ func (m *Migrator) DropClass(ctx context.Context, className string, hasFrozen bo
 	m.classLocks.Lock(indexID)
 	defer m.classLocks.Unlock(indexID)
 
-	if err := m.db.DeleteIndex(schema.ClassName(className)); err != nil {
+	collided, err := m.db.deleteIndex(schema.ClassName(className))
+	if err != nil {
 		return err
 	}
 
-	if m.cloud != nil && hasFrozen {
+	if m.cloud != nil && hasFrozen && !collided {
 		return m.cloud.Delete(ctx, className, "", "")
 	}
 
+	return nil
+}
+
+func (m *Migrator) DropOrphanedClass(ctx context.Context, className string, hasFrozen bool) error {
+	collided, err := m.db.DropOrphanedClass(schema.ClassName(className))
+	if err != nil {
+		return err
+	}
+	if m.cloud != nil && hasFrozen && !collided {
+		return m.cloud.Delete(ctx, className, "", "")
+	}
 	return nil
 }
 
@@ -591,11 +607,6 @@ func (m *Migrator) UpdateProperty(ctx context.Context, className string, propert
 }
 
 func (m *Migrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
-	indexID := indexID(schema.ClassName(className))
-
-	m.classLocks.Lock(indexID)
-	defer m.classLocks.Unlock(indexID)
-
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		// index not yet local (RAFT schema not applied on this node) or class does not exist
@@ -606,11 +617,6 @@ func (m *Migrator) GetShardsQueueSize(ctx context.Context, className, tenant str
 }
 
 func (m *Migrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
-	indexID := indexID(schema.ClassName(className))
-
-	m.classLocks.Lock(indexID)
-	defer m.classLocks.Unlock(indexID)
-
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		// index not yet local (RAFT schema not applied on this node) or class does not exist
@@ -621,11 +627,6 @@ func (m *Migrator) GetShardsStatus(ctx context.Context, className, tenant string
 }
 
 func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string, schemaVersion uint64) error {
-	indexID := indexID(schema.ClassName(className))
-
-	m.classLocks.Lock(indexID)
-	defer m.classLocks.Unlock(indexID)
-
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		// index not yet local (RAFT schema not applied on this node) or class does not exist
@@ -637,11 +638,6 @@ func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, 
 
 // NewTenants creates new partitions
 func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates []*schemaUC.CreateTenantPayload) error {
-	indexID := indexID(schema.ClassName(class.Class))
-
-	m.classLocks.Lock(indexID)
-	defer m.classLocks.Unlock(indexID)
-
 	idx := m.db.GetIndex(schema.ClassName(class.Class))
 	if idx == nil {
 		return fmt.Errorf("cannot find index for %q", class.Class)
@@ -680,11 +676,6 @@ func (m *Migrator) UpdateTenantsForProcess(ctx context.Context, class *models.Cl
 func (m *Migrator) updateTenants(ctx context.Context, class *models.Class, updates []*schemaUC.UpdateTenantPayload,
 	loadShard func(ctx context.Context, idx *Index, name string) error,
 ) error {
-	indexID := indexID(schema.ClassName(class.Class))
-
-	m.classLocks.Lock(indexID)
-	defer m.classLocks.Unlock(indexID)
-
 	idx := m.db.GetIndex(schema.ClassName(class.Class))
 	if idx == nil {
 		return fmt.Errorf("cannot find index for %q", class.Class)
@@ -741,7 +732,8 @@ func (m *Migrator) updateTenants(ctx context.Context, class *models.Class, updat
 					idx.logger.WithFields(logrus.Fields{
 						"action": "tenant_activation_lazy_load_shard",
 						"shard":  name,
-					}).Errorf("loading shard %q failed: %v", name, err)
+					}).WithFields(enterrors.DocsLinkFields(err)).
+						Errorf("loading shard %q failed: %v", name, err)
 				}
 				return nil
 			})
@@ -814,11 +806,6 @@ func tenantNames(tenants []*schemaUC.UpdateTenantPayload) []string {
 
 // DeleteTenants deletes tenant from the database and data from the disk, no matter the current status of the tenant
 func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant) error {
-	indexID := indexID(schema.ClassName(class))
-
-	m.classLocks.Lock(indexID)
-	defer m.classLocks.Unlock(indexID)
-
 	idx := m.db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return nil
@@ -991,51 +978,132 @@ func (m *Migrator) UpdateReplicationConfig(ctx context.Context, className string
 	return nil
 }
 
-func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
-	count := 0
-	m.logger.
-		WithField("action", "reindex").
-		Info("Reindexing dimensions, this may take a while")
-
-	m.db.indexLock.Lock()
-	defer m.db.indexLock.Unlock()
-
-	// Iterate over all indexes
-	for _, index := range m.db.indices {
-		err := index.ForEachShard(func(name string, shard ShardLike) error {
-			return shard.resetDimensionsLSM(ctx)
-		})
-		if err != nil {
-			m.logger.WithField("action", "reindex").WithError(err).Warn("could not reset vector dimensions")
-			return err
-		}
-
-		// Iterate over all shards
-		err = index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
-			count = count + 1
-			return object.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
-				if err = shard.extendDimensionTrackerLSM(dims, object.DocID, targetVector); err != nil {
-					return fmt.Errorf("failed to extend dimension tracker for vector %q: %w", targetVector, err)
-				}
-				return nil
-			})
-		})
-		if err != nil {
-			m.logger.WithField("action", "reindex").WithError(err).Warn("could not extend vector dimensions")
-			return err
+// ReportVectorDimensionsReindex logs the outcome once the indexes have loaded their
+// shards. The error lists the shards left.
+func (m *Migrator) ReportVectorDimensionsReindex(ctx context.Context) error {
+	if !m.db.StartupComplete() {
+		return errors.New("report dimensions reindex: db has not completed startup")
+	}
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for !m.db.allShardsReady() {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for shards to load: %w", context.Cause(ctx))
+		case <-ticker.C:
 		}
 	}
-	f := func() {
-		for {
-			m.logger.
-				WithField("action", "reindex").
-				Warnf("Reindexed %v objects. Reindexing dimensions complete. Please remove environment variable REINDEX_VECTOR_DIMENSIONS_AT_STARTUP before next startup", count)
-			time.Sleep(5 * time.Minute)
-		}
-	}
-	enterrors.GoWrapper(f, m.logger)
 
+	notLoaded, inactive := 0, 0
+	var classes []*models.Class
+	if objects := m.db.schemaGetter.GetSchemaSkipAuth().Objects; objects != nil {
+		classes = objects.Classes
+	}
+	for _, class := range classes {
+		n, i, err := m.db.dimensionsNotReindexed(class.Class)
+		if err != nil {
+			return err
+		}
+		notLoaded += n
+		inactive += i
+	}
+
+	rebuilt, failed, objects := m.db.dimensionsReindex.summary()
+	if failed > 0 || notLoaded > 0 || inactive > 0 {
+		return fmt.Errorf("%d shards reindexed, %d failed, %d active shards not loaded, "+
+			"%d inactive tenants with objects: these are reindexed once loaded while it is set",
+			rebuilt, failed, notLoaded, inactive)
+	}
+	m.logger.WithField("action", "reindex_vector_dimensions").
+		WithField("shards", rebuilt).
+		WithField("objects", objects).
+		Warn("Reindexing dimensions complete. Please remove environment variable " +
+			"REINDEX_VECTOR_DIMENSIONS_AT_STARTUP before next startup")
 	return nil
+}
+
+func (db *DB) allShardsReady() bool {
+	db.indexLock.RLock()
+	defer db.indexLock.RUnlock()
+	for _, index := range db.indices {
+		if !index.allShardsReady.Load() {
+			return false
+		}
+	}
+	return true
+}
+
+// dimensionsNotReindexed counts the local shards of the class that were not reindexed
+// and are not known to be empty.
+func (db *DB) dimensionsNotReindexed(className string) (notLoaded, inactive int, err error) {
+	db.indexLock.RLock()
+	index := db.indices[indexID(schema.ClassName(className))]
+	db.indexLock.RUnlock()
+
+	var active, cold []string
+	err = db.schemaReader.Read(className, false, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return fmt.Errorf("no sharding state for class %s", className)
+		}
+		for name, physical := range state.Physical {
+			if !state.IsLocalShard(name) {
+				continue
+			}
+			switch physical.ActivityStatus() {
+			case models.TenantActivityStatusHOT:
+				active = append(active, name)
+			case models.TenantActivityStatusCOLD:
+				// not read here, that holds up changes to the schema
+				cold = append(cold, name)
+			default:
+				// a frozen tenant's dir is gone, it would read as empty
+				inactive++
+			}
+		}
+		return nil
+	})
+	if errors.Is(err, clusterschema.ErrClassNotFound) {
+		return 0, 0, nil
+	}
+	if err != nil {
+		return 0, 0, fmt.Errorf("report dimensions reindex: %w", err)
+	}
+
+	reindexed := func(name string) bool {
+		return db.dimensionsReindex.done(indexID(schema.ClassName(className)), name)
+	}
+	for _, name := range cold {
+		if reindexed(name) {
+			continue
+		}
+		if index == nil || !index.unloadedShardIsEmpty(name) {
+			inactive++
+		}
+	}
+	for _, name := range active {
+		if reindexed(name) {
+			continue
+		}
+		if index == nil {
+			notLoaded++
+			continue
+		}
+		switch shard := index.shards.Load(name).(type) {
+		case nil:
+			// activated but not loaded yet, or loading it failed
+		case *LazyLoadShard:
+			if shard.isLoaded() {
+				continue
+			}
+		default:
+			// reindexed as it loaded, or counted as failed
+			continue
+		}
+		if !index.unloadedShardIsEmpty(name) {
+			notLoaded++
+		}
+	}
+	return notLoaded, inactive, nil
 }
 
 func (m *Migrator) RecountProperties(ctx context.Context) error {

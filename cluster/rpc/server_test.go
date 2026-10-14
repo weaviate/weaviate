@@ -349,6 +349,30 @@ func TestApply(t *testing.T) {
 			},
 		},
 		{
+			name:     "Apply unknown command reaches the caller as Unimplemented",
+			members:  &MockMembers{},
+			executor: &MockExecutor{},
+			testFunc: func(t *testing.T, leaderAddr string, members *MockMembers, executor *MockExecutor) {
+				logger, _ := logrustest.NewNullLogger()
+				server := NewServer(members, executor, leaderAddr, raftGrpcMessageMaxSize, false, sm, logger)
+				assert.Nil(t, server.Open())
+				defer server.Close()
+				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false, logrus.StandardLogger())
+				defer client.Close()
+
+				n := 0
+				executor.ef = func() error {
+					n++
+					return types.ErrUnknownCommand
+				}
+
+				_, err := client.Apply(context.TODO(), leaderAddr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
+				assert.Equal(t, codes.Unimplemented, status.Code(err))
+				assert.ErrorIs(t, err, types.ErrUnknownCommand)
+				assert.Equal(t, 1, n, "Unimplemented must not be retried")
+			},
+		},
+		{
 			name:     "Apply success",
 			members:  &MockMembers{},
 			executor: &MockExecutor{},
@@ -507,4 +531,18 @@ func (m *MockExecutor) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.Q
 		return m.qf(req)
 	}
 	return &cmd.QueryResponse{}, nil
+}
+
+// A leader whose FSM has not caught up is transient.
+var applyRetryableCodes = []codes.Code{codes.Aborted, codes.ResourceExhausted, codes.Unavailable}
+
+func TestToRPCError_FSMNotCaughtUpIsRetryable(t *testing.T) {
+	wrapped := fmt.Errorf("waiting for leader FSM: %w", types.ErrFSMNotCaughtUp)
+
+	st, ok := status.FromError(toRPCError(wrapped))
+	assert.True(t, ok)
+	assert.NotEqual(t, codes.Internal, st.Code(),
+		"Internal is not retried by the Apply retry policy")
+	assert.Contains(t, applyRetryableCodes, st.Code(),
+		"must map to a code Apply's retryPolicy retries")
 }

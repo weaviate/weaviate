@@ -92,8 +92,7 @@ func qualify(principal *models.Principal, name string) string {
 //   - a prefix naming a different namespace from sourceClass
 //
 // NS-disabled: pass-through. Centralises the policy shared by
-// references_add, references_update, batch_references_add and
-// properties_validation.
+// every reference write and by QualifyPropertyDataTypes.
 func QualifyRefTarget(principal *models.Principal, namespacesEnabled bool, sourceClass, target string) (qualified, short string, err error) {
 	if !namespacesEnabled {
 		return target, target, nil
@@ -174,16 +173,14 @@ func QualifyClass(principal *models.Principal, namespacesEnabled bool, name stri
 	return qualified, nil
 }
 
-// QualifyPropertyDataTypes auto-qualifies cross-reference DataType class names
-// with the principal's namespace on namespaces-enabled clusters. Primitive and
-// nested-object DataTypes pass through unchanged. Already-qualified entries
-// (containing the namespace separator) sent by a namespaced principal are
-// rejected via ValidateNamespacePrefix — symmetric with QualifyClass.
+// QualifyPropertyDataTypes runs each cross-reference DataType through
+// QualifyRefTarget with className as the source class, for every principal,
+// so no caller can declare a reference to a class in another namespace.
+// Primitive and nested-object DataTypes pass through unchanged.
 //
 // Mutates properties[i].DataType slices in place. No-op when namespaces are
-// disabled or the principal has no namespace (global principals / NS-disabled
-// clusters). Callers that construct *models.Property programmatically must
-// pass short DataType names; an already-qualified value will be rejected.
+// disabled. A namespaced principal's entries must be short names, because
+// QualifyRefTarget rejects any prefix from one.
 //
 // Scope: top-level properties only. NestedProperty.DataType cross-refs are
 // rejected upstream.
@@ -202,9 +199,10 @@ func QualifyClass(principal *models.Principal, namespacesEnabled bool, name stri
 func QualifyPropertyDataTypes(
 	principal *models.Principal,
 	namespacesEnabled bool,
+	className string,
 	properties []*models.Property,
 ) error {
-	if !namespacesEnabled || ConfinedNamespace(principal) == "" {
+	if !namespacesEnabled {
 		return nil
 	}
 	return walkCrossRefDataTypes(properties, func(p *models.Property) error {
@@ -212,10 +210,11 @@ func QualifyPropertyDataTypes(
 			if dt == "" {
 				continue
 			}
-			if err := ValidateNamespacePrefix(principal, namespacesEnabled, dt, "class"); err != nil {
+			qualified, _, err := QualifyRefTarget(principal, namespacesEnabled, className, dt)
+			if err != nil {
 				return err
 			}
-			p.DataType[i] = QualifiedName(principal.Namespace, dt)
+			p.DataType[i] = qualified
 		}
 		return nil
 	})

@@ -34,7 +34,7 @@ import (
 
 func Test_BatchDelete_RequestValidation(t *testing.T) {
 	var (
-		vectorRepo *fakeVectorRepo
+		vectorRepo *fakeObjectFinder
 		manager    *BatchManager
 	)
 
@@ -58,7 +58,7 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 	}
 
 	resetAutoSchema := func(autoSchema bool) {
-		vectorRepo = &fakeVectorRepo{}
+		vectorRepo = &fakeObjectFinder{}
 		config := &config.WeaviateConfig{
 			Config: config.Config{
 				AutoSchema: config.AutoSchema{
@@ -223,10 +223,10 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 // case is the regression guard that resolveNS is a no-op without a
 // namespace.
 func Test_BatchDelete_NamespaceResolution(t *testing.T) {
-	makeManager := func(t *testing.T, classes []*models.Class) (*BatchManager, *fakeVectorRepo, *mocks.FakeAuthorizer) {
+	makeManager := func(t *testing.T, classes []*models.Class) (*BatchManager, *fakeObjectFinder, *mocks.FakeAuthorizer) {
 		t.Helper()
 		sch := schema.Schema{Objects: &models.Schema{Classes: classes}}
-		vectorRepo := &fakeVectorRepo{}
+		vectorRepo := &fakeObjectFinder{}
 		cfg := &config.WeaviateConfig{
 			Config: config.Config{
 				AutoSchema: config.AutoSchema{
@@ -349,7 +349,7 @@ func Test_BatchDelete_ValidationErrorsAreUserInput(t *testing.T) {
 		}}
 		schemaManager := &fakeSchemaManager{GetSchemaResponse: sch}
 		logger, _ := test.NewNullLogger()
-		vectorRepo := &fakeVectorRepo{}
+		vectorRepo := &fakeObjectFinder{}
 		return NewBatchManager(vectorRepo, getFakeModulesProvider(), schemaManager, cfg, logger, mocks.NewMockAuthorizer(), nil,
 			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
 	}
@@ -407,7 +407,7 @@ func Test_BatchDelete_FromGRPC_Uses_SchemaVersion(t *testing.T) {
 			sch := schema.Schema{Objects: &models.Schema{Classes: []*models.Class{{
 				Class: "Foo", Vectorizer: config.VectorizerModuleNone, VectorIndexConfig: hnsw.UserConfig{},
 			}}}}
-			vectorRepo := &fakeVectorRepo{}
+			vectorRepo := &fakeObjectFinder{}
 			vectorRepo.On("BatchDeleteObjects", mock.Anything).Return(BatchDeleteResult{}, nil).Once()
 			schemaManager := &fakeSchemaManager{
 				GetSchemaResponse: sch,

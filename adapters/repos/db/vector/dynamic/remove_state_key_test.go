@@ -44,6 +44,42 @@ func writeVerdicts(t *testing.T, rootPath string, targets ...string) {
 	}))
 }
 
+// writeUpgradingMarkers records an in-progress upgrade for each target, as a
+// shard that crashed mid-upgrade would have.
+func writeUpgradingMarkers(t *testing.T, rootPath string, targets ...string) {
+	t.Helper()
+	db, err := bbolt.Open(filepath.Join(rootPath, ent.StateDBFileName), 0o600, nil)
+	require.NoError(t, err)
+	defer db.Close()
+	require.NoError(t, db.Update(func(tx *bbolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists(dynamicBucket)
+		if err != nil {
+			return err
+		}
+		for _, target := range targets {
+			if err := b.Put(upgradingKey(target), []byte{1}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}))
+}
+
+func hasUpgradingMarker(t *testing.T, rootPath, target string) bool {
+	t.Helper()
+	db, err := bbolt.Open(filepath.Join(rootPath, ent.StateDBFileName), 0o600, &bbolt.Options{ReadOnly: true})
+	require.NoError(t, err)
+	defer db.Close()
+	present := false
+	require.NoError(t, db.View(func(tx *bbolt.Tx) error {
+		if b := tx.Bucket(dynamicBucket); b != nil {
+			present = len(b.Get(upgradingKey(target))) > 0
+		}
+		return nil
+	}))
+	return present
+}
+
 func hasVerdict(t *testing.T, rootPath, target string) bool {
 	t.Helper()
 	upgraded, err := UpgradedOnDisk(rootPath, "vectors_"+target, target)
@@ -79,6 +115,30 @@ func TestRemoveStateKey(t *testing.T) {
 			assert: func(t *testing.T, rootPath string) {
 				assert.False(t, hasVerdict(t, rootPath, ""))
 				assert.True(t, hasVerdict(t, rootPath, "b"))
+			},
+		},
+		{
+			// A marker left behind makes the next vector of the same name load
+			// as an interrupted upgrade.
+			name: "removes the target's upgrading marker and leaves its siblings",
+			setup: func(t *testing.T, rootPath string) {
+				writeUpgradingMarkers(t, rootPath, "a", "b")
+			},
+			target: "a",
+			assert: func(t *testing.T, rootPath string) {
+				assert.False(t, hasUpgradingMarker(t, rootPath, "a"), "the dropped vector's marker must go")
+				assert.True(t, hasUpgradingMarker(t, rootPath, "b"), "a sibling's marker must survive")
+			},
+		},
+		{
+			name: "removes the unnamed vector's upgrading marker",
+			setup: func(t *testing.T, rootPath string) {
+				writeUpgradingMarkers(t, rootPath, "", "b")
+			},
+			target: "",
+			assert: func(t *testing.T, rootPath string) {
+				assert.False(t, hasUpgradingMarker(t, rootPath, ""))
+				assert.True(t, hasUpgradingMarker(t, rootPath, "b"))
 			},
 		},
 		{

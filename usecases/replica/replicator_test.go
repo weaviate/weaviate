@@ -859,7 +859,7 @@ func TestReplicatorAddReferences(t *testing.T) {
 }
 
 type fakeFactory struct {
-	t              *testing.T
+	t              testing.TB
 	CLS            string
 	Nodes          []string
 	Shard2replicas map[string][]string
@@ -870,7 +870,7 @@ type fakeFactory struct {
 	isMultiTenant  bool
 }
 
-func newFakeFactory(t *testing.T, class, shard string, nodes []string, isMultiTenant bool) *fakeFactory {
+func newFakeFactory(t testing.TB, class, shard string, nodes []string, isMultiTenant bool) *fakeFactory {
 	logger, hook := test.NewNullLogger()
 
 	return &fakeFactory{

@@ -13,11 +13,13 @@ package roaringset
 
 import (
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 type Seeker interface {
-	Seek(key []byte) (segmentindex.Node, error)
+	// SeekPayloadStart returns where the node holding the smallest key >= key
+	// begins, relative to the payload buffer NewSegmentCursor was given rather
+	// than to the segment file, or lsmkv.NotFound past the highest key.
+	SeekPayloadStart(key []byte) (uint64, error)
 }
 
 type SegmentCursor interface {
@@ -77,10 +79,10 @@ func (c *segmentCursor) First() ([]byte, BitmapLayer, error) {
 }
 
 func (c *segmentCursor) Seek(key []byte) ([]byte, BitmapLayer, error) {
-	node, err := c.index.Seek(key)
+	start, err := c.index.SeekPayloadStart(key)
 	if err != nil {
 		return nil, BitmapLayer{}, err
 	}
-	c.nextOffset = node.Start
+	c.nextOffset = start
 	return c.Next()
 }

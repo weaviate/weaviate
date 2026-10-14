@@ -12,14 +12,26 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	enthfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // Unit pins for the shard shutdown/restore lifecycle (the integrationTest-
@@ -146,6 +158,75 @@ func TestPerformShutdown_TeardownErrorSticks(t *testing.T) {
 	require.NoError(t, clean.Shutdown(context.Background()))
 }
 
+// TestShardReleasesCounterAndVersionFiles pins that a shard holds its indexcount
+// file open only while it is loaded, and its version file not at all once it has
+// loaded. Each tenant a node loads and unloads would otherwise keep descriptors.
+func TestShardReleasesCounterAndVersionFiles(t *testing.T) {
+	ctx := context.Background()
+	className := "FileDescriptors"
+	shard, index := testShard(t, ctx, className)
+	s, ok := shard.(*Shard)
+	require.True(t, ok, "the counter and versioner live on the concrete shard")
+	require.NoError(t, s.PutObject(ctx, testObject(className)))
+
+	shardPath := s.path()
+	counterPath := path.Join(shardPath, "indexcount")
+	versionPath := path.Join(shardPath, "version")
+	loadShard := func() (*Shard, error) {
+		return NewShard(ctx, nil, s.Name(), index, &models.Class{Class: className},
+			index.centralJobQueue, index.scheduler, index.indexCheckpoints,
+			index.shardReindexer, false, index.bitmapBufPool, monitoring.ShardRegistrationEager)
+	}
+
+	// Round 0 shuts down the shard testShard created, and every later round shuts down one loaded from disk.
+	for round := range 3 {
+		require.Equal(t, 1, openDescriptorCount(t, counterPath),
+			"round %d: a loaded shard keeps its counter file open to persist doc IDs", round)
+		require.Zero(t, openDescriptorCount(t, versionPath),
+			"round %d: a loaded shard has no use for its version file", round)
+
+		require.NoError(t, s.Shutdown(ctx))
+		require.Zero(t, openDescriptorCount(t, counterPath), "round %d: shutdown closes the counter file", round)
+		require.Zero(t, openDescriptorCount(t, versionPath), "round %d: shutdown leaves the version file closed", round)
+
+		var err error
+		s, err = loadShard()
+		require.NoError(t, err)
+	}
+	require.NoError(t, s.Shutdown(ctx))
+
+	// Each case leaves the shard broken on disk, so the case that fails later in the load runs first.
+	failedLoads := []struct {
+		name      string
+		breakDisk func(t *testing.T)
+	}{
+		{
+			name: "version file too short to read",
+			breakDisk: func(t *testing.T) {
+				require.NoError(t, os.WriteFile(versionPath, []byte{1}, 0o644))
+			},
+		},
+		{
+			name: "store fails before the counter opens",
+			breakDisk: func(t *testing.T) {
+				lsmPath := path.Join(shardPath, "lsm")
+				require.NoError(t, os.RemoveAll(lsmPath))
+				require.NoError(t, os.WriteFile(lsmPath, nil, 0o644))
+			},
+		},
+	}
+	for _, tc := range failedLoads {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.breakDisk(t)
+
+			_, err := loadShard()
+			require.Error(t, err)
+			require.Zero(t, openDescriptorCount(t, counterPath), "a failed load closes the counter file")
+			require.Zero(t, openDescriptorCount(t, versionPath), "a failed load closes the version file")
+		})
+	}
+}
+
 // TestShardKnownShut pins the reactivation-eviction predicate: ONLY a shard
 // that completed a shutdown may be evicted from the map. An unloaded
 // LazyLoadShard is the normal steady state of a not-yet-loaded shard —
@@ -179,4 +260,109 @@ func TestShardKnownShut(t *testing.T) {
 	require.True(t, restoreShardIfStillAlive(&m, "torn", torn),
 		"a torn shard is retained as the last reference to its leaked handles")
 	require.NotNil(t, m.Load("torn"))
+}
+
+// TestShardLoadDropsNodeIDBeyondDocIDCounter pins that the vector index and each
+// geo property index of a shard are bounded by its document-ID counter, so a
+// commit log naming a node far beyond it is truncated on load instead of sizing
+// the node index to it (weaviate/0-weaviate-issues#649). HFresh's centroid index
+// numbers its nodes by posting ID and must keep no limit; it gets none only
+// because it lives in HFresh's directory, where there is no counter.
+func TestShardLoadDropsNodeIDBeyondDocIDCounter(t *testing.T) {
+	type commitLog struct {
+		indexPath     func(s *Shard) string // relative to the shard directory
+		wantTruncated bool
+	}
+	geoLog := commitLog{indexPath: func(*Shard) string { return geoPropID("location") }, wantTruncated: true}
+
+	tests := []struct {
+		name              string
+		vectorIndexConfig schemaConfig.VectorIndexConfig
+		logs              []commitLog
+	}{
+		{
+			name:              "hnsw",
+			vectorIndexConfig: enthnsw.NewDefaultUserConfig(),
+			logs: []commitLog{
+				{indexPath: func(s *Shard) string { return s.vectorIndexID("") }, wantTruncated: true},
+				geoLog,
+			},
+		},
+		{
+			name:              "hfresh",
+			vectorIndexConfig: enthfresh.NewDefaultUserConfig(),
+			logs: []commitLog{
+				{indexPath: func(s *Shard) string {
+					id := s.vectorIndexID("")
+					return path.Join(helpers.HFreshDirName(id), helpers.CentroidsID(id))
+				}},
+				geoLog,
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			className := "NodeIDLimit"
+			class := &models.Class{
+				Class: className,
+				Properties: []*models.Property{
+					{Name: "location", DataType: schema.DataTypeGeoCoordinates.PropString()},
+				},
+			}
+			shard, index := testShardWithSettings(t, ctx, class, tc.vectorIndexConfig, false, false, false)
+			s, ok := shard.(*Shard)
+			require.True(t, ok)
+
+			const objects = 3
+			for i := range objects {
+				obj := testObject(className)
+				obj.Vector = []float32{float32(i), 1, 2, 3}
+				obj.Object.Properties = map[string]interface{}{"location": geoCoordinates(float32(i), 1)}
+				require.NoError(t, s.PutObject(ctx, obj))
+			}
+			shardPath := s.path()
+			logPaths := make([]string, len(tc.logs))
+			for i, l := range tc.logs {
+				logPaths[i] = path.Join(shardPath, l.indexPath(s)+".hnsw.commitlog.d", "9999999999")
+			}
+			require.NoError(t, s.Shutdown(ctx))
+
+			record := walBytesForShardTest(t, objects+1<<24+1000)
+			for _, p := range logPaths {
+				require.NoError(t, os.WriteFile(p, record, 0o644))
+			}
+
+			s, err := NewShard(ctx, nil, s.Name(), index, class,
+				index.centralJobQueue, index.scheduler, index.indexCheckpoints,
+				index.shardReindexer, false, index.bitmapBufPool, monitoring.ShardRegistrationEager)
+			require.NoError(t, err)
+			defer s.Shutdown(ctx)
+
+			for i, l := range tc.logs {
+				p := logPaths[i]
+				st, err := os.Stat(p)
+				if l.wantTruncated {
+					// The truncated log is empty, and the commit logger prunes empty raw logs.
+					if os.IsNotExist(err) {
+						continue
+					}
+					require.NoError(t, err)
+					require.Zero(t, st.Size(), "%s must be truncated before the out-of-limit record", p)
+					continue
+				}
+				require.NoError(t, err)
+				require.Equal(t, int64(len(record)), st.Size(), "%s must keep its record", p)
+			}
+		})
+	}
+}
+
+// walBytesForShardTest encodes an AddNode record for id.
+func walBytesForShardTest(t *testing.T, id uint64) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	require.NoError(t, compact.NewWALWriter(&buf).WriteAddNode(id, 0))
+	return buf.Bytes()
 }

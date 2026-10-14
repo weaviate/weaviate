@@ -805,7 +805,7 @@ func TestCoordinatorCommitCancellation(t *testing.T) {
 		node2Addr := map[string]string{"N1": "N1", "N2": "N2"}
 
 		// Set a very short timeout to avoid waiting in the retry loop
-		// retryAfter will be timeoutNextRound / 5 = 0.2ms, which is fine for testing
+		// retryAfter is capped at timeoutNextRound, so the loop never waits long
 		coordinator.timeoutNextRound = 1 * time.Millisecond
 
 		coordinator.commit(ctx, req, node2Addr, true)
@@ -1077,56 +1077,67 @@ func TestErrInFlightReindex_IsShared(t *testing.T) {
 			"if this fails, a parallel declaration has been re-introduced")
 }
 
-// TestCommitAllManyFailures verifies commitAll does not deadlock when the number
-// of participants exceeds the connection limit and they all fail. Each failing
-// worker sends on errChan, but the consumer only runs after every worker is
-// submitted; with an unbuffered channel the first _MaxNumberConns workers block
-// on the send, holding all the errgroup slots so the submit loop can never reach
-// the consumer.
-func TestCommitAllManyFailures(t *testing.T) {
+func TestCommitAll(t *testing.T) {
 	t.Parallel()
 
-	const numNodes = _MaxNumberConns * 2
-	var (
-		backendName = "s3"
-		backupID    = "test-backup"
-		ctx         = context.Background()
-		any         = mock.Anything
-	)
+	t.Run("empty participants", func(t *testing.T) {
+		for _, nodes := range []map[string]string{nil, {}} {
+			fc := newFakeCoordinator(newFakeNodeResolver(nil))
+			coordinator := fc.coordinator()
+			done := make(chan int, 1)
+			enterrors.GoWrapper(func() {
+				done <- coordinator.commitAll(context.Background(), &StatusRequest{}, nodes)
+			}, coordinator.log)
 
-	nodes := make([]string, numNodes)
-	for i := range nodes {
-		nodes[i] = fmt.Sprintf("N%d", i)
-	}
-
-	fc := newFakeCoordinator(newFakeNodeResolver(nodes))
-	coordinator := fc.coordinator()
-
-	node2Addr := make(map[string]string, numNodes)
-	for _, n := range nodes {
-		coordinator.Participants[n] = participantStatus{
-			Status:   backup.Transferring,
-			LastTime: time.Now(),
+			select {
+			case nFailures := <-done:
+				assert.Zero(t, nFailures)
+			case <-time.After(time.Second):
+				t.Fatal("commitAll blocked with no participants")
+			}
 		}
-		node2Addr[n] = n
-	}
+	})
 
-	// Every commit fails, so every worker tries to send on errChan.
-	fc.client.On("Commit", any, any, any).Return(errors.New("commit failed"))
+	t.Run("many failures", func(t *testing.T) {
+		const numNodes = _MaxNumberConns * 2
+		var (
+			backendName = "s3"
+			backupID    = "test-backup"
+			ctx         = context.Background()
+			any         = mock.Anything
+		)
 
-	req := &StatusRequest{Method: OpRestore, ID: backupID, Backend: backendName}
+		nodes := make([]string, numNodes)
+		for i := range nodes {
+			nodes[i] = fmt.Sprintf("N%d", i)
+		}
 
-	done := make(chan int, 1)
-	enterrors.GoWrapper(func() {
-		done <- coordinator.commitAll(ctx, req, node2Addr)
-	}, coordinator.log)
+		fc := newFakeCoordinator(newFakeNodeResolver(nodes))
+		coordinator := fc.coordinator()
 
-	select {
-	case nFailures := <-done:
-		assert.Equal(t, numNodes, nFailures)
-	case <-time.After(10 * time.Second):
-		t.Fatal("commitAll deadlocked with more failing participants than the connection limit")
-	}
+		node2Addr := make(map[string]string, numNodes)
+		for _, n := range nodes {
+			coordinator.Participants[n] = participantStatus{
+				Status:   backup.Transferring,
+				LastTime: time.Now(),
+			}
+			node2Addr[n] = n
+		}
+
+		fc.client.On("Commit", any, any, any).Return(errors.New("commit failed"))
+		req := &StatusRequest{Method: OpRestore, ID: backupID, Backend: backendName}
+		done := make(chan int, 1)
+		enterrors.GoWrapper(func() {
+			done <- coordinator.commitAll(ctx, req, node2Addr)
+		}, coordinator.log)
+
+		select {
+		case nFailures := <-done:
+			assert.Equal(t, numNodes, nFailures)
+		case <-time.After(10 * time.Second):
+			t.Fatal("commitAll deadlocked with more failing participants than the connection limit")
+		}
+	})
 }
 
 type rolesAndUsersCall struct {
@@ -1356,4 +1367,34 @@ func TestRestoreRolesAndUsersGatedOnStagingNotClasses(t *testing.T) {
 		assert.Contains(t, f.coord.descriptor.Error, ErrAny.Error())
 		assert.Contains(t, f.coord.descriptor.Error, authErr.Error())
 	})
+}
+
+// A participant that finishes quickly must not keep the coordinator waiting
+// for a full polling round.
+func TestCoordinatorCommitPollsQuicklyAtFirst(t *testing.T) {
+	t.Parallel()
+	const backupID = "fast-backup"
+	nodes := []string{"N1"}
+	fc := newFakeCoordinator(newFakeNodeResolver(nodes))
+	c := fc.coordinator()
+	c.timeoutNextRound = _NextRoundPeriod
+	c.descriptor = &backup.DistributedBackupDescriptor{
+		ID:          backupID,
+		NodeMapping: map[string]string{},
+		Nodes:       map[string]*backup.NodeDescriptor{"N1": {Classes: []string{"Class1"}}},
+	}
+	c.Participants["N1"] = participantStatus{Status: backup.Transferring, LastTime: time.Now()}
+
+	fc.client.On("Commit", mock.Anything, "N1", mock.Anything).Return(nil)
+	transferring := &StatusResponse{Status: backup.Transferring, ID: backupID, Method: OpRestore}
+	success := &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
+	fc.client.On("Status", mock.Anything, "N1", mock.Anything).Return(transferring, nil).Twice()
+	fc.client.On("Status", mock.Anything, "N1", mock.Anything).Return(success, nil).Once()
+
+	start := time.Now()
+	c.commit(context.Background(), &StatusRequest{Method: OpRestore, ID: backupID, Backend: "s3"}, map[string]string{"N1": "N1"}, false)
+
+	assert.Less(t, time.Since(start), 2*time.Second)
+	assert.Equal(t, backup.Transferred, c.descriptor.Status)
+	fc.client.AssertNumberOfCalls(t, "Status", 3)
 }

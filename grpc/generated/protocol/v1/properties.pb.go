@@ -238,7 +238,7 @@ type Value_NumberValue struct {
 }
 
 type Value_BoolValue struct {
-	// dont reuse 2, old field that has been removed; Was "string string_value = 2;"
+	//dont reuse 2, old field that has been removed; Was "string string_value = 2;"
 	BoolValue bool `protobuf:"varint,3,opt,name=bool_value,json=boolValue,proto3,oneof"`
 }
 
@@ -470,7 +470,7 @@ func (*ListValue_TextValues) isListValue_Kind() {}
 
 type NumberValues struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// *
+	//*
 	// The values are stored as a byte array, where each 8 bytes represent a single float64 value.
 	// The byte array is stored in little-endian order using uint64 encoding.
 	Values        []byte `protobuf:"bytes,1,opt,name=values,proto3" json:"values,omitempty"`
@@ -737,7 +737,7 @@ func (x *UuidValues) GetValues() []string {
 
 type IntValues struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// *
+	//*
 	// The values are stored as a byte array, where each 8 bytes represent a single int64 value.
 	// The byte array is stored in little-endian order using uint64 encoding.
 	Values        []byte `protobuf:"bytes,1,opt,name=values,proto3" json:"values,omitempty"`

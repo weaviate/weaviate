@@ -36,22 +36,28 @@ import (
 )
 
 func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSchemaManager) {
-	schemaManager := &fakeSchemaManager{}
-	logger, _ := test.NewNullLogger()
 	vectorizerValidator := &fakeVectorizerValidator{
 		valid: []string{"text2vec-contextionary", "model1", "model2"},
 	}
+	return newTestHandlerWithModules(t, fakeModulesProvider{}, &fakeModuleConfig{}, vectorizerValidator)
+}
+
+func newTestHandlerWithModules(t *testing.T, modules modulesProvider, moduleConfig ModuleConfig,
+	vectorizerValidator VectorizerValidator,
+) (*Handler, *fakeSchemaManager) {
+	schemaManager := &fakeSchemaManager{}
+	logger, _ := test.NewNullLogger()
 	cfg := config.Config{
 		DefaultVectorizerModule:     config.VectorizerModuleNone,
 		DefaultVectorDistanceMetric: "cosine",
 	}
 	fakeClusterState := fakes.NewFakeClusterState()
 	fakeValidator := &fakeValidator{}
-	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, fakeModulesProvider{}, nil, nil)
+	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, modules, nil, nil)
 	handler, err := NewHandler(
 		schemaManager, schemaManager, fakeValidator, logger, mocks.NewMockAuthorizer(),
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil, nil, nil)
+		moduleConfig, fakeClusterState, nil, *schemaParser, nil, nil, nil)
 	require.NoError(t, err)
 	handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 	return &handler, schemaManager
@@ -128,6 +134,10 @@ func (f *fakeDB) UpdateIndex(cmd command.UpdateClassRequest) error {
 }
 
 func (f *fakeDB) ReloadLocalDB(ctx context.Context, all []command.UpdateClassRequest) error {
+	return nil
+}
+
+func (f *fakeDB) DropOrphanedClass(ctx context.Context, class string, hasFrozen bool) error {
 	return nil
 }
 
@@ -234,6 +244,10 @@ func (f *fakeModuleConfig) ValidateClass(ctx context.Context, class *models.Clas
 	return nil
 }
 
+func (f *fakeModuleConfig) ValidateModuleConfig(ctx context.Context, class *models.Class, moduleName, targetVector string) error {
+	return nil
+}
+
 func (f *fakeModuleConfig) GetByName(name string) modulecapabilities.Module {
 	return nil
 }
@@ -297,7 +311,12 @@ type fakeMigrator struct {
 }
 
 func (f *fakeMigrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
-	return nil, nil
+	args := f.Called(ctx, className, tenant)
+	return args.Get(0).(map[string]int64), args.Error(1)
+}
+
+func (f *fakeMigrator) DropOrphanedClass(ctx context.Context, className string, hasFrozen bool) error {
+	return nil
 }
 
 func (f *fakeMigrator) AddClass(ctx context.Context, cls *models.Class) error {

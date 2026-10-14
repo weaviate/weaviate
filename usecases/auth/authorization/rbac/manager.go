@@ -40,6 +40,10 @@ const (
 	SnapshotVersionLatest
 )
 
+// ErrRestoreRefused marks a [Manager.Restore] error returned before Restore
+// cleared the policy store, so the node still holds the roles it had.
+var ErrRestoreRefused = errors.New("restore snapshot refused")
+
 // NamespaceLister reports the namespaces this cluster currently has. Snapshot calls it
 // when it runs rather than at construction, so a snapshot taken later sees namespaces
 // created since boot.
@@ -135,10 +139,25 @@ func (m *Manager) GetUsersOrGroupsWithRoles(isGroup bool, authType authenticatio
 }
 
 func (m *Manager) upsertRolesPermissions(roles map[string][]authorization.Policy) error {
+	// Every role is assigned to this internal user, so a role without
+	// permissions still exists: g, db:wv_internal_empty, role:roleName
+	anchorUser := conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, authentication.AuthTypeDb)
+
+	// Check every row before writing any, so a refused upsert stores nothing. The
+	// authz handlers check first, but an older leader may have committed such a row.
 	for roleName, policies := range roles {
-		// assign role to internal user to make sure to catch empty roles
-		// e.g. : g, user:wv_internal_empty, role:roleName
-		if _, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, authentication.AuthTypeDb), conv.PrefixRoleName(roleName)); err != nil {
+		if err := conv.ValidateStorableRow("g", anchorUser, conv.PrefixRoleName(roleName)); err != nil {
+			return err
+		}
+		for _, policy := range policies {
+			if err := conv.ValidateStorableRow("p", conv.PrefixRoleName(roleName), policy.Resource, policy.Verb, policy.Domain); err != nil {
+				return err
+			}
+		}
+	}
+
+	for roleName, policies := range roles {
+		if _, err := m.casbin.AddRoleForUser(anchorUser, conv.PrefixRoleName(roleName)); err != nil {
 			return fmt.Errorf("AddRoleForUser: %w", err)
 		}
 		for _, policy := range policies {
@@ -160,6 +179,13 @@ func (m *Manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
 
+	return m.getRoles(names...)
+}
+
+// getRoles is GetRoles for a caller that already holds restoreLock for reading.
+// Taking that read lock twice on one goroutine parks it forever once Restore is
+// queued for the write lock.
+func (m *Manager) getRoles(names ...string) (map[string][]authorization.Policy, error) {
 	var (
 		casbinStoragePolicies    [][][]string
 		casbinStoragePoliciesMap = make(map[string]struct{})
@@ -167,9 +193,9 @@ func (m *Manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 
 	if len(names) == 0 {
 		// get all roles
-		polices, err := m.casbin.GetNamedPolicy("p")
+		polices, err := m.copyPolicies()
 		if err != nil {
-			return nil, fmt.Errorf("GetNamedPolicy: %w", err)
+			return nil, fmt.Errorf("GetFilteredNamedPolicy: %w", err)
 		}
 		casbinStoragePolicies = append(casbinStoragePolicies, polices)
 
@@ -178,9 +204,9 @@ func (m *Manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 			casbinStoragePoliciesMap[p[0]] = struct{}{}
 		}
 
-		polices, err = m.casbin.GetNamedGroupingPolicy("g")
+		polices, err = m.copyGroupingPolicies()
 		if err != nil {
-			return nil, fmt.Errorf("GetNamedGroupingPolicy: %w", err)
+			return nil, fmt.Errorf("GetFilteredNamedGroupingPolicy: %w", err)
 		}
 		casbinStoragePolicies = collectStaleRoles(polices, casbinStoragePoliciesMap, casbinStoragePolicies)
 	} else {
@@ -203,11 +229,24 @@ func (m *Manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 			casbinStoragePolicies = collectStaleRoles(polices, casbinStoragePoliciesMap, casbinStoragePolicies)
 		}
 	}
-	policies, err := conv.CasbinPolicies(m.namespacesEnabled, casbinStoragePolicies...)
+	policies, err := conv.CasbinPolicies(m.logger, m.namespacesEnabled, casbinStoragePolicies...)
 	if err != nil {
 		return nil, fmt.Errorf("CasbinPolicies: %w", err)
 	}
 	return policies, nil
+}
+
+// copyPolicies returns every p row in a slice casbin does not hold. GetNamedPolicy
+// returns casbin's own slice, which RemovePermissions rewrites in place while the
+// caller still reads it. The filtered read copies it under casbin's lock.
+func (m *Manager) copyPolicies() ([][]string, error) {
+	return m.casbin.GetFilteredNamedPolicy("p", 0)
+}
+
+// copyGroupingPolicies is copyPolicies for the g rows, which RevokeRolesForUser
+// rewrites in place.
+func (m *Manager) copyGroupingPolicies() ([][]string, error) {
+	return m.casbin.GetFilteredNamedGroupingPolicy("g", 0)
 }
 
 // ListGroupingSubjects returns the subject key of every role-assignment row
@@ -216,9 +255,9 @@ func (m *Manager) ListGroupingSubjects() ([]string, error) {
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
 
-	rows, err := m.casbin.GetGroupingPolicy()
+	rows, err := m.copyGroupingPolicies()
 	if err != nil {
-		return nil, fmt.Errorf("GetGroupingPolicy: %w", err)
+		return nil, fmt.Errorf("GetFilteredNamedGroupingPolicy: %w", err)
 	}
 	subjects := make([]string, 0, len(rows))
 	for _, r := range rows {
@@ -336,15 +375,16 @@ func (m *Manager) DeleteRoles(roles ...string) error {
 
 	changed := false
 	for _, roleName := range roles {
-		// remove role
-		roleRemoved, err := m.casbin.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(roleName))
-		if err != nil {
-			return fmt.Errorf("RemoveFilteredNamedPolicy: %w", err)
-		}
-		// remove role assignment
+		// Assignments go before permissions. getRoles reads p rows before g rows and
+		// returns g rows with no p rows as a role with no permissions. Callers who lack
+		// the deleted role's permissions may see such a role.
 		roleAssignmentsRemoved, err := m.casbin.RemoveFilteredGroupingPolicy(1, conv.PrefixRoleName(roleName))
 		if err != nil {
 			return fmt.Errorf("RemoveFilteredGroupingPolicy: %w", err)
+		}
+		roleRemoved, err := m.casbin.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(roleName))
+		if err != nil {
+			return fmt.Errorf("RemoveFilteredNamedPolicy: %w", err)
 		}
 
 		// deletes are idempotent: an already-absent role is a no-op, but other
@@ -373,6 +413,13 @@ func (m *Manager) AddRolesForUser(user string, roles []string) error {
 
 	if !conv.NameHasPrefix(user) {
 		return errors.New("user does not contain a prefix")
+	}
+
+	// Check every row before writing any, so a refused call stores nothing.
+	for _, role := range roles {
+		if err := conv.ValidateStorableRow("g", user, conv.PrefixRoleName(role)); err != nil {
+			return err
+		}
 	}
 
 	for _, role := range roles {
@@ -409,7 +456,7 @@ func (m *Manager) GetRolesForUserOrGroup(userName string, authType authenticatio
 	if len(rolesNames) == 0 {
 		return map[string][]authorization.Policy{}, err
 	}
-	roles, err := m.GetRoles(rolesNames...)
+	roles, err := m.getRoles(rolesNames...)
 	if err != nil {
 		return nil, fmt.Errorf("GetRoles: %w", err)
 	}
@@ -468,54 +515,166 @@ func (m *Manager) RevokeRolesForUser(userName string, roles ...string) error {
 	return nil
 }
 
-// apiManagedBuiltInRoles are the built-in roles whose assignments are granted through
-// the API and therefore exist only in the policy store. Root and read-only are absent
-// on purpose: applyPredefinedRoles rebuilds their assignments from configuration on
-// every restore, so carrying them would be discarded work.
-var apiManagedBuiltInRoles = []string{authorization.Admin, authorization.Viewer}
-
-// apiManagedBuiltInGroupings returns the admin and viewer assignments held by subjects
-// qualified with a namespace the selection named. A built-in role can never be selected,
-// so without these rows a namespace's own admin is absent from the snapshot and a fresh
-// cluster has nothing to rebuild it from.
-//
-// Anything outside that namespace stays behind. A db subject strips unconditionally, so
-// another namespace's admin would arrive on the restored cluster as a global identity
-// holding admin. A global or group subject belongs to the source cluster rather than to
-// the namespace being moved.
-func (m *Manager) apiManagedBuiltInGroupings(roles []string) ([][]string, error) {
-	namespaces := make(map[string]struct{}, len(roles))
-	for _, name := range roles {
-		if ns := namespacing.NamespaceFromQualified(name); ns != "" {
-			namespaces[ns] = struct{}{}
-		}
-	}
-	if len(namespaces) == 0 {
-		return nil, nil
-	}
-
-	inScope := func(subject string) bool {
-		_, _, ns, err := conv.SubjectNamespace(subject)
-		if err != nil || ns == "" {
-			return false
-		}
-		_, ok := namespaces[ns]
-		return ok
-	}
-
+// apiManagedBuiltInGroupings returns the admin and viewer assignments whose subject
+// keep accepts. keep receives the full subject string, such as "db:ns1:alice".
+func (m *Manager) apiManagedBuiltInGroupings(keep func(subject string) bool) ([][]string, error) {
 	var out [][]string
-	for _, role := range apiManagedBuiltInRoles {
+	for _, role := range authorization.ApiManagedBuiltInRoles {
 		gs, err := m.casbin.GetFilteredNamedGroupingPolicy("g", 1, conv.PrefixRoleName(role))
 		if err != nil {
 			return nil, fmt.Errorf("GetFilteredNamedGroupingPolicy: %w", err)
 		}
 		for _, g := range gs {
-			if len(g) > 0 && inScope(g[0]) {
+			if len(g) == 0 {
+				continue
+			}
+			if keep(g[0]) {
 				out = append(out, g)
 			}
 		}
 	}
 	return out, nil
+}
+
+// BuiltInAssignments returns a snapshot of the given db users' admin and viewer
+// assignments, nil when they hold none. Each id matches the subject "db:<id>"
+// exactly, so a namespaced user is passed qualified ("ns1:alice").
+func (m *Manager) BuiltInAssignments(userIDs ...string) ([]byte, error) {
+	if m == nil || m.casbin == nil {
+		return nil, nil
+	}
+
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
+
+	subjects := make(map[string]struct{}, len(userIDs))
+	for _, id := range userIDs {
+		subjects[conv.UserNameWithTypeFromId(id, authentication.AuthTypeDb)] = struct{}{}
+	}
+	groupingPolicy, err := m.apiManagedBuiltInGroupings(func(subject string) bool {
+		_, ok := subjects[subject]
+		return ok
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(groupingPolicy) == 0 {
+		return nil, nil
+	}
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(snapshot{
+		GroupingPolicy: groupingPolicy,
+		Version:        SnapshotVersionLatest,
+	}); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// OIDCBuiltInAssignments returns a snapshot of the admin and viewer assignments
+// held by OIDC users of the given namespaces, nil when none match. A requested
+// name counts only when this cluster lists it as a namespace, so "urn" never
+// selects "oidc:urn:x". The blob names its namespaces so a restore can strip its rows.
+func (m *Manager) OIDCBuiltInAssignments(namespaces ...string) ([]byte, error) {
+	if m == nil || m.casbin == nil || m.namespaces == nil {
+		return nil, nil
+	}
+
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
+
+	requested := make(map[string]struct{}, len(namespaces))
+	for _, ns := range namespaces {
+		requested[ns] = struct{}{}
+	}
+	confirmed := map[string]struct{}{}
+	for _, ns := range m.namespaces.List() {
+		if _, ok := requested[ns.Name]; ok {
+			confirmed[ns.Name] = struct{}{}
+		}
+	}
+	if len(confirmed) == 0 {
+		return nil, nil
+	}
+
+	groupingPolicy, err := m.apiManagedBuiltInGroupings(func(subject string) bool {
+		_, authType, ns, err := conv.SubjectNamespace(subject)
+		if err != nil || authType != authentication.AuthTypeOIDC {
+			return false
+		}
+		_, ok := confirmed[ns]
+		return ok
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(groupingPolicy) == 0 {
+		return nil, nil
+	}
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(snapshot{
+		GroupingPolicy: groupingPolicy,
+		Version:        SnapshotVersionLatest,
+		Namespaces:     m.referencedNamespaces(nil, groupingPolicy),
+	}); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// MergeSnapshots concatenates two snapshots' rows into one blob that strips and
+// restores as each side would alone. An empty side returns the other unchanged;
+// duplicate rows are kept; the result carries a's Version. Callers pass the
+// carried built-in assignments as b.
+func MergeSnapshots(a, b []byte) ([]byte, error) {
+	if len(b) == 0 {
+		return a, nil
+	}
+	if len(a) == 0 {
+		return b, nil
+	}
+
+	var sa, sb snapshot
+	if err := json.Unmarshal(a, &sa); err != nil {
+		return nil, fmt.Errorf("merge snapshots: decode first: %w", err)
+	}
+	if err := json.Unmarshal(b, &sb); err != nil {
+		return nil, fmt.Errorf("merge snapshots: decode second: %w", err)
+	}
+
+	// A non-empty merged list turns off the strip's role-name fallback for every
+	// row, so a side without its own list contributes its role-name namespaces
+	// whenever the other side would make the merged list non-empty. Each side's
+	// rows then strip under at least the set they would strip under alone.
+	effective := func(s, other snapshot) []string {
+		if len(s.Namespaces) > 0 {
+			return s.Namespaces
+		}
+		if len(other.Namespaces) > 0 {
+			return roleNameNamespaces(s)
+		}
+		return nil
+	}
+	namespaces := slices.Concat(effective(sa, sb), effective(sb, sa))
+	slices.Sort(namespaces)
+
+	// Overlaps duplicate rows (an older participant uploads a namespace's whole
+	// built-in set, repeating carried ones); casbin's batch add skips repeats and
+	// the strip's collision check counts source names, not rows. Keeping a's
+	// Version lets Restore run the V0 upgrade, which leaves b's carried db and
+	// oidc subject rows unchanged.
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(snapshot{
+		Policy:         slices.Concat(sa.Policy, sb.Policy),
+		GroupingPolicy: slices.Concat(sa.GroupingPolicy, sb.GroupingPolicy),
+		Version:        sa.Version,
+		Namespaces:     slices.Compact(namespaces),
+	}); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // referencedNamespaces returns the namespaces the given rows refer to, in sorted order.
@@ -594,8 +753,8 @@ type snapshot struct {
 // no roles it captures the whole store. Called with roles it keeps only those
 // roles' rows: `p` rows are matched on p[0] and `g` rows on g[1], both of which
 // hold the role name, so the assignments and the db:wv_internal_empty placeholder
-// come along too. A selection also carries the admin and viewer grants held by
-// the principals it covers, for the reason given on apiManagedBuiltInGroupings.
+// come along too. A selection of custom roles carries no admin or viewer assignments
+// ([Manager.BuiltInAssignments] and [Manager.OIDCBuiltInAssignments] carry those).
 func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
 	// snapshot isn't always initialized, e.g. when RBAC is disabled
 	if m == nil {
@@ -611,11 +770,11 @@ func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
 	var policy, groupingPolicy [][]string
 	if len(roles) == 0 {
 		var err error
-		policy, err = m.casbin.GetPolicy()
+		policy, err = m.copyPolicies()
 		if err != nil {
 			return nil, err
 		}
-		groupingPolicy, err = m.casbin.GetGroupingPolicy()
+		groupingPolicy, err = m.copyGroupingPolicies()
 		if err != nil {
 			return nil, err
 		}
@@ -639,11 +798,6 @@ func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
 			policy = append(policy, ps...)
 			groupingPolicy = append(groupingPolicy, gs...)
 		}
-		gs, err := m.apiManagedBuiltInGroupings(roles)
-		if err != nil {
-			return nil, err
-		}
-		groupingPolicy = append(groupingPolicy, gs...)
 	}
 
 	// Use a buffer to stream the JSON encoding
@@ -669,19 +823,15 @@ func (m *Manager) ListAllRoles() ([]string, error) {
 	return slices.Collect(maps.Keys(roles)), nil
 }
 
+// Restore replaces the policy store with a backup's snapshot.
 func (m *Manager) Restore(b []byte, stripNamespaces bool) error {
-	// don't overwrite with empty snapshot to avoid overwriting recovery from file
-	// with a non-existent RBAC snapshot when coming from old versions
-	if m == nil || len(b) == 0 {
-		return nil
-	}
-	if m.casbin == nil {
+	if m == nil || len(b) == 0 || m.casbin == nil {
 		return nil
 	}
 
 	snapshot := snapshot{}
 	if err := json.Unmarshal(b, &snapshot); err != nil {
-		return fmt.Errorf("restore snapshot: decode json: %w", err)
+		return fmt.Errorf("%w: decode json: %w", ErrRestoreRefused, err)
 	}
 
 	// Keep this above the write lock and ClearPolicy below. A colliding snapshot
@@ -690,11 +840,45 @@ func (m *Manager) Restore(b []byte, stripNamespaces bool) error {
 	if stripNamespaces {
 		stripped, err := stripRBACSnapshot(snapshot, StaticAPIKeyUsers(m.authNconf))
 		if err != nil {
-			return err
+			return fmt.Errorf("%w: %w", ErrRestoreRefused, err)
 		}
 		snapshot = stripped
 	}
 
+	// Like the strip above, refuse before ClearPolicy. Rows the policy file can't
+	// hold would fail the next load, or load as rows the snapshot never had.
+	if err := validateStorableRows("p", snapshot.Policy); err != nil {
+		return fmt.Errorf("%w: %w", ErrRestoreRefused, err)
+	}
+	if err := validateStorableRows("g", snapshot.GroupingPolicy); err != nil {
+		return fmt.Errorf("%w: %w", ErrRestoreRefused, err)
+	}
+
+	return m.replacePolicies(snapshot)
+}
+
+// RestoreRaftSnapshot replaces the policy store with a RAFT snapshot. It drops
+// and logs each row the policy file cannot store, since refusing the snapshot
+// keeps the node from starting or catching up. Dropping a row only removes a grant.
+func (m *Manager) RestoreRaftSnapshot(b []byte) error {
+	// don't overwrite with empty snapshot to avoid overwriting recovery from file
+	// with a non-existent RBAC snapshot when coming from old versions
+	if m == nil || len(b) == 0 || m.casbin == nil {
+		return nil
+	}
+
+	snapshot := snapshot{}
+	if err := json.Unmarshal(b, &snapshot); err != nil {
+		return fmt.Errorf("restore snapshot: decode json: %w", err)
+	}
+	snapshot.Policy = m.dropUnstorableRows("p", snapshot.Policy)
+	snapshot.GroupingPolicy = m.dropUnstorableRows("g", snapshot.GroupingPolicy)
+
+	return m.replacePolicies(snapshot)
+}
+
+// replacePolicies clears the policy store and loads snapshot into it.
+func (m *Manager) replacePolicies(snapshot snapshot) error {
 	// Hold the write lock only for the casbin mutation and cache invalidation
 	// so that concurrent Enforce() calls (which hold RLock) are blocked.
 	// Unmarshalling is done above without the lock since it doesn't touch
@@ -743,6 +927,30 @@ func (m *Manager) Restore(b []byte, stripNamespaces bool) error {
 	}
 
 	return nil
+}
+
+func validateStorableRows(ptype string, rows [][]string) error {
+	for _, row := range rows {
+		if err := validateStorableRow(ptype, row); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *Manager) dropUnstorableRows(ptype string, rows [][]string) [][]string {
+	return slices.DeleteFunc(rows, func(row []string) bool {
+		err := validateStorableRow(ptype, row)
+		if err != nil {
+			m.logger.WithField("action", "restore_rbac_snapshot").
+				Errorf("rbac_restore_dropped_row: restored the snapshot without this row: %v", err)
+		}
+		return err != nil
+	})
+}
+
+func validateStorableRow(ptype string, row []string) error {
+	return conv.ValidateStorableRow(append([]string{ptype}, row...)...)
 }
 
 // BatchEnforcers is not needed after some digging they just loop over requests,
@@ -801,9 +1009,6 @@ func prettyPermissionsResources(principal *models.Principal, perm *models.Permis
 		}
 		if perm.Data.Tenant != nil && *perm.Data.Tenant != "" {
 			s += fmt.Sprintf(" Tenant: %s,", *perm.Data.Tenant)
-		}
-		if perm.Data.Object != nil && *perm.Data.Object != "" {
-			s += fmt.Sprintf(" Object: %s", *perm.Data.Object)
 		}
 		s = strings.TrimSuffix(s, ",")
 		res += fmt.Sprintf("[%s]", s)
