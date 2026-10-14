@@ -26,8 +26,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring/testinghelpers"
 )
 
-// flatPrefillCount reads the flat preload series off the default registry.
-// It is shared by every test in the binary, so callers compare deltas.
+// flatPrefillCount reads the shared default registry, so callers compare deltas.
 func flatPrefillCount(t *testing.T) uint64 {
 	t.Helper()
 	n, err := testinghelpers.SampleCount(prometheus.DefaultGatherer,
@@ -43,8 +42,7 @@ func (panickingQuantizer) Type() QuantizerType {
 	panic("preload panic injected by the test")
 }
 
-// A preload that panics is recovered by the shard's init in production, so
-// it must not record a duration, like the hnsw and hfresh prefills.
+// the shard's init recovers a panicking preload in production
 func Test_NoRace_Flat_PanickingPreloadRecordsNoDuration(t *testing.T) {
 	ctx := context.Background()
 	dirName := t.TempDir()
@@ -72,8 +70,6 @@ func Test_NoRace_Flat_PanickingPreloadRecordsNoDuration(t *testing.T) {
 	require.Equal(t, before, flatPrefillCount(t), "a preload that panicked is not a completed prefill")
 }
 
-// An uncached flat index has no vector cache, so PostStartup preloads nothing
-// and must not report a prefill.
 func Test_NoRace_Flat_UncachedIndexReportsNoPrefill(t *testing.T) {
 	ctx := context.Background()
 	dirName := t.TempDir()

@@ -9,12 +9,9 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package testinghelpers reads individual series out of a prometheus.Gatherer
-// for tests. testutil.ToFloat64 cannot read summaries or histograms, and
-// metrics on the default registry are only reachable through a gather.
-//
-// On the default registry compare deltas rather than absolute values: other
-// tests in the same binary observe into the same series.
+// Package testinghelpers reads single series out of a prometheus.Gatherer:
+// testutil.ToFloat64 cannot read summaries or histograms. On the default
+// registry compare deltas, other tests in the binary share the series.
 package testinghelpers
 
 import (
@@ -24,8 +21,7 @@ import (
 	dto "github.com/prometheus/client_model/go"
 )
 
-// SampleCount returns the _count of the summary or histogram series with the
-// given name and exact label set.
+// SampleCount returns the _count of the summary or histogram series with exactly these labels.
 func SampleCount(g prometheus.Gatherer, name string, labels prometheus.Labels) (uint64, error) {
 	metric, err := gatherMetric(g, name, labels)
 	if err != nil {
@@ -55,8 +51,7 @@ func SampleSum(g prometheus.Gatherer, name string, labels prometheus.Labels) (fl
 	return 0, fmt.Errorf("metric %q is neither a summary nor a histogram", name)
 }
 
-// GaugeValue returns the value of the gauge series with the given name and
-// exact label set (nil for a scalar gauge).
+// GaugeValue returns the gauge series with exactly these labels (nil for a scalar gauge).
 func GaugeValue(g prometheus.Gatherer, name string, labels prometheus.Labels) (float64, error) {
 	metric, err := gatherMetric(g, name, labels)
 	if err != nil {

@@ -259,11 +259,8 @@ func TestAddBatchWithSuccessfulAllocation(t *testing.T) {
 	require.Equal(t, initialValue, finalValue, "metric should not increment when allocation succeeds")
 }
 
-// TestRemovedTombstoneMetricsAreNotExported pins the removal of five per-shard
-// tombstone series that were dropped to cut the number of series shipped to the
-// metrics backend. A tombstone cleanup cycle is the only producer of these
-// series, so running one with real Prometheus metrics must leave none of the
-// removed names in the default registry.
+// A tombstone cleanup cycle is the only producer of the removed series, so
+// running one against the real registry must leave none of them exported.
 func TestRemovedTombstoneMetricsAreNotExported(t *testing.T) {
 	ctx := context.Background()
 	vectors := vectorsForDeleteTest()

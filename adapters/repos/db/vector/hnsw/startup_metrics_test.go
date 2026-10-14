@@ -35,9 +35,7 @@ import (
 	monitoringhelpers "github.com/weaviate/weaviate/usecases/monitoring/testinghelpers"
 )
 
-// The startup metrics live on the default registry shared by every test in
-// the binary, so every assertion below compares against a reading taken just
-// before the action under test.
+// the startup metrics live on the shared default registry, so the tests compare deltas
 
 func hnswRestoreCount(t *testing.T) uint64 {
 	t.Helper()
@@ -55,9 +53,7 @@ func hnswPrefillCount(t *testing.T) uint64 {
 	return n
 }
 
-// startupMetricsHarness builds indexes over the same commit log directory
-// whose VectorForID can be parked or made to panic, so a test can reopen an
-// index and hold its prefill open or blow it up.
+// startupMetricsHarness reopens indexes over one commit log; VectorForID can be parked, failed or made to panic.
 type startupMetricsHarness struct {
 	cfg       Config
 	uc        ent.UserConfig
@@ -129,8 +125,6 @@ func (h *startupMetricsHarness) newIndex(t *testing.T) *hnsw {
 	return index
 }
 
-// fill writes the harness vectors through index and shuts it down, leaving
-// commit-log state for the next newIndex to restore.
 func (h *startupMetricsHarness) fill(t *testing.T, index *hnsw) {
 	t.Helper()
 	ctx := context.Background()
@@ -206,8 +200,7 @@ func TestStartupMetricsAbortedPrefillNotObserved(t *testing.T) {
 
 	before := hnswPrefillCount(t)
 
-	// New() replays the commit log through the same thunk, so arm only once
-	// the index is built.
+	// New() replays the commit log through the same thunk; arm after it is built
 	h.armed.Store(true)
 	index.PostStartup(ctx)
 
@@ -236,13 +229,9 @@ func TestStartupMetricsAbortedPrefillNotObserved(t *testing.T) {
 		"a prefill cut short by shutdown must not record a misleadingly short duration")
 }
 
-// A prefill that panics is recovered by the goroutine wrapper (or by the
-// shard's recover in sync mode) and the process keeps running, so the run
-// must not count as a completed prefill.
 func TestStartupMetricsPanickingPrefillRecordsNoDuration(t *testing.T) {
-	// The integration CI job runs with DISABLE_RECOVERY_ON_PANIC, which makes
-	// the goroutine wrapper re-raise instead of recover and would take the
-	// whole test binary down; this test is about the production default.
+	// CI's integration job sets DISABLE_RECOVERY_ON_PANIC, which would take the
+	// test binary down; this test is about the production default (recover)
 	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
 
 	ctx := context.Background()
@@ -253,8 +242,7 @@ func TestStartupMetricsPanickingPrefillRecordsNoDuration(t *testing.T) {
 
 	before := hnswPrefillCount(t)
 
-	// New() replays the commit log through the same thunk, so arm only once
-	// the index is built.
+	// New() replays the commit log through the same thunk; arm after it is built
 	h.panicking.Store(true)
 	index.PostStartup(ctx)
 	index.prefillWg.Wait()
@@ -263,9 +251,6 @@ func TestStartupMetricsPanickingPrefillRecordsNoDuration(t *testing.T) {
 		"a prefill that panicked is not a completed prefill")
 }
 
-// A restored index whose vectors are all gone (objects deleted, or every read
-// failing) still runs its prefill, but the prefillers report neither outcome.
-// A prefill that loaded nothing is not a prefill and must not record a sample.
 func TestStartupMetricsPrefillThatLoadsNothingNotObserved(t *testing.T) {
 	ctx := context.Background()
 	h := newStartupMetricsHarness(t, "prefill_nothing", true)
@@ -274,8 +259,7 @@ func TestStartupMetricsPrefillThatLoadsNothingNotObserved(t *testing.T) {
 	defer index.Shutdown(ctx)
 
 	before := hnswPrefillCount(t)
-	// New() replays the commit log through the same thunk, so take the
-	// vectors away only once the index is built.
+	// New() replays the commit log through the same thunk; remove the vectors after it is built
 	h.missing.Store(true)
 	index.PostStartup(ctx)
 	index.prefillWg.Wait()
@@ -283,8 +267,7 @@ func TestStartupMetricsPrefillThatLoadsNothingNotObserved(t *testing.T) {
 	require.Equal(t, before, hnswPrefillCount(t), "a prefill that loaded no vector is not observed")
 }
 
-// startup_progress was never set, so minting a series for it exports a
-// permanent zero per shard for nothing.
+// startup_progress was never set; minting it exported a permanent zero per shard
 func TestStartupProgressSeriesNotMinted(t *testing.T) {
 	prom := monitoring.GetMetrics()
 

@@ -50,8 +50,6 @@ func TestStartupMetrics_SetReady(t *testing.T) {
 	require.Equal(t, dur, testutil.ToFloat64(m.startupDuration), "only the first readiness counts")
 }
 
-// TrackReady turns the readiness check into the time-to-ready gauge; nothing
-// else polls that check, so the tracker has to.
 func TestStartupMetrics_TrackReady(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -141,8 +139,6 @@ func TestStartupMetrics_NilReceiverIsNoop(t *testing.T) {
 	})
 }
 
-// The whole set is five unlabelled series per node: one gauge and two
-// summaries that expose only _sum and _count, no quantiles and no buckets.
 func TestStartupMetrics_FiveSeriesPerNode(t *testing.T) {
 	m, reg, _ := newTestStartupMetrics(t)
 	m.SetReady()

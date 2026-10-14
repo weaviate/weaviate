@@ -23,10 +23,8 @@ import (
 	tcexec "github.com/testcontainers/testcontainers-go/exec"
 )
 
-// ScrapeMetrics reads the Prometheus exposition of a Weaviate container,
-// keyed by metric family name. The compose does not publish port 2112, so the
-// scrape runs inside the container; the image ships wget, curl is the
-// fallback. The node must run with PROMETHEUS_MONITORING_ENABLED=true.
+// ScrapeMetrics reads a container's /metrics, keyed by family name. Port 2112
+// is not published, so the scrape runs inside the container (wget, then curl).
 func ScrapeMetrics(ctx context.Context, container testcontainers.Container) (map[string]*dto.MetricFamily, error) {
 	code, reader, err := container.Exec(ctx, []string{
 		"sh", "-c", "wget -qO- http://127.0.0.1:2112/metrics || curl -s http://127.0.0.1:2112/metrics",
@@ -50,9 +48,7 @@ func ScrapeMetrics(ctx context.Context, container testcontainers.Container) (map
 	return families, nil
 }
 
-// FindMetric returns the series of the named family whose labels are exactly
-// labels (nil for a series without labels), or false when the family or the
-// series is absent.
+// FindMetric returns the series of family name with exactly these labels (nil for none).
 func FindMetric(families map[string]*dto.MetricFamily, name string, labels map[string]string) (*dto.Metric, bool) {
 	family, ok := families[name]
 	if !ok {

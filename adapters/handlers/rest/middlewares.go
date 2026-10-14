@@ -298,9 +298,7 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 	})
 }
 
-// nodeReady is the check behind /v1/.well-known/ready. The startup metrics
-// poll it too, so "time to ready" means the first moment that endpoint would
-// have answered 200 rather than a narrower, internal notion of readiness.
+// nodeReady is the check behind /v1/.well-known/ready; the startup metrics poll it too.
 func nodeReady(state *state.State) bool {
 	// in maintenance mode the node is live but not ready
 	if state.Cluster.MaintenanceModeEnabledForLocalhost() {
@@ -317,8 +315,7 @@ func nodeReady(state *state.State) bool {
 	return true
 }
 
-// readyPollInterval is how often the startup metrics ask nodeReady until it
-// first answers true: once a second, since GetMeta may call module sidecars.
+// readyPollInterval paces the readiness polling; GetMeta may call module sidecars.
 const readyPollInterval = time.Second
 
 // addSearchBodyLimit caps search and aggregate request bodies: an announced

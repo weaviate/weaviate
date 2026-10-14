@@ -1876,8 +1876,6 @@ func Test_NoRace_Flat_EmptyTenantPostStartupAllocatesNothing(t *testing.T) {
 	// an empty tenant must not pay for a cache it doesn't use
 	assert.EqualValues(t, 0, index.cache.Len(),
 		"PostStartup on an empty index must not allocate the vector cache")
-	// ... nor report a prefill that filled nothing: tenant creation is exactly
-	// the churn that would bury the prefill average in microsecond samples
 	assert.Equal(t, prefills, flatPrefillCount(t),
 		"an empty tenant preloads nothing and must not report a prefill")
 }

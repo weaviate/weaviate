@@ -42,10 +42,8 @@ func TestStartupProgressLogsShardLoading(t *testing.T) {
 
 	const (
 		classCount = 3
-		// A tenant is a shard whose contents the test controls, so every shard
-		// deterministically holds vector state to restore after the restart.
-		// Objects in a non-tenant collection spread over its shards by UUID
-		// hash, which a test cannot steer.
+		// tenants rather than shards: the test controls what each tenant holds,
+		// so every shard has vector state to restore after the restart
 		tenantsPerClass  = 2
 		objectsPerTenant = 20
 	)
@@ -55,7 +53,6 @@ func TestStartupProgressLogsShardLoading(t *testing.T) {
 		// Lazy-loaded shards are discounted from the progress totals; force
 		// eager loading so every shard counts.
 		WithWeaviateEnv("DISABLE_LAZY_LOAD_SHARDS", "true").
-		// The startup metrics are read off /metrics after the restart.
 		WithWeaviateEnv("PROMETHEUS_MONITORING_ENABLED", "true").
 		Start(ctx)
 	require.NoError(t, err)
@@ -131,15 +128,12 @@ func tail(logs string, n int) string {
 	return strings.Join(lines, "\n")
 }
 
-// assertStartupMetrics pins what a restart exposes on /metrics: the node
-// reports when it became ready, and each eager shard's index was restored and
-// its cache prefilled exactly once.
+// assertStartupMetrics checks /metrics after a restart: ready reported, every shard restored and prefilled once.
 func assertStartupMetrics(t *testing.T, ctx context.Context, compose *docker.DockerCompose, shards int) {
 	t.Helper()
 	container := compose.GetWeaviate().Container()
 
-	// The readiness tracker polls the readiness check once a second, so the
-	// ready gauge can trail the restart by a poll interval.
+	// the ready gauge can trail the restart by one readiness poll
 	var families map[string]*dto.MetricFamily
 	var lastScrapeErr error
 	ready := assert.Eventually(t, func() bool {

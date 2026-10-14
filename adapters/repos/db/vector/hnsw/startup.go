@@ -116,9 +116,7 @@ func (h *hnsw) restoreFromDisk() error {
 		return err
 	}
 
-	// Only an index that had state counts as a restore. A fresh one returned
-	// above, so creating shards does not flood the distribution with
-	// near-zero samples.
+	// only an index that had state counts as a restore; a fresh one returned above
 	monitoring.GetStartupMetrics().ObserveVectorIndexRestore(time.Since(beforeAll))
 	return nil
 }
@@ -577,7 +575,6 @@ var (
 	errNothingToPrefill  = errors.New("nothing to prefill")
 )
 
-// prefilledVectors is how many vectors the prefill left in the cache.
 func (h *hnsw) prefilledVectors() int64 {
 	if h.compressed.Load() {
 		return h.compressor.CountVectors()
@@ -645,13 +642,11 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		if err != nil {
 			h.logger.Errorf("prefill vector cache: %v", err)
 		}
-		// the compressed prefill paths return nothing when cut short, so the
-		// context stands in for their error
+		// the compressed prefill paths return nothing when cut short
 		if err == nil {
 			err = ctx.Err()
 		}
-		// the prefillers report neither a failed read nor an index whose
-		// vectors are all gone, and a prefill that loaded nothing is not one
+		// the prefillers do not report failed reads; a prefill that loaded nothing is not one
 		if err == nil && h.prefilledVectors() == 0 {
 			err = errNothingToPrefill
 		}
