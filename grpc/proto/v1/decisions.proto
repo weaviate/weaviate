@@ -16,7 +16,7 @@ message Decisions {
 message DecisionQuestion {
   // name identifies the answer; unique within one request.
   string name = 1;
-  // property is the text property the question is about.
+  // property is the text or blob property the question is about.
   string property = 2;
   string instructions = 3;
   oneof kind {

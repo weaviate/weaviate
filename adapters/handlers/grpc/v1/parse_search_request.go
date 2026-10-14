@@ -394,12 +394,15 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		if err != nil {
 			return dto.GetParams{}, err
 		}
-		// A rerank by a decision needs the class's decisions module and a
-		// page within its maxDocuments, checked before the search as for
-		// decide.
+		// A rerank by a decision needs the class's decisions module, a
+		// property of a type it judges and a page within its maxDocuments,
+		// checked before the search as for decide.
 		if rerank.Decision != nil && p.decideLimits != nil {
 			limits, err := p.decideLimits(class)
 			if err != nil {
+				return dto.GetParams{}, fmt.Errorf("rerank.decision: %w", err)
+			}
+			if err := limits.CheckProperty(class, req.Rerank.Property); err != nil {
 				return dto.GetParams{}, fmt.Errorf("rerank.decision: %w", err)
 			}
 			if err := limits.BoundLimit(out.Pagination.Limit); err != nil {

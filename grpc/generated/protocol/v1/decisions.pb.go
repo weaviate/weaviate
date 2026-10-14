@@ -69,7 +69,7 @@ type DecisionQuestion struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// name identifies the answer; unique within one request.
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// property is the text property the question is about.
+	// property is the text or blob property the question is about.
 	Property     string `protobuf:"bytes,2,opt,name=property,proto3" json:"property,omitempty"`
 	Instructions string `protobuf:"bytes,3,opt,name=instructions,proto3" json:"instructions,omitempty"`
 	// Types that are valid to be assigned to Kind:

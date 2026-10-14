@@ -188,7 +188,7 @@ func TestDecisionLimits(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, modulecapabilities.DecisionLimits{
 				MaxDocuments: tt.wantMaxDocuments,
-				DataTypes:    []schema.DataType{schema.DataTypeText},
+				DataTypes:    []schema.DataType{schema.DataTypeText, schema.DataTypeBlob},
 			}, limits)
 		})
 	}

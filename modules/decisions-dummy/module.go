@@ -63,9 +63,11 @@ func (m *DecisionsDummyModule) AdditionalProperties() map[string]modulecapabilit
 // DecisionLimits: the Weaviate ceilings, text and blob, and the maxDocuments
 // class setting (default 100) so that tests can exercise the page bound.
 func (m *DecisionsDummyModule) DecisionLimits(cfg moduletools.ClassConfig) (modulecapabilities.DecisionLimits, error) {
+	// A blob is judged as the text of its base64, so clients can test the
+	// image path without a provider.
 	return modulecapabilities.DecisionLimits{
 		MaxDocuments: clients.MaxDocuments(cfg),
-		DataTypes:    []schema.DataType{schema.DataTypeText},
+		DataTypes:    []schema.DataType{schema.DataTypeText, schema.DataTypeBlob},
 	}, nil
 }
 

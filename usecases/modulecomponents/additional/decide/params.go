@@ -155,17 +155,26 @@ func (p *Params) ValidateFor(class *models.Class, limits Limits, limit int) erro
 	return nil
 }
 
-func validateQuestionFor(question ent.DecisionQuestion, class *models.Class, limits Limits) error {
-	property := propertyOf(class, question.Property)
+// CheckProperty checks that the class has the property and that the module
+// judges its type. It serves both decide and a rerank by a decision.
+func (l Limits) CheckProperty(class *models.Class, name string) error {
+	property := propertyOf(class, name)
 	if property == nil {
-		return fmt.Errorf("class %q has no property %q", class.Class, question.Property)
+		return fmt.Errorf("class %q has no property %q", class.Class, name)
 	}
 	// AsPrimitive is "" for an array, an object or a reference, so the
 	// message names the type as the schema does.
 	dataType, _ := schema.AsPrimitive(property.DataType)
-	if !slices.Contains(limits.DataTypes, dataType) {
+	if !slices.Contains(l.DataTypes, dataType) {
 		return fmt.Errorf("property %q is of type %q, %s judges %v",
-			question.Property, strings.Join(property.DataType, ","), limits.Module, limits.DataTypes)
+			name, strings.Join(property.DataType, ","), l.Module, l.DataTypes)
+	}
+	return nil
+}
+
+func validateQuestionFor(question ent.DecisionQuestion, class *models.Class, limits Limits) error {
+	if err := limits.CheckProperty(class, question.Property); err != nil {
+		return err
 	}
 	if limits.MaxOptions > 0 && len(question.Options) > limits.MaxOptions {
 		return fmt.Errorf("%d options exceed the limit of %d of %s", len(question.Options), limits.MaxOptions, limits.Module)

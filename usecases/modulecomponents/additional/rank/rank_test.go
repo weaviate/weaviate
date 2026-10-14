@@ -94,6 +94,53 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		require.EqualError(t, err, "client rank: unavailable")
 	})
 
+	t.Run("names the rerank property to a client that reads it", func(t *testing.T) {
+		rankClient := &fakePropertyRanker{}
+		rankProvider := New(rankClient)
+		in := []search.Result{{ID: "some-uuid", Schema: map[string]interface{}{"photo": "aW1hZ2U="}}}
+		property := "photo"
+		query := "the car is damaged"
+		limit := 1
+
+		_, err := rankProvider.AdditionalPropertyFn(context.Background(), in, &Params{Property: &property, Query: &query}, &limit, map[string]interface{}{}, nil)
+
+		require.NoError(t, err)
+		assert.Equal(t, "photo", rankClient.property)
+		assert.False(t, rankClient.decision)
+	})
+
+	t.Run("tells a client that reads properties that the rerank is a decision", func(t *testing.T) {
+		rankClient := &fakePropertyRanker{}
+		rankProvider := NewForDecisions(rankClient, func(moduletools.ClassConfig) (DecisionSettings, error) {
+			return DecisionSettings{Order: OrderSearch}, nil
+		})
+		in := []search.Result{{ID: "some-uuid", Schema: map[string]interface{}{"photo": "aW1hZ2U="}}}
+		property := "photo"
+		query := "the car is damaged"
+		limit := 1
+
+		_, err := rankProvider.AdditionalPropertyFn(context.Background(), in, &Params{Property: &property, Query: &query, Decision: &Decision{}}, &limit, map[string]interface{}{}, nil)
+
+		require.NoError(t, err)
+		assert.True(t, rankClient.decision)
+	})
+
+	t.Run("a plain rerank through a decisions module is not a decision", func(t *testing.T) {
+		rankClient := &fakePropertyRanker{}
+		rankProvider := NewForDecisions(rankClient, func(moduletools.ClassConfig) (DecisionSettings, error) {
+			return DecisionSettings{Order: OrderSearch}, nil
+		})
+		in := []search.Result{{ID: "some-uuid", Schema: map[string]interface{}{"photo": "aW1hZ2U="}}}
+		property := "photo"
+		query := "the car is damaged"
+		limit := 1
+
+		_, err := rankProvider.AdditionalPropertyFn(context.Background(), in, &Params{Property: &property, Query: &query}, &limit, map[string]interface{}{}, nil)
+
+		require.NoError(t, err)
+		assert.False(t, rankClient.decision)
+	})
+
 	t.Run("should rank", func(t *testing.T) {
 		rankClient := &fakeRankClient{}
 		rankProvider := New(rankClient)
@@ -128,6 +175,20 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 }
 
 type fakeRankClient struct{}
+
+// fakePropertyRanker records the property and the decision flag the
+// provider passes.
+type fakePropertyRanker struct {
+	fakeRankClient
+	property string
+	decision bool
+}
+
+func (c *fakePropertyRanker) RankProperty(ctx context.Context, query, property string, decision bool, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error) {
+	c.property = property
+	c.decision = decision
+	return c.Rank(ctx, query, documents, cfg)
+}
 
 func (c *fakeRankClient) Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (result *ent.RankResult, err error) {
 	if query == "unavailable" {

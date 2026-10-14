@@ -55,18 +55,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantMaxDocuments: 25,
 		},
 		{
-			name:             "statement question",
-			cfg:              fakeClassConfig{classConfig: map[string]any{"question": "statement"}},
-			wantModel:        "gpt-6-luna",
-			wantBaseURL:      "https://api.openai.com",
-			wantMaxDocuments: 100,
-		},
-		{
-			name:    "unknown question",
-			cfg:     fakeClassConfig{classConfig: map[string]any{"question": "summary"}},
-			wantErr: `question must be "relevance" or "statement", got "summary"`,
-		},
-		{
 			name:             "empty baseURL is the default",
 			cfg:              fakeClassConfig{classConfig: map[string]any{"baseURL": ""}},
 			wantModel:        "gpt-6-luna",
@@ -189,21 +177,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			name:    "model as a list",
 			cfg:     fakeClassConfig{classConfig: map[string]any{"model": []any{"gpt-4o-mini"}}},
 			wantErr: "model must be a string, got a list",
-		},
-		{
-			name:    "question as a number",
-			cfg:     fakeClassConfig{classConfig: map[string]any{"question": 1}},
-			wantErr: "question must be a string, got a number",
-		},
-		{
-			name:    "question as a bool",
-			cfg:     fakeClassConfig{classConfig: map[string]any{"question": false}},
-			wantErr: "question must be a string, got a boolean",
-		},
-		{
-			name:    "question as a list",
-			cfg:     fakeClassConfig{classConfig: map[string]any{"question": []any{"statement"}}},
-			wantErr: "question must be a string, got a list",
 		},
 		{
 			name:    "baseURL as a number",

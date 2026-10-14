@@ -35,13 +35,6 @@ const (
 	// one request to the Decisions API.
 	MaxDocumentsLimit = 1000
 
-	// QuestionRelevance asks whether the document answers the rerank query.
-	// QuestionStatement sends the rerank query as the predicate itself: a
-	// statement about the document that the model judges true or false.
-	QuestionRelevance = "relevance"
-	QuestionStatement = "statement"
-	DefaultQuestion   = QuestionRelevance
-
 	// OrderSearch and OrderProbability are the orders of a rerank, see
 	// rank.Order. The probability only drops results in OrderSearch.
 	OrderSearch           = "search"
@@ -53,8 +46,6 @@ const (
 // Settings are the class settings with the defaults filled in.
 type Settings struct {
 	Model string
-	// Question is what the model is asked about every document.
-	Question string
 	// BaseURL is the API endpoint without a trailing "/" or "/v1".
 	BaseURL string
 	// MaxDocuments is the highest number of documents one Rank or Decide
@@ -91,9 +82,9 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	return modulecomponents.ValidateBaseURL(settings.BaseURL)
 }
 
-// Resolve reads the settings. A setting of the wrong type, an empty model, an
-// unknown question and a baseURL without scheme or host are errors. A missing
-// setting is its default.
+// Resolve reads the settings. A setting of the wrong type, an empty model or
+// a baseURL without scheme or host is an error. A missing setting is its
+// default.
 func (ic *classSettings) Resolve() (Settings, error) {
 	model, err := ic.stringSetting("model", DefaultOpenAIModel)
 	if err != nil {
@@ -101,13 +92,6 @@ func (ic *classSettings) Resolve() (Settings, error) {
 	}
 	if model == "" {
 		return Settings{}, errors.New("no model provided")
-	}
-	question, err := ic.stringSetting("question", DefaultQuestion)
-	if err != nil {
-		return Settings{}, err
-	}
-	if question != QuestionRelevance && question != QuestionStatement {
-		return Settings{}, fmt.Errorf("question must be %q or %q, got %q", QuestionRelevance, QuestionStatement, question)
 	}
 	maxDocuments, err := ic.maxDocuments()
 	if err != nil {
@@ -136,7 +120,7 @@ func (ic *classSettings) Resolve() (Settings, error) {
 		return Settings{}, fmt.Errorf("order must be %q or %q, got %q", OrderSearch, OrderProbability, order)
 	}
 	return Settings{
-		Model: model, Question: question, BaseURL: baseURL, MaxDocuments: maxDocuments,
+		Model: model, BaseURL: baseURL, MaxDocuments: maxDocuments,
 		MinProbability: minProbability, Order: order,
 	}, nil
 }

@@ -33,8 +33,8 @@ type DecisionLevel struct {
 	Description string
 }
 
-// DecisionQuestion is one question about one text property of the objects
-// a search returns.
+// DecisionQuestion is one question about one property of the objects a
+// search returns: text, or a blob for a module that judges images.
 type DecisionQuestion struct {
 	// Name identifies the answer. Unique within one request.
 	Name         string

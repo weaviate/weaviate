@@ -36,6 +36,8 @@ type decideRequest struct {
 	endpointAuth
 	model     string
 	questions []ent.DecisionQuestion
+	// image says that the documents are the content of a blob property.
+	image bool
 }
 
 // Decide asks the Decisions API every question about every document, one
@@ -59,9 +61,17 @@ func (c *client) Decide(ctx context.Context, questions []ent.DecisionQuestion, d
 	if err != nil {
 		return nil, err
 	}
+	// The questions of one call are about one property, see the provider;
+	// a call about several would send the documents of one as the other.
+	for _, question := range questions[1:] {
+		if question.Property != questions[0].Property {
+			return nil, errors.Errorf("questions about %q and %q in one call: a call judges one property", questions[0].Property, question.Property)
+		}
+	}
 	request := decideRequest{
 		endpointAuth: endpointAuth{url: openAIURL, apiKey: apiKey, organization: c.organizationFor(ctx)},
 		model:        settings.Model, questions: questions,
+		image: isImageProperty(cfg, questions[0].Property),
 	}
 
 	firstIndex := make(map[string]int, len(documents))
@@ -76,6 +86,12 @@ func (c *client) Decide(ctx context.Context, questions []ent.DecisionQuestion, d
 		}
 		firstIndex[document] = i
 		pending = append(pending, i)
+	}
+
+	if request.image {
+		if err := checkImages(documents, pending); err != nil {
+			return nil, err
+		}
 	}
 
 	var inputTokens, outputTokens, requests atomic.Int64
@@ -131,7 +147,11 @@ func refusedAnswers(questions []ent.DecisionQuestion) []ent.DecisionAnswer {
 
 func (c *client) decideDocument(ctx context.Context, request decideRequest, document string,
 ) ([]ent.DecisionAnswer, decisionUsage, error) {
-	body, err := json.Marshal(newDecideRequest(request, document))
+	decision, err := newDecideRequest(request, document)
+	if err != nil {
+		return nil, decisionUsage{}, err
+	}
+	body, err := json.Marshal(decision)
 	if err != nil {
 		return nil, decisionUsage{}, errors.Wrap(err, "marshal body")
 	}
@@ -148,7 +168,11 @@ func (c *client) decideDocument(ctx context.Context, request decideRequest, docu
 
 // newDecideRequest maps the questions onto the API's question types; the
 // document is the input they share.
-func newDecideRequest(request decideRequest, document string) decisionRequest {
+func newDecideRequest(request decideRequest, document string) (decisionRequest, error) {
+	input, err := newInput(document, request.image)
+	if err != nil {
+		return decisionRequest{}, err
+	}
 	questions := make([]decisionQuestion, len(request.questions))
 	for i, question := range request.questions {
 		out := decisionQuestion{Type: predicateType, Name: question.Name, Instructions: question.Instructions}
@@ -170,7 +194,7 @@ func newDecideRequest(request decideRequest, document string) decisionRequest {
 		}
 		questions[i] = out
 	}
-	return decisionRequest{Model: request.model, Input: document, Questions: questions}
+	return decisionRequest{Model: request.model, Input: input, Questions: questions}, nil
 }
 
 func optional(text string) *string {

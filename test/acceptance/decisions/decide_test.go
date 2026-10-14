@@ -38,7 +38,9 @@ import (
 const (
 	ticketsClass = "DecideTickets"
 	angryText    = "the customer is angry about billing"
-	calmText     = "all good thanks"
+	// A 1x1 PNG, as a blob property holds it.
+	photoBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC"
+	calmText    = "all good thanks"
 )
 
 func ptr[T any](v T) *T { return &v }
@@ -109,11 +111,12 @@ func TestDecide(t *testing.T) {
 			Properties: []*models.Property{
 				{Name: "text", DataType: []string{"text"}},
 				{Name: "count", DataType: []string{"int"}},
+				{Name: "photo", DataType: []string{"blob"}},
 			},
 			ModuleConfig: moduleConfig,
 		})
 		helper.CreateObjectsBatch(t, []*models.Object{
-			{Class: name, ID: strfmt.UUID(uuid.NewString()), Properties: map[string]any{"text": angryText, "count": 1}},
+			{Class: name, ID: strfmt.UUID(uuid.NewString()), Properties: map[string]any{"text": angryText, "count": 1, "photo": photoBase64}},
 			{Class: name, ID: strfmt.UUID(uuid.NewString()), Properties: map[string]any{"text": calmText, "count": 2}},
 			{Class: name, ID: strfmt.UUID(uuid.NewString()), Properties: map[string]any{"text": "", "count": 3}},
 		})
@@ -200,7 +203,7 @@ func TestDecide(t *testing.T) {
 			{
 				name:    "a question about a property of another type",
 				req:     &pb.SearchRequest{Collection: ticketsClass, Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{predicate("q", "count", "many")}}},
-				wantErr: `question "q": property "count" is of type "int", decisions-dummy judges [text]`,
+				wantErr: `question "q": property "count" is of type "int", decisions-dummy judges [text blob]`,
 			},
 			{
 				name:    "a question about a property the class does not have",
@@ -243,6 +246,22 @@ func TestDecide(t *testing.T) {
 		// The module judges the page, so the offset does not count.
 		reply = grpchelper.AssertSearch(t, &pb.SearchRequest{Collection: smallPage, Limit: 2, Offset: 1, Decide: questions})
 		assert.Len(t, reply.Results, 2)
+	})
+
+	// decisions-dummy judges a blob as the text of its base64, so the answer
+	// is a probability of 0 for the object with a photo and a refusal for
+	// the others, whose photo is empty.
+	t.Run("a question about an image property goes to the module", func(t *testing.T) {
+		reply := grpchelper.AssertSearch(t, &pb.SearchRequest{
+			Collection: ticketsClass,
+			Properties: &pb.PropertiesRequest{NonRefProperties: []string{"text"}},
+			Decide:     &pb.Decisions{Questions: []*pb.DecisionQuestion{predicate("damaged", "photo", "damaged")}},
+		})
+
+		answers := byText(t, reply)
+		require.Len(t, answers, 3)
+		assert.Equal(t, 0.0, answers[angryText]["damaged"].GetPredicate().GetProbability())
+		assert.NotNil(t, answers[calmText]["damaged"].GetRefusal())
 	})
 
 	t.Run("a class without a decisions module", func(t *testing.T) {

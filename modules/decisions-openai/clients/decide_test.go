@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
@@ -98,7 +99,7 @@ func (h *decideHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if i < len(h.answerNames) {
 			name = h.answerNames[i]
 		}
-		answers[i] = h.answer(question, name, req.Input)
+		answers[i] = h.answer(question, name, documentOf(req.Input))
 	}
 	response := map[string]any{
 		"model":   req.Model,
@@ -178,6 +179,40 @@ func TestDecideRequestShape(t *testing.T) {
 	}, requests[0].Questions)
 }
 
+// The questions about a blob property are asked about an inline image.
+func TestDecideImageProperty(t *testing.T) {
+	dataURL := "data:image/png;base64," + pngBase64
+	damaged := ent.DecisionQuestion{Name: "damaged", Property: "photo", Instructions: "is the car damaged?", Kind: ent.DecisionPredicate}
+
+	t.Run("a blob property is sent as an image", func(t *testing.T) {
+		handler := &decideHandler{t: t, scores: map[string]float64{dataURL: 0.9}}
+		c, server := decideTestClient(t, handler)
+		cfg := classConfigWithTypes(server.URL, map[string]schema.DataType{"photo": schema.DataTypeBlob})
+
+		out, err := c.Decide(context.Background(), []ent.DecisionQuestion{damaged}, []string{pngBase64, ""}, cfg)
+
+		require.NoError(t, err)
+		assert.Equal(t, 0.9, out[0][0].Probability)
+		assert.True(t, out[1][0].Refused, "an empty blob is refused, not sent")
+		requests := handler.received()
+		require.Len(t, requests, 1)
+		assert.Equal(t, []any{map[string]any{"role": "user", "content": []any{
+			map[string]any{"type": "input_image", "image_url": dataURL},
+		}}}, requests[0].Input)
+	})
+
+	t.Run("a blob that is not an image fails before any request", func(t *testing.T) {
+		handler := &decideHandler{t: t, scores: map[string]float64{dataURL: 0.9}}
+		c, server := decideTestClient(t, handler)
+		cfg := classConfigWithTypes(server.URL, map[string]schema.DataType{"photo": schema.DataTypeBlob})
+
+		_, err := c.Decide(context.Background(), []ent.DecisionQuestion{damaged}, []string{pngBase64, textBase64, pngBase64}, cfg)
+
+		require.EqualError(t, err, "document 1: image: not a PNG, JPEG, GIF or WebP image")
+		assert.Empty(t, handler.received(), "the other documents are not sent either")
+	})
+}
+
 func TestDecideAnswers(t *testing.T) {
 	handler := &decideHandler{
 		t:         t,
@@ -247,6 +282,11 @@ func TestDecideRejectedBeforeAnyRequest(t *testing.T) {
 		wantErr   string
 	}{
 		{name: "no questions", apiKey: "apiKey", documents: []string{"a"}, wantErr: "no questions provided"},
+		{
+			name: "questions about two properties", apiKey: "apiKey", documents: []string{"a"},
+			questions: []ent.DecisionQuestion{angryQuestion, {Name: "photo", Property: "photo", Instructions: "x", Kind: ent.DecisionPredicate}},
+			wantErr:   `questions about "text" and "photo" in one call: a call judges one property`,
+		},
 		{
 			name: "more documents than maxDocuments", apiKey: "apiKey", questions: allQuestions, documents: []string{"a", "b"},
 			settings: map[string]any{"maxDocuments": 1}, wantErr: "2 documents exceed maxDocuments 1",
