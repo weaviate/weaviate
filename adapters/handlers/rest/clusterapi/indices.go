@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	clusterTypes "github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -143,29 +144,30 @@ type shards interface {
 		refs objects.BatchReferences, schemaVersion uint64) []error
 	GetObject(ctx context.Context, indexName, shardName string,
 		id strfmt.UUID, selectProperties search.SelectProperties,
-		additional additional.Properties) (*storobj.Object, error)
+		additional additional.Properties, schemaVersion uint64) (*storobj.Object, error)
 	Exists(ctx context.Context, indexName, shardName string,
-		id strfmt.UUID) (bool, error)
+		id strfmt.UUID, schemaVersion uint64) (bool, error)
 	DeleteObject(ctx context.Context, indexName, shardName string,
 		id strfmt.UUID, deletionTime time.Time, schemaVersion uint64) error
 	MergeObject(ctx context.Context, indexName, shardName string,
 		mergeDoc objects.MergeDocument, schemaVersion uint64) error
 	MultiGetObjects(ctx context.Context, indexName, shardName string,
-		id []strfmt.UUID) ([]*storobj.Object, error)
+		id []strfmt.UUID, schemaVersion uint64) ([]*storobj.Object, error)
 	Search(ctx context.Context, indexName, shardName string,
 		vectors []models.Vector, targetVectors []string, distance float32, limit int,
 		filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 		sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
+		schemaVersion uint64,
 	) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error)
 	Aggregate(ctx context.Context, indexName, shardName string,
-		params aggregation.Params) (*aggregation.Result, error)
+		params aggregation.Params, schemaVersion uint64) (*aggregation.Result, error)
 	FindUUIDs(ctx context.Context, indexName, shardName string,
-		filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error)
+		filters *filters.LocalFilter, limit int, schemaVersion uint64) ([]strfmt.UUID, error)
 	DeleteObjectBatch(ctx context.Context, indexName, shardName string,
 		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) objects.BatchSimpleObjects
-	GetShardQueueSize(ctx context.Context, indexName, shardName string) (int64, error)
-	GetShardStatus(ctx context.Context, indexName, shardName string) (string, error)
+	GetShardQueueSize(ctx context.Context, indexName, shardName string, schemaVersion uint64) (int64, error)
+	GetShardStatus(ctx context.Context, indexName, shardName string, schemaVersion uint64) (string, error)
 	UpdateShardStatus(ctx context.Context, indexName, shardName,
 		targetStatus string, schemaVersion uint64) error
 
@@ -443,7 +445,7 @@ func (i *indices) postObjectSingle(w http.ResponseWriter, r *http.Request,
 			writeUsageLimitExceeded(w, le)
 			return
 		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), operationStatus(err))
 		return
 	}
 
@@ -472,6 +474,9 @@ func (i *indices) postObjectBatch(w http.ResponseWriter, r *http.Request,
 	}
 
 	errs := i.shards.BatchPutObjects(r.Context(), index, shard, objs, schemaVersion)
+	if wroteNotCaughtUp(w, errs) {
+		return
+	}
 	errsJSON, err := shared.IndicesPayloads.ErrorList.Marshal(errs)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -494,8 +499,14 @@ func (i *indices) getObject() http.Handler {
 
 		defer r.Body.Close()
 
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
 		if r.URL.Query().Get("check_exists") != "" {
-			i.checkExists(w, r, index, shard, id)
+			i.checkExists(w, r, index, shard, id, schemaVersion)
 			return
 		}
 
@@ -552,7 +563,11 @@ func (i *indices) getObject() http.Handler {
 		}).Debug("getting object ...")
 
 		obj, err := i.shards.GetObject(r.Context(), index, shard, strfmt.UUID(id),
-			selectProperties, additional)
+			selectProperties, additional, schemaVersion)
+		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+			http.Error(w, err.Error(), unprocessableStatus(err))
+			return
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -577,13 +592,17 @@ func (i *indices) getObject() http.Handler {
 }
 
 func (i *indices) checkExists(w http.ResponseWriter, r *http.Request,
-	index, shard, id string,
+	index, shard, id string, schemaVersion uint64,
 ) {
 	i.logger.WithFields(logrus.Fields{
 		"shard":  shard,
 		"action": "checkExists",
 	}).Debug("checking if shard exists ...")
-	ok, err := i.shards.Exists(r.Context(), index, shard, strfmt.UUID(id))
+	ok, err := i.shards.Exists(r.Context(), index, shard, strfmt.UUID(id), schemaVersion)
+	if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+		http.Error(w, err.Error(), unprocessableStatus(err))
+		return
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -626,7 +645,7 @@ func (i *indices) deleteObject() http.Handler {
 
 		err = i.shards.DeleteObject(r.Context(), index, shard, strfmt.UUID(id), deletionTime, schemaVersion)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), operationStatus(err))
 			return
 		}
 
@@ -671,7 +690,7 @@ func (i *indices) mergeObject() http.Handler {
 		}
 
 		if err = i.shards.MergeObject(r.Context(), index, shard, mergeDoc, schemaVersion); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), operationStatus(err))
 			return
 		}
 
@@ -718,7 +737,17 @@ func (i *indices) getObjectsMulti() http.Handler {
 			"action": "MultiGetObjects",
 		}).Debug("get multiple objects ...")
 
-		objs, err := i.shards.MultiGetObjects(r.Context(), index, shard, ids)
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		objs, err := i.shards.MultiGetObjects(r.Context(), index, shard, ids, schemaVersion)
+		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+			http.Error(w, err.Error(), unprocessableStatus(err))
+			return
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -772,10 +801,16 @@ func (i *indices) postSearchObjects() http.Handler {
 			"action": "Search",
 		}).Debug("searching ...")
 
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
 		results, dists, queryProfiles, err := i.shards.Search(r.Context(), index, shard,
-			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props)
+			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props, schemaVersion)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, err.Error(), unprocessableStatus(err))
 			return
 		}
 		if errors.Is(err, queryadmission.ErrOverloaded) {
@@ -846,6 +881,9 @@ func (i *indices) postReferences() http.Handler {
 		}
 
 		errs := i.shards.BatchAddReferences(r.Context(), index, shard, refs, schemaVersion)
+		if wroteNotCaughtUp(w, errs) {
+			return
+		}
 		errsJSON, err := shared.IndicesPayloads.ErrorList.Marshal(errs)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -894,10 +932,16 @@ func (i *indices) postAggregateObjects() http.Handler {
 			"action": "Aggregate",
 		}).Debug("aggregate ...")
 
-		aggRes, err := i.shards.Aggregate(r.Context(), index, shard, params)
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		aggRes, err := i.shards.Aggregate(r.Context(), index, shard, params, schemaVersion)
 
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, err.Error(), unprocessableStatus(err))
 			return
 		}
 		if errors.Is(err, queryadmission.ErrOverloaded) {
@@ -959,10 +1003,16 @@ func (i *indices) postFindUUIDs() http.Handler {
 			"action": "FindUUIDs",
 		}).Debug("find UUIDs ...")
 
-		results, err := i.shards.FindUUIDs(r.Context(), index, shard, filters, limit)
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		results, err := i.shards.FindUUIDs(r.Context(), index, shard, filters, limit, schemaVersion)
 
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, err.Error(), unprocessableStatus(err))
 			return
 		}
 		if err != nil {
@@ -1060,7 +1110,7 @@ func (i *indices) getObjectsDigest() http.Handler {
 
 		results, err := i.shards.DigestObjects(r.Context(), index, shard, ids)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, err.Error(), unprocessableStatus(err))
 			return
 		}
 		if err != nil {
@@ -1204,7 +1254,7 @@ func (i *indices) deleteObjects() http.Handler {
 
 		resBytes, err := shared.IndicesPayloads.BatchDeleteResults.Marshal(results)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), operationStatus(err))
 			return
 		}
 
@@ -1230,9 +1280,15 @@ func (i *indices) getGetShardQueueSize() http.Handler {
 			"action": "GetShardQueueSize",
 		}).Debug("getting shard queue size ...")
 
-		size, err := i.shards.GetShardQueueSize(r.Context(), index, shard)
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		size, err := i.shards.GetShardQueueSize(r.Context(), index, shard, schemaVersion)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, err.Error(), unprocessableStatus(err))
 			return
 		}
 
@@ -1269,9 +1325,15 @@ func (i *indices) getGetShardStatus() http.Handler {
 			"action": "GetShardStatus",
 		}).Debug("getting shard status ...")
 
-		status, err := i.shards.GetShardStatus(r.Context(), index, shard)
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		status, err := i.shards.GetShardStatus(r.Context(), index, shard, schemaVersion)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, err.Error(), unprocessableStatus(err))
 			return
 		}
 		if err != nil {
@@ -1330,7 +1392,7 @@ func (i *indices) postUpdateShardStatus() http.Handler {
 
 		err = i.shards.UpdateShardStatus(r.Context(), index, shard, targetStatus, schemaVersion)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), operationStatus(err))
 			return
 		}
 	})
@@ -1440,7 +1502,7 @@ func (i *indices) postAddAsyncReplicationTargetNode() http.Handler {
 
 		err = i.shards.AddAsyncReplicationTargetNode(r.Context(), indexName, shardName, targetNodeOverride, schemaVersion)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), operationStatus(err))
 			return
 		}
 
@@ -1471,7 +1533,8 @@ func (i *indices) deleteAsyncReplicationTargetNode() http.Handler {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
-			if strings.Contains(err.Error(), fmt.Sprintf("local index %q not found", indexName)) {
+			var missing enterrors.ErrLocalIndexNotFound
+			if errors.As(err, &missing) {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
@@ -1481,4 +1544,59 @@ func (i *indices) deleteAsyncReplicationTargetNode() http.Handler {
 
 		w.WriteHeader(http.StatusNoContent)
 	})
+}
+
+// notCaughtUp reports whether err is this node lagging the schema rather than a fault: the class
+// or shard is not here yet, or the version asked for has not been applied. A miss this node is
+// already current enough to be sure about arrives as [enterrors.ErrNotServedHere] and
+// deliberately matches nothing here.
+func notCaughtUp(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, clusterTypes.ErrDeadlineExceeded) {
+		return true
+	}
+	return enterrors.IsSchemaLag(err)
+}
+
+// unprocessableStatus answers 503 for a class or shard this node does not hold yet: 422 reads as
+// the caller's fault, so nothing retries it and the replica loses its vote. A final miss wants
+// exactly that 422, because retrying it cannot change the answer.
+func unprocessableStatus(err error) int {
+	if notCaughtUp(err) {
+		return http.StatusServiceUnavailable
+	}
+	return http.StatusUnprocessableEntity
+}
+
+// wroteNotCaughtUp answers a batch that failed only because this node is behind, and reports
+// whether it did. All-or-nothing: a real per-object failure keeps the error list the caller needs.
+func wroteNotCaughtUp(w http.ResponseWriter, errs []error) bool {
+	var lagging error
+	for _, err := range errs {
+		if err == nil {
+			continue
+		}
+		if !notCaughtUp(err) {
+			return false
+		}
+		if lagging == nil {
+			lagging = err
+		}
+	}
+	if lagging == nil {
+		return false
+	}
+
+	http.Error(w, lagging.Error(), http.StatusServiceUnavailable)
+	return true
+}
+
+// operationStatus answers 503 for a node that has not caught up, 500 for a real failure
+func operationStatus(err error) int {
+	if notCaughtUp(err) {
+		return http.StatusServiceUnavailable
+	}
+	return http.StatusInternalServerError
 }

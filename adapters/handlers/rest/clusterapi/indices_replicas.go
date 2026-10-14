@@ -433,9 +433,15 @@ func (i *replicatedIndices) getObjectsDigest() http.Handler {
 			return
 		}
 
-		results, err := i.replicator.DigestObjects(r.Context(), index, shard, ids)
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		results, err := i.replicator.DigestObjects(r.Context(), index, shard, ids, schemaVersion)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, "digest objects: "+err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, "digest objects: "+err.Error(), unprocessableStatus(err))
 			return
 		}
 
@@ -846,7 +852,17 @@ func (i *replicatedIndices) countObjects() http.Handler {
 
 		index, shard := args[1], args[2]
 
-		count, err := i.replicator.CountObjects(r.Context(), index, shard)
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		count, err := i.replicator.CountObjects(r.Context(), index, shard, schemaVersion)
+		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+			http.Error(w, "count objects: "+err.Error(), unprocessableStatus(err))
+			return
+		}
 		if err != nil {
 			http.Error(w, "count objects: "+err.Error(),
 				http.StatusInternalServerError)
@@ -1032,9 +1048,15 @@ func (i *replicatedIndices) getObject() http.Handler {
 
 		defer r.Body.Close()
 
-		resp, err := i.replicator.FetchObject(r.Context(), index, shard, strfmt.UUID(id))
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		resp, err := i.replicator.FetchObject(r.Context(), index, shard, strfmt.UUID(id), schemaVersion)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, "fetch objects: "+err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, "fetch objects: "+err.Error(), unprocessableStatus(err))
 			return
 		}
 
@@ -1088,9 +1110,15 @@ func (i *replicatedIndices) getObjectsMulti() http.Handler {
 			return
 		}
 
-		resp, err := i.replicator.FetchObjects(r.Context(), index, shard, ids)
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		resp, err := i.replicator.FetchObjects(r.Context(), index, shard, ids, schemaVersion)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, "fetch objects: "+err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, "fetch objects: "+err.Error(), unprocessableStatus(err))
 			return
 		}
 		if err != nil {

@@ -1337,7 +1337,10 @@ func TestStoreMetrics(t *testing.T) {
 		ms := NewMockStore(t, nodeID, 9092)
 		store := ms.Store(doBefore)
 		m := dto.Metric{}
-		require.NoError(t, store.metrics.applyDuration.Write(&m))
+		applyDuration, err := store.metrics.applyDuration.GetMetricWithLabelValues(
+			cmd.ApplyRequest_TYPE_ADD_CLASS.String())
+		require.NoError(t, err)
+		require.NoError(t, applyDuration.(prometheus.Histogram).Write(&m))
 		// before
 		assert.Equal(t, 0, int(*m.Histogram.SampleCount))
 		store.Apply(
@@ -1348,7 +1351,7 @@ func TestStoreMetrics(t *testing.T) {
 			},
 		)
 		// after
-		require.NoError(t, store.metrics.applyDuration.Write(&m))
+		require.NoError(t, applyDuration.(prometheus.Histogram).Write(&m))
 		assert.Equal(t, 1, int(*m.Histogram.SampleCount))
 		assert.Equal(t, 0, int(testutil.ToFloat64(store.metrics.applyFailures)))
 	})

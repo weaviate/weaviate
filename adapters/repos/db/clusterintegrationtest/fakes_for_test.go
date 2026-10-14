@@ -241,6 +241,8 @@ func (f *fakeSchemaManager) ReadOnlyClass(class string) *models.Class {
 	return f.schema.GetClass(class)
 }
 
+func (f *fakeSchemaManager) AppliedIndex() uint64 { return 0 }
+
 func (f *fakeSchemaManager) ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64,
 ) (*models.Class, error) {
 	return f.schema.GetClass(class), nil

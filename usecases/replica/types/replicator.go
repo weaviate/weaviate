@@ -37,9 +37,11 @@ type Replicator interface {
 	AbortReplication(ctx context.Context, className, shardName, requestID string) any
 	OverwriteObjects(ctx context.Context, className, shard string, vobjects []*objects.VObject) ([]types.RepairResponse, error)
 	// Read endpoints
-	FetchObject(ctx context.Context, className, shardName string, id strfmt.UUID) (replica.Replica, error)
-	FetchObjects(ctx context.Context, className, shardName string, ids []strfmt.UUID) ([]replica.Replica, error)
-	DigestObjects(ctx context.Context, className, shardName string, ids []strfmt.UUID) (result []types.RepairResponse, err error)
+	// The read endpoints below take schemaVersion: the version the coordinator resolved its
+	// routing plan against, 0 if it predates it. entities/errors.ClassifyReadMiss compares it.
+	FetchObject(ctx context.Context, className, shardName string, id strfmt.UUID, schemaVersion uint64) (replica.Replica, error)
+	FetchObjects(ctx context.Context, className, shardName string, ids []strfmt.UUID, schemaVersion uint64) ([]replica.Replica, error)
+	DigestObjects(ctx context.Context, className, shardName string, ids []strfmt.UUID, schemaVersion uint64) (result []types.RepairResponse, err error)
 	DigestObjectsInRange(ctx context.Context, className, shardName string,
 		initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairDigest, err error)
 	// CompareDigests accepts a batch of source digests and returns only those that require repair
@@ -51,8 +53,8 @@ type Replicator interface {
 	// not-ready shards (missing/uninitialised) are omitted.
 	CompareHashTreeRoots(ctx context.Context, className string,
 		roots map[string]hashtree.Digest) (divergingShards []string, err error)
-	FindUUIDs(ctx context.Context, indexName, shardName string, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error)
-	CountObjects(ctx context.Context, indexName, shardName string) (int, error)
+	FindUUIDs(ctx context.Context, indexName, shardName string, filters *filters.LocalFilter, limit int, schemaVersion uint64) ([]strfmt.UUID, error)
+	CountObjects(ctx context.Context, indexName, shardName string, schemaVersion uint64) (int, error)
 
 	// CreateAsyncCheckpoint: createdAt is the initiator's value, propagated unchanged.
 	CreateAsyncCheckpoint(ctx context.Context, className string, shardNames []string, cutoffMs int64, createdAt time.Time) error

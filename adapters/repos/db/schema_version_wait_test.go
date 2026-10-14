@@ -218,7 +218,9 @@ func Test_DB_WaitForSchemaVersionForIndexWrite_ReportsFailureInMsg(t *testing.T)
 			}
 			require.Len(t, resp.Errors, 1)
 			require.Equal(t, tt.wantMsg, resp.Errors[0].Msg)
-			require.Equal(t, replicaerrors.StatusPreconditionFailed, resp.Errors[0].Code)
+			// not ready, not precondition failed: the cluster API turns this into a 503 the
+			// coordinator fails over from, rather than a success carrying an error
+			require.Equal(t, replicaerrors.StatusNotReady, resp.Errors[0].Code)
 			require.Error(t, resp.Errors[0].Err)
 		})
 	}

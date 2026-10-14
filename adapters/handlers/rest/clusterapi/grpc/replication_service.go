@@ -26,6 +26,7 @@ import (
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	clusterTypes "github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -155,7 +156,7 @@ func (s *ReplicationService) Abort(ctx context.Context, req *pb.AbortRequest) (*
 // ── Read operations ──────────────────────────────────────────────────────────
 
 func (s *ReplicationService) FetchObject(ctx context.Context, req *pb.FetchObjectRequest) (*pb.FetchObjectResponse, error) {
-	resp, err := s.server.FetchObject(ctx, req.GetIndex(), req.GetShard(), strfmt.UUID(req.GetUuid()))
+	resp, err := s.server.FetchObject(ctx, req.GetIndex(), req.GetShard(), strfmt.UUID(req.GetUuid()), req.GetSchemaVersion())
 	if err != nil {
 		return nil, replicationErrorToGRPC(err)
 	}
@@ -170,7 +171,7 @@ func (s *ReplicationService) FetchObject(ctx context.Context, req *pb.FetchObjec
 func (s *ReplicationService) FetchObjects(ctx context.Context, req *pb.FetchObjectsRequest) (*pb.FetchObjectsResponse, error) {
 	uuids := shared.StringsToUUIDs(req.GetUuids())
 
-	resp, err := s.server.FetchObjects(ctx, req.GetIndex(), req.GetShard(), uuids)
+	resp, err := s.server.FetchObjects(ctx, req.GetIndex(), req.GetShard(), uuids, req.GetSchemaVersion())
 	if err != nil {
 		return nil, replicationErrorToGRPC(err)
 	}
@@ -185,7 +186,7 @@ func (s *ReplicationService) FetchObjects(ctx context.Context, req *pb.FetchObje
 func (s *ReplicationService) DigestObjects(ctx context.Context, req *pb.DigestObjectsRequest) (*pb.DigestObjectsResponse, error) {
 	ids := shared.StringsToUUIDs(req.GetIds())
 
-	results, err := s.server.DigestObjects(ctx, req.GetIndex(), req.GetShard(), ids)
+	results, err := s.server.DigestObjects(ctx, req.GetIndex(), req.GetShard(), ids, req.GetSchemaVersion())
 	if err != nil {
 		return nil, replicationErrorToGRPC(err)
 	}
@@ -281,7 +282,7 @@ func (s *ReplicationService) FindUUIDs(ctx context.Context, req *pb.FindUUIDsReq
 		}
 	}
 
-	uuids, err := s.server.FindUUIDs(ctx, req.GetIndex(), req.GetShard(), filter, int(req.GetLimit()))
+	uuids, err := s.server.FindUUIDs(ctx, req.GetIndex(), req.GetShard(), filter, int(req.GetLimit()), req.GetSchemaVersion())
 	if err != nil {
 		return nil, replicationErrorToGRPC(err)
 	}
@@ -365,7 +366,7 @@ func (s *ReplicationService) CompareHashTreeRootsMulti(ctx context.Context, req 
 }
 
 func (s *ReplicationService) CountObjects(ctx context.Context, req *pb.CountObjectsRequest) (*pb.CountObjectsResponse, error) {
-	count, err := s.server.CountObjects(ctx, req.GetIndex(), req.GetShard())
+	count, err := s.server.CountObjects(ctx, req.GetIndex(), req.GetShard(), req.GetSchemaVersion())
 	if err != nil {
 		return nil, replicationErrorToGRPC(err)
 	}
@@ -522,6 +523,11 @@ func replicationErrorToGRPC(err error) error {
 		return nil
 	}
 	if errors.As(err, &enterrors.ErrUnprocessable{}) {
+		// Mirror the REST statuses: lag is Unavailable, which the coordinator fails over
+		// from, and a miss it is current enough to be sure about is FailedPrecondition.
+		if enterrors.IsSchemaLag(err) || errors.Is(err, clusterTypes.ErrDeadlineExceeded) {
+			return status.Errorf(codes.Unavailable, "%v", err)
+		}
 		return status.Errorf(codes.FailedPrecondition, "%v", err)
 	}
 	if errors.Is(err, replica.ErrAsyncReplicationNotActive) {

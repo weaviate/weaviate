@@ -270,9 +270,9 @@ func (_c *MockReplicator_CompareHashTreeRoots_Call) RunAndReturn(run func(contex
 	return _c
 }
 
-// CountObjects provides a mock function with given fields: ctx, indexName, shardName
-func (_m *MockReplicator) CountObjects(ctx context.Context, indexName string, shardName string) (int, error) {
-	ret := _m.Called(ctx, indexName, shardName)
+// CountObjects provides a mock function with given fields: ctx, indexName, shardName, schemaVersion
+func (_m *MockReplicator) CountObjects(ctx context.Context, indexName string, shardName string, schemaVersion uint64) (int, error) {
+	ret := _m.Called(ctx, indexName, shardName, schemaVersion)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CountObjects")
@@ -280,17 +280,17 @@ func (_m *MockReplicator) CountObjects(ctx context.Context, indexName string, sh
 
 	var r0 int
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) (int, error)); ok {
-		return rf(ctx, indexName, shardName)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, uint64) (int, error)); ok {
+		return rf(ctx, indexName, shardName, schemaVersion)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) int); ok {
-		r0 = rf(ctx, indexName, shardName)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, uint64) int); ok {
+		r0 = rf(ctx, indexName, shardName, schemaVersion)
 	} else {
 		r0 = ret.Get(0).(int)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
-		r1 = rf(ctx, indexName, shardName)
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, uint64) error); ok {
+		r1 = rf(ctx, indexName, shardName, schemaVersion)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -307,13 +307,14 @@ type MockReplicator_CountObjects_Call struct {
 //   - ctx context.Context
 //   - indexName string
 //   - shardName string
-func (_e *MockReplicator_Expecter) CountObjects(ctx interface{}, indexName interface{}, shardName interface{}) *MockReplicator_CountObjects_Call {
-	return &MockReplicator_CountObjects_Call{Call: _e.mock.On("CountObjects", ctx, indexName, shardName)}
+//   - schemaVersion uint64
+func (_e *MockReplicator_Expecter) CountObjects(ctx interface{}, indexName interface{}, shardName interface{}, schemaVersion interface{}) *MockReplicator_CountObjects_Call {
+	return &MockReplicator_CountObjects_Call{Call: _e.mock.On("CountObjects", ctx, indexName, shardName, schemaVersion)}
 }
 
-func (_c *MockReplicator_CountObjects_Call) Run(run func(ctx context.Context, indexName string, shardName string)) *MockReplicator_CountObjects_Call {
+func (_c *MockReplicator_CountObjects_Call) Run(run func(ctx context.Context, indexName string, shardName string, schemaVersion uint64)) *MockReplicator_CountObjects_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(uint64))
 	})
 	return _c
 }
@@ -323,7 +324,7 @@ func (_c *MockReplicator_CountObjects_Call) Return(_a0 int, _a1 error) *MockRepl
 	return _c
 }
 
-func (_c *MockReplicator_CountObjects_Call) RunAndReturn(run func(context.Context, string, string) (int, error)) *MockReplicator_CountObjects_Call {
+func (_c *MockReplicator_CountObjects_Call) RunAndReturn(run func(context.Context, string, string, uint64) (int, error)) *MockReplicator_CountObjects_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -426,9 +427,9 @@ func (_c *MockReplicator_DeleteAsyncCheckpoint_Call) RunAndReturn(run func(conte
 	return _c
 }
 
-// DigestObjects provides a mock function with given fields: ctx, className, shardName, ids
-func (_m *MockReplicator) DigestObjects(ctx context.Context, className string, shardName string, ids []strfmt.UUID) ([]routertypes.RepairResponse, error) {
-	ret := _m.Called(ctx, className, shardName, ids)
+// DigestObjects provides a mock function with given fields: ctx, className, shardName, ids, schemaVersion
+func (_m *MockReplicator) DigestObjects(ctx context.Context, className string, shardName string, ids []strfmt.UUID, schemaVersion uint64) ([]routertypes.RepairResponse, error) {
+	ret := _m.Called(ctx, className, shardName, ids, schemaVersion)
 
 	if len(ret) == 0 {
 		panic("no return value specified for DigestObjects")
@@ -436,19 +437,19 @@ func (_m *MockReplicator) DigestObjects(ctx context.Context, className string, s
 
 	var r0 []routertypes.RepairResponse
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, []strfmt.UUID) ([]routertypes.RepairResponse, error)); ok {
-		return rf(ctx, className, shardName, ids)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, []strfmt.UUID, uint64) ([]routertypes.RepairResponse, error)); ok {
+		return rf(ctx, className, shardName, ids, schemaVersion)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, []strfmt.UUID) []routertypes.RepairResponse); ok {
-		r0 = rf(ctx, className, shardName, ids)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, []strfmt.UUID, uint64) []routertypes.RepairResponse); ok {
+		r0 = rf(ctx, className, shardName, ids, schemaVersion)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]routertypes.RepairResponse)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, []strfmt.UUID) error); ok {
-		r1 = rf(ctx, className, shardName, ids)
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, []strfmt.UUID, uint64) error); ok {
+		r1 = rf(ctx, className, shardName, ids, schemaVersion)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -466,13 +467,14 @@ type MockReplicator_DigestObjects_Call struct {
 //   - className string
 //   - shardName string
 //   - ids []strfmt.UUID
-func (_e *MockReplicator_Expecter) DigestObjects(ctx interface{}, className interface{}, shardName interface{}, ids interface{}) *MockReplicator_DigestObjects_Call {
-	return &MockReplicator_DigestObjects_Call{Call: _e.mock.On("DigestObjects", ctx, className, shardName, ids)}
+//   - schemaVersion uint64
+func (_e *MockReplicator_Expecter) DigestObjects(ctx interface{}, className interface{}, shardName interface{}, ids interface{}, schemaVersion interface{}) *MockReplicator_DigestObjects_Call {
+	return &MockReplicator_DigestObjects_Call{Call: _e.mock.On("DigestObjects", ctx, className, shardName, ids, schemaVersion)}
 }
 
-func (_c *MockReplicator_DigestObjects_Call) Run(run func(ctx context.Context, className string, shardName string, ids []strfmt.UUID)) *MockReplicator_DigestObjects_Call {
+func (_c *MockReplicator_DigestObjects_Call) Run(run func(ctx context.Context, className string, shardName string, ids []strfmt.UUID, schemaVersion uint64)) *MockReplicator_DigestObjects_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].([]strfmt.UUID))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].([]strfmt.UUID), args[4].(uint64))
 	})
 	return _c
 }
@@ -482,7 +484,7 @@ func (_c *MockReplicator_DigestObjects_Call) Return(result []routertypes.RepairR
 	return _c
 }
 
-func (_c *MockReplicator_DigestObjects_Call) RunAndReturn(run func(context.Context, string, string, []strfmt.UUID) ([]routertypes.RepairResponse, error)) *MockReplicator_DigestObjects_Call {
+func (_c *MockReplicator_DigestObjects_Call) RunAndReturn(run func(context.Context, string, string, []strfmt.UUID, uint64) ([]routertypes.RepairResponse, error)) *MockReplicator_DigestObjects_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -550,9 +552,9 @@ func (_c *MockReplicator_DigestObjectsInRange_Call) RunAndReturn(run func(contex
 	return _c
 }
 
-// FetchObject provides a mock function with given fields: ctx, className, shardName, id
-func (_m *MockReplicator) FetchObject(ctx context.Context, className string, shardName string, id strfmt.UUID) (replica.Replica, error) {
-	ret := _m.Called(ctx, className, shardName, id)
+// FetchObject provides a mock function with given fields: ctx, className, shardName, id, schemaVersion
+func (_m *MockReplicator) FetchObject(ctx context.Context, className string, shardName string, id strfmt.UUID, schemaVersion uint64) (replica.Replica, error) {
+	ret := _m.Called(ctx, className, shardName, id, schemaVersion)
 
 	if len(ret) == 0 {
 		panic("no return value specified for FetchObject")
@@ -560,17 +562,17 @@ func (_m *MockReplicator) FetchObject(ctx context.Context, className string, sha
 
 	var r0 replica.Replica
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, strfmt.UUID) (replica.Replica, error)); ok {
-		return rf(ctx, className, shardName, id)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, strfmt.UUID, uint64) (replica.Replica, error)); ok {
+		return rf(ctx, className, shardName, id, schemaVersion)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, strfmt.UUID) replica.Replica); ok {
-		r0 = rf(ctx, className, shardName, id)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, strfmt.UUID, uint64) replica.Replica); ok {
+		r0 = rf(ctx, className, shardName, id, schemaVersion)
 	} else {
 		r0 = ret.Get(0).(replica.Replica)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, strfmt.UUID) error); ok {
-		r1 = rf(ctx, className, shardName, id)
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, strfmt.UUID, uint64) error); ok {
+		r1 = rf(ctx, className, shardName, id, schemaVersion)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -588,13 +590,14 @@ type MockReplicator_FetchObject_Call struct {
 //   - className string
 //   - shardName string
 //   - id strfmt.UUID
-func (_e *MockReplicator_Expecter) FetchObject(ctx interface{}, className interface{}, shardName interface{}, id interface{}) *MockReplicator_FetchObject_Call {
-	return &MockReplicator_FetchObject_Call{Call: _e.mock.On("FetchObject", ctx, className, shardName, id)}
+//   - schemaVersion uint64
+func (_e *MockReplicator_Expecter) FetchObject(ctx interface{}, className interface{}, shardName interface{}, id interface{}, schemaVersion interface{}) *MockReplicator_FetchObject_Call {
+	return &MockReplicator_FetchObject_Call{Call: _e.mock.On("FetchObject", ctx, className, shardName, id, schemaVersion)}
 }
 
-func (_c *MockReplicator_FetchObject_Call) Run(run func(ctx context.Context, className string, shardName string, id strfmt.UUID)) *MockReplicator_FetchObject_Call {
+func (_c *MockReplicator_FetchObject_Call) Run(run func(ctx context.Context, className string, shardName string, id strfmt.UUID, schemaVersion uint64)) *MockReplicator_FetchObject_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(strfmt.UUID))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(strfmt.UUID), args[4].(uint64))
 	})
 	return _c
 }
@@ -604,14 +607,14 @@ func (_c *MockReplicator_FetchObject_Call) Return(_a0 replica.Replica, _a1 error
 	return _c
 }
 
-func (_c *MockReplicator_FetchObject_Call) RunAndReturn(run func(context.Context, string, string, strfmt.UUID) (replica.Replica, error)) *MockReplicator_FetchObject_Call {
+func (_c *MockReplicator_FetchObject_Call) RunAndReturn(run func(context.Context, string, string, strfmt.UUID, uint64) (replica.Replica, error)) *MockReplicator_FetchObject_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// FetchObjects provides a mock function with given fields: ctx, className, shardName, ids
-func (_m *MockReplicator) FetchObjects(ctx context.Context, className string, shardName string, ids []strfmt.UUID) ([]replica.Replica, error) {
-	ret := _m.Called(ctx, className, shardName, ids)
+// FetchObjects provides a mock function with given fields: ctx, className, shardName, ids, schemaVersion
+func (_m *MockReplicator) FetchObjects(ctx context.Context, className string, shardName string, ids []strfmt.UUID, schemaVersion uint64) ([]replica.Replica, error) {
+	ret := _m.Called(ctx, className, shardName, ids, schemaVersion)
 
 	if len(ret) == 0 {
 		panic("no return value specified for FetchObjects")
@@ -619,19 +622,19 @@ func (_m *MockReplicator) FetchObjects(ctx context.Context, className string, sh
 
 	var r0 []replica.Replica
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, []strfmt.UUID) ([]replica.Replica, error)); ok {
-		return rf(ctx, className, shardName, ids)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, []strfmt.UUID, uint64) ([]replica.Replica, error)); ok {
+		return rf(ctx, className, shardName, ids, schemaVersion)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, []strfmt.UUID) []replica.Replica); ok {
-		r0 = rf(ctx, className, shardName, ids)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, []strfmt.UUID, uint64) []replica.Replica); ok {
+		r0 = rf(ctx, className, shardName, ids, schemaVersion)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]replica.Replica)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, []strfmt.UUID) error); ok {
-		r1 = rf(ctx, className, shardName, ids)
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, []strfmt.UUID, uint64) error); ok {
+		r1 = rf(ctx, className, shardName, ids, schemaVersion)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -649,13 +652,14 @@ type MockReplicator_FetchObjects_Call struct {
 //   - className string
 //   - shardName string
 //   - ids []strfmt.UUID
-func (_e *MockReplicator_Expecter) FetchObjects(ctx interface{}, className interface{}, shardName interface{}, ids interface{}) *MockReplicator_FetchObjects_Call {
-	return &MockReplicator_FetchObjects_Call{Call: _e.mock.On("FetchObjects", ctx, className, shardName, ids)}
+//   - schemaVersion uint64
+func (_e *MockReplicator_Expecter) FetchObjects(ctx interface{}, className interface{}, shardName interface{}, ids interface{}, schemaVersion interface{}) *MockReplicator_FetchObjects_Call {
+	return &MockReplicator_FetchObjects_Call{Call: _e.mock.On("FetchObjects", ctx, className, shardName, ids, schemaVersion)}
 }
 
-func (_c *MockReplicator_FetchObjects_Call) Run(run func(ctx context.Context, className string, shardName string, ids []strfmt.UUID)) *MockReplicator_FetchObjects_Call {
+func (_c *MockReplicator_FetchObjects_Call) Run(run func(ctx context.Context, className string, shardName string, ids []strfmt.UUID, schemaVersion uint64)) *MockReplicator_FetchObjects_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].([]strfmt.UUID))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].([]strfmt.UUID), args[4].(uint64))
 	})
 	return _c
 }
@@ -665,14 +669,14 @@ func (_c *MockReplicator_FetchObjects_Call) Return(_a0 []replica.Replica, _a1 er
 	return _c
 }
 
-func (_c *MockReplicator_FetchObjects_Call) RunAndReturn(run func(context.Context, string, string, []strfmt.UUID) ([]replica.Replica, error)) *MockReplicator_FetchObjects_Call {
+func (_c *MockReplicator_FetchObjects_Call) RunAndReturn(run func(context.Context, string, string, []strfmt.UUID, uint64) ([]replica.Replica, error)) *MockReplicator_FetchObjects_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// FindUUIDs provides a mock function with given fields: ctx, indexName, shardName, _a3, limit
-func (_m *MockReplicator) FindUUIDs(ctx context.Context, indexName string, shardName string, _a3 *filters.LocalFilter, limit int) ([]strfmt.UUID, error) {
-	ret := _m.Called(ctx, indexName, shardName, _a3, limit)
+// FindUUIDs provides a mock function with given fields: ctx, indexName, shardName, _a3, limit, schemaVersion
+func (_m *MockReplicator) FindUUIDs(ctx context.Context, indexName string, shardName string, _a3 *filters.LocalFilter, limit int, schemaVersion uint64) ([]strfmt.UUID, error) {
+	ret := _m.Called(ctx, indexName, shardName, _a3, limit, schemaVersion)
 
 	if len(ret) == 0 {
 		panic("no return value specified for FindUUIDs")
@@ -680,19 +684,19 @@ func (_m *MockReplicator) FindUUIDs(ctx context.Context, indexName string, shard
 
 	var r0 []strfmt.UUID
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, *filters.LocalFilter, int) ([]strfmt.UUID, error)); ok {
-		return rf(ctx, indexName, shardName, _a3, limit)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, *filters.LocalFilter, int, uint64) ([]strfmt.UUID, error)); ok {
+		return rf(ctx, indexName, shardName, _a3, limit, schemaVersion)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, *filters.LocalFilter, int) []strfmt.UUID); ok {
-		r0 = rf(ctx, indexName, shardName, _a3, limit)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, *filters.LocalFilter, int, uint64) []strfmt.UUID); ok {
+		r0 = rf(ctx, indexName, shardName, _a3, limit, schemaVersion)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]strfmt.UUID)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, *filters.LocalFilter, int) error); ok {
-		r1 = rf(ctx, indexName, shardName, _a3, limit)
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, *filters.LocalFilter, int, uint64) error); ok {
+		r1 = rf(ctx, indexName, shardName, _a3, limit, schemaVersion)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -711,13 +715,14 @@ type MockReplicator_FindUUIDs_Call struct {
 //   - shardName string
 //   - _a3 *filters.LocalFilter
 //   - limit int
-func (_e *MockReplicator_Expecter) FindUUIDs(ctx interface{}, indexName interface{}, shardName interface{}, _a3 interface{}, limit interface{}) *MockReplicator_FindUUIDs_Call {
-	return &MockReplicator_FindUUIDs_Call{Call: _e.mock.On("FindUUIDs", ctx, indexName, shardName, _a3, limit)}
+//   - schemaVersion uint64
+func (_e *MockReplicator_Expecter) FindUUIDs(ctx interface{}, indexName interface{}, shardName interface{}, _a3 interface{}, limit interface{}, schemaVersion interface{}) *MockReplicator_FindUUIDs_Call {
+	return &MockReplicator_FindUUIDs_Call{Call: _e.mock.On("FindUUIDs", ctx, indexName, shardName, _a3, limit, schemaVersion)}
 }
 
-func (_c *MockReplicator_FindUUIDs_Call) Run(run func(ctx context.Context, indexName string, shardName string, _a3 *filters.LocalFilter, limit int)) *MockReplicator_FindUUIDs_Call {
+func (_c *MockReplicator_FindUUIDs_Call) Run(run func(ctx context.Context, indexName string, shardName string, _a3 *filters.LocalFilter, limit int, schemaVersion uint64)) *MockReplicator_FindUUIDs_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(*filters.LocalFilter), args[4].(int))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(*filters.LocalFilter), args[4].(int), args[5].(uint64))
 	})
 	return _c
 }
@@ -727,7 +732,7 @@ func (_c *MockReplicator_FindUUIDs_Call) Return(_a0 []strfmt.UUID, _a1 error) *M
 	return _c
 }
 
-func (_c *MockReplicator_FindUUIDs_Call) RunAndReturn(run func(context.Context, string, string, *filters.LocalFilter, int) ([]strfmt.UUID, error)) *MockReplicator_FindUUIDs_Call {
+func (_c *MockReplicator_FindUUIDs_Call) RunAndReturn(run func(context.Context, string, string, *filters.LocalFilter, int, uint64) ([]strfmt.UUID, error)) *MockReplicator_FindUUIDs_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -308,6 +308,8 @@ func (f *fakeSchemaManager) WaitForUpdate(ctx context.Context, schemaVersion uin
 	return nil
 }
 
+func (f *fakeSchemaManager) AppliedIndex() uint64 { return 0 }
+
 func (f *fakeSchemaManager) CreateAlias(ctx context.Context, alias string, class *models.Class) (uint64, error) {
 	args := f.Called(ctx, alias, class)
 	return 0, args.Error(0)

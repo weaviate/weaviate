@@ -64,7 +64,7 @@ func (f *fakeReplicator) ReplicateReferences(ctx context.Context, indexName, sha
 	return replica.SimpleResponse{}
 }
 
-func (f *fakeReplicator) FindUUIDs(ctx context.Context, indexName, shardName string, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error) {
+func (f *fakeReplicator) FindUUIDs(ctx context.Context, indexName, shardName string, filters *filters.LocalFilter, limit int, schemaVersion uint64) ([]strfmt.UUID, error) {
 	return []strfmt.UUID{}, nil
 }
 
@@ -90,15 +90,15 @@ func (f *fakeReplicator) OverwriteObjects(ctx context.Context, index, shard stri
 	return []types.RepairResponse{}, nil
 }
 
-func (f *fakeReplicator) FetchObject(ctx context.Context, indexName, shardName string, id strfmt.UUID) (replica.Replica, error) {
+func (f *fakeReplicator) FetchObject(ctx context.Context, indexName, shardName string, id strfmt.UUID, schemaVersion uint64) (replica.Replica, error) {
 	return replica.Replica{}, nil
 }
 
-func (f *fakeReplicator) FetchObjects(ctx context.Context, class, shardName string, ids []strfmt.UUID) ([]replica.Replica, error) {
+func (f *fakeReplicator) FetchObjects(ctx context.Context, class, shardName string, ids []strfmt.UUID, schemaVersion uint64) ([]replica.Replica, error) {
 	return []replica.Replica{}, nil
 }
 
-func (f *fakeReplicator) DigestObjects(ctx context.Context, class, shardName string, ids []strfmt.UUID) (result []types.RepairResponse, err error) {
+func (f *fakeReplicator) DigestObjects(ctx context.Context, class, shardName string, ids []strfmt.UUID, schemaVersion uint64) (result []types.RepairResponse, err error) {
 	return []types.RepairResponse{}, nil
 }
 
@@ -110,7 +110,7 @@ func (f *fakeReplicator) HashTreeLevel(ctx context.Context, index, shard string,
 	return []hashtree.Digest{}, nil
 }
 
-func (f *fakeReplicator) CountObjects(ctx context.Context, index, shard string) (int, error) {
+func (f *fakeReplicator) CountObjects(ctx context.Context, index, shard string, schemaVersion uint64) (int, error) {
 	return 0, nil
 }
 

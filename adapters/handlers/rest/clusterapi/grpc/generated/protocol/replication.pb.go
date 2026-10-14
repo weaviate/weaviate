@@ -1160,10 +1160,12 @@ func (x *AbortResponse) GetResponse() *SimpleReplicaResponse {
 
 // FetchObject fetches a single replicated object.
 type FetchObjectRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Index         string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
-	Shard         string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
-	Uuid          string                 `protobuf:"bytes,3,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Index string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
+	Shard string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
+	Uuid  string                 `protobuf:"bytes,3,opt,name=uuid,proto3" json:"uuid,omitempty"`
+	// The schema version the read was resolved against; 0 if the sender predates it.
+	SchemaVersion uint64 `protobuf:"varint,4,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1219,6 +1221,13 @@ func (x *FetchObjectRequest) GetUuid() string {
 	return ""
 }
 
+func (x *FetchObjectRequest) GetSchemaVersion() uint64 {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return 0
+}
+
 // FetchObjectResponse carries the replica as opaque binary (Replica.MarshalBinary).
 type FetchObjectResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1266,10 +1275,12 @@ func (x *FetchObjectResponse) GetReplicaData() []byte {
 
 // FetchObjects fetches multiple replicated objects.
 type FetchObjectsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Index         string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
-	Shard         string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
-	Uuids         []string               `protobuf:"bytes,3,rep,name=uuids,proto3" json:"uuids,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Index string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
+	Shard string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
+	Uuids []string               `protobuf:"bytes,3,rep,name=uuids,proto3" json:"uuids,omitempty"`
+	// The schema version the read was resolved against; 0 if the sender predates it.
+	SchemaVersion uint64 `protobuf:"varint,4,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1325,6 +1336,13 @@ func (x *FetchObjectsRequest) GetUuids() []string {
 	return nil
 }
 
+func (x *FetchObjectsRequest) GetSchemaVersion() uint64 {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return 0
+}
+
 // FetchObjectsResponse carries replicas as opaque binary (Replicas.MarshalBinary).
 type FetchObjectsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1372,10 +1390,12 @@ func (x *FetchObjectsResponse) GetReplicasData() []byte {
 
 // DigestObjects fetches compact digests for the given IDs.
 type DigestObjectsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Index         string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
-	Shard         string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
-	Ids           []string               `protobuf:"bytes,3,rep,name=ids,proto3" json:"ids,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Index string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
+	Shard string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
+	Ids   []string               `protobuf:"bytes,3,rep,name=ids,proto3" json:"ids,omitempty"`
+	// The schema version the read was resolved against; 0 if the sender predates it.
+	SchemaVersion uint64 `protobuf:"varint,4,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1429,6 +1449,13 @@ func (x *DigestObjectsRequest) GetIds() []string {
 		return x.Ids
 	}
 	return nil
+}
+
+func (x *DigestObjectsRequest) GetSchemaVersion() uint64 {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return 0
 }
 
 type DigestObjectsResponse struct {
@@ -1884,11 +1911,13 @@ func (x *OverwriteObjectsResponse) GetResults() []*RepairResponse {
 
 // FindUUIDs finds UUIDs matching a filter.
 type FindUUIDsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Index         string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
-	Shard         string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
-	FilterJson    []byte                 `protobuf:"bytes,3,opt,name=filter_json,json=filterJson,proto3" json:"filter_json,omitempty"` // JSON-encoded *filters.LocalFilter
-	Limit         int32                  `protobuf:"varint,4,opt,name=limit,proto3" json:"limit,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Index      string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
+	Shard      string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
+	FilterJson []byte                 `protobuf:"bytes,3,opt,name=filter_json,json=filterJson,proto3" json:"filter_json,omitempty"` // JSON-encoded *filters.LocalFilter
+	Limit      int32                  `protobuf:"varint,4,opt,name=limit,proto3" json:"limit,omitempty"`
+	// The schema version the read was resolved against; 0 if the sender predates it.
+	SchemaVersion uint64 `protobuf:"varint,5,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1947,6 +1976,13 @@ func (x *FindUUIDsRequest) GetFilterJson() []byte {
 func (x *FindUUIDsRequest) GetLimit() int32 {
 	if x != nil {
 		return x.Limit
+	}
+	return 0
+}
+
+func (x *FindUUIDsRequest) GetSchemaVersion() uint64 {
+	if x != nil {
+		return x.SchemaVersion
 	}
 	return 0
 }
@@ -2494,9 +2530,11 @@ func (x *CompareHashTreeRootsMultiResponse) GetClasses() []*ClassDivergingShards
 
 // CountObjects fetches hash tree level digests.
 type CountObjectsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Index         string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
-	Shard         string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Index string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
+	Shard string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
+	// The schema version the read was resolved against; 0 if the sender predates it.
+	SchemaVersion uint64 `protobuf:"varint,3,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2543,6 +2581,13 @@ func (x *CountObjectsRequest) GetShard() string {
 		return x.Shard
 	}
 	return ""
+}
+
+func (x *CountObjectsRequest) GetSchemaVersion() uint64 {
+	if x != nil {
+		return x.SchemaVersion
+	}
+	return 0
 }
 
 // CountObjectsResponse carries object count.
@@ -3034,23 +3079,26 @@ const file_protocol_replication_proto_rawDesc = "" +
 	"\n" +
 	"request_id\x18\x03 \x01(\tR\trequestId\"N\n" +
 	"\rAbortResponse\x12=\n" +
-	"\bresponse\x18\x01 \x01(\v2!.clusterapi.SimpleReplicaResponseR\bresponse\"T\n" +
+	"\bresponse\x18\x01 \x01(\v2!.clusterapi.SimpleReplicaResponseR\bresponse\"{\n" +
 	"\x12FetchObjectRequest\x12\x14\n" +
 	"\x05index\x18\x01 \x01(\tR\x05index\x12\x14\n" +
 	"\x05shard\x18\x02 \x01(\tR\x05shard\x12\x12\n" +
-	"\x04uuid\x18\x03 \x01(\tR\x04uuid\"8\n" +
+	"\x04uuid\x18\x03 \x01(\tR\x04uuid\x12%\n" +
+	"\x0eschema_version\x18\x04 \x01(\x04R\rschemaVersion\"8\n" +
 	"\x13FetchObjectResponse\x12!\n" +
-	"\freplica_data\x18\x01 \x01(\fR\vreplicaData\"W\n" +
+	"\freplica_data\x18\x01 \x01(\fR\vreplicaData\"~\n" +
 	"\x13FetchObjectsRequest\x12\x14\n" +
 	"\x05index\x18\x01 \x01(\tR\x05index\x12\x14\n" +
 	"\x05shard\x18\x02 \x01(\tR\x05shard\x12\x14\n" +
-	"\x05uuids\x18\x03 \x03(\tR\x05uuids\";\n" +
+	"\x05uuids\x18\x03 \x03(\tR\x05uuids\x12%\n" +
+	"\x0eschema_version\x18\x04 \x01(\x04R\rschemaVersion\";\n" +
 	"\x14FetchObjectsResponse\x12#\n" +
-	"\rreplicas_data\x18\x01 \x01(\fR\freplicasData\"T\n" +
+	"\rreplicas_data\x18\x01 \x01(\fR\freplicasData\"{\n" +
 	"\x14DigestObjectsRequest\x12\x14\n" +
 	"\x05index\x18\x01 \x01(\tR\x05index\x12\x14\n" +
 	"\x05shard\x18\x02 \x01(\tR\x05shard\x12\x10\n" +
-	"\x03ids\x18\x03 \x03(\tR\x03ids\"M\n" +
+	"\x03ids\x18\x03 \x03(\tR\x03ids\x12%\n" +
+	"\x0eschema_version\x18\x04 \x01(\x04R\rschemaVersion\"M\n" +
 	"\x15DigestObjectsResponse\x124\n" +
 	"\adigests\x18\x01 \x03(\v2\x1a.clusterapi.RepairResponseR\adigests\"\xca\x01\n" +
 	"\x1bDigestObjectsInRangeRequest\x12\x14\n" +
@@ -3082,13 +3130,14 @@ const file_protocol_replication_proto_rawDesc = "" +
 	"\rvobjects_data\x18\x03 \x01(\fR\fvobjectsData\x12\x1a\n" +
 	"\bencoding\x18\x04 \x01(\rR\bencoding\"P\n" +
 	"\x18OverwriteObjectsResponse\x124\n" +
-	"\aresults\x18\x01 \x03(\v2\x1a.clusterapi.RepairResponseR\aresults\"u\n" +
+	"\aresults\x18\x01 \x03(\v2\x1a.clusterapi.RepairResponseR\aresults\"\x9c\x01\n" +
 	"\x10FindUUIDsRequest\x12\x14\n" +
 	"\x05index\x18\x01 \x01(\tR\x05index\x12\x14\n" +
 	"\x05shard\x18\x02 \x01(\tR\x05shard\x12\x1f\n" +
 	"\vfilter_json\x18\x03 \x01(\fR\n" +
 	"filterJson\x12\x14\n" +
-	"\x05limit\x18\x04 \x01(\x05R\x05limit\")\n" +
+	"\x05limit\x18\x04 \x01(\x05R\x05limit\x12%\n" +
+	"\x0eschema_version\x18\x05 \x01(\x04R\rschemaVersion\")\n" +
 	"\x11FindUUIDsResponse\x12\x14\n" +
 	"\x05uuids\x18\x01 \x03(\tR\x05uuids\"\xa5\x01\n" +
 	"\x14HashTreeLevelRequest\x12\x14\n" +
@@ -3119,10 +3168,11 @@ const file_protocol_replication_proto_rawDesc = "" +
 	"\x10diverging_shards\x18\x02 \x03(\tR\x0fdivergingShards\x12\x14\n" +
 	"\x05error\x18\x03 \x01(\tR\x05error\"_\n" +
 	"!CompareHashTreeRootsMultiResponse\x12:\n" +
-	"\aclasses\x18\x01 \x03(\v2 .clusterapi.ClassDivergingShardsR\aclasses\"A\n" +
+	"\aclasses\x18\x01 \x03(\v2 .clusterapi.ClassDivergingShardsR\aclasses\"h\n" +
 	"\x13CountObjectsRequest\x12\x14\n" +
 	"\x05index\x18\x01 \x01(\tR\x05index\x12\x14\n" +
-	"\x05shard\x18\x02 \x01(\tR\x05shard\",\n" +
+	"\x05shard\x18\x02 \x01(\tR\x05shard\x12%\n" +
+	"\x0eschema_version\x18\x03 \x01(\x04R\rschemaVersion\",\n" +
 	"\x14CountObjectsResponse\x12\x14\n" +
 	"\x05count\x18\x01 \x01(\x05R\x05count\"\x9c\x01\n" +
 	"\x1cCreateAsyncCheckpointRequest\x12\x14\n" +

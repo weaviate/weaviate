@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
@@ -141,28 +142,37 @@ func (db *DB) OverwriteObjects(ctx context.Context, className, shard string, vob
 	return index.OverwriteObjects(ctx, shard, vobjects)
 }
 
-func (db *DB) FetchObject(ctx context.Context, className, shardName string, id strfmt.UUID) (replica.Replica, error) {
+func (db *DB) FetchObject(ctx context.Context, className, shardName string, id strfmt.UUID,
+	schemaVersion uint64,
+) (replica.Replica, error) {
 	index, pr := db.replicatedIndex(className)
 	if pr != nil {
 		return replica.Replica{}, pr.FirstError()
 	}
-	return index.FetchObject(ctx, shardName, id)
+	r, err := index.FetchObject(ctx, shardName, id)
+	return r, db.classifyReplicatedReadMiss(err, className, shardName, schemaVersion)
 }
 
-func (db *DB) FetchObjects(ctx context.Context, className, shardName string, ids []strfmt.UUID) ([]replica.Replica, error) {
+func (db *DB) FetchObjects(ctx context.Context, className, shardName string, ids []strfmt.UUID,
+	schemaVersion uint64,
+) ([]replica.Replica, error) {
 	index, pr := db.replicatedIndex(className)
 	if pr != nil {
 		return nil, pr.FirstError()
 	}
-	return index.FetchObjects(ctx, shardName, ids)
+	rs, err := index.FetchObjects(ctx, shardName, ids)
+	return rs, db.classifyReplicatedReadMiss(err, className, shardName, schemaVersion)
 }
 
-func (db *DB) DigestObjects(ctx context.Context, className, shardName string, ids []strfmt.UUID) (result []types.RepairResponse, err error) {
+func (db *DB) DigestObjects(ctx context.Context, className, shardName string, ids []strfmt.UUID,
+	schemaVersion uint64,
+) (result []types.RepairResponse, err error) {
 	index, pr := db.replicatedIndex(className)
 	if pr != nil {
 		return nil, pr.FirstError()
 	}
-	return index.DigestObjects(ctx, shardName, ids)
+	rs, err := index.DigestObjects(ctx, shardName, ids)
+	return rs, db.classifyReplicatedReadMiss(err, className, shardName, schemaVersion)
 }
 
 func (db *DB) DigestObjectsInRange(ctx context.Context, className, shardName string, initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairDigest, err error) {
@@ -197,22 +207,26 @@ func (db *DB) CompareHashTreeRoots(ctx context.Context, className string, roots 
 	return index.CompareHashTreeRoots(ctx, roots)
 }
 
-func (db *DB) CountObjects(ctx context.Context, indexName string, shardName string) (int, error) {
+func (db *DB) CountObjects(ctx context.Context, indexName string, shardName string,
+	schemaVersion uint64,
+) (int, error) {
 	index, pr := db.replicatedIndex(indexName)
 	if pr != nil {
 		return 0, pr.FirstError()
 	}
-	return index.CountObjects(ctx, shardName)
+	count, err := index.CountObjects(ctx, shardName)
+	return count, db.classifyReplicatedReadMiss(err, indexName, shardName, schemaVersion)
 }
 
 func (db *DB) FindUUIDs(ctx context.Context, indexName, shardName string,
-	f *filters.LocalFilter, limit int,
+	f *filters.LocalFilter, limit int, schemaVersion uint64,
 ) ([]strfmt.UUID, error) {
 	index, pr := db.replicatedIndex(indexName)
 	if pr != nil {
 		return nil, pr.FirstError()
 	}
-	return index.IncomingFindUUIDs(ctx, shardName, f, limit)
+	uuids, err := index.IncomingFindUUIDs(ctx, shardName, f, limit)
+	return uuids, db.classifyReplicatedReadMiss(err, indexName, shardName, schemaVersion)
 }
 
 func (db *DB) CreateAsyncCheckpoint(ctx context.Context, className string, shardNames []string, cutoffMs int64, createdAt time.Time) error {
@@ -306,8 +320,10 @@ func (db *DB) waitForSchemaVersionForIndexWrite(ctx context.Context, schemaVersi
 		// Msg carries the human-readable detail because Err is not
 		// serialised over the wire (json:"-"); without Msg the remote
 		// coordinator would see an empty error and treat it as success.
+		// StatusNotReady, not PreconditionFailed: the cluster API turns it into a 503 the coordinator
+		// fails over from, rather than a success carrying an error that costs the replica its vote
 		return &replica.SimpleResponse{Errors: []replicaerrors.Error{{
-			Code: replicaerrors.StatusPreconditionFailed,
+			Code: replicaerrors.StatusNotReady,
 			Msg:  fmt.Sprintf("waiting for schema version %d: %v", schemaVersion, err),
 			Err:  err,
 		}}}
@@ -992,12 +1008,12 @@ func (i *Index) DigestObjects(ctx context.Context,
 ) (result []types.RepairResponse, err error) {
 	s, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
-		return nil, fmt.Errorf("shard %q not found locally", shardName)
+		return nil, enterrors.ErrLocalShardNotFound{Shard: shardName}
 	}
 	defer release()
 
 	if s == nil {
-		return nil, fmt.Errorf("shard %q not found locally", shardName)
+		return nil, enterrors.ErrLocalShardNotFound{Shard: shardName}
 	}
 
 	if err := i.ensureShardLocallyReady(s); err != nil {
@@ -1148,7 +1164,7 @@ func (i *Index) CountObjects(ctx context.Context, shardName string) (int, error)
 	}
 	defer release()
 	if shard == nil {
-		return 0, fmt.Errorf("shard %q does not exist locally", shardName)
+		return 0, enterrors.ErrLocalShardNotFound{Shard: shardName}
 	}
 
 	return shard.ObjectCount(ctx)
@@ -1163,13 +1179,13 @@ func (i *Index) FetchObject(ctx context.Context,
 ) (replica.Replica, error) {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
-		return replica.Replica{}, fmt.Errorf("shard %q does not exist locally", shardName)
+		return replica.Replica{}, enterrors.ErrLocalShardNotFound{Shard: shardName}
 	}
 
 	defer release()
 
 	if shard == nil {
-		return replica.Replica{}, fmt.Errorf("shard %q does not exist locally", shardName)
+		return replica.Replica{}, enterrors.ErrLocalShardNotFound{Shard: shardName}
 	}
 
 	if err := i.ensureShardLocallyReady(shard); err != nil {
@@ -1211,11 +1227,11 @@ func (i *Index) FetchObjects(ctx context.Context,
 ) ([]replica.Replica, error) {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
-		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
+		return nil, enterrors.ErrLocalShardNotFound{Shard: shardName}
 	}
 	defer release()
 	if shard == nil {
-		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
+		return nil, enterrors.ErrLocalShardNotFound{Shard: shardName}
 	}
 
 	if err := i.ensureShardLocallyReady(shard); err != nil {
@@ -1256,4 +1272,21 @@ func (i *Index) FetchObjects(ctx context.Context,
 	}
 
 	return resp, nil
+}
+
+// classifyReplicatedReadMiss answers a miss this node is already current enough to be sure about
+// as final, so nothing retries a replica that can never serve the shard. Anything else, a miss
+// while still behind included, passes through untouched: lag resolves on its own, and the retry
+// that outlasts schema propagation is what keeps the read correct meanwhile.
+func (db *DB) classifyReplicatedReadMiss(err error, className, shardName string, schemaVersion uint64) error {
+	if err == nil || !enterrors.IsSchemaLag(err) {
+		return err
+	}
+	appliedIndex := db.schemaReader.AppliedIndex()
+	if !enterrors.NotServedHere(err, schemaVersion, appliedIndex) {
+		return err
+	}
+	return enterrors.NewErrUnprocessable(enterrors.ErrNotServedHere{
+		Index: className, Shard: shardName, Version: appliedIndex,
+	})
 }

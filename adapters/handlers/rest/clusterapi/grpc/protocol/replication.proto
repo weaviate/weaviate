@@ -170,6 +170,8 @@ message FetchObjectRequest {
   string index = 1;
   string shard = 2;
   string uuid = 3;
+  // The schema version the read was resolved against; 0 if the sender predates it.
+  uint64 schema_version = 4;
 }
 
 // FetchObjectResponse carries the replica as opaque binary (Replica.MarshalBinary).
@@ -182,6 +184,8 @@ message FetchObjectsRequest {
   string index = 1;
   string shard = 2;
   repeated string uuids = 3;
+  // The schema version the read was resolved against; 0 if the sender predates it.
+  uint64 schema_version = 4;
 }
 
 // FetchObjectsResponse carries replicas as opaque binary (Replicas.MarshalBinary).
@@ -194,6 +198,8 @@ message DigestObjectsRequest {
   string index = 1;
   string shard = 2;
   repeated string ids = 3;
+  // The schema version the read was resolved against; 0 if the sender predates it.
+  uint64 schema_version = 4;
 }
 
 message DigestObjectsResponse {
@@ -254,6 +260,8 @@ message FindUUIDsRequest {
   string shard = 2;
   bytes filter_json = 3; // JSON-encoded *filters.LocalFilter
   int32 limit = 4;
+  // The schema version the read was resolved against; 0 if the sender predates it.
+  uint64 schema_version = 5;
 }
 
 message FindUUIDsResponse {
@@ -324,6 +332,8 @@ message CompareHashTreeRootsMultiResponse {
 message CountObjectsRequest {
   string index = 1;
   string shard = 2;
+  // The schema version the read was resolved against; 0 if the sender predates it.
+  uint64 schema_version = 3;
 }
 
 // CountObjectsResponse carries object count.

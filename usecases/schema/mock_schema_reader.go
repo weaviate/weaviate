@@ -87,6 +87,51 @@ func (_c *MockSchemaReader_Aliases_Call) RunAndReturn(run func() map[string]stri
 	return _c
 }
 
+// AppliedIndex provides a mock function with no fields
+func (_m *MockSchemaReader) AppliedIndex() uint64 {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for AppliedIndex")
+	}
+
+	var r0 uint64
+	if rf, ok := ret.Get(0).(func() uint64); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(uint64)
+	}
+
+	return r0
+}
+
+// MockSchemaReader_AppliedIndex_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AppliedIndex'
+type MockSchemaReader_AppliedIndex_Call struct {
+	*mock.Call
+}
+
+// AppliedIndex is a helper method to define mock.On call
+func (_e *MockSchemaReader_Expecter) AppliedIndex() *MockSchemaReader_AppliedIndex_Call {
+	return &MockSchemaReader_AppliedIndex_Call{Call: _e.mock.On("AppliedIndex")}
+}
+
+func (_c *MockSchemaReader_AppliedIndex_Call) Run(run func()) *MockSchemaReader_AppliedIndex_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockSchemaReader_AppliedIndex_Call) Return(_a0 uint64) *MockSchemaReader_AppliedIndex_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockSchemaReader_AppliedIndex_Call) RunAndReturn(run func() uint64) *MockSchemaReader_AppliedIndex_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ClassEqual provides a mock function with given fields: name
 func (_m *MockSchemaReader) ClassEqual(name string) string {
 	ret := _m.Called(name)
