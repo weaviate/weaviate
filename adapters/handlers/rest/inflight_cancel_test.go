@@ -48,7 +48,7 @@ func TestInFlightCancelUnblocksServerShutdown(t *testing.T) {
 	const requests = 2
 	logger, _ := logrustest.NewNullLogger()
 	appState := newMiddlewareTestState(logger)
-	inFlight := newInFlightCancel(50 * time.Millisecond)
+	inFlight, cancelRequests := newTestInFlightCancel(t)
 	entered := make(chan struct{}, requests)
 	blocked := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		entered <- struct{}{}
@@ -84,7 +84,7 @@ func TestInFlightCancelUnblocksServerShutdown(t *testing.T) {
 		<-entered
 	}
 
-	inFlight.startShutdown()
+	cancelRequests()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	require.NoError(t, srv.Config.Shutdown(ctx))
@@ -95,6 +95,12 @@ func TestInFlightCancelUnblocksServerShutdown(t *testing.T) {
 		assert.Equal(t, http.StatusServiceUnavailable, res.status)
 	}
 	assert.Equal(t, int64(requests), inFlight.unavailableResponses.Load())
+}
+
+func newTestInFlightCancel(t *testing.T) (*inFlightCancel, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	return newInFlightCancel(ctx), cancel
 }
 
 func newMiddlewareTestState(logger *logrus.Logger) *state.State {
@@ -108,19 +114,19 @@ func TestInFlightCancelProbes(t *testing.T) {
 	cases := []struct {
 		name       string
 		path       string
-		prepare    func(*inFlightCancel)
+		prepare    func(c *inFlightCancel, cancel context.CancelFunc)
 		wantStatus int
 	}{
 		{
 			name:       "readiness once shutdown started, before the cancel",
 			path:       "/v1/.well-known/ready",
-			prepare:    func(c *inFlightCancel) { c.startShutdown() },
+			prepare:    func(c *inFlightCancel, _ context.CancelFunc) { c.startShutdown() },
 			wantStatus: http.StatusServiceUnavailable,
 		},
 		{
 			name:       "liveness after the cancel",
 			path:       "/v1/.well-known/live",
-			prepare:    func(c *inFlightCancel) { c.startShutdown(); c.cancelRequests() },
+			prepare:    func(c *inFlightCancel, cancel context.CancelFunc) { c.startShutdown(); cancel() },
 			wantStatus: http.StatusOK,
 		},
 	}
@@ -128,9 +134,8 @@ func TestInFlightCancelProbes(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			logger, _ := logrustest.NewNullLogger()
-			inFlight := newInFlightCancel(time.Hour)
-			t.Cleanup(inFlight.cancelRequests)
-			tc.prepare(inFlight)
+			inFlight, cancel := newTestInFlightCancel(t)
+			tc.prepare(inFlight, cancel)
 			handler := makeSetupGlobalMiddleware(newMiddlewareTestState(logger), nil, nil, inFlight)(
 				http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 					t.Errorf("probe %s reached the API handler", tc.path)
@@ -158,8 +163,8 @@ func TestInFlightCancelUnavailablePassesThroughCORSAndMetrics(t *testing.T) {
 	api.Init()
 	routes := middleware.NewRoutableContext(spec, api, middleware.DefaultRouter(spec, api))
 
-	inFlight := newInFlightCancel(time.Hour)
-	inFlight.cancelRequests()
+	inFlight, cancel := newTestInFlightCancel(t)
+	cancel()
 	handler := makeSetupGlobalMiddleware(appState, routes, nil, inFlight)(
 		http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 			t.Error("request after the cancel reached the API handler")
@@ -191,11 +196,10 @@ func (c *writeHeaderCounter) WriteHeader(status int) {
 // A handler panicking after the cancel still answers 503 and is counted.
 func TestInFlightCancelPanicAfterCancel(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
-	inFlight := newInFlightCancel(time.Hour)
-	t.Cleanup(inFlight.cancelRequests)
+	inFlight, cancel := newTestInFlightCancel(t)
 	handler := makeSetupGlobalMiddleware(newMiddlewareTestState(logger), nil, nil, inFlight)(
 		http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-			inFlight.cancelRequests()
+			cancel()
 			panic(errors.New("handler failed"))
 		}))
 
@@ -222,7 +226,8 @@ func (b *blockingSearch) Search(ctx context.Context, _ *pbv1.SearchRequest) (*pb
 	}
 }
 
-// After the cancel grpc-web gets Grpc-Status 14 and Connect a JSON 503, both with CORS headers.
+// Once the gRPC server begins stopping, grpc-web gets Grpc-Status 14 and Connect
+// a JSON 503, both with CORS headers.
 func TestInFlightCancelGrpcWebRefusal(t *testing.T) {
 	const (
 		origin      = "https://example.com"
@@ -232,10 +237,10 @@ func TestInFlightCancelGrpcWebRefusal(t *testing.T) {
 	appState := newMiddlewareTestState(logger)
 	appState.ServerConfig.Config.CORS = config.CORS{AllowOrigin: origin}
 	grpcServer := grpc.NewServer()
+	t.Cleanup(grpcServer.Stop)
 	search := &blockingSearch{entered: make(chan struct{}, 1)}
 	pbv1.RegisterWeaviateServer(grpcServer, search)
-	inFlight := newInFlightCancel(time.Hour)
-	t.Cleanup(inFlight.cancelRequests)
+	inFlight, refuseGrpcWeb := newTestInFlightCancel(t)
 	handler, err := grpcweb.NewHandler(grpcServer, appState, inFlight.unavailableAfterCancel)
 	require.NoError(t, err)
 
@@ -246,7 +251,7 @@ func TestInFlightCancelGrpcWebRefusal(t *testing.T) {
 			r.Header[k] = v
 		}
 		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, r.WithContext(inFlight.requestsCtx))
+		handler.ServeHTTP(rec, r)
 		return rec
 	}
 	// An empty grpc-web data frame is a flag byte followed by a zero length.
@@ -261,7 +266,7 @@ func TestInFlightCancelGrpcWebRefusal(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("grpc-web call never reached Search")
 	}
-	inFlight.cancelRequests()
+	t.Cleanup(startGrpcStop(grpcServer, refuseGrpcWeb, time.Hour, logger))
 
 	connect := http.Header{"Content-Type": {"application/proto"}, "Connect-Protocol-Version": {"1"}}
 	cases := []struct {
@@ -273,15 +278,15 @@ func TestInFlightCancelGrpcWebRefusal(t *testing.T) {
 		wantEmptyBody   bool
 	}{
 		{
-			name: "grpc-web in flight at the cancel", rec: <-inFlightDone,
+			name: "grpc-web in flight at the stop", rec: <-inFlightDone,
 			wantStatus: http.StatusOK, wantContentType: grpcWebType, wantGrpcStatus: "14", wantEmptyBody: true,
 		},
 		{
-			name: "grpc-web arriving after the cancel", rec: grpcWebCall(),
+			name: "grpc-web arriving after the stop", rec: grpcWebCall(),
 			wantStatus: http.StatusOK, wantContentType: grpcWebType, wantGrpcStatus: "14", wantEmptyBody: true,
 		},
 		{
-			name: "connect arriving after the cancel", rec: serve(http.MethodPost, nil, connect),
+			name: "connect arriving after the stop", rec: serve(http.MethodPost, nil, connect),
 			wantStatus: http.StatusServiceUnavailable, wantContentType: "application/json",
 		},
 	}
@@ -362,17 +367,16 @@ func TestInFlightCancelMiddleware(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			inFlight := newInFlightCancel(time.Hour)
-			t.Cleanup(inFlight.cancelRequests)
+			inFlight, cancel := newTestInFlightCancel(t)
 			if tc.cancelBeforeArrival {
-				inFlight.cancelRequests()
+				cancel()
 			}
 			handlerRan := false
 			rec := httptest.NewRecorder()
 			counted := &writeHeaderCounter{ResponseRecorder: rec}
 			inFlight.unavailableAfterCancel(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				handlerRan = true
-				tc.handler(w, inFlight.cancelRequests)
+				tc.handler(w, cancel)
 			})).ServeHTTP(counted, httptest.NewRequest(http.MethodPost, "/v1/batch/objects", nil))
 
 			assert.Equal(t, !tc.wantHandlerSkipped, handlerRan, "handler ran")
