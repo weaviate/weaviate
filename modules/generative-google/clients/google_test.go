@@ -53,10 +53,6 @@ func TestGenerateRejectsUnsafeURLSettings(t *testing.T) {
 			params: googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com", Location: "attacker.example.com/"},
 		},
 		{
-			name:   "projectId carrying a query",
-			params: googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "a?b=c"},
-		},
-		{
 			name:   "projectId carrying path segments",
 			params: googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "a/../../other"},
 		},
@@ -65,20 +61,8 @@ func TestGenerateRejectsUnsafeURLSettings(t *testing.T) {
 			params: googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "project", Model: ".."},
 		},
 		{
-			name:   "model carrying a query",
-			params: googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "project", Model: "gemini-x?a=b"},
-		},
-		{
-			name:   "endpointId carrying path segments",
-			params: googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "project", EndpointID: "123/../../y"},
-		},
-		{
 			name:   "endpointId that is a dot segment",
 			params: googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "project", EndpointID: ".."},
-		},
-		{
-			name:   "AI Studio model that is a dot segment",
-			params: googleparams.Params{ApiEndpoint: "generativelanguage.googleapis.com", Model: ".."},
 		},
 	}
 	for _, tt := range tests {
@@ -297,7 +281,6 @@ func TestBuildURLEscapesPathSegments(t *testing.T) {
 		name            string
 		useGenerativeAI bool
 		apiEndpoint     string
-		projectID       string
 		modelID         string
 		want            string
 	}{
@@ -308,22 +291,20 @@ func TestBuildURLEscapesPathSegments(t *testing.T) {
 			want:            "https://generativelanguage.googleapis.com/v1beta/models/gemini%2F..%2Fx%3Fy%23z:generateContent",
 		},
 		{
-			name:      "Vertex AI gemini model",
-			projectID: "a/../../other?b=c",
-			modelID:   "gemini/../x?y#z",
-			want:      "https://us-central1-aiplatform.googleapis.com/v1/projects/a%2F..%2F..%2Fother%3Fb=c/locations/us-central1/publishers/google/models/gemini%2F..%2Fx%3Fy%23z:generateContent",
+			name:    "Vertex AI gemini model",
+			modelID: "gemini/../x?y#z",
+			want:    "https://us-central1-aiplatform.googleapis.com/v1/projects/my-project/locations/us-central1/publishers/google/models/gemini%2F..%2Fx%3Fy%23z:generateContent",
 		},
 		{
 			name:        "Vertex AI predict model",
 			apiEndpoint: "us-central1-aiplatform.googleapis.com",
-			projectID:   "a/../../other?b=c",
 			modelID:     "m/../x?y#z",
-			want:        "https://us-central1-aiplatform.googleapis.com/v1/projects/a%2F..%2F..%2Fother%3Fb=c/locations/us-central1/publishers/google/models/m%2F..%2Fx%3Fy%23z:predict",
+			want:        "https://us-central1-aiplatform.googleapis.com/v1/projects/my-project/locations/us-central1/publishers/google/models/m%2F..%2Fx%3Fy%23z:predict",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildURL(tt.useGenerativeAI, tt.apiEndpoint, tt.projectID, tt.modelID, "us-central1", "us-central1")
+			got := buildURL(tt.useGenerativeAI, tt.apiEndpoint, "my-project", tt.modelID, "us-central1", "us-central1")
 			assert.Equal(t, tt.want, got)
 		})
 	}

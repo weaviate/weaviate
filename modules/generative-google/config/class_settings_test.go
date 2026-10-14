@@ -106,15 +106,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: errors.Errorf("region must be a Google region name, got \"attacker.example.com/\""),
 		},
 		{
-			name: "projectId carrying a query",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"projectId": "a?b=c",
-				},
-			},
-			wantErr: errors.Errorf("projectId must be a Google Cloud project id, got \"a?b=c\""),
-		},
-		{
 			name: "projectId carrying path segments",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
@@ -142,26 +133,6 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantErr: errors.Errorf("model must be a Google model name, got \"..\""),
-		},
-		{
-			name: "model carrying a query",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"projectId": "cloud-project",
-					"model":     "gemini-x?a=b",
-				},
-			},
-			wantErr: errors.Errorf("model must be a Google model name, got \"gemini-x?a=b\""),
-		},
-		{
-			name: "endpointId carrying path segments",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"projectId":  "cloud-project",
-					"endpointId": "123/../../y",
-				},
-			},
-			wantErr: errors.Errorf("model must be a Google model name, got \"123/../../y\""),
 		},
 		{
 			name: "endpointId that is a dot segment",

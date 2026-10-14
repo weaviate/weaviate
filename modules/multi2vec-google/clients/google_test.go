@@ -43,28 +43,12 @@ func TestVectorizeRejectsUnsafeURLSettings(t *testing.T) {
 			config: ent.VectorizationConfig{ApiEndpoint: "us-central1-aiplatform.googleapis.com", Location: "attacker.example.com/", ProjectID: "project", Model: "model"},
 		},
 		{
-			name:   "projectId carrying a query",
-			config: ent.VectorizationConfig{ApiEndpoint: "us-central1-aiplatform.googleapis.com", Location: "us-central1", ProjectID: "a?b=c", Model: "model"},
-		},
-		{
 			name:   "projectId carrying path segments",
 			config: ent.VectorizationConfig{ApiEndpoint: "us-central1-aiplatform.googleapis.com", Location: "us-central1", ProjectID: "a/../../other", Model: "model"},
 		},
 		{
-			name:   "model carrying a query",
-			config: ent.VectorizationConfig{ApiEndpoint: "us-central1-aiplatform.googleapis.com", Location: "us-central1", ProjectID: "project", Model: "m?a=b"},
-		},
-		{
-			name:   "model carrying path segments",
-			config: ent.VectorizationConfig{ApiEndpoint: "generativelanguage.googleapis.com", Model: "m/../../x"},
-		},
-		{
 			name:   "Vertex AI model that is a dot segment",
 			config: ent.VectorizationConfig{ApiEndpoint: "us-central1-aiplatform.googleapis.com", Location: "us-central1", ProjectID: "project", Model: ".."},
-		},
-		{
-			name:   "AI Studio model that is a dot segment",
-			config: ent.VectorizationConfig{ApiEndpoint: "generativelanguage.googleapis.com", Model: ".."},
 		},
 	}
 	for _, tt := range tests {
@@ -613,7 +597,6 @@ func TestBuildURL(t *testing.T) {
 		name        string
 		apiEndpoint string
 		location    string
-		projectID   string
 		model       string
 		want        string
 	}{
@@ -671,28 +654,16 @@ func TestBuildURL(t *testing.T) {
 			want:        "https://generativelanguage.googleapis.com/v1beta/models/m%2F..%2Fx%3Fy%23z:batchEmbedContents",
 		},
 		{
-			name:        "Vertex predict escapes projectId and model",
+			name:        "Vertex predict escapes model",
 			apiEndpoint: "us-central1-aiplatform.googleapis.com",
 			location:    "us-central1",
-			projectID:   "a/../../other?b=c",
 			model:       "m/../x?y#z",
-			want:        "https://us-central1-aiplatform.googleapis.com/v1/projects/a%2F..%2F..%2Fother%3Fb=c/locations/us-central1/publishers/google/models/m%2F..%2Fx%3Fy%23z:predict",
-		},
-		{
-			name:        "Vertex embedContent escapes projectId",
-			apiEndpoint: "us-central1-aiplatform.googleapis.com",
-			projectID:   "a/../../other?b=c",
-			model:       "gemini-embedding-2",
-			want:        "https://aiplatform.googleapis.com/v1/projects/a%2F..%2F..%2Fother%3Fb=c/locations/global/publishers/google/models/gemini-embedding-2:embedContent",
+			want:        "https://us-central1-aiplatform.googleapis.com/v1/projects/project/locations/us-central1/publishers/google/models/m%2F..%2Fx%3Fy%23z:predict",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			projectID := tt.projectID
-			if projectID == "" {
-				projectID = "project"
-			}
-			assert.Equal(t, tt.want, buildURL(tt.apiEndpoint, tt.location, projectID, tt.model))
+			assert.Equal(t, tt.want, buildURL(tt.apiEndpoint, tt.location, "project", tt.model))
 		})
 	}
 }

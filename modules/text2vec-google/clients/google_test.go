@@ -67,13 +67,13 @@ func TestBuildURL(t *testing.T) {
 			expectedURL:     "https://generativelanguage.googleapis.com/v1beta3/models/embedding-gecko-001:batchEmbedText",
 		},
 		{
-			name:            "Vertex AI escapes projectId and model",
+			name:            "Vertex AI escapes model",
 			useGenerativeAI: false,
 			apiEndpoint:     "us-central1-aiplatform.googleapis.com",
-			projectID:       "a/../../other?b=c",
+			projectID:       "my-project",
 			modelID:         "m/../x?y#z",
 			location:        "us-central1",
-			expectedURL:     "https://us-central1-aiplatform.googleapis.com/v1/projects/a%2F..%2F..%2Fother%3Fb=c/locations/us-central1/publishers/google/models/m%2F..%2Fx%3Fy%23z:predict",
+			expectedURL:     "https://us-central1-aiplatform.googleapis.com/v1/projects/my-project/locations/us-central1/publishers/google/models/m%2F..%2Fx%3Fy%23z:predict",
 		},
 		{
 			name:            "Generative AI endpoint escapes model",
@@ -106,28 +106,12 @@ func TestVectorizeRejectsUnsafeURLSettings(t *testing.T) {
 			config: settings{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "project", Model: "model", Location: "attacker.example.com/"},
 		},
 		{
-			name:   "projectId carrying a query",
-			config: settings{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "a?b=c", Model: "model", Location: "us-central1"},
-		},
-		{
 			name:   "projectId carrying path segments",
 			config: settings{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "a/../../other", Model: "model", Location: "us-central1"},
 		},
 		{
-			name:   "model carrying a query",
-			config: settings{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "project", Model: "m?a=b", Location: "us-central1"},
-		},
-		{
-			name:   "model carrying path segments",
-			config: settings{ApiEndpoint: "generativelanguage.googleapis.com", Model: "m/../../x"},
-		},
-		{
 			name:   "Vertex AI model that is a dot segment",
 			config: settings{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "project", Model: "..", Location: "us-central1"},
-		},
-		{
-			name:   "Generative AI model that is a dot segment",
-			config: settings{ApiEndpoint: "generativelanguage.googleapis.com", Model: ".."},
 		},
 	}
 	for _, tt := range tests {

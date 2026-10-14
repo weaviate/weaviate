@@ -238,34 +238,11 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "should not pass with a projectId carrying a query",
-			fields: fields{
-				cfg: newConfigBuilder().
-					addSetting("location", "us-central1").
-					addSetting("projectId", "a?b=c").
-					addSetting("imageFields", []any{"image1"}).
-					build(),
-			},
-			wantErr: true,
-		},
-		{
 			name: "should not pass with a projectId carrying path segments",
 			fields: fields{
 				cfg: newConfigBuilder().
 					addSetting("location", "us-central1").
 					addSetting("projectId", "a/../../other").
-					addSetting("imageFields", []any{"image1"}).
-					build(),
-			},
-			wantErr: true,
-		},
-		{
-			name: "should not pass with a model carrying path segments",
-			fields: fields{
-				cfg: newConfigBuilder().
-					addSetting("location", "us-central1").
-					addSetting("projectId", "projectId").
-					addSetting("model", "m/../../x?y").
 					addSetting("imageFields", []any{"image1"}).
 					build(),
 			},

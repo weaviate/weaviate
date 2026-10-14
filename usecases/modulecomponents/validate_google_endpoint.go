@@ -25,8 +25,8 @@ var (
 	googleAPIHostPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.googleapis\.com$`)
 	// A single DNS label, e.g. us-central1 or global.
 	googleLocationPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
-	// A project id (my-project), a project number (123456789012) or a
-	// domain-scoped project id (example.com:my-project).
+	// A project id, project number or domain-scoped project id, e.g. my-project,
+	// 123456789012 or example.com:my-project.
 	googleProjectIDPattern = regexp.MustCompile(`^([a-z0-9]([a-z0-9.-]*[a-z0-9])?:)?[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 )
 
@@ -63,9 +63,8 @@ func ValidateGoogleLocation(property, location string) error {
 }
 
 // ValidateGoogleProjectID rejects a projectId that is not a Google Cloud project
-// id or number. The Google modules put it into the request path, so a value
-// carrying a "/", "?" or ".." would change which API the request reaches. An
-// empty value is left to the callers, which decide whether it is required.
+// id or number. In the request path, a "/", "?" or ".." would change which API
+// the request reaches. Callers decide whether it may be empty.
 func ValidateGoogleProjectID(projectID string) error {
 	if projectID == "" {
 		return nil
@@ -76,11 +75,9 @@ func ValidateGoogleProjectID(projectID string) error {
 	return nil
 }
 
-// ValidateGoogleModel rejects a model or endpoint id that carries a "/", "?" or
-// "#", or is a "." or ".." path segment. The Google modules put it into the
-// request path, so such a value would move the request to a different API path
-// or add a query string. A dot segment survives the path escaping the modules
-// apply, which is why it is rejected here as well.
+// ValidateGoogleModel rejects a model or endpoint id that would move the request
+// to a different API path or add a query string. A "." or ".." survives the path
+// escaping the Google modules apply, so it is rejected here as well.
 func ValidateGoogleModel(model string) error {
 	if model == "." || model == ".." || strings.ContainsAny(model, "/?#") {
 		return fmt.Errorf("model must be a Google model name, got %q", model)

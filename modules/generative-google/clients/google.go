@@ -254,12 +254,9 @@ func (v *google) parseGenerateMessageResponse(statusCode int, bodyBytes []byte, 
 	}, nil
 }
 
-// validateURLSettings rejects settings that would change where the request
-// goes: apiEndpoint, region and location end up in the request host and could
-// send the operator's Google credential off Google's domain, while projectId,
-// model and endpointId end up in the request path and could reach a different
-// API. A GraphQL or gRPC request can set all of them without any schema
-// permission, so the class config check alone is not enough.
+// validateURLSettings rejects settings that would send the request off Google's
+// domain or to a different API. A GraphQL or gRPC request can set them without
+// any schema permission, so the class config check alone is not enough.
 func (v *google) validateURLSettings(params googleparams.Params) error {
 	if err := modulecomponents.ValidateGoogleApiEndpoint(params.ApiEndpoint); err != nil {
 		return err
