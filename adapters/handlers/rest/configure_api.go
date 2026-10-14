@@ -1466,19 +1466,26 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	api.PreServerShutdown = func() {
+		// Announce the departure before the listeners close rather than after.
+		if err := appState.Cluster.Leave(); err != nil {
+			appState.Logger.Errorf("leave node from cluster: %v", err)
+		}
+
 		// Reject new export requests and signal in-flight exports to stop
 		// early, while the server can still serve other requests. The actual
 		// wait for export drain happens in ServerShutdown.
 		exportScheduler.StartShutdown()
 		appState.ExportParticipant.StartShutdown()
 		batchDrain()
+
+		// Keep serving while the departure propagates, so that in-flight work finishes on a
+		// node the peers have already stopped choosing.
+		time.Sleep(appState.ServerConfig.Config.Raft.DrainSleep.Get())
 	}
 
 	api.ServerShutdown = func() {
-		// leave memberlist first to announce node graceful departure
-		if err := appState.Cluster.Leave(); err != nil {
-			appState.Logger.WithError(err).Error("leave node from cluster")
-		}
+		// The memberlist departure and the drain that follows it happen in PreServerShutdown,
+		// while this node can still serve: by the time this runs the listeners are already closed.
 
 		// PreServerShutdown already called StartShutdown so exports are signaled to stop, wait here until completion.
 		exportDone := make(chan struct{})
