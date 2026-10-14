@@ -64,12 +64,31 @@ func IsExpectedStrategy(strategy Strategy, expectedStrategies ...Strategy) bool 
 	return slices.Contains(expectedStrategies, strategy)
 }
 
+// With no expectedStrategies, CheckExpectedStrategy accepts any known strategy.
 func CheckExpectedStrategy(strategy Strategy, expectedStrategies ...Strategy) error {
-	if len(expectedStrategies) == 0 {
-		expectedStrategies = allStrategies
+	// slices.Contains would put this over the inlining budget
+	for _, e := range expectedStrategies {
+		if strategy == e {
+			return nil
+		}
 	}
-	if IsExpectedStrategy(strategy, expectedStrategies...) {
+	return strategyMismatch(strategy, expectedStrategies)
+}
+
+func checkStrategy(strategy, want Strategy) error {
+	if strategy == want {
 		return nil
+	}
+	return strategyMismatch(strategy, []Strategy{want})
+}
+
+// strategyMismatch holds the slow path so the checks above fit the inlining budget.
+func strategyMismatch(strategy Strategy, expectedStrategies []Strategy) error {
+	if len(expectedStrategies) == 0 {
+		if slices.Contains(allStrategies, strategy) {
+			return nil
+		}
+		expectedStrategies = allStrategies
 	}
 	if len(expectedStrategies) == 1 {
 		return fmt.Errorf("strategy %s expected, got %s", expectedStrategies[0], strategy)
@@ -95,5 +114,5 @@ func MustBeExpectedStrategy(strategy Strategy, expectedStrategies ...Strategy) {
 }
 
 func CheckStrategyRoaringSet(strategy Strategy) error {
-	return CheckExpectedStrategy(strategy, StrategyRoaringSet)
+	return checkStrategy(strategy, StrategyRoaringSet)
 }
