@@ -28,6 +28,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/bloomhash"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
@@ -1089,6 +1090,7 @@ func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc in
 	if ln == 0 {
 		return nil, noopRelease, nil
 	}
+	h := bloomhash.Sum(key)
 
 	// acquired (not the named return, which error paths overwrite with
 	// noopRelease) is what the defer frees, so a mid-merge disk read error
@@ -1097,7 +1099,7 @@ func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc in
 
 	i := 0
 	for ; i < ln; i++ {
-		baseBM, baseRelease, getErr := segments[i].roaringSetGet(key, sg.bitmapBufPoolWithHeadroom)
+		baseBM, baseRelease, getErr := segments[i].roaringSetGet(key, h, sg.bitmapBufPoolWithHeadroom)
 		if getErr == nil {
 			bm = baseBM
 			acquired = baseRelease
@@ -1115,7 +1117,7 @@ func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc in
 	}()
 
 	for ; i < ln; i++ {
-		if mergeErr := segments[i].roaringSetMergeWith(key, bm, sg.bitmapBufPool, maxConc); mergeErr != nil {
+		if mergeErr := segments[i].roaringSetMergeWith(key, h, bm, sg.bitmapBufPool, maxConc); mergeErr != nil {
 			err = mergeErr
 			return nil, noopRelease, err
 		}
