@@ -110,9 +110,19 @@ func TestScore(t *testing.T) {
 			wantErr: "expected one answer in response, got 2",
 		},
 		{
+			name:     "answer to another question",
+			response: `{"answers":[{"type":"predicate","name":"other","probability":0.9}]}`,
+			wantErr:  `answer in response is for "other", not for "relevance"`,
+		},
+		{
 			name:     "answer without a name",
 			response: `{"answers":[{"type":"predicate","name":null,"probability":0.9}]}`,
 			wantErr:  `answer in response is for no name, not for "relevance"`,
+		},
+		{
+			name:     "refusal to another question",
+			response: `{"answers":[{"type":"refusal","name":"other"}]}`,
+			wantErr:  `answer in response is for "other", not for "relevance"`,
 		},
 		{
 			name:     "predicate without a probability",
@@ -330,8 +340,8 @@ func TestRankOrganizationHeader(t *testing.T) {
 	}
 }
 
-// A decision rerank sends the query as the statement even on a class with
-// the default relevance question: the query is a condition.
+// A decision rerank sends the query as the statement: the query is a
+// condition. A plain rerank asks the relevance question.
 func TestRankDecisionSendsTheStatement(t *testing.T) {
 	handler := &openAIHandler{t: t, answers: map[string]answer{"doc": probability(0.9)}, answerName: "statement"}
 	server := httptest.NewServer(handler)

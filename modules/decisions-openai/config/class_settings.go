@@ -82,9 +82,9 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	return modulecomponents.ValidateBaseURL(settings.BaseURL)
 }
 
-// Resolve reads the settings. A setting of the wrong type, an empty model, an
-// a baseURL without scheme or host is an error. A missing
-// setting is its default.
+// Resolve reads the settings. A setting of the wrong type, an empty model or
+// a baseURL without scheme or host is an error. A missing setting is its
+// default.
 func (ic *classSettings) Resolve() (Settings, error) {
 	model, err := ic.stringSetting("model", DefaultOpenAIModel)
 	if err != nil {
