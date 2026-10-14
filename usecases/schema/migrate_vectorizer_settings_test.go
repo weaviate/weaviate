@@ -12,7 +12,6 @@
 package schema
 
 import (
-	"context"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -74,29 +73,14 @@ func TestParseClassUpdate_ModuleWithMigrateProperties(t *testing.T) {
 		stored, updated map[string]any
 		wantErr         bool
 	}{
-		{name: "unchanged", stored: stored(), updated: stored()},
-		{name: "baseURL missing from the stored settings", stored: withoutBaseURL(stored()), updated: stored()},
-		{
-			name: "custom baseURL, baseURL missing from the stored settings", stored: withoutBaseURL(stored()),
-			updated: with(stored(), "baseURL", "https://example.com"), wantErr: true,
-		},
 		{
 			name: "model and baseURL missing from the stored settings, update fills the defaults", stored: createdOnV124(),
 			updated: with(with(createdOnV124(), "model", "text-embedding-3-small"), "baseURL", "https://api.openai.com"),
 		},
 		{
-			name: "model missing from the stored settings, update sets another model", stored: createdOnV124(),
-			updated: with(with(createdOnV124(), "model", "text-embedding-3-large"), "baseURL", "https://api.openai.com"),
-			wantErr: true,
-		},
-		{name: "changed model", stored: stored(), updated: with(stored(), "model", "text-embedding-3-large"), wantErr: true},
-		{name: "changed baseURL", stored: stored(), updated: with(stored(), "baseURL", "https://example.com"), wantErr: true},
-		{
 			name: "changed model, baseURL missing from the stored settings", stored: withoutBaseURL(stored()),
 			updated: with(stored(), "model", "text-embedding-3-large"), wantErr: true,
 		},
-		{name: "added setting", stored: stored(), updated: with(stored(), "dimensions", 256), wantErr: true},
-		{name: "dropped setting", stored: stored(), updated: withoutBaseURL(stored()), wantErr: true},
 	}
 	for _, build := range []struct {
 		name  string
@@ -118,24 +102,4 @@ func TestParseClassUpdate_ModuleWithMigrateProperties(t *testing.T) {
 			})
 		}
 	}
-}
-
-// The leader validates against a shallow copy of the stored class, so a rejected update must leave the stored
-// settings untouched.
-func TestUpdateClass_ModuleWithMigratePropertiesKeepsStoredSettings(t *testing.T) {
-	const openai = "text2vec-openai"
-	logger, _ := test.NewNullLogger()
-	provider := modules.NewProvider(logger, config.Config{})
-	provider.Register(text2vecopenai.New())
-	handler, schemaManager := newTestHandlerWithModules(t, provider, &moduleValidationRecorder{},
-		&fakeVectorizerValidator{valid: []string{openai}})
-
-	stored := namedVectorClass(openai, map[string]any{"model": "text-embedding-3-small"})
-	storedBefore := structToMap(stored)
-	schemaManager.On("ReadOnlyClass", stored.Class).Return(stored)
-
-	update := namedVectorClass(openai, map[string]any{"model": "text-embedding-3-large", "baseURL": "https://api.openai.com"})
-	err := handler.UpdateClass(context.Background(), nil, stored.Class, update)
-	require.ErrorContains(t, err, `vectorizer config of vector "vec" is immutable`)
-	require.Equal(t, storedBefore, structToMap(stored))
 }

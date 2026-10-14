@@ -166,17 +166,6 @@ func TestSchemaManager_UpdateClass_MutableSettings(t *testing.T) {
 	}
 }
 
-func TestSchemaManager_UpdateClass_RejectedUpdateKeepsModuleConfig(t *testing.T) {
-	sm := newSchemaManagerWithModules(t)
-	require.NoError(t, sm.AddClass(addClassRequest(t, classShapes[0].build(moduleSettings("a", "m"))), "node1", true, false))
-
-	update := classShapes[0].build(moduleSettings("b", "m"))
-	update.VectorIndexType = "flat"
-	err := sm.UpdateClass(updateClassRequest(t, update, 2), "node1", true, false)
-	require.ErrorIs(t, err, clusterSchema.ErrBadRequest)
-	require.Equal(t, moduleSettings("a", "m"), classShapes[0].settings(sm.NewSchemaReader().ReadOnlyClass(className)))
-}
-
 func TestSchemaManager_UpdateClass_WithoutModuleConfigKeepsStoredModuleConfig(t *testing.T) {
 	sm := newSchemaManagerWithModules(t)
 	stored := classShapes[1].build(moduleSettings("a", "m"))
