@@ -39,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/shutdownreport"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -713,6 +714,8 @@ func (db *DB) deleteIndex(className schema.ClassName) (collided bool, err error)
 }
 
 func (db *DB) Shutdown(ctx context.Context) error {
+	report := shutdownreport.From(ctx)
+	defer report.StartStep(shutdownreport.StepDB)()
 	// Close, never send: the sole receiver is the resource-scan loop, and a recovered panic there would leave an unbuffered send hanging the whole shutdown until SIGKILL.
 	db.shutdownOnce.Do(func() { close(db.shutdown) })
 	db.bitmapBufPoolClose()
@@ -742,8 +745,13 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	db.indexLock.Lock()
 	defer db.indexLock.Unlock()
 	defer db.asyncReplicationScheduler.Close()
+	report.Indexes().SetTotal(len(db.indices))
 	for id, index := range db.indices {
-		if err := index.Shutdown(ctx); err != nil && !errors.Is(err, errAlreadyShutdown) {
+		report.Indexes().Started(id)
+		start := time.Now()
+		err := index.Shutdown(ctx)
+		report.Indexes().Done(id, time.Since(start))
+		if err != nil && !errors.Is(err, errAlreadyShutdown) {
 			ec.AddWrapf(err, "shutdown index %q", id)
 		}
 	}

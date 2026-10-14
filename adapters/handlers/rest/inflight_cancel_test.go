@@ -185,11 +185,14 @@ func TestInFlightCancelUnavailablePassesThroughCORSAndMetrics(t *testing.T) {
 // silently ignores after the first.
 type writeHeaderCounter struct {
 	*httptest.ResponseRecorder
-	calls int
+	calls                int
+	running              func() int64
+	runningAtWriteHeader int64
 }
 
 func (c *writeHeaderCounter) WriteHeader(status int) {
 	c.calls++
+	c.runningAtWriteHeader = c.running()
 	c.ResponseRecorder.WriteHeader(status)
 }
 
@@ -208,6 +211,7 @@ func TestInFlightCancelPanicAfterCancel(t *testing.T) {
 
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	assert.Equal(t, int64(1), inFlight.unavailableResponses.Load())
+	assert.Equal(t, int64(0), inFlight.requestsRunning(), "a panicking handler stayed counted as running")
 }
 
 // blockingSearch holds every Search call until its ctx is cancelled.
@@ -266,7 +270,7 @@ func TestInFlightCancelGrpcWebRefusal(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("grpc-web call never reached Search")
 	}
-	t.Cleanup(startGrpcStop(grpcServer, refuseGrpcWeb, time.Hour, logger))
+	t.Cleanup(startGrpcStop(grpcServer, refuseGrpcWeb, time.Hour, nil, logger))
 
 	connect := http.Header{"Content-Type": {"application/proto"}, "Connect-Protocol-Version": {"1"}}
 	cases := []struct {
@@ -373,13 +377,18 @@ func TestInFlightCancelMiddleware(t *testing.T) {
 			}
 			handlerRan := false
 			rec := httptest.NewRecorder()
-			counted := &writeHeaderCounter{ResponseRecorder: rec}
+			counted := &writeHeaderCounter{ResponseRecorder: rec, running: inFlight.requestsRunning, runningAtWriteHeader: -1}
 			inFlight.unavailableAfterCancel(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				handlerRan = true
+				assert.Equal(t, int64(1), inFlight.requestsRunning(), "requests running inside the handler")
 				tc.handler(w, cancel)
 			})).ServeHTTP(counted, httptest.NewRequest(http.MethodPost, "/v1/batch/objects", nil))
 
 			assert.Equal(t, !tc.wantHandlerSkipped, handlerRan, "handler ran")
+			assert.Equal(t, int64(0), inFlight.requestsRunning(), "requests running after the response")
+			if tc.cancelBeforeArrival {
+				assert.Equal(t, int64(0), counted.runningAtWriteHeader, "a refused request was counted as running")
+			}
 			assert.LessOrEqual(t, counted.calls, 1, "WriteHeader reached the underlying writer more than once")
 			assert.Equal(t, tc.wantStatus, rec.Code)
 			assert.Equal(t, tc.wantUnavailable, inFlight.unavailableResponses.Load())

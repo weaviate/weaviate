@@ -128,6 +128,7 @@ func TestInFlightCancelUnavailableAfterCancel(t *testing.T) {
 			resp, err := ic.UnavailableAfterCancel()(callerCtx, nil, &grpc.UnaryServerInfo{},
 				func(ctx context.Context, _ any) (any, error) {
 					handlerRan = true
+					assert.Equal(t, int64(1), ic.CallsRunning(), "calls running inside the handler")
 					return tc.handler(ctx, shutdownCancel, callerCancel)
 				})
 
@@ -141,6 +142,7 @@ func TestInFlightCancelUnavailableAfterCancel(t *testing.T) {
 			assert.Equal(t, tc.wantHandlerCancelled, handlerCancelled, "handler ctx cancellation")
 			assert.Equal(t, !tc.wantHandlerSkipped, handlerRan, "handler ran")
 			assert.Equal(t, int64(0), countingCtx.live.Load(), "AfterFunc registration outlived the call")
+			assert.Equal(t, int64(0), ic.CallsRunning(), "calls running after the call")
 
 			shutdownCancel()
 			assert.Equal(t, tc.wantUnavailable, ic.UnavailableResponses(), "unavailable responses")
@@ -160,4 +162,34 @@ func TestInFlightCancelCountsCallReturningAsCancelFires(t *testing.T) {
 		})
 	assert.Equal(t, codes.Unavailable, status.Code(err))
 	assert.Equal(t, int64(1), ic.UnavailableResponses())
+}
+
+func TestInFlightCancelCountsRunningStreams(t *testing.T) {
+	unavailable := status.Error(codes.Unavailable, "not accepting new streams")
+	internal := status.Error(codes.Internal, "stream failed")
+	tests := []struct {
+		name            string
+		shuttingDown    bool
+		handlerErr      error
+		wantUnavailable int64
+	}{
+		{name: "unavailable before shutdown", handlerErr: unavailable},
+		{name: "internal error during shutdown", shuttingDown: true, handlerErr: internal},
+		{name: "unavailable during shutdown", shuttingDown: true, handlerErr: unavailable, wantUnavailable: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ic := NewInFlightCancel(context.Background())
+			if tt.shuttingDown {
+				ic.StartShutdown()
+			}
+			err := ic.CountRunningStreams()(nil, nil, &grpc.StreamServerInfo{}, func(any, grpc.ServerStream) error {
+				assert.Equal(t, int64(1), ic.CallsRunning(), "calls running inside the handler")
+				return tt.handlerErr
+			})
+			assert.Equal(t, tt.handlerErr, err)
+			assert.Equal(t, int64(0), ic.CallsRunning(), "calls running after the stream")
+			assert.Equal(t, tt.wantUnavailable, ic.UnavailableResponses())
+		})
+	}
 }

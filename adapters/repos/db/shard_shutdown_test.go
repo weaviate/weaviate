@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,6 +31,8 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/shutdownreport"
+	"github.com/weaviate/weaviate/entities/shutdownreport/shutdownreporttest"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -131,6 +134,64 @@ func TestShardShutdownWhenIdleEventually(t *testing.T) {
 	sameShardYetAgain, _, err := index.GetShard(context.Background(), shardName)
 	require.ErrorIs(t, err, errAlreadyShutdown)
 	require.Nil(t, sameShardYetAgain)
+}
+
+func TestIndexShutdownReport(t *testing.T) {
+	tests := []struct {
+		name    string
+		ctx     func() (context.Context, context.CancelFunc)
+		expired bool
+	}{
+		{name: "live ctx", ctx: func() (context.Context, context.CancelFunc) { return context.Background(), func() {} }},
+		{
+			// performShutdown replaces a cancel-only ctx with a live one, so only a deadline expires it.
+			name: "expired deadline",
+			ctx: func() (context.Context, context.CancelFunc) {
+				return context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+			},
+			expired: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			index, cleanup := initIndexAndPopulate(t, t.TempDir())
+			defer cleanup()
+			var loaded, buckets int64
+			require.NoError(t, index.ForEachLoadedShard(func(_ string, shard ShardLike) error {
+				loaded++
+				buckets += int64(len(shard.Store().GetBucketsByName()))
+				return nil
+			}))
+			require.Positive(t, loaded)
+			ctx, cancel := tt.ctx()
+			defer cancel()
+			report := shutdownreport.New("node1")
+
+			_ = index.Shutdown(shutdownreport.With(ctx, report))
+
+			f := shutdownreporttest.Summary(t, report)
+			require.Equal(t, loaded, f["shards_torn_down"], "the teardown runs whatever the deadline")
+			require.Equal(t, int64(0), f["shards_in_teardown"])
+			entries := slowestEntries(f["slowest_shards"])
+			require.Len(t, entries, int(min(3, loaded)))
+			for _, e := range entries {
+				_, took, ok := strings.Cut(e, "=")
+				require.True(t, ok, e)
+				d, err := time.ParseDuration(took)
+				require.NoError(t, err, e)
+				// A duration read when the defer is registered, not when it runs, is about a microsecond.
+				require.GreaterOrEqual(t, d, 10*time.Microsecond, "a teardown duration is measured when it returns: %s", e)
+			}
+			finished := f["buckets_flushed"].(int64) + f["buckets_wal_reused"].(int64)
+			if tt.expired {
+				require.Equal(t, buckets, f["buckets_ctx_expired"])
+				require.Zero(t, finished)
+			} else {
+				require.Zero(t, f["buckets_ctx_expired"])
+				require.Equal(t, buckets, finished)
+			}
+		})
+	}
 }
 
 func initIndexAndPopulate(t *testing.T, dirName string) (index *Index, cleanup func()) {

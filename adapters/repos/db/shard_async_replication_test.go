@@ -42,6 +42,8 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	entreplication "github.com/weaviate/weaviate/entities/replication"
+	"github.com/weaviate/weaviate/entities/shutdownreport"
+	"github.com/weaviate/weaviate/entities/shutdownreport/shutdownreporttest"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
@@ -2502,7 +2504,8 @@ func TestDumpHashTreeWithTimeoutSkipsLatePublication(t *testing.T) {
 
 	release := make(chan struct{})
 	start := time.Now()
-	s.dumpHashTreeWithTimeout(blockingSerializeHashTree{release: release}, 25*time.Millisecond)
+	published := s.dumpHashTreeWithTimeout(blockingSerializeHashTree{release: release}, 25*time.Millisecond)
+	require.False(t, published, "a timed-out dump must not report a snapshot")
 	require.Less(t, time.Since(start), 5*time.Second, "timed-out dump must not wait for the writer")
 	require.Empty(t, htFilesInDir(t, s.pathHashTree()))
 
@@ -2750,16 +2753,36 @@ func TestRebuildHashtreeRetriesAfterFailure(t *testing.T) {
 
 // TestPerformShutdownPersistsHashtreeAfterStoreFlush: the full shutdown path still produces a snapshot.
 func TestPerformShutdownPersistsHashtreeAfterStoreFlush(t *testing.T) {
-	ctx := context.Background()
-	sl, s := newAsyncTestShard(t, ctx, "ShutdownPersistsAfterFlushTest")
-	for _, id := range []strfmt.UUID{uuidLow, uuidMid, uuidHigh} {
-		require.NoError(t, sl.PutObject(ctx, testObjWithTime("ShutdownPersistsAfterFlushTest", id, tsFarPast)))
+	tests := []struct {
+		name        string
+		failDump    bool
+		wantSkipped int64
+	}{
+		{name: "clean shutdown publishes the snapshot"},
+		{name: "a failed dump after the store flush is counted as skipped", failDump: true, wantSkipped: 1},
 	}
-	enableAndAwaitAsync(t, ctx, s)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			sl, s := newAsyncTestShard(t, ctx, "ShutdownPersistsAfterFlushTest")
+			for _, id := range []strfmt.UUID{uuidLow, uuidMid, uuidHigh} {
+				require.NoError(t, sl.PutObject(ctx, testObjWithTime("ShutdownPersistsAfterFlushTest", id, tsFarPast)))
+			}
+			enableAndAwaitAsync(t, ctx, s)
+			if tt.failDump {
+				require.NoError(t, os.RemoveAll(s.pathHashTree()))
+				require.NoError(t, os.WriteFile(s.pathHashTree(), nil, 0o600)) // a file where the directory belongs
+			}
+			report := shutdownreport.New("node1")
 
-	require.NoError(t, sl.Shutdown(ctx))
-	require.Len(t, htFilesInDir(t, s.pathHashTree()), 1,
-		"a clean shutdown must publish the snapshot after the store flush")
+			require.NoError(t, sl.Shutdown(shutdownreport.With(ctx, report)))
+			if !tt.failDump {
+				require.Len(t, htFilesInDir(t, s.pathHashTree()), 1,
+					"a clean shutdown must publish the snapshot after the store flush")
+			}
+			require.Equal(t, tt.wantSkipped, shutdownreporttest.Summary(t, report)["hashtree_dumps_skipped"])
+		})
+	}
 }
 
 // TestPerformShutdownSkipsDumpWhenStoreShutdownFails: a snapshot must never outlive writes the store failed to flush.
@@ -2774,10 +2797,13 @@ func TestPerformShutdownSkipsDumpWhenStoreShutdownFails(t *testing.T) {
 	// the store is closed first to make its shutdown fail. The teardown itself
 	// runs to completion whatever the caller's context does
 	require.NoError(t, s.store.Shutdown(ctx))
+	report := shutdownreport.New("node1")
+	s.report.Store(report)
 	require.ErrorContains(t, s.performShutdown(ctx), "stop lsmkv store",
 		"the store flush itself must have failed for this test to be meaningful")
 	require.Empty(t, htFilesInDir(t, s.pathHashTree()),
 		"no snapshot may be published when the store flush did not complete")
+	require.Equal(t, int64(1), shutdownreporttest.Summary(t, report)["hashtree_dumps_skipped"])
 }
 
 // TestRebuildFromScratchSkipsShutShard: a shut shard's snapshot survives and no tree is installed.
@@ -2966,6 +2992,22 @@ func TestMayStopSkipsCaptureOnDrainTimeout(t *testing.T) {
 	defer s.asyncRepWg.Done()
 
 	require.Nil(t, s.mayStopAsyncReplication(true), "timed-out drain must not capture")
+}
+
+// TestShutdownCountsSnapshotDroppedOnDrainTimeout: a tree dropped by a timed-out drain is a skipped dump.
+func TestShutdownCountsSnapshotDroppedOnDrainTimeout(t *testing.T) {
+	prev := asyncReplicationWorkerDrainTimeout.Load()
+	asyncReplicationWorkerDrainTimeout.Store(int64(50 * time.Millisecond))
+	t.Cleanup(func() { asyncReplicationWorkerDrainTimeout.Store(prev) })
+
+	ctx := context.Background()
+	sl, s := newSeededAsyncShard(t, ctx, "ShutdownDrainTimeoutReportTest")
+	s.asyncRepWg.Add(1)
+	defer s.asyncRepWg.Done()
+	report := shutdownreport.New("node1")
+
+	require.NoError(t, sl.Shutdown(shutdownreport.With(ctx, report)))
+	require.Equal(t, int64(1), shutdownreporttest.Summary(t, report)["hashtree_dumps_skipped"])
 }
 
 // TestLazyWrappersDoNotLoad: async-rep wrappers on an unloaded shard must not trigger a load (a load attempt would nil-deref).

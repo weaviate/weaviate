@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/shutdownreport"
 	"github.com/weaviate/weaviate/usecases/telemetry"
 	"google.golang.org/grpc"
 )
@@ -60,8 +61,9 @@ func startGrpcServer(server *grpc.Server, state *state.State) {
 // non-retryable Unknown, then starts the graceful stop and forces Stop
 // stopTimeout later. wait only joins it, and a handler ignoring its ctx may outlive it.
 func startGrpcStop(server *grpc.Server, refuseGrpcWeb func(), stopTimeout time.Duration,
-	logger logrus.FieldLogger,
+	report *shutdownreport.Report, logger logrus.FieldLogger,
 ) (wait func()) {
+	start := time.Now()
 	refuseGrpcWeb()
 	stopped := make(chan struct{})
 	enterrors.GoWrapper(func() {
@@ -73,12 +75,15 @@ func startGrpcStop(server *grpc.Server, refuseGrpcWeb func(), stopTimeout time.D
 		defer close(done)
 		deadline := time.NewTimer(stopTimeout)
 		defer deadline.Stop()
+		forced := false
 		select {
 		case <-stopped:
 		case <-deadline.C:
 			logger.Warn("grpc graceful stop timed out, forcing stop")
+			forced = true
 			server.Stop()
 		}
+		report.Clients().GRPCStopped(time.Since(start), forced)
 	}, logger)
 	return func() { <-done }
 }

@@ -23,7 +23,12 @@ import (
 // once, which the generated handleShutdown skips after a timeout. Call it after ConfigureAPI.
 func (s *Server) ServeAndShutdown() error {
 	serverShutdown := sync.OnceFunc(s.api.ServerShutdown)
-	s.api.ServerShutdown = serverShutdown
+	// handleShutdown calls ServerShutdown only when every server drained in time.
+	var drainedInTime atomic.Bool
+	s.api.ServerShutdown = func() {
+		drainedInTime.Store(true)
+		serverShutdown()
+	}
 
 	// Serve calls configureServer for every listener before it starts serving.
 	var servers []*http.Server
@@ -51,8 +56,12 @@ func (s *Server) ServeAndShutdown() error {
 	}
 	// Close does not wait for handlers, and one woken by a failed read may still
 	// be using the database.
-	if n := waitForHandlers(&running, s.GracefulTimeout); n > 0 {
+	n := waitForHandlers(&running, s.GracefulTimeout)
+	if n > 0 {
 		s.Logf("%d HTTP handlers still running %s after their servers closed", n, s.GracefulTimeout)
+	}
+	if !drainedInTime.Load() {
+		shutdownReport.Clients().RESTForceClosed(n)
 	}
 	serverShutdown()
 	return nil

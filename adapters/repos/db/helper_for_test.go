@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -707,4 +708,10 @@ func shutdownIndexOnCleanup(t *testing.T, index *Index) {
 			t.Errorf("shutdown index: %v", err)
 		}
 	})
+}
+
+// slowestEntries splits a slowest_indexes or slowest_shards value into its
+// name=duration entries.
+func slowestEntries(field any) []string {
+	return strings.Split(field.(string), ",")
 }

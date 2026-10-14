@@ -22,6 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/weaviate/weaviate/entities/shutdownreport"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -128,6 +129,7 @@ func shardStillAlive(s ShardLike) bool {
 }
 
 func (s *Shard) Shutdown(ctx context.Context) (err error) {
+	s.report.Store(shutdownreport.From(ctx))
 	s.shutdownRequested.Store(true)
 	var lastAttemptErr error
 	err = backoff.Retry(func() error {
@@ -148,6 +150,9 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	// error — a cancelled wait on a still-in-use shard is still the in-use
 	// case (refs pending, releases complete the shutdown), not an abort.
 	stillInUse := errors.Is(err, errShardStillInUse) || errors.Is(lastAttemptErr, errShardStillInUse)
+	if stillInUse {
+		s.report.Load().Shards().StillInUse()
+	}
 	if err != nil && !errors.Is(err, errAlreadyShutdown) && !stillInUse {
 		// Aborted shutdown: clear the request flag, or the shard callers
 		// restore (restoreShardIfStillAlive) stays gated by preventShutdown
@@ -275,19 +280,23 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	}
 	s.shut.Store(true)
 	defer s.releaseCountedStatus()
+	report := s.report.Load()
+	report.Shards().TeardownStarted()
 	s.shutdownRequested.Store(false)
 	s.shutCtxCancel(fmt.Errorf("shutdown %q", s.ID()))
 
 	// The teardown below cannot be abandoned: every step of it consumes ctx.
 	// Stopping after s.shut is set leaves buckets unflushed and registry entries
 	// uncleared on a shard that already reads as shut. Only the cancellation is
-	// dropped, so the caller's deadline still bounds it.
+	// dropped, so the caller's deadline still bounds it. refCountSub's ctx
+	// carries no report, so the shard's is attached for its buckets to record into.
+	detached := shutdownreport.With(context.WithoutCancel(ctx), report)
 	if deadline, ok := ctx.Deadline(); ok {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithDeadline(context.WithoutCancel(ctx), deadline)
+		ctx, cancel = context.WithDeadline(detached, deadline)
 		defer cancel()
 	} else {
-		ctx = context.WithoutCancel(ctx)
+		ctx = detached
 	}
 
 	// Track shard unloading: loaded -> unloading
@@ -300,6 +309,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	start := time.Now()
 	defer func() {
 		s.index.metrics.ObserveUpdateShardStatus(storagestate.StatusShutdown.String(), time.Since(start))
+		report.Shards().TornDown(s.index.ID(), s.name, time.Since(start))
 	}()
 
 	s.haltForTransferMux.Lock()
@@ -389,8 +399,11 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 
 	// Publish only after the store flushed: a crash-surviving snapshot must never over-represent the store.
 	if capturedHT != nil && storeDurable {
-		s.dumpHashTreeWithTimeout(capturedHT, hashtreeDumpTimeout)
+		if !s.dumpHashTreeWithTimeout(capturedHT, hashtreeDumpTimeout) {
+			report.Shards().HashtreeDumpSkipped()
+		}
 	} else if capturedHT != nil {
+		report.Shards().HashtreeDumpSkipped()
 		s.index.logger.
 			WithField("action", "async_replication").
 			WithField("class_name", s.class.Class).

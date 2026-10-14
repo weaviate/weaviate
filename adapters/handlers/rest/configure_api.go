@@ -86,6 +86,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
 	entschema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/shutdownreport"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
@@ -1537,7 +1538,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	// REST requests and public gRPC calls at the same moment.
 	clientCallsCtx, cancelClientCalls := context.WithCancel(context.Background())
 	grpcInFlight := grpcHandler.NewInFlightCancel(clientCallsCtx)
-	grpcOptions = append(grpcOptions, grpc.ChainUnaryInterceptor(grpcInFlight.UnavailableAfterCancel()))
+	grpcOptions = append(grpcOptions, grpc.ChainUnaryInterceptor(grpcInFlight.UnavailableAfterCancel()),
+		grpc.ChainStreamInterceptor(grpcInFlight.CountRunningStreams()))
 	grpcServer, batchDrain := createGrpcServer(appState, telemeter.GetClientTracker(), telemeter.GetIntegrationTracker(), clientCallsCtx, grpcOptions...)
 	restInFlight := newInFlightCancel(clientCallsCtx)
 	grpcWebCtx, refuseGrpcWeb := context.WithCancel(clientCallsCtx)
@@ -1579,8 +1581,18 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}, appState.Logger)
 	}
 
-	var waitGrpcStop func()
+	shutdownReport = shutdownreport.New(appState.Cluster.LocalName())
+	var waitGrpcStop, stopHeartbeat func()
 	api.PreServerShutdown = func() {
+		shutdownReport.Begin()
+		grpcInFlight.StartShutdown()
+		shutdownLog := appState.ServerConfig.Config.ShutdownLog
+		stopHeartbeat = shutdownReport.StartHeartbeat(appState.Logger, shutdownLog.HeartbeatAfter,
+			shutdownLog.HeartbeatInterval, shutdownLog.Thresholds.Total, map[string]func() int64{
+				"rest_requests_running":     restInFlight.requestsRunning,
+				"grpc_calls_running":        grpcInFlight.CallsRunning,
+				"internal_requests_running": appState.InternalServer.RequestsRunning,
+			})
 		restInFlight.startShutdown()
 		time.AfterFunc(inFlightCancelDelay, cancelClientCalls)
 		// Reject new export requests and signal in-flight exports to stop
@@ -1590,11 +1602,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.ExportParticipant.StartShutdown()
 		// The batch-stream drain tells stream clients to back off through the
 		// gRPC server, so the server stops only after it.
-		waitBatchDrain(batchDrain, batchDrainTimeout, appState.Logger)
-		waitGrpcStop = startGrpcStop(grpcServer, refuseGrpcWeb, grpcGracefulStopTimeout, appState.Logger)
+		shutdownReport.Time(shutdownreport.StepBatchDrain, func() {
+			waitBatchDrain(batchDrain, batchDrainTimeout, appState.Logger)
+		})
+		waitGrpcStop = startGrpcStop(grpcServer, refuseGrpcWeb, grpcGracefulStopTimeout, shutdownReport, appState.Logger)
 	}
 
 	api.ServerShutdown = func() {
+		shutdownReport.Clients().RESTDrained()
 		serverShutdownCancel(fmt.Errorf("server shutdown"))
 
 		shutdownSteps{
@@ -1608,11 +1623,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			},
 			waitGRPCStop: func() {
 				waitGrpcStop()
-				// The REST drain finished before ServerShutdown, so every count is final here.
+				// A REST or grpc-web handler still running after the forced close is counted
+				// when it returns, so it can be missing from these counts.
+				restUnavailable := restInFlight.unavailableResponses.Load()
+				grpcUnavailable := grpcInFlight.UnavailableResponses()
+				grpcWebUnavailable := grpcWebInFlight.unavailableResponses.Load()
+				shutdownReport.Clients().CallsUnavailable(restUnavailable, grpcUnavailable, grpcWebUnavailable)
 				appState.Logger.WithField("action", "server_shutdown").
 					Infof("refused %d REST requests and %d gRPC calls arriving or still running %s after shutdown began, and %d grpc-web calls once the gRPC server began stopping",
-						restInFlight.unavailableResponses.Load(), grpcInFlight.UnavailableResponses(), inFlightCancelDelay,
-						grpcWebInFlight.unavailableResponses.Load())
+						restUnavailable, grpcUnavailable, inFlightCancelDelay, grpcWebUnavailable)
 			},
 			// PreServerShutdown already called StartShutdown so exports are signaled to stop, wait here until completion.
 			drainExports: func() {
@@ -1687,7 +1706,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 					sentry.Flush(2 * time.Second)
 				}
 			},
-		}.run(appState.Logger)
+		}.run(appState.Logger, shutdownReport)
+		stopHeartbeat()
+		shutdownReport.Log(appState.Logger, appState.ServerConfig.Config.ShutdownLog.Thresholds)
 	}
 
 	startGrpcServer(grpcServer, appState)
@@ -1716,27 +1737,38 @@ type shutdownSteps struct {
 	flushSentry         func()
 }
 
-func (s shutdownSteps) run(logger logrus.FieldLogger) {
+func (s shutdownSteps) run(logger logrus.FieldLogger, report *shutdownreport.Report) {
+	timed := func(step string, fn func()) func() {
+		return func() { report.Time(step, fn) }
+	}
+	endPreDBSteps := report.StartStep(shutdownreport.StepPreDBSteps)
 	shutdownInPhases(logger,
-		[]func(){s.leaveCluster, s.waitGRPCStop, s.drainExports, s.stopTelemetry, s.closeTaskScheduler},
+		[]func(){
+			timed(shutdownreport.StepLeaveCluster, s.leaveCluster),
+			timed(shutdownreport.StepWaitGRPCStop, s.waitGRPCStop),
+			timed(shutdownreport.StepDrainExports, s.drainExports),
+			timed(shutdownreport.StepStopTelemetry, s.stopTelemetry),
+			timed(shutdownreport.StepCloseTaskScheduler, s.closeTaskScheduler),
+		},
 		func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			endPreDBSteps()
+			ctx, cancel := context.WithTimeout(shutdownreport.With(context.Background(), report), 60*time.Second)
 			defer cancel()
-			s.closeInternalServer(ctx)
-			s.closeClusterService(ctx)
-			s.closeDBUsers()
-			s.closeModules()
+			report.Time(shutdownreport.StepInternalClose, func() { s.closeInternalServer(ctx) })
+			report.Time(shutdownreport.StepClusterClose, func() { s.closeClusterService(ctx) })
+			report.Time(shutdownreport.StepCloseDBUsers, s.closeDBUsers)
+			report.Time(shutdownreport.StepCloseModules, s.closeModules)
 			// Replicated writes of in-flight requests and the replication
 			// engine's file copies use these until the DB is closed.
-			s.closeConnManagers()
+			report.Time(shutdownreport.StepCloseConnManagers, s.closeConnManagers)
 		},
 		func() {
 			// configureAPI's ctx is cancelled by now, and a cancelled ctx
 			// makes the tracer provider return before it flushes.
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			s.shutdownOTEL(ctx)
-			s.flushSentry()
+			report.Time(shutdownreport.StepShutdownOTEL, func() { s.shutdownOTEL(ctx) })
+			report.Time(shutdownreport.StepFlushSentry, s.flushSentry)
 		})
 }
 

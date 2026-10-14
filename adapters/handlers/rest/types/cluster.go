@@ -17,4 +17,5 @@ import "context"
 type ClusterServer interface {
 	Serve() error
 	Close(ctx context.Context) error
+	RequestsRunning() int64
 }

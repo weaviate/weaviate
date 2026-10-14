@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/sentry"
+	"github.com/weaviate/weaviate/entities/shutdownreport"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config/parser"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
@@ -240,6 +241,51 @@ func FromEnv(config *Config) error {
 		DefaultHaltForTransferTimeout,
 	)
 	if err != nil {
+		return err
+	}
+
+	if err := parseNonNegativeDuration("SHUTDOWN_HEARTBEAT_AFTER",
+		func(val time.Duration) { config.ShutdownLog.HeartbeatAfter = val },
+		shutdownreport.DefaultHeartbeatAfter,
+	); err != nil {
+		return err
+	}
+	// A typo such as 1ms for 1m would log a heartbeat line every millisecond.
+	if err := parseDurationVerify("SHUTDOWN_HEARTBEAT_INTERVAL",
+		func(val time.Duration) { config.ShutdownLog.HeartbeatInterval = val },
+		shutdownreport.DefaultHeartbeatInterval,
+		func(d time.Duration) error {
+			if d < time.Second {
+				return fmt.Errorf("SHUTDOWN_HEARTBEAT_INTERVAL must be a duration of at least 1s. Got: %v", d)
+			}
+			return nil
+		},
+	); err != nil {
+		return err
+	}
+	thresholds := shutdownreport.DefaultThresholds()
+	if err := parsePositiveDuration("SHUTDOWN_SLOW_LOG_CLIENT_DRAIN_THRESHOLD",
+		func(val time.Duration) { config.ShutdownLog.Thresholds.ClientDrain = val },
+		thresholds.ClientDrain,
+	); err != nil {
+		return err
+	}
+	if err := parsePositiveDuration("SHUTDOWN_SLOW_LOG_INTERNAL_CLOSE_THRESHOLD",
+		func(val time.Duration) { config.ShutdownLog.Thresholds.InternalClose = val },
+		thresholds.InternalClose,
+	); err != nil {
+		return err
+	}
+	if err := parsePositiveDuration("SHUTDOWN_SLOW_LOG_DB_THRESHOLD",
+		func(val time.Duration) { config.ShutdownLog.Thresholds.DB = val },
+		thresholds.DB,
+	); err != nil {
+		return err
+	}
+	if err := parsePositiveDuration("SHUTDOWN_SLOW_LOG_TOTAL_THRESHOLD",
+		func(val time.Duration) { config.ShutdownLog.Thresholds.Total = val },
+		thresholds.Total,
+	); err != nil {
 		return err
 	}
 
@@ -1957,13 +2003,33 @@ func parseIntVerify(envName string, defaultValue int, cb func(val int), verify f
 // pointer always get an initialized pointer. Callers that use DynamicValue treat a Get() result
 // of 0 as "fall through to the per-class or code default".
 func parsePositiveDuration(envName string, cb func(val time.Duration), defaultValue time.Duration) error {
+	return parseDurationVerify(envName, cb, defaultValue, func(d time.Duration) error {
+		if d <= 0 {
+			return fmt.Errorf("%s must be a duration greater than 0. Got: %v", envName, d)
+		}
+		return nil
+	})
+}
+
+func parseNonNegativeDuration(envName string, cb func(val time.Duration), defaultValue time.Duration) error {
+	return parseDurationVerify(envName, cb, defaultValue, func(d time.Duration) error {
+		if d < 0 {
+			return fmt.Errorf("%s must be a duration greater than or equal 0. Got: %v", envName, d)
+		}
+		return nil
+	})
+}
+
+func parseDurationVerify(envName string, cb func(val time.Duration), defaultValue time.Duration,
+	verify func(d time.Duration) error,
+) error {
 	if v := os.Getenv(envName); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil {
 			return fmt.Errorf("parse %s as duration: %w", envName, err)
 		}
-		if d <= 0 {
-			return fmt.Errorf("%s must be a duration greater than 0. Got: %v", envName, d)
+		if err := verify(d); err != nil {
+			return err
 		}
 		cb(d)
 		return nil

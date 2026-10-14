@@ -28,6 +28,9 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+
+	"github.com/weaviate/weaviate/entities/shutdownreport"
+	"github.com/weaviate/weaviate/entities/shutdownreport/shutdownreporttest"
 )
 
 // blockingHealthServer holds every Check until release is closed, or until
@@ -86,8 +89,10 @@ func TestStartGrpcStopTimeoutCountsFromStart(t *testing.T) {
 		require.FailNow(t, "call never reached the handler")
 	}
 
+	const stopTimeout = 300 * time.Millisecond
 	logger, hook := test.NewNullLogger()
-	wait := startGrpcStop(server, func() {}, 300*time.Millisecond, logger)
+	report := shutdownreport.New("node-1")
+	wait := startGrpcStop(server, func() {}, stopTimeout, report, logger)
 	select {
 	case err := <-callErr:
 		assert.Equal(t, codes.Unavailable, status.Code(err))
@@ -115,6 +120,9 @@ func TestStartGrpcStopTimeoutCountsFromStart(t *testing.T) {
 		forcedStop = forcedStop || (e.Level == logrus.WarnLevel && e.Message == forcingStop)
 	}
 	assert.True(t, forcedStop, "forced Stop")
+	summary := shutdownreporttest.Summary(t, report)
+	assert.Equal(t, true, summary["grpc_forced_stop"])
+	assert.GreaterOrEqual(t, summary["grpc_stop_ms"], stopTimeout.Milliseconds())
 }
 
 // A finished drain is waited for in full, and one still blocked is left at the
@@ -187,7 +195,8 @@ func TestStartGrpcStopWaitJoinsDrain(t *testing.T) {
 	}
 
 	logger, _ := test.NewNullLogger()
-	wait := startGrpcStop(server, func() {}, time.Hour, logger)
+	report := shutdownreport.New("node-1")
+	wait := startGrpcStop(server, func() {}, time.Hour, report, logger)
 	waited := make(chan struct{})
 	go func() {
 		wait()
@@ -207,4 +216,7 @@ func TestStartGrpcStopWaitJoinsDrain(t *testing.T) {
 		require.FailNow(t, "wait did not return once the call finished")
 	}
 	require.NoError(t, <-callErr)
+	summary := shutdownreporttest.Summary(t, report)
+	assert.Equal(t, false, summary["grpc_forced_stop"])
+	assert.Less(t, summary["grpc_stop_ms"], time.Hour.Milliseconds())
 }

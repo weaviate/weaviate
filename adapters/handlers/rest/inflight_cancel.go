@@ -29,6 +29,7 @@ type inFlightCancel struct {
 	requestsCtx          context.Context
 	unavailableResponses atomic.Int64
 	shutdownStarted      atomic.Bool
+	running              atomic.Int64
 }
 
 func newInFlightCancel(requestsCtx context.Context) *inFlightCancel {
@@ -38,6 +39,12 @@ func newInFlightCancel(requestsCtx context.Context) *inFlightCancel {
 // startShutdown makes readiness answer 503.
 func (c *inFlightCancel) startShutdown() {
 	c.shutdownStarted.Store(true)
+}
+
+// requestsRunning returns how many requests unavailableAfterCancel let through
+// are still being handled.
+func (c *inFlightCancel) requestsRunning() int64 {
+	return c.running.Load()
 }
 
 // unavailableAfterCancel refuses new requests once the cancel fired, and replaces
@@ -51,6 +58,8 @@ func (c *inFlightCancel) unavailableAfterCancel(next http.Handler) http.Handler 
 			writeShuttingDown(w, requestContentType)
 			return
 		}
+		c.running.Add(1)
+		defer c.running.Add(-1)
 		uw := &unavailableAfterCancelWriter{ResponseWriter: w, inFlight: c, requestContentType: requestContentType}
 		defer uw.decideResponse()
 		next.ServeHTTP(uw, r)

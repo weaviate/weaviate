@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/shutdownreport"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/license"
@@ -858,6 +859,72 @@ func TestEnvironmentHaltForTransferTimeout(t *testing.T) {
 
 			require.NoError(t, err)
 			require.Equal(t, tt.expected, conf.HaltForTransferTimeout)
+		})
+	}
+}
+
+func TestEnvironmentShutdownLog(t *testing.T) {
+	after := func(c Config) any { return c.ShutdownLog.HeartbeatAfter }
+	interval := func(c Config) any { return c.ShutdownLog.HeartbeatInterval }
+	drain := func(c Config) any { return c.ShutdownLog.Thresholds.ClientDrain }
+	internalClose := func(c Config) any { return c.ShutdownLog.Thresholds.InternalClose }
+	db := func(c Config) any { return c.ShutdownLog.Thresholds.DB }
+	total := func(c Config) any { return c.ShutdownLog.Thresholds.Total }
+	tests := []struct {
+		env         map[string]string
+		get         func(Config) any
+		expected    any
+		expectedErr bool
+	}{
+		{env: map[string]string{"SHUTDOWN_HEARTBEAT_AFTER": ""}, get: after, expected: 15 * time.Second},
+		{env: map[string]string{"SHUTDOWN_HEARTBEAT_AFTER": "0s"}, get: after, expected: time.Duration(0)},
+		{env: map[string]string{"SHUTDOWN_HEARTBEAT_AFTER": "-1s"}, expectedErr: true},
+		{env: map[string]string{"SHUTDOWN_HEARTBEAT_INTERVAL": ""}, get: interval, expected: 10 * time.Second},
+		{env: map[string]string{"SHUTDOWN_HEARTBEAT_INTERVAL": "1s"}, get: interval, expected: time.Second},
+		{env: map[string]string{"SHUTDOWN_HEARTBEAT_INTERVAL": "999ms"}, expectedErr: true},
+		{env: map[string]string{"SHUTDOWN_SLOW_LOG_CLIENT_DRAIN_THRESHOLD": ""}, get: drain, expected: 15 * time.Second},
+		{env: map[string]string{"SHUTDOWN_SLOW_LOG_CLIENT_DRAIN_THRESHOLD": "0s"}, expectedErr: true},
+		{env: map[string]string{"SHUTDOWN_SLOW_LOG_INTERNAL_CLOSE_THRESHOLD": ""}, get: internalClose, expected: 10 * time.Second},
+		{env: map[string]string{"SHUTDOWN_SLOW_LOG_INTERNAL_CLOSE_THRESHOLD": "0s"}, expectedErr: true},
+		{env: map[string]string{"SHUTDOWN_SLOW_LOG_DB_THRESHOLD": ""}, get: db, expected: 30 * time.Second},
+		{env: map[string]string{"SHUTDOWN_SLOW_LOG_DB_THRESHOLD": "0s"}, expectedErr: true},
+		{env: map[string]string{"SHUTDOWN_SLOW_LOG_TOTAL_THRESHOLD": ""}, get: total, expected: 30 * time.Second},
+		{env: map[string]string{"SHUTDOWN_SLOW_LOG_TOTAL_THRESHOLD": "0s"}, expectedErr: true},
+		{
+			env: map[string]string{
+				"SHUTDOWN_HEARTBEAT_AFTER":                   "1s",
+				"SHUTDOWN_HEARTBEAT_INTERVAL":                "2s",
+				"SHUTDOWN_SLOW_LOG_CLIENT_DRAIN_THRESHOLD":   "3s",
+				"SHUTDOWN_SLOW_LOG_INTERNAL_CLOSE_THRESHOLD": "4s",
+				"SHUTDOWN_SLOW_LOG_DB_THRESHOLD":             "5s",
+				"SHUTDOWN_SLOW_LOG_TOTAL_THRESHOLD":          "6s",
+			},
+			get: func(c Config) any {
+				return []any{c.ShutdownLog.HeartbeatAfter, c.ShutdownLog.HeartbeatInterval, c.ShutdownLog.Thresholds}
+			},
+			expected: []any{1 * time.Second, 2 * time.Second, shutdownreport.Thresholds{
+				ClientDrain:   3 * time.Second,
+				InternalClose: 4 * time.Second,
+				DB:            5 * time.Second,
+				Total:         6 * time.Second,
+			}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprint(tt.env), func(t *testing.T) {
+			for name, value := range tt.env {
+				t.Setenv(name, value)
+			}
+
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, tt.get(conf))
 		})
 	}
 }
