@@ -277,6 +277,10 @@ type Index struct {
 	vectorIndexUserConfigLock sync.Mutex
 	vectorIndexUserConfig     schemaConfig.VectorIndexConfig
 	vectorIndexUserConfigs    map[string]schemaConfig.VectorIndexConfig
+	// vectorIndexUserConfigGens count the writes to the two configs above,
+	// under the same lock. A shard remembers the generations its load read,
+	// so a change that landed during the load is caught up after it.
+	vectorIndexUserConfigGens vectorIndexConfigGens
 
 	partitioningEnabled  bool
 	AsyncIndexingEnabled bool
@@ -679,6 +683,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				promMetrics.NewLoadedShard()
 				newShard.metricsRegistered.Store(true)
 				i.shards.Store(shardName, newShard)
+				newShard.catchUpVectorIndexConfig(ctx)
 				startupShards.eager.Add(1)
 				return nil
 			}
@@ -1285,10 +1290,14 @@ func (i *Index) withEachLoadedShard(f func(name string, shard ShardLike) error) 
 }
 
 // publishShard makes the shard visible under shardName, reconciling it against
-// the resource-pressure flag it may have read before becoming visible.
+// the resource-pressure flag and the vector index config it may have read
+// before becoming visible.
 func (i *Index) publishShard(shardName string, shard ShardLike) {
 	i.shards.Store(shardName, shard)
 	i.db.reconcileShardResourcePressure(shardName, shard)
+	if s, ok := shard.(*Shard); ok {
+		s.catchUpVectorIndexConfig(context.Background())
+	}
 }
 
 func (i *Index) ForEachShardConcurrently(f func(name string, shard ShardLike) error) error {
@@ -1411,11 +1420,23 @@ func (i *Index) updateProperty(ctx context.Context, property *models.Property) e
 	return nil
 }
 
+// The two update functions write the index's config before pushing it into
+// the loaded shards. A shard that is loading meanwhile reads the config at
+// the start of its load and is published at the end; written first, the
+// change is either in what the shard read, or caught up when the shard is
+// published (catchUpVectorIndexConfig), or pushed because the shard was
+// published before the push ran. Pushed first, a shard whose whole load
+// fell between the push and the write got neither.
 func (i *Index) updateVectorIndexConfig(ctx context.Context,
 	updated schemaConfig.VectorIndexConfig,
 ) error {
+	i.vectorIndexUserConfigLock.Lock()
+	i.vectorIndexUserConfig = updated
+	i.vectorIndexUserConfigGens.legacy++
+	i.vectorIndexUserConfigLock.Unlock()
+
 	// an updated is not specific to one shard, but rather all
-	err := i.withEachLoadedShard(func(name string, shard ShardLike) error {
+	return i.withEachLoadedShard(func(name string, shard ShardLike) error {
 		// At the moment, we don't do anything in an update that could fail, but
 		// technically this should be part of some sort of a two-phase commit  or
 		// have another way to rollback if we have updates that could potentially
@@ -1425,38 +1446,24 @@ func (i *Index) updateVectorIndexConfig(ctx context.Context,
 		}
 		return nil
 	})
-	if err != nil {
-		return err
-	}
-	i.vectorIndexUserConfigLock.Lock()
-	defer i.vectorIndexUserConfigLock.Unlock()
-
-	i.vectorIndexUserConfig = updated
-
-	return nil
 }
 
 func (i *Index) updateVectorIndexConfigs(ctx context.Context,
 	updated map[string]schemaConfig.VectorIndexConfig,
 ) error {
-	err := i.withEachLoadedShard(func(name string, shard ShardLike) error {
+	i.vectorIndexUserConfigLock.Lock()
+	for targetName, targetCfg := range updated {
+		i.vectorIndexUserConfigs[targetName] = targetCfg
+	}
+	i.vectorIndexUserConfigGens.targets++
+	i.vectorIndexUserConfigLock.Unlock()
+
+	return i.withEachLoadedShard(func(name string, shard ShardLike) error {
 		if err := shard.UpdateVectorIndexConfigs(ctx, updated); err != nil {
 			return fmt.Errorf("shard %q: %w", name, err)
 		}
 		return nil
 	})
-	if err != nil {
-		return err
-	}
-
-	i.vectorIndexUserConfigLock.Lock()
-	defer i.vectorIndexUserConfigLock.Unlock()
-
-	for targetName, targetCfg := range updated {
-		i.vectorIndexUserConfigs[targetName] = targetCfg
-	}
-
-	return nil
 }
 
 func (i *Index) dropVectorIndex(ctx context.Context, targetVector string) error {
@@ -4970,12 +4977,33 @@ func (i *Index) getTargetVectorIndexConfigs() map[string]schemaConfig.VectorInde
 	i.vectorIndexUserConfigLock.Lock()
 	defer i.vectorIndexUserConfigLock.Unlock()
 
+	return i.targetVectorIndexConfigsLocked()
+}
+
+func (i *Index) targetVectorIndexConfigsLocked() map[string]schemaConfig.VectorIndexConfig {
 	configs := make(map[string]schemaConfig.VectorIndexConfig, len(i.vectorIndexUserConfigs))
 	for k, v := range i.vectorIndexUserConfigs {
 		configs[k] = v
 	}
 
 	return configs
+}
+
+// vectorIndexConfigGens are the generations of the legacy and of the named
+// vector index configs: each moves on every update of its config.
+type vectorIndexConfigGens struct {
+	legacy  uint64
+	targets uint64
+}
+
+// vectorIndexConfigsAndGens snapshots the legacy config, the named configs
+// and the generations they are at, in one read: a load remembers the
+// generations, and a catch-up applies a config at the generation it read.
+func (i *Index) vectorIndexConfigsAndGens() (schemaConfig.VectorIndexConfig, map[string]schemaConfig.VectorIndexConfig, vectorIndexConfigGens) {
+	i.vectorIndexUserConfigLock.Lock()
+	defer i.vectorIndexUserConfigLock.Unlock()
+
+	return i.vectorIndexUserConfig, i.targetVectorIndexConfigsLocked(), i.vectorIndexUserConfigGens
 }
 
 func convertToVectorIndexConfig(config interface{}) schemaConfig.VectorIndexConfig {
