@@ -111,12 +111,14 @@ func New(apiKey, organization string, timeout time.Duration, maxConcurrentReques
 func (c *client) Rank(ctx context.Context, query string, documents []string,
 	cfg moduletools.ClassConfig,
 ) (*ent.RankResult, error) {
-	return c.RankProperty(ctx, query, "", documents, cfg)
+	return c.RankProperty(ctx, query, "", false, documents, cfg)
 }
 
 // RankProperty is Rank for the documents of a named property: the content
-// of a blob property is sent as an image.
-func (c *client) RankProperty(ctx context.Context, query, property string, documents []string,
+// of a blob property is sent as an image. A decision rerank sends the query
+// as the statement question whatever the class's question setting says: its
+// query is a condition, not a search query.
+func (c *client) RankProperty(ctx context.Context, query, property string, decision bool, documents []string,
 	cfg moduletools.ClassConfig,
 ) (*ent.RankResult, error) {
 	// The settings are checked here as well because a class that never names
@@ -138,7 +140,7 @@ func (c *client) RankProperty(ctx context.Context, query, property string, docum
 	request := judgeRequest{
 		endpointAuth: endpointAuth{url: openAIURL, apiKey: apiKey, organization: c.organizationFor(ctx)},
 		model:        settings.Model, query: query,
-		statement: settings.Question == config.QuestionStatement,
+		statement: decision || settings.Question == config.QuestionStatement,
 		image:     isImageProperty(cfg, property),
 	}
 

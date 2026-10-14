@@ -206,7 +206,7 @@ func TestRankImageProperty(t *testing.T) {
 		defer server.Close()
 		cfg := classConfigWithTypes(server.URL, map[string]schema.DataType{"photo": schema.DataTypeBlob})
 
-		res, err := newTestClient("apiKey").RankProperty(context.Background(), "the car is damaged", "photo", []string{pngBase64}, cfg)
+		res, err := newTestClient("apiKey").RankProperty(context.Background(), "the car is damaged", "photo", false, []string{pngBase64}, cfg)
 
 		require.NoError(t, err)
 		assert.Equal(t, 0.8, res.DocumentScores[0].Score)
@@ -221,7 +221,7 @@ func TestRankImageProperty(t *testing.T) {
 		defer server.Close()
 		cfg := classConfigWithTypes(server.URL, map[string]schema.DataType{"photo": schema.DataTypeBlob, "text": schema.DataTypeText})
 
-		_, err := newTestClient("apiKey").RankProperty(context.Background(), "q", "text", []string{"a document"}, cfg)
+		_, err := newTestClient("apiKey").RankProperty(context.Background(), "q", "text", false, []string{"a document"}, cfg)
 
 		require.NoError(t, err)
 		assert.Contains(t, handler.received()[0].rawBody, `"input":"a document"`)
@@ -233,7 +233,7 @@ func TestRankImageProperty(t *testing.T) {
 		defer server.Close()
 		cfg := classConfigWithTypes(server.URL, map[string]schema.DataType{"photo": schema.DataTypeBlob})
 
-		_, err := newTestClient("apiKey").RankProperty(context.Background(), "q", "photo", []string{pngBase64, textBase64}, cfg)
+		_, err := newTestClient("apiKey").RankProperty(context.Background(), "q", "photo", false, []string{pngBase64, textBase64}, cfg)
 
 		require.EqualError(t, err, "document 1: image: not a PNG, JPEG, GIF or WebP image")
 		assert.Empty(t, handler.received(), "the other documents are not sent either")
@@ -347,6 +347,31 @@ func TestRankStatementQuestion(t *testing.T) {
 
 	res, err := newTestClient("key").Rank(context.Background(), "the customer is angry", []string{"doc"},
 		classConfig(server.URL, map[string]any{"question": "statement"}))
+
+	require.NoError(t, err)
+	assert.InDelta(t, 0.9, res.DocumentScores[0].Score, 1e-9)
+	requests := handler.received()
+	require.Len(t, requests, 1)
+	assert.JSONEq(t, `{
+		"model": "gpt-6-luna",
+		"input": "doc",
+		"questions": [{
+			"type": "predicate",
+			"name": "statement",
+			"instructions": "the customer is angry"
+		}]
+	}`, requests[0].rawBody)
+}
+
+// A decision rerank sends the query as the statement even on a class with
+// the default relevance question: the query is a condition.
+func TestRankDecisionSendsTheStatement(t *testing.T) {
+	handler := &openAIHandler{t: t, answers: map[string]answer{"doc": probability(0.9)}, answerName: "statement"}
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	res, err := newTestClient("key").RankProperty(context.Background(), "the customer is angry", "text", true,
+		[]string{"doc"}, classConfig(server.URL, nil))
 
 	require.NoError(t, err)
 	assert.InDelta(t, 0.9, res.DocumentScores[0].Score, 1e-9)

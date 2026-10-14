@@ -110,7 +110,7 @@ func (p *ReRankerProvider) Score(ctx context.Context, cfg moduletools.ClassConfi
 	var result *ent.RankResult
 	var err error
 	if ranker, ok := p.client.(PropertyRanker); ok {
-		result, err = ranker.RankProperty(ctx, query, rankProperty, documents, cfg)
+		result, err = ranker.RankProperty(ctx, query, rankProperty, params.Decision != nil, documents, cfg)
 	} else {
 		result, err = p.client.Rank(ctx, query, documents, cfg)
 	}

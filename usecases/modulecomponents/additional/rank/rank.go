@@ -31,9 +31,10 @@ type ReRankerClient interface {
 
 // PropertyRanker is a client that reads the documents by the property they
 // come from, for example as images when the property is a blob. The provider
-// calls it instead of Rank.
+// calls it instead of Rank. decision is set for rerank.decision: the query
+// is then a statement about every document, not a search query.
 type PropertyRanker interface {
-	RankProperty(ctx context.Context, query, property string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
+	RankProperty(ctx context.Context, query, property string, decision bool, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
 }
 
 type ReRankerProvider struct {
