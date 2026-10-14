@@ -49,7 +49,8 @@ func TestCommitlogParserRoaringSetLegacyNode(t *testing.T) {
 			var gotKey []byte
 			var gotAdditions, gotDeletions []uint64
 			prs := &commitlogParserRoaringSet{
-				consume: func(key []byte, additions, deletions []uint64) error {
+				parser: &commitloggerParser{},
+				consume: func(mt *Memtable, key []byte, additions, deletions []uint64) error {
 					gotKey = key
 					gotAdditions = additions
 					gotDeletions = deletions
@@ -118,7 +119,8 @@ func TestCommitlogParserRoaringSetCopiesKey(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var gotKey []byte
 			prs := &commitlogParserRoaringSet{
-				consume: func(key []byte, _, _ []uint64) error {
+				parser: &commitloggerParser{},
+				consume: func(mt *Memtable, key []byte, _, _ []uint64) error {
 					gotKey = key
 					return nil
 				},

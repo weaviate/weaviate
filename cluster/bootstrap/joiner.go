@@ -14,6 +14,7 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/getsentry/sentry-go"
 	"github.com/sirupsen/logrus"
@@ -111,4 +112,31 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes map[stri
 		}
 	}
 	return "", fmt.Errorf("could not join a cluster from %v", remoteNodes)
+}
+
+// Rejoin calls Do until it succeeds or ctx ends. A failed attempt is retried
+// after retryPeriod, or sooner if this node learns of a leader in the
+// meantime, as a sole voter does milliseconds after starting.
+func (j *Joiner) Rejoin(ctx context.Context, lg *logrus.Logger, resolveNodes func() map[string]string,
+	hasLeader func() bool, retryPeriod, pollPeriod time.Duration,
+) error {
+	poll := time.NewTicker(pollPeriod)
+	defer poll.Stop()
+	var nextAttempt time.Time
+	leaderKnown := false
+	for {
+		if !time.Now().Before(nextAttempt) || (!leaderKnown && hasLeader()) {
+			leaderKnown = hasLeader()
+			_, err := j.Do(ctx, lg, resolveNodes())
+			if err == nil {
+				return nil
+			}
+			nextAttempt = time.Now().Add(retryPeriod)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-poll.C:
+		}
+	}
 }

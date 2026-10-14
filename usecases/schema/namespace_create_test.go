@@ -164,6 +164,13 @@ func TestAddClass(t *testing.T) {
 			class:      "C" + strings.Repeat("x", 254),
 			wantErrMsg: "namespaced names must be at most",
 		},
+		{
+			name:       "first letter whose uppercase is ASCII rejected",
+			enabled:    false,
+			principal:  globalPrincipal(),
+			class:      "\u017fovies",
+			wantErrMsg: "is not a valid class name",
+		},
 	}
 
 	for _, tt := range casts {
@@ -687,6 +694,14 @@ func TestAddAlias(t *testing.T) {
 			enabled:    true,
 			principal:  namespacedPrincipal("customer1"),
 			alias:      "Customer2:Films",
+			class:      "Movies",
+			wantErrMsg: "is not a valid alias name",
+		},
+		{
+			name:       "alias first letter whose uppercase is ASCII rejected",
+			enabled:    false,
+			principal:  globalPrincipal(),
+			alias:      "\u0131tems",
 			class:      "Movies",
 			wantErrMsg: "is not a valid alias name",
 		},

@@ -236,6 +236,18 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, backup.NewErrUnprocessable(fmt.Errorf("backup selects no collections, users, or roles: available collections"))
 	}
 
+	// The user-keyed assignments name the backed-up users, so a skipped user
+	// snapshot withholds them too, whichever check set the skip. The OIDC
+	// grants are keyed to namespaces, not users, and travel regardless.
+	userAssignments := selection.userBuiltInAssignments
+	if selection.skipUsers {
+		userAssignments = nil
+	}
+	carriedAssignments, err := rbac.MergeSnapshots(userAssignments, selection.oidcBuiltInAssignments)
+	if err != nil {
+		return nil, backup.NewErrUnprocessable(fmt.Errorf("merge built-in role assignments: %w", err))
+	}
+
 	if err := store.Initialize(ctx, req.Bucket, req.Path); err != nil {
 		return nil, fmt.Errorf("init uploader: %w", err)
 	}
@@ -252,6 +264,8 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		Bucket:       req.Bucket,
 		Path:         req.Path,
 		BaseBackupID: req.BaseBackupID,
+
+		BuiltInRoleAssignments: carriedAssignments,
 	}
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
 		return nil, err
@@ -323,6 +337,14 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	}
 	if meta.SkipRoles {
 		rbacBlob = nil
+	}
+	// Merge before the strip and reference checks below, so they also check the
+	// built-in assignments. noRestore applies no role blob, so it skips the merge
+	// and any merge decode error.
+	if req.RbacRestoreOption != models.RestoreConfigRolesOptionsNoRestore && s.roleLister != nil {
+		if rbacBlob, err = rbac.MergeSnapshots(rbacBlob, meta.BuiltInRoleAssignments); err != nil {
+			return nil, backup.NewErrUnprocessable(fmt.Errorf("merge built-in role assignments: %w", err))
+		}
 	}
 
 	// A nil lister means that subsystem is disabled. Its blob stays empty, so
@@ -988,6 +1010,14 @@ type backupSelections struct {
 	classes, users, roles []string
 	// Explicit empty lists and unmatched wildcards exclude the snapshot.
 	skipUsers, skipRoles bool
+	// userBuiltInAssignments and oidcBuiltInAssignments hold the admin and
+	// viewer assignments an RBAC snapshot filtered by roles leaves out: those
+	// of the backed-up db users, and those of the OIDC users in the namespaces
+	// includeRoles names. Both are nil when includeRoles is omitted, because
+	// the full snapshot holds them. They stay apart because narrowing withholds
+	// the user-keyed part together with the user snapshot.
+	userBuiltInAssignments []byte
+	oidcBuiltInAssignments []byte
 }
 
 // validateBackupRequest resolves the request into classes, users, and roles.
@@ -1089,7 +1119,47 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	}
 	if selections.skipRoles && len(req.IncludeRoles) > 0 {
 		s.logger.WithField("action", "try_backup").WithField("backup_id", req.ID).
-			Warnf("'includeRoles' %v matches no role, backing up none", req.IncludeRoles)
+			Warnf("'includeRoles' %v matches no role, backing up no custom roles", req.IncludeRoles)
+	}
+
+	// The namespaces the includeRoles selectors and the roles they resolve to
+	// name. They key the carried OIDC grants and bound an omitted includeUsers.
+	var namespaces []string
+	if req.IncludeRoles != nil {
+		for _, name := range slices.Concat(req.IncludeRoles, roles) {
+			if ns := namespacing.NamespaceFromQualified(name); ns != "" && !slices.Contains(namespaces, ns) {
+				namespaces = append(namespaces, ns)
+			}
+		}
+	}
+
+	if req.IncludeRoles != nil && !selections.skipUsers && s.roleLister != nil {
+		carried := users
+		if req.IncludeUsers == nil && s.userLister != nil {
+			// An omitted includeUsers backs up every dynamic user.
+			carried = s.userLister.ListAllUsers()
+			// If includeRoles specifies namespaces, only users from those namespaces are carried.
+			if len(namespaces) > 0 {
+				carried = slices.DeleteFunc(slices.Clone(carried), func(id string) bool {
+					return !slices.Contains(namespaces, namespacing.NamespaceFromQualified(id))
+				})
+			}
+		}
+		if len(carried) > 0 {
+			if selections.userBuiltInAssignments, err = s.roleLister.BuiltInAssignments(carried...); err != nil {
+				return selections, fmt.Errorf("collect built-in role assignments: %w", err)
+			}
+		}
+	}
+
+	// An OIDC grant has no user record to travel with, so it is keyed to the
+	// selector-named namespaces and is carried even when users are skipped.
+	if s.roleLister != nil && len(namespaces) > 0 {
+		oidc, err := s.roleLister.OIDCBuiltInAssignments(namespaces...)
+		if err != nil {
+			return selections, fmt.Errorf("collect oidc built-in role assignments: %w", err)
+		}
+		selections.oidcBuiltInAssignments = oidc
 	}
 
 	selections.classes = classes

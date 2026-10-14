@@ -179,6 +179,11 @@ func (st *Store) admitCreateLike(req *api.ApplyRequest) error {
 		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
 			return fmt.Errorf("unmarshal add-roles-for-user subcommand: %w", err)
 		}
+		// With namespaces off, a ':' in a subject is part of the user id, as in
+		// the OIDC subject "urn:example:alice", and names no namespace.
+		if !st.cfg.NamespacesEnabled {
+			return nil
+		}
 		ns, err := subjectNamespace(sub.User)
 		if err != nil {
 			return fmt.Errorf("resolve namespace of subject %q: %w", sub.User, err)

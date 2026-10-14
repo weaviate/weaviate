@@ -199,6 +199,33 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 		assert.True(t, nodeReq.SkipRoles)
 	})
 
+	t.Run("narrowed users withhold the carried built-in assignments", func(t *testing.T) {
+		assignments := []byte(`{"version":1,"grouping_policies":[["db:alice","role:admin"]]}`)
+		runCase := func(t *testing.T, deny ...string) backup.DistributedBackupDescriptor {
+			t.Helper()
+			fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+			fs.auth.(*mocks.FakeAuthorizer).Deny(deny...)
+			setup(fs)
+			fs.roleLister.assignments = assignments
+			require.NoError(t, run(t, fs, &BackupRequest{
+				ID: backupID, Backend: backendName, IncludeRoles: []string{"editor", "writer"},
+			}))
+			fs.backend.RLock()
+			defer fs.backend.RUnlock()
+			return fs.backend.glMeta
+		}
+
+		// The denied caller's backup skips the user snapshot; the user-keyed
+		// assignments name the same users and go with it.
+		narrowed := runCase(t, "backups/users/*")
+		assert.True(t, narrowed.SkipUsers)
+		assert.Nil(t, narrowed.BuiltInRoleAssignments)
+
+		full := runCase(t)
+		assert.False(t, full.SkipUsers)
+		assert.Equal(t, assignments, []byte(full.BuiltInRoleAssignments))
+	})
+
 	t.Run("a non-Forbidden authorizer error fails as Unprocessable", func(t *testing.T) {
 		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
 		fs.auth.(*mocks.FakeAuthorizer).SetErrAfter(1, ErrAny)
