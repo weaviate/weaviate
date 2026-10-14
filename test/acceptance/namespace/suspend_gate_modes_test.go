@@ -87,10 +87,10 @@ func newGatePair(t *testing.T, suspendedHome, activeHome string) gatePair {
 	return pair
 }
 
-// withHomeNodeStopped stops homeNode while body runs, for Mode A. It must never
+// withHomeNodeStopped stops homeNode gracefully while body runs. It must never
 // run in parallel, because the package's other top-level tests share this
-// cluster. Pass the suspended namespace's home node. With any other node
-// stopped, the shard guard refuses in the gate's place and every row passes.
+// cluster. For Mode A, pass the suspended namespace's home node. With any other
+// node stopped, the shard guard refuses in the gate's place and every row passes.
 func withHomeNodeStopped(t *testing.T, homeNode string, body func(t *testing.T)) {
 	t.Helper()
 	ctx := context.Background()
