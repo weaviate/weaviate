@@ -373,25 +373,19 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 			c.metrics.ObserveReadDuration(time.Since(start))
 		}()
 
-		// replicas that said they cannot serve: once too few are left, waiting out the worker
-		// timeout cannot reach level, so the workers stop instead of retrying dead hosts
-		// Cancelling reaches every worker, not just the one that saw the refusal: a worker blocked
-		// in op, or retrying some other error, has no refusing host to learn it from and would
-		// otherwise sit out its whole timeout after the level is already lost.
-		unreachableCtx, unreachableCancel := context.WithCancel(ctx)
-		defer unreachableCancel()
+		// A replica that reports it cannot serve is starting up, in maintenance, or has not got
+		// the class yet. Retrying it cannot help, so it is dropped rather than put back on the
+		// queue and the worker moves to another replica.
+		candidatesCtx, noCandidatesLeft := context.WithCancel(ctx)
+		defer noCandidatesLeft()
 
-		var unreachableMu sync.Mutex
-		unreachable := make(map[string]struct{}, len(hosts))
-		levelUnreachable := func(host string) bool {
-			unreachableMu.Lock()
-			defer unreachableMu.Unlock()
-			unreachable[host] = struct{}{}
-			if len(hosts)-len(unreachable) < level {
-				unreachableCancel()
-				return true
+		var candidates atomic.Int32
+		candidates.Store(int32(len(hosts)))
+		// Called once per host that will not be tried again, whether it answered or was dropped.
+		hostSettled := func() {
+			if candidates.Add(-1) <= 0 {
+				noCandidatesLeft()
 			}
-			return false
 		}
 
 		hostRetryQueue := make(chan hostRetry, len(hosts))
@@ -412,7 +406,7 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 			isFullReadWorker := hostIndex == 0 // first worker will perform the fullRead
 			workerFunc := func() {
 				defer wg.Done()
-				workerCtx, workerCancel := context.WithTimeout(unreachableCtx, timeout)
+				workerCtx, workerCancel := context.WithTimeout(candidatesCtx, timeout)
 				defer workerCancel()
 				// each worker will first try its corresponding host (eg worker0 tries hosts[0],
 				// worker1 tries hosts[1], etc). We want the fullRead to be tried on hosts[0]
@@ -424,36 +418,45 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 				// TODO have increasing timeout passed into each op (eg 1s, 2s, 4s, 8s, 16s, 32s, with some max) similar to backoff? future PR? or should we just set timeout once per worker in Pull?
 				if err == nil {
 					successful.Add(1)
+					hostSettled()
 					replyCh <- Result[T]{resp, err}
 					return
 				}
-				if replicaCannotServe(err) && levelUnreachable(hosts[hostIndex]) {
-					replyCh <- Result[T]{resp, err}
-					return
-				}
-
-				// this host failed op on the first try, put it on the retry queue
-				select {
-				case <-workerCtx.Done():
-					replyCh <- Result[T]{Err: workerCtx.Err()}
-					return
-				default:
-					hostRetryQueue <- hostRetry{
-						hosts[hostIndex],
-						backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), workerCtx),
+				if replicaCannotServe(err) {
+					hostSettled()
+				} else {
+					// this host failed op on the first try, put it on the retry queue
+					select {
+					case <-workerCtx.Done():
+						replyCh <- Result[T]{Err: workerCtx.Err()}
+						return
+					default:
+						hostRetryQueue <- hostRetry{
+							hosts[hostIndex],
+							backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), workerCtx),
+						}
 					}
 				}
 
 				// let's fallback to the backups in the retry queue
-				for hr := range hostRetryQueue {
-					resp, err := op(workerCtx, hr.host, isFullReadWorker)
+				for {
+					var hr hostRetry
+					select {
+					case <-workerCtx.Done():
+						replyCh <- Result[T]{resp, err}
+						return
+					case hr = <-hostRetryQueue:
+					}
+
+					resp, err = op(workerCtx, hr.host, isFullReadWorker)
 					if err == nil {
+						hostSettled()
 						replyCh <- Result[T]{resp, err}
 						return
 					}
-					if replicaCannotServe(err) && levelUnreachable(hr.host) {
-						replyCh <- Result[T]{resp, err}
-						return
+					if replicaCannotServe(err) {
+						hostSettled()
+						continue
 					}
 
 					nextBackOff := hr.currentBackOff.NextBackOff()

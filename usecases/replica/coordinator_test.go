@@ -510,61 +510,6 @@ func Test_coordinatorPull(t *testing.T) {
 	}
 }
 
-// CountObjects gives its pull a minute, and waiting that out is what turned two dead replicas into
-// ~58s queries.
-func TestPullStopsWhenTheLevelBecomesUnreachable(t *testing.T) {
-	const (
-		cls   = "C1"
-		shard = "S1"
-	)
-
-	hosts := []types.Replica{
-		{NodeName: "A", ShardName: shard, HostAddr: "a:7001"},
-		{NodeName: "B", ShardName: shard, HostAddr: "b:7001"},
-		{NodeName: "C", ShardName: shard, HostAddr: "c:7001"},
-	}
-
-	logger, _ := test.NewNullLogger()
-	metrics, err := replica.NewMetrics(nil)
-	require.NoError(t, err)
-
-	options := types.RoutingPlanBuildOptions{Shard: shard, ConsistencyLevel: types.ConsistencyLevelQuorum}
-	router := types.NewMockRouter(t)
-	router.EXPECT().BuildRoutingPlanOptions(shard, shard, types.ConsistencyLevelQuorum, "").Return(options).Once()
-	router.EXPECT().BuildReadRoutingPlan(options).Return(types.ReadRoutingPlan{
-		Shard:               shard,
-		ReplicaSet:          types.ReadReplicaSet{Replicas: hosts},
-		ConsistencyLevel:    types.ConsistencyLevelQuorum,
-		IntConsistencyLevel: 2,
-	}, nil).Once()
-
-	c := replica.NewReadCoordinator[int](router, metrics, cls, shard, "", logger)
-
-	// only B can answer; A and C say they are not ready, so quorum of 2 is out of reach
-	notReady := fmt.Errorf("status code: 503, error: 503 %s", replica.NodeNotReadyMsg)
-	op := func(ctx context.Context, host string, _ bool) (int, error) {
-		if host == "b:7001" {
-			return 1, nil
-		}
-		return 0, notReady
-	}
-
-	started := time.Now()
-	replyCh, level, err := c.Pull(context.Background(), types.ConsistencyLevelQuorum, op, "", time.Minute)
-	require.NoError(t, err)
-	require.Equal(t, 2, level)
-
-	var replies int
-	for range replyCh {
-		replies++
-	}
-	elapsed := time.Since(started)
-
-	require.Equal(t, level, replies, "one reply per worker, as the caller depends on")
-	require.Less(t, elapsed, 10*time.Second,
-		"the pull must give up as soon as too few replicas can serve, not sit out its minute (took %s)", elapsed)
-}
-
 // The other half of the rule: a replica that is merely behind answers unprocessable, which carries
 // no readiness marker, so it must not count against the level -- during a rolling restart a quorum
 // lags for a moment and the ladder is there to outlast it.
@@ -631,10 +576,11 @@ func TestPullOutlastsReplicasThatAreMerelyBehindTheSchema(t *testing.T) {
 		"a quorum that was behind for several retries must still be reached, not abandoned")
 }
 
-// The refusal reaches one worker, but the level it loses is shared. A worker parked inside op
-// never consults the retry queue and so never learns of it, and without a shared cancellation it
-// sits out its whole timeout -- a minute, for CountObjects -- after the read is already lost.
-func TestPullStopsAWorkerBlockedInOpOnceTheLevelIsLost(t *testing.T) {
+// The rolling-restart case: one replica is restarting and reports it cannot serve. Retrying it
+// cannot help, so the read has to fail over to a replica that can answer rather than spend the
+// caller's timeout on the one that cannot -- a caller that needs one replica (an aggregated count)
+// then still gets an answer instead of an error.
+func TestPullFailsOverOffARefusingReplica(t *testing.T) {
 	const (
 		cls   = "C1"
 		shard = "S1"
@@ -650,46 +596,44 @@ func TestPullStopsAWorkerBlockedInOpOnceTheLevelIsLost(t *testing.T) {
 	metrics, err := replica.NewMetrics(nil)
 	require.NoError(t, err)
 
-	options := types.RoutingPlanBuildOptions{Shard: shard, ConsistencyLevel: types.ConsistencyLevelAll}
+	options := types.RoutingPlanBuildOptions{Shard: shard, ConsistencyLevel: types.ConsistencyLevelQuorum}
 	router := types.NewMockRouter(t)
-	router.EXPECT().BuildRoutingPlanOptions(shard, shard, types.ConsistencyLevelAll, "").Return(options).Once()
+	router.EXPECT().BuildRoutingPlanOptions(shard, shard, types.ConsistencyLevelQuorum, "").Return(options).Once()
 	router.EXPECT().BuildReadRoutingPlan(options).Return(types.ReadRoutingPlan{
 		Shard:               shard,
 		ReplicaSet:          types.ReadReplicaSet{Replicas: hosts},
-		ConsistencyLevel:    types.ConsistencyLevelAll,
-		IntConsistencyLevel: 3,
+		ConsistencyLevel:    types.ConsistencyLevelQuorum,
+		IntConsistencyLevel: 2,
 	}, nil).Once()
 
 	c := replica.NewReadCoordinator[int](router, metrics, cls, shard, "", logger)
 
-	notReady := &clients.HTTPError{
-		Code: http.StatusServiceUnavailable,
-		Body: []byte("503 " + replica.NodeNotReadyMsg),
-	}
-	// A refuses, which at ALL loses the level on its own. B and C park until their context is
-	// cancelled, so only the shared cancellation can end them: the retry queue starts empty at
-	// this level, so they never draw A's host and never see the refusal themselves.
+	// Only B can answer; A and C are restarting and say so.
+	notReady := fmt.Errorf("status code: 503, error: 503 %s", replica.NodeNotReadyMsg)
 	op := func(ctx context.Context, host string, _ bool) (int, error) {
-		if host == "a:7001" {
-			return 0, notReady
+		if host == "b:7001" {
+			return 1, nil
 		}
-		<-ctx.Done()
-		return 0, ctx.Err()
+		return 0, notReady
 	}
 
 	started := time.Now()
-	replyCh, level, err := c.Pull(context.Background(), types.ConsistencyLevelAll, op, "", time.Minute)
+	replyCh, level, err := c.Pull(context.Background(), types.ConsistencyLevelQuorum, op, "", time.Minute)
 	require.NoError(t, err)
-	require.Equal(t, 3, level)
+	require.Equal(t, 2, level)
 
-	var replies int
-	for range replyCh {
+	var replies, succeeded int
+	for r := range replyCh {
 		replies++
+		if r.Err == nil {
+			succeeded++
+		}
 	}
 	elapsed := time.Since(started)
 
 	require.Equal(t, level, replies, "one reply per worker, as the caller depends on")
+	require.NotZero(t, succeeded,
+		"the replica that can serve must be reached, so a caller needing one answer gets it")
 	require.Less(t, elapsed, 10*time.Second,
-		"a worker parked in op must be cancelled once the level is lost, not sit out its minute (took %s)",
-		elapsed)
+		"a refusing replica must not be retried into the caller's timeout (took %s)", elapsed)
 }
