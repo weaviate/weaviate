@@ -303,6 +303,56 @@ func TestRecountPropertyLengthsBeforeLoad_UnreadableTracker(t *testing.T) {
 	}
 }
 
+// Async replication can delete objects as soon as it starts, so the recount must
+// be done by then. Starting it sweeps the shard's hashtree directory.
+func TestRecountPropertyLengthsOnLoad_BeforeAsyncReplication(t *testing.T) {
+	repo, schemaGetter := openRecountTestDB(t, t.TempDir(), singleShardState(), false, false)
+	defer repo.Shutdown(context.Background())
+	for _, name := range recountTestNames {
+		require.NoError(t, repo.PutObject(testCtx(), &models.Object{
+			Class:      recountTestClass,
+			ID:         strfmt.UUID(uuid.NewString()),
+			Properties: map[string]any{"name": name},
+		}, []float32{1, 2, 3}, nil, nil, nil, 0))
+	}
+	shard := recountTestShard(t, repo)
+	idx, name, class := shard.index, shard.name, shard.class
+	recountPath := filepath.Join(shard.path(), propLengthsRecountFile)
+	stale := filepath.Join(shard.pathHashTree(), "stale.tmp")
+	require.NoError(t, shard.Shutdown(testCtx()))
+	idx.shards.LoadAndDelete(name)
+	require.NoError(t, os.MkdirAll(filepath.Dir(stale), 0o755))
+	require.NoError(t, os.WriteFile(stale, nil, 0o644))
+
+	var counted, sweptWhileCounting int
+	idx.getSchema = &recountHookSchemaGetter{SchemaGetter: schemaGetter, onReadOnlyClass: func() {
+		if _, err := os.Stat(recountPath); err != nil {
+			return
+		}
+		counted++
+		if _, err := os.Stat(stale); err != nil {
+			sweptWhileCounting++
+		}
+	}}
+	idx.Config.PropertyLengthsRecount = &startupRebuild{enabled: true}
+	loaded, err := idx.initShard(testCtx(), name, class, nil, true, true)
+	require.NoError(t, err)
+	defer loaded.Shutdown(testCtx())
+	require.Equal(t, len(recountTestNames), counted)
+	assert.Zero(t, sweptWhileCounting, "async replication started during the recount")
+	assert.NoFileExists(t, stale)
+}
+
+type recountHookSchemaGetter struct {
+	schemaUC.SchemaGetter
+	onReadOnlyClass func()
+}
+
+func (g *recountHookSchemaGetter) ReadOnlyClass(name string) *models.Class {
+	g.onReadOnlyClass()
+	return g.SchemaGetter.ReadOnlyClass(name)
+}
+
 // A corrupt segment makes the cursor panic, which must not fail the load.
 func TestRecountPropertyLengthsOnLoad_CorruptObjectsSegment(t *testing.T) {
 	ctx := testCtx()

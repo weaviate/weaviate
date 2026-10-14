@@ -178,10 +178,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
 
-	if err := s.recountPropertyLengthsOnLoad(ctx); err != nil {
-		return nil, fmt.Errorf("recount property lengths: %w", err)
-	}
-
 	if err = s.initShardVectors(ctx); err != nil {
 		return nil, fmt.Errorf("init shard vectors: %w", err)
 	}
