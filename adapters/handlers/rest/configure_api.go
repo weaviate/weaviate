@@ -1528,6 +1528,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	setupMiddlewares := makeSetupMiddlewares(appState)
+	// nothing else polls the readiness check, so time to ready is measured here
+	enterrors.GoWrapper(func() {
+		monitoring.GetStartupMetrics().TrackReady(serverShutdownCtx,
+			func() bool { return nodeReady(appState) }, readyPollInterval)
+	}, appState.Logger)
+
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context(), telemeter)
 	if telemetryEnabled(appState) {
 		enterrors.GoWrapper(func() {

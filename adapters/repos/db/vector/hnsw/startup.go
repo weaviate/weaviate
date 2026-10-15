@@ -28,6 +28,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func (h *hnsw) init(cfg Config) error {
@@ -111,7 +112,13 @@ func (h *hnsw) restoreFromDisk() error {
 	}
 
 	// Apply loaded state to index
-	return h.applyLoadedState(loadResult.State)
+	if err := h.applyLoadedState(loadResult.State); err != nil {
+		return err
+	}
+
+	// only an index that had state counts as a restore; a fresh one returned above
+	monitoring.GetStartupMetrics().ObserveVectorIndexRestore(time.Since(beforeAll))
+	return nil
 }
 
 // applyLoadedState applies the deserialization result to the HNSW index.
@@ -146,6 +153,7 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 	if state.Compressed() {
 		h.compressed.Store(true)
 		h.cache.Drop()
+		h.cache = nil
 
 		if pqData := state.CompressionPQData(); pqData != nil {
 			h.dims.Store(int32(pqData.Dimensions))
@@ -562,6 +570,19 @@ func (h *hnsw) resetTombstoneMetric() {
 	}
 }
 
+// prefill outcomes that are not reported as a completed prefill
+var (
+	errPrefillIncomplete = errors.New("prefill did not complete")
+	errNothingToPrefill  = errors.New("nothing to prefill")
+)
+
+func (h *hnsw) prefilledVectors() int64 {
+	if h.compressed.Load() {
+		return h.compressor.CountVectors()
+	}
+	return h.cache.CountVectors()
+}
+
 // PostStartup triggers routines that should happen after startup. The startup
 // process is triggered during the creation which in turn happens as part of
 // the shard creation. Some post-startup routines, such as prefilling the
@@ -594,6 +615,11 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		defer stopOnIndexShutdown()
 		defer cancelPrefill()
 
+		prefillDone := monitoring.GetStartupMetrics().PrefillStarted()
+		// failure default: a recovered panic must not record a duration
+		prefillErr := errPrefillIncomplete
+		defer func() { prefillDone(prefillErr) }()
+
 		h.logger.WithFields(logrus.Fields{
 			"action":   "prefill_cache",
 			"duration": 60 * time.Minute,
@@ -615,8 +641,17 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		}
 
 		if err != nil {
-			h.logger.WithError(err).Error("prefill vector cache")
+			h.logger.Errorf("prefill vector cache: %v", err)
 		}
+		// the compressed prefill paths return nothing when cut short
+		if err == nil {
+			err = ctx.Err()
+		}
+		// the prefillers do not report failed reads; a prefill that loaded nothing is not one
+		if err == nil && h.prefilledVectors() == 0 {
+			err = errNothingToPrefill
+		}
+		prefillErr = err
 
 		h.cachePrefilled.Store(true)
 	}
