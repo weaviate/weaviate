@@ -13,6 +13,7 @@ package objects
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
@@ -553,6 +555,68 @@ func Test_BatchManager_AddObjects_KeepsAutoSchemaError(t *testing.T) {
 			require.Len(t, added, 1)
 			require.Error(t, added[0].Err)
 			assert.ErrorContains(t, added[0].Err, "unrecognized data type")
+		})
+	}
+}
+
+// Test_BatchManager_AddObjects_LocalSchemaBehind pins that a batch on a node
+// whose schema stays behind the fetched collection fails once, before
+// auto-schema runs, instead of waiting again for every object.
+func Test_BatchManager_AddObjects_LocalSchemaBehind(t *testing.T) {
+	const classVersion = 40
+	errBehind := errors.New("deadline exceeded")
+	tests := []struct {
+		name string
+		add  func(*BatchManager, []*models.Object, map[string]versioned.Class) (BatchObjects, error)
+	}{
+		{
+			name: "REST",
+			add: func(m *BatchManager, objs []*models.Object, _ map[string]versioned.Class) (BatchObjects, error) {
+				return m.AddObjects(context.Background(), nil, objs, []*string{}, nil)
+			},
+		},
+		{
+			name: "gRPC",
+			add: func(m *BatchManager, objs []*models.Object, classes map[string]versioned.Class) (BatchObjects, error) {
+				return m.AddObjectsGRPCAfterAuth(context.Background(), nil, objs, nil, classes)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			class := &models.Class{
+				Class:             "Movie",
+				VectorIndexConfig: hnsw.UserConfig{},
+				Properties:        []*models.Property{{Name: "title", DataType: schema.DataTypeText.PropString()}},
+			}
+			objectFinder := &fakeObjectFinder{}
+			objectFinder.On("BatchPutObjects", mock.Anything).Return(nil)
+			cfg := &config.WeaviateConfig{Config: config.Config{AutoSchema: config.AutoSchema{
+				Enabled:       runtime.NewDynamicValue(true),
+				DefaultString: schema.DataTypeText.String(),
+			}}}
+			schemaManager := &fakeSchemaManager{
+				GetSchemaResponse: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}},
+				ClassVersion:      classVersion,
+				WaitForUpdateErr:  errBehind,
+			}
+			logger, _ := test.NewNullLogger()
+			manager := NewBatchManager(objectFinder, getFakeModulesProvider(), schemaManager, cfg, logger,
+				mocks.NewMockAuthorizer(), nil,
+				NewAutoSchemaManager(schemaManager, objectFinder, cfg, logger, prometheus.NewPedanticRegistry()))
+
+			// Every object carries a property the collection does not have yet.
+			objs := []*models.Object{
+				{Class: "Movie", Properties: map[string]interface{}{"title": "Heat", "director": "Mann"}},
+				{Class: "Movie", Properties: map[string]interface{}{"title": "Ronin", "genre": "thriller"}},
+				{Class: "Movie", Properties: map[string]interface{}{"title": "Alien", "studio": "Fox"}},
+			}
+			_, err := tt.add(manager, objs, map[string]versioned.Class{"Movie": {Class: class, Version: classVersion}})
+			require.ErrorIs(t, err, errBehind)
+			assert.ErrorContains(t, err, "error waiting for local schema to catch up to version 40")
+			assert.Equal(t, []uint64{classVersion}, schemaManager.WaitedVersions, "the batch waits once")
+			assert.Len(t, class.Properties, 1, "no property is added")
+			objectFinder.AssertNotCalled(t, "BatchPutObjects", mock.Anything)
 		})
 	}
 }
