@@ -13,7 +13,6 @@ package lsmkv
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/weaviate/sroar"
@@ -177,7 +176,7 @@ func (b *Bucket) roaringSetGetFromConsistentView(
 	for i := 0; i < count; i++ {
 		layer, err := mts[i].roaringSetGet(key)
 		if err != nil {
-			if !errors.Is(err, lsmkv.NotFound) {
+			if !lsmkv.IsNotFound(err) {
 				return nil, noopRelease, err
 			}
 			continue

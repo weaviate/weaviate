@@ -12,7 +12,6 @@
 package lsmkv
 
 import (
-	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -86,7 +85,7 @@ func (s *segment) roaringSetMergeWith(key []byte, additions *sroar.Bitmap, bitma
 	}
 	start, end, err := s.index.GetOffsets(key)
 	if err != nil {
-		if errors.Is(err, lsmkv.NotFound) {
+		if lsmkv.IsNotFound(err) {
 			return nil
 		}
 		return s.reportIndexErr(err)
