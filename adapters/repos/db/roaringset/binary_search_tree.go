@@ -87,18 +87,16 @@ func (t *BinarySearchTree) Get(key []byte) (BitmapLayer, error) {
 
 // FlattenInOrder creates list of ordered copies of bst nodes
 // Only Key and Value fields are populated
-func (t *BinarySearchTree) FlattenInOrder() []*BinarySearchNode {
+func (t *BinarySearchTree) FlattenInOrder() []BinarySearchNode {
 	if t.root == nil {
 		return nil
 	}
 
 	copies := make([]BinarySearchNode, 0, t.count)
-	res := make([]*BinarySearchNode, 0, t.count)
 	for n := leftmost(t.root); n != nil; n = successor(n) {
 		copies = append(copies, n.shallowCopy())
-		res = append(res, &copies[len(copies)-1])
 	}
-	return res
+	return copies
 }
 
 // Count returns how many distinct keys the tree holds. A key inserted with only
