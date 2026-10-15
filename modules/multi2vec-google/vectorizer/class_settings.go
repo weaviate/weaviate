@@ -157,6 +157,9 @@ func (ic *classSettings) Validate() error {
 			errorMessages = append(errorMessages, "projectId setting needs to be present")
 		}
 	}
+	if err := ic.base.ValidateIntegers(dimensionsProperty, videoIntervalSecondsProperty); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
 
 	if ic.isLegacyModel() {
 		dimensions := ic.Dimensions()
