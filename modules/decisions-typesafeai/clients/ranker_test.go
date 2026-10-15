@@ -665,10 +665,8 @@ func TestRankHonoursRetryAfter(t *testing.T) {
 
 type receivedRequest struct {
 	authorization string
-	// header is the value of the danger-zone images header, empty when
-	// absent.
-	header string
-	body   typesafeaiRequest
+	imagesHeader  string
+	body          typesafeaiRequest
 }
 
 // typesafeaiHandler fakes the TypeSafeAI API. statuses[i] is the status of the i-th request;
@@ -722,7 +720,7 @@ func (h *typesafeaiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	h.requests = append(h.requests, receivedRequest{
 		authorization: r.Header.Get("Authorization"),
-		header:        r.Header.Get(dangerZoneImagesHeader),
+		imagesHeader:  r.Header.Get(dangerZoneImagesHeader),
 		body:          req,
 	})
 	h.inFlight++

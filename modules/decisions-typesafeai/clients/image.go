@@ -23,16 +23,10 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// The API takes images as assets of a request: the base64 in the body
-// under a reference, and the reference wherever the image belongs in the
-// state. Image input is an experimental feature, off by default, that
-// every request with an image switches on with a header. The limits are
-// the API's, verified against it on 2026-10-15: PNG or JPEG, still images,
-// 16 MiB per image, 280 to 1568 pixels per side (the documentation says
-// 256; the API rejects 279). An image counts as input tokens like text,
-// about one token per 375 pixels plus 270 (measured: 280x280 is 476,
-// 1568x1568 is 6,548), and the state of a batch counts against the 32k
-// tokens one question may see, so a request carries a few images only.
+// Image input is an experimental feature of the API: off by default, every
+// request with an image switches it on with a header. The limits below are
+// the API's, verified against it on 2026-10-15: the documentation says 256
+// pixels per side, the API rejects 279.
 const (
 	dangerZoneImagesHeader = "TypeSafe-Danger-Zone-Images"
 	assetTypeImage         = "image"
@@ -44,23 +38,21 @@ const (
 	minImageSide  = 280
 	maxImageSide  = 1568
 
-	// MaxBatchImages and MaxBatchImageChars bound one request with images.
-	// Four images of the largest size are about 26k tokens, under the 32k
-	// a question may see; the API accepts 32 MiB per request body, and the
-	// base64 of 24 MiB leaves room for the JSON. A request the API still
-	// rejects for its size is sent as halves, as for text.
+	// An image costs about one token per 375 pixels plus 270 (measured:
+	// 280x280 is 476, 1568x1568 is 6,548) and the state of a batch counts
+	// against the 32k tokens one question may see, so four of the largest
+	// fit. The base64 of 24 MiB leaves room for the JSON in the API's 32
+	// MiB body limit.
 	MaxBatchImages     = 4
 	MaxBatchImageChars = 24 << 20
 )
 
-// imageAsset is one entry of the assets map of a request.
 type imageAsset struct {
 	Type       string `json:"type"`
 	DataBase64 string `json:"data_base64"`
 	Format     string `json:"format"`
 }
 
-// imageReference names the i-th image of a request in its state.
 func imageReference(i int) string {
 	return "image_" + strconv.Itoa(i)
 }
@@ -70,7 +62,6 @@ var (
 	jpegMagic = []byte("\xff\xd8\xff")
 )
 
-// imageFormat reads the format of a base64 image from its first bytes.
 func imageFormat(encoded string) (string, error) {
 	head := encoded
 	if len(head) > 16 {
@@ -94,9 +85,8 @@ func imageFormat(encoded string) (string, error) {
 	return "", errors.New("not a PNG or JPEG image")
 }
 
-// checkImage fails when the API would reject the image: the format, the
-// size, an animated PNG, or the dimensions. It decodes the whole content,
-// which the request copies anyway.
+// checkImage fails where the API would reject the image, before anything
+// is sent and billed.
 func checkImage(encoded string) error {
 	if len(encoded) > maxImageChars {
 		return errors.Errorf("%d MB exceed the limit of %d MB per image", len(encoded)/4*3>>20, maxImageBytes>>20)
@@ -124,10 +114,9 @@ func checkImage(encoded string) error {
 	return nil
 }
 
-// pngSize reads the dimensions from the IHDR chunk and rejects an animated
-// PNG, which carries an acTL chunk before its image data.
+// pngSize reads the IHDR chunk. An animated PNG carries an acTL chunk
+// before its image data; the API rejects it.
 func pngSize(data []byte) (width, height int, err error) {
-	// Signature, then the IHDR chunk: length, type, width, height.
 	if len(data) < 24 || string(data[12:16]) != "IHDR" {
 		return 0, 0, errors.New("PNG without an IHDR chunk")
 	}
@@ -142,7 +131,6 @@ func pngSize(data []byte) (width, height int, err error) {
 		case "IDAT", "IEND":
 			return width, height, nil
 		}
-		// Chunk data and its CRC.
 		if length < 0 || offset+12+length < offset {
 			break
 		}
@@ -151,7 +139,7 @@ func pngSize(data []byte) (width, height int, err error) {
 	return width, height, nil
 }
 
-// jpegSize reads the dimensions from the first frame header (SOF marker).
+// jpegSize reads the first frame header (SOF marker).
 func jpegSize(data []byte) (width, height int, err error) {
 	for offset := 2; offset+4 <= len(data); {
 		if data[offset] != 0xff {
@@ -160,11 +148,10 @@ func jpegSize(data []byte) (width, height int, err error) {
 		marker := data[offset+1]
 		switch {
 		case marker == 0xff:
-			// Padding before a marker.
 			offset++
 			continue
 		case marker == 0xd8 || marker == 0x01 || (marker >= 0xd0 && marker <= 0xd7):
-			// Markers without a segment.
+			// These markers have no segment.
 			offset += 2
 			continue
 		case marker == 0xda:
@@ -185,8 +172,6 @@ func jpegSize(data []byte) (width, height int, err error) {
 	return 0, 0, errors.New("JPEG without a frame header")
 }
 
-// isImageProperty says whether the property is a blob, whose content the
-// module sends as an image. An unknown property is text.
 func isImageProperty(cfg moduletools.ClassConfig, property string) bool {
 	if cfg == nil || property == "" {
 		return false
@@ -194,8 +179,6 @@ func isImageProperty(cfg moduletools.ClassConfig, property string) bool {
 	return cfg.PropertiesDataTypes()[property] == schema.DataTypeBlob
 }
 
-// checkImages fails on the first document at the given positions that is
-// not an image the API takes, before any request is sent and billed.
 func checkImages(documents []string, positions []int) error {
 	for _, position := range positions {
 		if err := checkImage(documents[position]); err != nil {
@@ -205,9 +188,8 @@ func checkImages(documents []string, positions []int) error {
 	return nil
 }
 
-// imageBatches splits the positions of the images to judge into requests
-// of at most MaxBatchImages images and MaxBatchImageChars of base64, in
-// order. An image above that goes alone.
+// imageBatches is batches with the image bounds; an image above them goes
+// alone.
 func imageBatches(indexes []int, documents []string) [][]int {
 	var out [][]int
 	var batch []int
@@ -227,8 +209,6 @@ func imageBatches(indexes []int, documents []string) [][]int {
 	return out
 }
 
-// assetsOf builds the assets of a request from image documents and returns
-// the reference of each one, in order.
 func assetsOf(documents []string) (map[string]imageAsset, []string, error) {
 	assets := make(map[string]imageAsset, len(documents))
 	references := make([]string, len(documents))

@@ -103,10 +103,9 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 	return c.RankProperty(ctx, query, "", false, documents, cfg)
 }
 
-// RankProperty is Rank for the documents of a named property: the content
-// of a blob property is sent as an image when the class opts in. The query
-// is the statement Jev judges whether the rerank is a decision or not, so
-// decision is not read.
+// RankProperty sends the content of a blob property as an image when the
+// class opts in. Jev judges the query as a statement whether the rerank is
+// a decision or not, so decision is not read.
 func (c *client) RankProperty(ctx context.Context, query, property string, _ bool, documents []string,
 	cfg moduletools.ClassConfig,
 ) (*ent.RankResult, error) {
@@ -230,8 +229,7 @@ type judgeRequest struct {
 	apiKey string
 	model  string
 	query  string
-	// image says that the documents are the content of a blob property.
-	image bool
+	image  bool
 }
 
 func (r judgeRequest) batches(indexes []int, documents []string) [][]int {
@@ -337,8 +335,6 @@ type sendResult struct {
 // request has more tokens than it accepts. The limit is not published.
 const tooLargeError = "max_tokens_exceeded"
 
-// images adds the header that switches the API's image input on; the API
-// rejects a request with assets without it.
 func (c *client) send(ctx context.Context, url, apiKey string, body []byte, images bool,
 ) (typesafeaiResponse, sendResult, error) {
 	select {
@@ -449,9 +445,7 @@ type typesafeaiRequest struct {
 	Model     string                        `json:"model"`
 	State     any                           `json:"state"`
 	Questions map[string]typesafeaiQuestion `json:"questions"`
-	// Assets are the images of the request, which the state names by
-	// reference.
-	Assets map[string]imageAsset `json:"assets,omitempty"`
+	Assets    map[string]imageAsset         `json:"assets,omitempty"`
 }
 
 type typesafeaiQuestion struct {
@@ -464,8 +458,8 @@ type typesafeaiQuestion struct {
 
 // newTypeSafeAIRequest builds the request for one batch. A single document is the
 // state itself. Several documents become a map, with one question per
-// document that names the document it is about. An image document is an
-// asset, and the state holds its reference.
+// document that names the document it is about. An image is an asset and
+// the state holds its reference.
 func newTypeSafeAIRequest(request judgeRequest, documents []string) (typesafeaiRequest, error) {
 	question := typesafeaiQuestion{Type: noulType, Instructions: request.query}
 	values, assets, err := stateValues(request.image, documents)
@@ -492,8 +486,6 @@ func newTypeSafeAIRequest(request judgeRequest, documents []string) (typesafeaiR
 	return typesafeaiRequest{Model: request.model, State: state, Questions: questions, Assets: assets}, nil
 }
 
-// stateValues is what the state holds for each document: the text, or the
-// reference of the image asset.
 func stateValues(image bool, documents []string) ([]string, map[string]imageAsset, error) {
 	if !image {
 		return documents, nil, nil

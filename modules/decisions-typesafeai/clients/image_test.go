@@ -33,8 +33,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
-// encodedImage is a base64 image of the given size, as a blob property
-// holds it.
 func encodedImage(t *testing.T, format string, width, height int) string {
 	t.Helper()
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
@@ -53,8 +51,7 @@ func encodedImage(t *testing.T, format string, width, height int) string {
 	return base64.StdEncoding.EncodeToString(buf.Bytes())
 }
 
-// animatedPNG is a 320x280 PNG with an acTL chunk inserted after IHDR, as
-// an animated PNG carries it.
+// animatedPNG inserts an acTL chunk after IHDR, as an animated PNG carries it.
 func animatedPNG(t *testing.T) string {
 	t.Helper()
 	decoded, err := base64.StdEncoding.DecodeString(encodedImage(t, "png", 320, 280))
@@ -62,8 +59,7 @@ func animatedPNG(t *testing.T) string {
 	chunk := make([]byte, 20)
 	binary.BigEndian.PutUint32(chunk[0:4], 8)
 	copy(chunk[4:8], "acTL")
-	// Signature (8) + IHDR chunk (25 bytes).
-	at := 33
+	at := 33 // the signature and the IHDR chunk
 	out := append(append(append([]byte{}, decoded[:at]...), chunk...), decoded[at:]...)
 	return base64.StdEncoding.EncodeToString(out)
 }
@@ -123,13 +119,10 @@ func TestImageBatches(t *testing.T) {
 	}
 	assert.Equal(t, [][]int{indexes[:MaxBatchImages], indexes[MaxBatchImages:]}, imageBatches(indexes, documents))
 
-	// A large image goes alone.
 	big := []string{"x", strings.Repeat("y", MaxBatchImageChars), "z"}
 	assert.Equal(t, [][]int{{0}, {1}, {2}}, imageBatches([]int{0, 1, 2}, big))
 }
 
-// classConfigWithTypes is a class config that knows the data type of its
-// properties, which decides whether a document is sent as an image.
 func classConfigWithTypes(baseURL string, settings map[string]any, dataTypes map[string]schema.DataType) moduletools.ClassConfig {
 	cfg := classConfig(baseURL, settings).(fakeClassConfig)
 	cfg.dataTypes = dataTypes
@@ -154,7 +147,7 @@ func TestRankImages(t *testing.T) {
 		requests := handler.received()
 		require.Len(t, requests, 1)
 		req := requests[0]
-		assert.Equal(t, "true", req.header, "the danger-zone header switches image input on")
+		assert.Equal(t, "true", req.imagesHeader)
 		state, ok := req.body.State.(map[string]any)
 		require.True(t, ok)
 		assert.Equal(t, map[string]any{batchKey(0): imageReference(0), batchKey(1): imageReference(1)}, state)
@@ -189,7 +182,7 @@ func TestRankImages(t *testing.T) {
 
 		require.NoError(t, err)
 		req := handler.received()[0]
-		assert.Equal(t, "", req.header)
+		assert.Equal(t, "", req.imagesHeader)
 		assert.Empty(t, req.body.Assets)
 	})
 

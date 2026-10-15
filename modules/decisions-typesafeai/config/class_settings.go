@@ -22,7 +22,6 @@ import (
 
 const moduleName = "decisions-typesafeai"
 
-// ModuleName is the name the errors of the clients use.
 const ModuleName = moduleName
 
 const (
@@ -82,9 +81,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	return ic.propertyValuesHelper.ValidateBaseURL(ic.BaseURL())
 }
 
-// Images says whether the module judges blob properties as images. Off by
-// default: image input is an experimental feature of the API, enabled per
-// request with a header, and this setting is the class's opt-in.
+// Images is the class's opt-in to the API's experimental image input.
 func (ic *classSettings) Images() bool {
 	if ic.cfg == nil {
 		return false

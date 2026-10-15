@@ -33,8 +33,7 @@ type decisionRequest struct {
 	apiKey    string
 	model     string
 	questions []ent.DecisionQuestion
-	// image says that the documents are the content of a blob property.
-	image bool
+	image     bool
 }
 
 func (r decisionRequest) batches(indexes []int, documents []string) [][]int {
@@ -191,8 +190,8 @@ func (c *client) decideBatch(ctx context.Context, request decisionRequest, docum
 // newDecisionRequest builds the request for one batch. A single document is
 // the state itself and the questions are keyed by position. Several
 // documents become a map, with every question repeated per document under
-// a key that names the document it is about. An image document is an
-// asset, and the state holds its reference.
+// a key that names the document it is about. An image is an asset and the
+// state holds its reference.
 func newDecisionRequest(request decisionRequest, documents []string) (typesafeaiRequest, error) {
 	values, assets, err := stateValues(request.image, documents)
 	if err != nil {

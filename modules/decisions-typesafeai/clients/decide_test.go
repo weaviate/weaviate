@@ -61,14 +61,11 @@ type decideHandler struct {
 	// to a larger request; 0 accepts every request.
 	maxDocumentsPerRequest int
 
-	lock     sync.Mutex
-	requests []typesafeaiRequest
-	// imageHeaders are the values of the danger-zone images header, one
-	// per request, empty when absent.
+	lock         sync.Mutex
+	requests     []typesafeaiRequest
 	imageHeaders []string
 }
 
-// headers are the danger-zone images header values, one per request.
 func (h *decideHandler) headers() []string {
 	h.lock.Lock()
 	defer h.lock.Unlock()
