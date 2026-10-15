@@ -63,11 +63,8 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 	// Snapshot under the index config lock: updateVectorIndexConfig(s) mutate
 	// these concurrently, and ranging the live map is a fatal
 	// "concurrent map read and map write", not a recoverable race.
-	// The generations are remembered so an update that lands between this
-	// snapshot and the shard's publication is caught up afterwards.
-	legacy, targets, gens := s.index.vectorIndexConfigsAndGens()
-	s.vectorIndexConfigGens.legacy.Store(gens.legacy)
-	s.vectorIndexConfigGens.targets.Store(gens.targets)
+	legacy := s.index.GetVectorIndexConfig("")
+	targets := s.index.getTargetVectorIndexConfigs()
 	active, skipped := vectorIndexConfigsByStorage(legacy, targets)
 
 	// The mapping decides the physical ID of each index. A shard without one

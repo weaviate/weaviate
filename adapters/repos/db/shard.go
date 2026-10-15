@@ -425,13 +425,6 @@ type Shard struct {
 	metadataDB *shardmeta.DB
 	// mapping is the shard's persisted view of its vector indexes.
 	mapping *vectorIndexMapping
-	// vectorIndexConfigGens are the generations of the index's legacy and
-	// named vector configs this shard's indexes were built or last caught
-	// up with; see catchUpVectorIndexConfig.
-	vectorIndexConfigGens struct {
-		legacy  atomic.Uint64
-		targets atomic.Uint64
-	}
 
 	// indicates whether shard is shut down or dropped (or ongoing)
 	shut atomic.Bool
@@ -613,38 +606,6 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 	}
 
 	return err
-}
-
-// catchUpVectorIndexConfig applies the vector index config changes that
-// landed on the index while this shard was loading. The load snapshots the
-// configs at its start and the shard is published at its end; an update in
-// between wrote the index's config but found no shard to push into. Run
-// when the shard becomes visible, it applies the config whose generation
-// moved since the snapshot, which is what the push would have done: the
-// legacy config for a legacy update, the named configs for a named one. A
-// failure is logged, as a failed push is: the next update or load applies
-// the config again.
-func (s *Shard) catchUpVectorIndexConfig(ctx context.Context) {
-	legacy, targets, gens := s.index.vectorIndexConfigsAndGens()
-	if gens.legacy != s.vectorIndexConfigGens.legacy.Load() && legacy != nil {
-		if err := s.UpdateVectorIndexConfig(ctx, legacy); err != nil {
-			s.warnVectorIndexConfigNotCaughtUp(err)
-			return
-		}
-	}
-	s.vectorIndexConfigGens.legacy.Store(gens.legacy)
-	if gens.targets != s.vectorIndexConfigGens.targets.Load() {
-		if err := s.UpdateVectorIndexConfigs(ctx, targets); err != nil {
-			s.warnVectorIndexConfigNotCaughtUp(err)
-			return
-		}
-	}
-	s.vectorIndexConfigGens.targets.Store(gens.targets)
-}
-
-func (s *Shard) warnVectorIndexConfigNotCaughtUp(err error) {
-	s.index.logger.WithField("shard", s.ID()).
-		Warnf("vector index config changed during the shard's load and could not be applied, the next update or load applies it: %v", err)
 }
 
 // objectsBucket returns the shard's objects bucket pinned for the caller's
