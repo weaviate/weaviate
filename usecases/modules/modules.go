@@ -645,7 +645,7 @@ func (p *Provider) ExtractAdditionalField(className, name string, params []*ast.
 	}
 	if name != modulecomponents.AdditionalPropertyGenerate {
 		// The same module that serves the property on the search path.
-		if additionalProperty, ok := p.classAdditionalProperties(class)[name]; ok {
+		if additionalProperty, ok := p.classAdditionalProperties(class, p.modulesByName())[name]; ok {
 			return additionalProperty.GraphQLExtractFunction(params, class)
 		}
 		return nil
@@ -709,10 +709,14 @@ func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, mod
 		if err != nil {
 			return nil, err
 		}
+		if len(moduleParams) == 0 {
+			return toBeExtended, nil
+		}
 
+		modules := p.modulesByName()
 		additionalGenerativeDefaultProvider := ""
 		additionalGenerativeParameters := map[string]modulecapabilities.GenerativeProperty{}
-		for _, module := range p.modulesByName() {
+		for _, module := range modules {
 			if !p.isGenerativeModule(module.Type()) {
 				continue
 			}
@@ -725,7 +729,7 @@ func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, mod
 				}
 			}
 		}
-		allAdditionalProperties := p.classAdditionalProperties(class)
+		allAdditionalProperties := p.classAdditionalProperties(class, modules)
 		if len(additionalGenerativeParameters) > 0 {
 			if generateFn := modulecomponents.GetGenericGenerateProperty(class.Class, additionalGenerativeParameters, additionalGenerativeDefaultProvider, p.logger); generateFn != nil {
 				allAdditionalProperties[modulecomponents.AdditionalPropertyGenerate] = *generateFn
@@ -804,7 +808,6 @@ func (p *Provider) orderAdditionalParameters(moduleParams map[string]interface{}
 	return names
 }
 
-// modulesByName returns the registered modules sorted by name.
 func (p *Provider) modulesByName() []modulecapabilities.Module {
 	all := p.GetAll()
 	slices.SortFunc(all, func(a, b modulecapabilities.Module) int {
@@ -814,13 +817,15 @@ func (p *Provider) modulesByName() []modulecapabilities.Module {
 }
 
 // classAdditionalProperties returns the additional properties that the
-// non-generative modules provide for the class. Two modules can provide the
-// same property, for example a class that names two rerankers. The name
-// order makes the choice the same on every request: the last module by name
-// wins.
-func (p *Provider) classAdditionalProperties(class *models.Class) map[string]modulecapabilities.AdditionalProperty {
+// non-generative modules provide for the class. modules must come from
+// modulesByName. Two modules can provide the same property, for example a
+// class that names two rerankers. The name order makes the choice the same on
+// every request: the last module by name wins.
+func (p *Provider) classAdditionalProperties(class *models.Class,
+	modules []modulecapabilities.Module,
+) map[string]modulecapabilities.AdditionalProperty {
 	properties := map[string]modulecapabilities.AdditionalProperty{}
-	for _, module := range p.modulesByName() {
+	for _, module := range modules {
 		if p.isGenerativeModule(module.Type()) ||
 			!p.shouldIncludeClassArgument(class, module.Name(), module.Type(), p.getModuleAltNames(module)) {
 			continue

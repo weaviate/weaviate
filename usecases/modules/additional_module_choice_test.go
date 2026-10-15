@@ -26,6 +26,7 @@ import (
 	enitiesSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 )
 
 // plainReranker is a reranker module that records in served when it runs.
@@ -146,4 +147,104 @@ func TestRerankGraphQLChoiceIsStable(t *testing.T) {
 		require.Equal(t, "reranker-z", fields["rerank"].Description)
 		require.Equal(t, "reranker-z", p.ExtractAdditionalField("ClassBoth", "rerank", nil))
 	}
+}
+
+// generativeModule is a generative module whose client records in served
+// when it generates a grouped result.
+type generativeModule struct {
+	dummyNonVectorizerModule
+	served *[]string
+}
+
+func (m generativeModule) Type() modulecapabilities.ModuleType {
+	return modulecapabilities.Text2TextGenerative
+}
+
+func (m generativeModule) AdditionalGenerativeProperties() map[string]modulecapabilities.GenerativeProperty {
+	return map[string]modulecapabilities.GenerativeProperty{
+		m.name: {Client: recordingGenerativeClient{name: m.name, served: m.served}},
+	}
+}
+
+type recordingGenerativeClient struct {
+	name   string
+	served *[]string
+}
+
+func (c recordingGenerativeClient) GenerateSingleResult(ctx context.Context,
+	properties *modulecapabilities.GenerateProperties, prompt string, requestParams any, debug bool,
+	cfg moduletools.ClassConfig,
+) (*modulecapabilities.GenerateResponse, error) {
+	return &modulecapabilities.GenerateResponse{}, nil
+}
+
+func (c recordingGenerativeClient) GenerateAllResults(ctx context.Context,
+	properties []*modulecapabilities.GenerateProperties, task string, requestParams any, debug bool,
+	cfg moduletools.ClassConfig,
+) (*modulecapabilities.GenerateResponse, error) {
+	*c.served = append(*c.served, c.name)
+	return &modulecapabilities.GenerateResponse{}, nil
+}
+
+// A class that names two generative modules must use the same default
+// provider on every request: the last of its modules by name.
+func TestGenerativeDefaultProviderIsStable(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	var served []string
+	p := NewProvider(logger, config.Config{})
+	p.SetSchemaGetter(&fakeSchemaGetter{schema: enitiesSchema.Schema{Objects: &models.Schema{
+		Classes: []*models.Class{{
+			Class: "ClassTwoGenerative",
+			ModuleConfig: map[string]interface{}{
+				"generative-a": map[string]interface{}{},
+				"generative-m": map[string]interface{}{},
+			},
+		}},
+	}}})
+	for _, name := range []string{"generative-m", "generative-z", "generative-a"} {
+		p.Register(generativeModule{dummyNonVectorizerModule: dummyNonVectorizerModule{name: name}, served: &served})
+	}
+	task := "summarize"
+	in := []search.Result{{ClassName: "ClassTwoGenerative", Schema: map[string]any{}}}
+
+	for range additionalExtendRuns {
+		params := map[string]any{"generate": &generate.Params{Task: &task}}
+		_, err := p.GetExploreAdditionalExtend(context.Background(), in, params, nil, nil)
+		require.NoError(t, err)
+	}
+
+	require.Len(t, served, additionalExtendRuns)
+	for _, provider := range served {
+		require.Equal(t, "generative-m", provider)
+	}
+}
+
+// countingReranker counts the calls to AdditionalProperties.
+type countingReranker struct {
+	plainReranker
+	calls *int
+}
+
+func (m countingReranker) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
+	*m.calls++
+	return m.plainReranker.AdditionalProperties()
+}
+
+// A query that asks for no module property reads no module.
+func TestAdditionalExtendWithoutModuleParamsReadsNoModule(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	var calls int
+	p := NewProvider(logger, config.Config{})
+	p.SetSchemaGetter(rerankSchemaReader(t))
+	p.Register(countingReranker{
+		plainReranker: plainReranker{dummyNonVectorizerModule: dummyNonVectorizerModule{name: "reranker-a"}},
+		calls:         &calls,
+	})
+	in := []search.Result{{ClassName: "ClassA"}}
+
+	out, err := p.GetExploreAdditionalExtend(context.Background(), in, nil, nil, nil)
+
+	require.NoError(t, err)
+	require.Equal(t, in, out)
+	require.Zero(t, calls)
 }
