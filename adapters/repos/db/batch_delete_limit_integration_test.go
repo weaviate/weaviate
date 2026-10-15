@@ -502,7 +502,7 @@ func newBatchDeleteRepoAt(t *testing.T, rootDir string, class *models.Class,
 
 	return setupTestDBWithShardState(t, rootDir, shardState, func(cfg *Config) {
 		cfg.QueryMaximumResults = queryMaximumResults
-	}, class)
+	}, nil, class)
 }
 
 // TestBatchDeleteObjects_DeadDocIDDoesNotBurnASlot pins that a doc id with no object row costs a read, not a limit slot.
@@ -848,7 +848,7 @@ func TestObjectsTTLSweepResolvesPastDeadDocIDs(t *testing.T) {
 			newTTLRepo := func() *DB {
 				return setupTestDBWithShardState(t, rootDir, shardState, func(cfg *Config) {
 					cfg.ObjectsTTLBatchSize = configRuntime.NewDynamicValue(sweepBatch)
-				}, class)
+				}, nil, class)
 			}
 
 			repo := newTTLRepo()

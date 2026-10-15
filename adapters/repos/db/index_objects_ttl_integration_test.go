@@ -147,7 +147,7 @@ func setupTTLRepo(t *testing.T, batchSize int, shardState *sharding.State, class
 
 	repo := setupTestDBWithShardState(t, t.TempDir(), shardState, func(cfg *Config) {
 		cfg.ObjectsTTLBatchSize = configRuntime.NewDynamicValue(batchSize)
-	}, class)
+	}, nil, class)
 	t.Cleanup(func() { require.NoError(t, repo.Shutdown(context.Background())) })
 
 	insertTTLObjects(t, repo, tenant, expiredCount, aliveCount)

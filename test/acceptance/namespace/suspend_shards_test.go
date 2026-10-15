@@ -375,9 +375,9 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 		require.NoError(t, sharedCompose.EnsureRunning(ctx, restartNodeIndex))
 	})
 
-	// The kill can happen during the sweep's unload, because the listing empties
-	// before the flush ends. That leaves what a kill during a tenant
-	// deactivation leaves, since both end in shutdownOrRestoreShard.
+	// The kill meets shards the sweep released or is still flushing, as a kill
+	// during a tenant deactivation can. adapters/repos/db's
+	// TestSuspendedNamespace_UnflushedWriteSurvivesACrash crashes before the sweep.
 	t.Run("after a crash the suspended namespace loads no shards", func(t *testing.T) {
 		zero := time.Duration(0)
 		require.NoError(t, sharedCompose.StopNode(ctx, restartNodeIndex, &zero))
