@@ -68,10 +68,11 @@ type vectorIndexRecord struct {
 	// QueueID names the queue directory, "<QueueID>.queue.d". Empty in a
 	// record written before the field existed.
 	QueueID string `json:"queue_id,omitempty"`
-	// Config is the parsed config the index was built or last updated with,
-	// a hnsw, flat, dynamic or hfresh UserConfig written with its API field
-	// names, every default filled in. Nil in a record written before the
-	// field existed.
+	// Config is the parsed config the index was built with at its creation
+	// or last load, a hnsw, flat, dynamic or hfresh UserConfig written with
+	// its API field names, every default filled in. A config update to a
+	// loaded index reaches the record at the next load. Nil in a record
+	// written before the field existed.
 	Config schemaConfig.VectorIndexConfig `json:"config,omitempty"`
 }
 
