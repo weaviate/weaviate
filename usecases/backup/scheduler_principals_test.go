@@ -633,6 +633,9 @@ func TestSchedulerDescriptorPrincipals(t *testing.T) {
 		name string
 		verb string
 		run  func(s *Scheduler) error
+		// restore marks an operation on a restore, which requires the kind
+		// wildcards whatever IDs the descriptor names.
+		restore bool
 	}
 	type descriptor struct {
 		name                 string
@@ -647,14 +650,14 @@ func TestSchedulerDescriptorPrincipals(t *testing.T) {
 			_, err := s.BackupStatus(ctx, caller, "gcs", backupID, "", "")
 			return err
 		}},
-		{name: "restore status", verb: authorization.READ, run: func(s *Scheduler) error {
+		{name: "restore status", verb: authorization.READ, restore: true, run: func(s *Scheduler) error {
 			_, err := s.RestorationStatus(ctx, caller, "gcs", backupID, "", "")
 			return err
 		}},
 		{name: "cancel", verb: authorization.DELETE, run: func(s *Scheduler) error {
 			return s.Cancel(ctx, caller, "gcs", backupID, "", "")
 		}},
-		{name: "cancel restore", verb: authorization.DELETE, run: func(s *Scheduler) error {
+		{name: "cancel restore", verb: authorization.DELETE, restore: true, run: func(s *Scheduler) error {
 			return s.CancelRestore(ctx, caller, "gcs", backupID, "", "")
 		}},
 	}
@@ -676,8 +679,8 @@ func TestSchedulerDescriptorPrincipals(t *testing.T) {
 
 	// All four operations authorize through the one helper that derives
 	// resources from the descriptor, so the descriptor cases run on one
-	// operation and each remaining
-	// operation pins its wiring and verb on the richest descriptor.
+	// operation and each remaining operation pins its wiring and verb on the
+	// richest descriptor. On it, the restore operations check the wildcards.
 	statusOp := operations[0]
 	runCase := func(op operation, d descriptor) {
 		t.Run(op.name+": "+d.name, func(t *testing.T) {
@@ -701,7 +704,12 @@ func TestSchedulerDescriptorPrincipals(t *testing.T) {
 		runCase(statusOp, d)
 	}
 	for _, op := range operations[1:] {
-		runCase(op, descriptors[0])
+		d := descriptors[0]
+		if op.restore {
+			d.name = "named IDs check the kind wildcards"
+			d.want = wholeStores
+		}
+		runCase(op, d)
 	}
 
 	t.Run("a denied per-ID resource fails", func(t *testing.T) {
@@ -720,8 +728,9 @@ func TestSchedulerDescriptorPrincipals(t *testing.T) {
 	})
 
 	// Until the restore writes its own descriptor, cancel-restore judges the
-	// backup descriptor. Its snapshots hold the whole stores, so cancelling
-	// takes both wildcards even for a restore that applies neither.
+	// backup descriptor. A restore replaces whole stores, so cancelling takes
+	// both wildcards whatever IDs the backup names, even for a restore that
+	// applies neither.
 	t.Run("cancel restore before the restore descriptor exists requires what the backup holds", func(t *testing.T) {
 		for _, tt := range []struct {
 			name string
@@ -738,6 +747,7 @@ func TestSchedulerDescriptorPrincipals(t *testing.T) {
 				fs.backend.On("GetObject", mock.Anything, backupID, GlobalBackupFile).Return(marshalCoordinatorMeta(backup.DistributedBackupDescriptor{
 					ID: backupID, Status: backup.Success,
 					Nodes: map[string]*backup.NodeDescriptor{"node1": {Classes: []string{"Movies"}}},
+					Users: unsortedUsers, Roles: unsortedRoles,
 				}), nil)
 				fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
 				fs.selector.On("ListClasses", ctx).Return([]string{"Movies"})

@@ -328,10 +328,15 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		}
 	}
 
+	// The restore descriptor records what this restore applies. The restore,
+	// its status, and its cancellation all authorize from these flags.
+	meta.SkipUsers = len(blobs.users) == 0
+	meta.SkipRoles = len(blobs.roles) == 0
+
 	// Authorize the blobs this restore applies before validateNamespaceStripping
 	// and validateNamespaceReferences parse them, because their errors name the
 	// users and roles inside.
-	if err := s.authorizeResources(ctx, pr, authorization.CREATE, s.restorePrincipalResources(blobs)); err != nil {
+	if err := s.authorizeResources(ctx, pr, authorization.CREATE, restorePrincipalResources(meta)); err != nil {
 		return nil, err
 	}
 
@@ -342,9 +347,6 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	if err := s.validateNamespaceReferences(blobs.users, blobs.roles, req.UserRestoreOption, req.RbacRestoreOption); err != nil {
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	// Restore status and cancel authorize against what this restore applies.
-	meta.SkipUsers = len(blobs.users) == 0
-	meta.SkipRoles = len(blobs.roles) == 0
 
 	status := string(backup.Started)
 	data := &models.BackupRestoreResponse{
@@ -448,26 +450,31 @@ func allLiteralIDs(include []string) (ids []string, ok bool) {
 	return slices.Compact(ids), true
 }
 
-// restorePrincipalResources returns the users and roles resources a restore
-// of blobs requires. Applying a snapshot replaces that subsystem's whole
-// store, deleting every entry the snapshot does not carry, so each applied
-// blob requires its kind wildcard regardless of the IDs the descriptor names.
-func (s *Scheduler) restorePrincipalResources(blobs rolesAndUsersBlobs) []string {
+// restorePrincipalResources returns the users and roles resources a restore,
+// its status, and its cancellation require: the kind wildcard of each
+// subsystem the restore descriptor meta does not skip. Applying a snapshot
+// replaces that subsystem's whole store, deleting every entry the snapshot
+// does not carry, so the IDs meta names never narrow it. A nil meta means it
+// could not be read; that requires both wildcards.
+func restorePrincipalResources(meta *backup.DistributedBackupDescriptor) []string {
+	if meta == nil {
+		return append(authorization.BackupUsers(), authorization.BackupRoles()...)
+	}
 	var resources []string
-	if len(blobs.users) > 0 {
+	if !meta.SkipUsers {
 		resources = append(resources, authorization.BackupUsers()...)
 	}
-	if len(blobs.roles) > 0 {
+	if !meta.SkipRoles {
 		resources = append(resources, authorization.BackupRoles()...)
 	}
 	return resources
 }
 
-// descriptorPrincipalResources returns the users and roles resources that the
-// content recorded in meta requires: none for a skipped subsystem, the named
-// IDs, or the kind wildcard for an empty list. A nil meta means it could not
-// be read; that requires both wildcards.
-func (s *Scheduler) descriptorPrincipalResources(meta *backup.DistributedBackupDescriptor) []string {
+// backupPrincipalResources returns the users and roles resources the content
+// of the backup descriptor meta requires: none for a skipped subsystem, the
+// named IDs, or the kind wildcard for an empty list. A nil meta means it could
+// not be read; that requires both wildcards.
+func (s *Scheduler) backupPrincipalResources(meta *backup.DistributedBackupDescriptor) []string {
 	if meta == nil {
 		return append(authorization.BackupUsers(), authorization.BackupRoles()...)
 	}
@@ -539,11 +546,13 @@ func backupsForbidden(pr *models.Principal, verb string) error {
 	return authzerrors.NewForbidden(pr, action, resource)
 }
 
-// authorizeBackupByID authorizes the caller against the classes recorded in the
-// backup meta. A missing meta is a no-op (the 404 may leak the id); any other
-// backend error fails closed.
+// authorizeBackupByID authorizes the caller against the classes recorded in
+// the meta read from filename, and against the users and roles resources
+// principals derives from it. A missing meta is a no-op (the 404 may leak the
+// id); any other backend error fails closed.
 func (s *Scheduler) authorizeBackupByID(ctx context.Context, principal *models.Principal, verb string,
 	store coordStore, filename, overrideBucket, overridePath string,
+	principals func(*backup.DistributedBackupDescriptor) []string,
 ) error {
 	meta, err := store.Meta(ctx, filename, overrideBucket, overridePath)
 	if err != nil {
@@ -558,7 +567,7 @@ func (s *Scheduler) authorizeBackupByID(ctx context.Context, principal *models.P
 	if err := s.authorizeBackupClasses(ctx, principal, verb, meta.Classes()); err != nil {
 		return err
 	}
-	return s.authorizeResources(ctx, principal, verb, s.descriptorPrincipalResources(meta))
+	return s.authorizeResources(ctx, principal, verb, principals(meta))
 }
 
 const metaReadAttempts = 3
@@ -602,7 +611,7 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	if err := s.authorizeBackupByID(ctx, principal, authorization.READ, store, GlobalBackupFile, overrideBucket, overridePath); err != nil {
+	if err := s.authorizeBackupByID(ctx, principal, authorization.READ, store, GlobalBackupFile, overrideBucket, overridePath, s.backupPrincipalResources); err != nil {
 		return nil, err
 	}
 
@@ -627,7 +636,7 @@ func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Pri
 		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	if err := s.authorizeBackupByID(ctx, principal, authorization.READ, store, GlobalRestoreFile, overrideBucket, overridePath); err != nil {
+	if err := s.authorizeBackupByID(ctx, principal, authorization.READ, store, GlobalRestoreFile, overrideBucket, overridePath, restorePrincipalResources); err != nil {
 		return nil, err
 	}
 	req := &StatusRequest{OpRestore, backupID, backend, overrideBucket, overridePath, ""}
@@ -670,7 +679,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	if err := s.authorizeBackupClasses(ctx, principal, authorization.DELETE, classes); err != nil {
 		return err
 	}
-	if err := s.authorizeResources(ctx, principal, authorization.DELETE, s.descriptorPrincipalResources(meta)); err != nil {
+	if err := s.authorizeResources(ctx, principal, authorization.DELETE, s.backupPrincipalResources(meta)); err != nil {
 		return err
 	}
 	if idErr != nil {
@@ -739,7 +748,7 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 	if err := s.authorizeBackupClasses(ctx, principal, authorization.DELETE, classes); err != nil {
 		return err
 	}
-	if err := s.authorizeResources(ctx, principal, authorization.DELETE, s.descriptorPrincipalResources(authMeta)); err != nil {
+	if err := s.authorizeResources(ctx, principal, authorization.DELETE, restorePrincipalResources(authMeta)); err != nil {
 		return err
 	}
 	if idErr != nil {
@@ -838,7 +847,7 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 	principals := make([][]string, len(backups))
 	for i, b := range backups {
 		classes[i] = b.Classes()
-		principals[i] = s.descriptorPrincipalResources(b)
+		principals[i] = s.backupPrincipalResources(b)
 	}
 	readable, err := s.canReadBackups(ctx, principal, classes, principals)
 	if err != nil {
