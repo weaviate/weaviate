@@ -100,12 +100,12 @@ func (t *binarySearchTree) flattenInOrder() []*binarySearchNode {
 		return nil
 	}
 
-	return t.root.flattenInOrder()
+	return t.root.copyInOrder(nil, t.root.subtreeSize())
 }
 
-// flattenInOrderRange returns only nodes with min <= key <= max (inclusive; a
-// nil bound is unbounded), visiting just the subtrees intersecting the range.
-// It counts first so the result is allocated exactly once at its final size.
+// flattenInOrderRange returns only nodes with min <= key <= max, where a nil
+// bound is unbounded. It counts first so the result is allocated exactly once
+// at its final size.
 func (t *binarySearchTree) flattenInOrderRange(min, max []byte) []*binarySearchNode {
 	if t.root == nil {
 		return nil
@@ -115,7 +115,7 @@ func (t *binarySearchTree) flattenInOrderRange(min, max []byte) []*binarySearchN
 	if size == 0 {
 		return nil
 	}
-	return t.root.appendInOrderRange(make([]*binarySearchNode, 0, size), min, max)
+	return t.root.copyInOrder(min, size)
 }
 
 type countStats struct {
@@ -151,16 +151,50 @@ func (c *countStats) hasTombstone(needle []byte) bool {
 	return false
 }
 
+// countStats puts both lists in one array. Upserts fill it from the front and
+// tombstones from the back, so the tombstones come out in reverse key order.
+// Callers only scan the lists, so the order does not matter.
 func (t *binarySearchTree) countStats() *countStats {
 	stats := &countStats{}
 	if t.root == nil {
 		return stats
 	}
 
-	t.root.countStats(stats)
+	keys := make([][]byte, t.root.subtreeSize())
+	upserts, tombstones := 0, len(keys)
+	var buf [pendingCap]*binarySearchNode
+	pending := buf[:0]
+	for n := t.root; n != nil; n = n.left {
+		pending = append(pending, n)
+	}
+	for len(pending) > 0 {
+		n := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		if n.tombstone {
+			tombstones--
+			keys[tombstones] = n.key
+		} else {
+			keys[upserts] = n.key
+			upserts++
+		}
+		for n = n.right; n != nil; n = n.left {
+			pending = append(pending, n)
+		}
+	}
+	// the cap keeps an append to upsertKeys off the tombstones
+	stats.upsertKeys = keys[:upserts:upserts]
+	stats.tombstonedKeys = keys[tombstones:]
 	return stats
 }
 
+// pendingCap sizes the array an in-order walk keeps its unvisited ancestors in.
+// A red-black tree of n nodes is at most 2*log2(n+1) high, so 64 covers any
+// tree under 2^32 nodes, and a taller one only costs the walk an allocation.
+const pendingCap = 64
+
+// Every walk over binarySearchNode, binarySearchNodeMap or binarySearchNodeMulti
+// that allocates is a loop. A recursive one allocates from a new call stack per
+// path through the tree, and the heap profile never frees a stack's bucket.
 type binarySearchNode struct {
 	key           []byte
 	value         []byte
@@ -253,56 +287,56 @@ func addNewSearchNodeReceiver(nodePtr **binarySearchNode) {
 
 // returns net additions of insert in bytes
 func (n *binarySearchNode) insert(key, value []byte, secondaryKeys [][]byte) (netAdditions int, newRoot *binarySearchNode, previousSecondaryKeys [][]byte, wasLive bool) {
-	if bytes.Equal(key, n.key) {
-		// since the key already exists, we only need to take the difference
-		// between the existing value and the new one to determine net change
-		netAdditions = len(n.value) - len(value)
-		if netAdditions < 0 {
-			netAdditions *= -1
+	for {
+		if bytes.Equal(key, n.key) {
+			// since the key already exists, we only need to take the difference
+			// between the existing value and the new one to determine net change
+			netAdditions = len(n.value) - len(value)
+			if netAdditions < 0 {
+				netAdditions *= -1
+			}
+
+			// assign new value to node
+			n.value = value
+
+			wasLive = !n.tombstone
+			// reset tombstone in case it had one
+			n.tombstone = false
+			previousSecondaryKeys = n.secondaryKeys
+			n.secondaryKeys = secondaryKeys
+
+			newRoot = nil // tree root does not change when replacing node
+			return netAdditions, newRoot, previousSecondaryKeys, wasLive
 		}
 
-		// assign new value to node
-		n.value = value
-
-		wasLive = !n.tombstone
-		// reset tombstone in case it had one
-		n.tombstone = false
-		previousSecondaryKeys = n.secondaryKeys
-		n.secondaryKeys = secondaryKeys
-
-		newRoot = nil // tree root does not change when replacing node
-		return netAdditions, newRoot, previousSecondaryKeys, wasLive
-	}
-
-	if bytes.Compare(key, n.key) < 0 {
-		if n.left != nil {
-			return n.left.insert(key, value, secondaryKeys)
-		} else {
-			n.left = &binarySearchNode{
-				key:           key,
-				value:         value,
-				secondaryKeys: secondaryKeys,
-				parent:        n,
-				colourIsRed:   true, // new nodes are always red, except root node which is handled in the tree itself
+		if bytes.Compare(key, n.key) < 0 {
+			if n.left == nil {
+				n.left = &binarySearchNode{
+					key:           key,
+					value:         value,
+					secondaryKeys: secondaryKeys,
+					parent:        n,
+					colourIsRed:   true, // new nodes are always red, except root node which is handled in the tree itself
+				}
+				newRoot = binarySearchNodeFromRB(rbtree.Rebalance(n.left))
+				netAdditions = len(key) + len(value)
+				return netAdditions, newRoot, previousSecondaryKeys, false
 			}
-			newRoot = binarySearchNodeFromRB(rbtree.Rebalance(n.left))
-			netAdditions = len(key) + len(value)
-			return netAdditions, newRoot, previousSecondaryKeys, false
-		}
-	} else {
-		if n.right != nil {
-			return n.right.insert(key, value, secondaryKeys)
+			n = n.left
 		} else {
-			n.right = &binarySearchNode{
-				key:           key,
-				value:         value,
-				secondaryKeys: secondaryKeys,
-				parent:        n,
-				colourIsRed:   true,
+			if n.right == nil {
+				n.right = &binarySearchNode{
+					key:           key,
+					value:         value,
+					secondaryKeys: secondaryKeys,
+					parent:        n,
+					colourIsRed:   true,
+				}
+				netAdditions = len(key) + len(value)
+				newRoot = binarySearchNodeFromRB(rbtree.Rebalance(n.right))
+				return netAdditions, newRoot, previousSecondaryKeys, false
 			}
-			netAdditions = len(key) + len(value)
-			newRoot = binarySearchNodeFromRB(rbtree.Rebalance(n.right))
-			return netAdditions, newRoot, previousSecondaryKeys, false
+			n = n.right
 		}
 	}
 }
@@ -316,106 +350,96 @@ func (n *binarySearchNode) get(key []byte) ([]byte, error) {
 }
 
 func (n *binarySearchNode) getNode(key []byte) (*binarySearchNode, error) {
-	if bytes.Equal(n.key, key) {
-		if !n.tombstone {
-			return n, nil
+	for n != nil {
+		if bytes.Equal(n.key, key) {
+			if !n.tombstone {
+				return n, nil
+			} else {
+				return nil, errorFromTombstonedValue(n.value)
+			}
+		}
+
+		if bytes.Compare(key, n.key) < 0 {
+			n = n.left
 		} else {
-			return nil, errorFromTombstonedValue(n.value)
+			n = n.right
 		}
 	}
-
-	if bytes.Compare(key, n.key) < 0 {
-		if n.left == nil {
-			return nil, lsmkv.NotFound
-		}
-
-		return n.left.getNode(key)
-	} else {
-		if n.right == nil {
-			return nil, lsmkv.NotFound
-		}
-
-		return n.right.getNode(key)
-	}
+	return nil, lsmkv.NotFound
 }
 
 func (n *binarySearchNode) setTombstone(key, value []byte, secondaryKeys [][]byte) (*binarySearchNode, [][]byte, bool) {
-	if bytes.Equal(n.key, key) {
-		wasTombstoned := n.tombstone
-		prevSecondaryKeys := n.secondaryKeys
-		n.value = value
-		n.tombstone = true
-		n.secondaryKeys = secondaryKeys
-		return nil, prevSecondaryKeys, wasTombstoned
-	}
+	for {
+		if bytes.Equal(n.key, key) {
+			wasTombstoned := n.tombstone
+			prevSecondaryKeys := n.secondaryKeys
+			n.value = value
+			n.tombstone = true
+			n.secondaryKeys = secondaryKeys
+			return nil, prevSecondaryKeys, wasTombstoned
+		}
 
-	if bytes.Compare(key, n.key) < 0 {
-		if n.left == nil {
-			n.left = &binarySearchNode{
-				key:           key,
-				value:         value,
-				tombstone:     true,
-				secondaryKeys: secondaryKeys,
-				parent:        n,
-				colourIsRed:   true,
+		if bytes.Compare(key, n.key) < 0 {
+			if n.left == nil {
+				n.left = &binarySearchNode{
+					key:           key,
+					value:         value,
+					tombstone:     true,
+					secondaryKeys: secondaryKeys,
+					parent:        n,
+					colourIsRed:   true,
+				}
+				return binarySearchNodeFromRB(rbtree.Rebalance(n.left)), nil, false
 			}
-			return binarySearchNodeFromRB(rbtree.Rebalance(n.left)), nil, false
-
-		}
-		return n.left.setTombstone(key, value, secondaryKeys)
-	} else {
-		if n.right == nil {
-			n.right = &binarySearchNode{
-				key:           key,
-				value:         value,
-				tombstone:     true,
-				secondaryKeys: secondaryKeys,
-				parent:        n,
-				colourIsRed:   true,
+			n = n.left
+		} else {
+			if n.right == nil {
+				n.right = &binarySearchNode{
+					key:           key,
+					value:         value,
+					tombstone:     true,
+					secondaryKeys: secondaryKeys,
+					parent:        n,
+					colourIsRed:   true,
+				}
+				return binarySearchNodeFromRB(rbtree.Rebalance(n.right)), nil, false
 			}
-			return binarySearchNodeFromRB(rbtree.Rebalance(n.right)), nil, false
+			n = n.right
 		}
-		return n.right.setTombstone(key, value, secondaryKeys)
 	}
 }
 
-func (n *binarySearchNode) flattenInOrder() []*binarySearchNode {
-	// preallocate capacity to avoid repeated reallocations
-	size := n.subtreeSize()
-	res := make([]*binarySearchNode, 0, size)
-	return n.appendInOrderRange(res, nil, nil)
+// copyInOrder copies size nodes in key order, starting at the smallest key
+// >= min, where a nil min is unbounded. The copies share one backing array.
+func (n *binarySearchNode) copyInOrder(min []byte, size int) []*binarySearchNode {
+	var buf [pendingCap]*binarySearchNode
+	pending := buf[:0]
+	for n != nil {
+		if min != nil && bytes.Compare(n.key, min) < 0 {
+			n = n.right
+		} else {
+			pending = append(pending, n)
+			n = n.left
+		}
+	}
+
+	copies := make([]binarySearchNode, size)
+	res := make([]*binarySearchNode, size)
+	for i := range res {
+		n = pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		copies[i] = n.shallowCopy()
+		res[i] = &copies[i]
+		for n = n.right; n != nil; n = n.left {
+			pending = append(pending, n)
+		}
+	}
+	return res
 }
 
-// appendInOrderRange drops a bound (nil) once the current node proves it holds
-// for a whole subtree, so interior in-range subtrees are traversed compare-free.
-func (n *binarySearchNode) appendInOrderRange(dst []*binarySearchNode, min, max []byte) []*binarySearchNode {
-	if n == nil {
-		return dst
-	}
-	aboveMin := min == nil || bytes.Compare(n.key, min) >= 0
-	belowMax := max == nil || bytes.Compare(n.key, max) <= 0
-	if aboveMin {
-		leftMax := max
-		if belowMax {
-			leftMax = nil
-		}
-		dst = n.left.appendInOrderRange(dst, min, leftMax)
-	}
-	if aboveMin && belowMax {
-		dst = append(dst, n.shallowCopy())
-	}
-	if belowMax {
-		rightMin := min
-		if aboveMin {
-			rightMin = nil
-		}
-		dst = n.right.appendInOrderRange(dst, rightMin, max)
-	}
-	return dst
-}
-
-// countInRange sizes flattenInOrderRange's allocation using the same pruning
-// and bound dropping as appendInOrderRange, without allocating.
+// countInRange sizes flattenInOrderRange's allocation. It drops a bound (nil)
+// once the current node proves it holds for a whole subtree, so interior
+// in-range subtrees are counted by subtreeSize, compare-free.
 func (n *binarySearchNode) countInRange(min, max []byte) int {
 	if n == nil {
 		return 0
@@ -460,34 +484,14 @@ func (n *binarySearchNode) subtreeSize() int {
 	return s
 }
 
-// This is not very allocation friendly, since we basically need to allocate
-// once for each element in the memtable. However, these results can
-// potentially be cached, as we don't care about the intermediary results, just
-// the net additions.
-func (n *binarySearchNode) countStats(stats *countStats) {
-	if n.tombstone {
-		stats.tombstonedKeys = append(stats.tombstonedKeys, n.key)
-	} else {
-		stats.upsertKeys = append(stats.upsertKeys, n.key)
-	}
-
-	if n.left != nil {
-		n.left.countStats(stats)
-	}
-
-	if n.right != nil {
-		n.right.countStats(stats)
-	}
-}
-
-func (n *binarySearchNode) shallowCopy() *binarySearchNode {
+func (n *binarySearchNode) shallowCopy() binarySearchNode {
 	var skeys [][]byte
 	if ln := len(n.secondaryKeys); ln > 0 {
 		skeys = make([][]byte, ln)
 		copy(skeys, n.secondaryKeys)
 	}
 
-	return &binarySearchNode{
+	return binarySearchNode{
 		key:           n.key,
 		value:         n.value,
 		tombstone:     n.tombstone,

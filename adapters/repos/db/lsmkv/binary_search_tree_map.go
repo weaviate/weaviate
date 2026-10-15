@@ -66,7 +66,24 @@ func (t *binarySearchTreeMap[V]) flattenInOrder() []*binarySearchNodeMap[V] {
 		return nil
 	}
 
-	return t.root.flattenInOrder()
+	size := t.root.subtreeSize()
+	copies := make([]binarySearchNodeMap[V], size)
+	res := make([]*binarySearchNodeMap[V], size)
+	var buf [pendingCap]*binarySearchNodeMap[V]
+	pending := buf[:0]
+	for n := t.root; n != nil; n = n.left {
+		pending = append(pending, n)
+	}
+	for i := range res {
+		n := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		copies[i] = n.shallowCopy()
+		res[i] = &copies[i]
+		for n = n.right; n != nil; n = n.left {
+			pending = append(pending, n)
+		}
+	}
+	return res
 }
 
 type binarySearchNodeMap[V mapElement[V]] struct {
@@ -158,77 +175,51 @@ func addNewSearchNodeMapReceiver[V mapElement[V]](nodePtr **binarySearchNodeMap[
 }
 
 func (n *binarySearchNodeMap[V]) insert(key []byte, pair V) *binarySearchNodeMap[V] {
-	if bytes.Equal(key, n.key) {
-		n.values = append(n.values, pair)
-		return nil // tree root does not change when replacing node
-	}
-
-	if bytes.Compare(key, n.key) < 0 {
-		if n.left != nil {
-			return n.left.insert(key, pair)
-		} else {
-			n.left = &binarySearchNodeMap[V]{
-				key:         key,
-				parent:      n,
-				colourIsRed: true,
-				values:      []V{pair},
-			}
-			return binarySearchNodeMapFromRB[V](rbtree.Rebalance(n.left))
+	for {
+		if bytes.Equal(key, n.key) {
+			n.values = append(n.values, pair)
+			return nil // tree root does not change when replacing node
 		}
-	} else {
-		if n.right != nil {
-			return n.right.insert(key, pair)
-		} else {
-			n.right = &binarySearchNodeMap[V]{
-				key:         key,
-				parent:      n,
-				colourIsRed: true,
-				values:      []V{pair},
+
+		if bytes.Compare(key, n.key) < 0 {
+			if n.left == nil {
+				n.left = &binarySearchNodeMap[V]{
+					key:         key,
+					parent:      n,
+					colourIsRed: true,
+					values:      []V{pair},
+				}
+				return binarySearchNodeMapFromRB[V](rbtree.Rebalance(n.left))
 			}
-			return binarySearchNodeMapFromRB[V](rbtree.Rebalance(n.right))
+			n = n.left
+		} else {
+			if n.right == nil {
+				n.right = &binarySearchNodeMap[V]{
+					key:         key,
+					parent:      n,
+					colourIsRed: true,
+					values:      []V{pair},
+				}
+				return binarySearchNodeMapFromRB[V](rbtree.Rebalance(n.right))
+			}
+			n = n.right
 		}
 	}
 }
 
 func (n *binarySearchNodeMap[V]) get(key []byte) ([]V, error) {
-	if bytes.Equal(n.key, key) {
-		return sortAndDedupValues(n.values), nil
-	}
-
-	if bytes.Compare(key, n.key) < 0 {
-		if n.left == nil {
-			return nil, lsmkv.NotFound
+	for n != nil {
+		if bytes.Equal(n.key, key) {
+			return sortAndDedupValues(n.values), nil
 		}
 
-		return n.left.get(key)
-	} else {
-		if n.right == nil {
-			return nil, lsmkv.NotFound
+		if bytes.Compare(key, n.key) < 0 {
+			n = n.left
+		} else {
+			n = n.right
 		}
-
-		return n.right.get(key)
 	}
-}
-
-func (n *binarySearchNodeMap[V]) flattenInOrder() []*binarySearchNodeMap[V] {
-	// preallocate capacity to avoid repeated reallocations
-	size := n.subtreeSize()
-	res := make([]*binarySearchNodeMap[V], 0, size)
-	return n.appendInOrder(res)
-}
-
-func (n *binarySearchNodeMap[V]) appendInOrder(dst []*binarySearchNodeMap[V]) []*binarySearchNodeMap[V] {
-	if n == nil {
-		return dst
-	}
-	if n.left != nil {
-		dst = n.left.appendInOrder(dst)
-	}
-	dst = append(dst, n.shallowCopy())
-	if n.right != nil {
-		dst = n.right.appendInOrder(dst)
-	}
-	return dst
+	return nil, lsmkv.NotFound
 }
 
 func (n *binarySearchNodeMap[V]) subtreeSize() int {
@@ -295,8 +286,8 @@ func binarySearchNodeMapFromRB[V mapElement[V]](rbNode rbtree.Node) (bsNode *bin
 	return bsNode
 }
 
-func (n *binarySearchNodeMap[V]) shallowCopy() *binarySearchNodeMap[V] {
-	return &binarySearchNodeMap[V]{
+func (n *binarySearchNodeMap[V]) shallowCopy() binarySearchNodeMap[V] {
+	return binarySearchNodeMap[V]{
 		key:         n.key,
 		values:      sortAndDedupValues(n.values),
 		colourIsRed: n.colourIsRed,
