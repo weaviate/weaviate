@@ -20,7 +20,7 @@ import (
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
-const moduleName = "decisions-typesafeai"
+const ModuleName = "decisions-typesafeai"
 
 const (
 	DefaultBaseURL         = "https://api.typesafe.ai"
@@ -50,7 +50,7 @@ type classSettings struct {
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg, propertyValuesHelper: basesettings.NewPropertyValuesHelper(moduleName)}
+	return &classSettings{cfg: cfg, propertyValuesHelper: basesettings.NewPropertyValuesHelper(ModuleName)}
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
@@ -71,7 +71,26 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if minProbability := ic.MinProbability(); !ValidProbability(minProbability) {
 		return fmt.Errorf("minProbability must be between 0 and 1, got %v", minProbability)
 	}
+	if _, err := ic.Images(); err != nil {
+		return err
+	}
 	return ic.propertyValuesHelper.ValidateBaseURL(ic.BaseURL())
+}
+
+// Images is the class's opt-in to the API's experimental image input.
+func (ic *classSettings) Images() (bool, error) {
+	if ic.cfg == nil {
+		return false, nil
+	}
+	value, ok := ic.cfg.ClassByModuleName(ModuleName)["images"]
+	if !ok {
+		return false, nil
+	}
+	images, isBool := value.(bool)
+	if !isBool {
+		return false, fmt.Errorf("images must be true or false, got %v", value)
+	}
+	return images, nil
 }
 
 // ValidProbability reports whether p is in [0, 1]. NaN is not.

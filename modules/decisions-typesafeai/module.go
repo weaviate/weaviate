@@ -32,7 +32,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
-const Name = "decisions-typesafeai"
+const Name = config.ModuleName
 
 func New() *DecisionsTypeSafeAIModule {
 	return &DecisionsTypeSafeAIModule{}
@@ -128,7 +128,8 @@ func (m *DecisionsTypeSafeAIModule) AdditionalProperties() map[string]modulecapa
 }
 
 // DecisionLimits: the API accepts at most 10 levels per score and judges
-// text; the options of a choice stay within the Weaviate ceiling.
+// text, and images when the class opts in; the options of a choice stay
+// within the Weaviate ceiling.
 func (m *DecisionsTypeSafeAIModule) DecisionLimits(cfg moduletools.ClassConfig) (modulecapabilities.DecisionLimits, error) {
 	// A class created before the module was enabled was never validated,
 	// so the setting is checked here as Validate checks it.
@@ -144,10 +145,18 @@ func (m *DecisionsTypeSafeAIModule) DecisionLimits(cfg moduletools.ClassConfig) 
 		}
 		return modulecapabilities.DecisionLimits{}, fmt.Errorf("maxDocuments must be a whole number between 1 and %d, got %v", config.MaxDocumentsLimit, stored)
 	}
+	images, err := config.NewClassSettings(cfg).Images()
+	if err != nil {
+		return modulecapabilities.DecisionLimits{}, err
+	}
+	dataTypes := []schema.DataType{schema.DataTypeText}
+	if images {
+		dataTypes = append(dataTypes, schema.DataTypeBlob)
+	}
 	return modulecapabilities.DecisionLimits{
 		MaxDocuments: maxDocuments,
 		MaxLevels:    config.MaxScoreLevels,
-		DataTypes:    []schema.DataType{schema.DataTypeText},
+		DataTypes:    dataTypes,
 	}, nil
 }
 

@@ -33,13 +33,21 @@ type decisionRequest struct {
 	apiKey    string
 	model     string
 	questions []ent.DecisionQuestion
+	image     bool
+}
+
+func (r decisionRequest) batches(indexes []int, documents []string) [][]int {
+	if r.image {
+		return batches(indexes, documents, MaxBatchImages, MaxBatchImageChars)
+	}
+	return batches(indexes, documents, MaxBatchDocuments, MaxBatchCharacters)
 }
 
 // Decide asks Jev every question about every document and returns the
 // answers per document, in the order of the questions. One request carries
 // all the questions about a document, and the documents are batched as in
 // Rank, see MaxBatchDocuments. Identical documents are judged once. A
-// document without text gets refused answers.
+// document without content gets refused answers.
 func (c *client) Decide(ctx context.Context, questions []ent.DecisionQuestion, documents []string,
 	cfg moduletools.ClassConfig,
 ) ([][]ent.DecisionAnswer, error) {
@@ -54,7 +62,18 @@ func (c *client) Decide(ctx context.Context, questions []ent.DecisionQuestion, d
 	if err != nil {
 		return nil, err
 	}
-	request := decisionRequest{url: typesafeaiURL, apiKey: apiKey, model: settings.Model(), questions: questions}
+	// The questions of one call are about one property, see the provider;
+	// a call about several would send the documents of one as the other.
+	for _, question := range questions[1:] {
+		if question.Property != questions[0].Property {
+			return nil, errors.Errorf("questions about %q and %q in one call: a call judges one property", questions[0].Property, question.Property)
+		}
+	}
+	image, err := imageInput(settings, cfg, questions[0].Property)
+	if err != nil {
+		return nil, err
+	}
+	request := decisionRequest{url: typesafeaiURL, apiKey: apiKey, model: settings.Model(), questions: questions, image: image}
 
 	firstIndex := make(map[string]int, len(documents))
 	answers := make([][]ent.DecisionAnswer, len(documents))
@@ -69,11 +88,16 @@ func (c *client) Decide(ctx context.Context, questions []ent.DecisionQuestion, d
 		firstIndex[document] = i
 		pending = append(pending, i)
 	}
+	if image {
+		if err := checkImages(documents, pending); err != nil {
+			return nil, err
+		}
+	}
 
 	var inputTokens, requests atomic.Int64
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(c.logger, ctx)
 	eg.SetLimit(cap(c.inFlight))
-	for _, batch := range batches(pending, documents) {
+	for _, batch := range request.batches(pending, documents) {
 		eg.Go(func() error {
 			batchDocuments := make([]string, len(batch))
 			for j, index := range batch {
@@ -144,11 +168,15 @@ func (c *client) decideDocuments(ctx context.Context, request decisionRequest, d
 
 func (c *client) decideBatch(ctx context.Context, request decisionRequest, documents []string,
 ) ([][]ent.DecisionAnswer, typesafeaiUsage, sendResult, error) {
-	body, err := json.Marshal(newDecisionRequest(request, documents))
+	typesafeaiReq, err := newDecisionRequest(request, documents)
+	if err != nil {
+		return nil, typesafeaiUsage{}, sendResult{}, err
+	}
+	body, err := json.Marshal(typesafeaiReq)
 	if err != nil {
 		return nil, typesafeaiUsage{}, sendResult{}, errors.Wrap(err, "marshal body")
 	}
-	response, result, err := c.postWithRetry(ctx, request.url, request.apiKey, body)
+	response, result, err := c.postWithRetry(ctx, request.url, request.apiKey, body, request.image)
 	if err != nil {
 		return nil, typesafeaiUsage{}, result, err
 	}
@@ -162,25 +190,30 @@ func (c *client) decideBatch(ctx context.Context, request decisionRequest, docum
 // newDecisionRequest builds the request for one batch. A single document is
 // the state itself and the questions are keyed by position. Several
 // documents become a map, with every question repeated per document under
-// a key that names the document it is about.
-func newDecisionRequest(request decisionRequest, documents []string) typesafeaiRequest {
+// a key that names the document it is about. An image is an asset and the
+// state holds its reference.
+func newDecisionRequest(request decisionRequest, documents []string) (typesafeaiRequest, error) {
+	values, assets, err := stateValues(request.image, documents)
+	if err != nil {
+		return typesafeaiRequest{}, err
+	}
 	if len(documents) == 1 {
 		questions := make(map[string]typesafeaiQuestion, len(request.questions))
 		for i, question := range request.questions {
 			questions[questionID(i)] = typesafeaiDecisionQuestion(question, "")
 		}
-		return typesafeaiRequest{Model: request.model, State: documents[0], Questions: questions}
+		return typesafeaiRequest{Model: request.model, State: values[0], Questions: questions, Assets: assets}, nil
 	}
 	state := make(map[string]string, len(documents))
 	questions := make(map[string]typesafeaiQuestion, len(documents)*len(request.questions))
-	for d, document := range documents {
+	for d := range documents {
 		key := batchKey(d)
-		state[key] = document
+		state[key] = values[d]
 		for i, question := range request.questions {
 			questions[batchQuestionID(d, i)] = typesafeaiDecisionQuestion(question, "In "+key+": ")
 		}
 	}
-	return typesafeaiRequest{Model: request.model, State: state, Questions: questions}
+	return typesafeaiRequest{Model: request.model, State: state, Questions: questions, Assets: assets}, nil
 }
 
 func questionID(i int) string {

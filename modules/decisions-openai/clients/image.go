@@ -16,9 +16,6 @@ import (
 	"encoding/base64"
 
 	"github.com/pkg/errors"
-
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/schema"
 )
 
 // The Decisions API takes a document as text, or as the content parts of a
@@ -61,7 +58,7 @@ const magicChars = 16
 // maxImageChars is the same bound on the base64.
 const (
 	maxImageBytes = 20 << 20
-	maxImageChars = maxImageBytes / 3 * 4
+	maxImageChars = (maxImageBytes + 2) / 3 * 4
 )
 
 // imageDataURL turns the base64 content of a blob property into the data
@@ -90,15 +87,6 @@ func imageDataURL(encoded string) (string, error) {
 		}
 	}
 	return "", errors.New("not a PNG, JPEG, GIF or WebP image")
-}
-
-// isImageProperty says whether the property is a blob, whose content the
-// module sends as an image. An unknown property is text.
-func isImageProperty(cfg moduletools.ClassConfig, property string) bool {
-	if cfg == nil || property == "" {
-		return false
-	}
-	return cfg.PropertiesDataTypes()[property] == schema.DataTypeBlob
 }
 
 // checkImages fails on the first document at the given positions that is

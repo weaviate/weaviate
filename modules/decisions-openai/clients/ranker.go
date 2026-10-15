@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/decisions-openai/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
@@ -114,6 +115,10 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 	return c.RankProperty(ctx, query, "", false, documents, cfg)
 }
 
+// The provider dispatches to RankProperty by a type assertion; a signature
+// drift would fall back to Rank and send a blob's base64 as text.
+var _ rank.PropertyRanker = (*client)(nil)
+
 // RankProperty is Rank for the documents of a named property: the content
 // of a blob property is sent as an image. A decision rerank sends the query
 // as the statement question: its query is a condition, not a search query.
@@ -140,7 +145,7 @@ func (c *client) RankProperty(ctx context.Context, query, property string, decis
 		endpointAuth: endpointAuth{url: openAIURL, apiKey: apiKey, organization: c.organizationFor(ctx)},
 		model:        settings.Model, query: query,
 		statement: decision,
-		image:     isImageProperty(cfg, property),
+		image:     modulecomponents.IsBlobProperty(cfg, property),
 	}
 
 	// Documents with the same content share one judgment. firstIndex maps a

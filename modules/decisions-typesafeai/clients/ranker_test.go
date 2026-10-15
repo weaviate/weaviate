@@ -134,7 +134,7 @@ func TestRank(t *testing.T) {
 		c := newTestClient("apiKey")
 		_, err := c.Rank(context.Background(), query, []string{"", ""}, classConfig(server.URL, nil))
 
-		require.EqualError(t, err, "no document has text: check the rerank property")
+		require.EqualError(t, err, "no document has content: check the rerank property")
 		assert.Empty(t, handler.received())
 	})
 
@@ -561,7 +561,7 @@ func TestBatches(t *testing.T) {
 				indexes[i] = i
 			}
 
-			assert.Equal(t, tt.want, batches(indexes, tt.documents))
+			assert.Equal(t, tt.want, batches(indexes, tt.documents, MaxBatchDocuments, MaxBatchCharacters))
 		})
 	}
 
@@ -572,7 +572,7 @@ func TestBatches(t *testing.T) {
 			documents[i], indexes[i] = short, i
 		}
 
-		got := batches(indexes, documents)
+		got := batches(indexes, documents, MaxBatchDocuments, MaxBatchCharacters)
 
 		require.Len(t, got, 3)
 		assert.Len(t, got[0], MaxBatchDocuments)
@@ -665,6 +665,7 @@ func TestRankHonoursRetryAfter(t *testing.T) {
 
 type receivedRequest struct {
 	authorization string
+	imagesHeader  string
 	body          typesafeaiRequest
 }
 
@@ -717,7 +718,11 @@ func (h *typesafeaiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if n := len(h.requests); n < len(h.scoreByRequest) {
 		fixedScore = &h.scoreByRequest[n]
 	}
-	h.requests = append(h.requests, receivedRequest{authorization: r.Header.Get("Authorization"), body: req})
+	h.requests = append(h.requests, receivedRequest{
+		authorization: r.Header.Get("Authorization"),
+		imagesHeader:  r.Header.Get(dangerZoneImagesHeader),
+		body:          req,
+	})
 	h.inFlight++
 	if h.inFlight > h.maxInFlight {
 		h.maxInFlight = h.inFlight
@@ -810,6 +815,7 @@ func classConfig(baseURL string, settings map[string]any) moduletools.ClassConfi
 
 type fakeClassConfig struct {
 	classConfig map[string]any
+	dataTypes   map[string]schema.DataType
 }
 
 func (f fakeClassConfig) Class() map[string]any {
@@ -833,7 +839,7 @@ func (f fakeClassConfig) TargetVector() string {
 }
 
 func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
-	return nil
+	return f.dataTypes
 }
 
 func (f fakeClassConfig) Config() *config.Config {

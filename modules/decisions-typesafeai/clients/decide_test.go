@@ -61,8 +61,15 @@ type decideHandler struct {
 	// to a larger request; 0 accepts every request.
 	maxDocumentsPerRequest int
 
-	lock     sync.Mutex
-	requests []typesafeaiRequest
+	lock         sync.Mutex
+	requests     []typesafeaiRequest
+	imageHeaders []string
+}
+
+func (h *decideHandler) headers() []string {
+	h.lock.Lock()
+	defer h.lock.Unlock()
+	return append([]string(nil), h.imageHeaders...)
 }
 
 func (h *decideHandler) received() []typesafeaiRequest {
@@ -84,6 +91,7 @@ func (h *decideHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		status = h.statuses[n]
 	}
 	h.requests = append(h.requests, req)
+	h.imageHeaders = append(h.imageHeaders, r.Header.Get(dangerZoneImagesHeader))
 	h.lock.Unlock()
 
 	documents := map[string]string{}
