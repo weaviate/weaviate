@@ -151,16 +151,17 @@ func (c *countStats) hasTombstone(needle []byte) bool {
 	return false
 }
 
-// This is not very allocation friendly, since we basically need to allocate
-// once for each element in the memtable. However, these results can
-// potentially be cached, as we don't care about the intermediary results, just
-// the net additions.
+// countStats puts both lists in one array. Upserts fill it from the front and
+// tombstones from the back, so the tombstones come out in reverse key order.
+// Callers only scan the lists, so the order does not matter.
 func (t *binarySearchTree) countStats() *countStats {
 	stats := &countStats{}
 	if t.root == nil {
 		return stats
 	}
 
+	keys := make([][]byte, t.root.subtreeSize())
+	upserts, tombstones := 0, len(keys)
 	var buf [pendingCap]*binarySearchNode
 	pending := buf[:0]
 	for n := t.root; n != nil; n = n.left {
@@ -170,14 +171,19 @@ func (t *binarySearchTree) countStats() *countStats {
 		n := pending[len(pending)-1]
 		pending = pending[:len(pending)-1]
 		if n.tombstone {
-			stats.tombstonedKeys = append(stats.tombstonedKeys, n.key)
+			tombstones--
+			keys[tombstones] = n.key
 		} else {
-			stats.upsertKeys = append(stats.upsertKeys, n.key)
+			keys[upserts] = n.key
+			upserts++
 		}
 		for n = n.right; n != nil; n = n.left {
 			pending = append(pending, n)
 		}
 	}
+	// the cap keeps an append to upsertKeys off the tombstones
+	stats.upsertKeys = keys[:upserts:upserts]
+	stats.tombstonedKeys = keys[tombstones:]
 	return stats
 }
 
