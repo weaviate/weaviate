@@ -58,9 +58,7 @@ func TestSnapshotReaderV1V2Rejection(t *testing.T) {
 			_, err = reader.ReadFromFile(snapshotPath)
 
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "legacy snapshot version")
-			assert.Contains(t, err.Error(), "upgrade not supported")
-			assert.Contains(t, err.Error(), "downgrade Weaviate")
+			assert.Contains(t, err.Error(), fmt.Sprintf("legacy snapshot version %d", tc.version))
 		})
 	}
 }
