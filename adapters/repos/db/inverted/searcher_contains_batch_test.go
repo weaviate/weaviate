@@ -16,6 +16,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sync"
 	"testing"
 
 	entsInverted "github.com/weaviate/weaviate/entities/inverted"
@@ -46,7 +47,7 @@ type containsBatchGateFixture struct {
 	fallback bool // read by the Searcher's isFallbackToSearchable closure
 }
 
-func newContainsBatchGateFixture(t *testing.T) *containsBatchGateFixture {
+func newContainsBatchGateFixture(t testing.TB) *containsBatchGateFixture {
 	t.Helper()
 	dir := t.TempDir()
 	logger := logrus.New()
@@ -115,6 +116,10 @@ func newContainsBatchGateFixture(t *testing.T) *containsBatchGateFixture {
 
 func containsPath(propName string) *filters.Path {
 	return &filters.Path{Property: schema.PropertyName(propName)}
+}
+
+func containsValue(propType schema.DataType, value interface{}) *filters.Value {
+	return &filters.Value{Type: propType, Value: value}
 }
 
 func TestExtractContainsBatch_EligibleFamilies(t *testing.T) {
@@ -217,7 +222,7 @@ func TestExtractContainsBatch_EligibleFamilies(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := helpers.InitSlowQueryDetails(ctx)
 			pv, err := s.extractContains(ctx, containsPath(tt.prop),
-				tt.propType, tt.value, tt.operator, f.class)
+				containsValue(tt.propType, tt.value), tt.operator, f.class)
 			require.NoError(t, err)
 			require.NotNil(t, pv)
 			require.Nil(t, pv.children, "eligible shape must resolve batched, not desugared")
@@ -399,8 +404,8 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 				tt.setup(t)
 			}
 			ctx := helpers.InitSlowQueryDetails(ctx)
-			pv, err := s.extractContains(ctx, tt.path, tt.propType,
-				tt.value, tt.operator, f.class)
+			pv, err := s.extractContains(ctx, tt.path,
+				containsValue(tt.propType, tt.value), tt.operator, f.class)
 			require.Equal(t, tt.wantReason, extractContainsDesugaredReason(t, ctx),
 				"decline reason must be surfaced in the slow-query details")
 			if tt.wantErr {
@@ -442,7 +447,7 @@ func TestExtractContainsBatch_EncodingErrorIsEligibleButFails(t *testing.T) {
 		"not-a-valid-uuid",
 	}
 	pv, err := s.extractContains(ctx, containsPath("prop-uuid"),
-		schema.DataTypeText, values, filters.ContainsAny, f.class)
+		containsValue(schema.DataTypeText, values), filters.ContainsAny, f.class)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "parse uuid filter value",
 		"the matched shape must fail in the gate, not fall through to desugar")
@@ -458,7 +463,7 @@ func TestExtractContains_FallsThroughToPerValuePath(t *testing.T) {
 	ctx := context.Background()
 
 	path := &filters.Path{Property: "prop-text-word"}
-	pv, err := s.extractContains(ctx, path, schema.DataTypeText, []string{"hello world", "goodbye"},
+	pv, err := s.extractContains(ctx, path, containsValue(schema.DataTypeText, []string{"hello world", "goodbye"}),
 		filters.ContainsAny, f.class)
 	require.NoError(t, err)
 	require.Zero(t, pv.containsKeys.Len())
@@ -473,12 +478,84 @@ func TestExtractContains_UsesBatchedPathWhenEligible(t *testing.T) {
 	s := f.searcher
 	ctx := context.Background()
 
-	pv, err := s.extractContains(ctx, containsPath("prop-int"), schema.DataTypeInt,
-		[]int{1, 2, 3}, filters.ContainsAny, f.class)
+	pv, err := s.extractContains(ctx, containsPath("prop-int"),
+		containsValue(schema.DataTypeInt, []int{1, 2, 3}), filters.ContainsAny, f.class)
 	require.NoError(t, err)
 	require.NotNil(t, pv)
 	require.Nil(t, pv.children)
 	require.Equal(t, 3, pv.containsKeys.Len())
+}
+
+// Shards searching with one filter value at once must all reuse one key build.
+func TestExtractContains_SharesKeysAcrossShards(t *testing.T) {
+	const numShards = 4
+	value := containsValue(schema.DataTypeInt, []interface{}{float64(3), float64(1), float64(2)})
+	pvs := make([]*propValuePair, numShards)
+	errs := make([]error, numShards)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range numShards {
+		f := newContainsBatchGateFixture(t)
+		wg.Go(func() {
+			<-start
+			pvs[i], errs[i] = f.searcher.extractContains(context.Background(), containsPath("prop-int"),
+				value, filters.ContainsAny, f.class)
+		})
+	}
+	close(start)
+	wg.Wait()
+
+	for i, pv := range pvs {
+		require.NoError(t, errs[i])
+		require.Equal(t, 3, pv.containsKeys.Len())
+		require.Same(t, &pvs[0].containsKeys.At(0)[0], &pv.containsKeys.At(0)[0],
+			"shard %d must reuse the first shard's keys", i)
+	}
+}
+
+// BenchmarkExtractContains_SharedKeys measures one query's key build across a
+// node's shards. The per-shard arms give each shard its own filter value, and
+// the shared arms pass one value to all, as Index.localShardSearch does.
+func BenchmarkExtractContains_SharedKeys(b *testing.B) {
+	const numValues = 100_000
+	typed := make([]int, numValues)
+	remote := make([]interface{}, numValues)
+	for i := range typed {
+		typed[i] = (i * 7919) % (numValues * 10)
+		remote[i] = float64(typed[i])
+	}
+	shapes := []struct {
+		name  string
+		value interface{}
+	}{{"typed", typed}, {"remote", remote}}
+
+	for _, numShards := range []int{1, 6} {
+		shards := make([]*containsBatchGateFixture, numShards)
+		for i := range shards {
+			shards[i] = newContainsBatchGateFixture(b)
+		}
+		for _, shape := range shapes {
+			for _, shared := range []bool{false, true} {
+				name := fmt.Sprintf("shards=%d/%s/shared=%t", numShards, shape.name, shared)
+				b.Run(name, func(b *testing.B) {
+					b.ReportAllocs()
+					ctx := context.Background()
+					for b.Loop() {
+						value := containsValue(schema.DataTypeInt, shape.value)
+						for _, f := range shards {
+							if !shared {
+								value = containsValue(schema.DataTypeInt, shape.value)
+							}
+							if _, err := f.searcher.extractContains(ctx, containsPath("prop-int"),
+								value, filters.ContainsAny, f.class); err != nil {
+								b.Fatal(err)
+							}
+						}
+					}
+				})
+			}
+		}
+	}
 }
 
 // TestNewBatchedContainsPair_RejectsNoKeys pins the invariant resolveDocIDs
@@ -520,8 +597,8 @@ func TestExtractContainsBatch_OptInGate(t *testing.T) {
 	s := f.searcher
 
 	extract := func(ctx context.Context) (*propValuePair, error) {
-		return s.extractContains(ctx, containsPath("prop-int"), schema.DataTypeInt,
-			[]int{1, 2, 3}, filters.ContainsAny, f.class)
+		return s.extractContains(ctx, containsPath("prop-int"),
+			containsValue(schema.DataTypeInt, []int{1, 2, 3}), filters.ContainsAny, f.class)
 	}
 
 	t.Run("nil gate declines", func(t *testing.T) {

@@ -118,6 +118,8 @@ type LocalFilter struct {
 type Value struct {
 	Value interface{}     `json:"value"`
 	Type  schema.DataType `json:"type"`
+
+	containsKeys *containsKeysCache
 }
 
 func (v *Value) UnmarshalJSON(data []byte) error {
