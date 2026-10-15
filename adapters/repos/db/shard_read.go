@@ -575,12 +575,13 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	// Report slow queries if this method takes longer than expected
 	startTime := time.Now()
 	defer func() {
+		lsmkv.ReduceSecondaryReadSlowLogs(ctx)
 		s.slowQueryReporter.LogIfSlow(ctx, startTime, map[string]any{
 			"collection":      s.index.Config.ClassName,
 			"shard":           s.ID(),
 			"tenant":          s.tenant(),
 			"query":           "ObjectSearch",
-			"filters":         filters,
+			"filters":         filters.LogSummary(),
 			"limit":           limit,
 			"sort":            sort,
 			"cursor":          cursor,
@@ -704,17 +705,13 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	startTime := time.Now()
 
 	defer func() {
-		// reduce lsm stats
-		helpers.ReplaceSlowQueryEntry(ctx, "lsm_get_by_secondary", func(old []lsmkv.BucketSlowLogEntry) lsmkv.BucketSlowLogEntryStats {
-			return lsmkv.BucketSlowLogEntries(old).Reduce()
-		})
-
+		lsmkv.ReduceSecondaryReadSlowLogs(ctx)
 		s.slowQueryReporter.LogIfSlow(ctx, startTime, map[string]any{
 			"collection": s.index.Config.ClassName,
 			"shard":      s.ID(),
 			"tenant":     s.tenant(),
 			"query":      "ObjectVectorSearch",
-			"filters":    filters,
+			"filters":    filters.LogSummary(),
 			"limit":      limit,
 			"sort":       sort,
 			"version":    s.versioner.Version(),

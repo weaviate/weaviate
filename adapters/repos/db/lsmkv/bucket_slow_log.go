@@ -12,9 +12,28 @@
 package lsmkv
 
 import (
+	"context"
 	"sort"
 	"time"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 )
+
+// getBySecondaryCore appends one BucketSlowLogEntry per read under these keys.
+const (
+	slowLogKeyGetBySecondary         = "lsm_get_by_secondary"
+	slowLogKeyGetBySecondaryWithView = "lsm_get_by_secondary_with_view"
+)
+
+// ReduceSecondaryReadSlowLogs replaces the per-read entries under both keys with
+// their stats, so a slow-query record does not grow with the reads a query made.
+func ReduceSecondaryReadSlowLogs(ctx context.Context) {
+	for _, key := range []string{slowLogKeyGetBySecondary, slowLogKeyGetBySecondaryWithView} {
+		helpers.ReplaceSlowQueryEntry(ctx, key, func(old []BucketSlowLogEntry) BucketSlowLogEntryStats {
+			return BucketSlowLogEntries(old).Reduce()
+		})
+	}
+}
 
 type BucketSlowLogEntry struct {
 	Total            time.Duration
