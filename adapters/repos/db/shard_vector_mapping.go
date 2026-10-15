@@ -289,39 +289,6 @@ func (m *vectorIndexMapping) Put(name string, rec vectorIndexRecord) error {
 	return nil
 }
 
-// Update rewrites name's record in one transaction: fn gets the current
-// record and returns the new one, or false to leave it. A missing record is
-// left missing and fn is not called.
-func (m *vectorIndexMapping) Update(name string, fn func(rec vectorIndexRecord) (vectorIndexRecord, bool)) error {
-	err := m.ns.Update(func(b *shardmeta.Batch) error {
-		err := requireVectorIndexMappingInitialized(b)
-		if err != nil {
-			return err
-		}
-		v, err := b.Get([]byte(vectorIndexMappingKey(name)))
-		if err != nil {
-			return err
-		}
-		if v == nil {
-			return nil
-		}
-		var rec vectorIndexRecord
-		err = json.Unmarshal(v, &rec)
-		if err != nil {
-			return fmt.Errorf("record %q: %w", name, err)
-		}
-		rec, write := fn(rec)
-		if !write {
-			return nil
-		}
-		return putVectorIndexRecord(b, name, rec)
-	})
-	if err != nil {
-		return fmt.Errorf("update vector index mapping record %q: %w", name, err)
-	}
-	return nil
-}
-
 // readVectorIndexRecordOffline reads name's record from a shard that is not
 // loaded, for the cold sweep. initialized is false for a shard restored from
 // a pre-mapping backup that has not loaded since; such a shard has no

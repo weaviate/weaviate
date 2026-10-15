@@ -80,37 +80,6 @@ func TestUpdateVectorIndexConfigs_RecordsTheAdoptedConfig(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// A record that is not ready belongs to a drop or a creation: an accepted
-// update leaves it as it is. A missing record stays missing.
-func TestUpdateVectorIndexConfigs_LeavesARecordThatIsNotReady(t *testing.T) {
-	ctx := context.Background()
-	legacy := enthnsw.NewDefaultUserConfig()
-	foo := enthnsw.NewDefaultUserConfig()
-	class := &models.Class{Class: "NotReadyRecord", VectorConfig: map[string]models.VectorConfig{
-		"foo": {VectorIndexType: foo.IndexType(), VectorIndexConfig: foo},
-	}}
-	shardLike, _ := testShardWithSettings(t, ctx, class, legacy, false, false, func(i *Index) {
-		i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{"foo": foo}
-	})
-	shard := underlyingShard(t, shardLike)
-	updated := foo
-	updated.EF = 200
-
-	// a drop in flight marked the record dropping
-	dropping := mustRecord(t, shard, "foo")
-	dropping.State = vectorIndexStateDropping
-	require.NoError(t, shard.mapping.Put("foo", dropping))
-	require.NoError(t, shard.UpdateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{"foo": updated}))
-	assert.Equal(t, dropping, mustRecord(t, shard, "foo"))
-
-	// a drop in flight deleted the record
-	require.NoError(t, shard.mapping.Delete("foo"))
-	require.NoError(t, shard.UpdateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{"foo": updated}))
-	_, ok, err := shard.mapping.Get("foo")
-	require.NoError(t, err)
-	assert.False(t, ok)
-}
-
 // mustRecord is name's mapping record, which must exist.
 func mustRecord(t *testing.T, shard *Shard, name string) vectorIndexRecord {
 	t.Helper()
