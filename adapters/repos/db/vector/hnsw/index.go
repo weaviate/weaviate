@@ -183,7 +183,9 @@ type hnsw struct {
 	compressed atomic.Bool
 	// compressing spans Upgrade() through compressThenCallback completion;
 	// HaltForTransfer reads it via UpgradeInProgress() to defer a replica movement.
-	compressing  atomic.Bool
+	compressing atomic.Bool
+	// compressWg tracks the compression goroutine so Shutdown can wait for it
+	compressWg   sync.WaitGroup
 	doNotRescore bool
 	// configuredFilterStrategy holds the FilterStrategy enum value from the
 	// user config (SWEEPING, ACORN or PATHSEER) as one atomic word, so a
@@ -454,7 +456,7 @@ func New(cfg Config, uc ent.UserConfig,
 		if uc.Multivector.Enabled && !uc.Multivector.MuveraEnabled() {
 			index.compressor, err = compressionhelpers.NewBQMultiCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.MakeBucketOptions, cfg.AllocChecker, index.compressedBucketName(), index.vectorForID)
+				cfg.MakeBucketOptions, cfg.AllocChecker, index.compressedBucketName(), index.multiVectorForNodeID)
 		} else {
 			index.compressor, err = compressionhelpers.NewBQCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
@@ -842,6 +844,8 @@ func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
 func (h *hnsw) Shutdown(ctx context.Context) error {
 	h.shutdownCtxCancel()
 	h.prefillWg.Wait()
+	// before the commit log shuts down, so a finishing compression can persist
+	h.compressWg.Wait()
 
 	ec := errorcompounder.New()
 	ec.AddWrapf(h.commitLog.Shutdown(ctx), "shutdown commit log")
@@ -860,6 +864,11 @@ func (h *hnsw) Shutdown(ctx context.Context) error {
 func (h *hnsw) releaseVectors() error {
 	var err error
 	h.releaseVectorsOnce.Do(func() {
+		// compression holds this lock for its whole run; without waiting for
+		// it, shutdown drops the float32 cache and leaves the compressed one
+		// that compression fills afterwards
+		h.compressActionLock.RLock()
+		defer h.compressActionLock.RUnlock()
 		if h.compressed.Load() {
 			err = errors.Wrap(h.compressor.Drop(), "drop compressed store")
 		} else {

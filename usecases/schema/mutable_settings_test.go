@@ -51,8 +51,8 @@ func (mutableModules) MutableSettings(module string, current, updated map[string
 	return reflect.DeepEqual(current, updated)
 }
 
-// MigrateVectorizerSettings copies the new settings over the stored ones like modules.Provider does, and reports a
-// migration when a module whose name contains "migrating" is present.
+// MigrateVectorizerSettings copies all new settings over the stored ones, and reports a migration when a module
+// whose name contains "migrating" is present.
 func (mutableModules) MigrateVectorizerSettings(initial, updated any) bool {
 	initialConfig, _ := initial.(map[string]any)
 	updatedConfig, _ := updated.(map[string]any)

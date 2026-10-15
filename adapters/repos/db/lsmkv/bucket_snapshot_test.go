@@ -393,7 +393,7 @@ func TestSnapshotNoFlushRaceDuringHardlink(t *testing.T) {
 		flushCallbacks.CycleCallback, logger,
 	)
 	flushCycle.Start()
-	defer flushCycle.StopAndWait(ctx)
+	defer func() { cyclemanager.WaitForStop(ctx, flushCycle.Stop(ctx)) }()
 
 	// Write the baseline data and flush it to disk.
 	const baselineObjects = 100

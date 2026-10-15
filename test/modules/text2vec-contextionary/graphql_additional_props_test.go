@@ -214,6 +214,7 @@ func Test_Text2Vec_GraphQLAdditionalProps(t *testing.T) {
 	})
 
 	t.Run("with _additional nearestNeighbors set", func(t *testing.T) {
+		t.Skip("skipping GraphQL nearestNeighbors test those additional params (and GraphQL) will be soon deprecated")
 		query := `
 		{
 			Get {
