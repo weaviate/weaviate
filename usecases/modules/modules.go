@@ -12,9 +12,10 @@
 package modules
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
-	"maps"
 	"regexp"
 	"slices"
 	"sync"
@@ -1166,6 +1167,7 @@ func (p *Provider) settingsConfig(moduleName string, settings map[string]any) mo
 // MigrateVectorizerSettings compares and migrates module settings if module settings
 // changed, an example would be renaming of baseUrl property setting to baseURL
 // in that case we need to migrate baseURL value to new property name.
+// Both configs are changed in place, so a stored config must be passed as a copy.
 func (p *Provider) MigrateVectorizerSettings(oldVectorizerConfig, newVectorizerConfig any) bool {
 	migratedSettings := false
 	oldVectorizerCfg, oldVectorizerCfgOk := oldVectorizerConfig.(map[string]any)
@@ -1174,17 +1176,55 @@ func (p *Provider) MigrateVectorizerSettings(oldVectorizerConfig, newVectorizerC
 		for modName, modSettings := range newVectorizerCfg {
 			migratedNewVectorizer := p.migrateVectorizerSettings(modName, modSettings)
 			migratedOldVectorizer := p.migrateVectorizerSettings(modName, oldVectorizerCfg[modName])
-			if settings, ok := modSettings.(map[string]any); ok {
-				if oldSettings, ok := oldVectorizerCfg[modName].(map[string]any); ok {
-					maps.Copy(oldSettings, settings)
-				}
-			}
-			if migratedNewVectorizer || migratedOldVectorizer {
+			copiedDefaults := p.copyOnlyMigratedSettings(modName, oldVectorizerCfg[modName], modSettings)
+			if migratedNewVectorizer || migratedOldVectorizer || copiedDefaults {
 				migratedSettings = true
 			}
 		}
 	}
 	return migratedSettings
+}
+
+// copyOnlyMigratedSettings copies settings the old settings lack, or hold as an empty string, from the new settings
+// when the new value is the module's default, which is what the module used while the setting was missing. It only
+// applies to modules that declare migrate properties. Every other setting is left as is so that a changed value
+// still fails the comparison that follows the migration. It reports whether it copied a setting.
+func (p *Provider) copyOnlyMigratedSettings(modName string, oldModuleSettings, newModuleSettings any) bool {
+	mod := p.GetByName(modName)
+	if mod == nil {
+		return false
+	}
+	if _, ok := mod.(modulecapabilities.MigrateProperties); !ok {
+		return false
+	}
+	configurator, ok := mod.(modulecapabilities.ClassConfigurator)
+	if !ok {
+		return false
+	}
+	oldSettings, oldOk := oldModuleSettings.(map[string]any)
+	newSettings, newOk := newModuleSettings.(map[string]any)
+	if !oldOk || !newOk {
+		return false
+	}
+	copied := false
+	for name, defaultValue := range configurator.ClassConfigDefaults() {
+		newValue, ok := newSettings[name]
+		if !ok {
+			continue
+		}
+		if oldValue, ok := oldSettings[name]; ok && oldValue != "" {
+			continue
+		}
+		// Compared by JSON form, so that numbers decoded as float64 or json.Number equal the int a module declares.
+		newJSON, newErr := json.Marshal(newValue)
+		defaultJSON, defaultErr := json.Marshal(defaultValue)
+		if newErr != nil || defaultErr != nil || !bytes.Equal(newJSON, defaultJSON) {
+			continue
+		}
+		oldSettings[name] = newValue
+		copied = true
+	}
+	return copied
 }
 
 func (p *Provider) migrateVectorizerSettings(modName string, moduleSettings any) bool {
