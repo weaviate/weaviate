@@ -2155,8 +2155,20 @@ func TestDelete_TombstoneMetricMatchesTombstones(t *testing.T) {
 			run: func(t *testing.T, index *hnsw) {
 				require.NoError(t, index.Delete(2, 4))
 				deleteList := index.tombstonesAsDenyList()
-				require.NoError(t, index.resetUnlocked())
-				_, err := index.removeTombstonesAndNodes(deleteList, neverStop)
+				// brk checks the resetCtx captured before the reset, as
+				// breakCleanUpTombstonedNodes does, so id 2 is still removed and
+				// the cycle stops before id 4
+				resetCtx := index.resetCtx
+				reset := false
+				brk := func() bool {
+					aborted := resetCtx.Err() != nil
+					if !reset {
+						reset = true
+						require.NoError(t, index.resetUnlocked())
+					}
+					return aborted
+				}
+				_, err := index.removeTombstonesAndNodes(deleteList, brk)
 				require.NoError(t, err)
 			},
 			expected: 0,
