@@ -279,30 +279,17 @@ func TestInitShardVectors_Reconcile(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// The queue opens at the recorded queue ID, not at the index's: a
-// replacement index keeps the queue of the index it replaced, and a load
-// keeps the queue ID it finds.
-func TestInitShardVectors_OpensTheQueueAtTheRecordedID(t *testing.T) {
+// A record whose queue ID differs from its index's refuses the load: drop
+// cleanup removes the queue under the index's ID and would leave it behind.
+func TestInitShardVectors_RefusesAQueueIDOtherThanTheIndexID(t *testing.T) {
 	ctx := testCtx()
 	shard, class := setupDropVectorShard(t, ctx)
-	moved := recorded(shard, "foo", "vectors_foo", "ready")
-	moved.QueueID = "vectors_foo_queue"
-	shard = reloadAfter(t, ctx, shard, class, func() {
-		withOfflineMapping(t, shard.path(), func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
-			require.NoError(t, m.Put("foo", moved))
+	reloadExpectingError(t, ctx, shard, class, `queue id "vectors_foo_queue" differs from physical id "vectors_foo"`, func() {
+		withOfflineMapping(t, shard.path(), func(_ *vectorIndexMapping, ns *shardmeta.Namespace) {
+			require.NoError(t, ns.Put([]byte("foo"),
+				[]byte(`{"physical_id":"vectors_foo","index_type":"hnsw","state":"ready","queue_id":"vectors_foo_queue"}`)))
 		})
 	})
-
-	rec, ok, err := shard.mapping.Get("foo")
-	require.NoError(t, err)
-	require.True(t, ok)
-	assert.Equal(t, moved, rec)
-	found, err := shard.WithVectorIndexQueue("foo", func(q *VectorIndexQueue) error {
-		assert.Equal(t, fmt.Sprintf("vector_index_queue_%s_vectors_foo_queue", shard.ID()), q.ID())
-		return nil
-	})
-	require.NoError(t, err)
-	require.True(t, found)
 }
 
 // A vector added to a running shard is recorded ready at the naming rule's

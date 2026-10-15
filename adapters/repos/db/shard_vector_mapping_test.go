@@ -142,6 +142,7 @@ func TestVectorIndexMapping_Load(t *testing.T) {
 		{name: "empty index type", key: "title", value: `{"physical_id":"vectors_title","index_type":"","state":"ready"}`, wantErr: "index type"},
 		{name: "record without format version", noVersion: true, key: "title", value: `{"physical_id":"vectors_title","index_type":"hnsw","state":"ready"}`, wantErr: "format version"},
 		{name: "config of an unknown index type", key: "title", value: `{"physical_id":"vectors_title","index_type":"none","state":"ready","config":{}}`, wantErr: `unknown vector index type "none"`},
+		{name: "queue id other than the physical id", key: "title", value: `{"physical_id":"vectors_title_2","index_type":"hnsw","state":"ready","queue_id":"vectors_title"}`, wantErr: `queue id "vectors_title" differs from physical id "vectors_title_2"`},
 		{name: "unparsable config", key: "title", value: `{"physical_id":"vectors_title","index_type":"hnsw","state":"ready","config":{"ef":"many"}}`, wantErr: `record "title": config`},
 	}
 	for _, tt := range tests {
@@ -261,6 +262,7 @@ func TestVectorIndexMapping_Put(t *testing.T) {
 		{name: "unknown state", rec: vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "done"}, wantErr: `state "done"`},
 		{name: "empty physical id", rec: vectorIndexRecord{IndexType: "hnsw", State: "ready"}, wantErr: "physical id"},
 		{name: "empty index type", rec: vectorIndexRecord{PhysicalID: "vectors_title", State: "ready"}, wantErr: "index type"},
+		{name: "queue id other than the physical id", rec: vectorIndexRecord{PhysicalID: "vectors_title_2", IndexType: "hnsw", State: "ready", QueueID: "vectors_title"}, wantErr: `queue id "vectors_title" differs from physical id "vectors_title_2"`},
 		{name: "config of another type", rec: vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready", Config: entflat.NewDefaultUserConfig()}, wantErr: "config is for a flat index, the record says hnsw"},
 	}
 	for _, tt := range tests {
@@ -384,7 +386,7 @@ func TestVectorIndexRecord_Format(t *testing.T) {
 				m, _ := newTestVectorIndexMapping(t)
 				require.NoError(t, m.Initialize(nil))
 				rec := vectorIndexRecord{
-					PhysicalID: "vectors_title_2", IndexType: cfg.IndexType(), State: "ready",
+					PhysicalID: "vectors_title", IndexType: cfg.IndexType(), State: "ready",
 					QueueID: "vectors_title", Config: cfg,
 				}
 				require.NoError(t, m.Put("title", rec))
@@ -404,7 +406,7 @@ func TestVectorIndexRecord_Format(t *testing.T) {
 		m, db := newTestVectorIndexMapping(t)
 		require.NoError(t, m.Initialize(nil))
 		require.NoError(t, m.Put("title", vectorIndexRecord{
-			PhysicalID: "vectors_title_2", IndexType: "hnsw", State: "ready",
+			PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready",
 			QueueID: "vectors_title", Config: hnswCfg,
 		}))
 		v, err := db.Namespace(vectorIndexMappingNamespace).Get([]byte("title"))
@@ -412,7 +414,7 @@ func TestVectorIndexRecord_Format(t *testing.T) {
 
 		var onDisk map[string]json.RawMessage
 		require.NoError(t, json.Unmarshal(v, &onDisk))
-		assert.JSONEq(t, `"vectors_title_2"`, string(onDisk["physical_id"]))
+		assert.JSONEq(t, `"vectors_title"`, string(onDisk["physical_id"]))
 		assert.JSONEq(t, `"hnsw"`, string(onDisk["index_type"]))
 		assert.JSONEq(t, `"ready"`, string(onDisk["state"]))
 		assert.JSONEq(t, `"vectors_title"`, string(onDisk["queue_id"]))
@@ -465,7 +467,7 @@ func TestVectorIndexRecord_Format(t *testing.T) {
 		m, db := newTestVectorIndexMapping(t)
 		require.NoError(t, m.Initialize(nil))
 		require.NoError(t, m.Put("title", vectorIndexRecord{
-			PhysicalID: "vectors_title_2", IndexType: "hnsw", State: "ready",
+			PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready",
 			QueueID: "vectors_title", Config: hnswCfg,
 		}))
 		v, err := db.Namespace(vectorIndexMappingNamespace).Get([]byte("title"))
@@ -478,7 +480,7 @@ func TestVectorIndexRecord_Format(t *testing.T) {
 		}
 		var old recordBeforeTheFields
 		require.NoError(t, json.Unmarshal(v, &old))
-		assert.Equal(t, recordBeforeTheFields{PhysicalID: "vectors_title_2", IndexType: "hnsw", State: "ready"}, old)
+		assert.Equal(t, recordBeforeTheFields{PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready"}, old)
 	})
 }
 
@@ -497,14 +499,6 @@ func TestVectorIndexRecord_Adopted(t *testing.T) {
 			PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready",
 			QueueID: "vectors_title", Config: cfg,
 		}, rec)
-	})
-
-	t.Run("keeps a queue ID that differs from the physical ID", func(t *testing.T) {
-		replaced := vectorIndexRecord{PhysicalID: "vectors_title_2", IndexType: "hnsw", State: "ready", QueueID: "vectors_title", Config: cfg}
-		rec, changed := replaced.adopted(other)
-		assert.True(t, changed)
-		assert.Equal(t, "vectors_title", rec.QueueID)
-		assert.Equal(t, other, rec.Config)
 	})
 
 	t.Run("the same config changes nothing", func(t *testing.T) {

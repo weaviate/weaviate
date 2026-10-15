@@ -465,6 +465,8 @@ func dropOneVectorIndex(ctx context.Context, index VectorIndex) error {
 // physicalID, its dynamic state key and last its record. Siblings protect
 // what their records map them to; a sibling without a record owns nothing.
 // Idempotent: a retry after a partial run finds less to do.
+// The queue is removed under physicalID: validate refuses a record whose
+// queue ID differs.
 func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name, physicalID string) error {
 	others := otherTargetVectors(s.class, name)
 	otherIDs := make([]string, 0, len(others))
