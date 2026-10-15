@@ -18,9 +18,6 @@ import (
 	"strconv"
 
 	"github.com/pkg/errors"
-
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/schema"
 )
 
 // Image input is an experimental feature of the API: off by default, every
@@ -34,7 +31,7 @@ const (
 	formatJPEG             = "jpeg"
 
 	maxImageBytes = 16 << 20
-	maxImageChars = maxImageBytes / 3 * 4
+	maxImageChars = (maxImageBytes + 2) / 3 * 4
 	minImageSide  = 280
 	maxImageSide  = 1568
 
@@ -95,9 +92,9 @@ func checkImage(encoded string) error {
 	if err != nil {
 		return err
 	}
-	decoded, err := base64.StdEncoding.Strict().DecodeString(encoded)
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
-		return errors.New("not standard base64 with padding")
+		return errors.New("not base64")
 	}
 	var width, height int
 	if format == formatPNG {
@@ -172,13 +169,6 @@ func jpegSize(data []byte) (width, height int, err error) {
 	return 0, 0, errors.New("JPEG without a frame header")
 }
 
-func isImageProperty(cfg moduletools.ClassConfig, property string) bool {
-	if cfg == nil || property == "" {
-		return false
-	}
-	return cfg.PropertiesDataTypes()[property] == schema.DataTypeBlob
-}
-
 func checkImages(documents []string, positions []int) error {
 	for _, position := range positions {
 		if err := checkImage(documents[position]); err != nil {
@@ -188,34 +178,14 @@ func checkImages(documents []string, positions []int) error {
 	return nil
 }
 
-// imageBatches is batches with the image bounds; an image above them goes
-// alone.
-func imageBatches(indexes []int, documents []string) [][]int {
-	var out [][]int
-	var batch []int
-	chars := 0
-	for _, index := range indexes {
-		length := len(documents[index])
-		if len(batch) > 0 && (len(batch) == MaxBatchImages || chars+length > MaxBatchImageChars) {
-			out = append(out, batch)
-			batch, chars = nil, 0
-		}
-		batch = append(batch, index)
-		chars += length
-	}
-	if len(batch) > 0 {
-		out = append(out, batch)
-	}
-	return out
-}
-
 func assetsOf(documents []string) (map[string]imageAsset, []string, error) {
 	assets := make(map[string]imageAsset, len(documents))
 	references := make([]string, len(documents))
 	for i, document := range documents {
+		// checkImages ran on every document, so this cannot fail.
 		format, err := imageFormat(document)
 		if err != nil {
-			return nil, nil, errors.Wrapf(err, "document %d: image", i)
+			return nil, nil, errors.Wrap(err, "image")
 		}
 		reference := imageReference(i)
 		assets[reference] = imageAsset{Type: assetTypeImage, DataBase64: document, Format: format}

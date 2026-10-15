@@ -12,6 +12,7 @@
 package clients
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 // A 1x1 PNG, and the first bytes of the other formats, as a blob property
@@ -69,12 +71,16 @@ func TestCheckImages(t *testing.T) {
 	assert.EqualError(t, checkImages(documents, []int{0, 1, 3}), "document 1: image: not a PNG, JPEG, GIF or WebP image")
 }
 
-func TestIsImageProperty(t *testing.T) {
+func TestIsBlobProperty(t *testing.T) {
 	cfg := classConfigWithTypes("", map[string]schema.DataType{"photo": schema.DataTypeBlob, "text": schema.DataTypeText})
 
-	assert.True(t, isImageProperty(cfg, "photo"))
-	assert.False(t, isImageProperty(cfg, "text"))
-	assert.False(t, isImageProperty(cfg, "unknown"))
-	assert.False(t, isImageProperty(cfg, ""))
-	assert.False(t, isImageProperty(nil, "photo"))
+	assert.True(t, modulecomponents.IsBlobProperty(cfg, "photo"))
+	assert.False(t, modulecomponents.IsBlobProperty(cfg, "text"))
+	assert.False(t, modulecomponents.IsBlobProperty(cfg, "unknown"))
+	assert.False(t, modulecomponents.IsBlobProperty(cfg, ""))
+	assert.False(t, modulecomponents.IsBlobProperty(nil, "photo"))
+}
+
+func TestMaxImageCharsIsTheBase64OfMaxImageBytes(t *testing.T) {
+	assert.Equal(t, base64.StdEncoding.EncodedLen(maxImageBytes), maxImageChars)
 }

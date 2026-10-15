@@ -22,6 +22,7 @@ import (
 	"image/jpeg"
 	"image/png"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 
@@ -117,10 +118,33 @@ func TestImageBatches(t *testing.T) {
 		documents[i] = "x"
 		indexes[i] = i
 	}
-	assert.Equal(t, [][]int{indexes[:MaxBatchImages], indexes[MaxBatchImages:]}, imageBatches(indexes, documents))
+	assert.Equal(t, [][]int{indexes[:MaxBatchImages], indexes[MaxBatchImages:]}, batches(indexes, documents, MaxBatchImages, MaxBatchImageChars))
 
 	big := []string{"x", strings.Repeat("y", MaxBatchImageChars), "z"}
-	assert.Equal(t, [][]int{{0}, {1}, {2}}, imageBatches([]int{0, 1, 2}, big))
+	assert.Equal(t, [][]int{{0}, {1}, {2}}, batches([]int{0, 1, 2}, big, MaxBatchImages, MaxBatchImageChars))
+}
+
+func TestMaxImageCharsIsTheBase64OfMaxImageBytes(t *testing.T) {
+	assert.Equal(t, base64.StdEncoding.EncodedLen(maxImageBytes), maxImageChars)
+}
+
+// jpegWithAPP1 puts an APP1 segment (as EXIF data sits) between the SOI
+// marker and the rest of the file, so the frame header is not the first
+// segment.
+func jpegWithAPP1(t *testing.T) string {
+	t.Helper()
+	decoded, err := base64.StdEncoding.DecodeString(encodedImage(t, "jpeg", 320, 280))
+	require.NoError(t, err)
+	app1 := append([]byte{0xff, 0xe1, 0x00, 0x10}, []byte("Exif\x00\x00padding!")...)
+	out := append(append(append([]byte{}, decoded[:2]...), app1...), decoded[2:]...)
+	return base64.StdEncoding.EncodeToString(out)
+}
+
+func TestCheckImageReadsThePastSegments(t *testing.T) {
+	require.NoError(t, checkImage(jpegWithAPP1(t)))
+	format, err := imageFormat(jpegWithAPP1(t))
+	require.NoError(t, err)
+	assert.Equal(t, "jpeg", format)
 }
 
 func classConfigWithTypes(baseURL string, settings map[string]any, dataTypes map[string]schema.DataType) moduletools.ClassConfig {
@@ -198,6 +222,50 @@ func TestRankImages(t *testing.T) {
 		assert.Empty(t, handler.received())
 	})
 
+	t.Run("five images are two requests, the API's four and one", func(t *testing.T) {
+		images := make([]string, 5)
+		scores := map[string]float64{}
+		for i := range images {
+			images[i] = encodedImage(t, "png", 280+i, 280)
+			scores[imageReference(i%MaxBatchImages)] = float64(i%MaxBatchImages) / 10
+		}
+		handler := &typesafeaiHandler{t: t, scores: scores}
+		server := httptest.NewServer(handler)
+		defer server.Close()
+
+		res, err := newTestClient("apiKey").RankProperty(context.Background(), "q", "photo", false,
+			images, classConfigWithTypes(server.URL, map[string]any{"images": true}, blobs))
+
+		require.NoError(t, err)
+		require.Len(t, res.DocumentScores, 5)
+		requests := handler.received()
+		require.Len(t, requests, 2)
+		// The two requests run in parallel, so they arrive in any order.
+		sort.Slice(requests, func(i, j int) bool { return len(requests[i].body.Assets) > len(requests[j].body.Assets) })
+		assert.Len(t, requests[0].body.Assets, 4)
+		assert.Len(t, requests[1].body.Assets, 1)
+		assert.Equal(t, imageReference(0), requests[1].body.State, "the second request numbers its image from 0")
+	})
+
+	t.Run("a batch the API rejects for its size is sent as halves", func(t *testing.T) {
+		images := []string{photo, other}
+		handler := &typesafeaiHandler{t: t, scores: map[string]float64{imageReference(0): 0.4}, maxDocumentsPerRequest: 1}
+		server := httptest.NewServer(handler)
+		defer server.Close()
+
+		res, err := newTestClient("apiKey").RankProperty(context.Background(), "q", "photo", false,
+			images, classConfigWithTypes(server.URL, map[string]any{"images": true}, blobs))
+
+		require.NoError(t, err)
+		assert.Equal(t, []ent.DocumentScore{{Document: photo, Score: 0.4}, {Document: other, Score: 0.4}}, res.DocumentScores)
+		requests := handler.received()
+		require.Len(t, requests, 3, "the pair, then one request per image")
+		for _, request := range requests[1:] {
+			assert.Equal(t, imageReference(0), request.body.State)
+			assert.Len(t, request.body.Assets, 1)
+		}
+	})
+
 	t.Run("an image the API would reject is refused before any request", func(t *testing.T) {
 		handler := &typesafeaiHandler{t: t}
 		server := httptest.NewServer(handler)
@@ -231,6 +299,25 @@ func TestDecideImages(t *testing.T) {
 		assert.Equal(t, imageReference(0), req.State)
 		assert.Equal(t, imageAsset{Type: "image", DataBase64: photo, Format: "jpeg"}, req.Assets[imageReference(0)])
 		assert.Equal(t, "true", handler.headers()[0])
+	})
+
+	t.Run("two images are one request with references in the state", func(t *testing.T) {
+		other := encodedImage(t, "png", 400, 300)
+		handler := &decideHandler{t: t, scores: map[string]float64{imageReference(0): 0.8, imageReference(1): 0.1}}
+		server := httptest.NewServer(handler)
+		defer server.Close()
+
+		answers, err := newTestClient("apiKey").Decide(context.Background(), []ent.DecisionQuestion{damaged},
+			[]string{photo, other}, classConfigWithTypes(server.URL, map[string]any{"images": true}, blobs))
+
+		require.NoError(t, err)
+		require.Len(t, answers, 2)
+		assert.InDelta(t, 0.8, answers[0][0].Probability, 1e-9)
+		assert.InDelta(t, 0.1, answers[1][0].Probability, 1e-9)
+		req := handler.received()[0]
+		assert.Equal(t, map[string]any{batchKey(0): imageReference(0), batchKey(1): imageReference(1)}, req.State)
+		assert.Len(t, req.Assets, 2)
+		assert.Equal(t, "In "+batchKey(1)+": the car is damaged", req.Questions[batchQuestionID(1, 0)].Instructions)
 	})
 
 	t.Run("questions about two properties in one call are refused", func(t *testing.T) {

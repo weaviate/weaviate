@@ -32,7 +32,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
-const Name = "decisions-typesafeai"
+const Name = config.ModuleName
 
 func New() *DecisionsTypeSafeAIModule {
 	return &DecisionsTypeSafeAIModule{}
@@ -145,8 +145,12 @@ func (m *DecisionsTypeSafeAIModule) DecisionLimits(cfg moduletools.ClassConfig) 
 		}
 		return modulecapabilities.DecisionLimits{}, fmt.Errorf("maxDocuments must be a whole number between 1 and %d, got %v", config.MaxDocumentsLimit, stored)
 	}
+	images, err := config.NewClassSettings(cfg).Images()
+	if err != nil {
+		return modulecapabilities.DecisionLimits{}, err
+	}
 	dataTypes := []schema.DataType{schema.DataTypeText}
-	if config.NewClassSettings(cfg).Images() {
+	if images {
 		dataTypes = append(dataTypes, schema.DataTypeBlob)
 	}
 	return modulecapabilities.DecisionLimits{

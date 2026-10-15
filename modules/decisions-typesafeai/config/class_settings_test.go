@@ -43,9 +43,15 @@ func Test_classSettings_Images(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tt.want, settings.Images())
+			images, err := settings.Images()
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, images)
 		})
 	}
+
+	images, err := NewClassSettings(nil).Images()
+	require.NoError(t, err)
+	assert.False(t, images, "no config, no images")
 }
 
 func Test_classSettings_Validate(t *testing.T) {

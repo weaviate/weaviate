@@ -561,7 +561,7 @@ func TestBatches(t *testing.T) {
 				indexes[i] = i
 			}
 
-			assert.Equal(t, tt.want, batches(indexes, tt.documents))
+			assert.Equal(t, tt.want, batches(indexes, tt.documents, MaxBatchDocuments, MaxBatchCharacters))
 		})
 	}
 
@@ -572,7 +572,7 @@ func TestBatches(t *testing.T) {
 			documents[i], indexes[i] = short, i
 		}
 
-		got := batches(indexes, documents)
+		got := batches(indexes, documents, MaxBatchDocuments, MaxBatchCharacters)
 
 		require.Len(t, got, 3)
 		assert.Len(t, got[0], MaxBatchDocuments)

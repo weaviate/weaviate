@@ -38,16 +38,16 @@ type decisionRequest struct {
 
 func (r decisionRequest) batches(indexes []int, documents []string) [][]int {
 	if r.image {
-		return imageBatches(indexes, documents)
+		return batches(indexes, documents, MaxBatchImages, MaxBatchImageChars)
 	}
-	return batches(indexes, documents)
+	return batches(indexes, documents, MaxBatchDocuments, MaxBatchCharacters)
 }
 
 // Decide asks Jev every question about every document and returns the
 // answers per document, in the order of the questions. One request carries
 // all the questions about a document, and the documents are batched as in
 // Rank, see MaxBatchDocuments. Identical documents are judged once. A
-// document without text gets refused answers.
+// document without content gets refused answers.
 func (c *client) Decide(ctx context.Context, questions []ent.DecisionQuestion, documents []string,
 	cfg moduletools.ClassConfig,
 ) ([][]ent.DecisionAnswer, error) {
@@ -69,9 +69,9 @@ func (c *client) Decide(ctx context.Context, questions []ent.DecisionQuestion, d
 			return nil, errors.Errorf("questions about %q and %q in one call: a call judges one property", questions[0].Property, question.Property)
 		}
 	}
-	image := isImageProperty(cfg, questions[0].Property)
-	if image && !settings.Images() {
-		return nil, errors.Errorf("property %q is a blob: images need the images setting of %s", questions[0].Property, config.ModuleName)
+	image, err := imageInput(settings, cfg, questions[0].Property)
+	if err != nil {
+		return nil, err
 	}
 	request := decisionRequest{url: typesafeaiURL, apiKey: apiKey, model: settings.Model(), questions: questions, image: image}
 

@@ -275,6 +275,22 @@ func TestDecide(t *testing.T) {
 		assert.Contains(t, err.Error(), `class "DecidePlain" has no decisions module`)
 	})
 
+	t.Run("a rerank by a decision about an image property goes to the module", func(t *testing.T) {
+		// decisions-dummy judges the blob as the text of its base64, which
+		// shares no word with the query, so every score is 0 and nothing is
+		// dropped; the point is that the blob reaches the module's rerank.
+		reply := grpchelper.AssertSearch(t, &pb.SearchRequest{
+			Collection: ticketsClass,
+			Properties: &pb.PropertiesRequest{NonRefProperties: []string{"text"}},
+			Rerank:     &pb.Rerank{Property: "photo", Query: ptr("damaged"), Decision: &pb.RerankDecision{}},
+		})
+
+		require.Len(t, reply.Results, 3)
+		for _, result := range reply.Results {
+			assert.Equal(t, 0.0, result.Metadata.RerankScore)
+		}
+	})
+
 	t.Run("rerank by a decision", func(t *testing.T) {
 		texts := func(reply *pb.SearchReply) []string {
 			out := make([]string, len(reply.Results))

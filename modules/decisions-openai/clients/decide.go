@@ -23,6 +23,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/decisions-openai/config"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
@@ -71,7 +72,7 @@ func (c *client) Decide(ctx context.Context, questions []ent.DecisionQuestion, d
 	request := decideRequest{
 		endpointAuth: endpointAuth{url: openAIURL, apiKey: apiKey, organization: c.organizationFor(ctx)},
 		model:        settings.Model, questions: questions,
-		image: isImageProperty(cfg, questions[0].Property),
+		image: modulecomponents.IsBlobProperty(cfg, questions[0].Property),
 	}
 
 	firstIndex := make(map[string]int, len(documents))

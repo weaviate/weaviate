@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/decisions-typesafeai/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
@@ -103,6 +104,10 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 	return c.RankProperty(ctx, query, "", false, documents, cfg)
 }
 
+// The provider dispatches to RankProperty by a type assertion; a signature
+// drift would fall back to Rank and send a blob's base64 as text.
+var _ rank.PropertyRanker = (*client)(nil)
+
 // RankProperty sends the content of a blob property as an image when the
 // class opts in. Jev judges the query as a statement whether the rerank is
 // a decision or not, so decision is not read.
@@ -114,9 +119,9 @@ func (c *client) RankProperty(ctx context.Context, query, property string, _ boo
 	if query == "" {
 		return nil, errors.New("no query provided")
 	}
-	image := isImageProperty(cfg, property)
-	if image && !settings.Images() {
-		return nil, errors.Errorf("property %q is a blob: images need the images setting of %s", property, config.ModuleName)
+	image, err := imageInput(settings, cfg, property)
+	if err != nil {
+		return nil, err
 	}
 	// The limits are applied here as well because a class that never names
 	// this module in its moduleConfig is not validated on creation.
@@ -145,7 +150,7 @@ func (c *client) RankProperty(ctx context.Context, query, property string, _ boo
 		pending = append(pending, i)
 	}
 
-	// Every text empty means the rerank property is not a text property of
+	// Every document empty means the rerank property is not a property of
 	// these objects, most likely a typo. Judging nothing would look like
 	// "nothing matched".
 	if len(documents) > 0 && len(firstIndex) == 0 {
@@ -201,16 +206,16 @@ func (c *client) RankProperty(ctx context.Context, query, property string, _ boo
 }
 
 // batches splits the positions of the documents to judge into requests of
-// at most MaxBatchDocuments documents and MaxBatchCharacters characters,
-// in order. A document longer than that goes alone; judge halves a request
-// the API still rejects.
-func batches(indexes []int, documents []string) [][]int {
+// at most maxDocuments documents and maxCharacters characters, in order. A
+// document longer than that goes alone; judge halves a request the API
+// still rejects.
+func batches(indexes []int, documents []string, maxDocuments, maxCharacters int) [][]int {
 	var out [][]int
 	var batch []int
 	characters := 0
 	for _, index := range indexes {
 		length := len(documents[index])
-		if len(batch) > 0 && (len(batch) == MaxBatchDocuments || characters+length > MaxBatchCharacters) {
+		if len(batch) > 0 && (len(batch) == maxDocuments || characters+length > maxCharacters) {
 			out = append(out, batch)
 			batch, characters = nil, 0
 		}
@@ -234,9 +239,29 @@ type judgeRequest struct {
 
 func (r judgeRequest) batches(indexes []int, documents []string) [][]int {
 	if r.image {
-		return imageBatches(indexes, documents)
+		return batches(indexes, documents, MaxBatchImages, MaxBatchImageChars)
 	}
-	return batches(indexes, documents)
+	return batches(indexes, documents, MaxBatchDocuments, MaxBatchCharacters)
+}
+
+type imagesSetting interface {
+	Images() (bool, error)
+}
+
+// imageInput says whether the documents of the property are sent as images:
+// the property is a blob and the class opts in.
+func imageInput(settings imagesSetting, cfg moduletools.ClassConfig, property string) (bool, error) {
+	if !modulecomponents.IsBlobProperty(cfg, property) {
+		return false, nil
+	}
+	images, err := settings.Images()
+	if err != nil {
+		return false, err
+	}
+	if !images {
+		return false, errors.Errorf("property %q is a blob: images need the images setting of %s", property, config.ModuleName)
+	}
+	return true, nil
 }
 
 // judge sends one batch and retries when the API is rate limiting or failing.
