@@ -106,9 +106,10 @@ func stateForShardDecision(e namespaces.Exister, namespace string) (api.Namespac
 
 // requireKnownNamespaceState returns nil when state is a key of stateTransitions.
 // It runs before ShardsShouldBeOpen, which reads an unknown state as "keep none open".
+// The error ends with ErrInvalidState's text, which namespaces.RefusalFromText matches on.
 func requireKnownNamespaceState(state api.NamespaceState) error {
 	if !namespaces.IsKnownState(state) {
-		return fmt.Errorf("%w: %w: %q", namespaces.ErrInvalidState, errUnknownNamespaceState, state)
+		return fmt.Errorf("%w %q: %w", errUnknownNamespaceState, state, namespaces.ErrInvalidState)
 	}
 	return nil
 }
