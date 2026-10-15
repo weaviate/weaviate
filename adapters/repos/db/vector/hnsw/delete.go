@@ -965,8 +965,12 @@ func (h *hnsw) addTombstone(ids ...uint64) error {
 	}
 
 	for _, id := range ids {
-		h.metrics.AddTombstone()
-		h.tombstones[id] = struct{}{}
+		// an id deleted again, e.g. by a replayed async-indexing delete, is
+		// already counted in vector_index_tombstones
+		if _, ok := h.tombstones[id]; !ok {
+			h.metrics.AddTombstone()
+			h.tombstones[id] = struct{}{}
+		}
 		if err := h.commitLog.AddTombstone(id); err != nil {
 			return err
 		}
@@ -989,9 +993,13 @@ func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakClean
 			// tombstone that no cycle would ever revisit
 			continue
 		}
-		h.metrics.RemoveTombstone()
 		h.tombstoneLock.Lock()
-		delete(h.tombstones, id)
+		// a resetUnlocked during this cycle already cleared h.tombstones and
+		// vector_index_tombstones
+		if _, ok := h.tombstones[id]; ok {
+			h.metrics.RemoveTombstone()
+			delete(h.tombstones, id)
+		}
 		h.tombstoneLock.Unlock()
 
 		h.resetLock.Lock()

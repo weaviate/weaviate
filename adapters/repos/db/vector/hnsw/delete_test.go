@@ -2124,6 +2124,88 @@ func Test_DeleteTombstoneMetrics(t *testing.T) {
 	})
 }
 
+// TestDelete_TombstoneMetricMatchesTombstones checks the vector_index_tombstones
+// gauge against len(h.tombstones) when an id with a tombstone is deleted again
+// and when a reset clears the tombstones during a cleanup cycle.
+func TestDelete_TombstoneMetricMatchesTombstones(t *testing.T) {
+	tests := []struct {
+		name     string
+		run      func(t *testing.T, index *hnsw)
+		expected int
+	}{
+		{
+			name: "delete an id that already has a tombstone together with a new id",
+			run: func(t *testing.T, index *hnsw) {
+				require.NoError(t, index.Delete(2))
+				require.NoError(t, index.Delete(2, 4))
+			},
+			expected: 2,
+		},
+		{
+			name: "cleanup after deleting an id twice",
+			run: func(t *testing.T, index *hnsw) {
+				require.NoError(t, index.Delete(2))
+				require.NoError(t, index.Delete(2, 4))
+				require.NoError(t, index.CleanUpTombstonedNodes(neverStop))
+			},
+			expected: 0,
+		},
+		{
+			name: "reset between copying and removing the tombstones of a cycle",
+			run: func(t *testing.T, index *hnsw) {
+				require.NoError(t, index.Delete(2, 4))
+				deleteList := index.tombstonesAsDenyList()
+				require.NoError(t, index.resetUnlocked())
+				_, err := index.removeTombstonesAndNodes(deleteList, neverStop)
+				require.NoError(t, err)
+			},
+			expected: 0,
+		},
+	}
+
+	vectors := vectorsForDeleteTest()
+	metrics := monitoring.GetMetrics()
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			className, shardName := "TombstoneMetric", fmt.Sprintf("shard-%d", i)
+			t.Cleanup(func() { metrics.VectorIndexTombstones.DeleteLabelValues(className, shardName) })
+
+			index, err := New(Config{
+				RootPath:              t.TempDir(),
+				ID:                    "tombstone-metric",
+				ClassName:             className,
+				ShardName:             shardName,
+				MakeCommitLoggerThunk: MakeNoopCommitLogger,
+				DistanceProvider:      distancer.NewCosineDistanceProvider(),
+				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+					return vectors[int(id)], nil
+				},
+				GetViewThunk:                 GetViewThunk,
+				TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+				AllocChecker:                 memwatch.NewDummyMonitor(),
+				PrometheusMetrics:            metrics,
+			}, ent.UserConfig{
+				MaxConnections:        30,
+				EFConstruction:        64,
+				VectorCacheMaxObjects: 100000,
+			}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+			require.NoError(t, err)
+			defer index.Shutdown(context.Background())
+
+			for id, vec := range vectors {
+				require.NoError(t, index.Add(context.Background(), uint64(id), vec))
+			}
+
+			tt.run(t, index)
+
+			gauge, err := metrics.VectorIndexTombstones.GetMetricWithLabelValues(className, shardName)
+			require.NoError(t, err)
+			require.Equal(t, float64(tt.expected), testutil.ToFloat64(gauge))
+			require.Equal(t, tt.expected, tombstoneCountOf(index))
+		})
+	}
+}
+
 // TestDelete_EntrypointWithLowerLevelThanOtherNodes tests a regression where
 // deleting an entrypoint with a lower level than other nodes in the graph
 // causes a panic. This can happen when:
