@@ -146,6 +146,7 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 	if state.Compressed() {
 		h.compressed.Store(true)
 		h.cache.Drop()
+		h.cache = nil
 
 		if pqData := state.CompressionPQData(); pqData != nil {
 			h.dims.Store(int32(pqData.Dimensions))
