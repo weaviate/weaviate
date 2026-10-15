@@ -91,6 +91,11 @@ func TestBackupPrincipalMigration(t *testing.T) {
 	books := policiesOf(t, backupsPermission(&models.PermissionBackups{Collection: authorization.String("Books")}))[0]
 	grants := policiesOf(t, backupsPermission(authorization.AllBackupUsers), backupsPermission(authorization.AllBackupRoles))
 	readData := policiesOf(t, &models.Permission{Action: authorization.String(authorization.ReadData), Data: authorization.AllData})[0]
+	readBackups := func(b *models.PermissionBackups) *models.Permission {
+		return &models.Permission{Action: authorization.String(authorization.ReadBackups), Backups: b}
+	}
+	readMovies := policiesOf(t, readBackups(&models.PermissionBackups{Collection: authorization.String("Movies")}))[0]
+	readGrants := policiesOf(t, readBackups(authorization.AllBackupUsers), readBackups(authorization.AllBackupRoles))
 
 	t.Run("replay", func(t *testing.T) {
 		t.Run("a marker-less upsert gains the grants for a wildcard or class-scoped collections grant", func(t *testing.T) {
@@ -120,7 +125,7 @@ func TestBackupPrincipalMigration(t *testing.T) {
 			assert.Len(t, rolePolicies(t, m, "operator"), 3)
 		})
 
-		t.Run("a marker-less remove drops the grants only with the last collections grant the role holds", func(t *testing.T) {
+		t.Run("a marker-less remove drops each grant with the last collections grant that derives it", func(t *testing.T) {
 			tests := []struct {
 				name string
 				// setup builds the role that the remove without the marker then acts on.
@@ -145,6 +150,12 @@ func TestBackupPrincipalMigration(t *testing.T) {
 					setup:  func(m *Manager) { applyUpsert(t, m, "operator", latest, false, movies, books) },
 					remove: []authorization.Policy{movies},
 					want:   append([]authorization.Policy{books}, grants...),
+				},
+				{
+					name:   "a remaining collections grant with another verb keeps only the grants it derives",
+					setup:  func(m *Manager) { applyUpsert(t, m, "operator", latest, false, movies, readMovies) },
+					remove: []authorization.Policy{movies},
+					want:   append([]authorization.Policy{readMovies}, readGrants...),
 				},
 				{
 					name: "removing a grant the role never held strips nothing, explicit wildcards included",

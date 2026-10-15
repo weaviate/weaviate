@@ -979,10 +979,12 @@ func addBackupPrincipalGrants(enforcer *casbin.SyncedCachedEnforcer) error {
 }
 
 // OrphanedBackupPrincipalGrants returns the users/roles backup wildcards to
-// drop alongside the removed permissions. The migration derives those
-// wildcards from a role's collections backup grants, so they go when the
-// role loses its last one; while any survives, it returns nil. It judges raw
-// casbin rows, so rows the permission converter rejects cannot fail it.
+// drop alongside the removed permissions. The migration derives each wildcard
+// from a role's collections backup grants with the same verb, so a wildcard
+// goes when the removal takes the last row deriving it, and stays while a
+// surviving row derives it. Replay then matches what migrating a later
+// snapshot derives. It judges raw casbin rows, so rows the permission
+// converter rejects cannot fail it.
 func (m *Manager) OrphanedBackupPrincipalGrants(role string, removing []*authorization.Policy) ([]*authorization.Policy, error) {
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
@@ -998,25 +1000,29 @@ func (m *Manager) OrphanedBackupPrincipalGrants(role string, removing []*authori
 		}
 	}
 
-	var orphaned []*authorization.Policy
-	seen := map[authorization.Policy]struct{}{}
+	// keep holds every grant a surviving row derives, then each orphan once
+	// it is added.
+	keep := map[authorization.Policy]struct{}{}
+	var candidates []authorization.Policy
 	for _, row := range rows {
 		if len(row) < 4 {
 			continue
 		}
 		held := authorization.Policy{Resource: row[1], Verb: row[2], Domain: row[3]}
 		grants := conv.BackupPrincipalGrants(held)
-		if len(grants) == 0 {
+		if _, ok := removed[held]; ok {
+			candidates = append(candidates, grants...)
 			continue
 		}
-		if _, ok := removed[held]; !ok {
-			return nil, nil
-		}
 		for _, g := range grants {
-			if _, ok := seen[g]; !ok {
-				seen[g] = struct{}{}
-				orphaned = append(orphaned, &g)
-			}
+			keep[g] = struct{}{}
+		}
+	}
+	var orphaned []*authorization.Policy
+	for _, g := range candidates {
+		if _, ok := keep[g]; !ok {
+			keep[g] = struct{}{}
+			orphaned = append(orphaned, &g)
 		}
 	}
 	return orphaned, nil
