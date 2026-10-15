@@ -390,9 +390,6 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	// count as runs
 	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessTombstoneCleanup)()
 
-	h.metrics.StartCleanup(tombstoneDeletionConcurrency())
-	defer h.metrics.EndCleanup(tombstoneDeletionConcurrency())
-
 	h.metrics.SetTombstoneDeleteListSize(deleteList.Len())
 
 	h.tombstoneLock.Lock()
@@ -662,7 +659,6 @@ func (h *hnsw) reassignNeighbor(
 		return false, errors.Wrap(err, "find and connect neighbors")
 	}
 
-	h.metrics.CleanedUp()
 	return true, nil
 }
 
@@ -810,8 +806,6 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList,
 		return 0, 0, false
 	}
 
-	h.metrics.TombstoneFindGlobalEntrypoint()
-
 	// Find the node with the highest level that is not in the denyList. This
 	// handles cases where nodes may have higher levels than
 	// currentMaximumLayer (e.g., due to corrupt commit log replay or
@@ -873,8 +867,6 @@ func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, oldEntrypoint 
 		// currently available level
 		return entryPointID, nil
 	}
-
-	h.metrics.TombstoneFindLocalEntrypoint()
 
 	h.RLock()
 	maxNodes := len(h.nodes)
