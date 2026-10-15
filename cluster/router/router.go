@@ -485,11 +485,6 @@ func (r *multiTenantRouter) getReadReplicasLocation(collection string, tenant, s
 	return r.readReplicasFromLocalSchema(collection, shard)
 }
 
-func (r *multiTenantRouter) readReplicaSet(collection, shard string, replicas []string) types.ReadReplicaSet {
-	readNodeNames := r.replicationFSMReader.FilterOneShardReplicasRead(collection, shard, replicas)
-	return types.ReadReplicaSet{Replicas: buildReplicas(readNodeNames, shard, r.nodeSelector.NodeHostname)}
-}
-
 // readReplicasForPlan resolves read replicas honoring LocalOnly: local schema only
 // (no leader query, no tenant activation) when set, else the tenant-status path.
 func (r *multiTenantRouter) readReplicasForPlan(params types.RoutingPlanBuildOptions) (types.ReadReplicaSet, error) {
@@ -507,7 +502,10 @@ func (r *multiTenantRouter) readReplicasFromLocalSchema(collection, shard string
 		return types.ReadReplicaSet{}, err
 	}
 
-	return r.readReplicaSet(collection, shard, replicas), nil
+	readNodeNames := r.replicationFSMReader.FilterOneShardReplicasRead(collection, shard, replicas)
+	readReplicas := buildReplicas(readNodeNames, shard, r.nodeSelector.NodeHostname)
+
+	return types.ReadReplicaSet{Replicas: readReplicas}, nil
 }
 
 // getWriteReplicasLocation returns only write replicas for multi-tenant collections.

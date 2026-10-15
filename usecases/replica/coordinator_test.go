@@ -541,8 +541,8 @@ func TestPullOutlastsReplicasThatAreMerelyBehindTheSchema(t *testing.T) {
 
 	c := replica.NewReadCoordinator[int](router, metrics, cls, shard, "", logger)
 
-	// What a node that has not caught up answers, with no not-ready marker in it. Four refusals
-	// per host, so a rule that counted them would have given up long before the catch-up.
+	// This is what a node that has not caught up answers. It contains no not-ready message,
+	// and each host sends it four times before it serves.
 	lagging := &clients.HTTPError{
 		Code: http.StatusUnprocessableEntity,
 		Body: []byte("local " + shard + " shard not found"),
@@ -576,10 +576,8 @@ func TestPullOutlastsReplicasThatAreMerelyBehindTheSchema(t *testing.T) {
 		"a quorum that was behind for several retries must still be reached, not abandoned")
 }
 
-// The rolling-restart case: one replica is restarting and reports it cannot serve. Retrying it
-// cannot help, so the read has to fail over to a replica that can answer rather than spend the
-// caller's timeout on the one that cannot -- a caller that needs one replica (an aggregated count)
-// then still gets an answer instead of an error.
+// TestPullFailsOverOffARefusingReplica pins that Pull still reaches the one replica that serves
+// when the other two refuse with node not ready, and returns well before the caller's timeout.
 func TestPullFailsOverOffARefusingReplica(t *testing.T) {
 	const (
 		cls   = "C1"

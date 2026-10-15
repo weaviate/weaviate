@@ -319,9 +319,11 @@ func (c *coordinator[T, R]) Push(ctx context.Context,
 	return c.read(level, commitCh, onResult, onFlatten, batchSize), nil
 }
 
-// replicaCannotServe reports whether err means the replica is unable to serve at all - starting up,
-// in maintenance, or without the class yet - rather than failing transiently. The readiness gates
-// are matched by message because both transports make them opaque.
+// replicaCannotServe reports whether err is a peer's node-not-ready refusal, matched by message
+// because the read clients pass it through as text. That node is starting up and will not answer,
+// so the read fails over to another replica. Maintenance and a missing class are retried instead:
+// a replica behind the schema answers the same unprocessable as a class that does not exist, and
+// catches up in less than a retry takes. Maintenance is only ever the wire text of a 418.
 func replicaCannotServe(err error) bool {
 	if err == nil {
 		return false
@@ -373,9 +375,9 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 			c.metrics.ObserveReadDuration(time.Since(start))
 		}()
 
-		// A replica that reports it cannot serve is starting up, in maintenance, or has not got
-		// the class yet. Retrying it cannot help, so it is dropped rather than put back on the
-		// queue and the worker moves to another replica.
+		// A not-ready replica is starting up, so retrying it cannot help yet. Drop it and take
+		// another. Once every replica has settled, cancelling releases a worker that would
+		// otherwise wait on an empty queue.
 		candidatesCtx, noCandidatesLeft := context.WithCancel(ctx)
 		defer noCandidatesLeft()
 
@@ -433,7 +435,10 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 					default:
 						hostRetryQueue <- hostRetry{
 							hosts[hostIndex],
-							backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), workerCtx),
+							// candidatesCtx, not workerCtx: the backoff belongs to the host, which
+							// outlives this worker. Bound to the worker it dies when that worker
+							// returns, and the next one gets backoff.Stop on its first failure.
+							backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), candidatesCtx),
 						}
 					}
 				}
