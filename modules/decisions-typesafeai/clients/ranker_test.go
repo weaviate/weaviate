@@ -134,7 +134,7 @@ func TestRank(t *testing.T) {
 		c := newTestClient("apiKey")
 		_, err := c.Rank(context.Background(), query, []string{"", ""}, classConfig(server.URL, nil))
 
-		require.EqualError(t, err, "no document has text: check the rerank property")
+		require.EqualError(t, err, "no document has content: check the rerank property")
 		assert.Empty(t, handler.received())
 	})
 
@@ -665,7 +665,10 @@ func TestRankHonoursRetryAfter(t *testing.T) {
 
 type receivedRequest struct {
 	authorization string
-	body          typesafeaiRequest
+	// header is the value of the danger-zone images header, empty when
+	// absent.
+	header string
+	body   typesafeaiRequest
 }
 
 // typesafeaiHandler fakes the TypeSafeAI API. statuses[i] is the status of the i-th request;
@@ -717,7 +720,11 @@ func (h *typesafeaiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if n := len(h.requests); n < len(h.scoreByRequest) {
 		fixedScore = &h.scoreByRequest[n]
 	}
-	h.requests = append(h.requests, receivedRequest{authorization: r.Header.Get("Authorization"), body: req})
+	h.requests = append(h.requests, receivedRequest{
+		authorization: r.Header.Get("Authorization"),
+		header:        r.Header.Get(dangerZoneImagesHeader),
+		body:          req,
+	})
 	h.inFlight++
 	if h.inFlight > h.maxInFlight {
 		h.maxInFlight = h.inFlight
@@ -810,6 +817,7 @@ func classConfig(baseURL string, settings map[string]any) moduletools.ClassConfi
 
 type fakeClassConfig struct {
 	classConfig map[string]any
+	dataTypes   map[string]schema.DataType
 }
 
 func (f fakeClassConfig) Class() map[string]any {
@@ -833,7 +841,7 @@ func (f fakeClassConfig) TargetVector() string {
 }
 
 func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
-	return nil
+	return f.dataTypes
 }
 
 func (f fakeClassConfig) Config() *config.Config {

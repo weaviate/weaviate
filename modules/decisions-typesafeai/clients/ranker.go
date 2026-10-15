@@ -100,10 +100,24 @@ func New(apiKey string, timeout time.Duration, maxConcurrentRequests int, logger
 func (c *client) Rank(ctx context.Context, query string, documents []string,
 	cfg moduletools.ClassConfig,
 ) (*ent.RankResult, error) {
+	return c.RankProperty(ctx, query, "", false, documents, cfg)
+}
+
+// RankProperty is Rank for the documents of a named property: the content
+// of a blob property is sent as an image when the class opts in. The query
+// is the statement Jev judges whether the rerank is a decision or not, so
+// decision is not read.
+func (c *client) RankProperty(ctx context.Context, query, property string, _ bool, documents []string,
+	cfg moduletools.ClassConfig,
+) (*ent.RankResult, error) {
 	settings := config.NewClassSettings(cfg)
 
 	if query == "" {
 		return nil, errors.New("no query provided")
+	}
+	image := isImageProperty(cfg, property)
+	if image && !settings.Images() {
+		return nil, errors.Errorf("property %q is a blob: images need the images setting of %s", property, config.ModuleName)
 	}
 	// The limits are applied here as well because a class that never names
 	// this module in its moduleConfig is not validated on creation.
@@ -114,7 +128,7 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 	if err != nil {
 		return nil, err
 	}
-	request := judgeRequest{url: typesafeaiURL, apiKey: apiKey, model: settings.Model(), query: query}
+	request := judgeRequest{url: typesafeaiURL, apiKey: apiKey, model: settings.Model(), query: query, image: image}
 
 	// Documents with the same content share one judgment. firstIndex maps a
 	// document to the position that holds its score.
@@ -136,13 +150,18 @@ func (c *client) Rank(ctx context.Context, query string, documents []string,
 	// these objects, most likely a typo. Judging nothing would look like
 	// "nothing matched".
 	if len(documents) > 0 && len(firstIndex) == 0 {
-		return nil, errors.New("no document has text: check the rerank property")
+		return nil, errors.New("no document has content: check the rerank property")
+	}
+	if image {
+		if err := checkImages(documents, pending); err != nil {
+			return nil, err
+		}
 	}
 
 	var inputTokens, requests atomic.Int64
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(c.logger, ctx)
 	eg.SetLimit(cap(c.inFlight))
-	for _, batch := range batches(pending, documents) {
+	for _, batch := range request.batches(pending, documents) {
 		eg.Go(func() error {
 			batchDocuments := make([]string, len(batch))
 			for j, index := range batch {
@@ -211,6 +230,15 @@ type judgeRequest struct {
 	apiKey string
 	model  string
 	query  string
+	// image says that the documents are the content of a blob property.
+	image bool
+}
+
+func (r judgeRequest) batches(indexes []int, documents []string) [][]int {
+	if r.image {
+		return imageBatches(indexes, documents)
+	}
+	return batches(indexes, documents)
 }
 
 // judge sends one batch and retries when the API is rate limiting or failing.
@@ -237,12 +265,16 @@ func (c *client) judge(ctx context.Context, request judgeRequest, documents []st
 
 func (c *client) judgeBatch(ctx context.Context, request judgeRequest, documents []string,
 ) ([]float64, typesafeaiUsage, sendResult, error) {
-	body, err := json.Marshal(newTypeSafeAIRequest(request, documents))
+	typesafeaiReq, err := newTypeSafeAIRequest(request, documents)
+	if err != nil {
+		return nil, typesafeaiUsage{}, sendResult{}, err
+	}
+	body, err := json.Marshal(typesafeaiReq)
 	if err != nil {
 		return nil, typesafeaiUsage{}, sendResult{}, errors.Wrap(err, "marshal body")
 	}
 
-	response, result, err := c.postWithRetry(ctx, request.url, request.apiKey, body)
+	response, result, err := c.postWithRetry(ctx, request.url, request.apiKey, body, request.image)
 	if err != nil {
 		return nil, typesafeaiUsage{}, result, err
 	}
@@ -256,7 +288,7 @@ func (c *client) judgeBatch(ctx context.Context, request judgeRequest, documents
 // postWithRetry sends the body and retries when the API is rate limiting or
 // failing. The result says whether the API rejected the request for its
 // size.
-func (c *client) postWithRetry(ctx context.Context, url, apiKey string, body []byte,
+func (c *client) postWithRetry(ctx context.Context, url, apiKey string, body []byte, images bool,
 ) (typesafeaiResponse, sendResult, error) {
 	var lastErr error
 	retryAfter := time.Duration(0)
@@ -266,7 +298,7 @@ func (c *client) postWithRetry(ctx context.Context, url, apiKey string, body []b
 				return typesafeaiResponse{}, sendResult{}, err
 			}
 		}
-		response, result, err := c.send(ctx, url, apiKey, body)
+		response, result, err := c.send(ctx, url, apiKey, body, images)
 		if err == nil {
 			return response, result, nil
 		}
@@ -305,7 +337,9 @@ type sendResult struct {
 // request has more tokens than it accepts. The limit is not published.
 const tooLargeError = "max_tokens_exceeded"
 
-func (c *client) send(ctx context.Context, url, apiKey string, body []byte,
+// images adds the header that switches the API's image input on; the API
+// rejects a request with assets without it.
+func (c *client) send(ctx context.Context, url, apiKey string, body []byte, images bool,
 ) (typesafeaiResponse, sendResult, error) {
 	select {
 	case c.inFlight <- struct{}{}:
@@ -320,6 +354,9 @@ func (c *client) send(ctx context.Context, url, apiKey string, body []byte,
 	}
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 	req.Header.Add("Content-Type", "application/json")
+	if images {
+		req.Header.Add(dangerZoneImagesHeader, "true")
+	}
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
@@ -412,6 +449,9 @@ type typesafeaiRequest struct {
 	Model     string                        `json:"model"`
 	State     any                           `json:"state"`
 	Questions map[string]typesafeaiQuestion `json:"questions"`
+	// Assets are the images of the request, which the state names by
+	// reference.
+	Assets map[string]imageAsset `json:"assets,omitempty"`
 }
 
 type typesafeaiQuestion struct {
@@ -424,26 +464,45 @@ type typesafeaiQuestion struct {
 
 // newTypeSafeAIRequest builds the request for one batch. A single document is the
 // state itself. Several documents become a map, with one question per
-// document that names the document it is about.
-func newTypeSafeAIRequest(request judgeRequest, documents []string) typesafeaiRequest {
+// document that names the document it is about. An image document is an
+// asset, and the state holds its reference.
+func newTypeSafeAIRequest(request judgeRequest, documents []string) (typesafeaiRequest, error) {
 	question := typesafeaiQuestion{Type: noulType, Instructions: request.query}
+	values, assets, err := stateValues(request.image, documents)
+	if err != nil {
+		return typesafeaiRequest{}, err
+	}
 	if len(documents) == 1 {
 		return typesafeaiRequest{
 			Model:     request.model,
-			State:     documents[0],
+			State:     values[0],
 			Questions: map[string]typesafeaiQuestion{questionKey: question},
-		}
+			Assets:    assets,
+		}, nil
 	}
 	state := make(map[string]string, len(documents))
 	questions := make(map[string]typesafeaiQuestion, len(documents))
-	for i, document := range documents {
+	for i := range documents {
 		key := batchKey(i)
-		state[key] = document
+		state[key] = values[i]
 		batchQuestion := question
 		batchQuestion.Instructions = "In " + key + ": " + request.query
 		questions[key] = batchQuestion
 	}
-	return typesafeaiRequest{Model: request.model, State: state, Questions: questions}
+	return typesafeaiRequest{Model: request.model, State: state, Questions: questions, Assets: assets}, nil
+}
+
+// stateValues is what the state holds for each document: the text, or the
+// reference of the image asset.
+func stateValues(image bool, documents []string) ([]string, map[string]imageAsset, error) {
+	if !image {
+		return documents, nil, nil
+	}
+	assets, references, err := assetsOf(documents)
+	if err != nil {
+		return nil, nil, err
+	}
+	return references, assets, nil
 }
 
 func batchKey(i int) string {

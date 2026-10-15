@@ -22,6 +22,9 @@ import (
 
 const moduleName = "decisions-typesafeai"
 
+// ModuleName is the name the errors of the clients use.
+const ModuleName = moduleName
+
 const (
 	DefaultBaseURL         = "https://api.typesafe.ai"
 	DefaultTypeSafeAIModel = "jev-latest"
@@ -71,7 +74,23 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if minProbability := ic.MinProbability(); !ValidProbability(minProbability) {
 		return fmt.Errorf("minProbability must be between 0 and 1, got %v", minProbability)
 	}
+	if value, ok := ic.cfg.ClassByModuleName(moduleName)["images"]; ok {
+		if _, isBool := value.(bool); !isBool {
+			return fmt.Errorf("images must be true or false, got %v", value)
+		}
+	}
 	return ic.propertyValuesHelper.ValidateBaseURL(ic.BaseURL())
+}
+
+// Images says whether the module judges blob properties as images. Off by
+// default: image input is an experimental feature of the API, enabled per
+// request with a header, and this setting is the class's opt-in.
+func (ic *classSettings) Images() bool {
+	if ic.cfg == nil {
+		return false
+	}
+	value, _ := ic.cfg.ClassByModuleName(moduleName)["images"].(bool)
+	return value
 }
 
 // ValidProbability reports whether p is in [0, 1]. NaN is not.

@@ -21,6 +21,33 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
+func Test_classSettings_Images(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     map[string]any
+		want    bool
+		wantErr string
+	}{
+		{name: "off by default", cfg: map[string]any{}},
+		{name: "on", cfg: map[string]any{"images": true}, want: true},
+		{name: "off", cfg: map[string]any{"images": false}},
+		{name: "a string is rejected", cfg: map[string]any{"images": "yes"}, wantErr: "images must be true or false, got yes"},
+		{name: "a number is rejected", cfg: map[string]any{"images": 1}, wantErr: "images must be true or false, got 1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			settings := NewClassSettings(fakeClassConfig{classConfig: tt.cfg})
+			err := settings.Validate(nil)
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, settings.Images())
+		})
+	}
+}
+
 func Test_classSettings_Validate(t *testing.T) {
 	tests := []struct {
 		name             string

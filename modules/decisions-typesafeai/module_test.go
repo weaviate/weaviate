@@ -63,10 +63,13 @@ func TestDecisionLimits(t *testing.T) {
 		name             string
 		settings         map[string]any
 		wantMaxDocuments int
+		wantImages       bool
 		wantErr          string
 	}{
 		{name: "defaults", settings: map[string]any{}, wantMaxDocuments: 100},
 		{name: "maxDocuments from the class", settings: map[string]any{"maxDocuments": 40}, wantMaxDocuments: 40},
+		{name: "images on", settings: map[string]any{"images": true}, wantMaxDocuments: 100, wantImages: true},
+		{name: "images off", settings: map[string]any{"images": false}, wantMaxDocuments: 100},
 		// A class created before the module was enabled was never validated.
 		{name: "maxDocuments above the upper bound", settings: map[string]any{"maxDocuments": 5000}, wantErr: "maxDocuments must be a whole number between 1 and 1000, got 5000"},
 		{name: "maxDocuments of another type", settings: map[string]any{"maxDocuments": "many"}, wantErr: "maxDocuments must be a whole number between 1 and 1000, got many"},
@@ -80,10 +83,14 @@ func TestDecisionLimits(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
+			dataTypes := []schema.DataType{schema.DataTypeText}
+			if tt.wantImages {
+				dataTypes = append(dataTypes, schema.DataTypeBlob)
+			}
 			assert.Equal(t, modulecapabilities.DecisionLimits{
 				MaxDocuments: tt.wantMaxDocuments,
 				MaxLevels:    10,
-				DataTypes:    []schema.DataType{schema.DataTypeText},
+				DataTypes:    dataTypes,
 			}, limits)
 		})
 	}
