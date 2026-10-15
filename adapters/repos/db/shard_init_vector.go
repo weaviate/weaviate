@@ -91,22 +91,26 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 
 	s.migrateCompressedVectors(legacy, targets)
 
-	// legacy first, then names in order
+	// legacy first, then names in order. The record says where the index and
+	// its queue live; the schema says what config to build with, until the
+	// cutover makes the record authoritative for that too.
 	for _, name := range slices.Sorted(maps.Keys(records)) {
-		err := s.createVectorIndex(ctx, name, records[name].PhysicalID, active[name], s.lazySegmentLoadingEnabled)
+		rec := records[name]
+		err := s.createVectorIndex(ctx, name, rec.PhysicalID, rec.queueIDOrDefault(), active[name], s.lazySegmentLoadingEnabled)
 		if err != nil {
 			return err
 		}
 	}
 	// a skipped vector owns no files and no record, but callers need its slot
 	for name, cfg := range skipped {
-		err := s.createVectorIndex(ctx, name, s.vectorIndexID(name), cfg, s.lazySegmentLoadingEnabled)
+		id := s.vectorIndexID(name)
+		err := s.createVectorIndex(ctx, name, id, id, cfg, s.lazySegmentLoadingEnabled)
 		if err != nil {
 			return err
 		}
 	}
 
-	err = s.commitVectorIndexRecords(records, initialized)
+	err = s.commitVectorIndexRecords(records, active, initialized)
 	if err != nil {
 		return fmt.Errorf("shard %q: %w", s.ID(), err)
 	}
@@ -371,7 +375,8 @@ func (s *Shard) migrateCompressedVectors(legacy schemaConfig.VectorIndexConfig, 
 // absent build it once; the second finds it in place and returns.
 func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
 	if !vectorIndexHasStorage(cfg) {
-		return s.createVectorIndex(ctx, targetVector, s.vectorIndexID(targetVector), cfg, lazyLoadSegments)
+		id := s.vectorIndexID(targetVector)
+		return s.createVectorIndex(ctx, targetVector, id, id, cfg, lazyLoadSegments)
 	}
 	rec := vectorIndexRecordFor(targetVector, cfg, vectorIndexStateCreating)
 	_, err := s.vectors.Create(targetVector, func() (VectorIndex, *VectorIndexQueue, error) {
@@ -383,7 +388,7 @@ func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg s
 		if err != nil {
 			return nil, nil, err
 		}
-		index, queue, err := s.buildVectorIndexAndQueue(ctx, targetVector, rec.PhysicalID, cfg, lazyLoadSegments)
+		index, queue, err := s.buildVectorIndexAndQueue(ctx, targetVector, rec.PhysicalID, rec.QueueID, cfg, lazyLoadSegments)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -404,24 +409,24 @@ func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg s
 	return err
 }
 
-// createVectorIndex builds and publishes targetVector's index and queue at
-// physicalID unless the slot exists.
-func (s *Shard) createVectorIndex(ctx context.Context, targetVector, physicalID string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
+// createVectorIndex builds and publishes targetVector's index at physicalID
+// and its queue at queueID unless the slot exists.
+func (s *Shard) createVectorIndex(ctx context.Context, targetVector, physicalID, queueID string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
 	_, err := s.vectors.Create(targetVector, func() (VectorIndex, *VectorIndexQueue, error) {
-		return s.buildVectorIndexAndQueue(ctx, targetVector, physicalID, cfg, lazyLoadSegments)
+		return s.buildVectorIndexAndQueue(ctx, targetVector, physicalID, queueID, cfg, lazyLoadSegments)
 	})
 	return err
 }
 
-// buildVectorIndexAndQueue constructs a vector's index and its queue at
-// physicalID. A queue that fails to build takes the index down with it, so
-// nothing is left running unpublished.
-func (s *Shard) buildVectorIndexAndQueue(ctx context.Context, targetVector, physicalID string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) (VectorIndex, *VectorIndexQueue, error) {
+// buildVectorIndexAndQueue constructs a vector's index at physicalID and
+// its queue at queueID. A queue that fails to build takes the index down
+// with it, so nothing is left running unpublished.
+func (s *Shard) buildVectorIndexAndQueue(ctx context.Context, targetVector, physicalID, queueID string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) (VectorIndex, *VectorIndexQueue, error) {
 	vectorIndex, err := s.initVectorIndex(ctx, targetVector, physicalID, cfg, lazyLoadSegments)
 	if err != nil {
 		return nil, nil, fmt.Errorf("cannot create vector index for %q: %w", targetVector, err)
 	}
-	queue, err := newVectorIndexQueueWithID(s, physicalID, s.vectorIndexLogger(targetVector, physicalID), targetVector, vectorIndex, 0)
+	queue, err := newVectorIndexQueueWithID(s, queueID, s.vectorIndexLogger(targetVector, physicalID), targetVector, vectorIndex, 0)
 	if err != nil {
 		if shutdownErr := vectorIndex.Shutdown(s.shutCtx); shutdownErr != nil {
 			return nil, nil, fmt.Errorf("cannot create index queue for %q: %w (shutting down the orphaned vector index also failed: %w)",
@@ -460,6 +465,8 @@ func dropOneVectorIndex(ctx context.Context, index VectorIndex) error {
 // physicalID, its dynamic state key and last its record. Siblings protect
 // what their records map them to; a sibling without a record owns nothing.
 // Idempotent: a retry after a partial run finds less to do.
+// The queue is removed under physicalID: validate refuses a record whose
+// queue ID differs.
 func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name, physicalID string) error {
 	others := otherTargetVectors(s.class, name)
 	otherIDs := make([]string, 0, len(others))
