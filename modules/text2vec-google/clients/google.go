@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -167,7 +168,13 @@ func (v *google) vectorize(ctx context.Context, input []string, taskType taskTyp
 		return nil, err
 	}
 
-	useGenerativeAIEndpoint := v.useGenerativeAIEndpoint(config)
+	useGenerativeAIEndpoint, endpoint := v.useGenerativeAIEndpoint(config)
+
+	startTime := time.Now()
+	defer func() {
+		monitoring.GetMetrics().ModuleExternalRequestDuration.WithLabelValues("text2vec-google", endpoint).
+			Observe(time.Since(startTime).Seconds())
+	}()
 
 	payload := v.getPayload(useGenerativeAIEndpoint, input, taskType, titlePropertyValue, config)
 	body, err := json.Marshal(payload)
@@ -176,7 +183,8 @@ func (v *google) vectorize(ctx context.Context, input []string, taskType taskTyp
 	}
 
 	endpointURL := v.urlBuilderFn(useGenerativeAIEndpoint,
-		v.getApiEndpoint(config), v.getProjectID(config), v.getModel(config), v.getLocation(config))
+		v.getApiEndpoint(config), v.getProjectID(config), v.getModel(config), v.getLocation(config),
+	)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", endpointURL,
 		bytes.NewReader(body))
@@ -212,8 +220,11 @@ func (v *google) vectorize(ctx context.Context, input []string, taskType taskTyp
 	return v.parseEmbeddingsResponse(res.StatusCode, bodyBytes, input)
 }
 
-func (v *google) useGenerativeAIEndpoint(config settings) bool {
-	return v.getApiEndpoint(config) == "generativelanguage.googleapis.com"
+func (v *google) useGenerativeAIEndpoint(config settings) (bool, string) {
+	if v.getApiEndpoint(config) == "generativelanguage.googleapis.com" {
+		return true, fmt.Sprintf("ai_studio:%s", config.Model)
+	}
+	return false, fmt.Sprintf("vertex_ai:%s:%s", config.Location, config.Model)
 }
 
 func (v *google) getPayload(useGenerativeAI bool, input []string,
