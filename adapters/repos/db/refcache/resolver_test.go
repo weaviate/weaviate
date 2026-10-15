@@ -534,7 +534,7 @@ func TestResolver(t *testing.T) {
 	})
 
 	// Hybrid search selects references this way to load them without
-	// resolving them (withoutRefs in usecases/traverser).
+	// resolving them (Explorer.withoutRefs in usecases/traverser).
 	t.Run("with a ref prop selected without ref classes", func(t *testing.T) {
 		refs := models.MultipleRef{
 			&models.SingleRef{

@@ -275,7 +275,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 
 	// The legs load the references without resolving them. Hybrid resolves
 	// them for the returned page only.
-	legProperties := withoutRefs(params.Properties)
+	legProperties := e.withoutRefs(params.Properties)
 	vectorParams.Properties = legProperties
 	keywordParams.Properties = legProperties
 
@@ -578,7 +578,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 
 // withoutRefs keeps the reference properties, so that a search loads them,
 // but drops the referenced classes, so that it does not resolve them.
-func withoutRefs(props search.SelectProperties) search.SelectProperties {
+func (e *Explorer) withoutRefs(props search.SelectProperties) search.SelectProperties {
 	if !props.HasRefs() {
 		return props
 	}
