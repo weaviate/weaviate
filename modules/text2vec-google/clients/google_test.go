@@ -66,6 +66,22 @@ func TestBuildURL(t *testing.T) {
 			location:        "europe-west1",
 			expectedURL:     "https://generativelanguage.googleapis.com/v1beta3/models/embedding-gecko-001:batchEmbedText",
 		},
+		{
+			name:            "Vertex AI escapes model",
+			useGenerativeAI: false,
+			apiEndpoint:     "us-central1-aiplatform.googleapis.com",
+			projectID:       "my-project",
+			modelID:         "m/../x?y#z",
+			location:        "us-central1",
+			expectedURL:     "https://us-central1-aiplatform.googleapis.com/v1/projects/my-project/locations/us-central1/publishers/google/models/m%2F..%2Fx%3Fy%23z:predict",
+		},
+		{
+			name:            "Generative AI endpoint escapes model",
+			useGenerativeAI: true,
+			apiEndpoint:     "generativelanguage.googleapis.com",
+			modelID:         "m/../x?y#z",
+			expectedURL:     "https://generativelanguage.googleapis.com/v1beta/models/m%2F..%2Fx%3Fy%23z:batchEmbedContents",
+		},
 	}
 
 	for _, tt := range tests {
@@ -76,7 +92,7 @@ func TestBuildURL(t *testing.T) {
 	}
 }
 
-func TestVectorizeRejectsForeignEndpoint(t *testing.T) {
+func TestVectorizeRejectsUnsafeURLSettings(t *testing.T) {
 	tests := []struct {
 		name   string
 		config settings
@@ -89,6 +105,14 @@ func TestVectorizeRejectsForeignEndpoint(t *testing.T) {
 			name:   "location carrying a host",
 			config: settings{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "project", Model: "model", Location: "attacker.example.com/"},
 		},
+		{
+			name:   "projectId carrying path segments",
+			config: settings{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "a/../../other", Model: "model", Location: "us-central1"},
+		},
+		{
+			name:   "Vertex AI model that is a dot segment",
+			config: settings{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "project", Model: "..", Location: "us-central1"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -97,7 +121,7 @@ func TestVectorizeRejectsForeignEndpoint(t *testing.T) {
 				httpClient:   &http.Client{},
 				googleApiKey: apikey.NewGoogleApiKey(),
 				urlBuilderFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID, location string) string {
-					t.Fatal("must not build a request URL for a rejected endpoint")
+					t.Fatal("must not build a request URL for rejected settings")
 					return ""
 				},
 				logger: nullLogger(),
