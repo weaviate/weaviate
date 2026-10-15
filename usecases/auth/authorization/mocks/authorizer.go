@@ -71,8 +71,8 @@ func (a *FakeAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.
 	return a.record(principal, verb, true, resources)
 }
 
-// errNoResources is the rbac authorizer's answer to a call carrying no
-// resources, which it gives before looking at the principal, root included.
+// errNoResources is the error rbac.Manager.authorize returns for a call
+// carrying no resources, whatever roles the principal holds.
 var errNoResources = fmt.Errorf("at least 1 resource is required")
 
 func (a *FakeAuthorizer) record(principal *models.Principal, verb string, silent bool, resources []string) error {

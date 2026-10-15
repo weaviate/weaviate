@@ -365,10 +365,9 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		}
 	}
 
-	// The descriptor, never the request, names what a blob holds: restore
-	// requests carry no includeUsers/includeRoles. This authorization check runs
-	// before any step reads a blob. Later steps see only the blobs it authorized,
-	// because their errors name the users and roles inside.
+	// Authorize the blobs this restore applies before validateNamespaceStripping
+	// and validateNamespaceReferences parse them, because their errors name the
+	// users and roles inside.
 	if err := s.authorizeResources(ctx, pr, authorization.CREATE, s.restorePrincipalResources(blobs)); err != nil {
 		return nil, err
 	}
@@ -447,10 +446,8 @@ func (s *Scheduler) filterBackupableClasses(ctx context.Context, pr *models.Prin
 	return allowed, nil
 }
 
-// authorizeResources authorizes a backup operation's resources. Every
-// users/roles check goes through here: no resources means nothing to
-// authorize, and the rbac authorizer rejects a call carrying none, root
-// included.
+// authorizeResources skips the call when resources is empty, since the rbac
+// authorizer rejects a call carrying no resources, even root's.
 func (s *Scheduler) authorizeResources(ctx context.Context, pr *models.Principal, verb string, resources []string) error {
 	if len(resources) == 0 {
 		return nil

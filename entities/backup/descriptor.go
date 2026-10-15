@@ -57,12 +57,10 @@ type DistributedBackupDescriptor struct {
 	BaseBackupID            string                     `json:"baseBackupId"`
 	Users                   []string                   `json:"users,omitempty"`
 	Roles                   []string                   `json:"roles,omitempty"`
-	// SkipUsers/SkipRoles mean the subsystem is not part of the operation. On a
-	// backup descriptor, includeUsers/includeRoles matched nothing or the caller
-	// may not back up the whole store; restore discards any user or RBAC blob a
-	// node uploaded anyway, as a participant from before the request carried
-	// skip flags does. That discard leaves BuiltInRoleAssignments in place. On a
-	// restore descriptor, the restore does not apply that blob.
+	// SkipUsers/SkipRoles leave that subsystem out. Backup sets them when the
+	// subsystem is disabled, its include list matches nothing, or the caller lacks
+	// its wildcard. Restore discards any such blob and keeps BuiltInRoleAssignments.
+	// On a restore descriptor they mark a blob the restore does not apply.
 	SkipUsers bool `json:"skipUsers,omitempty"`
 	SkipRoles bool `json:"skipRoles,omitempty"`
 	// BuiltInRoleAssignments is an RBAC snapshot of the admin and viewer assignments the backup
