@@ -44,8 +44,9 @@ func makeHybridKeywordResults(n int) ([]*storobj.Object, []float32) {
 	return objs, scores
 }
 
-// newOffsetTestSearcher returns a searcher with the same 200 objects in both
-// legs. fetched is called with the pagination of each leg.
+// newOffsetTestSearcher returns a searcher with the same 200 objects in the
+// vector search and the BM25 search. fetched is called with the pagination of
+// each search.
 func newOffsetTestSearcher(fetched func(filters.Pagination)) *fakeVectorSearcher {
 	searcher := &fakeVectorSearcher{}
 	searcher.vectorSearchFn = func(params dto.GetParams) ([]search.Result, error) {
@@ -61,10 +62,11 @@ func newOffsetTestSearcher(fetched func(filters.Pagination)) *fakeVectorSearcher
 	return searcher
 }
 
-// Each leg of a hybrid search has to fetch up to the end of the requested
-// page: the page is cut from the fused list afterwards.
-func TestExplorerHybridLegsReachThePage(t *testing.T) {
-	legs := []struct {
+// The vector search and the BM25 search of a hybrid search have to fetch up to
+// the end of the requested page: the page is cut from the fused list
+// afterwards.
+func TestExplorerHybridSearchesReachThePage(t *testing.T) {
+	alphas := []struct {
 		name     string
 		alpha    float64
 		searches int
@@ -85,9 +87,9 @@ func TestExplorerHybridLegsReachThePage(t *testing.T) {
 		{name: "page that crosses the hybrid minimum", offset: 95, limit: 10, wantFetched: 105, wantFirst: "Item 95"},
 		{name: "page beyond the hybrid minimum", offset: 100, limit: 10, wantFetched: 110, wantFirst: "Item 100"},
 	}
-	for _, leg := range legs {
+	for _, a := range alphas {
 		for _, tt := range pages {
-			t.Run(leg.name+"/"+tt.name, func(t *testing.T) {
+			t.Run(a.name+"/"+tt.name, func(t *testing.T) {
 				var (
 					mu   sync.Mutex
 					seen []filters.Pagination
@@ -100,13 +102,13 @@ func TestExplorerHybridLegsReachThePage(t *testing.T) {
 				params := dto.GetParams{
 					ClassName:    "TestClass",
 					Pagination:   &filters.Pagination{Offset: tt.offset, Limit: tt.limit},
-					HybridSearch: &searchparams.HybridSearch{Query: "test", Alpha: leg.alpha, Vector: []float32{0.1, 0.2, 0.3}},
+					HybridSearch: &searchparams.HybridSearch{Query: "test", Alpha: a.alpha, Vector: []float32{0.1, 0.2, 0.3}},
 				}
 
 				res, err := explorer.GetClass(context.Background(), params)
 
 				require.NoError(t, err)
-				require.Len(t, seen, leg.searches)
+				require.Len(t, seen, a.searches)
 				for _, p := range seen {
 					assert.Equal(t, tt.wantFetched, p.Limit)
 					assert.Equal(t, 0, p.Offset)
@@ -118,7 +120,7 @@ func TestExplorerHybridLegsReachThePage(t *testing.T) {
 	}
 }
 
-// A page that ends beyond QUERY_MAXIMUM_RESULTS is rejected before any leg
+// A page that ends beyond QUERY_MAXIMUM_RESULTS is rejected before any search
 // runs, for every alpha. The error has the offset and limit of the request.
 func TestExplorerHybridRejectsPageBeyondQueryMaximumResults(t *testing.T) {
 	const wantErr = "offset '9995' and limit '10' exceeds the configured value for QUERY_MAXIMUM_RESULTS '10000'"
@@ -157,8 +159,8 @@ func TestExplorerHybridRejectsPageBeyondQueryMaximumResults(t *testing.T) {
 	}
 }
 
-// The legs of a hybrid search load the references without resolving them.
-// The references are resolved for the returned page only.
+// The vector search and the BM25 search load the references without
+// resolving them. The references are resolved for the returned page only.
 func TestExplorerHybridResolvesReferencesOfThePage(t *testing.T) {
 	props := search.SelectProperties{
 		{Name: "name", IsPrimitive: true},
@@ -169,7 +171,7 @@ func TestExplorerHybridResolvesReferencesOfThePage(t *testing.T) {
 	}
 	var (
 		mu            sync.Mutex
-		legProps      []search.SelectProperties
+		searchProps   []search.SelectProperties
 		resolvedNames [][]string
 		resolvedProps []search.SelectProperties
 	)
@@ -177,13 +179,13 @@ func TestExplorerHybridResolvesReferencesOfThePage(t *testing.T) {
 	vectorSearch, sparseSearch := searcher.vectorSearchFn, searcher.sparseObjectSearchFn
 	searcher.vectorSearchFn = func(params dto.GetParams) ([]search.Result, error) {
 		mu.Lock()
-		legProps = append(legProps, params.Properties)
+		searchProps = append(searchProps, params.Properties)
 		mu.Unlock()
 		return vectorSearch(params)
 	}
 	searcher.sparseObjectSearchFn = func(params dto.GetParams) ([]*storobj.Object, []float32, error) {
 		mu.Lock()
-		legProps = append(legProps, params.Properties)
+		searchProps = append(searchProps, params.Properties)
 		mu.Unlock()
 		return sparseSearch(params)
 	}
@@ -207,10 +209,10 @@ func TestExplorerHybridResolvesReferencesOfThePage(t *testing.T) {
 	_, err := explorer.GetClass(context.Background(), params)
 
 	require.NoError(t, err)
-	require.Len(t, legProps, 2)
-	for _, p := range legProps {
-		assert.False(t, p.HasRefs(), "a leg resolves references")
-		assert.Equal(t, props.GetPropertyNames(), p.GetPropertyNames(), "a leg does not load every selected property")
+	require.Len(t, searchProps, 2)
+	for _, p := range searchProps {
+		assert.False(t, p.HasRefs(), "a search resolves references")
+		assert.Equal(t, props.GetPropertyNames(), p.GetPropertyNames(), "a search does not load every selected property")
 	}
 	assert.Equal(t, [][]string{{"Item 100", "Item 101", "Item 102"}}, resolvedNames)
 	assert.Equal(t, []search.SelectProperties{props}, resolvedProps)

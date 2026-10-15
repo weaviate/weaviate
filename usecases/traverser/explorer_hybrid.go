@@ -213,9 +213,9 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		return nil, fmt.Errorf("hybrid search cannot have both nearText and nearVector parameters")
 	}
 
-	// The legs fetch from offset 0 to the end of the page. Check the page here
-	// so that the error has the offset and limit the client sent. Under boost,
-	// GetClass moved them to params.Boost.
+	// The vector search and the BM25 search fetch from offset 0 to the end of
+	// the page. Check the page here so that the error has the offset and limit
+	// the client sent. Under boost, GetClass moved them to params.Boost.
 	reqOffset, reqLimit := params.Pagination.Offset, params.Pagination.Limit
 	if params.Boost != nil && params.Boost.OriginalLimit > 0 {
 		reqOffset, reqLimit = params.Boost.OriginalOffset, params.Boost.OriginalLimit
@@ -234,8 +234,9 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	}
 
 	subSearchLimit := params.Pagination.Limit
-	// The page is cut from the fused list, so the legs have to fetch up to
-	// its end. A limit of 0 or less is a flag, not a page size.
+	// The page is cut from the fused list, so the vector search and the BM25
+	// search have to fetch up to its end. A limit of 0 or less is a flag, not
+	// a page size.
 	if params.Pagination.Limit > 0 && params.Pagination.Offset > 0 {
 		subSearchLimit = params.Pagination.Offset + params.Pagination.Limit
 	}
@@ -273,11 +274,11 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		Autocut: -1,
 	}
 
-	// The legs load the references without resolving them. Hybrid resolves
-	// them for the returned page only.
-	legProperties := e.withoutRefs(params.Properties)
-	vectorParams.Properties = legProperties
-	keywordParams.Properties = legProperties
+	// The vector search and the BM25 search load the references without
+	// resolving them. Hybrid resolves them for the returned page only.
+	propsWithoutRefs := e.withoutRefs(params.Properties)
+	vectorParams.Properties = propsWithoutRefs
+	keywordParams.Properties = propsWithoutRefs
 
 	targetVectors, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.ReadOnlyClass, params.ClassName, params.HybridSearch.TargetVectors)
 	if err != nil {
