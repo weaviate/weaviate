@@ -1706,7 +1706,7 @@ func skipVectorSegment(rw *byteops.ReadWriter, kind string) error {
 	return nil
 }
 
-// The three readers below name no vector in their errors: they run per document
+// The four readers below name no vector in their errors: they run per document
 // inside the multi-vector loop, where building a label would allocate on every
 // successful passage. Callers hold the names and wrap.
 
@@ -1753,6 +1753,81 @@ func readVectorInto(rw *byteops.ReadWriter, seg vectorSegment, buffer []float32)
 	}
 	byteops.CopyBytesToSlice(out, vecBytes)
 	return out, nil
+}
+
+// readMultiVector decodes one multi-vector (a uint32 token count, then per
+// token a uint16 length and that many float32s) into one backing array, so a
+// read costs one allocation for the document instead of one per token. A
+// rescore reads hundreds of documents of tens to thousands of tokens each, and
+// the per-token allocations are most of the read cost.
+//
+// Arguments:
+//   - rw: the reader over the object's bytes.
+//   - seg: the multi-vector segment; every read is bounded by seg.end.
+//   - offset: the document's offset inside the segment.
+//   - buffer: the backing array to decode into, reused when its capacity
+//     holds the whole document (like readVectorInto). nil always allocates.
+//
+// It returns the tokens, which are sub-slices of one backing array, and that
+// array itself. The array is returned because it may be a new, larger one
+// when the document did not fit in buffer; the caller passes it in again on
+// its next read. It is returned at its full capacity. The tokens are valid
+// until the caller reuses the array, and holding on to one token keeps the
+// whole array alive. Each token slice has its capacity limited to its own
+// length (the three-index slice below), so appending to a token allocates a
+// new slice instead of overwriting the token that follows it in the array.
+//
+// The tokens are walked twice. The first walk only sums their lengths, under
+// the same segment bound the copy applies, so the array is sized from checked
+// lengths and not from uint16 fields read straight out of the data. The first
+// walk reads two bytes per token, the second reads the coordinates.
+func readMultiVector(rw *byteops.ReadWriter, seg vectorSegment, offset uint32, buffer []float32) ([][]float32, []float32, error) {
+	if err := seekToVector(rw, seg, offset, byteops.Uint32Len); err != nil {
+		return nil, buffer, err
+	}
+	numVecs := uint64(rw.ReadUint32())
+
+	// every token carries at least a length prefix, so the remaining segment
+	// caps the count. Without this the allocation below would be sized by a
+	// uint32 read straight out of the data.
+	maxVecs := (seg.end - rw.Position) / byteops.Uint16Len
+	if numVecs > maxVecs {
+		return nil, buffer, fmt.Errorf("truncated at document count: declares %d documents, segment holds at most %d",
+			numVecs, maxVecs)
+	}
+
+	// first walk: sum the token lengths, then rewind
+	start := rw.Position
+	var total uint64
+	for i := uint64(0); i < numVecs; i++ {
+		_, dims, err := readVectorBytes(rw, seg)
+		if err != nil {
+			return nil, buffer, fmt.Errorf("document %d %w", i, err)
+		}
+		total += dims
+	}
+	rw.MoveBufferToAbsolutePosition(start)
+
+	var flat []float32
+	if buffer != nil && uint64(cap(buffer)) >= total {
+		flat = buffer[:cap(buffer)]
+	} else {
+		flat = make([]float32, total)
+	}
+
+	// second walk: copy each token into its slice of the array
+	vecs := make([][]float32, numVecs)
+	var off uint64
+	for i := range vecs {
+		vecBytes, dims, err := readVectorBytes(rw, seg)
+		if err != nil {
+			return nil, buffer, fmt.Errorf("document %d %w", i, err)
+		}
+		vecs[i] = flat[off : off+dims : off+dims]
+		byteops.CopyBytesToSlice(vecs[i], vecBytes)
+		off += dims
+	}
+	return vecs, flat, nil
 }
 
 func unmarshalTargetVectors(rw *byteops.ReadWriter) (map[string][]float32, error) {
@@ -1842,33 +1917,60 @@ func unmarshalMultiVectors(
 			}
 		}
 
-		if err := seekToVector(rw, seg, offset, byteops.Uint32Len); err != nil {
+		vecs, _, err := readMultiVector(rw, seg, offset, nil)
+		if err != nil {
 			return nil, fmt.Errorf("multi vector %q %w", name, err)
-		}
-		numVecs := uint64(rw.ReadUint32())
-
-		// every document carries at least a length prefix, so the remaining segment
-		// caps the count. Without this the allocation below is sized by a uint32
-		// read straight out of the data.
-		maxVecs := (seg.end - rw.Position) / byteops.Uint16Len
-		if numVecs > maxVecs {
-			return nil, fmt.Errorf("multi vector %q truncated at document count: declares %d documents, segment holds at most %d",
-				name, numVecs, maxVecs)
-		}
-
-		vecs := make([][]float32, 0, numVecs)
-		for i := uint64(0); i < numVecs; i++ {
-			vec, err := readVectorInto(rw, seg, nil)
-			if err != nil {
-				return nil, fmt.Errorf("multi vector %q document %d %w", name, i, err)
-			}
-			vecs = append(vecs, vec)
 		}
 		multiVectors[name] = vecs
 	}
 
 	rw.MoveBufferToAbsolutePosition(seg.end)
 	return multiVectors, nil
+}
+
+// unmarshalSingleMultiVector reads one named multi-vector out of the
+// multi-vector segment and leaves the cursor past the segment. It is the
+// single-name counterpart of unmarshalMultiVectors, which reads every name
+// into a map with a fresh array per document; both decode a document through
+// readMultiVector. It mirrors unmarshalSingleTargetVector, which does the same
+// for a single vector.
+//
+// Arguments:
+//   - rw: the reader, positioned at the start of the multi-vector segment.
+//   - targetVector: the name of the multi-vector to read.
+//   - buffer: the backing array to decode into; see readMultiVector.
+//
+// It returns the tokens and their backing array, as readMultiVector does. An
+// absent target vector is a plain error, not ErrTargetVectorNotFound: the
+// shard's vector readers map that type to a deleted object, and an object
+// that lacks a multi-vector has not been deleted.
+func unmarshalSingleMultiVector(rw *byteops.ReadWriter, targetVector string, buffer []float32) ([][]float32, []float32, error) {
+	seg, present, err := readVectorSegment(rw, "multi vectors")
+	if err != nil {
+		return nil, buffer, err
+	}
+	if !present {
+		return nil, buffer, errors.Errorf("vector not found for target vector: %s", targetVector)
+	}
+
+	offsets, err := seg.decodeOffsets("multi vectors")
+	if err != nil {
+		return nil, buffer, err
+	}
+
+	offset, ok := offsets[targetVector]
+	if !ok {
+		rw.MoveBufferToAbsolutePosition(seg.end)
+		return nil, buffer, errors.Errorf("vector not found for target vector: %s", targetVector)
+	}
+
+	vecs, buffer, err := readMultiVector(rw, seg, offset, buffer)
+	if err != nil {
+		return nil, buffer, fmt.Errorf("multi vector %q %w", targetVector, err)
+	}
+
+	rw.MoveBufferToAbsolutePosition(seg.end)
+	return vecs, buffer, nil
 }
 
 func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float32, error) {
@@ -1959,34 +2061,47 @@ func skipToVectorSections(rw *byteops.ReadWriter) error {
 	return nil
 }
 
+// MultiVectorFromBinary returns the multi-vector named targetVector of the
+// marshalled object in. The tokens share a fresh backing array the caller then
+// owns. Callers that read many objects through one buffer use
+// MultiVectorFromBinaryInto.
 func MultiVectorFromBinary(in []byte, targetVector string) ([][]float32, error) {
+	out, _, err := MultiVectorFromBinaryInto(in, nil, targetVector)
+	return out, err
+}
+
+// MultiVectorFromBinaryInto is MultiVectorFromBinary reading into a caller
+// owned buffer, as VectorFromBinary does for a single vector.
+//
+// Arguments:
+//   - in: the marshalled object.
+//   - buffer: the backing array to decode into. It is used when its capacity
+//     holds the whole document; otherwise a larger one is allocated.
+//   - targetVector: the name of the multi-vector to read.
+//
+// It returns the tokens, which are sub-slices of one backing array, and that
+// array, which the caller passes in on its next read. This is the same shape
+// as the bucket's GetBySecondaryWithBuffer: the array grows to the largest
+// document seen and is then reused. The tokens are valid until the caller
+// reuses the array.
+func MultiVectorFromBinaryInto(in []byte, buffer []float32, targetVector string) ([][]float32, []float32, error) {
 	if len(in) == 0 {
-		return nil, nil
+		return nil, buffer, nil
 	}
 
 	version := in[0]
 	if version != 1 {
-		return nil, errors.Errorf("unsupported marshaller version %d", version)
+		return nil, buffer, errors.Errorf("unsupported marshaller version %d", version)
 	}
 
 	rw := byteops.NewReadWriterWithPosition(in, marshallerV1HeaderLen)
 	if err := skipToVectorSections(&rw); err != nil {
-		return nil, err
+		return nil, buffer, err
 	}
 	if err := skipVectorSegment(&rw, "target vectors"); err != nil {
-		return nil, err
+		return nil, buffer, err
 	}
-
-	multiVectors, err := unmarshalMultiVectors(&rw, map[string]interface{}{targetVector: nil})
-	if err != nil {
-		return nil, fmt.Errorf("unmarshal multivector for target vector %q: %w", targetVector, err)
-	}
-
-	out, ok := multiVectors[targetVector]
-	if !ok {
-		return nil, errors.Errorf("vector not found for target vector: %s", targetVector)
-	}
-	return out, nil
+	return unmarshalSingleMultiVector(&rw, targetVector, buffer)
 }
 
 func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className string,
