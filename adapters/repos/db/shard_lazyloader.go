@@ -199,6 +199,10 @@ func (l *LazyLoadShard) loadIfCold(ctx context.Context) (*Shard, bool, error) {
 	shard.metricsRegistered.Store(true)
 
 	l.shard.Store(shard)
+	// A config update that ran before the load's snapshot is in the shard;
+	// one that ran during the load wrote the index's config and skipped
+	// this shard, which still read as cold: catch it up now.
+	shard.catchUpVectorIndexConfig(ctx)
 
 	return shard, true, nil
 }
