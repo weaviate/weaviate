@@ -15,7 +15,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -243,50 +242,22 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		plan = c.dedupePlanner.PlanDesignatedShards(ctx, req.Classes, budget, participants, req.BaseDedupeDesignations,
 			func() bool { return c.lastOp.get().cancelSignalled() })
 	}
-	// Stamp from the planning outcome: a zero-dedupe artifact is physically legacy and stays restorable on pre-3.0 releases, unless its base chain traverses a deduped artifact.
-	dedupeEffective := plan != nil && plan.Designated() > 0
-	version := Version
-	if dedupeEffective || req.BaseChainDeduped {
-		version = VersionDedupeReplicas
-	}
-	req.DedupeEffective = dedupeEffective
 
-	c.descriptor = &backup.DistributedBackupDescriptor{
-		StartedAt:       time.Now().UTC(),
-		Status:          backup.Started,
-		ID:              req.ID,
-		Nodes:           groups,
-		Version:         version,
-		ServerVersion:   config.ServerVersion,
-		Leader:          leader,
-		CompressionType: compressionType,
-		BaseBackupID:    req.BaseBackupID,
-		Users:           req.Users,
-		Roles:           req.Roles,
-		SkipUsers:       req.SkipUsers,
-		SkipRoles:       req.SkipRoles,
-		DedupeReplicas:  dedupeEffective,
-
+	c.descriptor = descriptorSeed{
+		ID:                     req.ID,
+		Nodes:                  groups,
+		ServerVersion:          config.ServerVersion,
+		Leader:                 leader,
+		BaseBackupID:           req.BaseBackupID,
+		Users:                  req.Users,
+		Roles:                  req.Roles,
+		SkipUsers:              req.SkipUsers,
+		SkipRoles:              req.SkipRoles,
+		CompressionType:        compressionType,
 		BuiltInRoleAssignments: req.BuiltInRoleAssignments,
-	}
-	if plan != nil {
-		c.descriptor.DedupeDesignatedShards = plan.Designated()
-		c.descriptor.DedupeFallbackShards = plan.Fallback()
-		// copied, not aliased; non-Success artifacts carry the map harmlessly (chain validation refuses them)
-		for class, shards := range plan.Designations {
-			if len(shards) == 0 {
-				continue
-			}
-			if c.descriptor.DedupeCutoffsMs == nil {
-				c.descriptor.DedupeCutoffsMs = make(map[string]int64, len(plan.Designations))
-			}
-			c.descriptor.DedupeCutoffsMs[class] = plan.Cutoffs[class]
-			if c.descriptor.DedupeDesignations == nil {
-				c.descriptor.DedupeDesignations = make(map[string]map[string]string, len(plan.Designations))
-			}
-			c.descriptor.DedupeDesignations[class] = maps.Clone(shards)
-		}
-	}
+	}.descriptor(time.Now().UTC(), backup.Started)
+	dedupeEffective := plan.stamp(c.descriptor, req.BaseChainDeduped)
+	req.DedupeEffective = dedupeEffective
 
 	for key := range c.Participants {
 		delete(c.Participants, key)
@@ -335,7 +306,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		nodeMetas := c.commit(ctx, &statusReq, nodes, false, true)
 		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
 		if dedupeEffective && c.descriptor.Status == backup.Success {
-			if err := c.verifyDesignatedCoverage(ctx, &statusReq, plan, nodeMetas); err != nil {
+			if err := verifyDesignatedCoverage(ctx, c.backends, c.dedupePollInterval, &statusReq, plan, nodeMetas); err != nil {
 				c.descriptor.Status = backup.Failed
 				c.descriptor.Error = err.Error()
 				c.log.WithFields(logFields).Errorf("coordinator: designated-shard coverage check failed: %v", err)

@@ -32,6 +32,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
@@ -1991,6 +1992,132 @@ func TestUploaderSnapshotSkip(t *testing.T) {
 			assert.Equal(t, tt.wantRBAC, len(desc.RbacBackups) > 0)
 			assert.Equal(t, tt.wantUsers, users.calls == 1, "user snapshotter calls: %d", users.calls)
 			assert.Equal(t, tt.wantUsers, len(desc.UserBackups) > 0)
+		})
+	}
+}
+
+// With withReleaseWait, all writes the node descriptor only after every index
+// release returns. Without it (the legacy path), all returns while releases run.
+func TestUploaderReleaseWait(t *testing.T) {
+	const class = "Article"
+
+	// shards gives the class a shard job, so its release starts on a pool
+	// goroutine; without shards it starts on all's own goroutine.
+	tests := []struct {
+		name   string
+		wait   bool
+		cancel bool
+		shards bool
+	}{
+		{name: "success waits for the release", wait: true},
+		{name: "success waits for a release a shard job started", wait: true, shards: true},
+		{name: "cancel waits for the release", wait: true, cancel: true},
+		{name: "without the option all does not wait", wait: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			const backupID = "release-wait"
+			cdesc := backup.ClassDescriptor{Name: class}
+			if tt.shards {
+				cdesc.Shards = []*backup.ShardDescriptor{{Name: "s1", Node: "n1"}}
+			}
+			descriptors := make(chan backup.ClassDescriptor, 1)
+			descriptors <- cdesc
+			close(descriptors)
+
+			// Only the first release to start blocks on the gate. all's deferred
+			// release of the same class passes, so all can wait on nothing but the
+			// gated one.
+			gate := make(chan struct{})
+			var openOnce sync.Once
+			openGate := func() { openOnce.Do(func() { close(gate) }) }
+			t.Cleanup(openGate)
+			firstStarted := make(chan struct{})
+			var releasing atomic.Int32
+
+			sourcer := &fakeSourcer{}
+			sourcer.On("BackupDescriptors", mock.Anything, backupID, []string{class}, mock.Anything, mock.Anything).
+				Return((<-chan backup.ClassDescriptor)(descriptors))
+			sourcer.On("ReleaseBackup", mock.Anything, backupID, class).Return(nil).
+				Run(func(mock.Arguments) {
+					if releasing.Add(1) == 1 {
+						close(firstStarted)
+						<-gate
+					}
+				})
+
+			backend := newFakeBackend()
+			backend.On("SourceDataPath").Return(t.TempDir())
+			backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(nil)
+			backend.On("Write", mock.Anything, backupID, mock.Anything, mock.Anything).Return(int64(0), nil)
+
+			logger := logrus.New()
+			logger.Out = io.Discard
+			bp := &backupper{logger: logger}
+			require.Empty(t, bp.lastOp.renew(backupID, "", "bucket/backups/"+backupID, "", ""))
+
+			store := nodeStore{objectStore{backend: backend, backupId: backupID}}
+			sel := snapshotSelection{skipUsers: true, skipRoles: true}
+			u := newUploader(config.Backup{}, sourcer, &countingSnapshotter{}, &countingSnapshotter{}, sel, store, backupID, &bp.lastOp, logger)
+			if tt.wait {
+				u = u.withReleaseWait()
+			}
+			// onClassUploaded runs inside the class's finish, after finish started
+			// its release and before all's deferred release can start. Holding it
+			// until the first release starts makes the gated release finish's.
+			var finishGated atomic.Bool
+			u.onClassUploaded = func(string) {
+				<-firstStarted
+				finishGated.Store(true)
+			}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if tt.cancel {
+				cancel()
+			}
+			done := make(chan error, 1)
+			enterrors.GoWrapper(func() {
+				desc := backup.BackupDescriptor{ID: backupID}
+				done <- u.all(ctx, []string{class}, &desc, nil, "", "")
+			}, logger)
+
+			require.Eventually(t, func() bool { return releasing.Load() > 0 }, 5*time.Second, time.Millisecond,
+				"all never released the index")
+
+			if !tt.wait {
+				select {
+				case <-done:
+				case <-time.After(5 * time.Second):
+					t.Fatal("all waited for the release without the option")
+				}
+				return
+			}
+
+			select {
+			case <-done:
+				t.Fatal("all returned while a release was still running")
+			case <-time.After(100 * time.Millisecond):
+			}
+			backend.AssertNotCalled(t, "PutObject", mock.Anything, backupID, BackupFile, mock.Anything)
+			assert.NotEqual(t, backup.Success, bp.lastOp.get().Status)
+
+			openGate()
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("all did not return after the release finished")
+			}
+			backend.AssertCalled(t, "PutObject", mock.Anything, backupID, BackupFile, mock.Anything)
+			if tt.shards {
+				assert.True(t, finishGated.Load(), "the gated release must be the one finish started")
+			}
+			want := backup.Success
+			if tt.cancel {
+				want = backup.Cancelled
+			}
+			assert.Equal(t, want, bp.lastOp.get().Status)
 		})
 	}
 }
