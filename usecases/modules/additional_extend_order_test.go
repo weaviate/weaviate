@@ -13,6 +13,7 @@ package modules
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -69,7 +70,7 @@ func TestAdditionalExtendOrder(t *testing.T) {
 			wantLen:   2,
 		},
 		{
-			name:      "nothing runs after rerank drops every result",
+			name:      "nothing runs after a property leaves no results",
 			keep:      0,
 			params:    []string{"generate", "rerank", "answer"},
 			wantCalls: []string{"rerank:3"},
@@ -118,7 +119,7 @@ func (r *callRecorder) property(name string) modulecapabilities.AdditionalProper
 	fn := func(ctx context.Context, in []search.Result, params any, limit *int,
 		argumentModuleParams map[string]any, cfg moduletools.ClassConfig,
 	) ([]search.Result, error) {
-		r.calls = append(r.calls, name+":"+string(rune('0'+len(in))))
+		r.calls = append(r.calls, fmt.Sprintf("%s:%d", name, len(in)))
 		if name == "rerank" {
 			return in[:r.keep], nil
 		}

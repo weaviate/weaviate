@@ -102,9 +102,9 @@ func (r *Replier) extractDeprecated(_additional map[string]any, params any, meta
 		metadata.GenerativePresent = true
 	}
 
-	// grouped results are only added to the first object for GQL reasons
-	// however, reranking can result in a different order, so we need to check every object
-	// recording the result if it's present assuming that it is at least somewhere and will be caught
+	// generate adds the grouped result to its first object only. Rerank runs
+	// before generate, so that is the first object here as well, but every
+	// object is checked in case a later step reorders the results.
 	if generateFmt.GroupedResult != nil && *generateFmt.GroupedResult != "" {
 		generativeGroupResults = *generateFmt.GroupedResult
 	}

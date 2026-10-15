@@ -781,8 +781,8 @@ func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, mod
 }
 
 // additionalExtendOrder returns the additional property names in the order
-// they have to run: rerank first, because it reorders and can drop results
-// that the other properties then work on, and the rest by name.
+// they have to run: rerank first, because it reorders the results that the
+// other properties then work on, and the rest by name.
 func additionalExtendOrder(moduleParams map[string]interface{}) []string {
 	const rerank = modulecomponents.AdditionalPropertyRerank
 	names := make([]string, 0, len(moduleParams))
