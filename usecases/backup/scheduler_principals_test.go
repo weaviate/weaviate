@@ -226,6 +226,36 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 		assert.Equal(t, assignments, []byte(full.BuiltInRoleAssignments))
 	})
 
+	t.Run("a skipped RBAC snapshot carries the users' built-in assignments", func(t *testing.T) {
+		assignments := []byte(`{"version":1,"grouping_policies":[["db:alice","role:admin"]]}`)
+		tests := []struct {
+			name         string
+			deny         []string
+			includeRoles []string
+		}{
+			{name: "roles narrowed", deny: []string{"backups/roles/*"}},
+			{name: "explicit empty includeRoles", includeRoles: []string{}},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+				fs.auth.(*mocks.FakeAuthorizer).Deny(tt.deny...)
+				setup(fs)
+				fs.roleLister.assignments = assignments
+
+				require.NoError(t, run(t, fs, &BackupRequest{
+					ID: backupID, Backend: backendName, IncludeRoles: tt.includeRoles,
+				}))
+				assert.Equal(t, [][]string{{"alice", "bob"}}, fs.roleLister.carried)
+				fs.backend.RLock()
+				defer fs.backend.RUnlock()
+				assert.True(t, fs.backend.glMeta.SkipRoles)
+				assert.False(t, fs.backend.glMeta.SkipUsers)
+				assert.Equal(t, assignments, []byte(fs.backend.glMeta.BuiltInRoleAssignments))
+			})
+		}
+	})
+
 	t.Run("a non-Forbidden authorizer error fails as Unprocessable", func(t *testing.T) {
 		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
 		fs.auth.(*mocks.FakeAuthorizer).SetErrAfter(1, ErrAny)

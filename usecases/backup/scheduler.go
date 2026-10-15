@@ -200,50 +200,13 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	// An omitted selector backs up the whole enabled store. A caller who may not
-	// do that gets a backup without it, as an omitted include narrows to the
-	// authorized classes. Explicit empty selectors and disabled stores are skipped.
-	if s.userLister == nil {
-		selection.skipUsers = true
-	} else if req.IncludeUsers == nil {
-		allowed, err := s.authorizeWholeStore(ctx, pr, authorization.BackupUsers())
-		if err != nil {
-			return nil, err
-		}
-		if !allowed {
-			selection.skipUsers = true
-			s.logger.WithField("action", "try_backup").WithField("backup_id", req.ID).
-				Warn("caller may not back up all dynamic users, backing up none: grant manage_backups on users to include them")
-		}
-	}
-	if s.roleLister == nil {
-		selection.skipRoles = true
-	} else if req.IncludeRoles == nil {
-		allowed, err := s.authorizeWholeStore(ctx, pr, authorization.BackupRoles())
-		if err != nil {
-			return nil, err
-		}
-		if !allowed {
-			selection.skipRoles = true
-			s.logger.WithField("action", "try_backup").WithField("backup_id", req.ID).
-				Warn("caller may not back up all roles, backing up none: grant manage_backups on roles to include them")
-		}
-	}
-
-	// Narrowing can empty a class-less request that passed validation on its
-	// default identity selections.
+	// Narrowing runs after validation's class-less check, so it can empty a
+	// request that passed that check on its default identity selections.
 	if len(selection.classes) == 0 && selection.skipUsers && selection.skipRoles {
 		return nil, backup.NewErrUnprocessable(fmt.Errorf("backup selects no collections, users, or roles: available collections"))
 	}
 
-	// The user-keyed assignments name the backed-up users, so a skipped user
-	// snapshot withholds them too, whichever check set the skip. The OIDC
-	// grants are keyed to namespaces, not users, and travel regardless.
-	userAssignments := selection.userBuiltInAssignments
-	if selection.skipUsers {
-		userAssignments = nil
-	}
-	carriedAssignments, err := rbac.MergeSnapshots(userAssignments, selection.oidcBuiltInAssignments)
+	carriedAssignments, err := rbac.MergeSnapshots(selection.userBuiltInAssignments, selection.oidcBuiltInAssignments)
 	if err != nil {
 		return nil, backup.NewErrUnprocessable(fmt.Errorf("merge built-in role assignments: %w", err))
 	}
@@ -1005,21 +968,23 @@ func coordBackend(provider BackupBackendProvider, backend, id, overrideBucket, o
 // keep the full backend snapshot unless the corresponding skip flag is set.
 type backupSelections struct {
 	classes, users, roles []string
-	// Explicit empty lists and unmatched wildcards exclude the snapshot.
+	// Explicit empty lists, unmatched wildcards, a denied whole-store check on
+	// an omitted selector, and a disabled store exclude the snapshot.
 	skipUsers, skipRoles bool
 	// userBuiltInAssignments and oidcBuiltInAssignments hold the admin and
-	// viewer assignments an RBAC snapshot filtered by roles leaves out: those
-	// of the backed-up db users, and those of the OIDC users in the namespaces
-	// includeRoles names. Both are nil when includeRoles is omitted, because
-	// the full snapshot holds them. They stay apart because narrowing withholds
-	// the user-keyed part together with the user snapshot.
+	// viewer assignments an RBAC snapshot filtered by roles or skipped leaves
+	// out: those of the backed-up db users, and those of the OIDC users in the
+	// namespaces includeRoles names. Both are nil when the RBAC snapshot is the
+	// full store, because it holds them. userBuiltInAssignments is nil when
+	// skipUsers is set.
 	userBuiltInAssignments []byte
 	oidcBuiltInAssignments []byte
 }
 
 // validateBackupRequest resolves the request into classes, users, and roles.
 // An empty or wildcard Include selects from the classes pr may back up, and no
-// error names another. Users and roles stay empty without includeUsers/includeRoles.
+// error names another. Users and roles stay empty without includeUsers/includeRoles;
+// an omitted one the caller may not back up whole skips that snapshot.
 func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore, pr *models.Principal, req *BackupRequest) (selections backupSelections, err error) {
 	if !store.backend.IsExternal() && s.backupper.nodeResolver.NodeCount() > 1 {
 		return selections, errLocalBackendDBRO
@@ -1119,6 +1084,37 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 			Warnf("'includeRoles' %v matches no role, backing up no custom roles", req.IncludeRoles)
 	}
 
+	// An omitted selector backs up the whole enabled store. A caller who may not
+	// do that gets a backup without it, as an omitted include narrows to the
+	// authorized classes. Explicit empty selectors and disabled stores are skipped.
+	// The skips are final before the assignments below are carried.
+	if s.userLister == nil {
+		selections.skipUsers = true
+	} else if req.IncludeUsers == nil {
+		allowed, err := s.authorizeWholeStore(ctx, pr, authorization.BackupUsers())
+		if err != nil {
+			return selections, err
+		}
+		if !allowed {
+			selections.skipUsers = true
+			s.logger.WithField("action", "try_backup").WithField("backup_id", req.ID).
+				Warn("caller may not back up all dynamic users, backing up none: grant manage_backups on users to include them")
+		}
+	}
+	if s.roleLister == nil {
+		selections.skipRoles = true
+	} else if req.IncludeRoles == nil {
+		allowed, err := s.authorizeWholeStore(ctx, pr, authorization.BackupRoles())
+		if err != nil {
+			return selections, err
+		}
+		if !allowed {
+			selections.skipRoles = true
+			s.logger.WithField("action", "try_backup").WithField("backup_id", req.ID).
+				Warn("caller may not back up all roles, backing up none: grant manage_backups on roles to include them")
+		}
+	}
+
 	// The namespaces the includeRoles selectors and the roles they resolve to
 	// name. They key the carried OIDC grants and bound an omitted includeUsers.
 	var namespaces []string
@@ -1130,7 +1126,9 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 		}
 	}
 
-	if req.IncludeRoles != nil && !selections.skipUsers && s.roleLister != nil {
+	// Only a full RBAC snapshot holds the backed-up users' admin and viewer
+	// assignments. A role-filtered or skipped snapshot needs them carried.
+	if (req.IncludeRoles != nil || selections.skipRoles) && !selections.skipUsers && s.roleLister != nil {
 		carried := users
 		if req.IncludeUsers == nil && s.userLister != nil {
 			// An omitted includeUsers backs up every dynamic user.

@@ -361,12 +361,14 @@ func TestValidateBackupRequest(t *testing.T) {
 			wantErr: "no collections, users, or roles",
 		},
 		{
-			name:    "default users suffice with roles disabled",
-			noRoles: true,
+			name:         "default users suffice with roles disabled",
+			noRoles:      true,
+			wantSkipRole: true,
 		},
 		{
-			name:    "default roles suffice with users disabled",
-			noUsers: true,
+			name:         "default roles suffice with users disabled",
+			noUsers:      true,
+			wantSkipUser: true,
 		},
 		{
 			name:         "omitted roles include built-in roles",
@@ -422,6 +424,7 @@ func TestValidateBackupRequest(t *testing.T) {
 			exclude:      []string{"Allowed"},
 			includeUsers: []string{"alice"},
 			wantUsers:    []string{"alice"},
+			wantSkipRole: true,
 		},
 		{
 			name:         "wildcard omits forbidden collections but keeps users",
@@ -430,6 +433,7 @@ func TestValidateBackupRequest(t *testing.T) {
 			include:      []string{"Allowed?*"},
 			includeUsers: []string{"alice"},
 			wantUsers:    []string{"alice"},
+			wantSkipRole: true,
 		},
 		{
 			name:         "selected users do not bypass total collection denial",
