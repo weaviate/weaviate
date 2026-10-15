@@ -26,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// Map iteration order is random per call, so one call can pass by chance.
+// If the order came from ranging over the map, one run could pass by chance.
 const additionalExtendRuns = 50
 
 func TestAdditionalExtendOrder(t *testing.T) {
@@ -63,10 +63,10 @@ func TestAdditionalExtendOrder(t *testing.T) {
 			wantLen:   1,
 		},
 		{
-			name:      "properties after rerank run in name order",
+			name:      "rerank, answer, the rest by name, generate",
 			keep:      2,
-			params:    []string{"summary", "generate", "rerank", "answer"},
-			wantCalls: []string{"rerank:3", "answer:2", "generate:2", "summary:2"},
+			params:    []string{"summary", "generate", "rerank", "answer", "abstract"},
+			wantCalls: []string{"rerank:3", "answer:2", "abstract:2", "summary:2", "generate:2"},
 			wantLen:   2,
 		},
 		{
@@ -77,10 +77,10 @@ func TestAdditionalExtendOrder(t *testing.T) {
 			wantLen:   0,
 		},
 		{
-			name:      "without rerank the order is by name",
+			name:      "without rerank, answer runs first and generate last",
 			keep:      3,
-			params:    []string{"summary", "generate", "answer"},
-			wantCalls: []string{"answer:3", "generate:3", "summary:3"},
+			params:    []string{"summary", "generate", "answer", "abstract"},
+			wantCalls: []string{"answer:3", "abstract:3", "summary:3", "generate:3"},
 			wantLen:   3,
 		},
 	}
@@ -137,7 +137,7 @@ func newProviderWithAdditionalProperties(t *testing.T, recorder *callRecorder) *
 	p.SetSchemaGetter(getFakeSchemaGetter())
 
 	module := newGraphQLAdditionalModule("mod1")
-	for _, name := range []string{"rerank", "generate", "answer", "summary"} {
+	for _, name := range []string{"rerank", "generate", "answer", "summary", "abstract"} {
 		module.additionalProperties[name] = recorder.property(name)
 	}
 	p.Register(module)

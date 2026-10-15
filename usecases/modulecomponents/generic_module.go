@@ -36,6 +36,7 @@ const (
 )
 
 const (
+	AdditionalPropertyAnswer   = "answer"
 	AdditionalPropertyGenerate = additional.PropertyGenerate
 	AdditionalPropertyRerank   = additional.PropertyRerank
 )

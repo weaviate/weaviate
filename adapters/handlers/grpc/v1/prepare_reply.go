@@ -467,9 +467,7 @@ func (r *Replier) extractGroup(raw any, searchParams dto.GetParams, resolver *sc
 			ret.Generative = &pb.GenerativeReply{Result: *generateFmt.SingleResult}
 		}
 
-		// generate adds the grouped result to its first object only. Rerank runs
-		// before generate, so that is the first object here as well, but every
-		// object is checked in case a later step reorders the results.
+		// generate puts the grouped result on one object, the first one it got.
 		if generateFmt.GroupedResult != nil && *generateFmt.GroupedResult != "" {
 			groupedGenerativeResults = *generateFmt.GroupedResult
 		}
