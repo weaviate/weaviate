@@ -746,9 +746,6 @@ func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, mod
 			}
 			cfg := NewClassBasedModuleConfig(class, "", "", "", &p.cfg)
 			for _, name := range p.orderAdditionalParameters(moduleParams) {
-				if len(toBeExtended) == 0 {
-					break
-				}
 				value := moduleParams[name]
 				additionalPropertyFn := p.getAdditionalPropertyFn(allAdditionalProperties[name], capability)
 				if additionalPropertyFn != nil && value != nil {

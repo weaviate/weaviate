@@ -70,13 +70,6 @@ func TestAdditionalExtendOrder(t *testing.T) {
 			wantLen:   2,
 		},
 		{
-			name:      "nothing runs after a property leaves no results",
-			keep:      0,
-			params:    []string{"generate", "rerank", "answer"},
-			wantCalls: []string{"rerank:3"},
-			wantLen:   0,
-		},
-		{
 			name:      "without rerank, answer runs first and generate last",
 			keep:      3,
 			params:    []string{"summary", "generate", "answer", "abstract"},
