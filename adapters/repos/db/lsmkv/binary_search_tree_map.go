@@ -176,12 +176,11 @@ func addNewSearchNodeMapReceiver[V mapElement[V]](nodePtr **binarySearchNodeMap[
 
 func (n *binarySearchNodeMap[V]) insert(key []byte, pair V) *binarySearchNodeMap[V] {
 	for {
-		if bytes.Equal(key, n.key) {
+		switch c := bytes.Compare(key, n.key); {
+		case c == 0:
 			n.values = append(n.values, pair)
 			return nil // tree root does not change when replacing node
-		}
-
-		if bytes.Compare(key, n.key) < 0 {
+		case c < 0:
 			if n.left == nil {
 				n.left = &binarySearchNodeMap[V]{
 					key:         key,
@@ -192,7 +191,7 @@ func (n *binarySearchNodeMap[V]) insert(key []byte, pair V) *binarySearchNodeMap
 				return binarySearchNodeMapFromRB[V](rbtree.Rebalance(n.left))
 			}
 			n = n.left
-		} else {
+		default:
 			if n.right == nil {
 				n.right = &binarySearchNodeMap[V]{
 					key:         key,
@@ -209,13 +208,12 @@ func (n *binarySearchNodeMap[V]) insert(key []byte, pair V) *binarySearchNodeMap
 
 func (n *binarySearchNodeMap[V]) get(key []byte) ([]V, error) {
 	for n != nil {
-		if bytes.Equal(n.key, key) {
+		switch c := bytes.Compare(key, n.key); {
+		case c == 0:
 			return sortAndDedupValues(n.values), nil
-		}
-
-		if bytes.Compare(key, n.key) < 0 {
+		case c < 0:
 			n = n.left
-		} else {
+		default:
 			n = n.right
 		}
 	}

@@ -251,11 +251,10 @@ func newBinarySearchNode(key []byte, values Insert, parent *BinarySearchNode, co
 // the key merged.
 func (n *BinarySearchNode) insert(key []byte, values Insert) (newRoot *BinarySearchNode, grownBy int, created bool) {
 	for {
-		if bytes.Equal(key, n.Key) {
+		switch c := bytes.Compare(key, n.Key); {
+		case c == 0:
 			return nil, n.merge(values), false
-		}
-
-		if bytes.Compare(key, n.Key) < 0 {
+		case c < 0:
 			if n.left == nil {
 				// held in a local because Rebalance can move it out of n.left
 				inserted := newBinarySearchNode(key, values, n, true)
@@ -263,7 +262,7 @@ func (n *BinarySearchNode) insert(key []byte, values Insert) (newRoot *BinarySea
 				return BinarySearchNodeFromRB(rbtree.Rebalance(inserted)), inserted.sizeInBytes(), true
 			}
 			n = n.left
-		} else {
+		default:
 			if n.right == nil {
 				// held in a local because Rebalance can move it out of n.right
 				inserted := newBinarySearchNode(key, values, n, true)
@@ -313,13 +312,12 @@ func (n *BinarySearchNode) merge(values Insert) int {
 
 func (n *BinarySearchNode) get(key []byte) (BitmapLayer, error) {
 	for n != nil {
-		if bytes.Equal(n.Key, key) {
+		switch c := bytes.Compare(key, n.Key); {
+		case c == 0:
 			return n.Value.Clone(), nil
-		}
-
-		if bytes.Compare(key, n.Key) < 0 {
+		case c < 0:
 			n = n.left
-		} else {
+		default:
 			n = n.right
 		}
 	}

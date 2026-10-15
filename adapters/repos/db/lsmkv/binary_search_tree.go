@@ -288,7 +288,8 @@ func addNewSearchNodeReceiver(nodePtr **binarySearchNode) {
 // returns net additions of insert in bytes
 func (n *binarySearchNode) insert(key, value []byte, secondaryKeys [][]byte) (netAdditions int, newRoot *binarySearchNode, previousSecondaryKeys [][]byte, wasLive bool) {
 	for {
-		if bytes.Equal(key, n.key) {
+		switch c := bytes.Compare(key, n.key); {
+		case c == 0:
 			// since the key already exists, we only need to take the difference
 			// between the existing value and the new one to determine net change
 			netAdditions = len(n.value) - len(value)
@@ -307,9 +308,7 @@ func (n *binarySearchNode) insert(key, value []byte, secondaryKeys [][]byte) (ne
 
 			newRoot = nil // tree root does not change when replacing node
 			return netAdditions, newRoot, previousSecondaryKeys, wasLive
-		}
-
-		if bytes.Compare(key, n.key) < 0 {
+		case c < 0:
 			if n.left == nil {
 				n.left = &binarySearchNode{
 					key:           key,
@@ -323,7 +322,7 @@ func (n *binarySearchNode) insert(key, value []byte, secondaryKeys [][]byte) (ne
 				return netAdditions, newRoot, previousSecondaryKeys, false
 			}
 			n = n.left
-		} else {
+		default:
 			if n.right == nil {
 				n.right = &binarySearchNode{
 					key:           key,
@@ -351,17 +350,16 @@ func (n *binarySearchNode) get(key []byte) ([]byte, error) {
 
 func (n *binarySearchNode) getNode(key []byte) (*binarySearchNode, error) {
 	for n != nil {
-		if bytes.Equal(n.key, key) {
+		switch c := bytes.Compare(key, n.key); {
+		case c == 0:
 			if !n.tombstone {
 				return n, nil
 			} else {
 				return nil, errorFromTombstonedValue(n.value)
 			}
-		}
-
-		if bytes.Compare(key, n.key) < 0 {
+		case c < 0:
 			n = n.left
-		} else {
+		default:
 			n = n.right
 		}
 	}
@@ -370,16 +368,15 @@ func (n *binarySearchNode) getNode(key []byte) (*binarySearchNode, error) {
 
 func (n *binarySearchNode) setTombstone(key, value []byte, secondaryKeys [][]byte) (*binarySearchNode, [][]byte, bool) {
 	for {
-		if bytes.Equal(n.key, key) {
+		switch c := bytes.Compare(key, n.key); {
+		case c == 0:
 			wasTombstoned := n.tombstone
 			prevSecondaryKeys := n.secondaryKeys
 			n.value = value
 			n.tombstone = true
 			n.secondaryKeys = secondaryKeys
 			return nil, prevSecondaryKeys, wasTombstoned
-		}
-
-		if bytes.Compare(key, n.key) < 0 {
+		case c < 0:
 			if n.left == nil {
 				n.left = &binarySearchNode{
 					key:           key,
@@ -392,7 +389,7 @@ func (n *binarySearchNode) setTombstone(key, value []byte, secondaryKeys [][]byt
 				return binarySearchNodeFromRB(rbtree.Rebalance(n.left)), nil, false
 			}
 			n = n.left
-		} else {
+		default:
 			if n.right == nil {
 				n.right = &binarySearchNode{
 					key:           key,
