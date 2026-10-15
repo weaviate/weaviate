@@ -140,7 +140,7 @@ func Test_CycleManagerBacksOffWhenIdle(t *testing.T) {
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-		require.NoError(t, cm.StopAndWait(ctx))
+		require.NoError(t, WaitForStop(ctx, cm.Stop(ctx)))
 	})
 }
 
