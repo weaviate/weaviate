@@ -743,7 +743,7 @@ func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, mod
 				return nil, err
 			}
 			cfg := NewClassBasedModuleConfig(class, "", "", "", &p.cfg)
-			for _, name := range additionalExtendOrder(moduleParams) {
+			for _, name := range p.orderAdditionalParameters(moduleParams) {
 				if len(toBeExtended) == 0 {
 					break
 				}
@@ -780,10 +780,10 @@ func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, mod
 	return toBeExtended, nil
 }
 
-// additionalExtendOrder returns the additional property names in the order
+// orderAdditionalParameters returns the additional property names in the order
 // they have to run: rerank first, because it reorders the results that the
 // other properties then work on, and the rest by name.
-func additionalExtendOrder(moduleParams map[string]interface{}) []string {
+func (p *Provider) orderAdditionalParameters(moduleParams map[string]interface{}) []string {
 	const rerank = modulecomponents.AdditionalPropertyRerank
 	names := make([]string, 0, len(moduleParams))
 	for name := range moduleParams {
