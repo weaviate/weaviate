@@ -787,10 +787,10 @@ type PermissionBackups struct {
 	// A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value `*` applies the permission to all collections. Cannot be combined with `user` or `role`.
 	Collection *string `json:"collection,omitempty"`
 
-	// A string that specifies which custom roles this permission allows to be backed up and restored. Can be an exact role name or a regex pattern; `*` applies the permission to all roles. Cannot be combined with `collection` or `user`.
+	// A string that specifies which custom roles this permission allows to be backed up. Can be an exact role name or a regex pattern; `*` applies the permission to all roles. Restoring replaces the whole RBAC store, so a restore that applies roles, with its status and cancellation, requires `*`. The status, cancellation and listing of a backup require the roles it names; one capturing the whole RBAC state requires `*`. Cannot be combined with `collection` or `user`.
 	Role *string `json:"role,omitempty"`
 
-	// A string that specifies which dynamic users this permission allows to be backed up and restored. Can be an exact user ID or a regex pattern; `*` applies the permission to all users. Cannot be combined with `collection` or `role`.
+	// A string that specifies which dynamic users this permission allows to be backed up. Can be an exact user ID or a regex pattern; `*` applies the permission to all users. Restoring replaces the whole user store, so a restore that applies users, with its status and cancellation, requires `*`. The status, cancellation and listing of a backup require the users it names; one capturing the whole store requires `*`. Cannot be combined with `collection` or `role`.
 	User *string `json:"user,omitempty"`
 }
 
