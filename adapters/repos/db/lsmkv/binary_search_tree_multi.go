@@ -183,12 +183,11 @@ func addNewSearchNodeMultiReceiver(nodePtr **binarySearchNodeMulti) {
 
 func (n *binarySearchNodeMulti) insert(key []byte, values []value) *binarySearchNodeMulti {
 	for {
-		if bytes.Equal(key, n.key) {
+		switch c := bytes.Compare(key, n.key); {
+		case c == 0:
 			n.values = append(n.values, values...)
 			return nil
-		}
-
-		if bytes.Compare(key, n.key) < 0 {
+		case c < 0:
 			if n.left == nil {
 				n.left = &binarySearchNodeMulti{
 					key:         key,
@@ -199,7 +198,7 @@ func (n *binarySearchNodeMulti) insert(key []byte, values []value) *binarySearch
 				return binarySearchNodeMultiFromRB(rbtree.Rebalance(n.left))
 			}
 			n = n.left
-		} else {
+		default:
 			if n.right == nil {
 				n.right = &binarySearchNodeMulti{
 					key:         key,
@@ -216,13 +215,12 @@ func (n *binarySearchNodeMulti) insert(key []byte, values []value) *binarySearch
 
 func (n *binarySearchNodeMulti) get(key []byte) ([]value, error) {
 	for n != nil {
-		if bytes.Equal(n.key, key) {
+		switch c := bytes.Compare(key, n.key); {
+		case c == 0:
 			return n.values, nil
-		}
-
-		if bytes.Compare(key, n.key) < 0 {
+		case c < 0:
 			n = n.left
-		} else {
+		default:
 			n = n.right
 		}
 	}
