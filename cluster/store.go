@@ -307,6 +307,10 @@ type Store struct {
 
 	// clusterID is the stable UUID committed once per cluster lifetime via raft.
 	clusterID atomic.Pointer[string]
+
+	forcedSnapshotSignal chan struct{}
+	stopForcedSnapshots  context.CancelFunc
+	forcedSnapshotsDone  chan struct{}
 }
 
 // storeMetrics exposes RAFT store related prometheus metrics
@@ -416,6 +420,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 		rbacLister = cfg.RBAC
 	}
 
+	forceSnapshot := make(chan struct{}, 1)
 	return Store{
 		cfg:          cfg,
 		log:          cfg.Logger,
@@ -432,12 +437,13 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 		schemaManager:           schemaManager,
 		tenantAddLocks:          entsync.NewKeyLocker(),
 		authZController:         authZController,
-		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, cfg.Logger),
+		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, cfg.Logger, forceSnapshot),
 		dynUserManager:          dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),
 		namespaceManager:        namespaces.NewManager(cfg.NamespacesController, NewSchemaNamespaceLister(schemaManager.NewSchemaReader()), dynusersLister, rbacLister, monitoring.GetMetrics(), cfg.Logger),
 		replicationManager:      replicationManager,
 		distributedTasksManager: distributedTasksManager,
 		metrics:                 newStoreMetrics(cfg.NodeID, reg),
+		forcedSnapshotSignal:    forceSnapshot,
 	}
 }
 
@@ -513,6 +519,9 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	if err := st.init(); err != nil {
 		return fmt.Errorf("initialize raft store: %w", err)
 	}
+	if err := st.resetRBACIfNoSnapshot(); err != nil {
+		return err
+	}
 
 	li := st.lastIndex()
 	st.lastAppliedIndexToDB.Store(li)
@@ -537,6 +546,10 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		if err := st.recoverSingleNode(st.cfg.ForceOneNodeRecovery); err != nil {
 			return err
 		}
+	}
+	// Every arming site requires RBAC, so without it the worker could never fire.
+	if st.cfg.RBAC != nil {
+		st.startForcedSnapshotter()
 	}
 
 	snapIndex := lastSnapshotIndex(st.snapshotStore)
@@ -699,10 +712,18 @@ func (st *Store) Close(ctx context.Context) error {
 		st.log.WithError(err).Warn("failed to close raft transport")
 	}
 
+	if st.stopForcedSnapshots != nil {
+		st.stopForcedSnapshots()
+	}
+
 	// shutdown raft after transport is closed to ensure clean termination
 	st.log.Info("shutting down raft ...")
 	if err := st.raft.Load().Shutdown().Error(); err != nil {
 		st.log.WithError(err).Warn("raft shutdown failed")
+	}
+	if st.forcedSnapshotsDone != nil {
+		<-st.forcedSnapshotsDone
+		st.stopForcedSnapshots, st.forcedSnapshotsDone = nil, nil
 	}
 
 	st.open.Store(false)
@@ -1132,6 +1153,35 @@ func lastSnapshotIndex(snapshotStore *raft.FileSnapshotStore) uint64 {
 	return ls[0].Index
 }
 
+// resetRBACIfNoSnapshot wipes the RBAC store, casbin memory and policy.csv
+// both, down to the predefined roles. It runs when no raft snapshot exists:
+// raft then replays the whole log, and each replayed write saves the file
+// again, so replay rebuilds exactly what the wipe removed.
+func (st *Store) resetRBACIfNoSnapshot() error {
+	if st.cfg.RBAC == nil {
+		return nil
+	}
+	snaps, err := st.snapshotStore.List()
+	if err != nil {
+		return fmt.Errorf("list raft snapshots before rbac reset: %w", err)
+	}
+	if len(snaps) != 0 {
+		return nil
+	}
+	first, err := st.logStore.FirstIndex()
+	if err != nil {
+		return fmt.Errorf("read first raft log index before rbac reset: %w", err)
+	}
+	if first > 1 {
+		st.log.Warnf("rbac reset skipped: no raft snapshot but the log starts at index %d, keeping policy.csv", first)
+		return nil
+	}
+	if err := st.cfg.RBAC.ResetForReplay(); err != nil {
+		return fmt.Errorf("reset rbac before raft log replay: %w", err)
+	}
+	return nil
+}
+
 // recoverSingleNode is used to manually force a new configuration in order to
 // recover from a loss of quorum where the current configuration cannot be
 // WARNING! This operation implicitly commits all entries in the Raft log, so
@@ -1173,6 +1223,11 @@ func (st *Store) recoverSingleNode(force bool) error {
 
 	fut := st.raft.Load().Shutdown()
 	if err := fut.Error(); err != nil {
+		return err
+	}
+	// The Store started by Open may have applied entries onto a cleared store
+	// before Shutdown, so RecoverCluster's full replay needs a second clear.
+	if err := st.resetRBACIfNoSnapshot(); err != nil {
 		return err
 	}
 
