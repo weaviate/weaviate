@@ -1064,19 +1064,34 @@ func TestSchedulerDescriptorPrincipals(t *testing.T) {
 		runCase(op, d)
 	}
 
-	t.Run("a denied per-ID resource fails", func(t *testing.T) {
-		fs := newFakeScheduler(nil)
-		fs.schema.namespacesEnabled = true
-		fs.auth.(*mocks.FakeAuthorizer).Deny("backups/users/ns1:carol")
-		serve(fs, backup.DistributedBackupDescriptor{
-			ID: backupID, Status: backup.Cancelled,
-			Nodes: map[string]*backup.NodeDescriptor{"node1": {Classes: []string{"Movies"}}},
-			Users: unsortedUsers, SkipRoles: true,
-		})
+	// The descriptor names IDs the caller did not, so a denial names the kind
+	// wildcard and never the denied ID.
+	t.Run("a denied per-ID resource fails naming only the kind wildcard", func(t *testing.T) {
+		for _, op := range []operation{operations[0], operations[2]} {
+			for _, tt := range []struct {
+				name, denied, wildcard string
+			}{
+				{name: "user", denied: "backups/users/ns1:alice", wildcard: "backups/users/*"},
+				{name: "role", denied: "backups/roles/ns1:owner", wildcard: "backups/roles/*"},
+			} {
+				t.Run(op.name+": "+tt.name, func(t *testing.T) {
+					fs := newFakeScheduler(nil)
+					fs.schema.namespacesEnabled = true
+					fs.auth.(*mocks.FakeAuthorizer).Deny(tt.denied)
+					serve(fs, backup.DistributedBackupDescriptor{
+						ID: backupID, Status: backup.Cancelled,
+						Nodes: map[string]*backup.NodeDescriptor{"node1": {Classes: []string{"Movies"}}},
+						Users: []string{"ns1:zed", "ns1:alice"}, Roles: []string{"ns1:owner"},
+					})
 
-		err := statusOp.run(fs.scheduler())
-		require.ErrorAs(t, err, &authzerrors.Forbidden{})
-		assert.EqualError(t, err, authzerrors.NewForbidden(caller, statusOp.verb, "backups/users/ns1:carol").Error())
+					err := op.run(fs.scheduler())
+					require.ErrorAs(t, err, &authzerrors.Forbidden{})
+					assert.EqualError(t, err, backupsForbidden(caller, op.verb, tt.wildcard).Error())
+					assert.NotContains(t, err.Error(), "alice")
+					assert.NotContains(t, err.Error(), "owner")
+				})
+			}
+		}
 	})
 
 	// Until the restore writes its own descriptor, cancel-restore judges the
@@ -1107,10 +1122,15 @@ func TestSchedulerDescriptorPrincipals(t *testing.T) {
 				fs.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 				err := fs.scheduler().CancelRestore(ctx, caller, "gcs", backupID, "", "")
-				assert.Equal(t, []mocks.AuthZReq{
+				want := []mocks.AuthZReq{
 					{Principal: caller, Verb: authorization.DELETE, Resources: []string{"backups/collections/Movies"}},
 					{Principal: caller, Verb: authorization.DELETE, Resources: wholeStores},
-				}, fs.auth.(*mocks.FakeAuthorizer).Calls())
+				}
+				if len(tt.deny) > 0 {
+					// The silent users check picks the wildcard the denial names.
+					want = append(want, mocks.AuthZReq{Principal: caller, Verb: authorization.DELETE, Resources: wholeStores[:1], Silent: true})
+				}
+				assert.Equal(t, want, fs.auth.(*mocks.FakeAuthorizer).Calls())
 				if len(tt.deny) > 0 {
 					require.ErrorAs(t, err, &authzerrors.Forbidden{})
 					fs.client.AssertNotCalled(t, "Abort", mock.Anything, mock.Anything, mock.Anything)

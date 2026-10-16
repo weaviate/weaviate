@@ -696,7 +696,27 @@ func (s *Scheduler) authorizeBackupByID(ctx context.Context, principal *models.P
 	if err := s.authorizeBackupClasses(ctx, principal, verb, meta.Classes()); err != nil {
 		return err
 	}
-	return s.authorizeResources(ctx, principal, verb, principals(meta))
+	return s.authorizeBackupPrincipals(ctx, principal, verb, principals(meta))
+}
+
+func (s *Scheduler) authorizeBackupPrincipals(ctx context.Context, pr *models.Principal, verb string, resources []string) error {
+	err := s.authorizeResources(ctx, pr, verb, resources)
+	if !errors.As(err, &authzerrors.Forbidden{}) {
+		return err
+	}
+	usersWildcard := authorization.BackupUsers()[0]
+	usersPrefix := strings.TrimSuffix(usersWildcard, "*")
+	users := slices.DeleteFunc(slices.Clone(resources), func(r string) bool { return !strings.HasPrefix(r, usersPrefix) })
+	if len(users) > 0 {
+		err := s.authorizer.AuthorizeSilent(ctx, pr, verb, users...)
+		if errors.As(err, &authzerrors.Forbidden{}) {
+			return backupsForbidden(pr, verb, usersWildcard)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return backupsForbidden(pr, verb, authorization.BackupRoles()[0])
 }
 
 const metaReadAttempts = 3
@@ -808,7 +828,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	if err := s.authorizeBackupClasses(ctx, principal, authorization.DELETE, classes); err != nil {
 		return err
 	}
-	if err := s.authorizeResources(ctx, principal, authorization.DELETE, s.backupPrincipalResources(meta)); err != nil {
+	if err := s.authorizeBackupPrincipals(ctx, principal, authorization.DELETE, s.backupPrincipalResources(meta)); err != nil {
 		return err
 	}
 	if idErr != nil {
@@ -877,7 +897,7 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 	if err := s.authorizeBackupClasses(ctx, principal, authorization.DELETE, classes); err != nil {
 		return err
 	}
-	if err := s.authorizeResources(ctx, principal, authorization.DELETE, restorePrincipalResources(authMeta)); err != nil {
+	if err := s.authorizeBackupPrincipals(ctx, principal, authorization.DELETE, restorePrincipalResources(authMeta)); err != nil {
 		return err
 	}
 	if idErr != nil {
