@@ -61,6 +61,11 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 	call := func(resources ...string) mocks.AuthZReq {
 		return mocks.AuthZReq{Principal: caller, Verb: authorization.CREATE, Resources: resources}
 	}
+	// silent is the wildcard probe of authorizeWholeStore; a pass is followed
+	// by the audited call, a denial by nothing.
+	silent := func(resources ...string) mocks.AuthZReq {
+		return mocks.AuthZReq{Principal: caller, Verb: authorization.CREATE, Resources: resources, Silent: true}
+	}
 
 	// setup wires a create that runs to completion and returns the request the
 	// participant receives.
@@ -104,8 +109,10 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 		require.NoError(t, run(t, fs, &BackupRequest{ID: backupID, Backend: backendName}))
 		assert.Equal(t, []mocks.AuthZReq{
 			call("backups/collections/Movies"),
+			silent("backups/users/*"),
 			call("backups/users/*"),
 			call("backups/users/alice", "backups/users/bob"),
+			silent("backups/roles/*"),
 			call("backups/roles/*"),
 			call("backups/roles/editor", "backups/roles/writer"),
 		}, fs.auth.(*mocks.FakeAuthorizer).Calls())
@@ -192,9 +199,9 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 
 		assert.Equal(t, []mocks.AuthZReq{
 			call("backups/collections/Movies"),
-			call("backups/users/*"),
+			silent("backups/users/*"),
 			call("backups/users/ns1:alice", "backups/users/ns1:bob", "backups/users/ns2:carol"),
-			call("backups/roles/*"),
+			silent("backups/roles/*"),
 			call("backups/roles/ns1:editor", "backups/roles/ns2:writer"),
 		}, nfs.auth.(*mocks.FakeAuthorizer).Calls())
 		assert.Equal(t, []mocks.AuthZReq{
@@ -240,7 +247,7 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 					}))
 					want := []mocks.AuthZReq{call("backups/collections/Movies")}
 					if sel.wildcards {
-						want = append(want, call("backups/users/*"), call(tt.users...), call("backups/roles/*"), call(tt.roles...))
+						want = append(want, silent("backups/users/*"), call(tt.users...), silent("backups/roles/*"), call(tt.roles...))
 					} else {
 						want = append(want, call(tt.users...), call(tt.roles...))
 					}
@@ -327,9 +334,9 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 		require.IsType(t, backup.ErrUnprocessable{}, err)
 		assert.ErrorContains(t, err, "backup selects no collections, users, or roles")
 		assert.Equal(t, []mocks.AuthZReq{
-			call("backups/users/*"),
+			silent("backups/users/*"),
 			call("backups/users/alice"),
-			call("backups/roles/*"),
+			silent("backups/roles/*"),
 			call("backups/roles/editor"),
 		}, fs.auth.(*mocks.FakeAuthorizer).Calls())
 		fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, mock.Anything, mock.Anything)
@@ -459,6 +466,7 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 		assert.Equal(t, []mocks.AuthZReq{
 			call("backups/collections/Movies", "backups/users/bob"),
 			call("backups/users/alice", "backups/users/anna", "backups/users/bob"),
+			silent("backups/roles/*"),
 			call("backups/roles/*"),
 			call("backups/roles/editor", "backups/roles/writer"),
 		}, fs.auth.(*mocks.FakeAuthorizer).Calls())

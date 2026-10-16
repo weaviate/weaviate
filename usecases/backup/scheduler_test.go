@@ -745,7 +745,9 @@ func TestFilterBackupableClasses(t *testing.T) {
 		// check counts only what the caller may back up.
 		assert.Equal(t, []mocks.AuthZReq{
 			{Principal: principal, Verb: authorization.CREATE, Resources: authorization.Backups("Book*")},
+			{Principal: principal, Verb: authorization.CREATE, Resources: authorization.BackupUsers(), Silent: true},
 			{Principal: principal, Verb: authorization.CREATE, Resources: authorization.BackupUsers()},
+			{Principal: principal, Verb: authorization.CREATE, Resources: authorization.BackupRoles(), Silent: true},
 			{Principal: principal, Verb: authorization.CREATE, Resources: authorization.BackupRoles()},
 		}, fs.auth.(*mocks.FakeAuthorizer).Calls())
 	})
@@ -1170,6 +1172,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 		assert.Empty(t, resp.Classes)
 		assert.Equal(t, []mocks.AuthZReq{
 			{Principal: &models.Principal{Username: "test-user"}, Verb: authorization.CREATE, Resources: []string{"backups/users/alice"}},
+			{Principal: &models.Principal{Username: "test-user"}, Verb: authorization.CREATE, Resources: []string{"backups/roles/*"}, Silent: true},
 			{Principal: &models.Principal{Username: "test-user"}, Verb: authorization.CREATE, Resources: []string{"backups/roles/*"}},
 		}, fs.auth.(*mocks.FakeAuthorizer).Calls())
 		require.Eventually(t, func() bool { return s.backupper.lastOp.get().Status == "" },

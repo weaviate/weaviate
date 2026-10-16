@@ -416,15 +416,28 @@ func (s *Scheduler) authorizeResources(ctx context.Context, pr *models.Principal
 // every role. Forbidden returns false. Any other authorizer error becomes
 // Unprocessable, as in filterBackupableClasses.
 func (s *Scheduler) authorizeWholeStore(ctx context.Context, pr *models.Principal, wildcard []string) (bool, error) {
-	err := s.authorizeResources(ctx, pr, authorization.CREATE, wildcard)
-	switch {
-	case err == nil:
-		return true, nil
-	case errors.As(err, &authzerrors.Forbidden{}):
-		return false, nil
-	default:
+	if err := s.authorizer.AuthorizeSilent(ctx, pr, authorization.CREATE, wildcard...); err != nil {
+		if errors.As(err, &authzerrors.Forbidden{}) {
+			return false, nil
+		}
 		return false, backup.NewErrUnprocessable(err)
 	}
+	// A grant revoked between the probe and the record refuses with an audited
+	// denial and narrows, as a refused probe does.
+	if err := s.recordGrant(ctx, pr, authorization.CREATE, wildcard); err != nil {
+		if errors.As(err, &authzerrors.Forbidden{}) {
+			return false, nil
+		}
+		return false, backup.NewErrUnprocessable(err)
+	}
+	return true, nil
+}
+
+// recordGrant writes the audit grant line for a permission AuthorizeSilent
+// just found on the same verb and resources. The Authorizer has no grant-only
+// audit call, so the line is written by re-authorizing.
+func (s *Scheduler) recordGrant(ctx context.Context, pr *models.Principal, verb string, resources []string) error {
+	return s.authorizer.Authorize(ctx, pr, verb, resources...)
 }
 
 // omittedSelection decides what an omitted includeUsers or includeRoles backs
@@ -1048,9 +1061,9 @@ func (s *Scheduler) canReadBackups(ctx context.Context, principal *models.Princi
 	// the collections wildcard would list backups carrying users and roles.
 	wildcards := append(authorization.Backups(), append(authorization.BackupUsers(), authorization.BackupRoles()...)...)
 	if err := s.authorizer.AuthorizeSilent(ctx, principal, authorization.READ, wildcards...); err == nil {
-		// AuthorizeSilent writes no audit record and nothing else authorizes
-		// this endpoint. Record the grant that permitted the whole listing.
-		if err := s.authorizer.Authorize(ctx, principal, authorization.READ, wildcards...); err != nil {
+		// Nothing else authorizes this endpoint, so the audit log must carry
+		// the grant that permitted the whole listing.
+		if err := s.recordGrant(ctx, principal, authorization.READ, wildcards); err != nil {
 			return nil, err
 		}
 		for i := range readable {
