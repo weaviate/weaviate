@@ -154,6 +154,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/tokenizer"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
@@ -192,6 +193,10 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	config.ServerVersion = build.Version
 
 	appState := startupRoutine(ctx, serverShutdownCtx, options)
+
+	// Serve tiktoken vocabularies from a local dir (when configured) to avoid
+	// fetching them from OpenAI's blob store.
+	tokenizer.RegisterLocalBPE(appState.ServerConfig.Config.TokenizerBPEDir)
 
 	// Initialize OpenTelemetry tracing
 	if err := opentelemetry.Init(appState.Logger); err != nil {

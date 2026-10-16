@@ -26,6 +26,28 @@ import (
 
 const DefaultGoroutineFactor = 1.5
 
+func TestEnvironmentTokenizerBPEDir(t *testing.T) {
+	tests := []struct {
+		name string
+		set  []string // env value (empty slice = unset)
+		want string
+	}{
+		{name: "unset", set: []string{}, want: ""},
+		{name: "path", set: []string{"/var/lib/tiktoken"}, want: "/var/lib/tiktoken"},
+		{name: "trimmed", set: []string{"  /var/lib/tiktoken  "}, want: "/var/lib/tiktoken"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.set) == 1 {
+				t.Setenv("TOKENIZER_BPE_DIR", tt.set[0])
+			}
+			conf := Config{}
+			require.NoError(t, FromEnv(&conf))
+			require.Equal(t, tt.want, conf.TokenizerBPEDir)
+		})
+	}
+}
+
 func TestEnvironmentImportGoroutineFactor(t *testing.T) {
 	factors := []struct {
 		name            string

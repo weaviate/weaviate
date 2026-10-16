@@ -120,6 +120,11 @@ type Batch[T dto.Embedding] struct {
 	Label             string
 }
 
+// Logger exposes the batch logger so collaborators can share it.
+func (b *Batch[T]) Logger() logrus.FieldLogger {
+	return b.logger
+}
+
 // batchWorker is a go routine that handles the communication with the vectorizer
 //
 // On the high level it has the following steps:
