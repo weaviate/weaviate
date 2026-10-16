@@ -108,7 +108,18 @@ func joinStrategies(strategies []Strategy) string {
 }
 
 func MustBeExpectedStrategy(strategy Strategy, expectedStrategies ...Strategy) {
-	if err := CheckExpectedStrategy(strategy, expectedStrategies...); err != nil {
+	// slices.Contains would put this over the inlining budget
+	for _, e := range expectedStrategies {
+		if strategy == e {
+			return
+		}
+	}
+	mustBeMismatch(strategy, expectedStrategies)
+}
+
+//go:noinline
+func mustBeMismatch(strategy Strategy, expectedStrategies []Strategy) {
+	if err := strategyMismatch(strategy, expectedStrategies); err != nil {
 		panic(err)
 	}
 }
