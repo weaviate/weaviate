@@ -713,6 +713,13 @@ func GetTenantsWithAuthz(t *testing.T, class string, authInfo runtime.ClientAuth
 	return resp, err
 }
 
+func GetTenantsWithNames(t *testing.T, class string, names []string) (*schema.TenantsGetOK, error) {
+	t.Helper()
+	params := schema.NewTenantsGetParams().WithClassName(class).WithNames(names)
+	resp, err := Client(t).Schema.TenantsGet(params, nil)
+	return resp, err
+}
+
 func GetOneTenant(t *testing.T, class, tenant string) (*schema.TenantsGetOneOK, error) {
 	t.Helper()
 	params := schema.NewTenantsGetOneParams().WithClassName(class).WithTenantName(tenant)

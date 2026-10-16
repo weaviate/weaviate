@@ -195,6 +195,47 @@ func TestCreateTenants(t *testing.T) {
 	})
 }
 
+func TestGetTenantsFilteredByNames(t *testing.T) {
+	testClass := models.Class{
+		Class: "MultiTenantClassNamesFilter",
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled: true,
+		},
+		Properties: []*models.Property{
+			{
+				Name:     "name",
+				DataType: schema.DataTypeText.PropString(),
+			},
+		},
+	}
+
+	defer func() {
+		helper.DeleteClass(t, testClass.Class)
+	}()
+	helper.CreateClass(t, &testClass)
+
+	allTenants := []*models.Tenant{
+		{Name: "Tenant1", ActivityStatus: models.TenantActivityStatusHOT},
+		{Name: "Tenant2", ActivityStatus: models.TenantActivityStatusHOT},
+		{Name: "Tenant3", ActivityStatus: models.TenantActivityStatusHOT},
+	}
+	helper.CreateTenants(t, testClass.Class, allTenants)
+
+	t.Run("filters to the requested names", func(t *testing.T) {
+		resp, err := helper.GetTenantsWithNames(t, testClass.Class, []string{"Tenant1", "Tenant3"})
+		require.Nil(t, err)
+		require.NotNil(t, resp)
+		require.ElementsMatch(t, resp.Payload, []*models.Tenant{allTenants[0], allTenants[2]})
+	})
+
+	t.Run("no names filter returns every tenant", func(t *testing.T) {
+		resp, err := helper.GetTenants(t, testClass.Class)
+		require.Nil(t, err)
+		require.NotNil(t, resp)
+		require.ElementsMatch(t, resp.Payload, allTenants)
+	})
+}
+
 func TestDeleteTenants(t *testing.T) {
 	testClass := models.Class{
 		Class:              "MultiTenantClassDelete",
