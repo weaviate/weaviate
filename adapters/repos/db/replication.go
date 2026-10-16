@@ -748,13 +748,13 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 		localObj, err := s.ObjectDigestErrDeleted(ctx, id)
 		if err == nil {
 			currUpdateTime = localObj.UpdateTime
-		} else if errors.Is(err, lsmkv.Deleted) {
+		} else if lsmkv.IsDeleted(err) {
 			locallyDeleted = true
 			var errDeleted lsmkv.ErrDeleted
 			if errors.As(err, &errDeleted) {
 				currUpdateTime = errDeleted.DeletionTime().UnixMilli()
 			} // otherwise an unknown deletion time
-		} else if !errors.Is(err, lsmkv.NotFound) {
+		} else if !lsmkv.IsNotFound(err) {
 			result = append(result, types.RepairResponse{
 				ID:  id.String(),
 				Err: err.Error(),

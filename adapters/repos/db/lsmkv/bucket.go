@@ -730,12 +730,12 @@ func (b *Bucket) getWithConsistentView(key []byte, view BucketConsistentView) ([
 			// is replace
 			return v, nil
 		}
-		if errors.Is(err, lsmkv.Deleted) {
+		if lsmkv.IsDeleted(err) {
 			// deleted in the mem-table (which is always the latest) means we don't
 			// have to check the disk segments, return nil now
 			return nil, err
 		}
-		if !errors.Is(err, lsmkv.NotFound) {
+		if !lsmkv.IsNotFound(err) {
 			return nil, fmt.Errorf("Bucket::get() %q: %w", memtableNames[i], err)
 		}
 	}
@@ -763,12 +763,12 @@ func (b *Bucket) existsWithConsistentViewUpTo(key []byte, segIdx int, view Bucke
 			// is replace
 			return nil
 		}
-		if errors.Is(err, lsmkv.Deleted) {
+		if lsmkv.IsDeleted(err) {
 			// deleted in the mem-table (which is always the latest) means we don't
 			// have to check the disk segments, return now
 			return err
 		}
-		if !errors.Is(err, lsmkv.NotFound) {
+		if !lsmkv.IsNotFound(err) {
 			return fmt.Errorf("Bucket::exists() %q: %w", memtableNames[i], err)
 		}
 	}
@@ -876,9 +876,9 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 				err = memtables[0].exists(k)
 				if err == nil {
 					return nil, nil, lsmkv.NotFound
-				} else if errors.Is(err, lsmkv.Deleted) {
+				} else if lsmkv.IsDeleted(err) {
 					return nil, nil, err
-				} else if !errors.Is(err, lsmkv.NotFound) {
+				} else if !lsmkv.IsNotFound(err) {
 					return nil, nil, fmt.Errorf("Bucket::getBySecondary() %q: %w", memtableNames[0], err)
 				}
 			}
@@ -886,12 +886,12 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 			// is replace
 			return v, buffer, nil
 		}
-		if errors.Is(err, lsmkv.Deleted) {
+		if lsmkv.IsDeleted(err) {
 			// deleted in the mem-table (which is always the latest) means we don't
 			// have to check the disk segments, return nil now
 			return nil, nil, err
 		}
-		if !errors.Is(err, lsmkv.NotFound) {
+		if !lsmkv.IsNotFound(err) {
 			return nil, nil, fmt.Errorf("Bucket::getBySecondary() %q: %w", memtableNames[i], err)
 		}
 	}
@@ -918,7 +918,7 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 	}
 
 	// if there is an error other than not found, we propagate the err
-	if !errors.Is(err, lsmkv.NotFound) {
+	if !lsmkv.IsNotFound(err) {
 		return nil, nil, err
 	}
 
@@ -1045,14 +1045,14 @@ func (b *Bucket) setListFromConsistentView(view BucketConsistentView, key []byte
 	var out []value
 
 	v, err := b.disk.getCollection(key, view.Disk)
-	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+	if err != nil && !lsmkv.IsNotFound(err) {
 		return nil, err
 	}
 	out = v
 
 	if view.Flushing != nil {
 		v, err = view.Flushing.getCollection(key)
-		if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		if err != nil && !lsmkv.IsNotFound(err) {
 			return nil, err
 		}
 		out = append(out, v...)
@@ -1060,7 +1060,7 @@ func (b *Bucket) setListFromConsistentView(view BucketConsistentView, key []byte
 	}
 
 	v, err = view.Active.getCollection(key)
-	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+	if err != nil && !lsmkv.IsNotFound(err) {
 		return nil, err
 	}
 	if len(v) > 0 {
@@ -1196,14 +1196,14 @@ func (b *Bucket) WasDeleted(key []byte) (bool, time.Time, error) {
 	}
 
 	if _, err := b.get(key); err != nil {
-		if errors.Is(err, lsmkv.Deleted) {
+		if lsmkv.IsDeleted(err) {
 			var errDeleted lsmkv.ErrDeleted
 			if errors.As(err, &errDeleted) {
 				return true, errDeleted.DeletionTime(), nil
 			}
 			return true, time.Time{}, nil
 		}
-		if !errors.Is(err, lsmkv.NotFound) {
+		if !lsmkv.IsNotFound(err) {
 			return false, time.Time{}, fmt.Errorf("unsupported bucket error: %w", err)
 		}
 	}
@@ -1263,7 +1263,7 @@ func (b *Bucket) mapListFromConsistentView(ctx context.Context, view BucketConsi
 	entriesPerSegment := [][]MapPair{}
 	// before := time.Now()
 	plists, segmentsDisk, err := b.disk.getCollectionAndSegments(ctx, key, view.Disk)
-	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+	if err != nil && !lsmkv.IsNotFound(err) {
 		return nil, err
 	}
 	// segmentsDisk would be the same as view.Segments on StrategyInverted, but
@@ -1331,7 +1331,7 @@ func (b *Bucket) mapListFromConsistentView(ctx context.Context, view BucketConsi
 
 	if view.Flushing != nil {
 		v, err := view.Flushing.getMap(key)
-		if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		if err != nil && !lsmkv.IsNotFound(err) {
 			return nil, err
 		}
 		if len(v) > 0 {
@@ -1341,7 +1341,7 @@ func (b *Bucket) mapListFromConsistentView(ctx context.Context, view BucketConsi
 
 	// before = time.Now()
 	v, err := view.Active.getMap(key)
-	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+	if err != nil && !lsmkv.IsNotFound(err) {
 		return nil, err
 	}
 	if len(v) > 0 {
@@ -1704,7 +1704,7 @@ func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byt
 	}
 	// check on disk
 	if _, err := b.disk.getWithSegmentList(key, segments); err != nil {
-		if errors.Is(err, lsmkv.Deleted) || errors.Is(err, lsmkv.NotFound) {
+		if lsmkv.IsDeletedOrNotFound(err) {
 			return false
 		}
 		// assumes it does not exist in case of error
@@ -2304,7 +2304,7 @@ func (b *Bucket) docPointerWithScoreListFromConsistentView(ctx context.Context, 
 
 	segments := [][]terms.DocPointerWithScore{}
 	plists, segmentsDisk, err := b.disk.getCollectionAndSegments(ctx, key, view.Disk)
-	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+	if err != nil && !lsmkv.IsNotFound(err) {
 		return nil, err
 	}
 
@@ -2354,7 +2354,7 @@ func (b *Bucket) docPointerWithScoreListFromConsistentView(ctx context.Context, 
 
 	if view.Flushing != nil {
 		mem, err := view.Flushing.getMap(key)
-		if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		if err != nil && !lsmkv.IsNotFound(err) {
 			return nil, err
 		}
 		docPointers := make([]terms.DocPointerWithScore, len(mem))
@@ -2367,7 +2367,7 @@ func (b *Bucket) docPointerWithScoreListFromConsistentView(ctx context.Context, 
 	}
 
 	mem, err := view.Active.getMap(key)
-	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+	if err != nil && !lsmkv.IsNotFound(err) {
 		return nil, err
 	}
 	docPointers := make([]terms.DocPointerWithScore, len(mem))
@@ -2665,10 +2665,10 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 
 func fillTerm(memtable memtable, key []byte, blockmax *SegmentBlockMax, filterDocIds helpers.AllowList) (uint64, error) {
 	pairs, err := memtable.getInverted(key)
-	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+	if err != nil && !lsmkv.IsNotFound(err) {
 		return 0, err
 	}
-	if errors.Is(err, lsmkv.NotFound) {
+	if lsmkv.IsNotFound(err) {
 		return 0, nil
 	}
 	n, err := addDataToTerm(pairs, filterDocIds, blockmax)

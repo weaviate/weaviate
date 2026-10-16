@@ -1218,7 +1218,7 @@ func (index *flat) ContainsDoc(id uint64) bool {
 	idBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(idBytes, id)
 	v, err := bucket.Get(idBytes)
-	if v == nil || errors.Is(err, entlsmkv.NotFound) {
+	if v == nil || entlsmkv.IsNotFound(err) {
 		return false
 	}
 
