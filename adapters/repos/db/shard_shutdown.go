@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -184,6 +185,9 @@ const (
 	ShardUnloadOutcomeIndexClosing ShardUnloadOutcome = "index_closing"
 	// ShardUnloadOutcomeFailed covers every other failure, including an unknown class.
 	ShardUnloadOutcomeFailed ShardUnloadOutcome = "failed"
+	// ShardUnloadOutcomeRecovering says DB.UnloadShard left a self-recovery
+	// placeholder in the map. A later call unloads the shard once it is promoted.
+	ShardUnloadOutcomeRecovering ShardUnloadOutcome = "recovering"
 )
 
 // This map is only a checklist: it makes the exhaustive lint fail until a new
@@ -197,6 +201,7 @@ var _ = map[ShardUnloadOutcome]struct{}{
 	ShardUnloadOutcomeTorn:         {},
 	ShardUnloadOutcomeIndexClosing: {},
 	ShardUnloadOutcomeFailed:       {},
+	ShardUnloadOutcomeRecovering:   {},
 }
 
 // shutdownOrRestoreShard closes a shard removed from the shard map. A live shard
@@ -225,15 +230,17 @@ func shutdownOrRestoreShard(ctx context.Context, idx *Index, name string, shard 
 				Errorf("teardown failed mid-way; torn shard retained in the map (holds its leaked handles, unavailable until restart): %v", terr)
 			return ShardUnloadOutcomeTorn, err
 		}
-		logger.WithField("action", "shard_shutdown").
-			WithField("shard", name).
-			Errorf("shutdown failed; live shard restored to the active map to prevent a duplicate instance: %v", err)
+		outcome, level := ShardUnloadOutcomeFailed, logrus.ErrorLevel
 		// A cancelled backoff returns the context error instead of the refusal.
+		// Every caller passes the refusal on, so the restore line below logs it at Debug.
 		if errors.Is(err, errShardStillInUse) ||
 			errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-			return ShardUnloadOutcomeRefusedInUse, err
+			outcome, level = ShardUnloadOutcomeRefusedInUse, logrus.DebugLevel
 		}
-		return ShardUnloadOutcomeFailed, err
+		logger.WithField("action", "shard_shutdown").
+			WithField("shard", name).
+			Logf(level, "shutdown failed; live shard restored to the active map to prevent a duplicate instance: %v", err)
+		return outcome, err
 	}
 	// Not restored and not torn: the shard is CLEANLY shut — the concurrent
 	// deferred completion (last ref release) won the race while this attempt

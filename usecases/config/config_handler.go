@@ -1284,6 +1284,12 @@ type Namespaces struct {
 	// copy namespaces.PublicMessage returns for a suspended namespace. Every
 	// node must set NAMESPACE_SUSPENDED_MESSAGE to the same value.
 	SuspendedMessage string `json:"-" yaml:"-"`
+
+	// SuspendReconcileInterval sets how often each node closes the shards of
+	// suspended namespaces, from SUSPEND_RECONCILE_INTERVAL. The suspend reconcile
+	// job runs at DefaultSuspendReconcileInterval when Get() returns a value at or
+	// below zero.
+	SuspendReconcileInterval *runtime.DynamicValue[time.Duration] `json:"suspend_reconcile_interval" yaml:"suspend_reconcile_interval"`
 }
 
 const (

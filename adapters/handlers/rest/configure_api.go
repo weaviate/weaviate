@@ -76,6 +76,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/replication/copier"
 	"github.com/weaviate/weaviate/cluster/usage"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	entconfig "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modelsext"
@@ -168,6 +169,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/cron"
 	exportusecase "github.com/weaviate/weaviate/usecases/export"
 	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -188,6 +190,7 @@ import (
 	wldbusers "github.com/weaviate/weaviate/wl/dbusers"
 	wldbusershandlers "github.com/weaviate/weaviate/wl/dbusers/handlers"
 	wlnshandlers "github.com/weaviate/weaviate/wl/namespaces/handlers"
+	"github.com/weaviate/weaviate/wl/namespaces/suspendsweep"
 	"github.com/weaviate/weaviate/wl/selfrecovery"
 	srhandlers "github.com/weaviate/weaviate/wl/selfrecovery/handlers"
 )
@@ -996,6 +999,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.ClusterService.IsLeader,
 		appState.Logger,
 	)
+	newSuspendSweep := suspendSweepFor(namespaceModeFor(appState.ServerConfig.Config), func(logger *logrus.Entry) cron.SuspendSweep {
+		return suspendsweep.New(logger, appState.DB, concurrency.CurrentGOMAXPROCSx2())
+	})
 
 	enterrors.GoWrapper(func() {
 		l := appState.Logger.WithField("action", "startup")
@@ -1004,7 +1010,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			return
 		}
 		l.Info("Configuring crons")
-		if err := appState.Crons.Init(appState.ClusterService, appState.ObjectTTLCoordinator, namespaceCleanupCoordinator); err != nil {
+		// Keep this after waitForMetaStore, because the suspend reconcile job's tick gate, cron.RunOnEveryNode, never waits for the meta store.
+		if err := appState.Crons.Init(appState.ClusterService, appState.ObjectTTLCoordinator, namespaceCleanupCoordinator, newSuspendSweep); err != nil {
 			l.Fatalf("Configuring crons failed: %v", err)
 		}
 	}, appState.Logger)

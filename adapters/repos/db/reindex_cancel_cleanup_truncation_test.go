@@ -670,7 +670,7 @@ func TestReportedShardNames(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, reportedShardNames(tc.names))
+			require.Equal(t, tc.want, ReportedShardNames(tc.names))
 		})
 	}
 }

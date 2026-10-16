@@ -1194,7 +1194,7 @@ func (i *Index) forEachShardStrict(f func(name string, shard ShardLike) error) e
 		return cause
 	}
 	if len(unvisited) > 0 {
-		return fmt.Errorf("%w: %s", errShardsSkipped, strings.Join(reportedShardNames(unvisited), ", "))
+		return fmt.Errorf("%w: %s", errShardsSkipped, strings.Join(ReportedShardNames(unvisited), ", "))
 	}
 	return nil
 }
@@ -1212,10 +1212,10 @@ func (i *Index) shardNameSet() map[string]struct{} {
 	return names
 }
 
-// reportedShardNames orders and caps names at [maxReportedErrors] for an
-// operator-facing message; the cap itself is reported as an entry so the
+// ReportedShardNames orders and caps names at [maxReportedErrors] for an
+// operator-facing message, and reports the cap itself as an entry so the
 // count of unaccounted shards isn't lost.
-func reportedShardNames(names map[string]struct{}) []string {
+func ReportedShardNames(names map[string]struct{}) []string {
 	sorted := make([]string, 0, len(names))
 	for name := range names {
 		sorted = append(sorted, name)
@@ -3790,6 +3790,12 @@ func (i *Index) PromoteRecoveringLocalShard(ctx context.Context, shardName strin
 // The outcome is unloaded if and only if the error is nil, and index_closing if
 // and only if the error wraps ErrIndexClosing.
 func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) (ShardUnloadOutcome, error) {
+	return i.unloadLocalShard(ctx, shardName, false)
+}
+
+// unloadLocalShard with keepRecovering returns recovering for a self-recovery
+// placeholder, checked under the create lock that promotion takes.
+func (i *Index) unloadLocalShard(ctx context.Context, shardName string, keepRecovering bool) (ShardUnloadOutcome, error) {
 	// enterRead refuses only after beginClose, so a refusal means the index is closing.
 	if err := i.enterRead(); err != nil {
 		return ShardUnloadOutcomeIndexClosing, fmt.Errorf("%w: %w", ErrIndexClosing, err)
@@ -3798,6 +3804,10 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) (ShardUn
 
 	i.shardCreateLocks.Lock(shardName)
 	defer i.shardCreateLocks.Unlock(shardName)
+
+	if rec, ok := i.shards.Load(shardName).(*RecoveringShard); ok && keepRecovering && rec.IsRecovering() {
+		return ShardUnloadOutcomeRecovering, fmt.Errorf("shard %q: %w", shardName, enterrors.ErrShardRecovering)
+	}
 
 	shardLike, ok := i.shards.LoadAndDelete(shardName)
 	if !ok {
