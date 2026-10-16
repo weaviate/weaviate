@@ -39,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -980,7 +981,9 @@ func numberedShards(n int) []string {
 // schemaUC.ErrNotFound so the REST handler maps them to 404 rather than 500.
 func TestShardsStatusNonExistingIndexWrapsNotFound(t *testing.T) {
 	logger := logrus.New()
-	migrator := NewMigrator(&DB{}, logger, "node1")
+	schemaReader := schemaUC.NewMockSchemaReader(t)
+	schemaReader.EXPECT().ReadOnlyVersionedClass("DoesNotExist").Return(versioned.Class{}).Maybe()
+	migrator := NewMigrator(&DB{schemaReader: schemaReader}, logger, "node1")
 
 	tests := []struct {
 		name string
