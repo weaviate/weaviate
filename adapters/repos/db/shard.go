@@ -988,6 +988,41 @@ func (s *Shard) tenant() string {
 	return ""
 }
 
+// recountPropertyLengthsOnLoad recounts a shard the recount before load missed. It
+// runs before async replication starts, as a write during the scan would be counted
+// twice or not at all. A failed count keeps the previous lengths and fails the load
+// only if ctx was cancelled. A failed swap always fails it.
+func (s *Shard) recountPropertyLengthsOnLoad(ctx context.Context) error {
+	recount := s.index.Config.PropertyLengthsRecount
+	if !recount.pending(s.index.ID(), s.name) {
+		return nil
+	}
+	// such as a tenant created after startup
+	if s.counter.PreviewNext() == 0 {
+		recount.record(s.index.ID(), s.name, 0, true)
+		return nil
+	}
+
+	r := newPropertyLengthsRecounter(s)
+	start := time.Now()
+	objects, err := r.count(ctx)
+	if err != nil {
+		recount.record(s.index.ID(), s.name, 0, false)
+		if ctx.Err() != nil {
+			return fmt.Errorf("count of shard %q: %w", s.ID(), err)
+		}
+		r.logger.Errorf("recounting property lengths failed, keeping the previous ones: %v", err)
+		return nil
+	}
+	if err := r.swapIn(); err != nil {
+		recount.record(s.index.ID(), s.name, 0, false)
+		return fmt.Errorf("swap of shard %q: %w", s.ID(), err)
+	}
+	recount.record(s.index.ID(), s.name, objects, true)
+	r.logger.WithField("objects", objects).WithField("took", time.Since(start)).Info("property lengths recounted")
+	return nil
+}
+
 func shardId(indexId, shardName string) string {
 	return fmt.Sprintf("%s_%s", indexId, shardName)
 }
