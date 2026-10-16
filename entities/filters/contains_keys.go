@@ -24,21 +24,11 @@ type containsKeysCache struct {
 	err  error
 }
 
-// containsKeysInit guards lazily attaching a cache to a Value. A Value holds
-// only a pointer, so copying one is not a vet copylocks error.
-var containsKeysInit sync.Mutex
-
 // ContainsKeys returns the keys build makes, calling it once per Value and
 // sharing its keys or error with every caller, who wait out a build in progress.
 // A Value reaches only shards of one class, so every caller would build the same.
 func (v *Value) ContainsKeys(build func() (inverted.SortedKeys, error)) (inverted.SortedKeys, error) {
-	containsKeysInit.Lock()
-	if v.containsKeys == nil {
-		v.containsKeys = &containsKeysCache{}
-	}
-	c := v.containsKeys
-	containsKeysInit.Unlock()
-
+	c := &v.containsKeys
 	c.once.Do(func() { c.keys, c.err = build() })
 	return c.keys, c.err
 }
