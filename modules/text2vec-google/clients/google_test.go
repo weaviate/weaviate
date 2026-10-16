@@ -27,6 +27,8 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -357,20 +359,21 @@ func TestVectorizeRecordsRequestDuration(t *testing.T) {
 	aiStudioHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(t, w, batchEmbedTextResponse{Embeddings: []embedding{{Values: []float32{0.1, 0.2}}}})
 	})
-	vertexAI := settings{ApiEndpoint: "aiplatform.googleapis.com", Location: "global", Model: "gemini-embedding-001"}
-	aiStudio := settings{ApiEndpoint: "generativelanguage.googleapis.com", Location: "global", Model: "gemini-embedding-001"}
+	vertexAI := settings{ApiEndpoint: "aiplatform.googleapis.com", Location: "global", Model: "gemini-embedding-001", Operation: operationInsert}
+	aiStudio := settings{ApiEndpoint: "generativelanguage.googleapis.com", Location: "global", Model: "gemini-embedding-001", Operation: operationQuery}
 	tests := []struct {
 		name         string
 		settings     settings
 		handler      http.Handler
 		closed       bool
 		wantErr      bool
+		wantOp       string
 		wantEndpoint string
 	}{
-		{name: "Vertex AI successful request", settings: vertexAI, handler: &fakeHandler{t: t}, wantEndpoint: "vertex_ai:global:gemini-embedding-001"},
-		{name: "Vertex AI server error", settings: vertexAI, handler: &fakeHandler{t: t, serverError: errors.New("nope")}, wantErr: true, wantEndpoint: "vertex_ai:global:gemini-embedding-001"},
-		{name: "Vertex AI transport error", settings: vertexAI, handler: &fakeHandler{t: t}, closed: true, wantErr: true, wantEndpoint: "vertex_ai:global:gemini-embedding-001"},
-		{name: "AI Studio successful request", settings: aiStudio, handler: aiStudioHandler, wantEndpoint: "ai_studio:gemini-embedding-001"},
+		{name: "Vertex AI successful request", settings: vertexAI, handler: &fakeHandler{t: t}, wantOp: "text2vec-google:insert", wantEndpoint: "vertex_ai:global:gemini-embedding-001"},
+		{name: "Vertex AI server error", settings: vertexAI, handler: &fakeHandler{t: t, serverError: errors.New("nope")}, wantErr: true, wantOp: "text2vec-google:insert", wantEndpoint: "vertex_ai:global:gemini-embedding-001"},
+		{name: "Vertex AI transport error", settings: vertexAI, handler: &fakeHandler{t: t}, closed: true, wantErr: true, wantOp: "text2vec-google:insert", wantEndpoint: "vertex_ai:global:gemini-embedding-001"},
+		{name: "AI Studio successful request", settings: aiStudio, handler: aiStudioHandler, wantOp: "text2vec-google:query", wantEndpoint: "ai_studio:gemini-embedding-001"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -379,14 +382,8 @@ func TestVectorizeRecordsRequestDuration(t *testing.T) {
 			if tt.closed {
 				server.Close()
 			}
-			c := &google{
-				apiKey:       "apiKey",
-				httpClient:   &http.Client{},
-				googleApiKey: apikey.NewGoogleApiKey(),
-				urlBuilderFn: staticURLBuilder(server.URL),
-				logger:       nullLogger(),
-			}
-			before := requestDurationSampleCount(t, tt.wantEndpoint)
+			c := newMetricsTestClient(server.URL)
+			before := requestDurationSampleCount(t, tt.wantOp, tt.wantEndpoint)
 
 			_, err := c.vectorize(context.Background(), []string{"This is my text"}, retrievalDocument, "", tt.settings)
 
@@ -395,15 +392,87 @@ func TestVectorizeRecordsRequestDuration(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
-			assert.Equal(t, before+1, requestDurationSampleCount(t, tt.wantEndpoint))
+			assert.Equal(t, before+1, requestDurationSampleCount(t, tt.wantOp, tt.wantEndpoint))
 		})
 	}
 }
 
-func requestDurationSampleCount(t *testing.T, endpoint string) uint64 {
+func TestVectorizeRecordsOperation(t *testing.T) {
+	cfg := fakeClassConfig{
+		"apiEndpoint": "aiplatform.googleapis.com",
+		"location":    "global",
+		"modelId":     "gemini-embedding-001",
+		"projectId":   "project",
+	}
+	tests := []struct {
+		name      string
+		vectorize func(c *google) error
+		wantOp    string
+	}{
+		{
+			name: "query",
+			vectorize: func(c *google) error {
+				_, err := c.VectorizeQuery(context.Background(), []string{"This is my text"}, cfg)
+				return err
+			},
+			wantOp: "text2vec-google:query",
+		},
+		{
+			name: "object",
+			vectorize: func(c *google) error {
+				_, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, cfg)
+				return err
+			},
+			wantOp: "text2vec-google:insert",
+		},
+		{
+			name: "object with title property",
+			vectorize: func(c *google) error {
+				_, err := c.VectorizeWithTitleProperty(context.Background(), []string{"This is my text"}, "title", cfg)
+				return err
+			},
+			wantOp: "text2vec-google:insert",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(&fakeHandler{t: t})
+			defer server.Close()
+			c := newMetricsTestClient(server.URL)
+			endpoint := "vertex_ai:global:gemini-embedding-001"
+			before := requestDurationSampleCount(t, tt.wantOp, endpoint)
+
+			require.NoError(t, tt.vectorize(c))
+
+			assert.Equal(t, before+1, requestDurationSampleCount(t, tt.wantOp, endpoint))
+		})
+	}
+}
+
+func newMetricsTestClient(url string) *google {
+	return &google{
+		apiKey:       "apiKey",
+		httpClient:   &http.Client{},
+		googleApiKey: apikey.NewGoogleApiKey(),
+		urlBuilderFn: staticURLBuilder(url),
+		logger:       nullLogger(),
+	}
+}
+
+func requestDurationSampleCount(t *testing.T, op, endpoint string) uint64 {
 	t.Helper()
-	observer := monitoring.GetMetrics().ModuleExternalRequestDuration.WithLabelValues("text2vec-google", endpoint)
+	observer := monitoring.GetMetrics().ModuleExternalRequestDuration.WithLabelValues(op, endpoint)
 	var m dto.Metric
 	require.NoError(t, observer.(prometheus.Metric).Write(&m))
 	return m.GetHistogram().GetSampleCount()
 }
+
+type fakeClassConfig map[string]any
+
+func (f fakeClassConfig) Class() map[string]any                           { return f }
+func (f fakeClassConfig) ClassByModuleName(string) map[string]any         { return f }
+func (f fakeClassConfig) Property(string) map[string]any                  { return nil }
+func (f fakeClassConfig) Tenant() string                                  { return "" }
+func (f fakeClassConfig) TargetVector() string                            { return "" }
+func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType { return nil }
+func (f fakeClassConfig) Config() *config.Config                          { return nil }

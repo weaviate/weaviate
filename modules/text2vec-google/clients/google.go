@@ -70,6 +70,13 @@ func buildURL(useGenerativeAI bool, apiEndpoint, projectID, modelID, location st
 	return fmt.Sprintf(urlTemplate, apiEndpoint, url.PathEscape(projectID), location, url.PathEscape(modelID))
 }
 
+type operation string
+
+const (
+	operationQuery  operation = "query"
+	operationInsert operation = "insert"
+)
+
 type settings struct {
 	ApiEndpoint string
 	ProjectID   string
@@ -77,6 +84,7 @@ type settings struct {
 	Location    string
 	Dimensions  *int64
 	TaskType    string
+	Operation   operation
 }
 
 type google struct {
@@ -104,14 +112,14 @@ func New(apiKey string, useGoogleAuth bool, rpm int, timeout time.Duration, logg
 func (v *google) VectorizeWithTitleProperty(ctx context.Context,
 	input []string, titlePropertyValue string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult[[]float32], error) {
-	settings := v.getSettings(cfg)
+	settings := v.getSettings(cfg, operationInsert)
 	return v.vectorize(ctx, input, v.getDocumentTaskType(settings.TaskType), titlePropertyValue, settings)
 }
 
 func (v *google) Vectorize(ctx context.Context,
 	input []string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
-	settings := v.getSettings(cfg)
+	settings := v.getSettings(cfg, operationInsert)
 	res, err := v.vectorize(ctx, input, v.getDocumentTaskType(settings.TaskType), "", settings)
 	return res, nil, 0, err
 }
@@ -119,7 +127,7 @@ func (v *google) Vectorize(ctx context.Context,
 func (v *google) VectorizeQuery(ctx context.Context,
 	input []string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult[[]float32], error) {
-	settings := v.getSettings(cfg)
+	settings := v.getSettings(cfg, operationQuery)
 	return v.vectorize(ctx, input, v.getQueryTaskType(settings.TaskType), "", settings)
 }
 
@@ -172,7 +180,7 @@ func (v *google) vectorize(ctx context.Context, input []string, taskType taskTyp
 
 	startTime := time.Now()
 	defer func() {
-		monitoring.GetMetrics().ModuleExternalRequestDuration.WithLabelValues("text2vec-google", endpoint).
+		monitoring.GetMetrics().ModuleExternalRequestDuration.WithLabelValues(fmt.Sprintf("text2vec-google:%s", config.Operation), endpoint).
 			Observe(time.Since(startTime).Seconds())
 	}()
 
@@ -361,7 +369,7 @@ func (v *google) isLegacy(config settings) bool {
 	return isLegacyModel(config.Model)
 }
 
-func (v *google) getSettings(config moduletools.ClassConfig) settings {
+func (v *google) getSettings(config moduletools.ClassConfig, op operation) settings {
 	icheck := vectorizer.NewClassSettings(config)
 	return settings{
 		ApiEndpoint: icheck.ApiEndpoint(),
@@ -370,6 +378,7 @@ func (v *google) getSettings(config moduletools.ClassConfig) settings {
 		Location:    icheck.Location(),
 		Dimensions:  icheck.Dimensions(),
 		TaskType:    icheck.TaskType(),
+		Operation:   op,
 	}
 }
 
