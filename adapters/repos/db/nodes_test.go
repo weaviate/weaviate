@@ -29,12 +29,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/entities/versioned"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -393,9 +395,12 @@ func TestGetOneNodeStatusLocal(t *testing.T) {
 		name        string
 		expiredCtx  bool
 		closedCause error
-		wantStatus  string
-		wantShards  int
-		wantErr     error
+		// classWaitErr leaves the index unregistered and fails the wait for its
+		// class version with this error.
+		classWaitErr error
+		wantStatus   string
+		wantShards   int
+		wantErr      error
 	}{
 		{
 			name: "healthy node", wantStatus: models.NodeStatusStatusHEALTHY, wantShards: 1,
@@ -403,6 +408,11 @@ func TestGetOneNodeStatusLocal(t *testing.T) {
 		{
 			name: "scan ran out of time", expiredCtx: true,
 			wantStatus: models.NodeStatusStatusTIMEOUT, wantShards: 0,
+		},
+		{
+			name:         "class version wait ran out of time",
+			classWaitErr: fmt.Errorf("%w: version got=6 want=7", types.ErrDeadlineExceeded),
+			wantStatus:   models.NodeStatusStatusTIMEOUT, wantShards: 0,
 		},
 		{
 			name: "node shutting down", closedCause: errIndexShutdown,
@@ -423,6 +433,17 @@ func TestGetOneNodeStatusLocal(t *testing.T) {
 				indices:      map[string]*Index{idx.ID(): idx},
 				schemaGetter: &fakeSchemaGetter{},
 			}
+			statusClass := ""
+			if tt.classWaitErr != nil {
+				const version = 7
+				schemaReader := schemaUC.NewMockSchemaReader(t)
+				schemaReader.EXPECT().ReadOnlyVersionedClass(className).
+					Return(versioned.Class{Class: &models.Class{Class: className}, Version: version})
+				schemaReader.EXPECT().WaitForUpdate(mock.Anything, uint64(version)).Return(tt.classWaitErr)
+				db.indices = map[string]*Index{}
+				db.schemaReader = schemaReader
+				statusClass = className
+			}
 
 			ctx := context.Background()
 			if tt.expiredCtx {
@@ -432,7 +453,7 @@ func TestGetOneNodeStatusLocal(t *testing.T) {
 			}
 
 			status, err := db.GetOneNodeStatus(ctx, db.schemaGetter.NodeName(),
-				"", "", verbosity.OutputVerbose)
+				statusClass, "", verbosity.OutputVerbose)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)

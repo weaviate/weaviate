@@ -20,6 +20,7 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -65,9 +66,9 @@ func (db *DB) GetNodeStatus(ctx context.Context, className, shardName string, ve
 func (db *DB) GetOneNodeStatus(ctx context.Context, nodeName, className, shardName, output string) (*models.NodeStatus, error) {
 	if db.schemaGetter.NodeName() == nodeName {
 		status, err := db.LocalNodeStatus(ctx, className, shardName, output)
-		if errors.Is(err, context.DeadlineExceeded) {
-			// a local scan that ran out of time times out this node alone,
-			// instead of failing the status of every node
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, types.ErrDeadlineExceeded) {
+			// a local scan or class version wait that ran out of time times out
+			// this node alone, instead of failing the status of every node
 			return timedOutNodeStatus(nodeName), nil
 		}
 		return status, err
@@ -117,9 +118,15 @@ func (db *DB) IncomingGetNodeStatus(ctx context.Context, className, shardName, v
 }
 
 func (db *DB) LocalNodeStatus(ctx context.Context, className, shardName, output string) (*models.NodeStatus, error) {
-	if className != "" && db.GetIndex(schema.ClassName(className)) == nil {
-		// class not found
-		return &models.NodeStatus{}, nil
+	if className != "" {
+		index, err := db.indexForRead(ctx, schema.ClassName(className))
+		if err != nil {
+			return nil, err
+		}
+		if index == nil {
+			// class not found
+			return &models.NodeStatus{}, nil
+		}
 	}
 
 	var (

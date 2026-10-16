@@ -607,7 +607,10 @@ func (m *Migrator) UpdateProperty(ctx context.Context, className string, propert
 }
 
 func (m *Migrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
-	idx := m.db.GetIndex(schema.ClassName(className))
+	idx, err := m.db.indexForRead(ctx, schema.ClassName(className))
+	if err != nil {
+		return nil, err
+	}
 	if idx == nil {
 		// index not yet local (RAFT schema not applied on this node) or class does not exist
 		return nil, fmt.Errorf("cannot get shards queue size for a non-existing index for %s: %w", className, schemaUC.ErrNotFound)
@@ -617,7 +620,10 @@ func (m *Migrator) GetShardsQueueSize(ctx context.Context, className, tenant str
 }
 
 func (m *Migrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
-	idx := m.db.GetIndex(schema.ClassName(className))
+	idx, err := m.db.indexForRead(ctx, schema.ClassName(className))
+	if err != nil {
+		return nil, err
+	}
 	if idx == nil {
 		// index not yet local (RAFT schema not applied on this node) or class does not exist
 		return nil, fmt.Errorf("cannot get shards status for a non-existing index for %s: %w", className, schemaUC.ErrNotFound)
