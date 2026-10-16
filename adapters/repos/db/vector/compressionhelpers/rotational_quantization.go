@@ -171,9 +171,15 @@ func (rq *RotationalQuantizer) Encode(x []float32) []byte {
 }
 
 func (rq *RotationalQuantizer) Decode(compressed []byte) []float32 {
-	// restore the vector from its compressed form, creating a new slice
-	// then un-rotate in place and return
-	return rq.rotation.UnRotateInPlace(rq.Restore(compressed))
+	// restore the vector from its compressed form, creating a new slice,
+	// then un-rotate in place and truncate back down to the true (unpadded)
+	// input dimension. Restore() produces a vector sized to the rotation's
+	// padded output dimension (the next multiple of 64), so without this
+	// truncation Decode() silently returns extra trailing elements whenever
+	// the real dimension isn't already a multiple of 64 — mirroring the
+	// equivalent truncation in BinaryRotationalQuantizer.Decode.
+	unrotated := rq.rotation.UnRotateInPlace(rq.Restore(compressed))
+	return unrotated[:rq.inputDim]
 }
 
 func dotProduct(x, y []float32) float32 {
@@ -270,7 +276,16 @@ func (rq *RotationalQuantizer) newDistancer(q []float32, cq RQCode) *RQDistancer
 
 func (rq *RotationalQuantizer) NewDistancer(q []float32) *RQDistancer {
 	var cq RQCode = rq.Encode(q)
-	return rq.newDistancer(q, cq)
+	d := rq.newDistancer(q, cq)
+	if d.err == nil && len(q) != int(rq.inputDim) {
+		// Guard against a dimension-mismatched query vector. Encode() silently
+		// truncates/pads q to the fixed output dimension, so without this check
+		// a wrong-dimension query would otherwise produce a validly-shaped (but
+		// meaningless) compressed code instead of erroring, mirroring the
+		// equivalent guard in ProductQuantizer.NewDistancer.
+		d.err = fmt.Errorf("%w: %d vs %d", distancer.ErrVectorLength, len(q), rq.inputDim)
+	}
+	return d
 }
 
 // Optimized distance computation that precomputes as much as possible and
