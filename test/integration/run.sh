@@ -1,6 +1,11 @@
 #!/bin/bash
 
-set -e 
+set -e
+
+# Optional JUnit XML output for CI result reporting; no-op unless JUNIT_DIR
+# is set (see test/tools/gotest_junit.sh).
+source "$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/../tools/gotest_junit.sh"
+junit_init
 
 function echo_yellow() {
   yellow='\033[0;33m'
@@ -56,14 +61,14 @@ fi
 
 
 echo_yellow "Run the regular integration tests with race detector ON"
-go test $pkgs -count 1 -timeout 3000s -coverpkg=./adapters/repos/... -coverprofile=coverage-integration.txt -race -tags=$tags "$@" ./adapters/repos/...
+go_test $pkgs -count 1 -timeout 3000s -coverpkg=./adapters/repos/... -coverprofile=coverage-integration.txt -race -tags=$tags "$@" ./adapters/repos/...
 echo_yellow "Run the !race integration tests with race detector OFF"
-go test $pkgs -count 1 -coverpkg=./adapters/repos/... -tags=$tags "$@" -run Test_NoRace ./adapters/repos/...
+go_test $pkgs -count 1 -coverpkg=./adapters/repos/... -tags=$tags "$@" -run Test_NoRace ./adapters/repos/...
 if [[ $onlyvectorpkg == false ]] && [[ $onlyslowpkg == false ]]; then
   echo_yellow "Run the classification integration tests with race detector ON"
-  go test -count 1 -race -tags=$tags "$@" ./usecases/classification/...
+  go_test -count 1 -race -tags=$tags "$@" ./usecases/classification/...
   # only the tagged tests: the package's unit tests already run in the unit job
   echo_yellow "Run the apikey integration tests with race detector ON"
   apikey_tests=$(grep -lE '^//go:build .*integrationTest' ./usecases/auth/authentication/apikey/*_test.go | xargs grep -hoE '^func Test\w+' | sed 's/^func //' | paste -sd'|' -)
-  go test -count 1 -race -tags=$tags "$@" -run "^($apikey_tests)\$" ./usecases/auth/authentication/apikey
+  go_test -count 1 -race -tags=$tags "$@" -run "^($apikey_tests)\$" ./usecases/auth/authentication/apikey
 fi
