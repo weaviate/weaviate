@@ -14,6 +14,7 @@ package backup
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"testing"
 	"time"
 
@@ -95,30 +96,190 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 		return err
 	}
 
-	t.Run("an omitted selector checks its kind wildcard after the class check", func(t *testing.T) {
+	t.Run("an omitted selector checks its kind wildcard and every current ID after the class check", func(t *testing.T) {
 		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
 		nodeReq := setup(fs)
+		fs.roleLister.roles = []string{"writer", authorization.Admin, "editor"}
 
 		require.NoError(t, run(t, fs, &BackupRequest{ID: backupID, Backend: backendName}))
 		assert.Equal(t, []mocks.AuthZReq{
 			call("backups/collections/Movies"),
 			call("backups/users/*"),
+			call("backups/users/alice", "backups/users/bob"),
 			call("backups/roles/*"),
+			call("backups/roles/editor", "backups/roles/writer"),
 		}, fs.auth.(*mocks.FakeAuthorizer).Calls())
 		assert.False(t, nodeReq.SkipUsers)
 		assert.False(t, nodeReq.SkipRoles)
+		assert.Nil(t, nodeReq.Users, "the whole user store is backed up")
+		assert.Nil(t, nodeReq.Roles, "the whole role store is backed up")
 	})
 
-	t.Run("a denied whole store narrows only its own subsystem", func(t *testing.T) {
+	// A denied wildcard or a denied ID narrows an omitted selector to the IDs
+	// the caller may back up, which the descriptor then records by name.
+	t.Run("an omitted selector narrows to the permitted IDs", func(t *testing.T) {
+		tests := []struct {
+			name         string
+			deny         []string
+			users, roles []string
+		}{
+			{name: "users wildcard denied", deny: []string{"backups/users/*"}, users: []string{"alice", "bob"}},
+			{name: "one user denied", deny: []string{"backups/users/bob"}, users: []string{"alice"}},
+			{name: "roles wildcard denied", deny: []string{"backups/roles/*"}, roles: []string{"editor", "writer"}},
+			{name: "one role denied", deny: []string{"backups/roles/editor"}, roles: []string{"writer"}},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+				logger, hook := test.NewNullLogger()
+				fs.log = logger
+				fs.auth.(*mocks.FakeAuthorizer).Deny(tt.deny...)
+				nodeReq := setup(fs)
+
+				require.NoError(t, run(t, fs, &BackupRequest{ID: backupID, Backend: backendName}))
+				assert.Equal(t, tt.users, nodeReq.Users)
+				assert.Equal(t, tt.roles, nodeReq.Roles)
+				assert.Equal(t, tt.users, fs.backend.glMeta.Users)
+				assert.Equal(t, tt.roles, fs.backend.glMeta.Roles)
+				assert.False(t, fs.backend.glMeta.SkipUsers)
+				assert.False(t, fs.backend.glMeta.SkipRoles)
+				for _, e := range hook.AllEntries() {
+					assert.NotEqual(t, logrus.WarnLevel, e.Level, "a non-empty narrowing leaves no warning: %s", e.Message)
+				}
+			})
+		}
+	})
+
+	t.Run("a narrowed omitted selector backs up what the explicit permitted list does", func(t *testing.T) {
+		assignments := []byte(`{"version":1,"grouping_policies":[["db:ns1:alice","role:admin"]]}`)
+		oidc := []byte(`{"version":1,"grouping_policies":[["oidc:ns1:carl","role:viewer"]],"namespaces":["ns1"]}`)
+		runCase := func(t *testing.T, req BackupRequest) (backup.DistributedBackupDescriptor, Request, *fakeScheduler) {
+			t.Helper()
+			fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+			fs.schema.namespacesEnabled = true
+			fs.auth.(*mocks.FakeAuthorizer).Deny("backups/users/*", "backups/users/ns2:carol", "backups/roles/*", "backups/roles/ns2:writer")
+			nodeReq := setup(fs)
+			fs.userLister.users = []string{"ns2:carol", "ns1:bob", "ns1:alice"}
+			fs.roleLister.roles = []string{"ns2:writer", authorization.Admin, "ns1:editor"}
+			fs.roleLister.assignments, fs.roleLister.oidcAssignments = assignments, oidc
+			req.ID, req.Backend = backupID, backendName
+			require.NoError(t, run(t, fs, &req))
+			fs.backend.RLock()
+			defer fs.backend.RUnlock()
+			return fs.backend.glMeta, *nodeReq, fs
+		}
+		narrowed, narrowedNode, nfs := runCase(t, BackupRequest{})
+		explicit, explicitNode, efs := runCase(t, BackupRequest{
+			IncludeUsers: []string{"ns1:alice", "ns1:bob"}, IncludeRoles: []string{"ns1:editor"},
+		})
+
+		assert.Equal(t, []string{"ns1:alice", "ns1:bob"}, narrowed.Users)
+		assert.Equal(t, []string{"ns1:editor"}, narrowed.Roles)
+		assert.Equal(t, explicit.Users, narrowed.Users)
+		assert.Equal(t, explicit.Roles, narrowed.Roles)
+		assert.Equal(t, explicit.SkipUsers, narrowed.SkipUsers)
+		assert.Equal(t, explicit.SkipRoles, narrowed.SkipRoles)
+		require.NotNil(t, explicit.BuiltInRoleAssignments)
+		assert.Equal(t, explicit.BuiltInRoleAssignments, narrowed.BuiltInRoleAssignments)
+		assert.Equal(t, [][]string{{"ns1:alice", "ns1:bob"}}, efs.roleLister.carried)
+		assert.Equal(t, efs.roleLister.carried, nfs.roleLister.carried)
+		assert.Equal(t, [][]string{{"ns1"}}, efs.roleLister.oidcCarried)
+		assert.Equal(t, efs.roleLister.oidcCarried, nfs.roleLister.oidcCarried)
+		assert.Equal(t, explicitNode.Users, narrowedNode.Users)
+		assert.Equal(t, explicitNode.Roles, narrowedNode.Roles)
+		assert.Equal(t, explicitNode.SkipUsers, narrowedNode.SkipUsers)
+		assert.Equal(t, explicitNode.SkipRoles, narrowedNode.SkipRoles)
+
+		assert.Equal(t, []mocks.AuthZReq{
+			call("backups/collections/Movies"),
+			call("backups/users/*"),
+			call("backups/users/ns1:alice", "backups/users/ns1:bob", "backups/users/ns2:carol"),
+			call("backups/roles/*"),
+			call("backups/roles/ns1:editor", "backups/roles/ns2:writer"),
+		}, nfs.auth.(*mocks.FakeAuthorizer).Calls())
+		assert.Equal(t, []mocks.AuthZReq{
+			call("backups/users/ns1:alice", "backups/users/ns1:bob", "backups/roles/ns1:editor"),
+			call("backups/collections/Movies"),
+		}, efs.auth.(*mocks.FakeAuthorizer).Calls())
+	})
+
+	t.Run("per-ID checks name IDs as this cluster's grants do", func(t *testing.T) {
+		for _, tt := range []struct {
+			name         string
+			nsEnabled    bool
+			users, roles []string
+		}{
+			{
+				name: "namespaces on", nsEnabled: true,
+				users: []string{"backups/users/ns1:alice", "backups/users/ns1:bob"}, roles: []string{"backups/roles/ns1:editor"},
+			},
+			{
+				name:  "namespaces off",
+				users: []string{"backups/users/alice", "backups/users/bob"}, roles: []string{"backups/roles/editor"},
+			},
+		} {
+			for _, sel := range []struct {
+				name         string
+				users, roles []string
+				wildcards    bool
+			}{
+				{name: "omitted selectors", wildcards: true},
+				{name: "pattern selectors", users: []string{"ns1:*"}, roles: []string{"ns1:*"}},
+			} {
+				t.Run(tt.name+", "+sel.name, func(t *testing.T) {
+					fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+					fs.schema.namespacesEnabled = tt.nsEnabled
+					fs.auth.(*mocks.FakeAuthorizer).Deny("backups/users/*", "backups/roles/*")
+					nodeReq := setup(fs)
+					fs.userLister.users = []string{"ns1:bob", "ns1:alice"}
+					fs.roleLister.roles = []string{"ns1:editor"}
+
+					require.NoError(t, run(t, fs, &BackupRequest{
+						ID: backupID, Backend: backendName, Include: []string{cls},
+						IncludeUsers: sel.users, IncludeRoles: sel.roles,
+					}))
+					want := []mocks.AuthZReq{call("backups/collections/Movies")}
+					if sel.wildcards {
+						want = append(want, call("backups/users/*"), call(tt.users...), call("backups/roles/*"), call(tt.roles...))
+					} else {
+						want = append(want, call(tt.users...), call(tt.roles...))
+					}
+					assert.Equal(t, want, fs.auth.(*mocks.FakeAuthorizer).Calls())
+					assert.Equal(t, []string{"ns1:alice", "ns1:bob"}, nodeReq.Users, "the snapshot keeps the stored IDs")
+					assert.Equal(t, []string{"ns1:editor"}, nodeReq.Roles)
+				})
+			}
+		}
+	})
+
+	t.Run("a narrowed selection is the listing the check ran over", func(t *testing.T) {
+		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+		fs.auth.(*mocks.FakeAuthorizer).Deny("backups/users/*")
+		nodeReq := setup(fs)
+		s := fs.scheduler()
+		lister := &changingUserLister{first: []string{"alice", "bob"}, then: []string{"alice", "bob", "xavier"}}
+		s.userLister = lister
+
+		_, err := s.Backup(ctx, caller, &BackupRequest{ID: backupID, Backend: backendName})
+		require.NoError(t, err)
+		require.Eventually(t, func() bool { return s.backupper.lastOp.get().Status == "" },
+			10*time.Second, 10*time.Millisecond, "backup did not finish")
+		assert.Equal(t, []string{"alice", "bob"}, nodeReq.Users, "xavier joined after the check")
+		assert.Equal(t, 1, lister.calls)
+	})
+
+	t.Run("an omitted selector the caller may back up no ID of skips only its own subsystem", func(t *testing.T) {
+		noUsers := []string{"backups/users/*", "backups/users/alice", "backups/users/bob"}
+		noRoles := []string{"backups/roles/*", "backups/roles/editor", "backups/roles/writer"}
 		tests := []struct {
 			name                 string
 			deny                 []string
 			skipUsers, skipRoles bool
 			warning              string
 		}{
-			{name: "users", deny: []string{"backups/users/*"}, skipUsers: true, warning: "dynamic users"},
-			{name: "roles", deny: []string{"backups/roles/*"}, skipRoles: true, warning: "roles"},
-			{name: "both", deny: []string{"backups/users/*", "backups/roles/*"}, skipUsers: true, skipRoles: true},
+			{name: "users", deny: noUsers, skipUsers: true, warning: "dynamic users"},
+			{name: "roles", deny: noRoles, skipRoles: true, warning: "roles"},
+			{name: "both", deny: append(slices.Clone(noUsers), noRoles...), skipUsers: true, skipRoles: true},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
@@ -156,7 +317,7 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
 		fs.userLister.users = []string{"alice"}
 		fs.roleLister.roles = []string{"editor"}
-		fs.auth.(*mocks.FakeAuthorizer).Deny("backups/users/*", "backups/roles/*")
+		fs.auth.(*mocks.FakeAuthorizer).Deny("backups/users/*", "backups/users/alice", "backups/roles/*", "backups/roles/editor")
 		fs.selector.On("ListClasses", ctx).Return([]string(nil))
 		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
 		fs.backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
@@ -167,7 +328,9 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 		assert.ErrorContains(t, err, "backup selects no collections, users, or roles")
 		assert.Equal(t, []mocks.AuthZReq{
 			call("backups/users/*"),
+			call("backups/users/alice"),
 			call("backups/roles/*"),
+			call("backups/roles/editor"),
 		}, fs.auth.(*mocks.FakeAuthorizer).Calls())
 		fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, mock.Anything, mock.Anything)
 		fs.backend.AssertNotCalled(t, "Initialize", mock.Anything, mock.Anything)
@@ -177,7 +340,7 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
 		fs.userLister.users = []string{"alice"}
 		fs.roleLister.roles = []string{"editor"}
-		fs.auth.(*mocks.FakeAuthorizer).Deny("backups/roles/*")
+		fs.auth.(*mocks.FakeAuthorizer).Deny("backups/roles/*", "backups/roles/editor")
 		nodeReq := new(Request)
 		fs.selector.On("ListClasses", ctx).Return([]string(nil))
 		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
@@ -217,7 +380,7 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 
 		// The denied caller's backup skips the user snapshot; the user-keyed
 		// assignments name the same users and go with it.
-		narrowed := runCase(t, "backups/users/*")
+		narrowed := runCase(t, "backups/users/*", "backups/users/alice", "backups/users/bob")
 		assert.True(t, narrowed.SkipUsers)
 		assert.Nil(t, narrowed.BuiltInRoleAssignments)
 
@@ -233,7 +396,7 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 			deny         []string
 			includeRoles []string
 		}{
-			{name: "roles narrowed", deny: []string{"backups/roles/*"}},
+			{name: "roles narrowed to none", deny: []string{"backups/roles/*", "backups/roles/editor", "backups/roles/writer"}},
 			{name: "explicit empty includeRoles", includeRoles: []string{}},
 		}
 		for _, tt := range tests {
@@ -282,25 +445,146 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 		assert.ElementsMatch(t, []string{"editor", "writer"}, nodeReq.Roles)
 	})
 
-	t.Run("a pattern selector checks its kind wildcard once", func(t *testing.T) {
+	t.Run("a pattern selector checks its literal entries per ID and expands over the permitted IDs", func(t *testing.T) {
 		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
-		setup(fs)
+		fs.auth.(*mocks.FakeAuthorizer).Deny("backups/users/*")
+		nodeReq := setup(fs)
+		fs.userLister.users = []string{"bob", "alice", "anna"}
+		fs.auth.(*mocks.FakeAuthorizer).Deny("backups/users/anna")
 
 		require.NoError(t, run(t, fs, &BackupRequest{
 			ID: backupID, Backend: backendName, Include: []string{cls},
 			IncludeUsers: []string{"bob", "a*"},
 		}))
 		assert.Equal(t, []mocks.AuthZReq{
-			call("backups/collections/Movies", "backups/users/*"),
+			call("backups/collections/Movies", "backups/users/bob"),
+			call("backups/users/alice", "backups/users/anna", "backups/users/bob"),
 			call("backups/roles/*"),
+			call("backups/roles/editor", "backups/roles/writer"),
 		}, fs.auth.(*mocks.FakeAuthorizer).Calls())
+		assert.Equal(t, []string{"bob", "alice"}, nodeReq.Users)
+	})
+
+	// The caller may back up bob and writer by name and nothing else. A pattern
+	// expands over those two only, so its outcome is the same whether the
+	// denied alice and editor exist or not.
+	t.Run("a pattern selector answers the same whatever denied IDs exist", func(t *testing.T) {
+		denied := []string{
+			"backups/users/*", "backups/users/alice",
+			"backups/roles/*", "backups/roles/editor",
+		}
+		tests := []struct {
+			name                 string
+			users, roles         []string
+			wantUsers, wantRoles []string
+		}{
+			{name: "user pattern matching a denied user", users: []string{"al*"}, wantRoles: []string{"writer"}},
+			{name: "user pattern matching an allowed user", users: []string{"b?b"}, wantUsers: []string{"bob"}, wantRoles: []string{"writer"}},
+			{name: "user pattern matching nothing", users: []string{"zz*"}, wantRoles: []string{"writer"}},
+			{name: "role pattern matching a denied role", roles: []string{"ed*"}, wantUsers: []string{"bob"}},
+			{name: "role pattern matching an allowed role", roles: []string{"wr?ter"}, wantUsers: []string{"bob"}, wantRoles: []string{"writer"}},
+			{name: "role pattern matching nothing", roles: []string{"zz*"}, wantUsers: []string{"bob"}},
+		}
+		for _, tt := range tests {
+			for _, store := range []struct {
+				name         string
+				users, roles []string
+			}{
+				{name: "with the denied IDs", users: []string{"alice", "bob"}, roles: []string{"editor", "writer"}},
+				{name: "without them", users: []string{"bob"}, roles: []string{"writer"}},
+			} {
+				t.Run(tt.name+" "+store.name, func(t *testing.T) {
+					fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+					fs.auth.(*mocks.FakeAuthorizer).Deny(denied...)
+					setup(fs)
+					fs.userLister.users, fs.roleLister.roles = store.users, store.roles
+
+					require.NoError(t, run(t, fs, &BackupRequest{
+						ID: backupID, Backend: backendName, IncludeUsers: tt.users, IncludeRoles: tt.roles,
+					}))
+					assert.Equal(t, tt.wantUsers, fs.backend.glMeta.Users)
+					assert.Equal(t, tt.wantRoles, fs.backend.glMeta.Roles)
+					assert.Equal(t, tt.wantUsers == nil, fs.backend.glMeta.SkipUsers)
+					assert.Equal(t, tt.wantRoles == nil, fs.backend.glMeta.SkipRoles)
+				})
+			}
+		}
+	})
+
+	// The caller may back up no user and no role. A pattern then gets the
+	// audited kind-wildcard 403, whatever it matches, after the same calls.
+	t.Run("a pattern selector with no permitted ID gets the same 403 whatever it matches", func(t *testing.T) {
+		denied := []string{
+			"backups/users/*", "backups/users/alice", "backups/users/bob",
+			"backups/roles/*", "backups/roles/editor", "backups/roles/writer",
+		}
+		for _, kind := range []struct {
+			name     string
+			req      func(selector string) *BackupRequest
+			wildcard string
+			listed   []string
+		}{
+			{
+				name:     "users",
+				req:      func(sel string) *BackupRequest { return &BackupRequest{IncludeUsers: []string{sel}} },
+				wildcard: "backups/users/*", listed: []string{"backups/users/alice", "backups/users/bob"},
+			},
+			{
+				name:     "roles",
+				req:      func(sel string) *BackupRequest { return &BackupRequest{IncludeRoles: []string{sel}} },
+				wildcard: "backups/roles/*", listed: []string{"backups/roles/editor", "backups/roles/writer"},
+			},
+		} {
+			for _, sel := range []string{"al*", "ed*", "b?b", "wr?ter", "zz*"} {
+				t.Run(kind.name+" "+sel, func(t *testing.T) {
+					fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+					fs.auth.(*mocks.FakeAuthorizer).Deny(denied...)
+					setup(fs)
+					req := kind.req(sel)
+					req.ID, req.Backend = backupID, backendName
+
+					err := run(t, fs, req)
+					require.ErrorAs(t, err, &authzerrors.Forbidden{})
+					assert.EqualError(t, err, authzerrors.NewForbidden(caller, authorization.CREATE, kind.wildcard).Error())
+					assert.Equal(t, []mocks.AuthZReq{
+						call("backups/collections/Movies"),
+						call(kind.listed...),
+						call(kind.wildcard),
+					}, fs.auth.(*mocks.FakeAuthorizer).Calls())
+					fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, mock.Anything, mock.Anything)
+				})
+			}
+		}
+	})
+
+	t.Run("a pattern selector for a disabled subsystem is authorized before it is refused", func(t *testing.T) {
+		for _, tt := range []struct {
+			name string
+			req  BackupRequest
+			want string
+		}{
+			{name: "users", req: BackupRequest{IncludeUsers: []string{"a*"}}, want: "backups/users/*"},
+			{name: "roles", req: BackupRequest{IncludeRoles: []string{"e*"}}, want: "backups/roles/*"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+				fs.nilListers = true
+				fs.auth.(*mocks.FakeAuthorizer).Deny(wholeStores...)
+				setup(fs)
+				req := tt.req
+				req.ID, req.Backend = backupID, backendName
+
+				err := run(t, fs, &req)
+				require.ErrorAs(t, err, &authzerrors.Forbidden{})
+				assert.EqualError(t, err, authzerrors.NewForbidden(caller, authorization.CREATE, tt.want).Error())
+			})
+		}
 	})
 
 	// The caller may back up bob and writer by name and nothing else. Whether a
-	// selector names an existing ID, a missing one, or a pattern matching a
-	// denied ID, an allowed ID or nothing, the answer is the same 403 and the
-	// store is never read.
-	t.Run("a denied selector gets the same 403 whatever exists", func(t *testing.T) {
+	// literal selector names an existing ID or a missing one, the answer is the
+	// same 403 and the store is never read.
+	t.Run("a denied literal selector gets the same 403 whatever exists", func(t *testing.T) {
 		denied := []string{
 			"backups/users/*", "backups/users/alice", "backups/users/ghost",
 			"backups/roles/*", "backups/roles/editor", "backups/roles/ghost",
@@ -312,14 +596,10 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 		}{
 			{name: "literal user that exists", users: []string{"alice"}, want: "backups/users/alice"},
 			{name: "literal user that does not exist", users: []string{"ghost"}, want: "backups/users/ghost"},
-			{name: "user pattern matching a denied user", users: []string{"al*"}, want: "backups/users/*"},
-			{name: "user pattern matching an allowed user", users: []string{"b?b"}, want: "backups/users/*"},
-			{name: "user pattern matching nothing", users: []string{"zz*"}, want: "backups/users/*"},
+			{name: "literal user beside a pattern", users: []string{"alice", "b*"}, want: "backups/users/alice"},
 			{name: "literal role that exists", roles: []string{"editor"}, want: "backups/roles/editor"},
 			{name: "literal role that does not exist", roles: []string{"ghost"}, want: "backups/roles/ghost"},
-			{name: "role pattern matching a denied role", roles: []string{"ed*"}, want: "backups/roles/*"},
-			{name: "role pattern matching an allowed role", roles: []string{"wr?ter"}, want: "backups/roles/*"},
-			{name: "role pattern matching nothing", roles: []string{"zz*"}, want: "backups/roles/*"},
+			{name: "literal role beside a pattern", roles: []string{"editor", "w*"}, want: "backups/roles/editor"},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
@@ -355,6 +635,21 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 	})
 }
 
+// changingUserLister returns first on its first call and then on every later
+// one, as a store that gains a user mid-request does.
+type changingUserLister struct {
+	calls       int
+	first, then []string
+}
+
+func (l *changingUserLister) ListAllUsers() []string {
+	l.calls++
+	if l.calls == 1 {
+		return l.first
+	}
+	return l.then
+}
+
 // restorePrincipalsCase describes one restore: what the backup descriptor
 // records, the version of the node that uploaded the blobs, and what the
 // cluster and request look like.
@@ -363,13 +658,23 @@ type restorePrincipalsCase struct {
 	// blobUsers and blobRoles are the IDs inside the snapshots; unset, they
 	// follow users and roles.
 	blobUsers, blobRoles []string
+	// userBlob and rbacBlob, when set, replace the snapshots built from the IDs.
+	userBlob, rbacBlob []byte
+	// currentUsers and currentRoles are what the restoring cluster holds.
+	currentUsers, currentRoles []string
 	// nilListers turns dynamic users and RBAC off on the restoring cluster.
 	nilListers         bool
 	namespacesEnabled  bool
 	userOpt, rbacOpt   string
 	reqUsers, reqRoles []string
 	deny               []string
+	// auth replaces the fake authorizer; deny is then ignored and no calls are
+	// recorded.
+	auth authorization.Authorizer
 }
+
+// restoreCaller is the principal runRestorePrincipals restores as.
+var restoreCaller = &models.Principal{Username: "operator", UserType: models.UserTypeInputDb}
 
 type restorePrincipalsOutcome struct {
 	err     error
@@ -395,11 +700,18 @@ func runRestorePrincipals(t *testing.T, c restorePrincipalsCase) restorePrincipa
 		}
 		return nil
 	}
+	userBlob, rbacBlob := c.userBlob, c.rbacBlob
+	if userBlob == nil {
+		userBlob = makeUserSnapshot(t, blobIDs(c.blobUsers, c.users, []string{"ns1:alice"})...)
+	}
+	if rbacBlob == nil {
+		rbacBlob = makeRbacSnapshot(t, blobIDs(c.blobRoles, c.roles, []string{"ns1:editor"})...)
+	}
 	nodeMeta, err := json.Marshal(backup.BackupDescriptor{
 		ID: backupID, Status: backup.Success, ServerVersion: "1.39.6",
 		Classes:     []backup.ClassDescriptor{{Name: "Movies"}},
-		UserBackups: makeUserSnapshot(t, blobIDs(c.blobUsers, c.users, []string{"ns1:alice"})...),
-		RbacBackups: makeRbacSnapshot(t, blobIDs(c.blobRoles, c.roles, []string{"ns1:editor"})...),
+		UserBackups: userBlob,
+		RbacBackups: rbacBlob,
 	})
 	require.NoError(t, err)
 	meta := backup.DistributedBackupDescriptor{
@@ -415,7 +727,13 @@ func runRestorePrincipals(t *testing.T, c restorePrincipalsCase) restorePrincipa
 	if c.namespacesEnabled {
 		fs.namespaces = namespaces.NewMockExisterInState(t, map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateActive})
 	}
-	fs.auth.(*mocks.FakeAuthorizer).Deny(c.deny...)
+	fs.userLister.users = c.currentUsers
+	fs.roleLister.roles = c.currentRoles
+	if c.auth != nil {
+		fs.auth = c.auth
+	} else {
+		fs.auth.(*mocks.FakeAuthorizer).Deny(c.deny...)
+	}
 	rec := &recordingRolesAndUsersRestorer{}
 	fs.rolesAndUsers = rec
 	fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
@@ -437,7 +755,7 @@ func runRestorePrincipals(t *testing.T, c restorePrincipalsCase) restorePrincipa
 		return o
 	}
 	s := fs.scheduler()
-	_, err = s.Restore(ctx, &models.Principal{Username: "operator"}, &BackupRequest{
+	_, err = s.Restore(ctx, restoreCaller, &BackupRequest{
 		ID: backupID, Backend: "gcs", Include: []string{"Movies"},
 		UserRestoreOption: opt(c.userOpt, models.RestoreConfigUsersOptionsAll),
 		RbacRestoreOption: opt(c.rbacOpt, models.RestoreConfigRolesOptionsAll),
@@ -450,26 +768,56 @@ func runRestorePrincipals(t *testing.T, c restorePrincipalsCase) restorePrincipa
 	fs.backend.RLock()
 	restoreMeta := fs.backend.glMeta
 	fs.backend.RUnlock()
+	var calls []mocks.AuthZReq
+	if fake, ok := fs.auth.(*mocks.FakeAuthorizer); ok {
+		calls = fake.Calls()
+	}
 	return restorePrincipalsOutcome{
-		err: err, calls: fs.auth.(*mocks.FakeAuthorizer).Calls(),
+		err: err, calls: calls,
 		applied: rec.recorded(), restoreMeta: restoreMeta, fs: fs,
 	}
 }
 
 func TestSchedulerRestorePrincipals(t *testing.T) {
 	t.Parallel()
-	caller := &models.Principal{Username: "operator"}
+	caller := restoreCaller
 	collections := mocks.AuthZReq{Principal: caller, Verb: authorization.CREATE, Resources: []string{"backups/collections/Movies"}}
 
+	// fullSnapshotRoles lists, sorted, the roles resources a full RBAC snapshot
+	// of roles names: those roles and the built-in roles whose rows it carries.
+	fullSnapshotRoles := func(roles ...string) []string {
+		return slices.Sorted(slices.Values(authorization.BackupRoles(slices.Concat(authorization.BuiltInRoles, roles)...)))
+	}
 	allowed := []struct {
 		name string
 		c    restorePrincipalsCase
 		want []string
+		// ids are the resources of each per-ID check after the wildcards.
+		ids [][]string
 	}{
 		{
-			name: "an applied restore checks the kind wildcards whatever IDs the descriptor names",
-			c:    restorePrincipalsCase{users: unsortedUsers, roles: unsortedRoles, namespacesEnabled: true},
+			name: "an applied restore checks the kind wildcards, then every ID it touches",
+			c: restorePrincipalsCase{
+				users: unsortedUsers, roles: unsortedRoles, namespacesEnabled: true,
+				currentUsers: []string{"ns2:zed"}, currentRoles: []string{"ns2:zed", authorization.Viewer},
+			},
 			want: wholeStores,
+			ids: [][]string{
+				append(slices.Clone(qualifiedIDs[:5]), "backups/users/ns2:zed"),
+				fullSnapshotRoles(append(slices.Clone(unsortedRoles), "ns2:zed")...),
+			},
+		},
+		{
+			name: "namespaces off checks the stripped IDs",
+			c: restorePrincipalsCase{
+				users: unsortedUsers, roles: unsortedRoles,
+				currentUsers: []string{"zed"}, currentRoles: []string{"zed", authorization.Viewer},
+			},
+			want: wholeStores,
+			ids: [][]string{
+				append(slices.Clone(strippedIDs[:5]), "backups/users/zed"),
+				fullSnapshotRoles("auditor", "editor", "owner", "reader", "writer", "zed"),
+			},
 		},
 		{
 			name: "request includeUsers and includeRoles are ignored",
@@ -478,32 +826,36 @@ func TestSchedulerRestorePrincipals(t *testing.T) {
 				reqUsers: []string{"mallory"}, reqRoles: []string{"intruder"},
 			},
 			want: wholeStores,
+			ids:  [][]string{{"backups/users/ns1:alice"}, fullSnapshotRoles("ns1:editor")},
 		},
 		{
-			name: "a users-only restore checks only the users wildcard",
+			name: "a users-only restore checks only the users wildcard and users",
 			c: restorePrincipalsCase{
 				users: []string{"ns1:alice"}, roles: []string{"ns1:editor"}, namespacesEnabled: true,
 				rbacOpt: models.RestoreConfigRolesOptionsNoRestore,
 			},
 			want: []string{"backups/users/*"},
+			ids:  [][]string{{"backups/users/ns1:alice"}},
 		},
 		{
-			name: "a roles-only restore checks only the roles wildcard",
+			name: "a roles-only restore checks only the roles wildcard and roles",
 			c: restorePrincipalsCase{
 				users: []string{"ns1:alice"}, roles: []string{"ns1:editor"}, namespacesEnabled: true,
 				userOpt: models.RestoreConfigUsersOptionsNoRestore,
 			},
 			want: []string{"backups/roles/*"},
+			ids:  [][]string{fullSnapshotRoles("ns1:editor")},
 		},
 	}
 	for _, tt := range allowed {
 		t.Run(tt.name, func(t *testing.T) {
 			out := runRestorePrincipals(t, tt.c)
 			require.NoError(t, out.err)
-			assert.Equal(t, []mocks.AuthZReq{
-				collections,
-				{Principal: caller, Verb: authorization.CREATE, Resources: tt.want},
-			}, out.calls)
+			want := []mocks.AuthZReq{collections, {Principal: caller, Verb: authorization.CREATE, Resources: tt.want}}
+			for _, ids := range tt.ids {
+				want = append(want, mocks.AuthZReq{Principal: caller, Verb: authorization.CREATE, Resources: ids})
+			}
+			assert.Equal(t, want, out.calls)
 			require.Len(t, out.applied, 1)
 			assert.Equal(t, tt.c.userOpt == models.RestoreConfigUsersOptionsNoRestore, out.restoreMeta.SkipUsers)
 			assert.Equal(t, tt.c.rbacOpt == models.RestoreConfigRolesOptionsNoRestore, out.restoreMeta.SkipRoles)

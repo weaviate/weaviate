@@ -599,16 +599,28 @@ func Backups(classes ...string) []string {
 // IDs are case-sensitive, so unlike Backups it neither uppercases nor rewrites
 // its input.
 func BackupUsers(users ...string) []string {
-	return backupPrincipals("users", users)
+	return BackupPrincipals(BackupPrincipalUsers, users...)
 }
 
 // BackupRoles is BackupUsers for custom roles: "backups/roles/<name>", or
 // "backups/roles/*".
 func BackupRoles(roles ...string) []string {
-	return backupPrincipals("roles", roles)
+	return BackupPrincipals(BackupPrincipalRoles, roles...)
 }
 
-func backupPrincipals(kind string, ids []string) []string {
+// BackupPrincipalKind names the users or roles segment of a backup principal
+// resource, "backups/<kind>/<id>".
+type BackupPrincipalKind string
+
+const (
+	BackupPrincipalUsers BackupPrincipalKind = "users"
+	BackupPrincipalRoles BackupPrincipalKind = "roles"
+)
+
+// BackupPrincipals returns the resources for backing up and restoring the
+// given IDs of kind, or the kind wildcard "backups/<kind>/*" when none (or a
+// single "" or "*") is given. BackupUsers and BackupRoles are its two kinds.
+func BackupPrincipals(kind BackupPrincipalKind, ids ...string) []string {
 	if len(ids) == 0 || (len(ids) == 1 && (ids[0] == "" || ids[0] == "*")) {
 		return []string{fmt.Sprintf("%s/%s/*", BackupsDomain, kind)}
 	}

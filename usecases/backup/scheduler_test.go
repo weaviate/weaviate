@@ -355,10 +355,12 @@ func TestValidateBackupRequest(t *testing.T) {
 			wantErr:  "no collections, users, or roles",
 		},
 		{
-			name:    "disabled default backends select nothing",
-			noUsers: true,
-			noRoles: true,
-			wantErr: "no collections, users, or roles",
+			name:         "disabled default backends select nothing",
+			noUsers:      true,
+			noRoles:      true,
+			wantSkipUser: true,
+			wantSkipRole: true,
+			wantErr:      "no collections, users, or roles",
 		},
 		{
 			name:         "default users suffice with roles disabled",
@@ -393,14 +395,13 @@ func TestValidateBackupRequest(t *testing.T) {
 			wantErr:      "list all roles: role lookup failed",
 		},
 		{
-			name:    "default users avoid unnecessary role lookup",
-			roleErr: errors.New("role lookup failed"),
-		},
-		{
-			name:        "collections avoid default identity lookup",
+			// An omitted includeRoles keeps the whole store only when every role
+			// is checked, so it needs the role list even beside collections.
+			name:        "default roles fail on a role lookup failure beside collections",
 			allClasses:  []string{"Books"},
 			wantClasses: []string{"Books"},
 			roleErr:     errors.New("role lookup failed"),
+			wantErr:     "list all roles: role lookup failed",
 		},
 		{
 			name:         "missed user wildcard keeps default roles",
@@ -740,10 +741,13 @@ func TestFilterBackupableClasses(t *testing.T) {
 			ID: "explicit-create", Backend: "s3", Include: []string{"Book*"},
 		})
 		require.Error(t, err)
-		calls := fs.auth.(*mocks.FakeAuthorizer).Calls()
-		require.Len(t, calls, 1)
-		assert.Equal(t, authorization.CREATE, calls[0].Verb)
-		assert.Equal(t, authorization.Backups("Book*"), calls[0].Resources)
+		// The omitted users and roles selectors are checked next: the class-less
+		// check counts only what the caller may back up.
+		assert.Equal(t, []mocks.AuthZReq{
+			{Principal: principal, Verb: authorization.CREATE, Resources: authorization.Backups("Book*")},
+			{Principal: principal, Verb: authorization.CREATE, Resources: authorization.BackupUsers()},
+			{Principal: principal, Verb: authorization.CREATE, Resources: authorization.BackupRoles()},
+		}, fs.auth.(*mocks.FakeAuthorizer).Calls())
 	})
 }
 
@@ -3156,28 +3160,31 @@ func TestResolveUsers(t *testing.T) {
 
 	t.Run("absent includeUsers yields no users", func(t *testing.T) {
 		s := &Scheduler{} // no userLister: must not be consulted at all
-		users, err := s.resolveUsers(nil)
+		users, err := s.resolveUsers(context.Background(), nil, nil)
 		require.NoError(t, err)
 		assert.Nil(t, users)
 	})
 
 	t.Run("empty includeUsers needs no user backend", func(t *testing.T) {
-		users, err := (&Scheduler{}).resolveUsers([]string{})
+		users, err := (&Scheduler{}).resolveUsers(context.Background(), nil, []string{})
 		require.NoError(t, err)
 		assert.Equal(t, []string{}, users)
 	})
 
 	t.Run("includeUsers without a user lister is rejected", func(t *testing.T) {
-		s := &Scheduler{} // userLister nil => dynamic DB users disabled
-		users, err := s.resolveUsers([]string{"ns1:*"})
+		s := &Scheduler{authorizer: mocks.NewMockAuthorizer()} // userLister nil => dynamic DB users disabled
+		users, err := s.resolveUsers(context.Background(), nil, []string{"ns1:*"})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "dynamic DB users are not enabled")
 		assert.Nil(t, users)
 	})
 
 	t.Run("resolves against the user lister", func(t *testing.T) {
-		s := &Scheduler{userLister: &fakeUserLister{users: []string{"ns1:alice", "ns2:bob"}}}
-		users, err := s.resolveUsers([]string{"ns1:*"})
+		s := &Scheduler{
+			userLister: &fakeUserLister{users: []string{"ns1:alice", "ns2:bob"}},
+			authorizer: mocks.NewMockAuthorizer(), schema: &fakeSchemaManger{namespacesEnabled: true},
+		}
+		users, err := s.resolveUsers(context.Background(), nil, []string{"ns1:*"})
 		require.NoError(t, err)
 		assert.Equal(t, []string{"ns1:alice"}, users)
 	})
@@ -3285,35 +3292,38 @@ func TestResolveRoles(t *testing.T) {
 
 	t.Run("absent includeRoles yields no roles", func(t *testing.T) {
 		s := &Scheduler{} // no roleLister: must not be consulted at all
-		roles, err := s.resolveRoles(nil)
+		roles, err := s.resolveRoles(context.Background(), nil, nil)
 		require.NoError(t, err)
 		assert.Nil(t, roles)
 	})
 
 	t.Run("empty includeRoles needs no role backend", func(t *testing.T) {
-		roles, err := (&Scheduler{}).resolveRoles([]string{})
+		roles, err := (&Scheduler{}).resolveRoles(context.Background(), nil, []string{})
 		require.NoError(t, err)
 		assert.Equal(t, []string{}, roles)
 	})
 
 	t.Run("includeRoles without a role lister is rejected", func(t *testing.T) {
-		s := &Scheduler{} // roleLister nil => RBAC disabled
-		roles, err := s.resolveRoles([]string{"ns1:*"})
+		s := &Scheduler{authorizer: mocks.NewMockAuthorizer()} // roleLister nil => RBAC disabled
+		roles, err := s.resolveRoles(context.Background(), nil, []string{"ns1:*"})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "RBAC is not enabled")
 		assert.Nil(t, roles)
 	})
 
 	t.Run("resolves against the role lister", func(t *testing.T) {
-		s := &Scheduler{roleLister: &fakeRoleLister{roles: []string{"ns1:reader", "ns2:writer"}}}
-		roles, err := s.resolveRoles([]string{"ns1:*"})
+		s := &Scheduler{
+			roleLister: &fakeRoleLister{roles: []string{"ns1:reader", "ns2:writer"}},
+			authorizer: mocks.NewMockAuthorizer(), schema: &fakeSchemaManger{namespacesEnabled: true},
+		}
+		roles, err := s.resolveRoles(context.Background(), nil, []string{"ns1:*"})
 		require.NoError(t, err)
 		assert.Equal(t, []string{"ns1:reader"}, roles)
 	})
 
 	t.Run("a lister failure fails the resolve", func(t *testing.T) {
 		s := &Scheduler{roleLister: &fakeRoleLister{err: errors.New("boom")}}
-		roles, err := s.resolveRoles([]string{"ns1:reader"})
+		roles, err := s.resolveRoles(context.Background(), nil, []string{"ns1:reader"})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "boom")
 		assert.Nil(t, roles)
@@ -4651,7 +4661,7 @@ func TestRestoreSelectsLeaderBlob(t *testing.T) {
 		}`, string(calls[0].roles))
 	})
 
-	t.Run("class-less restore authorizes both whole stores", func(t *testing.T) {
+	t.Run("class-less restore authorizes both whole stores and every ID they touch", func(t *testing.T) {
 		const (
 			backupID = "classless-blobs"
 			node     = "Node-A"
@@ -4687,8 +4697,11 @@ func TestRestoreSelectsLeaderBlob(t *testing.T) {
 			UserRestoreOption: "all", RbacRestoreOption: "all",
 		}, false)
 		require.NoError(t, err)
+		pr := &models.Principal{Username: "test-user"}
 		assert.Equal(t, []mocks.AuthZReq{
-			{Principal: &models.Principal{Username: "test-user"}, Verb: authorization.CREATE, Resources: wholeStores},
+			{Principal: pr, Verb: authorization.CREATE, Resources: wholeStores},
+			{Principal: pr, Verb: authorization.CREATE, Resources: []string{"backups/users/alice"}},
+			{Principal: pr, Verb: authorization.CREATE, Resources: []string{"backups/roles/a"}},
 		}, fs.auth.(*mocks.FakeAuthorizer).Calls())
 		require.Eventually(t, func() bool { return s.restorer.lastOp.get().Status == "" },
 			10*time.Second, 10*time.Millisecond, "restore did not finish")

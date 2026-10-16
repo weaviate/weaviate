@@ -866,6 +866,44 @@ func ReferencedNamespaces(snapshot []byte) ([]string, error) {
 	return slices.Sorted(maps.Keys(seen)), nil
 }
 
+// SnapshotUserIDs returns, sorted, every user id [DBUser.Restore] writes from
+// snapshot: the keys of each map keyed by user id, and the ids IdentifierToId points to.
+func SnapshotUserIDs(snapshot []byte) ([]string, error) {
+	if len(snapshot) == 0 {
+		return nil, nil
+	}
+
+	snapshotRestore := DBUserSnapshot{}
+	if err := json.Unmarshal(snapshot, &snapshotRestore); err != nil {
+		return nil, err
+	}
+	if snapshotRestore.Version != SnapshotVersion {
+		return nil, fmt.Errorf("invalid snapshot version")
+	}
+
+	data := snapshotRestore.Data
+	seen := map[string]struct{}{}
+	for id := range data.Users {
+		seen[id] = struct{}{}
+	}
+	for id := range data.SecureKeyStorageById {
+		seen[id] = struct{}{}
+	}
+	for id := range data.IdToIdentifier {
+		seen[id] = struct{}{}
+	}
+	for _, id := range data.IdentifierToId {
+		seen[id] = struct{}{}
+	}
+	for id := range data.UserKeyRevoked {
+		seen[id] = struct{}{}
+	}
+	for id := range data.ImportedApiKeysWeakHash {
+		seen[id] = struct{}{}
+	}
+	return slices.Sorted(maps.Keys(seen)), nil
+}
+
 // RequireReferencedNamespacesExist returns an error when any namespace the
 // snapshot names is missing or deleting on this cluster. See
 // [ReferencedNamespaces] for which names the snapshot carries and

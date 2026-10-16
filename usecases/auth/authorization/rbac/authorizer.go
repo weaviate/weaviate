@@ -64,21 +64,7 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 		return fmt.Errorf("at least 1 resource is required")
 	}
 
-	logger := m.logger.
-		WithFields(m.auditFields(principal)).
-		WithField("request_action", verb).
-		WithField("audit_mode", "authorize")
-	if !m.rbacConf.IpInAuditDisabled {
-		sourceIp := ctx.Value("sourceIp")
-		logger = logger.WithField("source_ip", sourceIp)
-	}
-	if clientIdentifier, _ := ctx.Value("clientIdentifier").(string); clientIdentifier != "" {
-		logger = logger.WithField("client_identifier", clientIdentifier)
-	}
-
-	if len(principal.Groups) > 0 {
-		logger = logger.WithField("groups", principal.Groups)
-	}
+	logger := m.auditLogger(ctx, principal, verb, "authorize")
 
 	// Create a map to aggregate resources and their counts while preserving order
 	resourceCounts := make(map[string]int)
@@ -112,11 +98,7 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 
 		if !allowed {
 			if !skipAudit {
-				logger.WithFields(logrus.Fields{
-					"resource":    prettyPermissionsResources(principal, perm),
-					"perm":        prettyPermissionsActions(perm),
-					"permissions": permResults,
-				}).Error("authorization denied")
+				logDenial(logger, principal, perm, permResults)
 			}
 			return fmt.Errorf("rbac: %w", errors.NewForbidden(principal, prettyPermissionsActions(perm), prettyPermissionsResources(principal, perm)))
 		}
@@ -127,6 +109,50 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 		logger.WithField("permissions", permResults).Info()
 	}
 
+	return nil
+}
+
+// auditLogger returns the log entry that carries one request's audit lines:
+// the principal's fields, the verb, the mode, and the request's source.
+func (m *Manager) auditLogger(ctx context.Context, principal *models.Principal, verb, mode string) *logrus.Entry {
+	logger := m.logger.
+		WithFields(m.auditFields(principal)).
+		WithField("request_action", verb).
+		WithField("audit_mode", mode)
+	if !m.rbacConf.IpInAuditDisabled {
+		sourceIp := ctx.Value("sourceIp")
+		logger = logger.WithField("source_ip", sourceIp)
+	}
+	if clientIdentifier, _ := ctx.Value("clientIdentifier").(string); clientIdentifier != "" {
+		logger = logger.WithField("client_identifier", clientIdentifier)
+	}
+
+	if len(principal.Groups) > 0 {
+		logger = logger.WithField("groups", principal.Groups)
+	}
+	return logger
+}
+
+// logDenial writes the audit log's denial line for perm. permitted lists the
+// resources of the same request that were allowed before the denial.
+func logDenial(logger *logrus.Entry, principal *models.Principal, perm *models.Permission, permitted []logrus.Fields) {
+	logger.WithFields(logrus.Fields{
+		"resource":    prettyPermissionsResources(principal, perm),
+		"perm":        prettyPermissionsActions(perm),
+		"permissions": permitted,
+	}).Error("authorization denied")
+}
+
+// AuditDenial writes the denial line Authorize writes when it refuses verb on resource.
+func (m *Manager) AuditDenial(ctx context.Context, principal *models.Principal, verb, resource string) error {
+	if principal == nil {
+		return fmt.Errorf("rbac: %w", errors.NewUnauthenticated())
+	}
+	perm, err := conv.PathToPermission(verb, resource)
+	if err != nil {
+		return fmt.Errorf("rbac: %w", err)
+	}
+	logDenial(m.auditLogger(ctx, principal, verb, "authorize"), principal, perm, []logrus.Fields{})
 	return nil
 }
 
@@ -159,21 +185,7 @@ func (m *Manager) FilterAuthorizedResources(ctx context.Context, principal *mode
 		return nil, fmt.Errorf("at least 1 resource is required")
 	}
 
-	logger := m.logger.
-		WithFields(m.auditFields(principal)).
-		WithField("request_action", verb).
-		WithField("audit_mode", "filter")
-	if !m.rbacConf.IpInAuditDisabled {
-		sourceIp := ctx.Value("sourceIp")
-		logger = logger.WithField("source_ip", sourceIp)
-	}
-	if clientIdentifier, _ := ctx.Value("clientIdentifier").(string); clientIdentifier != "" {
-		logger = logger.WithField("client_identifier", clientIdentifier)
-	}
-
-	if len(principal.Groups) > 0 {
-		logger = logger.WithField("groups", principal.Groups)
-	}
+	logger := m.auditLogger(ctx, principal, verb, "filter")
 
 	allowedResources := make([]string, 0, len(resources))
 
