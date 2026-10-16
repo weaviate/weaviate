@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/logrusext"
 )
 
@@ -77,6 +78,11 @@ type CompactorConfig struct {
 	// FS is the filesystem interface to use for file operations.
 	// If nil, defaults to common.NewOSFS().
 	FS common.FS
+
+	// NodeIDsAreDocIDs bounds node IDs by the shard's document-ID counter, as
+	// in [LoaderConfig]. Compaction fails on a record naming a higher node ID
+	// and keeps the file for the next startup to truncate. Nil means no limit.
+	NodeIDsAreDocIDs func() bool
 }
 
 // DefaultCompactorConfig returns the default configuration.
@@ -335,21 +341,9 @@ func (c *Compactor) convertFileToSorted(f FileInfo) (bool, error) {
 		}).Debug("converting file to sorted format")
 	}
 
-	// Open source file
-	srcFile, err := c.fs.Open(f.Path)
+	result, hasReset, err := c.readFileIntoMemory(f)
 	if err != nil {
-		return false, errors.Wrapf(err, "open source file")
-	}
-	defer srcFile.Close()
-
-	// Read into memory using WALCommitReader + InMemoryReader. The layout
-	// check keeps a garbage ResetIndex in a .condensed file from discarding
-	// every older file below.
-	walReader := NewWALCommitReaderForFile(srcFile, f.Type, 0, c.logger)
-	inMemReader := NewInMemoryReader(walReader, c.logger)
-	result, err := inMemReader.Do(nil, true) // keepLinkReplaceInformation = true
-	if err != nil {
-		return false, errors.Wrap(err, "read file into memory")
+		return false, err
 	}
 
 	// Build output filename
@@ -380,7 +374,36 @@ func (c *Compactor) convertFileToSorted(f FileInfo) (bool, error) {
 		}).Debug("converted file to sorted format")
 	}
 
-	return inMemReader.HasReset(), nil
+	return hasReset, nil
+}
+
+// readFileIntoMemory reads one file the way convertFileToSorted does, returning
+// whether it contained a ResetIndex commit.
+func (c *Compactor) readFileIntoMemory(f FileInfo) (*ent.DeserializationResult, bool, error) {
+	srcFile, err := c.fs.Open(f.Path)
+	if err != nil {
+		return nil, false, errors.Wrapf(err, "open source file")
+	}
+	defer srcFile.Close()
+
+	// The layout check keeps a garbage ResetIndex in a .condensed file from
+	// discarding every older file below.
+	walReader := NewWALCommitReaderForFile(srcFile, f.Type, c.nodeIDLimit(), c.logger)
+	inMemReader := NewInMemoryReader(walReader, c.logger)
+	result, err := inMemReader.Do(nil, true) // keepLinkReplaceInformation = true
+	if err != nil {
+		return nil, false, errors.Wrap(err, "read file into memory")
+	}
+	return result, inMemReader.HasReset(), nil
+}
+
+// nodeIDLimit re-reads the counter on every call, since it grows while the
+// index runs.
+func (c *Compactor) nodeIDLimit() uint64 {
+	if c.config.NodeIDsAreDocIDs == nil {
+		return 0
+	}
+	return nodeIDLimit(c.config.Dir, c.config.NodeIDsAreDocIDs(), c.logger)
 }
 
 func (c *Compactor) removeConvertedSource(f FileInfo) error {
@@ -494,6 +517,7 @@ func (c *Compactor) mergeSorted(state *DirectoryState, shouldAbort func() bool) 
 	}
 	defer closeFiles()
 
+	limit := c.nodeIDLimit()
 	iterators := make([]IteratorLike, 0, len(filesToMerge))
 	for i, f := range filesToMerge {
 		file, err := c.fs.Open(f.Path)
@@ -502,7 +526,7 @@ func (c *Compactor) mergeSorted(state *DirectoryState, shouldAbort func() bool) 
 		}
 		openedFiles = append(openedFiles, file)
 
-		walReader := NewWALCommitReaderForFile(file, f.Type, 0, c.logger)
+		walReader := NewWALCommitReaderForFile(file, f.Type, limit, c.logger)
 		it, err := NewIterator(walReader, i, c.logger)
 		if err != nil {
 			return errors.Wrapf(err, "create iterator for %s", f.Path)
@@ -617,6 +641,7 @@ func (c *Compactor) createSnapshot(state *DirectoryState, shouldAbort func() boo
 	defer closeFiles()
 
 	// Create iterators with proper precedence (older = lower ID)
+	limit := c.nodeIDLimit()
 	var iterators []IteratorLike
 	for i, f := range allInputFiles {
 		var it IteratorLike
@@ -631,7 +656,7 @@ func (c *Compactor) createSnapshot(state *DirectoryState, shouldAbort func() boo
 			}
 			openedFiles = append(openedFiles, file)
 
-			walReader := NewWALCommitReaderForFile(file, f.Type, 0, c.logger)
+			walReader := NewWALCommitReaderForFile(file, f.Type, limit, c.logger)
 			it, err = NewIterator(walReader, i, c.logger)
 		}
 
