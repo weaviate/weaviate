@@ -115,11 +115,15 @@ func (s *Sweep) startDispatch(ctx context.Context) {
 
 // endDispatch ends the batch if no unload is running.
 func (s *Sweep) endDispatch(ctx context.Context) {
+	s.reportBatch(ctx, s.stopDispatching())
+}
+
+// stopDispatching clears dispatching and returns what endBatchLocked returns.
+func (s *Sweep) stopDispatching() map[string]shardOutcomes {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.dispatching = false
-	outcomes := s.endBatchLocked()
-	s.mu.Unlock()
-	s.reportBatch(ctx, outcomes)
+	return s.endBatchLocked()
 }
 
 // reconcileClass dispatches an unload for each local shard of a suspended class
@@ -143,14 +147,7 @@ func (s *Sweep) reconcileClass(ctx context.Context, className string) {
 		logger.Logf(accessorErrLevel(err), "cannot list local shards, leaving them for the next sweep: %v", err)
 		return
 	}
-	s.mu.Lock()
-	toUnload := slices.DeleteFunc(names, func(shardName string) bool {
-		_, inFlight := s.inFlight[shardKey{className, shardName}]
-		return inFlight
-	})
-	s.mu.Unlock()
-
-	for _, shardName := range toUnload {
+	for _, shardName := range s.withoutInFlight(className, names) {
 		if err := s.slots.Acquire(ctx, 1); err != nil {
 			return
 		}
@@ -159,11 +156,25 @@ func (s *Sweep) reconcileClass(ctx context.Context, className string) {
 			s.slots.Release(1)
 			return
 		}
-		s.mu.Lock()
-		s.inFlight[shardKey{className, shardName}] = struct{}{}
-		s.mu.Unlock()
+		s.markInFlight(className, shardName)
 		enterrors.GoWrapper(func() { s.unload(ctx, className, shardName) }, s.logger)
 	}
+}
+
+// withoutInFlight drops from names the shards whose unload is in flight.
+func (s *Sweep) withoutInFlight(className string, names []string) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.DeleteFunc(names, func(shardName string) bool {
+		_, inFlight := s.inFlight[shardKey{className, shardName}]
+		return inFlight
+	})
+}
+
+func (s *Sweep) markInFlight(className, shardName string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.inFlight[shardKey{className, shardName}] = struct{}{}
 }
 
 func (s *Sweep) reportProgressUntil(ctx context.Context, stop chan struct{}) {
@@ -200,13 +211,7 @@ func (s *Sweep) unload(ctx context.Context, className, shardName string) {
 	logger := s.logger.WithFields(logrus.Fields{"class": className, "shard": shardName})
 	var record db.ShardUnloadOutcome // stays empty on the exits that record nothing
 	defer func() {
-		s.mu.Lock()
-		delete(s.inFlight, shardKey{className, shardName})
-		if record != "" {
-			s.recordOutcomeLocked(className, shardName, record)
-		}
-		outcomes := s.endBatchLocked()
-		s.mu.Unlock()
+		outcomes := s.finishUnload(className, shardName, record)
 		// Report before the release, so every outcome is logged once every slot is free.
 		s.reportBatch(ctx, outcomes)
 		s.slots.Release(1)
@@ -233,6 +238,18 @@ func (s *Sweep) unload(ctx context.Context, className, shardName string) {
 		return
 	}
 	record = outcome
+}
+
+// finishUnload takes the shard out of inFlight, records outcome unless it is
+// empty, and returns what endBatchLocked returns.
+func (s *Sweep) finishUnload(className, shardName string, outcome db.ShardUnloadOutcome) map[string]shardOutcomes {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.inFlight, shardKey{className, shardName})
+	if outcome != "" {
+		s.recordOutcomeLocked(className, shardName, outcome)
+	}
+	return s.endBatchLocked()
 }
 
 // recordOutcomeLocked makes outcome the shard's only recorded outcome. The
@@ -263,23 +280,29 @@ func (s *Sweep) reportBatch(ctx context.Context, outcomes map[string]shardOutcom
 	}
 }
 
-// reportProgress records every running unload as unloading and reports, under
-// one hold of mu so no unloading entry outlives the report.
+// reportProgress logs every outcome recorded since the last report, each
+// running unload as unloading, unless ctx has ended.
 func (s *Sweep) reportProgress(ctx context.Context, stop chan struct{}) {
+	outcomes := s.takeProgress(stop)
+	if ctx.Err() == nil {
+		s.logOutcomes(outcomes)
+	}
+}
+
+// takeProgress records every running unload as unloading and takes the record,
+// under one hold of mu so no unloading entry outlives the report. It returns nil
+// once stop's batch has ended.
+func (s *Sweep) takeProgress(stop chan struct{}) map[string]shardOutcomes {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	// A report that fires as its batch ends must not report the next batch.
 	if s.stopProgress != stop {
-		s.mu.Unlock()
-		return
+		return nil
 	}
 	for key := range s.inFlight {
 		s.recordOutcomeLocked(key.className, key.shardName, outcomeUnloading)
 	}
-	outcomes := s.takeOutcomesLocked()
-	s.mu.Unlock()
-	if ctx.Err() == nil {
-		s.logOutcomes(outcomes)
-	}
+	return s.takeOutcomesLocked()
 }
 
 // takeOutcomesLocked clears the record and returns what it held, so each
