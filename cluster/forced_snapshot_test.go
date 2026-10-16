@@ -60,7 +60,7 @@ func TestForcedSnapshotter(t *testing.T) {
 
 	// start runs a worker and returns its signal, readiness, and a stop that
 	// reports whether it exited.
-	start := func(t *testing.T, snaps *fakeSnapshots, retry time.Duration) (signal chan struct{}, ready *atomic.Bool, done <-chan struct{}, stop func()) {
+	start := func(t *testing.T, snaps *fakeSnapshots, retry time.Duration, opts ...func(*forcedSnapshotter)) (signal chan struct{}, ready *atomic.Bool, done <-chan struct{}, stop func()) {
 		t.Helper()
 		signal, ready = make(chan struct{}, 1), &atomic.Bool{}
 		f := &forcedSnapshotter{
@@ -70,6 +70,9 @@ func TestForcedSnapshotter(t *testing.T) {
 			ready:    ready.Load,
 			snapshot: snaps.snapshot,
 			log:      logger,
+		}
+		for _, opt := range opts {
+			opt(f)
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		ch := make(chan struct{})
@@ -107,7 +110,7 @@ func TestForcedSnapshotter(t *testing.T) {
 		}
 	})
 
-	for _, err := range []error{nil, raft.ErrNothingNewToSnapshot} {
+	for _, err := range []error{nil} {
 		t.Run(fmt.Sprintf("an answer of %v counts as done", err), func(t *testing.T) {
 			snaps := &fakeSnapshots{err: err}
 			signal, ready, done, _ := start(t, snaps, 0)
@@ -119,6 +122,69 @@ func TestForcedSnapshotter(t *testing.T) {
 				t.Fatal("the worker kept running")
 			}
 			assert.Len(t, snaps.requests(), 1)
+		})
+	}
+
+	t.Run("nothing new on the leader: a barrier, then a snapshot without waiting out the retry", func(t *testing.T) {
+		snaps := &fakeSnapshots{err: raft.ErrNothingNewToSnapshot}
+		var barriers atomic.Int32
+		signal, ready, done, _ := start(t, snaps, time.Hour, func(f *forcedSnapshotter) {
+			f.isLeader = func() bool { return true }
+			f.barrier = func() error {
+				barriers.Add(1)
+				snaps.answer(nil)
+				return nil
+			}
+		})
+		ready.Store(true)
+		arm(signal)
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("the worker kept running after the barrier")
+		}
+		assert.Len(t, snaps.requests(), 2)
+		assert.Equal(t, int32(1), barriers.Load())
+	})
+
+	for _, tt := range []struct {
+		name         string
+		leader       bool
+		barrierErr   error
+		wantBarriers bool
+	}{
+		{name: "nothing new on a follower retries one retry interval later, until a new entry arrives"},
+		{name: "nothing new on a leader whose barrier fails retries one retry interval later", leader: true, barrierErr: raft.ErrLeadershipLost, wantBarriers: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			const retry = 50 * time.Millisecond
+			snaps := &fakeSnapshots{err: raft.ErrNothingNewToSnapshot}
+			var barriers atomic.Int32
+			signal, ready, done, _ := start(t, snaps, retry, func(f *forcedSnapshotter) {
+				f.isLeader = func() bool { return tt.leader }
+				f.barrier = func() error {
+					barriers.Add(1)
+					return tt.barrierErr
+				}
+			})
+			ready.Store(true)
+			arm(signal)
+			require.Eventually(t, func() bool { return len(snaps.requests()) >= 2 }, time.Second, poll)
+			got := snaps.requests()
+			assert.GreaterOrEqual(t, got[1].Sub(got[0]), retry)
+			assert.Equal(t, tt.wantBarriers, barriers.Load() > 0)
+			select {
+			case <-done:
+				t.Fatal("the worker exited without a snapshot")
+			default:
+			}
+
+			snaps.answer(nil)
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("the worker kept running after a successful retry")
+			}
 		})
 	}
 

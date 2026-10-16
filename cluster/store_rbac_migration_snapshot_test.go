@@ -108,14 +108,12 @@ func TestForcedSnapshotOnRBACMigration(t *testing.T) {
 
 	// History from before the upgrade, on a node with no raft snapshot: a
 	// grant and a removal of Movies, both without the marker, then a grant of
-	// the Books collection carrying it. The role must hold Books alone. The control deletes the snapshot
-	// files before the restart: the whole log then replays onto a policy.csv
-	// that already holds Books, and the removal keeps the users and roles
-	// grants because Books is there.
+	// the Books collection carrying it. The role must hold Books alone. The
+	// second row deletes the snapshot files before the restart, so the whole
+	// log replays while policy.csv already holds Books; Store.Open clears RBAC
+	// first, so the removal sees no Books and drops the users and roles grants.
 	t.Run("a restart", func(t *testing.T) {
 		books := backupsGrant(t, &models.PermissionBackups{Collection: authorization.String("Books")})
-		usersGrant := backupsGrant(t, authorization.AllBackupUsers)
-		rolesGrant := backupsGrant(t, authorization.AllBackupRoles)
 
 		rolePolicies := func(t *testing.T, authZ *rbac.Manager) []authorization.Policy {
 			t.Helper()
@@ -130,7 +128,7 @@ func TestForcedSnapshotOnRBACMigration(t *testing.T) {
 			want            []authorization.Policy
 		}{
 			{name: "the forced snapshot keeps the restart from re-granting", want: []authorization.Policy{books}},
-			{name: "control: with the snapshot files deleted the restart re-grants", deleteSnapshots: true, want: []authorization.Policy{books, usersGrant, rolesGrant}},
+			{name: "with the snapshot files deleted the restart replays onto a cleared store", deleteSnapshots: true, want: []authorization.Policy{books}},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				ctx := context.Background()

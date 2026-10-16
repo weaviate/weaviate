@@ -893,6 +893,35 @@ func (m *Manager) RestoreRaftSnapshotAndReportMigration(b []byte) (bool, error) 
 	return m.replacePolicies(snapshot)
 }
 
+// ResetForReplay replaces the policy store with an empty snapshot at the
+// current version, so a raft log replay starts from an empty base instead of
+// from the results it is about to re-apply. It re-applies the predefined and
+// env-config roles, and logs the dropped custom role names at Warn.
+func (m *Manager) ResetForReplay() error {
+	if m == nil || m.casbin == nil {
+		return nil
+	}
+
+	roles, err := m.GetRoles()
+	if err != nil {
+		return fmt.Errorf("reset for replay: %w", err)
+	}
+	var custom []string
+	for name := range roles {
+		if !slices.Contains(authorization.BuiltInRoles, name) {
+			custom = append(custom, name)
+		}
+	}
+	if len(custom) > 0 {
+		slices.Sort(custom)
+		m.logger.WithField("action", "rbac_reset_for_replay").WithField("roles", custom).
+			Warn("clearing custom roles before raft log replay; the replay rebuilds those the log holds, recreate any other by hand")
+	}
+
+	_, err = m.replacePolicies(snapshot{Version: SnapshotVersionLatest})
+	return err
+}
+
 // replacePolicies clears the policy store and loads snapshot into it. It
 // reports whether the snapshot predated backups/users and backups/roles and
 // so was migrated on the way in.
