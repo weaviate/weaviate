@@ -448,25 +448,32 @@ func TestBucket_RoaringSet_DeletionsOnlyOldestSegment(t *testing.T) {
 	}{
 		{"mmap", nil},
 		{"pread", []BucketOption{WithPread(true)}},
+		{"lazy", []BucketOption{WithLazySegmentLoading(true)}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			logger, _ := test.NewNullLogger()
+			dir := t.TempDir()
 
 			opts := append([]BucketOption{
 				WithStrategy(StrategyRoaringSet),
 				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
 			}, tt.opts...)
-			b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
-			require.NoError(t, err)
+			open := func() *Bucket {
+				b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
+					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+				require.NoError(t, err)
+				return b
+			}
+			b := open()
 			t.Cleanup(func() { require.NoError(t, b.Shutdown(context.Background())) })
 
 			b.SetMemtableThreshold(1e9) // flush explicitly so writes span several segments
 
-			key := []byte("key")
+			// key1's one-key filter leaves bit 0 clear, so a zero hash reads as absent
+			key := []byte("key1")
 
 			// segment 1 (oldest): deletions only -> empty additions region
 			require.NoError(t, b.RoaringSetRemoveOne(key, 7))
@@ -481,6 +488,11 @@ func TestBucket_RoaringSet_DeletionsOnlyOldestSegment(t *testing.T) {
 			require.NoError(t, b.RoaringSetRemoveOne(key, 2))
 			require.NoError(t, b.FlushAndSwitch())
 
+			requireRoaringSetElements(t, ctx, b, key, []uint64{1, 3})
+
+			// lazy loading wraps only the segments a bucket loads when it opens
+			require.NoError(t, b.Shutdown(ctx))
+			b = open()
 			requireRoaringSetElements(t, ctx, b, key, []uint64{1, 3})
 		})
 	}
