@@ -249,6 +249,23 @@ func (index *flat) storeGenericVector(id uint64, vector []byte, bucketName strin
 	return bucket.Put(idBytes, vector)
 }
 
+func (index *flat) primaryBucketContains(id uint64) (bool, error) {
+	bucket, release, err := index.getBucket(index.getBucketName())
+	if err != nil {
+		return false, err
+	}
+	defer release()
+
+	idBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(idBytes, id)
+	v, err := bucket.Get(idBytes)
+	if err != nil && !errors.Is(err, entlsmkv.NotFound) {
+		return false, err
+	}
+
+	return v != nil, nil
+}
+
 func (index *flat) Cached() bool {
 	return index.compressed.Load() && index.cache != nil
 }
@@ -412,6 +429,11 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 		index.initializeDimensionsAndRQ(vector)
 	})
 
+	alreadyIndexed, err := index.primaryBucketContains(id)
+	if err != nil {
+		return err
+	}
+
 	vector = index.normalized(vector)
 	slice := make([]byte, len(vector)*4)
 	if err := index.storeVector(id, byteSliceFromFloat32Slice(vector, slice)); err != nil {
@@ -422,10 +444,12 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 		return err
 	}
 
-	for {
-		oldCount := atomic.LoadUint64(&index.count)
-		if atomic.CompareAndSwapUint64(&index.count, oldCount, oldCount+1) {
-			break
+	if !alreadyIndexed {
+		for {
+			oldCount := atomic.LoadUint64(&index.count)
+			if atomic.CompareAndSwapUint64(&index.count, oldCount, oldCount+1) {
+				break
+			}
 		}
 	}
 
@@ -434,6 +458,11 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 
 func (index *flat) Delete(ids ...uint64) error {
 	for i := range ids {
+		alreadyIndexed, err := index.primaryBucketContains(ids[i])
+		if err != nil {
+			return err
+		}
+
 		if index.Cached() {
 			index.cache.Delete(context.Background(), ids[i])
 		}
@@ -442,6 +471,15 @@ func (index *flat) Delete(ids ...uint64) error {
 
 		if err := index.deleteFromBuckets(idBytes); err != nil {
 			return err
+		}
+
+		if alreadyIndexed {
+			for {
+				oldCount := atomic.LoadUint64(&index.count)
+				if oldCount == 0 || atomic.CompareAndSwapUint64(&index.count, oldCount, oldCount-1) {
+					break
+				}
+			}
 		}
 	}
 	return nil
