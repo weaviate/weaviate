@@ -219,7 +219,7 @@ func TestWidenedMatchesAgreesWithTheNarrowGate(t *testing.T) {
 							// so it moves only where matches() does.
 							require.Equal(t,
 								completedMigrationGensNarrow(t, lsm, scope, dirs),
-								completedMigrationGens(scope),
+								mustCompletedGens(t, scope),
 								"preserved generations, prop %q index %q preserve %v payload %s",
 								propName, indexType, preserve, payloadMode)
 						}

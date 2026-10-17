@@ -128,7 +128,7 @@ func TestCompletedMigrationGens(t *testing.T) {
 			if indexType == "" {
 				indexType = "searchable"
 			}
-			got := completedMigrationGens(migrationDirsOf(tmp, nil, "text", indexType))
+			got := mustCompletedGens(t, migrationDirsOf(tmp, nil, "text", indexType))
 			gens := make([]int, 0, len(got))
 			for g := range got {
 				gens = append(gens, g)
@@ -288,7 +288,7 @@ func TestCompletedMigrationGens_R2Repro(t *testing.T) {
 		}
 	}
 
-	got := completedMigrationGens(migrationDirsOf(tmp, nil, "text", "searchable"))
+	got := mustCompletedGens(t, migrationDirsOf(tmp, nil, "text", "searchable"))
 	require.True(t, got[1],
 		"R2 repro: gen=1 MUST be preserved (T1 successfully tidied); else pre-submit cleanup wipes live ingest_1 dir → silent data loss on the controller node")
 	require.Len(t, got, 1, "only gen=1 should be reported, got %v", got)

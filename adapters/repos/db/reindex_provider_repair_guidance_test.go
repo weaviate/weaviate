@@ -317,6 +317,20 @@ func TestHasCompletedMigrationTracker(t *testing.T) {
 	}
 }
 
+// An unreadable sentinel is reported as a completed generation, so the repair
+// warning still fires when the scan can't tell (#12647).
+func TestHasCompletedMigrationTrackerCountsAnUnreadableSentinel(t *testing.T) {
+	const prop = "title"
+	lsmPath := t.TempDir()
+	tracker := postMergeTrackerDir(t, prop)
+	mkTrackerDir(t, lsmPath, tracker, "started.mig")
+	require.NoError(t, os.Symlink("merged.mig",
+		filepath.Join(lsmPath, ".migrations", tracker, "merged.mig")))
+
+	require.True(t,
+		hasCompletedMigrationTracker(lsmPath, ReindexTypeChangeTokenization, []string{prop}, nil, nil))
+}
+
 // postMergeTrackerDir is the tracker dir name a searchable migration of
 // propName leaves behind, generation suffix included.
 func postMergeTrackerDir(t *testing.T, propName string) string {
