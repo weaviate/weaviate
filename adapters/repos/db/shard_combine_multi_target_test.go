@@ -109,7 +109,8 @@ func TestCombiner(t *testing.T) {
 			targets:         []string{"target1", "target2"},
 			joinMethod:      &dto.TargetCombination{Weights: []float32{1, 1}},
 			in:              [][]search.Result{{res(0, 0.5), res(1, 0.6)}, {res(0, 0.5)}},
-			out:             []search.Result{res(0, 1)},
+			// Doc 1 lacks target2; keep the partial target1 score instead of dropping it.
+			out:             []search.Result{res(1, 0.6), res(0, 1)},
 			missingElements: map[uint64][]string{1: {"target2"}},
 		},
 		{
@@ -125,7 +126,8 @@ func TestCombiner(t *testing.T) {
 			targets:         []string{"target1", "target2"},
 			joinMethod:      &dto.TargetCombination{Type: dto.RelativeScore, Weights: []float32{0.5, 0.5}},
 			in:              [][]search.Result{{res(0, 0.5), res(1, 0.6)}, {res(0, 0.5)}},
-			out:             []search.Result{res(0, 1)},
+			// Doc 1 lacks target2 but still qualifies via target1.
+			out:             []search.Result{res(0, 0.5), res(1, 0.5)},
 			missingElements: map[uint64][]string{1: {"target2"}},
 		},
 		{
@@ -163,7 +165,8 @@ func TestCombiner(t *testing.T) {
 				{res(1, 0.2), res(2, 0.4), res(3, 0.6), res(4, 0.8)},
 				{res(6, 0.1), res(0, 0.3), res(2, 0.7), res(3, 0.9)},
 			},
-			out:             []search.Result{res(1, 0.95), res(2, 1.27)},
+			// Doc 0 lacks target3; keep partial score 0.5 + 0.5*0.4 + 0.1*0.3 = 0.73.
+			out:             []search.Result{res(0, 0.73), res(1, 0.95), res(2, 1.27)},
 			missingElements: map[uint64][]string{0: {"target3"}},
 		},
 		{
@@ -199,7 +202,16 @@ func TestCombiner(t *testing.T) {
 				4: {"target1": 1, "target2": 1.1, "target4": 1.2},
 				5: {"target1": 1, "target3": 1.2, "target4": 1.3},
 			},
-			out:             []search.Result{res(1, 0.28), res(0, 0.3), res(2, 0.89), res(3, 1.46), res(5, 1.65), res(4, 1.69)},
+			// Doc 6 lacks target3; keep it with a partial relative score instead of dropping it.
+			out: []search.Result{
+				res(1, 0.15000002),
+				res(0, 0.27222225),
+				res(2, 0.41111115),
+				res(3, 0.7111111),
+				res(4, 0.82500005),
+				res(5, 0.85),
+				res(6, 1.5),
+			},
 			missingElements: map[uint64][]string{6: {"target3"}},
 		},
 		{
@@ -223,7 +235,15 @@ func TestCombiner(t *testing.T) {
 				{res(1, 0.2), res(3, 0.6), res(4, 0.8)},
 				{res(6, 0.1), res(0, 0.3), res(2, 0.7), res(3, 0.9)},
 			},
-			out:             []search.Result{res(3, 1.85)}, // score is 1 for each if there is only one result, multiplied by the weight
+			out: []search.Result{
+				res(6, 0),
+				res(4, 0.083333336),
+				res(0, 0.26052633),
+				res(5, 0.32142857),
+				res(1, 0.35000008),
+				res(2, 0.781579),
+				res(3, 1.5976609),
+			}, // partial-target candidates remain in the union
 			missingElements: map[uint64][]string{0: {"target2"}, 1: {"target2"}, 2: {"target3"}, 4: {"target1", "target2", "target4"}, 5: {"target1", "target2", "target4"}, 6: {"target1", "target2", "target3"}},
 		},
 	}
