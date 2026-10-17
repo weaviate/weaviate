@@ -12,6 +12,10 @@
 package rest
 
 import (
+	"time"
+
+	"github.com/sirupsen/logrus"
+
 	grpcHandler "github.com/weaviate/weaviate/adapters/handlers/grpc"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
@@ -31,4 +35,29 @@ func startGrpcServer(server *grpc.Server, state *state.State) {
 				Fatalf("failed to start grpc server: %v", err)
 		}
 	}, state.Logger)
+}
+
+// stopGrpcServer stops server gracefully, cancels the calls still running
+// cancelDelay later and forces Stop after stopTimeout. A handler that ignores
+// its ctx can keep this from returning, or still be running when it does.
+func stopGrpcServer(server *grpc.Server, inFlight *grpcHandler.InFlightCancel,
+	cancelDelay, stopTimeout time.Duration, logger logrus.FieldLogger,
+) {
+	cancelTimer := time.AfterFunc(cancelDelay, inFlight.Cancel)
+	defer cancelTimer.Stop()
+
+	stopped := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		server.GracefulStop()
+		close(stopped)
+	}, logger)
+	select {
+	case <-stopped:
+	case <-time.After(stopTimeout):
+		logger.Warn("grpc graceful stop timed out, forcing stop")
+		server.Stop()
+	}
+	logger.WithField("action", "grpc_shutdown").
+		Infof("cut short or refused %d grpc calls still running %s after graceful stop began",
+			inFlight.CutShort(), cancelDelay)
 }
