@@ -15,10 +15,13 @@ import "github.com/weaviate/weaviate/entities/vectorindex/common"
 
 const (
 	DefaultBQEnabled = false
+	// DefaultBQRescoreLimit is what RescoreLimitAuto resolves to.
+	DefaultBQRescoreLimit = 256
 )
 
 type BQConfig struct {
-	Enabled bool `json:"enabled"`
+	Enabled      bool `json:"enabled"`
+	RescoreLimit int  `json:"rescoreLimit"`
 }
 
 func parseBQMap(in map[string]interface{}, bq *BQConfig) error {
@@ -34,6 +37,12 @@ func parseBQMap(in map[string]interface{}, bq *BQConfig) error {
 
 	if err := common.OptionalBoolFromMap(bqConfigMap, "enabled", func(v bool) {
 		bq.Enabled = v
+	}); err != nil {
+		return err
+	}
+
+	if err := parseRescoreLimit(bqConfigMap, "bq", func(v int) {
+		bq.RescoreLimit = v
 	}); err != nil {
 		return err
 	}

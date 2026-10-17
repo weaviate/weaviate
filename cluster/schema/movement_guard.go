@@ -133,6 +133,8 @@ func normalizeHNSW(c hnswent.UserConfig) hnswent.UserConfig {
 	c.FilterStrategy = ""
 	c.SkipDefaultQuantization = false
 	c.TrackDefaultQuantization = false
+	c.PQ.RescoreLimit = 0
+	c.BQ.RescoreLimit = 0
 	c.SQ.RescoreLimit = 0
 	c.RQ.RescoreLimit = 0
 	c.Multivector = hnswent.MultivectorConfig{} // every Multivector leaf is safe (deferred)
