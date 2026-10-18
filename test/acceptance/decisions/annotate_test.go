@@ -455,14 +455,15 @@ func TestAnnotate(t *testing.T) {
 		createClass(t, plain, nil)
 		defer helper.DeleteClass(t, plain)
 		dummy := &pb.DecisionsProvider{Kind: &pb.DecisionsProvider_Dummy{Dummy: &pb.DecisionsDummy{}}}
-		customFor := func(module string, settings map[string]any) *pb.DecisionsProvider {
+		customFor := func(t *testing.T, module string, settings map[string]any) *pb.DecisionsProvider {
+			t.Helper()
 			value, err := structpb.NewStruct(settings)
-			if err != nil {
-				panic(err) // the literal maps of this test
-			}
+			require.NoError(t, err)
 			return &pb.DecisionsProvider{Kind: &pb.DecisionsProvider_Custom{Custom: &pb.DecisionsCustom{Module: module, Settings: value}}}
 		}
-		custom := func(settings map[string]any) *pb.DecisionsProvider { return customFor("decisions-dummy", settings) }
+		custom := func(t *testing.T, settings map[string]any) *pb.DecisionsProvider {
+			return customFor(t, "decisions-dummy", settings)
+		}
 		properties := &pb.PropertiesRequest{NonRefProperties: []string{"text"}}
 
 		t.Run("annotate on a class without a decisions module", func(t *testing.T) {
@@ -498,18 +499,18 @@ func TestAnnotate(t *testing.T) {
 			defer helper.DeleteClass(t, smallPage)
 
 			// The class allows 2; the request names 1.
-			_, err := grpchelper.Search(t, &pb.SearchRequest{Collection: smallPage, Limit: 2, Annotate: &pb.Annotate{Questions: questions.Questions, Provider: custom(map[string]any{"maxDocuments": 1})}})
+			_, err := grpchelper.Search(t, &pb.SearchRequest{Collection: smallPage, Limit: 2, Annotate: &pb.Annotate{Questions: questions.Questions, Provider: custom(t, map[string]any{"maxDocuments": 1})}})
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "limit 2 exceeds maxDocuments 1 of decisions-dummy")
 
 			// The class allows 2; the request raises it to 3.
-			reply := grpchelper.AssertSearch(t, &pb.SearchRequest{Collection: smallPage, Limit: 3, Annotate: &pb.Annotate{Questions: questions.Questions, Provider: custom(map[string]any{"maxDocuments": 3})}})
+			reply := grpchelper.AssertSearch(t, &pb.SearchRequest{Collection: smallPage, Limit: 3, Annotate: &pb.Annotate{Questions: questions.Questions, Provider: custom(t, map[string]any{"maxDocuments": 3})}})
 			assert.Len(t, reply.Results, 3)
 
 			// A provider on a class without the module reads the request's setting only.
 			_, err = grpchelper.Search(t, &pb.SearchRequest{Collection: plain, Limit: 3, Rerank: &pb.Rerank{
 				Property: "text", Query: ptr("customer angry"), Decision: &pb.RerankDecision{},
-				Provider: &pb.RerankProvider{Kind: &pb.RerankProvider_Decisions{Decisions: custom(map[string]any{"maxDocuments": 2})}},
+				Provider: &pb.RerankProvider{Kind: &pb.RerankProvider_Decisions{Decisions: custom(t, map[string]any{"maxDocuments": 2})}},
 			}})
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "rerank.decision: limit 3 exceeds maxDocuments 2 of decisions-dummy")
@@ -573,12 +574,12 @@ func TestAnnotate(t *testing.T) {
 				},
 				{
 					name:    "a custom setting of the wrong type, typesafeai",
-					req:     &pb.SearchRequest{Collection: plain, Annotate: &pb.Annotate{Questions: questions.Questions, Provider: customFor("decisions-typesafeai", map[string]any{"model": 5})}},
+					req:     &pb.SearchRequest{Collection: plain, Annotate: &pb.Annotate{Questions: questions.Questions, Provider: customFor(t, "decisions-typesafeai", map[string]any{"model": 5})}},
 					wantErr: "annotate: decisions-typesafeai: model must be a string, got 5",
 				},
 				{
 					name:    "a custom maxDocuments with a fraction, typesafeai",
-					req:     &pb.SearchRequest{Collection: plain, Annotate: &pb.Annotate{Questions: questions.Questions, Provider: customFor("decisions-typesafeai", map[string]any{"maxDocuments": 2.5})}},
+					req:     &pb.SearchRequest{Collection: plain, Annotate: &pb.Annotate{Questions: questions.Questions, Provider: customFor(t, "decisions-typesafeai", map[string]any{"maxDocuments": 2.5})}},
 					wantErr: "annotate: decisions-typesafeai: maxDocuments must be a whole number between 1 and 1000, got 2.5",
 				},
 			}

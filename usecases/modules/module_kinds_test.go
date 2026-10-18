@@ -317,7 +317,7 @@ func TestAnnotateLimits(t *testing.T) {
 			p.Register(tt.module)
 			p.Register(decisionsModule("decisions-y", nil))
 
-			limits, err := p.AnnotateLimits(context.Background(), kindsSchemaReader().ReadOnlyClass(tt.class), nil)
+			limits, err := p.AnnotateLimits(context.Background(), kindsSchemaReader().ReadOnlyClass(tt.class), nil, "annotate")
 
 			if tt.wantErr != "" {
 				require.EqualError(t, err, tt.wantErr)
@@ -374,12 +374,14 @@ func TestRerankDecisionRoutesToTheDecisionsModule(t *testing.T) {
 }
 
 // A request names a decisions module instead of the class's. The module
-// needs no class config; it must be enabled and be a decisions module.
+// needs no class config; it must be enabled, be a decisions module and serve
+// the property it is named for.
 func TestDecisionsModuleByProvider(t *testing.T) {
 	tests := []struct {
 		name     string
 		class    string
 		provider *ent.DecisionsProvider
+		property string
 		want     string
 		wantErr  string
 	}{
@@ -388,7 +390,9 @@ func TestDecisionsModuleByProvider(t *testing.T) {
 		{name: "another module than the class's", class: "Decisions", provider: &ent.DecisionsProvider{Module: "decisions-y"}, want: "decisions-y"},
 		{name: "a module that is not enabled", class: "Decisions", provider: &ent.DecisionsProvider{Module: "decisions-nope"}, wantErr: `provider "decisions-nope" is not enabled`},
 		{name: "a module of another type", class: "Decisions", provider: &ent.DecisionsProvider{Module: "reranker-a"}, wantErr: `provider "reranker-a" is not a decisions module`},
-		{name: "a decisions module that serves rerank only", class: "Decisions", provider: &ent.DecisionsProvider{Module: "decisions-rerank-only"}, wantErr: `provider "decisions-rerank-only" does not serve annotate`},
+		{name: "a decisions module that serves rerank only, for annotate", class: "Decisions", provider: &ent.DecisionsProvider{Module: "decisions-rerank-only"}, wantErr: `provider "decisions-rerank-only" does not serve annotate`},
+		{name: "a decisions module that serves rerank only, for rerank", class: "Decisions", provider: &ent.DecisionsProvider{Module: "decisions-rerank-only"}, property: "rerank", want: "decisions-rerank-only"},
+		{name: "a decisions module that serves annotate only, for rerank", class: "Decisions", provider: &ent.DecisionsProvider{Module: "decisions-annotate-only"}, property: "rerank", wantErr: `provider "decisions-annotate-only" does not serve rerank`},
 		{name: "no provider on a class without a module", class: "Reranker", wantErr: `class "Reranker" has no decisions module and the request names no provider`},
 	}
 	for _, tt := range tests {
@@ -400,8 +404,13 @@ func TestDecisionsModuleByProvider(t *testing.T) {
 			p.Register(decisionsModule("decisions-z", nil))
 			p.Register(decisionsModule("decisions-y", nil))
 			p.Register(typedModule{dummyNonVectorizerModule{name: "decisions-rerank-only"}, modulecapabilities.Decisions, []string{"rerank"}, nil})
+			p.Register(typedModule{dummyNonVectorizerModule{name: "decisions-annotate-only"}, modulecapabilities.Decisions, []string{"annotate"}, nil})
+			property := tt.property
+			if property == "" {
+				property = "annotate"
+			}
 
-			module, err := p.decisionsModule(kindsSchemaReader().ReadOnlyClass(tt.class), tt.provider)
+			module, err := p.decisionsModule(kindsSchemaReader().ReadOnlyClass(tt.class), tt.provider, property)
 
 			if tt.wantErr != "" {
 				require.EqualError(t, err, tt.wantErr)
@@ -463,7 +472,7 @@ func TestAnnotateLimitsWithProvider(t *testing.T) {
 			p.Register(settingsDecisions{decisionsModule("decisions-z", nil)})
 			p.Register(settingsDecisions{decisionsModule("decisions-y", nil)})
 
-			limits, err := p.AnnotateLimits(context.Background(), kindsSchemaReader().ReadOnlyClass(tt.class), tt.provider)
+			limits, err := p.AnnotateLimits(context.Background(), kindsSchemaReader().ReadOnlyClass(tt.class), tt.provider, "annotate")
 
 			if tt.wantErr != "" {
 				require.EqualError(t, err, tt.wantErr)
@@ -553,6 +562,11 @@ func TestAdditionalExtendRoutesByProvider(t *testing.T) {
 			name: "annotate by a decisions module that serves rerank only", class: "Tuned",
 			params:  map[string]any{"annotate": &annotate.Params{Questions: questions, Provider: &ent.DecisionsProvider{Module: "decisions-rerank-only"}}},
 			wantErr: `annotate: provider "decisions-rerank-only" does not serve annotate`,
+		},
+		{
+			name: "rerank by a decision of a module that serves rerank only", class: "Tuned",
+			params: map[string]any{"rerank": &rank.Params{Property: &property, Decision: &rank.Decision{}, Provider: &ent.DecisionsProvider{Module: "decisions-rerank-only"}}},
+			want:   []string{"decisions-rerank-only"},
 		},
 	}
 	for _, tt := range tests {

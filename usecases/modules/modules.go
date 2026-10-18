@@ -762,7 +762,7 @@ func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, mod
 			}
 		}
 		if params, ok := moduleParams[modulecomponents.AdditionalPropertyAnnotate].(*annotate.Params); ok && params != nil && params.Provider != nil {
-			module, err := p.decisionsModule(class, params.Provider)
+			module, err := p.decisionsModule(class, params.Provider, modulecomponents.AdditionalPropertyAnnotate)
 			if err != nil {
 				return nil, fmt.Errorf("annotate: %w", err)
 			}
@@ -897,12 +897,9 @@ func (p *Provider) classModulesByKind(class *models.Class) (reranker, decisions 
 // class has neither.
 func (p *Provider) rerankModule(class *models.Class, decision bool, provider *ent.DecisionsProvider) (modulecapabilities.Module, error) {
 	if decision {
-		module, err := p.decisionsModule(class, provider)
+		module, err := p.decisionsModule(class, provider, modulecomponents.AdditionalPropertyRerank)
 		if err != nil {
 			return nil, fmt.Errorf("rerank.decision: %w", err)
-		}
-		if provider != nil && !servesProperty(module, modulecomponents.AdditionalPropertyRerank) {
-			return nil, fmt.Errorf("rerank.decision: provider %q does not serve rerank", provider.Module)
 		}
 		return module, nil
 	}
@@ -913,11 +910,11 @@ func (p *Provider) rerankModule(class *models.Class, decision bool, provider *en
 	return decisions, nil
 }
 
-// decisionsModule returns the decisions module a request names, else the
-// class's. A named module needs no class config, but it must be enabled, be
-// a decisions module and serve annotate, so that a request fails here and
-// not after the search.
-func (p *Provider) decisionsModule(class *models.Class, provider *ent.DecisionsProvider) (modulecapabilities.Module, error) {
+// decisionsModule returns the decisions module a request names for the
+// property (rerank or annotate), else the class's. A named module needs no
+// class config, but it must be enabled, be a decisions module and serve the
+// property, so that a request fails here and not after the search.
+func (p *Provider) decisionsModule(class *models.Class, provider *ent.DecisionsProvider, property string) (modulecapabilities.Module, error) {
 	if provider == nil {
 		_, module := p.classModulesByKind(class)
 		if module == nil {
@@ -932,8 +929,8 @@ func (p *Provider) decisionsModule(class *models.Class, provider *ent.DecisionsP
 	if module.Type() != modulecapabilities.Decisions {
 		return nil, fmt.Errorf("provider %q is not a decisions module", provider.Module)
 	}
-	if !servesProperty(module, modulecomponents.AdditionalPropertyAnnotate) {
-		return nil, fmt.Errorf("provider %q does not serve annotate", provider.Module)
+	if !servesProperty(module, property) {
+		return nil, fmt.Errorf("provider %q does not serve %s", provider.Module, property)
 	}
 	return module, nil
 }
@@ -966,11 +963,12 @@ func (p *Provider) decisionsModuleConfig(ctx context.Context, class *models.Clas
 }
 
 // AnnotateLimits returns the limits of the decisions module that serves the
-// request (the one it names, else the class's), read from the module's
-// settings with the request's over the class's. A module that declares none
-// judges text within the Weaviate ceilings.
-func (p *Provider) AnnotateLimits(ctx context.Context, class *models.Class, provider *ent.DecisionsProvider) (annotate.Limits, error) {
-	module, err := p.decisionsModule(class, provider)
+// request's property, rerank or annotate (the module it names, else the
+// class's), read from the module's settings with the request's over the
+// class's. A module that declares none judges text within the Weaviate
+// ceilings.
+func (p *Provider) AnnotateLimits(ctx context.Context, class *models.Class, provider *ent.DecisionsProvider, property string) (annotate.Limits, error) {
+	module, err := p.decisionsModule(class, provider, property)
 	if err != nil {
 		return annotate.Limits{}, err
 	}

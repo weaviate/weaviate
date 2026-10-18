@@ -3138,7 +3138,7 @@ func TestGRPCSearchRequestAnnotateLimits(t *testing.T) {
 		MaxDocuments: 50, MaxLevels: 3, DataTypes: []schema.DataType{schema.DataTypeText},
 	}}
 	limitsOf := func(limits annotate.Limits, err error) annotateLimitsFunc {
-		return func(context.Context, *models.Class, *ent.DecisionsProvider) (annotate.Limits, error) {
+		return func(context.Context, *models.Class, *ent.DecisionsProvider, string) (annotate.Limits, error) {
 			return limits, err
 		}
 	}
@@ -3225,7 +3225,7 @@ func TestGRPCSearchRequestRerankDecision(t *testing.T) {
 		MaxDocuments: 50, DataTypes: []schema.DataType{schema.DataTypeText},
 	}}
 	limitsOf := func(limits annotate.Limits, err error) annotateLimitsFunc {
-		return func(context.Context, *models.Class, *ent.DecisionsProvider) (annotate.Limits, error) {
+		return func(context.Context, *models.Class, *ent.DecisionsProvider, string) (annotate.Limits, error) {
 			return limits, err
 		}
 	}
@@ -3386,7 +3386,7 @@ func TestGRPCSearchRequestDecisionsProvider(t *testing.T) {
 	for _, tt := range tests {
 		t.Run("annotate: "+tt.name, func(t *testing.T) {
 			var got *ent.DecisionsProvider
-			limits := func(_ context.Context, _ *models.Class, provider *ent.DecisionsProvider) (annotate.Limits, error) {
+			limits := func(_ context.Context, _ *models.Class, provider *ent.DecisionsProvider, _ string) (annotate.Limits, error) {
 				got = provider
 				return annotate.Limits{Module: provider.Module, DecisionLimits: modulecapabilities.DecisionLimits{DataTypes: []schema.DataType{schema.DataTypeText}}}, nil
 			}
@@ -3404,7 +3404,7 @@ func TestGRPCSearchRequestDecisionsProvider(t *testing.T) {
 		})
 		t.Run("rerank: "+tt.name, func(t *testing.T) {
 			var got *ent.DecisionsProvider
-			limits := func(_ context.Context, _ *models.Class, provider *ent.DecisionsProvider) (annotate.Limits, error) {
+			limits := func(_ context.Context, _ *models.Class, provider *ent.DecisionsProvider, _ string) (annotate.Limits, error) {
 				got = provider
 				return annotate.Limits{Module: provider.Module, DecisionLimits: modulecapabilities.DecisionLimits{DataTypes: []schema.DataType{schema.DataTypeText}}}, nil
 			}
@@ -3449,7 +3449,7 @@ func TestGRPCSearchRequestDecisionsProvider(t *testing.T) {
 
 	t.Run("without a provider the limits function gets nil", func(t *testing.T) {
 		called := false
-		limits := func(_ context.Context, _ *models.Class, provider *ent.DecisionsProvider) (annotate.Limits, error) {
+		limits := func(_ context.Context, _ *models.Class, provider *ent.DecisionsProvider, _ string) (annotate.Limits, error) {
 			called = true
 			assert.Nil(t, provider)
 			return annotate.Limits{Module: "decisions-x", DecisionLimits: modulecapabilities.DecisionLimits{DataTypes: []schema.DataType{schema.DataTypeText}}}, nil

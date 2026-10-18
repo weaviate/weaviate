@@ -12,6 +12,8 @@
 package config
 
 import (
+	"encoding/json"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -133,6 +135,28 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: "maxDocuments must be a whole number between 1 and 1000, got 2.5",
 		},
 		{
+			name:             "maxDocuments as a json.Number, as the class stores it",
+			cfg:              fakeClassConfig{classConfig: map[string]any{"maxDocuments": json.Number("12")}},
+			wantModel:        "jev-latest",
+			wantBaseURL:      "https://api.typesafe.ai",
+			wantMaxDocuments: 12,
+		},
+		{
+			name:    "maxDocuments as a json.Number with a fraction",
+			cfg:     fakeClassConfig{classConfig: map[string]any{"maxDocuments": json.Number("2.5")}},
+			wantErr: "maxDocuments must be a whole number between 1 and 1000, got 2.5",
+		},
+		{
+			name:    "maxDocuments as a float beyond int32",
+			cfg:     fakeClassConfig{classConfig: map[string]any{"maxDocuments": 1e10}},
+			wantErr: "maxDocuments must be a whole number between 1 and 1000, got 1e+10",
+		},
+		{
+			name:    "maxDocuments as NaN",
+			cfg:     fakeClassConfig{classConfig: map[string]any{"maxDocuments": math.NaN()}},
+			wantErr: "maxDocuments must be a whole number between 1 and 1000, got NaN",
+		},
+		{
 			name:    "maxDocuments as a string",
 			cfg:     fakeClassConfig{classConfig: map[string]any{"maxDocuments": "many"}},
 			wantErr: "maxDocuments must be a whole number between 1 and 1000, got many",
@@ -200,7 +224,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{classConfig: map[string]any{
 				"minProbability": "high",
 			}},
-			wantErr: "minProbability must be between 0 and 1, got -1",
+			wantErr: "minProbability must be between 0 and 1, got high",
 		},
 	}
 	for _, tt := range tests {

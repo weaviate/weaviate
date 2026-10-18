@@ -65,7 +65,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	// The settings helper reads a value of the wrong type as the default;
 	// a request option or a class setting of the wrong type is a mistake.
 	for _, name := range []string{"model", "baseURL", "order"} {
-		if value, ok := ic.raw(name); ok {
+		if value, ok := ic.Raw(name); ok {
 			if _, isString := value.(string); !isString {
 				return fmt.Errorf("%s must be a string, got %v", name, value)
 			}
@@ -75,14 +75,15 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.New("no model provided")
 	}
 	if maxDocuments := ic.MaxDocuments(); maxDocuments < 1 || maxDocuments > MaxDocumentsLimit {
-		stored, _ := ic.raw("maxDocuments")
+		stored, _ := ic.Raw("maxDocuments")
 		return fmt.Errorf("maxDocuments must be a whole number between 1 and %d, got %v", MaxDocumentsLimit, stored)
 	}
 	if order := ic.Order(); !ValidOrder(order) {
 		return fmt.Errorf("order must be %q or %q, got %q", OrderSearch, OrderProbability, order)
 	}
 	if minProbability := ic.MinProbability(); !ValidProbability(minProbability) {
-		return fmt.Errorf("minProbability must be between 0 and 1, got %v", minProbability)
+		stored, _ := ic.Raw("minProbability")
+		return fmt.Errorf("minProbability must be between 0 and 1, got %v", stored)
 	}
 	if _, err := ic.Images(); err != nil {
 		return err
@@ -124,12 +125,11 @@ func (ic *classSettings) Model() string {
 	return ic.getStringProperty("model", DefaultTypeSafeAIModel)
 }
 
-// MaxDocuments is the highest number of documents a single rerank request may
-// have judged by the TypeSafeAI API.
-// MaxDocuments is the setting, or the default when unset. A value that is
-// not a whole number maps to 0, which Validate and DecisionLimits reject.
+// MaxDocuments is the most documents one query may have judged: the setting,
+// or the default when unset. A value that is not a whole number maps to 0,
+// which Validate and DecisionLimits reject.
 func (ic *classSettings) MaxDocuments() int {
-	value, ok := ic.raw("maxDocuments")
+	value, ok := ic.Raw("maxDocuments")
 	if !ok {
 		return DefaultMaxDocuments
 	}
@@ -150,8 +150,8 @@ func (ic *classSettings) MaxDocuments() int {
 	return 0
 }
 
-// raw is the setting as the class or the request holds it.
-func (ic *classSettings) raw(name string) (any, bool) {
+// Raw is the setting as the class or the request holds it.
+func (ic *classSettings) Raw(name string) (any, bool) {
 	if ic.cfg == nil {
 		return nil, false
 	}

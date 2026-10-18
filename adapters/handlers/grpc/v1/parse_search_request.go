@@ -67,7 +67,7 @@ type generativeParser interface {
 // annotateLimitsFunc returns the limits of the decisions module a request
 // uses, the one it names or the class's, see annotate.Limits. nil skips the
 // module's checks.
-type annotateLimitsFunc func(ctx context.Context, class *models.Class, provider *ent.DecisionsProvider) (annotate.Limits, error)
+type annotateLimitsFunc func(ctx context.Context, class *models.Class, provider *ent.DecisionsProvider, property string) (annotate.Limits, error)
 
 type Parser struct {
 	generative         generativeParser
@@ -403,7 +403,7 @@ func (p *Parser) Search(ctx context.Context, req *pb.SearchRequest, config *conf
 		// type it judges and a page within its maxDocuments, checked before
 		// the search as for annotate.
 		if rerank.Decision != nil && p.annotateLimits != nil {
-			limits, err := p.annotateLimits(ctx, class, rerank.Provider)
+			limits, err := p.annotateLimits(ctx, class, rerank.Provider, additional2.PropertyRerank)
 			if err != nil {
 				return dto.GetParams{}, fmt.Errorf("rerank.decision: %w", err)
 			}
@@ -429,7 +429,7 @@ func (p *Parser) Search(ctx context.Context, req *pb.SearchRequest, config *conf
 			return dto.GetParams{}, err
 		}
 		if p.annotateLimits != nil {
-			limits, err := p.annotateLimits(ctx, class, decisions.Provider)
+			limits, err := p.annotateLimits(ctx, class, decisions.Provider, additional2.PropertyAnnotate)
 			if err != nil {
 				return dto.GetParams{}, fmt.Errorf("annotate: %w", err)
 			}
