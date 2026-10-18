@@ -18,9 +18,11 @@ message Annotate {
 }
 
 // DecisionsProvider is a decisions module and its options for one request,
-// the shape of GenerativeProvider. The module needs no collection config: an
-// option left unset takes the collection's setting, then the module's
-// default.
+// as GenerativeProvider is for generate. The module needs no collection
+// config. An option left unset takes the collection's setting for that
+// module, when the collection configures it, then the module's default. An
+// option set here overrides the collection's, up to the module's ceiling;
+// base_url is used with the server's key as a generative provider's is.
 message DecisionsProvider {
   oneof kind {
     DecisionsTypeSafeAI typesafeai = 1;
@@ -35,7 +37,7 @@ message DecisionsTypeSafeAI {
   optional string base_url = 2;
   optional int64 max_documents = 3;
   // images opts in to the API's experimental image input for blob
-  // properties.
+  // properties, for this request.
   optional bool images = 4;
 }
 

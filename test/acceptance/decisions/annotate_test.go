@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package decisions runs the decide query argument end to end against the
+// Package decisions runs the annotate query argument end to end against the
 // decisions-dummy module, whose answers are a function of the document
 // text: a predicate's probability is the share of the instruction words in
 // the text, a choice is the first option named in the text, a score is the
@@ -93,7 +93,7 @@ func TestAnnotate(t *testing.T) {
 		out := map[string]map[string]*pb.DecisionAnswer{}
 		for _, result := range reply.Results {
 			text := result.Properties.NonRefProps.Fields["text"].GetTextValue()
-			require.NotNil(t, result.Annotations, "result %q has no decisions", text)
+			require.NotNil(t, result.Annotations, "result %q has no annotations", text)
 			answers := map[string]*pb.DecisionAnswer{}
 			for _, answer := range result.Annotations.Answers {
 				answers[answer.Name] = answer
@@ -354,7 +354,7 @@ func TestAnnotate(t *testing.T) {
 		})
 
 		t.Run("the class setting applies and the request overrides it", func(t *testing.T) {
-			const strict = "DecideStrict"
+			const strict = "AnnotateStrict"
 			createClass(t, strict, map[string]any{"decisions-dummy": map[string]any{"minProbability": 0.9, "order": "probability"}})
 			defer helper.DeleteClass(t, strict)
 
@@ -372,7 +372,7 @@ func TestAnnotate(t *testing.T) {
 		})
 
 		t.Run("a decision on a class without a decisions module", func(t *testing.T) {
-			const rerankerOnly = "DecideRerankerOnly"
+			const rerankerOnly = "AnnotateRerankerOnly"
 			createClass(t, rerankerOnly, map[string]any{"reranker-dummy": map[string]any{}})
 			defer helper.DeleteClass(t, rerankerOnly)
 
@@ -382,7 +382,7 @@ func TestAnnotate(t *testing.T) {
 			})
 
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), `rerank.decision: class "DecideRerankerOnly" has no decisions module`)
+			assert.Contains(t, err.Error(), `rerank.decision: class "AnnotateRerankerOnly" has no decisions module`)
 		})
 
 		t.Run("a threshold out of range fails before the search", func(t *testing.T) {
@@ -396,7 +396,7 @@ func TestAnnotate(t *testing.T) {
 		})
 
 		t.Run("a limit above the module's maxDocuments fails before the search", func(t *testing.T) {
-			const smallPage = "DecideSmallPageRerank"
+			const smallPage = "AnnotateSmallPageRerank"
 			createClass(t, smallPage, map[string]any{"decisions-dummy": map[string]any{"maxDocuments": 2}})
 			defer helper.DeleteClass(t, smallPage)
 
@@ -411,7 +411,7 @@ func TestAnnotate(t *testing.T) {
 	})
 
 	t.Run("a reranker and a decisions module on one class", func(t *testing.T) {
-		const both = "DecideBoth"
+		const both = "AnnotateBoth"
 		createClass(t, both, map[string]any{"reranker-dummy": map[string]any{}, "decisions-dummy": map[string]any{}})
 		defer helper.DeleteClass(t, both)
 		properties := &pb.PropertiesRequest{NonRefProperties: []string{"text"}}
@@ -455,12 +455,14 @@ func TestAnnotate(t *testing.T) {
 		createClass(t, plain, nil)
 		defer helper.DeleteClass(t, plain)
 		dummy := &pb.DecisionsProvider{Kind: &pb.DecisionsProvider_Dummy{Dummy: &pb.DecisionsDummy{}}}
-		custom := func(settings map[string]any) *pb.DecisionsProvider {
-			t.Helper()
+		customFor := func(module string, settings map[string]any) *pb.DecisionsProvider {
 			value, err := structpb.NewStruct(settings)
-			require.NoError(t, err)
-			return &pb.DecisionsProvider{Kind: &pb.DecisionsProvider_Custom{Custom: &pb.DecisionsCustom{Module: "decisions-dummy", Settings: value}}}
+			if err != nil {
+				panic(err) // the literal maps of this test
+			}
+			return &pb.DecisionsProvider{Kind: &pb.DecisionsProvider_Custom{Custom: &pb.DecisionsCustom{Module: module, Settings: value}}}
 		}
+		custom := func(settings map[string]any) *pb.DecisionsProvider { return customFor("decisions-dummy", settings) }
 		properties := &pb.PropertiesRequest{NonRefProperties: []string{"text"}}
 
 		t.Run("annotate on a class without a decisions module", func(t *testing.T) {
@@ -553,6 +555,32 @@ func TestAnnotate(t *testing.T) {
 					req:     &pb.SearchRequest{Collection: plain, Annotate: &pb.Annotate{Questions: questions.Questions}},
 					wantErr: `annotate: class "AnnotateNoModule" has no decisions module and the request names no provider`,
 				},
+				// decisions-openai and decisions-typesafeai are enabled on the
+				// test server as API-based modules; their class validation
+				// runs on the request settings before any provider call.
+				{
+					name:    "a request maxDocuments above the ceiling, openai",
+					req:     &pb.SearchRequest{Collection: plain, Annotate: &pb.Annotate{Questions: questions.Questions, Provider: &pb.DecisionsProvider{Kind: &pb.DecisionsProvider_Openai{Openai: &pb.DecisionsOpenAI{MaxDocuments: ptr(int64(5000))}}}}},
+					wantErr: "annotate: decisions-openai: maxDocuments must be between 1 and 1000, got 5000",
+				},
+				{
+					name: "a request maxDocuments above the ceiling on a rerank, typesafeai",
+					req: &pb.SearchRequest{Collection: plain, Rerank: &pb.Rerank{
+						Property: "text", Query: ptr("q"), Decision: &pb.RerankDecision{},
+						Provider: &pb.RerankProvider{Kind: &pb.RerankProvider_Decisions{Decisions: &pb.DecisionsProvider{Kind: &pb.DecisionsProvider_Typesafeai{Typesafeai: &pb.DecisionsTypeSafeAI{MaxDocuments: ptr(int64(5000))}}}}},
+					}},
+					wantErr: "rerank.decision: decisions-typesafeai: maxDocuments must be a whole number between 1 and 1000, got 5000",
+				},
+				{
+					name:    "a custom setting of the wrong type, typesafeai",
+					req:     &pb.SearchRequest{Collection: plain, Annotate: &pb.Annotate{Questions: questions.Questions, Provider: customFor("decisions-typesafeai", map[string]any{"model": 5})}},
+					wantErr: "annotate: decisions-typesafeai: model must be a string, got 5",
+				},
+				{
+					name:    "a custom maxDocuments with a fraction, typesafeai",
+					req:     &pb.SearchRequest{Collection: plain, Annotate: &pb.Annotate{Questions: questions.Questions, Provider: customFor("decisions-typesafeai", map[string]any{"maxDocuments": 2.5})}},
+					wantErr: "annotate: decisions-typesafeai: maxDocuments must be a whole number between 1 and 1000, got 2.5",
+				},
 			}
 			for _, tt := range tests {
 				t.Run(tt.name, func(t *testing.T) {
@@ -570,7 +598,7 @@ func TestAnnotate(t *testing.T) {
 			{"reranker-dummy": map[string]any{}, "reranker-cohere": map[string]any{}},
 			{"decisions-dummy": map[string]any{}, "decisions-typesafeai": map[string]any{}},
 		} {
-			class := &models.Class{Class: "DecideTwoOfAKind", Vectorizer: "none", ModuleConfig: modules}
+			class := &models.Class{Class: "AnnotateTwoOfAKind", Vectorizer: "none", ModuleConfig: modules}
 			params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
 
 			_, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)

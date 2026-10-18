@@ -33,12 +33,12 @@ func TestValidateClass(t *testing.T) {
 		{
 			name:     "maxDocuments above the upper bound",
 			settings: map[string]any{"maxDocuments": 100000},
-			wantErr:  "maxDocuments must be between 1 and 1000, got 100000",
+			wantErr:  "maxDocuments must be a whole number between 1 and 1000, got 100000",
 		},
 		{
 			name:     "maxDocuments of the wrong type",
 			settings: map[string]any{"maxDocuments": "many"},
-			wantErr:  "maxDocuments must be between 1 and 1000, got 0",
+			wantErr:  "maxDocuments must be a whole number between 1 and 1000, got many",
 		},
 		{
 			name:     "empty model",

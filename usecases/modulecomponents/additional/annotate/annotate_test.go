@@ -96,7 +96,7 @@ func result(class string, properties map[string]any) search.Result {
 	return search.Result{ClassName: class, Schema: properties}
 }
 
-func TestDecideAttachesOneAnswerPerQuestion(t *testing.T) {
+func TestAnnotateAttachesOneAnswerPerQuestion(t *testing.T) {
 	client := &fakeClient{}
 	in := []search.Result{
 		result("C", map[string]any{"text": "a long document", "title": "t1"}),
@@ -128,7 +128,7 @@ func TestDecideAttachesOneAnswerPerQuestion(t *testing.T) {
 	assert.InDelta(t, 0.05, short[0].Probability, 1e-9)
 }
 
-func TestDecideRefusesWhatHasNoText(t *testing.T) {
+func TestAnnotateRefusesWhatHasNoText(t *testing.T) {
 	client := &fakeClient{}
 	in := []search.Result{
 		result("C", map[string]any{"text": "a document"}),
@@ -151,7 +151,7 @@ func TestDecideRefusesWhatHasNoText(t *testing.T) {
 	}
 }
 
-func TestDecideSendsNothingWhenNoResultHasText(t *testing.T) {
+func TestAnnotateSendsNothingWhenNoResultHasText(t *testing.T) {
 	client := &fakeClient{}
 	in := []search.Result{result("C", map[string]any{"other": "x"})}
 	params := &Params{Questions: []ent.DecisionQuestion{predicate("angry", "text")}}
@@ -163,7 +163,7 @@ func TestDecideSendsNothingWhenNoResultHasText(t *testing.T) {
 	assert.True(t, out[0].AdditionalProperties[Property].([]ent.DecisionAnswer)[0].Refused)
 }
 
-func TestDecideClientErrors(t *testing.T) {
+func TestAnnotateClientErrors(t *testing.T) {
 	tests := []struct {
 		name    string
 		client  *fakeClient
@@ -185,7 +185,7 @@ func TestDecideClientErrors(t *testing.T) {
 	}
 }
 
-func TestDecideNoResults(t *testing.T) {
+func TestAnnotateNoResults(t *testing.T) {
 	client := &fakeClient{}
 
 	out, err := New(client).annotate(context.Background(), nil, nil, &Params{})

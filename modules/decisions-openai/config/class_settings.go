@@ -31,8 +31,9 @@ const (
 	DefaultBaseURL      = "https://api.openai.com"
 	DefaultOpenAIModel  = "gpt-6-luna"
 	DefaultMaxDocuments = 100
-	// MaxDocumentsLimit bounds the per-query API spend: every document is
-	// one request to the Decisions API.
+	// MaxDocumentsLimit is the ceiling of maxDocuments, the class setting and
+	// the request option that overrides it: every document is one request to
+	// the Decisions API.
 	MaxDocumentsLimit = 1000
 
 	// OrderSearch and OrderProbability are the orders of a rerank, see

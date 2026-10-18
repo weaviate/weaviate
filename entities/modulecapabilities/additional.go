@@ -69,7 +69,7 @@ type AdditionalProperties interface {
 }
 
 // DecisionLimits are the limits of a decisions module's provider for the
-// decide additional property. The shared validation applies them before the
+// annotate additional property. The shared validation applies them before the
 // search runs, so a question the provider would reject costs no search and
 // no provider call. A count of 0 means the Weaviate ceiling applies.
 type DecisionLimits struct {

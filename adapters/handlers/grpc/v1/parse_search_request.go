@@ -834,8 +834,12 @@ func decisionsProvider(in *pb.DecisionsProvider) (*ent.DecisionsProvider, error)
 		if module == "" {
 			return nil, errors.New("custom provider names no module")
 		}
-		if kind.Custom.Settings != nil {
-			settings = kind.Custom.Settings.AsMap()
+		// A null would override the class's value with nil, which the modules
+		// read as the default; an option left out keeps the class's value.
+		for name, value := range kind.Custom.GetSettings().AsMap() {
+			if value != nil {
+				settings[name] = value
+			}
 		}
 	default:
 		return nil, errors.New("no module named")

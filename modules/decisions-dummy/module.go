@@ -10,7 +10,7 @@
 //
 
 // Package moddecisionsdummy is a decisions module without a provider, for
-// tests of the rerank and decide properties. Its answers are a function of
+// tests of the rerank and annotate properties. Its answers are a function of
 // the document text, see clients.
 package moddecisionsdummy
 

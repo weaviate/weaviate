@@ -111,21 +111,48 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{classConfig: map[string]any{
 				"maxDocuments": 0,
 			}},
-			wantErr: "maxDocuments must be between 1 and 1000, got 0",
+			wantErr: "maxDocuments must be a whole number between 1 and 1000, got 0",
 		},
 		{
 			name: "maxDocuments negative",
 			cfg: fakeClassConfig{classConfig: map[string]any{
 				"maxDocuments": -5,
 			}},
-			wantErr: "maxDocuments must be between 1 and 1000, got -5",
+			wantErr: "maxDocuments must be a whole number between 1 and 1000, got -5",
 		},
 		{
 			name: "maxDocuments above the upper bound",
 			cfg: fakeClassConfig{classConfig: map[string]any{
 				"maxDocuments": 1001,
 			}},
-			wantErr: "maxDocuments must be between 1 and 1000, got 1001",
+			wantErr: "maxDocuments must be a whole number between 1 and 1000, got 1001",
+		},
+		{
+			name:    "maxDocuments with a fraction",
+			cfg:     fakeClassConfig{classConfig: map[string]any{"maxDocuments": 2.5}},
+			wantErr: "maxDocuments must be a whole number between 1 and 1000, got 2.5",
+		},
+		{
+			name:    "maxDocuments as a string",
+			cfg:     fakeClassConfig{classConfig: map[string]any{"maxDocuments": "many"}},
+			wantErr: "maxDocuments must be a whole number between 1 and 1000, got many",
+		},
+		{
+			name:             "maxDocuments as a whole float, as a request option arrives",
+			cfg:              fakeClassConfig{classConfig: map[string]any{"maxDocuments": float64(7)}},
+			wantModel:        "jev-latest",
+			wantBaseURL:      "https://api.typesafe.ai",
+			wantMaxDocuments: 7,
+		},
+		{
+			name:    "model of the wrong type",
+			cfg:     fakeClassConfig{classConfig: map[string]any{"model": 5}},
+			wantErr: "model must be a string, got 5",
+		},
+		{
+			name:    "baseURL of the wrong type",
+			cfg:     fakeClassConfig{classConfig: map[string]any{"baseURL": true}},
+			wantErr: "baseURL must be a string, got true",
 		},
 		{
 			name: "order probability",

@@ -121,7 +121,7 @@ func (fakeRanker) MetaInfo() (map[string]any, error) {
 	return nil, nil
 }
 
-func TestModuleServesRerankAndDecide(t *testing.T) {
+func TestModuleServesRerankAndAnnotate(t *testing.T) {
 	m := New()
 	m.setClient(fakeRanker{})
 	properties := m.AdditionalProperties()
@@ -133,7 +133,7 @@ func TestModuleServesRerankAndDecide(t *testing.T) {
 		assert.NotNil(t, property.SearchFunctions.ExploreGet, name)
 		assert.NotNil(t, property.SearchFunctions.ExploreList, name)
 	}
-	// decide has no GraphQL field: it is served through gRPC only.
+	// annotate has no GraphQL field: it is served through gRPC only.
 	assert.Nil(t, properties["annotate"].GraphQLFieldFunction)
 	assert.NotNil(t, properties["rerank"].GraphQLFieldFunction)
 }

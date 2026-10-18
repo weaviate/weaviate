@@ -32,7 +32,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
-const Name = "decisions-openai"
+const Name = config.ModuleName
 
 func New() *DecisionsOpenAIModule {
 	return &DecisionsOpenAIModule{}

@@ -125,8 +125,8 @@ func validateNames(what string, lowest, highest, count int, name func(int) strin
 	return nil
 }
 
-// Limits are the limits of the class's decisions module, with the module's
-// name for the errors.
+// Limits are the limits of the decisions module that serves the request,
+// the one it names or the class's, with the module's name for the errors.
 type Limits struct {
 	Module string
 	modulecapabilities.DecisionLimits
@@ -143,7 +143,7 @@ func (l Limits) BoundLimit(limit int) error {
 	return nil
 }
 
-// ValidateFor checks the questions against the class and the limits of its
+// ValidateFor checks the questions against the class and the limits of the
 // decisions module, and the limit against the module's maxDocuments. It runs
 // before the search, after Validate.
 func (p *Params) ValidateFor(class *models.Class, limits Limits, limit int) error {

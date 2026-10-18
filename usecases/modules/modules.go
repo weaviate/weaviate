@@ -901,6 +901,9 @@ func (p *Provider) rerankModule(class *models.Class, decision bool, provider *en
 		if err != nil {
 			return nil, fmt.Errorf("rerank.decision: %w", err)
 		}
+		if provider != nil && !servesProperty(module, modulecomponents.AdditionalPropertyRerank) {
+			return nil, fmt.Errorf("rerank.decision: provider %q does not serve rerank", provider.Module)
+		}
 		return module, nil
 	}
 	reranker, decisions := p.classModulesByKind(class)
@@ -911,8 +914,9 @@ func (p *Provider) rerankModule(class *models.Class, decision bool, provider *en
 }
 
 // decisionsModule returns the decisions module a request names, else the
-// class's. A named module needs no class config, but it must be enabled and
-// be a decisions module.
+// class's. A named module needs no class config, but it must be enabled, be
+// a decisions module and serve annotate, so that a request fails here and
+// not after the search.
 func (p *Provider) decisionsModule(class *models.Class, provider *ent.DecisionsProvider) (modulecapabilities.Module, error) {
 	if provider == nil {
 		_, module := p.classModulesByKind(class)
@@ -928,7 +932,19 @@ func (p *Provider) decisionsModule(class *models.Class, provider *ent.DecisionsP
 	if module.Type() != modulecapabilities.Decisions {
 		return nil, fmt.Errorf("provider %q is not a decisions module", provider.Module)
 	}
+	if !servesProperty(module, modulecomponents.AdditionalPropertyAnnotate) {
+		return nil, fmt.Errorf("provider %q does not serve annotate", provider.Module)
+	}
 	return module, nil
+}
+
+func servesProperty(module modulecapabilities.Module, name string) bool {
+	provider, ok := module.(modulecapabilities.AdditionalProperties)
+	if !ok || provider == nil {
+		return false
+	}
+	_, ok = provider.AdditionalProperties()[name]
+	return ok
 }
 
 // decisionsModuleConfig is the config the module reads for one request: the

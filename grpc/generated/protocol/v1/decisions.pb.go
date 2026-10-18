@@ -76,9 +76,11 @@ func (x *Annotate) GetProvider() *DecisionsProvider {
 }
 
 // DecisionsProvider is a decisions module and its options for one request,
-// the shape of GenerativeProvider. The module needs no collection config: an
-// option left unset takes the collection's setting, then the module's
-// default.
+// as GenerativeProvider is for generate. The module needs no collection
+// config. An option left unset takes the collection's setting for that
+// module, when the collection configures it, then the module's default. An
+// option set here overrides the collection's, up to the module's ceiling;
+// base_url is used with the server's key as a generative provider's is.
 type DecisionsProvider struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Kind:
@@ -199,7 +201,7 @@ type DecisionsTypeSafeAI struct {
 	BaseUrl      *string                `protobuf:"bytes,2,opt,name=base_url,json=baseUrl,proto3,oneof" json:"base_url,omitempty"`
 	MaxDocuments *int64                 `protobuf:"varint,3,opt,name=max_documents,json=maxDocuments,proto3,oneof" json:"max_documents,omitempty"`
 	// images opts in to the API's experimental image input for blob
-	// properties.
+	// properties, for this request.
 	Images        *bool `protobuf:"varint,4,opt,name=images,proto3,oneof" json:"images,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

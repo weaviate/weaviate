@@ -48,12 +48,8 @@ func (m typedModule) Type() modulecapabilities.ModuleType {
 func (m typedModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	out := map[string]modulecapabilities.AdditionalProperty{}
 	for _, name := range m.properties {
-		if name == "rerank" {
-			out[name] = rerankProperty(m.name, m.served)[name]
-			continue
-		}
-		if name == "annotate" {
-			out[name] = annotateProperty(m.name, m.served)
+		if name == "rerank" || name == "annotate" {
+			out[name] = recordingProperty(m.name, m.served)
 			continue
 		}
 		out[name] = modulecapabilities.AdditionalProperty{}
@@ -61,14 +57,18 @@ func (m typedModule) AdditionalProperties() map[string]modulecapabilities.Additi
 	return out
 }
 
-// annotateProperty serves annotate by recording the module and the
-// maxDocuments setting it reads from the config it is given.
-func annotateProperty(module string, served *[]string) modulecapabilities.AdditionalProperty {
+// recordingProperty serves rerank or annotate by recording the module and,
+// when the config it is given holds one, the maxDocuments setting.
+func recordingProperty(module string, served *[]string) modulecapabilities.AdditionalProperty {
 	fn := func(ctx context.Context, in []search.Result, params any, limit *int,
 		argumentModuleParams map[string]any, cfg moduletools.ClassConfig,
 	) ([]search.Result, error) {
 		if served != nil {
-			*served = append(*served, fmt.Sprintf("%s maxDocuments=%v", module, cfg.ClassByModuleName(module)["maxDocuments"]))
+			record := module
+			if maxDocuments, ok := cfg.ClassByModuleName(module)["maxDocuments"]; ok {
+				record = fmt.Sprintf("%s maxDocuments=%v", module, maxDocuments)
+			}
+			*served = append(*served, record)
 		}
 		return in, nil
 	}
@@ -184,7 +184,7 @@ func TestRerankModule(t *testing.T) {
 }
 
 // A class that names a reranker and a decisions module gets its rerank from
-// the reranker on every request, whatever the names, and decide from the
+// the reranker on every request, whatever the names, and annotate from the
 // decisions module.
 func TestClassWithBothKindsReranksWithTheReranker(t *testing.T) {
 	logger, _ := test.NewNullLogger()
@@ -388,6 +388,7 @@ func TestDecisionsModuleByProvider(t *testing.T) {
 		{name: "another module than the class's", class: "Decisions", provider: &ent.DecisionsProvider{Module: "decisions-y"}, want: "decisions-y"},
 		{name: "a module that is not enabled", class: "Decisions", provider: &ent.DecisionsProvider{Module: "decisions-nope"}, wantErr: `provider "decisions-nope" is not enabled`},
 		{name: "a module of another type", class: "Decisions", provider: &ent.DecisionsProvider{Module: "reranker-a"}, wantErr: `provider "reranker-a" is not a decisions module`},
+		{name: "a decisions module that serves rerank only", class: "Decisions", provider: &ent.DecisionsProvider{Module: "decisions-rerank-only"}, wantErr: `provider "decisions-rerank-only" does not serve annotate`},
 		{name: "no provider on a class without a module", class: "Reranker", wantErr: `class "Reranker" has no decisions module and the request names no provider`},
 	}
 	for _, tt := range tests {
@@ -398,6 +399,7 @@ func TestDecisionsModuleByProvider(t *testing.T) {
 			p.Register(rerankerModule("reranker-a", nil))
 			p.Register(decisionsModule("decisions-z", nil))
 			p.Register(decisionsModule("decisions-y", nil))
+			p.Register(typedModule{dummyNonVectorizerModule{name: "decisions-rerank-only"}, modulecapabilities.Decisions, []string{"rerank"}, nil})
 
 			module, err := p.decisionsModule(kindsSchemaReader().ReadOnlyClass(tt.class), tt.provider)
 
@@ -517,12 +519,40 @@ func TestAdditionalExtendRoutesByProvider(t *testing.T) {
 			want:   []string{"decisions-z"},
 		},
 		{
+			name: "rerank by a decision of a named module with a request setting", class: "Reranker",
+			params: map[string]any{"rerank": &rank.Params{Property: &property, Decision: &rank.Decision{}, Provider: &ent.DecisionsProvider{Module: "decisions-y", Settings: map[string]any{"maxDocuments": 7}}}},
+			want:   []string{"decisions-y maxDocuments=7"},
+		},
+		{
+			name: "rerank by a decision of the class's module with a request setting over the class's", class: "Tuned",
+			params: map[string]any{"rerank": &rank.Params{Property: &property, Decision: &rank.Decision{}, Provider: &ent.DecisionsProvider{Module: "decisions-z", Settings: map[string]any{"maxDocuments": 8}}}},
+			want:   []string{"decisions-z maxDocuments=8"},
+		},
+		{
+			name: "annotate by a named module other than the class's", class: "Tuned",
+			params: map[string]any{"annotate": &annotate.Params{Questions: questions, Provider: &ent.DecisionsProvider{Module: "decisions-y", Settings: map[string]any{"maxDocuments": 9}}}},
+			want:   []string{"decisions-y maxDocuments=9"},
+		},
+		{
 			name: "rerank and annotate by different modules in one query", class: "Both",
 			params: map[string]any{
 				"rerank":   &rank.Params{Property: &property, Decision: &rank.Decision{}, Provider: &ent.DecisionsProvider{Module: "decisions-y"}},
 				"annotate": &annotate.Params{Questions: questions},
 			},
-			want: []string{"decisions-y", "decisions-z maxDocuments=<nil>"},
+			want: []string{"decisions-y", "decisions-z"},
+		},
+		{
+			name: "rerank and annotate with a provider and settings each, on a class without a decisions module", class: "Reranker",
+			params: map[string]any{
+				"rerank":   &rank.Params{Property: &property, Decision: &rank.Decision{}, Provider: &ent.DecisionsProvider{Module: "decisions-y", Settings: map[string]any{"maxDocuments": 3}}},
+				"annotate": &annotate.Params{Questions: questions, Provider: &ent.DecisionsProvider{Module: "decisions-z", Settings: map[string]any{"maxDocuments": 4}}},
+			},
+			want: []string{"decisions-y maxDocuments=3", "decisions-z maxDocuments=4"},
+		},
+		{
+			name: "annotate by a decisions module that serves rerank only", class: "Tuned",
+			params:  map[string]any{"annotate": &annotate.Params{Questions: questions, Provider: &ent.DecisionsProvider{Module: "decisions-rerank-only"}}},
+			wantErr: `annotate: provider "decisions-rerank-only" does not serve annotate`,
 		},
 	}
 	for _, tt := range tests {
@@ -534,6 +564,7 @@ func TestAdditionalExtendRoutesByProvider(t *testing.T) {
 			p.Register(rerankerModule("reranker-a", &served))
 			p.Register(decisionsModule("decisions-z", &served))
 			p.Register(decisionsModule("decisions-y", &served))
+			p.Register(typedModule{dummyNonVectorizerModule{name: "decisions-rerank-only"}, modulecapabilities.Decisions, []string{"rerank"}, &served})
 			in := []search.Result{{ClassName: tt.class, Schema: map[string]interface{}{property: "some text"}}}
 
 			_, err := p.GetExploreAdditionalExtend(context.Background(), in, tt.params, nil, nil)

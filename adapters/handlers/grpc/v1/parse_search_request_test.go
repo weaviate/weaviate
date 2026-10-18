@@ -3336,7 +3336,7 @@ func TestGRPCSearchRequestRerankDecision(t *testing.T) {
 // the limits function gets it before the search.
 func TestGRPCSearchRequestDecisionsProvider(t *testing.T) {
 	question := &pb.DecisionQuestion{Name: "a", Property: "name", Instructions: "x", Kind: &pb.DecisionQuestion_Predicate{Predicate: &pb.DecisionPredicate{}}}
-	customSettings, err := structpb.NewStruct(map[string]any{"maxDocuments": 7, "model": "m", "images": true})
+	customSettings, err := structpb.NewStruct(map[string]any{"maxDocuments": 7, "model": "m", "images": true, "baseURL": nil})
 	require.NoError(t, err)
 	tests := []struct {
 		name     string
@@ -3362,6 +3362,7 @@ func TestGRPCSearchRequestDecisionsProvider(t *testing.T) {
 			want:     &ent.DecisionsProvider{Module: "decisions-dummy", Settings: map[string]any{}},
 		},
 		{
+			// A null keeps the class's value: it is left out of the settings.
 			name:     "custom module with settings",
 			provider: &pb.DecisionsProvider{Kind: &pb.DecisionsProvider_Custom{Custom: &pb.DecisionsCustom{Module: "decisions-mine", Settings: customSettings}}},
 			want:     &ent.DecisionsProvider{Module: "decisions-mine", Settings: map[string]any{"maxDocuments": float64(7), "model": "m", "images": true}},
