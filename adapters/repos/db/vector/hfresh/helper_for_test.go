@@ -300,19 +300,18 @@ func createMuveraHFreshIndexWithConfig(t *testing.T, searchProbe, rescoreLimit i
 }
 
 // createHFreshIndexWithVectorStore creates a non-muvera index whose
-// VectorForIDThunk serves the provided vectors, as the shard does in
-// production.
+// VectorForIDThunk serves the provided vectors (id i -> vectors[i]), as the
+// shard does in production. The vectors are recorded in the index's backing
+// testVectorStore: overriding cfg.VectorForIDThunk via a testIndexOption does
+// not work, because newTestIndex wires the recording store after the options
+// run.
 func createHFreshIndexWithVectorStore(t *testing.T, vectors [][]float32) TestHFresh {
 	t.Helper()
-	return createHFreshIndex(t, func(cfg *Config) {
-		cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk("",
-			func(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
-				if int(indexID) < len(vectors) {
-					return vectors[indexID], nil
-				}
-				return nil, nil
-			})
-	})
+	tf := createHFreshIndex(t)
+	for i, vec := range vectors {
+		tf.Vectors.put(uint64(i), vec)
+	}
+	return tf
 }
 
 func addMultiVectorToIndex(t *testing.T, tf *TestHFresh, docID uint64, vectors [][]float32) {
