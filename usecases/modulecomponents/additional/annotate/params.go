@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package decide
+package annotate
 
 import (
 	"fmt"
@@ -37,6 +37,9 @@ const (
 // Params are the questions of one search.
 type Params struct {
 	Questions []ent.DecisionQuestion
+	// Provider is the decisions module the request names; nil is the
+	// class's.
+	Provider *ent.DecisionsProvider
 }
 
 // GetPropertiesToExtract lists the properties the questions are about, so
@@ -131,7 +134,7 @@ type Limits struct {
 
 // BoundLimit checks the limit of a query against the module's maxDocuments:
 // the module judges the page, so the offset does not count. It serves both
-// decide and a rerank by a decision.
+// annotate and a rerank by a decision.
 func (l Limits) BoundLimit(limit int) error {
 	if l.MaxDocuments > 0 && limit > l.MaxDocuments {
 		return fmt.Errorf("limit %d exceeds maxDocuments %d of %s: lower the limit or raise maxDocuments",
@@ -156,7 +159,7 @@ func (p *Params) ValidateFor(class *models.Class, limits Limits, limit int) erro
 }
 
 // CheckProperty checks that the class has the property and that the module
-// judges its type. It serves both decide and a rerank by a decision.
+// judges its type. It serves both annotate and a rerank by a decision.
 func (l Limits) CheckProperty(class *models.Class, name string) error {
 	property := propertyOf(class, name)
 	if property == nil {

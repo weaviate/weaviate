@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func TestClassBasedModuleConfig(t *testing.T) {
@@ -90,4 +91,23 @@ func TestClassBasedModuleConfig(t *testing.T) {
 		assert.Equal(t, map[string]interface{}{"propLevel": "bar"},
 			cfg.Property("some-prop"))
 	})
+}
+
+// The settings a request names are read over the class's for that module
+// only; without settings the class config is returned as is.
+func TestRequestModuleConfig(t *testing.T) {
+	class := &models.Class{Class: "C", ModuleConfig: map[string]interface{}{
+		"decisions-a": map[string]interface{}{"model": "class-model", "maxDocuments": 5},
+		"decisions-b": map[string]interface{}{"model": "other"},
+	}}
+	base := NewClassBasedModuleConfig(class, "decisions-a", "", "", &config.Config{})
+
+	assert.Same(t, base, NewRequestModuleConfig(base, "decisions-a", nil), "no settings")
+
+	cfg := NewRequestModuleConfig(base, "decisions-a", map[string]any{"maxDocuments": 7, "images": true})
+
+	assert.Equal(t, map[string]interface{}{"model": "class-model", "maxDocuments": 7, "images": true}, cfg.ClassByModuleName("decisions-a"))
+	assert.Equal(t, map[string]interface{}{"model": "class-model", "maxDocuments": 7, "images": true}, cfg.Class())
+	assert.Equal(t, map[string]interface{}{"model": "other"}, cfg.ClassByModuleName("decisions-b"), "another module reads the class")
+	assert.Equal(t, map[string]interface{}{"model": "class-model", "maxDocuments": 5}, base.ClassByModuleName("decisions-a"), "the class config is not changed")
 }

@@ -12,6 +12,7 @@
 package v1
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -97,7 +98,7 @@ func TestExtractPropertiesRequest_NamespaceStitching(t *testing.T) {
 				}},
 			},
 		}
-		out, err := parser.Search(req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+		out, err := parser.Search(context.Background(), req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
 		require.NoError(t, err)
 		require.Len(t, out.Properties, 1)
 		require.Len(t, out.Properties[0].Refs, 1)
@@ -124,7 +125,7 @@ func TestExtractPropertiesRequest_NamespaceStitching(t *testing.T) {
 				}},
 			},
 		}
-		out, err := parser.Search(req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+		out, err := parser.Search(context.Background(), req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
 		require.NoError(t, err)
 		require.Len(t, out.Properties, 1)
 		require.Len(t, out.Properties[0].Refs, 1)
@@ -157,7 +158,7 @@ func TestExtractPropertiesRequest_NamespaceStitching(t *testing.T) {
 				}},
 			},
 		}
-		out, err := parser.Search(req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+		out, err := parser.Search(context.Background(), req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
 		require.NoError(t, err)
 		require.Len(t, out.Properties, 1)
 		require.Len(t, out.Properties[0].Refs, 1)
@@ -196,7 +197,7 @@ func TestExtractPropertiesRequest_NamespaceStitching(t *testing.T) {
 				}},
 			},
 		}
-		_, err := parser.Search(req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+		_, err := parser.Search(context.Background(), req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "is not a valid class name")
 	})
@@ -240,7 +241,7 @@ func TestExtractPropertiesRequest_NamespaceStitching(t *testing.T) {
 				}},
 			},
 		}
-		out, err := parser.Search(req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+		out, err := parser.Search(context.Background(), req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
 		require.NoError(t, err)
 		require.Len(t, out.Properties, 1)
 		require.Len(t, out.Properties[0].Refs, 1)
@@ -263,7 +264,7 @@ func TestExtractPropertiesRequest_NamespaceStitching(t *testing.T) {
 				}},
 			},
 		}
-		out, err := parser.Search(req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+		out, err := parser.Search(context.Background(), req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
 		require.NoError(t, err)
 		require.Len(t, out.Properties, 1)
 		require.Len(t, out.Properties[0].Refs, 1)
@@ -289,7 +290,7 @@ func TestExtractPropertiesRequest_NamespaceStitching(t *testing.T) {
 				}},
 			},
 		}
-		_, err := parser.Search(req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+		_, err := parser.Search(context.Background(), req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "is not a valid class name")
 	})

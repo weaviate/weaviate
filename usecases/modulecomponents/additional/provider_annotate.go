@@ -13,25 +13,25 @@ package additional
 
 import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/decide"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/annotate"
 )
 
-const PropertyDecide = decide.Property
+const PropertyAnnotate = annotate.Property
 
-// DecideProvider serves the decide additional property for a decisions
+// AnnotateProvider serves the annotate additional property for a decisions
 // module. The property is available through gRPC only: it has no GraphQL
 // field.
-type DecideProvider struct {
-	provider *decide.Provider
+type AnnotateProvider struct {
+	provider *annotate.Provider
 }
 
-func NewDecideProvider(client decide.Client) *DecideProvider {
-	return &DecideProvider{provider: decide.New(client)}
+func NewAnnotateProvider(client annotate.Client) *AnnotateProvider {
+	return &AnnotateProvider{provider: annotate.New(client)}
 }
 
-func (p *DecideProvider) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
+func (p *AnnotateProvider) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	return map[string]modulecapabilities.AdditionalProperty{
-		PropertyDecide: {
+		PropertyAnnotate: {
 			DefaultValue: p.provider.AdditionalPropertyDefaultValue(),
 			SearchFunctions: modulecapabilities.AdditionalSearch{
 				ExploreGet:  p.provider.AdditionalPropertyFn,

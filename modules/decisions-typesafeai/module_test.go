@@ -127,14 +127,14 @@ func TestModuleServesRerankAndDecide(t *testing.T) {
 	properties := m.AdditionalProperties()
 
 	require.Len(t, properties, 2)
-	for _, name := range []string{"rerank", "decide"} {
+	for _, name := range []string{"rerank", "annotate"} {
 		property, ok := properties[name]
 		require.True(t, ok, name)
 		assert.NotNil(t, property.SearchFunctions.ExploreGet, name)
 		assert.NotNil(t, property.SearchFunctions.ExploreList, name)
 	}
 	// decide has no GraphQL field: it is served through gRPC only.
-	assert.Nil(t, properties["decide"].GraphQLFieldFunction)
+	assert.Nil(t, properties["annotate"].GraphQLFieldFunction)
 	assert.NotNil(t, properties["rerank"].GraphQLFieldFunction)
 }
 

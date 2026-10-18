@@ -95,7 +95,7 @@ func TestInitAdditional(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Contains(t, m.AdditionalProperties(), "rerank")
-			assert.Contains(t, m.AdditionalProperties(), "decide")
+			assert.Contains(t, m.AdditionalProperties(), "annotate")
 			meta, err := m.MetaInfo()
 			require.NoError(t, err)
 			assert.Equal(t, "Decisions - OpenAI", meta["name"])

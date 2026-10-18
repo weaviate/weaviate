@@ -100,7 +100,7 @@ func maxConcurrentRequestsFromEnv() (int, error) {
 func (m *DecisionsTypeSafeAIModule) setClient(client DecisionsTypeSafeAIClient) {
 	m.reranker = client
 	m.additionalProperties = rerankeradditional.NewDecisionsRankerProvider(client, decisionDefaults).AdditionalProperties()
-	maps.Copy(m.additionalProperties, rerankeradditional.NewDecideProvider(client).AdditionalProperties())
+	maps.Copy(m.additionalProperties, rerankeradditional.NewAnnotateProvider(client).AdditionalProperties())
 }
 
 // decisionDefaults are the class settings a rerank uses where the request

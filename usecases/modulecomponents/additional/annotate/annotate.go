@@ -9,11 +9,11 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package decide is the shared part of the decide additional property: it
+// Package annotate is the shared part of the annotate additional property: it
 // takes the questions of a search, collects the text of the objects, asks
 // the module's client and attaches the answers to the results. A module
 // supplies the client.
-package decide
+package annotate
 
 import (
 	"context"
@@ -27,7 +27,7 @@ import (
 )
 
 // Property is the name of the additional property.
-const Property = "decide"
+const Property = "annotate"
 
 // Client answers every question for every document. The answers of a
 // document are in the order of the questions. All questions are about the
@@ -58,14 +58,14 @@ func (p *Provider) AdditionalPropertyFn(ctx context.Context,
 	if !ok {
 		return nil, errors.New("wrong parameters")
 	}
-	return p.decide(ctx, cfg, in, parameters)
+	return p.annotate(ctx, cfg, in, parameters)
 }
 
-// decide attaches to every result, under the property name, one
+// annotate attaches to every result, under the property name, one
 // ent.DecisionAnswer per question, in the order of the questions. The
 // questions about one property go to the client together. An object whose
 // property holds no text gets refused answers and is not sent.
-func (p *Provider) decide(ctx context.Context, cfg moduletools.ClassConfig,
+func (p *Provider) annotate(ctx context.Context, cfg moduletools.ClassConfig,
 	in []search.Result, params *Params,
 ) ([]search.Result, error) {
 	if len(in) == 0 {

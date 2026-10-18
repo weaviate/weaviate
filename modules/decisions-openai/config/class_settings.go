@@ -25,7 +25,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
-const moduleName = "decisions-openai"
+const ModuleName = "decisions-openai"
 
 const (
 	DefaultBaseURL      = "https://api.openai.com"
@@ -177,7 +177,7 @@ func (ic *classSettings) setting(name string) any {
 	if ic.cfg == nil {
 		return nil
 	}
-	settings := ic.cfg.ClassByModuleName(moduleName)
+	settings := ic.cfg.ClassByModuleName(ModuleName)
 	if len(settings) == 0 {
 		settings = ic.cfg.Class()
 	}

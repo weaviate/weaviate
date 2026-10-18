@@ -73,3 +73,11 @@ type DecisionAnswer struct {
 	Probabilities []DecisionProbability
 	Confidence    float64
 }
+
+// DecisionsProvider is the decisions module a request names instead of the
+// class's, with its settings under the names of the class settings, so the
+// module reads them as it reads the class.
+type DecisionsProvider struct {
+	Module   string
+	Settings map[string]any
+}

@@ -118,7 +118,7 @@ func (x Boost_PropertyValueModifier) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Boost_PropertyValueModifier.Descriptor instead.
 func (Boost_PropertyValueModifier) EnumDescriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{17, 0}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{18, 0}
 }
 
 type Boost_DecayCurve int32
@@ -170,7 +170,7 @@ func (x Boost_DecayCurve) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Boost_DecayCurve.Descriptor instead.
 func (Boost_DecayCurve) EnumDescriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{17, 1}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{18, 1}
 }
 
 type SearchRequest struct {
@@ -206,7 +206,7 @@ type SearchRequest struct {
 	NearImu      *NearIMUSearch     `protobuf:"bytes,51,opt,name=near_imu,json=nearImu,proto3,oneof" json:"near_imu,omitempty"`
 	Generative   *GenerativeSearch  `protobuf:"bytes,60,opt,name=generative,proto3,oneof" json:"generative,omitempty"`
 	Rerank       *Rerank            `protobuf:"bytes,61,opt,name=rerank,proto3,oneof" json:"rerank,omitempty"`
-	Decide       *Decisions         `protobuf:"bytes,63,opt,name=decide,proto3,oneof" json:"decide,omitempty"`
+	Annotate     *Annotate          `protobuf:"bytes,63,opt,name=annotate,proto3,oneof" json:"annotate,omitempty"`
 	Boost        *Boost             `protobuf:"bytes,62,opt,name=boost,proto3,oneof" json:"boost,omitempty"`
 	// Deprecated: Marked as deprecated in v1/search_get.proto.
 	Uses_123Api bool `protobuf:"varint,100,opt,name=uses_123_api,json=uses123Api,proto3" json:"uses_123_api,omitempty"`
@@ -422,9 +422,9 @@ func (x *SearchRequest) GetRerank() *Rerank {
 	return nil
 }
 
-func (x *SearchRequest) GetDecide() *Decisions {
+func (x *SearchRequest) GetAnnotate() *Annotate {
 	if x != nil {
-		return x.Decide
+		return x.Annotate
 	}
 	return nil
 }
@@ -904,10 +904,13 @@ type Rerank struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Property string                 `protobuf:"bytes,1,opt,name=property,proto3" json:"property,omitempty"`
 	Query    *string                `protobuf:"bytes,2,opt,name=query,proto3,oneof" json:"query,omitempty"`
-	// decision makes the collection's decisions module rerank, with the query
-	// as a predicate about every candidate. A class without a decisions
-	// module rejects it.
-	Decision      *RerankDecision `protobuf:"bytes,3,opt,name=decision,proto3,oneof" json:"decision,omitempty"`
+	// decision makes a decisions module rerank, with the query as a predicate
+	// about every candidate: the module provider names, else the collection's.
+	// A request with neither is rejected.
+	Decision *RerankDecision `protobuf:"bytes,3,opt,name=decision,proto3,oneof" json:"decision,omitempty"`
+	// provider picks the module for this request instead of the collection's.
+	// Accepted with decision only until reranker providers are added.
+	Provider      *RerankProvider `protobuf:"bytes,4,opt,name=provider,proto3,oneof" json:"provider,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -963,6 +966,82 @@ func (x *Rerank) GetDecision() *RerankDecision {
 	return nil
 }
 
+func (x *Rerank) GetProvider() *RerankProvider {
+	if x != nil {
+		return x.Provider
+	}
+	return nil
+}
+
+// RerankProvider names the module that reranks one request. Its only branch
+// today is a decisions module; a reranker branch comes later without a new
+// field on Rerank.
+type RerankProvider struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Kind:
+	//
+	//	*RerankProvider_Decisions
+	Kind          isRerankProvider_Kind `protobuf_oneof:"kind"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RerankProvider) Reset() {
+	*x = RerankProvider{}
+	mi := &file_v1_search_get_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RerankProvider) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RerankProvider) ProtoMessage() {}
+
+func (x *RerankProvider) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_search_get_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RerankProvider.ProtoReflect.Descriptor instead.
+func (*RerankProvider) Descriptor() ([]byte, []int) {
+	return file_v1_search_get_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *RerankProvider) GetKind() isRerankProvider_Kind {
+	if x != nil {
+		return x.Kind
+	}
+	return nil
+}
+
+func (x *RerankProvider) GetDecisions() *DecisionsProvider {
+	if x != nil {
+		if x, ok := x.Kind.(*RerankProvider_Decisions); ok {
+			return x.Decisions
+		}
+	}
+	return nil
+}
+
+type isRerankProvider_Kind interface {
+	isRerankProvider_Kind()
+}
+
+type RerankProvider_Decisions struct {
+	Decisions *DecisionsProvider `protobuf:"bytes,1,opt,name=decisions,proto3,oneof"`
+}
+
+func (*RerankProvider_Decisions) isRerankProvider_Kind() {}
+
 // RerankDecision are the options of a rerank by a decision model. A field
 // left unset takes the class setting of the module.
 type RerankDecision struct {
@@ -976,7 +1055,7 @@ type RerankDecision struct {
 
 func (x *RerankDecision) Reset() {
 	*x = RerankDecision{}
-	mi := &file_v1_search_get_proto_msgTypes[8]
+	mi := &file_v1_search_get_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -988,7 +1067,7 @@ func (x *RerankDecision) String() string {
 func (*RerankDecision) ProtoMessage() {}
 
 func (x *RerankDecision) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[8]
+	mi := &file_v1_search_get_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1001,7 +1080,7 @@ func (x *RerankDecision) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RerankDecision.ProtoReflect.Descriptor instead.
 func (*RerankDecision) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{8}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *RerankDecision) GetMinProbability() float64 {
@@ -1033,7 +1112,7 @@ type SearchReply struct {
 
 func (x *SearchReply) Reset() {
 	*x = SearchReply{}
-	mi := &file_v1_search_get_proto_msgTypes[9]
+	mi := &file_v1_search_get_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1045,7 +1124,7 @@ func (x *SearchReply) String() string {
 func (*SearchReply) ProtoMessage() {}
 
 func (x *SearchReply) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[9]
+	mi := &file_v1_search_get_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1058,7 +1137,7 @@ func (x *SearchReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SearchReply.ProtoReflect.Descriptor instead.
 func (*SearchReply) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{9}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *SearchReply) GetTook() float32 {
@@ -1115,7 +1194,7 @@ type QueryProfile struct {
 
 func (x *QueryProfile) Reset() {
 	*x = QueryProfile{}
-	mi := &file_v1_search_get_proto_msgTypes[10]
+	mi := &file_v1_search_get_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1127,7 +1206,7 @@ func (x *QueryProfile) String() string {
 func (*QueryProfile) ProtoMessage() {}
 
 func (x *QueryProfile) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[10]
+	mi := &file_v1_search_get_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1140,7 +1219,7 @@ func (x *QueryProfile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryProfile.ProtoReflect.Descriptor instead.
 func (*QueryProfile) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{10}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *QueryProfile) GetShards() []*QueryProfile_ShardProfile {
@@ -1159,7 +1238,7 @@ type RerankReply struct {
 
 func (x *RerankReply) Reset() {
 	*x = RerankReply{}
-	mi := &file_v1_search_get_proto_msgTypes[11]
+	mi := &file_v1_search_get_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1171,7 +1250,7 @@ func (x *RerankReply) String() string {
 func (*RerankReply) ProtoMessage() {}
 
 func (x *RerankReply) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[11]
+	mi := &file_v1_search_get_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1184,7 +1263,7 @@ func (x *RerankReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RerankReply.ProtoReflect.Descriptor instead.
 func (*RerankReply) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{11}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *RerankReply) GetScore() float64 {
@@ -1211,7 +1290,7 @@ type GroupByResult struct {
 
 func (x *GroupByResult) Reset() {
 	*x = GroupByResult{}
-	mi := &file_v1_search_get_proto_msgTypes[12]
+	mi := &file_v1_search_get_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1223,7 +1302,7 @@ func (x *GroupByResult) String() string {
 func (*GroupByResult) ProtoMessage() {}
 
 func (x *GroupByResult) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[12]
+	mi := &file_v1_search_get_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1236,7 +1315,7 @@ func (x *GroupByResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GroupByResult.ProtoReflect.Descriptor instead.
 func (*GroupByResult) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{12}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *GroupByResult) GetName() string {
@@ -1301,14 +1380,14 @@ type SearchResult struct {
 	Properties    *PropertiesResult      `protobuf:"bytes,1,opt,name=properties,proto3" json:"properties,omitempty"`
 	Metadata      *MetadataResult        `protobuf:"bytes,2,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	Generative    *GenerativeResult      `protobuf:"bytes,3,opt,name=generative,proto3,oneof" json:"generative,omitempty"`
-	Decisions     *DecisionResult        `protobuf:"bytes,4,opt,name=decisions,proto3,oneof" json:"decisions,omitempty"`
+	Annotations   *DecisionResult        `protobuf:"bytes,4,opt,name=annotations,proto3,oneof" json:"annotations,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SearchResult) Reset() {
 	*x = SearchResult{}
-	mi := &file_v1_search_get_proto_msgTypes[13]
+	mi := &file_v1_search_get_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1320,7 +1399,7 @@ func (x *SearchResult) String() string {
 func (*SearchResult) ProtoMessage() {}
 
 func (x *SearchResult) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[13]
+	mi := &file_v1_search_get_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1333,7 +1412,7 @@ func (x *SearchResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SearchResult.ProtoReflect.Descriptor instead.
 func (*SearchResult) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{13}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *SearchResult) GetProperties() *PropertiesResult {
@@ -1357,9 +1436,9 @@ func (x *SearchResult) GetGenerative() *GenerativeResult {
 	return nil
 }
 
-func (x *SearchResult) GetDecisions() *DecisionResult {
+func (x *SearchResult) GetAnnotations() *DecisionResult {
 	if x != nil {
-		return x.Decisions
+		return x.Annotations
 	}
 	return nil
 }
@@ -1400,7 +1479,7 @@ type MetadataResult struct {
 
 func (x *MetadataResult) Reset() {
 	*x = MetadataResult{}
-	mi := &file_v1_search_get_proto_msgTypes[14]
+	mi := &file_v1_search_get_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1412,7 +1491,7 @@ func (x *MetadataResult) String() string {
 func (*MetadataResult) ProtoMessage() {}
 
 func (x *MetadataResult) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[14]
+	mi := &file_v1_search_get_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1425,7 +1504,7 @@ func (x *MetadataResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetadataResult.ProtoReflect.Descriptor instead.
 func (*MetadataResult) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{14}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *MetadataResult) GetId() string {
@@ -1605,7 +1684,7 @@ type PropertiesResult struct {
 
 func (x *PropertiesResult) Reset() {
 	*x = PropertiesResult{}
-	mi := &file_v1_search_get_proto_msgTypes[15]
+	mi := &file_v1_search_get_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1617,7 +1696,7 @@ func (x *PropertiesResult) String() string {
 func (*PropertiesResult) ProtoMessage() {}
 
 func (x *PropertiesResult) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[15]
+	mi := &file_v1_search_get_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1630,7 +1709,7 @@ func (x *PropertiesResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PropertiesResult.ProtoReflect.Descriptor instead.
 func (*PropertiesResult) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{15}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *PropertiesResult) GetRefProps() []*RefPropertiesResult {
@@ -1678,7 +1757,7 @@ type RefPropertiesResult struct {
 
 func (x *RefPropertiesResult) Reset() {
 	*x = RefPropertiesResult{}
-	mi := &file_v1_search_get_proto_msgTypes[16]
+	mi := &file_v1_search_get_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1690,7 +1769,7 @@ func (x *RefPropertiesResult) String() string {
 func (*RefPropertiesResult) ProtoMessage() {}
 
 func (x *RefPropertiesResult) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[16]
+	mi := &file_v1_search_get_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1703,7 +1782,7 @@ func (x *RefPropertiesResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RefPropertiesResult.ProtoReflect.Descriptor instead.
 func (*RefPropertiesResult) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{16}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *RefPropertiesResult) GetProperties() []*PropertiesResult {
@@ -1731,7 +1810,7 @@ type Boost struct {
 
 func (x *Boost) Reset() {
 	*x = Boost{}
-	mi := &file_v1_search_get_proto_msgTypes[17]
+	mi := &file_v1_search_get_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1743,7 +1822,7 @@ func (x *Boost) String() string {
 func (*Boost) ProtoMessage() {}
 
 func (x *Boost) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[17]
+	mi := &file_v1_search_get_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1756,7 +1835,7 @@ func (x *Boost) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Boost.ProtoReflect.Descriptor instead.
 func (*Boost) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{17}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *Boost) GetConditions() []*Boost_Condition {
@@ -1791,7 +1870,7 @@ type QueryProfile_SearchProfile struct {
 
 func (x *QueryProfile_SearchProfile) Reset() {
 	*x = QueryProfile_SearchProfile{}
-	mi := &file_v1_search_get_proto_msgTypes[18]
+	mi := &file_v1_search_get_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1803,7 +1882,7 @@ func (x *QueryProfile_SearchProfile) String() string {
 func (*QueryProfile_SearchProfile) ProtoMessage() {}
 
 func (x *QueryProfile_SearchProfile) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[18]
+	mi := &file_v1_search_get_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1816,7 +1895,7 @@ func (x *QueryProfile_SearchProfile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryProfile_SearchProfile.ProtoReflect.Descriptor instead.
 func (*QueryProfile_SearchProfile) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{10, 0}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{11, 0}
 }
 
 func (x *QueryProfile_SearchProfile) GetDetails() map[string]string {
@@ -1841,7 +1920,7 @@ type QueryProfile_ShardProfile struct {
 
 func (x *QueryProfile_ShardProfile) Reset() {
 	*x = QueryProfile_ShardProfile{}
-	mi := &file_v1_search_get_proto_msgTypes[19]
+	mi := &file_v1_search_get_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1853,7 +1932,7 @@ func (x *QueryProfile_ShardProfile) String() string {
 func (*QueryProfile_ShardProfile) ProtoMessage() {}
 
 func (x *QueryProfile_ShardProfile) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[19]
+	mi := &file_v1_search_get_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1866,7 +1945,7 @@ func (x *QueryProfile_ShardProfile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryProfile_ShardProfile.ProtoReflect.Descriptor instead.
 func (*QueryProfile_ShardProfile) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{10, 1}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{11, 1}
 }
 
 func (x *QueryProfile_ShardProfile) GetName() string {
@@ -1900,7 +1979,7 @@ type Boost_PropertyValueFunction struct {
 
 func (x *Boost_PropertyValueFunction) Reset() {
 	*x = Boost_PropertyValueFunction{}
-	mi := &file_v1_search_get_proto_msgTypes[22]
+	mi := &file_v1_search_get_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1912,7 +1991,7 @@ func (x *Boost_PropertyValueFunction) String() string {
 func (*Boost_PropertyValueFunction) ProtoMessage() {}
 
 func (x *Boost_PropertyValueFunction) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[22]
+	mi := &file_v1_search_get_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1925,7 +2004,7 @@ func (x *Boost_PropertyValueFunction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Boost_PropertyValueFunction.ProtoReflect.Descriptor instead.
 func (*Boost_PropertyValueFunction) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{17, 0}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{18, 0}
 }
 
 func (x *Boost_PropertyValueFunction) GetProperty() string {
@@ -1956,7 +2035,7 @@ type Boost_TimeDecayFunction struct {
 
 func (x *Boost_TimeDecayFunction) Reset() {
 	*x = Boost_TimeDecayFunction{}
-	mi := &file_v1_search_get_proto_msgTypes[23]
+	mi := &file_v1_search_get_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1968,7 +2047,7 @@ func (x *Boost_TimeDecayFunction) String() string {
 func (*Boost_TimeDecayFunction) ProtoMessage() {}
 
 func (x *Boost_TimeDecayFunction) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[23]
+	mi := &file_v1_search_get_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1981,7 +2060,7 @@ func (x *Boost_TimeDecayFunction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Boost_TimeDecayFunction.ProtoReflect.Descriptor instead.
 func (*Boost_TimeDecayFunction) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{17, 1}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{18, 1}
 }
 
 func (x *Boost_TimeDecayFunction) GetProperty() string {
@@ -2040,7 +2119,7 @@ type Boost_NumericDecayFunction struct {
 
 func (x *Boost_NumericDecayFunction) Reset() {
 	*x = Boost_NumericDecayFunction{}
-	mi := &file_v1_search_get_proto_msgTypes[24]
+	mi := &file_v1_search_get_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2052,7 +2131,7 @@ func (x *Boost_NumericDecayFunction) String() string {
 func (*Boost_NumericDecayFunction) ProtoMessage() {}
 
 func (x *Boost_NumericDecayFunction) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[24]
+	mi := &file_v1_search_get_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2065,7 +2144,7 @@ func (x *Boost_NumericDecayFunction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Boost_NumericDecayFunction.ProtoReflect.Descriptor instead.
 func (*Boost_NumericDecayFunction) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{17, 2}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{18, 2}
 }
 
 func (x *Boost_NumericDecayFunction) GetProperty() string {
@@ -2126,7 +2205,7 @@ type Boost_Condition struct {
 
 func (x *Boost_Condition) Reset() {
 	*x = Boost_Condition{}
-	mi := &file_v1_search_get_proto_msgTypes[25]
+	mi := &file_v1_search_get_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2138,7 +2217,7 @@ func (x *Boost_Condition) String() string {
 func (*Boost_Condition) ProtoMessage() {}
 
 func (x *Boost_Condition) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[25]
+	mi := &file_v1_search_get_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2151,7 +2230,7 @@ func (x *Boost_Condition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Boost_Condition.ProtoReflect.Descriptor instead.
 func (*Boost_Condition) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{17, 3}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{18, 3}
 }
 
 func (x *Boost_Condition) GetCondition() isBoost_Condition_Condition {
@@ -2236,7 +2315,7 @@ var File_v1_search_get_proto protoreflect.FileDescriptor
 
 const file_v1_search_get_proto_rawDesc = "" +
 	"\n" +
-	"\x13v1/search_get.proto\x12\vweaviate.v1\x1a\rv1/base.proto\x1a\x14v1/base_search.proto\x1a\x12v1/decisions.proto\x1a\x13v1/generative.proto\x1a\x13v1/properties.proto\"\xc0\x0e\n" +
+	"\x13v1/search_get.proto\x12\vweaviate.v1\x1a\rv1/base.proto\x1a\x14v1/base_search.proto\x1a\x12v1/decisions.proto\x1a\x13v1/generative.proto\x1a\x13v1/properties.proto\"\xc5\x0e\n" +
 	"\rSearchRequest\x12\x1e\n" +
 	"\n" +
 	"collection\x18\x01 \x01(\tR\n" +
@@ -2277,8 +2356,8 @@ const file_v1_search_get_proto_rawDesc = "" +
 	"\n" +
 	"generative\x18< \x01(\v2\x1d.weaviate.v1.GenerativeSearchH\x10R\n" +
 	"generative\x88\x01\x01\x120\n" +
-	"\x06rerank\x18= \x01(\v2\x13.weaviate.v1.RerankH\x11R\x06rerank\x88\x01\x01\x123\n" +
-	"\x06decide\x18? \x01(\v2\x16.weaviate.v1.DecisionsH\x12R\x06decide\x88\x01\x01\x12-\n" +
+	"\x06rerank\x18= \x01(\v2\x13.weaviate.v1.RerankH\x11R\x06rerank\x88\x01\x01\x126\n" +
+	"\bannotate\x18? \x01(\v2\x15.weaviate.v1.AnnotateH\x12R\bannotate\x88\x01\x01\x12-\n" +
 	"\x05boost\x18> \x01(\v2\x12.weaviate.v1.BoostH\x13R\x05boost\x88\x01\x01\x12$\n" +
 	"\fuses_123_api\x18d \x01(\bB\x02\x18\x01R\n" +
 	"uses123Api\x12$\n" +
@@ -2305,8 +2384,8 @@ const file_v1_search_get_proto_rawDesc = "" +
 	"\r_near_thermalB\v\n" +
 	"\t_near_imuB\r\n" +
 	"\v_generativeB\t\n" +
-	"\a_rerankB\t\n" +
-	"\a_decideB\b\n" +
+	"\a_rerankB\v\n" +
+	"\t_annotateB\b\n" +
 	"\x06_boost\"s\n" +
 	"\aGroupBy\x12\x12\n" +
 	"\x04path\x18\x01 \x03(\tR\x04path\x12(\n" +
@@ -2343,13 +2422,18 @@ const file_v1_search_get_proto_rawDesc = "" +
 	"properties\x18\x02 \x01(\v2\x1e.weaviate.v1.PropertiesRequestR\n" +
 	"properties\x128\n" +
 	"\bmetadata\x18\x03 \x01(\v2\x1c.weaviate.v1.MetadataRequestR\bmetadata\x12+\n" +
-	"\x11target_collection\x18\x04 \x01(\tR\x10targetCollection\"\x94\x01\n" +
+	"\x11target_collection\x18\x04 \x01(\tR\x10targetCollection\"\xdf\x01\n" +
 	"\x06Rerank\x12\x1a\n" +
 	"\bproperty\x18\x01 \x01(\tR\bproperty\x12\x19\n" +
 	"\x05query\x18\x02 \x01(\tH\x00R\x05query\x88\x01\x01\x12<\n" +
-	"\bdecision\x18\x03 \x01(\v2\x1b.weaviate.v1.RerankDecisionH\x01R\bdecision\x88\x01\x01B\b\n" +
+	"\bdecision\x18\x03 \x01(\v2\x1b.weaviate.v1.RerankDecisionH\x01R\bdecision\x88\x01\x01\x12<\n" +
+	"\bprovider\x18\x04 \x01(\v2\x1b.weaviate.v1.RerankProviderH\x02R\bprovider\x88\x01\x01B\b\n" +
 	"\x06_queryB\v\n" +
-	"\t_decision\"\x91\x01\n" +
+	"\t_decisionB\v\n" +
+	"\t_provider\"X\n" +
+	"\x0eRerankProvider\x12>\n" +
+	"\tdecisions\x18\x01 \x01(\v2\x1e.weaviate.v1.DecisionsProviderH\x00R\tdecisionsB\x06\n" +
+	"\x04kind\"\x91\x01\n" +
 	"\x0eRerankDecision\x12,\n" +
 	"\x0fmin_probability\x18\x01 \x01(\x01H\x00R\x0eminProbability\x88\x01\x01\x123\n" +
 	"\x05order\x18\x02 \x01(\x0e2\x18.weaviate.v1.RerankOrderH\x01R\x05order\x88\x01\x01B\x12\n" +
@@ -2394,7 +2478,7 @@ const file_v1_search_get_proto_rawDesc = "" +
 	"\x11generative_result\x18\b \x01(\v2\x1d.weaviate.v1.GenerativeResultH\x02R\x10generativeResult\x88\x01\x01B\t\n" +
 	"\a_rerankB\r\n" +
 	"\v_generativeB\x14\n" +
-	"\x12_generative_result\"\xa7\x02\n" +
+	"\x12_generative_result\"\xad\x02\n" +
 	"\fSearchResult\x12=\n" +
 	"\n" +
 	"properties\x18\x01 \x01(\v2\x1d.weaviate.v1.PropertiesResultR\n" +
@@ -2402,11 +2486,10 @@ const file_v1_search_get_proto_rawDesc = "" +
 	"\bmetadata\x18\x02 \x01(\v2\x1b.weaviate.v1.MetadataResultR\bmetadata\x12B\n" +
 	"\n" +
 	"generative\x18\x03 \x01(\v2\x1d.weaviate.v1.GenerativeResultH\x00R\n" +
-	"generative\x88\x01\x01\x12>\n" +
-	"\tdecisions\x18\x04 \x01(\v2\x1b.weaviate.v1.DecisionResultH\x01R\tdecisions\x88\x01\x01B\r\n" +
-	"\v_generativeB\f\n" +
-	"\n" +
-	"_decisions\"\xd1\a\n" +
+	"generative\x88\x01\x01\x12B\n" +
+	"\vannotations\x18\x04 \x01(\v2\x1b.weaviate.v1.DecisionResultH\x01R\vannotations\x88\x01\x01B\r\n" +
+	"\v_generativeB\x0e\n" +
+	"\f_annotations\"\xd1\a\n" +
 	"\x0eMetadataResult\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
 	"\x06vector\x18\x02 \x03(\x02B\x02\x18\x01R\x06vector\x12,\n" +
@@ -2521,7 +2604,7 @@ func file_v1_search_get_proto_rawDescGZIP() []byte {
 
 var (
 	file_v1_search_get_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-	file_v1_search_get_proto_msgTypes  = make([]protoimpl.MessageInfo, 26)
+	file_v1_search_get_proto_msgTypes  = make([]protoimpl.MessageInfo, 27)
 	file_v1_search_get_proto_goTypes   = []any{
 		(RerankOrder)(0),                    // 0: weaviate.v1.RerankOrder
 		(Boost_PropertyValueModifier)(0),    // 1: weaviate.v1.Boost.PropertyValueModifier
@@ -2534,110 +2617,114 @@ var (
 		(*ObjectPropertiesRequest)(nil),     // 8: weaviate.v1.ObjectPropertiesRequest
 		(*RefPropertiesRequest)(nil),        // 9: weaviate.v1.RefPropertiesRequest
 		(*Rerank)(nil),                      // 10: weaviate.v1.Rerank
-		(*RerankDecision)(nil),              // 11: weaviate.v1.RerankDecision
-		(*SearchReply)(nil),                 // 12: weaviate.v1.SearchReply
-		(*QueryProfile)(nil),                // 13: weaviate.v1.QueryProfile
-		(*RerankReply)(nil),                 // 14: weaviate.v1.RerankReply
-		(*GroupByResult)(nil),               // 15: weaviate.v1.GroupByResult
-		(*SearchResult)(nil),                // 16: weaviate.v1.SearchResult
-		(*MetadataResult)(nil),              // 17: weaviate.v1.MetadataResult
-		(*PropertiesResult)(nil),            // 18: weaviate.v1.PropertiesResult
-		(*RefPropertiesResult)(nil),         // 19: weaviate.v1.RefPropertiesResult
-		(*Boost)(nil),                       // 20: weaviate.v1.Boost
-		(*QueryProfile_SearchProfile)(nil),  // 21: weaviate.v1.QueryProfile.SearchProfile
-		(*QueryProfile_ShardProfile)(nil),   // 22: weaviate.v1.QueryProfile.ShardProfile
-		nil,                                 // 23: weaviate.v1.QueryProfile.SearchProfile.DetailsEntry
-		nil,                                 // 24: weaviate.v1.QueryProfile.ShardProfile.SearchesEntry
-		(*Boost_PropertyValueFunction)(nil), // 25: weaviate.v1.Boost.PropertyValueFunction
-		(*Boost_TimeDecayFunction)(nil),     // 26: weaviate.v1.Boost.TimeDecayFunction
-		(*Boost_NumericDecayFunction)(nil),  // 27: weaviate.v1.Boost.NumericDecayFunction
-		(*Boost_Condition)(nil),             // 28: weaviate.v1.Boost.Condition
-		(ConsistencyLevel)(0),               // 29: weaviate.v1.ConsistencyLevel
-		(*Filters)(nil),                     // 30: weaviate.v1.Filters
-		(*Hybrid)(nil),                      // 31: weaviate.v1.Hybrid
-		(*BM25)(nil),                        // 32: weaviate.v1.BM25
-		(*NearVector)(nil),                  // 33: weaviate.v1.NearVector
-		(*NearObject)(nil),                  // 34: weaviate.v1.NearObject
-		(*NearTextSearch)(nil),              // 35: weaviate.v1.NearTextSearch
-		(*NearImageSearch)(nil),             // 36: weaviate.v1.NearImageSearch
-		(*NearAudioSearch)(nil),             // 37: weaviate.v1.NearAudioSearch
-		(*NearVideoSearch)(nil),             // 38: weaviate.v1.NearVideoSearch
-		(*NearDepthSearch)(nil),             // 39: weaviate.v1.NearDepthSearch
-		(*NearThermalSearch)(nil),           // 40: weaviate.v1.NearThermalSearch
-		(*NearIMUSearch)(nil),               // 41: weaviate.v1.NearIMUSearch
-		(*GenerativeSearch)(nil),            // 42: weaviate.v1.GenerativeSearch
-		(*Decisions)(nil),                   // 43: weaviate.v1.Decisions
-		(*GenerativeResult)(nil),            // 44: weaviate.v1.GenerativeResult
-		(*GenerativeReply)(nil),             // 45: weaviate.v1.GenerativeReply
-		(*DecisionResult)(nil),              // 46: weaviate.v1.DecisionResult
-		(*Vectors)(nil),                     // 47: weaviate.v1.Vectors
-		(*Properties)(nil),                  // 48: weaviate.v1.Properties
+		(*RerankProvider)(nil),              // 11: weaviate.v1.RerankProvider
+		(*RerankDecision)(nil),              // 12: weaviate.v1.RerankDecision
+		(*SearchReply)(nil),                 // 13: weaviate.v1.SearchReply
+		(*QueryProfile)(nil),                // 14: weaviate.v1.QueryProfile
+		(*RerankReply)(nil),                 // 15: weaviate.v1.RerankReply
+		(*GroupByResult)(nil),               // 16: weaviate.v1.GroupByResult
+		(*SearchResult)(nil),                // 17: weaviate.v1.SearchResult
+		(*MetadataResult)(nil),              // 18: weaviate.v1.MetadataResult
+		(*PropertiesResult)(nil),            // 19: weaviate.v1.PropertiesResult
+		(*RefPropertiesResult)(nil),         // 20: weaviate.v1.RefPropertiesResult
+		(*Boost)(nil),                       // 21: weaviate.v1.Boost
+		(*QueryProfile_SearchProfile)(nil),  // 22: weaviate.v1.QueryProfile.SearchProfile
+		(*QueryProfile_ShardProfile)(nil),   // 23: weaviate.v1.QueryProfile.ShardProfile
+		nil,                                 // 24: weaviate.v1.QueryProfile.SearchProfile.DetailsEntry
+		nil,                                 // 25: weaviate.v1.QueryProfile.ShardProfile.SearchesEntry
+		(*Boost_PropertyValueFunction)(nil), // 26: weaviate.v1.Boost.PropertyValueFunction
+		(*Boost_TimeDecayFunction)(nil),     // 27: weaviate.v1.Boost.TimeDecayFunction
+		(*Boost_NumericDecayFunction)(nil),  // 28: weaviate.v1.Boost.NumericDecayFunction
+		(*Boost_Condition)(nil),             // 29: weaviate.v1.Boost.Condition
+		(ConsistencyLevel)(0),               // 30: weaviate.v1.ConsistencyLevel
+		(*Filters)(nil),                     // 31: weaviate.v1.Filters
+		(*Hybrid)(nil),                      // 32: weaviate.v1.Hybrid
+		(*BM25)(nil),                        // 33: weaviate.v1.BM25
+		(*NearVector)(nil),                  // 34: weaviate.v1.NearVector
+		(*NearObject)(nil),                  // 35: weaviate.v1.NearObject
+		(*NearTextSearch)(nil),              // 36: weaviate.v1.NearTextSearch
+		(*NearImageSearch)(nil),             // 37: weaviate.v1.NearImageSearch
+		(*NearAudioSearch)(nil),             // 38: weaviate.v1.NearAudioSearch
+		(*NearVideoSearch)(nil),             // 39: weaviate.v1.NearVideoSearch
+		(*NearDepthSearch)(nil),             // 40: weaviate.v1.NearDepthSearch
+		(*NearThermalSearch)(nil),           // 41: weaviate.v1.NearThermalSearch
+		(*NearIMUSearch)(nil),               // 42: weaviate.v1.NearIMUSearch
+		(*GenerativeSearch)(nil),            // 43: weaviate.v1.GenerativeSearch
+		(*Annotate)(nil),                    // 44: weaviate.v1.Annotate
+		(*DecisionsProvider)(nil),           // 45: weaviate.v1.DecisionsProvider
+		(*GenerativeResult)(nil),            // 46: weaviate.v1.GenerativeResult
+		(*GenerativeReply)(nil),             // 47: weaviate.v1.GenerativeReply
+		(*DecisionResult)(nil),              // 48: weaviate.v1.DecisionResult
+		(*Vectors)(nil),                     // 49: weaviate.v1.Vectors
+		(*Properties)(nil),                  // 50: weaviate.v1.Properties
 	}
 )
 
 var file_v1_search_get_proto_depIdxs = []int32{
-	29, // 0: weaviate.v1.SearchRequest.consistency_level:type_name -> weaviate.v1.ConsistencyLevel
+	30, // 0: weaviate.v1.SearchRequest.consistency_level:type_name -> weaviate.v1.ConsistencyLevel
 	7,  // 1: weaviate.v1.SearchRequest.properties:type_name -> weaviate.v1.PropertiesRequest
 	6,  // 2: weaviate.v1.SearchRequest.metadata:type_name -> weaviate.v1.MetadataRequest
 	4,  // 3: weaviate.v1.SearchRequest.group_by:type_name -> weaviate.v1.GroupBy
 	5,  // 4: weaviate.v1.SearchRequest.sort_by:type_name -> weaviate.v1.SortBy
-	30, // 5: weaviate.v1.SearchRequest.filters:type_name -> weaviate.v1.Filters
-	31, // 6: weaviate.v1.SearchRequest.hybrid_search:type_name -> weaviate.v1.Hybrid
-	32, // 7: weaviate.v1.SearchRequest.bm25_search:type_name -> weaviate.v1.BM25
-	33, // 8: weaviate.v1.SearchRequest.near_vector:type_name -> weaviate.v1.NearVector
-	34, // 9: weaviate.v1.SearchRequest.near_object:type_name -> weaviate.v1.NearObject
-	35, // 10: weaviate.v1.SearchRequest.near_text:type_name -> weaviate.v1.NearTextSearch
-	36, // 11: weaviate.v1.SearchRequest.near_image:type_name -> weaviate.v1.NearImageSearch
-	37, // 12: weaviate.v1.SearchRequest.near_audio:type_name -> weaviate.v1.NearAudioSearch
-	38, // 13: weaviate.v1.SearchRequest.near_video:type_name -> weaviate.v1.NearVideoSearch
-	39, // 14: weaviate.v1.SearchRequest.near_depth:type_name -> weaviate.v1.NearDepthSearch
-	40, // 15: weaviate.v1.SearchRequest.near_thermal:type_name -> weaviate.v1.NearThermalSearch
-	41, // 16: weaviate.v1.SearchRequest.near_imu:type_name -> weaviate.v1.NearIMUSearch
-	42, // 17: weaviate.v1.SearchRequest.generative:type_name -> weaviate.v1.GenerativeSearch
+	31, // 5: weaviate.v1.SearchRequest.filters:type_name -> weaviate.v1.Filters
+	32, // 6: weaviate.v1.SearchRequest.hybrid_search:type_name -> weaviate.v1.Hybrid
+	33, // 7: weaviate.v1.SearchRequest.bm25_search:type_name -> weaviate.v1.BM25
+	34, // 8: weaviate.v1.SearchRequest.near_vector:type_name -> weaviate.v1.NearVector
+	35, // 9: weaviate.v1.SearchRequest.near_object:type_name -> weaviate.v1.NearObject
+	36, // 10: weaviate.v1.SearchRequest.near_text:type_name -> weaviate.v1.NearTextSearch
+	37, // 11: weaviate.v1.SearchRequest.near_image:type_name -> weaviate.v1.NearImageSearch
+	38, // 12: weaviate.v1.SearchRequest.near_audio:type_name -> weaviate.v1.NearAudioSearch
+	39, // 13: weaviate.v1.SearchRequest.near_video:type_name -> weaviate.v1.NearVideoSearch
+	40, // 14: weaviate.v1.SearchRequest.near_depth:type_name -> weaviate.v1.NearDepthSearch
+	41, // 15: weaviate.v1.SearchRequest.near_thermal:type_name -> weaviate.v1.NearThermalSearch
+	42, // 16: weaviate.v1.SearchRequest.near_imu:type_name -> weaviate.v1.NearIMUSearch
+	43, // 17: weaviate.v1.SearchRequest.generative:type_name -> weaviate.v1.GenerativeSearch
 	10, // 18: weaviate.v1.SearchRequest.rerank:type_name -> weaviate.v1.Rerank
-	43, // 19: weaviate.v1.SearchRequest.decide:type_name -> weaviate.v1.Decisions
-	20, // 20: weaviate.v1.SearchRequest.boost:type_name -> weaviate.v1.Boost
+	44, // 19: weaviate.v1.SearchRequest.annotate:type_name -> weaviate.v1.Annotate
+	21, // 20: weaviate.v1.SearchRequest.boost:type_name -> weaviate.v1.Boost
 	9,  // 21: weaviate.v1.PropertiesRequest.ref_properties:type_name -> weaviate.v1.RefPropertiesRequest
 	8,  // 22: weaviate.v1.PropertiesRequest.object_properties:type_name -> weaviate.v1.ObjectPropertiesRequest
 	8,  // 23: weaviate.v1.ObjectPropertiesRequest.object_properties:type_name -> weaviate.v1.ObjectPropertiesRequest
 	7,  // 24: weaviate.v1.RefPropertiesRequest.properties:type_name -> weaviate.v1.PropertiesRequest
 	6,  // 25: weaviate.v1.RefPropertiesRequest.metadata:type_name -> weaviate.v1.MetadataRequest
-	11, // 26: weaviate.v1.Rerank.decision:type_name -> weaviate.v1.RerankDecision
-	0,  // 27: weaviate.v1.RerankDecision.order:type_name -> weaviate.v1.RerankOrder
-	16, // 28: weaviate.v1.SearchReply.results:type_name -> weaviate.v1.SearchResult
-	15, // 29: weaviate.v1.SearchReply.group_by_results:type_name -> weaviate.v1.GroupByResult
-	44, // 30: weaviate.v1.SearchReply.generative_grouped_results:type_name -> weaviate.v1.GenerativeResult
-	13, // 31: weaviate.v1.SearchReply.query_profile:type_name -> weaviate.v1.QueryProfile
-	22, // 32: weaviate.v1.QueryProfile.shards:type_name -> weaviate.v1.QueryProfile.ShardProfile
-	16, // 33: weaviate.v1.GroupByResult.objects:type_name -> weaviate.v1.SearchResult
-	14, // 34: weaviate.v1.GroupByResult.rerank:type_name -> weaviate.v1.RerankReply
-	45, // 35: weaviate.v1.GroupByResult.generative:type_name -> weaviate.v1.GenerativeReply
-	44, // 36: weaviate.v1.GroupByResult.generative_result:type_name -> weaviate.v1.GenerativeResult
-	18, // 37: weaviate.v1.SearchResult.properties:type_name -> weaviate.v1.PropertiesResult
-	17, // 38: weaviate.v1.SearchResult.metadata:type_name -> weaviate.v1.MetadataResult
-	44, // 39: weaviate.v1.SearchResult.generative:type_name -> weaviate.v1.GenerativeResult
-	46, // 40: weaviate.v1.SearchResult.decisions:type_name -> weaviate.v1.DecisionResult
-	47, // 41: weaviate.v1.MetadataResult.vectors:type_name -> weaviate.v1.Vectors
-	19, // 42: weaviate.v1.PropertiesResult.ref_props:type_name -> weaviate.v1.RefPropertiesResult
-	17, // 43: weaviate.v1.PropertiesResult.metadata:type_name -> weaviate.v1.MetadataResult
-	48, // 44: weaviate.v1.PropertiesResult.non_ref_props:type_name -> weaviate.v1.Properties
-	18, // 45: weaviate.v1.RefPropertiesResult.properties:type_name -> weaviate.v1.PropertiesResult
-	28, // 46: weaviate.v1.Boost.conditions:type_name -> weaviate.v1.Boost.Condition
-	23, // 47: weaviate.v1.QueryProfile.SearchProfile.details:type_name -> weaviate.v1.QueryProfile.SearchProfile.DetailsEntry
-	24, // 48: weaviate.v1.QueryProfile.ShardProfile.searches:type_name -> weaviate.v1.QueryProfile.ShardProfile.SearchesEntry
-	21, // 49: weaviate.v1.QueryProfile.ShardProfile.SearchesEntry.value:type_name -> weaviate.v1.QueryProfile.SearchProfile
-	1,  // 50: weaviate.v1.Boost.PropertyValueFunction.modifier:type_name -> weaviate.v1.Boost.PropertyValueModifier
-	2,  // 51: weaviate.v1.Boost.TimeDecayFunction.curve:type_name -> weaviate.v1.Boost.DecayCurve
-	2,  // 52: weaviate.v1.Boost.NumericDecayFunction.curve:type_name -> weaviate.v1.Boost.DecayCurve
-	30, // 53: weaviate.v1.Boost.Condition.filter:type_name -> weaviate.v1.Filters
-	26, // 54: weaviate.v1.Boost.Condition.time_decay:type_name -> weaviate.v1.Boost.TimeDecayFunction
-	25, // 55: weaviate.v1.Boost.Condition.property_value:type_name -> weaviate.v1.Boost.PropertyValueFunction
-	27, // 56: weaviate.v1.Boost.Condition.numeric_decay:type_name -> weaviate.v1.Boost.NumericDecayFunction
-	57, // [57:57] is the sub-list for method output_type
-	57, // [57:57] is the sub-list for method input_type
-	57, // [57:57] is the sub-list for extension type_name
-	57, // [57:57] is the sub-list for extension extendee
-	0,  // [0:57] is the sub-list for field type_name
+	12, // 26: weaviate.v1.Rerank.decision:type_name -> weaviate.v1.RerankDecision
+	11, // 27: weaviate.v1.Rerank.provider:type_name -> weaviate.v1.RerankProvider
+	45, // 28: weaviate.v1.RerankProvider.decisions:type_name -> weaviate.v1.DecisionsProvider
+	0,  // 29: weaviate.v1.RerankDecision.order:type_name -> weaviate.v1.RerankOrder
+	17, // 30: weaviate.v1.SearchReply.results:type_name -> weaviate.v1.SearchResult
+	16, // 31: weaviate.v1.SearchReply.group_by_results:type_name -> weaviate.v1.GroupByResult
+	46, // 32: weaviate.v1.SearchReply.generative_grouped_results:type_name -> weaviate.v1.GenerativeResult
+	14, // 33: weaviate.v1.SearchReply.query_profile:type_name -> weaviate.v1.QueryProfile
+	23, // 34: weaviate.v1.QueryProfile.shards:type_name -> weaviate.v1.QueryProfile.ShardProfile
+	17, // 35: weaviate.v1.GroupByResult.objects:type_name -> weaviate.v1.SearchResult
+	15, // 36: weaviate.v1.GroupByResult.rerank:type_name -> weaviate.v1.RerankReply
+	47, // 37: weaviate.v1.GroupByResult.generative:type_name -> weaviate.v1.GenerativeReply
+	46, // 38: weaviate.v1.GroupByResult.generative_result:type_name -> weaviate.v1.GenerativeResult
+	19, // 39: weaviate.v1.SearchResult.properties:type_name -> weaviate.v1.PropertiesResult
+	18, // 40: weaviate.v1.SearchResult.metadata:type_name -> weaviate.v1.MetadataResult
+	46, // 41: weaviate.v1.SearchResult.generative:type_name -> weaviate.v1.GenerativeResult
+	48, // 42: weaviate.v1.SearchResult.annotations:type_name -> weaviate.v1.DecisionResult
+	49, // 43: weaviate.v1.MetadataResult.vectors:type_name -> weaviate.v1.Vectors
+	20, // 44: weaviate.v1.PropertiesResult.ref_props:type_name -> weaviate.v1.RefPropertiesResult
+	18, // 45: weaviate.v1.PropertiesResult.metadata:type_name -> weaviate.v1.MetadataResult
+	50, // 46: weaviate.v1.PropertiesResult.non_ref_props:type_name -> weaviate.v1.Properties
+	19, // 47: weaviate.v1.RefPropertiesResult.properties:type_name -> weaviate.v1.PropertiesResult
+	29, // 48: weaviate.v1.Boost.conditions:type_name -> weaviate.v1.Boost.Condition
+	24, // 49: weaviate.v1.QueryProfile.SearchProfile.details:type_name -> weaviate.v1.QueryProfile.SearchProfile.DetailsEntry
+	25, // 50: weaviate.v1.QueryProfile.ShardProfile.searches:type_name -> weaviate.v1.QueryProfile.ShardProfile.SearchesEntry
+	22, // 51: weaviate.v1.QueryProfile.ShardProfile.SearchesEntry.value:type_name -> weaviate.v1.QueryProfile.SearchProfile
+	1,  // 52: weaviate.v1.Boost.PropertyValueFunction.modifier:type_name -> weaviate.v1.Boost.PropertyValueModifier
+	2,  // 53: weaviate.v1.Boost.TimeDecayFunction.curve:type_name -> weaviate.v1.Boost.DecayCurve
+	2,  // 54: weaviate.v1.Boost.NumericDecayFunction.curve:type_name -> weaviate.v1.Boost.DecayCurve
+	31, // 55: weaviate.v1.Boost.Condition.filter:type_name -> weaviate.v1.Filters
+	27, // 56: weaviate.v1.Boost.Condition.time_decay:type_name -> weaviate.v1.Boost.TimeDecayFunction
+	26, // 57: weaviate.v1.Boost.Condition.property_value:type_name -> weaviate.v1.Boost.PropertyValueFunction
+	28, // 58: weaviate.v1.Boost.Condition.numeric_decay:type_name -> weaviate.v1.Boost.NumericDecayFunction
+	59, // [59:59] is the sub-list for method output_type
+	59, // [59:59] is the sub-list for method input_type
+	59, // [59:59] is the sub-list for extension type_name
+	59, // [59:59] is the sub-list for extension extendee
+	0,  // [0:59] is the sub-list for field type_name
 }
 
 func init() { file_v1_search_get_proto_init() }
@@ -2652,16 +2739,19 @@ func file_v1_search_get_proto_init() {
 	file_v1_properties_proto_init()
 	file_v1_search_get_proto_msgTypes[0].OneofWrappers = []any{}
 	file_v1_search_get_proto_msgTypes[7].OneofWrappers = []any{}
-	file_v1_search_get_proto_msgTypes[8].OneofWrappers = []any{}
+	file_v1_search_get_proto_msgTypes[8].OneofWrappers = []any{
+		(*RerankProvider_Decisions)(nil),
+	}
 	file_v1_search_get_proto_msgTypes[9].OneofWrappers = []any{}
-	file_v1_search_get_proto_msgTypes[12].OneofWrappers = []any{}
+	file_v1_search_get_proto_msgTypes[10].OneofWrappers = []any{}
 	file_v1_search_get_proto_msgTypes[13].OneofWrappers = []any{}
 	file_v1_search_get_proto_msgTypes[14].OneofWrappers = []any{}
-	file_v1_search_get_proto_msgTypes[17].OneofWrappers = []any{}
-	file_v1_search_get_proto_msgTypes[22].OneofWrappers = []any{}
+	file_v1_search_get_proto_msgTypes[15].OneofWrappers = []any{}
+	file_v1_search_get_proto_msgTypes[18].OneofWrappers = []any{}
 	file_v1_search_get_proto_msgTypes[23].OneofWrappers = []any{}
 	file_v1_search_get_proto_msgTypes[24].OneofWrappers = []any{}
-	file_v1_search_get_proto_msgTypes[25].OneofWrappers = []any{
+	file_v1_search_get_proto_msgTypes[25].OneofWrappers = []any{}
+	file_v1_search_get_proto_msgTypes[26].OneofWrappers = []any{
 		(*Boost_Condition_Filter)(nil),
 		(*Boost_Condition_TimeDecay)(nil),
 		(*Boost_Condition_PropertyValue)(nil),
@@ -2673,7 +2763,7 @@ func file_v1_search_get_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_search_get_proto_rawDesc), len(file_v1_search_get_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   26,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

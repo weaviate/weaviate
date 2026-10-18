@@ -12,6 +12,7 @@
 package v1
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -21,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/decide"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/annotate"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearAudio"
@@ -48,6 +49,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 const (
@@ -2331,10 +2333,10 @@ func TestGRPCSearchRequest(t *testing.T) {
 			error: false,
 		},
 		{
-			name: "Decide with a question of each kind",
+			name: "Annotate with a question of each kind",
 			req: &pb.SearchRequest{
 				Collection: classname,
-				Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{
+				Annotate: &pb.Annotate{Questions: []*pb.DecisionQuestion{
 					{Name: "angry", Property: someString1, Instructions: "the customer is angry", Kind: &pb.DecisionQuestion_Predicate{Predicate: &pb.DecisionPredicate{}}},
 					{Name: "team", Property: someString1, Instructions: "which team", Kind: &pb.DecisionQuestion_Choice{Choice: &pb.DecisionChoice{Options: []*pb.DecisionOption{
 						{Value: "billing", Description: &someString2}, {Value: "other"},
@@ -2349,7 +2351,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 				Properties: append(defaultTestClassProps, search.SelectProperty{Name: someString1, IsPrimitive: true}),
 				AdditionalProperties: additional.Properties{
 					NoProps: false,
-					ModuleParams: map[string]interface{}{"decide": &decide.Params{Questions: []ent.DecisionQuestion{
+					ModuleParams: map[string]interface{}{"annotate": &annotate.Params{Questions: []ent.DecisionQuestion{
 						{Name: "angry", Property: someString1, Instructions: "the customer is angry", Kind: ent.DecisionPredicate},
 						{Name: "team", Property: someString1, Instructions: "which team", Kind: ent.DecisionChoice, Options: []ent.DecisionOption{
 							{Value: "billing", Description: someString2}, {Value: "other"},
@@ -2363,18 +2365,18 @@ func TestGRPCSearchRequest(t *testing.T) {
 			error: false,
 		},
 		{
-			name: "Decide question without a kind",
+			name: "Annotate question without a kind",
 			req: &pb.SearchRequest{
 				Collection: classname,
-				Decide:     &pb.Decisions{Questions: []*pb.DecisionQuestion{{Name: "angry", Property: someString1, Instructions: "x"}}},
+				Annotate:   &pb.Annotate{Questions: []*pb.DecisionQuestion{{Name: "angry", Property: someString1, Instructions: "x"}}},
 			},
 			error: true,
 		},
 		{
-			name: "Decide with two questions of the same name",
+			name: "Annotate with two questions of the same name",
 			req: &pb.SearchRequest{
 				Collection: classname,
-				Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{
+				Annotate: &pb.Annotate{Questions: []*pb.DecisionQuestion{
 					{Name: "angry", Property: someString1, Instructions: "x", Kind: &pb.DecisionQuestion_Predicate{Predicate: &pb.DecisionPredicate{}}},
 					{Name: "angry", Property: someString1, Instructions: "y", Kind: &pb.DecisionQuestion_Predicate{Predicate: &pb.DecisionPredicate{}}},
 				}},
@@ -2382,11 +2384,11 @@ func TestGRPCSearchRequest(t *testing.T) {
 			error: true,
 		},
 		{
-			name: "Decide with group by",
+			name: "Annotate with group by",
 			req: &pb.SearchRequest{
 				Collection: classname,
 				GroupBy:    &pb.GroupBy{Path: []string{"name"}, NumberOfGroups: 2, ObjectsPerGroup: 3},
-				Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{
+				Annotate: &pb.Annotate{Questions: []*pb.DecisionQuestion{
 					{Name: "angry", Property: someString1, Instructions: "x", Kind: &pb.DecisionQuestion_Predicate{Predicate: &pb.DecisionPredicate{}}},
 				}},
 			},
@@ -3028,7 +3030,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 	parser := NewParser(false, getClass, nil, false, nil)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, err := parser.Search(tt.req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+			out, err := parser.Search(context.Background(), tt.req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
 			if tt.error {
 				require.NotNil(t, err)
 			} else {
@@ -3091,7 +3093,7 @@ func TestGRPCSearchRequestBoostPropertyTypeValidation(t *testing.T) {
 				Collection: boostClass,
 				Boost:      &pb.Boost{Conditions: []*pb.Boost_Condition{tt.cond}},
 			}
-			_, err := parser.Search(req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+			_, err := parser.Search(context.Background(), req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
 			if tt.error {
 				require.NotNil(t, err)
 			} else {
@@ -3121,7 +3123,7 @@ func ptr[T any](t T) *T {
 
 // With a limits function the parser checks the questions against the class
 // and the decisions module before the search.
-func TestGRPCSearchRequestDecideLimits(t *testing.T) {
+func TestGRPCSearchRequestAnnotateLimits(t *testing.T) {
 	predicate := func(name, property string) *pb.DecisionQuestion {
 		return &pb.DecisionQuestion{Name: name, Property: property, Instructions: "x", Kind: &pb.DecisionQuestion_Predicate{Predicate: &pb.DecisionPredicate{}}}
 	}
@@ -3132,79 +3134,81 @@ func TestGRPCSearchRequestDecideLimits(t *testing.T) {
 		}
 		return out
 	}
-	textOnly := decide.Limits{Module: "decisions-x", DecisionLimits: modulecapabilities.DecisionLimits{
+	textOnly := annotate.Limits{Module: "decisions-x", DecisionLimits: modulecapabilities.DecisionLimits{
 		MaxDocuments: 50, MaxLevels: 3, DataTypes: []schema.DataType{schema.DataTypeText},
 	}}
-	limitsOf := func(limits decide.Limits, err error) decideLimitsFunc {
-		return func(*models.Class) (decide.Limits, error) { return limits, err }
+	limitsOf := func(limits annotate.Limits, err error) annotateLimitsFunc {
+		return func(context.Context, *models.Class, *ent.DecisionsProvider) (annotate.Limits, error) {
+			return limits, err
+		}
 	}
 	tests := []struct {
 		name    string
-		limits  decideLimitsFunc
+		limits  annotateLimitsFunc
 		req     *pb.SearchRequest
 		wantErr string
 	}{
 		{
 			name:   "no limits function skips the module checks",
 			limits: nil,
-			req:    &pb.SearchRequest{Collection: classname, Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{predicate("a", "int")}}},
+			req:    &pb.SearchRequest{Collection: classname, Annotate: &pb.Annotate{Questions: []*pb.DecisionQuestion{predicate("a", "int")}}},
 		},
 		{
 			name:   "text question within the limits",
 			limits: limitsOf(textOnly, nil),
-			req:    &pb.SearchRequest{Collection: classname, Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{predicate("a", "name")}}},
+			req:    &pb.SearchRequest{Collection: classname, Annotate: &pb.Annotate{Questions: []*pb.DecisionQuestion{predicate("a", "name")}}},
 		},
 		{
 			name:    "class without a decisions module",
-			limits:  limitsOf(decide.Limits{}, errors.New(`class "TestClass" has no decisions module`)),
-			req:     &pb.SearchRequest{Collection: classname, Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{predicate("a", "name")}}},
-			wantErr: `decide: class "TestClass" has no decisions module`,
+			limits:  limitsOf(annotate.Limits{}, errors.New(`class "TestClass" has no decisions module`)),
+			req:     &pb.SearchRequest{Collection: classname, Annotate: &pb.Annotate{Questions: []*pb.DecisionQuestion{predicate("a", "name")}}},
+			wantErr: `annotate: class "TestClass" has no decisions module`,
 		},
 		{
 			name:    "property of another type",
 			limits:  limitsOf(textOnly, nil),
-			req:     &pb.SearchRequest{Collection: classname, Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{predicate("a", "int")}}},
-			wantErr: `decide: question "a": property "int" is of type "int", decisions-x judges [text]`,
+			req:     &pb.SearchRequest{Collection: classname, Annotate: &pb.Annotate{Questions: []*pb.DecisionQuestion{predicate("a", "int")}}},
+			wantErr: `annotate: question "a": property "int" is of type "int", decisions-x judges [text]`,
 		},
 		{
 			name:    "unknown property",
 			limits:  limitsOf(textOnly, nil),
-			req:     &pb.SearchRequest{Collection: classname, Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{predicate("a", "nope")}}},
-			wantErr: `decide: question "a": class "TestClass" has no property "nope"`,
+			req:     &pb.SearchRequest{Collection: classname, Annotate: &pb.Annotate{Questions: []*pb.DecisionQuestion{predicate("a", "nope")}}},
+			wantErr: `annotate: question "a": class "TestClass" has no property "nope"`,
 		},
 		{
 			name:   "levels above the module's limit",
 			limits: limitsOf(textOnly, nil),
-			req: &pb.SearchRequest{Collection: classname, Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{
+			req: &pb.SearchRequest{Collection: classname, Annotate: &pb.Annotate{Questions: []*pb.DecisionQuestion{
 				{Name: "a", Property: "name", Instructions: "x", Kind: &pb.DecisionQuestion_Score{Score: &pb.DecisionScore{Levels: levels(4)}}},
 			}}},
-			wantErr: `decide: question "a": 4 levels exceed the limit of 3 of decisions-x`,
+			wantErr: `annotate: question "a": 4 levels exceed the limit of 3 of decisions-x`,
 		},
 		{
 			name:    "limit above maxDocuments",
 			limits:  limitsOf(textOnly, nil),
-			req:     &pb.SearchRequest{Collection: classname, Limit: 60, Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{predicate("a", "name")}}},
-			wantErr: "decide: limit 60 exceeds maxDocuments 50 of decisions-x: lower the limit or raise maxDocuments",
+			req:     &pb.SearchRequest{Collection: classname, Limit: 60, Annotate: &pb.Annotate{Questions: []*pb.DecisionQuestion{predicate("a", "name")}}},
+			wantErr: "annotate: limit 60 exceeds maxDocuments 50 of decisions-x: lower the limit or raise maxDocuments",
 		},
 		{
 			// The module judges the page, so the offset does not count.
 			name:   "a page beyond maxDocuments with a limit within it",
 			limits: limitsOf(textOnly, nil),
-			req:    &pb.SearchRequest{Collection: classname, Limit: 40, Offset: 20, Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{predicate("a", "name")}}},
+			req:    &pb.SearchRequest{Collection: classname, Limit: 40, Offset: 20, Annotate: &pb.Annotate{Questions: []*pb.DecisionQuestion{predicate("a", "name")}}},
 		},
 		{
 			name:   "the default limit counts as the page",
-			limits: limitsOf(decide.Limits{Module: "decisions-x", DecisionLimits: modulecapabilities.DecisionLimits{MaxDocuments: 5, DataTypes: []schema.DataType{schema.DataTypeText}}}, nil),
-			req:    &pb.SearchRequest{Collection: classname, Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{predicate("a", "name")}}},
+			limits: limitsOf(annotate.Limits{Module: "decisions-x", DecisionLimits: modulecapabilities.DecisionLimits{MaxDocuments: 5, DataTypes: []schema.DataType{schema.DataTypeText}}}, nil),
+			req:    &pb.SearchRequest{Collection: classname, Annotate: &pb.Annotate{Questions: []*pb.DecisionQuestion{predicate("a", "name")}}},
 			// The default limit of the test config is 10.
-			wantErr: "decide: limit 10 exceeds maxDocuments 5 of decisions-x: lower the limit or raise maxDocuments",
+			wantErr: "annotate: limit 10 exceeds maxDocuments 5 of decisions-x: lower the limit or raise maxDocuments",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			parser := NewParser(false, getClass, nil, false, tt.limits)
 
-			_, err := parser.Search(tt.req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+			_, err := parser.Search(context.Background(), tt.req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
 
 			if tt.wantErr != "" {
 				require.EqualError(t, err, tt.wantErr)
@@ -3217,17 +3221,19 @@ func TestGRPCSearchRequestDecideLimits(t *testing.T) {
 
 func TestGRPCSearchRequestRerankDecision(t *testing.T) {
 	property := "name"
-	textOnly := decide.Limits{Module: "decisions-x", DecisionLimits: modulecapabilities.DecisionLimits{
+	textOnly := annotate.Limits{Module: "decisions-x", DecisionLimits: modulecapabilities.DecisionLimits{
 		MaxDocuments: 50, DataTypes: []schema.DataType{schema.DataTypeText},
 	}}
-	limitsOf := func(limits decide.Limits, err error) decideLimitsFunc {
-		return func(*models.Class) (decide.Limits, error) { return limits, err }
+	limitsOf := func(limits annotate.Limits, err error) annotateLimitsFunc {
+		return func(context.Context, *models.Class, *ent.DecisionsProvider) (annotate.Limits, error) {
+			return limits, err
+		}
 	}
 	tests := []struct {
 		name    string
 		rerank  *pb.Rerank
 		limit   uint32
-		limits  decideLimitsFunc
+		limits  annotateLimitsFunc
 		want    *rank.Params
 		wantErr string
 	}{
@@ -3278,7 +3284,7 @@ func TestGRPCSearchRequestRerankDecision(t *testing.T) {
 		{
 			name:    "a decision on a class without a decisions module",
 			rerank:  &pb.Rerank{Property: property, Decision: &pb.RerankDecision{}},
-			limits:  limitsOf(decide.Limits{}, errors.New(`class "TestClass" has no decisions module`)),
+			limits:  limitsOf(annotate.Limits{}, errors.New(`class "TestClass" has no decisions module`)),
 			wantErr: `rerank.decision: class "TestClass" has no decisions module`,
 		},
 		{
@@ -3304,7 +3310,7 @@ func TestGRPCSearchRequestRerankDecision(t *testing.T) {
 			// Only a decision asks the decisions module for its limits.
 			name:   "a plain rerank on a class without a decisions module",
 			rerank: &pb.Rerank{Property: property},
-			limits: limitsOf(decide.Limits{}, errors.New(`class "TestClass" has no decisions module`)),
+			limits: limitsOf(annotate.Limits{}, errors.New(`class "TestClass" has no decisions module`)),
 			want:   &rank.Params{Property: &property},
 		},
 	}
@@ -3312,7 +3318,7 @@ func TestGRPCSearchRequestRerankDecision(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			parser := NewParser(false, getClass, nil, false, tt.limits)
 
-			out, err := parser.Search(&pb.SearchRequest{Collection: classname, Rerank: tt.rerank, Limit: tt.limit},
+			out, err := parser.Search(context.Background(), &pb.SearchRequest{Collection: classname, Rerank: tt.rerank, Limit: tt.limit},
 				&config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
 
 			if tt.wantErr != "" {
@@ -3323,4 +3329,135 @@ func TestGRPCSearchRequestRerankDecision(t *testing.T) {
 			assert.Equal(t, tt.want, out.AdditionalProperties.ModuleParams["rerank"])
 		})
 	}
+}
+
+// The provider of a request names the module and its settings under the
+// names of the class settings, for a rerank by a decision and for annotate;
+// the limits function gets it before the search.
+func TestGRPCSearchRequestDecisionsProvider(t *testing.T) {
+	question := &pb.DecisionQuestion{Name: "a", Property: "name", Instructions: "x", Kind: &pb.DecisionQuestion_Predicate{Predicate: &pb.DecisionPredicate{}}}
+	customSettings, err := structpb.NewStruct(map[string]any{"maxDocuments": 7, "model": "m", "images": true})
+	require.NoError(t, err)
+	tests := []struct {
+		name     string
+		provider *pb.DecisionsProvider
+		want     *ent.DecisionsProvider
+		wantErr  string
+	}{
+		{
+			name: "typesafeai with every option",
+			provider: &pb.DecisionsProvider{Kind: &pb.DecisionsProvider_Typesafeai{Typesafeai: &pb.DecisionsTypeSafeAI{
+				Model: ptr("jev-preview"), BaseUrl: ptr("https://example.test"), MaxDocuments: ptr(int64(7)), Images: ptr(true),
+			}}},
+			want: &ent.DecisionsProvider{Module: "decisions-typesafeai", Settings: map[string]any{"model": "jev-preview", "baseURL": "https://example.test", "maxDocuments": 7, "images": true}},
+		},
+		{
+			name:     "openai with one option: the others are left to the class",
+			provider: &pb.DecisionsProvider{Kind: &pb.DecisionsProvider_Openai{Openai: &pb.DecisionsOpenAI{Model: ptr("gpt-6-luna")}}},
+			want:     &ent.DecisionsProvider{Module: "decisions-openai", Settings: map[string]any{"model": "gpt-6-luna"}},
+		},
+		{
+			name:     "dummy",
+			provider: &pb.DecisionsProvider{Kind: &pb.DecisionsProvider_Dummy{Dummy: &pb.DecisionsDummy{}}},
+			want:     &ent.DecisionsProvider{Module: "decisions-dummy", Settings: map[string]any{}},
+		},
+		{
+			name:     "custom module with settings",
+			provider: &pb.DecisionsProvider{Kind: &pb.DecisionsProvider_Custom{Custom: &pb.DecisionsCustom{Module: "decisions-mine", Settings: customSettings}}},
+			want:     &ent.DecisionsProvider{Module: "decisions-mine", Settings: map[string]any{"maxDocuments": float64(7), "model": "m", "images": true}},
+		},
+		{
+			name:     "custom module without settings",
+			provider: &pb.DecisionsProvider{Kind: &pb.DecisionsProvider_Custom{Custom: &pb.DecisionsCustom{Module: "decisions-mine"}}},
+			want:     &ent.DecisionsProvider{Module: "decisions-mine", Settings: map[string]any{}},
+		},
+		{
+			name:     "custom without a module name",
+			provider: &pb.DecisionsProvider{Kind: &pb.DecisionsProvider_Custom{Custom: &pb.DecisionsCustom{}}},
+			wantErr:  "custom provider names no module",
+		},
+		{
+			name:     "no kind",
+			provider: &pb.DecisionsProvider{},
+			wantErr:  "no module named",
+		},
+	}
+	for _, tt := range tests {
+		t.Run("annotate: "+tt.name, func(t *testing.T) {
+			var got *ent.DecisionsProvider
+			limits := func(_ context.Context, _ *models.Class, provider *ent.DecisionsProvider) (annotate.Limits, error) {
+				got = provider
+				return annotate.Limits{Module: provider.Module, DecisionLimits: modulecapabilities.DecisionLimits{DataTypes: []schema.DataType{schema.DataTypeText}}}, nil
+			}
+			parser := NewParser(false, getClass, nil, false, limits)
+
+			out, err := parser.Search(context.Background(), &pb.SearchRequest{Collection: classname, Annotate: &pb.Annotate{Questions: []*pb.DecisionQuestion{question}, Provider: tt.provider}}, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, "annotate.provider: "+tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got, "the limits function gets the provider")
+			assert.Equal(t, tt.want, out.AdditionalProperties.ModuleParams["annotate"].(*annotate.Params).Provider)
+		})
+		t.Run("rerank: "+tt.name, func(t *testing.T) {
+			var got *ent.DecisionsProvider
+			limits := func(_ context.Context, _ *models.Class, provider *ent.DecisionsProvider) (annotate.Limits, error) {
+				got = provider
+				return annotate.Limits{Module: provider.Module, DecisionLimits: modulecapabilities.DecisionLimits{DataTypes: []schema.DataType{schema.DataTypeText}}}, nil
+			}
+			parser := NewParser(false, getClass, nil, false, limits)
+			req := &pb.SearchRequest{Collection: classname, Rerank: &pb.Rerank{
+				Property: "name", Query: ptr("the customer is angry"), Decision: &pb.RerankDecision{},
+				Provider: &pb.RerankProvider{Kind: &pb.RerankProvider_Decisions{Decisions: tt.provider}},
+			}}
+
+			out, err := parser.Search(context.Background(), req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, "rerank.provider: "+tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got, "the limits function gets the provider")
+			assert.Equal(t, tt.want, out.AdditionalProperties.ModuleParams["rerank"].(*rank.Params).Provider)
+		})
+	}
+
+	t.Run("a rerank provider without a decision", func(t *testing.T) {
+		parser := NewParser(false, getClass, nil, false, nil)
+		req := &pb.SearchRequest{Collection: classname, Rerank: &pb.Rerank{
+			Property: "name", Query: ptr("q"),
+			Provider: &pb.RerankProvider{Kind: &pb.RerankProvider_Decisions{Decisions: &pb.DecisionsProvider{Kind: &pb.DecisionsProvider_Dummy{Dummy: &pb.DecisionsDummy{}}}}},
+		}}
+
+		_, err := parser.Search(context.Background(), req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+
+		require.EqualError(t, err, "rerank.provider needs rerank.decision: a request names the module of a decision rerank only")
+	})
+
+	t.Run("a rerank provider with no branch", func(t *testing.T) {
+		parser := NewParser(false, getClass, nil, false, nil)
+		req := &pb.SearchRequest{Collection: classname, Rerank: &pb.Rerank{Property: "name", Query: ptr("q"), Decision: &pb.RerankDecision{}, Provider: &pb.RerankProvider{}}}
+
+		_, err := parser.Search(context.Background(), req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+
+		require.EqualError(t, err, "rerank.provider: no module named")
+	})
+
+	t.Run("without a provider the limits function gets nil", func(t *testing.T) {
+		called := false
+		limits := func(_ context.Context, _ *models.Class, provider *ent.DecisionsProvider) (annotate.Limits, error) {
+			called = true
+			assert.Nil(t, provider)
+			return annotate.Limits{Module: "decisions-x", DecisionLimits: modulecapabilities.DecisionLimits{DataTypes: []schema.DataType{schema.DataTypeText}}}, nil
+		}
+		parser := NewParser(false, getClass, nil, false, limits)
+
+		_, err := parser.Search(context.Background(), &pb.SearchRequest{Collection: classname, Annotate: &pb.Annotate{Questions: []*pb.DecisionQuestion{question}}}, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+
+		require.NoError(t, err)
+		assert.True(t, called)
+	})
 }

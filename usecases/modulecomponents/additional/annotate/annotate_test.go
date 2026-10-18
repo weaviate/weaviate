@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package decide
+package annotate
 
 import (
 	"context"
@@ -106,7 +106,7 @@ func TestDecideAttachesOneAnswerPerQuestion(t *testing.T) {
 		predicate("angry", "text"), choice("team", "title"), predicate("urgent", "text"),
 	}}
 
-	out, err := New(client).decide(context.Background(), nil, in, params)
+	out, err := New(client).annotate(context.Background(), nil, in, params)
 
 	require.NoError(t, err)
 	require.Len(t, out, 2)
@@ -138,7 +138,7 @@ func TestDecideRefusesWhatHasNoText(t *testing.T) {
 	}
 	params := &Params{Questions: []ent.DecisionQuestion{predicate("angry", "text")}}
 
-	out, err := New(client).decide(context.Background(), nil, in, params)
+	out, err := New(client).annotate(context.Background(), nil, in, params)
 
 	require.NoError(t, err)
 	require.Equal(t, []call{{questions: []string{"angry"}, documents: []string{"a document"}}}, client.calls)
@@ -156,7 +156,7 @@ func TestDecideSendsNothingWhenNoResultHasText(t *testing.T) {
 	in := []search.Result{result("C", map[string]any{"other": "x"})}
 	params := &Params{Questions: []ent.DecisionQuestion{predicate("angry", "text")}}
 
-	out, err := New(client).decide(context.Background(), nil, in, params)
+	out, err := New(client).annotate(context.Background(), nil, in, params)
 
 	require.NoError(t, err)
 	assert.Empty(t, client.calls)
@@ -178,7 +178,7 @@ func TestDecideClientErrors(t *testing.T) {
 			in := []search.Result{result("C", map[string]any{"text": "a document"})}
 			params := &Params{Questions: []ent.DecisionQuestion{predicate("angry", "text")}}
 
-			_, err := New(tt.client).decide(context.Background(), nil, in, params)
+			_, err := New(tt.client).annotate(context.Background(), nil, in, params)
 
 			require.EqualError(t, err, tt.wantErr)
 		})
@@ -188,7 +188,7 @@ func TestDecideClientErrors(t *testing.T) {
 func TestDecideNoResults(t *testing.T) {
 	client := &fakeClient{}
 
-	out, err := New(client).decide(context.Background(), nil, nil, &Params{})
+	out, err := New(client).annotate(context.Background(), nil, nil, &Params{})
 
 	require.NoError(t, err)
 	assert.Nil(t, out)

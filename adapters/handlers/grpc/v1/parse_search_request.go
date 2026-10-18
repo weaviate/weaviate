@@ -12,6 +12,7 @@
 package v1
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -35,9 +36,12 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	decisionsdummy "github.com/weaviate/weaviate/modules/decisions-dummy"
+	openaiconfig "github.com/weaviate/weaviate/modules/decisions-openai/config"
+	typesafeaiconfig "github.com/weaviate/weaviate/modules/decisions-typesafeai/config"
 	"github.com/weaviate/weaviate/usecases/byteops"
 	additional2 "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/decide"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/annotate"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearAudio"
@@ -60,26 +64,27 @@ type generativeParser interface {
 	ReturnDebugForGrouped() bool
 }
 
-// decideLimitsFunc returns the limits of the class's decisions module for
-// the decide argument, see decide.Limits. nil skips the module's checks.
-type decideLimitsFunc func(class *models.Class) (decide.Limits, error)
+// annotateLimitsFunc returns the limits of the decisions module a request
+// uses, the one it names or the class's, see annotate.Limits. nil skips the
+// module's checks.
+type annotateLimitsFunc func(ctx context.Context, class *models.Class, provider *ent.DecisionsProvider) (annotate.Limits, error)
 
 type Parser struct {
 	generative         generativeParser
 	authorizedGetClass classGetterWithAuthzFunc
 	principal          *models.Principal
 	namespacesEnabled  bool
-	decideLimits       decideLimitsFunc
+	annotateLimits     annotateLimitsFunc
 }
 
 func NewParser(uses127Api bool,
 	authorizedGetClass classGetterWithAuthzFunc,
 	principal *models.Principal,
 	namespacesEnabled bool,
-	decideLimits decideLimitsFunc,
+	annotateLimits annotateLimitsFunc,
 ) *Parser {
 	return &Parser{
-		decideLimits:       decideLimits,
+		annotateLimits:     annotateLimits,
 		generative:         generative.NewParser(uses127Api),
 		authorizedGetClass: authorizedGetClass,
 		principal:          principal,
@@ -87,7 +92,7 @@ func NewParser(uses127Api bool,
 	}
 }
 
-func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetParams, error) {
+func (p *Parser) Search(ctx context.Context, req *pb.SearchRequest, config *config.Config) (dto.GetParams, error) {
 	out := dto.GetParams{}
 	class, err := p.authorizedGetClass(req.Collection)
 	if err != nil {
@@ -394,11 +399,11 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		if err != nil {
 			return dto.GetParams{}, err
 		}
-		// A rerank by a decision needs the class's decisions module, a
-		// property of a type it judges and a page within its maxDocuments,
-		// checked before the search as for decide.
-		if rerank.Decision != nil && p.decideLimits != nil {
-			limits, err := p.decideLimits(class)
+		// A rerank by a decision needs a decisions module, a property of a
+		// type it judges and a page within its maxDocuments, checked before
+		// the search as for annotate.
+		if rerank.Decision != nil && p.annotateLimits != nil {
+			limits, err := p.annotateLimits(ctx, class, rerank.Provider)
 			if err != nil {
 				return dto.GetParams{}, fmt.Errorf("rerank.decision: %w", err)
 			}
@@ -415,27 +420,27 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		out.AdditionalProperties.ModuleParams["rerank"] = rerank
 	}
 
-	if req.Decide != nil {
+	if req.Annotate != nil {
 		if req.GroupBy != nil {
-			return dto.GetParams{}, errors.New("decide is not supported with group_by")
+			return dto.GetParams{}, errors.New("annotate is not supported with group_by")
 		}
-		decisions, err := extractDecide(req.Decide)
+		decisions, err := extractAnnotate(req.Annotate)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
-		if p.decideLimits != nil {
-			limits, err := p.decideLimits(class)
+		if p.annotateLimits != nil {
+			limits, err := p.annotateLimits(ctx, class, decisions.Provider)
 			if err != nil {
-				return dto.GetParams{}, fmt.Errorf("decide: %w", err)
+				return dto.GetParams{}, fmt.Errorf("annotate: %w", err)
 			}
 			if err := decisions.ValidateFor(class, limits, out.Pagination.Limit); err != nil {
-				return dto.GetParams{}, fmt.Errorf("decide: %w", err)
+				return dto.GetParams{}, fmt.Errorf("annotate: %w", err)
 			}
 		}
 		if out.AdditionalProperties.ModuleParams == nil {
 			out.AdditionalProperties.ModuleParams = make(map[string]interface{})
 		}
-		out.AdditionalProperties.ModuleParams["decide"] = decisions
+		out.AdditionalProperties.ModuleParams["annotate"] = decisions
 	}
 
 	if req.Boost != nil {
@@ -714,11 +719,11 @@ func extractSorting(sortIn []*pb.SortBy) []filters.Sort {
 	return sortOut
 }
 
-// extractDecide converts the questions of the request. A question without
-// a kind and the checks of decide.Params fail the request before it runs.
-func extractDecide(decisions *pb.Decisions) (*decide.Params, error) {
-	params := &decide.Params{Questions: make([]ent.DecisionQuestion, len(decisions.Questions))}
-	for i, q := range decisions.Questions {
+// extractAnnotate converts the questions of the request. A question without
+// a kind and the checks of annotate.Params fail the request before it runs.
+func extractAnnotate(request *pb.Annotate) (*annotate.Params, error) {
+	params := &annotate.Params{Questions: make([]ent.DecisionQuestion, len(request.Questions))}
+	for i, q := range request.Questions {
 		question := ent.DecisionQuestion{Name: q.Name, Property: q.Property, Instructions: q.Instructions}
 		switch kind := q.Kind.(type) {
 		case *pb.DecisionQuestion_Predicate:
@@ -736,12 +741,19 @@ func extractDecide(decisions *pb.Decisions) (*decide.Params, error) {
 				question.Levels[j] = ent.DecisionLevel{Label: level.Label, Description: level.GetDescription()}
 			}
 		default:
-			return nil, fmt.Errorf("decide: question %q has no kind", q.Name)
+			return nil, fmt.Errorf("annotate: question %q has no kind", q.Name)
 		}
 		params.Questions[i] = question
 	}
 	if err := params.Validate(); err != nil {
-		return nil, fmt.Errorf("decide: %w", err)
+		return nil, fmt.Errorf("annotate: %w", err)
+	}
+	if request.Provider != nil {
+		provider, err := decisionsProvider(request.Provider)
+		if err != nil {
+			return nil, fmt.Errorf("annotate.provider: %w", err)
+		}
+		params.Provider = provider
 	}
 	return params, nil
 }
@@ -772,7 +784,63 @@ func extractRerank(req *pb.SearchRequest) (*rank.Params, error) {
 			return nil, err
 		}
 	}
+	if req.Rerank.Provider != nil {
+		if rerank.Decision == nil {
+			return nil, errors.New("rerank.provider needs rerank.decision: a request names the module of a decision rerank only")
+		}
+		provider, err := decisionsProvider(req.Rerank.Provider.GetDecisions())
+		if err != nil {
+			return nil, fmt.Errorf("rerank.provider: %w", err)
+		}
+		rerank.Provider = provider
+	}
 	return &rerank, nil
+}
+
+// decisionsProvider maps the provider of a request onto the module's name
+// and its settings under the names of the class settings, so the module
+// reads them as it reads the class.
+func decisionsProvider(in *pb.DecisionsProvider) (*ent.DecisionsProvider, error) {
+	settings := map[string]any{}
+	putString := func(name string, value *string) {
+		if value != nil {
+			settings[name] = *value
+		}
+	}
+	putInt := func(name string, value *int64) {
+		if value != nil {
+			settings[name] = int(*value)
+		}
+	}
+	var module string
+	switch kind := in.GetKind().(type) {
+	case *pb.DecisionsProvider_Typesafeai:
+		module = typesafeaiconfig.ModuleName
+		putString("model", kind.Typesafeai.Model)
+		putString("baseURL", kind.Typesafeai.BaseUrl)
+		putInt("maxDocuments", kind.Typesafeai.MaxDocuments)
+		if kind.Typesafeai.Images != nil {
+			settings["images"] = *kind.Typesafeai.Images
+		}
+	case *pb.DecisionsProvider_Openai:
+		module = openaiconfig.ModuleName
+		putString("model", kind.Openai.Model)
+		putString("baseURL", kind.Openai.BaseUrl)
+		putInt("maxDocuments", kind.Openai.MaxDocuments)
+	case *pb.DecisionsProvider_Dummy:
+		module = decisionsdummy.Name
+	case *pb.DecisionsProvider_Custom:
+		module = kind.Custom.Module
+		if module == "" {
+			return nil, errors.New("custom provider names no module")
+		}
+		if kind.Custom.Settings != nil {
+			settings = kind.Custom.Settings.AsMap()
+		}
+	default:
+		return nil, errors.New("no module named")
+	}
+	return &ent.DecisionsProvider{Module: module, Settings: settings}, nil
 }
 
 func (p *Parser) extractBoost(boost *pb.Boost, className, tenant string, namespacesEnabled bool) (*filters.Boost, error) {

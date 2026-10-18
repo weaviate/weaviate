@@ -9,6 +9,7 @@ import (
 
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	structpb "google.golang.org/protobuf/types/known/structpb"
 )
 
 const (
@@ -18,30 +19,32 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// Decisions asks the collection's decisions module typed questions about
-// every object a search returns. The answers come back per object in
-// SearchResult.decisions, in the order of the questions.
-type Decisions struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Questions     []*DecisionQuestion    `protobuf:"bytes,1,rep,name=questions,proto3" json:"questions,omitempty"`
+// Annotate asks a decisions module typed questions about every object a
+// search returns. The answers come back per object in
+// SearchResult.annotations, in the order of the questions.
+type Annotate struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Questions []*DecisionQuestion    `protobuf:"bytes,1,rep,name=questions,proto3" json:"questions,omitempty"`
+	// provider picks the module for this request instead of the collection's.
+	Provider      *DecisionsProvider `protobuf:"bytes,2,opt,name=provider,proto3,oneof" json:"provider,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *Decisions) Reset() {
-	*x = Decisions{}
+func (x *Annotate) Reset() {
+	*x = Annotate{}
 	mi := &file_v1_decisions_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *Decisions) String() string {
+func (x *Annotate) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*Decisions) ProtoMessage() {}
+func (*Annotate) ProtoMessage() {}
 
-func (x *Decisions) ProtoReflect() protoreflect.Message {
+func (x *Annotate) ProtoReflect() protoreflect.Message {
 	mi := &file_v1_decisions_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -53,14 +56,359 @@ func (x *Decisions) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use Decisions.ProtoReflect.Descriptor instead.
-func (*Decisions) Descriptor() ([]byte, []int) {
+// Deprecated: Use Annotate.ProtoReflect.Descriptor instead.
+func (*Annotate) Descriptor() ([]byte, []int) {
 	return file_v1_decisions_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *Decisions) GetQuestions() []*DecisionQuestion {
+func (x *Annotate) GetQuestions() []*DecisionQuestion {
 	if x != nil {
 		return x.Questions
+	}
+	return nil
+}
+
+func (x *Annotate) GetProvider() *DecisionsProvider {
+	if x != nil {
+		return x.Provider
+	}
+	return nil
+}
+
+// DecisionsProvider is a decisions module and its options for one request,
+// the shape of GenerativeProvider. The module needs no collection config: an
+// option left unset takes the collection's setting, then the module's
+// default.
+type DecisionsProvider struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Kind:
+	//
+	//	*DecisionsProvider_Typesafeai
+	//	*DecisionsProvider_Openai
+	//	*DecisionsProvider_Dummy
+	//	*DecisionsProvider_Custom
+	Kind          isDecisionsProvider_Kind `protobuf_oneof:"kind"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DecisionsProvider) Reset() {
+	*x = DecisionsProvider{}
+	mi := &file_v1_decisions_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DecisionsProvider) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DecisionsProvider) ProtoMessage() {}
+
+func (x *DecisionsProvider) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_decisions_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DecisionsProvider.ProtoReflect.Descriptor instead.
+func (*DecisionsProvider) Descriptor() ([]byte, []int) {
+	return file_v1_decisions_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *DecisionsProvider) GetKind() isDecisionsProvider_Kind {
+	if x != nil {
+		return x.Kind
+	}
+	return nil
+}
+
+func (x *DecisionsProvider) GetTypesafeai() *DecisionsTypeSafeAI {
+	if x != nil {
+		if x, ok := x.Kind.(*DecisionsProvider_Typesafeai); ok {
+			return x.Typesafeai
+		}
+	}
+	return nil
+}
+
+func (x *DecisionsProvider) GetOpenai() *DecisionsOpenAI {
+	if x != nil {
+		if x, ok := x.Kind.(*DecisionsProvider_Openai); ok {
+			return x.Openai
+		}
+	}
+	return nil
+}
+
+func (x *DecisionsProvider) GetDummy() *DecisionsDummy {
+	if x != nil {
+		if x, ok := x.Kind.(*DecisionsProvider_Dummy); ok {
+			return x.Dummy
+		}
+	}
+	return nil
+}
+
+func (x *DecisionsProvider) GetCustom() *DecisionsCustom {
+	if x != nil {
+		if x, ok := x.Kind.(*DecisionsProvider_Custom); ok {
+			return x.Custom
+		}
+	}
+	return nil
+}
+
+type isDecisionsProvider_Kind interface {
+	isDecisionsProvider_Kind()
+}
+
+type DecisionsProvider_Typesafeai struct {
+	Typesafeai *DecisionsTypeSafeAI `protobuf:"bytes,1,opt,name=typesafeai,proto3,oneof"`
+}
+
+type DecisionsProvider_Openai struct {
+	Openai *DecisionsOpenAI `protobuf:"bytes,2,opt,name=openai,proto3,oneof"`
+}
+
+type DecisionsProvider_Dummy struct {
+	Dummy *DecisionsDummy `protobuf:"bytes,3,opt,name=dummy,proto3,oneof"`
+}
+
+type DecisionsProvider_Custom struct {
+	Custom *DecisionsCustom `protobuf:"bytes,4,opt,name=custom,proto3,oneof"`
+}
+
+func (*DecisionsProvider_Typesafeai) isDecisionsProvider_Kind() {}
+
+func (*DecisionsProvider_Openai) isDecisionsProvider_Kind() {}
+
+func (*DecisionsProvider_Dummy) isDecisionsProvider_Kind() {}
+
+func (*DecisionsProvider_Custom) isDecisionsProvider_Kind() {}
+
+type DecisionsTypeSafeAI struct {
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Model        *string                `protobuf:"bytes,1,opt,name=model,proto3,oneof" json:"model,omitempty"`
+	BaseUrl      *string                `protobuf:"bytes,2,opt,name=base_url,json=baseUrl,proto3,oneof" json:"base_url,omitempty"`
+	MaxDocuments *int64                 `protobuf:"varint,3,opt,name=max_documents,json=maxDocuments,proto3,oneof" json:"max_documents,omitempty"`
+	// images opts in to the API's experimental image input for blob
+	// properties.
+	Images        *bool `protobuf:"varint,4,opt,name=images,proto3,oneof" json:"images,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DecisionsTypeSafeAI) Reset() {
+	*x = DecisionsTypeSafeAI{}
+	mi := &file_v1_decisions_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DecisionsTypeSafeAI) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DecisionsTypeSafeAI) ProtoMessage() {}
+
+func (x *DecisionsTypeSafeAI) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_decisions_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DecisionsTypeSafeAI.ProtoReflect.Descriptor instead.
+func (*DecisionsTypeSafeAI) Descriptor() ([]byte, []int) {
+	return file_v1_decisions_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *DecisionsTypeSafeAI) GetModel() string {
+	if x != nil && x.Model != nil {
+		return *x.Model
+	}
+	return ""
+}
+
+func (x *DecisionsTypeSafeAI) GetBaseUrl() string {
+	if x != nil && x.BaseUrl != nil {
+		return *x.BaseUrl
+	}
+	return ""
+}
+
+func (x *DecisionsTypeSafeAI) GetMaxDocuments() int64 {
+	if x != nil && x.MaxDocuments != nil {
+		return *x.MaxDocuments
+	}
+	return 0
+}
+
+func (x *DecisionsTypeSafeAI) GetImages() bool {
+	if x != nil && x.Images != nil {
+		return *x.Images
+	}
+	return false
+}
+
+type DecisionsOpenAI struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Model         *string                `protobuf:"bytes,1,opt,name=model,proto3,oneof" json:"model,omitempty"`
+	BaseUrl       *string                `protobuf:"bytes,2,opt,name=base_url,json=baseUrl,proto3,oneof" json:"base_url,omitempty"`
+	MaxDocuments  *int64                 `protobuf:"varint,3,opt,name=max_documents,json=maxDocuments,proto3,oneof" json:"max_documents,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DecisionsOpenAI) Reset() {
+	*x = DecisionsOpenAI{}
+	mi := &file_v1_decisions_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DecisionsOpenAI) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DecisionsOpenAI) ProtoMessage() {}
+
+func (x *DecisionsOpenAI) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_decisions_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DecisionsOpenAI.ProtoReflect.Descriptor instead.
+func (*DecisionsOpenAI) Descriptor() ([]byte, []int) {
+	return file_v1_decisions_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *DecisionsOpenAI) GetModel() string {
+	if x != nil && x.Model != nil {
+		return *x.Model
+	}
+	return ""
+}
+
+func (x *DecisionsOpenAI) GetBaseUrl() string {
+	if x != nil && x.BaseUrl != nil {
+		return *x.BaseUrl
+	}
+	return ""
+}
+
+func (x *DecisionsOpenAI) GetMaxDocuments() int64 {
+	if x != nil && x.MaxDocuments != nil {
+		return *x.MaxDocuments
+	}
+	return 0
+}
+
+type DecisionsDummy struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DecisionsDummy) Reset() {
+	*x = DecisionsDummy{}
+	mi := &file_v1_decisions_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DecisionsDummy) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DecisionsDummy) ProtoMessage() {}
+
+func (x *DecisionsDummy) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_decisions_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DecisionsDummy.ProtoReflect.Descriptor instead.
+func (*DecisionsDummy) Descriptor() ([]byte, []int) {
+	return file_v1_decisions_proto_rawDescGZIP(), []int{4}
+}
+
+// DecisionsCustom names a decisions module the client has no message for,
+// with its settings under the names of its collection settings.
+type DecisionsCustom struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Module        string                 `protobuf:"bytes,1,opt,name=module,proto3" json:"module,omitempty"`
+	Settings      *structpb.Struct       `protobuf:"bytes,2,opt,name=settings,proto3,oneof" json:"settings,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DecisionsCustom) Reset() {
+	*x = DecisionsCustom{}
+	mi := &file_v1_decisions_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DecisionsCustom) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DecisionsCustom) ProtoMessage() {}
+
+func (x *DecisionsCustom) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_decisions_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DecisionsCustom.ProtoReflect.Descriptor instead.
+func (*DecisionsCustom) Descriptor() ([]byte, []int) {
+	return file_v1_decisions_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *DecisionsCustom) GetModule() string {
+	if x != nil {
+		return x.Module
+	}
+	return ""
+}
+
+func (x *DecisionsCustom) GetSettings() *structpb.Struct {
+	if x != nil {
+		return x.Settings
 	}
 	return nil
 }
@@ -84,7 +432,7 @@ type DecisionQuestion struct {
 
 func (x *DecisionQuestion) Reset() {
 	*x = DecisionQuestion{}
-	mi := &file_v1_decisions_proto_msgTypes[1]
+	mi := &file_v1_decisions_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -96,7 +444,7 @@ func (x *DecisionQuestion) String() string {
 func (*DecisionQuestion) ProtoMessage() {}
 
 func (x *DecisionQuestion) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_decisions_proto_msgTypes[1]
+	mi := &file_v1_decisions_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -109,7 +457,7 @@ func (x *DecisionQuestion) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecisionQuestion.ProtoReflect.Descriptor instead.
 func (*DecisionQuestion) Descriptor() ([]byte, []int) {
-	return file_v1_decisions_proto_rawDescGZIP(), []int{1}
+	return file_v1_decisions_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *DecisionQuestion) GetName() string {
@@ -199,7 +547,7 @@ type DecisionPredicate struct {
 
 func (x *DecisionPredicate) Reset() {
 	*x = DecisionPredicate{}
-	mi := &file_v1_decisions_proto_msgTypes[2]
+	mi := &file_v1_decisions_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -211,7 +559,7 @@ func (x *DecisionPredicate) String() string {
 func (*DecisionPredicate) ProtoMessage() {}
 
 func (x *DecisionPredicate) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_decisions_proto_msgTypes[2]
+	mi := &file_v1_decisions_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -224,7 +572,7 @@ func (x *DecisionPredicate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecisionPredicate.ProtoReflect.Descriptor instead.
 func (*DecisionPredicate) Descriptor() ([]byte, []int) {
-	return file_v1_decisions_proto_rawDescGZIP(), []int{2}
+	return file_v1_decisions_proto_rawDescGZIP(), []int{7}
 }
 
 // DecisionChoice picks one of the options. The answer is the option with
@@ -239,7 +587,7 @@ type DecisionChoice struct {
 
 func (x *DecisionChoice) Reset() {
 	*x = DecisionChoice{}
-	mi := &file_v1_decisions_proto_msgTypes[3]
+	mi := &file_v1_decisions_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -251,7 +599,7 @@ func (x *DecisionChoice) String() string {
 func (*DecisionChoice) ProtoMessage() {}
 
 func (x *DecisionChoice) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_decisions_proto_msgTypes[3]
+	mi := &file_v1_decisions_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -264,7 +612,7 @@ func (x *DecisionChoice) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecisionChoice.ProtoReflect.Descriptor instead.
 func (*DecisionChoice) Descriptor() ([]byte, []int) {
-	return file_v1_decisions_proto_rawDescGZIP(), []int{3}
+	return file_v1_decisions_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *DecisionChoice) GetOptions() []*DecisionOption {
@@ -284,7 +632,7 @@ type DecisionOption struct {
 
 func (x *DecisionOption) Reset() {
 	*x = DecisionOption{}
-	mi := &file_v1_decisions_proto_msgTypes[4]
+	mi := &file_v1_decisions_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -296,7 +644,7 @@ func (x *DecisionOption) String() string {
 func (*DecisionOption) ProtoMessage() {}
 
 func (x *DecisionOption) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_decisions_proto_msgTypes[4]
+	mi := &file_v1_decisions_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -309,7 +657,7 @@ func (x *DecisionOption) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecisionOption.ProtoReflect.Descriptor instead.
 func (*DecisionOption) Descriptor() ([]byte, []int) {
-	return file_v1_decisions_proto_rawDescGZIP(), []int{4}
+	return file_v1_decisions_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *DecisionOption) GetValue() string {
@@ -338,7 +686,7 @@ type DecisionScore struct {
 
 func (x *DecisionScore) Reset() {
 	*x = DecisionScore{}
-	mi := &file_v1_decisions_proto_msgTypes[5]
+	mi := &file_v1_decisions_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -350,7 +698,7 @@ func (x *DecisionScore) String() string {
 func (*DecisionScore) ProtoMessage() {}
 
 func (x *DecisionScore) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_decisions_proto_msgTypes[5]
+	mi := &file_v1_decisions_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -363,7 +711,7 @@ func (x *DecisionScore) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecisionScore.ProtoReflect.Descriptor instead.
 func (*DecisionScore) Descriptor() ([]byte, []int) {
-	return file_v1_decisions_proto_rawDescGZIP(), []int{5}
+	return file_v1_decisions_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *DecisionScore) GetLevels() []*DecisionLevel {
@@ -383,7 +731,7 @@ type DecisionLevel struct {
 
 func (x *DecisionLevel) Reset() {
 	*x = DecisionLevel{}
-	mi := &file_v1_decisions_proto_msgTypes[6]
+	mi := &file_v1_decisions_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -395,7 +743,7 @@ func (x *DecisionLevel) String() string {
 func (*DecisionLevel) ProtoMessage() {}
 
 func (x *DecisionLevel) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_decisions_proto_msgTypes[6]
+	mi := &file_v1_decisions_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -408,7 +756,7 @@ func (x *DecisionLevel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecisionLevel.ProtoReflect.Descriptor instead.
 func (*DecisionLevel) Descriptor() ([]byte, []int) {
-	return file_v1_decisions_proto_rawDescGZIP(), []int{6}
+	return file_v1_decisions_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *DecisionLevel) GetLabel() string {
@@ -434,7 +782,7 @@ type DecisionResult struct {
 
 func (x *DecisionResult) Reset() {
 	*x = DecisionResult{}
-	mi := &file_v1_decisions_proto_msgTypes[7]
+	mi := &file_v1_decisions_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -446,7 +794,7 @@ func (x *DecisionResult) String() string {
 func (*DecisionResult) ProtoMessage() {}
 
 func (x *DecisionResult) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_decisions_proto_msgTypes[7]
+	mi := &file_v1_decisions_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -459,7 +807,7 @@ func (x *DecisionResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecisionResult.ProtoReflect.Descriptor instead.
 func (*DecisionResult) Descriptor() ([]byte, []int) {
-	return file_v1_decisions_proto_rawDescGZIP(), []int{7}
+	return file_v1_decisions_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *DecisionResult) GetAnswers() []*DecisionAnswer {
@@ -485,7 +833,7 @@ type DecisionAnswer struct {
 
 func (x *DecisionAnswer) Reset() {
 	*x = DecisionAnswer{}
-	mi := &file_v1_decisions_proto_msgTypes[8]
+	mi := &file_v1_decisions_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -497,7 +845,7 @@ func (x *DecisionAnswer) String() string {
 func (*DecisionAnswer) ProtoMessage() {}
 
 func (x *DecisionAnswer) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_decisions_proto_msgTypes[8]
+	mi := &file_v1_decisions_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -510,7 +858,7 @@ func (x *DecisionAnswer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecisionAnswer.ProtoReflect.Descriptor instead.
 func (*DecisionAnswer) Descriptor() ([]byte, []int) {
-	return file_v1_decisions_proto_rawDescGZIP(), []int{8}
+	return file_v1_decisions_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *DecisionAnswer) GetName() string {
@@ -601,7 +949,7 @@ type DecisionPredicateAnswer struct {
 
 func (x *DecisionPredicateAnswer) Reset() {
 	*x = DecisionPredicateAnswer{}
-	mi := &file_v1_decisions_proto_msgTypes[9]
+	mi := &file_v1_decisions_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -613,7 +961,7 @@ func (x *DecisionPredicateAnswer) String() string {
 func (*DecisionPredicateAnswer) ProtoMessage() {}
 
 func (x *DecisionPredicateAnswer) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_decisions_proto_msgTypes[9]
+	mi := &file_v1_decisions_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -626,7 +974,7 @@ func (x *DecisionPredicateAnswer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecisionPredicateAnswer.ProtoReflect.Descriptor instead.
 func (*DecisionPredicateAnswer) Descriptor() ([]byte, []int) {
-	return file_v1_decisions_proto_rawDescGZIP(), []int{9}
+	return file_v1_decisions_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *DecisionPredicateAnswer) GetProbability() float64 {
@@ -647,7 +995,7 @@ type DecisionChoiceAnswer struct {
 
 func (x *DecisionChoiceAnswer) Reset() {
 	*x = DecisionChoiceAnswer{}
-	mi := &file_v1_decisions_proto_msgTypes[10]
+	mi := &file_v1_decisions_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -659,7 +1007,7 @@ func (x *DecisionChoiceAnswer) String() string {
 func (*DecisionChoiceAnswer) ProtoMessage() {}
 
 func (x *DecisionChoiceAnswer) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_decisions_proto_msgTypes[10]
+	mi := &file_v1_decisions_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -672,7 +1020,7 @@ func (x *DecisionChoiceAnswer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecisionChoiceAnswer.ProtoReflect.Descriptor instead.
 func (*DecisionChoiceAnswer) Descriptor() ([]byte, []int) {
-	return file_v1_decisions_proto_rawDescGZIP(), []int{10}
+	return file_v1_decisions_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *DecisionChoiceAnswer) GetChoice() string {
@@ -707,7 +1055,7 @@ type DecisionScoreAnswer struct {
 
 func (x *DecisionScoreAnswer) Reset() {
 	*x = DecisionScoreAnswer{}
-	mi := &file_v1_decisions_proto_msgTypes[11]
+	mi := &file_v1_decisions_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -719,7 +1067,7 @@ func (x *DecisionScoreAnswer) String() string {
 func (*DecisionScoreAnswer) ProtoMessage() {}
 
 func (x *DecisionScoreAnswer) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_decisions_proto_msgTypes[11]
+	mi := &file_v1_decisions_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -732,7 +1080,7 @@ func (x *DecisionScoreAnswer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecisionScoreAnswer.ProtoReflect.Descriptor instead.
 func (*DecisionScoreAnswer) Descriptor() ([]byte, []int) {
-	return file_v1_decisions_proto_rawDescGZIP(), []int{11}
+	return file_v1_decisions_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *DecisionScoreAnswer) GetScore() float64 {
@@ -768,7 +1116,7 @@ type DecisionProbability struct {
 
 func (x *DecisionProbability) Reset() {
 	*x = DecisionProbability{}
-	mi := &file_v1_decisions_proto_msgTypes[12]
+	mi := &file_v1_decisions_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -780,7 +1128,7 @@ func (x *DecisionProbability) String() string {
 func (*DecisionProbability) ProtoMessage() {}
 
 func (x *DecisionProbability) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_decisions_proto_msgTypes[12]
+	mi := &file_v1_decisions_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -793,7 +1141,7 @@ func (x *DecisionProbability) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecisionProbability.ProtoReflect.Descriptor instead.
 func (*DecisionProbability) Descriptor() ([]byte, []int) {
-	return file_v1_decisions_proto_rawDescGZIP(), []int{12}
+	return file_v1_decisions_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *DecisionProbability) GetValue() string {
@@ -818,7 +1166,7 @@ type DecisionRefusal struct {
 
 func (x *DecisionRefusal) Reset() {
 	*x = DecisionRefusal{}
-	mi := &file_v1_decisions_proto_msgTypes[13]
+	mi := &file_v1_decisions_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -830,7 +1178,7 @@ func (x *DecisionRefusal) String() string {
 func (*DecisionRefusal) ProtoMessage() {}
 
 func (x *DecisionRefusal) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_decisions_proto_msgTypes[13]
+	mi := &file_v1_decisions_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -843,16 +1191,47 @@ func (x *DecisionRefusal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecisionRefusal.ProtoReflect.Descriptor instead.
 func (*DecisionRefusal) Descriptor() ([]byte, []int) {
-	return file_v1_decisions_proto_rawDescGZIP(), []int{13}
+	return file_v1_decisions_proto_rawDescGZIP(), []int{18}
 }
 
 var File_v1_decisions_proto protoreflect.FileDescriptor
 
 const file_v1_decisions_proto_rawDesc = "" +
 	"\n" +
-	"\x12v1/decisions.proto\x12\vweaviate.v1\"H\n" +
-	"\tDecisions\x12;\n" +
-	"\tquestions\x18\x01 \x03(\v2\x1d.weaviate.v1.DecisionQuestionR\tquestions\"\x99\x02\n" +
+	"\x12v1/decisions.proto\x12\vweaviate.v1\x1a\x1cgoogle/protobuf/struct.proto\"\x95\x01\n" +
+	"\bAnnotate\x12;\n" +
+	"\tquestions\x18\x01 \x03(\v2\x1d.weaviate.v1.DecisionQuestionR\tquestions\x12?\n" +
+	"\bprovider\x18\x02 \x01(\v2\x1e.weaviate.v1.DecisionsProviderH\x00R\bprovider\x88\x01\x01B\v\n" +
+	"\t_provider\"\x84\x02\n" +
+	"\x11DecisionsProvider\x12B\n" +
+	"\n" +
+	"typesafeai\x18\x01 \x01(\v2 .weaviate.v1.DecisionsTypeSafeAIH\x00R\n" +
+	"typesafeai\x126\n" +
+	"\x06openai\x18\x02 \x01(\v2\x1c.weaviate.v1.DecisionsOpenAIH\x00R\x06openai\x123\n" +
+	"\x05dummy\x18\x03 \x01(\v2\x1b.weaviate.v1.DecisionsDummyH\x00R\x05dummy\x126\n" +
+	"\x06custom\x18\x04 \x01(\v2\x1c.weaviate.v1.DecisionsCustomH\x00R\x06customB\x06\n" +
+	"\x04kind\"\xcb\x01\n" +
+	"\x13DecisionsTypeSafeAI\x12\x19\n" +
+	"\x05model\x18\x01 \x01(\tH\x00R\x05model\x88\x01\x01\x12\x1e\n" +
+	"\bbase_url\x18\x02 \x01(\tH\x01R\abaseUrl\x88\x01\x01\x12(\n" +
+	"\rmax_documents\x18\x03 \x01(\x03H\x02R\fmaxDocuments\x88\x01\x01\x12\x1b\n" +
+	"\x06images\x18\x04 \x01(\bH\x03R\x06images\x88\x01\x01B\b\n" +
+	"\x06_modelB\v\n" +
+	"\t_base_urlB\x10\n" +
+	"\x0e_max_documentsB\t\n" +
+	"\a_images\"\x9f\x01\n" +
+	"\x0fDecisionsOpenAI\x12\x19\n" +
+	"\x05model\x18\x01 \x01(\tH\x00R\x05model\x88\x01\x01\x12\x1e\n" +
+	"\bbase_url\x18\x02 \x01(\tH\x01R\abaseUrl\x88\x01\x01\x12(\n" +
+	"\rmax_documents\x18\x03 \x01(\x03H\x02R\fmaxDocuments\x88\x01\x01B\b\n" +
+	"\x06_modelB\v\n" +
+	"\t_base_urlB\x10\n" +
+	"\x0e_max_documents\"\x10\n" +
+	"\x0eDecisionsDummy\"p\n" +
+	"\x0fDecisionsCustom\x12\x16\n" +
+	"\x06module\x18\x01 \x01(\tR\x06module\x128\n" +
+	"\bsettings\x18\x02 \x01(\v2\x17.google.protobuf.StructH\x00R\bsettings\x88\x01\x01B\v\n" +
+	"\t_settings\"\x99\x02\n" +
 	"\x10DecisionQuestion\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
 	"\bproperty\x18\x02 \x01(\tR\bproperty\x12\"\n" +
@@ -916,44 +1295,56 @@ func file_v1_decisions_proto_rawDescGZIP() []byte {
 }
 
 var (
-	file_v1_decisions_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+	file_v1_decisions_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 	file_v1_decisions_proto_goTypes  = []any{
-		(*Decisions)(nil),               // 0: weaviate.v1.Decisions
-		(*DecisionQuestion)(nil),        // 1: weaviate.v1.DecisionQuestion
-		(*DecisionPredicate)(nil),       // 2: weaviate.v1.DecisionPredicate
-		(*DecisionChoice)(nil),          // 3: weaviate.v1.DecisionChoice
-		(*DecisionOption)(nil),          // 4: weaviate.v1.DecisionOption
-		(*DecisionScore)(nil),           // 5: weaviate.v1.DecisionScore
-		(*DecisionLevel)(nil),           // 6: weaviate.v1.DecisionLevel
-		(*DecisionResult)(nil),          // 7: weaviate.v1.DecisionResult
-		(*DecisionAnswer)(nil),          // 8: weaviate.v1.DecisionAnswer
-		(*DecisionPredicateAnswer)(nil), // 9: weaviate.v1.DecisionPredicateAnswer
-		(*DecisionChoiceAnswer)(nil),    // 10: weaviate.v1.DecisionChoiceAnswer
-		(*DecisionScoreAnswer)(nil),     // 11: weaviate.v1.DecisionScoreAnswer
-		(*DecisionProbability)(nil),     // 12: weaviate.v1.DecisionProbability
-		(*DecisionRefusal)(nil),         // 13: weaviate.v1.DecisionRefusal
+		(*Annotate)(nil),                // 0: weaviate.v1.Annotate
+		(*DecisionsProvider)(nil),       // 1: weaviate.v1.DecisionsProvider
+		(*DecisionsTypeSafeAI)(nil),     // 2: weaviate.v1.DecisionsTypeSafeAI
+		(*DecisionsOpenAI)(nil),         // 3: weaviate.v1.DecisionsOpenAI
+		(*DecisionsDummy)(nil),          // 4: weaviate.v1.DecisionsDummy
+		(*DecisionsCustom)(nil),         // 5: weaviate.v1.DecisionsCustom
+		(*DecisionQuestion)(nil),        // 6: weaviate.v1.DecisionQuestion
+		(*DecisionPredicate)(nil),       // 7: weaviate.v1.DecisionPredicate
+		(*DecisionChoice)(nil),          // 8: weaviate.v1.DecisionChoice
+		(*DecisionOption)(nil),          // 9: weaviate.v1.DecisionOption
+		(*DecisionScore)(nil),           // 10: weaviate.v1.DecisionScore
+		(*DecisionLevel)(nil),           // 11: weaviate.v1.DecisionLevel
+		(*DecisionResult)(nil),          // 12: weaviate.v1.DecisionResult
+		(*DecisionAnswer)(nil),          // 13: weaviate.v1.DecisionAnswer
+		(*DecisionPredicateAnswer)(nil), // 14: weaviate.v1.DecisionPredicateAnswer
+		(*DecisionChoiceAnswer)(nil),    // 15: weaviate.v1.DecisionChoiceAnswer
+		(*DecisionScoreAnswer)(nil),     // 16: weaviate.v1.DecisionScoreAnswer
+		(*DecisionProbability)(nil),     // 17: weaviate.v1.DecisionProbability
+		(*DecisionRefusal)(nil),         // 18: weaviate.v1.DecisionRefusal
+		(*structpb.Struct)(nil),         // 19: google.protobuf.Struct
 	}
 )
 
 var file_v1_decisions_proto_depIdxs = []int32{
-	1,  // 0: weaviate.v1.Decisions.questions:type_name -> weaviate.v1.DecisionQuestion
-	2,  // 1: weaviate.v1.DecisionQuestion.predicate:type_name -> weaviate.v1.DecisionPredicate
-	3,  // 2: weaviate.v1.DecisionQuestion.choice:type_name -> weaviate.v1.DecisionChoice
-	5,  // 3: weaviate.v1.DecisionQuestion.score:type_name -> weaviate.v1.DecisionScore
-	4,  // 4: weaviate.v1.DecisionChoice.options:type_name -> weaviate.v1.DecisionOption
-	6,  // 5: weaviate.v1.DecisionScore.levels:type_name -> weaviate.v1.DecisionLevel
-	8,  // 6: weaviate.v1.DecisionResult.answers:type_name -> weaviate.v1.DecisionAnswer
-	9,  // 7: weaviate.v1.DecisionAnswer.predicate:type_name -> weaviate.v1.DecisionPredicateAnswer
-	10, // 8: weaviate.v1.DecisionAnswer.choice:type_name -> weaviate.v1.DecisionChoiceAnswer
-	11, // 9: weaviate.v1.DecisionAnswer.score:type_name -> weaviate.v1.DecisionScoreAnswer
-	13, // 10: weaviate.v1.DecisionAnswer.refusal:type_name -> weaviate.v1.DecisionRefusal
-	12, // 11: weaviate.v1.DecisionChoiceAnswer.probabilities:type_name -> weaviate.v1.DecisionProbability
-	12, // 12: weaviate.v1.DecisionScoreAnswer.probabilities:type_name -> weaviate.v1.DecisionProbability
-	13, // [13:13] is the sub-list for method output_type
-	13, // [13:13] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	6,  // 0: weaviate.v1.Annotate.questions:type_name -> weaviate.v1.DecisionQuestion
+	1,  // 1: weaviate.v1.Annotate.provider:type_name -> weaviate.v1.DecisionsProvider
+	2,  // 2: weaviate.v1.DecisionsProvider.typesafeai:type_name -> weaviate.v1.DecisionsTypeSafeAI
+	3,  // 3: weaviate.v1.DecisionsProvider.openai:type_name -> weaviate.v1.DecisionsOpenAI
+	4,  // 4: weaviate.v1.DecisionsProvider.dummy:type_name -> weaviate.v1.DecisionsDummy
+	5,  // 5: weaviate.v1.DecisionsProvider.custom:type_name -> weaviate.v1.DecisionsCustom
+	19, // 6: weaviate.v1.DecisionsCustom.settings:type_name -> google.protobuf.Struct
+	7,  // 7: weaviate.v1.DecisionQuestion.predicate:type_name -> weaviate.v1.DecisionPredicate
+	8,  // 8: weaviate.v1.DecisionQuestion.choice:type_name -> weaviate.v1.DecisionChoice
+	10, // 9: weaviate.v1.DecisionQuestion.score:type_name -> weaviate.v1.DecisionScore
+	9,  // 10: weaviate.v1.DecisionChoice.options:type_name -> weaviate.v1.DecisionOption
+	11, // 11: weaviate.v1.DecisionScore.levels:type_name -> weaviate.v1.DecisionLevel
+	13, // 12: weaviate.v1.DecisionResult.answers:type_name -> weaviate.v1.DecisionAnswer
+	14, // 13: weaviate.v1.DecisionAnswer.predicate:type_name -> weaviate.v1.DecisionPredicateAnswer
+	15, // 14: weaviate.v1.DecisionAnswer.choice:type_name -> weaviate.v1.DecisionChoiceAnswer
+	16, // 15: weaviate.v1.DecisionAnswer.score:type_name -> weaviate.v1.DecisionScoreAnswer
+	18, // 16: weaviate.v1.DecisionAnswer.refusal:type_name -> weaviate.v1.DecisionRefusal
+	17, // 17: weaviate.v1.DecisionChoiceAnswer.probabilities:type_name -> weaviate.v1.DecisionProbability
+	17, // 18: weaviate.v1.DecisionScoreAnswer.probabilities:type_name -> weaviate.v1.DecisionProbability
+	19, // [19:19] is the sub-list for method output_type
+	19, // [19:19] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_v1_decisions_proto_init() }
@@ -961,14 +1352,24 @@ func file_v1_decisions_proto_init() {
 	if File_v1_decisions_proto != nil {
 		return
 	}
+	file_v1_decisions_proto_msgTypes[0].OneofWrappers = []any{}
 	file_v1_decisions_proto_msgTypes[1].OneofWrappers = []any{
+		(*DecisionsProvider_Typesafeai)(nil),
+		(*DecisionsProvider_Openai)(nil),
+		(*DecisionsProvider_Dummy)(nil),
+		(*DecisionsProvider_Custom)(nil),
+	}
+	file_v1_decisions_proto_msgTypes[2].OneofWrappers = []any{}
+	file_v1_decisions_proto_msgTypes[3].OneofWrappers = []any{}
+	file_v1_decisions_proto_msgTypes[5].OneofWrappers = []any{}
+	file_v1_decisions_proto_msgTypes[6].OneofWrappers = []any{
 		(*DecisionQuestion_Predicate)(nil),
 		(*DecisionQuestion_Choice)(nil),
 		(*DecisionQuestion_Score)(nil),
 	}
-	file_v1_decisions_proto_msgTypes[4].OneofWrappers = []any{}
-	file_v1_decisions_proto_msgTypes[6].OneofWrappers = []any{}
-	file_v1_decisions_proto_msgTypes[8].OneofWrappers = []any{
+	file_v1_decisions_proto_msgTypes[9].OneofWrappers = []any{}
+	file_v1_decisions_proto_msgTypes[11].OneofWrappers = []any{}
+	file_v1_decisions_proto_msgTypes[13].OneofWrappers = []any{
 		(*DecisionAnswer_Predicate)(nil),
 		(*DecisionAnswer_Choice)(nil),
 		(*DecisionAnswer_Score)(nil),
@@ -980,7 +1381,7 @@ func file_v1_decisions_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_decisions_proto_rawDesc), len(file_v1_decisions_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   14,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
