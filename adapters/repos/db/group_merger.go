@@ -102,6 +102,12 @@ func (gm *groupMerger) Do() ([]*storobj.Object, []float32, error) {
 			count = len(hits)
 		}
 
+		var minDistance, maxDistance float32
+		if len(hits) > 0 {
+			minDistance = hits[0]["_additional"].(*additional.GroupHitAdditional).Distance
+			maxDistance = hits[len(hits)-1]["_additional"].(*additional.GroupHitAdditional).Distance
+		}
+
 		indx := objects[val][0]
 		obj, dist := gm.objects[indx], gm.dists[indx]
 		obj.AdditionalProperties()["group"] = &additional.Group{
@@ -112,8 +118,8 @@ func (gm *groupMerger) Do() ([]*storobj.Object, []float32, error) {
 			},
 			Count:       count,
 			Hits:        hits,
-			MaxDistance: hits[0]["_additional"].(*additional.GroupHitAdditional).Distance,
-			MinDistance: hits[len(hits)-1]["_additional"].(*additional.GroupHitAdditional).Distance,
+			MinDistance: minDistance,
+			MaxDistance: maxDistance,
 		}
 		objs[i], dists[i] = obj, dist
 	}
