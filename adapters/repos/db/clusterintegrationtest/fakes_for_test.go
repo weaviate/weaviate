@@ -47,18 +47,20 @@ import (
 	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/sharding/remote"
 )
 
 type node struct {
-	name          string
-	repo          *db.DB
-	schemaManager *fakeSchemaManager
-	backupManager *ubak.Handler
-	scheduler     *ubak.Scheduler
-	migrator      *db.Migrator
-	hostname      string
+	name              string
+	repo              *db.DB
+	schemaManager     *fakeSchemaManager
+	backupManager     *ubak.Handler
+	scheduler         *ubak.Scheduler
+	migrator          *db.Migrator
+	hostname          string
+	namespacesExister namespaces.Exister
 }
 
 func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingState *sharding.State, asyncIndexEnabled bool) {
@@ -156,7 +158,7 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 		MaxImportGoroutinesFactor: 1,
 		AsyncIndexingEnabled:      asyncIndexEnabled,
 	}, client, nodeResolver, nodesClient, replicaClient, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, n.namespacesExister)
 	if err != nil {
 		panic(err)
 	}

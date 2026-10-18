@@ -299,7 +299,7 @@ func (c *grpcReplicationClient) FetchObject(ctx context.Context, host, index, sh
 		Uuid:  id.String(),
 	}, grpc_retry.WithMax(uint(numRetries)))
 	if err != nil {
-		return replica.Replica{}, fmt.Errorf("gRPC FetchObject: %w", err)
+		return replica.Replica{}, fmt.Errorf("gRPC FetchObject: %w", rebuildGRPCRefusal(err))
 	}
 
 	var r replica.Replica
@@ -328,7 +328,7 @@ func (c *grpcReplicationClient) FetchObjects(ctx context.Context, host, index, s
 		Uuids: clusterapi.UUIDsToStrings(ids),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("gRPC FetchObjects: %w", err)
+		return nil, fmt.Errorf("gRPC FetchObjects: %w", rebuildGRPCRefusal(err))
 	}
 
 	var replicas replica.Replicas
@@ -355,7 +355,7 @@ func (c *grpcReplicationClient) DigestObjects(ctx context.Context, host, index, 
 		Ids:   clusterapi.UUIDsToStrings(ids),
 	}, grpc_retry.WithMax(uint(numRetries)))
 	if err != nil {
-		return nil, fmt.Errorf("gRPC DigestObjects: %w", err)
+		return nil, fmt.Errorf("gRPC DigestObjects: %w", rebuildGRPCRefusal(err))
 	}
 
 	return protoToRepairResponses(resp.GetDigests()), nil
@@ -639,7 +639,7 @@ func (c *grpcReplicationClient) FindUUIDs(ctx context.Context, host, index, shar
 		Limit:      int32(limit),
 	}, grpc_retry.Disable())
 	if err != nil {
-		return nil, fmt.Errorf("gRPC FindUUIDs: %w", err)
+		return nil, fmt.Errorf("gRPC FindUUIDs: %w", rebuildGRPCRefusal(err))
 	}
 
 	return clusterapi.StringsToUUIDs(resp.GetUuids()), nil
@@ -750,7 +750,7 @@ func (c *grpcReplicationClient) CountObjects(ctx context.Context, host, index, s
 		Shard: shard,
 	})
 	if err != nil {
-		return 0, fmt.Errorf("gRPC CountObjects: %w", err)
+		return 0, fmt.Errorf("gRPC CountObjects: %w", rebuildGRPCRefusal(err))
 	}
 
 	return int(resp.Count), nil
@@ -841,7 +841,9 @@ func protoToSimpleResponse(r *protocol.SimpleReplicaResponse) replica.SimpleResp
 			Msg:  e.GetMsg(),
 		}
 	}
-	return replica.SimpleResponse{Errors: errs}
+	resp := replica.SimpleResponse{Errors: errs}
+	rebuildResponseRefusals(&resp)
+	return resp
 }
 
 func protoToRepairResponses(results []*protocol.RepairResponse) []types.RepairResponse {
