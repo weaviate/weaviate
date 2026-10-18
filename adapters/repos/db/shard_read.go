@@ -470,15 +470,7 @@ func (s *Shard) readMultiVectorByIndexIDIntoSlice(ctx context.Context, indexID u
 	}
 
 	container.Buff = newBuff
-	vecs, err := storobj.MultiVectorFromBinary(bytes, targetVector)
-	if err != nil {
-		var eTV storobj.ErrTargetVectorNotFound
-		if stderrors.As(err, &eTV) {
-			return nil, storobj.NewErrNotFoundf(indexID, "target vector %q not found", targetVector)
-		}
-		return nil, err
-	}
-	return vecs, nil
+	return multiVectorFromObjectInto(bytes, container, indexID, targetVector)
 }
 
 // GetObjectsBucketView returns a consistent view of the objects bucket that can
@@ -533,6 +525,33 @@ func (s *Shard) readVectorByIndexIDIntoSliceWithView(ctx context.Context, indexI
 	return vec, nil
 }
 
+// multiVectorFromObjectInto decodes the target multi-vector of one object
+// record into the container's buffer and keeps that buffer in the container.
+// Both multi-vector readers end in it.
+//
+// Arguments:
+//   - bytes: the object record as read from the objects bucket.
+//   - container: the temp vector container the tokens are decoded into.
+//   - indexID: the doc id, for the not-found error.
+//   - targetVector: the name of the multi-vector to read.
+//
+// The tokens view the container's slice, or a larger array when the slice
+// could not hold the document. That array is stored in Mem as well as Slice
+// because the temp vector pool re-slices Mem on Get, so Mem is what carries
+// the grown capacity to the next read.
+func multiVectorFromObjectInto(bytes []byte, container *common.VectorSlice, indexID uint64, targetVector string) ([][]float32, error) {
+	vecs, buffer, err := storobj.MultiVectorFromBinaryInto(bytes, container.Slice, targetVector)
+	if err != nil {
+		var eTV storobj.ErrTargetVectorNotFound
+		if stderrors.As(err, &eTV) {
+			return nil, storobj.NewErrNotFoundf(indexID, "target vector %q not found", targetVector)
+		}
+		return nil, err
+	}
+	container.Mem, container.Slice = buffer, buffer
+	return vecs, nil
+}
+
 func (s *Shard) readMultiVectorByIndexIDIntoSliceWithView(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string, view common.BucketView) ([][]float32, error) {
 	binary.LittleEndian.PutUint64(container.Buff8, indexID)
 
@@ -555,15 +574,7 @@ func (s *Shard) readMultiVectorByIndexIDIntoSliceWithView(ctx context.Context, i
 	}
 
 	container.Buff = newBuff
-	vecs, err := storobj.MultiVectorFromBinary(bytes, targetVector)
-	if err != nil {
-		var eTV storobj.ErrTargetVectorNotFound
-		if stderrors.As(err, &eTV) {
-			return nil, storobj.NewErrNotFoundf(indexID, "target vector %q not found", targetVector)
-		}
-		return nil, err
-	}
-	return vecs, nil
+	return multiVectorFromObjectInto(bytes, container, indexID, targetVector)
 }
 
 func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
