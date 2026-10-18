@@ -514,7 +514,9 @@ func TestAnnotate(t *testing.T) {
 		})
 
 		t.Run("errors before the search", func(t *testing.T) {
-			notEnabled := &pb.DecisionsProvider{Kind: &pb.DecisionsProvider_Openai{Openai: &pb.DecisionsOpenAI{}}}
+			// The test server enables every API-based module, so a module
+			// that is not enabled has to be one that does not exist.
+			notEnabled := &pb.DecisionsProvider{Kind: &pb.DecisionsProvider_Custom{Custom: &pb.DecisionsCustom{Module: "decisions-nope"}}}
 			tests := []struct {
 				name    string
 				req     *pb.SearchRequest
@@ -523,7 +525,7 @@ func TestAnnotate(t *testing.T) {
 				{
 					name:    "annotate by a module that is not enabled",
 					req:     &pb.SearchRequest{Collection: ticketsClass, Annotate: &pb.Annotate{Questions: questions.Questions, Provider: notEnabled}},
-					wantErr: `annotate: provider "decisions-openai" is not enabled`,
+					wantErr: `annotate: provider "decisions-nope" is not enabled`,
 				},
 				{
 					name: "rerank by a module that is not enabled",
@@ -531,7 +533,7 @@ func TestAnnotate(t *testing.T) {
 						Property: "text", Query: ptr("q"), Decision: &pb.RerankDecision{},
 						Provider: &pb.RerankProvider{Kind: &pb.RerankProvider_Decisions{Decisions: notEnabled}},
 					}},
-					wantErr: `rerank.decision: provider "decisions-openai" is not enabled`,
+					wantErr: `rerank.decision: provider "decisions-nope" is not enabled`,
 				},
 				{
 					name: "a provider on a plain rerank",
