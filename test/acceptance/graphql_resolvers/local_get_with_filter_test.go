@@ -18,7 +18,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 
 	"github.com/go-openapi/strfmt"
@@ -473,10 +472,21 @@ func gettingObjectsWithFilters(t *testing.T) {
 			assert.Equal(t, hawaii.String(), id1)
 		})
 
-		t.Run("error by description containing just stopwords", func(t *testing.T) {
-			errors := graphqlhelper.ErrorGraphQL(t, helper.RootAuth, query("to be or not to be"))
-			require.Len(t, errors, 1)
-			assert.Contains(t, errors[0].Message, inverted.ErrOnlyStopwords.Error())
+		t.Run("results by stopword-only description value", func(t *testing.T) {
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query("a"))
+			pizzas := result.Get("Get", "Pizza").AsSlice()
+			ids := make([]string, len(pizzas))
+			for i, pizza := range pizzas {
+				ids[i] = pizza.(map[string]interface{})["_additional"].(map[string]interface{})["id"].(string)
+			}
+			assert.ElementsMatch(t, []string{
+				quattroFormaggi.String(), fruttiDiMare.String(), doener.String(),
+			}, ids)
+		})
+
+		t.Run("no result for unmatched stopword-only description", func(t *testing.T) {
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query("to be or not to be"))
+			assert.Empty(t, result.Get("Get", "Pizza").AsSlice())
 		})
 	})
 
