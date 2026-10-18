@@ -148,7 +148,7 @@ func (h *hnsw) SearchByVectorDistance(ctx context.Context, vector []float32,
 	allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
 	return searchByVectorDistance(ctx, vector, targetDistance, maxLimit, allowList,
-		h.SearchByVector, h.logger)
+		h.SearchByVector, h.logger, h.distancerProvider.Type() == distancer.CosineDistanceProviderType)
 }
 
 // SearchByMultiVectorDistance wraps SearchByMultiVector, and calls it recursively until
@@ -165,7 +165,7 @@ func (h *hnsw) SearchByMultiVectorDistance(ctx context.Context, vector [][]float
 	allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
 	return searchByVectorDistance(ctx, vector, targetDistance, maxLimit, allowList,
-		h.SearchByMultiVector, h.logger)
+		h.SearchByMultiVector, h.logger, h.distancerProvider.Type() == distancer.CosineDistanceProviderType)
 }
 
 func (h *hnsw) initMuveraEncoder(vectors [][]float32) error {
@@ -1604,7 +1604,7 @@ func searchByVectorDistance[T dto.Embedding](ctx context.Context, vector T,
 	targetDistance float32, maxLimit int64,
 	allowList helpers.AllowList,
 	searchByVector func(context.Context, T, int, helpers.AllowList) ([]uint64, []float32, error),
-	logger logrus.FieldLogger,
+	logger logrus.FieldLogger, cosine bool,
 ) ([]uint64, []float32, error) {
 	var (
 		searchParams = newSearchByDistParams(maxLimit)
@@ -1632,11 +1632,10 @@ func searchByVectorDistance[T dto.Embedding](ctx context.Context, vector T,
 		}
 
 		lastFound := dist[len(dist)-1]
-		shouldContinue = lastFound <= targetDistance
+		shouldContinue = floatcomp.WithinCutoff(lastFound, float64(targetDistance), cosine)
 
 		for i := range ids {
-			if aboveThresh := dist[i] <= targetDistance; aboveThresh ||
-				floatcomp.InDelta(float64(dist[i]), float64(targetDistance), 1e-6) {
+			if floatcomp.WithinCutoff(dist[i], float64(targetDistance), cosine) {
 				resultIDs = append(resultIDs, ids[i])
 				resultDist = append(resultDist, dist[i])
 			} else {

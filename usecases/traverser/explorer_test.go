@@ -13,6 +13,7 @@ package traverser
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -2973,4 +2975,83 @@ func getFakeModulesProviderWithCustomExtenders(
 
 func getFakeModulesProvider() ModulesProvider {
 	return &fakeModulesProvider{}
+}
+
+// A distance cutoff below the old absolute 1e-6 tolerance was never applied:
+// every result passed regardless of its distance (gh-13315). Cosine keeps an
+// absolute floor since an exact duplicate can compute as ~6e-8.
+func TestExplorer_SmallDistanceCutoffs(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		metric string
+		dists  []float32 // of id0, id1, id2
+		cutoff float64
+		want   []strfmt.UUID
+	}{
+		{name: "l2 subnormal, first", metric: "l2-squared", dists: []float32{1e-40, 9e-40, 1e-38}, cutoff: 4e-40, want: []strfmt.UUID{"id0"}},
+		{name: "l2 subnormal, first two", metric: "l2-squared", dists: []float32{1e-40, 9e-40, 1e-38}, cutoff: 2e-39, want: []strfmt.UUID{"id0", "id1"}},
+		{name: "l2 subnormal, all", metric: "l2-squared", dists: []float32{1e-40, 9e-40, 1e-38}, cutoff: 1e-38, want: []strfmt.UUID{"id0", "id1", "id2"}},
+		{name: "l2 subnormal, none", metric: "l2-squared", dists: []float32{1e-40, 9e-40, 1e-38}, cutoff: 5e-41, want: nil},
+		{name: "l2 normal below 1e-6", metric: "l2-squared", dists: []float32{1e-8, 9e-8, 1e-6}, cutoff: 5e-8, want: []strfmt.UUID{"id0"}},
+		{name: "cosine duplicates at distance 0", metric: "cosine", dists: []float32{0, 5.96e-8, 1e-3}, cutoff: 0, want: []strfmt.UUID{"id0", "id1"}},
+	} {
+		var results []search.Result
+		for i, d := range tc.dists {
+			results = append(results, search.Result{ID: strfmt.UUID(fmt.Sprintf("id%d", i)), ClassName: "BestClass", Dist: d, Dims: 4, Schema: map[string]interface{}{}})
+		}
+		nearVector := &searchparams.NearVector{
+			Vectors:      []models.Vector{[]float32{0, 0, 0, 0}},
+			Distance:     tc.cutoff,
+			WithDistance: true,
+		}
+		newExplorer := func(searcher *fakeVectorSearcher) *Explorer {
+			metrics := &fakeMetrics{}
+			metrics.On("AddUsageDimensions", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+			log, _ := test.NewNullLogger()
+			explorer := NewExplorer(searcher, log, getFakeModulesProvider(), metrics, defaultConfig)
+			explorer.SetSchemaGetter(&fakeSchemaGetter{schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{{
+				Class:             "BestClass",
+				VectorIndexConfig: hnsw.UserConfig{Distance: tc.metric},
+			}}}}})
+			return explorer
+		}
+
+		t.Run("GetClass "+tc.name, func(t *testing.T) {
+			params := dto.GetParams{
+				ClassName:            "BestClass",
+				NearVector:           nearVector,
+				Pagination:           &filters.Pagination{Limit: 3},
+				AdditionalProperties: additional.Properties{ID: true},
+			}
+			searcher := &fakeVectorSearcher{}
+			searcher.On("VectorSearch", params, nearVector.Vectors).Return(results, nil)
+
+			res, err := newExplorer(searcher).GetClass(context.Background(), params)
+			require.NoError(t, err)
+
+			var got []strfmt.UUID
+			for _, r := range res {
+				got = append(got, r.(map[string]interface{})["_additional"].(map[string]interface{})["id"].(strfmt.UUID))
+			}
+			assert.Equal(t, tc.want, got)
+		})
+
+		t.Run("Explore "+tc.name, func(t *testing.T) {
+			res, err := newExplorer(&fakeVectorSearcher{results: results}).
+				CrossClassVectorSearch(context.Background(), ExploreParams{NearVector: nearVector, Limit: 3})
+			require.NoError(t, err)
+
+			var got []strfmt.UUID
+			for _, r := range res {
+				got = append(got, r.ID)
+			}
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// Without a schema the metric is unknown: fall back to cosine, the default
+// metric and the more lenient cutoff, instead of dereferencing nil.
+func TestExplorer_CosineDistanceWithoutSchema(t *testing.T) {
+	assert.True(t, (&Explorer{}).cosineDistance("BestClass", nil))
 }
