@@ -661,6 +661,13 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 			}
 		}
 
+		// A module config the update introduces is not covered by the checks
+		// below, which only look at modules the stored class already carries, so
+		// it would reach the schema unvalidated and fail later at vectorize time.
+		if err := h.validateAddedModuleConfigs(ctx, initial, updated); err != nil {
+			return err
+		}
+
 		allowed, err := mutableSettingsChanges(h.parser.modules, initial, updated, func(module, targetVector string) error {
 			return h.moduleConfig.ValidateModuleConfig(ctx, updated, module, targetVector)
 		})
@@ -699,6 +706,27 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 // such as reindex strategies' OnMigrationComplete rely on this guarantee to
 // flip schema flags (e.g. IndexFilterable=true) after a bucket swap without
 // risking a silent loss of the schema change.
+// validateAddedModuleConfigs runs the module's own validation over every
+// top-level module config the update adds, matching what creating the class
+// would have done. Entries the stored class already carries are left to
+// mutableSettingsChanges, which judges them against their stored settings.
+func (h *Handler) validateAddedModuleConfigs(ctx context.Context, initial, updated *models.Class) error {
+	updatedModConf, ok := updated.ModuleConfig.(map[string]any)
+	if !ok {
+		return nil
+	}
+	initialModConf, _ := initial.ModuleConfig.(map[string]any)
+	for module := range updatedModConf {
+		if _, existed := initialModConf[module]; existed {
+			continue
+		}
+		if err := h.moduleConfig.ValidateModuleConfig(ctx, updated, module, ""); err != nil {
+			return fmt.Errorf("module config of %q: %w", module, err)
+		}
+	}
+	return nil
+}
+
 // UpdatePropertyInternal updates a single property via the UpdateProperty RAFT
 // path. When `fields` is non-empty, the FSM merges ONLY the listed property
 // fields onto the existing property; the rest are kept from the current class

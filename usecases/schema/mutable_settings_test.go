@@ -374,6 +374,40 @@ func TestUpdateClass_MutableSettings(t *testing.T) {
 		})
 	}
 
+	// A module config that `POST /v1/schema` rejects is accepted by
+	// `PUT /v1/schema/{class}`, because only modules that already exist on the
+	// stored class are passed to the module's validator.
+	// https://github.com/weaviate/weaviate/issues/13426
+	t.Run("validates a module config that the update adds", func(t *testing.T) {
+		s := newSchemaWithModules(t)
+		s.create(t, legacyClass(mutableModule, moduleSettings("a", "m")))
+		s.modules.validated = nil
+		s.modules.err = errors.New("invalid endpoint")
+
+		update := legacyClass(mutableModule, moduleSettings("a", "m"))
+		update.ModuleConfig = map[string]any{
+			mutableModule:    moduleSettings("a", "m"),
+			generativeModule: map[string]any{"setting": "a"},
+		}
+
+		require.ErrorContains(t, s.update(update), "invalid endpoint")
+		require.Contains(t, s.modules.validated, generativeModule+"/")
+	})
+
+	t.Run("accepts a module config that the update adds when the module allows it", func(t *testing.T) {
+		s := newSchemaWithModules(t)
+		stored := s.create(t, legacyClass(mutableModule, moduleSettings("a", "m")))
+
+		update := legacyClass(mutableModule, moduleSettings("a", "m"))
+		update.ModuleConfig = map[string]any{
+			mutableModule:    moduleSettings("a", "m"),
+			generativeModule: map[string]any{"setting": "a"},
+		}
+
+		require.NoError(t, s.update(update))
+		require.Equal(t, "a", storedModuleSettings(t, stored, generativeModule, "")["setting"])
+	})
+
 	t.Run("accepts a change the module allows together with a generative change", func(t *testing.T) {
 		s := newSchemaWithModules(t)
 		initial := namedVectorClass(mutableModule, moduleSettings("a", "m"))
