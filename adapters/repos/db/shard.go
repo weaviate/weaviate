@@ -997,7 +997,7 @@ func (s *Shard) recountPropertyLengthsOnLoad(ctx context.Context) error {
 	if !recount.pending(s.index.ID(), s.name) {
 		return nil
 	}
-	// such as a tenant created after startup
+	// a shard without objects, such as a tenant created after startup, has nothing to recount
 	if s.counter.PreviewNext() == 0 {
 		recount.record(s.index.ID(), s.name, 0, true)
 		return nil

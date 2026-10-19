@@ -64,22 +64,24 @@ func TestRecountPropertyLengthsAtStartup(t *testing.T) {
 			wantSum:   5, wantCount: 2,
 		},
 		{
-			name:      "tracker counts too much",
-			recount:   true,
-			makeStale: inflateTracker,
-			wantSum:   5, wantCount: 2,
+			name:    "tracker file unreadable",
+			recount: true,
+			makeStale: func(t *testing.T, trackerPath string) {
+				require.NoError(t, os.WriteFile(trackerPath, nil, 0o644))
+			},
+			wantSum: 5, wantCount: 2,
 		},
 		{
 			name:    "leftover recount file of a crashed recount",
 			recount: true,
 			makeStale: func(t *testing.T, trackerPath string) {
 				removeTracker(t, trackerPath)
-				inflateTracker(t, trackerPath+".recount")
+				inflateTracker(t, recountFileOf(trackerPath))
 			},
 			wantSum: 5, wantCount: 2,
 		},
 		{
-			name:           "recount before load fails, shard keeps stale lengths",
+			name:           "recount fails before and as the shard loads, shard keeps stale lengths",
 			recount:        true,
 			makeStale:      inflateTracker,
 			failBeforeLoad: true,
@@ -109,7 +111,7 @@ func TestRecountPropertyLengthsAtStartup(t *testing.T) {
 
 			tt.makeStale(t, trackerPath)
 			// a non-empty directory cannot be removed as a leftover recount file
-			blocker := filepath.Join(trackerPath+".recount", "blocker")
+			blocker := filepath.Join(recountFileOf(trackerPath), "blocker")
 			if tt.failBeforeLoad {
 				require.NoError(t, os.MkdirAll(blocker, 0o755))
 			}
@@ -137,7 +139,7 @@ func TestRecountPropertyLengthsAtStartup(t *testing.T) {
 				require.ErrorContains(t, report(), "1 failed")
 			default:
 				require.NoError(t, report())
-				_, err = os.Stat(trackerPath + ".recount")
+				_, err = os.Stat(recountFileOf(trackerPath))
 				assert.ErrorIs(t, err, os.ErrNotExist)
 			}
 		})
@@ -176,7 +178,7 @@ func TestRecountPropertyLengths(t *testing.T) {
 			require.NoError(t, shard.GetPropertyLengthTracker().TrackProperty("name", 100))
 
 			require.NoError(t, shard.recountPropertyLengthsOnLoad(testCtx()))
-			requireTally(t, shard, 2+100, 1+1, "the shard was recounted before it loaded, so it must not be again")
+			requireTally(t, shard, 2+100, 1+1, "the shard was recorded done when it loaded empty, so it must not be recounted")
 
 			repo.propLengthsRecount.forget(shard.index.ID(), shard.name)
 			ctx, cancel := context.WithCancel(testCtx())
@@ -185,7 +187,7 @@ func TestRecountPropertyLengths(t *testing.T) {
 			err := shard.recountPropertyLengthsOnLoad(ctx)
 			assert.Equal(t, tt.wantErr, err != nil, "err: %v", err)
 			requireTally(t, shard, 2+100, 1+1, "a failed recount must keep the previous lengths")
-			_, err = os.Stat(shard.GetPropertyLengthTracker().FileName() + ".recount")
+			_, err = os.Stat(recountFileOf(shard.GetPropertyLengthTracker().FileName()))
 			assert.ErrorIs(t, err, os.ErrNotExist)
 
 			schemaGetter.schema = recountTestSchema()
@@ -216,7 +218,56 @@ func TestRecountPropertyLengths_SwapFails(t *testing.T) {
 	assert.True(t, repo.propLengthsRecount.pending(shard.index.ID(), shard.name), "the next load must recount")
 }
 
-// A shard whose recount failed before it loaded is recounted as it loads.
+func TestRecountPropertyLengths_SwapFailsToReplaceTrackerFile(t *testing.T) {
+	repo, _ := openRecountTestDB(t, t.TempDir(), singleShardState(), false, false)
+	defer repo.Shutdown(context.Background())
+	require.NoError(t, repo.PutObject(testCtx(), &models.Object{
+		Class:      recountTestClass,
+		ID:         strfmt.UUID(uuid.NewString()),
+		Properties: map[string]any{"name": "a b"},
+	}, []float32{1, 2, 3}, nil, nil, nil, 0))
+	shard := recountTestShard(t, repo)
+
+	r := newPropertyLengthsRecounter(shard)
+	_, err := r.count(testCtx())
+	require.NoError(t, err)
+	require.NoError(t, os.Remove(r.recountPath))
+	require.Error(t, r.swapIn())
+}
+
+// The recount must be done before the shard serves, so a load cancelled during it fails.
+func TestRecountPropertyLengthsOnLoad_CancelledFailsLoad(t *testing.T) {
+	repo, schemaGetter := openRecountTestDB(t, t.TempDir(), singleShardState(), false, false)
+	defer repo.Shutdown(context.Background())
+	for _, name := range recountTestNames {
+		require.NoError(t, repo.PutObject(testCtx(), &models.Object{
+			Class:      recountTestClass,
+			ID:         strfmt.UUID(uuid.NewString()),
+			Properties: map[string]any{"name": name},
+		}, []float32{1, 2, 3}, nil, nil, nil, 0))
+	}
+	shard := recountTestShard(t, repo)
+	idx, name, class := shard.index, shard.name, shard.class
+	recountPath := filepath.Join(shard.path(), propLengthsRecountFile)
+	require.NoError(t, shard.Shutdown(testCtx()))
+	idx.shards.LoadAndDelete(name)
+
+	ctx, cancel := context.WithCancel(testCtx())
+	defer cancel()
+	idx.getSchema = &recountHookSchemaGetter{SchemaGetter: schemaGetter, onReadOnlyClass: func() {
+		if _, err := os.Stat(recountPath); err == nil {
+			cancel()
+		}
+	}}
+	idx.Config.PropertyLengthsRecount = &startupRebuild{enabled: true}
+	loaded, err := idx.initShard(ctx, name, class, nil, true, true)
+	if loaded != nil {
+		defer loaded.Shutdown(testCtx())
+	}
+	require.ErrorContains(t, err, "recount property lengths")
+	require.ErrorIs(t, err, context.Canceled)
+}
+
 func TestRecountPropertyLengthsBeforeLoad_FailureRetriedOnLoad(t *testing.T) {
 	repo, _ := openRecountTestDB(t, t.TempDir(), singleShardState(), false, false)
 	defer repo.Shutdown(context.Background())
@@ -237,14 +288,14 @@ func TestRecountPropertyLengthsBeforeLoad_FailureRetriedOnLoad(t *testing.T) {
 	recount := &startupRebuild{enabled: true}
 	idx.Config.PropertyLengthsRecount = recount
 	// a non-empty directory cannot be removed as a leftover recount file
-	require.NoError(t, os.MkdirAll(filepath.Join(trackerPath+".recount", "blocker"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(recountFileOf(trackerPath), "blocker"), 0o755))
 	idx.recountPropertyLengthsOfShards(testCtx(), class, []string{name})
 	_, failed, _ := recount.summary()
 	require.Equal(t, 1, failed)
 	sum, count := diskTally(t, trackerPath)
 	require.Equal(t, []int{5 + 100, 2 + 1}, []int{sum, count}, "a failed recount must keep the previous lengths")
 
-	require.NoError(t, os.RemoveAll(trackerPath+".recount"))
+	require.NoError(t, os.RemoveAll(recountFileOf(trackerPath)))
 	loaded, err := idx.initShard(testCtx(), name, class, nil, true, true)
 	require.NoError(t, err)
 	defer loaded.Shutdown(testCtx())
@@ -364,6 +415,10 @@ func requireTally(t *testing.T, shard *Shard, wantSum, wantCount int, msg string
 
 func removeTracker(t *testing.T, trackerPath string) {
 	require.NoError(t, os.Remove(trackerPath))
+}
+
+func recountFileOf(trackerPath string) string {
+	return filepath.Join(filepath.Dir(trackerPath), propLengthsRecountFile)
 }
 
 func inflateTracker(t *testing.T, trackerPath string) {

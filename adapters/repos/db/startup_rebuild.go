@@ -16,9 +16,9 @@ import (
 	"sync"
 )
 
-// startupRebuild makes a rebuild enabled at startup, such as
-// REINDEX_VECTOR_DIMENSIONS_AT_STARTUP, run on a shard once per process, not on
-// every lazy reload.
+// startupRebuild makes REINDEX_VECTOR_DIMENSIONS_AT_STARTUP or
+// RECOUNT_PROPERTIES_AT_STARTUP rebuild a shard once per process, not on every
+// lazy reload.
 type startupRebuild struct {
 	enabled bool
 
@@ -58,6 +58,14 @@ func (r *startupRebuild) done(index, shard string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.outcomes[rebuiltShard{index, shard}]
+}
+
+// recorded reports whether the shard was rebuilt or failed.
+func (r *startupRebuild) recorded(index, shard string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, ok := r.outcomes[rebuiltShard{index, shard}]
+	return ok
 }
 
 // forget makes dropped shards pending again, as a restore or a replica copy can bring
