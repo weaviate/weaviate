@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -22,6 +23,8 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -30,8 +33,8 @@ const (
 	propLengthsRecountFile = propLengthsFile + ".recount"
 )
 
-// propertyLengthsRecounter rebuilds the property lengths of a shard that does not
-// serve yet from its objects bucket.
+// propertyLengthsRecounter rebuilds the property lengths of a shard from its
+// objects bucket, before the shard serves requests.
 type propertyLengthsRecounter struct {
 	shard       *Shard
 	logger      logrus.FieldLogger
@@ -53,7 +56,7 @@ func newPropertyLengthsRecounter(s *Shard) *propertyLengthsRecounter {
 // returns the number of objects counted.
 func (r *propertyLengthsRecounter) count(ctx context.Context) (int, error) {
 	s := r.shard
-	// left behind by a recount that crashed, it would be loaded as a head start
+	// NewJsonShardMetaData would load a crashed recount's file, and the scan would add to it
 	if err := os.Remove(r.recountPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return 0, fmt.Errorf("remove leftover recount file: %w", err)
 	}
@@ -85,21 +88,33 @@ func (r *propertyLengthsRecounter) scan(ctx context.Context) (count int, err err
 			err = fmt.Errorf("scan objects: panic: %v", p)
 		}
 	}()
-	err = s.store.Bucket(helpers.ObjectsBucketLSM).IterateObjects(ctx, func(object *storobj.Object) error {
-		if err := ctx.Err(); err != nil {
-			return err
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	if bucket == nil {
+		return 0, fmt.Errorf("objects bucket: %w", lsmkv.ErrBucketNotFound)
+	}
+	className := s.index.Config.ClassName.String()
+
+	cursor := bucket.Cursor()
+	defer cursor.Close()
+	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+		if ctx.Err() != nil {
+			return 0, fmt.Errorf("scan objects: %w", context.Cause(ctx))
+		}
+		// the vectors are not needed, and decoding them would take most of the time
+		object, err := storobj.FromBinaryOptionalDisk(v, className, additional.Properties{}, nil)
+		if err != nil {
+			return 0, fmt.Errorf("unmarshal object %d: %w", count, err)
 		}
 		props, _, _, err := s.AnalyzeObject(object)
 		if err != nil {
-			return fmt.Errorf("analyze object %s: %w", object.ID(), err)
+			return 0, fmt.Errorf("analyze object %s: %w", object.ID(), err)
 		}
 		if err := s.SetPropertyLengths(props); err != nil {
-			return fmt.Errorf("track property lengths of object %s: %w", object.ID(), err)
+			return 0, fmt.Errorf("track property lengths of object %s: %w", object.ID(), err)
 		}
 		count++
-		return nil
-	})
-	return count, err
+	}
+	return count, nil
 }
 
 // swapIn replaces the shard's tracker with the one count built. It closes the
@@ -121,6 +136,17 @@ func (r *propertyLengthsRecounter) replaceTrackerFile() error {
 		return fmt.Errorf("replace tracker file: %w", err)
 	}
 	return nil
+}
+
+// propertyLengthsReadable reports whether the tracker file of a shard is missing or
+// holds the current format. A missing one loads as empty.
+func propertyLengthsReadable(shardPath string) bool {
+	data, err := os.ReadFile(path.Join(shardPath, propLengthsFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return true
+	}
+	var metaData *inverted.ShardMetaData
+	return err == nil && json.Unmarshal(data, &metaData) == nil && metaData != nil
 }
 
 // writeEmptyPropertyLengths replaces the tracker file of a shard without objects, as

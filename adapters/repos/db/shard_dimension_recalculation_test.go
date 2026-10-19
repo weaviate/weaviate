@@ -635,24 +635,43 @@ func TestDB_DropForgetsStartupRebuilds(t *testing.T) {
 }
 
 // Complete is reported only when nothing is left, as the operator removes the flag then.
-func TestReportVectorDimensionsReindex(t *testing.T) {
+func TestReportStartupRebuild(t *testing.T) {
 	class := &models.Class{
 		Class:               "Test",
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 	}
-	const complete = "Reindexing dimensions complete"
+	rebuilds := []struct {
+		name     string
+		rebuild  func(db *DB) *startupRebuild
+		report   func(m *Migrator, ctx context.Context) error
+		complete string
+	}{
+		{
+			name:     "dimensions",
+			rebuild:  func(db *DB) *startupRebuild { return &db.dimensionsReindex },
+			report:   (*Migrator).ReportVectorDimensionsReindex,
+			complete: "Reindexing dimensions complete",
+		},
+		{
+			name:     "property lengths",
+			rebuild:  func(db *DB) *startupRebuild { return &db.propLengthsRecount },
+			report:   (*Migrator).ReportPropertyLengthsRecount,
+			complete: "Recounting property lengths complete",
+		},
+	}
 
 	tests := []struct {
 		name        string
 		ctx         func() context.Context
-		prepare     func(t *testing.T, db *DB, index *Index)
+		prepare     func(t *testing.T, db *DB, index *Index, rebuild *startupRebuild)
 		expectedErr string
+		frozen      int
 	}{
 		{name: "complete"},
 		{
 			name: "startup not complete",
-			prepare: func(t *testing.T, db *DB, _ *Index) {
+			prepare: func(t *testing.T, db *DB, _ *Index, _ *startupRebuild) {
 				db.startupComplete.Store(false)
 			},
 			expectedErr: "has not completed startup",
@@ -664,57 +683,72 @@ func TestReportVectorDimensionsReindex(t *testing.T) {
 				cancel()
 				return ctx
 			},
-			prepare: func(t *testing.T, _ *DB, index *Index) {
+			prepare: func(t *testing.T, _ *DB, index *Index, _ *startupRebuild) {
 				index.allShardsReady.Store(false)
 			},
 			expectedErr: "wait for shards to load",
 		},
 		{
 			name: "failed shard",
-			prepare: func(t *testing.T, db *DB, _ *Index) {
-				db.dimensionsReindex.record("other", "other", 0, false)
+			prepare: func(t *testing.T, _ *DB, _ *Index, rebuild *startupRebuild) {
+				rebuild.record("other", "other", 0, false)
 			},
 			expectedErr: "1 failed",
 		},
 		{
 			name: "inactive tenant",
-			prepare: func(t *testing.T, _ *DB, index *Index) {
+			prepare: func(t *testing.T, _ *DB, index *Index, _ *startupRebuild) {
 				addLocalPhysicalForTest(t, index, "cold", models.TenantActivityStatusCOLD)
 				writeIndexCountForTest(t, index, "cold", 3)
 			},
 			expectedErr: "1 inactive tenants with objects",
 		},
 		{
+			name: "inactive tenant rebuilt",
+			prepare: func(t *testing.T, _ *DB, index *Index, rebuild *startupRebuild) {
+				addLocalPhysicalForTest(t, index, "cold", models.TenantActivityStatusCOLD)
+				writeIndexCountForTest(t, index, "cold", 3)
+				rebuild.record(index.ID(), "cold", 3, true)
+			},
+		},
+		{
+			name: "inactive tenant failed, counted once",
+			prepare: func(t *testing.T, _ *DB, index *Index, rebuild *startupRebuild) {
+				addLocalPhysicalForTest(t, index, "cold", models.TenantActivityStatusCOLD)
+				writeIndexCountForTest(t, index, "cold", 3)
+				rebuild.record(index.ID(), "cold", 0, false)
+			},
+			expectedErr: "1 failed, 0 active shards not loaded, 0 inactive tenants with objects",
+		},
+		{
 			name: "inactive tenant never written to",
-			prepare: func(t *testing.T, _ *DB, index *Index) {
+			prepare: func(t *testing.T, _ *DB, index *Index, _ *startupRebuild) {
 				addLocalPhysicalForTest(t, index, "cold", models.TenantActivityStatusCOLD)
 				writeIndexCountForTest(t, index, "cold", 0)
 			},
 		},
 		{
-			// its dir is removed at freeze, and reads as never written to
+			// rebuilt when it is unfrozen
 			name: "frozen tenant",
-			prepare: func(t *testing.T, _ *DB, index *Index) {
+			prepare: func(t *testing.T, _ *DB, index *Index, _ *startupRebuild) {
 				addLocalPhysicalForTest(t, index, "frozen", models.TenantActivityStatusFROZEN)
 			},
-			expectedErr: "1 inactive tenants with objects",
+			frozen: 1,
 		},
 		{
 			// as while it is activated, or after loading it failed
 			name: "active shard not loaded",
-			prepare: func(t *testing.T, _ *DB, index *Index) {
+			prepare: func(t *testing.T, _ *DB, index *Index, _ *startupRebuild) {
 				addLocalPhysicalForTest(t, index, "loading", models.TenantActivityStatusHOT)
 				writeIndexCountForTest(t, index, "loading", 3)
 			},
 			expectedErr: "1 active shards not loaded",
 		},
 		{
-			// as when creating it failed at startup, before its shards were reindexed
+			// as when creating it failed at startup, before its shards were rebuilt
 			name: "class without index",
-			prepare: func(t *testing.T, db *DB, index *Index) {
-				db.dimensionsReindex.mu.Lock()
-				db.dimensionsReindex.outcomes = nil
-				db.dimensionsReindex.mu.Unlock()
+			prepare: func(t *testing.T, db *DB, index *Index, rebuild *startupRebuild) {
+				rebuild.forget(index.ID())
 				db.indexLock.Lock()
 				delete(db.indices, index.ID())
 				db.indexLock.Unlock()
@@ -727,39 +761,47 @@ func TestReportVectorDimensionsReindex(t *testing.T) {
 			expectedErr: "1 active shards not loaded",
 		},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
-			db.dimensionsReindex.enabled = true
-			logger, hook := test.NewNullLogger()
-			migrator := NewMigrator(db, logger, "node1")
-			index := db.GetIndex(schema.ClassName(class.Class))
-			require.NoError(t, db.PutObject(testCtx(), &models.Object{Class: class.Class, ID: strfmt.UUID(uuid.NewString())},
-				randVector(3), nil, nil, nil, 0))
-			rebuilt, _, _ := db.dimensionsReindex.summary()
-			require.Equal(t, 1, rebuilt, "the shard is reindexed as it loads")
-			if tt.prepare != nil {
-				tt.prepare(t, db, index)
-			}
-			ctx := testCtx()
-			if tt.ctx != nil {
-				ctx = tt.ctx()
-			}
-
-			err := migrator.ReportVectorDimensionsReindex(ctx)
-
-			if tt.expectedErr != "" {
-				require.ErrorContains(t, err, tt.expectedErr)
-				for _, entry := range hook.AllEntries() {
-					assert.NotContains(t, entry.Message, complete)
+	for _, rb := range rebuilds {
+		for _, tt := range tests {
+			t.Run(rb.name+"/"+tt.name, func(t *testing.T) {
+				db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+				rebuild := rb.rebuild(db)
+				rebuild.enabled = true
+				logger, hook := test.NewNullLogger()
+				migrator := NewMigrator(db, logger, "node1")
+				index := db.GetIndex(schema.ClassName(class.Class))
+				require.NoError(t, db.PutObject(testCtx(), &models.Object{Class: class.Class, ID: strfmt.UUID(uuid.NewString())},
+					randVector(3), nil, nil, nil, 0))
+				rebuilt, _, _ := rebuild.summary()
+				require.Equal(t, 1, rebuilt, "the shard is rebuilt as it loads")
+				if tt.prepare != nil {
+					tt.prepare(t, db, index, rebuild)
 				}
-				return
-			}
-			require.NoError(t, err)
-			last := hook.LastEntry()
-			require.NotNil(t, last)
-			assert.Contains(t, last.Message, complete)
-		})
+				ctx := testCtx()
+				if tt.ctx != nil {
+					ctx = tt.ctx()
+				}
+
+				err := rb.report(migrator, ctx)
+
+				if tt.expectedErr != "" {
+					require.ErrorContains(t, err, tt.expectedErr)
+					for _, entry := range hook.AllEntries() {
+						assert.NotContains(t, entry.Message, rb.complete)
+					}
+					return
+				}
+				require.NoError(t, err)
+				last := hook.LastEntry()
+				require.NotNil(t, last)
+				assert.Contains(t, last.Message, rb.complete)
+				if tt.frozen > 0 {
+					assert.Equal(t, tt.frozen, last.Data["frozen_tenants"])
+				} else {
+					assert.NotContains(t, last.Data, "frozen_tenants")
+				}
+			})
+		}
 	}
 }
 

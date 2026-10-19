@@ -133,8 +133,8 @@ func (i *Index) rebuildUnloadedShardDimensions(ctx context.Context, class *model
 	return s.recalculateDimensions(ctx)
 }
 
-// openUnloadedShard opens a shard that is not loaded with only its objects bucket,
-// for a rebuild before it loads. closeShard shuts its store down.
+// openUnloadedShard opens only the objects bucket of a shard that is not loaded,
+// for a rebuild before the shard loads. closeShard shuts its store down.
 func (i *Index) openUnloadedShard(ctx context.Context, class *models.Class, name string,
 ) (s *Shard, closeShard func() error, err error) {
 	s = &Shard{
