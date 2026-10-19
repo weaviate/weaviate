@@ -14,6 +14,7 @@ package modules
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -26,8 +27,9 @@ import (
 	enitiesSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/decide"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/annotate"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
 // typedModule is a module of any type that serves the given additional
@@ -46,8 +48,8 @@ func (m typedModule) Type() modulecapabilities.ModuleType {
 func (m typedModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	out := map[string]modulecapabilities.AdditionalProperty{}
 	for _, name := range m.properties {
-		if name == "rerank" {
-			out[name] = rerankProperty(m.name, m.served)[name]
+		if name == "rerank" || name == "annotate" {
+			out[name] = recordingProperty(m.name, m.served)
 			continue
 		}
 		out[name] = modulecapabilities.AdditionalProperty{}
@@ -55,12 +57,30 @@ func (m typedModule) AdditionalProperties() map[string]modulecapabilities.Additi
 	return out
 }
 
+// recordingProperty serves rerank or annotate by recording the module and,
+// when the config it is given holds one, the maxDocuments setting.
+func recordingProperty(module string, served *[]string) modulecapabilities.AdditionalProperty {
+	fn := func(ctx context.Context, in []search.Result, params any, limit *int,
+		argumentModuleParams map[string]any, cfg moduletools.ClassConfig,
+	) ([]search.Result, error) {
+		if served != nil {
+			record := module
+			if maxDocuments, ok := cfg.ClassByModuleName(module)["maxDocuments"]; ok {
+				record = fmt.Sprintf("%s maxDocuments=%v", module, maxDocuments)
+			}
+			*served = append(*served, record)
+		}
+		return in, nil
+	}
+	return modulecapabilities.AdditionalProperty{SearchFunctions: modulecapabilities.AdditionalSearch{ExploreGet: fn, ExploreList: fn}}
+}
+
 func rerankerModule(name string, served *[]string) typedModule {
 	return typedModule{dummyNonVectorizerModule{name: name}, modulecapabilities.Text2TextReranker, []string{"rerank"}, served}
 }
 
 func decisionsModule(name string, served *[]string) typedModule {
-	return typedModule{dummyNonVectorizerModule{name: name}, modulecapabilities.Decisions, []string{"rerank", "decide"}, served}
+	return typedModule{dummyNonVectorizerModule{name: name}, modulecapabilities.Decisions, []string{"rerank", "annotate"}, served}
 }
 
 // A module's kind is its type. The schema holds one reranker and one
@@ -110,6 +130,7 @@ func kindsSchemaReader() schemaGetter {
 		// decisions-z sorts after reranker-a, so a choice by name would pick it.
 		class("Both", "reranker-a", "decisions-z"),
 		class("None"),
+		{Class: "Tuned", ModuleConfig: map[string]interface{}{"decisions-z": map[string]interface{}{"maxDocuments": 5, "model": "class-model"}}},
 	}}}}
 }
 
@@ -124,13 +145,13 @@ func TestRerankModule(t *testing.T) {
 		wantErr  string
 	}{
 		{class: "Reranker", want: "reranker-a"},
-		{class: "Reranker", decision: true, wantErr: `rerank.decision needs a decisions module, class "Reranker" has none`},
+		{class: "Reranker", decision: true, wantErr: `rerank.decision: class "Reranker" has no decisions module and the request names no provider`},
 		{class: "Decisions", want: "decisions-z"},
 		{class: "Decisions", decision: true, want: "decisions-z"},
 		{class: "Both", want: "reranker-a"},
 		{class: "Both", decision: true, want: "decisions-z"},
 		{class: "None", want: ""},
-		{class: "None", decision: true, wantErr: `rerank.decision needs a decisions module, class "None" has none`},
+		{class: "None", decision: true, wantErr: `rerank.decision: class "None" has no decisions module and the request names no provider`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.class+"/decision="+map[bool]string{false: "no", true: "yes"}[tt.decision], func(t *testing.T) {
@@ -145,7 +166,7 @@ func TestRerankModule(t *testing.T) {
 
 			class, err := p.getClass(tt.class)
 			require.NoError(t, err)
-			module, err := p.rerankModule(class, tt.decision)
+			module, err := p.rerankModule(class, tt.decision, nil)
 
 			if tt.wantErr != "" {
 				require.EqualError(t, err, tt.wantErr)
@@ -163,7 +184,7 @@ func TestRerankModule(t *testing.T) {
 }
 
 // A class that names a reranker and a decisions module gets its rerank from
-// the reranker on every request, whatever the names, and decide from the
+// the reranker on every request, whatever the names, and annotate from the
 // decisions module.
 func TestClassWithBothKindsReranksWithTheReranker(t *testing.T) {
 	logger, _ := test.NewNullLogger()
@@ -188,7 +209,7 @@ func TestClassWithBothKindsReranksWithTheReranker(t *testing.T) {
 	class, err := p.getClass("Both")
 	require.NoError(t, err)
 	properties := p.classAdditionalProperties(class)
-	assert.Contains(t, properties, "decide")
+	assert.Contains(t, properties, "annotate")
 }
 
 // A class whose moduleConfig names no module gets one of a kind implicitly
@@ -254,19 +275,19 @@ func (m limitedDecisions) DecisionLimits(moduletools.ClassConfig) (modulecapabil
 	return m.limits, m.err
 }
 
-func TestDecideLimits(t *testing.T) {
+func TestAnnotateLimits(t *testing.T) {
 	declared := modulecapabilities.DecisionLimits{MaxDocuments: 7, MaxLevels: 10, DataTypes: []enitiesSchema.DataType{enitiesSchema.DataTypeText}}
 	tests := []struct {
 		name    string
 		class   string
 		module  modulecapabilities.Module
-		want    decide.Limits
+		want    annotate.Limits
 		wantErr string
 	}{
 		{
 			name: "a module that declares its limits", class: "Decisions",
 			module: limitedDecisions{decisionsModule("decisions-z", nil), declared, nil},
-			want:   decide.Limits{Module: "decisions-z", DecisionLimits: declared},
+			want:   annotate.Limits{Module: "decisions-z", DecisionLimits: declared},
 		},
 		{
 			name: "a class setting the module cannot work with", class: "Decisions",
@@ -276,14 +297,14 @@ func TestDecideLimits(t *testing.T) {
 		{
 			name: "a module that declares none judges text within the ceilings", class: "Decisions",
 			module: decisionsModule("decisions-z", nil),
-			want: decide.Limits{Module: "decisions-z", DecisionLimits: modulecapabilities.DecisionLimits{
+			want: annotate.Limits{Module: "decisions-z", DecisionLimits: modulecapabilities.DecisionLimits{
 				DataTypes: []enitiesSchema.DataType{enitiesSchema.DataTypeText},
 			}},
 		},
 		{
 			name: "a class without a decisions module", class: "Reranker",
 			module:  decisionsModule("decisions-z", nil),
-			wantErr: `class "Reranker" has no decisions module`,
+			wantErr: `class "Reranker" has no decisions module and the request names no provider`,
 		},
 	}
 	for _, tt := range tests {
@@ -296,7 +317,7 @@ func TestDecideLimits(t *testing.T) {
 			p.Register(tt.module)
 			p.Register(decisionsModule("decisions-y", nil))
 
-			limits, err := p.DecideLimits(kindsSchemaReader().ReadOnlyClass(tt.class))
+			limits, err := p.AnnotateLimits(context.Background(), kindsSchemaReader().ReadOnlyClass(tt.class), nil, "annotate")
 
 			if tt.wantErr != "" {
 				require.EqualError(t, err, tt.wantErr)
@@ -325,7 +346,7 @@ func TestRerankDecisionRoutesToTheDecisionsModule(t *testing.T) {
 		{name: "both kinds, decision", class: "Both", params: decision, want: "decisions-z"},
 		{name: "decisions only, plain rerank", class: "Decisions", params: plain, want: "decisions-z"},
 		{name: "decisions only, decision", class: "Decisions", params: decision, want: "decisions-z"},
-		{name: "reranker only, decision", class: "Reranker", params: decision, wantErr: `rerank.decision needs a decisions module, class "Reranker" has none`},
+		{name: "reranker only, decision", class: "Reranker", params: decision, wantErr: `rerank.decision: class "Reranker" has no decisions module and the request names no provider`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -348,6 +369,227 @@ func TestRerankDecisionRoutesToTheDecisionsModule(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, []string{tt.want}, served)
+		})
+	}
+}
+
+// A request names a decisions module instead of the class's. The module
+// needs no class config; it must be enabled, be a decisions module and serve
+// the property it is named for.
+func TestDecisionsModuleByProvider(t *testing.T) {
+	tests := []struct {
+		name     string
+		class    string
+		provider *ent.DecisionsProvider
+		property string
+		want     string
+		wantErr  string
+	}{
+		{name: "the class's module", class: "Decisions", want: "decisions-z"},
+		{name: "a module the class does not configure", class: "Reranker", provider: &ent.DecisionsProvider{Module: "decisions-y"}, want: "decisions-y"},
+		{name: "another module than the class's", class: "Decisions", provider: &ent.DecisionsProvider{Module: "decisions-y"}, want: "decisions-y"},
+		{name: "a module that is not enabled", class: "Decisions", provider: &ent.DecisionsProvider{Module: "decisions-nope"}, wantErr: `provider "decisions-nope" is not enabled`},
+		{name: "a module of another type", class: "Decisions", provider: &ent.DecisionsProvider{Module: "reranker-a"}, wantErr: `provider "reranker-a" is not a decisions module`},
+		{name: "a decisions module that serves rerank only, for annotate", class: "Decisions", provider: &ent.DecisionsProvider{Module: "decisions-rerank-only"}, wantErr: `provider "decisions-rerank-only" does not serve annotate`},
+		{name: "a decisions module that serves rerank only, for rerank", class: "Decisions", provider: &ent.DecisionsProvider{Module: "decisions-rerank-only"}, property: "rerank", want: "decisions-rerank-only"},
+		{name: "a decisions module that serves annotate only, for rerank", class: "Decisions", provider: &ent.DecisionsProvider{Module: "decisions-annotate-only"}, property: "rerank", wantErr: `provider "decisions-annotate-only" does not serve rerank`},
+		{name: "no provider on a class without a module", class: "Reranker", wantErr: `class "Reranker" has no decisions module and the request names no provider`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			p := NewProvider(logger, config.Config{})
+			p.SetSchemaGetter(kindsSchemaReader())
+			p.Register(rerankerModule("reranker-a", nil))
+			p.Register(decisionsModule("decisions-z", nil))
+			p.Register(decisionsModule("decisions-y", nil))
+			p.Register(typedModule{dummyNonVectorizerModule{name: "decisions-rerank-only"}, modulecapabilities.Decisions, []string{"rerank"}, nil})
+			p.Register(typedModule{dummyNonVectorizerModule{name: "decisions-annotate-only"}, modulecapabilities.Decisions, []string{"annotate"}, nil})
+			property := tt.property
+			if property == "" {
+				property = "annotate"
+			}
+
+			module, err := p.decisionsModule(kindsSchemaReader().ReadOnlyClass(tt.class), tt.provider, property)
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, module.Name())
+		})
+	}
+}
+
+// settingsDecisions is a decisions module whose limits come from its
+// maxDocuments setting and whose class validation bounds it.
+type settingsDecisions struct {
+	typedModule
+}
+
+func (m settingsDecisions) DecisionLimits(cfg moduletools.ClassConfig) (modulecapabilities.DecisionLimits, error) {
+	maxDocuments, _ := cfg.ClassByModuleName(m.name)["maxDocuments"].(int)
+	return modulecapabilities.DecisionLimits{MaxDocuments: maxDocuments, DataTypes: []enitiesSchema.DataType{enitiesSchema.DataTypeText}}, nil
+}
+
+func (m settingsDecisions) ClassConfigDefaults() map[string]any { return nil }
+
+func (m settingsDecisions) PropertyConfigDefaults(*enitiesSchema.DataType) map[string]any {
+	return nil
+}
+
+func (m settingsDecisions) ValidateClass(_ context.Context, _ *models.Class, cfg moduletools.ClassConfig) error {
+	if maxDocuments, _ := cfg.ClassByModuleName(m.name)["maxDocuments"].(int); maxDocuments > 1000 {
+		return fmt.Errorf("maxDocuments must be between 1 and 1000, got %d", maxDocuments)
+	}
+	return nil
+}
+
+// The settings a request names are read over the class's, and go through
+// the module's class validation before the search.
+func TestAnnotateLimitsWithProvider(t *testing.T) {
+	tests := []struct {
+		name     string
+		class    string
+		provider *ent.DecisionsProvider
+		want     int
+		wantErr  string
+	}{
+		{name: "the class setting", class: "Tuned", want: 5},
+		{name: "the class's module with a request setting over the class's", class: "Tuned", provider: &ent.DecisionsProvider{Module: "decisions-z", Settings: map[string]any{"maxDocuments": 7}}, want: 7},
+		{name: "the class's module named without settings", class: "Tuned", provider: &ent.DecisionsProvider{Module: "decisions-z"}, want: 5},
+		{name: "another module reads its own defaults, not the class's settings", class: "Tuned", provider: &ent.DecisionsProvider{Module: "decisions-y", Settings: map[string]any{"maxDocuments": 9}}, want: 9},
+		{name: "a module the class does not configure", class: "Reranker", provider: &ent.DecisionsProvider{Module: "decisions-y", Settings: map[string]any{"maxDocuments": 3}}, want: 3},
+		{name: "a request setting the module rejects", class: "Tuned", provider: &ent.DecisionsProvider{Module: "decisions-z", Settings: map[string]any{"maxDocuments": 5000}}, wantErr: "decisions-z: maxDocuments must be between 1 and 1000, got 5000"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			p := NewProvider(logger, config.Config{})
+			p.SetSchemaGetter(kindsSchemaReader())
+			p.Register(rerankerModule("reranker-a", nil))
+			p.Register(settingsDecisions{decisionsModule("decisions-z", nil)})
+			p.Register(settingsDecisions{decisionsModule("decisions-y", nil)})
+
+			limits, err := p.AnnotateLimits(context.Background(), kindsSchemaReader().ReadOnlyClass(tt.class), tt.provider, "annotate")
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, limits.MaxDocuments)
+		})
+	}
+}
+
+// annotate and a rerank by a decision go to the module the request names,
+// with the request's settings over the class's; without a provider they go
+// to the class's module.
+func TestAdditionalExtendRoutesByProvider(t *testing.T) {
+	property := "text"
+	questions := []ent.DecisionQuestion{{Name: "a", Property: property, Instructions: "x", Kind: ent.DecisionPredicate}}
+	tests := []struct {
+		name    string
+		class   string
+		params  map[string]any
+		want    []string
+		wantErr string
+	}{
+		{
+			name: "annotate by the class's module", class: "Tuned",
+			params: map[string]any{"annotate": &annotate.Params{Questions: questions}},
+			want:   []string{"decisions-z maxDocuments=5"},
+		},
+		{
+			name: "annotate by a named module the class does not configure", class: "Reranker",
+			params: map[string]any{"annotate": &annotate.Params{Questions: questions, Provider: &ent.DecisionsProvider{Module: "decisions-y", Settings: map[string]any{"maxDocuments": 7}}}},
+			want:   []string{"decisions-y maxDocuments=7"},
+		},
+		{
+			name: "annotate by the class's module with a request setting", class: "Tuned",
+			params: map[string]any{"annotate": &annotate.Params{Questions: questions, Provider: &ent.DecisionsProvider{Module: "decisions-z", Settings: map[string]any{"maxDocuments": 8}}}},
+			want:   []string{"decisions-z maxDocuments=8"},
+		},
+		{
+			name: "annotate by a module that is not enabled", class: "Tuned",
+			params:  map[string]any{"annotate": &annotate.Params{Questions: questions, Provider: &ent.DecisionsProvider{Module: "decisions-nope"}}},
+			wantErr: `annotate: provider "decisions-nope" is not enabled`,
+		},
+		{
+			name: "rerank by a decision of a named module on a class with a reranker only", class: "Reranker",
+			params: map[string]any{"rerank": &rank.Params{Property: &property, Decision: &rank.Decision{}, Provider: &ent.DecisionsProvider{Module: "decisions-y"}}},
+			want:   []string{"decisions-y"},
+		},
+		{
+			name: "rerank by a decision without a provider goes to the class's module", class: "Both",
+			params: map[string]any{"rerank": &rank.Params{Property: &property, Decision: &rank.Decision{}}},
+			want:   []string{"decisions-z"},
+		},
+		{
+			name: "rerank by a decision of a named module with a request setting", class: "Reranker",
+			params: map[string]any{"rerank": &rank.Params{Property: &property, Decision: &rank.Decision{}, Provider: &ent.DecisionsProvider{Module: "decisions-y", Settings: map[string]any{"maxDocuments": 7}}}},
+			want:   []string{"decisions-y maxDocuments=7"},
+		},
+		{
+			name: "rerank by a decision of the class's module with a request setting over the class's", class: "Tuned",
+			params: map[string]any{"rerank": &rank.Params{Property: &property, Decision: &rank.Decision{}, Provider: &ent.DecisionsProvider{Module: "decisions-z", Settings: map[string]any{"maxDocuments": 8}}}},
+			want:   []string{"decisions-z maxDocuments=8"},
+		},
+		{
+			name: "annotate by a named module other than the class's", class: "Tuned",
+			params: map[string]any{"annotate": &annotate.Params{Questions: questions, Provider: &ent.DecisionsProvider{Module: "decisions-y", Settings: map[string]any{"maxDocuments": 9}}}},
+			want:   []string{"decisions-y maxDocuments=9"},
+		},
+		{
+			name: "rerank and annotate by different modules in one query", class: "Both",
+			params: map[string]any{
+				"rerank":   &rank.Params{Property: &property, Decision: &rank.Decision{}, Provider: &ent.DecisionsProvider{Module: "decisions-y"}},
+				"annotate": &annotate.Params{Questions: questions},
+			},
+			want: []string{"decisions-y", "decisions-z"},
+		},
+		{
+			name: "rerank and annotate with a provider and settings each, on a class without a decisions module", class: "Reranker",
+			params: map[string]any{
+				"rerank":   &rank.Params{Property: &property, Decision: &rank.Decision{}, Provider: &ent.DecisionsProvider{Module: "decisions-y", Settings: map[string]any{"maxDocuments": 3}}},
+				"annotate": &annotate.Params{Questions: questions, Provider: &ent.DecisionsProvider{Module: "decisions-z", Settings: map[string]any{"maxDocuments": 4}}},
+			},
+			want: []string{"decisions-y maxDocuments=3", "decisions-z maxDocuments=4"},
+		},
+		{
+			name: "annotate by a decisions module that serves rerank only", class: "Tuned",
+			params:  map[string]any{"annotate": &annotate.Params{Questions: questions, Provider: &ent.DecisionsProvider{Module: "decisions-rerank-only"}}},
+			wantErr: `annotate: provider "decisions-rerank-only" does not serve annotate`,
+		},
+		{
+			name: "rerank by a decision of a module that serves rerank only", class: "Tuned",
+			params: map[string]any{"rerank": &rank.Params{Property: &property, Decision: &rank.Decision{}, Provider: &ent.DecisionsProvider{Module: "decisions-rerank-only"}}},
+			want:   []string{"decisions-rerank-only"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			var served []string
+			p := NewProvider(logger, config.Config{})
+			p.SetSchemaGetter(kindsSchemaReader())
+			p.Register(rerankerModule("reranker-a", &served))
+			p.Register(decisionsModule("decisions-z", &served))
+			p.Register(decisionsModule("decisions-y", &served))
+			p.Register(typedModule{dummyNonVectorizerModule{name: "decisions-rerank-only"}, modulecapabilities.Decisions, []string{"rerank"}, &served})
+			in := []search.Result{{ClassName: tt.class, Schema: map[string]interface{}{property: "some text"}}}
+
+			_, err := p.GetExploreAdditionalExtend(context.Background(), in, tt.params, nil, nil)
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				assert.Empty(t, served)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, served)
 		})
 	}
 }

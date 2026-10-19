@@ -11,11 +11,16 @@
 
 package rank
 
+import "github.com/weaviate/weaviate/usecases/modulecomponents/ent"
+
 type Params struct {
 	Property *string
 	Query    *string
 	// Decision is set when a decision model reranks, see Decision.
 	Decision *Decision
+	// Provider is the decisions module the request names; nil is the
+	// class's. Set with Decision only.
+	Provider *ent.DecisionsProvider
 }
 
 func (n Params) GetQuery() string {

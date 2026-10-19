@@ -1232,12 +1232,12 @@ func TestGRPCReply(t *testing.T) {
 			},
 		},
 		{
-			name: "decide only",
+			name: "annotate only",
 			res: []interface{}{
 				map[string]interface{}{
 					"_additional": map[string]interface{}{
 						"id": UUID1,
-						"decide": []ent.DecisionAnswer{
+						"annotate": []ent.DecisionAnswer{
 							{Name: "angry", Kind: ent.DecisionPredicate, Probability: 0.9},
 							{
 								Name: "team", Kind: ent.DecisionChoice, Choice: "billing", Confidence: 0.7,
@@ -1254,13 +1254,13 @@ func TestGRPCReply(t *testing.T) {
 			},
 			searchParams: dto.GetParams{AdditionalProperties: additional.Properties{
 				ID:           true,
-				ModuleParams: map[string]interface{}{"decide": "must be present for extraction"},
+				ModuleParams: map[string]interface{}{"annotate": "must be present for extraction"},
 			}},
 			outSearch: []*pb.SearchResult{
 				{
 					Metadata:   &pb.MetadataResult{Id: string(UUID1), IdAsBytes: idByte(UUID1.String())},
 					Properties: &pb.PropertiesResult{},
-					Decisions: &pb.DecisionResult{Answers: []*pb.DecisionAnswer{
+					Annotations: &pb.DecisionResult{Answers: []*pb.DecisionAnswer{
 						{Name: "angry", Kind: &pb.DecisionAnswer_Predicate{Predicate: &pb.DecisionPredicateAnswer{Probability: 0.9}}},
 						{Name: "team", Kind: &pb.DecisionAnswer_Choice{Choice: &pb.DecisionChoiceAnswer{
 							Choice: "billing", Confidence: 0.7,
@@ -1391,7 +1391,7 @@ func TestGRPCReply(t *testing.T) {
 					out.Results[i].Metadata.Vectors = nil
 					tt.outSearch[i].Metadata.Vectors = nil
 					require.Equal(t, tt.outSearch[i].Metadata.String(), out.Results[i].Metadata.String())
-					require.Equal(t, tt.outSearch[i].Decisions.String(), out.Results[i].Decisions.String())
+					require.Equal(t, tt.outSearch[i].Annotations.String(), out.Results[i].Annotations.String())
 				}
 				require.Equal(t, tt.outGenerative, *out.GenerativeGroupedResult)
 			}

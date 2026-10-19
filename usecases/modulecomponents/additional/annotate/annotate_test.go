@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package decide
+package annotate
 
 import (
 	"context"
@@ -96,7 +96,7 @@ func result(class string, properties map[string]any) search.Result {
 	return search.Result{ClassName: class, Schema: properties}
 }
 
-func TestDecideAttachesOneAnswerPerQuestion(t *testing.T) {
+func TestAnnotateAttachesOneAnswerPerQuestion(t *testing.T) {
 	client := &fakeClient{}
 	in := []search.Result{
 		result("C", map[string]any{"text": "a long document", "title": "t1"}),
@@ -106,7 +106,7 @@ func TestDecideAttachesOneAnswerPerQuestion(t *testing.T) {
 		predicate("angry", "text"), choice("team", "title"), predicate("urgent", "text"),
 	}}
 
-	out, err := New(client).decide(context.Background(), nil, in, params)
+	out, err := New(client).annotate(context.Background(), nil, in, params)
 
 	require.NoError(t, err)
 	require.Len(t, out, 2)
@@ -128,7 +128,7 @@ func TestDecideAttachesOneAnswerPerQuestion(t *testing.T) {
 	assert.InDelta(t, 0.05, short[0].Probability, 1e-9)
 }
 
-func TestDecideRefusesWhatHasNoText(t *testing.T) {
+func TestAnnotateRefusesWhatHasNoText(t *testing.T) {
 	client := &fakeClient{}
 	in := []search.Result{
 		result("C", map[string]any{"text": "a document"}),
@@ -138,7 +138,7 @@ func TestDecideRefusesWhatHasNoText(t *testing.T) {
 	}
 	params := &Params{Questions: []ent.DecisionQuestion{predicate("angry", "text")}}
 
-	out, err := New(client).decide(context.Background(), nil, in, params)
+	out, err := New(client).annotate(context.Background(), nil, in, params)
 
 	require.NoError(t, err)
 	require.Equal(t, []call{{questions: []string{"angry"}, documents: []string{"a document"}}}, client.calls)
@@ -151,19 +151,19 @@ func TestDecideRefusesWhatHasNoText(t *testing.T) {
 	}
 }
 
-func TestDecideSendsNothingWhenNoResultHasText(t *testing.T) {
+func TestAnnotateSendsNothingWhenNoResultHasText(t *testing.T) {
 	client := &fakeClient{}
 	in := []search.Result{result("C", map[string]any{"other": "x"})}
 	params := &Params{Questions: []ent.DecisionQuestion{predicate("angry", "text")}}
 
-	out, err := New(client).decide(context.Background(), nil, in, params)
+	out, err := New(client).annotate(context.Background(), nil, in, params)
 
 	require.NoError(t, err)
 	assert.Empty(t, client.calls)
 	assert.True(t, out[0].AdditionalProperties[Property].([]ent.DecisionAnswer)[0].Refused)
 }
 
-func TestDecideClientErrors(t *testing.T) {
+func TestAnnotateClientErrors(t *testing.T) {
 	tests := []struct {
 		name    string
 		client  *fakeClient
@@ -178,17 +178,17 @@ func TestDecideClientErrors(t *testing.T) {
 			in := []search.Result{result("C", map[string]any{"text": "a document"})}
 			params := &Params{Questions: []ent.DecisionQuestion{predicate("angry", "text")}}
 
-			_, err := New(tt.client).decide(context.Background(), nil, in, params)
+			_, err := New(tt.client).annotate(context.Background(), nil, in, params)
 
 			require.EqualError(t, err, tt.wantErr)
 		})
 	}
 }
 
-func TestDecideNoResults(t *testing.T) {
+func TestAnnotateNoResults(t *testing.T) {
 	client := &fakeClient{}
 
-	out, err := New(client).decide(context.Background(), nil, nil, &Params{})
+	out, err := New(client).annotate(context.Background(), nil, nil, &Params{})
 
 	require.NoError(t, err)
 	assert.Nil(t, out)

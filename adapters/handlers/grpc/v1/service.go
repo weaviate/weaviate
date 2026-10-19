@@ -70,7 +70,7 @@ type Service struct {
 	batchHandler       batch.Batcher
 	batchStreamHandler *batch.StreamHandler
 	batchObjectsSem    *semaphore.Weighted
-	decideLimits       decideLimitsFunc
+	annotateLimits     annotateLimitsFunc
 }
 
 func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *state.State) (*Service, batch.Drain) {
@@ -94,12 +94,12 @@ func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *sta
 		state.ServerConfig.Config.Namespaces.Enabled,
 		batch.WithStreamConfig(state.ServerConfig.Config.BatchStream),
 	)
-	var decideLimits decideLimitsFunc
+	var annotateLimits annotateLimitsFunc
 	if state.Modules != nil {
-		decideLimits = state.Modules.DecideLimits
+		annotateLimits = state.Modules.AnnotateLimits
 	}
 	return &Service{
-		decideLimits:         decideLimits,
+		annotateLimits:       annotateLimits,
 		traverser:            state.Traverser,
 		authComposer:         authComposer,
 		allowAnonymousAccess: state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled,
@@ -369,7 +369,7 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (reply *pb.
 		getClass,
 		principal,
 		s.config.Namespaces.Enabled,
-		s.decideLimits,
+		s.annotateLimits,
 	)
 	replier := NewReplier(
 		req.Uses_127Api,
@@ -378,7 +378,7 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (reply *pb.
 		s.logger,
 	)
 
-	searchParams, err := parser.Search(req, s.config)
+	searchParams, err := parser.Search(ctx, req, s.config)
 	if err != nil {
 		return nil, err
 	}

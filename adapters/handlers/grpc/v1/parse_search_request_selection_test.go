@@ -12,6 +12,7 @@
 package v1
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -33,7 +34,7 @@ func TestParseHybridSelection(t *testing.T) {
 	}
 
 	t.Run("top-level Hybrid selection reaches GetParams.Selection", func(t *testing.T) {
-		out, err := parser.Search(&pb.SearchRequest{
+		out, err := parser.Search(context.Background(), &pb.SearchRequest{
 			Collection: classname,
 			HybridSearch: &pb.Hybrid{
 				Query:      "q",
@@ -49,7 +50,7 @@ func TestParseHybridSelection(t *testing.T) {
 	})
 
 	t.Run("selection on hybrid near_vector sub-query is rejected", func(t *testing.T) {
-		_, err := parser.Search(&pb.SearchRequest{
+		_, err := parser.Search(context.Background(), &pb.SearchRequest{
 			Collection: classname,
 			HybridSearch: &pb.Hybrid{
 				Query: "q",
@@ -65,7 +66,7 @@ func TestParseHybridSelection(t *testing.T) {
 	})
 
 	t.Run("selection on hybrid near_text sub-query is rejected", func(t *testing.T) {
-		_, err := parser.Search(&pb.SearchRequest{
+		_, err := parser.Search(context.Background(), &pb.SearchRequest{
 			Collection: classname,
 			HybridSearch: &pb.Hybrid{
 				Query: "q",
@@ -81,7 +82,7 @@ func TestParseHybridSelection(t *testing.T) {
 	})
 
 	t.Run("no selection leaves GetParams.Selection nil", func(t *testing.T) {
-		out, err := parser.Search(&pb.SearchRequest{
+		out, err := parser.Search(context.Background(), &pb.SearchRequest{
 			Collection:   classname,
 			HybridSearch: &pb.Hybrid{Query: "q"},
 		}, cfg)
@@ -111,7 +112,7 @@ func TestParseSelectionLimitValidation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name+" on near_vector", func(t *testing.T) {
-			_, err := parser.Search(&pb.SearchRequest{
+			_, err := parser.Search(context.Background(), &pb.SearchRequest{
 				Collection: classname,
 				NearVector: &pb.NearVector{
 					VectorBytes: byteops.Fp32SliceToBytes([]float32{1, 2, 3}),
@@ -126,7 +127,7 @@ func TestParseSelectionLimitValidation(t *testing.T) {
 			}
 		})
 		t.Run(tt.name+" on hybrid", func(t *testing.T) {
-			_, err := parser.Search(&pb.SearchRequest{
+			_, err := parser.Search(context.Background(), &pb.SearchRequest{
 				Collection: classname,
 				HybridSearch: &pb.Hybrid{
 					Query:     "q",
@@ -154,7 +155,7 @@ func TestParseSelectionMultiVectorRejected(t *testing.T) {
 	}
 
 	t.Run("named multi-vector target errors", func(t *testing.T) {
-		_, err := parser.Search(&pb.SearchRequest{
+		_, err := parser.Search(context.Background(), &pb.SearchRequest{
 			Collection: multiVecClassWithColBERT,
 			NearVector: &pb.NearVector{
 				Vectors: []*pb.Vectors{
@@ -169,7 +170,7 @@ func TestParseSelectionMultiVectorRejected(t *testing.T) {
 	})
 
 	t.Run("default (unnamed) multi-vector target errors", func(t *testing.T) {
-		_, err := parser.Search(&pb.SearchRequest{
+		_, err := parser.Search(context.Background(), &pb.SearchRequest{
 			Collection: legacyMultiVecClass,
 			HybridSearch: &pb.Hybrid{
 				Query:     "q",
@@ -181,7 +182,7 @@ func TestParseSelectionMultiVectorRejected(t *testing.T) {
 	})
 
 	t.Run("default single-vector target is allowed", func(t *testing.T) {
-		out, err := parser.Search(&pb.SearchRequest{
+		out, err := parser.Search(context.Background(), &pb.SearchRequest{
 			Collection: classname,
 			HybridSearch: &pb.Hybrid{
 				Query:     "q",

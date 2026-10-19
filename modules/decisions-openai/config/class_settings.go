@@ -25,14 +25,15 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
-const moduleName = "decisions-openai"
+const ModuleName = "decisions-openai"
 
 const (
 	DefaultBaseURL      = "https://api.openai.com"
 	DefaultOpenAIModel  = "gpt-6-luna"
 	DefaultMaxDocuments = 100
-	// MaxDocumentsLimit bounds the per-query API spend: every document is
-	// one request to the Decisions API.
+	// MaxDocumentsLimit is the ceiling of maxDocuments, the class setting and
+	// the request option that overrides it: every document is one request to
+	// the Decisions API.
 	MaxDocumentsLimit = 1000
 
 	// OrderSearch and OrderProbability are the orders of a rerank, see
@@ -177,7 +178,7 @@ func (ic *classSettings) setting(name string) any {
 	if ic.cfg == nil {
 		return nil
 	}
-	settings := ic.cfg.ClassByModuleName(moduleName)
+	settings := ic.cfg.ClassByModuleName(ModuleName)
 	if len(settings) == 0 {
 		settings = ic.cfg.Class()
 	}

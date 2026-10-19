@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package clients answers rerank and decide questions from the document
+// Package clients answers rerank and annotate questions from the document
 // text alone, so that a test can predict every answer:
 //   - Rank answers the query as a predicate: the share of the words of the
 //     query that appear in the document.

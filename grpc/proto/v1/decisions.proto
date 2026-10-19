@@ -2,15 +2,59 @@ syntax = "proto3";
 
 package weaviate.v1;
 
+import "google/protobuf/struct.proto";
+
 option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
 option java_package = "io.weaviate.client.grpc.protocol.v1";
 option java_outer_classname = "WeaviateProtoDecisions";
 
-// Decisions asks the collection's decisions module typed questions about
-// every object a search returns. The answers come back per object in
-// SearchResult.decisions, in the order of the questions.
-message Decisions {
+// Annotate asks a decisions module typed questions about every object a
+// search returns. The answers come back per object in
+// SearchResult.annotations, in the order of the questions.
+message Annotate {
   repeated DecisionQuestion questions = 1;
+  // provider picks the module for this request instead of the collection's.
+  optional DecisionsProvider provider = 2;
+}
+
+// DecisionsProvider is a decisions module and its options for one request,
+// as GenerativeProvider is for generate. The module needs no collection
+// config. An option left unset takes the collection's setting for that
+// module, when the collection configures it, then the module's default. An
+// option set here overrides the collection's, up to the module's ceiling;
+// base_url is used with the server's key as a generative provider's is.
+message DecisionsProvider {
+  oneof kind {
+    DecisionsTypeSafeAI typesafeai = 1;
+    DecisionsOpenAI openai = 2;
+    DecisionsDummy dummy = 3;
+    DecisionsCustom custom = 4;
+  }
+}
+
+message DecisionsTypeSafeAI {
+  optional string model = 1;
+  optional string base_url = 2;
+  optional int64 max_documents = 3;
+  // images opts in to the API's experimental image input for blob
+  // properties, for this request.
+  optional bool images = 4;
+}
+
+message DecisionsOpenAI {
+  optional string model = 1;
+  optional string base_url = 2;
+  optional int64 max_documents = 3;
+}
+
+message DecisionsDummy {
+}
+
+// DecisionsCustom names a decisions module the client has no message for,
+// with its settings under the names of its collection settings.
+message DecisionsCustom {
+  string module = 1;
+  optional google.protobuf.Struct settings = 2;
 }
 
 message DecisionQuestion {

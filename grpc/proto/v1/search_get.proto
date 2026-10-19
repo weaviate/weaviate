@@ -49,7 +49,7 @@ message SearchRequest {
 
   optional GenerativeSearch generative = 60;
   optional Rerank rerank = 61;
-  optional Decisions decide = 63;
+  optional Annotate annotate = 63;
 
   optional Boost boost = 62;
 
@@ -115,10 +115,22 @@ message RefPropertiesRequest {
 message Rerank {
   string property = 1;
   optional string query = 2;
-  // decision makes the collection's decisions module rerank, with the query
-  // as a predicate about every candidate. A class without a decisions
-  // module rejects it.
+  // decision makes a decisions module rerank, with the query as a predicate
+  // about every candidate: the module provider names, else the collection's.
+  // A request with neither is rejected.
   optional RerankDecision decision = 3;
+  // provider picks the module for this request instead of the collection's.
+  // Accepted with decision only until reranker providers are added.
+  optional RerankProvider provider = 4;
+}
+
+// RerankProvider names the module that reranks one request. Its only branch
+// today is a decisions module; a reranker branch comes later without a new
+// field on Rerank.
+message RerankProvider {
+  oneof kind {
+    DecisionsProvider decisions = 1;
+  }
 }
 
 // RerankOrder is the order of the results a decision model reranks.
@@ -190,7 +202,7 @@ message SearchResult {
   PropertiesResult properties = 1;
   MetadataResult metadata = 2;
   optional GenerativeResult generative = 3;
-  optional DecisionResult decisions = 4;
+  optional DecisionResult annotations = 4;
 }
 
 

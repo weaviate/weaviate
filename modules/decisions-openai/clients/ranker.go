@@ -464,8 +464,10 @@ func (c *client) organizationFor(ctx context.Context) string {
 }
 
 // endpoint returns the URL and the API key of the requests. A base URL from
-// the request header is only used with an API key from the request header, so
-// the server's key goes to the class's baseURL or the default and nowhere else.
+// the request header is only used with an API key from the request header.
+// classBaseURL is the class setting, or the request's provider option over
+// it, and is used with the server's key, as generative modules use a
+// request base_url.
 func (c *client) endpoint(ctx context.Context, classBaseURL string) (endpointURL, apiKey string, err error) {
 	apiKey = modulecomponents.GetValueFromContext(ctx, apiKeyHeader)
 	baseURL := classBaseURL

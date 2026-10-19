@@ -12,7 +12,10 @@
 package modules
 
 import (
+	"maps"
+
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -125,4 +128,36 @@ func (cbmc *ClassBasedModuleConfig) Property(propName string) map[string]interfa
 
 func (cbmc *ClassBasedModuleConfig) Config() *config.Config {
 	return cbmc.cfg
+}
+
+// RequestModuleConfig is a class config with the settings a request names
+// for one module over the class's. The module reads the merged map under
+// its name; everything else reads the class.
+type RequestModuleConfig struct {
+	moduletools.ClassConfig
+	module   string
+	settings map[string]any
+}
+
+// NewRequestModuleConfig returns base when the request names no settings.
+func NewRequestModuleConfig(base moduletools.ClassConfig, module string, settings map[string]any) moduletools.ClassConfig {
+	if len(settings) == 0 {
+		return base
+	}
+	return &RequestModuleConfig{ClassConfig: base, module: module, settings: settings}
+}
+
+func (c *RequestModuleConfig) Class() map[string]any {
+	return c.ClassByModuleName(c.module)
+}
+
+func (c *RequestModuleConfig) ClassByModuleName(moduleName string) map[string]any {
+	fromClass := c.ClassConfig.ClassByModuleName(moduleName)
+	if moduleName != c.module {
+		return fromClass
+	}
+	merged := make(map[string]any, len(fromClass)+len(c.settings))
+	maps.Copy(merged, fromClass)
+	maps.Copy(merged, c.settings)
+	return merged
 }

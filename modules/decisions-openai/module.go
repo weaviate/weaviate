@@ -32,7 +32,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
-const Name = "decisions-openai"
+const Name = config.ModuleName
 
 func New() *DecisionsOpenAIModule {
 	return &DecisionsOpenAIModule{}
@@ -79,7 +79,7 @@ func (m *DecisionsOpenAIModule) initAdditional(ctx context.Context, timeout time
 	}
 	m.reranker = clients.New(apiKey, organization, timeout, maxConcurrentRequests, logger)
 	m.additionalProperties = rerankeradditional.NewDecisionsRankerProvider(m.reranker, decisionDefaults).AdditionalProperties()
-	maps.Copy(m.additionalProperties, rerankeradditional.NewDecideProvider(m.reranker).AdditionalProperties())
+	maps.Copy(m.additionalProperties, rerankeradditional.NewAnnotateProvider(m.reranker).AdditionalProperties())
 	return nil
 }
 

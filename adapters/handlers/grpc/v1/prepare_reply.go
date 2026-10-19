@@ -166,10 +166,10 @@ func (r *Replier) extractObjectsToResults(res []interface{}, searchParams dto.Ge
 		}
 
 		result := &pb.SearchResult{
-			Properties: props,
-			Metadata:   additionalProps.Metadata,
-			Generative: additionalProps.GenerativeSingle,
-			Decisions:  additionalProps.Decisions,
+			Properties:  props,
+			Metadata:    additionalProps.Metadata,
+			Generative:  additionalProps.GenerativeSingle,
+			Annotations: additionalProps.Annotations,
 		}
 
 		results[i] = result
@@ -206,10 +206,10 @@ func idToByte(idRaw interface{}) ([]byte, string, error) {
 func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsParams additional.Properties, firstObject, fromGroup bool) (*additionalProps, error) {
 	generativeSearchRaw, generativeSearchEnabled := additionalPropsParams.ModuleParams["generate"]
 	_, rerankEnabled := additionalPropsParams.ModuleParams["rerank"]
-	_, decideEnabled := additionalPropsParams.ModuleParams["decide"]
+	_, annotateEnabled := additionalPropsParams.ModuleParams["annotate"]
 
 	addProps := &additionalProps{Metadata: &pb.MetadataResult{}}
-	if additionalPropsParams.ID && !generativeSearchEnabled && !rerankEnabled && !decideEnabled && !fromGroup {
+	if additionalPropsParams.ID && !generativeSearchEnabled && !rerankEnabled && !annotateEnabled && !fromGroup {
 		idRaw, ok := asMap["id"]
 		if !ok {
 			return nil, errors.New("could not extract get id in additional prop")
@@ -239,7 +239,7 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 		additionalPropertiesMap["distance"] = addPropertiesGroup.Distance
 	}
 	// id is part of the _additional map in case of generative search, group, & rerank - don't aks me why
-	if additionalPropsParams.ID && (generativeSearchEnabled || fromGroup || rerankEnabled || decideEnabled) {
+	if additionalPropsParams.ID && (generativeSearchEnabled || fromGroup || rerankEnabled || annotateEnabled) {
 		idRaw, ok := additionalPropertiesMap["id"]
 		if !ok {
 			return nil, errors.New("could not extract get id generative in additional prop")
@@ -277,16 +277,16 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 		addProps.Metadata.RerankScorePresent = true
 	}
 
-	if decideEnabled {
-		decided, ok := additionalPropertiesMap["decide"]
+	if annotateEnabled {
+		annotated, ok := additionalPropertiesMap["annotate"]
 		if !ok {
-			return nil, errors.New("No results for decide despite a search request. Is a decisions module enabled?")
+			return nil, errors.New("No results for annotate despite a search request. Is a decisions module enabled?")
 		}
-		answers, ok := decided.([]ent.DecisionAnswer)
+		answers, ok := annotated.([]ent.DecisionAnswer)
 		if !ok {
-			return nil, errors.New("could not cast decide result additional prop")
+			return nil, errors.New("could not cast annotate result additional prop")
 		}
-		addProps.Decisions = decisionResult(answers)
+		addProps.Annotations = decisionResult(answers)
 	}
 
 	// additional properties are only present for certain searches/configs => don't return an error if not available
@@ -674,7 +674,7 @@ type additionalProps struct {
 	GenerativeSingle            *pb.GenerativeResult
 	GenerativeGrouped           *pb.GenerativeResult
 	GenerativeGroupedDeprecated string
-	Decisions                   *pb.DecisionResult
+	Annotations                 *pb.DecisionResult
 }
 
 // decisionResult converts the answers a decisions module attached to an

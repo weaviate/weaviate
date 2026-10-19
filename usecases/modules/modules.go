@@ -35,8 +35,9 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/decide"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/annotate"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
 var (
@@ -741,23 +742,40 @@ func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, mod
 				allAdditionalProperties[modulecomponents.AdditionalPropertyGenerate] = *generateFn
 			}
 		}
-		// A rerank that asks for a decision goes to the decisions module,
-		// whichever module serves rerank otherwise.
+		var cfg moduletools.ClassConfig = NewClassBasedModuleConfig(class, "", "", "", &p.cfg)
+		// The config a property's module reads when the request names the
+		// module and its settings; the others read cfg.
+		requestConfigs := map[string]moduletools.ClassConfig{}
+		// A rerank that asks for a decision goes to a decisions module,
+		// whichever module serves rerank otherwise: the one the request
+		// names, else the class's.
 		if params, ok := moduleParams[modulecomponents.AdditionalPropertyRerank].(*rank.Params); ok && params != nil && params.Decision != nil {
-			module, err := p.rerankModule(class, true)
+			module, err := p.rerankModule(class, true, params.Provider)
 			if err != nil {
 				return nil, err
 			}
 			if provider, ok := module.(modulecapabilities.AdditionalProperties); ok && provider != nil {
 				allAdditionalProperties[modulecomponents.AdditionalPropertyRerank] = provider.AdditionalProperties()[modulecomponents.AdditionalPropertyRerank]
 			}
+			if params.Provider != nil {
+				requestConfigs[modulecomponents.AdditionalPropertyRerank] = NewRequestModuleConfig(cfg, module.Name(), params.Provider.Settings)
+			}
+		}
+		if params, ok := moduleParams[modulecomponents.AdditionalPropertyAnnotate].(*annotate.Params); ok && params != nil && params.Provider != nil {
+			module, err := p.decisionsModule(class, params.Provider, modulecomponents.AdditionalPropertyAnnotate)
+			if err != nil {
+				return nil, fmt.Errorf("annotate: %w", err)
+			}
+			if provider, ok := module.(modulecapabilities.AdditionalProperties); ok && provider != nil {
+				allAdditionalProperties[modulecomponents.AdditionalPropertyAnnotate] = provider.AdditionalProperties()[modulecomponents.AdditionalPropertyAnnotate]
+			}
+			requestConfigs[modulecomponents.AdditionalPropertyAnnotate] = NewRequestModuleConfig(cfg, module.Name(), params.Provider.Settings)
 		}
 
 		if len(allAdditionalProperties) > 0 {
 			if err := p.checkCapabilities(allAdditionalProperties, moduleParams, capability); err != nil {
 				return nil, err
 			}
-			cfg := NewClassBasedModuleConfig(class, "", "", "", &p.cfg)
 			for _, name := range additionalExtendOrder(moduleParams) {
 				if len(toBeExtended) == 0 {
 					break
@@ -781,7 +799,11 @@ func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, mod
 							return nil, errors.Errorf("extend %s: set search multi vector unrecongnized type: %T", name, searchVector)
 						}
 					}
-					resArray, err := additionalPropertyFn(ctx, toBeExtended, searchValue, nil, argumentModuleParams, cfg)
+					propertyCfg := cfg
+					if requestCfg, ok := requestConfigs[name]; ok {
+						propertyCfg = requestCfg
+					}
+					resArray, err := additionalPropertyFn(ctx, toBeExtended, searchValue, nil, argumentModuleParams, propertyCfg)
 					if err != nil {
 						return nil, errors.Errorf("extend %s: %v", name, err)
 					}
@@ -842,7 +864,7 @@ func (p *Provider) classAdditionalProperties(class *models.Class) map[string]mod
 	}
 	// A reranker and a decisions module both serve rerank. The reranker
 	// serves it unless the request asks for a decision.
-	if module, _ := p.rerankModule(class, false); module != nil {
+	if module, _ := p.rerankModule(class, false, nil); module != nil {
 		if provider, ok := module.(modulecapabilities.AdditionalProperties); ok && provider != nil {
 			if property, ok := provider.AdditionalProperties()[modulecomponents.AdditionalPropertyRerank]; ok {
 				properties[modulecomponents.AdditionalPropertyRerank] = property
@@ -868,40 +890,100 @@ func (p *Provider) classModulesByKind(class *models.Class) (reranker, decisions 
 	return reranker, decisions
 }
 
-// rerankModule returns the module that serves a rerank on the class: the
-// decisions module when the request asks for a decision, otherwise the
-// reranker, or the decisions module in its place when the class has none.
-// It is nil when the class has neither.
-func (p *Provider) rerankModule(class *models.Class, decision bool) (modulecapabilities.Module, error) {
-	reranker, decisions := p.classModulesByKind(class)
+// rerankModule returns the module that serves a rerank on the class: a
+// decisions module when the request asks for a decision (the one the
+// request names, else the class's), otherwise the reranker, or the
+// decisions module in its place when the class has none. It is nil when the
+// class has neither.
+func (p *Provider) rerankModule(class *models.Class, decision bool, provider *ent.DecisionsProvider) (modulecapabilities.Module, error) {
 	if decision {
-		if decisions == nil {
-			return nil, fmt.Errorf("rerank.decision needs a decisions module, class %q has none", class.Class)
+		module, err := p.decisionsModule(class, provider, modulecomponents.AdditionalPropertyRerank)
+		if err != nil {
+			return nil, fmt.Errorf("rerank.decision: %w", err)
 		}
-		return decisions, nil
+		return module, nil
 	}
+	reranker, decisions := p.classModulesByKind(class)
 	if reranker != nil {
 		return reranker, nil
 	}
 	return decisions, nil
 }
 
-// DecideLimits returns the limits of the class's decisions module for the
-// decide property, read from the module's class settings. A module that
-// declares none judges text within the Weaviate ceilings.
-func (p *Provider) DecideLimits(class *models.Class) (decide.Limits, error) {
-	_, module := p.classModulesByKind(class)
-	if module == nil {
-		return decide.Limits{}, fmt.Errorf("class %q has no decisions module", class.Class)
+// decisionsModule returns the decisions module a request names for the
+// property (rerank or annotate), else the class's. A named module needs no
+// class config, but it must be enabled, be a decisions module and serve the
+// property, so that a request fails here and not after the search.
+func (p *Provider) decisionsModule(class *models.Class, provider *ent.DecisionsProvider, property string) (modulecapabilities.Module, error) {
+	if provider == nil {
+		_, module := p.classModulesByKind(class)
+		if module == nil {
+			return nil, fmt.Errorf("class %q has no decisions module and the request names no provider", class.Class)
+		}
+		return module, nil
 	}
-	limits := decide.Limits{
+	module := p.GetByName(provider.Module)
+	if module == nil {
+		return nil, fmt.Errorf("provider %q is not enabled", provider.Module)
+	}
+	if module.Type() != modulecapabilities.Decisions {
+		return nil, fmt.Errorf("provider %q is not a decisions module", provider.Module)
+	}
+	if !servesProperty(module, property) {
+		return nil, fmt.Errorf("provider %q does not serve %s", provider.Module, property)
+	}
+	return module, nil
+}
+
+func servesProperty(module modulecapabilities.Module, name string) bool {
+	provider, ok := module.(modulecapabilities.AdditionalProperties)
+	if !ok || provider == nil {
+		return false
+	}
+	_, ok = provider.AdditionalProperties()[name]
+	return ok
+}
+
+// decisionsModuleConfig is the config the module reads for one request: the
+// settings the request names over the class's. Request settings go through
+// the module's class validation, as a class update would, so a wrong one
+// fails before the search.
+func (p *Provider) decisionsModuleConfig(ctx context.Context, class *models.Class, module modulecapabilities.Module, provider *ent.DecisionsProvider) (moduletools.ClassConfig, error) {
+	var cfg moduletools.ClassConfig = NewClassBasedModuleConfig(class, module.Name(), "", "", &p.cfg)
+	if provider == nil || len(provider.Settings) == 0 {
+		return cfg, nil
+	}
+	cfg = NewRequestModuleConfig(cfg, module.Name(), provider.Settings)
+	if configurator, ok := module.(modulecapabilities.ClassConfigurator); ok {
+		if err := configurator.ValidateClass(ctx, class, cfg); err != nil {
+			return nil, fmt.Errorf("%s: %w", module.Name(), err)
+		}
+	}
+	return cfg, nil
+}
+
+// AnnotateLimits returns the limits of the decisions module that serves the
+// request's property, rerank or annotate (the module it names, else the
+// class's), read from the module's settings with the request's over the
+// class's. A module that declares none judges text within the Weaviate
+// ceilings.
+func (p *Provider) AnnotateLimits(ctx context.Context, class *models.Class, provider *ent.DecisionsProvider, property string) (annotate.Limits, error) {
+	module, err := p.decisionsModule(class, provider, property)
+	if err != nil {
+		return annotate.Limits{}, err
+	}
+	cfg, err := p.decisionsModuleConfig(ctx, class, module, provider)
+	if err != nil {
+		return annotate.Limits{}, err
+	}
+	limits := annotate.Limits{
 		Module:         module.Name(),
 		DecisionLimits: modulecapabilities.DecisionLimits{DataTypes: []schema.DataType{schema.DataTypeText}},
 	}
-	if provider, ok := module.(modulecapabilities.DecisionLimitsProvider); ok {
-		declared, err := provider.DecisionLimits(NewClassBasedModuleConfig(class, module.Name(), "", "", &p.cfg))
+	if declarer, ok := module.(modulecapabilities.DecisionLimitsProvider); ok {
+		declared, err := declarer.DecisionLimits(cfg)
 		if err != nil {
-			return decide.Limits{}, fmt.Errorf("%s: %w", module.Name(), err)
+			return annotate.Limits{}, fmt.Errorf("%s: %w", module.Name(), err)
 		}
 		limits.DecisionLimits = declared
 	}

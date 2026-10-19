@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package decisions runs the decide query argument end to end against the
+// Package decisions runs the annotate query argument end to end against the
 // decisions-dummy module, whose answers are a function of the document
 // text: a predicate's probability is the share of the instruction words in
 // the text, a choice is the first option named in the text, a score is the
@@ -33,10 +33,11 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	grpchelper "github.com/weaviate/weaviate/test/helper/grpc"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 const (
-	ticketsClass = "DecideTickets"
+	ticketsClass = "AnnotateTickets"
 	angryText    = "the customer is angry about billing"
 	// A 1x1 PNG, as a blob property holds it.
 	photoBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC"
@@ -45,7 +46,7 @@ const (
 
 func ptr[T any](v T) *T { return &v }
 
-func TestDecide(t *testing.T) {
+func TestAnnotate(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
@@ -92,9 +93,9 @@ func TestDecide(t *testing.T) {
 		out := map[string]map[string]*pb.DecisionAnswer{}
 		for _, result := range reply.Results {
 			text := result.Properties.NonRefProps.Fields["text"].GetTextValue()
-			require.NotNil(t, result.Decisions, "result %q has no decisions", text)
+			require.NotNil(t, result.Annotations, "result %q has no annotations", text)
 			answers := map[string]*pb.DecisionAnswer{}
-			for _, answer := range result.Decisions.Answers {
+			for _, answer := range result.Annotations.Answers {
 				answers[answer.Name] = answer
 			}
 			out[text] = answers
@@ -124,7 +125,7 @@ func TestDecide(t *testing.T) {
 	createClass(t, ticketsClass, map[string]any{"decisions-dummy": map[string]any{}})
 	defer helper.DeleteClass(t, ticketsClass)
 
-	questions := &pb.Decisions{Questions: []*pb.DecisionQuestion{
+	questions := &pb.Annotate{Questions: []*pb.DecisionQuestion{
 		predicate("angry", "text", "customer angry"),
 		choice("team", "text", "billing", "other"),
 		score("length", "text", "short", "medium", "long"),
@@ -135,7 +136,7 @@ func TestDecide(t *testing.T) {
 		reply := grpchelper.AssertSearch(t, &pb.SearchRequest{
 			Collection: ticketsClass,
 			Properties: &pb.PropertiesRequest{NonRefProperties: []string{"text"}},
-			Decide:     questions,
+			Annotate:   questions,
 		})
 
 		require.Len(t, reply.Results, 3)
@@ -167,7 +168,7 @@ func TestDecide(t *testing.T) {
 			Collection: ticketsClass,
 			Bm25Search: &pb.BM25{Query: "billing good"},
 			Properties: &pb.PropertiesRequest{NonRefProperties: []string{"text"}},
-			Decide:     &pb.Decisions{Questions: questions.Questions[:1]},
+			Annotate:   &pb.Annotate{Questions: questions.Questions[:1]},
 		})
 
 		require.Len(t, reply.Results, 2)
@@ -177,11 +178,11 @@ func TestDecide(t *testing.T) {
 		assert.Equal(t, 0.0, answers[calmText]["angry"].GetPredicate().GetProbability())
 	})
 
-	t.Run("without decide the reply carries no decisions", func(t *testing.T) {
+	t.Run("without annotate the reply carries no annotations", func(t *testing.T) {
 		reply := grpchelper.AssertSearch(t, &pb.SearchRequest{Collection: ticketsClass})
 
 		for _, result := range reply.Results {
-			assert.Nil(t, result.Decisions)
+			assert.Nil(t, result.Annotations)
 		}
 	})
 
@@ -197,27 +198,27 @@ func TestDecide(t *testing.T) {
 		}{
 			{
 				name:    "with group by",
-				req:     &pb.SearchRequest{Collection: ticketsClass, GroupBy: &pb.GroupBy{Path: []string{"text"}, NumberOfGroups: 1, ObjectsPerGroup: 1}, Decide: questions},
-				wantErr: "decide is not supported with group_by",
+				req:     &pb.SearchRequest{Collection: ticketsClass, GroupBy: &pb.GroupBy{Path: []string{"text"}, NumberOfGroups: 1, ObjectsPerGroup: 1}, Annotate: questions},
+				wantErr: "annotate is not supported with group_by",
 			},
 			{
 				name:    "a question about a property of another type",
-				req:     &pb.SearchRequest{Collection: ticketsClass, Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{predicate("q", "count", "many")}}},
+				req:     &pb.SearchRequest{Collection: ticketsClass, Annotate: &pb.Annotate{Questions: []*pb.DecisionQuestion{predicate("q", "count", "many")}}},
 				wantErr: `question "q": property "count" is of type "int", decisions-dummy judges [text blob]`,
 			},
 			{
 				name:    "a question about a property the class does not have",
-				req:     &pb.SearchRequest{Collection: ticketsClass, Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{predicate("q", "nope", "x")}}},
-				wantErr: `question "q": class "DecideTickets" has no property "nope"`,
+				req:     &pb.SearchRequest{Collection: ticketsClass, Annotate: &pb.Annotate{Questions: []*pb.DecisionQuestion{predicate("q", "nope", "x")}}},
+				wantErr: `question "q": class "AnnotateTickets" has no property "nope"`,
 			},
 			{
 				name:    "more levels than the ceiling",
-				req:     &pb.SearchRequest{Collection: ticketsClass, Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{score("q", "text", manyLevels...)}}},
+				req:     &pb.SearchRequest{Collection: ticketsClass, Annotate: &pb.Annotate{Questions: []*pb.DecisionQuestion{score("q", "text", manyLevels...)}}},
 				wantErr: `question "q": needs between 2 and 20 levels, got 21`,
 			},
 			{
 				name:    "two questions with one name",
-				req:     &pb.SearchRequest{Collection: ticketsClass, Decide: &pb.Decisions{Questions: []*pb.DecisionQuestion{predicate("q", "text", "a"), predicate("q", "text", "b")}}},
+				req:     &pb.SearchRequest{Collection: ticketsClass, Annotate: &pb.Annotate{Questions: []*pb.DecisionQuestion{predicate("q", "text", "a"), predicate("q", "text", "b")}}},
 				wantErr: `question name "q" is used twice`,
 			},
 		}
@@ -232,19 +233,19 @@ func TestDecide(t *testing.T) {
 	})
 
 	t.Run("the page is bounded by the module's maxDocuments", func(t *testing.T) {
-		const smallPage = "DecideSmallPage"
+		const smallPage = "AnnotateSmallPage"
 		createClass(t, smallPage, map[string]any{"decisions-dummy": map[string]any{"maxDocuments": 2}})
 		defer helper.DeleteClass(t, smallPage)
 
-		_, err := grpchelper.Search(t, &pb.SearchRequest{Collection: smallPage, Limit: 3, Decide: questions})
+		_, err := grpchelper.Search(t, &pb.SearchRequest{Collection: smallPage, Limit: 3, Annotate: questions})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "limit 3 exceeds maxDocuments 2 of decisions-dummy")
 
-		reply := grpchelper.AssertSearch(t, &pb.SearchRequest{Collection: smallPage, Limit: 2, Decide: questions})
+		reply := grpchelper.AssertSearch(t, &pb.SearchRequest{Collection: smallPage, Limit: 2, Annotate: questions})
 		assert.Len(t, reply.Results, 2)
 
 		// The module judges the page, so the offset does not count.
-		reply = grpchelper.AssertSearch(t, &pb.SearchRequest{Collection: smallPage, Limit: 2, Offset: 1, Decide: questions})
+		reply = grpchelper.AssertSearch(t, &pb.SearchRequest{Collection: smallPage, Limit: 2, Offset: 1, Annotate: questions})
 		assert.Len(t, reply.Results, 2)
 	})
 
@@ -255,7 +256,7 @@ func TestDecide(t *testing.T) {
 		reply := grpchelper.AssertSearch(t, &pb.SearchRequest{
 			Collection: ticketsClass,
 			Properties: &pb.PropertiesRequest{NonRefProperties: []string{"text"}},
-			Decide:     &pb.Decisions{Questions: []*pb.DecisionQuestion{predicate("damaged", "photo", "damaged")}},
+			Annotate:   &pb.Annotate{Questions: []*pb.DecisionQuestion{predicate("damaged", "photo", "damaged")}},
 		})
 
 		answers := byText(t, reply)
@@ -265,14 +266,14 @@ func TestDecide(t *testing.T) {
 	})
 
 	t.Run("a class without a decisions module", func(t *testing.T) {
-		const plain = "DecidePlain"
+		const plain = "AnnotatePlain"
 		createClass(t, plain, nil)
 		defer helper.DeleteClass(t, plain)
 
-		_, err := grpchelper.Search(t, &pb.SearchRequest{Collection: plain, Decide: questions})
+		_, err := grpchelper.Search(t, &pb.SearchRequest{Collection: plain, Annotate: questions})
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), `class "DecidePlain" has no decisions module`)
+		assert.Contains(t, err.Error(), `class "AnnotatePlain" has no decisions module and the request names no provider`)
 	})
 
 	t.Run("a rerank by a decision about an image property goes to the module", func(t *testing.T) {
@@ -353,7 +354,7 @@ func TestDecide(t *testing.T) {
 		})
 
 		t.Run("the class setting applies and the request overrides it", func(t *testing.T) {
-			const strict = "DecideStrict"
+			const strict = "AnnotateStrict"
 			createClass(t, strict, map[string]any{"decisions-dummy": map[string]any{"minProbability": 0.9, "order": "probability"}})
 			defer helper.DeleteClass(t, strict)
 
@@ -371,7 +372,7 @@ func TestDecide(t *testing.T) {
 		})
 
 		t.Run("a decision on a class without a decisions module", func(t *testing.T) {
-			const rerankerOnly = "DecideRerankerOnly"
+			const rerankerOnly = "AnnotateRerankerOnly"
 			createClass(t, rerankerOnly, map[string]any{"reranker-dummy": map[string]any{}})
 			defer helper.DeleteClass(t, rerankerOnly)
 
@@ -381,7 +382,7 @@ func TestDecide(t *testing.T) {
 			})
 
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), `rerank.decision: class "DecideRerankerOnly" has no decisions module`)
+			assert.Contains(t, err.Error(), `rerank.decision: class "AnnotateRerankerOnly" has no decisions module`)
 		})
 
 		t.Run("a threshold out of range fails before the search", func(t *testing.T) {
@@ -395,7 +396,7 @@ func TestDecide(t *testing.T) {
 		})
 
 		t.Run("a limit above the module's maxDocuments fails before the search", func(t *testing.T) {
-			const smallPage = "DecideSmallPageRerank"
+			const smallPage = "AnnotateSmallPageRerank"
 			createClass(t, smallPage, map[string]any{"decisions-dummy": map[string]any{"maxDocuments": 2}})
 			defer helper.DeleteClass(t, smallPage)
 
@@ -410,7 +411,7 @@ func TestDecide(t *testing.T) {
 	})
 
 	t.Run("a reranker and a decisions module on one class", func(t *testing.T) {
-		const both = "DecideBoth"
+		const both = "AnnotateBoth"
 		createClass(t, both, map[string]any{"reranker-dummy": map[string]any{}, "decisions-dummy": map[string]any{}})
 		defer helper.DeleteClass(t, both)
 		properties := &pb.PropertiesRequest{NonRefProperties: []string{"text"}}
@@ -422,7 +423,7 @@ func TestDecide(t *testing.T) {
 			Bm25Search: &pb.BM25{Query: "billing good"},
 			Properties: properties,
 			Rerank:     &pb.Rerank{Property: "text", Query: ptr("customer angry")},
-			Decide:     &pb.Decisions{Questions: questions.Questions[:1]},
+			Annotate:   &pb.Annotate{Questions: questions.Questions[:1]},
 		})
 
 		require.Len(t, reply.Results, 2)
@@ -446,12 +447,159 @@ func TestDecide(t *testing.T) {
 		assert.Equal(t, 1.0, reply.Results[0].Metadata.RerankScore)
 	})
 
+	// A request names the decisions module instead of the class: a module the
+	// class does not configure serves annotate and a rerank by a decision, with
+	// the settings of the request over the class's.
+	t.Run("a provider named by the request", func(t *testing.T) {
+		const plain = "AnnotateNoModule"
+		createClass(t, plain, nil)
+		defer helper.DeleteClass(t, plain)
+		dummy := &pb.DecisionsProvider{Kind: &pb.DecisionsProvider_Dummy{Dummy: &pb.DecisionsDummy{}}}
+		customFor := func(t *testing.T, module string, settings map[string]any) *pb.DecisionsProvider {
+			t.Helper()
+			value, err := structpb.NewStruct(settings)
+			require.NoError(t, err)
+			return &pb.DecisionsProvider{Kind: &pb.DecisionsProvider_Custom{Custom: &pb.DecisionsCustom{Module: module, Settings: value}}}
+		}
+		custom := func(t *testing.T, settings map[string]any) *pb.DecisionsProvider {
+			return customFor(t, "decisions-dummy", settings)
+		}
+		properties := &pb.PropertiesRequest{NonRefProperties: []string{"text"}}
+
+		t.Run("annotate on a class without a decisions module", func(t *testing.T) {
+			reply := grpchelper.AssertSearch(t, &pb.SearchRequest{
+				Collection: plain, Properties: properties,
+				Annotate: &pb.Annotate{Questions: questions.Questions, Provider: dummy},
+			})
+
+			answers := byText(t, reply)
+			require.Len(t, answers, 3)
+			assert.Equal(t, 1.0, answers[angryText]["angry"].GetPredicate().GetProbability())
+			assert.Equal(t, 0.0, answers[calmText]["angry"].GetPredicate().GetProbability())
+		})
+
+		t.Run("rerank by a decision on a class without a decisions module", func(t *testing.T) {
+			reply := grpchelper.AssertSearch(t, &pb.SearchRequest{
+				Collection: plain, Properties: properties,
+				Rerank: &pb.Rerank{
+					Property: "text", Query: ptr("customer angry"),
+					Decision: &pb.RerankDecision{MinProbability: ptr(0.6)},
+					Provider: &pb.RerankProvider{Kind: &pb.RerankProvider_Decisions{Decisions: dummy}},
+				},
+			})
+
+			require.Len(t, reply.Results, 1)
+			assert.Equal(t, angryText, reply.Results[0].Properties.NonRefProps.Fields["text"].GetTextValue())
+			assert.Equal(t, 1.0, reply.Results[0].Metadata.RerankScore)
+		})
+
+		t.Run("the request's settings bound the page over the class's", func(t *testing.T) {
+			const smallPage = "AnnotateSmallPageProvider"
+			createClass(t, smallPage, map[string]any{"decisions-dummy": map[string]any{"maxDocuments": 2}})
+			defer helper.DeleteClass(t, smallPage)
+
+			// The class allows 2; the request names 1.
+			_, err := grpchelper.Search(t, &pb.SearchRequest{Collection: smallPage, Limit: 2, Annotate: &pb.Annotate{Questions: questions.Questions, Provider: custom(t, map[string]any{"maxDocuments": 1})}})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "limit 2 exceeds maxDocuments 1 of decisions-dummy")
+
+			// The class allows 2; the request raises it to 3.
+			reply := grpchelper.AssertSearch(t, &pb.SearchRequest{Collection: smallPage, Limit: 3, Annotate: &pb.Annotate{Questions: questions.Questions, Provider: custom(t, map[string]any{"maxDocuments": 3})}})
+			assert.Len(t, reply.Results, 3)
+
+			// A provider on a class without the module reads the request's setting only.
+			_, err = grpchelper.Search(t, &pb.SearchRequest{Collection: plain, Limit: 3, Rerank: &pb.Rerank{
+				Property: "text", Query: ptr("customer angry"), Decision: &pb.RerankDecision{},
+				Provider: &pb.RerankProvider{Kind: &pb.RerankProvider_Decisions{Decisions: custom(t, map[string]any{"maxDocuments": 2})}},
+			}})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "rerank.decision: limit 3 exceeds maxDocuments 2 of decisions-dummy")
+		})
+
+		t.Run("errors before the search", func(t *testing.T) {
+			// The test server enables every API-based module, so a module
+			// that is not enabled has to be one that does not exist.
+			notEnabled := &pb.DecisionsProvider{Kind: &pb.DecisionsProvider_Custom{Custom: &pb.DecisionsCustom{Module: "decisions-nope"}}}
+			tests := []struct {
+				name    string
+				req     *pb.SearchRequest
+				wantErr string
+			}{
+				{
+					name:    "annotate by a module that is not enabled",
+					req:     &pb.SearchRequest{Collection: ticketsClass, Annotate: &pb.Annotate{Questions: questions.Questions, Provider: notEnabled}},
+					wantErr: `annotate: provider "decisions-nope" is not enabled`,
+				},
+				{
+					name: "rerank by a module that is not enabled",
+					req: &pb.SearchRequest{Collection: ticketsClass, Rerank: &pb.Rerank{
+						Property: "text", Query: ptr("q"), Decision: &pb.RerankDecision{},
+						Provider: &pb.RerankProvider{Kind: &pb.RerankProvider_Decisions{Decisions: notEnabled}},
+					}},
+					wantErr: `rerank.decision: provider "decisions-nope" is not enabled`,
+				},
+				{
+					name: "a provider on a plain rerank",
+					req: &pb.SearchRequest{Collection: ticketsClass, Rerank: &pb.Rerank{
+						Property: "text", Query: ptr("q"),
+						Provider: &pb.RerankProvider{Kind: &pb.RerankProvider_Decisions{Decisions: dummy}},
+					}},
+					wantErr: "rerank.provider needs rerank.decision",
+				},
+				{
+					name:    "a provider that is not a decisions module",
+					req:     &pb.SearchRequest{Collection: ticketsClass, Annotate: &pb.Annotate{Questions: questions.Questions, Provider: &pb.DecisionsProvider{Kind: &pb.DecisionsProvider_Custom{Custom: &pb.DecisionsCustom{Module: "reranker-dummy"}}}}},
+					wantErr: `annotate: provider "reranker-dummy" is not a decisions module`,
+				},
+				{
+					name:    "no provider on a class without a decisions module",
+					req:     &pb.SearchRequest{Collection: plain, Annotate: &pb.Annotate{Questions: questions.Questions}},
+					wantErr: `annotate: class "AnnotateNoModule" has no decisions module and the request names no provider`,
+				},
+				// decisions-openai and decisions-typesafeai are enabled on the
+				// test server as API-based modules; their class validation
+				// runs on the request settings before any provider call.
+				{
+					name:    "a request maxDocuments above the ceiling, openai",
+					req:     &pb.SearchRequest{Collection: plain, Annotate: &pb.Annotate{Questions: questions.Questions, Provider: &pb.DecisionsProvider{Kind: &pb.DecisionsProvider_Openai{Openai: &pb.DecisionsOpenAI{MaxDocuments: ptr(int64(5000))}}}}},
+					wantErr: "annotate: decisions-openai: maxDocuments must be between 1 and 1000, got 5000",
+				},
+				{
+					name: "a request maxDocuments above the ceiling on a rerank, typesafeai",
+					req: &pb.SearchRequest{Collection: plain, Rerank: &pb.Rerank{
+						Property: "text", Query: ptr("q"), Decision: &pb.RerankDecision{},
+						Provider: &pb.RerankProvider{Kind: &pb.RerankProvider_Decisions{Decisions: &pb.DecisionsProvider{Kind: &pb.DecisionsProvider_Typesafeai{Typesafeai: &pb.DecisionsTypeSafeAI{MaxDocuments: ptr(int64(5000))}}}}},
+					}},
+					wantErr: "rerank.decision: decisions-typesafeai: maxDocuments must be a whole number between 1 and 1000, got 5000",
+				},
+				{
+					name:    "a custom setting of the wrong type, typesafeai",
+					req:     &pb.SearchRequest{Collection: plain, Annotate: &pb.Annotate{Questions: questions.Questions, Provider: customFor(t, "decisions-typesafeai", map[string]any{"model": 5})}},
+					wantErr: "annotate: decisions-typesafeai: model must be a string, got 5",
+				},
+				{
+					name:    "a custom maxDocuments with a fraction, typesafeai",
+					req:     &pb.SearchRequest{Collection: plain, Annotate: &pb.Annotate{Questions: questions.Questions, Provider: customFor(t, "decisions-typesafeai", map[string]any{"maxDocuments": 2.5})}},
+					wantErr: "annotate: decisions-typesafeai: maxDocuments must be a whole number between 1 and 1000, got 2.5",
+				},
+			}
+			for _, tt := range tests {
+				t.Run(tt.name, func(t *testing.T) {
+					_, err := grpchelper.Search(t, tt.req)
+
+					require.Error(t, err)
+					assert.Contains(t, err.Error(), tt.wantErr)
+				})
+			}
+		})
+	})
+
 	t.Run("two modules of one kind are rejected at create", func(t *testing.T) {
 		for _, modules := range []map[string]any{
 			{"reranker-dummy": map[string]any{}, "reranker-cohere": map[string]any{}},
 			{"decisions-dummy": map[string]any{}, "decisions-typesafeai": map[string]any{}},
 		} {
-			class := &models.Class{Class: "DecideTwoOfAKind", Vectorizer: "none", ModuleConfig: modules}
+			class := &models.Class{Class: "AnnotateTwoOfAKind", Vectorizer: "none", ModuleConfig: modules}
 			params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
 
 			_, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)

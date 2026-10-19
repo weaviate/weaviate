@@ -10,7 +10,7 @@
 //
 
 // Package moddecisionsdummy is a decisions module without a provider, for
-// tests of the rerank and decide properties. Its answers are a function of
+// tests of the rerank and annotate properties. Its answers are a function of
 // the document text, see clients.
 package moddecisionsdummy
 
@@ -48,7 +48,7 @@ func (m *DecisionsDummyModule) Type() modulecapabilities.ModuleType {
 func (m *DecisionsDummyModule) Init(ctx context.Context, params moduletools.ModuleInitParams) error {
 	m.client = clients.New()
 	m.additionalProperties = rerankeradditional.NewDecisionsRankerProvider(m.client, clients.DecisionDefaults).AdditionalProperties()
-	maps.Copy(m.additionalProperties, rerankeradditional.NewDecideProvider(m.client).AdditionalProperties())
+	maps.Copy(m.additionalProperties, rerankeradditional.NewAnnotateProvider(m.client).AdditionalProperties())
 	return nil
 }
 

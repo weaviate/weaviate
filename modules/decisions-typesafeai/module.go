@@ -100,7 +100,7 @@ func maxConcurrentRequestsFromEnv() (int, error) {
 func (m *DecisionsTypeSafeAIModule) setClient(client DecisionsTypeSafeAIClient) {
 	m.reranker = client
 	m.additionalProperties = rerankeradditional.NewDecisionsRankerProvider(client, decisionDefaults).AdditionalProperties()
-	maps.Copy(m.additionalProperties, rerankeradditional.NewDecideProvider(client).AdditionalProperties())
+	maps.Copy(m.additionalProperties, rerankeradditional.NewAnnotateProvider(client).AdditionalProperties())
 }
 
 // decisionDefaults are the class settings a rerank uses where the request
@@ -133,16 +133,12 @@ func (m *DecisionsTypeSafeAIModule) AdditionalProperties() map[string]modulecapa
 func (m *DecisionsTypeSafeAIModule) DecisionLimits(cfg moduletools.ClassConfig) (modulecapabilities.DecisionLimits, error) {
 	// A class created before the module was enabled was never validated,
 	// so the setting is checked here as Validate checks it.
-	maxDocuments := config.NewClassSettings(cfg).MaxDocuments()
+	settings := config.NewClassSettings(cfg)
+	maxDocuments := settings.MaxDocuments()
 	if maxDocuments < 1 || maxDocuments > config.MaxDocumentsLimit {
 		// MaxDocuments maps a value of another type to 0; the error names
 		// what the class holds.
-		stored := any(maxDocuments)
-		if cfg != nil {
-			if value, ok := cfg.ClassByModuleName(Name)["maxDocuments"]; ok {
-				stored = value
-			}
-		}
+		stored, _ := settings.Raw("maxDocuments")
 		return modulecapabilities.DecisionLimits{}, fmt.Errorf("maxDocuments must be a whole number between 1 and %d, got %v", config.MaxDocumentsLimit, stored)
 	}
 	images, err := config.NewClassSettings(cfg).Images()
