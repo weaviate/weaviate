@@ -178,12 +178,6 @@ func (v *google) vectorize(ctx context.Context, input []string, taskType taskTyp
 
 	useGenerativeAIEndpoint, endpoint := v.useGenerativeAIEndpoint(config)
 
-	startTime := time.Now()
-	defer func() {
-		monitoring.GetMetrics().ModuleExternalRequestDuration.WithLabelValues(fmt.Sprintf("text2vec-google:%s", config.Operation), endpoint).
-			Observe(time.Since(startTime).Seconds())
-	}()
-
 	payload := v.getPayload(useGenerativeAIEndpoint, input, taskType, titlePropertyValue, config)
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -211,6 +205,11 @@ func (v *google) vectorize(ctx context.Context, input []string, taskType taskTyp
 		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 	}
 
+	startTime := time.Now()
+	defer func() {
+		monitoring.GetMetrics().ModuleExternalRequestDuration.WithLabelValues(fmt.Sprintf("text2vec-google:%s", config.Operation), endpoint).
+			Observe(time.Since(startTime).Seconds())
+	}()
 	res, err := v.httpClient.Do(req)
 	if err != nil {
 		return nil, errors.Wrap(err, "send POST request")

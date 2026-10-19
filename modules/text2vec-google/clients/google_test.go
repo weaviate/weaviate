@@ -366,14 +366,17 @@ func TestVectorizeRecordsRequestDuration(t *testing.T) {
 		settings     settings
 		handler      http.Handler
 		closed       bool
+		noAPIKey     bool
 		wantErr      bool
 		wantOp       string
 		wantEndpoint string
+		wantSamples  uint64
 	}{
-		{name: "Vertex AI successful request", settings: vertexAI, handler: &fakeHandler{t: t}, wantOp: "text2vec-google:insert", wantEndpoint: "vertex_ai:global:gemini-embedding-001"},
-		{name: "Vertex AI server error", settings: vertexAI, handler: &fakeHandler{t: t, serverError: errors.New("nope")}, wantErr: true, wantOp: "text2vec-google:insert", wantEndpoint: "vertex_ai:global:gemini-embedding-001"},
-		{name: "Vertex AI transport error", settings: vertexAI, handler: &fakeHandler{t: t}, closed: true, wantErr: true, wantOp: "text2vec-google:insert", wantEndpoint: "vertex_ai:global:gemini-embedding-001"},
-		{name: "AI Studio successful request", settings: aiStudio, handler: aiStudioHandler, wantOp: "text2vec-google:query", wantEndpoint: "ai_studio:gemini-embedding-001"},
+		{name: "Vertex AI successful request", settings: vertexAI, handler: &fakeHandler{t: t}, wantOp: "text2vec-google:insert", wantEndpoint: "vertex_ai:global:gemini-embedding-001", wantSamples: 1},
+		{name: "Vertex AI server error", settings: vertexAI, handler: &fakeHandler{t: t, serverError: errors.New("nope")}, wantErr: true, wantOp: "text2vec-google:insert", wantEndpoint: "vertex_ai:global:gemini-embedding-001", wantSamples: 1},
+		{name: "Vertex AI transport error", settings: vertexAI, handler: &fakeHandler{t: t}, closed: true, wantErr: true, wantOp: "text2vec-google:insert", wantEndpoint: "vertex_ai:global:gemini-embedding-001", wantSamples: 1},
+		{name: "AI Studio successful request", settings: aiStudio, handler: aiStudioHandler, wantOp: "text2vec-google:query", wantEndpoint: "ai_studio:gemini-embedding-001", wantSamples: 1},
+		{name: "missing API key sends no request", settings: vertexAI, handler: &fakeHandler{t: t}, noAPIKey: true, wantErr: true, wantOp: "text2vec-google:insert", wantEndpoint: "vertex_ai:global:gemini-embedding-001"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -383,6 +386,9 @@ func TestVectorizeRecordsRequestDuration(t *testing.T) {
 				server.Close()
 			}
 			c := newMetricsTestClient(server.URL)
+			if tt.noAPIKey {
+				c.apiKey = ""
+			}
 			before := requestDurationSampleCount(t, tt.wantOp, tt.wantEndpoint)
 
 			_, err := c.vectorize(context.Background(), []string{"This is my text"}, retrievalDocument, "", tt.settings)
@@ -392,7 +398,7 @@ func TestVectorizeRecordsRequestDuration(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
-			assert.Equal(t, before+1, requestDurationSampleCount(t, tt.wantOp, tt.wantEndpoint))
+			assert.Equal(t, before+tt.wantSamples, requestDurationSampleCount(t, tt.wantOp, tt.wantEndpoint))
 		})
 	}
 }
