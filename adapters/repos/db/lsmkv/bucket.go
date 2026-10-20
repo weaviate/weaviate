@@ -844,11 +844,11 @@ func (b *Bucket) getBySecondary(ctx context.Context, pos int, seckey []byte, buf
 	defer view.ReleaseView()
 	tookView := time.Since(beforeAll)
 
-	return b.getBySecondaryCore(ctx, pos, seckey, buffer, view, tookView, "lsm_get_by_secondary")
+	return b.getBySecondaryCore(ctx, pos, seckey, buffer, view, tookView, SlowLogKeyGetBySecondary)
 }
 
 func (b *Bucket) getBySecondaryWithView(ctx context.Context, pos int, seckey []byte, buffer []byte, view BucketConsistentView) ([]byte, []byte, error) {
-	return b.getBySecondaryCore(ctx, pos, seckey, buffer, view, 0, "lsm_get_by_secondary_with_view")
+	return b.getBySecondaryCore(ctx, pos, seckey, buffer, view, 0, SlowLogKeyGetBySecondaryWithView)
 }
 
 func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte, buffer []byte, view BucketConsistentView, viewTiming time.Duration, logKey string) ([]byte, []byte, error) {
@@ -924,14 +924,14 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 
 	recheckTook := time.Since(beforeReCheck)
 
-	helpers.AnnotateSlowQueryLogAppend(ctx, logKey, BucketSlowLogEntry{
+	helpers.AnnotateSlowQueryLogAppendReducible(ctx, logKey, BucketSlowLogEntry{
 		View:             viewTiming,
 		ActiveMemtable:   memtablesTook[0],
 		FlushingMemtable: memtablesTook[1],
 		Segments:         segmentsTook,
 		Recheck:          recheckTook,
 		Total:            time.Since(beforeAll),
-	})
+	}, reduceSlowLogEntries)
 
 	return v, allocBuf, nil
 }
