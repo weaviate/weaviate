@@ -33,7 +33,7 @@ func (h *HFresh) doAnalyze(ctx context.Context, postingID uint64) error {
 		}
 	}()
 
-	if !h.Centroids.Exists(postingID) {
+	if !h.Centroids.Built() || !h.Centroids.Exists(postingID) {
 		return nil
 	}
 

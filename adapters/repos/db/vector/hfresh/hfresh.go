@@ -67,6 +67,10 @@ type HFresh struct {
 	rescoreLimit     uint32
 	store            *lsmkv.Store
 
+	// bootstrapThreshold is the size the single initial posting may reach
+	// before the centroid index is built and the posting split.
+	bootstrapThreshold uint32
+
 	// needsNormalization is precomputed at construction from the configured
 	// distance: cosine-dot only equals the cosine distance on unit vectors,
 	// so inputs must be normalized on insert, query, and rescore. L2 (and
@@ -170,6 +174,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		rescoreLimit:       uint32(uc.RQ.RescoreLimit),
 		rootPath:           cfg.RootPath,
 		needsNormalization: cfg.DistanceProvider.Type() == "cosine-dot",
+		bootstrapThreshold: cfg.BootstrapThreshold,
 	}
 
 	h.muvera.Store(uc.Multivector.MuveraConfig.Enabled)
@@ -193,7 +198,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		}
 	}
 
-	h.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)
+	h.Centroids, err = NewHNSWIndex(metrics, store, cfg, cfg.BootstrapThreshold == 0)
 	if err != nil {
 		return nil, err
 	}
@@ -315,7 +320,7 @@ func (h *HFresh) Shutdown(ctx context.Context) error {
 		errs = append(errs, err)
 	}
 
-	err = h.Centroids.hnsw.Shutdown(ctx)
+	err = h.Centroids.Shutdown(ctx)
 	if err != nil {
 		errs = append(errs, err)
 	}
@@ -327,7 +332,7 @@ func (h *HFresh) Flush() error {
 	var errs []error
 
 	// flush the HNSW commit log
-	err := h.Centroids.hnsw.Flush()
+	err := h.Centroids.Flush()
 	if err != nil {
 		errs = append(errs, err)
 	}
@@ -342,7 +347,7 @@ func (h *HFresh) Flush() error {
 }
 
 func (h *HFresh) PrepareForBackup(ctx context.Context) error {
-	err := h.Centroids.hnsw.PrepareForBackup(ctx)
+	err := h.Centroids.PrepareForBackup(ctx)
 	if err != nil {
 		return err
 	}
@@ -372,7 +377,7 @@ func (h *HFresh) ResumeAfterBackup(ctx context.Context) error {
 		queue.DisableMaintenanceMode()
 	}
 
-	return h.Centroids.hnsw.ResumeAfterBackup(ctx)
+	return h.Centroids.ResumeAfterBackup(ctx)
 }
 
 func (h *HFresh) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
@@ -380,7 +385,7 @@ func (h *HFresh) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir 
 }
 
 func (h *HFresh) ListFiles(ctx context.Context, basePath string) ([]string, error) {
-	hnswFiles, err := h.Centroids.hnsw.ListFiles(ctx, basePath)
+	hnswFiles, err := h.Centroids.ListFiles(ctx, basePath)
 	if err != nil {
 		return nil, err
 	}
@@ -421,7 +426,7 @@ func (h *HFresh) PostStartup(ctx context.Context) {
 	// Warm the version map in the background
 	enterrors.GoWrapper(h.warmVersionMap, h.logger)
 
-	h.Centroids.hnsw.PostStartup(ctx)
+	h.Centroids.PostStartup(ctx)
 }
 
 func (h *HFresh) warmVersionMap() {

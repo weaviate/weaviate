@@ -335,3 +335,99 @@ func TestCentroidPrefillNeverReadsObjectStorage(t *testing.T) {
 			"centroid graph must never prefill from object storage, but doc id %d was found in its cache", docID)
 	}
 }
+
+// singlePostingDims keeps the per-vector work small; at 8 dimensions and
+// the smallest I/O budget a posting holds 315 vectors, so a threshold of
+// 1000 forces a split cascade of two levels once the centroid index is built.
+const (
+	singlePostingDims      = 8
+	singlePostingThreshold = 1000
+)
+
+func singlePostingUserConfig() ent.UserConfig {
+	uc := ent.NewDefaultUserConfig()
+	uc.MaxPostingSizeKB = ent.MaxPostingSizeKBFloor
+	return uc
+}
+
+func TestSinglePostingMode(t *testing.T) {
+	ctx := context.Background()
+
+	insert := func(t *testing.T, tf *TestHFresh, n int) [][]float32 {
+		vectors, _ := testinghelpers.RandomVecsFixedSeed(n, 0, singlePostingDims)
+		for i, v := range vectors {
+			addVectorToIndex(t, tf, uint64(i), v)
+		}
+		return vectors
+	}
+
+	assertSelfSearch := func(t *testing.T, tf *TestHFresh, vectors [][]float32) {
+		for i, v := range vectors {
+			ids, _, err := tf.Index.SearchByVector(ctx, v, 1, nil)
+			require.NoError(t, err)
+			require.Equal(t, []uint64{uint64(i)}, ids, "vector %d", i)
+		}
+	}
+
+	t.Run("threshold zero builds the centroid index eagerly", func(t *testing.T) {
+		tf := newTestIndex(t, singlePostingUserConfig(), nil)
+		require.True(t, tf.Index.Centroids.Built())
+	})
+
+	t.Run("stays in one posting below the threshold", func(t *testing.T) {
+		tf := newTestIndex(t, singlePostingUserConfig(), nil, withBootstrapThreshold(singlePostingThreshold))
+		vectors := insert(t, &tf, singlePostingThreshold)
+		tf.Index.waitForMaintenance(t)
+
+		require.False(t, tf.Index.Centroids.Built())
+		require.EqualValues(t, 1, tf.Index.PostingSizes.Count())
+		require.Equal(t, 0, tf.Index.PostingMap.Size(), "posting map must stay empty in single-posting mode")
+		require.EqualValues(t, 0, tf.Index.taskQueue.Size(), "no maintenance task may be queued in single-posting mode")
+
+		assertSelfSearch(t, &tf, vectors)
+
+		// deletes are honoured by the scan
+		require.NoError(t, tf.Index.Delete(3))
+		ids, _, err := tf.Index.SearchByVector(ctx, vectors[3], 1, nil)
+		require.NoError(t, err)
+		require.NotEqual(t, []uint64{3}, ids)
+
+		// an allow list larger than the flat-search cutoff goes through the
+		// posting scan and must still be applied
+		allowed := make([]uint64, 0, flatSearchCutoff+1)
+		for id := uint64(5); id < uint64(flatSearchCutoff+6); id++ {
+			allowed = append(allowed, id)
+		}
+		ids, _, err = tf.Index.SearchByVector(ctx, vectors[0], 1, helpers.NewAllowList(allowed...))
+		require.NoError(t, err)
+		require.Len(t, ids, 1)
+		require.GreaterOrEqual(t, ids[0], uint64(5))
+
+		require.NoError(t, tf.Index.Flush())
+		require.NoError(t, tf.Index.Shutdown(ctx))
+	})
+
+	t.Run("builds the centroid index and splits past the threshold", func(t *testing.T) {
+		tf := newTestIndex(t, singlePostingUserConfig(), nil, withBootstrapThreshold(singlePostingThreshold))
+		vectors := insert(t, &tf, singlePostingThreshold+1)
+		require.True(t, tf.Index.Centroids.Built())
+
+		tf.Index.waitForMaintenance(t)
+
+		// the cascade must reach normal posting sizes without further
+		// inserts, and the posting map is rebuilt from the postings on disk
+		var postings int
+		seen := make(map[uint64]struct{})
+		for id, meta := range tf.Index.PostingMap.Iter() {
+			postings++
+			require.LessOrEqual(t, meta.Count(), tf.Index.maxPostingSize, "posting %d", id)
+			for vid := range meta.Iter() {
+				seen[vid] = struct{}{}
+			}
+		}
+		require.Greater(t, postings, 2)
+		require.Len(t, seen, len(vectors))
+
+		assertSelfSearch(t, &tf, vectors)
+	})
+}

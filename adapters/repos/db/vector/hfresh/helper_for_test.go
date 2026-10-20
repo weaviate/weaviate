@@ -128,6 +128,14 @@ func withDistanceProvider(provider distancer.Provider) testIndexOption {
 	}
 }
 
+// withBootstrapThreshold keeps the index in single-posting mode until the
+// first posting exceeds n vectors.
+func withBootstrapThreshold(n uint32) testIndexOption {
+	return func(cfg *Config) {
+		cfg.BootstrapThreshold = n
+	}
+}
+
 // newTestIndex is the single index constructor behind every test fixture in
 // this package: it wires an HFresh index on top of a dummy LSM store and a
 // noop-bucket centroid HNSW. Pass a non-nil mvStore to wire the

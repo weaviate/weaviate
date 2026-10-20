@@ -40,7 +40,7 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 	}()
 
 	// Ensure the posting exists in the index
-	if !h.Centroids.Exists(postingID) {
+	if !h.Centroids.Built() || !h.Centroids.Exists(postingID) {
 		h.logger.WithField("postingID", postingID).
 			Debug("posting not found, skipping merge operation")
 		return nil // Nothing to merge

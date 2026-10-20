@@ -15,6 +15,7 @@ import (
 	"context"
 	"math"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -59,19 +60,57 @@ func (c *Centroid) Distance(distancer *Distancer, v Vector) (float32, error) {
 	return dist, nil
 }
 
+// HNSWIndex is the centroid index. Below the bootstrap threshold every
+// vector lives in one posting and no graph exists: hnsw stays nil and the
+// single posting's id and centroid are served from singleID/singleCentroid.
+// Build creates the graph and moves that posting into it.
 type HNSWIndex struct {
 	metrics *Metrics
-	hnsw    *hnsw.HNSW
+	store   *lsmkv.Store
+	cfg     *Config
+	hnsw    atomic.Pointer[hnsw.HNSW]
 	counter atomic.Int32
+
+	buildMu sync.Mutex
+
+	singleMu       sync.RWMutex
+	singleID       uint64
+	singleCentroid []float32
 }
 
-func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, pageSize uint64) (*HNSWIndex, error) {
+// NewHNSWIndex prepares the centroid index. With build set the graph is
+// created right away; otherwise it is created by Build once the first
+// posting crosses the bootstrap threshold.
+func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, build bool) (*HNSWIndex, error) {
 	index := HNSWIndex{
 		metrics: metrics,
+		store:   store,
+		cfg:     cfg,
 	}
 
 	cfg.Centroids.HNSWConfig.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
 		return nil, nil
+	}
+	cfg.Centroids.HNSWConfig.WaitForCachePrefill = true
+	cfg.Centroids.HNSWConfig.AcornFilterRatio = math.MaxFloat64
+
+	if build {
+		if err := index.Build(); err != nil {
+			return nil, err
+		}
+	}
+
+	return &index, nil
+}
+
+// Build creates the centroid graph and inserts the single posting's
+// centroid into it, if there is one. It is idempotent.
+func (i *HNSWIndex) Build() error {
+	i.buildMu.Lock()
+	defer i.buildMu.Unlock()
+
+	if i.hnsw.Load() != nil {
+		return nil
 	}
 
 	var userConfig ent.UserConfig
@@ -82,22 +121,84 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, page
 	userConfig.RQ.Bits = 8
 	userConfig.RQ.RescoreLimit = 0
 	userConfig.FilterStrategy = ent.FilterStrategyAcorn
-	cfg.Centroids.HNSWConfig.WaitForCachePrefill = true
-	cfg.Centroids.HNSWConfig.AcornFilterRatio = math.MaxFloat64
 
-	h, err := hnsw.New(*cfg.Centroids.HNSWConfig, userConfig, cfg.TombstoneCallbacks, store)
+	h, err := hnsw.New(*i.cfg.Centroids.HNSWConfig, userConfig, i.cfg.TombstoneCallbacks, i.store)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	h.PostStartup(context.Background())
 
-	index.hnsw = h
+	i.singleMu.RLock()
+	defer i.singleMu.RUnlock()
+	if i.singleID != 0 {
+		err = h.Add(context.Background(), i.singleID, i.singleCentroid)
+		if err != nil {
+			return errors.Wrap(err, "add single posting centroid to hnsw")
+		}
+	}
 
-	return &index, nil
+	i.hnsw.Store(h)
+	return nil
+}
+
+// Built reports whether the centroid graph exists.
+func (i *HNSWIndex) Built() bool {
+	return i.hnsw.Load() != nil
+}
+
+func (i *HNSWIndex) Shutdown(ctx context.Context) error {
+	if h := i.hnsw.Load(); h != nil {
+		return h.Shutdown(ctx)
+	}
+	return nil
+}
+
+func (i *HNSWIndex) Flush() error {
+	if h := i.hnsw.Load(); h != nil {
+		return h.Flush()
+	}
+	return nil
+}
+
+func (i *HNSWIndex) PrepareForBackup(ctx context.Context) error {
+	if h := i.hnsw.Load(); h != nil {
+		return h.PrepareForBackup(ctx)
+	}
+	return nil
+}
+
+func (i *HNSWIndex) ResumeAfterBackup(ctx context.Context) error {
+	if h := i.hnsw.Load(); h != nil {
+		return h.ResumeAfterBackup(ctx)
+	}
+	return nil
+}
+
+func (i *HNSWIndex) ListFiles(ctx context.Context, basePath string) ([]string, error) {
+	if h := i.hnsw.Load(); h != nil {
+		return h.ListFiles(ctx, basePath)
+	}
+	return nil, nil
+}
+
+func (i *HNSWIndex) PostStartup(ctx context.Context) {
+	if h := i.hnsw.Load(); h != nil {
+		h.PostStartup(ctx)
+	}
 }
 
 func (i *HNSWIndex) Get(id uint64) (*Centroid, error) {
-	vec, err := i.hnsw.Get(id)
+	h := i.hnsw.Load()
+	if h == nil {
+		i.singleMu.RLock()
+		defer i.singleMu.RUnlock()
+		if i.singleID == 0 || id != i.singleID {
+			return nil, errors.Wrapf(ErrPostingNotFound, "centroid %d", id)
+		}
+		return &Centroid{Uncompressed: i.singleCentroid}, nil
+	}
+
+	vec, err := h.Get(id)
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +218,20 @@ func (i *HNSWIndex) Insert(id uint64, centroid *Centroid) error {
 		return nil
 	}
 
-	err := i.hnsw.Add(context.Background(), id, centroid.Uncompressed)
+	h := i.hnsw.Load()
+	if h == nil {
+		i.singleMu.Lock()
+		defer i.singleMu.Unlock()
+		if i.singleID != 0 {
+			return errors.Errorf("centroid index not built: cannot add posting %d next to %d", id, i.singleID)
+		}
+		i.singleID = id
+		i.singleCentroid = slices.Clone(centroid.Uncompressed)
+		i.counter.Add(1)
+		return nil
+	}
+
+	err := h.Add(context.Background(), id, centroid.Uncompressed)
 	if err != nil {
 		return errors.Wrap(err, "add to hnsw")
 	}
@@ -127,22 +241,50 @@ func (i *HNSWIndex) Insert(id uint64, centroid *Centroid) error {
 }
 
 func (i *HNSWIndex) MarkAsDeleted(id uint64) error {
-	if i.Exists(id) {
-		i.counter.Add(-1)
-		return i.hnsw.Delete(id)
+	if !i.Exists(id) {
+		return nil
 	}
-	return nil
+	i.counter.Add(-1)
+
+	h := i.hnsw.Load()
+	if h == nil {
+		i.singleMu.Lock()
+		defer i.singleMu.Unlock()
+		i.singleID = 0
+		i.singleCentroid = nil
+		return nil
+	}
+	return h.Delete(id)
 }
 
 func (i *HNSWIndex) Exists(id uint64) bool {
-	return i.hnsw.ContainsDoc(id)
+	h := i.hnsw.Load()
+	if h == nil {
+		i.singleMu.RLock()
+		defer i.singleMu.RUnlock()
+		return i.singleID != 0 && id == i.singleID
+	}
+	return h.ContainsDoc(id)
 }
 
 func (i *HNSWIndex) Search(query []float32, k int, allowList helpers.AllowList) (*ResultSet, error) {
 	start := time.Now()
 	defer i.metrics.CentroidSearchDuration(start)
 
-	ids, distances, err := i.hnsw.SearchByVector(context.TODO(), query, k, allowList)
+	h := i.hnsw.Load()
+	if h == nil {
+		// one posting holds everything: the allow list is applied by the
+		// posting scan instead
+		i.singleMu.RLock()
+		defer i.singleMu.RUnlock()
+		results := &ResultSet{}
+		if i.singleID != 0 {
+			results.data = append(results.data, Result{ID: i.singleID, Distance: 0})
+		}
+		return results, nil
+	}
+
+	ids, distances, err := h.SearchByVector(context.TODO(), query, k, allowList)
 	if err != nil {
 		return nil, err
 	}
@@ -175,5 +317,14 @@ func (i *HNSWIndex) Search(query []float32, k int, allowList helpers.AllowList) 
 }
 
 func (i *HNSWIndex) GetMaxID() uint64 {
-	return i.hnsw.CurrentVectorsLen()
+	h := i.hnsw.Load()
+	if h == nil {
+		i.singleMu.RLock()
+		defer i.singleMu.RUnlock()
+		if i.singleID == 0 {
+			return 0
+		}
+		return i.singleID + 1
+	}
+	return h.CurrentVectorsLen()
 }
