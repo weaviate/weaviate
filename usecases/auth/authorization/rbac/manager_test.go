@@ -1413,29 +1413,38 @@ func TestManager_CountNamespaceLocalRBAC(t *testing.T) {
 	m, err := setupNSEnabledTestManager(t, logger)
 	require.NoError(t, err)
 
+	emptiedPerm := authorization.Policy{Resource: "data/collections/customer1:Books/shards/*/objects/*", Verb: "R", Domain: authorization.DataDomain}
 	require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{
-		"customer1:editor": {{Resource: "data/collections/customer1:Movies/shards/*/objects/*", Verb: "R", Domain: authorization.DataDomain}},
-		"auditor":          {{Resource: "data/collections/Movies/shards/*/objects/*", Verb: "R", Domain: authorization.DataDomain}},
+		"customer1:editor":  {{Resource: "data/collections/customer1:Movies/shards/*/objects/*", Verb: "R", Domain: authorization.DataDomain}},
+		"customer1:emptied": {emptiedPerm},
+		"auditor":           {{Resource: "data/collections/Movies/shards/*/objects/*", Verb: "R", Domain: authorization.DataDomain}},
 	}))
-	// Namespaced db user with a local role, namespaced oidc user with a global
-	// role, and a global db user with the global role.
-	require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId("customer1:alice", authentication.AuthTypeDb), []string{"customer1:editor"}))
+	// A namespaced db user gets local roles, a namespaced oidc user a global
+	// role, and a global db user the global role.
+	require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId("customer1:alice", authentication.AuthTypeDb), []string{"customer1:editor", "customer1:emptied"}))
 	require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId("customer1:carol", authentication.AuthTypeOIDC), []string{"auditor"}))
 	require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId("bob", authentication.AuthTypeDb), []string{"auditor"}))
 	// A namespace-named group is still a global assignment: it must not count,
 	// else the namespace could never be removed (the cascade leaves it).
 	require.NoError(t, m.AddRolesForUser(conv.PrefixGroupName("customer1:team"), []string{"auditor"}))
+	// A local role left with only its assignment rows still belongs to the
+	// namespace, as does one whose permission row conv.CasbinPolicies rejects.
+	require.NoError(t, m.RemovePermissions("customer1:emptied", []*authorization.Policy{&emptiedPerm}))
+	_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("customer1:unconvertible"), "data/collections/customer1:Movies/shards/*/objects/*", "bogus-verb", authorization.DataDomain)
+	require.NoError(t, err)
 
-	// 1 local role + 2 namespaced assignments (alice, carol); auditor + bob + group excluded.
+	// The count is 3 local roles plus the 2 subjects alice and carol. The
+	// auditor role, bob and the group do not count.
 	got, err := m.CountNamespaceLocalRBAC("customer1")
 	require.NoError(t, err)
-	assert.Equal(t, 3, got)
+	assert.Equal(t, 5, got)
 
 	// The cascade enumeration surfaces the two namespaced users, never the
 	// namespace-named group: a group is global, so it must never be treated as a
 	// namespace-local subject the cascade would try to revoke from.
-	_, subjects, err := m.NamespaceLocalRBAC("customer1")
+	roles, subjects, err := m.NamespaceLocalRBAC("customer1")
 	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"customer1:editor", "customer1:emptied", "customer1:unconvertible"}, roles)
 	ids := make([]string, len(subjects))
 	for i, s := range subjects {
 		ids[i] = s.ID
@@ -1452,7 +1461,7 @@ func TestManager_CountNamespaceLocalRBAC(t *testing.T) {
 	require.NoError(t, m.RevokeRolesForUser(conv.UserNameWithTypeFromId("customer1:carol", authentication.AuthTypeOIDC), "auditor"))
 	got, err = m.CountNamespaceLocalRBAC("customer1")
 	require.NoError(t, err)
-	assert.Equal(t, 2, got)
+	assert.Equal(t, 4, got)
 }
 
 // TestManager_NamespaceLocalRBAC_FailsClosedOnUnparseableRow pins the gate's
@@ -1630,6 +1639,52 @@ func TestGetRolesForUserOrGroupDuringRestore(t *testing.T) {
 	require.Positive(t, restores.Load())
 }
 
+// TestNamespaceLocalRBACDuringRestore pins that NamespaceLocalRBAC reads its p
+// and g rows under restoreLock. Restore clears the table before it re-adds the
+// rows, so a read between those calls sees no roles and no subjects.
+func TestNamespaceLocalRBACDuringRestore(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	m, err := setupNSEnabledTestManager(t, logger)
+	require.NoError(t, err)
+	require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{
+		"customer1:editor": {{Resource: "data/collections/customer1:Movies/shards/*/objects/*", Verb: "R", Domain: authorization.DataDomain}},
+	}))
+	require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId("customer1:alice", authentication.AuthTypeDb), []string{"customer1:editor"}))
+	blob, err := m.Snapshot()
+	require.NoError(t, err)
+
+	stop := make(chan struct{})
+	restored := make(chan error, 1)
+	go func() {
+		for {
+			select {
+			case <-stop:
+				restored <- nil
+				return
+			default:
+			}
+			if err := m.Restore(blob, false); err != nil {
+				restored <- err
+				return
+			}
+		}
+	}()
+
+	var partial string
+	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline) && partial == ""; {
+		roles, subjects, err := m.NamespaceLocalRBAC("customer1")
+		switch {
+		case err != nil:
+			partial = err.Error()
+		case len(roles) != 1 || len(subjects) != 1:
+			partial = fmt.Sprintf("roles=%v subjects=%v", roles, subjects)
+		}
+	}
+	close(stop)
+	require.NoError(t, <-restored)
+	require.Empty(t, partial, "a read during Restore saw a partial table")
+}
+
 // TestWholeTableReadsDuringRemoval pins that a read of every p or g row does not
 // share memory with a concurrent RemovePermissions or RevokeRolesForUser, which
 // casbin applies in place. Only a -race run can fail it.
@@ -1649,6 +1704,13 @@ func TestWholeTableReadsDuringRemoval(t *testing.T) {
 			name: "ListGroupingSubjects",
 			read: func(m *Manager) error {
 				_, err := m.ListGroupingSubjects()
+				return err
+			},
+		},
+		{
+			name: "NamespaceLocalRBAC",
+			read: func(m *Manager) error {
+				_, _, err := m.NamespaceLocalRBAC("customer1")
 				return err
 			},
 		},
