@@ -106,20 +106,27 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig
 	}
 
 	flatConfig, ok := asMap["flat"]
-	if !ok || flatConfig == nil {
-		return uc, nil
+	if ok && flatConfig != nil {
+		flatUC, err := flat.ParseAndValidateConfig(flatConfig)
+		if err != nil {
+			return uc, err
+		}
+
+		castedFlatUC, ok := flatUC.(flat.UserConfig)
+		if !ok {
+			return uc, fmt.Errorf("invalid flat configuration")
+		}
+		uc.FlatUC = castedFlatUC
 	}
 
-	flatUC, err := flat.ParseAndValidateConfig(flatConfig)
-	if err != nil {
+	// The nested HNSW/flat configs retain their default cosine distance; validate
+	// BQ compatibility against the effective top-level dynamic distance.
+	if err := common.ValidateBQCompatibility(uc.Distance, uc.HnswUC.BQ.Enabled); err != nil {
 		return uc, err
 	}
-
-	castedFlatUC, ok := flatUC.(flat.UserConfig)
-	if !ok {
-		return uc, fmt.Errorf("invalid flat configuration")
+	if err := common.ValidateBQCompatibility(uc.Distance, uc.FlatUC.BQ.Enabled); err != nil {
+		return uc, err
 	}
-	uc.FlatUC = castedFlatUC
 
 	return uc, nil
 }
@@ -139,6 +146,15 @@ func ParseDefaultQuantization(vectorIndexConfig schemaConfig.VectorIndexConfig, 
 	}
 	if errFlat != nil {
 		errs = append(errs, fmt.Errorf("error dynamic index: %w", errFlat))
+	}
+
+	// The nested parsers validate against their own default distance; re-validate
+	// against the effective top-level dynamic distance.
+	if err := common.ValidateBQCompatibility(config.Distance, config.HnswUC.BQ.Enabled); err != nil {
+		errs = append(errs, err)
+	}
+	if err := common.ValidateBQCompatibility(config.Distance, config.FlatUC.BQ.Enabled); err != nil {
+		errs = append(errs, err)
 	}
 
 	if len(errs) == 0 {
