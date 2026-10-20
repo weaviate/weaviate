@@ -14,8 +14,10 @@ package helpers
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -118,4 +120,44 @@ func TestAnnotateSlowQueryLogAppendReducible(t *testing.T) {
 		AnnotateSlowQueryLogAppendReducible[int, int](ctx, "k", 1, nil)
 		require.NotContains(t, ExtractSlowQueryDetails(ctx), "k")
 	})
+}
+
+func TestReduceToSlowest(t *testing.T) {
+	entries := func(tooks ...time.Duration) []map[string]any {
+		out := make([]map[string]any, len(tooks))
+		for i, took := range tooks {
+			out[i] = map[string]any{"took": took}
+		}
+		return out
+	}
+	tests := []struct {
+		name        string
+		in          []map[string]any
+		wantSlowest []map[string]any
+	}{
+		{"empty", nil, nil},
+		{"fewer than the bound keeps all, slowest first", entries(1, 3, 2), entries(3, 2, 1)},
+		{"more than the bound keeps the slowest", entries(4, 9, 1, 7, 2, 8, 3), entries(9, 8, 7, 4, 3)},
+		{
+			"an entry without took sorts last",
+			[]map[string]any{{"x": 1}, {"took": time.Duration(1)}},
+			[]map[string]any{{"took": time.Duration(1)}, {"x": 1}},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			in := slices.Clone(tc.in)
+			got := ReduceToSlowest(in)
+			require.Equal(t, len(tc.in), got.Count)
+			require.Equal(t, tc.wantSlowest, got.Slowest)
+			require.Equal(t, tc.in, in, "the reducer must not reorder its input")
+		})
+	}
+}
+
+func TestHasSlowQueryDetails(t *testing.T) {
+	var noCtx context.Context
+	require.False(t, HasSlowQueryDetails(noCtx))
+	require.False(t, HasSlowQueryDetails(context.Background()))
+	require.True(t, HasSlowQueryDetails(InitSlowQueryDetails(context.Background())))
 }

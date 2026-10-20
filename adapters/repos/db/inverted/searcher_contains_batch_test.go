@@ -437,6 +437,11 @@ func extractContainsDesugaredReason(t *testing.T, ctx context.Context) string {
 	return reason
 }
 
+func docBitmapSlowLogEntries(ctx context.Context) ([]map[string]any, bool) {
+	summary, ok := helpers.ExtractSlowQueryDetails(ctx)[docBitmapSlowLogKey].(helpers.SlowestEntries)
+	return summary.Slowest, ok
+}
+
 func TestExtractContainsBatch_EncodingErrorIsEligibleButFails(t *testing.T) {
 	f := newContainsBatchGateFixture(t)
 	s := f.searcher
@@ -698,7 +703,7 @@ func TestFetchContainsBatch_BucketErrors(t *testing.T) {
 			require.ErrorContains(t, err, tc.wantErr)
 			require.Nil(t, dbm)
 
-			entries, _ := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+			entries, _ := docBitmapSlowLogEntries(ctx)
 			if !tc.wantPlanLogged {
 				require.Empty(t, entries, "a filter rejected before it planned is not timed")
 				return
@@ -813,7 +818,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		require.NoError(t, err)
 		defer dbm.release()
 
-		entries, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		entries, ok := docBitmapSlowLogEntries(ctx)
 		require.True(t, ok, "batched contains must annotate the slow query log")
 		require.Len(t, entries, 1)
 
@@ -844,7 +849,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		require.NoError(t, err)
 		defer dbm.release()
 
-		entries, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		entries, ok := docBitmapSlowLogEntries(ctx)
 		require.True(t, ok)
 		require.Len(t, entries, 1)
 
@@ -894,7 +899,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		require.NoError(t, err)
 		defer dbm.release()
 
-		entries, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		entries, ok := docBitmapSlowLogEntries(ctx)
 		require.True(t, ok)
 		require.Len(t, entries, 1)
 
@@ -925,7 +930,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		require.NoError(t, err)
 		defer dbm.release()
 
-		entries := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		entries, _ := docBitmapSlowLogEntries(ctx)
 		require.Equal(t, 2, entries[0]["batched_keys"], "four values must report two keys")
 	})
 
@@ -942,7 +947,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		_, err := pv.fetchContainsBatch(ctx, f.searcher)
 		require.Error(t, err)
 
-		entries, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		entries, ok := docBitmapSlowLogEntries(ctx)
 		require.True(t, ok, "a filter rejected while opening the reader must still be timed")
 		require.Len(t, entries, 1)
 		require.Equal(t, "prop-nonroaringset", entries[0]["prop"])
@@ -965,7 +970,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 		_, err := newPV(keysFrom(t, []byte("a"), []byte("b"))).fetchContainsBatch(ctx, f.searcher)
 		require.ErrorIs(t, err, context.Canceled)
 
-		entries, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap"].([]map[string]any)
+		entries, ok := docBitmapSlowLogEntries(ctx)
 		require.True(t, ok, "a filter that opens the reader and then fails must still be timed")
 		require.Len(t, entries, 1)
 		require.Equal(t, "prop-int", entries[0]["prop"])

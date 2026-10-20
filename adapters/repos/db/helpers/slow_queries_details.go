@@ -12,9 +12,11 @@
 package helpers
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"sync"
 	"time"
 )
@@ -111,6 +113,36 @@ func AnnotateSlowQueryLogAppendReducible[T any, R any](ctx context.Context, key 
 			}
 			return reduce(typed)
 		}
+	}
+}
+
+// HasSlowQueryDetails reports whether ctx collects slow-query details, so a
+// caller can skip building values nothing will read.
+func HasSlowQueryDetails(ctx context.Context) bool {
+	return slowQueryDetailsFromContext(ctx) != nil
+}
+
+// slowestEntriesKept bounds the record of an unbatched ContainsAny, which
+// builds one bitmap per value.
+const slowestEntriesKept = 5
+
+type SlowestEntries struct {
+	Count   int              `json:"count"`
+	Slowest []map[string]any `json:"slowest"`
+}
+
+// ReduceToSlowest keeps the entries with the largest "took" duration.
+func ReduceToSlowest(entries []map[string]any) SlowestEntries {
+	// a reducer must not mutate its input
+	slowest := slices.Clone(entries)
+	slices.SortStableFunc(slowest, func(a, b map[string]any) int {
+		tookA, _ := a["took"].(time.Duration)
+		tookB, _ := b["took"].(time.Duration)
+		return cmp.Compare(tookB, tookA)
+	})
+	return SlowestEntries{
+		Count:   len(entries),
+		Slowest: slowest[:min(len(slowest), slowestEntriesKept)],
 	}
 }
 

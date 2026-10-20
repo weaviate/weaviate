@@ -16,6 +16,16 @@ import (
 	"time"
 )
 
+// Keys for per-lookup slow-log entries, split by whether the entry carries the
+// view cost. A lookup that takes its own view per key records under
+// SlowLogKeyGetBySecondary and puts that cost in View. A lookup that resolves
+// many keys under one view records under SlowLogKeyGetBySecondaryWithView with
+// View zero, so the view cost is not in these percentiles.
+const (
+	SlowLogKeyGetBySecondary         = "lsm_get_by_secondary"
+	SlowLogKeyGetBySecondaryWithView = "lsm_get_by_secondary_with_view"
+)
+
 type BucketSlowLogEntry struct {
 	Total            time.Duration
 	View             time.Duration
