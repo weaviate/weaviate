@@ -47,6 +47,16 @@ func parseValue(in *models.WhereFilter) (*filters.Value, error) {
 	return value, nil
 }
 
+// emptyArrayErr reports a value<Type>Array field that was explicitly set but
+// contains no elements. It is deliberately distinct from the generic
+// "no value<Type> field set" error above: the field IS set here, it is just
+// empty, and telling the user it was never set misdirects them
+// (weaviate/weaviate#13567).
+func emptyArrayErr(operator, field string) error {
+	return fmt.Errorf("got operator '%s', but value array '%s' is empty",
+		operator, field)
+}
+
 type valueExtractorFunc func(*models.WhereFilter) (*filters.Value, error)
 
 var valueExtractors = []valueExtractorFunc{
@@ -93,8 +103,11 @@ var valueExtractors = []valueExtractorFunc{
 
 	// int array
 	func(in *models.WhereFilter) (*filters.Value, error) {
-		if len(in.ValueIntArray) == 0 {
+		if in.ValueIntArray == nil {
 			return nil, nil
+		}
+		if len(in.ValueIntArray) == 0 {
+			return nil, emptyArrayErr(in.Operator, "valueInt")
 		}
 
 		valueInts := make([]int, len(in.ValueIntArray))
@@ -105,32 +118,44 @@ var valueExtractors = []valueExtractorFunc{
 	},
 	// number array
 	func(in *models.WhereFilter) (*filters.Value, error) {
-		if len(in.ValueNumberArray) == 0 {
+		if in.ValueNumberArray == nil {
 			return nil, nil
+		}
+		if len(in.ValueNumberArray) == 0 {
+			return nil, emptyArrayErr(in.Operator, "valueNumber")
 		}
 
 		return valueFilter(in.ValueNumberArray, schema.DataTypeNumber), nil
 	},
 	// text array
 	func(in *models.WhereFilter) (*filters.Value, error) {
-		if len(in.ValueTextArray) == 0 {
+		if in.ValueTextArray == nil {
 			return nil, nil
+		}
+		if len(in.ValueTextArray) == 0 {
+			return nil, emptyArrayErr(in.Operator, "valueText")
 		}
 
 		return valueFilter(in.ValueTextArray, schema.DataTypeText), nil
 	},
 	// date (as string) array
 	func(in *models.WhereFilter) (*filters.Value, error) {
-		if len(in.ValueDateArray) == 0 {
+		if in.ValueDateArray == nil {
 			return nil, nil
+		}
+		if len(in.ValueDateArray) == 0 {
+			return nil, emptyArrayErr(in.Operator, "valueDate")
 		}
 
 		return valueFilter(in.ValueDateArray, schema.DataTypeDate), nil
 	},
 	// boolean
 	func(in *models.WhereFilter) (*filters.Value, error) {
-		if len(in.ValueBooleanArray) == 0 {
+		if in.ValueBooleanArray == nil {
 			return nil, nil
+		}
+		if len(in.ValueBooleanArray) == 0 {
+			return nil, emptyArrayErr(in.Operator, "valueBoolean")
 		}
 
 		return valueFilter(in.ValueBooleanArray, schema.DataTypeBoolean), nil
@@ -172,8 +197,11 @@ var valueExtractors = []valueExtractorFunc{
 	},
 	// deprecated string array
 	func(in *models.WhereFilter) (*filters.Value, error) {
-		if len(in.ValueStringArray) == 0 {
+		if in.ValueStringArray == nil {
 			return nil, nil
+		}
+		if len(in.ValueStringArray) == 0 {
+			return nil, emptyArrayErr(in.Operator, "valueString")
 		}
 
 		return valueFilter(in.ValueStringArray, schema.DataTypeString), nil
