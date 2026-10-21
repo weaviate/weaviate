@@ -386,8 +386,20 @@ func TestSinglePostingMode(t *testing.T) {
 
 		assertSelfSearch(t, &tf, vectors)
 
+		// a tenant that never deleted anything holds no version map pages
+		require.False(t, tf.Index.VersionMap.Written())
+		for range tf.Index.VersionMap.data.IterAllocated() {
+			require.FailNow(t, "version map must stay empty until the first delete")
+		}
+		var sizeSlots int
+		for range tf.Index.PostingSizes.data.IterAllocated() {
+			sizeSlots++
+		}
+		require.LessOrEqual(t, sizeSlots, 1024, "one posting must not reserve a 64k-entry size page")
+
 		// deletes are honoured by the scan
 		require.NoError(t, tf.Index.Delete(3))
+		require.True(t, tf.Index.VersionMap.Written())
 		ids, _, err := tf.Index.SearchByVector(ctx, vectors[3], 1, nil)
 		require.NoError(t, err)
 		require.NotEqual(t, []uint64{3}, ids)

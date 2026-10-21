@@ -113,6 +113,9 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 
 	var decompressBuf []uint64
 
+	// an index that never deleted or updated a vector has nothing to look up
+	checkVersions := h.VersionMap.Written()
+
 	beforeScan := time.Now()
 	for i, p := range postings {
 		if p == nil { // posting nil if not found
@@ -125,13 +128,15 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		for _, v := range p {
 			id := v.ID()
 			// skip deleted vectors
-			deleted, err := h.VersionMap.IsDeleted(context.Background(), id)
-			if err != nil {
-				return nil, nil, errors.Wrapf(err, "failed to check if vector %d is deleted", id)
-			}
-			if deleted {
-				postingSize--
-				continue
+			if checkVersions {
+				deleted, err := h.VersionMap.IsDeleted(context.Background(), id)
+				if err != nil {
+					return nil, nil, errors.Wrapf(err, "failed to check if vector %d is deleted", id)
+				}
+				if deleted {
+					postingSize--
+					continue
+				}
 			}
 
 			// skip duplicates
@@ -599,6 +604,7 @@ func (h *HFresh) searchByFDE(
 	q := NewResultSet(poolSize)
 
 	var decompressBuf []uint64
+	checkVersions := h.VersionMap.Written()
 
 	for i, p := range postings {
 		if p == nil {
@@ -610,13 +616,15 @@ func (h *HFresh) searchByFDE(
 		for _, v := range p {
 			id := v.ID()
 
-			deleted, err := h.VersionMap.IsDeleted(ctx, id)
-			if err != nil {
-				return nil, errors.Wrapf(err, "failed to check if vector %d is deleted", id)
-			}
-			if deleted {
-				postingSize--
-				continue
+			if checkVersions {
+				deleted, err := h.VersionMap.IsDeleted(ctx, id)
+				if err != nil {
+					return nil, errors.Wrapf(err, "failed to check if vector %d is deleted", id)
+				}
+				if deleted {
+					postingSize--
+					continue
+				}
 			}
 
 			if visited.CheckAndVisit(id) {

@@ -341,6 +341,9 @@ func (h *HFresh) restoreMetadata() error {
 	if err := h.PostingSizes.Restore(h.ctx); err != nil {
 		return err
 	}
+	if err := h.VersionMap.RestoreWritten(); err != nil {
+		return err
+	}
 	if err := h.restoreCentroids(); err != nil {
 		return err
 	}
