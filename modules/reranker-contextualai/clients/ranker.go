@@ -122,7 +122,9 @@ func (c *client) performRank(ctx context.Context, query string, documents []stri
 	if err := json.Unmarshal(bodyBytes, &rankResponse); err != nil {
 		return nil, fmt.Errorf("failed to parse reranker response (status %d): %w", res.StatusCode, err)
 	}
-	return c.toDocumentScores(documents, rankResponse.Results), nil
+	return ent.ToDocumentScores(documents, rankResponse.Results, func(r RerankedResult) (int, float64) {
+		return r.Index, r.RelevanceScore
+	})
 }
 
 func (c *client) buildRankInput(query string, documents []string, cfg moduletools.ClassConfig) (RankInput, error) {
@@ -208,17 +210,6 @@ func (c *client) chunkDocuments(documents []string, chunkSize int) [][]string {
 	}
 
 	return requests
-}
-
-func (c *client) toDocumentScores(documents []string, results []RerankedResult) []ent.DocumentScore {
-	documentScores := make([]ent.DocumentScore, len(results))
-	for _, result := range results {
-		documentScores[result.Index] = ent.DocumentScore{
-			Document: documents[result.Index],
-			Score:    result.RelevanceScore,
-		}
-	}
-	return documentScores
 }
 
 func (c *client) toRankResult(query string, results [][]ent.DocumentScore) *ent.RankResult {
