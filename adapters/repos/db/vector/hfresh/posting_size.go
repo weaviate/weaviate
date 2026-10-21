@@ -32,8 +32,10 @@ type PostingSizes struct {
 func NewPostingSizes(bucket bucketRef, metrics *Metrics) *PostingSizes {
 	return &PostingSizes{
 		metrics: metrics,
-		data:    common.NewGroupedPagedArray[uint32](16*1024, 64*1024), // 1 billion entries with 64k per page
-		store:   NewPostingSizesStore(bucket, postingSizesBucketPrefix),
+		// 64M posting ids with 1k per page: a one-posting index pays 4 KB,
+		// not a 256 KB page
+		data:  common.NewGroupedPagedArray[uint32](64*1024, 1024),
+		store: NewPostingSizesStore(bucket, postingSizesBucketPrefix),
 	}
 }
 
