@@ -36,7 +36,7 @@ const (
 // BootstrapThreshold is the number of vectors an index keeps in a single
 // posting, without a centroid index, before the first split. Zero builds
 // the centroid index up front.
-var BootstrapThreshold uint32 = 80_000
+var BootstrapThreshold uint32 = 100_000
 
 type Config struct {
 	Logger                       logrus.FieldLogger
