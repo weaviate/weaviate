@@ -29,6 +29,7 @@ import (
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 type MergeDocument struct {
@@ -136,6 +137,9 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 
 	prevObj := obj.Object()
 	if err := m.validateObjectAndNormalizeNames(ctx, principal, repl, updates, prevObj, fetchedClass); err != nil {
+		if errors.Is(err, replicaerrors.ErrReplicas) {
+			return &Error{"validate object", StatusInternalServerError, err}
+		}
 		return &Error{"bad request", StatusBadRequest, err}
 	}
 
