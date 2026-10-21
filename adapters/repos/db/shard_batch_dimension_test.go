@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -1485,3 +1486,374 @@ func TestShard_BatchDimensionValidation_UnmatchedTargetVector(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, retGood, "valid object must exist in LSM")
 }
+
+func TestShard_BatchDimensionValidation_OrderIndependenceAndFiltering(t *testing.T) {
+	ctx := testCtx()
+
+	t.Run("order invariance: uninitialized target A and established target B", func(t *testing.T) {
+		className := "OrderInvarianceUninitAEstB"
+		class := &models.Class{
+			Class: className,
+			VectorConfig: map[string]models.VectorConfig{
+				"targetA": {VectorIndexType: hnsw.NewDefaultUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultUserConfig()},
+				"targetB": {VectorIndexType: hnsw.NewDefaultUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultUserConfig()},
+			},
+		}
+		vic := hnsw.UserConfig{Distance: "cosine"}
+		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false, func(i *Index) {
+			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+				"targetA": hnsw.NewDefaultUserConfig(),
+				"targetB": hnsw.NewDefaultUserConfig(),
+			}
+		})
+		defer func() {
+			require.Nil(t, idx.drop())
+			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+		}()
+
+		// Establish targetB at 4D with initial object
+		initObj := createNamedVectorObject(className, map[string][]float32{
+			"targetB": {0.1, 0.2, 0.3, 0.4},
+		})
+		initErrs := shardLike.PutObjectBatch(ctx, []*storobj.Object{initObj})
+		require.Len(t, initErrs, 1)
+		require.NoError(t, initErrs[0])
+
+		shardLike.WithVectorIndex("targetA", func(vidx VectorIndex) error {
+			assert.Equal(t, 0, vidx.Dimension(), "targetA should be uninitialized")
+			return nil
+		})
+		shardLike.WithVectorIndex("targetB", func(vidx VectorIndex) error {
+			assert.Equal(t, 4, vidx.Dimension(), "targetB should be established at 4D")
+			return nil
+		})
+
+		// Obj 0: targetA=3D, targetB=4D (valid on established B)
+		// Obj 1: targetA=4D, targetB=5D (invalid on established B: 5D != 4D)
+		obj0 := createNamedVectorObject(className, map[string][]float32{
+			"targetA": {0.1, 0.2, 0.3},
+			"targetB": {0.1, 0.2, 0.3, 0.4},
+		})
+		obj1 := createNamedVectorObject(className, map[string][]float32{
+			"targetA": {0.1, 0.2, 0.3, 0.4},
+			"targetB": {0.1, 0.2, 0.3, 0.4, 0.5},
+		})
+
+		errs := shardLike.PutObjectBatch(ctx, []*storobj.Object{obj0, obj1})
+		require.Len(t, errs, 2)
+
+		// Obj 0 must succeed and establish targetA at 3D
+		require.NoError(t, errs[0])
+		// Obj 1 must fail on targetB dimension mismatch
+		require.Error(t, errs[1])
+		assert.Equal(t, `target vector "targetB": dimension mismatch: expected 4, got 5`, errs[1].Error())
+
+		// Obj 0 in LSM, Obj 1 NOT in LSM
+		ret0, err := shardLike.ObjectByID(ctx, obj0.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.NotNil(t, ret0, "obj0 must exist in LSM")
+
+		ret1, err := shardLike.ObjectByID(ctx, obj1.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.Nil(t, ret1, "obj1 must not exist in LSM")
+
+		// targetA is now established at 3D
+		shardLike.WithVectorIndex("targetA", func(vidx VectorIndex) error {
+			assert.Equal(t, 3, vidx.Dimension(), "targetA dimension should be established to 3")
+			return nil
+		})
+	})
+
+	t.Run("order invariance: established target A and uninitialized target B", func(t *testing.T) {
+		className := "OrderInvarianceEstAUninitB"
+		class := &models.Class{
+			Class: className,
+			VectorConfig: map[string]models.VectorConfig{
+				"targetA": {VectorIndexType: hnsw.NewDefaultUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultUserConfig()},
+				"targetB": {VectorIndexType: hnsw.NewDefaultUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultUserConfig()},
+			},
+		}
+		vic := hnsw.UserConfig{Distance: "cosine"}
+		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false, func(i *Index) {
+			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+				"targetA": hnsw.NewDefaultUserConfig(),
+				"targetB": hnsw.NewDefaultUserConfig(),
+			}
+		})
+		defer func() {
+			require.Nil(t, idx.drop())
+			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+		}()
+
+		// Establish targetA at 4D with initial object
+		initObj := createNamedVectorObject(className, map[string][]float32{
+			"targetA": {0.1, 0.2, 0.3, 0.4},
+		})
+		initErrs := shardLike.PutObjectBatch(ctx, []*storobj.Object{initObj})
+		require.Len(t, initErrs, 1)
+		require.NoError(t, initErrs[0])
+
+		shardLike.WithVectorIndex("targetA", func(vidx VectorIndex) error {
+			assert.Equal(t, 4, vidx.Dimension(), "targetA should be established at 4D")
+			return nil
+		})
+		shardLike.WithVectorIndex("targetB", func(vidx VectorIndex) error {
+			assert.Equal(t, 0, vidx.Dimension(), "targetB should be uninitialized")
+			return nil
+		})
+
+		// Obj 0: targetA=4D, targetB=3D (valid on established A)
+		// Obj 1: targetA=5D, targetB=4D (invalid on established A: 5D != 4D)
+		obj0 := createNamedVectorObject(className, map[string][]float32{
+			"targetA": {0.1, 0.2, 0.3, 0.4},
+			"targetB": {0.1, 0.2, 0.3},
+		})
+		obj1 := createNamedVectorObject(className, map[string][]float32{
+			"targetA": {0.1, 0.2, 0.3, 0.4, 0.5},
+			"targetB": {0.1, 0.2, 0.3, 0.4},
+		})
+
+		errs := shardLike.PutObjectBatch(ctx, []*storobj.Object{obj0, obj1})
+		require.Len(t, errs, 2)
+
+		// Obj 0 must succeed and establish targetB at 3D
+		require.NoError(t, errs[0])
+		// Obj 1 must fail on targetA dimension mismatch
+		require.Error(t, errs[1])
+		assert.Equal(t, `target vector "targetA": dimension mismatch: expected 4, got 5`, errs[1].Error())
+
+		// Obj 0 in LSM, Obj 1 NOT in LSM
+		ret0, err := shardLike.ObjectByID(ctx, obj0.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.NotNil(t, ret0, "obj0 must exist in LSM")
+
+		ret1, err := shardLike.ObjectByID(ctx, obj1.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.Nil(t, ret1, "obj1 must not exist in LSM")
+
+		// targetB is now established at 3D
+		shardLike.WithVectorIndex("targetB", func(vidx VectorIndex) error {
+			assert.Equal(t, 3, vidx.Dimension(), "targetB dimension should be established to 3")
+			return nil
+		})
+	})
+
+	t.Run("superseded duplicate UUIDs in batch with different dimensions on uninitialized collection", func(t *testing.T) {
+		className := "DuplicatesUninitCollection"
+		class := &models.Class{Class: className}
+		vic := hnsw.NewDefaultUserConfig()
+
+		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false)
+		defer func() {
+			require.Nil(t, idx.drop())
+			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+		}()
+
+		// Duplicate UUID with 3D (superseded) and 4D (retained)
+		dupID := strfmt.UUID("11111111-1111-1111-1111-111111111111")
+		obj0 := testObject(className)
+		obj0.SetID(dupID)
+		obj0.Vector = []float32{0.1, 0.2, 0.3} // 3D
+
+		obj1 := testObject(className)
+		obj1.SetID(dupID)
+		obj1.Vector = []float32{0.1, 0.2, 0.3, 0.4} // 4D
+
+		errs := shardLike.PutObjectBatch(ctx, []*storobj.Object{obj0, obj1})
+		require.Len(t, errs, 2)
+		require.NoError(t, errs[0], "superseded duplicate should not have error")
+		require.NoError(t, errs[1], "retained duplicate should succeed")
+
+		// Retained object in LSM with 4D vector
+		ret, err := shardLike.ObjectByID(ctx, dupID, search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		require.NotNil(t, ret)
+		assert.Equal(t, 4, len(ret.Vector))
+
+		shardLike.WithVectorIndex("", func(vidx VectorIndex) error {
+			assert.Equal(t, 4, vidx.Dimension(), "dimension should be established to 4")
+			return nil
+		})
+	})
+
+	t.Run("superseded duplicate UUIDs in batch with different dimensions on established collection", func(t *testing.T) {
+		className := "DuplicatesEstablishedCollection"
+		class := &models.Class{Class: className}
+		vic := hnsw.NewDefaultUserConfig()
+
+		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false)
+		defer func() {
+			require.Nil(t, idx.drop())
+			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+		}()
+
+		// Establish dimension = 4
+		r := getRandomSeed()
+		initBatch := createRandomObjects(r, className, 1, 4)
+		errs := shardLike.PutObjectBatch(ctx, initBatch)
+		require.Len(t, errs, 1)
+		require.NoError(t, errs[0])
+
+		shardLike.WithVectorIndex("", func(vidx VectorIndex) error {
+			assert.Equal(t, 4, vidx.Dimension())
+			return nil
+		})
+
+		// Batch has superseded duplicate with wrong dim (3D) and retained entry with valid dim (4D)
+		dupID := strfmt.UUID("22222222-2222-2222-2222-222222222222")
+		obj0 := testObject(className)
+		obj0.SetID(dupID)
+		obj0.Vector = []float32{0.1, 0.2, 0.3} // 3D (superseded)
+
+		obj1 := testObject(className)
+		obj1.SetID(dupID)
+		obj1.Vector = []float32{0.1, 0.2, 0.3, 0.4} // 4D (retained)
+
+		errs = shardLike.PutObjectBatch(ctx, []*storobj.Object{obj0, obj1})
+		require.Len(t, errs, 2)
+		require.NoError(t, errs[0], "superseded duplicate should not fail batch")
+		require.NoError(t, errs[1], "retained duplicate should succeed")
+
+		ret, err := shardLike.ObjectByID(ctx, dupID, search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		require.NotNil(t, ret)
+		assert.Equal(t, 4, len(ret.Vector))
+	})
+
+	t.Run("skipped vector index allows mixed dimensions without error", func(t *testing.T) {
+		className := "SkippedVectorIndexMixedDims"
+		class := &models.Class{
+			Class: className,
+			VectorIndexConfig: hnsw.UserConfig{
+				Skip: true,
+			},
+		}
+		vic := hnsw.UserConfig{Skip: true}
+
+		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false)
+		defer func() {
+			require.Nil(t, idx.drop())
+			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+		}()
+
+		// Mixed dimensions: 3D, 5D, 4D
+		obj0 := testObject(className)
+		obj0.Vector = []float32{0.1, 0.2, 0.3}
+
+		obj1 := testObject(className)
+		obj1.Vector = []float32{0.1, 0.2, 0.3, 0.4, 0.5}
+
+		obj2 := testObject(className)
+		obj2.Vector = []float32{0.1, 0.2, 0.3, 0.4}
+
+		errs := shardLike.PutObjectBatch(ctx, []*storobj.Object{obj0, obj1, obj2})
+		require.Len(t, errs, 3)
+		for i, err := range errs {
+			require.NoError(t, err, "object %d should succeed on skipped index", i)
+		}
+
+		// All 3 objects exist in LSM
+		for _, obj := range []*storobj.Object{obj0, obj1, obj2} {
+			ret, err := shardLike.ObjectByID(ctx, obj.ID(), search.SelectProperties{}, additional.Properties{})
+			require.NoError(t, err)
+			assert.NotNil(t, ret, "object %s must exist in LSM", obj.ID())
+		}
+	})
+
+	t.Run("mixed skipped target and active uninitialized target in same batch", func(t *testing.T) {
+		className := "MixedSkippedAndActiveTarget"
+		class := &models.Class{
+			Class: className,
+			VectorConfig: map[string]models.VectorConfig{
+				"skippedTarget": {
+					VectorIndexType:   hnsw.NewDefaultUserConfig().IndexType(),
+					VectorIndexConfig: hnsw.UserConfig{Skip: true},
+				},
+				"activeTarget": {
+					VectorIndexType:   hnsw.NewDefaultUserConfig().IndexType(),
+					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+				},
+			},
+		}
+		vic := hnsw.UserConfig{Distance: "cosine"}
+		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false, func(i *Index) {
+			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+				"skippedTarget": hnsw.UserConfig{Skip: true},
+				"activeTarget":  hnsw.NewDefaultUserConfig(),
+			}
+		})
+		defer func() {
+			require.Nil(t, idx.drop())
+			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+		}()
+
+		// obj0: skippedTarget=3D, activeTarget=4D
+		// obj1: skippedTarget=5D, activeTarget=4D
+		obj0 := createNamedVectorObject(className, map[string][]float32{
+			"skippedTarget": {0.1, 0.2, 0.3},
+			"activeTarget":  {0.1, 0.2, 0.3, 0.4},
+		})
+		obj1 := createNamedVectorObject(className, map[string][]float32{
+			"skippedTarget": {0.1, 0.2, 0.3, 0.4, 0.5},
+			"activeTarget":  {0.5, 0.6, 0.7, 0.8},
+		})
+
+		errs := shardLike.PutObjectBatch(ctx, []*storobj.Object{obj0, obj1})
+		require.Len(t, errs, 2)
+		require.NoError(t, errs[0])
+		require.NoError(t, errs[1])
+
+		// Both exist in LSM
+		ret0, err := shardLike.ObjectByID(ctx, obj0.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.NotNil(t, ret0)
+
+		ret1, err := shardLike.ObjectByID(ctx, obj1.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.NotNil(t, ret1)
+
+		// activeTarget dimension established to 4
+		shardLike.WithVectorIndex("activeTarget", func(vidx VectorIndex) error {
+			assert.Equal(t, 4, vidx.Dimension())
+			return nil
+		})
+	})
+
+	t.Run("skipped vector index in async mode allows mixed dimensions", func(t *testing.T) {
+		className := "SkippedVectorIndexAsync"
+		class := &models.Class{
+			Class: className,
+			VectorIndexConfig: hnsw.UserConfig{
+				Skip: true,
+			},
+		}
+		vic := hnsw.UserConfig{Skip: true}
+
+		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, true)
+		defer func() {
+			require.Nil(t, idx.drop())
+			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+		}()
+
+		// Mixed dimensions: 3D, 5D
+		obj0 := testObject(className)
+		obj0.Vector = []float32{0.1, 0.2, 0.3}
+
+		obj1 := testObject(className)
+		obj1.Vector = []float32{0.1, 0.2, 0.3, 0.4, 0.5}
+
+		errs := shardLike.PutObjectBatch(ctx, []*storobj.Object{obj0, obj1})
+		require.Len(t, errs, 2)
+		require.NoError(t, errs[0])
+		require.NoError(t, errs[1])
+
+		waitForVectorQueue(t, shardLike, "")
+
+		for _, obj := range []*storobj.Object{obj0, obj1} {
+			ret, err := shardLike.ObjectByID(ctx, obj.ID(), search.SelectProperties{}, additional.Properties{})
+			require.NoError(t, err)
+			assert.NotNil(t, ret, "object %s must exist in LSM", obj.ID())
+		}
+	})
+}
+

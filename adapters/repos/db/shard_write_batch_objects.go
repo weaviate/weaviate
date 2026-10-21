@@ -131,9 +131,20 @@ func (ob *objectsBatcher) init(objects []*storobj.Object) {
 	ob.duplicates = findDuplicatesInBatchObjects(objects)
 }
 
+func (ob *objectsBatcher) isDuplicate(i int) bool {
+	if len(ob.duplicates) == 0 {
+		return false
+	}
+	_, ok := ob.duplicates[i]
+	return ok
+}
+
 func (ob *objectsBatcher) validateVectorDimensions(ctx context.Context) {
 	var targetVectors map[string]struct{}
-	for _, obj := range ob.objects {
+	for i, obj := range ob.objects {
+		if ob.isDuplicate(i) {
+			continue
+		}
 		if len(obj.Vector) > 0 {
 			if targetVectors == nil {
 				targetVectors = make(map[string]struct{})
@@ -167,10 +178,16 @@ func (ob *objectsBatcher) validateVectorDimensions(ctx context.Context) {
 	}
 	sort.Strings(keys)
 
+	// Phase 1: Validate established dimensions (expectedDim > 0), missing targets (!found),
+	// and multi-vector token consistency (obj.ValidateMultiVectorTokenDimensions) across
+	// ALL target vectors. Skipped indexes (noop.Index / skip=true) are exempted.
+	// Mark failing objects with error.
+	var uninitializedTargets []string
+
 	for _, targetVector := range keys {
 		// First: verify internal token consistency across all token vectors for each object
 		for i, obj := range ob.objects {
-			if ob.hasErrorAtIndex(i) {
+			if ob.hasErrorAtIndex(i) || ob.isDuplicate(i) {
 				continue
 			}
 			if err := obj.ValidateMultiVectorTokenDimensions(targetVector); err != nil {
@@ -180,6 +197,11 @@ func (ob *objectsBatcher) validateVectorDimensions(ctx context.Context) {
 
 		targetVector := targetVector
 		found, err := ob.shard.WithVectorIndex(targetVector, func(index VectorIndex) error {
+			if index.Type() == common.IndexTypeNoop {
+				// Skipped vector index: exempt from dimension validation and uninitialized conflict checks
+				return nil
+			}
+
 			expectedDim := index.Dimension()
 			if expectedDim <= 0 {
 				_, _ = ob.shard.WithVectorIndexQueue(targetVector, func(q *VectorIndexQueue) error {
@@ -193,69 +215,12 @@ func (ob *objectsBatcher) validateVectorDimensions(ctx context.Context) {
 			}
 
 			if expectedDim <= 0 {
-				// Fast path: verify if all objects have consistent dimension without allocating a map
-				firstDim := -1
-				hasConflict := false
-				for i, obj := range ob.objects {
-					if ob.hasErrorAtIndex(i) {
-						continue
-					}
-					dim := obj.VectorDimension(targetVector)
-					if dim < 0 {
-						continue
-					}
-					if firstDim == -1 {
-						firstDim = dim
-					} else if dim != firstDim {
-						hasConflict = true
-						break
-					}
-				}
-
-				if !hasConflict {
-					return nil
-				}
-
-				dimIndices := make(map[int][]int)
-				for i, obj := range ob.objects {
-					if ob.hasErrorAtIndex(i) {
-						continue
-					}
-					dim := obj.VectorDimension(targetVector)
-					if dim >= 0 {
-						dimIndices[dim] = append(dimIndices[dim], i)
-					}
-				}
-
-				if len(dimIndices) > 1 {
-					dims := make([]int, 0, len(dimIndices))
-					for d := range dimIndices {
-						dims = append(dims, d)
-					}
-					sort.Ints(dims)
-
-					parts := make([]string, len(dims))
-					for j, d := range dims {
-						parts[j] = strconv.Itoa(d)
-					}
-					dimList := fmt.Sprintf("[%s]", strings.Join(parts, ", "))
-
-					conflictErr := fmt.Errorf("target vector %q: conflicting dimensions in batch for uninitialized index (found %s); cannot establish dimension", targetVector, dimList)
-					seen := make(map[int]struct{})
-					for _, indices := range dimIndices {
-						for _, idx := range indices {
-							if _, ok := seen[idx]; !ok {
-								seen[idx] = struct{}{}
-								ob.setErrorAtIndex(conflictErr, idx)
-							}
-						}
-					}
-				}
+				uninitializedTargets = append(uninitializedTargets, targetVector)
 				return nil
 			}
 
 			for i, obj := range ob.objects {
-				if ob.hasErrorAtIndex(i) {
+				if ob.hasErrorAtIndex(i) || ob.isDuplicate(i) {
 					continue
 				}
 
@@ -272,11 +237,74 @@ func (ob *objectsBatcher) validateVectorDimensions(ctx context.Context) {
 		if !found {
 			notFoundErr := fmt.Errorf("target vector %q: vector index not found", targetVector)
 			for i, obj := range ob.objects {
-				if ob.hasErrorAtIndex(i) {
+				if ob.hasErrorAtIndex(i) || ob.isDuplicate(i) {
 					continue
 				}
 				if obj.VectorDimension(targetVector) >= 0 {
 					ob.setErrorAtIndex(notFoundErr, i)
+				}
+			}
+		}
+	}
+
+	// Phase 2: Detect uninitialized conflicts (expectedDim <= 0) ONLY among surviving objects
+	// that did NOT fail in Phase 1
+	for _, targetVector := range uninitializedTargets {
+		// Fast path: verify if all surviving objects have consistent dimension without allocating a map
+		firstDim := -1
+		hasConflict := false
+		for i, obj := range ob.objects {
+			if ob.hasErrorAtIndex(i) || ob.isDuplicate(i) {
+				continue
+			}
+			dim := obj.VectorDimension(targetVector)
+			if dim < 0 {
+				continue
+			}
+			if firstDim == -1 {
+				firstDim = dim
+			} else if dim != firstDim {
+				hasConflict = true
+				break
+			}
+		}
+
+		if !hasConflict {
+			continue
+		}
+
+		dimIndices := make(map[int][]int)
+		for i, obj := range ob.objects {
+			if ob.hasErrorAtIndex(i) || ob.isDuplicate(i) {
+				continue
+			}
+			dim := obj.VectorDimension(targetVector)
+			if dim >= 0 {
+				dimIndices[dim] = append(dimIndices[dim], i)
+			}
+		}
+
+		if len(dimIndices) > 1 {
+			dims := make([]int, 0, len(dimIndices))
+			for d := range dimIndices {
+				dims = append(dims, d)
+			}
+			sort.Ints(dims)
+
+			parts := make([]string, len(dims))
+			for j, d := range dims {
+				parts[j] = strconv.Itoa(d)
+			}
+			dimList := fmt.Sprintf("[%s]", strings.Join(parts, ", "))
+
+			conflictErr := fmt.Errorf("target vector %q: conflicting dimensions in batch for uninitialized index (found %s); cannot establish dimension", targetVector, dimList)
+			seen := make(map[int]struct{})
+			for _, indices := range dimIndices {
+				for _, idx := range indices {
+					if _, ok := seen[idx]; !ok {
+						seen[idx] = struct{}{}
+						ob.setErrorAtIndex(conflictErr, idx)
+					}
 				}
 			}
 		}
@@ -349,7 +377,7 @@ func (ob *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
 		return nil
 	}
 
-	if _, ok := ob.duplicates[objectIndex]; ok {
+	if ob.isDuplicate(objectIndex) {
 		return nil
 	}
 
@@ -548,7 +576,7 @@ func (ob *objectsBatcher) shouldSkipInAdditionalStorage(i int, status objectInse
 
 	// no need to lock the mutex for a duplicate check, as we only ever write
 	// during init() in there - not concurrently
-	if _, ok := ob.duplicates[i]; ok {
+	if ob.isDuplicate(i) {
 		// is a duplicate, ignore
 		return true
 	}

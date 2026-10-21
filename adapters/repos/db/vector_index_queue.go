@@ -25,6 +25,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
 	"github.com/weaviate/weaviate/entities/dto"
 )
 
@@ -151,6 +152,10 @@ func (iq *VectorIndexQueue) Dimension() int {
 }
 
 func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.VectorRecord) error {
+	if _, isNoop := iq.vectorIndex.(*noop.Index); isNoop {
+		return nil
+	}
+
 	if !iq.asyncEnabled {
 		return common.AddVectorsToIndex(ctx, vectors, iq.vectorIndex)
 	}
