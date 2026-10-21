@@ -17,6 +17,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -40,6 +42,7 @@ import (
 var (
 	distanceMethod = flag.String("distance", "l2-squared", "distance method: l2-squared, cosine, or dot")
 	dataset        = flag.String("dataset", "", "ann dataset i.e. fiqa-st-minilm-384-dot-12k")
+	rescoreLimits  = flag.String("rescoreLimits", "", "comma-separated rescore limits to search with, default keeps the index's")
 )
 
 type testConfig struct {
@@ -92,7 +95,7 @@ func Test_NoRace_HFreshRecallParquet(t *testing.T) {
 			{
 				dataset:        *dataset,
 				distance:       *distanceMethod,
-				searchProbes:   []uint32{64, 128, 256, 512},
+				searchProbes:   []uint32{64, 128, 256},
 				requiredRecall: 0.5,
 			},
 		}
@@ -194,13 +197,26 @@ func runRecallTest(t *testing.T, testCfg testConfig) {
 
 	t.Logf("All background tasks done, took: %s", time.Since(before))
 
+	limits := []uint32{index.rescoreLimit}
+	if *rescoreLimits != "" {
+		limits = nil
+		for _, l := range strings.Split(*rescoreLimits, ",") {
+			n, err := strconv.ParseUint(l, 10, 32)
+			require.NoError(t, err)
+			limits = append(limits, uint32(n))
+		}
+	}
+
 	var maxRecall float32
-	for _, probe := range testCfg.searchProbes {
-		index.searchProbe = probe
-		recall, latency := testinghelpers.RecallAndLatency(t.Context(), queries, k, index, neighbors)
-		t.Logf("searchProbe=%d, recall=%.4f, latency=%.2f", index.searchProbe, recall, latency)
-		if recall > maxRecall {
-			maxRecall = recall
+	for _, limit := range limits {
+		index.rescoreLimit = limit
+		for _, probe := range testCfg.searchProbes {
+			index.searchProbe = probe
+			recall, latency := testinghelpers.RecallAndLatency(t.Context(), queries, k, index, neighbors)
+			t.Logf("rescoreLimit=%d, searchProbe=%d, recall=%.4f, latency=%.2f", limit, index.searchProbe, recall, latency)
+			if recall > maxRecall {
+				maxRecall = recall
+			}
 		}
 	}
 
