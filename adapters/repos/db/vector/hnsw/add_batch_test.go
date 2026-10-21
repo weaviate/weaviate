@@ -20,6 +20,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -195,7 +196,7 @@ func TestAddBatch_WrongDimensionsAfterInitialBatch(t *testing.T) {
 
 	err = index.AddBatch(context.Background(), batch2IDs, batch2Vectors)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "vector lengths don't match")
+	assert.True(t, errors.Is(err, common.ErrWrongDimensions))
 }
 
 func TestAddBatch_MemoryAllocationFailure(t *testing.T) {

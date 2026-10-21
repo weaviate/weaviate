@@ -13,6 +13,7 @@ package hfresh
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
@@ -356,6 +358,20 @@ func TestAddBatch(t *testing.T) {
 
 		err := tf.Index.AddBatch(ctx, ids, vectors)
 		require.Error(t, err)
+	})
+
+	t.Run("error on wrong dimensions after initial batch", func(t *testing.T) {
+		tf := createHFreshIndex(t)
+		defer tf.Index.Shutdown(t.Context())
+
+		batch1Vectors, _ := testinghelpers.RandomVecs(2, 0, 32)
+		err := tf.Index.AddBatch(t.Context(), []uint64{0, 1}, batch1Vectors)
+		require.NoError(t, err)
+
+		batch2Vectors, _ := testinghelpers.RandomVecs(2, 0, 64)
+		err = tf.Index.AddBatch(t.Context(), []uint64{2, 3}, batch2Vectors)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, common.ErrWrongDimensions))
 	})
 }
 

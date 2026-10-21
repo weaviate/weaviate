@@ -112,6 +112,7 @@ type VectorIndex interface {
 	Compressed() bool
 	Multivector() bool
 	ValidateBeforeInsert(vector []float32) error
+	Dimension() int
 	ContainsDoc(docID uint64) bool
 	Preload(id uint64, vector []float32)
 	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
@@ -684,6 +685,12 @@ func (dynamic *dynamic) Multivector() bool {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.Multivector()
+}
+
+func (dynamic *dynamic) Dimension() int {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.Dimension()
 }
 
 func (dynamic *dynamic) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {

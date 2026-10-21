@@ -1691,3 +1691,30 @@ func TestDynamicUpgradedIndexDropsNodeIDBeyondDocIDCounter(t *testing.T) {
 		assert.Zero(t, st.Size(), "commit log must be truncated before the out-of-limit record")
 	}
 }
+
+func TestDynamic_AddBatch_WrongDimensions(t *testing.T) {
+	ctx := context.Background()
+	meta, err := shardmeta.Open(t.TempDir(), time.Second)
+	require.NoError(t, err)
+	t.Cleanup(func() { meta.Close() })
+
+	vectors, _ := testinghelpers.RandomVecs(20, 0, 8)
+	idx := newUpgradeTestDynamic(t, t.TempDir(), "dynamic-addbatch-dims", meta, vectors, hnsw.MakeNoopCommitLogger)
+	t.Cleanup(func() { idx.Shutdown(context.Background()) })
+
+	// First batch establishes dimension = 8
+	batch1IDs := []uint64{0, 1}
+	batch1Vectors := [][]float32{vectors[0], vectors[1]}
+	err = idx.AddBatch(ctx, batch1IDs, batch1Vectors)
+	require.NoError(t, err)
+
+	// Second batch with wrong dimension = 4 must return common.ErrWrongDimensions
+	batch2IDs := []uint64{2, 3}
+	batch2Vectors := [][]float32{
+		{0.1, 0.2, 0.3, 0.4},
+		{0.5, 0.6, 0.7, 0.8},
+	}
+	err = idx.AddBatch(ctx, batch2IDs, batch2Vectors)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, common.ErrWrongDimensions))
+}

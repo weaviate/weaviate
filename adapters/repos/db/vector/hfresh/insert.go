@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
@@ -33,6 +34,15 @@ func (h *HFresh) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32
 	}
 	if len(ids) == 0 {
 		return errors.Errorf("insertBatch called with empty lists")
+	}
+
+	if dims := atomic.LoadUint32(&h.dims); dims > 0 {
+		for _, vec := range vectors {
+			if len(vec) != int(dims) {
+				return errors.Wrapf(common.ErrWrongDimensions, "new node has a vector with length %v. "+
+					"Existing nodes have vectors with length %v", len(vec), dims)
+			}
+		}
 	}
 
 	for i, id := range ids {
@@ -57,6 +67,9 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) error {
 		// dimensionality, corrupting every subsequent AddMulti.
 		// AddMulti encodes documents into FDEs and inserts them via add.
 		return errors.New("collection is configured as multi-vector: single vectors are not supported")
+	}
+	if err := h.ValidateBeforeInsert(vector); err != nil {
+		return err
 	}
 	return h.add(ctx, id, vector)
 }
@@ -394,9 +407,13 @@ func (h *HFresh) ValidateBeforeInsert(vector []float32) error {
 	}
 
 	if len(vector) != int(dims) {
-		return fmt.Errorf("new node has a vector with length %v. "+
+		return errors.Wrapf(common.ErrWrongDimensions, "new node has a vector with length %v. "+
 			"Existing nodes have vectors with length %v", len(vector), dims)
 	}
 
 	return nil
+}
+
+func (h *HFresh) Dimension() int {
+	return int(atomic.LoadUint32(&h.dims))
 }

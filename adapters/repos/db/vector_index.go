@@ -43,6 +43,7 @@ type VectorIndex interface {
 	Compressed() bool
 	Multivector() bool
 	ValidateBeforeInsert(vector []float32) error
+	Dimension() int
 	// ContainsDoc returns true if the index has indexed document with a given id.
 	// It must return false if the document does not exist, or has a tombstone.
 	ContainsDoc(docID uint64) bool

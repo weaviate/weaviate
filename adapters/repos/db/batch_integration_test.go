@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema/local"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -1659,4 +1660,169 @@ func matchesInUUIDLists(control []strfmt.UUID, results []strfmt.UUID) int {
 	}
 
 	return matches
+}
+
+func TestBatchPutObjects_EstablishedCollection_DimensionMismatch(t *testing.T) {
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	shardState := singleShardState()
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: shardState,
+	}
+	mockSchemaReader := local.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
+		MemtablesFlushDirtyAfter:  60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
+	require.NoError(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.NoError(t, repo.WaitForStartup(testCtx()))
+
+	defer func() {
+		require.NoError(t, repo.Shutdown(context.Background()))
+	}()
+	migrator := NewMigrator(repo, logger, "node1")
+
+	testAddBatchObjectClass(repo, migrator, schemaGetter)(t)
+
+	// Step 1: Establish dimension = 3 with initial batch
+	validID1 := strfmt.UUID("8d5a3aa2-3c8d-4589-9ae1-3f638f506970")
+	initialBatch := objects.BatchObjects{
+		{
+			OriginalIndex: 0,
+			Object: &models.Object{
+				Class: "ThingForBatching",
+				Properties: map[string]interface{}{
+					"stringProp": "initial element",
+				},
+				ID:     validID1,
+				Vector: []float32{1, 2, 3},
+			},
+			UUID: validID1,
+		},
+	}
+	batchRes, err := repo.BatchPutObjects(context.Background(), initialBatch, nil, 0)
+	require.NoError(t, err)
+	require.NoError(t, batchRes[0].Err)
+
+	// Step 2: Mixed batch targeting established collection (dimension = 3)
+	validID2 := strfmt.UUID("86a380e9-cb60-4b2a-bc48-51f52acd72d6")
+	invalidID1 := strfmt.UUID("90ade18e-2b99-4903-aa34-1d5d648c932d")
+	invalidID2 := strfmt.UUID("79aebd44-7486-4fed-9334-3a74cc09a1c3")
+	mixedBatch := objects.BatchObjects{
+		{
+			OriginalIndex: 0,
+			Object: &models.Object{
+				Class: "ThingForBatching",
+				Properties: map[string]interface{}{
+					"stringProp": "valid element 2",
+				},
+				ID:     validID2,
+				Vector: []float32{4, 5, 6},
+			},
+			UUID: validID2,
+		},
+		{
+			OriginalIndex: 1,
+			Object: &models.Object{
+				Class: "ThingForBatching",
+				Properties: map[string]interface{}{
+					"stringProp": "invalid element 1 (dim 4)",
+				},
+				ID:     invalidID1,
+				Vector: []float32{1, 2, 3, 4},
+			},
+			UUID: invalidID1,
+		},
+		{
+			OriginalIndex: 2,
+			Object: &models.Object{
+				Class: "ThingForBatching",
+				Properties: map[string]interface{}{
+					"stringProp": "invalid element 2 (dim 2)",
+				},
+				ID:     invalidID2,
+				Vector: []float32{1, 2},
+			},
+			UUID: invalidID2,
+		},
+	}
+
+	batchRes, err = repo.BatchPutObjects(context.Background(), mixedBatch, nil, 0)
+	require.NoError(t, err)
+	require.Len(t, batchRes, 3)
+
+	// Assert per-object errors
+	require.NoError(t, batchRes[0].Err)
+	require.Error(t, batchRes[1].Err)
+	assert.Equal(t, `target vector "": dimension mismatch: expected 3, got 4`, batchRes[1].Err.Error())
+	require.Error(t, batchRes[2].Err)
+	assert.Equal(t, `target vector "": dimension mismatch: expected 3, got 2`, batchRes[2].Err.Error())
+
+	// Step 3: Verify rejected objects are NEVER written to LSM storage (Ghost Object Prevention)
+	invalidObj1, err := repo.ObjectByID(context.Background(), invalidID1, search.SelectProperties{}, additional.Properties{}, "")
+	require.NoError(t, err)
+	assert.Nil(t, invalidObj1, "rejected object 1 must not exist in storage")
+
+	invalidObj2, err := repo.ObjectByID(context.Background(), invalidID2, search.SelectProperties{}, additional.Properties{}, "")
+	require.NoError(t, err)
+	assert.Nil(t, invalidObj2, "rejected object 2 must not exist in storage")
+
+	// Valid objects must exist in LSM storage
+	validObj1, err := repo.ObjectByID(context.Background(), validID1, search.SelectProperties{}, additional.Properties{}, "")
+	require.NoError(t, err)
+	assert.NotNil(t, validObj1, "valid object 1 must exist in storage")
+
+	validObj2, err := repo.ObjectByID(context.Background(), validID2, search.SelectProperties{}, additional.Properties{}, "")
+	require.NoError(t, err)
+	assert.NotNil(t, validObj2, "valid object 2 must exist in storage")
+
+	// Step 4: Vector search works without errors after the rejected batch
+	searchRes, err := repo.VectorSearch(context.Background(), dto.GetParams{
+		ClassName:  "ThingForBatching",
+		Pagination: &filters.Pagination{Limit: 10},
+	}, []string{""}, []models.Vector{[]float32{1, 2, 3}})
+	require.NoError(t, err)
+	require.NotEmpty(t, searchRes)
+
+	// Step 5: Subsequent valid batch succeeds
+	validID3 := strfmt.UUID("1c2d8ce6-32da-4081-9794-a81e23e673e4")
+	subsequentBatch := objects.BatchObjects{
+		{
+			OriginalIndex: 0,
+			Object: &models.Object{
+				Class: "ThingForBatching",
+				Properties: map[string]interface{}{
+					"stringProp": "subsequent valid element",
+				},
+				ID:     validID3,
+				Vector: []float32{7, 8, 9},
+			},
+			UUID: validID3,
+		},
+	}
+	subsequentRes, err := repo.BatchPutObjects(context.Background(), subsequentBatch, nil, 0)
+	require.NoError(t, err)
+	require.NoError(t, subsequentRes[0].Err)
 }

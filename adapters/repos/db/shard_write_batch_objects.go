@@ -77,6 +77,7 @@ func (s *Shard) putBatchAsync(ctx context.Context, objects []*storobj.Object) []
 	batcher := newObjectsBatcher(s, s.index.logger)
 
 	batcher.init(objects)
+	batcher.validateVectorDimensions(ctx)
 	batcher.storeInObjectStore(ctx)
 	batcher.markDeletedInVectorStorage(ctx)
 	batcher.storeAdditionalStorageWithAsyncQueue(ctx)
@@ -112,6 +113,7 @@ func (ob *objectsBatcher) Objects(ctx context.Context,
 	defer ob.shard.Metrics().BatchObject(beforeBatch, len(objects))
 
 	ob.init(objects)
+	ob.validateVectorDimensions(ctx)
 	ob.storeInObjectStore(ctx)
 	ob.markDeletedInVectorStorage(ctx)
 	ob.storeAdditionalStorageWithWorkers(ctx)
@@ -124,6 +126,71 @@ func (ob *objectsBatcher) init(objects []*storobj.Object) {
 	ob.statuses = map[strfmt.UUID]objectInsertStatus{}
 	ob.errs = make([]error, len(objects))
 	ob.duplicates = findDuplicatesInBatchObjects(objects)
+}
+
+func (ob *objectsBatcher) validateVectorDimensions(ctx context.Context) {
+	targetVectors := make(map[string]struct{})
+	for _, obj := range ob.objects {
+		if len(obj.Vector) > 0 {
+			targetVectors[""] = struct{}{}
+		}
+		for targetVector, vec := range obj.Vectors {
+			if len(vec) > 0 {
+				targetVectors[targetVector] = struct{}{}
+			}
+		}
+		for targetVector, mvec := range obj.MultiVectors {
+			if len(mvec) > 0 {
+				targetVectors[targetVector] = struct{}{}
+			}
+		}
+	}
+
+	for targetVector := range targetVectors {
+		targetVector := targetVector
+		found, err := ob.shard.WithVectorIndex(targetVector, func(index VectorIndex) error {
+			expectedDim := index.Dimension()
+			if expectedDim <= 0 {
+				return nil
+			}
+
+			for i, obj := range ob.objects {
+				if ob.hasErrorAtIndex(i) {
+					continue
+				}
+
+				if targetVector == "" && len(obj.Vector) > 0 {
+					if len(obj.Vector) != expectedDim {
+						ob.setErrorAtIndex(fmt.Errorf("target vector %q: dimension mismatch: expected %d, got %d", targetVector, expectedDim, len(obj.Vector)), i)
+					}
+				}
+
+				if targetVector != "" && len(obj.Vectors) > 0 {
+					if vec, ok := obj.Vectors[targetVector]; ok && len(vec) > 0 {
+						if len(vec) != expectedDim {
+							ob.setErrorAtIndex(fmt.Errorf("target vector %q: dimension mismatch: expected %d, got %d", targetVector, expectedDim, len(vec)), i)
+						}
+					}
+				}
+
+				if targetVector != "" && len(obj.MultiVectors) > 0 {
+					if mvec, ok := obj.MultiVectors[targetVector]; ok && len(mvec) > 0 {
+						for _, tokenVec := range mvec {
+							if len(tokenVec) != expectedDim {
+								ob.setErrorAtIndex(fmt.Errorf("target vector %q: dimension mismatch: expected %d, got %d", targetVector, expectedDim, len(tokenVec)), i)
+								break
+							}
+						}
+					}
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			ob.logger.WithField("targetVector", targetVector).Warnf("failed to validate vector dimensions for target vector: %v", err)
+		}
+		_ = found
+	}
 }
 
 // storeInObjectStore performs all storage operations on the underlying
@@ -167,6 +234,9 @@ func (ob *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 		object := object
 		index := j
 		f := func() error {
+			if ob.hasErrorAtIndex(index) {
+				return nil
+			}
 			if err := ob.storeObjectOfBatchInLSM(ctx, class, index, object); err != nil {
 				errLock.Lock()
 				errs[index] = err
@@ -185,6 +255,10 @@ func (ob *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 func (ob *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
 	class *models.Class, objectIndex int, object *storobj.Object,
 ) error {
+	if ob.hasErrorAtIndex(objectIndex) {
+		return nil
+	}
+
 	if _, ok := ob.duplicates[objectIndex]; ok {
 		return nil
 	}

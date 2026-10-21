@@ -261,6 +261,10 @@ func (index *flat) Multivector() bool {
 	return false
 }
 
+func (index *flat) Dimension() int {
+	return int(atomic.LoadInt32(&index.dims))
+}
+
 func (index *flat) getBucketName() string {
 	return helpers.VectorsBucketNameForID(index.id)
 }
@@ -337,6 +341,15 @@ func (index *flat) AddBatch(ctx context.Context, ids []uint64, vectors [][]float
 	}
 	if len(ids) == 0 {
 		return errors.Errorf("insertBatch called with empty lists")
+	}
+
+	if dims := int(atomic.LoadInt32(&index.dims)); dims > 0 {
+		for _, vec := range vectors {
+			if len(vec) != dims {
+				return errors.Wrapf(common.ErrWrongDimensions, "insert called with a vector of the wrong size: %d. Saved length: %d, path: %s",
+					len(vec), dims, index.rootPath)
+			}
+		}
 	}
 	for i := range ids {
 		if err := ctx.Err(); err != nil {
@@ -948,7 +961,7 @@ func (index *flat) ValidateBeforeInsert(vector []float32) error {
 
 	// check if vector length is the same as existing nodes
 	if dims != len(vector) {
-		return errors.Errorf("insert called with a vector of the wrong size: %d. Saved length: %d, path: %s",
+		return errors.Wrapf(common.ErrWrongDimensions, "insert called with a vector of the wrong size: %d. Saved length: %d, path: %s",
 			len(vector), dims, index.rootPath)
 	}
 

@@ -206,6 +206,15 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		return errors.Errorf("insertBatch called with empty lists")
 	}
 
+	if dims := int(h.dims.Load()); dims > 0 {
+		for _, vec := range vectors {
+			if len(vec) != dims {
+				return errors.Wrapf(common.ErrWrongDimensions, "new node has a vector with length %v. "+
+					"Existing nodes have vectors with length %v", len(vec), dims)
+			}
+		}
+	}
+
 	var err error
 	h.trackDimensionsOnce.Do(func() {
 		dims := len(vectors[0])
