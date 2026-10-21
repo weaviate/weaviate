@@ -31,6 +31,8 @@ import (
 )
 
 func TestHFreshOptimizedPostingSize(t *testing.T) {
+	t.Setenv("HFRESH_RQ1_MAX_DIMS", "0")
+
 	tests := []struct {
 		name                   string
 		maxPostingSizeKB       uint32

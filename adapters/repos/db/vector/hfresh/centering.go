@@ -25,6 +25,30 @@ import (
 
 const defaultCenteringTrainAt = 10_000
 
+const defaultRQMaxDims = 512
+
+// rqDims is how many leading dimensions the 1-bit codes encode: the vector
+// width capped at HFRESH_RQ1_MAX_DIMS. Routing, splits and rescoring still
+// use the full vector.
+func (h *HFresh) rqDims(dims uint32) uint32 {
+	if h.rqMaxDims > 0 && dims > h.rqMaxDims {
+		return h.rqMaxDims
+	}
+	return dims
+}
+
+func rqMaxDimsFromEnv() uint32 {
+	v := os.Getenv("HFRESH_RQ1_MAX_DIMS")
+	if v == "" {
+		return defaultRQMaxDims
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return defaultRQMaxDims
+	}
+	return uint32(max(n, 0))
+}
+
 func centeringTrainAtFromEnv() int64 {
 	v := os.Getenv("HFRESH_RQ1_TRAIN_AT")
 	if v == "" {
@@ -85,18 +109,19 @@ func (h *HFresh) trainCentering(ctx context.Context) error {
 		return errors.New("no vectors to train on")
 	}
 
-	sum := make([]float64, dims)
+	qdims := h.rqDims(dims)
+	sum := make([]float64, qdims)
 	for _, vec := range raw {
-		for i, x := range vec {
+		for i, x := range vec[:qdims] {
 			sum[i] += float64(x)
 		}
 	}
-	mean := make([]float32, dims)
+	mean := make([]float32, qdims)
 	for i := range mean {
 		mean[i] = float32(sum[i] / float64(len(raw)))
 	}
 
-	quantizer, err := compressionhelpers.NewCenteredBinaryRotationalQuantizer(int(dims), 42, mean, h.config.DistanceProvider)
+	quantizer, err := compressionhelpers.NewCenteredBinaryRotationalQuantizer(int(qdims), 42, mean, h.config.DistanceProvider)
 	if err != nil {
 		return errors.Wrap(err, "create centered quantizer")
 	}

@@ -131,19 +131,17 @@ func (rq *CenteredBinaryRotationalQuantizer) header(c []uint64) crqHeader {
 }
 
 // centerInto writes x - mean into dst (allocating it) and returns it along
-// with ⟨μ, x⟩ of the ORIGINAL vector, accumulated in one pass.
+// with ⟨μ, x⟩ of the ORIGINAL vector, accumulated in one pass. Entries past
+// len(mean) are dropped, so a quantizer narrower than the vector encodes its
+// prefix.
 func (rq *CenteredBinaryRotationalQuantizer) centerInto(x []float32) ([]float32, float32) {
-	n := len(x)
-	if n > len(rq.mean) {
-		n = len(rq.mean)
-	}
-	dst := make([]float32, len(x))
+	n := min(len(x), len(rq.mean))
+	dst := make([]float32, n)
 	var muX float32
 	for i := 0; i < n; i++ {
 		dst[i] = x[i] - rq.mean[i]
 		muX += x[i] * rq.mean[i]
 	}
-	copy(dst[n:], x[n:])
 	return dst, muX
 }
 

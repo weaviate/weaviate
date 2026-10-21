@@ -281,7 +281,7 @@ func (h *HFresh) restoreDimensions(dims uint32) error {
 		return nil
 	}
 
-	if err := h.setMaxPostingSize(dims); err != nil {
+	if err := h.setMaxPostingSize(h.rqDims(dims)); err != nil {
 		return err
 	}
 
@@ -298,7 +298,7 @@ func (h *HFresh) restoreDimensions(dims uint32) error {
 		// Dimensions were persisted but quantization data was not (e.g. crash
 		// between persisting dimensions and quantization data). Re-create the
 		// quantizer from scratch.
-		quantizer, err := compressionhelpers.NewCenteredBinaryRotationalQuantizer(int(dims), 42, make([]float32, dims), h.config.DistanceProvider)
+		quantizer, err := compressionhelpers.NewCenteredBinaryRotationalQuantizer(int(h.rqDims(dims)), 42, make([]float32, h.rqDims(dims)), h.config.DistanceProvider)
 		if err != nil {
 			return errors.Wrap(err, "could not create quantizer")
 		}

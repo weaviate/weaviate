@@ -146,14 +146,14 @@ func (h *HFresh) initDimensions(vector []float32) error {
 
 	size := uint32(len(vector))
 
-	if err := h.setMaxPostingSize(size); err != nil {
+	if err := h.setMaxPostingSize(h.rqDims(size)); err != nil {
 		return err
 	}
 	if err := h.IndexMetadata.SetDimensions(size); err != nil {
 		return errors.Wrap(err, "could not persist dimensions")
 	}
 
-	quantizer, err := compressionhelpers.NewCenteredBinaryRotationalQuantizer(int(size), 42, make([]float32, size), h.config.DistanceProvider)
+	quantizer, err := compressionhelpers.NewCenteredBinaryRotationalQuantizer(int(h.rqDims(size)), 42, make([]float32, h.rqDims(size)), h.config.DistanceProvider)
 	if err != nil {
 		return errors.Wrap(err, "could not create quantizer")
 	}

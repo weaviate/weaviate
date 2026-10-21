@@ -86,7 +86,8 @@ type HFresh struct {
 	// decodes posting codes, and for writing while centering is trained and
 	// every posting is re-encoded with the new mean.
 	quantizerLock    sync.RWMutex
-	centeringTrainAt int64 // HFRESH_RQ1_TRAIN_AT, <= 0 disables training
+	centeringTrainAt int64  // HFRESH_RQ1_TRAIN_AT, <= 0 disables training
+	rqMaxDims        uint32 // HFRESH_RQ1_MAX_DIMS, 0 encodes the full vector
 	inserted         atomic.Int64
 	centeringTrained atomic.Bool
 
@@ -179,6 +180,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		rootPath:           cfg.RootPath,
 		needsNormalization: cfg.DistanceProvider.Type() == "cosine-dot",
 		centeringTrainAt:   centeringTrainAtFromEnv(),
+		rqMaxDims:          rqMaxDimsFromEnv(),
 	}
 
 	h.muvera.Store(uc.Multivector.MuveraConfig.Enabled)

@@ -309,6 +309,8 @@ func TestMuveraSearchBudgets(t *testing.T) {
 // probe (e.g. posting expansion) must be disabled here, since masking
 // narrow-probe misses is precisely such a feature's job.
 func TestSearchProbeChangesResults(t *testing.T) {
+	t.Setenv("HFRESH_RQ1_MAX_DIMS", "0")
+
 	const (
 		nDocs  = 2500
 		tokens = 2
