@@ -12,43 +12,47 @@
 package rest
 
 import (
+	"fmt"
 	"net/http"
 
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime/middleware"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
+	aggregateops "github.com/weaviate/weaviate/adapters/handlers/rest/operations/aggregate"
 	searchops "github.com/weaviate/weaviate/adapters/handlers/rest/operations/search"
 	restsearch "github.com/weaviate/weaviate/adapters/handlers/rest/search"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// setupSearchHandlers wires the REST search API (search.nearText operation,
-// POST /v1/search/{collection}/near-text). The handler logic lives in
-// adapters/handlers/rest/search. The endpoint is experimental and off by
-// default; EXPERIMENTAL_REST_SEARCH_ENABLED=true enables it. When disabled it
-// rejects requests with 422.
+// setupSearchHandlers wires the REST search API (operations search.nearText,
+// search.bm25, search.hybrid, search.nearObject and search.nearVector, POST
+// /v1/search/{collection}/{near-text,bm25,hybrid,near-object,near-vector}) and
+// its sibling aggregate API (operation aggregate, POST
+// /v1/aggregate/{collection}). The handler logic lives in
+// adapters/handlers/rest/search.
 func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
 	h := restsearch.NewHandler(restsearch.HandlerConfig{
-		Traverser:         appState.Traverser,
-		SchemaReader:      appState.SchemaManager,
-		Authorizer:        appState.Authorizer,
-		NamespacesEnabled: appState.ServerConfig.Config.Namespaces.Enabled,
-		DefaultLimit:      appState.ServerConfig.Config.QueryDefaults.Limit,
-		MaximumResults:    appState.ServerConfig.Config.QueryMaximumResults,
-		Enabled:           appState.ServerConfig.Config.ExperimentalRESTSearchEnabled,
-		Logger:            appState.Logger,
+		Traverser:          appState.Traverser,
+		SchemaReader:       appState.ClusterService.SchemaReader(),
+		Authorizer:         appState.Authorizer,
+		Qualifier:          appState.NamespaceQualifier,
+		DefaultLimit:       appState.ServerConfig.Config.QueryDefaults.Limit,
+		MaximumResults:     appState.ServerConfig.Config.QueryMaximumResults,
+		CrossRefDepthLimit: appState.ServerConfig.Config.QueryCrossReferenceDepthLimit,
+		Logger:             appState.Logger,
 	})
 
 	// swagger-layer errors (bind validation, security, routing) on search
-	// routes use the same ErrorResponse shape as handler errors
+	// and aggregate routes use the same ErrorResponse shape as handler errors
 	defaultServeError := api.ServeError
 	if defaultServeError == nil {
 		defaultServeError = openapierrors.ServeError
 	}
 	api.ServeError = func(rw http.ResponseWriter, r *http.Request, err error) {
-		if r != nil && restsearch.IsSearchRoute(r.URL.Path) {
+		if r != nil && (restsearch.IsSearchRoute(r.URL.Path) || restsearch.IsAggregateRoute(r.URL.Path)) {
 			restsearch.ServeError(rw, r, err)
 			return
 		}
@@ -63,14 +67,67 @@ func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
 			}
 			return searchops.NewSearchNearTextOK().WithPayload(payload)
 		})
+
+	api.SearchSearchBm25Handler = searchops.SearchBm25HandlerFunc(
+		func(params searchops.SearchBm25Params, principal *models.Principal) middleware.Responder {
+			payload, apiErr := h.Bm25(params.HTTPRequest.Context(), principal, params.Collection, params.Body)
+			if apiErr != nil {
+				return searchBm25ErrResponder(apiErr)
+			}
+			return searchops.NewSearchBm25OK().WithPayload(payload)
+		})
+
+	api.SearchSearchHybridHandler = searchops.SearchHybridHandlerFunc(
+		func(params searchops.SearchHybridParams, principal *models.Principal) middleware.Responder {
+			payload, apiErr := h.Hybrid(params.HTTPRequest.Context(), principal, params.Collection, params.Body)
+			if apiErr != nil {
+				return searchHybridErrResponder(apiErr)
+			}
+			return searchops.NewSearchHybridOK().WithPayload(payload)
+		})
+
+	api.SearchSearchNearObjectHandler = searchops.SearchNearObjectHandlerFunc(
+		func(params searchops.SearchNearObjectParams, principal *models.Principal) middleware.Responder {
+			payload, apiErr := h.NearObject(params.HTTPRequest.Context(), principal, params.Collection, params.Body)
+			if apiErr != nil {
+				return searchNearObjectErrResponder(apiErr)
+			}
+			return searchops.NewSearchNearObjectOK().WithPayload(payload)
+		})
+
+	api.SearchSearchNearVectorHandler = searchops.SearchNearVectorHandlerFunc(
+		func(params searchops.SearchNearVectorParams, principal *models.Principal) middleware.Responder {
+			payload, apiErr := h.NearVector(params.HTTPRequest.Context(), principal, params.Collection, params.Body)
+			if apiErr != nil {
+				return searchNearVectorErrResponder(apiErr)
+			}
+			return searchops.NewSearchNearVectorOK().WithPayload(payload)
+		})
+
+	api.AggregateAggregateHandler = aggregateops.AggregateHandlerFunc(
+		func(params aggregateops.AggregateParams, principal *models.Principal) middleware.Responder {
+			payload, apiErr := h.Aggregate(params.HTTPRequest.Context(), principal, params.Collection, params.Body)
+			if apiErr != nil {
+				return aggregateErrResponder(apiErr)
+			}
+			return aggregateops.NewAggregateOK().WithPayload(payload)
+		})
+}
+
+// searchErrPayload renders a search APIError as the standard REST error body,
+// with the docs link appended for a documented error. Err is already stripped
+// for the caller, so the link is matched on the cause instead.
+func searchErrPayload(apiErr *restsearch.APIError) *models.ErrorResponse {
+	message := enterrors.AppendDocsLink(fmt.Sprintf("%v", apiErr.Err), apiErr.Cause())
+	return &models.ErrorResponse{
+		Error: []*models.ErrorResponseErrorItems0{{Message: message}},
+	}
 }
 
 // searchNearTextErrResponder translates a search APIError into the generated
 // responder for its status, keeping the standard REST error shape.
 func searchNearTextErrResponder(apiErr *restsearch.APIError) middleware.Responder {
-	payload := &models.ErrorResponse{
-		Error: []*models.ErrorResponseErrorItems0{{Message: apiErr.Error()}},
-	}
+	payload := searchErrPayload(apiErr)
 
 	switch apiErr.Status {
 	case http.StatusBadRequest:
@@ -83,12 +140,135 @@ func searchNearTextErrResponder(apiErr *restsearch.APIError) middleware.Responde
 		return searchops.NewSearchNearTextUnprocessableEntity().WithPayload(payload)
 	case http.StatusTooManyRequests:
 		return searchops.NewSearchNearTextTooManyRequests().WithPayload(payload)
-	case http.StatusBadGateway:
-		return searchops.NewSearchNearTextBadGateway().WithPayload(payload)
 	case http.StatusInternalServerError:
 		return searchops.NewSearchNearTextInternalServerError().WithPayload(payload)
 	default:
-		// statuses without a declared response
+		// statuses the handler never produces itself; the declared 401/503
+		// are answered above it (security layer, op-mode middleware)
+		return middleware.Error(apiErr.Status, payload)
+	}
+}
+
+// searchHybridErrResponder translates a search APIError into the generated
+// responder for its status, keeping the standard REST error shape.
+func searchHybridErrResponder(apiErr *restsearch.APIError) middleware.Responder {
+	payload := searchErrPayload(apiErr)
+
+	switch apiErr.Status {
+	case http.StatusBadRequest:
+		return searchops.NewSearchHybridBadRequest().WithPayload(payload)
+	case http.StatusForbidden:
+		return searchops.NewSearchHybridForbidden().WithPayload(payload)
+	case http.StatusNotFound:
+		return searchops.NewSearchHybridNotFound().WithPayload(payload)
+	case http.StatusUnprocessableEntity:
+		return searchops.NewSearchHybridUnprocessableEntity().WithPayload(payload)
+	case http.StatusTooManyRequests:
+		return searchops.NewSearchHybridTooManyRequests().WithPayload(payload)
+	case http.StatusInternalServerError:
+		return searchops.NewSearchHybridInternalServerError().WithPayload(payload)
+	default:
+		// statuses the handler never produces itself; the declared 401/503
+		// are answered above it (security layer, op-mode middleware)
+		return middleware.Error(apiErr.Status, payload)
+	}
+}
+
+// searchNearObjectErrResponder translates a search APIError into the
+// generated responder for its status, keeping the standard REST error shape.
+func searchNearObjectErrResponder(apiErr *restsearch.APIError) middleware.Responder {
+	payload := searchErrPayload(apiErr)
+
+	switch apiErr.Status {
+	case http.StatusBadRequest:
+		return searchops.NewSearchNearObjectBadRequest().WithPayload(payload)
+	case http.StatusForbidden:
+		return searchops.NewSearchNearObjectForbidden().WithPayload(payload)
+	case http.StatusNotFound:
+		return searchops.NewSearchNearObjectNotFound().WithPayload(payload)
+	case http.StatusUnprocessableEntity:
+		return searchops.NewSearchNearObjectUnprocessableEntity().WithPayload(payload)
+	case http.StatusTooManyRequests:
+		return searchops.NewSearchNearObjectTooManyRequests().WithPayload(payload)
+	case http.StatusInternalServerError:
+		return searchops.NewSearchNearObjectInternalServerError().WithPayload(payload)
+	default:
+		// statuses the handler never produces itself; the declared 401/503
+		// are answered above it (security layer, op-mode middleware)
+		return middleware.Error(apiErr.Status, payload)
+	}
+}
+
+// searchNearVectorErrResponder translates a search APIError into the
+// generated responder for its status, keeping the standard REST error shape.
+func searchNearVectorErrResponder(apiErr *restsearch.APIError) middleware.Responder {
+	payload := searchErrPayload(apiErr)
+
+	switch apiErr.Status {
+	case http.StatusBadRequest:
+		return searchops.NewSearchNearVectorBadRequest().WithPayload(payload)
+	case http.StatusForbidden:
+		return searchops.NewSearchNearVectorForbidden().WithPayload(payload)
+	case http.StatusNotFound:
+		return searchops.NewSearchNearVectorNotFound().WithPayload(payload)
+	case http.StatusUnprocessableEntity:
+		return searchops.NewSearchNearVectorUnprocessableEntity().WithPayload(payload)
+	case http.StatusTooManyRequests:
+		return searchops.NewSearchNearVectorTooManyRequests().WithPayload(payload)
+	case http.StatusInternalServerError:
+		return searchops.NewSearchNearVectorInternalServerError().WithPayload(payload)
+	default:
+		// statuses the handler never produces itself; the declared 401/503
+		// are answered above it (security layer, op-mode middleware)
+		return middleware.Error(apiErr.Status, payload)
+	}
+}
+
+// aggregateErrResponder translates an aggregate APIError into the generated
+// responder for its status, keeping the standard REST error shape. aggregate
+// declares no 429 (the traverser's aggregate path is not rate limited).
+func aggregateErrResponder(apiErr *restsearch.APIError) middleware.Responder {
+	payload := searchErrPayload(apiErr)
+
+	switch apiErr.Status {
+	case http.StatusBadRequest:
+		return aggregateops.NewAggregateBadRequest().WithPayload(payload)
+	case http.StatusForbidden:
+		return aggregateops.NewAggregateForbidden().WithPayload(payload)
+	case http.StatusNotFound:
+		return aggregateops.NewAggregateNotFound().WithPayload(payload)
+	case http.StatusUnprocessableEntity:
+		return aggregateops.NewAggregateUnprocessableEntity().WithPayload(payload)
+	case http.StatusInternalServerError:
+		return aggregateops.NewAggregateInternalServerError().WithPayload(payload)
+	default:
+		// statuses the handler never produces itself; the declared 401/503
+		// are answered above it (security layer, op-mode middleware)
+		return middleware.Error(apiErr.Status, payload)
+	}
+}
+
+// searchBm25ErrResponder translates a search APIError into the generated
+// responder for its status, keeping the standard REST error shape.
+func searchBm25ErrResponder(apiErr *restsearch.APIError) middleware.Responder {
+	payload := searchErrPayload(apiErr)
+
+	switch apiErr.Status {
+	case http.StatusBadRequest:
+		return searchops.NewSearchBm25BadRequest().WithPayload(payload)
+	case http.StatusForbidden:
+		return searchops.NewSearchBm25Forbidden().WithPayload(payload)
+	case http.StatusNotFound:
+		return searchops.NewSearchBm25NotFound().WithPayload(payload)
+	case http.StatusUnprocessableEntity:
+		return searchops.NewSearchBm25UnprocessableEntity().WithPayload(payload)
+	case http.StatusTooManyRequests:
+		return searchops.NewSearchBm25TooManyRequests().WithPayload(payload)
+	case http.StatusInternalServerError:
+		return searchops.NewSearchBm25InternalServerError().WithPayload(payload)
+	default:
+		// statuses the handler never produces itself; the declared 401/503
+		// are answered above it (security layer, op-mode middleware)
 		return middleware.Error(apiErr.Status, payload)
 	}
 }

@@ -24,7 +24,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
 const (
@@ -120,11 +119,11 @@ func (h *hnsw) checkAndCompress() error {
 			if singleVector {
 				h.compressor, err = compressionhelpers.NewRQCompressor(
 					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, h.makeBucketOptions,
-					int(h.rqConfig.Bits), int(h.dims.Load()), h.getTargetVector(), h.vectorForID)
+					int(h.rqConfig.Bits), int(h.dims.Load()), h.compressedBucketName(), h.vectorForID)
 			} else {
 				h.compressor, err = compressionhelpers.NewRQMultiCompressor(
 					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, h.makeBucketOptions,
-					int(h.rqConfig.Bits), int(h.dims.Load()), h.getTargetVector(), h.multiVectorForNodeID)
+					int(h.rqConfig.Bits), int(h.dims.Load()), h.compressedBucketName(), h.multiVectorForNodeID)
 			}
 
 			if err == nil {
@@ -152,9 +151,11 @@ func (h *hnsw) checkAndCompress() error {
 								h.compressor.PreloadPassage(index, docID, relativeID, data[index])
 							})
 					}
+					// the field stays set: readers that checked h.compressed
+					// before the flip hold no lock against us and must find a
+					// dropped cache, not nil
 					h.cache.Drop()
 				}
-				h.cache = nil
 				h.compressor.PersistCompression(h.commitLog)
 			}
 		})
@@ -245,10 +246,7 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		}
 
 		vector := vectors[i]
-		node := &vertex{
-			id:    ids[i],
-			level: int(levels[i]),
-		}
+		node := &vertex{level: uint16(levels[i])}
 		globalBefore := time.Now()
 		if len(vector) == 0 {
 			return errors.Errorf("insert called with nil-vector")
@@ -257,7 +255,7 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		h.metrics.InsertVector()
 
 		vector, release := h.normalizeVecForInsert(vector)
-		err := h.addOne(ctx, vector, node)
+		err := h.addOne(ctx, ids[i], vector, node)
 		if release != nil {
 			release()
 		}
@@ -302,8 +300,9 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 			docIDBytes := make([]byte, 8)
 			binary.BigEndian.PutUint64(docIDBytes, docIDs[i])
 			muveraBytes := multivector.MuveraBytesFromFloat32(processedVectors[i])
-			if err := h.store.Bucket(h.id+"_muvera_vectors").Put(docIDBytes, muveraBytes); err != nil {
-				return errors.Wrap(err, fmt.Sprintf("failed to put %s_muvera_vectors into the bucket", h.id))
+			muveraVectors := helpers.MuveraBucketName(h.id)
+			if err := h.putInBucket(muveraVectors, docIDBytes, muveraBytes); err != nil {
+				return errors.Wrapf(err, "failed to put into the %s bucket", muveraVectors)
 			}
 		}
 		// Replace original vectors with processed ones
@@ -411,10 +410,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 			nodeId := counter
 			counter++
 
-			node := &vertex{
-				id:    uint64(nodeId),
-				level: int(levels[j]),
-			}
+			node := &vertex{level: uint16(levels[j])}
 
 			h.Lock()
 			h.docIDVectors[docID] = append(h.docIDVectors[docIDs[i]], nodeId)
@@ -424,12 +420,12 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 			binary.BigEndian.PutUint64(nodeIDBytes, nodeId)
 			docIDBytes := make([]byte, 8)
 			binary.BigEndian.PutUint64(docIDBytes, docID)
-			err := h.store.Bucket(h.id+"_mv_mappings").Put(nodeIDBytes, docIDBytes)
-			if err != nil {
-				return errors.Wrap(err, fmt.Sprintf("failed to put %s_mv_mappings into the bucket", h.id))
+			mappings := helpers.MVMappingsBucketName(h.id)
+			if err := h.putInBucket(mappings, nodeIDBytes, docIDBytes); err != nil {
+				return errors.Wrapf(err, "failed to put into the %s bucket", mappings)
 			}
 
-			err = h.addOne(ctx, vector, node)
+			err := h.addOne(ctx, uint64(nodeId), vector, node)
 			if err != nil {
 				return err
 			}
@@ -442,7 +438,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 	return nil
 }
 
-func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error {
+func (h *hnsw) addOne(ctx context.Context, id uint64, vector []float32, node *vertex) error {
 	h.compressActionLock.RLock()
 	h.deleteVsInsertLock.RLock()
 
@@ -459,7 +455,7 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 	h.initialInsertOnce.Do(func() {
 		if h.isEmpty() {
 			wasFirst = true
-			firstInsertError = h.insertInitialElement(node, vector)
+			firstInsertError = h.insertInitialElement(id, node, vector)
 		}
 	})
 	if wasFirst {
@@ -481,18 +477,15 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 	currentMaximumLayer := h.currentMaximumLayer
 	h.RUnlock()
 
-	targetLevel := node.level
+	targetLevel := int(node.level)
+	node.connections.GrowLayersTo(uint8(targetLevel))
+
 	var err error
-	node.connections, err = packedconn.NewWithMaxLayer(uint8(targetLevel))
-	if err != nil {
+	if err = h.commitLog.AddNode(id, node.level); err != nil {
 		return err
 	}
 
-	if err = h.commitLog.AddNode(node); err != nil {
-		return err
-	}
-
-	nodeId := node.id
+	nodeId := id
 
 	h.shardedNodeLocks.Lock(nodeId)
 	h.nodes[nodeId] = node
@@ -526,7 +519,7 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 	before = time.Now()
 
 	// TODO: check findAndConnectNeighbors...
-	if err := h.findAndConnectNeighbors(ctx, node, entryPointID, vector, distancer,
+	if err := h.findAndConnectNeighbors(ctx, id, node, entryPointID, vector, distancer,
 		targetLevel, currentMaximumLayer, helpers.NewAllowList()); err != nil {
 		return errors.Wrap(err, "find and connect neighbors")
 	}
@@ -569,40 +562,34 @@ func (h *hnsw) AddMulti(ctx context.Context, id uint64, vector [][]float32) erro
 	return h.AddMultiBatch(ctx, []uint64{id}, [][][]float32{vector})
 }
 
-func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
+func (h *hnsw) insertInitialElement(id uint64, node *vertex, nodeVec []float32) error {
 	h.Lock()
 	defer h.Unlock()
 
-	if err := h.commitLog.SetEntryPointWithMaxLayer(node.id, 0); err != nil {
+	if err := h.commitLog.SetEntryPointWithMaxLayer(id, 0); err != nil {
 		return err
 	}
 
-	h.entryPointID = node.id
+	h.entryPointID = id
 	h.currentMaximumLayer = 0
-	conns, err := packedconn.NewWithElements([][]uint64{
-		make([]uint64, 0, h.maximumConnectionsLayerZero),
-	})
-	if err != nil {
-		return err
-	}
-	node.connections = conns
 	node.level = 0
-	if err := h.commitLog.AddNode(node); err != nil {
+	node.connections.GrowLayersTo(0)
+	if err := h.commitLog.AddNode(id, node.level); err != nil {
 		return err
 	}
 
-	err = h.growIndexToAccomodateNode(node.id, h.logger)
+	err := h.growIndexToAccomodateNode(id, h.logger)
 	if err != nil {
-		return errors.Wrapf(err, "grow HNSW index to accommodate node %d", node.id)
+		return errors.Wrapf(err, "grow HNSW index to accommodate node %d", id)
 	}
 
-	h.shardedNodeLocks.Lock(node.id)
-	h.nodes[node.id] = node
-	h.shardedNodeLocks.Unlock(node.id)
+	h.shardedNodeLocks.Lock(id)
+	h.nodes[id] = node
+	h.shardedNodeLocks.Unlock(id)
 
-	h.Preload(node.id, nodeVec)
+	h.Preload(id, nodeVec)
 
-	// go h.insertHook(node.id, 0, node.connections)
+	// go h.insertHook(id, 0, node.connections)
 	return nil
 }
 

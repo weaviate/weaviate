@@ -41,6 +41,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
@@ -174,7 +175,7 @@ type shards interface {
 	DigestObjects(ctx context.Context, indexName, shardName string,
 		ids []strfmt.UUID) (result []types.RepairResponse, err error)
 	DigestObjectsInRange(ctx context.Context, indexName, shardName string,
-		initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairResponse, err error)
+		initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairDigest, err error)
 	HashTreeLevel(ctx context.Context, indexName, shardName string,
 		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 
@@ -777,6 +778,11 @@ func (i *indices) postSearchObjects() http.Handler {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
+		if errors.Is(err, queryadmission.ErrOverloaded) {
+			// The coordinator's retryClient retries 429 with bounded backoff.
+			http.Error(w, err.Error(), http.StatusTooManyRequests)
+			return
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -892,6 +898,12 @@ func (i *indices) postAggregateObjects() http.Handler {
 
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
+		if errors.Is(err, queryadmission.ErrOverloaded) {
+			// A ref filter's nested search was shed; 429 so the coordinator's
+			// retryClient backs off, as for _search.
+			http.Error(w, err.Error(), http.StatusTooManyRequests)
 			return
 		}
 		if err != nil {
@@ -1128,7 +1140,7 @@ func (i *indices) getHashTreeLevel() http.Handler {
 
 		var discriminant hashtree.Bitset
 		if err := discriminant.Unmarshal(reqPayload); err != nil {
-			http.Error(w, "unmarshal hashtree level params from json: "+err.Error(),
+			http.Error(w, "unmarshal hashtree level discriminant: "+err.Error(),
 				http.StatusBadRequest)
 			return
 		}
@@ -1136,7 +1148,7 @@ func (i *indices) getHashTreeLevel() http.Handler {
 		results, err := i.shards.HashTreeLevel(r.Context(), index, shard, l, &discriminant)
 		if err != nil {
 			http.Error(w, "hashtree level: "+err.Error(),
-				http.StatusInternalServerError)
+				asyncCheckpointHTTPStatus(err))
 			return
 		}
 

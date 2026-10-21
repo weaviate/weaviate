@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/distributed_tasks"
+	"github.com/weaviate/weaviate/client/nodes"
 	clobjects "github.com/weaviate/weaviate/client/objects"
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -63,6 +64,10 @@ func vecDim(t *testing.T, v models.Vector) int {
 
 func dropTargetVector(t *testing.T, className, targetVector string) {
 	t.Helper()
+	// With ASYNC_INDEXING a drop issued straight after a batch races the
+	// indexing still creating the artifacts it must remove. Here rather than at
+	// the insert sites, so every drop is covered.
+	waitForVectorIndexing(t, className)
 	_, err := helper.Client(t).Schema.SchemaObjectsVectorsDelete(
 		clschema.NewSchemaObjectsVectorsDeleteParams().
 			WithClassName(className).WithVectorIndexName(targetVector), nil)
@@ -121,6 +126,10 @@ func nearVectorResults(t *testing.T, className, targetVector string, vector []fl
 
 func nearVectorTenantResults(t *testing.T, className, tenant, targetVector string, vector []float32, limit int) int {
 	t.Helper()
+	// A vector search only finds what the index already holds. With
+	// ASYNC_INDEXING the batch returns before that is true, so every count
+	// asserted here would otherwise read 0. Same reason as in dropTargetVector.
+	waitForVectorIndexing(t, className)
 	resp := graphqlhelper.QueryGraphQLOrFatal(t, nil, "", nearVectorQuery(className, tenant, targetVector, vector, limit), nil)
 	require.Empty(t, resp.Errors)
 	get := resp.Data["Get"].(map[string]interface{})
@@ -300,4 +309,34 @@ func createMTDropClass(t *testing.T, className, dropped, sibling string, tenantN
 		tenants[i] = &models.Tenant{Name: name}
 	}
 	helper.CreateTenants(t, className, tenants)
+}
+
+// asyncIndexingTimeout bounds the wait for the vector-index queues to drain.
+const asyncIndexingTimeout = 2 * time.Minute
+
+// waitForVectorIndexing blocks until every shard of className reports an empty
+// vector queue and a READY index. Both are needed: the length reads zero before
+// the first batch is enqueued as well as after the last one is written.
+// Without ASYNC_INDEXING it returns on the first poll.
+func waitForVectorIndexing(t *testing.T, className string) {
+	t.Helper()
+	verbose := "verbose"
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		params := nodes.NewNodesGetClassParams().WithClassName(className).WithOutput(&verbose)
+		resp, err := helper.Client(t).Nodes.NodesGetClass(params, nil)
+		if !assert.NoError(collect, err) {
+			return
+		}
+		if !assert.NotEmpty(collect, resp.Payload.Nodes, "no nodes reported") {
+			return
+		}
+		for _, node := range resp.Payload.Nodes {
+			for _, shard := range node.Shards {
+				assert.Zero(collect, shard.VectorQueueLength,
+					"shard %s/%s still has %d queued vectors", node.Name, shard.Name, shard.VectorQueueLength)
+				assert.Equal(collect, "READY", shard.VectorIndexingStatus,
+					"shard %s/%s is %s", node.Name, shard.Name, shard.VectorIndexingStatus)
+			}
+		}
+	}, asyncIndexingTimeout, time.Second, "vector indexing did not settle for %s", className)
 }

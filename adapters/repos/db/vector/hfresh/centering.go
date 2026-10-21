@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
@@ -67,7 +68,12 @@ func (h *HFresh) trainCentering(ctx context.Context) error {
 			if _, ok := raw[v.ID()]; ok {
 				continue
 			}
-			vec, err := h.config.VectorForIDThunk(ctx, v.ID())
+			var vec []float32
+			if h.muvera.Load() {
+				vec, err = h.muveraEncoder.GetMuveraVectorForID(v.ID(), helpers.MuveraBucketName(h.id))
+			} else {
+				vec, err = h.config.VectorForIDThunk(ctx, v.ID())
+			}
 			if err != nil {
 				return errors.Wrapf(err, "get vector %d", v.ID())
 			}
@@ -109,7 +115,6 @@ func (h *HFresh) trainCentering(ctx context.Context) error {
 	}
 
 	h.quantizer = quantizer
-	h.Centroids.SetQuantizer(quantizer)
 	h.distancer = NewDistancer(quantizer, h.config.DistanceProvider)
 	if err := h.persistQuantizationData(); err != nil {
 		return errors.Wrap(err, "persist RQ data")

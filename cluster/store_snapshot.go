@@ -117,6 +117,12 @@ func (st *Store) Snapshot() (raft.FSMSnapshot, error) {
 // state before restoring the snapshot.
 func (st *Store) Restore(rc io.ReadCloser) error {
 	f := func() error {
+		// Exclude the watcher's off-thread reload while the snapshot mutates FSM state.
+		if st.wipedJoinerCandidate.Load() {
+			st.wipedJoinerApplyMu.RLock()
+			defer st.wipedJoinerApplyMu.RUnlock()
+		}
+
 		st.log.Info("restoring schema from snapshot")
 		defer func() {
 			if err := rc.Close(); err != nil {
@@ -129,6 +135,11 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 			return fmt.Errorf("restore snapshot: decode json: %w", err)
 		}
 
+		// st.schemaManager.Restore first, st.distributedTasksManager.Restore
+		// second: the two take separate locks and this node answers reads
+		// between them. The other order lets a FINISHED task pair with an
+		// IndexFilterable / IndexSearchable / IndexRangeFilters that still
+		// reads false.
 		if snap.Schema != nil {
 			if err := st.schemaManager.Restore(snap.Schema, st.cfg.Parser); err != nil {
 				st.log.WithError(err).Error("restoring schema from snapshot")
@@ -199,7 +210,10 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 		}
 
 		snapIndex := lastSnapshotIndex(st.snapshotStore)
-		if st.lastAppliedIndexToDB.Load() <= snapIndex {
+		if st.wipedJoinerCandidate.Load() {
+			// Caught up via InstallSnapshot; a snapshot below the join barrier defers to the barrier path.
+			st.wipedJoinerRestoreReload(snapIndex)
+		} else if st.lastAppliedIndexToDB.Load() <= snapIndex {
 			// db shall reload after snapshot applied to schema
 			st.reloadDBFromSchema()
 		}

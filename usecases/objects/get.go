@@ -24,7 +24,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 )
 
@@ -35,10 +34,10 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 ) (*models.Object, error) {
 	class, _, err := m.resolveNS(principal, class)
 	if err != nil {
-		return nil, NewErrInvalidUserInput("%v", err)
+		return nil, userInputOrForbidden(err)
 	}
 
-	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(class, tenant, id)); err != nil {
+	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.READ, class, authorization.Objects(class, tenant)); err != nil {
 		return nil, err
 	}
 
@@ -67,7 +66,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 		return nil, NewErrEndpointGone("listing objects without a class is not supported; specify the ?class= query parameter")
 	}
 
-	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects("", tenant, ""))
+	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects("", tenant))
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +87,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 		objects,
 		authorization.READ,
 		func(obj *models.Object) string {
-			return authorization.Objects(obj.Class, tenant, obj.ID)
+			return authorization.Objects(obj.Class, tenant)
 		},
 	)
 
@@ -98,7 +97,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID,
 ) (*models.Class, error) {
-	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects("", "", id))
+	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects("", ""))
 	if err != nil {
 		return nil, err
 	}
@@ -115,12 +114,16 @@ func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Princip
 	return class, err
 }
 
+// GetObjectClassFromName leaves AuthorizeAndRequireActiveNamespace to GetObject,
+// which its one caller objectHandlers.getObject calls right after. If that
+// changes, check here with data READ, since CollectionsMetadata READ would
+// reveal a suspended namespace to a principal without data READ.
 func (m *Manager) GetObjectClassFromName(ctx context.Context, principal *models.Principal,
 	className string,
 ) (*models.Class, error) {
 	className, _, err := m.resolveNS(principal, className)
 	if err != nil {
-		return nil, NewErrInvalidUserInput("%v", err)
+		return nil, userInputOrForbidden(err)
 	}
 	class, err := m.schemaManager.GetClass(ctx, principal, className)
 	return class, err
@@ -139,10 +142,7 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt
 		case errors.As(err, &ErrMultiTenancy{}):
 			return nil, NewErrMultiTenancy(fmt.Errorf("repo: object by id: %w", err))
 		default:
-			if errors.As(err, &authzerrs.Forbidden{}) {
-				return nil, fmt.Errorf("repo: object by id: %w", err)
-			}
-			return nil, NewErrInternal("repo: object by id: %v", err)
+			return nil, NewErrInternal("repo: object by id: %w", err)
 		}
 	}
 
@@ -166,7 +166,7 @@ func (m *Manager) getObjectsFromRepo(ctx context.Context,
 ) ([]*models.Object, error) {
 	smartOffset, smartLimit, err := m.localOffsetLimit(offset, limit)
 	if err != nil {
-		return nil, NewErrInternal("list objects: %v", err)
+		return nil, NewErrInternal("list objects: %w", err)
 	}
 	if after != nil {
 		return nil, NewErrInternal("list objects: after parameter not allowed, cursor must be specific to one class, set class query param")
@@ -174,13 +174,13 @@ func (m *Manager) getObjectsFromRepo(ctx context.Context,
 	res, err := m.vectorRepo.ObjectSearch(ctx, smartOffset, smartLimit,
 		nil, m.getSort(sort, order), additional, tenant)
 	if err != nil {
-		return nil, NewErrInternal("list objects: %v", err)
+		return nil, NewErrInternal("list objects: %w", err)
 	}
 
 	if m.modulesProvider != nil {
 		res, err = m.modulesProvider.ListObjectsAdditionalExtend(ctx, res, additional.ModuleParams)
 		if err != nil {
-			return nil, NewErrInternal("list extend: %v", err)
+			return nil, NewErrInternal("list extend: %w", err)
 		}
 	}
 

@@ -32,7 +32,7 @@ type BatchDelete struct {
 	// Timestamp of deletion in milliseconds since epoch UTC.
 	DeletionTimeUnixMilli *int64 `json:"deletionTimeUnixMilli,omitempty"`
 
-	// If true, the call will show which objects would be matched using the specified filter without deleting any objects. <br/><br/>Depending on the configured verbosity, you will either receive a count of affected objects, or a list of IDs.
+	// If true, the call reports what the filter matches and deletes nothing. <br/><br/>Depending on the configured verbosity, you will either receive a count of matched objects, or a list of IDs. With a positive [`QUERY_MAXIMUM_RESULTS`](https://docs.weaviate.io/deploy/configuration/env-vars#QUERY_MAXIMUM_RESULTS) the count stops one above it, and the list holds at most `QUERY_MAXIMUM_RESULTS` IDs. Repeating the dry run reports the same count; for an exact total use an aggregate count, which resolves no objects.
 	DryRun *bool `json:"dryRun,omitempty"`
 
 	// match

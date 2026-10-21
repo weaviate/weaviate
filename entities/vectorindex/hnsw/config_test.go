@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"math"
 	"os"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -863,6 +864,58 @@ func Test_UserConfig(t *testing.T) {
 			},
 		},
 		{
+			name: "pathseer enabled, all defaults",
+			input: map[string]interface{}{
+				"filterStrategy": "pathseer",
+			},
+			expected: UserConfig{
+				CleanupIntervalSeconds: DefaultCleanupIntervalSeconds,
+				MaxConnections:         DefaultMaxConnections,
+				EFConstruction:         DefaultEFConstruction,
+				VectorCacheMaxObjects:  common.DefaultVectorCacheMaxObjects,
+				EF:                     DefaultEF,
+				Skip:                   DefaultSkip,
+				FlatSearchCutoff:       DefaultFlatSearchCutoff,
+				DynamicEFMin:           DefaultDynamicEFMin,
+				DynamicEFMax:           DefaultDynamicEFMax,
+				DynamicEFFactor:        DefaultDynamicEFFactor,
+				Distance:               common.DefaultDistanceMetric,
+				PQ: PQConfig{
+					Enabled:        DefaultPQEnabled,
+					BitCompression: DefaultPQBitCompression,
+					Segments:       DefaultPQSegments,
+					Centroids:      DefaultPQCentroids,
+					TrainingLimit:  DefaultPQTrainingLimit,
+					Encoder: PQEncoder{
+						Type:         DefaultPQEncoderType,
+						Distribution: DefaultPQEncoderDistribution,
+					},
+				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				RQ: RQConfig{
+					Enabled:       DefaultRQEnabled,
+					Bits:          DefaultRQBits,
+					RescoreLimit:  DefaultRQRescoreLimit,
+					TrainingLimit: DefaultRQTrainingLimit,
+				},
+				FilterStrategy: FilterStrategyPathseer,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+					MuveraConfig: MuveraConfig{
+						Enabled:      DefaultMultivectorMuveraEnabled,
+						KSim:         DefaultMultivectorKSim,
+						DProjections: DefaultMultivectorDProjections,
+						Repetitions:  DefaultMultivectorRepetitions,
+					},
+				},
+			},
+		},
+		{
 			name: "max connections at maximum allowed value (2047)",
 			input: map[string]interface{}{
 				"maxConnections": json.Number("2047"),
@@ -1212,4 +1265,39 @@ func Test_UserConfigFilterStrategy(t *testing.T) {
 		assert.Equal(t, FilterStrategySweeping, cfg.FilterStrategy)
 		assert.Nil(t, os.Unsetenv("HNSW_DEFAULT_FILTER_STRATEGY"))
 	})
+}
+
+// The ksim bound is an upper bound only, a degenerate value must stay parseable so that restore
+// and log replay, which run the same validation, cannot fail on an already persisted class.
+func TestUserConfigMuveraKSimBound(t *testing.T) {
+	tests := []struct {
+		name         string
+		ksim         int
+		expectErrMsg string
+	}{
+		{name: "default", ksim: DefaultMultivectorKSim},
+		{name: "at the upper bound", ksim: 10},
+		{name: "above the upper bound", ksim: 11, expectErrMsg: "ksim must be at most 10"},
+		{name: "negative is not rejected", ksim: -1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parsed, err := ParseAndValidateConfig(map[string]interface{}{
+				"multivector": map[string]interface{}{
+					"enabled": true,
+					"muvera": map[string]interface{}{
+						"enabled": true,
+						"ksim":    json.Number(strconv.Itoa(tt.ksim)),
+					},
+				},
+			}, true)
+			if tt.expectErrMsg != "" {
+				require.ErrorContains(t, err, tt.expectErrMsg)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.ksim, parsed.(UserConfig).Multivector.MuveraConfig.KSim)
+		})
+	}
 }

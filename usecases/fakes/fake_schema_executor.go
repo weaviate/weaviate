@@ -48,6 +48,11 @@ func (m *MockSchemaExecutor) AddReplicaToShard(class string, shard string, targe
 	return args.Error(0)
 }
 
+func (m *MockSchemaExecutor) AddReplicaToShardForMovement(class string, shard string, targetNode string) error {
+	args := m.Called(class, shard, targetNode)
+	return args.Error(0)
+}
+
 func (m *MockSchemaExecutor) DeleteReplicaFromShard(class string, shard string, targetNode string) error {
 	args := m.Called(class, shard, targetNode)
 	return args.Error(0)
@@ -75,6 +80,10 @@ func (m *MockSchemaExecutor) ReloadLocalDB(ctx context.Context, all []cmd.Update
 	return nil
 }
 
+func (m *MockSchemaExecutor) DropOrphanedClass(ctx context.Context, class string, hasFrozen bool) error {
+	return nil
+}
+
 func (m *MockSchemaExecutor) DeleteClass(name string, hasFrozen bool) error {
 	args := m.Called(name)
 	return args.Error(0)
@@ -95,8 +104,8 @@ func (m *MockSchemaExecutor) AddTenants(class string, req *cmd.AddTenantsRequest
 	return args.Error(0)
 }
 
-func (m *MockSchemaExecutor) UpdateTenants(class string, req *cmd.UpdateTenantsRequest) error {
-	args := m.Called(class, req)
+func (m *MockSchemaExecutor) UpdateTenants(class string, req *cmd.UpdateTenantsRequest, preFreezeStatuses map[string]string) error {
+	args := m.Called(class, req, preFreezeStatuses)
 	return args.Error(0)
 }
 
@@ -115,8 +124,8 @@ func (m *MockSchemaExecutor) UpdateShardStatus(req *cmd.UpdateShardStatusRequest
 	return args.Error(0)
 }
 
-func (m *MockSchemaExecutor) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
-	args := m.Called(class, tenant)
+func (m *MockSchemaExecutor) GetShardsStorageStatus(ctx context.Context, class, tenant string) (models.ShardStatusList, error) {
+	args := m.Called(ctx, class, tenant)
 	return models.ShardStatusList{}, args.Error(1)
 }
 

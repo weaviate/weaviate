@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -62,8 +63,12 @@ func (h *indexesHandlers) upsertIndex(params schema.SchemaObjectsIndexUpsertPara
 			fmt.Sprintf("invalid index type %q", params.IndexName)))
 	}
 
-	collection, resp := h.qualifyAndAuthorize(ctx, principal, params.ClassName)
+	collection, resp := h.qualifyAndAuthorize(ctx, principal, params.ClassName, upsertRefusals)
 	if resp != nil {
+		return resp
+	}
+
+	if resp := h.refuseIfReindexDisabled(principal); resp != nil {
 		return resp
 	}
 
@@ -105,11 +110,10 @@ func (h *indexesHandlers) upsertIndex(params schema.SchemaObjectsIndexUpsertPara
 		return jsonResponder(http.StatusConflict, errorResponse(principal, plan.conflict))
 	}
 	if plan.noop {
-		// NO_OP still needs the tenants-contract check (mis-scoped must
-		// 400, not silently 200). No migrationType here, so semantic-ness
-		// comes from indexType directly: only rangeable is format-only.
+		// A mis-scoped NO_OP must 400, not silently 200. Every migration
+		// this endpoint can submit is semantic, hence the constant true.
 		isMT := class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
-		if resp := h.validateTenantScope(ctx, principal, collection, isMT, indexType != "rangeable", params.Tenants); resp != nil {
+		if resp := h.validateTenantScope(ctx, principal, collection, isMT, true, params.Tenants); resp != nil {
 			return resp
 		}
 		return noopOrJoinResponder(principal, plan)
@@ -144,8 +148,12 @@ func (h *indexesHandlers) rebuildIndex(params schema.SchemaObjectsIndexRebuildPa
 			fmt.Sprintf("invalid index type %q", params.IndexName)))
 	}
 
-	collection, resp := h.qualifyAndAuthorize(ctx, principal, params.ClassName)
+	collection, resp := h.qualifyAndAuthorize(ctx, principal, params.ClassName, rebuildRefusals)
 	if resp != nil {
+		return resp
+	}
+
+	if resp := h.refuseIfReindexDisabled(principal); resp != nil {
 		return resp
 	}
 
@@ -206,7 +214,7 @@ func (h *indexesHandlers) cancelIndex(params schema.SchemaObjectsIndexCancelPara
 			fmt.Sprintf("invalid index type %q", params.IndexName)))
 	}
 
-	collection, resp := h.qualifyAndAuthorize(ctx, principal, params.ClassName)
+	collection, resp := h.qualifyAndAuthorize(ctx, principal, params.ClassName, cancelRefusals)
 	if resp != nil {
 		return resp
 	}
@@ -231,21 +239,89 @@ func (h *indexesHandlers) cancelIndex(params schema.SchemaObjectsIndexCancelPara
 	return h.cancelReindexTask(ctx, h.appState.ClusterService, collection, params.PropertyName, indexType, principal)
 }
 
+// refuseIfReindexDisabled returns a 400 responder while
+// RUNTIME_REINDEX_ENABLED is off, nil otherwise. It gates the two submit
+// entry points (upsert, rebuild); cancel and the status endpoint are
+// deliberately untouched, so a task that was already running stays
+// observable and stoppable. Callers place it after authorization, so an
+// unauthorized caller still gets its 401/403, and before the class read,
+// so a refusal costs no schema lookup.
+func (h *indexesHandlers) refuseIfReindexDisabled(principal *models.Principal) middleware.Responder {
+	if h.appState.ServerConfig.Config.RuntimeReindexEnabled {
+		return nil
+	}
+	return jsonResponder(http.StatusBadRequest, errorResponse(principal,
+		"runtime reindex is disabled; enable with RUNTIME_REINDEX_ENABLED=true"))
+}
+
+// collectionRefusals are one operation's generated responders for the
+// refusals qualifyAndAuthorize returns.
+type collectionRefusals struct {
+	forbidden func(*models.ErrorResponse) middleware.Responder
+	notFound  func(*models.ErrorResponse) middleware.Responder
+	internal  func(*models.ErrorResponse) middleware.Responder
+}
+
+var (
+	upsertRefusals = collectionRefusals{
+		forbidden: func(p *models.ErrorResponse) middleware.Responder {
+			return schema.NewSchemaObjectsIndexUpsertForbidden().WithPayload(p)
+		},
+		notFound: func(p *models.ErrorResponse) middleware.Responder {
+			return schema.NewSchemaObjectsIndexUpsertNotFound().WithPayload(p)
+		},
+		internal: func(p *models.ErrorResponse) middleware.Responder {
+			return schema.NewSchemaObjectsIndexUpsertInternalServerError().WithPayload(p)
+		},
+	}
+	rebuildRefusals = collectionRefusals{
+		forbidden: func(p *models.ErrorResponse) middleware.Responder {
+			return schema.NewSchemaObjectsIndexRebuildForbidden().WithPayload(p)
+		},
+		notFound: func(p *models.ErrorResponse) middleware.Responder {
+			return schema.NewSchemaObjectsIndexRebuildNotFound().WithPayload(p)
+		},
+		internal: func(p *models.ErrorResponse) middleware.Responder {
+			return schema.NewSchemaObjectsIndexRebuildInternalServerError().WithPayload(p)
+		},
+	}
+	cancelRefusals = collectionRefusals{
+		forbidden: func(p *models.ErrorResponse) middleware.Responder {
+			return schema.NewSchemaObjectsIndexCancelForbidden().WithPayload(p)
+		},
+		notFound: func(p *models.ErrorResponse) middleware.Responder {
+			return schema.NewSchemaObjectsIndexCancelNotFound().WithPayload(p)
+		},
+		internal: func(p *models.ErrorResponse) middleware.Responder {
+			return schema.NewSchemaObjectsIndexCancelInternalServerError().WithPayload(p)
+		},
+	}
+)
+
 // qualifyAndAuthorize resolves and authorizes UPDATE on the collection
 // before the submit lock is taken; it deliberately skips the class read so
 // that snapshot happens under the lock (see submitLock godoc for the DELETE
-// race this closes).
-func (h *indexesHandlers) qualifyAndAuthorize(ctx context.Context, principal *models.Principal, className string) (string, middleware.Responder) {
+// race this closes). A refusal is answered with the calling operation's
+// generated responder from refusals.
+func (h *indexesHandlers) qualifyAndAuthorize(ctx context.Context, principal *models.Principal, className string,
+	refusals collectionRefusals,
+) (string, middleware.Responder) {
 	// Qualify (no alias resolution, like DeleteClassPropertyIndex).
-	collection, qErr := namespacing.QualifyClass(principal, h.appState.ServerConfig.Config.Namespaces.Enabled, className)
+	collection, qErr := namespacing.QualifyClass(principal, h.appState.NamespaceQualifier, className)
 	if qErr != nil {
+		if errors.As(qErr, &authzerrors.Forbidden{}) {
+			return "", refusals.forbidden(errPayloadFromSingleErr(principal, qErr))
+		}
 		// An unresolvable qualified name is an unknown collection.
-		return "", jsonResponder(http.StatusNotFound, errPayloadFromSingleErr(principal, qErr))
+		return "", refusals.notFound(errPayloadFromSingleErr(principal, qErr))
 	}
 
 	if err := h.appState.Authorizer.Authorize(ctx, principal,
 		authorization.UPDATE, authorization.Collections(collection)...); err != nil {
-		return "", authzResponder(principal, err)
+		if errors.As(err, &authzerrors.Forbidden{}) {
+			return "", refusals.forbidden(errPayloadFromSingleErr(principal, err))
+		}
+		return "", refusals.internal(errPayloadFromSingleErr(principal, err))
 	}
 	return collection, nil
 }
@@ -625,6 +701,12 @@ func (h *indexesHandlers) validateTenantScope(ctx context.Context, principal *mo
 // task. Returns 202 STARTED or the mapped error, reusing the caller's RAFT
 // snapshot (reindexTasks) so check-and-submit sees one consistent view.
 func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *models.Principal, class *models.Class, collection, propertyName string, plan upsertPlan, tenants []string, reindexTasks []*distributedtask.Task) middleware.Responder {
+	// The one funnel both upsert and rebuild reach to start a task. A NO_OP
+	// returns before this and is deliberately not refused: it starts nothing.
+	if err := validateNoSidecarShapedProperties(class); err != nil {
+		return jsonResponder(http.StatusBadRequest, errorResponse(principal, err.Error()))
+	}
+
 	if h.appState.ClusterService == nil {
 		return jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
 			"cluster service unavailable; cannot submit reindex task"))
@@ -735,16 +817,21 @@ func buildReindexPayload(class *models.Class, collection string, properties []st
 	}
 }
 
-// stalePartialStateCleaner scrubs a property's partial reindex sidecar dirs
-// for one index type. *db.DB satisfies it.
+// stalePartialStateCleaner opens a sweep over a property's partial reindex
+// sidecar dirs. *db.DB satisfies it.
 type stalePartialStateCleaner interface {
-	CleanStalePartialReindexState(ctx context.Context, collection, propertyName, indexType string) error
+	NewStalePartialReindexSweep() db.StalePartialReindexSweep
 }
 
 // cleanStalePartialStateOrFail scrubs pre-submit stale state for every index
 // type migrationType touches, returning a terminal responder or nil to
 // proceed. Guards CANCEL→retry resuming stale state as a false success; fails
 // closed on an unknown type or a scrub error rather than skip silently.
+//
+// A truncated sweep is the one exception: it means shards went unvisited, so
+// their state is unverified rather than known stale, and a healthy node
+// produces that from a tenant leaving the shard map mid-walk. Refusing the
+// submit on it would turn ordinary tenant movement into a 500.
 func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, principal *models.Principal,
 	cleaner stalePartialStateCleaner, collection, propertyName string, migrationType db.ReindexMigrationType,
 ) middleware.Responder {
@@ -758,17 +845,26 @@ func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, prin
 		return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
 			"internal error: unknown migration type; refusing submit (would skip stale-state cleanup)"))
 	}
+	// One sweep across the loop: every index type asks the same unloaded shards.
+	sweep := cleaner.NewStalePartialReindexSweep()
 	for _, it := range indexTypesForCleanup {
-		if err := cleaner.CleanStalePartialReindexState(ctx, collection, propertyName, it); err != nil {
-			h.appState.Logger.WithFields(logrus.Fields{
-				"collection":     collection,
-				"property":       propertyName,
-				"migration_type": migrationType,
-				"index_type":     it,
-			}).Errorf("submit: pre-submit cleanup of stale partial reindex state failed, refusing submit: %v", err)
-			return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
-				"pre-submit cleanup of stale partial reindex state failed; refusing to submit to avoid a task that short-circuits on stale state and reports a false success — operator inspection of the migration state is required"))
+		err := sweep(ctx, collection, propertyName, it)
+		if err == nil {
+			continue
 		}
+		entry := h.appState.Logger.WithFields(logrus.Fields{
+			"collection":     collection,
+			"property":       propertyName,
+			"migration_type": migrationType,
+			"index_type":     it,
+		})
+		if errors.Is(err, db.ErrCleanupSweepTruncated) {
+			entry.Warnf("submit: pre-submit cleanup did not reach every shard; proceeding with the submit, the unvisited shards are unverified rather than known stale: %v", err)
+			continue
+		}
+		entry.Errorf("submit: pre-submit cleanup of stale partial reindex state failed, refusing submit: %v", err)
+		return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
+			"pre-submit cleanup of stale partial reindex state failed; refusing to submit to avoid a task that short-circuits on stale state and reports a false success — operator inspection of the migration state is required"))
 	}
 	return nil
 }

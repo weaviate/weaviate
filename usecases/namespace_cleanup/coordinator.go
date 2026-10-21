@@ -42,6 +42,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/schema/leader"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -69,9 +70,9 @@ type userLister interface {
 // raftExecutor is the subset of cluster.Raft used here. The RBAC writes
 // replicate through RAFT like the rest, so a follower's store is cleaned too.
 type raftExecutor interface {
+	leader.ClassWriter
+	leader.AliasWriter
 	DeleteUsersInNamespace(ctx context.Context, name string) error
-	DeleteAlias(ctx context.Context, alias string) (uint64, error)
-	DeleteClass(ctx context.Context, name string) (uint64, error)
 	RemoveNamespaceEntity(ctx context.Context, name string) (uint64, error)
 	DeleteRoles(names ...string) error
 	RevokeRolesForUser(user string, roles ...string) error
@@ -85,9 +86,12 @@ type RBACLister interface {
 	GetRolesForUserOrGroup(user string, authMethod authentication.AuthType, isGroup bool) (map[string][]authorization.Policy, error)
 }
 
-// Coordinator runs one cleanup pass per Tick on the leader. isLeader is
-// re-checked before every RAFT write so the old leader stops issuing
-// writes once leadership moves.
+// Coordinator runs one cleanup pass per Tick on the leader. Tick re-checks
+// isLeader itself, so it holds under any caller, and re-checks it again before
+// every RAFT write, so a leader demoted mid-pass stops issuing them. A
+// partitioned leader still reads true; its writes fail to reach a quorum. A
+// cleanly demoted one has its write forwarded to the new leader and applied,
+// so those re-checks, not RAFT, bound a stale pass to one write.
 type Coordinator struct {
 	namespaces namespaceLister
 	schema     schemaLister

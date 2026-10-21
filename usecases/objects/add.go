@@ -31,6 +31,7 @@ import (
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 // AddObject Class Instance to the connected DB.
@@ -39,11 +40,11 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 ) (*models.Object, error) {
 	className, _, err := m.resolveNS(principal, object.Class)
 	if err != nil {
-		return nil, NewErrInvalidUserInput("%v", err)
+		return nil, userInputOrForbidden(err)
 	}
 	object.Class = className
 
-	if err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(className, object.Tenant)...); err != nil {
+	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.CREATE, className, authorization.ShardsData(className, object.Tenant)...); err != nil {
 		return nil, err
 	}
 
@@ -96,7 +97,13 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 
 	autoSchemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, true, fetchedClasses, object)
 	if err != nil {
-		return nil, fmt.Errorf("invalid object: %w", err)
+		// A denial and a usage limit keep their own status. Every other error,
+		// a cluster failure writing the schema included, is reported as invalid
+		// input.
+		if _, limited := usagelimits.AsLimitExceeded(err); limited || errors.As(err, &authzerrs.Forbidden{}) {
+			return nil, fmt.Errorf("invalid object: %w", err)
+		}
+		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 	maxSchemaVersion = max(maxSchemaVersion, autoSchemaVersion)
 
@@ -148,7 +155,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 	if id == "" {
 		validatedID, err := generateUUID()
 		if err != nil {
-			return "", NewErrInternal("could not generate id: %v", err)
+			return "", NewErrInternal("could not generate id: %w", err)
 		}
 		return validatedID, err
 	}
@@ -161,9 +168,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 	validatedID := strfmt.UUID(strings.ToLower(id.String()))
 
 	exists, err := m.vectorRepo.Exists(ctx, className, validatedID, repl, tenant)
-	if exists {
-		return "", NewErrInvalidUserInput("id '%s' already exists", id)
-	} else if err != nil {
+	if err != nil {
 		switch {
 		case errors.As(err, &ErrInvalidUserInput{}):
 			return "", err
@@ -175,11 +180,11 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 			}
 			return "", err
 		default:
-			if errors.As(err, &authzerrs.Forbidden{}) {
-				return "", err
-			}
-			return "", NewErrInternal("%v", err)
+			return "", NewErrInternal("%w", err)
 		}
+	}
+	if exists {
+		return "", NewErrInvalidUserInput("id '%s' already exists", id)
 	}
 
 	return validatedID, nil
@@ -201,7 +206,7 @@ func (m *Manager) validateObjectAndNormalizeNames(ctx context.Context,
 	class := fetchedClasses[incoming.Class].Class
 
 	return validation.New(m.vectorRepo.Exists, m.config, repl,
-		principal, m.config.Config.Namespaces.Enabled).
+		principal, m.qualifier).
 		Object(ctx, class, incoming, existing)
 }
 

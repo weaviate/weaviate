@@ -33,9 +33,9 @@ import (
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
 
-// stopNodeAt stops the node container at the given index.
+// StopNodeAt stops the container at the given DockerCompose index.
 //
-// NOTE: the index is 1-based, so stopping the first node requires index=1, not 0
+// index is the 0-based container position, not a Weaviate node number (other services precede them).
 func StopNodeAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose, index int) {
 	<-time.After(1 * time.Second)
 	if err := compose.StopAt(ctx, index, nil); err != nil {
@@ -46,6 +46,7 @@ func StopNodeAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose
 	<-time.After(1 * time.Second) // give time for shutdown
 }
 
+// StopNodeAtWithTimeout is StopNodeAt with an explicit graceful-shutdown timeout (0 = SIGKILL).
 func StopNodeAtWithTimeout(ctx context.Context, t *testing.T, compose *docker.DockerCompose, index int, timeout time.Duration) {
 	<-time.After(1 * time.Second)
 	if err := compose.StopAt(ctx, index, &timeout); err != nil {
@@ -56,9 +57,18 @@ func StopNodeAtWithTimeout(ctx context.Context, t *testing.T, compose *docker.Do
 	<-time.After(1 * time.Second) // give time for shutdown
 }
 
-// startNodeAt starts the node container at the given index.
-//
-// NOTE: the index is 1-based, so starting the first node requires index=1, not 0
+// WipeNodeDataAt deletes /data then SIGKILLs; pair with WithWeaviateTmpfsData or open-fd writes recreate files before the kill.
+func WipeNodeDataAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose, index int) {
+	t.Helper()
+	c, err := compose.ContainerAt(index)
+	require.NoError(t, err, "WipeNodeDataAt: container at index %d", index)
+	code, _, err := c.Container().Exec(ctx, []string{"sh", "-c", "find /data -mindepth 1 -delete"})
+	require.NoError(t, err, "WipeNodeDataAt: exec find /data -mindepth 1 -delete failed")
+	require.Equal(t, 0, code, "WipeNodeDataAt: find /data -mindepth 1 -delete exited %d", code)
+	StopNodeAtWithTimeout(ctx, t, compose, index, 0)
+}
+
+// StartNodeAt starts the container at the given DockerCompose index.
 func StartNodeAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose, index int) {
 	t.Helper()
 	if err := compose.StartAt(ctx, index); err != nil {
@@ -389,6 +399,45 @@ func GetNodes(t *testing.T, host string) *models.NodesStatusResponse {
 	resp, err := helper.Client(t).Nodes.NodesGet(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
 	return resp.Payload
+}
+
+// FastAsyncConfig replaces the async replication defaults (30s propagation
+// delay, 30s hashbeat) for a class so a repair lands within seconds. It is
+// per-class on purpose: the ASYNC_REPLICATION_* env vars take precedence over
+// every class's asyncConfig, so setting them would override tests that
+// configure their own.
+func FastAsyncConfig() *models.ReplicationAsyncConfig {
+	frequency, whilePropagating, delay := int64(5000), int64(1000), int64(1000)
+	return &models.ReplicationAsyncConfig{
+		Frequency:                 &frequency,
+		FrequencyWhilePropagating: &whilePropagating,
+		PropagationDelay:          &delay,
+	}
+}
+
+// ShardsAsyncReplicationLen returns the total len(asyncReplicationStatus)
+// across every node × every shard of the given class as seen from the
+// verbose nodes endpoint. Zero means async replication is registered
+// nowhere; >0 means at least one shard has it active. Returns an error so
+// callers can use it inside EventuallyWithT's CollectT scope (assertions
+// retry instead of failing the outer test on a transient HTTP error).
+func ShardsAsyncReplicationLen(t *testing.T, class string) (int, error) {
+	verbose := verbosity.OutputVerbose
+	params := nodes.NewNodesGetClassParams().WithClassName(class).WithOutput(&verbose)
+	body, err := helper.Client(t).Nodes.NodesGetClass(params, nil)
+	if err != nil {
+		return 0, err
+	}
+	if body.Payload == nil {
+		return 0, fmt.Errorf("nil payload from NodesGetClass")
+	}
+	total := 0
+	for _, n := range body.Payload.Nodes {
+		for _, s := range n.Shards {
+			total += len(s.AsyncReplicationStatus)
+		}
+	}
+	return total, nil
 }
 
 func Vec2String(v []interface{}) (s string) {

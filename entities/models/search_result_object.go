@@ -18,6 +18,7 @@ package models
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -42,8 +43,8 @@ type SearchResultObject struct {
 	// Required: true
 	Properties map[string]JSONObject `json:"properties"`
 
-	// The selected cross-references: reference name to the array of referenced objects, each carrying the selected one-hop properties. Omitted when the request selects no references.
-	References map[string][]JSONObject `json:"references,omitempty"`
+	// The selected cross-references: reference property name to the array of referenced objects. Omitted when the request selects no references, or when the hit has no entry for any of the selected references.
+	References map[string][]SearchResultReference `json:"references,omitempty"`
 }
 
 // Validate validates this search result object
@@ -59,6 +60,10 @@ func (m *SearchResultObject) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateProperties(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateReferences(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -117,11 +122,44 @@ func (m *SearchResultObject) validateProperties(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *SearchResultObject) validateReferences(formats strfmt.Registry) error {
+	if swag.IsZero(m.References) { // not required
+		return nil
+	}
+
+	for k := range m.References {
+
+		if err := validate.Required("references"+"."+k, "body", m.References[k]); err != nil {
+			return err
+		}
+
+		for i := 0; i < len(m.References[k]); i++ {
+
+			if err := m.References[k][i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("references" + "." + k + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("references" + "." + k + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+
+		}
+
+	}
+
+	return nil
+}
+
 // ContextValidate validate this search result object based on the context it is used
 func (m *SearchResultObject) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.contextValidateMetadata(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateReferences(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -142,6 +180,28 @@ func (m *SearchResultObject) contextValidateMetadata(ctx context.Context, format
 			}
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (m *SearchResultObject) contextValidateReferences(ctx context.Context, formats strfmt.Registry) error {
+
+	for k := range m.References {
+
+		for i := 0; i < len(m.References[k]); i++ {
+
+			if err := m.References[k][i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("references" + "." + k + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("references" + "." + k + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+
+		}
+
 	}
 
 	return nil

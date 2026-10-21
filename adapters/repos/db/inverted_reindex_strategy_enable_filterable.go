@@ -82,14 +82,6 @@ func (s *EnableFilterableStrategy) WriteToReindexBucket(shard ShardLike, bucket 
 	return nil
 }
 
-// ShouldProcessProperty always returns true. Scope is driven by the
-// reindexTaskConfig.selectedPropsByCollection set in the task constructor,
-// not by the schema flag — during this migration IndexFilterable is still
-// false on every targeted property.
-func (s *EnableFilterableStrategy) ShouldProcessProperty(property *inverted.Property) bool {
-	return true
-}
-
 func (s *EnableFilterableStrategy) MakeAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
 ) onAddToPropertyValueIndex {
@@ -146,11 +138,6 @@ func (s *EnableFilterableStrategy) PreReindexHook(shard *Shard, props []string) 
 	}
 }
 
-// AnalyzerOverlay forces IndexFilterable=true on the targeted properties
-// while the backfill iterator scans the objects bucket. Until
-// OnMigrationComplete flips the RAFT-stored schema flag, the analyzer would
-// otherwise skip the property entirely (see HasAnyInvertedIndex in
-// inverted/objects.go) and the new bucket would come out empty.
 func (s *EnableFilterableStrategy) AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay {
 	if len(props) == 0 {
 		return nil

@@ -41,11 +41,31 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.tenantAddLocks.Unlock(req.Class)
 	}
 
+	// PreApplyFilter below judges against in-memory FSM state, so a leader that
+	// has not drained what it inherited must not judge yet. After the tenant
+	// lock, not before: that lock is held across the apply, so a caller can wait
+	// on it long enough for leadership to turn over, and a term confirmed before
+	// the wait says nothing about the term it wakes up in.
+	if err := st.waitLeaderFSMCaughtUp(); err != nil {
+		return 0, err
+	}
+
 	// Parse the underlying command before pre execute filtering to avoid queryinf the schema is the underlying command
 	// is invalid
 	cmdBytes, err := proto.Marshal(req)
 	if err != nil {
 		return 0, fmt.Errorf("marshal command: %w", err)
+	}
+
+	if err := refuseUnknownFields(req); err != nil {
+		return 0, err
+	}
+
+	// Namespace admission runs before the schema-shape filter so a suspended
+	// namespace answers with its own state rather than a complaint about the
+	// entity the caller named.
+	if err := st.admitPropose(req); err != nil {
+		return 0, err
 	}
 
 	// Call the filtering to avoid committing to the FSM unnecessary updates
@@ -54,7 +74,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	}
 
 	// The change is validated, we can apply it in RAFT
-	fut := st.raft.Apply(cmdBytes, st.applyTimeout)
+	fut := st.raft.Load().Apply(cmdBytes, st.applyTimeout)
 
 	// Always call Error first otherwise the response can't  be read from the future
 	if err := fut.Error(); err != nil {
@@ -71,6 +91,195 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	return resp.Version, resp.Error
 }
 
+// refuseUnknownFields refuses an update carrying a field this binary does not
+// know before it is appended. Once committed, only newer nodes could apply it.
+func refuseUnknownFields(req *api.ApplyRequest) error {
+	switch req.Type {
+	case api.ApplyRequest_TYPE_UPDATE_USER:
+		if err := json.Unmarshal(req.SubCommand, &api.UpdateUserRequest{}); err != nil {
+			return fmt.Errorf("unmarshal update-user subcommand: %w", err)
+		}
+		return nil
+	default:
+		return nil
+	}
+}
+
+// admitPropose refuses a command whose namespace is not in a state that admits
+// it. It runs on the leader before the entry is appended, which is the only
+// place such a refusal can live: Apply must be a pure function of the log, so a
+// check there would have an older binary carry out what an upgraded one refuses,
+// live during a rolling update and again on every replay of that entry.
+// Refusing before the append means no node ever sees a committed entry it has to
+// reject, so the set of commands checked here can grow without becoming a
+// compatibility event.
+//
+// The check reads the leader's namespace state and the entry commits shortly
+// after, so a state flip landing in between still lets an accepted command
+// through. That is deliberate, and matches the rule that a suspend does not
+// cancel work already accepted. Every node applies the entry either way, so the
+// outcome stays the same across the cluster.
+//
+// A command that materializes a shard is checked here too. The flip it can race
+// leaves the schema entry standing with its shard still to open, which is the
+// state namespaces.AppliedChangeMayOpenShard already governs for every other
+// apply whose schema half has committed. An Apply-side check would not close
+// that window either: the DB half runs after the schema half commits, so a flip
+// landing in between produces the same state.
+func (st *Store) admitPropose(req *api.ApplyRequest) error {
+	if err := st.admitDestructive(req); err != nil {
+		return err
+	}
+	if err := st.admitCreateLike(req); err != nil {
+		return err
+	}
+	return st.admitShardStatus(req)
+}
+
+// admitShardStatus refuses a manual shard status change outside the active
+// state. It writes no schema, only the status of a shard the namespace holds
+// open, which a namespace that serves no requests has nothing to set.
+func (st *Store) admitShardStatus(req *api.ApplyRequest) error {
+	if req.Type != api.ApplyRequest_TYPE_UPDATE_SHARD_STATUS {
+		return nil
+	}
+	// The command names its class outright, and Handler.UpdateShardStatus
+	// qualifies it before the propose.
+	return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Class))
+}
+
+// admitCreateLike refuses a create-like, property or class update command
+// outside the active state, except the completions its UPDATE_PROPERTY and
+// UPDATE_CLASS arms exempt. admitPropose says why a check this early is enough
+// for ADD_CLASS, RESTORE_CLASS and the tenant commands, which materialize a shard.
+func (st *Store) admitCreateLike(req *api.ApplyRequest) error {
+	switch req.Type {
+	case api.ApplyRequest_TYPE_ADD_CLASS,
+		api.ApplyRequest_TYPE_RESTORE_CLASS,
+		api.ApplyRequest_TYPE_ADD_TENANT,
+		api.ApplyRequest_TYPE_UPDATE_TENANT,
+		api.ApplyRequest_TYPE_ADD_PROPERTY:
+		// These name their class outright, so the namespace comes off the
+		// request rather than a subcommand.
+		return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Class))
+
+	case api.ApplyRequest_TYPE_UPDATE_PROPERTY:
+		sub := &api.UpdatePropertyRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal update-property subcommand: %w", err)
+		}
+		// A reindex's schema flip finishes work that a suspend does not cancel.
+		if sub.FromInFlightMigration {
+			return nil
+		}
+		return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Class))
+
+	case api.ApplyRequest_TYPE_UPDATE_CLASS:
+		sub := &api.UpdateClassRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal update-class subcommand: %w", err)
+		}
+		switch sub.Origin {
+		case api.ClassUpdateOriginDropVectorFinalize, api.ClassUpdateOriginBlockmaxCutover:
+			// A vector drop's cleanup and a BlockMax migration's cutover finish
+			// work that a suspend does not cancel.
+			return nil
+		case api.ClassUpdateOriginUser, api.ClassUpdateOriginUnspecified:
+			// These reach RequireActive below, as does an origin this build does
+			// not name.
+		}
+		return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Class))
+
+	case api.ApplyRequest_TYPE_CREATE_ALIAS:
+		sub := &api.CreateAliasRequest{}
+		if err := proto.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal create-alias subcommand: %w", err)
+		}
+		return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(sub.Alias))
+
+	case api.ApplyRequest_TYPE_REPLACE_ALIAS:
+		sub := &api.ReplaceAliasRequest{}
+		if err := proto.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal replace-alias subcommand: %w", err)
+		}
+		return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(sub.Alias))
+
+	case api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS:
+		// Permission-only upserts re-mint the role row too, so gate every name
+		// regardless of RoleCreation.
+		sub := &api.CreateRolesRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal upsert-roles subcommand: %w", err)
+		}
+		for name := range sub.Roles {
+			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(name)); err != nil {
+				return err
+			}
+		}
+		return nil
+
+	case api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:
+		// While deleting, a late assignment would leave a grouping row behind
+		// after the cleanup cascade has emptied the namespace.
+		sub := &api.AddRolesForUsersRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal add-roles-for-user subcommand: %w", err)
+		}
+		// With namespaces off, a ':' in a subject is part of the user id, as in
+		// the OIDC subject "urn:example:alice", and names no namespace.
+		if !st.cfg.NamespacesEnabled {
+			return nil
+		}
+		ns, err := subjectNamespace(sub.User)
+		if err != nil {
+			return fmt.Errorf("resolve namespace of subject %q: %w", sub.User, err)
+		}
+		return usecasesNamespaces.RequireActive(st.namespaceManager, ns)
+
+	case api.ApplyRequest_TYPE_UPSERT_USER:
+		// The request carries its namespace outright. The empty-namespace
+		// validation stays in the dynusers manager: it reads node-local config,
+		// not namespace state.
+		sub := &api.CreateUsersRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal upsert-user subcommand: %w", err)
+		}
+		return usecasesNamespaces.RequireActive(st.namespaceManager, sub.Namespace)
+
+	default:
+		return nil
+	}
+}
+
+// admitDestructive refuses a data-destroying command whose namespace is not in a
+// state that admits one. Unlike the create-like commands it also passes while
+// deleting, so the cleanup cascade can empty a namespace.
+func (st *Store) admitDestructive(req *api.ApplyRequest) error {
+	var name string
+	switch req.Type {
+	case api.ApplyRequest_TYPE_DELETE_CLASS:
+		// Index.drop renames the whole class directory, taking every tenant
+		// with it, loaded or not.
+		name = req.Class
+	case api.ApplyRequest_TYPE_DELETE_TENANT:
+		// Index.dropShards destroys the data on both arms: shard.drop when the
+		// shard is loaded, os.RemoveAll on its path when it is not.
+		name = req.Class
+	case api.ApplyRequest_TYPE_DELETE_ALIAS:
+		// The command carries no Class, so the namespace comes off the alias
+		// name. An alias may target a class in another namespace, and
+		// AliasesInNamespace lists by alias prefix, so that is the same key.
+		sub := &api.DeleteAliasRequest{}
+		if err := proto.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal delete-alias subcommand: %w", err)
+		}
+		name = sub.Alias
+	default:
+		return nil
+	}
+	return usecasesNamespaces.AdmitDestructiveApply(st.namespaceManager, namespacing.NamespaceFromQualified(name))
+}
+
 // StoreConfiguration is invoked once a log entry containing a configuration
 // change is committed. It takes the index at which the configuration was
 // written and the configuration value.
@@ -85,6 +294,9 @@ func (st *Store) StoreConfiguration(index uint64, _ raft.Configuration) {
 // Apply should apply the log to the FSM. Apply must be deterministic and
 // produce the same result on all peers in the cluster.
 // The returned value is returned to the client as the ApplyFuture.Response.
+//
+// That determinism is why no arm below refuses a command for its namespace
+// state: [Store.admitPropose] does it before the entry is appended.
 func (st *Store) Apply(l *raft.Log) any {
 	ret := Response{Version: l.Index}
 
@@ -108,14 +320,27 @@ func (st *Store) Apply(l *raft.Log) any {
 		panic("error proto un-marshalling log data")
 	}
 
+	// Exclude the watcher's off-thread reload for this entry's whole apply; uncontended outside the wiped-joiner window.
+	if st.wipedJoinerCandidate.Load() {
+		st.wipedJoinerApplyMu.RLock()
+		defer st.wipedJoinerApplyMu.RUnlock()
+	}
+
 	// schemaOnly is necessary so that on restart when we are re-applying RAFT log entries to our in-memory schema we
 	// don't update the database. This can lead to data loss for example if we drop then re-add a class.
 	// If we don't have any last applied index on start, schema only is always false.
 	// we check for index !=0 to force apply of the 1st index in both db and schema
 	catchingUp := l.Index != 0 && l.Index <= st.lastAppliedIndexToDB.Load()
+
+	// A wiped joiner forces schemaOnly until its reload, so re-hydratable shards aren't materialised empty.
+	forceSchemaOnly := st.wipedJoinerCandidate.Load() && !st.wipedJoinerReloaded.Load()
+
 	// TODO: get rid off schema only as it causes more trouble than it's worth
 	// T-Nr: DB-306
-	schemaOnly := catchingUp || st.cfg.MetadataOnlyVoters
+	schemaOnly := catchingUp || forceSchemaOnly || st.cfg.MetadataOnlyVoters
+
+	// Callback gated off during catch-up so it fires once at the reload, not per replayed entry.
+	schemaCallback := !catchingUp && !forceSchemaOnly
 	defer func() {
 		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
 		// that means we're done doing schema only.
@@ -133,6 +358,16 @@ func (st *Store) Apply(l *raft.Log) any {
 			st.reloadDBFromSchema()
 		}
 
+		// Reload on the Apply thread once applied up to the barrier; idempotent with the other paths.
+		if st.wipedJoinerCandidate.Load() &&
+			wipedJoinerBarrierReached(st.wipedJoinerReloaded.Load(), st.joinBarrier.Load(), l.Index) {
+			st.log.WithFields(logrus.Fields{
+				"log_index":    l.Index,
+				"join_barrier": st.joinBarrier.Load(),
+			}).Info("wiped joiner: caught up to join barrier; running self-recovery reload")
+			st.finishWipedJoinerReload()
+		}
+
 		// we update no mater the error status to avoid any edge cases in the DB layer for already released versions,
 		// however we do not update the metrics so the metric will be the source of truth
 		// about AppliedIndex
@@ -142,8 +377,8 @@ func (st *Store) Apply(l *raft.Log) any {
 			st.metrics.applyFailures.Inc()
 			_, leaderID := st.LeaderWithID()
 			nodeState := ""
-			if st.raft != nil {
-				nodeState = st.raft.State().String()
+			if rn := st.raft.Load(); rn != nil {
+				nodeState = rn.State().String()
 			}
 			st.log.WithFields(logrus.Fields{
 				"log_type":        l.Type,
@@ -154,7 +389,8 @@ func (st *Store) Apply(l *raft.Log) any {
 				"cmd_class":       cmd.Class,
 				"raft_leader":     string(leaderID),
 				"raft_node_state": nodeState,
-			}).WithError(ret.Error).Error("apply command")
+			}).WithFields(enterrors.DocsLinkFields(ret.Error)).
+				WithError(ret.Error).Error("apply command")
 			return
 		}
 
@@ -188,25 +424,17 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_ADD_CLASS:
 		f = func() {
-			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
-				ret.Error = err
-				return
-			}
-			ret.Error = st.schemaManager.AddClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
+			ret.Error = st.schemaManager.AddClass(&cmd, st.cfg.NodeID, schemaOnly, schemaCallback)
 		}
 
 	case api.ApplyRequest_TYPE_RESTORE_CLASS:
 		f = func() {
-			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
-				ret.Error = err
-				return
-			}
-			ret.Error = st.schemaManager.RestoreClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
+			ret.Error = st.schemaManager.RestoreClass(&cmd, st.cfg.NodeID, schemaOnly, schemaCallback)
 		}
 
 	case api.ApplyRequest_TYPE_UPDATE_CLASS:
 		f = func() {
-			ret.Error = st.schemaManager.UpdateClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
+			ret.Error = st.schemaManager.UpdateClass(&cmd, st.cfg.NodeID, schemaOnly, schemaCallback)
 		}
 
 	case api.ApplyRequest_TYPE_DELETE_CLASS:
@@ -229,41 +457,23 @@ func (st *Store) Apply(l *raft.Log) any {
 					cmd.Class = existingClass
 				}
 			}
-			ret.Error = st.schemaManager.DeleteClass(&cmd, schemaOnly, !catchingUp)
+			ret.Error = st.schemaManager.DeleteClass(&cmd, schemaOnly, schemaCallback)
 		}
 
 	case api.ApplyRequest_TYPE_ADD_PROPERTY:
 		f = func() {
-			ret.Error = st.schemaManager.AddProperty(&cmd, schemaOnly, !catchingUp)
+			ret.Error = st.schemaManager.AddProperty(&cmd, schemaOnly, schemaCallback)
 		}
 	case api.ApplyRequest_TYPE_UPDATE_PROPERTY:
 		f = func() {
-			ret.Error = st.schemaManager.UpdateProperty(&cmd, schemaOnly, !catchingUp)
+			ret.Error = st.schemaManager.UpdateProperty(&cmd, schemaOnly, schemaCallback)
 		}
 	case api.ApplyRequest_TYPE_CREATE_ALIAS:
 		f = func() {
-			req := &api.CreateAliasRequest{}
-			if err := proto.Unmarshal(cmd.SubCommand, req); err != nil {
-				ret.Error = fmt.Errorf("unmarshal create-alias subcommand: %w", err)
-				return
-			}
-			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Alias)); err != nil {
-				ret.Error = err
-				return
-			}
 			ret.Error = st.schemaManager.CreateAlias(&cmd)
 		}
 	case api.ApplyRequest_TYPE_REPLACE_ALIAS:
 		f = func() {
-			req := &api.ReplaceAliasRequest{}
-			if err := proto.Unmarshal(cmd.SubCommand, req); err != nil {
-				ret.Error = fmt.Errorf("unmarshal replace-alias subcommand: %w", err)
-				return
-			}
-			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Alias)); err != nil {
-				ret.Error = err
-				return
-			}
 			ret.Error = st.schemaManager.ReplaceAlias(&cmd)
 		}
 	case api.ApplyRequest_TYPE_DELETE_ALIAS:
@@ -306,20 +516,6 @@ func (st *Store) Apply(l *raft.Log) any {
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_SYNC_SHARD: //nolint:staticcheck // deliberate use of the deprecated tombstone type
 	case api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS:
 		f = func() {
-			// A role can't be upserted into a namespace that's gone or being
-			// deleted. Permission-only upserts re-mint the role row too, so gate
-			// every name regardless of RoleCreation.
-			req := &api.CreateRolesRequest{}
-			if err := json.Unmarshal(cmd.SubCommand, req); err != nil {
-				ret.Error = fmt.Errorf("unmarshal upsert-roles subcommand: %w", err)
-				return
-			}
-			for name := range req.Roles {
-				if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(name)); err != nil {
-					ret.Error = err
-					return
-				}
-			}
 			ret.Error = st.authZManager.UpsertRolesPermissions(&cmd)
 		}
 	case api.ApplyRequest_TYPE_DELETE_ROLES:
@@ -332,28 +528,18 @@ func (st *Store) Apply(l *raft.Log) any {
 		}
 	case api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:
 		f = func() {
-			// A role can't be assigned to a subject in a namespace that is not
-			// active; while deleting, a late assignment would also leave a
-			// grouping row behind after the cleanup cascade has emptied it.
-			req := &api.AddRolesForUsersRequest{}
-			if err := json.Unmarshal(cmd.SubCommand, req); err != nil {
-				ret.Error = fmt.Errorf("unmarshal add-roles-for-user subcommand: %w", err)
-				return
-			}
-			subjectNS, err := subjectNamespace(req.User)
-			if err != nil {
-				ret.Error = fmt.Errorf("resolve namespace of subject %q: %w", req.User, err)
-				return
-			}
-			if err := usecasesNamespaces.RequireActive(st.namespaceManager, subjectNS); err != nil {
-				ret.Error = err
-				return
-			}
 			ret.Error = st.authZManager.AddRolesForUser(&cmd)
 		}
 	case api.ApplyRequest_TYPE_REVOKE_ROLES_FOR_USER:
 		f = func() {
 			ret.Error = st.authZManager.RevokeRolesForUser(&cmd)
+		}
+	case api.ApplyRequest_TYPE_RESTORE_ROLES_AND_USERS:
+		// The payload replaces both stores in full, so checking namespaces row by
+		// row would drop rows silently. applyRestoreRolesAndUsers rejects the
+		// whole entry instead.
+		f = func() {
+			ret.Error = applyRestoreRolesAndUsers(&cmd, st.authZManager, st.dynUserManager, st.namespaceManager)
 		}
 
 	case api.ApplyRequest_TYPE_UPSERT_USER:
@@ -379,6 +565,10 @@ func (st *Store) Apply(l *raft.Log) any {
 	case api.ApplyRequest_TYPE_CREATE_USER_WITH_KEY:
 		f = func() {
 			ret.Error = st.dynUserManager.CreateUserWithKeyRequest(&cmd)
+		}
+	case api.ApplyRequest_TYPE_UPDATE_USER:
+		f = func() {
+			ret.Error = st.dynUserManager.UpdateUser(&cmd)
 		}
 
 	case api.ApplyRequest_TYPE_ADD_NAMESPACE:
@@ -474,6 +664,10 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.replicationManager.ForceDeleteByUuid(&cmd)
 		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_IDS:
+		f = func() {
+			ret.Error = st.replicationManager.ForceDeleteByIds(&cmd)
+		}
 
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
 		f = func() {
@@ -514,6 +708,10 @@ func (st *Store) Apply(l *raft.Log) any {
 	case api.ApplyRequest_TYPE_CLUSTER_ID_SET:
 		f = func() {
 			ret.Error = st.applyClusterIDSet(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_FORCE_TERMINATE:
+		f = func() {
+			ret.Error = st.distributedTasksManager.ForceTerminateTask(&cmd)
 		}
 
 	default:

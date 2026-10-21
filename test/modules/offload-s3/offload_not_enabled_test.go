@@ -30,7 +30,7 @@ func Test_Offload_When_Not_Enabled(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	compose, err := docker.New().
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		With3NodeCluster().
 		Start(ctx)
 	require.Nil(t, err)

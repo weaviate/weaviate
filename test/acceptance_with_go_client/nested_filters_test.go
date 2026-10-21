@@ -12,6 +12,7 @@
 package acceptance_with_go_client
 
 import (
+	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"testing"
 
@@ -22,8 +23,6 @@ import (
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-
-	"acceptance_tests_with_client/internal/wvhost"
 )
 
 // TestNestedFiltersViaGraphQL exercises the smallest set of nested-property

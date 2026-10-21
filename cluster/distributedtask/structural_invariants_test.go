@@ -13,7 +13,12 @@ package distributedtask
 
 import (
 	"context"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -235,4 +240,85 @@ func structuralInvariantSeedTask(
 			"u-1": {ID: "u-1", Status: UnitStatusPending},
 		},
 	}
+}
+
+// TestStructuralInvariant_TTLSweepIsTheOnlyCleanUpProposer pins the fact
+// [Manager.CleanUpTask]'s unrecognized-status exit rests on. That exit is
+// only sound because the sweep filters on the leader's view, so a CLEAN_UP
+// for a task this build cannot classify exists only once the cluster
+// already considers it done. A second proposer reading local state would
+// let one node delete a task the rest still considers live, so adding one
+// has to fail here rather than in production.
+//
+// Two spellings count as proposing: calling the service method, and
+// building the command directly. The second is how the first one is
+// implemented, so a scan for the method name alone would miss a caller
+// that skipped it.
+func TestStructuralInvariant_TTLSweepIsTheOnlyCleanUpProposer(t *testing.T) {
+	root := filepath.Join("..", "..")
+	require.FileExists(t, filepath.Join(root, "go.mod"),
+		"expected the repo root two levels up; this test scans the whole tree")
+
+	// The leading dot on the first is what separates a call from the
+	// interface method and from the Raft method that implements it. The
+	// second is the command that method builds, which is what makes it a
+	// proposal in the first place.
+	proposes := func(line string) bool {
+		return strings.Contains(line, ".CleanUpDistributedTask(") ||
+			strings.Contains(line, "ApplyRequest_TYPE_DISTRIBUTED_TASK_CLEAN_UP")
+	}
+
+	var callSites []string
+	require.NoError(t, filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			// Dot-directories are skipped wholesale: this repo keeps git
+			// worktrees under .claude/worktrees/, and a nested checkout
+			// would report every call site once per checkout.
+			if path != root && (d.Name() == "vendor" || strings.HasPrefix(d.Name(), ".")) {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		name := d.Name()
+		if !strings.HasSuffix(name, ".go") ||
+			strings.HasSuffix(name, "_test.go") ||
+			strings.HasSuffix(name, ".pb.go") ||
+			strings.HasPrefix(name, "mock_") {
+			return nil
+		}
+		src, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for i, line := range strings.Split(string(src), "\n") {
+			if proposes(line) {
+				callSites = append(callSites, fmt.Sprintf("%s:%d", filepath.ToSlash(path), i+1))
+			}
+		}
+		return nil
+	}))
+
+	// The one proposer, plus the two sites it goes through. Naming the
+	// command is not proposing it: the endpoint builds what the sweep
+	// asked for, and the apply is the receiving end.
+	wantFiles := []string{
+		"cluster/distributedtask/scheduler.go",
+		"cluster/raft_distributed_tasks_apply_endpoints.go",
+		"cluster/store_apply.go",
+	}
+	// Compared as a multiset. The walk hands sites back in lexical path
+	// order, so an index-by-index comparison would break on a rename for
+	// a reason that has nothing to do with the invariant.
+	gotFiles := make([]string, 0, len(callSites))
+	for _, site := range callSites {
+		file := site[:strings.LastIndex(site, ":")]
+		gotFiles = append(gotFiles, strings.TrimPrefix(file, filepath.ToSlash(root)+"/"))
+	}
+	require.Len(t, callSites, len(wantFiles),
+		"CLEAN_UP must have exactly one proposer, found: %v", callSites)
+	require.ElementsMatch(t, wantFiles, gotFiles,
+		"unexpected CLEAN_UP site; only the TTL sweep may propose one (found: %v)", callSites)
 }

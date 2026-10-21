@@ -23,11 +23,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/well_known"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.WeaviateConfig,
-	modulesProvider ModulesProvider, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger,
+	modulesProvider ModulesProvider, licenseState *license.State, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger,
 ) {
 	metricRequestsTotal := newMiscRequestsTotal(metrics, logger)
 	api.MetaMetaGetHandler = meta.MetaGetHandlerFunc(func(params meta.MetaGetParams, principal *models.Principal) middleware.Responder {
@@ -49,6 +50,18 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 			Version:            config.ServerVersion,
 			Modules:            metaInfos,
 			GrpcMaxMessageSize: int64(serverConfig.Config.GRPC.MaxMsgSize),
+		}
+		if licenseState != nil {
+			// A Community Edition node has no license, so it has no license
+			// status or id; those fields only exist for Enterprise Edition.
+			res.License = &models.MetaLicense{
+				Edition:           string(licenseState.Edition()),
+				DocumentationHref: license.EnterpriseDocsURL,
+			}
+			if licenseState.Edition() == license.EditionEnterprise {
+				res.License.Status = string(licenseState.Status)
+				res.License.LicenseID = licenseState.LicenseID
+			}
 		}
 		metricRequestsTotal.logOk("")
 		return meta.NewMetaGetOK().WithPayload(res)
@@ -88,39 +101,44 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 						Href: fmt.Sprintf("%s/v1/meta", origin),
 					},
 					{
+						Name:              "Edition and license state of this instance (part of /v1/meta)",
+						Href:              fmt.Sprintf("%s/v1/meta", origin),
+						DocumentationHref: license.EnterpriseDocsURL,
+					},
+					{
 						Name:              "view complete schema",
 						Href:              fmt.Sprintf("%s/v1/schema", origin),
-						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest#tag/schema/get/schema",
+						DocumentationHref: "https://docs.weaviate.io/weaviate/api/rest#tag/schema",
 					},
 					{
 						Name:              "CRUD schema",
 						Href:              fmt.Sprintf("%s/v1/schema{/:className}", origin),
-						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest#tag/schema/put/schema/{className}",
+						DocumentationHref: "https://docs.weaviate.io/weaviate/api/rest#tag/schema",
 					},
 					{
 						Name:              "CRUD objects",
 						Href:              fmt.Sprintf("%s/v1/objects{/:id}", origin),
-						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest#tag/objects/",
+						DocumentationHref: "https://docs.weaviate.io/weaviate/api/rest#tag/objects",
 					},
 					{
 						Name:              "trigger and view status of classifications",
 						Href:              fmt.Sprintf("%s/v1/classifications{/:id}", origin),
-						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest#tag/classifications",
+						DocumentationHref: "https://docs.weaviate.io/weaviate/api/rest#tag/classifications",
 					},
 					{
 						Name:              "check if Weaviate is live (returns 200 on GET when live)",
 						Href:              fmt.Sprintf("%s/v1/.well-known/live", origin),
-						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest#tag/well-known/get/.well-known/live",
+						DocumentationHref: "https://docs.weaviate.io/weaviate/api/rest#tag/well-known",
 					},
 					{
 						Name:              "check if Weaviate is ready (returns 200 on GET when ready)",
 						Href:              fmt.Sprintf("%s/v1/.well-known/ready", origin),
-						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest#tag/well-known/get/.well-known/ready",
+						DocumentationHref: "https://docs.weaviate.io/weaviate/api/rest#tag/well-known",
 					},
 					{
 						Name:              "view link to openid configuration (returns 404 on GET if no openid is configured)",
 						Href:              fmt.Sprintf("%s/v1/.well-known/openid-configuration", origin),
-						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest#tag/well-known/get/.well-known/openid-configuration",
+						DocumentationHref: "https://docs.weaviate.io/weaviate/api/rest#tag/well-known",
 					},
 				},
 			}

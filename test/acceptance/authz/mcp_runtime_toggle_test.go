@@ -14,7 +14,6 @@ package authz
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"slices"
 	"strings"
@@ -71,28 +70,6 @@ func listMCPToolNames(ctx context.Context, t *testing.T, mcpURL, key string) []s
 		names = append(names, tool.Name)
 	}
 	return names
-}
-
-// rawMCPInitializeStatus issues a raw HTTP POST to /v1/mcp with an initialize
-// request and returns the HTTP status code. Used to verify the disabled-MCP
-// 503 response without going through the MCP client (which masks status codes).
-// Accepts a context so the request stays bounded when called from
-// require.Eventually polls.
-func rawMCPInitializeStatus(ctx context.Context, t *testing.T, mcpURL, key string) (int, string) {
-	t.Helper()
-	body := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}`)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, mcpURL, body)
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+key)
-
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	return resp.StatusCode, string(bodyBytes)
 }
 
 // startMCPRuntimeToggleCluster boots a single-node cluster with MCP enabled,
@@ -178,13 +155,17 @@ func TestMCPRuntimeConfigToggle(t *testing.T) {
 			}, pollTimeout, pollInterval, msg)
 		}
 	}
-	expectMCPStatus := func(wantStatus int, msg string) func(*testing.T, string, string) {
+	expectMCPStatus := func(method string, wantStatus int, msg string) func(*testing.T, string, string) {
+		body := ""
+		if method == http.MethodPost {
+			body = helper.MCPInitializeBody
+		}
 		return func(t *testing.T, mcpURL, key string) {
 			t.Helper()
 			require.Eventually(t, func() bool {
 				ctx, cancel := context.WithTimeout(context.Background(), pollInterval)
 				defer cancel()
-				status, _ := rawMCPInitializeStatus(ctx, t, mcpURL, key)
+				status, _, _ := helper.RawMCPRequest(ctx, t, method, mcpURL, key, body, "")
 				return status == wantStatus
 			}, pollTimeout, pollInterval, msg)
 		}
@@ -231,12 +212,20 @@ func TestMCPRuntimeConfigToggle(t *testing.T) {
 		{
 			name:     "disable MCP entirely → /v1/mcp returns 503",
 			override: "mcp_server_enabled: false\n",
-			verify:   expectMCPStatus(http.StatusServiceUnavailable, "MCP endpoint should return 503 when disabled at runtime"),
+			verify: func(t *testing.T, mcpURL, key string) {
+				t.Helper()
+				expectMCPStatus(http.MethodPost, http.StatusServiceUnavailable, "MCP endpoint should return 503 when disabled at runtime")(t, mcpURL, key)
+				expectMCPStatus(http.MethodGet, http.StatusMethodNotAllowed, "GET is not in the spec, so it stays 405 while disabled")(t, mcpURL, key)
+			},
 		},
 		{
 			name:     "re-enable MCP → /v1/mcp serves again",
 			override: "mcp_server_enabled: true\n",
-			verify:   expectMCPStatus(http.StatusOK, "MCP endpoint should serve 200 when re-enabled"),
+			verify: func(t *testing.T, mcpURL, key string) {
+				t.Helper()
+				expectMCPStatus(http.MethodPost, http.StatusOK, "MCP endpoint should serve 200 when re-enabled")(t, mcpURL, key)
+				expectMCPStatus(http.MethodGet, http.StatusMethodNotAllowed, "GET is not in the spec, so it stays 405 while enabled")(t, mcpURL, key)
+			},
 		},
 	}
 

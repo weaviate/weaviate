@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -41,7 +42,6 @@ import (
 // callers serialize and all return a consistent file list.
 func TestIncomingCreateReplicaSnapshotConcurrent(t *testing.T) {
 	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
-	mockSchemaGetter.On("NodeName").Return("node1")
 
 	class := &models.Class{
 		Class:               "TestClass",
@@ -64,7 +64,7 @@ func TestIncomingCreateReplicaSnapshotConcurrent(t *testing.T) {
 		PartitioningEnabled: true,
 	}
 
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(_ string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
 			return readFunc(class, ss)
@@ -72,20 +72,23 @@ func TestIncomingCreateReplicaSnapshotConcurrent(t *testing.T) {
 
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
 
-	index, err := NewIndex(context.Background(), IndexConfig{
+	index, err := NewIndex(context.Background(), nil, IndexConfig{
+		NodeName:          "node1",
 		ClassName:         schema.ClassName("TestClass"),
 		RootPath:          t.TempDir(),
 		ReplicationFactor: 1,
 		ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader,
-		nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil,
+		nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
+	shutdownIndexOnCleanup(t, index)
 	index.db = stubDBWithNoLiveReindex()
 
-	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
-		NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop())
+	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler,
+		NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop(),
+		monitoring.ShardRegistrationEager)
 	require.NoError(t, err)
 	index.shards.Store("shard1", shard)
 

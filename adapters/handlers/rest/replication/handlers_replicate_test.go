@@ -15,18 +15,22 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"reflect"
 	"testing"
 	"time"
 
+	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/replication"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/types"
@@ -42,6 +46,7 @@ func createReplicationHandlerWithMocks(t *testing.T, logger *logrus.Logger) (*re
 		authorizer:         mockAuthorizer,
 		replicationManager: mockReplicationManager,
 		logger:             logger,
+		enabled:            runtime.NewDynamicValue(true),
 	}
 
 	return handler, mockAuthorizer, mockReplicationManager
@@ -301,7 +306,10 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 		status := randomString(statusOptions)
 		replicationType := randomReplicationType()
 
-		startTime := time.Now().UnixMilli()
+		// The op-level stamp is creation time, the status-level one is when the
+		// op entered its current state. Each must land in its own payload field.
+		opStartTime := time.Now().Add(-2 * time.Hour).UnixMilli()
+		stateStartTime := time.Now().Add(-time.Hour).UnixMilli()
 		expectedResponse := api.ReplicationDetailsResponse{
 			Uuid:         id,
 			Collection:   collection,
@@ -311,11 +319,11 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 			Status: api.ReplicationDetailsState{
 				State:           status,
 				Errors:          []api.ReplicationDetailsError{},
-				StartTimeUnixMs: startTime,
+				StartTimeUnixMs: stateStartTime,
 			},
 			StatusHistory:   []api.ReplicationDetailsState{},
 			TransferType:    replicationType,
-			StartTimeUnixMs: startTime,
+			StartTimeUnixMs: opStartTime,
 		}
 
 		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
@@ -337,10 +345,10 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 		assert.Equal(t, targetNodeId, *replicationDetails.Payload.TargetNode)
 		assert.Equal(t, status, replicationDetails.Payload.Status.State)
 		assert.Equal(t, 0, len(replicationDetails.Payload.Status.Errors))
-		assert.Equal(t, startTime, replicationDetails.Payload.Status.WhenStartedUnixMs)
+		assert.Equal(t, stateStartTime, replicationDetails.Payload.Status.WhenStartedUnixMs)
 		assert.Equal(t, 0, len(replicationDetails.Payload.StatusHistory))
 		assert.Equal(t, replicationType, *replicationDetails.Payload.Type)
-		assert.Equal(t, startTime, replicationDetails.Payload.WhenStartedUnixMs)
+		assert.Equal(t, opStartTime, replicationDetails.Payload.WhenStartedUnixMs)
 	})
 
 	t.Run("successful retrieval with history", func(t *testing.T) {
@@ -369,7 +377,8 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 		status := randomString(statusOptions)
 		historyStatus := randomString(statusOptions)
 
-		startTime := time.Now().Add(-time.Hour).UnixMilli()
+		opStartTime := time.Now().Add(-2 * time.Hour).UnixMilli()
+		stateStartTime := time.Now().Add(-time.Hour).UnixMilli()
 		firstErrorTime := time.Now().Add(-time.Hour).UnixMilli()
 		secondErrorTime := time.Now().Add(-time.Hour).Add(time.Minute).UnixMilli()
 
@@ -381,17 +390,18 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 			SourceNodeId: sourceNodeId,
 			TargetNodeId: targetNodeId,
 			Status: api.ReplicationDetailsState{
-				State:  status,
-				Errors: []api.ReplicationDetailsError{},
+				State:           status,
+				Errors:          []api.ReplicationDetailsError{},
+				StartTimeUnixMs: stateStartTime,
 			},
 			StatusHistory: []api.ReplicationDetailsState{
 				{
 					State:           historyStatus,
 					Errors:          []api.ReplicationDetailsError{{Message: "error1", ErroredTimeUnixMs: firstErrorTime}, {Message: "error2", ErroredTimeUnixMs: secondErrorTime}},
-					StartTimeUnixMs: startTime,
+					StartTimeUnixMs: opStartTime,
 				},
 			},
-			StartTimeUnixMs: startTime,
+			StartTimeUnixMs: opStartTime,
 		}
 
 		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
@@ -413,13 +423,13 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 		assert.Equal(t, targetNodeId, *replicationDetails.Payload.TargetNode)
 		assert.Equal(t, status, replicationDetails.Payload.Status.State)
 		assert.Equal(t, 0, len(replicationDetails.Payload.Status.Errors))
-		assert.Equal(t, startTime, replicationDetails.Payload.Status.WhenStartedUnixMs)
+		assert.Equal(t, stateStartTime, replicationDetails.Payload.Status.WhenStartedUnixMs)
 		assert.Equal(t, historyStatus, replicationDetails.Payload.StatusHistory[0].State)
 		assert.Equal(t, "error1", replicationDetails.Payload.StatusHistory[0].Errors[0].Message)
 		assert.Equal(t, "error2", replicationDetails.Payload.StatusHistory[0].Errors[1].Message)
 		assert.Equal(t, firstErrorTime, replicationDetails.Payload.StatusHistory[0].Errors[0].WhenErroredUnixMs)
 		assert.Equal(t, secondErrorTime, replicationDetails.Payload.StatusHistory[0].Errors[1].WhenErroredUnixMs)
-		assert.Equal(t, startTime, replicationDetails.Payload.WhenStartedUnixMs)
+		assert.Equal(t, opStartTime, replicationDetails.Payload.WhenStartedUnixMs)
 	})
 
 	t.Run("request id not found authorized", func(t *testing.T) {
@@ -767,4 +777,125 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 		mockAuthorizer.AssertExpectations(t)
 		mockReplicationManager.AssertExpectations(t)
 	})
+}
+
+// A dry run against a target with no replication ops must be a 200 with an empty
+// list, not a 500. The RAFT query hop re-wraps a missing bucket as
+// ErrReplicationOperationNotFound, and the cleanup sweep makes drained buckets
+// routine.
+func TestForceDeleteReplicationsDryRun_NotFoundIsEmptyResult(t *testing.T) {
+	const (
+		collection = "Collection1"
+		shard      = "shard-1"
+		node       = "node-1"
+	)
+
+	dryRun := true
+
+	cases := []struct {
+		name   string
+		body   *models.ReplicationReplicateForceDeleteRequest
+		expect func(m *types.MockManager)
+	}{
+		{
+			name: "by collection",
+			body: &models.ReplicationReplicateForceDeleteRequest{Collection: collection, DryRun: &dryRun},
+			expect: func(m *types.MockManager) {
+				m.EXPECT().GetReplicationDetailsByCollection(mock.Anything, collection).
+					Return(nil, types.ErrReplicationOperationNotFound)
+			},
+		},
+		{
+			name: "by collection and shard",
+			body: &models.ReplicationReplicateForceDeleteRequest{Collection: collection, Shard: shard, DryRun: &dryRun},
+			expect: func(m *types.MockManager) {
+				m.EXPECT().GetReplicationDetailsByCollectionAndShard(mock.Anything, collection, shard).
+					Return(nil, types.ErrReplicationOperationNotFound)
+			},
+		},
+		{
+			name: "by node",
+			body: &models.ReplicationReplicateForceDeleteRequest{Node: node, DryRun: &dryRun},
+			expect: func(m *types.MockManager) {
+				m.EXPECT().GetReplicationDetailsByTargetNode(mock.Anything, node).
+					Return(nil, types.ErrReplicationOperationNotFound)
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
+			mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			tc.expect(mockReplicationManager)
+
+			response := handler.forceDeleteReplications(replication.ForceDeleteReplicationsParams{
+				HTTPRequest: &http.Request{},
+				Body:        tc.body,
+			}, &models.Principal{})
+
+			require.IsType(t, &replication.ForceDeleteReplicationsOK{}, response)
+			payload := response.(*replication.ForceDeleteReplicationsOK).Payload
+			assert.Empty(t, payload.Deleted)
+			assert.True(t, payload.DryRun)
+			mockAuthorizer.AssertExpectations(t)
+			mockReplicationManager.AssertExpectations(t)
+		})
+	}
+}
+
+func TestReplicaMovementGate(t *testing.T) {
+	handler, mockAuthorizer, mockManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
+	handler.enabled = runtime.NewDynamicValue(false)
+	// Past the gate every handler stops at validation, authz, or its first manager call.
+	mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(errors.New("denied")).Maybe()
+	mockManager.EXPECT().GetReplicationDetailsByReplicationId(mock.Anything, mock.Anything).Return(api.ReplicationDetailsResponse{}, errors.New("unavailable")).Maybe()
+
+	req := &http.Request{}
+	principal := &models.Principal{}
+	tests := []struct {
+		name     string
+		call     func() middleware.Responder
+		disabled middleware.Responder
+	}{
+		{"replicate", func() middleware.Responder {
+			return handler.replicate(replication.ReplicateParams{HTTPRequest: req, Body: &models.ReplicationReplicateReplicaRequest{}}, principal)
+		}, &replication.ReplicateNotImplemented{}},
+		{"details", func() middleware.Responder {
+			return handler.getReplicationDetailsByReplicationId(replication.ReplicationDetailsParams{HTTPRequest: req}, principal)
+		}, &replication.ReplicationDetailsNotImplemented{}},
+		{"delete", func() middleware.Responder {
+			return handler.deleteReplication(replication.DeleteReplicationParams{HTTPRequest: req}, principal)
+		}, &replication.DeleteReplicationNotImplemented{}},
+		{"delete all", func() middleware.Responder {
+			return handler.deleteAllReplications(replication.DeleteAllReplicationsParams{HTTPRequest: req}, principal)
+		}, &replication.DeleteAllReplicationsNotImplemented{}},
+		{"force delete", func() middleware.Responder {
+			return handler.forceDeleteReplications(replication.ForceDeleteReplicationsParams{HTTPRequest: req}, principal)
+		}, &replication.ForceDeleteReplicationsNotImplemented{}},
+		{"cancel", func() middleware.Responder {
+			return handler.cancelReplication(replication.CancelReplicationParams{HTTPRequest: req}, principal)
+		}, &replication.CancelReplicationNotImplemented{}},
+		{"list", func() middleware.Responder {
+			return handler.listReplication(replication.ListReplicationParams{HTTPRequest: req}, principal)
+		}, &replication.ListReplicationNotImplemented{}},
+		{"sharding state", func() middleware.Responder {
+			return handler.getCollectionShardingState(replication.GetCollectionShardingStateParams{HTTPRequest: req}, principal)
+		}, &replication.GetCollectionShardingStateNotImplemented{}},
+		{"scale plan", func() middleware.Responder {
+			return handler.getReplicationScalePlan(replication.GetReplicationScalePlanParams{HTTPRequest: req}, principal)
+		}, &replication.GetReplicationScalePlanNotImplemented{}},
+		{"apply scale plan", func() middleware.Responder {
+			return handler.applyReplicationScalePlan(replication.ApplyReplicationScalePlanParams{HTTPRequest: req}, principal)
+		}, &replication.ApplyReplicationScalePlanNotImplemented{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.NoError(t, handler.enabled.SetValue(false))
+			assert.IsType(t, tt.disabled, tt.call())
+
+			require.NoError(t, handler.enabled.SetValue(true))
+			assert.NotEqual(t, reflect.TypeOf(tt.disabled), reflect.TypeOf(tt.call()))
+		})
+	}
 }

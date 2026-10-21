@@ -13,33 +13,44 @@ package db
 
 import (
 	"context"
-	"fmt"
+	"errors"
+	"os"
+	"path"
 	"testing"
+	"time"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storagestate"
+	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-// failingAllocChecker fails every mapping reservation, so LazyLoadShard.Load
+// errInjectedMemoryPressure is only reachable from inside LazyLoadShard.loadIfCold,
+// so a test can assert on it to tell that a shard was force-loaded.
+var errInjectedMemoryPressure = errors.New("memory pressure: injected")
+
+// failingAllocChecker fails every mapping reservation, so LazyLoadShard.loadIfCold
 // (and therefore mustLoad) fails for any shard that gets force-loaded.
 type failingAllocChecker struct{}
 
 func (failingAllocChecker) CheckAlloc(int64) error { return nil }
 
 func (failingAllocChecker) CheckMappingAndReserve(int64, int) error {
-	return fmt.Errorf("memory pressure: injected")
+	return errInjectedMemoryPressure
 }
 
 func (failingAllocChecker) Refresh(bool) {}
@@ -56,12 +67,24 @@ type addPropertyLazyFixture struct {
 	schemaClass *models.Class
 }
 
-// newLazyLoadRepo wires a lazy-load-enabled repo whose shards start cold.
+// newLazyLoadRepo wires a lazy-load-enabled repo whose shards start cold and
+// stay cold, so a test decides when each one loads.
 // It registers no Shutdown cleanup — callers own the repo's lifecycle.
 func newLazyLoadRepo(t *testing.T, shardState *sharding.State) (*DB, *Migrator, *fakeSchemaGetter) {
 	t.Helper()
+	repo, migrator, schemaGetter, _ := newLazyLoadRepoWithConfig(t, shardState, true, -1)
+	return repo, migrator, schemaGetter
+}
+
+// newLazyLoadRepoWithConfig wires a repo with EnableLazyLoadShards and
+// LazyLoadShardWarmupMinObjects set as given, returning the log hook so a test
+// can read what startup logged.
+func newLazyLoadRepoWithConfig(t *testing.T, shardState *sharding.State,
+	lazyLoad bool, warmupMinObjects int64,
+) (*DB, *Migrator, *fakeSchemaGetter, *test.Hook) {
+	t.Helper()
 	ctx := testCtx()
-	logger, _ := test.NewNullLogger()
+	logger, hook := test.NewNullLogger()
 
 	baseMetrics := monitoring.GetMetrics()
 	metricsCopy := *baseMetrics
@@ -72,13 +95,14 @@ func newLazyLoadRepo(t *testing.T, shardState *sharding.State) (*DB, *Migrator, 
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		return readFunc(&models.Class{Class: className}, shardState)
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -87,20 +111,26 @@ func newLazyLoadRepo(t *testing.T, shardState *sharding.State) (*DB, *Migrator, 
 	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
 
 	repo, err := New(logger, "node1", Config{
-		RootPath:                  t.TempDir(),
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-		EnableLazyLoadShards:      boolPtr(true),
+		RootPath:                      t.TempDir(),
+		QueryMaximumResults:           10000,
+		MaxImportGoroutinesFactor:     1,
+		EnableLazyLoadShards:          boolPtr(lazyLoad),
+		LazyLoadShardWarmupMinObjects: warmupMinObjects,
+		MemtablesFlushDirtyAfter:      int(time.Hour.Seconds()),
 	},
 		&FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{},
 		&FakeReplicationClient{}, metrics, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader,
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil,
 	)
 	require.NoError(t, err)
 	repo.SetSchemaGetter(schemaGetter)
-	require.NoError(t, repo.WaitForStartup(ctx))
+	// WaitForStartup without the resource scan: the scan ticks twice a second
+	// against the real disk, so it would undo a resource transition a test makes
+	// by hand. Tests that want one drive the scan themselves.
+	require.NoError(t, repo.init(ctx))
+	repo.startupComplete.Store(true)
 
-	return repo, NewMigrator(repo, logger, "node1"), schemaGetter
+	return repo, NewMigrator(repo, logger, "node1"), schemaGetter, hook
 }
 
 func newAddPropertyLazyFixture(t *testing.T, className string, shardState *sharding.State) *addPropertyLazyFixture {
@@ -206,7 +236,8 @@ func TestAddProperty_ColdShardMaterializesAtLoad(t *testing.T) {
 			}
 
 			for _, shard := range cold {
-				require.NoError(t, shard.Load(ctx))
+				_, _, err := shard.loadIfCold(ctx)
+				require.NoError(t, err)
 				for propName, want := range tc.wantBuckets {
 					bucket := shard.Store().Bucket(helpers.BucketFromPropNameLSM(propName))
 					if want {
@@ -232,7 +263,8 @@ func TestLazyLoadShard_LoadReflectsSchemaChangedWhileCold(t *testing.T) {
 	f.schemaClass.Properties = append(f.schemaClass.Properties, prop)
 
 	for _, shard := range cold {
-		require.NoError(t, shard.Load(ctx))
+		_, _, err := shard.loadIfCold(ctx)
+		require.NoError(t, err)
 		require.NotNil(t, shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name)),
 			"load must reflect the property added while the shard was cold")
 	}
@@ -249,7 +281,8 @@ func TestAddProperty_LoadedAndColdShardsMix(t *testing.T) {
 	// Warm exactly one shard.
 	var warmName string
 	for name, shard := range shards {
-		require.NoError(t, shard.Load(ctx))
+		_, _, err := shard.loadIfCold(ctx)
+		require.NoError(t, err)
 		warmName = name
 		break
 	}
@@ -266,7 +299,8 @@ func TestAddProperty_LoadedAndColdShardsMix(t *testing.T) {
 			continue
 		}
 		require.False(t, shard.isLoaded(), "cold shard %q must not be force-loaded", name)
-		require.NoError(t, shard.Load(ctx))
+		_, _, err := shard.loadIfCold(ctx)
+		require.NoError(t, err)
 		require.NotNil(t, shard.Store().Bucket(bucketName),
 			"cold shard %q must materialize the bucket at load", name)
 	}
@@ -345,6 +379,241 @@ func TestGetOrInitShard_InitFailureNamesShard(t *testing.T) {
 	require.ErrorContains(t, err, "memory pressure")
 }
 
+// awaitStartupWarmup waits out the background sweep that loads a lazy
+// collection's shards one per second after startup, and shuts down whatever it
+// loaded so every shard is cold again. The sweep walks each shard once, so
+// nothing loads behind a test that waited for it here.
+func (f *addPropertyLazyFixture) awaitStartupWarmup(t *testing.T) {
+	t.Helper()
+	require.Eventually(t, f.index.allShardsReady.Load, 30*time.Second, 20*time.Millisecond,
+		"the startup sweep should finish")
+
+	f.index.shards.Range(func(name string, shard ShardLike) error {
+		lazyShard, ok := shard.(*LazyLoadShard)
+		require.True(t, ok, "shard should be a LazyLoadShard")
+		if lazyShard.isLoaded() {
+			require.NoError(t, lazyShard.Shutdown(testCtx()), "shard %q should go cold again", name)
+		}
+		return nil
+	})
+}
+
+// coldTestObject builds an object for the class newClassWithWarmProp defines.
+func coldTestObject(className string) *storobj.Object {
+	return &storobj.Object{
+		MarshallerVersion: 1,
+		Object: models.Object{
+			ID:         strfmt.UUID(uuid.NewString()),
+			Class:      className,
+			Properties: map[string]interface{}{"warm": "object count fixture"},
+		},
+	}
+}
+
+// writeCountedObjects writes n objects and returns the shard cold with them in a
+// segment a cold count can read: flushing while the shard runs writes each new
+// segment's sidecar, and the count comes from those sidecars.
+func writeCountedObjects(t *testing.T, shard *LazyLoadShard, className string, n int) {
+	t.Helper()
+	ctx := testCtx()
+	_, _, err := shard.loadIfCold(ctx)
+	require.NoError(t, err)
+	for range n {
+		require.NoError(t, shard.PutObject(ctx, coldTestObject(className)))
+	}
+	require.NoError(t, shard.Store().FlushMemtables(ctx))
+	require.NoError(t, shard.Shutdown(ctx))
+	require.False(t, shard.isLoaded(), "shard %q should be cold again", shard.Name())
+}
+
+// writeUncountedObjects writes n objects and returns the shard cold with them in
+// a segment a cold count cannot read: the shutdown flush writes the segment but
+// not the sidecar holding its object count, which the next load derives.
+func writeUncountedObjects(t *testing.T, shard *LazyLoadShard, className string, n int) {
+	t.Helper()
+	ctx := testCtx()
+	_, _, err := shard.loadIfCold(ctx)
+	require.NoError(t, err)
+	for range n {
+		require.NoError(t, shard.PutObject(ctx, coldTestObject(className)))
+	}
+	require.NoError(t, shard.Shutdown(ctx))
+	require.False(t, shard.isLoaded(), "shard %q should be cold again", shard.Name())
+}
+
+// A cold shard answers ObjectCountAsync by listing its objects directory and
+// reading a sidecar per segment. nodeWideMetricsObserver asks every shard every
+// 30 seconds, and a cold shard cannot move that number without loading first,
+// so the answer is cached.
+func TestLazyLoadShard_ObjectCountAsyncCachesColdCount(t *testing.T) {
+	ctx := testCtx()
+	const className = "ColdObjectCount"
+
+	cases := []struct {
+		name    string
+		objects int
+	}{
+		{name: "empty shard"},
+		{name: "single object", objects: 1},
+		{name: "many objects", objects: 7},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newAddPropertyLazyFixture(t, className, singleShardState())
+			f.awaitStartupWarmup(t)
+
+			for name, shard := range f.coldShards(t) {
+				writeCountedObjects(t, shard, className, tc.objects)
+
+				first, err := shard.ObjectCountAsync(ctx)
+				require.NoError(t, err)
+				require.EqualValues(t, tc.objects, first, "cold read must count what shard %q has on disk", name)
+
+				// A second disk read cannot succeed once the objects directory is gone, so
+				// any answer at all proves the count came from the cache.
+				require.NoError(t, os.RemoveAll(path.Join(shard.pathLSM(), helpers.ObjectsBucketLSM)))
+
+				second, err := shard.ObjectCountAsync(ctx)
+				require.NoError(t, err, "shard %q re-read the objects directory", name)
+				require.EqualValues(t, tc.objects, second)
+			}
+		})
+	}
+}
+
+// breakProplenTracker makes the shard's next load fail after NewShard has
+// already opened the objects bucket and written its segment sidecars, by
+// putting a directory where initProplenTracker expects a file.
+func breakProplenTracker(t *testing.T, shard *LazyLoadShard) {
+	t.Helper()
+	plPath := path.Join(path.Dir(shard.pathLSM()), "proplengths")
+	require.NoError(t, os.RemoveAll(plPath))
+	require.NoError(t, os.Mkdir(plPath, os.ModePerm))
+}
+
+// A load writes the segment sidecars a cold count reads, so the count cached
+// before it is stale — even when the load fails partway and leaves the shard
+// cold. A load that fails before reaching NewShard has touched nothing, so the
+// cache still holds.
+func TestLazyLoadShard_LoadInvalidatesCachedColdCount(t *testing.T) {
+	ctx := testCtx()
+	const (
+		className = "ColdObjectCountInvalidation"
+		counted   = 5 // objects a cold read counts, because their segment has its sidecar
+		uncounted = 3 // objects whose segment gets its sidecar only at the next load
+	)
+
+	cases := []struct {
+		name      string
+		breakLoad func(t *testing.T, shard *LazyLoadShard)
+		wantErr   bool
+		// wantCached asserts the answer came from the cache, not from disk.
+		wantCached bool
+		wantCount  int64
+	}{
+		{
+			name:      "load succeeds",
+			breakLoad: func(*testing.T, *LazyLoadShard) {},
+			wantCount: counted + uncounted,
+		},
+		{
+			name:      "load fails after touching disk",
+			breakLoad: breakProplenTracker,
+			wantErr:   true,
+			wantCount: counted + uncounted,
+		},
+		{
+			name: "load fails before touching disk",
+			breakLoad: func(_ *testing.T, shard *LazyLoadShard) {
+				shard.memMonitor = failingAllocChecker{}
+			},
+			wantErr:    true,
+			wantCached: true,
+			wantCount:  counted,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newAddPropertyLazyFixture(t, className, singleShardState())
+			f.awaitStartupWarmup(t)
+
+			for name, shard := range f.coldShards(t) {
+				writeCountedObjects(t, shard, className, counted)
+				writeUncountedObjects(t, shard, className, uncounted)
+
+				cold, err := shard.ObjectCountAsync(ctx)
+				require.NoError(t, err)
+				require.EqualValues(t, counted, cold,
+					"shard %q counts the segments whose sidecar is on disk", name)
+
+				tc.breakLoad(t, shard)
+				_, _, loadErr := shard.loadIfCold(ctx)
+				if tc.wantErr {
+					require.Error(t, loadErr)
+				} else {
+					require.NoError(t, loadErr)
+				}
+
+				// Go cold again, so the next count comes from the cold path rather than
+				// from the loaded shard.
+				require.NoError(t, shard.Shutdown(ctx))
+
+				if tc.wantCached {
+					// A disk read cannot succeed once the objects directory is gone, so
+					// any answer at all proves the cache survived the failed load.
+					require.NoError(t, os.RemoveAll(path.Join(shard.pathLSM(), helpers.ObjectsBucketLSM)))
+				}
+
+				count, err := shard.ObjectCountAsync(ctx)
+				require.NoError(t, err)
+				require.EqualValues(t, tc.wantCount, count,
+					"cold count for shard %q after the load attempt", name)
+			}
+		})
+	}
+}
+
+// background_warmup tells an operator whether this collection runs the startup
+// sweep at all, and warmup_min_objects which shards it then loads. An eager
+// collection runs no sweep, whatever LazyLoadShardWarmupMinObjects is set to.
+func TestMigratorAddClass_LogsBackgroundWarmup(t *testing.T) {
+	ctx := testCtx()
+
+	cases := []struct {
+		name             string
+		lazyLoad         bool
+		warmupMinObjects int64
+		want             bool
+	}{
+		{name: "lazy loading with warmup", lazyLoad: true, want: true},
+		{name: "lazy loading with a threshold", lazyLoad: true, warmupMinObjects: 1000, want: true},
+		{name: "lazy loading with warmup turned off", lazyLoad: true, warmupMinObjects: -1},
+		{name: "eager loading with warmup"},
+		{name: "eager loading with warmup turned off", warmupMinObjects: -1},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo, migrator, _, hook := newLazyLoadRepoWithConfig(t, singleShardState(), tc.lazyLoad, tc.warmupMinObjects)
+			t.Cleanup(func() { repo.Shutdown(context.Background()) })
+
+			require.NoError(t, migrator.AddClass(ctx, newClassWithWarmProp("WarmupLogging")))
+
+			// Warnings on the same action carry no background_warmup field.
+			var logged []interface{}
+			for _, entry := range hook.AllEntries() {
+				warmup, ok := entry.Data["background_warmup"]
+				if ok && entry.Data["action"] == "lazy_shard_auto_detection" {
+					logged = append(logged, warmup)
+				}
+			}
+			require.Equal(t, []interface{}{tc.want}, logged)
+		})
+	}
+}
+
 // Resuming maintenance cycles after a backup must not force-load cold shards:
 // an unloaded shard has no running cycles to resume.
 func TestResumeMaintenanceCycles_DoesNotForceLoadColdShards(t *testing.T) {
@@ -356,5 +625,191 @@ func TestResumeMaintenanceCycles_DoesNotForceLoadColdShards(t *testing.T) {
 
 	for name, shard := range cold {
 		require.False(t, shard.isLoaded(), "cold shard %q must not be force-loaded", name)
+	}
+}
+
+// noLoadReaders lists the LazyLoadShard readers that never load the shard, each
+// with the answer it must return while the shard is cold.
+var noLoadReaders = []struct {
+	name  string
+	check func(t *testing.T, l *LazyLoadShard)
+}{
+	{"isLoaded", func(t *testing.T, l *LazyLoadShard) {
+		require.False(t, l.isLoaded())
+	}},
+	{"Activity", func(t *testing.T, l *LazyLoadShard) {
+		read, write := l.Activity()
+		require.Equal(t, [2]int32{0, 0}, [2]int32{read, write})
+	}},
+	{"GetStatus", func(t *testing.T, l *LazyLoadShard) {
+		require.Equal(t, storagestate.StatusLazyLoading, l.GetStatus())
+	}},
+	{"GetStatusReason", func(t *testing.T, l *LazyLoadShard) {
+		require.Equal(t, storagestate.StatusLazyLoading.String(), l.GetStatusReason())
+	}},
+	{"HashTreeRoot", func(t *testing.T, l *LazyLoadShard) {
+		_, ok := l.HashTreeRoot()
+		require.False(t, ok)
+	}},
+	{"HashTreeLevel", func(t *testing.T, l *LazyLoadShard) {
+		_, err := l.HashTreeLevel(context.Background(), 0, nil)
+		require.ErrorIs(t, err, errAsyncReplicationNotActive)
+	}},
+	{"AsyncCheckpointRoot", func(t *testing.T, l *LazyLoadShard) {
+		_, _, _, ok := l.AsyncCheckpointRoot(context.Background())
+		require.False(t, ok)
+	}},
+	{"IsAsyncCheckpointHostable", func(t *testing.T, l *LazyLoadShard) {
+		require.False(t, l.IsAsyncCheckpointHostable())
+	}},
+	{"hasActiveAsyncReplicationTargetOverrides", func(t *testing.T, l *LazyLoadShard) {
+		require.False(t, l.hasActiveAsyncReplicationTargetOverrides())
+	}},
+	{"hasGeoIndexForProp", func(t *testing.T, l *LazyLoadShard) {
+		require.False(t, l.hasGeoIndexForProp("location"))
+	}},
+	{"migrationRecordStore", func(t *testing.T, l *LazyLoadShard) {
+		require.Nil(t, l.migrationRecordStore())
+	}},
+	{"DebugGetDocIdLockStatus", func(t *testing.T, l *LazyLoadShard) {
+		_, err := l.DebugGetDocIdLockStatus()
+		require.Error(t, err)
+	}},
+}
+
+// A shard that was shut down is cold again, so each noLoadReaders entry must
+// answer the same after a loadIfCold and Shutdown as before the first loadIfCold.
+func TestLazyLoadShard_NoLoadReadersAfterShutdown(t *testing.T) {
+	ctx := context.Background()
+	repo, index := newReplConfigDeadlockFixture(t, "NoLoadReadersAfterShutdown")
+	lazy := soleColdShard(t, index)
+
+	for _, reader := range noLoadReaders {
+		t.Run("cold/"+reader.name, func(t *testing.T) { reader.check(t, lazy) })
+	}
+
+	_, _, err := lazy.loadIfCold(ctx)
+	require.NoError(t, err)
+	require.True(t, lazy.isLoaded(), "precondition: the reads below happen after a real load")
+	require.NoError(t, lazy.Shutdown(ctx))
+
+	for _, reader := range noLoadReaders {
+		t.Run("after shutdown/"+reader.name, func(t *testing.T) { reader.check(t, lazy) })
+	}
+
+	require.NoError(t, repo.Shutdown(context.Background()))
+}
+
+// The noLoadReaders run without l.mutex while the shard loads and shuts down.
+// Each must read the shard pointer once, or a shutdown between its nil check and
+// its use makes it dereference nil.
+func TestLazyLoadShard_NoLoadReadersAcrossLoadAndShutdown(t *testing.T) {
+	ctx := context.Background()
+	repo, index := newReplConfigDeadlockFixture(t, "NoLoadReadersConcurrent")
+	lazy := soleColdShard(t, index)
+
+	stop := make(chan struct{})
+	reading := make(chan struct{})
+	go func() {
+		defer close(reading)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			// The answers depend on timing, so only the calls are under test.
+			lazy.isLoaded()
+			lazy.Activity()
+			lazy.GetStatus()
+			lazy.HashTreeRoot()
+			lazy.AsyncCheckpointRoot(ctx)
+			lazy.hasActiveAsyncReplicationTargetOverrides()
+			lazy.hasGeoIndexForProp("location")
+			lazy.migrationRecordStore()
+			lazy.DebugGetDocIdLockStatus()
+		}
+	}()
+
+	for i := 0; i < 3; i++ {
+		_, _, err := lazy.loadIfCold(ctx)
+		require.NoError(t, err)
+		require.True(t, lazy.isLoaded())
+		require.NoError(t, lazy.Shutdown(ctx))
+		require.False(t, lazy.isLoaded())
+	}
+
+	close(stop)
+	<-reading
+	require.NoError(t, repo.Shutdown(context.Background()))
+}
+
+// A shutdown stops the shard's halt watchdog, so MayResetTransferInactivityTimer
+// must not push forward the deadline of a shard that was shut down.
+func TestLazyLoadShard_TransferTimerNotResetAfterShutdown(t *testing.T) {
+	ctx := context.Background()
+	repo, index := newReplConfigDeadlockFixture(t, "TransferTimerAfterShutdown")
+	lazy := soleColdShard(t, index)
+
+	_, _, err := lazy.loadIfCold(ctx)
+	require.NoError(t, err)
+	shard := lazy.loadedShard()
+	require.NotNil(t, shard)
+
+	// Without a timeout no path sets the deadline, and the assertion below
+	// would pass regardless.
+	shard.haltForTransferMux.Lock()
+	shard.haltForTransferInactivityTimeout = time.Hour
+	shard.haltForTransferMux.Unlock()
+
+	require.NoError(t, lazy.Shutdown(ctx))
+	lazy.MayResetTransferInactivityTimer()
+
+	shard.haltForTransferMux.Lock()
+	defer shard.haltForTransferMux.Unlock()
+	require.True(t, shard.haltForTransferInactivityDeadline.IsZero(),
+		"a shut down shard's transfer deadline must not be pushed forward")
+
+	require.NoError(t, repo.Shutdown(context.Background()))
+}
+
+// The shards status endpoint reports on cold shards without loading them,
+// locally and for a remote node asking this one.
+func TestShardsStatusEndpoint_DoesNotForceLoadColdShards(t *testing.T) {
+	ctx := testCtx()
+	const className = "ShardsStatusCold"
+	f := newAddPropertyLazyFixture(t, className, multiShardState())
+	cold := f.coldShards(t)
+
+	perNode, statuses, err := f.migrator.GetShardsStorageStatus(ctx, className, "")
+	require.NoError(t, err)
+	sizes, err := f.migrator.GetShardsQueueSize(ctx, className, "")
+	require.NoError(t, err)
+
+	for name, shard := range cold {
+		require.Equal(t, storagestate.StatusLazyLoading.String(), statuses[name])
+		for node, status := range perNode[name] {
+			require.Equal(t, storagestate.StatusLazyLoading.String(), status, "node %s", node)
+		}
+		require.Zero(t, sizes[name])
+
+		status, err := f.index.IncomingGetShardStatus(ctx, name)
+		require.NoError(t, err)
+		require.Equal(t, storagestate.StatusLazyLoading.String(), status)
+		size, err := f.index.IncomingGetShardQueueSize(ctx, name)
+		require.NoError(t, err)
+		require.Zero(t, size)
+
+		require.False(t, shard.isLoaded(), "cold shard %q must not be force-loaded", name)
+	}
+
+	// a loaded shard still reports its own status
+	for name, shard := range cold {
+		_, _, err := shard.loadIfCold(ctx)
+		require.NoError(t, err)
+		_, statuses, err := f.migrator.GetShardsStorageStatus(ctx, className, "")
+		require.NoError(t, err)
+		require.Equal(t, storagestate.StatusReady.String(), statuses[name])
+		break
 	}
 }

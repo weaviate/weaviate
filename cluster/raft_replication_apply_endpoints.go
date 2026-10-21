@@ -28,11 +28,15 @@ import (
 
 func (s *Raft) ApplyReplicationScalePlan(ctx context.Context, scalePlan api.ReplicationScalePlan) (opsUUIDs []strfmt.UUID, err error) {
 	// while not strictly necessary, scaling while there are ongoing replications is disallowed
+	// SELF_RECOVERY ops are excluded: they don't change membership and must not block scale-out.
 	ops, err := s.GetReplicationDetailsByCollection(ctx, scalePlan.Collection)
 	if err != nil && !errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
 		return nil, fmt.Errorf("get replication details for %q: %w", scalePlan.Collection, err)
 	}
 	for _, op := range ops {
+		if op.TransferType == api.SELF_RECOVERY.String() {
+			continue
+		}
 		if api.ShardReplicationState(op.Status.State) != api.CANCELLED && api.ShardReplicationState(op.Status.State) != api.READY {
 			return nil, fmt.Errorf("cannot scale while there are ongoing replications for collection %q", scalePlan.Collection)
 		}
@@ -118,6 +122,19 @@ func (s *Raft) ApplyReplicationScalePlan(ctx context.Context, scalePlan api.Repl
 	}
 
 	return opsUUIDs, nil
+}
+
+// RegisterSelfRecovery registers a SELF_RECOVERY op, bypassing the ongoing-replications guard.
+func (s *Raft) RegisterSelfRecovery(ctx context.Context, sourceNode, collection, shard, targetNode string) (strfmt.UUID, error) {
+	id, err := uuid.NewRandom()
+	if err != nil {
+		return "", fmt.Errorf("create uuid for self-recovery op: %w", err)
+	}
+	opUUID := strfmt.UUID(id.String())
+	if err := s.ReplicationReplicateReplica(ctx, opUUID, sourceNode, collection, shard, targetNode, api.SELF_RECOVERY.String()); err != nil {
+		return "", fmt.Errorf("register self-recovery for shard %q of collection %q from %q: %w", shard, collection, sourceNode, err)
+	}
+	return opUUID, nil
 }
 
 func (s *Raft) ReplicationReplicateReplica(ctx context.Context, uuid strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, targetNode string, transferType string) error {
@@ -385,6 +402,28 @@ func (s *Raft) ForceDeleteReplicationByUuid(ctx context.Context, uuid strfmt.UUI
 	}
 	command := &api.ApplyRequest{
 		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_UUID,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(ctx, command); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ForceDeleteReplicationsByIds removes the listed ops on every node. The apply
+// skips unknown ids, so a batch re-proposed after leader churn is a no-op.
+func (s *Raft) ForceDeleteReplicationsByIds(ctx context.Context, ids []uint64) error {
+	req := &api.ReplicationForceDeleteByIdsRequest{
+		Version: api.ReplicationCommandVersionV0,
+		Ids:     ids,
+	}
+
+	subCommand, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &api.ApplyRequest{
+		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_IDS,
 		SubCommand: subCommand,
 	}
 	if _, err := s.Execute(ctx, command); err != nil {

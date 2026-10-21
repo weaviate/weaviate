@@ -51,13 +51,18 @@ func newShardVersioner(baseDir string, dataPresent bool) (*shardVersioner, error
 	return sv, sv.init(baseDir, dataPresent)
 }
 
-func (sv *shardVersioner) init(fileName string, dataPresent bool) error {
+func (sv *shardVersioner) init(fileName string, dataPresent bool) (rerr error) {
 	sv.path = fileName
 
 	f, err := os.OpenFile(fileName, os.O_RDWR|os.O_CREATE, 0o666)
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if err := f.Close(); err != nil && rerr == nil {
+			rerr = errors.Wrap(err, "close version file")
+		}
+	}()
 
 	stat, err := f.Stat()
 	if err != nil {
@@ -86,10 +91,6 @@ func (sv *shardVersioner) init(fileName string, dataPresent bool) error {
 		err := binary.Write(f, binary.LittleEndian, &version)
 		if err != nil {
 			return errors.Wrap(err, "write version back to file")
-		}
-
-		if err := f.Close(); err != nil {
-			return errors.Wrap(err, "close version file")
 		}
 	}
 

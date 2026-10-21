@@ -25,6 +25,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -32,7 +33,6 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -40,13 +40,14 @@ func TestVectorDistanceQuery(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	dirName := t.TempDir()
 	shardState := singleShardState()
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
 		return readFunc(class, shardState)
 	}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -61,7 +62,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 		MaxImportGoroutinesFactor: 1,
 		EnableLazyLoadShards:      boolPtr(false), // need access to the shard directly to convert UUIDs to docIds
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 
 	class := &models.Class{

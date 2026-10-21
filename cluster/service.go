@@ -15,16 +15,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/raft"
+	"github.com/jonboulle/clockwork"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/bootstrap"
-	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/metrics"
 	"github.com/weaviate/weaviate/cluster/resolver"
@@ -32,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -42,7 +44,49 @@ const (
 	replicationEngineShutdownTimeout = 20 * time.Second
 	replicationOperationTimeout      = 24 * time.Hour
 	catchUpInterval                  = 5 * time.Second
+	// readyPollPeriod is how often startup checks for a leader or a loaded DB.
+	readyPollPeriod = 50 * time.Millisecond
+
+	// Fallbacks used only when the config seam left a cleanup knob unwired.
+	defaultReplicaMovementCleanupMaxAge   = 168 * time.Hour
+	defaultReplicaMovementCleanupInterval = time.Hour
 )
+
+// boolGetter turns a *runtime.DynamicValue into the closure the sweeper polls.
+// A nil pointer means the rConfig line was missed: Get() on a nil receiver
+// returns the zero value and taking its method value is legal Go, so the knob
+// would silently read false and disable the sweep. Fall back and log instead.
+//
+// The nil-logger guard is for callers other than New, which dereferences
+// cfg.Logger long before reaching here. durationGetter below is the same.
+func boolGetter(logger *logrus.Logger, dv *runtime.DynamicValue[bool], knob string, fallback bool) func() bool {
+	if dv != nil {
+		return dv.Get
+	}
+	if logger != nil {
+		logger.Errorf("replication cleanup config not wired: %s; falling back to built-in default", knob)
+	}
+	return func() bool { return fallback }
+}
+
+func durationGetter(logger *logrus.Logger, dv *runtime.DynamicValue[time.Duration], knob string, fallback time.Duration) func() time.Duration {
+	if dv != nil {
+		return dv.Get
+	}
+	if logger != nil {
+		logger.Errorf("replication cleanup config not wired: %s; falling back to built-in default", knob)
+	}
+	return func() time.Duration { return fallback }
+}
+
+// jitterUpTo spreads first ticks across the interval so a cluster restarted
+// together does not converge on one instant.
+func jitterUpTo(d time.Duration) time.Duration {
+	if d <= 0 {
+		return d
+	}
+	return time.Duration(rand.Int63n(int64(d)))
+}
 
 // Service class serves as the primary entry point for the Raft layer, managing and coordinating
 // the key functionalities of the distributed consensus protocol.
@@ -50,6 +94,7 @@ type Service struct {
 	*Raft
 
 	replicationEngine *replication.ShardReplicationEngine
+	opCleaner         *replication.OpCleaner
 	raftAddr          string
 	config            *Config
 
@@ -59,6 +104,8 @@ type Service struct {
 
 	// closing channels
 	cancelReplicationEngine context.CancelFunc
+	engineDone              chan struct{}
+	cancelOpCleaner         context.CancelFunc
 	closeBootstrapper       chan struct{}
 	closeOnFSMCaughtUp      chan struct{}
 	closeWaitForDB          chan struct{}
@@ -67,10 +114,10 @@ type Service struct {
 // New returns a Service configured with cfg. The service will initialize internals gRPC api & clients to other cluster
 // nodes.
 // Raft store will be initialized and ready to be started. To start the service call Open().
-func New(cfg Config, authZController authorization.Controller, snapshotter fsm.Snapshotter, svrMetrics *monitoring.GRPCServerMetrics) *Service {
+func New(cfg Config, authZController authorization.Controller, svrMetrics *monitoring.GRPCServerMetrics) *Service {
 	client := rpc.NewClient(resolver.NewRpc(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, cfg.Logger)
 
-	fsm := NewFSM(cfg, authZController, snapshotter, prometheus.DefaultRegisterer)
+	fsm := NewFSM(cfg, authZController, prometheus.DefaultRegisterer)
 	raft := NewRaft(cfg.NodeSelector, &fsm, client)
 	// Every state-transition apply on this node broadcasts the new state
 	// into every peer's PerNodeState map; the consumer waits on it locally.
@@ -106,9 +153,34 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 	)
 	svr := rpc.NewServer(&fsm, raft, net.JoinHostPort(cfg.BindAddr, fmt.Sprintf("%d", cfg.RPCPort)), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.Logger)
 
+	opCleaner, err := replication.NewOpCleaner(replication.OpCleanerParams{
+		Logger:     cfg.Logger,
+		NodeID:     cfg.NodeID,
+		FSM:        fsm.replicationManager.GetReplicationFSM(),
+		Remover:    raft,
+		Clock:      clockwork.NewRealClock(),
+		Registerer: prometheus.DefaultRegisterer,
+		// The loop runs on every node; a tick on a follower ends right here.
+		ReadyToSweep: func() bool {
+			return raft.store.IsLeader() && raft.store.Ready() && raft.store.FSMHasCaughtUp()
+		},
+		IsLeader:         raft.store.IsLeader,
+		Enabled:          boolGetter(cfg.Logger, cfg.ReplicaMovementCleanupEnabled, "REPLICA_MOVEMENT_CLEANUP_ENABLED", false),
+		MaxAge:           durationGetter(cfg.Logger, cfg.ReplicaMovementCleanupMaxAge, "REPLICA_MOVEMENT_CLEANUP_MAX_AGE", defaultReplicaMovementCleanupMaxAge),
+		Interval:         durationGetter(cfg.Logger, cfg.ReplicaMovementCleanupInterval, "REPLICA_MOVEMENT_CLEANUP_INTERVAL", defaultReplicaMovementCleanupInterval),
+		IncludeCancelled: boolGetter(cfg.Logger, cfg.ReplicaMovementCleanupIncludeCancelled, "REPLICA_MOVEMENT_CLEANUP_INCLUDE_CANCELLED", false),
+		Jitter:           jitterUpTo,
+	})
+	if err != nil && cfg.Logger != nil {
+		// Reachable only with a nil dependency. New cannot return an error, so
+		// log it and leave the cleaner nil.
+		cfg.Logger.Errorf("could not construct the replication cleanup sweeper: %v", err)
+	}
+
 	return &Service{
 		Raft:               raft,
 		replicationEngine:  replicationEngine,
+		opCleaner:          opCleaner,
 		raftAddr:           net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.RaftPort)),
 		config:             &cfg,
 		rpcClient:          client,
@@ -120,33 +192,24 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 	}
 }
 
+// onFSMCaughtUp waits for the metadata FSM to catch up, then runs the
+// replication engine on the calling goroutine until ctx is cancelled.
 func (c *Service) onFSMCaughtUp(ctx context.Context) {
-	if !c.config.ReplicaMovementEnabled {
-		return
-	}
-
 	ticker := time.NewTicker(catchUpInterval)
 	defer ticker.Stop()
-	for {
+	for !c.Raft.store.FSMHasCaughtUp() {
 		select {
+		case <-ctx.Done():
+			return
 		case <-c.closeOnFSMCaughtUp:
 			return
 		case <-ticker.C:
-			if c.Raft.store.FSMHasCaughtUp() {
-				c.logger.Infof("Metadata FSM reported caught up, starting replication engine")
-				engineCtx, engineCancel := context.WithCancel(ctx)
-				c.cancelReplicationEngine = engineCancel
-				enterrors.GoWrapper(func() {
-					// The context is cancelled by the engine itself when it is stopped
-					if err := c.replicationEngine.Start(engineCtx); err != nil {
-						if !errors.Is(err, context.Canceled) {
-							c.logger.WithError(err).Error("replication engine failed to start after FSM caught up")
-						}
-					}
-				}, c.logger)
-				return
-			}
 		}
+	}
+
+	c.logger.Infof("Metadata FSM reported caught up, starting replication engine")
+	if err := c.replicationEngine.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		c.logger.WithError(err).Error("replication engine failed to start after FSM caught up")
 	}
 }
 
@@ -176,11 +239,12 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 	defer bCancel()
 	if hasState {
 		joiner := bootstrap.NewJoiner(c.rpcClient, c.config.NodeID, c.raftAddr, c.config.Voter)
-		err = backoff.Retry(func() error {
-			joinNodes := bootstrap.ResolveRemoteNodes(c.config.NodeSelector, c.config.NodeNameToPortMap)
-			_, err := joiner.Do(bootstrapCtx, c.logger, joinNodes)
-			return err
-		}, backoff.WithContext(backoff.NewConstantBackOff(1*time.Second), bootstrapCtx))
+		err = joiner.Rejoin(bootstrapCtx, c.logger,
+			func() map[string]string {
+				return bootstrap.ResolveRemoteNodes(c.config.NodeSelector, c.config.NodeNameToPortMap)
+			},
+			func() bool { return c.Raft.store.Leader() != "" },
+			time.Second, readyPollPeriod)
 		if err != nil {
 			return fmt.Errorf("could not join raft join list: %w. Weaviate detected this node to have state stored. If the DB is still loading up we will hit this timeout. You can try increasing/setting RAFT_BOOTSTRAP_TIMEOUT env variable to a higher value", err)
 		}
@@ -192,6 +256,10 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 			c.config.Voter,
 			c.config.NodeSelector,
 			c.Raft.Ready,
+			// wiped-joiner catch-up barrier; no-op for non-wiped nodes.
+			c.Raft.store.SetJoinBarrier,
+			// a wiped joiner is "ready" pre-join; keep joining until the barrier lands.
+			c.Raft.store.NeedsJoinBarrier,
 		)
 		if err := bs.Do(
 			bootstrapCtx,
@@ -202,13 +270,27 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		}
 	}
 
-	if err := c.WaitUntilDBRestored(ctx, 1*time.Second, c.closeWaitForDB); err != nil {
+	if err := c.WaitUntilDBRestored(ctx, readyPollPeriod, c.closeWaitForDB); err != nil {
 		return fmt.Errorf("restore database: %w", err)
 	}
 
+	engineCtx, engineCancel := context.WithCancel(ctx)
+	c.cancelReplicationEngine = engineCancel
+	c.engineDone = make(chan struct{})
 	enterrors.GoWrapper(func() {
-		c.onFSMCaughtUp(ctx)
+		defer close(c.engineDone)
+		c.onFSMCaughtUp(engineCtx)
 	}, c.logger)
+
+	if c.opCleaner != nil {
+		cleanerCtx, cleanerCancel := context.WithCancel(ctx)
+		c.cancelOpCleaner = cleanerCancel
+		enterrors.GoWrapper(func() {
+			if err := c.opCleaner.Run(cleanerCtx); err != nil && !errors.Is(err, context.Canceled) {
+				c.logger.Errorf("replication cleanup loop stopped: %v", err)
+			}
+		}, c.logger)
+	}
 	return nil
 }
 
@@ -221,16 +303,18 @@ func (c *Service) Close(ctx context.Context) error {
 		c.closeOnFSMCaughtUp <- struct{}{}
 	}, c.logger)
 
-	if c.config.ReplicaMovementEnabled {
+	if c.cancelReplicationEngine != nil {
 		c.logger.Info("closing replication engine ...")
-		if c.cancelReplicationEngine != nil {
-			c.cancelReplicationEngine()
-		}
-		c.replicationEngine.Stop()
-		// Cancel any in-flight node-reached-state broadcast/drain retry loops.
-		if c.Raft != nil && c.Raft.store != nil && c.Raft.store.replicationManager != nil {
-			c.Raft.store.replicationManager.Close()
-		}
+		c.cancelReplicationEngine()
+		<-c.engineDone
+	}
+
+	if c.cancelOpCleaner != nil {
+		c.cancelOpCleaner()
+	}
+	// Cancel any in-flight node-reached-state broadcast/drain retry loops.
+	if c.Raft != nil && c.Raft.store != nil && c.Raft.store.replicationManager != nil {
+		c.Raft.store.replicationManager.Close()
 	}
 
 	c.logger.Info("closing raft FSM store ...")

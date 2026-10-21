@@ -15,6 +15,7 @@ package reindexhelpers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,7 +26,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -102,7 +105,9 @@ func RebuildIndexRaw(t *testing.T, restURI, collection, property, indexType stri
 }
 
 // CancelIndex fires POST .../index/{indexType}/cancel, asserts 202, and
-// returns the decoded response (taskId + status: CANCELLED or NO_OP).
+// returns the decoded response (taskId + status: CANCELLED or NO_OP). Use
+// CancelIndexRaw where the task may have left the cancellable state, which
+// the endpoint answers with 409.
 func CancelIndex(t *testing.T, restURI, collection, property, indexType string, opts ...Option) *models.IndexUpdateResponse {
 	t.Helper()
 	resp := CancelIndexRaw(t, restURI, collection, property, indexType, opts...)
@@ -317,6 +322,13 @@ func AwaitReindexFinished(t *testing.T, restURI, taskID string, opts ...Option) 
 			err := fmt.Errorf("reindex task failed: %s", task.Error)
 			terminalErr.Store(&err)
 			return true // exit Eventually; Fatalf below on the test goroutine
+		}
+		// Non-terminal tasks (PREPARING, SWAPPING) must report no finish time.
+		if task.FinishedAt != nil && !distributedtask.TaskStatus(task.Status).IsTerminal() {
+			err := fmt.Errorf("reindex task %s reports finishedAt %s while still in status %s",
+				taskID, task.FinishedAt, task.Status)
+			terminalErr.Store(&err)
+			return true
 		}
 		return task.Status == "FINISHED"
 	}, o.timeout, 1*time.Second, "reindex task %s should reach FINISHED status", taskID)
@@ -535,4 +547,22 @@ func WithEnv(
 	SetupClass(t, class, props)
 	ImportObjects(t, class, objects)
 	body()
+}
+
+// SingleNodeCompose is the single-node configuration the runtime-reindex
+// suites share: the feature flag on (the server default is off, so a suite
+// that bypasses this silently tests nothing), the legacy searchable path
+// off, and a 1s scheduler tick so task transitions land inside test
+// timeouts. Callers needing extra env keep chaining before Start.
+func SingleNodeCompose() *docker.Compose {
+	return docker.New().
+		WithWeaviate().
+		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
+		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false").
+		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1")
+}
+
+// StartSingleNode starts [SingleNodeCompose] with no further tuning.
+func StartSingleNode(ctx context.Context) (*docker.DockerCompose, error) {
+	return SingleNodeCompose().Start(ctx)
 }

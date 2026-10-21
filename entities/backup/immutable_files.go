@@ -13,8 +13,16 @@ package backup
 
 import (
 	"path/filepath"
-	"strings"
+
+	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 )
+
+// ShardMetadataDBFileName is the shard-level metadata bolt file at the shard
+// root (historically the dynamic index's state DB). Its canonical owner is
+// adapters/repos/db/shardmeta (shardmeta.FileName), which entities cannot
+// import — this copy exists only for the immutability filter below, and a
+// test in shardmeta pins the two constants together.
+const ShardMetadataDBFileName = "index.db"
 
 const (
 	dbExt        = ".db"
@@ -37,8 +45,10 @@ func IsImmutableFile(relPath string) bool {
 	ext := filepath.Ext(base)
 
 	// LSM segment data files — written once during flush/compaction, never modified.
-	// Excludes meta*.db (flat index BoltDB, mmap writes) and index.db (dynamic index BoltDB).
-	if ext == dbExt && !strings.HasPrefix(base, "meta") && base != "index.db" {
+	// flatent.IsMetadataFile and ShardMetadataDBFileName exclude the flat index and
+	// shard metadata bolt files (meta*.db, index.db), which share the extension but
+	// are rewritten in place.
+	if ext == dbExt && !flatent.IsMetadataFile(base) && base != ShardMetadataDBFileName {
 		return true
 	}
 	// LSM segment companion files — written once during segment init, never modified.

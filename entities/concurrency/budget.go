@@ -37,6 +37,15 @@ func CtxWithBudget(ctx context.Context, budget int) context.Context {
 	return context.WithValue(ctx, budgetKey{}, budget)
 }
 
+// CtxWithBudgetIfAbsent seeds a budget only if ctx doesn't already carry one,
+// so an upstream admission grant isn't overwritten by a downstream default.
+func CtxWithBudgetIfAbsent(ctx context.Context, budget int) context.Context {
+	if _, ok := ctx.Value(budgetKey{}).(int); ok {
+		return ctx
+	}
+	return CtxWithBudget(ctx, budget)
+}
+
 func BudgetFromCtx(ctx context.Context, fallback int) int {
 	budget, ok := ctx.Value(budgetKey{}).(int)
 	if !ok {
@@ -59,7 +68,7 @@ func ContextWithFractionalBudget(ctx context.Context, factor, fallback int) cont
 func BudgetFromCtxCapped(ctx context.Context, limit int) int {
 	if budgetCapDisabled {
 		// even disabled, floor at 1: limit=0 means "unlimited" to sroar's *Conc
-		// ops and would hang an error group with SetLimit(0) — a kill-switch footgun.
+		// ops and would hang an error group with SetLimit(0); a kill-switch footgun.
 		return max(limit, 1)
 	}
 	return clampBudget(BudgetFromCtx(ctx, limit), limit)
@@ -73,4 +82,14 @@ func clampBudget(b, limit int) int {
 		b = 1
 	}
 	return b
+}
+
+// NumWorkers returns the per-query worker count for a fan-out over nItems:
+// the context budget when present, capped at fallback and nItems, floored
+// at 1 so a zero or negative budget (or nItems of 0) can never silently
+// skip the work. Unlike BudgetFromCtxCapped it deliberately does not honor
+// the sroar merge kill switch: that escape hatch is scoped to sroar merge
+// concurrency, not to vector-index fan-outs.
+func NumWorkers(ctx context.Context, nItems, fallback int) int {
+	return max(1, min(BudgetFromCtx(ctx, fallback), fallback, nItems))
 }

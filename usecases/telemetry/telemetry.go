@@ -22,23 +22,29 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 const (
 	DefaultTelemetryConsumerURL = "aHR0cHM6Ly90ZWxlbWV0cnkud2Vhdmlh" +
 		"dGUuaW8vd2VhdmlhdGUtdGVsZW1ldHJ5"
 	DefaultTelemetryPushInterval = 24 * time.Hour
+
+	// defaultPushTimeout bounds each push, so an unresponsive consumer cannot
+	// block the update loop or Stop.
+	defaultPushTimeout = 10 * time.Second
 )
 
 type nodesStatusGetter interface {
@@ -49,12 +55,14 @@ type nodesStatusGetter interface {
 type Telemeter struct {
 	machineID          strfmt.UUID
 	nodesStatusGetter  nodesStatusGetter
-	schemaManager      schema.SchemaGetter
+	schemaReader       local.ClassReader
+	nodes              cluster.NodeLister
 	logger             logrus.FieldLogger
 	shutdown           chan struct{}
-	failedToStart      bool
+	failedToStart      atomic.Bool
 	consumer           string
 	pushInterval       time.Duration
+	pushTimeout        time.Duration
 	clientTracker      *ClientTracker
 	integrationTracker *IntegrationTracker
 	cloudInfoHelper    *cloudInfoHelper
@@ -84,7 +92,7 @@ type Config struct {
 }
 
 // New creates a new Telemeter instance.
-func New(nodesStatusGetter nodesStatusGetter, schemaManager schema.SchemaGetter,
+func New(nodesStatusGetter nodesStatusGetter, schemaReader local.ClassReader, nodes cluster.NodeLister,
 	logger logrus.FieldLogger, consumerURL string, pushInterval time.Duration,
 	telemetryEnabled bool,
 	cfg Config,
@@ -100,11 +108,13 @@ func New(nodesStatusGetter nodesStatusGetter, schemaManager schema.SchemaGetter,
 		// machineID is a fresh UUID per process, distinct from nodeID.
 		machineID:            strfmt.UUID(uuid.NewString()),
 		nodesStatusGetter:    nodesStatusGetter,
-		schemaManager:        schemaManager,
+		schemaReader:         schemaReader,
+		nodes:                nodes,
 		logger:               logger,
 		shutdown:             make(chan struct{}),
 		consumer:             consumerURL,
 		pushInterval:         pushInterval,
+		pushTimeout:          defaultPushTimeout,
 		clientTracker:        NewClientTracker(logger),
 		cloudInfoHelper:      newCloudInfoHelper(logger, cfg.Enabled),
 		nodeID:               cfg.NodeID,
@@ -136,7 +146,7 @@ func (tel *Telemeter) GetIntegrationTracker() *IntegrationTracker {
 func (tel *Telemeter) Start(ctx context.Context) error {
 	payload, err := tel.push(ctx, PayloadType.Init)
 	if err != nil {
-		tel.failedToStart = true
+		tel.failedToStart.Store(true)
 		return fmt.Errorf("push: %w", err)
 	}
 	f := func() {
@@ -147,7 +157,14 @@ func (tel *Telemeter) Start(ctx context.Context) error {
 			case <-tel.shutdown:
 				return
 			case <-t.C:
-				payload, err = tel.push(ctx, PayloadType.Update)
+				// After a push longer than the interval a tick is always ready,
+				// and select could keep choosing it over a waiting Stop.
+				select {
+				case <-tel.shutdown:
+					return
+				default:
+				}
+				payload, err := tel.push(ctx, PayloadType.Update)
 				if err != nil {
 					tel.logger.
 						WithField("action", "telemetry_push").
@@ -185,7 +202,7 @@ func (tel *Telemeter) Stop(ctx context.Context) error {
 		}
 	}()
 
-	if tel.failedToStart {
+	if tel.failedToStart.Load() {
 		return nil
 	}
 
@@ -227,7 +244,14 @@ func (tel *Telemeter) push(ctx context.Context, payloadType string) (*Payload, e
 		return nil, fmt.Errorf("decode url: %w", err)
 	}
 
-	resp, err := http.Post(string(url), "application/json", bytes.NewReader(b))
+	ctx, cancel := context.WithTimeout(ctx, tel.pushTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, string(url), bytes.NewReader(b))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
@@ -307,15 +331,10 @@ type curatedFields struct {
 
 // curatedFields extracts the schema-derived signal fields in a single schema pass.
 func (tel *Telemeter) curatedFields() curatedFields {
-	cf := curatedFields{nodeCount: len(tel.schemaManager.Nodes())}
-
-	sch := tel.schemaManager.GetSchemaSkipAuth()
-	if sch.Objects == nil {
-		return cf
-	}
+	cf := curatedFields{nodeCount: len(tel.nodes.AllNames())}
 
 	counts := make(map[string]int)
-	for _, class := range sch.Objects.Classes {
+	for _, class := range tel.schemaReader.ReadOnlySchema().Classes {
 		if class == nil {
 			continue
 		}
@@ -393,28 +412,24 @@ func (tel *Telemeter) orHNSW(vectorIndexType string) string {
 }
 
 func (tel *Telemeter) getUsedModules() ([]string, error) {
-	sch := tel.schemaManager.GetSchemaSkipAuth()
 	usedModulesMap := map[string]struct{}{}
-
-	if sch.Objects != nil {
-		for _, class := range sch.Objects.Classes {
-			if class == nil {
-				continue
+	for _, class := range tel.schemaReader.ReadOnlySchema().Classes {
+		if class == nil {
+			continue
+		}
+		if modCfg, ok := class.ModuleConfig.(map[string]interface{}); ok {
+			for name, cfg := range modCfg {
+				usedModulesMap[tel.determineModule(name, cfg)] = struct{}{}
 			}
-			if modCfg, ok := class.ModuleConfig.(map[string]interface{}); ok {
+		} else if class.Vectorizer != "" && class.Vectorizer != "none" {
+			// Fallback for classes with nil ModuleConfig but a set class-level
+			// Vectorizer (pre-v1.14 schemas). "none" (BYOV) is excluded - not a module.
+			usedModulesMap[class.Vectorizer] = struct{}{}
+		}
+		for _, vectorConfig := range class.VectorConfig {
+			if modCfg, ok := vectorConfig.Vectorizer.(map[string]interface{}); ok {
 				for name, cfg := range modCfg {
 					usedModulesMap[tel.determineModule(name, cfg)] = struct{}{}
-				}
-			} else if class.Vectorizer != "" && class.Vectorizer != "none" {
-				// Fallback for classes with nil ModuleConfig but a set class-level
-				// Vectorizer (pre-v1.14 schemas). "none" (BYOV) is excluded - not a module.
-				usedModulesMap[class.Vectorizer] = struct{}{}
-			}
-			for _, vectorConfig := range class.VectorConfig {
-				if modCfg, ok := vectorConfig.Vectorizer.(map[string]interface{}); ok {
-					for name, cfg := range modCfg {
-						usedModulesMap[tel.determineModule(name, cfg)] = struct{}{}
-					}
 				}
 			}
 		}
@@ -454,11 +469,7 @@ func (tel *Telemeter) getObjectCount(ctx context.Context) (int64, error) {
 }
 
 func (tel *Telemeter) getCollectionsCount(context.Context) (int, error) {
-	sch := tel.schemaManager.GetSchemaSkipAuth()
-	if sch.Objects == nil {
-		return 0, nil
-	}
-	return len(sch.Objects.Classes), nil
+	return len(tel.schemaReader.ReadOnlySchema().Classes), nil
 }
 
 func (tel *Telemeter) getCloudInfo() (cloudProvider, uniqueID *string) {

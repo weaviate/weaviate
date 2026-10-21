@@ -72,7 +72,10 @@ func TestCompactionCleanupBothSegmentsPresent(t *testing.T) {
 					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithUseBloomFilter(false), WithWriteSegmentInfoIntoFileName(addFileInfo), WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace),
 				)
 				if tt.expectErr {
-					require.Error(t, err)
+					// the only failing case is the missing right segment, which the
+					// operator can only act on if both files are named
+					require.ErrorContains(t, err, entriesTmp[1].Name())
+					require.ErrorContains(t, err, segmentID(entriesTmp[2].Name()))
 				} else {
 					require.NoError(t, err)
 					count, err := b2.Count(ctx)
@@ -90,6 +93,18 @@ func TestCompactionCleanupBothSegmentsPresent(t *testing.T) {
 						path := segment.getPath()
 						file := filepath.Base(path)
 						require.NotContains(t, file, "_")
+					}
+
+					if !tt.copyLeft {
+						// with the left source gone the combined file is taken over
+						// under the name the interrupted switch would have given it,
+						// level and strategy included
+						extraInfo := ""
+						if addFileInfo {
+							extraInfo = ".l1.s0"
+						}
+						require.FileExists(t, filepath.Join(testDir, fmt.Sprintf("segment-%s%s.db",
+							segmentID(entriesTmp[2].Name()), extraInfo)))
 					}
 				}
 			})
@@ -341,11 +356,76 @@ func TestCompactionRecoveryDropsRightSegmentDerivedFiles(t *testing.T) {
 				require.Equal(t, fmt.Sprintf("world%d", i), string(value))
 			}
 
+			// the adopted file keeps the level the compaction put into the .tmp
+			// name, which is not the level of the segment it replaces
+			require.Equal(t, fmt.Sprintf("segment-%s%s.db", rightID, extraInfo),
+				singleDbFile(t, testDir))
+
 			fileTypes := countFileTypes(t, testDir)
 			for _, ext := range []string{".bloom", ".cna", ".metadata"} {
 				require.Equal(t, tt.wantDerivedFiles[ext], fileTypes[ext], "number of %s files", ext)
 			}
 		})
+	}
+}
+
+// TestCompactionRecoveryOrdersLeftoverSegments pins that leftover compacted
+// segments are recovered in a fixed order: adopting one of them decides which
+// source segments the next one still finds.
+func TestCompactionRecoveryOrdersLeftoverSegments(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+
+	opts := []BucketOption{WithStrategy(StrategyReplace), WithUseBloomFilter(false)}
+
+	srcDir := t.TempDir()
+	b, err := NewBucketCreator().NewBucket(ctx, srcDir, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	require.NoError(t, err)
+
+	// three segments of different sizes, so that a segment replaced by another
+	// one is recognizable by its content
+	for _, keys := range []int{5, 10, 15} {
+		for i := range keys {
+			require.NoError(t, b.Put(fmt.Appendf(nil, "hello%d", i), fmt.Appendf(nil, "world%d", i)))
+		}
+		require.NoError(t, b.FlushMemtable())
+	}
+	require.Len(t, b.disk.segments, 3)
+
+	var ids []string
+	for _, seg := range b.disk.segments {
+		ids = append(ids, segmentID(filepath.Base(seg.getPath())))
+	}
+	require.NoError(t, b.Shutdown(ctx))
+
+	// two compactions were interrupted before their switch completed, the second
+	// one over the output of the first
+	fixtureDir := t.TempDir()
+	copyFile(t, filepath.Join(srcDir, "segment-"+ids[0]+".db"),
+		filepath.Join(fixtureDir, fmt.Sprintf("segment-%s_%s.db.tmp", ids[0], ids[1])))
+	copyFile(t, filepath.Join(srcDir, "segment-"+ids[1]+".db"),
+		filepath.Join(fixtureDir, fmt.Sprintf("segment-%s_%s.db.tmp", ids[1], ids[2])))
+	copyFile(t, filepath.Join(srcDir, "segment-"+ids[2]+".db"),
+		filepath.Join(fixtureDir, "segment-"+ids[2]+".db"))
+
+	newest, err := os.ReadFile(filepath.Join(fixtureDir, "segment-"+ids[2]+".db"))
+	require.NoError(t, err)
+
+	// a single run could pick the right order by chance
+	const runs = 20
+	for range runs {
+		testDir := t.TempDir()
+		copyFilesWithPrefix(t, fixtureDir, testDir, "segment-")
+
+		b2, err := NewBucketCreator().NewBucket(ctx, testDir, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		require.NoError(t, err)
+
+		recovered, err := os.ReadFile(filepath.Join(testDir, "segment-"+ids[2]+".db"))
+		require.NoError(t, err)
+		require.Equal(t, newest, recovered, "the newest segment must not be replaced")
+		require.NoError(t, b2.Shutdown(ctx))
 	}
 }
 

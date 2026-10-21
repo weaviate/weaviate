@@ -35,6 +35,7 @@ const (
 
 	FilterStrategySweeping = "sweeping"
 	FilterStrategyAcorn    = "acorn"
+	FilterStrategyPathseer = "pathseer"
 
 	DefaultFilterStrategy = FilterStrategyAcorn
 
@@ -282,8 +283,8 @@ func (u *UserConfig) validate() error {
 		))
 	}
 
-	if u.FilterStrategy != FilterStrategySweeping && u.FilterStrategy != FilterStrategyAcorn {
-		errMsgs = append(errMsgs, "filterStrategy must be either 'sweeping' or 'acorn'")
+	if u.FilterStrategy != FilterStrategySweeping && u.FilterStrategy != FilterStrategyAcorn && u.FilterStrategy != FilterStrategyPathseer {
+		errMsgs = append(errMsgs, "filterStrategy must be either 'sweeping' or 'acorn', or 'pathseer'")
 	}
 
 	if len(errMsgs) > 0 {
@@ -322,7 +323,7 @@ func (u *UserConfig) validate() error {
 	}
 
 	if u.Multivector.MuveraConfig.Enabled && u.Multivector.MuveraConfig.KSim > 10 {
-		return fmt.Errorf("invalid hnsw config: ksim must be less than 10")
+		return fmt.Errorf("invalid hnsw config: ksim must be at most 10")
 	}
 
 	return nil

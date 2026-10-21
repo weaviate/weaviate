@@ -12,10 +12,10 @@
 package multi_tenancy_tests
 
 import (
+	"acceptance_tests_with_client/fixtures"
+	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"testing"
-
-	"acceptance_tests_with_client/fixtures"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,8 +23,6 @@ import (
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/fault"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-
-	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestSchema_MultiTenancyConfig(t *testing.T) {
@@ -41,7 +39,8 @@ func TestSchema_MultiTenancyConfig(t *testing.T) {
 
 		className := "MultiTenantClass"
 		schemaClass := &models.Class{
-			Class: className,
+			Class:        className,
+			VectorConfig: fixtures.DefaultVectorConfig(),
 			Properties: []*models.Property{
 				{
 					Name:     "someProperty",
@@ -71,7 +70,8 @@ func TestSchema_MultiTenancyConfig(t *testing.T) {
 
 		className := "MultiTenantClassDisabled"
 		schemaClass := &models.Class{
-			Class: className,
+			Class:        className,
+			VectorConfig: fixtures.DefaultVectorConfig(),
 			Properties: []*models.Property{
 				{
 					Name:     "someProperty",
@@ -101,7 +101,8 @@ func TestSchema_MultiTenancyConfig(t *testing.T) {
 
 		className := "NonMultiTenantClass"
 		schemaClass := &models.Class{
-			Class: className,
+			Class:        className,
+			VectorConfig: fixtures.DefaultVectorConfig(),
 			Properties: []*models.Property{
 				{
 					Name:     "someProperty",

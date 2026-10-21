@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -24,7 +23,7 @@ import (
 const Azurite = "azurite"
 
 func startAzurite(ctx context.Context, networkName string) (*DockerContainer, error) {
-	blobPort := nat.Port("10000/tcp")
+	blobPort := "10000/tcp"
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:        "mcr.microsoft.com/azure-storage/azurite",
@@ -59,7 +58,7 @@ func startAzurite(ctx context.Context, networkName string) (*DockerContainer, er
 	}
 	envSettings := make(map[string]string)
 	connectionString := "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://%s/devstoreaccount1;"
-	blobEndpoint := fmt.Sprintf("%s:%s", Azurite, blobPort.Port())
+	blobEndpoint := fmt.Sprintf("%s:%s", Azurite, portNumber(blobPort))
 	envSettings["AZURE_STORAGE_CONNECTION_STRING"] = fmt.Sprintf(connectionString, blobEndpoint)
 	endpoints := make(map[EndpointName]endpoint)
 	endpoints[HTTP] = endpoint{blobPort, uri}

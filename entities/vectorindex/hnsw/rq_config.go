@@ -24,23 +24,15 @@ const (
 	DefaultRQRescoreLimit  = 20
 	DefaultBRQRescoreLimit = 512
 	DefaultRQCentering     = false
-	// DefaultRQTrainingLimit is deliberately smaller than the PQ/SQ default
-	// (100k): centering only fits a coordinate-wise mean, which converges
-	// with far fewer samples, and a lower limit activates compression (and
-	// its memory savings) much earlier in an import.
 	DefaultRQTrainingLimit = 10000
 )
 
 type RQConfig struct {
-	Enabled      bool  `json:"enabled"`
-	Bits         int16 `json:"bits"`
-	RescoreLimit int   `json:"rescoreLimit"`
-	// Centering subtracts the dataset mean before quantization. It requires a
-	// training pass over TrainingLimit vectors to fit the mean, so compression
-	// activates like PQ/SQ (deferred) instead of on the first vector. Immutable
-	// once set.
-	Centering     bool `json:"centering"`
-	TrainingLimit int  `json:"trainingLimit"`
+	Enabled       bool  `json:"enabled"`
+	Bits          int16 `json:"bits"`
+	RescoreLimit  int   `json:"rescoreLimit"`
+	Centering     bool  `json:"centering"`
+	TrainingLimit int   `json:"trainingLimit"`
 }
 
 func ValidateRQConfig(cfg RQConfig) error {
@@ -108,7 +100,6 @@ func parseRQMap(in map[string]interface{}, rq *RQConfig) error {
 	return nil
 }
 
-// GetRQBits returns the bits value for RQ compression, or 0 if not RQ
 func GetRQBits(cfg config.VectorIndexConfig) int16 {
 	if hnswUserConfig, ok := cfg.(UserConfig); ok && hnswUserConfig.RQ.Enabled {
 		return hnswUserConfig.RQ.Bits

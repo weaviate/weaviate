@@ -94,6 +94,7 @@ func assertRebuildFinalizeThenNoFallbackWarn(ctx context.Context, t *testing.T, 
 func startSingleNodeRangeableInMemCluster(ctx context.Context, t *testing.T) (*docker.DockerCompose, func()) {
 	t.Helper()
 	compose, err := docker.New().
+		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
 		WithWeaviate().
 		WithWeaviateEnv("INDEX_RANGEABLE_IN_MEMORY", "true").
 		WithWeaviateEnv("LOG_LEVEL", "info").

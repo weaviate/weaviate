@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -42,15 +43,18 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 	for _, obj := range objects {
 		cls, _, err := b.resolveNS(principal, obj.Class)
 		if err != nil {
-			return nil, NewErrInvalidUserInput("%v", err)
+			return nil, userInputOrForbidden(err)
 		}
 		obj.Class = cls
 		classesShards[obj.Class] = append(classesShards[obj.Class], obj.Tenant)
 	}
 	knownClasses := map[string]versioned.Class{}
 
-	// whole request fails if permissions for any collection are not present
-	for className, shards := range classesShards {
+	// The whole request fails if any collection lacks a permission. Sorted order
+	// returns the same error on every run.
+	for _, className := range slices.Sorted(maps.Keys(classesShards)) {
+		shards := classesShards[className]
+
 		// we don't leak any info that someone who inserts data does not have anyway
 		vClass, err := b.schemaManager.GetCachedClassNoAuth(ctx, className)
 		if err != nil {
@@ -61,8 +65,7 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 		if err := b.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(className, shards...)...); err != nil {
 			return nil, err
 		}
-
-		if err := b.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(className, shards...)...); err != nil {
+		if err := b.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.CREATE, className, authorization.ShardsData(className, shards...)...); err != nil {
 			return nil, err
 		}
 	}
@@ -134,12 +137,8 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 	beforePersistence := time.Now()
 	defer b.metrics.BatchOp("total_persistence_level", beforePersistence.UnixNano())
 
-	// Ensure that the local schema has caught up to the version we used to validate
-	if err := b.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
-		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
-	}
 	if res, err = b.vectorRepo.BatchPutObjects(ctx, batchObjects, repl, maxSchemaVersion); err != nil {
-		return nil, NewErrInternal("batch objects: %#v", err)
+		return nil, NewErrInternal("batch objects: %w", err)
 	}
 
 	// Reaggregate a unanimous limit-exceeded into a top-level error so
@@ -181,7 +180,7 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 		objectsPerClass       = make(map[string][]*models.Object)
 		originalIndexPerClass = make(map[string][]int)
 		validator             = validation.New(b.vectorRepo.Exists, b.config, repl,
-			principal, b.config.Config.Namespaces.Enabled)
+			principal, b.qualifier)
 	)
 
 	// validate each object and sort by class (==vectorizer)
@@ -206,7 +205,10 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 			// Generate UUID for the new object
 			uid, err := generateUUID()
 			obj.ID = uid
-			batchObjects[i].Err = err
+			// Do not overwrite the error autoSchema returned for this entry.
+			if err != nil {
+				batchObjects[i].Err = err
+			}
 		} else {
 			if _, err := uuid.Parse(obj.ID.String()); err != nil {
 				batchObjects[i].Err = err

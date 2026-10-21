@@ -75,14 +75,6 @@ func (s *EnableSearchableStrategy) WriteToReindexBucket(shard ShardLike, bucket 
 	return writeBlockmaxSearchablePostings(shard, bucket, docID, prop)
 }
 
-// ShouldProcessProperty always returns true — scope is driven by
-// selectedPropsByCollection (see NewRuntimeEnableSearchableTask). The
-// HasSearchableIndex schema flag is still false on targeted properties
-// until OnMigrationComplete flips it.
-func (s *EnableSearchableStrategy) ShouldProcessProperty(property *inverted.Property) bool {
-	return true
-}
-
 func (s *EnableSearchableStrategy) MakeAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
 ) onAddToPropertyValueIndex {
@@ -121,13 +113,6 @@ func (s *EnableSearchableStrategy) PreReindexHook(shard *Shard, props []string) 
 	shard.markSearchableBlockmaxProperties(props...)
 }
 
-// AnalyzerOverlay forces IndexSearchable=true and the target tokenization on
-// the targeted properties while the backfill iterator scans the objects
-// bucket. Without this override the analyzer would (a) skip the property
-// because HasSearchableIndex returns false for IndexSearchable=nil/false on
-// the live schema, and (b) even if it didn't skip, it would tokenize with
-// the wrong (stored) tokenization. The live RAFT-stored schema is never
-// mutated; both flags are flipped via OnMigrationComplete after backfill.
 func (s *EnableSearchableStrategy) AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay {
 	if len(props) == 0 {
 		return nil

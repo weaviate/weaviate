@@ -12,12 +12,12 @@
 package acceptance_with_go_client
 
 import (
+	"acceptance_tests_with_client/internal/wvhost"
+	"acceptance_tests_with_client/usage"
 	"fmt"
 	"math/rand"
 	"testing"
 	"time"
-
-	"acceptance_tests_with_client/usage"
 
 	"github.com/stretchr/testify/require"
 	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
@@ -25,8 +25,6 @@ import (
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-
-	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestBackupWithConcurrentDelete(t *testing.T) {

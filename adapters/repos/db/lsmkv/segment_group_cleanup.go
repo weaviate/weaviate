@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -23,7 +24,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -143,7 +144,7 @@ func (c *segmentCleanerCommon) init() error {
 
 	// Timeout: a leaked handle from a failed shard teardown holds the flock;
 	// without it this open retries forever and wedges the loading goroutine.
-	if db, err = bolt.Open(path, 0o600, &bolt.Options{Timeout: entlsmkv.BoltFlockTimeout}); err != nil {
+	if db, err = bolt.Open(path, 0o600, &bolt.Options{Timeout: lsmkv.BoltFlockTimeout}); err != nil {
 		return fmt.Errorf("open cleanup bolt db %q: %w", path, err)
 	}
 
@@ -849,16 +850,27 @@ func (c *segmentCleanerCommon) cleanPendingSegmentToTmp(segID string,
 	cleaner := newSegmentCleanerReplace(file, oldSegment.newCursor(), keyExists,
 		oldSegment.getLevel(), oldSegment.getSecondaryIndexCount(),
 		c.sg.enableChecksumValidation, transformer)
+	// Every failure past this point leaves a partial .tmp on disk. The caller
+	// gets no path back, so it cannot compensate — and the biggest reason to be
+	// here is ENOSPC, where the orphan is as large as the free space that ran
+	// out and the retry needs that space back. Remove it on the way out.
+	discardPartial := func(cause error) error {
+		if rmErr := os.Remove(tmpPath); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
+			c.sg.logger.WithField("action", "lsm_cleanup_editops").WithField("path", c.sg.dir).
+				Warnf("could not remove partial cleaned segment %q after a failed rewrite: %v", tmpPath, rmErr)
+		}
+		return cause
+	}
 	if err := cleaner.do(shouldAbort); err != nil {
 		file.Close()
-		return emptyIdx, "", false, err
+		return emptyIdx, "", false, discardPartial(err)
 	}
 	if err := file.Sync(); err != nil {
 		file.Close()
-		return emptyIdx, "", false, fmt.Errorf("fsync cleaned segment file: %w", err)
+		return emptyIdx, "", false, discardPartial(fmt.Errorf("fsync cleaned segment file: %w", err))
 	}
 	if err := file.Close(); err != nil {
-		return emptyIdx, "", false, fmt.Errorf("close cleaned segment file: %w", err)
+		return emptyIdx, "", false, discardPartial(fmt.Errorf("close cleaned segment file: %w", err))
 	}
 
 	return idx, tmpPath, true, nil
@@ -920,9 +932,17 @@ func (sg *SegmentGroup) makeKeyExistsOnUpperSegments(segments []Segment, startId
 
 	return func(key []byte) (bool, error) {
 		for i := range upperSegments {
-			if exists, err := upperSegments[i].existsKey(key); err != nil {
+			exists, err := upperSegments[i].indexContainsKey(key)
+			if errors.Is(err, lsmkv.ErrCorruptIndex) {
+				// answering "superseded" drops the row, so skip a segment that cannot
+				// say: the row survives a cleanup it might not have needed, rather than
+				// the run reclaiming nothing until the segment is repaired
+				continue
+			}
+			if err != nil {
 				return false, err
-			} else if exists {
+			}
+			if exists {
 				return true, nil
 			}
 		}

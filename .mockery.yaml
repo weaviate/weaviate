@@ -9,6 +9,13 @@ packages:
     interfaces:
       Parser:
       replicationFSM:
+  github.com/weaviate/weaviate/cluster/schema/leader:
+    interfaces:
+      Schema:
+      SchemaReader:
+  github.com/weaviate/weaviate/cluster/schema/local:
+    interfaces:
+      SchemaReader:
   github.com/weaviate/weaviate/usecases/replica:
    interfaces:
       RClient:
@@ -37,7 +44,6 @@ packages:
   github.com/weaviate/weaviate/usecases/schema:
     interfaces:
       SchemaGetter:
-      SchemaReader:
   github.com/weaviate/weaviate/usecases/auth/authorization:
     interfaces:
       Controller:
@@ -55,7 +61,6 @@ packages:
     interfaces:
       OpProducer:
       OpConsumer:
-      Timer:
   github.com/weaviate/weaviate/cluster/replication/types:
     interfaces:
       ReplicationFSMReader:
@@ -99,19 +104,22 @@ packages:
   github.com/weaviate/weaviate/usecases/modulecomponents/usage:
     interfaces:
       StorageBackend:
+  github.com/weaviate/weaviate/usecases/objects:
+    interfaces:
+      ClassResolver:
   github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch:
     interfaces:
-      batcher:
+      admissionChecker:
+        config:
+          dir: "adapters/handlers/grpc/v1/batch/mocks"
+          outpkg: "mocks"
+          inpackage: false
+      Batcher:
         config:
           dir: "adapters/handlers/grpc/v1/batch/mocks"
           outpkg: "mocks"
           inpackage: false
       authenticator:
-        config:
-          dir: "adapters/handlers/grpc/v1/batch/mocks"
-          outpkg: "mocks"
-          inpackage: false
-      schemaManager:
         config:
           dir: "adapters/handlers/grpc/v1/batch/mocks"
           outpkg: "mocks"

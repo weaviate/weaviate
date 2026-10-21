@@ -465,23 +465,31 @@ func newDropTestIndex(t *testing.T) (*Index, *test.Hook) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
+	// shutdownOrRestoreShard dereferences idx.metrics, so an index without one
+	// panics when a test unloads a shard. Passing nil for prom produces the same
+	// *Metrics a node without monitoring has, one whose baseMetrics is nil.
+	metrics, err := NewMetrics(logger, nil, "Abc", "n/a")
+	require.NoError(t, err)
+
 	idx := &Index{
 		logger:           logger,
+		metrics:          metrics,
 		shards:           shardMap{},
 		closingCtx:       ctx,
 		closingCancel:    cancel,
 		cycleCallbacks:   newTestCycleCallbacks(logger),
 		backupLock:       esync.NewKeyRWLocker(),
 		shardCreateLocks: esync.NewKeyRWLocker(),
-		Config:           IndexConfig{RootPath: t.TempDir(), ClassName: schema.ClassName("Abc")},
+		Config:           IndexConfig{NodeName: "node1", RootPath: t.TempDir(), ClassName: schema.ClassName("Abc")},
 	}
+	idx.closeRequestedCtx, idx.signalCloseRequested = context.WithCancelCause(context.Background())
 	for _, cycle := range testCycles(idx.cycleCallbacks) {
 		cycle.Start()
 	}
 	t.Cleanup(func() {
 		// a cycle the index left running would otherwise outlive the test
 		for _, cycle := range testCycles(idx.cycleCallbacks) {
-			require.NoError(t, cycle.StopAndWait(context.Background()))
+			stopTestCycle(t, cycle)
 		}
 	})
 	return idx, hook

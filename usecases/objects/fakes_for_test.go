@@ -25,10 +25,12 @@ import (
 	"github.com/tailor-platform/graphql/language/ast"
 
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -42,6 +44,8 @@ const FindObjectFn = "func(context.Context, string, strfmt.UUID, " +
 	"search.SelectProperties, additional.Properties, string) (*search.Result, error)"
 
 type fakeSchemaManager struct {
+	// Left unset: only the methods defined below are expected.
+	local.SchemaReader
 	CalledWith struct {
 		fromClass string
 		property  string
@@ -54,10 +58,15 @@ type fakeSchemaManager struct {
 	// test controls
 	AddTenantsSchemaVersion uint64
 	AutoSchemaVersion       uint64
+	ClassVersion            uint64
+	AddClassErr             error
+	AddClassPropertyErr     error
+	WaitForUpdateErr        error
 	// observed
 	WaitedSchemaVersion    uint64
 	MaxWaitedSchemaVersion uint64
 	WaitedVersions         []uint64
+	GetClassCalls          []string
 }
 
 func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, principal *models.Principal,
@@ -90,6 +99,7 @@ func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string { re
 func (f *fakeSchemaManager) GetClass(ctx context.Context, principal *models.Principal,
 	name string,
 ) (*models.Class, error) {
+	f.GetClassCalls = append(f.GetClassCalls, name)
 	if f.GetSchemaResponse.Objects == nil {
 		return nil, f.GetschemaErr
 	}
@@ -117,7 +127,7 @@ func (f *fakeSchemaManager) GetCachedClass(ctx context.Context,
 		if err != nil {
 			return res, err
 		}
-		res[name] = versioned.Class{Class: cls}
+		res[name] = versioned.Class{Class: cls, Version: f.ClassVersion}
 	}
 	return res, nil
 }
@@ -146,12 +156,31 @@ func (f *fakeSchemaManager) ReadOnlyClass(name string) *models.Class {
 func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Principal,
 	class *models.Class,
 ) (*models.Class, uint64, error) {
+	if f.AddClassErr != nil {
+		return nil, 0, f.AddClassErr
+	}
 	if f.GetSchemaResponse.Objects == nil {
 		f.GetSchemaResponse.Objects = schema.Empty().Objects
 	}
-	class.VectorIndexConfig = hnsw.UserConfig{}
-	class.VectorIndexType = "hnsw"
-	class.Vectorizer = "none"
+	// mimic the parts of (*schema.Handler).setClassDefaults that callers care
+	// about: the legacy defaults land only on a class that asked for a legacy
+	// index, never on one that configured no vector at all
+	if len(class.VectorConfig) == 0 && modelsext.ClassHasLegacyVectorIndex(class) {
+		class.VectorIndexConfig = hnsw.UserConfig{}
+		if class.VectorIndexType == "" {
+			class.VectorIndexType = "hnsw"
+		}
+		if class.Vectorizer == "" {
+			class.Vectorizer = "none"
+		}
+	}
+	for targetVector, vectorConfig := range class.VectorConfig {
+		if vectorConfig.VectorIndexType == "" {
+			vectorConfig.VectorIndexType = "hnsw"
+			vectorConfig.VectorIndexConfig = hnsw.UserConfig{}
+			class.VectorConfig[targetVector] = vectorConfig
+		}
+	}
 	classes := f.GetSchemaResponse.Objects.Classes
 	if classes != nil {
 		classes = append(classes, class)
@@ -165,6 +194,10 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *models.Principal,
 	className string, merge bool, newProps ...*models.Property,
 ) (*models.Class, uint64, error) {
+	if f.AddClassPropertyErr != nil {
+		return nil, 0, f.AddClassPropertyErr
+	}
+
 	existing := map[string]int{}
 	var existedClass *models.Class
 	for _, c := range f.GetSchemaResponse.Objects.Classes {
@@ -204,6 +237,11 @@ func (f *fakeSchemaManager) WaitForUpdate(ctx context.Context, schemaVersion uin
 		f.MaxWaitedSchemaVersion = schemaVersion
 	}
 	f.WaitedVersions = append(f.WaitedVersions, schemaVersion)
+	// The real WaitForUpdate returns nil for version 0 without consulting RAFT,
+	// so the fake must not fail there either.
+	if schemaVersion > 0 {
+		return f.WaitForUpdateErr
+	}
 	return nil
 }
 
@@ -219,17 +257,17 @@ func (f *fakeSchemaManager) EnsureTenantActiveForWrite(ctx context.Context, clas
 	return 0, nil
 }
 
-type fakeVectorRepo struct {
+type fakeObjectFinder struct {
 	mock.Mock
 	CapturedSchemaVersion uint64
 }
 
-func (f *fakeVectorRepo) Exists(ctx context.Context, class string, id strfmt.UUID, repl *additional.ReplicationProperties, tenant string) (bool, error) {
+func (f *fakeObjectFinder) Exists(ctx context.Context, class string, id strfmt.UUID, repl *additional.ReplicationProperties, tenant string) (bool, error) {
 	args := f.Called(class, id)
 	return args.Bool(0), args.Error(1)
 }
 
-func (f *fakeVectorRepo) Object(ctx context.Context, cls string, id strfmt.UUID,
+func (f *fakeObjectFinder) Object(ctx context.Context, cls string, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
 	repl *additional.ReplicationProperties, tenant string,
 ) (*search.Result, error) {
@@ -240,7 +278,7 @@ func (f *fakeVectorRepo) Object(ctx context.Context, cls string, id strfmt.UUID,
 	return nil, args.Error(1)
 }
 
-func (f *fakeVectorRepo) ObjectByID(ctx context.Context, id strfmt.UUID,
+func (f *fakeObjectFinder) ObjectByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
 	tenant string,
 ) (*search.Result, error) {
@@ -251,21 +289,32 @@ func (f *fakeVectorRepo) ObjectByID(ctx context.Context, id strfmt.UUID,
 	return nil, args.Error(1)
 }
 
-func (f *fakeVectorRepo) ObjectSearch(ctx context.Context, offset, limit int, filters *filters.LocalFilter,
+func (f *fakeObjectFinder) ObjectsByID(ctx context.Context, id strfmt.UUID,
+	props search.SelectProperties, additional additional.Properties,
+	tenant, namespace string,
+) (search.Results, error) {
+	args := f.Called(id, props, additional, tenant, namespace)
+	if args.Get(0) != nil {
+		return args.Get(0).(search.Results), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (f *fakeObjectFinder) ObjectSearch(ctx context.Context, offset, limit int, filters *filters.LocalFilter,
 	sort []filters.Sort, additional additional.Properties, tenant string,
 ) (search.Results, error) {
 	args := f.Called(offset, limit, sort, filters, additional)
 	return args.Get(0).([]search.Result), args.Error(1)
 }
 
-func (f *fakeVectorRepo) Query(ctx context.Context, q *QueryInput) (search.Results, *Error) {
+func (f *fakeObjectFinder) Query(ctx context.Context, q *QueryInput) (search.Results, *Error) {
 	args := f.Called(q)
 	var customEr *Error
 	errors.As(args.Error(1), &customEr)
 	return args.Get(0).([]search.Result), customEr
 }
 
-func (f *fakeVectorRepo) PutObject(ctx context.Context, concept *models.Object, vector []float32,
+func (f *fakeObjectFinder) PutObject(ctx context.Context, concept *models.Object, vector []float32,
 	vectors map[string][]float32, multiVectors map[string][][]float32, repl *additional.ReplicationProperties, schemaVersion uint64,
 ) error {
 	f.CapturedSchemaVersion = schemaVersion
@@ -273,47 +322,50 @@ func (f *fakeVectorRepo) PutObject(ctx context.Context, concept *models.Object, 
 	return args.Error(0)
 }
 
-func (f *fakeVectorRepo) BatchPutObjects(ctx context.Context, batch BatchObjects,
+func (f *fakeObjectFinder) BatchPutObjects(ctx context.Context, batch BatchObjects,
 	repl *additional.ReplicationProperties, schemaVersion uint64,
 ) (BatchObjects, error) {
 	args := f.Called(batch)
 	return batch, args.Error(0)
 }
 
-func (f *fakeVectorRepo) AddBatchReferences(ctx context.Context, batch BatchReferences,
+func (f *fakeObjectFinder) AddBatchReferences(ctx context.Context, batch BatchReferences,
 	repl *additional.ReplicationProperties, schemaVersion uint64,
 ) (BatchReferences, error) {
+	f.CapturedSchemaVersion = schemaVersion
 	args := f.Called(batch)
 	return batch, args.Error(0)
 }
 
-func (f *fakeVectorRepo) BatchDeleteObjects(ctx context.Context, params BatchDeleteParams,
+func (f *fakeObjectFinder) BatchDeleteObjects(ctx context.Context, params BatchDeleteParams,
 	deletionTime time.Time, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) (BatchDeleteResult, error) {
+	f.CapturedSchemaVersion = schemaVersion
 	args := f.Called(params)
 	return args.Get(0).(BatchDeleteResult), args.Error(1)
 }
 
-func (f *fakeVectorRepo) Merge(ctx context.Context, merge MergeDocument, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64) error {
+func (f *fakeObjectFinder) Merge(ctx context.Context, merge MergeDocument, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64) error {
 	args := f.Called(merge)
 	return args.Error(0)
 }
 
-func (f *fakeVectorRepo) DeleteObject(ctx context.Context, className string,
+func (f *fakeObjectFinder) DeleteObject(ctx context.Context, className string,
 	id strfmt.UUID, deletionTime time.Time, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
+	f.CapturedSchemaVersion = schemaVersion
 	args := f.Called(className, id, deletionTime)
 	return args.Error(0)
 }
 
-func (f *fakeVectorRepo) AddReference(ctx context.Context, source *crossref.RefSource,
+func (f *fakeObjectFinder) AddReference(ctx context.Context, source *crossref.RefSource,
 	target *crossref.Ref, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
 	args := f.Called(source, target)
 	return args.Error(0)
 }
 
-func (f *fakeVectorRepo) ReferenceVectorSearch(ctx context.Context,
+func (f *fakeObjectFinder) ReferenceVectorSearch(ctx context.Context,
 	obj *models.Object, refProps map[string]struct{},
 ) ([][]float32, error) {
 	return nil, nil
@@ -380,6 +432,8 @@ type fakeModulesProvider struct {
 	mock.Mock
 	customExtender  *fakeExtender
 	customProjector *fakeProjector
+	// test control
+	ExtendErr error
 }
 
 func (p *fakeModulesProvider) GetObjectAdditionalExtend(ctx context.Context,
@@ -446,6 +500,10 @@ func (p *fakeModulesProvider) VectorizerName(className string) (string, error) {
 func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
 	in search.Results, moduleParams map[string]interface{}, capability string,
 ) (search.Results, error) {
+	if p.ExtendErr != nil {
+		return nil, p.ExtendErr
+	}
+
 	txt2vec := newNearCustomTextModule(p.getExtender(), p.getProjector(), &fakePathBuilder{})
 	additionalProperties := txt2vec.AdditionalProperties()
 	if err := p.checkCapabilities(additionalProperties, moduleParams, capability); err != nil {
@@ -817,7 +875,7 @@ func getFakeModulesProviderWithCustomExtenders(
 	customProjector *fakeProjector,
 	opts ...func(provider *fakeModulesProvider),
 ) *fakeModulesProvider {
-	p := &fakeModulesProvider{mock.Mock{}, customExtender, customProjector}
+	p := &fakeModulesProvider{customExtender: customExtender, customProjector: customProjector}
 	p.applyOptions(opts...)
 	return p
 }

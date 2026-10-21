@@ -70,16 +70,11 @@ func (s *MapToBlockmaxStrategy) WriteToReindexBucket(shard ShardLike, bucket *ls
 ) error {
 	propLen := calcPropLenInverted(prop.Items)
 	for _, item := range prop.Items {
-		pair := shard.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
-		if err := shard.addToPropertyMapBucket(bucket, pair, item.Data); err != nil {
+		if err := shard.addToPropertyMapBucket(bucket, docID, item.Data, item.TermFrequency, propLen); err != nil {
 			return fmt.Errorf("adding prop '%s': %w", item.Data, err)
 		}
 	}
 	return nil
-}
-
-func (s *MapToBlockmaxStrategy) ShouldProcessProperty(property *inverted.Property) bool {
-	return property.HasSearchableIndex
 }
 
 func (s *MapToBlockmaxStrategy) MakeAddCallback(bucketNamer func(string) string,
@@ -101,8 +96,7 @@ func (s *MapToBlockmaxStrategy) MakeAddCallback(bucketNamer func(string) string,
 		}
 		propLen := calcPropLen(property.Items)
 		for _, item := range property.Items {
-			pair := shard.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
-			if err := shard.addToPropertyMapBucket(bucket, pair, item.Data); err != nil {
+			if err := shard.addToPropertyMapBucket(bucket, docID, item.Data, item.TermFrequency, propLen); err != nil {
 				return fmt.Errorf("adding prop '%s' to bucket '%s': %w", item.Data, bucketName, err)
 			}
 		}

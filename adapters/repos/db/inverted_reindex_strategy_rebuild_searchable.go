@@ -62,10 +62,6 @@ func (s *RebuildSearchableStrategy) WriteToReindexBucket(shard ShardLike, bucket
 	return writeBlockmaxSearchablePostings(shard, bucket, docID, prop)
 }
 
-// ShouldProcessProperty is true for every targeted property — selection is
-// driven by selectedPropsByCollection in the task config.
-func (s *RebuildSearchableStrategy) ShouldProcessProperty(_ *inverted.Property) bool { return true }
-
 func (s *RebuildSearchableStrategy) MakeAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
 ) onAddToPropertyValueIndex {

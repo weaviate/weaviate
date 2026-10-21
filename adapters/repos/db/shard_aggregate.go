@@ -25,14 +25,15 @@ func (s *Shard) Aggregate(ctx context.Context, params aggregation.Params, module
 
 	// we only need the index queue for vector search
 	if params.NearObject != nil || params.NearVector != nil || params.Hybrid != nil || params.SearchVector != nil {
-		idx, ok := s.GetVectorIndex(params.TargetVector)
+		idx, release, ok := s.AcquireVectorIndex(params.TargetVector)
 		if !ok {
 			return nil, fmt.Errorf("no vector index for target vector %q", params.TargetVector)
 		}
+		defer release()
 		vectorIndex = idx
 	}
 
-	return aggregator.New(s.store, params, s.index.getSchema, s.index.classSearcher,
+	return aggregator.New(s.store, params, s.index.getSchema, s.propertyIndicesSnapshot(), s.index.classSearcher,
 		s.index.getStopwordProvider(), s.versioner.Version(), vectorIndex, s.index.logger, s.GetPropertyLengthTracker(),
 		s.isFallbackToSearchable, s.IsRangeableLocallyReady, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory, modules, s.index.Config.QueryHybridMaximumResults,
 		s.TokenizationFor).

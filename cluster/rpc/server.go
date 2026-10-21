@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
@@ -51,6 +52,8 @@ type raftPeers interface {
 	Notify(id string, addr string) error
 	Remove(id string) error
 	Leader() string
+	// local committed RAFT index, served to a joiner as its catch-up barrier.
+	CommitIndex() uint64
 }
 
 type raftFSM interface {
@@ -101,7 +104,8 @@ func (s *Server) JoinPeer(_ context.Context, req *cmd.JoinPeerRequest) (*cmd.Joi
 		return &cmd.JoinPeerResponse{Leader: s.raftPeers.Leader()}, toRPCError(err)
 	}
 
-	return &cmd.JoinPeerResponse{}, nil
+	// Only the leader reaches here; hand the joiner the committed index as its catch-up barrier.
+	return &cmd.JoinPeerResponse{LeaderCommitIndex: s.raftPeers.CommitIndex()}, nil
 }
 
 // RemovePeer will notify the RAFT cluster that a peer is removed from the cluster.
@@ -236,8 +240,12 @@ func toRPCError(err error) error {
 		// leader-local apply would otherwise reach the follower as
 		// codes.Internal and render 500.
 		ec = NotLeaderRPCCode
-	case errors.Is(err, types.ErrNotOpen):
+	case errors.Is(err, types.ErrNotOpen),
+		errors.Is(err, types.ErrFSMNotCaughtUp):
 		ec = codes.Unavailable
+	case errors.Is(err, types.ErrUnknownCommand):
+		// This node, or a node the request was forwarded to, has no handler for this command type.
+		ec = codes.Unimplemented
 	case errors.Is(err, namespaces.ErrNamespaceGone),
 		errors.Is(err, namespaces.ErrNotFound):
 		ec = codes.NotFound
@@ -251,7 +259,9 @@ func toRPCError(err error) error {
 		errors.Is(err, namespaces.ErrStateChangedConcurrently),
 		errors.Is(err, schema.ErrMTDisabled):
 		ec = codes.FailedPrecondition
-	case errors.Is(err, namespaces.ErrAlreadyExists):
+	case errors.Is(err, namespaces.ErrAlreadyExists),
+		errors.Is(err, apikey.ErrUserIdentifierExists),
+		errors.Is(err, apikey.ErrUserExists):
 		ec = codes.AlreadyExists
 	case errors.Is(err, schema.ErrClassVersionConflict):
 		// Optimistic-lock rejection: the proposer retries from a fresh read.

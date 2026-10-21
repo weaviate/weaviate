@@ -31,7 +31,6 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
@@ -48,10 +47,9 @@ const (
 func TestBlockmaxAgeOut(t *testing.T) {
 	ctx := context.Background()
 
-	compose, err := docker.New().
-		WithWeaviate().
-		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false"). // classes start on WAND
-		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
+	// SingleNodeCompose brings RUNTIME_REINDEX_ENABLED, the WAND start state
+	// (USE_INVERTED_SEARCHABLE=false) and the 1s scheduler tick.
+	compose, err := reindexhelpers.SingleNodeCompose().
 		WithWeaviateEnv("DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", "0"). // GC finished tasks on the next tick
 		Start(ctx)
 	require.NoError(t, err)

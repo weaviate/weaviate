@@ -23,6 +23,7 @@ import (
 	"golang.org/x/sync/semaphore"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -91,7 +92,7 @@ func runUsageScanTeardown(t *testing.T, nodeName, className, shardName string,
 	shardingState.SetLocalName(nodeName)
 
 	scanInCollection := make(chan struct{}, 8)
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 		func(_ string, _ bool, fn func(*models.Class, *sharding.State) error) error {
 			select {
@@ -105,13 +106,11 @@ func runUsageScanTeardown(t *testing.T, nodeName, className, shardName string,
 	mockSchemaReader.EXPECT().LocalShards(mock.Anything).Return([]string{shardName}, nil).Maybe()
 	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).Return(1, nil).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{nodeName}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
-	mockSchemaGetter.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-		Objects: &models.Schema{Classes: []*models.Class{class}},
-	}).Maybe()
+	mockSchemaGetter.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
 	mockSchemaGetter.EXPECT().ReadOnlyClass(className).Return(class).Maybe()
-	mockSchemaGetter.EXPECT().NodeName().Return(nodeName).Maybe()
 
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
 	mockNodeSelector.EXPECT().LocalName().Return(nodeName).Maybe()
@@ -125,7 +124,7 @@ func runUsageScanTeardown(t *testing.T, nodeName, className, shardName string,
 		RootPath:                  t.TempDir(),
 		MaxImportGoroutinesFactor: 1,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil,
-		memwatch.NewDummyMonitor(), mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		memwatch.NewDummyMonitor(), mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.NoError(t, err)
 	repo.SetSchemaGetter(mockSchemaGetter)
 	require.NoError(t, repo.WaitForStartup(ctx))

@@ -12,11 +12,10 @@
 package multi_tenancy_tests
 
 import (
+	"acceptance_tests_with_client/fixtures"
 	"context"
 	"testing"
 	"time"
-
-	"acceptance_tests_with_client/fixtures"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -85,7 +84,6 @@ func autoTenantActivationJourney(t *testing.T,
 		c.MultiTenancyConfig.AutoTenantActivation = true
 		err = client.Schema().ClassUpdater().WithClass(c).Do(ctx)
 		require.Nil(t, err)
-
 	})
 
 	t.Run("assert all tenants are queryable despite originally being COLD", func(t *testing.T) {
@@ -138,10 +136,10 @@ func TestImplicitActivation(t *testing.T) {
 		client *wvt.Client,
 		cleanupFn func(t *testing.T, ctx context.Context),
 	) {
-		compose, err := docker.New().WithWeaviateCluster(3).Start(ctx)
+		compose, err := docker.New().WithWeaviateCluster(3).WithText2VecModel2Vec().Start(ctx)
 		require.Nil(t, err)
 
-		client, err = wvt.NewClient(wvt.Config{Scheme: "http", Host: compose.ContainerURI(0)})
+		client, err = wvt.NewClient(wvt.Config{Scheme: "http", Host: compose.GetWeaviate().URI()})
 		require.Nil(t, err)
 
 		cleanupFn = func(t *testing.T, ctx context.Context) {
@@ -200,7 +198,9 @@ func assertTenantActiveNoRequire(t assert.TestingT, client *wvt.Client, classNam
 	assert.NotEmpty(t, gotTenants)
 
 	byName := fixtures.Tenants(gotTenants).ByName(tenantName)
-	assert.NotNil(t, byName)
+	if !assert.NotNil(t, byName) {
+		return
+	}
 	assert.Equal(t, models.TenantActivityStatusHOT, byName.ActivityStatus)
 }
 
@@ -214,7 +214,9 @@ func assertTenantInactiveNoRequire(t assert.TestingT, client *wvt.Client, classN
 	assert.NotEmpty(t, gotTenants)
 
 	byName := fixtures.Tenants(gotTenants).ByName(tenantName)
-	assert.NotNil(t, byName)
+	if !assert.NotNil(t, byName) {
+		return
+	}
 	assert.Equal(t, models.TenantActivityStatusCOLD, byName.ActivityStatus)
 }
 

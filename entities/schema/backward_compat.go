@@ -15,6 +15,7 @@ import (
 	errors_ "errors"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -43,9 +44,10 @@ func GetClassByName(s *models.Schema, className string) (*models.Class, error) {
 // If propName is a name of the nested property, then this property is returned.
 // It is not possible to retrieve deeply nested properties using the dot-notation.
 func GetPropertyByName(c *models.Class, propName string) (*models.Property, error) {
+	// a nested property is addressed by its first dot-notation segment
+	root, _, _ := strings.Cut(propName, ".")
 	for _, prop := range c.Properties {
-		// Check if the name of the property is the given name, that's the property we need
-		if prop.Name == strings.Split(propName, ".")[0] {
+		if prop.Name == root {
 			return prop, nil
 		}
 	}
@@ -82,10 +84,10 @@ func GetPropertyDataType(class *models.Class, propertyName string) (*DataType, e
 }
 
 func GetNestedPropertyByName[P PropertyInterface](p P, propName string) (*models.NestedProperty, error) {
-	// For each nested-property
+	// a deeper nested property is addressed by its first dot-notation segment
+	root, _, _ := strings.Cut(propName, ".")
 	for _, prop := range p.GetNestedProperties() {
-		// Check if the name of the property is the given name, that's the property we need
-		if prop.Name == strings.Split(propName, ".")[0] {
+		if prop.Name == root {
 			return prop, nil
 		}
 	}
@@ -167,18 +169,16 @@ func IsValidValueDataType(dt string) bool {
 // stored DataType — qualified "<namespace>:Class" or bare "Class".
 // User-supplied DataType must go through FindPropertyDataTypeWithRefsAndAuth.
 func IsRefDataType(dt []string) bool {
-	if len(dt) == 0 || len(dt[0]) == 0 {
-		return false
-	}
-	name := dt[0]
+	return len(dt) > 0 && ClassPartStartsUpper(dt[0])
+}
+
+// ClassPartStartsUpper reports whether the class part of name, after any
+// "<namespace>:" prefix, is non-empty and does not start lowercase.
+func ClassPartStartsUpper(name string) bool {
 	if _, cls, ok := strings.Cut(name, NamespaceSeparator); ok {
-		if cls == "" {
-			return false
-		}
 		name = cls
 	}
-	firstLetter := string(name[0])
-	return strings.ToUpper(firstLetter) == firstLetter
+	return name != "" && !unicode.IsLower(rune(name[0]))
 }
 
 func IsBlobDataType(dt []string) bool {

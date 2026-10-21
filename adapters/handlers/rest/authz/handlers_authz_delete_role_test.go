@@ -18,6 +18,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
@@ -143,6 +144,7 @@ func TestDeleteRoleInternalServerError(t *testing.T) {
 		name          string
 		params        authz.DeleteRoleParams
 		principal     *models.Principal
+		getRolesErr   error
 		upsertErr     error
 		expectedError string
 	}
@@ -158,6 +160,16 @@ func TestDeleteRoleInternalServerError(t *testing.T) {
 			upsertErr:     errors.New("remove error"),
 			expectedError: "remove error",
 		},
+		{
+			name: "role lookup error",
+			params: authz.DeleteRoleParams{
+				ID:          "roleToRemove",
+				HTTPRequest: req,
+			},
+			principal:     &models.Principal{Username: "user1"},
+			getRolesErr:   errors.New("failed to execute query: leader not found"),
+			expectedError: "leader not found",
+		},
 	}
 
 	for _, tt := range tests {
@@ -166,9 +178,13 @@ func TestDeleteRoleInternalServerError(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			controller.On("GetRoles", mock.Anything).Return(map[string][]authorization.Policy{tt.params.ID: {}}, nil)
-			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(nil)
-			controller.On("DeleteRoles", tt.params.ID).Return(tt.upsertErr)
+			if tt.getRolesErr != nil {
+				controller.On("GetRoles", mock.Anything).Return(nil, tt.getRolesErr)
+			} else {
+				controller.On("GetRoles", mock.Anything).Return(map[string][]authorization.Policy{tt.params.ID: {}}, nil)
+				authorizer.On("Authorize", mock.Anything, tt.principal, authorization.VerbWithScope(authorization.DELETE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(nil)
+				controller.On("DeleteRoles", tt.params.ID).Return(tt.upsertErr)
+			}
 
 			h := &authZHandlers{
 				authorizer: authorizer,
@@ -177,10 +193,13 @@ func TestDeleteRoleInternalServerError(t *testing.T) {
 			}
 			res := h.deleteRole(tt.params, tt.principal)
 			parsed, ok := res.(*authz.DeleteRoleInternalServerError)
-			assert.True(t, ok)
+			require.True(t, ok, "got %T", res)
 
 			if tt.expectedError != "" {
 				assert.Contains(t, parsed.Payload.Error[0].Message, tt.expectedError)
+			}
+			if tt.getRolesErr != nil {
+				controller.AssertNotCalled(t, "DeleteRoles", mock.Anything)
 			}
 		})
 	}

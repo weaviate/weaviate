@@ -450,11 +450,7 @@ func TestCheckConflict_RejectsParallelOnSameProp(t *testing.T) {
 	}
 	existPayload, _ := json.Marshal(existP)
 
-	for _, status := range []distributedtask.TaskStatus{
-		distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping,
-	} {
+	for _, status := range blockingStatuses {
 		t.Run(string(status), func(t *testing.T) {
 			existing := []*distributedtask.Task{
 				{
@@ -655,11 +651,7 @@ func TestCheckPropertyUpdate_InFlightOnSamePropertyRejects(t *testing.T) {
 		Properties:    []string{"name"},
 	})
 
-	for _, status := range []distributedtask.TaskStatus{
-		distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping,
-	} {
+	for _, status := range blockingStatuses {
 		t.Run(string(status), func(t *testing.T) {
 			tasks := []*distributedtask.Task{{
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_change_tok", Version: 1},
@@ -847,11 +839,7 @@ func TestCheckClassMutation_InFlightOnSameClassRejects(t *testing.T) {
 		Properties: []string{"name"},
 	})
 
-	for _, status := range []distributedtask.TaskStatus{
-		distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping,
-	} {
+	for _, status := range blockingStatuses {
 		t.Run(string(status), func(t *testing.T) {
 			tasks := []*distributedtask.Task{{
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_class", Version: 1},
@@ -915,11 +903,7 @@ func TestCheckTenantMutation_InFlightOnSameClassRejects(t *testing.T) {
 		Properties:    []string{"name"},
 	})
 
-	for _, status := range []distributedtask.TaskStatus{
-		distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping,
-	} {
+	for _, status := range blockingStatuses {
 		t.Run(string(status), func(t *testing.T) {
 			tasks := []*distributedtask.Task{{
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_tenant", Version: 1},
@@ -994,5 +978,109 @@ func TestCheckPropertyUpdate_EmptyMigrationTypeOrCollectionRejects(t *testing.T)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "T_empty")
 		})
+	}
+}
+
+// unknownFutureStatus simulates a status a newer node introduced that
+// this build doesn't recognize. Must never become a real status name.
+//
+// A const is fine outside cluster/distributedtask. Inside it, the
+// exhaustive linter reads every TaskStatus const in the package as an
+// enum member, so the copy there is a var.
+const unknownFutureStatus distributedtask.TaskStatus = "UNKNOWN_FUTURE_STATE"
+
+// blockingStatuses are the non-terminal statuses every reindex conflict
+// guard must refuse a mutation for, the unrecognized one included.
+var blockingStatuses = []distributedtask.TaskStatus{
+	distributedtask.TaskStatusStarted,
+	distributedtask.TaskStatusPreparing,
+	distributedtask.TaskStatusSwapping,
+	unknownFutureStatus,
+}
+
+// Pins: a mutation refusal tells the operator to cancel the reindex only
+// for the status the cancel API accepts one for. STARTED is that status.
+// A coordination phase gets 409 because stopping mid-cutover is unsafe,
+// and a status this build cannot classify gets 409 on every node — so
+// naming a cancel for either sends the operator down a road that
+// dead-ends.
+//
+// The expectations are spelled out per status rather than derived from
+// IsCancellable, so re-keying the helper onto a different predicate
+// shows up here as a failure instead of moving the goalposts with it.
+func TestMutationRefusals_NameACancelOnlyWhereTheAPIAcceptsOne(t *testing.T) {
+	provider := &ReindexProvider{}
+	payload, _ := json.Marshal(ReindexTaskPayload{
+		Collection:    "C",
+		MigrationType: ReindexTypeChangeTokenization,
+		Properties:    []string{"name"},
+	})
+	tasksIn := func(status distributedtask.TaskStatus) []*distributedtask.Task {
+		return []*distributedtask.Task{{
+			TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1},
+			Status:         status,
+			Payload:        payload,
+		}}
+	}
+
+	// Each guard's own wording for "cancel it", which may appear only
+	// where a cancel is accepted.
+	guards := map[string]struct {
+		call         func(tasks []*distributedtask.Task) error
+		cancelAdvice string
+	}{
+		"property update": {
+			call: func(tasks []*distributedtask.Task) error {
+				return provider.CheckPropertyUpdate("C", "name", tasks)
+			},
+			cancelAdvice: "cancel it via the reindex REST API before retrying",
+		},
+		"class mutation": {
+			call: func(tasks []*distributedtask.Task) error {
+				return provider.CheckClassMutation("C", tasks)
+			},
+			cancelAdvice: "cancel the reindex via the REST API before deleting the class",
+		},
+		"tenant mutation": {
+			call: func(tasks []*distributedtask.Task) error {
+				return provider.CheckTenantMutation("C", []string{"t1"}, tasks)
+			},
+			cancelAdvice: "cancel the reindex via the REST API before mutating these tenants",
+		},
+	}
+
+	for _, tc := range []struct {
+		status           distributedtask.TaskStatus
+		wantCancelAdvice bool
+		wantReason       string
+	}{
+		{status: distributedtask.TaskStatusStarted, wantCancelAdvice: true},
+		{
+			status:     distributedtask.TaskStatusPreparing,
+			wantReason: "past the point where a cancel is accepted",
+		},
+		{
+			status:     distributedtask.TaskStatusSwapping,
+			wantReason: "past the point where a cancel is accepted",
+		},
+		{
+			status:     unknownFutureStatus,
+			wantReason: "cannot classify that status",
+		},
+	} {
+		for name, guard := range guards {
+			t.Run(string(tc.status)+"/"+name, func(t *testing.T) {
+				err := guard.call(tasksIn(tc.status))
+				require.Error(t, err, "every non-terminal status blocks the mutation")
+
+				if tc.wantCancelAdvice {
+					require.Contains(t, err.Error(), guard.cancelAdvice)
+					return
+				}
+				require.NotContains(t, err.Error(), guard.cancelAdvice,
+					"a cancel for %q is refused with 409, so the refusal must not name one", tc.status)
+				require.Contains(t, err.Error(), tc.wantReason)
+			})
+		}
 	}
 }

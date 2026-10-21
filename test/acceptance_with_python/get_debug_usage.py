@@ -1,6 +1,6 @@
 import time
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Callable, List, Optional
 import httpx
 
 
@@ -219,3 +219,49 @@ def get_debug_usage_for_collection(
         if attempt < retries - 1:
             time.sleep(delay)
     raise last_err
+
+
+def get_settled_debug_usage_for_collection(
+    collection: str,
+    accept: Optional[Callable[[CollectionUsage], bool]] = None,
+    stable_reads: int = 4,
+    delay: float = 1.0,
+    timeout: float = 120.0,
+) -> CollectionUsage:
+    """Read usage once the shard stops writing to disk in the background.
+
+    A shard that was just loaded keeps shrinking on disk: the HNSW commit log is written
+    unconsolidated during import and rewritten once the shard reloads, and dirty memtables are
+    flushed on a timer. A read taken right after activating a tenant therefore captures a
+    transient value - for a 1000 object shard the report starts at ~35 MB and drops to ~5.7 MB.
+    Comparing such a read against one taken later, as the hot vs cold assertions do, compares
+    two different disk states.
+
+    Repeated identical reads do not prove the shard has settled, because the report also holds
+    still while the rewrite is running: the replacement is buffered under a temporary name and
+    the original is only dropped once it completes, so the shard sat at exactly 35 MB for six
+    seconds before dropping in a single step. Callers waiting on such a rewrite say so through
+    `accept` - reads it rejects do not count towards stability, and only a report it accepts is
+    returned.
+
+    Poll until `stable_reads` consecutive accepted reports are identical, so the comparison is
+    over a disk state that is no longer moving and can be asserted exactly.
+    """
+    deadline = time.monotonic() + timeout
+    previous = None
+    identical = 0
+    while True:
+        current = get_debug_usage_for_collection(collection)
+        if accept is None or accept(current):
+            identical = identical + 1 if current == previous else 1
+            previous = current
+            if identical >= stable_reads:
+                return current
+        else:
+            identical = 0
+            previous = None
+        if time.monotonic() >= deadline:
+            raise TimeoutError(
+                f"usage of collection {collection} did not settle within {timeout}s, last report: {current}"
+            )
+        time.sleep(delay)

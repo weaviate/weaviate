@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
@@ -28,6 +29,7 @@ import (
 	hfreshent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type DimensionCategory int
@@ -64,9 +66,13 @@ func (c DimensionCategory) String() string {
 	}
 }
 
-// DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
-func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string) (types.Dimensionality, error) {
-	return s.calcTargetVectorDimensions(ctx, targetVector)
+// DimensionsUsage scans the dimensions bucket for a given vector, see shardusage.ScanTargetVectorDimensions
+func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string, encodedDimensions int) (shardusage.DimensionsScan, error) {
+	b := s.store.Bucket(helpers.DimensionsBucketLSM)
+	if b == nil {
+		return shardusage.DimensionsScan{}, errors.Errorf("dimensionsUsage: no bucket dimensions")
+	}
+	return shardusage.ScanTargetVectorDimensions(ctx, b, targetVector, encodedDimensions)
 }
 
 // Dimensions returns the total number of dimensions for a given vector
@@ -88,11 +94,20 @@ func (s *Shard) QuantizedDimensions(ctx context.Context, targetVector string, se
 
 func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector string,
 ) (types.Dimensionality, error) {
-	b := s.store.Bucket(helpers.DimensionsBucketLSM)
-	if b == nil {
+	if b := s.store.Bucket(helpers.DimensionsBucketLSM); b != nil {
+		scan, err := shardusage.ScanTargetVectorDimensions(ctx, b, targetVector, 0)
+		if err != nil {
+			return types.Dimensionality{}, err
+		}
+		return scan.Raw, nil
+	}
+	if s.index.Config.TrackVectorDimensions {
 		return types.Dimensionality{}, errors.Errorf("calcTargetVectorDimensions: no bucket dimensions")
 	}
-	return shardusage.CalculateTargetVectorDimensionsFromBucket(ctx, b, targetVector)
+	// A shard that does not track dimensions never opened the bucket, so read what
+	// an earlier tracking run left on disk — the same source an unloaded shard
+	// reads, so one shard reports the same either way.
+	return shardusage.CalculateUnloadedDimensionsUsage(ctx, s.index.logger, s.index.path(), s.name, targetVector)
 }
 
 // DimensionMetrics represents the dimension tracking metrics for a vector.
@@ -137,15 +152,16 @@ func (s *Shard) clearDimensionMetrics() {
 // accounted for the next time nodeWideMetricsObserver recalculates
 // total vector dimensions, because only _active_ shards are considered.
 func clearDimensionMetrics(cfg IndexConfig, promMetrics *monitoring.PrometheusMetrics, className, shardName string) {
-	if !cfg.TrackVectorDimensions || promMetrics.Group {
+	if promMetrics == nil || !cfg.TrackVectorDimensions || promMetrics.Group {
 		return
 	}
+	namespace := namespacing.NamespaceFromQualified(className)
 	if g, err := promMetrics.VectorDimensionsSum.
-		GetMetricWithLabelValues(className, shardName); err == nil {
+		GetMetricWithLabelValues(className, shardName, namespace); err == nil {
 		g.Set(0)
 	}
 	if g, err := promMetrics.VectorSegmentsSum.
-		GetMetricWithLabelValues(className, shardName); err == nil {
+		GetMetricWithLabelValues(className, shardName, namespace); err == nil {
 		g.Set(0)
 	}
 }
@@ -227,6 +243,56 @@ func getDynamicCompression(config dynamicent.UserConfig, dynamicUpgraded bool) D
 	}
 }
 
+// compressionRatio reports how many times smaller a compressed vector is than
+// its float32 form, by asking the quantizer the configuration selects. Each
+// quantizer derives the ratio from the dimensions alone, so an unloaded shard
+// can report it without its index.
+//
+// quantizedVectorsExist says whether the shard's quantized vectors bucket holds
+// anything, which the configuration does not settle: PQ and SQ wait for their
+// training limit before compressing anything, and until then the vectors on disk
+// are float32. hfresh is exempt — it keeps its codes in its own postings.
+func (di DimensionInfo) compressionRatio(dimensions int, quantizedVectorsExist bool) float64 {
+	if !quantizedVectorsExist && di.category != DimensionCategoryAuto {
+		return compressionhelpers.UncompressedStats{}.CompressionRatio(dimensions)
+	}
+
+	var stats compressionhelpers.CompressionStats
+	switch di.category {
+	case DimensionCategoryPQ:
+		stats = compressionhelpers.PQStats{M: correctEmptySegments(di.segments, dimensions)}
+	case DimensionCategoryBQ:
+		stats = compressionhelpers.BQStats{}
+	case DimensionCategorySQ:
+		stats = compressionhelpers.SQStats{}
+	case DimensionCategoryRQ:
+		if di.bits == 1 {
+			stats = compressionhelpers.BinaryRQStats{}
+		} else {
+			stats = compressionhelpers.RQStats{Bits: uint32(di.bits)}
+		}
+	case DimensionCategoryAuto:
+		// hfresh quantizes with RQ on 1 bit; its config validation rejects
+		// disabling it or asking for another bit count
+		stats = compressionhelpers.BinaryRQStats{}
+	default:
+		stats = compressionhelpers.UncompressedStats{}
+	}
+	return vectorCompressionRatio(stats, dimensions)
+}
+
+// vectorCompressionRatio turns a quantizer's stats into the ratio the usage
+// report carries, for a loaded shard's index and an unloaded shard's
+// configuration alike.
+func vectorCompressionRatio(stats compressionhelpers.CompressionStats, dimensions int) float64 {
+	// with nothing tracked there is nothing to compress, and PQ's optimal
+	// segment count would collapse to zero and divide by it
+	if dimensions <= 0 {
+		return compressionhelpers.UncompressedStats{}.CompressionRatio(dimensions)
+	}
+	return stats.CompressionRatio(dimensions)
+}
+
 func correctEmptySegments(segments int, dimensions int) int {
 	// If segments is 0 (unset), in this case PQ will calculate the number of segments
 	// based on the number of dimensions
@@ -236,7 +302,16 @@ func correctEmptySegments(segments int, dimensions int) int {
 	return common.CalculateOptimalSegments(dimensions)
 }
 
+// extendDimensionTrackerLSM records a vector's dimensions, but only for a vector
+// this shard still indexes. A drop removes the index in the schema apply and
+// clears the rows later, on the drop task. A write that checked the class
+// before the drop can arrive here after that clear, and would bring the rows
+// back for a re-created vector of the same name to inherit. The check sits at
+// the write so nothing can stall between the two.
 func (s *Shard) extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error {
+	if _, ok := s.vectors.get(targetVector); !ok {
+		return nil
+	}
 	return s.addToDimensionBucket(dimLength, docID, targetVector, false)
 }
 
@@ -245,6 +320,55 @@ func (s *Shard) extendDimensionTrackerLSM(dimLength int, docID uint64, targetVec
 // targetVector,128 | 1,2,4,5,17, Tombstone 4,
 func (s *Shard) removeDimensionsLSM(dimLength int, docID uint64, targetVector string) error {
 	return s.addToDimensionBucket(dimLength, docID, targetVector, true)
+}
+
+// removeAllDimensionsLSM clears every dimension row targetVector owns.
+//
+// A missing bucket means the shard never tracked dimensions — unless it is
+// shutting down, because Store.Shutdown blanks bucketsByName before it drains.
+// Reporting success there would lose the clear for good: the finalizer then
+// drops the name from the schema and no route ever looks at it again. Callers
+// that can race a teardown hold preventShutdown; this is what catches the ones
+// that forget.
+func (s *Shard) removeAllDimensionsLSM(ctx context.Context, targetVector string) error {
+	// Stops when the shard is dropped. Store.Shutdown waits on the pin below, so
+	// a tenant or collection delete, which is a RAFT apply, would otherwise wait
+	// out the rest of the clear once its reference drain gives up.
+	if s.shutCtx != nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithCancel(ctx)
+		defer cancel()
+		stop := context.AfterFunc(s.shutCtx, cancel)
+		defer stop()
+		// AfterFunc cancels on its own goroutine even when shutCtx is already
+		// done, which could let the first chunk through.
+		if s.shutCtx.Err() != nil {
+			cancel()
+		}
+	}
+
+	// Pinned, not just fetched: the clear walks the bucket and then writes to
+	// it, and replaceDimensionsBucket can swap this bucket underneath it
+	// (Store.ReplaceBuckets). The pin also covers the segments its cursors read,
+	// which a concurrent Shutdown would otherwise unmap.
+	b, release := s.store.AcquireBucketForRead(helpers.DimensionsBucketLSM)
+	defer release()
+	if b == nil {
+		if s.shut.Load() || s.shutdownRequested.Load() {
+			return fmt.Errorf("remove dimensions for %q: %w", targetVector, errAlreadyShutdown)
+		}
+		return nil
+	}
+	if err := shardusage.RemoveTargetVectorDimensions(ctx, b, targetVector); err != nil {
+		if s.shutCtx != nil && s.shutCtx.Err() != nil {
+			return fmt.Errorf("remove dimensions for %q: %w", targetVector, context.Cause(s.shutCtx))
+		}
+		return err
+	}
+	// Written through before returning, as every write path does. The caller
+	// records the drop complete next, and nothing retries a clear that a
+	// process crash undid.
+	return b.WriteWAL()
 }
 
 func (s *Shard) addToDimensionBucket(dimLength int, docID uint64, vecName string, tombstone bool) error {

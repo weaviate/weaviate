@@ -12,12 +12,11 @@
 package db
 
 import (
-	"context"
 	"encoding/binary"
 	"fmt"
 	"math"
+	"math/bits"
 	"strings"
-	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -35,7 +34,7 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []i
 		}
 
 		// add non-nil properties to the null-state inverted index, but skip internal properties (__meta_count, _id etc)
-		if isMetaCountProperty(prop) || isInternalProperty(prop) {
+		if isMetaCountProperty(prop) || isInternalProperty(prop) || prop.OverlayForcedOnly {
 			continue
 		}
 
@@ -105,8 +104,7 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 		}
 		for _, item := range property.Items {
 			key := item.Data
-			pair := s.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
-			if err := s.addToPropertyMapBucket(bucketValue, pair, key); err != nil {
+			if err := s.addToPropertyMapBucket(bucketValue, docID, key, item.TermFrequency, propLen); err != nil {
 				return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
 			}
 		}
@@ -169,17 +167,20 @@ func (s *Shard) addToPropertyNullIndex(propName string, docID uint64, isNull boo
 	return nil
 }
 
+// searchableDocID is the doc ID as a searchable bucket's key reads big-endian.
+// Shards below index version 2 wrote those keys little-endian, so reverse.
+func (s *Shard) searchableDocID(docID uint64) uint64 {
+	if s.versioner.Version() < 2 {
+		return bits.ReverseBytes64(docID)
+	}
+	return docID
+}
+
 func (s *Shard) pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair {
 	// 8 bytes for doc id, 4 bytes for frequency, 4 bytes for prop term length
 	buf := make([]byte, 16)
 
-	// Shard Index version 2 requires BigEndian for sorting, if the shard was
-	// built prior assume it uses LittleEndian
-	if s.versioner.Version() < 2 {
-		binary.LittleEndian.PutUint64(buf[0:8], docID)
-	} else {
-		binary.BigEndian.PutUint64(buf[0:8], docID)
-	}
+	binary.BigEndian.PutUint64(buf[0:8], s.searchableDocID(docID))
 	binary.LittleEndian.PutUint32(buf[8:12], math.Float32bits(freq))
 	binary.LittleEndian.PutUint32(buf[12:16], math.Float32bits(propLen))
 
@@ -189,10 +190,14 @@ func (s *Shard) pairPropertyWithFrequency(docID uint64, freq, propLen float32) l
 	}
 }
 
-func (s *Shard) addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error {
+func (s *Shard) addToPropertyMapBucket(bucket *lsmkv.Bucket, docID uint64, key []byte, tf, propLen float32) error {
 	lsmkv.MustBeExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection, lsmkv.StrategyInverted)
 
-	return bucket.MapSet(key, pair)
+	if bucket.Strategy() == lsmkv.StrategyInverted {
+		return bucket.InvertedSet(key, s.searchableDocID(docID), tf, propLen)
+	}
+
+	return bucket.MapSet(key, s.pairPropertyWithFrequency(docID, tf, propLen))
 }
 
 func (s *Shard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
@@ -244,7 +249,7 @@ func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket,
 
 func (s *Shard) SetPropertyLengths(props []inverted.Property) error {
 	for _, prop := range props {
-		if !prop.HasSearchableIndex {
+		if !prop.HasSearchableIndex || prop.OverlaySearchable {
 			continue
 		}
 
@@ -259,7 +264,7 @@ func (s *Shard) SetPropertyLengths(props []inverted.Property) error {
 
 func (s *Shard) subtractPropLengths(props []inverted.Property) error {
 	for _, prop := range props {
-		if !prop.HasSearchableIndex {
+		if !prop.HasSearchableIndex || prop.OverlaySearchable {
 			continue
 		}
 
@@ -267,49 +272,6 @@ func (s *Shard) subtractPropLengths(props []inverted.Property) error {
 			return err
 		}
 
-	}
-
-	return nil
-}
-
-var uniqueCounter atomic.Uint64
-
-// GenerateUniqueString generates a random string of the specified length
-func GenerateUniqueString(length int) (string, error) {
-	uniqueCounter.Add(1)
-	return fmt.Sprintf("%v", uniqueCounter.Load()), nil
-}
-
-// Empty the dimensions bucket, quickly and efficiently
-func (s *Shard) resetDimensionsLSM(ctx context.Context) error {
-	// Load the current one, or an empty one if it doesn't exist
-	err := s.createDimensionsBucket(context.Background(), helpers.DimensionsBucketLSM)
-	if err != nil {
-		return fmt.Errorf("create dimensions bucket: %w", err)
-	}
-
-	// Fetch the actual bucket
-	b := s.store.Bucket(helpers.DimensionsBucketLSM)
-	if b == nil {
-		return errors.Errorf("resetDimensionsLSM: no bucket dimensions")
-	}
-
-	// Create random bucket name
-	name, err := GenerateUniqueString(32)
-	if err != nil {
-		return errors.Wrap(err, "generate unique bucket name")
-	}
-
-	// Create a new bucket with the unique name
-	err = s.createDimensionsBucket(context.Background(), name)
-	if err != nil {
-		return errors.Wrap(err, "create temporary dimensions bucket")
-	}
-
-	// Replace the old bucket with the new one
-	err = s.store.ReplaceBuckets(context.Background(), helpers.DimensionsBucketLSM, name)
-	if err != nil {
-		return errors.Wrap(err, "replace dimensions bucket")
 	}
 
 	return nil

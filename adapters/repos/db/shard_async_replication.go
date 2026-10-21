@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -33,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -61,24 +63,11 @@ const (
 	defaultPropagationConcurrency     = 1
 	defaultPropagationBatchSize       = 100
 	defaultPropagationDelay           = 30 * time.Second
-	// asyncReplicationWorkerDrainTimeout is the maximum time mayStopAsyncReplication
-	// will wait for in-flight hashbeat workers to exit after the per-shard context
-	// has been cancelled. Workers should unblock almost immediately once their
-	// context is done; this deadline exists solely to prevent a non-cancellable
-	// downstream RPC (kernel-level TCP stall, buggy transport) from blocking
-	// shard shutdown indefinitely.
-	asyncReplicationWorkerDrainTimeout = 10 * time.Second
-
-	// hashtreeDumpTimeout is the maximum time dumpHashTreeWithTimeout will wait
-	// for the hashtree fsync+rename to complete. dumpHashTreeOf calls f.Sync()
-	// which is a blocking OS syscall that can stall for minutes on degraded
-	// storage. Treating the dump as best-effort — if it times out the tree is
-	// simply rebuilt from scratch on the next startup — prevents shard shutdown
-	// from hanging indefinitely and blocking rolling restarts.
+	// Caps the post-flush shutdown dump; dumpPublishGate blocks late publication.
 	hashtreeDumpTimeout = 30 * time.Second
 
-	minHashtreeHeight = 0
-	maxHashtreeHeight = 20
+	minHashtreeHeight = entreplication.MinHashtreeHeight
+	maxHashtreeHeight = entreplication.MaxHashtreeHeight
 
 	// minFrequency is the smallest accepted value for `frequency` in both
 	// per-class API overrides and global runtime config. Below this, hashbeats
@@ -95,18 +84,21 @@ const (
 	// at hashbeat rate would flood logs in busy clusters.
 	minLoggingFrequency = 1 * time.Second
 
-	minDiffBatchSize = 1
-	maxDiffBatchSize = 10_000
+	minDiffBatchSize = entreplication.MinDiffBatchSize
+	maxDiffBatchSize = entreplication.MaxDiffBatchSize
 
-	minPropagationLimit = 1
-	maxPropagationLimit = 100_000
+	minPropagationLimit = entreplication.MinPropagationLimit
+	maxPropagationLimit = entreplication.MaxPropagationLimit
 
-	minPropagationConcurrency = 1
-	maxPropagationConcurrency = 20
+	minPropagationConcurrency = entreplication.MinPropagationConcurrency
+	maxPropagationConcurrency = entreplication.MaxPropagationConcurrency
 
-	minPropagationBatchSize = 1
-	maxPropagationBatchSize = 1_000
+	minPropagationBatchSize = entreplication.MinPropagationBatchSize
+	maxPropagationBatchSize = entreplication.MaxPropagationBatchSize
 )
+
+// Compile-time: the schema validator's height bound must track hashtree's deserialization bound.
+var _ = [1]struct{}{}[entreplication.MaxHashtreeHeight-hashtree.MaxHeight]
 
 // asyncReplicationClassOverrides holds per-class API values that take
 // precedence over both code defaults and global runtime config. A nil pointer
@@ -388,7 +380,14 @@ func initRetryBackoff(i int) time.Duration {
 // hashbeat work without relying solely on Deregister/disableAsyncReplication
 // being called on every path.
 func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hashtree.AggregatedHashTree) error {
+	// The store clears its bucket map at shutdown; a nil bucket means teardown won.
+	if s.store == nil {
+		return fmt.Errorf("store not initialized on shard %q", s.name)
+	}
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	if bucket == nil {
+		return fmt.Errorf("objects bucket unavailable on shard %q (store shutting down)", s.name)
+	}
 
 	parentCtx := context.Background()
 	if s.index != nil && s.index.asyncReplicationScheduler != nil {
@@ -399,7 +398,10 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 	s.asyncRepCtx = ctx
 
 	s.asyncRepLastLog.Store(0)
+	s.asyncRepFailLastLog.Store(0)
 	s.asyncReplicationConfig = config
+	// Armed by initHashtree at scan start, never while queued for a slot; a stale channel from a previous enable must not park writers.
+	s.minimalHashtreeInitializationCh = nil
 
 	effectiveConfig := config
 	if s.index != nil && s.index.globalreplicationConfig != nil {
@@ -420,12 +422,7 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 		// asyncReplicationRWMux.RLock (in onResultLocked), causing a deadlock.
 		// Spawning a goroutine mirrors the pattern used by the new-hashtree path.
 		//
-		// asyncRepWg tracks this goroutine so that rebuildHashtree's
-		// asyncRepWg.Wait() serialises rebuilds against it. Without tracking, a
-		// rapid disable→enable cycle (e.g. during a rebuild or a repair override
-		// remove→add) would spawn a new goroutine before the old one exits.
-		// Note: disableAsyncReplication does NOT call asyncRepWg.Wait(); the
-		// goroutine exits promptly once the context is cancelled or hashtree is nil.
+		// Latched so a rebuild's drain waits for this Register; a disable does not wait (the goroutine exits on a cancelled ctx or a nil hashtree).
 		s.asyncRepWg.Add(1)
 		enterrors.GoWrapper(func() {
 			defer s.asyncRepWg.Done()
@@ -445,69 +442,40 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 				return
 			}
 
-			// Guard against disableAsyncReplication running between the lock
-			// release above and Register() returning. If disable ran in that
-			// window, it called Deregister as a no-op (shard wasn't registered
-			// yet) and set hashtree to nil. Self-deregister now so the disabled
-			// shard is not left in the scheduler. RLock is held across Deregister
-			// to close the TOCTOU window: enableAsyncReplication needs WLock to
-			// set hashtree, so it cannot race between the nil-check and Deregister.
-			s.asyncReplicationRWMux.RLock()
-			stillRunning := s.hashtree != nil
-			if !stillRunning {
+			// Keep the registration only for a ready tree (own or a newer goroutine's, whose Register is idempotent); nil or unready means a flap whose owner registers later, so self-deregister under RLock.
+			func() {
+				s.asyncReplicationRWMux.RLock()
+				defer s.asyncReplicationRWMux.RUnlock() // deferred: a panic while logging must not leak the RLock
+				if s.hashtreeFullyInitialized {
+					return
+				}
 				if err := s.index.asyncReplicationScheduler.Deregister(s); err != nil {
 					s.index.logger.WithField("action", "async_replication").Error(err)
 				}
-			}
-			s.asyncReplicationRWMux.RUnlock()
+			}()
 		}, s.index.logger)
 		return nil
 	}
 
-	var err error
-	s.hashtree, err = hashtree.NewHashTree(effectiveConfig.hashtreeHeight)
+	// An error path must never leave {hashtree == nil, hashtreeFullyInitialized == true}.
+	s.hashtreeFullyInitialized = false
+
+	// Publish only on success: a direct assignment stores a typed-nil interface on error.
+	// A placeholder: initHashtree installs a fresh tree at scan start, so folds into this one are discarded.
+	ht, err := hashtree.NewHashTree(effectiveConfig.hashtreeHeight)
 	if err != nil {
+		cancelFunc() // don't leak the child ctx in the scheduler's children
 		return err
 	}
+	s.hashtree = ht
 
-	s.hashtreeFullyInitialized = false
-	s.minimalHashtreeInitializationCh = make(chan struct{})
-	// The init goroutine closes the channel it owns, not the shard field, which a
-	// concurrent enable may have swapped out under flapping. See closeInitCh.
-	initCh := s.minimalHashtreeInitializationCh
-
-	// asyncRepWg tracks this goroutine so that rebuildHashtree's
-	// asyncRepWg.Wait() serialises rebuilds against it, preventing the old
-	// goroutine from overlapping with a new one spawned by the next
-	// enableAsyncReplication call (e.g. during a rebuild or repair cycle).
-	// Note: disableAsyncReplication does NOT call asyncRepWg.Wait(); the
-	// goroutine exits promptly once ctx is cancelled or hashtree is nil.
+	// Latched so a rebuild's drain waits for this init scan; a disable does not wait (the goroutine exits on a cancelled ctx or a nil hashtree).
 	s.asyncRepWg.Add(1)
 	enterrors.GoWrapper(func() {
 		defer s.asyncRepWg.Done()
 
-		// closeInitCh closes this goroutine's owned channel exactly once, unblocking
-		// merges parked in waitForMinimalHashTreeInitialization. It runs as both
-		// initHashtree's afterInMemCallback and a defer covering the early exits
-		// (scheduler nil, slot acquisition cancelled) that never reach initHashtree
-		// and would otherwise leave the channel open forever. The retry loop replaces
-		// ownedCh per attempt.
-		//
-		// No lock: ownedCh/ownedClosed are goroutine-local and close() already
-		// synchronizes with receivers. It must NOT take asyncReplicationRWMux — it
-		// runs while writes hold the RLock, so becoming a pending writer would, under
-		// Go's writer-priority RWMutex, block every new RLock and deadlock them.
-		ownedCh := initCh
-		ownedClosed := false
-		closeInitCh := func() {
-			if !ownedClosed {
-				ownedClosed = true
-				close(ownedCh)
-			}
-		}
-		defer closeInitCh()
-
-		if s.index.asyncReplicationScheduler == nil {
+		sched := s.index.asyncReplicationScheduler
+		if sched == nil {
 			return
 		}
 
@@ -518,17 +486,18 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 		// The slot is acquired and released around each individual attempt rather
 		// than held for the entire retry lifetime. This prevents a shard with
 		// persistent initHashtree failures from permanently occupying a slot and
-		// blocking all other shards from initialising.
+		// blocking all other shards from initialising. Writers are never parked
+		// while queued: each attempt arms its own gate at scan start (see initHashtree).
 		for i := 0; ; i++ {
-			if err := s.index.asyncReplicationScheduler.acquireHashtreeInitSlot(ctx); err != nil {
+			if err := s.acquireHashtreeInitSlot(ctx, sched); err != nil {
 				return // context cancelled before a slot became available
 			}
 			// Wrapped in a closure so that releaseHashtreeInitSlot is deferred
-			// and runs even if initHashtree panics (GoWrapper recovers at
-			// the goroutine boundary, after the deferred release fires).
+			// and runs even if initHashtree panics; initHashtree recovers such
+			// a panic and returns it as the attempt error, so the loop retries.
 			err := func() error {
-				defer s.index.asyncReplicationScheduler.releaseHashtreeInitSlot()
-				return s.initHashtree(ctx, effectiveConfig, bucket, closeInitCh)
+				defer sched.releaseHashtreeInitSlot()
+				return s.initHashtree(ctx, effectiveConfig, bucket)
 			}()
 
 			if err == nil {
@@ -550,48 +519,65 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 				WithField("shard_name", s.name).
 				Errorf("hashtree initialization attempt %d failure: %v", i, err)
 
-			// Exponential backoff capped at 5 min. Use select instead of
-			// time.Sleep so that context cancellation (shard shutdown) is
-			// respected immediately rather than after up to 5 minutes.
-			backoff := initRetryBackoff(i)
+			// Exponential backoff capped at 5 min; the select keeps a shutdown from waiting it out.
+			// No re-arm here: the next attempt installs its own tree and gate under the write lock.
+			retryTimer := time.NewTimer(initRetryBackoff(i))
 			select {
-			case <-time.After(backoff):
+			case <-retryTimer.C:
 			case <-ctx.Done():
+				retryTimer.Stop()
 				return
 			}
-
-			s.asyncReplicationRWMux.Lock()
-			if s.hashtree == nil || ctx.Err() != nil {
-				// Async replication was disabled (hashtree nil-ed) or the
-				// context was cancelled while we slept. Exit the retry loop
-				// instead of resetting so we neither panic on a nil hashtree
-				// nor corrupt a newly-allocated hashtree from a concurrent
-				// enableAsyncReplication call.
-				s.asyncReplicationRWMux.Unlock()
-				return
-			}
-			s.hashtree.Reset()
-			// initHashtree already closed ownedCh (afterInMemCallback fires once, even
-			// on error); take ownership of a fresh channel so writes arriving during
-			// the retry block until the next attempt completes.
-			newCh := make(chan struct{})
-			s.minimalHashtreeInitializationCh = newCh
-			ownedCh = newCh
-			ownedClosed = false
-			s.asyncReplicationRWMux.Unlock()
 		}
 	}, s.index.logger)
 
 	return nil
 }
 
-// removePersistedHashtree deletes any persisted hashtree (.ht) files for the
-// shard without deserialising them. Called at shard init when async
-// replication is disabled: the shard will serve writes while async is off,
-// so a leftover .ht from a previous async-enabled shutdown goes stale on the
-// first write — a later runtime enable would otherwise load it as the
-// "cached" hashtree and miss the divergence. Missing directory is success.
-// See disableAsyncReplication for the symmetric rationale.
+// acquireHashtreeInitSlot wraps the scheduler semaphore with the queued gauge so a long startup queue is observable.
+func (s *Shard) acquireHashtreeInitSlot(ctx context.Context, sched *AsyncReplicationScheduler) error {
+	s.metrics.IncAsyncReplicationHashTreeInitQueued()
+	defer s.metrics.DecAsyncReplicationHashTreeInitQueued()
+	return sched.acquireHashtreeInitSlot(ctx)
+}
+
+// removeHashtreeFile is a test seam: per-file unremovability has no portable filesystem simulation.
+var removeHashtreeFile = os.Remove
+
+// removeOrDemoteHashtreeFile: undeletable files demote to stray .tmp (never trusted, re-swept); only a failed demotion errors.
+func (s *Shard) removeOrDemoteHashtreeFile(logger logrus.FieldLogger, filename, reason string) error {
+	err := removeHashtreeFile(filename)
+	if err == nil || os.IsNotExist(err) {
+		return nil
+	}
+	demoted := filename + ".tmp"
+	if renameErr := os.Rename(filename, demoted); renameErr != nil {
+		return fmt.Errorf("deleting %s hashtree file %q: %w (demoting rename failed: %w)", reason, filename, err, renameErr)
+	}
+	logger.Warnf("demoted undeletable %s hashtree file to %q: %v", reason, demoted, err)
+	return nil
+}
+
+// removeSnapshotFile neutralizes one hashtree file: a .ht is removed or demoted (errors only when neither works), an unremovable .tmp only warns.
+func (s *Shard) removeSnapshotFile(filename, ext string) (removed bool, err error) {
+	logger := s.index.logger.
+		WithField("action", "async_replication").
+		WithField("class_name", s.class.Class).
+		WithField("shard_name", s.name)
+	if ext == ".ht" {
+		if err := s.removeOrDemoteHashtreeFile(logger, filename, "stale"); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	if err := removeHashtreeFile(filename); err != nil && !os.IsNotExist(err) {
+		logger.Warnf("removing stray hashtree tmp file %q: %v", filename, err)
+		return false, nil
+	}
+	return true, nil
+}
+
+// removePersistedHashtree deletes persisted .ht and stray .tmp files: a leftover .ht goes stale on the first write yet a later enable would trust it.
 func (s *Shard) removePersistedHashtree() error {
 	dir := s.pathHashTree()
 	dirEntries, err := os.ReadDir(dir)
@@ -603,94 +589,114 @@ func (s *Shard) removePersistedHashtree() error {
 	}
 	removedAny := false
 	for _, dirEntry := range dirEntries {
-		if dirEntry.IsDir() || filepath.Ext(dirEntry.Name()) != ".ht" {
+		if dirEntry.IsDir() {
 			continue
 		}
-		filename := filepath.Join(dir, dirEntry.Name())
-		if err := os.Remove(filename); err != nil && !os.IsNotExist(err) {
+		ext := filepath.Ext(dirEntry.Name())
+		if ext != ".ht" && ext != ".tmp" {
+			continue
+		}
+		removed, err := s.removeSnapshotFile(filepath.Join(dir, dirEntry.Name()), ext)
+		if err != nil {
 			return err
 		}
-		removedAny = true
+		removedAny = removedAny || removed
 	}
 	if removedAny {
+		// A crash-resurrected entry is re-swept on next load; a failed dir fsync must not escalate.
 		if err := diskio.Fsync(dir); err != nil {
-			return fmt.Errorf("fsync hashtree directory %q: %w", dir, err)
+			s.index.logger.
+				WithField("action", "async_replication").
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				Warnf("fsync hashtree directory %q after scrub: %v", dir, err)
 		}
 	}
 	return nil
 }
 
-// tryLoadHashtreeFromDisk scans the shard's hashtree directory for a persisted
-// hashtree file, loads the most-recent one, and removes it from disk (along
-// with any older duplicates). Returns nil without error when no file is found
-// or when the cached height does not match expectedHeight (the old tree is
-// simply discarded in that case).
+// tryLoadHashtreeFromDisk loads the newest .ht and clears the directory; nil (full scan) when nothing loads or the height mismatches.
+// It never falls back to an older tree; an unremovable .ht fails the load, an unremovable .tmp only warns.
 func (s *Shard) tryLoadHashtreeFromDisk(expectedHeight int) (hashtree.AggregatedHashTree, error) {
-	if err := os.MkdirAll(s.pathHashTree(), os.ModePerm); err != nil {
+	dir := s.pathHashTree()
+	// Never create the dir here (the dump path does): an enable racing a drop
+	// must not resurrect it after drop renamed the shard directory away.
+	dirEntries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
 		return nil, err
 	}
 
-	dirEntries, err := os.ReadDir(s.pathHashTree())
-	if err != nil {
-		return nil, err
-	}
+	logger := s.index.logger.
+		WithField("action", "async_replication").
+		WithField("class_name", s.class.Class).
+		WithField("shard_name", s.name)
 
 	var loaded hashtree.AggregatedHashTree
+	attemptedNewest := false
+	removedAny := false
 
+	// Names embed a big-endian nanosecond timestamp, so reverse visits newest first.
 	for i := len(dirEntries) - 1; i >= 0; i-- {
-		dirEntry := dirEntries[i]
-		if dirEntry.IsDir() || filepath.Ext(dirEntry.Name()) != ".ht" {
+		entry := dirEntries[i]
+		if entry.IsDir() {
 			continue
 		}
+		ext := filepath.Ext(entry.Name())
+		if ext != ".ht" && ext != ".tmp" {
+			continue
+		}
+		filename := filepath.Join(dir, entry.Name())
 
-		filename := filepath.Join(s.pathHashTree(), dirEntry.Name())
-
-		if loaded != nil {
-			// A newer file was already loaded; remove this older duplicate.
-			if err := os.Remove(filename); err != nil {
-				s.index.logger.
-					WithField("action", "async_replication").
-					WithField("class_name", s.class.Class).
-					WithField("shard_name", s.name).
-					Warnf("deleting older hashtree file %q: %v", filename, err)
-			} else {
-				s.index.logger.
-					WithField("action", "async_replication").
-					WithField("class_name", s.class.Class).
-					WithField("shard_name", s.name).
-					Debugf("deleted older hashtree file %q", filename)
+		// Sweep everything but the newest .ht (undeletable ones demote; only un-neutralizable fails).
+		if attemptedNewest || ext != ".ht" {
+			removed, err := s.removeSnapshotFile(filename, ext)
+			if err != nil {
+				return nil, err
 			}
+			removedAny = removedAny || removed
 			continue
 		}
+		attemptedNewest = true
 
 		f, err := os.OpenFile(filename, os.O_RDONLY, os.ModePerm)
 		if err != nil {
-			s.index.logger.
-				WithField("action", "async_replication").
-				WithField("class_name", s.class.Class).
-				WithField("shard_name", s.name).
-				Warnf("opening hashtree file %q: %v", filename, err)
+			logger.Warnf("opening hashtree file %q: %v", filename, err)
+			if err := s.removeOrDemoteHashtreeFile(logger, filename, "unreadable"); err != nil {
+				return nil, err
+			}
+			removedAny = true
 			continue
 		}
 
 		loaded, err = hashtree.DeserializeHashTree(bufio.NewReader(f))
+		if closeErr := f.Close(); closeErr != nil {
+			// Read-only fd; a close failure does not invalidate the loaded tree.
+			logger.Warnf("closing hashtree file %q: %v", filename, closeErr)
+		}
 		if err != nil {
-			loaded = nil // discard any partial result; fall through to full scan
-			s.index.logger.
-				WithField("action", "async_replication").
-				WithField("class_name", s.class.Class).
-				WithField("shard_name", s.name).
-				Warnf("deserializing hashtree file %q: %v", filename, err)
+			// Corrupt newest: discard, do not fall back to older.
+			loaded = nil
+			logger.Warnf("deserializing hashtree file %q: %v", filename, err)
+			if err := s.removeOrDemoteHashtreeFile(logger, filename, "corrupt"); err != nil {
+				return nil, err
+			}
+			removedAny = true
+			continue
 		}
 
-		if err := f.Close(); err != nil {
+		// The consumed file must not survive to be reloaded as "cached".
+		if err := s.removeOrDemoteHashtreeFile(logger, filename, "consumed"); err != nil {
 			return nil, err
 		}
-		if err := os.Remove(filename); err != nil && !os.IsNotExist(err) {
-			return nil, err
-		}
-		if err := diskio.Fsync(s.pathHashTree()); err != nil {
-			return nil, fmt.Errorf("fsync hashtree directory %q: %w", s.pathHashTree(), err)
+		removedAny = true
+	}
+
+	if removedAny {
+		if err := diskio.Fsync(dir); err != nil {
+			return nil, fmt.Errorf("fsync hashtree directory %q: %w", dir, err)
 		}
 	}
 
@@ -699,10 +705,7 @@ func (s *Shard) tryLoadHashtreeFromDisk(expectedHeight int) (hashtree.Aggregated
 		// Log a warning so operators can diagnose unexpectedly long restart times:
 		// every shard on every node will re-scan its full object store when this
 		// happens, which can take minutes on large datasets.
-		s.index.logger.
-			WithField("action", "async_replication_hashtree_load").
-			WithField("class_name", s.class.Class).
-			WithField("shard_name", s.name).
+		logger.
 			WithField("cached_height", loaded.Height()).
 			WithField("expected_height", expectedHeight).
 			Warn("cached hashtree height mismatch — discarding and re-scanning full object store")
@@ -728,46 +731,94 @@ func aggregateHashTreeLeaf(ht hashtree.AggregatedHashTree, height int, uuidBytes
 	return ht.AggregateLeafWith(leaf, objectDigest[:])
 }
 
-// initHashtree performs a full on-disk object scan to populate the shard's
-// hashtree. It is called from a background goroutine after the write lock is
-// released so that concurrent reads and writes are not blocked. Progress is
-// logged at loggingFrequency intervals. The scan is gated by hashtreeInitSem
-// to bound concurrent I/O across all shards at startup.
-//
-// releaseInit runs once the in-memory scan completes (as ApplyToObjectDigests'
-// afterInMemCallback, which fires exactly once even on error).
-func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig, bucket *lsmkv.Bucket, releaseInit func()) (err error) {
+// initHashtree runs one init attempt: under the write lock it installs a fresh tree, arms the write gate and snapshots the bucket, then folds the snapshot outside the lock.
+// Writers put and fold under one RLock hold, so each write lands entirely before the snapshot (folded by the scan) or entirely after (folded by the writer): never twice, never missed.
+// The tree height is re-derived under that lock, so a height change applied while the attempt was queued is scanned once instead of scanned and then rebuilt.
+// A panic in the scan (the lsmkv replace cursor panics on a corrupt segment or a read error) is a failed attempt, retried with backoff, not an abandoned init.
+func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig, bucket *lsmkv.Bucket) (err error) {
+	// A cancelled attempt is a stop, not an init: keep it out of the counters.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	start := time.Now()
 
 	s.metrics.IncAsyncReplicationHashTreeInitCount()
 	s.metrics.IncAsyncReplicationHashTreeInitRunning()
 
 	defer func() {
+		// Registered first, so it recovers last: the gate is already closed and the scan released by the time the attempt is turned into an error.
+		if r := recover(); r != nil {
+			if entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
+				panic(r)
+			}
+			err = fmt.Errorf("hashtree init attempt panicked: %v", r)
+			s.index.logger.
+				WithField("action", "async_replication").
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				Errorf("recovered from panic in hashtree initialization: %v", r)
+			enterrors.PrintStack(s.index.logger)
+		}
+
 		s.metrics.DecAsyncReplicationHashTreeInitRunning()
 
 		if err != nil {
-			s.metrics.IncAsyncReplicationHashTreeInitFailure()
+			if ctx.Err() == nil {
+				s.metrics.IncAsyncReplicationHashTreeInitFailure()
+			}
 			return
 		}
 
 		s.metrics.ObserveAsyncReplicationHashTreeInitDuration(time.Since(start))
 	}()
 
-	// Capture the tree once so the scan never takes asyncReplicationRWMux per leaf
-	// under the memtable cursor: that inverts lock order vs writes (RLock → memtable) and deadlocks.
-	s.asyncReplicationRWMux.RLock()
-	ht := s.hashtree
-	s.asyncReplicationRWMux.RUnlock()
-	if ht == nil {
-		releaseInit()
-		return nil
+	// Created and close-deferred before the locked block: a panic after arming must not leave writers parked.
+	initCh := make(chan struct{})
+	var closeOnce sync.Once
+	closeInitCh := func() { closeOnce.Do(func() { close(initCh) }) }
+	defer closeInitCh()
+
+	var ht hashtree.AggregatedHashTree
+	var scan *lsmkv.ObjectDigestScan
+	stopped, err := func() (bool, error) {
+		s.asyncReplicationRWMux.Lock()
+		defer s.asyncReplicationRWMux.Unlock() // deferred: a panic in the snapshot must not wedge the shard mutex
+
+		// Disabled, or a disable+enable flap spawned a newer goroutine that owns the current tree and gate.
+		if s.hashtree == nil || ctx.Err() != nil {
+			return true, nil
+		}
+		// The height is read live: an enable on a running shard only updates the stored config.
+		effective := s.asyncReplicationConfig
+		if s.index != nil && s.index.globalreplicationConfig != nil {
+			effective = effective.Effective(*s.index.globalreplicationConfig)
+		}
+		// Fresh tree, not Reset: folds racing a cancelled attempt die with its own object.
+		fresh, err := hashtree.NewHashTree(effective.hashtreeHeight)
+		if err != nil {
+			return false, err
+		}
+		s.hashtree = fresh
+		// A retry after a panic past the success point must not serve its fresh, empty tree as ready.
+		s.hashtreeFullyInitialized = false
+		s.minimalHashtreeInitializationCh = initCh
+		scan = bucket.NewObjectDigestScan()
+		ht = fresh
+		return false, nil
+	}()
+	if err != nil {
+		return err
+	}
+	if stopped {
+		return ctx.Err()
 	}
 	height := ht.Height()
 
 	objCount := 0
 	prevProgressLogging := time.Now()
 
-	err = bucket.ApplyToObjectDigests(ctx, releaseInit, func(uuidBytes []byte, updateTime int64) error {
+	err = scan.Apply(ctx, closeInitCh, func(uuidBytes []byte, updateTime int64) error {
 		if time.Since(prevProgressLogging) >= config.loggingFrequency {
 			s.index.logger.
 				WithField("action", "async_replication").
@@ -791,12 +842,19 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 		return fmt.Errorf("iterating objects: %w", err)
 	}
 
-	s.asyncReplicationRWMux.Lock()
+	stopped = func() bool {
+		s.asyncReplicationRWMux.Lock()
+		defer s.asyncReplicationRWMux.Unlock() // deferred: a panic here must not wedge the shard mutex
 
-	// Bail if a concurrent disable nil-ed the tree or a disable+enable flap replaced
-	// it: finalizing here would mark a different, partially-scanned tree ready.
-	if s.hashtree != ht {
-		s.asyncReplicationRWMux.Unlock()
+		// Bail if a concurrent disable nil-ed the tree or a disable+enable flap replaced
+		// it: finalizing here would mark a different, partially-scanned tree ready.
+		if s.hashtree != ht {
+			return true
+		}
+		s.hashtreeFullyInitialized = true
+		return false
+	}()
+	if stopped {
 		s.index.logger.
 			WithField("action", "async_replication").
 			WithField("class_name", s.class.Class).
@@ -804,9 +862,6 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 			Info("hashtree initialization stopped")
 		return nil
 	}
-
-	s.hashtreeFullyInitialized = true
-	s.asyncReplicationRWMux.Unlock()
 
 	// Register is called outside the write lock: it sends on a channel received
 	// by the dispatcher goroutine, and concurrent object-write goroutines acquire
@@ -823,49 +878,30 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 		if err := s.index.asyncReplicationScheduler.Register(s); err != nil {
 			s.index.logger.WithField("action", "async_replication").Error(err)
 		} else {
-			// Guard against disableAsyncReplication running between the lock release
-			// above and Register() returning. If disable ran in that window, it called
-			// Deregister as a no-op (shard wasn't registered yet) and set hashtree to
-			// nil. Self-deregister now so the disabled shard is not left in the scheduler.
-			// RLock is held across Deregister to close the TOCTOU window: enableAsyncReplication
-			// needs WLock to set hashtree, so it cannot race between the nil-check and Deregister.
-			s.asyncReplicationRWMux.RLock()
-			stillRunning := s.hashtree != nil
-			if !stillRunning {
+			// Keep the registration only for a ready tree (own or a newer goroutine's, whose Register is idempotent); nil or unready means a flap whose owner registers later, so self-deregister under RLock.
+			func() {
+				s.asyncReplicationRWMux.RLock()
+				defer s.asyncReplicationRWMux.RUnlock() // deferred: a panic while logging must not leak the RLock
+				if s.hashtreeFullyInitialized {
+					return
+				}
 				if err := s.index.asyncReplicationScheduler.Deregister(s); err != nil {
 					s.index.logger.WithField("action", "async_replication").Error(err)
 				}
-			}
-			s.asyncReplicationRWMux.RUnlock()
+			}()
 		}
 	}
 
 	return nil
 }
 
-// waitForMinimalHashTreeInitialization blocks until the hashtree has been
-// minimally initialized (enough to serve object writes) or ctx is cancelled.
-// "Minimal" means ApplyToObjectDigests has finished scanning the in-memory
-// memtable: at that point writes can safely update the hashtree concurrently
-// with the ongoing on-disk scan.
-//
-// It must NOT be called while holding asyncReplicationRWMux: the initHashtree
-// retry path needs write-lock to replace minimalHashtreeInitializationCh, so
-// holding RLock here while blocking on the channel would deadlock.
-//
-// The function does NOT loop after the channel fires. A closed channel means
-// either the in-mem scan completed (proceed) or the retry path replaced the
-// channel (also proceed — the retry resets the hashtree, concurrent writes on
-// the fresh tree are safe). Looping would cause a busy-spin because a closed
-// channel returns immediately on every iteration. This is safe even if the
-// retry path already issued a new minimalHashtreeInitializationCh by the time
-// the select fires: write paths that arrive between two retry attempts operate
-// on the reset hashtree, which is valid (writes update leaf digests regardless
-// of whether the full on-disk scan has completed).
+// waitForMinimalHashTreeInitialization parks a write while an init scan's in-memory pass holds the memtable locks, so the write does not block on them while holding RLock and its docIdLock.
+// Courtesy only: exactly-once folding comes from initHashtree snapshotting under the write lock. It returns at once when async replication is off, the tree is fully initialized, or no scan has armed the gate (nil while init is queued for a slot).
+// Must not be called under asyncReplicationRWMux (initHashtree needs the write lock to arm the gate), and it never re-checks a closed channel (that would spin).
 func (s *Shard) waitForMinimalHashTreeInitialization(ctx context.Context) error {
 	s.asyncReplicationRWMux.RLock()
-	done := s.hashtree == nil || s.hashtreeFullyInitialized
 	ch := s.minimalHashtreeInitializationCh
+	done := s.hashtree == nil || s.hashtreeFullyInitialized || ch == nil
 	s.asyncReplicationRWMux.RUnlock()
 
 	if done {
@@ -880,86 +916,62 @@ func (s *Shard) waitForMinimalHashTreeInitialization(ctx context.Context) error 
 	}
 }
 
-// mayStopAsyncReplication cancels async replication for the shard if it is
-// running, deregisters the shard from the scheduler, and waits up to
-// asyncReplicationWorkerDrainTimeout for any in-flight hashbeat cycle to
-// drain. It then persists the hashtree to disk if it was fully initialised.
-//
-// Unlike disableAsyncReplication, this function waits for in-flight cycles
-// before returning. In the common case (workers respect context cancellation)
-// this is a near-zero wait; the timeout exists so a non-cancellable downstream
-// RPC cannot block shard shutdown indefinitely.
-func (s *Shard) mayStopAsyncReplication() {
+// mayStopAsyncReplication cancels async replication, deregisters the shard, and drains (bounded).
+// With capture it returns the tree for the caller to persist only AFTER the store is durable: a .ht is trusted verbatim, so it must never over-represent the store.
+func (s *Shard) mayStopAsyncReplication(capture bool) hashtree.AggregatedHashTree {
 	s.asyncReplicationRWMux.Lock()
 
-	if s.hashtree == nil {
-		s.asyncReplicationRWMux.Unlock()
-		return
-	}
-
-	s.asyncReplicationCancelFunc()
-
-	// Capture the hashtree pointer and dump eligibility before clearing state
-	// so that dumpHashTreeOf can be called outside the write lock. Holding the
-	// write lock during I/O would block all concurrent reads (e.g. hashbeat)
-	// for the duration of the serialization.
+	// A nil tree (async off, or a rebuild's disable→enable window) still requires
+	// the Deregister + drain below: an in-flight cycle from before the disable may
+	// be unwinding, and skipping the drain would let store teardown race it.
 	var capturedHT hashtree.AggregatedHashTree
-	if s.hashtreeFullyInitialized {
-		capturedHT = s.hashtree
-	}
+	if s.hashtree != nil {
+		s.asyncReplicationCancelFunc()
 
-	s.hashtree = nil
-	s.hashtreeFullyInitialized = false
-	s.clearAsyncCheckpointLocked()
+		// Capture before clearing state; the caller persists outside any lock.
+		if capture && s.hashtreeFullyInitialized {
+			capturedHT = s.hashtree
+		}
+
+		s.hashtree = nil
+		s.hashtreeFullyInitialized = false
+		s.clearAsyncCheckpointLocked()
+	}
 
 	s.asyncReplicationRWMux.Unlock()
 
-	// Remove from the scheduler so no new cycles are dispatched, then wait for
-	// any in-flight cycle to drain. asyncRepCtx is already cancelled so the
-	// cycle unwinds quickly (context errors on RPCs); the Wait adds ~0 latency
-	// in the common case and gives a strict happens-before guarantee that no
-	// hashbeat worker accesses shard resources after this call returns.
-	//
-	// asyncRepWg drain is bounded by asyncReplicationWorkerDrainTimeout.
-	// Workers should exit almost immediately once their context is cancelled;
-	// the timeout guards against a non-cancellable downstream RPC (e.g. a
-	// kernel-level TCP stall) blocking shard shutdown indefinitely. If the
-	// deadline fires, we proceed anyway: the worker goroutine is stuck in a
-	// blocking syscall and cannot touch Go heap safely, but holding up the
-	// entire shard shutdown is worse operationally.
+	// Deregister then drain: the bounded drain is the happens-before that no worker touches shard resources after this returns.
 	if s.index.asyncReplicationScheduler != nil {
 		if err := s.index.asyncReplicationScheduler.Deregister(s); err != nil {
 			s.index.logger.WithField("action", "async_replication").Error(err)
 		}
 	}
+
+	// Snapshot one episode: a re-enable can open a new one, and an idle latch hands back a pre-closed sentinel.
+	drained := s.asyncRepDrained()
+	drainTimeout := time.Duration(asyncReplicationWorkerDrainTimeout.Load())
 	drainStart := time.Now()
-	workersDone := make(chan struct{})
-	enterrors.GoWrapper(func() {
-		defer close(workersDone)
-		s.asyncRepWg.Wait()
-		// Distinguish a late drain from a permanently leaked waiter in goroutine dumps.
-		if elapsed := time.Since(drainStart); elapsed > asyncReplicationWorkerDrainTimeout {
-			s.index.logger.
-				WithField("action", "async_replication").
-				WithField("class_name", s.class.Class).
-				WithField("shard_name", s.name).
-				Warnf("async replication drain completed after deadline (took %s)", elapsed)
-		}
-	}, s.index.logger)
+	drainTimer := time.NewTimer(drainTimeout)
+	defer drainTimer.Stop()
+
 	select {
-	case <-workersDone:
-	case <-time.After(asyncReplicationWorkerDrainTimeout):
-		s.index.logger.
+	case <-drained:
+	case <-drainTimer.C:
+		// A surviving worker can still write; a snapshot missing those writes must not be published.
+		capturedHT = nil
+		lateLog := s.index.logger.
 			WithField("action", "async_replication").
 			WithField("class_name", s.class.Class).
-			WithField("shard_name", s.name).
-			Warn("async replication worker did not stop within deadline; proceeding with forced shutdown")
+			WithField("shard_name", s.name)
+		lateLog.Warn("async replication worker did not stop within deadline; skipping snapshot and proceeding with forced shutdown")
+		// Distinguish a late drain from a permanently leaked waiter in goroutine dumps.
+		enterrors.GoWrapper(func() {
+			<-drained
+			lateLog.Infof("async replication drain completed after deadline (took %s)", time.Since(drainStart))
+		}, lateLog)
 	}
 
-	if capturedHT != nil {
-		// the hashtree needs to be fully in sync with stored data before it can be persisted
-		s.dumpHashTreeWithTimeout(capturedHT)
-	}
+	return capturedHT
 }
 
 // enableAsyncReplication starts async replication for the shard, registering
@@ -969,6 +981,11 @@ func (s *Shard) mayStopAsyncReplication() {
 func (s *Shard) enableAsyncReplication(ctx context.Context, config AsyncReplicationConfig) error {
 	if s.index.asyncReplicationScheduler == nil {
 		return fmt.Errorf("async replication scheduler is nil for index %q", s.index.ID())
+	}
+
+	// A shut or dropped shard must not consume the shutdown .ht or register a zombie tree.
+	if s.shutOrDropped() {
+		return nil
 	}
 
 	// Fast path: if already running, skip disk I/O entirely.
@@ -991,7 +1008,15 @@ func (s *Shard) enableAsyncReplication(ctx context.Context, config AsyncReplicat
 		}
 		// Hashtree was nil-ed between the RLock check and write lock acquisition.
 		// Fall through to a fresh init without a cached tree.
+		if s.shutOrDropped() || s.haltedForTransfer() {
+			return nil
+		}
 		return s.initAsyncReplication(config, nil)
+	}
+
+	// A fresh init mid-halt would resurrect async replication mid-offload; resume re-derives.
+	if s.haltedForTransfer() {
+		return nil
 	}
 
 	// Compute the effective config (needed for hashtreeHeight) before taking
@@ -1017,6 +1042,10 @@ func (s *Shard) enableAsyncReplication(ctx context.Context, config AsyncReplicat
 		s.asyncReplicationConfig = config
 		return nil
 	}
+	if s.shutOrDropped() {
+		// cached (already consumed) is discarded; the shard is shut or dropped, so next boot rescans.
+		return nil
+	}
 	return s.initAsyncReplication(config, cached)
 }
 
@@ -1031,10 +1060,15 @@ func (s *Shard) enableAsyncReplication(ctx context.Context, config AsyncReplicat
 // full scan. mayStopAsyncReplication (shutdown/drop/backup) is the only
 // safe producer of a .ht because the shard serves no further writes.
 //
-// Unlike mayStopAsyncReplication, this function does NOT call
-// asyncRepWg.Wait(); use mayStopAsyncReplication (or Deregister + explicit
-// Wait) when a happens-before with in-flight cycles is required.
+// It also scrubs any persisted .ht: none may exist while the shard is live with async off.
+//
+// Unlike mayStopAsyncReplication, this function does NOT drain in-flight cycles; use that one when a happens-before with them is required.
 func (s *Shard) disableAsyncReplication(_ context.Context) error {
+	// A shut shard's .ht is legitimate and a dropped shard's dir is renamed away; a config apply racing teardown must not scrub or recreate anything.
+	if s.shutOrDropped() {
+		return nil
+	}
+
 	stopped := func() bool {
 		s.asyncReplicationRWMux.Lock()
 		defer s.asyncReplicationRWMux.Unlock()
@@ -1056,15 +1090,22 @@ func (s *Shard) disableAsyncReplication(_ context.Context) error {
 		}
 		return true
 	}()
-	if !stopped {
+	if stopped {
+		// Clear stats outside asyncReplicationRWMux to avoid nesting asyncReplicationStatsMux.
+		s.asyncReplicationStatsMux.Lock()
+		s.asyncReplicationStatsByTargetNode = nil
+		s.asyncReplicationStatsMux.Unlock()
+	}
+
+	// Post-mux re-check: a completed or in-flight shutdown owns the snapshot; the residual race loses only to a safe boot rescan.
+	if s.shutOrDropped() || s.shutdownRequested.Load() {
 		return nil
 	}
 
-	// Clear stats outside asyncReplicationRWMux to avoid nesting
-	// asyncReplicationStatsMux inside a write lock.
-	s.asyncReplicationStatsMux.Lock()
-	s.asyncReplicationStatsByTargetNode = nil
-	s.asyncReplicationStatsMux.Unlock()
+	// Scrub even when already stopped (HaltForTransfer nils the tree without scrubbing); a surviving .ht is a divergence risk, so the failure propagates.
+	if err := s.removePersistedHashtree(); err != nil {
+		return fmt.Errorf("removing persisted hashtree on disable: %w", err)
+	}
 	return nil
 }
 
@@ -1074,6 +1115,11 @@ func (s *Shard) rebuildAsyncReplicationFromScratch(ctx context.Context, enabled 
 	err := func() error {
 		s.asyncReplicationRWMux.Lock()
 		defer s.asyncReplicationRWMux.Unlock()
+
+		// A shut shard's .ht must survive and a dropped shard's dir is gone: scrub and install nothing (same in-lock ordering as enable's shut checks).
+		if s.shutOrDropped() {
+			return nil
+		}
 
 		if s.hashtree != nil { // drop any tree a racing enable may have installed
 			s.asyncReplicationCancelFunc()
@@ -1090,7 +1136,7 @@ func (s *Shard) rebuildAsyncReplicationFromScratch(ctx context.Context, enabled 
 			clearStats = true
 		}
 
-		if err := s.removePersistedHashtree(); err != nil { // no snapshot may survive to be cached
+		if err := s.removePersistedHashtree(); err != nil { // no snapshot may survive to be cached; fsync-under-mux is load-bearing vs a racing enable
 			return err
 		}
 
@@ -1133,13 +1179,10 @@ func (s *Shard) addTargetNodeOverride(ctx context.Context, targetNodeOverride ad
 		}
 		s.targetNodeOverrides = append(s.targetNodeOverrides, targetNodeOverride)
 	}()
-	// Ensure async replication is started. Hold replicationConfigLock across the
-	// apply so a concurrent updateReplicationConfig can't interleave (see
-	// RevertAsyncReplicationOnShard); read the config field directly, as the
-	// AsyncReplicationConfig() getter would reacquire the lock.
-	s.index.replicationConfigLock.RLock()
-	defer s.index.replicationConfigLock.RUnlock()
-	return s.enableAsyncReplication(ctx, s.index.Config.AsyncReplicationConfig)
+	// An override forces async on; apply-lock serialized (see withAsyncReplicationApply).
+	return s.index.withAsyncReplicationApply(func() error {
+		return s.enableAsyncReplication(ctx, s.index.AsyncReplicationConfig())
+	})
 }
 
 func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverrideToRemove additional.AsyncReplicationTargetNodeOverride) error {
@@ -1177,15 +1220,14 @@ func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverride
 	// if there are no overrides left, return the async replication config to what it
 	// was before overrides were added
 	if targetNodeOverrideLen == 0 {
-		// Restore the shard to the index's configured async-replication state,
-		// holding replicationConfigLock across the apply so a concurrent
-		// updateReplicationConfig can't interleave (see RevertAsyncReplicationOnShard).
-		s.index.replicationConfigLock.RLock()
-		defer s.index.replicationConfigLock.RUnlock()
-		if s.index.asyncReplicationEnabledForShard(s.name) {
-			return s.enableAsyncReplication(ctx, s.index.Config.AsyncReplicationConfig)
-		}
-		return s.disableAsyncReplication(ctx)
+		// Restore the configured state; apply-lock serialized (see withAsyncReplicationApply).
+		return s.index.withAsyncReplicationApply(func() error {
+			enabled, config := s.index.asyncReplicationStateForShard(s.name)
+			if enabled {
+				return s.enableAsyncReplication(ctx, config)
+			}
+			return s.disableAsyncReplication(ctx)
+		})
 	}
 	return nil
 }
@@ -1203,14 +1245,28 @@ func (s *Shard) removeAllTargetNodeOverrides(ctx context.Context) error {
 		defer s.asyncReplicationRWMux.Unlock()
 		s.targetNodeOverrides = make(additional.AsyncReplicationTargetNodeOverrides, 0)
 	}()
-	// Restore the shard to the index's configured async-replication state; see
-	// removeTargetNodeOverride for the locking rationale.
-	s.index.replicationConfigLock.RLock()
-	defer s.index.replicationConfigLock.RUnlock()
-	if s.index.asyncReplicationEnabledForShard(s.name) {
-		return s.enableAsyncReplication(ctx, s.index.Config.AsyncReplicationConfig)
+	// Restore the configured state; apply-lock serialized (see withAsyncReplicationApply).
+	return s.index.withAsyncReplicationApply(func() error {
+		enabled, config := s.index.asyncReplicationStateForShard(s.name)
+		if enabled {
+			return s.enableAsyncReplication(ctx, config)
+		}
+		return s.disableAsyncReplication(ctx)
+	})
+}
+
+// recordRootPrefilterNoDiff stores the same empty-target stat as an ErrNoDiffFound descent: equal roots proved no differences.
+func (s *Shard) recordRootPrefilterNoDiff(ctx context.Context) {
+	s.asyncReplicationStatsMux.Lock()
+	defer s.asyncReplicationStatsMux.Unlock()
+	// disable cancels before clearing stats, so checking under the lock prevents a phantom entry written after the clear
+	if ctx.Err() != nil {
+		return
 	}
-	return s.disableAsyncReplication(ctx)
+	if s.asyncReplicationStatsByTargetNode == nil {
+		s.asyncReplicationStatsByTargetNode = make(map[string]*hashBeatHostStats)
+	}
+	s.asyncReplicationStatsByTargetNode[""] = &hashBeatHostStats{hashtreeDiffStartTime: time.Now()}
 }
 
 func (s *Shard) getAsyncReplicationStats(ctx context.Context) []*models.AsyncReplicationStatus {
@@ -1231,27 +1287,180 @@ func (s *Shard) getAsyncReplicationStats(ctx context.Context) []*models.AsyncRep
 	return asyncReplicationStatsToReturn
 }
 
-// dumpHashTreeOf serializes ht to a new file in s.pathHashTree() using an
-// atomic write-rename pattern: it writes to a <name>.tmp file first, syncs,
-// then renames to the final name so that a crash mid-write never leaves a
-// truncated or partially-written hashtree file on disk.
-func (s *Shard) dumpHashTreeOf(ht hashtree.AggregatedHashTree) (err error) {
+// errHashtreeDumpCancelled aborts a dump whose deadline fired before publish.
+var errHashtreeDumpCancelled = errors.New("hashtree dump cancelled")
+
+// asyncReplicationWorkerDrainTimeout (ns) bounds the worker drain wait; atomic so tests can shrink it.
+var asyncReplicationWorkerDrainTimeout atomic.Int64
+
+// asyncRepSkipWarnEvery escalates every Nth consecutive retry-later skip to Warn.
+const asyncRepSkipWarnEvery = 20
+
+// noteHashbeatSkip counts a retry-later cycle by reason and escalates long consecutive runs to Warn.
+func (s *Shard) noteHashbeatSkip(err error, loggingFrequency time.Duration) {
+	skips := s.asyncRepConsecutiveSkips.Add(1)
+	if skips%asyncRepSkipWarnEvery == 0 {
+		s.index.logger.
+			WithField("action", "async_replication").
+			WithField("class_name", s.class.Class).
+			WithField("shard_name", s.name).
+			WithField("skip_reason", replica.AsyncReplicationSkipReason(err)).
+			Warnf("hashbeat skipped for %d consecutive cycles: %v", skips, err)
+		return
+	}
+	if s.index.debugLoggingEnabled() &&
+		time.Since(time.Unix(s.asyncRepFailLastLog.Load(), 0)) >= loggingFrequency {
+		// Expected during peer restart, freeze upload, or hashtree init — Debug, not Warn.
+		s.asyncRepFailLastLog.Store(time.Now().Unix())
+		s.index.logger.WithFields(logrus.Fields{
+			"action":      "async_replication",
+			"class_name":  s.class.Class,
+			"shard_name":  s.name,
+			"skip_reason": replica.AsyncReplicationSkipReason(err),
+		}).Debugf("hashbeat iteration skipped: target replica not ready: %v", err)
+	}
+}
+
+func init() {
+	asyncReplicationWorkerDrainTimeout.Store(int64(10 * time.Second))
+}
+
+// asyncRepDrained returns a channel closed when asyncRepWg next reaches zero; already closed when idle.
+func (s *Shard) asyncRepDrained() <-chan struct{} {
+	return s.asyncRepWg.Drained()
+}
+
+// dumpPublishGate: cancel never blocks; once it wins, no published .ht survives (late publisher self-deletes).
+type dumpPublishGate struct {
+	state atomic.Int32
+}
+
+const (
+	dumpGateIdle int32 = iota
+	dumpGatePublishing
+	dumpGatePublished
+	dumpGateCancelled
+)
+
+// publish runs fn unless cancelled; cleanup=true means fn completed after a cancel won, so the caller must remove what fn published.
+func (g *dumpPublishGate) publish(fn func() error) (cleanup bool, err error) {
+	if !g.state.CompareAndSwap(dumpGateIdle, dumpGatePublishing) {
+		return false, errHashtreeDumpCancelled
+	}
+	if err := fn(); err != nil {
+		g.state.CompareAndSwap(dumpGatePublishing, dumpGateIdle)
+		return false, err
+	}
+	if !g.state.CompareAndSwap(dumpGatePublishing, dumpGatePublished) {
+		return true, errHashtreeDumpCancelled
+	}
+	return false, nil
+}
+
+// cancel never waits on an in-flight rename (a blocking cancel pins performShutdown under shutdownLock); false means a .ht was published and kept.
+func (g *dumpPublishGate) cancel() bool {
+	for {
+		switch st := g.state.Load(); st {
+		case dumpGatePublished:
+			return false
+		case dumpGateCancelled:
+			return true
+		default:
+			// Loop: a failed publish resetting publishing→idle mid-cancel must not read as lost.
+			if g.state.CompareAndSwap(st, dumpGateCancelled) {
+				return true
+			}
+		}
+	}
+}
+
+// dumpHashTreeWithTimeout caps the dump; on timeout the gate guarantees the late writer can never publish.
+func (s *Shard) dumpHashTreeWithTimeout(ht hashtree.AggregatedHashTree, timeout time.Duration) {
+	gate := &dumpPublishGate{}
+	done := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		defer close(done)
+		if err := s.dumpGatedHashTreeOf(ht, gate); err != nil && !errors.Is(err, errHashtreeDumpCancelled) {
+			s.index.logger.
+				WithField("action", "async_replication").
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				Errorf("store hashtree failed: %v", err)
+		}
+	}, s.index.logger)
+	dumpTimer := time.NewTimer(timeout)
+	defer dumpTimer.Stop()
+	select {
+	case <-done:
+	case <-dumpTimer.C:
+		if gate.cancel() {
+			s.index.logger.
+				WithField("action", "async_replication").
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				Warnf("hashtree dump timed out after %s; skipping — tree will be rebuilt on next startup", timeout)
+		}
+	}
+}
+
+// dumpHashTreeOf serializes ht via atomic tmp/sync/rename; on any error the .tmp is removed.
+func (s *Shard) dumpHashTreeOf(ht hashtree.AggregatedHashTree) error {
+	return s.dumpGatedHashTreeOf(ht, nil)
+}
+
+func (s *Shard) dumpGatedHashTreeOf(ht hashtree.AggregatedHashTree, gate *dumpPublishGate) error {
 	var b [8]byte
 	binary.BigEndian.PutUint64(b[:], uint64(time.Now().UnixNano()))
 
 	dir := s.pathHashTree()
+	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+		return fmt.Errorf("creating hashtree directory %q: %w", dir, err)
+	}
 	finalFilename := filepath.Join(dir, fmt.Sprintf("hashtree-%x.ht", b[:]))
 	tmpFilename := finalFilename + ".tmp"
 
+	if err := s.writeHashTreeTmp(ht, tmpFilename); err != nil {
+		return err
+	}
+
+	rename := func() error { return os.Rename(tmpFilename, finalFilename) }
+	var err error
+	if gate != nil {
+		var cleanup bool
+		cleanup, err = gate.publish(rename)
+		if cleanup {
+			s.removeLatePublishedHashTree(finalFilename)
+		}
+	} else {
+		err = rename()
+	}
+	if err != nil {
+		s.removePartialHashTreeTmp(tmpFilename)
+		if errors.Is(err, errHashtreeDumpCancelled) {
+			return err
+		}
+		return fmt.Errorf("renaming hashtree %q -> %q: %w", tmpFilename, finalFilename, err)
+	}
+
+	// Published: a dir-fsync failure must not report the dump as failed; a crash loses the entry, a safe rescan.
+	if err := diskio.Fsync(dir); err != nil {
+		s.index.logger.
+			WithField("action", "async_replication").
+			WithField("class_name", s.class.Class).
+			WithField("shard_name", s.name).
+			Warnf("fsync hashtree directory %q after publish: %v", dir, err)
+	}
+
+	return nil
+}
+
+// writeHashTreeTmp serializes ht into tmpFilename and syncs it; on any error the .tmp is removed.
+func (s *Shard) writeHashTreeTmp(ht hashtree.AggregatedHashTree, tmpFilename string) (err error) {
 	f, err := os.OpenFile(tmpFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return fmt.Errorf("storing hashtree %q: %w", tmpFilename, err)
 	}
-	// Ensure the fd is always closed even on early error returns. The explicit
-	// Close before os.Rename sets closed=true so the deferred close is a no-op
-	// on the happy path (double-closing an *os.File returns an error).
-	// On error the .tmp file is left on disk but will be ignored on reload
-	// (only .ht files without the .tmp suffix are loaded).
+	// Deferred close is a no-op after the pre-rename Close.
 	var closed bool
 	defer func() {
 		if !closed {
@@ -1259,22 +1468,19 @@ func (s *Shard) dumpHashTreeOf(ht hashtree.AggregatedHashTree) (err error) {
 				err = fmt.Errorf("closing hashtree %q: %w", tmpFilename, closeErr)
 			}
 		}
+		if err != nil {
+			s.removePartialHashTreeTmp(tmpFilename)
+		}
 	}()
 
 	w := bufio.NewWriter(f)
-
-	_, err = ht.Serialize(w)
-	if err != nil {
+	if _, err = ht.Serialize(w); err != nil {
 		return fmt.Errorf("storing hashtree %q: %w", tmpFilename, err)
 	}
-
-	err = w.Flush()
-	if err != nil {
+	if err = w.Flush(); err != nil {
 		return fmt.Errorf("flushing hashtree %q: %w", tmpFilename, err)
 	}
-
-	err = f.Sync()
-	if err != nil {
+	if err = f.Sync(); err != nil {
 		return fmt.Errorf("syncing hashtree %q: %w", tmpFilename, err)
 	}
 
@@ -1283,51 +1489,38 @@ func (s *Shard) dumpHashTreeOf(ht hashtree.AggregatedHashTree) (err error) {
 	if err = f.Close(); err != nil {
 		return fmt.Errorf("closing hashtree %q: %w", tmpFilename, err)
 	}
-
-	if err = os.Rename(tmpFilename, finalFilename); err != nil {
-		return fmt.Errorf("renaming hashtree %q -> %q: %w", tmpFilename, finalFilename, err)
-	}
-
-	if err := diskio.Fsync(dir); err != nil {
-		return fmt.Errorf("fsync hashtree directory %q: %w", dir, err)
-	}
-
 	return nil
 }
 
-// dumpHashTreeWithTimeout persists ht to disk via dumpHashTreeOf but caps the
-// operation at hashtreeDumpTimeout. dumpHashTreeOf calls f.Sync(), a blocking
-// OS syscall that can stall for minutes on degraded or full storage; wrapping
-// it in a goroutine with a timeout prevents shard shutdown from hanging
-// indefinitely during rolling restarts or node decommissions.
-//
-// On timeout the background goroutine continues running until the OS Sync
-// completes (it cannot be cancelled at the kernel level). The goroutine captures
-// the shard pointer for error logging only; Go's GC ensures the Shard and its
-// Index remain alive until the goroutine exits. No mutable shard state (store,
-// hashtree) is accessed after this function returns. Any incomplete .tmp file
-// left on disk is silently ignored on reload (tryLoadHashtreeFromDisk skips
-// .tmp suffixes), and the tree will be rebuilt from scratch on next startup.
-func (s *Shard) dumpHashTreeWithTimeout(ht hashtree.AggregatedHashTree) {
-	done := make(chan struct{})
-	enterrors.GoWrapper(func() {
-		defer close(done)
-		if err := s.dumpHashTreeOf(ht); err != nil {
-			s.index.logger.
-				WithField("action", "async_replication").
-				WithField("class_name", s.class.Class).
-				WithField("shard_name", s.name).
-				Errorf("store hashtree failed: %v", err)
-		}
-	}, s.index.logger)
-	select {
-	case <-done:
-	case <-time.After(hashtreeDumpTimeout):
+// removeLatePublishedHashTree: a rename that lost to cancel must not survive; SIGKILL-window residual is stale only after a reactivation.
+func (s *Shard) removeLatePublishedHashTree(filename string) {
+	err := os.Remove(filename)
+	if err == nil || os.IsNotExist(err) {
+		return
+	}
+	if renameErr := os.Rename(filename, filename+".tmp"); renameErr != nil {
 		s.index.logger.
 			WithField("action", "async_replication").
 			WithField("class_name", s.class.Class).
 			WithField("shard_name", s.name).
-			Warnf("hashtree dump timed out after %s; skipping — tree will be rebuilt on next startup", hashtreeDumpTimeout)
+			Warnf("late-published hashtree %q: remove failed: %v; demoting rename failed: %v", filename, err, renameErr)
+		return
+	}
+	s.index.logger.
+		WithField("action", "async_replication").
+		WithField("class_name", s.class.Class).
+		WithField("shard_name", s.name).
+		Warnf("late-published hashtree demoted to %q: %v", filename+".tmp", err)
+}
+
+// removePartialHashTreeTmp best-effort removes a leftover .tmp; already-gone is fine.
+func (s *Shard) removePartialHashTreeTmp(tmpFilename string) {
+	if rmErr := os.Remove(tmpFilename); rmErr != nil && !os.IsNotExist(rmErr) {
+		s.index.logger.
+			WithField("action", "async_replication").
+			WithField("class_name", s.class.Class).
+			WithField("shard_name", s.name).
+			Warnf("removing partial hashtree file %q: %v", tmpFilename, rmErr)
 	}
 }
 
@@ -1338,8 +1531,25 @@ func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hash
 	if level < 0 {
 		return nil, fmt.Errorf("hashtree level must be non-negative: %d", level)
 	}
+	// the request-supplied level is otherwise unbounded and sizes scale with 2^level
+	if level > maxHashtreeHeight {
+		return nil, fmt.Errorf("hashtree level %d exceeds the maximum height %d", level, maxHashtreeHeight)
+	}
 	if discriminant == nil {
 		return nil, fmt.Errorf("hashtree level %d: nil discriminant", level)
+	}
+
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+
+	if s.hashtree == nil || !s.hashtreeFullyInitialized {
+		return nil, fmt.Errorf("%w: hashtree not initialized on shard %q", errAsyncReplicationNotActive, s.ID())
+	}
+
+	// Transient during a rolling height change — retry-later, not an error.
+	if height := s.hashtree.Height(); level > height {
+		return nil, fmt.Errorf("%w: hashtree level %d exceeds height %d on shard %q",
+			errAsyncReplicationNotActive, level, height, s.ID())
 	}
 
 	expected := hashtree.LeavesCount(level)
@@ -1347,14 +1557,8 @@ func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hash
 		return nil, fmt.Errorf("hashtree level %d: discriminant size %d, expected %d (height mismatch?)",
 			level, discriminant.Size(), expected)
 	}
-	digests = make([]hashtree.Digest, expected)
 
-	s.asyncReplicationRWMux.RLock()
-	defer s.asyncReplicationRWMux.RUnlock()
-
-	if !s.hashtreeFullyInitialized {
-		return nil, fmt.Errorf("hashtree not initialized on shard %q", s.ID())
-	}
+	digests = make([]hashtree.Digest, discriminant.SetCount())
 
 	n, err := s.hashtree.Level(level, discriminant, digests)
 	if err != nil {
@@ -1385,6 +1589,8 @@ func (s *Shard) CreateAsyncCheckpoint(ctx context.Context, cutoffMs int64, creat
 		return errAsyncReplicationNotActive
 	}
 
+	// An expired checkpoint must not reject a newer backup's create as stale.
+	s.expireAsyncCheckpointLocked(time.Now())
 	if s.asyncCheckpointHashtree != nil && !createdAt.After(s.asyncCheckpointCreatedAt) {
 		s.metrics.IncAsyncCheckpointCreateFailureCount()
 		return errAsyncCheckpointStale
@@ -1424,17 +1630,23 @@ func (s *Shard) DeleteAsyncCheckpoint(ctx context.Context) error {
 	}
 	s.asyncReplicationRWMux.Lock()
 	defer s.asyncReplicationRWMux.Unlock()
-	if s.asyncCheckpointHashtree == nil {
+	if s.asyncCheckpointHashtree == nil || s.expireAsyncCheckpointLocked(time.Now()) {
 		return nil
 	}
 	s.metrics.IncAsyncCheckpointDeleteCount()
-	s.clearAsyncCheckpointLocked()
+	s.dropAsyncCheckpointLocked()
 	return nil
 }
 
-// clearAsyncCheckpointLocked requires asyncReplicationRWMux held for writing.
-// Shared by DeleteAsyncCheckpoint and the stop/disable cleanup paths.
+// clearAsyncCheckpointLocked requires asyncReplicationRWMux held for writing; the stop/disable paths use it, and an outlived checkpoint still counts as expired.
 func (s *Shard) clearAsyncCheckpointLocked() {
+	if !s.expireAsyncCheckpointLocked(time.Now()) {
+		s.dropAsyncCheckpointLocked()
+	}
+}
+
+// dropAsyncCheckpointLocked requires asyncReplicationRWMux held for writing.
+func (s *Shard) dropAsyncCheckpointLocked() {
 	if s.asyncCheckpointHashtree != nil {
 		s.metrics.ObserveAsyncCheckpointLifetime(time.Since(s.asyncCheckpointActivatedAt))
 		s.metrics.DecAsyncCheckpointActive()
@@ -1445,12 +1657,40 @@ func (s *Shard) clearAsyncCheckpointLocked() {
 	s.asyncCheckpointActivatedAt = time.Time{}
 }
 
+// expireAsyncCheckpoint clears a checkpoint nobody deleted within replica.AsyncCheckpointMaxLifetime, e.g. after its coordinator crashed mid-planning.
+func (s *Shard) expireAsyncCheckpoint(now time.Time) bool {
+	s.asyncReplicationRWMux.RLock()
+	expired := s.asyncCheckpointExpiredLocked(now)
+	s.asyncReplicationRWMux.RUnlock()
+	if !expired {
+		return false
+	}
+	s.asyncReplicationRWMux.Lock()
+	defer s.asyncReplicationRWMux.Unlock()
+	return s.expireAsyncCheckpointLocked(now)
+}
+
+// expireAsyncCheckpointLocked requires asyncReplicationRWMux held for writing.
+func (s *Shard) expireAsyncCheckpointLocked(now time.Time) bool {
+	if !s.asyncCheckpointExpiredLocked(now) {
+		return false
+	}
+	s.metrics.IncAsyncCheckpointExpiredCount()
+	s.dropAsyncCheckpointLocked()
+	return true
+}
+
+// asyncCheckpointExpiredLocked requires asyncReplicationRWMux held.
+func (s *Shard) asyncCheckpointExpiredLocked(now time.Time) bool {
+	return s.asyncCheckpointHashtree != nil && now.Sub(s.asyncCheckpointActivatedAt) > replica.AsyncCheckpointMaxLifetime
+}
+
 // AsyncCheckpointRoot does not consult ctx: folding cancellation into ok=false would
 // let callers misread a cancelled context as an inactive checkpoint.
 func (s *Shard) AsyncCheckpointRoot(ctx context.Context) (root hashtree.Digest, cutoffMs int64, createdAt time.Time, ok bool) {
 	s.asyncReplicationRWMux.RLock()
 	defer s.asyncReplicationRWMux.RUnlock()
-	if s.asyncCheckpointHashtree == nil {
+	if s.asyncCheckpointHashtree == nil || s.asyncCheckpointExpiredLocked(time.Now()) {
 		return hashtree.Digest{}, 0, time.Time{}, false
 	}
 	return s.asyncCheckpointHashtree.Root(), s.asyncCheckpointCutoff, s.asyncCheckpointCreatedAt, true
@@ -1462,7 +1702,7 @@ func (s *Shard) HashTreeRoot() (root hashtree.Digest, ok bool) {
 	s.asyncReplicationRWMux.RLock()
 	defer s.asyncReplicationRWMux.RUnlock()
 
-	if !s.hashtreeFullyInitialized {
+	if s.hashtree == nil || !s.hashtreeFullyInitialized {
 		return hashtree.Digest{}, false
 	}
 	return s.hashtree.Root(), true
@@ -1513,8 +1753,8 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 	// un-caught-up target running hashbeat would push its stale state back to
 	// the source. (Source-side hashbeat during the same op is left enabled —
 	// LWW makes any source→target push idempotent with the concurrent CCL replay.)
-	if s.index.replicationFSMReader != nil &&
-		s.index.replicationFSMReader.HasActiveTargetReplicationForShard(s.class.Class, s.name, s.index.db.localNodeName) {
+	if r := s.index.getReplicationFSMReader(); r != nil &&
+		r.HasActiveTargetReplicationForShard(s.class.Class, s.name, s.index.db.localNodeName) {
 		return false, nil
 	}
 
@@ -1531,7 +1771,6 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 	}
 
 	// update the shard stats for the target node
-	var toLog []*hashBeatHostStats
 	func() {
 		s.asyncReplicationStatsMux.Lock()
 		defer s.asyncReplicationStatsMux.Unlock()
@@ -1543,23 +1782,10 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 			for _, stat := range stats {
 				if stat != nil {
 					s.asyncReplicationStatsByTargetNode[stat.targetNodeName] = stat
-					toLog = append(toLog, stat)
 				}
 			}
 		}
 	}()
-	for _, stat := range toLog {
-		s.index.logger.WithFields(logrus.Fields{
-			"shard_name":                      s.name,
-			"target_node_name":                stat.targetNodeName,
-			"hashtree_diff_took":              stat.hashtreeDiffTook,
-			"object_digests_diff_took":        stat.objectDigestsDiffTook,
-			"local_object_digests_count":      stat.localObjectDigestsCount,
-			"objects_diff_count":              stat.objectsDiffCount,
-			"local_objects_propagation_count": stat.localObjectsPropagationCount,
-			"local_objects_propagation_took":  stat.localObjectsPropagationTook,
-		}).Debug("updating async replication stats")
-	}
 
 	if err != nil {
 		if ctx.Err() != nil {
@@ -1567,20 +1793,29 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 		}
 
 		if errors.Is(err, replicaerrors.ErrNoDiffFound) {
-			if time.Since(time.Unix(s.asyncRepLastLog.Load(), 0)) >= config.loggingFrequency {
+			s.asyncRepConsecutiveSkips.Store(0)
+			// debugLoggingEnabled gates the WithFields allocations and the lock+clone in getLastComparedHosts, not just the emit.
+			if s.index.debugLoggingEnabled() &&
+				time.Since(time.Unix(s.asyncRepLastLog.Load(), 0)) >= config.loggingFrequency {
 				s.asyncRepLastLog.Store(time.Now().Unix())
-				s.index.logger.
-					WithField("action", "async_replication").
-					WithField("class_name", s.class.Class).
-					WithField("shard_name", s.name).
-					WithField("hosts", s.getLastComparedHosts()).
-					Debug("hashbeat iteration successfully completed: no differences were found")
+				s.index.logger.WithFields(logrus.Fields{
+					"action":     "async_replication",
+					"class_name": s.class.Class,
+					"shard_name": s.name,
+					"hosts":      s.getLastComparedHosts(),
+				}).Debug("hashbeat iteration successfully completed: no differences were found")
 			}
 			return false, replicaerrors.ErrNoDiffFound
 		}
 
-		if time.Since(time.Unix(s.asyncRepLastLog.Load(), 0)) >= config.loggingFrequency {
-			s.asyncRepLastLog.Store(time.Now().Unix())
+		if errors.Is(err, errAsyncReplicationNotActive) {
+			s.noteHashbeatSkip(err, config.loggingFrequency)
+			return false, err
+		}
+
+		s.asyncRepConsecutiveSkips.Store(0)
+		if time.Since(time.Unix(s.asyncRepFailLastLog.Load(), 0)) >= config.loggingFrequency {
+			s.asyncRepFailLastLog.Store(time.Now().Unix())
 			s.index.logger.
 				WithField("action", "async_replication").
 				WithField("class_name", s.class.Class).
@@ -1590,6 +1825,7 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 		return false, err
 	}
 
+	s.asyncRepConsecutiveSkips.Store(0)
 	for _, stat := range stats {
 		// Use localObjectsPropagationCount (objects actually sent to target via
 		// Overwrite) rather than objectsDiffCount. This keeps the fast-poll
@@ -1599,22 +1835,23 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 		}
 	}
 
-	if time.Since(time.Unix(s.asyncRepLastLog.Load(), 0)) >= config.loggingFrequency {
+	if s.index.debugLoggingEnabled() &&
+		time.Since(time.Unix(s.asyncRepLastLog.Load(), 0)) >= config.loggingFrequency {
 		s.asyncRepLastLog.Store(time.Now().Unix())
 
 		for _, stat := range stats {
-			s.index.logger.
-				WithField("action", "async_replication").
-				WithField("class_name", s.class.Class).
-				WithField("shard_name", s.name).
-				WithField("target_node_name", stat.targetNodeName).
-				WithField("hashtree_diff_took", stat.hashtreeDiffTook).
-				WithField("object_digests_diff_took", stat.objectDigestsDiffTook).
-				WithField("local_object_digests_count", stat.localObjectDigestsCount).
-				WithField("objects_diff_count", stat.objectsDiffCount).
-				WithField("local_objects_propagation_count", stat.localObjectsPropagationCount).
-				WithField("local_objects_propagation_took", stat.localObjectsPropagationTook).
-				Debug("hashbeat iteration successfully completed")
+			s.index.logger.WithFields(logrus.Fields{
+				"action":                          "async_replication",
+				"class_name":                      s.class.Class,
+				"shard_name":                      s.name,
+				"target_node_name":                stat.targetNodeName,
+				"hashtree_diff_took":              stat.hashtreeDiffTook,
+				"object_digests_diff_took":        stat.objectDigestsDiffTook,
+				"local_object_digests_count":      stat.localObjectDigestsCount,
+				"objects_diff_count":              stat.objectsDiffCount,
+				"local_objects_propagation_count": stat.localObjectsPropagationCount,
+				"local_objects_propagation_took":  stat.localObjectsPropagationTook,
+			}).Debug("hashbeat iteration successfully completed")
 		}
 	}
 
@@ -1670,7 +1907,8 @@ func (s *Shard) hashBeat(
 	defer func() {
 		s.metrics.DecAsyncReplicationIterationRunning()
 
-		if err != nil && !errors.Is(err, replicaerrors.ErrNoDiffFound) {
+		// Not-ready targets are retry-later, not faults: keep them out of the failure counter.
+		if err != nil && !errors.Is(err, replicaerrors.ErrNoDiffFound) && !errors.Is(err, errAsyncReplicationNotActive) {
 			s.metrics.IncAsyncReplicationIterationFailureCount()
 			return
 		}
@@ -1684,10 +1922,10 @@ func (s *Shard) hashBeat(
 	var targetNodeOverridesSnapshot additional.AsyncReplicationTargetNodeOverrides
 
 	s.asyncReplicationRWMux.RLock()
-	if s.hashtree == nil {
+	// Authoritative readiness check: runEntry's snapshot is released before this call, so a rebuild landing in between would otherwise hand hashbeat a partially scanned placeholder.
+	if s.hashtree == nil || !s.hashtreeFullyInitialized {
 		s.asyncReplicationRWMux.RUnlock()
-		// handling the case of a hashtree being explicitly set to nil
-		return nil, fmt.Errorf("hashtree not initialized on shard %q", s.ID())
+		return nil, fmt.Errorf("%w: hashtree not initialized on shard %q", errAsyncReplicationNotActive, s.ID())
 	}
 	ht = s.hashtree
 	cpht = s.asyncCheckpointHashtree
@@ -1879,14 +2117,14 @@ type objectToPropagate struct {
 
 // propagationScratch holds buffers reused across all diff ranges of a hashBeat, allocating them per-beat not per-range.
 type propagationScratch struct {
-	filteredDigests    []types.RepairResponse
+	filteredDigests    []types.RepairDigest
 	localDigestsByUUID map[uuid.UUID]int64
 	objectsToPropagate []objectToPropagate
 }
 
 func newPropagationScratch(diffBatchSize int) *propagationScratch {
 	return &propagationScratch{
-		filteredDigests:    make([]types.RepairResponse, 0, diffBatchSize),
+		filteredDigests:    make([]types.RepairDigest, 0, diffBatchSize),
 		localDigestsByUUID: make(map[uuid.UUID]int64, diffBatchSize),
 		objectsToPropagate: make([]objectToPropagate, 0, diffBatchSize),
 	}
@@ -1917,7 +2155,13 @@ func (s *Shard) collectObjectsToPropagate(
 	remoteStaleUpdateTimeByUUID = make(map[strfmt.UUID]int64, config.propagationLimit)
 
 	// Digest mode: this scan reads only headers; full objects are fetched later.
-	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).CursorReplaceDigestReusable(storobj.MarshallerV1HeaderLen)
+	// The store clears its bucket map at shutdown; a nil bucket means teardown won.
+	objectsBucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	if objectsBucket == nil {
+		err = fmt.Errorf("objects bucket unavailable on shard %q (store shutting down)", s.name)
+		return
+	}
+	cursor := objectsBucket.CursorReplaceDigestReusable(storobj.MarshallerV1HeaderLen)
 	defer cursor.Close()
 
 	scratch := newPropagationScratch(config.diffBatchSize)
@@ -2023,28 +2267,19 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 			break
 		}
 
-		lastLocalUUIDBytes, err := bytesFromUUID(strfmt.UUID(allLocalDigests[len(allLocalDigests)-1].ID))
-		if err != nil {
-			return localObjectsCount, objectsToPropagate, err
-		}
+		lastLocalUUID := allLocalDigests[len(allLocalDigests)-1].ID
+		lastLocalUUIDBytes := lastLocalUUID[:]
 
-		// Drop too-recent objects; index the rest by parsed UUID so the
-		// CompareDigests response can be matched back without re-parsing.
+		// Drop too-recent objects; index the rest by UUID so the CompareDigests
+		// response can be matched back directly.
 		filteredDigests = filteredDigests[:0]
 		clear(localDigestsByUUID)
 		for _, d := range allLocalDigests {
 			if d.UpdateTime > maxUpdateTime {
 				continue
 			}
-			parsed, err := uuid.Parse(d.ID)
-			if err != nil {
-				// Unparseable UUID => corrupt local data; log and skip.
-				s.index.logger.WithField("uuid", d.ID).
-					Error("async replication: skipping local digest with invalid UUID")
-				continue
-			}
 			filteredDigests = append(filteredDigests, d)
-			localDigestsByUUID[parsed] = d.UpdateTime
+			localDigestsByUUID[d.ID] = d.UpdateTime
 		}
 		localObjectsCount += len(filteredDigests)
 
@@ -2071,16 +2306,10 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 		}
 
 		for _, stale := range staleDigests {
-			key, err := uuid.Parse(stale.ID)
-			if err != nil {
-				s.index.logger.WithField("uuid", stale.ID).
-					Error("async replication: skipping stale digest with invalid UUID")
-				continue
-			}
-			localUT, ok := localDigestsByUUID[key]
+			localUT, ok := localDigestsByUUID[stale.ID]
 			if !ok {
 				// Target returned an ID we did not send — protocol/remote bug; skip.
-				s.index.logger.WithField("uuid", stale.ID).
+				s.index.logger.WithField("uuid", stale.ID.String()).
 					Error("async replication: target returned a digest not present in source batch")
 				continue
 			}
@@ -2088,7 +2317,7 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 			// Queue every returned digest (stale or missing/tombstoned); the
 			// target's Overwrite handler + resolveObjectConflict settle deletions.
 			objectsToPropagate = append(objectsToPropagate, objectToPropagate{
-				uuid:                  strfmt.UUID(stale.ID),
+				uuid:                  strfmt.UUID(stale.ID.String()),
 				lastUpdateTime:        localUT,
 				remoteStaleUpdateTime: stale.UpdateTime, // 0 when missing-or-tombstoned on target
 			})

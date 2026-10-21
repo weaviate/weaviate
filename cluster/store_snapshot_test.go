@@ -22,14 +22,17 @@ import (
 	"time"
 
 	"github.com/hashicorp/raft"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/mocks"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -305,7 +308,13 @@ func TestConcurrentSnapshotOperations(t *testing.T) {
 	}
 	target := NewMockStore(t, "concurrent-snapshot-node", utils.MustGetFreeTCPPort())
 	target.store.init()
-	// Test concurrent Restore operations
+	// Restore clears the target schema before repopulating it, so a goroutine
+	// verifying the target while a sibling is mid-Restore legitimately observes
+	// zero classes. restoreMu makes each restore-then-verify pair atomic against
+	// the other restorers. Concurrency with the Persist and reader goroutines
+	// below, which is what this test is about, is unaffected. RAFT never issues
+	// concurrent Restores against one FSM.
+	var restoreMu sync.Mutex
 	for i := 0; i < numGoroutines; i++ {
 		go func() {
 			defer wg.Done()
@@ -322,15 +331,18 @@ func TestConcurrentSnapshotOperations(t *testing.T) {
 
 				target.parser.On("ParseClass", mock.Anything).Return(nil)
 				target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
-				// Restore from the snapshot
+
+				restoreMu.Lock()
 				err = target.store.Restore(io.NopCloser(bytes.NewBuffer(sink.Buffer.Bytes())))
 				assert.NoError(t, err)
-				time.Sleep(time.Microsecond)
 				verifySchemaRestoration(t, source, target)
 				sourceSchema := source.store.SchemaReader().ReadOnlySchema()
 				targetSchema := target.store.SchemaReader().ReadOnlySchema()
 				assert.Greater(t, len(sourceSchema.Classes), 0)
 				assert.Equal(t, len(sourceSchema.Classes), len(targetSchema.Classes))
+				restoreMu.Unlock()
+
+				time.Sleep(time.Microsecond)
 			}
 		}()
 	}
@@ -423,6 +435,68 @@ func setupTestSchema(t *testing.T, ms MockStore) {
 	// Verify classes were added
 	assert.NotNil(t, ms.store.SchemaReader().ReadOnlyClass("Product"), "Product class should be added")
 	assert.NotNil(t, ms.store.SchemaReader().ReadOnlyClass("Category"), "Category class should be added")
+}
+
+// reloadRecordingIndexer records the store's state when a snapshot restore
+// reloads the DB. The fake's ReloadLocalDB is otherwise a silent no-op, so this
+// is the only way to observe that moment.
+type reloadRecordingIndexer struct {
+	*fakes.MockSchemaExecutor
+	onReload func()
+}
+
+func (r *reloadRecordingIndexer) ReloadLocalDB(ctx context.Context, all []cmd.UpdateClassRequest) error {
+	if r.onReload != nil {
+		r.onReload()
+	}
+	return r.MockSchemaExecutor.ReloadLocalDB(ctx, all)
+}
+
+// TestSnapshotRestoreNamespacesBeforeDBReload pins that a snapshot restore
+// restores namespace state before it reloads the DB, so a shard decision that
+// reads namespace state during the reload sees the restored value.
+func TestSnapshotRestoreNamespacesBeforeDBReload(t *testing.T) {
+	source := NewMockStore(t, "ns-restore-source", utils.MustGetFreeTCPPort())
+	setupTestSchema(t, source)
+	require.NoError(t, source.cfg.NamespacesController.Create(
+		cmd.Namespace{Name: "alpha", HomeNodes: []string{source.cfg.NodeID}}, nsCreateIndex))
+
+	sink := &mocks.SnapshotSink{Buffer: bytes.NewBuffer(nil)}
+	snapshot, err := source.store.Snapshot()
+	require.NoError(t, err)
+	require.NoError(t, snapshot.Persist(sink))
+
+	// Rebuild the target over a recording DB; the DB is baked into the store at
+	// construction, so it can't be swapped after NewMockStore.
+	target := NewMockStore(t, "ns-restore-target", utils.MustGetFreeTCPPort())
+	rec := &reloadRecordingIndexer{MockSchemaExecutor: fakes.NewMockSchemaExecutor()}
+	cfg := target.cfg
+	cfg.DB = rec
+	replicationFSM := schema.NewMockreplicationFSM(t)
+	replicationFSM.EXPECT().HasActiveReplicationForCollection(mock.Anything).Return(false).Maybe()
+	replicationFSM.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
+	ts := NewFSM(cfg, nil, prometheus.NewPedanticRegistry())
+	ts.schemaManager.SetReplicationFSM(replicationFSM)
+	require.NoError(t, ts.init())
+	target.parser.On("ParseClass", mock.Anything).Return(nil)
+	rec.On("TriggerSchemaUpdateCallbacks").Return()
+
+	var reloaded, namespaceKnownAtReload bool
+	rec.onReload = func() {
+		reloaded = true
+		_, namespaceKnownAtReload = cfg.NamespacesController.GetNamespace("alpha")
+	}
+
+	require.NoError(t, ts.Restore(io.NopCloser(bytes.NewReader(sink.Buffer.Bytes()))))
+
+	require.True(t, reloaded, "the restore must reload the DB")
+	require.True(t, namespaceKnownAtReload,
+		"the namespace must already be restored when the reload starts")
+
+	// The namespace round-trips through the snapshot.
+	restored, ok := cfg.NamespacesController.GetNamespace("alpha")
+	require.True(t, ok)
+	require.Equal(t, []string{source.cfg.NodeID}, restored.HomeNodes)
 }
 
 func verifySchemaRestoration(t *testing.T, source, target MockStore) {

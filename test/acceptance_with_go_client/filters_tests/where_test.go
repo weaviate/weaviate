@@ -12,13 +12,12 @@
 package filters_tests
 
 import (
+	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/docker"
-
-	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestWhereFilter_SingleNode_Contains(t *testing.T) {
@@ -64,7 +63,7 @@ func TestWhereFilter_Cluster(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {

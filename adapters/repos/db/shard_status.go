@@ -24,12 +24,11 @@ import (
 // ShardStatus.Reason and used by the recovery logic to decide whether a
 // READONLY shard can be automatically transitioned back to READY.
 const (
-	statusReasonResourcePressure  = "resource pressure"
-	statusReasonResourceRecovery  = "resource usage below threshold"
-	statusReasonManualUpdate      = "manually set by user"
-	statusReasonVectorIndexUpdate = "update vector index config"
-	statusReasonShutdown          = "shutdown"
-	statusReasonNotifyReady       = "notify ready"
+	statusReasonResourcePressure = "resource pressure"
+	statusReasonResourceRecovery = "resource usage below threshold"
+	statusReasonManualUpdate     = "manually set by user"
+	statusReasonShutdown         = "shutdown"
+	statusReasonNotifyReady      = "notify ready"
 )
 
 type ShardStatus struct {
@@ -37,10 +36,48 @@ type ShardStatus struct {
 	Reason string
 }
 
+func (s *Shard) registerCountedStatus(status storagestate.Status) {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+
+	s.index.metrics.UpdateShardStatus("", status.String())
+	s.countedStatus = status.String()
+}
+
+// moveCountedStatusUnlocked follows a status change in the gauge; an uncounted
+// (released) shard stays uncounted.
+func (s *Shard) moveCountedStatusUnlocked(next storagestate.Status) {
+	if s.countedStatus == "" || s.countedStatus == next.String() {
+		return
+	}
+
+	s.index.metrics.UpdateShardStatus(s.countedStatus, next.String())
+	s.countedStatus = next.String()
+}
+
+// releaseCountedStatus is idempotent and safe on a never-counted shard.
+func (s *Shard) releaseCountedStatus() {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+
+	if s.countedStatus == "" {
+		return
+	}
+
+	s.index.metrics.UpdateShardStatus(s.countedStatus, "")
+	s.countedStatus = ""
+}
+
+// GetStatus recomputes READY/INDEXING from the vector queues. The gauge is not
+// moved by the recompute, only by status writes.
 func (s *Shard) GetStatus() storagestate.Status {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
 
+	return s.getStatusUnlocked()
+}
+
+func (s *Shard) getStatusUnlocked() storagestate.Status {
 	if s.status.Status != storagestate.StatusReady && s.status.Status != storagestate.StatusIndexing {
 		return s.status.Status
 	}
@@ -94,6 +131,21 @@ func (s *Shard) UpdateStatus(in, reason string) error {
 	return s.updateStatusUnlocked(in, reason)
 }
 
+// UpdateStatusIf writes the new status only if cond holds for the current one,
+// evaluating cond and writing under a single statusLock acquisition so a status
+// another writer sets in between cannot be overwritten. cond runs with the lock
+// held and must not call back into the shard.
+func (s *Shard) UpdateStatusIf(cond func(ShardStatus) bool, in, reason string) error {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+
+	current := ShardStatus{Status: s.getStatusUnlocked(), Reason: s.status.Reason}
+	if !cond(current) {
+		return nil
+	}
+	return s.updateStatusUnlocked(in, reason)
+}
+
 // updateStatusUnlocked updates the status without locking the statusLock.
 // Warning: Use UpdateStatus instead.
 func (s *Shard) updateStatusUnlocked(in, reason string) error {
@@ -118,7 +170,7 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 		return err
 	}
 
-	s.index.metrics.UpdateShardStatus(oldStatus.String(), targetStatus.String())
+	s.moveCountedStatusUnlocked(targetStatus)
 
 	lvl := logrus.DebugLevel
 	if targetStatus == storagestate.StatusReadOnly {

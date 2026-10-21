@@ -29,7 +29,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -261,6 +263,31 @@ func isSimilarSegmentSizes(leftSize, rightSize int64) bool {
 	return lowerSize*factorDef >= higherSize
 }
 
+func segmentPathForID(dir string, id int64) string {
+	return filepath.Join(dir, fmt.Sprintf("segment-%d", id))
+}
+
+// segmentFilePrefix is what every file belonging to one segment id begins with.
+// segmentExistsWithID selects a segment by this prefix, so removeSegmentDerivedFiles
+// is correct only while it deletes by the same one.
+func segmentFilePrefix(id string) string {
+	return fmt.Sprintf("segment-%s.", id)
+}
+
+// isSegmentWALName reports whether a file is spelled the way a commit logger
+// writes a segment's write-ahead-log. A name that merely ends in .wal is
+// something else: segmentID cuts it at the first dot, naming a segment it does
+// not own.
+func isSegmentWALName(name string) bool {
+	// the comparison below formats a string and cuts the name apart, and
+	// removeSegmentsOfSurvivingWALs asks this of every file in the directory
+	if !strings.HasSuffix(name, ".wal") {
+		return false
+	}
+
+	return name == segmentFilePrefix(segmentID(name))+"wal"
+}
+
 func segmentID(path string) string {
 	filename := filepath.Base(path)
 	filename, _, _ = strings.Cut(filename, ".")
@@ -285,9 +312,52 @@ func discardSegmentFile(f *os.File, path string, err error) error {
 	return err
 }
 
-// compactOnce performs one compaction iteration. Cancelling ctx aborts
-// the in-flight merge (sampled every compactor.AbortCheckEveryN keys).
-func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err error) {
+// abortPollInterval bounds how often the poller reads shouldAbort.
+const abortPollInterval = 50 * time.Millisecond
+
+// compactOnce performs one compaction iteration.
+func (sg *SegmentGroup) compactOnce(ctx context.Context) (bool, error) {
+	return sg.compactOnceAbortable(ctx, nil)
+}
+
+// watchAbort returns a context cancelled once shouldAbort turns true. The poller
+// lives until the returned cancel runs, so callers must always call it.
+func (sg *SegmentGroup) watchAbort(ctx context.Context,
+	shouldAbort cyclemanager.ShouldAbortCallback,
+) (context.Context, context.CancelFunc) {
+	// read before deriving, so a panicking callback leaves no context behind
+	aborting := shouldAbort()
+	ctx, cancel := context.WithCancel(ctx)
+	if aborting {
+		cancel()
+		return ctx, cancel
+	}
+
+	enterrors.GoWrapper(func() {
+		t := time.NewTicker(abortPollInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if shouldAbort() {
+					cancel()
+					return
+				}
+			}
+		}
+	}, sg.logger)
+	return ctx, cancel
+}
+
+// compactOnceAbortable performs one compaction iteration. Cancelling ctx, or
+// shouldAbort turning true, aborts the in-flight merge (sampled every
+// compactor.AbortCheckEveryN keys). Its shouldAbort bridge is built only once
+// there is a pair to merge, so an idle cycle needs no context, goroutine or ticker.
+func (sg *SegmentGroup) compactOnceAbortable(ctx context.Context,
+	shouldAbort cyclemanager.ShouldAbortCallback,
+) (compacted bool, err error) {
 	// Is it safe to only occasionally lock instead of the entire duration? Yes,
 	// because other than compaction the only change to the segments array could
 	// be an append because of a new flush cycle, so we do not need to guarantee
@@ -345,6 +415,12 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 	// skips above are not real runs
 	backgroundDone := monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessCompaction)
 	defer backgroundDone()
+
+	if shouldAbort != nil {
+		var cancel context.CancelFunc
+		ctx, cancel = sg.watchAbort(ctx, shouldAbort)
+		defer cancel()
+	}
 
 	var left, right Segment
 	func() {
@@ -457,7 +533,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 	case segmentindex.StrategyRoaringSet:
 		c := roaringset.NewCompactor(f, left.newRoaringSetCursor(), right.newRoaringSetCursor(),
 			level, cleanupTombstones,
-			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
+			sg.enableChecksumValidation, maxNewFileSize)
 
 		aborted, err := runCompactor(c.Do)
 		if err != nil {

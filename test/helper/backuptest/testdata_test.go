@@ -40,6 +40,7 @@ func TestTestDataGenerator_GenerateClass(t *testing.T) {
 		assert.True(t, propNames["score"])
 		assert.True(t, propNames["active"])
 		assert.True(t, propNames["tags"])
+		assert.True(t, propNames["location"])
 	})
 
 	t.Run("custom class name", func(t *testing.T) {
@@ -65,13 +66,13 @@ func TestTestDataGenerator_GenerateClass(t *testing.T) {
 	t.Run("with vectorizer", func(t *testing.T) {
 		gen := NewTestDataGenerator(&TestDataConfig{
 			ClassName:     "VectorizerClass",
-			UseVectorizer: "text2vec-contextionary",
+			UseVectorizer: "text2vec-model2vec",
 		})
 		class := gen.GenerateClass()
 
-		assert.Equal(t, "text2vec-contextionary", class.Vectorizer)
+		assert.Equal(t, "text2vec-model2vec", class.Vectorizer)
 		require.NotNil(t, class.ModuleConfig)
-		_, hasConfig := class.ModuleConfig.(map[string]interface{})["text2vec-contextionary"]
+		_, hasConfig := class.ModuleConfig.(map[string]interface{})["text2vec-model2vec"]
 		assert.True(t, hasConfig)
 	})
 }
@@ -271,13 +272,13 @@ func TestTestDataGenerator_FluentAPI(t *testing.T) {
 		WithMultiTenant(true).
 		WithNumTenants(3).
 		WithObjectsPerTenant(5).
-		WithVectorizer("text2vec-contextionary").
+		WithVectorizer("text2vec-model2vec").
 		WithSeed(42)
 
 	class := gen.GenerateClass()
 	assert.Equal(t, "FluentClass", class.Class)
 	assert.True(t, class.MultiTenancyConfig.Enabled)
-	assert.Equal(t, "text2vec-contextionary", class.Vectorizer)
+	assert.Equal(t, "text2vec-model2vec", class.Vectorizer)
 
 	tenants := gen.GenerateTenants()
 	assert.Len(t, tenants, 3)
@@ -359,4 +360,5 @@ func TestTestDataGenerator_ClassPropertyTypes(t *testing.T) {
 	assert.Equal(t, string(schema.DataTypeNumber), propTypes["score"])
 	assert.Equal(t, string(schema.DataTypeBoolean), propTypes["active"])
 	assert.Equal(t, string(schema.DataTypeTextArray), propTypes["tags"])
+	assert.Equal(t, string(schema.DataTypeGeoCoordinates), propTypes["location"])
 }

@@ -249,11 +249,56 @@ func (o *SearchNearTextNotFound) WriteResponse(rw http.ResponseWriter, producer 
 	}
 }
 
+// SearchNearTextRequestEntityTooLargeCode is the HTTP code returned for type SearchNearTextRequestEntityTooLarge
+const SearchNearTextRequestEntityTooLargeCode int = 413
+
+/*
+SearchNearTextRequestEntityTooLarge The request body exceeded the 4194304 byte (4 MiB) limit.
+
+swagger:response searchNearTextRequestEntityTooLarge
+*/
+type SearchNearTextRequestEntityTooLarge struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewSearchNearTextRequestEntityTooLarge creates SearchNearTextRequestEntityTooLarge with default headers values
+func NewSearchNearTextRequestEntityTooLarge() *SearchNearTextRequestEntityTooLarge {
+
+	return &SearchNearTextRequestEntityTooLarge{}
+}
+
+// WithPayload adds the payload to the search near text request entity too large response
+func (o *SearchNearTextRequestEntityTooLarge) WithPayload(payload *models.ErrorResponse) *SearchNearTextRequestEntityTooLarge {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the search near text request entity too large response
+func (o *SearchNearTextRequestEntityTooLarge) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *SearchNearTextRequestEntityTooLarge) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(413)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // SearchNearTextUnprocessableEntityCode is the HTTP code returned for type SearchNearTextUnprocessableEntity
 const SearchNearTextUnprocessableEntityCode int = 422
 
 /*
-SearchNearTextUnprocessableEntity Either a request-schema violation (a missing required field such as `query`, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).
+SearchNearTextUnprocessableEntity Either a request-schema violation (a missing required field such as `query`, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.
 
 swagger:response searchNearTextUnprocessableEntity
 */
@@ -343,7 +388,7 @@ func (o *SearchNearTextTooManyRequests) WriteResponse(rw http.ResponseWriter, pr
 const SearchNearTextInternalServerErrorCode int = 500
 
 /*
-SearchNearTextInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+SearchNearTextInternalServerError An error has occurred while trying to fulfill the request, including a failure of the embedding provider to vectorize the query. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response searchNearTextInternalServerError
 */
@@ -376,51 +421,6 @@ func (o *SearchNearTextInternalServerError) SetPayload(payload *models.ErrorResp
 func (o *SearchNearTextInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(500)
-	if o.Payload != nil {
-		payload := o.Payload
-		if err := producer.Produce(rw, payload); err != nil {
-			panic(err) // let the recovery middleware deal with this
-		}
-	}
-}
-
-// SearchNearTextBadGatewayCode is the HTTP code returned for type SearchNearTextBadGateway
-const SearchNearTextBadGatewayCode int = 502
-
-/*
-SearchNearTextBadGateway The embedding provider failed to vectorize the query; the search cannot run.
-
-swagger:response searchNearTextBadGateway
-*/
-type SearchNearTextBadGateway struct {
-
-	/*
-	  In: Body
-	*/
-	Payload *models.ErrorResponse `json:"body,omitempty"`
-}
-
-// NewSearchNearTextBadGateway creates SearchNearTextBadGateway with default headers values
-func NewSearchNearTextBadGateway() *SearchNearTextBadGateway {
-
-	return &SearchNearTextBadGateway{}
-}
-
-// WithPayload adds the payload to the search near text bad gateway response
-func (o *SearchNearTextBadGateway) WithPayload(payload *models.ErrorResponse) *SearchNearTextBadGateway {
-	o.Payload = payload
-	return o
-}
-
-// SetPayload sets the payload to the search near text bad gateway response
-func (o *SearchNearTextBadGateway) SetPayload(payload *models.ErrorResponse) {
-	o.Payload = payload
-}
-
-// WriteResponse to the client
-func (o *SearchNearTextBadGateway) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.WriteHeader(502)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

@@ -27,7 +27,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
@@ -35,11 +34,7 @@ import (
 func TestMultiTenant_ReindexSuite(t *testing.T) {
 	ctx := context.Background()
 
-	compose, err := docker.New().
-		WithWeaviate().
-		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false").
-		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
-		Start(ctx)
+	compose, err := reindexhelpers.StartSingleNode(ctx)
 	require.NoError(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
@@ -87,6 +82,16 @@ func TestMultiTenant_ReindexSuite(t *testing.T) {
 
 	t.Run("Validation", func(t *testing.T) {
 		testValidation(t, restURI)
+	})
+
+	// Cancel → deactivate → restart → re-submit, across the three tenant
+	// populations the cleanup sweep answers differently. Runs on its own
+	// compose (needs forced-lazy loading; the rest of this suite needs
+	// eager loading for its own coverage) and restores the suite's client
+	// afterward.
+	t.Run("ColdAndUnhydratedTenantCancel", func(t *testing.T) {
+		testColdAndUnhydratedTenantCancel(t)
+		helper.SetupClient(restURI)
 	})
 
 	t.Run("TenantScopedRebuildCancel", func(t *testing.T) {
@@ -156,8 +161,8 @@ func testRepairAllTenants(t *testing.T, restURI string) {
 // =============================================================================
 
 func testRepairSpecificTenants(t *testing.T, restURI string) {
-	// Per-tenant filter dispatch via enable-rangeable (format-only).
-	// ChangeAlgorithm + tenant subset is rejected post weaviate/0-weaviate-issues#254.
+	// Per-tenant dispatch via repair-filterable: only a format-only migration
+	// may name tenants, since a semantic one flips a flag every tenant shares.
 	className := "MTRepairSpecific"
 	tenantNames := []string{"t1", "t2", "t3", "t4", "t5"}
 
@@ -181,10 +186,9 @@ func testRepairSpecificTenants(t *testing.T, restURI string) {
 		}
 	}
 
-	// Repair only t1 and t2 via enable-rangeFilters on the int property.
 	targetTenants := []string{"t1", "t2"}
-	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "score",
-		"rangeFilters", `{}`, reindexhelpers.WithTenants(targetTenants))
+	taskID := reindexhelpers.RebuildIndex(t, restURI, className, "score",
+		"filterable", reindexhelpers.WithTenants(targetTenants))
 	t.Logf("repair specific tenants task: %s", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
@@ -419,10 +423,13 @@ func testValidation(t *testing.T, restURI string) {
 			"non-MT class with tenants should reject as 400: %s", got.Body)
 	})
 
-	// MT class for remaining validations.
+	// MT class for remaining validations. "alreadyRangeable" ships with the
+	// rangeable index on, so a PUT asking for it resolves to a no-op.
 	mtClass := "MTValidate"
 	createMTClass(t, mtClass, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
+		{Name: "score", DataType: []string{"int"}},
+		{Name: "alreadyRangeable", DataType: []string{"int"}, IndexRangeFilters: reindexhelpers.BoolPtr(true)},
 	})
 	addTenants(t, mtClass, []string{"active1", "active2"})
 	for _, tn := range []string{"active1", "active2"} {
@@ -446,6 +453,24 @@ func testValidation(t *testing.T, restURI string) {
 			"searchable", `{"algorithm":"blockmax"}`, reindexhelpers.WithTenants([]string{"active1"}))
 		require.Equal(t, http.StatusBadRequest, got.StatusCode,
 			"MT class with tenants on change-algorithm should reject as 400: %s", got.Body)
+	})
+
+	t.Run("EnableRangeable_with_tenants", func(t *testing.T) {
+		// IndexRangeFilters is shared by every tenant: naming a subset would
+		// turn range queries on for tenants that never got a bucket.
+		got := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, mtClass, "score",
+			"rangeFilters", `{}`, reindexhelpers.WithTenants([]string{"active1"}))
+		require.Equal(t, http.StatusBadRequest, got.StatusCode,
+			"MT class with tenants on enable-rangeable should reject as 400: %s", got.Body)
+	})
+
+	t.Run("EnableRangeable_with_tenants_on_already_rangeable", func(t *testing.T) {
+		// Same contract on the no-op arm: changing nothing is still no reason
+		// to accept tenants for a collection-wide flag.
+		got := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, mtClass, "alreadyRangeable",
+			"rangeFilters", `{}`, reindexhelpers.WithTenants([]string{"active1"}))
+		require.Equal(t, http.StatusBadRequest, got.StatusCode,
+			"MT class with tenants on an already-rangeable property should reject as 400: %s", got.Body)
 	})
 
 	t.Run("Nonexistent_tenant", func(t *testing.T) {

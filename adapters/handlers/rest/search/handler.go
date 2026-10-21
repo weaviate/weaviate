@@ -17,19 +17,23 @@ import (
 	"fmt"
 	"net/http"
 	"path"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
 
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
+	dbinverted "github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
-	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
@@ -52,57 +56,78 @@ func IsSearchRoute(urlPath string) bool {
 type classSearcher interface {
 	GetClass(ctx context.Context, principal *models.Principal,
 		params dto.GetParams) ([]any, error)
-}
-
-// schemaReader is the subset of schema.Manager used by the handler.
-type schemaReader interface {
-	ReadOnlyClass(name string) *models.Class
-	ResolveAlias(alias string) string
+	Aggregate(ctx context.Context, principal *models.Principal,
+		params *aggregation.Params) (any, error)
 }
 
 // HandlerConfig wires the handler's dependencies.
 type HandlerConfig struct {
-	Traverser         classSearcher
-	SchemaReader      schemaReader
-	Authorizer        authorization.Authorizer
-	NamespacesEnabled bool
-	DefaultLimit      int64
-	MaximumResults    int64
-	Enabled           *runtime.DynamicValue[bool]
-	Logger            logrus.FieldLogger
+	Traverser      classSearcher
+	SchemaReader   schema.SchemaReader
+	Authorizer     authorization.Authorizer
+	Qualifier      namespacing.Qualifier
+	DefaultLimit   int64
+	MaximumResults int64
+	// CrossRefDepthLimit is QUERY_CROSS_REFERENCE_DEPTH_LIMIT; the handler
+	// rejects deeper returnReferences nesting than the traverser would.
+	CrossRefDepthLimit int
+	Logger             logrus.FieldLogger
 }
 
 // Handler implements the search endpoints. The caller is authenticated in
 // the swagger security layer; the handler receives the resulting principal.
 type Handler struct {
-	traverser         classSearcher
-	schemaReader      schemaReader
-	authorizer        authorization.Authorizer
-	namespacesEnabled bool
-	defaultLimit      int64
-	maximumResults    int64
-	enabled           *runtime.DynamicValue[bool]
-	logger            logrus.FieldLogger
+	traverser          classSearcher
+	schemaReader       schema.SchemaReader
+	authorizer         authorization.Authorizer
+	qualifier          namespacing.Qualifier
+	defaultLimit       int64
+	maximumResults     int64
+	crossRefDepthLimit int
+	logger             logrus.FieldLogger
 }
 
 func NewHandler(cfg HandlerConfig) *Handler {
 	return &Handler{
-		traverser:         cfg.Traverser,
-		schemaReader:      cfg.SchemaReader,
-		authorizer:        cfg.Authorizer,
-		namespacesEnabled: cfg.NamespacesEnabled,
-		defaultLimit:      cfg.DefaultLimit,
-		maximumResults:    cfg.MaximumResults,
-		enabled:           cfg.Enabled,
-		logger:            cfg.Logger,
+		traverser:          cfg.Traverser,
+		schemaReader:       cfg.SchemaReader,
+		authorizer:         cfg.Authorizer,
+		qualifier:          cfg.Qualifier,
+		defaultLimit:       cfg.DefaultLimit,
+		maximumResults:     cfg.MaximumResults,
+		crossRefDepthLimit: cfg.CrossRefDepthLimit,
+		logger:             cfg.Logger,
 	}
 }
 
 // APIError couples an error with the HTTP status it maps to. The rest
-// package translates it into the matching generated responder.
+// package translates it into the matching generated responder. Err is what
+// the client sees; cause, when set, is the full error kept for the log.
 type APIError struct {
 	Status int
 	Err    error
+	cause  error
+}
+
+// Cause returns the full error behind a shortened client message, or Err. It
+// is for the log and for matching documented errors; only Err has been
+// stripped for the caller, so only Err may be shown to a client.
+func (e *APIError) Cause() error {
+	if e.cause != nil {
+		return e.cause
+	}
+	return e.Err
+}
+
+// strippedForPrincipal is apiErr with the caller's namespace removed from the
+// client message. The cause is carried over unchanged: it is never shown to
+// the client, but the reply still matches its docs link against it.
+func strippedForPrincipal(principal *models.Principal, apiErr *APIError) *APIError {
+	return &APIError{
+		Status: apiErr.Status,
+		Err:    namespacing.StripErrForPrincipal(principal, apiErr.Err),
+		cause:  apiErr.cause,
+	}
 }
 
 func newAPIError(status int, format string, args ...any) *APIError {
@@ -114,7 +139,8 @@ func (e *APIError) Error() string {
 }
 
 // classGetterFunc authorizes access to a collection and returns its class,
-// erroring when the caller is not authorized or the collection is unknown.
+// erroring when the caller is not authorized, the collection is unknown, or
+// its namespace is not active.
 type classGetterFunc func(string) (*models.Class, error)
 
 // buildParamsFunc turns the resolved collection into the dto.GetParams for a
@@ -124,29 +150,20 @@ type classGetterFunc func(string) (*models.Class, error)
 type buildParamsFunc func(class *models.Class, className string,
 	getClass classGetterFunc) (dto.GetParams, *APIError)
 
-// execute is the orchestrator shared by every REST search endpoint; only
-// the search-type-specific dto.GetParams construction is delegated to
-// buildParams. The authz-before-schema ordering is load-bearing: a caller
-// must not learn whether a collection exists before passing authorization.
-func (h *Handler) execute(ctx context.Context, principal *models.Principal,
-	collection, tenant string, common *models.SearchCommon, buildParams buildParamsFunc,
-) (*models.SearchResponse, *APIError) {
-	before := time.Now()
-
-	// error messages must never leak cross-namespace schema
-	strip := func(apiErr *APIError) *APIError {
-		return &APIError{Status: apiErr.Status, Err: namespacing.StripErrForPrincipal(principal, apiErr.Err)}
-	}
-
-	// reserved fields are rejected before any schema access, so an
-	// unauthorized caller cannot probe the collection
-	if apiErr := checkReservedFields(common); apiErr != nil {
-		return nil, strip(apiErr)
-	}
-
-	resolved, aliasUsed, err := namespacing.Resolve(principal, h.schemaReader, h.namespacesEnabled, collection)
+// resolveAuthorizedClass runs the first steps shared by search and aggregate:
+// alias/namespace resolution, then authorization BEFORE any schema access, so
+// a denied caller cannot learn whether the collection exists. Errors come back
+// unstripped; the caller applies its namespace strip.
+func (h *Handler) resolveAuthorizedClass(ctx context.Context, principal *models.Principal,
+	collection, tenant string,
+) (context.Context, *models.Class, string, classGetterFunc, *APIError) {
+	resolved, aliasUsed, err := namespacing.Resolve(principal, h.schemaReader, h.qualifier, collection)
 	if err != nil {
-		return nil, strip(&APIError{Status: http.StatusBadRequest, Err: err})
+		status := http.StatusBadRequest
+		if errors.As(err, &autherrs.Forbidden{}) {
+			status = http.StatusForbidden
+		}
+		return ctx, nil, "", nil, &APIError{Status: status, Err: err}
 	}
 
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
@@ -156,22 +173,39 @@ func (h *Handler) execute(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		var forbidden autherrs.Forbidden
 		if errors.As(err, &forbidden) {
-			// 403 before the not-enabled/existence checks, with the alias target hidden
-			return nil, strip(statusFromError(h.hideAliasTarget(ctx, principal, collection, tenant, aliasUsed != "", err)))
+			// 403 before the existence check, with the alias target hidden
+			return ctx, nil, "", nil, h.hideAliasTarget(ctx, principal, collection, resolved, tenant, aliasUsed != "", err)
 		}
-		// authorized but not found: fall through so the not-enabled check still wins over 404
+		return ctx, nil, "", nil, statusFromError(err)
 	}
 
-	// after authz, so a denied caller can't learn the endpoint is off
-	// (parity with DISABLE_GRAPHQL); the feature is experimental and gated
-	// off by default
-	if !h.enabled.Get() {
-		return nil, newAPIError(http.StatusUnprocessableEntity,
-			"rest search api is experimental and not enabled; set EXPERIMENTAL_REST_SEARCH_ENABLED=true to enable")
+	return ctx, class, resolved, getClass, nil
+}
+
+// execute is the orchestrator shared by every REST search endpoint; only
+// the search-type-specific dto.GetParams construction is delegated to
+// buildParams. The authz-before-schema ordering is load-bearing: a caller
+// must not learn whether a collection exists before passing authorization.
+func (h *Handler) execute(ctx context.Context, principal *models.Principal, op string,
+	collection, tenant string, common *models.SearchCommon, buildParams buildParamsFunc,
+) (*models.SearchResponse, *APIError) {
+	before := time.Now()
+
+	// error messages must never leak cross-namespace schema
+	strip := func(apiErr *APIError) *APIError {
+		h.logAPIError(op, collection, apiErr)
+		return strippedForPrincipal(principal, apiErr)
 	}
 
-	if err != nil {
-		return nil, strip(statusFromError(err))
+	// reserved fields are rejected before any schema access, so an
+	// unauthorized caller cannot probe the collection
+	if apiErr := checkReservedFields(common); apiErr != nil {
+		return nil, strip(apiErr)
+	}
+
+	ctx, class, resolved, getClass, apiErr := h.resolveAuthorizedClass(ctx, principal, collection, tenant)
+	if apiErr != nil {
+		return nil, strip(apiErr)
 	}
 
 	params, apiErr := buildParams(class, resolved, getClass)
@@ -184,7 +218,7 @@ func (h *Handler) execute(ctx context.Context, principal *models.Principal,
 		return nil, strip(statusFromError(err))
 	}
 
-	reply, err := buildResponse(res, params, time.Since(before))
+	reply, err := buildResponse(res, params, principal, time.Since(before))
 	if err != nil {
 		return nil, strip(&APIError{Status: http.StatusInternalServerError, Err: err})
 	}
@@ -201,30 +235,90 @@ func (h *Handler) NearText(ctx context.Context, principal *models.Principal,
 	paramsBuilder := func(class *models.Class, className string, getClass classGetterFunc) (dto.GetParams, *APIError) {
 		return h.buildNearTextParams(class, className, body, getClass, principal)
 	}
-	return h.execute(ctx, principal, collection, body.Tenant, &body.SearchCommon, paramsBuilder)
+	return h.execute(ctx, principal, "near-text", collection, body.Tenant, &body.SearchCommon, paramsBuilder)
 }
 
-// hideAliasTarget makes an alias denial indistinguishable from a denial on a
-// plain collection of the caller-supplied name: it re-runs the authorizer on
-// that name so the 403 matches in wording and never names the alias target.
-// The access decision was already made by getClass; this only reshapes it.
+// hideAliasTarget makes an alias denial indistinguishable from one on a plain
+// collection of the caller-supplied name: it re-runs the authorizer on that
+// name and, if that passes, rewords the target's denial onto the alias, so the
+// 403 keeps the authorizer's shape and never names the target.
 func (h *Handler) hideAliasTarget(ctx context.Context, principal *models.Principal,
-	collection, tenant string, aliasUsed bool, err error,
-) error {
+	collection, target, tenant string, aliasUsed bool, err error,
+) *APIError {
 	var forbidden autherrs.Forbidden
 	if !aliasUsed || !errors.As(err, &forbidden) {
-		return err
+		return statusFromError(err)
 	}
+	// This runs only after the caller was denied the target. A namespace refusal
+	// here would replace the 403 and tell that denied caller a namespace's state.
 	if reauth := h.authorizer.Authorize(ctx, principal, authorization.READ, dataResources(collection, tenant)...); reauth != nil {
-		return reauth
+		return statusFromError(reauth)
 	}
 	// authorized on the alias name but denied on its target: still deny,
-	// without naming the target
-	deniedPrincipal := principal
-	if deniedPrincipal == nil {
-		deniedPrincipal = &models.Principal{Username: "anonymous"}
+	// wording the target's denial as one on the alias
+	msg := regexp.MustCompile(`\b`+regexp.QuoteMeta(target)+`\b`).ReplaceAllLiteralString(err.Error(), collection)
+	return &APIError{Status: http.StatusForbidden, Err: errors.New(msg), cause: err}
+}
+
+func (h *Handler) logAPIError(op, collection string, apiErr *APIError) {
+	if h.logger == nil || apiErr == nil {
+		return
 	}
-	return autherrs.NewForbidden(deniedPrincipal, authorization.READ, dataResources(collection, tenant)...)
+	entry := h.logger.WithFields(logrus.Fields{"action": "rest_search", "op": op, "collection": collection, "status": apiErr.Status})
+	if apiErr.Status >= http.StatusInternalServerError {
+		entry.Errorf("%s failed: %v", op, apiErr.Cause())
+		return
+	}
+	entry.Debugf("%s rejected: %v", op, apiErr.Cause())
+}
+
+// Bm25 executes a keyword (BM25F) search over collection, supplying execute
+// with the bm25 params builder. It returns the 200 payload or an APIError
+// carrying the HTTP status.
+func (h *Handler) Bm25(ctx context.Context, principal *models.Principal,
+	collection string, body *models.SearchBm25Request,
+) (*models.SearchResponse, *APIError) {
+	paramsBuilder := func(class *models.Class, className string, getClass classGetterFunc) (dto.GetParams, *APIError) {
+		return h.buildBm25Params(class, className, body, getClass, principal)
+	}
+	return h.execute(ctx, principal, "bm25", collection, body.Tenant, &body.SearchCommon, paramsBuilder)
+}
+
+// NearObject executes a similarity search over collection anchored at an
+// existing object's stored vector, supplying execute with the near-object
+// params builder. It returns the 200 payload or an APIError carrying the
+// HTTP status.
+func (h *Handler) NearObject(ctx context.Context, principal *models.Principal,
+	collection string, body *models.SearchNearObjectRequest,
+) (*models.SearchResponse, *APIError) {
+	paramsBuilder := func(class *models.Class, className string, getClass classGetterFunc) (dto.GetParams, *APIError) {
+		return h.buildNearObjectParams(class, className, body, getClass, principal)
+	}
+	return h.execute(ctx, principal, "near-object", collection, body.Tenant, &body.SearchCommon, paramsBuilder)
+}
+
+// NearVector executes a similarity search over collection anchored at a
+// caller-supplied query vector, supplying execute with the near-vector params
+// builder. It returns the 200 payload or an APIError carrying the HTTP status.
+func (h *Handler) NearVector(ctx context.Context, principal *models.Principal,
+	collection string, body *models.SearchNearVectorRequest,
+) (*models.SearchResponse, *APIError) {
+	paramsBuilder := func(class *models.Class, className string, getClass classGetterFunc) (dto.GetParams, *APIError) {
+		return h.buildNearVectorParams(class, className, body, getClass, principal)
+	}
+	return h.execute(ctx, principal, "near-vector", collection, body.Tenant, &body.SearchCommon, paramsBuilder)
+}
+
+// Hybrid executes a hybrid (keyword + vector) search over collection,
+// supplying execute with the hybrid params builder. It returns the 200
+// payload or an APIError carrying the HTTP status.
+func (h *Handler) Hybrid(ctx context.Context, principal *models.Principal,
+	collection string, body *models.SearchHybridRequest,
+) (*models.SearchResponse, *APIError) {
+	paramsBuilder := func(class *models.Class, className string, getClass classGetterFunc) (dto.GetParams, *APIError) {
+		return h.buildHybridParams(class, className, body, getClass, principal)
+	}
+	return h.execute(ctx, principal, "hybrid", collection, body.Tenant, &body.SearchCommon, paramsBuilder)
 }
 
 // dataResources is the authorization resource set for a collection's (or
@@ -239,7 +333,8 @@ func dataResources(collection, tenant string) []string {
 // classGetterWithAuthz returns a class getter that authorizes READ on the
 // collection's (or tenant's) data before reading its schema. READ on data is
 // sufficient for querying: the schema exposes nothing a data reader cannot
-// already obtain.
+// already obtain. A cache hit skips AuthorizeAndRequireActiveNamespace, so the
+// memo key must fully identify the authorized resource.
 func (h *Handler) classGetterWithAuthz(ctx context.Context, principal *models.Principal, tenant string) classGetterFunc {
 	authorizedCollections := map[string]*models.Class{}
 
@@ -247,7 +342,7 @@ func (h *Handler) classGetterWithAuthz(ctx context.Context, principal *models.Pr
 		classTenantName := name + "#" + tenant
 		class, ok := authorizedCollections[classTenantName]
 		if !ok {
-			if err := h.authorizer.Authorize(ctx, principal, authorization.READ, dataResources(name, tenant)...); err != nil {
+			if err := h.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.READ, name, dataResources(name, tenant)...); err != nil {
 				return nil, err
 			}
 			class = h.schemaReader.ReadOnlyClass(name)
@@ -273,8 +368,10 @@ const errClassNotFoundMarker = "could not find class"
 // errors.Is/As. This relies on the wrap chain staying %w/Wrapf (never
 // %v/%s), or the typed matches silently degrade to 500.
 //
-// ORDERING: ErrNoVectorizerModule (422) must precede ErrQueryVectorization
-// (502) — the former arrives wrapped inside the latter.
+// ORDERING: ErrNoVectorizerModule (422), ErrSourceObjectNotFound (400),
+// ErrSourceObjectNoVector (422) and ErrDirtyReadOfDeletedObject (400) must
+// precede ErrQueryVectorization (500) — each arrives wrapped inside the
+// latter.
 func statusFromError(err error) *APIError {
 	var forbidden autherrs.Forbidden
 	if errors.As(err, &forbidden) {
@@ -285,27 +382,58 @@ func statusFromError(err error) *APIError {
 		return &APIError{Status: http.StatusTooManyRequests, Err: err}
 	}
 
+	var (
+		multiTenancy  objects.ErrMultiTenancy
+		noVectorizer  enterrors.ErrNoVectorizerModule
+		srcNotFound   enterrors.ErrSourceObjectNotFound
+		srcNoVector   enterrors.ErrSourceObjectNoVector
+		dirtyRead     objects.ErrDirtyReadOfDeletedObject
+		certainty     enterrors.ErrCertaintyIncompatible
+		missingIndex  inverted.MissingIndexError
+		vectorization enterrors.ErrQueryVectorization
+	)
 	switch {
 	case errors.Is(err, enterrors.ErrTenantNotFound):
 		return &APIError{Status: http.StatusNotFound, Err: err}
 	case errors.Is(err, enterrors.ErrTenantNotActive):
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
-	case errors.As(err, &objects.ErrMultiTenancy{}):
+	case errors.As(err, &multiTenancy):
 		// tenant-vs-collection mismatch (tenant sentinels checked above)
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
 	case errors.Is(err, errCollectionNotFound):
 		return &APIError{Status: http.StatusNotFound, Err: err}
-	case errors.As(err, &enterrors.ErrNoVectorizerModule{}):
+	case errors.As(err, &noVectorizer):
 		// must stay above ErrQueryVectorization (see func doc)
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
-	case errors.As(err, &enterrors.ErrCertaintyIncompatible{}):
+	case errors.As(err, &srcNotFound):
+		// near-object: the id names no object — a bad body value, like an
+		// unknown targetVector (must stay above ErrQueryVectorization)
+		return &APIError{Status: http.StatusBadRequest, Err: err}
+	case errors.As(err, &srcNoVector):
+		// near-object: the object exists but its stored vectors cannot
+		// anchor this search (must stay above ErrQueryVectorization)
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
-	case errors.As(err, &inverted.MissingIndexError{}):
+	case errors.As(err, &dirtyRead):
+		// near-object: the source object is mid-delete across replicas, which
+		// every other read path treats as gone (usecases/objects head, merge)
+		return &APIError{Status: http.StatusBadRequest, Err: err}
+	case errors.As(err, &certainty):
+		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
+	case errors.As(err, &missingIndex):
 		// filter on a property whose inverted index is disabled
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
-	case errors.As(err, &enterrors.ErrQueryVectorization{}):
-		// embedding provider failure
-		return &APIError{Status: http.StatusBadGateway, Err: err}
+	case errors.Is(err, distancer.ErrVectorLength):
+		// the query vector (supplied or vectorized) does not have the
+		// dimensionality of the index searched
+		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
+	case errors.Is(err, dbinverted.ErrOnlyStopwords):
+		// a Like pattern or keyword query that tokenizes to nothing
+		return &APIError{Status: http.StatusBadRequest, Err: err}
+	case errors.As(err, &vectorization):
+		// embedding provider failure — 500, not 502: Weaviate is not acting as
+		// a gateway. The provider's response can quote credentials, so it goes
+		// to the log, not to the client.
+		return &APIError{Status: http.StatusInternalServerError, Err: errVectorizationFailed, cause: err}
 	}
 
 	msg := err.Error()
@@ -319,3 +447,7 @@ func statusFromError(err error) *APIError {
 		return &APIError{Status: http.StatusInternalServerError, Err: err}
 	}
 }
+
+// errVectorizationFailed is the client-facing message for a provider failure,
+// whose detail belongs in the log.
+var errVectorizationFailed = errors.New("vectorizing the query failed; the vectorizer module's response is in the server log")

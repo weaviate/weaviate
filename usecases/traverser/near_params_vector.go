@@ -39,7 +39,7 @@ type nearParamsSearcher interface {
 		props search.SelectProperties, additional additional.Properties,
 		repl *additional.ReplicationProperties, tenant string) (*search.Result, error)
 	ObjectsByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties,
-		additional additional.Properties, tenant string) (search.Results, error)
+		additional additional.Properties, tenant, namespace string) (search.Results, error)
 }
 
 func newNearParamsVector(modulesProvider ModulesProvider, search nearParamsSearcher) *nearParamsVector {
@@ -255,6 +255,9 @@ func (v *nearParamsVector) findMultiVector(ctx context.Context, className string
 	}
 }
 
+// classFindVector resolves the stored vector a near-object search anchors at.
+// Failures are typed for API status mapping: ErrSourceObjectNotFound (no such
+// object), ErrSourceObjectNoVector (no usable vector for the request).
 func (v *nearParamsVector) classFindVector(ctx context.Context, className string,
 	id strfmt.UUID, tenant, targetVector string,
 ) ([]float32, string, error) {
@@ -263,7 +266,7 @@ func (v *nearParamsVector) classFindVector(ctx context.Context, className string
 		return nil, "", err
 	}
 	if res == nil {
-		return nil, "", errors.New("vector not found")
+		return nil, "", enterrors.NewErrSourceObjectNotFound(fmt.Errorf("nearObject search-object with id %v not found", id))
 	}
 	if targetVector != "" {
 		if targetVector == modelsext.DefaultNamedVectorName && len(res.Vector) > 0 {
@@ -271,7 +274,7 @@ func (v *nearParamsVector) classFindVector(ctx context.Context, className string
 		}
 
 		if res.Vectors[targetVector] == nil {
-			return nil, "", fmt.Errorf("vector not found for target: %v", targetVector)
+			return nil, "", enterrors.NewErrSourceObjectNoVector(fmt.Errorf("vector not found for target: %v", targetVector))
 		}
 		vec, ok := res.Vectors[targetVector].([]float32)
 		if !ok {
@@ -293,14 +296,15 @@ func (v *nearParamsVector) classFindVector(ctx context.Context, className string
 				}
 			}
 		} else if len(res.Vectors) > 1 {
-			return nil, "", errors.New("multiple vectors found, specify target vector")
+			return nil, "", enterrors.NewErrSourceObjectNoVector(errors.New("multiple vectors found, specify target vector"))
 		}
 	}
 
-	return nil, "", fmt.Errorf("nearObject search-object with id %v has no vector", id)
+	return nil, "", enterrors.NewErrSourceObjectNoVector(fmt.Errorf("nearObject search-object with id %v has no vector", id))
 }
 
 // TODO:colbert try to unify
+// Failures carry the same typed errors as classFindVector.
 func (v *nearParamsVector) classFindMultiVector(ctx context.Context, className string,
 	id strfmt.UUID, tenant, targetVector string,
 ) ([][]float32, string, error) {
@@ -309,11 +313,11 @@ func (v *nearParamsVector) classFindMultiVector(ctx context.Context, className s
 		return nil, "", err
 	}
 	if res == nil {
-		return nil, "", errors.New("vector not found")
+		return nil, "", enterrors.NewErrSourceObjectNotFound(fmt.Errorf("nearObject search-object with id %v not found", id))
 	}
 	if targetVector != "" {
 		if len(res.Vectors) == 0 || res.Vectors[targetVector] == nil {
-			return nil, "", fmt.Errorf("vector not found for target: %v", targetVector)
+			return nil, "", enterrors.NewErrSourceObjectNoVector(fmt.Errorf("vector not found for target: %v", targetVector))
 		}
 		multiVector, ok := res.Vectors[targetVector].([][]float32)
 		if !ok {
@@ -331,14 +335,16 @@ func (v *nearParamsVector) classFindMultiVector(ctx context.Context, className s
 				}
 			}
 		} else if len(res.Vectors) > 1 {
-			return nil, "", errors.New("multiple vectors found, specify target vector")
+			return nil, "", enterrors.NewErrSourceObjectNoVector(errors.New("multiple vectors found, specify target vector"))
 		}
 	}
-	return nil, "", fmt.Errorf("nearObject search-object with id %v has no vector", id)
+	return nil, "", enterrors.NewErrSourceObjectNoVector(fmt.Errorf("nearObject search-object with id %v has no vector", id))
 }
 
 func (v *nearParamsVector) crossClassFindVector(ctx context.Context, id strfmt.UUID, targetVector string) ([]float32, string, error) {
-	res, err := v.search.ObjectsByID(ctx, id, search.SelectProperties{}, additional.Properties{}, "")
+	// Explore is GraphQL, which a cluster with NAMESPACES_ENABLED does not serve,
+	// so no collection it searches sits in a namespace.
+	res, err := v.search.ObjectsByID(ctx, id, search.SelectProperties{}, additional.Properties{}, "", "")
 	if err != nil {
 		return nil, "", errors.Wrap(err, "find objects")
 	}
@@ -409,7 +415,9 @@ func (v *nearParamsVector) crossClassFindVector(ctx context.Context, id strfmt.U
 }
 
 func (v *nearParamsVector) crossClassFindMultiVector(ctx context.Context, id strfmt.UUID, targetVector string) ([][]float32, string, error) {
-	res, err := v.search.ObjectsByID(ctx, id, search.SelectProperties{}, additional.Properties{}, "")
+	// Explore is GraphQL, which a cluster with NAMESPACES_ENABLED does not serve,
+	// so no collection it searches sits in a namespace.
+	res, err := v.search.ObjectsByID(ctx, id, search.SelectProperties{}, additional.Properties{}, "", "")
 	if err != nil {
 		return nil, "", errors.Wrap(err, "find objects")
 	}

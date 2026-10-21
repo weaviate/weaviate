@@ -22,13 +22,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -41,7 +41,7 @@ func TestUpdateInvertedConfigStopwords(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
@@ -50,6 +50,7 @@ func TestUpdateInvertedConfigStopwords(t *testing.T) {
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -63,7 +64,7 @@ func TestUpdateInvertedConfigStopwords(t *testing.T) {
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -221,7 +222,7 @@ func TestUpdateInvertedConfigStopwordsPresetSwitch(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
@@ -230,6 +231,7 @@ func TestUpdateInvertedConfigStopwordsPresetSwitch(t *testing.T) {
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -243,7 +245,7 @@ func TestUpdateInvertedConfigStopwordsPresetSwitch(t *testing.T) {
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -361,7 +363,7 @@ func TestUpdateInvertedConfigStopwordsPersistence(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
@@ -370,6 +372,7 @@ func TestUpdateInvertedConfigStopwordsPersistence(t *testing.T) {
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -383,7 +386,7 @@ func TestUpdateInvertedConfigStopwordsPersistence(t *testing.T) {
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -489,7 +492,7 @@ func TestUpdateInvertedConfigStopwordsPersistence(t *testing.T) {
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))

@@ -40,7 +40,7 @@ func TestZip(t *testing.T) {
 		pathNode = "./test_data/node1"
 		ctx      = context.Background()
 	)
-	for _, compressionLevel := range []CompressionLevel{GzipBestCompression, NoCompression} {
+	for _, compressionLevel := range []CompressionLevel{GzipBestCompression, ZstdBestCompression, NoCompression} {
 		t.Run(fmt.Sprintf("compressionLevel=%v", compressionLevel), func(t *testing.T) {
 			pathDest := filepath.Join(t.TempDir(), "test_data", "node1")
 			require.NoError(t, copyDir(pathNode, pathDest))
@@ -83,12 +83,8 @@ func TestZip(t *testing.T) {
 			require.NoError(t, os.MkdirAll(pathDest, 0o755))
 
 			// decompression
-			var compressionType backup.CompressionType
-			if compressionLevel == NoCompression {
-				compressionType = backup.CompressionNone
-			} else {
-				compressionType = backup.CompressionGZIP
-			}
+			compressionType, err := CompressionTypeFromLevel(compressionLevel)
+			require.NoError(t, err)
 			uz, wc := NewUnzip(pathDest, compressionType)
 
 			// decompression reader
@@ -889,7 +885,7 @@ func TestWriteShard(t *testing.T) {
 
 // TestRenamingDuringBackup tests that the backup process can handle files being renamed concurrently
 func TestRenamingDuringBackup(t *testing.T) {
-	for _, compressionLevel := range []CompressionLevel{GzipBestCompression, NoCompression} {
+	for _, compressionLevel := range []CompressionLevel{GzipBestCompression, ZstdBestCompression, NoCompression} {
 		t.Run(fmt.Sprintf("compressionLevel=%v", compressionLevel), func(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "source")
 			dir2 := filepath.Join(t.TempDir(), "dest")
@@ -982,12 +978,8 @@ func TestRenamingDuringBackup(t *testing.T) {
 
 			require.NoError(t, os.RemoveAll(dir))
 
-			var compressionType backup.CompressionType
-			if compressionLevel == NoCompression {
-				compressionType = backup.CompressionNone
-			} else {
-				compressionType = backup.CompressionGZIP
-			}
+			compressionType, err := CompressionTypeFromLevel(compressionLevel)
+			require.NoError(t, err)
 
 			uz, wc := NewUnzip(dir2, compressionType)
 			go func() {
@@ -1018,7 +1010,7 @@ func TestRenamingDuringBackup(t *testing.T) {
 // TestSplitFileRoundTrip tests that files larger than the split file size threshold
 // are correctly split across multiple chunks and restored with proper offsets.
 func TestSplitFileRoundTrip(t *testing.T) {
-	for _, compressionLevel := range []CompressionLevel{GzipBestCompression, NoCompression} {
+	for _, compressionLevel := range []CompressionLevel{GzipBestCompression, ZstdBestCompression, NoCompression} {
 		t.Run(fmt.Sprintf("compressionLevel=%v", compressionLevel), func(t *testing.T) {
 			ctx := context.Background()
 			sourceDir := filepath.Join(t.TempDir(), "source")
@@ -1106,12 +1098,8 @@ func TestSplitFileRoundTrip(t *testing.T) {
 			require.Greater(t, len(chunks), 1, "expected multiple chunks due to file splitting")
 
 			// Restore all chunks
-			var compressionType backup.CompressionType
-			if compressionLevel == NoCompression {
-				compressionType = backup.CompressionNone
-			} else {
-				compressionType = backup.CompressionGZIP
-			}
+			compressionType, err := CompressionTypeFromLevel(compressionLevel)
+			require.NoError(t, err)
 
 			for _, chunk := range chunks {
 				uz, wc := NewUnzip(restoreDir, compressionType)
@@ -2019,4 +2007,38 @@ func newFileList(t *testing.T, sourceDir string, files []string) *backup.FileLis
 		Files:     append([]string{}, files...),
 		FileSizes: fileSizes,
 	}
+}
+
+// TestUnzipCloseReportsOnlyTheStepThatFailed pins that a chunk whose stream ends
+// early names the decompressor and nothing else. The text reaches the restore's
+// error and from there the status API, where a step that succeeded reported as an
+// error is what a poller reads as a second failure.
+func TestUnzipCloseReportsOnlyTheStepThatFailed(t *testing.T) {
+	var archive bytes.Buffer
+	gw := gzip.NewWriter(&archive)
+	tw := tar.NewWriter(gw)
+	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "f.txt", Mode: 0o644, Size: 4}))
+	_, err := tw.Write([]byte("data"))
+	require.NoError(t, err)
+	require.NoError(t, tw.Close())
+	require.NoError(t, gw.Close())
+	truncated := archive.Bytes()[:archive.Len()/2]
+
+	uz, wc := NewUnzip(t.TempDir(), backup.CompressionGZIP)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = wc.Write(truncated)
+		wc.Close()
+	}()
+
+	_, readErr := uz.ReadChunk()
+	require.Error(t, readErr, "a truncated chunk must not read as a complete one")
+
+	closeErr := uz.Close()
+	require.Error(t, closeErr)
+	require.NotContains(t, closeErr.Error(), "%!w(",
+		"a close step that succeeded must not be reported as an error")
+	require.Contains(t, closeErr.Error(), "gunzip: ")
+	<-done
 }

@@ -16,16 +16,19 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/cluster/fsm"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -49,6 +52,8 @@ func classifyCanCommitErr(err error) CanCommitErrorKind {
 
 // Version of backup structure
 const (
+	// "3.0" replica-deduped artifact layout; requires fan-out restore
+	VersionDedupeReplicas = "3.0"
 	// "2.1" support restore on 2 phases
 	Version = "2.1"
 	// "2.0" support compression
@@ -71,8 +76,8 @@ func legacyRestoreErr(origin string) error {
 		"release that still supports it and create a new backup", origin)
 }
 
-// maxMajorVersion is the newest backup-structure major version this build restores.
-var maxMajorVersion, _ = parseMajor(Version)
+// maxRestorableMajorVersion is the newest backup-structure major this build restores; 3.x = replica-deduped layout.
+const maxRestorableMajorVersion = 3
 
 // checkRestorableVersion refuses backups this build cannot restore, either because their
 // format is too old or because a later Weaviate produced them. version is the
@@ -86,8 +91,12 @@ func checkRestorableVersion(version, serverVersion string) error {
 		return errLegacyFlatFS
 	}
 	// A structure version may omit the minor, so compare majors only.
-	if major, ok := parseMajor(version); ok && major > maxMajorVersion {
-		return fmt.Errorf("%s: %s > %s", errMsgHigherVersion, version, Version)
+	major, ok := parseMajor(version)
+	if version != "" && !ok {
+		return fmt.Errorf("corrupted backup: unrecognized structure version %q", version)
+	}
+	if ok && major > maxRestorableMajorVersion {
+		return fmt.Errorf("%s: %s > %d.x", errMsgHigherVersion, version, maxRestorableMajorVersion)
 	}
 	return nil
 }
@@ -141,28 +150,39 @@ type BackupBackendProvider interface {
 }
 
 type schemaManger interface {
+	local.ClassReader
 	RestoreClass(ctx context.Context, d *backup.ClassDescriptor, nodeMapping map[string]string, overwriteAlias bool, stripNamespaces bool) error
-	NodeName() string
 	NamespacesEnabled() bool
-	ClassEqual(name string) string
 }
 
 type NodeResolver interface {
-	NodeHostname(nodeName string) (string, bool)
-	AllNames() []string
-	NodeCount() int
+	cluster.HostnameResolver
+	cluster.NodeLister
+	cluster.NodeCounter
 
 	// LeaderID is used to return the current leader ID
 	// It may return empty strings if there is no current leader or the leader is unknown.
 	LeaderID() string
 }
 
-// dynUserSnapshotter is the backup-side contract for the dynamic-user FSM,
-// deliberately separate from fsm.Snapshotter (RAFT log compaction): the
-// variadic filter only makes sense for backups.
+// dynUserSnapshotter is the backup-side contract for the dynamic-user FSM. The variadic
+// Snapshot filters to a user subset for backups; zero args is the full snapshot.
 type dynUserSnapshotter interface {
 	Snapshot(userIDs ...string) ([]byte, error)
-	Restore(snapshot []byte, stripNamespaces bool) error
+}
+
+// RBACSnapshotter is the backup-side contract for the RBAC FSM. The variadic
+// Snapshot filters to a role subset for backups; zero args is the full snapshot.
+// It is exported so the wiring can hold one as a genuinely nil interface when
+// RBAC is off, rather than boxing a nil *rbac.Manager into a non-nil interface.
+type RBACSnapshotter interface {
+	Snapshot(roles ...string) ([]byte, error)
+}
+
+// rolesAndUsersRestorer applies a backup's role and user snapshots through RAFT.
+// Implemented by *cluster.Raft.
+type rolesAndUsersRestorer interface {
+	RestoreRolesAndUsers(ctx context.Context, roles, users []byte, stripNamespaces bool) error
 }
 
 type Status struct {
@@ -175,6 +195,11 @@ type Status struct {
 	BaseBackupID string
 }
 
+// CoordinatorCanceller lets a cluster abort reach the coordinator slot (*Scheduler).
+type CoordinatorCanceller interface {
+	cancelCoordinatorOp(method Op, id, attemptID string) bool
+}
+
 type Handler struct {
 	node string
 	// deps
@@ -183,6 +208,8 @@ type Handler struct {
 	backupper  *backupper
 	restorer   *restorer
 	backends   BackupBackendProvider
+	// atomic: wired after the cluster API already serves OnAbort.
+	coordCanceller atomic.Pointer[CoordinatorCanceller]
 }
 
 func NewHandler(
@@ -190,12 +217,12 @@ func NewHandler(
 	cfg config.Backup,
 	authorizer authorization.Authorizer,
 	schema schemaManger,
+	node string,
 	sourcer Sourcer,
 	backends BackupBackendProvider,
-	rbacSourcer fsm.Snapshotter,
+	rbacSourcer RBACSnapshotter,
 	dynUserSourcer dynUserSnapshotter,
 ) *Handler {
-	node := schema.NodeName()
 	m := &Handler{
 		node:       node,
 		logger:     logger,
@@ -205,8 +232,7 @@ func NewHandler(
 			sourcer, rbacSourcer, dynUserSourcer,
 			backends),
 		restorer: newRestorer(node, logger,
-			sourcer, rbacSourcer, dynUserSourcer,
-			backends, schema.NamespacesEnabled(),
+			sourcer, backends, schema.NamespacesEnabled(),
 		),
 	}
 	return m
@@ -238,9 +264,15 @@ type BackupRequest struct {
 	// The same class cannot appear in both Include and Exclude in the same request
 	Exclude []string
 
-	// Non-empty switches the backup to a filtered dynamic-user snapshot.
-	// Empty keeps the whole-cluster snapshot. Same '*'/'?' wildcards as Include.
+	// Nil captures the full dynamic-user store. An empty list excludes it.
+	// Selectors support '*'/'?' wildcards; exact names must exist.
+	// Wildcards matching nothing exclude the user snapshot.
 	IncludeUsers []string
+
+	// Nil captures the full RBAC state. An empty list excludes it.
+	// Selectors support '*'/'?' wildcards and exclude built-in roles.
+	// Exact names must exist; wildcards matching nothing exclude the RBAC snapshot.
+	IncludeRoles []string
 
 	// NodeMapping is a map of node name replacement where key is the old name and value is the new name
 	// No effect if the map is empty
@@ -256,6 +288,28 @@ type BackupRequest struct {
 	UserRestoreOption string
 
 	BaseBackupID string
+
+	// DedupeReplicas opts in to single-replica archiving of convergence-proven shards; the artifact then needs fan-out-capable versions to restore.
+	DedupeReplicas bool
+
+	// DedupeConvergenceTimeoutSeconds bounds the convergence wait; 0 = default.
+	DedupeConvergenceTimeoutSeconds int
+}
+
+// originalNodeName reverse-maps this node's name to its backup-time name; a wrong answer here makes a mapped fan-out restore silently restore nothing.
+// Sorted iteration keeps the answer deterministic under a non-injective mapping (rejected up front for deduped restores, still accepted on the legacy path).
+func originalNodeName(local string, mapping map[string]string) string {
+	oldNames := make([]string, 0, len(mapping))
+	for oldName := range mapping {
+		oldNames = append(oldNames, oldName)
+	}
+	sort.Strings(oldNames)
+	for _, oldName := range oldNames {
+		if local == mapping[oldName] {
+			return oldName
+		}
+	}
+	return local
 }
 
 // OnCanCommit will be triggered when coordinator asks the node to participate
@@ -264,15 +318,9 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 	ret := &CanCommitResponse{Method: req.Method, ID: req.ID}
 
 	nodeName := m.node
-	// If we are doing a restore and have a nodeMapping specified, ensure we use the "old" node name from the backup to retrieve/store the
-	// backup information.
+	// A restore must read/store backup information under the node's backup-time name.
 	if req.Method == OpRestore {
-		for oldNodeName, newNodeName := range req.NodeMapping {
-			if nodeName == newNodeName {
-				nodeName = oldNodeName
-				break
-			}
-		}
+		nodeName = originalNodeName(m.node, req.NodeMapping)
 	}
 	store, err := nodeBackend(nodeName, m.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
@@ -300,10 +348,34 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 			return ret
 		}
 		ret.Timeout = res.Timeout
+		ret.DedupeHonored = req.DedupeReplicas
 	case OpRestore:
+		if req.DedupeReplicas {
+			plan, err := m.restorer.buildFanoutPlan(ctx, nodeName, req)
+			if err != nil {
+				ret.Err = err.Error()
+				ret.ErrKind = CanCommitErrCannotCommit
+				return ret
+			}
+			res, err := m.restorer.restoreFanout(req, plan, store)
+			if err != nil {
+				ret.Err = err.Error()
+				ret.ErrKind = CanCommitErrCannotCommit
+				return ret
+			}
+			ret.Timeout = res.Timeout
+			ret.DedupeHonored = true
+			return ret
+		}
 		meta, _, err := m.restorer.validate(ctx, &store, req)
 		if err != nil {
 			ret.Err = err.Error()
+			ret.ErrKind = CanCommitErrCannotCommit
+			return ret
+		}
+		// validateNodeMeta only catches version/flag mismatch; restoring a deduped descriptor thin would silently omit designated-away shards.
+		if meta.DedupeReplicas {
+			ret.Err = "per-node descriptor is replica-deduped but the restore was not planned as a fan-out; global descriptor is corrupt"
 			ret.ErrKind = CanCommitErrCannotCommit
 			return ret
 		}
@@ -335,8 +407,17 @@ func (m *Handler) OnCommit(ctx context.Context, req *StatusRequest) (err error) 
 	}
 }
 
+// SetCoordinatorCanceller lets an abort RPC cancel an op this node coordinates.
+func (m *Handler) SetCoordinatorCanceller(c CoordinatorCanceller) {
+	m.coordCanceller.Store(&c)
+}
+
 // OnAbort will be triggered when the coordinator abort the execution of a previous operation
 func (m *Handler) OnAbort(ctx context.Context, req *AbortRequest) error {
+	// A create waiting out planning has no participant slots; only this reaches it.
+	if c := m.coordCanceller.Load(); c != nil {
+		(*c).cancelCoordinatorOp(req.Method, req.ID, req.AttemptID)
+	}
 	switch req.Method {
 	case OpCreate:
 		return m.backupper.OnAbort(ctx, req)
@@ -357,7 +438,7 @@ func (m *Handler) OnStatus(ctx context.Context, req *StatusRequest) *StatusRespo
 	case OpCreate:
 		st, err := m.backupper.OnStatus(ctx, req)
 		ret.Status = st.Status
-		// mm
+		ret.Err = st.Err
 		if err != nil {
 			ret.Status = backup.Failed
 			ret.Err = err.Error()
@@ -369,8 +450,6 @@ func (m *Handler) OnStatus(ctx context.Context, req *StatusRequest) *StatusRespo
 		if err != nil {
 			ret.Status = backup.Failed
 			ret.Err = err.Error()
-		} else if st.Err != "" {
-			ret.Err = st.Err
 		}
 	default:
 		ret.Status = backup.Failed

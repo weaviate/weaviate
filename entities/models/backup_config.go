@@ -51,6 +51,14 @@ type BackupConfig struct {
 
 	// Path or key within the bucket.
 	Path string `json:"Path,omitempty"`
+
+	// How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.
+	// Maximum: 600
+	// Minimum: 1
+	DedupeConvergenceTimeoutSeconds int64 `json:"dedupeConvergenceTimeoutSeconds,omitempty"`
+
+	// If true, shards of replicated collections proven in sync by async-replication checkpoints are archived by one replica instead of all, and restore copies them back to every replica; other shards are archived by every replica. Requires async replication, BACKUP_DEDUPE_ENABLED=true (else 422) and a Weaviate license key (else 403) on every node. Such backups restore only on versions that support this option; restoring needs no license.
+	DedupeReplicas bool `json:"dedupeReplicas,omitempty"`
 }
 
 // Validate validates this backup config
@@ -62,6 +70,10 @@ func (m *BackupConfig) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateCompressionLevel(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateDedupeConvergenceTimeoutSeconds(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -138,6 +150,22 @@ func (m *BackupConfig) validateCompressionLevel(formats strfmt.Registry) error {
 
 	// value enum
 	if err := m.validateCompressionLevelEnum("CompressionLevel", "body", m.CompressionLevel); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *BackupConfig) validateDedupeConvergenceTimeoutSeconds(formats strfmt.Registry) error {
+	if swag.IsZero(m.DedupeConvergenceTimeoutSeconds) { // not required
+		return nil
+	}
+
+	if err := validate.MinimumInt("dedupeConvergenceTimeoutSeconds", "body", m.DedupeConvergenceTimeoutSeconds, 1, false); err != nil {
+		return err
+	}
+
+	if err := validate.MaximumInt("dedupeConvergenceTimeoutSeconds", "body", m.DedupeConvergenceTimeoutSeconds, 600, false); err != nil {
 		return err
 	}
 

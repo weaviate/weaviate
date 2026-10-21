@@ -14,10 +14,13 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http/httptest"
 	"sync"
 	"testing"
 
+	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
@@ -26,6 +29,10 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/namespaces"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 type fakeReindexTaskLister struct {
@@ -50,6 +57,128 @@ func (r *recordingLockProvider) SubmitLockFor(collection, property string) *sync
 	return &sync.Mutex{}
 }
 
+// A shard status update refused by the namespace is the caller's problem, not a
+// fault: the propose-time gate returns a lifecycle sentinel, and 500 would read
+// as a broken server and hide it from anything retrying on 4xx.
+func TestShardStatusErrResponder(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want middleware.Responder
+	}{
+		{
+			name: "suspended namespace is unprocessable",
+			err:  fmt.Errorf("propose: %w", namespaces.ErrNamespaceSuspended),
+			want: schema.NewSchemaObjectsShardsUpdateUnprocessableEntity(),
+		},
+		{
+			name: "deleting namespace is unprocessable",
+			err:  namespaces.ErrNamespaceDeleting,
+			want: schema.NewSchemaObjectsShardsUpdateUnprocessableEntity(),
+		},
+		{
+			name: "missing namespace is unprocessable",
+			err:  namespaces.ErrNamespaceGone,
+			want: schema.NewSchemaObjectsShardsUpdateUnprocessableEntity(),
+		},
+		// Resuming asks for 503, which this operation has no responder for, so it
+		// keeps the fallback rather than being mislabelled a client error.
+		{
+			name: "resuming namespace falls through",
+			err:  namespaces.ErrNamespaceResuming,
+			want: schema.NewSchemaObjectsShardsUpdateInternalServerError(),
+		},
+		{
+			name: "a forbidden error still maps to forbidden",
+			err:  authzerrors.Forbidden{},
+			want: schema.NewSchemaObjectsShardsUpdateForbidden(),
+		},
+		{
+			name: "an unknown shard still maps to not found",
+			err:  fmt.Errorf("shard: %w", schemaUC.ErrNotFound),
+			want: schema.NewSchemaObjectsShardsUpdateNotFound(),
+		},
+		{
+			name: "an invalid class name is unprocessable",
+			err:  fmt.Errorf("%w: %w", schemaUC.ErrValidation, errors.New("'a:Foo' is not a valid class name")),
+			want: schema.NewSchemaObjectsShardsUpdateUnprocessableEntity(),
+		},
+		{
+			name: "anything else stays a server error",
+			err:  errors.New("boom"),
+			want: schema.NewSchemaObjectsShardsUpdateInternalServerError(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.IsType(t, tt.want, shardStatusErrResponder(nil, tt.err))
+		})
+	}
+}
+
+func TestShardsStorageStatusErrResponder(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want middleware.Responder
+	}{
+		{
+			name: "a forbidden error maps to forbidden",
+			err:  authzerrors.Forbidden{},
+			want: schema.NewSchemaObjectsShardsGetForbidden(),
+		},
+		{
+			name: "an unknown class maps to not found",
+			err:  fmt.Errorf("class: %w", schemaUC.ErrNotFound),
+			want: schema.NewSchemaObjectsShardsGetNotFound(),
+		},
+		{
+			name: "an invalid class name maps to unprocessable entity",
+			err:  fmt.Errorf("%w: %w", schemaUC.ErrValidation, errors.New("'a:Foo' is not a valid class name")),
+			want: schema.NewSchemaObjectsShardsGetUnprocessableEntity(),
+		},
+		{
+			name: "anything else stays a server error",
+			err:  errors.New("boom"),
+			want: schema.NewSchemaObjectsShardsGetInternalServerError(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.IsType(t, tt.want, shardsStorageStatusErrResponder(nil, tt.err))
+		})
+	}
+}
+
+// A vector index drop refused by the namespace is the caller's problem too. One
+// state stands for the rest, which TestNamespaceErrRendersUnprocessable walks.
+func TestVectorIndexDeleteErrResponder(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want middleware.Responder
+	}{
+		{
+			name: "suspended namespace is unprocessable",
+			err:  namespaces.ErrNamespaceSuspended,
+			want: schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity(),
+		},
+		{
+			name: "anything else stays a server error",
+			err:  errors.New("boom"),
+			want: schema.NewSchemaObjectsVectorsDeleteInternalServerError(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.IsType(t, tt.want, vectorIndexDeleteErrResponder(nil, tt.err))
+		})
+	}
+}
+
 // TestDeleteClassPropertyIndex_NamespaceConflictPreflight: reindex tasks are keyed by
 // the qualified class, so a namespaced caller deleting by short name must still match an
 // in-flight task on customer1:Movies and get a 422 — i.e. the handler qualifies first.
@@ -62,7 +191,7 @@ func TestDeleteClassPropertyIndex_NamespaceConflictPreflight(t *testing.T) {
 	require.NoError(t, err)
 
 	h := &schemaHandlers{
-		namespacesEnabled:   true,
+		qualifier:           wlnamespaces.NewPrefixing(),
 		metricRequestsTotal: newSchemaRequestsTotal(nil, logrus.New()),
 		// allow-all authorizer: this test is about class qualification, not authz
 		authorizer: &authorization.DummyAuthorizer{},
@@ -102,7 +231,7 @@ func TestDeleteClassPropertyIndex_SubmitLockKeyedOnQualifiedClass(t *testing.T) 
 
 	rec := &recordingLockProvider{}
 	h := &schemaHandlers{
-		namespacesEnabled:   true,
+		qualifier:           wlnamespaces.NewPrefixing(),
 		metricRequestsTotal: newSchemaRequestsTotal(nil, logrus.New()),
 		// allow-all authorizer: this test is about the lock key, not authz
 		authorizer:         &authorization.DummyAuthorizer{},

@@ -19,7 +19,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -30,14 +29,14 @@ type backupper struct {
 	logger         logrus.FieldLogger
 	cfg            config.Backup
 	sourcer        Sourcer
-	rbacSourcer    fsm.Snapshotter
+	rbacSourcer    RBACSnapshotter
 	dynUserSourcer dynUserSnapshotter
 	backends       BackupBackendProvider
 	// shardCoordinationChan is sync and coordinate operations
 	shardSyncChan
 }
 
-func newBackupper(node string, logger logrus.FieldLogger, cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer dynUserSnapshotter, backends BackupBackendProvider,
+func newBackupper(node string, logger logrus.FieldLogger, cfg config.Backup, sourcer Sourcer, rbacSourcer RBACSnapshotter, dynUserSourcer dynUserSnapshotter, backends BackupBackendProvider,
 ) *backupper {
 	return &backupper{
 		node:           node,
@@ -47,7 +46,7 @@ func newBackupper(node string, logger logrus.FieldLogger, cfg config.Backup, sou
 		rbacSourcer:    rbacSourcer,
 		dynUserSourcer: dynUserSourcer,
 		backends:       backends,
-		shardSyncChan:  shardSyncChan{coordChan: make(chan interface{}, 5)},
+		shardSyncChan:  shardSyncChan{coordChan: make(chan interface{}, 5), logger: logger},
 	}
 }
 
@@ -66,6 +65,13 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState,
 
 	meta, err := store.Meta(ctx, req.ID, store.bucket, store.path)
 	if err != nil {
+		// Only once the descriptor turns out to have nothing to say. It is the
+		// durable record of the operation; the remembered failure covers the
+		// single case that leaves none, which is a descriptor that was never
+		// written.
+		if reason, ok := b.lastOp.rememberedFailure(req.ID); ok {
+			return reqState{ID: req.ID, Status: backup.Failed, Err: reason}, nil
+		}
 		path := fmt.Sprintf("%s/%s", req.ID, BackupFile)
 		return reqState{}, fmt.Errorf("cannot get status while backing up: %w: %q: %w", errMetaNotFound, path, err)
 	}
@@ -81,6 +87,15 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState,
 	}, nil
 }
 
+// publishFailure ends the operation on the slot with its reason. The paths that
+// fail before any descriptor is written have nowhere else to leave one, so
+// without this the operator polls a backup that failed minutes ago and is told
+// only that its metadata is missing.
+func (b *backupper) publishFailure(err error) {
+	b.lastAsyncError = err
+	b.lastOp.setFailed(err.Error())
+}
+
 // backup checks if the node is ready to back up (can commit phase)
 //
 // Moreover it starts a goroutine in the background which waits for the
@@ -88,10 +103,7 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState,
 // It will start the backup as soon as it receives an ack, or abort otherwise
 func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, error) {
 	id := req.ID
-	expiration := req.Duration
-	if expiration > _TimeoutShardCommit {
-		expiration = _TimeoutShardCommit
-	}
+	expiration := min(req.Duration, maxBooking(false))
 	ret := CanCommitResponse{
 		Method:  OpCreate,
 		ID:      req.ID,
@@ -99,7 +111,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 	}
 
 	// make sure there is no active backup
-	if prevID := b.lastOp.renew(id, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
+	if prevID := b.lastOp.renew(id, req.AttemptID, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return ret, fmt.Errorf("backup %s already in progress", prevID)
 	}
 
@@ -110,17 +122,19 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		if err := b.waitForCoordinator(expiration, id); err != nil {
 			b.logger.WithField("action", "create_backup").
 				Error(err)
-			b.lastAsyncError = err
+			b.publishFailure(err)
 			return
 		}
 
-		provider := newUploader(b.cfg, b.sourcer, b.rbacSourcer, b.dynUserSourcer, req.Users, store, req.ID, b.lastOp.set, b.logger).
-			withCompression(newZipConfig(req.Compression))
+		selection := snapshotSelection{users: req.Users, roles: req.Roles, skipUsers: req.SkipUsers, skipRoles: req.SkipRoles}
+		provider := newUploader(b.cfg, b.sourcer, b.rbacSourcer, b.dynUserSourcer, selection, store, req.ID, &b.lastOp, b.logger).
+			withCompression(newZipConfig(req.Compression)).
+			withShardDesignations(req.ShardDesignations)
 
 		compressionType, err := CompressionTypeFromLevel(req.Level)
 		if err != nil {
 			b.logger.WithField("action", "create_backup").Error(err)
-			b.lastAsyncError = err
+			b.publishFailure(err)
 			return
 		}
 
@@ -132,11 +146,11 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 
 		baseBackupID := req.BaseBackupID
 		startedAt := time.Now().UTC()
-		baseDescrs, err := resolveBaseBackupChain(ctx, baseBackupID, startedAt, store.bucket, store.path, compressionType, store.MetaForBackupID)
+		baseDescrs, err := resolveBaseBackupChain(ctx, baseBackupID, startedAt, store.bucket, store.path, compressionType, store.BaseMetaForBackupID)
 		if err != nil {
 			if !errors.As(err, &backup.ErrNotFound{}) {
 				b.logger.WithFields(logFields).Error(err)
-				b.lastAsyncError = err
+				b.publishFailure(err)
 				return
 			}
 			// This node was absent from the base backup (it joined the cluster
@@ -148,14 +162,20 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			baseBackupID = ""
 		}
 
+		// DedupeEffective, not DedupeReplicas: the version tracks the coordinator's planning outcome, uniform across node descriptors.
+		version := Version
+		if req.DedupeEffective {
+			version = VersionDedupeReplicas
+		}
 		result := backup.BackupDescriptor{
 			StartedAt:       startedAt,
 			ID:              id,
 			Classes:         make([]backup.ClassDescriptor, 0, len(req.Classes)),
-			Version:         Version,
+			Version:         version,
 			ServerVersion:   config.ServerVersion,
 			CompressionType: &compressionType,
 			BaseBackupID:    baseBackupID,
+			DedupeReplicas:  req.DedupeEffective,
 		}
 
 		b.logger.WithFields(logFields).Info("starting backup")

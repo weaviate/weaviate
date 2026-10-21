@@ -12,7 +12,6 @@
 package state
 
 import (
-	"context"
 	"net/http"
 	"sync"
 
@@ -26,7 +25,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
-	"github.com/weaviate/weaviate/cluster/fsm"
 	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
@@ -38,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	exportUsecase "github.com/weaviate/weaviate/usecases/export"
+	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -45,7 +44,9 @@ import (
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/remote"
 	"github.com/weaviate/weaviate/usecases/traverser"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
@@ -54,17 +55,17 @@ import (
 // NOTE: This is not true yet, see gh-723
 // TODO: remove dependencies to anything that's not an ent or uc
 type State struct {
-	OIDC             *oidc.Client
-	AnonymousAccess  *anonymous.Client
-	APIKey           *apikey.ApiKey
-	APIKeyRemote     *apikey.RemoteApiKey
-	Authorizer       authorization.Authorizer
-	AuthzController  authorization.Controller
-	AuthzSnapshotter fsm.Snapshotter
-	RBAC             *rbac.Manager
-	Crons            *cron.Crons
+	OIDC            *oidc.Client
+	AnonymousAccess *anonymous.Client
+	APIKey          *apikey.ApiKey
+	APIKeyRemote    *apikey.RemoteApiKey
+	Authorizer      authorization.Authorizer
+	AuthzController authorization.Controller
+	RBAC            *rbac.Manager
+	Crons           *cron.Crons
 
 	ServerConfig  *config.WeaviateConfig
+	License       *license.State
 	LDIntegration *configRuntime.LDIntegration
 	Logger        *logrus.Logger
 	gqlMutex      sync.Mutex
@@ -74,7 +75,7 @@ type State struct {
 	SchemaManager *schema.Manager
 	Cluster       *cluster.State
 
-	RemoteIndexIncoming *sharding.RemoteIndexIncoming
+	RemoteIndexIncoming *remote.IndexIncoming
 	RemoteNodeIncoming  *sharding.RemoteNodeIncoming
 	Traverser           *traverser.Traverser
 
@@ -89,19 +90,18 @@ type State struct {
 	BatchManager       *objects.BatchManager
 	AutoSchemaManager  *objects.AutoSchemaManager
 	ClusterHttpClient  *http.Client
-	ReindexCtxCancel   context.CancelCauseFunc
 	MemWatch           *memwatch.Monitor
 
 	ClusterService       *rCluster.Service
 	TenantActivity       *tenantactivity.Handler
 	InternalServer       types.ClusterServer
 	NamespacesController *usecasesNamespaces.Controller
+	NamespaceQualifier   namespacing.Qualifier
 
 	ObjectTTLCoordinator *objectttl.Coordinator
 	ObjectTTLLocalStatus *objectttl.LocalStatus
 
 	DistributedTaskScheduler *distributedtask.Scheduler
-	Migrator                 *db.Migrator
 
 	// ReindexProvider is the local handle for the runtime-reindex
 	// distributed-task provider. Exposed here so the REST cancel handler
@@ -141,11 +141,6 @@ type State struct {
 	// authoritative defense; this lock just collapses the local
 	// single-node race window that any realistic UI/CLI flow can hit.
 	ReindexSubmitLocks *ReindexSubmitLocks
-
-	// ReindexDeleteMarkers lets GET /v1/schema/{class}/indexes suppress the
-	// finalize-window bleed for a just-deleted index. Shared between the
-	// DELETE handler (records) and GET-indexes (reads); see its godoc.
-	ReindexDeleteMarkers *ReindexDeleteMarkers
 
 	// UsageLimits gates the object-count cap only. Collections/tenants/
 	// shards caps are read directly at the schema-handler use sites.

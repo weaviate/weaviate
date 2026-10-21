@@ -248,8 +248,12 @@ log "Extracting docker image tags from job logs..."
 # Use gh api (works even when logs are large / job just completed).
 # gh >= 2.97 refuses to print responses containing terminal escape sequences
 # unless --allow-escape-sequences is passed; older versions lack the flag.
+# Capture the help text first: piping it into `grep -q` makes grep close the pipe
+# on the first match, which kills gh with SIGPIPE (141) and — under `set -o
+# pipefail` — makes the feature check look like "flag not supported".
 ALLOW_ESC_FLAG=""
-if gh api --help 2>&1 | grep -q -- '--allow-escape-sequences'; then
+GH_API_HELP=$(gh api --help 2>&1 || true)
+if grep -q -- '--allow-escape-sequences' <<<"$GH_API_HELP"; then
   ALLOW_ESC_FLAG="--allow-escape-sequences"
 fi
 TAGS=$(gh api $ALLOW_ESC_FLAG "repos/$WEAVIATE_REPO/actions/jobs/$JOB_ID/logs" 2>&1 \

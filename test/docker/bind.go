@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -28,7 +27,7 @@ func startM2VBind(ctx context.Context, networkName, bindImage string) (*DockerCo
 	if len(bindImage) > 0 {
 		image = bindImage
 	}
-	port := nat.Port("8080/tcp")
+	port := "8080/tcp"
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:    image,
@@ -59,7 +58,7 @@ func startM2VBind(ctx context.Context, networkName, bindImage string) (*DockerCo
 		return nil, err
 	}
 	envSettings := make(map[string]string)
-	envSettings["BIND_INFERENCE_API"] = fmt.Sprintf("http://%s:%s", Multi2VecBind, port.Port())
+	envSettings["BIND_INFERENCE_API"] = fmt.Sprintf("http://%s:%s", Multi2VecBind, portNumber(port))
 	endpoints := make(map[EndpointName]endpoint)
 	endpoints[HTTP] = endpoint{port, uri}
 	return &DockerContainer{Multi2VecBind, endpoints, container, envSettings}, nil

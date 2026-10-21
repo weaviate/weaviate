@@ -14,6 +14,7 @@ package schema
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -25,6 +26,9 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/tokenizer"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -40,7 +44,6 @@ func TestHandler_AddProperty(t *testing.T) {
 			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 		fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(&class)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NoError(t, err)
@@ -99,7 +102,6 @@ func TestHandler_AddProperty(t *testing.T) {
 			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 		fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(&class)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NoError(t, err)
@@ -151,7 +153,6 @@ func TestHandler_AddProperty_ReservedSuffix(t *testing.T) {
 					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				}
 				fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-				fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 				fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(class)
 				_, _, err := handler.AddClass(ctx, nil, class)
 				require.NoError(t, err)
@@ -209,7 +210,6 @@ func TestHandler_AddProperty_Object(t *testing.T) {
 			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 		fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(&class)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NoError(t, err)
@@ -486,7 +486,6 @@ func TestHandler_AddProperty_Reference_Tokenization(t *testing.T) {
 	}
 	fakeSchemaManager.On("ReadOnlyClass", refClass.Class).Return(&refClass)
 	fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil).Twice()
-	fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil).Twice()
 	fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(&class)
 	_, _, err := handler.AddClass(ctx, nil, &class)
 	require.NoError(t, err)
@@ -855,12 +854,11 @@ func (pdt *fakePropertyDataType) ContainsClass(name schema.ClassName) bool {
 }
 
 func TestHandler_DeleteClassVectorIndex(t *testing.T) {
-	t.Setenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true")
 	ctx := context.Background()
 
 	t.Run("class not found returns error", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"TestClass"}).
+		fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{"TestClass"}).
 			Return(map[string]versioned.Class{}, nil)
 
 		err := handler.DeleteClassVectorIndex(ctx, nil, "TestClass", "vec1")
@@ -875,7 +873,7 @@ func TestHandler_DeleteClassVectorIndex(t *testing.T) {
 
 	t.Run("class with no vector config returns error", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"TestClass"}).
+		fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{"TestClass"}).
 			Return(map[string]versioned.Class{
 				"TestClass": {Class: &models.Class{Class: "TestClass"}},
 			}, nil)
@@ -886,7 +884,7 @@ func TestHandler_DeleteClassVectorIndex(t *testing.T) {
 
 	t.Run("non-existent vector index returns error", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"TestClass"}).
+		fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{"TestClass"}).
 			Return(map[string]versioned.Class{
 				"TestClass": {Class: &models.Class{
 					Class: "TestClass",
@@ -902,7 +900,7 @@ func TestHandler_DeleteClassVectorIndex(t *testing.T) {
 
 	t.Run("already dropped vector index is a no-op", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"TestClass"}).
+		fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{"TestClass"}).
 			Return(map[string]versioned.Class{
 				"TestClass": {Class: &models.Class{
 					Class: "TestClass",
@@ -919,7 +917,7 @@ func TestHandler_DeleteClassVectorIndex(t *testing.T) {
 	t.Run("successful drop sets VectorIndexType to none", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
-		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"TestClass"}).
+		fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{"TestClass"}).
 			Return(map[string]versioned.Class{
 				"TestClass": {Class: &models.Class{
 					Class: "TestClass",
@@ -935,7 +933,7 @@ func TestHandler_DeleteClassVectorIndex(t *testing.T) {
 					},
 				}},
 			}, nil)
-		fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+		fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser).Return(nil)
 
 		err := handler.DeleteClassVectorIndex(ctx, nil, "TestClass", "vec1")
 		require.NoError(t, err)
@@ -958,9 +956,14 @@ func TestAddClassProperty_Namespacing(t *testing.T) {
 		enabled      bool
 		principal    *models.Principal
 		inputName    string
-		stored       string // class name present in storage, "" if absent
-		wantAuthName string // qualified name authorized + persisted
+		stored       string   // class name present in storage, "" if absent
+		wantAuthName string   // qualified name authorized + persisted
+		dataType     []string // property DataType sent, nil for text
+		wantDataType []string // DataType persisted, nil if the same as dataType
+		deniedTarget string   // ref target the principal may not read, "" for none
 		wantErrIs    error
+		wantErrMsg   string
+		wantDenied   bool
 	}{
 		{
 			name:         "namespaced: short input qualifies and authorizes against qualified",
@@ -994,14 +997,85 @@ func TestAddClassProperty_Namespacing(t *testing.T) {
 			stored:    "customer1:Movies",
 			wantErrIs: ErrNotFound,
 		},
+		{
+			name:         "namespaced: short ref target gets the class's namespace",
+			enabled:      true,
+			principal:    namespacedPrincipal("customer1"),
+			inputName:    "Movies",
+			stored:       "customer1:Movies",
+			wantAuthName: "customer1:Movies",
+			dataType:     []string{"Animal"},
+			wantDataType: []string{"customer1:Animal"},
+		},
+		{
+			name:         "global: ref target in the class's namespace kept",
+			enabled:      true,
+			principal:    globalPrincipal(),
+			inputName:    "customer1:Movies",
+			stored:       "customer1:Movies",
+			wantAuthName: "customer1:Movies",
+			dataType:     []string{"customer1:Animal"},
+		},
+		{
+			name:         "global: short ref target gets the class's namespace",
+			enabled:      true,
+			principal:    globalPrincipal(),
+			inputName:    "customer1:Movies",
+			stored:       "customer1:Movies",
+			wantAuthName: "customer1:Movies",
+			dataType:     []string{"Animal"},
+			wantDataType: []string{"customer1:Animal"},
+		},
+		{
+			name:       "global: ref target in another namespace rejected",
+			enabled:    true,
+			principal:  globalPrincipal(),
+			inputName:  "customer1:Movies",
+			stored:     "customer1:Movies",
+			dataType:   []string{"customer2:Animal"},
+			wantErrMsg: "'customer2:Animal' is not a valid class name",
+		},
+		{
+			name:       "global: one of several ref targets in another namespace rejected",
+			enabled:    true,
+			principal:  globalPrincipal(),
+			inputName:  "customer1:Movies",
+			stored:     "customer1:Movies",
+			dataType:   []string{"customer1:Animal", "customer2:Animal"},
+			wantErrMsg: "'customer2:Animal' is not a valid class name",
+		},
+		{
+			name:         "global: READ is checked on the qualified ref target",
+			enabled:      true,
+			principal:    globalPrincipal(),
+			inputName:    "customer1:Movies",
+			stored:       "customer1:Movies",
+			dataType:     []string{"Animal"},
+			deniedTarget: "customer1:Animal",
+			wantDenied:   true,
+		},
+		{
+			name:         "namespaces disabled: ref target passes through",
+			enabled:      false,
+			principal:    nil,
+			inputName:    "Movies",
+			stored:       "Movies",
+			wantAuthName: "Movies",
+			dataType:     []string{"Animal"},
+		},
 	}
 
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			handler, sm := newTestHandlerWithNamespaces(t, tt.enabled)
+			if tt.deniedTarget != "" {
+				authorizer := mocks.NewMockAuthorizer()
+				authorizer.Deny(authorization.CollectionsMetadata(tt.deniedTarget)...)
+				handler.Authorizer = authorizer
+			}
 
-			lookup, err := namespacing.QualifyClass(tt.principal, tt.enabled, tt.inputName)
+			lookup, err := namespacing.QualifyClass(tt.principal, handler.qualifier, tt.inputName)
 			require.NoError(t, err)
 			if lookup == tt.stored {
 				sm.On("ReadOnlyClass", lookup).Return(&models.Class{
@@ -1012,19 +1086,51 @@ func TestAddClassProperty_Namespacing(t *testing.T) {
 			} else {
 				sm.On("ReadOnlyClass", lookup).Return((*models.Class)(nil))
 			}
-			if tt.wantErrIs == nil {
-				sm.On("AddProperty", tt.wantAuthName, mock.Anything).Return(nil)
+			// Every ref target exists, so a rejection can only come from its namespace.
+			for _, target := range []string{"Animal", "customer1:Animal", "customer2:Animal"} {
+				sm.On("ReadOnlyClass", target).Return(&models.Class{
+					Class:             target,
+					Vectorizer:        "none",
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				}).Maybe()
 			}
 
-			prop := &models.Property{Name: "genre", DataType: schema.DataTypeText.PropString()}
+			dataType := tt.dataType
+			if dataType == nil {
+				dataType = schema.DataTypeText.PropString()
+			}
+			wantDataType := tt.wantDataType
+			if wantDataType == nil {
+				wantDataType = slices.Clone(dataType)
+			}
+			var persisted []*models.Property
+			sm.On("AddProperty", mock.Anything, mock.MatchedBy(func(props []*models.Property) bool {
+				persisted = props
+				return true
+			})).Return(nil).Maybe()
+
+			prop := &models.Property{Name: "genre", DataType: dataType}
 			_, _, err = handler.AddClassProperty(context.Background(), tt.principal,
 				tt.inputName, false, prop)
 			if tt.wantErrIs != nil {
 				require.ErrorIs(t, err, tt.wantErrIs)
 				return
 			}
+			if tt.wantErrMsg != "" {
+				require.ErrorContains(t, err, tt.wantErrMsg)
+				require.Nil(t, persisted, "SchemaManager.AddProperty must not be called on a rejected property")
+				return
+			}
+			if tt.wantDenied {
+				require.ErrorAs(t, err, &authzerrors.Forbidden{})
+				require.Nil(t, persisted, "SchemaManager.AddProperty must not be called on a denied property")
+				return
+			}
 			require.NoError(t, err)
 			sm.AssertExpectations(t)
+			sm.AssertCalled(t, "AddProperty", tt.wantAuthName, mock.Anything)
+			require.Len(t, persisted, 1)
+			assert.Equal(t, wantDataType, persisted[0].DataType)
 		})
 	}
 }
@@ -1080,7 +1186,7 @@ func TestDeleteClassPropertyIndex_Namespacing(t *testing.T) {
 			t.Parallel()
 			handler, sm := newTestHandlerWithNamespaces(t, tt.enabled)
 
-			lookup, err := namespacing.QualifyClass(tt.principal, tt.enabled, tt.inputName)
+			lookup, err := namespacing.QualifyClass(tt.principal, handler.qualifier, tt.inputName)
 			require.NoError(t, err)
 			prop := &models.Property{
 				Name:            "title",
@@ -1100,7 +1206,7 @@ func TestDeleteClassPropertyIndex_Namespacing(t *testing.T) {
 				sm.On("UpdateProperty", tt.wantAuthName, mock.Anything, mock.Anything).Return(nil)
 			}
 
-			_, err = handler.DeleteClassPropertyIndex(context.Background(), tt.principal,
+			err = handler.DeleteClassPropertyIndex(context.Background(), tt.principal,
 				tt.inputName, "title", "filterable")
 			if tt.wantErrIs != nil {
 				require.ErrorIs(t, err, tt.wantErrIs)
@@ -1227,10 +1333,9 @@ func TestDeleteClassPropertyIndex_NoLocalMutationOnUpdatePropertyError(t *testin
 			sm.On("UpdateProperty", "Movies", mock.Anything, mock.Anything).Return(
 				fmt.Errorf("reindex task is in flight on this property"))
 
-			wrote, err := handler.DeleteClassPropertyIndex(context.Background(), nil,
+			err := handler.DeleteClassPropertyIndex(context.Background(), nil,
 				"Movies", "title", idx.indexName)
 			require.Error(t, err, "UpdateProperty was mocked to fail")
-			require.False(t, wrote, "a failed UpdateProperty must not report a RAFT write")
 
 			// The CRITICAL assertion: after the failed apply, the FSM's
 			// Property struct's pointer field for this index name must
@@ -1342,10 +1447,9 @@ func TestDeleteClassPropertyIndex_FieldMaskScopedToTouchedFlag(t *testing.T) {
 				}),
 			).Return(nil)
 
-			wrote, err := handler.DeleteClassPropertyIndex(context.Background(), nil,
+			err := handler.DeleteClassPropertyIndex(context.Background(), nil,
 				"Movies", tc.fsmProp.Name, tc.indexName)
 			require.NoError(t, err)
-			require.True(t, wrote, "flipping the flag off must report a RAFT write")
 			sm.AssertExpectations(t)
 		})
 	}
@@ -1377,9 +1481,8 @@ func TestDeleteClassPropertyIndex_SearchableClearsBlockmaxStamp(t *testing.T) {
 			forwardedFields = args.Get(2).([]string)
 		}).Return(nil)
 
-	wrote, err := handler.DeleteClassPropertyIndex(context.Background(), nil, "Movies", "title", "searchable")
+	err := handler.DeleteClassPropertyIndex(context.Background(), nil, "Movies", "title", "searchable")
 	require.NoError(t, err)
-	require.True(t, wrote)
 
 	require.NotNil(t, forwarded)
 	require.Nil(t, forwarded.SearchableBlockmax,
@@ -1393,9 +1496,7 @@ func TestDeleteClassPropertyIndex_SearchableClearsBlockmaxStamp(t *testing.T) {
 }
 
 // TestDeleteClassPropertyIndex_NoOpWhenFlagAlreadyOff pins that deleting an
-// already-off index performs no RAFT write and reports wrote=false, which the
-// handler needs to skip recording a GET-suppression delete marker for a
-// write that never happened.
+// already-off index succeeds without reaching RAFT.
 func TestDeleteClassPropertyIndex_NoOpWhenFlagAlreadyOff(t *testing.T) {
 	t.Parallel()
 
@@ -1439,11 +1540,9 @@ func TestDeleteClassPropertyIndex_NoOpWhenFlagAlreadyOff(t *testing.T) {
 			sm.On("ReadOnlyClass", "Movies").Return(fsmClass)
 			// No UpdateProperty expectation: a no-op must not reach RAFT.
 
-			wrote, err := handler.DeleteClassPropertyIndex(context.Background(), nil,
+			err := handler.DeleteClassPropertyIndex(context.Background(), nil,
 				"Movies", tc.fsmProp.Name, tc.indexName)
 			require.NoError(t, err)
-			require.False(t, wrote,
-				"deleting an already-off index must be a no-op (no RAFT write) so no masking marker is recorded")
 			sm.AssertNotCalled(t, "UpdateProperty", mock.Anything, mock.Anything, mock.Anything)
 		})
 	}
@@ -1452,7 +1551,6 @@ func TestDeleteClassPropertyIndex_NoOpWhenFlagAlreadyOff(t *testing.T) {
 func boolPtr(b bool) *bool { return &b }
 
 func TestDeleteClassVectorIndex_Namespacing(t *testing.T) {
-	t.Setenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true")
 	cases := []struct {
 		name         string
 		enabled      bool
@@ -1500,7 +1598,7 @@ func TestDeleteClassVectorIndex_Namespacing(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, sm := newTestHandlerWithNamespaces(t, tt.enabled)
 
-			lookup, err := namespacing.QualifyClass(tt.principal, tt.enabled, tt.inputName)
+			lookup, err := namespacing.QualifyClass(tt.principal, handler.qualifier, tt.inputName)
 			require.NoError(t, err)
 			storedClass := &models.Class{
 				Class: tt.stored,
@@ -1509,16 +1607,16 @@ func TestDeleteClassVectorIndex_Namespacing(t *testing.T) {
 				},
 			}
 			if lookup == tt.stored {
-				sm.On("QueryReadOnlyClasses", []string{lookup}).
+				sm.On("ReadOnlyClassesFromLeader", []string{lookup}).
 					Return(map[string]versioned.Class{lookup: {Class: storedClass}}, nil)
 			} else {
-				sm.On("QueryReadOnlyClasses", []string{lookup}).
+				sm.On("ReadOnlyClassesFromLeader", []string{lookup}).
 					Return(map[string]versioned.Class{}, nil)
 			}
 			if tt.wantErrIs == nil {
 				sm.On("UpdateClass", mock.MatchedBy(func(c *models.Class) bool {
 					return c.Class == tt.wantAuthName
-				}), mock.Anything).Return(nil)
+				}), mock.Anything, command.ClassUpdateOriginUser).Return(nil)
 			}
 
 			err = handler.DeleteClassVectorIndex(context.Background(), tt.principal,

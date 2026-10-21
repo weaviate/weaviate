@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pkg/errors"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
@@ -24,6 +26,7 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/tenantactivity"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type nodeWideMetricsObserver struct {
@@ -31,6 +34,8 @@ type nodeWideMetricsObserver struct {
 
 	// Goroutines spawned by nodeWideMetricsObserver must exit after receiving on this channel.
 	shutdown chan struct{}
+	// shutdownOnce keeps a repeated DB.Shutdown from double-closing the channel.
+	shutdownOnce sync.Once
 
 	// The tenant maps that the most recent cycle filled, kept so the next cycle
 	// can refill them instead of allocating new ones. The counters a cycle
@@ -45,7 +50,19 @@ type nodeWideMetricsObserver struct {
 	// goroutine touches it.
 	tenantPeaks map[string]int
 
-	// Guards usage only. The two fields above are written outside it.
+	// Per-namespace object counts from the previous grouped pass.
+	// Only the keys are read. A namespace missing from the next pass has lost
+	// its last index, so its series is deleted. Only the observeShards
+	// goroutine touches it.
+	previousObjectCounts map[string]int64
+
+	// Per-namespace dimension totals from the previous grouped pass.
+	// Only the keys are read. A namespace missing from the next pass
+	// is set to 0 instead of deleted, because billing keeps these gauges. Only
+	// the observeDimensionMetrics goroutine touches it.
+	previousDimensions map[string]DimensionMetrics
+
+	// Guards usage only. The fields above are written outside it.
 	activityLock sync.RWMutex
 	// Tenant usage as of the most recent cycle. Each cycle updates it in place
 	// instead of building a new one, so repeated observations do not allocate.
@@ -97,7 +114,7 @@ func (o *nodeWideMetricsObserver) Start() {
 }
 
 func (o *nodeWideMetricsObserver) Shutdown() {
-	close(o.shutdown)
+	o.shutdownOnce.Do(func() { close(o.shutdown) })
 }
 
 func (o *nodeWideMetricsObserver) observeShards() {
@@ -124,12 +141,18 @@ func (o *nodeWideMetricsObserver) observeShards() {
 	}
 }
 
-// Collect and publish aggregated object_count metric iff all indices report allShardsReady=true.
+// Collect and publish the object_count metric per namespace, only when every
+// index reports allShardsReady. In grouped mode nothing else writes this
+// gauge: the lsmkv writers are switched off when metrics are grouped. An
+// index whose walk stops leaves every series at its previous value instead
+// of a partial sum. A collection being deleted counts zero. A shard that
+// fails its directory check or count is left out of its namespace's total.
 func (o *nodeWideMetricsObserver) observeObjectCount() {
-	o.db.indexLock.RLock()
-	defer o.db.indexLock.RUnlock()
+	// One copy serves both loops. Taking a second for the sum would let an index
+	// created in between be counted without its allShardsReady being checked.
+	indices := o.db.copyIndices()
 
-	for _, index := range o.db.indices {
+	for _, index := range indices {
 		if !index.allShardsReady.Load() {
 			o.db.logger.WithFields(logrus.Fields{
 				"action": "skip_observe_node_wide_metrics",
@@ -140,40 +163,45 @@ func (o *nodeWideMetricsObserver) observeObjectCount() {
 
 	start := time.Now()
 
+	// The empty namespace is seeded so it is published even when there are no
+	// indices. On a cluster without namespaces it is this metric's only series,
+	// and consumers must never see it disappear.
+	countByNamespace := map[string]int64{"": 0}
+
 	totalObjectCount := int64(0)
-	for _, index := range o.db.indices {
-		index.ForEachShard(func(name string, shard ShardLike) error {
-			index.shardCreateLocks.RLock(name)
-			defer index.shardCreateLocks.RUnlock(name)
-			exists, err := index.tenantDirExists(name)
-			if err != nil {
-				o.db.logger.
-					WithField("action", "observe_node_wide_metrics").
-					WithField("shard", name).
-					WithField("class", index.Config.ClassName).
-					Warnf("error while checking if shard exists: %v", err)
-				return nil
-			}
-			if !exists {
-				// shard was deleted in the meantime or is newly created and hasn't been written to disk, skip
-				return nil
-			}
-			objectCount, err := shard.ObjectCountAsync(context.Background())
-			if err != nil {
-				o.db.logger.WithField("action", "observe_node_wide_metrics").
-					WithField("shard", name).
-					WithField("class", index.Config.ClassName).
-					Warnf("error while getting object count for shard: %v", err)
-			}
-			totalObjectCount += objectCount
-			return nil
-		})
+	for _, index := range indices {
+		count, err := o.indexObjectCount(index)
+		if errors.Is(err, errIndexDropped) {
+			// A collection being deleted is losing its objects, so the rest of
+			// the node still has a total worth publishing.
+			continue
+		}
+		if err != nil {
+			// Publishing the namespaces counted so far would report objects the
+			// node never lost, so every series keeps its previous value.
+			o.db.logger.WithFields(logrus.Fields{
+				"action": "skip_observe_node_wide_metrics",
+				"class":  index.Config.ClassName,
+			}).Warnf("skip node-wide metrics, object count walk stopped: %v", err)
+			return
+		}
+		countByNamespace[index.namespace] += count
+		totalObjectCount += count
 	}
 
-	o.db.promMetrics.ObjectCount.With(prometheus.Labels{
-		"class_name": "n/a",
-		"shard_name": "n/a",
-	}).Set(float64(totalObjectCount))
+	for namespace, count := range countByNamespace {
+		o.db.promMetrics.ObjectCount.With(groupedLabels(namespace)).Set(float64(count))
+	}
+
+	// A namespace whose last index is gone would otherwise keep its series at
+	// the count it last had. The empty namespace is always in the new map, so
+	// this loop never deletes it.
+	for namespace := range o.previousObjectCounts {
+		if _, ok := countByNamespace[namespace]; !ok {
+			o.db.promMetrics.ObjectCount.Delete(groupedLabels(namespace))
+		}
+	}
+	o.previousObjectCounts = countByNamespace
 
 	took := time.Since(start)
 	o.db.logger.WithFields(logrus.Fields{
@@ -183,9 +211,89 @@ func (o *nodeWideMetricsObserver) observeObjectCount() {
 	}).Debug("observed node wide metrics")
 }
 
-// NOTE(dyma): should this also chech that all indices report allShardsReady == true?
-// Otherwise getCurrentActivity may end up loading lazy-loaded shards just to check
-// their activity, which is redundant on a cold shard?
+// groupedLabels returns the labels of a grouped series. There is one series per
+// namespace, with no class or shard of its own.
+func groupedLabels(namespace string) prometheus.Labels {
+	return prometheus.Labels{
+		"class_name":           "n/a",
+		"shard_name":           "n/a",
+		"collection_namespace": namespace,
+	}
+}
+
+// indexObjectCount sums one index's shard object counts without holding
+// indexLock, because a cold shard reads its count off disk. A stopped walk
+// returns no total, and its error names the cause so the caller can tell a
+// delete from a shutdown.
+func (o *nodeWideMetricsObserver) indexObjectCount(index *Index) (int64, error) {
+	// The walk stops at the next shard once a close is requested rather than
+	// holding this across every shard. A long hold parks DeleteIndex on
+	// dropIndex.Lock, and readers taking dropIndex.RLock under indexLock queue
+	// behind it.
+	index.dropIndex.RLock()
+	defer index.dropIndex.RUnlock()
+
+	index.closeLock.RLock()
+	defer index.closeLock.RUnlock()
+
+	if index.closed {
+		err := context.Cause(index.closeRequestedCtx)
+		if err == nil {
+			err = errIndexClosed
+		}
+		return 0, err
+	}
+
+	walkCtx, done := index.cancelOnCloseRequested(context.Background())
+	defer done()
+
+	var total int64
+	err := index.ForEachShard(func(name string, shard ShardLike) error {
+		if index.closeRequestedCtx.Err() != nil {
+			return context.Cause(index.closeRequestedCtx)
+		}
+
+		index.shardCreateLocks.RLock(name)
+		defer index.shardCreateLocks.RUnlock(name)
+		exists, err := index.tenantDirExists(name)
+		if err != nil {
+			o.db.logger.
+				WithField("action", "observe_node_wide_metrics").
+				WithField("shard", name).
+				WithField("class", index.Config.ClassName).
+				Warnf("error while checking if shard exists: %v", err)
+			return nil
+		}
+		if !exists {
+			// shard was deleted in the meantime or is newly created and hasn't been written to disk, skip
+			return nil
+		}
+		objectCount, err := shard.ObjectCountAsync(walkCtx)
+		if err != nil {
+			o.db.logger.WithField("action", "observe_node_wide_metrics").
+				WithField("shard", name).
+				WithField("class", index.Config.ClassName).
+				Warnf("error while getting object count for shard: %v", err)
+		}
+		total += objectCount
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	// A callback only checks on entry, so a close request arriving during the
+	// last shard's count has no callback left to stop the walk. Both checks read
+	// closeRequestedCtx rather than walkCtx, whose cancellation runs in a
+	// context.AfterFunc goroutine that may not have been scheduled yet.
+	if index.closeRequestedCtx.Err() != nil {
+		return 0, context.Cause(index.closeRequestedCtx)
+	}
+	return total, nil
+}
+
+// Needs no allShardsReady check: an unloaded shard reports no activity without
+// being loaded.
 func (o *nodeWideMetricsObserver) observeActivity() {
 	start := time.Now()
 	current := o.getCurrentActivity()
@@ -363,9 +471,6 @@ func (o *nodeWideMetricsObserver) getCurrentActivity() activityByCollection {
 		current[cn] = tenants
 
 		index.ForEachShard(func(name string, shard ShardLike) error {
-			index.shardCreateLocks.RLock(name)
-			defer index.shardCreateLocks.RUnlock(name)
-
 			act := activity{}
 			act.read, act.write = shard.Activity()
 			tenants[name] = act
@@ -476,7 +581,16 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 	// We're a low-priority process, copy the index map to avoid blocking others.
 	indices := o.db.copyIndices()
 
+	grouped := o.db.promMetrics.Group
+
 	var total DimensionMetrics
+	// Grouped mode publishes one series per namespace instead of the node total.
+	// The empty namespace is seeded so it is published even when there are no
+	// indices.
+	var dimsByNamespace map[string]DimensionMetrics
+	if grouped {
+		dimsByNamespace = map[string]DimensionMetrics{"": {}}
+	}
 
 	start := time.Now()
 	defer func() {
@@ -501,37 +615,65 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 			if !closed {
 				className := index.Config.ClassName.String()
 
+				var indexTotal DimensionMetrics
 				// Avoid loading cold shards, as it may create I/O spikes.
 				index.ForEachLoadedShard(func(shardName string, sl ShardLike) error {
 					index.shardCreateLocks.RLock(shardName)
 					defer index.shardCreateLocks.RUnlock(shardName)
 
+					// Skip sl unless index.shards still holds it loaded, or QuantizedDimensions
+					// would reload a released sl outside the map. Holding preventShutdown in
+					// place of shardCreateLocks would fail an unload that retries for 2s.
+					if index.shards.Loaded(shardName) != sl {
+						return nil
+					}
+
 					dim := calculateShardDimensionMetrics(ctx, sl)
-					total = total.Add(dim)
+					indexTotal = indexTotal.Add(dim)
 
 					// Report metrics per-shard if grouping is disabled.
-					if !o.db.promMetrics.Group {
-						o.sendVectorDimensions(className, shardName, dim)
+					if !grouped {
+						o.sendVectorDimensions(className, shardName,
+							namespacing.NamespaceFromQualified(className), dim)
 					}
 					return nil
 				})
+
+				total = total.Add(indexTotal)
+				if grouped {
+					dimsByNamespace[index.namespace] = dimsByNamespace[index.namespace].Add(indexTotal)
+				}
 			}
 		}()
 	}
 
-	// Report aggregate metrics for the node if grouping is enabled.
-	if o.db.promMetrics.Group {
-		o.sendVectorDimensions("n/a", "n/a", total)
+	// Report one series per namespace when grouping is enabled. The node total
+	// is their sum, so publishing it as well would double-count.
+	if grouped {
+		for namespace, dm := range dimsByNamespace {
+			o.sendVectorDimensions("n/a", "n/a", namespace, dm)
+		}
+
+		// A namespace whose last index is gone keeps its series at 0 rather than
+		// losing it. Billing reads these two gauges, so ungrouped mode keeps
+		// them the same way. The empty namespace is always in the new map, so
+		// this loop never touches it.
+		for namespace := range o.previousDimensions {
+			if _, ok := dimsByNamespace[namespace]; !ok {
+				o.sendVectorDimensions("n/a", "n/a", namespace, DimensionMetrics{})
+			}
+		}
+		o.previousDimensions = dimsByNamespace
 	}
 }
 
 // Set vector_dimensions=DimensionMetrics.Uncompressed and vector_segments=DimensionMetrics.Compressed gauges.
-func (o *nodeWideMetricsObserver) sendVectorDimensions(className, shardName string, dm DimensionMetrics) {
-	if g, err := o.db.promMetrics.VectorDimensionsSum.GetMetricWithLabelValues(className, shardName); err == nil {
+func (o *nodeWideMetricsObserver) sendVectorDimensions(className, shardName, namespace string, dm DimensionMetrics) {
+	if g, err := o.db.promMetrics.VectorDimensionsSum.GetMetricWithLabelValues(className, shardName, namespace); err == nil {
 		g.Set(float64(dm.Uncompressed))
 	}
 
-	if g, err := o.db.promMetrics.VectorSegmentsSum.GetMetricWithLabelValues(className, shardName); err == nil {
+	if g, err := o.db.promMetrics.VectorSegmentsSum.GetMetricWithLabelValues(className, shardName, namespace); err == nil {
 		g.Set(float64(dm.Compressed))
 	}
 }

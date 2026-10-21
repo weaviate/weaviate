@@ -15,6 +15,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+
 	"github.com/pkg/errors"
 )
 
@@ -43,9 +45,12 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 		return nil
 	}
 
-	// perform a RNG selection to determine the postings where the vector should be
-	// reassigned to.
-	q, err := h.config.VectorForIDThunk(ctx, op.VectorID)
+	var q []float32
+	if h.muvera.Load() {
+		q, err = h.muveraEncoder.GetMuveraVectorForID(op.VectorID, helpers.MuveraBucketName(h.id))
+	} else {
+		q, err = h.config.VectorForIDThunk(ctx, op.VectorID)
+	}
 	if err != nil {
 		return errors.Wrap(err, "failed to get vector by index ID")
 	}
@@ -57,6 +62,11 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 	}
 	if !needsReassign {
 		return nil
+	}
+	if replicas.Len() == 0 {
+		// Preserve the surviving copies if the centroid graph has no usable
+		// destination. EnqueueReassignAll can bootstrap one before retrying.
+		return errors.Errorf("no destination postings for vector %d", op.VectorID)
 	}
 
 	// increment the vector version. this will invalidate all the existing copies

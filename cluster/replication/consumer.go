@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -47,6 +48,9 @@ type OpConsumer interface {
 
 // DELETED is a constant representing a temporary deleted state of a replication operation that should not be stored in the FSM.
 const DELETED = "deleted"
+
+// pointOfNoReturnWaitTimeout bounds the wait for this node's FSM to make a SELF_RECOVERY op uncancellable.
+const pointOfNoReturnWaitTimeout = 30 * time.Second
 
 // finalizeAndTail seals the source CCL while an uncapped tailer drains it
 // onto target. Idempotent on retry: "log gone" from either RPC means
@@ -362,8 +366,8 @@ func (c *CopyOpConsumer) Consume(workerCtx context.Context, in <-chan ShardRepli
 						c.cancelOp(operation, opLogger)
 						return
 					}
-					if isShardBusyError(err) {
-						opLogger.Infof("replication operation deferred: source shard busy: %v", err)
+					if IsReversibleRefusal(err) {
+						opLogger.Infof("replication operation deferred: %v", err)
 						return
 					}
 					c.engineOpCallbacks.OnOpFailed(c.nodeId)
@@ -437,11 +441,15 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 			if err := c.checkCancelled(logger, op); err != nil {
 				return api.ShardReplicationState(""), backoff.Permanent(fmt.Errorf("error while checking if op is cancelled: %w", err))
 			}
-			// Skip ReplicationRegisterError so a slow structural op cannot
-			// burn the MaxErrors budget and auto-cancel the movement; the
+			// Skip ReplicationRegisterError so a refusal that can be undone
+			// cannot burn the MaxErrors budget and auto-cancel the movement; the
 			// outer worker re-dispatches on the next poll.
-			if isShardBusyError(err) {
-				logger.Infof("source shard busy with structural vector op; deferring movement step: %v", err)
+			if IsReversibleRefusal(err) {
+				logger.Infof("deferring movement step: %v", err)
+				return api.ShardReplicationState(""), backoff.Permanent(err)
+			}
+			// A cancellation divert is not a failure: skip the error budget.
+			if errors.Is(err, errOpCancelled) {
 				return api.ShardReplicationState(""), backoff.Permanent(err)
 			}
 			logger.Warnf("state transition handler failed: %v", err)
@@ -611,7 +619,8 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 	// The schema version ensures schema consistency across nodes during replication.
 	// For non-multi-tenant collections, op.Status.SchemaVersion remains at its initial value (typically 0),
 	// which is acceptable as schema version synchronization is not required.
-	if c.schemaReader.MultiTenancy(op.Op.TargetShard.CollectionId).Enabled {
+	// SELF_RECOVERY restores files on an existing replica; it must never (re)activate the tenant.
+	if op.Op.TransferType != api.SELF_RECOVERY && c.schemaReader.MultiTenancy(op.Op.TargetShard.CollectionId).Enabled {
 		schemaVersion, err := c.leaderClient.UpdateTenants(ctx, op.Op.TargetShard.CollectionId, &api.UpdateTenantsRequest{
 			Tenants: []*api.Tenant{
 				{
@@ -671,7 +680,13 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 		}
 	}()
 
-	if err := c.replicaCopier.CopyReplicaFiles(ctx, op.Op.UUID, op.Op.SourceShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId, op.Status.SchemaVersion); err != nil {
+	// SELF_RECOVERY stages files in "<shard>.recovering/"; FINALIZING promotes it.
+	if op.Op.TransferType == api.SELF_RECOVERY {
+		if err := c.replicaCopier.CopyReplicaFilesToLocalShard(ctx, op.Op.UUID, op.Op.SourceShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId, api.RecoveryFolderName(op.Op.TargetShard.ShardId), op.Status.SchemaVersion); err != nil {
+			logger.Errorf("failure while copying replica shard for self-recovery: %v", err)
+			return api.ShardReplicationState(""), err
+		}
+	} else if err := c.replicaCopier.CopyReplicaFiles(ctx, op.Op.UUID, op.Op.SourceShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId, op.Status.SchemaVersion); err != nil {
 		logger.Errorf("failure while copying replica shard: %v", err)
 		return api.ShardReplicationState(""), err
 	}
@@ -703,8 +718,22 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	}
 
 	// Must precede the cap'd drain: replay writes to the local target shard.
-	if err := c.replicaCopier.LoadLocalShard(ctx, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
-		logger.Errorf("failure while loading shard: %v", err)
+	// SELF_RECOVERY hands the promoted shard to the load policy; a copy forces a load.
+	if op.Op.TransferType == api.SELF_RECOVERY {
+		if err := c.awaitPointOfNoReturn(ctx, op.Op.ID); err != nil {
+			logger.Infof("self-recovery promote refused: %v", err)
+			return api.ShardReplicationState(""), err
+		}
+		if err := c.replicaCopier.PromoteRecoveryFolder(op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
+			logger.Errorf("failure while promoting recovery folder: %v", err)
+			return api.ShardReplicationState(""), err
+		}
+		if err := c.replicaCopier.PromoteRecoveredShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
+			logger.WithFields(enterrors.DocsLinkFields(err)).Errorf("failure while promoting recovered shard: %v", err)
+			return api.ShardReplicationState(""), err
+		}
+	} else if err := c.replicaCopier.LoadLocalShard(ctx, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
+		logger.WithFields(enterrors.DocsLinkFields(err)).Errorf("failure while loading shard: %v", err)
 		return api.ShardReplicationState(""), err
 	}
 
@@ -747,11 +776,16 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	// the seal happens in INTEGRATING after the transition converges.
 	if !replicaExists {
 		if _, err := c.leaderClient.ReplicationAddReplicaToShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId, op.Op.ID); err != nil {
-			if strings.Contains(err.Error(), sharding.ErrReplicaAlreadyExists.Error()) {
+			switch {
+			case strings.Contains(err.Error(), sharding.ErrReplicaAlreadyExists.Error()):
 				// The replica already exists, this is not an error and it got updated after our sanity check
 				// due to eventual consistency of the sharding state.
 				logger.Debug("replica already exists, skipping")
-			} else {
+			case strings.Contains(err.Error(), types.ErrOpCancellationInFlight.Error()):
+				// The FSM will refuse this add forever; divert to the cancel path.
+				logger.Infof("registration refused, op cancelled mid-flight: %v", err)
+				return api.ShardReplicationState(""), errOpCancelled
+			default:
 				logger.Errorf("failure while adding replica to shard: %v", err)
 				return api.ShardReplicationState(""), err
 			}
@@ -759,6 +793,35 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	}
 
 	return api.INTEGRATING, nil
+}
+
+// awaitPointOfNoReturn lets a SELF_RECOVERY promote run only once this node's
+// FSM made the op uncancellable, and diverts to the cancel path on any pending
+// cancel, including a collection or tenant deletion, which bypasses the flag.
+// It waits out a local FSM behind the leader.
+func (c *CopyOpConsumer) awaitPointOfNoReturn(ctx context.Context, opID uint64) error {
+	ctx, cancel := context.WithTimeout(ctx, pointOfNoReturnWaitTimeout)
+	defer cancel()
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		st, err := c.leaderClient.ReplicationLocalOpCancelState(opID)
+		switch {
+		case errors.Is(err, types.ErrReplicationOperationNotFound):
+			return fmt.Errorf("%w: op deleted before the promote", errOpCancelled)
+		case err != nil:
+			return fmt.Errorf("read local op state: %w", err)
+		case st.ShouldCancel || st.State == api.CANCELLED:
+			return fmt.Errorf("%w: cancel applied before the promote", errOpCancelled)
+		case st.UnCancellable:
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("op %d is %s and not yet uncancellable on this node: %w", opID, st.State, ctx.Err())
+		case <-ticker.C:
+		}
+	}
 }
 
 // processIntegratingOp is the shared seal+drain phase for COPY and MOVE.
@@ -903,16 +966,46 @@ func (c *CopyOpConsumer) processCancelledOp(ctx context.Context, op ShardReplica
 	return DELETED, nil
 }
 
-func isShardBusyError(err error) bool {
+// reversibleRefusals are the refusals a movement waits for rather than counting
+// against its error budget. Each can be undone: a structural vector op on the
+// source shard finishes, and a suspended or resuming namespace is resumed. A
+// deleting namespace is absent on purpose, since it never becomes active again
+// and waiting would keep the movement alive forever.
+var reversibleRefusals = []error{
+	enterrors.ErrShardBusyStructuralOp,
+	namespaces.ErrNamespaceSuspended,
+	namespaces.ErrNamespaceResuming,
+}
+
+// IsReversibleRefusal reports whether err names one of [reversibleRefusals],
+// either as the sentinel or in the message of a FailedPrecondition status. A
+// movement re-runs its whole step on every dispatch, so registering these would
+// spend all [MaxErrors] of them and cancel a movement that only had to wait.
+//
+// A deleting namespace reaches the message check carrying FailedPrecondition
+// too, so that check is the only thing keeping it out.
+func IsReversibleRefusal(err error) bool {
 	if err == nil {
 		return false
 	}
-	for e := err; e != nil; e = errors.Unwrap(e) {
-		st, ok := status.FromError(e)
-		if !ok {
-			continue
+	// The tenant activation is refused by the apply, which hands back the
+	// sentinel itself. The source node's shard calls arrive as a gRPC status,
+	// where only the message text survives.
+	for _, refusal := range reversibleRefusals {
+		if errors.Is(err, refusal) {
+			return true
 		}
-		return st.Code() == codes.FailedPrecondition && strings.Contains(st.Message(), enterrors.ErrShardBusyStructuralOp.Error())
+	}
+	// FromError reaches a wrapped status through errors.As, which also walks the
+	// slice errors.Join builds, and reports the whole chain's text as Message.
+	st, ok := status.FromError(err)
+	if !ok || st.Code() != codes.FailedPrecondition {
+		return false
+	}
+	for _, refusal := range reversibleRefusals {
+		if strings.Contains(st.Message(), refusal.Error()) {
+			return true
+		}
 	}
 	return false
 }

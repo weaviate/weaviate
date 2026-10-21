@@ -47,9 +47,12 @@ type HashTree struct {
 	mux sync.Mutex
 }
 
+// MaxHeight bounds construction and deserialization: allocation scales as 2^(height+1), so an unbounded height means GiB allocations or a makeslice panic; 20 is the producers' max.
+const MaxHeight = 20
+
 func NewHashTree(height int) (*HashTree, error) {
-	if height < 0 {
-		return nil, fmt.Errorf("%w: illegal height", ErrIllegalArguments)
+	if height < 0 || height > MaxHeight {
+		return nil, fmt.Errorf("%w: illegal height %d (max %d)", ErrIllegalArguments, height, MaxHeight)
 	}
 
 	nodesCount := NodesCount(height)
@@ -213,7 +216,8 @@ func (ht *HashTree) Level(level int, discriminant *Bitset, digests []Digest) (n 
 			ErrIllegalArguments, discriminant.Size(), expectedSize, level)
 	}
 
-	if len(digests) < expectedSize {
+	// one digest is written per set bit, so SetCount() capacity suffices (see LevelDiff)
+	if len(digests) < discriminant.SetCount() {
 		return 0, fmt.Errorf("%w: output buffer has not enough capacity", ErrIllegalArguments)
 	}
 
@@ -223,6 +227,10 @@ func (ht *HashTree) Level(level int, discriminant *Bitset, digests []Digest) (n 
 
 	for i := 0; i < expectedSize; i++ {
 		if discriminant.IsSet(i) {
+			// bound writes even if the cached set count understates the bits
+			if n == len(digests) {
+				return 0, fmt.Errorf("%w: discriminant set count understates its set bits", ErrIllegalArguments)
+			}
 			digests[n] = ht.nodes[offset+i]
 			n++
 		}

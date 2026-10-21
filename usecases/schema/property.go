@@ -15,12 +15,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -34,11 +32,11 @@ import (
 func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Principal,
 	className string, merge bool, newProps ...*models.Property,
 ) (*models.Class, uint64, error) {
-	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	className, err := namespacing.QualifyClass(principal, h.qualifier, className)
 	if err != nil {
 		return nil, 0, err
 	}
-	if err := namespacing.QualifyPropertyDataTypes(principal, h.config.Namespaces.Enabled, newProps); err != nil {
+	if err := namespacing.QualifyPropertyDataTypes(principal, h.qualifier, className, newProps); err != nil {
 		return nil, 0, err
 	}
 
@@ -123,31 +121,31 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 	return class, version, err
 }
 
-// DeleteClassPropertyIndex deletes collection's property index. The bool
-// return reports whether a RAFT write occurred (false for a node-local no-op,
-// when the flag was already off) — callers use it to avoid synthesizing state
-// for a write that never reached RAFT.
+// DeleteClassPropertyIndex deletes collection's property index. Whether the
+// flag is already off is read from this node's own schema, so a follower that
+// has not applied the flip yet answers success having written nothing.
 func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *models.Principal,
 	className, propertyName, indexName string,
-) (bool, error) {
-	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+) error {
+	className, err := namespacing.QualifyClass(principal, h.qualifier, className)
 	if err != nil {
-		return false, err
+		return err
 	}
 
 	// Collections (data+metadata), matching the REST pre-authz and the other
 	// index write verbs: dropping an index rewrites data, not metadata only.
-	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Collections(className)...); err != nil {
-		return false, err
+	// An index already off returns below without proposing, so the namespace check runs here.
+	if err := h.Authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.UPDATE, className, authorization.Collections(className)...); err != nil {
+		return err
 	}
 
 	class := h.schemaReader.ReadOnlyClass(className)
 	if class == nil {
-		return false, fmt.Errorf("class %q: %w", className, ErrNotFound)
+		return fmt.Errorf("class %q: %w", className, ErrNotFound)
 	}
 
 	if propertyName == "" {
-		return false, fmt.Errorf("property name cannot be empty")
+		return fmt.Errorf("property name cannot be empty")
 	}
 
 	// [SchemaReader.ReadOnlyClass] returns a SHALLOW clone of the live
@@ -178,7 +176,7 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 		}
 	}
 	if prop == nil {
-		return false, fmt.Errorf("property name %s: %w", propertyName, ErrNotFound)
+		return fmt.Errorf("property name %s: %w", propertyName, ErrNotFound)
 	}
 
 	// We track the *single* field being mutated so we can pass a
@@ -214,7 +212,7 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 			updateFields = []string{command.PropertyFieldIndexFilterable}
 		} else {
 			// nothing to do — no RAFT write
-			return false, nil
+			return nil
 		}
 	case "searchable":
 		if prop.IndexSearchable != nil && *prop.IndexSearchable {
@@ -226,7 +224,7 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 			updateFields = []string{command.PropertyFieldIndexSearchable, command.PropertyFieldSearchableBlockmax}
 		} else {
 			// nothing to do — no RAFT write
-			return false, nil
+			return nil
 		}
 	case "rangeFilters":
 		if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
@@ -235,28 +233,25 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 			updateFields = []string{command.PropertyFieldIndexRangeFilters}
 		} else {
 			// nothing to do — no RAFT write
-			return false, nil
+			return nil
 		}
 	default:
-		return false, fmt.Errorf("invalid property index type: %s", indexName)
+		return fmt.Errorf("invalid property index type: %s", indexName)
 	}
 
 	if err := h.validatePropertyIndexing(prop); err != nil {
-		return false, err
+		return err
 	}
 	if _, err := h.schemaManager.UpdateProperty(ctx, class.Class, prop, updateFields...); err != nil {
-		return false, err
+		return err
 	}
-	return true, nil
+	return nil
 }
 
 func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.Principal,
 	className, vectorIndexName string,
 ) error {
-	if !entcfg.Enabled(os.Getenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT")) {
-		return fmt.Errorf("alter schema drop vector index endpoint is experimental and disabled by default, set the environment variable ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT=true to enable it")
-	}
-	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	className, err := namespacing.QualifyClass(principal, h.qualifier, className)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrValidation, err)
 	}
@@ -265,7 +260,8 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 	// a vector index irreversibly rewrites every object in the collection
 	// (vectors stripped cluster-wide), not metadata only — a metadata-only
 	// principal must not be able to trigger it.
-	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Collections(className)...); err != nil {
+	// A re-issued drop returns below without a class update, so the namespace check runs here.
+	if err := h.Authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.UPDATE, className, authorization.Collections(className)...); err != nil {
 		return err
 	}
 
@@ -273,7 +269,7 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 		return fmt.Errorf("%w: vector index name cannot be empty", ErrValidation)
 	}
 
-	vclasses, err := h.schemaManager.QueryReadOnlyClasses(className)
+	vclasses, err := h.schemaManager.ReadOnlyClassesFromLeader(className)
 	if err != nil {
 		return fmt.Errorf("querying class %q: %w", className, err)
 	}
@@ -311,7 +307,7 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 		VectorIndexType: vectorindex.VectorIndexTypeNone,
 	}
 
-	if _, err = h.schemaManager.UpdateClass(ctx, class, nil); err != nil {
+	if _, err = h.schemaManager.UpdateClass(ctx, class, nil, command.ClassUpdateOriginUser); err != nil {
 		// The FSM's retryable refusals (e.g. the previous drop of this name is
 		// still completing) arrive wrapped in the cluster-layer bad-request
 		// sentinel; translate to the domain sentinel so the REST handler
@@ -337,7 +333,7 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 func (h *Handler) DeleteClassProperty(ctx context.Context, principal *models.Principal,
 	class string, property string,
 ) error {
-	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+	class, err := namespacing.QualifyClass(principal, h.qualifier, class)
 	if err != nil {
 		return err
 	}

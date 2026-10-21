@@ -12,6 +12,8 @@
 package multi_tenancy_tests
 
 import (
+	"acceptance_tests_with_client/fixtures"
+	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"fmt"
 	"testing"
@@ -19,16 +21,12 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/schema"
 
-	"acceptance_tests_with_client/fixtures"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/filters"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
-
-	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestGraphQL_MultiTenancy(t *testing.T) {
@@ -432,7 +430,8 @@ func TestGraphQL_MultiTenancy(t *testing.T) {
 
 		t.Run("explore with nearText", func(t *testing.T) {
 			nearText := client.GraphQL().NearTextArgBuilder().
-				WithConcepts([]string{"Italian"})
+				WithConcepts([]string{"Italian"}).
+				WithTargetVectors(fixtures.DefaultVectorName)
 
 			resp, err := client.GraphQL().Explore().
 				WithNearText(nearText).
@@ -460,7 +459,7 @@ func TestGroupByMultiTenancy(t *testing.T) {
 		&models.Class{
 			Class:              "TextContent",
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
-			Vectorizer:         "text2vec-contextionary",
+			VectorConfig:       fixtures.DefaultVectorConfig(),
 			Properties: []*models.Property{
 				{
 					Name:     "text",
@@ -475,7 +474,7 @@ func TestGroupByMultiTenancy(t *testing.T) {
 		&models.Class{
 			Class:              "Document",
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
-			Vectorizer:         "text2vec-contextionary",
+			VectorConfig:       fixtures.DefaultVectorConfig(),
 			Properties: []*models.Property{
 				{
 					Name:     "textContents",

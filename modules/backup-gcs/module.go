@@ -19,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	ucfg "github.com/weaviate/weaviate/usecases/config"
 )
 
 const (
@@ -46,6 +47,9 @@ type clientConfig struct {
 
 	// SkipAccessCheck disables the write+delete probe in Initialize.
 	SkipAccessCheck bool
+
+	// Transport selects the GCS API the client talks to.
+	Transport ucfg.BackupGCS
 }
 
 type Module struct {
@@ -79,12 +83,14 @@ func (m *Module) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	m.logger = params.GetLogger()
-	m.dataPath = params.GetStorageProvider().DataPath()
+	m.dataPath = params.GetDataPath()
 
+	transport := params.GetConfig().BackupGCS
 	config := &clientConfig{
 		Bucket:          os.Getenv(gcsBucket),
 		BackupPath:      os.Getenv(gcsPath),
 		SkipAccessCheck: params.GetConfig().Backup.SkipAccessCheck,
+		Transport:       transport,
 	}
 	if config.Bucket == "" {
 		return errors.Errorf("backup init: '%s' must be set", gcsBucket)
@@ -100,6 +106,7 @@ func (m *Module) Init(ctx context.Context,
 		Bucket:          "", // export scheduler provides bucket via EXPORT_DEFAULT_BUCKET
 		BackupPath:      "", // export scheduler provides path via EXPORT_DEFAULT_PATH
 		SkipAccessCheck: params.GetConfig().Export.SkipAccessCheck,
+		Transport:       transport,
 	}
 	exportClient, err := newClient(ctx, exportConfig, m.dataPath, m.logger)
 	if err != nil {

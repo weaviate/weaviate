@@ -13,15 +13,15 @@ package dynamic
 
 import (
 	"context"
-	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -44,9 +44,9 @@ func newDynamicAboveThreshold(t *testing.T) (*dynamic, ent.UserConfig, [][]float
 	vectorsSize := 1_000
 	threshold := 100
 
-	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	meta, err := shardmeta.Open(t.TempDir(), time.Second)
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { meta.Close() })
 
 	vectors, _ := testinghelpers.RandomVecs(vectorsSize, 0, dimensions)
 	dist := distancer.NewL2SquaredProvider()
@@ -84,7 +84,7 @@ func newDynamicAboveThreshold(t *testing.T) (*dynamic, ent.UserConfig, [][]float
 		GetViewThunk:                 GetViewThunk,
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		TombstoneCallbacks:           cyclemanager.NewCallbackGroupNoop(),
-		SharedDB:                     db,
+		State:                        meta.Namespace(StateNamespace),
 		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 		AsyncIndexingEnabled:         true, // required: New() errors otherwise
 	}, uc, testinghelpers.NewDummyStore(t))

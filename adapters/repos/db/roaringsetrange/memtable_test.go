@@ -14,6 +14,7 @@ package roaringsetrange
 import (
 	"bytes"
 	"encoding/binary"
+	"math"
 	"math/rand"
 	"testing"
 	"time"
@@ -200,6 +201,65 @@ func TestMemtable(t *testing.T) {
 		assert.Equal(t, uint8(0), nodeNN.Key)
 		assert.True(t, nodeNN.Additions.IsEmpty())
 		assert.ElementsMatch(t, []uint64{11, 22, 33, 44}, nodeNN.Deletions.ToArray())
+	})
+
+	t.Run("every bit gets its own node", func(t *testing.T) {
+		// Nodes() splits the 64 bits over 8 goroutines. The other cases use keys
+		// below 16, so 4 of the 8 produce nothing.
+		m := NewMemtable(logger)
+		allValues := make([]uint64, 64)
+		for bit := 0; bit < 64; bit++ {
+			value := uint64(bit) + 1
+			allValues[bit] = value
+			m.Insert(uint64(1)<<bit, []uint64{value})
+		}
+
+		nodes := m.Nodes()
+		require.Len(t, nodes, 64+1)
+
+		nodeNN := nodes[0]
+		assert.Equal(t, uint8(0), nodeNN.Key)
+		assert.ElementsMatch(t, allValues, nodeNN.Additions.ToArray())
+		assert.ElementsMatch(t, allValues, nodeNN.Deletions.ToArray())
+
+		for bit := 0; bit < 64; bit++ {
+			node := nodes[bit+1]
+			assert.Equal(t, uint8(bit)+1, node.Key)
+			assert.ElementsMatch(t, []uint64{allValues[bit]}, node.Additions.ToArray())
+			assert.True(t, node.Deletions.IsEmpty())
+		}
+	})
+
+	t.Run("a key with every bit set fills all 64 bit nodes", func(t *testing.T) {
+		m := NewMemtable(logger)
+		m.Insert(math.MaxUint64, []uint64{7})
+
+		nodes := m.Nodes()
+		require.Len(t, nodes, 64+1)
+
+		assert.ElementsMatch(t, []uint64{7}, nodes[0].Additions.ToArray())
+		for bit := 0; bit < 64; bit++ {
+			node := nodes[bit+1]
+			assert.Equal(t, uint8(bit)+1, node.Key)
+			assert.ElementsMatch(t, []uint64{7}, node.Additions.ToArray(),
+				"MaxUint64 sets every bit, so the per-bit loop must not stop early")
+		}
+	})
+
+	t.Run("returned nodes are not mutated by a later insert", func(t *testing.T) {
+		m := NewMemtable(logger)
+		m.Insert(3, []uint64{10})
+
+		nodes := m.Nodes()
+		require.Len(t, nodes, 3)
+		nnBefore := nodes[0].Additions.ToArray()
+		bitBefore := nodes[1].Additions.ToArray()
+
+		m.Insert(3, []uint64{20})
+
+		assert.Equal(t, nnBefore, nodes[0].Additions.ToArray(),
+			"a flush serializes these after the memtable lock is released, so a bitmap the memtable kept would tear the segment")
+		assert.Equal(t, bitBefore, nodes[1].Additions.ToArray())
 	})
 
 	t.Run("cloned memtable is not mutated", func(t *testing.T) {

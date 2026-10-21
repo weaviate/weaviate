@@ -76,7 +76,7 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps
 		}
 
 		// add non-nil properties to the null-state inverted index, but skip internal properties (__meta_count, _id etc)
-		if isMetaCountProperty(prop) || isInternalProperty(prop) {
+		if isMetaCountProperty(prop) || isInternalProperty(prop) || prop.OverlayForcedOnly {
 			continue
 		}
 
@@ -117,14 +117,12 @@ func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket *lsmkv.Bucket,
 ) error {
 	lsmkv.MustBeExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection, lsmkv.StrategyInverted)
 
-	docIDBytes := make([]byte, 8)
-	// Shard Index version 2 requires BigEndian for sorting, if the shard was
-	// built prior assume it uses LittleEndian
-	if s.versioner.Version() < 2 {
-		binary.LittleEndian.PutUint64(docIDBytes, docID)
-	} else {
-		binary.BigEndian.PutUint64(docIDBytes, docID)
+	if bucket.Strategy() == lsmkv.StrategyInverted {
+		return bucket.InvertedDeleteDoc(item.Data, s.searchableDocID(docID))
 	}
+
+	docIDBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(docIDBytes, s.searchableDocID(docID))
 
 	return bucket.MapDeleteKey(item.Data, docIDBytes)
 }

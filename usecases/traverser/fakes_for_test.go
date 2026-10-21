@@ -21,6 +21,7 @@ import (
 	"github.com/tailor-platform/graphql"
 	"github.com/tailor-platform/graphql/language/ast"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -79,6 +80,11 @@ type fakeVectorSearcher struct {
 	diversifyCalledSel               *searchparams.Selection
 	diversifyCalledTarget            string
 	diversifyCalledRelevanceFromDist bool
+
+	sparseObjectSearchFn func(params dto.GetParams) ([]*storobj.Object, []float32, error)
+	// vectorSearchFn replaces the mock expectations when set.
+	vectorSearchFn func(params dto.GetParams) ([]search.Result, error)
+	crossClassErr  error
 }
 
 func (f *fakeVectorSearcher) CrossClassVectorSearch(ctx context.Context,
@@ -87,7 +93,7 @@ func (f *fakeVectorSearcher) CrossClassVectorSearch(ctx context.Context,
 	f.calledWithVector = vector
 	f.calledWithLimit = limit
 	f.calledWithOffset = offset
-	return f.results, nil
+	return f.results, f.crossClassErr
 }
 
 func (f *fakeVectorSearcher) Aggregate(ctx context.Context,
@@ -100,6 +106,9 @@ func (f *fakeVectorSearcher) Aggregate(ctx context.Context,
 func (f *fakeVectorSearcher) VectorSearch(ctx context.Context,
 	params dto.GetParams, targetVectors []string, searchVectors []models.Vector,
 ) ([]search.Result, error) {
+	if f.vectorSearchFn != nil {
+		return f.vectorSearchFn(params)
+	}
 	args := f.Called(params, searchVectors)
 	return args.Get(0).([]search.Result), args.Error(1)
 }
@@ -121,7 +130,7 @@ func (f *fakeVectorSearcher) Object(ctx context.Context,
 }
 
 func (f *fakeVectorSearcher) ObjectsByID(ctx context.Context, id strfmt.UUID,
-	props search.SelectProperties, additional additional.Properties, tenant string,
+	props search.SelectProperties, additional additional.Properties, tenant, namespace string,
 ) (search.Results, error) {
 	args := f.Called(id)
 	return args.Get(0).(search.Results), args.Error(1)
@@ -130,6 +139,9 @@ func (f *fakeVectorSearcher) ObjectsByID(ctx context.Context, id strfmt.UUID,
 func (f *fakeVectorSearcher) SparseObjectSearch(ctx context.Context,
 	params dto.GetParams,
 ) ([]*storobj.Object, []float32, error) {
+	if f.sparseObjectSearchFn != nil {
+		return f.sparseObjectSearchFn(params)
+	}
 	return nil, nil, nil
 }
 
@@ -158,7 +170,7 @@ type fakeVectorRepo struct {
 
 func (f *fakeVectorRepo) ObjectsByID(ctx context.Context,
 	id strfmt.UUID, props search.SelectProperties,
-	additional additional.Properties, tenant string,
+	additional additional.Properties, tenant, namespace string,
 ) (search.Results, error) {
 	return nil, nil
 }
@@ -196,6 +208,7 @@ func (f *fakeExplorer) CrossClassVectorSearch(ctx context.Context, p ExplorePara
 }
 
 type fakeSchemaGetter struct {
+	local.SchemaReader
 	schema schema.Schema
 }
 
@@ -217,65 +230,19 @@ func (f *fakeSchemaGetter) SetVectorIndexConfig(cfg hnsw.UserConfig) {
 	}
 }
 
-func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
-	return f.schema
+func (f *fakeSchemaGetter) ReadOnlySchema() models.Schema {
+	if f.schema.Objects == nil {
+		return models.Schema{}
+	}
+	return *f.schema.Objects
 }
 
 func (f *fakeSchemaGetter) ReadOnlyClass(className string) *models.Class {
 	return f.schema.GetClass(className)
 }
 
-func (f *fakeSchemaGetter) ShardOwner(class, shard string) (string, error) {
-	return shard, nil
-}
-
-func (f *fakeSchemaGetter) ShardReplicas(class, shard string) ([]string, error) {
-	return []string{shard}, nil
-}
-
-func (f *fakeSchemaGetter) TenantsShards(_ context.Context, class string, tenants ...string) (map[string]string, error) {
-	res := map[string]string{}
-	for _, t := range tenants {
-		res[t] = models.TenantActivityStatusHOT
-	}
-	return res, nil
-}
-
-func (f *fakeSchemaGetter) OptimisticTenantStatus(_ context.Context, class string, tenant string, _ bool) (map[string]string, error) {
-	res := map[string]string{}
-	res[tenant] = models.TenantActivityStatusHOT
-	return res, nil
-}
-
-func (f *fakeSchemaGetter) ShardFromUUID(class string, uuid []byte) string { return string(uuid) }
-
-func (f *fakeSchemaGetter) Nodes() []string {
-	panic("not implemented")
-}
-
-func (f *fakeSchemaGetter) NodeName() string {
-	panic("not implemented")
-}
-
-func (f *fakeSchemaGetter) ClusterHealthScore() int {
-	panic("not implemented")
-}
-
-func (f *fakeSchemaGetter) ResolveParentNodes(string, string,
-) (map[string]string, error) {
-	panic("not implemented")
-}
-
-func (f *fakeSchemaGetter) Statistics() map[string]any {
-	panic("not implemented")
-}
-
 func (f *fakeSchemaGetter) ResolveAlias(string) string {
 	return ""
-}
-
-func (f *fakeSchemaGetter) GetAliasesForClass(string) []*models.Alias {
-	return nil
 }
 
 type fakeInterpretation struct{}

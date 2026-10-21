@@ -76,10 +76,6 @@ func (s *RoaringSetRefreshStrategy) WriteToReindexBucket(shard ShardLike, bucket
 	return nil
 }
 
-func (s *RoaringSetRefreshStrategy) ShouldProcessProperty(property *inverted.Property) bool {
-	return property.HasFilterableIndex
-}
-
 func (s *RoaringSetRefreshStrategy) MakeAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
 ) onAddToPropertyValueIndex {

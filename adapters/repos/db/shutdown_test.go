@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,9 +24,14 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
+	"github.com/weaviate/weaviate/entities/replication"
 	esync "github.com/weaviate/weaviate/entities/sync"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // TestIndexStopCycleManagers pins that every cycle manager stops even when another
@@ -106,96 +112,6 @@ func TestIndexStopCycleManagers(t *testing.T) {
 	}
 }
 
-func TestWaitForCycleStop(t *testing.T) {
-	expired := func() context.Context {
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-		return ctx
-	}
-	stopResult := func(results ...bool) chan bool {
-		ch := make(chan bool, 1)
-		for _, result := range results {
-			ch <- result
-		}
-		return ch
-	}
-
-	tests := []struct {
-		name string
-		// newCase builds the context and stop result of a single run
-		newCase func() (context.Context, chan bool)
-		// runs repeats the case, as select picks randomly between ready channels
-		runs            int
-		wantErrIs       error
-		wantErrContains string
-	}{
-		{
-			name: "a cycle that stopped",
-			newCase: func() (context.Context, chan bool) {
-				return context.Background(), stopResult(true)
-			},
-		},
-		{
-			name: "a cycle that kept running",
-			newCase: func() (context.Context, chan bool) {
-				return context.Background(), stopResult(false)
-			},
-			wantErrContains: "cycle kept running",
-		},
-		{
-			name: "a cycle that did not stop before ctx expired",
-			newCase: func() (context.Context, chan bool) {
-				return expired(), stopResult()
-			},
-			wantErrIs: context.Canceled,
-		},
-		{
-			name: "a stop landing together with the ctx expiry is not a failure",
-			newCase: func() (context.Context, chan bool) {
-				ch := stopResult()
-				return raceCtx{Context: expired(), stopResult: ch}, ch
-			},
-			runs: 100,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			for range max(tt.runs, 1) {
-				ctx, stopResult := tt.newCase()
-				err := waitForCycleStop(ctx, stopResult)
-
-				if tt.wantErrIs == nil && tt.wantErrContains == "" {
-					require.NoError(t, err)
-					continue
-				}
-				require.Error(t, err)
-				if tt.wantErrIs != nil {
-					require.ErrorIs(t, err, tt.wantErrIs)
-				}
-				if tt.wantErrContains != "" {
-					require.Contains(t, err.Error(), tt.wantErrContains)
-				}
-			}
-		})
-	}
-}
-
-// raceCtx reports a stop while Done is evaluated, so the stop and the expiry
-// reach the same select.
-type raceCtx struct {
-	context.Context
-	stopResult chan bool
-}
-
-func (c raceCtx) Done() <-chan struct{} {
-	select {
-	case c.stopResult <- true:
-	default:
-	}
-	return c.Context.Done()
-}
-
 // stubCycle takes over the stop result of the cycle it wraps. The wrapped cycle
 // is never asked to stop, so it keeps running until the test cleanup stops it.
 type stubCycle struct {
@@ -238,6 +154,16 @@ func requireCyclesStopped(t *testing.T, cc *indexCycleCallbacks) {
 	}, time.Second, 10*time.Millisecond, "cycle managers left running")
 }
 
+// stopTestCycle stops cycle, or for a stubCycle the cycle it wraps, as the stub's
+// own Stop never reaches it.
+func stopTestCycle(t *testing.T, cycle cyclemanager.CycleManager) {
+	t.Helper()
+	if stub, ok := cycle.(stubCycle); ok {
+		cycle = stub.CycleManager
+	}
+	require.True(t, <-cycle.Stop(context.Background()))
+}
+
 // failingShards names count shards that all fail to shut down with err.
 func failingShards(count int, err error) map[string]error {
 	shardErrs := make(map[string]error, count)
@@ -263,6 +189,7 @@ func newShutdownTestIndex(t *testing.T, shardErrs map[string]error) *Index {
 
 	idx := newTestIndex(t, logger, "", nil, shards)
 	idx.backupLock = esync.NewKeyRWLocker()
+	idx.shardCreateLocks = esync.NewKeyRWLocker()
 	idx.cycleCallbacks = newTestCycleCallbacks(logger)
 
 	for _, cycle := range testCycles(idx.cycleCallbacks) {
@@ -271,7 +198,7 @@ func newShutdownTestIndex(t *testing.T, shardErrs map[string]error) *Index {
 	t.Cleanup(func() {
 		// a cycle the index left running would otherwise outlive the test
 		for _, cycle := range testCycles(idx.cycleCallbacks) {
-			require.NoError(t, cycle.StopAndWait(context.Background()))
+			stopTestCycle(t, cycle)
 		}
 	})
 	return idx
@@ -294,14 +221,24 @@ func newTestCycleCallbacks(logger logrus.FieldLogger) *indexCycleCallbacks {
 }
 
 func testCycles(cc *indexCycleCallbacks) []cyclemanager.CycleManager {
-	return []cyclemanager.CycleManager{
-		cc.compactionCycle,
-		cc.compactionAuxCycle,
-		cc.flushCycle,
-		cc.vectorCommitLoggerCycle,
-		cc.vectorTombstoneCleanupCycle,
-		cc.geoPropsCommitLoggerCycle,
-		cc.geoPropsTombstoneCleanupCycle,
+	pointers := testCyclePointers(cc)
+	cycles := make([]cyclemanager.CycleManager, len(pointers))
+	for i, p := range pointers {
+		cycles[i] = *p
+	}
+	return cycles
+}
+
+// testCyclePointers lets a test replace any of the index's cycles.
+func testCyclePointers(cc *indexCycleCallbacks) []*cyclemanager.CycleManager {
+	return []*cyclemanager.CycleManager{
+		&cc.compactionCycle,
+		&cc.compactionAuxCycle,
+		&cc.flushCycle,
+		&cc.vectorCommitLoggerCycle,
+		&cc.vectorTombstoneCleanupCycle,
+		&cc.geoPropsCommitLoggerCycle,
+		&cc.geoPropsTombstoneCleanupCycle,
 	}
 }
 
@@ -390,6 +327,117 @@ func TestIndexShutdownStopsCycleManagersDespiteShardFailure(t *testing.T) {
 	}
 }
 
+// TestIndexShutdownStopsCyclesBeforeShards pins that every cycle is asked to stop
+// before the first shard shuts down, and awaited only after the shards.
+func TestIndexShutdownStopsCyclesBeforeShards(t *testing.T) {
+	idx := newShutdownTestIndex(t, nil)
+	cc := idx.cycleCallbacks
+
+	releaseFlush := make(chan struct{})
+	// runs before newShutdownTestIndex's cleanup, which waits for the flush
+	t.Cleanup(func() {
+		select {
+		case <-releaseFlush:
+		default:
+			close(releaseFlush)
+		}
+	})
+	// a flush that ignores the abort until the shards started
+	cc.flushCycle = startInFlightCycle(t, cc.flushCycle, func(cyclemanager.ShouldAbortCallback) {
+		<-releaseFlush
+	})
+
+	stopRequested := recordStopRequests(cc)
+	shardNames := []string{"shard1", "shard2"}
+	notAskedAtShardShutdown := make(chan []string, len(shardNames))
+	for _, name := range shardNames {
+		shard := NewMockShardLike(t)
+		shard.EXPECT().Shutdown(mock.Anything).Run(func(context.Context) {
+			notAskedAtShardShutdown <- cyclesNotAskedToStop(stopRequested)
+		}).Return(nil).Once()
+		idx.shards.Store(name, shard)
+	}
+
+	shutdownDone := make(chan error, 1)
+	go func() { shutdownDone <- idx.Shutdown(context.Background()) }()
+
+	for range shardNames {
+		select {
+		case notAsked := <-notAskedAtShardShutdown:
+			require.Empty(t, notAsked, "cycles not asked to stop when a shard started to shut down")
+		case <-time.After(5 * time.Second):
+			t.Fatal("shard shutdown waited for a cycle to stop")
+		}
+	}
+	close(releaseFlush)
+
+	select {
+	case err := <-shutdownDone:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Shutdown did not return")
+	}
+}
+
+// startInFlightCycle replaces cycle with one running callback every millisecond,
+// and returns once callback is in flight.
+func startInFlightCycle(t *testing.T, cycle cyclemanager.CycleManager,
+	callback func(cyclemanager.ShouldAbortCallback),
+) cyclemanager.CycleManager {
+	t.Helper()
+	require.True(t, <-cycle.Stop(context.Background()))
+
+	logger, _ := test.NewNullLogger()
+	started := make(chan struct{})
+	var once sync.Once
+	replacement := cyclemanager.NewManager("in-flight", cyclemanager.NewFixedTicker(time.Millisecond),
+		func(shouldAbort cyclemanager.ShouldAbortCallback) bool {
+			once.Do(func() { close(started) })
+			callback(shouldAbort)
+			return false
+		}, logger)
+	replacement.Start()
+	<-started
+	return replacement
+}
+
+// stopRecordingCycle closes requested when asked to stop, then stops the cycle it wraps.
+type stopRecordingCycle struct {
+	cyclemanager.CycleManager
+	requested chan struct{}
+	once      *sync.Once
+}
+
+func (c stopRecordingCycle) Stop(ctx context.Context) chan bool {
+	c.once.Do(func() { close(c.requested) })
+	return c.CycleManager.Stop(ctx)
+}
+
+// recordStopRequests wraps every cycle of cc, returning per cycle a channel that
+// closes when it is asked to stop.
+func recordStopRequests(cc *indexCycleCallbacks) []chan struct{} {
+	pointers := testCyclePointers(cc)
+	requested := make([]chan struct{}, len(pointers))
+	for i, p := range pointers {
+		requested[i] = make(chan struct{})
+		*p = stopRecordingCycle{CycleManager: *p, requested: requested[i], once: new(sync.Once)}
+	}
+	return requested
+}
+
+// cyclesNotAskedToStop names the cycles not yet asked to stop, in testCycles order.
+func cyclesNotAskedToStop(requested []chan struct{}) []string {
+	var notAsked []string
+	for i, ch := range requested {
+		select {
+		case <-ch:
+		default:
+			notAsked = append(notAsked, fmt.Sprintf("cycle %d", i))
+		}
+	}
+	return notAsked
+}
+
 func TestDBShutdownRunsEveryIndexAndCleanup(t *testing.T) {
 	type indexSpec struct {
 		name          string
@@ -449,16 +497,12 @@ func TestDBShutdownRunsEveryIndexAndCleanup(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
-			checkpoints, err := indexcheckpoint.New(t.TempDir(), logger)
-			require.NoError(t, err)
-
 			db := &DB{
+				localNodeName:             "node1",
 				logger:                    logger,
 				shutdown:                  make(chan struct{}, 1),
 				bitmapBufPoolClose:        func() {},
-				AsyncIndexingEnabled:      true,
 				asyncReplicationScheduler: newSchedulerForUnitTest(t),
-				indexCheckpoints:          checkpoints,
 				indices:                   map[string]*Index{},
 			}
 
@@ -474,7 +518,7 @@ func TestDBShutdownRunsEveryIndexAndCleanup(t *testing.T) {
 				db.indices[spec.name] = idx
 			}
 
-			err = db.Shutdown(context.Background())
+			err := db.Shutdown(context.Background())
 
 			if len(tt.wantErrContains) == 0 {
 				require.NoError(t, err)
@@ -487,11 +531,6 @@ func TestDBShutdownRunsEveryIndexAndCleanup(t *testing.T) {
 			for _, want := range tt.wantErrIs {
 				require.ErrorIs(t, err, want)
 			}
-
-			// closing the checkpoint store is the last statement after the index
-			// loop, so a closed store proves the whole post-loop cleanup ran
-			_, _, err = checkpoints.Get("shard1", "")
-			require.Error(t, err)
 		})
 	}
 }
@@ -520,5 +559,328 @@ func TestIndexShutdownAbortsInFlightReader(t *testing.T) {
 		require.NoError(t, err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("Shutdown is blocked behind an in-flight reader")
+	}
+}
+
+// newShutdownTestDB builds the minimal DB the Shutdown path touches, with n batch workers when n > 0.
+func newShutdownTestDB(t *testing.T, logger *logrus.Logger, batchWorkers int) *DB {
+	t.Helper()
+	db := &DB{
+		localNodeName:       "node1",
+		shutdown:            make(chan struct{}),
+		logger:              logger,
+		bitmapBufPoolClose:  func() {},
+		maxNumberGoroutines: batchWorkers,
+	}
+	db.shutDownWg.Add(1)
+	db.scheduler = queue.NewScheduler(queue.SchedulerOptions{Logger: logger, OnClose: db.shutDownWg.Done})
+	db.scheduler.Start()
+	sched, err := NewAsyncReplicationScheduler(context.Background(), replication.GlobalConfig{
+		AsyncReplicationSchedulerWorkers: configRuntime.NewDynamicValue(1),
+		AsyncReplicationDisabled:         configRuntime.NewDynamicValue(false),
+	}, nil, logger)
+	require.NoError(t, err)
+	db.asyncReplicationScheduler = sched
+
+	if batchWorkers > 0 {
+		db.jobQueueCh = make(chan job, 10)
+		db.shutDownWg.Add(batchWorkers)
+		for range batchWorkers {
+			enterrors.GoWrapper(func() { db.batchWorker(false) }, logger)
+		}
+	}
+	return db
+}
+
+func requireShutdownReturns(t *testing.T, db *DB, msg string) {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() { done <- db.Shutdown(context.Background()) }()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal(msg)
+	}
+}
+
+// TestShutdownSurvivesDeadBatchWorker: DB.Shutdown must return even when a batch worker died from a panic before consuming its poison pill.
+func TestShutdownSurvivesDeadBatchWorker(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	db := newShutdownTestDB(t, logger, 0)
+	db.jobQueueCh = make(chan job, 10)
+	db.maxNumberGoroutines = 1
+
+	// Sole consumer, test-owned recover: GoWrapper re-panics under DISABLE_RECOVERY_ON_PANIC and would kill the binary.
+	db.shutDownWg.Add(1)
+	workerDead := make(chan struct{})
+	go func() {
+		defer close(workerDead)
+		defer func() { _ = recover() }()
+		db.batchWorker(false)
+	}()
+
+	db.jobQueueCh <- job{index: 0, batcher: nil}
+	select {
+	case <-workerDead:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the poisoned job never killed the worker — the fixture no longer exercises the leak")
+	}
+
+	requireShutdownReturns(t, db, "DB.Shutdown must not hang when a batch worker died before its poison pill")
+}
+
+// TestDBShutdownIdempotent: a second DB.Shutdown must be a safe no-op, not a double close of the metrics observer's channel.
+func TestDBShutdownIdempotent(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	db := newShutdownTestDB(t, logger, 0)
+	db.metricsObserver = &nodeWideMetricsObserver{db: db, shutdown: make(chan struct{})}
+
+	requireShutdownReturns(t, db, "first DB.Shutdown must return")
+	require.NotPanics(t, func() {
+		requireShutdownReturns(t, db, "second DB.Shutdown must return")
+	})
+}
+
+// TestShutdownSignalSurvivesDeadResourceScanner: DB.Shutdown must return even when the resource-scan receiver is gone, as after a panic killed its goroutine.
+func TestShutdownSignalSurvivesDeadResourceScanner(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	db := &DB{
+		localNodeName:      "node1",
+		shutdown:           make(chan struct{}),
+		logger:             logger,
+		bitmapBufPoolClose: func() {},
+	}
+	db.shutDownWg.Add(1)
+	db.scheduler = queue.NewScheduler(queue.SchedulerOptions{Logger: logger, OnClose: db.shutDownWg.Done})
+	db.scheduler.Start()
+	sched, err := NewAsyncReplicationScheduler(context.Background(), replication.GlobalConfig{
+		AsyncReplicationSchedulerWorkers: configRuntime.NewDynamicValue(1),
+		AsyncReplicationDisabled:         configRuntime.NewDynamicValue(false),
+	}, nil, logger)
+	require.NoError(t, err)
+	db.asyncReplicationScheduler = sched
+
+	done := make(chan error, 1)
+	go func() { done <- db.Shutdown(context.Background()) }()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("DB.Shutdown must not hang without a live resource-scan receiver")
+	}
+}
+
+// closeRequest is one of the teardowns that asks an index to close before it
+// waits for closeLock, paired with the cause it signals.
+type closeRequest struct {
+	name    string
+	request func(*Index) error
+	cause   error
+}
+
+func closeRequests() []closeRequest {
+	return []closeRequest{
+		{
+			name:    "a shutdown",
+			request: func(idx *Index) error { return idx.Shutdown(context.Background()) },
+			cause:   errIndexShutdown,
+		},
+		{
+			name: "a drop",
+			request: func(idx *Index) error {
+				idx.signalCloseRequested(errIndexDropped)
+				return nil
+			},
+			cause: errIndexDropped,
+		},
+	}
+}
+
+// TestCloseRequestAbortsBackgroundShardLoad pins that the background shard load
+// gives up its wait once a close is requested. It waits for a node-wide load
+// permit while holding the index open, so a load that kept waiting would hold up
+// the teardown for as long as the permit is taken.
+func TestCloseRequestAbortsBackgroundShardLoad(t *testing.T) {
+	for _, tt := range closeRequests() {
+		t.Run(tt.name+" releases the load", func(t *testing.T) {
+			idx := newShutdownTestIndex(t, nil)
+
+			release, loadDone := startGatedBackgroundLoad(t, idx, "t1")
+			// the load must reach the permit wait rather than park at the gate,
+			// or it never exercises the wait this test is about
+			close(release)
+
+			closeDone := make(chan error, 1)
+			go func() { closeDone <- tt.request(idx) }()
+
+			select {
+			case err := <-loadDone:
+				require.ErrorIs(t, err, context.Canceled)
+				require.ErrorIs(t, context.Cause(idx.closeRequestedCtx), tt.cause)
+			case <-time.After(5 * time.Second):
+				t.Fatal("the shard load kept waiting for a permit through the close request")
+			}
+			require.NoError(t, <-closeDone)
+		})
+	}
+}
+
+// TestCloseRequestAbortsShardUnload pins that an unload gives up the shard
+// shutdown it is waiting on once a close is requested. The shutdown retries for
+// seconds while the unload holds the index open, so an unload that kept
+// retrying would hold the teardown behind its own in-flight count.
+func TestCloseRequestAbortsShardUnload(t *testing.T) {
+	// Shard.Shutdown returns either error once a close request ends its wait.
+	shutdownErrs := []struct {
+		name string
+		err  func(ctx context.Context) error
+	}{
+		{name: "cancelled wait", err: func(ctx context.Context) error { return ctx.Err() }},
+		{name: "retries ran out", err: func(context.Context) error { return errShardStillInUse }},
+	}
+
+	for _, tt := range closeRequests() {
+		for _, se := range shutdownErrs {
+			t.Run(tt.name+" releases the unload, "+se.name, func(t *testing.T) {
+				testCloseRequestAbortsShardUnload(t, tt, se.err)
+			})
+		}
+	}
+}
+
+func testCloseRequestAbortsShardUnload(t *testing.T, tt closeRequest, shutdownErr func(context.Context) error) {
+	idx := newShutdownTestIndex(t, nil)
+
+	var parked sync.Once
+	entered := make(chan struct{})
+	shard := NewMockShardLike(t)
+	shard.EXPECT().Name().Return("t1").Maybe()
+	// Like Shard.Shutdown on a shard in use, the first call waits for the close.
+	shard.EXPECT().Shutdown(mock.Anything).RunAndReturn(func(ctx context.Context) error {
+		var err error
+		parked.Do(func() {
+			close(entered)
+			<-ctx.Done()
+			err = shutdownErr(ctx)
+		})
+		// Later calls come from the index teardown, which the shard does not refuse.
+		if err != nil {
+			return err
+		}
+		return ctx.Err()
+	})
+	idx.shards.Store("t1", shard)
+
+	unloadDone := make(chan error, 1)
+	unloadOutcome := make(chan ShardUnloadOutcome, 1)
+	go func() {
+		outcome, err := idx.UnloadLocalShard(context.Background(), "t1")
+		unloadOutcome <- outcome
+		unloadDone <- err
+	}()
+	<-entered
+
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- tt.request(idx) }()
+
+	select {
+	case err := <-unloadDone:
+		require.ErrorIs(t, err, tt.cause)
+		require.ErrorIs(t, err, ErrIndexClosing,
+			"the outcome and the error have to agree on which condition refused")
+		require.Equal(t, ShardUnloadOutcomeIndexClosing, <-unloadOutcome,
+			"our own close ended the wait, so no later attempt in this process helps")
+	case <-time.After(5 * time.Second):
+		t.Fatal("the unload kept waiting on the shard shutdown through the close request")
+	}
+	require.NoError(t, <-closeDone)
+}
+
+// startGatedBackgroundLoad parks a background shard load mid-build and returns
+// once it holds the index open: closing the returned channel lets it through to
+// the permit wait. The one node-wide permit is taken and never given back, so a
+// released load ends at the limiter instead of building a shard.
+func startGatedBackgroundLoad(t *testing.T, idx *Index, shardName string) (chan struct{}, chan error) {
+	t.Helper()
+
+	limiter := loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "test_shard_load", 1)
+	require.NoError(t, limiter.Acquire(context.Background()))
+
+	entered, release := make(chan struct{}), make(chan struct{})
+	idx.shards.Store(shardName, &LazyLoadShard{
+		memMonitor:       gateAllocChecker{entered: entered, release: release},
+		shardLoadLimiter: limiter,
+	})
+
+	loadDone := make(chan error, 1)
+	go func() {
+		_, err := idx.loadLocalShardIfActive(shardName)
+		loadDone <- err
+	}()
+	<-entered
+
+	return release, loadDone
+}
+
+// TestTeardownProceedsDuringBackgroundShardLoad pins that a shard build in flight
+// holds the index open through the refcount rather than closeLock, so a teardown
+// closes the index straight away instead of queueing for the write lock behind
+// the build.
+func TestTeardownProceedsDuringBackgroundShardLoad(t *testing.T) {
+	idx := newShutdownTestIndex(t, nil)
+
+	release, loadDone := startGatedBackgroundLoad(t, idx, "t1")
+
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- idx.Shutdown(context.Background()) }()
+
+	// beginClose cancels closingCtx under the write lock, so this fires only once
+	// the teardown got that lock
+	select {
+	case <-idx.closingCtx.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("the shard build kept the teardown from closing the index")
+	}
+
+	close(release)
+	<-loadDone
+	require.NoError(t, <-closeDone)
+}
+
+// TestCancelOnCloseRequested pins the context a closeLock reader aborts on: live
+// while no teardown has asked to close, then cancelled carrying the cause that
+// says which teardown asked.
+func TestCancelOnCloseRequested(t *testing.T) {
+	tests := []struct {
+		name string
+		// a nil cause means nothing asks to close
+		wantCause error
+	}{
+		{name: "no close requested keeps the context live"},
+		{name: "a shutdown cancels it", wantCause: errIndexShutdown},
+		{name: "a drop cancels it", wantCause: errIndexDropped},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			idx := newShutdownTestIndex(t, nil)
+
+			derived, done := idx.cancelOnCloseRequested(context.Background())
+			defer done()
+
+			if tt.wantCause == nil {
+				require.NoError(t, derived.Err())
+				return
+			}
+
+			idx.signalCloseRequested(tt.wantCause)
+			select {
+			case <-derived.Done():
+			case <-time.After(5 * time.Second):
+				t.Fatal("the derived context ignored the close request")
+			}
+			require.ErrorIs(t, context.Cause(derived), tt.wantCause)
+		})
 	}
 }

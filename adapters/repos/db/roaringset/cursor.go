@@ -27,6 +27,9 @@ type CombinedCursor struct {
 	maxConc int
 }
 
+// InnerCursor may yield a nil side, and a non-nil side may still be empty:
+// implementations differ. Test a side with [sroar.Bitmap.IsEmpty], which reads
+// nil and empty alike, never against nil.
 type InnerCursor interface {
 	First() ([]byte, BitmapLayer, error)
 	Next() ([]byte, BitmapLayer, error)

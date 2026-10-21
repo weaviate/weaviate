@@ -61,6 +61,7 @@ func TestEnableRangeable_ConcurrentWrites(t *testing.T) {
 	ctx := context.Background()
 
 	compose, err := docker.New().
+		WithWeaviateEnv("RUNTIME_REINDEX_ENABLED", "true").
 		WithWeaviate().
 		// 1s scheduler tick keeps the submit→migration-start latency low so
 		// the PATCH storm reliably overlaps the migration window.
@@ -107,6 +108,11 @@ func TestEnableRangeable_ConcurrentWrites(t *testing.T) {
 			"control: all %d updated objects must be served at >= %d", numUpdates, mark)
 	})
 
+	// Only this type gets an end-to-end run here; the swap window itself is
+	// generic across semantic migrations. At shard level,
+	// TestWriteDuringSemanticMigrationSwapWindow writes in the window of each
+	// enable type, and TestTokenizationOverlay_WritePath_HonorsOverlay writes
+	// with a tokenization override into the searchable index.
 	t.Run("enable-rangeable migration with concurrent writes", func(t *testing.T) {
 		className := "F10RangeableMig"
 		ids := setupClassWithObjects(t, className, false)

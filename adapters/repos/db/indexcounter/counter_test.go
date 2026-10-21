@@ -20,6 +20,50 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestCounterAfterClose(t *testing.T) {
+	tests := []struct {
+		name   string
+		assert func(t *testing.T, c *Counter, dir string)
+	}{
+		{
+			name: "GetAndInc fails rather than hand out an unpersisted doc ID",
+			assert: func(t *testing.T, c *Counter, dir string) {
+				_, err := c.GetAndInc()
+				require.ErrorIs(t, err, os.ErrClosed)
+			},
+		},
+		{
+			name: "Drop removes the counter file",
+			assert: func(t *testing.T, c *Counter, dir string) {
+				require.NoError(t, c.Drop(false))
+				_, err := os.Stat(filepath.Join(dir, "indexcount"))
+				require.ErrorIs(t, err, os.ErrNotExist)
+			},
+		},
+		{
+			name: "Drop keeping files leaves the persisted count",
+			assert: func(t *testing.T, c *Counter, dir string) {
+				require.NoError(t, c.Drop(true))
+				count, err := Read(dir)
+				require.NoError(t, err)
+				require.Equal(t, uint64(1), count)
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			c, err := New(dir)
+			require.NoError(t, err)
+			_, err = c.GetAndInc()
+			require.NoError(t, err)
+
+			require.NoError(t, c.Close())
+			tc.assert(t, c, dir)
+		})
+	}
+}
+
 func TestReadOnDisk(t *testing.T) {
 	t.Run("missing counter file reads as 0", func(t *testing.T) {
 		count, err := Read(t.TempDir())

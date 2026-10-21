@@ -118,7 +118,7 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 	atomic.StoreInt64(&h.efFactor, int64(parsed.DynamicEFFactor))
 	atomic.StoreInt64(&h.flatSearchCutoff, int64(parsed.FlatSearchCutoff))
 
-	h.acornSearch.Store(parsed.FilterStrategy == ent.FilterStrategyAcorn)
+	h.configuredFilterStrategy.Store(int32(filterStrategyFromConfig(parsed.FilterStrategy)))
 
 	if !parsed.PQ.Enabled && !parsed.BQ.Enabled && !parsed.SQ.Enabled && !parsed.RQ.Enabled {
 		callback()
@@ -167,10 +167,9 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 
 func (h *hnsw) Upgrade(callback func()) error {
 	h.logger.WithFields(logrus.Fields{
-		"action":       "compress",
-		"shard":        h.shardName,
-		"collection":   h.className,
-		"targetVector": h.getTargetVector(),
+		"action":     "compress",
+		"shard":      h.shardName,
+		"collection": h.className,
 	}).Info("switching to compressed vectors")
 
 	err := ent.ValidatePQConfig(h.pqConfig)
@@ -186,12 +185,14 @@ func (h *hnsw) Upgrade(callback func()) error {
 	}
 
 	h.compressing.Store(true)
+	h.compressWg.Add(1)
 	enterrors.GoWrapper(func() { h.compressThenCallback(callback) }, h.logger)
 
 	return nil
 }
 
 func (h *hnsw) compressThenCallback(callback func()) {
+	defer h.compressWg.Done()
 	defer h.compressing.Store(false)
 	defer callback()
 
@@ -203,17 +204,15 @@ func (h *hnsw) compressThenCallback(callback func()) {
 	}
 	if err := h.compress(uc); err != nil {
 		h.logger.WithFields(logrus.Fields{
-			"action":       "compress",
-			"shard":        h.shardName,
-			"collection":   h.className,
-			"targetVector": h.getTargetVector(),
+			"action":     "compress",
+			"shard":      h.shardName,
+			"collection": h.className,
 		}).WithError(err).Error("vector compression failed")
 		return
 	}
 	h.logger.WithFields(logrus.Fields{
-		"action":       "compress",
-		"shard":        h.shardName,
-		"collection":   h.className,
-		"targetVector": h.getTargetVector(),
+		"action":     "compress",
+		"shard":      h.shardName,
+		"collection": h.className,
 	}).Info("vector compression complete")
 }

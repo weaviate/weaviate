@@ -137,7 +137,12 @@ func configureOIDC(appState *state.State) *oidc.Client {
 }
 
 func configureCrons(appState *state.State, serverShutdownCtx context.Context) *cron.Crons {
-	return cron.NewCrons(serverShutdownCtx, appState.Logger, func() config.Config { return appState.ServerConfig.Config })
+	c, err := cron.NewCrons(serverShutdownCtx, appState.Logger, func() config.Config { return appState.ServerConfig.Config })
+	if err != nil {
+		appState.Logger.WithField("action", "crons_init").Fatalf("crons could not start up: %v", err)
+	}
+
+	return c
 }
 
 func configureAPIKey(appState *state.State) *apikey.ApiKey {
@@ -158,19 +163,26 @@ func configureAnonymousAccess(appState *state.State) *anonymous.Client {
 }
 
 func configureAuthorizer(appState *state.State) error {
+	// configureOIDC and configureAPIKey take appState.NamespacesController
+	// earlier in boot and neither rejects a typed nil, so this is the first
+	// place it is checked.
+	if appState.ServerConfig.Config.Namespaces.Enabled && appState.NamespacesController == nil {
+		return fmt.Errorf("NAMESPACES_ENABLED=true requires a namespace controller, but it wasn't initialized")
+	}
+
 	if appState.ServerConfig.Config.Authorization.Rbac.Enabled {
 		// if rbac enforcer enabled, start forcing all requests using the casbin enforcer
 		rbacController, err := rbac.New(
 			filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir),
 			appState.ServerConfig.Config.Authorization.Rbac, appState.ServerConfig.Config.Authentication,
 			appState.ServerConfig.Config.Namespaces.Enabled,
+			appState.NamespacesController,
 			appState.Logger)
 		if err != nil {
 			return fmt.Errorf("can't init casbin %w", err)
 		}
 
 		appState.AuthzController = rbacController
-		appState.AuthzSnapshotter = rbacController
 		appState.RBAC = rbacController
 		appState.Authorizer = rbacController
 	} else if appState.ServerConfig.Config.Authorization.AdminList.Enabled {

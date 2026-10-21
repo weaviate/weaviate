@@ -25,7 +25,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -195,8 +194,11 @@ func testCancelThenRetryRangeable(t *testing.T, restURI string) {
 
 // cancelInFlightOrSkip submits an upsert, waits for pending/indexing, then
 // POSTs the GA cancel sub-resource. indexType is the test-local label
-// ("rangeable" maps to the GA "rangeFilters" segment); a raced completion
-// (NO_OP) falls through to the retry submit.
+// ("rangeable" maps to the GA "rangeFilters" segment). If the cancel races
+// with task completion (409, or 202 NO_OP), the sub-test is logged as
+// fast-completed and the caller falls through to the retry submit — which
+// still exercises a useful adjacent path (re-submit after a same-shape
+// FINISHED task) even though it's not the bug we're after.
 //
 // Returns true if cancel actually landed, false if the task finished before
 // we could cancel.
@@ -227,70 +229,43 @@ func cancelInFlightOrSkip(t *testing.T, restURI, class, prop, indexType, request
 		"task did not appear as indexing/pending before cancel")
 
 	resp := reindexhelpers.CancelIndexRaw(t, restURI, class, prop, it)
-	require.Equal(t, http.StatusAccepted, resp.StatusCode,
-		"cancel must return 202; got %d body: %s", resp.StatusCode, resp.Body)
 
-	var result map[string]string
-	require.NoError(t, json.Unmarshal([]byte(resp.Body), &result))
-
-	switch result["status"] {
-	case "CANCELLED":
-		require.Equal(t, taskID, result["taskId"])
-
-		// Wait for the task to reach a terminal CANCELLED/FAILED state in
-		// /v1/tasks. Re-submitting too early can race against the DTM
-		// scheduler tick that records the cancel — checkReindexConflict
-		// would then see the old task as still "STARTED" and reject the
-		// fresh submit with 409.
-		require.Eventually(t, func() bool {
-			tasksResp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
-			if err != nil {
-				return false
-			}
-			defer tasksResp.Body.Close()
-			b, _ := io.ReadAll(tasksResp.Body)
-			var tasks models.DistributedTasks
-			if err := json.Unmarshal(b, &tasks); err != nil {
-				return false
-			}
-			for _, task := range tasks["reindex"] {
-				if task.ID == taskID {
-					return task.Status == "CANCELLED" || task.Status == "FAILED" || task.Status == "FINISHED"
-				}
-			}
+	// The cancel lands at an unsynchronized moment, so the task's phase
+	// decides the code: 202 CANCELLED (still STARTED), 409 (every unit
+	// finished, cluster-wide swap under way), 202 NO_OP (terminal).
+	// Every arm waits for a terminal state before returning: re-submitting
+	// while the old task is still non-terminal makes checkReindexConflict
+	// reject the fresh submit with 409.
+	switch resp.StatusCode {
+	case http.StatusAccepted:
+		var result map[string]string
+		require.NoError(t, json.Unmarshal([]byte(resp.Body), &result))
+		switch result["status"] {
+		case "CANCELLED":
+			require.Equal(t, taskID, result["taskId"])
+			awaitTerminal(t, restURI, taskID)
+			t.Logf("first task %s reached terminal state after cancel", taskID)
+			return true
+		case "NO_OP":
+			require.Empty(t, result["taskId"],
+				"cancel NO_OP should not name a TaskID; body: %s", resp.Body)
+			t.Logf("cancel raced with completion of task %s; it was already terminal", taskID)
+			awaitTerminal(t, restURI, taskID)
 			return false
-		}, 60*time.Second, 50*time.Millisecond,
-			"first task did not reach a terminal state after cancel")
-		t.Logf("first task %s reached terminal state after cancel", taskID)
-		return true
-
-	case "NO_OP":
-		// Cancel raced with task completion: no STARTED task remained to
-		// cancel. Wait for the now-finished task to be observable as
-		// terminal so the retry doesn't 409.
-		t.Logf("cancel raced with completion of task %s; waiting for a terminal state", taskID)
-		require.Eventually(t, func() bool {
-			tasksResp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
-			if err != nil {
-				return false
-			}
-			defer tasksResp.Body.Close()
-			b, _ := io.ReadAll(tasksResp.Body)
-			var tasks models.DistributedTasks
-			if err := json.Unmarshal(b, &tasks); err != nil {
-				return false
-			}
-			for _, task := range tasks["reindex"] {
-				if task.ID == taskID {
-					return task.Status == "FINISHED" || task.Status == "FAILED" || task.Status == "CANCELLED"
-				}
-			}
+		default:
+			t.Fatalf("unexpected cancel status %q for task %s: %s", result["status"], taskID, resp.Body)
 			return false
-		}, 60*time.Second, 50*time.Millisecond, "race-completed first task not terminal")
+		}
+
+	case http.StatusConflict:
+		require.Contains(t, resp.Body, taskID,
+			"cancel 409 must name the task it refuses to cancel; body: %s", resp.Body)
+		t.Logf("cancel raced with completion of task %s; it is past its units", taskID)
+		awaitTerminal(t, restURI, taskID)
 		return false
 
 	default:
-		t.Fatalf("unexpected cancel status %q for task %s: %s", result["status"], taskID, resp.Body)
+		t.Fatalf("unexpected cancel status %d for task %s: %s", resp.StatusCode, taskID, resp.Body)
 		return false
 	}
 }
@@ -324,11 +299,7 @@ func TestSuppress_CancelThenRetry(t *testing.T) {
 func TestCancelThenRetry(t *testing.T) {
 	ctx := context.Background()
 
-	compose, err := docker.New().
-		WithWeaviate().
-		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false").
-		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
-		Start(ctx)
+	compose, err := reindexhelpers.StartSingleNode(ctx)
 	require.NoError(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {

@@ -48,3 +48,10 @@ type Cache[T any] interface {
 	LockAll()
 	UnlockAll()
 }
+
+// IfAbsentPreloader fills an empty cache slot without clobbering a vector written
+// concurrently. Only the single-vector caches implement it: a multivector slot is
+// addressed by (docID, relativeID), which has no single-id write.
+type IfAbsentPreloader[T any] interface {
+	PreloadIfAbsent(id uint64, vec []T) bool
+}

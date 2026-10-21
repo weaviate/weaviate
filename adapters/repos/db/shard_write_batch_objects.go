@@ -30,20 +30,18 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-// return value map[int]error gives the error for the index as it received it
+// PutObjectBatch returns one error per object, in input order, refusals of the
+// whole batch included. The caller maps position i onto that object's position
+// in its own batch, so a shorter slice reports the objects it omits as written.
 func (s *Shard) PutObjectBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
 	if err := s.isReadOnly(); err != nil {
-		return []error{err}
+		return duplicateErr(err, len(objects))
 	}
 
 	if err := s.index.usageLimits.CheckObjects(ctx, int64(len(objects)), s.index.Config.ClassName.String()); err != nil {
-		errs := make([]error, len(objects))
-		for i := range errs {
-			errs[i] = err
-		}
-		return errs
+		return duplicateErr(err, len(objects))
 	}
 
 	return s.putBatch(ctx, objects)
@@ -351,14 +349,13 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 	}
 
 	for targetVector, vectors := range targetVectors {
-		queue, ok := ob.shard.GetVectorIndexQueue(targetVector)
-		if !ok {
+		found, err := ob.shard.WithVectorIndexQueue(targetVector, func(queue *VectorIndexQueue) error {
+			return queue.Insert(ctx, vectors...)
+		})
+		if !found {
 			ob.setErrorAtIndex(fmt.Errorf("queue not found for target vector %s", targetVector), 0)
-		} else {
-			err := queue.Insert(ctx, vectors...)
-			if err != nil {
-				ob.setErrorAtIndex(err, 0)
-			}
+		} else if err != nil {
+			ob.setErrorAtIndex(err, 0)
 		}
 	}
 }
