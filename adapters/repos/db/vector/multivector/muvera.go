@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand/v2"
+	"sync"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -35,6 +36,7 @@ type MuveraConfig struct {
 }
 
 type MuveraEncoder struct {
+	mu                   sync.RWMutex
 	config               MuveraConfig
 	gaussians            [][][]float32 // Random Gaussian vectors for SimHash projection
 	S                    [][][]float32 // Random projection matrix with ±1 entries
@@ -63,23 +65,28 @@ func NewMuveraEncoder(config ent.MuveraConfig, muveraStore *lsmkv.Store) *Muvera
 
 func (encoder *MuveraEncoder) InitEncoder(dimensions int) {
 	rng := rand.New(rand.NewPCG(DefaultMuveraSeed, 0x385ab5285169b1ac))
-	encoder.config.Dimensions = dimensions
-	encoder.gaussians = make([][][]float32, encoder.config.Repetitions)
-	encoder.S = make([][][]float32, encoder.config.Repetitions)
+	gaussians := make([][][]float32, encoder.config.Repetitions)
+	s := make([][][]float32, encoder.config.Repetitions)
 	for rep := 0; rep < encoder.config.Repetitions; rep++ {
 		// Initialize random Gaussian vectors
-		encoder.gaussians[rep] = make([][]float32, encoder.config.KSim)
+		gaussians[rep] = make([][]float32, encoder.config.KSim)
 		for i := 0; i < encoder.config.KSim; i++ {
-			encoder.gaussians[rep][i] = make([]float32, encoder.config.Dimensions)
-			for j := 0; j < encoder.config.Dimensions; j++ {
+			gaussians[rep][i] = make([]float32, dimensions)
+			for j := 0; j < dimensions; j++ {
 				u1 := rng.Float64()
 				u2 := rng.Float64()
-				encoder.gaussians[rep][i][j] = float32(math.Sqrt(-2.0*math.Log(u1)) * math.Cos(2*math.Pi*u2))
+				gaussians[rep][i][j] = float32(math.Sqrt(-2.0*math.Log(u1)) * math.Cos(2*math.Pi*u2))
 			}
 		}
 
-		encoder.S[rep] = initProjectionMatrix(encoder.config.DProjections, encoder.config.Dimensions, rng)
+		s[rep] = initProjectionMatrix(encoder.config.DProjections, dimensions, rng)
 	}
+
+	encoder.mu.Lock()
+	encoder.config.Dimensions = dimensions
+	encoder.gaussians = gaussians
+	encoder.S = s
+	encoder.mu.Unlock()
 }
 
 func initProjectionMatrix(rows int, cols int, rng *rand.Rand) [][]float32 {
@@ -201,15 +208,21 @@ func (e *MuveraEncoder) encode(fullVec [][]float32, isDoc bool) []float32 {
 
 // EncodeQuery encodes a query vector using Muvera
 func (e *MuveraEncoder) EncodeQuery(query [][]float32) []float32 {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	return e.encode(query, false)
 }
 
 // EncodeDoc encodes a document vector using Muvera
 func (e *MuveraEncoder) EncodeDoc(fullDoc [][]float32) []float32 {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	return e.encode(fullDoc, true)
 }
 
 func (e *MuveraEncoder) Dimensions() int {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	return e.config.Dimensions
 }
 
@@ -255,6 +268,8 @@ type CommitLogger interface {
 }
 
 func (e *MuveraEncoder) PersistMuvera(logger CommitLogger) error {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	return logger.AddMuvera(MuveraData{
 		KSim:         uint32(e.config.KSim),
 		NumClusters:  uint32(e.config.NumClusters),
@@ -267,6 +282,8 @@ func (e *MuveraEncoder) PersistMuvera(logger CommitLogger) error {
 }
 
 func (e *MuveraEncoder) LoadMuveraConfig(data MuveraData) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.config.KSim = int(data.KSim)
 	e.config.NumClusters = int(data.NumClusters)
 	e.config.Dimensions = int(data.Dimensions)

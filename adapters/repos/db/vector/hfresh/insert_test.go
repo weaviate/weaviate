@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -603,3 +604,76 @@ func TestValidateMultiBeforeInsertEmpty(t *testing.T) {
 		require.ErrorContains(t, err, "muvera is not enabled")
 	})
 }
+
+func TestHFresh_ConcurrentReadAndInitRace(t *testing.T) {
+	t.Run("single vector index concurrent read and init", func(t *testing.T) {
+		for iter := 0; iter < 5; iter++ {
+			func() {
+				tf := createHFreshIndex(t)
+				defer tf.Index.Shutdown(t.Context())
+
+				vec := []float32{0.1, 0.2, 0.3, 0.4}
+				var wg sync.WaitGroup
+				wg.Add(3)
+
+				go func() {
+					defer wg.Done()
+					for i := 0; i < 50; i++ {
+						_ = tf.Index.Dimension()
+					}
+				}()
+
+				go func() {
+					defer wg.Done()
+					_ = tf.Index.AddBatch(t.Context(), []uint64{uint64(iter*100 + 1)}, [][]float32{vec})
+				}()
+
+				go func() {
+					defer wg.Done()
+					for i := 0; i < 50; i++ {
+						_ = tf.Index.ValidateBeforeInsert(vec)
+					}
+				}()
+
+				wg.Wait()
+				assert.Equal(t, 4, tf.Index.Dimension())
+			}()
+		}
+	})
+
+	t.Run("multi vector index concurrent read and init", func(t *testing.T) {
+		for iter := 0; iter < 5; iter++ {
+			func() {
+				tf := createMuveraHFreshIndex(t)
+				defer tf.Index.Shutdown(t.Context())
+
+				multiVec := [][]float32{{0.1, 0.2, 0.3, 0.4}, {0.5, 0.6, 0.7, 0.8}}
+				var wg sync.WaitGroup
+				wg.Add(3)
+
+				go func() {
+					defer wg.Done()
+					for i := 0; i < 50; i++ {
+						_ = tf.Index.Dimension()
+					}
+				}()
+
+				go func() {
+					defer wg.Done()
+					_ = tf.Index.AddMultiBatch(t.Context(), []uint64{uint64(iter*100 + 1)}, [][][]float32{multiVec})
+				}()
+
+				go func() {
+					defer wg.Done()
+					for i := 0; i < 50; i++ {
+						_ = tf.Index.ValidateMultiBeforeInsert(multiVec)
+					}
+				}()
+
+				wg.Wait()
+				assert.Equal(t, 4, tf.Index.Dimension())
+			}()
+		}
+	})
+}
+
