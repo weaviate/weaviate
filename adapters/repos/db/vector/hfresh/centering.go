@@ -21,6 +21,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 const defaultCenteringTrainAt = 10_000
@@ -35,6 +36,16 @@ func (h *HFresh) rqDims(dims uint32) uint32 {
 		return h.rqMaxDims
 	}
 	return dims
+}
+
+// rqDistanceProvider ranks capped cosine codes by l2 over the prefix: a
+// prefix of a unit vector isn't unit-norm, so its dot product carries the
+// prefix norm as noise, while l2 still tracks the full-vector distance.
+func (h *HFresh) rqDistanceProvider(codeDims uint32) distancer.Provider {
+	if h.rqMaxDims > 0 && codeDims == h.rqMaxDims && h.config.DistanceProvider.Type() == "cosine-dot" {
+		return distancer.NewL2SquaredProvider()
+	}
+	return h.config.DistanceProvider
 }
 
 func rqMaxDimsFromEnv() uint32 {
@@ -121,7 +132,7 @@ func (h *HFresh) trainCentering(ctx context.Context) error {
 		mean[i] = float32(sum[i] / float64(len(raw)))
 	}
 
-	quantizer, err := compressionhelpers.NewCenteredBinaryRotationalQuantizer(int(qdims), 42, mean, h.config.DistanceProvider)
+	quantizer, err := compressionhelpers.NewCenteredBinaryRotationalQuantizer(int(qdims), 42, mean, h.rqDistanceProvider(qdims))
 	if err != nil {
 		return errors.Wrap(err, "create centered quantizer")
 	}

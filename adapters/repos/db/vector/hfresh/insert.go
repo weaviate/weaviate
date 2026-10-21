@@ -153,7 +153,7 @@ func (h *HFresh) initDimensions(vector []float32) error {
 		return errors.Wrap(err, "could not persist dimensions")
 	}
 
-	quantizer, err := compressionhelpers.NewCenteredBinaryRotationalQuantizer(int(h.rqDims(size)), 42, make([]float32, h.rqDims(size)), h.config.DistanceProvider)
+	quantizer, err := compressionhelpers.NewCenteredBinaryRotationalQuantizer(int(h.rqDims(size)), 42, make([]float32, h.rqDims(size)), h.rqDistanceProvider(h.rqDims(size)))
 	if err != nil {
 		return errors.Wrap(err, "could not create quantizer")
 	}

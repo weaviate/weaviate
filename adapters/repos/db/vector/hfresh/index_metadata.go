@@ -298,7 +298,7 @@ func (h *HFresh) restoreDimensions(dims uint32) error {
 		// Dimensions were persisted but quantization data was not (e.g. crash
 		// between persisting dimensions and quantization data). Re-create the
 		// quantizer from scratch.
-		quantizer, err := compressionhelpers.NewCenteredBinaryRotationalQuantizer(int(h.rqDims(dims)), 42, make([]float32, h.rqDims(dims)), h.config.DistanceProvider)
+		quantizer, err := compressionhelpers.NewCenteredBinaryRotationalQuantizer(int(h.rqDims(dims)), 42, make([]float32, h.rqDims(dims)), h.rqDistanceProvider(h.rqDims(dims)))
 		if err != nil {
 			return errors.Wrap(err, "could not create quantizer")
 		}
@@ -345,7 +345,7 @@ func (h *HFresh) restoreMetrics() error {
 // restoreQuantizationData restores RQ quantizer from msgpack data
 func (h *HFresh) restoreQuantizationData(rqData *compression.RQData) error {
 	// Restore the RQ quantizer
-	rq, err := compressionhelpers.RestoreCenteredBinaryRotationalQuantizer(*rqData, h.config.DistanceProvider)
+	rq, err := compressionhelpers.RestoreCenteredBinaryRotationalQuantizer(*rqData, h.rqDistanceProvider(rqData.InputDim))
 	if err != nil {
 		return errors.Wrap(err, "restore rotational quantizer from msgpack")
 	}
