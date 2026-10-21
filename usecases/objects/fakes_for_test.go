@@ -358,6 +358,18 @@ func (f *fakeObjectFinder) DeleteObject(ctx context.Context, className string,
 	return args.Error(0)
 }
 
+func (f *fakeObjectFinder) GetTargetVectorDimension(ctx context.Context, className, targetVector, tenant string) (int, error) {
+	if len(f.ExpectedCalls) > 0 {
+		for _, call := range f.ExpectedCalls {
+			if call.Method == "GetTargetVectorDimension" {
+				args := f.Called(className, targetVector, tenant)
+				return args.Int(0), args.Error(1)
+			}
+		}
+	}
+	return 0, nil
+}
+
 func (f *fakeObjectFinder) AddReference(ctx context.Context, source *crossref.RefSource,
 	target *crossref.Ref, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {

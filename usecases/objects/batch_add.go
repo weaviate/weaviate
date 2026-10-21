@@ -21,12 +21,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
@@ -265,12 +267,44 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 		}
 	}
 
-	b.validateBatchVectorDimensions(batchObjects)
+	b.validateBatchVectorDimensions(ctx, batchObjects, fetchedClasses)
 
 	return batchObjects, maxSchemaVersion
 }
 
-func (b *BatchManager) validateBatchVectorDimensions(batchObjects BatchObjects) {
+type IndexDimensionReader interface {
+	GetTargetVectorDimension(ctx context.Context, className, targetVector, tenant string) (int, error)
+}
+
+func isTargetVectorSkipped(class *models.Class, targetVector string) bool {
+	if class == nil {
+		return false
+	}
+	var vic interface{}
+	if targetVector == "" {
+		vic = class.VectorIndexConfig
+	} else if len(class.VectorConfig) > 0 {
+		if vc, ok := class.VectorConfig[targetVector]; ok {
+			vic = vc.VectorIndexConfig
+		}
+	}
+	if vic == nil {
+		return false
+	}
+	switch c := vic.(type) {
+	case hnsw.UserConfig:
+		return c.Skip
+	case *hnsw.UserConfig:
+		return c != nil && c.Skip
+	case map[string]interface{}:
+		if skip, ok := c["skip"].(bool); ok {
+			return skip
+		}
+	}
+	return false
+}
+
+func (b *BatchManager) validateBatchVectorDimensions(ctx context.Context, batchObjects BatchObjects, fetchedClasses map[string]versioned.Class) {
 	if len(batchObjects) == 0 {
 		return
 	}
@@ -278,6 +312,25 @@ func (b *BatchManager) validateBatchVectorDimensions(batchObjects BatchObjects) 
 	type classTarget struct {
 		class        string
 		targetVector string
+		tenant       string
+	}
+
+	type objectKey struct {
+		class  string
+		tenant string
+		id     strfmt.UUID
+	}
+
+	lastIndex := make(map[objectKey]int)
+	for i, bObj := range batchObjects {
+		if bObj.Object != nil && bObj.Object.ID != "" {
+			k := objectKey{
+				class:  bObj.Object.Class,
+				tenant: bObj.Object.Tenant,
+				id:     bObj.Object.ID,
+			}
+			lastIndex[k] = i
+		}
 	}
 
 	// classTarget -> dim -> []int (batch indices)
@@ -289,31 +342,61 @@ func (b *BatchManager) validateBatchVectorDimensions(batchObjects BatchObjects) 
 		}
 		obj := batchObjects[i].Object
 
-		// Legacy default vector
-		if len(obj.Vector) > 0 {
-			ct := classTarget{class: obj.Class, targetVector: ""}
-			if dimIndices[ct] == nil {
-				dimIndices[ct] = make(map[int][]int)
+		// Exclude superseded duplicate objects (last-write-wins)
+		if obj.ID != "" {
+			k := objectKey{class: obj.Class, tenant: obj.Tenant, id: obj.ID}
+			if lastIndex[k] != i {
+				continue
 			}
-			dim := len(obj.Vector)
-			dimIndices[ct][dim] = append(dimIndices[ct][dim], i)
 		}
 
-		// Named vectors
+		var classModel *models.Class
+		if fetchedClasses != nil {
+			if cls, ok := fetchedClasses[obj.Class]; ok {
+				classModel = cls.Class
+			}
+		}
+
+		// Verify model vector extractions upfront. If any vector fails, mark object error
+		// and skip tracking so it does not falsely reject valid peer objects.
+		var namedDims map[string]int
 		if len(obj.Vectors) > 0 {
+			namedDims = make(map[string]int, len(obj.Vectors))
+			hasExtractionErr := false
 			for targetVector, vec := range obj.Vectors {
 				dim, err := extractModelVectorDim(vec)
 				if err != nil {
 					batchObjects[i].Err = fmt.Errorf("target vector %q: %w", targetVector, err)
+					hasExtractionErr = true
 					break
 				}
-				if dim > 0 {
-					ct := classTarget{class: obj.Class, targetVector: targetVector}
-					if dimIndices[ct] == nil {
-						dimIndices[ct] = make(map[int][]int)
-					}
-					dimIndices[ct][dim] = append(dimIndices[ct][dim], i)
+				namedDims[targetVector] = dim
+			}
+			if hasExtractionErr {
+				continue
+			}
+		}
+
+		// Legacy default vector
+		if len(obj.Vector) > 0 {
+			if !isTargetVectorSkipped(classModel, "") {
+				ct := classTarget{class: obj.Class, targetVector: "", tenant: obj.Tenant}
+				if dimIndices[ct] == nil {
+					dimIndices[ct] = make(map[int][]int)
 				}
+				dim := len(obj.Vector)
+				dimIndices[ct][dim] = append(dimIndices[ct][dim], i)
+			}
+		}
+
+		// Named vectors
+		for targetVector, dim := range namedDims {
+			if dim > 0 && !isTargetVectorSkipped(classModel, targetVector) {
+				ct := classTarget{class: obj.Class, targetVector: targetVector, tenant: obj.Tenant}
+				if dimIndices[ct] == nil {
+					dimIndices[ct] = make(map[int][]int)
+				}
+				dimIndices[ct][dim] = append(dimIndices[ct][dim], i)
 			}
 		}
 	}
@@ -321,6 +404,15 @@ func (b *BatchManager) validateBatchVectorDimensions(batchObjects BatchObjects) 
 	for ct, dimsMap := range dimIndices {
 		if len(dimsMap) <= 1 {
 			continue
+		}
+
+		// Established collection check: if the index already has an established dimension,
+		// defer validation to shard so valid objects are not falsely rejected.
+		if reader, ok := b.vectorRepo.(IndexDimensionReader); ok {
+			dim, err := reader.GetTargetVectorDimension(ctx, ct.class, ct.targetVector, ct.tenant)
+			if err == nil && dim > 0 {
+				continue
+			}
 		}
 
 		dims := make([]int, 0, len(dimsMap))

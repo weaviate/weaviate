@@ -570,6 +570,11 @@ func Test_BatchManager_AddObjects_IntraBatchVectorDimensionValidation(t *testing
 					VectorIndexConfig: hnsw.UserConfig{},
 				},
 				{
+					Class:             "FooSkipped",
+					Vectorizer:        config.VectorizerModuleNone,
+					VectorIndexConfig: hnsw.UserConfig{Skip: true},
+				},
+				{
 					Class:             "MultiNamed",
 					Vectorizer:        config.VectorizerModuleNone,
 					VectorIndexConfig: hnsw.UserConfig{},
@@ -753,6 +758,138 @@ func Test_BatchManager_AddObjects_IntraBatchVectorDimensionValidation(t *testing
 		added, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
 		require.NoError(t, err)
 		require.Len(t, added, 2)
+		assert.NoError(t, added[0].Err)
+		assert.NoError(t, added[1].Err)
+	})
+
+	t.Run("mixed-tenant batch with different dimensions does not trigger conflict", func(t *testing.T) {
+		manager, _ := setupManager()
+		objects := []*models.Object{
+			{
+				Class:  "Foo",
+				Tenant: "tenantA",
+				Vector: []float32{0.1, 0.2, 0.3},
+			},
+			{
+				Class:  "Foo",
+				Tenant: "tenantB",
+				Vector: []float32{0.1, 0.2, 0.3, 0.4},
+			},
+		}
+
+		added, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
+		require.NoError(t, err)
+		require.Len(t, added, 2)
+		assert.NoError(t, added[0].Err)
+		assert.NoError(t, added[1].Err)
+	})
+
+	t.Run("superseded duplicate UUIDs with varying dimensions excluded from conflict", func(t *testing.T) {
+		manager, _ := setupManager()
+		dupID := strfmt.UUID("33333333-3333-3333-3333-333333333333")
+		objects := []*models.Object{
+			{
+				ID:     dupID,
+				Class:  "Foo",
+				Vector: []float32{0.1, 0.2, 0.3}, // superseded
+			},
+			{
+				ID:     dupID,
+				Class:  "Foo",
+				Vector: []float32{0.1, 0.2, 0.3, 0.4}, // retained
+			},
+			{
+				Class:  "Foo",
+				Vector: []float32{0.5, 0.6, 0.7, 0.8}, // peer matching retained
+			},
+		}
+
+		added, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
+		require.NoError(t, err)
+		require.Len(t, added, 3)
+		assert.NoError(t, added[0].Err)
+		assert.NoError(t, added[1].Err)
+		assert.NoError(t, added[2].Err)
+	})
+
+	t.Run("object with malformed token vector does not cause conflict for valid peer objects", func(t *testing.T) {
+		manager, _ := setupManager()
+		objects := []*models.Object{
+			{
+				Class: "MultiNamed",
+				Vectors: map[string]models.Vector{
+					"colbert": [][]float32{
+						{0.1, 0.2, 0.3},
+						{0.4, 0.5}, // inconsistent token length inside doc
+					},
+				},
+			},
+			{
+				Class: "MultiNamed",
+				Vectors: map[string]models.Vector{
+					"colbert": [][]float32{
+						{0.1, 0.2, 0.3, 0.4},
+					},
+				},
+			},
+			{
+				Class: "MultiNamed",
+				Vectors: map[string]models.Vector{
+					"colbert": [][]float32{
+						{0.5, 0.6, 0.7, 0.8},
+					},
+				},
+			},
+		}
+
+		added, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
+		require.NoError(t, err)
+		require.Len(t, added, 3)
+		require.Error(t, added[0].Err)
+		assert.Contains(t, added[0].Err.Error(), "varying dimensions")
+		assert.NoError(t, added[1].Err, "valid peer object 1 should not fail")
+		assert.NoError(t, added[2].Err, "valid peer object 2 should not fail")
+	})
+
+	t.Run("skipped vector target exempt from dimension conflict checks", func(t *testing.T) {
+		manager, _ := setupManager()
+		objects := []*models.Object{
+			{
+				Class:  "FooSkipped",
+				Vector: []float32{0.1, 0.2, 0.3},
+			},
+			{
+				Class:  "FooSkipped",
+				Vector: []float32{0.1, 0.2, 0.3, 0.4, 0.5},
+			},
+		}
+
+		added, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
+		require.NoError(t, err)
+		require.Len(t, added, 2)
+		assert.NoError(t, added[0].Err)
+		assert.NoError(t, added[1].Err)
+	})
+
+	t.Run("established collection defers mixed-dimension validation to shard", func(t *testing.T) {
+		manager, objectFinder := setupManager()
+		objectFinder.On("GetTargetVectorDimension", "Foo", "", "").Return(4, nil)
+
+		objects := []*models.Object{
+			{
+				Class:  "Foo",
+				Vector: []float32{0.1, 0.2, 0.3, 0.4}, // matches established 4D
+			},
+			{
+				Class:  "Foo",
+				Vector: []float32{0.1, 0.2, 0.3}, // 3D mismatch, to be handled by shard
+			},
+		}
+
+		added, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
+		require.NoError(t, err)
+		require.Len(t, added, 2)
+		// Neither object should be rejected with usecase-level "cannot establish dimension"
 		assert.NoError(t, added[0].Err)
 		assert.NoError(t, added[1].Err)
 	})
