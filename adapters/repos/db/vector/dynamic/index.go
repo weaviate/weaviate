@@ -694,8 +694,35 @@ func (dynamic *dynamic) Dimension() int {
 }
 
 func (dynamic *dynamic) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if len(ids) != len(vectors) {
+		return errors.Errorf("ids and vectors sizes does not match")
+	}
+	if len(ids) == 0 {
+		return errors.Errorf("insertBatch called with empty lists")
+	}
+
 	dynamic.RLock()
 	defer dynamic.RUnlock()
+
+	dims := dynamic.index.Dimension()
+	if dims > 0 {
+		for _, vec := range vectors {
+			if len(vec) != dims {
+				return errors.Wrapf(common.ErrWrongDimensions, "new node has a vector with length %v. "+
+					"Existing nodes have vectors with length %v", len(vec), dims)
+			}
+		}
+	} else {
+		for _, vec := range vectors {
+			if len(vec) != len(vectors[0]) {
+				return errors.Wrapf(common.ErrWrongDimensions, "addBatch called with vectors of different lengths: got %d, expected %d", len(vec), len(vectors[0]))
+			}
+		}
+	}
+
 	return dynamic.index.AddBatch(ctx, ids, vectors)
 }
 

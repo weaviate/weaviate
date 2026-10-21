@@ -557,3 +557,203 @@ func Test_BatchManager_AddObjects_KeepsAutoSchemaError(t *testing.T) {
 		})
 	}
 }
+
+func Test_BatchManager_AddObjects_IntraBatchVectorDimensionValidation(t *testing.T) {
+	ctx := context.Background()
+
+	sch := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class:             "Foo",
+					Vectorizer:        config.VectorizerModuleNone,
+					VectorIndexConfig: hnsw.UserConfig{},
+				},
+				{
+					Class:             "MultiNamed",
+					Vectorizer:        config.VectorizerModuleNone,
+					VectorIndexConfig: hnsw.UserConfig{},
+					VectorConfig: map[string]models.VectorConfig{
+						"custom": {
+							Vectorizer: map[string]interface{}{
+								"none": nil,
+							},
+							VectorIndexConfig: hnsw.UserConfig{},
+						},
+						"colbert": {
+							Vectorizer: map[string]interface{}{
+								"none": nil,
+							},
+							VectorIndexConfig: hnsw.UserConfig{
+								Multivector: hnsw.MultivectorConfig{
+									Enabled: true,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	setupManager := func() (*BatchManager, *fakeObjectFinder) {
+		objectFinder := &fakeObjectFinder{}
+		objectFinder.On("BatchPutObjects", mock.Anything).Return(nil)
+		cfg := &config.WeaviateConfig{}
+		schemaManager := &fakeSchemaManager{GetSchemaResponse: sch}
+		logger, _ := test.NewNullLogger()
+		modulesProvider := getFakeModulesProvider()
+		modulesProvider.On("BatchUpdateVector").Return(nil, nil)
+		manager := NewBatchManager(objectFinder, modulesProvider, schemaManager, cfg, logger,
+			mocks.NewMockAuthorizer(), nil,
+			NewAutoSchemaManager(schemaManager, objectFinder, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
+		return manager, objectFinder
+	}
+
+	t.Run("conflicting legacy vector dimensions in batch", func(t *testing.T) {
+		manager, objectFinder := setupManager()
+		objects := []*models.Object{
+			{
+				Class:  "Foo",
+				Vector: []float32{0.1, 0.2, 0.3},
+			},
+			{
+				Class:  "Foo",
+				Vector: []float32{0.4, 0.5, 0.6, 0.7},
+			},
+			{
+				Class: "Foo", // non-vectorized
+			},
+		}
+
+		added, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
+		require.NoError(t, err)
+		require.Len(t, added, 3)
+
+		expectedErr := `target vector "": conflicting dimensions in batch for uninitialized index (found [3, 4]); cannot establish dimension`
+		require.Error(t, added[0].Err)
+		assert.Equal(t, expectedErr, added[0].Err.Error())
+		require.Error(t, added[1].Err)
+		assert.Equal(t, expectedErr, added[1].Err.Error())
+		assert.NoError(t, added[2].Err)
+
+		// Verify repo was called with batch objects carrying the validation error
+		repoCalled := objectFinder.Calls[0].Arguments[0].(BatchObjects)
+		require.Len(t, repoCalled, 3)
+		assert.Equal(t, expectedErr, repoCalled[0].Err.Error())
+		assert.Equal(t, expectedErr, repoCalled[1].Err.Error())
+		assert.NoError(t, repoCalled[2].Err)
+	})
+
+	t.Run("conflicting named vector dimensions in batch", func(t *testing.T) {
+		manager, _ := setupManager()
+		objects := []*models.Object{
+			{
+				Class: "MultiNamed",
+				Vectors: map[string]models.Vector{
+					"custom": []float32{0.1, 0.2, 0.3},
+				},
+			},
+			{
+				Class: "MultiNamed",
+				Vectors: map[string]models.Vector{
+					"custom": []float32{0.4, 0.5, 0.6, 0.7},
+				},
+			},
+			{
+				Class: "MultiNamed",
+				Vectors: map[string]models.Vector{
+					"custom": []float32{0.8, 0.9, 1.0},
+				},
+			},
+		}
+
+		added, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
+		require.NoError(t, err)
+		require.Len(t, added, 3)
+
+		expectedErr := `target vector "custom": conflicting dimensions in batch for uninitialized index (found [3, 4]); cannot establish dimension`
+		require.Error(t, added[0].Err)
+		assert.Equal(t, expectedErr, added[0].Err.Error())
+		require.Error(t, added[1].Err)
+		assert.Equal(t, expectedErr, added[1].Err.Error())
+		require.Error(t, added[2].Err)
+		assert.Equal(t, expectedErr, added[2].Err.Error())
+	})
+
+	t.Run("conflicting multi-vector token dimensions across batch objects", func(t *testing.T) {
+		manager, _ := setupManager()
+		objects := []*models.Object{
+			{
+				Class: "MultiNamed",
+				Vectors: map[string]models.Vector{
+					"colbert": [][]float32{
+						{0.1, 0.2, 0.3},
+						{0.4, 0.5, 0.6},
+					},
+				},
+			},
+			{
+				Class: "MultiNamed",
+				Vectors: map[string]models.Vector{
+					"colbert": [][]float32{
+						{0.1, 0.2, 0.3, 0.4},
+						{0.5, 0.6, 0.7, 0.8},
+					},
+				},
+			},
+		}
+
+		added, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
+		require.NoError(t, err)
+		require.Len(t, added, 2)
+
+		expectedErr := `target vector "colbert": conflicting dimensions in batch for uninitialized index (found [3, 4]); cannot establish dimension`
+		require.Error(t, added[0].Err)
+		assert.Equal(t, expectedErr, added[0].Err.Error())
+		require.Error(t, added[1].Err)
+		assert.Equal(t, expectedErr, added[1].Err.Error())
+	})
+
+	t.Run("multi-vector with varying token dimensions within single object", func(t *testing.T) {
+		manager, _ := setupManager()
+		objects := []*models.Object{
+			{
+				Class: "MultiNamed",
+				Vectors: map[string]models.Vector{
+					"colbert": [][]float32{
+						{0.1, 0.2, 0.3},
+						{0.4, 0.5, 0.6, 0.7},
+					},
+				},
+			},
+		}
+
+		added, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
+		require.NoError(t, err)
+		require.Len(t, added, 1)
+
+		require.Error(t, added[0].Err)
+		assert.Contains(t, added[0].Err.Error(), `multi vector array consists of vectors with varying dimensions`)
+	})
+
+	t.Run("consistent dimensions in batch pass validation", func(t *testing.T) {
+		manager, _ := setupManager()
+		objects := []*models.Object{
+			{
+				Class:  "Foo",
+				Vector: []float32{0.1, 0.2, 0.3},
+			},
+			{
+				Class:  "Foo",
+				Vector: []float32{0.4, 0.5, 0.6},
+			},
+		}
+
+		added, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
+		require.NoError(t, err)
+		require.Len(t, added, 2)
+		assert.NoError(t, added[0].Err)
+		assert.NoError(t, added[1].Err)
+	})
+}

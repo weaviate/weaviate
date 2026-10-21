@@ -132,21 +132,33 @@ func (ob *objectsBatcher) init(objects []*storobj.Object) {
 }
 
 func (ob *objectsBatcher) validateVectorDimensions(ctx context.Context) {
-	targetVectors := make(map[string]struct{})
+	var targetVectors map[string]struct{}
 	for _, obj := range ob.objects {
 		if len(obj.Vector) > 0 {
+			if targetVectors == nil {
+				targetVectors = make(map[string]struct{})
+			}
 			targetVectors[""] = struct{}{}
 		}
 		for targetVector, vec := range obj.Vectors {
 			if len(vec) > 0 {
+				if targetVectors == nil {
+					targetVectors = make(map[string]struct{})
+				}
 				targetVectors[targetVector] = struct{}{}
 			}
 		}
 		for targetVector, mvec := range obj.MultiVectors {
 			if len(mvec) > 0 {
+				if targetVectors == nil {
+					targetVectors = make(map[string]struct{})
+				}
 				targetVectors[targetVector] = struct{}{}
 			}
 		}
+	}
+	if len(targetVectors) == 0 {
+		return
 	}
 
 	keys := make([]string, 0, len(targetVectors))
@@ -161,22 +173,8 @@ func (ob *objectsBatcher) validateVectorDimensions(ctx context.Context) {
 			if ob.hasErrorAtIndex(i) {
 				continue
 			}
-			if len(obj.MultiVectors) > 0 {
-				if mvec, ok := obj.MultiVectors[targetVector]; ok && len(mvec) > 0 {
-					tokenDim := -1
-					hasVaryingDims := false
-					for _, tokenVec := range mvec {
-						if tokenDim == -1 {
-							tokenDim = len(tokenVec)
-						} else if len(tokenVec) != tokenDim {
-							hasVaryingDims = true
-							break
-						}
-					}
-					if hasVaryingDims {
-						ob.setErrorAtIndex(fmt.Errorf("target vector %q: multi vector array consists of vectors with varying dimensions", targetVector), i)
-					}
-				}
+			if err := obj.ValidateMultiVectorTokenDimensions(targetVector); err != nil {
+				ob.setErrorAtIndex(err, i)
 			}
 		}
 
@@ -184,25 +182,46 @@ func (ob *objectsBatcher) validateVectorDimensions(ctx context.Context) {
 		found, err := ob.shard.WithVectorIndex(targetVector, func(index VectorIndex) error {
 			expectedDim := index.Dimension()
 			if expectedDim <= 0 {
+				_, _ = ob.shard.WithVectorIndexQueue(targetVector, func(q *VectorIndexQueue) error {
+					if q != nil {
+						if qDim := q.Dimension(); qDim > 0 {
+							expectedDim = qDim
+						}
+					}
+					return nil
+				})
+			}
+
+			if expectedDim <= 0 {
+				// Fast path: verify if all objects have consistent dimension without allocating a map
+				firstDim := -1
+				hasConflict := false
+				for i, obj := range ob.objects {
+					if ob.hasErrorAtIndex(i) {
+						continue
+					}
+					dim := obj.VectorDimension(targetVector)
+					if dim < 0 {
+						continue
+					}
+					if firstDim == -1 {
+						firstDim = dim
+					} else if dim != firstDim {
+						hasConflict = true
+						break
+					}
+				}
+
+				if !hasConflict {
+					return nil
+				}
+
 				dimIndices := make(map[int][]int)
 				for i, obj := range ob.objects {
 					if ob.hasErrorAtIndex(i) {
 						continue
 					}
-
-					dim := -1
-					if targetVector == "" && len(obj.Vector) > 0 {
-						dim = len(obj.Vector)
-					} else if len(obj.Vectors) > 0 {
-						if vec, ok := obj.Vectors[targetVector]; ok && len(vec) > 0 {
-							dim = len(vec)
-						}
-					}
-					if dim == -1 && len(obj.MultiVectors) > 0 {
-						if mvec, ok := obj.MultiVectors[targetVector]; ok && len(mvec) > 0 {
-							dim = len(mvec[0])
-						}
-					}
+					dim := obj.VectorDimension(targetVector)
 					if dim >= 0 {
 						dimIndices[dim] = append(dimIndices[dim], i)
 					}
@@ -221,13 +240,13 @@ func (ob *objectsBatcher) validateVectorDimensions(ctx context.Context) {
 					}
 					dimList := fmt.Sprintf("[%s]", strings.Join(parts, ", "))
 
-					err := fmt.Errorf("target vector %q: conflicting dimensions in batch for uninitialized index (found %s); cannot establish dimension", targetVector, dimList)
+					conflictErr := fmt.Errorf("target vector %q: conflicting dimensions in batch for uninitialized index (found %s); cannot establish dimension", targetVector, dimList)
 					seen := make(map[int]struct{})
 					for _, indices := range dimIndices {
 						for _, idx := range indices {
 							if _, ok := seen[idx]; !ok {
 								seen[idx] = struct{}{}
-								ob.setErrorAtIndex(err, idx)
+								ob.setErrorAtIndex(conflictErr, idx)
 							}
 						}
 					}
@@ -240,19 +259,7 @@ func (ob *objectsBatcher) validateVectorDimensions(ctx context.Context) {
 					continue
 				}
 
-				dim := -1
-				if targetVector == "" && len(obj.Vector) > 0 {
-					dim = len(obj.Vector)
-				} else if len(obj.Vectors) > 0 {
-					if vec, ok := obj.Vectors[targetVector]; ok && len(vec) > 0 {
-						dim = len(vec)
-					}
-				}
-				if dim == -1 && len(obj.MultiVectors) > 0 {
-					if mvec, ok := obj.MultiVectors[targetVector]; ok && len(mvec) > 0 {
-						dim = len(mvec[0])
-					}
-				}
+				dim := obj.VectorDimension(targetVector)
 				if dim >= 0 && dim != expectedDim {
 					ob.setErrorAtIndex(fmt.Errorf("target vector %q: dimension mismatch: expected %d, got %d", targetVector, expectedDim, dim), i)
 				}
@@ -262,7 +269,17 @@ func (ob *objectsBatcher) validateVectorDimensions(ctx context.Context) {
 		if err != nil {
 			ob.logger.WithField("targetVector", targetVector).Warnf("failed to validate vector dimensions for target vector: %v", err)
 		}
-		_ = found
+		if !found {
+			notFoundErr := fmt.Errorf("target vector %q: vector index not found", targetVector)
+			for i, obj := range ob.objects {
+				if ob.hasErrorAtIndex(i) {
+					continue
+				}
+				if obj.VectorDimension(targetVector) >= 0 {
+					ob.setErrorAtIndex(notFoundErr, i)
+				}
+			}
+		}
 	}
 }
 

@@ -1748,3 +1748,34 @@ func TestDynamic_AddBatch_InconsistentDimensionsUninitialized(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 8, idx.Dimension())
 }
+
+func TestDynamic_AddBatch_ValidationEdgeCases(t *testing.T) {
+	ctx := context.Background()
+	meta, err := shardmeta.Open(t.TempDir(), time.Second)
+	require.NoError(t, err)
+	t.Cleanup(func() { meta.Close() })
+
+	vectors, _ := testinghelpers.RandomVecs(5, 0, 8)
+	idx := newUpgradeTestDynamic(t, t.TempDir(), "dynamic-addbatch-edge-cases", meta, vectors, hnsw.MakeNoopCommitLogger)
+	t.Cleanup(func() { idx.Shutdown(context.Background()) })
+
+	t.Run("empty lists", func(t *testing.T) {
+		err := idx.AddBatch(ctx, []uint64{}, [][]float32{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "insertBatch called with empty lists")
+	})
+
+	t.Run("mismatched sizes", func(t *testing.T) {
+		err := idx.AddBatch(ctx, []uint64{1, 2}, [][]float32{vectors[0]})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "ids and vectors sizes does not match")
+	})
+
+	t.Run("cancelled context", func(t *testing.T) {
+		cancCtx, cancel := context.WithCancel(ctx)
+		cancel()
+		err := idx.AddBatch(cancCtx, []uint64{1}, [][]float32{vectors[0]})
+		require.Error(t, err)
+		assert.Equal(t, context.Canceled, err)
+	})
+}

@@ -143,6 +143,13 @@ func (iq *VectorIndexQueue) Close(ctx context.Context) error {
 	return iq.DiskQueue.Close(ctx)
 }
 
+func (iq *VectorIndexQueue) Dimension() int {
+	if iq == nil {
+		return 0
+	}
+	return int(iq.dims.Load())
+}
+
 func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.VectorRecord) error {
 	if !iq.asyncEnabled {
 		return common.AddVectorsToIndex(ctx, vectors, iq.vectorIndex)

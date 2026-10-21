@@ -1366,4 +1366,122 @@ func TestShard_BatchDimensionValidation_AsyncParity(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEmpty(t, res)
 	})
+
+	t.Run("ghost object prevention when queue has established dimension but index worker has not processed it yet", func(t *testing.T) {
+		className := "AsyncQueueEstablishedBeforeWorker"
+		class := &models.Class{Class: className}
+		vic := hnsw.NewDefaultUserConfig()
+
+		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, true)
+		defer func() {
+			require.Nil(t, idx.drop())
+			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+		}()
+
+		r := getRandomSeed()
+
+		// Pause the vector index queue before any writes so workers do not drain the batch
+		shardLike.WithVectorIndexQueue("", func(q *VectorIndexQueue) error {
+			require.NotNil(t, q)
+			require.NoError(t, q.Pause(ctx))
+			return nil
+		})
+
+		// Batch 1: establishes dimension 4 in the async queue
+		batch1 := createRandomObjects(r, className, 2, 4)
+		errs1 := shardLike.PutObjectBatch(ctx, batch1)
+		require.Len(t, errs1, 2)
+		for _, err := range errs1 {
+			require.NoError(t, err)
+		}
+
+		// Verify:
+		// 1. Vector index dimension is STILL 0 because queue is paused and worker hasn't processed batch 1!
+		shardLike.WithVectorIndex("", func(vidx VectorIndex) error {
+			assert.Equal(t, 0, vidx.Dimension())
+			return nil
+		})
+		// 2. Vector index queue tracks dimension 4
+		shardLike.WithVectorIndexQueue("", func(q *VectorIndexQueue) error {
+			assert.Equal(t, 4, q.Dimension())
+			return nil
+		})
+
+		// Batch 2: arrives with dimension 5 while workers haven't processed batch 1!
+		batch2 := createRandomObjects(r, className, 1, 5)
+		errs2 := shardLike.PutObjectBatch(ctx, batch2)
+		require.Len(t, errs2, 1)
+		require.Error(t, errs2[0])
+		assert.Equal(t, `target vector "": dimension mismatch: expected 4, got 5`, errs2[0].Error())
+
+		// Batch 2 object must NOT exist in the LSM store!
+		retBatch2, err := shardLike.ObjectByID(ctx, batch2[0].ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.Nil(t, retBatch2, "rejected batch 2 object must not exist in LSM")
+
+		// Resume queue and drain
+		shardLike.WithVectorIndexQueue("", func(q *VectorIndexQueue) error {
+			q.Resume()
+			return nil
+		})
+		waitForVectorQueue(t, shardLike, "")
+
+		// Index dimension is now 4
+		shardLike.WithVectorIndex("", func(vidx VectorIndex) error {
+			assert.Equal(t, 4, vidx.Dimension())
+			return nil
+		})
+
+		// Batch 1 objects exist and are searchable
+		retBatch1, err := shardLike.ObjectByID(ctx, batch1[0].ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.NotNil(t, retBatch1)
+	})
+}
+
+func TestShard_BatchDimensionValidation_UnmatchedTargetVector(t *testing.T) {
+	ctx := testCtx()
+	className := "UnmatchedTargetVectorTest"
+	class := &models.Class{
+		Class: className,
+		VectorConfig: map[string]models.VectorConfig{
+			"validTarget": {VectorIndexType: hnsw.NewDefaultUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultUserConfig()},
+		},
+	}
+	vic := hnsw.UserConfig{Distance: "cosine"}
+	shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false, func(i *Index) {
+		i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+			"validTarget": hnsw.NewDefaultUserConfig(),
+		}
+	})
+	defer func() {
+		require.Nil(t, idx.drop())
+		require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+	}()
+
+	// Object providing an unknown target vector "unknownTarget"
+	badObj := createNamedVectorObject(className, map[string][]float32{
+		"unknownTarget": {0.1, 0.2, 0.3},
+	})
+	goodObj := createNamedVectorObject(className, map[string][]float32{
+		"validTarget": {0.1, 0.2, 0.3, 0.4},
+	})
+
+	batch := []*storobj.Object{badObj, goodObj}
+	errs := shardLike.PutObjectBatch(ctx, batch)
+	require.Len(t, errs, 2)
+
+	require.Error(t, errs[0])
+	assert.Equal(t, `target vector "unknownTarget": vector index not found`, errs[0].Error())
+	require.NoError(t, errs[1])
+
+	// badObj must NOT exist in the LSM store!
+	retBad, err := shardLike.ObjectByID(ctx, badObj.ID(), search.SelectProperties{}, additional.Properties{})
+	require.NoError(t, err)
+	assert.Nil(t, retBad, "object with unmatched target vector must not exist in LSM")
+
+	// goodObj must exist in the LSM store
+	retGood, err := shardLike.ObjectByID(ctx, goodObj.ID(), search.SelectProperties{}, additional.Properties{})
+	require.NoError(t, err)
+	assert.NotNil(t, retGood, "valid object must exist in LSM")
 }

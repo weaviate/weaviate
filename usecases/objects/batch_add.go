@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -263,5 +265,135 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 		}
 	}
 
+	b.validateBatchVectorDimensions(batchObjects)
+
 	return batchObjects, maxSchemaVersion
+}
+
+func (b *BatchManager) validateBatchVectorDimensions(batchObjects BatchObjects) {
+	if len(batchObjects) == 0 {
+		return
+	}
+
+	type classTarget struct {
+		class        string
+		targetVector string
+	}
+
+	// classTarget -> dim -> []int (batch indices)
+	dimIndices := make(map[classTarget]map[int][]int)
+
+	for i := range batchObjects {
+		if batchObjects[i].Err != nil || batchObjects[i].Object == nil {
+			continue
+		}
+		obj := batchObjects[i].Object
+
+		// Legacy default vector
+		if len(obj.Vector) > 0 {
+			ct := classTarget{class: obj.Class, targetVector: ""}
+			if dimIndices[ct] == nil {
+				dimIndices[ct] = make(map[int][]int)
+			}
+			dim := len(obj.Vector)
+			dimIndices[ct][dim] = append(dimIndices[ct][dim], i)
+		}
+
+		// Named vectors
+		if len(obj.Vectors) > 0 {
+			for targetVector, vec := range obj.Vectors {
+				dim, err := extractModelVectorDim(vec)
+				if err != nil {
+					batchObjects[i].Err = fmt.Errorf("target vector %q: %w", targetVector, err)
+					break
+				}
+				if dim > 0 {
+					ct := classTarget{class: obj.Class, targetVector: targetVector}
+					if dimIndices[ct] == nil {
+						dimIndices[ct] = make(map[int][]int)
+					}
+					dimIndices[ct][dim] = append(dimIndices[ct][dim], i)
+				}
+			}
+		}
+	}
+
+	for ct, dimsMap := range dimIndices {
+		if len(dimsMap) <= 1 {
+			continue
+		}
+
+		dims := make([]int, 0, len(dimsMap))
+		for d := range dimsMap {
+			dims = append(dims, d)
+		}
+		slices.Sort(dims)
+
+		parts := make([]string, len(dims))
+		for j, d := range dims {
+			parts[j] = strconv.Itoa(d)
+		}
+		dimList := fmt.Sprintf("[%s]", strings.Join(parts, ", "))
+
+		conflictErr := fmt.Errorf("target vector %q: conflicting dimensions in batch for uninitialized index (found %s); cannot establish dimension", ct.targetVector, dimList)
+
+		for _, indices := range dimsMap {
+			for _, idx := range indices {
+				if batchObjects[idx].Err == nil {
+					batchObjects[idx].Err = conflictErr
+				}
+			}
+		}
+	}
+}
+
+func extractModelVectorDim(vec models.Vector) (int, error) {
+	switch v := vec.(type) {
+	case []float32:
+		return len(v), nil
+	case models.C11yVector:
+		return len(v), nil
+	case [][]float32:
+		if len(v) == 0 {
+			return 0, nil
+		}
+		tokenDim := len(v[0])
+		for _, token := range v[1:] {
+			if len(token) != tokenDim {
+				return -1, errors.New("multi vector array consists of vectors with varying dimensions")
+			}
+		}
+		return tokenDim, nil
+	case []interface{}:
+		if len(v) == 0 {
+			return 0, nil
+		}
+		if sub, ok := v[0].([]interface{}); ok {
+			tokenDim := len(sub)
+			for _, token := range v[1:] {
+				if tokenSlice, ok := token.([]interface{}); ok {
+					if len(tokenSlice) != tokenDim {
+						return -1, errors.New("multi vector array consists of vectors with varying dimensions")
+					}
+				} else {
+					return -1, errors.New("multi vector array consists of vectors with varying dimensions")
+				}
+			}
+			return tokenDim, nil
+		}
+		return len(v), nil
+	case [][]interface{}:
+		if len(v) == 0 {
+			return 0, nil
+		}
+		tokenDim := len(v[0])
+		for _, token := range v[1:] {
+			if len(token) != tokenDim {
+				return -1, errors.New("multi vector array consists of vectors with varying dimensions")
+			}
+		}
+		return tokenDim, nil
+	default:
+		return -1, nil
+	}
 }

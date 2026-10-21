@@ -854,6 +854,48 @@ func (ko *Object) IterateThroughVectorDimensions(f func(targetVector string, dim
 	return nil
 }
 
+// VectorDimension returns the dimension of the vector for targetVector,
+// or -1 if the object does not contain a vector for targetVector.
+// For multi-vectors, it returns the dimension of the token vectors.
+func (ko *Object) VectorDimension(targetVector string) int {
+	if ko == nil {
+		return -1
+	}
+	if targetVector == "" && len(ko.Vector) > 0 {
+		return len(ko.Vector)
+	}
+	if len(ko.Vectors) > 0 {
+		if vec, ok := ko.Vectors[targetVector]; ok && len(vec) > 0 {
+			return len(vec)
+		}
+	}
+	if len(ko.MultiVectors) > 0 {
+		if mvec, ok := ko.MultiVectors[targetVector]; ok && len(mvec) > 0 && len(mvec[0]) > 0 {
+			return len(mvec[0])
+		}
+	}
+	return -1
+}
+
+// ValidateMultiVectorTokenDimensions checks that all token vectors for the targetVector
+// have identical dimensions. Returns nil if valid or if not a multi-vector.
+func (ko *Object) ValidateMultiVectorTokenDimensions(targetVector string) error {
+	if ko == nil || len(ko.MultiVectors) == 0 {
+		return nil
+	}
+	mvec, ok := ko.MultiVectors[targetVector]
+	if !ok || len(mvec) <= 1 {
+		return nil
+	}
+	tokenDim := len(mvec[0])
+	for _, tokenVec := range mvec[1:] {
+		if len(tokenVec) != tokenDim {
+			return fmt.Errorf("target vector %q: multi vector array consists of vectors with varying dimensions", targetVector)
+		}
+	}
+	return nil
+}
+
 func (ko *Object) RemoveTargetVector(targetVector string) bool {
 	if _, ok := ko.Vectors[targetVector]; ok {
 		delete(ko.Vectors, targetVector)
