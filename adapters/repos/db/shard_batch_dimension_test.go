@@ -15,14 +15,16 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"sync"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -1857,3 +1859,89 @@ func TestShard_BatchDimensionValidation_OrderIndependenceAndFiltering(t *testing
 	})
 }
 
+func TestShard_AtomicDimensionReservation_ConcurrentBatches(t *testing.T) {
+	ctx := testCtx()
+
+	for iter := 0; iter < 10; iter++ {
+		className := fmt.Sprintf("AtomicReservationConcurrent_%d", iter)
+		class := &models.Class{Class: className}
+		vic := hnsw.NewDefaultUserConfig()
+
+		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false)
+
+		obj3D := testObject(className)
+		obj3D.Vector = []float32{0.1, 0.2, 0.3}
+
+		obj4D := testObject(className)
+		obj4D.Vector = []float32{0.1, 0.2, 0.3, 0.4}
+
+		barrier := make(chan struct{})
+		var wg sync.WaitGroup
+		wg.Add(2)
+
+		var errs3D, errs4D []error
+
+		go func() {
+			defer wg.Done()
+			<-barrier
+			errs3D = shardLike.PutObjectBatch(ctx, []*storobj.Object{obj3D})
+		}()
+
+		go func() {
+			defer wg.Done()
+			<-barrier
+			errs4D = shardLike.PutObjectBatch(ctx, []*storobj.Object{obj4D})
+		}()
+
+		close(barrier)
+		wg.Wait()
+
+		require.Len(t, errs3D, 1)
+		require.Len(t, errs4D, 1)
+
+		// Exactly one batch must succeed and the other must fail with dimension mismatch
+		if errs3D[0] == nil {
+			// 3D won
+			require.Error(t, errs4D[0])
+			assert.Contains(t, errs4D[0].Error(), "dimension mismatch")
+
+			// 3D in LSM
+			ret3D, err := shardLike.ObjectByID(ctx, obj3D.ID(), search.SelectProperties{}, additional.Properties{})
+			require.NoError(t, err)
+			assert.NotNil(t, ret3D, "winning 3D object must exist in LSM")
+
+			// 4D NOT in LSM (no ghost object)
+			ret4D, err := shardLike.ObjectByID(ctx, obj4D.ID(), search.SelectProperties{}, additional.Properties{})
+			require.NoError(t, err)
+			assert.Nil(t, ret4D, "losing 4D object must NEVER exist in LSM")
+
+			shardLike.WithVectorIndex("", func(vidx VectorIndex) error {
+				assert.Equal(t, 3, vidx.Dimension())
+				return nil
+			})
+		} else {
+			// 4D won
+			require.NoError(t, errs4D[0])
+			require.Error(t, errs3D[0])
+			assert.Contains(t, errs3D[0].Error(), "dimension mismatch")
+
+			// 4D in LSM
+			ret4D, err := shardLike.ObjectByID(ctx, obj4D.ID(), search.SelectProperties{}, additional.Properties{})
+			require.NoError(t, err)
+			assert.NotNil(t, ret4D, "winning 4D object must exist in LSM")
+
+			// 3D NOT in LSM (no ghost object)
+			ret3D, err := shardLike.ObjectByID(ctx, obj3D.ID(), search.SelectProperties{}, additional.Properties{})
+			require.NoError(t, err)
+			assert.Nil(t, ret3D, "losing 3D object must NEVER exist in LSM")
+
+			shardLike.WithVectorIndex("", func(vidx VectorIndex) error {
+				assert.Equal(t, 4, vidx.Dimension())
+				return nil
+			})
+		}
+
+		require.Nil(t, idx.drop())
+		require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+	}
+}

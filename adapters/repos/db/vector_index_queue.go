@@ -151,6 +151,37 @@ func (iq *VectorIndexQueue) Dimension() int {
 	return int(iq.dims.Load())
 }
 
+// ReserveDimension atomically reserves the vector dimension for this queue/index
+// before records are written to persistent LSM storage. If the index or queue
+// already has an established dimension that conflicts with dim, it returns the
+// established dimension and common.ErrWrongDimensions.
+func (iq *VectorIndexQueue) ReserveDimension(dim int) (int, error) {
+	if iq == nil || dim <= 0 {
+		return 0, nil
+	}
+	if _, isNoop := iq.vectorIndex.(*noop.Index); isNoop {
+		return 0, nil
+	}
+
+	if iq.vectorIndex != nil && iq.vectorIndex.Dimension() > 0 {
+		est := iq.vectorIndex.Dimension()
+		iq.dims.CompareAndSwap(0, int32(est))
+		if est != dim {
+			return est, fmt.Errorf("%w: dimension mismatch: expected %d, got %d", common.ErrWrongDimensions, est, dim)
+		}
+		return est, nil
+	}
+
+	if !iq.dims.CompareAndSwap(0, int32(dim)) {
+		current := int(iq.dims.Load())
+		if current > 0 && current != dim {
+			return current, fmt.Errorf("%w: dimension mismatch: expected %d, got %d", common.ErrWrongDimensions, current, dim)
+		}
+	}
+
+	return dim, nil
+}
+
 func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.VectorRecord) error {
 	if _, isNoop := iq.vectorIndex.(*noop.Index); isNoop {
 		return nil

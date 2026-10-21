@@ -309,6 +309,45 @@ func (ob *objectsBatcher) validateVectorDimensions(ctx context.Context) {
 			}
 		}
 	}
+
+	// Phase 3: Atomically reserve dimensions before LSM persistence
+	for _, targetVector := range keys {
+		var batchDim int
+		for i, obj := range ob.objects {
+			if ob.hasErrorAtIndex(i) || ob.isDuplicate(i) {
+				continue
+			}
+			dim := obj.VectorDimension(targetVector)
+			if dim > 0 {
+				batchDim = dim
+				break
+			}
+		}
+		if batchDim <= 0 {
+			continue
+		}
+
+		targetVector := targetVector
+		_, _ = ob.shard.WithVectorIndexQueue(targetVector, func(q *VectorIndexQueue) error {
+			if q == nil {
+				return nil
+			}
+			expectedDim, err := q.ReserveDimension(batchDim)
+			if err != nil {
+				mismatchErr := fmt.Errorf("target vector %q: dimension mismatch: expected %d, got %d", targetVector, expectedDim, batchDim)
+				for i, obj := range ob.objects {
+					if ob.hasErrorAtIndex(i) || ob.isDuplicate(i) {
+						continue
+					}
+					if obj.VectorDimension(targetVector) >= 0 {
+						ob.setErrorAtIndex(mismatchErr, i)
+					}
+				}
+				return err
+			}
+			return nil
+		})
+	}
 }
 
 // storeInObjectStore performs all storage operations on the underlying
