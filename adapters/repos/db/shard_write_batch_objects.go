@@ -449,6 +449,7 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 	shouldGeoIndex := ob.shard.hasGeoIndex()
 
 	targetVectors := make(map[string][]common.VectorRecord)
+	targetIndices := make(map[string][]int)
 	for i, object := range ob.objects {
 		status := ob.statuses[object.ID()]
 
@@ -478,12 +479,14 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 				ID:     status.docID,
 				Vector: vector,
 			})
+			targetIndices[targetVector] = append(targetIndices[targetVector], i)
 		}
 		for targetVector, vector := range object.MultiVectors {
 			targetVectors[targetVector] = append(targetVectors[targetVector], &common.Vector[[][]float32]{
 				ID:     status.docID,
 				Vector: vector,
 			})
+			targetIndices[targetVector] = append(targetIndices[targetVector], i)
 		}
 
 		if len(object.Vector) > 0 {
@@ -492,17 +495,24 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 				ID:     status.docID,
 				Vector: object.Vector,
 			})
+			targetIndices[""] = append(targetIndices[""], i)
 		}
 	}
 
 	for targetVector, vectors := range targetVectors {
+		indices := targetIndices[targetVector]
 		found, err := ob.shard.WithVectorIndexQueue(targetVector, func(queue *VectorIndexQueue) error {
 			return queue.Insert(ctx, vectors...)
 		})
 		if !found {
-			ob.setErrorAtIndex(fmt.Errorf("queue not found for target vector %s", targetVector), 0)
+			notFoundErr := fmt.Errorf("queue not found for target vector %s", targetVector)
+			for _, idx := range indices {
+				ob.setErrorAtIndex(notFoundErr, idx)
+			}
 		} else if err != nil {
-			ob.setErrorAtIndex(err, 0)
+			for _, idx := range indices {
+				ob.setErrorAtIndex(err, idx)
+			}
 		}
 	}
 }

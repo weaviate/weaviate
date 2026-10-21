@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/cluster/schema/local"
@@ -959,5 +960,410 @@ func TestShard_BatchDimensionValidation_MultiVectors(t *testing.T) {
 		ret, err := shardLike.ObjectByID(ctx, badObj.ID(), search.SelectProperties{}, additional.Properties{})
 		require.NoError(t, err)
 		assert.Nil(t, ret, "object with inconsistent tokens must not exist in LSM")
+	})
+}
+
+func TestShard_BatchDimensionValidation_AsyncParity(t *testing.T) {
+	ctx := testCtx()
+
+	t.Run("ghost object prevention and queue exclusion on established collection", func(t *testing.T) {
+		className := "AsyncParityEstablishedGhost"
+		class := &models.Class{Class: className}
+		vic := hnsw.NewDefaultUserConfig()
+
+		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, true)
+		defer func() {
+			require.Nil(t, idx.drop())
+			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+		}()
+
+		r := getRandomSeed()
+
+		// Step 1: Establish dimension = 4
+		initialBatch := createRandomObjects(r, className, 2, 4)
+		errs := shardLike.PutObjectBatch(ctx, initialBatch)
+		require.Len(t, errs, 2)
+		for _, err := range errs {
+			require.NoError(t, err)
+		}
+		waitForVectorQueue(t, shardLike, "")
+
+		shardLike.WithVectorIndex("", func(vidx VectorIndex) error {
+			assert.Equal(t, 4, vidx.Dimension())
+			return nil
+		})
+
+		// Step 2: Mixed batch: 2 valid (4D), 2 invalid (5D, 3D)
+		valid1 := createRandomObjects(r, className, 1, 4)[0]
+		invalid1 := createRandomObjects(r, className, 1, 5)[0]
+		valid2 := createRandomObjects(r, className, 1, 4)[0]
+		invalid2 := createRandomObjects(r, className, 1, 3)[0]
+
+		mixedBatch := []*storobj.Object{valid1, invalid1, valid2, invalid2}
+		errs = shardLike.PutObjectBatch(ctx, mixedBatch)
+		require.Len(t, errs, 4)
+
+		require.NoError(t, errs[0])
+		require.Error(t, errs[1])
+		assert.Equal(t, `target vector "": dimension mismatch: expected 4, got 5`, errs[1].Error())
+		require.NoError(t, errs[2])
+		require.Error(t, errs[3])
+		assert.Equal(t, `target vector "": dimension mismatch: expected 4, got 3`, errs[3].Error())
+
+		// Step 3: Rejected objects must NEVER exist in LSM store
+		retInv1, err := shardLike.ObjectByID(ctx, invalid1.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.Nil(t, retInv1, "invalid object 1 must not exist in LSM")
+
+		retInv2, err := shardLike.ObjectByID(ctx, invalid2.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.Nil(t, retInv2, "invalid object 2 must not exist in LSM")
+
+		// Valid objects exist in LSM
+		retVal1, err := shardLike.ObjectByID(ctx, valid1.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.NotNil(t, retVal1, "valid object 1 must exist in LSM")
+
+		retVal2, err := shardLike.ObjectByID(ctx, valid2.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.NotNil(t, retVal2, "valid object 2 must exist in LSM")
+
+		// Step 4: Wait for queue draining - workers process only valid vectors without errors
+		waitForVectorQueue(t, shardLike, "")
+
+		// Total counter is 4 (2 initial + 2 valid)
+		assert.Equal(t, 4, int(shardLike.Counter().Get()))
+
+		// Step 5: Vector search succeeds
+		res, _, err := shardLike.ObjectVectorSearch(ctx, []models.Vector{valid1.Vector}, []string{""}, 0, 10, nil, nil, nil, additional.Properties{}, nil, nil)
+		require.NoError(t, err)
+		require.NotEmpty(t, res)
+	})
+
+	t.Run("uninitialized collection conflict rejection and queue clean in async mode", func(t *testing.T) {
+		className := "AsyncParityUninitializedConflict"
+		class := &models.Class{Class: className}
+		vic := hnsw.NewDefaultUserConfig()
+
+		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, true)
+		defer func() {
+			require.Nil(t, idx.drop())
+			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+		}()
+
+		r := getRandomSeed()
+
+		// Verify uninitialized
+		shardLike.WithVectorIndex("", func(vidx VectorIndex) error {
+			assert.Equal(t, 0, vidx.Dimension())
+			return nil
+		})
+
+		// Conflicting batch: 3D, 4D, 3D, non-vectorized
+		conflicting1 := createRandomObjects(r, className, 1, 3)[0]
+		conflicting2 := createRandomObjects(r, className, 1, 4)[0]
+		conflicting3 := createRandomObjects(r, className, 1, 3)[0]
+		nonVec := createRandomObjects(r, className, 1, 0)[0]
+
+		batch := []*storobj.Object{conflicting1, conflicting2, conflicting3, nonVec}
+		errs := shardLike.PutObjectBatch(ctx, batch)
+		require.Len(t, errs, 4)
+
+		expectedErr := `target vector "": conflicting dimensions in batch for uninitialized index (found [3, 4]); cannot establish dimension`
+		require.Error(t, errs[0])
+		assert.Equal(t, expectedErr, errs[0].Error())
+		require.Error(t, errs[1])
+		assert.Equal(t, expectedErr, errs[1].Error())
+		require.Error(t, errs[2])
+		assert.Equal(t, expectedErr, errs[2].Error())
+		require.NoError(t, errs[3])
+
+		waitForVectorQueue(t, shardLike, "")
+
+		// Conflicting objects not in LSM
+		ret1, err := shardLike.ObjectByID(ctx, conflicting1.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.Nil(t, ret1)
+		ret2, err := shardLike.ObjectByID(ctx, conflicting2.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.Nil(t, ret2)
+		ret3, err := shardLike.ObjectByID(ctx, conflicting3.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.Nil(t, ret3)
+
+		// Non-vectorized object is in LSM
+		retNonVec, err := shardLike.ObjectByID(ctx, nonVec.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.NotNil(t, retNonVec)
+
+		// Index dimension remains 0
+		shardLike.WithVectorIndex("", func(vidx VectorIndex) error {
+			assert.Equal(t, 0, vidx.Dimension())
+			return nil
+		})
+
+		// Subsequent uniform batch establishes dimension 4
+		subsequentBatch := createRandomObjects(r, className, 2, 4)
+		subErrs := shardLike.PutObjectBatch(ctx, subsequentBatch)
+		require.Len(t, subErrs, 2)
+		for _, err := range subErrs {
+			require.NoError(t, err)
+		}
+
+		waitForVectorQueue(t, shardLike, "")
+
+		shardLike.WithVectorIndex("", func(vidx VectorIndex) error {
+			assert.Equal(t, 4, vidx.Dimension())
+			return nil
+		})
+
+		// Search succeeds
+		res, _, err := shardLike.ObjectVectorSearch(ctx, []models.Vector{subsequentBatch[0].Vector}, []string{""}, 0, 10, nil, nil, nil, additional.Properties{}, nil, nil)
+		require.NoError(t, err)
+		require.NotEmpty(t, res)
+	})
+
+	t.Run("named vectors async parity", func(t *testing.T) {
+		className := "AsyncParityNamedVectors"
+		class := &models.Class{
+			Class: className,
+			VectorConfig: map[string]models.VectorConfig{
+				"target1": {VectorIndexType: hnsw.NewDefaultUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultUserConfig()},
+				"target2": {VectorIndexType: hnsw.NewDefaultUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultUserConfig()},
+			},
+		}
+		vic := hnsw.UserConfig{Distance: "cosine"}
+		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, true, func(i *Index) {
+			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+				"target1": hnsw.NewDefaultUserConfig(),
+				"target2": hnsw.NewDefaultUserConfig(),
+			}
+		})
+		defer func() {
+			require.Nil(t, idx.drop())
+			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+		}()
+
+		// Establish 4D for both targets
+		initObj := createNamedVectorObject(className, map[string][]float32{
+			"target1": {0.1, 0.2, 0.3, 0.4},
+			"target2": {0.5, 0.6, 0.7, 0.8},
+		})
+		errs := shardLike.PutObjectBatch(ctx, []*storobj.Object{initObj})
+		require.Len(t, errs, 1)
+		require.NoError(t, errs[0])
+
+		waitForVectorQueue(t, shardLike, "target1")
+		waitForVectorQueue(t, shardLike, "target2")
+
+		shardLike.WithVectorIndex("target1", func(vidx VectorIndex) error {
+			assert.Equal(t, 4, vidx.Dimension())
+			return nil
+		})
+		shardLike.WithVectorIndex("target2", func(vidx VectorIndex) error {
+			assert.Equal(t, 4, vidx.Dimension())
+			return nil
+		})
+
+		// Mixed batch:
+		// objValid: target1 (4D), target2 (4D)
+		// objBad2:  target1 (4D), target2 (3D)
+		// objBad1:  target1 (5D), target2 (4D)
+		objValid := createNamedVectorObject(className, map[string][]float32{
+			"target1": {0.1, 0.2, 0.3, 0.4},
+			"target2": {0.5, 0.6, 0.7, 0.8},
+		})
+		objBad2 := createNamedVectorObject(className, map[string][]float32{
+			"target1": {0.1, 0.2, 0.3, 0.4},
+			"target2": {0.5, 0.6, 0.7},
+		})
+		objBad1 := createNamedVectorObject(className, map[string][]float32{
+			"target1": {0.1, 0.2, 0.3, 0.4, 0.5},
+			"target2": {0.5, 0.6, 0.7, 0.8},
+		})
+
+		batch := []*storobj.Object{objValid, objBad2, objBad1}
+		batchErrs := shardLike.PutObjectBatch(ctx, batch)
+		require.Len(t, batchErrs, 3)
+
+		require.NoError(t, batchErrs[0])
+		require.Error(t, batchErrs[1])
+		assert.Equal(t, `target vector "target2": dimension mismatch: expected 4, got 3`, batchErrs[1].Error())
+		require.Error(t, batchErrs[2])
+		assert.Equal(t, `target vector "target1": dimension mismatch: expected 4, got 5`, batchErrs[2].Error())
+
+		// Rejected objects not in LSM
+		retBad2, err := shardLike.ObjectByID(ctx, objBad2.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.Nil(t, retBad2)
+
+		retBad1, err := shardLike.ObjectByID(ctx, objBad1.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.Nil(t, retBad1)
+
+		// Valid object in LSM
+		retVal, err := shardLike.ObjectByID(ctx, objValid.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.NotNil(t, retVal)
+
+		waitForVectorQueue(t, shardLike, "target1")
+		waitForVectorQueue(t, shardLike, "target2")
+
+		// Search succeeds on both targets
+		res1, _, err := shardLike.ObjectVectorSearch(ctx, []models.Vector{objValid.Vectors["target1"]}, []string{"target1"}, 0, 10, nil, nil, nil, additional.Properties{}, nil, nil)
+		require.NoError(t, err)
+		require.NotEmpty(t, res1)
+
+		res2, _, err := shardLike.ObjectVectorSearch(ctx, []models.Vector{objValid.Vectors["target2"]}, []string{"target2"}, 0, 10, nil, nil, nil, additional.Properties{}, nil, nil)
+		require.NoError(t, err)
+		require.NotEmpty(t, res2)
+	})
+
+	t.Run("multi-vectors async parity", func(t *testing.T) {
+		className := "AsyncParityMultiVectors"
+		class := &models.Class{
+			Class: className,
+			VectorConfig: map[string]models.VectorConfig{
+				"colbert": {VectorIndexType: hnsw.NewDefaultMultiVectorUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultMultiVectorUserConfig()},
+			},
+		}
+		vic := hnsw.UserConfig{Distance: "cosine"}
+		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, true, func(i *Index) {
+			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+				"colbert": hnsw.NewDefaultMultiVectorUserConfig(),
+			}
+		})
+		defer func() {
+			require.Nil(t, idx.drop())
+			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+		}()
+
+		// Establish 4D token dimension
+		initObj := createMultiVectorObject(className, map[string][][]float32{
+			"colbert": {
+				{0.1, 0.2, 0.3, 0.4},
+				{0.5, 0.6, 0.7, 0.8},
+			},
+		})
+		errs := shardLike.PutObjectBatch(ctx, []*storobj.Object{initObj})
+		require.Len(t, errs, 1)
+		require.NoError(t, errs[0])
+
+		waitForVectorQueue(t, shardLike, "colbert")
+
+		shardLike.WithVectorIndex("colbert", func(vidx VectorIndex) error {
+			assert.Equal(t, 4, vidx.Dimension())
+			return nil
+		})
+
+		// Batch: valid (4D), invalid token dim (3D), inconsistent tokens ([4D, 3D])
+		validObj := createMultiVectorObject(className, map[string][][]float32{
+			"colbert": {
+				{0.2, 0.3, 0.4, 0.5},
+			},
+		})
+		badDimObj := createMultiVectorObject(className, map[string][][]float32{
+			"colbert": {
+				{0.1, 0.2, 0.3},
+			},
+		})
+		badTokensObj := createMultiVectorObject(className, map[string][][]float32{
+			"colbert": {
+				{0.1, 0.2, 0.3, 0.4},
+				{0.1, 0.2, 0.3},
+			},
+		})
+
+		batch := []*storobj.Object{validObj, badDimObj, badTokensObj}
+		batchErrs := shardLike.PutObjectBatch(ctx, batch)
+		require.Len(t, batchErrs, 3)
+
+		require.NoError(t, batchErrs[0])
+		require.Error(t, batchErrs[1])
+		assert.Equal(t, `target vector "colbert": dimension mismatch: expected 4, got 3`, batchErrs[1].Error())
+		require.Error(t, batchErrs[2])
+		assert.Equal(t, `target vector "colbert": multi vector array consists of vectors with varying dimensions`, batchErrs[2].Error())
+
+		// Invalid objects not in LSM
+		retBadDim, err := shardLike.ObjectByID(ctx, badDimObj.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.Nil(t, retBadDim)
+
+		retBadTokens, err := shardLike.ObjectByID(ctx, badTokensObj.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.Nil(t, retBadTokens)
+
+		// Valid object in LSM
+		retVal, err := shardLike.ObjectByID(ctx, validObj.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.NotNil(t, retVal)
+
+		waitForVectorQueue(t, shardLike, "colbert")
+	})
+
+	t.Run("single-object write parity with batch write in async mode", func(t *testing.T) {
+		className := "AsyncParitySingleObject"
+		class := &models.Class{Class: className}
+		vic := hnsw.NewDefaultUserConfig()
+
+		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, true)
+		defer func() {
+			require.Nil(t, idx.drop())
+			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+		}()
+
+		r := getRandomSeed()
+
+		// PutObject establishes dimension = 4
+		initObj := createRandomObjects(r, className, 1, 4)[0]
+		err := shardLike.PutObject(ctx, initObj)
+		require.NoError(t, err)
+
+		waitForVectorQueue(t, shardLike, "")
+
+		shardLike.WithVectorIndex("", func(vidx VectorIndex) error {
+			assert.Equal(t, 4, vidx.Dimension())
+			return nil
+		})
+
+		// Single-object write with wrong dimension (5D) is rejected upfront
+		badSingleObj := createRandomObjects(r, className, 1, 5)[0]
+		err = shardLike.PutObject(ctx, badSingleObj)
+		require.Error(t, err)
+		require.ErrorIs(t, err, common.ErrWrongDimensions)
+
+		// Verify rejected single-object is NOT in LSM store
+		retBad, err := shardLike.ObjectByID(ctx, badSingleObj.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.Nil(t, retBad, "rejected single object must not exist in LSM")
+
+		// Batch write with wrong dimension (5D) is also rejected upfront
+		badBatchObj := createRandomObjects(r, className, 1, 5)[0]
+		batchErrs := shardLike.PutObjectBatch(ctx, []*storobj.Object{badBatchObj})
+		require.Len(t, batchErrs, 1)
+		require.Error(t, batchErrs[0])
+		assert.Equal(t, `target vector "": dimension mismatch: expected 4, got 5`, batchErrs[0].Error())
+
+		// Verify rejected batch object is NOT in LSM store
+		retBatchBad, err := shardLike.ObjectByID(ctx, badBatchObj.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.Nil(t, retBatchBad, "rejected batch object must not exist in LSM")
+
+		// Valid batch object succeeds
+		validBatchObj := createRandomObjects(r, className, 1, 4)[0]
+		validBatchErrs := shardLike.PutObjectBatch(ctx, []*storobj.Object{validBatchObj})
+		require.Len(t, validBatchErrs, 1)
+		require.NoError(t, validBatchErrs[0])
+
+		waitForVectorQueue(t, shardLike, "")
+
+		retValid, err := shardLike.ObjectByID(ctx, validBatchObj.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.NotNil(t, retValid, "valid batch object must exist in LSM")
+
+		// Search succeeds
+		res, _, err := shardLike.ObjectVectorSearch(ctx, []models.Vector{validBatchObj.Vector}, []string{""}, 0, 10, nil, nil, nil, additional.Properties{}, nil, nil)
+		require.NoError(t, err)
+		require.NotEmpty(t, res)
 	})
 }

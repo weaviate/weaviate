@@ -14,8 +14,12 @@ package db
 import (
 	"context"
 	"testing"
+	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
 )
 
@@ -83,4 +87,91 @@ func (r *recordingMultiVectorIndex) DeleteMulti(ids ...uint64) error {
 
 func (r *recordingMultiVectorIndex) Multivector() bool {
 	return true
+}
+
+type mockDimensionIndex struct {
+	*noop.Index
+	dim int
+}
+
+func (m *mockDimensionIndex) Dimension() int {
+	return m.dim
+}
+
+func newAsyncTestQueue(t *testing.T, vi VectorIndex) *VectorIndexQueue {
+	t.Helper()
+
+	s := queue.NewScheduler(queue.SchedulerOptions{ScheduleInterval: time.Hour})
+	s.Start()
+	t.Cleanup(func() { _ = s.Close(context.Background()) })
+
+	viq := &VectorIndexQueue{
+		scheduler:    s,
+		shard:        &Shard{},
+		vectorIndex:  vi,
+		asyncEnabled: true,
+		metrics:      NewVectorIndexQueueMetrics(logrus.New(), nil, "test", "test", ""),
+	}
+
+	dq, err := queue.NewDiskQueue(queue.DiskQueueOptions{
+		ID:          "vector_index_queue_test",
+		Scheduler:   s,
+		Dir:         t.TempDir(),
+		TaskDecoder: &vectorIndexQueueDecoder{q: viq},
+	})
+	require.NoError(t, err)
+	require.NoError(t, dq.Init())
+	t.Cleanup(func() { _ = dq.Close(context.Background()) })
+	viq.DiskQueue = dq
+
+	s.RegisterQueue(viq)
+	return viq
+}
+
+func TestVectorIndexQueue_Insert_RejectsInconsistentVectors(t *testing.T) {
+	ctx := context.Background()
+	index := &mockDimensionIndex{Index: noop.NewIndex(), dim: 0}
+	viq := newAsyncTestQueue(t, index)
+
+	v1 := &common.Vector[[]float32]{ID: 1, Vector: []float32{1.0, 2.0, 3.0}}
+	v2 := &common.Vector[[]float32]{ID: 2, Vector: []float32{1.0, 2.0, 3.0, 4.0}}
+
+	// Inconsistent batch: first vector is 3D, second vector is 4D
+	err := viq.Insert(ctx, v1, v2)
+	require.Error(t, err)
+	require.ErrorIs(t, err, common.ErrWrongDimensions)
+	require.ErrorContains(t, err, "inconsistent vector lengths: 4 != 3")
+
+	// Verify nothing was queued in disk queue
+	require.Zero(t, viq.Size())
+
+	// Verify dims was not poisoned, subsequent valid batch of 4D vectors can be inserted
+	v3 := &common.Vector[[]float32]{ID: 3, Vector: []float32{0.1, 0.2, 0.3, 0.4}}
+	v4 := &common.Vector[[]float32]{ID: 4, Vector: []float32{0.5, 0.6, 0.7, 0.8}}
+	err = viq.Insert(ctx, v3, v4)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), viq.Size())
+}
+
+func TestVectorIndexQueue_Insert_RejectsEstablishedDimensionMismatch(t *testing.T) {
+	ctx := context.Background()
+	index := &mockDimensionIndex{Index: noop.NewIndex(), dim: 4}
+	viq := newAsyncTestQueue(t, index)
+
+	// Single vector with length 3 when established dimension is 4
+	v1 := &common.Vector[[]float32]{ID: 1, Vector: []float32{1.0, 2.0, 3.0}}
+
+	err := viq.Insert(ctx, v1)
+	require.Error(t, err)
+	require.ErrorIs(t, err, common.ErrWrongDimensions)
+	require.ErrorContains(t, err, "inconsistent vector lengths: 3 != 4")
+
+	// Verify nothing was queued
+	require.Zero(t, viq.Size())
+
+	// Valid vector matching established dimension succeeds
+	vValid := &common.Vector[[]float32]{ID: 2, Vector: []float32{1.0, 2.0, 3.0, 4.0}}
+	err = viq.Insert(ctx, vValid)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), viq.Size())
 }

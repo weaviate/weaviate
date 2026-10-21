@@ -149,25 +149,55 @@ func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.Vector
 	}
 
 	start := time.Now()
-	defer iq.metrics.Insert(start, len(vectors))
+	defer func() {
+		if iq.metrics != nil {
+			iq.metrics.Insert(start, len(vectors))
+		}
+	}()
+
+	var establishedDim int
+	if iq.vectorIndex != nil && iq.vectorIndex.Dimension() > 0 {
+		establishedDim = iq.vectorIndex.Dimension()
+		iq.dims.CompareAndSwap(0, int32(establishedDim))
+	} else if currentDims := iq.dims.Load(); currentDims > 0 {
+		establishedDim = int(currentDims)
+	}
+
+	// Validate dimensions and records upfront before pushing any records to the queue.
+	// This ensures that an invalid batch never enqueues partial records or poisons iq.dims.
+	batchDim := establishedDim
+	for _, v := range vectors {
+		if establishedDim > 0 {
+			if v.Len() != establishedDim {
+				return fmt.Errorf("%w: inconsistent vector lengths: %d != %d", common.ErrWrongDimensions, v.Len(), establishedDim)
+			}
+		} else {
+			if batchDim == 0 {
+				batchDim = v.Len()
+			} else if v.Len() != batchDim {
+				return fmt.Errorf("%w: inconsistent vector lengths: %d != %d", common.ErrWrongDimensions, v.Len(), batchDim)
+			}
+		}
+
+		if iq.vectorIndex != nil {
+			if err := v.Validate(iq.vectorIndex); err != nil {
+				return errors.Wrap(err, "failed to validate")
+			}
+		}
+	}
+
+	if establishedDim == 0 && batchDim > 0 {
+		if !iq.dims.CompareAndSwap(0, int32(batchDim)) {
+			if iq.dims.Load() != int32(batchDim) {
+				return fmt.Errorf("%w: inconsistent vector lengths: %d != %d", common.ErrWrongDimensions, batchDim, iq.dims.Load())
+			}
+		}
+	}
 
 	var buf []byte
 	var err error
 
 	for _, v := range vectors {
-		// validate vector
-		if err := v.Validate(iq.vectorIndex); err != nil {
-			return errors.Wrap(err, "failed to validate")
-		}
-
-		// if the index is still empty, ensure the first batch is consistent
-		// by keeping track of the dimensions of the vectors.
-		if !iq.dims.CompareAndSwap(0, int32(v.Len())) {
-			if iq.dims.Load() != int32(v.Len()) {
-				return errors.Errorf("inconsistent vector lengths: %d != %d", v.Len(), iq.dims.Load())
-			}
-		}
-
 		// encode vector
 		buf = buf[:0]
 		buf, err = encodeVector(buf, v)
