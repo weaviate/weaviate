@@ -114,7 +114,7 @@ func initializeDimensions(t *testing.T, tf *TestHFresh, vector []float32) {
 	tf.Index.dims = size
 	err := tf.Index.setMaxPostingSize(size)
 	require.NoError(t, err)
-	quantizer, err := compressionhelpers.NewBinaryRotationalQuantizer(int(tf.Index.dims), 42, tf.Index.config.DistanceProvider)
+	quantizer, err := compressionhelpers.NewCenteredBinaryRotationalQuantizer(int(tf.Index.dims), 42, make([]float32, tf.Index.dims), tf.Index.config.DistanceProvider)
 	require.NoError(t, err)
 	tf.Index.quantizer = quantizer
 	tf.Index.Centroids.SetQuantizer(tf.Index.quantizer)

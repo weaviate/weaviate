@@ -395,7 +395,9 @@ func (t *AnalyzeTask) Execute(ctx context.Context) error {
 		return ctx.Err()
 	}
 
+	t.idx.quantizerLock.RLock()
 	err := t.idx.doAnalyze(ctx, t.id)
+	t.idx.quantizerLock.RUnlock()
 	if err != nil {
 		return err
 	}
@@ -423,7 +425,9 @@ func (t *SplitTask) Execute(ctx context.Context) error {
 		return ctx.Err()
 	}
 
+	t.idx.quantizerLock.RLock()
 	err := t.idx.doSplit(ctx, t.id, true)
+	t.idx.quantizerLock.RUnlock()
 	if err != nil {
 		return err
 	}
@@ -452,7 +456,9 @@ func (t *MergeTask) Execute(ctx context.Context) error {
 		return ctx.Err()
 	}
 
+	t.idx.quantizerLock.RLock()
 	err := t.idx.doMerge(ctx, t.id)
+	t.idx.quantizerLock.RUnlock()
 	if err != nil {
 		return err
 	}
@@ -480,7 +486,9 @@ func (t *ReassignTask) Execute(ctx context.Context) error {
 		return ctx.Err()
 	}
 
+	t.idx.quantizerLock.RLock()
 	err := t.idx.doReassign(ctx, reassignOperation{VectorID: t.vecID, PostingID: t.postingID})
+	t.idx.quantizerLock.RUnlock()
 	if err != nil {
 		return err
 	}

@@ -450,3 +450,30 @@ func (rq *CenteredBinaryRotationalQuantizer) DistanceBetweenCompressedVectors(x,
 	corr := rq.dotFam * (hx.muX + hy.muX - rq.meanNorm2)
 	return rq.l2*(hx.norm2+hy.norm2) + rq.cos - (1.0+rq.l2)*dotEstimate - corr, nil
 }
+
+// RestoreCenteredBinaryRotationalQuantizer rebuilds the quantizer from
+// persisted RQData. The rounding is restored rather than re-derived so query
+// codes match the ones the stored data was searched with.
+func RestoreCenteredBinaryRotationalQuantizer(data compression.RQData, distancer distancer.Provider) (*CenteredBinaryRotationalQuantizer, error) {
+	rq, err := NewCenteredBinaryRotationalQuantizer(int(data.InputDim), 0, data.Mean, distancer)
+	if err != nil {
+		return nil, err
+	}
+	rq.rotation = RestoreFastRotation(int(data.Rotation.OutputDim), int(data.Rotation.Rounds), data.Rotation.Swaps, data.Rotation.Signs)
+	rq.rounding = data.Rounding
+	return rq, nil
+}
+
+func (rq *CenteredBinaryRotationalQuantizer) FromCompressedBytesInto(compressed []byte, buffer []uint64) []uint64 {
+	l := len(compressed) / 8
+	if len(compressed)%8 != 0 {
+		l++
+	}
+	if cap(buffer) < l {
+		buffer = make([]uint64, l)
+	} else {
+		buffer = buffer[:l]
+	}
+	byteops.CopyBytesToSlice(buffer, compressed)
+	return buffer
+}

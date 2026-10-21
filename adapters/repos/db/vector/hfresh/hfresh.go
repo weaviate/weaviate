@@ -67,7 +67,15 @@ type HFresh struct {
 	initDone  bool
 	dims      uint32 // Number of dimensions of expected vectors
 	distancer *Distancer
-	quantizer *compressionhelpers.BinaryRotationalQuantizer
+	quantizer *compressionhelpers.CenteredBinaryRotationalQuantizer
+
+	// quantizerLock is held for reading by every operation that encodes or
+	// decodes posting codes, and for writing while centering is trained and
+	// every posting is re-encoded with the new mean.
+	quantizerLock    sync.RWMutex
+	centeringTrainAt int64 // HFRESH_RQ1_TRAIN_AT, <= 0 disables training
+	inserted         atomic.Int64
+	centeringTrained atomic.Bool
 
 	// Internal components
 	Centroids     *HNSWIndex          // Provides access to the centroids.
@@ -138,6 +146,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		searchProbe:      uc.SearchProbe,
 		rescoreLimit:     uint32(uc.RQ.RescoreLimit),
 		rootPath:         cfg.RootPath,
+		centeringTrainAt: centeringTrainAtFromEnv(),
 	}
 
 	h.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)
@@ -394,7 +403,7 @@ func (h *HFresh) QueryVectorDistancer(queryVector []float32) common.QueryVectorD
 // if initialization has not completed yet. The atomic dims load pairs with
 // the store that publishes them at the end of initialization, so a non-nil
 // quantizer also guarantees the distancer and posting sizes are visible.
-func (h *HFresh) loadQuantizer() (uint32, *compressionhelpers.BinaryRotationalQuantizer) {
+func (h *HFresh) loadQuantizer() (uint32, *compressionhelpers.CenteredBinaryRotationalQuantizer) {
 	dims := atomic.LoadUint32(&h.dims)
 	if dims == 0 {
 		return 0, nil

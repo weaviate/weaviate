@@ -95,7 +95,7 @@ func (p Posting) GarbageCollect(versionMap *VersionMap) (Posting, error) {
 	return p, nil
 }
 
-func (p Posting) Uncompress(quantizer *compressionhelpers.BinaryRotationalQuantizer) [][]float32 {
+func (p Posting) Uncompress(quantizer *compressionhelpers.CenteredBinaryRotationalQuantizer) [][]float32 {
 	data := make([][]float32, 0, len(p))
 
 	var buf []uint64
@@ -108,13 +108,13 @@ func (p Posting) Uncompress(quantizer *compressionhelpers.BinaryRotationalQuanti
 }
 
 type Distancer struct {
-	quantizer *compressionhelpers.BinaryRotationalQuantizer
+	quantizer *compressionhelpers.CenteredBinaryRotationalQuantizer
 	distancer distancer.Provider
 
 	pool sync.Pool
 }
 
-func NewDistancer(quantizer *compressionhelpers.BinaryRotationalQuantizer, distancer distancer.Provider) *Distancer {
+func NewDistancer(quantizer *compressionhelpers.CenteredBinaryRotationalQuantizer, distancer distancer.Provider) *Distancer {
 	return &Distancer{
 		quantizer: quantizer,
 		distancer: distancer,

@@ -31,6 +31,9 @@ const (
 func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
 	vector = h.normalizeVec(vector)
 
+	h.quantizerLock.RLock()
+	defer h.quantizerLock.RUnlock()
+
 	// this must run before any search path reads the quantizer or distancer,
 	// including flatSearch, which uses the distancer
 	_, quantizer := h.loadQuantizer()

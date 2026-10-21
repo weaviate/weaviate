@@ -55,6 +55,26 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) error {
 
 	vector = h.normalizeVec(vector)
 
+	h.quantizerLock.RLock()
+	err := h.add(ctx, id, vector)
+	h.quantizerLock.RUnlock()
+	if err != nil {
+		return err
+	}
+
+	if h.centeringTrainAt > 0 && h.inserted.Add(1) >= h.centeringTrainAt &&
+		h.centeringTrained.CompareAndSwap(false, true) {
+		err = h.trainCentering(ctx)
+		if err != nil {
+			h.centeringTrained.Store(false)
+			return errors.Wrap(err, "train centering")
+		}
+	}
+
+	return nil
+}
+
+func (h *HFresh) add(ctx context.Context, id uint64, vector []float32) error {
 	err := h.initDimensions(vector)
 	if err != nil {
 		return err
@@ -114,7 +134,7 @@ func (h *HFresh) initDimensions(vector []float32) error {
 		return errors.Wrap(err, "could not persist dimensions")
 	}
 
-	quantizer, err := compressionhelpers.NewBinaryRotationalQuantizer(int(size), 42, h.config.DistanceProvider)
+	quantizer, err := compressionhelpers.NewCenteredBinaryRotationalQuantizer(int(size), 42, make([]float32, size), h.config.DistanceProvider)
 	if err != nil {
 		return errors.Wrap(err, "could not create quantizer")
 	}

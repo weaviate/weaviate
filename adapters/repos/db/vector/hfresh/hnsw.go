@@ -29,17 +29,25 @@ type Centroid struct {
 	Uncompressed []float32
 	Compressed   []byte
 	Deleted      bool
+
+	queryDistancer *compressionhelpers.CenteredBinaryRQDistancer
 }
 
+// Distance compares the float centroid against the vector's 1-bit code.
+// Compressed is the centroid HNSW's RQ8 code, not a 1-bit code, so it can't be
+// used here.
 func (c *Centroid) Distance(distancer *Distancer, v Vector) (float32, error) {
-	return v.DistanceWithRaw(distancer, c.Compressed)
+	if c.queryDistancer == nil {
+		c.queryDistancer = distancer.quantizer.NewDistancer(c.Uncompressed)
+	}
+	return c.queryDistancer.Distance(distancer.quantizer.FromCompressedBytes(v.Data()))
 }
 
 type HNSWIndex struct {
 	metrics   *Metrics
 	hnsw      *hnsw.HNSW
 	counter   atomic.Int32
-	quantizer *compressionhelpers.BinaryRotationalQuantizer
+	quantizer *compressionhelpers.CenteredBinaryRotationalQuantizer
 }
 
 func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, pageSize uint64) (*HNSWIndex, error) {
@@ -73,7 +81,7 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, page
 	return &index, nil
 }
 
-func (i *HNSWIndex) SetQuantizer(quantizer *compressionhelpers.BinaryRotationalQuantizer) {
+func (i *HNSWIndex) SetQuantizer(quantizer *compressionhelpers.CenteredBinaryRotationalQuantizer) {
 	i.quantizer = quantizer
 }
 
