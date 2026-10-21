@@ -15,6 +15,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -151,6 +154,52 @@ func (ob *objectsBatcher) validateVectorDimensions(ctx context.Context) {
 		found, err := ob.shard.WithVectorIndex(targetVector, func(index VectorIndex) error {
 			expectedDim := index.Dimension()
 			if expectedDim <= 0 {
+				dimIndices := make(map[int][]int)
+				for i, obj := range ob.objects {
+					if targetVector == "" && len(obj.Vector) > 0 {
+						dim := len(obj.Vector)
+						dimIndices[dim] = append(dimIndices[dim], i)
+					}
+					if targetVector != "" && len(obj.Vectors) > 0 {
+						if vec, ok := obj.Vectors[targetVector]; ok && len(vec) > 0 {
+							dim := len(vec)
+							dimIndices[dim] = append(dimIndices[dim], i)
+						}
+					}
+					if targetVector != "" && len(obj.MultiVectors) > 0 {
+						if mvec, ok := obj.MultiVectors[targetVector]; ok && len(mvec) > 0 {
+							for _, tokenVec := range mvec {
+								dim := len(tokenVec)
+								dimIndices[dim] = append(dimIndices[dim], i)
+							}
+						}
+					}
+				}
+
+				if len(dimIndices) > 1 {
+					dims := make([]int, 0, len(dimIndices))
+					for d := range dimIndices {
+						dims = append(dims, d)
+					}
+					sort.Ints(dims)
+
+					parts := make([]string, len(dims))
+					for j, d := range dims {
+						parts[j] = strconv.Itoa(d)
+					}
+					dimList := fmt.Sprintf("[%s]", strings.Join(parts, ", "))
+
+					err := fmt.Errorf("target vector %q: conflicting dimensions in batch for uninitialized index (found %s); cannot establish dimension", targetVector, dimList)
+					seen := make(map[int]struct{})
+					for _, indices := range dimIndices {
+						for _, idx := range indices {
+							if _, ok := seen[idx]; !ok {
+								seen[idx] = struct{}{}
+								ob.setErrorAtIndex(err, idx)
+							}
+						}
+					}
+				}
 				return nil
 			}
 

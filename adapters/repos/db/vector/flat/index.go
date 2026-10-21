@@ -350,6 +350,13 @@ func (index *flat) AddBatch(ctx context.Context, ids []uint64, vectors [][]float
 					len(vec), dims, index.rootPath)
 			}
 		}
+	} else {
+		for _, vec := range vectors {
+			if len(vec) != len(vectors[0]) {
+				return errors.Wrapf(common.ErrWrongDimensions, "insert called with vectors of different lengths: got %d, expected %d, path: %s",
+					len(vec), len(vectors[0]), index.rootPath)
+			}
+		}
 	}
 	for i := range ids {
 		if err := ctx.Err(); err != nil {

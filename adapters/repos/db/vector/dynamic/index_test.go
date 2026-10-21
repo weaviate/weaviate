@@ -1718,3 +1718,33 @@ func TestDynamic_AddBatch_WrongDimensions(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, common.ErrWrongDimensions))
 }
+
+func TestDynamic_AddBatch_InconsistentDimensionsUninitialized(t *testing.T) {
+	ctx := context.Background()
+	meta, err := shardmeta.Open(t.TempDir(), time.Second)
+	require.NoError(t, err)
+	t.Cleanup(func() { meta.Close() })
+
+	vectors, _ := testinghelpers.RandomVecs(20, 0, 8)
+	idx := newUpgradeTestDynamic(t, t.TempDir(), "dynamic-addbatch-inconsistent", meta, vectors, hnsw.MakeNoopCommitLogger)
+	t.Cleanup(func() { idx.Shutdown(context.Background()) })
+
+	// Inconsistent batch on uninitialized dynamic index (dim 3 and dim 4)
+	ids := []uint64{0, 1, 2}
+	inconsistentVectors := [][]float32{
+		{0.1, 0.2, 0.3},
+		{0.4, 0.5, 0.6, 0.7},
+		{0.8, 0.9, 1.0},
+	}
+	err = idx.AddBatch(ctx, ids, inconsistentVectors)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, common.ErrWrongDimensions))
+	assert.Equal(t, 0, idx.Dimension())
+
+	// Subsequent batch with uniform dimensions succeeds and establishes dimension
+	validIDs := []uint64{0, 1}
+	validVectors := [][]float32{vectors[0], vectors[1]}
+	err = idx.AddBatch(ctx, validIDs, validVectors)
+	require.NoError(t, err)
+	assert.Equal(t, 8, idx.Dimension())
+}

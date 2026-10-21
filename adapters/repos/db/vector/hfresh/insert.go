@@ -43,6 +43,13 @@ func (h *HFresh) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32
 					"Existing nodes have vectors with length %v", len(vec), dims)
 			}
 		}
+	} else {
+		for _, vec := range vectors {
+			if len(vec) != len(vectors[0]) {
+				return errors.Wrapf(common.ErrWrongDimensions, "insert called with vectors of different lengths: got %d, expected %d",
+					len(vec), len(vectors[0]))
+			}
+		}
 	}
 
 	for i, id := range ids {

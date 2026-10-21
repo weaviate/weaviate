@@ -61,3 +61,43 @@ func TestFlat_AddBatch_WrongDimensions(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, common.ErrWrongDimensions))
 }
+
+func TestFlat_AddBatch_InconsistentDimensionsUninitialized(t *testing.T) {
+	ctx := context.Background()
+	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(ctx)
+
+	config := flatent.UserConfig{}
+	config.SetDefaults()
+
+	index, err := New(Config{
+		ID:                "flat-test-addbatch-inconsistent",
+		RootPath:          t.TempDir(),
+		DistanceProvider:  distancer.NewCosineDistanceProvider(),
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+	}, config, store)
+	require.NoError(t, err)
+	defer index.Shutdown(ctx)
+
+	// Inconsistent batch on uninitialized index (dim 3 and dim 4)
+	ids := []uint64{1, 2, 3}
+	vectors := [][]float32{
+		{0.1, 0.2, 0.3},
+		{0.4, 0.5, 0.6, 0.7},
+		{0.8, 0.9, 1.0},
+	}
+	err = index.AddBatch(ctx, ids, vectors)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, common.ErrWrongDimensions))
+	assert.Equal(t, 0, index.Dimension())
+
+	// Subsequent batch with uniform dimensions succeeds and establishes dimension
+	validIDs := []uint64{1, 2}
+	validVectors := [][]float32{
+		{0.1, 0.2, 0.3, 0.4},
+		{0.5, 0.6, 0.7, 0.8},
+	}
+	err = index.AddBatch(ctx, validIDs, validVectors)
+	require.NoError(t, err)
+	assert.Equal(t, 4, index.Dimension())
+}

@@ -658,6 +658,186 @@ func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
 	require.Equal(t, 303, dimFinal, "Dimensions have been deleted")
 }
 
+func TestBatchPutObjects_CollectionPoisoningPrevention(t *testing.T) {
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	shardState := singleShardState()
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: shardState,
+	}
+	mockSchemaReader := local.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
+		MemtablesFlushDirtyAfter:  60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
+	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
+	defer func() {
+		require.Nil(t, repo.Shutdown(context.Background()))
+	}()
+	migrator := NewMigrator(repo, logger, "node1")
+
+	className := "PoisonPreventionBatch"
+	class := &models.Class{
+		Class:               className,
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		Properties: []*models.Property{
+			{
+				Name:         "text",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+			},
+		},
+	}
+	require.NoError(t, migrator.AddClass(context.Background(), class))
+	schemaGetter.schema.Objects = &models.Schema{Classes: []*models.Class{class}}
+
+	dimBefore := getDimensionsFromRepo(context.Background(), repo, className)
+	require.Equal(t, 0, dimBefore, "Dimensions are 0 before import")
+
+	id1 := strfmt.UUID("8d5a3aa2-3c8d-4589-9ae1-3f638f506001")
+	id2 := strfmt.UUID("8d5a3aa2-3c8d-4589-9ae1-3f638f506002")
+	id3 := strfmt.UUID("8d5a3aa2-3c8d-4589-9ae1-3f638f506003")
+
+	conflictingBatch := objects.BatchObjects{
+		objects.BatchObject{
+			OriginalIndex: 0,
+			Object: &models.Object{
+				Class:  className,
+				ID:     id1,
+				Vector: []float32{1, 2, 3},
+				Properties: map[string]interface{}{
+					"text": "item 1 with 3D vector",
+				},
+			},
+			UUID: id1,
+		},
+		objects.BatchObject{
+			OriginalIndex: 1,
+			Object: &models.Object{
+				Class:  className,
+				ID:     id2,
+				Vector: []float32{1, 2, 3, 4},
+				Properties: map[string]interface{}{
+					"text": "item 2 with 4D vector",
+				},
+			},
+			UUID: id2,
+		},
+		objects.BatchObject{
+			OriginalIndex: 2,
+			Object: &models.Object{
+				Class: className,
+				ID:    id3,
+				Properties: map[string]interface{}{
+					"text": "item 3 without vector",
+				},
+			},
+			UUID: id3,
+		},
+	}
+
+	batchRes, err := repo.BatchPutObjects(context.Background(), conflictingBatch, nil, 0)
+	require.NoError(t, err)
+	require.Len(t, batchRes, 3)
+
+	expectedErr := `target vector "": conflicting dimensions in batch for uninitialized index (found [3, 4]); cannot establish dimension`
+	require.Error(t, batchRes[0].Err)
+	assert.Equal(t, expectedErr, batchRes[0].Err.Error())
+	require.Error(t, batchRes[1].Err)
+	assert.Equal(t, expectedErr, batchRes[1].Err.Error())
+	require.NoError(t, batchRes[2].Err, "non-vectorized object must succeed")
+
+	// Verify LSM: conflicting objects must not be found, non-vectorized object must be found
+	params := dto.GetParams{
+		ClassName:  className,
+		Pagination: &filters.Pagination{Limit: 10},
+	}
+	searchRes, err := repo.Search(context.Background(), params)
+	require.NoError(t, err)
+	_, found1 := findID(searchRes, id1)
+	assert.False(t, found1, "conflicting object 1 must not exist in LSM")
+	_, found2 := findID(searchRes, id2)
+	assert.False(t, found2, "conflicting object 2 must not exist in LSM")
+	_, found3 := findID(searchRes, id3)
+	assert.True(t, found3, "non-vectorized object must exist in LSM")
+
+	// Dimensions must remain 0
+	dimAfterPoison := getDimensionsFromRepo(context.Background(), repo, className)
+	require.Equal(t, 0, dimAfterPoison, "Dimensions must remain 0 after rejected conflicting batch")
+
+	// Subsequent batch with uniform 4D vectors succeeds
+	subId1 := strfmt.UUID("8d5a3aa2-3c8d-4589-9ae1-3f638f506004")
+	subId2 := strfmt.UUID("8d5a3aa2-3c8d-4589-9ae1-3f638f506005")
+	validBatch := objects.BatchObjects{
+		objects.BatchObject{
+			OriginalIndex: 0,
+			Object: &models.Object{
+				Class:  className,
+				ID:     subId1,
+				Vector: []float32{1, 2, 3, 4},
+				Properties: map[string]interface{}{
+					"text": "valid item 1",
+				},
+			},
+			UUID: subId1,
+		},
+		objects.BatchObject{
+			OriginalIndex: 1,
+			Object: &models.Object{
+				Class:  className,
+				ID:     subId2,
+				Vector: []float32{5, 6, 7, 8},
+				Properties: map[string]interface{}{
+					"text": "valid item 2",
+				},
+			},
+			UUID: subId2,
+		},
+	}
+
+	validRes, err := repo.BatchPutObjects(context.Background(), validBatch, nil, 0)
+	require.NoError(t, err)
+	require.Len(t, validRes, 2)
+	require.NoError(t, validRes[0].Err)
+	require.NoError(t, validRes[1].Err)
+
+	// Dimension is now established to 8 (2 objects * 4 dim)
+	dimFinal := getDimensionsFromRepo(context.Background(), repo, className)
+	require.Equal(t, 8, dimFinal, "Dimensions must reflect uniform batch vectors (2 * 4)")
+
+	// Vector search succeeds
+	vSearchRes, err := repo.VectorSearch(context.Background(), dto.GetParams{
+		ClassName:  className,
+		Pagination: &filters.Pagination{Limit: 10},
+	}, []string{""}, []models.Vector{[]float32{1, 2, 3, 4}})
+	require.NoError(t, err)
+	assert.Len(t, vSearchRes, 2)
+}
+
 func TestBatchDeleteObjects_Journey(t *testing.T) {
 	dirName := t.TempDir()
 

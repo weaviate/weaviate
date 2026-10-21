@@ -373,6 +373,27 @@ func TestAddBatch(t *testing.T) {
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, common.ErrWrongDimensions))
 	})
+
+	t.Run("error on inconsistent dimensions in uninitialized batch", func(t *testing.T) {
+		tf := createHFreshIndex(t)
+		defer tf.Index.Shutdown(t.Context())
+
+		vectors := [][]float32{
+			{0.1, 0.2, 0.3},
+			{0.4, 0.5, 0.6, 0.7},
+			{0.8, 0.9, 1.0},
+		}
+		err := tf.Index.AddBatch(t.Context(), []uint64{0, 1, 2}, vectors)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, common.ErrWrongDimensions))
+		assert.Equal(t, uint32(0), tf.Index.dims)
+
+		// Subsequent batch with uniform dimensions succeeds and establishes dimension
+		validVectors, _ := testinghelpers.RandomVecs(2, 0, 32)
+		err = tf.Index.AddBatch(t.Context(), []uint64{0, 1}, validVectors)
+		require.NoError(t, err)
+		assert.Equal(t, uint32(32), tf.Index.dims)
+	})
 }
 
 func TestDelete(t *testing.T) {

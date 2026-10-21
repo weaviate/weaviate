@@ -105,6 +105,20 @@ func TestAddBatch_InconsistentVectorDimensions(t *testing.T) {
 	err := index.AddBatch(context.Background(), ids, vectors)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "different lengths")
+	assert.True(t, errors.Is(err, common.ErrWrongDimensions))
+
+	// Index must remain uninitialized (dims == 0)
+	assert.Equal(t, 0, index.Dimension())
+
+	// Subsequent batch with uniform dimensions succeeds and establishes dimension
+	validIDs := []uint64{1, 2}
+	validVectors := [][]float32{
+		{0.1, 0.2, 0.3, 0.4},
+		{0.5, 0.6, 0.7, 0.8},
+	}
+	err = index.AddBatch(context.Background(), validIDs, validVectors)
+	require.NoError(t, err)
+	assert.Equal(t, 4, index.Dimension())
 }
 
 func TestAddBatch_EmptyVector(t *testing.T) {
