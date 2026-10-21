@@ -53,37 +53,7 @@ import (
 )
 
 func TestShard_BatchDimensionValidation_GhostObjectPrevention(t *testing.T) {
-	testCases := []struct {
-		name  string
-		uc    schemaConfig.VectorIndexConfig
-		async bool
-	}{
-		{
-			name:  "HNSW sync",
-			uc:    hnsw.NewDefaultUserConfig(),
-			async: false,
-		},
-		{
-			name:  "HNSW async",
-			uc:    hnsw.NewDefaultUserConfig(),
-			async: true,
-		},
-		{
-			name:  "Flat",
-			uc:    flat.NewDefaultUserConfig(),
-			async: false,
-		},
-		{
-			name:  "Dynamic",
-			uc:    dynamic.NewDefaultUserConfig(),
-			async: true,
-		},
-		{
-			name:  "HFresh",
-			uc:    hfresh.NewDefaultUserConfig(),
-			async: false,
-		},
-	}
+	testCases := standardVectorIndexTestCases()
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -91,11 +61,7 @@ func TestShard_BatchDimensionValidation_GhostObjectPrevention(t *testing.T) {
 			className := "BatchDimTest" + t.Name()
 			class := &models.Class{Class: className}
 
-			shd, idx := testShardWithSettings(t, ctx, class, tc.uc, false, tc.async)
-			defer func() {
-				require.Nil(t, idx.drop())
-				require.Nil(t, os.RemoveAll(idx.Config.RootPath))
-			}()
+			shd, _ := setupTestDimensionShard(t, ctx, class, tc.uc, tc.async)
 
 			testShard(t, context.Background(), class.Class)
 			r := getRandomSeed()
@@ -138,22 +104,12 @@ func TestShard_BatchDimensionValidation_GhostObjectPrevention(t *testing.T) {
 
 			// Step 4: Verify Ghost Object Prevention:
 			// Rejected objects must NEVER be written to LSM store (not retrievable by ID)
-			obj1Retrieved, err := shd.ObjectByID(ctx, invalid1.ID(), search.SelectProperties{}, additional.Properties{})
-			require.NoError(t, err)
-			assert.Nil(t, obj1Retrieved, "rejected object 1 must not exist in LSM storage")
-
-			obj3Retrieved, err := shd.ObjectByID(ctx, invalid2.ID(), search.SelectProperties{}, additional.Properties{})
-			require.NoError(t, err)
-			assert.Nil(t, obj3Retrieved, "rejected object 2 must not exist in LSM storage")
+			assertObjectExistsInLSM(t, ctx, shd, invalid1.ID(), false, "rejected object 1 must not exist in LSM storage")
+			assertObjectExistsInLSM(t, ctx, shd, invalid2.ID(), false, "rejected object 2 must not exist in LSM storage")
 
 			// Valid objects MUST exist in LSM store
-			valid1Retrieved, err := shd.ObjectByID(ctx, valid1.ID(), search.SelectProperties{}, additional.Properties{})
-			require.NoError(t, err)
-			assert.NotNil(t, valid1Retrieved, "valid object 1 must exist in LSM storage")
-
-			valid2Retrieved, err := shd.ObjectByID(ctx, valid2.ID(), search.SelectProperties{}, additional.Properties{})
-			require.NoError(t, err)
-			assert.NotNil(t, valid2Retrieved, "valid object 2 must exist in LSM storage")
+			assertObjectExistsInLSM(t, ctx, shd, valid1.ID(), true, "valid object 1 must exist in LSM storage")
+			assertObjectExistsInLSM(t, ctx, shd, valid2.ID(), true, "valid object 2 must exist in LSM storage")
 
 			// Step 5: Verify vector search operates without error
 			searchRes, _, err := shd.ObjectVectorSearch(ctx, []models.Vector{valid1.Vector}, []string{""}, 0, 10, nil, nil, nil, additional.Properties{}, nil, nil)
@@ -172,37 +128,7 @@ func TestShard_BatchDimensionValidation_GhostObjectPrevention(t *testing.T) {
 }
 
 func TestShard_BatchDimensionValidation_CollectionPoisoningPrevention(t *testing.T) {
-	testCases := []struct {
-		name  string
-		uc    schemaConfig.VectorIndexConfig
-		async bool
-	}{
-		{
-			name:  "HNSW sync",
-			uc:    hnsw.NewDefaultUserConfig(),
-			async: false,
-		},
-		{
-			name:  "HNSW async",
-			uc:    hnsw.NewDefaultUserConfig(),
-			async: true,
-		},
-		{
-			name:  "Flat",
-			uc:    flat.NewDefaultUserConfig(),
-			async: false,
-		},
-		{
-			name:  "Dynamic",
-			uc:    dynamic.NewDefaultUserConfig(),
-			async: true,
-		},
-		{
-			name:  "HFresh",
-			uc:    hfresh.NewDefaultUserConfig(),
-			async: false,
-		},
-	}
+	testCases := standardVectorIndexTestCases()
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -210,19 +136,12 @@ func TestShard_BatchDimensionValidation_CollectionPoisoningPrevention(t *testing
 			className := "BatchDimPoisonTest" + t.Name()
 			class := &models.Class{Class: className}
 
-			shd, idx := testShardWithSettings(t, ctx, class, tc.uc, false, tc.async)
-			defer func() {
-				require.Nil(t, idx.drop())
-				require.Nil(t, os.RemoveAll(idx.Config.RootPath))
-			}()
+			shd, _ := setupTestDimensionShard(t, ctx, class, tc.uc, tc.async)
 
 			r := getRandomSeed()
 
 			// Step 1: Verify index is uninitialized (dim == 0)
-			shd.WithVectorIndex("", func(vidx VectorIndex) error {
-				assert.Equal(t, 0, vidx.Dimension())
-				return nil
-			})
+			assertShardIndexDimension(t, shd, "", 0)
 
 			// Step 2: Ingest a conflicting batch on uninitialized collection:
 			//   Obj 0: 3D vector (conflicting)
@@ -257,28 +176,15 @@ func TestShard_BatchDimensionValidation_CollectionPoisoningPrevention(t *testing
 
 			// Step 4: Verify LSM storage:
 			// None of the conflicting objects are persisted to LSM store
-			retrieved0, err := shd.ObjectByID(ctx, conflicting1.ID(), search.SelectProperties{}, additional.Properties{})
-			require.NoError(t, err)
-			assert.Nil(t, retrieved0, "conflicting object 1 must not exist in LSM storage")
-
-			retrieved1, err := shd.ObjectByID(ctx, conflicting2.ID(), search.SelectProperties{}, additional.Properties{})
-			require.NoError(t, err)
-			assert.Nil(t, retrieved1, "conflicting object 2 must not exist in LSM storage")
-
-			retrieved2, err := shd.ObjectByID(ctx, conflicting3.ID(), search.SelectProperties{}, additional.Properties{})
-			require.NoError(t, err)
-			assert.Nil(t, retrieved2, "conflicting object 3 must not exist in LSM storage")
+			assertObjectExistsInLSM(t, ctx, shd, conflicting1.ID(), false, "conflicting object 1 must not exist in LSM storage")
+			assertObjectExistsInLSM(t, ctx, shd, conflicting2.ID(), false, "conflicting object 2 must not exist in LSM storage")
+			assertObjectExistsInLSM(t, ctx, shd, conflicting3.ID(), false, "conflicting object 3 must not exist in LSM storage")
 
 			// Non-vectorized object MUST exist in LSM store
-			retrievedNonVec, err := shd.ObjectByID(ctx, nonVectorized.ID(), search.SelectProperties{}, additional.Properties{})
-			require.NoError(t, err)
-			assert.NotNil(t, retrievedNonVec, "non-vectorized object must exist in LSM storage")
+			assertObjectExistsInLSM(t, ctx, shd, nonVectorized.ID(), true, "non-vectorized object must exist in LSM storage")
 
 			// Step 5: Verify index remains uninitialized (dim == 0)
-			shd.WithVectorIndex("", func(vidx VectorIndex) error {
-				assert.Equal(t, 0, vidx.Dimension(), "index must remain uninitialized (D = 0)")
-				return nil
-			})
+			assertShardIndexDimension(t, shd, "", 0, "index must remain uninitialized (D = 0)")
 
 			// Step 6: Subsequent batch with uniform vector dimensions (dim 4) succeeds
 			subsequentBatch := createRandomObjects(r, class.Class, 3, 4)
@@ -294,16 +200,11 @@ func TestShard_BatchDimensionValidation_CollectionPoisoningPrevention(t *testing
 
 			// Subsequent objects exist in LSM store
 			for _, obj := range subsequentBatch {
-				retrieved, err := shd.ObjectByID(ctx, obj.ID(), search.SelectProperties{}, additional.Properties{})
-				require.NoError(t, err)
-				assert.NotNil(t, retrieved, "subsequent object must exist in LSM storage")
+				assertObjectExistsInLSM(t, ctx, shd, obj.ID(), true, "subsequent object must exist in LSM storage")
 			}
 
 			// Index dimension is now established to 4
-			shd.WithVectorIndex("", func(vidx VectorIndex) error {
-				assert.Equal(t, 4, vidx.Dimension(), "index dimension must now be established to 4")
-				return nil
-			})
+			assertShardIndexDimension(t, shd, "", 4, "index dimension must now be established to 4")
 
 			// Vector search operates successfully
 			searchRes, _, err := shd.ObjectVectorSearch(ctx, []models.Vector{subsequentBatch[0].Vector}, []string{""}, 0, 10, nil, nil, nil, additional.Properties{}, nil, nil)
@@ -576,6 +477,112 @@ func setupTestMultiTenantShards(t testing.TB, ctx context.Context, class *models
 	return shards, idx
 }
 
+func setupTestDimensionShard(t testing.TB, ctx context.Context, class *models.Class, vic schemaConfig.VectorIndexConfig, async bool, opts ...func(*Index)) (ShardLike, *Index) {
+	shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, async, opts...)
+	t.Cleanup(func() {
+		require.Nil(t, idx.drop())
+		require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+	})
+	return shardLike, idx
+}
+
+func setupSingleVectorShard(t testing.TB, ctx context.Context, className string, async bool) (ShardLike, *Index) {
+	class := &models.Class{Class: className}
+	return setupTestDimensionShard(t, ctx, class, hnsw.NewDefaultUserConfig(), async)
+}
+
+func setupNamedVectorShard(t testing.TB, ctx context.Context, className string, targetVectors []string, async bool) (ShardLike, *Index) {
+	vectorConfig := make(map[string]models.VectorConfig)
+	userConfigs := make(map[string]schemaConfig.VectorIndexConfig)
+	for _, target := range targetVectors {
+		vectorConfig[target] = models.VectorConfig{
+			VectorIndexType:   hnsw.NewDefaultUserConfig().IndexType(),
+			VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+		}
+		userConfigs[target] = hnsw.NewDefaultUserConfig()
+	}
+	class := &models.Class{
+		Class:        className,
+		VectorConfig: vectorConfig,
+	}
+	return setupTestDimensionShard(t, ctx, class, hnsw.UserConfig{Distance: "cosine"}, async, func(i *Index) {
+		i.vectorIndexUserConfigs = userConfigs
+	})
+}
+
+func setupMultiVectorShard(t testing.TB, ctx context.Context, className string, targetVector string, async bool) (ShardLike, *Index) {
+	class := &models.Class{
+		Class: className,
+		VectorConfig: map[string]models.VectorConfig{
+			targetVector: {
+				VectorIndexType:   hnsw.NewDefaultMultiVectorUserConfig().IndexType(),
+				VectorIndexConfig: hnsw.NewDefaultMultiVectorUserConfig(),
+			},
+		},
+	}
+	return setupTestDimensionShard(t, ctx, class, hnsw.UserConfig{Distance: "cosine"}, async, func(i *Index) {
+		i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+			targetVector: hnsw.NewDefaultMultiVectorUserConfig(),
+		}
+	})
+}
+
+type vectorIndexTestCase struct {
+	name  string
+	uc    schemaConfig.VectorIndexConfig
+	async bool
+}
+
+func standardVectorIndexTestCases() []vectorIndexTestCase {
+	return []vectorIndexTestCase{
+		{
+			name:  "HNSW sync",
+			uc:    hnsw.NewDefaultUserConfig(),
+			async: false,
+		},
+		{
+			name:  "HNSW async",
+			uc:    hnsw.NewDefaultUserConfig(),
+			async: true,
+		},
+		{
+			name:  "Flat",
+			uc:    flat.NewDefaultUserConfig(),
+			async: false,
+		},
+		{
+			name:  "Dynamic",
+			uc:    dynamic.NewDefaultUserConfig(),
+			async: true,
+		},
+		{
+			name:  "HFresh",
+			uc:    hfresh.NewDefaultUserConfig(),
+			async: false,
+		},
+	}
+}
+
+func assertObjectExistsInLSM(t *testing.T, ctx context.Context, shard ShardLike, id strfmt.UUID, shouldExist bool, msgAndArgs ...interface{}) *storobj.Object {
+	t.Helper()
+	ret, err := shard.ObjectByID(ctx, id, search.SelectProperties{}, additional.Properties{})
+	require.NoError(t, err)
+	if shouldExist {
+		assert.NotNil(t, ret, msgAndArgs...)
+	} else {
+		assert.Nil(t, ret, msgAndArgs...)
+	}
+	return ret
+}
+
+func assertShardIndexDimension(t *testing.T, shard ShardLike, targetVector string, expectedDim int, msgAndArgs ...interface{}) {
+	t.Helper()
+	shard.WithVectorIndex(targetVector, func(vidx VectorIndex) error {
+		assert.Equal(t, expectedDim, vidx.Dimension(), msgAndArgs...)
+		return nil
+	})
+}
+
 func createNamedVectorObject(className string, vectors map[string][]float32) *storobj.Object {
 	obj := testObject(className)
 	obj.Vectors = vectors
@@ -593,24 +600,7 @@ func TestShard_BatchDimensionValidation_NamedVectors(t *testing.T) {
 
 	t.Run("established collection with named vectors", func(t *testing.T) {
 		className := "NamedVectorsEstablished"
-		class := &models.Class{
-			Class: className,
-			VectorConfig: map[string]models.VectorConfig{
-				"target1": {VectorIndexType: hnsw.NewDefaultUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultUserConfig()},
-				"target2": {VectorIndexType: hnsw.NewDefaultUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultUserConfig()},
-			},
-		}
-		vic := hnsw.UserConfig{Distance: "cosine"}
-		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false, func(i *Index) {
-			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
-				"target1": hnsw.NewDefaultUserConfig(),
-				"target2": hnsw.NewDefaultUserConfig(),
-			}
-		})
-		defer func() {
-			require.Nil(t, idx.drop())
-			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
-		}()
+		shardLike, _ := setupNamedVectorShard(t, ctx, className, []string{"target1", "target2"}, false)
 
 		// Step 1: Establish dimensions = 4 for target1 and target2 with an initial batch
 		initialObj := createNamedVectorObject(className, map[string][]float32{
@@ -621,14 +611,8 @@ func TestShard_BatchDimensionValidation_NamedVectors(t *testing.T) {
 		require.Len(t, errs, 1)
 		require.NoError(t, errs[0])
 
-		shardLike.WithVectorIndex("target1", func(vidx VectorIndex) error {
-			assert.Equal(t, 4, vidx.Dimension())
-			return nil
-		})
-		shardLike.WithVectorIndex("target2", func(vidx VectorIndex) error {
-			assert.Equal(t, 4, vidx.Dimension())
-			return nil
-		})
+		assertShardIndexDimension(t, shardLike, "target1", 4)
+		assertShardIndexDimension(t, shardLike, "target2", 4)
 
 		// Step 2: Batch containing:
 		// - Obj 0: Valid on both target1 (4D) and target2 (4D)
@@ -663,19 +647,9 @@ func TestShard_BatchDimensionValidation_NamedVectors(t *testing.T) {
 		assert.Equal(t, `target vector "target1": dimension mismatch: expected 4, got 5`, batchErrs[2].Error())
 
 		// Step 3: Verify LSM store
-		// Valid object MUST exist in LSM
-		retValid, err := shardLike.ObjectByID(ctx, objValid.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.NotNil(t, retValid, "valid object must exist in LSM")
-
-		// Rejected objects MUST NOT exist in LSM
-		retBad2, err := shardLike.ObjectByID(ctx, objBadTarget2.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.Nil(t, retBad2, "rejected object 1 must not exist in LSM")
-
-		retBad1, err := shardLike.ObjectByID(ctx, objBadTarget1.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.Nil(t, retBad1, "rejected object 2 must not exist in LSM")
+		assertObjectExistsInLSM(t, ctx, shardLike, objValid.ID(), true, "valid object must exist in LSM")
+		assertObjectExistsInLSM(t, ctx, shardLike, objBadTarget2.ID(), false, "rejected object 1 must not exist in LSM")
+		assertObjectExistsInLSM(t, ctx, shardLike, objBadTarget1.ID(), false, "rejected object 2 must not exist in LSM")
 
 		// Step 4: Vector search on both targets succeeds for valid object
 		res1, _, err := shardLike.ObjectVectorSearch(ctx, []models.Vector{objValid.Vectors["target1"]}, []string{"target1"}, 0, 10, nil, nil, nil, additional.Properties{}, nil, nil)
@@ -689,30 +663,10 @@ func TestShard_BatchDimensionValidation_NamedVectors(t *testing.T) {
 
 	t.Run("uninitialized collection with conflicting named vector dimensions", func(t *testing.T) {
 		className := "NamedVectorsUninitialized"
-		class := &models.Class{
-			Class: className,
-			VectorConfig: map[string]models.VectorConfig{
-				"targetA": {VectorIndexType: hnsw.NewDefaultUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultUserConfig()},
-				"targetB": {VectorIndexType: hnsw.NewDefaultUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultUserConfig()},
-			},
-		}
-		vic := hnsw.UserConfig{Distance: "cosine"}
-		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false, func(i *Index) {
-			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
-				"targetA": hnsw.NewDefaultUserConfig(),
-				"targetB": hnsw.NewDefaultUserConfig(),
-			}
-		})
-		defer func() {
-			require.Nil(t, idx.drop())
-			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
-		}()
+		shardLike, _ := setupNamedVectorShard(t, ctx, className, []string{"targetA", "targetB"}, false)
 
 		// Both start uninitialized
-		shardLike.WithVectorIndex("targetA", func(vidx VectorIndex) error {
-			assert.Equal(t, 0, vidx.Dimension())
-			return nil
-		})
+		assertShardIndexDimension(t, shardLike, "targetA", 0)
 
 		// Batch has conflicting dimensions for targetA: 3D and 4D
 		obj1 := createNamedVectorObject(className, map[string][]float32{
@@ -734,19 +688,11 @@ func TestShard_BatchDimensionValidation_NamedVectors(t *testing.T) {
 		assert.Equal(t, expectedErr, batchErrs[1].Error())
 
 		// Neither object in LSM
-		ret1, err := shardLike.ObjectByID(ctx, obj1.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.Nil(t, ret1)
-
-		ret2, err := shardLike.ObjectByID(ctx, obj2.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.Nil(t, ret2)
+		assertObjectExistsInLSM(t, ctx, shardLike, obj1.ID(), false)
+		assertObjectExistsInLSM(t, ctx, shardLike, obj2.ID(), false)
 
 		// Indexes remain uninitialized
-		shardLike.WithVectorIndex("targetA", func(vidx VectorIndex) error {
-			assert.Equal(t, 0, vidx.Dimension())
-			return nil
-		})
+		assertShardIndexDimension(t, shardLike, "targetA", 0)
 	})
 }
 
@@ -755,22 +701,7 @@ func TestShard_BatchDimensionValidation_MultiVectors(t *testing.T) {
 
 	t.Run("inconsistent token lengths in single object rejected before LSM", func(t *testing.T) {
 		className := "MultiVectorInconsistentTokens"
-		class := &models.Class{
-			Class: className,
-			VectorConfig: map[string]models.VectorConfig{
-				"colbert": {VectorIndexType: hnsw.NewDefaultMultiVectorUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultMultiVectorUserConfig()},
-			},
-		}
-		vic := hnsw.UserConfig{Distance: "cosine"}
-		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false, func(i *Index) {
-			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
-				"colbert": hnsw.NewDefaultMultiVectorUserConfig(),
-			}
-		})
-		defer func() {
-			require.Nil(t, idx.drop())
-			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
-		}()
+		shardLike, _ := setupMultiVectorShard(t, ctx, className, "colbert", false)
 
 		// Token 0 is 3D, Token 1 is 2D
 		badObj := createMultiVectorObject(className, map[string][][]float32{
@@ -786,35 +717,15 @@ func TestShard_BatchDimensionValidation_MultiVectors(t *testing.T) {
 		assert.Equal(t, `target vector "colbert": multi vector array consists of vectors with varying dimensions`, errs[0].Error())
 
 		// Object must NOT exist in LSM
-		ret, err := shardLike.ObjectByID(ctx, badObj.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.Nil(t, ret, "object with inconsistent tokens must not exist in LSM")
+		assertObjectExistsInLSM(t, ctx, shardLike, badObj.ID(), false, "object with inconsistent tokens must not exist in LSM")
 
 		// Index dimension remains 0
-		shardLike.WithVectorIndex("colbert", func(vidx VectorIndex) error {
-			assert.Equal(t, 0, vidx.Dimension())
-			return nil
-		})
+		assertShardIndexDimension(t, shardLike, "colbert", 0)
 	})
 
 	t.Run("conflicting token dimensions on uninitialized multi-vector collection rejected before LSM", func(t *testing.T) {
 		className := "MultiVectorConflictingUninitialized"
-		class := &models.Class{
-			Class: className,
-			VectorConfig: map[string]models.VectorConfig{
-				"colbert": {VectorIndexType: hnsw.NewDefaultMultiVectorUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultMultiVectorUserConfig()},
-			},
-		}
-		vic := hnsw.UserConfig{Distance: "cosine"}
-		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false, func(i *Index) {
-			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
-				"colbert": hnsw.NewDefaultMultiVectorUserConfig(),
-			}
-		})
-		defer func() {
-			require.Nil(t, idx.drop())
-			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
-		}()
+		shardLike, _ := setupMultiVectorShard(t, ctx, className, "colbert", false)
 
 		// Obj 0 has 3D tokens, Obj 1 has 4D tokens
 		obj3D := createMultiVectorObject(className, map[string][][]float32{
@@ -839,39 +750,16 @@ func TestShard_BatchDimensionValidation_MultiVectors(t *testing.T) {
 		assert.Equal(t, expectedErr, errs[1].Error())
 
 		// Neither in LSM
-		ret0, err := shardLike.ObjectByID(ctx, obj3D.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.Nil(t, ret0)
-
-		ret1, err := shardLike.ObjectByID(ctx, obj4D.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.Nil(t, ret1)
+		assertObjectExistsInLSM(t, ctx, shardLike, obj3D.ID(), false)
+		assertObjectExistsInLSM(t, ctx, shardLike, obj4D.ID(), false)
 
 		// Index dimension remains 0
-		shardLike.WithVectorIndex("colbert", func(vidx VectorIndex) error {
-			assert.Equal(t, 0, vidx.Dimension())
-			return nil
-		})
+		assertShardIndexDimension(t, shardLike, "colbert", 0)
 	})
 
 	t.Run("wrong token dimension on established multi-vector collection rejected before LSM", func(t *testing.T) {
 		className := "MultiVectorEstablishedMismatch"
-		class := &models.Class{
-			Class: className,
-			VectorConfig: map[string]models.VectorConfig{
-				"colbert": {VectorIndexType: hnsw.NewDefaultMultiVectorUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultMultiVectorUserConfig()},
-			},
-		}
-		vic := hnsw.UserConfig{Distance: "cosine"}
-		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false, func(i *Index) {
-			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
-				"colbert": hnsw.NewDefaultMultiVectorUserConfig(),
-			}
-		})
-		defer func() {
-			require.Nil(t, idx.drop())
-			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
-		}()
+		shardLike, _ := setupMultiVectorShard(t, ctx, className, "colbert", false)
 
 		// Step 1: Establish dimension = 4
 		initialObj := createMultiVectorObject(className, map[string][][]float32{
@@ -884,10 +772,7 @@ func TestShard_BatchDimensionValidation_MultiVectors(t *testing.T) {
 		require.Len(t, initErrs, 1)
 		require.NoError(t, initErrs[0])
 
-		shardLike.WithVectorIndex("colbert", func(vidx VectorIndex) error {
-			assert.Equal(t, 4, vidx.Dimension())
-			return nil
-		})
+		assertShardIndexDimension(t, shardLike, "colbert", 4)
 
 		// Step 2: Batch with valid 4D object and invalid 3D object
 		validObj := createMultiVectorObject(className, map[string][][]float32{
@@ -909,33 +794,13 @@ func TestShard_BatchDimensionValidation_MultiVectors(t *testing.T) {
 		assert.Equal(t, `target vector "colbert": dimension mismatch: expected 4, got 3`, batchErrs[1].Error())
 
 		// Valid object in LSM, invalid object NOT in LSM
-		retValid, err := shardLike.ObjectByID(ctx, validObj.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.NotNil(t, retValid)
-
-		retInvalid, err := shardLike.ObjectByID(ctx, invalidObj.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.Nil(t, retInvalid)
+		assertObjectExistsInLSM(t, ctx, shardLike, validObj.ID(), true)
+		assertObjectExistsInLSM(t, ctx, shardLike, invalidObj.ID(), false)
 	})
 
 	t.Run("inconsistent token lengths on established multi-vector collection rejected before LSM", func(t *testing.T) {
 		className := "MultiVectorInconsistentTokensEstablished"
-		class := &models.Class{
-			Class: className,
-			VectorConfig: map[string]models.VectorConfig{
-				"colbert": {VectorIndexType: hnsw.NewDefaultMultiVectorUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultMultiVectorUserConfig()},
-			},
-		}
-		vic := hnsw.UserConfig{Distance: "cosine"}
-		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false, func(i *Index) {
-			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
-				"colbert": hnsw.NewDefaultMultiVectorUserConfig(),
-			}
-		})
-		defer func() {
-			require.Nil(t, idx.drop())
-			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
-		}()
+		shardLike, _ := setupMultiVectorShard(t, ctx, className, "colbert", false)
 
 		// Step 1: Establish dimension = 4
 		initialObj := createMultiVectorObject(className, map[string][][]float32{
@@ -960,9 +825,7 @@ func TestShard_BatchDimensionValidation_MultiVectors(t *testing.T) {
 		require.Error(t, batchErrs[0])
 		assert.Equal(t, `target vector "colbert": multi vector array consists of vectors with varying dimensions`, batchErrs[0].Error())
 
-		ret, err := shardLike.ObjectByID(ctx, badObj.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.Nil(t, ret, "object with inconsistent tokens must not exist in LSM")
+		assertObjectExistsInLSM(t, ctx, shardLike, badObj.ID(), false, "object with inconsistent tokens must not exist in LSM")
 	})
 }
 
@@ -971,14 +834,7 @@ func TestShard_BatchDimensionValidation_AsyncParity(t *testing.T) {
 
 	t.Run("ghost object prevention and queue exclusion on established collection", func(t *testing.T) {
 		className := "AsyncParityEstablishedGhost"
-		class := &models.Class{Class: className}
-		vic := hnsw.NewDefaultUserConfig()
-
-		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, true)
-		defer func() {
-			require.Nil(t, idx.drop())
-			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
-		}()
+		shardLike, _ := setupSingleVectorShard(t, ctx, className, true)
 
 		r := getRandomSeed()
 
@@ -991,10 +847,7 @@ func TestShard_BatchDimensionValidation_AsyncParity(t *testing.T) {
 		}
 		waitForVectorQueue(t, shardLike, "")
 
-		shardLike.WithVectorIndex("", func(vidx VectorIndex) error {
-			assert.Equal(t, 4, vidx.Dimension())
-			return nil
-		})
+		assertShardIndexDimension(t, shardLike, "", 4)
 
 		// Step 2: Mixed batch: 2 valid (4D), 2 invalid (5D, 3D)
 		valid1 := createRandomObjects(r, className, 1, 4)[0]
@@ -1014,22 +867,12 @@ func TestShard_BatchDimensionValidation_AsyncParity(t *testing.T) {
 		assert.Equal(t, `target vector "": dimension mismatch: expected 4, got 3`, errs[3].Error())
 
 		// Step 3: Rejected objects must NEVER exist in LSM store
-		retInv1, err := shardLike.ObjectByID(ctx, invalid1.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.Nil(t, retInv1, "invalid object 1 must not exist in LSM")
-
-		retInv2, err := shardLike.ObjectByID(ctx, invalid2.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.Nil(t, retInv2, "invalid object 2 must not exist in LSM")
+		assertObjectExistsInLSM(t, ctx, shardLike, invalid1.ID(), false, "invalid object 1 must not exist in LSM")
+		assertObjectExistsInLSM(t, ctx, shardLike, invalid2.ID(), false, "invalid object 2 must not exist in LSM")
 
 		// Valid objects exist in LSM
-		retVal1, err := shardLike.ObjectByID(ctx, valid1.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.NotNil(t, retVal1, "valid object 1 must exist in LSM")
-
-		retVal2, err := shardLike.ObjectByID(ctx, valid2.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.NotNil(t, retVal2, "valid object 2 must exist in LSM")
+		assertObjectExistsInLSM(t, ctx, shardLike, valid1.ID(), true, "valid object 1 must exist in LSM")
+		assertObjectExistsInLSM(t, ctx, shardLike, valid2.ID(), true, "valid object 2 must exist in LSM")
 
 		// Step 4: Wait for queue draining - workers process only valid vectors without errors
 		waitForVectorQueue(t, shardLike, "")
@@ -1045,22 +888,12 @@ func TestShard_BatchDimensionValidation_AsyncParity(t *testing.T) {
 
 	t.Run("uninitialized collection conflict rejection and queue clean in async mode", func(t *testing.T) {
 		className := "AsyncParityUninitializedConflict"
-		class := &models.Class{Class: className}
-		vic := hnsw.NewDefaultUserConfig()
-
-		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, true)
-		defer func() {
-			require.Nil(t, idx.drop())
-			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
-		}()
+		shardLike, _ := setupSingleVectorShard(t, ctx, className, true)
 
 		r := getRandomSeed()
 
 		// Verify uninitialized
-		shardLike.WithVectorIndex("", func(vidx VectorIndex) error {
-			assert.Equal(t, 0, vidx.Dimension())
-			return nil
-		})
+		assertShardIndexDimension(t, shardLike, "", 0)
 
 		// Conflicting batch: 3D, 4D, 3D, non-vectorized
 		conflicting1 := createRandomObjects(r, className, 1, 3)[0]
@@ -1084,26 +917,15 @@ func TestShard_BatchDimensionValidation_AsyncParity(t *testing.T) {
 		waitForVectorQueue(t, shardLike, "")
 
 		// Conflicting objects not in LSM
-		ret1, err := shardLike.ObjectByID(ctx, conflicting1.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.Nil(t, ret1)
-		ret2, err := shardLike.ObjectByID(ctx, conflicting2.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.Nil(t, ret2)
-		ret3, err := shardLike.ObjectByID(ctx, conflicting3.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.Nil(t, ret3)
+		assertObjectExistsInLSM(t, ctx, shardLike, conflicting1.ID(), false)
+		assertObjectExistsInLSM(t, ctx, shardLike, conflicting2.ID(), false)
+		assertObjectExistsInLSM(t, ctx, shardLike, conflicting3.ID(), false)
 
 		// Non-vectorized object is in LSM
-		retNonVec, err := shardLike.ObjectByID(ctx, nonVec.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.NotNil(t, retNonVec)
+		assertObjectExistsInLSM(t, ctx, shardLike, nonVec.ID(), true)
 
 		// Index dimension remains 0
-		shardLike.WithVectorIndex("", func(vidx VectorIndex) error {
-			assert.Equal(t, 0, vidx.Dimension())
-			return nil
-		})
+		assertShardIndexDimension(t, shardLike, "", 0)
 
 		// Subsequent uniform batch establishes dimension 4
 		subsequentBatch := createRandomObjects(r, className, 2, 4)
@@ -1115,10 +937,7 @@ func TestShard_BatchDimensionValidation_AsyncParity(t *testing.T) {
 
 		waitForVectorQueue(t, shardLike, "")
 
-		shardLike.WithVectorIndex("", func(vidx VectorIndex) error {
-			assert.Equal(t, 4, vidx.Dimension())
-			return nil
-		})
+		assertShardIndexDimension(t, shardLike, "", 4)
 
 		// Search succeeds
 		res, _, err := shardLike.ObjectVectorSearch(ctx, []models.Vector{subsequentBatch[0].Vector}, []string{""}, 0, 10, nil, nil, nil, additional.Properties{}, nil, nil)
@@ -1128,24 +947,7 @@ func TestShard_BatchDimensionValidation_AsyncParity(t *testing.T) {
 
 	t.Run("named vectors async parity", func(t *testing.T) {
 		className := "AsyncParityNamedVectors"
-		class := &models.Class{
-			Class: className,
-			VectorConfig: map[string]models.VectorConfig{
-				"target1": {VectorIndexType: hnsw.NewDefaultUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultUserConfig()},
-				"target2": {VectorIndexType: hnsw.NewDefaultUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultUserConfig()},
-			},
-		}
-		vic := hnsw.UserConfig{Distance: "cosine"}
-		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, true, func(i *Index) {
-			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
-				"target1": hnsw.NewDefaultUserConfig(),
-				"target2": hnsw.NewDefaultUserConfig(),
-			}
-		})
-		defer func() {
-			require.Nil(t, idx.drop())
-			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
-		}()
+		shardLike, _ := setupNamedVectorShard(t, ctx, className, []string{"target1", "target2"}, true)
 
 		// Establish 4D for both targets
 		initObj := createNamedVectorObject(className, map[string][]float32{
@@ -1159,14 +961,8 @@ func TestShard_BatchDimensionValidation_AsyncParity(t *testing.T) {
 		waitForVectorQueue(t, shardLike, "target1")
 		waitForVectorQueue(t, shardLike, "target2")
 
-		shardLike.WithVectorIndex("target1", func(vidx VectorIndex) error {
-			assert.Equal(t, 4, vidx.Dimension())
-			return nil
-		})
-		shardLike.WithVectorIndex("target2", func(vidx VectorIndex) error {
-			assert.Equal(t, 4, vidx.Dimension())
-			return nil
-		})
+		assertShardIndexDimension(t, shardLike, "target1", 4)
+		assertShardIndexDimension(t, shardLike, "target2", 4)
 
 		// Mixed batch:
 		// objValid: target1 (4D), target2 (4D)
@@ -1196,18 +992,11 @@ func TestShard_BatchDimensionValidation_AsyncParity(t *testing.T) {
 		assert.Equal(t, `target vector "target1": dimension mismatch: expected 4, got 5`, batchErrs[2].Error())
 
 		// Rejected objects not in LSM
-		retBad2, err := shardLike.ObjectByID(ctx, objBad2.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.Nil(t, retBad2)
-
-		retBad1, err := shardLike.ObjectByID(ctx, objBad1.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.Nil(t, retBad1)
+		assertObjectExistsInLSM(t, ctx, shardLike, objBad2.ID(), false)
+		assertObjectExistsInLSM(t, ctx, shardLike, objBad1.ID(), false)
 
 		// Valid object in LSM
-		retVal, err := shardLike.ObjectByID(ctx, objValid.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.NotNil(t, retVal)
+		assertObjectExistsInLSM(t, ctx, shardLike, objValid.ID(), true)
 
 		waitForVectorQueue(t, shardLike, "target1")
 		waitForVectorQueue(t, shardLike, "target2")
@@ -1224,22 +1013,7 @@ func TestShard_BatchDimensionValidation_AsyncParity(t *testing.T) {
 
 	t.Run("multi-vectors async parity", func(t *testing.T) {
 		className := "AsyncParityMultiVectors"
-		class := &models.Class{
-			Class: className,
-			VectorConfig: map[string]models.VectorConfig{
-				"colbert": {VectorIndexType: hnsw.NewDefaultMultiVectorUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultMultiVectorUserConfig()},
-			},
-		}
-		vic := hnsw.UserConfig{Distance: "cosine"}
-		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, true, func(i *Index) {
-			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
-				"colbert": hnsw.NewDefaultMultiVectorUserConfig(),
-			}
-		})
-		defer func() {
-			require.Nil(t, idx.drop())
-			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
-		}()
+		shardLike, _ := setupMultiVectorShard(t, ctx, className, "colbert", true)
 
 		// Establish 4D token dimension
 		initObj := createMultiVectorObject(className, map[string][][]float32{
@@ -1254,10 +1028,7 @@ func TestShard_BatchDimensionValidation_AsyncParity(t *testing.T) {
 
 		waitForVectorQueue(t, shardLike, "colbert")
 
-		shardLike.WithVectorIndex("colbert", func(vidx VectorIndex) error {
-			assert.Equal(t, 4, vidx.Dimension())
-			return nil
-		})
+		assertShardIndexDimension(t, shardLike, "colbert", 4)
 
 		// Batch: valid (4D), invalid token dim (3D), inconsistent tokens ([4D, 3D])
 		validObj := createMultiVectorObject(className, map[string][][]float32{
@@ -1288,32 +1059,18 @@ func TestShard_BatchDimensionValidation_AsyncParity(t *testing.T) {
 		assert.Equal(t, `target vector "colbert": multi vector array consists of vectors with varying dimensions`, batchErrs[2].Error())
 
 		// Invalid objects not in LSM
-		retBadDim, err := shardLike.ObjectByID(ctx, badDimObj.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.Nil(t, retBadDim)
-
-		retBadTokens, err := shardLike.ObjectByID(ctx, badTokensObj.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.Nil(t, retBadTokens)
+		assertObjectExistsInLSM(t, ctx, shardLike, badDimObj.ID(), false)
+		assertObjectExistsInLSM(t, ctx, shardLike, badTokensObj.ID(), false)
 
 		// Valid object in LSM
-		retVal, err := shardLike.ObjectByID(ctx, validObj.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.NotNil(t, retVal)
+		assertObjectExistsInLSM(t, ctx, shardLike, validObj.ID(), true)
 
 		waitForVectorQueue(t, shardLike, "colbert")
 	})
 
 	t.Run("single-object write parity with batch write in async mode", func(t *testing.T) {
 		className := "AsyncParitySingleObject"
-		class := &models.Class{Class: className}
-		vic := hnsw.NewDefaultUserConfig()
-
-		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, true)
-		defer func() {
-			require.Nil(t, idx.drop())
-			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
-		}()
+		shardLike, _ := setupSingleVectorShard(t, ctx, className, true)
 
 		r := getRandomSeed()
 
@@ -1324,10 +1081,7 @@ func TestShard_BatchDimensionValidation_AsyncParity(t *testing.T) {
 
 		waitForVectorQueue(t, shardLike, "")
 
-		shardLike.WithVectorIndex("", func(vidx VectorIndex) error {
-			assert.Equal(t, 4, vidx.Dimension())
-			return nil
-		})
+		assertShardIndexDimension(t, shardLike, "", 4)
 
 		// Single-object write with wrong dimension (5D) is rejected upfront
 		badSingleObj := createRandomObjects(r, className, 1, 5)[0]
@@ -1336,9 +1090,7 @@ func TestShard_BatchDimensionValidation_AsyncParity(t *testing.T) {
 		require.ErrorIs(t, err, common.ErrWrongDimensions)
 
 		// Verify rejected single-object is NOT in LSM store
-		retBad, err := shardLike.ObjectByID(ctx, badSingleObj.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.Nil(t, retBad, "rejected single object must not exist in LSM")
+		assertObjectExistsInLSM(t, ctx, shardLike, badSingleObj.ID(), false, "rejected single object must not exist in LSM")
 
 		// Batch write with wrong dimension (5D) is also rejected upfront
 		badBatchObj := createRandomObjects(r, className, 1, 5)[0]
@@ -1348,9 +1100,7 @@ func TestShard_BatchDimensionValidation_AsyncParity(t *testing.T) {
 		assert.Equal(t, `target vector "": dimension mismatch: expected 4, got 5`, batchErrs[0].Error())
 
 		// Verify rejected batch object is NOT in LSM store
-		retBatchBad, err := shardLike.ObjectByID(ctx, badBatchObj.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.Nil(t, retBatchBad, "rejected batch object must not exist in LSM")
+		assertObjectExistsInLSM(t, ctx, shardLike, badBatchObj.ID(), false, "rejected batch object must not exist in LSM")
 
 		// Valid batch object succeeds
 		validBatchObj := createRandomObjects(r, className, 1, 4)[0]
@@ -1360,9 +1110,7 @@ func TestShard_BatchDimensionValidation_AsyncParity(t *testing.T) {
 
 		waitForVectorQueue(t, shardLike, "")
 
-		retValid, err := shardLike.ObjectByID(ctx, validBatchObj.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.NotNil(t, retValid, "valid batch object must exist in LSM")
+		assertObjectExistsInLSM(t, ctx, shardLike, validBatchObj.ID(), true, "valid batch object must exist in LSM")
 
 		// Search succeeds
 		res, _, err := shardLike.ObjectVectorSearch(ctx, []models.Vector{validBatchObj.Vector}, []string{""}, 0, 10, nil, nil, nil, additional.Properties{}, nil, nil)
@@ -1372,14 +1120,7 @@ func TestShard_BatchDimensionValidation_AsyncParity(t *testing.T) {
 
 	t.Run("ghost object prevention when queue has established dimension but index worker has not processed it yet", func(t *testing.T) {
 		className := "AsyncQueueEstablishedBeforeWorker"
-		class := &models.Class{Class: className}
-		vic := hnsw.NewDefaultUserConfig()
-
-		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, true)
-		defer func() {
-			require.Nil(t, idx.drop())
-			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
-		}()
+		shardLike, _ := setupSingleVectorShard(t, ctx, className, true)
 
 		r := getRandomSeed()
 
@@ -1400,10 +1141,7 @@ func TestShard_BatchDimensionValidation_AsyncParity(t *testing.T) {
 
 		// Verify:
 		// 1. Vector index dimension is STILL 0 because queue is paused and worker hasn't processed batch 1!
-		shardLike.WithVectorIndex("", func(vidx VectorIndex) error {
-			assert.Equal(t, 0, vidx.Dimension())
-			return nil
-		})
+		assertShardIndexDimension(t, shardLike, "", 0)
 		// 2. Vector index queue tracks dimension 4
 		shardLike.WithVectorIndexQueue("", func(q *VectorIndexQueue) error {
 			assert.Equal(t, 4, q.Dimension())
@@ -1418,9 +1156,7 @@ func TestShard_BatchDimensionValidation_AsyncParity(t *testing.T) {
 		assert.Equal(t, `target vector "": dimension mismatch: expected 4, got 5`, errs2[0].Error())
 
 		// Batch 2 object must NOT exist in the LSM store!
-		retBatch2, err := shardLike.ObjectByID(ctx, batch2[0].ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.Nil(t, retBatch2, "rejected batch 2 object must not exist in LSM")
+		assertObjectExistsInLSM(t, ctx, shardLike, batch2[0].ID(), false, "rejected batch 2 object must not exist in LSM")
 
 		// Resume queue and drain
 		shardLike.WithVectorIndexQueue("", func(q *VectorIndexQueue) error {
@@ -1430,37 +1166,17 @@ func TestShard_BatchDimensionValidation_AsyncParity(t *testing.T) {
 		waitForVectorQueue(t, shardLike, "")
 
 		// Index dimension is now 4
-		shardLike.WithVectorIndex("", func(vidx VectorIndex) error {
-			assert.Equal(t, 4, vidx.Dimension())
-			return nil
-		})
+		assertShardIndexDimension(t, shardLike, "", 4)
 
 		// Batch 1 objects exist and are searchable
-		retBatch1, err := shardLike.ObjectByID(ctx, batch1[0].ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.NotNil(t, retBatch1)
+		assertObjectExistsInLSM(t, ctx, shardLike, batch1[0].ID(), true)
 	})
 }
 
 func TestShard_BatchDimensionValidation_UnmatchedTargetVector(t *testing.T) {
 	ctx := testCtx()
 	className := "UnmatchedTargetVectorTest"
-	class := &models.Class{
-		Class: className,
-		VectorConfig: map[string]models.VectorConfig{
-			"validTarget": {VectorIndexType: hnsw.NewDefaultUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultUserConfig()},
-		},
-	}
-	vic := hnsw.UserConfig{Distance: "cosine"}
-	shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false, func(i *Index) {
-		i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
-			"validTarget": hnsw.NewDefaultUserConfig(),
-		}
-	})
-	defer func() {
-		require.Nil(t, idx.drop())
-		require.Nil(t, os.RemoveAll(idx.Config.RootPath))
-	}()
+	shardLike, _ := setupNamedVectorShard(t, ctx, className, []string{"validTarget"}, false)
 
 	// Object providing an unknown target vector "unknownTarget"
 	badObj := createNamedVectorObject(className, map[string][]float32{
@@ -1479,14 +1195,10 @@ func TestShard_BatchDimensionValidation_UnmatchedTargetVector(t *testing.T) {
 	require.NoError(t, errs[1])
 
 	// badObj must NOT exist in the LSM store!
-	retBad, err := shardLike.ObjectByID(ctx, badObj.ID(), search.SelectProperties{}, additional.Properties{})
-	require.NoError(t, err)
-	assert.Nil(t, retBad, "object with unmatched target vector must not exist in LSM")
+	assertObjectExistsInLSM(t, ctx, shardLike, badObj.ID(), false, "object with unmatched target vector must not exist in LSM")
 
 	// goodObj must exist in the LSM store
-	retGood, err := shardLike.ObjectByID(ctx, goodObj.ID(), search.SelectProperties{}, additional.Properties{})
-	require.NoError(t, err)
-	assert.NotNil(t, retGood, "valid object must exist in LSM")
+	assertObjectExistsInLSM(t, ctx, shardLike, goodObj.ID(), true, "valid object must exist in LSM")
 }
 
 func TestShard_BatchDimensionValidation_OrderIndependenceAndFiltering(t *testing.T) {
@@ -1494,24 +1206,7 @@ func TestShard_BatchDimensionValidation_OrderIndependenceAndFiltering(t *testing
 
 	t.Run("order invariance: uninitialized target A and established target B", func(t *testing.T) {
 		className := "OrderInvarianceUninitAEstB"
-		class := &models.Class{
-			Class: className,
-			VectorConfig: map[string]models.VectorConfig{
-				"targetA": {VectorIndexType: hnsw.NewDefaultUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultUserConfig()},
-				"targetB": {VectorIndexType: hnsw.NewDefaultUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultUserConfig()},
-			},
-		}
-		vic := hnsw.UserConfig{Distance: "cosine"}
-		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false, func(i *Index) {
-			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
-				"targetA": hnsw.NewDefaultUserConfig(),
-				"targetB": hnsw.NewDefaultUserConfig(),
-			}
-		})
-		defer func() {
-			require.Nil(t, idx.drop())
-			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
-		}()
+		shardLike, _ := setupNamedVectorShard(t, ctx, className, []string{"targetA", "targetB"}, false)
 
 		// Establish targetB at 4D with initial object
 		initObj := createNamedVectorObject(className, map[string][]float32{
@@ -1521,14 +1216,8 @@ func TestShard_BatchDimensionValidation_OrderIndependenceAndFiltering(t *testing
 		require.Len(t, initErrs, 1)
 		require.NoError(t, initErrs[0])
 
-		shardLike.WithVectorIndex("targetA", func(vidx VectorIndex) error {
-			assert.Equal(t, 0, vidx.Dimension(), "targetA should be uninitialized")
-			return nil
-		})
-		shardLike.WithVectorIndex("targetB", func(vidx VectorIndex) error {
-			assert.Equal(t, 4, vidx.Dimension(), "targetB should be established at 4D")
-			return nil
-		})
+		assertShardIndexDimension(t, shardLike, "targetA", 0, "targetA should be uninitialized")
+		assertShardIndexDimension(t, shardLike, "targetB", 4, "targetB should be established at 4D")
 
 		// Obj 0: targetA=3D, targetB=4D (valid on established B)
 		// Obj 1: targetA=4D, targetB=5D (invalid on established B: 5D != 4D)
@@ -1551,41 +1240,14 @@ func TestShard_BatchDimensionValidation_OrderIndependenceAndFiltering(t *testing
 		assert.Equal(t, `target vector "targetB": dimension mismatch: expected 4, got 5`, errs[1].Error())
 
 		// Obj 0 in LSM, Obj 1 NOT in LSM
-		ret0, err := shardLike.ObjectByID(ctx, obj0.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.NotNil(t, ret0, "obj0 must exist in LSM")
-
-		ret1, err := shardLike.ObjectByID(ctx, obj1.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.Nil(t, ret1, "obj1 must not exist in LSM")
-
-		// targetA is now established at 3D
-		shardLike.WithVectorIndex("targetA", func(vidx VectorIndex) error {
-			assert.Equal(t, 3, vidx.Dimension(), "targetA dimension should be established to 3")
-			return nil
-		})
+		assertObjectExistsInLSM(t, ctx, shardLike, obj0.ID(), true, "obj0 must exist in LSM")
+		assertObjectExistsInLSM(t, ctx, shardLike, obj1.ID(), false, "obj1 must not exist in LSM")
+		assertShardIndexDimension(t, shardLike, "targetA", 3, "targetA dimension should be established to 3")
 	})
 
 	t.Run("order invariance: established target A and uninitialized target B", func(t *testing.T) {
 		className := "OrderInvarianceEstAUninitB"
-		class := &models.Class{
-			Class: className,
-			VectorConfig: map[string]models.VectorConfig{
-				"targetA": {VectorIndexType: hnsw.NewDefaultUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultUserConfig()},
-				"targetB": {VectorIndexType: hnsw.NewDefaultUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultUserConfig()},
-			},
-		}
-		vic := hnsw.UserConfig{Distance: "cosine"}
-		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false, func(i *Index) {
-			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
-				"targetA": hnsw.NewDefaultUserConfig(),
-				"targetB": hnsw.NewDefaultUserConfig(),
-			}
-		})
-		defer func() {
-			require.Nil(t, idx.drop())
-			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
-		}()
+		shardLike, _ := setupNamedVectorShard(t, ctx, className, []string{"targetA", "targetB"}, false)
 
 		// Establish targetA at 4D with initial object
 		initObj := createNamedVectorObject(className, map[string][]float32{
@@ -1595,14 +1257,8 @@ func TestShard_BatchDimensionValidation_OrderIndependenceAndFiltering(t *testing
 		require.Len(t, initErrs, 1)
 		require.NoError(t, initErrs[0])
 
-		shardLike.WithVectorIndex("targetA", func(vidx VectorIndex) error {
-			assert.Equal(t, 4, vidx.Dimension(), "targetA should be established at 4D")
-			return nil
-		})
-		shardLike.WithVectorIndex("targetB", func(vidx VectorIndex) error {
-			assert.Equal(t, 0, vidx.Dimension(), "targetB should be uninitialized")
-			return nil
-		})
+		assertShardIndexDimension(t, shardLike, "targetA", 4, "targetA should be established at 4D")
+		assertShardIndexDimension(t, shardLike, "targetB", 0, "targetB should be uninitialized")
 
 		// Obj 0: targetA=4D, targetB=3D (valid on established A)
 		// Obj 1: targetA=5D, targetB=4D (invalid on established A: 5D != 4D)
@@ -1625,31 +1281,14 @@ func TestShard_BatchDimensionValidation_OrderIndependenceAndFiltering(t *testing
 		assert.Equal(t, `target vector "targetA": dimension mismatch: expected 4, got 5`, errs[1].Error())
 
 		// Obj 0 in LSM, Obj 1 NOT in LSM
-		ret0, err := shardLike.ObjectByID(ctx, obj0.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.NotNil(t, ret0, "obj0 must exist in LSM")
-
-		ret1, err := shardLike.ObjectByID(ctx, obj1.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.Nil(t, ret1, "obj1 must not exist in LSM")
-
-		// targetB is now established at 3D
-		shardLike.WithVectorIndex("targetB", func(vidx VectorIndex) error {
-			assert.Equal(t, 3, vidx.Dimension(), "targetB dimension should be established to 3")
-			return nil
-		})
+		assertObjectExistsInLSM(t, ctx, shardLike, obj0.ID(), true, "obj0 must exist in LSM")
+		assertObjectExistsInLSM(t, ctx, shardLike, obj1.ID(), false, "obj1 must not exist in LSM")
+		assertShardIndexDimension(t, shardLike, "targetB", 3, "targetB dimension should be established to 3")
 	})
 
 	t.Run("superseded duplicate UUIDs in batch with different dimensions on uninitialized collection", func(t *testing.T) {
 		className := "DuplicatesUninitCollection"
-		class := &models.Class{Class: className}
-		vic := hnsw.NewDefaultUserConfig()
-
-		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false)
-		defer func() {
-			require.Nil(t, idx.drop())
-			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
-		}()
+		shardLike, _ := setupSingleVectorShard(t, ctx, className, false)
 
 		// Duplicate UUID with 3D (superseded) and 4D (retained)
 		dupID := strfmt.UUID("11111111-1111-1111-1111-111111111111")
@@ -1667,27 +1306,13 @@ func TestShard_BatchDimensionValidation_OrderIndependenceAndFiltering(t *testing
 		require.NoError(t, errs[1], "retained duplicate should succeed")
 
 		// Retained object in LSM with 4D vector
-		ret, err := shardLike.ObjectByID(ctx, dupID, search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		require.NotNil(t, ret)
-		assert.Equal(t, 4, len(ret.Vector))
-
-		shardLike.WithVectorIndex("", func(vidx VectorIndex) error {
-			assert.Equal(t, 4, vidx.Dimension(), "dimension should be established to 4")
-			return nil
-		})
+		assertObjectExistsInLSM(t, ctx, shardLike, dupID, true)
+		assertShardIndexDimension(t, shardLike, "", 4, "dimension should be established to 4")
 	})
 
 	t.Run("superseded duplicate UUIDs in batch with different dimensions on established collection", func(t *testing.T) {
 		className := "DuplicatesEstablishedCollection"
-		class := &models.Class{Class: className}
-		vic := hnsw.NewDefaultUserConfig()
-
-		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false)
-		defer func() {
-			require.Nil(t, idx.drop())
-			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
-		}()
+		shardLike, _ := setupSingleVectorShard(t, ctx, className, false)
 
 		// Establish dimension = 4
 		r := getRandomSeed()
@@ -1696,10 +1321,7 @@ func TestShard_BatchDimensionValidation_OrderIndependenceAndFiltering(t *testing
 		require.Len(t, errs, 1)
 		require.NoError(t, errs[0])
 
-		shardLike.WithVectorIndex("", func(vidx VectorIndex) error {
-			assert.Equal(t, 4, vidx.Dimension())
-			return nil
-		})
+		assertShardIndexDimension(t, shardLike, "", 4)
 
 		// Batch has superseded duplicate with wrong dim (3D) and retained entry with valid dim (4D)
 		dupID := strfmt.UUID("22222222-2222-2222-2222-222222222222")
@@ -1716,9 +1338,7 @@ func TestShard_BatchDimensionValidation_OrderIndependenceAndFiltering(t *testing
 		require.NoError(t, errs[0], "superseded duplicate should not fail batch")
 		require.NoError(t, errs[1], "retained duplicate should succeed")
 
-		ret, err := shardLike.ObjectByID(ctx, dupID, search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		require.NotNil(t, ret)
+		ret := assertObjectExistsInLSM(t, ctx, shardLike, dupID, true)
 		assert.Equal(t, 4, len(ret.Vector))
 	})
 
@@ -1731,12 +1351,7 @@ func TestShard_BatchDimensionValidation_OrderIndependenceAndFiltering(t *testing
 			},
 		}
 		vic := hnsw.UserConfig{Skip: true}
-
-		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false)
-		defer func() {
-			require.Nil(t, idx.drop())
-			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
-		}()
+		shardLike, _ := setupTestDimensionShard(t, ctx, class, vic, false)
 
 		// Mixed dimensions: 3D, 5D, 4D
 		obj0 := testObject(className)
@@ -1756,9 +1371,7 @@ func TestShard_BatchDimensionValidation_OrderIndependenceAndFiltering(t *testing
 
 		// All 3 objects exist in LSM
 		for _, obj := range []*storobj.Object{obj0, obj1, obj2} {
-			ret, err := shardLike.ObjectByID(ctx, obj.ID(), search.SelectProperties{}, additional.Properties{})
-			require.NoError(t, err)
-			assert.NotNil(t, ret, "object %s must exist in LSM", obj.ID())
+			assertObjectExistsInLSM(t, ctx, shardLike, obj.ID(), true, "object %s must exist in LSM", obj.ID())
 		}
 	})
 
@@ -1778,16 +1391,12 @@ func TestShard_BatchDimensionValidation_OrderIndependenceAndFiltering(t *testing
 			},
 		}
 		vic := hnsw.UserConfig{Distance: "cosine"}
-		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false, func(i *Index) {
+		shardLike, _ := setupTestDimensionShard(t, ctx, class, vic, false, func(i *Index) {
 			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
 				"skippedTarget": hnsw.UserConfig{Skip: true},
 				"activeTarget":  hnsw.NewDefaultUserConfig(),
 			}
 		})
-		defer func() {
-			require.Nil(t, idx.drop())
-			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
-		}()
 
 		// obj0: skippedTarget=3D, activeTarget=4D
 		// obj1: skippedTarget=5D, activeTarget=4D
@@ -1806,19 +1415,11 @@ func TestShard_BatchDimensionValidation_OrderIndependenceAndFiltering(t *testing
 		require.NoError(t, errs[1])
 
 		// Both exist in LSM
-		ret0, err := shardLike.ObjectByID(ctx, obj0.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.NotNil(t, ret0)
-
-		ret1, err := shardLike.ObjectByID(ctx, obj1.ID(), search.SelectProperties{}, additional.Properties{})
-		require.NoError(t, err)
-		assert.NotNil(t, ret1)
+		assertObjectExistsInLSM(t, ctx, shardLike, obj0.ID(), true)
+		assertObjectExistsInLSM(t, ctx, shardLike, obj1.ID(), true)
 
 		// activeTarget dimension established to 4
-		shardLike.WithVectorIndex("activeTarget", func(vidx VectorIndex) error {
-			assert.Equal(t, 4, vidx.Dimension())
-			return nil
-		})
+		assertShardIndexDimension(t, shardLike, "activeTarget", 4)
 	})
 
 	t.Run("skipped vector index in async mode allows mixed dimensions", func(t *testing.T) {
@@ -1830,12 +1431,7 @@ func TestShard_BatchDimensionValidation_OrderIndependenceAndFiltering(t *testing
 			},
 		}
 		vic := hnsw.UserConfig{Skip: true}
-
-		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, true)
-		defer func() {
-			require.Nil(t, idx.drop())
-			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
-		}()
+		shardLike, _ := setupTestDimensionShard(t, ctx, class, vic, true)
 
 		// Mixed dimensions: 3D, 5D
 		obj0 := testObject(className)
@@ -1852,9 +1448,7 @@ func TestShard_BatchDimensionValidation_OrderIndependenceAndFiltering(t *testing
 		waitForVectorQueue(t, shardLike, "")
 
 		for _, obj := range []*storobj.Object{obj0, obj1} {
-			ret, err := shardLike.ObjectByID(ctx, obj.ID(), search.SelectProperties{}, additional.Properties{})
-			require.NoError(t, err)
-			assert.NotNil(t, ret, "object %s must exist in LSM", obj.ID())
+			assertObjectExistsInLSM(t, ctx, shardLike, obj.ID(), true, "object %s must exist in LSM", obj.ID())
 		}
 	})
 }
@@ -1864,10 +1458,7 @@ func TestShard_AtomicDimensionReservation_ConcurrentBatches(t *testing.T) {
 
 	for iter := 0; iter < 10; iter++ {
 		className := fmt.Sprintf("AtomicReservationConcurrent_%d", iter)
-		class := &models.Class{Class: className}
-		vic := hnsw.NewDefaultUserConfig()
-
-		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false)
+		shardLike, _ := setupSingleVectorShard(t, ctx, className, false)
 
 		obj3D := testObject(className)
 		obj3D.Vector = []float32{0.1, 0.2, 0.3}
@@ -1905,43 +1496,20 @@ func TestShard_AtomicDimensionReservation_ConcurrentBatches(t *testing.T) {
 			require.Error(t, errs4D[0])
 			assert.Contains(t, errs4D[0].Error(), "dimension mismatch")
 
-			// 3D in LSM
-			ret3D, err := shardLike.ObjectByID(ctx, obj3D.ID(), search.SelectProperties{}, additional.Properties{})
-			require.NoError(t, err)
-			assert.NotNil(t, ret3D, "winning 3D object must exist in LSM")
-
-			// 4D NOT in LSM (no ghost object)
-			ret4D, err := shardLike.ObjectByID(ctx, obj4D.ID(), search.SelectProperties{}, additional.Properties{})
-			require.NoError(t, err)
-			assert.Nil(t, ret4D, "losing 4D object must NEVER exist in LSM")
-
-			shardLike.WithVectorIndex("", func(vidx VectorIndex) error {
-				assert.Equal(t, 3, vidx.Dimension())
-				return nil
-			})
+			// 3D in LSM, 4D NOT in LSM (no ghost object)
+			assertObjectExistsInLSM(t, ctx, shardLike, obj3D.ID(), true, "winning 3D object must exist in LSM")
+			assertObjectExistsInLSM(t, ctx, shardLike, obj4D.ID(), false, "losing 4D object must NEVER exist in LSM")
+			assertShardIndexDimension(t, shardLike, "", 3)
 		} else {
 			// 4D won
 			require.NoError(t, errs4D[0])
 			require.Error(t, errs3D[0])
 			assert.Contains(t, errs3D[0].Error(), "dimension mismatch")
 
-			// 4D in LSM
-			ret4D, err := shardLike.ObjectByID(ctx, obj4D.ID(), search.SelectProperties{}, additional.Properties{})
-			require.NoError(t, err)
-			assert.NotNil(t, ret4D, "winning 4D object must exist in LSM")
-
-			// 3D NOT in LSM (no ghost object)
-			ret3D, err := shardLike.ObjectByID(ctx, obj3D.ID(), search.SelectProperties{}, additional.Properties{})
-			require.NoError(t, err)
-			assert.Nil(t, ret3D, "losing 3D object must NEVER exist in LSM")
-
-			shardLike.WithVectorIndex("", func(vidx VectorIndex) error {
-				assert.Equal(t, 4, vidx.Dimension())
-				return nil
-			})
+			// 4D in LSM, 3D NOT in LSM (no ghost object)
+			assertObjectExistsInLSM(t, ctx, shardLike, obj4D.ID(), true, "winning 4D object must exist in LSM")
+			assertObjectExistsInLSM(t, ctx, shardLike, obj3D.ID(), false, "losing 3D object must NEVER exist in LSM")
+			assertShardIndexDimension(t, shardLike, "", 4)
 		}
-
-		require.Nil(t, idx.drop())
-		require.Nil(t, os.RemoveAll(idx.Config.RootPath))
 	}
 }

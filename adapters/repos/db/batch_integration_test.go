@@ -44,7 +44,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-func TestBatchPutObjectsWithDimensions(t *testing.T) {
+func setupTestBatchRepo(t *testing.T, opts ...func(*Config)) (*DB, *Migrator, *fakeSchemaGetter) {
+	t.Helper()
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -69,22 +70,72 @@ func TestBatchPutObjectsWithDimensions(t *testing.T) {
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
 	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
 	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-	repo, err := New(logger, "node1", Config{
+	cfg := Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+	}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	repo, err := New(logger, "node1", cfg, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	repo.SetSchemaGetter(schemaGetter)
-	require.Nil(t, repo.WaitForStartup(testCtx()))
+	require.NoError(t, repo.WaitForStartup(testCtx()))
 
-	defer func() {
-		require.Nil(t, repo.Shutdown(context.Background()))
-	}()
+	t.Cleanup(func() {
+		require.NoError(t, repo.Shutdown(context.Background()))
+	})
 	migrator := NewMigrator(repo, logger, "node1")
+	return repo, migrator, schemaGetter
+}
+
+func makeBatchObject(index int, className string, id strfmt.UUID, vec []float32, props map[string]interface{}) objects.BatchObject {
+	return objects.BatchObject{
+		OriginalIndex: index,
+		Object: &models.Object{
+			Class:      className,
+			ID:         id,
+			Vector:     vec,
+			Properties: props,
+		},
+		UUID: id,
+	}
+}
+
+func makeBatchObjectWithVectors(index int, className string, id strfmt.UUID, vectors map[string]models.Vector, props map[string]interface{}) objects.BatchObject {
+	return objects.BatchObject{
+		OriginalIndex: index,
+		Object: &models.Object{
+			Class:      className,
+			ID:         id,
+			Vectors:    vectors,
+			Properties: props,
+		},
+		UUID: id,
+	}
+}
+
+func assertRepoObjectExists(t *testing.T, repo *DB, className string, id strfmt.UUID, shouldExist bool, msgAndArgs ...interface{}) {
+	t.Helper()
+	res, err := repo.Search(context.Background(), dto.GetParams{
+		ClassName:  className,
+		Pagination: &filters.Pagination{Limit: 50},
+	})
+	require.NoError(t, err)
+	_, found := findID(res, id)
+	if shouldExist {
+		assert.True(t, found, msgAndArgs...)
+	} else {
+		assert.False(t, found, msgAndArgs...)
+	}
+}
+
+func TestBatchPutObjectsWithDimensions(t *testing.T) {
+	repo, migrator, schemaGetter := setupTestBatchRepo(t)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
@@ -98,46 +149,7 @@ func TestBatchPutObjectsWithDimensions(t *testing.T) {
 }
 
 func TestBatchPutObjects(t *testing.T) {
-	dirName := t.TempDir()
-
-	logger := logrus.New()
-	shardState := singleShardState()
-	schemaGetter := &fakeSchemaGetter{
-		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: shardState,
-	}
-	mockSchemaReader := local.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
-		class := &models.Class{Class: className}
-		return readFunc(class, shardState)
-	}).Maybe()
-	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
-	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
-	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
-	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
-	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockNodeSelector := cluster.NewMockNodeSelector(t)
-	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-	repo, err := New(logger, "node1", Config{
-		MemtablesFlushDirtyAfter:  60,
-		RootPath:                  dirName,
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-		TrackVectorDimensions:     true,
-	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
-	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
-	require.Nil(t, repo.WaitForStartup(testCtx()))
-
-	defer func() {
-		require.Nil(t, repo.Shutdown(context.Background()))
-	}()
-	migrator := NewMigrator(repo, logger, "node1")
+	repo, migrator, schemaGetter := setupTestBatchRepo(t)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
@@ -146,46 +158,7 @@ func TestBatchPutObjects(t *testing.T) {
 }
 
 func TestBatchPutObjectsWithNamedVectors(t *testing.T) {
-	dirName := t.TempDir()
-
-	logger := logrus.New()
-	shardState := singleShardState()
-	schemaGetter := &fakeSchemaGetter{
-		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: shardState,
-	}
-	mockSchemaReader := local.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
-		class := &models.Class{Class: className}
-		return readFunc(class, shardState)
-	}).Maybe()
-	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
-	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
-	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
-	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
-	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockNodeSelector := cluster.NewMockNodeSelector(t)
-	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-	repo, err := New(logger, "node1", Config{
-		MemtablesFlushDirtyAfter:  60,
-		RootPath:                  dirName,
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-		TrackVectorDimensions:     true,
-	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
-	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
-	require.Nil(t, repo.WaitForStartup(testCtx()))
-
-	defer func() {
-		require.Nil(t, repo.Shutdown(context.Background()))
-	}()
-	migrator := NewMigrator(repo, logger, "node1")
+	repo, migrator, schemaGetter := setupTestBatchRepo(t)
 
 	className := "NamedVectors"
 
@@ -355,46 +328,7 @@ func TestBatchPutObjectsWithNamedVectors(t *testing.T) {
 }
 
 func TestBatchPutObjectsNoVectorsWithDimensions(t *testing.T) {
-	dirName := t.TempDir()
-
-	logger := logrus.New()
-	shardState := singleShardState()
-	schemaGetter := &fakeSchemaGetter{
-		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: shardState,
-	}
-	mockSchemaReader := local.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
-		class := &models.Class{Class: className}
-		return readFunc(class, shardState)
-	}).Maybe()
-	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
-	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
-	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
-	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
-	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockNodeSelector := cluster.NewMockNodeSelector(t)
-	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-	repo, err := New(logger, "node1", Config{
-		MemtablesFlushDirtyAfter:  60,
-		RootPath:                  dirName,
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-		TrackVectorDimensions:     true,
-	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
-	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
-	require.Nil(t, repo.WaitForStartup(testCtx()))
-
-	defer func() {
-		require.Nil(t, repo.Shutdown(context.Background()))
-	}()
-	migrator := NewMigrator(repo, logger, "node1")
+	repo, migrator, schemaGetter := setupTestBatchRepo(t)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
 		schemaGetter))
@@ -409,45 +343,9 @@ func TestBatchPutObjectsNoVectorsWithDimensions(t *testing.T) {
 }
 
 func TestBatchPutObjectsNoVectors(t *testing.T) {
-	dirName := t.TempDir()
-
-	logger := logrus.New()
-	shardState := singleShardState()
-	schemaGetter := &fakeSchemaGetter{
-		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: shardState,
-	}
-	mockSchemaReader := local.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
-		class := &models.Class{Class: className}
-		return readFunc(class, shardState)
-	}).Maybe()
-	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
-	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
-	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
-	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
-	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockNodeSelector := cluster.NewMockNodeSelector(t)
-	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-	repo, err := New(logger, "node1", Config{
-		MemtablesFlushDirtyAfter:  60,
-		RootPath:                  dirName,
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
-	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
-	require.Nil(t, repo.WaitForStartup(testCtx()))
-
-	defer func() {
-		require.Nil(t, repo.Shutdown(context.Background()))
-	}()
-	migrator := NewMigrator(repo, logger, "node1")
+	repo, migrator, schemaGetter := setupTestBatchRepo(t, func(c *Config) {
+		c.TrackVectorDimensions = false
+	})
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
@@ -456,46 +354,9 @@ func TestBatchPutObjectsNoVectors(t *testing.T) {
 
 func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
 	className := "ThingForBatching"
-	dirName := t.TempDir()
-
-	logger := logrus.New()
-	shardState := singleShardState()
-	schemaGetter := &fakeSchemaGetter{
-		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: shardState,
-	}
-	mockSchemaReader := local.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
-		class := &models.Class{Class: className}
-		return readFunc(class, shardState)
-	}).Maybe()
-	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
-	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
-	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
-	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
-	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockNodeSelector := cluster.NewMockNodeSelector(t)
-	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-	repo, err := New(logger, "node1", Config{
-		MemtablesFlushDirtyAfter:  1,
-		RootPath:                  dirName,
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-		TrackVectorDimensions:     true,
-	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
-	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
-	require.Nil(t, repo.WaitForStartup(testCtx()))
-	defer func() {
-		require.Nil(t, repo.Shutdown(context.Background()))
-	}()
-
-	migrator := NewMigrator(repo, logger, "node1")
+	repo, migrator, schemaGetter := setupTestBatchRepo(t, func(c *Config) {
+		c.MemtablesFlushDirtyAfter = 1
+	})
 
 	t.Run("creating the test class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
@@ -553,45 +414,7 @@ func delete2Objects(t *testing.T, repo *DB, className string) {
 }
 
 func TestBatchDeleteObjects(t *testing.T) {
-	dirName := t.TempDir()
-
-	logger := logrus.New()
-	shardState := singleShardState()
-	schemaGetter := &fakeSchemaGetter{
-		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: shardState,
-	}
-	mockSchemaReader := local.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
-		class := &models.Class{Class: className}
-		return readFunc(class, shardState)
-	}).Maybe()
-	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
-	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
-	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
-	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
-	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockNodeSelector := cluster.NewMockNodeSelector(t)
-	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-	repo, err := New(logger, "node1", Config{
-		MemtablesFlushDirtyAfter:  60,
-		RootPath:                  dirName,
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-		TrackVectorDimensions:     true,
-	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
-	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
-	require.Nil(t, repo.WaitForStartup(testCtx()))
-	defer func() {
-		require.Nil(t, repo.Shutdown(context.Background()))
-	}()
-	migrator := NewMigrator(repo, logger, "node1")
+	repo, migrator, schemaGetter := setupTestBatchRepo(t)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
@@ -601,46 +424,9 @@ func TestBatchDeleteObjects(t *testing.T) {
 }
 
 func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
-	dirName := t.TempDir()
-
-	queryMaximumResults := int64(200)
-	logger := logrus.New()
-	shardState := singleShardState()
-	schemaGetter := &fakeSchemaGetter{
-		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: shardState,
-	}
-	mockSchemaReader := local.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
-		class := &models.Class{Class: className}
-		return readFunc(class, shardState)
-	}).Maybe()
-	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
-	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
-	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
-	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
-	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockNodeSelector := cluster.NewMockNodeSelector(t)
-	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-	repo, err := New(logger, "node1", Config{
-		MemtablesFlushDirtyAfter:  60,
-		RootPath:                  dirName,
-		QueryMaximumResults:       queryMaximumResults,
-		MaxImportGoroutinesFactor: 1,
-		TrackVectorDimensions:     true,
-	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
-	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
-	require.Nil(t, repo.WaitForStartup(testCtx()))
-	defer func() {
-		require.Nil(t, repo.Shutdown(context.Background()))
-	}()
-	migrator := NewMigrator(repo, logger, "node1")
+	repo, migrator, schemaGetter := setupTestBatchRepo(t, func(c *Config) {
+		c.QueryMaximumResults = 200
+	})
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
@@ -659,45 +445,7 @@ func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
 }
 
 func TestBatchPutObjects_CollectionPoisoningPrevention(t *testing.T) {
-	dirName := t.TempDir()
-
-	logger := logrus.New()
-	shardState := singleShardState()
-	schemaGetter := &fakeSchemaGetter{
-		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: shardState,
-	}
-	mockSchemaReader := local.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
-		class := &models.Class{Class: className}
-		return readFunc(class, shardState)
-	}).Maybe()
-	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
-	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
-	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
-	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
-	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockNodeSelector := cluster.NewMockNodeSelector(t)
-	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-	repo, err := New(logger, "node1", Config{
-		MemtablesFlushDirtyAfter:  60,
-		RootPath:                  dirName,
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-		TrackVectorDimensions:     true,
-	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
-	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
-	require.Nil(t, repo.WaitForStartup(testCtx()))
-	defer func() {
-		require.Nil(t, repo.Shutdown(context.Background()))
-	}()
-	migrator := NewMigrator(repo, logger, "node1")
+	repo, migrator, schemaGetter := setupTestBatchRepo(t)
 
 	className := "PoisonPreventionBatch"
 	class := &models.Class{
@@ -723,41 +471,9 @@ func TestBatchPutObjects_CollectionPoisoningPrevention(t *testing.T) {
 	id3 := strfmt.UUID("8d5a3aa2-3c8d-4589-9ae1-3f638f506003")
 
 	conflictingBatch := objects.BatchObjects{
-		objects.BatchObject{
-			OriginalIndex: 0,
-			Object: &models.Object{
-				Class:  className,
-				ID:     id1,
-				Vector: []float32{1, 2, 3},
-				Properties: map[string]interface{}{
-					"text": "item 1 with 3D vector",
-				},
-			},
-			UUID: id1,
-		},
-		objects.BatchObject{
-			OriginalIndex: 1,
-			Object: &models.Object{
-				Class:  className,
-				ID:     id2,
-				Vector: []float32{1, 2, 3, 4},
-				Properties: map[string]interface{}{
-					"text": "item 2 with 4D vector",
-				},
-			},
-			UUID: id2,
-		},
-		objects.BatchObject{
-			OriginalIndex: 2,
-			Object: &models.Object{
-				Class: className,
-				ID:    id3,
-				Properties: map[string]interface{}{
-					"text": "item 3 without vector",
-				},
-			},
-			UUID: id3,
-		},
+		makeBatchObject(0, className, id1, []float32{1, 2, 3}, map[string]interface{}{"text": "item 1 with 3D vector"}),
+		makeBatchObject(1, className, id2, []float32{1, 2, 3, 4}, map[string]interface{}{"text": "item 2 with 4D vector"}),
+		makeBatchObject(2, className, id3, nil, map[string]interface{}{"text": "item 3 without vector"}),
 	}
 
 	batchRes, err := repo.BatchPutObjects(context.Background(), conflictingBatch, nil, 0)
@@ -772,18 +488,9 @@ func TestBatchPutObjects_CollectionPoisoningPrevention(t *testing.T) {
 	require.NoError(t, batchRes[2].Err, "non-vectorized object must succeed")
 
 	// Verify LSM: conflicting objects must not be found, non-vectorized object must be found
-	params := dto.GetParams{
-		ClassName:  className,
-		Pagination: &filters.Pagination{Limit: 10},
-	}
-	searchRes, err := repo.Search(context.Background(), params)
-	require.NoError(t, err)
-	_, found1 := findID(searchRes, id1)
-	assert.False(t, found1, "conflicting object 1 must not exist in LSM")
-	_, found2 := findID(searchRes, id2)
-	assert.False(t, found2, "conflicting object 2 must not exist in LSM")
-	_, found3 := findID(searchRes, id3)
-	assert.True(t, found3, "non-vectorized object must exist in LSM")
+	assertRepoObjectExists(t, repo, className, id1, false, "conflicting object 1 must not exist in LSM")
+	assertRepoObjectExists(t, repo, className, id2, false, "conflicting object 2 must not exist in LSM")
+	assertRepoObjectExists(t, repo, className, id3, true, "non-vectorized object must exist in LSM")
 
 	// Dimensions must remain 0
 	dimAfterPoison := getDimensionsFromRepo(context.Background(), repo, className)
@@ -793,30 +500,8 @@ func TestBatchPutObjects_CollectionPoisoningPrevention(t *testing.T) {
 	subId1 := strfmt.UUID("8d5a3aa2-3c8d-4589-9ae1-3f638f506004")
 	subId2 := strfmt.UUID("8d5a3aa2-3c8d-4589-9ae1-3f638f506005")
 	validBatch := objects.BatchObjects{
-		objects.BatchObject{
-			OriginalIndex: 0,
-			Object: &models.Object{
-				Class:  className,
-				ID:     subId1,
-				Vector: []float32{1, 2, 3, 4},
-				Properties: map[string]interface{}{
-					"text": "valid item 1",
-				},
-			},
-			UUID: subId1,
-		},
-		objects.BatchObject{
-			OriginalIndex: 1,
-			Object: &models.Object{
-				Class:  className,
-				ID:     subId2,
-				Vector: []float32{5, 6, 7, 8},
-				Properties: map[string]interface{}{
-					"text": "valid item 2",
-				},
-			},
-			UUID: subId2,
-		},
+		makeBatchObject(0, className, subId1, []float32{1, 2, 3, 4}, map[string]interface{}{"text": "valid item 1"}),
+		makeBatchObject(1, className, subId2, []float32{5, 6, 7, 8}, map[string]interface{}{"text": "valid item 2"}),
 	}
 
 	validRes, err := repo.BatchPutObjects(context.Background(), validBatch, nil, 0)
@@ -824,6 +509,9 @@ func TestBatchPutObjects_CollectionPoisoningPrevention(t *testing.T) {
 	require.Len(t, validRes, 2)
 	require.NoError(t, validRes[0].Err)
 	require.NoError(t, validRes[1].Err)
+
+	assertRepoObjectExists(t, repo, className, subId1, true, "subsequent object 1 must exist in LSM")
+	assertRepoObjectExists(t, repo, className, subId2, true, "subsequent object 2 must exist in LSM")
 
 	// Dimension is now established to 8 (2 objects * 4 dim)
 	dimFinal := getDimensionsFromRepo(context.Background(), repo, className)
@@ -839,45 +527,11 @@ func TestBatchPutObjects_CollectionPoisoningPrevention(t *testing.T) {
 }
 
 func TestBatchDeleteObjects_Journey(t *testing.T) {
-	dirName := t.TempDir()
-
 	queryMaximumResults := int64(20)
-	logger := logrus.New()
-	shardState := singleShardState()
-	schemaGetter := &fakeSchemaGetter{
-		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: shardState,
-	}
-	mockSchemaReader := local.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
-		class := &models.Class{Class: className}
-		return readFunc(class, shardState)
-	}).Maybe()
-	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
-	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
-	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
-	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
-	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockNodeSelector := cluster.NewMockNodeSelector(t)
-	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-	repo, err := New(logger, "node1", Config{
-		MemtablesFlushDirtyAfter:  60,
-		RootPath:                  dirName,
-		QueryMaximumResults:       queryMaximumResults,
-		MaxImportGoroutinesFactor: 1,
-	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
-	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
-	require.Nil(t, repo.WaitForStartup(testCtx()))
-	defer func() {
-		require.Nil(t, repo.Shutdown(context.Background()))
-	}()
-	migrator := NewMigrator(repo, logger, "node1")
+	repo, migrator, schemaGetter := setupTestBatchRepo(t, func(c *Config) {
+		c.QueryMaximumResults = queryMaximumResults
+		c.TrackVectorDimensions = false
+	})
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
 		schemaGetter))
@@ -1843,64 +1497,14 @@ func matchesInUUIDLists(control []strfmt.UUID, results []strfmt.UUID) int {
 }
 
 func TestBatchPutObjects_EstablishedCollection_DimensionMismatch(t *testing.T) {
-	dirName := t.TempDir()
-
-	logger := logrus.New()
-	shardState := singleShardState()
-	schemaGetter := &fakeSchemaGetter{
-		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: shardState,
-	}
-	mockSchemaReader := local.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
-		class := &models.Class{Class: className}
-		return readFunc(class, shardState)
-	}).Maybe()
-	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
-	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
-	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
-	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
-	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockNodeSelector := cluster.NewMockNodeSelector(t)
-	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-	repo, err := New(logger, "node1", Config{
-		MemtablesFlushDirtyAfter:  60,
-		RootPath:                  dirName,
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-		TrackVectorDimensions:     true,
-	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
-	require.NoError(t, err)
-	repo.SetSchemaGetter(schemaGetter)
-	require.NoError(t, repo.WaitForStartup(testCtx()))
-
-	defer func() {
-		require.NoError(t, repo.Shutdown(context.Background()))
-	}()
-	migrator := NewMigrator(repo, logger, "node1")
+	repo, migrator, schemaGetter := setupTestBatchRepo(t)
 
 	testAddBatchObjectClass(repo, migrator, schemaGetter)(t)
 
 	// Step 1: Establish dimension = 3 with initial batch
 	validID1 := strfmt.UUID("8d5a3aa2-3c8d-4589-9ae1-3f638f506970")
 	initialBatch := objects.BatchObjects{
-		{
-			OriginalIndex: 0,
-			Object: &models.Object{
-				Class: "ThingForBatching",
-				Properties: map[string]interface{}{
-					"stringProp": "initial element",
-				},
-				ID:     validID1,
-				Vector: []float32{1, 2, 3},
-			},
-			UUID: validID1,
-		},
+		makeBatchObject(0, "ThingForBatching", validID1, []float32{1, 2, 3}, map[string]interface{}{"stringProp": "initial element"}),
 	}
 	batchRes, err := repo.BatchPutObjects(context.Background(), initialBatch, nil, 0)
 	require.NoError(t, err)
@@ -1911,42 +1515,9 @@ func TestBatchPutObjects_EstablishedCollection_DimensionMismatch(t *testing.T) {
 	invalidID1 := strfmt.UUID("90ade18e-2b99-4903-aa34-1d5d648c932d")
 	invalidID2 := strfmt.UUID("79aebd44-7486-4fed-9334-3a74cc09a1c3")
 	mixedBatch := objects.BatchObjects{
-		{
-			OriginalIndex: 0,
-			Object: &models.Object{
-				Class: "ThingForBatching",
-				Properties: map[string]interface{}{
-					"stringProp": "valid element 2",
-				},
-				ID:     validID2,
-				Vector: []float32{4, 5, 6},
-			},
-			UUID: validID2,
-		},
-		{
-			OriginalIndex: 1,
-			Object: &models.Object{
-				Class: "ThingForBatching",
-				Properties: map[string]interface{}{
-					"stringProp": "invalid element 1 (dim 4)",
-				},
-				ID:     invalidID1,
-				Vector: []float32{1, 2, 3, 4},
-			},
-			UUID: invalidID1,
-		},
-		{
-			OriginalIndex: 2,
-			Object: &models.Object{
-				Class: "ThingForBatching",
-				Properties: map[string]interface{}{
-					"stringProp": "invalid element 2 (dim 2)",
-				},
-				ID:     invalidID2,
-				Vector: []float32{1, 2},
-			},
-			UUID: invalidID2,
-		},
+		makeBatchObject(0, "ThingForBatching", validID2, []float32{4, 5, 6}, map[string]interface{}{"stringProp": "valid element 2"}),
+		makeBatchObject(1, "ThingForBatching", invalidID1, []float32{1, 2, 3, 4}, map[string]interface{}{"stringProp": "invalid element 1 (dim 4)"}),
+		makeBatchObject(2, "ThingForBatching", invalidID2, []float32{1, 2}, map[string]interface{}{"stringProp": "invalid element 2 (dim 2)"}),
 	}
 
 	batchRes, err = repo.BatchPutObjects(context.Background(), mixedBatch, nil, 0)
@@ -1989,18 +1560,7 @@ func TestBatchPutObjects_EstablishedCollection_DimensionMismatch(t *testing.T) {
 	// Step 5: Subsequent valid batch succeeds
 	validID3 := strfmt.UUID("1c2d8ce6-32da-4081-9794-a81e23e673e4")
 	subsequentBatch := objects.BatchObjects{
-		{
-			OriginalIndex: 0,
-			Object: &models.Object{
-				Class: "ThingForBatching",
-				Properties: map[string]interface{}{
-					"stringProp": "subsequent valid element",
-				},
-				ID:     validID3,
-				Vector: []float32{7, 8, 9},
-			},
-			UUID: validID3,
-		},
+		makeBatchObject(0, "ThingForBatching", validID3, []float32{7, 8, 9}, map[string]interface{}{"stringProp": "subsequent valid element"}),
 	}
 	subsequentRes, err := repo.BatchPutObjects(context.Background(), subsequentBatch, nil, 0)
 	require.NoError(t, err)
@@ -2008,46 +1568,7 @@ func TestBatchPutObjects_EstablishedCollection_DimensionMismatch(t *testing.T) {
 }
 
 func TestBatchPutObjects_NamedVectors_DimensionValidation(t *testing.T) {
-	dirName := t.TempDir()
-
-	logger := logrus.New()
-	shardState := singleShardState()
-	schemaGetter := &fakeSchemaGetter{
-		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: shardState,
-	}
-	mockSchemaReader := local.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
-		class := &models.Class{Class: className}
-		return readFunc(class, shardState)
-	}).Maybe()
-	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
-	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
-	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
-	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
-	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockNodeSelector := cluster.NewMockNodeSelector(t)
-	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-	repo, err := New(logger, "node1", Config{
-		MemtablesFlushDirtyAfter:  60,
-		RootPath:                  dirName,
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-		TrackVectorDimensions:     true,
-	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
-	require.NoError(t, err)
-	repo.SetSchemaGetter(schemaGetter)
-	require.NoError(t, repo.WaitForStartup(testCtx()))
-
-	defer func() {
-		require.NoError(t, repo.Shutdown(context.Background()))
-	}()
-	migrator := NewMigrator(repo, logger, "node1")
+	repo, migrator, schemaGetter := setupTestBatchRepo(t)
 
 	className := "NamedVectorsBatchTest"
 	class := &models.Class{
@@ -2077,18 +1598,10 @@ func TestBatchPutObjects_NamedVectors_DimensionValidation(t *testing.T) {
 	// Step 1: Establish dimensions = 3 for custom1 and 4 for custom2
 	initID := strfmt.UUID("8d5a3aa2-3c8d-4589-9ae1-3f638f506001")
 	initBatch := objects.BatchObjects{
-		{
-			OriginalIndex: 0,
-			Object: &models.Object{
-				Class: className,
-				ID:    initID,
-				Vectors: models.Vectors{
-					"custom1": []float32{1, 2, 3},
-					"custom2": []float32{1, 2, 3, 4},
-				},
-			},
-			UUID: initID,
-		},
+		makeBatchObjectWithVectors(0, className, initID, models.Vectors{
+			"custom1": []float32{1, 2, 3},
+			"custom2": []float32{1, 2, 3, 4},
+		}, nil),
 	}
 	initRes, err := repo.BatchPutObjects(context.Background(), initBatch, nil, 0)
 	require.NoError(t, err)
@@ -2098,30 +1611,14 @@ func TestBatchPutObjects_NamedVectors_DimensionValidation(t *testing.T) {
 	validID := strfmt.UUID("8d5a3aa2-3c8d-4589-9ae1-3f638f506002")
 	invalidID := strfmt.UUID("8d5a3aa2-3c8d-4589-9ae1-3f638f506003")
 	mixedBatch := objects.BatchObjects{
-		{
-			OriginalIndex: 0,
-			Object: &models.Object{
-				Class: className,
-				ID:    validID,
-				Vectors: models.Vectors{
-					"custom1": []float32{4, 5, 6},
-					"custom2": []float32{5, 6, 7, 8},
-				},
-			},
-			UUID: validID,
-		},
-		{
-			OriginalIndex: 1,
-			Object: &models.Object{
-				Class: className,
-				ID:    invalidID,
-				Vectors: models.Vectors{
-					"custom1": []float32{4, 5, 6},
-					"custom2": []float32{5, 6, 7}, // 3D != 4D
-				},
-			},
-			UUID: invalidID,
-		},
+		makeBatchObjectWithVectors(0, className, validID, models.Vectors{
+			"custom1": []float32{4, 5, 6},
+			"custom2": []float32{5, 6, 7, 8},
+		}, nil),
+		makeBatchObjectWithVectors(1, className, invalidID, models.Vectors{
+			"custom1": []float32{4, 5, 6},
+			"custom2": []float32{5, 6, 7}, // 3D != 4D
+		}, nil),
 	}
 
 	batchRes, err := repo.BatchPutObjects(context.Background(), mixedBatch, nil, 0)
@@ -2143,46 +1640,7 @@ func TestBatchPutObjects_NamedVectors_DimensionValidation(t *testing.T) {
 }
 
 func TestBatchPutObjects_MultiVectors_DimensionValidation(t *testing.T) {
-	dirName := t.TempDir()
-
-	logger := logrus.New()
-	shardState := singleShardState()
-	schemaGetter := &fakeSchemaGetter{
-		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: shardState,
-	}
-	mockSchemaReader := local.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
-		class := &models.Class{Class: className}
-		return readFunc(class, shardState)
-	}).Maybe()
-	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
-	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
-	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
-	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
-	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockNodeSelector := cluster.NewMockNodeSelector(t)
-	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-	repo, err := New(logger, "node1", Config{
-		MemtablesFlushDirtyAfter:  60,
-		RootPath:                  dirName,
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-		TrackVectorDimensions:     true,
-	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
-	require.NoError(t, err)
-	repo.SetSchemaGetter(schemaGetter)
-	require.NoError(t, repo.WaitForStartup(testCtx()))
-
-	defer func() {
-		require.NoError(t, repo.Shutdown(context.Background()))
-	}()
-	migrator := NewMigrator(repo, logger, "node1")
+	repo, migrator, schemaGetter := setupTestBatchRepo(t)
 
 	className := "MultiVectorsBatchTest"
 	class := &models.Class{
@@ -2208,20 +1666,12 @@ func TestBatchPutObjects_MultiVectors_DimensionValidation(t *testing.T) {
 	// Test 1: Inconsistent token lengths rejected before LSM
 	badTokenID := strfmt.UUID("8d5a3aa2-3c8d-4589-9ae1-3f638f506001")
 	badBatch := objects.BatchObjects{
-		{
-			OriginalIndex: 0,
-			Object: &models.Object{
-				Class: className,
-				ID:    badTokenID,
-				Vectors: models.Vectors{
-					"colbert": [][]float32{
-						{1, 2, 3},
-						{4, 5}, // 2D != 3D
-					},
-				},
+		makeBatchObjectWithVectors(0, className, badTokenID, models.Vectors{
+			"colbert": [][]float32{
+				{1, 2, 3},
+				{4, 5}, // 2D != 3D
 			},
-			UUID: badTokenID,
-		},
+		}, nil),
 	}
 	badRes, err := repo.BatchPutObjects(context.Background(), badBatch, nil, 0)
 	require.NoError(t, err)
@@ -2235,20 +1685,12 @@ func TestBatchPutObjects_MultiVectors_DimensionValidation(t *testing.T) {
 	// Test 2: Establish dimension = 3 and verify dimension mismatch rejection
 	initID := strfmt.UUID("8d5a3aa2-3c8d-4589-9ae1-3f638f506002")
 	initBatch := objects.BatchObjects{
-		{
-			OriginalIndex: 0,
-			Object: &models.Object{
-				Class: className,
-				ID:    initID,
-				Vectors: models.Vectors{
-					"colbert": [][]float32{
-						{1, 2, 3},
-						{4, 5, 6},
-					},
-				},
+		makeBatchObjectWithVectors(0, className, initID, models.Vectors{
+			"colbert": [][]float32{
+				{1, 2, 3},
+				{4, 5, 6},
 			},
-			UUID: initID,
-		},
+		}, nil),
 	}
 	initRes, err := repo.BatchPutObjects(context.Background(), initBatch, nil, 0)
 	require.NoError(t, err)
@@ -2257,32 +1699,16 @@ func TestBatchPutObjects_MultiVectors_DimensionValidation(t *testing.T) {
 	validID := strfmt.UUID("8d5a3aa2-3c8d-4589-9ae1-3f638f506003")
 	mismatchID := strfmt.UUID("8d5a3aa2-3c8d-4589-9ae1-3f638f506004")
 	mixedBatch := objects.BatchObjects{
-		{
-			OriginalIndex: 0,
-			Object: &models.Object{
-				Class: className,
-				ID:    validID,
-				Vectors: models.Vectors{
-					"colbert": [][]float32{
-						{7, 8, 9},
-					},
-				},
+		makeBatchObjectWithVectors(0, className, validID, models.Vectors{
+			"colbert": [][]float32{
+				{7, 8, 9},
 			},
-			UUID: validID,
-		},
-		{
-			OriginalIndex: 1,
-			Object: &models.Object{
-				Class: className,
-				ID:    mismatchID,
-				Vectors: models.Vectors{
-					"colbert": [][]float32{
-						{1, 2, 3, 4}, // 4D != 3D
-					},
-				},
+		}, nil),
+		makeBatchObjectWithVectors(1, className, mismatchID, models.Vectors{
+			"colbert": [][]float32{
+				{1, 2, 3, 4}, // 4D != 3D
 			},
-			UUID: mismatchID,
-		},
+		}, nil),
 	}
 
 	batchRes, err := repo.BatchPutObjects(context.Background(), mixedBatch, nil, 0)
