@@ -141,6 +141,15 @@ func (i *HNSWIndex) Build() error {
 	return nil
 }
 
+// restoreSingle reinstates the single posting recorded before a restart.
+func (i *HNSWIndex) restoreSingle(id uint64, centroid []float32) {
+	i.singleMu.Lock()
+	defer i.singleMu.Unlock()
+	i.singleID = id
+	i.singleCentroid = centroid
+	i.counter.Store(1)
+}
+
 // Built reports whether the centroid graph exists.
 func (i *HNSWIndex) Built() bool {
 	return i.hnsw.Load() != nil

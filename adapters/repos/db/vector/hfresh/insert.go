@@ -192,6 +192,12 @@ func (h *HFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultSe
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to upsert new centroid %d", postingID)
 		}
+		if !h.Centroids.Built() {
+			err = h.IndexMetadata.SetSinglePosting(postingID, v)
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to persist single posting %d", postingID)
+			}
+		}
 		// return the new posting ID
 		targets = NewResultSet(1)
 		targets.data = append(targets.data, Result{ID: postingID, Distance: 0})
@@ -245,6 +251,10 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 			err = h.Centroids.Build()
 			if err != nil {
 				return false, errors.Wrap(err, "build centroid index")
+			}
+			err = h.IndexMetadata.SetCentroidsBuilt()
+			if err != nil {
+				return false, errors.Wrap(err, "persist centroid index built flag")
 			}
 		}
 
