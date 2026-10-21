@@ -168,7 +168,7 @@ func (m *Manager) getObjectsFromRepo(ctx context.Context,
 		return nil, NewErrInternal("list objects: after parameter not allowed, cursor must be specific to one class, set class query param")
 	}
 	res, err := m.vectorRepo.ObjectSearch(ctx, smartOffset, smartLimit,
-		nil, m.getSort(sort, order), additional, tenant)
+		nil, m.getSort(sort, order), withVectorForModuleParams(additional), tenant)
 	if err != nil {
 		return nil, NewErrInternal("list objects: %w", err)
 	}
@@ -273,4 +273,15 @@ func (m *Manager) getCursor(after *string, limit *int64) *filters.Cursor {
 		return &filters.Cursor{After: *after, Limit: int(*limit)}
 	}
 	return nil
+}
+
+// withVectorForModuleParams makes a search load the vectors if a module
+// additional prop is requested: the module may compute it from the vector, and
+// objects of remote shards only carry it if it is requested. The caller keeps
+// its own props to decide whether the vector is returned to the user.
+func withVectorForModuleParams(props additional.Properties) additional.Properties {
+	if len(props.ModuleParams) > 0 {
+		props.Vector = true
+	}
+	return props
 }
