@@ -2006,3 +2006,296 @@ func TestBatchPutObjects_EstablishedCollection_DimensionMismatch(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, subsequentRes[0].Err)
 }
+
+func TestBatchPutObjects_NamedVectors_DimensionValidation(t *testing.T) {
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	shardState := singleShardState()
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: shardState,
+	}
+	mockSchemaReader := local.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
+		MemtablesFlushDirtyAfter:  60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
+	require.NoError(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.NoError(t, repo.WaitForStartup(testCtx()))
+
+	defer func() {
+		require.NoError(t, repo.Shutdown(context.Background()))
+	}()
+	migrator := NewMigrator(repo, logger, "node1")
+
+	className := "NamedVectorsBatchTest"
+	class := &models.Class{
+		Class: className,
+		VectorConfig: map[string]models.VectorConfig{
+			"custom1": {
+				VectorIndexType:   "hnsw",
+				VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
+			},
+			"custom2": {
+				VectorIndexType:   "hnsw",
+				VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
+			},
+		},
+		InvertedIndexConfig: invertedConfig(),
+		Properties: []*models.Property{
+			{
+				Name:         "text",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+			},
+		},
+	}
+	require.NoError(t, migrator.AddClass(context.Background(), class))
+	schemaGetter.schema.Objects = &models.Schema{Classes: []*models.Class{class}}
+
+	// Step 1: Establish dimensions = 3 for custom1 and 4 for custom2
+	initID := strfmt.UUID("8d5a3aa2-3c8d-4589-9ae1-3f638f506001")
+	initBatch := objects.BatchObjects{
+		{
+			OriginalIndex: 0,
+			Object: &models.Object{
+				Class: className,
+				ID:    initID,
+				Vectors: models.Vectors{
+					"custom1": []float32{1, 2, 3},
+					"custom2": []float32{1, 2, 3, 4},
+				},
+			},
+			UUID: initID,
+		},
+	}
+	initRes, err := repo.BatchPutObjects(context.Background(), initBatch, nil, 0)
+	require.NoError(t, err)
+	require.NoError(t, initRes[0].Err)
+
+	// Step 2: Batch containing valid object and object with mismatch on custom2
+	validID := strfmt.UUID("8d5a3aa2-3c8d-4589-9ae1-3f638f506002")
+	invalidID := strfmt.UUID("8d5a3aa2-3c8d-4589-9ae1-3f638f506003")
+	mixedBatch := objects.BatchObjects{
+		{
+			OriginalIndex: 0,
+			Object: &models.Object{
+				Class: className,
+				ID:    validID,
+				Vectors: models.Vectors{
+					"custom1": []float32{4, 5, 6},
+					"custom2": []float32{5, 6, 7, 8},
+				},
+			},
+			UUID: validID,
+		},
+		{
+			OriginalIndex: 1,
+			Object: &models.Object{
+				Class: className,
+				ID:    invalidID,
+				Vectors: models.Vectors{
+					"custom1": []float32{4, 5, 6},
+					"custom2": []float32{5, 6, 7}, // 3D != 4D
+				},
+			},
+			UUID: invalidID,
+		},
+	}
+
+	batchRes, err := repo.BatchPutObjects(context.Background(), mixedBatch, nil, 0)
+	require.NoError(t, err)
+	require.Len(t, batchRes, 2)
+
+	require.NoError(t, batchRes[0].Err)
+	require.Error(t, batchRes[1].Err)
+	assert.Equal(t, `target vector "custom2": dimension mismatch: expected 4, got 3`, batchRes[1].Err.Error())
+
+	// Step 3: Verify LSM storage
+	validObj, err := repo.ObjectByID(context.Background(), validID, search.SelectProperties{}, additional.Properties{}, "")
+	require.NoError(t, err)
+	assert.NotNil(t, validObj, "valid object must exist in storage")
+
+	invalidObj, err := repo.ObjectByID(context.Background(), invalidID, search.SelectProperties{}, additional.Properties{}, "")
+	require.NoError(t, err)
+	assert.Nil(t, invalidObj, "rejected object must not exist in storage")
+}
+
+func TestBatchPutObjects_MultiVectors_DimensionValidation(t *testing.T) {
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	shardState := singleShardState()
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: shardState,
+	}
+	mockSchemaReader := local.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+		class := &models.Class{Class: className}
+		return readFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	repo, err := New(logger, "node1", Config{
+		MemtablesFlushDirtyAfter:  60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
+	require.NoError(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.NoError(t, repo.WaitForStartup(testCtx()))
+
+	defer func() {
+		require.NoError(t, repo.Shutdown(context.Background()))
+	}()
+	migrator := NewMigrator(repo, logger, "node1")
+
+	className := "MultiVectorsBatchTest"
+	class := &models.Class{
+		Class: className,
+		VectorConfig: map[string]models.VectorConfig{
+			"colbert": {
+				VectorIndexType:   "hnsw",
+				VectorIndexConfig: enthnsw.NewDefaultMultiVectorUserConfig(),
+			},
+		},
+		InvertedIndexConfig: invertedConfig(),
+		Properties: []*models.Property{
+			{
+				Name:         "text",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+			},
+		},
+	}
+	require.NoError(t, migrator.AddClass(context.Background(), class))
+	schemaGetter.schema.Objects = &models.Schema{Classes: []*models.Class{class}}
+
+	// Test 1: Inconsistent token lengths rejected before LSM
+	badTokenID := strfmt.UUID("8d5a3aa2-3c8d-4589-9ae1-3f638f506001")
+	badBatch := objects.BatchObjects{
+		{
+			OriginalIndex: 0,
+			Object: &models.Object{
+				Class: className,
+				ID:    badTokenID,
+				Vectors: models.Vectors{
+					"colbert": [][]float32{
+						{1, 2, 3},
+						{4, 5}, // 2D != 3D
+					},
+				},
+			},
+			UUID: badTokenID,
+		},
+	}
+	badRes, err := repo.BatchPutObjects(context.Background(), badBatch, nil, 0)
+	require.NoError(t, err)
+	require.Error(t, badRes[0].Err)
+	assert.Equal(t, `target vector "colbert": multi vector array consists of vectors with varying dimensions`, badRes[0].Err.Error())
+
+	badObj, err := repo.ObjectByID(context.Background(), badTokenID, search.SelectProperties{}, additional.Properties{}, "")
+	require.NoError(t, err)
+	assert.Nil(t, badObj, "object with inconsistent tokens must not exist in storage")
+
+	// Test 2: Establish dimension = 3 and verify dimension mismatch rejection
+	initID := strfmt.UUID("8d5a3aa2-3c8d-4589-9ae1-3f638f506002")
+	initBatch := objects.BatchObjects{
+		{
+			OriginalIndex: 0,
+			Object: &models.Object{
+				Class: className,
+				ID:    initID,
+				Vectors: models.Vectors{
+					"colbert": [][]float32{
+						{1, 2, 3},
+						{4, 5, 6},
+					},
+				},
+			},
+			UUID: initID,
+		},
+	}
+	initRes, err := repo.BatchPutObjects(context.Background(), initBatch, nil, 0)
+	require.NoError(t, err)
+	require.NoError(t, initRes[0].Err)
+
+	validID := strfmt.UUID("8d5a3aa2-3c8d-4589-9ae1-3f638f506003")
+	mismatchID := strfmt.UUID("8d5a3aa2-3c8d-4589-9ae1-3f638f506004")
+	mixedBatch := objects.BatchObjects{
+		{
+			OriginalIndex: 0,
+			Object: &models.Object{
+				Class: className,
+				ID:    validID,
+				Vectors: models.Vectors{
+					"colbert": [][]float32{
+						{7, 8, 9},
+					},
+				},
+			},
+			UUID: validID,
+		},
+		{
+			OriginalIndex: 1,
+			Object: &models.Object{
+				Class: className,
+				ID:    mismatchID,
+				Vectors: models.Vectors{
+					"colbert": [][]float32{
+						{1, 2, 3, 4}, // 4D != 3D
+					},
+				},
+			},
+			UUID: mismatchID,
+		},
+	}
+
+	batchRes, err := repo.BatchPutObjects(context.Background(), mixedBatch, nil, 0)
+	require.NoError(t, err)
+	require.NoError(t, batchRes[0].Err)
+	require.Error(t, batchRes[1].Err)
+	assert.Equal(t, `target vector "colbert": dimension mismatch: expected 3, got 4`, batchRes[1].Err.Error())
+
+	validObj, err := repo.ObjectByID(context.Background(), validID, search.SelectProperties{}, additional.Properties{}, "")
+	require.NoError(t, err)
+	assert.NotNil(t, validObj, "valid object must exist in storage")
+
+	mismatchObj, err := repo.ObjectByID(context.Background(), mismatchID, search.SelectProperties{}, additional.Properties{}, "")
+	require.NoError(t, err)
+	assert.Nil(t, mismatchObj, "mismatched object must not exist in storage")
+}

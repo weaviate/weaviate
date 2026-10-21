@@ -304,6 +304,9 @@ func (h *HFresh) AddMulti(ctx context.Context, docID uint64, vectors [][]float32
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if err := h.ValidateMultiBeforeInsert(vectors); err != nil {
+		return err
+	}
 	if len(vectors) == 0 || len(vectors[0]) == 0 {
 		return errors.New("multi-vector cannot be empty")
 	}
@@ -351,6 +354,29 @@ func (h *HFresh) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][
 		return errors.Errorf("addMultiBatch called with empty lists")
 	}
 
+	muveraDims := h.muveraEncoder.Dimensions()
+	if muveraDims > 0 {
+		for _, doc := range vectors {
+			for _, vec := range doc {
+				if len(vec) != muveraDims {
+					return errors.Wrapf(common.ErrWrongDimensions, "new node has a multi-vector with dimension %d. "+
+						"Existing nodes have dimensions %d", len(vec), muveraDims)
+				}
+			}
+		}
+	} else {
+		firstDim := -1
+		for _, doc := range vectors {
+			for _, vec := range doc {
+				if firstDim == -1 {
+					firstDim = len(vec)
+				} else if len(vec) != firstDim {
+					return errors.Wrapf(common.ErrWrongDimensions, "addMultiBatch called with vectors of different lengths: got %d, expected %d", len(vec), firstDim)
+				}
+			}
+		}
+	}
+
 	for i, docID := range docIDs {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -384,7 +410,7 @@ func (h *HFresh) ValidateMultiBeforeInsert(vectors [][]float32) error {
 	}
 
 	if muveraDims := h.muveraEncoder.Dimensions(); muveraDims != 0 && firstDim != muveraDims {
-		return fmt.Errorf("new node has a multi-vector with dimension %d. "+
+		return errors.Wrapf(common.ErrWrongDimensions, "new node has a multi-vector with dimension %d. "+
 			"Existing nodes have dimensions %d", firstDim, muveraDims)
 	}
 
@@ -422,5 +448,8 @@ func (h *HFresh) ValidateBeforeInsert(vector []float32) error {
 }
 
 func (h *HFresh) Dimension() int {
+	if h.muvera.Load() {
+		return h.muveraEncoder.Dimensions()
+	}
 	return int(atomic.LoadUint32(&h.dims))
 }

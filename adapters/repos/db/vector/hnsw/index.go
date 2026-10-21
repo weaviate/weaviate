@@ -1025,6 +1025,9 @@ func (h *hnsw) Multivector() bool {
 }
 
 func (h *hnsw) Dimension() int {
+	if h.muvera.Load() {
+		return h.muveraEncoder.Dimensions()
+	}
 	return int(h.dims.Load())
 }
 

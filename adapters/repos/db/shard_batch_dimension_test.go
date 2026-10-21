@@ -571,3 +571,393 @@ func setupTestMultiTenantShards(t testing.TB, ctx context.Context, class *models
 
 	return shards, idx
 }
+
+func createNamedVectorObject(className string, vectors map[string][]float32) *storobj.Object {
+	obj := testObject(className)
+	obj.Vectors = vectors
+	return obj
+}
+
+func createMultiVectorObject(className string, multiVectors map[string][][]float32) *storobj.Object {
+	obj := testObject(className)
+	obj.MultiVectors = multiVectors
+	return obj
+}
+
+func TestShard_BatchDimensionValidation_NamedVectors(t *testing.T) {
+	ctx := testCtx()
+
+	t.Run("established collection with named vectors", func(t *testing.T) {
+		className := "NamedVectorsEstablished"
+		class := &models.Class{
+			Class: className,
+			VectorConfig: map[string]models.VectorConfig{
+				"target1": {VectorIndexType: hnsw.NewDefaultUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultUserConfig()},
+				"target2": {VectorIndexType: hnsw.NewDefaultUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultUserConfig()},
+			},
+		}
+		vic := hnsw.UserConfig{Distance: "cosine"}
+		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false, func(i *Index) {
+			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+				"target1": hnsw.NewDefaultUserConfig(),
+				"target2": hnsw.NewDefaultUserConfig(),
+			}
+		})
+		defer func() {
+			require.Nil(t, idx.drop())
+			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+		}()
+
+		// Step 1: Establish dimensions = 4 for target1 and target2 with an initial batch
+		initialObj := createNamedVectorObject(className, map[string][]float32{
+			"target1": {0.1, 0.2, 0.3, 0.4},
+			"target2": {0.5, 0.6, 0.7, 0.8},
+		})
+		errs := shardLike.PutObjectBatch(ctx, []*storobj.Object{initialObj})
+		require.Len(t, errs, 1)
+		require.NoError(t, errs[0])
+
+		shardLike.WithVectorIndex("target1", func(vidx VectorIndex) error {
+			assert.Equal(t, 4, vidx.Dimension())
+			return nil
+		})
+		shardLike.WithVectorIndex("target2", func(vidx VectorIndex) error {
+			assert.Equal(t, 4, vidx.Dimension())
+			return nil
+		})
+
+		// Step 2: Batch containing:
+		// - Obj 0: Valid on both target1 (4D) and target2 (4D)
+		// - Obj 1: Valid on target1 (4D), INVALID on target2 (3D)
+		// - Obj 2: INVALID on target1 (5D), valid on target2 (4D)
+		objValid := createNamedVectorObject(className, map[string][]float32{
+			"target1": {0.1, 0.2, 0.3, 0.4},
+			"target2": {0.5, 0.6, 0.7, 0.8},
+		})
+		objBadTarget2 := createNamedVectorObject(className, map[string][]float32{
+			"target1": {0.1, 0.2, 0.3, 0.4},
+			"target2": {0.5, 0.6, 0.7}, // 3D != 4D
+		})
+		objBadTarget1 := createNamedVectorObject(className, map[string][]float32{
+			"target1": {0.1, 0.2, 0.3, 0.4, 0.5}, // 5D != 4D
+			"target2": {0.5, 0.6, 0.7, 0.8},
+		})
+
+		batch := []*storobj.Object{objValid, objBadTarget2, objBadTarget1}
+		batchErrs := shardLike.PutObjectBatch(ctx, batch)
+		require.Len(t, batchErrs, 3)
+
+		// Obj 0 must succeed
+		require.NoError(t, batchErrs[0])
+
+		// Obj 1 must fail with target2 dimension mismatch
+		require.Error(t, batchErrs[1])
+		assert.Equal(t, `target vector "target2": dimension mismatch: expected 4, got 3`, batchErrs[1].Error())
+
+		// Obj 2 must fail with target1 dimension mismatch
+		require.Error(t, batchErrs[2])
+		assert.Equal(t, `target vector "target1": dimension mismatch: expected 4, got 5`, batchErrs[2].Error())
+
+		// Step 3: Verify LSM store
+		// Valid object MUST exist in LSM
+		retValid, err := shardLike.ObjectByID(ctx, objValid.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.NotNil(t, retValid, "valid object must exist in LSM")
+
+		// Rejected objects MUST NOT exist in LSM
+		retBad2, err := shardLike.ObjectByID(ctx, objBadTarget2.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.Nil(t, retBad2, "rejected object 1 must not exist in LSM")
+
+		retBad1, err := shardLike.ObjectByID(ctx, objBadTarget1.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.Nil(t, retBad1, "rejected object 2 must not exist in LSM")
+
+		// Step 4: Vector search on both targets succeeds for valid object
+		res1, _, err := shardLike.ObjectVectorSearch(ctx, []models.Vector{objValid.Vectors["target1"]}, []string{"target1"}, 0, 10, nil, nil, nil, additional.Properties{}, nil, nil)
+		require.NoError(t, err)
+		require.NotEmpty(t, res1)
+
+		res2, _, err := shardLike.ObjectVectorSearch(ctx, []models.Vector{objValid.Vectors["target2"]}, []string{"target2"}, 0, 10, nil, nil, nil, additional.Properties{}, nil, nil)
+		require.NoError(t, err)
+		require.NotEmpty(t, res2)
+	})
+
+	t.Run("uninitialized collection with conflicting named vector dimensions", func(t *testing.T) {
+		className := "NamedVectorsUninitialized"
+		class := &models.Class{
+			Class: className,
+			VectorConfig: map[string]models.VectorConfig{
+				"targetA": {VectorIndexType: hnsw.NewDefaultUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultUserConfig()},
+				"targetB": {VectorIndexType: hnsw.NewDefaultUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultUserConfig()},
+			},
+		}
+		vic := hnsw.UserConfig{Distance: "cosine"}
+		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false, func(i *Index) {
+			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+				"targetA": hnsw.NewDefaultUserConfig(),
+				"targetB": hnsw.NewDefaultUserConfig(),
+			}
+		})
+		defer func() {
+			require.Nil(t, idx.drop())
+			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+		}()
+
+		// Both start uninitialized
+		shardLike.WithVectorIndex("targetA", func(vidx VectorIndex) error {
+			assert.Equal(t, 0, vidx.Dimension())
+			return nil
+		})
+
+		// Batch has conflicting dimensions for targetA: 3D and 4D
+		obj1 := createNamedVectorObject(className, map[string][]float32{
+			"targetA": {0.1, 0.2, 0.3},
+			"targetB": {0.1, 0.2, 0.3, 0.4},
+		})
+		obj2 := createNamedVectorObject(className, map[string][]float32{
+			"targetA": {0.1, 0.2, 0.3, 0.4},
+			"targetB": {0.1, 0.2, 0.3, 0.4},
+		})
+
+		batchErrs := shardLike.PutObjectBatch(ctx, []*storobj.Object{obj1, obj2})
+		require.Len(t, batchErrs, 2)
+
+		expectedErr := `target vector "targetA": conflicting dimensions in batch for uninitialized index (found [3, 4]); cannot establish dimension`
+		require.Error(t, batchErrs[0])
+		assert.Equal(t, expectedErr, batchErrs[0].Error())
+		require.Error(t, batchErrs[1])
+		assert.Equal(t, expectedErr, batchErrs[1].Error())
+
+		// Neither object in LSM
+		ret1, err := shardLike.ObjectByID(ctx, obj1.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.Nil(t, ret1)
+
+		ret2, err := shardLike.ObjectByID(ctx, obj2.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.Nil(t, ret2)
+
+		// Indexes remain uninitialized
+		shardLike.WithVectorIndex("targetA", func(vidx VectorIndex) error {
+			assert.Equal(t, 0, vidx.Dimension())
+			return nil
+		})
+	})
+}
+
+func TestShard_BatchDimensionValidation_MultiVectors(t *testing.T) {
+	ctx := testCtx()
+
+	t.Run("inconsistent token lengths in single object rejected before LSM", func(t *testing.T) {
+		className := "MultiVectorInconsistentTokens"
+		class := &models.Class{
+			Class: className,
+			VectorConfig: map[string]models.VectorConfig{
+				"colbert": {VectorIndexType: hnsw.NewDefaultMultiVectorUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultMultiVectorUserConfig()},
+			},
+		}
+		vic := hnsw.UserConfig{Distance: "cosine"}
+		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false, func(i *Index) {
+			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+				"colbert": hnsw.NewDefaultMultiVectorUserConfig(),
+			}
+		})
+		defer func() {
+			require.Nil(t, idx.drop())
+			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+		}()
+
+		// Token 0 is 3D, Token 1 is 2D
+		badObj := createMultiVectorObject(className, map[string][][]float32{
+			"colbert": {
+				{0.1, 0.2, 0.3},
+				{0.4, 0.5},
+			},
+		})
+
+		errs := shardLike.PutObjectBatch(ctx, []*storobj.Object{badObj})
+		require.Len(t, errs, 1)
+		require.Error(t, errs[0])
+		assert.Equal(t, `target vector "colbert": multi vector array consists of vectors with varying dimensions`, errs[0].Error())
+
+		// Object must NOT exist in LSM
+		ret, err := shardLike.ObjectByID(ctx, badObj.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.Nil(t, ret, "object with inconsistent tokens must not exist in LSM")
+
+		// Index dimension remains 0
+		shardLike.WithVectorIndex("colbert", func(vidx VectorIndex) error {
+			assert.Equal(t, 0, vidx.Dimension())
+			return nil
+		})
+	})
+
+	t.Run("conflicting token dimensions on uninitialized multi-vector collection rejected before LSM", func(t *testing.T) {
+		className := "MultiVectorConflictingUninitialized"
+		class := &models.Class{
+			Class: className,
+			VectorConfig: map[string]models.VectorConfig{
+				"colbert": {VectorIndexType: hnsw.NewDefaultMultiVectorUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultMultiVectorUserConfig()},
+			},
+		}
+		vic := hnsw.UserConfig{Distance: "cosine"}
+		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false, func(i *Index) {
+			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+				"colbert": hnsw.NewDefaultMultiVectorUserConfig(),
+			}
+		})
+		defer func() {
+			require.Nil(t, idx.drop())
+			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+		}()
+
+		// Obj 0 has 3D tokens, Obj 1 has 4D tokens
+		obj3D := createMultiVectorObject(className, map[string][][]float32{
+			"colbert": {
+				{0.1, 0.2, 0.3},
+				{0.4, 0.5, 0.6},
+			},
+		})
+		obj4D := createMultiVectorObject(className, map[string][][]float32{
+			"colbert": {
+				{0.1, 0.2, 0.3, 0.4},
+			},
+		})
+
+		errs := shardLike.PutObjectBatch(ctx, []*storobj.Object{obj3D, obj4D})
+		require.Len(t, errs, 2)
+
+		expectedErr := `target vector "colbert": conflicting dimensions in batch for uninitialized index (found [3, 4]); cannot establish dimension`
+		require.Error(t, errs[0])
+		assert.Equal(t, expectedErr, errs[0].Error())
+		require.Error(t, errs[1])
+		assert.Equal(t, expectedErr, errs[1].Error())
+
+		// Neither in LSM
+		ret0, err := shardLike.ObjectByID(ctx, obj3D.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.Nil(t, ret0)
+
+		ret1, err := shardLike.ObjectByID(ctx, obj4D.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.Nil(t, ret1)
+
+		// Index dimension remains 0
+		shardLike.WithVectorIndex("colbert", func(vidx VectorIndex) error {
+			assert.Equal(t, 0, vidx.Dimension())
+			return nil
+		})
+	})
+
+	t.Run("wrong token dimension on established multi-vector collection rejected before LSM", func(t *testing.T) {
+		className := "MultiVectorEstablishedMismatch"
+		class := &models.Class{
+			Class: className,
+			VectorConfig: map[string]models.VectorConfig{
+				"colbert": {VectorIndexType: hnsw.NewDefaultMultiVectorUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultMultiVectorUserConfig()},
+			},
+		}
+		vic := hnsw.UserConfig{Distance: "cosine"}
+		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false, func(i *Index) {
+			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+				"colbert": hnsw.NewDefaultMultiVectorUserConfig(),
+			}
+		})
+		defer func() {
+			require.Nil(t, idx.drop())
+			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+		}()
+
+		// Step 1: Establish dimension = 4
+		initialObj := createMultiVectorObject(className, map[string][][]float32{
+			"colbert": {
+				{0.1, 0.2, 0.3, 0.4},
+				{0.5, 0.6, 0.7, 0.8},
+			},
+		})
+		initErrs := shardLike.PutObjectBatch(ctx, []*storobj.Object{initialObj})
+		require.Len(t, initErrs, 1)
+		require.NoError(t, initErrs[0])
+
+		shardLike.WithVectorIndex("colbert", func(vidx VectorIndex) error {
+			assert.Equal(t, 4, vidx.Dimension())
+			return nil
+		})
+
+		// Step 2: Batch with valid 4D object and invalid 3D object
+		validObj := createMultiVectorObject(className, map[string][][]float32{
+			"colbert": {
+				{0.2, 0.3, 0.4, 0.5},
+			},
+		})
+		invalidObj := createMultiVectorObject(className, map[string][][]float32{
+			"colbert": {
+				{0.1, 0.2, 0.3},
+			},
+		})
+
+		batchErrs := shardLike.PutObjectBatch(ctx, []*storobj.Object{validObj, invalidObj})
+		require.Len(t, batchErrs, 2)
+
+		require.NoError(t, batchErrs[0])
+		require.Error(t, batchErrs[1])
+		assert.Equal(t, `target vector "colbert": dimension mismatch: expected 4, got 3`, batchErrs[1].Error())
+
+		// Valid object in LSM, invalid object NOT in LSM
+		retValid, err := shardLike.ObjectByID(ctx, validObj.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.NotNil(t, retValid)
+
+		retInvalid, err := shardLike.ObjectByID(ctx, invalidObj.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.Nil(t, retInvalid)
+	})
+
+	t.Run("inconsistent token lengths on established multi-vector collection rejected before LSM", func(t *testing.T) {
+		className := "MultiVectorInconsistentTokensEstablished"
+		class := &models.Class{
+			Class: className,
+			VectorConfig: map[string]models.VectorConfig{
+				"colbert": {VectorIndexType: hnsw.NewDefaultMultiVectorUserConfig().IndexType(), VectorIndexConfig: hnsw.NewDefaultMultiVectorUserConfig()},
+			},
+		}
+		vic := hnsw.UserConfig{Distance: "cosine"}
+		shardLike, idx := testShardWithSettings(t, ctx, class, vic, false, false, func(i *Index) {
+			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+				"colbert": hnsw.NewDefaultMultiVectorUserConfig(),
+			}
+		})
+		defer func() {
+			require.Nil(t, idx.drop())
+			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+		}()
+
+		// Step 1: Establish dimension = 4
+		initialObj := createMultiVectorObject(className, map[string][][]float32{
+			"colbert": {
+				{0.1, 0.2, 0.3, 0.4},
+			},
+		})
+		initErrs := shardLike.PutObjectBatch(ctx, []*storobj.Object{initialObj})
+		require.Len(t, initErrs, 1)
+		require.NoError(t, initErrs[0])
+
+		// Step 2: Batch with object having varying tokens [4D, 3D]
+		badObj := createMultiVectorObject(className, map[string][][]float32{
+			"colbert": {
+				{0.1, 0.2, 0.3, 0.4},
+				{0.1, 0.2, 0.3},
+			},
+		})
+
+		batchErrs := shardLike.PutObjectBatch(ctx, []*storobj.Object{badObj})
+		require.Len(t, batchErrs, 1)
+		require.Error(t, batchErrs[0])
+		assert.Equal(t, `target vector "colbert": multi vector array consists of vectors with varying dimensions`, batchErrs[0].Error())
+
+		ret, err := shardLike.ObjectByID(ctx, badObj.ID(), search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		assert.Nil(t, ret, "object with inconsistent tokens must not exist in LSM")
+	})
+}
