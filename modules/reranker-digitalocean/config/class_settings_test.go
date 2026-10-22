@@ -12,6 +12,8 @@
 package config
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -48,7 +50,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ic := NewClassSettings(tt.cfg)
 			if tt.wantErr != nil {
-				assert.EqualError(t, ic.Validate(nil), tt.wantErr.Error())
+				assert.EqualError(t, ic.Validate(context.Background(), nil), tt.wantErr.Error())
 			} else {
 				assert.Equal(t, tt.wantModel, ic.Model())
 			}
@@ -90,6 +92,7 @@ func (f fakeClassConfig) Config() *config.Config {
 
 func Test_classSettings_ValidateBaseURL(t *testing.T) {
 	t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+	t.Setenv("DIGITALOCEAN_APIKEY", "")
 	tests := []struct {
 		name    string
 		baseURL string
@@ -143,7 +146,7 @@ func Test_classSettings_ValidateBaseURL(t *testing.T) {
 					"baseURL": tt.baseURL,
 				},
 			})
-			err := ic.Validate(nil)
+			err := ic.Validate(context.Background(), nil)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -151,4 +154,118 @@ func Test_classSettings_ValidateBaseURL(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_classSettings_ValidateModel(t *testing.T) {
+	tests := []struct {
+		name          string
+		cfg           map[string]any
+		lister        *fakeModelLister
+		apiKeyEnv     string
+		uuidEnv       string
+		wantErrMsg    string
+		wantNoListing bool
+	}{
+		{
+			name:      "default model is in the list",
+			cfg:       map[string]any{},
+			lister:    &fakeModelLister{models: []string{"bge-reranker-v2-m3", "llama-4-maverick"}},
+			apiKeyEnv: "dop_v1_test",
+			uuidEnv:   "test-uuid",
+		},
+		{
+			name:      "custom model is in the list",
+			cfg:       map[string]any{"model": "custom-reranker"},
+			lister:    &fakeModelLister{models: []string{"custom-reranker"}},
+			apiKeyEnv: "dop_v1_test",
+		},
+		{
+			name:       "model is not in the available list",
+			cfg:        map[string]any{"model": "made-up-model"},
+			lister:     &fakeModelLister{models: []string{"bge-reranker-v2-m3"}},
+			apiKeyEnv:  "dop_v1_test",
+			wantErrMsg: `model "made-up-model" is not available`,
+		},
+		{
+			name:       "default model is not in the available list",
+			cfg:        map[string]any{},
+			lister:     &fakeModelLister{models: []string{"other-model"}},
+			apiKeyEnv:  "dop_v1_test",
+			wantErrMsg: `model "bge-reranker-v2-m3" is not available`,
+		},
+		{
+			name:       "lister returns error",
+			cfg:        map[string]any{},
+			lister:     &fakeModelLister{err: errors.New("boom")},
+			apiKeyEnv:  "dop_v1_test",
+			wantErrMsg: "list DigitalOcean models: boom",
+		},
+		{
+			name:          "api key missing - validation skipped",
+			cfg:           map[string]any{"model": "any-model-we-cannot-verify"},
+			lister:        &fakeModelLister{models: []string{"bge-reranker-v2-m3"}},
+			wantNoListing: true,
+		},
+		{
+			name:          "invalid baseURL fails before listing",
+			cfg:           map[string]any{"baseURL": "http://127.0.0.1"},
+			lister:        &fakeModelLister{models: []string{"bge-reranker-v2-m3"}},
+			apiKeyEnv:     "dop_v1_test",
+			wantErrMsg:    "baseURL",
+			wantNoListing: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+			t.Setenv("DIGITALOCEAN_APIKEY", tt.apiKeyEnv)
+			t.Setenv("VECTOR_DB_UUID", tt.uuidEnv)
+
+			prev := DefaultModelLister
+			DefaultModelLister = tt.lister
+			t.Cleanup(func() { DefaultModelLister = prev })
+
+			cs := NewClassSettings(fakeClassConfig{classConfig: tt.cfg})
+			err := cs.Validate(context.Background(), nil)
+			if tt.wantErrMsg == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.ErrorContains(t, err, tt.wantErrMsg)
+			}
+			if tt.wantNoListing {
+				assert.Equal(t, 0, tt.lister.calls)
+				return
+			}
+			assert.Equal(t, 1, tt.lister.calls)
+			assert.Equal(t, cs.BaseURL(), tt.lister.gotBaseURL)
+			assert.Equal(t, tt.apiKeyEnv, tt.lister.gotAPIKey)
+			assert.Equal(t, tt.uuidEnv, tt.lister.gotUUID)
+		})
+	}
+}
+
+func Test_classSettings_EnvAccessors(t *testing.T) {
+	t.Setenv("DIGITALOCEAN_APIKEY", "dop_v1_test")
+	t.Setenv("VECTOR_DB_UUID", "test-uuid")
+	cs := NewClassSettings(fakeClassConfig{classConfig: map[string]any{}})
+	assert.Equal(t, "dop_v1_test", cs.apiKey())
+	assert.Equal(t, "test-uuid", cs.WeaviateUUID())
+}
+
+type fakeModelLister struct {
+	models     []string
+	err        error
+	calls      int
+	gotBaseURL string
+	gotAPIKey  string
+	gotUUID    string
+}
+
+func (f *fakeModelLister) ListModels(_ context.Context, baseURL, apiKey, weaviateUUID string) ([]string, error) {
+	f.calls++
+	f.gotBaseURL, f.gotAPIKey, f.gotUUID = baseURL, apiKey, weaviateUUID
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.models, nil
 }

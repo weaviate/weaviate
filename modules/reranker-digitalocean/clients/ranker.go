@@ -119,7 +119,11 @@ func (c *client) performRank(ctx context.Context,
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", fmt.Sprintf("vector-db/weaviate %s", build.Version))
+	if weaviateUUID := settings.WeaviateUUID(); weaviateUUID != "" {
+		req.Header.Set("User-Agent", fmt.Sprintf("vector-db/weaviate/%s %s", weaviateUUID, build.Version))
+	} else {
+		req.Header.Set("User-Agent", fmt.Sprintf("vector-db/weaviate/unknown %s", build.Version))
+	}
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
