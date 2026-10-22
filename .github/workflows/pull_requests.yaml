@@ -319,6 +319,10 @@ jobs:
         with:
           go-version: '1.26'
           cache: true
+      - name: Install golangci-lint
+        uses: ./.github/actions/golangci-lint
+        with:
+          install-only: true
       - name: Run Swagger
         run: ./tools/gen-code-from-swagger.sh
       - name: Error on change
