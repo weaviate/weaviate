@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/concurrency"
@@ -82,9 +83,9 @@ type Searcher struct {
 	// in-flight migration).
 	tokResolver TokenizationResolver
 	// batchedContainsEnabled gates the batched flat Contains resolution.
-	// Runtime-overridable; nil (the default) means disabled, so the
-	// feature is opt-in and callers that don't wire it keep the
-	// desugared per-value path.
+	// Runtime-overridable. Read it through batchedContainsEnabledOrDefault, never
+	// directly: nil means on, so a construction site that omits the gate
+	// keeps the fast path rather than silently losing it.
 	batchedContainsEnabled *runtime.DynamicValue[bool]
 }
 
@@ -105,14 +106,23 @@ func (s *Searcher) WithTokenizationResolver(r TokenizationResolver) *Searcher {
 }
 
 // WithBatchedContainsEnabled attaches the runtime-overridable gate for the
-// batched flat ContainsAny/ContainsAll/ContainsNone resolution. Returns the
-// receiver for fluent chaining at construction sites.
+// batched flat ContainsAny/ContainsAll/ContainsNone resolution.
 //
-// Nil (the default) means disabled: every Contains filter takes the
-// desugared per-value path, so the batched fast path is strictly opt-in.
+// Nil (the default) reads as on, so a gate holding true changes exactly one
+// thing: the searcher then honours a later SetValue on that gate. One holding
+// false sends every Contains filter down the desugared per-value path.
 func (s *Searcher) WithBatchedContainsEnabled(v *runtime.DynamicValue[bool]) *Searcher {
 	s.batchedContainsEnabled = v
 	return s
+}
+
+// batchedContainsEnabledOrDefault reports whether the batched Contains resolution applies.
+// An unwired gate reads as on: Get would answer false for it, which would
+// turn a forgotten construction-site option into a silently slower query. A
+// wired gate must come from [runtime.NewDynamicValue] or config, since a
+// zero-value DynamicValue reads as off.
+func (s *Searcher) batchedContainsEnabledOrDefault() bool {
+	return s.batchedContainsEnabled == nil || s.batchedContainsEnabled.Get()
 }
 
 // hasUsableRangeableIndex combines the schema-level [HasRangeableIndex] check
@@ -1028,6 +1038,10 @@ const (
 	containsBatchNumber
 	containsBatchBool
 	containsBatchDate
+	// containsBatchPropertyLength: int values encode via the primitive int
+	// encoder, but the keys live in the property's length bucket rather than
+	// its value bucket.
+	containsBatchPropertyLength
 )
 
 // containsDecline* are the reasons surfaced in the "contains_desugared"
@@ -1038,18 +1052,60 @@ const (
 	containsDeclineNotEnabled           = "not-enabled"
 	containsDeclineMultiSegmentPath     = "multi-segment-path"
 	containsDeclineInternalProperty     = "internal-property"
-	containsDeclineLengthFilter         = "length-filter"
 	containsDeclinePropertyNotFound     = "property-not-found"
 	containsDeclineNestedObjectProperty = "nested-object-property"
 	containsDeclineReferenceProperty    = "reference-property"
 	containsDeclineGeoProperty          = "geo-property"
 	containsDeclineNoFilterableIndex    = "no-filterable-index"
 	containsDeclineNoRoaringSetBucket   = "no-roaringset-bucket"
+	containsDeclineLengthNotIndexed     = "length-not-indexed"
 	containsDeclineValueTypeMismatch    = "value-type-mismatch"
 	containsDeclineTokenizationNotField = "tokenization-not-field"
 	containsDeclineFallbackToSearchable = "fallback-to-searchable"
 	containsDeclineFewerThanTwoValues   = "fewer-than-two-values"
 )
+
+// classIndexesPropertyLength reports whether the class indexes property
+// lengths. readFromBucket dereferences InvertedIndexConfig unchecked, so a nil
+// config has to read as "not indexed" at every site that guards it.
+func classIndexesPropertyLength(class *models.Class) bool {
+	cfg := class.InvertedIndexConfig
+	return cfg != nil && cfg.IndexPropertyLength
+}
+
+// hasRoaringSetBucket reports whether the named bucket exists with the
+// roaringset strategy the batched fold reads.
+func (s *Searcher) hasRoaringSetBucket(name string) bool {
+	b := s.store.Bucket(name)
+	return b != nil && b.Strategy() == lsmkv.StrategyRoaringSet
+}
+
+// classifyContainsBatchLength takes the property the length belongs to, its
+// caller having resolved the len(...) form. Lengths encode with
+// PutLexicographicallySortableInt64, the same encoder the int batch uses.
+func (s *Searcher) classifyContainsBatchLength(property *models.Property, value *filters.Value,
+	class *models.Class,
+) (*models.Property, containsBatchType, string) {
+	// a length is an int whatever the property's own type is, and the
+	// desugared leaf extractor rejects everything else
+	if value.Type != schema.DataTypeInt {
+		return nil, containsNotBatchable, containsDeclineValueTypeMismatch
+	}
+	// readFromBucket errors on a length filter when the class does not index
+	// lengths, and panics when InvertedIndexConfig is nil — it dereferences it
+	// unchecked. Batching either would answer where the desugared path does not.
+	if !classIndexesPropertyLength(class) {
+		return nil, containsNotBatchable, containsDeclineLengthNotIndexed
+	}
+	if !s.hasRoaringSetBucket(helpers.BucketFromPropNameLengthLSM(property.Name)) {
+		return nil, containsNotBatchable, containsDeclineNoRoaringSetBucket
+	}
+	// the leaf reads the length bucket, so the name handed on is the length
+	// one; both int batch types then carry a name their arm can use unchanged
+	lengthProp := *property
+	lengthProp.Name = helpers.PropLength(property.Name)
+	return approveContainsBatch(&lengthProp, containsBatchPropertyLength, value)
+}
 
 // classifyContainsBatch runs every shape check for the batched flat
 // ContainsAny/ContainsAll/ContainsNone fast path and reconciles the property
@@ -1067,9 +1123,6 @@ const (
 // batching is only safe when every leaf would have been a plain 1-key
 // roaringset lookup. TestDocIDs_BatchedMatchesDesugared pins that agreement
 // end-to-end.
-//
-// It also declines fewer than 2 values, because a single desugared leaf
-// applies the query limit while resolving and the batched fold does not.
 func (s *Searcher) classifyContainsBatch(path *filters.Path, value *filters.Value,
 	operator filters.Operator, class *models.Class,
 ) (*models.Property, containsBatchType, string) {
@@ -1078,7 +1131,7 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, value *filters.Valu
 	if !operator.IsContains() {
 		return nil, containsNotBatchable, containsDeclineNonContainsOperator
 	}
-	if !s.batchedContainsEnabled.Get() {
+	if !s.batchedContainsEnabledOrDefault() {
 		return nil, containsNotBatchable, containsDeclineNotEnabled
 	}
 
@@ -1091,8 +1144,9 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, value *filters.Valu
 	if s.onInternalProp(propName) {
 		return nil, containsNotBatchable, containsDeclineInternalProperty
 	}
-	if _, ok := schema.IsPropertyLength(propName, 0); ok {
-		return nil, containsNotBatchable, containsDeclineLengthFilter
+	isLength := false
+	if lengthOf, ok := schema.IsPropertyLength(propName, 0); ok {
+		propName, isLength = lengthOf, true
 	}
 
 	property, err := schema.GetPropertyByName(class, propName)
@@ -1100,6 +1154,9 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, value *filters.Valu
 		// the desugared per-value path raises the identical "property not
 		// found" error; no need to duplicate it here
 		return nil, containsNotBatchable, containsDeclinePropertyNotFound
+	}
+	if isLength {
+		return s.classifyContainsBatchLength(property, value, class)
 	}
 	if _, ok := schema.AsNested(property.DataType); ok {
 		return nil, containsNotBatchable, containsDeclineNestedObjectProperty
@@ -1113,9 +1170,16 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, value *filters.Valu
 	if !HasFilterableIndex(property) {
 		return nil, containsNotBatchable, containsDeclineNoFilterableIndex
 	}
+	// readFromBucket refuses a name carrying the length suffix when lengths are
+	// unindexed, and panics when InvertedIndexConfig is nil. Declining holds
+	// that answer still: its suffix test cannot tell this property from a len()
+	// filter on another, and fixing it belongs to prop_value_pairs.go.
+	if strings.HasSuffix(property.Name, filters.InternalPropertyLength) &&
+		!classIndexesPropertyLength(class) {
+		return nil, containsNotBatchable, containsDeclineLengthNotIndexed
+	}
 
-	b := s.store.Bucket(helpers.BucketFromPropNameLSM(property.Name))
-	if b == nil || b.Strategy() != lsmkv.StrategyRoaringSet {
+	if !s.hasRoaringSetBucket(helpers.BucketFromPropNameLSM(property.Name)) {
 		return nil, containsNotBatchable, containsDeclineNoRoaringSetBucket
 	}
 
@@ -1156,6 +1220,15 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, value *filters.Valu
 		}
 	}
 
+	return approveContainsBatch(property, batchType, value)
+}
+
+// approveContainsBatch declines fewer than 2 values, because a single
+// desugared leaf applies the query limit while resolving and the batched fold
+// does not.
+func approveContainsBatch(property *models.Property, batchType containsBatchType,
+	value *filters.Value,
+) (*models.Property, containsBatchType, string) {
 	if containsValueCount(value.Value) < 2 {
 		return nil, containsNotBatchable, containsDeclineFewerThanTwoValues
 	}
@@ -1171,18 +1244,21 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, value *filters.Valu
 // fall through to the children dispatch with no children to resolve. The
 // count can be lower than the filter's value count, since the builders drop
 // duplicates.
-func newBatchedContainsPair(property *models.Property, operator filters.Operator,
+//
+// prop is the bucket-selecting name the leaf resolves against, not always a
+// schema property: a len(x) filter passes x's length property.
+func newBatchedContainsPair(prop string, operator filters.Operator,
 	class *models.Class, keys inverted.SortedKeys,
 ) (*propValuePair, error) {
 	if keys.Len() == 0 {
 		return nil, fmt.Errorf("%w: batched contains leaf for property %q has no keys",
-			inverted.ErrInternal, property.Name)
+			inverted.ErrInternal, prop)
 	}
 	pv, err := newPropValuePair(class)
 	if err != nil {
 		return nil, err
 	}
-	pv.prop = property.Name
+	pv.prop = prop
 	pv.operator = operator
 	pv.hasFilterableIndex = true
 	pv.containsKeys = keys
@@ -1238,7 +1314,7 @@ func (s *Searcher) buildContainsKeys(batchType containsBatchType, value interfac
 			return inverted.SortedKeys{}, err
 		}
 		return encodeTextFieldKeys(property, class, values)
-	case containsBatchInt:
+	case containsBatchInt, containsBatchPropertyLength:
 		values, err := s.extractIntArray(value)
 		if err != nil {
 			return inverted.SortedKeys{}, err
@@ -1314,7 +1390,7 @@ func (s *Searcher) extractContains(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	return newBatchedContainsPair(property, operator, class, keys)
+	return newBatchedContainsPair(property.Name, operator, class, keys)
 }
 
 // extractContainsOperands turns a Contains filter's values into one Equal
