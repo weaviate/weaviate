@@ -40,11 +40,11 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "happy flow",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"projectId": "projectId",
+					"projectId": "my-project",
 				},
 			},
 			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
-			wantProjectID:   "projectId",
+			wantProjectID:   "my-project",
 			wantModelID:     "gemini-embedding-001",
 			wantDimensions:  &DefaultDimensions,
 			wantErr:         nil,
@@ -54,13 +54,13 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"apiEndpoint":   "europe-west4-aiplatform.googleapis.com",
-					"projectId":     "projectId",
+					"projectId":     "my-project",
 					"titleProperty": "title",
 					"taskType":      "CODE_RETRIEVAL_QUERY",
 				},
 			},
 			wantApiEndpoint: "europe-west4-aiplatform.googleapis.com",
-			wantProjectID:   "projectId",
+			wantProjectID:   "my-project",
 			wantModelID:     "gemini-embedding-001",
 			wantTitle:       "title",
 			wantTaskType:    "CODE_RETRIEVAL_QUERY",
@@ -71,12 +71,12 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "custom location",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"projectId": "projectId",
+					"projectId": "my-project",
 					"location":  "europe-west1",
 				},
 			},
 			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
-			wantProjectID:   "projectId",
+			wantProjectID:   "my-project",
 			wantModelID:     "gemini-embedding-001",
 			wantLocation:    "europe-west1",
 			wantDimensions:  &DefaultDimensions,
@@ -100,6 +100,15 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantErr: errors.Errorf("projectId cannot be empty"),
+		},
+		{
+			name: "invalid projectId",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"projectId": "my/../project",
+				},
+			},
+			wantErr: errors.Errorf("projectId must be a valid Google Cloud project ID, got %q", "my/../project"),
 		},
 		{
 			name: "Generative AI",
@@ -132,12 +141,12 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "wrong properties",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"projectId": "projectId",
+					"projectId": "my-project",
 				},
 				properties: "wrong-properties",
 			},
 			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
-			wantProjectID:   "projectId",
+			wantProjectID:   "my-project",
 			wantModelID:     "textembedding-gecko@001",
 			wantTaskType:    DefaultTaskType,
 			wantDimensions:  nil,
@@ -148,7 +157,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"apiEndpoint": "attacker.example.com",
-					"projectId":   "projectId",
+					"projectId":   "my-project",
 				},
 			},
 			wantErr: errors.Errorf("apiEndpoint must be a Google API host ending in .googleapis.com, got \"attacker.example.com\""),
@@ -157,7 +166,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "location carrying a host",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"projectId": "projectId",
+					"projectId": "my-project",
 					"location":  "attacker.example.com/",
 				},
 			},
@@ -167,7 +176,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "wrong taskType",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"projectId": "projectId",
+					"projectId": "my-project",
 					"taskType":  "wrong-task-type",
 				},
 			},
@@ -236,7 +245,7 @@ func TestMutableSettings(t *testing.T) {
 		{
 			name:    "another model, endpoint and project change",
 			current: vertex005,
-			updated: with(with(vertex005, "apiEndpoint", "europe-west4-aiplatform.googleapis.com"), "projectId", "other"),
+			updated: with(with(vertex005, "apiEndpoint", "europe-west4-aiplatform.googleapis.com"), "projectId", "other-project"),
 			want:    true,
 		},
 		{
@@ -249,7 +258,7 @@ func TestMutableSettings(t *testing.T) {
 		{
 			name:    "another model, project change with explicit dimensions",
 			current: vertex004Dimensions,
-			updated: with(vertex004Dimensions, "projectId", "other"),
+			updated: with(vertex004Dimensions, "projectId", "other-project"),
 			want:    true,
 		},
 		{

@@ -49,6 +49,42 @@ func TestBuildURL(t *testing.T) {
 			expectedURL:     "https://europe-west1-aiplatform.googleapis.com/v1/projects/my-project/locations/europe-west1/publishers/google/models/gemini-embedding-001:predict",
 		},
 		{
+			name:            "project id with a query string",
+			useGenerativeAI: false,
+			apiEndpoint:     "europe-west1-aiplatform.googleapis.com",
+			projectID:       "a?b=c",
+			modelID:         "gemini-embedding-001",
+			location:        "europe-west1",
+			expectedURL:     "https://europe-west1-aiplatform.googleapis.com/v1/projects/a%3Fb=c/locations/europe-west1/publishers/google/models/gemini-embedding-001:predict",
+		},
+		{
+			name:            "project id with path segments",
+			useGenerativeAI: false,
+			apiEndpoint:     "europe-west1-aiplatform.googleapis.com",
+			projectID:       "a/../../other",
+			modelID:         "gemini-embedding-001",
+			location:        "europe-west1",
+			expectedURL:     "https://europe-west1-aiplatform.googleapis.com/v1/projects/a%2F..%2F..%2Fother/locations/europe-west1/publishers/google/models/gemini-embedding-001:predict",
+		},
+		{
+			name:            "model id with a query string",
+			useGenerativeAI: false,
+			apiEndpoint:     "europe-west1-aiplatform.googleapis.com",
+			projectID:       "my-project",
+			modelID:         "a?b=c",
+			location:        "europe-west1",
+			expectedURL:     "https://europe-west1-aiplatform.googleapis.com/v1/projects/my-project/locations/europe-west1/publishers/google/models/a%3Fb=c:predict",
+		},
+		{
+			name:            "location with path segments",
+			useGenerativeAI: false,
+			apiEndpoint:     "europe-west1-aiplatform.googleapis.com",
+			projectID:       "my-project",
+			modelID:         "gemini-embedding-001",
+			location:        "a/../b",
+			expectedURL:     "https://europe-west1-aiplatform.googleapis.com/v1/projects/my-project/locations/a%2F..%2Fb/publishers/google/models/gemini-embedding-001:predict",
+		},
+		{
 			name:            "Generative AI endpoint ignores location",
 			useGenerativeAI: true,
 			apiEndpoint:     "generativelanguage.googleapis.com",
@@ -56,6 +92,15 @@ func TestBuildURL(t *testing.T) {
 			modelID:         "gemini-embedding-001",
 			location:        "europe-west1",
 			expectedURL:     "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:batchEmbedContents",
+		},
+		{
+			name:            "AI Studio model id with a query string",
+			useGenerativeAI: true,
+			apiEndpoint:     "generativelanguage.googleapis.com",
+			projectID:       "",
+			modelID:         "a?b=c",
+			location:        "europe-west1",
+			expectedURL:     "https://generativelanguage.googleapis.com/v1beta/models/a%3Fb=c:batchEmbedContents",
 		},
 		{
 			name:            "Legacy PaLM model ignores location",
@@ -108,6 +153,30 @@ func TestVectorizeRejectsForeignEndpoint(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+}
+
+func TestVectorizeRejectsInvalidProjectID(t *testing.T) {
+	c := &google{
+		apiKey:       "apiKey",
+		httpClient:   &http.Client{},
+		googleApiKey: apikey.NewGoogleApiKey(),
+		urlBuilderFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID, location string) string {
+			t.Fatal("must not build a request URL for a rejected project id")
+			return ""
+		},
+		logger: nullLogger(),
+	}
+
+	_, err := c.vectorize(context.Background(), []string{"This is my text"}, retrievalDocument, "",
+		settings{
+			ApiEndpoint: "us-central1-aiplatform.googleapis.com",
+			ProjectID:   "my/../project",
+			Model:       "gemini-embedding-001",
+			Location:    "us-central1",
+		})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "projectId must be a valid Google Cloud project ID")
 }
 
 func TestClient(t *testing.T) {
