@@ -123,3 +123,38 @@ func objectsByIDTestIndex(t *testing.T, className string, multiTenant bool, id s
 	require.NoError(t, shard.PutObject(t.Context(), obj))
 	return idx
 }
+
+// TestAnyExists pins that a lookup by id without a class skips multi-tenant
+// collections instead of failing at the first one it visits. The schema holds
+// several multi-tenant collections so map iteration reaches one before the
+// plain collection on almost every run.
+func TestAnyExists(t *testing.T) {
+	id := strfmt.UUID("5a9e1c2b-0d3f-4e6a-9b8c-7d1e2f3a4b5c")
+	tenantOnlyID := strfmt.UUID("6b0f2d3c-1e4a-4f7b-8c9d-8e2f3a4b5c6d")
+	missingID := strfmt.UUID("7c1a3e4d-2f5b-4a8c-9dae-9f3a4b5c6d7e")
+	logger, _ := test.NewNullLogger()
+	db := &DB{logger: logger, indices: map[string]*Index{}}
+	db.indices[indexID("Plain")] = objectsByIDTestIndex(t, "Plain", false, id)
+	for _, class := range []string{"TenantedA", "TenantedB", "TenantedC", "TenantedD"} {
+		db.indices[indexID(schema.ClassName(class))] = objectsByIDTestIndex(t, class, true, tenantOnlyID)
+	}
+
+	cases := []struct {
+		name string
+		id   strfmt.UUID
+		want bool
+	}{
+		{name: "an id in a plain collection exists", id: id, want: true},
+		{name: "an id held only by multi-tenant collections is not found", id: tenantOnlyID},
+		{name: "a missing id is not found", id: missingID},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for range 20 {
+				ok, err := db.Exists(t.Context(), "", tc.id, nil, "")
+				require.NoError(t, err)
+				assert.Equal(t, tc.want, ok)
+			}
+		})
+	}
+}
