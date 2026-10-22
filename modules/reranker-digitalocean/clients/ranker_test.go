@@ -14,9 +14,11 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -25,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
@@ -199,6 +202,42 @@ func TestRank(t *testing.T) {
 			assert.Equal(t, float64(len(documents[i])), resp.DocumentScores[i].Score)
 		}
 	})
+}
+
+func TestRankUserAgent(t *testing.T) {
+	tests := []struct {
+		name         string
+		weaviateUUID string
+		expected     string
+	}{
+		{
+			name:         "uuid set",
+			weaviateUUID: "test-uuid",
+			expected:     fmt.Sprintf("vector-db/weaviate/test-uuid %s", build.Version),
+		},
+		{
+			name:     "uuid not set",
+			expected: fmt.Sprintf("vector-db/weaviate/unknown %s", build.Version),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("VECTOR_DB_UUID", tt.weaviateUUID)
+
+			var gotUserAgent string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotUserAgent = r.Header.Get("User-Agent")
+				json.NewEncoder(w).Encode(rankResponse{Results: []rankResult{{Index: 0, RelevanceScore: 1}}})
+			}))
+			defer server.Close()
+
+			c := New("key", 0, nullLogger())
+			cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}}
+			_, err := c.Rank(context.Background(), "q", []string{"doc"}, cfg)
+			require.NoError(t, err)
+			assert.Equal(t, strings.TrimSpace(tt.expected), gotUserAgent)
+		})
+	}
 }
 
 type fakeClassConfig struct {
