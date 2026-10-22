@@ -287,7 +287,7 @@ func (v *openai) buildOpenAIUrl(ctx context.Context, params openaiparams.Params)
 	deploymentID := params.DeploymentID
 	resourceName := params.ResourceName
 
-	baseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Openai-Baseurl", params.BaseURL)
+	baseURL, err := modulecomponents.ResolveBaseURL(ctx, "X-Openai-Baseurl", params.BaseURL)
 	if err != nil {
 		return "", err
 	}

@@ -269,3 +269,18 @@ func nullLogger() logrus.FieldLogger {
 	l, _ := test.NewNullLogger()
 	return l
 }
+
+func TestBuildUrlFnValidatesBaseURL(t *testing.T) {
+	t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+	buildFns := map[string]func(Settings) (string, error){
+		"embeddings":   EmbeddingsBuildUrlFn,
+		"multi-vector": MultiVectorBuildUrlFn,
+	}
+	for name, buildFn := range buildFns {
+		t.Run(name, func(t *testing.T) {
+			_, err := buildFn(Settings{BaseURL: "http://foobar.some.proxy"})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "baseURL must use HTTPS")
+		})
+	}
+}

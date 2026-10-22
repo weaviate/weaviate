@@ -372,7 +372,7 @@ func (c *Client) getVectorizationResult(input []string, resBody *embeddingsRespo
 }
 
 func (c *Client) getVoyageAIUrl(ctx context.Context, baseURL, model string) (string, error) {
-	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Voyageai-Baseurl", baseURL)
+	passedBaseURL, err := modulecomponents.ResolveBaseURL(ctx, "X-Voyageai-Baseurl", baseURL)
 	if err != nil {
 		return "", err
 	}
