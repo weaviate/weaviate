@@ -113,6 +113,9 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		if projectID == "" {
 			errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", projectIDProperty))
 		}
+		if err := modulecomponents.ValidateGoogleProjectID(projectID); err != nil {
+			errorMessages = append(errorMessages, err.Error())
+		}
 	}
 
 	if !slices.Contains(availableTaskTypes, ic.TaskType()) {

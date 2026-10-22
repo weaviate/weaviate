@@ -55,6 +55,38 @@ func TestValidateGoogleApiEndpoint(t *testing.T) {
 	}
 }
 
+func TestValidateGoogleProjectID(t *testing.T) {
+	tests := []struct {
+		name      string
+		projectID string
+		wantErr   bool
+	}{
+		{name: "empty means the caller decides", projectID: ""},
+		{name: "standard project id", projectID: "my-project"},
+		{name: "short project id", projectID: "project"},
+		{name: "digits and hyphens", projectID: "my-project-123"},
+		{name: "maximum length", projectID: "a12345678901234567890123456789"},
+		{name: "upper case", projectID: "my-Project", wantErr: true},
+		{name: "too short", projectID: "short", wantErr: true},
+		{name: "starts with a digit", projectID: "1project", wantErr: true},
+		{name: "trailing hyphen", projectID: "my-project-", wantErr: true},
+		{name: "path traversal", projectID: "my/../project", wantErr: true},
+		{name: "query injection", projectID: "my-project?x=y", wantErr: true},
+		{name: "space", projectID: "my project", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateGoogleProjectID(tt.projectID)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "projectId must be a valid Google Cloud project ID")
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
 func TestValidateGoogleLocation(t *testing.T) {
 	tests := []struct {
 		name     string
