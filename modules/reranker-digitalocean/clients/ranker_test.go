@@ -204,6 +204,37 @@ func TestRank(t *testing.T) {
 	})
 }
 
+func TestRankBaseURLValidation(t *testing.T) {
+	tests := []struct {
+		name   string
+		header bool
+	}{
+		{name: "baseURL from class config"},
+		{name: "baseURL from header", header: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				t.Error("request must not reach a non-HTTPS baseURL")
+			}))
+			defer server.Close()
+
+			ctx := context.Background()
+			cfg := fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}}
+			if tt.header {
+				ctx = context.WithValue(ctx, "X-Digitalocean-Baseurl", []string{server.URL})
+				cfg = fakeClassConfig{classConfig: map[string]interface{}{}}
+			}
+
+			_, err := New("key", 0, nullLogger()).Rank(ctx, "q", []string{"a"}, cfg)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "baseURL must use HTTPS")
+		})
+	}
+}
+
 func TestRankUserAgent(t *testing.T) {
 	tests := []struct {
 		name         string

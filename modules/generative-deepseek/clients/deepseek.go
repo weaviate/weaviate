@@ -230,7 +230,7 @@ func GetResponseParams(result map[string]any) *responseParams {
 }
 
 func (c *client) url(ctx context.Context, base string) (string, error) {
-	base, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Deepseek-Baseurl", base)
+	base, err := modulecomponents.ResolveBaseURL(ctx, "X-Deepseek-Baseurl", base)
 	if err != nil {
 		return "", err
 	}
