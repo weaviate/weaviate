@@ -307,6 +307,7 @@ func TestBatchReaderMatchesRoaringSetGet(t *testing.T) {
 	require.NoError(t, err)
 	arrWantMissing := append([]uint64(nil), wantMissing.ToArray()...)
 	releaseWantMissing()
+	require.NotNil(t, wantMissing, "absent key must resolve to an empty, non-nil bitmap")
 	require.Empty(t, arrWantMissing, "absent key must resolve to an empty, non-nil bitmap")
 
 	// one reader serves all three reads below
@@ -322,6 +323,51 @@ func TestBatchReaderMatchesRoaringSetGet(t *testing.T) {
 		string(keyB):       arrWantB,
 		string(keyMissing): nil,
 	})
+}
+
+// TestBatchReaderAllocatesNothingForAbsentKeys pins that a key no segment or
+// memtable holds costs no allocation once its window is filled.
+func TestBatchReaderAllocatesNothingForAbsentKeys(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyRoaringSet),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, b.Shutdown(context.Background())) })
+	b.SetMemtableThreshold(1e9)
+
+	// both layers hold a row, so both are read, but neither holds a batch key
+	require.NoError(t, b.RoaringSetAddList([]byte("a"), []uint64{1}))
+	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.RoaringSetAddList([]byte("z"), []uint64{2}))
+
+	const runs = 50
+	names := make([]string, runs+2)
+	for i := range names {
+		names[i] = fmt.Sprintf("m%03d", i)
+	}
+	keys := sortedKeysOf(t, names)
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+	r, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(), keys, len(names), math.MaxInt)
+	require.NoError(t, err)
+	require.Equal(t, 1, r.mtCount, "the active memtable must be in the view")
+
+	// the first read fills the one window the whole batch fits in
+	_, release, err := r.Next(concurrency.SROAR_MERGE)
+	require.NoError(t, err)
+	release()
+
+	allocs := testing.AllocsPerRun(runs, func() {
+		bm, release, err := r.Next(concurrency.SROAR_MERGE)
+		if err != nil || bm != nil {
+			t.Fatalf("absent key: got row %v, err %v", bm, err)
+		}
+		release()
+	})
+	require.Zero(t, allocs)
 }
 
 // TestBatchReaderSurvivesFlushAndSwitch pins the view stability a whole-batch
@@ -448,25 +494,32 @@ func TestBucket_RoaringSet_DeletionsOnlyOldestSegment(t *testing.T) {
 	}{
 		{"mmap", nil},
 		{"pread", []BucketOption{WithPread(true)}},
+		{"lazy", []BucketOption{WithLazySegmentLoading(true)}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			logger, _ := test.NewNullLogger()
+			dir := t.TempDir()
 
 			opts := append([]BucketOption{
 				WithStrategy(StrategyRoaringSet),
 				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
 			}, tt.opts...)
-			b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
-			require.NoError(t, err)
+			open := func() *Bucket {
+				b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
+					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+				require.NoError(t, err)
+				return b
+			}
+			b := open()
 			t.Cleanup(func() { require.NoError(t, b.Shutdown(context.Background())) })
 
 			b.SetMemtableThreshold(1e9) // flush explicitly so writes span several segments
 
-			key := []byte("key")
+			// key1's one-key filter leaves bit 0 clear, so a zero hash reads as absent
+			key := []byte("key1")
 
 			// segment 1 (oldest): deletions only -> empty additions region
 			require.NoError(t, b.RoaringSetRemoveOne(key, 7))
@@ -481,6 +534,11 @@ func TestBucket_RoaringSet_DeletionsOnlyOldestSegment(t *testing.T) {
 			require.NoError(t, b.RoaringSetRemoveOne(key, 2))
 			require.NoError(t, b.FlushAndSwitch())
 
+			requireRoaringSetElements(t, ctx, b, key, []uint64{1, 3})
+
+			// lazy loading wraps only the segments a bucket loads when it opens
+			require.NoError(t, b.Shutdown(ctx))
+			b = open()
 			requireRoaringSetElements(t, ctx, b, key, []uint64{1, 3})
 		})
 	}
@@ -631,7 +689,8 @@ func TestBatchReaderValidatesAndFoldsLikeThePerKeyPath(t *testing.T) {
 		{name: "flushing only", flushing: []uint64{7, 8}, want: []uint64{7, 8}},
 		{name: "active only", active: []uint64{7, 8}, want: []uint64{7, 8}},
 		{name: "flushing and active, no disk row", flushing: []uint64{7}, active: []uint64{8}, want: []uint64{7, 8}},
-		{name: "key absent from every layer", want: []uint64{}},
+		// ToArray answers nil for a nil row and an empty slice for an empty one
+		{name: "key absent from every layer", want: nil},
 		// the active memtable holds data, so it is probed rather than skipped,
 		// but not this key — the layer's NotFound branch, which every row above
 		// either skips outright or answers

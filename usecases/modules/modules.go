@@ -13,9 +13,11 @@ package modules
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"sync"
@@ -743,7 +745,8 @@ func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, mod
 				return nil, err
 			}
 			cfg := NewClassBasedModuleConfig(class, "", "", "", &p.cfg)
-			for name, value := range moduleParams {
+			for _, name := range p.orderAdditionalParameters(moduleParams) {
+				value := moduleParams[name]
 				additionalPropertyFn := p.getAdditionalPropertyFn(allAdditionalProperties[name], capability)
 				if additionalPropertyFn != nil && value != nil {
 					searchValue := value
@@ -774,6 +777,39 @@ func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, mod
 		}
 	}
 	return toBeExtended, nil
+}
+
+// orderAdditionalParameters returns the names of the additional properties in
+// the order additionalExtend runs them:
+//
+//  1. rerank: sorts the results.
+//  2. answer: qna-transformers sorts the results again when the query sets
+//     ask { rerank: true }.
+//  3. The other properties, by name: each adds a field to every result.
+//  4. generate: sends the results to the model and puts the grouped result on
+//     the first one, so it has to run on the final order.
+//
+// A property that changes the order of the results must run before generate.
+// The sort by name keeps the order the same on every request, which ranging
+// over the map does not.
+func (p *Provider) orderAdditionalParameters(moduleParams map[string]interface{}) []string {
+	position := func(name string) int {
+		switch name {
+		case modulecomponents.AdditionalPropertyRerank:
+			return 0
+		case modulecomponents.AdditionalPropertyAnswer:
+			return 1
+		case modulecomponents.AdditionalPropertyGenerate:
+			return 3
+		default:
+			return 2
+		}
+	}
+	names := slices.Collect(maps.Keys(moduleParams))
+	slices.SortFunc(names, func(a, b string) int {
+		return cmp.Or(cmp.Compare(position(a), position(b)), cmp.Compare(a, b))
+	})
+	return names
 }
 
 func (p *Provider) getClassFromSearchResult(in []search.Result) (*models.Class, error) {
