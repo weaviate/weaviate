@@ -160,7 +160,7 @@ func (c *CommitLogCombiner) combine(left, right string) error {
 
 	// clearly indicate that the file is "in progress", in case we crash while
 	// combining and the after restart there are multiple alternatives
-	tmpName := strings.TrimSuffix(right, ".condensed") + (".combined.tmp")
+	tmpName := strings.TrimSuffix(right, ".condensed") + ".combined.tmp"
 
 	// finalName will look like an uncondensed original commit log, so the
 	// condensor will pick it up without even knowing that it's a combined file

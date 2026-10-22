@@ -27,7 +27,7 @@ func startMinIO(ctx context.Context, networkName string, buckets map[string]stri
 	port := nat.Port("9000/tcp")
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        "minio/minio",
+			Image:        "cgr.dev/chainguard/minio",
 			ExposedPorts: []string{"9000/tcp"},
 			Name:         MinIO,
 			Hostname:     MinIO,

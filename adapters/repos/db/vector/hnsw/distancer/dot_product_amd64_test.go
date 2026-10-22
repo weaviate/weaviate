@@ -104,7 +104,7 @@ func testDotProductRandomValue(t *testing.T, size uint, dotFn func(x []float32, 
 		if diff < -delta || diff > delta {
 			countFailed++
 
-			fmt.Printf("run %d: match: %f != %f, %d\n", i, resControl, res, (unsafe.Pointer(&vec1s[i][0])))
+			fmt.Printf("run %d: match: %f != %f, %d\n", i, resControl, res, unsafe.Pointer(&vec1s[i][0]))
 
 			t.Fail()
 		}

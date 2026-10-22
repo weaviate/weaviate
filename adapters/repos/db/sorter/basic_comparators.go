@@ -64,7 +64,7 @@ func newStringComparator(order string) *stringComparator {
 func (sc *stringComparator) compare(a, b interface{}) int {
 	a, b = sc.untypedNil(a), sc.untypedNil(b)
 	if a != nil && b != nil {
-		return sc.compareStrings(*(a.(*string)), *(b.(*string)))
+		return sc.compareStrings(*a.(*string), *b.(*string))
 	}
 	return handleNils(a == nil, b == nil, sc.lessValue)
 }
@@ -98,7 +98,7 @@ func newStringArrayComparator(order string) *stringArrayComparator {
 func (sac *stringArrayComparator) compare(a, b interface{}) int {
 	a, b = sac.untypedNil(a), sac.untypedNil(b)
 	if a != nil && b != nil {
-		aArr, bArr := *(a.(*[]string)), *(b.(*[]string))
+		aArr, bArr := *a.(*[]string), *b.(*[]string)
 		aLen, bLen := len(aArr), len(bArr)
 
 		for i := 0; i < aLen && i < bLen; i++ {
@@ -129,7 +129,7 @@ func newFloat64Comparator(order string) *float64Comparator {
 func (fc *float64Comparator) compare(a, b interface{}) int {
 	a, b = fc.untypedNil(a), fc.untypedNil(b)
 	if a != nil && b != nil {
-		return fc.compareFloats64(*(a.(*float64)), *(b.(*float64)))
+		return fc.compareFloats64(*a.(*float64), *b.(*float64))
 	}
 	return handleNils(a == nil, b == nil, fc.lessValue)
 }
@@ -163,7 +163,7 @@ func newFloat64ArrayComparator(order string) *float64ArrayComparator {
 func (fac *float64ArrayComparator) compare(a, b interface{}) int {
 	a, b = fac.untypedNil(a), fac.untypedNil(b)
 	if a != nil && b != nil {
-		aArr, bArr := *(a.(*[]float64)), *(b.(*[]float64))
+		aArr, bArr := *a.(*[]float64), *b.(*[]float64)
 		aLen, bLen := len(aArr), len(bArr)
 
 		for i := 0; i < aLen && i < bLen; i++ {
@@ -194,7 +194,7 @@ func newDateComparator(order string) *dateComparator {
 func (dc *dateComparator) compare(a, b interface{}) int {
 	a, b = dc.untypedNil(a), dc.untypedNil(b)
 	if a != nil && b != nil {
-		return dc.compareDates(*(a.(*time.Time)), *(b.(*time.Time)))
+		return dc.compareDates(*a.(*time.Time), *b.(*time.Time))
 	}
 	return handleNils(a == nil, b == nil, dc.lessValue)
 }
@@ -228,7 +228,7 @@ func newDateArrayComparator(order string) *dateArrayComparator {
 func (dac *dateArrayComparator) compare(a, b interface{}) int {
 	a, b = dac.untypedNil(a), dac.untypedNil(b)
 	if a != nil && b != nil {
-		aArr, bArr := *(a.(*[]time.Time)), *(b.(*[]time.Time))
+		aArr, bArr := *a.(*[]time.Time), *b.(*[]time.Time)
 		aLen, bLen := len(aArr), len(bArr)
 
 		for i := 0; i < aLen && i < bLen; i++ {
@@ -259,7 +259,7 @@ func newBoolComparator(order string) *boolComparator {
 func (bc *boolComparator) compare(a, b interface{}) int {
 	a, b = bc.untypedNil(a), bc.untypedNil(b)
 	if a != nil && b != nil {
-		return bc.compareBools(*(a.(*bool)), *(b.(*bool)))
+		return bc.compareBools(*a.(*bool), *b.(*bool))
 	}
 	return handleNils(a == nil, b == nil, bc.lessValue)
 }
@@ -296,7 +296,7 @@ func newBoolArrayComparator(order string) *boolArrayComparator {
 func (bac *boolArrayComparator) compare(a, b interface{}) int {
 	a, b = bac.untypedNil(a), bac.untypedNil(b)
 	if a != nil && b != nil {
-		aArr, bArr := *(a.(*[]bool)), *(b.(*[]bool))
+		aArr, bArr := *a.(*[]bool), *b.(*[]bool)
 		aLen, bLen := len(aArr), len(bArr)
 
 		for i := 0; i < aLen && i < bLen; i++ {
@@ -327,7 +327,7 @@ func newIntComparator(order string) *intComparator {
 func (ic *intComparator) compare(a, b interface{}) int {
 	a, b = ic.untypedNil(a), ic.untypedNil(b)
 	if a != nil && b != nil {
-		return ic.compareInts(*(a.(*int)), *(b.(*int)))
+		return ic.compareInts(*a.(*int), *b.(*int))
 	}
 	return handleNils(a == nil, b == nil, ic.lessValue)
 }

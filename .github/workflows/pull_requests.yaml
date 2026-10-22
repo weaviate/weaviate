@@ -317,8 +317,12 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: true
+      - name: Install golangci-lint
+        uses: ./.github/actions/golangci-lint
+        with:
+          install-only: true
       - name: Run Swagger
         run: ./tools/gen-code-from-swagger.sh
       - name: Error on change
@@ -340,7 +344,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: true
       - name: Unit test
         run: ./test/run.sh --unit-only
@@ -365,7 +369,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: true
       - name: Cache vector datasets
         if: matrix.name == 'with vectors'
@@ -406,7 +410,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: true
       - name: Login to Docker Hub
         if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
@@ -485,7 +489,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: true
       - name: Login to Docker Hub
         uses: ./.github/actions/docker-login
@@ -521,7 +525,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: true
       - name: Login to Docker Hub
         uses: ./.github/actions/docker-login
@@ -593,7 +597,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: true
       - name: check
         env:
@@ -678,7 +682,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: true
       - name: Login to Docker Hub
         uses: ./.github/actions/docker-login
@@ -717,7 +721,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: true
       - name: Login to Docker Hub
         uses: ./.github/actions/docker-login
@@ -764,7 +768,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: true
       - name: Login to Docker Hub
         uses: ./.github/actions/docker-login
@@ -824,7 +828,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: true
       - name: Install GoReleaser
         uses: goreleaser/goreleaser-action@ec59f474b9834571250b370d4735c50f8e2d1e29 # v7
@@ -879,7 +883,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache: true
       - name: start weaviate
         shell: bash

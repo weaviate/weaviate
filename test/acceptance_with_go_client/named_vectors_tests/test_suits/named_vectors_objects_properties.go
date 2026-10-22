@@ -12,11 +12,10 @@
 package test_suits
 
 import (
+	"acceptance_tests_with_client/fixtures"
 	"context"
 	"fmt"
 	"testing"
-
-	"acceptance_tests_with_client/fixtures"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
