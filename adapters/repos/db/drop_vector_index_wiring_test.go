@@ -21,9 +21,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 const editOpColdShard = "cold"
@@ -68,6 +70,54 @@ func TestEditOpBucketsForShardsOnShutDownIndex(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, buckets)
 	require.False(t, cold.isLoaded())
+}
+
+func TestEditOpBucketsForShardsRefusesInactiveNamespace(t *testing.T) {
+	tests := []struct {
+		name  string
+		state api.NamespaceState
+		// suspendOnColdLoad suspends the namespace while EditOpBucketsForShards
+		// loads the cold shard, and fails that load.
+		suspendOnColdLoad bool
+		shardNames        func(loaded ShardLike) []string
+	}{
+		{
+			name:       "suspended, cold and loaded shard",
+			state:      api.NamespaceStateSuspended,
+			shardNames: func(loaded ShardLike) []string { return []string{editOpColdShard, loaded.Name()} },
+		},
+		{
+			name:       "suspended, shard absent from the node",
+			state:      api.NamespaceStateSuspended,
+			shardNames: func(ShardLike) []string { return []string{"absent"} },
+		},
+		{
+			name:              "suspended mid-call",
+			state:             api.NamespaceStateActive,
+			suspendOnColdLoad: true,
+			shardNames:        func(loaded ShardLike) []string { return []string{editOpColdShard, loaded.Name()} },
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			states := map[string]api.NamespaceState{"alpha": tc.state}
+			var allocChecker memwatch.AllocChecker
+			if tc.suspendOnColdLoad {
+				allocChecker = loadProbeAllocChecker{memwatch.NewDummyMonitor(), func() {
+					states["alpha"] = api.NamespaceStateSuspended
+				}}
+			}
+			db, idx, loaded, cold := newEditOpTestIndex(t, ctx, allocChecker)
+			idx.namespace = "alpha"
+			idx.namespacesExister = namespaces.NewMockExisterInState(t, states)
+
+			buckets, err := db.EditOpBucketsForShards(ctx, idx.Config.ClassName.String(), tc.shardNames(loaded))
+			require.ErrorIs(t, err, namespaces.ErrNamespaceSuspended)
+			require.Empty(t, buckets)
+			require.False(t, cold.isLoaded())
+		})
+	}
 }
 
 func TestEditOpBucketsForLoadedShards(t *testing.T) {
