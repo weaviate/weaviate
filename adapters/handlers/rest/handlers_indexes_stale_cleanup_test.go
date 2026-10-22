@@ -13,6 +13,7 @@ package rest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
 // fakeStaleCleaner records the index types it was asked to scrub and returns a
@@ -40,50 +42,135 @@ func (f *fakeStaleCleaner) NewStalePartialReindexSweep() db.StalePartialReindexS
 	}
 }
 
-// TestCleanStalePartialStateOrFail pins that the pre-submit stale-state scrub
-// fails closed on an unknown migration type or a scrub error, and otherwise
-// cleans every index type the migration touches before proceeding.
+type fakeDrainSealer struct {
+	stuck            map[string]bool
+	sealed           []string
+	released         int
+	sweptWhileSealed []int
+	cleaner          *fakeStaleCleaner
+}
+
+func (f *fakeDrainSealer) SealLocalTaskDrain(_ context.Context, desc distributedtask.TaskDescriptor) (func(), error) {
+	if f.stuck[desc.ID] {
+		return nil, context.DeadlineExceeded
+	}
+	f.sealed = append(f.sealed, desc.ID)
+	return func() {
+		f.released++
+		f.sweptWhileSealed = append(f.sweptWhileSealed, len(f.cleaner.calls))
+	}, nil
+}
+
+func reindexTaskOn(t *testing.T, id, collection, property string) *distributedtask.Task {
+	t.Helper()
+	payload, err := json.Marshal(db.ReindexTaskPayload{
+		Collection: collection,
+		Properties: []string{property},
+	})
+	require.NoError(t, err)
+	return &distributedtask.Task{
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: id, Version: 1},
+		Payload:        payload,
+	}
+}
+
+// The pre-submit scrub fails closed on an unknown migration type or a scrub
+// error, and seals earlier local workers on the property while it runs.
 func TestCleanStalePartialStateOrFail(t *testing.T) {
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)
 	h := &indexesHandlers{appState: &state.State{Logger: logger}}
 
-	t.Run("unknown migration type fails closed with 500 and scrubs nothing", func(t *testing.T) {
-		cleaner := &fakeStaleCleaner{}
-		resp := h.cleanStalePartialStateOrFail(context.Background(), nil, cleaner,
-			"C", "p", db.ReindexMigrationType("not-a-real-type"))
-		code, _ := statusOf(t, resp)
-		require.Equal(t, http.StatusInternalServerError, code,
-			"an unknown migration type must fail closed, not silently skip cleanup")
-		require.Empty(t, cleaner.calls, "an unknown type must refuse before any scrub")
-	})
+	tests := []struct {
+		name       string
+		sweepErr   error
+		mtype      db.ReindexMigrationType
+		tasks      func(t *testing.T) []*distributedtask.Task
+		stuck      map[string]bool
+		wantCode   int // 0 means the submit proceeds
+		wantCalls  []string
+		wantSealed []string
+		because    string
+	}{
+		{
+			name:     "unknown migration type",
+			mtype:    db.ReindexMigrationType("not-a-real-type"),
+			wantCode: http.StatusInternalServerError,
+			because:  "an unknown migration type must fail closed, not silently skip cleanup",
+		},
+		{
+			name:      "the scrub itself fails",
+			mtype:     db.ReindexTypeEnableFilterable,
+			sweepErr:  errors.New("disk unavailable"),
+			wantCode:  http.StatusInternalServerError,
+			wantCalls: []string{"filterable"},
+		},
+		{
+			name:      "a truncated sweep proceeds instead of refusing the submit",
+			mtype:     db.ReindexTypeChangeTokenization,
+			sweepErr:  fmt.Errorf("%w: shards skipped mid-walk: tenant-a", db.ErrCleanupSweepTruncated),
+			wantCalls: []string{"searchable", "filterable"},
+			because:   "unvisited shards are unverified rather than known stale, and a truncation on the first index type must not stop the second",
+		},
+		{
+			name:      "change-tokenization scrubs both inverted index dirs",
+			mtype:     db.ReindexTypeChangeTokenization,
+			wantCalls: []string{"searchable", "filterable"},
+		},
+		{
+			name:  "an earlier task on this property is held for the sweep",
+			mtype: db.ReindexTypeEnableFilterable,
+			tasks: func(t *testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{
+					reindexTaskOn(t, "Books:enable-filterable:price:ab12", "Books", "price"),
+					reindexTaskOn(t, "Books:enable-filterable:title:cd34", "Books", "title"),
+					reindexTaskOn(t, "Authors:enable-filterable:price:ef56", "Authors", "price"),
+				}
+			},
+			wantCalls:  []string{"filterable"},
+			wantSealed: []string{"Books:enable-filterable:price:ab12"},
+			because:    "only a task on this collection and property can be writing into the directories the sweep removes",
+		},
+		{
+			name:  "a local worker that will not exit refuses the submit",
+			mtype: db.ReindexTypeEnableFilterable,
+			tasks: func(t *testing.T) []*distributedtask.Task {
+				return []*distributedtask.Task{
+					reindexTaskOn(t, "Books:enable-filterable:price:ab12", "Books", "price"),
+				}
+			},
+			stuck:    map[string]bool{"Books:enable-filterable:price:ab12": true},
+			wantCode: http.StatusServiceUnavailable,
+			because:  "sweeping under a live worker takes the directories out from under writes it already acknowledged",
+		},
+	}
 
-	t.Run("scrub error fails closed with 500", func(t *testing.T) {
-		cleaner := &fakeStaleCleaner{err: errors.New("disk unavailable")}
-		resp := h.cleanStalePartialStateOrFail(context.Background(), nil, cleaner,
-			"C", "p", db.ReindexTypeEnableFilterable)
-		code, _ := statusOf(t, resp)
-		require.Equal(t, http.StatusInternalServerError, code)
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cleaner := &fakeStaleCleaner{err: tt.sweepErr}
+			sealer := &fakeDrainSealer{stuck: tt.stuck, cleaner: cleaner}
+			var tasks []*distributedtask.Task
+			if tt.tasks != nil {
+				tasks = tt.tasks(t)
+			}
 
-	t.Run("a truncated sweep proceeds instead of refusing the submit", func(t *testing.T) {
-		cleaner := &fakeStaleCleaner{
-			err: fmt.Errorf("%w: shards skipped mid-walk: tenant-a", db.ErrCleanupSweepTruncated),
-		}
-		resp := h.cleanStalePartialStateOrFail(context.Background(), nil, cleaner,
-			"C", "p", db.ReindexTypeChangeTokenization)
-		require.Nil(t, resp,
-			"unvisited shards are unverified rather than known stale, so the submit must proceed")
-		require.Equal(t, []string{"searchable", "filterable"}, cleaner.calls,
-			"a truncation on the first index type must not stop the sweep of the second")
-	})
+			resp := h.cleanStalePartialStateOrFail(context.Background(), nil, cleaner, sealer,
+				"Books", "price", tt.mtype, tasks)
 
-	t.Run("change-tokenization scrubs BOTH searchable and filterable then proceeds", func(t *testing.T) {
-		cleaner := &fakeStaleCleaner{}
-		resp := h.cleanStalePartialStateOrFail(context.Background(), nil, cleaner,
-			"C", "p", db.ReindexTypeChangeTokenization)
-		require.Nil(t, resp, "a clean scrub returns nil to proceed")
-		require.Equal(t, []string{"searchable", "filterable"}, cleaner.calls,
-			"the coupled migration must scrub both inverted index dirs")
-	})
+			if tt.wantCode == 0 {
+				require.Nil(t, resp, tt.because)
+			} else {
+				code, _ := statusOf(t, resp)
+				require.Equal(t, tt.wantCode, code, tt.because)
+			}
+			require.Equal(t, tt.wantCalls, cleaner.calls, tt.because)
+			require.Equal(t, tt.wantSealed, sealer.sealed)
+			require.Equal(t, len(sealer.sealed), sealer.released,
+				"a leaked seal refuses this task for the life of the process")
+			for _, swept := range sealer.sweptWhileSealed {
+				require.Equal(t, len(cleaner.calls), swept,
+					"the seal is held until the sweep is done, not just until it starts")
+			}
+		})
+	}
 }

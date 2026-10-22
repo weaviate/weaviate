@@ -69,7 +69,7 @@ func NewShardReindexActivityLookup(tasks []*distributedtask.Task, logger logrus.
 // wiring; the prior conservative-refuse default broke every module-test
 // fixture that bypassed the bootstrap path. See [DB.AnyLiveReindexForShard].
 func (db *DB) SetShardReindexActivityLookup(builder ShardReindexActivityLookupBuilder) {
-	db.reindexAuditMu.Lock()
-	defer db.reindexAuditMu.Unlock()
+	db.reindexLookupsMu.Lock()
+	defer db.reindexLookupsMu.Unlock()
 	db.shardReindexActivityLookupBuilder = builder
 }

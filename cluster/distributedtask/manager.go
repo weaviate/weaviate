@@ -1018,6 +1018,20 @@ func (m *Manager) LocalDistributedTasks() map[string][]*Task {
 	return result
 }
 
+// LocalTaskStatuses copies no units: a decider can read once per record, under
+// the lock RAFT applies wait on, where [Manager.LocalDistributedTasks] clones them all.
+func (m *Manager) LocalTaskStatuses(namespace string) []TaskStatusEntry {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	tasks := m.tasks[namespace]
+	out := make([]TaskStatusEntry, 0, len(tasks))
+	for _, task := range tasks {
+		out = append(out, task.StatusEntry())
+	}
+	return out
+}
+
 // This is not reached through the [TaskLister] interface in production —
 // [cluster.Raft] is the concrete TaskLister the wiring hands out. It still
 // has two direct production callers: [Manager.Snapshot], on the RAFT FSM's

@@ -50,10 +50,10 @@ func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
 		// at all — the pre-gate behavior this restores.
 		return false
 	}
-	db.reindexAuditMu.RLock()
+	db.reindexLookupsMu.RLock()
 	activityBuilder := db.shardReindexActivityLookupBuilder
 	cleanupBuilder := db.reindexCleanupInProgressLookupBldr
-	db.reindexAuditMu.RUnlock()
+	db.reindexLookupsMu.RUnlock()
 	if activityBuilder == nil {
 		unwiredGateWarnOnce.Do(func() {
 			logger := db.logger
@@ -113,8 +113,8 @@ func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
 // not yet finished tearing __reindex / __ingest sidecar dirs. Wired in
 // post-bootstrap alongside [DB.SetShardReindexActivityLookup].
 func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupBuilder) {
-	db.reindexAuditMu.Lock()
-	defer db.reindexAuditMu.Unlock()
+	db.reindexLookupsMu.Lock()
+	defer db.reindexLookupsMu.Unlock()
 	db.reindexCleanupInProgressLookupBldr = builder
 }
 

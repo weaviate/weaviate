@@ -41,8 +41,8 @@ package reindex_singlenode
 //     index must return at least one row from the small corpus inserted
 //     before the PUT. A FINISHED task with a queryable bucket that
 //     returns zero rows is the Sev 1 failure mode we keep getting bitten
-//     by (DELETE→re-enable short-circuits on a stale sentinel, CANCEL→
-//     retry hits a half-written sidecar, etc.). Catching it here on a
+//     by (DELETE→re-enable finishes over an emptied bucket, CANCEL→retry
+//     hits a half-written sidecar, etc.). Catching it here on a
 //     wide combinatorial sweep is cheaper than discovering it in
 //     production.
 //
