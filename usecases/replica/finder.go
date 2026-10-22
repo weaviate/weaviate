@@ -671,11 +671,18 @@ func (f *Finder) LocalNodeName() string {
 }
 
 // CountObjects returns an aggregated object count from all replicas the shard exists on.
-func (f *Finder) CountObjects(ctx context.Context, shard string, cl types.ConsistencyLevel) (int, error) {
+func (f *Finder) CountObjects(ctx context.Context, shard string) (int, error) {
 	c := NewReadCoordinator[int](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
 
+	// Resolve at ONE so an unreachable replica does not fail the plan, then ask every reachable one.
+	plan, err := f.router.BuildReadRoutingPlan(f.router.BuildRoutingPlanOptions(shard, shard, types.ConsistencyLevelOne, ""))
+	if err != nil {
+		return 0, fmt.Errorf("%w : class %q shard %q", err, f.class, shard)
+	}
+	plan.IntConsistencyLevel = len(plan.ReplicaSet.Replicas)
+
 	// NOTE(dyma): Why do we need to pass both the context and the timeout?
-	results, _, err := c.Pull(ctx, cl, func(ctx context.Context, host string, _ bool) (int, error) {
+	results, _ := c.pull(ctx, plan, func(ctx context.Context, host string, _ bool) (int, error) {
 		count, err := f.client.cl.CountObjects(ctx, host, f.class, shard)
 		if err != nil {
 			f.logger.WithFields(logrus.Fields{
@@ -685,10 +692,7 @@ func (f *Finder) CountObjects(ctx context.Context, shard string, cl types.Consis
 			return 0, err
 		}
 		return count, nil
-	}, "", time.Minute)
-	if err != nil {
-		return 0, nil
-	}
+	}, time.Minute)
 
 	// Fan in results from all concurrent Pull requests. Results with
 	// errors (e.g. shard not yet loaded on a follower) are excluded
