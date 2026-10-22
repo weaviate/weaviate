@@ -530,7 +530,7 @@ func TestPullOutlastsReplicasThatAreMerelyBehindTheSchema(t *testing.T) {
 	metrics, err := replica.NewMetrics(nil)
 	require.NoError(t, err)
 
-	options := types.RoutingPlanBuildOptions{Shard: shard, ConsistencyLevel: types.ConsistencyLevelQuorum}
+	options := types.RoutingPlanBuildOptions{Shard: shard, ConsistencyLevel: types.ConsistencyLevelQuorum, AllowTenantActivation: true}
 	router := types.NewMockRouter(t)
 	router.EXPECT().BuildRoutingPlanOptions(shard, shard, types.ConsistencyLevelQuorum, "").Return(options).Once()
 	router.EXPECT().BuildReadRoutingPlan(options).Return(types.ReadRoutingPlan{
@@ -595,7 +595,7 @@ func TestPullFailsOverOffARefusingReplica(t *testing.T) {
 	metrics, err := replica.NewMetrics(nil)
 	require.NoError(t, err)
 
-	options := types.RoutingPlanBuildOptions{Shard: shard, ConsistencyLevel: types.ConsistencyLevelQuorum}
+	options := types.RoutingPlanBuildOptions{Shard: shard, ConsistencyLevel: types.ConsistencyLevelQuorum, AllowTenantActivation: true}
 	router := types.NewMockRouter(t)
 	router.EXPECT().BuildRoutingPlanOptions(shard, shard, types.ConsistencyLevelQuorum, "").Return(options).Once()
 	router.EXPECT().BuildReadRoutingPlan(options).Return(types.ReadRoutingPlan{
