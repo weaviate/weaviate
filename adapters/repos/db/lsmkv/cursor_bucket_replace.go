@@ -315,12 +315,12 @@ func (c *CursorReplace) seekAll(target []byte) {
 	state := make([]cursorStateReplace, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.seek(target)
-		if errors.Is(err, lsmkv.NotFound) {
+		if lsmkv.IsNotFound(err) {
 			state[i].err = err
 			continue
 		}
 
-		if errors.Is(err, lsmkv.Deleted) {
+		if lsmkv.IsDeleted(err) {
 			state[i].err = err
 			state[i].key = key
 			continue
@@ -341,7 +341,7 @@ func (c *CursorReplace) serveCurrentStateAndAdvance() ([]byte, []byte) {
 	for {
 		id, err := c.cursorWithLowestKey()
 		if err != nil {
-			if errors.Is(err, lsmkv.NotFound) {
+			if lsmkv.IsNotFound(err) {
 				return nil, nil
 			}
 		}
@@ -357,7 +357,7 @@ func (c *CursorReplace) serveCurrentStateAndAdvance() ([]byte, []byte) {
 			c.advanceInner(id)
 		}
 
-		if errors.Is(c.serveCache.err, lsmkv.Deleted) {
+		if lsmkv.IsDeleted(c.serveCache.err) {
 			if c.emitTombstones {
 				// literal nil, not the reused serveCache.value, so callers can detect the tombstone
 				return c.serveCache.key, nil
@@ -419,7 +419,7 @@ func (c *CursorReplace) cursorWithLowestKey() (int, error) {
 	var lowest []byte
 
 	for i, res := range c.state {
-		if errors.Is(res.err, lsmkv.NotFound) {
+		if lsmkv.IsNotFound(res.err) {
 			continue
 		}
 
@@ -439,14 +439,14 @@ func (c *CursorReplace) cursorWithLowestKey() (int, error) {
 
 func (c *CursorReplace) advanceInner(id int) {
 	k, v, err := c.innerCursors[id].next()
-	if errors.Is(err, lsmkv.NotFound) {
+	if lsmkv.IsNotFound(err) {
 		c.state[id].err = err
 		c.state[id].key = nil
 		c.state[id].value = nil
 		return
 	}
 
-	if errors.Is(err, lsmkv.Deleted) {
+	if lsmkv.IsDeleted(err) {
 		c.state[id].err = err
 		c.state[id].key = k
 		c.state[id].value = nil
@@ -470,11 +470,11 @@ func (c *CursorReplace) firstAll() {
 	state := make([]cursorStateReplace, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.first()
-		if errors.Is(err, lsmkv.NotFound) {
+		if lsmkv.IsNotFound(err) {
 			state[i].err = err
 			continue
 		}
-		if errors.Is(err, lsmkv.Deleted) {
+		if lsmkv.IsDeleted(err) {
 			state[i].err = err
 			state[i].key = key
 			continue

@@ -48,6 +48,17 @@ func (e ErrDeleted) Unwrap() error {
 	return Deleted
 }
 
+// IsNotFound compares err to NotFound directly before calling errors.Is, because
+// segments return the sentinel unwrapped and errors.Is is costly on lookup hot paths.
+func IsNotFound(err error) bool {
+	return err == NotFound || errors.Is(err, NotFound) //nolint:errorlint // fast path, errors.Is follows
+}
+
+func IsDeleted(err error) bool {
+	return err == Deleted || errors.Is(err, Deleted) //nolint:errorlint // fast path, errors.Is follows
+}
+
 func IsDeletedOrNotFound(err error) bool {
-	return errors.Is(err, Deleted) || errors.Is(err, NotFound)
+	return err == NotFound || err == Deleted || //nolint:errorlint // fast path, errors.Is follows
+		errors.Is(err, NotFound) || errors.Is(err, Deleted)
 }
