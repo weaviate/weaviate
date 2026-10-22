@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
@@ -103,6 +104,11 @@ type SchemaManager struct {
 	tenantLimit func() int
 	// tenantLimitErrTemplate resolves the cap-exceeded message (empty = default).
 	tenantLimitErrTemplate func() string
+	// collectionLimit returns the per-namespace collection cap. Negative means
+	// unlimited; nil means no cap. It is read before commit, never in FSM apply.
+	collectionLimit func() int
+	// collectionLimitErrTemplate resolves the cap-exceeded message (empty = default).
+	collectionLimitErrTemplate func() string
 	// shouldLogSlowApply controls whether slow RAFT apply diagnostics are
 	// emitted.
 	shouldLogSlowApply func() bool
@@ -186,6 +192,20 @@ func (s *SchemaManager) SetShouldLogSlowApply(fn func() bool) {
 // the AddTenants serialization when it is not.
 func (s *SchemaManager) TenantLimitEnforced() bool {
 	return s.tenantLimit != nil && s.tenantLimit() >= 0
+}
+
+// SetCollectionLimit installs the collection-cap resolvers used by
+// PreApplyFilter (negative = unlimited; nil = unenforced). Call once during FSM
+// bootstrap.
+func (s *SchemaManager) SetCollectionLimit(limit func() int, errTemplate func() string) {
+	s.collectionLimit = limit
+	s.collectionLimitErrTemplate = errTemplate
+}
+
+// CollectionLimitEnforced reports whether a collection cap is in effect.
+// When it is not, Execute skips the per-namespace AddClass lock.
+func (s *SchemaManager) CollectionLimitEnforced() bool {
+	return s.collectionLimit != nil && s.collectionLimit() >= 0
 }
 
 func (s *SchemaManager) NewSchemaReader() SchemaReader {
@@ -356,6 +376,21 @@ func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
 			return fmt.Errorf("%s name %s already exists", item, req.Class)
 		} else if other != "" {
 			return fmt.Errorf("%w: found similar %s %q", ErrClassExists, item, other)
+		}
+
+		// Per-namespace collection cap, checked before commit. store.Execute
+		// runs one AddClass per namespace at a time, so this count cannot go
+		// stale before the apply adds to it. An unqualified class counts
+		// against the global total. RESTORE_CLASS is not capped.
+		if s.collectionLimit != nil {
+			if maxCollections := s.collectionLimit(); maxCollections >= 0 &&
+				s.schema.CollectionsCount(namespacing.NamespaceFromQualified(req.Class)) >= maxCollections {
+				tmpl := ""
+				if s.collectionLimitErrTemplate != nil {
+					tmpl = s.collectionLimitErrTemplate()
+				}
+				return usagelimits.NewLimitExceededError(tmpl, usagelimits.LimitCollections, int64(maxCollections))
+			}
 		}
 	}
 
