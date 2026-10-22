@@ -593,6 +593,8 @@ jobs:
             test: "--only-module-text2vec-digitalocean"
           - name: "generative-digitalocean"
             test: "--only-module-generative-digitalocean"
+          - name: "reranker-digitalocean"
+            test: "--only-module-reranker-digitalocean"
           - name: "generative-meta"
             test: "--only-module-generative-meta"
     steps:

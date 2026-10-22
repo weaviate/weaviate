@@ -127,6 +127,7 @@ import (
 	modcentroid "github.com/weaviate/weaviate/modules/ref2vec-centroid"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
 	modrerankercontextualai "github.com/weaviate/weaviate/modules/reranker-contextualai"
+	modrerankerdigitalocean "github.com/weaviate/weaviate/modules/reranker-digitalocean"
 	modrerankerdummy "github.com/weaviate/weaviate/modules/reranker-dummy"
 	modrerankerjinaai "github.com/weaviate/weaviate/modules/reranker-jinaai"
 	modrerankernvidia "github.com/weaviate/weaviate/modules/reranker-nvidia"
@@ -2006,6 +2007,7 @@ func registerModules(appState *state.State) error {
 		modrerankervoyageai.Name,
 		modrerankerjinaai.Name,
 		modrerankernvidia.Name,
+		modrerankerdigitalocean.Name,
 	}
 
 	defaultModules := append(defaultVectorizers, defaultGenerative...)
@@ -2120,6 +2122,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modrerankernvidia.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modrerankerdigitalocean.Name]; ok {
+		appState.Modules.Register(modrerankerdigitalocean.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modrerankerdigitalocean.Name).
 			Debug("enabled module")
 	}
 
