@@ -17,7 +17,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/rand"
+	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,6 +30,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -1738,7 +1741,7 @@ func TestObjectsByDocID(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			res, err := ObjectsByDocID(bucket, test.inputIDs, additional.Properties{}, nil, logger)
+			res, err := ObjectsByDocID(context.Background(), bucket, test.inputIDs, additional.Properties{}, nil, logger)
 			require.Nil(t, err)
 			require.Len(t, res, len(test.inputIDs))
 
@@ -1748,6 +1751,48 @@ func TestObjectsByDocID(t *testing.T) {
 				expectedUUID := strfmt.UUID(fmt.Sprintf("73f2eb5f-5abf-447a-81ca-74b1dd1%05d", expectedDocID))
 				assert.Equal(t, expectedUUID, obj.ID())
 			}
+		})
+	}
+}
+
+func TestObjectsByDocIDWorkersFollowBudget(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	// a GOMAXPROCS change after package init must still move the unbudgeted fan-out
+	orig := runtime.GOMAXPROCS(0)
+	runtime.GOMAXPROCS(orig + 1)
+	t.Cleanup(func() { runtime.GOMAXPROCS(orig) })
+	fallback := 2 * (orig + 1)
+	ids := make([]uint64, 3*fallback)
+	for i := range ids {
+		ids[i] = uint64(i)
+	}
+
+	tests := []struct {
+		name       string
+		ctx        context.Context
+		wantChunks int
+		withEmpty  bool
+	}{
+		{name: "no budget fans out at twice GOMAXPROCS", ctx: context.Background(), wantChunks: fallback},
+		{name: "budget of 2", ctx: concurrency.CtxWithBudget(context.Background(), 2), wantChunks: 2},
+		{name: "budget above the fallback is capped", ctx: concurrency.CtxWithBudget(context.Background(), 10*fallback), wantChunks: fallback},
+		{name: "with empties, budget of 2", ctx: concurrency.CtxWithBudget(context.Background(), 2), wantChunks: 2, withEmpty: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bucket := genFakeBucket(t, uint64(len(ids)))
+			fetch := ObjectsByDocID
+			if tt.withEmpty {
+				fetch = ObjectsByDocIDWithEmpty
+			}
+
+			res, err := fetch(tt.ctx, bucket, ids, additional.Properties{}, nil, logger)
+			require.NoError(t, err)
+			require.Len(t, res, len(ids))
+			for i, obj := range res {
+				assert.Equal(t, ids[i], uint64(obj.Properties().(map[string]any)["i"].(float64)))
+			}
+			assert.Equal(t, int32(tt.wantChunks), bucket.classNameCalls.Load())
 		})
 	}
 }
@@ -1768,7 +1813,7 @@ func TestObjectsByDocIDSharedView(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			bucket := genFakeBucket(t, 1000)
 
-			res, err := ObjectsByDocID(bucket, tt.inputIDs, additional.Properties{}, nil, logger)
+			res, err := ObjectsByDocID(context.Background(), bucket, tt.inputIDs, additional.Properties{}, nil, logger)
 			require.NoError(t, err)
 			require.Len(t, res, len(tt.inputIDs))
 
@@ -1798,7 +1843,7 @@ func TestObjectsByDocIDSharedViewReleasedOnError(t *testing.T) {
 			bucket := genFakeBucket(t, 1000)
 			bucket.lookupErr = fmt.Errorf("boom")
 
-			_, err := ObjectsByDocID(bucket, ids, additional.Properties{}, nil, logger)
+			_, err := ObjectsByDocID(context.Background(), bucket, ids, additional.Properties{}, nil, logger)
 			require.Error(t, err)
 
 			// the view is still released exactly once when a lookup fails mid-batch
@@ -1812,7 +1857,7 @@ func TestObjectsByDocIDEmptyBatch(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	bucket := genFakeBucket(t, 1000)
 
-	res, err := ObjectsByDocID(bucket, nil, additional.Properties{}, nil, logger)
+	res, err := ObjectsByDocID(context.Background(), bucket, nil, additional.Properties{}, nil, logger)
 	require.NoError(t, err)
 	require.Empty(t, res)
 
@@ -1823,7 +1868,7 @@ func TestObjectsByDocIDEmptyBatch(t *testing.T) {
 
 func TestObjectsByDocIDNilBucket(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	_, err := ObjectsByDocID(nil, []uint64{0}, additional.Properties{}, nil, logger)
+	_, err := ObjectsByDocID(context.Background(), nil, []uint64{0}, additional.Properties{}, nil, logger)
 	require.Error(t, err)
 }
 
@@ -1832,7 +1877,7 @@ func TestSkipMissingObjects(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	ids := pickRandomIDsBetween(0, 1000, 100)
 	ids = append(ids, 1001, 1002, 1003)
-	objs, err := objectsByDocIDParallel(bucket, ids, additional.Properties{}, nil, logger)
+	objs, err := objectsByDocIDParallel(context.Background(), bucket, ids, additional.Properties{}, nil, logger)
 	require.Nil(t, err)
 	require.Len(t, objs, 100)
 	for _, obj := range objs {
@@ -1956,7 +2001,7 @@ func BenchmarkObjectsByDocID(b *testing.B) {
 		b.Run(fmt.Sprintf("Concurrent: %v with amount: %v", tt.concurrent, tt.amount), func(t *testing.B) {
 			for i := 0; i < b.N; i++ {
 				if tt.concurrent {
-					_, err := objectsByDocIDParallel(bucket, ids[:tt.amount], additional.Properties{}, nil, logger)
+					_, err := objectsByDocIDParallel(context.Background(), bucket, ids[:tt.amount], additional.Properties{}, nil, logger)
 					require.Nil(t, err)
 
 				} else {
@@ -2003,7 +2048,7 @@ func FuzzObjectGet(f *testing.F) {
 			}
 		}
 
-		res, err := ObjectsByDocID(bucket, ids, additional.Properties{}, nil, logger)
+		res, err := ObjectsByDocID(context.Background(), bucket, ids, additional.Properties{}, nil, logger)
 		require.Nil(t, err)
 		require.Len(t, res, len(ids))
 		for i, obj := range res {
@@ -2024,6 +2069,8 @@ type fakeBucket struct {
 	// lookupErr, when set, makes every lookup fail, simulating an error
 	// mid-batch.
 	lookupErr error
+	// classNameCalls counts fetch chunks, since each chunk reads the class name once.
+	classNameCalls atomic.Int32
 }
 
 func (f *fakeBucket) SecondaryViewLookup() (secondaryLookup, func()) {
@@ -2054,6 +2101,7 @@ func (f *fakeBucket) GetBySecondaryWithBuffer(ctx context.Context, indexID int, 
 }
 
 func (f *fakeBucket) ClassName() (string, error) {
+	f.classNameCalls.Add(1)
 	return "MyClass", nil
 }
 

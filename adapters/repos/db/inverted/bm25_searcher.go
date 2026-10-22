@@ -712,7 +712,7 @@ func (b *BM25Searcher) wandFromStats(
 	}
 
 	start = time.Now()
-	objects, scores, err := b.getTopKObjects(topKHeap, params.AdditionalExplanations, allQueryTerms, additional)
+	objects, scores, err := b.getTopKObjects(ctx, topKHeap, params.AdditionalExplanations, allQueryTerms, additional)
 
 	fetchTime := time.Since(start)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_5_objects_time", fetchTime)
@@ -720,7 +720,7 @@ func (b *BM25Searcher) wandFromStats(
 	return objects, scores, err
 }
 
-func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore], additionalExplanations bool,
+func (b *BM25Searcher) getTopKObjects(ctx context.Context, topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore], additionalExplanations bool,
 	allRequests []string, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	// Nil once Store.Shutdown has cleared the bucket map; fail fast.
@@ -738,7 +738,7 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.Doc
 		explanations = append(explanations, res.Value)
 	}
 
-	objs, err := storobj.ObjectsByDocIDWithEmpty(objectsBucket, ids, additional, nil, b.logger)
+	objs, err := storobj.ObjectsByDocIDWithEmpty(ctx, objectsBucket, ids, additional, nil, b.logger)
 	if err != nil {
 		return objs, nil, errors.Errorf("objects loading")
 	}
