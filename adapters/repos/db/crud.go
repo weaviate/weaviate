@@ -262,6 +262,8 @@ func (db *DB) Exists(ctx context.Context, class string, id strfmt.UUID,
 	return index.exists(ctx, id, repl, tenant)
 }
 
+// anyExists reports whether any collection holds an object with id. It searches
+// without a tenant, so it skips multi-tenant collections.
 func (db *DB) anyExists(ctx context.Context, id strfmt.UUID,
 	repl *additional.ReplicationProperties,
 ) (bool, error) {
@@ -271,6 +273,10 @@ func (db *DB) anyExists(ctx context.Context, id strfmt.UUID,
 	defer db.indexLock.RUnlock()
 
 	for _, index := range db.indices {
+		if index.partitioningEnabled {
+			// A multi-tenant collection holds nothing a lookup without a tenant can reach.
+			continue
+		}
 		ok, err := index.exists(ctx, id, repl, "")
 		if err != nil {
 			switch {
