@@ -714,7 +714,7 @@ case $CONFIG in
     -e "MINIO_ROOT_USER=aws_access_key" \
     -e "MINIO_ROOT_PASSWORD=aws_secret_key" \
     -v ${HOME}/minio/data:/data \
-    quay.io/minio/minio server /data --console-address ":9001"
+    cgr.dev/chainguard/minio server /data --console-address ":9001"
     ;;
 
   local-node-with-offload)
