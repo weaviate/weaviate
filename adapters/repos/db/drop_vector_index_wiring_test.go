@@ -82,6 +82,27 @@ func TestEditOpBucketsForLoadedShards(t *testing.T) {
 	require.False(t, cold.isLoaded())
 }
 
+// TestEditOpBucketsForLoadedShards_ReturnsResolvedBucket pins that a shard's
+// loaded lookup returns the bucket EditOpBucketsForShards resolved for it, which
+// is how bucketStillLoaded tells a still-loaded shard from a reopened one.
+func TestEditOpBucketsForLoadedShards_ReturnsResolvedBucket(t *testing.T) {
+	ctx := testCtx()
+	db, idx, loaded, cold := newEditOpTestIndex(t, ctx, nil)
+	t.Cleanup(func() { cold.Shutdown(context.Background()) })
+	class := idx.Config.ClassName.String()
+	names := []string{loaded.Name(), editOpColdShard}
+
+	resolved, err := db.EditOpBucketsForShards(ctx, class, names)
+	require.NoError(t, err)
+	require.Len(t, resolved, 2)
+
+	current, err := db.EditOpBucketsForLoadedShards(class, names)
+	require.NoError(t, err)
+	for _, name := range names {
+		require.Same(t, resolved[name], current[name], "shard %s", name)
+	}
+}
+
 // newEditOpTestIndex returns a DB over an index holding one loaded shard and the
 // lazy shard editOpColdShard, not yet loaded, whose loads check allocChecker.
 // A nil allocChecker takes the index's own.
