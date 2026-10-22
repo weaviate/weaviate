@@ -272,6 +272,15 @@ func (rs SchemaReader) GetShardsStatus(class, tenant string) (models.ShardStatus
 
 func (rs SchemaReader) Len() int { return rs.schema.len() }
 
+// CollectionsCount returns the local count of stored classes: the global total
+// for an empty namespace, otherwise only classes in that namespace.
+func (rs SchemaReader) CollectionsCount(namespace string) int {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("CollectionsCount"))
+	defer t.ObserveDuration()
+
+	return rs.schema.CollectionsCount(namespace)
+}
+
 func (rs SchemaReader) retry(f func(*schema) error) error {
 	return backoff.Retry(func() error {
 		return f(rs.schema)
