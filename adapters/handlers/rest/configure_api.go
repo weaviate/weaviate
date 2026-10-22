@@ -1268,7 +1268,7 @@ func initReindexAndDistributedTasks(
 	// is missing (crash, upgrade, or restore).
 	enterrors.GoWrapper(func() {
 		runDropVectorIndexReconciliation(
-			serverShutdownCtx, appState.SchemaManager, dropVectorEnqueuer, appState.Logger,
+			serverShutdownCtx, appState.SchemaManager, dropVectorEnqueuer, appState.NamespacesController, appState.Logger,
 			appState.ServerConfig.Config.DistributedTasks.DropVectorReconcileInterval,
 			appState.ClusterService.IsLeader, dropVectorReconcileNudge)
 	}, appState.Logger)
