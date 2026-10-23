@@ -326,12 +326,17 @@ func TestReEntrantCtxSkipsAcquire(t *testing.T) {
 	usedAfterFirst := l.usedForTest()
 	require.Positive(t, usedAfterFirst)
 
-	// A nested admit on the granted ctx inherits the parent grant.
-	ctx2, rel2, err := l.Admit(ctx1, 4)
+	// A nested admit on the granted ctx runs on a copy of the parent grant.
+	ctx2, rel2, err := l.Admit(ctx1, 16)
 	require.NoError(t, err)
 	require.Equal(t, usedAfterFirst, l.usedForTest(), "re-entrant admit must not acquire again")
-	// Budget carried by the child ctx is the parent's grant, unchanged.
 	require.Equal(t, concurrency.BudgetFromCtx(ctx1, -1), concurrency.BudgetFromCtx(ctx2, -2))
+
+	// Resizing the nested copy must reach neither the parent nor the pool.
+	parentBudget := concurrency.BudgetFromCtx(ctx1, -1)
+	require.Equal(t, parentBudget, concurrency.ResizeBudget(ctx2, 1))
+	require.Equal(t, parentBudget, concurrency.BudgetFromCtx(ctx1, -1))
+	require.Equal(t, usedAfterFirst, l.usedForTest())
 
 	rel2() // no-op release for the inherited grant
 	require.Equal(t, usedAfterFirst, l.usedForTest())
@@ -387,6 +392,27 @@ func TestDynamicValueFlipMidFlight(t *testing.T) {
 	require.Equal(t, int64(0), l.usedForTest())
 }
 
+// A nested admit after the kill switch flips must not share the parent's
+// pooled budget.
+func TestReEntrantAfterDisableGetsFixedCopy(t *testing.T) {
+	d := configRuntime.NewDynamicValue(false)
+	l := newLimiter(t, Config{Capacity: 400, Disabled: d})
+	ctx1, rel1, err := l.Admit(context.Background(), 8)
+	require.NoError(t, err)
+	used := l.usedForTest()
+
+	require.NoError(t, d.SetValue(true))
+	ctx2, rel2, err := l.Admit(ctx1, 3)
+	require.NoError(t, err)
+	require.Equal(t, 8, concurrency.ResizeBudget(ctx2, 1))
+	require.Equal(t, 8, concurrency.BudgetFromCtx(ctx1, -1))
+	require.Equal(t, used, l.usedForTest())
+
+	rel2()
+	rel1()
+	require.Equal(t, int64(0), l.usedForTest())
+}
+
 // --- defaults ---------------------------------------------------------------
 
 func TestAutoDefaults(t *testing.T) {
@@ -433,15 +459,23 @@ func TestConcurrentStress(t *testing.T) {
 					ctx, cancel = context.WithTimeout(ctx, time.Duration(r%3)*time.Millisecond)
 				}
 
-				_, rel, err := l.Admit(ctx, want)
+				admitted, rel, err := l.Admit(ctx, want)
 				if cancel != nil {
 					cancel()
 				}
 				if err != nil {
 					continue // shed or cancelled: nothing held
 				}
+				concurrency.ResizeBudget(admitted, int(r%5)+1)
 				record(l.usedForTest())
+				// a resize racing the release must neither leak nor double-free
+				resized := make(chan struct{})
+				go func() {
+					concurrency.ResizeBudget(admitted, int(r%7)+1)
+					close(resized)
+				}()
 				rel()
+				<-resized
 			}
 		}(g)
 	}
@@ -595,6 +629,102 @@ func TestFlipToDisabledDrainsQueuedWaiters(t *testing.T) {
 		case <-time.After(2 * time.Second):
 			t.Fatal("a queued waiter did not drain after flip-to-disabled")
 		}
+	}
+	require.Equal(t, int64(0), l.usedForTest())
+	require.Equal(t, 0, l.waitersLenForTest())
+}
+
+// --- resize -----------------------------------------------------------------
+
+func TestResize(t *testing.T) {
+	tests := []struct {
+		name     string
+		others   int  // want-1 grants admitted after the query's grant of 8
+		queued   bool // a query admitted after others, which waits for capacity
+		resizeTo int
+		wantSize int
+		wantUsed int64
+	}{
+		{name: "shrink returns units", resizeTo: 3, wantSize: 3, wantUsed: 3},
+		{name: "grow takes free units", resizeTo: 20, wantSize: 20, wantUsed: 20},
+		{name: "grow is capped at capacity", others: 50, resizeTo: 30, wantSize: 14, wantUsed: 14},
+		{name: "grow gets nothing while a query waits", others: 56, queued: true, resizeTo: 20, wantSize: 8, wantUsed: 8},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := newLimiter(t, Config{Capacity: 64, MaxQueue: 8})
+			ctx, release, err := l.Admit(context.Background(), 8)
+			require.NoError(t, err)
+			require.Equal(t, 8, concurrency.BudgetFromCtx(ctx, -1))
+			others := saturate(t, l, tt.others)
+			queuedRelease := make(chan func(), 1)
+			if tt.queued {
+				go func() {
+					if _, rel, err := l.Admit(context.Background(), 1); err == nil {
+						queuedRelease <- rel
+					}
+				}()
+				waitFor(t, func() bool { return l.waitersLenForTest() == 1 })
+			}
+
+			require.Equal(t, tt.wantSize, concurrency.ResizeBudget(ctx, tt.resizeTo))
+			require.Equal(t, tt.wantSize, concurrency.BudgetFromCtx(ctx, -1))
+			require.Equal(t, tt.wantUsed, l.usedForTest()-int64(tt.others))
+			require.Equal(t, float64(l.usedForTest()), testutil.ToFloat64(l.usedGauge))
+
+			// release hands back what the query holds now, not its grant
+			release()
+			for _, r := range others {
+				r()
+			}
+			if tt.queued {
+				select {
+				case rel := <-queuedRelease:
+					rel()
+				case <-time.After(2 * time.Second):
+					t.Fatal("queued query not admitted once capacity was released")
+				}
+			}
+			require.Equal(t, int64(0), l.usedForTest())
+			// a released budget is fixed, so resizing it no longer reaches the pool
+			require.Equal(t, tt.wantSize, concurrency.ResizeBudget(ctx, 20))
+			require.Equal(t, int64(0), l.usedForTest())
+			require.Equal(t, int64(0), l.inflightForTest())
+		})
+	}
+}
+
+func TestResizeShrinkWakesWaiter(t *testing.T) {
+	l := newLimiter(t, Config{Capacity: 16, MaxQueue: 8})
+	ctx, release, err := l.Admit(context.Background(), 4)
+	require.NoError(t, err)
+	fill := saturate(t, l, 12)
+
+	admitted := make(chan func(), 1)
+	go func() {
+		_, rel, err := l.Admit(context.Background(), 1)
+		if err == nil {
+			admitted <- rel
+		}
+	}()
+	waitFor(t, func() bool { return l.waitersLenForTest() == 1 })
+
+	concurrency.ResizeBudget(ctx, 1)
+	var waiterRelease func()
+	select {
+	case waiterRelease = <-admitted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("waiter not woken by a shrink")
+	}
+	require.Equal(t, int64(14), l.usedForTest(), "the shrink freed 3 units, the waiter took 1")
+
+	// with nobody queued, a grow takes the 2 still free and no more
+	require.Equal(t, 3, concurrency.ResizeBudget(ctx, 4))
+
+	release()
+	waiterRelease()
+	for _, r := range fill {
+		r()
 	}
 	require.Equal(t, int64(0), l.usedForTest())
 	require.Equal(t, 0, l.waitersLenForTest())

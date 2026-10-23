@@ -42,12 +42,7 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, source containsBa
 			entsInverted.ErrInternal, pv.prop)
 	}
 
-	planner := containsFoldPlanner{docIDCount: s.bitmapFactory.DocIDCount()}
-	// the smaller of the query's share and the machine, so the planner compares
-	// one number against the batch rather than reaching for a second
-	workerBudget := min(concurrency.BudgetFromCtx(ctx, concurrency.GOMAXPROCS),
-		concurrency.GOMAXPROCS)
-	plan, err := planner.plan(workerBudget, pv.operator, keys.Len())
+	plan, err := s.planContainsFold(ctx, pv)
 	if err != nil {
 		return docBitmap{}, containsFoldPlan{}, fmt.Errorf("%w: %w", entsInverted.ErrInternal, err)
 	}
@@ -67,6 +62,18 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, source containsBa
 		return docBitmap{}, plan, err
 	}
 	return docBitmap{docIDs: acc, release: accRelease, isDenyList: isDenyList}, plan, nil
+}
+
+// planContainsFold plans pv's fold under ctx's budget. Searcher.docIDs shrinks
+// the budget to a multiple of the plan's workers first, so planning again under
+// that smaller budget must return the same workers.
+func (s *Searcher) planContainsFold(ctx context.Context, pv *propValuePair) (containsFoldPlan, error) {
+	planner := containsFoldPlanner{docIDCount: s.bitmapFactory.DocIDCount()}
+	// the smaller of the query's share and the machine, so the planner compares
+	// one number against the batch rather than reaching for a second
+	workerBudget := min(concurrency.BudgetFromCtx(ctx, concurrency.GOMAXPROCS),
+		concurrency.GOMAXPROCS)
+	return planner.plan(workerBudget, pv.operator, pv.containsKeys.Len())
 }
 
 // containsBatchReaderSource opens a reader over part of a batch. A parallel
@@ -140,6 +147,11 @@ const (
 // costs a reader and one whole-partial merge, neither of which shrinks with the
 // share, and a smaller share cannot repay them.
 const containsMinKeysPerWorker = 32
+
+// containsFoldMergeFactor is the merge goroutines each fold worker keeps when
+// Searcher.docIDs shrinks the budget, capped at SROAR_MERGE, which the merges
+// never exceed. A var so BenchmarkDocIDs_ContainsMergeFactor can sweep it.
+var containsFoldMergeFactor = min(2, concurrency.SROAR_MERGE)
 
 // containsAccumulatorMinKeysPerWorker gates the union folds: below this many
 // keys the incremental Or fold runs instead. Per WORKER, since each stages its
