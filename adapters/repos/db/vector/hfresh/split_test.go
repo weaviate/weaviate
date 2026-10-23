@@ -203,7 +203,7 @@ func TestSplitTaskQueueOperations(t *testing.T) {
 // TestCentroidDistanceQuantizerMismatch is a regression test for the
 // centroid-distance path used by the split/merge reassignment checks
 // (Centroid.Distance on a centroid fetched via Centroids.Get). The centroid
-// HNSW stores 8-bit RQ codes; before the fix in HNSWIndex.Get, the raw 8-bit
+// HNSW stores 8-bit RQ codes; before the fix in hnswCentroids.Get, the raw 8-bit
 // code was handed to Distancer.DistanceBetweenCompressedVectors, which
 // decodes it as a 1-bit code — every reassignment comparison was NaN or a
 // value unrelated to actual proximity. Get now leaves Compressed nil and

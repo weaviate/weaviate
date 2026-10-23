@@ -33,6 +33,11 @@ const (
 	minPostingSizeFloor uint32 = 3   // Minimum vectors for split threshold
 )
 
+// BootstrapThreshold is the number of vectors an index keeps in a single
+// posting, without a centroid index, before the first split. Zero builds
+// the centroid index up front.
+var BootstrapThreshold uint32 = 100_000
+
 type Config struct {
 	Logger                       logrus.FieldLogger
 	Scheduler                    *queue.Scheduler
@@ -47,6 +52,7 @@ type Config struct {
 	MaxDistanceRatio             float32                                 `json:"maxDistanceRatio,omitempty"`          // Maximum distance ratio for the search, used to filter out candidates that are too far away
 	Store                        StoreConfig                             `json:"store"`                               // Configuration for the underlying LSMKV store
 	Centroids                    CentroidConfig                          `json:"centroids"`                           // Configuration for the centroid index
+	BootstrapThreshold           uint32                                  `json:"bootstrapThreshold,omitempty"`        // Vectors kept in one posting before the centroid index is built; 0 builds it up front
 	TombstoneCallbacks           cyclemanager.CycleCallbackGroup         // Callbacks for handling tombstones
 	VectorForIDThunk             common.VectorForID[float32]             `json:"vectorForIDThunk,omitempty"`      // Function to get a vector by index ID
 	MultiVectorForIDThunk        common.VectorForID[[]float32]           `json:"multiVectorForIDThunk,omitempty"` // Function to get a multi-vector by index ID

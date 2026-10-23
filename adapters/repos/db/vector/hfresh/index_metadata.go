@@ -15,6 +15,9 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"math"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -22,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
@@ -31,6 +35,8 @@ const (
 	dimensionsKey      = "dimensions"
 	postingSequenceKey = "posting_seq"
 	muveraKey          = "muvera"
+	singlePostingKey   = "single_posting"
+	centroidsBuiltKey  = "centroids_built"
 )
 
 // The shared bucket is used to store various metadata. It is used by multiple stores
@@ -199,6 +205,75 @@ type QuantizationData struct {
 	RQ compression.RQData `msgpack:"rq"`
 }
 
+// SetSinglePosting records the posting that holds every vector while no
+// centroid index exists: its id followed by its float32 centroid.
+func (i *IndexMetadataStore) SetSinglePosting(id uint64, centroid []float32) error {
+	buf := make([]byte, 8+4*len(centroid))
+	binary.LittleEndian.PutUint64(buf, id)
+	for j, f := range centroid {
+		binary.LittleEndian.PutUint32(buf[8+4*j:], math.Float32bits(f))
+	}
+
+	bucket, release, err := i.bucket.acquire()
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	return bucket.Put(i.key(singlePostingKey), buf)
+}
+
+// GetSinglePosting returns id 0 when no single posting was recorded.
+func (i *IndexMetadataStore) GetSinglePosting() (uint64, []float32, error) {
+	bucket, release, err := i.bucket.acquire()
+	if err != nil {
+		return 0, nil, err
+	}
+	defer release()
+
+	data, err := bucket.Get(i.key(singlePostingKey))
+	if err != nil {
+		return 0, nil, errors.Wrap(err, "get single posting")
+	}
+	if data == nil {
+		return 0, nil, nil
+	}
+	if len(data) < 8 || (len(data)-8)%4 != 0 {
+		return 0, nil, fmt.Errorf("invalid single posting data length: %d", len(data))
+	}
+
+	id := binary.LittleEndian.Uint64(data)
+	centroid := make([]float32, (len(data)-8)/4)
+	for j := range centroid {
+		centroid[j] = math.Float32frombits(binary.LittleEndian.Uint32(data[8+4*j:]))
+	}
+	return id, centroid, nil
+}
+
+func (i *IndexMetadataStore) SetCentroidsBuilt() error {
+	bucket, release, err := i.bucket.acquire()
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	return bucket.Put(i.key(centroidsBuiltKey), []byte{1})
+}
+
+func (i *IndexMetadataStore) CentroidsBuilt() (bool, error) {
+	bucket, release, err := i.bucket.acquire()
+	if err != nil {
+		return false, err
+	}
+	defer release()
+
+	data, err := bucket.Get(i.key(centroidsBuiltKey))
+	if err != nil {
+		return false, errors.Wrap(err, "get centroids built flag")
+	}
+	return len(data) == 1 && data[0] == 1, nil
+}
+
 func (i *IndexMetadataStore) SetMuveraData(data *compression.MuveraData) error {
 	serialized, err := msgpack.Marshal(data)
 	if err != nil {
@@ -266,8 +341,112 @@ func (h *HFresh) restoreMetadata() error {
 	if err := h.PostingSizes.Restore(h.ctx); err != nil {
 		return err
 	}
+	if err := h.restoreCentroids(); err != nil {
+		return err
+	}
 
 	return h.restoreMetrics()
+}
+
+func (h *HFresh) centroidCommitLogExists() bool {
+	hnswCfg := h.config.Centroids.HNSWConfig
+	_, err := os.Stat(filepath.Join(hnswCfg.RootPath, hnswCfg.ID+".hnsw.commitlog.d"))
+	return err == nil
+}
+
+// recoverSinglePosting rebuilds the single posting record for an index
+// that predates it. The initial posting always gets id 1 and its centroid
+// is one of its own vectors, so any entry's full-precision vector serves.
+func (h *HFresh) recoverSinglePosting() (uint64, []float32, error) {
+	const initialPostingID = 1
+
+	posting, err := h.PostingStore.Get(h.ctx, initialPostingID)
+	if err != nil {
+		return 0, nil, errors.Wrapf(err, "read posting %d", initialPostingID)
+	}
+	if len(posting) == 0 {
+		return 0, nil, nil
+	}
+
+	var (
+		view  common.BucketView
+		slice *common.VectorSlice
+	)
+	if !h.muvera.Load() {
+		objectsView, releaseView, err := h.objectsBucketView()
+		if err != nil {
+			return 0, nil, err
+		}
+		defer releaseView()
+		view = objectsView
+
+		slice = h.tempVectors.Get(int(atomic.LoadUint32(&h.dims)))
+		defer h.tempVectors.Put(slice)
+	}
+
+	centroid, err := h.clusteringVector(h.ctx, posting[0].ID(), slice, view)
+	if err != nil {
+		return 0, nil, errors.Wrapf(err, "fetch centroid vector for posting %d", initialPostingID)
+	}
+
+	err = h.IndexMetadata.SetSinglePosting(initialPostingID, centroid)
+	if err != nil {
+		return 0, nil, errors.Wrap(err, "persist recovered single posting")
+	}
+	h.logger.WithField("postingID", initialPostingID).
+		Warnf("recovered single posting record with %d vectors", len(posting))
+
+	return initialPostingID, centroid, nil
+}
+
+// restoreCentroids brings the centroid index back to its pre-restart state:
+// either the graph is reloaded from its commit log, or the single posting's
+// id and centroid are restored and its size counter, which only lives in
+// memory before the first split, is recounted from the posting on disk.
+func (h *HFresh) restoreCentroids() error {
+	built := h.Centroids.Built()
+	if !built {
+		flag, err := h.IndexMetadata.CentroidsBuilt()
+		if err != nil {
+			return err
+		}
+		built = flag
+	}
+
+	var (
+		id       uint64
+		centroid []float32
+		err      error
+	)
+	if !built {
+		id, centroid, err = h.IndexMetadata.GetSinglePosting()
+		if err != nil {
+			return err
+		}
+		// written before the single posting was recorded: a commit log means
+		// the graph was built
+		built = id == 0 && h.centroidCommitLogExists()
+	}
+	if built {
+		return h.Centroids.Build()
+	}
+
+	if id == 0 {
+		id, centroid, err = h.recoverSinglePosting()
+		if err != nil || id == 0 {
+			return err
+		}
+	}
+
+	h.Centroids.restoreSingle(id, centroid)
+
+	// the single posting is never analyzed, so its persisted map entry and
+	// size lag behind the posting itself
+	posting, err := h.PostingStore.Get(h.ctx, id)
+	if err != nil {
+		return errors.Wrapf(err, "read single posting %d", id)
+	}
+	return h.setPostingVectorIDs(h.ctx, id, posting)
 }
 
 // restoreDimensions restores dimension-dependent components from persisted

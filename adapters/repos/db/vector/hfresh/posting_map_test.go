@@ -672,3 +672,15 @@ func TestPostingMetadataStore(t *testing.T) {
 		require.ErrorIs(t, err, ErrPostingNotFound)
 	})
 }
+
+func TestPostingMapAddressesFullIDRange(t *testing.T) {
+	pm := makePostingMetadataStore(t)
+
+	require.NotPanics(t, func() {
+		_, err := pm.FastAddVectorID(t.Context(), maxAddressablePostingID, 7)
+		require.NoError(t, err)
+	})
+	meta, err := pm.Get(t.Context(), maxAddressablePostingID)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, meta.Count())
+}

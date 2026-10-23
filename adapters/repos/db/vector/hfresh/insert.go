@@ -192,6 +192,12 @@ func (h *HFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultSe
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to upsert new centroid %d", postingID)
 		}
+		if !h.Centroids.Built() {
+			err = h.IndexMetadata.SetSinglePosting(postingID, v)
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to persist single posting %d", postingID)
+			}
+		}
 		// return the new posting ID
 		targets = NewResultSet(1)
 		targets.data = append(targets.data, Result{ID: postingID, Distance: 0})
@@ -233,13 +239,16 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 	h.postingLocks.Unlock(centroidID)
 
 	if !reassigned {
-		if count > h.maxPostingSize*5 {
-			err = h.doSplit(ctx, centroidID, true)
+		if !h.Centroids.Built() {
+			// analyze tasks are not queued for the single posting: each one
+			// would read the whole posting
+			if count <= h.bootstrapThreshold {
+				return true, nil
+			}
+			err = h.leaveSinglePostingMode(ctx, centroidID)
 			if err != nil {
 				return false, err
 			}
-
-			return true, nil
 		}
 
 		// If the posting is too big, split it asynchronously.
@@ -275,6 +284,27 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 	}
 
 	return true, nil
+}
+
+// leaveSinglePostingMode builds the centroid graph and persists the single
+// posting's map entry, which only lived in memory, before recording the
+// transition: a restart before the first split must not lose it.
+func (h *HFresh) leaveSinglePostingMode(ctx context.Context, postingID uint64) error {
+	err := h.Centroids.Build()
+	if err != nil {
+		return errors.Wrap(err, "build centroid index")
+	}
+
+	err = h.doAnalyze(ctx, postingID)
+	if err != nil {
+		return errors.Wrapf(err, "analyze single posting %d", postingID)
+	}
+
+	err = h.IndexMetadata.SetCentroidsBuilt()
+	if err != nil {
+		return errors.Wrap(err, "persist centroid index built flag")
+	}
+	return nil
 }
 
 func (h *HFresh) AddMulti(ctx context.Context, docID uint64, vectors [][]float32) error {
