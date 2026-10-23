@@ -435,12 +435,21 @@ func (h *HFresh) restoreCentroids() error {
 
 	h.Centroids.restoreSingle(id, centroid)
 
+	// The background version warmup fills defaults from the posting map,
+	// which is empty here. Persisted versions go in first: memory wins, so a
+	// default installed before a persisted delete would resurrect the vector.
+	_, err = h.VersionMap.Warmup(h.ctx)
+	if err != nil {
+		return errors.Wrap(err, "warm up versions of the single posting")
+	}
+
 	posting, err := h.PostingStore.Get(h.ctx, id)
 	if err != nil {
 		return errors.Wrapf(err, "read single posting %d", id)
 	}
-	for range posting {
+	for _, v := range posting {
 		h.PostingSizes.FastIncrement(id)
+		h.VersionMap.EnsureDefault(v.ID())
 	}
 	return nil
 }

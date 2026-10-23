@@ -205,6 +205,15 @@ func TestSinglePostingSurvivesRestart(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, 300, size)
 
+	// every version is in memory before the first query, so the scan never
+	// faults versions in from the store, and the persisted delete wins
+	for id := range uint64(300) {
+		page, slot := index.VersionMap.data.GetPageFor(id)
+		require.NotNil(t, page, "vector %d", id)
+		require.NotZero(t, page[slot], "vector %d", id)
+		require.Equal(t, id == 7, page[slot].Deleted(), "vector %d", id)
+	}
+
 	ids, _, err := index.SearchByVector(t.Context(), all[7], 1, nil)
 	require.NoError(t, err)
 	require.NotEqual(t, []uint64{7}, ids, "delete must survive the restart")

@@ -386,6 +386,12 @@ func TestSinglePostingMode(t *testing.T) {
 
 		assertSelfSearch(t, &tf, vectors)
 
+		var sizeSlots int
+		for range tf.Index.PostingSizes.data.IterAllocated() {
+			sizeSlots++
+		}
+		require.LessOrEqual(t, sizeSlots, 1024, "one posting must not reserve a 64k-entry size page")
+
 		// deletes are honoured by the scan
 		require.NoError(t, tf.Index.Delete(3))
 		ids, _, err := tf.Index.SearchByVector(ctx, vectors[3], 1, nil)
