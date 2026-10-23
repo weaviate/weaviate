@@ -213,3 +213,79 @@ func (f *testRankHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	w.Write(outBytes)
 }
+
+func TestRankResponseShapes(t *testing.T) {
+	tests := []struct {
+		name     string
+		response string
+		want     []float64
+		wantErr  string
+	}{
+		{
+			name:     "document returned as an object",
+			response: `{"results":[{"index":1,"relevance_score":0.9,"document":{"text":"b"}},{"index":0,"relevance_score":0.1,"document":{"text":"a"}}]}`,
+			want:     []float64{0.1, 0.9},
+		},
+		{
+			name:     "document returned as a string",
+			response: `{"results":[{"index":0,"relevance_score":0.1,"document":"a"},{"index":1,"relevance_score":0.9,"document":"b"}]}`,
+			want:     []float64{0.1, 0.9},
+		},
+		{
+			name:     "no document returned",
+			response: `{"results":[{"index":0,"relevance_score":0.1},{"index":1,"relevance_score":0.9}]}`,
+			want:     []float64{0.1, 0.9},
+		},
+		{
+			name:     "index out of range",
+			response: `{"results":[{"index":0,"relevance_score":0.1},{"index":2,"relevance_score":0.9}]}`,
+			wantErr:  "invalid or repeated index 2",
+		},
+		{
+			name:     "negative index",
+			response: `{"results":[{"index":0,"relevance_score":0.1},{"index":-1,"relevance_score":0.9}]}`,
+			wantErr:  "invalid or repeated index -1",
+		},
+		{
+			name:     "repeated index",
+			response: `{"results":[{"index":0,"relevance_score":0.1},{"index":0,"relevance_score":0.9}]}`,
+			wantErr:  "invalid or repeated index 0",
+		},
+		{
+			name:     "fewer results than documents",
+			response: `{"results":[{"index":0,"relevance_score":0.1}]}`,
+			wantErr:  "1 results for 2 documents",
+		},
+		{
+			name:     "more results than documents",
+			response: `{"results":[{"index":0,"relevance_score":0.1},{"index":1,"relevance_score":0.9},{"index":2,"relevance_score":0.5}]}`,
+			wantErr:  "3 results for 2 documents",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var sent RankInput
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.NoError(t, json.NewDecoder(r.Body).Decode(&sent))
+				w.Write([]byte(tt.response))
+			}))
+			defer server.Close()
+			c := New("apiKey", 0, nullLogger())
+			c.host = server.URL
+
+			resp, err := c.Rank(context.Background(), "q", []string{"a", "b"}, nil)
+
+			assert.False(t, sent.ReturnDocuments)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, resp.DocumentScores, 2)
+			for i, score := range tt.want {
+				assert.Equal(t, []string{"a", "b"}[i], resp.DocumentScores[i].Document)
+				assert.Equal(t, score, resp.DocumentScores[i].Score)
+			}
+		})
+	}
+}
