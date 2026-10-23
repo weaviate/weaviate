@@ -23,7 +23,7 @@ repos:
         types: [ go ]
   - repo: https://github.com/golangci/golangci-lint
     # Keep in sync with .github/workflows/linter.yml.
-    rev: v2.13.1
+    rev: v2.14.0
     hooks:
       - id: golangci-lint
         args: [--new-from-rev=HEAD]

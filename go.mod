@@ -59,7 +59,7 @@ require (
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/johnbellone/grpc-middleware-sentry v0.4.0
 	github.com/jonboulle/clockwork v0.5.0
-	github.com/klauspost/compress v1.18.2
+	github.com/klauspost/compress v1.18.7
 	github.com/launchdarkly/go-sdk-common/v3 v3.4.0
 	github.com/launchdarkly/go-server-sdk/v7 v7.14.6
 	github.com/mark3labs/mcp-go v0.37.1-0.20250812151906-9f16336f83e1
@@ -95,14 +95,14 @@ require (
 	go.opentelemetry.io/otel/sdk v1.44.0
 	go.opentelemetry.io/otel/trace v1.44.0
 	go.uber.org/automaxprocs v1.6.0
-	golang.org/x/net v0.58.0
+	golang.org/x/net v0.60.0
 	golang.org/x/oauth2 v0.36.0
-	golang.org/x/sync v0.22.0
-	golang.org/x/sys v0.47.0
-	golang.org/x/text v0.41.0
+	golang.org/x/sync v0.23.0
+	golang.org/x/sys v0.48.0
+	golang.org/x/text v0.42.0
 	golang.org/x/time v0.15.0
 	gonum.org/v1/gonum v0.17.0
-	google.golang.org/api v0.295.0
+	google.golang.org/api v0.288.0
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260831171406-18b4a7587f8a
 	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.12
@@ -271,9 +271,9 @@ require (
 	go.opentelemetry.io/proto/otlp v1.10.0 // indirect
 	go.uber.org/mock v0.4.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/crypto v0.56.0 // indirect
-	golang.org/x/mod v0.38.0 // indirect
-	golang.org/x/tools v0.48.0 // indirect
+	golang.org/x/crypto v0.57.0 // indirect
+	golang.org/x/mod v0.41.0 // indirect
+	golang.org/x/tools v0.49.0 // indirect
 	google.golang.org/genproto v0.0.0-20260715232425-e75dac1f907d // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260715232425-e75dac1f907d // indirect
 )
