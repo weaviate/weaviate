@@ -111,7 +111,7 @@ func TestRestoreMetadataMigratesPostingMapV1ToV2(t *testing.T) {
 
 	index := makeHFreshWithConfig(t, store, cfg, uc)
 
-	metadata, err := index.PostingMap.Get(ctx, 42)
+	metadata, err := index.PostingMap().Get(ctx, 42)
 	require.NoError(t, err)
 	require.Equal(t, []uint64{10, 20, 30}, decodePacked(metadata.PackedPostingMetadata))
 
@@ -201,6 +201,7 @@ func TestSinglePostingSurvivesRestart(t *testing.T) {
 
 	index = makeHFreshWithConfig(t, store, cfg, uc)
 	require.False(t, index.Centroids.Built())
+	require.Nil(t, index.PostingMap())
 	size, err := index.PostingSizes.Get(t.Context(), 1)
 	require.NoError(t, err)
 	require.EqualValues(t, 300, size)
@@ -255,6 +256,28 @@ func TestSinglePostingRecoveredWithoutRecord(t *testing.T) {
 	requireSelfSearchExcept(t, index, all, -1)
 }
 
+func TestInterruptedTransitionSurvivesRestart(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+	addRestartVectors(t, index, vectors, 0, 300)
+	// the graph was built and logged, but the transition stopped before the
+	// posting map and the built flag were written
+	require.NoError(t, index.Centroids.Build())
+	require.NoError(t, index.Shutdown(t.Context()))
+
+	index = makeHFreshWithConfig(t, store, cfg, uc)
+	require.False(t, index.Centroids.Built())
+	require.Nil(t, index.PostingMap())
+
+	all := addRestartVectors(t, index, vectors, 300, singlePostingThreshold+1)
+	require.True(t, index.Centroids.Built())
+	index.waitForMaintenance(t)
+	require.Greater(t, index.PostingSizes.Count(), uint64(2))
+	requireSelfSearchExcept(t, index, all, -1)
+}
+
 func TestBuiltCentroidIndexSurvivesRestart(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
@@ -269,6 +292,8 @@ func TestBuiltCentroidIndexSurvivesRestart(t *testing.T) {
 
 	index = makeHFreshWithConfig(t, store, cfg, uc)
 	require.True(t, index.Centroids.Built(), "a built centroid index must be reloaded")
+	require.NotNil(t, index.PostingMap())
+	require.Greater(t, index.PostingMap().Size(), 2)
 	require.Equal(t, postings, index.PostingSizes.Count())
 	requireSelfSearchExcept(t, index, all, -1)
 }

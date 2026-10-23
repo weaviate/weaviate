@@ -130,7 +130,8 @@ func (i *HNSWIndex) Build() error {
 
 	i.singleMu.RLock()
 	defer i.singleMu.RUnlock()
-	if i.singleID != 0 {
+	// the commit log may already hold it if a previous build was cut short
+	if i.singleID != 0 && !h.ContainsDoc(i.singleID) {
 		err = h.Add(context.Background(), i.singleID, i.singleCentroid)
 		if err != nil {
 			return errors.Wrap(err, "add single posting centroid to hnsw")

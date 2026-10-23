@@ -41,6 +41,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -381,7 +382,7 @@ func TestSinglePostingMode(t *testing.T) {
 
 		require.False(t, tf.Index.Centroids.Built())
 		require.EqualValues(t, 1, tf.Index.PostingSizes.Count())
-		require.Equal(t, 0, tf.Index.PostingMap.Size(), "posting map must stay empty in single-posting mode")
+		require.Nil(t, tf.Index.PostingMap(), "no posting map in single-posting mode")
 		require.EqualValues(t, 0, tf.Index.taskQueue.Size(), "no maintenance task may be queued in single-posting mode")
 
 		assertSelfSearch(t, &tf, vectors)
@@ -435,9 +436,41 @@ func TestSinglePostingMode(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, []uint64{0}, ids)
 
-		meta, err := tf.Index.PostingMap.Get(ctx, 1)
+		meta, err := tf.Index.PostingMap().Get(ctx, 1)
 		require.NoError(t, err)
 		require.EqualValues(t, len(vectors), meta.Count(), "posting map must list every vector of the single posting")
+	})
+
+	t.Run("concurrent inserts across the threshold all reach the posting map", func(t *testing.T) {
+		tf := newTestIndex(t, singlePostingUserConfig(), nil, withBootstrapThreshold(singlePostingThreshold))
+		require.NoError(t, tf.Index.taskQueue.splitQueue.Pause(ctx))
+		defer tf.Index.taskQueue.splitQueue.Resume()
+
+		const total = singlePostingThreshold + 200
+		vectors, _ := testinghelpers.RandomVecsFixedSeed(total, 0, singlePostingDims)
+		for i, v := range vectors {
+			tf.Vectors.put(uint64(i), v)
+		}
+
+		const workers = 8
+		eg := enterrors.NewErrorGroupWrapper(tf.Index.logger)
+		for w := range workers {
+			eg.Go(func() error {
+				for i := w; i < total; i += workers {
+					err := tf.Index.Add(ctx, uint64(i), vectors[i])
+					if err != nil {
+						return err
+					}
+				}
+				return nil
+			})
+		}
+		require.NoError(t, eg.Wait())
+
+		require.True(t, tf.Index.Centroids.Built())
+		meta, err := tf.Index.PostingMap().Get(ctx, 1)
+		require.NoError(t, err)
+		require.EqualValues(t, total, meta.Count())
 	})
 
 	t.Run("builds the centroid index and splits past the threshold", func(t *testing.T) {
@@ -451,7 +484,7 @@ func TestSinglePostingMode(t *testing.T) {
 		// inserts, and the posting map is rebuilt from the postings on disk
 		var postings int
 		seen := make(map[uint64]struct{})
-		for id, meta := range tf.Index.PostingMap.Iter() {
+		for id, meta := range tf.Index.PostingMap().Iter() {
 			postings++
 			require.LessOrEqual(t, meta.Count(), tf.Index.maxPostingSize, "posting %d", id)
 			for vid := range meta.Iter() {

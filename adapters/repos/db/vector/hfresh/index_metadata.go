@@ -332,20 +332,34 @@ func (h *HFresh) restoreMetadata() error {
 		}
 	}
 
-	if err := migratePostingMapV1ToV2(h.ctx, h.PostingMap.bucket.bucket, h.logger); err != nil {
-		return err
-	}
-	if err := h.PostingMap.Restore(h.ctx); err != nil {
-		return err
-	}
-	if err := h.PostingSizes.Restore(h.ctx); err != nil {
-		return err
-	}
 	if err := h.restoreCentroids(); err != nil {
 		return err
 	}
 
 	return h.restoreMetrics()
+}
+
+func (h *HFresh) restoreCentroidGraph() error {
+	postingMap := h.PostingMap()
+	if postingMap == nil {
+		postingMap = NewPostingMap(h.sharedBucket)
+	}
+	err := migratePostingMapV1ToV2(h.ctx, postingMap.bucket.bucket, h.logger)
+	if err != nil {
+		return err
+	}
+	err = postingMap.Restore(h.ctx)
+	if err != nil {
+		return err
+	}
+	// after the migration, which also writes posting sizes
+	err = h.PostingSizes.Restore(h.ctx)
+	if err != nil {
+		return err
+	}
+	h.postingMap.Store(postingMap)
+
+	return h.Centroids.Build()
 }
 
 func (h *HFresh) centroidCommitLogExists() bool {
@@ -404,29 +418,38 @@ func (h *HFresh) recoverSinglePosting() (uint64, []float32, error) {
 // id and centroid are restored and its size counter, which only lives in
 // memory before the first split, is recounted from the posting on disk.
 func (h *HFresh) restoreCentroids() error {
-	if h.Centroids.Built() {
-		return nil
+	built := h.Centroids.Built()
+	if !built {
+		flag, err := h.IndexMetadata.CentroidsBuilt()
+		if err != nil {
+			return err
+		}
+		built = flag
 	}
 
-	built, err := h.IndexMetadata.CentroidsBuilt()
-	if err != nil {
-		return err
+	var (
+		id       uint64
+		centroid []float32
+		err      error
+	)
+	if !built {
+		id, centroid, err = h.IndexMetadata.GetSinglePosting()
+		if err != nil {
+			return err
+		}
+		// written before the single posting was recorded: a commit log means
+		// the graph was built
+		built = id == 0 && h.centroidCommitLogExists()
 	}
 	if built {
-		return h.Centroids.Build()
+		return h.restoreCentroidGraph()
 	}
 
-	id, centroid, err := h.IndexMetadata.GetSinglePosting()
+	err = h.PostingSizes.Restore(h.ctx)
 	if err != nil {
 		return err
 	}
 	if id == 0 {
-		// written before the single posting was recorded: a commit log means
-		// the graph was built, otherwise the initial posting is recovered
-		// from disk
-		if h.centroidCommitLogExists() {
-			return h.Centroids.Build()
-		}
 		id, centroid, err = h.recoverSinglePosting()
 		if err != nil || id == 0 {
 			return err

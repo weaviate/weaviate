@@ -77,7 +77,8 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	// to enlarge the search space.
 	candidateCentroidNum := max(k, int(atomic.LoadUint32(&h.searchProbe)))
 
-	built := h.Centroids.Built()
+	// without a posting map there is one posting: the scan applies the filter
+	built := h.PostingMap() != nil
 	nAllowList := allowList
 	if allowList != nil && built {
 		nAllowList = h.wrapAllowList(ctx, allowList)
@@ -556,7 +557,7 @@ func (h *HFresh) searchByFDE(
 	queryDistancer := quantizer.NewDistancer(queryFDE)
 
 	// Step 1: Centroid selection - controlled by routingBudget only
-	built := h.Centroids.Built()
+	built := h.PostingMap() != nil
 	nAllowList := allowList
 	if allowList != nil && built {
 		nAllowList = h.wrapAllowList(ctx, allowList)
