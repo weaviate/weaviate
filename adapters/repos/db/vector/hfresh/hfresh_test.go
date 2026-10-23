@@ -391,7 +391,7 @@ func TestSinglePostingMode(t *testing.T) {
 		for range tf.Index.PostingSizes.data.IterAllocated() {
 			sizeSlots++
 		}
-		require.LessOrEqual(t, sizeSlots, 1024, "one posting must not reserve a 64k-entry size page")
+		require.LessOrEqual(t, sizeSlots, postingPageSize, "one posting must not reserve a 64k-entry size page")
 
 		// deletes are honoured by the scan
 		require.NoError(t, tf.Index.Delete(3))
