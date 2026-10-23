@@ -60,9 +60,6 @@ echo Fix imports with goimports
 echo Run the code formatter
 (cd "$DIR"/..; golangci-lint fmt)
 
-echo Run the code formatter
-(cd "$DIR"/..; golangci-lint fmt)
-
 CHANGED=$(git status -s | wc -l)
 if [ "$CHANGED" -gt 0 ]; then
   echo "There are changes in the files that need to be committed:"
