@@ -753,6 +753,119 @@ func TestPlanDesignatedShards(t *testing.T) {
 			t.Fatal("planning stayed blocked on the wedged RPC after cancel")
 		}
 	})
+
+	t.Run("a cancel during planning records no fallback", func(t *testing.T) {
+		withReplicas := func(classes ...string) func(*fakeCheckpointer, *Planner) {
+			return func(f *fakeCheckpointer, _ *Planner) {
+				for _, class := range classes {
+					f.shardReplicas[class] = map[string][]string{"s1": {"n1", "n2"}}
+				}
+			}
+		}
+		tests := []struct {
+			name    string
+			classes []string
+			setup   func(*fakeCheckpointer, *Planner)
+			// reached is called with f.mu held. It reports whether planning has reached the site under test.
+			reached     func(*fakeCheckpointer) bool
+			wantDeleted []string
+		}{
+			{
+				name:    "cancel during a hung create RPC",
+				classes: []string{"C1"},
+				setup: func(f *fakeCheckpointer, p *Planner) {
+					withReplicas("C1")(f, p)
+					f.createHang = true
+				},
+				reached:     func(f *fakeCheckpointer) bool { return f.inFlight == 1 },
+				wantDeleted: []string{"C1"},
+			},
+			{
+				name:    "cancel during the cutoff wait",
+				classes: []string{"C1"},
+				setup: func(f *fakeCheckpointer, p *Planner) {
+					withReplicas("C1")(f, p)
+					p.cutoffLead = time.Minute
+				},
+				reached:     func(f *fakeCheckpointer) bool { return len(f.createCalls) == 1 },
+				wantDeleted: []string{"C1"},
+			},
+			{
+				name:    "cancel during a hung status RPC",
+				classes: []string{"C1"},
+				setup: func(f *fakeCheckpointer, p *Planner) {
+					withReplicas("C1")(f, p)
+					f.statusHang = true
+				},
+				reached:     func(f *fakeCheckpointer) bool { return f.statusCalls["C1"] > 0 },
+				wantDeleted: []string{"C1"},
+			},
+			{
+				name:    "cancel during the poll sleep",
+				classes: []string{"C1"},
+				setup: func(f *fakeCheckpointer, p *Planner) {
+					withReplicas("C1")(f, p)
+					f.diverge["C1/s1"] = true
+				},
+				reached:     func(f *fakeCheckpointer) bool { return f.statusCalls["C1"] > 0 },
+				wantDeleted: []string{"C1"},
+			},
+		}
+		reasons := []string{"class_ineligible", "create_rpc_failed", "planning_deadline", "status_failed", "checkpoint_missing", "not_converged"}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				f := newFakeCheckpointer()
+				logger, hook := test.NewNullLogger()
+				p, err := New(Config{
+					Checkpointer:      f,
+					Logger:            logger,
+					CutoffLead:        10 * time.Millisecond,
+					PollInterval:      time.Minute,
+					ConvergenceBudget: time.Minute,
+					PlanningSlack:     time.Minute,
+				})
+				require.NoError(t, err)
+				tc.setup(f, p)
+
+				reasonsBefore := make(map[string]float64, len(reasons))
+				for _, reason := range reasons {
+					reasonsBefore[reason] = dedupeFallbackCount(reason)
+				}
+				fallbackBefore := dedupeShardOutcomeCount("fallback")
+
+				flowCtx, cancel := context.WithCancel(ctx)
+				defer cancel()
+				done := make(chan *backup.DedupePlan, 1)
+				enterrors.GoWrapper(func() {
+					done <- p.PlanDesignatedShards(flowCtx, tc.classes, 0, parts("n1", "n2"), nil,
+						func() bool { return flowCtx.Err() != nil })
+				}, p.log)
+				require.Eventually(t, func() bool {
+					f.mu.Lock()
+					defer f.mu.Unlock()
+					return tc.reached(f)
+				}, 5*time.Second, time.Millisecond)
+				cancel()
+
+				select {
+				case plan := <-done:
+					assert.Equal(t, 0, plan.Designated())
+				case <-time.After(10 * time.Second):
+					t.Fatal("planning stayed blocked after the cancel")
+				}
+				for _, reason := range reasons {
+					assert.Zero(t, dedupeFallbackCount(reason)-reasonsBefore[reason], reason)
+				}
+				assert.Zero(t, dedupeShardOutcomeCount("fallback")-fallbackBefore)
+				for _, entry := range hook.AllEntries() {
+					assert.NotContains(t, entry.Message, "all-replica backup")
+				}
+				f.mu.Lock()
+				defer f.mu.Unlock()
+				assert.Equal(t, tc.wantDeleted, f.deleteCalls, "created checkpoints must still be deleted")
+			})
+		}
+	})
 }
 
 func TestPlanDesignatedShardsFanout(t *testing.T) {

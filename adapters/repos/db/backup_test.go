@@ -931,6 +931,48 @@ func TestDescriptorReleaseCleansUpStagingDir(t *testing.T) {
 	assert.Nil(t, idx.lastBackup.Load(), "backup state should be reset")
 }
 
+func TestReleaseBackup(t *testing.T) {
+	t.Run("a release for another backup ID keeps the running backup's protection", func(t *testing.T) {
+		rootDir := t.TempDir()
+		className := "TestClass"
+		ctx := context.Background()
+
+		shardState := NewMultiTenantShardingStateBuilder().
+			AddTenant("s1", models.TenantActivityStatusHOT).
+			WithReplicationFactor(1).
+			Build()
+		idx := newDescriptorTestIndex(t, rootDir, className, shardState)
+
+		require.NoError(t, idx.initBackup("newer"))
+		idx.backupLock.Lock("s1")
+		idx.backupProtectedShards.Store("s1", struct{}{})
+		olderStaging := backupStagingDir(rootDir, "older", schema.ClassName(className))
+		require.NoError(t, os.MkdirAll(olderStaging, 0o755))
+
+		isProtected := func() bool {
+			_, flagged := idx.backupProtectedShards.Load("s1")
+			if !idx.backupLock.TryRLock("s1") {
+				return flagged
+			}
+			idx.backupLock.RUnlock("s1")
+			return false
+		}
+		require.True(t, isProtected(), "the newer backup holds s1 before any release")
+
+		require.NoError(t, idx.ReleaseBackup(ctx, "older"))
+		assert.NoDirExists(t, olderStaging)
+		assert.True(t, isProtected(), "a release for another ID must not unlock s1")
+		require.NotNil(t, idx.lastBackup.Load())
+		assert.Equal(t, "newer", idx.lastBackup.Load().BackupID)
+
+		require.NoError(t, idx.ReleaseBackup(ctx, "newer"))
+		_, flagged := idx.backupProtectedShards.Load("s1")
+		assert.False(t, flagged)
+		assert.True(t, idx.backupLock.TryRLock("s1"), "the own-ID release unlocks s1")
+		assert.Nil(t, idx.lastBackup.Load())
+	})
+}
+
 // TestDescriptorHotTenants verifies that descriptor() correctly backs up HOT
 // and COLD tenants through the same CreateBackupSnapshot interface
 func TestDescriptorHotAndColdTenants(t *testing.T) {

@@ -258,6 +258,7 @@ type fakeDedupePlanner struct {
 	mu           sync.Mutex
 	calls        []dedupePlanCall
 	sawCancelled bool
+	hold         chan struct{}
 }
 
 type dedupePlanCall struct {
@@ -290,9 +291,24 @@ func (f *fakeDedupePlanner) PlanDesignatedShards(ctx context.Context, classes []
 	if f.blockUntilCancelled {
 		f.mu.Lock()
 		f.sawCancelled = true
+		hold := f.hold
 		f.mu.Unlock()
+		if hold != nil {
+			<-hold
+		}
 	}
 	return f.plan
+}
+
+// holdAfterCancel keeps a cancelled plan call from returning until release
+// runs. The create cannot release the op slot before then, so a test can read
+// the slot's cancel state without racing the unwind.
+func (f *fakeDedupePlanner) holdAfterCancel() (release func()) {
+	hold := make(chan struct{})
+	f.mu.Lock()
+	f.hold = hold
+	f.mu.Unlock()
+	return func() { close(hold) }
 }
 
 func (f *fakeDedupePlanner) recordedCalls() []dedupePlanCall {
