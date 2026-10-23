@@ -528,6 +528,9 @@ func (s *Shard) readVectorByIndexIDIntoSliceWithView(ctx context.Context, indexI
 		if stderrors.As(err, &eTV) {
 			return nil, storobj.NewErrNotFoundf(indexID, "target vector %q not found", targetVector)
 		}
+		if stderrors.Is(err, storobj.ErrNoVector) {
+			return nil, storobj.NewErrNotFoundf(indexID, "object has no vector")
+		}
 		return nil, err
 	}
 	return vec, nil
