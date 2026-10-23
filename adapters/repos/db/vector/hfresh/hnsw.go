@@ -60,33 +60,49 @@ func (c *Centroid) Distance(distancer *Distancer, v Vector) (float32, error) {
 	return dist, nil
 }
 
-// HNSWIndex is the centroid index. Below the bootstrap threshold every
-// vector lives in one posting and no graph exists: hnsw stays nil and the
-// single posting's id and centroid are served from singleID/singleCentroid.
-// Build creates the graph and moves that posting into it.
-type HNSWIndex struct {
+// centroidIndex is one way of answering the centroid queries: a single
+// posting before the bootstrap threshold, an HNSW graph after it.
+type centroidIndex interface {
+	Get(id uint64) (*Centroid, error)
+	Insert(id uint64, centroid *Centroid) error
+	Delete(id uint64) error
+	Exists(id uint64) bool
+	Search(query []float32, k int, allowList helpers.AllowList) (*ResultSet, error)
+	MaxID() uint64
+	Shutdown(ctx context.Context) error
+	Flush() error
+	PrepareForBackup(ctx context.Context) error
+	ResumeAfterBackup(ctx context.Context) error
+	ListFiles(ctx context.Context, basePath string) ([]string, error)
+	PostStartup(ctx context.Context)
+}
+
+// centroidMode lets an atomic pointer hold the current implementation.
+type centroidMode struct {
+	centroidIndex
+}
+
+// CentroidIndex is the centroid index HFresh queries. It starts as a single
+// posting and switches to an HNSW graph on Build.
+type CentroidIndex struct {
 	metrics *Metrics
 	store   *lsmkv.Store
 	cfg     *Config
-	hnsw    atomic.Pointer[hnsw.HNSW]
+	mode    atomic.Pointer[centroidMode]
 	counter atomic.Int32
-
 	buildMu sync.Mutex
-
-	singleMu       sync.RWMutex
-	singleID       uint64
-	singleCentroid []float32
 }
 
-// NewHNSWIndex prepares the centroid index. With build set the graph is
-// created right away; otherwise it is created by Build once the first
-// posting crosses the bootstrap threshold.
-func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, build bool) (*HNSWIndex, error) {
-	index := HNSWIndex{
+// NewCentroidIndex prepares the centroid index. With build set the graph is
+// created right away; otherwise Build creates it once the single posting
+// crosses the bootstrap threshold.
+func NewCentroidIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, build bool) (*CentroidIndex, error) {
+	index := CentroidIndex{
 		metrics: metrics,
 		store:   store,
 		cfg:     cfg,
 	}
+	index.mode.Store(&centroidMode{&singleCentroid{}})
 
 	cfg.Centroids.HNSWConfig.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
 		return nil, nil
@@ -95,7 +111,8 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, build bool)
 	cfg.Centroids.HNSWConfig.AcornFilterRatio = math.MaxFloat64
 
 	if build {
-		if err := index.Build(); err != nil {
+		err := index.Build()
+		if err != nil {
 			return nil, err
 		}
 	}
@@ -103,16 +120,202 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, build bool)
 	return &index, nil
 }
 
-// Build creates the centroid graph and inserts the single posting's
-// centroid into it, if there is one. It is idempotent.
-func (i *HNSWIndex) Build() error {
-	i.buildMu.Lock()
-	defer i.buildMu.Unlock()
+func (c *CentroidIndex) current() centroidIndex {
+	return c.mode.Load().centroidIndex
+}
 
-	if i.hnsw.Load() != nil {
+// Build creates the centroid graph and moves the single posting's centroid
+// into it, if there is one. It is idempotent.
+func (c *CentroidIndex) Build() error {
+	c.buildMu.Lock()
+	defer c.buildMu.Unlock()
+
+	single, ok := c.current().(*singleCentroid)
+	if !ok {
 		return nil
 	}
 
+	graph, err := newHNSWCentroids(c.store, c.cfg)
+	if err != nil {
+		return err
+	}
+
+	id, centroid := single.snapshot()
+	// the commit log may already hold it if a previous build was cut short
+	if id != 0 && !graph.Exists(id) {
+		err = graph.Insert(id, &Centroid{Uncompressed: centroid})
+		if err != nil {
+			return errors.Wrap(err, "add single posting centroid to hnsw")
+		}
+	}
+
+	c.mode.Store(&centroidMode{graph})
+	return nil
+}
+
+// Built reports whether the centroid graph exists.
+func (c *CentroidIndex) Built() bool {
+	_, ok := c.current().(*hnswCentroids)
+	return ok
+}
+
+// restoreSingle reinstates the single posting recorded before a restart.
+func (c *CentroidIndex) restoreSingle(id uint64, centroid []float32) {
+	c.mode.Store(&centroidMode{&singleCentroid{id: id, centroid: centroid}})
+	c.counter.Store(1)
+}
+
+func (c *CentroidIndex) Get(id uint64) (*Centroid, error) {
+	return c.current().Get(id)
+}
+
+func (c *CentroidIndex) Insert(id uint64, centroid *Centroid) error {
+	if c.Exists(id) {
+		return nil
+	}
+
+	err := c.current().Insert(id, centroid)
+	if err != nil {
+		return err
+	}
+	c.counter.Add(1)
+
+	return nil
+}
+
+func (c *CentroidIndex) MarkAsDeleted(id uint64) error {
+	if !c.Exists(id) {
+		return nil
+	}
+	c.counter.Add(-1)
+	return c.current().Delete(id)
+}
+
+func (c *CentroidIndex) Exists(id uint64) bool {
+	return c.current().Exists(id)
+}
+
+func (c *CentroidIndex) Search(query []float32, k int, allowList helpers.AllowList) (*ResultSet, error) {
+	start := time.Now()
+	defer c.metrics.CentroidSearchDuration(start)
+
+	return c.current().Search(query, k, allowList)
+}
+
+func (c *CentroidIndex) GetMaxID() uint64 {
+	return c.current().MaxID()
+}
+
+func (c *CentroidIndex) Shutdown(ctx context.Context) error {
+	return c.current().Shutdown(ctx)
+}
+
+func (c *CentroidIndex) Flush() error {
+	return c.current().Flush()
+}
+
+func (c *CentroidIndex) PrepareForBackup(ctx context.Context) error {
+	return c.current().PrepareForBackup(ctx)
+}
+
+func (c *CentroidIndex) ResumeAfterBackup(ctx context.Context) error {
+	return c.current().ResumeAfterBackup(ctx)
+}
+
+func (c *CentroidIndex) ListFiles(ctx context.Context, basePath string) ([]string, error) {
+	return c.current().ListFiles(ctx, basePath)
+}
+
+func (c *CentroidIndex) PostStartup(ctx context.Context) {
+	c.current().PostStartup(ctx)
+}
+
+// singleCentroid serves the one posting that holds every vector before the
+// bootstrap threshold. It keeps nothing on disk.
+type singleCentroid struct {
+	mu       sync.RWMutex
+	id       uint64 // 0 until the first posting exists
+	centroid []float32
+}
+
+func (s *singleCentroid) snapshot() (uint64, []float32) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.id, s.centroid
+}
+
+func (s *singleCentroid) Get(id uint64) (*Centroid, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.id == 0 || id != s.id {
+		return nil, errors.Wrapf(ErrPostingNotFound, "centroid %d", id)
+	}
+	return &Centroid{Uncompressed: s.centroid}, nil
+}
+
+func (s *singleCentroid) Insert(id uint64, centroid *Centroid) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.id != 0 {
+		return errors.Errorf("centroid index not built: cannot add posting %d next to %d", id, s.id)
+	}
+	s.id = id
+	s.centroid = slices.Clone(centroid.Uncompressed)
+	return nil
+}
+
+func (s *singleCentroid) Delete(id uint64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if id == s.id {
+		s.id = 0
+		s.centroid = nil
+	}
+	return nil
+}
+
+func (s *singleCentroid) Exists(id uint64) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.id != 0 && id == s.id
+}
+
+// Search ignores the allow list: the posting scan applies it per entry.
+func (s *singleCentroid) Search(query []float32, k int, allowList helpers.AllowList) (*ResultSet, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	results := &ResultSet{}
+	if s.id != 0 {
+		results.data = append(results.data, Result{ID: s.id, Distance: 0})
+	}
+	return results, nil
+}
+
+func (s *singleCentroid) MaxID() uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.id == 0 {
+		return 0
+	}
+	return s.id + 1
+}
+
+func (s *singleCentroid) Shutdown(ctx context.Context) error          { return nil }
+func (s *singleCentroid) Flush() error                                { return nil }
+func (s *singleCentroid) PrepareForBackup(ctx context.Context) error  { return nil }
+func (s *singleCentroid) ResumeAfterBackup(ctx context.Context) error { return nil }
+func (s *singleCentroid) PostStartup(ctx context.Context)             {}
+
+func (s *singleCentroid) ListFiles(ctx context.Context, basePath string) ([]string, error) {
+	return nil, nil
+}
+
+// hnswCentroids serves the centroids from an HNSW graph with 8-bit RQ codes.
+type hnswCentroids struct {
+	hnsw *hnsw.HNSW
+}
+
+func newHNSWCentroids(store *lsmkv.Store, cfg *Config) (*hnswCentroids, error) {
 	var userConfig ent.UserConfig
 	userConfig.SetDefaults()
 	userConfig.EF = 64
@@ -122,93 +325,17 @@ func (i *HNSWIndex) Build() error {
 	userConfig.RQ.RescoreLimit = 0
 	userConfig.FilterStrategy = ent.FilterStrategyAcorn
 
-	h, err := hnsw.New(*i.cfg.Centroids.HNSWConfig, userConfig, i.cfg.TombstoneCallbacks, i.store)
+	h, err := hnsw.New(*cfg.Centroids.HNSWConfig, userConfig, cfg.TombstoneCallbacks, store)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	h.PostStartup(context.Background())
 
-	i.singleMu.RLock()
-	defer i.singleMu.RUnlock()
-	// the commit log may already hold it if a previous build was cut short
-	if i.singleID != 0 && !h.ContainsDoc(i.singleID) {
-		err = h.Add(context.Background(), i.singleID, i.singleCentroid)
-		if err != nil {
-			return errors.Wrap(err, "add single posting centroid to hnsw")
-		}
-	}
-
-	i.hnsw.Store(h)
-	return nil
+	return &hnswCentroids{hnsw: h}, nil
 }
 
-// restoreSingle reinstates the single posting recorded before a restart.
-func (i *HNSWIndex) restoreSingle(id uint64, centroid []float32) {
-	i.singleMu.Lock()
-	defer i.singleMu.Unlock()
-	i.singleID = id
-	i.singleCentroid = centroid
-	i.counter.Store(1)
-}
-
-// Built reports whether the centroid graph exists.
-func (i *HNSWIndex) Built() bool {
-	return i.hnsw.Load() != nil
-}
-
-func (i *HNSWIndex) Shutdown(ctx context.Context) error {
-	if h := i.hnsw.Load(); h != nil {
-		return h.Shutdown(ctx)
-	}
-	return nil
-}
-
-func (i *HNSWIndex) Flush() error {
-	if h := i.hnsw.Load(); h != nil {
-		return h.Flush()
-	}
-	return nil
-}
-
-func (i *HNSWIndex) PrepareForBackup(ctx context.Context) error {
-	if h := i.hnsw.Load(); h != nil {
-		return h.PrepareForBackup(ctx)
-	}
-	return nil
-}
-
-func (i *HNSWIndex) ResumeAfterBackup(ctx context.Context) error {
-	if h := i.hnsw.Load(); h != nil {
-		return h.ResumeAfterBackup(ctx)
-	}
-	return nil
-}
-
-func (i *HNSWIndex) ListFiles(ctx context.Context, basePath string) ([]string, error) {
-	if h := i.hnsw.Load(); h != nil {
-		return h.ListFiles(ctx, basePath)
-	}
-	return nil, nil
-}
-
-func (i *HNSWIndex) PostStartup(ctx context.Context) {
-	if h := i.hnsw.Load(); h != nil {
-		h.PostStartup(ctx)
-	}
-}
-
-func (i *HNSWIndex) Get(id uint64) (*Centroid, error) {
-	h := i.hnsw.Load()
-	if h == nil {
-		i.singleMu.RLock()
-		defer i.singleMu.RUnlock()
-		if i.singleID == 0 || id != i.singleID {
-			return nil, errors.Wrapf(ErrPostingNotFound, "centroid %d", id)
-		}
-		return &Centroid{Uncompressed: i.singleCentroid}, nil
-	}
-
-	vec, err := h.Get(id)
+func (g *hnswCentroids) Get(id uint64) (*Centroid, error) {
+	vec, err := g.hnsw.Get(id)
 	if err != nil {
 		return nil, err
 	}
@@ -223,78 +350,24 @@ func (i *HNSWIndex) Get(id uint64) (*Centroid, error) {
 	}, nil
 }
 
-func (i *HNSWIndex) Insert(id uint64, centroid *Centroid) error {
-	if i.Exists(id) {
-		return nil
-	}
-
-	h := i.hnsw.Load()
-	if h == nil {
-		i.singleMu.Lock()
-		defer i.singleMu.Unlock()
-		if i.singleID != 0 {
-			return errors.Errorf("centroid index not built: cannot add posting %d next to %d", id, i.singleID)
-		}
-		i.singleID = id
-		i.singleCentroid = slices.Clone(centroid.Uncompressed)
-		i.counter.Add(1)
-		return nil
-	}
-
-	err := h.Add(context.Background(), id, centroid.Uncompressed)
+func (g *hnswCentroids) Insert(id uint64, centroid *Centroid) error {
+	err := g.hnsw.Add(context.Background(), id, centroid.Uncompressed)
 	if err != nil {
 		return errors.Wrap(err, "add to hnsw")
 	}
-	i.counter.Add(1)
-
 	return nil
 }
 
-func (i *HNSWIndex) MarkAsDeleted(id uint64) error {
-	if !i.Exists(id) {
-		return nil
-	}
-	i.counter.Add(-1)
-
-	h := i.hnsw.Load()
-	if h == nil {
-		i.singleMu.Lock()
-		defer i.singleMu.Unlock()
-		i.singleID = 0
-		i.singleCentroid = nil
-		return nil
-	}
-	return h.Delete(id)
+func (g *hnswCentroids) Delete(id uint64) error {
+	return g.hnsw.Delete(id)
 }
 
-func (i *HNSWIndex) Exists(id uint64) bool {
-	h := i.hnsw.Load()
-	if h == nil {
-		i.singleMu.RLock()
-		defer i.singleMu.RUnlock()
-		return i.singleID != 0 && id == i.singleID
-	}
-	return h.ContainsDoc(id)
+func (g *hnswCentroids) Exists(id uint64) bool {
+	return g.hnsw.ContainsDoc(id)
 }
 
-func (i *HNSWIndex) Search(query []float32, k int, allowList helpers.AllowList) (*ResultSet, error) {
-	start := time.Now()
-	defer i.metrics.CentroidSearchDuration(start)
-
-	h := i.hnsw.Load()
-	if h == nil {
-		// one posting holds everything: the allow list is applied by the
-		// posting scan instead
-		i.singleMu.RLock()
-		defer i.singleMu.RUnlock()
-		results := &ResultSet{}
-		if i.singleID != 0 {
-			results.data = append(results.data, Result{ID: i.singleID, Distance: 0})
-		}
-		return results, nil
-	}
-
-	ids, distances, err := h.SearchByVector(context.TODO(), query, k, allowList)
+func (g *hnswCentroids) Search(query []float32, k int, allowList helpers.AllowList) (*ResultSet, error) {
+	ids, distances, err := g.hnsw.SearchByVector(context.TODO(), query, k, allowList)
 	if err != nil {
 		return nil, err
 	}
@@ -326,15 +399,30 @@ func (i *HNSWIndex) Search(query []float32, k int, allowList helpers.AllowList) 
 	return &ResultSet{data: results}, nil
 }
 
-func (i *HNSWIndex) GetMaxID() uint64 {
-	h := i.hnsw.Load()
-	if h == nil {
-		i.singleMu.RLock()
-		defer i.singleMu.RUnlock()
-		if i.singleID == 0 {
-			return 0
-		}
-		return i.singleID + 1
-	}
-	return h.CurrentVectorsLen()
+func (g *hnswCentroids) MaxID() uint64 {
+	return g.hnsw.CurrentVectorsLen()
+}
+
+func (g *hnswCentroids) Shutdown(ctx context.Context) error {
+	return g.hnsw.Shutdown(ctx)
+}
+
+func (g *hnswCentroids) Flush() error {
+	return g.hnsw.Flush()
+}
+
+func (g *hnswCentroids) PrepareForBackup(ctx context.Context) error {
+	return g.hnsw.PrepareForBackup(ctx)
+}
+
+func (g *hnswCentroids) ResumeAfterBackup(ctx context.Context) error {
+	return g.hnsw.ResumeAfterBackup(ctx)
+}
+
+func (g *hnswCentroids) ListFiles(ctx context.Context, basePath string) ([]string, error) {
+	return g.hnsw.ListFiles(ctx, basePath)
+}
+
+func (g *hnswCentroids) PostStartup(ctx context.Context) {
+	g.hnsw.PostStartup(ctx)
 }
