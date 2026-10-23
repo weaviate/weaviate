@@ -40,7 +40,14 @@ func storeWithObjectsBucket(t *testing.T) *lsmkv.Store {
 }
 
 func newPrefillRoutingIndex(t *testing.T, id string, uc ent.UserConfig, store *lsmkv.Store) *hnsw {
+	return newPrefillRoutingIndexHFresh(t, id, uc, store, false)
+}
+
+func newPrefillRoutingIndexHFresh(t *testing.T, id string, uc ent.UserConfig,
+	store *lsmkv.Store, hfresh bool,
+) *hnsw {
 	idx, err := New(Config{
+		HFreshMode:            hfresh,
 		RootPath:              t.TempDir(),
 		ID:                    id,
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
@@ -84,19 +91,30 @@ func muveraUserConfig() ent.UserConfig {
 func TestUseParallelPrefillRoutingRealIndex(t *testing.T) {
 	t.Run("single-vector uncompressed is eligible", func(t *testing.T) {
 		idx := newPrefillRoutingIndex(t, "single", prefillRoutingUserConfig(), storeWithObjectsBucket(t))
-		require.True(t, idx.useParallelPrefill())
+		require.True(t, usesParallelPrefill(idx))
 	})
 
 	t.Run("true multivector keeps serial path", func(t *testing.T) {
 		uc := prefillRoutingUserConfig()
 		uc.Multivector = ent.MultivectorConfig{Enabled: true}
 		idx := newPrefillRoutingIndex(t, "multivector", uc, storeWithObjectsBucket(t))
-		require.False(t, idx.useParallelPrefill())
+		require.False(t, usesParallelPrefill(idx))
 	})
 
 	t.Run("muvera keeps serial path", func(t *testing.T) {
 		idx := newPrefillRoutingIndex(t, "muvera", muveraUserConfig(), storeWithObjectsBucket(t))
-		require.False(t, idx.useParallelPrefill())
+		require.False(t, usesParallelPrefill(idx))
+	})
+
+	// An hfresh centroid index is built with the shard's store, so the objects bucket
+	// is present and only Config.HFreshMode keeps the scan away from a cache that
+	// holds centroids rather than object vectors. Driven through New() because that
+	// assignment is the whole gate: nothing else in the package reads the config field.
+	t.Run("hfresh centroid index keeps serial path", func(t *testing.T) {
+		idx := newPrefillRoutingIndexHFresh(t, "hfresh", prefillRoutingUserConfig(),
+			storeWithObjectsBucket(t), true)
+		require.True(t, idx.hfreshMode, "Config.HFreshMode must reach the index")
+		require.False(t, usesParallelPrefill(idx))
 	})
 }
 
@@ -117,7 +135,7 @@ func TestMuveraSerialPrefillPopulatesCacheRealIndex(t *testing.T) {
 		require.NoError(t, idx.AddMulti(ctx, uint64(i), vec))
 	}
 
-	require.False(t, idx.useParallelPrefill(),
+	require.False(t, usesParallelPrefill(idx),
 		"muvera must route to the serial prefiller, not the objects-bucket scan")
 
 	expected := make(map[uint64][]float32, len(multiVectors))
