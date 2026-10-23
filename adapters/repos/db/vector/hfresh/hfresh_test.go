@@ -413,6 +413,33 @@ func TestSinglePostingMode(t *testing.T) {
 		require.NoError(t, tf.Index.Shutdown(ctx))
 	})
 
+	t.Run("filtered search finds pre-threshold vectors before the first split", func(t *testing.T) {
+		tf := newTestIndex(t, singlePostingUserConfig(), nil, withBootstrapThreshold(singlePostingThreshold))
+		// hold the bootstrap split so the transition window stays open
+		require.NoError(t, tf.Index.taskQueue.splitQueue.Pause(ctx))
+		defer tf.Index.taskQueue.splitQueue.Resume()
+
+		vectors := insert(t, &tf, singlePostingThreshold+1)
+		require.True(t, tf.Index.Centroids.Built())
+
+		// pad the allow list past the flat-search cutoff so the filter goes
+		// through the centroid index
+		allowed := make([]uint64, 0, flatSearchCutoff+singlePostingThreshold)
+		for id := range uint64(singlePostingThreshold) {
+			allowed = append(allowed, id)
+		}
+		for id := uint64(1_000_000); len(allowed) <= flatSearchCutoff; id++ {
+			allowed = append(allowed, id)
+		}
+		ids, _, err := tf.Index.SearchByVector(ctx, vectors[0], 1, helpers.NewAllowList(allowed...))
+		require.NoError(t, err)
+		require.Equal(t, []uint64{0}, ids)
+
+		meta, err := tf.Index.PostingMap.Get(ctx, 1)
+		require.NoError(t, err)
+		require.EqualValues(t, len(vectors), meta.Count(), "posting map must list every vector of the single posting")
+	})
+
 	t.Run("builds the centroid index and splits past the threshold", func(t *testing.T) {
 		tf := newTestIndex(t, singlePostingUserConfig(), nil, withBootstrapThreshold(singlePostingThreshold))
 		vectors := insert(t, &tf, singlePostingThreshold+1)
