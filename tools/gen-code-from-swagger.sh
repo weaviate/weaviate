@@ -51,9 +51,11 @@ echo Now add the header to the generated code too.
 # 3. only *_test.go files
 
 echo Fix imports with goimports
-(cd "$DIR"/..; goimports -w $(find . -type f -name '*.go' -not -name '*_test.go' -not -path './test/*' -not -name '*pb.go' -not -path './vendor/*' -not -path "./.*/*"))
-(cd "$DIR"/..; goimports -w $(find . -type f -name '*.go' -not -name '*_test.go' -path './test/*' -not -name '*pb.go' -not -path './vendor/*' -not -path "./.*/*"))
-(cd "$DIR"/..; goimports -w $(find . -type f -name '*_test.go' -not -name '*pb.go' -not -path './vendor/*' -not -path "./.*/*"))
+(cd "$DIR"/..; find . -type f -name '*.go' \
+  -not -name '*pb.go' \
+  -not -path './vendor/*' \
+  -not -path './.*/*' \
+  -exec goimports -w {} +)
 
 echo Run the code formatter
 (cd "$DIR"/..; golangci-lint fmt)
