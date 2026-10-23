@@ -15,7 +15,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -79,24 +78,6 @@ type VersionMap struct {
 	locks        *common.ShardedRWLocks
 	persistLocks *common.ShardedLocks
 	store        *VersionStore
-
-	// written flips on the first delete or increment and is seeded from the
-	// store on startup. Until then every vector is live at its first
-	// version, so scans skip the lookup and no page gets allocated.
-	written atomic.Bool
-}
-
-// Written reports whether any version was ever stored for this index.
-func (v *VersionMap) Written() bool {
-	return v.written.Load()
-}
-
-// RestoreWritten seeds the written flag from the store.
-func (v *VersionMap) RestoreWritten() error {
-	return v.store.IterateAll(func(uint64, VectorVersion) bool {
-		v.written.Store(true)
-		return false
-	})
 }
 
 func NewVersionMap(bucket bucketRef) *VersionMap {
@@ -168,8 +149,6 @@ func (v *VersionMap) persist(ctx context.Context, vectorID uint64, page []Vector
 // memory update has already happened; a retry (Get + Increment) re-persists
 // and heals the store.
 func (v *VersionMap) Increment(ctx context.Context, vectorID uint64, previousVersion VectorVersion) (VectorVersion, error) {
-	v.written.Store(true)
-
 	// ensure the entry is loaded so the CAS below never touches the store
 	if _, err := v.Get(ctx, vectorID); err != nil {
 		return 0, err
@@ -196,8 +175,6 @@ func (v *VersionMap) Increment(ctx context.Context, vectorID uint64, previousVer
 // when the vector is already deleted in memory, so a retry after a failed
 // persist heals a store that missed the tombstone.
 func (v *VersionMap) MarkDeleted(ctx context.Context, vectorID uint64) (VectorVersion, error) {
-	v.written.Store(true)
-
 	// ensure the entry is loaded so the update below never touches the store
 	if _, err := v.Get(ctx, vectorID); err != nil {
 		return 0, err
