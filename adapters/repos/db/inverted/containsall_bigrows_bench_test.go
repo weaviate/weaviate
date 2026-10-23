@@ -289,3 +289,69 @@ func TestDocIDs_ContainsAllBigRowsCorpus(t *testing.T) {
 		}
 	}
 }
+
+// The merge-factor corpus spreads every row over enough roaring containers that
+// sroar splits a merge across goroutines, which a smaller shard never does.
+const (
+	mergeFactorDocs    = 5_000_000
+	mergeFactorKeys    = 256
+	mergeFactorRowSize = 50_000
+	// sroar's *Conc ops split a merge only past this many containers
+	mergeFactorMinContainers = 48
+)
+
+// grantingPool hands out every resize in full, standing in for an idle node.
+type grantingPool struct{}
+
+func (grantingPool) Resize(_, n int) int { return n }
+
+// newMergeFactorFixture writes rows of evenly spread doc IDs, each row offset
+// from the last so no two are identical.
+func newMergeFactorFixture(tb testing.TB) *roaringRowsFixture {
+	tb.Helper()
+
+	stride := mergeFactorDocs / mergeFactorRowSize
+	rows := make([][]uint64, mergeFactorKeys)
+	for k := range rows {
+		row := make([]uint64, mergeFactorRowSize)
+		for i := range row {
+			row[i] = uint64(i*stride + k%stride)
+		}
+		rows[k] = row
+	}
+	containers := (rows[0][len(rows[0])-1] >> 16) + 1
+	require.GreaterOrEqual(tb, containers, uint64(mergeFactorMinContainers),
+		"rows must span enough containers for sroar to split a merge")
+
+	return newRoaringRowsFixture(tb, rows, mergeFactorDocs)
+}
+
+// BenchmarkDocIDs_ContainsMergeFactor sweeps containsFoldMergeFactor on an
+// admitted query, for a one-worker and a parallel fold. The `fixed` leg runs on
+// a budget docIDs cannot shrink, which is what the fold's merges get without
+// the resize. Run:
+//
+//	go test -tags integrationTest -run '^$' -bench 'ContainsMergeFactor' \
+//	    -benchmem -count 6 ./adapters/repos/db/inverted/ | tee mergefactor.txt
+func BenchmarkDocIDs_ContainsMergeFactor(b *testing.B) {
+	f := newMergeFactorFixture(b)
+	grant := concurrency.TimesGOMAXPROCS(2)
+
+	for _, size := range []int{16, mergeFactorKeys} {
+		filter := containsFilter(filters.ContainsAny, bigRowsValues(size))
+		b.Run(fmt.Sprintf("N=%03d/fixed", size), func(b *testing.B) {
+			benchDocIDs(b, f.searcher, concurrency.CtxWithBudget(context.Background(), grant), filter)
+		})
+		for _, factor := range []int{1, 2, 4, concurrency.SROAR_MERGE} {
+			b.Run(fmt.Sprintf("N=%03d/factor=%d", size, factor), func(b *testing.B) {
+				old := containsFoldMergeFactor
+				containsFoldMergeFactor = factor
+				b.Cleanup(func() { containsFoldMergeFactor = old })
+
+				ctx := concurrency.CtxWithResizableBudget(context.Background(),
+					concurrency.NewBudget(grantingPool{}, grant))
+				benchDocIDs(b, f.searcher, ctx, filter)
+			})
+		}
+	}
+}
