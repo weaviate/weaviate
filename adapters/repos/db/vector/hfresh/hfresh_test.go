@@ -382,7 +382,9 @@ func TestSinglePostingMode(t *testing.T) {
 
 		require.False(t, tf.Index.Centroids.Built())
 		require.EqualValues(t, 1, tf.Index.PostingSizes.Count())
-		require.Nil(t, tf.Index.PostingMap(), "no posting map in single-posting mode")
+		meta, err := tf.Index.PostingMap.Get(ctx, 1)
+		require.NoError(t, err)
+		require.EqualValues(t, singlePostingThreshold, meta.Count())
 		require.EqualValues(t, 0, tf.Index.taskQueue.Size(), "no maintenance task may be queued in single-posting mode")
 
 		assertSelfSearch(t, &tf, vectors)
@@ -436,9 +438,15 @@ func TestSinglePostingMode(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, []uint64{0}, ids)
 
-		meta, err := tf.Index.PostingMap().Get(ctx, 1)
+		meta, err := tf.Index.PostingMap.Get(ctx, 1)
 		require.NoError(t, err)
 		require.EqualValues(t, len(vectors), meta.Count(), "posting map must list every vector of the single posting")
+
+		// persisted before the transition is recorded, so a restart before
+		// the first split finds it
+		persisted, err := tf.Index.PostingMap.bucket.Get(ctx, 1)
+		require.NoError(t, err)
+		require.EqualValues(t, len(vectors), persisted.Count())
 	})
 
 	t.Run("concurrent inserts across the threshold all reach the posting map", func(t *testing.T) {
@@ -468,7 +476,7 @@ func TestSinglePostingMode(t *testing.T) {
 		require.NoError(t, eg.Wait())
 
 		require.True(t, tf.Index.Centroids.Built())
-		meta, err := tf.Index.PostingMap().Get(ctx, 1)
+		meta, err := tf.Index.PostingMap.Get(ctx, 1)
 		require.NoError(t, err)
 		require.EqualValues(t, total, meta.Count())
 	})
@@ -484,7 +492,7 @@ func TestSinglePostingMode(t *testing.T) {
 		// inserts, and the posting map is rebuilt from the postings on disk
 		var postings int
 		seen := make(map[uint64]struct{})
-		for id, meta := range tf.Index.PostingMap().Iter() {
+		for id, meta := range tf.Index.PostingMap.Iter() {
 			postings++
 			require.LessOrEqual(t, meta.Count(), tf.Index.maxPostingSize, "posting %d", id)
 			for vid := range meta.Iter() {

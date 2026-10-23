@@ -43,7 +43,7 @@ func (h *HFresh) wrapAllowList(ctx context.Context, al helpers.AllowList) helper
 }
 
 func (h *HFresh) NewAllowListIterator(al helpers.AllowList) helpers.AllowListIterator {
-	all := h.PostingMap().Iter()
+	all := h.PostingMap.Iter()
 	next, stop := iter.Pull2(all)
 
 	return &AllowListIterator{
@@ -106,7 +106,7 @@ func (a *allowList) Contains(id uint64) bool {
 		return true
 	}
 
-	p, err := a.h.PostingMap().Get(a.ctx, id)
+	p, err := a.h.PostingMap.Get(a.ctx, id)
 	if err != nil {
 		return false
 	}
@@ -119,9 +119,8 @@ func (a *allowList) containsAllowedMember(id uint64, p *PostingMetadata) bool {
 		return true
 	}
 
-	postingMap := a.h.PostingMap()
-	postingMap.RLock(id)
-	defer postingMap.RUnlock(id)
+	a.h.PostingMap.RLock(id)
+	defer a.h.PostingMap.RUnlock(id)
 
 	for vectorID := range p.Iter() {
 		if a.AllowList.Contains(vectorID) {

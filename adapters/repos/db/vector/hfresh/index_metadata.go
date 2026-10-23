@@ -332,34 +332,20 @@ func (h *HFresh) restoreMetadata() error {
 		}
 	}
 
+	if err := migratePostingMapV1ToV2(h.ctx, h.PostingMap.bucket.bucket, h.logger); err != nil {
+		return err
+	}
+	if err := h.PostingMap.Restore(h.ctx); err != nil {
+		return err
+	}
+	if err := h.PostingSizes.Restore(h.ctx); err != nil {
+		return err
+	}
 	if err := h.restoreCentroids(); err != nil {
 		return err
 	}
 
 	return h.restoreMetrics()
-}
-
-func (h *HFresh) restoreCentroidGraph() error {
-	postingMap := h.PostingMap()
-	if postingMap == nil {
-		postingMap = NewPostingMap(h.sharedBucket)
-	}
-	err := migratePostingMapV1ToV2(h.ctx, postingMap.bucket.bucket, h.logger)
-	if err != nil {
-		return err
-	}
-	err = postingMap.Restore(h.ctx)
-	if err != nil {
-		return err
-	}
-	// after the migration, which also writes posting sizes
-	err = h.PostingSizes.Restore(h.ctx)
-	if err != nil {
-		return err
-	}
-	h.postingMap.Store(postingMap)
-
-	return h.Centroids.Build()
 }
 
 func (h *HFresh) centroidCommitLogExists() bool {
@@ -442,13 +428,9 @@ func (h *HFresh) restoreCentroids() error {
 		built = id == 0 && h.centroidCommitLogExists()
 	}
 	if built {
-		return h.restoreCentroidGraph()
+		return h.Centroids.Build()
 	}
 
-	err = h.PostingSizes.Restore(h.ctx)
-	if err != nil {
-		return err
-	}
 	if id == 0 {
 		id, centroid, err = h.recoverSinglePosting()
 		if err != nil || id == 0 {
@@ -458,23 +440,13 @@ func (h *HFresh) restoreCentroids() error {
 
 	h.Centroids.restoreSingle(id, centroid)
 
-	// The background version warmup fills defaults from the posting map,
-	// which is empty here. Persisted versions go in first: memory wins, so a
-	// default installed before a persisted delete would resurrect the vector.
-	_, err = h.VersionMap.Warmup(h.ctx)
-	if err != nil {
-		return errors.Wrap(err, "warm up versions of the single posting")
-	}
-
+	// the single posting is never analyzed, so its persisted map entry and
+	// size lag behind the posting itself
 	posting, err := h.PostingStore.Get(h.ctx, id)
 	if err != nil {
 		return errors.Wrapf(err, "read single posting %d", id)
 	}
-	for _, v := range posting {
-		h.PostingSizes.FastIncrement(id)
-		h.VersionMap.EnsureDefault(v.ID())
-	}
-	return nil
+	return h.setPostingVectorIDs(h.ctx, id, posting)
 }
 
 // restoreDimensions restores dimension-dependent components from persisted

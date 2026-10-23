@@ -228,23 +228,20 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 		return false, err
 	}
 
-	// Read under the posting lock: the transition populates the map from
-	// disk under the same lock, so every vector is either in that read or
-	// added here.
-	postingMap := h.PostingMap()
-	if postingMap != nil {
-		_, err = postingMap.FastAddVectorID(ctx, centroidID, vector.ID())
-		if err != nil {
-			h.postingLocks.Unlock(centroidID)
-			return false, err
-		}
+	// update the posting membership and size caches
+	_, err = h.PostingMap.FastAddVectorID(ctx, centroidID, vector.ID())
+	if err != nil {
+		h.postingLocks.Unlock(centroidID)
+		return false, err
 	}
 	count := h.PostingSizes.FastIncrement(centroidID)
 
 	h.postingLocks.Unlock(centroidID)
 
 	if !reassigned {
-		if postingMap == nil {
+		if !h.Centroids.Built() {
+			// analyze tasks are not queued for the single posting: each one
+			// would read the whole posting
 			if count <= h.bootstrapThreshold {
 				return true, nil
 			}
@@ -289,35 +286,19 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 	return true, nil
 }
 
-// leaveSinglePostingMode builds the centroid graph and the posting map for
-// the single posting, so the regular split machinery can take over.
+// leaveSinglePostingMode builds the centroid graph and persists the single
+// posting's map entry, which only lived in memory, before recording the
+// transition: a restart before the first split must not lose it.
 func (h *HFresh) leaveSinglePostingMode(ctx context.Context, postingID uint64) error {
-	h.bootstrapMu.Lock()
-	defer h.bootstrapMu.Unlock()
-
-	if h.PostingMap() != nil {
-		return nil
-	}
-
 	err := h.Centroids.Build()
 	if err != nil {
 		return errors.Wrap(err, "build centroid index")
 	}
 
-	h.postingLocks.Lock(postingID)
-	posting, err := h.PostingStore.Get(ctx, postingID)
+	err = h.doAnalyze(ctx, postingID)
 	if err != nil {
-		h.postingLocks.Unlock(postingID)
-		return errors.Wrapf(err, "read single posting %d", postingID)
+		return errors.Wrapf(err, "analyze single posting %d", postingID)
 	}
-	postingMap := NewPostingMap(h.sharedBucket)
-	err = postingMap.SetVectorIDs(ctx, postingID, posting)
-	if err != nil {
-		h.postingLocks.Unlock(postingID)
-		return errors.Wrapf(err, "map single posting %d", postingID)
-	}
-	h.postingMap.Store(postingMap)
-	h.postingLocks.Unlock(postingID)
 
 	err = h.IndexMetadata.SetCentroidsBuilt()
 	if err != nil {

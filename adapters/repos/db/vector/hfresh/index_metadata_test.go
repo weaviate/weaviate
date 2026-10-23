@@ -111,7 +111,7 @@ func TestRestoreMetadataMigratesPostingMapV1ToV2(t *testing.T) {
 
 	index := makeHFreshWithConfig(t, store, cfg, uc)
 
-	metadata, err := index.PostingMap().Get(ctx, 42)
+	metadata, err := index.PostingMap.Get(ctx, 42)
 	require.NoError(t, err)
 	require.Equal(t, []uint64{10, 20, 30}, decodePacked(metadata.PackedPostingMetadata))
 
@@ -190,6 +190,17 @@ func requireSelfSearchExcept(t *testing.T, index *HFresh, vectors [][]float32, s
 	}
 }
 
+// inMemoryVersion reads a version without faulting it in from the store.
+func inMemoryVersion(v *VersionMap, id uint64) VectorVersion {
+	page, slot := v.data.GetPageFor(id)
+	if page == nil {
+		return 0
+	}
+	v.locks.RLock(id)
+	defer v.locks.RUnlock(id)
+	return page[slot]
+}
+
 func TestSinglePostingSurvivesRestart(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	cfg, uc, vectors := singlePostingRestartConfig(t, singlePostingThreshold)
@@ -201,18 +212,25 @@ func TestSinglePostingSurvivesRestart(t *testing.T) {
 
 	index = makeHFreshWithConfig(t, store, cfg, uc)
 	require.False(t, index.Centroids.Built())
-	require.Nil(t, index.PostingMap())
 	size, err := index.PostingSizes.Get(t.Context(), 1)
 	require.NoError(t, err)
 	require.EqualValues(t, 300, size)
+	meta, err := index.PostingMap.Get(t.Context(), 1)
+	require.NoError(t, err)
+	require.EqualValues(t, 300, meta.Count())
 
-	// every version is in memory before the first query, so the scan never
-	// faults versions in from the store, and the persisted delete wins
+	// the version warmup walks the rebuilt posting map entry, after the
+	// persisted versions, so the delete wins over the default
+	require.Eventually(t, func() bool {
+		for id := range uint64(300) {
+			if inMemoryVersion(index.VersionMap, id) == 0 {
+				return false
+			}
+		}
+		return true
+	}, 10*time.Second, 10*time.Millisecond, "every version must be warmed up")
 	for id := range uint64(300) {
-		page, slot := index.VersionMap.data.GetPageFor(id)
-		require.NotNil(t, page, "vector %d", id)
-		require.NotZero(t, page[slot], "vector %d", id)
-		require.Equal(t, id == 7, page[slot].Deleted(), "vector %d", id)
+		require.Equal(t, id == 7, inMemoryVersion(index.VersionMap, id).Deleted(), "vector %d", id)
 	}
 
 	ids, _, err := index.SearchByVector(t.Context(), all[7], 1, nil)
@@ -269,7 +287,6 @@ func TestInterruptedTransitionSurvivesRestart(t *testing.T) {
 
 	index = makeHFreshWithConfig(t, store, cfg, uc)
 	require.False(t, index.Centroids.Built())
-	require.Nil(t, index.PostingMap())
 
 	all := addRestartVectors(t, index, vectors, 300, singlePostingThreshold+1)
 	require.True(t, index.Centroids.Built())
@@ -292,8 +309,7 @@ func TestBuiltCentroidIndexSurvivesRestart(t *testing.T) {
 
 	index = makeHFreshWithConfig(t, store, cfg, uc)
 	require.True(t, index.Centroids.Built(), "a built centroid index must be reloaded")
-	require.NotNil(t, index.PostingMap())
-	require.Greater(t, index.PostingMap().Size(), 2)
+	require.Greater(t, index.PostingMap.Size(), 2)
 	require.Equal(t, postings, index.PostingSizes.Count())
 	requireSelfSearchExcept(t, index, all, -1)
 }

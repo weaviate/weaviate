@@ -37,8 +37,8 @@ func TestPostingPassesFilterSlice_PassesIfAddsNewVector(t *testing.T) {
 
 	hf := &HFresh{
 		visitedPool: visited.NewPool(10),
+		PostingMap:  pm,
 	}
-	hf.postingMap.Store(pm)
 
 	allowList := helpers.NewAllowList(0, 1)
 	hfAllowList := hf.wrapAllowList(ctx, allowList)
@@ -66,8 +66,8 @@ func TestPostingPassesFilterSlice_IgnoresDisallowedVectors(t *testing.T) {
 
 	hf := &HFresh{
 		visitedPool: visited.NewPool(10),
+		PostingMap:  pm,
 	}
-	hf.postingMap.Store(pm)
 
 	allowList := helpers.NewAllowList(0) // only vector 0 allowed
 	hfAllowList := hf.wrapAllowList(ctx, allowList)
@@ -98,8 +98,8 @@ func TestPostingPassesFilterSlice_SkipsAlreadyUsedAndFindsLaterNewOne(t *testing
 
 	hf := &HFresh{
 		visitedPool: visited.NewPool(10),
+		PostingMap:  pm,
 	}
-	hf.postingMap.Store(pm)
 
 	allowList := helpers.NewAllowList(0, 1)
 	hfAllowList := hf.wrapAllowList(ctx, allowList)
@@ -129,8 +129,8 @@ func TestPostingPassesFilterSlice_StopsOnFirstNewContribution(t *testing.T) {
 
 	hf := &HFresh{
 		visitedPool: visited.NewPool(10),
+		PostingMap:  pm,
 	}
-	hf.postingMap.Store(pm)
 
 	allowList := helpers.NewAllowList(0, 1)
 	hfAllowList := hf.wrapAllowList(ctx, allowList)
@@ -156,8 +156,8 @@ func TestPostingPassesFilterSlice_CachesAcceptedPostingID(t *testing.T) {
 
 	hf := &HFresh{
 		visitedPool: visited.NewPool(10),
+		PostingMap:  pm,
 	}
-	hf.postingMap.Store(pm)
 
 	allowList := helpers.NewAllowList(0)
 	hfAllowList := hf.wrapAllowList(ctx, allowList)
@@ -183,14 +183,14 @@ func TestAllowListIteratorReturnsAcceptedPostingWithSingleAllowedVector(t *testi
 
 	hf := &HFresh{
 		visitedPool: visited.NewPool(10),
+		PostingMap:  pm,
 	}
-	hf.postingMap.Store(pm)
 
 	allowList := helpers.NewAllowList(0)
 	hfAllowList := hf.wrapAllowList(ctx, allowList)
 	defer hfAllowList.Close()
 
-	next, stop := iter.Pull2(hf.PostingMap().Iter())
+	next, stop := iter.Pull2(hf.PostingMap.Iter())
 	defer stop()
 
 	iterator := &AllowListIterator{

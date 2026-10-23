@@ -61,12 +61,7 @@ func (h *HFresh) EnqueueReassignAll(ctx context.Context) (ReassignAllStats, erro
 	// The posting map enumerates the allocated posting IDs; the posting is
 	// still read from the store because only its entries carry the per-copy
 	// version byte that distinguishes a vector's live copy from stale ones.
-	// a single-posting index has no centroids to reassign between
-	postingMap := h.PostingMap()
-	if postingMap == nil {
-		return stats, nil
-	}
-	for postingID := range postingMap.Iter() {
+	for postingID := range h.PostingMap.Iter() {
 		err := ctx.Err()
 		if err == nil {
 			err = h.ctx.Err()

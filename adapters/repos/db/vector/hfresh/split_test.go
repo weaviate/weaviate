@@ -495,7 +495,7 @@ func TestSplitMuveraPostingClustersOnStoredFDEs(t *testing.T) {
 	}
 
 	var postingIDs []uint64
-	for id := range tf.Index.PostingMap().Iter() {
+	for id := range tf.Index.PostingMap.Iter() {
 		postingIDs = append(postingIDs, id)
 	}
 	require.Len(t, postingIDs, 1, "the corpus must stay in one posting so the split input is known")

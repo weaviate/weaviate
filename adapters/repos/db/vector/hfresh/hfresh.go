@@ -102,6 +102,7 @@ type HFresh struct {
 	PostingStore  *PostingStore       // Used for managing persistence of postings.
 	IDs           *common.Sequence    // Shared monotonic counter for generating unique IDs for new postings.
 	VersionMap    *VersionMap         // Stores vector versions in-memory.
+	PostingMap    *PostingMap         // Maps postings to vector IDs.
 	PostingSizes  *PostingSizes       // Tracks posting sizes.
 	IndexMetadata *IndexMetadataStore // Stores metadata about the index.
 
@@ -123,17 +124,6 @@ type HFresh struct {
 	tempVectors          *common.TempVectorsPool
 
 	rootPath string
-
-	// postingMap maps postings to vector IDs. It exists only alongside the
-	// centroid graph: a single-posting index has nothing to map.
-	postingMap   atomic.Pointer[PostingMap]
-	sharedBucket bucketRef
-	bootstrapMu  sync.Mutex
-}
-
-// PostingMap returns nil while the index keeps all vectors in one posting.
-func (h *HFresh) PostingMap() *PostingMap {
-	return h.postingMap.Load()
 }
 
 func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
@@ -170,7 +160,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		tempVectorForIDThunk: cfg.TempVectorForIDWithViewThunk,
 		tempVectors:          common.NewTempVectorsPool(),
 		VersionMap:           NewVersionMap(bucket),
-		sharedBucket:         bucket,
+		PostingMap:           NewPostingMap(bucket),
 		PostingSizes:         NewPostingSizes(bucket, metrics),
 		IndexMetadata:        NewIndexMetadataStore(bucket),
 		postingLocks:         common.NewDefaultShardedRWLocks(),
@@ -212,9 +202,6 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	if err != nil {
 		return nil, err
 	}
-	if h.Centroids.Built() {
-		h.postingMap.Store(NewPostingMap(bucket))
-	}
 	h.IDs, err = common.NewSequence(NewBucketStore(bucket), 1000)
 	if err != nil {
 		return nil, err
@@ -238,12 +225,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 }
 
 func (h *HFresh) setPostingVectorIDs(ctx context.Context, postingID uint64, posting Posting) error {
-	postingMap := h.PostingMap()
-	if postingMap == nil {
-		return errors.Errorf("posting map not created: cannot set vector ids of posting %d", postingID)
-	}
-	err := postingMap.SetVectorIDs(ctx, postingID, posting)
-	if err != nil {
+	if err := h.PostingMap.SetVectorIDs(ctx, postingID, posting); err != nil {
 		return err
 	}
 
@@ -458,19 +440,8 @@ func (h *HFresh) warmVersionMap() {
 	// the store only holds updated or deleted vectors: fill the implicit
 	// first version for every remaining vector known to the posting map,
 	// so never-updated vectors skip the lazy fault path too
-	// a single-posting index installs its defaults while restoring
-	postingMap := h.PostingMap()
-	if postingMap == nil {
-		h.logger.WithFields(logrus.Fields{
-			"action": "hfresh_version_map_warmup",
-			"count":  count,
-			"took":   time.Since(before).String(),
-		}).Info("version map warmed up")
-		return
-	}
-
 	var defaults int
-	for postingID, metadata := range postingMap.Iter() {
+	for postingID, metadata := range h.PostingMap.Iter() {
 		if h.ctx.Err() != nil {
 			h.logger.Warnf("version map warmup interrupted after %d entries: %v", count+defaults, h.ctx.Err())
 			return
@@ -479,8 +450,8 @@ func (h *HFresh) warmVersionMap() {
 		// concurrent inserts mutate the metadata in place: hold the posting
 		// lock while reading it
 		func() {
-			postingMap.RLock(postingID)
-			defer postingMap.RUnlock(postingID)
+			h.PostingMap.RLock(postingID)
+			defer h.PostingMap.RUnlock(postingID)
 
 			for vectorID := range metadata.Iter() {
 				if h.VersionMap.EnsureDefault(vectorID) {
