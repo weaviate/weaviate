@@ -1313,6 +1313,59 @@ func TestReferencedNamespaces(t *testing.T) {
 	})
 }
 
+// Restore authorization must see every user id the blob writes, including one
+// held only by a credential map.
+func TestSnapshotUserIDs(t *testing.T) {
+	blob := func(t *testing.T, data dbUserdata) []byte {
+		b, err := json.Marshal(DBUserSnapshot{Data: data, Version: SnapshotVersion})
+		require.NoError(t, err)
+		return b
+	}
+	tests := []struct {
+		name string
+		data dbUserdata
+		want []string
+	}{
+		{
+			name: "users are listed sorted",
+			data: dbUserdata{Users: map[string]*User{"ns1:bob": {Id: "ns1:bob"}, "alice": {Id: "alice"}}},
+			want: []string{"alice", "ns1:bob"},
+		},
+		{
+			name: "an id held only by another map is listed",
+			data: dbUserdata{
+				Users:                   map[string]*User{"alice": {Id: "alice"}},
+				SecureKeyStorageById:    map[string]string{"bob": "hash"},
+				IdToIdentifier:          map[string]string{"carol": "ident-c"},
+				IdentifierToId:          map[string]string{"ident-d": "dave"},
+				UserKeyRevoked:          map[string]struct{}{"erin": {}},
+				ImportedApiKeysWeakHash: map[string][sha256.Size]byte{"frank": {}},
+			},
+			want: []string{"alice", "bob", "carol", "dave", "erin", "frank"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := SnapshotUserIDs(blob(t, tt.data))
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+
+	t.Run("an empty snapshot lists nothing", func(t *testing.T) {
+		got, err := SnapshotUserIDs(nil)
+		require.NoError(t, err)
+		assert.Empty(t, got)
+	})
+
+	t.Run("a wrong version fails", func(t *testing.T) {
+		snap, err := json.Marshal(DBUserSnapshot{Version: SnapshotVersion + 1})
+		require.NoError(t, err)
+		_, err = SnapshotUserIDs(snap)
+		require.Error(t, err)
+	})
+}
+
 func TestRequireReferencedNamespacesExist(t *testing.T) {
 	src, err := NewDBUser(t.TempDir(), false, log, activeExister{})
 	require.NoError(t, err)

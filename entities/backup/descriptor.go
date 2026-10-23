@@ -57,9 +57,10 @@ type DistributedBackupDescriptor struct {
 	BaseBackupID            string                     `json:"baseBackupId"`
 	Users                   []string                   `json:"users,omitempty"`
 	Roles                   []string                   `json:"roles,omitempty"`
-	// SkipUsers/SkipRoles record an explicit user-supplied empty list or if user-supplied wildcards matched nothing.
-	// Restore discards any user or RBAC blob a node uploaded anyway, which a participant predating the request-level skip flag does.
-	// That discard leaves BuiltInRoleAssignments in place.
+	// SkipUsers/SkipRoles leave that subsystem out. Backup sets them when the
+	// subsystem is disabled, its include list matches nothing, or the caller lacks
+	// its wildcard. Restore discards any such blob and keeps BuiltInRoleAssignments.
+	// On a restore descriptor they mark a blob the restore does not apply.
 	SkipUsers bool `json:"skipUsers,omitempty"`
 	SkipRoles bool `json:"skipRoles,omitempty"`
 	// BuiltInRoleAssignments is an RBAC snapshot of the admin and viewer assignments the backup
@@ -119,6 +120,19 @@ func (d *DistributedBackupDescriptor) UserList() []string {
 	lst := make([]string, 0, len(set))
 	for u := range set {
 		lst = append(lst, u)
+	}
+	return lst
+}
+
+// RoleList returns the deduped role names recorded in d (empty when none).
+func (d *DistributedBackupDescriptor) RoleList() []string {
+	set := make(map[string]struct{}, len(d.Roles))
+	for _, r := range d.Roles {
+		set[r] = struct{}{}
+	}
+	lst := make([]string, 0, len(set))
+	for r := range set {
+		lst = append(lst, r)
 	}
 	return lst
 }
