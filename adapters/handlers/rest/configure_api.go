@@ -470,6 +470,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		TrackVectorDimensionsInterval:       appState.ServerConfig.Config.TrackVectorDimensionsInterval,
 		MigrateDimensionsToRoaringSet:       appState.ServerConfig.Config.ReindexVectorDimensionsToRoaringsetAtStartup,
 		ReindexVectorDimensions:             appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup,
+		RecountPropertiesAtStartup:          appState.ServerConfig.Config.RecountPropertiesAtStartup,
 		UsageEnabled:                        appState.Modules.UsageEnabled(),
 		ResourceUsage:                       appState.ServerConfig.Config.ResourceUsage,
 		AvoidMMap:                           appState.ServerConfig.Config.AvoidMmap,
@@ -985,9 +986,18 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		}, appState.Logger)
 	}
 
-	// Add recount properties of all the objects in the database, if requested by the user
 	if appState.ServerConfig.Config.RecountPropertiesAtStartup {
-		migrator.RecountProperties(ctx)
+		enterrors.GoWrapper(func() {
+			l := appState.Logger.WithField("action", "startup")
+			if err := metaStoreReady.waitForMetaStore(); err != nil {
+				l.Errorf("Recounting property lengths not reported: %v", err)
+				return
+			}
+			if err := migrator.ReportPropertyLengthsRecount(reindexCtx); err != nil {
+				l.Errorf("Recounting property lengths incomplete, keep environment variable "+
+					"RECOUNT_PROPERTIES_AT_STARTUP set: %v", err)
+			}
+		}, appState.Logger)
 	}
 
 	providers := map[string]distributedtask.Provider{}
