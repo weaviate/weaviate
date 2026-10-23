@@ -917,7 +917,7 @@ func TestUpdateClass_QualifiesPropertyDataTypes(t *testing.T) {
 // MAXIMUM_ALLOWED_COLLECTIONS_COUNT cap is enforced per namespace when
 // namespaces are enabled, using principal.Namespace as the selector.
 //
-// The mock matcher on QueryCollectionsCount(<principalNS>) is what proves
+// The mock matcher on CollectionsCount(<principalNS>) is what proves
 // the selector: a row only passes if AddClass requested the count for the
 // caller's namespace.
 func TestAddClass_NamespacedCollectionLimit(t *testing.T) {
@@ -958,7 +958,7 @@ func TestAddClass_NamespacedCollectionLimit(t *testing.T) {
 			handler, sm := newTestHandlerWithNamespaces(t, true)
 			handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(tt.limit)
 
-			sm.On("QueryCollectionsCount", tt.principalNS).Return(tt.existingCount, nil)
+			sm.On("CollectionsCount", tt.principalNS).Return(tt.existingCount)
 			if !tt.wantErr {
 				sm.On("AddClass", mock.MatchedBy(func(c *models.Class) bool {
 					return c.Class == tt.principalNS+":Movies"

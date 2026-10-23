@@ -540,10 +540,10 @@ func Test_AddClassWithLimits(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
-				// An unlimited cap must not ask the leader for a count it would
-				// discard, so the expectation is only set where the cap is on.
+				// An unlimited cap skips the count, so the expectation is only
+				// set where the cap is on.
 				if tt.maxAllowed != config.DefaultMaximumAllowedCollectionsCount {
-					fakeSchemaManager.On("QueryCollectionsCount", "").Return(tt.existingCount, nil)
+					fakeSchemaManager.On("CollectionsCount", "").Return(tt.existingCount)
 				}
 
 				// Set the max collections limit in config
@@ -571,7 +571,7 @@ func Test_AddClassWithLimits(t *testing.T) {
 					require.Nil(t, err)
 				}
 				if tt.maxAllowed == config.DefaultMaximumAllowedCollectionsCount {
-					fakeSchemaManager.AssertNotCalled(t, "QueryCollectionsCount", "")
+					fakeSchemaManager.AssertNotCalled(t, "CollectionsCount", "")
 				}
 				fakeSchemaManager.AssertExpectations(t)
 			})

@@ -185,9 +185,9 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
-	// Read the limit before the count: no cap is the default, and the count
-	// costs a round trip to the leader whose answer an uncapped cluster
-	// discards.
+	// This check fails fast on the local schema, which can lag the leader.
+	// The authoritative cap check runs in the schema FSM's PreApplyFilter
+	// before the AddClass commits.
 	limit := h.schemaConfig.MaximumAllowedCollectionsCount.Get()
 	if limit != config.DefaultMaximumAllowedCollectionsCount {
 		// On namespace-enabled clusters the cap is enforced per namespace.
@@ -198,12 +198,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 			countNamespace = principal.Namespace
 		}
 
-		existingCollectionsCount, err := h.schemaManager.QueryCollectionsCount(countNamespace)
-		if err != nil {
-			h.logger.WithField("namespace", countNamespace).Errorf("could not query the collections count: %v", err)
-		}
-
-		if existingCollectionsCount >= limit {
+		if h.schemaReader.CollectionsCount(countNamespace) >= limit {
 			// Migrated from a free-text 422 to a typed 429 / RESOURCE_EXHAUSTED
 			// in the usage-limits work; see docs/usage_limits.md for the wire
 			// contract.
