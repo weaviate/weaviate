@@ -58,6 +58,12 @@ func (o *SchemaObjectsIndexesGetReader) ReadResponse(response runtime.ClientResp
 			return nil, err
 		}
 		return nil, result
+	case 422:
+		result := NewSchemaObjectsIndexesGetUnprocessableEntity()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 500:
 		result := NewSchemaObjectsIndexesGetInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -313,6 +319,74 @@ func (o *SchemaObjectsIndexesGetNotFound) String() string {
 }
 
 func (o *SchemaObjectsIndexesGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewSchemaObjectsIndexesGetUnprocessableEntity creates a SchemaObjectsIndexesGetUnprocessableEntity with default headers values
+func NewSchemaObjectsIndexesGetUnprocessableEntity() *SchemaObjectsIndexesGetUnprocessableEntity {
+	return &SchemaObjectsIndexesGetUnprocessableEntity{}
+}
+
+/*
+SchemaObjectsIndexesGetUnprocessableEntity describes a response with status code 422, with default header values.
+
+Invalid collection name provided (e.g. malformed namespace prefix). Check the ErrorResponse for details.
+*/
+type SchemaObjectsIndexesGetUnprocessableEntity struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this schema objects indexes get unprocessable entity response has a 2xx status code
+func (o *SchemaObjectsIndexesGetUnprocessableEntity) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this schema objects indexes get unprocessable entity response has a 3xx status code
+func (o *SchemaObjectsIndexesGetUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema objects indexes get unprocessable entity response has a 4xx status code
+func (o *SchemaObjectsIndexesGetUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this schema objects indexes get unprocessable entity response has a 5xx status code
+func (o *SchemaObjectsIndexesGetUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this schema objects indexes get unprocessable entity response a status code equal to that given
+func (o *SchemaObjectsIndexesGetUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the schema objects indexes get unprocessable entity response
+func (o *SchemaObjectsIndexesGetUnprocessableEntity) Code() int {
+	return 422
+}
+
+func (o *SchemaObjectsIndexesGetUnprocessableEntity) Error() string {
+	return fmt.Sprintf("[GET /schema/{className}/indexes][%d] schemaObjectsIndexesGetUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *SchemaObjectsIndexesGetUnprocessableEntity) String() string {
+	return fmt.Sprintf("[GET /schema/{className}/indexes][%d] schemaObjectsIndexesGetUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *SchemaObjectsIndexesGetUnprocessableEntity) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *SchemaObjectsIndexesGetUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

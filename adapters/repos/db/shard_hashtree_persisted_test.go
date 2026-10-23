@@ -13,12 +13,14 @@ package db
 
 import (
 	"bytes"
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
@@ -116,6 +118,49 @@ func TestNewestPersistedHashTreeRoot(t *testing.T) {
 				require.Equal(t, wantFile, filename)
 			}
 			require.Equal(t, before, entriesOf(t, dir), "reader must not touch the directory")
+		})
+	}
+}
+
+func TestPersistedHashtreeHasObjectStore(t *testing.T) {
+	counter := func(n uint64) []byte { return binary.LittleEndian.AppendUint64(nil, n) }
+	tests := []struct {
+		name       string
+		counter    []byte
+		objectsDir bool
+		files      []string
+		wantErr    error
+	}{
+		{name: "never initialized", counter: nil},
+		{name: "empty shard", counter: counter(0), objectsDir: true},
+		{name: "zero-byte counter", counter: []byte{}, objectsDir: true},
+		{name: "doc ids but objects dir missing", counter: counter(5), wantErr: errPersistedHashtreeOrphaned},
+		{name: "doc ids but objects dir empty", counter: counter(5), objectsDir: true, wantErr: errPersistedHashtreeOrphaned},
+		{name: "doc ids but only sidecars", counter: counter(5), objectsDir: true, files: []string{"segment-1.cna", "segment-1.bloom"}, wantErr: errPersistedHashtreeOrphaned},
+		{name: "doc ids with a reused wal", counter: counter(5), objectsDir: true, files: []string{"segment-1.wal"}},
+		{name: "doc ids with a segment", counter: counter(5), objectsDir: true, files: []string{"segment-1.l0.s0.db", "segment-1.l0.s0.cna"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			indexPath := t.TempDir()
+			shardDir := shardPath(indexPath, "s")
+			require.NoError(t, os.MkdirAll(shardDir, 0o755))
+			if tc.counter != nil {
+				require.NoError(t, os.WriteFile(filepath.Join(shardDir, "indexcount"), tc.counter, 0o644))
+			}
+			objectsDir := filepath.Join(shardPathLSM(indexPath, "s"), helpers.ObjectsBucketLSM)
+			if tc.objectsDir {
+				require.NoError(t, os.MkdirAll(objectsDir, 0o755))
+			}
+			for _, f := range tc.files {
+				require.NoError(t, os.WriteFile(filepath.Join(objectsDir, f), []byte{1}, 0o644))
+			}
+			err := persistedHashtreeHasObjectStore(indexPath, "s")
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
 		})
 	}
 }

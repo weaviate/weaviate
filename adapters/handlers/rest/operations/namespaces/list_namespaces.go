@@ -47,7 +47,7 @@ func NewListNamespaces(ctx *middleware.Context, handler ListNamespacesHandler) *
 
 # List namespaces
 
-Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable `manage_namespaces` permission receive an empty list (never 403).
+Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable `manage_namespaces` permission receive an empty list rather than 403.
 */
 type ListNamespaces struct {
 	Context *middleware.Context

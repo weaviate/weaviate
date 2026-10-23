@@ -99,12 +99,10 @@ func TestBlockMaxWandSinglePostingNotPruned(t *testing.T) {
 	// common: many low-tf docs -> multi-doc posting, low idf
 	commonDocs := []uint64{10, 11, 12, 13, 14}
 	for _, id := range commonDocs {
-		require.NoError(t, bucket.MapSet([]byte(commonTerm),
-			NewMapPairFromDocIdAndTf(id, 1, 1, false)))
+		require.NoError(t, bucket.InvertedSet([]byte(commonTerm), id, 1, 1))
 	}
 	// rare: exactly one doc -> single-block fast path, high idf, high tf
-	require.NoError(t, bucket.MapSet([]byte(rareTerm),
-		NewMapPairFromDocIdAndTf(rareDocID, 8, 1, false)))
+	require.NoError(t, bucket.InvertedSet([]byte(rareTerm), rareDocID, 8, 1))
 
 	require.NoError(t, bucket.FlushAndSwitch())
 
@@ -155,11 +153,11 @@ func TestBlockMaxWandPreadMatchesMemory(t *testing.T) {
 			t.Cleanup(func() { require.NoError(t, bucket.Shutdown(ctx)) })
 
 			for id := uint64(0); id < uint64(manyDocs); id++ {
-				require.NoError(t, bucket.MapSet([]byte(manyTerm),
-					NewMapPairFromDocIdAndTf(id, float32(1+id%5), 1, false)))
+				require.NoError(t, bucket.InvertedSet([]byte(manyTerm),
+					id, float32(1+id%5), 1))
 			}
-			require.NoError(t, bucket.MapSet([]byte(singleTerm),
-				NewMapPairFromDocIdAndTf(uint64(manyDocs)+1, 8, 1, false)))
+			require.NoError(t, bucket.InvertedSet([]byte(singleTerm),
+				uint64(manyDocs)+1, 8, 1))
 			require.NoError(t, bucket.FlushAndSwitch())
 
 			segments := bucket.disk.segments

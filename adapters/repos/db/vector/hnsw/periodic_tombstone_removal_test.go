@@ -116,8 +116,8 @@ func TestPeriodicTombstoneRemoval(t *testing.T) {
 	if err := index.Shutdown(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err := tombstoneCleanupCycle.StopAndWait(context.Background()); err != nil {
-		t.Fatal(err)
+	if !<-tombstoneCleanupCycle.Stop(context.Background()) {
+		t.Fatal("tombstone cleanup cycle kept running")
 	}
 }
 
@@ -179,7 +179,7 @@ func TestTombstoneCleanupAbortsOnMemoryPressure_PreCheck(t *testing.T) {
 	// at the pre-check in tombstoneCleanup (startup.go).
 	tombstoneCleanupCycle.Start()
 	t.Cleanup(func() {
-		require.NoError(t, tombstoneCleanupCycle.StopAndWait(context.Background()))
+		require.True(t, <-tombstoneCleanupCycle.Stop(context.Background()))
 	})
 
 	// Wait for the OOM skip log entry to confirm a cleanup cycle was attempted
@@ -364,7 +364,7 @@ func TestTombstoneCleanupBlockedUntilCachePrefilled(t *testing.T) {
 	if err := index.Shutdown(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err := tombstoneCleanupCycle.StopAndWait(context.Background()); err != nil {
-		t.Fatal(err)
+	if !<-tombstoneCleanupCycle.Stop(context.Background()) {
+		t.Fatal("tombstone cleanup cycle kept running")
 	}
 }

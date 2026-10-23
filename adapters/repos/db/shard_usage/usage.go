@@ -264,6 +264,11 @@ func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLo
 	}
 	defer unloadedDimensionsBucketLocks.Unlock(bucketPath)
 
+	// opening a bucket dir that a migration has left missing would create an empty one
+	if err := recoverDimensionsBucketMigration(logger, bucketPath); err != nil {
+		return types.Dimensionality{}, fmt.Errorf("recover dimensions bucket migration: %w", err)
+	}
+
 	bucket, err := openUnloadedDimensionsBucket(ctx, logger, path, bucketPath)
 	if err != nil {
 		return types.Dimensionality{}, err
@@ -293,6 +298,11 @@ func CalculateUnloadedDimensionsUsageAll(ctx context.Context,
 		return nil, fmt.Errorf("lock dimensions bucket: %w", err)
 	}
 	defer unloadedDimensionsBucketLocks.Unlock(bucketPath)
+
+	// opening a bucket dir that a migration has left missing would create an empty one
+	if err := recoverDimensionsBucketMigration(logger, bucketPath); err != nil {
+		return nil, fmt.Errorf("recover dimensions bucket migration: %w", err)
+	}
 
 	bucket, err := openUnloadedDimensionsBucket(ctx, logger, path, bucketPath)
 	if err != nil {
@@ -337,10 +347,19 @@ func CalculateUnloadedVectorsMetrics(lsmPath string, directories []string) (Vect
 	// 1) size of vector folder - these are:
 	//     - the compressed vectors stored in their own folder each
 	//     - the flat index extra copy of the uncompressed vectors (if flat index is used)
+	//     - the hfresh postings (its RQ-coded vectors) and shared metadata buckets
 	// 2) size of uncompressed vectors stored in dimensions bucket. The size of these is calculated based on the number
 	// of objects and their dimensionality. They need to be subtracted from the object bucket size to not count them twice.
+	includedPrefixes := []string{
+		"vector",
+		helpers.HFreshPostingsBucketName(""),
+		helpers.HFreshSharedBucketName(""),
+	}
 	for _, directory := range directories {
-		if !strings.HasPrefix(directory, "vector") {
+		included := slices.ContainsFunc(includedPrefixes, func(prefix string) bool {
+			return strings.HasPrefix(directory, prefix)
+		})
+		if !included {
 			continue
 		}
 		size, err := bucketSize(filepath.Join(lsmPath, directory))

@@ -34,13 +34,13 @@ const (
 // batcher implementations must not mutate the objects or references in the request.
 // The retry re-sends the same pointers, so any rewrite makes the retry a different
 // request from the first attempt.
-type batcher interface {
+type Batcher interface {
 	BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error)
 	BatchReferences(ctx context.Context, req *pb.BatchReferencesRequest) (*pb.BatchReferencesReply, error)
 }
 
 type worker struct {
-	batcher         batcher
+	batcher         Batcher
 	logger          logrus.FieldLogger
 	reportingQueues *reportingQueues
 	processingQueue processingQueue
@@ -81,7 +81,7 @@ func StartBatchWorkers(
 	concurrency int,
 	processingQueue processingQueue,
 	reportingQueues *reportingQueues,
-	batcher batcher,
+	batcher Batcher,
 	logger logrus.FieldLogger,
 ) {
 	eg := enterrors.NewErrorGroupWrapper(logger)

@@ -13,16 +13,22 @@ package db
 
 import (
 	"context"
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	localschema "github.com/weaviate/weaviate/cluster/schema/local"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 type unloadedCheckpointFixture struct {
@@ -36,7 +42,7 @@ func newUnloadedCheckpointFixture(t *testing.T, className string, replicated boo
 	t.Helper()
 	f := newAddPropertyLazyFixture(t, className, singleShardState())
 	if replicated {
-		m, ok := f.index.schemaReader.(*schemaUC.MockSchemaReader)
+		m, ok := f.index.schemaReader.(*localschema.MockSchemaReader)
 		require.True(t, ok)
 		for _, c := range m.ExpectedCalls {
 			if c.Method == "ShardReplicas" {
@@ -197,7 +203,8 @@ func TestUnloadedAsyncCheckpoint_LoadBeforeStatusTakesLoadedPath(t *testing.T) {
 	cutoffMs := createdAt.Add(time.Hour).UnixMilli()
 
 	require.NoError(t, f.index.createAsyncCheckpoint(ctx, f.name, cutoffMs, createdAt))
-	require.NoError(t, f.lazy.Load(ctx))
+	_, _, err := f.lazy.loadIfCold(ctx)
+	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, f.lazy.Shutdown(context.Background())) })
 
 	_, gotCutoff, _, ok := f.status(t, ctx)
@@ -205,4 +212,139 @@ func TestUnloadedAsyncCheckpoint_LoadBeforeStatusTakesLoadedPath(t *testing.T) {
 	require.Zero(t, gotCutoff, "no live checkpoint was created")
 	_, registered := f.index.unloadedCheckpoints.get(f.name)
 	require.False(t, registered)
+}
+
+func TestUnloadedAsyncCheckpoint_OrphanedSnapshotIsRefused(t *testing.T) {
+	ctx := testCtx()
+	f := newUnloadedCheckpointFixture(t, "UnloadedCkptOrphaned", true)
+	writePersistedHashtree(t, f.dir, "hashtree-0000000000000001.ht", 7)
+	shardDir := shardPath(f.index.path(), f.name)
+	objectsDir := filepath.Join(shardPathLSM(f.index.path(), f.name), helpers.ObjectsBucketLSM)
+	require.NoError(t, os.WriteFile(filepath.Join(shardDir, "indexcount"), binary.LittleEndian.AppendUint64(nil, 5), 0o644))
+	require.NoError(t, os.RemoveAll(objectsDir))
+	createdAt := time.Now().UTC()
+	cutoffMs := createdAt.Add(time.Hour).UnixMilli()
+
+	logger, hook := test.NewNullLogger()
+	f.index.logger = logger
+	prevThrottle := unloadedCheckpointLogThrottle
+	unloadedCheckpointLogThrottle = replica.NewLogThrottle(time.Minute)
+	t.Cleanup(func() { unloadedCheckpointLogThrottle = prevThrottle })
+	for range 100 {
+		err := f.index.createAsyncCheckpoint(ctx, f.name, cutoffMs, createdAt)
+		require.ErrorIs(t, err, errAsyncReplicationNotActive)
+		require.ErrorContains(t, err, errPersistedHashtreeOrphaned.Error())
+	}
+	warns := 0
+	for _, e := range hook.AllEntries() {
+		if e.Level <= logrus.WarnLevel {
+			warns++
+		}
+	}
+	require.Equal(t, 1, warns, "a refused snapshot must not warn on every create")
+	_, registered := f.index.unloadedCheckpoints.get(f.name)
+	require.False(t, registered)
+	_, _, _, ok := f.status(t, ctx)
+	require.False(t, ok)
+
+	require.NoError(t, os.MkdirAll(objectsDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(objectsDir, "segment-1.wal"), []byte{1}, 0o644))
+	require.NoError(t, f.index.createAsyncCheckpoint(ctx, f.name, cutoffMs, createdAt.Add(time.Second)))
+	_, registered = f.index.unloadedCheckpoints.get(f.name)
+	require.True(t, registered)
+}
+
+func TestUnloadedAsyncCheckpoint_RecoveringShardIsRefusedAsRecovering(t *testing.T) {
+	ctx := testCtx()
+	f := newUnloadedCheckpointFixture(t, "UnloadedCkptRecovering", true)
+	writePersistedHashtree(t, f.dir, "hashtree-0000000000000001.ht", 7)
+	createdAt := time.Now().UTC()
+	cutoffMs := createdAt.Add(time.Hour).UnixMilli()
+	require.NoError(t, f.index.createAsyncCheckpoint(ctx, f.name, cutoffMs, createdAt))
+
+	f.lazy.blockLoad(enterrors.ErrShardRecovering)
+	f.index.shardCreateLocks.Lock(f.name)
+	f.index.shards.Store(f.name, &RecoveringShard{LazyLoadShard: f.lazy})
+	f.index.shardCreateLocks.Unlock(f.name)
+
+	err := f.index.createAsyncCheckpoint(ctx, f.name, cutoffMs+1, createdAt.Add(time.Second))
+	require.ErrorIs(t, err, errAsyncReplicationNotActive)
+	require.ErrorIs(t, err, enterrors.ErrShardRecovering)
+
+	_, _, _, ok := f.status(t, ctx)
+	require.False(t, ok)
+	_, registered := f.index.unloadedCheckpoints.get(f.name)
+	require.False(t, registered)
+}
+
+func backdateUnloadedCheckpoint(r *unloadedCheckpointRegistry, shardName string, age time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cp := r.entries[shardName]
+	cp.activatedAt = time.Now().Add(-age)
+	r.entries[shardName] = cp
+}
+
+func TestUnloadedCheckpointRegistry_Expiry(t *testing.T) {
+	expired := replica.AsyncCheckpointMaxLifetime + time.Minute
+	cutoffMs := time.Now().Add(time.Hour).UnixMilli()
+	tests := []struct {
+		name string
+		run  func(t *testing.T, r *unloadedCheckpointRegistry)
+	}{
+		{name: "fresh entry survives get", run: func(t *testing.T, r *unloadedCheckpointRegistry) {
+			_, ok := r.get("a")
+			require.True(t, ok)
+		}},
+		{name: "expired entry is absent and dropped by get", run: func(t *testing.T, r *unloadedCheckpointRegistry) {
+			backdateUnloadedCheckpoint(r, "a", expired)
+			_, ok := r.get("a")
+			require.False(t, ok)
+			require.NotContains(t, r.entries, "a")
+		}},
+		{name: "put sweeps expired entries once the interval elapsed", run: func(t *testing.T, r *unloadedCheckpointRegistry) {
+			backdateUnloadedCheckpoint(r, "a", expired)
+			r.lastSweep = time.Now().Add(-unloadedCheckpointSweepInterval - time.Second)
+			require.NoError(t, r.put("b", unloadedCheckpoint{cutoffMs: cutoffMs, createdAt: time.Now()}))
+			require.NotContains(t, r.entries, "a")
+			require.Contains(t, r.entries, "b")
+		}},
+		{name: "put does not rescan within the sweep interval", run: func(t *testing.T, r *unloadedCheckpointRegistry) {
+			backdateUnloadedCheckpoint(r, "a", expired)
+			r.lastSweep = time.Now()
+			require.NoError(t, r.put("b", unloadedCheckpoint{cutoffMs: cutoffMs, createdAt: time.Now()}))
+			require.Contains(t, r.entries, "a")
+			_, ok := r.get("a")
+			require.False(t, ok)
+		}},
+		{name: "expired entry does not make an older create stale", run: func(t *testing.T, r *unloadedCheckpointRegistry) {
+			backdateUnloadedCheckpoint(r, "a", expired)
+			require.NoError(t, r.put("a", unloadedCheckpoint{cutoffMs: cutoffMs, createdAt: time.Now().Add(-time.Hour)}))
+		}},
+		{name: "put stamps a local activation time", run: func(t *testing.T, r *unloadedCheckpointRegistry) {
+			require.WithinDuration(t, time.Now(), r.entries["a"].activatedAt, time.Minute)
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &unloadedCheckpointRegistry{}
+			require.NoError(t, r.put("a", unloadedCheckpoint{cutoffMs: cutoffMs, createdAt: time.Now().Add(time.Minute)}))
+			tc.run(t, r)
+		})
+	}
+}
+
+func TestUnloadedAsyncCheckpoint_ExpiredIsOmittedFromStatus(t *testing.T) {
+	ctx := testCtx()
+	f := newUnloadedCheckpointFixture(t, "UnloadedCkptExpired", true)
+	writePersistedHashtree(t, f.dir, "hashtree-0000000000000001.ht", 7)
+	createdAt := time.Now().UTC()
+
+	require.NoError(t, f.index.createAsyncCheckpoint(ctx, f.name, createdAt.Add(time.Hour).UnixMilli(), createdAt))
+	_, _, _, ok := f.status(t, ctx)
+	require.True(t, ok)
+	backdateUnloadedCheckpoint(&f.index.unloadedCheckpoints, f.name, replica.AsyncCheckpointMaxLifetime+time.Minute)
+	_, _, _, ok = f.status(t, ctx)
+	require.False(t, ok)
+	require.False(t, f.lazy.isLoaded())
 }

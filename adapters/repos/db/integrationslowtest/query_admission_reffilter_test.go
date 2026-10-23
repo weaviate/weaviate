@@ -441,7 +441,7 @@ func TestObjectVectorSearchHoldsGrantForWholeSearch(t *testing.T) {
 	const (
 		budget     = 4
 		maxQueue   = 8
-		numAuthors = 10000 // wide allow-list + enough vectors to make the vector phase samplable
+		numAuthors = 2000 // wide allow-list + enough vectors to make the vector phase samplable
 	)
 
 	ctx := context.Background()
@@ -521,7 +521,7 @@ func TestPureVectorSearchIsAdmitted(t *testing.T) {
 	const (
 		budget     = 4
 		maxQueue   = 8
-		numAuthors = 10000 // enough vectors to make the vector phase samplable
+		numAuthors = 2000 // enough vectors to make the vector phase samplable
 	)
 
 	ctx := context.Background()

@@ -352,11 +352,11 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 
 		// capture the base descriptors passed to the uploader to prove this
 		// node deduplicates against nothing (full upload)
-		var gotBaseDescrs []*backup.BackupDescriptor
+		var gotBaseDescrs []*backup.BaseBackupDescriptor
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
 		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
 		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything, mock.Anything).Return(ch).Run(func(a mock.Arguments) {
-			gotBaseDescrs = a.Get(3).([]*backup.BackupDescriptor)
+			gotBaseDescrs = a.Get(3).([]*backup.BaseBackupDescriptor)
 		})
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 
@@ -558,7 +558,7 @@ func createManagerWithSnapshotters(sourcer Sourcer, schema schemaManger, backend
 	logger, _ := test.NewNullLogger()
 	rbac := &fakeRbacBackupWrapper{}
 	dynUser := &fakeDynUserBackupWrapper{}
-	return NewHandler(logger, config.Backup{}, mocks.NewMockAuthorizer(), schema, sourcer, backends, rbac, dynUser), rbac, dynUser
+	return NewHandler(logger, config.Backup{}, mocks.NewMockAuthorizer(), schema, nodeNameOf(schema), sourcer, backends, rbac, dynUser), rbac, dynUser
 }
 
 // fakeRbacBackupWrapper satisfies RBACSnapshotter (variadic Snapshot). It records the
@@ -954,4 +954,13 @@ func TestResolveBaseBackupChain(t *testing.T) {
 			}
 		})
 	}
+}
+
+// nodeNameOf is the node the handler runs on: the fake's own name when the test set
+// one, the package default otherwise.
+func nodeNameOf(s schemaManger) string {
+	if f, ok := s.(*fakeSchemaManger); ok && f.nodeName != "" {
+		return f.nodeName
+	}
+	return nodeName
 }

@@ -16,7 +16,6 @@
 package rest_search
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"testing"
@@ -27,7 +26,6 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -52,17 +50,8 @@ func titlesOf(t *testing.T, out map[string]any) []string {
 }
 
 func TestRESTSearchBm25(t *testing.T) {
-	ctx := context.Background()
-	compose, err := docker.New().
-		WithWeaviate().
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
-
 	defer helper.SetupClient(fmt.Sprintf("%s:%s", helper.ServerHost, helper.ServerPort))
-	helper.SetupClient(compose.GetWeaviate().URI())
+	helper.SetupClient(restSearchServerURI(t))
 
 	bookClass := &models.Class{
 		Class:      "Book",

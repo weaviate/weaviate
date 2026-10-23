@@ -55,6 +55,7 @@ const (
 	ApplyRequest_TYPE_SUSPEND_USER                                ApplyRequest_Type = 83
 	ApplyRequest_TYPE_ACTIVATE_USER                               ApplyRequest_Type = 84
 	ApplyRequest_TYPE_CREATE_USER_WITH_KEY                        ApplyRequest_Type = 85
+	ApplyRequest_TYPE_UPDATE_USER                                 ApplyRequest_Type = 86
 	ApplyRequest_TYPE_ADD_NAMESPACE                               ApplyRequest_Type = 90
 	ApplyRequest_TYPE_DELETE_USERS_IN_NAMESPACE                   ApplyRequest_Type = 91
 	ApplyRequest_TYPE_CHANGE_NAMESPACE_STATE                      ApplyRequest_Type = 92
@@ -130,6 +131,7 @@ var (
 		83:  "TYPE_SUSPEND_USER",
 		84:  "TYPE_ACTIVATE_USER",
 		85:  "TYPE_CREATE_USER_WITH_KEY",
+		86:  "TYPE_UPDATE_USER",
 		90:  "TYPE_ADD_NAMESPACE",
 		91:  "TYPE_DELETE_USERS_IN_NAMESPACE",
 		92:  "TYPE_CHANGE_NAMESPACE_STATE",
@@ -198,6 +200,7 @@ var (
 		"TYPE_SUSPEND_USER":                                               83,
 		"TYPE_ACTIVATE_USER":                                              84,
 		"TYPE_CREATE_USER_WITH_KEY":                                       85,
+		"TYPE_UPDATE_USER":                                                86,
 		"TYPE_ADD_NAMESPACE":                                              90,
 		"TYPE_DELETE_USERS_IN_NAMESPACE":                                  91,
 		"TYPE_CHANGE_NAMESPACE_STATE":                                     92,
@@ -560,10 +563,12 @@ func (x *JoinPeerRequest) GetVoter() bool {
 }
 
 type JoinPeerResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Leader        string                 `protobuf:"bytes,1,opt,name=leader,proto3" json:"leader,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Leader string                 `protobuf:"bytes,1,opt,name=leader,proto3" json:"leader,omitempty"`
+	// Leader's committed index at join; a wiped joiner's catch-up barrier (0 from an older leader = legacy eager load).
+	LeaderCommitIndex uint64 `protobuf:"varint,2,opt,name=leader_commit_index,json=leaderCommitIndex,proto3" json:"leader_commit_index,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *JoinPeerResponse) Reset() {
@@ -601,6 +606,13 @@ func (x *JoinPeerResponse) GetLeader() string {
 		return x.Leader
 	}
 	return ""
+}
+
+func (x *JoinPeerResponse) GetLeaderCommitIndex() uint64 {
+	if x != nil {
+		return x.LeaderCommitIndex
+	}
+	return 0
 }
 
 type RemovePeerRequest struct {
@@ -2650,9 +2662,10 @@ const file_api_message_proto_rawDesc = "" +
 	"\x0fJoinPeerRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x14\n" +
-	"\x05voter\x18\x03 \x01(\bR\x05voter\"*\n" +
+	"\x05voter\x18\x03 \x01(\bR\x05voter\"Z\n" +
 	"\x10JoinPeerResponse\x12\x16\n" +
-	"\x06leader\x18\x01 \x01(\tR\x06leader\"#\n" +
+	"\x06leader\x18\x01 \x01(\tR\x06leader\x12.\n" +
+	"\x13leader_commit_index\x18\x02 \x01(\x04R\x11leaderCommitIndex\"#\n" +
 	"\x11RemovePeerRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\",\n" +
 	"\x12RemovePeerResponse\x12\x16\n" +
@@ -2660,13 +2673,13 @@ const file_api_message_proto_rawDesc = "" +
 	"\x11NotifyPeerRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\"\x14\n" +
-	"\x12NotifyPeerResponse\"\xa5\x14\n" +
+	"\x12NotifyPeerResponse\"\xbb\x14\n" +
 	"\fApplyRequest\x12@\n" +
 	"\x04type\x18\x01 \x01(\x0e2,.weaviate.internal.cluster.ApplyRequest.TypeR\x04type\x12\x14\n" +
 	"\x05class\x18\x02 \x01(\tR\x05class\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x1f\n" +
 	"\vsub_command\x18\x04 \x01(\fR\n" +
-	"subCommand\"\x81\x13\n" +
+	"subCommand\"\x97\x13\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eTYPE_ADD_CLASS\x10\x01\x12\x15\n" +
@@ -2697,7 +2710,8 @@ const file_api_message_proto_rawDesc = "" +
 	"\x18TYPE_ROTATE_USER_API_KEY\x10R\x12\x15\n" +
 	"\x11TYPE_SUSPEND_USER\x10S\x12\x16\n" +
 	"\x12TYPE_ACTIVATE_USER\x10T\x12\x1d\n" +
-	"\x19TYPE_CREATE_USER_WITH_KEY\x10U\x12\x16\n" +
+	"\x19TYPE_CREATE_USER_WITH_KEY\x10U\x12\x14\n" +
+	"\x10TYPE_UPDATE_USER\x10V\x12\x16\n" +
 	"\x12TYPE_ADD_NAMESPACE\x10Z\x12\"\n" +
 	"\x1eTYPE_DELETE_USERS_IN_NAMESPACE\x10[\x12\x1f\n" +
 	"\x1bTYPE_CHANGE_NAMESPACE_STATE\x10\\\x12 \n" +

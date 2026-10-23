@@ -64,6 +64,7 @@ func TestBackupDedupeIncremental(t *testing.T) {
 		WithBackendS3(bucketName, regionName).
 		WithWeaviateEnv("BACKUP_MIN_CHUNK_SIZE", "4096").
 		WithWeaviateEnv("BACKUP_DEDUPE_ENABLED", "true").
+		WithWeaviateLicense().
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {

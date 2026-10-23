@@ -67,7 +67,8 @@ func TestAsyncRepairObjectPropagation(t *testing.T) {
 
 	paragraphClass := articles.ParagraphsClass()
 	paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-		Factor: int64(clusterSize),
+		Factor:      int64(clusterSize),
+		AsyncConfig: common.FastAsyncConfig(),
 	}
 	paragraphClass.Vectorizer = "text2vec-model2vec"
 

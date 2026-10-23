@@ -29,6 +29,7 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func Test_UpdateAction(t *testing.T) {
@@ -74,7 +75,7 @@ func Test_UpdateAction(t *testing.T) {
 		modulesProvider = getFakeModulesProviderWithCustomExtenders(extender, projectorFake)
 		manager = NewManager(schemaManager, cfg,
 			logger, authorizer, db, modulesProvider, metrics, nil,
-			NewAutoSchemaManager(schemaManager, db, cfg, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, db, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 	}
 
 	t.Run("ensure creation timestamp persists", func(t *testing.T) {

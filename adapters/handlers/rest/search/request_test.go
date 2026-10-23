@@ -48,6 +48,19 @@ func namedVectorsClass(vectors ...string) *models.Class {
 	return class
 }
 
+// multiVectorClass turns one of the class's named vectors into a multi-vector
+// index. Only named vectors can carry one: the schema parser rejects a
+// multi-vector config on the legacy class-level index.
+func multiVectorClass(class *models.Class, vector string) *models.Class {
+	vectorConfig := class.VectorConfig[vector]
+	vectorConfig.VectorIndexConfig = hnsw.UserConfig{
+		Distance:    "cosine",
+		Multivector: hnsw.MultivectorConfig{Enabled: true},
+	}
+	class.VectorConfig[vector] = vectorConfig
+	return class
+}
+
 // decodeModel unmarshals a JSON body into the typed request model, the way
 // the swagger JSON consumer does (unknown fields ignored, type mismatches
 // fail). A decode failure maps to the 400 the consumer returns live.
@@ -1244,6 +1257,197 @@ func TestNearObjectReturnMetadata(t *testing.T) {
 // search types.
 func TestNearObjectSharedFields(t *testing.T) {
 	assertSharedFieldsFlow(t, fmt.Sprintf(`"id":%q`, nearObjectSourceID), buildNearObject)
+}
+
+// decodeNearVectorModel unmarshals a JSON body into the typed near-vector
+// request model, the way the swagger JSON consumer does (unknown fields
+// ignored, type mismatches fail). A decode failure maps to the 400 the
+// consumer returns live.
+func decodeNearVectorModel(body string) (*models.SearchNearVectorRequest, *APIError) {
+	var req models.SearchNearVectorRequest
+	if err := json.Unmarshal([]byte(body), &req); err != nil {
+		return nil, newAPIError(http.StatusBadRequest, "invalid request body: %v", err)
+	}
+	return &req, nil
+}
+
+// buildNearVector runs the full near-vector body -> dto.GetParams conversion
+// against the fixture schema, including the reserved-field 422 check that the
+// handler runs before buildNearVectorParams.
+func buildNearVector(t *testing.T, class *models.Class, body string) (*fakeSearcher, *APIError) {
+	t.Helper()
+	deps := newTestHandlerWithClass(t, class)
+
+	parsed, apiErr := decodeNearVectorModel(body)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	if apiErr := checkReservedFields(&parsed.SearchCommon); apiErr != nil {
+		return nil, apiErr
+	}
+
+	params, apiErr := deps.handler.buildNearVectorParams(class, class.Class, parsed, fixtureGetClass(deps), nil)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	deps.searcher.lastParams = params
+	return deps.searcher, nil
+}
+
+func TestNearVectorParams(t *testing.T) {
+	t.Run("vector maps to NearVector, not module or keyword params", func(t *testing.T) {
+		searcher, apiErr := buildNearVector(t, movieClass(), `{"vector":[0.1,-0.2,0.3]}`)
+		require.Nil(t, apiErr)
+		nearVector := searcher.lastParams.NearVector
+		require.NotNil(t, nearVector)
+		require.Len(t, nearVector.Vectors, 1)
+		assert.Equal(t, []float32{0.1, -0.2, 0.3}, nearVector.Vectors[0])
+		assert.Empty(t, searcher.lastParams.ModuleParams)
+		assert.Nil(t, searcher.lastParams.KeywordRanking)
+		assert.Nil(t, searcher.lastParams.HybridSearch)
+	})
+
+	t.Run("whole numbers are read as a vector", func(t *testing.T) {
+		searcher, apiErr := buildNearVector(t, movieClass(), `{"vector":[1,0,-2]}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, []float32{1, 0, -2}, searcher.lastParams.NearVector.Vectors[0])
+	})
+}
+
+// TestNearVectorShape: the spec leaves `vector` untyped (a vector and a
+// multi-vector share the field), so the handler checks the shape. swagger's
+// required validation rejects an absent or null vector with 422 live; the
+// handler's 400 covers the direct-call path.
+func TestNearVectorShape(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+		want       string
+	}{
+		{"missing", `{}`, http.StatusBadRequest, errVectorNotNumbers},
+		{"null", `{"vector":null}`, http.StatusBadRequest, errVectorNotNumbers},
+		{"empty array", `{"vector":[]}`, http.StatusBadRequest, errVectorNotNumbers},
+		{"string entry", `{"vector":["0.1"]}`, http.StatusBadRequest, errVectorNotNumbers},
+		{"null entry", `{"vector":[0.1,null]}`, http.StatusBadRequest, errVectorNotNumbers},
+		{"boolean entry", `{"vector":[true]}`, http.StatusBadRequest, errVectorNotNumbers},
+		{"bare number", `{"vector":0.5}`, http.StatusBadRequest, errVectorNotNumbers},
+		{"object", `{"vector":{"title_vec":[0.1]}}`, http.StatusBadRequest, errVectorNotNumbers},
+		{"outside float32 range", `{"vector":[0.1,1e39]}`, http.StatusBadRequest, "vector[1] does not fit a 32-bit float"},
+		{"array of vectors", `{"vector":[[0.1,0.2],[0.3,0.4]]}`, http.StatusUnprocessableEntity, "multi-vector"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, apiErr := buildNearVector(t, movieClass(), tt.body)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, tt.wantStatus, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), tt.want)
+		})
+	}
+}
+
+// TestNearVectorCertaintyAndDistance: the cutoffs reach the near-vector
+// params; their rules are pinned on near-object, through the shared
+// parseCertaintyDistance.
+func TestNearVectorCertaintyAndDistance(t *testing.T) {
+	body := func(fields string) string {
+		return fmt.Sprintf(`{"vector":[0.1,0.2]%s}`, fields)
+	}
+
+	t.Run("distance sets the cutoff", func(t *testing.T) {
+		searcher, apiErr := buildNearVector(t, movieClass(), body(`,"distance":0.4`))
+		require.Nil(t, apiErr)
+		nearVector := searcher.lastParams.NearVector
+		assert.Equal(t, 0.4, nearVector.Distance)
+		assert.True(t, nearVector.WithDistance)
+	})
+
+	t.Run("certainty on a cosine index", func(t *testing.T) {
+		searcher, apiErr := buildNearVector(t, movieClass(), body(`,"certainty":0.8`))
+		require.Nil(t, apiErr)
+		nearVector := searcher.lastParams.NearVector
+		assert.Equal(t, 0.8, nearVector.Certainty)
+		assert.False(t, nearVector.WithDistance)
+	})
+}
+
+// TestNearVectorNeedsNoVectorizer: the caller brings the query vector, so
+// collections without any vectorizer module — the endpoint's main audience —
+// are fully searchable.
+func TestNearVectorNeedsNoVectorizer(t *testing.T) {
+	class := movieClass()
+	class.Vectorizer = "none"
+	_, apiErr := buildNearVector(t, class, `{"vector":[0.1,0.2]}`)
+	assert.Nil(t, apiErr)
+}
+
+func TestNearVectorTargetVectors(t *testing.T) {
+	t.Run("sole named vector selected implicitly", func(t *testing.T) {
+		searcher, apiErr := buildNearVector(t, namedVectorsClass("title_vec"), `{"vector":[0.1,0.2]}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, []string{"title_vec"}, searcher.lastParams.NearVector.TargetVectors)
+	})
+
+	t.Run("multiple named vectors require targetVector", func(t *testing.T) {
+		_, apiErr := buildNearVector(t, namedVectorsClass("title_vec", "summary_vec"), `{"vector":[0.1,0.2]}`)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+
+		searcher, apiErr := buildNearVector(t, namedVectorsClass("title_vec", "summary_vec"),
+			`{"vector":[0.1,0.2],"targetVector":"summary_vec"}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, []string{"summary_vec"}, searcher.lastParams.NearVector.TargetVectors)
+	})
+
+	t.Run("unknown targetVector is a 400", func(t *testing.T) {
+		_, apiErr := buildNearVector(t, namedVectorsClass("title_vec"),
+			`{"vector":[0.1,0.2],"targetVector":"nope"}`)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+	})
+
+	// a flat vector cannot search a multi-vector index; gRPC rejects the same
+	// direction, so the endpoint must not fall through to the engine
+	t.Run("multi-vector target is a 422", func(t *testing.T) {
+		tests := []struct {
+			name  string
+			class *models.Class
+			body  string
+		}{
+			{
+				name:  "sole named vector, selected implicitly",
+				class: multiVectorClass(namedVectorsClass("colbert_vec"), "colbert_vec"),
+				body:  `{"vector":[0.1,0.2]}`,
+			},
+			{
+				name:  "named explicitly beside a regular vector",
+				class: multiVectorClass(namedVectorsClass("title_vec", "colbert_vec"), "colbert_vec"),
+				body:  `{"vector":[0.1,0.2],"targetVector":"colbert_vec"}`,
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				_, apiErr := buildNearVector(t, tt.class, tt.body)
+				require.NotNil(t, apiErr)
+				assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+				assert.Contains(t, apiErr.Error(), `target vector "colbert_vec" is a multi-vector index`)
+			})
+		}
+	})
+
+	t.Run("regular target beside a multi-vector one is searchable", func(t *testing.T) {
+		searcher, apiErr := buildNearVector(t, multiVectorClass(namedVectorsClass("title_vec", "colbert_vec"), "colbert_vec"),
+			`{"vector":[0.1,0.2],"targetVector":"title_vec"}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, []string{"title_vec"}, searcher.lastParams.NearVector.TargetVectors)
+	})
+}
+
+// TestNearVectorSharedFields smoke-tests that the SearchCommon fields flow
+// through the shared parsers for near-vector exactly as for the other search
+// types.
+func TestNearVectorSharedFields(t *testing.T) {
+	assertSharedFieldsFlow(t, `"vector":[0.1,0.2]`, buildNearVector)
 }
 
 // decodeHybridModel unmarshals a JSON body into the typed hybrid request

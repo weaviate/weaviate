@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config/parser"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/license"
 )
 
 const (
@@ -77,6 +78,7 @@ const (
 	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
 
 	DefaultNamespaceCleanupInterval = 30 * time.Second
+	DefaultSuspendReconcileInterval = 30 * time.Second
 
 	DefaultReplicaMovementCleanupMaxAge   = 168 * time.Hour
 	DefaultReplicaMovementCleanupInterval = time.Hour
@@ -147,6 +149,10 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
 		config.ReindexVectorDimensionsAtStartup = true
+	}
+
+	if entcfg.Enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_TO_ROARINGSET_AT_STARTUP")) {
+		config.ReindexVectorDimensionsToRoaringsetAtStartup = true
 	}
 
 	if entcfg.Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
@@ -760,6 +766,10 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if err := config.parseBatchStreamConfig(); err != nil {
+		return err
+	}
+
 	if v := os.Getenv("ORIGIN"); v != "" {
 		config.Origin = v
 	}
@@ -906,13 +916,8 @@ func FromEnv(config *Config) error {
 	}
 
 	if v := os.Getenv("DEFAULT_VECTORIZER_MODULE"); v != "" {
-		config.DefaultVectorizerModule = v
-	} else {
-		// env not set, this could either mean, we already have a value from a file
-		// or we explicitly want to set the value to "none"
-		if config.DefaultVectorizerModule == "" {
-			config.DefaultVectorizerModule = VectorizerModuleNone
-		}
+		logrus.Warnf("DEFAULT_VECTORIZER_MODULE is deprecated and ignored (set to %q). "+
+			"Set the vectorizer explicitly on each collection instead.", v)
 	}
 
 	if v := os.Getenv("MODULES_CLIENT_TIMEOUT"); v != "" {
@@ -1097,11 +1102,12 @@ func FromEnv(config *Config) error {
 	}
 
 	config.DisableGraphQL = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL")))
-	weaviateLicense, err := weaviateLicenseEnabled()
+	licenseState, err := resolveLicenseState()
 	if err != nil {
 		return err
 	}
-	config.WeaviateLicense = weaviateLicense
+	config.WeaviateLicense = licenseState.Status == license.StatusValid
+	config.License = licenseState
 
 	config.Namespaces.Enabled = entcfg.Enabled(os.Getenv("NAMESPACES_ENABLED"))
 	if config.Namespaces.Enabled {
@@ -1112,6 +1118,14 @@ func FromEnv(config *Config) error {
 		DefaultNamespaceCleanupInterval,
 		parser.ValidateCronInterval,
 		func(val *configRuntime.DynamicValue[time.Duration]) { config.Namespaces.CleanupInterval = val }); err != nil {
+		return err
+	}
+	config.Namespaces.SuspendedMessage = strings.TrimSpace(os.Getenv("NAMESPACE_SUSPENDED_MESSAGE"))
+
+	if err := parser.ParseDynamicDurationWithValidation("SUSPEND_RECONCILE_INTERVAL",
+		DefaultSuspendReconcileInterval,
+		parser.ValidateCronInterval,
+		func(val *configRuntime.DynamicValue[time.Duration]) { config.Namespaces.SuspendReconcileInterval = val }); err != nil {
 		return err
 	}
 
@@ -1161,6 +1175,37 @@ func FromEnv(config *Config) error {
 			config.Replication.ReplicaMovementCleanupInterval = val
 		}); err != nil {
 		return err
+	}
+
+	config.Replication.SelfRecoveryEnabled = entcfg.Enabled(os.Getenv("SELF_RECOVERY_ENABLED"))
+	if err := parseIntVerify(
+		"SELF_RECOVERY_CONCURRENCY",
+		DefaultSelfRecoveryConcurrency,
+		func(val int) {
+			config.Replication.SelfRecoveryConcurrency = val
+		},
+		func(val int, envName string) error {
+			if val <= 0 {
+				return fmt.Errorf("%s must be > 0, got %d", envName, val)
+			}
+			if val > MaxSelfRecoveryConcurrency {
+				return fmt.Errorf("%s must be <= %d, got %d", envName, MaxSelfRecoveryConcurrency, val)
+			}
+			return nil
+		},
+	); err != nil {
+		return err
+	}
+
+	if v := os.Getenv("SELF_RECOVERY_BARRIER_TIMEOUT"); v != "" {
+		duration, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse SELF_RECOVERY_BARRIER_TIMEOUT as time.Duration: %w", err)
+		}
+		if duration <= 0 {
+			return fmt.Errorf("SELF_RECOVERY_BARRIER_TIMEOUT must be a positive duration")
+		}
+		config.Replication.SelfRecoveryBarrierTimeout = duration
 	}
 
 	if err := parseIntVerify(
@@ -1605,6 +1650,13 @@ func FromEnv(config *Config) error {
 	}
 
 	config.DisableDimensionMetrics = configRuntime.NewDynamicValue(disableDimensionMetrics)
+
+	if config.Replication.SelfRecoveryEnabled && !config.ReplicaMovementEnabled {
+		logrus.Warn("SELF_RECOVERY_ENABLED requires REPLICA_MOVEMENT_ENABLED=true; disabling " +
+			"self-recovery to avoid shards stuck in RECOVERING (the replication engine that " +
+			"processes recovery copy ops only runs when replica movement is enabled)")
+		config.Replication.SelfRecoveryEnabled = false
+	}
 
 	return nil
 }
@@ -2053,6 +2105,8 @@ const (
 	DefaultMaximumAllowedShardsPerCollection      = -1 // unlimited
 	DefaultUsageLimitsErrorMessage                = "" // empty → usagelimits.RenderTemplate falls back to its built-in default
 	DefaultRestrictionsErrorMessage               = "" // empty → restrictions.RenderTemplate falls back to its built-in default
+	DefaultSelfRecoveryConcurrency                = 10
+	MaxSelfRecoveryConcurrency                    = 32
 )
 
 const VectorizerModuleNone = "none"
@@ -2523,6 +2577,54 @@ func (c *Config) parseBackupGCSConfig() error {
 		func(val int) { c.BackupGCS.GRPCConnPool = val },
 		validateBackupGCSConnPool); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (c *Config) parseBatchStreamConfig() error {
+	if os.Getenv("BATCH_STREAM_GATE_RATIO") != "" {
+		if err := parsePercentage("BATCH_STREAM_GATE_RATIO",
+			func(val float64) { c.BatchStream.gateRatio = &val }, 0); err != nil {
+			return err
+		}
+	}
+
+	if os.Getenv("BATCH_STREAM_ENGAGE_RATIO") != "" {
+		if err := parsePercentage("BATCH_STREAM_ENGAGE_RATIO",
+			func(val float64) { c.BatchStream.engageRatio = &val }, 0); err != nil {
+			return err
+		}
+	}
+
+	if v := os.Getenv("BATCH_STREAM_MAX_ACK_DELAY"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse BATCH_STREAM_MAX_ACK_DELAY as duration: %w", err)
+		}
+		if d < 0 {
+			return fmt.Errorf("BATCH_STREAM_MAX_ACK_DELAY must be a duration of 0 or more. Got: %v", d)
+		}
+		c.BatchStream.maxAckDelay = &d
+	}
+
+	if os.Getenv("BATCH_STREAM_HOLD_SECONDS") != "" {
+		if err := parseNonNegativeInt("BATCH_STREAM_HOLD_SECONDS",
+			func(val int) { c.BatchStream.holdSeconds = &val }, 0); err != nil {
+			return err
+		}
+	}
+
+	if os.Getenv("BATCH_STREAM_WORKERS") != "" {
+		if err := parseNonNegativeInt("BATCH_STREAM_WORKERS",
+			func(val int) { c.BatchStream.workers = &val }, 0); err != nil {
+			return err
+		}
+	}
+
+	if c.BatchStream.GateRatio() <= c.BatchStream.EngageRatio() {
+		return fmt.Errorf("BATCH_STREAM_GATE_RATIO (%v) must be above BATCH_STREAM_ENGAGE_RATIO (%v)",
+			c.BatchStream.GateRatio(), c.BatchStream.EngageRatio())
 	}
 
 	return nil

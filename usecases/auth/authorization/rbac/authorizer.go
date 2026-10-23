@@ -14,6 +14,7 @@ package rbac
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 
@@ -21,6 +22,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 const AuditLogVersion = 2
@@ -93,10 +96,8 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 	for _, resource := range uniqueResources {
 		allowed, err := m.checkPermissions(principal, resource, verb)
 		if err != nil {
-			logger.WithFields(logrus.Fields{
-				"resource": resource,
-			}).WithError(err).Error("failed to enforce policy")
-			return err
+			logger.WithField("resource", resource).Errorf("failed to enforce policy: %v", err)
+			return enforceError(err)
 		}
 
 		perm, err := conv.PathToPermission(verb, resource)
@@ -131,9 +132,46 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 	return nil
 }
 
+// enforceError cuts err to its first line for the API response, dropping the
+// goroutine stack casbin appends when a stored pattern panics its matcher.
+func enforceError(err error) error {
+	msg, _, _ := strings.Cut(err.Error(), "\n")
+	return fmt.Errorf("rbac: enforce policy: %s", msg)
+}
+
 // Authorize verify if the user has access to a resource to do specific action
 func (m *Manager) Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
 	return m.authorize(ctx, principal, verb, false, resources...)
+}
+
+// AuthorizeAndRequireActiveNamespace verifies access as Authorize does, then
+// refuses when class's namespace is not active.
+func (m *Manager) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error {
+	if err := m.Authorize(ctx, principal, verb, resources...); err != nil {
+		return err
+	}
+	if !m.namespacesEnabled {
+		return nil
+	}
+	namespace := namespacing.NamespaceFromQualified(class)
+	if namespace == "" {
+		// An unnamespaced collection gets here, and so does a name its call site
+		// never qualified.
+		m.logger.WithFields(m.auditFields(principal)).
+			WithField("class", class).
+			WithField("request_action", verb).
+			Warn("rbac: class carries no namespace, so its namespace state was not checked")
+	}
+	if err := usecasesNamespaces.RequireActive(m.namespaces, namespace); err != nil {
+		// Authorize has already logged this request as allowed, so this line is the
+		// only record that the namespace refused it.
+		m.logger.WithFields(m.auditFields(principal)).
+			WithField("class", class).
+			WithField("request_action", verb).
+			Infof("rbac: namespace refused the request: %v", err)
+		return err
+	}
+	return nil
 }
 
 // AuthorizeSilent verify if the user has access to a resource to do specific action without audit logs
@@ -186,8 +224,8 @@ func (m *Manager) FilterAuthorizedResources(ctx context.Context, principal *mode
 	for _, resource := range uniqueResources {
 		allowed, err := m.checkPermissions(principal, resource, verb)
 		if err != nil {
-			logger.WithError(err).WithField("resource", resource).Error("failed to enforce policy")
-			return nil, err
+			logger.WithField("resource", resource).Errorf("failed to enforce policy: %v", err)
+			return nil, enforceError(err)
 		}
 
 		if allowed {

@@ -86,8 +86,12 @@ var asyncRepTargetHostsSeam func(*Shard) ([]string, error)
 // asyncRepPerClassFallbackSeam replaces the per-class fallback pre-filter in tests; nil outside tests.
 var asyncRepPerClassFallbackSeam func(context.Context, map[string]hashtree.Digest) (map[string]struct{}, replica.PrefilterStats)
 
+// asyncWorkerWatcherInterval (ns) paces workerWatcher's worker resize and checkpoint expiry sweep; atomic so tests can shrink it.
+var asyncWorkerWatcherInterval atomic.Int64
+
 func init() {
 	asyncRepRebuildBaseBackoff.Store(int64(30 * time.Second))
+	asyncWorkerWatcherInterval.Store(int64(30 * time.Second))
 }
 
 // ErrSchedulerClosed is returned by Register / Deregister when called after Close.
@@ -613,6 +617,13 @@ type AsyncReplicationScheduler struct {
 	// per-cycle clamp in Effective().
 	runtimeClampWarner *asyncReplicationClampWarner
 
+	// expiredSinceReport counts checkpoint expiries since the last summary, so a mass expiry logs once, not once per shard.
+	expiredSinceReport atomic.Int64
+
+	// unloadedCheckpointsMu is a leaf lock guarding unloadedCheckpoints, the live indexes' unloaded-shard registries the watcher sweeps.
+	unloadedCheckpointsMu sync.Mutex
+	unloadedCheckpoints   map[*unloadedCheckpointRegistry]struct{}
+
 	// closed is set true at the top of Close() (before cancel) and never reset.
 	// Read by Register/Deregister and handleAdd/handleRemove to reject
 	// post-Close calls deterministically.
@@ -880,6 +891,81 @@ func (sched *AsyncReplicationScheduler) Deregister(s *Shard) error {
 	case <-sched.ctx.Done():
 		return ErrSchedulerClosed
 	}
+}
+
+// expireAsyncCheckpoint clears s's checkpoint once it outlived replica.AsyncCheckpointMaxLifetime; must not be called under sched.mu.
+func (sched *AsyncReplicationScheduler) expireAsyncCheckpoint(s *Shard, now time.Time) {
+	if !s.expireAsyncCheckpoint(now) {
+		return
+	}
+	sched.expiredSinceReport.Add(1)
+	className := ""
+	if s.class != nil {
+		className = s.class.Class
+	}
+	sched.logger.WithField("class_name", className).WithField("shard_name", s.name).
+		Debugf("async checkpoint expired: not deleted within %s", replica.AsyncCheckpointMaxLifetime)
+}
+
+// reportExpiredCheckpoints logs one summary for the expiries since the last call.
+func (sched *AsyncReplicationScheduler) reportExpiredCheckpoints() {
+	if n := sched.expiredSinceReport.Swap(0); n > 0 {
+		sched.logger.WithField("action", "async_checkpoint_expiry").WithField("expired", n).
+			Warnf("%d async checkpoints expired: not deleted within %s", n, replica.AsyncCheckpointMaxLifetime)
+	}
+}
+
+// sweepExpiredCheckpoints expires checkpoints of every registered shard, covering shards runEntry won't reach in time (global disable, frequency above the max lifetime); snapshots under sched.mu, expires outside it.
+// Unloaded shards' registries are swept too, since put is their only other sweep trigger.
+func (sched *AsyncReplicationScheduler) sweepExpiredCheckpoints() {
+	sched.mu.Lock()
+	shards := make([]*Shard, 0, len(sched.entries))
+	for s := range sched.entries {
+		shards = append(shards, s)
+	}
+	sched.mu.Unlock()
+	now := time.Now()
+	for _, s := range shards {
+		if sched.ctx.Err() != nil {
+			return
+		}
+		sched.expireAsyncCheckpoint(s, now)
+	}
+	sched.sweepUnloadedCheckpoints(now)
+}
+
+func (sched *AsyncReplicationScheduler) sweepUnloadedCheckpoints(now time.Time) {
+	sched.unloadedCheckpointsMu.Lock()
+	registries := make([]*unloadedCheckpointRegistry, 0, len(sched.unloadedCheckpoints))
+	for r := range sched.unloadedCheckpoints {
+		registries = append(registries, r)
+	}
+	sched.unloadedCheckpointsMu.Unlock()
+	for _, r := range registries {
+		if sched.ctx.Err() != nil {
+			return
+		}
+		if n := r.sweep(now); n > 0 {
+			sched.expiredSinceReport.Add(int64(n))
+			sched.logger.WithField("expired", n).
+				Debugf("unloaded-shard async checkpoints expired: not deleted within %s", replica.AsyncCheckpointMaxLifetime)
+		}
+	}
+}
+
+func (sched *AsyncReplicationScheduler) registerUnloadedCheckpoints(r *unloadedCheckpointRegistry) {
+	sched.unloadedCheckpointsMu.Lock()
+	defer sched.unloadedCheckpointsMu.Unlock()
+	if sched.unloadedCheckpoints == nil {
+		sched.unloadedCheckpoints = make(map[*unloadedCheckpointRegistry]struct{})
+	}
+	sched.unloadedCheckpoints[r] = struct{}{}
+}
+
+func (sched *AsyncReplicationScheduler) deregisterUnloadedCheckpoints(r *unloadedCheckpointRegistry) {
+	sched.unloadedCheckpointsMu.Lock()
+	defer sched.unloadedCheckpointsMu.Unlock()
+	delete(sched.unloadedCheckpoints, r)
 }
 
 // ----- dispatcher goroutine -------------------------------------------------
@@ -1396,16 +1482,19 @@ func (sched *AsyncReplicationScheduler) worker() {
 
 // workerWatcher polls maxWorkersConfig every 30 s and calls adjustWorkers so
 // that changes to AsyncReplicationSchedulerWorkers take effect at runtime
-// without a restart.
+// without a restart. Off the dispatcher, it also sweeps expired checkpoints.
 func (sched *AsyncReplicationScheduler) workerWatcher() {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(time.Duration(asyncWorkerWatcherInterval.Load()))
 	defer ticker.Stop()
 	for {
 		select {
 		case <-sched.ctx.Done():
+			sched.reportExpiredCheckpoints()
 			return
 		case <-ticker.C:
 			sched.adjustWorkers(sched.maxWorkersConfig.Get())
+			sched.sweepExpiredCheckpoints()
+			sched.reportExpiredCheckpoints()
 		}
 	}
 }
@@ -1822,7 +1911,7 @@ func (sched *AsyncReplicationScheduler) runEntry(entry *asyncSchedulerEntry, ski
 
 	// Done and the rebuild spawn must survive a panic in the recover block below (logging hook).
 	defer func() {
-		// Done() before the resultCh send so the WG drops before the dispatcher re-enqueues; inFlight (not asyncRepWg) enforces one cycle per shard.
+		// Done() before the resultCh send so the latch drops before the dispatcher re-enqueues; inFlight (not asyncRepWg) enforces one cycle per shard.
 		s.asyncRepWg.Done()
 
 		if needsRebuild {
@@ -1869,6 +1958,7 @@ func (sched *AsyncReplicationScheduler) runEntry(entry *asyncSchedulerEntry, ski
 	var base AsyncReplicationConfig
 	var currentHT hashtree.AggregatedHashTree
 	var currentHTHeight int
+	var ready bool
 	func() {
 		// Deferred unlock: a panic here must not leak the RLock, or every later write-lock (teardown) wedges.
 		s.asyncReplicationRWMux.RLock()
@@ -1876,15 +1966,24 @@ func (sched *AsyncReplicationScheduler) runEntry(entry *asyncSchedulerEntry, ski
 		base = s.asyncReplicationConfig
 		ctx = s.asyncRepCtx
 		currentHT = s.hashtree
+		ready = s.hashtreeFullyInitialized
 		if currentHT != nil {
 			currentHTHeight = currentHT.Height()
 		}
 	}()
 
+	sched.expireAsyncCheckpoint(s, time.Now())
+
 	cfg = base
 	if s.index != nil && s.index.globalreplicationConfig != nil {
 		sched.runtimeClampWarner.checkGlobals(*s.index.globalreplicationConfig)
 		cfg = base.Effective(*s.index.globalreplicationConfig)
+	}
+
+	if currentHT != nil && !ready {
+		// Registered ahead of its scan (a stale registration under flapping): skip before a placeholder's height can arm a rebuild.
+		err = errors.New("hashtree not ready")
+		return
 	}
 
 	// Runtime config changed the hashtree height — flag a rebuild. The rebuild
@@ -1998,11 +2097,18 @@ func (sched *AsyncReplicationScheduler) tryRebuildHashtree(s *Shard) (retry bool
 	}
 
 	// Pre-drain BEFORE the apply lock (a bounded wait inside it stalls every schema apply); a cycle dispatched in between is absorbed by the post-disable drain.
+	preLockTimer := time.NewTimer(time.Duration(asyncReplicationWorkerDrainTimeout.Load()))
 	select {
-	case <-s.asyncRepDrained(sched.logger):
+	case <-s.asyncRepDrained():
+		preLockTimer.Stop()
+		// An idle latch ties with ctx.Done(); standing down here keeps Close() from leaving the shard disabled with no .ht.
+		if sched.ctx.Err() != nil {
+			return false, 0, false, false
+		}
 	case <-sched.ctx.Done():
+		preLockTimer.Stop()
 		return false, 0, false, false
-	case <-time.After(time.Duration(asyncReplicationWorkerDrainTimeout.Load())):
+	case <-preLockTimer.C:
 		return yield()
 	}
 
@@ -2046,11 +2152,18 @@ func (sched *AsyncReplicationScheduler) tryRebuildHashtree(s *Shard) (retry bool
 	}
 
 	// Pre-drain BEFORE the disable: a wedged cycle must yield with the shard still in the repair mesh.
+	preDisableTimer := time.NewTimer(time.Duration(asyncReplicationWorkerDrainTimeout.Load()))
 	select {
-	case <-s.asyncRepDrained(sched.logger):
+	case <-s.asyncRepDrained():
+		preDisableTimer.Stop()
+		// An idle latch ties with ctx.Done(); standing down here keeps Close() from leaving the shard disabled with no .ht.
+		if sched.ctx.Err() != nil {
+			return false, 0, false, false
+		}
 	case <-sched.ctx.Done():
+		preDisableTimer.Stop()
 		return false, 0, false, false
-	case <-time.After(time.Duration(asyncReplicationWorkerDrainTimeout.Load())):
+	case <-preDisableTimer.C:
 		return yield()
 	}
 
@@ -2065,15 +2178,16 @@ func (sched *AsyncReplicationScheduler) tryRebuildHashtree(s *Shard) (retry bool
 	// Post-disable drain (normally instant — disable cancelled ctx + deregistered); a timeout
 	// leaves the shard out of the mesh (enabling over a straggler risks a double-fold), so it
 	// must be a loud failure with growing backoff, not a silent spin.
+	drainTimeout := time.Duration(asyncReplicationWorkerDrainTimeout.Load())
+	postDisableTimer := time.NewTimer(drainTimeout)
 	select {
-	case <-s.asyncRepDrained(sched.logger):
-	case <-time.After(time.Duration(asyncReplicationWorkerDrainTimeout.Load())):
-		drainTimeout := time.Duration(asyncReplicationWorkerDrainTimeout.Load())
+	case <-s.asyncRepDrained():
+		postDisableTimer.Stop()
+	case <-postDisableTimer.C:
 		return true, fail("drain", fmt.Errorf("worker drain timed out after %s", drainTimeout)), false, false
 	}
 
-	// Bail if Close() fired: enableAsyncReplication would otherwise spawn an
-	// init-scan goroutine with no cancellable context.
+	// Bail if Close() fired: the enable's Register would fail, leaving a tree that is never scanned, dispatched or capturable.
 	if sched.ctx.Err() != nil {
 		return false, 0, false, false
 	}

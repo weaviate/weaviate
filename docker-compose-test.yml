@@ -18,7 +18,6 @@ services:
       QUERY_DEFAULTS_LIMIT: 20
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
       PERSISTENCE_DATA_PATH: "./data"
-      DEFAULT_VECTORIZER_MODULE: text2vec-model2vec
       ENABLE_MODULES: text2vec-model2vec,backup-filesystem,generative-dummy,reranker-dummy
       API_BASED_MODULES_DISABLED: "true"
       BACKUP_FILESYSTEM_PATH: "/var/lib/backups"

@@ -36,6 +36,7 @@ const (
 func newLoadingGuardIndex(shard ShardLike, replicationFactor int64) *Index {
 	idx := &Index{
 		Config: IndexConfig{
+			NodeName:          "node1",
 			ClassName:         schema.ClassName(loadingGuardClass),
 			ReplicationFactor: replicationFactor,
 		},
@@ -61,6 +62,17 @@ func TestEnsureShardLocallyReady(t *testing.T) {
 		{
 			name:              "loading shard is used as is when there is no replica to retry on",
 			status:            storagestate.StatusLoading,
+			replicationFactor: 1,
+		},
+		{
+			name:              "recovering shard is rejected so the read retries on a replica",
+			status:            storagestate.StatusRecovering,
+			replicationFactor: 3,
+			wantRejected:      true,
+		},
+		{
+			name:              "recovering shard is used as is when there is no replica to retry on",
+			status:            storagestate.StatusRecovering,
 			replicationFactor: 1,
 		},
 		{

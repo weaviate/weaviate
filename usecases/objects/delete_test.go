@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func Test_DeleteObjectsWithSameId(t *testing.T) {
@@ -116,6 +117,16 @@ func TestDeleteObject_RbacResolveAlias(t *testing.T) {
 	assert.Contains(t, auth.Calls()[0].Resources[0], class) // make sure rbac is called with "resolved class" name
 }
 
+func TestDeleteObject_InvalidClassNameIsInvalidUserInput(t *testing.T) {
+	manager, repo, auth, _ := newDeleteDependency()
+	err := manager.DeleteObject(context.Background(), nil, "a:Foo",
+		strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc"), nil, "")
+	require.ErrorAs(t, err, &ErrInvalidUserInput{})
+	assert.Contains(t, err.Error(), "is not a valid class name")
+	assert.Empty(t, auth.Calls())
+	repo.AssertExpectations(t)
+}
+
 func newDeleteDependency() (*Manager, *fakeObjectFinder, *mocks.FakeAuthorizer, *fakeSchemaManager) {
 	vectorRepo := new(fakeObjectFinder)
 	logger, _ := test.NewNullLogger()
@@ -129,6 +140,6 @@ func newDeleteDependency() (*Manager, *fakeObjectFinder, *mocks.FakeAuthorizer, 
 		vectorRepo,
 		getFakeModulesProvider(),
 		new(fakeMetrics), nil,
-		NewAutoSchemaManager(new(fakeSchemaManager), vectorRepo, new(config.WeaviateConfig), logger, prometheus.NewPedanticRegistry()))
+		NewAutoSchemaManager(new(fakeSchemaManager), vectorRepo, new(config.WeaviateConfig), logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 	return manager, vectorRepo, authorizer, smanager
 }

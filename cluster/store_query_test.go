@@ -45,7 +45,7 @@ func newDynUserQueryStore(t *testing.T) (*Store, string, string) {
 	const userID = "seeded-user"
 	_, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
-	require.NoError(t, dynUser.CreateUser(userID, hash, identifier, "", "", time.Now()))
+	require.NoError(t, dynUser.CreateUser(userID, hash, identifier, "", "", time.Now(), time.Time{}))
 
 	cfg := Config{
 		WorkDir:                t.TempDir(),
@@ -130,7 +130,7 @@ func attachFollowerRaft(t *testing.T, store *Store) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, r.Shutdown().Error()) })
 
-	store.raft = r
+	store.raft.Store(r)
 }
 
 func TestQueryExportUsersDispatch(t *testing.T) {

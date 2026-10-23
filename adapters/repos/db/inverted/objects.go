@@ -111,6 +111,10 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 			continue
 		}
 
+		overlayForcedOnly := !HasAnyInvertedIndex(prop)
+		overlaySearchable := HasSearchableIndex(effective) && !HasSearchableIndex(prop)
+		firstEmitted := len(out)
+
 		if schema.IsRefDataType(effective.DataType) {
 			if err := a.extendPropertiesWithReference(&out, effective, input, key); err != nil {
 				return nil, nil, err
@@ -125,6 +129,12 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 			}
 		}
 
+		if overlayForcedOnly || overlaySearchable {
+			for i := firstEmitted; i < len(out); i++ {
+				out[i].OverlayForcedOnly = overlayForcedOnly
+				out[i].OverlaySearchable = overlaySearchable
+			}
+		}
 	}
 	return out, nestedOut, nil
 }

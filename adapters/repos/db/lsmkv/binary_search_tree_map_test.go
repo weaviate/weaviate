@@ -21,7 +21,7 @@ import (
 
 func Test_BinarySearchTreeMap(t *testing.T) {
 	t.Run("single row key, single map key", func(t *testing.T) {
-		tree := &binarySearchTreeMap{}
+		tree := &binarySearchTreeMap[MapPair]{}
 		rowKey := []byte("rowkey")
 
 		pair1 := MapPair{
@@ -42,7 +42,7 @@ func Test_BinarySearchTreeMap(t *testing.T) {
 	})
 
 	t.Run("single row key, updated map value", func(t *testing.T) {
-		tree := &binarySearchTreeMap{}
+		tree := &binarySearchTreeMap[MapPair]{}
 		rowKey := []byte("rowkey")
 
 		tree.insert(rowKey, MapPair{
@@ -89,7 +89,7 @@ func Test_BinarySearchTreeMap(t *testing.T) {
 	})
 
 	t.Run("two row keys, updated map value", func(t *testing.T) {
-		tree := &binarySearchTreeMap{}
+		tree := &binarySearchTreeMap[MapPair]{}
 		rowKey1 := []byte("rowkey")
 		rowKey2 := []byte("other-rowkey")
 
@@ -165,7 +165,7 @@ func Test_BinarySearchTreeMap(t *testing.T) {
 	})
 
 	t.Run("single row key, deleted map values", func(t *testing.T) {
-		tree := &binarySearchTreeMap{}
+		tree := &binarySearchTreeMap[MapPair]{}
 		rowKey := []byte("rowkey")
 
 		tree.insert(rowKey, MapPair{
@@ -269,7 +269,7 @@ func TestBSTMap_Flatten(t *testing.T) {
 			rowkey []byte
 			pair   MapPair
 		}
-		assertFlattenedMatches := func(t *testing.T, flattened []*binarySearchNodeMap, expected []expectedFlattened) {
+		assertFlattenedMatches := func(t *testing.T, flattened []*binarySearchNodeMap[MapPair], expected []expectedFlattened) {
 			t.Helper()
 			require.Len(t, flattened, len(expected))
 			for i, exp := range expected {
@@ -282,7 +282,7 @@ func TestBSTMap_Flatten(t *testing.T) {
 			}
 		}
 
-		bst := &binarySearchTreeMap{}
+		bst := &binarySearchTreeMap[MapPair]{}
 		// mixed order
 		bst.insert(rowkeys[rowkey3], pairs[rowkey3])
 		bst.insert(rowkeys[rowkey1], pairs[rowkey1])

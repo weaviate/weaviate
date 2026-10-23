@@ -193,8 +193,9 @@ func underlyingShard(t *testing.T, sl ShardLike) *Shard {
 	case *Shard:
 		return s
 	case *LazyLoadShard:
-		require.NoError(t, s.Load(context.Background()))
-		return s.shard
+		shard, _, err := s.loadIfCold(context.Background())
+		require.NoError(t, err)
+		return shard
 	default:
 		t.Fatalf("unexpected ShardLike type %T", sl)
 		return nil
@@ -226,7 +227,7 @@ func TestDropVectorIndex_FailedTeardownKeepsTheIndexForCleanup(t *testing.T) {
 	failing.On("Drop", mock.Anything, false).Return(nil).Once()
 	require.True(t, shard.vectors.Replace("named", failing))
 	// the first load recorded the vector ready
-	named := vectorIndexRecord{PhysicalID: "vectors_named", IndexType: "hnsw", State: "ready"}
+	named := recorded(shard, "named", "vectors_named", "ready")
 
 	err := shard.DropVectorIndex(ctx, "named")
 	require.ErrorIs(t, err, assert.AnError)

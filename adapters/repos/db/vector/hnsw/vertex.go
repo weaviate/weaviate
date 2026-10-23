@@ -19,9 +19,8 @@ import (
 )
 
 type vertex struct {
-	// pointer first so the GC scans only the leading word; the narrow fields
-	// at the tail keep the struct in the 24 B size class (one per node)
-	connections *packedconn.Connections
+	// connections first so the GC scans only the pointer-bearing prefix
+	connections packedconn.Connections
 	sync.Mutex
 	level       uint16
 	maintenance bool
@@ -91,9 +90,9 @@ func convertEntityNodes(entNodes []*ent.Vertex) []*vertex {
 	nodes := make([]*vertex, len(entNodes))
 	for i, en := range entNodes {
 		if en != nil {
-			nodes[i] = &vertex{
-				level:       uint16(en.Level),
-				connections: en.Connections,
+			nodes[i] = &vertex{level: uint16(en.Level)}
+			if en.Connections != nil {
+				nodes[i].connections = *en.Connections
 			}
 		}
 	}

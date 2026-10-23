@@ -269,3 +269,37 @@ func TestAsyncCheckpoint_MergeJourney(t *testing.T) {
 		ckAssertFrozen(t, ctx, sl, s, r0)
 	})
 }
+
+func TestAsyncCheckpointClearedWhenAsyncReplicationStops(t *testing.T) {
+	tests := []struct {
+		name string
+		stop func(t *testing.T, ctx context.Context, s *Shard)
+	}{
+		{name: "per-class disable", stop: func(t *testing.T, ctx context.Context, s *Shard) {
+			require.NoError(t, s.disableAsyncReplication(ctx))
+		}},
+		{name: "stop for shutdown or transfer halt", stop: func(t *testing.T, ctx context.Context, s *Shard) {
+			s.mayStopAsyncReplication(false)
+		}},
+		{name: "rebuild from scratch while disabling", stop: func(t *testing.T, ctx context.Context, s *Shard) {
+			require.NoError(t, s.rebuildAsyncReplicationFromScratch(ctx, false, minAsyncReplicationConfig()))
+		}},
+		{name: "rebuild from scratch while enabled", stop: func(t *testing.T, ctx context.Context, s *Shard) {
+			require.NoError(t, s.rebuildAsyncReplicationFromScratch(ctx, true, minAsyncReplicationConfig()))
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			_, s := newAsyncTestShard(t, ctx, "CkptClearedOnStop")
+			enableAndAwaitAsync(t, ctx, s)
+			require.NoError(t, s.CreateAsyncCheckpoint(ctx, time.Now().Add(time.Hour).UnixMilli(), time.Now().UTC()))
+
+			tc.stop(t, ctx, s)
+
+			s.asyncReplicationRWMux.RLock()
+			defer s.asyncReplicationRWMux.RUnlock()
+			assert.Nil(t, s.asyncCheckpointHashtree)
+		})
+	}
+}

@@ -37,17 +37,19 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	esync "github.com/weaviate/weaviate/entities/sync"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/remote"
 )
 
 func TestIndex_aggregateCount(t *testing.T) {
@@ -243,7 +245,7 @@ func TestIndex_aggregateCount(t *testing.T) {
 						func() string { return "Delete" }),
 				},
 				shardCreateLocks: esync.NewKeyRWLocker(),
-				Config:           IndexConfig{ClassName: schema.ClassName("Abc")},
+				Config:           IndexConfig{NodeName: "node1", ClassName: schema.ClassName("Abc")},
 				metrics:          metrics,
 				logger:           logger,
 			}
@@ -425,7 +427,7 @@ func TestIndex_getShardsStorageStatus(t *testing.T) {
 	}
 
 	// Arrange
-	schemaReader := schemaUC.NewMockSchemaReader(t)
+	schemaReader := local.NewMockSchemaReader(t)
 	schemaReader.EXPECT().
 		Shards("Songs").
 		RunAndReturn(func(collectionName string) (shards []string, _ error) {
@@ -447,7 +449,7 @@ func TestIndex_getShardsStorageStatus(t *testing.T) {
 		RunAndReturn(func(s string) (string, bool) { return s, true }).Maybe()
 
 	index := Index{
-		Config:           IndexConfig{ClassName: schema.ClassName("Songs")},
+		Config:           IndexConfig{NodeName: targetNode, ClassName: schema.ClassName("Songs")},
 		getSchema:        &fakeSchemaGetter{nodeName: targetNode},
 		schemaReader:     schemaReader,
 		shardCreateLocks: esync.NewKeyRWLocker(),
@@ -456,7 +458,7 @@ func TestIndex_getShardsStorageStatus(t *testing.T) {
 		logger:           logger,
 	}
 
-	index.remote = sharding.NewRemoteIndex(
+	index.remote = remote.NewIndex(
 		"Songs",
 		index.getSchema,
 		nodeResolver,
@@ -562,7 +564,7 @@ func TestIndex_ShardHasMultipleReplicasWrite_RoutesThroughReplicatorDuringMoveme
 			// test — proving the call short-circuited before consulting the router.
 
 			idx := &Index{
-				Config: IndexConfig{ClassName: schema.ClassName(className), ReplicationFactor: tt.replicationF},
+				Config: IndexConfig{NodeName: "node1", ClassName: schema.ClassName(className), ReplicationFactor: tt.replicationF},
 				router: mockRouter,
 			}
 			idx.SetReplicationFSMReader(fsm)
@@ -586,7 +588,7 @@ func TestIndex_ShardHasMultipleReplicasWrite_RoutesThroughReplicatorDuringMoveme
 func newDropLocalShardTestIndex(t *testing.T, logger logrus.FieldLogger) *Index {
 	t.Helper()
 	idx := &Index{
-		Config:           IndexConfig{RootPath: t.TempDir(), ClassName: schema.ClassName("DropTestClass")},
+		Config:           IndexConfig{NodeName: "node1", RootPath: t.TempDir(), ClassName: schema.ClassName("DropTestClass")},
 		logger:           logger,
 		backupLock:       esync.NewKeyRWLocker(),
 		shardCreateLocks: esync.NewKeyRWLocker(),
@@ -731,6 +733,81 @@ func TestPropertyWorkPinsShardAgainstTeardown(t *testing.T) {
 
 			require.NoError(t, tt.run(idx))
 			require.Zero(t, activePins.Load(), "%s leaked a pin", tt.name)
+		})
+	}
+}
+
+// sweepDoneMessage is what the startup sweep logs once it has walked every shard.
+const sweepDoneMessage = "finished loading all shards"
+
+// requireSweepTally asserts how many shards the startup sweep reported under
+// each outcome, waiting for it to finish. An outcome absent from want must have
+// counted nothing.
+func requireSweepTally(t *testing.T, hook *test.Hook, want map[monitoring.WarmupOutcome]int) {
+	t.Helper()
+
+	var tally logrus.Fields
+	require.Eventually(t, func() bool {
+		for _, entry := range hook.AllEntries() {
+			if entry.Message != sweepDoneMessage {
+				continue
+			}
+			tally = entry.Data
+			return true
+		}
+		return false
+	}, 30*time.Second, 50*time.Millisecond, "the sweep should log what it did with every shard")
+
+	for _, outcome := range []monitoring.WarmupOutcome{
+		monitoring.WarmupLoaded,
+		monitoring.WarmupFailed,
+		monitoring.WarmupSkippedShardGone,
+		monitoring.WarmupSkippedAlreadyLoaded,
+		monitoring.WarmupSkippedEmpty,
+		monitoring.WarmupSkippedBelowThreshold,
+		monitoring.WarmupSkippedNamespaceUnknown,
+		monitoring.WarmupSkippedRecovering,
+	} {
+		require.Equal(t, want[outcome], tally[string(outcome)], "shards reported as %q", outcome)
+	}
+}
+
+// updateVectorIndexConfig leaves alone a shard that fails its pin, because the
+// shard is shutting down or its index has closed. It holds every other shard's
+// pin while it updates that shard, so an unload finds the shard in use.
+func TestUpdateVectorIndexConfigPinsEachShard(t *testing.T) {
+	tests := []struct {
+		name   string
+		pinErr error
+	}{
+		{name: "pin fails", pinErr: errShutdownInProgress},
+		{name: "pin held during update"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			idx, _ := newDropTestIndex(t)
+			var activePins atomic.Int32
+			shard := NewMockShardLike(t)
+			shard.EXPECT().preventShutdown().RunAndReturn(func() (func(), error) {
+				if tt.pinErr != nil {
+					return func() {}, tt.pinErr
+				}
+				activePins.Add(1)
+				return func() { activePins.Add(-1) }, nil
+			})
+			if tt.pinErr == nil {
+				shard.EXPECT().UpdateVectorIndexConfig(mock.Anything, mock.Anything).RunAndReturn(
+					func(context.Context, schemaConfig.VectorIndexConfig) error {
+						if pins := activePins.Load(); pins != 1 {
+							return fmt.Errorf("updated the shard holding %d pins", pins)
+						}
+						return nil
+					})
+			}
+			idx.shards.Store("t0", shard)
+
+			require.NoError(t, idx.updateVectorIndexConfig(context.Background(), enthnsw.NewDefaultUserConfig()))
+			require.Zero(t, activePins.Load(), "the walk leaked a pin")
 		})
 	}
 }

@@ -124,13 +124,7 @@ func GetUserWithLastUsedTime(t *testing.T, userId, key string, lastUsedTime bool
 
 func CreateUser(t *testing.T, userId, key string) string {
 	t.Helper()
-	resp, err := Client(t).Users.CreateUser(users.NewCreateUserParams().WithUserID(userId), CreateAuth(key))
-	AssertRequestOk(t, resp, err, nil)
-	require.Nil(t, err)
-	require.NotNil(t, resp)
-	require.NotNil(t, resp.Payload)
-	require.NotNil(t, resp.Payload.Apikey)
-	return *resp.Payload.Apikey
+	return CreateUserWithExpiry(t, userId, key, nil)
 }
 
 func CreateUserWithNamespace(t *testing.T, userId, namespace, adminKey string) string {
@@ -168,6 +162,36 @@ func CreateUserWithApiKey(t *testing.T, userId, key string, createdAt *time.Time
 	require.NotNil(t, resp.Payload)
 	require.NotNil(t, resp.Payload.Apikey)
 	return *resp.Payload.Apikey
+}
+
+// ExpiryIn returns the time d from now in UTC, truncated to the millisecond
+// precision a DB user's expiresAt is stored with.
+func ExpiryIn(d time.Duration) time.Time {
+	return time.Now().Add(d).UTC().Truncate(time.Millisecond)
+}
+
+func CreateUserWithExpiry(t *testing.T, userId, key string, expiresAt *time.Time) string {
+	t.Helper()
+	resp, err := Client(t).Users.CreateUser(users.NewCreateUserParams().WithUserID(userId).WithBody(users.CreateUserBody{ExpiresAt: (*strfmt.DateTime)(expiresAt)}), CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.Payload)
+	require.NotNil(t, resp.Payload.Apikey)
+	return *resp.Payload.Apikey
+}
+
+// SetUserExpiration sends neverExpires when expiresAt is nil, which clears the
+// user's expiry.
+func SetUserExpiration(t *testing.T, userId, key string, expiresAt *time.Time) {
+	t.Helper()
+	body := users.SetUserExpirationBody{ExpiresAt: (*strfmt.DateTime)(expiresAt)}
+	if expiresAt == nil {
+		body.NeverExpires = new(true)
+	}
+	resp, err := Client(t).Users.SetUserExpiration(users.NewSetUserExpirationParams().WithUserID(userId).WithBody(body), CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	require.NoError(t, err)
 }
 
 func RotateKey(t *testing.T, userId, key string) string {

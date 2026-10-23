@@ -31,7 +31,8 @@ func newKeyMapFlushFixture(tb testing.TB, strategy string) *Memtable {
 
 	m := &Memtable{
 		strategy:         strategy,
-		keyMap:           &binarySearchTreeMap{},
+		keyMap:           &binarySearchTreeMap[MapPair]{},
+		keyInverted:      &binarySearchTreeMap[invertedPair]{},
 		commitlog:        newDummyCommitLogger(),
 		metrics:          metrics,
 		tombstones:       sroar.NewBitmap(),
@@ -39,6 +40,10 @@ func newKeyMapFlushFixture(tb testing.TB, strategy string) *Memtable {
 	}
 
 	for docID := uint64(0); docID < 8; docID++ {
+		if strategy == StrategyInverted {
+			require.NoError(tb, m.appendInverted([]byte("row"), newInvertedPair(docID, 3, 7, false)))
+			continue
+		}
 		require.NoError(tb, m.appendMapSorted([]byte("row"),
 			NewMapPairFromDocIdAndTf(docID, 3, 7, false)))
 	}

@@ -175,6 +175,54 @@ func (_c *MockReplicationFSMReader_HasActiveReplicationForShard_Call) RunAndRetu
 	return _c
 }
 
+// HasActiveSelfRecoveryTargetingShard provides a mock function with given fields: collection, shard, targetNode
+func (_m *MockReplicationFSMReader) HasActiveSelfRecoveryTargetingShard(collection string, shard string, targetNode string) bool {
+	ret := _m.Called(collection, shard, targetNode)
+
+	if len(ret) == 0 {
+		panic("no return value specified for HasActiveSelfRecoveryTargetingShard")
+	}
+
+	var r0 bool
+	if rf, ok := ret.Get(0).(func(string, string, string) bool); ok {
+		r0 = rf(collection, shard, targetNode)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	return r0
+}
+
+// MockReplicationFSMReader_HasActiveSelfRecoveryTargetingShard_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'HasActiveSelfRecoveryTargetingShard'
+type MockReplicationFSMReader_HasActiveSelfRecoveryTargetingShard_Call struct {
+	*mock.Call
+}
+
+// HasActiveSelfRecoveryTargetingShard is a helper method to define mock.On call
+//   - collection string
+//   - shard string
+//   - targetNode string
+func (_e *MockReplicationFSMReader_Expecter) HasActiveSelfRecoveryTargetingShard(collection interface{}, shard interface{}, targetNode interface{}) *MockReplicationFSMReader_HasActiveSelfRecoveryTargetingShard_Call {
+	return &MockReplicationFSMReader_HasActiveSelfRecoveryTargetingShard_Call{Call: _e.mock.On("HasActiveSelfRecoveryTargetingShard", collection, shard, targetNode)}
+}
+
+func (_c *MockReplicationFSMReader_HasActiveSelfRecoveryTargetingShard_Call) Run(run func(collection string, shard string, targetNode string)) *MockReplicationFSMReader_HasActiveSelfRecoveryTargetingShard_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockReplicationFSMReader_HasActiveSelfRecoveryTargetingShard_Call) Return(_a0 bool) *MockReplicationFSMReader_HasActiveSelfRecoveryTargetingShard_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockReplicationFSMReader_HasActiveSelfRecoveryTargetingShard_Call) RunAndReturn(run func(string, string, string) bool) *MockReplicationFSMReader_HasActiveSelfRecoveryTargetingShard_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // HasActiveTargetReplicationForShard provides a mock function with given fields: collection, shard, targetNode
 func (_m *MockReplicationFSMReader) HasActiveTargetReplicationForShard(collection string, shard string, targetNode string) bool {
 	ret := _m.Called(collection, shard, targetNode)

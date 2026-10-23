@@ -196,9 +196,20 @@ func TestMapSetWALReplayAfterBufferReuse(t *testing.T) {
 func TestMapSetDoesNotAllocatePerWrite(t *testing.T) {
 	tests := []struct {
 		strategy string
+		write    func(b *Bucket, rowKey, mapKey, value []byte) error
 	}{
-		{strategy: StrategyMapCollection},
-		{strategy: StrategyInverted},
+		{
+			strategy: StrategyMapCollection,
+			write: func(b *Bucket, rowKey, mapKey, value []byte) error {
+				return b.MapSet(rowKey, MapPair{Key: mapKey, Value: value})
+			},
+		},
+		{
+			strategy: StrategyInverted,
+			write: func(b *Bucket, rowKey, _, _ []byte) error {
+				return b.InvertedSet(rowKey, 7, 3, 7)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -222,7 +233,7 @@ func TestMapSetDoesNotAllocatePerWrite(t *testing.T) {
 			next := 0
 			var setErr error
 			set := func() {
-				if err := b.MapSet(rowKey, MapPair{Key: keys[next], Value: value}); err != nil {
+				if err := tt.write(b, rowKey, keys[next], value); err != nil {
 					setErr = err
 				}
 				next++

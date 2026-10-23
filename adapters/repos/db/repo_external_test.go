@@ -41,3 +41,20 @@ func TestLocalIndexClassNamesRefusesWithErrIndexClosing(t *testing.T) {
 	require.ErrorIs(t, err, db.ErrIndexClosing)
 	require.Nil(t, names, "a refusal carries no names a caller could diff against")
 }
+
+// Without an exported way to begin an index close, this covers only shuttingDown.
+func TestUnloadShardRefusesWithErrIndexClosing(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	d, err := db.New(logger, "node1", db.Config{
+		RootPath:                  t.TempDir(),
+		MaxImportGoroutinesFactor: 1,
+	}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+	require.NoError(t, d.Shutdown(context.Background()))
+
+	outcome, err := d.UnloadShard(context.Background(), "Product", "s1")
+
+	require.ErrorIs(t, err, db.ErrIndexClosing)
+	require.Equal(t, db.ShardUnloadOutcomeIndexClosing, outcome,
+		"the outcome and the error have to agree on which condition refused")
+}

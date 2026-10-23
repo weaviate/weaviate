@@ -37,7 +37,7 @@ func mapPairsForDocIDs(docIDs []uint64, bigEndian bool) []MapPair {
 }
 
 // BenchmarkSortAndDedupValues contrasts the two doc-ID key encodings that reach
-// this function. BigEndian doc IDs arrive ascending and skip the sort, while
+// this function as MapPair keys. BigEndian doc IDs arrive ascending and skip the sort, while
 // the LittleEndian ones the dimensions bucket writes under
 // StrategyMapCollection are byte-wise scrambled and pay the full stable sort.
 func BenchmarkSortAndDedupValues(b *testing.B) {

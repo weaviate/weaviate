@@ -32,26 +32,32 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSchemaManager) {
-	schemaManager := &fakeSchemaManager{}
-	logger, _ := test.NewNullLogger()
 	vectorizerValidator := &fakeVectorizerValidator{
 		valid: []string{"text2vec-contextionary", "model1", "model2"},
 	}
+	return newTestHandlerWithModules(t, db, fakeModulesProvider{}, &fakeModuleConfig{}, vectorizerValidator)
+}
+
+func newTestHandlerWithModules(t *testing.T, db clusterSchema.Indexer, modules modulesProvider, moduleConfig ModuleConfig,
+	vectorizerValidator VectorizerValidator,
+) (*Handler, *fakeSchemaManager) {
+	schemaManager := &fakeSchemaManager{}
+	logger, _ := test.NewNullLogger()
 	cfg := config.Config{
-		DefaultVectorizerModule:     config.VectorizerModuleNone,
 		DefaultVectorDistanceMetric: "cosine",
 	}
 	fakeClusterState := fakes.NewFakeClusterState()
 	fakeValidator := &fakeValidator{}
-	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, fakeModulesProvider{}, nil, nil)
+	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, modules, nil, nil)
 	handler, err := NewHandler(
-		schemaManager, schemaManager, db, fakeValidator, logger, mocks.NewMockAuthorizer(),
+		schemaManager, schemaManager, schemaManager, db, fakeValidator, logger, mocks.NewMockAuthorizer(),
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil, nil, nil)
+		moduleConfig, fakeClusterState, nil, *schemaParser, nil, nil, nil, namespacing.Disabled)
 	require.NoError(t, err)
 	handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 	return &handler, schemaManager
@@ -70,9 +76,9 @@ func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, 
 	fakeValidator := &fakeValidator{}
 	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, nil, nil, nil)
 	handler, err := NewHandler(
-		metaHandler, metaHandler, db, fakeValidator, logger, authorizer,
+		metaHandler, metaHandler, metaHandler, db, fakeValidator, logger, authorizer,
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil, nil, nil)
+		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil, nil, nil, namespacing.Disabled)
 	require.Nil(t, err)
 	return &handler, metaHandler
 }
@@ -238,6 +244,10 @@ func (f *fakeModuleConfig) ValidateClass(ctx context.Context, class *models.Clas
 	return nil
 }
 
+func (f *fakeModuleConfig) ValidateModuleConfig(ctx context.Context, class *models.Class, moduleName, targetVector string) error {
+	return nil
+}
+
 func (f *fakeModuleConfig) GetByName(name string) modulecapabilities.Module {
 	return nil
 }
@@ -298,10 +308,12 @@ func dummyValidateInvertedConfig(in *models.InvertedIndexConfig) error {
 
 type fakeMigrator struct {
 	mock.Mock
+	onUpdateIndex func(context.Context)
 }
 
 func (f *fakeMigrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
-	return nil, nil
+	args := f.Called(ctx, className, tenant)
+	return args.Get(0).(map[string]int64), args.Error(1)
 }
 
 func (f *fakeMigrator) DropOrphanedClass(ctx context.Context, className string, hasFrozen bool) error {
@@ -431,6 +443,9 @@ func (f *fakeMigrator) Shutdown(ctx context.Context) error {
 }
 
 func (f *fakeMigrator) UpdateIndex(ctx context.Context, class *models.Class, shardingState *sharding.State) error {
+	if f.onUpdateIndex != nil {
+		f.onUpdateIndex(ctx)
+	}
 	args := f.Called(class, shardingState)
 	return args.Error(0)
 }

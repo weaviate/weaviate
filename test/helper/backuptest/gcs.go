@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"cloud.google.com/go/storage"
-	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -103,7 +102,7 @@ func (b *GCSBackend) Start(ctx context.Context) error {
 	}
 
 	// Start GCS emulator container
-	port := nat.Port(gcsPort)
+	port := gcsPort
 	req := testcontainers.ContainerRequest{
 		Image:        gcsImage,
 		ExposedPorts: []string{gcsPort},
