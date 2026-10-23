@@ -18,6 +18,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/modules/reranker-contextualai/config"
 )
 
 func (m *ReRankerContextualAIModule) ClassConfigDefaults() map[string]any {
@@ -33,7 +34,7 @@ func (m *ReRankerContextualAIModule) PropertyConfigDefaults(
 func (m *ReRankerContextualAIModule) ValidateClass(ctx context.Context,
 	class *models.Class, cfg moduletools.ClassConfig,
 ) error {
-	return nil
+	return config.NewClassSettings(cfg).Validate(class)
 }
 
 var _ = modulecapabilities.ClassConfigurator(New())
