@@ -522,9 +522,8 @@ func (db *DB) GetIndex(className schema.ClassName) *Index {
 	return index
 }
 
-// indexForRead is GetIndex for requests. SchemaManager.apply adds a class to
-// the schema before Migrator.AddClass builds its index. On a miss for a class
-// the local schema holds, indexForRead waits for that class version to apply.
+// indexForRead is GetIndex for requests. On a miss for a class the local
+// schema holds, it waits until this node has applied that class version.
 // Never call it from SchemaManager.apply, which would wait for its own version.
 func (db *DB) indexForRead(ctx context.Context, className schema.ClassName) (*Index, error) {
 	if index := db.GetIndex(className); index != nil {
