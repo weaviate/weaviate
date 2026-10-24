@@ -145,7 +145,7 @@ func TestShard_InvalidVectorBatches(t *testing.T) {
 	errs := shd.PutObjectBatch(ctx, invalidBatch)
 	require.Len(t, errs, batchSize)
 	for _, err := range errs {
-		require.ErrorContains(t, err, "new node has a vector with length 5. Existing nodes have vectors with length 4")
+		require.ErrorContains(t, err, `target vector "": dimension mismatch: expected 4, got 5`)
 	}
 	require.Equal(t, batchSize, int(shd.Counter().Get()))
 
@@ -175,7 +175,7 @@ func TestShard_InvalidHFreshBatches(t *testing.T) {
 	errs := shd.PutObjectBatch(ctx, invalidBatch)
 	require.Len(t, errs, batchSize)
 	for _, err := range errs {
-		require.ErrorContains(t, err, "new node has a vector with length 5. Existing nodes have vectors with length 4")
+		require.ErrorContains(t, err, `target vector "": dimension mismatch: expected 4, got 5`)
 	}
 	require.Equal(t, batchSize, int(shd.Counter().Get()))
 

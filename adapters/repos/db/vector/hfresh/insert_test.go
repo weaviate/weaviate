@@ -13,7 +13,9 @@ package hfresh
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
@@ -357,6 +360,115 @@ func TestAddBatch(t *testing.T) {
 		err := tf.Index.AddBatch(ctx, ids, vectors)
 		require.Error(t, err)
 	})
+
+	t.Run("error on wrong dimensions after initial batch", func(t *testing.T) {
+		tf := createHFreshIndex(t)
+		defer tf.Index.Shutdown(t.Context())
+
+		batch1Vectors, _ := testinghelpers.RandomVecs(2, 0, 32)
+		err := tf.Index.AddBatch(t.Context(), []uint64{0, 1}, batch1Vectors)
+		require.NoError(t, err)
+
+		batch2Vectors, _ := testinghelpers.RandomVecs(2, 0, 64)
+		err = tf.Index.AddBatch(t.Context(), []uint64{2, 3}, batch2Vectors)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, common.ErrWrongDimensions))
+	})
+
+	t.Run("error on inconsistent dimensions in uninitialized batch", func(t *testing.T) {
+		tf := createHFreshIndex(t)
+		defer tf.Index.Shutdown(t.Context())
+
+		vectors := [][]float32{
+			{0.1, 0.2, 0.3},
+			{0.4, 0.5, 0.6, 0.7},
+			{0.8, 0.9, 1.0},
+		}
+		err := tf.Index.AddBatch(t.Context(), []uint64{0, 1, 2}, vectors)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, common.ErrWrongDimensions))
+		assert.Equal(t, uint32(0), tf.Index.dims)
+
+		// Subsequent batch with uniform dimensions succeeds and establishes dimension
+		validVectors, _ := testinghelpers.RandomVecs(2, 0, 32)
+		err = tf.Index.AddBatch(t.Context(), []uint64{0, 1}, validVectors)
+		require.NoError(t, err)
+		assert.Equal(t, uint32(32), tf.Index.dims)
+	})
+}
+
+func TestAddMultiBatch_InconsistentVectorDimensions(t *testing.T) {
+	mvStore := newMuveraTestStore()
+	tf := newTestIndex(t, muveraUserConfig(), mvStore)
+	defer tf.Index.Shutdown(t.Context())
+
+	// 1. Uninitialized muvera index: conflicting token dimensions across documents
+	docIDs := []uint64{1, 2}
+	vectors := [][][]float32{
+		{{0.1, 0.2, 0.3}, {0.4, 0.5, 0.6}}, // 3D
+		{{0.1, 0.2, 0.3, 0.4}},             // 4D
+	}
+
+	err := tf.Index.AddMultiBatch(t.Context(), docIDs, vectors)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, common.ErrWrongDimensions))
+	assert.Equal(t, 0, tf.Index.Dimension())
+
+	// 2. Uniform batch succeeds and establishes dimension = 4
+	validIDs := []uint64{1, 2}
+	validVectors := [][][]float32{
+		{{0.1, 0.2, 0.3, 0.4}, {0.5, 0.6, 0.7, 0.8}},
+		{{0.9, 1.0, 1.1, 1.2}},
+	}
+	err = tf.Index.AddMultiBatch(t.Context(), validIDs, validVectors)
+	require.NoError(t, err)
+	assert.Equal(t, 4, tf.Index.Dimension())
+
+	// 3. Batch with mismatched dimensions against established index returns ErrWrongDimensions
+	mismatchedIDs := []uint64{3}
+	mismatchedVectors := [][][]float32{
+		{{0.1, 0.2, 0.3}}, // 3D != 4D
+	}
+	err = tf.Index.AddMultiBatch(t.Context(), mismatchedIDs, mismatchedVectors)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, common.ErrWrongDimensions))
+}
+
+func TestValidateMultiBeforeInsert_Dimensions(t *testing.T) {
+	mvStore := newMuveraTestStore()
+	tf := newTestIndex(t, muveraUserConfig(), mvStore)
+	defer tf.Index.Shutdown(t.Context())
+
+	// 1. Uninitialized: varying token dimensions within single document
+	varyingDoc := [][]float32{
+		{0.1, 0.2, 0.3},
+		{0.1, 0.2},
+	}
+	err := tf.Index.ValidateMultiBeforeInsert(varyingDoc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "inconsistent dimensions")
+
+	// 2. Uninitialized: uniform tokens pass validation
+	uniformDoc := [][]float32{
+		{0.1, 0.2, 0.3, 0.4},
+		{0.5, 0.6, 0.7, 0.8},
+	}
+	err = tf.Index.ValidateMultiBeforeInsert(uniformDoc)
+	require.NoError(t, err)
+
+	// Establish dimension = 4
+	err = tf.Index.AddMulti(t.Context(), 1, uniformDoc)
+	require.NoError(t, err)
+	assert.Equal(t, 4, tf.Index.Dimension())
+
+	// 3. Established index: mismatched dimension returns ErrWrongDimensions
+	wrongDimDoc := [][]float32{
+		{0.1, 0.2, 0.3},
+		{0.4, 0.5, 0.6},
+	}
+	err = tf.Index.ValidateMultiBeforeInsert(wrongDimDoc)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, common.ErrWrongDimensions))
 }
 
 func TestDelete(t *testing.T) {
@@ -492,3 +604,76 @@ func TestValidateMultiBeforeInsertEmpty(t *testing.T) {
 		require.ErrorContains(t, err, "muvera is not enabled")
 	})
 }
+
+func TestHFresh_ConcurrentReadAndInitRace(t *testing.T) {
+	t.Run("single vector index concurrent read and init", func(t *testing.T) {
+		for iter := 0; iter < 5; iter++ {
+			func() {
+				tf := createHFreshIndex(t)
+				defer tf.Index.Shutdown(t.Context())
+
+				vec := []float32{0.1, 0.2, 0.3, 0.4}
+				var wg sync.WaitGroup
+				wg.Add(3)
+
+				go func() {
+					defer wg.Done()
+					for i := 0; i < 50; i++ {
+						_ = tf.Index.Dimension()
+					}
+				}()
+
+				go func() {
+					defer wg.Done()
+					_ = tf.Index.AddBatch(t.Context(), []uint64{uint64(iter*100 + 1)}, [][]float32{vec})
+				}()
+
+				go func() {
+					defer wg.Done()
+					for i := 0; i < 50; i++ {
+						_ = tf.Index.ValidateBeforeInsert(vec)
+					}
+				}()
+
+				wg.Wait()
+				assert.Equal(t, 4, tf.Index.Dimension())
+			}()
+		}
+	})
+
+	t.Run("multi vector index concurrent read and init", func(t *testing.T) {
+		for iter := 0; iter < 5; iter++ {
+			func() {
+				tf := createMuveraHFreshIndex(t)
+				defer tf.Index.Shutdown(t.Context())
+
+				multiVec := [][]float32{{0.1, 0.2, 0.3, 0.4}, {0.5, 0.6, 0.7, 0.8}}
+				var wg sync.WaitGroup
+				wg.Add(3)
+
+				go func() {
+					defer wg.Done()
+					for i := 0; i < 50; i++ {
+						_ = tf.Index.Dimension()
+					}
+				}()
+
+				go func() {
+					defer wg.Done()
+					_ = tf.Index.AddMultiBatch(t.Context(), []uint64{uint64(iter*100 + 1)}, [][][]float32{multiVec})
+				}()
+
+				go func() {
+					defer wg.Done()
+					for i := 0; i < 50; i++ {
+						_ = tf.Index.ValidateMultiBeforeInsert(multiVec)
+					}
+				}()
+
+				wg.Wait()
+				assert.Equal(t, 4, tf.Index.Dimension())
+			}()
+		}
+	})
+}
+

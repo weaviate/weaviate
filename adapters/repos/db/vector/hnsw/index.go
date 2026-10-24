@@ -1024,6 +1024,13 @@ func (h *hnsw) Multivector() bool {
 	return h.multivector.Load()
 }
 
+func (h *hnsw) Dimension() int {
+	if h.muvera.Load() {
+		return h.muveraEncoder.Dimensions()
+	}
+	return int(h.dims.Load())
+}
+
 func (h *hnsw) Upgraded() bool {
 	return h.Compressed()
 }

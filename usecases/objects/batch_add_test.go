@@ -14,6 +14,7 @@ package objects
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -556,4 +557,320 @@ func Test_BatchManager_AddObjects_KeepsAutoSchemaError(t *testing.T) {
 			assert.ErrorContains(t, added[0].Err, "unrecognized data type")
 		})
 	}
+}
+
+func Test_BatchManager_AddObjects_IntraBatchVectorDimensionValidation(t *testing.T) {
+	ctx := context.Background()
+
+	sch := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class:             "Foo",
+					Vectorizer:        config.VectorizerModuleNone,
+					VectorIndexConfig: hnsw.UserConfig{},
+				},
+				{
+					Class:             "FooSkipped",
+					Vectorizer:        config.VectorizerModuleNone,
+					VectorIndexConfig: hnsw.UserConfig{Skip: true},
+				},
+				{
+					Class:             "MultiNamed",
+					Vectorizer:        config.VectorizerModuleNone,
+					VectorIndexConfig: hnsw.UserConfig{},
+					VectorConfig: map[string]models.VectorConfig{
+						"custom": {
+							Vectorizer: map[string]interface{}{
+								"none": nil,
+							},
+							VectorIndexConfig: hnsw.UserConfig{},
+						},
+						"colbert": {
+							Vectorizer: map[string]interface{}{
+								"none": nil,
+							},
+							VectorIndexConfig: hnsw.UserConfig{
+								Multivector: hnsw.MultivectorConfig{
+									Enabled: true,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	setupManager := func() (*BatchManager, *fakeObjectFinder) {
+		objectFinder := &fakeObjectFinder{}
+		objectFinder.On("BatchPutObjects", mock.Anything).Return(nil)
+		cfg := &config.WeaviateConfig{}
+		schemaManager := &fakeSchemaManager{GetSchemaResponse: sch}
+		logger, _ := test.NewNullLogger()
+		modulesProvider := getFakeModulesProvider()
+		modulesProvider.On("BatchUpdateVector").Return(nil, nil)
+		manager := NewBatchManager(objectFinder, modulesProvider, schemaManager, cfg, logger,
+			mocks.NewMockAuthorizer(), nil,
+			NewAutoSchemaManager(schemaManager, objectFinder, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
+		return manager, objectFinder
+	}
+
+	addObjects := func(t *testing.T, manager *BatchManager, objects ...*models.Object) []BatchObject {
+		t.Helper()
+		added, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
+		require.NoError(t, err)
+		require.Len(t, added, len(objects))
+		return added
+	}
+
+	assertConflictErrors := func(t *testing.T, added []BatchObject, targetVector string, foundDims []int, conflictIndices ...int) {
+		t.Helper()
+		dimStrs := make([]string, len(foundDims))
+		for i, d := range foundDims {
+			dimStrs[i] = fmt.Sprintf("%d", d)
+		}
+		expectedErr := fmt.Sprintf(`target vector "%s": conflicting dimensions in batch for uninitialized index (found [%s]); cannot establish dimension`, targetVector, strings.Join(dimStrs, ", "))
+		conflictSet := make(map[int]bool)
+		for _, idx := range conflictIndices {
+			conflictSet[idx] = true
+		}
+		for i, obj := range added {
+			if conflictSet[i] {
+				require.Error(t, obj.Err)
+				assert.Equal(t, expectedErr, obj.Err.Error())
+			} else {
+				assert.NoError(t, obj.Err)
+			}
+		}
+	}
+
+	t.Run("conflicting legacy vector dimensions in batch", func(t *testing.T) {
+		manager, objectFinder := setupManager()
+		added := addObjects(t, manager,
+			&models.Object{
+				Class:  "Foo",
+				Vector: []float32{0.1, 0.2, 0.3},
+			},
+			&models.Object{
+				Class:  "Foo",
+				Vector: []float32{0.4, 0.5, 0.6, 0.7},
+			},
+			&models.Object{
+				Class: "Foo", // non-vectorized
+			},
+		)
+
+		assertConflictErrors(t, added, "", []int{3, 4}, 0, 1)
+
+		// Verify repo was called with batch objects carrying the validation error
+		expectedErr := `target vector "": conflicting dimensions in batch for uninitialized index (found [3, 4]); cannot establish dimension`
+		repoCalled := objectFinder.Calls[0].Arguments[0].(BatchObjects)
+		require.Len(t, repoCalled, 3)
+		assert.Equal(t, expectedErr, repoCalled[0].Err.Error())
+		assert.Equal(t, expectedErr, repoCalled[1].Err.Error())
+		assert.NoError(t, repoCalled[2].Err)
+	})
+
+	t.Run("conflicting named vector dimensions in batch", func(t *testing.T) {
+		manager, _ := setupManager()
+		added := addObjects(t, manager,
+			&models.Object{
+				Class: "MultiNamed",
+				Vectors: map[string]models.Vector{
+					"custom": []float32{0.1, 0.2, 0.3},
+				},
+			},
+			&models.Object{
+				Class: "MultiNamed",
+				Vectors: map[string]models.Vector{
+					"custom": []float32{0.4, 0.5, 0.6, 0.7},
+				},
+			},
+			&models.Object{
+				Class: "MultiNamed",
+				Vectors: map[string]models.Vector{
+					"custom": []float32{0.8, 0.9, 1.0},
+				},
+			},
+		)
+
+		assertConflictErrors(t, added, "custom", []int{3, 4}, 0, 1, 2)
+	})
+
+	t.Run("conflicting multi-vector token dimensions across batch objects", func(t *testing.T) {
+		manager, _ := setupManager()
+		added := addObjects(t, manager,
+			&models.Object{
+				Class: "MultiNamed",
+				Vectors: map[string]models.Vector{
+					"colbert": [][]float32{
+						{0.1, 0.2, 0.3},
+						{0.4, 0.5, 0.6},
+					},
+				},
+			},
+			&models.Object{
+				Class: "MultiNamed",
+				Vectors: map[string]models.Vector{
+					"colbert": [][]float32{
+						{0.1, 0.2, 0.3, 0.4},
+						{0.5, 0.6, 0.7, 0.8},
+					},
+				},
+			},
+		)
+
+		assertConflictErrors(t, added, "colbert", []int{3, 4}, 0, 1)
+	})
+
+	t.Run("multi-vector with varying token dimensions within single object", func(t *testing.T) {
+		manager, _ := setupManager()
+		added := addObjects(t, manager, &models.Object{
+			Class: "MultiNamed",
+			Vectors: map[string]models.Vector{
+				"colbert": [][]float32{
+					{0.1, 0.2, 0.3},
+					{0.4, 0.5, 0.6, 0.7},
+				},
+			},
+		})
+
+		require.Error(t, added[0].Err)
+		assert.Contains(t, added[0].Err.Error(), `multi vector array consists of vectors with varying dimensions`)
+	})
+
+	t.Run("consistent dimensions in batch pass validation", func(t *testing.T) {
+		manager, _ := setupManager()
+		added := addObjects(t, manager,
+			&models.Object{
+				Class:  "Foo",
+				Vector: []float32{0.1, 0.2, 0.3},
+			},
+			&models.Object{
+				Class:  "Foo",
+				Vector: []float32{0.4, 0.5, 0.6},
+			},
+		)
+
+		assert.NoError(t, added[0].Err)
+		assert.NoError(t, added[1].Err)
+	})
+
+	t.Run("mixed-tenant batch with different dimensions does not trigger conflict", func(t *testing.T) {
+		manager, _ := setupManager()
+		added := addObjects(t, manager,
+			&models.Object{
+				Class:  "Foo",
+				Tenant: "tenantA",
+				Vector: []float32{0.1, 0.2, 0.3},
+			},
+			&models.Object{
+				Class:  "Foo",
+				Tenant: "tenantB",
+				Vector: []float32{0.1, 0.2, 0.3, 0.4},
+			},
+		)
+
+		assert.NoError(t, added[0].Err)
+		assert.NoError(t, added[1].Err)
+	})
+
+	t.Run("superseded duplicate UUIDs with varying dimensions excluded from conflict", func(t *testing.T) {
+		manager, _ := setupManager()
+		dupID := strfmt.UUID("33333333-3333-3333-3333-333333333333")
+		added := addObjects(t, manager,
+			&models.Object{
+				ID:     dupID,
+				Class:  "Foo",
+				Vector: []float32{0.1, 0.2, 0.3}, // superseded
+			},
+			&models.Object{
+				ID:     dupID,
+				Class:  "Foo",
+				Vector: []float32{0.1, 0.2, 0.3, 0.4}, // retained
+			},
+			&models.Object{
+				Class:  "Foo",
+				Vector: []float32{0.5, 0.6, 0.7, 0.8}, // peer matching retained
+			},
+		)
+
+		assert.NoError(t, added[0].Err)
+		assert.NoError(t, added[1].Err)
+		assert.NoError(t, added[2].Err)
+	})
+
+	t.Run("object with malformed token vector does not cause conflict for valid peer objects", func(t *testing.T) {
+		manager, _ := setupManager()
+		added := addObjects(t, manager,
+			&models.Object{
+				Class: "MultiNamed",
+				Vectors: map[string]models.Vector{
+					"colbert": [][]float32{
+						{0.1, 0.2, 0.3},
+						{0.4, 0.5}, // inconsistent token length inside doc
+					},
+				},
+			},
+			&models.Object{
+				Class: "MultiNamed",
+				Vectors: map[string]models.Vector{
+					"colbert": [][]float32{
+						{0.1, 0.2, 0.3, 0.4},
+					},
+				},
+			},
+			&models.Object{
+				Class: "MultiNamed",
+				Vectors: map[string]models.Vector{
+					"colbert": [][]float32{
+						{0.5, 0.6, 0.7, 0.8},
+					},
+				},
+			},
+		)
+
+		require.Error(t, added[0].Err)
+		assert.Contains(t, added[0].Err.Error(), "varying dimensions")
+		assert.NoError(t, added[1].Err, "valid peer object 1 should not fail")
+		assert.NoError(t, added[2].Err, "valid peer object 2 should not fail")
+	})
+
+	t.Run("skipped vector target exempt from dimension conflict checks", func(t *testing.T) {
+		manager, _ := setupManager()
+		added := addObjects(t, manager,
+			&models.Object{
+				Class:  "FooSkipped",
+				Vector: []float32{0.1, 0.2, 0.3},
+			},
+			&models.Object{
+				Class:  "FooSkipped",
+				Vector: []float32{0.1, 0.2, 0.3, 0.4, 0.5},
+			},
+		)
+
+		assert.NoError(t, added[0].Err)
+		assert.NoError(t, added[1].Err)
+	})
+
+	t.Run("established collection defers mixed-dimension validation to shard", func(t *testing.T) {
+		manager, objectFinder := setupManager()
+		objectFinder.On("GetTargetVectorDimension", "Foo", "", "").Return(4, nil)
+
+		added := addObjects(t, manager,
+			&models.Object{
+				Class:  "Foo",
+				Vector: []float32{0.1, 0.2, 0.3, 0.4}, // matches established 4D
+			},
+			&models.Object{
+				Class:  "Foo",
+				Vector: []float32{0.1, 0.2, 0.3}, // 3D mismatch, to be handled by shard
+			},
+		)
+
+		// Neither object should be rejected with usecase-level "cannot establish dimension"
+		assert.NoError(t, added[0].Err)
+		assert.NoError(t, added[1].Err)
+	})
 }

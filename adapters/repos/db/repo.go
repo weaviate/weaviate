@@ -564,6 +564,38 @@ func (db *DB) GetIndex(className schema.ClassName) *Index {
 	return index
 }
 
+func (db *DB) GetTargetVectorDimension(ctx context.Context, className, targetVector, tenant string) (int, error) {
+	idx := db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return 0, nil
+	}
+	if tenant != "" {
+		shard, release, err := idx.GetShard(ctx, tenant)
+		if err != nil || shard == nil {
+			return 0, nil
+		}
+		defer release()
+		var dim int
+		_, _ = shard.WithVectorIndex(targetVector, func(vidx VectorIndex) error {
+			dim = vidx.Dimension()
+			return nil
+		})
+		return dim, nil
+	}
+
+	var dim int
+	_ = idx.ForEachShard(func(name string, shard ShardLike) error {
+		_, _ = shard.WithVectorIndex(targetVector, func(vidx VectorIndex) error {
+			if d := vidx.Dimension(); d > 0 {
+				dim = d
+			}
+			return nil
+		})
+		return nil
+	})
+	return dim, nil
+}
+
 // WaitForLocalInflightWrites blocks until this node's in-flight coordinated
 // writes to the given shard have drained, or ctx is done.
 //

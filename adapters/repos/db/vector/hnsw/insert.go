@@ -59,31 +59,33 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 }
 
 func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
+	vecDimensions := make(map[int]struct{})
+	for i := range vector {
+		vecDimensions[len(vector[i])] = struct{}{}
+	}
+	if len(vecDimensions) > 1 {
+		return fmt.Errorf("multi vector array consists of vectors with varying dimensions")
+	}
+
 	dims := int(h.dims.Load())
+	if h.muvera.Load() {
+		dims = h.muveraEncoder.Dimensions()
+	}
 
 	// no vectors exist
 	if dims == 0 {
-		vecDimensions := make(map[int]struct{})
-		for i := range vector {
-			vecDimensions[len(vector[i])] = struct{}{}
-		}
-		if len(vecDimensions) > 1 {
-			return fmt.Errorf("multi vector array consists of vectors with varying dimensions")
-		}
-		if err := h.validatePQSegments(len(vector[0])); err != nil {
-			return err
+		if len(vector) > 0 && len(vector[0]) > 0 {
+			if err := h.validatePQSegments(len(vector[0])); err != nil {
+				return err
+			}
 		}
 		return nil
-	}
-
-	if h.muvera.Load() {
-		dims = h.muveraEncoder.Dimensions()
 	}
 
 	// check if vector length is the same as existing nodes
 	for i := range vector {
 		if dims != len(vector[i]) {
-			return fmt.Errorf("new node has a multi vector with length %v at position %v. "+
+			return errors.Wrapf(common.ErrWrongDimensions, "new node has a multi vector with length %v at position %v. "+
 				"Existing nodes have vectors with length %v", len(vector[i]), i, dims)
 		}
 	}
@@ -206,6 +208,21 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		return errors.Errorf("insertBatch called with empty lists")
 	}
 
+	if dims := int(h.dims.Load()); dims > 0 {
+		for _, vec := range vectors {
+			if len(vec) != dims {
+				return errors.Wrapf(common.ErrWrongDimensions, "new node has a vector with length %v. "+
+					"Existing nodes have vectors with length %v", len(vec), dims)
+			}
+		}
+	} else {
+		for _, vec := range vectors {
+			if len(vec) != len(vectors[0]) {
+				return errors.Wrapf(common.ErrWrongDimensions, "addBatch called with vectors of different lengths: got %d, expected %d", len(vec), len(vectors[0]))
+			}
+		}
+	}
+
 	var err error
 	h.trackDimensionsOnce.Do(func() {
 		dims := len(vectors[0])
@@ -280,6 +297,33 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 	}
 	if len(docIDs) == 0 {
 		return errors.Errorf("addMultiBatch called with empty lists")
+	}
+
+	dims := int(h.dims.Load())
+	if h.muvera.Load() {
+		dims = h.muveraEncoder.Dimensions()
+	}
+
+	if dims > 0 {
+		for _, doc := range vectors {
+			for _, vec := range doc {
+				if len(vec) != dims {
+					return errors.Wrapf(common.ErrWrongDimensions, "new node has a multi vector with length %v. "+
+						"Existing nodes have vectors with length %v", len(vec), dims)
+				}
+			}
+		}
+	} else {
+		firstDim := -1
+		for _, doc := range vectors {
+			for _, vec := range doc {
+				if firstDim == -1 {
+					firstDim = len(vec)
+				} else if len(vec) != firstDim {
+					return errors.Wrapf(common.ErrWrongDimensions, "addMultiBatch called with vectors of different lengths: got %d, expected %d", len(vec), firstDim)
+				}
+			}
+		}
 	}
 
 	if h.muvera.Load() {
