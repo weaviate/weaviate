@@ -21,35 +21,18 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
-	"github.com/weaviate/weaviate/cluster/router/types"
-	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
-	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/cluster"
-	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/memwatch"
-	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/weaviate/weaviate/usecases/replica"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestShard_BatchDimensionValidation_GhostObjectPrevention(t *testing.T) {
@@ -324,147 +307,7 @@ func TestIndex_BatchDimensionValidation_MultiTenantIsolation(t *testing.T) {
 func setupTestMultiTenantShards(t testing.TB, ctx context.Context, class *models.Class,
 	vic schemaConfig.VectorIndexConfig, tenants ...string,
 ) (map[string]ShardLike, *Index) {
-	tmpDir := t.TempDir()
-	logger, _ := test.NewNullLogger()
-	maxResults := int64(10_000)
-
-	builder := NewMultiTenantShardingStateBuilder().
-		WithIndexName("multi-tenant-index").
-		WithNodePrefix("node").
-		WithReplicationFactor(1)
-	for _, tenant := range tenants {
-		builder = builder.WithTenant(tenant, "HOT")
-	}
-	shardState := builder.Build()
-
-	mockSchemaReader := local.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
-		class := &models.Class{Class: className}
-		return readFunc(class, shardState)
-	}).Maybe()
-	mockSchemaReader.EXPECT().ReadOnlyClass(mock.Anything).RunAndReturn(func(name string) *models.Class {
-		return &models.Class{Class: name}
-	}).Maybe()
-	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
-	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
-	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
-	mockNodeSelector := cluster.NewMockNodeSelector(t)
-	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-
-	repo, err := New(logger, "node1", Config{
-		MemtablesFlushDirtyAfter:  60,
-		RootPath:                  tmpDir,
-		QueryMaximumResults:       maxResults,
-		MaxImportGoroutinesFactor: 1,
-		EnableLazyLoadShards:      boolPtr(true),
-		AsyncIndexingEnabled:      false,
-		HaltForTransferTimeout:    config.DefaultHaltForTransferTimeout,
-	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
-	require.Nil(t, err)
-	installNoLiveReindexLookup(repo)
-	sch := schema.Schema{
-		Objects: &models.Schema{
-			Classes: []*models.Class{class},
-		},
-	}
-	schemaGetter := &fakeSchemaGetter{shardState: shardState, schema: sch}
-
-	iic := schema.InvertedIndexConfig{}
-	if class.InvertedIndexConfig != nil {
-		iic = inverted.ConfigFromModel(class.InvertedIndexConfig)
-	}
-
-	metrics, err := NewMetrics(logger, nil, class.Class, "")
-	require.NoError(t, err)
-
-	localNodeName := "node1"
-
-	mockRouter := types.NewMockRouter(t)
-	mockRouter.EXPECT().GetWriteReplicasLocation(class.Class, mock.Anything, mock.Anything).Return(
-		types.WriteReplicaSet{
-			Replicas: []types.Replica{{NodeName: localNodeName, ShardName: "shard1", HostAddr: "127.0.0.1"}},
-		}, nil,
-	).Maybe()
-	mockRouter.EXPECT().GetReadReplicasLocation(class.Class, mock.Anything, mock.Anything).Return(
-		types.ReadReplicaSet{
-			Replicas: []types.Replica{{NodeName: localNodeName, ShardName: "shard1", HostAddr: "127.0.0.1"}},
-		}, nil,
-	).Maybe()
-	mockRouter.EXPECT().
-		BuildRoutingPlanOptions(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(tenant, shard string, cl types.ConsistencyLevel, direct string) types.RoutingPlanBuildOptions {
-			return types.RoutingPlanBuildOptions{Shard: shard, Tenant: tenant, ConsistencyLevel: cl}
-		}).
-		Maybe()
-	mockRouter.EXPECT().
-		BuildReadRoutingPlan(mock.Anything).
-		Return(types.ReadRoutingPlan{
-			LocalHostname: "127.0.0.1",
-			ReplicaSet: types.ReadReplicaSet{
-				Replicas: []types.Replica{{NodeName: localNodeName, ShardName: "shard1", HostAddr: "127.0.0.1"}},
-			},
-		}, nil).
-		Maybe()
-
-	nodeResolver := cluster.NewMockNodeResolver(t)
-	nodeResolver.EXPECT().NodeHostname(mock.Anything).Return("127.0.0.1", true).Maybe()
-
-	getDeletionStrategy := func() string {
-		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
-	}
-	repClient := &FakeReplicationClient{}
-	replicator, err := replica.NewReplicator(
-		class.Class,
-		mockRouter,
-		nodeResolver,
-		localNodeName,
-		getDeletionStrategy,
-		repClient,
-		monitoring.GetMetrics(),
-		logger,
-	)
-	require.NoError(t, err)
-
-	idx := &Index{
-		Config: IndexConfig{
-			RootPath:               tmpDir,
-			ClassName:              schema.ClassName(class.Class),
-			QueryMaximumResults:    maxResults,
-			ReplicationFactor:      1,
-			NodeName:               "node1",
-			EnableLazyLoadShards:   true,
-			HaltForTransferTimeout: config.DefaultHaltForTransferTimeout,
-		},
-		metrics:                metrics,
-		partitioningEnabled:    shardState.PartitioningEnabled,
-		invertedIndexConfig:    iic,
-		vectorIndexUserConfig:  vic,
-		vectorIndexUserConfigs: map[string]schemaConfig.VectorIndexConfig{},
-		logger:                 logger,
-		getSchema:              schemaGetter,
-		schemaReader:           mockSchemaReader,
-		centralJobQueue:        repo.jobQueueCh,
-		stopwords:              nil,
-		allocChecker:           memwatch.NewDummyMonitor(),
-		shardCreateLocks:       esync.NewKeyRWLocker(),
-		backupLock:             esync.NewKeyRWLocker(),
-		scheduler:              repo.scheduler,
-		shardLoadLimiter:       loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
-		shardReindexer:         NewShardReindexerV3Noop(),
-		bitmapBufPool:          roaringset.NewBitmapBufPoolNoop(),
-		replicator:             replicator,
-		router:                 mockRouter,
-		db:                     repo,
-	}
-	idx.stopwordProvider.Store(stopwords.NewProvider(nil, nil))
-	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
-	idx.initCycleCallbacksNoop()
+	idx, _ := setupTestIndexWithTenants(t, ctx, class, vic, false, false, tenants)
 
 	shards := make(map[string]ShardLike)
 	for _, tenant := range tenants {
