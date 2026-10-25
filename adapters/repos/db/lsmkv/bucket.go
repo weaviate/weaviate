@@ -1608,18 +1608,18 @@ func (b *Bucket) countFromCV(ctx context.Context, view BucketConsistentView) (in
 	memtableCount := 0
 	activeCountStats := view.Active.countStats()
 	if view.Flushing == nil {
-		count, err := b.memtableNetCount(ctx, activeCountStats, nil, view.Disk)
+		count, _, err := b.memtableNetCount(ctx, activeCountStats, nil, view.Disk)
 		if err != nil {
 			return 0, err
 		}
 		memtableCount += count
 	} else {
 		flushingCountStats := view.Flushing.countStats()
-		deltaActive, err := b.memtableNetCount(ctx, activeCountStats, flushingCountStats, view.Disk)
+		deltaActive, _, err := b.memtableNetCount(ctx, activeCountStats, flushingCountStats, view.Disk)
 		if err != nil {
 			return 0, err
 		}
-		deltaFlushing, err := b.memtableNetCount(ctx, flushingCountStats, nil, view.Disk)
+		deltaFlushing, _, err := b.memtableNetCount(ctx, flushingCountStats, nil, view.Disk)
 		if err != nil {
 			return 0, err
 		}
@@ -1664,53 +1664,56 @@ func (b *Bucket) CountApproximate() (int, error) {
 	return count, nil
 }
 
+// memtableNetCount takes a key whose segments could not be read as absent, so
+// the count can be off by up to unanswered keys.
 func (b *Bucket) memtableNetCount(ctx context.Context, stats *countStats, previousMemtable *countStats,
 	segments []Segment,
-) (int, error) {
-	netCount := 0
-
-	// TODO: this uses regular get, given that this may be called quite commonly,
-	// we might consider building a pure Exists(), which skips reading the value
-	// and only checks for tombstones, etc.
+) (netCount, unanswered int, err error) {
 	for i, key := range stats.upsertKeys {
 		if i%contextCheckInterval == 0 && ctx.Err() != nil {
-			return 0, ctx.Err()
+			return 0, 0, ctx.Err()
 		}
-		if !b.existsOnDiskAndPreviousMemtable(previousMemtable, key, segments) {
+		exists, err := b.existsOnDiskAndPreviousMemtable(previousMemtable, key, segments)
+		if err != nil {
+			unanswered++
+		}
+		if !exists {
 			netCount++
 		}
 	}
 
 	for i, key := range stats.tombstonedKeys {
 		if i%contextCheckInterval == 0 && ctx.Err() != nil {
-			return 0, ctx.Err()
+			return 0, 0, ctx.Err()
 		}
-		if b.existsOnDiskAndPreviousMemtable(previousMemtable, key, segments) {
+		exists, err := b.existsOnDiskAndPreviousMemtable(previousMemtable, key, segments)
+		if err != nil {
+			unanswered++
+		}
+		if exists {
 			netCount--
 		}
 	}
 
-	return netCount, nil
+	return netCount, unanswered, nil
 }
 
-func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byte, segments []Segment) bool {
+func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byte, segments []Segment) (bool, error) {
 	// exists in the previous memtable
 	if previous.hasUpsert(key) {
-		return true
+		return true, nil
 	}
 	// deleted in the previous memtable
 	if previous.hasTombstone(key) {
-		return false
+		return false, nil
 	}
-	// check on disk
-	if _, err := b.disk.getWithSegmentList(key, segments); err != nil {
+	if err := b.disk.existsWithSegmentList(key, segments); err != nil {
 		if lsmkv.IsDeletedOrNotFound(err) {
-			return false
+			return false, nil
 		}
-		// assumes it does not exist in case of error
-		return false
+		return false, err
 	}
-	return true
+	return true, nil
 }
 
 func (b *Bucket) Shutdown(ctx context.Context) (err error) {
@@ -1806,31 +1809,27 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 		b.active.setAveragePropertyLength(avgPropLength, propLengthCount)
 	}
 
-	if !netCount.describes(b.active, b.flushing) || b.active.Size() == 0 {
-		netCount = nil
-	}
+	storeActiveCount := netCount.describes(b.active, b.flushing) && b.active.Size() > 0
 
-	var countedPath string
 	if b.shouldReuseWAL() {
 		if err := b.active.flushWAL(); err != nil {
 			b.flushLock.Unlock()
 			return err
 		}
-		countedPath = b.active.commitlogWalPath()
+		walPath := b.active.commitlogWalPath()
+		b.flushLock.Unlock()
+		if storeActiveCount {
+			b.logShutdownCountStoreErr(walPath, netCount.storeForWAL(walPath))
+		}
 	} else {
 		segmentPath, err := b.active.flush()
 		if err != nil {
 			b.flushLock.Unlock()
 			return err
 		}
-		countedPath = segmentPath
-	}
-	b.flushLock.Unlock()
-
-	if netCount != nil && countedPath != "" {
-		if err := netCount.store(countedPath); err != nil {
-			b.logger.WithField("path", countedPath).
-				Warnf("store memtable net additions at shutdown: %v", err)
+		b.flushLock.Unlock()
+		if storeActiveCount && segmentPath != "" {
+			b.logShutdownCountStoreErr(segmentPath, storeForSegment(segmentPath, netCount.value))
 		}
 	}
 
@@ -1853,10 +1852,21 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 	// is written out rather than left to the commit log
 	b.logger.WithField("action", "lsm_bucket_shutdown").WithField("path", b.dir).
 		Warn("shutting down with the memtable of a failed flush, writing it out")
-	if _, err := failed.flushAfterFailedFlush(); err != nil {
+	segmentPath, err := failed.flushAfterFailedFlush()
+	if err != nil {
 		return fmt.Errorf("write out memtable of a failed flush: %w", err)
 	}
+	if netCount != nil && netCount.flushing == failed && segmentPath != "" {
+		b.logShutdownCountStoreErr(segmentPath, storeForSegment(segmentPath, netCount.flushingValue))
+	}
 	return nil
+}
+
+func (b *Bucket) logShutdownCountStoreErr(path string, err error) {
+	if err != nil {
+		b.logger.WithField("path", path).
+			Warnf("store memtable net additions at shutdown: %v", err)
+	}
 }
 
 // lockFlushAndSwitch takes flushAndSwitchMu, or gives up when ctx is done.

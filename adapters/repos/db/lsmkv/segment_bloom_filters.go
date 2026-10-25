@@ -29,9 +29,15 @@ import (
 )
 
 func (s *segment) buildPath(template string) string {
-	isTmpFile := filepath.Ext(s.path) == ".tmp"
+	return sidecarPathFor(s.path, template)
+}
 
-	extless := strings.TrimSuffix(s.path, filepath.Ext(s.path))
+// sidecarPathFor names a sidecar of the segment at segmentPath, with template
+// taking the segment's path without its extension.
+func sidecarPathFor(segmentPath, template string) string {
+	isTmpFile := filepath.Ext(segmentPath) == ".tmp"
+
+	extless := strings.TrimSuffix(segmentPath, filepath.Ext(segmentPath))
 	if isTmpFile { // remove second extension
 		extless = strings.TrimSuffix(extless, filepath.Ext(extless))
 	}

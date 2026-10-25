@@ -45,15 +45,22 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 
 	var walFileNames []string
 	for file, size := range files {
-		if filepath.Ext(file) != ".wal" {
-			// skip, this could be disk segments, etc.
+		path := filepath.Join(b.dir, file)
+
+		if filepath.Ext(file) == WALCountNetAdditionsFileSuffix {
+			// a replayed WAL takes further writes, and one an older version
+			// flushed is gone, so the sidecar describes neither. Readers
+			// check it against its WAL, so a leftover does not miscount.
+			if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				b.logger.WithField("path", path).
+					Warnf("remove count net additions of a WAL: %v", err)
+			}
 			continue
 		}
 
-		path := filepath.Join(b.dir, file)
-
-		if err := removeWALCountNet(path); err != nil {
-			return errors.Wrap(err, "remove wal count net additions")
+		if filepath.Ext(file) != ".wal" {
+			// skip, this could be disk segments, etc.
+			continue
 		}
 
 		if size == 0 {

@@ -13,34 +13,45 @@ package lsmkv
 
 import (
 	"context"
-	"errors"
-	"io/fs"
+	"encoding/binary"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
-// shutdownNetCount is the net count additions of the active memtable at
-// shutdown. The shutdown leaves that memtable on disk as a segment or as a
-// reused WAL, and neither carries a count sidecar yet: a segment gets one
-// only when it is next loaded, and a WAL never. An unloaded shard's object
-// count sums sidecars, so without this one it misses every write since the
-// last regular flush.
+// WALCountNetAdditionsFileSuffix names the count sidecar of a WAL that a
+// shutdown kept. It differs from the segment suffix because older versions
+// would take a .cna next to a WAL for the count of the segment they flush the
+// WAL into, and never remove it.
+const WALCountNetAdditionsFileSuffix = ".wal-cna"
+
+// shutdownNetCount is the net count additions of the memtables at shutdown.
+// The shutdown leaves them on disk as segments or as a reused WAL, and none
+// carries a count sidecar yet: a segment gets one only when it is next
+// loaded, and a WAL never. An unloaded shard's object count sums sidecars, so
+// without these it misses every write since the last regular flush.
 //
-// The count has to be taken before the segment group shuts down, because it
-// checks the memtable's keys against the segments on disk.
+// The counts have to be taken before the segment group shuts down, because
+// they check the memtables' keys against the segments on disk.
 type shutdownNetCount struct {
 	memtable      memtable
 	flushing      memtable
 	commitlogSize int64
-	value         int
+	// value counts the active memtable against the flushing one and the disk
+	value int
+	// flushingValue counts the flushing memtable against the disk alone
+	flushingValue int
 }
 
-// takeShutdownNetCount counts the active memtable against the segments on
-// disk and a memtable still being flushed. It returns nil for buckets that do
-// not count net additions.
+// takeShutdownNetCount counts the active memtable, and a memtable still being
+// flushed, against the segments on disk. It returns nil for buckets that do
+// not count net additions, and an error if a key could not be looked up: a
+// count that takes such a key as new would be stored and trusted by every
+// later load.
 func (b *Bucket) takeShutdownNetCount(ctx context.Context) (*shutdownNetCount, error) {
 	if !b.calcCountNetAdditions || b.strategy != StrategyReplace {
 		return nil, nil
@@ -53,20 +64,38 @@ func (b *Bucket) takeShutdownNetCount(ctx context.Context) (*shutdownNetCount, e
 	segments, release := b.disk.getConsistentViewOfSegments()
 	defer release()
 
-	var flushing *countStats
-	if b.flushing != nil {
-		flushing = b.flushing.countStats()
-	}
-	value, err := b.memtableNetCount(ctx, b.active.countStats(), flushing, segments)
-	if err != nil {
-		return nil, err
-	}
-	return &shutdownNetCount{
+	c := &shutdownNetCount{
 		memtable:      b.active,
 		flushing:      b.flushing,
 		commitlogSize: b.active.commitlogSize(),
-		value:         value,
-	}, nil
+	}
+
+	var flushing *countStats
+	if b.flushing != nil {
+		flushing = b.flushing.countStats()
+		value, unanswered, err := b.memtableNetCount(ctx, flushing, nil, segments)
+		if err := checkShutdownNetCount(unanswered, err); err != nil {
+			return nil, err
+		}
+		c.flushingValue = value
+	}
+
+	value, unanswered, err := b.memtableNetCount(ctx, b.active.countStats(), flushing, segments)
+	if err := checkShutdownNetCount(unanswered, err); err != nil {
+		return nil, err
+	}
+	c.value = value
+	return c, nil
+}
+
+func checkShutdownNetCount(unanswered int, err error) error {
+	if err != nil {
+		return err
+	}
+	if unanswered > 0 {
+		return fmt.Errorf("%d keys could not be looked up on disk", unanswered)
+	}
+	return nil
 }
 
 // describes reports whether the count still describes the bucket's
@@ -77,14 +106,40 @@ func (c *shutdownNetCount) describes(active, flushing memtable) bool {
 		active.commitlogSize() == c.commitlogSize
 }
 
-// store writes the count as the sidecar of path, a segment or a WAL. The
-// cold count fails on a torn sidecar, so it is synced before it is renamed
-// into place. The rename also leaves the old file, which a backup may have
-// linked, untouched.
-func (c *shutdownNetCount) store(path string) error {
-	sidecar := countNetPathFor(path)
+// storeForSegment writes value as the count sidecar of the segment at
+// segmentPath, under the name the segment loads it from.
+func storeForSegment(segmentPath string, value int) error {
+	return storeSidecarAtomically(countNetPathFor(segmentPath), func(path string) error {
+		return storeCountNetOnDisk(path, value, nil)
+	})
+}
+
+// storeForWAL writes the count of the active memtable as the sidecar of the
+// WAL at walPath. The WAL's size is recorded with it: the WAL only grows, so
+// a reader takes the count only while the WAL beside it still has that size.
+// Any write after the shutdown, or a flush of the WAL into a segment by a
+// version that does not know this sidecar, voids it.
+func (c *shutdownNetCount) storeForWAL(walPath string) error {
+	info, err := os.Stat(walPath)
+	if err != nil {
+		return err
+	}
+	return storeSidecarAtomically(walCountNetPathFor(walPath), func(path string) error {
+		rw := byteops.NewReadWriter(make([]byte, byteops.Uint32Len+2*byteops.Uint64Len))
+		rw.MoveBufferPositionForward(byteops.Uint32Len) // leave space for checksum
+		rw.WriteUint64(uint64(c.value))
+		rw.WriteUint64(uint64(info.Size()))
+		return writeWithChecksum(rw, path, nil)
+	})
+}
+
+// storeSidecarAtomically writes a sidecar through a temporary file. The cold
+// count fails on a torn sidecar, so it is synced before it is renamed into
+// place. The rename also leaves the old file, which a backup may have linked,
+// untouched.
+func storeSidecarAtomically(sidecar string, write func(path string) error) error {
 	tmp := sidecar + ".tmp"
-	if err := storeCountNetOnDisk(tmp, c.value, nil); err != nil {
+	if err := write(tmp); err != nil {
 		return err
 	}
 	if err := diskio.Fsync(tmp); err != nil {
@@ -96,18 +151,54 @@ func (c *shutdownNetCount) store(path string) error {
 	return diskio.Fsync(filepath.Dir(sidecar))
 }
 
-// countNetPathFor returns the count sidecar path of a segment or WAL file,
-// named the way a segment names its own.
-func countNetPathFor(path string) string {
-	return strings.TrimSuffix(path, filepath.Ext(path)) + CountNetAdditionsFileSuffix
+func walCountNetPathFor(walPath string) string {
+	return strings.TrimSuffix(walPath, filepath.Ext(walPath)) + WALCountNetAdditionsFileSuffix
 }
 
-// removeWALCountNet removes the sidecar a shutdown wrote for a reused WAL.
-// Recovery replays the WAL into a memtable that takes further writes, so the
-// sidecar would no longer describe it.
-func removeWALCountNet(walPath string) error {
-	if err := os.Remove(countNetPathFor(walPath)); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
+// readWALCountNet returns the count a WAL sidecar holds and the WAL size it
+// was taken at.
+func readWALCountNet(path string) (count, walSize int64, err error) {
+	data, err := loadWithChecksum(path, byteops.Uint32Len+2*byteops.Uint64Len, nil)
+	if err != nil {
+		return 0, 0, err
 	}
-	return nil
+	return int64(binary.LittleEndian.Uint64(data[0:8])), int64(binary.LittleEndian.Uint64(data[8:16])), nil
+}
+
+// CountFromSidecars sums the object counts the count sidecars of an objects
+// bucket hold, which is how an unloaded shard is counted. files lists the
+// bucket directory dir with the file sizes. A WAL's sidecar counts only while
+// that WAL is still there at the size the sidecar records.
+func CountFromSidecars(dir string, files map[string]int64) (int64, error) {
+	total := int64(0)
+	for file := range files {
+		path := filepath.Join(dir, file)
+		switch {
+		case strings.HasSuffix(file, CountNetAdditionsFileSuffix):
+			count, err := ReadCountNetAdditionsFile(path)
+			if err != nil {
+				return 0, fmt.Errorf("%s: %w", path, err)
+			}
+			total += count
+		case strings.HasSuffix(file, MetadataFileSuffix):
+			count, err := ReadObjectCountFromMetadataFile(path)
+			if err != nil {
+				return 0, fmt.Errorf("%s: %w", path, err)
+			}
+			total += count
+		case strings.HasSuffix(file, WALCountNetAdditionsFileSuffix):
+			walSize, ok := files[strings.TrimSuffix(file, WALCountNetAdditionsFileSuffix)+".wal"]
+			if !ok {
+				continue
+			}
+			count, recordedWALSize, err := readWALCountNet(path)
+			if err != nil {
+				return 0, fmt.Errorf("%s: %w", path, err)
+			}
+			if recordedWALSize == walSize {
+				total += count
+			}
+		}
+	}
+	return total, nil
 }

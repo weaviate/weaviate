@@ -308,7 +308,6 @@ func bucketSize(bucketPath string) (uint64, error) {
 
 // CalculateUnloadedObjectsMetrics calculates both object count and storage size from disk
 func CalculateUnloadedObjectsMetrics(logger logrus.FieldLogger, path, shardName string, includeCount bool) (types.ObjectUsage, error) {
-	// Parse all .cna files in the object store and sum them up
 	totalObjectCount := int64(0)
 	totalDiskSize := int64(0)
 
@@ -318,30 +317,15 @@ func CalculateUnloadedObjectsMetrics(logger logrus.FieldLogger, path, shardName 
 	if err != nil {
 		return types.ObjectUsage{}, err
 	}
-	for file, size := range files {
+	for _, size := range files {
 		totalDiskSize += size
+	}
 
-		if includeCount {
-			filePath := filepath.Join(objectStore, file)
-			// Look for .cna files (net count additions)
-			if strings.HasSuffix(file, lsmkv.CountNetAdditionsFileSuffix) {
-				count, err := lsmkv.ReadCountNetAdditionsFile(filePath)
-				if err != nil {
-					logger.WithField("path", filePath).WithField("shard", shardName).WithError(err).Warn("failed to read .cna file")
-					return types.ObjectUsage{}, err
-				}
-				totalObjectCount += count
-			}
-
-			// Look for .metadata files (bloom filters + count net additions)
-			if strings.HasSuffix(file, lsmkv.MetadataFileSuffix) {
-				count, err := lsmkv.ReadObjectCountFromMetadataFile(filePath)
-				if err != nil {
-					logger.WithField("path", filePath).WithField("shard", shardName).WithError(err).Warn("failed to read .metadata file")
-					return types.ObjectUsage{}, err
-				}
-				totalObjectCount += count
-			}
+	if includeCount {
+		totalObjectCount, err = lsmkv.CountFromSidecars(objectStore, files)
+		if err != nil {
+			logger.WithField("shard", shardName).Warnf("failed to read object count file: %v", err)
+			return types.ObjectUsage{}, err
 		}
 	}
 
