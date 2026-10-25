@@ -15,6 +15,7 @@ package db
 
 import (
 	"context"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -73,118 +74,43 @@ func hnswCommitLogBytesOnDisk(t *testing.T, root string) int64 {
 // write returned: if the write path already flushed everything it wrote, the
 // extra flush has nothing left to write.
 func TestPutObjectBatch_HNSWCommitLogFlushedBeforeAck(t *testing.T) {
-	type writeFn func(t *testing.T, ctx context.Context, shd ShardLike, objs []*storobj.Object)
-
-	putBatch := func(t *testing.T, ctx context.Context, shd ShardLike, objs []*storobj.Object) {
-		for _, err := range shd.PutObjectBatch(ctx, objs) {
-			require.NoError(t, err)
-		}
-	}
-	putOneByOne := func(t *testing.T, ctx context.Context, shd ShardLike, objs []*storobj.Object) {
-		for _, obj := range objs {
-			require.NoError(t, shd.PutObject(ctx, obj))
-		}
-	}
-
-	// puts every object (already flushed, see above), then patches it with a
-	// changed vector or geo property, so the merge writes the indices again
-	putThenMerge := func(t *testing.T, ctx context.Context, shd ShardLike, objs []*storobj.Object) {
-		putOneByOne(t, ctx, shd, objs)
-		for _, obj := range objs {
-			merge := objects.MergeDocument{Class: obj.Class().String(), ID: obj.ID(), UpdateTime: time.Now().UnixMilli()}
-			props, _ := obj.Properties().(map[string]interface{})
-			if loc, ok := props["location"].(*models.GeoCoordinates); ok {
-				merge.PrimitiveSchema = map[string]interface{}{"location": &models.GeoCoordinates{
-					Latitude: ptFloat32(-*loc.Latitude), Longitude: ptFloat32(-*loc.Longitude),
-				}}
-			}
-			if obj.Vector != nil {
-				merge.Vector = reversed(obj.Vector)
-			}
-			for name, vec := range obj.Vectors {
-				merge.Vectors = models.Vectors{name: reversed(vec)}
-			}
-			require.NoError(t, shd.MergeObject(ctx, merge))
-		}
-	}
-
 	tests := []struct {
-		name string
-		// named vector instead of the legacy unnamed one
-		named bool
-		// no vector index, only a geo property (its index is an HNSW too)
-		geo bool
+		name  string
+		index flushTestIndex
 		// batches imported back to back; the flush is checked after the last
 		batches   int
 		batchSize int
-		write     writeFn
+		write     flushTestWrite
 	}{
 		// smaller than the commit log's 32 KiB buffer: nothing of the batch
 		// reaches the file, so after a crash none of its nodes exist
-		{name: "batch, one object", batches: 1, batchSize: 1, write: putBatch},
-		{name: "batch, below buffer size", batches: 1, batchSize: 50, write: putBatch},
+		{name: "batch, one object", batches: 1, batchSize: 1, write: flushTestPutBatch},
+		{name: "batch, below buffer size", batches: 1, batchSize: 50, write: flushTestPutBatch},
 		// larger than the buffer: the buffer spills mid-batch, so a crash leaves
 		// some nodes of the batch with only part of their links (unreachable)
-		{name: "batch, above buffer size", batches: 1, batchSize: 2000, write: putBatch},
+		{name: "batch, above buffer size", batches: 1, batchSize: 2000, write: flushTestPutBatch},
 		// an earlier batch is flushed by the next one, only the last one is lost
-		{name: "several batches, last one", batches: 4, batchSize: 200, write: putBatch},
-		{name: "named vector batch", named: true, batches: 1, batchSize: 80, write: putBatch},
-		{name: "geo property batch", geo: true, batches: 1, batchSize: 80, write: putBatch},
+		{name: "several batches, last one", batches: 4, batchSize: 200, write: flushTestPutBatch},
+		{name: "named vector batch", index: flushTestNamedVector, batches: 1, batchSize: 80, write: flushTestPutBatch},
+		{name: "geo property batch", index: flushTestGeoProperty, batches: 1, batchSize: 80, write: flushTestPutBatch},
 		// single-object put already flushes after inserting the vector
-		{name: "single object put", batches: 1, batchSize: 20, write: putOneByOne},
-		{name: "named vector single object put", named: true, batches: 1, batchSize: 20, write: putOneByOne},
-		{name: "geo property single object put", geo: true, batches: 1, batchSize: 20, write: putOneByOne},
-		{name: "merge", batches: 1, batchSize: 20, write: putThenMerge},
-		{name: "named vector merge", named: true, batches: 1, batchSize: 20, write: putThenMerge},
-		{name: "geo property merge", geo: true, batches: 1, batchSize: 20, write: putThenMerge},
+		{name: "single object put", batches: 1, batchSize: 20, write: flushTestPutOneByOne},
+		{name: "named vector single object put", index: flushTestNamedVector, batches: 1, batchSize: 20, write: flushTestPutOneByOne},
+		{name: "geo property single object put", index: flushTestGeoProperty, batches: 1, batchSize: 20, write: flushTestPutOneByOne},
+		{name: "merge", batches: 1, batchSize: 20, write: flushTestPutThenMerge},
+		{name: "named vector merge", index: flushTestNamedVector, batches: 1, batchSize: 20, write: flushTestPutThenMerge},
+		{name: "geo property merge", index: flushTestGeoProperty, batches: 1, batchSize: 20, write: flushTestPutThenMerge},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
-			const className = "TestClass"
-			const dims = 64
-
-			uc := hnsw.UserConfig{Distance: common.DefaultDistanceMetric}
-			uc.SetDefaults()
-
-			var shd ShardLike
-			var idx *Index
-			switch {
-			case tc.geo:
-				class := &models.Class{
-					Class: className,
-					Properties: []*models.Property{
-						{Name: "location", DataType: []string{string(schema.DataTypeGeoCoordinates)}},
-					},
-				}
-				shd, idx = testShardWithSettings(t, ctx, class, hnsw.UserConfig{Skip: true}, false, false)
-			case tc.named:
-				shd, idx = testShardWithSettings(t, ctx, &models.Class{Class: className}, nil, false, false,
-					func(i *Index) {
-						i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{"title": uc}
-					})
-			default:
-				shd, idx = testShardWithSettings(t, ctx, &models.Class{Class: className}, uc, false, false)
-			}
+			shd, idx := newFlushTestShard(t, ctx, tc.index)
 			defer func() { require.NoError(t, idx.drop()) }()
 
 			r := getRandomSeed()
 			for b := 0; b < tc.batches; b++ {
-				objs := createRandomObjects(r, className, tc.batchSize, dims)
-				for _, obj := range objs {
-					switch {
-					case tc.geo:
-						obj.Vector = nil
-						obj.Object.Properties = map[string]interface{}{"location": &models.GeoCoordinates{
-							Latitude: ptFloat32(r.Float32()*180 - 90), Longitude: ptFloat32(r.Float32()*360 - 180),
-						}}
-					case tc.named:
-						obj.Vectors = map[string][]float32{"title": obj.Vector}
-						obj.Vector = nil
-					}
-				}
-				tc.write(t, ctx, shd, objs)
+				tc.write(t, ctx, shd, newFlushTestObjects(r, tc.index, tc.batchSize))
 			}
 
 			// the write was acknowledged: this is what a crash now would keep
@@ -201,4 +127,100 @@ func TestPutObjectBatch_HNSWCommitLogFlushedBeforeAck(t *testing.T) {
 					"a crash now would lose those vectors", flushed-acknowledged)
 		})
 	}
+}
+
+// flushTestIndex is the HNSW index the objects of a flush test row go into.
+type flushTestIndex int
+
+const (
+	// the legacy unnamed vector
+	flushTestLegacyVector flushTestIndex = iota
+	// the named vector "title"
+	flushTestNamedVector
+	// no vector index, only the geo property "location" (its index is an HNSW too)
+	flushTestGeoProperty
+)
+
+const flushTestClassName = "TestClass"
+
+func newFlushTestShard(t *testing.T, ctx context.Context, index flushTestIndex) (ShardLike, *Index) {
+	uc := hnsw.UserConfig{Distance: common.DefaultDistanceMetric}
+	uc.SetDefaults()
+
+	switch index {
+	case flushTestGeoProperty:
+		class := &models.Class{
+			Class: flushTestClassName,
+			Properties: []*models.Property{
+				{Name: "location", DataType: []string{string(schema.DataTypeGeoCoordinates)}},
+			},
+		}
+		return testShardWithSettings(t, ctx, class, hnsw.UserConfig{Skip: true}, false, false)
+	case flushTestNamedVector:
+		return testShardWithSettings(t, ctx, &models.Class{Class: flushTestClassName}, nil, false, false,
+			func(i *Index) {
+				i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{"title": uc}
+			})
+	default:
+		return testShardWithSettings(t, ctx, &models.Class{Class: flushTestClassName}, uc, false, false)
+	}
+}
+
+func newFlushTestObjects(r *rand.Rand, index flushTestIndex, n int) []*storobj.Object {
+	objs := createRandomObjects(r, flushTestClassName, n, 64)
+	for _, obj := range objs {
+		switch index {
+		case flushTestGeoProperty:
+			obj.Vector = nil
+			obj.Object.Properties = map[string]interface{}{"location": &models.GeoCoordinates{
+				Latitude: ptFloat32(r.Float32()*180 - 90), Longitude: ptFloat32(r.Float32()*360 - 180),
+			}}
+		case flushTestNamedVector:
+			obj.Vectors = map[string][]float32{"title": obj.Vector}
+			obj.Vector = nil
+		case flushTestLegacyVector:
+		}
+	}
+	return objs
+}
+
+type flushTestWrite func(t *testing.T, ctx context.Context, shd ShardLike, objs []*storobj.Object)
+
+func flushTestPutBatch(t *testing.T, ctx context.Context, shd ShardLike, objs []*storobj.Object) {
+	for _, err := range shd.PutObjectBatch(ctx, objs) {
+		require.NoError(t, err)
+	}
+}
+
+func flushTestPutOneByOne(t *testing.T, ctx context.Context, shd ShardLike, objs []*storobj.Object) {
+	for _, obj := range objs {
+		require.NoError(t, shd.PutObject(ctx, obj))
+	}
+}
+
+// flushTestPutThenMerge puts every object (already flushed, see above), then
+// patches it with a changed vector or geo property, so the merge writes the
+// indices again
+func flushTestPutThenMerge(t *testing.T, ctx context.Context, shd ShardLike, objs []*storobj.Object) {
+	flushTestPutOneByOne(t, ctx, shd, objs)
+	for _, obj := range objs {
+		require.NoError(t, shd.MergeObject(ctx, flushTestMergeDocument(obj)))
+	}
+}
+
+func flushTestMergeDocument(obj *storobj.Object) objects.MergeDocument {
+	merge := objects.MergeDocument{Class: obj.Class().String(), ID: obj.ID(), UpdateTime: time.Now().UnixMilli()}
+	props, _ := obj.Properties().(map[string]interface{})
+	if loc, ok := props["location"].(*models.GeoCoordinates); ok {
+		merge.PrimitiveSchema = map[string]interface{}{"location": &models.GeoCoordinates{
+			Latitude: ptFloat32(-*loc.Latitude), Longitude: ptFloat32(-*loc.Longitude),
+		}}
+	}
+	if obj.Vector != nil {
+		merge.Vector = reversed(obj.Vector)
+	}
+	for name, vec := range obj.Vectors {
+		merge.Vectors = models.Vectors{name: reversed(vec)}
+	}
+	return merge
 }
