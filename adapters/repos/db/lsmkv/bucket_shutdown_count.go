@@ -57,6 +57,13 @@ func (b *Bucket) takeShutdownNetCount(ctx context.Context) (*shutdownNetCount, e
 		return nil, nil
 	}
 
+	// a flush in progress would clear b.flushing after the count, which then
+	// no longer describes the bucket
+	if err := b.lockFlushAndSwitch(ctx); err != nil {
+		return nil, err
+	}
+	defer b.flushAndSwitchMu.Unlock()
+
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
 	b.waitForZeroWriters(b.active)

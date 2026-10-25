@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -303,6 +304,83 @@ func TestBucketShutdownStoreNetCountFails(t *testing.T) {
 	count, err := b.Count(ctx)
 	require.NoError(t, err)
 	require.Equal(t, 5, count)
+}
+
+// TestShutdownNetCountWaitsForFlush pins that the shutdown count waits for a
+// flush in progress. Taken before the flush adds its segment, it would no
+// longer describe the bucket after, and the shutdown would drop it.
+func TestShutdownNetCountWaitsForFlush(t *testing.T) {
+	ctx := context.Background()
+	b := openCountingBucket(t, t.TempDir(), false)
+	defer b.Shutdown(ctx)
+	for i := range 10 {
+		require.NoError(t, b.Put(countTestKey(i), []byte("v1")))
+	}
+
+	// a flush that has switched memtables and not yet added its segment
+	b.flushAndSwitchMu.Lock()
+	switched, err := b.atomicallySwitchMemtable(b.createNewActiveMemtable)
+	require.NoError(t, err)
+	require.True(t, switched)
+	for i := 5; i < 15; i++ {
+		require.NoError(t, b.Put(countTestKey(i), []byte("v2")))
+	}
+
+	type result struct {
+		count *shutdownNetCount
+		err   error
+	}
+	done := make(chan result, 1)
+	go func() {
+		c, err := b.takeShutdownNetCount(ctx)
+		done <- result{c, err}
+	}()
+	time.Sleep(100 * time.Millisecond)
+	segmentPath, err := b.flushing.flush()
+	require.NoError(t, err)
+	require.NoError(t, b.addFlushedSegment(segmentPath))
+	b.flushAndSwitchMu.Unlock()
+
+	r := <-done
+	require.NoError(t, r.err)
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+	require.True(t, r.count.describes(b.active, b.flushing))
+	require.Equal(t, 5, r.count.value)
+}
+
+// TestBucketRecoveryKeepsSegmentCountBesideEmptyWAL pins that recovery keeps
+// the count of a segment whose name an empty WAL shares: segments named
+// without a level share the stem with the WAL of the memtable they came from.
+func TestBucketRecoveryKeepsSegmentCountBesideEmptyWAL(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	b := openCountingBucket(t, dir, false)
+	for i := range 5 {
+		require.NoError(t, b.Put(countTestKey(i), []byte("v1")))
+	}
+	require.NoError(t, b.Shutdown(ctx))
+
+	segments := globSidecars(t, dir, ".db")
+	require.Len(t, segments, 1)
+	stem, _, _ := strings.Cut(filepath.Base(segments[0]), ".")
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	for _, e := range entries {
+		path := filepath.Join(dir, e.Name())
+		switch filepath.Ext(e.Name()) {
+		case ".db", CountNetAdditionsFileSuffix:
+			require.NoError(t, os.Rename(path, filepath.Join(dir, stem+filepath.Ext(e.Name()))))
+		default:
+			require.NoError(t, os.Remove(path))
+		}
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, stem+".wal"), nil, 0o666))
+
+	b = openCountingBucket(t, dir, false)
+	require.NoError(t, b.Shutdown(ctx))
+	require.FileExists(t, filepath.Join(dir, stem+CountNetAdditionsFileSuffix))
+	require.Equal(t, 5, sidecarCount(t, dir))
 }
 
 func openCountingBucket(t *testing.T, dir string, reuseWAL bool, opts ...BucketOption) *Bucket {
