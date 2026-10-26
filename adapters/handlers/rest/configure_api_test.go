@@ -34,8 +34,9 @@ import (
 )
 
 // holdingHealth answers health checks at once, except for service "hold",
-// which it holds until unblock is called or the RPC is cancelled. GracefulStop
-// never cancels an RPC; only Stop does.
+// which it holds until unblock is called or the RPC is cancelled, and service
+// "wedge", which it holds until unblock is called. GracefulStop never cancels
+// an RPC; only Stop does.
 type holdingHealth struct {
 	healthpb.UnimplementedHealthServer
 	entered  chan struct{}
@@ -45,7 +46,8 @@ type holdingHealth struct {
 }
 
 func (h *holdingHealth) Check(ctx context.Context, req *healthpb.HealthCheckRequest) (*healthpb.HealthCheckResponse, error) {
-	if req.Service == "hold" {
+	switch req.Service {
+	case "hold":
 		defer h.returned.Store(true)
 		close(h.entered)
 		select {
@@ -53,6 +55,9 @@ func (h *holdingHealth) Check(ctx context.Context, req *healthpb.HealthCheckRequ
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
+	case "wedge":
+		close(h.entered)
+		<-h.release
 	}
 	return &healthpb.HealthCheckResponse{Status: healthpb.HealthCheckResponse_SERVING}, nil
 }
@@ -60,6 +65,22 @@ func (h *holdingHealth) Check(ctx context.Context, req *healthpb.HealthCheckRequ
 // startHoldingGrpc serves holdingHealth on a real gRPC server and returns a
 // check func that calls it over a real client connection.
 func startHoldingGrpc(t *testing.T) (*grpc.Server, func(service string) error, *holdingHealth) {
+	t.Helper()
+	server, conn, svc := serveHoldingGrpc(t)
+	client := healthpb.NewHealthClient(conn)
+	check := func(service string) error {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, err := client.Check(ctx, &healthpb.HealthCheckRequest{Service: service})
+		return err
+	}
+	return server, check, svc
+}
+
+// serveHoldingGrpc serves holdingHealth on a real gRPC server and returns a
+// real client connection to it. Cleanup unblocks held RPCs before it closes
+// the connection and stops the server.
+func serveHoldingGrpc(t *testing.T) (*grpc.Server, *grpc.ClientConn, *holdingHealth) {
 	t.Helper()
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -78,15 +99,7 @@ func startHoldingGrpc(t *testing.T) (*grpc.Server, func(service string) error, *
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.Close() })
 	t.Cleanup(svc.unblock)
-
-	client := healthpb.NewHealthClient(conn)
-	check := func(service string) error {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_, err := client.Check(ctx, &healthpb.HealthCheckRequest{Service: service})
-		return err
-	}
-	return server, check, svc
+	return server, conn, svc
 }
 
 func Test_shutdownHooks(t *testing.T) {
@@ -176,17 +189,74 @@ func Test_shutdownHooks(t *testing.T) {
 		go func() { rpcErr <- check("hold") }()
 		<-svc.entered
 
+		// Pre must call GracefulStop before shutdown closes the wait's stop
+		// channel. Otherwise the wait may return false and Pre calls Stop.
+		drained := make(chan struct{})
+		wait := func(<-chan struct{}) bool {
+			close(drained)
+			return true
+		}
 		var bodyRan bool
 		pre, shutdown := shutdownHooks(shutdownHooksConfig{
-			Server: server, Timeout: 100 * time.Millisecond, Logger: logger, Wait: idleDrain,
+			Server: server, Timeout: 100 * time.Millisecond, Logger: logger, Wait: wait,
 			PreShutdown: func() {}, Shutdown: func() { bodyRan = true },
 		})
 
 		pre()
+		<-drained
 		shutdown()
 		require.True(t, bodyRan)
 		require.Equal(t, codes.Unavailable, status.Code(<-rpcErr))
-		require.Equal(t, "grpc graceful stop timed out, forcing stop", hook.LastEntry().Message)
+		require.Equal(t, "grpc graceful stop timed out, forcing stop without waiting", hook.LastEntry().Message)
+	})
+
+	t.Run("body runs at cap while GracefulStop is wedged", func(t *testing.T) {
+		server, conn, svc := serveHoldingGrpc(t)
+		go func() {
+			_, _ = healthpb.NewHealthClient(conn).Check(context.Background(), &healthpb.HealthCheckRequest{Service: "wedge"})
+		}()
+		<-svc.entered
+		// With its client gone, the server has no connections left.
+		// GracefulStop then waits on the handler while it holds the server
+		// mutex (grpc-go#9393).
+		require.NoError(t, conn.Close())
+
+		pre, shutdown := shutdownHooks(shutdownHooksConfig{
+			Server: server, Timeout: 100 * time.Millisecond, Logger: logger, Wait: idleDrain,
+			PreShutdown: func() {}, Shutdown: func() {},
+		})
+		pre()
+
+		// Serve locks the server mutex first. On a stopped server or a closed
+		// listener it then returns at once. So a Serve call that blocks means
+		// GracefulStop holds the mutex. Cleanup's unblock releases it.
+		probeLis, err := net.Listen("tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		probeLis.Close()
+		require.Eventually(t, func() bool {
+			served := make(chan struct{})
+			go func() {
+				_ = server.Serve(probeLis)
+				close(served)
+			}()
+			select {
+			case <-served:
+				return false
+			case <-time.After(100 * time.Millisecond):
+				return true
+			}
+		}, 5*time.Second, 10*time.Millisecond, "GracefulStop never held the server mutex")
+
+		bodyDone := make(chan struct{})
+		go func() {
+			shutdown()
+			close(bodyDone)
+		}()
+		select {
+		case <-bodyDone:
+		case <-time.After(5 * time.Second):
+			t.Fatal("body did not run while GracefulStop was wedged")
+		}
 	})
 
 	t.Run("stop waits for the pre-stop wait; join releases it", func(t *testing.T) {
@@ -240,6 +310,8 @@ func Test_shutdownHooks(t *testing.T) {
 
 		shutdown()
 		require.True(t, bodyRan)
-		require.Equal(t, codes.Unavailable, status.Code(check("")))
+		require.Eventually(t, func() bool {
+			return status.Code(check("")) == codes.Unavailable
+		}, 5*time.Second, 10*time.Millisecond)
 	})
 }
