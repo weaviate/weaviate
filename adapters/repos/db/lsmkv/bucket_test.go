@@ -287,12 +287,12 @@ func TestBucket_MemtableCountWithFlushing(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			actualActive, _, err := b.memtableNetCount(context.Background(), tt.current, tt.previous, []Segment{})
+			actualActive, err := b.memtableNetCount(context.Background(), tt.current, tt.previous, []Segment{})
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedNetActive, actualActive)
 
 			if tt.previous != nil {
-				actualPrevious, _, err := b.memtableNetCount(context.Background(), tt.previous, nil, []Segment{})
+				actualPrevious, err := b.memtableNetCount(context.Background(), tt.previous, nil, []Segment{})
 				require.NoError(t, err)
 
 				assert.Equal(t, tt.expectedNetPrevious, actualPrevious)

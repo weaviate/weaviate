@@ -1608,18 +1608,18 @@ func (b *Bucket) countFromCV(ctx context.Context, view BucketConsistentView) (in
 	memtableCount := 0
 	activeCountStats := view.Active.countStats()
 	if view.Flushing == nil {
-		count, _, err := b.memtableNetCount(ctx, activeCountStats, nil, view.Disk)
+		count, err := b.memtableNetCount(ctx, activeCountStats, nil, view.Disk)
 		if err != nil {
 			return 0, err
 		}
 		memtableCount += count
 	} else {
 		flushingCountStats := view.Flushing.countStats()
-		deltaActive, _, err := b.memtableNetCount(ctx, activeCountStats, flushingCountStats, view.Disk)
+		deltaActive, err := b.memtableNetCount(ctx, activeCountStats, flushingCountStats, view.Disk)
 		if err != nil {
 			return 0, err
 		}
-		deltaFlushing, _, err := b.memtableNetCount(ctx, flushingCountStats, nil, view.Disk)
+		deltaFlushing, err := b.memtableNetCount(ctx, flushingCountStats, nil, view.Disk)
 		if err != nil {
 			return 0, err
 		}
@@ -1664,9 +1664,16 @@ func (b *Bucket) CountApproximate() (int, error) {
 	return count, nil
 }
 
-// memtableNetCount takes a key whose segments could not be read as absent, so
-// the count can be off by up to unanswered keys.
 func (b *Bucket) memtableNetCount(ctx context.Context, stats *countStats, previousMemtable *countStats,
+	segments []Segment,
+) (int, error) {
+	netCount, _, err := b.memtableNetCountWithUnanswered(ctx, stats, previousMemtable, segments)
+	return netCount, err
+}
+
+// memtableNetCountWithUnanswered takes a key whose segments could not be read
+// as absent, so the count can be off by up to unanswered keys.
+func (b *Bucket) memtableNetCountWithUnanswered(ctx context.Context, stats *countStats, previousMemtable *countStats,
 	segments []Segment,
 ) (netCount, unanswered int, err error) {
 	for i, key := range stats.upsertKeys {

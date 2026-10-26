@@ -80,14 +80,14 @@ func (b *Bucket) takeShutdownNetCount(ctx context.Context) (*shutdownNetCount, e
 	var flushing *countStats
 	if b.flushing != nil {
 		flushing = b.flushing.countStats()
-		value, unanswered, err := b.memtableNetCount(ctx, flushing, nil, segments)
+		value, unanswered, err := b.memtableNetCountWithUnanswered(ctx, flushing, nil, segments)
 		if err := checkShutdownNetCount(unanswered, err); err != nil {
 			return nil, err
 		}
 		c.flushingValue = value
 	}
 
-	value, unanswered, err := b.memtableNetCount(ctx, b.active.countStats(), flushing, segments)
+	value, unanswered, err := b.memtableNetCountWithUnanswered(ctx, b.active.countStats(), flushing, segments)
 	if err := checkShutdownNetCount(unanswered, err); err != nil {
 		return nil, err
 	}
