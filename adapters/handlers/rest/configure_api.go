@@ -1769,7 +1769,7 @@ type shutdownHooksConfig struct {
 // whichever comes first. After Timeout, Stop runs in the background and
 // Shutdown does not wait for it, so RPCs may still be running.
 // Wait must return once its stop channel closes.
-// If preHook never runs, shutdownHook waits Timeout, then starts Stop.
+// If preShutdownHook never runs, shutdownHook waits Timeout, then starts Stop.
 // The shutdown hook runs at most once (ServeAndShutdown wraps it in sync.OnceFunc).
 func shutdownHooks(d shutdownHooksConfig) (func(), func()) {
 	joining := make(chan struct{})
@@ -1780,10 +1780,8 @@ func shutdownHooks(d shutdownHooksConfig) (func(), func()) {
 		enterrors.GoWrapper(func() {
 			if !d.Wait(joining) {
 				d.Logger.Warn("grpc-web requests still in flight at shutdown, stopping grpc server anyway")
-				d.Server.Stop()
-			} else {
-				d.Server.GracefulStop()
 			}
+			d.Server.GracefulStop()
 			close(stopped)
 		}, d.Logger)
 	}
@@ -1795,7 +1793,7 @@ func shutdownHooks(d shutdownHooksConfig) (func(), func()) {
 		case <-time.After(d.Timeout):
 			// Stop is not awaited: it blocks while GracefulStop waits on a
 			// handler that ignores ctx after its client disconnected
-			// (grpc/grpc-go#9393, fixed in v1.85.0).
+			// (grpc/grpc-go#9393; fix #9394 targets v1.85.0).
 			d.Logger.Warn("grpc graceful stop timed out, forcing stop without waiting")
 			enterrors.GoWrapper(d.Server.Stop, d.Logger)
 		}

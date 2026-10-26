@@ -182,6 +182,33 @@ func Test_shutdownHooks(t *testing.T) {
 		require.NoError(t, <-rpcErr)
 	})
 
+	t.Run("failed web drain still stops gRPC gracefully", func(t *testing.T) {
+		server, check, svc := startHoldingGrpc(t)
+		rpcErr := make(chan error, 1)
+		go func() { rpcErr <- check("hold") }()
+		<-svc.entered
+
+		// The wait reports grpc-web stragglers (returns false). The in-flight
+		// native RPC must still get its graceful drain, not a hard Stop: a
+		// hard Stop cancels the RPC within microseconds, far before the
+		// 100ms release, so it fails the NoError assertion below.
+		wait := func(stop <-chan struct{}) bool {
+			<-stop
+			time.AfterFunc(100*time.Millisecond, svc.unblock)
+			return false
+		}
+		var returnedAtBody bool
+		pre, shutdown := shutdownHooks(shutdownHooksConfig{
+			Server: server, Timeout: 5 * time.Second, Logger: logger, Wait: wait,
+			PreShutdown: func() {}, Shutdown: func() { returnedAtBody = svc.returned.Load() },
+		})
+
+		pre()
+		shutdown()
+		require.True(t, returnedAtBody, "body ran while the RPC was still in flight")
+		require.NoError(t, <-rpcErr, "a failed web drain must not hard-stop in-flight native RPCs")
+	})
+
 	t.Run("stuck RPC force-stopped after cap", func(t *testing.T) {
 		server, check, svc := startHoldingGrpc(t)
 		logger, hook := test.NewNullLogger()
@@ -190,7 +217,8 @@ func Test_shutdownHooks(t *testing.T) {
 		<-svc.entered
 
 		// Pre must call GracefulStop before shutdown closes the wait's stop
-		// channel. Otherwise the wait may return false and Pre calls Stop.
+		// channel. Otherwise the wait may return false and log a spurious
+		// in-flight warning.
 		drained := make(chan struct{})
 		wait := func(<-chan struct{}) bool {
 			close(drained)

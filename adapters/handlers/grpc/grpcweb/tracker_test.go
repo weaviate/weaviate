@@ -102,9 +102,9 @@ func TestTracker(t *testing.T) {
 
 	t.Run("idle drain with stop already closed reports drained", func(t *testing.T) {
 		// Both channels are ready the moment Drain selects. Without the
-		// priority check a bare select picks at random and can report an
-		// idle tracker as not drained. 100 iterations make a regression to
-		// the random select fail with near-certainty.
+		// state recheck on the stop branch a bare select picks at random and
+		// can report an idle tracker as not drained. 100 iterations make a
+		// regression to the random select fail with near-certainty.
 		stop := make(chan struct{})
 		close(stop)
 		for range 100 {
