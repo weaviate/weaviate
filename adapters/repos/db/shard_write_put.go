@@ -57,6 +57,9 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 	if err != nil {
 		return errors.Wrap(err, "store object in LSM store")
 	}
+	// The stored object must reach its vector and geo indexes even if the
+	// caller has gone.
+	ctx = context.WithoutCancel(ctx)
 
 	// object was not changed, no further updates are required
 	// https://github.com/weaviate/weaviate/issues/3949
