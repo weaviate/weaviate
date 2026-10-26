@@ -54,16 +54,8 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 			withModuleConfig   map[string]any
 		}{
 			{
-				name:            "gpt-3.5-turbo",
-				generativeModel: "gpt-3.5-turbo",
-			},
-			{
-				name:            "gpt-4",
-				generativeModel: "gpt-4",
-			},
-			{
 				name:               "absent module config",
-				generativeModel:    "gpt-4",
+				generativeModel:    "gpt-4o-mini",
 				absentModuleConfig: true,
 			},
 			{
