@@ -718,7 +718,6 @@ jobs:
         env:
           WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
           WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
-          WEAVIATE_LICENSE_KEY: ${{ secrets.WEAVIATE_LICENSE_KEY }}
           REPLICATION_GRPC_ENABLED: ${{ matrix.grpc_replication || '' }}
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests-4-cores:
@@ -756,8 +755,6 @@ jobs:
             test: "--acceptance-self-recovery-intact"
           - name: "python"
             test: "--acceptance-only-python"
-          - name: "python-namespaces"
-            test: "--acceptance-only-python-namespaces"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
@@ -781,7 +778,7 @@ jobs:
         env:
           MATRIX_TEST: ${{ matrix.name }}
         run: |
-          if [[ "$MATRIX_TEST" == "replica-slow" || "$MATRIX_TEST" == "replica-slow-grpc" || "$MATRIX_TEST" == "fast-group-4" || "$MATRIX_TEST" == "fast-group-5" || "$MATRIX_TEST" == "recovery" || "$MATRIX_TEST" == "self-recovery" || "$MATRIX_TEST" == "self-recovery-lazy" || "$MATRIX_TEST" == "self-recovery-intact" || "$MATRIX_TEST" == "distributed-tasks" || "$MATRIX_TEST" == "compaction" || "$MATRIX_TEST" == "python-namespaces" ]]; then
+          if [[ "$MATRIX_TEST" == "replica-slow" || "$MATRIX_TEST" == "replica-slow-grpc" || "$MATRIX_TEST" == "fast-group-4" || "$MATRIX_TEST" == "fast-group-5" || "$MATRIX_TEST" == "recovery" || "$MATRIX_TEST" == "self-recovery" || "$MATRIX_TEST" == "self-recovery-lazy" || "$MATRIX_TEST" == "self-recovery-intact" || "$MATRIX_TEST" == "distributed-tasks" || "$MATRIX_TEST" == "compaction" ]]; then
             echo "test_timeout_minutes=45" >> $GITHUB_ENV
           else
             echo "test_timeout_minutes=15" >> $GITHUB_ENV
@@ -790,12 +787,38 @@ jobs:
         uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
         env:
           REPLICATION_GRPC_ENABLED: ${{ matrix.grpc_replication || '' }}
-          WEAVIATE_LICENSE_KEY: ${{ secrets.WEAVIATE_LICENSE_KEY }}
         with:
           timeout_minutes: ${{ env.test_timeout_minutes }}
           max_attempts: ${{ env.retry_max_attempts }}
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
+  Acceptance-With-License-Tests:
+    name: acceptance with license (${{ matrix.name }})
+    runs-on: ubicloud-standard-4-ubuntu-2404
+    # Forks and Dependabot cannot read WEAVIATE_LICENSE_KEY.
+    if: ${{ (github.event_name != 'push' || github.ref_type != 'branch') && !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "licensed"
+            test: "--acceptance-licensed"
+          - name: "python-namespaces"
+            test: "--acceptance-only-python-namespaces"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go
+        uses: ./.github/actions/setup-go
+      - name: Login to Docker Hub
+        uses: ./.github/actions/docker-login
+        with:
+          username: ${{secrets.DOCKER_USERNAME}}
+          password: ${{secrets.DOCKER_PASSWORD}}
+      - name: Acceptance tests with license
+        timeout-minutes: 45
+        env:
+          WEAVIATE_LICENSE_KEY: ${{ secrets.WEAVIATE_LICENSE_KEY }}
+        run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Reindex-Tests:
     name: reindex (${{ matrix.name }})
     runs-on: ubicloud-standard-4-ubuntu-2404
