@@ -61,7 +61,7 @@ func (t *Tracker) leave() {
 }
 
 // Drain refuses new requests and waits for the in-flight ones. It returns true
-// once none are in flight, or false if stop closes first.
+// once none are in flight, or false if stop closes while requests remain.
 func (t *Tracker) Drain(stop <-chan struct{}) bool {
 	zero := func() chan struct{} {
 		t.mu.Lock()
@@ -80,6 +80,10 @@ func (t *Tracker) Drain(stop <-chan struct{}) bool {
 	case <-zero:
 		return true
 	case <-stop:
-		return false
+		// The select is random when both channels are ready; the count is
+		// the truth at the moment stop wins.
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		return t.inFlight == 0
 	}
 }

@@ -100,6 +100,19 @@ func TestTracker(t *testing.T) {
 		})
 	}
 
+	t.Run("idle drain with stop already closed reports drained", func(t *testing.T) {
+		// Both channels are ready the moment Drain selects. Without the
+		// priority check a bare select picks at random and can report an
+		// idle tracker as not drained. 100 iterations make a regression to
+		// the random select fail with near-certainty.
+		stop := make(chan struct{})
+		close(stop)
+		for range 100 {
+			var tracker Tracker
+			require.True(t, tracker.Drain(stop))
+		}
+	})
+
 	t.Run("refused request gets a CORS-readable 503", func(t *testing.T) {
 		var tracker Tracker
 		require.True(t, tracker.Drain(nil))
