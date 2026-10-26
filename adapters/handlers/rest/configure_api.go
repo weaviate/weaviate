@@ -1777,8 +1777,10 @@ func shutdownHooks(d shutdownHooksConfig) (func(), func()) {
 		enterrors.GoWrapper(func() {
 			if !d.Wait(joining) {
 				d.Logger.Warn("grpc-web requests still in flight at shutdown, stopping grpc server anyway")
+				d.Server.Stop()
+			} else {
+				d.Server.GracefulStop()
 			}
-			d.Server.GracefulStop()
 			close(stopped)
 		}, d.Logger)
 	}
