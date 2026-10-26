@@ -14,6 +14,8 @@ package metrics
 import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // ReplicationEngineOpsCallbacks contains a set of callback functions that are invoked
@@ -211,18 +213,22 @@ func NewReplicationEngineOpsCallbacks(reg prometheus.Registerer) *ReplicationEng
 		WithOpStartCallback(func(node string) {
 			pendingOps.WithLabelValues(node).Dec()
 			ongoingOps.WithLabelValues(node).Inc()
+			monitoring.GetBackgroundProcessMetrics().IncActive(monitoring.ProcessReplicaMovement)
 		}).
 		WithOpCompleteCallback(func(node string) {
 			ongoingOps.WithLabelValues(node).Dec()
 			completeOps.WithLabelValues(node).Inc()
+			monitoring.GetBackgroundProcessMetrics().DecActive(monitoring.ProcessReplicaMovement)
 		}).
 		WithOpFailedCallback(func(node string) {
 			ongoingOps.WithLabelValues(node).Dec()
 			failedOps.WithLabelValues(node).Inc()
+			monitoring.GetBackgroundProcessMetrics().DecActive(monitoring.ProcessReplicaMovement)
 		}).
 		WithOpCancelledCallback(func(node string) {
 			ongoingOps.WithLabelValues(node).Dec()
 			cancelledOps.WithLabelValues(node).Inc()
+			monitoring.GetBackgroundProcessMetrics().DecActive(monitoring.ProcessReplicaMovement)
 		}).
 		Build()
 }

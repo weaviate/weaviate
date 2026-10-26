@@ -83,12 +83,12 @@ func TestNilCheckOnPartiallyCleanedNode(t *testing.T) {
 			{
 				// must be on a non-zero layer for this bug to occur
 				level:       1,
-				connections: conns1,
+				connections: *conns1,
 			},
 			nil, // corrupt node
 			{
 				level:       0,
-				connections: conns2,
+				connections: *conns2,
 			},
 		}
 	})
@@ -223,17 +223,17 @@ func TestAcornPercentage(t *testing.T) {
 	})
 
 	t.Run("check acorn params on different filter percentags", func(t *testing.T) {
-		vectorIndex.acornSearch.Store(false)
+		vectorIndex.configuredFilterStrategy.Store(int32(SWEEPING))
 		allowList := helpers.NewAllowList(1, 2, 3)
 		useAcorn := vectorIndex.acornEnabled(allowList)
 		assert.False(t, useAcorn)
 
-		vectorIndex.acornSearch.Store(true)
+		vectorIndex.configuredFilterStrategy.Store(int32(ACORN))
 
 		useAcorn = vectorIndex.acornEnabled(allowList)
 		assert.True(t, useAcorn)
 
-		vectorIndex.acornSearch.Store(true)
+		vectorIndex.configuredFilterStrategy.Store(int32(ACORN))
 
 		largerAllowList := helpers.NewAllowList(1, 2, 3, 4, 5)
 		useAcorn = vectorIndex.acornEnabled(largerAllowList)
@@ -364,6 +364,10 @@ func newFakeCompressionDistancer(queryVec []float32, distFn func(a, b []float32)
 }
 
 func (f *fakeCompressionDistancer) DistanceToNode(id uint64) (float32, error) {
+	panic("not implemented")
+}
+
+func (f *fakeCompressionDistancer) DistancesToNodes(ids []uint64, dists []float32) []error {
 	panic("not implemented")
 }
 

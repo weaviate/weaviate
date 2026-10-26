@@ -51,23 +51,12 @@ func (s *testMigrationStrategy) OnMigrationComplete(_ context.Context, _ ShardLi
 // testShardReindexer wraps a single task into a ShardReindexerV3 for use
 // during shard initialization. It calls task methods synchronously.
 type testShardReindexer struct {
-	task ShardReindexTaskV3
-}
-
-func (r *testShardReindexer) RunBeforeLsmInit(ctx context.Context, shard *Shard) error {
-	return r.task.OnBeforeLsmInit(ctx, shard)
+	task *ShardReindexTaskGeneric
 }
 
 func (r *testShardReindexer) RunAfterLsmInit(ctx context.Context, shard *Shard) error {
 	return r.task.OnAfterLsmInit(ctx, shard)
 }
-
-func (r *testShardReindexer) RunAfterLsmInitAsync(ctx context.Context, shard *Shard) error {
-	_, _, err := r.task.OnAfterLsmInitAsync(ctx, shard)
-	return err
-}
-
-func (r *testShardReindexer) Stop(_ *Shard, _ error) {}
 
 func createTestObjectWithText(className, text string) *storobj.Object {
 	return &storobj.Object{
@@ -117,8 +106,6 @@ func newTestClassWithProps(className string, propNames []string) *models.Class {
 func newTestTask(logger logrus.FieldLogger, strategy MigrationStrategy) *ShardReindexTaskGeneric {
 	return NewShardReindexTaskGeneric("MapToBlockmax", logger, strategy,
 		reindexTaskConfig{
-			swapBuckets:                   true,
-			tidyBuckets:                   true,
 			concurrency:                   2,
 			memtableOptFactor:             4,
 			backupMemtableOptFactor:       1,
@@ -131,15 +118,15 @@ func newTestTask(logger logrus.FieldLogger, strategy MigrationStrategy) *ShardRe
 }
 
 // TestMapToBlockmaxMigration_RuntimeSwap tests the runtime swap path where
-// merge, swap, and tidy all happen inline after the reindex iteration
-// completes — no shard restart needed.
+// merge, swap, and tidy follow the reindex iteration in the same
+// RunOnShard call — no shard restart needed.
 func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 	ctx := testCtx()
 	className := "TestMigrationRuntime"
 	class := newTestClass(className)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 
 	searchBucketName := helpers.BucketSearchableFromPropNameLSM("title")
@@ -153,7 +140,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 		require.NoError(t, shard.PutObject(ctx, initialObjects[i]))
 	}
 
-	// Start migration (reloadShards=false → runtime swap)
+	// Start migration on the live shard.
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task := newTestTask(idx.logger, strategy)
 
@@ -175,18 +162,11 @@ func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 		require.NoError(t, shard.PutObject(ctx, doubleWriteObjects[i]))
 	}
 
-	// Run async reindex — this will also perform the runtime swap when done.
-	for {
-		rerunAt, reloadShard, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		require.False(t, reloadShard, "runtime swap should not request reload")
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	// Run the rest of the lifecycle: iteration, prep, swap.
+	require.NoError(t, task.RunOnShard(ctx, shard))
 
 	// Verify migration completed — no restart needed!
-	rt := NewFileMapToBlockmaxReindexTracker(shard.pathLSM(), &UuidKeyParser{})
+	rt := NewFileReindexTracker(shard.pathLSM(), MigrationDirSearchableMapToBlockmax+genSuffix(1), &UuidKeyParser{})
 	assert.True(t, rt.IsPrepended(), "tracker should show prepended")
 	assert.True(t, rt.IsMerged(), "tracker should show merged")
 	assert.True(t, rt.IsSwapped(), "tracker should show swapped")
@@ -246,7 +226,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart(t *testing.T) {
 	class := newTestClass(className)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 
 	// Insert objects and run full runtime swap
@@ -258,15 +238,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart(t *testing.T) {
 
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task := newTestTask(idx.logger, strategy)
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	require.NoError(t, task.RunOnShard(ctx, shard))
 	require.True(t, strategy.migrationCompleted)
 
 	// Restart — shard should load cleanly, OnMigrationComplete called again
@@ -389,7 +361,7 @@ func TestRunSwapOnShard_SentinelAwareDispatch(t *testing.T) {
 			class := newTestClass(className)
 
 			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
+				false, false)
 			shard := shd.(*Shard)
 			defer shard.Shutdown(ctx)
 
@@ -425,11 +397,8 @@ func TestRunSwapOnShard_SentinelAwareDispatch(t *testing.T) {
 // the cheap sentinel fsync (markSwappedProp) is allowed — no Shutdown,
 // no Rename, no RAFT, no compaction wait. The total Phase 2a wall-clock
 // for an N-prop migration MUST stay inside the microseconds-to-low-ms
-// budget at any scale; the per-shard tokenization overlay's
-// "mixed-state" subwindow (some props swapped, others not — queries to
-// not-yet-swapped props during the window would tokenize input with the
-// new value against an old-tokenized bucket and return wrong results)
-// is exactly this wall-clock.
+// budget at any scale; the per-shard property overlay's "mixed-state"
+// subwindow (some props swapped, others not) is exactly this wall-clock.
 //
 // Regression scenarios this guards against:
 //
@@ -461,7 +430,7 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 	class := newTestClassWithProps(className, propNames)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 
 	// Sanity: every prop's searchable bucket should start at
@@ -518,16 +487,9 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 
-	// Run the iteration → swap path inline. The hook will fire once per
-	// prop inside runtimeSwap's Phase 2a tight loop.
-	for {
-		rerunAt, reloadShard, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		require.False(t, reloadShard, "runtime swap should not request reload")
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	// Run iteration → prep → swap. The hook fires once per prop inside
+	// runtimeSwap's Phase 2a tight loop.
+	require.NoError(t, task.RunOnShard(ctx, shard))
 
 	hookMu.Lock()
 	defer hookMu.Unlock()
@@ -557,15 +519,15 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 		len(propNames), totalDelta, atomicPhaseBudget)
 
 	// Sanity: assert markers landed as the contract specifies post-Phase
-	// 2c (since this is the inline path, runtimeSwap also runs 2b + 2c
-	// for the dead-bucket tidy and OnMigrationComplete + trim).
-	rt := NewFileMapToBlockmaxReindexTracker(shard.pathLSM(), &UuidKeyParser{})
+	// 2c (runtimeSwap runs 2b + 2c too, for the dead-bucket tidy and
+	// OnMigrationComplete + trim).
+	rt := NewFileReindexTracker(shard.pathLSM(), MigrationDirSearchableMapToBlockmax+genSuffix(1), &UuidKeyParser{})
 	for _, p := range propNames {
 		assert.True(t, rt.IsSwappedProp(p),
 			"prop %q should be IsSwappedProp post-runtimeSwap", p)
 	}
 	assert.True(t, rt.IsSwapped(), "aggregate swapped sentinel should be set post-runtimeSwap")
-	assert.True(t, rt.IsTidied(), "aggregate tidied sentinel should be set post-runtimeSwap (inline path)")
+	assert.True(t, rt.IsTidied(), "aggregate tidied sentinel should be set post-runtimeSwap")
 
 	require.NoError(t, shard.Shutdown(ctx))
 }

@@ -14,6 +14,7 @@ package replication
 import (
 	"context"
 	"errors"
+	"os"
 	"slices"
 	"testing"
 	"time"
@@ -66,6 +67,11 @@ func (suite *ReplicationTestSuite) SetupSuite() {
 }
 
 func (suite *ReplicationTestSuite) TearDownSuite() {
+	if suite.T().Failed() && suite.compose != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		suite.compose.DumpWeaviateLogs(ctx, os.Stderr, 300)
+	}
 	if suite.down != nil {
 		suite.down()
 	}

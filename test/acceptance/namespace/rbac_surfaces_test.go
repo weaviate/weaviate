@@ -37,10 +37,11 @@ import (
 // setup_test.go; the same MinIO bucket also backs export.
 const s3Backend = "s3"
 
-// waitBackupCreated issues root's backup-create for a class, retrying only
-// while the coordinator's local precheck transiently 422s during cluster
-// bring-up (the 422 rejects before any staging, so the same ID is safe to
-// resend). Any other error fails the test immediately.
+// waitBackupCreated issues root's backup-create for a class, retrying while it
+// 422s. The coordinator runs one backup at a time cluster-wide, so a parallel
+// test's backup makes create reject with "already in progress". The 422 rejects
+// before any staging, so the same ID is safe to resend. Any other error fails
+// the test immediately.
 func waitBackupCreated(t *testing.T, className, backupID string) *backups.BackupsCreateOK {
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
@@ -55,7 +56,7 @@ func waitBackupCreated(t *testing.T, className, backupID string) *backups.Backup
 		require.Truef(t, errors.As(err, &unproc),
 			"root backup-create failed with non-transient error: %T: %v", err, err)
 		require.Falsef(t, time.Now().After(deadline),
-			"root backup-create still 422 after 30s: %v", err)
+			"root backup-create still 422 after 30s: %s", unproc.Payload.Error[0].Message)
 		time.Sleep(200 * time.Millisecond)
 	}
 }
@@ -91,15 +92,21 @@ func TestNamespaces_RBACSurfaces(t *testing.T) {
 	})
 
 	t.Run("nodes status: namespaced denied, root allowed", func(t *testing.T) {
-		_, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), helper.CreateAuth(user1Key))
-		require.Error(t, err)
-		var forbidden *nodes.NodesGetForbidden
-		require.True(t, errors.As(err, &forbidden), "expected NodesGetForbidden, got %T: %v", err, err)
+		// user1 must get a 403 for verbose output too. Without a class, GetNodeStatus
+		// sends verbose output down a separate branch that filters shards one by one.
+		for _, output := range []string{"minimal", "verbose"} {
+			params := nodes.NewNodesGetParams().WithOutput(&output)
 
-		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), helper.CreateAuth(adminKey))
-		require.NoError(t, err)
-		require.NotNil(t, resp.Payload)
-		assert.NotEmpty(t, resp.Payload.Nodes)
+			_, err := helper.Client(t).Nodes.NodesGet(params, helper.CreateAuth(user1Key))
+			require.Error(t, err, output)
+			var forbidden *nodes.NodesGetForbidden
+			require.True(t, errors.As(err, &forbidden), "%s: expected NodesGetForbidden, got %T: %v", output, err, err)
+
+			resp, err := helper.Client(t).Nodes.NodesGet(params, helper.CreateAuth(adminKey))
+			require.NoError(t, err, output)
+			require.NotNil(t, resp.Payload)
+			assert.NotEmpty(t, resp.Payload.Nodes, output)
+		}
 	})
 
 	t.Run("cluster statistics: namespaced denied, root allowed", func(t *testing.T) {
@@ -292,10 +299,8 @@ func TestNamespaces_CustomRoleCannotReachOperatorDomains(t *testing.T) {
 		// The ID carries a unique suffix so reruns against the shared, persisted
 		// bucket don't collide.
 		backupID := fmt.Sprintf("cr-root-backup-%s-%d", ns1, time.Now().UnixNano())
-		ok, err := helper.CreateBackupWithAuthz(
-			t, helper.DefaultBackupConfig(), ownClass, s3Backend, backupID,
-			helper.CreateAuth(adminKey))
-		require.NoError(t, err)
+		// Waits out a parallel test holding the cluster-wide single-backup slot.
+		ok := waitBackupCreated(t, ownClass, backupID)
 		require.NotNil(t, ok.Payload)
 		require.Contains(t, ok.Payload.Classes, ownClass)
 		helper.ExpectBackupEventuallyCreated(t, backupID, s3Backend, helper.CreateAuth(adminKey))
@@ -318,6 +323,19 @@ func TestNamespaces_CustomRoleCannotReachOperatorDomains(t *testing.T) {
 			nodes.NewNodesGetClassParams().WithClassName(ownClass).WithOutput(&verbose),
 			helper.CreateAuth(adminKey))
 		require.False(t, errors.As(err, &forbidden), "root must not be forbidden on nodes; got %v", err)
+
+		// u1 must get a 403 without a class too. GetNodeStatus sends that
+		// request down a separate branch that filters shards one by one.
+		var forbiddenAll *nodes.NodesGetForbidden
+		_, err = helper.Client(t).Nodes.NodesGet(
+			nodes.NewNodesGetParams().WithOutput(&verbose), helper.CreateAuth(u1Key))
+		require.Error(t, err)
+		require.True(t, errors.As(err, &forbiddenAll), "expected NodesGetForbidden, got %T: %v", err, err)
+
+		resp, err := helper.Client(t).Nodes.NodesGet(
+			nodes.NewNodesGetParams().WithOutput(&verbose), helper.CreateAuth(adminKey))
+		require.NoError(t, err)
+		require.NotEmpty(t, resp.Payload.Nodes)
 	})
 
 	t.Run("replicate: namespaced role denied own and foreign, root passes authz", func(t *testing.T) {

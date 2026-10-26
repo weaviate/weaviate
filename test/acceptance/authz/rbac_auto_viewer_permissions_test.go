@@ -64,6 +64,11 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 		"/tokenize",                        // stateless compute, no authz; POST only because it needs a body
 		"/schema/{className}/properties/{propertyName}/tokenize", // authorizes READ, which a viewer holds
 		"/search/{collection}/near-text",                         // search is a read; a viewer holds data READ
+		"/search/{collection}/bm25",                              // search is a read; a viewer holds data READ
+		"/search/{collection}/hybrid",                            // search is a read; a viewer holds data READ
+		"/search/{collection}/near-object",                       // search is a read; a viewer holds data READ
+		"/search/{collection}/near-vector",                       // search is a read; a viewer holds data READ
+		"/aggregate/{collection}",                                // aggregate is a read; a viewer holds data READ
 	}
 
 	// TODO: these leak status (404 for aliases, 501 for replication) before
@@ -84,9 +89,11 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 		"/export/{backend}",
 		"/export/{backend}/{id}",
 		// Namespaces are disabled on this compose, so every method on the
-		// per-namespace endpoint returns 404 before authz runs. RBAC for
+		// per-namespace endpoints returns 404 before authz runs. RBAC for
 		// namespaces is covered in the namespaces suite.
 		"/namespaces/{namespace_id}",
+		"/namespaces/{namespace_id}/suspend",
+		"/namespaces/{namespace_id}/resume",
 	}
 
 	// Restore leaks 404 on a non-existent backup ID because the meta is read
@@ -140,6 +147,27 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 			// required query before authz; send a valid query so it reaches authz.
 			if endpoint.path == "/search/{collection}/near-text" && endpoint.method == http.MethodPost {
 				body = []byte(`{"query":["ABC"]}`)
+			}
+			// same for bm25 (its query is a plain string)
+			if endpoint.path == "/search/{collection}/bm25" && endpoint.method == http.MethodPost {
+				body = []byte(`{"query":"ABC"}`)
+			}
+			// same for hybrid
+			if endpoint.path == "/search/{collection}/hybrid" && endpoint.method == http.MethodPost {
+				body = []byte(`{"query":"ABC"}`)
+			}
+			// same for near-object (a well-formed source-object id)
+			if endpoint.path == "/search/{collection}/near-object" && endpoint.method == http.MethodPost {
+				body = []byte(`{"id":"aa44bbee-ca5f-4db7-a412-5fc6a2300001"}`)
+			}
+			// same for near-vector (a well-formed query vector)
+			if endpoint.path == "/search/{collection}/near-vector" && endpoint.method == http.MethodPost {
+				body = []byte(`{"vector":[0.1,0.2]}`)
+			}
+			// aggregate's generated body fills the reserved fields, which 422
+			// before authz; an empty body (total count) reaches authz.
+			if endpoint.path == "/aggregate/{collection}" && endpoint.method == http.MethodPost {
+				body = []byte(`{}`)
 			}
 
 			forbidden := false

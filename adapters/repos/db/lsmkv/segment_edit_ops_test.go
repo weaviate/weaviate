@@ -519,9 +519,95 @@ func TestSegmentEditOps_CloseWithoutOpenIsNoop(t *testing.T) {
 	require.NoFileExists(t, filepath.Join(dir, segmentEditOpsFileName))
 }
 
+// TestSegmentEditOps_Recover_CompactionCrashWindow pins the crash window the
+// Recover godoc argues: a crash between a compaction's on-disk switch and its
+// bolt commit leaves the rows for BOTH inputs while disk holds only the
+// merged output (which takes the right input's ID). Recovery must keep the
+// right row — it names the file now carrying both inputs' data — and prune
+// only the left one; re-pending anything else would restart finished work.
+func TestSegmentEditOps_Recover_CompactionCrashWindow(t *testing.T) {
+	s := newTestEditOps(t)
+	require.NoError(t, s.RegisterOp("op1", removeOp("foo")))
+	require.NoError(t, s.SnapshotSegments("op1", []string{"100", "200", "300"}))
+	require.NoError(t, s.MarkSegmentDone("op1", "300")) // already stripped before the crash
+
+	// Crash after switchOnDisk of the 100+200 merge: disk = {200 (merged), 300}.
+	noLive := func() map[string]struct{} { return nil }
+	require.NoError(t, s.Recover([]string{"200", "300"}, noLive, noLive))
+
+	pending, err := s.Pending("op1")
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"200"}, pending,
+		"the merged output stays covered by the right input's row; the left row is pruned and stripped progress stays done")
+}
+
+// TestSegmentEditOps_DeleteOpIfDrained pins the atomic disarm gate: the
+// drained check and the delete share one transaction, and any pending or
+// quarantined row vetoes the delete — deleting alongside a row would drop
+// cover for unstripped data.
+func TestSegmentEditOps_DeleteOpIfDrained(t *testing.T) {
+	s := newTestEditOps(t)
+	require.NoError(t, s.RegisterOp("op1", removeOp("foo")))
+	require.NoError(t, s.SnapshotSegments("op1", []string{"100", "200"}))
+	require.NoError(t, s.Quarantine("op1", "200"))
+
+	deleted, pending, quarantined, err := s.DeleteOpIfDrained("op1")
+	require.NoError(t, err)
+	require.False(t, deleted)
+	require.Equal(t, 1, pending)
+	require.Equal(t, 1, quarantined)
+
+	require.NoError(t, s.MarkSegmentDone("op1", "100"))
+	deleted, _, quarantined, err = s.DeleteOpIfDrained("op1")
+	require.NoError(t, err)
+	require.False(t, deleted, "a quarantine row alone must veto the delete")
+	require.Equal(t, 1, quarantined)
+
+	require.NoError(t, s.RequeueQuarantined("op1", nil)) // segment gone from disk: row dropped
+	deleted, _, _, err = s.DeleteOpIfDrained("op1")
+	require.NoError(t, err)
+	require.True(t, deleted)
+
+	deleted, _, _, err = s.DeleteOpIfDrained("opUnknown")
+	require.NoError(t, err)
+	require.True(t, deleted, "an absent op has nothing to disarm")
+}
+
+// TestSegmentEditOps_RecoverMigratesLegacyCompactionRows pins the
+// cross-version heal: a sidecar written by a pre-resume binary can carry a
+// "<left>_<right>" compaction re-queue row — a name no live segment ever has.
+// The old binary masked it with a load-time full re-snapshot; recovery now
+// trusts the recorded rows, so without migration the ENOENT prune would drop
+// the row and the merged output (written without the op's transformer) would
+// count as clean — the drop would finalize with its data unstripped. A
+// resolvable phantom is rewritten to the merged output's real ID; an
+// unresolvable one re-pends the op's every live segment.
+func TestSegmentEditOps_RecoverMigratesLegacyCompactionRows(t *testing.T) {
+	s := newTestEditOps(t)
+	require.NoError(t, s.RegisterOp("op1", removeOp("foo")))
+	require.NoError(t, s.SnapshotSegments("op1", []string{"100_200", "600"}))
+	require.NoError(t, s.RegisterOp("op2", removeOp("bar")))
+	require.NoError(t, s.SnapshotSegments("op2", []string{"300_400", "500"}))
+	require.NoError(t, s.MarkSegmentDone("op2", "500"))
+
+	noLive := func() map[string]struct{} { return nil }
+	require.NoError(t, s.Recover([]string{"200", "500", "600"}, noLive, noLive))
+
+	p1, err := s.Pending("op1")
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"200", "600"}, p1,
+		"a phantom whose right half is live is rewritten to the merged output's real ID")
+
+	p2, err := s.Pending("op2")
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"200", "500", "600"}, p2,
+		"an unresolvable phantom (merged again under the old binary) re-pends every live segment — "+
+			"a conservative re-clean, never a silent under-strip")
+}
+
 // TestSegmentEditOps_QuarantineSurvivesReSnapshot pins that a quarantine verdict
-// (retry budget exhausted) is not silently undone: neither a plain re-snapshot
-// nor load-time Recover re-pends a quarantined segment.
+// (retry budget exhausted) is not silently undone within a round: neither a
+// plain re-snapshot nor load-time Recover re-pends a quarantined segment.
 func TestSegmentEditOps_QuarantineSurvivesReSnapshot(t *testing.T) {
 	s := newSegmentEditOps(t.TempDir(), "")
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
@@ -543,4 +629,193 @@ func TestSegmentEditOps_QuarantineSurvivesReSnapshot(t *testing.T) {
 	q, err := s.Quarantined()
 	require.NoError(t, err)
 	require.Len(t, q, 1)
+}
+
+// TestSegmentEditOps_RequeueQuarantined pins the one deliberate exception to
+// quarantine permanence: a NEW round's re-arm grants a fresh retry budget.
+// Without it the op's survival across FAILED rounds (the resume mechanism)
+// would turn one exhausted budget — even from a transient cause like a full
+// disk — into a permanently wedged drop: the pending snapshot short-circuits
+// the re-arm and addPendingRowsTx refuses quarantined segments, so nothing
+// else can ever retry the segment.
+func TestSegmentEditOps_RequeueQuarantined(t *testing.T) {
+	s := newSegmentEditOps(t.TempDir(), "")
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+
+	require.NoError(t, s.RegisterOp("op1", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 1}))
+	require.NoError(t, s.SnapshotSegments("op1", []string{"100", "200", "300"}))
+	require.NoError(t, s.BumpAttempt("op1", "100", errors.New("disk full")))
+	require.NoError(t, s.Quarantine("op1", "100"))
+	require.NoError(t, s.Quarantine("op1", "300"))
+	require.NoError(t, s.MarkSegmentDone("op1", "200"))
+
+	// "300" was merged away since it was quarantined: its row is dropped, not
+	// requeued — the compaction that removed it rewrote its data (or re-queued
+	// the merged output), and a pending row naming a dead segment would stall
+	// the drain until the next restart's prune.
+	require.NoError(t, s.RequeueQuarantined("op1", []string{"100", "200"}))
+
+	pending, err := s.AllPending()
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+	require.Equal(t, "100", pending[0].SegmentID)
+	require.Zero(t, pending[0].Attempts, "the new round starts with a fresh retry budget")
+
+	q, err := s.Quarantined()
+	require.NoError(t, err)
+	require.Empty(t, q, "no quarantine row may survive a re-arm — live or dead")
+
+	// Idempotent (a replayed arm), and a no-op for ops with no quarantine.
+	require.NoError(t, s.RequeueQuarantined("op1", []string{"100", "200"}))
+	require.NoError(t, s.RequeueQuarantined("opUnknown", []string{"100"}))
+	pending, err = s.AllPending()
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+}
+
+// TestSegmentEditOps_RepairCompactionRows pins the fallback for a compaction
+// whose bookkeeping could not be committed after the segments were already
+// swapped. The left input's file is gone, so its row can never be drained on a
+// running node — the cleanup pass skips it rather than mark it done, and the
+// pruning Reconcile only runs at shard load. Left un-repaired it blocks the
+// drop's finalize and the shard's replica movement until a reload.
+func TestSegmentEditOps_RepairCompactionRows(t *testing.T) {
+	s := newSegmentEditOps(t.TempDir(), "")
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+
+	require.NoError(t, s.RegisterOp("owes-left", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 1}))
+	require.NoError(t, s.SnapshotSegments("owes-left", []string{"100", "200"}))
+	// 200 was already stripped, so only the left input is still owed. This is
+	// the shape that makes the transfer observable: the merged output takes the
+	// right input's ID, and it now carries 100's unstripped bytes.
+	require.NoError(t, s.MarkSegmentDone("owes-left", "200"))
+
+	require.NoError(t, s.RegisterOp("owes-nothing", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 2}))
+	require.NoError(t, s.SnapshotSegments("owes-nothing", []string{"900"}))
+
+	// Compaction merged 100 into 200 and the bookkeeping tx failed.
+	require.NoError(t, s.RepairCompactionRows("100", "200"))
+
+	pending, err := s.Pending("owes-left")
+	require.NoError(t, err)
+	require.Equal(t, []string{"200"}, pending,
+		"the vanished input's row is retired and the merged output carries its coverage")
+
+	pending, err = s.Pending("owes-nothing")
+	require.NoError(t, err)
+	require.Equal(t, []string{"900"}, pending, "an op that never owed the input is untouched")
+
+	// Idempotent: a repeated repair must not resurrect the retired row.
+	require.NoError(t, s.RepairCompactionRows("100", "200"))
+	pending, err = s.Pending("owes-left")
+	require.NoError(t, err)
+	require.Equal(t, []string{"200"}, pending)
+}
+
+// TestSegmentEditOps_RepairCompactionRows_HonorsQuarantine pins that the
+// repair cannot revive a segment the retry budget already gave up on: the
+// merged output stays quarantined, and the vanished input's row still goes.
+func TestSegmentEditOps_RepairCompactionRows_HonorsQuarantine(t *testing.T) {
+	s := newSegmentEditOps(t.TempDir(), "")
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+
+	require.NoError(t, s.RegisterOp("op1", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 1}))
+	require.NoError(t, s.SnapshotSegments("op1", []string{"100", "200"}))
+	require.NoError(t, s.Quarantine("op1", "200"))
+
+	require.NoError(t, s.RepairCompactionRows("100", "200"))
+
+	pending, err := s.Pending("op1")
+	require.NoError(t, err)
+	require.Empty(t, pending, "a quarantined merged output must not be re-pended by the repair")
+
+	q, err := s.Quarantined()
+	require.NoError(t, err)
+	require.Len(t, q, 1)
+	require.Equal(t, "200", q[0].SegmentID, "the verdict stands")
+}
+
+// TestSegmentEditOps_RequeueQuarantined_BoundedPerSegment pins the limit on
+// second chances. Requeueing exists for transient failures, but each new round
+// hands the segment a full retry budget, and a segment that can never be
+// rewritten would turn every FAILED round's nudge into another round of full
+// segment rewrites — forever. After maxQuarantineRequeues the verdict sticks
+// and the drop stalls visibly instead.
+func TestSegmentEditOps_RequeueQuarantined_BoundedPerSegment(t *testing.T) {
+	s := newSegmentEditOps(t.TempDir(), "")
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+
+	require.NoError(t, s.RegisterOp("op1", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 1}))
+	require.NoError(t, s.SnapshotSegments("op1", []string{"100"}))
+	live := []string{"100"}
+
+	for round := 1; round <= maxQuarantineRequeues; round++ {
+		// The round burns the whole per-round budget, then quarantines.
+		require.NoError(t, s.BumpAttempt("op1", "100", errors.New("cannot rewrite")))
+		require.NoError(t, s.Quarantine("op1", "100"))
+		require.NoError(t, s.RequeueQuarantined("op1", live))
+
+		pending, err := s.AllPending()
+		require.NoError(t, err)
+		require.Len(t, pending, 1, "round %d still has budget, so the segment retries", round)
+		require.Zero(t, pending[0].Attempts, "a new round starts with a fresh per-round budget")
+		require.Equal(t, round, pending[0].Requeues, "the second-chance count carries across rounds")
+		require.Equal(t, "cannot rewrite", pending[0].LastError,
+			"the budget resets but the evidence must not: LastError is the only record of why")
+	}
+
+	// One more failure: the segment has now failed every round it was given.
+	require.NoError(t, s.BumpAttempt("op1", "100", errors.New("cannot rewrite")))
+	require.NoError(t, s.Quarantine("op1", "100"))
+	require.NoError(t, s.RequeueQuarantined("op1", live))
+
+	pending, err := s.AllPending()
+	require.NoError(t, err)
+	require.Empty(t, pending, "past the bound the segment must not be handed another budget")
+
+	q, err := s.Quarantined()
+	require.NoError(t, err)
+	require.Len(t, q, 1, "the verdict stays, so the stall is visible instead of silent")
+	require.Equal(t, "100", q[0].SegmentID)
+
+	// Idempotent once spent: further rounds must not resurrect it.
+	require.NoError(t, s.RequeueQuarantined("op1", live))
+	pending, err = s.AllPending()
+	require.NoError(t, err)
+	require.Empty(t, pending)
+}
+
+// TestSegmentEditOps_FreshOpSnapshotsSegmentQuarantinedByAnother pins the
+// escape for a shard no later round of its epoch arms. Coverage inheritance
+// stops arming a shard once a round completes it, so the re-arm — and with it
+// RequeueQuarantined — is unreachable there and the verdict stands for the rest
+// of the epoch. The epoch closing is what breaks that: the next epoch registers
+// a NEW op, and because the quarantine skip is scoped to the op's own sub-bucket,
+// that op snapshots the segment again with a fresh budget. Were the skip global
+// instead, the segment would be excluded from every future op as well and its
+// dropped vectors could never be stripped by any epoch.
+func TestSegmentEditOps_FreshOpSnapshotsSegmentQuarantinedByAnother(t *testing.T) {
+	s := newSegmentEditOps(t.TempDir(), "")
+	t.Cleanup(func() { require.NoError(t, s.Close()) })
+
+	require.NoError(t, s.RegisterOp("op1", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 1}))
+	require.NoError(t, s.SnapshotSegments("op1", []string{"100"}))
+	require.NoError(t, s.Quarantine("op1", "100"))
+
+	pending, err := s.Pending("op1")
+	require.NoError(t, err)
+	require.Empty(t, pending, "the exhausted budget stands within the op that hit it")
+
+	// The next drop epoch's op: a different identity on the same shard.
+	require.NoError(t, s.RegisterOp("op2", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 2}))
+	require.NoError(t, s.SnapshotSegments("op2", []string{"100"}))
+
+	pending, err = s.Pending("op2")
+	require.NoError(t, err)
+	require.Equal(t, []string{"100"}, pending,
+		"a fresh op must re-cover the segment an earlier op quarantined")
+
+	q, err := s.Quarantined()
+	require.NoError(t, err)
+	require.Len(t, q, 1, "op1's verdict is untouched; the sweep collects it with its terminal task")
 }

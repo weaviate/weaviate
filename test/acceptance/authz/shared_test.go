@@ -14,13 +14,16 @@ package authz
 import (
 	"context"
 	"os"
+	"slices"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/client/schema"
+	"github.com/weaviate/weaviate/client/users"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
@@ -98,9 +101,9 @@ func getSharedCompose(t *testing.T) *docker.DockerCompose {
 	builder := docker.New().
 		WithMCP().
 		WithWeaviateEnv("AUTOSCHEMA_ENABLED", "false").
-		WithWeaviateEnv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true").
 		WithWeaviateWithGRPC().WithRBAC().WithApiKey().WithDbUsers().
 		WithBackendFilesystem().
+		WithWeaviateLicense().
 		WithUserApiKey(sharedRootUser, sharedRootKey).
 		WithUserApiKey(sharedRoot2User, sharedRoot2Key).
 		WithUserApiKey(sharedViewerUser, sharedViewerKey).
@@ -149,6 +152,7 @@ func getSharedCluster(t *testing.T) *docker.DockerCompose {
 		WithWeaviateCluster(3).
 		WithApiKey().WithRBAC().WithDbUsers().
 		WithBackendS3("bucket", s3BackupJourneyRegion).
+		WithWeaviateLicense().
 		WithUserApiKey(sharedRootUser, sharedRootKey).
 		WithUserApiKey(sharedRoot2User, sharedRoot2Key).
 		WithRbacRoots(sharedRootUser, sharedRoot2User)
@@ -179,8 +183,57 @@ func resetClusterState(t *testing.T, compose *docker.DockerCompose) {
 		require.NoError(t, compose.EnsureRunning(ctx, n))
 	}
 	cancel()
+	waitForSameUsersOnEveryNode(t, compose)
 	helper.SetupClient(compose.GetWeaviate().URI())
 	resetAuthzState(t)
+}
+
+// waitForSameUsersOnEveryNode waits until every node lists the same users. A node
+// lists users from its own state, so without the wait resetAuthzState can miss a
+// user node 1 has not applied yet and leak it into the next test.
+func waitForSameUsersOnEveryNode(t *testing.T, compose *docker.DockerCompose) {
+	t.Helper()
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		var node1Users []string
+		for n := 1; n <= 3; n++ {
+			helper.SetupClient(compose.GetWeaviateNode(n).URI())
+			resp, err := helper.Client(t).Users.ListAllUsers(users.NewListAllUsersParams(), helper.CreateAuth(sharedRootKey))
+			if !assert.NoError(c, err, "node %d", n) {
+				return
+			}
+			var listed []string
+			for _, u := range resp.Payload {
+				listed = append(listed, *u.UserID)
+			}
+			if n == 1 {
+				node1Users = listed
+				continue
+			}
+			assert.ElementsMatch(c, node1Users, listed, "node %d lists other users than node 1", n)
+		}
+	}, 30*time.Second, 100*time.Millisecond)
+}
+
+// waitForUserOnEveryNode waits, node by node, until check passes on the node's
+// list entry for userID, which is nil when the node does not list it. A node
+// lists users from its own state, so the entry shows what that node applied.
+func waitForUserOnEveryNode(t *testing.T, compose *docker.DockerCompose, userID string, check func(c *assert.CollectT, node int, found *models.DBUserInfo)) {
+	t.Helper()
+	for n := 1; n <= 3; n++ {
+		helper.SetupClient(compose.GetWeaviateNode(n).URI())
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			resp, err := helper.Client(t).Users.ListAllUsers(users.NewListAllUsersParams(), helper.CreateAuth(sharedRootKey))
+			if !assert.NoError(c, err, "node %d", n) {
+				return
+			}
+			var found *models.DBUserInfo
+			if i := slices.IndexFunc(resp.Payload, func(u *models.DBUserInfo) bool { return *u.UserID == userID }); i != -1 {
+				found = resp.Payload[i]
+			}
+			check(c, n, found)
+		}, 30*time.Second, 100*time.Millisecond)
+	}
+	helper.SetupClient(compose.GetWeaviate().URI())
 }
 
 // countDynamicUsers returns how many of the listed users were created at

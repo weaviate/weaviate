@@ -16,12 +16,14 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -188,7 +190,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		sourcer.On("CreateBackup", mock.Anything, mock.Anything).Return(nil, nil)
 		sourcer.On("ReleaseBackup", mock.Anything, mock.Anything).Return(nil)
 		var ch <-chan backup.ClassDescriptor
-		sourcer.On("BackupDescriptors", any, any, any, any).Return(ch)
+		sourcer.On("BackupDescriptors", any, any, any, any, any).Return(ch)
 
 		backend := &fakeBackend{}
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, backup.ErrNotFound{})
@@ -217,7 +219,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
 		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
-		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch)
+		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything, mock.Anything).Return(ch)
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
@@ -231,15 +233,112 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		req := req
 		req.Duration = time.Hour
 		got := m.OnCanCommit(ctx, &req)
-		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: _TimeoutShardCommit}
+		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: maxBooking(false)}
 		assert.Equal(t, got, want)
 
-		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", ""})
+		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", "", ""})
 		assert.Nil(t, err)
 		m.backupper.waitForCompletion(20, 50)
 		status, errMsg := backend.getMetaStatus()
 		assert.Equal(t, backup.Success, status)
 		assert.Equal(t, "", errMsg)
+	})
+
+	t.Run("DedupeStampingFollowsEffectiveFlag", func(t *testing.T) {
+		tests := []struct {
+			name       string
+			flag       bool
+			effective  bool
+			wantVer    string
+			wantDedupe bool
+		}{
+			{name: "flag with designations stamps v3", flag: true, effective: true, wantVer: VersionDedupeReplicas, wantDedupe: true},
+			{name: "flag without designations stamps legacy", flag: true, wantVer: Version},
+			{name: "no flag stamps legacy", wantVer: Version},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				var (
+					sourcePath = t.TempDir()
+					sourcer    = &fakeSourcer{}
+					backend    = newFakeBackend()
+				)
+				sourcer.On("Backupable", ctx, req.Classes).Return(nil)
+				ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
+				sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything, mock.Anything).Return(ch)
+				sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
+				backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+				backend.On("SourceDataPath").Return(sourcePath)
+				backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
+				backend.On("Initialize", ctx, nodeHome).Return(nil)
+				backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil).Once()
+				backend.On("Write", mock.Anything, nodeHome, mock.Anything, mock.Anything).Return(any, nil)
+				m := createManager(sourcer, nil, backend, nil)
+
+				req := req
+				req.Duration = time.Hour
+				req.DedupeReplicas = tc.flag
+				req.DedupeEffective = tc.effective
+				resp := m.OnCanCommit(ctx, &req)
+				require.Empty(t, resp.Err)
+				require.NoError(t, m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", "", ""}))
+				m.backupper.waitForCompletion(20, 50)
+
+				status, _ := backend.getMetaStatus()
+				require.Equal(t, backup.Success, status)
+				version, dedupe := backend.getMetaStamp()
+				assert.Equal(t, tc.wantVer, version)
+				assert.Equal(t, tc.wantDedupe, dedupe)
+			})
+		}
+	})
+
+	t.Run("RoleSelectionReachesTheSnapshotter", func(t *testing.T) {
+		var (
+			sourcePath = t.TempDir()
+			sourcer    = &fakeSourcer{}
+			backend    = newFakeBackend()
+			roles      = []string{"ns1:reader", "ns1:writer"}
+			users      = []string{"ns1:alice"}
+		)
+
+		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
+		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
+		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything, mock.Anything).Return(ch)
+		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
+
+		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		backend.On("SourceDataPath").Return(sourcePath)
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, errNotFound)
+		backend.On("Initialize", ctx, nodeHome).Return(nil)
+		backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil).Once()
+		backend.On("Write", mock.Anything, nodeHome, mock.Anything, mock.Anything).Return(any, nil)
+		m, rbacSnapshotter, dynUserSnapshotter := createManagerWithSnapshotters(sourcer, nil, backend, nil)
+
+		req := req
+		req.Duration = time.Hour
+		req.Roles = roles
+		req.Users = users
+		got := m.OnCanCommit(ctx, &req)
+		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: maxBooking(false)}
+		require.Equal(t, want, got)
+
+		require.NoError(t, m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", "", ""}))
+		m.backupper.waitForCompletion(20, 50)
+		status, errMsg := backend.getMetaStatus()
+		require.Equal(t, backup.Success, status)
+		require.Equal(t, "", errMsg)
+
+		// The node must snapshot the requested roles and nothing else. An empty
+		// selection here means this node dumped the whole RBAC store while the
+		// descriptor still advertised the subset the caller asked for.
+		gotRoles, calledRbac := rbacSnapshotter.snapshotted()
+		require.True(t, calledRbac, "the participant never took an RBAC snapshot")
+		assert.Equal(t, roles, gotRoles)
+
+		gotUsers, calledDynUser := dynUserSnapshotter.snapshotted()
+		require.True(t, calledDynUser, "the participant never took a dynamic user snapshot")
+		assert.Equal(t, users, gotUsers)
 	})
 
 	t.Run("NodeMissingFromBaseBackupUploadsFull", func(t *testing.T) {
@@ -253,11 +352,11 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 
 		// capture the base descriptors passed to the uploader to prove this
 		// node deduplicates against nothing (full upload)
-		var gotBaseDescrs []*backup.BackupDescriptor
+		var gotBaseDescrs []*backup.BaseBackupDescriptor
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
 		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
-		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch).Run(func(a mock.Arguments) {
-			gotBaseDescrs = a.Get(3).([]*backup.BackupDescriptor)
+		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything, mock.Anything).Return(ch).Run(func(a mock.Arguments) {
+			gotBaseDescrs = a.Get(3).([]*backup.BaseBackupDescriptor)
 		})
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 
@@ -275,10 +374,10 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		req.Duration = time.Hour
 		req.BaseBackupID = baseID
 		got := m.OnCanCommit(ctx, &req)
-		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: _TimeoutShardCommit}
+		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: maxBooking(false)}
 		assert.Equal(t, got, want)
 
-		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", ""})
+		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", "", ""})
 		assert.NoError(t, err)
 		m.backupper.waitForCompletion(20, 50)
 		status, errMsg := backend.getMetaStatus()
@@ -298,7 +397,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
 		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
-		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch)
+		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything, mock.Anything).Return(ch)
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
@@ -313,10 +412,10 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		req := req
 		req.Duration = time.Hour
 		got := m.OnCanCommit(ctx, &req)
-		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: _TimeoutShardCommit}
+		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: maxBooking(false)}
 		assert.Equal(t, got, want)
 
-		err := m.OnAbort(ctx, &AbortRequest{OpCreate, req.ID, backendName, "", "", ""})
+		err := m.OnAbort(ctx, &AbortRequest{OpCreate, req.ID, backendName, "", "", "", ""})
 		assert.Nil(t, err)
 		m.backupper.waitForCompletion(20, 50)
 		assert.Contains(t, m.backupper.lastAsyncError.Error(), "abort")
@@ -332,8 +431,8 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
 		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
-		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch).RunFn = func(a mock.Arguments) {
-			m.OnAbort(ctx, &AbortRequest{OpCreate, req.ID, backendName, "", "", ""})
+		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything, mock.Anything).Return(ch).RunFn = func(a mock.Arguments) {
+			m.OnAbort(ctx, &AbortRequest{OpCreate, req.ID, backendName, "", "", "", ""})
 			// give the abort request time to propagate
 			time.Sleep(10 * time.Millisecond)
 		}
@@ -349,10 +448,10 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		req := req
 		req.Duration = time.Hour
 		got := m.OnCanCommit(ctx, &req)
-		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: _TimeoutShardCommit}
+		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: maxBooking(false)}
 		assert.Equal(t, got, want)
 
-		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", ""})
+		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", "", ""})
 		assert.Nil(t, err)
 		m.backupper.waitForCompletion(20, 50)
 		status, metaErr := backend.getMetaStatus()
@@ -371,7 +470,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 
 		sourcer.On("Backupable", ctx, req.Classes).Return(nil)
 		ch := fakeBackupDescriptor(genClassDescriptions(t, sourcePath, cls, cls2)...)
-		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything).Return(ch)
+		sourcer.On("BackupDescriptors", any, backupID, mock.Anything, mock.Anything, mock.Anything).Return(ch)
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
@@ -441,6 +540,13 @@ func fakeBackupDescriptor(descs ...backup.ClassDescriptor) <-chan backup.ClassDe
 }
 
 func createManager(sourcer Sourcer, schema schemaManger, backend modulecapabilities.BackupBackend, backendErr error) *Handler {
+	m, _, _ := createManagerWithSnapshotters(sourcer, schema, backend, backendErr)
+	return m
+}
+
+// createManagerWithSnapshotters also returns the two snapshot fakes the handler was
+// built with, so a test can assert on the selection that reached them.
+func createManagerWithSnapshotters(sourcer Sourcer, schema schemaManger, backend modulecapabilities.BackupBackend, backendErr error) (*Handler, *fakeRbacBackupWrapper, *fakeDynUserBackupWrapper) {
 	backends := &fakeBackupBackendProvider{backend, backendErr}
 	if sourcer == nil {
 		sourcer = &fakeSourcer{}
@@ -450,28 +556,65 @@ func createManager(sourcer Sourcer, schema schemaManger, backend modulecapabilit
 	}
 
 	logger, _ := test.NewNullLogger()
-	return NewHandler(logger, config.Backup{}, mocks.NewMockAuthorizer(), schema, sourcer, backends, fakeRbacBackupWrapper{}, fakeDynUserBackupWrapper{})
+	rbac := &fakeRbacBackupWrapper{}
+	dynUser := &fakeDynUserBackupWrapper{}
+	return NewHandler(logger, config.Backup{}, mocks.NewMockAuthorizer(), schema, nodeNameOf(schema), sourcer, backends, rbac, dynUser), rbac, dynUser
 }
 
-type fakeRbacBackupWrapper struct{}
+// fakeRbacBackupWrapper satisfies RBACSnapshotter (variadic Snapshot). It records the
+// selection it was called with. Discarding that argument would leave every hop between
+// the participant request and this call unpinned, so a dropped selection would still
+// produce a green suite while each node snapshotted the whole RBAC store.
+type fakeRbacBackupWrapper struct {
+	mu       sync.Mutex
+	gotRoles []string
+	called   bool
+}
 
-func (r fakeRbacBackupWrapper) Snapshot() ([]byte, error) {
+func (r *fakeRbacBackupWrapper) Snapshot(roles ...string) ([]byte, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.called = true
+	r.gotRoles = roles
 	return nil, nil
 }
 
-func (r fakeRbacBackupWrapper) Restore([]byte) error {
+func (r *fakeRbacBackupWrapper) Restore([]byte, bool) error {
 	return nil
 }
 
-// fakeDynUserBackupWrapper satisfies dynUserSnapshotter (variadic Snapshot).
-type fakeDynUserBackupWrapper struct{}
+// snapshotted returns the recorded selection and whether Snapshot ran at all. The
+// backup runs on its own goroutine, so the lock is required even after waiting.
+func (r *fakeRbacBackupWrapper) snapshotted() ([]string, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.gotRoles, r.called
+}
 
-func (fakeDynUserBackupWrapper) Snapshot(userIDs ...string) ([]byte, error) {
+// fakeDynUserBackupWrapper satisfies dynUserSnapshotter (variadic Snapshot). It records
+// its selection for the same reason fakeRbacBackupWrapper does.
+type fakeDynUserBackupWrapper struct {
+	mu       sync.Mutex
+	gotUsers []string
+	called   bool
+}
+
+func (d *fakeDynUserBackupWrapper) Snapshot(userIDs ...string) ([]byte, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.called = true
+	d.gotUsers = userIDs
 	return nil, nil
 }
 
-func (fakeDynUserBackupWrapper) Restore([]byte, bool) error {
+func (d *fakeDynUserBackupWrapper) Restore([]byte, bool) error {
 	return nil
+}
+
+func (d *fakeDynUserBackupWrapper) snapshotted() ([]string, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.gotUsers, d.called
 }
 
 func TestResolveBaseBackupChain(t *testing.T) {
@@ -717,6 +860,56 @@ func TestResolveBaseBackupChain(t *testing.T) {
 			errorContains: []string{"backup \"backup-1\" has compression type", "expected"},
 		},
 		{
+			name:            "LegacyBaseByStructureVersion",
+			baseBackupID:    "backup-1",
+			childStartedAt:  t1,
+			compressionType: gzipCompression,
+			setupFetchMeta: func() fetchMetaFunc {
+				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
+					return &backup.BackupDescriptor{
+						ID:              "backup-1",
+						CompressionType: &gzipCompression,
+						Version:         "1.0",
+						ServerVersion:   "1.23",
+						Status:          backup.Success,
+						StartedAt:       t0,
+					}, nil
+				}
+			},
+			errorContains: []string{"base backup \"backup-1\"", "older than v1.21"},
+		},
+		{
+			name:            "LegacyBaseDeeperInChain",
+			baseBackupID:    "backup-2",
+			childStartedAt:  t2,
+			compressionType: gzipCompression,
+			setupFetchMeta: func() fetchMetaFunc {
+				descriptors := map[string]*backup.BackupDescriptor{
+					"backup-1": {
+						ID:              "backup-1",
+						CompressionType: &gzipCompression,
+						Version:         Version,
+						ServerVersion:   "1.22",
+						Status:          backup.Success,
+						StartedAt:       t0,
+					},
+					"backup-2": {
+						ID:              "backup-2",
+						CompressionType: &gzipCompression,
+						Version:         Version,
+						ServerVersion:   "1.23",
+						BaseBackupID:    "backup-1",
+						Status:          backup.Success,
+						StartedAt:       t1,
+					},
+				}
+				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
+					return descriptors[backupID], nil
+				}
+			},
+			errorContains: []string{"base backup \"backup-1\"", "older than v1.23"},
+		},
+		{
 			name:            "FailedBackupStatus",
 			baseBackupID:    "backup-1",
 			childStartedAt:  t1,
@@ -761,4 +954,13 @@ func TestResolveBaseBackupChain(t *testing.T) {
 			}
 		})
 	}
+}
+
+// nodeNameOf is the node the handler runs on: the fake's own name when the test set
+// one, the package default otherwise.
+func nodeNameOf(s schemaManger) string {
+	if f, ok := s.(*fakeSchemaManger); ok && f.nodeName != "" {
+		return f.nodeName
+	}
+	return nodeName
 }

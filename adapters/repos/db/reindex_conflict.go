@@ -14,10 +14,116 @@ package db
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/models"
 )
+
+// ReindexBucketEffect is the single source of truth for which buckets a
+// migration type touches (gates conflict/idempotency checks) and whether
+// completing it produces blockmax (feeds [SearchablePropertyBlockmaxFromRAFT]).
+//
+// ok is false only for an unrecognized type — forward-compat for a rolling
+// upgrade observing a newer peer's task; must never panic on peer input. Such
+// types fail safe: touches=true rejects a racing submit, producesBlockmax=true
+// assumes the only realistic post-GA direction (under-reporting risks
+// corrupting an already-blockmax bucket). Exhaustiveness lives in
+// TestReindexBucketEffect_Exhaustive.
+func ReindexBucketEffect(t ReindexMigrationType) (touchesSearchable, touchesFilterable, producesBlockmax, ok bool) {
+	switch t {
+	case ReindexTypeChangeAlgorithm, ReindexTypeRebuildSearchable, ReindexTypeEnableSearchable:
+		return true, false, true, true
+	case ReindexTypeChangeTokenization:
+		return true, true, false, true
+	case ReindexTypeChangeTokenizationFilterable, ReindexTypeRepairFilterable, ReindexTypeEnableFilterable:
+		return false, true, false, true
+	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
+		return false, false, false, true
+	default:
+		return true, true, true, false
+	}
+}
+
+// producesBlockmaxSearchable reports whether completing a migration type leaves
+// the property's searchable bucket on blockmax. Thin accessor over
+// [ReindexBucketEffect] (see there for the unknown-type policy).
+func producesBlockmaxSearchable(t ReindexMigrationType) bool {
+	_, _, producesBlockmax, _ := ReindexBucketEffect(t)
+	return producesBlockmax
+}
+
+// SearchablePropertyIsBlockmax resolves whether (class, propName)'s searchable
+// bucket is blockmax, from RAFT-consistent state only. Precedence: the durable
+// per-property stamp if set (survives task-list ageout and same-tick sibling
+// migrations), else the class-flag/FINISHED-task derivation
+// ([SearchablePropertyBlockmaxFromRAFT]). nil reindexTasks is valid (e.g.
+// shard init). Every read site must route through this resolver.
+func SearchablePropertyIsBlockmax(class *models.Class, propName string, reindexTasks []*distributedtask.Task) bool {
+	if blockmax, resolved := searchableStampOrClassFlag(class, propName); resolved {
+		return blockmax
+	}
+	// classFlag is false here (else resolved would be true), so the task-list
+	// fallback carries the whole decision.
+	return SearchablePropertyBlockmaxFromRAFT(false, class.Class, propName, reindexTasks)
+}
+
+// searchableStampOrClassFlag applies the first two precedence tiers of
+// [SearchablePropertyIsBlockmax] — the durable per-property stamp, then the
+// class-wide flag. resolved is false when neither tier decides and the caller
+// must consult the FINISHED reindex-task list.
+func searchableStampOrClassFlag(class *models.Class, propName string) (blockmax, resolved bool) {
+	for _, p := range class.Properties {
+		if p.Name == propName {
+			if p.SearchableBlockmax != nil {
+				return *p.SearchableBlockmax, true
+			}
+			break
+		}
+	}
+	if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND {
+		return true, true
+	}
+	return false, false
+}
+
+// SearchablePropertyIsBlockmaxParsed is [SearchablePropertyIsBlockmax] using a
+// pre-computed finishedBlockmaxProps set (built once by the GET-indexes
+// handler) instead of a raw task list, so per-property resolution is O(1).
+func SearchablePropertyIsBlockmaxParsed(class *models.Class, propName string, finishedBlockmaxProps map[string]struct{}) bool {
+	if blockmax, resolved := searchableStampOrClassFlag(class, propName); resolved {
+		return blockmax
+	}
+	_, ok := finishedBlockmaxProps[propName]
+	return ok
+}
+
+// SearchablePropertyBlockmaxFromRAFT derives per-property blockmax truth from
+// the class flag plus the FINISHED task list — [SearchablePropertyIsBlockmax]'s
+// fallback when a property carries no durable stamp. It can't see a migration
+// whose task has aged out, which is why the stamp is the primary source.
+func SearchablePropertyBlockmaxFromRAFT(classFlagBlockmax bool, collection, propName string, reindexTasks []*distributedtask.Task) bool {
+	if classFlagBlockmax {
+		return true
+	}
+	for _, task := range reindexTasks {
+		if task.Status != distributedtask.TaskStatusFinished {
+			continue
+		}
+		var payload ReindexTaskPayload
+		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			continue
+		}
+		if !producesBlockmaxSearchable(payload.MigrationType) {
+			continue
+		}
+		if strings.EqualFold(payload.Collection, collection) && slices.Contains(payload.Properties, propName) {
+			return true
+		}
+	}
+	return false
+}
 
 // CheckConflict implements [distributedtask.ConflictDetector] for the
 // reindex namespace. Called under [Manager.mu] from the RAFT-apply
@@ -44,15 +150,11 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 	}
 
 	for _, task := range existingTasks {
-		// PREPARING and SWAPPING both count as in-flight (via
-		// [distributedtask.TaskStatus.IsActive]): every unit has reached
-		// terminal state, but the post-completion callbacks (per-node
-		// PREP, cluster-wide PrepCompleteAck barrier, per-node swap,
-		// cluster-wide schema flip) have not yet committed. Submitting
-		// a new migration on the same property during either window
-		// could land before MarkDistributedTaskFinalized commits the
-		// schema flip, leaving the new task and the unfinished swap of
-		// the prior one racing on the same bucket pointers.
+		// PREPARING and SWAPPING are the subtle ones: every unit has
+		// reached terminal state, but the post-completion callbacks have
+		// not yet committed. A new migration on the same property could
+		// land before the schema flip commits, leaving it and the
+		// unfinished swap racing on the same bucket pointers.
 		if !task.Status.IsActive() {
 			continue
 		}
@@ -109,17 +211,9 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 func typesConflictReason(newType ReindexMigrationType, newProps []string,
 	existType ReindexMigrationType, existProps []string,
 ) string {
-	// Sanity-check the migration types via the exhaustive bucket-touch
-	// predicates so an unknown ReindexMigrationType still panics
-	// loudly at the conflict-check boundary rather than slipping
-	// through as "no conflict". Result values are intentionally
-	// discarded — the conflict rule below does not depend on which
-	// buckets are touched, only that both types are known.
-	_ = TouchesSearchable(newType)
-	_ = TouchesFilterable(newType)
-	_ = TouchesSearchable(existType)
-	_ = TouchesFilterable(existType)
-
+	// Conflict is property-overlap only; it doesn't consult bucket-touch
+	// predicates, so an unknown (peer-written) type on an overlapping
+	// property still conflicts without needing recognition here.
 	if !ReindexPropsOverlap(newProps, existProps) {
 		return ""
 	}
@@ -147,6 +241,16 @@ func TypesConflictReason(newType ReindexMigrationType, newProps []string,
 //
 // Public so REST handlers can use the same predicate as the
 // FSM-deterministic conflict check.
+//
+// Every caller acts on a match: refusing a conflicting submit, refusing
+// a schema mutation, or picking the task an operator asked to cancel.
+// Over-matching costs a retryable conflict error or one extra cancel
+// candidate; under-matching lets a schema change race an in-flight
+// migration on shared on-disk state. That asymmetry, not the literal
+// reading of an empty list, is why empty means "all" here.
+//
+// The status endpoint reads the same field the opposite way on purpose;
+// see mergeReindexStatus in adapters/handlers/rest/handlers_indexes.go.
 func ReindexPropsOverlap(a, b []string) bool {
 	if len(a) == 0 || len(b) == 0 {
 		return true
@@ -161,49 +265,36 @@ func ReindexPropsOverlap(a, b []string) bool {
 	return false
 }
 
-// TouchesSearchable reports whether migration type t writes to the
-// searchable bucket. Implemented as an exhaustive switch so that a
-// newly-added [ReindexMigrationType] cannot silently be treated as
-// "doesn't touch searchable" — the default case panics with a clear
-// message, surfacing the gap on the first request that exercises the
-// new type. This matters because [typesConflictReason] relies on
-// these answers (via the sanity-check at its entry) to gate
-// concurrent reindex submissions: a positive-list miss would allow
-// conflicting writes to the same bucket through.
+// TouchesSearchable reports whether migration type t writes to the searchable
+// bucket. Thin accessor over [ReindexBucketEffect] (see there for the
+// unknown-type policy).
 func TouchesSearchable(t ReindexMigrationType) bool {
-	switch t {
-	case ReindexTypeChangeAlgorithm,
-		ReindexTypeChangeTokenization,
-		ReindexTypeEnableSearchable:
-		return true
-	case ReindexTypeRepairFilterable,
-		ReindexTypeChangeTokenizationFilterable,
-		ReindexTypeEnableFilterable,
-		ReindexTypeEnableRangeable,
-		ReindexTypeRepairRangeable:
-		return false
-	default:
-		panic(fmt.Sprintf("TouchesSearchable: unknown ReindexMigrationType %q — add it to this switch", t))
-	}
+	touchesSearchable, _, _, _ := ReindexBucketEffect(t)
+	return touchesSearchable
 }
 
-// TouchesFilterable reports whether migration type t writes to the
-// filterable bucket. Same exhaustive-switch contract as
-// [TouchesSearchable].
+// TouchesFilterable reports whether migration type t writes to the filterable
+// bucket. Thin accessor over [ReindexBucketEffect].
 func TouchesFilterable(t ReindexMigrationType) bool {
-	switch t {
-	case ReindexTypeRepairFilterable,
-		ReindexTypeChangeTokenization,
-		ReindexTypeChangeTokenizationFilterable,
-		ReindexTypeEnableFilterable:
-		return true
-	case ReindexTypeChangeAlgorithm,
-		ReindexTypeEnableSearchable,
-		ReindexTypeEnableRangeable,
-		ReindexTypeRepairRangeable:
-		return false
+	_, touchesFilterable, _, _ := ReindexBucketEffect(t)
+	return touchesFilterable
+}
+
+// MutationRemedy is the tail of a mutation refusal: what the operator can
+// actually do about it. The cancel API accepts STARTED and nothing else,
+// so a refusal that names a cancel unconditionally sends the operator
+// down a road that dead-ends in a 409.
+func MutationRemedy(status distributedtask.TaskStatus, whenCancellable string) string {
+	switch {
+	case status.IsCancellable():
+		return whenCancellable
+	case status.IsRecognized():
+		return "the task is past the point where a cancel is accepted — the reindex REST API " +
+			"answers 409 in this phase, so it has to run through to a terminal state first"
 	default:
-		panic(fmt.Sprintf("TouchesFilterable: unknown ReindexMigrationType %q — add it to this switch", t))
+		return "this build cannot classify that status, so a cancel via the reindex REST API is " +
+			"refused on every node — the task has to reach a terminal state on the nodes that do " +
+			"recognize it"
 	}
 }
 
@@ -212,7 +303,7 @@ func TouchesFilterable(t ReindexMigrationType) bool {
 // Called from the schema FSM's UpdateProperty apply path under
 // [Manager.mu] to reject external property mutations while a reindex
 // migration on the same (collection, property) is in any non-terminal
-// state (STARTED, PREPARING, or SWAPPING).
+// state (via [distributedtask.TaskStatus.IsActive]).
 //
 // Motivating failure mode: a `change-tokenization` migration spawns
 // separate per-shard sub-tasks for the searchable and filterable
@@ -272,11 +363,11 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 		return fmt.Errorf(
 			"reindex task %q (%s) is in flight on %s.%s (status=%s); "+
 				"schema mutations on this property are blocked until the "+
-				"reindex completes or is cancelled — wait for the task "+
-				"to reach a terminal state, or cancel it via the reindex "+
-				"REST API before retrying",
+				"reindex completes or is cancelled — %s",
 			task.ID, existP.MigrationType,
-			existP.Collection, propertyName, task.Status)
+			existP.Collection, propertyName, task.Status,
+			MutationRemedy(task.Status, "wait for the task to reach a terminal state, or "+
+				"cancel it via the reindex REST API before retrying"))
 	}
 	return nil
 }
@@ -326,9 +417,10 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 			"reindex task %q (%s) is in flight on %s (status=%s); "+
 				"deleting this class would destroy the migration's "+
 				"working state and produce a bucket↔schema inversion "+
-				"on every replica — cancel the reindex via the REST "+
-				"API before deleting the class",
-			task.ID, existP.MigrationType, existP.Collection, task.Status)
+				"on every replica — %s",
+			task.ID, existP.MigrationType, existP.Collection, task.Status,
+			MutationRemedy(task.Status,
+				"cancel the reindex via the REST API before deleting the class"))
 	}
 	return nil
 }
@@ -379,11 +471,11 @@ func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string
 		return fmt.Errorf(
 			"reindex task %q (%s) is in flight on %s (status=%s); "+
 				"mutating tenants %v would make their shards locally "+
-				"unavailable and produce a bucket↔schema inversion — "+
-				"cancel the reindex via the REST API before mutating "+
-				"these tenants",
+				"unavailable and produce a bucket↔schema inversion — %s",
 			task.ID, existP.MigrationType, existP.Collection,
-			task.Status, tenants)
+			task.Status, tenants,
+			MutationRemedy(task.Status,
+				"cancel the reindex via the REST API before mutating these tenants"))
 	}
 	return nil
 }

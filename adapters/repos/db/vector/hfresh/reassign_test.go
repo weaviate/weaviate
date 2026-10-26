@@ -20,6 +20,21 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
+func TestReassignWithoutDestinationsPreservesVector(t *testing.T) {
+	tf := createHFreshIndex(t)
+	postingID, posting := createPostingWithVectors(t, &tf, [][]float32{{1, 0, 0, 0}}, 100)
+
+	err := tf.Index.doReassign(t.Context(), reassignOperation{PostingID: postingID, VectorID: 100})
+	require.ErrorContains(t, err, "no destination postings")
+
+	version, err := tf.Index.VersionMap.Get(t.Context(), 100)
+	require.NoError(t, err)
+	require.Equal(t, VectorVersion(1), version)
+	retained, err := posting.GarbageCollect(tf.Index.VersionMap)
+	require.NoError(t, err)
+	require.Len(t, retained, 1, "failed reassignment must not invalidate the surviving copy")
+}
+
 // Reassign a vector that has been deleted
 func TestReassignDeletedVector(t *testing.T) {
 	tf := createHFreshIndex(t)
@@ -109,7 +124,7 @@ func TestReassignTaskQueueDedupDoesNotPersistOnClose(t *testing.T) {
 	err = tf.Index.taskQueue.Close(t.Context())
 	require.NoError(t, err)
 
-	data, err := tf.Index.IndexMetadata.bucket.Get(reassignBucketKey)
+	data, err := mustBucket(t, tf.Index.IndexMetadata.bucket).Get(reassignBucketKey)
 	require.NoError(t, err)
 	require.Nil(t, data)
 }
@@ -188,8 +203,9 @@ func TestReassignReenqueuesWhenSelectedPostingDisappears(t *testing.T) {
 }
 
 func TestReassignNormalizesFetchedVectorForCosineDistance(t *testing.T) {
-	tf := createHFreshIndex(t)
-	tf.Index.config.DistanceProvider = distancer.NewCosineDistanceProvider()
+	// the distance must be set at construction: the index precomputes its
+	// needs-normalization decision from the validated config in New
+	tf := createHFreshIndex(t, withDistanceProvider(distancer.NewCosineDistanceProvider()))
 
 	rawVector := []float32{3.0, 4.0, 0.0, 0.0}
 	normalizedVector := distancer.Normalize(rawVector)
@@ -243,4 +259,60 @@ func TestReassignTaskQueueOperations(t *testing.T) {
 
 	err = tf.Index.taskQueue.EnqueueReassign(postingID, vectorID)
 	require.NoError(t, err)
+}
+
+func TestReassignMuveraVector(t *testing.T) {
+	tf := createMuveraHFreshIndex(t)
+
+	multiVectors := [][]float32{
+		{1.0, 0.0, 0.0, 0.0},
+		{0.0, 1.0, 0.0, 0.0},
+		{0.0, 0.0, 1.0, 0.0},
+	}
+	docID := uint64(1000)
+	addMultiVectorToIndex(t, &tf, docID, multiVectors)
+
+	tf.Index.config.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
+		return nil, errors.New("single-vector slot is empty")
+	}
+
+	version, err := tf.Index.VersionMap.Get(t.Context(), docID)
+	require.NoError(t, err)
+	require.False(t, version.Deleted())
+
+	op := reassignOperation{
+		PostingID: 1,
+		VectorID:  docID,
+	}
+
+	err = tf.Index.doReassign(t.Context(), op)
+	require.NoError(t, err)
+
+	results, _, err := tf.Index.SearchByMultiVector(t.Context(), multiVectors, 10, nil)
+	require.NoError(t, err)
+	require.Contains(t, results, docID)
+}
+
+func TestReassignMuveraVectorNotFound(t *testing.T) {
+	tf := createMuveraHFreshIndex(t)
+
+	multiVectors := [][]float32{
+		{1.0, 0.0, 0.0, 0.0},
+		{0.0, 1.0, 0.0, 0.0},
+	}
+	docID := uint64(1000)
+	addMultiVectorToIndex(t, &tf, docID, multiVectors)
+
+	nonExistentID := uint64(9999)
+	err := tf.Index.VersionMap.store.Set(t.Context(), nonExistentID, VectorVersion(1))
+	require.NoError(t, err)
+
+	op := reassignOperation{
+		PostingID: 1,
+		VectorID:  nonExistentID,
+	}
+
+	err = tf.Index.doReassign(t.Context(), op)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to get vector by index ID")
 }

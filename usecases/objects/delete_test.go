@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func Test_DeleteObjectsWithSameId(t *testing.T) {
@@ -47,26 +48,47 @@ func Test_DeleteObjectsWithSameId(t *testing.T) {
 }
 
 func Test_DeleteObject(t *testing.T) {
+	const classVersion uint64 = 7
+
 	var (
 		cls         = "MyClass"
 		id          = strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
 		errNotFound = errors.New("object not found")
 	)
 
-	manager, repo, _, _ := newDeleteDependency()
-
-	repo.On("DeleteObject", cls, id, mock.Anything).Return(nil).Once()
-	err := manager.DeleteObject(context.Background(), nil, cls, id, nil, "")
-	assert.Nil(t, err)
-	repo.AssertExpectations(t)
-
-	// return internal error if deleteObject() fails
-	repo.On("DeleteObject", cls, id, mock.Anything).Return(errNotFound).Once()
-	err = manager.DeleteObject(context.Background(), nil, cls, id, nil, "")
-	if !errors.As(err, &ErrInternal{}) {
-		t.Errorf("error type got: %T want: ErrInternal", err)
+	tests := []struct {
+		name      string
+		repoErr   error
+		wantErrAs any
+	}{
+		{
+			name: "deleted",
+		},
+		{
+			name:      "repo failure is internal",
+			repoErr:   errNotFound,
+			wantErrAs: &ErrInternal{},
+		},
 	}
-	repo.AssertExpectations(t)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager, repo, _, smanager := newDeleteDependency()
+			smanager.ClassVersion = classVersion
+			repo.On("DeleteObject", cls, id, mock.Anything).Return(tt.repoErr).Once()
+
+			err := manager.DeleteObject(context.Background(), nil, cls, id, nil, "")
+
+			if tt.wantErrAs != nil {
+				require.ErrorAs(t, err, tt.wantErrAs)
+			} else {
+				require.NoError(t, err)
+			}
+			repo.AssertExpectations(t)
+			assert.Equal(t, classVersion, repo.CapturedSchemaVersion,
+				"the delete must be made with the collection's schema version")
+		})
+	}
 }
 
 // TestDeleteObject_RbacResolveAlias is to make sure alias is resolved to correct
@@ -95,8 +117,18 @@ func TestDeleteObject_RbacResolveAlias(t *testing.T) {
 	assert.Contains(t, auth.Calls()[0].Resources[0], class) // make sure rbac is called with "resolved class" name
 }
 
-func newDeleteDependency() (*Manager, *fakeVectorRepo, *mocks.FakeAuthorizer, *fakeSchemaManager) {
-	vectorRepo := new(fakeVectorRepo)
+func TestDeleteObject_InvalidClassNameIsInvalidUserInput(t *testing.T) {
+	manager, repo, auth, _ := newDeleteDependency()
+	err := manager.DeleteObject(context.Background(), nil, "a:Foo",
+		strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc"), nil, "")
+	require.ErrorAs(t, err, &ErrInvalidUserInput{})
+	assert.Contains(t, err.Error(), "is not a valid class name")
+	assert.Empty(t, auth.Calls())
+	repo.AssertExpectations(t)
+}
+
+func newDeleteDependency() (*Manager, *fakeObjectFinder, *mocks.FakeAuthorizer, *fakeSchemaManager) {
+	vectorRepo := new(fakeObjectFinder)
 	logger, _ := test.NewNullLogger()
 	authorizer := mocks.NewMockAuthorizer()
 	smanager := new(fakeSchemaManager)
@@ -108,6 +140,6 @@ func newDeleteDependency() (*Manager, *fakeVectorRepo, *mocks.FakeAuthorizer, *f
 		vectorRepo,
 		getFakeModulesProvider(),
 		new(fakeMetrics), nil,
-		NewAutoSchemaManager(new(fakeSchemaManager), vectorRepo, new(config.WeaviateConfig), logger, prometheus.NewPedanticRegistry()))
+		NewAutoSchemaManager(new(fakeSchemaManager), vectorRepo, new(config.WeaviateConfig), logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 	return manager, vectorRepo, authorizer, smanager
 }

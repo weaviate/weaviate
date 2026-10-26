@@ -1,0 +1,155 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package modulecomponents
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"math/rand/v2"
+	"net/http"
+	"net/http/httptrace"
+	"sync/atomic"
+	"syscall"
+	"time"
+
+	"github.com/weaviate/weaviate/usecases/monitoring"
+)
+
+// retryDelays holds the base pause before each retry, so its length is the
+// number of retries.
+var retryDelays = []time.Duration{50 * time.Millisecond, 250 * time.Millisecond}
+
+// retryTransport resends a request whose pooled connection broke before any
+// response arrived. net/http resends a POST only when none of its bytes reached
+// the wire, so a server closing a pooled connection mid-request fails the call.
+// A resent request may be processed twice by the origin.
+//
+// timeout covers all attempts and the response body read. http.Client.Timeout
+// cannot be used: with a wrapped transport it cancels through Request.Cancel, so
+// a timed-out call can report "request canceled" instead of the deadline.
+type retryTransport struct {
+	base    http.RoundTripper
+	timeout time.Duration
+}
+
+func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.timeout <= 0 {
+		return t.roundTripWithRetries(req)
+	}
+
+	ctx, cancel := context.WithTimeout(req.Context(), t.timeout)
+	res, err := t.roundTripWithRetries(req.WithContext(ctx))
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	res.Body = &cancelOnClose{ReadCloser: res.Body, cancel: cancel}
+	return res, nil
+}
+
+func (t *retryTransport) roundTripWithRetries(req *http.Request) (*http.Response, error) {
+	canResend := req.Body == nil || req.GetBody != nil
+
+	attempt := req
+	for i := 0; ; i++ {
+		if i > 0 {
+			monitoring.GetMetrics().ModuleExternalRequestResends.Inc()
+		}
+
+		var reusedConn atomic.Bool
+		res, err := t.base.RoundTrip(withConnReuseTrace(attempt, &reusedConn))
+		if err == nil {
+			return res, nil
+		}
+		// Only a request sent on a pooled connection is resent: a server closing
+		// a connection it considered idle cannot have processed it, while a break
+		// on a freshly dialed one may mean the origin already took the request.
+		if !canResend || !reusedConn.Load() || !isBrokenConnError(err) {
+			return nil, err
+		}
+		if i >= len(retryDelays) {
+			// Without the count a caller cannot tell the request was resent.
+			return nil, fmt.Errorf("after %d attempts: %w", i+1, err)
+		}
+
+		// A deadline landing in the pause is what ended the call, not the
+		// connection error before it.
+		if waitErr := waitBeforeRetry(req.Context(), jittered(retryDelays[i])); waitErr != nil {
+			return nil, waitErr
+		}
+
+		// The previous attempt consumed and closed the body, so take a fresh one.
+		attempt = req.Clone(req.Context())
+		if req.GetBody != nil {
+			body, bodyErr := req.GetBody()
+			if bodyErr != nil {
+				return nil, bodyErr
+			}
+			attempt.Body = body
+		}
+	}
+}
+
+// withConnReuseTrace returns req set up to record whether it goes out on a
+// pooled connection. GotConn does not fire when no connection could be
+// obtained, leaving reused false.
+func withConnReuseTrace(req *http.Request, reused *atomic.Bool) *http.Request {
+	trace := &httptrace.ClientTrace{
+		GotConn: func(info httptrace.GotConnInfo) { reused.Store(info.Reused) },
+	}
+	return req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
+}
+
+// jittered spreads out resends of connections that broke at the same moment, as
+// an inference service being restarted closes all of its pooled connections at
+// once.
+func jittered(delay time.Duration) time.Duration {
+	return delay + rand.N(delay)
+}
+
+// isBrokenConnError reports whether the connection died before a response could
+// be read. net/http wraps these, hence errors.Is.
+func isBrokenConnError(err error) bool {
+	return errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, syscall.EPIPE)
+}
+
+func waitBeforeRetry(ctx context.Context, delay time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+// cancelOnClose keeps the timeout in force until the caller closes the body.
+type cancelOnClose struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b *cancelOnClose) Close() error {
+	err := b.ReadCloser.Close()
+	b.cancel()
+	return err
+}

@@ -24,12 +24,16 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // findCompactionCandidates looks for pair of segments eligible for compaction
@@ -259,6 +263,31 @@ func isSimilarSegmentSizes(leftSize, rightSize int64) bool {
 	return lowerSize*factorDef >= higherSize
 }
 
+func segmentPathForID(dir string, id int64) string {
+	return filepath.Join(dir, fmt.Sprintf("segment-%d", id))
+}
+
+// segmentFilePrefix is what every file belonging to one segment id begins with.
+// segmentExistsWithID selects a segment by this prefix, so removeSegmentDerivedFiles
+// is correct only while it deletes by the same one.
+func segmentFilePrefix(id string) string {
+	return fmt.Sprintf("segment-%s.", id)
+}
+
+// isSegmentWALName reports whether a file is spelled the way a commit logger
+// writes a segment's write-ahead-log. A name that merely ends in .wal is
+// something else: segmentID cuts it at the first dot, naming a segment it does
+// not own.
+func isSegmentWALName(name string) bool {
+	// the comparison below formats a string and cuts the name apart, and
+	// removeSegmentsOfSurvivingWALs asks this of every file in the directory
+	if !strings.HasSuffix(name, ".wal") {
+		return false
+	}
+
+	return name == segmentFilePrefix(segmentID(name))+"wal"
+}
+
 func segmentID(path string) string {
 	filename := filepath.Base(path)
 	filename, _, _ = strings.Cut(filename, ".")
@@ -269,9 +298,66 @@ func segmentExtraInfo(level uint16, strategy segmentindex.Strategy) string {
 	return fmt.Sprintf(".l%d.s%d", level, strategy)
 }
 
-// compactOnce performs one compaction iteration. Cancelling ctx aborts
-// the in-flight merge (sampled every compactor.AbortCheckEveryN keys).
-func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err error) {
+// discardSegmentFile closes f and removes path, for a new segment file that is
+// not going to be switched in. Failures are joined into err: a leftover .tmp
+// would be renamed onto a live segment name by a later init.
+func discardSegmentFile(f *os.File, path string, err error) error {
+	// f is already closed if the failure came after the write finished
+	if closeErr := f.Close(); closeErr != nil && !stderrors.Is(closeErr, os.ErrClosed) {
+		err = stderrors.Join(err, fmt.Errorf("close new segment file %q: %w", path, closeErr))
+	}
+	if removeErr := os.Remove(path); removeErr != nil && !stderrors.Is(removeErr, os.ErrNotExist) {
+		err = stderrors.Join(err, fmt.Errorf("remove new segment file %q: %w", path, removeErr))
+	}
+	return err
+}
+
+// abortPollInterval bounds how often the poller reads shouldAbort.
+const abortPollInterval = 50 * time.Millisecond
+
+// compactOnce performs one compaction iteration.
+func (sg *SegmentGroup) compactOnce(ctx context.Context) (bool, error) {
+	return sg.compactOnceAbortable(ctx, nil)
+}
+
+// watchAbort returns a context cancelled once shouldAbort turns true. The poller
+// lives until the returned cancel runs, so callers must always call it.
+func (sg *SegmentGroup) watchAbort(ctx context.Context,
+	shouldAbort cyclemanager.ShouldAbortCallback,
+) (context.Context, context.CancelFunc) {
+	// read before deriving, so a panicking callback leaves no context behind
+	aborting := shouldAbort()
+	ctx, cancel := context.WithCancel(ctx)
+	if aborting {
+		cancel()
+		return ctx, cancel
+	}
+
+	enterrors.GoWrapper(func() {
+		t := time.NewTicker(abortPollInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if shouldAbort() {
+					cancel()
+					return
+				}
+			}
+		}
+	}, sg.logger)
+	return ctx, cancel
+}
+
+// compactOnceAbortable performs one compaction iteration. Cancelling ctx, or
+// shouldAbort turning true, aborts the in-flight merge (sampled every
+// compactor.AbortCheckEveryN keys). Its shouldAbort bridge is built only once
+// there is a pair to merge, so an idle cycle needs no context, goroutine or ticker.
+func (sg *SegmentGroup) compactOnceAbortable(ctx context.Context,
+	shouldAbort cyclemanager.ShouldAbortCallback,
+) (compacted bool, err error) {
 	// Is it safe to only occasionally lock instead of the entire duration? Yes,
 	// because other than compaction the only change to the segments array could
 	// be an append because of a new flush cycle, so we do not need to guarantee
@@ -325,6 +411,17 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 		}
 	}
 
+	// only mark actual compaction work as active: candidate probing and OOM
+	// skips above are not real runs
+	backgroundDone := monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessCompaction)
+	defer backgroundDone()
+
+	if shouldAbort != nil {
+		var cancel context.CancelFunc
+		ctx, cancel = sg.watchAbort(ctx, shouldAbort)
+		defer cancel()
+	}
+
 	var left, right Segment
 	func() {
 		sg.maintenanceLock.RLock()
@@ -351,6 +448,16 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 		return false, err
 	}
 
+	// Until switchOnDisk marks a source segment for deletion, both sources still
+	// hold everything this file has, so discarding it on every exit before the
+	// switch costs nothing and leaves no .tmp for a later init to adopt.
+	discardNewSegment := true
+	defer func() {
+		if discardNewSegment {
+			err = discardSegmentFile(f, path, err)
+		}
+	}()
+
 	secondaryIndices := left.getSecondaryIndexCount()
 	cleanupTombstones := !sg.keepTombstones && pair[0] == 0
 	maxNewFileSize := left.Size() + right.Size()
@@ -358,7 +465,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 	// set by the StrategyReplace case; consumed by the bookkeeping after the switch.
 	var builtOps []ActiveOp
 
-	// aborted=true tells the caller to close the partial .tmp and bail
+	// aborted=true tells the caller to bail without reporting an error
 	runCompactor := func(do func(context.Context) error) (aborted bool, err error) {
 		if err := do(ctx); err != nil {
 			if stderrors.Is(err, context.Canceled) || stderrors.Is(err, context.DeadlineExceeded) {
@@ -367,14 +474,6 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, err
 		}
 		return false, nil
-	}
-
-	abortAndClose := func() error {
-		// orphan .tmp is cleaned by segment_group.init on next start
-		if err := f.Close(); err != nil {
-			return fmt.Errorf("close aborted compactor output: %w", err)
-		}
-		return nil
 	}
 
 	switch strategy {
@@ -405,7 +504,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, err
 		}
 		if aborted {
-			return false, abortAndClose()
+			return false, nil
 		}
 	case segmentindex.StrategySetCollection:
 		c := newCompactorSetCollection(f, left.newCollectionCursorReusable(), right.newCollectionCursorReusable(),
@@ -417,7 +516,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, err
 		}
 		if aborted {
-			return false, abortAndClose()
+			return false, nil
 		}
 	case segmentindex.StrategyMapCollection:
 		c := newCompactorMapCollection(f, left.newCollectionCursorReusable(), right.newCollectionCursorReusable(),
@@ -429,19 +528,19 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, err
 		}
 		if aborted {
-			return false, abortAndClose()
+			return false, nil
 		}
 	case segmentindex.StrategyRoaringSet:
 		c := roaringset.NewCompactor(f, left.newRoaringSetCursor(), right.newRoaringSetCursor(),
 			level, cleanupTombstones,
-			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
+			sg.enableChecksumValidation, maxNewFileSize)
 
 		aborted, err := runCompactor(c.Do)
 		if err != nil {
 			return false, err
 		}
 		if aborted {
-			return false, abortAndClose()
+			return false, nil
 		}
 
 	case segmentindex.StrategyRoaringSetRange:
@@ -453,7 +552,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, err
 		}
 		if aborted {
-			return false, abortAndClose()
+			return false, nil
 		}
 	case segmentindex.StrategyInverted:
 		avgPropLen, _ := sg.GetAveragePropertyLength()
@@ -486,7 +585,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, err
 		}
 		if aborted {
-			return false, abortAndClose()
+			return false, nil
 		}
 	default:
 		return false, errors.Errorf("unrecognized strategy %v", strategy)
@@ -506,7 +605,9 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 	}
 
 	replacer := newSegmentReplacer(sg, pair[0], pair[1], newSegment)
-	oldLeft, oldRight, err := replacer.switchOnDisk()
+	oldLeft, oldRight, err := replacer.switchOnDisk(func() {
+		discardNewSegment = false
+	})
 	if err != nil {
 		return false, fmt.Errorf("replace compacted segments on disk: %w", err)
 	}
@@ -522,8 +623,8 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 	sg.addSegmentsToAwaitingDrop(oldLeft, oldRight)
 
 	if strategy == segmentindex.StrategyReplace && sg.editOps != nil {
-		if err := sg.editOps.RecordCompaction(segmentID(leftPath), segmentID(rightPath), builtOps); err != nil {
-			return false, fmt.Errorf("segment edit ops compaction bookkeeping: %w", err)
+		if err := sg.recordCompactionEditOps(segmentID(leftPath), segmentID(rightPath), builtOps); err != nil {
+			return false, err
 		}
 	}
 
@@ -531,6 +632,48 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 	sg.metrics.ObserveSegmentSize(sg.strategy, newSegment.Size())
 
 	return true, nil
+}
+
+const (
+	// compactionBookkeepingAttempts bounds retries of the edit-ops bookkeeping
+	// transaction; compactionBookkeepingBackoff spaces them.
+	compactionBookkeepingAttempts = 3
+	compactionBookkeepingBackoff  = 50 * time.Millisecond
+)
+
+// recordCompactionEditOps commits the compaction's edit-ops bookkeeping, with a
+// retry and a fallback repair.
+//
+// It matters because the segments are ALREADY swapped by the time this runs: a
+// failure leaves the sidecar describing a layout that no longer exists, with
+// the left input's row naming a deleted file. Nothing on a running node prunes
+// such a row — the cleanup pass deliberately skips it rather than mark it done,
+// and Reconcile only runs at shard load — so it would block this drop's
+// finalize and this shard's replica movement until something reloads the shard.
+// Retrying costs a few milliseconds and clears a transient bolt error; the
+// repair then covers the case where only the smaller write gets through.
+func (sg *SegmentGroup) recordCompactionEditOps(leftID, rightID string, builtOps []ActiveOp) error {
+	var err error
+	for attempt := range compactionBookkeepingAttempts {
+		if err = sg.editOps.RecordCompaction(leftID, rightID, builtOps); err == nil {
+			return nil
+		}
+		if attempt+1 < compactionBookkeepingAttempts {
+			time.Sleep(compactionBookkeepingBackoff)
+		}
+	}
+
+	if repairErr := sg.editOps.RepairCompactionRows(leftID, rightID); repairErr == nil {
+		sg.logger.WithField("action", "lsm_compaction").WithField("path", sg.dir).
+			Warnf("segment edit ops compaction bookkeeping failed (%v); repaired the affected rows so the merged output stays covered", err)
+		return nil
+	} else {
+		sg.logger.WithField("action", "lsm_compaction").WithField("path", sg.dir).
+			Errorf("segment edit ops compaction bookkeeping failed (%v) and the repair failed too (%v); "+
+				"segment %q is gone but still recorded as owed, which blocks this collection's drop-vector finalize "+
+				"and this shard's replica movement until the shard is reloaded", err, repairErr, leftID)
+	}
+	return fmt.Errorf("segment edit ops compaction bookkeeping: %w", err)
 }
 
 func (sg *SegmentGroup) preinitializeNewSegment(newPathTmp string, oldPos ...int) (*segment, error) {

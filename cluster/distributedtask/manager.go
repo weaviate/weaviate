@@ -14,8 +14,10 @@ package distributedtask
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -62,7 +64,8 @@ type Manager struct {
 
 	// Per-namespace payload→collection extractors. Absent ⇒ namespace is
 	// not collection-scoped and survives DeleteTasksForCollection.
-	collectionExtractors map[string]CollectionExtractor
+	collectionExtractors   map[string]CollectionExtractor
+	targetVectorExtractors map[string]TargetVectorExtractor
 
 	completedTaskTTL time.Duration
 
@@ -157,7 +160,7 @@ func (m *Manager) CheckTenantMutation(className string, tenants []string) error 
 // that also implements [VectorConfigRemovalGate]. Called from the schema FSM's
 // UpdateClass apply; a non-nil error rejects the update. Same RAFT-determinism
 // contract as [Manager.CheckClassMutation].
-func (m *Manager) CheckVectorConfigRemoval(className string, removedVectors []string) error {
+func (m *Manager) CheckVectorConfigRemoval(className string, removedVectors, shards []string) error {
 	if len(removedVectors) == 0 {
 		return nil
 	}
@@ -172,7 +175,7 @@ func (m *Manager) CheckVectorConfigRemoval(className string, removedVectors []st
 		for _, t := range m.tasks[namespace] {
 			existing = append(existing, t)
 		}
-		if err := gate.CheckVectorConfigRemoval(className, removedVectors, existing); err != nil {
+		if err := gate.CheckVectorConfigRemoval(className, removedVectors, shards, existing); err != nil {
 			return err
 		}
 	}
@@ -243,8 +246,9 @@ func NewManager(params ManagerParameters) *Manager {
 	}
 
 	return &Manager{
-		tasks:                make(map[string]map[string]*Task),
-		collectionExtractors: make(map[string]CollectionExtractor),
+		tasks:                  make(map[string]map[string]*Task),
+		collectionExtractors:   make(map[string]CollectionExtractor),
+		targetVectorExtractors: make(map[string]TargetVectorExtractor),
 
 		completedTaskTTL: params.CompletedTaskTTL,
 
@@ -263,6 +267,100 @@ func (m *Manager) RegisterCollectionExtractor(namespace string, extractor Collec
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.collectionExtractors[namespace] = extractor
+}
+
+// RegisterTargetVectorExtractor opts a task namespace into
+// PurgeTasksForCollectionTargetVectors. Same contract as RegisterCollectionExtractor.
+func (m *Manager) RegisterTargetVectorExtractor(namespace string, extractor TargetVectorExtractor) {
+	if namespace == "" || extractor == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.targetVectorExtractors[namespace] = extractor
+}
+
+// ErrTaskStillActiveForTargetVectors means PurgeTasksForCollectionTargetVectors found an
+// ACTIVE task bound to the given (collection, targets) and deleted nothing.
+var ErrTaskStillActiveForTargetVectors = errors.New("a task bound to these targets is still active")
+
+// PurgeTasksForCollectionTargetVectors drops NON-ACTIVE tasks whose payload binds to
+// `collection` (case-insensitively, like every other consumer of these
+// payloads) and overlaps `targets`, in namespaces with a registered target
+// extractor. Called deterministically from the schema FSM when a new
+// drop-vector marker is introduced, so the previous drop of a re-created name
+// leaves no records for coverage inheritance or removal vouching to
+// misattribute to the new drop. An ACTIVE match aborts with
+// [ErrTaskStillActiveForTargetVectors] and deletes NOTHING: active tasks must keep
+// the scheduler's running handles consistent (the previous drop's task can
+// still be SWAPPING for a moment after its finalize removed the old marker),
+// and such a survivor next to a fresh marker would seed stale coverage
+// inheritance — the caller must refuse the marker introduction and let the
+// client retry once the task settles. NOTE: SWAPPING normally lasts
+// milliseconds, but a node that dies before delivering its post-completion
+// ack holds SWAPPING indefinitely (finalize waits for every node, CancelTask
+// accepts only STARTED, the TTL pruner skips active tasks) — until that is
+// operable, only DeleteClass clears such a wedge.
+//
+// Overlap semantics: a record is purged WHOLE when ANY of its target vectors
+// overlaps `targets` — records are atomic, so a multi-target record's
+// coverage for the non-purged siblings is sacrificed with it (they pay one
+// idempotent re-clean; leaving the record would instead misattribute its
+// stale coverage to the NEW drop, which is the corruption this purge
+// prevents). Every live caller today passes a single target.
+func (m *Manager) PurgeTasksForCollectionTargetVectors(collection string, targets []string) ([]TaskDescriptor, error) {
+	if collection == "" || len(targets) == 0 {
+		return nil, nil
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	targetVectorSet := make(map[string]struct{}, len(targets))
+	for _, t := range targets {
+		targetVectorSet[t] = struct{}{}
+	}
+	type match struct {
+		namespace, taskID string
+		desc              TaskDescriptor
+	}
+	var matches []match
+	for namespace, tasksByID := range m.tasks {
+		extractor, ok := m.targetVectorExtractors[namespace]
+		if !ok || extractor == nil {
+			continue
+		}
+		for taskID, task := range tasksByID {
+			c, taskTargetVectors, ok := extractor(task.Payload)
+			// EqualFold: collection names are case-insensitive identifiers, and a
+			// byte-exact purge would be strictly weaker than the EqualFold
+			// inheritance match whose soundness leans on it.
+			if !ok || !strings.EqualFold(c, collection) {
+				continue
+			}
+			overlaps := false
+			for _, t := range taskTargetVectors {
+				if _, ok := targetVectorSet[t]; ok {
+					overlaps = true
+					break
+				}
+			}
+			if !overlaps {
+				continue
+			}
+			if task.Status.IsActive() {
+				return nil, fmt.Errorf("%w: task %s/%s (status %s)",
+					ErrTaskStillActiveForTargetVectors, namespace, taskID, task.Status)
+			}
+			matches = append(matches, match{namespace: namespace, taskID: taskID, desc: task.TaskDescriptor})
+		}
+	}
+	var removed []TaskDescriptor
+	for _, hit := range matches {
+		delete(m.tasks[hit.namespace], hit.taskID)
+		removed = append(removed, hit.desc)
+	}
+	return removed, nil
 }
 
 // DeleteTasksForCollection drops tasks whose payload binds to `collection`. Called
@@ -286,7 +384,11 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 		}
 		for taskID, task := range tasksByID {
 			c, ok := extractor(task.Payload)
-			if !ok || c != collection {
+			// EqualFold, matching PurgeTasksForCollectionTargetVectors and every
+			// payload consumer: collection names are case-insensitive
+			// identifiers, and a byte-exact cascade would leak a case-twin
+			// record past DELETE_CLASS.
+			if !ok || !strings.EqualFold(c, collection) {
 				continue
 			}
 			delete(tasksByID, taskID)
@@ -311,7 +413,8 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	task := m.findTaskWithLock(r.Namespace, r.Id)
 	if task != nil {
 		if task.Status == TaskStatusStarted {
-			return fmt.Errorf("task %s/%s is already running with version %d", r.Namespace, r.Id, task.Version)
+			return wrapPermanent(ErrTaskAlreadyRunning,
+				fmt.Sprintf("task %s/%s is already running with version %d", r.Namespace, r.Id, task.Version))
 		}
 
 		if seqNum <= task.Version {
@@ -328,12 +431,22 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	// of (newPayload, existingTasks) — see the ConflictDetector
 	// godoc on the FSM-determinism contract.
 	if cd, ok := m.conflictDetectors[r.Namespace]; ok && cd != nil {
+		if cncd, isCross := cd.(CrossNamespaceConflictDetector); isCross {
+			if err := cncd.CheckCrossNamespaceConflict(r.Payload, m.tasks); err != nil {
+				return wrapPermanent(ErrTaskConflict,
+					fmt.Sprintf("task %s/%s conflicts with existing task: %v", r.Namespace, r.Id, err))
+			}
+		}
+
 		var existing []*Task
 		for _, t := range m.tasks[r.Namespace] {
 			existing = append(existing, t)
 		}
 		if err := cd.CheckConflict(r.Payload, existing); err != nil {
-			return fmt.Errorf("task %s/%s conflicts with existing task: %w", r.Namespace, r.Id, err)
+			// Wrap the permanent-rejection sentinel (see [ErrTaskConflict]) so
+			// the REST submit path classifies this as 409, not 500.
+			return wrapPermanent(ErrTaskConflict,
+				fmt.Sprintf("task %s/%s conflicts with existing task: %v", r.Namespace, r.Id, err))
 		}
 	}
 
@@ -344,6 +457,9 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 		NeedsPreparationBarrier: r.NeedsPreparationBarrier,
 		Status:                  TaskStatusStarted,
 		StartedAt:               time.UnixMilli(r.SubmittedAtUnixMillis),
+		FormatVersion:           1,
+		StaleTimeoutMs:          r.StaleTimeoutMs,
+		MaxUnitRetries:          r.MaxUnitRetries,
 	}
 
 	if len(r.UnitSpecs) > 0 {
@@ -439,19 +555,28 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 	finishedAt := time.UnixMilli(r.FinishedAtUnixMillis)
 
 	if r.Error != "" {
-		u.Status = UnitStatusFailed
+		// Retryable failure with budget remaining: re-open the unit
+		// instead of failing the task.
+		if r.Retryable && task.MaxUnitRetries > 0 && u.Attempts < task.MaxUnitRetries {
+			u.Attempts++
+			u.Status = UnitStatusPending
+			u.Error = ""
+			u.Progress = 0
+			// The unit keeps its NodeID so the retry runs on the same node.
+			m.notifySchedulerWithLock()
+			return nil
+		}
+
+		u.markTerminal(UnitStatusFailed, finishedAt)
 		u.Error = r.Error
-		u.FinishedAt = finishedAt
-		task.Status = TaskStatusFailed
 		task.Error = fmt.Sprintf("unit %s failed: %s", r.UnitId, r.Error)
-		task.FinishedAt = finishedAt
+		task.markTerminal(TaskStatusFailed, finishedAt)
 		m.notifySchedulerWithLock()
 		return nil
 	}
 
-	u.Status = UnitStatusCompleted
+	u.markTerminal(UnitStatusCompleted, finishedAt)
 	u.Progress = 1.0
-	u.FinishedAt = finishedAt
 
 	if task.AllUnitsTerminal() {
 		if task.AnyUnitFailed() {
@@ -460,18 +585,17 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 			// (the schema flip is intentionally skipped when any
 			// unit failed; see OnTaskCompleted's early-return for
 			// FAILED tasks).
-			task.Status = TaskStatusFailed
+			task.markTerminal(TaskStatusFailed, finishedAt)
 		} else {
 			// Barrier tasks go through PREPARING; others jump to SWAPPING.
+			// Both are non-terminal, so neither stamps FinishedAt: the unit
+			// work has stopped but the cutover has not run yet.
 			if task.NeedsPreparationBarrier {
 				task.Status = TaskStatusPreparing
 			} else {
 				task.Status = TaskStatusSwapping
 			}
 		}
-		// FinishedAt = when units completed. Scheduler's TTL cleanup excludes
-		// SWAPPING so a stale FinishedAt won't clean a task mid-swap.
-		task.FinishedAt = finishedAt
 	}
 
 	// Notify on every unit completion — even when not the last one — so
@@ -524,23 +648,22 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 		return nil
 	}
 
+	ackedAt := time.UnixMilli(r.AckedAtUnixMillis)
 	task.PostCompletionAcks[r.NodeId] = PostCompletionAck{
 		Success: r.Success,
 		Error:   r.Error,
-		AckedAt: time.UnixMilli(r.AckedAtUnixMillis),
+		AckedAt: ackedAt,
 	}
 
-	// Any failure flips the task to FAILED immediately; later acks are
-	// still recorded for forensic value. FinishedAt is not updated —
-	// "when did the work end" should remain the AllUnitsTerminal moment.
+	// Any failure flips the task to FAILED immediately.
 	if !r.Success && task.Status == TaskStatusSwapping {
-		task.Status = TaskStatusFailed
 		ackErr := fmt.Sprintf("post-completion swap failed on node %s: %s", r.NodeId, r.Error)
 		if task.Error != "" {
 			task.Error = task.Error + "; " + ackErr
 		} else {
 			task.Error = ackErr
 		}
+		task.markTerminal(TaskStatusFailed, ackedAt)
 	}
 
 	m.notifySchedulerWithLock()
@@ -615,23 +738,23 @@ func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
 		return nil
 	}
 
+	ackedAt := time.UnixMilli(r.AckedAtUnixMillis)
 	task.PreparationCompletionAcks[r.NodeId] = PostCompletionAck{
 		Success: r.Success,
 		Error:   r.Error,
-		AckedAt: time.UnixMilli(r.AckedAtUnixMillis),
+		AckedAt: ackedAt,
 	}
 
 	// Failure path: the task fails immediately. No node proceeds to the
 	// atomic swap.
 	if !r.Success && task.Status == TaskStatusPreparing {
-		task.Status = TaskStatusFailed
 		ackErr := fmt.Sprintf("prep failed on node %s: %s", r.NodeId, r.Error)
 		if task.Error != "" {
 			task.Error = task.Error + "; " + ackErr
 		} else {
 			task.Error = ackErr
 		}
-		// FinishedAt was set when AllUnitsTerminal landed; keep it.
+		task.markTerminal(TaskStatusFailed, ackedAt)
 		m.notifySchedulerWithLock()
 		return nil
 	}
@@ -706,13 +829,7 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 				r.Namespace, r.Id, task.Version, task.Status))
 	}
 
-	// FinishedAt is intentionally NOT overwritten here. It was already set
-	// in [Manager.RecordUnitCompletion] when all units reached terminal
-	// state — that is the user-meaningful "when did the work finish"
-	// timestamp, and the completed-task TTL counts from there. The
-	// FinalizedAtUnixMillis on the request is left in place for forensic
-	// purposes (visible in RAFT logs) but not stored on the Task.
-	task.Status = TaskStatusFinished
+	task.markTerminal(TaskStatusFinished, time.UnixMilli(r.FinalizedAtUnixMillis))
 	m.notifySchedulerWithLock()
 	return nil
 }
@@ -724,7 +841,7 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 //
 // Idempotent at the FSM layer: the first commit wins; a later call on an
 // already-FAILED task is a no-op, and one racing a peer's FINISHED/CANCELLED
-// is refused. FinishedAt stays at the AllUnitsTerminal moment.
+// is refused.
 func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 	var r api.MarkTaskFailedRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
@@ -752,7 +869,6 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 				r.Namespace, r.Id, task.Version, task.Status))
 	}
 
-	task.Status = TaskStatusFailed
 	if r.Error != "" {
 		if task.Error != "" {
 			task.Error = task.Error + "; " + r.Error
@@ -760,6 +876,7 @@ func (m *Manager) MarkTaskFailed(c *api.ApplyRequest) error {
 			task.Error = r.Error
 		}
 	}
+	task.markTerminal(TaskStatusFailed, time.UnixMilli(r.FailedAtUnixMillis))
 	m.notifySchedulerWithLock()
 	return nil
 }
@@ -828,8 +945,9 @@ func (m *Manager) UpdateUnitProgress(c *api.ApplyRequest) error {
 	return nil
 }
 
-// CancelTask transitions a running task to CANCELLED. In-flight units are not waited
-// for — the [Scheduler] will terminate their local handles on the next tick.
+// CancelTask transitions a STARTED task to CANCELLED and refuses every other status,
+// including one this build cannot name (see [TaskStatus.IsCancellable]). In-flight units
+// are not waited for — the [Scheduler] will terminate their local handles on the next tick.
 func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	var r api.CancelDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {
@@ -844,19 +962,76 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 		return err
 	}
 
-	if task.Status != TaskStatusStarted {
+	// Follower apply errors are discarded, so two binaries disagreeing on
+	// what may be cancelled would diverge here silently.
+	if !task.Status.IsCancellable() {
 		return errTaskNotRunning(r.Namespace, r.Id, task.Version)
 	}
 
-	task.Status = TaskStatusCancelled
-	task.FinishedAt = time.UnixMilli(r.CancelledAtUnixMillis)
+	task.markTerminal(TaskStatusCancelled, time.UnixMilli(r.CancelledAtUnixMillis))
 	m.notifySchedulerWithLock()
 	return nil
 }
 
-// CleanUpTask removes a terminal task from the Manager's state. It refuses to clean up tasks
-// that are still running or whose completedTaskTTL has not yet elapsed, preventing premature
-// removal of status information that other nodes may still need to observe.
+// ForceTerminateTask transitions a task to the requested terminal status
+// from {STARTED, PREPARING, SWAPPING}. Refused for unrecognized statuses
+// and for SWAPPING when all post-completion acks landed (finalize is
+// imminent). Idempotent against already-terminal tasks.
+//
+// Records reason in Task.Error. Does not affect CancelTask semantics.
+func (m *Manager) ForceTerminateTask(c *api.ApplyRequest) error {
+	var r api.ForceTerminateDistributedTaskRequest
+	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
+		return fmt.Errorf("unmarshal force terminate task request: %w", err)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
+	if err != nil {
+		return err
+	}
+
+	if task.Status.IsTerminal() {
+		return nil
+	}
+
+	if !task.Status.IsForceTerminable() {
+		return wrapPermanent(ErrForceTerminateRefused,
+			fmt.Sprintf("task %s/%s/%d cannot be force-terminated from status %s",
+				r.Namespace, r.Id, task.Version, task.Status))
+	}
+
+	// Every ack has landed, so finalize is imminent and nothing is left to terminate.
+	if task.Status == TaskStatusSwapping && task.AllPostCompletionAcksSuccessful() {
+		return wrapPermanent(ErrForceTerminateRefused,
+			fmt.Sprintf("task %s/%s/%d is SWAPPING with all acks landed; finalize is imminent",
+				r.Namespace, r.Id, task.Version))
+	}
+
+	terminalStatus := TaskStatusFailed
+	if TaskStatus(r.RequestedTerminalStatus) == TaskStatusCancelled {
+		terminalStatus = TaskStatusCancelled
+	}
+
+	task.Status = terminalStatus
+	task.FinishedAt = time.UnixMilli(r.TerminatedAtUnixMillis)
+	if r.Reason != "" {
+		if task.Error != "" {
+			task.Error = task.Error + "; " + r.Reason
+		} else {
+			task.Error = r.Reason
+		}
+	}
+	m.notifySchedulerWithLock()
+	return nil
+}
+
+// CleanUpTask removes a task from the Manager's state. It refuses a task that is both
+// [TaskStatus.IsActive] and [TaskStatus.IsRecognized], and a task whose completedTaskTTL
+// has not yet elapsed, preventing premature removal of status information that other
+// nodes may still need to observe.
 func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	var r api.CleanUpDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {
@@ -871,7 +1046,11 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 		return err
 	}
 
-	if task.Status == TaskStatusStarted {
+	// Without this guard an in-flight task — never FinishedAt-stamped — would
+	// read as long expired by the check below. An unrecognized status is let
+	// through deliberately: the TTL sweep is the sole proposer and reads the
+	// leader's view, so a clean-up for it means the cluster already calls it done.
+	if task.Status.IsActive() && task.Status.IsRecognized() {
 		return fmt.Errorf("task %s/%s/%d is still running", r.Namespace, r.Id, task.Version)
 	}
 
@@ -883,8 +1062,9 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	return nil
 }
 
-// ListDistributedTasks returns a snapshot of all tasks grouped by namespace. Each [Task] is
-// cloned, so callers may read the returned values without holding the Manager's lock.
+// LocalDistributedTasks returns the cluster-wide task map as this node has
+// applied it, grouped by namespace. Each [Task] is cloned, so callers may
+// read the returned values without holding the Manager's lock.
 //
 // Tasks within each namespace are sorted deterministically so adjacent
 // polls return the same slice order regardless of Go's randomized map
@@ -894,7 +1074,7 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 //  2. Within priority, by activity-time DESC (newest first). Activity-time
 //     is FinishedAt for terminal tasks, StartedAt otherwise.
 //  3. Tiebreak by ID ASC for full stability.
-func (m *Manager) ListDistributedTasks(_ context.Context) (map[string][]*Task, error) {
+func (m *Manager) LocalDistributedTasks() map[string][]*Task {
 	// Read-only: holding RLock lets concurrent /indexes polls proceed
 	// without serialising against each other (they still wait on any
 	// in-flight RAFT-apply mutator).
@@ -913,21 +1093,27 @@ func (m *Manager) ListDistributedTasks(_ context.Context) (map[string][]*Task, e
 		}
 		sortTasksForDisplay(result[namespace])
 	}
-	return result, nil
+	return result
+}
+
+// This is not reached through the [TaskLister] interface in production —
+// [cluster.Raft] is the concrete TaskLister the wiring hands out. It still
+// has two direct production callers: [Manager.Snapshot], on the RAFT FSM's
+// own snapshot path, and [Manager.ListDistributedTasksPayload], on the
+// leader-routed distributed-task-list query dispatch. The TaskLister-shaped
+// signature stays because six scheduler tests drive the Manager directly and
+// need it that way.
+func (m *Manager) ListDistributedTasks(_ context.Context) (map[string][]*Task, error) {
+	return m.LocalDistributedTasks(), nil
 }
 
 // sortTasksForDisplay sorts tasks in place so the slice is identical on
-// every call given the same input set. See [Manager.ListDistributedTasks]
+// every call given the same input set. See [Manager.LocalDistributedTasks]
 // for the sort-key rationale. SliceStable is intentional: equal-priority
 // equal-time equal-ID inputs are byte-identical to clone anyway, but
 // SliceStable documents the intent.
 func sortTasksForDisplay(tasks []*Task) {
 	sort.SliceStable(tasks, func(i, j int) bool {
-		// "In flight" = STARTED, PREPARING, or SWAPPING (via
-		// [TaskStatus.IsActive]): units still running, OR units done
-		// but per-node PREP / cluster-wide barrier / per-node SWAP /
-		// schema flip not yet committed. All display ahead of terminal
-		// tasks so the freshest user-relevant task surfaces first.
 		iStarted := tasks[i].Status.IsActive()
 		jStarted := tasks[j].Status.IsActive()
 		if iStarted != jStarted {
@@ -950,6 +1136,31 @@ func sortTasksForDisplay(tasks []*Task) {
 	})
 }
 
+// LocalUnrecognizedDistributedTasks returns this node's own copies of tasks in a
+// status this build never declared, grouped by namespace.
+//
+// The leader-routed list stops carrying such a task once the peers clean
+// their copies up, which is exactly when a leftover local copy starts
+// silently refusing schema mutations.
+func (m *Manager) LocalUnrecognizedDistributedTasks() map[string][]*Task {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var result map[string][]*Task
+	for namespace, tasks := range m.tasks {
+		for _, task := range tasks {
+			if task.Status.IsRecognized() {
+				continue
+			}
+			if result == nil {
+				result = map[string][]*Task{}
+			}
+			result[namespace] = append(result[namespace], task.Clone())
+		}
+	}
+	return result
+}
+
 func (m *Manager) ListDistributedTasksPayload(ctx context.Context) ([]byte, error) {
 	tasks, err := m.ListDistributedTasks(ctx)
 	if err != nil {
@@ -958,6 +1169,42 @@ func (m *Manager) ListDistributedTasksPayload(ctx context.Context) ([]byte, erro
 
 	return json.Marshal(&ListDistributedTasksResponse{
 		Tasks: tasks,
+	})
+}
+
+// GetDistributedTask returns a cloned snapshot of a single task by
+// namespace and ID, or nil if no such task exists.
+func (m *Manager) GetDistributedTask(namespace, taskID string) *Task {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	task := m.findTaskWithLock(namespace, taskID)
+	if task == nil {
+		return nil
+	}
+	return task.Clone()
+}
+
+// GetDistributedTaskPayload returns the JSON-marshaled by-id response
+// for the TYPE_DISTRIBUTED_TASK_GET query. Returns a typed not-found
+// when the task does not exist.
+func (m *Manager) GetDistributedTaskPayload(subCommand []byte) ([]byte, error) {
+	var r api.GetDistributedTaskRequest
+	if err := json.Unmarshal(subCommand, &r); err != nil {
+		return nil, fmt.Errorf("unmarshal get task request: %w", err)
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	task := m.findTaskWithLock(r.Namespace, r.Id)
+	if task == nil {
+		return nil, wrapPermanent(ErrTaskDoesNotExist,
+			fmt.Sprintf("task %s/%s does not exist", r.Namespace, r.Id))
+	}
+
+	return json.Marshal(&GetDistributedTaskResponse{
+		Task: task.Clone(),
 	})
 }
 
@@ -1027,10 +1274,22 @@ func (m *Manager) Restore(bytes []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// The FSM contract (see Store.Restore) requires discarding all previous
+	// state: merging would resurrect tasks the snapshot's producer deleted
+	// (e.g. records purged on a drop-vector marker introduction), and this
+	// node alone would then refuse applies its peers accept.
+	m.tasks = make(map[string]map[string]*Task, len(s.Tasks))
 	for namespace, tasks := range s.Tasks {
 		for _, task := range tasks {
 			if _, ok := m.tasks[namespace]; !ok {
 				m.tasks[namespace] = make(map[string]*Task)
+			}
+
+			// An older snapshot can hold a mid-coordination task with
+			// FinishedAt already stamped, which would misreport work still
+			// in flight.
+			if !task.Status.IsTerminal() {
+				task.FinishedAt = time.Time{}
 			}
 
 			m.tasks[namespace][task.ID] = task

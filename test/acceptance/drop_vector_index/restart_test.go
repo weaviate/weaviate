@@ -141,4 +141,75 @@ func runRestartSuite(t *testing.T, compose *docker.DockerCompose) {
 
 	// Marker durable, enqueue uncertain: task resume or reconcile re-enqueue.
 	t.Run("crash right after drop", journey("DropVectorIndexRestartAfterDrop", 2, 0))
+
+	// A collection whose LAST named vector was dropped restarts with ZERO
+	// vector indexes — neither named nor legacy structures exist for its
+	// shards to initialize. Pins the shard-load path for the vector-less
+	// shape: schema intact, data readable, writes still working.
+	t.Run("vector-less collection survives restart", func(t *testing.T) {
+		const (
+			className = "DropVectorIndexRestartVectorless"
+			only      = "onlyvec"
+			dim       = 32
+			count     = 20
+		)
+
+		deleteParams := clschema.NewSchemaObjectsDeleteParams().WithClassName(className)
+		helper.Client(t).Schema.SchemaObjectsDelete(deleteParams, nil)
+		defer helper.Client(t).Schema.SchemaObjectsDelete(deleteParams, nil)
+
+		t.Run("create, insert, drop the only vector, finalize", func(t *testing.T) {
+			cls := &models.Class{
+				Class: className,
+				Properties: []*models.Property{
+					{Name: "name", DataType: []string{schema.DataTypeText.String()}},
+				},
+				VectorConfig: map[string]models.VectorConfig{only: noneVectorConfig()},
+			}
+			_, err := helper.Client(t).Schema.SchemaObjectsCreate(
+				clschema.NewSchemaObjectsCreateParams().WithObjectClass(cls), nil)
+			require.NoError(t, err)
+
+			batch := make([]*models.Object, count)
+			for i := range count {
+				batch[i] = &models.Object{
+					ID:         strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-000000018%03d", i)),
+					Class:      className,
+					Properties: map[string]any{"name": fmt.Sprintf("object-%d", i)},
+					Vectors:    models.Vectors{only: randVec(dim, float32(i))},
+				}
+			}
+			helper.CreateObjectsBatch(t, batch)
+			dropTargetVector(t, className, only)
+			eventuallyTargetVectorRemoved(t, className, only)
+		})
+
+		t.Run("kill and restart", killAndRestart)
+
+		t.Run("shape, data, and writes survive the restart", func(t *testing.T) {
+			require.EventuallyWithT(t, func(collect *assert.CollectT) {
+				cls, err := helper.GetClassWithoutAssert(t, className, "")
+				if !assert.NoError(collect, err) {
+					return
+				}
+				assert.Empty(collect, cls.VectorConfig)
+				assert.Empty(collect, cls.Vectorizer)
+			}, postRestartFinalizeTimeout, time.Second)
+
+			require.EventuallyWithT(t, func(collect *assert.CollectT) {
+				objs, err := listObjectsWithVectorsErr(className, "", count)
+				if !assert.NoError(collect, err) {
+					return
+				}
+				assert.Len(collect, objs, count)
+			}, postRestartFinalizeTimeout, time.Second)
+
+			post := []*models.Object{{
+				ID:         strfmt.UUID("00000000-0000-0000-0000-000000018999"),
+				Class:      className,
+				Properties: map[string]any{"name": "post-restart"},
+			}}
+			helper.CreateObjectsBatch(t, post)
+		})
+	})
 }

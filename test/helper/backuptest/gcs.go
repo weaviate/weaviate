@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"cloud.google.com/go/storage"
-	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -103,7 +102,7 @@ func (b *GCSBackend) Start(ctx context.Context) error {
 	}
 
 	// Start GCS emulator container
-	port := nat.Port(gcsPort)
+	port := gcsPort
 	req := testcontainers.ContainerRequest{
 		Image:        gcsImage,
 		ExposedPorts: []string{gcsPort},
@@ -202,6 +201,9 @@ func (b *GCSBackend) GetWeaviateEnv() map[string]string {
 		"BACKUP_GCS_BUCKET":              b.BucketName(),
 		"BACKUP_GCS_USE_AUTH":            "false",
 		"GOOGLE_APPLICATION_CREDENTIALS": "", // Empty for emulator
+		// The emulator serves the JSON API only, so it cannot answer the gRPC
+		// transport the module otherwise defaults to.
+		"GCS_MODULE_TRANSPORT": "http",
 	}
 }
 

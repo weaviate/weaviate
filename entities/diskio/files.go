@@ -67,7 +67,29 @@ func Fsync(path string) error {
 	return f.Sync()
 }
 
-// GetFileWithSizes gets all files in a directory including their filesize
+// A crash keeps the rename only once the directory holding the new name is
+// synced (and the old one too, where they differ).
+func RenameAndSync(from, to string) error {
+	return renameAndSync(from, to, Fsync)
+}
+
+func renameAndSync(from, to string, sync func(string) error) error {
+	if err := os.Rename(from, to); err != nil {
+		return err
+	}
+	toDir := filepath.Dir(to)
+	if err := sync(toDir); err != nil {
+		return err
+	}
+	if fromDir := filepath.Dir(from); fromDir != toDir {
+		return sync(fromDir)
+	}
+	return nil
+}
+
+// GetFileWithSizes gets all files in a directory including their filesize. Symlinks are not
+// followed. Callers that only need the subdirectory names should use GetSubdirNames, which
+// avoids a stat per entry.
 func GetFileWithSizes(dirPath string) (map[string]int64, []string, error) {
 	dir, err := os.Open(dirPath)
 	if err != nil {
@@ -92,6 +114,31 @@ func GetFileWithSizes(dirPath string) (map[string]int64, []string, error) {
 	}
 
 	return fileSizes, dirs, nil
+}
+
+// GetSubdirNames returns the names of the subdirectories of dirPath. Entry types come from the
+// directory read itself where the filesystem reports them, avoiding a stat per entry. Symlinks
+// are not followed, so a symlink pointing at a directory is not returned.
+func GetSubdirNames(dirPath string) ([]string, error) {
+	dir, err := os.Open(dirPath)
+	if err != nil {
+		return nil, err
+	}
+	defer dir.Close()
+
+	entries, err := dir.ReadDir(-1)
+	if err != nil {
+		return nil, err
+	}
+
+	var dirs []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			dirs = append(dirs, entry.Name())
+		}
+	}
+
+	return dirs, nil
 }
 
 // GetDirSize calculates the total size of a directory recursively

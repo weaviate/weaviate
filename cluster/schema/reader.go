@@ -120,7 +120,8 @@ func (rs SchemaReader) Read(class string, retryIfClassNotFound bool, reader func
 	return rs.retry(func(s *schema) error {
 		return s.Read(class, retryIfClassNotFound, func(class *models.Class, state *sharding.State) error {
 			if err := checkShardingState(state); err != nil {
-				return err
+				// an invalid sharding state does not become valid by waiting
+				return backoff.Permanent(err)
 			}
 			return reader(class, state)
 		})
@@ -254,19 +255,12 @@ func (rs SchemaReader) ShardReplicas(class, shard string) (nodes []string, err e
 	return res, err
 }
 
-// TenantsShards returns shard name for the provided tenant and its activity status
-func (rs SchemaReader) TenantsShards(class string, tenants ...string) (map[string]string, error) {
-	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("TenantsShards"))
+// TenantsShardsStatus returns shard name for the provided tenant and its activity status
+func (rs SchemaReader) TenantsShardsStatus(class string, tenants ...string) (map[string]string, error) {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("TenantsShardsStatus"))
 	defer t.ObserveDuration()
 
-	return rs.TenantsShardsWithVersion(context.TODO(), 0, class, tenants...)
-}
-
-func (rs SchemaReader) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
-	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("GetShardsStatus"))
-	defer t.ObserveDuration()
-
-	return rs.schema.GetShardsStatus(class, tenant)
+	return rs.TenantsShardsStatusWithVersion(context.TODO(), 0, class, tenants...)
 }
 
 func (rs SchemaReader) Len() int { return rs.schema.len() }

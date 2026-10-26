@@ -30,6 +30,9 @@ type pools struct {
 
 	tempVectors       *common.TempVectorsPool
 	tempVectorsUint64 *common.TempVectorUint64Pool
+
+	normalizeBufs        *sync.Pool
+	floatBatchDistancers *sync.Pool
 }
 
 func newPools(maxConnectionsLayerZero int, initialVisitedListPoolSize int) *pools {
@@ -45,6 +48,17 @@ func newPools(maxConnectionsLayerZero int, initialVisitedListPoolSize int) *pool
 		pqCandidates:      newPqMinPool(maxConnectionsLayerZero),
 		tempVectors:       common.NewTempVectorsPool(),
 		tempVectorsUint64: common.NewTempUint64VectorsPool(),
+		normalizeBufs: &sync.Pool{
+			New: func() interface{} {
+				s := make([]float32, 0)
+				return &s
+			},
+		},
+		floatBatchDistancers: &sync.Pool{
+			New: func() interface{} {
+				return &floatBatchDistancer{}
+			},
+		},
 	}
 }
 

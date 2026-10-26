@@ -20,6 +20,11 @@ if [ ! -f "$SWAGGER" ]; then
   chmod +x "$SWAGGER"
 fi
 
+# Install golangci-lint if it's not installed; keep the version in sync with .github/actions/golangci-lint/action.yml and .pre-commit-config.yaml.
+if ! command -v golangci-lint >/dev/null 2>&1; then
+  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
+fi
+
 # Always install goimports to ensure that all parties use the same version
 go install golang.org/x/tools/cmd/goimports@v0.1.12
 
@@ -29,7 +34,7 @@ go install golang.org/x/tools/cmd/goimports@v0.1.12
 # Remove old stuff.
 (cd "$DIR"/..; rm -rf entities/models client adapters/handlers/rest/operations/)
 
-(cd "$DIR"/..; $SWAGGER generate server --name=weaviate --model-package=entities/models --server-package=adapters/handlers/rest --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https --struct-tags=yaml --struct-tags=json)
+(cd "$DIR"/..; $SWAGGER generate server --name=weaviate --model-package=entities/models --server-package=adapters/handlers/rest --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https --struct-tags=yaml --struct-tags=json --exclude-main)
 (cd "$DIR"/..; $SWAGGER generate client --name=weaviate --model-package=entities/models --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https)
 
 echo Generate Deprecation code...
@@ -44,9 +49,16 @@ echo Now add the header to the generated code too.
 # 1. regular go files (without test files) excluding test folder
 # 2. regular go files (without test files) only in test folder
 # 3. only *_test.go files
-(cd "$DIR"/..; goimports -w $(find . -type f -name '*.go' -not -name '*_test.go' -not -path './test/*' -not -name '*pb.go' -not -path './vendor/*' -not -path "./.*/*"))
-(cd "$DIR"/..; goimports -w $(find . -type f -name '*.go' -not -name '*_test.go' -path './test/*' -not -name '*pb.go' -not -path './vendor/*' -not -path "./.*/*"))
-(cd "$DIR"/..; goimports -w $(find . -type f -name '*_test.go' -not -name '*pb.go' -not -path './vendor/*' -not -path "./.*/*"))
+
+echo Fix imports with goimports
+(cd "$DIR"/..; find . -type f -name '*.go' \
+  -not -name '*pb.go' \
+  -not -path './vendor/*' \
+  -not -path './.*/*' \
+  -exec goimports -w {} +)
+
+echo Run the code formatter
+(cd "$DIR"/..; golangci-lint fmt)
 
 CHANGED=$(git status -s | wc -l)
 if [ "$CHANGED" -gt 0 ]; then

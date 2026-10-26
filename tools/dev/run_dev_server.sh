@@ -22,7 +22,6 @@ export CLUSTER_HOSTNAME=${CLUSTER_HOSTNAME:-"weaviate-0"}
 export GPT4ALL_INFERENCE_API="http://localhost:8010"
 export DISABLE_TELEMETRY=true # disable telemetry for local development
 export PERSISTENCE_HNSW_SNAPSHOT_INTERVAL_SECONDS=${PERSISTENCE_HNSW_SNAPSHOT_INTERVAL_SECONDS:-"300"}
-export EXPERIMENTAL_HFRESH_ENABLED=true
 export DEBUG_ENDPOINTS_ENABLED=true
 
 # inject build info into binaries.
@@ -42,7 +41,6 @@ case $CONFIG in
   debug)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       ENABLE_MODULES="text2vec-contextionary" \
       dlv debug ./cmd/weaviate-server -- \
         --scheme http \
@@ -57,7 +55,6 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="./data-weaviate-0" \
       BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
       PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
       CLUSTER_IN_LOCALHOST=true \
@@ -94,7 +91,6 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="./data-weaviate-0" \
       BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
       PROMETHEUS_MONITORING_PORT="2112" \
       PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
@@ -146,7 +142,6 @@ case $CONFIG in
       AUTHORIZATION_RBAC_ROOT_USERS='jp-hwang' \
       PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-weaviate-0" \
       BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
@@ -182,7 +177,6 @@ case $CONFIG in
       RAFT_INTERNAL_RPC_PORT="8303" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
       RAFT_BOOTSTRAP_EXPECT=3 \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
       go_run ./cmd/weaviate-server \
         --scheme http \
@@ -213,7 +207,6 @@ case $CONFIG in
       RAFT_INTERNAL_RPC_PORT="8305" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
       RAFT_BOOTSTRAP_EXPECT=3 \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
       go_run ./cmd/weaviate-server \
         --scheme http \
@@ -228,7 +221,6 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-weaviate-0" \
       BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
       PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
       CLUSTER_IN_LOCALHOST=true \
@@ -261,7 +253,6 @@ case $CONFIG in
       RAFT_INTERNAL_RPC_PORT="8303" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
       RAFT_BOOTSTRAP_EXPECT=3 \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
       go_run ./cmd/weaviate-server \
         --scheme http \
@@ -289,7 +280,6 @@ case $CONFIG in
       RAFT_INTERNAL_RPC_PORT="8305" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
       RAFT_BOOTSTRAP_EXPECT=3 \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
       go_run ./cmd/weaviate-server \
         --scheme http \
@@ -315,7 +305,6 @@ case $CONFIG in
       RAFT_PORT="8306" \
       RAFT_INTERNAL_RPC_PORT="8307" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       ENABLE_MODULES="text2vec-contextionary" \
       go_run ./cmd/weaviate-server \
         --scheme http \
@@ -328,7 +317,6 @@ case $CONFIG in
   local-transformers)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-transformers \
       TRANSFORMERS_INFERENCE_API="http://localhost:8000" \
       ENABLE_MODULES="text2vec-transformers" \
       go_run ./cmd/weaviate-server \
@@ -341,7 +329,6 @@ case $CONFIG in
   local-transformers-passage-query)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-transformers \
       TRANSFORMERS_PASSAGE_INFERENCE_API="http://localhost:8006" \
       TRANSFORMERS_QUERY_INFERENCE_API="http://localhost:8007" \
       ENABLE_MODULES="text2vec-transformers" \
@@ -355,7 +342,6 @@ case $CONFIG in
   local-qna)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       QNA_INFERENCE_API="http://localhost:8001" \
       ENABLE_MODULES="text2vec-contextionary,qna-transformers" \
       go_run ./cmd/weaviate-server \
@@ -368,7 +354,6 @@ case $CONFIG in
   local-sum)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       SUM_INFERENCE_API="http://localhost:8008" \
       ENABLE_MODULES="text2vec-contextionary,sum-transformers" \
       go_run ./cmd/weaviate-server \
@@ -381,7 +366,6 @@ case $CONFIG in
   local-image)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       IMAGE_INFERENCE_API="http://localhost:8002" \
       ENABLE_MODULES="text2vec-contextionary,img2vec-neural" \
       go_run ./cmd/weaviate-server \
@@ -394,7 +378,6 @@ case $CONFIG in
   local-ner)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       NER_INFERENCE_API="http://localhost:8003" \
       ENABLE_MODULES="text2vec-contextionary,ner-transformers" \
       go_run ./cmd/weaviate-server \
@@ -407,7 +390,6 @@ case $CONFIG in
   local-spellcheck)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       SPELLCHECK_INFERENCE_API="http://localhost:8004" \
       ENABLE_MODULES="text2vec-contextionary,text-spellcheck" \
       go_run ./cmd/weaviate-server \
@@ -420,7 +402,6 @@ case $CONFIG in
   local-clip)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=multi2vec-clip \
       CLIP_INFERENCE_API="http://localhost:8005" \
       ENABLE_MODULES="multi2vec-clip" \
       go_run ./cmd/weaviate-server \
@@ -433,7 +414,6 @@ case $CONFIG in
   local-bind)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=multi2vec-bind \
       BIND_INFERENCE_API="http://localhost:8011" \
       ENABLE_MODULES="multi2vec-bind" \
       go_run ./cmd/weaviate-server \
@@ -453,7 +433,6 @@ case $CONFIG in
       AUTHENTICATION_OIDC_CLIENT_ID=demo \
       AUTHORIZATION_ADMINLIST_ENABLED=true \
       AUTHORIZATION_ADMINLIST_USERS=john@doe.com \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -467,7 +446,6 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=false \
       AUTHORIZATION_ADMINLIST_ENABLED=true \
       AUTHORIZATION_ADMINLIST_USERS=john@doe.com \
-      DEFAULT_VECTORIZER_MODULE=none \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -487,7 +465,6 @@ case $CONFIG in
       AUTHORIZATION_ADMINLIST_ENABLED=true \
       AUTHORIZATION_ADMINLIST_USERS=etienne@semi.technology \
       AUTHORIZATION_ADMINLIST_READONLY_USERS=etienne+read-only@semi.technology \
-      DEFAULT_VECTORIZER_MODULE=none \
       RUNTIME_OVERRIDES_ENABLED=true \
       RUNTIME_OVERRIDES_PATH="${PWD}/tools/dev/config.runtime-overrides.yaml" \
       RUNTIME_OVERRIDES_LOAD_INTERVAL=30s \
@@ -500,7 +477,6 @@ case $CONFIG in
   local-multi-text)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       TRANSFORMERS_INFERENCE_API=http://localhost:8000 \
       CLIP_INFERENCE_API=http://localhost:8005 \
       ENABLE_MODULES=text2vec-contextionary,text2vec-transformers,multi2vec-clip \
@@ -512,7 +488,6 @@ case $CONFIG in
 
   local-ollama)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-ollama \
       ENABLE_MODULES="text2vec-ollama" \
       go_run ./cmd/weaviate-server \
         --scheme http \
@@ -524,7 +499,6 @@ case $CONFIG in
 
   local-openai)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-openai \
       ENABLE_MODULES="text2vec-openai" \
       go_run ./cmd/weaviate-server \
         --scheme http \
@@ -536,8 +510,18 @@ case $CONFIG in
 
    local-deepseek)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true
-      DEFAULT_VECTORIZER_MODULE=none
       ENABLE_MODULES="generative-deepseek"
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
+
+   local-meta)
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true
+      ENABLE_MODULES="generative-meta"
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -550,7 +534,6 @@ case $CONFIG in
   local-qna-openai)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       QNA_INFERENCE_API="http://localhost:8001" \
       CLUSTER_HOSTNAME="weaviate-0" \
       CLUSTER_IN_LOCALHOST=true \
@@ -566,7 +549,6 @@ case $CONFIG in
   local-generative-openai)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       QNA_INFERENCE_API="http://localhost:8001" \
       CLUSTER_HOSTNAME="weaviate-0" \
       CLUSTER_IN_LOCALHOST=true \
@@ -582,7 +564,6 @@ case $CONFIG in
   local-all-openai)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       QNA_INFERENCE_API="http://localhost:8001" \
       CLUSTER_HOSTNAME="weaviate-0" \
       CLUSTER_IN_LOCALHOST=true \
@@ -598,7 +579,6 @@ case $CONFIG in
   local-all-google)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       QNA_INFERENCE_API="http://localhost:8001" \
       CLUSTER_HOSTNAME="weaviate-0" \
       CLUSTER_IN_LOCALHOST=true \
@@ -614,7 +594,6 @@ case $CONFIG in
   local-all-openai-cohere-google)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       QNA_INFERENCE_API="http://localhost:8001" \
       CLUSTER_HOSTNAME="weaviate-0" \
       CLUSTER_IN_LOCALHOST=true \
@@ -630,7 +609,6 @@ case $CONFIG in
   local-all-openai-voyageai-google)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       QNA_INFERENCE_API="http://localhost:8001" \
       CLUSTER_HOSTNAME="weaviate-0" \
       ENABLE_MODULES="text2vec-contextionary,generative-google,text2vec-google,qna-openai,generative-openai,text2vec-openai,text2vec-voyageai,reranker-voyageai,multi2vec-voyageai" \
@@ -645,7 +623,6 @@ case $CONFIG in
   local-huggingface)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       CLUSTER_IN_LOCALHOST=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-huggingface \
       ENABLE_MODULES="text2vec-huggingface" \
       go_run ./cmd/weaviate-server \
         --scheme http \
@@ -660,7 +637,6 @@ case $CONFIG in
       CLUSTER_DATA_BIND_PORT="7101" \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       CLUSTER_IN_LOCALHOST=true \
-      DEFAULT_VECTORIZER_MODULE=none \
       RUNTIME_OVERRIDES_ENABLED=true \
       RUNTIME_OVERRIDES_PATH="${PWD}/tools/dev/config.runtime-overrides.yaml" \
       RUNTIME_OVERRIDES_LOAD_INTERVAL=5s \
@@ -687,7 +663,6 @@ case $CONFIG in
   local-s3)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       BACKUP_S3_ENDPOINT="localhost:9000" \
       BACKUP_S3_USE_SSL="false" \
       BACKUP_S3_BUCKET="weaviate-backups" \
@@ -714,13 +689,12 @@ case $CONFIG in
     -e "MINIO_ROOT_USER=aws_access_key" \
     -e "MINIO_ROOT_PASSWORD=aws_secret_key" \
     -v ${HOME}/minio/data:/data \
-    quay.io/minio/minio server /data --console-address ":9001"
+    cgr.dev/chainguard/minio server /data --console-address ":9001"
     ;;
 
   local-node-with-offload)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       PERSISTENCE_DATA_PATH="./data-weaviate-0" \
       BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
       ENABLE_MODULES="backup-s3,offload-s3" \
@@ -775,7 +749,6 @@ case $CONFIG in
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="./${PERSISTENCE_DATA_PATH}-weaviate-0" \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       ENABLE_MODULES="text2vec-contextionary,backup-s3,offload-s3" \
       BACKUP_S3_BUCKET="weaviate-backups" \
       BACKUP_S3_USE_SSL="false" \
@@ -821,7 +794,6 @@ case $CONFIG in
       OFFLOAD_S3_ENDPOINT="http://localhost:9000"\
       AWS_ACCESS_KEY_ID="aws_access_key"\
       AWS_SECRET_KEY="aws_secret_key"\
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       ENABLE_MODULES="text2vec-contextionary,backup-s3,offload-s3" \
       go_run ./cmd/weaviate-server \
         --scheme http \
@@ -852,7 +824,6 @@ case $CONFIG in
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
       RAFT_BOOTSTRAP_EXPECT=3 \
       OFFLOAD_S3_BUCKET_AUTO_CREATE=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       ENABLE_MODULES="text2vec-contextionary,backup-s3,offload-s3" \
       OFFLOAD_S3_ENDPOINT="http://localhost:9000"\
       AWS_ACCESS_KEY_ID="aws_access_key"\
@@ -867,10 +838,10 @@ case $CONFIG in
   local-gcs)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       GOOGLE_CLOUD_PROJECT=project-id \
       STORAGE_EMULATOR_HOST=localhost:9090 \
       BACKUP_GCS_ENDPOINT=localhost:9090 \
+      GCS_MODULE_TRANSPORT=http \
       BACKUP_GCS_BUCKET=weaviate-backups \
       ENABLE_MODULES="text2vec-contextionary,backup-gcs" \
       CLUSTER_IN_LOCALHOST=true \
@@ -888,10 +859,10 @@ case $CONFIG in
       PERSISTENCE_DATA_PATH="./data-weaviate-1" \
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       GOOGLE_CLOUD_PROJECT=project-id \
       STORAGE_EMULATOR_HOST=localhost:9090 \
       BACKUP_GCS_ENDPOINT=localhost:9090 \
+      GCS_MODULE_TRANSPORT=http \
       BACKUP_GCS_BUCKET=weaviate-backups \
       ENABLE_MODULES="text2vec-contextionary,backup-gcs" \
       CLUSTER_IN_LOCALHOST=true \
@@ -912,10 +883,10 @@ case $CONFIG in
       PERSISTENCE_DATA_PATH="./data-weaviate-2" \
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       GOOGLE_CLOUD_PROJECT=project-id \
       STORAGE_EMULATOR_HOST=localhost:9090 \
       BACKUP_GCS_ENDPOINT=localhost:9090 \
+      GCS_MODULE_TRANSPORT=http \
       BACKUP_GCS_BUCKET=weaviate-backups \
       ENABLE_MODULES="text2vec-contextionary,backup-gcs" \
       CLUSTER_IN_LOCALHOST=true \
@@ -935,7 +906,6 @@ case $CONFIG in
   local-azure)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       BACKUP_AZURE_CONTAINER=weaviate-container \
       AZURE_STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;" \
       ENABLE_MODULES="text2vec-contextionary,backup-azure" \
@@ -963,9 +933,9 @@ local-usage-gcs)
       CONTEXTIONARY_URL=localhost:9999 \
       LOG_LEVEL=debug \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       STORAGE_EMULATOR_HOST=localhost:9090 \
       BACKUP_GCS_ENDPOINT=localhost:9090 \
+      GCS_MODULE_TRANSPORT=http \
       BACKUP_GCS_BUCKET=weaviate-backups \
       USAGE_GCS_BUCKET=weaviate-usage \
       USAGE_GCS_PREFIX=billing-usage \
@@ -1002,7 +972,6 @@ local-usage-s3)
       CONTEXTIONARY_URL=localhost:9999 \
       LOG_LEVEL=debug \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       AWS_ACCESS_KEY_ID=aws_access_key \
       AWS_SECRET_ACCESS_KEY=aws_secret_key \
       AWS_REGION=us-east-1 \
@@ -1034,7 +1003,6 @@ local-usage-s3)
   local-cohere)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       CLUSTER_IN_LOCALHOST=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-cohere \
       ENABLE_MODULES="text2vec-cohere" \
       go_run ./cmd/weaviate-server \
         --scheme http \
@@ -1047,7 +1015,6 @@ local-usage-s3)
   local-all-cohere)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       CLUSTER_IN_LOCALHOST=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-cohere \
       ENABLE_MODULES="text2vec-cohere,reranker-cohere,generative-cohere" \
       go_run ./cmd/weaviate-server \
         --scheme http \
@@ -1059,7 +1026,6 @@ local-usage-s3)
 
   local-voyageai)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-voyageai \
       ENABLE_MODULES="text2vec-voyageai" \
       go_run ./cmd/weaviate-server \
         --scheme http \
@@ -1070,7 +1036,6 @@ local-usage-s3)
     ;;
   local-morph)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-morph \
       ENABLE_MODULES="text2vec-morph" \
       go_run ./cmd/weaviate-server \
         --scheme http \
@@ -1082,7 +1047,6 @@ local-usage-s3)
 
   local-all-voyageai)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-voyageai \
       ENABLE_MODULES="text2vec-voyageai,reranker-voyageai" \
       go_run ./cmd/weaviate-server \
         --scheme http \
@@ -1095,7 +1059,6 @@ local-usage-s3)
   local-reranker-transformers)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       CLUSTER_IN_LOCALHOST=true \
       RERANKER_INFERENCE_API="http://localhost:8009" \
       ENABLE_MODULES="text2vec-contextionary,reranker-transformers" \
@@ -1109,7 +1072,6 @@ local-usage-s3)
   local-gpt4all)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       CLUSTER_IN_LOCALHOST=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-gpt4all \
       GPT4ALL_INFERENCE_API="http://localhost:8010" \
       ENABLE_MODULES="text2vec-gpt4all" \
       go_run ./cmd/weaviate-server \
@@ -1121,7 +1083,6 @@ local-usage-s3)
     ;;
   local-bigram)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-bigram \
       BACKUP_FILESYSTEM_PATH="${PWD}/backups" \
       ENABLE_MODULES="text2vec-bigram,backup-filesystem" \
       CLUSTER_IN_LOCALHOST=true \
@@ -1138,7 +1099,6 @@ local-usage-s3)
   local-model2vec)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-model2vec \
       MODEL2VEC_INFERENCE_API="http://localhost:8012" \
       ENABLE_MODULES="text2vec-model2vec" \
       go_run ./cmd/weaviate-server \
@@ -1240,7 +1200,6 @@ local-usage-s3)
     MCP_SERVER_ENABLED='true' \
     MCP_SERVER_WRITE_ACCESS_ENABLED='true' \
     MCP_SERVER_CONFIG_PATH="${PWD}/tools/dev/config.mcp.json" \
-    DEFAULT_VECTORIZER_MODULE=text2vec-transformers \
     TRANSFORMERS_INFERENCE_API="http://localhost:8000" \
     ENABLE_MODULES="text2vec-transformers" \
     go_run ./cmd/weaviate-server \

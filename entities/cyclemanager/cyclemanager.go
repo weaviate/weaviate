@@ -13,7 +13,7 @@ package cyclemanager
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"sync"
 
 	"github.com/sirupsen/logrus"
@@ -31,7 +31,6 @@ type (
 type CycleManager interface {
 	Start()
 	Stop(ctx context.Context) chan bool
-	StopAndWait(ctx context.Context) error
 	Running() bool
 }
 
@@ -126,31 +125,23 @@ func (c *cycleManager) Stop(ctx context.Context) (stopResult chan bool) {
 	return stopResult
 }
 
-// Stops running instance, waits for stop to occur or context to expire (which comes first)
-// Returns error if instance was not stopped
-func (c *cycleManager) StopAndWait(ctx context.Context) error {
-	// if both channels are ready, chan is selected randomly, therefore regardless of
-	// channel selected first, second one is also checked
-	stop := c.Stop(ctx)
-	done := ctx.Done()
-
+// WaitForStop waits for a result of Stop, preferring it over an expired ctx when
+// both are ready, so a cycle that did stop is not reported as a failure. Passing
+// Stop a ctx other than this one lets the stop proceed past ctx's expiry.
+func WaitForStop(ctx context.Context, stopResult chan bool) error {
+	var stopped bool
 	select {
-	case <-done:
+	case stopped = <-stopResult:
+	case <-ctx.Done():
+		// select picks randomly when both are ready, so the result is checked again
 		select {
-		case stopped := <-stop:
-			if !stopped {
-				return ctx.Err()
-			}
+		case stopped = <-stopResult:
 		default:
 			return ctx.Err()
 		}
-	case stopped := <-stop:
-		if !stopped {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			return fmt.Errorf("failed to stop cycle")
-		}
+	}
+	if !stopped {
+		return errors.New("cycle kept running")
 	}
 	return nil
 }
@@ -211,14 +202,24 @@ func NewManagerNoop() CycleManager {
 }
 
 type cycleManagerNoop struct {
+	// Start may be called concurrently, so running needs a lock even though
+	// the cycle itself does nothing
+	sync.Mutex
+
 	running bool
 }
 
 func (c *cycleManagerNoop) Start() {
+	c.Lock()
+	defer c.Unlock()
+
 	c.running = true
 }
 
 func (c *cycleManagerNoop) Stop(ctx context.Context) chan bool {
+	c.Lock()
+	defer c.Unlock()
+
 	if !c.running {
 		return c.closedChan(true)
 	}
@@ -230,14 +231,10 @@ func (c *cycleManagerNoop) Stop(ctx context.Context) chan bool {
 	return c.closedChan(true)
 }
 
-func (c *cycleManagerNoop) StopAndWait(ctx context.Context) error {
-	if <-c.Stop(ctx) {
-		return nil
-	}
-	return ctx.Err()
-}
-
 func (c *cycleManagerNoop) Running() bool {
+	c.Lock()
+	defer c.Unlock()
+
 	return c.running
 }
 

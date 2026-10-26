@@ -38,3 +38,34 @@ func TestDigestMarshallingUnmarshalling(t *testing.T) {
 
 	require.Equal(t, d1, d2)
 }
+
+func TestDigestsBinaryCodec(t *testing.T) {
+	digests := []Digest{{1, 2}, {0, 0}, {^uint64(0), ^uint64(0)}, {1 << 63, 42}}
+
+	encoded := DigestsToBinary(digests)
+	require.Len(t, encoded, len(digests)*DigestLength)
+
+	for i := range digests {
+		single, err := digests[i].MarshalBinary()
+		require.NoError(t, err)
+		require.Equal(t, single, encoded[i*DigestLength:(i+1)*DigestLength])
+	}
+
+	decoded, err := DigestsFromBinary(encoded)
+	require.NoError(t, err)
+	require.Equal(t, digests, decoded)
+
+	decoded, err = DigestsFromBinary(nil)
+	require.NoError(t, err)
+	require.Empty(t, decoded)
+
+	require.Empty(t, DigestsToBinary(nil))
+
+	for _, n := range []int{1, 15, 17, 31, DigestLength + 1} {
+		_, err := DigestsFromBinary(make([]byte, n))
+		require.Error(t, err, "length %d", n)
+	}
+
+	_, err = DigestsFromBinary([]byte("[]"))
+	require.Error(t, err)
+}

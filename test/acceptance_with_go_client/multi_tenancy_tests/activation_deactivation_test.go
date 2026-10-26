@@ -12,12 +12,12 @@
 package multi_tenancy_tests
 
 import (
+	"acceptance_tests_with_client/fixtures"
+	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"fmt"
 	"testing"
 	"time"
-
-	"acceptance_tests_with_client/fixtures"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,8 +25,6 @@ import (
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/fault"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
-
-	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestActivationDeactivation(t *testing.T) {
@@ -174,7 +172,7 @@ func TestActivationDeactivation_Restarts(t *testing.T) {
 			cleanupFn func(t *testing.T, ctx context.Context),
 			restartFn func(t *testing.T, ctx context.Context) *wvt.Client,
 		) {
-			compose, err := docker.New().WithWeaviate().Start(ctx)
+			compose, err := docker.New().WithWeaviate().WithText2VecModel2Vec().Start(ctx)
 			require.Nil(t, err)
 
 			container := compose.GetWeaviate()
@@ -208,10 +206,10 @@ func TestActivationDeactivation_Restarts(t *testing.T) {
 			cleanupFn func(t *testing.T, ctx context.Context),
 			restartFn func(t *testing.T, ctx context.Context) *wvt.Client,
 		) {
-			compose, err := docker.New().WithWeaviateCluster(3).Start(ctx)
+			compose, err := docker.New().WithWeaviateCluster(3).WithText2VecModel2Vec().Start(ctx)
 			require.Nil(t, err)
 
-			client, err = wvt.NewClient(wvt.Config{Scheme: "http", Host: compose.ContainerURI(0)})
+			client, err = wvt.NewClient(wvt.Config{Scheme: "http", Host: compose.GetWeaviate().URI()})
 			require.Nil(t, err)
 
 			cleanupFn = func(t *testing.T, ctx context.Context) {
@@ -220,13 +218,13 @@ func TestActivationDeactivation_Restarts(t *testing.T) {
 			}
 
 			restartFn = func(t *testing.T, ctx context.Context) *wvt.Client {
-				require.Nil(t, compose.StopAt(ctx, 1, nil))
-				require.Nil(t, compose.StartAt(ctx, 1))
+				require.Nil(t, compose.StopNode(ctx, 1, nil))
+				require.Nil(t, compose.StartNode(ctx, 1))
 
-				require.Nil(t, compose.StopAt(ctx, 2, nil))
-				require.Nil(t, compose.StartAt(ctx, 2))
+				require.Nil(t, compose.StopNode(ctx, 2, nil))
+				require.Nil(t, compose.StartNode(ctx, 2))
 
-				client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: compose.ContainerURI(0)})
+				client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: compose.GetWeaviate().URI()})
 				require.Nil(t, err)
 				return client
 			}

@@ -297,7 +297,7 @@ func TestEntrypointRepair_ConcurrentRepairAlreadyChanged(t *testing.T) {
 				"entrypoint may only differ from the concurrent repair value via promotion of the new node")
 			newNode := index.nodeByID(newID)
 			require.NotNil(t, newNode)
-			assert.Greater(t, newNode.level, prevMaxLayer,
+			assert.Greater(t, int(newNode.level), prevMaxLayer,
 				"new node may only become entrypoint if it was promoted to a higher layer")
 		}
 
@@ -428,7 +428,7 @@ func TestEntrypointRepair_ConcurrentInserts(t *testing.T) {
 		for i := 0; i < numConcurrentInserts; i++ {
 			node := index.nodeByID(uint64(len(vectors) + i))
 			require.NotNil(t, node, "inserted node should exist in the index")
-			if node.level > 0 {
+			if int(node.level) > 0 {
 				promotionCandidates++
 			}
 		}

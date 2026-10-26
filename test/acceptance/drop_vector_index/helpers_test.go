@@ -19,9 +19,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/distributed_tasks"
+	"github.com/weaviate/weaviate/client/nodes"
 	clobjects "github.com/weaviate/weaviate/client/objects"
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
@@ -61,18 +64,29 @@ func vecDim(t *testing.T, v models.Vector) int {
 
 func dropTargetVector(t *testing.T, className, targetVector string) {
 	t.Helper()
+	// With ASYNC_INDEXING a drop issued straight after a batch races the
+	// indexing still creating the artifacts it must remove. Here rather than at
+	// the insert sites, so every drop is covered.
+	waitForVectorIndexing(t, className)
 	_, err := helper.Client(t).Schema.SchemaObjectsVectorsDelete(
 		clschema.NewSchemaObjectsVectorsDeleteParams().
 			WithClassName(className).WithVectorIndexName(targetVector), nil)
 	require.NoError(t, err)
 }
 
+// getClassErr fetches the class without touching the outer *testing.T, so it
+// is safe inside EventuallyWithT conditions (a require on the outer t there
+// runs Goexit in the condition goroutine: the parent test is marked failed
+// but the poll reports success and the test keeps running on broken state).
 // eventuallyTargetVectorRemoved waits for the full drop lifecycle: the entry
 // must disappear from the schema entirely.
 func eventuallyTargetVectorRemoved(t *testing.T, className, targetVector string) {
 	t.Helper()
 	require.EventuallyWithT(t, func(collect *assert.CollectT) {
-		got := helper.GetClass(t, className)
+		got, err := helper.GetClassWithoutAssert(t, className, "")
+		if !assert.NoError(collect, err) {
+			return
+		}
 		_, present := got.VectorConfig[targetVector]
 		assert.False(collect, present, "vector entry should be removed from the schema after cleanup")
 	}, finalizeTimeout, time.Second)
@@ -85,14 +99,24 @@ func listAllObjectsWithVectors(t *testing.T, className string) []*models.Object 
 
 func listObjectsWithVectors(t *testing.T, className, tenant string, limit int64) []*models.Object {
 	t.Helper()
+	objs, err := listObjectsWithVectorsErr(className, tenant, limit)
+	require.NoError(t, err)
+	return objs
+}
+
+// listObjectsWithVectorsErr is the outer-t-free variant for EventuallyWithT
+// conditions (see getClassErr).
+func listObjectsWithVectorsErr(className, tenant string, limit int64) ([]*models.Object, error) {
 	include := "vector"
 	params := clobjects.NewObjectsListParams().WithClass(&className).WithLimit(&limit).WithInclude(&include)
 	if tenant != "" {
 		params.WithTenant(&tenant)
 	}
-	resp, err := helper.Client(t).Objects.ObjectsList(params, nil)
-	require.NoError(t, err)
-	return resp.Payload.Objects
+	resp, err := helper.Client(nil).Objects.ObjectsList(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload.Objects, nil
 }
 
 func nearVectorResults(t *testing.T, className, targetVector string, vector []float32, limit int) int {
@@ -102,6 +126,10 @@ func nearVectorResults(t *testing.T, className, targetVector string, vector []fl
 
 func nearVectorTenantResults(t *testing.T, className, tenant, targetVector string, vector []float32, limit int) int {
 	t.Helper()
+	// A vector search only finds what the index already holds. With
+	// ASYNC_INDEXING the batch returns before that is true, so every count
+	// asserted here would otherwise read 0. Same reason as in dropTargetVector.
+	waitForVectorIndexing(t, className)
 	resp := graphqlhelper.QueryGraphQLOrFatal(t, nil, "", nearVectorQuery(className, tenant, targetVector, vector, limit), nil)
 	require.Empty(t, resp.Errors)
 	get := resp.Data["Get"].(map[string]interface{})
@@ -183,4 +211,132 @@ func errorResponseText(err error) string {
 func listTenantObjectsWithVectors(t *testing.T, className, tenant string) []*models.Object {
 	t.Helper()
 	return listObjectsWithVectors(t, className, tenant, 100)
+}
+
+// waitForNoActiveDropTask waits until no drop-vector cleanup task is active.
+// A tenant's coverage is recorded only when its cleaning ROUND completes:
+// deactivating it while the round still runs — possible even after its
+// objects already read as stripped, since unit completion lags by up to a
+// poll tick — aborts the round and loses the coverage until the tenant's
+// next activation. Tests that re-cool a tenant and expect its coverage to
+// survive must pass this barrier first.
+func waitForNoActiveDropTask(t *testing.T) {
+	t.Helper()
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		resp, err := helper.Client(nil).DistributedTasks.DistributedTasksGet(
+			distributed_tasks.NewDistributedTasksGetParams(), nil)
+		if !assert.NoError(collect, err) {
+			return
+		}
+		for _, task := range resp.Payload["drop-vector-index"] {
+			switch task.Status {
+			case "FINISHED", "FAILED", "CANCELLED":
+			default:
+				assert.Failf(collect, "drop task still active", "task %s status %s", task.ID, task.Status)
+			}
+		}
+	}, time.Minute, 500*time.Millisecond)
+}
+
+// dropTaskIDsErr returns every recorded drop-vector cleanup task keyed by ID,
+// active or terminal. Records outlive their round (they are the resume and
+// coverage-inheritance anchors), so a round that started and finished between
+// two calls still shows up here.
+func dropTaskIDsErr() (map[string]string, error) {
+	resp, err := helper.Client(nil).DistributedTasks.DistributedTasksGet(
+		distributed_tasks.NewDistributedTasksGetParams(), nil)
+	if err != nil {
+		return nil, err
+	}
+	tasks := resp.Payload["drop-vector-index"]
+	ids := make(map[string]string, len(tasks))
+	for _, task := range tasks {
+		ids[task.ID] = task.Status
+	}
+	return ids, nil
+}
+
+// setTenantStatusEventually retries a tenant status change through transient
+// rejections (leadership changes, other guards). Drop-vector cleanups no
+// longer block tenant mutations, so for them a plain update works too.
+func setTenantStatusEventually(t *testing.T, className, tenant, status string) {
+	t.Helper()
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		err := helper.UpdateTenantsReturnError(t, className, []*models.Tenant{
+			{Name: tenant, ActivityStatus: status},
+		})
+		assert.NoError(collect, err)
+	}, 3*time.Minute, 500*time.Millisecond, "set %s to %s", tenant, status)
+}
+
+// requireTenantStripped waits until every one of the tenant's count objects no
+// longer carries targetVector.
+func requireTenantStripped(t *testing.T, className, tenant, targetVector string, count int) {
+	t.Helper()
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		objs, err := listObjectsWithVectorsErr(className, tenant, 100)
+		if !assert.NoError(collect, err) {
+			return
+		}
+		if !assert.Len(collect, objs, count) {
+			return
+		}
+		for _, obj := range objs {
+			assert.NotContains(collect, obj.Vectors, targetVector)
+		}
+	}, finalizeTimeout, time.Second, "tenant %s stripped of %s", tenant, targetVector)
+}
+
+// createMTDropClass creates the standard two-named-vector multi-tenant class
+// used by the tenant-lifecycle journeys, plus its tenants.
+func createMTDropClass(t *testing.T, className, dropped, sibling string, tenantNames ...string) {
+	t.Helper()
+	cls := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{Name: "name", DataType: []string{schema.DataTypeText.String()}},
+		},
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+		VectorConfig: map[string]models.VectorConfig{
+			dropped: noneVectorConfig(), sibling: noneVectorConfig(),
+		},
+	}
+	_, err := helper.Client(t).Schema.SchemaObjectsCreate(
+		clschema.NewSchemaObjectsCreateParams().WithObjectClass(cls), nil)
+	require.NoError(t, err)
+	tenants := make([]*models.Tenant, len(tenantNames))
+	for i, name := range tenantNames {
+		tenants[i] = &models.Tenant{Name: name}
+	}
+	helper.CreateTenants(t, className, tenants)
+}
+
+// asyncIndexingTimeout bounds the wait for the vector-index queues to drain.
+const asyncIndexingTimeout = 2 * time.Minute
+
+// waitForVectorIndexing blocks until every shard of className reports an empty
+// vector queue and a READY index. Both are needed: the length reads zero before
+// the first batch is enqueued as well as after the last one is written.
+// Without ASYNC_INDEXING it returns on the first poll.
+func waitForVectorIndexing(t *testing.T, className string) {
+	t.Helper()
+	verbose := "verbose"
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		params := nodes.NewNodesGetClassParams().WithClassName(className).WithOutput(&verbose)
+		resp, err := helper.Client(t).Nodes.NodesGetClass(params, nil)
+		if !assert.NoError(collect, err) {
+			return
+		}
+		if !assert.NotEmpty(collect, resp.Payload.Nodes, "no nodes reported") {
+			return
+		}
+		for _, node := range resp.Payload.Nodes {
+			for _, shard := range node.Shards {
+				assert.Zero(collect, shard.VectorQueueLength,
+					"shard %s/%s still has %d queued vectors", node.Name, shard.Name, shard.VectorQueueLength)
+				assert.Equal(collect, "READY", shard.VectorIndexingStatus,
+					"shard %s/%s is %s", node.Name, shard.Name, shard.VectorIndexingStatus)
+			}
+		}
+	}, asyncIndexingTimeout, time.Second, "vector indexing did not settle for %s", className)
 }

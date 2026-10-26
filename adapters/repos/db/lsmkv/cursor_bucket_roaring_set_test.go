@@ -48,6 +48,7 @@ func TestRoaringSetCursorConsistentView(t *testing.T) {
 		active:   initialMemtable,
 		disk:     diskSegments,
 		strategy: StrategyRoaringSet,
+		logger:   nullLogger(),
 	}
 
 	// Open the cursor that should see key1..key3 only and stay stable
@@ -155,7 +156,7 @@ func TestRoaringSetCursorCtxBudgetEquivalence(t *testing.T) {
 		"key1": {7},
 		"key2": {21},
 	})
-	b := Bucket{active: active, disk: diskSegments, strategy: StrategyRoaringSet}
+	b := Bucket{active: active, disk: diskSegments, strategy: StrategyRoaringSet, logger: nullLogger()}
 
 	scan := func(c CursorRoaringSet) map[string][]uint64 {
 		defer c.Close()

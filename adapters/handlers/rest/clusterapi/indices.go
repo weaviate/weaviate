@@ -41,6 +41,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
@@ -156,7 +157,6 @@ type shards interface {
 		filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 		sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
-		selection *searchparams.Selection,
 	) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error)
 	Aggregate(ctx context.Context, indexName, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
@@ -175,7 +175,7 @@ type shards interface {
 	DigestObjects(ctx context.Context, indexName, shardName string,
 		ids []strfmt.UUID) (result []types.RepairResponse, err error)
 	DigestObjectsInRange(ctx context.Context, indexName, shardName string,
-		initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairResponse, err error)
+		initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairDigest, err error)
 	HashTreeLevel(ctx context.Context, indexName, shardName string,
 		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 
@@ -759,7 +759,7 @@ func (i *indices) postSearchObjects() http.Handler {
 			return
 		}
 
-		vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props, selection, err := shared.IndicesPayloads.SearchParams.
+		vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props, err := shared.IndicesPayloads.SearchParams.
 			Unmarshal(reqPayload)
 		if err != nil {
 			http.Error(w, "unmarshal search params from json: "+err.Error(),
@@ -773,9 +773,14 @@ func (i *indices) postSearchObjects() http.Handler {
 		}).Debug("searching ...")
 
 		results, dists, queryProfiles, err := i.shards.Search(r.Context(), index, shard,
-			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props, selection)
+			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
+		if errors.Is(err, queryadmission.ErrOverloaded) {
+			// The coordinator's retryClient retries 429 with bounded backoff.
+			http.Error(w, err.Error(), http.StatusTooManyRequests)
 			return
 		}
 		if err != nil {
@@ -893,6 +898,12 @@ func (i *indices) postAggregateObjects() http.Handler {
 
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
+		if errors.Is(err, queryadmission.ErrOverloaded) {
+			// A ref filter's nested search was shed; 429 so the coordinator's
+			// retryClient backs off, as for _search.
+			http.Error(w, err.Error(), http.StatusTooManyRequests)
 			return
 		}
 		if err != nil {
@@ -1129,7 +1140,7 @@ func (i *indices) getHashTreeLevel() http.Handler {
 
 		var discriminant hashtree.Bitset
 		if err := discriminant.Unmarshal(reqPayload); err != nil {
-			http.Error(w, "unmarshal hashtree level params from json: "+err.Error(),
+			http.Error(w, "unmarshal hashtree level discriminant: "+err.Error(),
 				http.StatusBadRequest)
 			return
 		}
@@ -1137,7 +1148,7 @@ func (i *indices) getHashTreeLevel() http.Handler {
 		results, err := i.shards.HashTreeLevel(r.Context(), index, shard, l, &discriminant)
 		if err != nil {
 			http.Error(w, "hashtree level: "+err.Error(),
-				http.StatusInternalServerError)
+				asyncCheckpointHTTPStatus(err))
 			return
 		}
 

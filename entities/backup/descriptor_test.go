@@ -69,17 +69,17 @@ func TestIncludeClasses(t *testing.T) {
 // base is deduplicated against it, a class absent from the base (added since)
 // returns nil and is uploaded in full.
 func TestGetClassDescriptor(t *testing.T) {
-	base := BackupDescriptor{Classes: []ClassDescriptor{{Name: "A"}, {Name: "B"}}}
+	base := BaseBackupDescriptor{Classes: []BaseClassDescriptor{{Name: "A"}, {Name: "B"}}}
 	tests := []struct {
 		name      string
-		in        BackupDescriptor
+		in        BaseBackupDescriptor
 		query     string
 		wantClass string // "" means expect nil (full upload)
 	}{
 		{name: "ExistingClassDedups", in: base, query: "A", wantClass: "A"},
 		{name: "OtherExistingClassDedups", in: base, query: "B", wantClass: "B"},
 		{name: "NewClassNotInBase", in: base, query: "C", wantClass: ""},
-		{name: "EmptyBase", in: BackupDescriptor{}, query: "A", wantClass: ""},
+		{name: "EmptyBase", in: BaseBackupDescriptor{}, query: "A", wantClass: ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -90,6 +90,33 @@ func TestGetClassDescriptor(t *testing.T) {
 			}
 			require.NotNil(t, got)
 			assert.Equal(t, tc.wantClass, got.Name)
+		})
+	}
+}
+
+// GetShardDescriptor picks the base shard whose big files FillFileInfo reuses. A
+// shard absent from the base (created since) returns nil and is uploaded in full.
+func TestGetShardDescriptor(t *testing.T) {
+	base := BaseClassDescriptor{Shards: []BaseShardDescriptor{{Name: "s1"}, {Name: "s2"}}}
+	tests := []struct {
+		name      string
+		in        BaseClassDescriptor
+		query     string
+		wantShard string // "" means expect nil (full upload)
+	}{
+		{name: "ExistingShardDedups", in: base, query: "s1", wantShard: "s1"},
+		{name: "OtherExistingShardDedups", in: base, query: "s2", wantShard: "s2"},
+		{name: "NewShardNotInBase", in: base, query: "s3", wantShard: ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.in.GetShardDescriptor(tc.query)
+			if tc.wantShard == "" {
+				assert.Nil(t, got)
+				return
+			}
+			require.NotNil(t, got)
+			assert.Equal(t, tc.wantShard, got.Name)
 		})
 	}
 }
@@ -111,9 +138,8 @@ func TestValidateBackup(t *testing.T) {
 	timept := time.Now().UTC()
 	bytes := []byte("hello")
 	tests := []struct {
-		desc      BackupDescriptor
-		successV1 bool
-		successV2 bool
+		desc    BackupDescriptor
+		success bool
 	}{
 		// first level check
 		{desc: BackupDescriptor{}},
@@ -121,8 +147,8 @@ func TestValidateBackup(t *testing.T) {
 		{desc: BackupDescriptor{ID: "1", Version: "1"}},
 		{desc: BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1"}},
 		{
-			desc:      BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept},
-			successV1: true, successV2: true,
+			desc:    BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept},
+			success: true,
 		},
 		{desc: BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept, Error: "err"}},
 		{desc: BackupDescriptor{
@@ -140,7 +166,7 @@ func TestValidateBackup(t *testing.T) {
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{Name: "n", Schema: bytes, ShardingState: bytes}},
-		}, successV1: true, successV2: true},
+		}, success: true},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
@@ -161,7 +187,7 @@ func TestValidateBackup(t *testing.T) {
 				Name: "n", Schema: bytes, ShardingState: bytes,
 				Shards: []*ShardDescriptor{{Name: "n", Node: "n"}},
 			}},
-		}, successV2: true},
+		}, success: true},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
@@ -171,7 +197,7 @@ func TestValidateBackup(t *testing.T) {
 					PropLengthTrackerPath: "n", DocIDCounterPath: "n", ShardVersionPath: "n",
 				}},
 			}},
-		}, successV1: true, successV2: true},
+		}, success: true},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
@@ -182,7 +208,7 @@ func TestValidateBackup(t *testing.T) {
 					Files: []string{"file"},
 				}},
 			}},
-		}, successV2: true},
+		}, success: true},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
@@ -193,7 +219,7 @@ func TestValidateBackup(t *testing.T) {
 					DocIDCounter: bytes, Files: []string{"file"},
 				}},
 			}},
-		}, successV2: true},
+		}, success: true},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
@@ -204,7 +230,7 @@ func TestValidateBackup(t *testing.T) {
 					DocIDCounter: bytes, Version: bytes, PropLengthTracker: bytes, Files: []string{""},
 				}},
 			}},
-		}, successV2: true},
+		}, success: true},
 		{desc: BackupDescriptor{
 			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
 			Classes: []ClassDescriptor{{
@@ -215,53 +241,10 @@ func TestValidateBackup(t *testing.T) {
 					DocIDCounter: bytes, Version: bytes, PropLengthTracker: bytes, Files: []string{"file"},
 				}},
 			}},
-		}, successV1: true, successV2: true},
-	}
-	for i, tc := range tests {
-		err := tc.desc.Validate(false)
-		if got := err == nil; got != tc.successV1 {
-			t.Errorf("%d. validate(%+v): want=%v got=%v err=%v", i, tc.desc, tc.successV1, got, err)
-		}
-		err = tc.desc.Validate(true)
-		if got := err == nil; got != tc.successV2 {
-			t.Errorf("%d. validate(%+v): want=%v got=%v err=%v", i, tc.desc, tc.successV1, got, err)
-		}
-	}
-}
-
-func TestBackwardCompatibility(t *testing.T) {
-	timept := time.Now().UTC()
-	tests := []struct {
-		desc    BackupDescriptor
-		success bool
-	}{
-		// first level check
-		{desc: BackupDescriptor{}},
-		{desc: BackupDescriptor{ID: "1"}},
-		{desc: BackupDescriptor{ID: "1", Version: "1"}},
-		{desc: BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1"}},
-		{desc: BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept}},
-		{desc: BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept, Error: "err"}},
-		{desc: BackupDescriptor{
-			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
-			Classes: []ClassDescriptor{{
-				Name:   "n",
-				Shards: []*ShardDescriptor{{Name: "n", Node: ""}},
-			}},
-		}},
-		{desc: BackupDescriptor{
-			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
-			Classes: []ClassDescriptor{{
-				Name: "n",
-				Shards: []*ShardDescriptor{{
-					Name: "n", Node: "n",
-				}},
-			}},
 		}, success: true},
 	}
 	for i, tc := range tests {
-		desc := tc.desc.ToDistributed()
-		err := desc.Validate()
+		err := tc.desc.Validate()
 		if got := err == nil; got != tc.success {
 			t.Errorf("%d. validate(%+v): want=%v got=%v err=%v", i, tc.desc, tc.success, got, err)
 		}
@@ -676,7 +659,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 			shardBaseDescrs: []ShardAndID{
 				{
 					BackupID: "backup2",
-					ShardDesc: &ShardDescriptor{
+					ShardDesc: &BaseShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"other.db": {
 								ChunkKeys:  []string{"chunk1"},
@@ -696,7 +679,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 			shardBaseDescrs: []ShardAndID{
 				{
 					BackupID: "backup3",
-					ShardDesc: &ShardDescriptor{
+					ShardDesc: &BaseShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"unchanged.db": {
 								ChunkKeys:  []string{"chunk1", "chunk2"},
@@ -716,7 +699,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 			shardBaseDescrs: []ShardAndID{
 				{
 					BackupID: "backup4",
-					ShardDesc: &ShardDescriptor{
+					ShardDesc: &BaseShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"unchanged.db": {
 								ChunkKeys:  []string{"chunk3", "chunk4"},
@@ -736,7 +719,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 			shardBaseDescrs: []ShardAndID{
 				{
 					BackupID: "backup5",
-					ShardDesc: &ShardDescriptor{
+					ShardDesc: &BaseShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"modified.db": {
 								ChunkKeys:  []string{"chunk5"},
@@ -756,7 +739,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 			shardBaseDescrs: []ShardAndID{
 				{
 					BackupID: "backup7",
-					ShardDesc: &ShardDescriptor{
+					ShardDesc: &BaseShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"unchanged.db": {
 								ChunkKeys:  []string{"chunk8"},
@@ -787,7 +770,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 			shardBaseDescrs: []ShardAndID{
 				{
 					BackupID: "backup8",
-					ShardDesc: &ShardDescriptor{
+					ShardDesc: &BaseShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"nonexistent.db": {
 								ChunkKeys:  []string{"chunk9"},
@@ -806,7 +789,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 			shardBaseDescrs: []ShardAndID{
 				{
 					BackupID: "backup9",
-					ShardDesc: &ShardDescriptor{
+					ShardDesc: &BaseShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"../../../etc/passwd": {
 								ChunkKeys:  []string{"chunk10"},
@@ -825,7 +808,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 			shardBaseDescrs: []ShardAndID{
 				{
 					BackupID: "backup10",
-					ShardDesc: &ShardDescriptor{
+					ShardDesc: &BaseShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{},
 					},
 				},
@@ -839,7 +822,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 			shardBaseDescrs: []ShardAndID{
 				{
 					BackupID: "backup_base1",
-					ShardDesc: &ShardDescriptor{
+					ShardDesc: &BaseShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"unchanged.db": {
 								ChunkKeys:  []string{"chunk1", "chunk2"},
@@ -851,7 +834,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				},
 				{
 					BackupID: "backup_base2",
-					ShardDesc: &ShardDescriptor{
+					ShardDesc: &BaseShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"other.db": {
 								ChunkKeys:  []string{"chunk3"},
@@ -882,7 +865,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 			shardBaseDescrs: []ShardAndID{
 				{
 					BackupID: "backup_base1",
-					ShardDesc: &ShardDescriptor{
+					ShardDesc: &BaseShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"other.db": {
 								ChunkKeys:  []string{"chunk1"},
@@ -894,7 +877,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				},
 				{
 					BackupID: "backup_base2",
-					ShardDesc: &ShardDescriptor{
+					ShardDesc: &BaseShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"unchanged.db": {
 								ChunkKeys:  []string{"chunk2", "chunk3"},
@@ -925,7 +908,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 			shardBaseDescrs: []ShardAndID{
 				{
 					BackupID: "backup_base1",
-					ShardDesc: &ShardDescriptor{
+					ShardDesc: &BaseShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"unchanged.db": {
 								ChunkKeys:  []string{"chunk1", "chunk2"},
@@ -937,7 +920,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				},
 				{
 					BackupID: "backup_base2",
-					ShardDesc: &ShardDescriptor{
+					ShardDesc: &BaseShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"modified.db": {
 								ChunkKeys: []string{"chunk3", "chunk4"},
@@ -977,7 +960,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 			shardBaseDescrs: []ShardAndID{
 				{
 					BackupID: "backup_base1",
-					ShardDesc: &ShardDescriptor{
+					ShardDesc: &BaseShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"unchanged.db": {
 								ChunkKeys:  []string{"chunk1", "chunk2"},
@@ -994,7 +977,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				},
 				{
 					BackupID: "backup_base2",
-					ShardDesc: &ShardDescriptor{
+					ShardDesc: &BaseShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"file2.db": {
 								ChunkKeys:  []string{"old_chunk2"},
@@ -1025,7 +1008,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 			shardBaseDescrs: []ShardAndID{
 				{
 					BackupID: "backup_base1",
-					ShardDesc: &ShardDescriptor{
+					ShardDesc: &BaseShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"unchanged.db": {
 								ChunkKeys:  []string{"chunk1", "chunk2"},
@@ -1037,7 +1020,7 @@ func TestShardDescriptorFillFileInfo(t *testing.T) {
 				},
 				{
 					BackupID: "backup_base2",
-					ShardDesc: &ShardDescriptor{
+					ShardDesc: &BaseShardDescriptor{
 						BigFilesChunk: map[string]BigFileInfo{
 							"unchanged.db": {
 								ChunkKeys:  []string{"chunk3", "chunk4"},
@@ -1161,5 +1144,42 @@ func TestFileListRemoveIndices(t *testing.T) {
 		f := &FileList{Files: []string{"a", "b", "c"}}
 		f.RemoveIndices([]int{5, 10})
 		assert.Equal(t, 3, f.Len())
+	})
+}
+
+// TestDedupeReplicasRoundTrip pins wire compatibility: absent field decodes false, set field survives.
+func TestDedupeReplicasRoundTrip(t *testing.T) {
+	t.Run("global descriptor", func(t *testing.T) {
+		var legacy DistributedBackupDescriptor
+		require.NoError(t, json.Unmarshal([]byte(`{"id":"x","version":"2.1"}`), &legacy))
+		assert.False(t, legacy.DedupeReplicas)
+
+		raw, err := json.Marshal(DistributedBackupDescriptor{ID: "x", Version: "2.1"})
+		require.NoError(t, err)
+		for _, key := range []string{"dedupeReplicas", "dedupeDesignatedShards", "dedupeFallbackShards", "dedupeCutoffsMs"} {
+			assert.NotContains(t, string(raw), key)
+		}
+
+		raw, err = json.Marshal(DistributedBackupDescriptor{ID: "x", Version: "3.0", DedupeReplicas: true})
+		require.NoError(t, err)
+		var got DistributedBackupDescriptor
+		require.NoError(t, json.Unmarshal(raw, &got))
+		assert.True(t, got.DedupeReplicas)
+	})
+
+	t.Run("node descriptor", func(t *testing.T) {
+		var legacy BackupDescriptor
+		require.NoError(t, json.Unmarshal([]byte(`{"id":"x","version":"2.1"}`), &legacy))
+		assert.False(t, legacy.DedupeReplicas)
+
+		raw, err := json.Marshal(BackupDescriptor{ID: "x", Version: "2.1"})
+		require.NoError(t, err)
+		assert.NotContains(t, string(raw), "dedupeReplicas")
+
+		raw, err = json.Marshal(BackupDescriptor{ID: "x", Version: "3.0", DedupeReplicas: true})
+		require.NoError(t, err)
+		var got BackupDescriptor
+		require.NoError(t, json.Unmarshal(raw, &got))
+		assert.True(t, got.DedupeReplicas)
 	})
 }

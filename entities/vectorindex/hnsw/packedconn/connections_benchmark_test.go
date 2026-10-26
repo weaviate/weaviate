@@ -26,7 +26,7 @@ func (c *Connections) bulkInsertAtLayerOriginal(conns []uint64, layer uint8) {
 		return
 	}
 
-	layerData := &c.layers[layer]
+	layerData := c.layer(layer)
 
 	if layerData.packed == 0 {
 		// Empty layer - just encode all values
@@ -206,6 +206,23 @@ func BenchmarkBulkInsert_Allocations(b *testing.B) {
 			c.BulkInsertAtLayer(newData, 0)
 		}
 	})
+}
+
+// Reports allocations per NewWithData call. Each layer is a view into the blob
+// rather than a fresh make+copy, so allocs/op stays flat regardless of layer
+// count instead of growing one allocation per layer.
+func BenchmarkNewWithData_Allocs(b *testing.B) {
+	c, _ := NewWithMaxLayer(3)
+	for l := uint8(0); l <= 3; l++ {
+		c.ReplaceLayer(l, generateTestData(32, 65535))
+	}
+	blob := c.Data()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = NewWithData(blob)
+	}
 }
 
 // Benchmark with realistic workload patterns

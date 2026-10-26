@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
 // KnownReindexTaskLookup reports whether (taskID, taskVersion) is live
@@ -35,6 +36,23 @@ type KnownReindexTaskLookup func(taskID string, taskVersion uint64) bool
 // than substitute a soft default — an unobservable "all known" fallback
 // would silently misclassify orphans as in-flight migrations.
 type KnownReindexTaskLookupBuilder func() (KnownReindexTaskLookup, error)
+
+// NewLiveReindexTrackerLookup snapshots which tasks still own their
+// on-disk tracker dirs. The rule lives in [IsLiveReindexTaskStatus] so a
+// new status has one place to answer it.
+func NewLiveReindexTrackerLookup(tasks []*distributedtask.Task) KnownReindexTaskLookup {
+	type taskKey struct {
+		id      string
+		version uint64
+	}
+	live := make(map[taskKey]bool, len(tasks))
+	for _, task := range tasks {
+		live[taskKey{task.ID, task.Version}] = IsLiveReindexTaskStatus(task.Status)
+	}
+	return func(taskID string, taskVersion uint64) bool {
+		return live[taskKey{taskID, taskVersion}]
+	}
+}
 
 // AuditOutcomeStatus distinguishes the three operationally distinct
 // reasons an [DB.AuditOrphanReindexTrackers] invocation can return
@@ -826,7 +844,9 @@ func (db *DB) cleanupOrphanTrackerCompactionPaused(ctx context.Context, shard *S
 
 	for _, propName := range o.properties {
 		for _, indexType := range o.indexTypes {
-			if err := shard.CleanStalePartialReindexState(ctx, propName, indexType); err != nil {
+			// The audit reports per orphan, not per payload, so the read count
+			// has no line here to land on.
+			if _, err := shard.CleanStalePartialReindexState(ctx, propName, indexType); err != nil {
 				return fmt.Errorf("clean stale partial reindex state for (prop=%q,indexType=%q): %w", propName, indexType, err)
 			}
 		}

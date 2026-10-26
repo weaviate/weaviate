@@ -160,7 +160,7 @@ func TestRaftConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.config.NamespacesController = usecasesNamespaces.NewController(tt.config.Logger)
-			store := NewFSM(tt.config, nil, nil, prometheus.NewPedanticRegistry())
+			store := NewFSM(tt.config, nil, prometheus.NewPedanticRegistry())
 			cfg := store.raftConfig()
 			require.NotNil(t, cfg)
 			tt.expectedConfig(cfg)

@@ -47,7 +47,7 @@ type SchemaObjectsPropertiesDeleteParams struct {
 	  In: path
 	*/
 	ClassName string
-	/*The name of the inverted index to delete from the property.
+	/*The name of the inverted index to delete from the property. `rangeable` is accepted as a write-path alias for `rangeFilters`.
 	  Required: true
 	  In: path
 	*/
@@ -123,7 +123,7 @@ func (o *SchemaObjectsPropertiesDeleteParams) bindIndexName(rawData []string, ha
 // validateIndexName carries on validations for parameter IndexName
 func (o *SchemaObjectsPropertiesDeleteParams) validateIndexName(formats strfmt.Registry) error {
 
-	if err := validate.EnumCase("indexName", "path", o.IndexName, []interface{}{"filterable", "searchable", "rangeFilters"}, true); err != nil {
+	if err := validate.EnumCase("indexName", "path", o.IndexName, []interface{}{"filterable", "searchable", "rangeFilters", "rangeable"}, true); err != nil {
 		return err
 	}
 

@@ -101,7 +101,7 @@ func moduleLevelStoreBackupMeta(t *testing.T, override bool, containerName, over
 		s3 := mod.New()
 		params := moduletools.NewMockModuleInitParams(t)
 		params.EXPECT().GetLogger().Return(logrus.New())
-		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		params.EXPECT().GetDataPath().Return(t.TempDir())
 		params.EXPECT().GetConfig().Return(&config.Config{})
 		err := s3.Init(testCtx, params)
 		require.Nil(t, err)
@@ -196,7 +196,7 @@ func moduleLevelCopyObjects(t *testing.T, override bool, containerName, override
 		s3 := mod.New()
 		params := moduletools.NewMockModuleInitParams(t)
 		params.EXPECT().GetLogger().Return(logrus.New())
-		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		params.EXPECT().GetDataPath().Return(t.TempDir())
 		params.EXPECT().GetConfig().Return(&config.Config{})
 		err := s3.Init(testCtx, params)
 		require.Nil(t, err)
@@ -237,7 +237,7 @@ func moduleLevelCopyFiles(t *testing.T, override bool, containerName, overrideBu
 		s3 := mod.New()
 		params := moduletools.NewMockModuleInitParams(t)
 		params.EXPECT().GetLogger().Return(logrus.New())
-		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: dataDir})
+		params.EXPECT().GetDataPath().Return(dataDir)
 		params.EXPECT().GetConfig().Return(&config.Config{})
 		err = s3.Init(testCtx, params)
 		require.Nil(t, err)
@@ -255,29 +255,5 @@ func moduleLevelCopyFiles(t *testing.T, override bool, containerName, overrideBu
 			require.Nil(t, err)
 			assert.Equal(t, expectedContents, contents)
 		})
-
-		t.Run("fetch file from backend", func(t *testing.T) {
-			destPath := dataDir + "/file_0.copy.db"
-
-			t.Logf("download file with override: %v", override)
-			err := s3.WriteToFile(testCtx, backupID, key, destPath, overrideBucket, overridePath)
-			require.Nil(t, err)
-
-			contents, err := os.ReadFile(destPath)
-			require.Nil(t, err)
-			assert.Equal(t, expectedContents, contents)
-		})
 	})
-}
-
-type fakeStorageProvider struct {
-	dataPath string
-}
-
-func (f *fakeStorageProvider) Storage(name string) (moduletools.Storage, error) {
-	return nil, nil
-}
-
-func (f *fakeStorageProvider) DataPath() string {
-	return f.dataPath
 }

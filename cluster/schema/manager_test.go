@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 	gproto "google.golang.org/protobuf/proto"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/fakes"
@@ -56,7 +57,7 @@ func TestResolveAlais(t *testing.T) {
 func TestVersionedSchemaReaderShardReplicas(t *testing.T) {
 	var (
 		ctx = context.Background()
-		sc  = NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+		sc  = NewSchema(t.Name(), prometheus.NewPedanticRegistry())
 		vsc = VersionedSchemaReader{
 			schema:        sc,
 			WaitForUpdate: func(ctx context.Context, version uint64) error { return nil },
@@ -88,7 +89,7 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 		retErr error
 		f      = func(ctx context.Context, version uint64) error { return retErr }
 		nodes  = []string{"N1", "N2"}
-		s      = NewSchema(t.Name(), &MockShardReader{}, prometheus.NewPedanticRegistry())
+		s      = NewSchema(t.Name(), prometheus.NewPedanticRegistry())
 		sc     = VersionedSchemaReader{s, f}
 	)
 
@@ -139,7 +140,7 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 	assert.ErrorContains(t, err, "node not found")
 	_, err = sc.ShardOwner(ctx, "C", "Sx", 1)
 	assert.ErrorIs(t, err, ErrShardNotFound)
-	shards, _, err := sc.TenantsShards(ctx, 1, "C", "S2")
+	shards, _, err := sc.TenantsShardsStatus(ctx, 1, "C", "S2")
 	assert.Empty(t, shards)
 	assert.Nil(t, err)
 	shard, err := sc.ShardFromUUID(ctx, "Cx", nil, 1)
@@ -167,12 +168,12 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 	assert.Contains(t, nodes, owner)
 
 	// TenantShard
-	shards, _, err = sc.TenantsShards(ctx, 1, "D", "S1")
+	shards, _, err = sc.TenantsShardsStatus(ctx, 1, "D", "S1")
 	assert.Equal(t, shards, map[string]string{"S1": "A"})
 	assert.Equal(t, shards["S1"], "A")
 	assert.Nil(t, err)
 
-	shards, _, err = sc.TenantsShards(ctx, 1, "D", "Sx")
+	shards, _, err = sc.TenantsShardsStatus(ctx, 1, "D", "Sx")
 	assert.Empty(t, shards)
 	assert.Nil(t, err)
 
@@ -184,8 +185,8 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 }
 
 func TestSchemaReaderShardReplicas(t *testing.T) {
-	sc := NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
-	rsc := SchemaReader{sc, VersionedSchemaReader{}}
+	sc := NewSchema(t.Name(), prometheus.NewPedanticRegistry())
+	rsc := SchemaReader{schema: sc}
 	// class not found
 	_, _, err := sc.ShardReplicas("C", "S")
 	assert.ErrorIs(t, err, ErrClassNotFound)
@@ -209,8 +210,8 @@ func TestSchemaReaderShardReplicas(t *testing.T) {
 func TestSchemaReaderClass(t *testing.T) {
 	var (
 		nodes = []string{"N1", "N2"}
-		s     = NewSchema(t.Name(), &MockShardReader{}, prometheus.NewPedanticRegistry())
-		sc    = SchemaReader{s, VersionedSchemaReader{}}
+		s     = NewSchema(t.Name(), prometheus.NewPedanticRegistry())
+		sc    = SchemaReader{schema: s}
 	)
 
 	// class not found
@@ -262,12 +263,9 @@ func TestSchemaReaderClass(t *testing.T) {
 	assert.ErrorContains(t, err, "node not found")
 	_, err = sc.ShardOwner("C", "Sx")
 	assert.ErrorIs(t, err, ErrShardNotFound)
-	shard, _ := sc.TenantsShards("C", "S2")
+	shard, _ := sc.TenantsShardsStatus("C", "S2")
 	assert.Empty(t, shard)
 	assert.Empty(t, sc.ShardFromUUID("Cx", nil))
-
-	_, err = sc.GetShardsStatus("C", "")
-	assert.Nil(t, err)
 
 	// Add Multi Tenant Class (PartitioningEnabled: true)
 	cls2 := &models.Class{Class: "D", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}}
@@ -289,43 +287,83 @@ func TestSchemaReaderClass(t *testing.T) {
 	assert.Contains(t, nodes, owner)
 
 	// TenantShard
-	shards, _ := sc.TenantsShards("D", "S1")
+	shards, _ := sc.TenantsShardsStatus("D", "S1")
 	assert.Equal(t, shards["S1"], "A")
-	shards, _ = sc.TenantsShards("D", "Sx")
+	shards, _ = sc.TenantsShardsStatus("D", "Sx")
 	assert.Empty(t, shards)
 }
 
-// TestPropertiesMigration ensures that our migration function sets proper default values
-// The test verifies that we migrate top level properties and then at least one layer deep nested properties
+// TestPropertiesMigration pins that migratePropertiesIfNecessary defaults an unset
+// IndexRangeFilters to false at every nesting depth and keeps a set one.
 func TestPropertiesMigration(t *testing.T) {
-	class := &models.Class{
-		Class: "C",
-		Properties: []*models.Property{
-			{
-				NestedProperties: []*models.NestedProperty{
-					{
-						NestedProperties: []*models.NestedProperty{
-							{},
-						},
-					},
-				},
-			},
-		},
+	vTrue, vFalse := true, false
+	tests := []struct {
+		name string
+		set  *bool
+		want bool
+	}{
+		{name: "unset defaults to false", set: nil, want: false},
+		{name: "enabled stays enabled", set: &vTrue, want: true},
+		{name: "disabled stays disabled", set: &vFalse, want: false},
 	}
 
-	// Set the values to nil, which would be the case if we're upgrading a cluster with "old" classes in it
-	class.Properties[0].IndexRangeFilters = nil
-	class.Properties[0].NestedProperties[0].IndexRangeFilters = nil
-	class.Properties[0].NestedProperties[0].NestedProperties[0].IndexRangeFilters = nil
-	migratePropertiesIfNecessary(class)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deepest := &models.NestedProperty{IndexRangeFilters: tt.set}
+			nested := &models.NestedProperty{
+				IndexRangeFilters: tt.set,
+				NestedProperties:  []*models.NestedProperty{deepest},
+			}
+			prop := &models.Property{
+				IndexRangeFilters: tt.set,
+				NestedProperties:  []*models.NestedProperty{nested},
+			}
+			migratePropertiesIfNecessary(&models.Class{Class: "C", Properties: []*models.Property{prop}})
 
-	// Check
-	require.NotNil(t, class.Properties[0].IndexRangeFilters)
-	require.False(t, *(class.Properties[0].IndexRangeFilters))
-	require.NotNil(t, class.Properties[0].NestedProperties[0].IndexRangeFilters)
-	require.False(t, *(class.Properties[0].NestedProperties[0].IndexRangeFilters))
-	require.NotNil(t, class.Properties[0].NestedProperties[0].NestedProperties[0].IndexRangeFilters)
-	require.False(t, *(class.Properties[0].NestedProperties[0].NestedProperties[0].IndexRangeFilters))
+			for level, got := range map[string]*bool{
+				"property": prop.IndexRangeFilters,
+				"nested":   nested.IndexRangeFilters,
+				"deepest":  deepest.IndexRangeFilters,
+			} {
+				require.NotNil(t, got, level)
+				require.Equal(t, tt.want, *got, level)
+			}
+		})
+	}
+}
+
+// TestReloadKeepsNestedRangeFiltersInSchema pins that a node restart leaves a
+// nested property's enabled range index enabled in the schema it serves.
+func TestReloadKeepsNestedRangeFiltersInSchema(t *testing.T) {
+	parser := fakes.NewMockParser()
+	parser.On("ParseClass", mock.Anything).Return(nil)
+	sm := NewSchemaManager("node1", &recordingIndexer{}, parser, prometheus.NewPedanticRegistry(), logrus.New())
+
+	vTrue := true
+	sub, err := json.Marshal(cmd.AddClassRequest{
+		Class: &models.Class{Class: "C", Properties: []*models.Property{{
+			Name:     "obj",
+			DataType: []string{"object"},
+			NestedProperties: []*models.NestedProperty{{
+				Name: "n", DataType: []string{"int"}, IndexRangeFilters: &vTrue,
+			}},
+		}}},
+		State: &sharding.State{Physical: map[string]sharding.Physical{
+			"shard1": {Name: "shard1", BelongsToNodes: []string{"node1"}},
+		}},
+	})
+	require.NoError(t, err)
+	require.NoError(t, sm.AddClass(&cmd.ApplyRequest{
+		Type: cmd.ApplyRequest_TYPE_ADD_CLASS, Class: "C", SubCommand: sub,
+	}, "node1", true, false))
+
+	sm.ReloadDBFromSchema(context.Background())
+
+	class, _ := sm.schema.ReadOnlyClass("C")
+	require.NotNil(t, class)
+	got := class.Properties[0].NestedProperties[0].IndexRangeFilters
+	require.NotNil(t, got)
+	require.True(t, *got, "reload disabled the nested range index")
 }
 
 // TestApplyPartialSchemaErr verifies that apply() respects the partialSchemaErr flag:
@@ -466,15 +504,6 @@ func TestApplyPartialSchemaErr(t *testing.T) {
 	}
 }
 
-type MockShardReader struct {
-	lst models.ShardStatusList
-	err error
-}
-
-func (m *MockShardReader) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
-	return m.lst, m.err
-}
-
 // fakeReplicationFSM stands in for the real FSM here because importing
 // cluster/replication would cycle through cluster/schema. Unused interface
 // methods panic so an unexpected call surfaces immediately.
@@ -594,6 +623,79 @@ func TestSchemaManager_ReplicationAddReplicaToShard_AtomicallySetsUnCancellable(
 	})
 }
 
+// The two replica-add command types reach different indexer entry points on the
+// node gaining the replica: only a movement's target shard is exempt from the
+// namespace checks that keep a suspended namespace's shards closed. The plain
+// type carries no op id and registers no replication op, so it must not take
+// that exemption.
+func TestSchemaManagerReplicaAddRoutesByCommandType(t *testing.T) {
+	const (
+		className = "TestClass"
+		shardName = "shard1"
+		nodeID    = "local-node"
+		schemaVer = uint64(1)
+		applyVer  = uint64(2)
+	)
+
+	tests := []struct {
+		name        string
+		cmdType     cmd.ApplyRequest_Type
+		subCommand  any
+		apply       func(*SchemaManager, *cmd.ApplyRequest) error
+		wantIndexer string
+	}{
+		{
+			name:       "a plain replica add",
+			cmdType:    cmd.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD,
+			subCommand: &cmd.AddReplicaToShard{Class: className, Shard: shardName, TargetNode: nodeID},
+			apply: func(sm *SchemaManager, req *cmd.ApplyRequest) error {
+				return sm.AddReplicaToShard(req, false)
+			},
+			wantIndexer: "AddReplicaToShard",
+		},
+		{
+			name:    "a replica movement",
+			cmdType: cmd.ApplyRequest_TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD,
+			subCommand: &cmd.ReplicationAddReplicaToShard{
+				OpId: 42, Class: className, Shard: shardName,
+				TargetNode: nodeID, SchemaVersion: schemaVer,
+			},
+			apply: func(sm *SchemaManager, req *cmd.ApplyRequest) error {
+				return sm.ReplicationAddReplicaToShard(req, false)
+			},
+			wantIndexer: "AddReplicaToShardForMovement",
+		},
+	}
+
+	for _, tc := range tests {
+		// The indexer panics on any call it has no expectation for, so reaching
+		// the other entry point fails the row rather than passing it silently.
+		t.Run(tc.name+" reaches "+tc.wantIndexer, func(t *testing.T) {
+			parser := fakes.NewMockParser()
+			parser.On("ParseClass", mock.Anything).Return(nil)
+			indexer := fakes.NewMockSchemaExecutor()
+			indexer.On(tc.wantIndexer, className, shardName, nodeID).Return(nil)
+			indexer.On("ReconcileAsyncReplicationForShard", className, shardName).Return(nil)
+
+			sm := NewSchemaManager(nodeID, indexer, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			sm.SetReplicationFSM(&fakeReplicationFSM{})
+
+			ss := &sharding.State{Physical: map[string]sharding.Physical{
+				shardName: {Name: shardName, BelongsToNodes: []string{"other-node"}},
+			}}
+			require.NoError(t, sm.schema.addClass(&models.Class{Class: className}, ss, schemaVer))
+
+			sub, err := json.Marshal(tc.subCommand)
+			require.NoError(t, err)
+
+			require.NoError(t, tc.apply(sm, &cmd.ApplyRequest{
+				Type: tc.cmdType, Class: className, Version: applyVer, SubCommand: sub,
+			}))
+			indexer.AssertExpectations(t)
+		})
+	}
+}
+
 // recordingMutationGuard captures every CheckPropertyUpdate call and
 // optionally rejects with a configured error. Used to pin the
 // SchemaManager.UpdateProperty guard call site (https://github.com/weaviate/0-weaviate-issues/issues/218).
@@ -602,6 +704,7 @@ type recordingMutationGuard struct {
 	lastClass   string
 	lastProp    string
 	lastRemoved []string
+	lastShards  []string
 	rejectWith  error
 }
 
@@ -624,10 +727,11 @@ func (g *recordingMutationGuard) CheckTenantMutation(class string, tenants []str
 	return g.rejectWith
 }
 
-func (g *recordingMutationGuard) CheckVectorConfigRemoval(class string, removedVectors []string) error {
+func (g *recordingMutationGuard) CheckVectorConfigRemoval(class string, removedVectors, shards []string) error {
 	g.called++
 	g.lastClass = class
 	g.lastRemoved = removedVectors
+	g.lastShards = shards
 	return g.rejectWith
 }
 
@@ -798,6 +902,200 @@ func TestSchemaManager_DeleteClass_MutationGuard(t *testing.T) {
 	})
 }
 
+// fakeCascadeDeleter records the target-scoped purge calls the schema FSM
+// issues on drop-vector marker introduction.
+type fakeCascadeDeleter struct {
+	collectionCalls []string
+	activeMatch     bool
+	purgeErr        error // non-sentinel purge failure
+	targetCalls     []struct {
+		collection string
+		targets    []string
+	}
+}
+
+func (f *fakeCascadeDeleter) DeleteTasksForCollection(collection string) []distributedtask.TaskDescriptor {
+	f.collectionCalls = append(f.collectionCalls, collection)
+	return nil
+}
+
+func (f *fakeCascadeDeleter) PurgeTasksForCollectionTargetVectors(collection string, targets []string) ([]distributedtask.TaskDescriptor, error) {
+	if f.activeMatch {
+		return nil, distributedtask.ErrTaskStillActiveForTargetVectors
+	}
+	if f.purgeErr != nil {
+		return nil, f.purgeErr
+	}
+	f.targetCalls = append(f.targetCalls, struct {
+		collection string
+		targets    []string
+	}{collection, targets})
+	return []distributedtask.TaskDescriptor{{ID: "purged", Version: 1}}, nil
+}
+
+// TestSchemaManager_UpdateClass_MarkerIntroductionPurgesRecords pins the stale
+// record purge: introducing a drop marker deletes the previous drop's task
+// records for that (collection, target) in the SAME apply — a re-created then
+// re-dropped name must start with a clean slate, or coverage inheritance and
+// removal vouching could adopt the closed drop's records.
+func TestSchemaManager_UpdateClass_MarkerIntroductionPurgesRecords(t *testing.T) {
+	const none = "none"
+	hnsw := models.VectorConfig{VectorIndexType: "hnsw"}
+
+	mkRequest := func(updated *models.Class) *cmd.ApplyRequest {
+		sub, err := json.Marshal(&cmd.UpdateClassRequest{Class: updated, State: nil})
+		require.NoError(t, err)
+		return &cmd.ApplyRequest{
+			Type:       cmd.ApplyRequest_TYPE_UPDATE_CLASS,
+			Class:      "C",
+			Version:    2,
+			SubCommand: sub,
+		}
+	}
+	newSM := func(deleter *fakeCascadeDeleter, initial, parsed *models.Class) *SchemaManager {
+		parser := fakes.NewMockParser()
+		parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(parsed, nil)
+		sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		sm.SetDistributedTaskManager(deleter)
+		require.NoError(t, sm.schema.addClass(initial,
+			&sharding.State{Physical: map[string]sharding.Physical{}}, 1))
+		return sm
+	}
+
+	t.Run("live to none purges the target's records", func(t *testing.T) {
+		deleter := &fakeCascadeDeleter{}
+		initial := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": hnsw}}
+		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": {VectorIndexType: none}}}
+		sm := newSM(deleter, initial, parsed)
+
+		require.NoError(t, sm.UpdateClass(mkRequest(parsed), "test-node", true, false))
+		require.Len(t, deleter.targetCalls, 1)
+		require.Equal(t, "C", deleter.targetCalls[0].collection)
+		require.Equal(t, []string{"vec1"}, deleter.targetCalls[0].targets)
+	})
+
+	t.Run("introduction is rejected while a matching task is still active", func(t *testing.T) {
+		// The SWAPPING race: the previous drop's task finalized (marker gone)
+		// but has not flipped FINISHED yet. Purging skips active tasks and
+		// never re-runs, so letting the marker in would leave a stale
+		// inheritance seed — the birth must be refused. Normally a ms-scale
+		// retry window; a node that died holding its post-completion ack
+		// keeps the task SWAPPING (and the refusal standing) until
+		// DeleteClass.
+		deleter := &fakeCascadeDeleter{activeMatch: true}
+		initial := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": hnsw}}
+		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": {VectorIndexType: none}}}
+		sm := newSM(deleter, initial, parsed)
+
+		err := sm.UpdateClass(mkRequest(parsed), "test-node", true, false)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "still completing")
+		require.ErrorIs(t, err, ErrBadRequest, "the refusal is retryable and must reach clients as a 4xx")
+		require.Empty(t, deleter.targetCalls, "no purge may run when the introduction is refused")
+		// The update closure edits the live metaClass with no rollback, so
+		// every reject path must fire before any mutation: the refusal must
+		// leave the marker un-introduced.
+		got, _ := sm.schema.ReadOnlyClass("C")
+		require.NotNil(t, got)
+		require.Equal(t, hnsw, got.VectorConfig["vec1"], "a refused introduction must not mutate the schema")
+	})
+
+	t.Run("a non-refusal purge failure is internal, not a retryable 400", func(t *testing.T) {
+		deleter := &fakeCascadeDeleter{purgeErr: fmt.Errorf("extractor registry corrupted")}
+		initial := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": hnsw}}
+		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": {VectorIndexType: none}}}
+		sm := newSM(deleter, initial, parsed)
+
+		err := sm.UpdateClass(mkRequest(parsed), "test-node", true, false)
+		require.Error(t, err)
+		require.NotErrorIs(t, err, ErrBadRequest,
+			"only ErrTaskStillActiveForTargetVectors is the client's fault; anything else must not be classified retryable-4xx")
+	})
+
+	t.Run("an already-dropped entry does not re-purge", func(t *testing.T) {
+		deleter := &fakeCascadeDeleter{}
+		cfg := map[string]models.VectorConfig{"vec1": {VectorIndexType: none}, "keep": hnsw}
+		initial := &models.Class{Class: "C", VectorConfig: cfg}
+		parsed := &models.Class{Class: "C", VectorConfig: cfg}
+		sm := newSM(deleter, initial, parsed)
+
+		require.NoError(t, sm.UpdateClass(mkRequest(parsed), "test-node", true, false))
+		require.Empty(t, deleter.targetCalls,
+			"retriggers and unrelated updates must not purge the ACTIVE drop's records")
+	})
+
+	t.Run("the vector-less flip stores nothing synthetic", func(t *testing.T) {
+		// The defaults never fill legacy fields into a vector-less body and
+		// UpdateClassInternal rejects a caller who sets them, so the body
+		// reaching the apply carries the genuinely empty shape;
+		// Vectorizer/VectorIndexType are never copied from updates in any case.
+		deleter := &fakeCascadeDeleter{}
+		initial := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": {VectorIndexType: none}}}
+		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{}}
+		sm := newSM(deleter, initial, parsed)
+
+		require.NoError(t, sm.UpdateClass(mkRequest(parsed), "test-node", true, false))
+		got, _ := sm.schema.ReadOnlyClass("C")
+		require.NotNil(t, got)
+		require.Empty(t, got.VectorConfig)
+		require.Empty(t, got.Vectorizer)
+		require.Empty(t, got.VectorIndexType)
+		require.Nil(t, got.VectorIndexConfig)
+
+		// Steady state: a later (cleared) update keeps the shape.
+		require.NoError(t, sm.UpdateClass(mkRequest(parsed), "test-node", true, false))
+		got, _ = sm.schema.ReadOnlyClass("C")
+		require.Nil(t, got.VectorIndexConfig)
+		require.Empty(t, got.Vectorizer)
+	})
+
+	t.Run("db-side apply failure cannot strand the purge: marker still stands", func(t *testing.T) {
+		// The purge is irreversible and commits inside the same updateSchema
+		// closure as the marker assignment; db.UpdateClass runs AFTER both
+		// and its failure is node-local. The invariant that keeps the purge
+		// sound is "purge committed ⇒ marker committed": the drop then
+		// proceeds from the schema marker via reconciliation regardless of
+		// the store-side error, so the purged records are never missed.
+		deleter := &fakeCascadeDeleter{}
+		initial := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": hnsw}}
+		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": {VectorIndexType: none}}}
+		sm := newSM(deleter, initial, parsed)
+		indexer := fakes.NewMockSchemaExecutor()
+		indexer.On("UpdateClass", mock.Anything).Return(fmt.Errorf("disk full"))
+		sm.db = indexer
+
+		err := sm.UpdateClass(mkRequest(parsed), "test-node", false, false)
+		require.Error(t, err, "the store-side failure must surface to the proposer")
+		require.Len(t, deleter.targetCalls, 1, "purge committed with the schema update")
+		got, _ := sm.schema.ReadOnlyClass("C")
+		require.NotNil(t, got)
+		require.Equal(t, none, got.VectorConfig["vec1"].VectorIndexType,
+			"the marker must stand whenever the purge ran — purge-without-marker is the unsound state")
+	})
+
+	t.Run("a rejected apply must not purge (gate runs first)", func(t *testing.T) {
+		// One PUT that both introduces a marker on vecA and illegally removes
+		// the dropped vecB: the removal gate rejects the apply, and vecA's
+		// records must still exist — a purge before the reject would erase
+		// them from an update that never applied, with nothing to roll back.
+		deleter := &fakeCascadeDeleter{}
+		initial := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{
+			"vecA": hnsw, "vecB": {VectorIndexType: none},
+		}}
+		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{
+			"vecA": {VectorIndexType: none},
+		}}
+		sm := newSM(deleter, initial, parsed)
+		guard := &recordingMutationGuard{rejectWith: fmt.Errorf("vecB cleanup not complete")}
+		sm.SetMutationGuard(guard)
+
+		err := sm.UpdateClass(mkRequest(parsed), "test-node", true, false)
+		require.Error(t, err)
+		require.Equal(t, []string{"vecB"}, guard.lastRemoved)
+		require.Empty(t, deleter.targetCalls, "no purge may run on a rejected apply")
+	})
+}
+
 // TestSchemaManager_UpdateClass_VectorConfigRemovalGate pins the gate wiring
 // on the UpdateClass apply path: when an update removes a dropped ("none")
 // VectorConfig entry, the MutationGuard MUST be consulted with the removed names
@@ -831,7 +1129,9 @@ func TestSchemaManager_UpdateClass_VectorConfigRemovalGate(t *testing.T) {
 			Class:        "C",
 			VectorConfig: map[string]models.VectorConfig{"keep": hnsw, "vec1": none},
 		}
-		ss := &sharding.State{Physical: map[string]sharding.Physical{}}
+		ss := &sharding.State{Physical: map[string]sharding.Physical{
+			"shardB": {Name: "shardB"}, "shardA": {Name: "shardA"}, "shardC": {Name: "shardC"},
+		}}
 		require.NoError(t, sm.schema.addClass(initial, ss, 1))
 		return sm
 	}
@@ -846,6 +1146,8 @@ func TestSchemaManager_UpdateClass_VectorConfigRemovalGate(t *testing.T) {
 		require.Contains(t, err.Error(), "cleanup task not FINISHED")
 		require.Equal(t, 1, guard.called, "gate must be consulted once")
 		require.Equal(t, []string{"vec1"}, guard.lastRemoved)
+		require.Equal(t, []string{"shardA", "shardB", "shardC"}, guard.lastShards,
+			"gate must receive the FSM's shard set, sorted")
 	})
 
 	t.Run("removing a dropped entry succeeds when the gate allows", func(t *testing.T) {
@@ -857,6 +1159,26 @@ func TestSchemaManager_UpdateClass_VectorConfigRemovalGate(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 1, guard.called)
 		require.Equal(t, []string{"vec1"}, guard.lastRemoved)
+		require.Equal(t, []string{"shardA", "shardB", "shardC"}, guard.lastShards)
+	})
+
+	t.Run("empty shard set is passed as an empty slice", func(t *testing.T) {
+		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"keep": hnsw}}
+		guard := &recordingMutationGuard{}
+		parser := fakes.NewMockParser()
+		parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(parsed, nil)
+		sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		sm.SetMutationGuard(guard)
+		initial := &models.Class{
+			Class:        "C",
+			VectorConfig: map[string]models.VectorConfig{"keep": hnsw, "vec1": none},
+		}
+		require.NoError(t, sm.schema.addClass(initial,
+			&sharding.State{Physical: map[string]sharding.Physical{}}, 1))
+
+		require.NoError(t, sm.UpdateClass(mkRequest(parsed), "test-node", true, false))
+		require.Equal(t, 1, guard.called)
+		require.Empty(t, guard.lastShards)
 	})
 
 	t.Run("update that removes no dropped entry does not consult the gate", func(t *testing.T) {
@@ -1036,6 +1358,99 @@ func TestSchemaManager_PreApplyFilterRestoreClassCollision(t *testing.T) {
 			}
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+// propertyRecordingIndexer captures the property the store half applies.
+type propertyRecordingIndexer struct {
+	Indexer
+
+	got *models.Property
+}
+
+func (r *propertyRecordingIndexer) UpdateProperty(_ string, req cmd.UpdatePropertyRequest) error {
+	r.got = req.Property
+	return nil
+}
+
+func (r *propertyRecordingIndexer) TriggerSchemaUpdateCallbacks() {}
+
+// TestUpdatePropertyStoreSeesTheMergedProperty pins that the DB half applies
+// the merged property: it drops buckets by the index flags it is handed, and a
+// mask leaves the omitted ones to the schema.
+func TestUpdatePropertyStoreSeesTheMergedProperty(t *testing.T) {
+	vTrue, vFalse := true, false
+
+	tests := []struct {
+		name            string
+		mask            []string
+		payload         *models.Property
+		wantFilterable  bool
+		wantSearchable  bool
+		wantRangeFilter bool
+	}{
+		{
+			name:            "masked update keeps the fields it does not name",
+			mask:            []string{cmd.PropertyFieldIndexSearchable},
+			payload:         &models.Property{Name: "p", IndexFilterable: &vFalse, IndexSearchable: &vFalse, IndexRangeFilters: &vFalse},
+			wantFilterable:  true,
+			wantSearchable:  false,
+			wantRangeFilter: true,
+		},
+		{
+			name:            "masked update applies the field it names",
+			mask:            []string{cmd.PropertyFieldIndexFilterable},
+			payload:         &models.Property{Name: "p", IndexFilterable: &vFalse, IndexSearchable: &vFalse, IndexRangeFilters: &vFalse},
+			wantFilterable:  false,
+			wantSearchable:  true,
+			wantRangeFilter: true,
+		},
+		{
+			name:            "no mask merges everything",
+			mask:            nil,
+			payload:         &models.Property{Name: "p", IndexFilterable: &vFalse, IndexSearchable: &vFalse, IndexRangeFilters: &vFalse},
+			wantFilterable:  false,
+			wantSearchable:  false,
+			wantRangeFilter: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			idx := &propertyRecordingIndexer{}
+			parser := fakes.NewMockParser()
+			parser.On("ParseClass", mock.Anything).Return(nil)
+			sm := NewSchemaManager("node1", idx, parser, prometheus.NewPedanticRegistry(), logrus.New())
+
+			require.NoError(t, sm.schema.addClass(&models.Class{
+				Class: "C",
+				Properties: []*models.Property{{
+					Name: "p", DataType: []string{"text"},
+					IndexFilterable: &vTrue, IndexSearchable: &vTrue, IndexRangeFilters: &vTrue,
+				}},
+			}, &sharding.State{Physical: map[string]sharding.Physical{}}, 1))
+
+			sub, err := json.Marshal(cmd.UpdatePropertyRequest{
+				Property: test.payload, FieldsToUpdate: test.mask,
+			})
+			require.NoError(t, err)
+			require.NoError(t, sm.UpdateProperty(&cmd.ApplyRequest{
+				Type: cmd.ApplyRequest_TYPE_UPDATE_PROPERTY, Class: "C", Version: 2, SubCommand: sub,
+			}, false, false))
+
+			require.NotNil(t, idx.got, "the store half must run")
+			require.Equal(t, test.wantFilterable, *idx.got.IndexFilterable, "filterable")
+			require.Equal(t, test.wantSearchable, *idx.got.IndexSearchable, "searchable")
+			require.Equal(t, test.wantRangeFilter, *idx.got.IndexRangeFilters, "rangeable")
+
+			cls, _ := sm.schema.ReadOnlyClass("C")
+			require.NotNil(t, cls)
+			schemaProp := findProp(cls, "p")
+			require.NotNil(t, schemaProp)
+			require.Equal(t, *schemaProp.IndexFilterable, *idx.got.IndexFilterable)
+			require.Equal(t, *schemaProp.IndexSearchable, *idx.got.IndexSearchable)
+			require.Equal(t, *schemaProp.IndexRangeFilters, *idx.got.IndexRangeFilters)
 		})
 	}
 }

@@ -15,9 +15,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -57,7 +59,7 @@ func (s *ReplicationService) PutObject(ctx context.Context, req *pb.PutObjectReq
 
 	resp := s.server.ReplicateObject(ctx, req.GetIndex(), req.GetShard(), req.GetRequestId(), obj, req.GetSchemaVersion())
 	if shared.LocalIndexNotReady(resp) {
-		return nil, status.Errorf(codes.Unavailable, "local index not ready: %v", resp.FirstError())
+		return nil, status.Errorf(codes.Unavailable, replica.LocalIndexNotReadyMsg+": %v", resp.FirstError())
 	}
 	return &pb.PutObjectResponse{Response: simpleResponseToProto(&resp)}, nil
 }
@@ -70,7 +72,7 @@ func (s *ReplicationService) PutObjects(ctx context.Context, req *pb.PutObjectsR
 
 	resp := s.server.ReplicateObjects(ctx, req.GetIndex(), req.GetShard(), req.GetRequestId(), objs, req.GetSchemaVersion())
 	if shared.LocalIndexNotReady(resp) {
-		return nil, status.Errorf(codes.Unavailable, "local index not ready: %v", resp.FirstError())
+		return nil, status.Errorf(codes.Unavailable, replica.LocalIndexNotReadyMsg+": %v", resp.FirstError())
 	}
 	return &pb.PutObjectsResponse{Response: simpleResponseToProto(&resp)}, nil
 }
@@ -83,7 +85,7 @@ func (s *ReplicationService) MergeObject(ctx context.Context, req *pb.MergeObjec
 
 	resp := s.server.ReplicateUpdate(ctx, req.GetIndex(), req.GetShard(), req.GetRequestId(), &mergeDoc, req.GetSchemaVersion())
 	if shared.LocalIndexNotReady(resp) {
-		return nil, status.Errorf(codes.Unavailable, "local index not ready: %v", resp.FirstError())
+		return nil, status.Errorf(codes.Unavailable, replica.LocalIndexNotReadyMsg+": %v", resp.FirstError())
 	}
 	return &pb.MergeObjectResponse{Response: simpleResponseToProto(&resp)}, nil
 }
@@ -94,7 +96,7 @@ func (s *ReplicationService) DeleteObject(ctx context.Context, req *pb.DeleteObj
 	resp := s.server.ReplicateDeletion(ctx, req.GetIndex(), req.GetShard(), req.GetRequestId(),
 		strfmt.UUID(req.GetUuid()), deletionTime, req.GetSchemaVersion())
 	if shared.LocalIndexNotReady(resp) {
-		return nil, status.Errorf(codes.Unavailable, "local index not ready: %v", resp.FirstError())
+		return nil, status.Errorf(codes.Unavailable, replica.LocalIndexNotReadyMsg+": %v", resp.FirstError())
 	}
 	return &pb.DeleteObjectResponse{Response: simpleResponseToProto(&resp)}, nil
 }
@@ -106,7 +108,7 @@ func (s *ReplicationService) DeleteObjects(ctx context.Context, req *pb.DeleteOb
 	resp := s.server.ReplicateDeletions(ctx, req.GetIndex(), req.GetShard(), req.GetRequestId(),
 		uuids, deletionTime, req.GetDryRun(), req.GetSchemaVersion())
 	if shared.LocalIndexNotReady(resp) {
-		return nil, status.Errorf(codes.Unavailable, "local index not ready: %v", resp.FirstError())
+		return nil, status.Errorf(codes.Unavailable, replica.LocalIndexNotReadyMsg+": %v", resp.FirstError())
 	}
 	return &pb.DeleteObjectsResponse{Response: simpleResponseToProto(&resp)}, nil
 }
@@ -119,7 +121,7 @@ func (s *ReplicationService) AddReferences(ctx context.Context, req *pb.AddRefer
 
 	resp := s.server.ReplicateReferences(ctx, req.GetIndex(), req.GetShard(), req.GetRequestId(), refs, req.GetSchemaVersion())
 	if shared.LocalIndexNotReady(resp) {
-		return nil, status.Errorf(codes.Unavailable, "local index not ready: %v", resp.FirstError())
+		return nil, status.Errorf(codes.Unavailable, replica.LocalIndexNotReadyMsg+": %v", resp.FirstError())
 	}
 	return &pb.AddReferencesResponse{Response: simpleResponseToProto(&resp)}, nil
 }
@@ -198,18 +200,50 @@ func (s *ReplicationService) DigestObjectsInRange(ctx context.Context, req *pb.D
 		return nil, replicationErrorToGRPC(err)
 	}
 
-	return &pb.DigestObjectsInRangeResponse{Digests: repairResponsesToProto(results)}, nil
+	if req.GetAcceptEncoding() == replica.RepairDigestsEncodingPacked {
+		return &pb.DigestObjectsInRangeResponse{
+			DigestsPacked: replica.RepairDigestsToBinary(results),
+			Encoding:      replica.RepairDigestsEncodingPacked,
+		}, nil
+	}
+
+	// Proto records: older callers never set accept_encoding.
+	return &pb.DigestObjectsInRangeResponse{Digests: repairDigestsToProto(results)}, nil
 }
 
 func (s *ReplicationService) CompareDigests(ctx context.Context, req *pb.CompareDigestsRequest) (*pb.CompareDigestsResponse, error) {
-	digests := repairResponsesFromProto(req.GetDigests())
+	var digests []types.RepairDigest
+	var err error
+	switch req.GetEncoding() {
+	case replica.RepairDigestsEncodingPacked:
+		if len(req.GetDigestsPacked()) > replica.CompareDigestsMaxBodyBytes {
+			return nil, status.Errorf(codes.InvalidArgument, "packed digests payload of %d bytes exceeds %d",
+				len(req.GetDigestsPacked()), replica.CompareDigestsMaxBodyBytes)
+		}
+		digests, err = replica.RepairDigestsFromBinary(req.GetDigestsPacked())
+	case replica.RepairDigestsEncodingProto:
+		digests, err = repairDigestsFromProto(req.GetDigests())
+	default:
+		return nil, status.Errorf(codes.InvalidArgument, "unsupported digests encoding %d", req.GetEncoding())
+	}
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "decode digests: %v", err)
+	}
 
 	results, err := s.server.CompareDigests(ctx, req.GetIndex(), req.GetShard(), digests)
 	if err != nil {
 		return nil, replicationErrorToGRPC(err)
 	}
 
-	return &pb.CompareDigestsResponse{Digests: repairResponsesToProto(results)}, nil
+	if req.GetAcceptEncoding() == replica.RepairDigestsEncodingPacked {
+		return &pb.CompareDigestsResponse{
+			DigestsPacked: replica.RepairDigestsToBinary(results),
+			Encoding:      replica.RepairDigestsEncodingPacked,
+		}, nil
+	}
+
+	// Proto records: older callers never set accept_encoding.
+	return &pb.CompareDigestsResponse{Digests: repairDigestsToProto(results)}, nil
 }
 
 func (s *ReplicationService) OverwriteObjects(ctx context.Context, req *pb.OverwriteObjectsRequest) (*pb.OverwriteObjectsResponse, error) {
@@ -266,6 +300,14 @@ func (s *ReplicationService) HashTreeLevel(ctx context.Context, req *pb.HashTree
 		return nil, replicationErrorToGRPC(err)
 	}
 
+	if req.GetAcceptEncoding() == replica.DigestsEncodingBinary {
+		return &pb.HashTreeLevelResponse{
+			DigestsData: hashtree.DigestsToBinary(digests),
+			Encoding:    replica.DigestsEncodingBinary,
+		}, nil
+	}
+
+	// JSON default: older clients never set accept_encoding.
 	data, err := json.Marshal(digests)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "marshal digests: %v", err)
@@ -290,6 +332,36 @@ func (s *ReplicationService) CompareHashTreeRoots(ctx context.Context, req *pb.C
 	}
 
 	return &pb.CompareHashTreeRootsResponse{DivergingShards: diverging}, nil
+}
+
+// CompareHashTreeRootsMulti classifies per class; a failed class carries its error so the rest still classify.
+func (s *ReplicationService) CompareHashTreeRootsMulti(ctx context.Context, req *pb.CompareHashTreeRootsMultiRequest) (*pb.CompareHashTreeRootsMultiResponse, error) {
+	total := 0
+	for _, cls := range req.GetClasses() {
+		total += len(cls.GetShardRootDigests())
+	}
+	if total > replica.CompareHashTreeRootsMaxShardsPerRequest {
+		return nil, status.Errorf(codes.InvalidArgument, "too many shards: %d exceeds maximum %d",
+			total, replica.CompareHashTreeRootsMaxShardsPerRequest)
+	}
+
+	resp := &pb.CompareHashTreeRootsMultiResponse{
+		Classes: make([]*pb.ClassDivergingShards, 0, len(req.GetClasses())),
+	}
+	for _, cls := range req.GetClasses() {
+		shards := cls.GetShardRootDigests()
+		roots := make(map[string]hashtree.Digest, len(shards))
+		for _, sr := range shards {
+			roots[sr.GetShard()] = hashtree.Digest{sr.GetRootHashHigh(), sr.GetRootHashLow()}
+		}
+		diverging, err := s.server.CompareHashTreeRoots(ctx, cls.GetIndex(), roots)
+		if err != nil {
+			resp.Classes = append(resp.Classes, &pb.ClassDivergingShards{Index: cls.GetIndex(), Error: err.Error()})
+			continue
+		}
+		resp.Classes = append(resp.Classes, &pb.ClassDivergingShards{Index: cls.GetIndex(), DivergingShards: diverging})
+	}
+	return resp, nil
 }
 
 func (s *ReplicationService) CountObjects(ctx context.Context, req *pb.CountObjectsRequest) (*pb.CountObjectsResponse, error) {
@@ -400,20 +472,6 @@ func simpleResponseToProto(r *replica.SimpleResponse) *pb.SimpleReplicaResponse 
 	return &pb.SimpleReplicaResponse{Errors: errs}
 }
 
-func repairResponsesFromProto(in []*pb.RepairResponse) []types.RepairResponse {
-	out := make([]types.RepairResponse, len(in))
-	for i, r := range in {
-		out[i] = types.RepairResponse{
-			ID:         r.GetId(),
-			Version:    r.GetVersion(),
-			UpdateTime: r.GetUpdateTime(),
-			Err:        r.GetErr(),
-			Deleted:    r.GetDeleted(),
-		}
-	}
-	return out
-}
-
 func repairResponsesToProto(results []types.RepairResponse) []*pb.RepairResponse {
 	out := make([]*pb.RepairResponse, len(results))
 	for i, r := range results {
@@ -428,11 +486,45 @@ func repairResponsesToProto(results []types.RepairResponse) []*pb.RepairResponse
 	return out
 }
 
+// String IDs exist only at the proto boundary; the digest pipeline is byte-ID.
+func repairDigestsFromProto(in []*pb.RepairResponse) ([]types.RepairDigest, error) {
+	out := make([]types.RepairDigest, len(in))
+	for i, r := range in {
+		id, err := uuid.Parse(r.GetId())
+		if err != nil {
+			return nil, fmt.Errorf("parse digest uuid %q: %w", r.GetId(), err)
+		}
+		out[i] = types.RepairDigest{
+			ID:         id,
+			UpdateTime: r.GetUpdateTime(),
+			Deleted:    r.GetDeleted(),
+		}
+	}
+	return out, nil
+}
+
+func repairDigestsToProto(results []types.RepairDigest) []*pb.RepairResponse {
+	out := make([]*pb.RepairResponse, len(results))
+	for i, r := range results {
+		out[i] = &pb.RepairResponse{
+			Id:         r.ID.String(),
+			UpdateTime: r.UpdateTime,
+			Deleted:    r.Deleted,
+		}
+	}
+	return out
+}
+
+// replicationErrorToGRPC maps typed replication errors to gRPC codes.
+// FailedPrecondition = retry-later only (not-ready sentinel, ErrUnprocessable/LOADING, maintenance interceptor); clients map it to the sentinel.
 func replicationErrorToGRPC(err error) error {
 	if err == nil {
 		return nil
 	}
 	if errors.As(err, &enterrors.ErrUnprocessable{}) {
+		return status.Errorf(codes.FailedPrecondition, "%v", err)
+	}
+	if errors.Is(err, replica.ErrAsyncReplicationNotActive) {
 		return status.Errorf(codes.FailedPrecondition, "%v", err)
 	}
 	return status.Errorf(codes.Internal, "%v", err)

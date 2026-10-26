@@ -12,11 +12,11 @@
 package v1
 
 import (
+	"context"
 	"fmt"
-	"math/big"
-	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/generative"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -75,7 +75,7 @@ func NewReplier(
 	}
 }
 
-func (r *Replier) Search(res []interface{}, start time.Time, searchParams dto.GetParams, resolver *schemaResolver) (*pb.SearchReply, error) {
+func (r *Replier) Search(ctx context.Context, res []interface{}, start time.Time, searchParams dto.GetParams, resolver *schemaResolver) (*pb.SearchReply, error) {
 	tookSeconds := float64(time.Since(start)) / float64(time.Second)
 	out := &pb.SearchReply{
 		Took:                    float32(tookSeconds),
@@ -104,34 +104,16 @@ func (r *Replier) Search(res []interface{}, start time.Time, searchParams dto.Ge
 		out.Results = objects
 	}
 	if searchParams.AdditionalProperties.QueryProfile {
-		out.QueryProfile = r.extractQueryProfile(res)
+		out.QueryProfile = r.extractQueryProfile(ctx)
 	}
 	return out, nil
 }
 
-// extractQueryProfile converts the raw profile data from the first search result's
-// additional properties into a [pb.QueryProfile] for the gRPC response.
-func (r *Replier) extractQueryProfile(res []interface{}) *pb.QueryProfile {
-	if len(res) == 0 {
-		return nil
-	}
-	asMap, ok := res[0].(map[string]interface{})
-	if !ok {
-		return nil
-	}
-	add, ok := asMap["_additional"]
-	if !ok {
-		return nil
-	}
-	additional, ok := add.(models.AdditionalProperties)
-	if !ok {
-		additional, ok = add.(map[string]interface{})
-	}
-	if !ok {
-		return nil
-	}
-	queryProfiles, ok := additional["queryProfileRaw"].([]helpers.ShardQueryProfile)
-	if !ok {
+// extractQueryProfile reads from ctx, not the returned objects: a query that matched
+// nothing still profiled every shard it visited.
+func (r *Replier) extractQueryProfile(ctx context.Context) *pb.QueryProfile {
+	queryProfiles := helpers.ExtractQueryProfiles(ctx)
+	if len(queryProfiles) == 0 {
 		return nil
 	}
 	shards := make([]*pb.QueryProfile_ShardProfile, len(queryProfiles))
@@ -207,11 +189,16 @@ func idToByte(idRaw interface{}) ([]byte, string, error) {
 		return nil, "", errors.New("could not extract format id in additional prop")
 	}
 	idStrfmtStr := idStrfmt.String()
-	hexInteger, success := new(big.Int).SetString(strings.ReplaceAll(idStrfmtStr, "-", ""), 16)
-	if !success {
-		return nil, "", fmt.Errorf("failed to parse hex string to integer")
+	// Avoids the leading-zero-byte truncation from decoding uuids through big.Int.
+	parsed, err := uuid.Parse(idStrfmtStr)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to parse id %q as uuid: %w", idStrfmtStr, err)
 	}
-	return hexInteger.Bytes(), idStrfmtStr, nil
+	idBytes, err := parsed.MarshalBinary()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to encode id %q as bytes: %w", idStrfmtStr, err)
+	}
+	return idBytes, idStrfmtStr, nil
 }
 
 func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsParams additional.Properties, firstObject, fromGroup bool) (*additionalProps, error) {

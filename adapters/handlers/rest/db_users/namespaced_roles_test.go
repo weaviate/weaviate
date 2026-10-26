@@ -55,6 +55,7 @@ func TestGetUserNamespacedRolesStrippedAndFiltered(t *testing.T) {
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", "customer1:bob").Return(map[string]apikey.UserView{"customer1:bob": {Id: "customer1:bob"}}, nil)
+	dynUser.On("GetRolesForUserOrGroup", "customer1:admin", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
 	dynUser.On("GetRolesForUserOrGroup", "customer1:bob", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{
 		"customer1:editor": {},                                           // own-namespace local role, no permissions to gate
 		"customer2:secret": {},                                           // foreign namespace, hidden by name
@@ -112,8 +113,11 @@ func TestListUsersNamespacedRolesStrippedAndFiltered(t *testing.T) {
 	authorizer.On("Authorize", mock.Anything, principal, authorization.READ, mock.Anything).Return(nil).Maybe()
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers").Return(map[string]apikey.UserView{"customer1:bob": {Id: "customer1:bob"}}, nil)
-	dynUser.On("GetRolesForUserOrGroup", "customer1:bob", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{
+	localUsers := NewMockDbUserAndRolesGetter(t)
+	localUsers.On("GetUsers").Return(map[string]apikey.UserView{"customer1:bob": {Id: "customer1:bob"}}, nil)
+	dynUser.On("GetRolesForUserOrGroup", "customer1:admin", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
+	localRoles := authorization.NewMockController(t)
+	localRoles.On("GetRolesForUserOrGroup", "customer1:bob", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{
 		"customer1:editor": {},
 		"customer2:secret": {},
 		"restricted":       {collPolicy(authorization.CREATE, "Secret")},
@@ -121,6 +125,8 @@ func TestListUsersNamespacedRolesStrippedAndFiltered(t *testing.T) {
 
 	h := dynUserHandler{
 		dbUsers:           dynUser,
+		localUsers:        localUsers,
+		localRoles:        localRoles,
 		authorizer:        authorizer,
 		rbacConfig:        rbacconf.Config{Enabled: true, RootUsers: []string{"root"}},
 		dbUserEnabled:     true,

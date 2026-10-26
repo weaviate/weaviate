@@ -15,12 +15,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
+	cerrors "github.com/weaviate/weaviate/adapters/handlers/rest/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
 	"github.com/weaviate/weaviate/cluster/router/types"
@@ -100,7 +102,7 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 		if errors.As(err, &uco.ErrInvalidUserInput{}) {
 			return objects.NewObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
-		} else if errors.As(err, &uco.ErrMultiTenancy{}) {
+		} else if errors.As(err, &uco.ErrMultiTenancy{}) || cerrors.NamespaceErrRendersUnprocessable(err) {
 			return objects.NewObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		} else if errors.As(err, &authzerrors.Forbidden{}) {
@@ -137,7 +139,7 @@ func (h *objectHandlers) validateObject(params objects.ObjectsValidateParams,
 		case errors.As(err, &uco.ErrInvalidUserInput{}):
 			return objects.NewObjectsValidateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
-		case errors.As(err, &uco.ErrMultiTenancy{}):
+		case errors.As(err, &uco.ErrMultiTenancy{}), cerrors.NamespaceErrRendersUnprocessable(err):
 			return objects.NewObjectsValidateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
@@ -173,6 +175,10 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 		}
 		if err != nil {
 			h.metricRequestsTotal.logUserError(params.ClassName)
+			if errors.As(err, &authzerrors.Forbidden{}) {
+				return objects.NewObjectsClassGetForbidden().
+					WithPayload(errPayloadFromSingleErr(principal, err))
+			}
 			return objects.NewObjectsClassGetBadRequest().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
@@ -207,7 +213,7 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 		case errors.As(err, &uco.ErrInvalidUserInput{}):
 			return objects.NewObjectsClassGetUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
-		case errors.As(err, &uco.ErrMultiTenancy{}):
+		case errors.As(err, &uco.ErrMultiTenancy{}), cerrors.NamespaceErrRendersUnprocessable(err):
 			return objects.NewObjectsClassGetUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
@@ -315,6 +321,9 @@ func (h *objectHandlers) query(params objects.ObjectsListParams,
 		case uco.StatusUnprocessableEntity:
 			return objects.NewObjectsListUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, rerr))
+		case uco.StatusTooManyRequests:
+			// No generated 429 responder for this operation.
+			return tooManyRequestsResponder(principal, rerr)
 		default:
 			return objects.NewObjectsListInternalServerError().
 				WithPayload(errPayloadFromSingleErr(principal, rerr))
@@ -362,7 +371,8 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &uco.ErrNotFound{}):
 			return objects.NewObjectsClassDeleteNotFound()
-		case errors.As(err, &uco.ErrMultiTenancy{}):
+		case errors.As(err, &uco.ErrMultiTenancy{}), errors.As(err, &uco.ErrInvalidUserInput{}),
+			cerrors.NamespaceErrRendersUnprocessable(err):
 			return objects.NewObjectsClassDeleteUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
@@ -398,7 +408,7 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 		if errors.As(err, &uco.ErrInvalidUserInput{}) {
 			return objects.NewObjectsClassPutUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
-		} else if errors.As(err, &uco.ErrMultiTenancy{}) {
+		} else if errors.As(err, &uco.ErrMultiTenancy{}) || cerrors.NamespaceErrRendersUnprocessable(err) {
 			return objects.NewObjectsClassPutUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		} else if errors.As(err, &authzerrors.Forbidden{}) {
@@ -828,34 +838,41 @@ func (h *objectHandlers) deleteObjectReferenceDeprecated(params objects.ObjectsR
 	return h.deleteObjectReference(req, principal)
 }
 
+// extendPropertiesWithAPILinks returns schema with Href set on every
+// SingleRef. The input map and its ref values are never written.
 func (h *objectHandlers) extendPropertiesWithAPILinks(schema map[string]interface{}) map[string]interface{} {
 	if schema == nil {
 		return schema
 	}
 
+	var out map[string]interface{}
 	for key, value := range schema {
 		asMultiRef, ok := value.(models.MultipleRef)
 		if !ok {
 			continue
 		}
-
-		schema[key] = h.extendReferencesWithAPILinks(asMultiRef)
+		if out == nil {
+			out = maps.Clone(schema)
+		}
+		out[key] = h.extendReferencesWithAPILinks(asMultiRef)
 	}
-	return schema
+	if out == nil {
+		return schema
+	}
+	return out
 }
 
 func (h *objectHandlers) extendReferencesWithAPILinks(refs models.MultipleRef) models.MultipleRef {
+	out := make(models.MultipleRef, len(refs))
 	for i, ref := range refs {
-		refs[i] = h.extendReferenceWithAPILink(ref)
+		out[i] = h.extendReferenceWithAPILink(ref)
 	}
-
-	return refs
+	return out
 }
 
 func (h *objectHandlers) extendReferenceWithAPILink(ref *models.SingleRef) *models.SingleRef {
 	parsed, err := crossref.Parse(ref.Beacon.String())
 	if err != nil {
-		// ignore return unchanged
 		return ref
 	}
 	// Defensive: beacons are written short, but strip here so a stray qualified
@@ -865,8 +882,9 @@ func (h *objectHandlers) extendReferenceWithAPILink(ref *models.SingleRef) *mode
 	if parsed.Class == "" {
 		href = fmt.Sprintf("%s/v1/objects/%s", h.config.Origin, parsed.TargetID)
 	}
-	ref.Href = strfmt.URI(href)
-	return ref
+	cp := *ref
+	cp.Href = strfmt.URI(href)
+	return &cp
 }
 
 func (h *objectHandlers) shouldIncludeGetObjectsModuleParams() bool {
@@ -890,7 +908,7 @@ func (e *objectsRequestsTotal) logError(className string, err error) {
 	var customError *uco.Error
 	switch {
 
-	case errors.As(err, &uco.ErrMultiTenancy{}):
+	case errors.As(err, &uco.ErrMultiTenancy{}), cerrors.NamespaceErrRendersUnprocessable(err):
 		e.logUserError(className)
 	case errors.As(err, &errReplication{}), errors.As(err, &errUnregonizedProperty{}):
 		e.logUserError(className)
@@ -908,13 +926,7 @@ func (e *objectsRequestsTotal) logError(className string, err error) {
 			e.logUserError(className)
 		}
 	default:
-		if errors.As(err, &uco.ErrInvalidUserInput{}) ||
-			errors.As(err, &uco.ErrMultiTenancy{}) ||
-			errors.As(err, &authzerrors.Forbidden{}) {
-			e.logUserError(className)
-		} else {
-			e.logServerError(className, err)
-		}
+		e.logServerError(className, err)
 	}
 }
 

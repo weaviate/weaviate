@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -30,18 +31,19 @@ import (
 )
 
 // newStartedTestScheduler creates and starts a scheduler backed by a null
-// logger and no Prometheus metrics.
-func newStartedTestScheduler(t *testing.T, workers int) *AsyncReplicationScheduler {
+// logger and no Prometheus metrics. prefilterBatchSize overrides the default
+// batch size; pass 1 to give every shard a batch, and with it a worker, of its own.
+func newStartedTestScheduler(t *testing.T, workers int, prefilterBatchSize ...int) *AsyncReplicationScheduler {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
-	sched, err := NewAsyncReplicationScheduler(
-		context.Background(),
-		replication.GlobalConfig{
-			AsyncReplicationSchedulerWorkers: configRuntime.NewDynamicValue(workers),
-			AsyncReplicationDisabled:         configRuntime.NewDynamicValue(false),
-		},
-		nil, logger,
-	)
+	cfg := replication.GlobalConfig{
+		AsyncReplicationSchedulerWorkers: configRuntime.NewDynamicValue(workers),
+		AsyncReplicationDisabled:         configRuntime.NewDynamicValue(false),
+	}
+	if len(prefilterBatchSize) > 0 {
+		cfg.AsyncReplicationRootPrefilterBatchSize = configRuntime.NewDynamicValue(prefilterBatchSize[0])
+	}
+	sched, err := NewAsyncReplicationScheduler(context.Background(), cfg, nil, logger)
 	require.NoError(t, err)
 	t.Cleanup(sched.Close)
 	return sched
@@ -151,8 +153,7 @@ func TestAsyncSchedulerRegistrationIdempotent(t *testing.T) {
 	s.asyncRepWg.Wait()
 }
 
-// TestIndexCompareHashTreeRoots: a shard diverges iff its local root was read and
-// differs; missing/uninitialised roots are omitted.
+// TestIndexCompareHashTreeRoots: a loaded shard diverges when its root differs or is not ready; unknown/unloaded shards are omitted without loading.
 func TestIndexCompareHashTreeRoots(t *testing.T) {
 	ctx := context.Background()
 	_, idx := testShard(t, ctx, "CompareRootsClass")
@@ -179,12 +180,34 @@ func TestIndexCompareHashTreeRoots(t *testing.T) {
 		assert.Empty(t, div)
 	})
 
-	t.Run("uninitialised hashtree is omitted", func(t *testing.T) {
+	t.Run("uninitialised hashtree is diverging", func(t *testing.T) {
 		s.hashtreeFullyInitialized = false
 		defer func() { s.hashtreeFullyInitialized = true }()
 		div, err := idx.CompareHashTreeRoots(ctx, map[string]hashtree.Digest{shardName: localRoot})
 		require.NoError(t, err)
-		assert.Empty(t, div)
+		assert.Equal(t, []string{shardName}, div, "loaded-but-not-ready must descend, not read as converged")
+	})
+
+	t.Run("shutdown-requested shard is diverging", func(t *testing.T) {
+		s.shutdownRequested.Store(true)
+		defer s.shutdownRequested.Store(false)
+		div, err := idx.CompareHashTreeRoots(ctx, map[string]hashtree.Digest{shardName: localRoot})
+		require.NoError(t, err)
+		assert.Equal(t, []string{shardName}, div, "an erroring shard must descend, not read as converged")
+	})
+
+	t.Run("closing index is diverging", func(t *testing.T) {
+		idx.closeLock.Lock()
+		idx.closed = true
+		idx.closeLock.Unlock()
+		defer func() {
+			idx.closeLock.Lock()
+			idx.closed = false
+			idx.closeLock.Unlock()
+		}()
+		div, err := idx.CompareHashTreeRoots(ctx, map[string]hashtree.Digest{shardName: localRoot})
+		require.NoError(t, err)
+		assert.Equal(t, []string{shardName}, div, "a closing index must descend, not read as converged")
 	})
 }
 
@@ -367,4 +390,135 @@ func TestAsyncSchedulerConcurrentRegisterDeregisterAndClose(t *testing.T) {
 	sched.Close()
 
 	wg.Wait() // goroutines exit via ctx.Done() in Register/Deregister
+}
+
+// TestAdjustWorkersDoesNotLeakWorkersUnderConfigFlapping pins real workers busy and flaps the pool down/up: growing back must not leak workers.
+func TestAdjustWorkersDoesNotLeakWorkersUnderConfigFlapping(t *testing.T) {
+	const n = 6
+	ctx := context.Background()
+	// Batch size 1: at the default the n due shards ship as one batch to one
+	// worker, and the idle rest consume the scale-down tokens this test needs
+	// left pending.
+	sched := newStartedTestScheduler(t, n, 1)
+
+	shards := make([]*Shard, 0, n)
+	for i := range n {
+		_, idx := testShard(t, ctx, fmt.Sprintf("FlapLeak%02d", i))
+		s := firstShard(t, idx)
+		prepareShardForScheduler(t, s)
+		shards = append(shards, s)
+	}
+
+	// Hold each write lock before registering so every cycle blocks in runEntry, pinning workers off the scale-down select.
+	for _, s := range shards {
+		s.asyncReplicationRWMux.Lock()
+	}
+	defer func() {
+		for _, s := range shards {
+			s.asyncReplicationRWMux.Unlock()
+		}
+	}()
+
+	for _, s := range shards {
+		require.NoError(t, sched.Register(s))
+	}
+
+	// Wait until all n cycles are dispatched and picked up: every worker is now pinned in runEntry.
+	require.Eventually(t, func() bool {
+		if len(sched.workCh) != 0 {
+			return false
+		}
+		sched.mu.Lock()
+		defer sched.mu.Unlock()
+		inflight := 0
+		for _, e := range sched.entries {
+			if e.inFlight {
+				inflight++
+			}
+		}
+		return inflight == n
+	}, 5*time.Second, 5*time.Millisecond, "all %d workers must be pinned in-flight before flapping", n)
+
+	for i := range 3 {
+		sched.adjustWorkers(1)
+		sched.adjustWorkers(n)
+		require.Equal(t, int64(n), sched.liveWorkers.Load(),
+			"flap %d: growing back must reclaim pending scale-down tokens instead of leaking workers", i)
+	}
+}
+
+// TestAsyncSchedulerDrainRaceWithLiveDispatch: bounded drains must survive a live dispatcher re-arming the latch between a cycle's Done and the next Add.
+func TestAsyncSchedulerDrainRaceWithLiveDispatch(t *testing.T) {
+	ctx := context.Background()
+	sched := newStartedTestScheduler(t, 2)
+
+	shards := make([]*Shard, 4)
+	for i := range shards {
+		_, idx := testShard(t, ctx, fmt.Sprintf("DrainRace%d", i))
+		s := firstShard(t, idx)
+		prepareShardForScheduler(t, s)
+		s.asyncReplicationConfig.frequency = time.Millisecond
+		s.asyncReplicationConfig.frequencyWhilePropagating = time.Millisecond
+		require.NoError(t, sched.Register(s))
+		shards[i] = s
+	}
+
+	stop := make(chan struct{})
+	var timedOut atomic.Bool
+	var wg sync.WaitGroup
+	for _, s := range shards {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				select {
+				case <-s.asyncRepDrained():
+				case <-time.After(5 * time.Second):
+					timedOut.Store(true)
+					return
+				}
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				s.asyncRepWg.Wait()
+			}
+		}()
+	}
+
+	time.Sleep(500 * time.Millisecond)
+	close(stop)
+
+	joined := make(chan struct{})
+	go func() { wg.Wait(); close(joined) }()
+	select {
+	case <-joined:
+	case <-time.After(5 * time.Second):
+		t.Fatal("drain waiters did not exit")
+	}
+	require.False(t, timedOut.Load(), "a drain waiter never fired under live dispatch")
+
+	for _, s := range shards {
+		require.NoError(t, sched.Deregister(s))
+	}
+	for _, s := range shards {
+		done := make(chan struct{})
+		go func() { s.asyncRepWg.Wait(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("shard %q never drained after Deregister", s.name)
+		}
+	}
 }

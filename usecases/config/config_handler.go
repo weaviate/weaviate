@@ -17,12 +17,12 @@ import (
 	"math"
 	"os"
 	"regexp"
+	goruntime "runtime"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/go-openapi/swag"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 
@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/license"
 	usagetypes "github.com/weaviate/weaviate/usecases/modulecomponents/usage/types"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -161,6 +162,7 @@ type RuntimeOverrides struct {
 // Config outline of the config file
 type Config struct {
 	Backup                           Backup                   `json:"backup" yaml:"backup"`
+	BackupGCS                        BackupGCS                `json:"backup_gcs" yaml:"backup_gcs"`
 	Name                             string                   `json:"name" yaml:"name"`
 	Debug                            bool                     `json:"debug" yaml:"debug"`
 	QueryDefaults                    QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
@@ -174,7 +176,6 @@ type Config struct {
 	Authorization                    Authorization            `json:"authorization" yaml:"authorization"`
 	Origin                           string                   `json:"origin" yaml:"origin"`
 	Persistence                      Persistence              `json:"persistence" yaml:"persistence"`
-	DefaultVectorizerModule          string                   `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
 	DefaultVectorDistanceMetric      string                   `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
 	EnableModules                    string                   `json:"enable_modules" yaml:"enable_modules"`
 	EnableApiBasedModules            bool                     `json:"api_based_modules_disabled" yaml:"api_based_modules_disabled"`
@@ -195,28 +196,44 @@ type Config struct {
 	TrackVectorDimensions            bool                     `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
 	TrackVectorDimensionsInterval    time.Duration            `json:"track_vector_dimensions_interval" yaml:"track_vector_dimensions_interval"`
 	ReindexVectorDimensionsAtStartup bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
+	// needs TrackVectorDimensions
+	ReindexVectorDimensionsToRoaringsetAtStartup bool `json:"reindex_vector_dimensions_to_roaringset_at_startup" yaml:"reindex_vector_dimensions_to_roaringset_at_startup"`
+	// QueryAdmissionBudget / QueryAdmissionMaxQueue size the node-level query
+	// admission limiter. 0 means auto (16x / 10x GOMAXPROCS respectively).
+	// QueryAdmissionControlDisabled is a runtime kill switch; enabled by default.
+	QueryAdmissionBudget          int                         `json:"query_admission_budget" yaml:"query_admission_budget"`
+	QueryAdmissionMaxQueue        int                         `json:"query_admission_max_queue" yaml:"query_admission_max_queue"`
+	QueryAdmissionControlDisabled *runtime.DynamicValue[bool] `json:"query_admission_control_disabled" yaml:"query_admission_control_disabled"`
 	// EnableLazyLoadShards controls lazy shard loading.
 	// nil = auto-detect based on thresholds, true = always lazy-load, false = always eager-load.
 	// DISABLE_LAZY_LOAD_SHARDS=true sets this to false for backward compatibility.
-	EnableLazyLoadShards                *bool                          `json:"enable_lazy_load_shards" yaml:"enable_lazy_load_shards"`
-	LazyLoadShardCountThreshold         int                            `json:"lazy_load_shard_count_threshold" yaml:"lazy_load_shard_count_threshold"`
-	LazyLoadShardSizeThresholdGB        float64                        `json:"lazy_load_shard_size_threshold_gb" yaml:"lazy_load_shard_size_threshold_gb"`
+	EnableLazyLoadShards         *bool   `json:"enable_lazy_load_shards" yaml:"enable_lazy_load_shards"`
+	LazyLoadShardCountThreshold  int     `json:"lazy_load_shard_count_threshold" yaml:"lazy_load_shard_count_threshold"`
+	LazyLoadShardSizeThresholdGB float64 `json:"lazy_load_shard_size_threshold_gb" yaml:"lazy_load_shard_size_threshold_gb"`
+	// LazyLoadShardWarmupMinObjects gates the background sweep that loads lazy
+	// shards after startup, one per second. Negative sweeps nothing, zero sweeps
+	// every shard ever written to, and a positive value sweeps only shards holding
+	// strictly more than that many objects, counted from flushed segments. An eager
+	// collection runs no sweep.
+	//
+	// A HOT tenant left out and never touched stays unloaded, and every path that
+	// reads only loaded shards under-reports or skips it: TTL keeps its expired
+	// objects, async replication leaves a stale replica unrepaired, and
+	// MAXIMUM_ALLOWED_OBJECTS_COUNT stops counting it.
+	LazyLoadShardWarmupMinObjects       int64                          `json:"lazy_load_shard_warmup_min_objects" yaml:"lazy_load_shard_warmup_min_objects"`
 	ForceFullReplicasSearch             bool                           `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
 	TransferInactivityTimeout           time.Duration                  `json:"transfer_inactivity_timeout" yaml:"transfer_inactivity_timeout"`
 	HaltForTransferTimeout              time.Duration                  `json:"halt_for_transfer_timeout" yaml:"halt_for_transfer_timeout"`
 	RecountPropertiesAtStartup          bool                           `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
 	ReindexSetToRoaringsetAtStartup     bool                           `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
-	ReindexerGoroutinesFactor           float64                        `json:"reindexer_goroutines_factor" yaml:"reindexer_goroutines_factor"`
-	ReindexMapToBlockmaxAtStartup       bool                           `json:"reindex_map_to_blockmax_at_startup" yaml:"reindex_map_to_blockmax_at_startup"`
-	ReindexMapToBlockmaxConfig          MapToBlockamaxConfig           `json:"reindex_map_to_blockmax_config" yaml:"reindex_map_to_blockmax_config"`
 	IndexMissingTextFilterableAtStartup bool                           `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
 	DisableGraphQL                      *runtime.DynamicValue[bool]    `json:"disable_graphql" yaml:"disable_graphql"`
-	ExperimentalRESTSearchEnabled       *runtime.DynamicValue[bool]    `json:"rest_search_enabled" yaml:"rest_search_enabled"`
 	AvoidMmap                           bool                           `json:"avoid_mmap" yaml:"avoid_mmap"`
 	CORS                                CORS                           `json:"cors" yaml:"cors"`
 	DisableTelemetry                    bool                           `json:"disable_telemetry" yaml:"disable_telemetry"`
 	TelemetryURL                        string                         `json:"telemetry_url" yaml:"telemetry_url"`
 	TelemetryPushInterval               time.Duration                  `json:"telemetry_push_interval" yaml:"telemetry_push_interval"`
+	BannerInterval                      time.Duration                  `json:"banner_interval" yaml:"banner_interval"`
 	HNSWStartupWaitForVectorCache       bool                           `json:"hnsw_startup_wait_for_vector_cache" yaml:"hnsw_startup_wait_for_vector_cache"`
 	HNSWVisitedListPoolMaxSize          int                            `json:"hnsw_visited_list_pool_max_size" yaml:"hnsw_visited_list_pool_max_size"`
 	HNSWFlatSearchConcurrency           int                            `json:"hnsw_flat_search_concurrency" yaml:"hnsw_flat_search_concurrency"`
@@ -232,7 +249,6 @@ type Config struct {
 	DistributedTasks                    DistributedTasksConfig         `json:"distributed_tasks" yaml:"distributed_tasks"`
 	ReplicationEngineMaxWorkers         int                            `json:"replication_engine_max_workers" yaml:"replication_engine_max_workers"`
 	ReplicationEngineFileCopyWorkers    int                            `json:"replication_engine_file_copy_workers" yaml:"replication_engine_file_copy_workers"`
-	HFreshEnabled                       bool                           `json:"hfresh_enabled" yaml:"hfresh_enabled"`
 	ReplicationEngineFileCopyChunkSize  int                            `json:"replication_engine_file_copy_chunk_size" yaml:"replication_engine_file_copy_chunk_size"`
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
@@ -243,7 +259,13 @@ type Config struct {
 
 	RuntimeOverrides RuntimeOverrides `json:"runtime_overrides" yaml:"runtime_overrides"`
 
+	// Kept for BC with config files, value piped into Replication.ReplicaMovementEnabled as runtime config
 	ReplicaMovementEnabled bool `json:"replica_movement_enabled" yaml:"replica_movement_enabled"`
+
+	// RuntimeReindexEnabled gates runtime reindex (RUNTIME_REINDEX_ENABLED),
+	// off by default. With it off, new reindex submissions are refused and
+	// the backup path performs no reindex check.
+	RuntimeReindexEnabled bool `json:"runtime_reindex_enabled" yaml:"runtime_reindex_enabled"`
 
 	// TenantActivityReadLogLevel is 'debug' by default as every single READ
 	// interaction with a tenant leads to a log line. However, this may
@@ -303,6 +325,13 @@ type Config struct {
 	// This flat may be removed in the future.
 	InvertedSorterDisabled *runtime.DynamicValue[bool] `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
 
+	// QueryBatchedContainsEnabled turns on the batched resolution of flat
+	// ContainsAny/ContainsAll/ContainsNone filters (many keys read under one
+	// consistent view, folded without per-value goroutines). Off by default;
+	// when off, every Contains filter takes the desugared per-value path. The
+	// batched path is behaviorally equivalent (pinned by a differential test).
+	QueryBatchedContainsEnabled *runtime.DynamicValue[bool] `json:"query_batched_contains_enabled" yaml:"query_batched_contains_enabled"`
+
 	// LazyPropertyLengthsEnabled defers loading an inverted segment's property
 	// length map until first use and frees it after a compaction drops the
 	// segment, trading a one-time load on the first cold BM25 query for memory.
@@ -314,6 +343,9 @@ type Config struct {
 	// Namespaces configures cluster-level namespace support. Namespaces can
 	// only be enabled on newly bootstrapped clusters (enforced at startup).
 	Namespaces Namespaces `json:"namespaces" yaml:"namespaces"`
+
+	// Configuration options for the batch streaming logic, e.g. soft memory backpressure.
+	BatchStream BatchStream `json:"batch_stream" yaml:"batch_stream"`
 
 	// Usage configuration for the usage module
 	Usage usagetypes.UsageConfig `json:"usage" yaml:"usage"`
@@ -338,19 +370,17 @@ type Config struct {
 
 	// Disable vector dimension tracking that are used for billing. These metrics are being deprecated in favor of more accurate metrics
 	DisableDimensionMetrics *runtime.DynamicValue[bool] `json:"disable_dimension_metrics" yaml:"disable_dimension_metrics"`
-}
 
-type MapToBlockamaxConfig struct {
-	SwapBuckets                bool                     `json:"swap_buckets" yaml:"swap_buckets"`
-	UnswapBuckets              bool                     `json:"unswap_buckets" yaml:"unswap_buckets"`
-	TidyBuckets                bool                     `json:"tidy_buckets" yaml:"tidy_buckets"`
-	ReloadShards               bool                     `json:"reload_shards" yaml:"reload_shards"`
-	Rollback                   bool                     `json:"rollback" yaml:"rollback"`
-	ConditionalStart           bool                     `json:"conditional_start" yaml:"conditional_start"`
-	ProcessingDurationSeconds  int                      `json:"processing_duration_seconds" yaml:"processing_duration_seconds"`
-	PauseDurationSeconds       int                      `json:"pause_duration_seconds" yaml:"pause_duration_seconds"`
-	PerObjectDelayMilliseconds int                      `json:"per_object_delay_milliseconds" yaml:"per_object_delay_milliseconds"`
-	Selected                   []CollectionPropsTenants `json:"selected" yaml:"selected"`
+	// WeaviateLicense gates the functionality that is licensed under the
+	// Weaviate License (the "wl" directory) instead of BSD-3-Clause. It is set
+	// once at startup from the LICENSE_KEY form check and cannot be overridden
+	// at runtime.
+	WeaviateLicense bool `json:"weaviate_license" yaml:"weaviate_license"`
+
+	// License is the license state derived from LICENSE_KEY or
+	// LICENSE_KEY_FILE at startup, for observability (meta endpoint, metrics,
+	// logs).
+	License license.State `json:"license" yaml:"license"`
 }
 
 type CollectionPropsTenants struct {
@@ -404,6 +434,10 @@ func (c *Config) Validate() error {
 	}
 
 	if err := c.Raft.Validate(); err != nil {
+		return configErr(err)
+	}
+
+	if err := c.BackupGCS.Validate(); err != nil {
 		return configErr(err)
 	}
 
@@ -510,7 +544,7 @@ var validRestrictionVectorIndexTypes = []string{"hnsw", "flat", "dynamic", "hfre
 // Matches DEFAULT_QUANTIZATION values so operators can copy them across.
 // "none" means "uncompressed"; omitting it from the allow-list makes
 // every non-hfresh class require a compression.
-var validRestrictionCompressionTypes = []string{"none", "pq", "sq", "rq-1", "rq-8", "bq"}
+var validRestrictionCompressionTypes = []string{"none", "pq", "sq", "rq-1", "rq-4", "rq-8", "bq"}
 
 func IsValidRestrictionVectorIndexType(v string) bool {
 	return slices.Contains(validRestrictionVectorIndexTypes, strings.ToLower(strings.TrimSpace(v)))
@@ -772,38 +806,12 @@ func runtimeMismatchProblems(allowList []string, defaultDV *runtime.DynamicValue
 	return out
 }
 
-// ValidateModules validates the non-nested parameters. Nested objects must provide their own
-// validation methods
-func (c *Config) ValidateModules(modProv moduleProvider) error {
-	if err := c.validateDefaultVectorizerModule(modProv); err != nil {
-		return errors.Wrap(err, "default vectorizer module")
-	}
-
-	if err := c.validateDefaultVectorDistanceMetric(); err != nil {
-		return errors.Wrap(err, "default vector distance metric")
-	}
-
-	return nil
-}
-
-func (c *Config) validateDefaultVectorizerModule(modProv moduleProvider) error {
-	if c.DefaultVectorizerModule == VectorizerModuleNone {
-		return nil
-	}
-
-	return modProv.ValidateVectorizer(c.DefaultVectorizerModule)
-}
-
-type moduleProvider interface {
-	ValidateVectorizer(moduleName string) error
-}
-
-func (c *Config) validateDefaultVectorDistanceMetric() error {
+func (c *Config) ValidateDefaultVectorDistanceMetric() error {
 	switch c.DefaultVectorDistanceMetric {
 	case "", common.DistanceCosine, common.DistanceDot, common.DistanceL2Squared, common.DistanceManhattan, common.DistanceHamming:
 		return nil
 	default:
-		return fmt.Errorf("must be one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]")
+		return fmt.Errorf("default vector distance metric: must be one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]")
 	}
 }
 
@@ -846,17 +854,190 @@ const DefaultBackupChunkTargetSize = 10 * 1024 * 1024 // 10MB
 // DefaultBackupSplitFileSize is the default size for splitting large files during backup
 const DefaultBackupSplitFileSize = 50 * 1024 * 1024 * 1024 // 50GB
 
+// DefaultBackupMaxIndividualFiles is the default number of files per shard targeted to get their own chunk
+const DefaultBackupMaxIndividualFiles = 100
+
 // Backup contains backup-related configuration
 type Backup struct {
 	MinChunkSize    int64 `json:"min_chunk_size" yaml:"min_chunk_size"`
 	ChunkTargetSize int64 `json:"chunk_target_size" yaml:"chunk_target_size"`
 	SplitFileSize   int64 `json:"split_file_size" yaml:"split_file_size"`
 
+	// MaxIndividualFiles is how many of a shard's biggest files are targeted to get their own
+	// chunk. Only those can be reused by a later incremental backup, so raising it improves
+	// deduplication at the cost of more chunks. It is a target, not a cap: files of equal size
+	// at the resulting threshold all qualify. An incremental backup counts the files it reuses
+	// from its base against the number, so it applies across a backup chain.
+	// Env: BACKUP_MAX_INDIVIDUAL_FILES, runtime config: backup_max_individual_files.
+	MaxIndividualFiles *runtime.DynamicValue[int] `json:"max_individual_files" yaml:"max_individual_files"`
+
 	// SkipAccessCheck disables the write+delete probe the backup client runs on
 	// initialize, deferring write/permission errors to backup time. Use it for
 	// least-privilege credentials that can write but lack DeleteObject.
 	// Env: BACKUP_SKIP_ACCESS_CHECK.
 	SkipAccessCheck bool `json:"skip_access_check" yaml:"skip_access_check"`
+}
+
+const (
+	// DefaultBackupGCSGRPCConnPool is higher than the SDK's default of one
+	// channel, which caps throughput wherever DirectPath does not apply.
+	DefaultBackupGCSGRPCConnPool = 4
+
+	// MaxBackupGCSGRPCConnPool bounds the pool because every channel is a
+	// connection held for the process lifetime, and the GCS module builds one
+	// client for backups and one for exports.
+	MaxBackupGCSGRPCConnPool = 64
+)
+
+// BackupGCS configures which GCS API the backup-gcs module talks to. The
+// GCS_MODULE_ prefix marks it as covering both clients that module builds, the
+// backup one and the export one, unlike the backup-only BACKUP_GCS_BUCKET.
+type BackupGCS struct {
+	// UseGRPC picks the gRPC API over the JSON/HTTP API. The throughput gRPC
+	// adds comes from DirectPath, which only applies inside GCP, and from
+	// spreading requests over GRPCConnPool channels. Nil means unset and falls
+	// back to gRPC; set it to false to go back to HTTP.
+	// Env: GCS_MODULE_TRANSPORT (http or grpc).
+	UseGRPC *bool `json:"use_grpc" yaml:"use_grpc"`
+
+	// GRPCConnPool is how many gRPC channels each client opens. Zero means
+	// unset and falls back to DefaultBackupGCSGRPCConnPool.
+	// Env: GCS_MODULE_GRPC_CONN_POOL.
+	GRPCConnPool int `json:"grpc_conn_pool" yaml:"grpc_conn_pool"`
+}
+
+// UseGRPCOrDefault reports whether the module talks to GCS over gRPC,
+// defaulting to true.
+func (b BackupGCS) UseGRPCOrDefault() bool {
+	return b.UseGRPC == nil || *b.UseGRPC
+}
+
+// Validate bounds a connection pool that came from the config file. Values from
+// GCS_MODULE_GRPC_CONN_POOL are already bounded when parsed. A negative pool
+// would panic the gRPC client on its first call.
+func (b BackupGCS) Validate() error {
+	if b.GRPCConnPool == 0 {
+		return nil
+	}
+	return validateBackupGCSConnPool(b.GRPCConnPool, "backup_gcs.grpc_conn_pool")
+}
+
+var DefaultBatchStreamWorkers = goruntime.GOMAXPROCS(0)
+
+const (
+	DefaultBatchStreamGateRatio   = 0.9
+	DefaultBatchStreamEngageRatio = 0.5
+	DefaultBatchStreamMaxAckDelay = 2 * time.Second
+	DefaultBatchStreamHoldSeconds = 30
+)
+
+// BatchStream configures the backpressure the BatchStream receiver applies to a
+// client. A nil field takes its default; a field set to zero is kept.
+type BatchStream struct {
+	// gateRatio is the fraction of GOMEMLIMIT at which live heap stops a message
+	// being admitted. It is the threshold of the batch stream's own memory
+	// monitor, and the top of the ack delay curve.
+	gateRatio *float64
+
+	// EngageRatio is the live heap ratio below which acks are not delayed.
+	// Between it and GateRatio the delay grows convexly to MaxAckDelay. A
+	// GateRatio at or below it disables the delay entirely.
+	engageRatio *float64
+
+	// maxAckDelay is the ack delay applied at and above GateRatio. Zero switches
+	// the ack delay off.
+	maxAckDelay *time.Duration
+
+	// holdSeconds bounds how long a receiver waits for memory after a failed
+	// admission check before it fails the stream. Zero fails the stream on the
+	// first failed check.
+	holdSeconds *int
+
+	// workers is the number of worker goroutines the BatchStream receiver uses. Zero lets the receiver choose a default.
+	workers *int
+}
+
+func NewBatchStream(gateRatio, engageRatio *float64, maxAckDelay *time.Duration, holdSeconds, workers *int) BatchStream {
+	return BatchStream{
+		gateRatio:   gateRatio,
+		engageRatio: engageRatio,
+		maxAckDelay: maxAckDelay,
+		holdSeconds: holdSeconds,
+		workers:     workers,
+	}
+}
+
+func (b BatchStream) GateRatio() float64 {
+	if b.gateRatio == nil {
+		return DefaultBatchStreamGateRatio
+	}
+	return *b.gateRatio
+}
+
+func (b BatchStream) EngageRatio() float64 {
+	if b.engageRatio == nil {
+		return DefaultBatchStreamEngageRatio
+	}
+	return *b.engageRatio
+}
+
+func (b BatchStream) MaxAckDelay() time.Duration {
+	if b.maxAckDelay == nil {
+		return DefaultBatchStreamMaxAckDelay
+	}
+	return *b.maxAckDelay
+}
+
+func (b BatchStream) HoldSeconds() int {
+	if b.holdSeconds == nil {
+		return DefaultBatchStreamHoldSeconds
+	}
+	return *b.holdSeconds
+}
+
+func (b BatchStream) WithHoldSeconds(holdSeconds int) BatchStream {
+	return BatchStream{
+		gateRatio:   b.gateRatio,
+		engageRatio: b.engageRatio,
+		maxAckDelay: b.maxAckDelay,
+		holdSeconds: &holdSeconds,
+		workers:     b.workers,
+	}
+}
+
+func (b BatchStream) Workers() int {
+	if b.workers == nil {
+		return DefaultBatchStreamWorkers
+	}
+	return *b.workers
+}
+
+// batchStreamFile is the config-file shape of BatchStream. The yaml and json
+// decoders skip unexported fields, so BatchStream decodes through it.
+type batchStream struct {
+	GateRatio   *float64       `json:"gate_ratio" yaml:"gate_ratio"`
+	EngageRatio *float64       `json:"engage_ratio" yaml:"engage_ratio"`
+	MaxAckDelay *time.Duration `json:"max_ack_delay" yaml:"max_ack_delay"`
+	HoldSeconds *int           `json:"hold_seconds" yaml:"hold_seconds"`
+	Workers     *int           `json:"workers" yaml:"workers"`
+}
+
+func (b *BatchStream) UnmarshalYAML(node *yaml.Node) error {
+	var f batchStream
+	if err := node.Decode(&f); err != nil {
+		return err
+	}
+	*b = NewBatchStream(f.GateRatio, f.EngageRatio, f.MaxAckDelay, f.HoldSeconds, f.Workers)
+	return nil
+}
+
+func (b *BatchStream) UnmarshalJSON(data []byte) error {
+	var f batchStream
+	if err := json.Unmarshal(data, &f); err != nil {
+		return err
+	}
+	*b = NewBatchStream(f.GateRatio, f.EngageRatio, f.MaxAckDelay, f.HoldSeconds, f.Workers)
+	return nil
 }
 
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided
@@ -908,6 +1089,9 @@ type DistributedTasksConfig struct {
 	CompletedTaskTTL      time.Duration              `json:"completedTaskTTL" yaml:"completedTaskTTL"`
 	SchedulerTickInterval time.Duration              `json:"schedulerTickInterval" yaml:"schedulerTickInterval"`
 	ReindexConcurrency    *runtime.DynamicValue[int] `json:"reindexConcurrency" yaml:"reindexConcurrency"`
+	// DropVectorReconcileInterval paces the drop-vector marker reconciliation
+	// loop (safety net for markers without a live cleanup task).
+	DropVectorReconcileInterval time.Duration `json:"dropVectorReconcileInterval" yaml:"dropVectorReconcileInterval"`
 }
 
 type Persistence struct {
@@ -923,12 +1107,15 @@ type Persistence struct {
 	LSMSkipWriteClassNameEnabled        bool   `json:"lsmSkipClassNameEnabled" yaml:"lsmSkipClassNameEnabled"`
 	LSMCycleManagerRoutinesFactor       int    `json:"lsmCycleManagerRoutinesFactor" yaml:"lsmCycleManagerRoutinesFactor"`
 	IndexRangeableInMemory              bool   `json:"indexRangeableInMemory" yaml:"indexRangeableInMemory"`
-	MinMMapSize                         int64  `json:"minMMapSize" yaml:"minMMapSize"`
-	LazySegmentsDisabled                bool   `json:"lazySegmentsDisabled" yaml:"lazySegmentsDisabled"`
-	SegmentInfoIntoFileNameEnabled      bool   `json:"segmentFileInfoEnabled" yaml:"segmentFileInfoEnabled"`
-	WriteMetadataFilesEnabled           bool   `json:"writeMetadataFilesEnabled" yaml:"writeMetadataFilesEnabled"`
-	MaxReuseWalSize                     int64  `json:"MaxReuseWalSize" yaml:"MaxReuseWalSize"`
-	HNSWMaxLogSize                      int64  `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
+	// Properties whose rangeable index keeps its segments in memory, per
+	// collection. Read only when IndexRangeableInMemory is false.
+	IndexRangeableInMemoryProps    map[string][]string `json:"indexRangeableInMemoryProps" yaml:"indexRangeableInMemoryProps"`
+	MinMMapSize                    int64               `json:"minMMapSize" yaml:"minMMapSize"`
+	LazySegmentsDisabled           bool                `json:"lazySegmentsDisabled" yaml:"lazySegmentsDisabled"`
+	SegmentInfoIntoFileNameEnabled bool                `json:"segmentFileInfoEnabled" yaml:"segmentFileInfoEnabled"`
+	WriteMetadataFilesEnabled      bool                `json:"writeMetadataFilesEnabled" yaml:"writeMetadataFilesEnabled"`
+	MaxReuseWalSize                int64               `json:"MaxReuseWalSize" yaml:"MaxReuseWalSize"`
+	HNSWMaxLogSize                 int64               `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
 
 	// HNSW snapshot settings below are deprecated no-ops. Kept for YAML/JSON
 	// back-compat so existing config files parse without error. No consumer
@@ -961,10 +1148,6 @@ const DefaultPersistenceLSMCycleManagerRoutinesFactor = 2
 
 const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward compatibility
 
-const (
-	DefaultReindexerGoroutinesFactor = 0.5
-)
-
 // MetadataServer is experimental.
 type MetadataServer struct {
 	// When enabled startup will include a "metadata server"
@@ -991,6 +1174,19 @@ const (
 func (p Persistence) Validate() error {
 	if p.DataPath == "" {
 		return fmt.Errorf("persistence.dataPath must be set")
+	}
+
+	// A config file writes this field past the environment parser's refusals.
+	for collection, props := range p.IndexRangeableInMemoryProps {
+		if _, err := schema.ValidateClassName(collection); err != nil {
+			return fmt.Errorf("persistence.indexRangeableInMemoryProps names %q: %w",
+				collection, err)
+		}
+		if len(props) == 0 {
+			return fmt.Errorf("persistence.indexRangeableInMemoryProps names %q with no "+
+				"properties: list them, or write %q for every rangeable property it has",
+				collection, AllProperties)
+		}
 	}
 
 	return nil
@@ -1078,14 +1274,28 @@ type Namespaces struct {
 	Enabled bool `json:"enabled" yaml:"enabled"`
 
 	// CleanupInterval drives the deleting-namespace sweep on the leader.
-	// NAMESPACE_CLEANUP_INTERVAL; <= 0 disables.
+	// NAMESPACE_CLEANUP_INTERVAL. Get() reports the configured value, while
+	// newCronsNamespaceCleanup applies DefaultNamespaceCleanupInterval at or
+	// below zero. No value of this field stops the sweep — a very long
+	// interval parks it, and Enabled above turns it off.
 	CleanupInterval *runtime.DynamicValue[time.Duration] `json:"cleanup_interval" yaml:"cleanup_interval"`
+
+	// SuspendedMessage, when non-empty, replaces "instance suspended" as the
+	// copy namespaces.PublicMessage returns for a suspended namespace. Every
+	// node must set NAMESPACE_SUSPENDED_MESSAGE to the same value.
+	SuspendedMessage string `json:"-" yaml:"-"`
+
+	// SuspendReconcileInterval sets how often each node closes the shards of
+	// suspended namespaces, from SUSPEND_RECONCILE_INTERVAL. The suspend reconcile
+	// job runs at DefaultSuspendReconcileInterval when Get() returns a value at or
+	// below zero.
+	SuspendReconcileInterval *runtime.DynamicValue[time.Duration] `json:"suspend_reconcile_interval" yaml:"suspend_reconcile_interval"`
 }
 
 const (
 	DefaultCORSAllowOrigin  = "*"
 	DefaultCORSAllowMethods = "*"
-	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Weaviate-Client, X-Nvidia-Api-Key, X-Nvidia-Baseurl, X-ContextualAI-Baseurl, X-ContextualAI-Api-Key, X-Digitalocean-Baseurl, X-Digitalocean-Api-Key, X-Deepseek-Baseurl, X-Deepseek-Api-Key"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Weaviate-Client, X-Nvidia-Api-Key, X-Nvidia-Baseurl, X-ContextualAI-Baseurl, X-ContextualAI-Api-Key, X-Digitalocean-Baseurl, X-Digitalocean-Api-Key, X-Meta-Baseurl, X-Meta-Api-Key, X-Deepseek-Baseurl, X-Deepseek-Api-Key, X-Twelvelabs-Baseurl, X-Twelvelabs-Api-Key"
 )
 
 func (r ResourceUsage) Validate() error {

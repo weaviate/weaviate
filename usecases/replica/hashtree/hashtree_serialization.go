@@ -22,11 +22,38 @@ import (
 
 const (
 	hashTreeMagicNumber uint32 = 0xD1D1D1D1
-	hashTreeVersion     byte   = 1
+
+	hashTreeVersion byte = 1
 
 	// magicnumber version height root checksum
 	hashTreeHeaderLength int = 4 + 1 + 4 + DigestLength + DigestLength
 )
+
+// headerChecksum is the murmur3-128 of the header bytes preceding the checksum field.
+func headerChecksum(hdr []byte) [DigestLength]byte {
+	h1, h2 := murmur3.Sum128(hdr)
+	var cs [DigestLength]byte
+	binary.BigEndian.PutUint64(cs[:8], h1)
+	binary.BigEndian.PutUint64(cs[8:], h2)
+	return cs
+}
+
+// legacyHeaderChecksum reproduces the pre-fix stored value (hash.Sum appended, so the copy took the header's own leading bytes, zero-padded); accepted on read so pre-fix files stay loadable.
+func legacyHeaderChecksum(hdr []byte) [DigestLength]byte {
+	var legacy [DigestLength]byte
+	copy(legacy[:], hdr)
+	return legacy
+}
+
+// validHeaderChecksum accepts the real murmur3-128 or the legacy pre-fix value.
+func validHeaderChecksum(stored, hdr []byte) bool {
+	expected := headerChecksum(hdr)
+	if bytes.Equal(stored, expected[:]) {
+		return true
+	}
+	legacy := legacyHeaderChecksum(hdr)
+	return bytes.Equal(stored, legacy[:])
+}
 
 func (ht *HashTree) Serialize(w io.Writer) (n int64, err error) {
 	ht.mux.Lock()
@@ -53,8 +80,8 @@ func (ht *HashTree) Serialize(w io.Writer) (n int64, err error) {
 	copy(hdr[hdrOff:hdrOff+DigestLength], rootBs)
 	hdrOff += DigestLength
 
-	checksum := murmur3.New128().Sum(hdr[:hdrOff])
-	copy(hdr[hdrOff:hdrOff+DigestLength], checksum)
+	checksum := headerChecksum(hdr[:hdrOff])
+	copy(hdr[hdrOff:hdrOff+DigestLength], checksum[:])
 
 	n1, err := w.Write(hdr[:])
 	if err != nil {
@@ -81,6 +108,55 @@ func (ht *HashTree) Serialize(w io.Writer) (n int64, err error) {
 	return n, nil
 }
 
+func parseHashTreeHeader(hdr []byte) (height int, root Digest, err error) {
+	if len(hdr) < hashTreeHeaderLength {
+		return 0, Digest{}, fmt.Errorf("hashtree header too short: %d bytes", len(hdr))
+	}
+
+	hdrOff := 0
+
+	magicNumber := binary.BigEndian.Uint32(hdr[hdrOff:])
+	if magicNumber != hashTreeMagicNumber {
+		return 0, Digest{}, fmt.Errorf("hashtree magic number mismatch")
+	}
+	hdrOff += 4
+
+	if hdr[hdrOff] != hashTreeVersion {
+		return 0, Digest{}, fmt.Errorf("unsupported version %d, expected version %d", hdr[hdrOff], hashTreeVersion)
+	}
+	hdrOff++
+
+	height = int(binary.BigEndian.Uint32(hdr[hdrOff:]))
+	hdrOff += 4
+
+	if err := root.UnmarshalBinary(hdr[hdrOff : hdrOff+DigestLength]); err != nil {
+		return 0, Digest{}, fmt.Errorf("root digest: %w", err)
+	}
+	hdrOff += DigestLength
+
+	if !validHeaderChecksum(hdr[hdrOff:hdrOff+DigestLength], hdr[:hdrOff]) {
+		return 0, Digest{}, fmt.Errorf("header checksum mismatch")
+	}
+
+	if height > MaxHeight {
+		return 0, Digest{}, fmt.Errorf("%w: illegal height %d (max %d)", ErrIllegalArguments, height, MaxHeight)
+	}
+
+	return height, root, nil
+}
+
+// ReadHashTreeRoot reads only the header; the leaves are never touched.
+func ReadHashTreeRoot(r io.Reader) (root Digest, height int, err error) {
+	var hdr [hashTreeHeaderLength]byte
+
+	if _, err := io.ReadFull(r, hdr[:]); err != nil {
+		return Digest{}, 0, err
+	}
+
+	height, root, err = parseHashTreeHeader(hdr[:])
+	return root, height, err
+}
+
 func DeserializeHashTree(r io.Reader) (*HashTree, error) {
 	var hdr [hashTreeHeaderLength]byte
 
@@ -89,29 +165,9 @@ func DeserializeHashTree(r io.Reader) (*HashTree, error) {
 		return nil, err
 	}
 
-	hdrOff := 0
-
-	magicNumber := binary.BigEndian.Uint32(hdr[hdrOff:])
-	if magicNumber != hashTreeMagicNumber {
-		return nil, fmt.Errorf("hashtree magic number mismatch")
-	}
-	hdrOff += 4
-
-	if hdr[hdrOff] != hashTreeVersion {
-		return nil, fmt.Errorf("unsupported version %d, expected version %d", hdr[0], hashTreeVersion)
-	}
-	hdrOff++
-
-	height := int(binary.BigEndian.Uint32(hdr[hdrOff:]))
-	hdrOff += 4
-
-	var root Digest
-	root.UnmarshalBinary(hdr[hdrOff : hdrOff+DigestLength])
-	hdrOff += DigestLength
-
-	checksum := murmur3.New128().Sum(hdr[:hdrOff])
-	if bytes.Equal(hdr[:hdrOff], checksum) {
-		return nil, fmt.Errorf("header checksum mismatch")
+	height, root, err := parseHashTreeHeader(hdr[:])
+	if err != nil {
+		return nil, err
 	}
 
 	ht, err := NewHashTree(height)

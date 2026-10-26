@@ -185,7 +185,15 @@ func (b *Bucket) CreateSnapshot(ctx context.Context, snapshotsRoot, name string)
 // WAL may contain data that was not flushed to a segment (e.g. small tenants
 // whose memtable was persisted as a WAL on shutdown).
 //
-// Temporary (.tmp) files are always skipped.
+// Temporary (.tmp) files are always skipped, and so is the edit-ops sidecar
+// (segment_edit_ops.db.bolt): it is a live, mutating bolt file — hard-linking
+// it shares the inode with every later mutation, and even a copy could pair a
+// stale pending set with these segments. With recovery now trusting the
+// recorded pending set, a stale sidecar could mark unstripped segments clean.
+// Excluding it is safe (same rule as the backup file list): a consumer that
+// resurrects data from a snapshot has no op state, so a still-live drop
+// re-arms with a fresh snapshot and re-cleans, and a marker restored with the
+// schema mints a fresh epoch.
 //
 // On error, dstDir may contain a partial set of files. The caller is
 // responsible for removing dstDir on failure.
@@ -201,6 +209,9 @@ func snapshotBucketFiles(srcDir, dstDir string, includeWAL bool) error {
 
 	for _, entry := range entries {
 		if entry.IsDir() {
+			continue
+		}
+		if entry.Name() == segmentEditOpsFileName {
 			continue
 		}
 

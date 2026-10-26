@@ -13,10 +13,11 @@ package db
 
 import (
 	"context"
-	"maps"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/pkg/errors"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -25,6 +26,7 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/tenantactivity"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type nodeWideMetricsObserver struct {
@@ -32,12 +34,39 @@ type nodeWideMetricsObserver struct {
 
 	// Goroutines spawned by nodeWideMetricsObserver must exit after receiving on this channel.
 	shutdown chan struct{}
+	// shutdownOnce keeps a repeated DB.Shutdown from double-closing the channel.
+	shutdownOnce sync.Once
 
-	activityLock          sync.Mutex
-	activityTracker       activityByCollection
-	lastTenantUsage       tenantactivity.ByCollection
-	lastTenantUsageReads  tenantactivity.ByCollection
-	lastTenantUsageWrites tenantactivity.ByCollection
+	// The tenant maps that the most recent cycle filled, kept so the next cycle
+	// can refill them instead of allocating new ones. The counters a cycle
+	// compares against are kept in usage. Only the observeShards goroutine
+	// touches it.
+	activitySnapshot activityByCollection
+
+	// The most tenants each collection has held since its counters map was last
+	// replaced. Cleared and pruned maps keep their buckets, so a collection down
+	// to less than a quarter of this gets fresh maps: the usage map on the cycle
+	// the drop shows, the counters map on the next. Only the observeShards
+	// goroutine touches it.
+	tenantPeaks map[string]int
+
+	// Per-namespace object counts from the previous grouped pass.
+	// Only the keys are read. A namespace missing from the next pass has lost
+	// its last index, so its series is deleted. Only the observeShards
+	// goroutine touches it.
+	previousObjectCounts map[string]int64
+
+	// Per-namespace dimension totals from the previous grouped pass.
+	// Only the keys are read. A namespace missing from the next pass
+	// is set to 0 instead of deleted, because billing keeps these gauges. Only
+	// the observeDimensionMetrics goroutine touches it.
+	previousDimensions map[string]DimensionMetrics
+
+	// Guards usage only. The fields above are written outside it.
+	activityLock sync.RWMutex
+	// Tenant usage as of the most recent cycle. Each cycle updates it in place
+	// instead of building a new one, so repeated observations do not allocate.
+	usage usageByCollection
 }
 
 // internal types used for tenant activity aggregation, not exposed to the user
@@ -48,10 +77,26 @@ type (
 		read  int32
 		write int32
 	}
+
+	usageByCollection map[string]usageByTenant
+	usageByTenant     map[string]tenantUsage
+	// tenantUsage holds what the next cycle needs to compute a delta: the counter
+	// values last seen, and the timestamps derived from them.
+	tenantUsage struct {
+		read         int32
+		write        int32
+		lastActivity time.Time
+		lastRead     time.Time
+		lastWrite    time.Time
+	}
 )
 
 func newNodeWideMetricsObserver(db *DB) *nodeWideMetricsObserver {
-	return &nodeWideMetricsObserver{db: db, shutdown: make(chan struct{})}
+	return &nodeWideMetricsObserver{
+		db:          db,
+		shutdown:    make(chan struct{}),
+		tenantPeaks: map[string]int{},
+	}
 }
 
 // Start goroutines for periodically polling node-wide metrics.
@@ -69,7 +114,7 @@ func (o *nodeWideMetricsObserver) Start() {
 }
 
 func (o *nodeWideMetricsObserver) Shutdown() {
-	close(o.shutdown)
+	o.shutdownOnce.Do(func() { close(o.shutdown) })
 }
 
 func (o *nodeWideMetricsObserver) observeShards() {
@@ -96,12 +141,18 @@ func (o *nodeWideMetricsObserver) observeShards() {
 	}
 }
 
-// Collect and publish aggregated object_count metric iff all indices report allShardsReady=true.
+// Collect and publish the object_count metric per namespace, only when every
+// index reports allShardsReady. In grouped mode nothing else writes this
+// gauge: the lsmkv writers are switched off when metrics are grouped. An
+// index whose walk stops leaves every series at its previous value instead
+// of a partial sum. A collection being deleted counts zero. A shard that
+// fails its directory check or count is left out of its namespace's total.
 func (o *nodeWideMetricsObserver) observeObjectCount() {
-	o.db.indexLock.RLock()
-	defer o.db.indexLock.RUnlock()
+	// One copy serves both loops. Taking a second for the sum would let an index
+	// created in between be counted without its allShardsReady being checked.
+	indices := o.db.copyIndices()
 
-	for _, index := range o.db.indices {
+	for _, index := range indices {
 		if !index.allShardsReady.Load() {
 			o.db.logger.WithFields(logrus.Fields{
 				"action": "skip_observe_node_wide_metrics",
@@ -112,40 +163,45 @@ func (o *nodeWideMetricsObserver) observeObjectCount() {
 
 	start := time.Now()
 
+	// The empty namespace is seeded so it is published even when there are no
+	// indices. On a cluster without namespaces it is this metric's only series,
+	// and consumers must never see it disappear.
+	countByNamespace := map[string]int64{"": 0}
+
 	totalObjectCount := int64(0)
-	for _, index := range o.db.indices {
-		index.ForEachShard(func(name string, shard ShardLike) error {
-			index.shardCreateLocks.RLock(name)
-			defer index.shardCreateLocks.RUnlock(name)
-			exists, err := index.tenantDirExists(name)
-			if err != nil {
-				o.db.logger.
-					WithField("action", "observe_node_wide_metrics").
-					WithField("shard", name).
-					WithField("class", index.Config.ClassName).
-					Warnf("error while checking if shard exists: %v", err)
-				return nil
-			}
-			if !exists {
-				// shard was deleted in the meantime or is newly created and hasn't been written to disk, skip
-				return nil
-			}
-			objectCount, err := shard.ObjectCountAsync(context.Background())
-			if err != nil {
-				o.db.logger.WithField("action", "observe_node_wide_metrics").
-					WithField("shard", name).
-					WithField("class", index.Config.ClassName).
-					Warnf("error while getting object count for shard: %v", err)
-			}
-			totalObjectCount += objectCount
-			return nil
-		})
+	for _, index := range indices {
+		count, err := o.indexObjectCount(index)
+		if errors.Is(err, errIndexDropped) {
+			// A collection being deleted is losing its objects, so the rest of
+			// the node still has a total worth publishing.
+			continue
+		}
+		if err != nil {
+			// Publishing the namespaces counted so far would report objects the
+			// node never lost, so every series keeps its previous value.
+			o.db.logger.WithFields(logrus.Fields{
+				"action": "skip_observe_node_wide_metrics",
+				"class":  index.Config.ClassName,
+			}).Warnf("skip node-wide metrics, object count walk stopped: %v", err)
+			return
+		}
+		countByNamespace[index.namespace] += count
+		totalObjectCount += count
 	}
 
-	o.db.promMetrics.ObjectCount.With(prometheus.Labels{
-		"class_name": "n/a",
-		"shard_name": "n/a",
-	}).Set(float64(totalObjectCount))
+	for namespace, count := range countByNamespace {
+		o.db.promMetrics.ObjectCount.With(groupedLabels(namespace)).Set(float64(count))
+	}
+
+	// A namespace whose last index is gone would otherwise keep its series at
+	// the count it last had. The empty namespace is always in the new map, so
+	// this loop never deletes it.
+	for namespace := range o.previousObjectCounts {
+		if _, ok := countByNamespace[namespace]; !ok {
+			o.db.promMetrics.ObjectCount.Delete(groupedLabels(namespace))
+		}
+	}
+	o.previousObjectCounts = countByNamespace
 
 	took := time.Since(start)
 	o.db.logger.WithFields(logrus.Fields{
@@ -155,9 +211,89 @@ func (o *nodeWideMetricsObserver) observeObjectCount() {
 	}).Debug("observed node wide metrics")
 }
 
-// NOTE(dyma): should this also chech that all indices report allShardsReady == true?
-// Otherwise getCurrentActivity may end up loading lazy-loaded shards just to check
-// their activity, which is redundant on a cold shard?
+// groupedLabels returns the labels of a grouped series. There is one series per
+// namespace, with no class or shard of its own.
+func groupedLabels(namespace string) prometheus.Labels {
+	return prometheus.Labels{
+		"class_name":           "n/a",
+		"shard_name":           "n/a",
+		"collection_namespace": namespace,
+	}
+}
+
+// indexObjectCount sums one index's shard object counts without holding
+// indexLock, because a cold shard reads its count off disk. A stopped walk
+// returns no total, and its error names the cause so the caller can tell a
+// delete from a shutdown.
+func (o *nodeWideMetricsObserver) indexObjectCount(index *Index) (int64, error) {
+	// The walk stops at the next shard once a close is requested rather than
+	// holding this across every shard. A long hold parks DeleteIndex on
+	// dropIndex.Lock, and readers taking dropIndex.RLock under indexLock queue
+	// behind it.
+	index.dropIndex.RLock()
+	defer index.dropIndex.RUnlock()
+
+	index.closeLock.RLock()
+	defer index.closeLock.RUnlock()
+
+	if index.closed {
+		err := context.Cause(index.closeRequestedCtx)
+		if err == nil {
+			err = errIndexClosed
+		}
+		return 0, err
+	}
+
+	walkCtx, done := index.cancelOnCloseRequested(context.Background())
+	defer done()
+
+	var total int64
+	err := index.ForEachShard(func(name string, shard ShardLike) error {
+		if index.closeRequestedCtx.Err() != nil {
+			return context.Cause(index.closeRequestedCtx)
+		}
+
+		index.shardCreateLocks.RLock(name)
+		defer index.shardCreateLocks.RUnlock(name)
+		exists, err := index.tenantDirExists(name)
+		if err != nil {
+			o.db.logger.
+				WithField("action", "observe_node_wide_metrics").
+				WithField("shard", name).
+				WithField("class", index.Config.ClassName).
+				Warnf("error while checking if shard exists: %v", err)
+			return nil
+		}
+		if !exists {
+			// shard was deleted in the meantime or is newly created and hasn't been written to disk, skip
+			return nil
+		}
+		objectCount, err := shard.ObjectCountAsync(walkCtx)
+		if err != nil {
+			o.db.logger.WithField("action", "observe_node_wide_metrics").
+				WithField("shard", name).
+				WithField("class", index.Config.ClassName).
+				Warnf("error while getting object count for shard: %v", err)
+		}
+		total += objectCount
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	// A callback only checks on entry, so a close request arriving during the
+	// last shard's count has no callback left to stop the walk. Both checks read
+	// closeRequestedCtx rather than walkCtx, whose cancellation runs in a
+	// context.AfterFunc goroutine that may not have been scheduled yet.
+	if index.closeRequestedCtx.Err() != nil {
+		return 0, context.Cause(index.closeRequestedCtx)
+	}
+	return total, nil
+}
+
+// Needs no allShardsReady check: an unloaded shard reports no activity without
+// being loaded.
 func (o *nodeWideMetricsObserver) observeActivity() {
 	start := time.Now()
 	current := o.getCurrentActivity()
@@ -165,8 +301,7 @@ func (o *nodeWideMetricsObserver) observeActivity() {
 	o.activityLock.Lock()
 	defer o.activityLock.Unlock()
 
-	o.lastTenantUsage, o.lastTenantUsageReads, o.lastTenantUsageWrites = o.analyzeActivityDelta(current)
-	o.activityTracker = current
+	o.updateUsage(current)
 
 	took := time.Since(start)
 	o.db.logger.WithFields(logrus.Fields{
@@ -204,115 +339,181 @@ func (o *nodeWideMetricsObserver) logActivity(col, tenant, activityType string, 
 	logBase.Logf(level, "tenant %s activity change: %s", tenant, activityType)
 }
 
-func (o *nodeWideMetricsObserver) analyzeActivityDelta(currentActivity activityByCollection) (total, reads, writes tenantactivity.ByCollection) {
-	previousActivity := o.activityTracker
-	if previousActivity == nil {
-		previousActivity = make(activityByCollection)
-	}
-
+// Update the usage state from the newly observed counters. Collections and
+// tenants that no longer appear are deleted, the rest are updated in place, so
+// repeated observations do not allocate. A collection that lost most of its
+// tenants gets a new map, carrying over the records of the tenants that are
+// left.
+func (o *nodeWideMetricsObserver) updateUsage(currentActivity activityByCollection) {
 	now := time.Now()
 
-	// create a new map, this way we will automatically drop anything that
-	// doesn't appear in the new list anymore
-	newUsageTotal := make(tenantactivity.ByCollection)
-	newUsageReads := make(tenantactivity.ByCollection)
-	newUsageWrites := make(tenantactivity.ByCollection)
+	if o.usage == nil {
+		o.usage = make(usageByCollection, len(currentActivity))
+	}
 
-	for class, current := range currentActivity {
-		newUsageTotal[class] = make(tenantactivity.ByTenant)
-		newUsageReads[class] = make(tenantactivity.ByTenant)
-		newUsageWrites[class] = make(tenantactivity.ByTenant)
-
-		for tenant, act := range current {
-			if _, ok := previousActivity[class]; !ok {
-				previousActivity[class] = make(activityByTenant)
-			}
-
-			previous, ok := previousActivity[class][tenant]
-			if !ok {
-				// this tenant didn't appear on the previous list, so we need to consider
-				// it recently active
-				newUsageTotal[class][tenant] = now
-
-				// only track detailed value if the value is greater than the initial
-				// value, otherwise we consider it just an activation without any user
-				// activity
-				if act.read > 1 {
-					newUsageReads[class][tenant] = now
-					o.logActivity(class, tenant, "read", act.read)
-				}
-				if act.write > 1 {
-					newUsageWrites[class][tenant] = now
-					o.logActivity(class, tenant, "write", act.write)
-				}
-
-				if act.read == 1 && act.write == 1 {
-					// no specific activity, just an activation
-					o.logActivity(class, tenant, "activation", 1)
-				}
-				continue
-			}
-
-			if act.read == previous.read && act.write == previous.write {
-				// unchanged, we can copy the current state
-				newUsageTotal[class][tenant] = o.lastTenantUsage[class][tenant]
-
-				// only copy previous reads+writes if they existed before
-				if lastRead, ok := o.lastTenantUsageReads[class][tenant]; ok {
-					newUsageReads[class][tenant] = lastRead
-				}
-				if lastWrite, ok := o.lastTenantUsageWrites[class][tenant]; ok {
-					newUsageWrites[class][tenant] = lastWrite
-				}
-			} else {
-				// activity changed we need to update it
-				newUsageTotal[class][tenant] = now
-				if act.read > previous.read {
-					newUsageReads[class][tenant] = now
-					o.logActivity(class, tenant, "read", act.read)
-				} else if lastRead, ok := o.lastTenantUsageReads[class][tenant]; ok {
-					newUsageReads[class][tenant] = lastRead
-				}
-
-				if act.write > previous.write {
-					newUsageWrites[class][tenant] = now
-					o.logActivity(class, tenant, "write", act.write)
-				} else if lastWrite, ok := o.lastTenantUsageWrites[class][tenant]; ok {
-					newUsageWrites[class][tenant] = lastWrite
-				}
-
-			}
+	// drop whatever doesn't appear in the new list anymore
+	for class := range o.usage {
+		if _, ok := currentActivity[class]; !ok {
+			delete(o.usage, class)
+			delete(o.tenantPeaks, class)
 		}
 	}
 
-	return newUsageTotal, newUsageReads, newUsageWrites
+	for class, current := range currentActivity {
+		previous := o.usage[class]
+
+		byTenant := previous
+		if byTenant == nil || o.lostMostTenants(class, len(current)) {
+			byTenant = make(usageByTenant, len(current))
+			o.usage[class] = byTenant
+		} else {
+			for tenant := range byTenant {
+				if _, ok := current[tenant]; !ok {
+					delete(byTenant, tenant)
+				}
+			}
+		}
+		o.tenantPeaks[class] = max(o.tenantPeaks[class], len(current))
+
+		for tenant, act := range current {
+			// each record is read before it is overwritten, so previous can be the
+			// map being written to
+			byTenant[tenant] = o.tenantUsageDelta(class, tenant, act, previous, now)
+		}
+	}
+}
+
+// Whether a collection is down to less than a quarter of the tenants it peaked
+// at, so that reusing its maps would keep far more buckets than it needs.
+func (o *nodeWideMetricsObserver) lostMostTenants(class string, live int) bool {
+	return live*4 < o.tenantPeaks[class]
+}
+
+// Derive a tenant's usage from its current counters and its record from the
+// previous cycle. lastActivity moves when either counter changes, lastRead and
+// lastWrite only when their own counter increases.
+func (o *nodeWideMetricsObserver) tenantUsageDelta(class, tenant string, act activity, previous usageByTenant, now time.Time) tenantUsage {
+	prev, ok := previous[tenant]
+	if !ok {
+		// this tenant didn't appear on the previous list, so we need to consider
+		// it recently active
+		usage := tenantUsage{read: act.read, write: act.write, lastActivity: now}
+
+		// only track detailed value if the value is greater than the initial
+		// value, otherwise we consider it just an activation without any user
+		// activity
+		if act.read > 1 {
+			usage.lastRead = now
+			o.logActivity(class, tenant, "read", act.read)
+		}
+		if act.write > 1 {
+			usage.lastWrite = now
+			o.logActivity(class, tenant, "write", act.write)
+		}
+
+		if act.read == 1 && act.write == 1 {
+			// no specific activity, just an activation
+			o.logActivity(class, tenant, "activation", 1)
+		}
+		return usage
+	}
+
+	usage := prev
+	usage.read, usage.write = act.read, act.write
+	if act.read == prev.read && act.write == prev.write {
+		// unchanged, keep the previous timestamps
+		return usage
+	}
+
+	// activity changed we need to update it
+	usage.lastActivity = now
+	if act.read > prev.read {
+		usage.lastRead = now
+		o.logActivity(class, tenant, "read", act.read)
+	}
+	if act.write > prev.write {
+		usage.lastWrite = now
+		o.logActivity(class, tenant, "write", act.write)
+	}
+
+	return usage
 }
 
 func (o *nodeWideMetricsObserver) getCurrentActivity() activityByCollection {
 	o.db.indexLock.RLock()
 	defer o.db.indexLock.RUnlock()
 
-	current := make(activityByCollection)
+	previous := o.activitySnapshot
+	current := make(activityByCollection, len(o.db.indices))
 	for _, index := range o.db.indices {
 		if !index.partitioningEnabled {
 			continue
 		}
 		cn := index.Config.ClassName.String()
-		current[cn] = make(activityByTenant)
-		index.ForEachShard(func(name string, shard ShardLike) error {
-			index.shardCreateLocks.RLock(name)
-			defer index.shardCreateLocks.RUnlock(name)
 
+		// the previous counters are already kept in o.usage, so the map they were
+		// read from can be refilled instead of allocated again
+		tenants := previous[cn]
+		switch {
+		case tenants == nil:
+			tenants = make(activityByTenant)
+		case o.lostMostTenants(cn, len(tenants)):
+			// len is last cycle's tenant count, as this cycle's is only known once
+			// the map has been filled. The replacement's size becomes the peak the
+			// next drop is measured against, so a collection that keeps draining
+			// keeps shrinking.
+			size := len(tenants)
+			tenants = make(activityByTenant, size)
+			o.tenantPeaks[cn] = size
+		default:
+			clear(tenants)
+		}
+		current[cn] = tenants
+
+		index.ForEachShard(func(name string, shard ShardLike) error {
 			act := activity{}
 			act.read, act.write = shard.Activity()
-			current[cn][name] = act
+			tenants[name] = act
 			return nil
 		})
 	}
+	o.activitySnapshot = current
 
 	return current
 }
 
+// A zero time means the tenant saw no activity of that kind.
+func (u tenantUsage) timestampFor(filter tenantactivity.UsageFilter) time.Time {
+	switch filter {
+	case tenantactivity.UsageFilterOnlyReads:
+		return u.lastRead
+	case tenantactivity.UsageFilterOnlyWrites:
+		return u.lastWrite
+	default:
+		return u.lastActivity
+	}
+}
+
+// How many tenants a filter reports. Every tenant has a total-activity
+// timestamp, but a read or write filter typically matches only a few of them, so
+// counting keeps Usage's result map from reserving space for the rest.
+func (tenants usageByTenant) countMatching(filter tenantactivity.UsageFilter) int {
+	if filter == tenantactivity.UsageFilterAll {
+		return len(tenants)
+	}
+
+	count := 0
+	for _, u := range tenants {
+		if !u.timestampFor(filter).IsZero() {
+			count++
+		}
+	}
+	return count
+}
+
+// Usage returns a copy: every cycle rewrites the observer's own maps in place,
+// so handing those out would let a caller range over a map while a cycle writes
+// to it, aborting the process with "concurrent map iteration and map write".
 func (o *nodeWideMetricsObserver) Usage(filter tenantactivity.UsageFilter) tenantactivity.ByCollection {
 	if o == nil {
 		// not loaded yet, requests could come in before the db is initialized yet
@@ -320,20 +521,21 @@ func (o *nodeWideMetricsObserver) Usage(filter tenantactivity.UsageFilter) tenan
 		return tenantactivity.ByCollection{}
 	}
 
-	o.activityLock.Lock()
-	defer o.activityLock.Unlock()
+	o.activityLock.RLock()
+	defer o.activityLock.RUnlock()
 
-	switch filter {
-
-	case tenantactivity.UsageFilterOnlyReads:
-		return o.lastTenantUsageReads
-	case tenantactivity.UsageFilterOnlyWrites:
-		return o.lastTenantUsageWrites
-	case tenantactivity.UsageFilterAll:
-		return o.lastTenantUsage
-	default:
-		return o.lastTenantUsage
+	usage := make(tenantactivity.ByCollection, len(o.usage))
+	for class, tenants := range o.usage {
+		byTenant := make(tenantactivity.ByTenant, tenants.countMatching(filter))
+		for tenant, u := range tenants {
+			if ts := u.timestampFor(filter); !ts.IsZero() {
+				byTenant[tenant] = ts
+			}
+		}
+		usage[class] = byTenant
 	}
+
+	return usage
 }
 
 // ----------------------------------------------------------------------------
@@ -376,17 +578,19 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 	if o.db.config.DisableDimensionMetrics.Get() {
 		return
 	}
-	var indices map[string]*Index
 	// We're a low-priority process, copy the index map to avoid blocking others.
-	// No new indices can be added while we're holding the lock anyways.
-	func() {
-		o.db.indexLock.RLock()
-		defer o.db.indexLock.RUnlock()
-		indices = make(map[string]*Index, len(o.db.indices))
-		maps.Copy(indices, o.db.indices)
-	}()
+	indices := o.db.copyIndices()
+
+	grouped := o.db.promMetrics.Group
 
 	var total DimensionMetrics
+	// Grouped mode publishes one series per namespace instead of the node total.
+	// The empty namespace is seeded so it is published even when there are no
+	// indices.
+	var dimsByNamespace map[string]DimensionMetrics
+	if grouped {
+		dimsByNamespace = map[string]DimensionMetrics{"": {}}
+	}
 
 	start := time.Now()
 	defer func() {
@@ -411,37 +615,65 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 			if !closed {
 				className := index.Config.ClassName.String()
 
+				var indexTotal DimensionMetrics
 				// Avoid loading cold shards, as it may create I/O spikes.
 				index.ForEachLoadedShard(func(shardName string, sl ShardLike) error {
 					index.shardCreateLocks.RLock(shardName)
 					defer index.shardCreateLocks.RUnlock(shardName)
 
+					// Skip sl unless index.shards still holds it loaded, or QuantizedDimensions
+					// would reload a released sl outside the map. Holding preventShutdown in
+					// place of shardCreateLocks would fail an unload that retries for 2s.
+					if index.shards.Loaded(shardName) != sl {
+						return nil
+					}
+
 					dim := calculateShardDimensionMetrics(ctx, sl)
-					total = total.Add(dim)
+					indexTotal = indexTotal.Add(dim)
 
 					// Report metrics per-shard if grouping is disabled.
-					if !o.db.promMetrics.Group {
-						o.sendVectorDimensions(className, shardName, dim)
+					if !grouped {
+						o.sendVectorDimensions(className, shardName,
+							namespacing.NamespaceFromQualified(className), dim)
 					}
 					return nil
 				})
+
+				total = total.Add(indexTotal)
+				if grouped {
+					dimsByNamespace[index.namespace] = dimsByNamespace[index.namespace].Add(indexTotal)
+				}
 			}
 		}()
 	}
 
-	// Report aggregate metrics for the node if grouping is enabled.
-	if o.db.promMetrics.Group {
-		o.sendVectorDimensions("n/a", "n/a", total)
+	// Report one series per namespace when grouping is enabled. The node total
+	// is their sum, so publishing it as well would double-count.
+	if grouped {
+		for namespace, dm := range dimsByNamespace {
+			o.sendVectorDimensions("n/a", "n/a", namespace, dm)
+		}
+
+		// A namespace whose last index is gone keeps its series at 0 rather than
+		// losing it. Billing reads these two gauges, so ungrouped mode keeps
+		// them the same way. The empty namespace is always in the new map, so
+		// this loop never touches it.
+		for namespace := range o.previousDimensions {
+			if _, ok := dimsByNamespace[namespace]; !ok {
+				o.sendVectorDimensions("n/a", "n/a", namespace, DimensionMetrics{})
+			}
+		}
+		o.previousDimensions = dimsByNamespace
 	}
 }
 
 // Set vector_dimensions=DimensionMetrics.Uncompressed and vector_segments=DimensionMetrics.Compressed gauges.
-func (o *nodeWideMetricsObserver) sendVectorDimensions(className, shardName string, dm DimensionMetrics) {
-	if g, err := o.db.promMetrics.VectorDimensionsSum.GetMetricWithLabelValues(className, shardName); err == nil {
+func (o *nodeWideMetricsObserver) sendVectorDimensions(className, shardName, namespace string, dm DimensionMetrics) {
+	if g, err := o.db.promMetrics.VectorDimensionsSum.GetMetricWithLabelValues(className, shardName, namespace); err == nil {
 		g.Set(float64(dm.Uncompressed))
 	}
 
-	if g, err := o.db.promMetrics.VectorSegmentsSum.GetMetricWithLabelValues(className, shardName); err == nil {
+	if g, err := o.db.promMetrics.VectorSegmentsSum.GetMetricWithLabelValues(className, shardName, namespace); err == nil {
 		g.Set(float64(dm.Compressed))
 	}
 }
@@ -471,17 +703,23 @@ func calcVectorDimensionMetrics(ctx context.Context, sl ShardLike, vecName strin
 		bytes := (count + 63) / 64 * 8 // Round up to next uint64 block, then multiply by 8 bytes
 		return DimensionMetrics{Uncompressed: 0, Compressed: bytes}
 	case DimensionCategoryRQ:
-		// RQ: bits per dimension, where bits can be 1 or 8
+		// RQ: bits per dimension, where bits can be 1, 4 or 8
 		// For bits=1: equivalent to BQ (1 bit per dimension, packed in uint64 blocks)
+		// For bits=4: 4 bits per dimension (two dimensions per byte)
 		// For bits=8: 8 bits per dimension (1 byte per dimension)
 		count, _ := sl.Dimensions(ctx, vecName)
 		bits := dimInfo.bits
 		// RQ 8 Bit : DimensionMetrics{Uncompressed: bytes, Compressed: 0}
+		// RQ 4 Bit : DimensionMetrics{Uncompressed: 0, Compressed: bytes}
 		// RQ 1 Bit : DimensionMetrics{Uncompressed: 0, Compressed: bytes}
 		// this because of legacy vector_dimensions_sum is uncompressed and vector_segments_sum is compressed
 		if bits == 1 {
 			// bits=1: same as BQ - 1 bit per dimension, packed in uint64 blocks
 			return DimensionMetrics{Uncompressed: 0, Compressed: (count + 63) / 64 * 8}
+		}
+		if bits == 4 {
+			// bits=4: two dimensions packed per byte
+			return DimensionMetrics{Uncompressed: 0, Compressed: (count + 1) / 2}
 		}
 
 		// bits=8: 8 bits per dimension (1 byte per dimension)

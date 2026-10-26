@@ -19,17 +19,15 @@ import (
 	"time"
 )
 
-// NewBaseHttpClient creates an http.Client with the given timeout that does not
-// follow redirects. When MODULES_VALIDATE_BASE_URL is enabled it also installs
-// a dial guard rejecting internal addresses — the network-layer SSRF backstop
-// covering every client and baseURL source (config, headers, redirects).
+// NewBaseHttpClient creates an http.Client that does not follow redirects and
+// resends a request whose pooled connection broke before a response arrived, so
+// an origin may see the same request more than once. The timeout lives in the
+// transport, not http.Client.Timeout, so replacing Transport also removes it.
+// When MODULES_VALIDATE_BASE_URL is enabled it also installs a dial guard
+// rejecting internal addresses — the network-layer SSRF backstop covering every
+// client and baseURL source (config, headers, redirects).
 func NewBaseHttpClient(timeout time.Duration) *http.Client {
-	client := &http.Client{
-		Timeout: timeout,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	transport := http.DefaultTransport
 
 	if BaseURLValidationEnabled() {
 		// DefaultTransport's dialer settings plus a Control hook that runs
@@ -39,12 +37,17 @@ func NewBaseHttpClient(timeout time.Duration) *http.Client {
 			KeepAlive: 30 * time.Second,
 			Control:   ssrfDialGuard,
 		}
-		transport := http.DefaultTransport.(*http.Transport).Clone()
-		transport.DialContext = dialer.DialContext
-		client.Transport = transport
+		guarded := http.DefaultTransport.(*http.Transport).Clone()
+		guarded.DialContext = dialer.DialContext
+		transport = guarded
 	}
 
-	return client
+	return &http.Client{
+		Transport: &retryTransport{base: transport, timeout: timeout},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 }
 
 // ssrfDialGuard blocks connections to internal addresses. address is the

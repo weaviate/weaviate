@@ -120,7 +120,7 @@ func (c *routingReplicationClient) DigestObjects(ctx context.Context, host, inde
 
 func (c *routingReplicationClient) DigestObjectsInRange(ctx context.Context, host, index, shard string,
 	initialUUID, finalUUID strfmt.UUID, limit int,
-) ([]types.RepairResponse, error) {
+) ([]types.RepairDigest, error) {
 	if c.isLocal(host) {
 		return c.local.DigestObjectsInRange(ctx, index, shard, initialUUID, finalUUID, limit)
 	}
@@ -128,8 +128,8 @@ func (c *routingReplicationClient) DigestObjectsInRange(ctx context.Context, hos
 }
 
 func (c *routingReplicationClient) CompareDigests(ctx context.Context, host, index, shard string,
-	digests []types.RepairResponse,
-) ([]types.RepairResponse, error) {
+	digests []types.RepairDigest,
+) ([]types.RepairDigest, error) {
 	if c.isLocal(host) {
 		return c.local.CompareDigests(ctx, index, shard, digests)
 	}
@@ -194,7 +194,9 @@ func (c *routingReplicationClient) PutObject(ctx context.Context, host, index, s
 	obj *storobj.Object, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	if c.isLocal(host) {
-		return c.local.ReplicateObject(ctx, index, shard, requestID, obj, schemaVersion), nil
+		// commit assigns the DocID on the object; copy so the caller's is never mutated (wire path isolates via marshal)
+		cp := *obj
+		return c.local.ReplicateObject(ctx, index, shard, requestID, &cp, schemaVersion), nil
 	}
 	return c.remote.PutObject(ctx, host, index, shard, requestID, obj, schemaVersion)
 }
@@ -203,7 +205,12 @@ func (c *routingReplicationClient) PutObjects(ctx context.Context, host, index, 
 	objs []*storobj.Object, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	if c.isLocal(host) {
-		return c.local.ReplicateObjects(ctx, index, shard, requestID, objs, schemaVersion), nil
+		cps := make([]*storobj.Object, len(objs))
+		for i, o := range objs {
+			cp := *o
+			cps[i] = &cp
+		}
+		return c.local.ReplicateObjects(ctx, index, shard, requestID, cps, schemaVersion), nil
 	}
 	return c.remote.PutObjects(ctx, host, index, shard, requestID, objs, schemaVersion)
 }

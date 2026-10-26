@@ -23,20 +23,30 @@ const (
 	DefaultRQBits          = 8
 	DefaultRQRescoreLimit  = 20
 	DefaultBRQRescoreLimit = 512
+	DefaultRQCentering     = false
+	DefaultRQTrainingLimit = 10000
 )
 
 type RQConfig struct {
-	Enabled      bool  `json:"enabled"`
-	Bits         int16 `json:"bits"`
-	RescoreLimit int   `json:"rescoreLimit"`
+	Enabled       bool  `json:"enabled"`
+	Bits          int16 `json:"bits"`
+	RescoreLimit  int   `json:"rescoreLimit"`
+	Centering     bool  `json:"centering"`
+	TrainingLimit int   `json:"trainingLimit"`
 }
 
 func ValidateRQConfig(cfg RQConfig) error {
 	if !cfg.Enabled {
 		return nil
 	}
-	if cfg.Bits != 8 && cfg.Bits != 1 {
-		return errors.New("RQ bits must be 8 or 1")
+	if cfg.Bits != 8 && cfg.Bits != 4 && cfg.Bits != 1 {
+		return errors.New("RQ bits must be 8, 4 or 1")
+	}
+	if cfg.Centering && cfg.Bits != 4 {
+		return errors.New("RQ centering requires bits=4")
+	}
+	if cfg.Centering && cfg.TrainingLimit <= 0 {
+		return errors.New("RQ trainingLimit must be positive when centering is enabled")
 	}
 
 	return nil
@@ -71,6 +81,18 @@ func parseRQMap(in map[string]interface{}, rq *RQConfig) error {
 		return err
 	}
 
+	if err := common.OptionalBoolFromMap(rqConfigMap, "centering", func(v bool) {
+		rq.Centering = v
+	}); err != nil {
+		return err
+	}
+
+	if err := common.OptionalIntFromMap(rqConfigMap, "trainingLimit", func(v int) {
+		rq.TrainingLimit = v
+	}); err != nil {
+		return err
+	}
+
 	if rq.Bits == 1 && rqConfigMap["rescoreLimit"] == nil {
 		rq.RescoreLimit = DefaultBRQRescoreLimit
 	}
@@ -78,7 +100,6 @@ func parseRQMap(in map[string]interface{}, rq *RQConfig) error {
 	return nil
 }
 
-// GetRQBits returns the bits value for RQ compression, or 0 if not RQ
 func GetRQBits(cfg config.VectorIndexConfig) int16 {
 	if hnswUserConfig, ok := cfg.(UserConfig); ok && hnswUserConfig.RQ.Enabled {
 		return hnswUserConfig.RQ.Bits

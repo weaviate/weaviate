@@ -229,6 +229,140 @@ func TestSparseSet_VisitedOutOfRangeReturnsFalse(t *testing.T) {
 	}
 }
 
+func TestSegmentedBitSet_AllocSegment(t *testing.T) {
+	tests := []struct {
+		name          string
+		segCount      int
+		collisionRate int
+		allocs        int
+	}{
+		{
+			name:          "single slab",
+			segCount:      1024,
+			collisionRate: 4096,
+			allocs:        64,
+		},
+		{
+			name:          "multiple slab refills",
+			segCount:      1024,
+			collisionRate: 4096,
+			allocs:        3*maxSlabSegments + 5,
+		},
+		{
+			name:          "small set",
+			segCount:      64,
+			collisionRate: 64,
+			allocs:        64,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := newSegmentedBitSet(tt.segCount, tt.collisionRate)
+
+			words := make([][]uint64, tt.allocs)
+			for i := range words {
+				words[i] = b.allocSegment()
+
+				if len(words[i]) != b.wordsPerSeg {
+					t.Fatalf("segment %d: expected len=%d, got %d", i, b.wordsPerSeg, len(words[i]))
+				}
+				if cap(words[i]) != b.wordsPerSeg {
+					t.Fatalf("segment %d: expected cap=%d (append must not bleed into neighbor), got %d",
+						i, b.wordsPerSeg, cap(words[i]))
+				}
+				for w, v := range words[i] {
+					if v != 0 {
+						t.Fatalf("segment %d word %d: expected zeroed words, got %x", i, w, v)
+					}
+				}
+			}
+
+			// Write a distinct pattern into every segment, then verify none of
+			// them leaked into another (they alias the same slab).
+			for i := range words {
+				for w := range words[i] {
+					words[i][w] = uint64(i)<<32 | uint64(w)
+				}
+			}
+			for i := range words {
+				for w, v := range words[i] {
+					if want := uint64(i)<<32 | uint64(w); v != want {
+						t.Fatalf("segment %d word %d: expected %x, got %x (slab aliasing)", i, w, want, v)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestSegmentedBitSet_SlabGrowsGeometrically(t *testing.T) {
+	// A production-shaped set: NewPool creates sets with size 1500 at
+	// collisionRate 4096, which aligns segCount up to 64. The slab must not
+	// be sized from that aligned count: the first activation of a small
+	// index has to cost exactly one segment's worth of words.
+	b := newSegmentedBitSet(64, 4096)
+
+	// Expected slab leftover (in segments) after each allocation, given
+	// chunks of 1, 2, 4, 8 segments.
+	wantLeftover := []int{0, 1, 0, 3, 2, 1, 0, 7}
+	for i, want := range wantLeftover {
+		b.allocSegment()
+		if got := len(b.slab) / b.wordsPerSeg; got != want {
+			t.Fatalf("after alloc %d: expected %d leftover segments in slab, got %d", i+1, want, got)
+		}
+	}
+
+	if b.nextSlabSegs != 16 {
+		t.Fatalf("expected nextSlabSegs=16 after 4 refills, got %d", b.nextSlabSegs)
+	}
+
+	// Doubling must cap at maxSlabSegments.
+	for i := 0; i < 3*maxSlabSegments; i++ {
+		b.allocSegment()
+	}
+	if b.nextSlabSegs != maxSlabSegments {
+		t.Fatalf("expected nextSlabSegs capped at %d, got %d", maxSlabSegments, b.nextSlabSegs)
+	}
+}
+
+func TestSparseSet_DenseVisitsAcrossManySlabs(t *testing.T) {
+	const collisionRate = 64
+	// Enough segments to force several slab refills (> 3*maxSlabSegments).
+	const segments = 3*maxSlabSegments + 17
+	const maxNode = segments * collisionRate
+
+	s := NewSparseSet(maxNode, collisionRate)
+
+	for node := uint64(0); node < maxNode; node += 2 {
+		if already := s.CheckAndVisit(node); already {
+			t.Fatalf("expected first visit of node %d to return false", node)
+		}
+	}
+
+	for node := uint64(0); node < maxNode; node++ {
+		want := node%2 == 0
+		if got := s.Visited(node); got != want {
+			t.Fatalf("node %d: expected visited=%v, got %v", node, want, got)
+		}
+	}
+
+	s.Reset()
+
+	for node := uint64(0); node < maxNode; node++ {
+		if s.Visited(node) {
+			t.Fatalf("expected node %d to be cleared after Reset()", node)
+		}
+	}
+
+	// Second query on the same set must see clean retained segments.
+	for node := uint64(1); node < maxNode; node += 2 {
+		if already := s.CheckAndVisit(node); already {
+			t.Fatalf("expected node %d to be unvisited in second round", node)
+		}
+	}
+}
+
 func TestGrowToUint64SliceLen(t *testing.T) {
 	tests := []struct {
 		name     string

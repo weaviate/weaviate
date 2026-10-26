@@ -118,7 +118,7 @@ func (v *Validator) properties(ctx context.Context, class *models.Class,
 						// Classless beacon on a multi-target prop: existence
 						// check would hit DB.anyExists (cross-namespace oracle)
 						// and the stored beacon would be wildcard-deletable.
-						if v.namespacesEnabled {
+						if v.qualifier.NamespacesEnabled() {
 							return fmt.Errorf(
 								"'cref' %s:%s: multi-target references require the class name in the target beacon url",
 								className, propertyKey)
@@ -461,7 +461,7 @@ func intVal(val interface{}) (float64, error) {
 
 func numberVal(val interface{}) (float64, error) {
 	errInvalidFloat := "requires a float, the given value is '%v'"
-	errInvalidFloatConvertion := "the JSON number '%v' could not be converted to a float."
+	errInvalidFloatConvertion := "the JSON number '%v' could not be converted to a float"
 
 	switch typed := val.(type) {
 	case json.Number:
@@ -616,7 +616,7 @@ func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName 
 	// (caller's resolveNS); QualifyRefTarget is the shared policy.
 	if ref.Class != "" {
 		qualifiedTarget, shortTarget, qerr := namespacing.QualifyRefTarget(
-			v.principal, v.namespacesEnabled, className, ref.Class)
+			v.principal, v.qualifier, className, ref.Class)
 		if qerr != nil {
 			return nil, qerr
 		}

@@ -48,8 +48,8 @@ func setupRestartDuringReindex(
 		return map[string]interface{}{"path": paths[i%len(paths)]}
 	})
 
-	taskID := reindexhelpers.SubmitIndexUpdate(t, uri, className, "path",
-		`{"searchable":{"tokenization":"field"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, uri, className, "path", "searchable",
+		`{"tokenization":"field"}`)
 	t.Logf("submitted change-tokenization task: %s", taskID)
 	return compose, cleanup, taskID
 }
@@ -184,7 +184,7 @@ func TestMultiNode_RollingRestartAfterComplete(t *testing.T) {
 	// on the default (BlockMax) cluster — RollingRestartAfterComplete
 	// is testing post-complete rolling restart, not the specific
 	// algorithm-switch path.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
+	taskID := reindexhelpers.RebuildIndex(t, restURI, className, "text", "searchable")
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 
 	// Rolling restart all 3 nodes one at a time.

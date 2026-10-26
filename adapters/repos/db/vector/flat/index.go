@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -48,7 +47,6 @@ const (
 
 type flat struct {
 	id                string
-	targetVector      string
 	rootPath          string
 	dims              int32
 	metadata          *bolt.DB
@@ -63,6 +61,13 @@ type flat struct {
 	compressionType CompressionType
 	quantizer       Quantizer
 	cache           *Cache
+	// cachePrefilled reports whether the cache is known to hold every vector
+	// of the index, allowing searches to iterate the cache instead of the
+	// store. It is set when the startup prefill loaded the full index, and
+	// for an index that starts empty (insert-time preloading then keeps the
+	// cache complete). It stays false when the prefill could not see the
+	// data, e.g. vectors that only live in the memtable.
+	cachePrefilled atomic.Bool
 
 	pqResults *common.PqMaxPool
 	pool      *pools
@@ -78,18 +83,14 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		return nil, errors.Wrap(err, "invalid config")
 	}
 
-	logger := cfg.Logger
-	if logger == nil {
-		l := logrus.New()
-		l.Out = io.Discard
-		logger = l
-	}
+	// in place rather than into a local: the quantizer cache below reads
+	// cfg.Logger again and has no fallback of its own
+	cfg.Logger = common.LoggerOrDiscard(cfg.Logger)
 
 	index := &flat{
 		id:                   cfg.ID,
-		targetVector:         cfg.TargetVector,
 		rootPath:             cfg.RootPath,
-		logger:               logger,
+		logger:               cfg.Logger,
 		distancerProvider:    cfg.DistanceProvider,
 		metadataLock:         &sync.RWMutex{},
 		rescore:              extractCompressionRescore(uc),
@@ -110,13 +111,15 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	// If compression is BQ we create the quantizer and cache immediately
 	// For RQ we create when restoring from disk or on first batch
 	if index.compressionType == CompressionBQ {
-		index.compressed.Store(true)
 		builder := NewQuantizerBuilder(cfg.DistanceProvider)
 		quantizer, err := builder.CreateQuantizer(index.compressionType, 0)
 		if err != nil {
 			return nil, err
 		}
+		// the quantizer must be assigned before the compressed flag is set:
+		// readers access it lock-free after observing Compressed() == true
 		index.quantizer = quantizer
+		index.compressed.Store(true)
 	}
 
 	cached, cacheType := extractCache(uc)
@@ -128,11 +131,35 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	return index, nil
 }
 
+// getBucket returns the named bucket pinned for the caller's operation, or an
+// error if the store no longer holds it. A shard teardown deregisters every
+// bucket up front and drains in-flight requests afterwards, and
+// DropVectorIndex removes a single vector's buckets from a shard that stays
+// alive; either way an operation that is already running finds no bucket under
+// the name it resolved.
+//
+// The release closure is always non-nil and must be called exactly once. It
+// holds off the bucket's Shutdown for the operation's duration, so a teardown
+// racing a lookup that already succeeded cannot unmap the segments underneath
+// it.
+func (index *flat) getBucket(name string) (*lsmkv.Bucket, func(), error) {
+	bucket, release := index.store.AcquireBucketForRead(name)
+	if bucket == nil {
+		return nil, release, fmt.Errorf("flat index %q: bucket %q: %w", index.id, name, lsmkv.ErrBucketNotFound)
+	}
+	return bucket, release, nil
+}
+
 func (flat *flat) getUint64QuantizedVector(ctx context.Context, id uint64) ([]uint64, error) {
 	key := flat.pool.byteSlicePool.Get(8)
 	defer flat.pool.byteSlicePool.Put(key)
 	binary.BigEndian.PutUint64(key.slice, id)
-	bytes, err := flat.store.Bucket(flat.getCompressedBucketName()).Get(key.slice)
+	bucket, release, err := flat.getBucket(flat.getCompressedBucketName())
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	bytes, err := bucket.Get(key.slice)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +173,12 @@ func (flat *flat) getByteQuantizedVector(ctx context.Context, id uint64) ([]byte
 	key := flat.pool.byteSlicePool.Get(8)
 	defer flat.pool.byteSlicePool.Put(key)
 	binary.BigEndian.PutUint64(key.slice, id)
-	bytes, err := flat.store.Bucket(flat.getCompressedBucketName()).Get(key.slice)
+	bucket, release, err := flat.getBucket(flat.getCompressedBucketName())
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	bytes, err := bucket.Get(key.slice)
 	if err != nil {
 		return nil, err
 	}
@@ -198,18 +230,23 @@ func extractCache(uc flatent.UserConfig) (bool, QuantizerType) {
 	return false, 0
 }
 
-func (index *flat) storeCompressedVector(id uint64, vector []byte) {
-	index.storeGenericVector(id, vector, index.getCompressedBucketName())
+func (index *flat) storeCompressedVector(id uint64, vector []byte) error {
+	return index.storeGenericVector(id, vector, index.getCompressedBucketName())
 }
 
-func (index *flat) storeVector(id uint64, vector []byte) {
-	index.storeGenericVector(id, vector, index.getBucketName())
+func (index *flat) storeVector(id uint64, vector []byte) error {
+	return index.storeGenericVector(id, vector, index.getBucketName())
 }
 
-func (index *flat) storeGenericVector(id uint64, vector []byte, bucket string) {
+func (index *flat) storeGenericVector(id uint64, vector []byte, bucketName string) error {
+	bucket, release, err := index.getBucket(bucketName)
+	if err != nil {
+		return err
+	}
+	defer release()
 	idBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(idBytes, id)
-	index.store.Bucket(bucket).Put(idBytes, vector)
+	return bucket.Put(idBytes, vector)
 }
 
 func (index *flat) Cached() bool {
@@ -225,14 +262,11 @@ func (index *flat) Multivector() bool {
 }
 
 func (index *flat) getBucketName() string {
-	if index.targetVector != "" {
-		return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, index.targetVector)
-	}
-	return helpers.VectorsBucketLSM
+	return helpers.VectorsBucketNameForID(index.id)
 }
 
 func (index *flat) getCompressedBucketName() string {
-	return helpers.GetCompressedBucketName(index.targetVector)
+	return helpers.CompressedBucketNameForID(index.id)
 }
 
 func (index *flat) initBuckets(ctx context.Context, cfg Config) error {
@@ -279,8 +313,12 @@ func (index *flat) initBuckets(ctx context.Context, cfg Config) error {
 		}
 	}
 
-	count := index.store.Bucket(index.getBucketName()).CountAsync()
-	atomic.StoreUint64(&index.count, uint64(count))
+	bucket, release, err := index.getBucket(index.getBucketName())
+	if err != nil {
+		return err
+	}
+	defer release()
+	atomic.StoreUint64(&index.count, uint64(bucket.CountAsync()))
 
 	return nil
 }
@@ -338,7 +376,7 @@ func (index *flat) initializeDimensionsAndRQ(vector []float32) {
 		size := int32(len(vector))
 		atomic.StoreInt32(&index.dims, size)
 		if err := index.setDimensions(size); err != nil {
-			index.logger.WithError(err).Error("could not set dimensions")
+			index.logger.Errorf("could not set dimensions: %v", err)
 			return // Fail the entire initialization
 		}
 		dims = size
@@ -348,12 +386,12 @@ func (index *flat) initializeDimensionsAndRQ(vector []float32) {
 		builder := NewQuantizerBuilder(index.distancerProvider)
 		quantizer, err := builder.CreateQuantizer(index.compressionType, dims)
 		if err != nil {
-			index.logger.WithError(err).Error("could not create quantizer")
+			index.logger.Errorf("could not create quantizer: %v", err)
 			return // Fail the entire initialization
 		}
 		index.quantizer = quantizer
 		if err := index.persistRQData(); err != nil {
-			index.logger.WithError(err).Error("could not persist RQ data")
+			index.logger.Errorf("could not persist RQ data: %v", err)
 			return // Fail the entire initialization
 		}
 		index.compressed.Store(true)
@@ -376,9 +414,13 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 
 	vector = index.normalized(vector)
 	slice := make([]byte, len(vector)*4)
-	index.storeVector(id, byteSliceFromFloat32Slice(vector, slice))
+	if err := index.storeVector(id, byteSliceFromFloat32Slice(vector, slice)); err != nil {
+		return err
+	}
 
-	index.Preload(id, vector)
+	if err := index.preload(id, vector); err != nil {
+		return err
+	}
 
 	for {
 		oldCount := atomic.LoadUint64(&index.count)
@@ -398,17 +440,39 @@ func (index *flat) Delete(ids ...uint64) error {
 		idBytes := make([]byte, 8)
 		binary.BigEndian.PutUint64(idBytes, ids[i])
 
-		if err := index.store.Bucket(index.getBucketName()).Delete(idBytes); err != nil {
+		if err := index.deleteFromBuckets(idBytes); err != nil {
 			return err
-		}
-
-		if index.Compressed() {
-			if err := index.store.Bucket(index.getCompressedBucketName()).Delete(idBytes); err != nil {
-				return err
-			}
 		}
 	}
 	return nil
+}
+
+// deleteFromBuckets drops one id from the vector bucket and, when the index is
+// compressed, from the compressed bucket. Split out of [flat.Delete] so each
+// id's bucket pins are released as its iteration ends rather than piling up
+// for the whole batch.
+func (index *flat) deleteFromBuckets(idBytes []byte) error {
+	bucket, release, err := index.getBucket(index.getBucketName())
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	if err := bucket.Delete(idBytes); err != nil {
+		return err
+	}
+
+	if !index.Compressed() {
+		return nil
+	}
+
+	compressed, releaseCompressed, err := index.getBucket(index.getCompressedBucketName())
+	if err != nil {
+		return err
+	}
+	defer releaseCompressed()
+
+	return compressed.Delete(idBytes)
 }
 
 func (index *flat) searchTimeRescore(k int) int {
@@ -422,12 +486,13 @@ func (index *flat) searchTimeRescore(k int) int {
 }
 
 func (index *flat) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
-	switch index.compressionType {
-	case CompressionBQ, CompressionRQ1, CompressionRQ8:
+	// route on the runtime compression state, not the configured type: with RQ
+	// the quantizer only exists after the first Add ran initializeDimensionsAndRQ,
+	// and until then the uncompressed bucket is the only complete source
+	if index.Compressed() {
 		return index.searchByVectorQuantized(ctx, vector, k, allow)
-	default:
-		return index.searchByVector(ctx, vector, k, allow)
 	}
+	return index.searchByVector(ctx, vector, k, allow)
 }
 
 func (index *flat) searchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
@@ -437,8 +502,14 @@ func (index *flat) searchByVector(ctx context.Context, vector []float32, k int, 
 
 	vector = index.normalized(vector)
 
+	bucket, release, err := index.getBucket(index.getBucketName())
+	if err != nil {
+		return nil, nil, err
+	}
+	defer release()
+
 	if err := index.findTopVectors(heap, allow, k,
-		index.store.Bucket(index.getBucketName()).Cursor,
+		bucket.Cursor,
 		index.createDistanceCalc(vector),
 	); err != nil {
 		return nil, nil, err
@@ -459,14 +530,10 @@ func (index *flat) createDistanceCalc(vector []float32) distanceCalc {
 }
 
 func (index *flat) searchByVectorQuantized(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
-	// Ensure quantizer is initialized
+	// defensive: callers only reach this path once Compressed() is true, and
+	// the quantizer is always assigned before the compressed flag is set
 	if index.quantizer == nil {
-		dims := atomic.LoadInt32(&index.dims)
-		if dims == 0 {
-			return []uint64{}, []float32{}, nil
-		} else {
-			return nil, nil, fmt.Errorf("quantizer not initialized")
-		}
+		return nil, nil, fmt.Errorf("quantizer not initialized")
 	}
 
 	// TODO: pass context into inner methods, so it can be checked more granuarly
@@ -476,13 +543,22 @@ func (index *flat) searchByVectorQuantized(ctx context.Context, vector []float32
 
 	vector = index.normalized(vector)
 
-	if index.Compressed() && index.Cached() {
+	// the cached search iterates the cache window, which silently skips
+	// anything not cached; it is only correct once the cache is known to be
+	// complete, otherwise the store is the source of truth
+	if index.Compressed() && index.Cached() && index.cachePrefilled.Load() {
 		if err := index.findTopVectorsQuantizedCached(heap, allow, rescore, vector); err != nil {
 			return nil, nil, err
 		}
 	} else {
+		bucket, release, err := index.getBucket(index.getCompressedBucketName())
+		if err != nil {
+			return nil, nil, err
+		}
+		defer release()
+
 		if err := index.findTopVectors(heap, allow, rescore,
-			index.store.Bucket(index.getCompressedBucketName()).Cursor,
+			bucket.Cursor,
 			index.createDistanceCalcQuantized(vector),
 		); err != nil {
 			return nil, nil, err
@@ -576,7 +652,12 @@ func (index *flat) vectorById(id uint64) ([]byte, error) {
 	defer index.pool.byteSlicePool.Put(idSlice)
 
 	binary.BigEndian.PutUint64(idSlice.slice, id)
-	return index.store.Bucket(index.getBucketName()).Get(idSlice.slice)
+	bucket, release, err := index.getBucket(index.getBucketName())
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return bucket.Get(idSlice.slice)
 }
 
 // populates given heap with smallest distances and corresponding ids calculated by
@@ -875,30 +956,53 @@ func (index *flat) ValidateBeforeInsert(vector []float32) error {
 }
 
 func (index *flat) Preload(id uint64, vector []float32) {
-	if index.Compressed() {
-		if index.quantizer.Type() == ByteQuantizer {
-			// For byte quantizer
-			vectorQuantized := index.quantizer.EncodeBytes(vector)
-			if index.Cached() {
-				index.cache.Grow(id)
-				index.cache.PreloadBytes(id, vectorQuantized)
-			}
-			index.storeCompressedVector(id, vectorQuantized)
-		} else if index.quantizer.Type() == Uint64Quantizer {
-			// For uint64 quantizer
-			vectorQuantized := index.quantizer.EncodeUint64(vector)
-			if index.Cached() {
-				index.cache.Grow(id)
-				index.cache.PreloadUint64(id, vectorQuantized)
-			}
-			slice := make([]byte, len(vectorQuantized)*8)
-			index.storeCompressedVector(id, byteSliceFromUint64Slice(vectorQuantized, slice))
-		}
+	if err := index.preload(id, vector); err != nil {
+		index.logger.Errorf("preload vector %d into flat index %q: %v", id, index.id, err)
 	}
 }
 
+// PreloadWithErr is Preload but surfaces the encode/store error instead of only
+// logging it, so a caller that must not proceed on a partial re-encode — e.g.
+// the dynamic index's interrupted-upgrade recovery, which keeps its retry marker
+// until the whole rebuild succeeds — can react to the failure.
+func (index *flat) PreloadWithErr(id uint64, vector []float32) error {
+	return index.preload(id, vector)
+}
+
+func (index *flat) preload(id uint64, vector []float32) error {
+	if !index.Compressed() {
+		return nil
+	}
+
+	switch index.quantizer.Type() {
+	case ByteQuantizer:
+		vectorQuantized := index.quantizer.EncodeBytes(vector)
+		if index.Cached() {
+			index.cache.Grow(id)
+			index.cache.PreloadBytes(id, vectorQuantized)
+		}
+		return index.storeCompressedVector(id, vectorQuantized)
+	case Uint64Quantizer:
+		vectorQuantized := index.quantizer.EncodeUint64(vector)
+		if index.Cached() {
+			index.cache.Grow(id)
+			index.cache.PreloadUint64(id, vectorQuantized)
+		}
+		slice := make([]byte, len(vectorQuantized)*8)
+		return index.storeCompressedVector(id, byteSliceFromUint64Slice(vectorQuantized, slice))
+	}
+
+	return nil
+}
+
 func (index *flat) PostStartup(ctx context.Context) {
-	if !index.Cached() || index.quantizer == nil {
+	if !index.Cached() {
+		return
+	}
+	if index.quantizer == nil {
+		// no quantizer means nothing was restored from disk: the index
+		// starts empty and insert-time preloading keeps the cache complete
+		index.cachePrefilled.Store(true)
 		return
 	}
 
@@ -910,7 +1014,12 @@ func (index *flat) PostStartup(ctx context.Context) {
 	// one additional struct per vector while loading. Should be negligible)
 
 	before := time.Now()
-	bucket := index.store.Bucket(index.getCompressedBucketName())
+	bucket, release, err := index.getBucket(index.getCompressedBucketName())
+	if err != nil {
+		index.logger.Errorf("preload vectors of flat index %q: %v", index.id, err)
+		return
+	}
+	defer release()
 	// we expect to be IO-bound, so more goroutines than CPUs is fine, we do
 	// however want some kind of relationship to the machine size, so
 	// 2*GOMAXPROCS seems like a good default.
@@ -946,10 +1055,9 @@ func (index *flat) PostStartup(ctx context.Context) {
 		}
 		if <-abortedCh {
 			index.logger.WithFields(logrus.Fields{
-				"action":   "preload_cache",
-				"count":    len(vecs),
-				"took":     time.Since(before),
-				"index_id": index.id,
+				"action": "preload_cache",
+				"count":  len(vecs),
+				"took":   time.Since(before),
 			}).Warn("preload vectors aborted")
 			return
 		}
@@ -987,10 +1095,9 @@ func (index *flat) PostStartup(ctx context.Context) {
 		}
 		if <-abortedCh {
 			index.logger.WithFields(logrus.Fields{
-				"action":   "preload_cache",
-				"count":    len(vecs),
-				"took":     time.Since(before),
-				"index_id": index.id,
+				"action": "preload_cache",
+				"count":  len(vecs),
+				"took":   time.Since(before),
 			}).Warn("preload vectors aborted")
 			return
 		}
@@ -1003,7 +1110,24 @@ func (index *flat) PostStartup(ctx context.Context) {
 		}
 	}
 
-	// Grow cache just once
+	if count == 0 {
+		// nothing to preload: don't allocate the cache for an empty tenant.
+		// The parallel iterator only sees flushed segments, so distinguish a
+		// truly empty index (the cache is trivially complete and stays
+		// complete via insert-time preloading) from data that only lives in
+		// the memtable (the cache must not be trusted for searches).
+		c := bucket.Cursor()
+		k, _ := c.First()
+		c.Close()
+		if k == nil {
+			index.cachePrefilled.Store(true)
+		}
+		return
+	}
+
+	// Grow cache just once. Growing before LockAll also sizes the cache's
+	// lock stripes to the actual tenant size.
+	index.cache.Grow(maxID)
 	index.cache.LockAll()
 	defer index.cache.UnlockAll()
 
@@ -1023,10 +1147,9 @@ func (index *flat) PostStartup(ctx context.Context) {
 		}
 		if <-abortedCh {
 			index.logger.WithFields(logrus.Fields{
-				"action":   "preload_cache",
-				"count":    count,
-				"took":     time.Since(before),
-				"index_id": index.id,
+				"action": "preload_cache",
+				"count":  count,
+				"took":   time.Since(before),
 			}).Warn("preload vectors aborted")
 			return
 		}
@@ -1046,40 +1169,45 @@ func (index *flat) PostStartup(ctx context.Context) {
 		}
 		if <-abortedCh {
 			index.logger.WithFields(logrus.Fields{
-				"action":   "preload_cache",
-				"count":    count,
-				"took":     time.Since(before),
-				"index_id": index.id,
+				"action": "preload_cache",
+				"count":  count,
+				"took":   time.Since(before),
 			}).Warn("preload vectors aborted")
 			return
 		}
 	}
 
+	index.cachePrefilled.Store(true)
+
 	took := time.Since(before)
 	index.logger.WithFields(logrus.Fields{
-		"action":   "preload_cache",
-		"type":     index.compressionType.String(),
-		"count":    count,
-		"took":     took,
-		"index_id": index.id,
+		"action": "preload_cache",
+		"type":   index.compressionType.String(),
+		"count":  count,
+		"took":   took,
 	}).Debugf("pre-loaded %d vectors in %s", count, took)
 }
 
 func (index *flat) ContainsDoc(id uint64) bool {
 	var bucketName string
 
-	// logic modeled after SearchByVector which indicates that the PQ bucket is
-	// the same as the uncompressed bucket "for now"
-	switch index.compressionType {
-	case CompressionBQ, CompressionRQ1, CompressionRQ8:
+	// logic modeled after SearchByVector: the compressed bucket is only
+	// guaranteed complete once the quantizer is initialized
+	if index.Compressed() {
 		bucketName = index.getCompressedBucketName()
-	default:
+	} else {
 		bucketName = index.getBucketName()
 	}
 
+	bucket, release, err := index.getBucket(bucketName)
+	if err != nil {
+		return false
+	}
+	defer release()
+
 	idBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(idBytes, id)
-	v, err := index.store.Bucket(bucketName).Get(idBytes)
+	v, err := bucket.Get(idBytes)
 	if v == nil || errors.Is(err, entlsmkv.NotFound) {
 		return false
 	}
@@ -1090,16 +1218,21 @@ func (index *flat) ContainsDoc(id uint64) bool {
 func (index *flat) Iterate(fn func(docID uint64) bool) {
 	var bucketName string
 
-	// logic modeled after SearchByVector which indicates that the PQ bucket is
-	// the same as the uncompressed bucket "for now"
-	switch index.compressionType {
-	case CompressionBQ, CompressionRQ1, CompressionRQ8:
+	// logic modeled after SearchByVector: the compressed bucket is only
+	// guaranteed complete once the quantizer is initialized
+	if index.Compressed() {
 		bucketName = index.getCompressedBucketName()
-	default:
+	} else {
 		bucketName = index.getBucketName()
 	}
 
-	bucket := index.store.Bucket(bucketName)
+	bucket, release, err := index.getBucket(bucketName)
+	if err != nil {
+		index.logger.Errorf("iterate flat index %q: %v", index.id, err)
+		return
+	}
+	defer release()
+
 	cursor := bucket.Cursor()
 	defer cursor.Close()
 
@@ -1206,7 +1339,10 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 	}
 	switch index.compressionType {
 	case CompressionBQ, CompressionRQ1, CompressionRQ8:
-		if index.cache == nil {
+		// the quantized paths below dereference the quantizer, which for RQ
+		// only exists once Compressed() reports true; fall back to
+		// full-precision distances from the uncompressed bucket until then
+		if index.cache == nil || !index.Compressed() {
 			distFunc = defaultDistFunc
 		} else {
 			// For RQ-1 bit, use NewDistancer to get 5-bit query quantization for better accuracy
@@ -1215,12 +1351,18 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 				// Create a distancer that uses 5-bit query quantization
 				distancer := index.quantizer.(*BinaryRotationalQuantizerWrapper).NewDistancer(queryVector)
 				distFunc = func(nodeID uint64) (float32, error) {
-					if int32(nodeID) > index.cache.Len() {
-						return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, index.cache.Len())
+					// the window guard only makes sense on a complete cache,
+					// where an id beyond it cannot exist; on an incomplete
+					// cache, Get below falls back to disk
+					if cacheLen := index.cache.Len(); index.cachePrefilled.Load() && int32(nodeID) > cacheLen {
+						return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, cacheLen)
 					}
 					vec, err := index.cache.uint64Cache.Get(context.Background(), nodeID)
 					if err != nil {
 						return 0, err
+					}
+					if len(vec) == 0 {
+						return -1, fmt.Errorf("node %v not found", nodeID)
 					}
 					return distancer.Distance(vec)
 				}
@@ -1236,19 +1378,28 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 				}
 
 				distFunc = func(nodeID uint64) (float32, error) {
-					if int32(nodeID) > index.cache.Len() {
-						return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, index.cache.Len())
+					// the window guard only makes sense on a complete cache,
+					// where an id beyond it cannot exist; on an incomplete
+					// cache, Get below falls back to disk
+					if cacheLen := index.cache.Len(); index.cachePrefilled.Load() && int32(nodeID) > cacheLen {
+						return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, cacheLen)
 					}
 					if index.quantizer.Type() == Uint64Quantizer {
 						vec, err := index.cache.uint64Cache.Get(context.Background(), nodeID)
 						if err != nil {
 							return 0, err
 						}
+						if len(vec) == 0 {
+							return -1, fmt.Errorf("node %v not found", nodeID)
+						}
 						return index.quantizer.DistanceBetweenUint64Vectors(vec, queryVecEncodeUint64)
 					} else if index.quantizer.Type() == ByteQuantizer {
 						vec, err := index.cache.byteCache.Get(context.Background(), nodeID)
 						if err != nil {
 							return 0, err
+						}
+						if len(vec) == 0 {
+							return -1, fmt.Errorf("node %v not found", nodeID)
 						}
 						return index.quantizer.DistanceBetweenByteVectors(vec, queryVecEncodeBytes)
 					}
@@ -1277,8 +1428,12 @@ func (index *flat) Type() common.IndexType {
 }
 
 func (index *flat) CompressionStats() compressionhelpers.CompressionStats {
-	// Flat index doesn't have detailed compression stats, return uncompressed stats
-	return compressionhelpers.UncompressedStats{}
+	// the quantizer is published before the compressed flag, so a set flag makes
+	// this lock-free read safe
+	if !index.Compressed() {
+		return compressionhelpers.UncompressedStats{}
+	}
+	return index.quantizer.Stats()
 }
 
 func (h *flat) ShouldUpgrade() (bool, int) {

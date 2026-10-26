@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
@@ -35,6 +36,20 @@ var allStrategies = []string{
 	StrategyRoaringSet,
 	StrategyRoaringSetRange,
 	StrategyInverted,
+}
+
+// strategyUsesSharedIndexWriter reports whether a strategy's flush routes its
+// keys through the shared index writer, which is the only thing that emits a
+// secondary-index offsets table. Memtable.flush gates that writer on this, and
+// NewBucket refuses a secondary index to the strategies it excludes, so the two
+// answers cannot drift apart.
+func strategyUsesSharedIndexWriter(strategy string) bool {
+	switch strategy {
+	case StrategyRoaringSet, StrategyRoaringSetRange, StrategyInverted:
+		return false
+	default:
+		return true
+	}
 }
 
 func SegmentStrategyFromString(in string) segmentindex.Strategy {
@@ -73,7 +88,10 @@ func CheckExpectedStrategy(strategy string, expectedStrategies ...string) error 
 	if len(expectedStrategies) == 1 {
 		return fmt.Errorf("strategy %q expected, got %q", expectedStrategies[0], strategy)
 	}
-	return fmt.Errorf("one of strategies %v expected, got %q", expectedStrategies, strategy)
+	// the slice is joined rather than passed to Errorf: an Errorf argument would
+	// make every caller's variadic slice escape to the heap
+	return fmt.Errorf("one of strategies [%s] expected, got %q",
+		strings.Join(expectedStrategies, " "), strategy)
 }
 
 func MustBeExpectedStrategy(strategy string, expectedStrategies ...string) {

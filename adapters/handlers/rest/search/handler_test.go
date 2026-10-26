@@ -14,18 +14,29 @@ package search
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
 	pkgerrors "github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	gproto "google.golang.org/protobuf/proto"
 
+	dbinverted "github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/cluster/proto/api"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/inverted"
@@ -36,14 +47,21 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
-	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	"github.com/weaviate/weaviate/usecases/sharding"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 type fakeSearcher struct {
 	lastParams dto.GetParams
 	res        []any
 	err        error
+
+	lastAggregateParams *aggregation.Params
+	aggregateRes        any
+	aggregateErr        error
 }
 
 func (f *fakeSearcher) GetClass(ctx context.Context, principal *models.Principal,
@@ -56,17 +74,14 @@ func (f *fakeSearcher) GetClass(ctx context.Context, principal *models.Principal
 	return f.res, nil
 }
 
-type fakeSchemaReader struct {
-	classes map[string]*models.Class
-	aliases map[string]string
-}
-
-func (f *fakeSchemaReader) ReadOnlyClass(name string) *models.Class {
-	return f.classes[name]
-}
-
-func (f *fakeSchemaReader) ResolveAlias(alias string) string {
-	return f.aliases[alias]
+func (f *fakeSearcher) Aggregate(ctx context.Context, principal *models.Principal,
+	params *aggregation.Params,
+) (any, error) {
+	f.lastAggregateParams = params
+	if f.aggregateErr != nil {
+		return nil, f.aggregateErr
+	}
+	return f.aggregateRes, nil
 }
 
 func movieClass() *models.Class {
@@ -81,6 +96,8 @@ func movieClass() *models.Class {
 			{Name: "year", DataType: schema.DataTypeInt.PropString()},
 			{Name: "poster", DataType: schema.DataTypeBlob.PropString()},
 			{Name: "hasAuthor", DataType: []string{"Author"}},
+			// multi-target: the reference points at either collection
+			{Name: "basedOn", DataType: []string{"Book", "Comic"}},
 		},
 	}
 }
@@ -95,38 +112,186 @@ func authorClass() *models.Class {
 		Properties: []*models.Property{
 			{Name: "name", DataType: schema.DataTypeText.PropString()},
 			{Name: "age", DataType: schema.DataTypeInt.PropString()},
+			// second hop: Movie -> Author -> Studio
+			{Name: "worksFor", DataType: []string{"Studio"}},
 		},
 	}
 }
 
+func studioClass() *models.Class {
+	return &models.Class{
+		Class: "Studio",
+		Properties: []*models.Property{
+			{Name: "name", DataType: schema.DataTypeText.PropString()},
+			{Name: "logo", DataType: schema.DataTypeBlob.PropString()},
+			// third hop, for the depth-limit tests
+			{Name: "ownedBy", DataType: []string{"Studio"}},
+		},
+	}
+}
+
+func bookClass() *models.Class {
+	return &models.Class{
+		Class: "Book",
+		Properties: []*models.Property{
+			{Name: "title", DataType: schema.DataTypeText.PropString()},
+			{Name: "isbn", DataType: schema.DataTypeText.PropString()},
+		},
+	}
+}
+
+func comicClass() *models.Class {
+	return &models.Class{
+		Class: "Comic",
+		Properties: []*models.Property{
+			{Name: "title", DataType: schema.DataTypeText.PropString()},
+			{Name: "issue", DataType: schema.DataTypeInt.PropString()},
+		},
+	}
+}
+
+// catalogClass carries the property types the Movie fixture lacks; nullState
+// switches the collection's null-state index.
+func catalogClass(nullState bool) *models.Class {
+	off := false
+	return &models.Class{
+		Class:               "Catalog",
+		Vectorizer:          "text2vec-contextionary",
+		InvertedIndexConfig: &models.InvertedIndexConfig{IndexNullState: nullState},
+		Properties: []*models.Property{
+			{Name: "title", DataType: schema.DataTypeText.PropString()},
+			{Name: "tags", DataType: schema.DataTypeTextArray.PropString()},
+			{Name: "year", DataType: schema.DataTypeInt.PropString()},
+			{Name: "published", DataType: schema.DataTypeDate.PropString()},
+			{Name: "meta", DataType: schema.DataTypeObject.PropString(), NestedProperties: []*models.NestedProperty{
+				{Name: "isbn", DataType: schema.DataTypeText.PropString()},
+			}},
+			{Name: "location", DataType: schema.DataTypeGeoCoordinates.PropString()},
+			{Name: "phone", DataType: schema.DataTypePhoneNumber.PropString()},
+			{Name: "hasAuthor", DataType: []string{"Author"}},
+			{Name: "secret", DataType: schema.DataTypeText.PropString(), IndexFilterable: &off, IndexSearchable: &off},
+		},
+	}
+}
+
+func newCatalogHandler(t *testing.T, nullState bool) *testDeps {
+	t.Helper()
+	return newTestHandlerWithClass(t, catalogClass(nullState))
+}
+
+// seedSchema builds a real SchemaReader over classes and aliases. The handler
+// takes the concrete reader, so a test that wants the schema to hold something
+// has to seed one.
+func seedSchema(t *testing.T, classes []*models.Class, aliases map[string]string) clusterSchema.SchemaReader {
+	t.Helper()
+	parser := fakes.NewMockParser()
+	parser.On("ParseClass", mock.Anything).Return(nil)
+	logger := logrus.New()
+	logger.SetOutput(io.Discard)
+	sm := clusterSchema.NewSchemaManager("node1", nil, parser, prometheus.NewPedanticRegistry(), logger)
+
+	// A reference property whose target class is not in the schema yet is
+	// rejected, and the fixtures cross-link, so retry the rejects until a pass
+	// adds nothing — a reference cycle or a genuinely bad class.
+	remaining := classes
+	for len(remaining) > 0 {
+		var deferred []*models.Class
+		var firstErr error
+		for _, cls := range remaining {
+			sub, err := json.Marshal(api.AddClassRequest{
+				Class: cls,
+				State: &sharding.State{PartitioningEnabled: true},
+			})
+			require.NoError(t, err)
+			if err := sm.AddClass(&api.ApplyRequest{
+				Type: api.ApplyRequest_TYPE_ADD_CLASS, Class: cls.Class, SubCommand: sub,
+			}, "node1", true, false); err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				deferred = append(deferred, cls)
+			}
+		}
+		if len(deferred) == len(remaining) {
+			require.NoError(t, firstErr, "seeding made no progress; check for a reference cycle")
+		}
+		remaining = deferred
+	}
+
+	for alias, collection := range aliases {
+		sub, err := gproto.Marshal(&api.CreateAliasRequest{Alias: alias, Collection: collection})
+		require.NoError(t, err)
+		require.NoError(t, sm.CreateAlias(&api.ApplyRequest{
+			Type: api.ApplyRequest_TYPE_CREATE_ALIAS, Class: collection, SubCommand: sub,
+		}))
+	}
+
+	return sm.NewSchemaReader()
+}
+
 type testDeps struct {
-	searcher     *fakeSearcher
-	schemaReader *fakeSchemaReader
-	authorizer   *mocks.FakeAuthorizer
-	handler      *Handler
+	searcher   *fakeSearcher
+	authorizer *mocks.FakeAuthorizer
+	handler    *Handler
+	// classes mirrors what the schema was seeded with, for the few tests that
+	// resolve collections themselves instead of going through the handler.
+	classes map[string]*models.Class
 }
 
 func newTestHandler(t *testing.T) *testDeps {
 	t.Helper()
+	return newTestHandlerSeeded(t, nil, nil)
+}
+
+// newTestHandlerWithAliases seeds aliases at construction.
+func newTestHandlerWithAliases(t *testing.T, aliases map[string]string) *testDeps {
+	t.Helper()
+	return newTestHandlerSeeded(t, nil, aliases)
+}
+
+// newTestHandlerWithClass seeds one extra collection beyond the fixture set.
+func newTestHandlerWithClass(t *testing.T, extra *models.Class) *testDeps {
+	t.Helper()
+	return newTestHandlerSeeded(t, []*models.Class{extra}, nil)
+}
+
+// newTestHandlerSeeded builds the handler over a real schema. Everything is
+// seeded at construction because the handler takes a concrete schema reader,
+// which, unlike a stub, cannot be re-pointed once built.
+func newTestHandlerSeeded(t *testing.T, extra []*models.Class, aliases map[string]string) *testDeps {
+	t.Helper()
 	deps := &testDeps{
-		searcher: &fakeSearcher{},
-		schemaReader: &fakeSchemaReader{
-			classes: map[string]*models.Class{
-				"Movie":  movieClass(),
-				"Author": authorClass(),
-			},
-		},
+		searcher:   &fakeSearcher{},
 		authorizer: mocks.NewMockAuthorizer(),
+		classes:    map[string]*models.Class{},
 	}
+
+	// extra overrides a fixture class of the same name, the way assigning into
+	// the old stub's map did.
+	for _, c := range []*models.Class{
+		movieClass(), authorClass(), studioClass(), bookClass(), comicClass(),
+	} {
+		deps.classes[c.Class] = c
+	}
+	for _, c := range extra {
+		deps.classes[c.Class] = c
+	}
+
+	classes := make([]*models.Class, 0, len(deps.classes))
+	for _, c := range deps.classes {
+		classes = append(classes, c)
+	}
+
 	deps.handler = NewHandler(HandlerConfig{
-		Traverser:      deps.searcher,
-		SchemaReader:   deps.schemaReader,
-		Authorizer:     deps.authorizer,
-		DefaultLimit:   10,
-		MaximumResults: 10000,
-		// happy-path fixture: the experimental feature is enabled
-		Enabled: runtime.NewDynamicValue(true),
-		Logger:  logrus.New(),
+		Traverser:    deps.searcher,
+		SchemaReader: seedSchema(t, classes, aliases),
+		Authorizer:   deps.authorizer,
+		Qualifier:    namespacing.Disabled,
+		DefaultLimit: 10,
+		// matches DefaultQueryCrossReferenceDepthLimit
+		CrossRefDepthLimit: 5,
+		MaximumResults:     10000,
+		Logger:             logrus.New(),
 	})
 	return deps
 }
@@ -150,6 +315,23 @@ func doNearText(t *testing.T, deps *testDeps, principal *models.Principal,
 ) (*models.SearchResponse, *APIError) {
 	t.Helper()
 	return deps.handler.NearText(context.Background(), principal, collection, mustModel(t, body))
+}
+
+// mustBm25Model is mustModel for the bm25 request model.
+func mustBm25Model(t *testing.T, body string) *models.SearchBm25Request {
+	t.Helper()
+	var req models.SearchBm25Request
+	require.NoError(t, json.Unmarshal([]byte(body), &req))
+	return &req
+}
+
+// doBm25 runs the bm25 handler the way the generated operation wiring does,
+// with the typed, already-decoded request model.
+func doBm25(t *testing.T, deps *testDeps, principal *models.Principal,
+	collection, body string,
+) (*models.SearchResponse, *APIError) {
+	t.Helper()
+	return deps.handler.Bm25(context.Background(), principal, collection, mustBm25Model(t, body))
 }
 
 func TestIsSearchRoute(t *testing.T) {
@@ -215,28 +397,21 @@ func TestExecuteIsSearchTypeAgnostic(t *testing.T) {
 		}, nil
 	}
 
-	payload, apiErr := deps.handler.execute(context.Background(), nil, "Movie", "",
+	payload, apiErr := deps.handler.execute(context.Background(), nil, "near-text", "Movie", "",
 		&models.SearchCommon{}, build)
 	require.Nil(t, apiErr)
 	assert.Equal(t, "Movie", gotClass)
 	require.Len(t, payload.Results, 1)
 	assert.Equal(t, "Dune", payload.Results[0].Properties["title"])
 
-	// execute honors the not-enabled gate and the reserved-field gate,
-	// before ever calling the builder
-	deps.handler.enabled = runtime.NewDynamicValue(false)
-	_, apiErr = deps.handler.execute(context.Background(), nil, "Movie", "",
-		&models.SearchCommon{}, build)
+	// execute honors the reserved-field gate before ever calling the builder
+	rerankProp := "title"
+	rerank := &models.SearchRerank{Property: &rerankProp}
+	_, apiErr = deps.handler.execute(context.Background(), nil, "near-text", "Movie", "",
+		&models.SearchCommon{Rerank: rerank}, build)
 	require.NotNil(t, apiErr)
 	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
-
-	deps.handler.enabled = runtime.NewDynamicValue(true)
-	rerank := "title"
-	_, apiErr = deps.handler.execute(context.Background(), nil, "Movie", "",
-		&models.SearchCommon{RerankProperty: &rerank}, build)
-	require.NotNil(t, apiErr)
-	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
-	assert.Contains(t, apiErr.Error(), "rerank_property")
+	assert.Contains(t, apiErr.Error(), "rerank")
 }
 
 func TestHandlerHappyPath(t *testing.T) {
@@ -253,7 +428,7 @@ func TestHandlerHappyPath(t *testing.T) {
 	}
 
 	payload, apiErr := doNearText(t, deps, nil, "Movie",
-		`{"query":["space opera"],"limit":5,"return_properties":["title","year"],"return_metadata":["distance"]}`)
+		`{"query":["space opera"],"limit":5,"returnProperties":["title","year"],"returnMetadata":["distance"]}`)
 	require.Nil(t, apiErr)
 
 	require.Len(t, payload.Results, 1)
@@ -276,12 +451,12 @@ func TestHandlerHappyPath(t *testing.T) {
 }
 
 // TestHandlerIDAlwaysReturned: every hit carries its id on the envelope,
-// with or without return_metadata, and an id-only request produces no
+// with or without returnMetadata, and an id-only request produces no
 // metadata block.
 func TestHandlerIDAlwaysReturned(t *testing.T) {
 	for name, body := range map[string]string{
-		"return_metadata omitted": `{"query":["space"]}`,
-		"return_metadata empty":   `{"query":["space"],"return_metadata":[]}`,
+		"returnMetadata omitted": `{"query":["space"]}`,
+		"returnMetadata empty":   `{"query":["space"],"returnMetadata":[]}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			deps := newTestHandler(t)
@@ -301,58 +476,6 @@ func TestHandlerIDAlwaysReturned(t *testing.T) {
 			assert.Nil(t, obj.Metadata)
 		})
 	}
-}
-
-func TestHandlerDisabled(t *testing.T) {
-	deps := newTestHandler(t)
-	deps.handler.enabled = runtime.NewDynamicValue(false)
-
-	_, apiErr := doNearText(t, deps, nil, "Movie", `{"query":["space"]}`)
-	require.NotNil(t, apiErr)
-	// mirrors DISABLE_GRAPHQL: the operation stays registered and rejects
-	// requests with 422
-	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
-	assert.Contains(t, apiErr.Error(), "not enabled")
-	assert.Contains(t, apiErr.Error(), "EXPERIMENTAL_REST_SEARCH_ENABLED")
-}
-
-// TestHandlerDefaultDisabled guards the new opt-in default: a handler whose
-// flag is off (the unset-env default, NewDynamicValue(false)) rejects every
-// search with the not-enabled 422.
-func TestHandlerDefaultDisabled(t *testing.T) {
-	deps := newTestHandler(t)
-	// simulate the process default: EXPERIMENTAL_REST_SEARCH_ENABLED unset
-	deps.handler.enabled = runtime.NewDynamicValue(false)
-
-	_, apiErr := doNearText(t, deps, nil, "Movie", `{"query":["space"]}`)
-	require.NotNil(t, apiErr)
-	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
-	assert.Contains(t, apiErr.Error(), "not enabled")
-}
-
-// TestHandlerDisabledMissingCollection: a disabled endpoint answers 422 even
-// for a missing collection (the not-enabled check runs after authz, before
-// existence).
-func TestHandlerDisabledMissingCollection(t *testing.T) {
-	deps := newTestHandler(t)
-	deps.handler.enabled = runtime.NewDynamicValue(false)
-
-	_, apiErr := doNearText(t, deps, nil, "NoSuchCollection", `{"query":["space"]}`)
-	require.NotNil(t, apiErr)
-	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
-	assert.Contains(t, apiErr.Error(), "not enabled")
-}
-
-// TestHandlerDisabledUnauthorized: unauthorized caller gets 403, not the
-// not-enabled 422 (a denied caller must not learn the endpoint is off).
-func TestHandlerDisabledUnauthorized(t *testing.T) {
-	deps := newTestHandler(t)
-	deps.handler.enabled = runtime.NewDynamicValue(false)
-	deps.authorizer.SetErr(autherrs.NewForbidden(&models.Principal{Username: "someone"}, "read", "collections/Movie"))
-
-	_, apiErr := doNearText(t, deps, nil, "Movie", `{"query":["space"]}`)
-	require.NotNil(t, apiErr)
-	assert.Equal(t, http.StatusForbidden, apiErr.Status)
 }
 
 func TestHandlerUnknownBodyFieldIgnored(t *testing.T) {
@@ -422,12 +545,13 @@ func TestHandlerTenantAuthorization(t *testing.T) {
 	calls := deps.authorizer.Calls()
 	require.NotEmpty(t, calls)
 	assert.Contains(t, calls[0].Resources[0], "tenantA")
+	assert.Equal(t, mocks.MethodAuthorizeAndRequireActiveNamespace, calls[0].Method)
+	assert.Equal(t, "Movie", calls[0].Class, "the shard shape reaches the gate with the same class")
 	assert.Equal(t, "tenantA", deps.searcher.lastParams.Tenant)
 }
 
 func TestHandlerResolvesAliases(t *testing.T) {
-	deps := newTestHandler(t)
-	deps.schemaReader.aliases = map[string]string{"Films": "Movie"}
+	deps := newTestHandlerWithAliases(t, map[string]string{"Films": "Movie"})
 
 	_, apiErr := doNearText(t, deps, nil, "Films", `{"query":["space"]}`)
 	require.Nil(t, apiErr)
@@ -448,6 +572,10 @@ func (rbacLikeAuthorizer) Authorize(ctx context.Context, principal *models.Princ
 	return fmt.Errorf("rbac: %w", autherrs.NewForbidden(p, verb, resources...))
 }
 
+func (a rbacLikeAuthorizer) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error {
+	return a.Authorize(ctx, principal, verb, resources...)
+}
+
 func (a rbacLikeAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
 	return a.Authorize(ctx, principal, verb, resources...)
 }
@@ -459,9 +587,8 @@ func (a rbacLikeAuthorizer) FilterAuthorizedResources(ctx context.Context, princ
 // TestHandlerAliasForbiddenDoesNotLeakTarget: a denied request against an
 // alias must not disclose the alias's target collection in the 403.
 func TestHandlerAliasForbiddenDoesNotLeakTarget(t *testing.T) {
-	deps := newTestHandler(t)
+	deps := newTestHandlerWithAliases(t, map[string]string{"Films": "Movie"})
 	deps.handler.authorizer = rbacLikeAuthorizer{}
-	deps.schemaReader.aliases = map[string]string{"Films": "Movie"}
 
 	_, apiErr := doNearText(t, deps, nil, "Films", `{"query":["space"]}`)
 	require.NotNil(t, apiErr)
@@ -475,9 +602,8 @@ func TestHandlerAliasForbiddenDoesNotLeakTarget(t *testing.T) {
 // collection — else the difference reveals the alias to a denied caller.
 func TestHandlerAliasForbiddenNoExistenceOracle(t *testing.T) {
 	// registered alias Films -> Movie, caller denied everything
-	aliased := newTestHandler(t)
+	aliased := newTestHandlerWithAliases(t, map[string]string{"Films": "Movie"})
 	aliased.handler.authorizer = rbacLikeAuthorizer{}
-	aliased.schemaReader.aliases = map[string]string{"Films": "Movie"}
 	_, aliasErr := doNearText(t, aliased, nil, "Films", `{"query":["space"]}`)
 	require.NotNil(t, aliasErr)
 
@@ -492,6 +618,24 @@ func TestHandlerAliasForbiddenNoExistenceOracle(t *testing.T) {
 		"alias and non-alias denials must be indistinguishable")
 }
 
+// TestAliasDenialKeepsAuthorizerShape: a denial on an alias target must be
+// byte-identical to one on a plain collection of the alias name.
+func TestAliasDenialKeepsAuthorizerShape(t *testing.T) {
+	aliased := newTestHandlerWithAliases(t, map[string]string{"Films": "Movie"})
+	aliased.handler.authorizer = &denyCollections{denied: map[string]bool{"Movie": true}}
+	_, aliasErr := doNearText(t, aliased, nil, "Films", `{"query":["space"]}`)
+	require.NotNil(t, aliasErr)
+	assert.Equal(t, http.StatusForbidden, aliasErr.Status)
+
+	plain := newTestHandler(t)
+	plain.handler.authorizer = &denyCollections{denied: map[string]bool{"Films": true}}
+	_, plainErr := doNearText(t, plain, nil, "Films", `{"query":["space"]}`)
+	require.NotNil(t, plainErr)
+
+	assert.Equal(t, plainErr.Error(), aliasErr.Error())
+	assert.NotContains(t, aliasErr.Error(), "Movie")
+}
+
 // denyCollections denies READ on the named collections (by resource path) and
 // allows the rest, to test cross-collection authz for refs and filters.
 type denyCollections struct {
@@ -499,16 +643,16 @@ type denyCollections struct {
 	requests []mocks.AuthZReq
 }
 
-func (a *denyCollections) authorize(principal *models.Principal, verb string, resources []string) error {
-	a.requests = append(a.requests, mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources})
-	for _, r := range resources {
+func (a *denyCollections) authorize(req mocks.AuthZReq) error {
+	a.requests = append(a.requests, req)
+	for _, r := range req.Resources {
 		for name := range a.denied {
 			if strings.Contains(r, "/collections/"+name+"/") {
-				p := principal
+				p := req.Principal
 				if p == nil {
 					p = &models.Principal{Username: "anonymous"}
 				}
-				return fmt.Errorf("rbac: %w", autherrs.NewForbidden(p, verb, resources...))
+				return fmt.Errorf("rbac: %w", autherrs.NewForbidden(p, req.Verb, req.Resources...))
 			}
 		}
 	}
@@ -516,15 +660,22 @@ func (a *denyCollections) authorize(principal *models.Principal, verb string, re
 }
 
 func (a *denyCollections) Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
-	return a.authorize(principal, verb, resources)
+	return a.authorize(mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources, Method: mocks.MethodAuthorize})
+}
+
+func (a *denyCollections) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error {
+	return a.authorize(mocks.AuthZReq{
+		Principal: principal, Verb: verb, Resources: resources,
+		Method: mocks.MethodAuthorizeAndRequireActiveNamespace, Class: class,
+	})
 }
 
 func (a *denyCollections) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
-	return a.authorize(principal, verb, resources)
+	return a.authorize(mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources, Method: mocks.MethodAuthorizeSilent})
 }
 
 func (a *denyCollections) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, verb string, resources ...string) ([]string, error) {
-	if err := a.authorize(principal, verb, resources); err != nil {
+	if err := a.authorize(mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources, Method: mocks.MethodFilterAuthorizedResources}); err != nil {
 		return nil, err
 	}
 	return resources, nil
@@ -536,7 +687,7 @@ func (a *denyCollections) Calls() []mocks.AuthZReq { return a.requests }
 // reference selection or a where filter are authorized, not just the primary.
 func TestHandlerAuthorizesReferencedCollections(t *testing.T) {
 	for name, body := range map[string]string{
-		"reference selection": `{"query":["space"],"return_properties":["hasAuthor.name"]}`,
+		"reference selection": `{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor","returnProperties":["name"]}]}`,
 		"where filter across a reference": `{"query":["space"],"where":` +
 			`{"path":["hasAuthor","Author","name"],"operator":"Equal","valueText":"x"}}`,
 	} {
@@ -621,17 +772,26 @@ func TestHandlerTraverserErrorMapping(t *testing.T) {
 			err: pkgerrors.Wrapf(
 				enterrors.NewErrQueryVectorization(fmt.Errorf("remote client vectorize: connection refused")),
 				"explorer: get class: vectorize params"),
-			wantStatus: http.StatusBadGateway,
+			wantStatus: http.StatusInternalServerError,
 		},
 		{
 			// ORDERING GUARD: the no-vectorizer error arrives wrapped inside
-			// ErrQueryVectorization; 422 must win over 502
+			// ErrQueryVectorization; 422 must win over 500
 			name: "no vectorizer configured",
 			err: pkgerrors.Wrapf(
 				enterrors.NewErrQueryVectorization(
 					enterrors.NewErrNoVectorizerModule(fmt.Errorf("could not vectorize input for collection Movie with search-type nearText, targetVector  and parameters &{}. Make sure a vectorizer module is configured for this class"))),
 				"explorer: get class: vectorize params"),
 			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			// a class deleted mid-request, in bm25_searcher's phrasing —
+			// classified 404 by the not-found marker. index.go's twin
+			// ("class ... not found in schema") does not match and stays a
+			// 500 (known residual until an ErrClassNotFound sentinel lands).
+			name:       "class deleted mid-request",
+			err:        pkgerrors.Wrap(fmt.Errorf("could not find class Movie in schema"), "explorer: get class"),
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			// typed rate-limit error via the real constructor (drift-guarded)
@@ -713,9 +873,416 @@ func TestHandlerTraverserErrorMapping(t *testing.T) {
 	}
 }
 
+// TestStatusFromErrorMessages: engine errors reach the client with their wrap
+// chain intact, for parity with GraphQL and gRPC. The one exception is the
+// provider response, whose credential-bearing detail stays in the log.
+func TestStatusFromErrorMessages(t *testing.T) {
+	wrap := func(err error) error {
+		return fmt.Errorf("explorer: get class: vector search: object search at index movie: local shard object search movie_abc: %w", err)
+	}
+	tests := []struct {
+		name string
+		err  error
+		// wantMsg empty means the client sees err's own message, unchanged
+		wantStatus     int
+		wantMsg        string
+		wantCause      string
+		wantDocumented bool
+	}{
+		{
+			name:       "source object not found keeps the full chain",
+			err:        wrap(enterrors.NewErrSourceObjectNotFound(errors.New("nearObject search-object with id 123 not found"))),
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "multi-tenancy mismatch keeps the full chain",
+			err:        wrap(objects.NewErrMultiTenancy(errors.New("class Movie has multi-tenancy disabled, but request was with tenant"))),
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name:       "tenant not found keeps the full chain",
+			err:        wrap(fmt.Errorf("%w: tenant \"t1\"", enterrors.ErrTenantNotFound)),
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "only-stopwords pattern is a 400",
+			err:        wrap(dbinverted.ErrOnlyStopwords),
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "query vector of the wrong dimensionality is a 422",
+			err:        wrap(fmt.Errorf("knn search: distance between entrypoint and query node: 2 vs 3: %w", distancer.ErrVectorLength)),
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name:       "provider failure is a fixed 500 with the detail as cause",
+			err:        wrap(enterrors.NewErrQueryVectorization(errors.New("OpenAI API failed with status: 401, Incorrect API key provided: sk-bad"))),
+			wantStatus: http.StatusInternalServerError,
+			wantMsg:    errVectorizationFailed.Error(),
+			wantCause:  "sk-bad",
+		},
+		{
+			name:       "unclassified failure is a 500 carrying the chain",
+			err:        wrap(errors.New("trying parse time as RFC3339 string: cannot parse")),
+			wantStatus: http.StatusInternalServerError,
+			wantCause:  "RFC3339",
+		},
+		{
+			name:           "documented failure keeps the chain and matches its page",
+			err:            wrap(fmt.Errorf("cannot init shard: %w", enterrors.ErrNotEnoughMappings)),
+			wantStatus:     http.StatusInternalServerError,
+			wantCause:      "explorer:",
+			wantDocumented: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			apiErr := statusFromError(tt.err)
+			assert.Equal(t, tt.wantStatus, apiErr.Status)
+			wantMsg := tt.wantMsg
+			if wantMsg == "" {
+				wantMsg = tt.err.Error()
+			}
+			assert.Equal(t, wantMsg, apiErr.Error())
+			if tt.wantCause != "" {
+				assert.Contains(t, apiErr.Cause().Error(), tt.wantCause)
+			}
+			if tt.wantDocumented {
+				_, ok := enterrors.Documented(apiErr.Cause())
+				assert.True(t, ok, "the reply matches the docs link on the cause")
+			}
+		})
+	}
+}
+
+// TestHandlerLogsFailures: server-side failures are logged with their full
+// cause, client errors only at debug level.
+func TestHandlerLogsFailures(t *testing.T) {
+	deps := newTestHandler(t)
+	logger, hook := test.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+	deps.handler.logger = logger
+
+	deps.searcher.err = enterrors.NewErrQueryVectorization(errors.New("provider said: Incorrect API key provided: sk-bad"))
+	_, apiErr := doNearText(t, deps, nil, "Movie", `{"query":["space"]}`)
+	require.NotNil(t, apiErr)
+	assert.Equal(t, http.StatusInternalServerError, apiErr.Status)
+	assert.NotContains(t, apiErr.Error(), "sk-bad")
+
+	require.Len(t, hook.AllEntries(), 1)
+	entry := hook.LastEntry()
+	assert.Equal(t, logrus.ErrorLevel, entry.Level)
+	assert.Contains(t, entry.Message, "sk-bad")
+	assert.Equal(t, "near-text", entry.Data["op"])
+	assert.Equal(t, "Movie", entry.Data["collection"])
+
+	hook.Reset()
+	_, apiErr = doNearText(t, deps, nil, "Movie", `{"query":[]}`)
+	require.NotNil(t, apiErr)
+	require.Len(t, hook.AllEntries(), 1)
+	assert.Equal(t, logrus.DebugLevel, hook.LastEntry().Level)
+}
+
+// TestBm25HandlerHappyPath: the bm25 wrapper drives the same execute() flow
+// as near-text, with KeywordRanking params instead of module params, and the
+// envelope carries score/explainScore metadata. Deliberately the ONLY
+// per-endpoint handler test: Bm25 is a thin execute() wrapper, and the
+// shared gates (disabled, reserved fields, authz order, unknown collection,
+// tenant) are pinned once in TestExecuteIsSearchTypeAgnostic and the
+// near-text handler tests, plus live in the acceptance suite.
+func TestBm25HandlerHappyPath(t *testing.T) {
+	deps := newTestHandler(t)
+	deps.searcher.res = []any{
+		map[string]any{
+			"id":    strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			"title": "Dune",
+			"_additional": map[string]any{
+				"score":        float32(1.5),
+				"explainScore": "BM25F: title term frequency",
+			},
+		},
+	}
+
+	payload, apiErr := doBm25(t, deps, nil, "Movie",
+		`{"query":"space opera","limit":5,"queryProperties":["title"],"returnProperties":["title"],"returnMetadata":["score","explainScore"]}`)
+	require.Nil(t, apiErr)
+
+	require.Len(t, payload.Results, 1)
+	obj := payload.Results[0]
+	assert.Equal(t, "Dune", obj.Properties["title"])
+	require.NotNil(t, obj.ID)
+	require.NotNil(t, obj.Metadata)
+	require.NotNil(t, obj.Metadata.Score)
+	assert.Equal(t, float32(1.5), *obj.Metadata.Score)
+	require.NotNil(t, obj.Metadata.ExplainScore)
+	assert.Equal(t, "BM25F: title term frequency", *obj.Metadata.ExplainScore)
+	require.NotNil(t, payload.TookMs)
+
+	// the traverser was called with keyword-ranking params, no module params
+	params := deps.searcher.lastParams
+	assert.Equal(t, "Movie", params.ClassName)
+	assert.Equal(t, 5, params.Pagination.Limit)
+	require.NotNil(t, params.KeywordRanking)
+	assert.Equal(t, "space opera", params.KeywordRanking.Query)
+	assert.Equal(t, []string{"title"}, params.KeywordRanking.Properties)
+	assert.Empty(t, params.ModuleParams)
+}
+
+// mustNearObjectModel is mustModel for the near-object request model.
+func mustNearObjectModel(t *testing.T, body string) *models.SearchNearObjectRequest {
+	t.Helper()
+	var req models.SearchNearObjectRequest
+	require.NoError(t, json.Unmarshal([]byte(body), &req))
+	return &req
+}
+
+// doNearObject runs the near-object handler the way the generated operation
+// wiring does, with the typed, already-decoded request model.
+func doNearObject(t *testing.T, deps *testDeps, principal *models.Principal,
+	collection, body string,
+) (*models.SearchResponse, *APIError) {
+	t.Helper()
+	return deps.handler.NearObject(context.Background(), principal, collection, mustNearObjectModel(t, body))
+}
+
+// TestNearObjectHandlerHappyPath: the near-object wrapper drives the same
+// execute() flow as the other search types, with NearObject params instead
+// of module, keyword or hybrid params.
+// Deliberately one of only two near-object handler tests (with the typed
+// source-object error mapping below): NearObject is a thin execute()
+// wrapper; the shared gates are pinned in TestExecuteIsSearchTypeAgnostic,
+// the near-text handler tests and the acceptance suite.
+func TestNearObjectHandlerHappyPath(t *testing.T) {
+	deps := newTestHandler(t)
+	deps.searcher.res = []any{
+		map[string]any{
+			"id":    strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			"title": "Dune",
+			"_additional": map[string]any{
+				"distance": float32(0.12),
+			},
+		},
+	}
+
+	payload, apiErr := doNearObject(t, deps, nil, "Movie",
+		`{"id":"73f2eb5f-5abf-447a-81ca-74b1dd168247","limit":5,"returnProperties":["title"],"returnMetadata":["distance"]}`)
+	require.Nil(t, apiErr)
+
+	require.Len(t, payload.Results, 1)
+	obj := payload.Results[0]
+	assert.Equal(t, "Dune", obj.Properties["title"])
+	require.NotNil(t, obj.ID)
+	require.NotNil(t, obj.Metadata)
+	require.NotNil(t, obj.Metadata.Distance)
+	assert.Equal(t, float32(0.12), *obj.Metadata.Distance)
+	require.NotNil(t, payload.TookMs)
+
+	// the traverser was called with near-object params, nothing else
+	params := deps.searcher.lastParams
+	assert.Equal(t, "Movie", params.ClassName)
+	assert.Equal(t, 5, params.Pagination.Limit)
+	require.NotNil(t, params.NearObject)
+	assert.Equal(t, "73f2eb5f-5abf-447a-81ca-74b1dd168247", params.NearObject.ID)
+	assert.Empty(t, params.ModuleParams)
+	assert.Nil(t, params.KeywordRanking)
+	assert.Nil(t, params.HybridSearch)
+}
+
+// TestNearObjectSourceObjectErrorMapping builds the source-object errors via
+// their real producer types, replicating the explorer's wrap chain (it wraps
+// every vector-resolution failure in ErrQueryVectorization): the typed
+// matches must win over the wrapper's 500 mapping, or an unknown id would
+// surface as a generic internal error. An untyped failure has to come out as
+// the declared 500.
+func TestNearObjectSourceObjectErrorMapping(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+	}{
+		{
+			name: "unknown source object id",
+			err: pkgerrors.Wrapf(
+				enterrors.NewErrQueryVectorization(
+					fmt.Errorf("nearObject params: %w", enterrors.NewErrSourceObjectNotFound(
+						fmt.Errorf("nearObject search-object with id 73f2eb5f-5abf-447a-81ca-74b1dd168247 not found")))),
+				"explorer: get class: vectorize search vector"),
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "source object has no vector",
+			err: pkgerrors.Wrapf(
+				enterrors.NewErrQueryVectorization(
+					fmt.Errorf("nearObject params: %w", enterrors.NewErrSourceObjectNoVector(
+						fmt.Errorf("nearObject search-object with id 73f2eb5f-5abf-447a-81ca-74b1dd168247 has no vector")))),
+				"explorer: get class: vectorize search vector"),
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name: "source object has no vector for the target",
+			err: pkgerrors.Wrapf(
+				enterrors.NewErrQueryVectorization(
+					fmt.Errorf("nearObject params: %w", enterrors.NewErrSourceObjectNoVector(
+						fmt.Errorf("vector not found for target: title_vec")))),
+				"explorer: get class: vectorize search vector"),
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			// replicated delete conflict on the source object: usecases/replica
+			// mints this inside the fetch the explorer then wraps
+			name: "source object caught in a replicated delete conflict",
+			err: pkgerrors.Wrapf(
+				enterrors.NewErrQueryVectorization(
+					fmt.Errorf("nearObject params: %w", objects.NewErrDirtyReadOfDeletedObject(
+						fmt.Errorf("consistency level %q: conflict: object exists or was deleted", "QUORUM")))),
+				"explorer: get class: vectorize search vector"),
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			// anything the mapping does not type (a shard read failure, a
+			// timeout) must not leave near-object's declared status set
+			name: "untyped source-object failure",
+			err: pkgerrors.Wrapf(
+				enterrors.NewErrQueryVectorization(
+					fmt.Errorf("nearObject params: %w",
+						fmt.Errorf("get local object: shard=abc: read: connection reset"))),
+				"explorer: get class: vectorize search vector"),
+			wantStatus: http.StatusInternalServerError,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps := newTestHandler(t)
+			deps.searcher.err = tt.err
+
+			_, apiErr := doNearObject(t, deps, nil, "Movie", `{"id":"73f2eb5f-5abf-447a-81ca-74b1dd168247"}`)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, tt.wantStatus, apiErr.Status, apiErr.Error())
+		})
+	}
+}
+
+// mustNearVectorModel is mustModel for the near-vector request model.
+func mustNearVectorModel(t *testing.T, body string) *models.SearchNearVectorRequest {
+	t.Helper()
+	var req models.SearchNearVectorRequest
+	require.NoError(t, json.Unmarshal([]byte(body), &req))
+	return &req
+}
+
+// doNearVector runs the near-vector handler the way the generated operation
+// wiring does, with the typed, already-decoded request model.
+func doNearVector(t *testing.T, deps *testDeps, principal *models.Principal,
+	collection, body string,
+) (*models.SearchResponse, *APIError) {
+	t.Helper()
+	return deps.handler.NearVector(context.Background(), principal, collection, mustNearVectorModel(t, body))
+}
+
+// TestNearVectorHandlerHappyPath: the near-vector wrapper drives the same
+// execute() flow as the other search types, with NearVector params instead of
+// module, keyword or hybrid params. The only near-vector handler test: the
+// shared gates are pinned once in TestExecuteIsSearchTypeAgnostic, the
+// near-text handler tests and the acceptance suite.
+func TestNearVectorHandlerHappyPath(t *testing.T) {
+	deps := newTestHandler(t)
+	deps.searcher.res = []any{
+		map[string]any{
+			"id":    strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			"title": "Dune",
+			"_additional": map[string]any{
+				"distance": float32(0.12),
+			},
+		},
+	}
+
+	payload, apiErr := doNearVector(t, deps, nil, "Movie",
+		`{"vector":[0.1,-0.2,0.3],"limit":5,"returnProperties":["title"],"returnMetadata":["distance"]}`)
+	require.Nil(t, apiErr)
+
+	require.Len(t, payload.Results, 1)
+	obj := payload.Results[0]
+	assert.Equal(t, "Dune", obj.Properties["title"])
+	require.NotNil(t, obj.ID)
+	require.NotNil(t, obj.Metadata)
+	require.NotNil(t, obj.Metadata.Distance)
+	assert.Equal(t, float32(0.12), *obj.Metadata.Distance)
+	require.NotNil(t, payload.TookMs)
+
+	// the traverser was called with near-vector params, nothing else
+	params := deps.searcher.lastParams
+	assert.Equal(t, "Movie", params.ClassName)
+	assert.Equal(t, 5, params.Pagination.Limit)
+	require.NotNil(t, params.NearVector)
+	require.Len(t, params.NearVector.Vectors, 1)
+	assert.Equal(t, []float32{0.1, -0.2, 0.3}, params.NearVector.Vectors[0])
+	assert.Empty(t, params.ModuleParams)
+	assert.Nil(t, params.KeywordRanking)
+	assert.Nil(t, params.HybridSearch)
+}
+
+// mustHybridModel is mustModel for the hybrid request model.
+func mustHybridModel(t *testing.T, body string) *models.SearchHybridRequest {
+	t.Helper()
+	var req models.SearchHybridRequest
+	require.NoError(t, json.Unmarshal([]byte(body), &req))
+	return &req
+}
+
+// doHybrid runs the hybrid handler the way the generated operation wiring
+// does, with the typed, already-decoded request model.
+func doHybrid(t *testing.T, deps *testDeps, principal *models.Principal,
+	collection, body string,
+) (*models.SearchResponse, *APIError) {
+	t.Helper()
+	return deps.handler.Hybrid(context.Background(), principal, collection, mustHybridModel(t, body))
+}
+
+// TestHybridHandlerHappyPath: the hybrid wrapper drives the same execute()
+// flow as near-text and bm25, with HybridSearch params instead of module or
+// keyword params, and the envelope carries score metadata. Deliberately the
+// ONLY per-endpoint handler test — the shared gates are pinned once in
+// TestExecuteIsSearchTypeAgnostic, the near-text handler tests and the
+// acceptance suite.
+func TestHybridHandlerHappyPath(t *testing.T) {
+	deps := newTestHandler(t)
+	deps.searcher.res = []any{
+		map[string]any{
+			"id":    strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			"title": "Dune",
+			"_additional": map[string]any{
+				"score": float32(0.9),
+			},
+		},
+	}
+
+	payload, apiErr := doHybrid(t, deps, nil, "Movie",
+		`{"query":"space opera","limit":5,"alpha":0.6,"fusionType":"ranked","returnProperties":["title"],"returnMetadata":["score"]}`)
+	require.Nil(t, apiErr)
+
+	require.Len(t, payload.Results, 1)
+	obj := payload.Results[0]
+	assert.Equal(t, "Dune", obj.Properties["title"])
+	require.NotNil(t, obj.ID)
+	require.NotNil(t, obj.Metadata)
+	require.NotNil(t, obj.Metadata.Score)
+	assert.Equal(t, float32(0.9), *obj.Metadata.Score)
+	require.NotNil(t, payload.TookMs)
+
+	// the traverser was called with hybrid params, no module or keyword params
+	params := deps.searcher.lastParams
+	assert.Equal(t, "Movie", params.ClassName)
+	assert.Equal(t, 5, params.Pagination.Limit)
+	require.NotNil(t, params.HybridSearch)
+	assert.Equal(t, "space opera", params.HybridSearch.Query)
+	assert.Equal(t, 0.6, params.HybridSearch.Alpha)
+	assert.Empty(t, params.ModuleParams)
+	assert.Nil(t, params.KeywordRanking)
+}
+
 func TestHandlerStripsNamespaceFromErrors(t *testing.T) {
 	deps := newTestHandler(t)
-	deps.handler.namespacesEnabled = true
+	deps.handler.qualifier = wlnamespaces.NewPrefixing()
 	principal := &models.Principal{Username: "someone", Namespace: "ns1"}
 
 	// unknown collection: the internal error names the qualified collection

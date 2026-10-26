@@ -17,6 +17,140 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/config"
 )
 
+func TestValidateRQConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  RQConfig
+		wantErr bool
+	}{
+		{
+			name:    "disabled config skips bits validation",
+			config:  RQConfig{Enabled: false, Bits: 3},
+			wantErr: false,
+		},
+		{
+			name:    "enabled with bits=1",
+			config:  RQConfig{Enabled: true, Bits: 1},
+			wantErr: false,
+		},
+		{
+			name:    "enabled with bits=4",
+			config:  RQConfig{Enabled: true, Bits: 4},
+			wantErr: false,
+		},
+		{
+			name:    "enabled with bits=8",
+			config:  RQConfig{Enabled: true, Bits: 8},
+			wantErr: false,
+		},
+		{
+			name:    "enabled with bits=0",
+			config:  RQConfig{Enabled: true, Bits: 0},
+			wantErr: true,
+		},
+		{
+			name:    "enabled with bits=2",
+			config:  RQConfig{Enabled: true, Bits: 2},
+			wantErr: true,
+		},
+		{
+			name:    "enabled with bits=16",
+			config:  RQConfig{Enabled: true, Bits: 16},
+			wantErr: true,
+		},
+		{
+			name:    "centering with bits=4",
+			config:  RQConfig{Enabled: true, Bits: 4, Centering: true, TrainingLimit: DefaultRQTrainingLimit},
+			wantErr: false,
+		},
+		{
+			name:    "centering with bits=8 rejected",
+			config:  RQConfig{Enabled: true, Bits: 8, Centering: true, TrainingLimit: DefaultRQTrainingLimit},
+			wantErr: true,
+		},
+		{
+			name:    "centering with bits=1 rejected",
+			config:  RQConfig{Enabled: true, Bits: 1, Centering: true, TrainingLimit: DefaultRQTrainingLimit},
+			wantErr: true,
+		},
+		{
+			name:    "centering with non-positive trainingLimit rejected",
+			config:  RQConfig{Enabled: true, Bits: 4, Centering: true, TrainingLimit: 0},
+			wantErr: true,
+		},
+		{
+			name:    "disabled config skips centering validation",
+			config:  RQConfig{Enabled: false, Bits: 8, Centering: true},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateRQConfig(tt.config)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateRQConfig() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestParseRQMapCentering(t *testing.T) {
+	uc := UserConfig{}
+	uc.SetDefaults()
+	if uc.RQ.TrainingLimit != DefaultRQTrainingLimit {
+		t.Fatalf("default trainingLimit = %d, want %d", uc.RQ.TrainingLimit, DefaultRQTrainingLimit)
+	}
+	if uc.RQ.Centering {
+		t.Fatal("centering must default to false")
+	}
+
+	in := map[string]interface{}{
+		"rq": map[string]interface{}{
+			"enabled":       true,
+			"bits":          float64(4),
+			"centering":     true,
+			"trainingLimit": float64(5000),
+		},
+	}
+	if err := parseRQMap(in, &uc.RQ); err != nil {
+		t.Fatalf("parseRQMap: %v", err)
+	}
+	if !uc.RQ.Centering || uc.RQ.TrainingLimit != 5000 || uc.RQ.Bits != 4 {
+		t.Fatalf("parsed config mismatch: %+v", uc.RQ)
+	}
+	if err := ValidateRQConfig(uc.RQ); err != nil {
+		t.Fatalf("parsed centered config should validate: %v", err)
+	}
+}
+
+func TestValidateCenteringMultivector(t *testing.T) {
+	base := func() UserConfig {
+		uc := UserConfig{}
+		uc.SetDefaults()
+		uc.RQ = RQConfig{Enabled: true, Bits: 4, Centering: true, TrainingLimit: DefaultRQTrainingLimit}
+		return uc
+	}
+
+	uc := base()
+	uc.Multivector.Enabled = true
+	if err := uc.validate(); err == nil {
+		t.Fatal("centering with plain multivector must be rejected")
+	}
+
+	uc = base()
+	uc.Multivector.Enabled = true
+	uc.Multivector.MuveraConfig.Enabled = true
+	if err := uc.validate(); err != nil {
+		t.Fatalf("centering with muvera should validate: %v", err)
+	}
+
+	uc = base()
+	if err := uc.validate(); err != nil {
+		t.Fatalf("centering on a single-vector index should validate: %v", err)
+	}
+}
+
 func TestGetRQBits(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -42,6 +176,16 @@ func TestGetRQBits(t *testing.T) {
 				},
 			},
 			expected: 1,
+		},
+		{
+			name: "RQ enabled with bits=4 should return 4",
+			config: UserConfig{
+				RQ: RQConfig{
+					Enabled: true,
+					Bits:    4,
+				},
+			},
+			expected: 4,
 		},
 		{
 			name: "RQ enabled with bits=8 should return 8",

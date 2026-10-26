@@ -16,8 +16,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
+	"math/rand/v2"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,8 +33,11 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
+	entschema "github.com/weaviate/weaviate/entities/schema"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/replica"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
 // TestInitRetryBackoff verifies that initRetryBackoff never produces a negative
@@ -128,6 +135,82 @@ func TestEffectivePropagationDelay(t *testing.T) {
 	})
 }
 
+// TestEffectivePrecedence pins the merge order: explicitly-set global (env or runtime override, same DynamicValue) > per-class asyncConfig > code default.
+func TestEffectivePrecedence(t *testing.T) {
+	classHeight := 12
+	classFreq := 20 * time.Second
+
+	tests := []struct {
+		name       string
+		class      asyncReplicationClassOverrides
+		globals    replication.GlobalConfig
+		wantHeight int
+		wantFreq   time.Duration
+	}{
+		{
+			name:       "neither set -> code defaults",
+			wantHeight: defaultHashtreeHeightSingleTenant,
+			wantFreq:   defaultFrequency,
+		},
+		{
+			name:       "class only -> class",
+			class:      asyncReplicationClassOverrides{hashtreeHeight: &classHeight, frequency: &classFreq},
+			wantHeight: classHeight,
+			wantFreq:   classFreq,
+		},
+		{
+			name: "global only -> global",
+			globals: replication.GlobalConfig{
+				AsyncReplicationHashtreeHeight: configRuntime.NewDynamicValue(8),
+				AsyncReplicationFrequency:      configRuntime.NewDynamicValue(7 * time.Second),
+			},
+			wantHeight: 8,
+			wantFreq:   7 * time.Second,
+		},
+		{
+			name:  "both set -> global wins",
+			class: asyncReplicationClassOverrides{hashtreeHeight: &classHeight, frequency: &classFreq},
+			globals: replication.GlobalConfig{
+				AsyncReplicationHashtreeHeight: configRuntime.NewDynamicValue(8),
+				AsyncReplicationFrequency:      configRuntime.NewDynamicValue(7 * time.Second),
+			},
+			wantHeight: 8,
+			wantFreq:   7 * time.Second,
+		},
+		{
+			name:  "global sub-min -> clamped and still beats class",
+			class: asyncReplicationClassOverrides{hashtreeHeight: &classHeight, frequency: &classFreq},
+			globals: replication.GlobalConfig{
+				AsyncReplicationFrequency: configRuntime.NewDynamicValue(time.Millisecond),
+			},
+			wantHeight: classHeight,
+			wantFreq:   minFrequency,
+		},
+		{
+			name:  "global zero sentinel -> class preserved",
+			class: asyncReplicationClassOverrides{hashtreeHeight: &classHeight, frequency: &classFreq},
+			globals: replication.GlobalConfig{
+				AsyncReplicationHashtreeHeight: configRuntime.NewDynamicValue(0),
+				AsyncReplicationFrequency:      configRuntime.NewDynamicValue(time.Duration(0)),
+			},
+			wantHeight: classHeight,
+			wantFreq:   classFreq,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := AsyncReplicationConfig{
+				hashtreeHeight: defaultHashtreeHeightSingleTenant,
+				frequency:      defaultFrequency,
+				classOverrides: tt.class,
+			}
+			result := cfg.Effective(tt.globals)
+			assert.Equal(t, tt.wantHeight, result.hashtreeHeight)
+			assert.Equal(t, tt.wantFreq, result.frequency)
+		})
+	}
+}
+
 // newSchedulerForUnitTest returns a fully-running scheduler whose dispatcher
 // and single worker are torn down via t.Cleanup. Internal-method tests that
 // hold sched.mu serialise naturally with the dispatcher; tests with empty or
@@ -141,6 +224,31 @@ func newSchedulerForUnitTest(t *testing.T) *AsyncReplicationScheduler {
 	require.NoError(t, err)
 	t.Cleanup(sched.Close)
 	return sched
+}
+
+// newNullLogger returns a discard logger; live loggers here spill expected recovered-panic stacks into CI output.
+func newNullLogger() *logrus.Logger {
+	logger, _ := test.NewNullLogger()
+	return logger
+}
+
+// newWorkerPoolTestScheduler builds a scheduler at the given target with no running pool, so adjustWorkers' token/spawn accounting can be driven deterministically.
+func newWorkerPoolTestScheduler(t *testing.T, target int) *AsyncReplicationScheduler {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &AsyncReplicationScheduler{
+		ctx:           ctx,
+		cancel:        cancel,
+		targetWorkers: target,
+		scaleDownCh:   make(chan struct{}, maxMaxWorkers),
+		workCh:        make(chan *[]*asyncSchedulerEntry, maxMaxWorkers),
+		logger:        newNullLogger(),
+	}
+	t.Cleanup(func() {
+		cancel()
+		s.wg.Wait()
+	})
+	return s
 }
 
 // TestAsyncSchedulerHeap verifies the min-heap invariants:
@@ -560,6 +668,42 @@ func TestAdjustWorkersUpdatesTargetWorkers(t *testing.T) {
 	})
 }
 
+// TestAdjustWorkersGrowReclaimsPendingTokensBeforeSpawning pins the grow-path leak: growing must reclaim at most delta stale scale-down tokens and spawn only the shortfall, never drain all tokens and spawn delta on top.
+func TestAdjustWorkersGrowReclaimsPendingTokensBeforeSpawning(t *testing.T) {
+	cases := []struct {
+		name          string
+		initialTarget int
+		pending       int
+		growTo        int
+		wantSpawned   int64
+		wantRemaining int
+	}{
+		{"full_reclaim_no_spawn", 2, 8, 10, 0, 0},
+		{"partial_reclaim", 2, 4, 10, 4, 0},
+		{"no_pending_spawns_all", 2, 0, 10, 8, 0},
+		{"reclaim_capped_at_delta", 2, 8, 6, 0, 4},
+		{"cap_then_reclaim", 2, 8, maxMaxWorkers + 50, int64(maxMaxWorkers - 2 - 8), 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sched := newWorkerPoolTestScheduler(t, tc.initialTarget)
+			for range tc.pending {
+				sched.scaleDownCh <- struct{}{}
+			}
+			// Physical pool state: pending retirements imply that many still-live workers on top of the target.
+			seeded := int64(tc.initialTarget + tc.pending)
+			sched.liveWorkers.Store(seeded)
+
+			sched.adjustWorkers(tc.growTo)
+
+			assert.Equal(t, tc.wantSpawned, sched.liveWorkers.Load()-seeded,
+				"grow must spawn only the shortfall after reclaiming pending tokens")
+			assert.Equal(t, tc.wantRemaining, len(sched.scaleDownCh),
+				"grow must reclaim at most delta tokens, not all of them")
+		})
+	}
+}
+
 // Deleted: TestAdjustWorkersScaleDownUpdatesTargetAndSendsTokens,
 // TestAdjustWorkersScaleUpDrainsStaleTokens, TestAdjustWorkersRapidDownUp.
 //
@@ -597,27 +741,577 @@ func TestAdjustWorkersCapWarnsWithLogger(t *testing.T) {
 	assert.True(t, warned, "a warning must be logged when the worker count is clamped")
 }
 
-// TestRebuildHashtreeEnableFailureRearmsNeedsRebuild verifies that when
-// enableAsyncReplication fails during a rebuild (e.g. the scheduler reference is
-// nil), asyncRepNeedsRebuild is re-armed so the next hashbeat cycle retries.
-func TestRebuildHashtreeEnableFailureRearmsNeedsRebuild(t *testing.T) {
+// TestRebuildHashtreeEnableFailureRetriesUntilShutdown: a failed enable is retried with backoff; the loop exits once the shard shuts down.
+func TestRebuildHashtreeEnableFailureRetriesUntilShutdown(t *testing.T) {
+	prevBackoff := asyncRepRebuildBaseBackoff.Load()
+	asyncRepRebuildBaseBackoff.Store(int64(time.Millisecond))
+	t.Cleanup(func() { asyncRepRebuildBaseBackoff.Store(prevBackoff) })
+
 	sched := newSchedulerForUnitTest(t)
 
-	// Index with nil scheduler → enableAsyncReplication returns an error immediately.
-	idx := &Index{Config: IndexConfig{ClassName: "TestClass"}}
+	// Nil store on the shard → enableAsyncReplication returns an error immediately.
+	idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "TestClass", ReplicationFactor: 3}}
+	idx.asyncReplicationScheduler = sched
 	s := &Shard{
 		class:        &models.Class{Class: "TestClass"},
 		index:        idx,
 		shutdownLock: new(sync.RWMutex),
-		// hashtree is nil → disableAsyncReplication is a no-op (idempotent).
 	}
 
-	require.False(t, s.asyncRepNeedsRebuild.Load(), "precondition: rebuild not needed yet")
+	done := make(chan struct{})
+	go func() {
+		sched.rebuildHashtree(s)
+		close(done)
+	}()
 
-	sched.rebuildHashtree(s)
+	require.Eventually(t, func() bool { return s.asyncRepRebuildFailures.Load() >= 2 },
+		5*time.Second, time.Millisecond, "a failed enable must be retried")
 
-	assert.True(t, s.asyncRepNeedsRebuild.Load(),
-		"asyncRepNeedsRebuild must be re-armed when enableAsyncReplication fails")
+	s.shut.Store(true)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("retry loop did not exit after the shard shut down")
+	}
+}
+
+// TestTryRebuildHashtreeYieldsWhileApplyLockHeld: a rebuild attempt must not queue behind a running config fan-out — it yields immediately with the contention backoff.
+func TestTryRebuildHashtreeYieldsWhileApplyLockHeld(t *testing.T) {
+	sched := newSchedulerForUnitTest(t)
+
+	idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "TestClass"}}
+	s := &Shard{
+		class:        &models.Class{Class: "TestClass"},
+		index:        idx,
+		shutdownLock: new(sync.RWMutex),
+	}
+
+	idx.asyncReplicationApplyLock.Lock()
+	defer idx.asyncReplicationApplyLock.Unlock()
+
+	type attempt struct {
+		retry bool
+		delay time.Duration
+	}
+	attemptDone := make(chan attempt, 1)
+	go func() {
+		retry, delay, _, _ := sched.tryRebuildHashtree(s)
+		attemptDone <- attempt{retry, delay}
+	}()
+
+	select {
+	case a := <-attemptDone:
+		require.True(t, a.retry)
+		require.Equal(t, asyncRepRebuildContentionBackoff, a.delay)
+		require.Zero(t, s.asyncRepRebuildFailures.Load(), "yield is not a failure")
+	case <-time.After(5 * time.Second):
+		t.Fatal("tryRebuildHashtree queued behind the apply lock instead of yielding")
+	}
+}
+
+// TestTryRebuildHashtreeYieldsToPendingWaiter: a blocking apply-lock acquirer waiting in Lock() makes the attempt abort with the contention backoff instead of running a full rebuild.
+func TestTryRebuildHashtreeYieldsToPendingWaiter(t *testing.T) {
+	sched := newSchedulerForUnitTest(t)
+
+	idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "TestClass"}}
+	s := &Shard{
+		class:        &models.Class{Class: "TestClass"},
+		index:        idx,
+		shutdownLock: new(sync.RWMutex),
+	}
+
+	idx.asyncReplicationApplyWaiters.Store(1)
+
+	retry, delay, rebuilt, _ := sched.tryRebuildHashtree(s)
+	require.True(t, retry)
+	require.Equal(t, asyncRepRebuildContentionBackoff, delay)
+	require.False(t, rebuilt)
+	require.Zero(t, s.asyncRepRebuildFailures.Load(), "yield is not a failure")
+}
+
+// TestTryRebuildHashtreeIgnoresShutdownLock: an attempt proceeds into disable→enable while a writer holds shutdownLock — the rebuild neither blocks on nor delays shard teardown locking.
+func TestTryRebuildHashtreeIgnoresShutdownLock(t *testing.T) {
+	sched := newSchedulerForUnitTest(t)
+
+	idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "TestClass", ReplicationFactor: 3}}
+	idx.asyncReplicationScheduler = sched
+	s := &Shard{
+		class:        &models.Class{Class: "TestClass"},
+		index:        idx,
+		shutdownLock: new(sync.RWMutex),
+	}
+
+	s.shutdownLock.Lock()
+	defer s.shutdownLock.Unlock()
+
+	type attempt struct {
+		retry bool
+		delay time.Duration
+	}
+	attemptDone := make(chan attempt, 1)
+	go func() {
+		retry, delay, _, _ := sched.tryRebuildHashtree(s)
+		attemptDone <- attempt{retry, delay}
+	}()
+
+	select {
+	case a := <-attemptDone:
+		require.True(t, a.retry, "the enable failure (nil store on the shard) must request a retry")
+		require.Positive(t, a.delay)
+		require.EqualValues(t, 1, s.asyncRepRebuildFailures.Load(), "the attempt must reach enableAsyncReplication")
+	case <-time.After(5 * time.Second):
+		t.Fatal("tryRebuildHashtree blocked on a held shutdownLock")
+	}
+}
+
+// TestTryRebuildHashtreeStopsWhenGloballyDisabled: a kill-switch flip between attempts must terminate the rebuild instead of resurrecting async replication.
+func TestTryRebuildHashtreeStopsWhenGloballyDisabled(t *testing.T) {
+	sched := newSchedulerForUnitTest(t)
+
+	idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "TestClass", ReplicationFactor: 3}}
+	idx.asyncReplicationScheduler = sched
+	idx.globalreplicationConfig = &replication.GlobalConfig{
+		AsyncReplicationDisabled: configRuntime.NewDynamicValue(true),
+	}
+	s := &Shard{
+		class:        &models.Class{Class: "TestClass"},
+		index:        idx,
+		shutdownLock: new(sync.RWMutex),
+	}
+
+	retry, delay, rebuilt, _ := sched.tryRebuildHashtree(s)
+	require.False(t, retry, "a disabled decision is terminal, not retried")
+	require.Zero(t, delay)
+	require.False(t, rebuilt)
+	require.Zero(t, s.asyncRepRebuildFailures.Load(), "the attempt must stop before disable/enable")
+}
+
+// TestTryRebuildHashtreeYieldsWhileShutdownRequested: teardown intent makes the attempt stand down before touching any state.
+func TestTryRebuildHashtreeYieldsWhileShutdownRequested(t *testing.T) {
+	sched := newSchedulerForUnitTest(t)
+
+	idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "TestClass"}}
+	s := &Shard{
+		class:        &models.Class{Class: "TestClass"},
+		index:        idx,
+		shutdownLock: new(sync.RWMutex),
+	}
+	s.shutdownRequested.Store(true)
+
+	retry, delay, rebuilt, _ := sched.tryRebuildHashtree(s)
+	require.True(t, retry)
+	require.Equal(t, asyncRepRebuildContentionBackoff, delay)
+	require.False(t, rebuilt)
+	require.Zero(t, s.asyncRepRebuildFailures.Load(), "standing down is not a failure")
+}
+
+// TestTryRebuildHashtreeYieldsWhileHaltedForTransfer: a backup/offload halt makes the attempt stand down instead of re-enabling mid-transfer.
+func TestTryRebuildHashtreeYieldsWhileHaltedForTransfer(t *testing.T) {
+	sched := newSchedulerForUnitTest(t)
+
+	idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "TestClass"}}
+	s := &Shard{
+		class:        &models.Class{Class: "TestClass"},
+		index:        idx,
+		shutdownLock: new(sync.RWMutex),
+	}
+	s.haltForTransferCount.Store(1)
+
+	retry, delay, rebuilt, _ := sched.tryRebuildHashtree(s)
+	require.True(t, retry)
+	require.Equal(t, asyncRepRebuildContentionBackoff, delay)
+	require.False(t, rebuilt)
+	require.Zero(t, s.asyncRepRebuildFailures.Load(), "standing down is not a failure")
+}
+
+// TestTryRebuildHashtreePinnedWorkerYieldsBeforeDisable: a wedged in-flight cycle makes the attempt yield with the tree still installed, never after tearing it down.
+func TestTryRebuildHashtreePinnedWorkerYieldsBeforeDisable(t *testing.T) {
+	prevDrain := asyncReplicationWorkerDrainTimeout.Load()
+	asyncReplicationWorkerDrainTimeout.Store(int64(50 * time.Millisecond))
+	t.Cleanup(func() { asyncReplicationWorkerDrainTimeout.Store(prevDrain) })
+
+	sched := newSchedulerForUnitTest(t)
+
+	idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "TestClass", ReplicationFactor: 3}}
+	idx.asyncReplicationScheduler = sched
+	ht, err := hashtree.NewHashTree(4)
+	require.NoError(t, err)
+	s := &Shard{
+		class:                    &models.Class{Class: "TestClass"},
+		index:                    idx,
+		shutdownLock:             new(sync.RWMutex),
+		hashtree:                 ht,
+		hashtreeFullyInitialized: true,
+	}
+
+	s.asyncRepWg.Add(1)
+	t.Cleanup(s.asyncRepWg.Done)
+
+	retry, delay, rebuilt, _ := sched.tryRebuildHashtree(s)
+	require.True(t, retry)
+	require.Equal(t, asyncRepRebuildContentionBackoff, delay)
+	require.False(t, rebuilt)
+	require.Zero(t, s.asyncRepRebuildFailures.Load(), "a wedged drain before any state change is a yield, not a failure")
+	require.NotNil(t, s.hashtree, "the shard must stay in the repair mesh when the pre-drain times out")
+	require.True(t, s.hashtreeFullyInitialized)
+}
+
+// TestTryRebuildHashtreePreDrainDoesNotHoldApplyLock: the bounded pre-drain wait must not sit inside the apply lock, or every schema apply on the index stalls behind a wedged cycle.
+func TestTryRebuildHashtreePreDrainDoesNotHoldApplyLock(t *testing.T) {
+	prevDrain := asyncReplicationWorkerDrainTimeout.Load()
+	asyncReplicationWorkerDrainTimeout.Store(int64(2 * time.Second))
+	t.Cleanup(func() { asyncReplicationWorkerDrainTimeout.Store(prevDrain) })
+
+	sched := newSchedulerForUnitTest(t)
+
+	idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "TestClass", ReplicationFactor: 3}}
+	idx.asyncReplicationScheduler = sched
+	ht, err := hashtree.NewHashTree(4)
+	require.NoError(t, err)
+	s := &Shard{
+		class:                    &models.Class{Class: "TestClass"},
+		index:                    idx,
+		shutdownLock:             new(sync.RWMutex),
+		hashtree:                 ht,
+		hashtreeFullyInitialized: true,
+	}
+
+	s.asyncRepWg.Add(1)
+	t.Cleanup(s.asyncRepWg.Done)
+
+	retryCh := make(chan bool, 1)
+	go func() {
+		retry, _, _, _ := sched.tryRebuildHashtree(s)
+		retryCh <- retry
+	}()
+
+	for len(retryCh) == 0 {
+		if !idx.asyncReplicationApplyLock.TryLock() {
+			t.Fatal("the apply lock is held during the pre-drain wait — schema applies stall behind a wedged cycle")
+		}
+		idx.asyncReplicationApplyLock.Unlock()
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	require.True(t, <-retryCh, "a wedged pre-drain must yield")
+}
+
+// TestNextRebuildRetryDelay pins the yield-escalation schedule: constant below the threshold, failure-backoff growth past it, failures untouched.
+func TestNextRebuildRetryDelay(t *testing.T) {
+	tests := []struct {
+		name   string
+		delay  time.Duration
+		yields uint32
+		want   time.Duration
+	}{
+		{"first yield stays constant", asyncRepRebuildContentionBackoff, 1, asyncRepRebuildContentionBackoff},
+		{"below threshold stays constant", asyncRepRebuildContentionBackoff, asyncRepRebuildYieldEscalationThreshold - 1, asyncRepRebuildContentionBackoff},
+		{"threshold starts the backoff schedule", asyncRepRebuildContentionBackoff, asyncRepRebuildYieldEscalationThreshold, asyncRepRebuildBackoffDuration(1)},
+		{"past threshold doubles", asyncRepRebuildContentionBackoff, asyncRepRebuildYieldEscalationThreshold + 3, asyncRepRebuildBackoffDuration(4)},
+		{"escalation caps at max backoff", asyncRepRebuildContentionBackoff, asyncRepRebuildYieldEscalationThreshold + 100, asyncRepRebuildMaxBackoff},
+		{"failure backoff passes through", 8 * time.Minute, asyncRepRebuildYieldEscalationThreshold + 5, 8 * time.Minute},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, nextRebuildRetryDelay(tc.delay, tc.yields))
+		})
+	}
+}
+
+func waitAsyncRepDrained(t *testing.T, s *Shard, msg string) {
+	t.Helper()
+	select {
+	case <-s.asyncRepDrained():
+	case <-time.After(5 * time.Second):
+		t.Fatal(msg)
+	}
+}
+
+// TestWorkerPoolSelfHealsAfterWorkerDeath: a worker lost without a target change must be respawned by the periodic reconcile, or a single escaped panic kills all dispatching forever at the default pool size of 1.
+func TestWorkerPoolSelfHealsAfterWorkerDeath(t *testing.T) {
+	sched := newSchedulerForUnitTest(t)
+	require.Eventually(t, func() bool { return sched.liveWorkers.Load() == 1 }, 5*time.Second, time.Millisecond)
+
+	sched.scaleDownCh <- struct{}{}
+	require.Eventually(t, func() bool { return sched.liveWorkers.Load() == 0 }, 5*time.Second, time.Millisecond)
+
+	sched.adjustWorkers(sched.maxWorkersConfig.Get())
+	require.Eventually(t, func() bool { return sched.liveWorkers.Load() == 1 }, 3*time.Second, time.Millisecond,
+		"the pool must heal back to target on the watcher's periodic reconcile")
+}
+
+type panicOnErrorHook struct{}
+
+func (panicOnErrorHook) Levels() []logrus.Level { return []logrus.Level{logrus.ErrorLevel} }
+
+func (panicOnErrorHook) Fire(*logrus.Entry) error { panic("hook exploded") }
+
+func newPanicHookScheduler(t *testing.T) *AsyncReplicationScheduler {
+	t.Helper()
+	logger := logrus.New()
+	logger.SetOutput(io.Discard)
+	logger.AddHook(panicOnErrorHook{})
+	sched, err := NewAsyncReplicationScheduler(context.Background(), replication.GlobalConfig{
+		AsyncReplicationSchedulerWorkers: configRuntime.NewDynamicValue(1),
+		AsyncReplicationDisabled:         configRuntime.NewDynamicValue(false),
+	}, nil, logger)
+	require.NoError(t, err)
+	t.Cleanup(sched.Close)
+	return sched
+}
+
+type panickingHeightTree struct{ hashtree.AggregatedHashTree }
+
+func (panickingHeightTree) Height() int { panic("height exploded") }
+
+// TestRunEntryOwnedDoneSurvivesPanickingLogger: a panic inside the recover block's logging must not leak the owned Done and pin the shard's drains forever.
+func TestRunEntryOwnedDoneSurvivesPanickingLogger(t *testing.T) {
+	sched := newPanicHookScheduler(t)
+	s := &Shard{class: &models.Class{Class: "C"}, index: &Index{}, hashtree: panickingHeightTree{}}
+	entry := &asyncSchedulerEntry{shard: s}
+
+	s.asyncRepWg.Add(1)
+	require.Panics(t, func() { sched.runEntry(entry, false) })
+	waitAsyncRepDrained(t, s, "the owned Done leaked: a panicking log hook must not skip asyncRepWg.Done")
+}
+
+// TestRunBatchSettlesEntriesBeforePanickingLogger: the batch panic path must settle unfinished entries before logging, or a panicking hook leaks every Done in the batch.
+func TestRunBatchSettlesEntriesBeforePanickingLogger(t *testing.T) {
+	sched := newPanicHookScheduler(t)
+	s1 := &Shard{name: "s1", class: &models.Class{Class: "C"}, index: &Index{}}
+	s2 := &Shard{name: "s2", class: &models.Class{Class: "C"}, index: &Index{}}
+	e1 := &asyncSchedulerEntry{shard: s1}
+	e2 := &asyncSchedulerEntry{shard: s2}
+	for _, e := range []*asyncSchedulerEntry{e1, e2} {
+		e.shard.asyncRepWg.Add(1)
+		e.pendingDone.Store(true)
+	}
+
+	prevSeam := asyncRepBatchEntrySeam
+	asyncRepBatchEntrySeam = func(*asyncSchedulerEntry) { panic("seam exploded") }
+	t.Cleanup(func() { asyncRepBatchEntrySeam = prevSeam })
+
+	batch := []*asyncSchedulerEntry{e1, e2}
+	require.Panics(t, func() { sched.runBatch(&batch, newBatchScratch()) })
+	waitAsyncRepDrained(t, s1, "s1's Done leaked in the batch panic path")
+	waitAsyncRepDrained(t, s2, "s2's Done leaked in the batch panic path")
+}
+
+// TestDispatchInvariantRecoverySettlesPendingDone: the inFlight-in-heap recovery must settle a still-pending Done before re-queuing, or the next dispatch overwrites the token and leaks one count forever.
+func TestDispatchInvariantRecoverySettlesPendingDone(t *testing.T) {
+	sched := newSchedulerForUnitTest(t)
+	s := &Shard{class: &models.Class{Class: "C"}, index: &Index{}}
+	entry := &asyncSchedulerEntry{shard: s, inFlight: true, nextRunAt: time.Now().Add(-time.Second)}
+	s.asyncRepWg.Add(1)
+	entry.pendingDone.Store(true)
+
+	sched.mu.Lock()
+	sched.entries[s] = entry
+	heap.Push(&sched.h, entry)
+	sched.dispatchDueLocked()
+	sched.mu.Unlock()
+
+	waitAsyncRepDrained(t, s, "the invariant recovery leaked the pending Done")
+}
+
+// TestAsyncRepDrainedChannelPerEpisode: bounded waits during one pinned episode share a channel; the next episode gets a fresh one.
+func TestAsyncRepDrainedChannelPerEpisode(t *testing.T) {
+	s := &Shard{index: &Index{}}
+
+	s.asyncRepWg.Add(1)
+	ch1 := s.asyncRepDrained()
+	ch2 := s.asyncRepDrained()
+	require.True(t, ch1 == ch2, "waits during one pinned episode must share the channel")
+
+	s.asyncRepWg.Done()
+	select {
+	case <-ch1:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the drain channel did not close after the latch drained")
+	}
+
+	s.asyncRepWg.Add(1)
+	ch3 := s.asyncRepDrained()
+	require.False(t, ch3 == ch1, "a new episode must not hand back the closed channel")
+	require.False(t, latchClosed(ch3))
+	require.True(t, latchClosed(ch1))
+	s.asyncRepWg.Done()
+}
+
+// TestTryRebuildHashtreePostDisableDrainTimeoutIsFailure: a straggler pinning the drain after the disable must count as a rebuild failure with growing backoff.
+func TestTryRebuildHashtreePostDisableDrainTimeoutIsFailure(t *testing.T) {
+	prevDrain := asyncReplicationWorkerDrainTimeout.Load()
+	asyncReplicationWorkerDrainTimeout.Store(int64(50 * time.Millisecond))
+	t.Cleanup(func() { asyncReplicationWorkerDrainTimeout.Store(prevDrain) })
+
+	sched := newSchedulerForUnitTest(t)
+
+	idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "TestClass", ReplicationFactor: 3}}
+	idx.asyncReplicationScheduler = sched
+	s := &Shard{
+		class:        &models.Class{Class: "TestClass"},
+		index:        idx,
+		shutdownLock: new(sync.RWMutex),
+	}
+
+	asyncRepRebuildAfterDisable = func(pinned *Shard) { pinned.asyncRepWg.Add(1) }
+	t.Cleanup(func() {
+		asyncRepRebuildAfterDisable = nil
+		s.asyncRepWg.Done()
+	})
+
+	retry, delay, rebuilt, _ := sched.tryRebuildHashtree(s)
+	require.True(t, retry)
+	require.False(t, rebuilt)
+	require.Positive(t, delay)
+	require.EqualValues(t, 1, s.asyncRepRebuildFailures.Load(), "a post-disable drain timeout is a real failure, not a silent yield")
+}
+
+// TestTryRebuildHashtreeStandsDownWhenSchedulerClosed: an idle drain ties with a cancelled ctx in the select, and losing that race must not disable the shard with no .ht.
+func TestTryRebuildHashtreeStandsDownWhenSchedulerClosed(t *testing.T) {
+	sched := newSchedulerForUnitTest(t)
+
+	idx := &Index{Config: IndexConfig{ClassName: "TestClass", ReplicationFactor: 3}, logger: newNullLogger()}
+	idx.asyncReplicationScheduler = sched
+	ht, err := hashtree.NewHashTree(4)
+	require.NoError(t, err)
+	s := &Shard{
+		class:                      &models.Class{Class: "TestClass"},
+		index:                      idx,
+		shutdownLock:               new(sync.RWMutex),
+		hashtree:                   ht,
+		hashtreeFullyInitialized:   true,
+		asyncReplicationCancelFunc: func() {},
+	}
+
+	sched.cancel()
+
+	for i := range 50 {
+		if s.hashtree == nil {
+			s.hashtree = ht
+			s.hashtreeFullyInitialized = true
+		}
+		retry, _, rebuilt, _ := sched.tryRebuildHashtree(s)
+		require.False(t, retry, "attempt %d", i)
+		require.False(t, rebuilt, "attempt %d", i)
+		require.NotNil(t, s.hashtree, "a closed scheduler must never leave the shard disabled (attempt %d)", i)
+	}
+}
+
+// TestTryRebuildHashtreeRetriesWhenEnableSkippedByHalt: a halt racing the disable→enable window must leave the attempt retrying, never silently disabled.
+func TestTryRebuildHashtreeRetriesWhenEnableSkippedByHalt(t *testing.T) {
+	prevDrain := asyncReplicationWorkerDrainTimeout.Load()
+	asyncReplicationWorkerDrainTimeout.Store(int64(50 * time.Millisecond))
+	t.Cleanup(func() { asyncReplicationWorkerDrainTimeout.Store(prevDrain) })
+
+	sched := newSchedulerForUnitTest(t)
+
+	idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "TestClass", ReplicationFactor: 3}}
+	idx.asyncReplicationScheduler = sched
+	ht, err := hashtree.NewHashTree(4)
+	require.NoError(t, err)
+	s := &Shard{
+		class:                      &models.Class{Class: "TestClass"},
+		index:                      idx,
+		shutdownLock:               new(sync.RWMutex),
+		hashtree:                   ht,
+		hashtreeFullyInitialized:   true,
+		asyncReplicationCancelFunc: func() {},
+	}
+
+	asyncRepRebuildAfterDisable = func(halted *Shard) { halted.haltForTransferCount.Store(1) }
+	t.Cleanup(func() {
+		asyncRepRebuildAfterDisable = nil
+		s.haltForTransferCount.Store(0)
+	})
+
+	retry, delay, rebuilt, yielded := sched.tryRebuildHashtree(s)
+	require.True(t, retry, "a skipped enable must retry, not silently leave async replication off")
+	require.True(t, yielded)
+	require.False(t, rebuilt)
+	require.Equal(t, asyncRepRebuildContentionBackoff, delay)
+	require.Zero(t, s.asyncRepRebuildFailures.Load(), "a raced halt is a yield, not a failure")
+}
+
+// TestMayStopAsyncReplicationDrainsWithNilHashtree: teardown must wait for in-flight workers even when it lands in a rebuild's hashtree-nil window.
+func TestMayStopAsyncReplicationDrainsWithNilHashtree(t *testing.T) {
+	idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "TestClass"}, logger: newNullLogger()}
+	s := &Shard{
+		class:        &models.Class{Class: "TestClass"},
+		index:        idx,
+		shutdownLock: new(sync.RWMutex),
+	}
+
+	s.asyncRepWg.Add(1)
+	done := make(chan struct{})
+	go func() {
+		require.Nil(t, s.mayStopAsyncReplication(true))
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("mayStopAsyncReplication returned without draining the in-flight worker")
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	s.asyncRepWg.Done()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("mayStopAsyncReplication did not return after the worker drained")
+	}
+}
+
+// TestApplyLockFreeWhileRebuildRetries: a schema apply acquires the apply lock promptly while the rebuild loop retries against a shard whose teardown holds shutdownLock.
+func TestApplyLockFreeWhileRebuildRetries(t *testing.T) {
+	prevBackoff := asyncRepRebuildBaseBackoff.Load()
+	asyncRepRebuildBaseBackoff.Store(int64(time.Millisecond))
+	t.Cleanup(func() { asyncRepRebuildBaseBackoff.Store(prevBackoff) })
+
+	sched := newSchedulerForUnitTest(t)
+
+	idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "TestClass", ReplicationFactor: 3}}
+	idx.asyncReplicationScheduler = sched
+	s := &Shard{
+		class:        &models.Class{Class: "TestClass"},
+		index:        idx,
+		shutdownLock: new(sync.RWMutex),
+	}
+
+	s.shutdownLock.Lock()
+	defer s.shutdownLock.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		sched.rebuildHashtree(s)
+		close(done)
+	}()
+
+	require.Eventually(t, func() bool { return s.asyncRepRebuildFailures.Load() >= 1 },
+		5*time.Second, time.Millisecond, "the attempt must run despite the held shutdownLock")
+
+	acquired := make(chan struct{})
+	go func() {
+		idx.asyncReplicationApplyWaiters.Add(1)
+		idx.asyncReplicationApplyLock.Lock()
+		idx.asyncReplicationApplyWaiters.Add(-1)
+		idx.asyncReplicationApplyLock.Unlock()
+		close(acquired)
+	}()
+
+	select {
+	case <-acquired:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a schema apply blocked behind the rebuild while a teardown held shutdownLock")
+	}
+
+	s.shut.Store(true)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("retry loop did not exit after the shard shut down")
+	}
 }
 
 // TestNextIntervalErrNoDiffFoundWithPropagatedTrue verifies that ErrNoDiffFound
@@ -954,7 +1648,7 @@ func TestRebuildHashtreeCancelledContext(t *testing.T) {
 	// Cancel the context before calling rebuildHashtree.
 	cancel()
 
-	idx := &Index{Config: IndexConfig{ClassName: "TestClass"}}
+	idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "TestClass"}}
 	s := &Shard{
 		class:        &models.Class{Class: "TestClass"},
 		index:        idx,
@@ -972,19 +1666,20 @@ func TestRebuildHashtreeCancelledContext(t *testing.T) {
 		"asyncRepNeedsRebuild must not be set when context is already cancelled at entry")
 }
 
-// TestRebuildHashtreeSkipsWhileShutdownHoldsLock verifies rebuildHashtree blocks on shutdownLock while performShutdown holds the write lock, then skips the re-enable once s.shut is set under it.
+// TestRebuildHashtreeSkipsWhileShutdownHoldsLock verifies rebuildHashtree skips a shard already marked shut promptly, while performShutdown still holds the write lock.
 func TestRebuildHashtreeSkipsWhileShutdownHoldsLock(t *testing.T) {
 	sched := newSchedulerForUnitTest(t)
 
-	idx := &Index{Config: IndexConfig{ClassName: "TestClass"}}
+	idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "TestClass"}}
 	s := &Shard{
 		class:        &models.Class{Class: "TestClass"},
 		index:        idx,
 		shutdownLock: new(sync.RWMutex),
 	}
 
-	// Simulate performShutdown in progress: hold the write lock across the teardown.
+	s.shut.Store(true)
 	s.shutdownLock.Lock()
+	defer s.shutdownLock.Unlock()
 
 	done := make(chan struct{})
 	go func() {
@@ -992,21 +1687,10 @@ func TestRebuildHashtreeSkipsWhileShutdownHoldsLock(t *testing.T) {
 		close(done)
 	}()
 
-	// rebuildHashtree must block on shutdownLock.RLock() while shutdown holds the write lock.
-	select {
-	case <-done:
-		t.Fatal("rebuildHashtree proceeded while performShutdown held shutdownLock")
-	case <-time.After(100 * time.Millisecond):
-	}
-
-	// performShutdown sets s.shut under the write lock, then releases.
-	s.shut.Store(true)
-	s.shutdownLock.Unlock()
-
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
-		t.Fatal("rebuildHashtree did not return after shutdown released the lock")
+		t.Fatal("rebuildHashtree blocked on shutdownLock instead of skipping the shut shard")
 	}
 
 	assert.False(t, s.asyncRepNeedsRebuild.Load(), "skip path must not reach enableAsyncReplication")
@@ -1465,14 +2149,16 @@ func TestSchedulerCloseWithConcurrentDispatches(t *testing.T) {
 		require.NoError(t, sched.Register(&Shard{}))
 	}
 
-	// Wait until the dispatcher has placed at least one entry into the worker
-	// pipeline. The shards have nil asyncRepCtx so runEntry returns immediately,
-	// but we must still observe that a dispatch cycle has started before calling
-	// Close() to exercise the concurrent-dispatch code path.
+	// Gate on nextSeq growth: sampling len(workCh)/len(resultCh) misses sends handed off directly to parked receivers.
+	sched.mu.Lock()
+	baseSeq := sched.nextSeq
+	sched.mu.Unlock()
 	require.Eventually(t, func() bool {
-		return len(sched.workCh) > 0 || len(sched.resultCh) > 0
-	}, 200*time.Millisecond, time.Millisecond,
-		"dispatcher did not produce any dispatches within 200ms")
+		sched.mu.Lock()
+		defer sched.mu.Unlock()
+		return sched.nextSeq > baseSeq
+	}, 5*time.Second, time.Millisecond,
+		"dispatcher did not complete any dispatch round-trip within 5s")
 
 	done := make(chan struct{})
 	go func() {
@@ -1527,14 +2213,16 @@ func TestWorkerDrainsWorkChOnCtxCancel(t *testing.T) {
 		require.NoError(t, sched.Register(s))
 	}
 
-	// Wait until the dispatcher has buffered at least one entry in workCh,
-	// ensuring Close() fires while some items are still in the worker pipeline.
-	// With nil asyncRepCtx, runEntry returns immediately; items cycle quickly,
-	// so we poll until we observe a non-empty buffer rather than sleeping.
+	// Gate on nextSeq growth: sampling len(workCh)/len(resultCh) misses sends handed off directly to parked receivers.
+	sched.mu.Lock()
+	baseSeq := sched.nextSeq
+	sched.mu.Unlock()
 	require.Eventually(t, func() bool {
-		return len(sched.workCh) > 0 || len(sched.resultCh) > 0
-	}, 200*time.Millisecond, time.Millisecond,
-		"dispatcher did not buffer any work items within 200ms")
+		sched.mu.Lock()
+		defer sched.mu.Unlock()
+		return sched.nextSeq > baseSeq
+	}, 5*time.Second, time.Millisecond,
+		"dispatcher did not complete any dispatch round-trip within 5s")
 
 	// Close cancels the scheduler context. Workers must drain any remaining
 	// buffered workCh items and call Done() for each to keep asyncRepWg balanced.
@@ -1626,6 +2314,14 @@ func TestSchedulerClose_BoundedAndCancelsContextsWhenShardsStillRegistered(t *te
 	assert.True(t, errorLogged, "Close() must log an error when shards are still registered")
 }
 
+// zeroCoalesceWindow disables dispatch coalescing for tests that expect immediate batches.
+func zeroCoalesceWindow(t *testing.T) {
+	t.Helper()
+	prev := prefilterCoalesceWindow
+	prefilterCoalesceWindow = 0
+	t.Cleanup(func() { prefilterCoalesceWindow = prev })
+}
+
 // durationPtr is a helper that returns a pointer to a time.Duration value.
 func durationPtr(d time.Duration) *time.Duration { return &d }
 
@@ -1633,11 +2329,10 @@ func durationPtr(d time.Duration) *time.Duration { return &d }
 func newBareScheduler(batchSize, workChCap int) *AsyncReplicationScheduler {
 	s := &AsyncReplicationScheduler{
 		entries:                  make(map[*Shard]*asyncSchedulerEntry),
-		dispatchBuckets:          make(map[*Index][]*asyncSchedulerEntry),
 		workCh:                   make(chan *[]*asyncSchedulerEntry, workChCap),
 		asyncReplicationDisabled: configRuntime.NewDynamicValue(false),
 		rootPrefilterBatchSize:   configRuntime.NewDynamicValue(batchSize),
-		logger:                   logrus.New(),
+		logger:                   newNullLogger(),
 	}
 	s.batchPool.New = func() any {
 		b := make([]*asyncSchedulerEntry, 0, 64)
@@ -1725,7 +2420,7 @@ func TestAsyncSchedulerConcurrentBatchedDispatch(t *testing.T) {
 	}, nil, logger)
 	require.NoError(t, err)
 
-	idx := &Index{Config: IndexConfig{ClassName: "MT"}, partitioningEnabled: true}
+	idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "MT"}, partitioningEnabled: true}
 	shards := make([]*Shard, 30)
 	for i := range shards {
 		shards[i] = &Shard{index: idx, class: &models.Class{Class: "MT"}, name: fmt.Sprintf("t%02d", i)}
@@ -1776,7 +2471,7 @@ func TestOnResultDiscardsZombieEntryAfterReRegister(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			sched := newBareScheduler(512, 1)
 
-			s := &Shard{index: &Index{Config: IndexConfig{ClassName: "C"}}, class: &models.Class{Class: "C"}}
+			s := &Shard{index: &Index{Config: IndexConfig{NodeName: "node1", ClassName: "C"}}, class: &models.Class{Class: "C"}}
 			sched.onAddLocked(s)
 			e1 := sched.entries[s]
 
@@ -1811,7 +2506,7 @@ func TestAsyncSchedulerMassDivergenceDeferDescent(t *testing.T) {
 	}, nil, logger)
 	require.NoError(t, err)
 
-	idx := &Index{Config: IndexConfig{ClassName: "MT"}, partitioningEnabled: true}
+	idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "MT"}, partitioningEnabled: true}
 	const n = 256
 	shards := make([]*Shard, n)
 	for i := range shards {
@@ -1865,8 +2560,7 @@ func TestClassifyBatchExcludesIneligible(t *testing.T) {
 
 	sched.classifyBatch(batch, scratch)
 
-	assert.Empty(t, scratch.roots, "no eligible shard ⇒ no roots collected")
-	assert.Empty(t, scratch.eligible)
+	assert.Empty(t, scratch.classes, "no eligible shard ⇒ no roots collected")
 	for _, e := range batch {
 		assert.False(t, scratch.skip[e], "ineligible shards must take the full descent")
 	}
@@ -1876,7 +2570,7 @@ func TestClassifyBatchExcludesIneligible(t *testing.T) {
 // rooted only at sched.ctx outlives index.drop() and blocks every replica.
 func TestPrefilterCtxCancelledByIndexClose(t *testing.T) {
 	newIndex := func() (*Index, context.CancelFunc) {
-		idx := &Index{Config: IndexConfig{ClassName: "C"}}
+		idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "C"}}
 		idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 		return idx, idx.closingCancel
 	}
@@ -1912,7 +2606,7 @@ func TestPrefilterCtxCancelledByIndexClose(t *testing.T) {
 			idx, closeIndex := newIndex()
 			defer closeIndex()
 			// time.Hour: a done ctx can only mean a stop signal propagated.
-			ctx, cancel := sched.prefilterCtx(idx, time.Hour)
+			ctx, cancel := sched.prefilterCtx(time.Hour, idx)
 			defer cancel()
 			require.NoError(t, ctx.Err())
 
@@ -1939,11 +2633,11 @@ func TestPrefilterCtxHonoursTimeout(t *testing.T) {
 	sched.ctx, sched.cancel = context.WithCancel(context.Background())
 	defer sched.cancel()
 
-	idx := &Index{Config: IndexConfig{ClassName: "C"}}
+	idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "C"}}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 	defer idx.closingCancel()
 
-	ctx, cancel := sched.prefilterCtx(idx, 50*time.Millisecond)
+	ctx, cancel := sched.prefilterCtx(50*time.Millisecond, idx)
 	defer cancel()
 
 	select {
@@ -1960,9 +2654,9 @@ func TestPrefilterCtxNilIndex(t *testing.T) {
 	sched.ctx, sched.cancel = context.WithCancel(context.Background())
 	defer sched.cancel()
 
-	idx := &Index{Config: IndexConfig{ClassName: "C"}}
+	idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "C"}}
 
-	ctx, cancel := sched.prefilterCtx(idx, time.Hour)
+	ctx, cancel := sched.prefilterCtx(time.Hour, idx)
 	defer cancel()
 	require.NoError(t, ctx.Err())
 
@@ -1996,7 +2690,7 @@ func TestEffectiveBatchSize(t *testing.T) {
 func TestDispatchDueCoalescing(t *testing.T) {
 	t.Run("coalesces up to batch size with a smaller final batch", func(t *testing.T) {
 		sched := newBareScheduler(3, 16)
-		idx := &Index{Config: IndexConfig{ClassName: "C"}}
+		idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "C"}}
 		for range 7 {
 			sched.onAddLocked(&Shard{index: idx, class: &models.Class{Class: "C"}})
 		}
@@ -2009,7 +2703,7 @@ func TestDispatchDueCoalescing(t *testing.T) {
 
 	t.Run("batch size 1 dispatches singletons", func(t *testing.T) {
 		sched := newBareScheduler(1, 16)
-		idx := &Index{Config: IndexConfig{ClassName: "C"}}
+		idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "C"}}
 		for range 4 {
 			sched.onAddLocked(&Shard{index: idx, class: &models.Class{Class: "C"}})
 		}
@@ -2019,10 +2713,11 @@ func TestDispatchDueCoalescing(t *testing.T) {
 		assert.ElementsMatch(t, []int{1, 1, 1, 1}, drainBatchSizes(sched.workCh))
 	})
 
-	t.Run("distinct indexes are batched separately", func(t *testing.T) {
+	t.Run("distinct indexes merge into one cross-class batch", func(t *testing.T) {
+		zeroCoalesceWindow(t)
 		sched := newBareScheduler(512, 16)
-		a := &Index{Config: IndexConfig{ClassName: "A"}}
-		b := &Index{Config: IndexConfig{ClassName: "B"}}
+		a := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "A"}}
+		b := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "B"}}
 		for range 3 {
 			sched.onAddLocked(&Shard{index: a, class: &models.Class{Class: "A"}})
 		}
@@ -2032,12 +2727,12 @@ func TestDispatchDueCoalescing(t *testing.T) {
 
 		sched.dispatchDueLocked()
 
-		assert.ElementsMatch(t, []int{3, 2}, drainBatchSizes(sched.workCh))
+		assert.ElementsMatch(t, []int{5}, drainBatchSizes(sched.workCh))
 	})
 
 	t.Run("full channel rolls unsent entries back into the heap", func(t *testing.T) {
 		sched := newBareScheduler(1, 2)
-		idx := &Index{Config: IndexConfig{ClassName: "C"}}
+		idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "C"}}
 		for range 5 {
 			sched.onAddLocked(&Shard{index: idx, class: &models.Class{Class: "C"}})
 		}
@@ -2052,14 +2747,198 @@ func TestDispatchDueCoalescing(t *testing.T) {
 	})
 }
 
+func TestHeapCountDue(t *testing.T) {
+	now := time.Now()
+	ms := time.Millisecond
+	mkHeap := func(offsets ...time.Duration) asyncSchedulerHeap {
+		h := make(asyncSchedulerHeap, 0, len(offsets))
+		for i, off := range offsets {
+			h = append(h, &asyncSchedulerEntry{nextRunAt: now.Add(off), seq: uint64(i)})
+		}
+		heap.Init(&h)
+		return h
+	}
+
+	tests := []struct {
+		name  string
+		h     asyncSchedulerHeap
+		limit int
+		want  int
+	}{
+		{"empty heap", mkHeap(), 4, 0},
+		{"single due", mkHeap(-ms), 4, 1},
+		{"single future", mkHeap(ms), 4, 0},
+		{"due at exactly now", mkHeap(0), 4, 1},
+		{"due below limit", mkHeap(-3*ms, -2*ms, ms, 2*ms), 4, 2},
+		{"due exactly at limit", mkHeap(-3*ms, -2*ms, -ms, ms), 3, 3},
+		{"due above limit caps at limit", mkHeap(-5*ms, -4*ms, -3*ms, -2*ms, -ms), 2, 2},
+		{"all due under limit", mkHeap(-4*ms, -3*ms, -2*ms, -ms), 10, 4},
+		{"limit zero", mkHeap(-ms), 0, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.h.countDue(now, tt.limit))
+		})
+	}
+}
+
+func TestHeapCountDueMatchesNaiveScan(t *testing.T) {
+	now := time.Now()
+	rng := rand.New(rand.NewPCG(7, 13))
+	for _, size := range []int{1, 2, 7, 100, 5000} {
+		for _, density := range []float64{0, 0.002, 0.05, 0.5, 1} {
+			for _, limit := range []int{1, 2, 128} {
+				h := make(asyncSchedulerHeap, 0, size)
+				for i := range size {
+					off := time.Duration(rng.Int64N(int64(time.Second))) + time.Millisecond
+					if rng.Float64() < density {
+						off = -time.Duration(rng.Int64N(int64(time.Second)))
+						if rng.IntN(10) == 0 {
+							off = 0
+						}
+					}
+					h = append(h, &asyncSchedulerEntry{nextRunAt: now.Add(off), seq: uint64(i)})
+				}
+				heap.Init(&h)
+				naive := 0
+				for _, e := range h {
+					if !e.nextRunAt.After(now) {
+						naive++
+					}
+				}
+				assert.Equal(t, min(naive, limit), h.countDue(now, limit),
+					"size=%d density=%v limit=%d", size, density, limit)
+			}
+		}
+	}
+}
+
+// Pins countDue equivalence on heap shapes built by interleaved ops (production surgery), not just heap.Init.
+func TestHeapCountDueInterleavedOps(t *testing.T) {
+	now := time.Now()
+	rng := rand.New(rand.NewPCG(21, 42))
+	var h asyncSchedulerHeap
+	var seq uint64
+
+	randOffset := func() time.Duration {
+		switch rng.IntN(5) {
+		case 0:
+			return 0
+		case 1, 2:
+			return -time.Duration(rng.Int64N(int64(time.Second)))
+		default:
+			return time.Duration(rng.Int64N(int64(time.Second)))
+		}
+	}
+	push := func() {
+		heap.Push(&h, &asyncSchedulerEntry{nextRunAt: now.Add(randOffset()), seq: seq})
+		seq++
+	}
+
+	for i := range 5000 {
+		switch op := rng.IntN(10); {
+		case len(h) == 0 || op < 4:
+			push()
+		case op < 6:
+			heap.Pop(&h)
+		case op < 8:
+			heap.Remove(&h, rng.IntN(len(h)))
+		default:
+			e := heap.Pop(&h).(*asyncSchedulerEntry)
+			e.nextRunAt = now.Add(randOffset())
+			e.seq = seq
+			seq++
+			heap.Push(&h, e)
+		}
+		naive := 0
+		for _, e := range h {
+			if !e.nextRunAt.After(now) {
+				naive++
+			}
+		}
+		for _, limit := range []int{1, 3, 128} {
+			require.Equal(t, min(naive, limit), h.countDue(now, limit), "iter=%d len=%d limit=%d", i, len(h), limit)
+		}
+	}
+}
+
+func TestCoalesceElapsedLocked(t *testing.T) {
+	now := time.Now()
+	ms := time.Millisecond
+	tests := []struct {
+		name       string
+		batch      int
+		offsets    []time.Duration
+		directHead bool
+		want       bool
+	}{
+		{"empty heap", 4, nil, false, true},
+		{"head not yet due", 4, []time.Duration{time.Minute}, false, true},
+		{"batch size 1 dispatches immediately", 1, []time.Duration{-ms}, false, true},
+		{"fewer than batch due within window", 4, []time.Duration{-2 * ms, -ms, time.Minute}, false, false},
+		{"batch count due fires", 2, []time.Duration{-2 * ms, -ms, time.Minute}, false, true},
+		{"head past window fires", 4, []time.Duration{-2 * prefilterCoalesceWindow}, false, true},
+		{"diverging head fires", 4, []time.Duration{-ms}, true, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sched := newBareScheduler(tt.batch, 1)
+			for i, off := range tt.offsets {
+				sched.h = append(sched.h, &asyncSchedulerEntry{nextRunAt: now.Add(off), seq: uint64(i)})
+			}
+			heap.Init(&sched.h)
+			if tt.directHead {
+				sched.h[0].descendDirect = true
+			}
+			assert.Equal(t, tt.want, sched.coalesceElapsedLocked(now))
+		})
+	}
+}
+
+func BenchmarkCoalesceElapsed(b *testing.B) {
+	now := time.Now()
+	const total, due = 50_000, 50
+	sched := newBareScheduler(128, 1)
+	for i := range total {
+		off := time.Duration(i+1) * time.Second
+		if i < due {
+			off = -time.Duration(i+1) * time.Microsecond
+		}
+		sched.h = append(sched.h, &asyncSchedulerEntry{nextRunAt: now.Add(off), seq: uint64(i)})
+	}
+	heap.Init(&sched.h)
+
+	b.Run("pruned", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			sched.coalesceElapsedLocked(now)
+		}
+	})
+	b.Run("naiveScan", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			n := 0
+			for _, e := range sched.h {
+				if !e.nextRunAt.After(now) {
+					n++
+				}
+			}
+			benchCoalesceSink += n
+		}
+	})
+}
+
+var benchCoalesceSink int
+
 // TestDeferDescentReDispatchesSingletons: a coalesced batch of diverging shards is
 // deferred and re-dispatched as singletons so descent spreads across the pool.
 func TestDeferDescentReDispatchesSingletons(t *testing.T) {
+	zeroCoalesceWindow(t)
 	sched := newBareScheduler(512, 16)
 	sched.ctx = context.Background()
 	sched.resultCh = make(chan asyncSchedulerResult, 32)
 
-	idx := &Index{Config: IndexConfig{ClassName: "MT"}, partitioningEnabled: true}
+	idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "MT"}, partitioningEnabled: true}
 	const n = 5
 	for i := range n {
 		sched.onAddLocked(&Shard{index: idx, class: &models.Class{Class: "MT"}, name: fmt.Sprintf("t%d", i)})
@@ -2097,7 +2976,7 @@ func TestDeferDescentReDispatchesSingletons(t *testing.T) {
 // entries roll back retaining the flag and retry as singletons next round.
 func TestDescendDirectSurvivesFullChannel(t *testing.T) {
 	sched := newBareScheduler(512, 2)
-	idx := &Index{Config: IndexConfig{ClassName: "MT"}, partitioningEnabled: true}
+	idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "MT"}, partitioningEnabled: true}
 	const n = 5
 	for i := range n {
 		s := &Shard{index: idx, class: &models.Class{Class: "MT"}, name: fmt.Sprintf("t%d", i)}
@@ -2141,11 +3020,14 @@ func TestDeregisterSettlesQueuedDone(t *testing.T) {
 		{name: "descendDirect dispatch", descendDirect: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			prev := prefilterCoalesceWindow
+			prefilterCoalesceWindow = 0
+			t.Cleanup(func() { prefilterCoalesceWindow = prev })
 			sched := newBareScheduler(512, 4)
 			sched.ctx = context.Background()
 			sched.resultCh = make(chan asyncSchedulerResult, 8)
 
-			s := &Shard{index: &Index{Config: IndexConfig{ClassName: "C"}}, class: &models.Class{Class: "C"}}
+			s := &Shard{index: &Index{Config: IndexConfig{NodeName: "node1", ClassName: "C"}}, class: &models.Class{Class: "C"}}
 			sched.onAddLocked(s)
 			sched.entries[s].descendDirect = tc.descendDirect
 
@@ -2168,7 +3050,7 @@ func TestDrainSkipsSettledDones(t *testing.T) {
 	sched := newBareScheduler(512, 4)
 	sched.ctx = context.Background()
 
-	s := &Shard{index: &Index{Config: IndexConfig{ClassName: "C"}}, class: &models.Class{Class: "C"}}
+	s := &Shard{index: &Index{Config: IndexConfig{NodeName: "node1", ClassName: "C"}}, class: &models.Class{Class: "C"}}
 	sched.onAddLocked(s)
 	sched.dispatchDueLocked()
 
@@ -2182,11 +3064,12 @@ func TestDrainSkipsSettledDones(t *testing.T) {
 
 // TestStaleBatchDroppedAfterReRegister: a previous registration's stranded batch is dropped; the new one runs once.
 func TestStaleBatchDroppedAfterReRegister(t *testing.T) {
+	zeroCoalesceWindow(t)
 	sched := newBareScheduler(512, 4)
 	sched.ctx = context.Background()
 	sched.resultCh = make(chan asyncSchedulerResult, 8)
 
-	s := &Shard{index: &Index{Config: IndexConfig{ClassName: "C"}}, class: &models.Class{Class: "C"}}
+	s := &Shard{index: &Index{Config: IndexConfig{NodeName: "node1", ClassName: "C"}}, class: &models.Class{Class: "C"}}
 	sched.onAddLocked(s)
 	e1 := sched.entries[s]
 	sched.dispatchDueLocked()
@@ -2226,7 +3109,7 @@ func TestRollbackSettlesPendingDone(t *testing.T) {
 			sched := newBareScheduler(512, 0)
 			sched.ctx = context.Background()
 
-			s := &Shard{index: &Index{Config: IndexConfig{ClassName: "C"}}, class: &models.Class{Class: "C"}}
+			s := &Shard{index: &Index{Config: IndexConfig{NodeName: "node1", ClassName: "C"}}, class: &models.Class{Class: "C"}}
 			sched.onAddLocked(s)
 			e := sched.entries[s]
 			e.descendDirect = tc.descendDirect
@@ -2251,7 +3134,7 @@ func TestDeregisterDrainsWithSingleWorker(t *testing.T) {
 	}, nil, logger)
 	require.NoError(t, err)
 
-	idx := &Index{Config: IndexConfig{ClassName: "MT"}, partitioningEnabled: true}
+	idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "MT"}, partitioningEnabled: true}
 	shards := make([]*Shard, 30)
 	for i := range shards {
 		shards[i] = &Shard{index: idx, class: &models.Class{Class: "MT"}, name: fmt.Sprintf("t%02d", i)}
@@ -2273,4 +3156,924 @@ func TestDeregisterDrainsWithSingleWorker(t *testing.T) {
 		awaitAsyncRepWg(t, s, "asyncRepWg must drain after Deregister without Close")
 	}
 	sched.Close()
+}
+
+// TestRunEntryPanicSettlesOwnership: a prologue panic must not leak the owned Done or kill the worker.
+func TestRunEntryPanicSettlesOwnership(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		class *models.Class
+	}{
+		{name: "nil class"},
+		{name: "with class", class: &models.Class{Class: "C"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sched := newBareScheduler(512, 1)
+			sched.ctx = context.Background()
+			sched.resultCh = make(chan asyncSchedulerResult, 8)
+
+			s := &Shard{class: tc.class, name: "t0"}
+			s.hashtree = (*hashtree.HashTree)(nil)
+			s.asyncRepWg.Add(1)
+			entry := &asyncSchedulerEntry{shard: s}
+			entry.pendingDone.Store(true)
+
+			entries := []*asyncSchedulerEntry{entry}
+			require.NotPanics(t, func() { sched.runBatch(&entries, newBatchScratch()) })
+
+			awaitAsyncRepWg(t, s, "panic in runEntry prologue must still settle the owned Done")
+			assert.True(t, s.asyncReplicationRWMux.TryLock(), "panic must not leak the snapshot RLock")
+			s.asyncReplicationRWMux.Unlock()
+			results := drainResults(sched.resultCh)
+			require.Len(t, results, 1)
+			assert.ErrorContains(t, results[0].err, "panic")
+		})
+	}
+}
+
+// TestRunBatchPanicSettlesRemainingEntries: a mid-batch panic settles unhanded entries with error results and keeps the worker alive.
+func TestRunBatchPanicSettlesRemainingEntries(t *testing.T) {
+	sched := newBareScheduler(512, 1)
+	sched.ctx = context.Background()
+	sched.resultCh = make(chan asyncSchedulerResult, 8)
+
+	shards := make([]*Shard, 3)
+	entries := make([]*asyncSchedulerEntry, 3)
+	for i := range entries {
+		shards[i] = &Shard{class: &models.Class{Class: "C"}, name: fmt.Sprintf("t%d", i)}
+		shards[i].asyncRepWg.Add(1)
+		entries[i] = &asyncSchedulerEntry{shard: shards[i]}
+		entries[i].pendingDone.Store(true)
+	}
+
+	hits := 0
+	asyncRepBatchEntrySeam = func(*asyncSchedulerEntry) {
+		hits++
+		if hits == 2 {
+			panic("boom")
+		}
+	}
+	t.Cleanup(func() { asyncRepBatchEntrySeam = nil })
+
+	batch := append([]*asyncSchedulerEntry{}, entries...)
+	require.NotPanics(t, func() { sched.runBatch(&batch, newBatchScratch()) })
+
+	for i, s := range shards {
+		awaitAsyncRepWg(t, s, fmt.Sprintf("entry %d Done must settle after mid-batch panic", i))
+	}
+	results := drainResults(sched.resultCh)
+	require.Len(t, results, 3)
+	panicked := 0
+	for _, r := range results {
+		if r.err != nil {
+			assert.ErrorContains(t, r.err, "panic in async replication batch")
+			panicked++
+		}
+	}
+	assert.Equal(t, 2, panicked, "the two unhanded entries must carry the panic error")
+}
+
+// TestDispatcherPanicSettlesReservationsAndUnblocks: a dispatcher panic settles bucket reservations and self-cancels so Register and Close return.
+func TestDispatcherPanicSettlesReservationsAndUnblocks(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	asyncRepDispatchSeam = func(*asyncSchedulerEntry) { panic("boom") }
+	t.Cleanup(func() { asyncRepDispatchSeam = nil })
+
+	sched, err := NewAsyncReplicationScheduler(context.Background(), replication.GlobalConfig{
+		AsyncReplicationSchedulerWorkers: configRuntime.NewDynamicValue(1),
+		AsyncReplicationDisabled:         configRuntime.NewDynamicValue(false),
+	}, nil, logger)
+	require.NoError(t, err)
+
+	idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "C"}}
+	s := &Shard{index: idx, class: &models.Class{Class: "C"}, name: "t0"}
+	require.NoError(t, sched.Register(s))
+
+	select {
+	case <-sched.ctx.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("dispatcher panic must self-cancel the scheduler")
+	}
+	awaitAsyncRepWg(t, s, "stranded bucket reservation must settle after dispatcher panic")
+	assert.ErrorIs(t, sched.Register(&Shard{}), ErrSchedulerClosed)
+
+	done := make(chan struct{})
+	go func() { sched.Close(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Close must return after a dispatcher panic")
+	}
+}
+
+// TestSettleDispatchBucketsOnExit: reservations stranded in dispatchPending are settled and cleared.
+func TestSettleDispatchBucketsOnExit(t *testing.T) {
+	sched := newBareScheduler(512, 1)
+	idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "C"}}
+	s := &Shard{index: idx, class: &models.Class{Class: "C"}}
+	s.asyncRepWg.Add(1)
+	entry := &asyncSchedulerEntry{shard: s, inFlight: true}
+	entry.pendingDone.Store(true)
+	sched.dispatchPending = append(sched.dispatchPending, entry)
+
+	sched.settleDispatchBucketsOnExit()
+
+	awaitAsyncRepWg(t, s, "stranded pending reservation must settle")
+	assert.False(t, entry.inFlight)
+	assert.Empty(t, sched.dispatchPending)
+}
+
+// TestDispatchBucketsEmptiedEveryPass: no entry pointer may survive a dispatch pass, or dropped collections stay pinned forever.
+func TestDispatchBucketsEmptiedEveryPass(t *testing.T) {
+	zeroCoalesceWindow(t)
+	tests := []struct {
+		name           string
+		batchSize      int
+		workChCap      int
+		shardsByClass  map[string]int
+		wantBatchSizes []int
+		wantHeapLen    int
+	}{
+		{"after cross-class merged dispatch", 512, 16, map[string]int{"A": 3, "B": 2}, []int{5}, 0},
+		{"after mid-pass full batch", 2, 16, map[string]int{"C": 4}, []int{2, 2}, 0},
+		{"after full-channel rollback", 512, 0, map[string]int{"C": 3}, nil, 3},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sched := newBareScheduler(tc.batchSize, tc.workChCap)
+			for class, n := range tc.shardsByClass {
+				idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: entschema.ClassName(class)}}
+				for range n {
+					sched.onAddLocked(&Shard{index: idx, class: &models.Class{Class: class}})
+				}
+			}
+
+			sched.dispatchDueLocked()
+
+			assert.ElementsMatch(t, tc.wantBatchSizes, drainBatchSizes(sched.workCh))
+			assert.Len(t, sched.h, tc.wantHeapLen)
+			assert.Empty(t, sched.dispatchPending)
+		})
+	}
+}
+
+// TestDeregisterSettlesEntriesAwaitingPrefilter: entries parked behind the root pre-filter stay settleable, so teardown drains never wait out an RPC bound to sched.ctx.
+func TestDeregisterSettlesEntriesAwaitingPrefilter(t *testing.T) {
+	sched := newBareScheduler(512, 1)
+	sched.ctx = context.Background()
+	sched.resultCh = make(chan asyncSchedulerResult, 8)
+
+	release := make(chan struct{})
+	inPrefilter := make(chan struct{})
+	asyncRepPrefilterSeam = func(context.Context, map[string]hashtree.Digest) map[string]struct{} {
+		close(inPrefilter)
+		<-release
+		return nil
+	}
+	t.Cleanup(func() { asyncRepPrefilterSeam = nil })
+
+	idx := &Index{Config: IndexConfig{NodeName: "node1", ClassName: "C"}}
+	shards := make([]*Shard, 2)
+	entries := make([]*asyncSchedulerEntry, 2)
+	for i := range shards {
+		ht, err := hashtree.NewHashTree(1)
+		require.NoError(t, err)
+		shards[i] = &Shard{index: idx, class: &models.Class{Class: "C"}, name: fmt.Sprintf("t%d", i)}
+		shards[i].hashtree = ht
+		shards[i].hashtreeFullyInitialized = true
+		shards[i].asyncRepWg.Add(1)
+		entries[i] = &asyncSchedulerEntry{shard: shards[i]}
+		entries[i].pendingDone.Store(true)
+	}
+
+	batch := append([]*asyncSchedulerEntry{}, entries...)
+	batchDone := make(chan struct{})
+	go func() { sched.runBatch(&batch, newBatchScratch()); close(batchDone) }()
+
+	<-inPrefilter
+	for _, e := range entries {
+		e.settleDone()
+	}
+	for i, s := range shards {
+		awaitAsyncRepWg(t, s, fmt.Sprintf("shard %d drain must not wait for the in-flight pre-filter", i))
+	}
+
+	close(release)
+	<-batchDone
+	assert.Empty(t, drainResults(sched.resultCh), "settled entries must not produce results")
+}
+
+// TestNextIntervalFloorsZeroFrequency: an error result with an unresolved cfg must not hot-loop the entry.
+func TestNextIntervalFloorsZeroFrequency(t *testing.T) {
+	sched := newBareScheduler(512, 1)
+	got := sched.nextInterval(AsyncReplicationConfig{}, &asyncSchedulerEntry{}, asyncSchedulerResult{err: errors.New("panic in async replication cycle")})
+	assert.Equal(t, defaultFrequency, got)
+}
+
+// TestRunEntrySkipHashbeatRecordsNoDiffStatus pins that a root-prefilter skip surfaces in asyncReplicationStatus like the ErrNoDiffFound descent it replaces.
+func TestRunEntrySkipHashbeatRecordsNoDiffStatus(t *testing.T) {
+	sched := newSchedulerForUnitTest(t)
+	s := &Shard{asyncRepCtx: context.Background(), class: &models.Class{Class: "C"}, name: "S"}
+	s.asyncRepWg.Add(1)
+
+	sched.runEntry(&asyncSchedulerEntry{shard: s}, true)
+
+	stats := s.getAsyncReplicationStats(context.Background())
+	require.Len(t, stats, 1, "a prefilter-skipped cycle proves in-sync and must be visible in asyncReplicationStatus")
+	require.Empty(t, stats[0].TargetNode)
+	require.Positive(t, stats[0].StartDiffTimeUnixMillis)
+}
+
+// TestRecordRootPrefilterNoDiffCancelRaceLeavesStatsEmpty pins that the cancellation check runs under the stats lock: a disable's cancel+clear landing while the recorder awaits the lock must not leave a phantom entry, in every interleaving.
+func TestRecordRootPrefilterNoDiffCancelRaceLeavesStatsEmpty(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &Shard{}
+
+	s.asyncReplicationStatsMux.Lock()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.recordRootPrefilterNoDiff(ctx)
+	}()
+	cancel()
+	s.asyncReplicationStatsByTargetNode = nil
+	s.asyncReplicationStatsMux.Unlock()
+	<-done
+
+	require.Empty(t, s.getAsyncReplicationStats(context.Background()))
+}
+
+type fakeCrossClassComparer func(ctx context.Context, host string, classes map[string]map[string]hashtree.Digest) (*replica.CompareHashTreeRootsMultiResp, error)
+
+func (f fakeCrossClassComparer) NewCompareRootsSession() replica.CompareRootsSession { return f }
+
+func (f fakeCrossClassComparer) CompareHashTreeRootsMulti(ctx context.Context, host string,
+	classes map[string]map[string]hashtree.Digest,
+) (*replica.CompareHashTreeRootsMultiResp, error) {
+	return f(ctx, host, classes)
+}
+
+type countingSessionFactory struct {
+	inner    fakeCrossClassComparer
+	sessions atomic.Int32
+}
+
+func (c *countingSessionFactory) NewCompareRootsSession() replica.CompareRootsSession {
+	c.sessions.Add(1)
+	return c.inner
+}
+
+func newPrefilterShard(t *testing.T, class, name string) *asyncSchedulerEntry {
+	ht, err := hashtree.NewHashTree(1)
+	require.NoError(t, err)
+	s := &Shard{index: &Index{Config: IndexConfig{NodeName: "node1", ClassName: entschema.ClassName(class)}}, class: &models.Class{Class: class}, name: name}
+	s.hashtree = ht
+	s.hashtreeFullyInitialized = true
+	return &asyncSchedulerEntry{shard: s}
+}
+
+func TestClassifyCrossClassSessionPerScratch(t *testing.T) {
+	asyncRepTargetHostsSeam = func(*Shard) ([]string, error) { return []string{"h1"}, nil }
+	t.Cleanup(func() { asyncRepTargetHostsSeam = nil })
+
+	comparer := &countingSessionFactory{inner: func(_ context.Context, _ string, classes map[string]map[string]hashtree.Digest) (*replica.CompareHashTreeRootsMultiResp, error) {
+		resp := &replica.CompareHashTreeRootsMultiResp{Classes: map[string]replica.CompareHashTreeRootsMultiClassResp{}}
+		for cls := range classes {
+			resp.Classes[cls] = replica.CompareHashTreeRootsMultiClassResp{}
+		}
+		return resp, nil
+	}}
+	sched := newBareScheduler(512, 1)
+	sched.ctx = context.Background()
+	sched.crossClassComparer = comparer
+
+	scratch := newBatchScratch()
+	for i := 0; i < 3; i++ {
+		scratch.reset()
+		entry := newPrefilterShard(t, "A", fmt.Sprintf("s%d", i))
+		sched.classifyBatch([]*asyncSchedulerEntry{entry}, scratch)
+		assert.True(t, scratch.skip[entry], i)
+	}
+	assert.Equal(t, int32(1), comparer.sessions.Load())
+}
+
+// TestClassifyCrossClass covers skip/descend outcomes across hosts, classes, and fallback paths.
+func TestClassifyCrossClass(t *testing.T) {
+	okAll := func(classes map[string]map[string]hashtree.Digest) *replica.CompareHashTreeRootsMultiResp {
+		resp := &replica.CompareHashTreeRootsMultiResp{Classes: map[string]replica.CompareHashTreeRootsMultiClassResp{}}
+		for cls := range classes {
+			resp.Classes[cls] = replica.CompareHashTreeRootsMultiClassResp{}
+		}
+		return resp
+	}
+	type shardSpec struct{ class, name string }
+	type responder func(map[string]map[string]hashtree.Digest) (*replica.CompareHashTreeRootsMultiResp, error)
+	refuse := func(map[string]map[string]hashtree.Digest) (*replica.CompareHashTreeRootsMultiResp, error) {
+		return nil, errors.New("connection refused")
+	}
+	tests := []struct {
+		name        string
+		shards      []shardSpec
+		hosts       map[string][]string
+		hostErrs    map[string]error
+		respond     map[string]responder
+		fallback    func(map[string]hashtree.Digest) map[string]struct{}
+		nilComparer bool
+		wantSkip    map[string]bool
+	}{
+		{
+			name:     "all hosts report in sync",
+			shards:   []shardSpec{{"A", "s1"}, {"B", "s2"}},
+			hosts:    map[string][]string{"s1": {"h1", "h2"}, "s2": {"h1", "h2"}},
+			wantSkip: map[string]bool{"s1": true, "s2": true},
+		},
+		{
+			name:   "diverging shard descends",
+			shards: []shardSpec{{"A", "s1"}, {"B", "s2"}},
+			hosts:  map[string][]string{"s1": {"h1"}, "s2": {"h1"}},
+			respond: map[string]responder{
+				"h1": func(classes map[string]map[string]hashtree.Digest) (*replica.CompareHashTreeRootsMultiResp, error) {
+					resp := okAll(classes)
+					resp.Classes["A"] = replica.CompareHashTreeRootsMultiClassResp{DivergingShards: []string{"s1"}}
+					return resp, nil
+				},
+			},
+			wantSkip: map[string]bool{"s1": false, "s2": true},
+		},
+		{
+			name:   "class error descends only that class",
+			shards: []shardSpec{{"A", "s1"}, {"B", "s2"}},
+			hosts:  map[string][]string{"s1": {"h1"}, "s2": {"h1"}},
+			respond: map[string]responder{
+				"h1": func(classes map[string]map[string]hashtree.Digest) (*replica.CompareHashTreeRootsMultiResp, error) {
+					resp := okAll(classes)
+					resp.Classes["A"] = replica.CompareHashTreeRootsMultiClassResp{Error: "index not loaded"}
+					return resp, nil
+				},
+			},
+			wantSkip: map[string]bool{"s1": false, "s2": true},
+		},
+		{
+			name:   "class missing from response descends",
+			shards: []shardSpec{{"A", "s1"}, {"B", "s2"}},
+			hosts:  map[string][]string{"s1": {"h1"}, "s2": {"h1"}},
+			respond: map[string]responder{
+				"h1": func(classes map[string]map[string]hashtree.Digest) (*replica.CompareHashTreeRootsMultiResp, error) {
+					resp := okAll(classes)
+					delete(resp.Classes, "B")
+					return resp, nil
+				},
+			},
+			wantSkip: map[string]bool{"s1": true, "s2": false},
+		},
+		{
+			name:     "transport error descends the host tuples",
+			shards:   []shardSpec{{"A", "s1"}, {"B", "s2"}},
+			hosts:    map[string][]string{"s1": {"h1"}, "s2": {"h1"}},
+			respond:  map[string]responder{"h1": refuse},
+			wantSkip: map[string]bool{"s1": false, "s2": false},
+		},
+		{
+			name:     "one healthy and one erroring host descends",
+			shards:   []shardSpec{{"A", "s1"}},
+			hosts:    map[string][]string{"s1": {"h1", "h2"}},
+			respond:  map[string]responder{"h2": refuse},
+			wantSkip: map[string]bool{"s1": false},
+		},
+		{
+			name:   "unsupported peer falls back per class",
+			shards: []shardSpec{{"A", "s1"}, {"B", "s2"}},
+			hosts:  map[string][]string{"s1": {"h1"}, "s2": {"h1"}},
+			respond: map[string]responder{
+				"h1": func(map[string]map[string]hashtree.Digest) (*replica.CompareHashTreeRootsMultiResp, error) {
+					return nil, replica.ErrCompareHashTreeRootsUnsupported
+				},
+			},
+			fallback: func(roots map[string]hashtree.Digest) map[string]struct{} {
+				if _, ok := roots["s1"]; ok {
+					return map[string]struct{}{"s1": {}}
+				}
+				return nil
+			},
+			wantSkip: map[string]bool{"s1": false, "s2": true},
+		},
+		{
+			name:        "nil comparer falls back per class",
+			shards:      []shardSpec{{"A", "s1"}, {"B", "s2"}},
+			hosts:       map[string][]string{"s1": {"h1"}, "s2": {"h1"}},
+			nilComparer: true,
+			fallback:    func(map[string]hashtree.Digest) map[string]struct{} { return nil },
+			wantSkip:    map[string]bool{"s1": true, "s2": true},
+		},
+		{
+			name:     "no remote targets skips",
+			shards:   []shardSpec{{"A", "s1"}},
+			hosts:    map[string][]string{"s1": {}},
+			wantSkip: map[string]bool{"s1": true},
+		},
+		{
+			name:     "host resolution error descends",
+			shards:   []shardSpec{{"A", "s1"}, {"B", "s2"}},
+			hosts:    map[string][]string{"s2": {"h1"}},
+			hostErrs: map[string]error{"s1": errors.New("no routing plan")},
+			wantSkip: map[string]bool{"s1": false, "s2": true},
+		},
+		{
+			name:   "responder panic forces full descent",
+			shards: []shardSpec{{"A", "s1"}, {"B", "s2"}},
+			hosts:  map[string][]string{"s1": {"h1"}, "s2": {"h1"}},
+			respond: map[string]responder{
+				"h1": func(map[string]map[string]hashtree.Digest) (*replica.CompareHashTreeRootsMultiResp, error) {
+					panic("boom")
+				},
+			},
+			wantSkip: map[string]bool{"s1": false, "s2": false},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			asyncRepTargetHostsSeam = func(s *Shard) ([]string, error) {
+				if err := tc.hostErrs[s.name]; err != nil {
+					return nil, err
+				}
+				return tc.hosts[s.name], nil
+			}
+			t.Cleanup(func() { asyncRepTargetHostsSeam = nil })
+			if tc.fallback != nil {
+				asyncRepPerClassFallbackSeam = func(_ context.Context, roots map[string]hashtree.Digest) (map[string]struct{}, replica.PrefilterStats) {
+					return tc.fallback(roots), replica.PrefilterStats{OK: 1}
+				}
+				t.Cleanup(func() { asyncRepPerClassFallbackSeam = nil })
+			}
+			sched := newBareScheduler(512, 1)
+			sched.ctx = context.Background()
+			if !tc.nilComparer {
+				sched.crossClassComparer = fakeCrossClassComparer(func(_ context.Context, host string, classes map[string]map[string]hashtree.Digest) (*replica.CompareHashTreeRootsMultiResp, error) {
+					if r := tc.respond[host]; r != nil {
+						return r(classes)
+					}
+					return okAll(classes), nil
+				})
+			}
+			batch := make([]*asyncSchedulerEntry, 0, len(tc.shards))
+			byName := map[string]*asyncSchedulerEntry{}
+			for _, sp := range tc.shards {
+				entry := newPrefilterShard(t, sp.class, sp.name)
+				batch = append(batch, entry)
+				byName[sp.name] = entry
+			}
+			scratch := newBatchScratch()
+			sched.classifyBatch(batch, scratch)
+			for name, want := range tc.wantSkip {
+				assert.Equal(t, want, scratch.skip[byName[name]], name)
+			}
+		})
+	}
+}
+
+// parkRebuildInBackoff keeps a height-armed rebuild from spawning its goroutine, so a test observes the flag instead.
+func parkRebuildInBackoff(s *Shard) {
+	s.asyncRepRebuildBackoffUntil.Store(time.Now().Add(time.Hour).UnixNano())
+}
+
+func TestRunEntryExpiresAbandonedCheckpoint(t *testing.T) {
+	tests := []struct {
+		name         string
+		skipHashbeat bool
+		ready        bool
+		maintenance  bool
+		age          time.Duration
+		wantCleared  bool
+	}{
+		{name: "prefilter skip", skipHashbeat: true, ready: true, age: replica.AsyncCheckpointMaxLifetime + time.Minute, wantCleared: true},
+		{name: "unready tree", age: replica.AsyncCheckpointMaxLifetime + time.Minute, wantCleared: true},
+		{name: "hashbeat cycle", ready: true, age: replica.AsyncCheckpointMaxLifetime + time.Minute, wantCleared: true},
+		{name: "maintenance mode", ready: true, maintenance: true, age: replica.AsyncCheckpointMaxLifetime + time.Minute, wantCleared: true},
+		{name: "fresh checkpoint survives", ready: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			sched := newBareScheduler(512, 1)
+			sched.ctx = ctx
+			sched.resultCh = make(chan asyncSchedulerResult, 1)
+			ht, err := hashtree.NewHashTree(4)
+			require.NoError(t, err)
+			maintenance := tc.maintenance
+			s := &Shard{
+				index:                    &Index{Config: IndexConfig{ClassName: "C", MaintenanceModeEnabled: func() bool { return maintenance }}},
+				class:                    &models.Class{Class: "C"},
+				name:                     "S",
+				asyncRepCtx:              ctx,
+				hashtree:                 ht,
+				hashtreeFullyInitialized: true,
+				asyncReplicationConfig:   AsyncReplicationConfig{hashtreeHeight: 4},
+				metrics:                  checkpointTestMetrics(t),
+			}
+			require.NoError(t, s.CreateAsyncCheckpoint(ctx, time.Now().Add(time.Hour).UnixMilli(), time.Now().UTC()))
+			backdateAsyncCheckpoint(s, tc.age)
+			s.hashtreeFullyInitialized = tc.ready
+			s.asyncRepWg.Add(1)
+			parkRebuildInBackoff(s)
+			before := readCheckpointCounters(s.metrics)
+
+			sched.runEntry(&asyncSchedulerEntry{shard: s}, tc.skipHashbeat)
+
+			select {
+			case <-sched.resultCh:
+			case <-time.After(5 * time.Second):
+				t.Fatal("runEntry produced no result")
+			}
+			_, _, _, ok := s.AsyncCheckpointRoot(ctx)
+			assert.Equal(t, !tc.wantCleared, ok)
+			if tc.wantCleared {
+				assert.Equal(t, checkpointCounters{expired: before.expired + 1, active: before.active - 1}, readCheckpointCounters(s.metrics))
+				return
+			}
+			assert.Equal(t, before, readCheckpointCounters(s.metrics))
+		})
+	}
+}
+
+func hasAsyncCheckpoint(s *Shard) bool {
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+	return s.asyncCheckpointHashtree != nil
+}
+
+func newCheckpointedShard(t *testing.T, name string, age time.Duration) *Shard {
+	t.Helper()
+	ht, err := hashtree.NewHashTree(4)
+	require.NoError(t, err)
+	s := &Shard{
+		index:                    &Index{Config: IndexConfig{ClassName: "C"}},
+		class:                    &models.Class{Class: "C"},
+		name:                     name,
+		hashtree:                 ht,
+		hashtreeFullyInitialized: true,
+		metrics:                  checkpointTestMetrics(t),
+	}
+	require.NoError(t, s.CreateAsyncCheckpoint(context.Background(), time.Now().Add(time.Hour).UnixMilli(), time.Now().UTC()))
+	backdateAsyncCheckpoint(s, age)
+	return s
+}
+
+func TestSweepExpiredCheckpoints(t *testing.T) {
+	for _, disabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("disabled=%v", disabled), func(t *testing.T) {
+			sched := newBareScheduler(512, 1)
+			sched.ctx = context.Background()
+			sched.asyncReplicationDisabled = configRuntime.NewDynamicValue(disabled)
+			abandoned := newCheckpointedShard(t, "abandoned", replica.AsyncCheckpointMaxLifetime+time.Minute)
+			fresh := newCheckpointedShard(t, "fresh", 0)
+			sched.entries[abandoned] = &asyncSchedulerEntry{shard: abandoned}
+			sched.entries[fresh] = &asyncSchedulerEntry{shard: fresh}
+			before := readCheckpointCounters(abandoned.metrics)
+
+			sched.sweepExpiredCheckpoints()
+
+			assert.False(t, hasAsyncCheckpoint(abandoned))
+			assert.True(t, hasAsyncCheckpoint(fresh))
+			assert.Equal(t, before.expired+1, readCheckpointCounters(abandoned.metrics).expired)
+			assert.Equal(t, int64(1), sched.expiredSinceReport.Load())
+		})
+	}
+}
+
+func TestWorkerWatcherExpiresCheckpointsWhileGloballyDisabled(t *testing.T) {
+	prev := asyncWorkerWatcherInterval.Load()
+	asyncWorkerWatcherInterval.Store(int64(10 * time.Millisecond))
+	t.Cleanup(func() { asyncWorkerWatcherInterval.Store(prev) })
+	sched, err := NewAsyncReplicationScheduler(context.Background(), replication.GlobalConfig{
+		AsyncReplicationSchedulerWorkers: configRuntime.NewDynamicValue(1),
+		AsyncReplicationDisabled:         configRuntime.NewDynamicValue(true),
+	}, nil, newNullLogger())
+	require.NoError(t, err)
+	t.Cleanup(sched.Close)
+	abandoned := newCheckpointedShard(t, "abandoned", replica.AsyncCheckpointMaxLifetime+time.Minute)
+	fresh := newCheckpointedShard(t, "fresh", 0)
+	for _, s := range []*Shard{abandoned, fresh} {
+		require.NoError(t, sched.Register(s))
+		t.Cleanup(func() { require.NoError(t, sched.Deregister(s)) })
+	}
+
+	require.Eventually(t, func() bool { return !hasAsyncCheckpoint(abandoned) }, 5*time.Second, 5*time.Millisecond)
+	assert.True(t, hasAsyncCheckpoint(fresh))
+}
+
+func TestExpiredCheckpointsLogOneSummary(t *testing.T) {
+	ctx := context.Background()
+	for _, n := range []int{1, 500} {
+		t.Run(fmt.Sprint(n), func(t *testing.T) {
+			sched := newBareScheduler(512, 1)
+			logger, hook := test.NewNullLogger()
+			sched.logger = logger
+			metrics := checkpointTestMetrics(t)
+			for i := range n {
+				ht, err := hashtree.NewHashTree(4)
+				require.NoError(t, err)
+				s := &Shard{
+					index:                    &Index{Config: IndexConfig{ClassName: "C"}},
+					class:                    &models.Class{Class: "C"},
+					name:                     fmt.Sprintf("s%d", i),
+					hashtree:                 ht,
+					hashtreeFullyInitialized: true,
+					metrics:                  metrics,
+				}
+				require.NoError(t, s.CreateAsyncCheckpoint(ctx, time.Now().Add(time.Hour).UnixMilli(), time.Now().UTC()))
+				backdateAsyncCheckpoint(s, replica.AsyncCheckpointMaxLifetime+time.Minute)
+				sched.expireAsyncCheckpoint(s, time.Now())
+			}
+			require.Empty(t, hook.AllEntries())
+
+			sched.reportExpiredCheckpoints()
+			sched.reportExpiredCheckpoints()
+
+			entries := hook.AllEntries()
+			require.Len(t, entries, 1)
+			assert.Equal(t, logrus.WarnLevel, entries[0].Level)
+			assert.Equal(t, int64(n), entries[0].Data["expired"])
+		})
+	}
+}
+
+// TestRunEntrySkipsUnreadyHashtree pins that a cycle dispatched for a registered-but-unready tree is skipped before the height check can arm a rebuild.
+func TestRunEntrySkipsUnreadyHashtree(t *testing.T) {
+	tests := []struct {
+		name      string
+		ready     bool
+		cfgHeight int
+		wantSkip  bool
+	}{
+		{name: "readyTree", ready: true, cfgHeight: 4},
+		{name: "unreadyTree", cfgHeight: 4, wantSkip: true},
+		{name: "unreadyTreeStaleHeight", cfgHeight: 6, wantSkip: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sched := newBareScheduler(512, 1)
+			sched.ctx = context.Background()
+			sched.resultCh = make(chan asyncSchedulerResult, 1)
+
+			ht, err := hashtree.NewHashTree(4)
+			require.NoError(t, err)
+			s := &Shard{
+				index:                    &Index{Config: IndexConfig{ClassName: "C"}},
+				class:                    &models.Class{Class: "C"},
+				name:                     "S",
+				asyncRepCtx:              context.Background(),
+				hashtree:                 ht,
+				hashtreeFullyInitialized: tc.ready,
+				asyncReplicationConfig:   AsyncReplicationConfig{hashtreeHeight: tc.cfgHeight},
+			}
+			s.asyncRepWg.Add(1)
+			parkRebuildInBackoff(s)
+
+			sched.runEntry(&asyncSchedulerEntry{shard: s}, false)
+
+			var res asyncSchedulerResult
+			select {
+			case res = <-sched.resultCh:
+			case <-time.After(5 * time.Second):
+				t.Fatal("runEntry produced no result")
+			}
+
+			if tc.wantSkip {
+				require.False(t, s.asyncRepNeedsRebuild.Load())
+				require.EqualError(t, res.err, "hashtree not ready")
+				return
+			}
+			if res.err != nil {
+				require.NotEqual(t, "hashtree not ready", res.err.Error())
+			}
+		})
+	}
+}
+
+// TestAsyncRepDrainRaceAgainstImmediateRedispatch: deferDescent's Done is followed microseconds later by the next dispatch's Add — that must never trip a drain waiter.
+func TestAsyncRepDrainRaceAgainstImmediateRedispatch(t *testing.T) {
+	zeroCoalesceWindow(t)
+	sched := newBareScheduler(1, 16)
+	sched.ctx = context.Background()
+	sched.resultCh = make(chan asyncSchedulerResult, 64)
+
+	idx := &Index{Config: IndexConfig{ClassName: "MT"}, partitioningEnabled: true}
+	shards := make([]*Shard, 4)
+	for i := range shards {
+		shards[i] = &Shard{index: idx, class: &models.Class{Class: "MT"}, name: fmt.Sprintf("t%d", i)}
+		sched.onAddLocked(shards[i])
+	}
+
+	stop := make(chan struct{})
+	var timedOut atomic.Bool
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			sched.mu.Lock()
+			sched.dispatchDueLocked()
+			sched.mu.Unlock()
+
+			var dispatched []*asyncSchedulerEntry
+			for _, batch := range drainBatches(sched.workCh) {
+				for _, e := range *batch {
+					e.settleDone()
+					dispatched = append(dispatched, e)
+				}
+			}
+
+			sched.mu.Lock()
+			for _, e := range dispatched {
+				sched.onResultLocked(asyncSchedulerResult{entry: e, deferDescent: true})
+			}
+			sched.mu.Unlock()
+		}
+	}()
+
+	modes := []struct {
+		name string
+		wait func(s *Shard) bool
+	}{
+		{name: "wait", wait: func(s *Shard) bool { s.asyncRepWg.Wait(); return true }},
+		{name: "drained", wait: func(s *Shard) bool {
+			select {
+			case <-s.asyncRepDrained():
+				return true
+			case <-time.After(5 * time.Second):
+				return false
+			}
+		}},
+	}
+	for _, mode := range modes {
+		for _, s := range shards {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for {
+					select {
+					case <-stop:
+						return
+					default:
+					}
+					if !mode.wait(s) {
+						timedOut.Store(true)
+						return
+					}
+				}
+			}()
+		}
+	}
+
+	time.Sleep(300 * time.Millisecond)
+	close(stop)
+
+	joined := make(chan struct{})
+	go func() { wg.Wait(); close(joined) }()
+	select {
+	case <-joined:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the dispatch/drain race goroutines did not exit")
+	}
+
+	assert.False(t, timedOut.Load(), "a drain waiter never fired while the dispatcher churned")
+	for _, s := range shards {
+		assert.True(t, latchClosed(s.asyncRepDrained()), "shard %q left pinned by the re-dispatch loop", s.name)
+	}
+	for _, e := range sched.entries {
+		assert.False(t, e.pendingDone.Load(), "shard %q kept an unsettled dispatch token", e.shard.name)
+	}
+}
+
+// TestMayStopAsyncReplicationDrainRacesReEnable: a bounded teardown drain must not panic when workers keep re-arming the latch underneath it.
+func TestMayStopAsyncReplicationDrainRacesReEnable(t *testing.T) {
+	prevDrain := asyncReplicationWorkerDrainTimeout.Load()
+	asyncReplicationWorkerDrainTimeout.Store(int64(50 * time.Millisecond))
+	t.Cleanup(func() { asyncReplicationWorkerDrainTimeout.Store(prevDrain) })
+
+	logger, hook := test.NewNullLogger()
+	idx := &Index{Config: IndexConfig{ClassName: "TestClass"}, logger: logger}
+	s := &Shard{
+		class:        &models.Class{Class: "TestClass"},
+		index:        idx,
+		shutdownLock: new(sync.RWMutex),
+	}
+
+	stop := make(chan struct{})
+	churnDone := make(chan struct{})
+	go func() {
+		defer close(churnDone)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			s.asyncRepWg.Add(1)
+			s.asyncRepWg.Done()
+		}
+	}()
+
+	for i := range 20 {
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			assert.Nil(t, s.mayStopAsyncReplication(true))
+		}()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			close(stop)
+			t.Fatalf("mayStopAsyncReplication #%d never returned while the latch churned", i)
+		}
+	}
+
+	close(stop)
+	<-churnDone
+
+	for _, entry := range hook.AllEntries() {
+		assert.NotContains(t, entry.Message, "Recovered from panic", "the teardown drain panicked")
+	}
+}
+
+// TestAsyncRepDrainedAfterAbandonedWait: a drain channel nobody read must still close and must not poison the next episode.
+func TestAsyncRepDrainedAfterAbandonedWait(t *testing.T) {
+	s := &Shard{index: &Index{}}
+
+	s.asyncRepWg.Add(1)
+	ch := s.asyncRepDrained()
+	select {
+	case <-ch:
+		t.Fatal("the drain fired while a cycle was still in flight")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	s.asyncRepWg.Done()
+	require.True(t, latchClosed(ch), "the abandoned drain channel never closed")
+
+	stop := make(chan struct{})
+	churnDone := make(chan struct{})
+	go func() {
+		defer close(churnDone)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			s.asyncRepWg.Add(1)
+			s.asyncRepWg.Done()
+		}
+	}()
+	time.Sleep(100 * time.Millisecond)
+	close(stop)
+	<-churnDone
+
+	fresh := s.asyncRepDrained()
+	require.False(t, fresh == ch, "a new episode must not hand back the abandoned channel")
+	select {
+	case <-fresh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the drain channel after the churn never closed")
+	}
+}
+
+func loggedContainingAt(hook *test.Hook, level logrus.Level, want string) bool {
+	for _, entry := range hook.AllEntries() {
+		if entry.Level == level && strings.Contains(entry.Message, want) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestMayStopLogsWhenDrainCompletesAfterDeadline: a straggler that settles after the deadline must still be reported, so a goroutine dump can tell a late drain from a leak.
+func TestMayStopLogsWhenDrainCompletesAfterDeadline(t *testing.T) {
+	prevDrain := asyncReplicationWorkerDrainTimeout.Load()
+	asyncReplicationWorkerDrainTimeout.Store(int64(50 * time.Millisecond))
+	t.Cleanup(func() { asyncReplicationWorkerDrainTimeout.Store(prevDrain) })
+
+	logger, hook := test.NewNullLogger()
+	idx := &Index{Config: IndexConfig{ClassName: "TestClass"}, logger: logger}
+	s := &Shard{
+		class:        &models.Class{Class: "TestClass"},
+		index:        idx,
+		shutdownLock: new(sync.RWMutex),
+	}
+
+	s.asyncRepWg.Add(1)
+	require.Nil(t, s.mayStopAsyncReplication(true), "a timed-out drain must not capture")
+	require.True(t, loggedContainingAt(hook, logrus.WarnLevel, "did not stop within deadline"))
+
+	s.asyncRepWg.Done()
+	require.Eventually(t, func() bool {
+		return loggedContainingAt(hook, logrus.InfoLevel, "drain completed after deadline")
+	}, 5*time.Second, 10*time.Millisecond, "a late drain must be reported at info level")
 }

@@ -28,10 +28,14 @@ import (
 	databricksParams "github.com/weaviate/weaviate/modules/generative-databricks/parameters"
 	deepseekClients "github.com/weaviate/weaviate/modules/generative-deepseek/clients"
 	deepseekParams "github.com/weaviate/weaviate/modules/generative-deepseek/parameters"
+	digitaloceanClients "github.com/weaviate/weaviate/modules/generative-digitalocean/clients"
+	digitaloceanParams "github.com/weaviate/weaviate/modules/generative-digitalocean/parameters"
 	friendliClients "github.com/weaviate/weaviate/modules/generative-friendliai/clients"
 	friendliParams "github.com/weaviate/weaviate/modules/generative-friendliai/parameters"
 	googleClients "github.com/weaviate/weaviate/modules/generative-google/clients"
 	googleParams "github.com/weaviate/weaviate/modules/generative-google/parameters"
+	metaClients "github.com/weaviate/weaviate/modules/generative-meta/clients"
+	metaParams "github.com/weaviate/weaviate/modules/generative-meta/parameters"
 	mistralClients "github.com/weaviate/weaviate/modules/generative-mistral/clients"
 	mistralParams "github.com/weaviate/weaviate/modules/generative-mistral/parameters"
 	nvidiaClients "github.com/weaviate/weaviate/modules/generative-nvidia/clients"
@@ -331,6 +335,34 @@ func (r *Replier) extractGenerativeMetadata(results map[string]any) (*pb.Generat
 			}
 		}
 		metadata.Kind = &pb.GenerativeMetadata_Deepseek{Deepseek: deepseek}
+	case digitaloceanParams.Name:
+		params := digitaloceanClients.GetResponseParams(results)
+		if params == nil {
+			return nil, fmt.Errorf("could not get request metadata for provider: %s", providerName)
+		}
+		digitalocean := &pb.GenerativeDigitalOceanMetadata{}
+		if params.Usage != nil {
+			digitalocean.Usage = &pb.GenerativeDigitalOceanMetadata_Usage{
+				PromptTokens:     convertIntPtrToInt64Ptr(params.Usage.PromptTokens),
+				CompletionTokens: convertIntPtrToInt64Ptr(params.Usage.CompletionTokens),
+				TotalTokens:      convertIntPtrToInt64Ptr(params.Usage.TotalTokens),
+			}
+		}
+		metadata.Kind = &pb.GenerativeMetadata_Digitalocean{Digitalocean: digitalocean}
+	case metaParams.Name:
+		params := metaClients.GetResponseParams(results)
+		if params == nil {
+			return nil, fmt.Errorf("could not get request metadata for provider: %s", providerName)
+		}
+		meta := &pb.GenerativeMetaMetadata{}
+		if params.Usage != nil {
+			meta.Usage = &pb.GenerativeMetaMetadata_Usage{
+				PromptTokens:     convertIntPtrToInt64Ptr(params.Usage.PromptTokens),
+				CompletionTokens: convertIntPtrToInt64Ptr(params.Usage.CompletionTokens),
+				TotalTokens:      convertIntPtrToInt64Ptr(params.Usage.TotalTokens),
+			}
+		}
+		metadata.Kind = &pb.GenerativeMetadata_Meta{Meta: meta}
 	default:
 		return nil, fmt.Errorf("provider: %s, not supported", providerName)
 	}

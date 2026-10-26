@@ -28,10 +28,10 @@ func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, c
 ) (bool, *Error) {
 	className, _, err := m.resolveNS(principal, className)
 	if err != nil {
-		return false, &Error{err.Error(), StatusUnprocessableEntity, err}
+		return false, forbiddenOrUnprocessable(err)
 	}
-	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, tenant, id)); err != nil {
-		return false, &Error{err.Error(), StatusForbidden, err}
+	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.READ, className, authorization.Objects(className, tenant)); err != nil {
+		return false, forbiddenOrUnprocessable(err)
 	}
 
 	m.metrics.HeadObjectInc()
@@ -43,7 +43,7 @@ func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, c
 		case errors.As(err, &ErrMultiTenancy{}):
 			return false, &Error{"repo.exists", StatusUnprocessableEntity, err}
 		default:
-			if (errors.As(err, &ErrDirtyReadOfDeletedObject{})) {
+			if errors.As(err, &ErrDirtyReadOfDeletedObject{}) {
 				return false, nil
 			}
 			return false, &Error{"repo.exists", StatusInternalServerError, err}

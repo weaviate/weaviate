@@ -13,11 +13,13 @@ package cluster
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/sirupsen/logrus"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/types"
 )
 
 func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
@@ -62,7 +64,7 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get shard owner: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_GET_TENANTS_SHARDS:
-		payload, err = st.schemaManager.QueryTenantsShards(req)
+		payload, err = st.schemaManager.QueryTenantsShardsStatus(req)
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get tenant shard: %w", err)
 		}
@@ -107,9 +109,28 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get dynamic user: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_USER_IDENTIFIER_EXISTS:
-		payload, err = st.dynUserManager.GetUsers(req)
+		payload, err = st.dynUserManager.CheckUserIdentifierExists(req)
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not check user identifier: %w", err)
+		}
+	case cmd.QueryRequest_TYPE_EXPORT_USERS:
+		// Barrier proves this node is still leader and has applied every committed
+		// entry, so a fresh leader cannot return a short roster. Per-id reads skip
+		// it; the apply re-checks them. raft is nil only in unit-test stores.
+		if rn := st.raft.Load(); rn != nil {
+			var sub cmd.QueryExportUsersRequest
+			if err := json.Unmarshal(req.SubCommand, &sub); err != nil {
+				return &cmd.QueryResponse{}, fmt.Errorf("could not export dynamic users: %w", err)
+			}
+			if len(sub.UserIds) == 0 {
+				if err := rn.Barrier(st.cfg.ConsistencyWaitTimeout).Error(); err != nil {
+					return &cmd.QueryResponse{}, fmt.Errorf("verify leader before export: %w", err)
+				}
+			}
+		}
+		payload, err = st.dynUserManager.ExportUsers(req)
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not export dynamic users: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_GET_NAMESPACES:
 		payload, err = st.namespaceManager.Get(req)
@@ -161,20 +182,25 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get distributed task list: %w", err)
 		}
+	case cmd.QueryRequest_TYPE_DISTRIBUTED_TASK_GET:
+		payload, err = st.distributedTasksManager.GetDistributedTaskPayload(req.SubCommand)
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get distributed task: %w", err)
+		}
 	case cmd.QueryRequest_TYPE_GET_REPLICATION_OPERATION_STATE:
 		payload, err = st.replicationManager.GetReplicationOperationState(req)
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get replication operation state: %w", err)
 		}
 	default:
-		// This could occur when a new command has been introduced in a later app version
-		// At this point, we need to panic so that the app undergo an upgrade during restart
+		// No case above handles this type, as when the query started on a newer node. The error
+		// wraps ErrUnknownCommand so callers can tell it apart from a leader fault.
 		const msg = "consider upgrading to newer version"
 		st.log.WithFields(logrus.Fields{
 			"type": req.Type,
 			"more": msg,
 		}).Error("unknown command")
-		return &cmd.QueryResponse{}, fmt.Errorf("unknown command type %s: %s", req.Type, msg)
+		return &cmd.QueryResponse{}, fmt.Errorf("%w type %s: %s", types.ErrUnknownCommand, req.Type, msg)
 	}
 	return &cmd.QueryResponse{Payload: payload}, nil
 }

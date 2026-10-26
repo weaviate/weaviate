@@ -23,8 +23,6 @@ func blockmaxSearchableTaskConfig(propNames []string, collectionName string) rei
 		selected[p] = struct{}{}
 	}
 	return reindexTaskConfig{
-		swapBuckets:                   true,
-		tidyBuckets:                   true,
 		concurrency:                   2,
 		memtableOptFactor:             4,
 		backupMemtableOptFactor:       1,

@@ -247,6 +247,14 @@ func NewProductQuantizerWithEncoders(cfg ent.PQConfig, distance distancer.Provid
 		return nil, err
 	}
 
+	// buildGlobalDistances reads ks centers from every segment. Corrupt
+	// commit log data can decode as k-means encoders with fewer.
+	for i, enc := range encoders {
+		if km, ok := enc.(*KMeansEncoder); ok && len(km.centers) < pq.ks {
+			return nil, fmt.Errorf("pq segment %d has %d centers, fewer than the %d configured centroids", i, len(km.centers), pq.ks)
+		}
+	}
+
 	pq.kms = encoders
 	pq.buildGlobalDistances()
 	return pq, nil

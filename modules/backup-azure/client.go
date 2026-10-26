@@ -201,8 +201,12 @@ func (a *azureClient) getObject(ctx context.Context, containerName, objectName s
 		return nil, backup.NewErrInternal(errors.Wrapf(err, "download stream for object %s", objectName))
 	}
 
+	size := int64(-1)
+	if blobDownloadResponse.ContentLength != nil {
+		size = *blobDownloadResponse.ContentLength
+	}
 	reader := blobDownloadResponse.Body
-	downloadData, err := io.ReadAll(reader)
+	downloadData, err := ubak.ReadAllSized(reader, size)
 	errClose := reader.Close()
 	if errClose != nil {
 		return nil, backup.NewErrInternal(errors.Wrapf(errClose, "close stream for object %s", objectName))
@@ -260,35 +264,6 @@ func (a *azureClient) Initialize(ctx context.Context, backupID, overrideBucket, 
 	objectName := a.makeObjectName(overridePath, []string{backupID, key})
 	if _, err := a.client.DeleteBlob(ctx, containerName, objectName, nil); err != nil {
 		return errors.Wrapf(err, "failed to remove access-check Azure backup module at %v", objectName)
-	}
-
-	return nil
-}
-
-func (a *azureClient) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
-	containerName, err := a.resolveContainer(overrideBucket)
-	if err != nil {
-		return err
-	}
-
-	dir := path.Dir(destPath)
-	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
-		return errors.Wrapf(err, "make dir %s", dir)
-	}
-
-	file, err := os.Create(destPath)
-	if err != nil {
-		return backup.NewErrInternal(errors.Wrapf(err, "create file: %q", destPath))
-	}
-	defer file.Close()
-
-	objectName := a.makeObjectName(overridePath, []string{backupID, key})
-	_, err = a.client.DownloadFile(ctx, containerName, objectName, file, nil)
-	if err != nil {
-		if bloberror.HasCode(err, bloberror.BlobNotFound) {
-			return backup.NewErrNotFound(errors.Wrapf(err, "get object %s", objectName))
-		}
-		return backup.NewErrInternal(errors.Wrapf(err, "download file for object %s", objectName))
 	}
 
 	return nil

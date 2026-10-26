@@ -14,9 +14,9 @@
 //
 // Deletion is split into a fast synchronous half and a slow
 // asynchronous half. The DELETE handler flips the namespace to
-// deleting, drains its DB users, and returns 202. This package then
-// removes the rest on a periodic tick: aliases, then classes, then
-// the namespace entry itself. Aliases come before classes because an
+// deleting and returns 202. This package then removes the contents on
+// a periodic tick: DB users, then aliases, then classes, then the
+// namespace entry itself. Aliases come before classes because an
 // alias points at a class. Class deletion is the slow part, which is
 // why it lives here rather than in the request path.
 //
@@ -26,9 +26,6 @@
 // cluster needs an after-the-fact cleanup path regardless; once that
 // path exists, routing the bulk of the work through it is cheaper
 // than duplicating the logic in the request handler.
-//
-// The user delete is re-run as a safety net whenever leftover users remain,
-// in case the handler crashed between marking and the eager drain.
 //
 // Every step is a separate replicated command, so any failure is
 // retried on the next tick. Because the coordinator's view of what
@@ -45,6 +42,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/schema/leader"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -72,9 +70,9 @@ type userLister interface {
 // raftExecutor is the subset of cluster.Raft used here. The RBAC writes
 // replicate through RAFT like the rest, so a follower's store is cleaned too.
 type raftExecutor interface {
+	leader.ClassWriter
+	leader.AliasWriter
 	DeleteUsersInNamespace(ctx context.Context, name string) error
-	DeleteAlias(ctx context.Context, alias string) (uint64, error)
-	DeleteClass(ctx context.Context, name string) (uint64, error)
 	RemoveNamespaceEntity(ctx context.Context, name string) (uint64, error)
 	DeleteRoles(names ...string) error
 	RevokeRolesForUser(user string, roles ...string) error
@@ -88,9 +86,12 @@ type RBACLister interface {
 	GetRolesForUserOrGroup(user string, authMethod authentication.AuthType, isGroup bool) (map[string][]authorization.Policy, error)
 }
 
-// Coordinator runs one cleanup pass per Tick on the leader. isLeader is
-// re-checked before every RAFT write so the old leader stops issuing
-// writes once leadership moves.
+// Coordinator runs one cleanup pass per Tick on the leader. Tick re-checks
+// isLeader itself, so it holds under any caller, and re-checks it again before
+// every RAFT write, so a leader demoted mid-pass stops issuing them. A
+// partitioned leader still reads true; its writes fail to reach a quorum. A
+// cleanly demoted one has its write forwarded to the new leader and applied,
+// so those re-checks, not RAFT, bound a stale pass to one write.
 type Coordinator struct {
 	namespaces namespaceLister
 	schema     schemaLister
@@ -158,7 +159,12 @@ func (c *Coordinator) Tick(ctx context.Context) error {
 			return nil
 		}
 		if err := c.cleanupSingleNamespace(ctx, namespace); err != nil {
-			if errors.Is(err, types.ErrNotLeader) || ctx.Err() != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			if types.IsNoLeader(err) {
+				// The new leader picks the namespace up on its next tick.
+				c.logger.WithField("namespace", namespace).Infof("cleanup namespace deferred, leadership moved: %v", err)
 				return nil
 			}
 			c.logger.WithField("namespace", namespace).Errorf("cleanup namespace: %v", err)
@@ -179,7 +185,7 @@ func (c *Coordinator) cleanupSingleNamespace(ctx context.Context, namespace stri
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	// Skip the no-op RAFT entry when no users remain to redrain.
+	// Skip the no-op RAFT entry when no users remain.
 	if len(c.users.UsersInNamespace(namespace)) > 0 {
 		if err := c.raft.DeleteUsersInNamespace(ctx, namespace); err != nil {
 			return err

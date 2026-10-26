@@ -62,10 +62,6 @@ func (s *RebuildSearchableStrategy) WriteToReindexBucket(shard ShardLike, bucket
 	return writeBlockmaxSearchablePostings(shard, bucket, docID, prop)
 }
 
-// ShouldProcessProperty is true for every targeted property — selection is
-// driven by selectedPropsByCollection in the task config.
-func (s *RebuildSearchableStrategy) ShouldProcessProperty(_ *inverted.Property) bool { return true }
-
 func (s *RebuildSearchableStrategy) MakeAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
 ) onAddToPropertyValueIndex {
@@ -91,7 +87,7 @@ func (s *RebuildSearchableStrategy) MakeDeleteCallback(bucketNamer func(string) 
 func (s *RebuildSearchableStrategy) PreReindexHook(_ *Shard, _ []string) {}
 
 // AnalyzerOverlay returns nil — rebuild MUST NOT change tokenization
-// (that's a separate verb: {searchable:{tokenization:X}}).
+// (that's a separate operation: PUT .../index/searchable {"tokenization":X}).
 func (s *RebuildSearchableStrategy) AnalyzerOverlay(_ []string) map[string]inverted.PropertyOverlay {
 	return nil
 }

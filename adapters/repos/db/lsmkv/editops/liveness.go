@@ -17,10 +17,12 @@ import (
 	"time"
 )
 
-// LivenessProvider returns the set of edit-op IDs that still have a live
-// (non-terminal) task. Consulted on shard load so an op whose task is gone is
-// swept instead of re-armed — a re-armed orphan would strip a re-created
-// same-name vector.
+// LivenessProvider returns the set of edit-op IDs that must not be swept: ops
+// with an active task, plus ops of terminal tasks whose drop marker still
+// stands in the schema (their recorded pending sets are the next round's
+// resume points). Consulted on shard load so an op with no live task AND no
+// standing marker is swept instead of re-armed — a re-armed orphan would strip
+// a re-created same-name vector.
 type LivenessProvider func(ctx context.Context) (map[string]struct{}, error)
 
 // livenessCacheTTL bounds the leader round-trips a mass shard load can trigger:

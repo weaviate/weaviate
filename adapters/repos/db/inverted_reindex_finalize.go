@@ -19,90 +19,27 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
-// nextMigrationGeneration returns the per-node generation `N` a new
-// migration on (migrationDirPrefix, propNamesSuffix) should use on this
-// shard's LSM directory. The new migration writes to dirs suffixed
-// `_<N>`; older generations (if any) still live alongside the
-// canonical main bucket until [FinalizeCompletedMigrations] runs at
-// next startup.
-//
-// `migrationDirPrefix` is one of the constants in
-// inverted_reindex_strategy_dir_names.go (e.g. `searchable_retokenize`
-// or `searchable_map_to_blockmax`). `propNamesSuffix` is the
-// strategy-specific per-property tail (e.g. `_text` for the per-property
-// retokenize strategies, or the sorted-joined "_p1_p2" for multi-property
-// strategies — pass "" for class-level strategies). The full dir name
-// pattern matched is `<migrationDirPrefix><propNamesSuffix>_<N>`.
-//
-// Returns 1 when no prior generation exists. Returns max(existing)+1
-// otherwise. Non-integer-suffixed dirs (i.e. pre-generation legacy
-// state, which shouldn't exist on this branch but defensive code is
-// cheap) are ignored.
-//
-// Called from [ReindexProvider.processOneUnit] before constructing the
-// strategy instance, once per shard / prop / indexType tuple. Computed
-// per-node — different nodes may pick different generations for the
-// same RAFT task and that's correct: generation is purely a per-node
-// on-disk implementation detail of the deferred-finalize design.
-func nextMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string) int {
-	return maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix) + 1
-}
-
-// MaxMigrationGenerationForDebug is an exported wrapper around
-// [maxMigrationGeneration] for the REST debug handlers. Production code
-// should use [maxMigrationGeneration] / [nextMigrationGeneration]
-// directly.
-func MaxMigrationGenerationForDebug(lsmPath, migrationDirPrefix, propNamesSuffix string) int {
-	return maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix)
-}
-
-// GenSuffixForDebug is an exported wrapper around [genSuffix] for the
-// REST debug handlers. Production code should use [genSuffix] directly.
-func GenSuffixForDebug(generation int) string {
-	return genSuffix(generation)
-}
-
-// maxMigrationGeneration returns the highest existing generation on disk
-// for the (prefix, propNamesSuffix) tuple, or 0 if none exists.
-//
-// Used by recovery / rehydrate paths that need to construct a strategy
-// instance matching an existing on-disk migration. The recovery path is
-// the only legitimate caller — fresh task starts should always use
-// [nextMigrationGeneration] to claim a new generation.
-func maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string) int {
-	migrationsDir := filepath.Join(lsmPath, ".migrations")
-	entries, err := os.ReadDir(migrationsDir)
+// migrationTrackerDirAbsent reports whether a migration's tracker dir is
+// provably missing. A stat error must not be read as absence, or a pending
+// migration gets marked complete without its index ever rebuilt.
+func migrationTrackerDirAbsent(lsmPath, dirName string) bool {
+	info, err := os.Stat(filepath.Join(lsmPath, migrationsDir, dirName))
 	if err != nil {
-		return 0
+		return os.IsNotExist(err)
 	}
-	target := migrationDirPrefix + propNamesSuffix
-	highest := 0
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		prefix, gen, ok := parseMigrationDirName(entry.Name())
-		if !ok {
-			continue
-		}
-		if prefix != target {
-			continue
-		}
-		if gen > highest {
-			highest = gen
-		}
-	}
-	return highest
+	return !info.IsDir()
 }
 
 // completedMigrationGens returns the set of generation numbers whose
-// migration tracker dir (for any of the strategy prefixes in `prefixes`)
-// has `tidied.mig` or `merged.mig` on disk — i.e., migrations that
-// completed successfully in-process and whose sidecar dirs are LIVE data
-// pointed at by the in-memory bucket pointers, awaiting next-restart
-// finalize to be promoted to canonical names.
+// migration tracker dir in `scope` has `tidied.mig` or `merged.mig` on disk
+// — i.e., migrations that completed successfully in-process and whose sidecar
+// dirs are LIVE data pointed at by the in-memory bucket pointers, awaiting
+// next-restart finalize to be promoted to canonical names.
 //
 // Called from the submit-handler and cancel-handler pre-submit cleanup
 // path ([Shard.CleanStalePartialReindexState]) so the cleanup can skip
@@ -113,11 +50,11 @@ func maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string)
 // canonical bucket becomes empty → silent #10675-shape data loss on the
 // submitting node.
 //
-// `prefixes` is the strategy-dir prefixes from
-// [migrationDirsForPropertyIndex] for the (propName, indexType) tuple.
-func completedMigrationGens(lsmPath string, prefixes []string) map[int]bool {
+// `scope` is the tracker dirs of the (propName, indexType) tuple; see
+// [migrationDirScope].
+func completedMigrationGens(scope migrationDirScope) map[int]bool {
 	out := map[int]bool{}
-	forEachCompletedMigration(lsmPath, prefixes, func(base string, gen int) {
+	forEachCompletedMigration(scope, func(base string, gen int) {
 		out[gen] = true
 	})
 	return out
@@ -125,12 +62,12 @@ func completedMigrationGens(lsmPath string, prefixes []string) map[int]bool {
 
 // completedMigrationSidecarSuffixes returns the gen-suffixed sidecar dir
 // suffixes (e.g. "__roaringset_ingest_2") owned by completed-but-deferred
-// migrations matching `prefixes`. Keying by (suffix-base, gen) instead of
+// migrations in `scope`. Keying by (suffix-base, gen) instead of
 // bare gen stops one strategy's completed gen from shielding — or failing
 // to shield — a different strategy's sidecar at the same gen (issue #295).
-func completedMigrationSidecarSuffixes(lsmPath string, prefixes []string) map[string]bool {
+func completedMigrationSidecarSuffixes(scope migrationDirScope) map[string]bool {
 	out := map[string]bool{}
-	forEachCompletedMigration(lsmPath, prefixes, func(base string, gen int) {
+	forEachCompletedMigration(scope, func(base string, gen int) {
 		suffixes := migrationSuffixes(base)
 		if suffixes == nil {
 			return
@@ -145,31 +82,29 @@ func completedMigrationSidecarSuffixes(lsmPath string, prefixes []string) map[st
 	return out
 }
 
-// forEachCompletedMigration invokes fn for every tracker dir under
-// lsmPath/.migrations matching `prefixes` that carries tidied.mig or
-// merged.mig (completed in-process, awaiting next-restart finalize).
-func forEachCompletedMigration(lsmPath string, prefixes []string, fn func(base string, gen int)) {
-	migrationsDir := filepath.Join(lsmPath, ".migrations")
-	entries, err := os.ReadDir(migrationsDir)
+// forEachCompletedMigration invokes fn for every tracker dir in `scope` that
+// carries tidied.mig or merged.mig (completed in-process, awaiting
+// next-restart finalize).
+//
+// The dir listing goes through the scope's cache, so a run of calls over one
+// shard reads its .migrations dir once; a nil cache reads the filesystem every
+// time, which is what most callers pass. The sentinel Stats per matching dir
+// are never cached.
+func forEachCompletedMigration(scope migrationDirScope, fn func(base string, gen int)) {
+	migrationsDir := filepath.Join(scope.lsmPath, ".migrations")
+	names, err := scope.dirs.list(migrationsDir)
 	if err != nil {
 		return
 	}
-	prefixSet := map[string]bool{}
-	for _, p := range prefixes {
-		prefixSet[p] = true
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		base, gen, ok := parseMigrationDirName(entry.Name())
+	for _, name := range names {
+		base, gen, ok := parseMigrationDirName(name)
 		if !ok {
 			continue
 		}
-		if !prefixSet[base] {
+		if !scope.inScope(name) {
 			continue
 		}
-		dirPath := filepath.Join(migrationsDir, entry.Name())
+		dirPath := filepath.Join(migrationsDir, name)
 		if fileExistsInDir(dirPath, "tidied.mig") || fileExistsInDir(dirPath, "merged.mig") {
 			fn(base, gen)
 		}
@@ -177,7 +112,8 @@ func forEachCompletedMigration(lsmPath string, prefixes []string, fn func(base s
 }
 
 // fileExistsInDir is a small helper for [completedMigrationGens]; returns
-// true iff the named file is present in dirPath as a regular file.
+// true when the named file is present in dirPath and is not a directory. A
+// stat that fails for any other reason reads as absent.
 func fileExistsInDir(dirPath, fileName string) bool {
 	info, err := os.Stat(filepath.Join(dirPath, fileName))
 	return err == nil && !info.IsDir()
@@ -187,8 +123,8 @@ func fileExistsInDir(dirPath, fileName string) bool {
 // completed migrations that still need filesystem cleanup, and runs the
 // deferred ingest→canonical rename for each.
 //
-// Every migration tracker dir on disk carries a per-node generation
-// suffix `_<N>` (see [genSuffix]). For each (prop, indexType) tuple
+// Every migration tracker dir on disk carries a generation suffix `_<N>`
+// (see [genSuffix]). For each (prop, indexType) tuple
 // there may be multiple generations on disk if the prior end-of-swap
 // trim hadn't run yet — for example because the process crashed between
 // `markTidied` and the per-shard trim, or because a follow-up migration
@@ -235,13 +171,17 @@ func fileExistsInDir(dirPath, fileName string) bool {
 //   - Generations with `gen > effective` are in-flight (next migration)
 //     and left alone — recovery picks them up via their `payload.mig`.
 //
+// Finalizing is deferred while the class has the target index off: renaming
+// now would put data where the next load's schema sweep deletes it. See
+// [schemaAuthorizesFinalization].
+//
 // CRITICAL: This MUST be called BEFORE bucket loading, NEVER on live
 // buckets. Renaming directories while buckets are open would corrupt
 // the store. The deferred-finalize design relies on the in-memory swap
 // (via DTM) marking tidied while the directory renames are deferred to
 // the next startup when no buckets are loaded. See
 // `docs/runtime-reindex.md` for the rationale.
-func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
+func FinalizeCompletedMigrations(lsmPath string, class *models.Class, logger logrus.FieldLogger) {
 	migrationsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migrationsDir)
 	if err != nil {
@@ -312,14 +252,9 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 			continue
 		}
 
-		// If the effective promotion gen lacks tidied.mig, this is the
-		// recovery path: the in-process runtime swap on this node died
-		// after markMerged but before markTidied. Write the missing
-		// sentinels so the rest of the finalize logic sees a consistent
-		// tracker and the same ingest→canonical rename runs. The schema
-		// flip has likely already committed cluster-wide via the DTM
-		// task's FINISHED state; promoting gen-effective here is what
-		// makes this node's bucket data consistent with that schema.
+		// Missing tidied.mig means the runtime swap crashed after markMerged
+		// but before markTidied. Backfill the sentinels; the schema check
+		// below still gates finalizing.
 		if effective > highestTidied {
 			for _, g := range gens {
 				if g.gen != effective {
@@ -341,6 +276,19 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 			if effective < 0 {
 				continue
 			}
+		}
+
+		effectiveDir := ""
+		for _, g := range gens {
+			if g.gen == effective {
+				effectiveDir = g.dirName
+				break
+			}
+		}
+		if !schemaAuthorizesFinalization(class, lsmPath, effectiveDir) {
+			logger.WithField("migration", effectiveDir).
+				Debug("reindex finalize: deferring until the schema lists the migrated index")
+			continue
 		}
 
 		// Finalize the effective promotion gen, then remove every gen <
@@ -378,6 +326,52 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 			}
 		}
 	}
+}
+
+// schemaAuthorizesFinalization reports whether the applied class still lists
+// every index this migration would rename to its canonical name.
+//
+// The schema flag alone authorizes a canonical name: on every load,
+// [propertyDeleteIndexHelper.ensureBucketsAreRemovedForNonExistentPropertyIndexes]
+// deletes a canonical dir under a disabled index, and each index-enabling
+// migration runs with the flag off throughout. Renaming early would hand
+// that sweep exactly the data it deletes. Properties absent from the class
+// are equally unreached by the sweep, so they need no authorization.
+func schemaAuthorizesFinalization(class *models.Class, lsmPath, migName string) bool {
+	suffixes := migrationSuffixes(migName)
+	if suffixes == nil {
+		return true
+	}
+	props, err := readMigrationProps(filepath.Join(lsmPath, migrationsDir, migName))
+	if err != nil || len(props) == 0 {
+		// finalizeMigrationDir renames nothing without them.
+		return true
+	}
+
+	byName := make(map[string]*models.Property, len(class.Properties))
+	for _, prop := range class.Properties {
+		byName[prop.Name] = prop
+	}
+	sweep := newPropertyDeleteIndexHelper()
+	for _, propName := range props {
+		prop, listed := byName[propName]
+		if !listed {
+			continue
+		}
+		var index *bool
+		switch suffixes.sourceBucketName(propName) {
+		case helpers.BucketFromPropNameLSM(propName):
+			index = prop.IndexFilterable
+		case helpers.BucketSearchableFromPropNameLSM(propName):
+			index = prop.IndexSearchable
+		case helpers.BucketRangeableFromPropNameLSM(propName):
+			index = prop.IndexRangeFilters
+		}
+		if sweep.isPropertyIndexRemoved(index) {
+			return false
+		}
+	}
+	return true
 }
 
 // writeRecoveryTidiedSentinels is the recovery-path equivalent of the

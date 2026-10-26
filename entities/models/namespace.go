@@ -37,8 +37,8 @@ type Namespace struct {
 	// The unique name of the namespace.
 	Name string `json:"name,omitempty"`
 
-	// Lifecycle state. "active" namespaces accept all operations. "deleting" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.
-	// Enum: [active deleting]
+	// Lifecycle state. "active" namespaces accept all operations. "suspended" namespaces reject new classes, aliases, users, roles, and role assignments, and their users can no longer authenticate; everything the namespace already owns is retained. "resuming" namespaces are on their way back to "active" and are still restricted the same way. "deleting" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.
+	// Enum: [active suspended resuming deleting]
 	State string `json:"state,omitempty"`
 }
 
@@ -60,7 +60,7 @@ var namespaceTypeStatePropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["active","deleting"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["active","suspended","resuming","deleting"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -72,6 +72,12 @@ const (
 
 	// NamespaceStateActive captures enum value "active"
 	NamespaceStateActive string = "active"
+
+	// NamespaceStateSuspended captures enum value "suspended"
+	NamespaceStateSuspended string = "suspended"
+
+	// NamespaceStateResuming captures enum value "resuming"
+	NamespaceStateResuming string = "resuming"
 
 	// NamespaceStateDeleting captures enum value "deleting"
 	NamespaceStateDeleting string = "deleting"

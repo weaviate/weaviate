@@ -16,8 +16,10 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -31,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -46,8 +49,10 @@ type memtable interface {
 	getCollection(key []byte) ([]value, error)
 	getCollectionBytes(key []byte) ([][]byte, error)
 	getMap(key []byte) ([]MapPair, error)
+	getInverted(key []byte) ([]invertedPair, error)
 	append(key []byte, values []value) error
 	appendMapSorted(key []byte, pair MapPair) error
+	appendInverted(key []byte, pair invertedPair) error
 
 	Size() uint64
 	Path() string
@@ -63,6 +68,7 @@ type memtable interface {
 	writeWAL() error
 	flushWAL() error
 	flush() (string, error)
+	flushAfterFailedFlush() (string, error)
 	setAveragePropertyLength(avgPropLength float64, propLengthCount uint64)
 	getAndUpdateWritesSinceLastSync(logger logrus.FieldLogger) bool
 
@@ -71,10 +77,17 @@ type memtable interface {
 	GetPropLengths() (uint64, uint64)
 
 	newCursor() innerCursorReplace
+	newCursorWithRange(min, max []byte) innerCursorReplace
 	newBlockingCursor() (innerCursorReplace, func())
 	newCursorWithSecondaryIndex(pos int) innerCursorReplace
 	newCollectionCursor() innerCursorCollection
 	newRoaringSetCursor() roaringset.InnerCursor
+	// roaringSetGetWindow reads a window of a sorted batch in one pass, stopping
+	// once it has copied budget bytes and reporting where it stopped and what it
+	// spent. Absence is the zero layer rather than lsmkv.NotFound, and on error
+	// no slot is meaningful. See (*Memtable).roaringSetGetWindow for the
+	// contract.
+	roaringSetGetWindow(keys inverted.SortedKeys, from, to int, dst []roaringset.BitmapLayer, budget int) (windowFill, error)
 	newRoaringSetRangeReader() roaringsetrange.InnerReader
 	newMapCursor() innerCursorMap
 
@@ -88,7 +101,7 @@ type memtable interface {
 	roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error
 	roaringSetAddRemoveSlices(key []byte, additions []uint64, deletions []uint64) error
 	roaringSetGet(key []byte) (roaringset.BitmapLayer, error)
-	roaringSetAdjustMeta(entriesChanged int)
+	roaringSetAdjustMeta()
 	roaringSetAddCommitLog(node *roaringset.SegmentNodeList) error
 
 	roaringSetRangeAdd(key uint64, values ...uint64) error
@@ -103,7 +116,7 @@ type memtable interface {
 	flushDataMap(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
 	flushDataCollection(f *segmentindex.SegmentFile, flat []*binarySearchNodeMulti) ([]segmentindex.Key, error)
 	flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.MeteredWriter, bufw *bufio.Writer) ([]segmentindex.Key, *sroar.Bitmap, error)
-	flushDataRoaringSet(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
+	flushDataRoaringSet(f *segmentindex.SegmentFile, ogF io.WriteSeeker, bufw *bufio.Writer) error
 	flushDataRoaringSetRange(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
 
 	incWriterCount()
@@ -115,18 +128,22 @@ type Memtable struct {
 	sync.RWMutex
 	key             *binarySearchTree
 	keyMulti        *binarySearchTreeMulti
-	keyMap          *binarySearchTreeMap
+	keyMap          *binarySearchTreeMap[MapPair]
+	keyInverted     *binarySearchTreeMap[invertedPair]
 	primaryIndex    *binarySearchTree
 	roaringSet      *roaringset.BinarySearchTree
 	roaringSetRange *roaringsetrange.Memtable
 	commitlog       memtableCommitLogger
+	// scratch for the map and inverted write paths, guarded by the embedded lock
+	mapPairScratch  []byte
+	mapValueScratch [1]value
 	allocChecker    memwatch.AllocChecker
 	size            uint64
 	// netCountAdditions approximates the net live keys this memtable adds on
 	// top of the rest of the LSM tree. Whether a key already exists further
-	// down is unknown at write time: updates of flushed keys over-count,
-	// deletes of never-written keys under-count, and the drift is corrected by
-	// the exact per-segment count at flush. StrategyReplace only.
+	// down is unknown at write time: updates of flushed keys over-count, deletes
+	// of never-written keys under-count, and flushing replaces the drift with the
+	// segment's own count. StrategyReplace only.
 	netCountAdditions  int
 	path               string
 	strategy           string
@@ -153,6 +170,8 @@ type Memtable struct {
 	invMu sync.RWMutex
 
 	enableChecksumValidation bool
+
+	invRecordBuf [invertedRecordPostingLen]byte
 
 	bm25config                   *models.BM25Config
 	averagePropLength            float64
@@ -199,7 +218,8 @@ func newMemtable(cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldL
 	m := &Memtable{
 		key:                          &binarySearchTree{},
 		keyMulti:                     &binarySearchTreeMulti{},
-		keyMap:                       &binarySearchTreeMap{},
+		keyMap:                       &binarySearchTreeMap[MapPair]{},
+		keyInverted:                  &binarySearchTreeMap[invertedPair]{},
 		primaryIndex:                 &binarySearchTree{}, // todo, sort upfront
 		roaringSet:                   &roaringset.BinarySearchTree{},
 		roaringSetRange:              roaringsetrange.NewMemtable(logger),
@@ -522,12 +542,35 @@ func (m *Memtable) getMap(key []byte) ([]MapPair, error) {
 	m.RLock()
 	defer m.RUnlock()
 
+	if m.strategy == StrategyInverted {
+		v, err := m.keyInverted.get(key)
+		if err != nil {
+			return nil, err
+		}
+
+		return invertedPairsToMapPairs(v), nil
+	}
+
 	v, err := m.keyMap.get(key)
 	if err != nil {
 		return nil, err
 	}
 
 	return v, nil
+}
+
+func (m *Memtable) getInverted(key []byte) ([]invertedPair, error) {
+	start := time.Now()
+	defer m.metrics.observeGetMap(start.UnixNano())
+
+	if err := m.checkStrategy(StrategyInverted); err != nil {
+		return nil, fmt.Errorf("Memtable::getInverted(): %w", err)
+	}
+
+	m.RLock()
+	defer m.RUnlock()
+
+	return m.keyInverted.get(key)
 }
 
 func (m *Memtable) append(key []byte, values []value) error {
@@ -564,27 +607,28 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	start := time.Now()
 	defer m.metrics.observeAppendMapSorted(start.UnixNano())
 
-	if err := m.checkStrategy(StrategyMapCollection, StrategyInverted); err != nil {
+	if err := m.checkStrategy(StrategyMapCollection); err != nil {
 		return fmt.Errorf("Memtable::appendMapSorted(): %w", err)
-	}
-
-	valuesForCommitLog, err := pair.Bytes()
-	if err != nil {
-		return err
-	}
-
-	newNode := segmentCollectionNode{
-		primaryKey: key,
-		values: []value{
-			{
-				value:     valuesForCommitLog,
-				tombstone: pair.Tombstone,
-			},
-		},
 	}
 
 	m.Lock()
 	defer m.Unlock()
+
+	// The commit log serializes the node before returning, so the scratch
+	// buffers can be reused by the next write.
+	size := pair.Size()
+	m.mapPairScratch = slices.Grow(m.mapPairScratch[:0], size)[:size]
+	if err := pair.EncodeBytes(m.mapPairScratch); err != nil {
+		return err
+	}
+	valuesForCommitLog := m.mapPairScratch
+	m.mapValueScratch[0] = value{value: valuesForCommitLog, tombstone: pair.Tombstone}
+
+	newNode := segmentCollectionNode{
+		primaryKey: key,
+		values:     m.mapValueScratch[:],
+	}
+
 	m.writesSinceLastSync = true
 
 	if err := m.commitlog.append(newNode); err != nil {
@@ -596,13 +640,42 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()
 
-	if m.strategy == StrategyInverted && !pair.Tombstone {
-		docID := binary.LittleEndian.Uint64(pair.Key)
-		fieldLength := math.Float32frombits(binary.LittleEndian.Uint32(pair.Value[4:]))
-		// propLengthExists + currPropLength* are shared with SetTombstone, which no
-		// longer holds the tree lock; guard them with invMu (nested inside m.Lock).
+	return nil
+}
+
+func (m *Memtable) appendInverted(key []byte, pair invertedPair) error {
+	start := time.Now()
+	defer m.metrics.observeAppendMapSorted(start.UnixNano())
+
+	if err := m.checkStrategy(StrategyInverted); err != nil {
+		return fmt.Errorf("Memtable::appendInverted(): %w", err)
+	}
+
+	m.Lock()
+	defer m.Unlock()
+	m.writesSinceLastSync = true
+
+	recordLen := pair.encodeCommitLog(m.invRecordBuf[:])
+	m.mapValueScratch[0] = value{value: m.invRecordBuf[:recordLen], tombstone: pair.tombstone}
+
+	if err := m.commitlog.append(segmentCollectionNode{
+		primaryKey: key,
+		values:     m.mapValueScratch[:],
+	}); err != nil {
+		return errors.Wrap(err, "write into commit log")
+	}
+
+	m.keyInverted.insert(key, pair)
+	m.size += uint64(len(key) + recordLen)
+	m.metrics.observeSize(m.size)
+	m.updateDirtyAt()
+
+	if !pair.tombstone {
+		// SetTombstone touches these without the tree lock, so invMu guards them
+		// here too (nested inside m.Lock).
+		fieldLength := math.Float32frombits(pair.propLenBits)
 		m.invMu.Lock()
-		if m.propLengthExists.Set(docID) {
+		if m.propLengthExists.Set(pair.docID) {
 			m.currPropLengthSum += uint64(fieldLength)
 			m.currPropLengthCount++
 		}
@@ -801,4 +874,28 @@ func (m *Memtable) extractRoaringSetRange() *roaringsetrange.Memtable {
 
 	result := m.roaringSetRange
 	return result
+}
+
+func (m *Memtable) flattenKeyMap() []*binarySearchNodeMap[MapPair] {
+	m.RLock()
+	defer m.RUnlock()
+
+	return m.keyMap.flattenInOrder()
+}
+
+func (m *Memtable) flattenKeyInverted() []*binarySearchNodeMap[invertedPair] {
+	m.RLock()
+	defer m.RUnlock()
+
+	return m.keyInverted.flattenInOrder()
+}
+
+// roaringSetRangeNodes returns the key-0 node, which carries every value and is
+// the only one with deletions, then one node per set bit. Nodes() allocates
+// every bitmap it returns, so the caller serializes them without the lock.
+func (m *Memtable) roaringSetRangeNodes() []*roaringsetrange.MemtableNode {
+	m.RLock()
+	defer m.RUnlock()
+
+	return m.roaringSetRange.Nodes()
 }

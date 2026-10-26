@@ -13,25 +13,30 @@ package rest
 
 import (
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/go-openapi/runtime"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
-// TestUpdateIndex_SubmitLockKeyedOnQualifiedClass pins the PUT side of the shared
-// submit lock: a namespaced short-name caller must lock on the qualified class,
-// the key DeleteClassPropertyIndex uses. The test pre-holds that lock — a
-// correctly-keyed handler blocks; the buggy raw-keyed one takes a different lock
-// and proceeds.
-func TestUpdateIndex_SubmitLockKeyedOnQualifiedClass(t *testing.T) {
+// TestUpsertIndex_SubmitLockKeyedOnQualifiedClass pins that a namespaced
+// caller locks on the qualified class (DeleteClassPropertyIndex's key),
+// acquired before the class read (which panics on nil SchemaManager here).
+func TestUpsertIndex_SubmitLockKeyedOnQualifiedClass(t *testing.T) {
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)
 
@@ -40,8 +45,10 @@ func TestUpdateIndex_SubmitLockKeyedOnQualifiedClass(t *testing.T) {
 		Authorizer:         &authorization.DummyAuthorizer{},
 		ReindexSubmitLocks: locks,
 		Logger:             logger,
+		NamespaceQualifier: wlnamespaces.NewPrefixing(),
 		ServerConfig: &config.WeaviateConfig{Config: config.Config{
-			Namespaces: config.Namespaces{Enabled: true},
+			Namespaces:            config.Namespaces{Enabled: true},
+			RuntimeReindexEnabled: true,
 		}},
 		// SchemaManager left nil: the correctly-keyed handler blocks before the
 		// class read; the buggy path reaches it and panics, which the goroutine recovers.
@@ -50,27 +57,28 @@ func TestUpdateIndex_SubmitLockKeyedOnQualifiedClass(t *testing.T) {
 	held := locks.SubmitLockFor("customer1:Movies", "title")
 	held.Lock()
 
-	params := schema.SchemaObjectsIndexesUpdateParams{
+	params := schema.SchemaObjectsIndexUpsertParams{
 		HTTPRequest:  httptest.NewRequest("PUT", "/", nil),
 		ClassName:    "Movies", // short name; qualifies to customer1:Movies
 		PropertyName: "title",
+		IndexName:    "searchable",
 	}
 	principal := &models.Principal{Username: "customer1:u1", Namespace: "customer1"}
 
 	finished := make(chan struct{})
 	// recover swallows the nil-SchemaManager panic so the test binary survives;
-	// the deferred close fires whether updateIndex returns or panics.
+	// the deferred close fires whether upsertIndex returns or panics.
 	go func() {
 		defer func() {
 			_ = recover()
 			close(finished)
 		}()
-		_ = h.updateIndex(params, principal)
+		_ = h.upsertIndex(params, principal)
 	}()
 
 	select {
 	case <-finished:
-		t.Fatal("updateIndex did not block on the qualified-class lock — submit lock is keyed on the raw class name")
+		t.Fatal("upsertIndex did not block on the qualified-class lock — submit lock is keyed on the raw class name")
 	case <-time.After(200 * time.Millisecond):
 	}
 
@@ -79,6 +87,28 @@ func TestUpdateIndex_SubmitLockKeyedOnQualifiedClass(t *testing.T) {
 	select {
 	case <-finished:
 	case <-time.After(2 * time.Second):
-		t.Fatal("updateIndex did not proceed after the qualified-class lock was released")
+		t.Fatal("upsertIndex did not proceed after the qualified-class lock was released")
 	}
+}
+
+// An invalid class name is a malformed request, not a refusal, and it is
+// rejected before any schema read.
+func TestGetIndexes_InvalidClassNameIsUnprocessable(t *testing.T) {
+	h := &indexesHandlers{appState: &state.State{
+		Authorizer:         &authorization.DummyAuthorizer{},
+		SchemaManager:      &schemaUC.Manager{SchemaReader: local.NewMockSchemaReader(t)},
+		ServerConfig:       &config.WeaviateConfig{},
+		Logger:             logrus.New(),
+		NamespaceQualifier: namespacing.Disabled,
+	}}
+
+	resp := h.getIndexes(schema.SchemaObjectsIndexesGetParams{
+		HTTPRequest: httptest.NewRequest(http.MethodGet, "/", nil),
+		ClassName:   "a:Foo",
+	}, &models.Principal{Username: "u"})
+
+	rec := httptest.NewRecorder()
+	resp.WriteResponse(rec, runtime.JSONProducer())
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+	require.Contains(t, rec.Body.String(), "is not a valid class name")
 }

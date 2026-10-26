@@ -43,6 +43,9 @@ var (
 	ErrAsyncCheckpointStale = errors.New("checkpoint createdAt is not newer than the active one")
 	// ErrAsyncReplicationNotActive maps to HTTP 412 / FailedPrecondition.
 	ErrAsyncReplicationNotActive = errors.New("async replication is not active on this shard")
+	// Skip-reason refinements; both wrap ErrAsyncReplicationNotActive so existing errors.Is checks keep matching.
+	ErrReplicaMaintenance = fmt.Errorf("%w: peer in maintenance mode", ErrAsyncReplicationNotActive)
+	ErrReplicaBooting     = fmt.Errorf("%w: peer not ready", ErrAsyncReplicationNotActive)
 	// ErrAsyncCheckpointCutoffInPast maps to HTTP 412 / FailedPrecondition.
 	ErrAsyncCheckpointCutoffInPast = errors.New("checkpoint cutoff is not in this node's future")
 	// MsgCLevel consistency level cannot be achieved
@@ -60,6 +63,24 @@ var (
 )
 
 const AsyncCheckpointMaxShardsPerRequest = 10_000
+
+// Readiness-gate messages; clients map gRPC Unavailable to retry-later only on these (transport Unavailable stays loud).
+const (
+	NodeNotReadyMsg       = "node not ready"
+	LocalIndexNotReadyMsg = "local index not ready"
+)
+
+// AsyncReplicationSkipReason returns the skip-metric label for a retry-later error.
+func AsyncReplicationSkipReason(err error) string {
+	switch {
+	case errors.Is(err, ErrReplicaMaintenance):
+		return "maintenance"
+	case errors.Is(err, ErrReplicaBooting):
+		return "node_boot"
+	default:
+		return "not_active"
+	}
+}
 
 // AsyncCheckpointCreatedAtSkewTolerance prevents a single far-future createdAt
 // from blocking every later legitimate create via the strict-greater-than
@@ -100,7 +121,7 @@ func NewFinder(className string,
 	l logrus.FieldLogger,
 	getDeletionStrategy func() string,
 ) *Finder {
-	cl := FinderClient{client}
+	cl := FinderClient{cl: client, log: l}
 	return &Finder{
 		router:       router,
 		nodeResolver: nodeResolver,
@@ -250,7 +271,7 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 	for _, part := range clusterObjectByShard(createBatch(xs)) {
 		part := part
 		gr.Go(func() error {
-			_, err := f.checkShardConsistency(ctx, l, part)
+			err := f.checkShardConsistency(ctx, l, part)
 			if err != nil {
 				f.log.WithField("op", "check_shard_consistency").
 					WithField("shard", part.Shard).Error(err)
@@ -308,31 +329,28 @@ func (f *Finder) NodeObject(ctx context.Context,
 }
 
 // checkShardConsistency checks consistency for a set of objects belonging to a shard
-// It returns the most recent objects or and error
 func (f *Finder) checkShardConsistency(ctx context.Context,
 	l types.ConsistencyLevel,
 	batch ShardPart,
-) ([]*storobj.Object, error) {
+) error {
 	var (
-		c         = NewReadCoordinator[BatchReply](f.router, f.metrics, f.class, batch.Shard, f.getDeletionStrategy(), f.log)
-		shard     = batch.Shard
-		data, ids = batch.Extract() // extract from current content
+		c            = NewReadCoordinator[BatchReply](f.router, f.metrics, f.class, batch.Shard, f.getDeletionStrategy(), f.log)
+		shard        = batch.Shard
+		digests, ids = batch.Digests()
 	)
-	op := func(ctx context.Context, host string, fullRead bool) (BatchReply, error) {
-		if fullRead { // we already have the content
-			return BatchReply{Sender: host, IsDigest: false, FullData: data}, nil
-		} else {
-			xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids, 0)
-			return BatchReply{Sender: host, IsDigest: true, DigestData: xs}, err
+	op := func(ctx context.Context, host string, isCallerCopy bool) (BatchReply, error) {
+		if isCallerCopy { // we already know the update times of this copy
+			return BatchReply{Sender: host, IsLocal: true, DigestData: digests}, nil
 		}
+		xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids, 0)
+		return BatchReply{Sender: host, DigestData: xs}, err
 	}
 
 	replyCh, state, err := c.Pull(ctx, l, op, batch.Node, 20*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("pull shard: %w", replicaerrors.NewNotEnoughReplicasError(err))
+		return fmt.Errorf("pull shard: %w", replicaerrors.NewNotEnoughReplicasError(err))
 	}
-	result := <-f.readBatchPart(ctx, batch, ids, replyCh, state)
-	return result.Value, result.Err
+	return <-f.readBatchPart(ctx, batch, ids, replyCh, state)
 }
 
 type ShardDifferenceReader struct {
@@ -362,12 +380,14 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shardName)
 	}
 
+	// reused across levels and targets; only safe while targets are probed sequentially
+	var digests []hashtree.Digest
+
 	collectDiffForTargetNode := func(targetNodeAddress, targetNodeName string) (*ShardDifferenceReader, error) {
 		ctx, cancel := context.WithTimeout(ctx, diffTimeoutPerNode)
 		defer cancel()
 
 		height := ht.Height()
-		digests := make([]hashtree.Digest, hashtree.LeavesCount(height))
 
 		discriminant := hashtree.NewBitset(1) // nodesAtLevel(0) = 1
 		discriminant.Set(0)                   // seed at root
@@ -375,17 +395,27 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		var leaf *hashtree.Bitset
 
 		for l := 0; l <= height; l++ {
-			if _, err := ht.Level(l, discriminant, digests); err != nil {
+			need := discriminant.SetCount()
+			digests = hashtree.SizeDigests(digests, need)
+
+			n, err := ht.Level(l, discriminant, digests)
+			if err != nil {
 				return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
+			}
+			// a short local write would leave stale digests from a previous level or target
+			if n != need {
+				return nil, fmt.Errorf("%q: local hashtree level %d wrote %d digests, expected %d",
+					targetNodeAddress, l, n, need)
 			}
 
 			levelDigests, err := f.client.HashTreeLevel(ctx, targetNodeAddress, f.class, shardName, l, discriminant)
 			if err != nil {
 				return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
 			}
-			if len(levelDigests) == 0 {
-				// peer agrees at this level
-				break
+			// anything but one digest per set bit reads as a failed target, never as convergence
+			if len(levelDigests) != need {
+				return nil, fmt.Errorf("%q: hashtree level %d returned %d digests, expected %d",
+					targetNodeAddress, l, len(levelDigests), need)
 			}
 
 			nextDiscriminant, levelDiffCount, err := hashtree.LevelDiff(l, height, discriminant, digests, levelDigests)
@@ -427,7 +457,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	// If the caller provided a list of target node overrides, filter the replicas to only include
 	// the relevant overrides so that we only "push" updates to the specified nodes.
 	localNodeName := f.LocalNodeName()
-	targetNodesToUse := routingPlan.NodeNames()
+	var targetNodesToUse []string
 	if len(targetNodeOverrides) > 0 {
 		targetNodesToUse = make([]string, 0, len(targetNodeOverrides))
 		for _, override := range targetNodeOverrides {
@@ -435,10 +465,12 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 				targetNodesToUse = append(targetNodesToUse, override.TargetNode)
 			}
 		}
+	} else {
+		targetNodesToUse = routingPlan.NodeNames()
 	}
 
-	replicaNodeNames := make([]string, 0, len(routingPlan.Replicas()))
-	replicasHostAddrs := make([]string, 0, len(routingPlan.HostAddresses()))
+	replicaNodeNames := make([]string, 0, len(targetNodesToUse))
+	replicasHostAddrs := make([]string, 0, len(targetNodesToUse))
 	for _, replica := range targetNodesToUse {
 		replicaHostAddr, ok := f.nodeResolver.NodeHostname(replica)
 		if ok {
@@ -461,6 +493,8 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		return nil, fmt.Errorf("could not resolve hostname for local node %q: class %q shard %q", localNodeName, f.class, shardName)
 	}
 
+	notReadyTargets := 0
+	sawConverged := false
 	for i, targetNodeAddress := range replicasHostAddrs {
 		targetNodeName := replicaNodeNames[i]
 		if targetNodeAddress == localHostAddr {
@@ -469,7 +503,16 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 
 		diffReader, err := collectDiffForTargetNode(targetNodeAddress, targetNodeName)
 		if err != nil {
-			if !errors.Is(err, replicaerrors.ErrNoDiffFound) {
+			switch {
+			case errors.Is(err, replicaerrors.ErrNoDiffFound):
+				sawConverged = true
+			case errors.Is(err, ErrAsyncReplicationNotActive):
+				// Not-ready peer (unloaded or hashtree initializing): retry-later,
+				// not a fault — kept out of the error compounder so callers can
+				// classify the aggregate by errors.Is.
+				f.metrics.IncAsyncReplicationTargetSkip(err)
+				notReadyTargets++
+			default:
 				ec.Add(err)
 			}
 			continue
@@ -483,26 +526,32 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		return nil, err
 	}
 
+	if notReadyTargets > 0 && !sawConverged {
+		// Nothing was verified this cycle — it must not read as convergence.
+		return nil, fmt.Errorf("%w: %d target replica(s) not ready", ErrAsyncReplicationNotActive, notReadyTargets)
+	}
+
 	return &ShardDifferenceReader{}, replicaerrors.ErrNoDiffFound
 }
 
 func (f *Finder) DigestObjectsInRange(ctx context.Context,
 	shardName string, host string, initialUUID, finalUUID strfmt.UUID, limit int,
-) (ds []types.RepairResponse, err error) {
+) (ds []types.RepairDigest, err error) {
 	return f.client.DigestObjectsInRange(ctx, host, f.class, shardName, initialUUID, finalUUID, limit)
 }
 
 // CompareDigests is a thin transport wrapper around the remote shard's
 // comparator; see RClient.CompareDigests for the contract.
 func (f *Finder) CompareDigests(ctx context.Context,
-	shardName string, host string, digests []types.RepairResponse,
-) ([]types.RepairResponse, error) {
+	shardName string, host string, digests []types.RepairDigest,
+) ([]types.RepairDigest, error) {
 	return f.client.CompareDigests(ctx, host, f.class, shardName, digests)
 }
 
 // targetHostAddrsForShard resolves a shard's remote replica host addresses
-// (excluding the local node), mirroring CollectShardDifferences.
-func (f *Finder) targetHostAddrsForShard(shardName string) ([]string, error) {
+// (excluding the local node) into buf, mirroring CollectShardDifferences.
+// Host addrs come from the plan's replicas, resolved at plan-build time.
+func (f *Finder) targetHostAddrsForShard(shardName string, buf []string) ([]string, error) {
 	routingPlan, err := f.localReadRoutingPlan(shardName)
 	if err != nil {
 		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shardName)
@@ -514,18 +563,19 @@ func (f *Finder) targetHostAddrsForShard(shardName string) ([]string, error) {
 		return nil, fmt.Errorf("could not resolve hostname for local node %q: class %q shard %q", localNodeName, f.class, shardName)
 	}
 
-	var hosts []string
-	for _, node := range routingPlan.NodeNames() {
-		if node == localNodeName {
+	hosts := buf[:0]
+	for _, replica := range routingPlan.Replicas() {
+		if replica.NodeName == localNodeName || replica.HostAddr == localHostAddr {
 			continue
 		}
-		addr, ok := f.nodeResolver.NodeHostname(node)
-		if !ok || addr == localHostAddr {
-			continue
-		}
-		hosts = append(hosts, addr)
+		hosts = append(hosts, replica.HostAddr)
 	}
 	return hosts, nil
+}
+
+// TargetHostAddrsForShard exposes per-shard replica host resolution for the scheduler's cross-class pre-filter.
+func (f *Finder) TargetHostAddrsForShard(shardName string) ([]string, error) {
+	return f.targetHostAddrsForShard(shardName, nil)
 }
 
 // prefilterMaxShardsPerRPC caps shards per CompareHashTreeRoots request to bound
@@ -550,12 +600,14 @@ func (f *Finder) PrefilterShardRoots(ctx context.Context,
 	needFull := make(map[string]struct{})
 	byHost := make(map[string]map[string]hashtree.Digest)
 
+	var hostsBuf []string
 	for shard, root := range roots {
-		hosts, err := f.targetHostAddrsForShard(shard)
+		hosts, err := f.targetHostAddrsForShard(shard, hostsBuf)
 		if err != nil {
 			needFull[shard] = struct{}{}
 			continue
 		}
+		hostsBuf = hosts
 		for _, h := range hosts {
 			sub := byHost[h]
 			if sub == nil {
@@ -567,7 +619,7 @@ func (f *Finder) PrefilterShardRoots(ctx context.Context,
 	}
 
 	var stats PrefilterStats
-	chunk := make(map[string]hashtree.Digest, prefilterMaxShardsPerRPC)
+	chunk := make(map[string]hashtree.Digest, min(len(roots), prefilterMaxShardsPerRPC))
 	flush := func(host string) {
 		if len(chunk) == 0 {
 			return
@@ -616,12 +668,15 @@ func (f *Finder) LocalNodeName() string {
 	return f.nodeName
 }
 
-// CountObjects returns an aggregated object count from all replicas the shard exists on.
-func (f *Finder) CountObjects(ctx context.Context, shard string, cl types.ConsistencyLevel) (int, error) {
+// CountObjects returns a shard's object count, reconciled over the replicas in
+// plan that its consistency level reaches. At ONE that is one replica's answer
+// verbatim. plan must come from the router, which validates the tenant.
+func (f *Finder) CountObjects(ctx context.Context, plan types.ReadRoutingPlan) (int, error) {
+	shard := plan.Shard
 	c := NewReadCoordinator[int](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
 
 	// NOTE(dyma): Why do we need to pass both the context and the timeout?
-	results, _, err := c.Pull(ctx, cl, func(ctx context.Context, host string, _ bool) (int, error) {
+	results, _ := c.pull(ctx, plan, func(ctx context.Context, host string, _ bool) (int, error) {
 		count, err := f.client.cl.CountObjects(ctx, host, f.class, shard)
 		if err != nil {
 			f.logger.WithFields(logrus.Fields{
@@ -631,10 +686,7 @@ func (f *Finder) CountObjects(ctx context.Context, shard string, cl types.Consis
 			return 0, err
 		}
 		return count, nil
-	}, "", time.Minute)
-	if err != nil {
-		return 0, nil
-	}
+	}, time.Minute)
 
 	// Fan in results from all concurrent Pull requests. Results with
 	// errors (e.g. shard not yet loaded on a follower) are excluded
@@ -749,16 +801,9 @@ func (f *Finder) BroadcastCreateAsyncCheckpoint(ctx context.Context, shardNames 
 	for addr, shards := range addrShards {
 		addr, shards := addr, shards
 		eg.Go(func() error {
-			if err := f.client.cl.CreateAsyncCheckpoint(egCtx, addr, f.class, shards, cutoffMs, createdAt); err != nil {
+			if err := f.client.CreateAsyncCheckpoint(egCtx, addr, f.class, shards, cutoffMs, createdAt); err != nil {
 				failure.Add(1)
-				f.logger.WithFields(logrus.Fields{
-					"action": "async_checkpoint_broadcast",
-					"op":     "create",
-					"class":  f.class,
-					"addr":   addr,
-					"shards": shards,
-				}).WithError(err).
-					Warn("async-checkpoint create rejected by remote replica")
+				f.logRejectedCheckpointRPC("create", addr, len(shards), err)
 				return nil
 			}
 			success.Add(1)
@@ -775,6 +820,26 @@ func (f *Finder) BroadcastCreateAsyncCheckpoint(ctx context.Context, shardNames 
 	return int(success.Load()), int(failure.Load())
 }
 
+// logRejectedCheckpointRPC warns once per op and host per throttle window; the rest, one per class, go to Debug.
+func (f *Finder) logRejectedCheckpointRPC(op, addr string, shards int, err error) {
+	log := f.logger.WithFields(logrus.Fields{
+		"action":      "async_checkpoint_broadcast",
+		"op":          op,
+		"class":       f.class,
+		"addr":        addr,
+		"shard_count": shards,
+	})
+	ok, suppressed := checkpointLogThrottle.Allow(op + "\x00" + addr)
+	if !ok {
+		log.Debugf("async-checkpoint %s rejected by remote replica: %s", op, TruncatedError(err))
+		return
+	}
+	if suppressed > 0 {
+		log = log.WithField("suppressed", suppressed)
+	}
+	log.Warnf("async-checkpoint %s rejected by remote replica: %s", op, TruncatedError(err))
+}
+
 func (f *Finder) BroadcastDeleteAsyncCheckpoint(ctx context.Context, shardNames []string) (successes, failures int) {
 	addrShards, _ := f.groupShardsByAddr(shardNames)
 	var success, failure atomic.Int64
@@ -783,16 +848,9 @@ func (f *Finder) BroadcastDeleteAsyncCheckpoint(ctx context.Context, shardNames 
 	for addr, shards := range addrShards {
 		addr, shards := addr, shards
 		eg.Go(func() error {
-			if err := f.client.cl.DeleteAsyncCheckpoint(egCtx, addr, f.class, shards); err != nil {
+			if err := f.client.DeleteAsyncCheckpoint(egCtx, addr, f.class, shards); err != nil {
 				failure.Add(1)
-				f.logger.WithFields(logrus.Fields{
-					"action": "async_checkpoint_broadcast",
-					"op":     "delete",
-					"class":  f.class,
-					"addr":   addr,
-					"shards": shards,
-				}).WithError(err).
-					Warn("async-checkpoint delete rejected by remote replica")
+				f.logRejectedCheckpointRPC("delete", addr, len(shards), err)
 				return nil
 			}
 			success.Add(1)
@@ -822,7 +880,7 @@ func (f *Finder) BroadcastGetAsyncCheckpointStatus(ctx context.Context, shardNam
 		addr, shards := addr, shards
 		nodeName := addrToName[addr]
 		eg.Go(func() error {
-			remoteStatuses, err := f.client.cl.GetAsyncCheckpointStatus(egCtx, addr, f.class, shards)
+			remoteStatuses, err := f.client.GetAsyncCheckpointStatus(egCtx, addr, f.class, shards)
 			if err != nil {
 				failure.Add(1)
 				f.logger.WithFields(logrus.Fields{
@@ -832,8 +890,7 @@ func (f *Finder) BroadcastGetAsyncCheckpointStatus(ctx context.Context, shardNam
 					"addr":   addr,
 					"node":   nodeName,
 					"shards": shards,
-				}).WithError(err).
-					Debug("async-checkpoint status: remote replica unavailable")
+				}).Debugf("async-checkpoint status: remote replica unavailable: %v", err)
 				return nil
 			}
 			success.Add(1)

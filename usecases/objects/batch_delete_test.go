@@ -27,14 +27,18 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 func Test_BatchDelete_RequestValidation(t *testing.T) {
 	var (
-		vectorRepo *fakeVectorRepo
+		vectorRepo *fakeObjectFinder
 		manager    *BatchManager
 	)
 
@@ -58,7 +62,7 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 	}
 
 	resetAutoSchema := func(autoSchema bool) {
-		vectorRepo = &fakeVectorRepo{}
+		vectorRepo = &fakeObjectFinder{}
 		config := &config.WeaviateConfig{
 			Config: config.Config{
 				AutoSchema: config.AutoSchema{
@@ -73,7 +77,7 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider := getFakeModulesProvider()
 		manager = NewBatchManager(vectorRepo, modulesProvider, schemaManager, config, logger, authorizer, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, config, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, config, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 	}
 
 	reset := func() {
@@ -223,10 +227,10 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 // case is the regression guard that resolveNS is a no-op without a
 // namespace.
 func Test_BatchDelete_NamespaceResolution(t *testing.T) {
-	makeManager := func(t *testing.T, classes []*models.Class) (*BatchManager, *fakeVectorRepo, *mocks.FakeAuthorizer) {
+	makeManager := func(t *testing.T, classes []*models.Class) (*BatchManager, *fakeObjectFinder, *mocks.FakeAuthorizer) {
 		t.Helper()
 		sch := schema.Schema{Objects: &models.Schema{Classes: classes}}
-		vectorRepo := &fakeVectorRepo{}
+		vectorRepo := &fakeObjectFinder{}
 		cfg := &config.WeaviateConfig{
 			Config: config.Config{
 				AutoSchema: config.AutoSchema{
@@ -241,7 +245,7 @@ func Test_BatchDelete_NamespaceResolution(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		authorizer := mocks.NewMockAuthorizer()
 		manager := NewBatchManager(vectorRepo, getFakeModulesProvider(), schemaManager, cfg, logger, authorizer, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()), wlnamespaces.NewPrefixing())
 		return manager, vectorRepo, authorizer
 	}
 
@@ -349,9 +353,9 @@ func Test_BatchDelete_ValidationErrorsAreUserInput(t *testing.T) {
 		}}
 		schemaManager := &fakeSchemaManager{GetSchemaResponse: sch}
 		logger, _ := test.NewNullLogger()
-		vectorRepo := &fakeVectorRepo{}
+		vectorRepo := &fakeObjectFinder{}
 		return NewBatchManager(vectorRepo, getFakeModulesProvider(), schemaManager, cfg, logger, mocks.NewMockAuthorizer(), nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()), qualifierFor(nsEnabled))
 	}
 
 	t.Run("unknown property fails validation as user input", func(t *testing.T) {
@@ -380,6 +384,127 @@ func Test_BatchDelete_ValidationErrorsAreUserInput(t *testing.T) {
 			"foreign-NS inner class must be ErrInvalidUserInput, got %T: %v", err, err)
 		assert.Contains(t, err.Error(), "is not a valid class name")
 	})
+}
+
+// Test_BatchDelete_ValidationKeepsDenials pins that validateBatchDelete returns
+// a denied class read or filter class read as a Forbidden, so REST answers 403.
+// A failed class lookup is ErrInvalidUserInput.
+func Test_BatchDelete_ValidationKeepsDenials(t *testing.T) {
+	principal := &models.Principal{Username: "u"}
+	denied := authzerrs.NewForbidden(principal, authorization.READ, "Foo")
+
+	cases := []struct {
+		name      string
+		schemaErr error
+		// denyAfter lets that many authorizer calls pass and denies the rest: the
+		// DELETE check, then the namespace gate's class READ, then the filter's
+		// class READ. Zero denies nothing.
+		denyAfter     int
+		wantForbidden bool
+		wantMsg       string
+	}{
+		{
+			name: "class read denied at the gate", denyAfter: 1, wantForbidden: true,
+			wantMsg: "validate: " + denied.Error(),
+		},
+		{
+			name: "class lookup failed", schemaErr: errors.New("schema unavailable"),
+			wantMsg: "validate: failed to get class: Foo: schema unavailable",
+		},
+		{
+			name: "filter class read denied", denyAfter: 2, wantForbidden: true,
+			wantMsg: "validate: invalid where filter: ",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sch := schema.Schema{Objects: &models.Schema{Classes: []*models.Class{{
+				Class: "Foo",
+				Properties: []*models.Property{{
+					Name:         "name",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
+				}},
+				VectorIndexConfig: hnsw.UserConfig{},
+				Vectorizer:        config.VectorizerModuleNone,
+			}}}}
+			cfg := &config.WeaviateConfig{Config: config.Config{
+				AutoSchema: config.AutoSchema{Enabled: runtime.NewDynamicValue(false)},
+			}}
+			schemaManager := &fakeSchemaManager{GetSchemaResponse: sch, GetschemaErr: tc.schemaErr}
+			authorizer := mocks.NewMockAuthorizer()
+			if tc.denyAfter > 0 {
+				authorizer.SetErrAfter(tc.denyAfter, denied)
+			}
+			logger, _ := test.NewNullLogger()
+			vectorRepo := &fakeObjectFinder{}
+			manager := NewBatchManager(vectorRepo, getFakeModulesProvider(), schemaManager, cfg, logger, authorizer, nil,
+				NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
+
+			match := &models.BatchDeleteMatch{
+				Class: "Foo",
+				Where: &models.WhereFilter{Path: []string{"name"}, Operator: "Equal", ValueText: ptString("v")},
+			}
+			_, err := manager.DeleteObjects(context.Background(), principal, match, nil, ptBool(true),
+				ptString(verbosity.OutputMinimal), nil, "")
+			require.ErrorContains(t, err, tc.wantMsg)
+			require.Equal(t, tc.wantForbidden, errors.As(err, &authzerrs.Forbidden{}))
+			require.Equal(t, !tc.wantForbidden, errors.As(err, &ErrInvalidUserInput{}))
+		})
+	}
+}
+
+// The gRPC entry point is called with pre-validated params, so it resolves the
+// collection's schema version itself instead of through validateBatchDelete.
+func Test_BatchDelete_FromGRPC_Uses_SchemaVersion(t *testing.T) {
+	const classVersion uint64 = 9
+
+	tests := []struct {
+		name      string
+		lookupErr error
+		wantErr   string
+	}{
+		{
+			name: "deleted",
+		},
+		{
+			name:      "collection lookup fails",
+			lookupErr: errors.New("leader unreachable"),
+			wantErr:   "could not get class Foo",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sch := schema.Schema{Objects: &models.Schema{Classes: []*models.Class{{
+				Class: "Foo", Vectorizer: config.VectorizerModuleNone, VectorIndexConfig: hnsw.UserConfig{},
+			}}}}
+			vectorRepo := &fakeObjectFinder{}
+			vectorRepo.On("BatchDeleteObjects", mock.Anything).Return(BatchDeleteResult{}, nil).Once()
+			schemaManager := &fakeSchemaManager{
+				GetSchemaResponse: sch,
+				ClassVersion:      classVersion,
+				GetschemaErr:      tt.lookupErr,
+			}
+			cfg := &config.WeaviateConfig{}
+			logger, _ := test.NewNullLogger()
+			manager := NewBatchManager(vectorRepo, getFakeModulesProvider(), schemaManager, cfg, logger,
+				mocks.NewMockAuthorizer(), nil,
+				NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
+
+			_, err := manager.DeleteObjectsFromGRPCAfterAuth(context.Background(), &models.Principal{},
+				BatchDeleteParams{ClassName: "Foo"}, nil, "")
+
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				vectorRepo.AssertNotCalled(t, "BatchDeleteObjects", mock.Anything)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, classVersion, vectorRepo.CapturedSchemaVersion,
+				"the delete must be made with the collection's schema version")
+		})
+	}
 }
 
 func ptBool(b bool) *bool {

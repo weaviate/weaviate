@@ -17,10 +17,13 @@ package mcp
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"fmt"
+	"io"
 
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 )
 
 // McpDeleteReader is a Reader for the McpDelete structure.
@@ -37,6 +40,12 @@ func (o *McpDeleteReader) ReadResponse(response runtime.ClientResponse, consumer
 			return nil, err
 		}
 		return result, nil
+	case 503:
+		result := NewMcpDeleteServiceUnavailable()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -50,7 +59,7 @@ func NewMcpDeleteOK() *McpDeleteOK {
 /*
 McpDeleteOK describes a response with status code 200, with default header values.
 
-Session terminated
+Accepted; there is no session state to terminate
 */
 type McpDeleteOK struct {
 }
@@ -95,5 +104,111 @@ func (o *McpDeleteOK) String() string {
 
 func (o *McpDeleteOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
+	return nil
+}
+
+// NewMcpDeleteServiceUnavailable creates a McpDeleteServiceUnavailable with default headers values
+func NewMcpDeleteServiceUnavailable() *McpDeleteServiceUnavailable {
+	return &McpDeleteServiceUnavailable{}
+}
+
+/*
+McpDeleteServiceUnavailable describes a response with status code 503, with default header values.
+
+MCP server is disabled
+*/
+type McpDeleteServiceUnavailable struct {
+	Payload *McpDeleteServiceUnavailableBody
+}
+
+// IsSuccess returns true when this mcp delete service unavailable response has a 2xx status code
+func (o *McpDeleteServiceUnavailable) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this mcp delete service unavailable response has a 3xx status code
+func (o *McpDeleteServiceUnavailable) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this mcp delete service unavailable response has a 4xx status code
+func (o *McpDeleteServiceUnavailable) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this mcp delete service unavailable response has a 5xx status code
+func (o *McpDeleteServiceUnavailable) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this mcp delete service unavailable response a status code equal to that given
+func (o *McpDeleteServiceUnavailable) IsCode(code int) bool {
+	return code == 503
+}
+
+// Code gets the status code for the mcp delete service unavailable response
+func (o *McpDeleteServiceUnavailable) Code() int {
+	return 503
+}
+
+func (o *McpDeleteServiceUnavailable) Error() string {
+	return fmt.Sprintf("[DELETE /mcp][%d] mcpDeleteServiceUnavailable  %+v", 503, o.Payload)
+}
+
+func (o *McpDeleteServiceUnavailable) String() string {
+	return fmt.Sprintf("[DELETE /mcp][%d] mcpDeleteServiceUnavailable  %+v", 503, o.Payload)
+}
+
+func (o *McpDeleteServiceUnavailable) GetPayload() *McpDeleteServiceUnavailableBody {
+	return o.Payload
+}
+
+func (o *McpDeleteServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(McpDeleteServiceUnavailableBody)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+/*
+McpDeleteServiceUnavailableBody mcp delete service unavailable body
+swagger:model McpDeleteServiceUnavailableBody
+*/
+type McpDeleteServiceUnavailableBody struct {
+
+	// error
+	Error string `json:"error,omitempty"`
+}
+
+// Validate validates this mcp delete service unavailable body
+func (o *McpDeleteServiceUnavailableBody) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this mcp delete service unavailable body based on context it is used
+func (o *McpDeleteServiceUnavailableBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (o *McpDeleteServiceUnavailableBody) MarshalBinary() ([]byte, error) {
+	if o == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(o)
+}
+
+// UnmarshalBinary interface implementation
+func (o *McpDeleteServiceUnavailableBody) UnmarshalBinary(b []byte) error {
+	var res McpDeleteServiceUnavailableBody
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*o = res
 	return nil
 }

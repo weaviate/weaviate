@@ -15,8 +15,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -28,6 +30,13 @@ import (
 // re-computed at read-time.
 var ErrInvalidChecksum = errors.New("invalid checksum")
 
+// canRecomputeSidecar reports whether a failed load of a bloom filter, count net
+// additions or metadata file can be resolved by computing it again: the file is
+// corrupt, or it is gone even though the file list said it exists.
+func canRecomputeSidecar(err error) bool {
+	return errors.Is(err, ErrInvalidChecksum) || errors.Is(err, fs.ErrNotExist)
+}
+
 const CountNetAdditionsFileSuffix = ".cna"
 
 // existOnLowerSegments is a simple function that can be passed at segment
@@ -38,6 +47,58 @@ type existsOnLowerSegmentsFn func(key []byte) (bool, error)
 
 func (s *segment) countNetPath() string {
 	return s.buildPath("%s.cna")
+}
+
+const netAdditionsOutputBufferSize = 10e6
+
+var netAdditionsBufferPool = sync.Pool{
+	New: func() any {
+		buf := make([]byte, netAdditionsOutputBufferSize)
+		return &buf
+	},
+}
+
+// computeNetAdditions takes a key exists cannot answer for as new, as
+// Bucket.existsOnDiskAndPreviousMemtable does, so the count can overstate.
+// Reported rather than returned: a flush failing here strands writes whose
+// commit log is already gone.
+func (s *segment) computeNetAdditions(exists existsOnLowerSegmentsFn) int {
+	var lookupErr error
+	unanswered := 0
+	countNet := 0
+	cb := func(key []byte, tombstone bool) {
+		existedOnPrior, err := exists(key)
+		if err != nil {
+			lookupErr = err
+			unanswered++
+			existedOnPrior = false
+		}
+
+		if tombstone && existedOnPrior {
+			countNet--
+		}
+
+		if !tombstone && !existedOnPrior {
+			countNet++
+		}
+	}
+
+	// a chunked replay builds one segment per chunk, so without the pool a run of
+	// a hundred drops a gigabyte on the startup path chunking exists to keep quiet.
+	// The buffer goes back only after do returns, which is after the last callback.
+	buf := netAdditionsBufferPool.Get().(*[]byte)
+	defer netAdditionsBufferPool.Put(buf)
+
+	extr := newBufferedKeyAndTombstoneExtractor(s.contents, s.dataStartPos,
+		s.dataEndPos, *buf, s.secondaryIndexCount, cb)
+	extr.do()
+
+	if lookupErr != nil {
+		s.logger.WithField("path", s.path).
+			Errorf("object count takes %d keys as new because their lower segments could not be read, last error: %v",
+				unanswered, lookupErr)
+	}
+	return countNet
 }
 
 func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool, precomputedCNAValue *int, existingFilesList map[string]int64) error {
@@ -65,8 +126,7 @@ func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrit
 				return nil
 			}
 
-			if !errors.Is(err, ErrInvalidChecksum) {
-				// not a recoverable error
+			if !canRecomputeSidecar(err) {
 				return err
 			}
 
@@ -77,33 +137,7 @@ func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrit
 	if precomputedCNAValue != nil {
 		s.countNetAdditions = *precomputedCNAValue
 	} else {
-		var lastErr error
-		countNet := 0
-		cb := func(key []byte, tombstone bool) {
-			existedOnPrior, err := exists(key)
-			if err != nil {
-				lastErr = err
-			}
-
-			if tombstone && existedOnPrior {
-				countNet--
-			}
-
-			if !tombstone && !existedOnPrior {
-				countNet++
-			}
-		}
-
-		extr := newBufferedKeyAndTombstoneExtractor(s.contents, s.dataStartPos,
-			s.dataEndPos, 10e6, s.secondaryIndexCount, cb)
-
-		extr.do()
-
-		s.countNetAdditions = countNet
-
-		if lastErr != nil {
-			return lastErr
-		}
+		s.countNetAdditions = s.computeNetAdditions(exists)
 	}
 
 	if err := s.storeCountNetOnDisk(); err != nil {

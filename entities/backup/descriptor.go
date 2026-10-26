@@ -56,6 +56,28 @@ type DistributedBackupDescriptor struct {
 	CompressionType         CompressionType            `json:"compressionType"`
 	BaseBackupID            string                     `json:"baseBackupId"`
 	Users                   []string                   `json:"users,omitempty"`
+	Roles                   []string                   `json:"roles,omitempty"`
+	// DedupeReplicas marks a replica-deduped artifact (Version 3.x): restore must fan shards out to all replicas.
+	DedupeReplicas bool `json:"dedupeReplicas,omitempty"`
+	// DedupeDesignatedShards/DedupeFallbackShards record the dedupe planning outcome; both zero on legacy artifacts.
+	DedupeDesignatedShards int `json:"dedupeDesignatedShards,omitempty"`
+	DedupeFallbackShards   int `json:"dedupeFallbackShards,omitempty"`
+	// DedupeCutoffsMs: per-class checkpoint cutoff (epoch ms) for deduped classes; the artifact provably contains every write acked at or before it.
+	DedupeCutoffsMs map[string]int64 `json:"dedupeCutoffsMs,omitempty"`
+	// DedupeDesignations (class→shard→archiving node) lets a later incremental keep the designee — the only replica whose node-local diff can skip.
+	DedupeDesignations map[string]map[string]string `json:"dedupeDesignations,omitempty"`
+	// DedupeSkippedBytes: bytes attributed to skipping replicas; real archived ≈ PreCompressionSizeBytes − DedupeSkippedBytes.
+	DedupeSkippedBytes int64 `json:"dedupeSkippedBytes,omitempty"`
+	// SkipUsers/SkipRoles record an explicit user-supplied empty list or if user-supplied wildcards matched nothing.
+	// Restore discards any user or RBAC blob a node uploaded anyway, which a participant predating the request-level skip flag does.
+	// That discard leaves BuiltInRoleAssignments in place.
+	SkipUsers bool `json:"skipUsers,omitempty"`
+	SkipRoles bool `json:"skipRoles,omitempty"`
+	// BuiltInRoleAssignments is an RBAC snapshot of the admin and viewer assignments the backup
+	// carries: those of the backed-up db users and of the OIDC users in the namespaces includeRoles
+	// names. The coordinator writes it when includeRoles is set; restore merges it into the RBAC
+	// blob it applies.
+	BuiltInRoleAssignments []byte `json:"builtInRoleAssignments,omitempty"`
 }
 
 // Len returns how many nodes exist in d
@@ -179,21 +201,6 @@ func (d *DistributedBackupDescriptor) ToOriginalNodeName(nodeName string) string
 	return nodeName
 }
 
-// ApplyNodeMapping applies d.NodeMapping translation to d.Nodes. If a node in d.Nodes is not translated by d.NodeMapping, it will remain
-// unchanged.
-func (d *DistributedBackupDescriptor) ApplyNodeMapping() {
-	if len(d.NodeMapping) == 0 {
-		return
-	}
-
-	for k, v := range d.NodeMapping {
-		if nodeDescriptor, ok := d.Nodes[k]; !ok {
-			d.Nodes[v] = nodeDescriptor
-			delete(d.Nodes, k)
-		}
-	}
-}
-
 // AllExist checks if all classes exist in d.
 // It returns either "" or the first class which it could not find
 func (d *DistributedBackupDescriptor) AllExist(classes []string) string {
@@ -253,7 +260,19 @@ func (d *DistributedBackupDescriptor) GetStatus() Status {
 	return d.Status
 }
 
+func (d *DistributedBackupDescriptor) GetVersion() string {
+	return d.Version
+}
+
+func (d *DistributedBackupDescriptor) GetServerVersion() string {
+	return d.ServerVersion
+}
+
 func (d *DistributedBackupDescriptor) GetCompressionType() CompressionType {
+	// pre-zstd global descriptors lack the field and default to gzip
+	if d.CompressionType == "" {
+		return CompressionGZIP
+	}
 	return d.CompressionType
 }
 
@@ -268,6 +287,8 @@ type ShardDescriptor struct {
 	Files                 []string               `json:"files,omitempty"`
 	BigFilesChunk         map[string]BigFileInfo `json:"bigFilesChunk,omitempty"`
 	IncrementalBackupInfo IncrementalBackupInfos `json:"incrementalBackupInfo"`
+	// PreCompressionSizeBytes: archived bytes before compression, incl. incremental-skipped bytes.
+	PreCompressionSizeBytes int64 `json:"preCompressionSizeBytes,omitempty"`
 
 	DocIDCounterPath      string `json:"docIdCounterPath,omitempty"`
 	DocIDCounter          []byte `json:"docIdCounter,omitempty"`
@@ -348,7 +369,7 @@ FilesLoop:
 }
 
 type ShardAndID struct {
-	ShardDesc *ShardDescriptor
+	ShardDesc *BaseShardDescriptor
 	BackupID  string
 }
 
@@ -356,10 +377,11 @@ type ShardAndID struct {
 type FileList struct {
 	Files     []string
 	FileSizes map[string]int64 // map of relative file path to file size in bytes
-	// Top100Size is the size of the 100th biggest file (or smallest if fewer than 100 files),
-	// with a minimum of 1MB. This can be used for chunk size optimization.
-	Top100Size int64
-	start      int
+	// BigFilesThreshold is the size of the n-th biggest file, clamped to a minimum chunk size,
+	// where n is the configured number of files that may get their own chunk, minus the files
+	// reused from the base backup.
+	BigFilesThreshold int64
+	start             int
 }
 
 // Len returns the number of files in the list
@@ -514,18 +536,32 @@ type BackupDescriptor struct {
 	PreCompressionSizeBytes int64             `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
 	CompressionType         *CompressionType  `json:"compressionType,omitempty"`
 	BaseBackupID            string            `json:"baseBackupId,omitempty"`
+	// DedupeReplicas mirrors the global descriptor's flag into each node's meta.
+	DedupeReplicas bool `json:"dedupeReplicas,omitempty"`
 }
 
 func (d *BackupDescriptor) GetCompressionType() CompressionType {
-	if d.CompressionType == nil {
-		// backward compatibility with old backups that don't have this field and default to gzip
+	return compressionTypeOrGZIP(d.CompressionType)
+}
+
+// compressionTypeOrGZIP returns CompressionGZIP for backup metadata written without a compressionType field.
+func compressionTypeOrGZIP(c *CompressionType) CompressionType {
+	if c == nil {
 		return CompressionGZIP
 	}
-	return *d.CompressionType
+	return *c
 }
 
 func (d *BackupDescriptor) GetStatus() Status {
 	return d.Status
+}
+
+func (d *BackupDescriptor) GetVersion() string {
+	return d.Version
+}
+
+func (d *BackupDescriptor) GetServerVersion() string {
+	return d.ServerVersion
 }
 
 // List all existing classes in d
@@ -618,38 +654,10 @@ func (d *BackupDescriptor) GetClassDescriptor(className string) *ClassDescriptor
 	return nil
 }
 
-// ValidateV1 validates d
-func (d *BackupDescriptor) validateV1() error {
-	for _, c := range d.Classes {
-		if c.Name == "" || len(c.Schema) == 0 || len(c.ShardingState) == 0 {
-			return fmt.Errorf("invalid class %q: [name schema sharding]", c.Name)
-		}
-		for _, s := range c.Shards {
-			n := len(s.Files)
-			if s.Name == "" || s.Node == "" || s.DocIDCounterPath == "" ||
-				s.ShardVersionPath == "" || s.PropLengthTrackerPath == "" ||
-				(n > 0 && (len(s.DocIDCounter) == 0 ||
-					len(s.PropLengthTracker) == 0 ||
-					len(s.Version) == 0)) {
-				return fmt.Errorf("invalid shard %q.%q", c.Name, s.Name)
-			}
-			for i, fpath := range s.Files {
-				if fpath == "" {
-					return fmt.Errorf("invalid shard %q.%q: file number %d", c.Name, s.Name, i)
-				}
-			}
-		}
-	}
-	return nil
-}
-
-func (d *BackupDescriptor) Validate(newSchema bool) error {
+func (d *BackupDescriptor) Validate() error {
 	if d.StartedAt.IsZero() || d.ID == "" ||
 		d.Version == "" || d.ServerVersion == "" || d.Error != "" {
 		return fmt.Errorf("attribute mismatch: [id versions time error]")
-	}
-	if !newSchema {
-		return d.validateV1()
 	}
 	for _, c := range d.Classes {
 		if c.Name == "" || len(c.Schema) == 0 || len(c.ShardingState) == 0 {
@@ -664,26 +672,70 @@ func (d *BackupDescriptor) Validate(newSchema bool) error {
 	return nil
 }
 
-// ToDistributed is used just for backward compatibility with the old version.
-func (d *BackupDescriptor) ToDistributed() *DistributedBackupDescriptor {
-	node, cs := "", d.List()
-	for _, xs := range d.Classes {
-		for _, s := range xs.Shards {
-			node = s.Node
+// BaseBackupDescriptor holds the fields of a node's backup metadata that an
+// incremental backup reads from the backups it builds on. Decoding into it skips
+// the metadata's file lists, so a chain of bases stays small in memory.
+type BaseBackupDescriptor struct {
+	StartedAt       time.Time             `json:"startedAt"`
+	Status          Status                `json:"status"`
+	Version         string                `json:"version"`
+	ServerVersion   string                `json:"serverVersion"`
+	CompressionType *CompressionType      `json:"compressionType,omitempty"`
+	BaseBackupID    string                `json:"baseBackupId,omitempty"`
+	Classes         []BaseClassDescriptor `json:"classes"`
+}
+
+type BaseClassDescriptor struct {
+	Name     string                `json:"name"`
+	BackupID string                `json:"backupId"`
+	Shards   []BaseShardDescriptor `json:"shards"`
+}
+
+// BaseShardDescriptor holds the big-file chunks FillFileInfo reuses for a file
+// that is unchanged since the base backup.
+type BaseShardDescriptor struct {
+	Name          string                 `json:"name"`
+	BigFilesChunk map[string]BigFileInfo `json:"bigFilesChunk,omitempty"`
+}
+
+func (d *BaseBackupDescriptor) GetCompressionType() CompressionType {
+	return compressionTypeOrGZIP(d.CompressionType)
+}
+
+func (d *BaseBackupDescriptor) GetStatus() Status {
+	return d.Status
+}
+
+func (d *BaseBackupDescriptor) GetVersion() string {
+	return d.Version
+}
+
+func (d *BaseBackupDescriptor) GetServerVersion() string {
+	return d.ServerVersion
+}
+
+func (d *BaseBackupDescriptor) GetBaseBackupID() string {
+	return d.BaseBackupID
+}
+
+func (d *BaseBackupDescriptor) GetStartedAt() time.Time {
+	return d.StartedAt
+}
+
+func (d *BaseBackupDescriptor) GetClassDescriptor(className string) *BaseClassDescriptor {
+	for i := range d.Classes {
+		if d.Classes[i].Name == className {
+			return &d.Classes[i]
 		}
 	}
-	result := &DistributedBackupDescriptor{
-		StartedAt:               d.StartedAt,
-		CompletedAt:             d.CompletedAt,
-		ID:                      d.ID,
-		Status:                  Status(d.Status),
-		Version:                 d.Version,
-		ServerVersion:           d.ServerVersion,
-		Error:                   d.Error,
-		PreCompressionSizeBytes: d.PreCompressionSizeBytes, // Copy pre-compression size
+	return nil
+}
+
+func (c *BaseClassDescriptor) GetShardDescriptor(shardName string) *BaseShardDescriptor {
+	for i := range c.Shards {
+		if c.Shards[i].Name == shardName {
+			return &c.Shards[i]
+		}
 	}
-	if node != "" && len(cs) > 0 {
-		result.Nodes = map[string]*NodeDescriptor{node: {Classes: cs}}
-	}
-	return result
+	return nil
 }

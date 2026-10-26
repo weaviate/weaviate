@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -49,7 +50,7 @@ func TestRaftEndpoints(t *testing.T) {
 	m.indexer.On("AddProperty", Anything, Anything).Return(nil)
 	m.indexer.On("UpdateShardStatus", Anything).Return(nil)
 	m.indexer.On("AddTenants", Anything, Anything).Return(nil)
-	m.indexer.On("UpdateTenants", Anything, Anything).Return(nil)
+	m.indexer.On("UpdateTenants", Anything, Anything, Anything).Return(nil)
 	m.indexer.On("DeleteTenants", Anything, Anything).Return(nil)
 	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 	m.indexer.On("AddReplicaToShard", Anything, Anything, Anything).Return(nil)
@@ -67,6 +68,9 @@ func TestRaftEndpoints(t *testing.T) {
 	// LeaderNotFound
 	_, err := srv.Execute(ctx, &command.ApplyRequest{})
 	assert.ErrorIs(t, err, types.ErrLeaderNotFound)
+	// This number sits far above every defined apply type, so no new type will claim it.
+	_, err = srv.Execute(ctx, &command.ApplyRequest{Type: command.ApplyRequest_Type(1 << 20)})
+	assert.ErrorIs(t, err, types.ErrUnknownCommand)
 	assert.ErrorIs(t, srv.Join(ctx, m.store.cfg.NodeID, addr, true), types.ErrLeaderNotFound)
 	assert.ErrorIs(t, srv.Remove(ctx, m.store.cfg.NodeID), types.ErrLeaderNotFound)
 
@@ -118,24 +122,24 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.ErrorIs(t, err, schema.ErrClassExists)
 
 	// QueryReadOnlyClass
-	readOnlyVClass, err := srv.QueryReadOnlyClasses(cls.Class)
+	readOnlyVClass, err := srv.ReadOnlyClassesFromLeader(cls.Class)
 	assert.NoError(t, err)
 	assert.NotNil(t, readOnlyVClass[cls.Class].Class)
 	assert.Equal(t, cls, readOnlyVClass[cls.Class].Class)
 
-	// QueryClassVersions
-	classVersions, err := srv.QueryClassVersions(cls.Class)
+	// ClassVersionsFromLeader
+	classVersions, err := srv.ClassVersionsFromLeader(cls.Class)
 	assert.NoError(t, err)
 	assert.Equal(t, readOnlyVClass[cls.Class].Version, classVersions[cls.Class])
 
-	// QuerySchema
-	getSchema, err := srv.QuerySchema()
+	// SchemaFromLeader
+	getSchema, err := srv.SchemaFromLeader()
 	assert.NoError(t, err)
 	assert.NotNil(t, getSchema)
 	assert.Equal(t, models.Schema{Classes: []*models.Class{readOnlyVClass[cls.Class].Class}}, getSchema)
 
-	// QueryTenants all
-	getTenantsAll, _, err := srv.QueryTenants(cls.Class, []string{})
+	// TenantsFromLeader all
+	getTenantsAll, _, err := srv.TenantsFromLeader(cls.Class, []string{})
 	assert.NoError(t, err)
 	assert.NotNil(t, getTenantsAll)
 	assert.Equal(t, []*models.Tenant{{
@@ -143,8 +147,8 @@ func TestRaftEndpoints(t *testing.T) {
 		ActivityStatus: models.TenantActivityStatusHOT,
 	}}, getTenantsAll)
 
-	// QueryTenants one
-	getTenantsOne, _, err := srv.QueryTenants(cls.Class, []string{"T0"})
+	// TenantsFromLeader one
+	getTenantsOne, _, err := srv.TenantsFromLeader(cls.Class, []string{"T0"})
 	assert.NoError(t, err)
 	assert.NotNil(t, getTenantsOne)
 	assert.Equal(t, []*models.Tenant{{
@@ -152,36 +156,36 @@ func TestRaftEndpoints(t *testing.T) {
 		ActivityStatus: models.TenantActivityStatusHOT,
 	}}, getTenantsOne)
 
-	// QueryTenants one
-	getTenantsNone, _, err := srv.QueryTenants(cls.Class, []string{"T"})
+	// TenantsFromLeader one
+	getTenantsNone, _, err := srv.TenantsFromLeader(cls.Class, []string{"T"})
 	assert.NoError(t, err)
 	assert.NotNil(t, getTenantsNone)
 	assert.Equal(t, []*models.Tenant{}, getTenantsNone)
 
 	// Query ShardTenant
-	getTenantShards, _, err := srv.QueryTenantsShards(cls.Class, "T0")
+	getTenantShards, _, err := srv.TenantsShardsFromLeader(cls.Class, "T0")
 	for tenant, status := range getTenantShards {
 		assert.Nil(t, err)
 		assert.Equal(t, "T0", tenant)
 		assert.Equal(t, models.TenantActivityStatusHOT, status)
 	}
 
-	// QueryShardOwner
-	srv.UpdateClass(ctx, cls, &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"T0": {Name: "T0", BelongsToNodes: []string{"N0"}}}})
-	getShardOwner, _, err := srv.QueryShardOwner(cls.Class, "T0")
+	// ShardOwnerFromLeader
+	srv.UpdateClass(ctx, cls, &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"T0": {Name: "T0", BelongsToNodes: []string{"N0"}}}}, command.ClassUpdateOriginUser)
+	getShardOwner, _, err := srv.ShardOwnerFromLeader(cls.Class, "T0")
 	assert.Nil(t, err)
 	assert.Equal(t, "N0", getShardOwner)
 	// Verify that updating with nil sharding state does not change the sharding state
-	srv.UpdateClass(ctx, cls, nil)
-	getShardOwner, _, err = srv.QueryShardOwner(cls.Class, "T0")
+	srv.UpdateClass(ctx, cls, nil, command.ClassUpdateOriginUser)
+	getShardOwner, _, err = srv.ShardOwnerFromLeader(cls.Class, "T0")
 	assert.Nil(t, err)
 	assert.Equal(t, "N0", getShardOwner)
 
-	// QueryShardingState
+	// ShardingStateFromLeader
 	shardingState := &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"T0": {Name: "T0", BelongsToNodes: []string{"N0"}}}, ReplicationFactor: 1}
-	srv.UpdateClass(ctx, cls, shardingState)
+	srv.UpdateClass(ctx, cls, shardingState, command.ClassUpdateOriginUser)
 
-	getShardingState, _, err := srv.QueryShardingState(cls.Class)
+	getShardingState, _, err := srv.ShardingStateFromLeader(cls.Class)
 	assert.Nil(t, err)
 	assert.Equal(t, shardingState, getShardingState)
 
@@ -192,12 +196,12 @@ func TestRaftEndpoints(t *testing.T) {
 		ReplicationFactor: 1,
 		Tenants:           1,
 	}
-	_, err = srv.UpdateClass(ctx, nil, nil)
+	_, err = srv.UpdateClass(ctx, nil, nil, command.ClassUpdateOriginUser)
 	assert.ErrorIs(t, err, schema.ErrBadRequest)
 	cls.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
 	cls.ReplicationConfig = &models.ReplicationConfig{Factor: 1}
 	ss.Physical = map[string]sharding.Physical{"T0": {Name: "T0"}}
-	version, err := srv.UpdateClass(ctx, cls, nil)
+	version, err := srv.UpdateClass(ctx, cls, nil, command.ClassUpdateOriginUser)
 	info.ClassVersion = version
 	info.ShardVersion = version0
 	assert.Nil(t, err)
@@ -275,61 +279,6 @@ func TestRaftEndpoints(t *testing.T) {
 	require.Nil(t, err)
 	assert.Equal(t, []string{"Node-1"}, ss.Physical["T2"].BelongsToNodes)
 
-	// SyncShard with active tenant
-	_, err = srv.SyncShard(ctx, "", "", "")
-	assert.ErrorIs(t, err, schema.ErrBadRequest)
-	m.indexer.On("ShutdownShard", mock.Anything, mock.Anything).Return(nil).Times(0)
-	m.indexer.On("LoadShard", "C", "A").Return(nil).Times(1)
-	_, err = srv.SyncShard(ctx, "C", "A", "Node-1")
-	assert.Nil(t, err)
-
-	// SyncShard with inactive tenant
-	_, err = srv.UpdateShardStatus(ctx, "C", "A", "INACTIVE")
-	assert.Nil(t, err)
-
-	_, err = srv.SyncShard(ctx, "", "", "")
-	assert.ErrorIs(t, err, schema.ErrBadRequest)
-	m.indexer.On("ShutdownShard", "C", "A").Return(nil).Times(1)
-	m.indexer.On("LoadShard", mock.Anything, mock.Anything).Return(nil).Times(0)
-	_, err = srv.SyncShard(ctx, "C", "A", "Node-1")
-	assert.Nil(t, err)
-
-	_, err = srv.UpdateShardStatus(ctx, "C", "A", "ACTIVE")
-	assert.Nil(t, err)
-
-	// SyncShard with absent tenant
-	_, err = srv.SyncShard(ctx, "", "", "")
-	assert.ErrorIs(t, err, schema.ErrBadRequest)
-	m.indexer.On("ShutdownShard", "C", "T0").Return(nil).Times(1)
-	m.indexer.On("LoadShard", mock.Anything, mock.Anything).Return(nil).Times(0)
-	_, err = srv.SyncShard(ctx, "C", "T0", "Node-1")
-	assert.Nil(t, err)
-
-	// Add single-tenant collection
-	cls = &models.Class{
-		Class: "D",
-	}
-	ss = &sharding.State{
-		PartitioningEnabled: false,
-		Physical:            map[string]sharding.Physical{"S0": {Name: "S0"}},
-		Virtual:             []sharding.Virtual{{}}, // Doesn't matter for test
-	}
-	_, err = srv.AddClass(ctx, cls, ss)
-	assert.Nil(t, err)
-	assert.Equal(t, schemaReader.ClassEqual("D"), "D")
-
-	// SyncShard with ST collection and present shard
-	m.indexer.On("ShutdownShard", mock.Anything, mock.Anything).Return(nil).Times(0)
-	m.indexer.On("LoadShard", "D", "S0").Return(nil).Times(1)
-	_, err = srv.SyncShard(ctx, "D", "S0", "Node-1")
-	assert.Nil(t, err)
-
-	// SyncShard with ST collection and absent shard
-	m.indexer.On("ShutdownShard", "D", "S0").Return(nil).Times(1)
-	m.indexer.On("LoadShard", mock.Anything, mock.Anything).Return(nil).Times(0)
-	_, err = srv.SyncShard(ctx, "D", "S0", "Node-1")
-	assert.Nil(t, err)
-
 	// UpdateTenants
 	_, err = srv.UpdateTenants(ctx, "", &command.UpdateTenantsRequest{})
 	assert.ErrorIs(t, err, schema.ErrBadRequest)
@@ -377,13 +326,13 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.Equal(t, m.store.cfg.NodeID, leaderID)
 
 	// create snapshot
-	assert.Nil(t, srv.store.raft.Barrier(2*time.Second).Error())
-	assert.Nil(t, srv.store.raft.Snapshot().Error())
+	assert.Nil(t, srv.store.raft.Load().Barrier(2*time.Second).Error())
+	assert.Nil(t, srv.store.raft.Load().Snapshot().Error())
 
 	// restore from snapshot
 	assert.Nil(t, srv.Close(ctx))
 
-	s := NewFSM(m.cfg, nil, nil, prometheus.NewPedanticRegistry())
+	s := NewFSM(m.cfg, nil, prometheus.NewPedanticRegistry())
 	m.store = &s
 	srv = NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
 	assert.Nil(t, srv.Open(ctx, m.indexer))
@@ -393,6 +342,69 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready))
 	schemaReader = srv.SchemaReader()
 	assert.Equal(t, info, schemaReader.ClassInfo("C"))
+}
+
+// TestRaftUpdateClass_NamespaceGate pins that Raft.UpdateClass puts its origin on
+// the command, by updating a class in a suspended namespace.
+func TestRaftUpdateClass_NamespaceGate(t *testing.T) {
+	ctx := context.Background()
+	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
+	m.indexer.On("Open", mock.Anything).Return(nil)
+	m.indexer.On("Close", mock.Anything).Return(nil)
+	m.indexer.On("AddClass", mock.Anything).Return(nil)
+	m.indexer.On("UpdateClass", mock.Anything).Return(nil)
+	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+	m.parser.On("ParseClass", mock.Anything).Return(nil)
+	m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(nil, nil)
+	m.replicationFSM.EXPECT().HasActiveReplicationForCollection(mock.Anything).Return(false).Maybe()
+
+	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
+	require.NoError(t, srv.Open(ctx, m.indexer))
+	defer srv.Close(ctx)
+	require.NoError(t, srv.store.Notify(m.cfg.NodeID, fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)))
+	require.True(t, tryNTimesWithWait(20, 200*time.Millisecond, srv.store.IsLeader))
+
+	_, _, err := srv.AddNamespace(ctx, command.Namespace{Name: "alpha", HomeNodes: []string{m.cfg.NodeID}})
+	require.NoError(t, err)
+	cls := &models.Class{Class: "alpha:C", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}}
+	_, err = srv.AddClass(ctx, cls, &sharding.State{PartitioningEnabled: true})
+	require.NoError(t, err)
+	_, err = srv.ChangeNamespaceState(ctx, "alpha", command.NamespaceStateSuspended)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name    string
+		origin  command.ClassUpdateOrigin
+		wantErr error
+	}{
+		{
+			name:   "a BlockMax cutover is admitted",
+			origin: command.ClassUpdateOriginBlockmaxCutover,
+		},
+		{
+			name:    "a user update is refused",
+			origin:  command.ClassUpdateOriginUser,
+			wantErr: usecasesNamespaces.ErrNamespaceSuspended,
+		},
+		{
+			name:    "an update from a node predating the origin is refused",
+			origin:  command.ClassUpdateOriginUnspecified,
+			wantErr: usecasesNamespaces.ErrNamespaceSuspended,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			update := &models.Class{Class: cls.Class, Description: tt.name, MultiTenancyConfig: cls.MultiTenancyConfig}
+			_, err := srv.UpdateClass(ctx, update, nil, tt.origin)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.name, srv.SchemaReader().ReadOnlyClass(cls.Class).Description)
+		})
+	}
 }
 
 func TestRaftStoreInit(t *testing.T) {
@@ -436,7 +448,7 @@ func TestRaftClose(t *testing.T) {
 	ctx := context.Background()
 	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
 	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
-	s := NewFSM(m.cfg, nil, nil, prometheus.NewPedanticRegistry())
+	s := NewFSM(m.cfg, nil, prometheus.NewPedanticRegistry())
 	m.store = &s
 	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
 	m.indexer.On("Open", mock.Anything).Return(nil)
@@ -459,7 +471,7 @@ func TestServiceCloseChannelsAreBuffered(t *testing.T) {
 	cfg.BindAddr = cfg.Host
 	cfg.RPCPort = utils.MustGetFreeTCPPort()
 
-	svc := New(cfg, nil, nil, nil)
+	svc := New(cfg, nil, nil)
 
 	assert.Equal(t, 1, cap(svc.closeBootstrapper))
 	assert.Equal(t, 1, cap(svc.closeOnFSMCaughtUp))
@@ -612,4 +624,38 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 		_, err := r.ApplyReplicationScalePlan(ctx, plan)
 		require.ErrorContains(t, err, "invalid scale plan: source node")
 	})
+}
+
+// TestClusterID_CommittedByRealRaftLeader drives cluster-id commit through a
+// real single-node raft leader end to end (onLeaderFound -> Execute -> Apply -> commit).
+func TestClusterID_CommittedByRealRaftLeader(t *testing.T) {
+	ctx := context.Background()
+	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
+	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
+	m.indexer.On("Open", mock.Anything).Return(nil)
+	m.indexer.On("Close", mock.Anything).Return(nil)
+	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+
+	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
+	defer srv.Close(ctx)
+	require.NoError(t, srv.Open(ctx, m.indexer))
+	require.NoError(t, srv.store.Notify(m.cfg.NodeID, addr))
+
+	require.True(t, tryNTimesWithWait(25, 200*time.Millisecond, srv.store.IsLeader),
+		"node did not become raft leader")
+	require.True(t, tryNTimesWithWait(10, 200*time.Millisecond, srv.Ready),
+		"node did not become ready")
+
+	// generous ceiling for a loaded CI runner; onLeaderFound commits once a leader is found
+	require.True(t, tryNTimesWithWait(75, 200*time.Millisecond, func() bool {
+		return srv.store.ClusterID() != ""
+	}), "leader did not commit a clusterId via real raft within timeout")
+
+	id := srv.store.ClusterID()
+	require.NotEmpty(t, id)
+
+	// Set-once under real raft: another leader commit attempt must not change it.
+	srv.store.maybeCommitClusterID()
+	assert.Equal(t, id, srv.store.ClusterID(),
+		"clusterId must be stable once committed (set-once)")
 }

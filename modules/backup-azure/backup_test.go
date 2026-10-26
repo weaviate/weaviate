@@ -12,12 +12,15 @@
 package modstgazure
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -79,7 +82,7 @@ func TestInit_SkipAccessCheckWiring(t *testing.T) {
 
 			params := moduletools.NewMockModuleInitParams(t)
 			params.EXPECT().GetLogger().Return(logrus.New())
-			params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+			params.EXPECT().GetDataPath().Return(t.TempDir())
 			params.EXPECT().GetConfig().Return(cfg)
 
 			m := New()
@@ -104,7 +107,7 @@ func TestUploadParams(t *testing.T) {
 
 	params := moduletools.NewMockModuleInitParams(t)
 	params.EXPECT().GetLogger().Return(logrus.New())
-	params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+	params.EXPECT().GetDataPath().Return(t.TempDir())
 	params.EXPECT().GetConfig().Return(&config.Config{})
 	err := azure.Init(testCtx, params)
 	require.Nil(t, err)
@@ -119,7 +122,7 @@ func TestUploadParams(t *testing.T) {
 		azure := New()
 		params := moduletools.NewMockModuleInitParams(t)
 		params.EXPECT().GetLogger().Return(logrus.New())
-		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		params.EXPECT().GetDataPath().Return(t.TempDir())
 		params.EXPECT().GetConfig().Return(&config.Config{})
 		err := azure.Init(testCtx, params)
 		assert.Nil(t, err)
@@ -133,7 +136,7 @@ func TestUploadParams(t *testing.T) {
 		azure := New()
 		params := moduletools.NewMockModuleInitParams(t)
 		params.EXPECT().GetLogger().Return(logrus.New())
-		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		params.EXPECT().GetDataPath().Return(t.TempDir())
 		params.EXPECT().GetConfig().Return(&config.Config{})
 		err := azure.Init(testCtx, params)
 		assert.Nil(t, err)
@@ -177,7 +180,7 @@ func TestUploadParams(t *testing.T) {
 		azure := New()
 		params := moduletools.NewMockModuleInitParams(t)
 		params.EXPECT().GetLogger().Return(logrus.New())
-		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		params.EXPECT().GetDataPath().Return(t.TempDir())
 		params.EXPECT().GetConfig().Return(&config.Config{})
 		err := azure.Init(testCtx, params)
 		assert.Nil(t, err)
@@ -191,7 +194,7 @@ func TestUploadParams(t *testing.T) {
 		azure := New()
 		params := moduletools.NewMockModuleInitParams(t)
 		params.EXPECT().GetLogger().Return(logrus.New())
-		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		params.EXPECT().GetDataPath().Return(t.TempDir())
 		params.EXPECT().GetConfig().Return(&config.Config{})
 		err := azure.Init(testCtx, params)
 		assert.Nil(t, err)
@@ -354,22 +357,7 @@ func TestAllBackupsSkipsMissingDescriptors(t *testing.T) {
 				w.Write(body)
 			})
 
-			srv := httptest.NewServer(mux)
-			defer srv.Close()
-
-			// Disable retries so a 5xx surfaces immediately.
-			client, err := azblob.NewClientWithNoCredential(srv.URL+"/", &azblob.ClientOptions{
-				ClientOptions: policy.ClientOptions{
-					Retry: policy.RetryOptions{MaxRetries: -1},
-				},
-			})
-			require.NoError(t, err)
-
-			a := &azureClient{
-				client: client,
-				config: clientConfig{Container: containerName},
-				logger: logrus.New(),
-			}
+			a := newFakeAzureClient(t, containerName, mux)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -390,14 +378,52 @@ func TestAllBackupsSkipsMissingDescriptors(t *testing.T) {
 	}
 }
 
-type fakeStorageProvider struct {
-	dataPath string
+func TestGetObject(t *testing.T) {
+	const containerName = "test-container"
+	payload := bytes.Repeat([]byte{'x'}, 1<<20)
+
+	tests := []struct {
+		name    string
+		chunked bool
+	}{
+		{name: "object is read into a buffer sized from its Content-Length"},
+		{name: "object without Content-Length is read whole", chunked: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			mux.HandleFunc("/"+containerName+"/", func(w http.ResponseWriter, r *http.Request) {
+				if tt.chunked {
+					w.(http.Flusher).Flush()
+				} else {
+					w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+				}
+				w.Write(payload)
+			})
+			a := newFakeAzureClient(t, containerName, mux)
+
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			got, err := a.GetObject(context.Background(), "backup-1", ubak.BackupFile, "", "")
+			runtime.ReadMemStats(&after)
+			require.NoError(t, err)
+			require.Equal(t, payload, got)
+			if !tt.chunked {
+				assert.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(len(payload))*3/2, "bytes allocated")
+			}
+		})
+	}
 }
 
-func (f *fakeStorageProvider) Storage(name string) (moduletools.Storage, error) {
-	return nil, nil
-}
-
-func (f *fakeStorageProvider) DataPath() string {
-	return f.dataPath
+// newFakeAzureClient points a real azblob client at handler, with retries off
+// so an error status surfaces on the first request.
+func newFakeAzureClient(t *testing.T, containerName string, handler http.Handler) *azureClient {
+	t.Helper()
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	client, err := azblob.NewClientWithNoCredential(srv.URL+"/", &azblob.ClientOptions{
+		ClientOptions: policy.ClientOptions{Retry: policy.RetryOptions{MaxRetries: -1}},
+	})
+	require.NoError(t, err)
+	return &azureClient{client: client, config: clientConfig{Container: containerName}, logger: logrus.New()}
 }

@@ -13,11 +13,16 @@ package clusterapi
 
 import (
 	"bytes"
+	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func TestReadAllCapped(t *testing.T) {
@@ -60,3 +65,24 @@ func TestReadRequestBodyWithOptionalCompressionCap(t *testing.T) {
 type readCloser struct{ *strings.Reader }
 
 func (readCloser) Close() error { return nil }
+
+func TestAsyncCheckpointHTTPStatusMapping(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{name: "stale checkpoint", err: replica.ErrAsyncCheckpointStale, want: http.StatusConflict},
+		{name: "not active", err: replica.ErrAsyncReplicationNotActive, want: http.StatusPreconditionFailed},
+		{name: "wrapped height mismatch", err: fmt.Errorf("%w: hashtree level 9 exceeds height 8 on shard \"t\"", replica.ErrAsyncReplicationNotActive), want: http.StatusPreconditionFailed},
+		{name: "cutoff in past", err: replica.ErrAsyncCheckpointCutoffInPast, want: http.StatusPreconditionFailed},
+		{name: "loading shard unprocessable", err: enterrors.NewErrUnprocessable(fmt.Errorf("local shard is not ready")), want: http.StatusPreconditionFailed},
+		{name: "wrapped unprocessable", err: fmt.Errorf("overwrite: %w", enterrors.NewErrUnprocessable(fmt.Errorf("loading"))), want: http.StatusPreconditionFailed},
+		{name: "generic error", err: fmt.Errorf("boom"), want: http.StatusInternalServerError},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, asyncCheckpointHTTPStatus(tt.err))
+		})
+	}
+}

@@ -25,6 +25,7 @@ type BatchStreamingMetrics struct {
 	OnWorkerReport        func(throughputEma float64)
 	OnProcessingQueuePush func(enqueued int)
 	OnProcessingQueuePull func(dequeued int)
+	OnLiveHeapRatio       func(ratio float64)
 }
 
 func NewBatchStreamingMetrics(reg prometheus.Registerer) *BatchStreamingMetrics {
@@ -62,6 +63,12 @@ func NewBatchStreamingMetrics(reg prometheus.Registerer) *BatchStreamingMetrics 
 		Help:      "Total number of objects and references enqueued for processing across all streams",
 	}, []string{})
 
+	liveHeapRatio := promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "weaviate",
+		Name:      "batch_streaming_live_heap_ratio",
+		Help:      "Live heap as a fraction of the memory limit, as read when a batch message was admitted. It is stale while no stream is sending.",
+	}, []string{})
+
 	return &BatchStreamingMetrics{
 		OnStreamStart: func() {
 			totalStreams.WithLabelValues().Inc()
@@ -81,6 +88,9 @@ func NewBatchStreamingMetrics(reg prometheus.Registerer) *BatchStreamingMetrics 
 		},
 		OnProcessingQueuePull: func(dequeued int) {
 			streamEnqueuedObjects.WithLabelValues().Add(-float64(dequeued))
+		},
+		OnLiveHeapRatio: func(ratio float64) {
+			liveHeapRatio.WithLabelValues().Set(ratio)
 		},
 	}
 }

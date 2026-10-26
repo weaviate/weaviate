@@ -59,7 +59,7 @@ func TestSegmentReplacer_OnDisk(t *testing.T) {
 		})
 
 		replacer := newSegmentReplacer(diskSegments, 1, 2, segBC)
-		oldLeft, oldRight, err := replacer.switchOnDisk()
+		oldLeft, oldRight, err := replacer.switchOnDisk(func() {})
 		require.NoError(t, err)
 
 		// replaced segments are returned
@@ -90,7 +90,7 @@ func TestSegmentReplacer_OnDisk(t *testing.T) {
 		})
 
 		replacer := newSegmentReplacer(diskSegments, 1, 1, segBB)
-		oldLeft, oldRight, err := replacer.switchOnDisk()
+		oldLeft, oldRight, err := replacer.switchOnDisk(func() {})
 		require.NoError(t, err)
 
 		// replaced segments are returned

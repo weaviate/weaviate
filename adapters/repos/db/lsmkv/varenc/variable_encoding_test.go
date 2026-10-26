@@ -142,6 +142,65 @@ func TestCompareDeltaEncoders(t *testing.T) {
 	}
 }
 
+func TestEncodeAppend(t *testing.T) {
+	valueCount := terms.BLOCK_SIZE
+
+	values := make([]uint64, valueCount)
+	values[0] = 100
+	for i := 1; i < valueCount; i++ {
+		values[i] = values[i-1] + rand.Uint64N(10)
+	}
+
+	newEncoders := func() []VarEncEncoder[uint64] {
+		return []VarEncEncoder[uint64]{
+			&SimpleEncoder[uint64]{},
+			&VarIntEncoder{},
+			&VarIntDeltaEncoder{},
+		}
+	}
+
+	t.Run("matches Encode and round-trips", func(t *testing.T) {
+		for _, enc := range newEncoders() {
+			enc.Init(valueCount)
+
+			encoded, arena := enc.EncodeAppend(values, nil)
+			assert.Equal(t, len(arena), len(encoded), "%T: a single append fills the arena", enc)
+			assert.Equal(t, enc.Encode(values)[:len(encoded)], encoded, "%T: same bytes as Encode", enc)
+
+			decoded := append([]uint64(nil), enc.Decode(encoded)...)
+			assert.Equal(t, values, decoded, "%T: round-trip", enc)
+		}
+	})
+
+	t.Run("blocks coexist in one arena", func(t *testing.T) {
+		const blocks = 4
+		for _, enc := range newEncoders() {
+			enc.Init(valueCount)
+
+			// pre-size the arena past any encoder's worst case (a uint64 varint is
+			// at most 10 bytes/value) so no append reallocates and moves an
+			// earlier sub-slice off the shared backing array
+			arena := make([]byte, 0, blocks*(16+16*valueCount))
+			subs := make([][]byte, blocks)
+			want := make([][]uint64, blocks)
+			for b := 0; b < blocks; b++ {
+				block := make([]uint64, valueCount)
+				block[0] = uint64(b + 1)
+				for i := 1; i < valueCount; i++ {
+					block[i] = block[i-1] + uint64(b) + 1
+				}
+				want[b] = block
+				subs[b], arena = enc.EncodeAppend(block, arena)
+			}
+
+			for b := 0; b < blocks; b++ {
+				decoded := append([]uint64(nil), enc.Decode(subs[b])...)
+				assert.Equal(t, want[b], decoded, "%T: block %d survived later appends", enc, b)
+			}
+		}
+	})
+}
+
 func BenchmarkDeltaEncoders(b *testing.B) {
 	encs := []VarEncEncoder[uint64]{
 		&SimpleEncoder[uint64]{},

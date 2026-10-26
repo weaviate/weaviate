@@ -32,7 +32,7 @@ func Test_Traverser_Aggregate(t *testing.T) {
 	authorizer := mocks.NewMockAuthorizer()
 	vectorRepo := &fakeVectorRepo{}
 	explorer := &fakeExplorer{}
-	schemaGetter := &fakeSchemaGetter{aggregateTestSchema}
+	schemaGetter := &fakeSchemaGetter{schema: aggregateTestSchema}
 
 	traverser := NewTraverser(&config.WeaviateConfig{}, logger, authorizer,
 		vectorRepo, explorer, schemaGetter, nil, nil, -1)

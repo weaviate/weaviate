@@ -24,6 +24,7 @@ func TestBucketReplaceWritePathRefCount(t *testing.T) {
 		disk:           &SegmentGroup{segments: []Segment{}},
 		active:         newTestMemtableReplace(nil),
 		keepTombstones: true,
+		logger:         nullLogger(),
 	}
 
 	expectedRefs := 0

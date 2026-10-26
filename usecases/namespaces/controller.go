@@ -10,8 +10,8 @@
 //
 
 // Package namespaces owns the namespace control-plane state and exposes a
-// typed domain API for callers that need direct existence checks without
-// reaching for RAFT subcommand types.
+// typed domain API for callers that need direct existence checks. Lookups
+// return the RAFT subcommand namespace type.
 package namespaces
 
 import (
@@ -45,9 +45,10 @@ var (
 	// check with errors.Is.
 	ErrNotFound = errors.New("namespace not found")
 
-	// ErrNamespaceDeleting is returned when a create-like operation targets
-	// a namespace that exists but is currently being torn down. Distinct
-	// from ErrAlreadyExists so REST can render a different conflict message.
+	// ErrNamespaceDeleting is returned when a create-like operation, or a
+	// shard decision, targets a namespace that exists but is currently being
+	// torn down. Distinct from ErrAlreadyExists so REST can render a
+	// different conflict message.
 	ErrNamespaceDeleting = errors.New("namespace is being deleted")
 
 	// ErrNamespaceGone is returned by apply-time checks when a namespace
@@ -78,6 +79,12 @@ var (
 	// ErrNamespaceResuming is returned when an operation targets a namespace
 	// that is resuming.
 	ErrNamespaceResuming = errors.New("namespace is resuming")
+
+	// ErrStateChangedConcurrently is returned by ChangeState when the stored
+	// StateChangeIndex no longer matches the one the caller read before
+	// proposing, meaning another state change applied in between. Callers
+	// re-read and decide again rather than retrying blindly.
+	ErrStateChangedConcurrently = errors.New("namespace state changed concurrently")
 )
 
 // reservedNames are refused at Create time. Kept as a package variable (not a
@@ -94,11 +101,46 @@ var reservedNames = map[string]struct{}{
 	"public":   {},
 }
 
-// Exister exposes read-only access to namespace state. Exists matches any
-// state; IsActive excludes the deleting state.
+// stateTransitions maps a namespace's current state to the states it may flip
+// to. A pair absent from the table is refused with [ErrInvalidStateTransition].
+// deleting is terminal: re-entry only via RemoveEntity + fresh Create. Every
+// other state may reach deleting, so a namespace whose home node died mid-flip
+// can still be deleted.
+//
+//exhaustive:enforce
+var stateTransitions = map[cmd.NamespaceState]map[cmd.NamespaceState]struct{}{
+	cmd.NamespaceStateActive: {
+		cmd.NamespaceStateSuspended: {},
+		cmd.NamespaceStateDeleting:  {},
+	},
+	cmd.NamespaceStateSuspended: {
+		cmd.NamespaceStateResuming: {},
+		cmd.NamespaceStateActive:   {},
+		cmd.NamespaceStateDeleting: {},
+	},
+	cmd.NamespaceStateResuming: {
+		cmd.NamespaceStateActive:    {},
+		cmd.NamespaceStateSuspended: {},
+		cmd.NamespaceStateDeleting:  {},
+	},
+	cmd.NamespaceStateDeleting: {},
+}
+
+// IsKnownState reports whether s is a namespace state this binary has a case
+// for. False means a newer binary wrote s, so refuse rather than read it as
+// active. A known state can still keep shards closed, as suspended does.
+func IsKnownState(s cmd.NamespaceState) bool {
+	// stateTransitions is the only list of states, and exhaustive:enforce fails
+	// a state it lacks.
+	_, known := stateTransitions[s]
+	return known
+}
+
+// Exister exposes read-only access to namespace state. Rather than comparing
+// State themselves, callers go through [RequireActive] or
+// [AdmitDestructiveApply], or through [ShardsShouldBeOpen] /
+// [RequireShardLoadable] to decide about a shard.
 type Exister interface {
-	Exists(name string) bool
-	IsActive(name string) bool
 	GetNamespace(name string) (cmd.Namespace, bool)
 }
 
@@ -123,13 +165,19 @@ func NewController(logger logrus.FieldLogger) *Controller {
 	}
 }
 
-// Create inserts a namespace in the [cmd.NamespaceStateActive] state; the
-// input's State is ignored. HomeNodes must contain exactly one non-empty
+// Create inserts a namespace in the [cmd.NamespaceStateActive] state,
+// recording index — the RAFT log index of the create command — as its
+// StateChangeIndex. The input's State and StateChangeIndex are ignored, so a
+// caller cannot choose either. HomeNodes must contain exactly one non-empty
 // entry — downstream placement and counters rely on that invariant.
-// Returns [ErrBadRequest] for invalid names or HomeNodes,
+// Returns [ErrBadRequest] for invalid names, HomeNodes, or a zero index,
 // [ErrAlreadyExists] when the name maps to an active namespace, and
 // [ErrNamespaceDeleting] when the name is currently being torn down.
-func (c *Controller) Create(ns cmd.Namespace) error {
+func (c *Controller) Create(ns cmd.Namespace, index uint64) error {
+	// Storing 0 would make StateChangeIndex indistinguishable from unknown.
+	if index == 0 {
+		return fmt.Errorf("%w: create index must not be 0", ErrBadRequest)
+	}
 	if err := ValidateName(ns.Name); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
@@ -148,13 +196,15 @@ func (c *Controller) Create(ns cmd.Namespace) error {
 	}
 
 	ns.State = cmd.NamespaceStateActive
+	ns.StateChangeIndex = index
 	c.namespaces[ns.Name] = &ns
 	return nil
 }
 
 // Update overwrites the stored HomeNodes for an existing namespace.
-// HomeNodes must contain exactly one non-empty entry; Name and State are
-// immutable here. Returns [ErrBadRequest] for an invalid HomeNodes,
+// HomeNodes must contain exactly one non-empty entry; Name, State and
+// StateChangeIndex are immutable here. Returns [ErrBadRequest] for an
+// invalid HomeNodes,
 // [ErrNotFound] when the namespace does not exist, and
 // [ErrNamespaceDeleting] when the namespace is being torn down.
 func (c *Controller) Update(ns cmd.Namespace) error {
@@ -176,15 +226,38 @@ func (c *Controller) Update(ns cmd.Namespace) error {
 	return nil
 }
 
-// ChangeState transitions a namespace into target. Same-state transitions
-// are idempotent and return nil. Returns [ErrBadRequest] when target is not
-// a recognized state, [ErrNotFound] when the namespace does not exist, and
-// [ErrInvalidStateTransition] when the transition is forbidden (e.g.
-// deleting back to active).
-func (c *Controller) ChangeState(name string, target cmd.NamespaceState) error {
-	switch target {
-	case cmd.NamespaceStateActive, cmd.NamespaceStateDeleting:
-	default:
+// StateChange carries the two RAFT indexes a state flip needs: one is
+// written, the other is compared. Named fields rather than two uint64
+// parameters, which a caller could swap without the compiler noticing.
+type StateChange struct {
+	// AppliedIndex is this apply's RAFT log index. A successful flip stores
+	// it as the namespace's new StateChangeIndex.
+	AppliedIndex uint64
+	// ExpectedIndex is the StateChangeIndex the flip requires the namespace
+	// to still be at. 0 skips the check.
+	ExpectedIndex uint64
+}
+
+// ChangeState transitions a namespace into target and records sc.AppliedIndex
+// as the index of that flip. Same-state transitions are idempotent and leave
+// the recorded index alone.
+//
+// A nonzero sc.ExpectedIndex makes the flip conditional: refused with
+// [ErrStateChangedConcurrently] unless the stored StateChangeIndex still
+// matches, which stops a re-proposed command from undoing a later flip. It is
+// checked after the same-state short-circuit, so re-applying a committed
+// command still returns nil.
+//
+// Returns [ErrBadRequest] when target is unknown or sc.AppliedIndex is 0,
+// [ErrNotFound] for a missing namespace, and [ErrInvalidStateTransition] for a
+// forbidden transition.
+func (c *Controller) ChangeState(name string, target cmd.NamespaceState, sc StateChange) error {
+	// A stored 0 reads back as "unknown", so the next conditional flip would
+	// propose with no precondition at all.
+	if sc.AppliedIndex == 0 {
+		return fmt.Errorf("%w: applied index must not be 0", ErrBadRequest)
+	}
+	if !IsKnownState(target) {
 		return fmt.Errorf("%w: unknown namespace state %q", ErrBadRequest, target)
 	}
 
@@ -197,12 +270,16 @@ func (c *Controller) ChangeState(name string, target cmd.NamespaceState) error {
 	if ns.State == target {
 		return nil
 	}
-	// deleting is terminal: re-entry only via RemoveEntity + fresh Create.
-	if ns.State == cmd.NamespaceStateDeleting {
+	if sc.ExpectedIndex != 0 && ns.StateChangeIndex != sc.ExpectedIndex {
+		return fmt.Errorf("%w: %q moved to index %d, expected %d",
+			ErrStateChangedConcurrently, name, ns.StateChangeIndex, sc.ExpectedIndex)
+	}
+	if _, legal := stateTransitions[ns.State][target]; !legal {
 		return fmt.Errorf("%w: %q is %s, cannot transition to %s",
 			ErrInvalidStateTransition, name, ns.State, target)
 	}
 	ns.State = target
+	ns.StateChangeIndex = sc.AppliedIndex
 	return nil
 }
 
@@ -261,17 +338,6 @@ func (c *Controller) Count() int {
 	return len(c.namespaces)
 }
 
-// Exists reports whether a namespace with the given name is known.
-// Intended for non-cluster callers (REST handlers, OIDC claim resolution)
-// that need a fast existence check without constructing a RAFT subcommand.
-// Returns true for entries in any state.
-func (c *Controller) Exists(name string) bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	_, ok := c.namespaces[name]
-	return ok
-}
-
 // GetNamespace returns a snapshot copy of the namespace by name. ok is
 // false when the namespace does not exist.
 func (c *Controller) GetNamespace(name string) (ns cmd.Namespace, ok bool) {
@@ -282,18 +348,6 @@ func (c *Controller) GetNamespace(name string) (ns cmd.Namespace, ok bool) {
 		return cmd.Namespace{}, false
 	}
 	return *got, true
-}
-
-// IsActive reports whether the named namespace exists and is in the
-// [cmd.NamespaceStateActive] state.
-func (c *Controller) IsActive(name string) bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	ns, ok := c.namespaces[name]
-	if !ok {
-		return false
-	}
-	return ns.State == cmd.NamespaceStateActive
 }
 
 // ListDeleting returns the names of namespaces currently in the deleting
@@ -319,28 +373,37 @@ func (c *Controller) Snapshot() ([]byte, error) {
 	return json.Marshal(c.namespaces)
 }
 
-// Restore replaces the current state with the snapshot contents. A nil or
-// empty snapshot leaves state empty (fresh bootstrap). Unknown JSON fields
+// Restore replaces the current state with the snapshot contents. A nil,
+// empty or "null" snapshot leaves state empty (fresh bootstrap). Unknown JSON fields
 // are tolerated. Entries with empty State are normalized to
 // [cmd.NamespaceStateActive]; entries with an unknown State return an
 // error so a future binary's snapshot is not silently mis-classified.
 // Entries missing the single HomeNodes entry are also rejected — there is
 // no migration path from a pre-HomeNodes snapshot.
 func (c *Controller) Restore(snapshot []byte) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	if len(snapshot) == 0 {
+		c.mu.Lock()
+		defer c.mu.Unlock()
 		c.namespaces = make(map[string]*cmd.Namespace)
 		return nil
 	}
 
+	// Decoding and validating scale with the snapshot size and touch only the
+	// local map, so they run off-lock: holding the write lock across them
+	// blocks every reader for the whole install.
 	restored := make(map[string]*cmd.Namespace)
 	if err := json.Unmarshal(snapshot, &restored); err != nil {
 		c.logger.Errorf("restoring namespaces from snapshot failed with: %v", err)
 		return err
 	}
+	// A "null" snapshot decodes to a nil map; writing into it would panic.
+	if restored == nil {
+		restored = make(map[string]*cmd.Namespace)
+	}
 	for name, ns := range restored {
+		if ns == nil {
+			return fmt.Errorf("namespace %q in snapshot is null", name)
+		}
 		if len(ns.HomeNodes) != 1 || ns.HomeNodes[0] == "" {
 			return fmt.Errorf("namespace %q in snapshot is missing home_node; "+
 				"namespaces require a single home_node and have no migration path "+
@@ -350,13 +413,15 @@ func (c *Controller) Restore(snapshot []byte) error {
 			ns.State = cmd.NamespaceStateActive
 			continue
 		}
-		switch ns.State {
-		case cmd.NamespaceStateActive, cmd.NamespaceStateDeleting:
-		default:
+		if !IsKnownState(ns.State) {
 			return fmt.Errorf("namespace %q has unknown state %q in snapshot", name, ns.State)
 		}
 	}
+
+	c.mu.Lock()
 	c.namespaces = restored
+	c.mu.Unlock()
+
 	c.logger.Info("successfully restored namespaces from snapshot")
 	return nil
 }

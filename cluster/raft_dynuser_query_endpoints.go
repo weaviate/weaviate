@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/dbuser"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 )
 
@@ -50,18 +51,35 @@ func (s *Raft) GetUsers(userIds ...string) (map[string]apikey.UserView, error) {
 		if u == nil {
 			continue
 		}
-		out[id] = apikey.UserView{
-			Id:                 u.Id,
-			Active:             u.Active,
-			InternalIdentifier: u.InternalIdentifier,
-			ApiKeyFirstLetters: u.ApiKeyFirstLetters,
-			CreatedAt:          u.CreatedAt,
-			LastUsedAt:         u.LastUsedAt,
-			ImportedWithKey:    u.ImportedWithKey,
-			Namespace:          u.Namespace,
-		}
+		out[id] = *u
 	}
 	return out, nil
+}
+
+func (s *Raft) ExportUsers(userIds ...string) (map[string]dbuser.ExportRecord, error) {
+	req := cmd.QueryExportUsersRequest{
+		UserIds: userIds,
+	}
+
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	command := &cmd.QueryRequest{
+		Type:       cmd.QueryRequest_TYPE_EXPORT_USERS,
+		SubCommand: subCommand,
+	}
+	queryResp, err := s.Query(context.Background(), command)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	response := cmd.QueryExportUsersResponse{}
+	if err := json.Unmarshal(queryResp.Payload, &response); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal query result: %w", err)
+	}
+	return response.Users, nil
 }
 
 func (s *Raft) CheckUserIdentifierExists(userIdentifier string) (bool, error) {

@@ -39,11 +39,12 @@ import (
 // Client handles the OIDC setup at startup and provides a middleware to be
 // used with the goswagger API
 type Client struct {
-	Config            config.OIDC
-	verifier          *oidc.IDTokenVerifier
-	logger            logrus.FieldLogger
-	nsExister         namespaces.Exister
-	namespacesEnabled bool
+	Config                    config.OIDC
+	verifier                  *oidc.IDTokenVerifier
+	logger                    logrus.FieldLogger
+	nsExister                 namespaces.Exister
+	namespacesEnabled         bool
+	namespaceSuspendedMessage string
 	// rbac is consulted on namespace-enabled clusters to reject tokens that
 	// would produce a namespaced principal carrying the root role (root is
 	// cluster-global).
@@ -54,16 +55,17 @@ type Client struct {
 // provides a middleware which can be used at runtime with a go-swagger style
 // API.
 //
-// nsExister is consulted only on namespace-enabled clusters to validate the
-// namespace claim. namespacesEnabled is the cluster-level flag passed in
-// from the caller.
+// nsExister is consulted only on namespace-enabled clusters, to check the
+// state of the namespace the token claims. namespacesEnabled is the
+// cluster-level flag passed in from the caller.
 func New(cfg config.Config, nsExister namespaces.Exister, namespacesEnabled bool, logger logrus.FieldLogger) (*Client, error) {
 	client := &Client{
-		Config:            cfg.Authentication.OIDC,
-		logger:            logger.WithField("component", "oidc"),
-		nsExister:         nsExister,
-		namespacesEnabled: namespacesEnabled,
-		rbac:              cfg.Authorization.Rbac,
+		Config:                    cfg.Authentication.OIDC,
+		logger:                    logger.WithField("component", "oidc"),
+		nsExister:                 nsExister,
+		namespacesEnabled:         namespacesEnabled,
+		namespaceSuspendedMessage: cfg.Namespaces.SuspendedMessage,
+		rbac:                      cfg.Authorization.Rbac,
 	}
 
 	if !client.Config.Enabled {
@@ -185,6 +187,13 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 		return nil, err
 	}
 
+	// Runs last, so only a token that already authenticates can learn a
+	// namespace's state. The claim value is chosen by the IdP, not the
+	// caller, so a caller cannot probe an arbitrary namespace.
+	if err := namespaces.RequireActive(c.nsExister, namespace); err != nil {
+		return nil, errors.New(401, "%s", namespaceRejectionMessage(err, c.namespaceSuspendedMessage))
+	}
+
 	return &models.Principal{
 		Username:         qualifiedUsername,
 		Groups:           groups,
@@ -192,6 +201,14 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 		Namespace:        namespace,
 		IsGlobalOperator: isGlobal,
 	}, nil
+}
+
+// namespaceRejectionMessage returns the 401 body for a namespace state error.
+// The body must match the one ApiKey.ValidateAndExtract returns for the same
+// error, so a caller reads one body per state whichever login it uses.
+func namespaceRejectionMessage(err error, namespaceSuspendedMessage string) string {
+	msg, _ := namespaces.PublicMessage(err, namespaceSuspendedMessage)
+	return "unauthorized: " + msg
 }
 
 // rejectNamespacedRoot returns 401 when the token would produce a
@@ -217,7 +234,7 @@ func (c *Client) rejectNamespacedRoot(namespace, qualifiedUsername string, group
 //
 //	namespace claim    | global claim     | result
 //	-------------------+------------------+-----------------------------
-//	non-empty          | absent OR false  | namespaced (validate exists)
+//	non-empty          | absent OR false  | namespaced
 //	absent             | true             | global operator
 //	non-empty          | true             | reject (both)
 //	absent             | absent OR false  | reject (neither)
@@ -278,11 +295,6 @@ func (c *Client) classifyPrincipal(claims map[string]interface{}, username strin
 	case nsValue != "" && globalSet && globalValue:
 		return "", false, errors.New(401, "unauthorized: token must not carry both a namespace claim and a global-principal claim set to true")
 	case nsValue != "":
-		// Error message is intentionally vague to avoid leaking namespace
-		// existence to unauthenticated clients.
-		if !c.nsExister.IsActive(nsValue) {
-			return "", false, errors.New(401, "unauthorized: namespace '%s' does not exist or is being deleted", nsValue)
-		}
 		return nsValue, false, nil
 	case globalSet && globalValue:
 		return "", true, nil

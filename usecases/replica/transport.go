@@ -14,11 +14,15 @@ package replica
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -72,14 +76,6 @@ func (r *DeleteBatchResponse) FirstError() error {
 	return nil
 }
 
-func fromReplicas(xs []Replica) []*storobj.Object {
-	rs := make([]*storobj.Object, len(xs))
-	for i := range xs {
-		rs[i] = xs[i].Object
-	}
-	return rs
-}
-
 type DigestObjectsInRangeReq struct {
 	InitialUUID strfmt.UUID `json:"initialUUID,omitempty"`
 	FinalUUID   strfmt.UUID `json:"finalUUID,omitempty"`
@@ -97,6 +93,32 @@ type CompareHashTreeRootsReq struct {
 
 type CompareHashTreeRootsResp struct {
 	DivergingShards []string `json:"divergingShards,omitempty"`
+}
+
+// CompareHashTreeRootsMultiReq is the cross-class root pre-filter payload: class → shard → raw [high,low] root.
+type CompareHashTreeRootsMultiReq struct {
+	Classes map[string]map[string][2]uint64 `json:"classes"`
+}
+
+type CompareHashTreeRootsMultiResp struct {
+	Classes map[string]CompareHashTreeRootsMultiClassResp `json:"classes"`
+}
+
+// CompareHashTreeRootsMultiClassResp: Error set ⇒ receiver could not compare this class, sender descends its shards.
+type CompareHashTreeRootsMultiClassResp struct {
+	DivergingShards []string `json:"divergingShards,omitempty"`
+	Error           string   `json:"error,omitempty"`
+}
+
+// CompareRootsSession issues cross-class root compares reusing its request assembly; single-goroutine use only.
+type CompareRootsSession interface {
+	CompareHashTreeRootsMulti(ctx context.Context, host string,
+		classes map[string]map[string]hashtree.Digest) (*CompareHashTreeRootsMultiResp, error)
+}
+
+// CompareRootsSessionFactory creates independent CompareRootsSessions, one per calling goroutine.
+type CompareRootsSessionFactory interface {
+	NewCompareRootsSession() CompareRootsSession
 }
 
 // WClient is the client used to write to replicas
@@ -143,7 +165,7 @@ type RClient interface {
 		filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error)
 
 	DigestObjectsInRange(ctx context.Context, host, index, shard string,
-		initialUUID, finalUUID strfmt.UUID, limit int) ([]types.RepairResponse, error)
+		initialUUID, finalUUID strfmt.UUID, limit int) ([]types.RepairDigest, error)
 
 	// CompareDigests sends the source's local digests to the target and returns
 	// only the subset needing source-side action: objects missing on the target
@@ -153,7 +175,7 @@ type RClient interface {
 	// objects are never returned (identical hashtree digests, hence already
 	// invisible to the hashtree diff that drives this call).
 	CompareDigests(ctx context.Context, host, index, shard string,
-		digests []types.RepairResponse) ([]types.RepairResponse, error)
+		digests []types.RepairDigest) ([]types.RepairDigest, error)
 
 	HashTreeLevel(ctx context.Context, host, index, shard string, level int,
 		discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
@@ -173,11 +195,12 @@ type RClient interface {
 
 // FinderClient extends RClient with consistency checks
 type FinderClient struct {
-	cl RClient
+	cl  RClient
+	log logrus.FieldLogger
 }
 
-func NewFinderClient(cl RClient) FinderClient {
-	return FinderClient{cl: cl}
+func NewFinderClient(cl RClient, log logrus.FieldLogger) FinderClient {
+	return FinderClient{cl: cl, log: log}
 }
 
 // FullRead reads full object
@@ -213,14 +236,14 @@ func (fc FinderClient) DigestReads(ctx context.Context,
 func (fc FinderClient) DigestObjectsInRange(ctx context.Context,
 	host, index, shard string,
 	initialUUID, finalUUID strfmt.UUID, limit int,
-) ([]types.RepairResponse, error) {
+) ([]types.RepairDigest, error) {
 	return fc.cl.DigestObjectsInRange(ctx, host, index, shard, initialUUID, finalUUID, limit)
 }
 
 func (fc FinderClient) CompareDigests(ctx context.Context,
 	host, index, shard string,
-	digests []types.RepairResponse,
-) ([]types.RepairResponse, error) {
+	digests []types.RepairDigest,
+) ([]types.RepairDigest, error) {
 	return fc.cl.CompareDigests(ctx, host, index, shard, digests)
 }
 
@@ -230,17 +253,152 @@ func (fc FinderClient) CompareHashTreeRoots(ctx context.Context,
 	return fc.cl.CompareHashTreeRoots(ctx, host, index, roots)
 }
 
-// FullReads read full objects
+// MaxFullReadIDsPerRequest bounds ids per FetchObjects request. The REST
+// transport base64-encodes them into the URL query string at ~53 bytes per id,
+// so 256 ids is ~14 KB: well inside the receiving server's 1 MiB header cap
+// (MaxHeaderBytes is unset) and the 60 KiB a service-mesh sidecar (Envoy
+// default) allows on node-to-node traffic. An unbounded list would overflow
+// those caps with a 414 that is not retried. The chunk also caps how many
+// whole objects one response holds in memory.
+const MaxFullReadIDsPerRequest = 256
+
+// MaxConcurrentFullReadRequests bounds how many chunked FetchObjects requests
+// are in flight at once against the single winning host, capping peak response
+// memory at MaxConcurrentFullReadRequests * MaxFullReadIDsPerRequest whole
+// objects per FullReads call. The repairer runs one FullReads per winning
+// replica concurrently, so the ceiling per repaired batch is that product
+// times the number of winning replicas (at most the replication factor).
+const MaxConcurrentFullReadRequests = 16
+
+// FullReads reads the current version of each id from host, one entry per
+// requested id in request order. Ids are fetched in bounded chunks, chunks
+// concurrently; any failed chunk fails the whole read. A response that does
+// not line up with its request is rejected rather than returned: callers
+// index the result positionally, so a mispair would repair the wrong object.
 func (fc FinderClient) FullReads(ctx context.Context,
 	host, index, shard string,
 	ids []strfmt.UUID,
 ) ([]Replica, error) {
-	n := len(ids)
-	rs, err := fc.cl.FetchObjects(ctx, host, index, shard, ids)
-	if m := len(rs); err == nil && n != m {
-		err = fmt.Errorf("malformed full read response: length expected %d got %d", n, m)
+	if len(ids) <= MaxFullReadIDsPerRequest {
+		return fc.fullReadChunk(ctx, host, index, shard, ids, 0)
 	}
-	return rs, err
+
+	rs := make([]Replica, len(ids))
+	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(fc.log, ctx)
+	gr.SetLimit(MaxConcurrentFullReadRequests)
+	for start := 0; start < len(ids); start += MaxFullReadIDsPerRequest {
+		start, end := start, min(start+MaxFullReadIDsPerRequest, len(ids))
+		gr.Go(func() error {
+			part, err := fc.fullReadChunk(ctx, host, index, shard, ids[start:end], start)
+			if err != nil {
+				return err
+			}
+			copy(rs[start:end], part)
+			return nil
+		})
+	}
+	if err := gr.Wait(); err != nil {
+		return nil, err
+	}
+	return rs, nil
+}
+
+// fullReadChunk performs one FetchObjects request and validates that the
+// response carries exactly the requested ids in request order. offset is the
+// chunk's position in the whole id list, so errors name absolute indices.
+func (fc FinderClient) fullReadChunk(ctx context.Context,
+	host, index, shard string,
+	chunk []strfmt.UUID, offset int,
+) ([]Replica, error) {
+	part, err := fc.cl.FetchObjects(ctx, host, index, shard, chunk)
+	if err != nil {
+		return nil, err
+	}
+	if len(part) != len(chunk) {
+		return nil, fmt.Errorf("malformed full read response: length expected %d got %d",
+			len(chunk), len(part))
+	}
+	for i := range part {
+		if part[i].ID != chunk[i] {
+			return nil, fmt.Errorf("malformed full read response: object %d is %q, expected %q",
+				offset+i, part[i].ID, chunk[i])
+		}
+	}
+	return part, nil
+}
+
+// AsyncCheckpointMaxShardsPerChunk bounds shards per checkpoint RPC: 512 worst-case 64-char names fit AsyncCheckpointMaxBodyBytes and the ~60 KiB sidecar header budget of the status GET query (tested).
+const AsyncCheckpointMaxShardsPerChunk = 512
+
+// AsyncCheckpointMaxLifetime clears a checkpoint nobody deleted; it must exceed the planner's worst-case planning and cleanup window.
+const AsyncCheckpointMaxLifetime = time.Hour
+
+// MaxConcurrentAsyncCheckpointRequests bounds in-flight chunks per host so wide fan-outs don't overrun the checkpoint cutoff lead.
+const MaxConcurrentAsyncCheckpointRequests = 8
+
+// CreateAsyncCheckpoint fans shardNames out in bounded chunks; any failed chunk fails the call.
+func (fc FinderClient) CreateAsyncCheckpoint(ctx context.Context,
+	host, index string, shardNames []string, cutoffMs int64, createdAt time.Time,
+) error {
+	if len(shardNames) <= AsyncCheckpointMaxShardsPerChunk {
+		return fc.cl.CreateAsyncCheckpoint(ctx, host, index, shardNames, cutoffMs, createdAt)
+	}
+	return fc.forEachAsyncCheckpointChunk(ctx, shardNames, func(ctx context.Context, chunk []string) error {
+		return fc.cl.CreateAsyncCheckpoint(ctx, host, index, chunk, cutoffMs, createdAt)
+	})
+}
+
+// DeleteAsyncCheckpoint fans shardNames out in bounded chunks; any failed chunk fails the call.
+func (fc FinderClient) DeleteAsyncCheckpoint(ctx context.Context,
+	host, index string, shardNames []string,
+) error {
+	if len(shardNames) <= AsyncCheckpointMaxShardsPerChunk {
+		return fc.cl.DeleteAsyncCheckpoint(ctx, host, index, shardNames)
+	}
+	return fc.forEachAsyncCheckpointChunk(ctx, shardNames, func(ctx context.Context, chunk []string) error {
+		return fc.cl.DeleteAsyncCheckpoint(ctx, host, index, chunk)
+	})
+}
+
+// GetAsyncCheckpointStatus fans shardNames out in bounded chunks and merges the results; any failed chunk fails the call so absent entries stay conservative.
+func (fc FinderClient) GetAsyncCheckpointStatus(ctx context.Context,
+	host, index string, shardNames []string,
+) (map[string]AsyncCheckpointShardStatus, error) {
+	if len(shardNames) <= AsyncCheckpointMaxShardsPerChunk {
+		return fc.cl.GetAsyncCheckpointStatus(ctx, host, index, shardNames)
+	}
+	out := make(map[string]AsyncCheckpointShardStatus, len(shardNames))
+	var mu sync.Mutex
+	err := fc.forEachAsyncCheckpointChunk(ctx, shardNames, func(ctx context.Context, chunk []string) error {
+		part, err := fc.cl.GetAsyncCheckpointStatus(ctx, host, index, chunk)
+		if err != nil {
+			return err
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		for shard, status := range part {
+			out[shard] = status
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (fc FinderClient) forEachAsyncCheckpointChunk(ctx context.Context,
+	shardNames []string, fn func(ctx context.Context, chunk []string) error,
+) error {
+	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(fc.log, ctx)
+	gr.SetLimit(MaxConcurrentAsyncCheckpointRequests)
+	for start := 0; start < len(shardNames); start += AsyncCheckpointMaxShardsPerChunk {
+		chunk := shardNames[start:min(start+AsyncCheckpointMaxShardsPerChunk, len(shardNames))]
+		gr.Go(func() error {
+			return fn(ctx, chunk)
+		})
+	}
+	return gr.Wait()
 }
 
 // Overwrite specified object with most recent contents

@@ -25,7 +25,8 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/clients"
-	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	clustermocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
@@ -64,7 +65,7 @@ func TestSuccessGetUser(t *testing.T) {
 			authorizer := authorization.NewMockAuthorizer(t)
 			authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(test.userId)[0]).Return(nil)
 			dynUser := NewMockDbUserAndRolesGetter(t)
-			schemaGetter := schema.NewMockSchemaGetter(t)
+			var nodeLister cluster.NodeLister = clustermocks.NewMockNodeSelector()
 			if test.userType == models.UserTypeOutputDbUser {
 				dynUser.On("GetUsers", test.userId).Return(map[string]apikey.UserView{test.userId: {Id: test.userId, ApiKeyFirstLetters: "abc"}}, nil)
 			} else {
@@ -74,7 +75,7 @@ func TestSuccessGetUser(t *testing.T) {
 				map[string][]authorization.Policy{"role": {}}, nil)
 
 			if test.addLastUsed {
-				schemaGetter.On("Nodes").Return([]string{"node1"})
+				nodeLister = clustermocks.NewMockNodeSelector("node1")
 			}
 
 			h := dynUserHandler{
@@ -82,7 +83,7 @@ func TestSuccessGetUser(t *testing.T) {
 				authorizer:           authorizer,
 				staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"static"}, AllowedKeys: []string{"static"}},
 				rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root"}}, dbUserEnabled: true,
-				nodesGetter: schemaGetter,
+				nodesGetter: nodeLister,
 			}
 
 			res := h.getUser(users.GetUserInfoParams{UserID: test.userId, IncludeLastUsedTime: &test.addLastUsed, HTTPRequest: req}, principal)
@@ -99,6 +100,88 @@ func TestSuccessGetUser(t *testing.T) {
 			} else {
 				require.Equal(t, parsed.Payload.APIKeyFirstLetters, "")
 			}
+		})
+	}
+}
+
+// TestGetUserAPIKeyFirstLettersVisibility pins who sees the api-key hint on the
+// get endpoint: root always, a built-in admin only on namespace-enabled
+// clusters, everyone else never.
+func TestGetUserAPIKeyFirstLettersVisibility(t *testing.T) {
+	userID := "dynamic"
+	tests := []struct {
+		name              string
+		principal         *models.Principal
+		namespacesEnabled bool
+		callerRoles       map[string][]authorization.Policy
+		groupRoles        map[string][]authorization.Policy
+		wantFirstLetters  string
+	}{
+		{
+			name:              "root sees on namespaced cluster",
+			principal:         &models.Principal{Username: "root", UserType: models.UserTypeInputDb},
+			namespacesEnabled: true,
+			wantFirstLetters:  "abc",
+		},
+		{
+			name:              "admin sees on namespaced cluster",
+			principal:         &models.Principal{Username: "not-root", UserType: models.UserTypeInputDb},
+			namespacesEnabled: true,
+			callerRoles:       map[string][]authorization.Policy{authorization.Admin: {}},
+			wantFirstLetters:  "abc",
+		},
+		{
+			name:              "admin via group sees on namespaced cluster",
+			principal:         &models.Principal{Username: "not-root", UserType: models.UserTypeInputDb, Groups: []string{"admin-group"}},
+			namespacesEnabled: true,
+			callerRoles:       map[string][]authorization.Policy{},
+			groupRoles:        map[string][]authorization.Policy{authorization.Admin: {}},
+			wantFirstLetters:  "abc",
+		},
+		{
+			name:              "non-admin hidden on namespaced cluster",
+			principal:         &models.Principal{Username: "not-root", UserType: models.UserTypeInputDb},
+			namespacesEnabled: true,
+			callerRoles:       map[string][]authorization.Policy{},
+			wantFirstLetters:  "",
+		},
+		{
+			name:              "admin hidden on non-namespaced cluster",
+			principal:         &models.Principal{Username: "not-root", UserType: models.UserTypeInputDb},
+			namespacesEnabled: false,
+			callerRoles:       map[string][]authorization.Policy{authorization.Admin: {}},
+			wantFirstLetters:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := authorization.NewMockAuthorizer(t)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.READ, authorization.Users(userID)[0]).Return(nil)
+			dynUser := NewMockDbUserAndRolesGetter(t)
+			dynUser.On("GetUsers", userID).Return(map[string]apikey.UserView{userID: {Id: userID, ApiKeyFirstLetters: "abc"}}, nil)
+			// role-less target so role visibility never authorizes
+			dynUser.On("GetRolesForUserOrGroup", userID, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
+			if tt.callerRoles != nil {
+				// Maybe: not consulted on non-namespaced clusters.
+				dynUser.On("GetRolesForUserOrGroup", tt.principal.Username, authentication.AuthTypeDb, false).Return(tt.callerRoles, nil).Maybe()
+			}
+			for _, group := range tt.principal.Groups {
+				dynUser.On("GetRolesForUserOrGroup", group, authentication.AuthTypeDb, true).Return(tt.groupRoles, nil).Maybe()
+			}
+
+			h := dynUserHandler{
+				dbUsers:           dynUser,
+				authorizer:        authorizer,
+				rbacConfig:        rbacconf.Config{Enabled: true, RootUsers: []string{"root"}},
+				dbUserEnabled:     true,
+				namespacesEnabled: tt.namespacesEnabled,
+			}
+
+			res := h.getUser(users.GetUserInfoParams{UserID: userID, HTTPRequest: req}, tt.principal)
+			parsed, ok := res.(*users.GetUserInfoOK)
+			require.True(t, ok, "got %T", res)
+			require.Equal(t, tt.wantFirstLetters, parsed.Payload.APIKeyFirstLetters)
 		})
 	}
 }
@@ -125,7 +208,6 @@ func TestSuccessGetUserMultiNode(t *testing.T) {
 			authorizer := authorization.NewMockAuthorizer(t)
 			authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(userId)[0]).Return(nil)
 			dynUser := NewMockDbUserAndRolesGetter(t)
-			schemaGetter := schema.NewMockSchemaGetter(t)
 
 			dynUser.On("GetUsers", userId).Return(map[string]apikey.UserView{userId: {Id: userId, LastUsedAt: returnedTime}}, nil)
 			dynUser.On("GetRolesForUserOrGroup", userId, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{"role": {}}, nil)
@@ -134,7 +216,7 @@ func TestSuccessGetUserMultiNode(t *testing.T) {
 			for i := range test.nodeResponses {
 				nodes = append(nodes, string(rune(i)))
 			}
-			schemaGetter.On("Nodes").Return(nodes)
+			nodeLister := clustermocks.NewMockNodeSelector(nodes...)
 
 			server := httptest.NewServer(&fakeHandler{t: t, counter: atomic.Int32{}, nodeResponses: test.nodeResponses})
 			defer server.Close()
@@ -146,7 +228,7 @@ func TestSuccessGetUserMultiNode(t *testing.T) {
 				authorizer:           authorizer,
 				staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"static"}, AllowedKeys: []string{"static"}},
 				rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root"}}, dbUserEnabled: true,
-				nodesGetter: schemaGetter,
+				nodesGetter: nodeLister,
 				remoteUser:  remote,
 			}
 

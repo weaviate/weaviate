@@ -37,7 +37,7 @@ func NewMetrics(reg prometheus.Registerer, moduleName string) *Metrics {
 				Name: moduleName + "_operations_total",
 				Help: "Total number of " + moduleName + " operations",
 			},
-			[]string{"operation", "status"}, // operation: collect/upload, status: success/error
+			[]string{"operation", "status"}, // operation: collect/upload, status: success/error/skipped
 		),
 		OperationLatency: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{

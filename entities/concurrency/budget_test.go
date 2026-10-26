@@ -42,6 +42,49 @@ func TestBudget(t *testing.T) {
 	assert.Equal(t, 4, budget)
 }
 
+func TestCtxWithBudgetIfAbsent(t *testing.T) {
+	t.Run("seeds budget when absent", func(t *testing.T) {
+		ctx := CtxWithBudgetIfAbsent(context.Background(), 7)
+		assert.Equal(t, 7, BudgetFromCtx(ctx, 99))
+	})
+
+	t.Run("preserves an existing budget", func(t *testing.T) {
+		// Mimics an admission grant seeded upstream: a downstream default
+		// must not clobber it.
+		ctx := CtxWithBudget(context.Background(), 5)
+		ctx = CtxWithBudgetIfAbsent(ctx, 100)
+		assert.Equal(t, 5, BudgetFromCtx(ctx, 99))
+	})
+
+	t.Run("preserves an existing budget of zero", func(t *testing.T) {
+		// A budget of 0 is still a set budget and must not be treated as absent.
+		ctx := CtxWithBudget(context.Background(), 0)
+		ctx = CtxWithBudgetIfAbsent(ctx, 100)
+		assert.Equal(t, 0, BudgetFromCtx(ctx, 99))
+	})
+
+	t.Run("grant then fractional reduction chains off the grant", func(t *testing.T) {
+		// An admission grant of 8 must flow through the read path's fractional
+		// reductions unchanged by the if-absent seed.
+		ctx := CtxWithBudget(context.Background(), 8)
+		ctx = CtxWithBudgetIfAbsent(ctx, 100)
+		ctx = ContextWithFractionalBudget(ctx, 2, 32)
+		assert.Equal(t, 4, BudgetFromCtx(ctx, 32))
+	})
+
+	t.Run("if-absent seed then fractional reduction chains off the seed", func(t *testing.T) {
+		ctx := CtxWithBudgetIfAbsent(context.Background(), 16)
+		ctx = ContextWithFractionalBudget(ctx, 4, 32)
+		assert.Equal(t, 4, BudgetFromCtx(ctx, 32))
+	})
+
+	t.Run("preserved grant is respected by BudgetFromCtxCapped", func(t *testing.T) {
+		ctx := CtxWithBudget(context.Background(), 3)
+		ctx = CtxWithBudgetIfAbsent(ctx, 100)
+		assert.Equal(t, 3, BudgetFromCtxCapped(ctx, 8))
+	})
+}
+
 func TestBudgetFromCtxCapped(t *testing.T) {
 	// pin the enabled path so the clamp behavior is tested even when the
 	// environment sets the kill switch (mirrors TestBudgetCapDisabled_KillSwitch)
@@ -132,3 +175,30 @@ func TestBudgetCapDisabled_KillSwitch(t *testing.T) {
 }
 
 func ptr(i int) *int { return &i }
+
+func TestNumWorkers(t *testing.T) {
+	bg := context.Background()
+
+	tests := []struct {
+		name     string
+		ctx      context.Context
+		nItems   int
+		fallback int
+		want     int
+	}{
+		{"no budget uses fallback", bg, 100, 8, 8},
+		{"no budget capped by item count", bg, 3, 8, 3},
+		{"budget below fallback wins", CtxWithBudget(bg, 2), 100, 8, 2},
+		{"budget above fallback is clamped", CtxWithBudget(bg, 64), 100, 8, 8},
+		{"budget capped by item count", CtxWithBudget(bg, 6), 4, 8, 4},
+		{"zero items floors to one", bg, 0, 8, 1},
+		{"zero budget floors to one", CtxWithBudget(bg, 0), 100, 8, 1},
+		{"negative budget floors to one", CtxWithBudget(bg, -3), 100, 8, 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, NumWorkers(tt.ctx, tt.nItems, tt.fallback))
+		})
+	}
+}

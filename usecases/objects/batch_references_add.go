@@ -14,6 +14,8 @@ package objects
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 
@@ -89,13 +91,18 @@ func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Prin
 		return nil, err
 	}
 
-	var pathsData []string
-	for _, val := range uniqueClassShard {
-		pathsData = append(pathsData, authorization.ShardsData(val.Class, val.Shard)...)
+	pathsByClass := map[string][]string{}
+	for _, key := range slices.Sorted(maps.Keys(uniqueClassShard)) {
+		val := uniqueClassShard[key]
+		pathsByClass[val.Class] = append(pathsByClass[val.Class], authorization.ShardsData(val.Class, val.Shard)...)
 	}
 
-	if err := b.authorizer.Authorize(ctx, principal, authorization.UPDATE, pathsData...); err != nil {
-		return nil, err
+	// One source class in a non-active namespace refuses the whole batch. Sorted
+	// order returns the same error on every run.
+	for _, class := range slices.Sorted(maps.Keys(pathsByClass)) {
+		if err := b.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.UPDATE, class, pathsByClass[class]...); err != nil {
+			return nil, err
+		}
 	}
 
 	b.metrics.BatchRefInc()
@@ -119,7 +126,12 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 		Shard string
 	}
 	uniqueClassShard := map[string]classAndShard{}
+	// A ref whose target skips the multi-tenancy check below would otherwise leave
+	// this at 0, which makes db.AddBatchReferences' wait a no-op.
 	var schemaVersion uint64
+	for _, vc := range fetchedClasses {
+		schemaVersion = max(schemaVersion, vc.Version)
+	}
 	for i, ref := range refs {
 		if ref.Err != nil {
 			continue
@@ -128,7 +140,7 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 		var qualifiedTarget string
 		if ref.To != nil && ref.To.Class != "" {
 			qualified, short, err := namespacing.QualifyRefTarget(
-				principal, b.config.Config.Namespaces.Enabled,
+				principal, b.qualifier,
 				ref.From.Class.String(), ref.To.Class)
 			if err != nil {
 				refs[i].Err = err
@@ -166,8 +178,10 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 		uniqueClassShard[qualifiedTarget+"#"+ref.Tenant] = classAndShard{Class: qualifiedTarget, Shard: ref.Tenant}
 	}
 
+	// Sorted so a denial names the same target shard on every run.
 	shardsDataPaths := make([]string, 0, len(uniqueClassShard))
-	for _, val := range uniqueClassShard {
+	for _, key := range slices.Sorted(maps.Keys(uniqueClassShard)) {
+		val := uniqueClassShard[key]
 		shardsDataPaths = append(shardsDataPaths, authorization.ShardsData(val.Class, val.Shard)...)
 	}
 
@@ -181,12 +195,8 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 		}
 	}
 
-	// Ensure that the local schema has caught up to the version we used to validate
-	if err := b.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
-		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
-	}
 	if res, err := b.vectorRepo.AddBatchReferences(ctx, refs, repl, schemaVersion); err != nil {
-		return nil, NewErrInternal("could not add batch request to connector: %v", err)
+		return nil, NewErrInternal("could not add batch request to connector: %w", err)
 	} else {
 		return res, nil
 	}
@@ -387,7 +397,7 @@ func getReferenceClasses(ctx context.Context,
 		fetchedClasses[toClassName] = toClass
 	}
 	if toClass.Class == nil {
-		err = fmt.Errorf("target class %q not found in schema", classFrom)
+		err = fmt.Errorf("target class %q not found in schema", toClassName)
 		return sourceClass, targetClass, schemaVersion, err
 	}
 	targetClass = toClass.Class

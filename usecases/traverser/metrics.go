@@ -16,6 +16,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type Metrics struct {
@@ -90,6 +91,10 @@ func (m *Metrics) QueriesObserveDuration(className string, startMs int64) {
 		return
 	}
 
+	// Read the namespace before className is overwritten below. Grouped mode
+	// publishes one series per namespace, not one for the whole node.
+	namespace := namespacing.NamespaceFromQualified(className)
+
 	if m.groupClasses {
 		className = "n/a"
 	}
@@ -97,8 +102,9 @@ func (m *Metrics) QueriesObserveDuration(className string, startMs int64) {
 	took := float64(time.Now().UnixMilli() - startMs)
 
 	m.queriesDurations.With(prometheus.Labels{
-		"class_name": className,
-		"query_type": "get_graphql",
+		"class_name":           className,
+		"query_type":           "get_graphql",
+		"collection_namespace": namespace,
 	}).Observe(float64(took))
 }
 

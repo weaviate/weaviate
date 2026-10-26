@@ -72,9 +72,8 @@ func partialWindowBudget() time.Duration {
 //     bounds this to microseconds; query returns OLD baseline).
 //   - Post-swap: overlay=NEW, bucket=NEW → query returns NEW
 //     expectedAfter.
-//   - Post-flip: overlay self-clears or is explicitly cleared by
-//     OnTaskCompleted; live schema=NEW matches bucket=NEW → query
-//     still returns NEW expectedAfter.
+//   - Post-flip: live schema=NEW matches bucket=NEW, so the overlay
+//     overrides nothing → query still returns NEW expectedAfter.
 //
 // In-range partials ARE still expected — the cluster-wide cutover
 // has a real cross-shard spread (every node's reactive
@@ -232,7 +231,7 @@ func runLiveQueryDuringChangeTokenizationCase(
 	var taskID string
 	samples, migrationStart := runMigrationWithProbes(t, compose, className,
 		25*time.Millisecond, 2*time.Second, probe, func() {
-			taskID = reindexhelpers.SubmitIndexUpdate(t, compose.GetWeaviateNode(1).URI(), className, "text", indexUpdateJSON)
+			taskID = reindexhelpers.SubmitIndexUpsert(t, compose.GetWeaviateNode(1).URI(), className, "text", indexType, indexUpdateJSON)
 			t.Logf("submitted change-tokenization-%s task: %s", indexType, taskID)
 			reindexhelpers.AwaitReindexFinished(t, compose.GetWeaviateNode(1).URI(), taskID, reindexhelpers.WithTimeout(180*time.Second))
 			require.Eventually(t, func() bool {
@@ -316,8 +315,8 @@ func runLiveQueryDuringChangeTokenizationCase(
 	latePartial := countLatePartials(t, samples, baselineCount, expectedAfter, afterAnchor, migrationStart)
 	assert.Zerof(t, latePartial,
 		"observed %d partial samples after the bounded cutover window for %s→%s on %s — "+
-			"cutover is not converging; either the overlay isn't being cleared "+
-			"or the schema flip isn't propagating to every replica.",
+			"cutover is not converging; the schema flip isn't propagating to "+
+			"every replica.",
 		latePartial, startTok, targetTok, indexType)
 }
 
@@ -335,16 +334,15 @@ func maxInt(a, b int) int {
 	return b
 }
 
-// buildTokenizationIndexUpdate produces the index-update request body
-// for a change-tokenization migration. Split out of the test body so
+// buildTokenizationIndexUpdate produces the GA upsert body for a
+// change-tokenization migration. The index type is now a path segment, so
+// the body is just the property-level fields for either type. Split out so
 // the assertion logic above stays readable.
 func buildTokenizationIndexUpdate(t *testing.T, indexType, targetTok string) string {
 	t.Helper()
 	switch indexType {
-	case "searchable":
-		return fmt.Sprintf(`{"searchable":{"tokenization":%q}}`, targetTok)
-	case "filterable":
-		return fmt.Sprintf(`{"filterable":{"tokenization":%q}}`, targetTok)
+	case "searchable", "filterable":
+		return fmt.Sprintf(`{"tokenization":%q}`, targetTok)
 	default:
 		t.Fatalf("unsupported indexType %q", indexType)
 		return ""
@@ -455,8 +453,8 @@ func TestPartialResultsDuringChangeTokenization(t *testing.T) {
 	var taskID string
 	samples, migrationStart := runMigrationWithProbes(t, compose, className,
 		25*time.Millisecond, 2*time.Second, probe, func() {
-			taskID = reindexhelpers.SubmitIndexUpdate(t, compose.GetWeaviateNode(1).URI(),
-				className, "text", `{"searchable":{"tokenization":"field"}}`)
+			taskID = reindexhelpers.SubmitIndexUpsert(t, compose.GetWeaviateNode(1).URI(),
+				className, "text", "searchable", `{"tokenization":"field"}`)
 			t.Logf("submitted change-tokenization task: %s", taskID)
 			reindexhelpers.AwaitReindexFinished(t, compose.GetWeaviateNode(1).URI(), taskID, reindexhelpers.WithTimeout(180*time.Second))
 			require.Eventually(t, func() bool {

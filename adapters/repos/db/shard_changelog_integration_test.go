@@ -67,13 +67,14 @@ func setupChangelogTestShard(t *testing.T, ctx context.Context) *Shard {
 	t.Helper()
 	class := changelogTestClass()
 	vic := hnsw.UserConfig{Distance: common.DefaultDistanceMetric}
-	shardLike, _ := testShardWithSettings(t, ctx, class, vic, false, true, false)
+	shardLike, _ := testShardWithSettings(t, ctx, class, vic, false, false)
 	switch s := shardLike.(type) {
 	case *Shard:
 		return s
 	case *LazyLoadShard:
-		require.NoError(t, s.Load(ctx), "force-load lazy shard")
-		return s.shard
+		shard, _, err := s.loadIfCold(ctx)
+		require.NoError(t, err, "force-load lazy shard")
+		return shard
 	default:
 		t.Fatalf("setupChangelogTestShard: unexpected shard type %T", shardLike)
 		return nil

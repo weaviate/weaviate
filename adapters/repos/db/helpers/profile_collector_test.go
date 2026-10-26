@@ -13,6 +13,7 @@ package helpers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"testing"
@@ -286,15 +287,11 @@ func TestAttachQueryProfileToResults(t *testing.T) {
 	results = AttachQueryProfileToResults(ctx, results)
 
 	require.NotNil(t, results[0].AdditionalProperties)
-	// GraphQL: JSON string
 	profileStr, ok := results[0].AdditionalProperties["queryProfile"].(string)
 	require.True(t, ok)
-	assert.Contains(t, profileStr, "shard-1")
-	assert.Contains(t, profileStr, "vector")
 
-	// gRPC: raw queryProfiles
-	queryProfiles, ok := results[0].AdditionalProperties["queryProfileRaw"].([]ShardQueryProfile)
-	require.True(t, ok)
+	var queryProfiles []ShardQueryProfile
+	require.NoError(t, json.Unmarshal([]byte(profileStr), &queryProfiles))
 	require.Len(t, queryProfiles, 1)
 	assert.Equal(t, "shard-1", queryProfiles[0].Name)
 	assert.NotNil(t, queryProfiles[0].Searches["vector"])
@@ -336,8 +333,11 @@ func TestAttachQueryProfileToResults_ExistingAdditionalProperties(t *testing.T) 
 
 	results = AttachQueryProfileToResults(ctx, results)
 	assert.Equal(t, "value", results[0].AdditionalProperties["existing"])
-	queryProfiles, ok := results[0].AdditionalProperties["queryProfileRaw"].([]ShardQueryProfile)
+	profileStr, ok := results[0].AdditionalProperties["queryProfile"].(string)
 	require.True(t, ok)
+
+	var queryProfiles []ShardQueryProfile
+	require.NoError(t, json.Unmarshal([]byte(profileStr), &queryProfiles))
 	require.Len(t, queryProfiles, 1)
 }
 

@@ -24,6 +24,9 @@ type memtableCursor struct {
 	data    []*binarySearchNode
 	keyFn   func(n *binarySearchNode) []byte
 	current int
+	// keySorted enables binary-search seeks; false for secondary-index cursors,
+	// whose tombstone placeholders yield nil keys and break strict ordering.
+	keySorted bool
 }
 
 func (m *Memtable) newCursor() innerCursorReplace {
@@ -44,6 +47,25 @@ func (m *Memtable) newCursor() innerCursorReplace {
 		keyFn: func(n *binarySearchNode) []byte {
 			return n.key
 		},
+		keySorted: true,
+	}
+}
+
+// newCursorWithRange behaves like newCursor but snapshots only keys within
+// [min, max] (inclusive; nil bound = unbounded), avoiding the full-memtable
+// flatten for range-scoped readers such as the digest RPC handlers.
+func (m *Memtable) newCursorWithRange(min, max []byte) innerCursorReplace {
+	m.RLock()
+	defer m.RUnlock()
+
+	data := m.key.flattenInOrderRange(min, max)
+
+	return &memtableCursor{
+		data: data,
+		keyFn: func(n *binarySearchNode) []byte {
+			return n.key
+		},
+		keySorted: true,
 	}
 }
 
@@ -63,6 +85,7 @@ func (m *Memtable) newBlockingCursor() (innerCursorReplace, func()) {
 		keyFn: func(n *binarySearchNode) []byte {
 			return n.key
 		},
+		keySorted: true,
 	}, m.RUnlock
 }
 
@@ -174,6 +197,16 @@ func (c *memtableCursor) seek(key []byte) ([]byte, []byte, error) {
 }
 
 func (c *memtableCursor) posLargerThanEqual(key []byte) int {
+	if c.keySorted {
+		pos := sort.Search(len(c.data), func(i int) bool {
+			return bytes.Compare(c.keyFn(c.data[i]), key) >= 0
+		})
+		if pos == len(c.data) {
+			return -1
+		}
+		return pos
+	}
+
 	for i, node := range c.data {
 		if bytes.Compare(c.keyFn(node), key) >= 0 {
 			return i

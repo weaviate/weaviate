@@ -13,12 +13,15 @@ package db
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"os"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -32,8 +35,37 @@ import (
 // If keepFiles==true, all files on disk are kept, only in-memory structures are removed. This is used to allow backups
 // to complete before the files are deleted.
 func (s *Shard) drop(keepFiles bool) (err error) {
+	// The shard is out of the shard map before drop runs, so it stops being
+	// counted even when the teardown below fails partway. Claiming the count
+	// under shutdownLock keeps it outside performShutdown's gauge transition.
+	// A shutdown starting mid-drop would otherwise leave it counted as unloading.
+	s.shutdownLock.RLock()
+	wasCounted := s.metricsRegistered.CompareAndSwap(true, false)
+	countedUnloaded := s.shut.Load()
+	s.shutdownLock.RUnlock()
+
+	if wasCounted {
+		defer func() {
+			if countedUnloaded {
+				s.metrics.baseMetrics.DeleteUnloadedShard(s.registration)
+			} else {
+				s.metrics.baseMetrics.DeleteLoadedShard(s.registration)
+			}
+		}()
+	}
+
+	// Drain before anything is torn down.
+	if drainErr := s.drainRefsForDrop(); drainErr != nil {
+		s.index.logger.WithFields(logrus.Fields{
+			"action": "drop_shard",
+			"class":  s.class.Class,
+			"shard":  s.name,
+		}).Errorf("proceeding with drop while references are still held; in-flight requests on this shard will fail: %v", drainErr)
+	}
+
+	defer s.releaseCountedStatus()
+
 	s.shutCtxCancel(fmt.Errorf("drop %q", s.ID()))
-	s.reindexer.Stop(s, fmt.Errorf("shard drop"))
 
 	s.metrics.DeleteShardLabels(s.index.Config.ClassName.String(), s.name)
 	s.replicationMap.clear()
@@ -46,7 +78,8 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 
 	s.clearDimensionMetrics() // not deleted in s.metrics.DeleteShardLabels
 
-	s.mayStopAsyncReplication()
+	// persistHashtree=false: shard is being destroyed.
+	s.mayStopAsyncReplication(false)
 
 	s.haltForTransferMux.Lock()
 	// also drops an already-fired monitor waiting on the mux, so it can't resume mid-teardown.
@@ -55,6 +88,46 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
 	defer cancel()
+
+	// Guarantee the lsmkv store is shut down on every exit. The pre-Shutdown
+	// steps below (queue/geo/vector-index Drop, cycle-callback Unregister)
+	// early-return on failure, but store.Shutdown is the ONLY step that
+	// deregisters this shard's buckets (each Bucket.Shutdown defers
+	// Remove(registeredPath)) and closes their files. The store's already-closed
+	// guard makes the happy-path second call a no-op. A fresh context is used so a
+	// pre-Shutdown deadline expiry cannot also starve this shutdown.
+	defer func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer shutdownCancel()
+		if serr := s.store.Shutdown(shutdownCtx); serr != nil && !stderrors.Is(serr, lsmkv.ErrAlreadyClosed) {
+			s.index.logger.WithFields(logrus.Fields{
+				"action": "drop_shard",
+				"class":  s.class.Class,
+				"shard":  s.name,
+			}).Errorf("best-effort store shutdown during shard drop failed: %v", serr)
+		}
+	}()
+
+	// The shard metadata DB (index.db) is shard-owned: the per-index Drops
+	// below no longer close it, so the drop must, or the handle and its mmap
+	// outlive the directory removal below — deferred so the early-return
+	// failure paths (queue, geo queue and vector-index drops) close it too,
+	// or a drop retry would stall on the still-held flock. Best-effort: the
+	// directory rename and async delete remove the file either way, and a
+	// shard that was shut down before the drop already closed it (Close on a
+	// closed bolt DB is a no-op).
+	defer func() {
+		if s.metadataDB == nil {
+			return
+		}
+		if cerr := s.metadataDB.Close(); cerr != nil {
+			s.index.logger.WithFields(logrus.Fields{
+				"action": "drop_shard",
+				"class":  s.class.Class,
+				"shard":  s.name,
+			}).Warnf("best-effort shard metadata db close during shard drop failed: %v", cerr)
+		}
+	}()
 
 	// queues need to be closed first to make sure they are not writing anymore
 	// to their associated vector index, as they might still be using the store
@@ -100,7 +173,10 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 		return err
 	}
 
-	if err = s.store.Shutdown(ctx); err != nil {
+	// A shard shut down before the drop closed its store already, which is the
+	// state this step wants. Failing here would abort the drop and leave the
+	// shard's files behind.
+	if err = s.store.Shutdown(ctx); err != nil && !stderrors.Is(err, lsmkv.ErrAlreadyClosed) {
 		return errors.Wrap(err, "stop lsmkv store")
 	}
 
@@ -144,11 +220,6 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 		if deleted != "" {
 			spawnAsyncDelete(deleted, s.index.logger)
 		}
-	}
-
-	// Only update metrics if the shard was properly registered
-	if s.metricsRegistered.Load() {
-		s.metrics.baseMetrics.DeleteLoadedShard()
 	}
 
 	s.index.logger.WithFields(logrus.Fields{

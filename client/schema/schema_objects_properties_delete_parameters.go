@@ -80,7 +80,7 @@ type SchemaObjectsPropertiesDeleteParams struct {
 
 	/* IndexName.
 
-	   The name of the inverted index to delete from the property.
+	   The name of the inverted index to delete from the property. `rangeable` is accepted as a write-path alias for `rangeFilters`.
 	*/
 	IndexName string
 

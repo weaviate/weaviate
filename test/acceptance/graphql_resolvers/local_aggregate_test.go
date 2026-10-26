@@ -1224,7 +1224,7 @@ func localMetaWithObjectLimit(t *testing.T) {
 			require.Nil(t, err)
 			// HNSW traversal near the distance cut can miss boundary objects (weaviate/weaviate#12193).
 			assert.Greater(t, countInt, int64(450))
-			assert.LessOrEqual(t, countInt, int64(500))
+			assert.LessOrEqual(t, countInt, int64(ransomNoteCount))
 		})
 	})
 
@@ -1255,7 +1255,7 @@ func localMetaWithObjectLimit(t *testing.T) {
 			require.Nil(t, err)
 			// See distance-cut subtest above (weaviate/weaviate#12193).
 			assert.Greater(t, countInt, int64(450))
-			assert.LessOrEqual(t, countInt, int64(500))
+			assert.LessOrEqual(t, countInt, int64(ransomNoteCount))
 		})
 	})
 
@@ -1279,7 +1279,7 @@ func localMetaWithObjectLimit(t *testing.T) {
 		countInt, err := count.(json.Number).Int64()
 		require.Nil(t, err)
 		// No vector filter: count is exact, from the object store rather than ANN.
-		assert.Equal(t, int64(500), countInt)
+		assert.Equal(t, int64(ransomNoteCount), countInt)
 	})
 
 	t.Run("with nearObject and low distance (few results), high objectLimit", func(t *testing.T) {

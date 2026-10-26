@@ -112,7 +112,7 @@ func (rr *RowReaderFrequency) greaterThan(ctx context.Context, readFn ReadFn,
 		}
 	}
 
-	return nil
+	return ctx.Err()
 }
 
 // lessThan reads from the very begging to the specified  value. The last
@@ -147,7 +147,7 @@ func (rr *RowReaderFrequency) lessThan(ctx context.Context, readFn ReadFn,
 		}
 	}
 
-	return nil
+	return ctx.Err()
 }
 
 func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFn) error {
@@ -207,7 +207,7 @@ func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFn) error {
 		}
 	}
 
-	return nil
+	return ctx.Err()
 }
 
 // newCursor will either return a regular cursor - or a key-only cursor if

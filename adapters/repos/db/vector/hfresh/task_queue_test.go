@@ -12,6 +12,8 @@
 package hfresh
 
 import (
+	"context"
+	"fmt"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -31,6 +33,9 @@ func TestTaskQueueRegisterIsExplicit(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.ID = "hfresh"
 	cfg.ShardName = "shard"
+	cfg.VectorForIDThunk = func(context.Context, uint64) ([]float32, error) {
+		return nil, fmt.Errorf("no vector store wired in this test")
+	}
 	cfg.RootPath = t.TempDir()
 	cfg.Logger = logger
 	cfg.Scheduler = scheduler
@@ -57,6 +62,34 @@ func TestTaskQueueRegisterIsExplicit(t *testing.T) {
 	index.taskQueue.Register()
 
 	require.Equal(t, 4, scheduler.QueueCount())
+}
+
+func TestWaitForMaintenanceDrainsQueuedTasks(t *testing.T) {
+	tf := createHFreshIndex(t)
+	const postingID = uint64(42)
+
+	require.NoError(t, tf.Index.taskQueue.EnqueueAnalyze(postingID))
+	require.True(t, tf.Index.taskQueue.analyzeList.Contains(postingID))
+	require.EqualValues(t, 1, tf.Index.taskQueue.Size())
+
+	tf.Index.waitForMaintenance(t)
+
+	require.Zero(t, tf.Index.taskQueue.Size())
+	require.False(t, tf.Index.taskQueue.analyzeList.Contains(postingID))
+}
+
+func TestWaitForMaintenanceDrainsFollowUpTasks(t *testing.T) {
+	vector := []float32{1, 0, 0, 0}
+	tf := createHFreshIndexWithVectorStore(t, [][]float32{vector})
+	addVectorToIndex(t, &tf, 0, vector)
+	tf.Index.waitForMaintenance(t)
+
+	require.NoError(t, tf.Index.taskQueue.EnqueueReassign(42, 0))
+	tf.Index.waitForMaintenance(t)
+
+	require.Zero(t, tf.Index.taskQueue.Size())
+	require.Zero(t, tf.Index.taskQueue.analyzeList.LivePages())
+	require.Zero(t, tf.Index.taskQueue.reassignList.LivePages())
 }
 
 func TestDecodeReassignTaskLegacyFormat(t *testing.T) {

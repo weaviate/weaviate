@@ -15,9 +15,11 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"io"
+	"io/fs"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -183,10 +185,19 @@ type commitLogger struct {
 
 	bufNode *bytes.Buffer
 	tmpBuf  []byte
+	// scratch for the collection node length prefixes and the record checksum
+	nodeScratch     [9]byte
+	checksumScratch [crc32.Size]byte
 
 	// e.g. when recovering from an existing log, we do not want to write into a
 	// new log again
 	paused bool
+
+	// closed makes close() re-entrant: a memtable flush closes the log before
+	// writing the segment, so a flush that fails PAST that point leaves a
+	// closed log — retrying the flush (flushAndSwitchLocked's leftover drain)
+	// must not fail forever on "file already closed".
+	closed bool
 }
 
 // commit log entry data format
@@ -316,7 +327,7 @@ func (cl *commitLogger) writeEntry(commitType CommitType, nodeBytes []byte) erro
 	}
 
 	// write record checksum directly on the writer
-	checksumSize, err := cl.writer.Write(cl.checksumWriter.Hash())
+	checksumSize, err := cl.writer.Write(cl.checksumWriter.HashInto(cl.checksumScratch[:0]))
 	if err != nil {
 		return err
 	}
@@ -351,11 +362,11 @@ func (cl *commitLogger) append(node segmentCollectionNode) error {
 
 	cl.bufNode.Reset()
 
-	ki, err := node.KeyIndexAndWriteTo(cl.bufNode)
+	ki, err := node.KeyIndexAndWriteToRedux(cl.bufNode, cl.nodeScratch[:])
 	if err != nil {
 		return err
 	}
-	if len(cl.bufNode.Bytes()) != ki.ValueEnd-ki.ValueStart {
+	if len(cl.bufNode.Bytes()) != ki.ValueEnd-node.offset {
 		return fmt.Errorf("unexpected error, node size mismatch")
 	}
 
@@ -391,18 +402,26 @@ func (cl *commitLogger) sync() error {
 	return cl.file.Sync()
 }
 
+// close releases the file even when flushing or syncing it fails.
 func (cl *commitLogger) close() error {
+	if cl.closed {
+		return nil
+	}
 	if !cl.paused {
 		if err := cl.writer.Flush(); err != nil {
-			return err
+			return errors.Join(err, cl.file.Close())
 		}
 
 		if err := cl.file.Sync(); err != nil {
-			return err
+			return errors.Join(err, cl.file.Close())
 		}
 	}
 
-	return cl.file.Close()
+	if err := cl.file.Close(); err != nil {
+		return err
+	}
+	cl.closed = true
+	return nil
 }
 
 func (cl *commitLogger) pause() {
@@ -414,7 +433,13 @@ func (cl *commitLogger) unpause() {
 }
 
 func (cl *commitLogger) delete() error {
-	return os.Remove(cl.path)
+	// Tolerate an already-deleted WAL: a flush retried after failing past its
+	// commitlog delete (e.g. in segment metadata precompute) must not wedge
+	// on the second delete.
+	if err := os.Remove(cl.path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 func (cl *commitLogger) flushBuffers() error {

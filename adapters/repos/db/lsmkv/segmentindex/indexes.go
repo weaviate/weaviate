@@ -65,16 +65,16 @@ func (s *Indexes) writeDirectly(w io.Writer) (written int64, err error) {
 
 	// Compute absolute file offsets for each secondary index.
 	offsets := make([]uint64, s.SecondaryIndexCount)
+	secSizes := make([]int64, s.SecondaryIndexCount)
 	secStart := dataEndOffset + offsetTableSize + uint64(primarySize)
 	for pos := range offsets {
 		offsets[pos] = secStart
-		var secSize int64
 		if s.SizesPrecomputed && pos < len(s.PrecomputedSecondaryIndexSizes) {
-			secSize = s.PrecomputedSecondaryIndexSizes[pos]
+			secSizes[pos] = s.PrecomputedSecondaryIndexSizes[pos]
 		} else {
-			secSize = computeSecondaryIndexSize(s.Keys, pos)
+			secSizes[pos] = computeSecondaryIndexSize(s.Keys, pos)
 		}
-		secStart += uint64(secSize)
+		secStart += uint64(secSizes[pos])
 	}
 
 	// Write the offset table.
@@ -93,6 +93,12 @@ func (s *Indexes) writeDirectly(w io.Writer) (written int64, err error) {
 		return written, err
 	}
 	written += n
+	if n != primarySize {
+		// The offset table above was already written from these sizes, so a
+		// mismatch leaves every offset pointing at the wrong bytes.
+		return written, fmt.Errorf("primary index size mismatch: expected %d bytes, wrote %d",
+			primarySize, n)
+	}
 
 	// Write each secondary index.
 	for pos := 0; pos < int(s.SecondaryIndexCount); pos++ {
@@ -101,6 +107,10 @@ func (s *Indexes) writeDirectly(w io.Writer) (written int64, err error) {
 			return written, fmt.Errorf("write secondary index %d: %w", pos, err)
 		}
 		written += n
+		if n != secSizes[pos] {
+			return written, fmt.Errorf("secondary index %d size mismatch: expected %d bytes, wrote %d",
+				pos, secSizes[pos], n)
+		}
 	}
 
 	return written, nil

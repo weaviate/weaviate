@@ -15,22 +15,26 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -58,8 +62,9 @@ func TestShardShutdownWhenIdle(t *testing.T) {
 	require.NotNil(t, release2)
 
 	// sanity check, no flags marked
-	requireShardShutdownRequested(t, shard, false)
-	requireShardShut(t, shard, false)
+	inner := loadedShardOf(t, shard)
+	requireShardShutdownRequested(t, inner, false)
+	requireShardShut(t, inner, false)
 
 	// release shard 2x
 	release1()
@@ -68,8 +73,8 @@ func TestShardShutdownWhenIdle(t *testing.T) {
 	// shutdown succeeds, shard idle
 	err = shard.Shutdown(context.Background())
 	require.NoError(t, err)
-	requireShardShutdownRequested(t, shard, false)
-	requireShardShut(t, shard, true)
+	requireShardShutdownRequested(t, inner, false)
+	requireShardShut(t, inner, true)
 }
 
 func TestShardShutdownWhenIdleEventually(t *testing.T) {
@@ -96,14 +101,15 @@ func TestShardShutdownWhenIdleEventually(t *testing.T) {
 	require.NotNil(t, release2)
 
 	// sanity check, no flags marked
-	requireShardShutdownRequested(t, shard, false)
-	requireShardShut(t, shard, false)
+	inner := loadedShardOf(t, shard)
+	requireShardShutdownRequested(t, inner, false)
+	requireShardShut(t, inner, false)
 
 	// shutdown fails, shard in use 2x
 	err = shard.Shutdown(context.Background())
 	require.ErrorContains(t, err, "still in use")
-	requireShardShutdownRequested(t, shard, true)
-	requireShardShut(t, shard, false)
+	requireShardShutdownRequested(t, inner, true)
+	requireShardShut(t, inner, false)
 
 	// getting shard fails, shutdown in progress
 	sameShardAgain, _, err := index.GetShard(context.Background(), shardName)
@@ -114,15 +120,15 @@ func TestShardShutdownWhenIdleEventually(t *testing.T) {
 	release1()
 
 	// shutdown still in progress, shard in use 1x
-	requireShardShutdownRequested(t, shard, true)
-	requireShardShut(t, shard, false)
+	requireShardShutdownRequested(t, inner, true)
+	requireShardShut(t, inner, false)
 
 	// release shard 1x
 	release2()
 
 	// shutdown eventually completed, shard idle
-	requireShardShutdownRequested(t, shard, false)
-	requireShardShut(t, shard, true)
+	requireShardShutdownRequested(t, inner, false)
+	requireShardShut(t, inner, true)
 
 	// getting shard fails, shutdown completed
 	sameShardYetAgain, _, err := index.GetShard(context.Background(), shardName)
@@ -132,6 +138,15 @@ func TestShardShutdownWhenIdleEventually(t *testing.T) {
 
 func initIndexAndPopulate(t *testing.T, dirName string) (index *Index, cleanup func()) {
 	logger, _ := test.NewNullLogger()
+	return initIndexAndPopulateWithLogger(t, dirName, logger)
+}
+
+// initIndexAndPopulateWithLogger is initIndexAndPopulate with the caller's
+// logger installed from construction. A test that wants a log hook passes
+// its logger here rather than swapping index.logger afterwards: the index
+// starts its lazy-shard warmup goroutine as soon as it exists, and that
+// goroutine reads the logger, so a later swap is a data race.
+func initIndexAndPopulateWithLogger(t *testing.T, dirName string, logger *logrus.Logger) (index *Index, cleanup func()) {
 	className := "Test"
 
 	// create db
@@ -140,7 +155,7 @@ func initIndexAndPopulate(t *testing.T, dirName string) (index *Index, cleanup f
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
@@ -148,6 +163,7 @@ func initIndexAndPopulate(t *testing.T, dirName string) (index *Index, cleanup f
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -164,7 +180,7 @@ func initIndexAndPopulate(t *testing.T, dirName string) (index *Index, cleanup f
 	},
 		&FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{},
 		&FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader,
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil,
 	)
 	require.NoError(t, err)
 
@@ -213,18 +229,331 @@ func initIndexAndPopulate(t *testing.T, dirName string) (index *Index, cleanup f
 	return index, cleanup
 }
 
-func requireShardShutdownRequested(t *testing.T, shard ShardLike, expected bool) {
+// loadedShardOf returns the Shard inside a loaded LazyLoadShard, so its shutdown
+// flags stay readable after Shutdown sets the wrapper's pointer to nil.
+func loadedShardOf(t *testing.T, shard ShardLike) *Shard {
+	t.Helper()
+	lazy, ok := shard.(*LazyLoadShard)
+	require.True(t, ok, "expected a lazy shard")
+	inner := lazy.loadedShard()
+	require.NotNil(t, inner, "expected a loaded shard")
+	return inner
+}
+
+func requireShardShutdownRequested(t *testing.T, shard *Shard, expected bool) {
 	if expected {
-		require.True(t, shard.(*LazyLoadShard).shard.shutdownRequested.Load(), "shard should be marked for shut down")
+		require.True(t, shard.shutdownRequested.Load(), "shard should be marked for shut down")
 	} else {
-		require.False(t, shard.(*LazyLoadShard).shard.shutdownRequested.Load(), "shard should not be marked for shut down")
+		require.False(t, shard.shutdownRequested.Load(), "shard should not be marked for shut down")
 	}
 }
 
-func requireShardShut(t *testing.T, shard ShardLike, expected bool) {
+func requireShardShut(t *testing.T, shard *Shard, expected bool) {
 	if expected {
-		require.True(t, shard.(*LazyLoadShard).shard.shut.Load(), "shard should be marked as shut down")
+		require.True(t, shard.shut.Load(), "shard should be marked as shut down")
 	} else {
-		require.False(t, shard.(*LazyLoadShard).shard.shut.Load(), "shard should not be marked as shut down")
+		require.False(t, shard.shut.Load(), "shard should not be marked as shut down")
 	}
+}
+
+// TestShardReinitAfterDeferredShutdown pins the write-path reactivation belt:
+// once the deferred ref-drain shutdown COMPLETES, the map still holds the shut
+// instance — the read path keeps surfacing errAlreadyShutdown (the
+// eventual-shutdown contract above), but getOrInitShard must evict the
+// known-shut entry and re-initialize instead of pinning the tenant on
+// errAlreadyShutdown until restart.
+func TestShardReinitAfterDeferredShutdown(t *testing.T) {
+	dirName := t.TempDir()
+	index, cleanup := initIndexAndPopulate(t, dirName)
+	defer cleanup()
+
+	var shardName string
+	index.shards.Range(func(name string, _ ShardLike) error {
+		shardName = name
+		return nil
+	})
+
+	_, release, err := index.GetShard(context.Background(), shardName)
+	require.NoError(t, err)
+
+	shard := index.shards.Load(shardName)
+	inner := loadedShardOf(t, shard)
+	require.ErrorContains(t, shard.Shutdown(context.Background()), "still in use")
+	release() // deferred completion fires here
+
+	requireShardShut(t, inner, true)
+
+	// Read path: terminal error, per the eventual-shutdown contract.
+	_, _, err = index.GetShard(context.Background(), shardName)
+	require.ErrorIs(t, err, errAlreadyShutdown)
+
+	// Write path: evict + re-init, fresh usable shard.
+	fresh, freshRelease, err := index.getOrInitShard(context.Background(), shardName)
+	require.NoError(t, err, "a known-shut map entry must be re-initialized, not served terminally")
+	require.NotNil(t, fresh)
+	freshRelease()
+
+	// And the read path works again through the fresh instance.
+	_, release2, err := index.GetShard(context.Background(), shardName)
+	require.NoError(t, err)
+	release2()
+}
+
+// TestShutdownOrRestoreShard_ConcurrentCompletionIsNotAFailure pins the race
+// between an explicit Shutdown and the deferred ref-drain completion: when
+// the deferred completion wins while the explicit attempt times out, the
+// stale attempt error must not surface — the shard IS shut, and reporting
+// failure would fail e.g. a whole cold-tenant batch on one racy tenant.
+func TestShutdownOrRestoreShard_ConcurrentCompletionIsNotAFailure(t *testing.T) {
+	dirName := t.TempDir()
+	index, cleanup := initIndexAndPopulate(t, dirName)
+	defer cleanup()
+
+	var shardName string
+	index.shards.Range(func(name string, _ ShardLike) error {
+		shardName = name
+		return nil
+	})
+
+	_, release, err := index.GetShard(context.Background(), shardName)
+	require.NoError(t, err)
+
+	shard, _ := index.shards.LoadAndDelete(shardName)
+	require.NotNil(t, shard)
+
+	// Attempt 1 sees the shard in use; the ctx dies before attempt 2
+	// (backoff 200ms); the release at ~50ms lets the deferred completion
+	// finish the shutdown cleanly in between.
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		release()
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+
+	outcome, err := shutdownOrRestoreShard(ctx, index, shardName, shard)
+	require.Equal(t, ShardUnloadOutcomeUnloaded, outcome,
+		"a concurrently-completed shutdown is the outcome the caller asked for")
+	require.ErrorIs(t, err, errAlreadyShutdown,
+		"a concurrently-completed shutdown is the requested outcome, not a failure")
+	require.Nil(t, index.shards.Load(shardName), "a cleanly shut shard is not restored")
+}
+
+// TestUnloadLocalShard_ErrorClassification pins which unload outcomes reach the
+// caller as failures. shutdownOrRestoreShard reports a shard that is already
+// shut as errAlreadyShutdown, which is the outcome an unload asked for, so it
+// must not compound into a caller's error list. A refused unload, a torn shard
+// and a closing index still must. Each of those leaves the shard loaded.
+func TestUnloadLocalShard_ErrorClassification(t *testing.T) {
+	tests := []struct {
+		name string
+		// setup arranges the shard state and returns the name to unload plus
+		// the ctx the unload runs under.
+		setup          func(t *testing.T, index *Index, shardName string) (string, context.Context)
+		wantErr        error
+		wantOutcome    ShardUnloadOutcome
+		wantStillInMap bool
+	}{
+		{
+			name:        "idle shard unloads cleanly",
+			wantOutcome: ShardUnloadOutcomeUnloaded,
+			setup: func(t *testing.T, index *Index, shardName string) (string, context.Context) {
+				return shardName, context.Background()
+			},
+		},
+		{
+			name:        "shard already gone from the map is a no-op",
+			wantOutcome: ShardUnloadOutcomeUnloaded,
+			setup: func(t *testing.T, index *Index, shardName string) (string, context.Context) {
+				return "no-such-shard", context.Background()
+			},
+		},
+		{
+			// The migrator's tenant and shard updates release a self-recovery
+			// placeholder. Only DB.UnloadShard keeps it.
+			name:        "a self-recovery placeholder is released",
+			wantOutcome: ShardUnloadOutcomeUnloaded,
+			setup: func(t *testing.T, index *Index, _ string) (string, context.Context) {
+				index.shards.Store("recovering", &RecoveringShard{LazyLoadShard: &LazyLoadShard{}})
+				return "recovering", context.Background()
+			},
+		},
+		{
+			name:        "concurrently completed shutdown reports success",
+			wantOutcome: ShardUnloadOutcomeUnloaded,
+			setup: func(t *testing.T, index *Index, shardName string) (string, context.Context) {
+				_, release, err := index.GetShard(context.Background(), shardName)
+				require.NoError(t, err)
+				// The release lands between attempt 1 (shard in use) and the
+				// ctx deadline, so the deferred completion shuts it cleanly
+				// while the explicit attempt is still timing out.
+				enterrors.GoWrapper(func() {
+					time.Sleep(50 * time.Millisecond)
+					release()
+				}, index.logger)
+				ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+				t.Cleanup(cancel)
+				return shardName, ctx
+			},
+		},
+		{
+			name: "shard still in use stays refused and loaded",
+			setup: func(t *testing.T, index *Index, shardName string) (string, context.Context) {
+				_, release, err := index.GetShard(context.Background(), shardName)
+				require.NoError(t, err)
+				t.Cleanup(release)
+				ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+				t.Cleanup(cancel)
+				return shardName, ctx
+			},
+			// Shutdown retries under backoff while the ref is held, so the
+			// refusal surfaces as the exhausted deadline.
+			wantErr:        context.DeadlineExceeded,
+			wantOutcome:    ShardUnloadOutcomeRefusedInUse,
+			wantStillInMap: true,
+		},
+		{
+			// The one state that must never read as already-shut: the shard is
+			// shut but still holds the handles a failed teardown left open.
+			name: "torn shard stays a failure",
+			setup: func(t *testing.T, index *Index, shardName string) (string, context.Context) {
+				tearShard(t, index.shards.Load(shardName), errors.New("bucket close failed"))
+				return shardName, context.Background()
+			},
+			wantErr:        errTeardownFailed,
+			wantOutcome:    ShardUnloadOutcomeTorn,
+			wantStillInMap: true,
+		},
+		{
+			// The close is already requested when the unload starts, so the
+			// first refused attempt ends the retry and the unload returns
+			// errIndexShutdown instead of burning 2s to return errShardStillInUse.
+			name: "close request aborts a refused unload",
+			setup: func(t *testing.T, index *Index, shardName string) (string, context.Context) {
+				_, release, err := index.GetShard(context.Background(), shardName)
+				require.NoError(t, err)
+				t.Cleanup(release)
+				index.signalCloseRequested(errIndexShutdown)
+				return shardName, context.Background()
+			},
+			wantErr:        errIndexShutdown,
+			wantOutcome:    ShardUnloadOutcomeIndexClosing,
+			wantStillInMap: true,
+		},
+		{
+			// A close request ends the retry wait, never a teardown already past
+			// s.shut: every step after that consumes ctx, so giving it up there
+			// would leave buckets unflushed on a shard that reads as shut.
+			name:        "close request does not interrupt an idle shard's teardown",
+			wantOutcome: ShardUnloadOutcomeUnloaded,
+			setup: func(t *testing.T, index *Index, shardName string) (string, context.Context) {
+				index.signalCloseRequested(errIndexShutdown)
+				return shardName, context.Background()
+			},
+		},
+		{
+			// A pending close must not relabel a shutdown that failed on its
+			// own: the torn shard is the one state a caller has to act on.
+			name: "close request leaves a torn shard its own error",
+			setup: func(t *testing.T, index *Index, shardName string) (string, context.Context) {
+				tearShard(t, index.shards.Load(shardName), errors.New("bucket close failed"))
+				index.signalCloseRequested(errIndexShutdown)
+				return shardName, context.Background()
+			},
+			wantErr:        errTeardownFailed,
+			wantOutcome:    ShardUnloadOutcomeTorn,
+			wantStillInMap: true,
+		},
+		{
+			// The cause UnloadLocalShard joins must not hide a tear whose own
+			// failure carries a cancellation: matching on the cancellation alone
+			// reports the shard as stopped and hides the handles it still holds.
+			name: "close request keeps a cancelled tear matchable",
+			setup: func(t *testing.T, index *Index, shardName string) (string, context.Context) {
+				tearShard(t, index.shards.Load(shardName),
+					fmt.Errorf("stop lsmkv store: %w", context.Canceled))
+				index.signalCloseRequested(errIndexShutdown)
+				return shardName, context.Background()
+			},
+			wantErr:        errTeardownFailed,
+			wantOutcome:    ShardUnloadOutcomeTorn,
+			wantStillInMap: true,
+		},
+		{
+			name: "closing index refuses the unload",
+			setup: func(t *testing.T, index *Index, shardName string) (string, context.Context) {
+				index.signalCloseRequested(errIndexShutdown)
+				require.NoError(t, index.beginClose())
+				return shardName, context.Background()
+			},
+			wantErr:        errAlreadyShutdown,
+			wantOutcome:    ShardUnloadOutcomeIndexClosing,
+			wantStillInMap: true,
+		},
+		{
+			// backoff runs performShutdown once before reading the context, and
+			// performShutdown swaps ctx for context.WithoutCancel once it sets s.shut.
+			name: "an already-cancelled context still unloads an idle shard",
+			setup: func(t *testing.T, index *Index, shardName string) (string, context.Context) {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return shardName, ctx
+			},
+			wantOutcome: ShardUnloadOutcomeUnloaded,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			index, cleanup := initIndexAndPopulate(t, t.TempDir())
+			defer cleanup()
+
+			var shardName string
+			index.shards.Range(func(name string, _ ShardLike) error {
+				shardName = name
+				return nil
+			})
+
+			target, ctx := tc.setup(t, index, shardName)
+
+			outcome, err := index.UnloadLocalShard(ctx, target)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, tc.wantOutcome, outcome,
+				"the outcome is what a sweep records, and the error alone cannot answer")
+			require.Equal(t, outcome == ShardUnloadOutcomeIndexClosing, errors.Is(err, ErrIndexClosing),
+				"outcome %q with error %v", outcome, err)
+
+			if tc.wantStillInMap {
+				require.NotNil(t, index.shards.Load(target),
+					"a shard that was not unloaded must stay served")
+			} else {
+				require.Nil(t, index.shards.Load(target))
+			}
+		})
+	}
+}
+
+// tearShard puts a loaded shard into the state a shutdown that failed
+// mid-teardown leaves behind: marked shut, but still holding the handles the
+// failure never released. cause is the failure it stopped on.
+func tearShard(t *testing.T, s ShardLike, cause error) {
+	t.Helper()
+
+	var inner *Shard
+	switch sh := s.(type) {
+	case *Shard:
+		inner = sh
+	case *LazyLoadShard:
+		inner = sh.loadedShard()
+		require.NotNil(t, inner, "only a loaded shard can be torn")
+	default:
+		t.Fatalf("cannot tear a %T", s)
+	}
+
+	inner.shut.Store(true)
+	inner.teardownErr = cause
 }

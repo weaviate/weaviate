@@ -11,7 +11,11 @@
 
 package types
 
-const UsageDiskVersion int = 1
+// UsageDiskVersion invalidates usage already stored on disk. Bump it when reported
+// sizes change meaning, or shards that stay cold keep serving the old numbers.
+// VectorConfigsFingerprint invalidates the same file on its own, for the numbers
+// that depend on the collection's vector configs rather than on this format.
+const UsageDiskVersion int = 2
 
 // UsageDisk defines format of saved pre-computed shard usage data
 type UsageDisk struct {
@@ -19,6 +23,10 @@ type UsageDisk struct {
 	Version int `json:"version"`
 	// ShardUsage
 	ShardUsage *ShardUsage `json:"shardUsage"`
+	// VectorConfigsFingerprint identifies the vector configs the usage was computed
+	// from. Serving it under different ones would bill a vector index that has since
+	// been dropped, or leave out one that was added, until the shard is loaded again.
+	VectorConfigsFingerprint string `json:"vectorConfigsFingerprint,omitempty"`
 }
 
 // Report represents the usage metrics report from the metrics endpoint
@@ -64,6 +72,11 @@ type ShardUsage struct {
 
 	// The status of the shard (ACTIVE, INACTIVE)
 	Status string `json:"status,omitempty"`
+
+	// LazyUnloaded marks an active shard that was not in memory when the report ran,
+	// so everything above was read from disk. It tells a lazy shard sitting cold
+	// apart from one serving requests; both report the same active status.
+	LazyUnloaded bool `json:"lazy_unloaded,omitempty"`
 
 	// The number of objects in the shard
 	ObjectsCount int64 `json:"objects_count"`

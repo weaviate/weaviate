@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config/parser"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/license"
 )
 
 const (
@@ -50,7 +51,20 @@ const (
 
 	DefaultDistributedTasksSchedulerTickInterval = time.Minute
 	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
-	DefaultReindexConcurrency                    = 2
+	// The interval caps are operational sanity bounds on fat-fingered
+	// overrides (a multi-year tick or TTL disables its subsystem in all but
+	// name). They also sit far below the ~292-year point where the
+	// int-to-duration multiply would overflow negative — a negative tick
+	// interval panics time.NewTicker after boot, and a negative TTL silently
+	// expires every completed task record.
+	maxDistributedTasksSchedulerTickIntervalSeconds = 7 * 24 * 60 * 60 // 7 days
+	maxDistributedTasksCompletedTaskTTLHours        = 10 * 365 * 24    // 10 years
+	// DefaultDropVectorReconcileInterval paces the drop-vector marker
+	// reconciliation loop; a safety net, so infrequent by default.
+	DefaultDropVectorReconcileInterval = 15 * time.Minute
+	// maxDropVectorReconcileIntervalSeconds caps the override at 7 days.
+	maxDropVectorReconcileIntervalSeconds = 7 * 24 * 60 * 60
+	DefaultReindexConcurrency             = 2
 
 	DefaultReplicationEngineMaxWorkers        = 10
 	DefaultReplicationEngineFileCopyWorkers   = 10
@@ -64,6 +78,16 @@ const (
 	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
 
 	DefaultNamespaceCleanupInterval = 30 * time.Second
+	DefaultSuspendReconcileInterval = 30 * time.Second
+
+	DefaultReplicaMovementCleanupMaxAge   = 168 * time.Hour
+	DefaultReplicaMovementCleanupInterval = time.Hour
+
+	// Interval bounds; 0 stays the explicit disable sentinel. Below the floor a
+	// sweep hammers the leader with full-FSM scans; above the ceiling it
+	// silently never runs. Both are misconfigurations, not preferences.
+	MinReplicaMovementCleanupInterval = time.Minute
+	MaxReplicaMovementCleanupInterval = 168 * time.Hour
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -127,6 +151,10 @@ func FromEnv(config *Config) error {
 		config.ReindexVectorDimensionsAtStartup = true
 	}
 
+	if entcfg.Enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_TO_ROARINGSET_AT_STARTUP")) {
+		config.ReindexVectorDimensionsToRoaringsetAtStartup = true
+	}
+
 	if entcfg.Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
 		logrus.Warn("DISABLE_LAZY_LOAD_SHARDS is deprecated and will be removed in a future version. Use LAZY_LOAD_SHARD_COUNT_THRESHOLD instead to configure dynamic lazy load shards if needed, otherwise weaviate will decide based on the shard count and size thresholds.")
 		v := false
@@ -150,6 +178,32 @@ func FromEnv(config *Config) error {
 		}
 	} else {
 		config.LazyLoadShardCountThreshold = DefaultLazyLoadShardCountThreshold
+	}
+
+	// Written only when the variable is set, so a value from the config file
+	// survives.
+	if v := os.Getenv("LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS"); v != "" {
+		asInt, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return fmt.Errorf("parse LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS as int: %w", err)
+		}
+		config.LazyLoadShardWarmupMinObjects = asInt
+	}
+	// Eager loading ignores the knob entirely, so warning there would describe a
+	// state no collection on this node is in. Auto-detection is resolved per
+	// collection later, so a nil setting still warns.
+	if minObjects := config.LazyLoadShardWarmupMinObjects; minObjects != 0 &&
+		(config.EnableLazyLoadShards == nil || *config.EnableLazyLoadShards) {
+		left := fmt.Sprintf("only shards holding more than %d objects are warmed up", minObjects)
+		if minObjects < 0 {
+			left = "no shard is warmed up"
+		}
+		logrus.Warnf("LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS is %d, so on a collection using lazy loading %s. "+
+			"A HOT tenant left out stays unloaded until first access. "+
+			"While it is unloaded the TTL sweep keeps its expired objects, async replication leaves a "+
+			"stale replica unrepaired, and MAXIMUM_ALLOWED_OBJECTS_COUNT stops counting it, so this "+
+			"node admits writes past its cap.",
+			minObjects, left)
 	}
 
 	// Lazy load shard size threshold for auto-detection (in GB)
@@ -259,6 +313,11 @@ func FromEnv(config *Config) error {
 
 		asClassesWithProps := make(map[string][]string, len(cpts))
 		for _, cpt := range cpts {
+			// A reindex matches a property by name, so "*" would match none.
+			if slices.Contains(cpt.Props, AllProperties) {
+				return fmt.Errorf("REINDEX_INDEXES_AT_STARTUP takes no %q, and %q uses one: "+
+					"name the properties to reindex", AllProperties, cpt.Collection)
+			}
 			asClassesWithProps[cpt.Collection] = cpt.Props
 		}
 		config.ReindexIndexesAtStartup = asClassesWithProps
@@ -572,7 +631,7 @@ func FromEnv(config *Config) error {
 		"PERSISTENCE_HNSW_SNAPSHOT_MIN_DELTA_COMMITLOGS_SIZE_PERCENTAGE",
 	} {
 		if _, set := os.LookupEnv(envVar); set {
-			logrus.Warnf("%s is set but is a no-op as of 1.38.0: HNSW snapshots are always created and managed automatically; this variable has no effect and will be removed in a future version", envVar)
+			logrus.Warnf("%s is set but is a no-op as of 1.39.0: HNSW snapshots are always created and managed automatically; this variable has no effect and will be removed in a future version", envVar)
 		}
 	}
 	// ---- HNSW snapshots ----
@@ -610,10 +669,17 @@ func FromEnv(config *Config) error {
 	}
 	config.DefaultShardingCount = configRuntime.NewDynamicValue(defaultShardingCount)
 
-	config.HFreshEnabled = true
-
 	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
 		config.Persistence.IndexRangeableInMemory = true
+	}
+
+	if v := strings.TrimSpace(os.Getenv(indexRangeableInMemoryEnv)); v != "" {
+		all, props, err := parseIndexRangeableInMemory(cptParser, v)
+		if err != nil {
+			return err
+		}
+		config.Persistence.IndexRangeableInMemory = all
+		config.Persistence.IndexRangeableInMemoryProps = props
 	}
 
 	if err := parseInt(
@@ -686,10 +752,6 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	parsePositiveFloat("REINDEXER_GOROUTINES_FACTOR",
-		func(val float64) { config.ReindexerGoroutinesFactor = val },
-		DefaultReindexerGoroutinesFactor)
-
 	if err := config.parseMemtableConfig(); err != nil {
 		return err
 	}
@@ -699,6 +761,14 @@ func FromEnv(config *Config) error {
 	}
 
 	config.parseExportConfig()
+
+	if err := config.parseBackupGCSConfig(); err != nil {
+		return err
+	}
+
+	if err := config.parseBatchStreamConfig(); err != nil {
+		return err
+	}
 
 	if v := os.Getenv("ORIGIN"); v != "" {
 		config.Origin = v
@@ -752,6 +822,13 @@ func FromEnv(config *Config) error {
 		config.Backup.SplitFileSize = parsed
 	} else {
 		config.Backup.SplitFileSize = DefaultBackupSplitFileSize
+	}
+
+	if err := parser.ParseDynamicIntWithValidation("BACKUP_MAX_INDIVIDUAL_FILES",
+		DefaultBackupMaxIndividualFiles,
+		parser.ValidateIntGreaterThan0,
+		func(val *configRuntime.DynamicValue[int]) { config.Backup.MaxIndividualFiles = val }); err != nil {
+		return err
 	}
 
 	if entcfg.Enabled(os.Getenv("BACKUP_SKIP_ACCESS_CHECK")) {
@@ -839,13 +916,8 @@ func FromEnv(config *Config) error {
 	}
 
 	if v := os.Getenv("DEFAULT_VECTORIZER_MODULE"); v != "" {
-		config.DefaultVectorizerModule = v
-	} else {
-		// env not set, this could either mean, we already have a value from a file
-		// or we explicitly want to set the value to "none"
-		if config.DefaultVectorizerModule == "" {
-			config.DefaultVectorizerModule = VectorizerModuleNone
-		}
+		logrus.Warnf("DEFAULT_VECTORIZER_MODULE is deprecated and ignored (set to %q). "+
+			"Set the vectorizer explicitly on each collection instead.", v)
 	}
 
 	if v := os.Getenv("MODULES_CLIENT_TIMEOUT"); v != "" {
@@ -953,6 +1025,28 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	// 0 is a valid, documented value here ("auto": 16x/10x GOMAXPROCS), so use
+	// the non-negative parser rather than the positive one which rejects 0.
+	//
+	// The budget is consumed per shard searched on this node. Do not raise it in
+	// proportion to local shard count, which weakens the aggregate bound; tune
+	// from measured QPS, tail latency, and the admission waiting/shed metrics.
+	if err = parseNonNegativeInt(
+		"QUERY_ADMISSION_BUDGET",
+		func(val int) { config.QueryAdmissionBudget = val },
+		0,
+	); err != nil {
+		return err
+	}
+
+	if err = parseNonNegativeInt(
+		"QUERY_ADMISSION_MAX_QUEUE",
+		func(val int) { config.QueryAdmissionMaxQueue = val },
+		0,
+	); err != nil {
+		return err
+	}
+
 	if err := parsePositiveInt(
 		"GRPC_MAX_MESSAGE_SIZE",
 		func(val int) { config.GRPC.MaxMsgSize = val },
@@ -1008,7 +1102,12 @@ func FromEnv(config *Config) error {
 	}
 
 	config.DisableGraphQL = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL")))
-	config.ExperimentalRESTSearchEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("EXPERIMENTAL_REST_SEARCH_ENABLED")))
+	licenseState, err := resolveLicenseState()
+	if err != nil {
+		return err
+	}
+	config.WeaviateLicense = licenseState.Status == license.StatusValid
+	config.License = licenseState
 
 	config.Namespaces.Enabled = entcfg.Enabled(os.Getenv("NAMESPACES_ENABLED"))
 	if config.Namespaces.Enabled {
@@ -1017,8 +1116,16 @@ func FromEnv(config *Config) error {
 
 	if err := parser.ParseDynamicDurationWithValidation("NAMESPACE_CLEANUP_INTERVAL",
 		DefaultNamespaceCleanupInterval,
-		parser.ValidateDurationGreaterThanEqual0,
+		parser.ValidateCronInterval,
 		func(val *configRuntime.DynamicValue[time.Duration]) { config.Namespaces.CleanupInterval = val }); err != nil {
+		return err
+	}
+	config.Namespaces.SuspendedMessage = strings.TrimSpace(os.Getenv("NAMESPACE_SUSPENDED_MESSAGE"))
+
+	if err := parser.ParseDynamicDurationWithValidation("SUSPEND_RECONCILE_INTERVAL",
+		DefaultSuspendReconcileInterval,
+		parser.ValidateCronInterval,
+		func(val *configRuntime.DynamicValue[time.Duration]) { config.Namespaces.SuspendReconcileInterval = val }); err != nil {
 		return err
 	}
 
@@ -1043,6 +1150,63 @@ func FromEnv(config *Config) error {
 	}
 
 	config.Replication.AsyncReplicationDisabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED")))
+
+	if v := os.Getenv("REPLICA_MOVEMENT_ENABLED"); v != "" {
+		config.ReplicaMovementEnabled = entcfg.Enabled(v)
+	}
+
+	config.Replication.ReplicaMovementEnabled = configRuntime.NewDynamicValue(config.ReplicaMovementEnabled)
+	config.Replication.ReplicaMovementCleanupEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("REPLICA_MOVEMENT_CLEANUP_ENABLED")))
+	config.Replication.ReplicaMovementCleanupIncludeCancelled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("REPLICA_MOVEMENT_CLEANUP_INCLUDE_CANCELLED")))
+
+	if err := parser.ParseDynamicDurationWithValidation("REPLICA_MOVEMENT_CLEANUP_MAX_AGE",
+		DefaultReplicaMovementCleanupMaxAge,
+		parser.ValidateDurationGreaterThanEqual0,
+		func(val *configRuntime.DynamicValue[time.Duration]) {
+			config.Replication.ReplicaMovementCleanupMaxAge = val
+		}); err != nil {
+		return err
+	}
+
+	if err := parser.ParseDynamicDurationWithValidation("REPLICA_MOVEMENT_CLEANUP_INTERVAL",
+		DefaultReplicaMovementCleanupInterval,
+		parser.ValidateDurationZeroOrInRange(MinReplicaMovementCleanupInterval, MaxReplicaMovementCleanupInterval),
+		func(val *configRuntime.DynamicValue[time.Duration]) {
+			config.Replication.ReplicaMovementCleanupInterval = val
+		}); err != nil {
+		return err
+	}
+
+	config.Replication.SelfRecoveryEnabled = entcfg.Enabled(os.Getenv("SELF_RECOVERY_ENABLED"))
+	if err := parseIntVerify(
+		"SELF_RECOVERY_CONCURRENCY",
+		DefaultSelfRecoveryConcurrency,
+		func(val int) {
+			config.Replication.SelfRecoveryConcurrency = val
+		},
+		func(val int, envName string) error {
+			if val <= 0 {
+				return fmt.Errorf("%s must be > 0, got %d", envName, val)
+			}
+			if val > MaxSelfRecoveryConcurrency {
+				return fmt.Errorf("%s must be <= %d, got %d", envName, MaxSelfRecoveryConcurrency, val)
+			}
+			return nil
+		},
+	); err != nil {
+		return err
+	}
+
+	if v := os.Getenv("SELF_RECOVERY_BARRIER_TIMEOUT"); v != "" {
+		duration, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse SELF_RECOVERY_BARRIER_TIMEOUT as time.Duration: %w", err)
+		}
+		if duration <= 0 {
+			return fmt.Errorf("SELF_RECOVERY_BARRIER_TIMEOUT must be a positive duration")
+		}
+		config.Replication.SelfRecoveryBarrierTimeout = duration
+	}
 
 	if err := parseIntVerify(
 		"ASYNC_REPLICATION_SCHEDULER_WORKERS",
@@ -1224,6 +1388,19 @@ func FromEnv(config *Config) error {
 		config.TelemetryPushInterval = interval
 	}
 
+	if v := os.Getenv("BANNER_INTERVAL"); v != "" {
+		interval, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse BANNER_INTERVAL as duration: %w", err)
+		}
+		config.BannerInterval = interval
+	}
+	// Each repeat logs a banner and fetches its art from the website; a value
+	// below an hour, from the env var or the config file, is raised to it.
+	if config.BannerInterval > 0 && config.BannerInterval < time.Hour {
+		config.BannerInterval = time.Hour
+	}
+
 	{
 		waitEnv, waitEnvSet := os.LookupEnv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE")
 		switch {
@@ -1355,18 +1532,32 @@ func FromEnv(config *Config) error {
 		config.RuntimeOverrides.LoadInterval = interval
 	}
 
-	if err = parsePositiveInt(
+	if err = parseIntVerify(
 		"DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS",
-		func(val int) { config.DistributedTasks.SchedulerTickInterval = time.Duration(val) * time.Second },
 		int(DefaultDistributedTasksSchedulerTickInterval.Seconds()),
+		func(val int) { config.DistributedTasks.SchedulerTickInterval = time.Duration(val) * time.Second },
+		validateIntRange(1, maxDistributedTasksSchedulerTickIntervalSeconds),
 	); err != nil {
 		return err
 	}
 
-	if err = parsePositiveInt(
+	// 0 = clean completed tasks on the next tick. Unsafe until the cluster is
+	// fully on the stamp version: a pre-stamp node still derives blockmax truth
+	// from the FINISHED task list, which GCing strands on a cold/unloaded shard.
+	if err = parseIntVerify(
 		"DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
-		func(val int) { config.DistributedTasks.CompletedTaskTTL = time.Duration(val) * time.Hour },
 		int(DefaultDistributedTasksCompletedTaskTTL.Hours()),
+		func(val int) { config.DistributedTasks.CompletedTaskTTL = time.Duration(val) * time.Hour },
+		validateIntRange(0, maxDistributedTasksCompletedTaskTTLHours),
+	); err != nil {
+		return err
+	}
+
+	if err = parseIntVerify(
+		"DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS",
+		int(DefaultDropVectorReconcileInterval.Seconds()),
+		func(val int) { config.DistributedTasks.DropVectorReconcileInterval = time.Duration(val) * time.Second },
+		validateIntRange(1, maxDropVectorReconcileIntervalSeconds),
 	); err != nil {
 		return err
 	}
@@ -1384,8 +1575,10 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	if v := os.Getenv("REPLICA_MOVEMENT_ENABLED"); v != "" {
-		config.ReplicaMovementEnabled = entcfg.Enabled(v)
+	// Assign only when set, so an absent env var does not overwrite a
+	// value loaded from the config file.
+	if v := os.Getenv("RUNTIME_REINDEX_ENABLED"); v != "" {
+		config.RuntimeReindexEnabled = entcfg.Enabled(v)
 	}
 
 	revoctorizeCheckDisabled := false
@@ -1436,6 +1629,15 @@ func FromEnv(config *Config) error {
 	config.LazyPropertyLengthsEnabled = configRuntime.NewDynamicValue(
 		entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_LAZY_PROPLENGTHS")))
 
+	config.QueryBatchedContainsEnabled = configRuntime.NewDynamicValue(
+		entcfg.Enabled(os.Getenv("QUERY_BATCHED_CONTAINS_ENABLED")))
+
+	// Query admission control is enabled by default; this is the kill switch.
+	queryAdmissionControlDisabled := false
+	if v := os.Getenv("QUERY_ADMISSION_CONTROL_DISABLED"); v != "" {
+		queryAdmissionControlDisabled = entcfg.Enabled(v)
+	}
+	config.QueryAdmissionControlDisabled = configRuntime.NewDynamicValue(queryAdmissionControlDisabled)
 	operationalMode := READ_WRITE
 	if v := os.Getenv("OPERATIONAL_MODE"); v != "" && (v == READ_WRITE || v == READ_ONLY || v == WRITE_ONLY || v == SCALE_OUT) {
 		operationalMode = v
@@ -1448,6 +1650,13 @@ func FromEnv(config *Config) error {
 	}
 
 	config.DisableDimensionMetrics = configRuntime.NewDynamicValue(disableDimensionMetrics)
+
+	if config.Replication.SelfRecoveryEnabled && !config.ReplicaMovementEnabled {
+		logrus.Warn("SELF_RECOVERY_ENABLED requires REPLICA_MOVEMENT_ENABLED=true; disabling " +
+			"self-recovery to avoid shards stuck in RECOVERING (the replication engine that " +
+			"processes recovery copy ops only runs when replica movement is enabled)")
+		config.Replication.SelfRecoveryEnabled = false
+	}
 
 	return nil
 }
@@ -1757,6 +1966,16 @@ func parseNonNegativeInt(envName string, cb func(val int), defaultValue int) err
 	return parseIntVerify(envName, defaultValue, cb, validateNonNegativeInt)
 }
 
+// validateIntRange builds a parseIntVerify verifier enforcing min <= val <= max.
+func validateIntRange(min, max int) func(val int, envName string) error {
+	return func(val int, envName string) error {
+		if val < min || val > max {
+			return fmt.Errorf("%s must be between %d and %d, got %d", envName, min, max, val)
+		}
+		return nil
+	}
+}
+
 func parseIntVerify(envName string, defaultValue int, cb func(val int), verify func(val int, envName string) error) error {
 	var err error
 	asInt := defaultValue
@@ -1886,6 +2105,8 @@ const (
 	DefaultMaximumAllowedShardsPerCollection      = -1 // unlimited
 	DefaultUsageLimitsErrorMessage                = "" // empty → usagelimits.RenderTemplate falls back to its built-in default
 	DefaultRestrictionsErrorMessage               = "" // empty → restrictions.RenderTemplate falls back to its built-in default
+	DefaultSelfRecoveryConcurrency                = 10
+	MaxSelfRecoveryConcurrency                    = 32
 )
 
 const VectorizerModuleNone = "none"
@@ -2061,14 +2282,46 @@ func parseClusterConfig() (cluster.Config, error) {
 	return cfg, nil
 }
 
-func enabledForHost(envName string, localHostname string) bool {
-	if v := os.Getenv(envName); v != "" {
-		if entcfg.Enabled(v) {
-			return true
-		}
-		return slices.Contains(strings.Split(v, ","), localHostname)
+const indexRangeableInMemoryEnv = "INDEX_RANGEABLE_IN_MEMORY"
+
+// parseIndexRangeableInMemory reads INDEX_RANGEABLE_IN_MEMORY, which is either a
+// value [entcfg.Enabled] accepts or the "Col1:prop1,prop2;Col2:*" shape naming
+// the properties that get the index. [entcfg.Enabled] is asked first because
+// "True" matches [schema.ClassNameRegexCore]. A namespaced collection cannot be
+// named, since [schema.NamespaceSeparator] is the ":" a segment splits on.
+func parseIndexRangeableInMemory(p *collectionPropsTenantsParser, v string,
+) (all bool, props map[string][]string, err error) {
+	if entcfg.Enabled(v) {
+		return true, nil, nil
 	}
-	return false
+	// Naming no collection leaves the index off, so "false" and "2" still start.
+	if !strings.ContainsAny(v, ":;") && !p.regexpCollection.MatchString(v) {
+		return false, nil, nil
+	}
+
+	cpts, err := p.parse(v)
+	if err != nil {
+		return false, nil, fmt.Errorf("parse %s as class with props: %w", indexRangeableInMemoryEnv, err)
+	}
+
+	// Refused rather than guessed at, since either reading costs memory for the
+	// life of the process. A tenant narrows nothing, because an index is built
+	// per shard. A bare collection means no properties to the reindex variable.
+	props = make(map[string][]string, len(cpts))
+	for _, cpt := range cpts {
+		if len(cpt.Tenants) > 0 {
+			return false, nil, fmt.Errorf("%s takes no tenants, and %q names %d: the in-memory "+
+				"rangeable index is built per shard, so it covers every tenant of a "+
+				"collection or none", indexRangeableInMemoryEnv, cpt.Collection, len(cpt.Tenants))
+		}
+		if len(cpt.Props) == 0 {
+			return false, nil, fmt.Errorf("%s names %q with no properties: list them, or write %q "+
+				"for every rangeable property it has", indexRangeableInMemoryEnv,
+				cpt.Collection, cpt.Collection+":"+AllProperties)
+		}
+		props[cpt.Collection] = cpt.Props
+	}
+	return false, props, nil
 }
 
 /*
@@ -2089,7 +2342,14 @@ examples:
   - collection + tenants/shards:
     "ColName1::tenantName1"
     "ColName1::tenantName1,tenantName2;ColName2::tenantName3"
+
+A property may be given as "*". Each consumer either reads it as every property
+of the collection or refuses it.
 */
+// AllProperties stands for every property of the collection carrying it. No
+// property can be named this, so it is never ambiguous.
+const AllProperties = "*"
+
 type collectionPropsTenantsParser struct {
 	regexpCollection *regexp.Regexp
 	regexpProp       *regexp.Regexp
@@ -2099,8 +2359,9 @@ type collectionPropsTenantsParser struct {
 func newCollectionPropsTenantsParser() *collectionPropsTenantsParser {
 	return &collectionPropsTenantsParser{
 		regexpCollection: regexp.MustCompile(`^` + schema.ClassNameRegexCore + `$`),
-		regexpProp:       regexp.MustCompile(`^` + schema.PropertyNameRegex + `$`),
-		regexpTenant:     regexp.MustCompile(`^` + schema.ShardNameRegexCore + `$`),
+		regexpProp: regexp.MustCompile(`^(` + schema.PropertyNameRegex + `|` +
+			regexp.QuoteMeta(AllProperties) + `)$`),
+		regexpTenant: regexp.MustCompile(`^` + schema.ShardNameRegexCore + `$`),
 	}
 }
 
@@ -2121,7 +2382,12 @@ func (p *collectionPropsTenantsParser) parse(v string) ([]CollectionPropsTenants
 				ec.Add(fmt.Errorf("parse '%s': %w", single, err))
 			} else {
 				if prevIdx, ok := uniqMapIdx[cpt.Collection]; ok {
-					cpts[prevIdx] = p.mergeCpt(cpts[prevIdx], cpt)
+					merged, err := p.mergeCpt(cpts[prevIdx], cpt)
+					if err != nil {
+						ec.Add(err)
+					} else {
+						cpts[prevIdx] = merged
+					}
 				} else {
 					uniqMapIdx[cpt.Collection] = len(cpts)
 					cpts = append(cpts, cpt)
@@ -2221,13 +2487,19 @@ func (p *collectionPropsTenantsParser) parseElems(str string, reg *regexp.Regexp
 	return elems, ec.ToError()
 }
 
-func (p *collectionPropsTenantsParser) mergeCpt(cptDst, cptSrc CollectionPropsTenants) CollectionPropsTenants {
+func (p *collectionPropsTenantsParser) mergeCpt(cptDst, cptSrc CollectionPropsTenants) (CollectionPropsTenants, error) {
 	if cptDst.Collection != cptSrc.Collection {
-		return cptDst
+		return cptDst, nil
+	}
+	// Merging would drop the empty side, leaving "Col:prop1;Col" reading as
+	// "Col:prop1" though the two segments ask for different property sets.
+	if (len(cptDst.Props) == 0) != (len(cptSrc.Props) == 0) {
+		return cptDst, fmt.Errorf("collection '%s' is named both with and without a property list",
+			cptDst.Collection)
 	}
 	cptDst.Props = p.mergeUniqueElems(cptDst.Props, cptSrc.Props)
 	cptDst.Tenants = p.mergeUniqueElems(cptDst.Tenants, cptSrc.Tenants)
-	return cptDst
+	return cptDst, nil
 }
 
 func (p *collectionPropsTenantsParser) mergeUniqueElems(uniqueA, uniqueB []string) []string {
@@ -2273,4 +2545,94 @@ func (c *Config) parseExportConfig() {
 	if entcfg.Enabled(os.Getenv("EXPORT_SKIP_ACCESS_CHECK")) {
 		c.Export.SkipAccessCheck = true
 	}
+}
+
+const (
+	gcsModuleTransportEnv  = "GCS_MODULE_TRANSPORT"
+	gcsModuleTransportHTTP = "http"
+	gcsModuleTransportGRPC = "grpc"
+)
+
+func (c *Config) parseBackupGCSConfig() error {
+	// An unset GCS_MODULE_TRANSPORT keeps whatever the config file set, an
+	// explicit one overrides it in either direction.
+	switch t := strings.TrimSpace(strings.ToLower(os.Getenv(gcsModuleTransportEnv))); t {
+	case "": // keep the config file value
+	case gcsModuleTransportHTTP:
+		c.BackupGCS.UseGRPC = new(false)
+	case gcsModuleTransportGRPC:
+		c.BackupGCS.UseGRPC = new(true)
+	default:
+		return fmt.Errorf("%s must be %q or %q. Got: %v",
+			gcsModuleTransportEnv, gcsModuleTransportHTTP, gcsModuleTransportGRPC, t)
+	}
+
+	// parseIntVerify always writes the default back, so seed it from the config
+	// file value to keep an unset variable from overwriting it.
+	connPool := DefaultBackupGCSGRPCConnPool
+	if c.BackupGCS.GRPCConnPool != 0 {
+		connPool = c.BackupGCS.GRPCConnPool
+	}
+	if err := parseIntVerify("GCS_MODULE_GRPC_CONN_POOL", connPool,
+		func(val int) { c.BackupGCS.GRPCConnPool = val },
+		validateBackupGCSConnPool); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (c *Config) parseBatchStreamConfig() error {
+	if os.Getenv("BATCH_STREAM_GATE_RATIO") != "" {
+		if err := parsePercentage("BATCH_STREAM_GATE_RATIO",
+			func(val float64) { c.BatchStream.gateRatio = &val }, 0); err != nil {
+			return err
+		}
+	}
+
+	if os.Getenv("BATCH_STREAM_ENGAGE_RATIO") != "" {
+		if err := parsePercentage("BATCH_STREAM_ENGAGE_RATIO",
+			func(val float64) { c.BatchStream.engageRatio = &val }, 0); err != nil {
+			return err
+		}
+	}
+
+	if v := os.Getenv("BATCH_STREAM_MAX_ACK_DELAY"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse BATCH_STREAM_MAX_ACK_DELAY as duration: %w", err)
+		}
+		if d < 0 {
+			return fmt.Errorf("BATCH_STREAM_MAX_ACK_DELAY must be a duration of 0 or more. Got: %v", d)
+		}
+		c.BatchStream.maxAckDelay = &d
+	}
+
+	if os.Getenv("BATCH_STREAM_HOLD_SECONDS") != "" {
+		if err := parseNonNegativeInt("BATCH_STREAM_HOLD_SECONDS",
+			func(val int) { c.BatchStream.holdSeconds = &val }, 0); err != nil {
+			return err
+		}
+	}
+
+	if os.Getenv("BATCH_STREAM_WORKERS") != "" {
+		if err := parseNonNegativeInt("BATCH_STREAM_WORKERS",
+			func(val int) { c.BatchStream.workers = &val }, 0); err != nil {
+			return err
+		}
+	}
+
+	if c.BatchStream.GateRatio() <= c.BatchStream.EngageRatio() {
+		return fmt.Errorf("BATCH_STREAM_GATE_RATIO (%v) must be above BATCH_STREAM_ENGAGE_RATIO (%v)",
+			c.BatchStream.GateRatio(), c.BatchStream.EngageRatio())
+	}
+
+	return nil
+}
+
+func validateBackupGCSConnPool(val int, setting string) error {
+	if val < 1 || val > MaxBackupGCSGRPCConnPool {
+		return fmt.Errorf("%s must be an integer between 1 and %d. Got: %v", setting, MaxBackupGCSGRPCConnPool, val)
+	}
+	return nil
 }

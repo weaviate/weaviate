@@ -49,6 +49,8 @@ message GenerativeProvider {
     GenerativeXAI xai = 14;
     GenerativeContextualAI contextualai = 15;
     GenerativeDeepseek deepseek = 16;
+    GenerativeDigitalOcean digitalocean = 17;
+    GenerativeMeta meta = 18;
   }
 }
 
@@ -230,6 +232,39 @@ message GenerativeDeepseek{
   optional TextArray stop = 8;
 }
 
+message GenerativeDigitalOcean{
+  optional string base_url = 1;
+  optional string model = 2;
+  optional double temperature = 3;
+  optional double top_p = 4;
+  optional int64 max_tokens = 5;
+  optional double frequency_penalty = 6;
+  optional double presence_penalty = 7;
+  optional TextArray stop = 8;
+}
+
+message GenerativeMeta{
+  enum ReasoningEffort {
+    REASONING_EFFORT_UNSPECIFIED = 0;
+    REASONING_EFFORT_NONE = 1;
+    REASONING_EFFORT_MINIMAL = 2;
+    REASONING_EFFORT_LOW = 3;
+    REASONING_EFFORT_MEDIUM = 4;
+    REASONING_EFFORT_HIGH = 5;
+    REASONING_EFFORT_XHIGH = 6;
+  }
+  optional string base_url = 1;
+  optional string model = 2;
+  optional double temperature = 3;
+  optional double top_p = 4;
+  optional int64 max_tokens = 5;
+  optional double frequency_penalty = 6;
+  optional double presence_penalty = 7;
+  optional ReasoningEffort reasoning_effort = 8;
+  optional TextArray images = 9;
+  optional TextArray image_properties = 10;
+}
+
 message GenerativeAnthropicMetadata {
   message Usage {
     int64 input_tokens = 1;
@@ -356,6 +391,24 @@ message GenerativeDeepseekMetadata {
   optional Usage usage = 1;
 }
 
+message GenerativeDigitalOceanMetadata {
+  message Usage {
+    optional int64 prompt_tokens = 1;
+    optional int64 completion_tokens = 2;
+    optional int64 total_tokens = 3;
+  }
+  optional Usage usage = 1;
+}
+
+message GenerativeMetaMetadata {
+  message Usage {
+    optional int64 prompt_tokens = 1;
+    optional int64 completion_tokens = 2;
+    optional int64 total_tokens = 3;
+  }
+  optional Usage usage = 1;
+}
+
 message GenerativeMetadata {
   oneof kind {
     GenerativeAnthropicMetadata anthropic = 1;
@@ -372,6 +425,8 @@ message GenerativeMetadata {
     GenerativeNvidiaMetadata nvidia = 12;
     GenerativeXAIMetadata xai = 13;
     GenerativeDeepseekMetadata deepseek = 14;
+    GenerativeDigitalOceanMetadata digitalocean = 15;
+    GenerativeMetaMetadata meta = 16;
   }
 }
 

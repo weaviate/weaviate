@@ -27,6 +27,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/export"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
@@ -37,11 +38,11 @@ const (
 	defaultSiblingCheckInterval = 1 * time.Minute
 
 	// maxExportParallelismMultiplier caps EXPORT_PARALLELISM at
-	// GOMAXPROCS*N. Each worker holds a 16 MB buffered pipe and an LSM
-	// cursor, so an unbounded value (e.g. a mis-set env var) could pin
-	// many GBs of memory and exhaust file descriptors. 4x is chosen to
-	// still allow oversubscription for I/O wait without leaving room
-	// for pathological misconfiguration.
+	// GOMAXPROCS*N. Each worker holds an LSM cursor, a buffered pipe of half a
+	// row group and a parquet file's open row group, row batch and page index.
+	// An unbounded value (e.g. a mis-set env var) could pin many GBs of memory
+	// and exhaust file descriptors. 4x is chosen to still allow oversubscription
+	// for I/O wait without leaving room for pathological misconfiguration.
 	maxExportParallelismMultiplier = 4
 )
 
@@ -68,7 +69,7 @@ type Participant struct {
 
 	// Deps for best-effort sibling abort on failure.
 	client       ExportClient
-	nodeResolver NodeResolver
+	nodeResolver cluster.HostnameResolver
 	localNode    string
 	metrics      *ExportMetrics
 
@@ -101,7 +102,7 @@ func NewParticipant(
 	backends BackendProvider,
 	logger logrus.FieldLogger,
 	client ExportClient,
-	nodeResolver NodeResolver,
+	nodeResolver cluster.HostnameResolver,
 	localNode string,
 	metrics *ExportMetrics,
 	exportParallelism *configRuntime.DynamicValue[int],
@@ -840,8 +841,8 @@ func (p *Participant) submitSnapshotJobs(
 }
 
 // submitShardJobs opens a snapshot bucket, computes key ranges, and submits
-// scanJobs to jobCh. Each scanJob owns its own writer pipeline (one parquet
-// file per range). A cleanup goroutine (tracked by cleanupWg) waits for all
+// scanJobs to jobCh. Each scanJob writes its range to one or more parquet
+// files. A cleanup goroutine (tracked by cleanupWg) waits for all
 // range jobs to complete, then shuts down the snapshot bucket and removes the
 // snapshot directory.
 func (p *Participant) submitShardJobs(
@@ -859,9 +860,15 @@ func (p *Participant) submitShardJobs(
 	// the source bucket already contain the precomputed counts, so each
 	// segment just reads 12 bytes from disk. The count is needed by
 	// computeRanges to split the key space for parallel scanning.
+	//
+	// The scan only uses cursors, and bloom filters answer point lookups.
+	// Leaving them on reads a filter per segment for lookups that never
+	// happen, and a missing or unreadable one is rebuilt and written into a
+	// directory that is about to be deleted.
 	snapshotBucket, err := lsmkv.NewSnapshotBucket(ctx, snap.dir,
 		p.logger, lsmkv.WithStrategy(snap.strategy),
-		lsmkv.WithCalcCountNetAdditions(true))
+		lsmkv.WithCalcCountNetAdditions(true),
+		lsmkv.WithUseBloomFilter(false))
 	if err != nil {
 		os.RemoveAll(snap.dir)
 		err = fmt.Errorf("open snapshot bucket for %s/%s: %w", snap.className, snap.shardName, err)
@@ -881,12 +888,13 @@ func (p *Participant) submitShardJobs(
 		Info("starting shard scan")
 
 	writerCfg := &rangeWriterConfig{
-		backend:   backend,
-		req:       req,
-		className: snap.className,
-		shardName: snap.shardName,
-		isMT:      snap.isMT,
-		logger:    p.logger,
+		backend:      backend,
+		req:          req,
+		className:    snap.className,
+		shardName:    snap.shardName,
+		isMT:         snap.isMT,
+		maxFileBytes: maxFileBytes,
+		logger:       p.logger,
 		onFlush: func(n int64) {
 			nodeStatus.AddShardExported(snap.className, snap.shardName, n)
 			p.metrics.ObjectsTotal.Add(float64(n))
@@ -1225,8 +1233,7 @@ func (p *Participant) startNodeStatusWriter(
 // means GOMAXPROCS.
 //
 // Values above GOMAXPROCS*maxExportParallelismMultiplier are clamped to
-// bound memory (each worker holds a 16 MB pipe buffer plus an LSM cursor)
-// and a warning is logged.
+// bound memory (see maxExportParallelismMultiplier) and a warning is logged.
 func (p *Participant) getExportParallelism() int {
 	maxP := runtime.GOMAXPROCS(0)
 	n := maxP

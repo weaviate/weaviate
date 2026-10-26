@@ -76,3 +76,29 @@ func ClassUsesVectorisation(class *models.Class) bool {
 	}
 	return false
 }
+
+// IsVectorlessUpdate reports whether a class update keeps (or lands) a class
+// in the vector-less state: the stored class has no legacy vectorizer and no
+// live named vectors (either every entry dropped — the flip moment when the
+// last drop finalizes — or already none), and the update carries no entries.
+// A class reaches this state by being created without any vector or by
+// dropping its last named vector. Vector-less classes keep their legacy
+// fields genuinely EMPTY: the server defaults never fill them for such a
+// class, so a legacy field on the update body can only come from the caller,
+// and the update path rejects it rather than letting a class-level index
+// appear after creation. A legacy class always carries a vectorizer, so it
+// never matches.
+func IsVectorlessUpdate(prev, next *models.Class) bool {
+	if prev == nil || next == nil {
+		return false
+	}
+	if prev.Vectorizer != "" || len(next.VectorConfig) != 0 {
+		return false
+	}
+	for _, cfg := range prev.VectorConfig {
+		if !IsVectorIndexDropped(cfg) {
+			return false
+		}
+	}
+	return true
+}

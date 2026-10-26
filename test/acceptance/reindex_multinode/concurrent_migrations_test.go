@@ -165,18 +165,18 @@ func TestMultiNode_ConcurrentDifferentMigrations_ExactCountsPostSettle(t *testin
 	wg.Add(3)
 	go func() {
 		defer wg.Done()
-		priceTaskID = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "price",
-			`{"rangeable":{"enabled":true}}`)
+		priceTaskID = reindexhelpers.SubmitIndexUpsert(t, uri1, className, "price", "rangeFilters",
+			`{}`)
 	}()
 	go func() {
 		defer wg.Done()
-		catTaskID = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "category",
-			`{"filterable":{"enabled":true}}`)
+		catTaskID = reindexhelpers.SubmitIndexUpsert(t, uri1, className, "category", "filterable",
+			`{}`)
 	}()
 	go func() {
 		defer wg.Done()
-		pathTaskID = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "path",
-			`{"searchable":{"tokenization":"word"}}`)
+		pathTaskID = reindexhelpers.SubmitIndexUpsert(t, uri1, className, "path", "searchable",
+			`{"tokenization":"word"}`)
 	}()
 	wg.Wait()
 	t.Logf("submitted parallel migrations: price=%s category=%s path=%s",

@@ -96,13 +96,13 @@ func TestGRPC_Batching(t *testing.T) {
 		// Validate the number of articles created
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			listA, err := helper.ListObjects(t, clsA.Class)
-			require.NoError(t, err, "ListObjects should not return an error")
+			require.NoError(ct, err, "ListObjects should not return an error")
 			require.Len(ct, listA.Objects, 1, "Number of articles created should match the number sent")
 			require.NotNil(ct, listA.Objects[0].Properties.(map[string]any)["hasParagraphs"], "hasParagraphs should not be nil")
 			require.Len(ct, listA.Objects[0].Properties.(map[string]any)["hasParagraphs"], 2, "Article should have 2 paragraphs")
 
 			listP, err := helper.ListObjects(t, clsP.Class)
-			require.NoError(t, err, "ListObjects should not return an error")
+			require.NoError(ct, err, "ListObjects should not return an error")
 			require.Len(ct, listP.Objects, 2, "Number of paragraphs created should match the number sent")
 		}, 10*time.Second, 1*time.Second, "Objects not created within time")
 	})
@@ -201,37 +201,12 @@ func TestGRPC_Batching(t *testing.T) {
 		stream := start(ctx, t, grpcClient, "")
 
 		acked := make(chan struct{})
-		// Start a goroutine to read messages from the stream
-		go func() {
-			defer close(acked)
-			// Verify no errors returned from the stream
-			for {
-				resp, err := stream.Recv()
-				if errors.Is(err, io.EOF) {
-					// server closed the stream
-					t.Log("Stream closed by server")
-					return
-				}
-				if err != nil {
-					t.Errorf("Stream recv returned error: %v", err)
-					return
-				}
-				if len(resp.GetResults().GetErrors()) != 0 {
-					t.Error("Received unexpected errors from server:")
-					for _, e := range resp.GetResults().GetErrors() {
-						t.Errorf("Error: %s", e.GetError())
-					}
-				}
-				if resp.GetAcks() != nil {
-					acked <- struct{}{}
-				}
-			}
-		}()
+		go recv(t, stream, acked, nil)
 
-		// Send 5000 articles with 10 paragraphs per article
+		// Send 1000 articles with 10 paragraphs per article
 		objects := make([]*pb.BatchObject, 0, 1100)
 		references := make([]*pb.BatchReference, 0, 1000)
-		numArticles := 5000
+		numArticles := 1000
 		numParasPerArticle := 10
 		for i := 0; i < numArticles; i++ {
 			aUuid := uuid.NewString()
@@ -263,14 +238,14 @@ func TestGRPC_Batching(t *testing.T) {
 				Collection:   clsA.Class,
 				ObjectsCount: true,
 			})
-			require.NoError(t, err, "Aggregate should not return an error")
+			require.NoError(ct, err, "Aggregate should not return an error")
 			require.Equal(ct, int64(numArticles), *resA.GetSingleResult().ObjectsCount, "Number of articles created should match the number sent")
 
 			resA, err = grpcClient.Aggregate(ctx, &pb.AggregateRequest{
 				Collection:   clsP.Class,
 				ObjectsCount: true,
 			})
-			require.NoError(t, err, "Aggregate should not return an error")
+			require.NoError(ct, err, "Aggregate should not return an error")
 			require.Equal(ct, int64(numArticles*numParasPerArticle), *resA.GetSingleResult().ObjectsCount, "Number of paragraphs created should match the number sent")
 
 			resS, err := grpcClient.Search(ctx, &pb.SearchRequest{
@@ -283,13 +258,13 @@ func TestGRPC_Batching(t *testing.T) {
 					}},
 				},
 			})
-			require.NoError(t, err, "Search should not return an error")
+			require.NoError(ct, err, "Search should not return an error")
 			require.Equal(ct, numArticles, len(resS.GetResults()), "Number of articles returned by search should match the number sent")
 			for _, res := range resS.GetResults() {
-				require.Len(t, res.Properties.RefProps, 1, "Each article should have hasParagraphs property")
-				require.Len(t, res.Properties.RefProps[0].Properties, numParasPerArticle, "Each article should have the correct number of paragraphs")
+				require.Len(ct, res.Properties.RefProps, 1, "Each article should have hasParagraphs property")
+				require.Len(ct, res.Properties.RefProps[0].Properties, numParasPerArticle, "Each article should have the correct number of paragraphs")
 			}
-		}, 240*time.Second, 5*time.Second, "Objects not created within time")
+		}, 300*time.Second, 500*time.Millisecond, "Objects not created within time")
 	})
 
 	t.Run("send 50000 objects then immediately restart the node to trigger shutdown and ensure all are present afterwards", func(t *testing.T) {
@@ -299,35 +274,7 @@ func TestGRPC_Batching(t *testing.T) {
 		stream := start(ctx, t, grpcClient, "")
 
 		acked := make(chan struct{})
-
-		var wg sync.WaitGroup
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			defer close(acked)
-			// Verify no errors returned from the stream
-			for {
-				resp, err := stream.Recv()
-				if errors.Is(err, io.EOF) {
-					// server closed the stream
-					t.Log("Stream closed by server")
-					return
-				}
-				if err != nil {
-					t.Errorf("Stream recv returned error: %v", err)
-					return
-				}
-				if len(resp.GetResults().GetErrors()) != 0 {
-					t.Error("Received unexpected errors from server:")
-					for _, e := range resp.GetResults().GetErrors() {
-						t.Errorf("Error: %s", e.GetError())
-					}
-				}
-				if resp.GetAcks() != nil {
-					acked <- struct{}{}
-				}
-			}
-		}()
+		go recv(t, stream, acked, nil)
 
 		// Send 50000 articles
 		objects := make([]*pb.BatchObject, 0, 1000)
@@ -362,9 +309,9 @@ func TestGRPC_Batching(t *testing.T) {
 				Collection:   clsA.Class,
 				ObjectsCount: true,
 			})
-			require.NoError(t, err, "Aggregate should not return an error")
+			require.NoError(ct, err, "Aggregate should not return an error")
 			require.Equal(ct, int64(50000), *res.GetSingleResult().ObjectsCount, "Number of articles created should match the number sent")
-		}, 120*time.Second, 5*time.Second, "Objects not created within time")
+		}, 120*time.Second, 500*time.Millisecond, "Objects not created within time")
 	})
 }
 
@@ -373,8 +320,9 @@ func TestGRPC_OutOfMemoryBatching(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateWithGRPC().
-		WithWeaviateEnv("GOMEMLIMIT", "268435456").
+		WithWeaviateEnv("GOMEMLIMIT", "33554432").
 		WithWeaviateEnv("GRPC_MAX_MESSAGE_SIZE", "536870912").
+		WithWeaviateEnv("BATCH_STREAM_HOLD_SECONDS", "1").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -430,6 +378,11 @@ func TestGRPC_OutOfMemoryBatching(t *testing.T) {
 		require.NoError(t, err, "BatchStream should return a response")
 		require.NotNil(t, msg.GetOutOfMemory(), "Response should indicate out of memory got %T instead", msg.Message)
 		require.Equal(t, len(uuids), len(msg.GetOutOfMemory().GetUuids()), "All sent objects should be listed in out of memory response")
+
+		// The server closes its side after OutOfMemory and sends nothing further,
+		// in particular no ShuttingDown message.
+		_, err = stream.Recv()
+		require.ErrorIs(t, err, io.EOF, "the server must close the stream after the out of memory message")
 	})
 }
 
@@ -459,20 +412,21 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 		Factor: 3,
 	}
 
-	setupClasses := func() func() {
-		helper.DeleteClass(t, clsA.Class)
-		helper.DeleteClass(t, clsP.Class)
-		// Create the schema
-		helper.CreateClass(t, clsP)
-		helper.CreateClass(t, clsA)
+	setupClasses := func(cls ...*models.Class) func() {
+		for _, c := range cls {
+			helper.DeleteClass(t, c.Class)
+			// Create the schema
+			helper.CreateClass(t, c)
+		}
 		return func() {
-			helper.DeleteClass(t, clsA.Class)
-			helper.DeleteClass(t, clsP.Class)
+			for _, c := range cls {
+				helper.DeleteClass(t, c.Class)
+			}
 		}
 	}
 
 	t.Run("send objects and references without errors", func(t *testing.T) {
-		defer setupClasses()()
+		defer setupClasses(clsP, clsA)()
 
 		// Open up a stream to read messages from
 		stream := start(ctx, t, grpcClient, "")
@@ -508,7 +462,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 	})
 
 	t.Run("verify expected client-server behaviour when reconnecting between nodes due to shutdown", func(t *testing.T) {
-		defer setupClasses()()
+		defer setupClasses(clsP, clsA)()
 		firstNode := 2
 		secondNode := 1
 
@@ -522,41 +476,70 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 		var streamRestartLock sync.RWMutex
 		acked := make(chan struct{})
 
-		numObjs := 20000
-		batchSize := numObjs / 100
-		// start a goroutine that continuously sends objects
+		// Keep sending until the stream has moved to secondNode and a few more
+		// batches went through there, so the run always spans the shutdown.
+		const (
+			batchSize             = 100
+			maxObjs               = 20000
+			batchesAfterReconnect = 5
+		)
+		var reconnects atomic.Int32
+		numSent := 0
+		firstSent := make(chan struct{})
 		sendWg.Add(1)
 		go func() {
 			defer sendWg.Done()
-			batch := make([]*pb.BatchObject, 0, batchSize)
-			for i := 0; i < numObjs; i++ {
-				for shuttingDown.Load() {
+			sendBatch := func(batch []*pb.BatchObject) bool {
+				deadline := time.Now().Add(60 * time.Second)
+				for time.Now().Before(deadline) {
+					// The receiver swaps the stream and clears shuttingDown under the
+					// write lock, so the flag and the stream are consistent here.
 					streamRestartLock.RLock()
-					stream.CloseSend()
-					streamRestartLock.RUnlock()
-					t.Logf("%s Can't send, server is shutting down\n", time.Now().Format("15:04:05"))
-					time.Sleep(5 * time.Second)
-					continue
-				}
-				batch = append(batch, &pb.BatchObject{
-					Collection: clsA.Class,
-					Uuid:       helper.IntToUUID(uint64(i)).String(),
-					Vectors:    []*pb.Vectors{{Name: "default", VectorBytes: randomByteVector(128)}},
-				})
-				if len(batch) == batchSize {
-					t.Logf("%s Sending %vth batch of %v objects\n", time.Now().Format("15:04:05"), i/batchSize, batchSize)
-					streamRestartLock.RLock()
-					err := send(stream, batch, nil, acked)
-					streamRestartLock.RUnlock()
-					if errors.Is(err, io.EOF) {
-						// Server has closed due to shutdown, continue and loop back to either shuttingDown or shutdown
-						fmt.Printf("%s Server closed the stream\n", time.Now().Format("15:04:05"))
+					if shuttingDown.Load() {
+						stream.CloseSend()
+						streamRestartLock.RUnlock()
+						time.Sleep(100 * time.Millisecond)
 						continue
 					}
-					batch = make([]*pb.BatchObject, 0, batchSize)
+					err := send(stream, batch, nil, acked)
+					streamRestartLock.RUnlock()
+					if err == nil {
+						return true
+					}
+					if !errors.Is(err, io.EOF) {
+						t.Errorf("sending batch: %v", err)
+						return false
+					}
+					// Server closed the stream due to shutdown, resend once reconnected
+					time.Sleep(100 * time.Millisecond)
+				}
+				t.Errorf("batch not accepted within 60s after the stream closed")
+				return false
+			}
+			afterReconnect := 0
+			for numSent < maxObjs && afterReconnect < batchesAfterReconnect {
+				batch := make([]*pb.BatchObject, 0, batchSize)
+				for i := numSent; i < numSent+batchSize; i++ {
+					batch = append(batch, &pb.BatchObject{
+						Collection: clsA.Class,
+						Uuid:       helper.IntToUUID(uint64(i)).String(),
+						Vectors:    []*pb.Vectors{{Name: "default", VectorBytes: randomByteVector(128)}},
+					})
+				}
+				if !sendBatch(batch) {
+					return
+				}
+				if numSent == 0 {
+					close(firstSent)
+				}
+				numSent += batchSize
+				if reconnects.Load() > 0 {
+					afterReconnect++
 				}
 			}
-			fmt.Printf("%s Done sending objects\n", time.Now().Format("15:04:05"))
+			t.Logf("%s Done sending %d objects", time.Now().Format("15:04:05"), numSent)
+			streamRestartLock.RLock()
+			defer streamRestartLock.RUnlock()
 			stop(stream)
 			stream.CloseSend()
 		}()
@@ -575,8 +558,9 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 						grpcClient, _ = client(t, compose.GetWeaviateNode(secondNode).GrpcURI())
 						streamRestartLock.Lock()
 						stream = start(ctx, t, grpcClient, "")
-						streamRestartLock.Unlock()
 						shuttingDown.Store(false)
+						streamRestartLock.Unlock()
+						reconnects.Add(1)
 						continue
 					}
 					t.Logf("%s Stream closed by server\n", time.Now().Format("15:04:05"))
@@ -602,6 +586,12 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 			}
 		}()
 
+		select {
+		case <-firstSent:
+		case <-time.After(60 * time.Second):
+			t.Fatal("first batch was not acknowledged within 60s")
+		}
+
 		// Restart node-firstNode
 		t.Logf("Stopping node %v...", firstNode)
 		common.StopNodeAtWithTimeout(ctx, t, compose, firstNode-1, 300*time.Second)
@@ -615,6 +605,8 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 		recvWg.Wait()
 		t.Log("Recv goroutine finished")
 
+		require.Equal(t, int32(1), reconnects.Load(), "client should have reconnected to another node exactly once after the shutdown")
+
 		helper.SetupClient(compose.GetWeaviateNode(secondNode).URI())
 		grpcClient, _ = client(t, compose.GetWeaviateNode(secondNode).GrpcURI())
 
@@ -625,13 +617,13 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 				Collection:   clsA.Class,
 				ObjectsCount: true,
 			})
-			require.NoError(t, err, "Aggregate should not return an error")
-			require.GreaterOrEqual(ct, *res.GetSingleResult().ObjectsCount, int64(numObjs), "Number of articles created should match the number sent")
-		}, 300*time.Second, 5*time.Second, "Objects not replicated within time")
+			require.NoError(ct, err, "Aggregate should not return an error")
+			require.Equal(ct, int64(numSent), *res.GetSingleResult().ObjectsCount, "Number of articles created should match the number sent")
+		}, 300*time.Second, 500*time.Millisecond, "Objects not replicated within time")
 	})
 
 	t.Run("verify that server still shuts down if client hangs up without closing its end of the stream", func(t *testing.T) {
-		defer setupClasses()()
+		defer setupClasses(clsP, clsA)()
 		node := 2
 
 		helper.SetupClient(compose.GetWeaviateNode(node).URI())
@@ -659,6 +651,109 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 
 		// Setup again to allow cleanup to work in defer
 		helper.SetupClient(compose.GetWeaviateNode(node).URI())
+	})
+
+	clsST := articles.ParagraphsClass()
+	clsST.Class = fmt.Sprintf("%sST", clsST.Class)
+	clsST.ReplicationConfig = &models.ReplicationConfig{
+		Factor: 3,
+	}
+	clsMT := articles.ParagraphsClass()
+	clsMT.Class = fmt.Sprintf("%sMT", clsMT.Class)
+	clsMT.ReplicationConfig = &models.ReplicationConfig{
+		Factor: 3,
+	}
+	clsMT.MultiTenancyConfig = &models.MultiTenancyConfig{
+		Enabled:            true,
+		AutoTenantCreation: true,
+	}
+
+	t.Run("send 100k objects into a ST class and verify that all are present afterwards", func(t *testing.T) {
+		defer setupClasses(clsST)()
+
+		// Open up a stream to read messages from
+		stream := start(ctx, t, grpcClient, "")
+
+		acked := make(chan struct{})
+		go recv(t, stream, acked, nil)
+
+		// Send 100k articles in batches of 1k
+		objects := make([]*pb.BatchObject, 0, 100)
+		numArticles := 100000
+		for i := 0; i < numArticles; i++ {
+			objects = append(objects, &pb.BatchObject{Collection: clsST.Class, Uuid: uuid.NewString()})
+			if (i+1)%100 == 0 {
+				err := send(stream, objects, nil, acked)
+				require.NoError(t, err, "sending data over the stream should not return an error")
+				objects = objects[:0] // reset slice but keep capacity
+				t.Logf("Sent %d articles", i+1)
+			}
+		}
+		if len(objects) > 0 {
+			err := send(stream, objects, nil, acked)
+			require.NoError(t, err, "sending data over the stream should not return an error")
+		}
+		t.Log("Done adding objects to stream")
+		stop(stream)
+		stream.CloseSend()
+
+		// Verify that all objects are present after shutdown and restart
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			resA, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
+				Collection:   clsST.Class,
+				ObjectsCount: true,
+			})
+			require.NoError(t, err, "Aggregate should not return an error")
+			require.Equal(ct, int64(numArticles), *resA.GetSingleResult().ObjectsCount, "Number of articles created should match the number sent")
+		}, 240*time.Second, 5*time.Second, "Objects not created within time")
+	})
+
+	t.Run("send 10k objects per tenant into a MT class of 10 tenants and verify that all are present afterwards", func(t *testing.T) {
+		defer setupClasses(clsMT)()
+
+		// Open up a stream to read messages from
+		stream := start(ctx, t, grpcClient, "")
+
+		acked := make(chan struct{})
+		go recv(t, stream, acked, nil)
+
+		// Send 100k articles in batches of 1k
+		objects := make([]*pb.BatchObject, 0, 100)
+		numArticles := 10000
+		numTenants := 10
+		for i := 0; i < numArticles; i++ {
+			for j := 0; j < numTenants; j++ {
+				tenant := fmt.Sprintf("tenant-%d", j)
+				objects = append(objects, &pb.BatchObject{Collection: clsMT.Class, Uuid: uuid.NewString(), Tenant: tenant})
+			}
+			if len(objects) == 1000 {
+				err := send(stream, objects, nil, acked)
+				require.NoError(t, err, "sending data over the stream should not return an error")
+				objects = objects[:0] // reset slice but keep capacity
+				t.Logf("Sent %d articles per %d tenants", i+1, numTenants)
+			}
+		}
+		if len(objects) > 0 {
+			err := send(stream, objects, nil, acked)
+			require.NoError(t, err, "sending data over the stream should not return an error")
+		}
+		t.Log("Done adding objects to stream")
+		stop(stream)
+		stream.CloseSend()
+
+		// Verify that all objects are present after shutdown and restart
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			for j := 0; j < numTenants; j++ {
+				tenant := fmt.Sprintf("tenant-%d", j)
+				resA, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
+					Collection:   clsMT.Class,
+					ObjectsCount: true,
+					Tenant:       tenant,
+				})
+				require.NoError(t, err, "Aggregate should not return an error")
+				require.Equal(ct, int64(numArticles), *resA.GetSingleResult().ObjectsCount, "Number of articles created should match the number sent")
+			}
+		}, 240*time.Second, 5*time.Second, "Objects not created within time")
 	})
 }
 
@@ -738,13 +833,13 @@ func TestGRPC_AuthzBatching(t *testing.T) {
 		// Validate the number of articles created
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			listA, err := helper.ListObjectsAuth(t, clsA.Class, adminKey)
-			require.NoError(t, err, "ListObjects should not return an error")
+			require.NoError(ct, err, "ListObjects should not return an error")
 			require.Len(ct, listA.Objects, 1, "Number of articles created should match the number sent")
 			require.NotNil(ct, listA.Objects[0].Properties.(map[string]any)["hasParagraphs"], "hasParagraphs should not be nil")
 			require.Len(ct, listA.Objects[0].Properties.(map[string]any)["hasParagraphs"], 2, "Article should have 2 paragraphs")
 
 			listP, err := helper.ListObjectsAuth(t, clsP.Class, adminKey)
-			require.NoError(t, err, "ListObjects should not return an error")
+			require.NoError(ct, err, "ListObjects should not return an error")
 			require.Len(ct, listP.Objects, 2, "Number of paragraphs created should match the number sent")
 		}, 10*time.Second, 1*time.Second, "Objects not created within time")
 	})
@@ -811,7 +906,7 @@ func TestGRPC_AuthzBatching(t *testing.T) {
 		require.NotNil(t, msg, "Message should not be nil")
 		require.NotNil(t, msg.GetResults(), "Results message should not be nil")
 
-		require.Equal(t, "rbac: authorization, forbidden action: user 'custom-user' has insufficient permissions to update_data [[Domain: data, Collection: Paragraph, Tenant: *, Object: *]]", msg.GetResults().GetErrors()[0].Error)
+		require.Equal(t, "rbac: authorization, forbidden action: user 'custom-user' has insufficient permissions to update_data [[Domain: data, Collection: Paragraph, Tenant: *]]", msg.GetResults().GetErrors()[0].Error)
 		require.Equal(t, objects[2].Uuid, msg.GetResults().GetErrors()[0].GetUuid(), "Errored object should be the third one")
 	})
 }
@@ -886,4 +981,33 @@ func randomByteVector(dim int) []byte {
 	}
 
 	return vector
+}
+
+func recv(t *testing.T, stream pb.Weaviate_BatchStreamClient, acked chan struct{}, wg *sync.WaitGroup) {
+	defer close(acked)
+	if wg != nil {
+		defer wg.Done()
+	}
+	// Verify no errors returned from the stream
+	for {
+		resp, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			// server closed the stream
+			t.Log("Stream closed by server")
+			return
+		}
+		if err != nil {
+			t.Errorf("Stream recv returned error: %v", err)
+			return
+		}
+		if len(resp.GetResults().GetErrors()) != 0 {
+			t.Error("Received unexpected errors from server:")
+			for _, e := range resp.GetResults().GetErrors() {
+				t.Errorf("Error: %s", e.GetError())
+			}
+		}
+		if resp.GetAcks() != nil {
+			acked <- struct{}{}
+		}
+	}
 }

@@ -46,6 +46,26 @@ func TestClient(t *testing.T) {
 		assert.Equal(t, expected, res)
 	})
 
+	t.Run("returns the rate limits reported by the service", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{t: t, headers: map[string]string{
+			"x-ratelimit-limit-tokens":     "6000000",
+			"x-ratelimit-remaining-tokens": "4200000",
+			"x-ratelimit-reset-tokens":     "37s",
+		}})
+		defer server.Close()
+		c := New(0)
+		ctx := context.WithValue(context.Background(), "Authorization", []string{"token"})
+		ctx = context.WithValue(ctx, "X-Weaviate-Cluster-Url", []string{server.URL})
+
+		_, rateLimits, _, err := c.Vectorize(ctx, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}})
+
+		require.Nil(t, err)
+		require.NotNil(t, rateLimits)
+		assert.Equal(t, 6000000, rateLimits.LimitTokens)
+		assert.Equal(t, 4200000, rateLimits.RemainingTokens)
+		assert.Equal(t, DefaultRPM, rateLimits.LimitRequests)
+	})
+
 	t.Run("when the context is expired", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
@@ -104,6 +124,7 @@ func TestClient(t *testing.T) {
 type fakeHandler struct {
 	t           *testing.T
 	serverError error
+	headers     map[string]string
 }
 
 func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -151,5 +172,8 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	outBytes, err := json.Marshal(embeddingResponse)
 	require.Nil(f.t, err)
 
+	for key, value := range f.headers {
+		w.Header().Set(key, value)
+	}
 	w.Write(outBytes)
 }

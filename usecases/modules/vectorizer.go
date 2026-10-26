@@ -98,8 +98,11 @@ func (p *Provider) BatchUpdateVector(ctx context.Context, class *models.Class, o
 	}
 
 	if len(modConfigs) == 0 {
-		// short-circuit collections without vector index
-		if class.Vectorizer == config.VectorizerModuleNone {
+		// Short-circuit collections that vectorize nothing: legacy
+		// vectorizer "none", and vector-less classes (empty vectorizer, no
+		// named vectors — the state a class reaches once its last named
+		// vector is dropped and finalized).
+		if class.Vectorizer == config.VectorizerModuleNone || class.Vectorizer == "" {
 			return nil, nil
 		}
 
@@ -182,6 +185,7 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 		return nil, fmt.Errorf("no vectorizer found for class %q", class.Class)
 	}
 	cfg := NewClassBasedModuleConfig(class, found.Name(), "", targetVector, &p.cfg)
+	targetProperties := p.sourcePropertiesFromModuleConfig(modConfig, found.Name())
 
 	if vectorizer, ok := found.(modulecapabilities.Vectorizer[[]float32]); ok {
 		// each target vector can have its own associated properties, and we need to determine for each one if we should
@@ -195,7 +199,7 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 				continue
 			}
 			reVectorize, addProps, vector, err := reVectorize(ctx, cfg, vectorizer, obj,
-				class, nil, targetVector, findObjectFn, p.cfg.RevectorizeCheckDisabled.Get())
+				class, targetProperties, targetVector, findObjectFn, p.cfg.RevectorizeCheckDisabled.Get())
 			if err != nil {
 				return nil, fmt.Errorf("cannot vectorize class %q: %w", class.Class, err)
 			}
@@ -235,7 +239,7 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 				continue
 			}
 			reVectorize, addProps, multiVector, err := reVectorizeMulti(ctx, cfg,
-				vectorizer, obj, class, nil, targetVector, findObjectFn,
+				vectorizer, obj, class, targetProperties, targetVector, findObjectFn,
 				p.cfg.RevectorizeCheckDisabled.Get())
 			if err != nil {
 				return nil, fmt.Errorf("cannot vectorize class %q: %w", class.Class, err)
@@ -369,15 +373,7 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 
 	if vectorizer, ok := found.(modulecapabilities.Vectorizer[[]float32]); ok {
 		if p.shouldVectorizeObject(object, cfg) {
-			var targetProperties []string
-			vecConfig, ok := modConfig[found.Name()]
-			if ok {
-				if properties, ok := vecConfig.(map[string]any)["properties"]; ok {
-					if propSlice, ok := properties.([]string); ok {
-						targetProperties = propSlice
-					}
-				}
-			}
+			targetProperties := p.sourcePropertiesFromModuleConfig(modConfig, found.Name())
 			needsRevectorization, additionalProperties, vector, err := reVectorize(ctx,
 				cfg, vectorizer, object, class, targetProperties, targetVector, findObjectFn,
 				p.cfg.RevectorizeCheckDisabled.Get())
@@ -399,15 +395,7 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 		}
 	} else if vectorizer, ok := found.(modulecapabilities.Vectorizer[[][]float32]); ok {
 		if p.shouldVectorizeObject(object, cfg) {
-			var targetProperties []string
-			vecConfig, ok := modConfig[found.Name()]
-			if ok {
-				if properties, ok := vecConfig.(map[string]any)["properties"]; ok {
-					if propSlice, ok := properties.([]string); ok {
-						targetProperties = propSlice
-					}
-				}
-			}
+			targetProperties := p.sourcePropertiesFromModuleConfig(modConfig, found.Name())
 			needsRevectorization, additionalProperties, multiVector, err := reVectorizeMulti(ctx,
 				cfg, vectorizer, object, class, targetProperties, targetVector, findObjectFn,
 				p.cfg.RevectorizeCheckDisabled.Get())
@@ -537,6 +525,13 @@ func (p *Provider) getModuleConfigs(class *models.Class) (map[string]map[string]
 	modConfigs := map[string]map[string]any{}
 	// get all named vectorizers for classs
 	for name, vectorConfig := range class.VectorConfig {
+		if modelsext.IsVectorIndexDropped(vectorConfig) {
+			// A mid-drop named vector keeps its vectorizer config, but its
+			// index is gone and the write path rejects any object carrying the
+			// vector — computing it would fail every write to the collection
+			// until the drop finalizes, and waste the module inference call.
+			continue
+		}
 		modConfig, ok := vectorConfig.Vectorizer.(map[string]any)
 		if !ok {
 			return nil, fmt.Errorf("class %v vectorizer %s not present", class.Class, name)
@@ -553,6 +548,34 @@ func (p *Provider) getModuleConfigs(class *models.Class) (map[string]map[string]
 	}
 
 	return modConfigs, nil
+}
+
+// sourcePropertiesFromModuleConfig reads a named vector's source properties.
+// The config holds them as []string or []any depending on how the schema was
+// loaded; nil means none are set.
+func (p *Provider) sourcePropertiesFromModuleConfig(modConfig map[string]any, moduleName string) []string {
+	vecConfig, ok := modConfig[moduleName].(map[string]any)
+	if !ok {
+		return nil
+	}
+	switch props := vecConfig["properties"].(type) {
+	case []string:
+		return props
+	case []any:
+		out := make([]string, 0, len(props))
+		for _, prop := range props {
+			s, ok := prop.(string)
+			if !ok {
+				// If any entry is not a string, ignore the whole list rather
+				// than use only part of it.
+				return nil
+			}
+			out = append(out, s)
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 func (p *Provider) getModule(modConfig map[string]any) (found modulecapabilities.Module) {

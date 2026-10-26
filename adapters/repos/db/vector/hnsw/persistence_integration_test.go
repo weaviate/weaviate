@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -36,6 +37,64 @@ import (
 type persistenceIntegrationNoopBucketView struct{}
 
 func (n *persistenceIntegrationNoopBucketView) ReleaseView() {}
+
+func TestHnswPersistence_IsolatedNodeSurvivesCompactionAndRestart(t *testing.T) {
+	for _, id := range []uint64{0, 1} {
+		t.Run(fmt.Sprintf("id_%d", id), func(t *testing.T) {
+			dir := t.TempDir()
+			const indexID = "isolated"
+			logger, _ := test.NewNullLogger()
+			store := testinghelpers.NewDummyStore(t)
+			cfg := Config{
+				AllocChecker: memwatch.NewDummyMonitor(),
+				RootPath:     dir,
+				ID:           indexID,
+				MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
+					return NewCommitLogger(dir, indexID, logger, cyclemanager.NewCallbackGroupNoop(), opts...)
+				},
+				DistanceProvider: distancer.NewCosineDistanceProvider(),
+				VectorForIDThunk: testVectorForID,
+				GetViewThunk:     func() common.BucketView { return &persistenceIntegrationNoopBucketView{} },
+			}
+			uc := ent.UserConfig{MaxConnections: 30, EFConstruction: 60}
+			index, err := New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), store)
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				if index != nil {
+					require.NoError(t, index.Shutdown(context.Background()))
+				}
+			})
+			require.NoError(t, index.Add(t.Context(), id, testVectors[id]))
+
+			for round := 0; round < 3; round++ {
+				ids, _, err := index.SearchByVector(t.Context(), testVectors[id], 1, nil)
+				require.NoError(t, err)
+				require.Equal(t, []uint64{id}, ids, "search after %d compaction/restart rounds", round)
+				if round == 2 {
+					break
+				}
+
+				require.NoError(t, index.Flush())
+				require.NoError(t, index.Shutdown(t.Context()))
+				index = nil
+				logDir := filepath.Join(dir, indexID+".hnsw.commitlog.d")
+				// A newer active WAL makes the closed log eligible for compaction,
+				// as happens on restart, regardless of the closed log's size.
+				activeWAL := filepath.Join(logDir, "999999999999999999")
+				require.NoError(t, os.WriteFile(activeWAL, nil, 0o600))
+				compactor := compact.NewCompactor(compact.DefaultCompactorConfig(logDir), logger)
+				action, err := compactor.RunCycle(nil)
+				require.NoError(t, err)
+				if round == 0 {
+					require.Equal(t, compact.ActionCreateSnapshot, action)
+				}
+				require.NoError(t, os.Remove(activeWAL))
+				index, err = New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), store)
+				require.NoError(t, err)
+			}
+		})
+	}
+}
 
 func TestHnswPersistence(t *testing.T) {
 	dirName := t.TempDir()

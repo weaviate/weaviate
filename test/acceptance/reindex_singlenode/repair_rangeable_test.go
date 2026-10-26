@@ -12,10 +12,7 @@
 package reindex_singlenode
 
 import (
-	"bytes"
 	"fmt"
-	"io"
-	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -24,24 +21,8 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// putIndexes is a small wrapper that returns the raw status + body
-// instead of asserting 202 like submitIndexUpdate does. Used by the
-// rejection-path tests below.
-func putIndexes(t *testing.T, restURI, collection, property, jsonBody string) (int, string) {
-	t.Helper()
-	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, collection, property)
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader([]byte(jsonBody)))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	return resp.StatusCode, string(body)
-}
-
-// testRepairRangeable exercises {"rangeable":{"rebuild":true}}: rebuild an
-// already-enabled rangeable index from the existing filterable bucket.
+// testRepairRangeable exercises POST .../index/rangeFilters/rebuild: rebuild
+// an already-enabled rangeable index from the existing filterable bucket.
 // Three contract points:
 //
 //   - rebuild on a property whose IndexRangeFilters is false → 400
@@ -80,25 +61,23 @@ func testRepairRangeable(t *testing.T, restURI string) {
 	}
 
 	t.Run("RebuildRejectedWhenNotEnabled", func(t *testing.T) {
-		body := `{"rangeable":{"rebuild":true}}`
-		status, respBody := putIndexes(t, restURI, className, "price", body)
-		require.Equal(t, 400, status,
-			"rebuild rangeable on a property without rangeable enabled must 400: %s", respBody)
-		require.Contains(t, respBody, "does not have a rangeable index to rebuild")
+		resp := reindexhelpers.RebuildIndexRaw(t, restURI, className, "price", "rangeFilters")
+		require.Equal(t, 400, resp.StatusCode,
+			"rebuild rangeable on a property without rangeable enabled must 400: %s", resp.Body)
+		require.Contains(t, resp.Body, "does not have a rangeable index to rebuild")
 	})
 
 	t.Run("RebuildRejectedForNonNumeric", func(t *testing.T) {
-		body := `{"rangeable":{"rebuild":true}}`
-		status, respBody := putIndexes(t, restURI, className, "label", body)
-		require.Equal(t, 400, status,
-			"rebuild rangeable on a non-numeric property must 400: %s", respBody)
-		require.Contains(t, respBody, "not a numeric type")
+		resp := reindexhelpers.RebuildIndexRaw(t, restURI, className, "label", "rangeFilters")
+		require.Equal(t, 400, resp.StatusCode,
+			"rebuild rangeable on a non-numeric property must 400: %s", resp.Body)
+		require.Contains(t, resp.Body, "not a numeric type")
 	})
 
 	t.Run("RebuildSucceedsOnEnabledNumeric", func(t *testing.T) {
-		taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "score", `{"rangeable":{"rebuild":true}}`)
+		taskID := reindexhelpers.RebuildIndex(t, restURI, className, "score", "rangeFilters")
 		t.Logf("submitted repair-rangeable task: %s", taskID)
-		reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, "score", "rangeable")
+		reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, "score", "rangeFilters")
 		reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	})
 }

@@ -674,3 +674,149 @@ func BenchmarkLocksHighContention(b *testing.B) {
 		run(b, NewShardedRWLocks(512))
 	})
 }
+
+func TestLazyShardedRWLocks_LazyAllocation(t *testing.T) {
+	l := NewLazyShardedRWLocks(8, 4)
+
+	require.EqualValues(t, 0, l.Count(), "no stripes must be allocated before first use")
+	require.EqualValues(t, 4, l.PageSize)
+
+	l.Lock(1)
+	l.Unlock(1)
+	require.EqualValues(t, 8, l.Count(), "first use must allocate the initial stripe count")
+
+	l.RLock(2)
+	l.RUnlock(2)
+	l.LockAll()
+	l.UnlockAll()
+	require.EqualValues(t, 8, l.Count(), "regular use must not change the stripe count")
+}
+
+func TestLazyShardedRWLocks_EnsureCount(t *testing.T) {
+	t.Run("on a fresh instance", func(t *testing.T) {
+		l := NewLazyShardedRWLocks(8, 1)
+		l.EnsureCount(512)
+		require.EqualValues(t, 512, l.Count())
+	})
+
+	t.Run("grows but never shrinks", func(t *testing.T) {
+		l := NewLazyShardedRWLocks(8, 1)
+		l.Lock(1)
+		l.Unlock(1)
+		require.EqualValues(t, 8, l.Count())
+
+		l.EnsureCount(64)
+		require.EqualValues(t, 64, l.Count())
+
+		l.EnsureCount(16)
+		require.EqualValues(t, 64, l.Count(), "EnsureCount must never shrink")
+	})
+
+	t.Run("never allocates below the initial count", func(t *testing.T) {
+		// the initial layout must not depend on whether EnsureCount or a
+		// lock operation touches the instance first
+		l := NewLazyShardedRWLocks(8, 1)
+		l.EnsureCount(2)
+		require.EqualValues(t, 8, l.Count())
+	})
+}
+
+func TestLazyShardedRWLocks_MutualExclusionAcrossRestripe(t *testing.T) {
+	// counters guarded by per-id locks while another goroutine keeps growing
+	// the stripe count: no increment may be lost across the stripe swaps
+	const (
+		goroutines = 8
+		increments = 2_000
+		ids        = 16
+	)
+
+	l := NewLazyShardedRWLocks(2, 1)
+	counters := make([]int, ids)
+
+	wg := new(sync.WaitGroup)
+	wg.Add(goroutines + 1)
+
+	go func() {
+		defer wg.Done()
+		for c := uint64(4); c <= 512; c *= 2 {
+			l.EnsureCount(c)
+			time.Sleep(time.Millisecond)
+		}
+	}()
+
+	for g := 0; g < goroutines; g++ {
+		go func(g int) {
+			defer wg.Done()
+			for i := 0; i < increments; i++ {
+				id := uint64((g + i) % ids)
+				l.Lock(id)
+				counters[id]++
+				l.Unlock(id)
+			}
+		}(g)
+	}
+	wg.Wait()
+
+	total := 0
+	for _, c := range counters {
+		total += c
+	}
+	require.Equal(t, goroutines*increments, total, "increments were lost across re-striping")
+	require.EqualValues(t, 512, l.Count())
+}
+
+func TestLazyShardedRWLocks_MixedLocks(t *testing.T) {
+	// no asserts
+	// ensures parallel LockAll + Lock + RLock + EnsureCount does not deadlock
+	count := 1000
+	l := NewLazyShardedRWLocks(2, 1)
+
+	wg := new(sync.WaitGroup)
+	wg.Add(count)
+	for i := 0; i < count; i++ {
+		go func(i int) {
+			defer wg.Done()
+			id := uint64(i)
+			switch i % 7 {
+			case 0:
+				l.LockAll()
+				l.UnlockAll()
+			case 1:
+				l.EnsureCount(uint64(i))
+			default:
+				if i%2 == 0 {
+					l.Lock(id)
+					l.Unlock(id)
+				} else {
+					l.RLock(id)
+					l.RUnlock(id)
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
+}
+
+func TestLazyShardedRWLocks_LockBlocks(t *testing.T) {
+	l := NewLazyShardedRWLocks(4, 1)
+
+	l.Lock(1)
+
+	ch := make(chan struct{})
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		l.Unlock(1)
+
+		close(ch)
+	}()
+
+	l.Lock(1)
+
+	select {
+	case <-ch:
+	case <-time.After(1 * time.Second):
+		require.Fail(t, "should be unlocked")
+	}
+
+	l.Unlock(1)
+}

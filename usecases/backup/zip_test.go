@@ -40,7 +40,7 @@ func TestZip(t *testing.T) {
 		pathNode = "./test_data/node1"
 		ctx      = context.Background()
 	)
-	for _, compressionLevel := range []CompressionLevel{GzipBestCompression, NoCompression} {
+	for _, compressionLevel := range []CompressionLevel{GzipBestCompression, ZstdBestCompression, NoCompression} {
 		t.Run(fmt.Sprintf("compressionLevel=%v", compressionLevel), func(t *testing.T) {
 			pathDest := filepath.Join(t.TempDir(), "test_data", "node1")
 			require.NoError(t, copyDir(pathNode, pathDest))
@@ -83,12 +83,8 @@ func TestZip(t *testing.T) {
 			require.NoError(t, os.MkdirAll(pathDest, 0o755))
 
 			// decompression
-			var compressionType backup.CompressionType
-			if compressionLevel == NoCompression {
-				compressionType = backup.CompressionNone
-			} else {
-				compressionType = backup.CompressionGZIP
-			}
+			compressionType, err := CompressionTypeFromLevel(compressionLevel)
+			require.NoError(t, err)
 			uz, wc := NewUnzip(pathDest, compressionType)
 
 			// decompression reader
@@ -335,35 +331,35 @@ func TestNewZipClampsSplitFileSize(t *testing.T) {
 	tests := []struct {
 		name                  string
 		chunkTargetSize       int64
-		bigFileThreshold      int64
+		bigFilesThreshold     int64
 		splitFileSize         int64
 		expectedSplitFileSize int64
 	}{
 		{
-			name:                  "splitFileSize already above bigFileThreshold",
+			name:                  "splitFileSize already above bigFilesThreshold",
 			chunkTargetSize:       500,
-			bigFileThreshold:      300,
+			bigFilesThreshold:     300,
 			splitFileSize:         1000,
 			expectedSplitFileSize: 1000,
 		},
 		{
-			name:                  "splitFileSize equals bigFileThreshold",
+			name:                  "splitFileSize equals bigFilesThreshold",
 			chunkTargetSize:       500,
-			bigFileThreshold:      1000,
+			bigFilesThreshold:     1000,
 			splitFileSize:         1000,
 			expectedSplitFileSize: 1000,
 		},
 		{
-			name:                  "splitFileSize below bigFileThreshold gets clamped up",
+			name:                  "splitFileSize below bigFilesThreshold gets clamped up",
 			chunkTargetSize:       500,
-			bigFileThreshold:      1000,
+			bigFilesThreshold:     1000,
 			splitFileSize:         300,
 			expectedSplitFileSize: 1000,
 		},
 		{
-			name:                  "splitFileSize below chunkTargetSize stays as-is when bigFileThreshold is zero",
+			name:                  "splitFileSize below chunkTargetSize stays as-is when bigFilesThreshold is zero",
 			chunkTargetSize:       1000,
-			bigFileThreshold:      0,
+			bigFilesThreshold:     0,
 			splitFileSize:         500,
 			expectedSplitFileSize: 500,
 		},
@@ -371,7 +367,7 @@ func TestNewZipClampsSplitFileSize(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			z, rc, err := NewZip(dir, int(GzipBestSpeed), tc.chunkTargetSize, tc.bigFileThreshold, tc.splitFileSize)
+			z, rc, err := NewZip(dir, int(GzipBestSpeed), tc.chunkTargetSize, tc.bigFilesThreshold, tc.splitFileSize)
 			require.NoError(t, err)
 			require.Equal(t, tc.expectedSplitFileSize, z.splitFileSizeBytes)
 			go func() { io.Copy(io.Discard, rc) }()
@@ -434,8 +430,8 @@ func TestWriteRegulars(t *testing.T) {
 			files: []testFile{
 				{"shard/huge.db", 5000},
 			},
-			// chunkTargetSize=1000, bigFileThreshold=1000, splitFileSize=500.
-			// splitFileSize clamped to bigFileThreshold=1000.
+			// chunkTargetSize=1000, bigFilesThreshold=1000, splitFileSize=500.
+			// splitFileSize clamped to bigFilesThreshold=1000.
 			// fileSize(5000) > splitFileSizeBytes(1000) → numParts=ceil(5000/1000)=5, partSize=ceil(5000/5)=1000.
 			// WriteSplitFile writes first 1000 bytes.
 			chunkTargetSize:      1000,
@@ -444,7 +440,7 @@ func TestWriteRegulars(t *testing.T) {
 			expectTarFiles:       []string{"shard/huge.db"},
 			expectRemainingFiles: nil,
 			expectSplitFile:      "shard/huge.db",
-			expectAlreadyWritten: 1000, // splitFileSize clamped to bigFileThreshold
+			expectAlreadyWritten: 1000, // splitFileSize clamped to bigFilesThreshold
 		},
 		{
 			name: "small file exceeding split threshold returns SplitFile with first part written",
@@ -889,7 +885,7 @@ func TestWriteShard(t *testing.T) {
 
 // TestRenamingDuringBackup tests that the backup process can handle files being renamed concurrently
 func TestRenamingDuringBackup(t *testing.T) {
-	for _, compressionLevel := range []CompressionLevel{GzipBestCompression, NoCompression} {
+	for _, compressionLevel := range []CompressionLevel{GzipBestCompression, ZstdBestCompression, NoCompression} {
 		t.Run(fmt.Sprintf("compressionLevel=%v", compressionLevel), func(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "source")
 			dir2 := filepath.Join(t.TempDir(), "dest")
@@ -982,12 +978,8 @@ func TestRenamingDuringBackup(t *testing.T) {
 
 			require.NoError(t, os.RemoveAll(dir))
 
-			var compressionType backup.CompressionType
-			if compressionLevel == NoCompression {
-				compressionType = backup.CompressionNone
-			} else {
-				compressionType = backup.CompressionGZIP
-			}
+			compressionType, err := CompressionTypeFromLevel(compressionLevel)
+			require.NoError(t, err)
 
 			uz, wc := NewUnzip(dir2, compressionType)
 			go func() {
@@ -1018,7 +1010,7 @@ func TestRenamingDuringBackup(t *testing.T) {
 // TestSplitFileRoundTrip tests that files larger than the split file size threshold
 // are correctly split across multiple chunks and restored with proper offsets.
 func TestSplitFileRoundTrip(t *testing.T) {
-	for _, compressionLevel := range []CompressionLevel{GzipBestCompression, NoCompression} {
+	for _, compressionLevel := range []CompressionLevel{GzipBestCompression, ZstdBestCompression, NoCompression} {
 		t.Run(fmt.Sprintf("compressionLevel=%v", compressionLevel), func(t *testing.T) {
 			ctx := context.Background()
 			sourceDir := filepath.Join(t.TempDir(), "source")
@@ -1106,12 +1098,8 @@ func TestSplitFileRoundTrip(t *testing.T) {
 			require.Greater(t, len(chunks), 1, "expected multiple chunks due to file splitting")
 
 			// Restore all chunks
-			var compressionType backup.CompressionType
-			if compressionLevel == NoCompression {
-				compressionType = backup.CompressionNone
-			} else {
-				compressionType = backup.CompressionGZIP
-			}
+			compressionType, err := CompressionTypeFromLevel(compressionLevel)
+			require.NoError(t, err)
 
 			for _, chunk := range chunks {
 				uz, wc := NewUnzip(restoreDir, compressionType)
@@ -1993,7 +1981,7 @@ func TestBackupRestoreEndToEnd(t *testing.T) {
 }
 
 // TestWriteRegularsBigFileReturnsSplitFile verifies that when a "big" file
-// (>= bigFileThreshold) also exceeds splitFileSizeBytes, WriteRegulars
+// (>= bigFilesThreshold) also exceeds splitFileSizeBytes, WriteRegulars
 // returns the SplitFile so the caller can split it across chunks instead of
 // silently dropping it.
 // makeTestData creates deterministic test data of the given size.
@@ -2019,4 +2007,38 @@ func newFileList(t *testing.T, sourceDir string, files []string) *backup.FileLis
 		Files:     append([]string{}, files...),
 		FileSizes: fileSizes,
 	}
+}
+
+// TestUnzipCloseReportsOnlyTheStepThatFailed pins that a chunk whose stream ends
+// early names the decompressor and nothing else. The text reaches the restore's
+// error and from there the status API, where a step that succeeded reported as an
+// error is what a poller reads as a second failure.
+func TestUnzipCloseReportsOnlyTheStepThatFailed(t *testing.T) {
+	var archive bytes.Buffer
+	gw := gzip.NewWriter(&archive)
+	tw := tar.NewWriter(gw)
+	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "f.txt", Mode: 0o644, Size: 4}))
+	_, err := tw.Write([]byte("data"))
+	require.NoError(t, err)
+	require.NoError(t, tw.Close())
+	require.NoError(t, gw.Close())
+	truncated := archive.Bytes()[:archive.Len()/2]
+
+	uz, wc := NewUnzip(t.TempDir(), backup.CompressionGZIP)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = wc.Write(truncated)
+		wc.Close()
+	}()
+
+	_, readErr := uz.ReadChunk()
+	require.Error(t, readErr, "a truncated chunk must not read as a complete one")
+
+	closeErr := uz.Close()
+	require.Error(t, closeErr)
+	require.NotContains(t, closeErr.Error(), "%!w(",
+		"a close step that succeeded must not be reported as an error")
+	require.Contains(t, closeErr.Error(), "gunzip: ")
+	<-done
 }

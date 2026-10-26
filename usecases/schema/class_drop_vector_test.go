@@ -13,14 +13,18 @@ package schema
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
 func TestDropVectorIndex_RejectVectorIndexTypeNone(t *testing.T) {
@@ -64,9 +68,16 @@ func TestDropVectorIndex_RejectVectorIndexTypeNone(t *testing.T) {
 			next: classWith(map[string]models.VectorConfig{"foo": {VectorIndexType: none}}),
 		},
 		{
-			name: "none -> real type is not blocked here (handled by the parser)",
-			prev: classWith(map[string]models.VectorConfig{"foo": {VectorIndexType: none}}),
-			next: classWith(map[string]models.VectorConfig{"foo": {VectorIndexType: hnswT}}),
+			name:       "none -> real type (revival) is rejected",
+			prev:       classWith(map[string]models.VectorConfig{"foo": {VectorIndexType: none}}),
+			next:       classWith(map[string]models.VectorConfig{"foo": {VectorIndexType: hnswT}}),
+			wantErr:    true,
+			wantTarget: "foo",
+		},
+		{
+			name: "removing a dropped entry is not a revival (escalated + FSM-gated elsewhere)",
+			prev: classWith(map[string]models.VectorConfig{"foo": {VectorIndexType: none}, "bar": {VectorIndexType: hnswT}}),
+			next: classWith(map[string]models.VectorConfig{"bar": {VectorIndexType: hnswT}}),
 		},
 		{
 			name: "all real types pass",
@@ -95,7 +106,6 @@ func TestDropVectorIndex_RejectVectorIndexTypeNone(t *testing.T) {
 				return
 			}
 			require.Error(t, err)
-			require.ErrorContains(t, err, "internal sentinel for dropped indexes")
 			require.ErrorContains(t, err, tt.wantTarget)
 		})
 	}
@@ -121,7 +131,7 @@ func TestDropVectorIndex_UpdateClassRejectsNoneIntroduction(t *testing.T) {
 	}
 	fakeSchemaManager.On("ReadOnlyClass", prev.Class).Return(prev)
 	// Leader-consistent view agrees the index is live, so the rejection stands.
-	fakeSchemaManager.On("QueryReadOnlyClasses", []string{prev.Class}).
+	fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{prev.Class}).
 		Return(map[string]versioned.Class{prev.Class: {Class: prev}}, nil)
 
 	updated := &models.Class{
@@ -165,9 +175,9 @@ func TestDropVectorIndex_UpdateClassAllowsExistingNoneOnStaleNode(t *testing.T) 
 		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.On("ReadOnlyClass", className).Return(stale)
-	fakeSchemaManager.On("QueryReadOnlyClasses", []string{className}).
+	fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{className}).
 		Return(map[string]versioned.Class{className: {Class: dropped}}, nil)
-	fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+	fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser).Return(nil)
 
 	updated := &models.Class{
 		Class:       className,
@@ -183,4 +193,149 @@ func TestDropVectorIndex_UpdateClassAllowsExistingNoneOnStaleNode(t *testing.T) 
 
 	err := handler.UpdateClass(ctx, nil, className, updated)
 	require.NoError(t, err)
+}
+
+// denyNthAuthorizer records every call on the inner fake and denies exactly
+// the nth one — lets a test allow the metadata-scope check and deny the
+// Collections escalation.
+type denyNthAuthorizer struct {
+	inner  *mocks.FakeAuthorizer
+	n      int
+	denyAt int
+	deny   error
+}
+
+func (a *denyNthAuthorizer) nth() error {
+	a.n++
+	if a.n == a.denyAt {
+		return a.deny
+	}
+	return nil
+}
+
+func (a *denyNthAuthorizer) Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
+	_ = a.inner.Authorize(ctx, principal, verb, resources...)
+	return a.nth()
+}
+
+func (a *denyNthAuthorizer) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error {
+	_ = a.inner.AuthorizeAndRequireActiveNamespace(ctx, principal, verb, class, resources...)
+	return a.nth()
+}
+
+func (a *denyNthAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
+	_ = a.inner.AuthorizeSilent(ctx, principal, verb, resources...)
+	return a.nth()
+}
+
+func (a *denyNthAuthorizer) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, verb string, resources ...string) ([]string, error) {
+	_, _ = a.inner.FilterAuthorizedResources(ctx, principal, verb, resources...)
+	if err := a.nth(); err != nil {
+		return nil, err
+	}
+	return resources, nil
+}
+
+// TestUpdateClass_VectorEntryRemovalEscalatesToCollectionsScope pins the
+// authz escalation on the generic update path: removing ANY VectorConfig
+// entry demands the drop endpoint's Collections scope; an update that keeps
+// every entry stays metadata-scoped.
+func TestUpdateClass_VectorEntryRemovalEscalatesToCollectionsScope(t *testing.T) {
+	principal := &models.Principal{}
+	initial := func() *models.Class {
+		return &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{
+			"keep": {VectorIndexType: hnswT},
+			"gone": {VectorIndexType: modelsext.VectorIndexTypeNone},
+		}}
+	}
+
+	t.Run("entry removal denied without Collections scope", func(t *testing.T) {
+		inner := mocks.NewMockAuthorizer()
+		denied := errors.New("collections scope denied")
+		handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{},
+			&denyNthAuthorizer{inner: inner, denyAt: 2, deny: denied})
+		fakeSchemaManager.On("ReadOnlyClass", "C").Return(initial())
+		fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{"C"}).
+			Return(map[string]versioned.Class{"C": {Class: initial()}}, nil)
+
+		updated := initial()
+		delete(updated.VectorConfig, "gone")
+		err := handler.UpdateClass(context.Background(), principal, "C", updated)
+		require.ErrorIs(t, err, denied)
+
+		calls := inner.Calls()
+		require.Len(t, calls, 2)
+		require.Equal(t, authorization.UPDATE, calls[0].Verb)
+		require.Equal(t, authorization.CollectionsMetadata("C"), calls[0].Resources)
+		require.Equal(t, authorization.UPDATE, calls[1].Verb)
+		require.Equal(t, authorization.Collections("C"), calls[1].Resources,
+			"removing a vector entry must demand the drop endpoint's scope")
+	})
+
+	t.Run("a locally-lagging entry still escalates (leader view wins)", func(t *testing.T) {
+		// The local replica has not caught up with a recently added vector;
+		// the PUT omits it. Diffing against the stale local view would find
+		// no removal — the leader view must be the reference.
+		inner := mocks.NewMockAuthorizer()
+		denied := errors.New("collections scope denied")
+		handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{},
+			&denyNthAuthorizer{inner: inner, denyAt: 2, deny: denied})
+		stale := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{
+			"keep": {VectorIndexType: hnswT},
+		}}
+		fakeSchemaManager.On("ReadOnlyClass", "C").Return(stale)
+		fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{"C"}).
+			Return(map[string]versioned.Class{"C": {Class: initial()}}, nil)
+
+		updated := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{
+			"keep": {VectorIndexType: hnswT},
+		}}
+		err := handler.UpdateClass(context.Background(), principal, "C", updated)
+		require.ErrorIs(t, err, denied,
+			"the leader view knows about the removed entry even when the local replica lags")
+	})
+
+	t.Run("a failed leader read fails closed to the Collections scope", func(t *testing.T) {
+		inner := mocks.NewMockAuthorizer()
+		denied := errors.New("collections scope denied")
+		handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{},
+			&denyNthAuthorizer{inner: inner, denyAt: 2, deny: denied})
+		fakeSchemaManager.On("ReadOnlyClass", "C").Return(initial())
+		fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{"C"}).
+			Return(nil, errors.New("no leader"))
+
+		err := handler.UpdateClass(context.Background(), principal, "C", initial())
+		require.ErrorIs(t, err, denied,
+			"an unverifiable update must require the stronger scope, not guess")
+	})
+
+	t.Run("keeping every entry stays metadata-scoped", func(t *testing.T) {
+		inner := mocks.NewMockAuthorizer()
+		handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{},
+			&denyNthAuthorizer{inner: inner, denyAt: 0})
+		live := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{
+			"keep":  {VectorIndexType: hnswT},
+			"other": {VectorIndexType: hnswT},
+		}}
+		fakeSchemaManager.On("ReadOnlyClass", "C").Return(live).Maybe()
+		fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{"C"}).
+			Return(map[string]versioned.Class{"C": {Class: live}}, nil).Maybe()
+		fakeSchemaManager.On("ReadOnlyClassesFromLeader", mock.Anything).Return(nil, nil).Maybe()
+		fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser).Return(nil).Maybe()
+
+		// The downstream internal update may fail or panic on unrelated nil
+		// fakes; the pin is only that NO second authorize fires first.
+		func() {
+			defer func() { _ = recover() }()
+			_ = handler.UpdateClass(context.Background(), principal, "C", live)
+		}()
+		for i, call := range inner.Calls() {
+			if i == 0 {
+				continue
+			}
+			require.NotEqual(t, authorization.Collections("C"), call.Resources,
+				"an update keeping every vector entry must not be escalated")
+		}
+		require.GreaterOrEqual(t, len(inner.Calls()), 1)
+	})
 }

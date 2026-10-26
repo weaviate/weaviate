@@ -12,10 +12,12 @@
 package errorcompounder
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestErrorCompounder(t *testing.T) {
@@ -53,6 +55,44 @@ func TestErrorCompounder(t *testing.T) {
 
 			err := ec.ToError()
 			assert.ErrorContains(t, err, "format1: 111, format2: 222, format3: 333")
+		}
+
+		run(t, New())
+		run(t, NewSafe())
+	})
+
+	t.Run("causes stay matchable", func(t *testing.T) {
+		run := func(t *testing.T, ec ErrorCompounder) {
+			t.Helper()
+
+			ec.Add(err1)
+			ec.AddWrapf(err2, "format%d", 2)
+			ec.AddGroups(err3, "lvl1")
+
+			err := ec.ToError()
+			assert.ErrorIs(t, err, err1)
+			assert.ErrorIs(t, err, err2)
+			assert.ErrorIs(t, err, err3)
+			assert.NotErrorIs(t, err, err4)
+		}
+
+		run(t, New())
+		run(t, NewSafe())
+	})
+
+	t.Run("a limited error caps its message and its chain together", func(t *testing.T) {
+		run := func(t *testing.T, ec ErrorCompounder) {
+			t.Helper()
+
+			ec.Add(err1)
+			ec.Add(err2)
+			ec.Add(err3)
+
+			err := ec.ToErrorLimited(2)
+			assert.EqualError(t, err, "111, 222 (and 1 more)")
+			assert.ErrorIs(t, err, err1)
+			assert.ErrorIs(t, err, err2)
+			assert.NotErrorIs(t, err, err3, "the third is counted, not kept")
 		}
 
 		run(t, New())
@@ -238,13 +278,17 @@ func TestErrorCompounder(t *testing.T) {
 			ec.Add(err1)
 			ec.Add(err2)
 			assert.ErrorContains(t, ec.ToError(), "111, 222")
-			assert.ErrorContains(t, ec.ToErrorLimited(3), "111, 222")
+			// nothing is left out, so neither limit reports a count
+			assert.EqualError(t, ec.ToErrorLimited(3), "111, 222")
+			assert.EqualError(t, ec.ToErrorLimited(2), "111, 222")
 
 			ec.Add(err3)
 			ec.Add(err4)
 			ec.Add(err5)
-			assert.ErrorContains(t, ec.ToError(), "111, 222, 333, 444, 555")
-			assert.ErrorContains(t, ec.ToErrorLimited(3), "111, 222, 333")
+			assert.EqualError(t, ec.ToError(), "111, 222, 333, 444, 555")
+			assert.EqualError(t, ec.ToErrorLimited(3), "111, 222, 333 (and 2 more)")
+			// a limit below one still reports one error
+			assert.EqualError(t, ec.ToErrorLimited(0), "111 (and 4 more)")
 		}
 
 		run(t, New())
@@ -274,7 +318,14 @@ func TestErrorCompounder(t *testing.T) {
 			assert.ErrorContains(t, ec2.ToErrorLimited(2), "\"lvl1\": {111, 222}")
 			ec2.AddGroups(err5)
 			assert.ErrorContains(t, ec2.ToError(), "555, \"lvl1\": {111, 222, 333}")
-			assert.ErrorContains(t, ec2.ToErrorLimited(2), "555, \"lvl1\": {111}")
+			// the count covers the errors left out inside the group as well
+			assert.EqualError(t, ec2.ToErrorLimited(2), "555, \"lvl1\": {111} (and 2 more)")
+			// the chain holds what the message named, nested groups included
+			limited := ec2.ToErrorLimited(2)
+			assert.ErrorIs(t, limited, err5)
+			assert.ErrorIs(t, limited, err1)
+			assert.NotErrorIs(t, limited, err2)
+			assert.NotErrorIs(t, limited, err3)
 
 			ec3 := create()
 			ec3.AddGroups(err1, "lvl1", "lvl2")
@@ -395,4 +446,45 @@ func TestErrorCompounder(t *testing.T) {
 		run(t, func() ErrorCompounder { return New() })
 		run(t, func() ErrorCompounder { return NewSafe() })
 	})
+}
+
+// TestLimitedMessageIsDeterministic guards that a limit names the same subset
+// every render, whatever the map iteration order.
+func TestLimitedMessageIsDeterministic(t *testing.T) {
+	run := func(t *testing.T, create func() ErrorCompounder) {
+		t.Helper()
+
+		build := func() ErrorCompounder {
+			ec := create()
+			for _, group := range []string{"Books", "Movies", "Games", "Music", "Photos"} {
+				for i := 0; i < 3; i++ {
+					ec.AddGroups(fmt.Errorf("%s failure %d", group, i), group)
+				}
+			}
+			return ec
+		}
+
+		chain := func(err error) []string {
+			var compound *compoundError
+			require.ErrorAs(t, err, &compound)
+			out := make([]string, 0, len(compound.errs))
+			for _, e := range compound.errs {
+				out = append(out, e.Error())
+			}
+			return out
+		}
+
+		first := build().ToErrorLimited(10)
+		for i := 0; i < 20; i++ {
+			next := build().ToErrorLimited(10)
+			require.Equal(t, first.Error(), next.Error(),
+				"the same failure must render the same message")
+			require.Equal(t, chain(first), chain(next),
+				"the chain must hold the same errors the message names")
+		}
+		require.Contains(t, first.Error(), "(and 5 more)")
+	}
+
+	run(t, func() ErrorCompounder { return New() })
+	run(t, func() ErrorCompounder { return NewSafe() })
 }

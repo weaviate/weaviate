@@ -83,9 +83,12 @@ func TestMultivectorEntrypointRepair(t *testing.T) {
 				return nil, errors.New("multivector index must not use VectorForIDThunk")
 			},
 			MultiVectorForIDThunk: store.multiVectorForID,
-			MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
-			GetViewThunk:          func() common.BucketView { return &noopBucketView{} },
-			AllocChecker:          memwatch.NewDummyMonitor(),
+			TempMultiVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([][]float32, error) {
+				return store.multiVectorForID(ctx, id)
+			},
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+			GetViewThunk:      func() common.BucketView { return &noopBucketView{} },
+			AllocChecker:      memwatch.NewDummyMonitor(),
 		}, ent.UserConfig{
 			VectorCacheMaxObjects: 100000,
 			MaxConnections:        8,

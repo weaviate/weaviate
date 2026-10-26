@@ -18,6 +18,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/dbuser"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
@@ -51,16 +52,9 @@ func (m *Manager) CreateUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: namespace is required on namespace-enabled clusters", ErrBadRequest)
 	}
 
-	if req.Namespace != "" {
-		if !m.namespaces.Exists(req.Namespace) {
-			return fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceGone, req.Namespace)
-		}
-		if !m.namespaces.IsActive(req.Namespace) {
-			return fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceDeleting, req.Namespace)
-		}
-	}
-
-	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier, req.ApiKeyFirstLetters, req.Namespace, req.CreatedAt)
+	// No namespace-state check here: a committed create must apply on every
+	// binary. Store.admitCreateLike refuses it before the append.
+	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier, req.ApiKeyFirstLetters, req.Namespace, req.CreatedAt, req.ExpiresAt)
 }
 
 func (m *Manager) CreateUserWithKeyRequest(c *cmd.ApplyRequest) error {
@@ -125,6 +119,18 @@ func (m *Manager) SuspendUser(c *cmd.ApplyRequest) error {
 	return m.dynUser.DeactivateUser(req.UserId, req.RevokeKey)
 }
 
+func (m *Manager) UpdateUser(c *cmd.ApplyRequest) error {
+	if m.dynUser == nil {
+		return nil
+	}
+	req := &cmd.UpdateUserRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return m.dynUser.UpdateUser(req.UserId, apikey.UserUpdate{ExpiresAt: req.ExpiresAt})
+}
+
 func (m *Manager) RotateKey(c *cmd.ApplyRequest) error {
 	if m.dynUser == nil {
 		return nil
@@ -152,23 +158,35 @@ func (m *Manager) GetUsers(req *cmd.QueryRequest) ([]byte, error) {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	// Rebuild *apikey.User for the wire to keep the response shape stable;
-	// these pointers are local and never shared.
-	wireUsers := make(map[string]*apikey.User, len(users))
+	// These pointers are local and never shared.
+	wireUsers := make(map[string]*dbuser.View, len(users))
 	for id, v := range users {
-		wireUsers[id] = &apikey.User{
-			Id:                 v.Id,
-			Active:             v.Active,
-			InternalIdentifier: v.InternalIdentifier,
-			ApiKeyFirstLetters: v.ApiKeyFirstLetters,
-			CreatedAt:          v.CreatedAt,
-			LastUsedAt:         v.LastUsedAt,
-			ImportedWithKey:    v.ImportedWithKey,
-			Namespace:          v.Namespace,
-		}
+		wireUsers[id] = &v
 	}
 	response := cmd.QueryGetUsersResponse{Users: wireUsers}
 	payload, err := json.Marshal(response)
+	if err != nil {
+		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
+	}
+	return payload, nil
+}
+
+func (m *Manager) ExportUsers(req *cmd.QueryRequest) ([]byte, error) {
+	if m.dynUser == nil {
+		payload, _ := json.Marshal(cmd.QueryExportUsersResponse{})
+		return payload, nil
+	}
+	subCommand := cmd.QueryExportUsersRequest{}
+	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
+		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	users, err := m.dynUser.ExportUsers(subCommand.UserIds...)
+	if err != nil {
+		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	payload, err := json.Marshal(cmd.QueryExportUsersResponse{Users: users})
 	if err != nil {
 		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
 	}
@@ -215,5 +233,50 @@ func (m *Manager) Restore(snapshot []byte) error {
 		return err
 	}
 	m.logger.Info("successfully restored dynamic users from snapshot")
+	return nil
+}
+
+// ValidateBackupSnapshot checks the backup's users without changing anything.
+// If this cluster uses namespaces, every namespace the users name must exist
+// and not be deleting. Suspended and resuming namespaces are accepted because
+// they keep their rows, so restoring those rows is legal and must not block a
+// cluster-wide restore.
+func (m *Manager) ValidateBackupSnapshot(req *cmd.RestoreRolesAndUsersRequest, ns usecasesNamespaces.Exister) error {
+	if m.dynUser == nil || len(req.Users) == 0 {
+		return nil
+	}
+	if err := apikey.ValidateSnapshot(req.Users, req.StripNamespaces); err != nil {
+		return err
+	}
+	if req.StripNamespaces {
+		// This cluster has namespaces turned off, so there is no namespace here
+		// that could be active. The check above covers this case instead.
+		return nil
+	}
+	if err := apikey.RequireReferencedNamespacesExist(req.Users, ns); err != nil {
+		return fmt.Errorf("restore users: %w", err)
+	}
+	return nil
+}
+
+// RestoreFromBackup replaces every user with the ones from the backup and saves
+// them to disk. Not to be confused with Restore, which loads users when a node
+// starts up. Restore must not write to disk, because a failed write would stop
+// the node from starting.
+func (m *Manager) RestoreFromBackup(req *cmd.RestoreRolesAndUsersRequest) error {
+	if m.dynUser == nil || len(req.Users) == 0 {
+		return nil
+	}
+	if err := m.dynUser.Restore(req.Users, req.StripNamespaces); err != nil {
+		return err
+	}
+	// The file is only a copy read at startup. A failed save must not fail the
+	// restore, because the other nodes have already finished theirs.
+	if err := m.dynUser.Persist(); err != nil {
+		m.logger.WithField("action", "restore_users_from_backup").
+			Warnf("restored users are not on disk yet, RAFT state remains authoritative: %v", err)
+	}
+	m.logger.WithField("action", "restore_users_from_backup").
+		Info("replaced dynamic-user state from backup")
 	return nil
 }

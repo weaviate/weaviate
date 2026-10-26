@@ -20,6 +20,11 @@ import (
 var (
 	NotFound = errors.New("not found")
 	Deleted  = errors.New("deleted")
+
+	// ErrCorruptIndex marks a segment index that cannot be read, as opposed to one
+	// that does not hold the key. A segment's key lookups report it; the bucket
+	// cursors panic on it, as on any error they cannot fold into their state.
+	ErrCorruptIndex = errors.New("corrupt segment index")
 )
 
 type ErrDeleted struct {

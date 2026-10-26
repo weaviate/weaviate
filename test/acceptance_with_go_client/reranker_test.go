@@ -12,6 +12,8 @@
 package acceptance_with_go_client
 
 import (
+	"acceptance_tests_with_client/fixtures"
+	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"fmt"
 	"testing"
@@ -23,8 +25,6 @@ import (
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-
-	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestReRanker(t *testing.T) {
@@ -51,17 +51,18 @@ func TestReRanker(t *testing.T) {
 		ModuleConfig: map[string]any{
 			"reranker-dummy": map[string]any{},
 		},
+		VectorConfig: fixtures.DefaultVectorConfig(),
 	}
 	require.Nil(t, classCreator.WithClass(&class).Do(ctx))
 	uids := []string{uuid.New().String(), uuid.New().String()}
 	_, err = c.Data().Creator().WithClassName(className).WithProperties(
 		map[string]any{"first": "apple", "second": "longlong"},
-	).WithID(uids[0]).WithVector([]float32{1, 0}).Do(ctx)
+	).WithID(uids[0]).WithVectors(models.Vectors{fixtures.DefaultVectorName: []float32{1, 0}}).Do(ctx)
 	require.Nil(t, err)
 
 	_, err = c.Data().Creator().WithClassName(className).WithProperties(
 		map[string]any{"first": "apple", "second": "longlonglong"},
-	).WithID(uids[1]).WithVector([]float32{1, 0}).Do(ctx)
+	).WithID(uids[1]).WithVectors(models.Vectors{fixtures.DefaultVectorName: []float32{1, 0}}).Do(ctx)
 	require.Nil(t, err)
 	nv := graphql.NearVectorArgumentBuilder{}
 
@@ -109,7 +110,7 @@ func TestReRanker_WithHybrid_Search(t *testing.T) {
 	// defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 
 	// 1. Create a collection with reranker module enabled, with 2 properties: title and description.
-	// A named vector "title" is defined using text2vec-contextionary, vectorizing both
+	// A named vector "title" is defined using text2vec-model2vec, vectorizing both
 	// title and description properties.
 	classCreator := c.Schema().ClassCreator()
 	class := models.Class{
@@ -130,7 +131,7 @@ func TestReRanker_WithHybrid_Search(t *testing.T) {
 		VectorConfig: map[string]models.VectorConfig{
 			"title": {
 				Vectorizer: map[string]any{
-					"text2vec-contextionary": map[string]any{
+					fixtures.Text2VecModel2Vec: map[string]any{
 						"properties":         []string{"title", "description"},
 						"vectorizeClassName": false,
 					},

@@ -14,6 +14,8 @@ package lsmkv
 import (
 	"context"
 	"errors"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -154,6 +156,94 @@ func TestSegmentCleanerEditOps_DrainsWithCleanupIntervalDisabled(t *testing.T) {
 	cleaned, err := bucket.disk.segmentCleaner.cleanupOnce(func() bool { return false })
 	require.NoError(t, err)
 	require.False(t, cleaned)
+}
+
+// TestSegmentCleanerEditOps_FactorylessOpRowsStayPending pins the
+// mixed-version gate AND its liveness: a rewrite strips only for the ops its
+// transformer was built from, so a factory-less op's rows are never marked
+// done (that would finalize the drop without stripping) — and a segment whose
+// rows ALL belong to factory-less ops is skipped entirely, not rewritten:
+// rewriting it would strip nothing, mark nothing done, and report work done —
+// an endless full rewrite of the same segment on every prompt re-run, with
+// built-op rows on later segments never reached. The op IDs here order the
+// factory-less op's segment FIRST to pin exactly that shape.
+func TestSegmentCleanerEditOps_FactorylessOpRowsStayPending(t *testing.T) {
+	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformer)
+
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	require.NoError(t, bucket.Put([]byte("k2"), []byte("v2")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	segs := segIDsOf(bucket)
+	require.Len(t, segs, 2)
+
+	// "a-future" sorts before "b-covered", so the factory-less op's segment
+	// (segs[0]) heads the pass's segment order.
+	require.NoError(t, editOps.RegisterOp("a-future", OpDescriptor{Type: "op_type_from_a_newer_version", CreatedAt: 2}))
+	require.NoError(t, editOps.RegisterOp("b-covered", OpDescriptor{Type: OpTypeRemoveTargetVectors, CreatedAt: 1}))
+	require.NoError(t, editOps.SnapshotSegments("a-future", segs[:1]))
+	require.NoError(t, editOps.SnapshotSegments("b-covered", segs[1:]))
+
+	cleaned, err := bucket.disk.segmentCleaner.cleanupOnce(func() bool { return false })
+	require.NoError(t, err)
+	require.True(t, cleaned, "the pass must skip past the factory-less segment and clean the covered op's")
+
+	pCovered, err := editOps.Pending("b-covered")
+	require.NoError(t, err)
+	require.Empty(t, pCovered, "the built op's row drains despite the factory-less segment heading the order")
+	pFuture, err := editOps.Pending("a-future")
+	require.NoError(t, err)
+	require.Equal(t, segs[:1], pFuture,
+		"a factory-less op's row must not be marked done by a rewrite that did not strip for it")
+
+	v, err := bucket.Get([]byte("k2"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("X:v2"), v, "the covered op's transform ran")
+
+	// Only factory-less work remains: the pass must report NO work done —
+	// cleaned=true here would re-run promptly and rewrite the same segment
+	// forever (unbounded write amplification while the drop stalls visibly).
+	cleaned, err = bucket.disk.segmentCleaner.cleanupOnce(func() bool { return false })
+	require.NoError(t, err)
+	require.False(t, cleaned, "a pass with only factory-less rows must not claim progress")
+	v, err = bucket.Get([]byte("k1"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("v1"), v, "the factory-less op's segment is skipped, not pointlessly rewritten")
+}
+
+// TestSegmentCleanerEditOps_MixedRowsOnOneSegment pins the exact pre-gate bug
+// shape: a built op AND a factory-less op both pending the SAME segment. The
+// rewrite runs (the built op's rows justify it) and must mark done ONLY the
+// built op's row — marking both would drain the factory-less op without its
+// transform ever executing, and its drop would finalize without stripping.
+func TestSegmentCleanerEditOps_MixedRowsOnOneSegment(t *testing.T) {
+	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformer)
+
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	segs := segIDsOf(bucket)
+	require.Len(t, segs, 1)
+
+	require.NoError(t, editOps.RegisterOp("covered", OpDescriptor{Type: OpTypeRemoveTargetVectors, CreatedAt: 1}))
+	require.NoError(t, editOps.RegisterOp("future", OpDescriptor{Type: "op_type_from_a_newer_version", CreatedAt: 2}))
+	require.NoError(t, editOps.SnapshotSegments("covered", segs))
+	require.NoError(t, editOps.SnapshotSegments("future", segs))
+
+	cleaned, err := bucket.disk.segmentCleaner.cleanupOnce(func() bool { return false })
+	require.NoError(t, err)
+	require.True(t, cleaned, "the built op's row justifies the rewrite")
+
+	pCovered, err := editOps.Pending("covered")
+	require.NoError(t, err)
+	require.Empty(t, pCovered)
+	pFuture, err := editOps.Pending("future")
+	require.NoError(t, err)
+	require.Equal(t, segs, pFuture,
+		"the shared segment's rewrite ran without the factory-less op's transform; its row must survive")
+
+	v, err := bucket.Get([]byte("k1"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("X:v1"), v, "the built op's transform ran exactly once")
 }
 
 // TestSegmentEditOps_SweepOrphans pins the cleanup-cycle orphan sweep: an op with
@@ -328,24 +418,32 @@ func TestSegmentCleanerEditOps_AbortMidRewriteDoesNotBump(t *testing.T) {
 	require.Empty(t, q)
 }
 
-// TestSegmentCleanerEditOps_ENOENTRemovesStaleRow drops a pending row whose
-// segment is no longer on disk (merged away by a concurrent compaction).
-func TestSegmentCleanerEditOps_ENOENTRemovesStaleRow(t *testing.T) {
+// TestSegmentCleanerEditOps_GhostRowIsSkippedNotCompleted pins the ghost-row
+// contract: a pending row whose segment is not in the live set is SKIPPED —
+// never marked done — and must not stall the rest of the pass. Marking it done
+// would drain the op's pending set and let a drop finalize without stripping
+// that segment's data; reachable when the shard shuts down mid-pass (tenant
+// deactivation no longer waits for cleanups). Truly-dead rows are pruned by
+// the load-time Recover instead.
+func TestSegmentCleanerEditOps_GhostRowIsSkippedNotCompleted(t *testing.T) {
 	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformer)
 
 	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
 	require.NoError(t, bucket.FlushAndSwitch())
 
+	segID := segIDsOf(bucket)[0]
 	require.NoError(t, editOps.RegisterOp("op1", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 1}))
-	require.NoError(t, editOps.SnapshotSegments("op1", []string{"9999999999999999999"}))
+	// The all-zero ghost sorts ahead of the real segment, so the pass hits it first.
+	require.NoError(t, editOps.SnapshotSegments("op1", []string{"0000000000000000000", segID}))
 
 	cleaned, err := bucket.disk.segmentCleaner.cleanupOnce(func() bool { return false })
 	require.NoError(t, err)
-	require.True(t, cleaned)
+	require.True(t, cleaned, "the ghost must not stall the pass; the real segment behind it is cleaned")
 
 	pending, err := editOps.Pending("op1")
 	require.NoError(t, err)
-	require.Empty(t, pending)
+	require.Equal(t, []string{"0000000000000000000"}, pending,
+		"the ghost row must survive the pass (only load-time Recover prunes it); the cleaned segment's row is done")
 }
 
 // TestSegmentCleanerEditOps_QuarantineAfterMaxAttempts quarantines a segment
@@ -439,4 +537,53 @@ func TestSegmentEditOps_Recover_StaleCacheDoesNotDeleteLiveOp(t *testing.T) {
 	pending, err := s.Pending("opX")
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{"100"}, pending, "the live op stays armed")
+}
+
+// failingTransformer errors on the first value it is handed, which fails the
+// rewrite after the .tmp file exists — the shape ENOSPC produces.
+func failingTransformer(className string, ops []ActiveOp) func([]byte) ([]byte, error) {
+	return func(v []byte) ([]byte, error) { return nil, errors.New("no space left on device") }
+}
+
+// TestSegmentCleanerEditOps_FailedRewriteLeavesNoPartial pins the cleanup of the
+// .tmp file a failed rewrite leaves behind. The caller gets no path back on the
+// error paths, so it cannot compensate — and the failure most likely to put us
+// there is ENOSPC, where the orphan is as large as the space that ran out and
+// the retry needs it back.
+func TestSegmentCleanerEditOps_FailedRewriteLeavesNoPartial(t *testing.T) {
+	bucket, editOps := newReplaceBucketWithEditOps(t, failingTransformer)
+
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	require.NoError(t, bucket.Put([]byte("k2"), []byte("v2")))
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	require.NoError(t, editOps.RegisterOp("op1", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 1}))
+	require.NoError(t, editOps.SnapshotSegments("op1", segIDsOf(bucket)))
+
+	tmpBefore := countTmpSegments(t, bucket.disk.dir)
+
+	_, err := bucket.disk.segmentCleaner.cleanupOnce(func() bool { return false })
+	require.NoError(t, err, "a failed rewrite is recorded on the row, not returned")
+
+	pending, perr := editOps.AllPending()
+	require.NoError(t, perr)
+	require.NotEmpty(t, pending, "the rewrite failed, so the segment stays owed")
+	require.Positive(t, pending[0].Attempts, "and the failure was counted against its budget")
+
+	require.Equal(t, tmpBefore, countTmpSegments(t, bucket.disk.dir),
+		"a rewrite that did not complete must not leave its partial segment behind")
+}
+
+func countTmpSegments(t *testing.T, dir string) int {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	n := 0
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			n++
+		}
+	}
+	return n
 }

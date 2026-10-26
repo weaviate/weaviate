@@ -94,7 +94,7 @@ func classField(class *models.Class, description string,
 
 	fields := graphql.ObjectConfig{
 		Name: metaClassName,
-		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
+		Fields: graphql.FieldsThunk(func() graphql.Fields {
 			fields, err := classPropertyFields(class)
 			if err != nil {
 				// we cannot return an error in this FieldsThunk and have to panic unfortunately

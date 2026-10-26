@@ -26,10 +26,12 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	clustermocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -41,91 +43,88 @@ const (
 func TestTelemetry_BuildPayload(t *testing.T) {
 	t.Run("happy path", func(t *testing.T) {
 		t.Run("on init", func(t *testing.T) {
-			tel, sg, sm, ci := newTestTelemeterWithCloudInfo(withClientTracker())
+			tel, sg, sm, ci := newTestTelemeterWithCloudInfo(t, withClientTracker())
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
 						ObjectCount: 100,
 					},
 				})
-			sm.On("GetSchemaSkipAuth").Return(
-				schema.Schema{
-					Objects: &models.Schema{Classes: []*models.Class{
-						{
-							Class: "GoogleModuleWithGoogleAIStudioEmptyConfig",
-							ModuleConfig: map[string]interface{}{
-								"text2vec-google": nil,
-							},
+			sm.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{
+				{
+					Class: "GoogleModuleWithGoogleAIStudioEmptyConfig",
+					ModuleConfig: map[string]interface{}{
+						"text2vec-google": nil,
+					},
+				},
+				{
+					Class: "LegacyConfiguration",
+					ModuleConfig: map[string]interface{}{
+						"text2vec-google": map[string]interface{}{
+							"modelId":     "text-embedding-004",
+							"apiEndpoint": "generativelanguage.googleapis.com",
 						},
-						{
-							Class: "LegacyConfiguration",
-							ModuleConfig: map[string]interface{}{
+						"generative-openai": map[string]interface{}{},
+					},
+				},
+				{
+					Class: "NamedVector",
+					VectorConfig: map[string]models.VectorConfig{
+						"description": {
+							Vectorizer: map[string]interface{}{
+								"text2vec-openai": map[string]interface{}{
+									"properties":         []interface{}{"description"},
+									"vectorizeClassName": false,
+								},
+							},
+							VectorIndexType: "flat",
+						},
+					},
+				},
+				{
+					Class: "NamedVectorWithNilVectorizer",
+					VectorConfig: map[string]models.VectorConfig{
+						"description": {
+							Vectorizer:      nil,
+							VectorIndexType: "flat",
+						},
+					},
+				},
+				{
+					Class: "BothNamedVectorAndLegacyConfiguration",
+					ModuleConfig: map[string]interface{}{
+						"generative-google": map[string]interface{}{
+							"apiEndpoint": "generativelanguage.googleapis.com",
+						},
+					},
+					VectorConfig: map[string]models.VectorConfig{
+						"description_google": {
+							Vectorizer: map[string]interface{}{
 								"text2vec-google": map[string]interface{}{
-									"modelId":     "text-embedding-004",
-									"apiEndpoint": "generativelanguage.googleapis.com",
+									"properties":         []interface{}{"description"},
+									"vectorizeClassName": false,
 								},
-								"generative-openai": map[string]interface{}{},
 							},
+							VectorIndexType: "flat",
 						},
-						{
-							Class: "NamedVector",
-							VectorConfig: map[string]models.VectorConfig{
-								"description": {
-									Vectorizer: map[string]interface{}{
-										"text2vec-openai": map[string]interface{}{
-											"properties":         []interface{}{"description"},
-											"vectorizeClassName": false,
-										},
-									},
-									VectorIndexType: "flat",
+						"description_aws": {
+							Vectorizer: map[string]interface{}{
+								"text2vec-aws": map[string]interface{}{
+									"properties":         []interface{}{"description"},
+									"vectorizeClassName": false,
 								},
 							},
+							VectorIndexType: "flat",
 						},
-						{
-							Class: "NamedVectorWithNilVectorizer",
-							VectorConfig: map[string]models.VectorConfig{
-								"description": {
-									Vectorizer:      nil,
-									VectorIndexType: "flat",
-								},
+						"description_openai": {
+							Vectorizer: map[string]interface{}{
+								"text2vec-openai": map[string]interface{}{},
 							},
+							VectorIndexType: "flat",
 						},
-						{
-							Class: "BothNamedVectorAndLegacyConfiguration",
-							ModuleConfig: map[string]interface{}{
-								"generative-google": map[string]interface{}{
-									"apiEndpoint": "generativelanguage.googleapis.com",
-								},
-							},
-							VectorConfig: map[string]models.VectorConfig{
-								"description_google": {
-									Vectorizer: map[string]interface{}{
-										"text2vec-google": map[string]interface{}{
-											"properties":         []interface{}{"description"},
-											"vectorizeClassName": false,
-										},
-									},
-									VectorIndexType: "flat",
-								},
-								"description_aws": {
-									Vectorizer: map[string]interface{}{
-										"text2vec-aws": map[string]interface{}{
-											"properties":         []interface{}{"description"},
-											"vectorizeClassName": false,
-										},
-									},
-									VectorIndexType: "flat",
-								},
-								"description_openai": {
-									Vectorizer: map[string]interface{}{
-										"text2vec-openai": map[string]interface{}{},
-									},
-									VectorIndexType: "flat",
-								},
-							},
-						},
-					}},
-				})
+					},
+				},
+			}})
 			ci.On("getCloudInfo").Return(nil)
 
 			// Track some clients before building INIT payload
@@ -156,44 +155,41 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 		})
 
 		t.Run("on update", func(t *testing.T) {
-			tel, sg, sm, ci := newTestTelemeterWithCloudInfo(withClientTracker(), withIntegrationTracker())
+			tel, sg, sm, ci := newTestTelemeterWithCloudInfo(t, withClientTracker(), withIntegrationTracker())
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
 						ObjectCount: 1000,
 					},
 				})
-			sm.On("GetSchemaSkipAuth").Return(
-				schema.Schema{
-					Objects: &models.Schema{Classes: []*models.Class{
-						{
-							Class: "Class",
-							ModuleConfig: map[string]interface{}{
-								"generative-openai": map[string]interface{}{},
-							},
-							VectorConfig: map[string]models.VectorConfig{
-								"description_google": {
-									Vectorizer: map[string]interface{}{
-										"text2vec-google": map[string]interface{}{
-											"properties":         []interface{}{"description"},
-											"vectorizeClassName": false,
-										},
-									},
-									VectorIndexType: "flat",
-								},
-								"description_aws": {
-									Vectorizer: map[string]interface{}{
-										"text2vec-aws": map[string]interface{}{
-											"properties":         []interface{}{"description"},
-											"vectorizeClassName": false,
-										},
-									},
-									VectorIndexType: "flat",
+			sm.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{
+				{
+					Class: "Class",
+					ModuleConfig: map[string]interface{}{
+						"generative-openai": map[string]interface{}{},
+					},
+					VectorConfig: map[string]models.VectorConfig{
+						"description_google": {
+							Vectorizer: map[string]interface{}{
+								"text2vec-google": map[string]interface{}{
+									"properties":         []interface{}{"description"},
+									"vectorizeClassName": false,
 								},
 							},
+							VectorIndexType: "flat",
 						},
-					}},
-				})
+						"description_aws": {
+							Vectorizer: map[string]interface{}{
+								"text2vec-aws": map[string]interface{}{
+									"properties":         []interface{}{"description"},
+									"vectorizeClassName": false,
+								},
+							},
+							VectorIndexType: "flat",
+						},
+					},
+				},
+			}})
 			ci.On("getCloudInfo").Return(nil)
 
 			// Track multiple client types
@@ -254,7 +250,8 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 		})
 
 		t.Run("on terminate", func(t *testing.T) {
-			tel, sg, _, ci := newTestTelemeterWithCloudInfo(withClientTracker(), withIntegrationTracker())
+			tel, sg, sm, ci := newTestTelemeterWithCloudInfo(t, withClientTracker(), withIntegrationTracker())
+			sm.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
@@ -304,17 +301,14 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 		})
 
 		t.Run("on update with no client usage", func(t *testing.T) {
-			tel, sg, sm := newTestTelemeter()
+			tel, sg, sm := newTestTelemeter(t)
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
 						ObjectCount: 1000,
 					},
 				})
-			sm.On("GetSchemaSkipAuth").Return(
-				schema.Schema{
-					Objects: &models.Schema{Classes: []*models.Class{}},
-				})
+			sm.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{}})
 			// Don't track any clients
 			payload, err := tel.buildPayload(context.Background(), PayloadType.Update)
 			assert.Nil(t, err)
@@ -324,23 +318,39 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 	})
 
 	t.Run("failure path", func(t *testing.T) {
-		t.Run("fail to get node status", func(t *testing.T) {
-			tel, sg, _ := newTestTelemeter()
-			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(nil)
-			payload, err := tel.buildPayload(context.Background(), PayloadType.Terminate)
-			assert.Nil(t, payload)
-			assert.NotNil(t, err)
-			assert.Contains(t, err.Error(), "get object count")
-		})
+		tests := []struct {
+			name       string
+			nodeStatus []interface{}
+			wantErr    string
+		}{
+			{
+				name:       "fail to get node status",
+				nodeStatus: []interface{}{nil},
+				wantErr:    "get object count",
+			},
+			{
+				name:       "fail to get node status stats",
+				nodeStatus: []interface{}{&models.NodeStatus{}},
+				wantErr:    "get object count",
+			},
+			{
+				name:       "node status scan reports why it stopped",
+				nodeStatus: []interface{}{nil, fmt.Errorf("node is shutting down")},
+				wantErr:    "node is shutting down",
+			},
+		}
 
-		t.Run("fail to get node status stats", func(t *testing.T) {
-			tel, sg, _ := newTestTelemeter()
-			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(&models.NodeStatus{})
-			payload, err := tel.buildPayload(context.Background(), PayloadType.Terminate)
-			assert.Nil(t, payload)
-			assert.NotNil(t, err)
-			assert.Contains(t, err.Error(), "get object count")
-		})
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				tel, sg, sm := newTestTelemeter(t)
+				sm.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
+				sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).
+					Return(tt.nodeStatus...)
+				payload, err := tel.buildPayload(context.Background(), PayloadType.Terminate)
+				assert.Nil(t, payload)
+				require.ErrorContains(t, err, tt.wantErr)
+			})
+		}
 	})
 }
 
@@ -366,7 +376,7 @@ func TestTelemetry_WithConsumer(t *testing.T) {
 		withPushInterval(100 * time.Millisecond),
 		withClientTracker(),
 	}
-	tel, sg, sm := newTestTelemeter(opts...)
+	tel, sg, sm := newTestTelemeter(t, opts...)
 
 	sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 		&models.NodeStatus{
@@ -375,38 +385,35 @@ func TestTelemetry_WithConsumer(t *testing.T) {
 			},
 		})
 
-	sm.On("GetSchemaSkipAuth").Return(
-		schema.Schema{
-			Objects: &models.Schema{Classes: []*models.Class{
-				{
-					Class: "Class",
-					ModuleConfig: map[string]interface{}{
-						"generative-openai": map[string]interface{}{},
-					},
-					VectorConfig: map[string]models.VectorConfig{
-						"description_google": {
-							Vectorizer: map[string]interface{}{
-								"text2vec-google": map[string]interface{}{
-									"properties":         []interface{}{"description"},
-									"vectorizeClassName": false,
-									"apiEndpoint":        "generativelanguage.googleapis.com",
-								},
-							},
-							VectorIndexType: "flat",
-						},
-						"description_aws": {
-							Vectorizer: map[string]interface{}{
-								"text2vec-aws": map[string]interface{}{
-									"properties":         []interface{}{"description"},
-									"vectorizeClassName": false,
-								},
-							},
-							VectorIndexType: "flat",
+	sm.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{
+		{
+			Class: "Class",
+			ModuleConfig: map[string]interface{}{
+				"generative-openai": map[string]interface{}{},
+			},
+			VectorConfig: map[string]models.VectorConfig{
+				"description_google": {
+					Vectorizer: map[string]interface{}{
+						"text2vec-google": map[string]interface{}{
+							"properties":         []interface{}{"description"},
+							"vectorizeClassName": false,
+							"apiEndpoint":        "generativelanguage.googleapis.com",
 						},
 					},
+					VectorIndexType: "flat",
 				},
-			}},
-		})
+				"description_aws": {
+					Vectorizer: map[string]interface{}{
+						"text2vec-aws": map[string]interface{}{
+							"properties":         []interface{}{"description"},
+							"vectorizeClassName": false,
+						},
+					},
+					VectorIndexType: "flat",
+				},
+			},
+		},
+	}})
 
 	err := tel.Start(context.Background())
 	require.Nil(t, err)
@@ -473,26 +480,158 @@ func TestTelemetry_WithConsumer(t *testing.T) {
 	assert.Equal(t, PayloadType.Terminate, terminatePayload.Type)
 }
 
+// pushBound is far below defaultPushTimeout and far above testPushTimeout, so
+// a call that outlives it was bounded by neither the push timeout nor its ctx.
+const pushBound = 3 * time.Second
+
+const testPushTimeout = 100 * time.Millisecond
+
+func TestTelemetry_HangingInitPushTimesOut(t *testing.T) {
+	tel := newHangingConsumerTelemeter(t, PayloadType.Init, withPushTimeout(testPushTimeout))
+
+	err := receiveWithin(t, callAsync(func() error { return tel.Start(context.Background()) }))
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.True(t, tel.failedToStart.Load())
+}
+
+func TestTelemetry_StopBoundedByCallerCtx(t *testing.T) {
+	tel := newHangingConsumerTelemeter(t, PayloadType.Terminate, withPushTimeout(time.Hour))
+	require.NoError(t, tel.Start(context.Background()))
+
+	ctx, cancel := context.WithTimeout(context.Background(), testPushTimeout)
+	defer cancel()
+	err := receiveWithin(t, callAsync(func() error { return tel.Stop(ctx) }))
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+func TestTelemetry_StopWhileInitHangs(t *testing.T) {
+	// The push timeout outlasts Stop, so Stop reads failedToStart while Start
+	// is still pushing and -race sees Start write it afterwards.
+	tel := newHangingConsumerTelemeter(t, PayloadType.Init, withPushTimeout(500*time.Millisecond))
+	started := callAsync(func() error { return tel.Start(context.Background()) })
+	tel.waitForHeldPush(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := receiveWithin(t, callAsync(func() error { return tel.Stop(ctx) }))
+	require.ErrorIs(t, err, context.Canceled)
+
+	require.ErrorIs(t, receiveWithin(t, started), context.DeadlineExceeded)
+	assert.True(t, tel.failedToStart.Load())
+}
+
+func TestTelemetry_HangingUpdateDoesNotBlockStop(t *testing.T) {
+	// A tick ready alongside a waiting Stop must not start another held update;
+	// a loop that picks it fails a round half the time.
+	for i := range 10 {
+		t.Run(fmt.Sprintf("round %d", i), func(t *testing.T) {
+			t.Parallel()
+			tel := newHangingConsumerTelemeter(t, PayloadType.Update,
+				withPushTimeout(testPushTimeout), withPushInterval(10*time.Millisecond))
+			require.NoError(t, tel.Start(context.Background()))
+			tel.waitForHeldPush(t)
+
+			ctx, cancel := context.WithTimeout(context.Background(), testPushTimeout*3/2)
+			defer cancel()
+			err := receiveWithin(t, callAsync(func() error { return tel.Stop(ctx) }))
+			require.NoError(t, err)
+		})
+	}
+}
+
+// hangingConsumer answers every push except those of type hold, which it
+// keeps open until the client gives up or the test ends.
+type hangingConsumer struct {
+	hold    string
+	held    chan struct{}
+	release chan struct{}
+}
+
+func (h *hangingConsumer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	var payload Payload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	if payload.Type != h.hold {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	select {
+	case h.held <- struct{}{}:
+	default:
+	}
+	select {
+	case <-r.Context().Done():
+	case <-h.release:
+	}
+	w.WriteHeader(http.StatusServiceUnavailable)
+}
+
+type hangingConsumerTelemeter struct {
+	*Telemeter
+	consumer *hangingConsumer
+}
+
+func newHangingConsumerTelemeter(t *testing.T, hold string, opts ...telemetryOpt) hangingConsumerTelemeter {
+	h := &hangingConsumer{hold: hold, held: make(chan struct{}, 1), release: make(chan struct{})}
+	server := httptest.NewServer(h)
+	// Cleanups run last-in first-out, so held handlers are released before
+	// server.Close waits for them.
+	t.Cleanup(server.Close)
+	t.Cleanup(func() { close(h.release) })
+
+	opts = append([]telemetryOpt{withConsumerURL(server.URL), withPushInterval(time.Hour)}, opts...)
+	tel, sg, sm := newTestTelemeter(t, opts...)
+	sg.On("LocalNodeStatus", mock.Anything, "", "", verbosity.OutputVerbose).
+		Return(&models.NodeStatus{Stats: &models.NodeStats{}})
+	sm.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
+	return hangingConsumerTelemeter{Telemeter: tel, consumer: h}
+}
+
+func (tel hangingConsumerTelemeter) waitForHeldPush(t *testing.T) {
+	t.Helper()
+	select {
+	case <-tel.consumer.held:
+	case <-time.After(pushBound):
+		t.Fatalf("no %s push reached the consumer", tel.consumer.hold)
+	}
+}
+
+func callAsync(f func() error) <-chan error {
+	done := make(chan error, 1)
+	go func() { done <- f() }()
+	return done
+}
+
+func receiveWithin(t *testing.T, done <-chan error) error {
+	t.Helper()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(pushBound):
+		t.Fatalf("call did not return within %s", pushBound)
+		return nil
+	}
+}
+
 func TestTelemetry_BuildPayload_WithCloudInfo(t *testing.T) {
 	t.Run("on init with cloud info present", func(t *testing.T) {
-		tel, sg, sm, ci := newTestTelemeterWithCloudInfo()
+		tel, sg, sm, ci := newTestTelemeterWithCloudInfo(t)
 		sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 			&models.NodeStatus{
 				Stats: &models.NodeStats{
 					ObjectCount: 100,
 				},
 			})
-		sm.On("GetSchemaSkipAuth").Return(
-			schema.Schema{
-				Objects: &models.Schema{Classes: []*models.Class{
-					{
-						Class: "GoogleModuleWithGoogleAIStudioEmptyConfig",
-						ModuleConfig: map[string]interface{}{
-							"text2vec-google": nil,
-						},
-					},
-				}},
-			})
+		sm.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{
+			{
+				Class: "GoogleModuleWithGoogleAIStudioEmptyConfig",
+				ModuleConfig: map[string]interface{}{
+					"text2vec-google": nil,
+				},
+			},
+		}})
 		ci.On("getCloudInfo").Return(
 			&cloudInfo{cloudProvider: "GCP", uniqueID: "id"},
 		)
@@ -515,7 +654,8 @@ func TestTelemetry_BuildPayload_WithCloudInfo(t *testing.T) {
 	})
 
 	t.Run("on update with only cloud provider present", func(t *testing.T) {
-		tel, sg, _, ci := newTestTelemeterWithCloudInfo()
+		tel, sg, sm, ci := newTestTelemeterWithCloudInfo(t)
+		sm.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 		sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 			&models.NodeStatus{
 				Stats: &models.NodeStats{
@@ -540,7 +680,8 @@ func TestTelemetry_BuildPayload_WithCloudInfo(t *testing.T) {
 	})
 
 	t.Run("on terminate with empty cloud info", func(t *testing.T) {
-		tel, sg, _, ci := newTestTelemeterWithCloudInfo()
+		tel, sg, sm, ci := newTestTelemeterWithCloudInfo(t)
+		sm.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 		sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 			&models.NodeStatus{
 				Stats: &models.NodeStats{
@@ -567,7 +708,8 @@ func TestTelemetry_BuildPayload_WithCloudInfo(t *testing.T) {
 func TestTelemetry_WithCloudInfoConsumer_GCP(t *testing.T) {
 	server := httptest.NewServer(&gcpTestConsumer{t})
 	defer server.Close()
-	tel, sg, _ := newTestTelemeterWithCustomCloudInfo(newGCPCloudInfo(server.URL))
+	tel, sg, sm := newTestTelemeterWithCustomCloudInfo(t, newGCPCloudInfo(server.URL))
+	sm.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 
 	sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 		&models.NodeStatus{
@@ -594,7 +736,8 @@ func TestTelemetry_WithCloudInfoConsumer_GCP(t *testing.T) {
 func TestTelemetry_WithCloudInfoConsumer_AWS(t *testing.T) {
 	server := httptest.NewServer(&awsTestConsumer{t})
 	defer server.Close()
-	tel, sg, _ := newTestTelemeterWithCustomCloudInfo(newAWSCloudInfo(server.URL))
+	tel, sg, sm := newTestTelemeterWithCustomCloudInfo(t, newAWSCloudInfo(server.URL))
+	sm.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 
 	sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 		&models.NodeStatus{
@@ -633,6 +776,12 @@ func withPushInterval(interval time.Duration) telemetryOpt {
 	}
 }
 
+func withPushTimeout(timeout time.Duration) telemetryOpt {
+	return func(tel *Telemeter) {
+		tel.pushTimeout = timeout
+	}
+}
+
 // withIntegrationTracker attaches a freshly-spawned IntegrationTracker so tests
 // that drive buildPayload can exercise the ClientIntegrationUsage field. Needed
 // because the default test telemeter is constructed with telemetryEnabled=false,
@@ -655,33 +804,37 @@ func withClientTracker() telemetryOpt {
 	}
 }
 
-func newTestTelemeter(opts ...telemetryOpt,
-) (*Telemeter, *fakeNodesStatusGetter, *fakeSchemaManager,
+func newTestTelemeter(t *testing.T, opts ...telemetryOpt,
+) (*Telemeter, *fakeNodesStatusGetter, *local.MockSchemaReader,
 ) {
 	sg := &fakeNodesStatusGetter{}
-	sm := &fakeSchemaManager{}
+	sm := local.NewMockSchemaReader(t)
 	logger, _ := test.NewNullLogger()
-	// Pass empty url/duration to use defaults
-	tel := New(sg, sm, logger, "", 0, false)
+	// stubClusterID returns a fixed id so payloads carry clusterId in tests.
+	stubClusterID := func() string {
+		return "00000000-0000-7000-0000-000000000001"
+	}
+	// A single node by default, so nodeCount assertions stay at 1.
+	tel := New(sg, sm, clustermocks.NewMockNodeSelector("node1"), logger, "", 0, false, Config{ClusterID: stubClusterID})
 	for _, opt := range opts {
 		opt(tel)
 	}
 	return tel, sg, sm
 }
 
-func newTestTelemeterWithCloudInfo(opts ...telemetryOpt,
-) (*Telemeter, *fakeNodesStatusGetter, *fakeSchemaManager, *fakeCloudInfoProvider,
+func newTestTelemeterWithCloudInfo(t *testing.T, opts ...telemetryOpt,
+) (*Telemeter, *fakeNodesStatusGetter, *local.MockSchemaReader, *fakeCloudInfoProvider,
 ) {
-	tel, sg, sm := newTestTelemeter(opts...)
+	tel, sg, sm := newTestTelemeter(t, opts...)
 	ci := &fakeCloudInfoProvider{}
 	tel.cloudInfoHelper = &cloudInfoHelper{provider: ci}
 	return tel, sg, sm, ci
 }
 
-func newTestTelemeterWithCustomCloudInfo(ci cloudInfoProvider, opts ...telemetryOpt,
-) (*Telemeter, *fakeNodesStatusGetter, *fakeSchemaManager,
+func newTestTelemeterWithCustomCloudInfo(t *testing.T, ci cloudInfoProvider, opts ...telemetryOpt,
+) (*Telemeter, *fakeNodesStatusGetter, *local.MockSchemaReader,
 ) {
-	tel, sg, sm := newTestTelemeter(opts...)
+	tel, sg, sm := newTestTelemeter(t, opts...)
 	tel.cloudInfoHelper = &cloudInfoHelper{provider: ci}
 	return tel, sg, sm
 }

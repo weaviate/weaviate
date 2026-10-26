@@ -58,6 +58,12 @@ func (o *SchemaObjectsShardsGetReader) ReadResponse(response runtime.ClientRespo
 			return nil, err
 		}
 		return nil, result
+	case 422:
+		result := NewSchemaObjectsShardsGetUnprocessableEntity()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 500:
 		result := NewSchemaObjectsShardsGetInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -316,6 +322,74 @@ func (o *SchemaObjectsShardsGetNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsShardsGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewSchemaObjectsShardsGetUnprocessableEntity creates a SchemaObjectsShardsGetUnprocessableEntity with default headers values
+func NewSchemaObjectsShardsGetUnprocessableEntity() *SchemaObjectsShardsGetUnprocessableEntity {
+	return &SchemaObjectsShardsGetUnprocessableEntity{}
+}
+
+/*
+SchemaObjectsShardsGetUnprocessableEntity describes a response with status code 422, with default header values.
+
+Invalid collection name provided (e.g. malformed namespace prefix). Check the ErrorResponse for details.
+*/
+type SchemaObjectsShardsGetUnprocessableEntity struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this schema objects shards get unprocessable entity response has a 2xx status code
+func (o *SchemaObjectsShardsGetUnprocessableEntity) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this schema objects shards get unprocessable entity response has a 3xx status code
+func (o *SchemaObjectsShardsGetUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema objects shards get unprocessable entity response has a 4xx status code
+func (o *SchemaObjectsShardsGetUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this schema objects shards get unprocessable entity response has a 5xx status code
+func (o *SchemaObjectsShardsGetUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this schema objects shards get unprocessable entity response a status code equal to that given
+func (o *SchemaObjectsShardsGetUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the schema objects shards get unprocessable entity response
+func (o *SchemaObjectsShardsGetUnprocessableEntity) Code() int {
+	return 422
+}
+
+func (o *SchemaObjectsShardsGetUnprocessableEntity) Error() string {
+	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *SchemaObjectsShardsGetUnprocessableEntity) String() string {
+	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *SchemaObjectsShardsGetUnprocessableEntity) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *SchemaObjectsShardsGetUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

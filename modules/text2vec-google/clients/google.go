@@ -153,6 +153,13 @@ func (v *google) GetApiKeyHash(ctx context.Context, config moduletools.ClassConf
 func (v *google) vectorize(ctx context.Context, input []string, taskType taskType,
 	titlePropertyValue string, config settings,
 ) (*modulecomponents.VectorizationResult[[]float32], error) {
+	if err := modulecomponents.ValidateGoogleApiEndpoint(config.ApiEndpoint); err != nil {
+		return nil, err
+	}
+	if err := modulecomponents.ValidateGoogleLocation("location", config.Location); err != nil {
+		return nil, err
+	}
+
 	useGenerativeAIEndpoint := v.useGenerativeAIEndpoint(config)
 
 	payload := v.getPayload(useGenerativeAIEndpoint, input, taskType, titlePropertyValue, config)

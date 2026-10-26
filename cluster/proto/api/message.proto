@@ -19,6 +19,8 @@ message JoinPeerRequest {
 
 message JoinPeerResponse {
   string leader = 1;
+  // Leader's committed index at join; a wiped joiner's catch-up barrier (0 from an older leader = legacy eager load).
+  uint64 leader_commit_index = 2;
 }
 
 message RemovePeerRequest {
@@ -64,6 +66,7 @@ message ApplyRequest {
     TYPE_REMOVE_PERMISSIONS = 62;
     TYPE_ADD_ROLES_FOR_USER = 63;
     TYPE_REVOKE_ROLES_FOR_USER = 64;
+    TYPE_RESTORE_ROLES_AND_USERS = 65;
 
     TYPE_UPSERT_USER = 80;
     TYPE_DELETE_USER = 81;
@@ -71,6 +74,7 @@ message ApplyRequest {
     TYPE_SUSPEND_USER = 83;
     TYPE_ACTIVATE_USER = 84;
     TYPE_CREATE_USER_WITH_KEY = 85;
+    TYPE_UPDATE_USER = 86;
 
     TYPE_ADD_NAMESPACE = 90;
     TYPE_DELETE_USERS_IN_NAMESPACE = 91;
@@ -91,7 +95,8 @@ message ApplyRequest {
     TYPE_REPLICATION_REPLICATE_DELETE_ALL = 207;
     TYPE_REPLICATION_REPLICATE_DELETE_BY_COLLECTION = 208;
     TYPE_REPLICATION_REPLICATE_DELETE_BY_TENANTS = 209;
-    TYPE_REPLICATION_REPLICATE_SYNC_SHARD = 210;
+    // Deprecated: kept for backward compat with existing Raft logs.
+    TYPE_REPLICATION_REPLICATE_SYNC_SHARD = 210 [deprecated = true];
     TYPE_REPLICATION_REGISTER_SCHEMA_VERSION = 211;
     TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD = 212;
     TYPE_REPLICATION_NODE_REACHED_STATE = 213;
@@ -101,6 +106,7 @@ message ApplyRequest {
     TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION_AND_SHARD = 222;
     TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_TARGET_NODE = 223;
     TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_UUID = 224;
+    TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_IDS = 225;
 
     TYPE_DISTRIBUTED_TASK_ADD = 300;
     TYPE_DISTRIBUTED_TASK_CANCEL = 301;
@@ -113,6 +119,10 @@ message ApplyRequest {
     TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK = 307;
     TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK = 308;
     TYPE_DISTRIBUTED_TASK_MARK_FAILED = 309;
+
+    TYPE_CLUSTER_ID_SET = 400;
+
+    TYPE_DISTRIBUTED_TASK_FORCE_TERMINATE = 401;
   }
   Type type = 1;
   string class = 2;
@@ -145,6 +155,7 @@ message QueryRequest {
     
     TYPE_GET_USERS = 61;
     TYPE_USER_IDENTIFIER_EXISTS = 62;
+    TYPE_EXPORT_USERS = 64;
 
     TYPE_GET_NAMESPACES = 63;
 
@@ -162,6 +173,7 @@ message QueryRequest {
     TYPE_GET_REPLICATION_SCALE_PLAN = 208;
 
     TYPE_DISTRIBUTED_TASK_LIST = 300;
+    TYPE_DISTRIBUTED_TASK_GET = 301;
   }
 
   Type type = 1;
@@ -228,6 +240,10 @@ message AddDistributedTaskRequest {
   repeated string unit_ids = 6;
   repeated UnitSpec unit_specs = 7;
   bool needs_preparation_barrier = 8;
+  // Zero = disabled (today's behavior). Opt-in per task at ADD time.
+  int64 stale_timeout_ms = 9;
+  // Zero = disabled (today's fail-fast). Opt-in per task at ADD time.
+  int32 max_unit_retries = 10;
 }
 
 // Deprecated: legacy node-level tracking removed. Kept for backward compat with existing Raft logs/snapshots.
@@ -281,6 +297,7 @@ message RecordDistributedTaskUnitCompletionRequest {
   string unit_id = 5;
   string error = 6;
   int64 finished_at_unix_millis = 7;
+  bool retryable = 8;
 }
 
 message UpdateDistributedTaskUnitProgressRequest {
@@ -359,4 +376,33 @@ message RecordDistributedTaskPreparationCompleteAckRequest {
   bool success = 5;
   string error = 6;
   int64 acked_at_unix_millis = 7;
+}
+
+// ForceTerminateDistributedTaskRequest transitions a task to a terminal
+// status from the literal set {STARTED, PREPARING, SWAPPING}. Refused
+// for unrecognized statuses and when SWAPPING with all post-completion
+// acks landed successfully (finalize is imminent). Idempotent: a
+// proposal against a terminal task is dropped.
+message ForceTerminateDistributedTaskRequest {
+  string namespace = 1;
+  string id = 2;
+  uint64 version = 3;
+  string reason = 4;
+  // The requested terminal status: "CANCELLED" for operator action,
+  // "FAILED" for the stale detector.
+  string requested_terminal_status = 5;
+  int64 terminated_at_unix_millis = 6;
+}
+
+// GetDistributedTaskRequest is a leader-routed by-id query
+// (TYPE_DISTRIBUTED_TASK_GET = 301).
+message GetDistributedTaskRequest {
+  string namespace = 1;
+  string id = 2;
+}
+
+// SetClusterIDRequest carries the stable cluster identity committed once per
+// cluster lifetime via TYPE_CLUSTER_ID_SET.
+message SetClusterIDRequest {
+  string cluster_id = 1;
 }

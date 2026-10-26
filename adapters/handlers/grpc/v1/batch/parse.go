@@ -34,7 +34,7 @@ func sliceToInterface[T any](values []T) []interface{} {
 	return tmpArray
 }
 
-func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string, string) (string, *models.Class, error), principal *models.Principal, namespacesEnabled bool) ([]*models.Object, map[int]int, map[int]error) {
+func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string, string) (string, *models.Class, error), principal *models.Principal, qualifier namespacing.Qualifier) ([]*models.Object, map[int]int, map[int]error) {
 	objectsBatch := req.Objects
 	objs := make([]*models.Object, 0, len(objectsBatch))
 	objOriginalIndex := make(map[int]int)
@@ -52,9 +52,11 @@ func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(
 		}
 		// resolved is namespace-qualified even before the class exists, so an
 		// auto-schema create and the object write agree on the qualified name.
-		obj.Collection = resolved
+		// resolved is not written back to obj.Collection. The worker re-sends these
+		// same request objects on retry, and a collection name that already carries
+		// the namespace prefix fails the namespace check on the second pass.
 		if class != nil {
-			obj.Collection = class.Class
+			resolved = class.Class
 		}
 
 		if obj.Properties != nil {
@@ -74,7 +76,7 @@ func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(
 					objectErrors[i] = err
 					continue
 				}
-				if err := extractMultiRefTarget(class, obj.Properties.MultiTargetRefProps, props, principal, namespacesEnabled); err != nil {
+				if err := extractMultiRefTarget(class, obj.Properties.MultiTargetRefProps, props, principal, qualifier); err != nil {
 					objectErrors[i] = err
 					continue
 				}
@@ -124,7 +126,7 @@ func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(
 
 		objOriginalIndex[insertCounter] = i
 		objs = append(objs, &models.Object{
-			Class:      obj.Collection,
+			Class:      resolved,
 			Tenant:     obj.Tenant,
 			Vector:     vector,
 			Properties: props,
@@ -157,7 +159,7 @@ func extractSingleRefTarget(class *models.Class, properties []*pb.BatchObject_Si
 	return nil
 }
 
-func extractMultiRefTarget(class *models.Class, properties []*pb.BatchObject_MultiTargetRefProps, props map[string]interface{}, principal *models.Principal, namespacesEnabled bool) error {
+func extractMultiRefTarget(class *models.Class, properties []*pb.BatchObject_MultiTargetRefProps, props map[string]interface{}, principal *models.Principal, qualifier namespacing.Qualifier) error {
 	for _, refMulti := range properties {
 		propName := refMulti.GetPropName()
 		prop, err := schema.GetPropertyByName(class, propName)
@@ -170,11 +172,10 @@ func extractMultiRefTarget(class *models.Class, properties []*pb.BatchObject_Mul
 		// TargetCollection is user-supplied; route through QualifyRefTarget
 		// for cross-NS policy + storage-shape rule.
 		targetCollection := schema.UppercaseClassName(refMulti.TargetCollection)
-		_, shortTarget, err := namespacing.QualifyRefTarget(principal, namespacesEnabled, class.Class, targetCollection)
+		_, shortTarget, err := namespacing.QualifyRefTarget(principal, qualifier, class.Class, targetCollection)
 		if err != nil {
 			return err
 		}
-		refMulti.TargetCollection = shortTarget
 		beacons := make([]interface{}, len(refMulti.Uuids))
 		for j, uid := range refMulti.Uuids {
 			beacons[j] = map[string]interface{}{"beacon": BEACON_START + shortTarget + "/" + uid}

@@ -167,6 +167,18 @@ func TestRestoreQuantization_Integration(t *testing.T) {
 			indexID:             "restore-quantization-test",
 		},
 		{
+			name: "RQ_4bit",
+			setupConfig: func(uc *hnswent.UserConfig) {
+				uc.RQ = hnswent.RQConfig{
+					Enabled: true,
+					Bits:    4,
+				}
+			},
+			expectedDims:        int32(dimensions),
+			expectedCompression: true,
+			indexID:             "restore-quantization-test",
+		},
+		{
 			name: "RQ_8bit",
 			setupConfig: func(uc *hnswent.UserConfig) {
 				uc.RQ = hnswent.RQConfig{

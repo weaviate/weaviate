@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 const (
@@ -93,7 +94,8 @@ func Test_Filters_String(t *testing.T) {
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false }, nil, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory).
+		WithBatchedContainsEnabled(runtime.NewDynamicValue(true))
 
 	type test struct {
 		name                     string
@@ -371,7 +373,8 @@ func Test_Filters_Int(t *testing.T) {
 	bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(maxDocID))
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false }, nil, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory).
+		WithBatchedContainsEnabled(runtime.NewDynamicValue(true))
 
 	type test struct {
 		name                     string
@@ -1154,7 +1157,8 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false }, nil, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory).
+		WithBatchedContainsEnabled(runtime.NewDynamicValue(true))
 
 	type test struct {
 		name                     string
@@ -1309,6 +1313,34 @@ func createSchema() *schema.Schema {
 							IndexRangeFilters: &vFalse,
 						},
 						{
+							Name:              "inverted-uuid-roaringset",
+							DataType:          schema.DataTypeUUID.PropString(),
+							IndexFilterable:   &vTrue,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+						},
+						{
+							Name:              "inverted-number-roaringset",
+							DataType:          schema.DataTypeNumber.PropString(),
+							IndexFilterable:   &vTrue,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+						},
+						{
+							Name:              "inverted-bool-roaringset",
+							DataType:          schema.DataTypeBoolean.PropString(),
+							IndexFilterable:   &vTrue,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+						},
+						{
+							Name:              "inverted-date-roaringset",
+							DataType:          schema.DataTypeDate.PropString(),
+							IndexFilterable:   &vTrue,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+						},
+						{
 							Name:              "inverted-roaringsetrange-on-disk",
 							DataType:          schema.DataTypeInt.PropString(),
 							IndexFilterable:   &vFalse,
@@ -1329,6 +1361,9 @@ func createSchema() *schema.Schema {
 	}
 }
 
+// newFakeMaxIDGetter builds the doc-ID count getter a shard whose highest
+// allocated ID is maxID would have. Callers state the highest ID because that
+// is what a fixture knows; the factory wants the count, which is one past it.
 func newFakeMaxIDGetter(maxID uint64) func() uint64 {
-	return func() uint64 { return maxID }
+	return func() uint64 { return maxID + 1 }
 }

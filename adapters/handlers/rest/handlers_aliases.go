@@ -18,6 +18,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
+	cerrors "github.com/weaviate/weaviate/adapters/handlers/rest/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -139,6 +140,9 @@ func (s *aliasesHandlers) updateAlias(params schema.AliasesUpdateParams,
 		case errors.Is(err, schemaUC.ErrValidation):
 			return schema.NewAliasesUpdateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
+		case cerrors.NamespaceErrRendersUnprocessable(err):
+			return schema.NewAliasesUpdateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return schema.NewAliasesUpdateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(principal, err))
@@ -162,6 +166,9 @@ func (s *aliasesHandlers) deleteAlias(params schema.AliasesDeleteParams, princip
 			return schema.NewAliasesDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.Is(err, schemaUC.ErrValidation):
+			return schema.NewAliasesDeleteUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(principal, err))
+		case cerrors.NamespaceErrRendersUnprocessable(err):
 			return schema.NewAliasesDeleteUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:

@@ -15,6 +15,7 @@ import (
 	"math/rand"
 	"sort"
 	"testing"
+	"unsafe"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -913,7 +914,7 @@ func TestConnections_InsertAtLayer_SchemeGrowth(t *testing.T) {
 	}
 	assert.ElementsMatch(t, expectedConns, c.GetLayer(0))
 	assert.Equal(t, 62, c.LenAtLayer(0))
-	assert.Equal(t, uint8(SCHEME_2BYTE), unpackScheme(c.layers[0].packed))
+	assert.Equal(t, uint8(SCHEME_2BYTE), unpackScheme(c.layer0.packed))
 
 	// SCHEME_3BYTE
 	val2 := uint64(1 << 16) // 65536
@@ -921,7 +922,7 @@ func TestConnections_InsertAtLayer_SchemeGrowth(t *testing.T) {
 	c.InsertAtLayer(val2, 0)
 	assert.ElementsMatch(t, expectedConns, c.GetLayer(0))
 	assert.Equal(t, 63, c.LenAtLayer(0))
-	assert.Equal(t, uint8(SCHEME_3BYTE), unpackScheme(c.layers[0].packed))
+	assert.Equal(t, uint8(SCHEME_3BYTE), unpackScheme(c.layer0.packed))
 
 	// SCHEME_4BYTE
 	val3 := uint64(1 << 24) // 16777216
@@ -929,7 +930,7 @@ func TestConnections_InsertAtLayer_SchemeGrowth(t *testing.T) {
 	c.InsertAtLayer(val3, 0)
 	assert.ElementsMatch(t, expectedConns, c.GetLayer(0))
 	assert.Equal(t, 64, c.LenAtLayer(0))
-	assert.Equal(t, uint8(SCHEME_4BYTE), unpackScheme(c.layers[0].packed))
+	assert.Equal(t, uint8(SCHEME_4BYTE), unpackScheme(c.layer0.packed))
 
 	// SCHEME_5BYTE
 	val4 := uint64(1 << 32)
@@ -937,7 +938,7 @@ func TestConnections_InsertAtLayer_SchemeGrowth(t *testing.T) {
 	c.InsertAtLayer(val4, 0)
 	assert.ElementsMatch(t, expectedConns, c.GetLayer(0))
 	assert.Equal(t, 65, c.LenAtLayer(0))
-	assert.Equal(t, uint8(SCHEME_5BYTE), unpackScheme(c.layers[0].packed))
+	assert.Equal(t, uint8(SCHEME_5BYTE), unpackScheme(c.layer0.packed))
 
 	// SCHEME_8BYTE
 	val5 := uint64(1 << 40)
@@ -945,7 +946,7 @@ func TestConnections_InsertAtLayer_SchemeGrowth(t *testing.T) {
 	c.InsertAtLayer(val5, 0)
 	assert.ElementsMatch(t, expectedConns, c.GetLayer(0))
 	assert.Equal(t, 66, c.LenAtLayer(0))
-	assert.Equal(t, uint8(SCHEME_8BYTE), unpackScheme(c.layers[0].packed))
+	assert.Equal(t, uint8(SCHEME_8BYTE), unpackScheme(c.layer0.packed))
 }
 
 func BenchmarkInsertAtLayer(b *testing.B) {
@@ -1351,4 +1352,75 @@ func TestGrowLayersTo(t *testing.T) {
 
 	c.GrowLayersTo(MaxLayerCount - 1)
 	assert.Equal(t, uint8(MaxLayerCount), c.Layers())
+}
+
+// NewWithData views the caller's blob per layer instead of copying it. Growing
+// one layer via append must reallocate so it never writes into the blob region
+// an adjacent layer still reads from. Appends stay within the layer's current
+// scheme so they take the in-place append path (the one aliasing would break),
+// not the decode-and-re-encode path which reallocates regardless.
+func TestNewWithData_AppendDoesNotCorruptAdjacentLayer(t *testing.T) {
+	cases := []struct {
+		name        string
+		layers      [][]uint64
+		targetLayer uint8
+		appends     []uint64
+	}{
+		{
+			name:        "2-byte scheme, append to first of two layers",
+			layers:      [][]uint64{{10, 20, 30}, {111, 222, 333, 444}},
+			targetLayer: 0,
+			appends:     []uint64{40, 50, 60, 70, 80},
+		},
+		{
+			name:        "3-byte scheme, append to first of two layers",
+			layers:      [][]uint64{{100000, 200000}, {300000, 400000, 500000}},
+			targetLayer: 0,
+			appends:     []uint64{600000, 700000, 800000, 900000},
+		},
+		{
+			name:        "append to middle of three layers",
+			layers:      [][]uint64{{1, 2}, {100, 200, 300}, {1000, 2000}},
+			targetLayer: 1,
+			appends:     []uint64{111, 222, 333, 444, 555},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, err := NewWithMaxLayer(uint8(len(tc.layers) - 1))
+			require.NoError(t, err)
+			for i, vals := range tc.layers {
+				c.ReplaceLayer(uint8(i), vals)
+			}
+
+			loaded := NewWithData(c.Data())
+
+			// Round-trip: every layer reads back identically to the source.
+			for i, vals := range tc.layers {
+				require.ElementsMatch(t, vals, loaded.GetLayer(uint8(i)))
+			}
+
+			for _, v := range tc.appends {
+				loaded.InsertAtLayer(v, tc.targetLayer)
+			}
+
+			wantTarget := append(append([]uint64{}, tc.layers[tc.targetLayer]...), tc.appends...)
+			require.ElementsMatch(t, wantTarget, loaded.GetLayer(tc.targetLayer))
+
+			// Growing the target layer must not have corrupted any other layer's
+			// bytes: this fails under two-index slicing (cap to end of blob).
+			for i, vals := range tc.layers {
+				if uint8(i) == tc.targetLayer {
+					continue
+				}
+				require.ElementsMatch(t, vals, loaded.GetLayer(uint8(i)))
+			}
+		})
+	}
+}
+
+func TestConnections_Size(t *testing.T) {
+	// one per HNSW node: layer 0 inline, upper layers behind a pointer
+	assert.Equal(t, uintptr(48), unsafe.Sizeof(Connections{}))
 }

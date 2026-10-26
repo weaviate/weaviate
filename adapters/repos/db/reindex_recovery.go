@@ -72,10 +72,13 @@ type RecoveredReindex struct {
 // belonging to the same task is the caller's job.
 func DiscoverInFlightReindexTasks(
 	rootPath string,
+	runtimeReindexEnabled bool,
 	logger logrus.FieldLogger,
 	schemaManager *schema.Manager,
 ) ([]RecoveredReindex, error) {
-	if rootPath == "" {
+	// The scan lists a directory per shard, which delays startup by minutes
+	// on clusters with many tenants, so it only runs with the feature on.
+	if rootPath == "" || !runtimeReindexEnabled {
 		return nil, nil
 	}
 	indices, err := os.ReadDir(rootPath)
@@ -118,15 +121,13 @@ func DiscoverInFlightReindexTasks(
 					continue
 				}
 
-				// Parse the per-node generation suffix from the migration dir
-				// name. With per-migration generation, the strategy instances
-				// reconstructed here MUST use the same gen as the in-flight
-				// state on disk, otherwise their SourceBucketName / Reindex
-				// SuffixName paths won't match the on-disk dirs.
-				_, generation, parseOk := parseMigrationDirName(migEntry.Name())
-				if !parseOk {
+				// Generation comes from the dir name, like every other reader
+				// of this state: payload.mig is copied into every task dir
+				// for this migration, so it can't tell generations apart.
+				_, generation, hasGeneration := parseMigrationDirName(migEntry.Name())
+				if !hasGeneration {
 					logger.WithField("migrationDir", migDir).
-						Warn("reindex recovery: migration dir name missing _<gen> suffix; skipping")
+						Warn("reindex recovery: migration dir name carries no generation; skipping")
 					continue
 				}
 
@@ -232,7 +233,7 @@ func buildRecoveryTasks(
 		}
 	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
 		raw = []*ShardReindexTaskGeneric{
-			NewRuntimeFilterableToRangeableTask(logger, schemaManager, payload.Properties, payload.Collection, generation),
+			NewRuntimeFilterableToRangeableTask(logger, payload.Properties, payload.Collection, generation),
 		}
 	case ReindexTypeEnableFilterable:
 		raw = []*ShardReindexTaskGeneric{
@@ -298,14 +299,10 @@ func buildRecoveryTasks(
 	return raw, nil
 }
 
-// NewShardReindexerV3FromRecovered wires the recovered tasks into a
-// fresh recovery-only [ShardReindexerV3]. The reindexer only fires
-// [OnAfterLsmInit] — the iteration loop ([OnAfterLsmInitAsync]) is the
-// DTM provider's job, and [OnBeforeLsmInit]'s restart-based merge/swap
-// is intentionally skipped so the DTM's OnGroupCompleted is the single
-// source of truth for the swap step. This keeps recovery's
-// responsibility narrow: re-install the double-write callbacks before
-// any writes arrive.
+// NewShardReindexerV3FromRecovered wires recovered tasks into a
+// recovery-only [ShardReindexerV3] that only fires [OnAfterLsmInit];
+// the DTM's OnGroupCompleted owns the swap step, keeping recovery's
+// job narrow: re-install double-write callbacks before writes arrive.
 func NewShardReindexerV3FromRecovered(
 	recovered []RecoveredReindex,
 	logger logrus.FieldLogger,
@@ -359,9 +356,9 @@ func (t *ShardReindexTaskGeneric) constrainToShard(collection, shardName string)
 	t.config.selectedShardsByCollection[collection] = map[string]struct{}{
 		shardName: {},
 	}
-	// Give each per-shard task a unique name so RegisterTask doesn't
-	// drop duplicates when several shards of the same collection are
-	// recovered.
+	// Give each per-shard task a unique name so log lines and error
+	// messages stay distinguishable when several shards of the same
+	// collection are recovered.
 	if !strings.Contains(t.name, "[recovery:") {
 		t.name = fmt.Sprintf("%s[recovery:%s/%s]", t.name, collection, shardName)
 		t.logger = t.logger.WithField("task", t.name)
@@ -389,13 +386,6 @@ func (r *shardReindexerV3RecoveryOnly) registerTask(t *ShardReindexTaskGeneric) 
 	r.tasks = append(r.tasks, t)
 }
 
-func (r *shardReindexerV3RecoveryOnly) RunBeforeLsmInit(_ context.Context, _ *Shard) error {
-	// Intentionally a no-op. The DTM's OnGroupCompleted is the
-	// authoritative path for completing the swap; we don't want the
-	// restart-based merge/swap in OnBeforeLsmInit to race with it.
-	return nil
-}
-
 func (r *shardReindexerV3RecoveryOnly) RunAfterLsmInit(ctx context.Context, shard *Shard) error {
 	if len(r.tasks) == 0 {
 		return nil
@@ -407,13 +397,4 @@ func (r *shardReindexerV3RecoveryOnly) RunAfterLsmInit(ctx context.Context, shar
 		}
 	}
 	return nil
-}
-
-func (r *shardReindexerV3RecoveryOnly) RunAfterLsmInitAsync(_ context.Context, _ *Shard) error {
-	// Intentionally a no-op. See type doc.
-	return nil
-}
-
-func (r *shardReindexerV3RecoveryOnly) Stop(_ *Shard, _ error) {
-	// Nothing to stop — we don't run any background loops.
 }

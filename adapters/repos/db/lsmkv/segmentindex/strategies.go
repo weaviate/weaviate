@@ -11,7 +11,11 @@
 
 package segmentindex
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+	"strings"
+)
 
 type Strategy uint16
 
@@ -44,38 +48,52 @@ func (s Strategy) String() string {
 	}
 }
 
+var allStrategies = []Strategy{
+	StrategyReplace,
+	StrategySetCollection,
+	StrategyMapCollection,
+	StrategyRoaringSet,
+	StrategyRoaringSetRange,
+	StrategyInverted,
+}
+
 func IsExpectedStrategy(strategy Strategy, expectedStrategies ...Strategy) bool {
 	if len(expectedStrategies) == 0 {
-		expectedStrategies = []Strategy{
-			StrategyReplace,
-			StrategySetCollection,
-			StrategyMapCollection,
-			StrategyRoaringSet,
-			StrategyRoaringSetRange,
-			StrategyInverted,
-		}
+		expectedStrategies = allStrategies
 	}
-
-	for _, s := range expectedStrategies {
-		if s == strategy {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(expectedStrategies, strategy)
 }
 
 func CheckExpectedStrategy(strategy Strategy, expectedStrategies ...Strategy) error {
+	if len(expectedStrategies) == 0 {
+		expectedStrategies = allStrategies
+	}
 	if IsExpectedStrategy(strategy, expectedStrategies...) {
 		return nil
 	}
 	if len(expectedStrategies) == 1 {
 		return fmt.Errorf("strategy %s expected, got %s", expectedStrategies[0], strategy)
 	}
-	return fmt.Errorf("one of strategies %s expected, got %s", expectedStrategies, strategy)
+	// the slice is joined rather than passed to Errorf: an Errorf argument would
+	// make every caller's variadic slice escape to the heap
+	return fmt.Errorf("one of strategies [%s] expected, got %s",
+		joinStrategies(expectedStrategies), strategy)
+}
+
+func joinStrategies(strategies []Strategy) string {
+	labels := make([]string, len(strategies))
+	for i, s := range strategies {
+		labels[i] = s.String()
+	}
+	return strings.Join(labels, " ")
 }
 
 func MustBeExpectedStrategy(strategy Strategy, expectedStrategies ...Strategy) {
 	if err := CheckExpectedStrategy(strategy, expectedStrategies...); err != nil {
 		panic(err)
 	}
+}
+
+func CheckStrategyRoaringSet(strategy Strategy) error {
+	return CheckExpectedStrategy(strategy, StrategyRoaringSet)
 }

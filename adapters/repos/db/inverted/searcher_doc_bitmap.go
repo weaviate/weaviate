@@ -41,6 +41,7 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 			"took_string": took.String(),
 			"value":       pv.value,
 			"count":       bm.count(),
+			"failed":      err != nil,
 			"strategy":    strategy,
 		}
 

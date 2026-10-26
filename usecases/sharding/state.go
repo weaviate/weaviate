@@ -342,15 +342,25 @@ func (s *State) PhysicalShard(in []byte) string {
 	return virtual.AssignedToPhysical
 }
 
-// LocalActivePhysicalShardsCount return a count of physical shards
+// LocalActivePhysicalShardsCount return a count of physical shards.
+//
+// The status is compared raw, so a shard carrying none — every shard of a
+// non-partitioned class — is not counted. Only multi-tenant callers may use it.
 func (s *State) LocalActivePhysicalShardsCount() int {
 	count := 0
 	for _, physical := range s.Physical {
-		if s.IsLocalShard(physical.Name) && physical.Status == models.TenantActivityStatusHOT {
+		if s.IsLocalPhysical(physical) && physical.Status == models.TenantActivityStatusHOT {
 			count++
 		}
 	}
 	return count
+}
+
+// IsLocalOpenPhysical reports whether this node is a replica of p and p's
+// activity status keeps its shard open. An empty status, which every
+// single-tenant shard has, counts as HOT, unlike in LocalActivePhysicalShardsCount.
+func (s *State) IsLocalOpenPhysical(p Physical) bool {
+	return s.IsLocalPhysical(p) && p.ActivityStatus() == models.TenantActivityStatusHOT
 }
 
 func (s *State) AllPhysicalShards() []string {
@@ -375,15 +385,35 @@ func (s *State) AllPhysicalShardsAndReplicas() map[string][]string {
 func (s *State) AllLocalPhysicalShards() []string {
 	var names []string
 	for _, physical := range s.Physical {
-		if s.IsLocalShard(physical.Name) {
+		if s.IsLocalPhysical(physical) {
 			names = append(names, physical.Name)
 		}
 	}
 
-	sort.Slice(names, func(a, b int) bool {
-		return names[a] < names[b]
-	})
+	sort.Strings(names)
 
+	return names
+}
+
+// ForEachLocalOpenPhysical calls fn, in map order, with the Physical map key of
+// every shard IsLocalOpenPhysical admits. It yields the key rather than
+// Physical.Name, so a caller diffing against its held shards keys both alike.
+func (s *State) ForEachLocalOpenPhysical(fn func(name string)) {
+	for name, physical := range s.Physical {
+		if s.IsLocalOpenPhysical(physical) {
+			fn(name)
+		}
+	}
+}
+
+// AllLocalOpenPhysicalShards returns the Physical map keys IsLocalOpenPhysical
+// admits, as a non-nil slice in map order. Callers sort the diff they compute,
+// which is smaller than this set.
+func (s *State) AllLocalOpenPhysicalShards() []string {
+	names := make([]string, 0, len(s.Physical))
+	s.ForEachLocalOpenPhysical(func(name string) {
+		names = append(names, name)
+	})
 	return names
 }
 
@@ -392,13 +422,14 @@ func (s *State) SetLocalName(name string) {
 }
 
 func (s *State) IsLocalShard(name string) bool {
-	for _, node := range s.Physical[name].BelongsToNodes {
-		if node == s.localNodeName {
-			return true
-		}
-	}
+	return s.IsLocalPhysical(s.Physical[name])
+}
 
-	return false
+// IsLocalPhysical reports whether this node is a replica of p. A caller ranging
+// over Physical can use it to skip the map lookup IsLocalShard does for an entry
+// the range already yielded.
+func (s *State) IsLocalPhysical(p Physical) bool {
+	return p.IsLocalShard(s.localNodeName)
 }
 
 // initPhysical assigns shards to nodes according to the following rules:

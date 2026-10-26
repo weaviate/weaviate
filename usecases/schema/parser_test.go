@@ -12,9 +12,11 @@
 package schema
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -310,6 +312,10 @@ func (m fakeModulesProvider) MigrateVectorizerSettings(any, any) bool {
 	return false
 }
 
+func (m fakeModulesProvider) MutableSettings(string, map[string]any, map[string]any) bool {
+	return false
+}
+
 func TestParserDefaultShardingCount(t *testing.T) {
 	t.Run("zero means use node count", func(t *testing.T) {
 		cs := fakes.NewFakeClusterState()
@@ -534,7 +540,19 @@ func TestValidateNamedVectorConfigsParityAndImmutables_DroppedEntries(t *testing
 		require.Contains(t, err.Error(), "cannot re-create a dropped vector index")
 	})
 
-	t.Run("initial active, updated dropped — allowed (drop path)", func(t *testing.T) {
+	t.Run("finalize removing the last dropped entry — allowed (vector-less flip)", func(t *testing.T) {
+		initial := &models.Class{
+			Class: "Test",
+			VectorConfig: map[string]models.VectorConfig{
+				"going": makeVecCfg(vectorindex.VectorIndexTypeNone),
+			},
+		}
+		updated := &models.Class{Class: "Test", VectorConfig: map[string]models.VectorConfig{}}
+		err := p.validateNamedVectorConfigsParityAndImmutables(initial, updated)
+		require.NoError(t, err)
+	})
+
+	t.Run("initial active, updated dropped — allowed (drop path, incl. the last vector)", func(t *testing.T) {
 		initial := &models.Class{
 			Class: "Test",
 			VectorConfig: map[string]models.VectorConfig{
@@ -616,4 +634,126 @@ func TestValidateNamedVectorConfigsParityAndImmutables_DroppedEntries(t *testing
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "vector index type of vector")
 	})
+}
+
+// TestParseClassUpdate_VectorlessFlip pins the named-vectors → vector-less
+// transition: removing the last (all-dropped) entries lands on the inert
+// legacy shape (vectorizer "none") — the same shape creating a collection
+// without any vector config produces — and ONLY that shape: a real
+// vectorizer appearing through this flip would silently start vectorizing a
+// collection that just shed its vectors.
+func TestParseClassUpdate_VectorlessFlip(t *testing.T) {
+	cs := fakes.NewFakeClusterState()
+	p := NewParser(cs, dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{}, nil, nil)
+
+	sc := config.Config{DesiredCount: 1, VirtualPerPhysical: 128, ActualCount: 1, DesiredVirtualCount: 128, Key: "_id", Strategy: "hash", Function: "murmur3"}
+	dropped := map[string]models.VectorConfig{
+		"going": {
+			VectorIndexType: vectorindex.VectorIndexTypeNone,
+			Vectorizer:      map[string]interface{}{"none": map[string]interface{}{}},
+		},
+	}
+
+	t.Run("the flip parses with a cleared body", func(t *testing.T) {
+		// The defaults never fill legacy fields into a vector-less body and
+		// UpdateClassInternal rejects a caller who sets them, so the update
+		// reaching this parse carries the stored shape and the immutability
+		// checks pass naturally ("" == "").
+		initial := &models.Class{Class: "C", VectorConfig: dropped, ShardingConfig: sc}
+		updated := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{}}
+		_, err := p.ParseClassUpdate(initial, updated)
+		require.NoError(t, err)
+	})
+
+	t.Run("a body that smuggles a vectorizer into the flip is rejected", func(t *testing.T) {
+		// Defense in depth: only UpdateClassInternal's cleared bodies are
+		// legitimate — anything carrying legacy fields for a vector-less
+		// class trips plain immutability.
+		initial := &models.Class{Class: "C", VectorConfig: dropped, ShardingConfig: sc}
+		updated := &models.Class{
+			Class: "C", VectorConfig: map[string]models.VectorConfig{},
+			Vectorizer: "text2vec-contextionary", VectorIndexType: vectorindex.DefaultVectorIndexType,
+		}
+		_, err := p.ParseClassUpdate(initial, updated)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "vectorizer is immutable")
+	})
+
+	t.Run("ParseClass accepts the vector-less shape", func(t *testing.T) {
+		// Readers parse classes on fetch; erroring on the empty legacy type
+		// would make every getter treat a vector-less class as absent (the
+		// write path then tries to re-create it).
+		cls := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{}}
+		require.NoError(t, p.ParseClass(cls))
+		require.Nil(t, cls.VectorIndexConfig, "no legacy config may be synthesized")
+	})
+
+	t.Run("steady state: updating an already vector-less class parses", func(t *testing.T) {
+		initial := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{}, ShardingConfig: sc}
+		updated := &models.Class{Class: "C", Description: "changed", VectorConfig: map[string]models.VectorConfig{}}
+		_, err := p.ParseClassUpdate(initial, updated)
+		require.NoError(t, err)
+	})
+
+	t.Run("a live entry blocks the flip (missing config)", func(t *testing.T) {
+		initial := &models.Class{Class: "C", ShardingConfig: sc, VectorConfig: map[string]models.VectorConfig{
+			"live": {
+				VectorIndexType: hnswT,
+				Vectorizer:      map[string]interface{}{"none": map[string]interface{}{}},
+			},
+		}}
+		updated := &models.Class{
+			Class: "C", VectorConfig: map[string]models.VectorConfig{},
+			Vectorizer: "none", VectorIndexType: vectorindex.DefaultVectorIndexType,
+		}
+		_, err := p.ParseClassUpdate(initial, updated)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "missing config for vector")
+	})
+}
+
+// recordingValidator captures what the vector config validator is handed and
+// refuses when told to, standing in for the migrator's collision check.
+type recordingValidator struct {
+	fakeValidator
+	old, updated map[string]schemaConfig.VectorIndexConfig
+	refuse       error
+}
+
+func (v *recordingValidator) ValidateVectorIndexConfigsUpdate(old, updated map[string]schemaConfig.VectorIndexConfig) error {
+	v.old, v.updated = old, updated
+	return v.refuse
+}
+
+// A named vector added to a class with a legacy vector is validated with the
+// legacy vector present under "", and the validator's refusal aborts the
+// parse, so nothing reaches the schema.
+func TestParseClassUpdate_LegacyVectorReachesTheValidator(t *testing.T) {
+	sc := config.Config{DesiredCount: 1, VirtualPerPhysical: 128, ActualCount: 1, DesiredVirtualCount: 128, Key: "_id", Strategy: "hash", Function: "murmur3"}
+	legacy := enthnsw.NewDefaultUserConfig()
+	named := map[string]models.VectorConfig{
+		"compressed": {VectorIndexType: "hnsw", VectorIndexConfig: enthnsw.NewDefaultUserConfig(), Vectorizer: map[string]interface{}{"none": map[string]interface{}{}}},
+	}
+	// the parse mutates its inputs, so each call gets fresh ones
+	classes := func() (initial, updated *models.Class) {
+		initial = &models.Class{Class: "C", VectorIndexType: "hnsw", VectorIndexConfig: legacy, Vectorizer: "none", ShardingConfig: sc}
+		updated = &models.Class{Class: "C", VectorIndexType: "hnsw", VectorIndexConfig: legacy, Vectorizer: "none", VectorConfig: named}
+		return initial, updated
+	}
+
+	v := &recordingValidator{}
+	p := NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, v, fakeModulesProvider{}, nil, nil)
+	initial, updated := classes()
+	_, err := p.ParseClassUpdate(initial, updated)
+	require.NoError(t, err)
+	assert.Contains(t, v.old, "")
+	assert.Contains(t, v.updated, "")
+	assert.Contains(t, v.updated, "compressed")
+	assert.NotContains(t, v.old, "compressed")
+
+	v = &recordingValidator{refuse: errors.New("vectors \"\" and \"compressed\" share \"vectors_compressed\"")}
+	p = NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, v, fakeModulesProvider{}, nil, nil)
+	initial, updated = classes()
+	_, err = p.ParseClassUpdate(initial, updated)
+	require.ErrorContains(t, err, `share "vectors_compressed"`)
 }

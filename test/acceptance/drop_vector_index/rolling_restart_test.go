@@ -48,6 +48,9 @@ func runRollingRestartSuite(t *testing.T, compose *docker.DockerCompose) {
 	)
 	// Startup adds the DTM readiness probe before recovery paths can run.
 	const postDisruptionTimeout = 5 * time.Minute
+	// A schema WRITE right after a leader kill is retryable in a way the read
+	// barriers above are not: the new leader may still be settling.
+	const schemaWriteTimeout = time.Minute
 
 	waitNodeReady := func(t *testing.T, n int) {
 		uri := compose.GetWeaviateNode(n).URI()
@@ -115,7 +118,10 @@ func runRollingRestartSuite(t *testing.T, compose *docker.DockerCompose) {
 		// schema before its shards finish loading, and cross-node lists return
 		// partial results in that window.
 		require.EventuallyWithT(t, func(collect *assert.CollectT) {
-			objs := listAllObjectsWithVectors(t, className)
+			objs, err := listObjectsWithVectorsErr(className, "", 100)
+			if !assert.NoError(collect, err) {
+				return
+			}
 			if !assert.Len(collect, objs, count) {
 				return
 			}
@@ -171,23 +177,45 @@ func runRollingRestartSuite(t *testing.T, compose *docker.DockerCompose) {
 		verifyConverged(t, className)
 
 		t.Run("name is re-creatable after the disruption", func(t *testing.T) {
-			resp, err := helper.Client(t).Schema.SchemaObjectsGet(
-				clschema.NewSchemaObjectsGetParams().WithClassName(className), nil)
-			require.NoError(t, err)
-			cls := resp.Payload
-			cls.VectorConfig[dropped] = noneVectorConfig()
-			_, err = helper.Client(t).Schema.SchemaObjectsUpdate(
-				clschema.NewSchemaObjectsUpdateParams().WithClassName(className).WithObjectClass(cls), nil)
-			require.NoError(t, err, "a replayed completion must not poison the re-created name")
+			// Retry the whole read-modify-write. A poisoned name is rejected on
+			// every attempt, so retrying cannot mask what this pins — it only
+			// absorbs the leadership blip the kill above provokes.
+			require.EventuallyWithT(t, func(collect *assert.CollectT) {
+				resp, err := helper.Client(t).Schema.SchemaObjectsGet(
+					clschema.NewSchemaObjectsGetParams().WithClassName(className), nil)
+				if err != nil {
+					assert.Fail(collect, "read the class back", errorResponseText(err))
+					return
+				}
+				cls := resp.Payload
+				cls.VectorConfig[dropped] = noneVectorConfig()
+				if _, err := helper.Client(t).Schema.SchemaObjectsUpdate(
+					clschema.NewSchemaObjectsUpdateParams().WithClassName(className).WithObjectClass(cls),
+					nil); err != nil {
+					assert.Fail(collect, "a replayed completion must not poison the re-created name",
+						errorResponseText(err))
+				}
+			}, schemaWriteTimeout, time.Second)
 
-			_, err = helper.Client(t).Objects.ObjectsCreate(
-				clobjects.NewObjectsCreateParams().WithBody(&models.Object{
-					ID:         "00000000-0000-0000-0002-000000001800",
-					Class:      className,
-					Properties: map[string]any{"name": "reborn"},
-					Vectors:    models.Vectors{dropped: randVec(16, 1)},
-				}), nil)
-			require.NoError(t, err)
+			// The write is retried for the same reason the schema update above
+			// is: the leader kill leaves nodes rejoining, and a request routed
+			// to one whose connection to the leader is still being rebuilt fails
+			// its schema query with "grpc: the client connection is closing",
+			// surfaced as a 500. Retrying cannot hide what this pins — a name
+			// that was genuinely poisoned by the replayed completion is refused
+			// on every attempt, not just the first.
+			require.EventuallyWithT(t, func(collect *assert.CollectT) {
+				_, err := helper.Client(t).Objects.ObjectsCreate(
+					clobjects.NewObjectsCreateParams().WithBody(&models.Object{
+						ID:         "00000000-0000-0000-0002-000000001800",
+						Class:      className,
+						Properties: map[string]any{"name": "reborn"},
+						Vectors:    models.Vectors{dropped: randVec(16, 1)},
+					}), nil)
+				if err != nil {
+					assert.Fail(collect, "the re-created vector must accept writes", errorResponseText(err))
+				}
+			}, schemaWriteTimeout, time.Second)
 		})
 	})
 }

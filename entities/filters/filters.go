@@ -13,6 +13,7 @@ package filters
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -95,7 +96,9 @@ func (o Operator) Name() string {
 	case OperatorNot:
 		return "Not"
 	default:
-		panic("Unknown operator")
+		// tolerate values outside the enum so error messages built from a
+		// rogue operator report it instead of panicking mid-diagnostic
+		return fmt.Sprintf("Unknown(%d)", int(o))
 	}
 }
 

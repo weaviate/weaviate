@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
@@ -39,13 +40,72 @@ import (
 )
 
 func setupIndexesHandlers(api *operations.WeaviateAPI, appState *state.State) {
-	h := &indexesHandlers{appState: appState}
+	h := &indexesHandlers{appState: appState, taskSource: resolveTaskSource(appState)}
 	api.SchemaSchemaObjectsIndexesGetHandler = schema.SchemaObjectsIndexesGetHandlerFunc(h.getIndexes)
-	api.SchemaSchemaObjectsIndexesUpdateHandler = schema.SchemaObjectsIndexesUpdateHandlerFunc(h.updateIndex)
+	api.SchemaSchemaObjectsIndexUpsertHandler = schema.SchemaObjectsIndexUpsertHandlerFunc(h.upsertIndex)
+	api.SchemaSchemaObjectsIndexRebuildHandler = schema.SchemaObjectsIndexRebuildHandlerFunc(h.rebuildIndex)
+	api.SchemaSchemaObjectsIndexCancelHandler = schema.SchemaObjectsIndexCancelHandlerFunc(h.cancelIndex)
+}
+
+// jsonResponder writes an arbitrary status + JSON body so the shared
+// upsert/rebuild/cancel submit path can return any of its outcome codes
+// without per-operation generated responders.
+func jsonResponder(status int, payload interface{}) middleware.Responder {
+	return middleware.ResponderFunc(func(w http.ResponseWriter, producer runtime.Producer) {
+		w.WriteHeader(status)
+		if payload != nil {
+			if err := producer.Produce(w, payload); err != nil {
+				panic(err)
+			}
+		}
+	})
+}
+
+// normalizeIndexTypeParam maps the {indexType} path value to its internal
+// token, folding both API spellings `rangeFilters` and `rangeable` to the
+// internal token `rangeable`. Returns ok=false for values outside the enum
+// (defense in depth; swagger already rejects those with 422).
+func normalizeIndexTypeParam(pathValue string) (internalToken string, ok bool) {
+	switch pathValue {
+	case "filterable":
+		return "filterable", true
+	case "searchable":
+		return "searchable", true
+	case "rangeFilters", "rangeable":
+		return "rangeable", true
+	}
+	return "", false
+}
+
+// canonicalIndexType maps the internal token to the API spelling used in
+// responses: "rangeable" surfaces as "rangeFilters".
+func canonicalIndexType(internalToken string) string {
+	if internalToken == "rangeable" {
+		return models.IndexStatusTypeRangeFilters
+	}
+	return internalToken
 }
 
 type indexesHandlers struct {
 	appState *state.State
+	// taskSource is the status read's only route to the task list, resolved
+	// once at wiring. Reaching for appState.ClusterService inside getIndexes
+	// would put the leader-routed methods back within reach. A status read
+	// answers from this node's FSM, where both the task list and the class
+	// advance from the same log, so a class read taken after a task read is
+	// never the older of the two. A task read that decides a mutation stays on
+	// the leader-routed ListDistributedTasks, which LocalTaskLister omits.
+	taskSource distributedtask.LocalTaskLister
+}
+
+// resolveTaskSource keeps a nil ClusterService out of the interface: boxed,
+// the interface value is non-nil and LocalDistributedTasks nil-derefs on the
+// *cluster.Service receiver.
+func resolveTaskSource(appState *state.State) distributedtask.LocalTaskLister {
+	if appState.ClusterService == nil {
+		return nil
+	}
+	return appState.ClusterService
 }
 
 // submitLock returns the per-(collection, property) mutex for the
@@ -53,8 +113,8 @@ type indexesHandlers struct {
 //
 // The actual lock manager lives on appState (ReindexSubmitLocks) so
 // it is SHARED with the DELETE-property-index REST handler. Without
-// the sharing, a parallel PUT /indexes/{prop} (which submits a
-// reindex task) and DELETE /properties/{prop}/index/{indexName}
+// the sharing, a parallel PUT .../index/{indexType} (which submits a
+// reindex task) and DELETE .../index/{indexType}
 // (which drops the canonical bucket) race at the RAFT serializer and
 // produce a torn bucket — see [state.ReindexSubmitLocks] godoc for the
 // full failure shape.
@@ -66,13 +126,41 @@ func (h *indexesHandlers) submitLock(collection, propertyName string) *sync.Mute
 	return h.appState.ReindexSubmitLocks.SubmitLockFor(collection, propertyName)
 }
 
+// readClassAndTasks reads the task list before the class, so the class can
+// never be the older of the two. A nil lister means no cluster service: the
+// caller gets the class with no tasks. classes must be non-nil.
+//
+// ClassInfo runs ahead of the task read so a collection that does not exist
+// skips it: the task read clones and sorts every task in every namespace.
+// It is not the existence check the response is built on — that stays on
+// ReadOnlyClass below, after the task read, so the order above holds for
+// every class this returns. A collection deleted between the two reads
+// leaves ReadOnlyClass answering nil against an Exists that was true.
+func readClassAndTasks(collection string, taskSource distributedtask.LocalTaskLister, classes local.ClassReader) (*models.Class, []parsedReindexTask) {
+	if !classes.ClassInfo(collection).Exists {
+		return nil, nil
+	}
+	var byNamespace map[string][]*distributedtask.Task
+	if taskSource != nil {
+		byNamespace = taskSource.LocalDistributedTasks()
+	}
+	class := classes.ReadOnlyClass(collection)
+	if class == nil {
+		return nil, nil
+	}
+	return class, parseReindexTasks(byNamespace[db.ReindexNamespace])
+}
+
 // getIndexes implements GET /v1/schema/{className}/indexes.
 func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams, principal *models.Principal) middleware.Responder {
 	// Resolve (alias-aware) before authz so authz and the lookup use the qualified name.
 	collection, _, rErr := namespacing.Resolve(principal, h.appState.SchemaManager,
-		h.appState.ServerConfig.Config.Namespaces.Enabled, params.ClassName)
+		h.appState.NamespaceQualifier, params.ClassName)
 	if rErr != nil {
-		return schema.NewSchemaObjectsIndexesGetForbidden().WithPayload(errPayloadFromSingleErr(principal, rErr))
+		if errors.As(rErr, &authzerrors.Forbidden{}) {
+			return schema.NewSchemaObjectsIndexesGetForbidden().WithPayload(errPayloadFromSingleErr(principal, rErr))
+		}
+		return schema.NewSchemaObjectsIndexesGetUnprocessableEntity().WithPayload(errPayloadFromSingleErr(principal, rErr))
 	}
 
 	// Require READ on the collection's metadata: this endpoint exposes
@@ -85,50 +173,27 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 		return schema.NewSchemaObjectsIndexesGetInternalServerError().WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
-	class := h.appState.SchemaManager.ReadOnlyClass(collection)
+	class, parsedTasks := readClassAndTasks(collection, h.taskSource, h.appState.SchemaManager)
 	if class == nil {
 		return schema.NewSchemaObjectsIndexesGetNotFound()
 	}
 
-	// Fetch active reindex tasks.
-	var activeTasks map[string][]*distributedtask.Task
-	if h.appState.ClusterService != nil {
-		var err error
-		activeTasks, err = h.appState.ClusterService.ListDistributedTasks(context.Background())
-		if err != nil {
-			activeTasks = nil // degrade gracefully
+	// Precompute once so per-property resolution below is O(1); stamp/class-flag
+	// fast paths still take precedence in SearchablePropertyIsBlockmaxParsed.
+	finishedBlockmaxProps := make(map[string]struct{})
+	for _, pt := range parsedTasks {
+		if pt.task.Status != distributedtask.TaskStatusFinished {
+			continue
 		}
-	}
-
-	// Pre-parse the reindex task payloads once per request so the per-property
-	// merge below doesn't re-unmarshal each task N times.
-	parsedTasks := parseReindexTasks(activeTasks[db.ReindexNamespace])
-
-	// finalizeWindow bounds the "FINISHED but flag-off → indexing@100%"
-	// override in mergeReindexStatus. The legitimate window is at most
-	// one DTM scheduler tick (the gap between task FINISHED and the
-	// scheduler calling OnGroupCompleted) plus the per-shard swap
-	// duration (typically <1s). We use 2× the tick interval as a
-	// generous coverage. The clamp at finalizeWindowMin/Max keeps the
-	// window reasonable in both pathological sub-second tick configs
-	// (clamp up to 3s) and production 60s+ tick configs (clamp down to
-	// 10s) — a longer-lived bleed in production was the user-visible
-	// face of https://github.com/weaviate/weaviate/issues/10675, and capping the override here
-	// keeps the worst-case stale "indexing(1)" pill bounded.
-	finalizeWindow := 2 * h.appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval
-	if finalizeWindow < finalizeWindowMin {
-		finalizeWindow = finalizeWindowMin
-	}
-	if finalizeWindow > finalizeWindowMax {
-		finalizeWindow = finalizeWindowMax
-	}
-
-	// UsingBlockMaxWAND flips cluster-wide only after every searchable
-	// bucket on every shard is blockmax; mid-flight, targetAlgorithm
-	// (set by mergeReindexStatus) carries the "incoming" signal.
-	searchableAlgorithm := models.IndexStatusAlgorithmWand
-	if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND {
-		searchableAlgorithm = models.IndexStatusAlgorithmBlockmax
+		if !strings.EqualFold(pt.payload.Collection, collection) {
+			continue
+		}
+		if _, _, producesBlockmax, _ := db.ReindexBucketEffect(pt.payload.MigrationType); !producesBlockmax {
+			continue
+		}
+		for _, p := range pt.payload.Properties {
+			finishedBlockmaxProps[p] = struct{}{}
+		}
 	}
 
 	// Build per-property index status.
@@ -162,17 +227,25 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 			if !e.applicable {
 				continue
 			}
-			idx := &models.IndexStatus{Type: e.indexType, Status: "ready"}
+			idx := &models.IndexStatus{Type: canonicalIndexType(e.indexType), Status: "ready"}
 			if e.flagOn && e.carryTokenization {
 				idx.Tokenization = prop.Tokenization
 			}
 			// Only searchable indexes have a BM25 algorithm; surface the
-			// class-level wand/blockmax state so the UI can render it
-			// honestly. Filterable / rangeable have no equivalent today.
+			// property's TRUE wand/blockmax state (not just the class-wide
+			// flag, which flips only once every searchable property has
+			// migrated). Filterable / rangeable have no equivalent today.
 			if e.indexType == "searchable" && e.flagOn {
-				idx.Algorithm = searchableAlgorithm
+				idx.Algorithm = models.IndexStatusAlgorithmWand
+				if db.SearchablePropertyIsBlockmaxParsed(class, prop.Name, finishedBlockmaxProps) {
+					idx.Algorithm = models.IndexStatusAlgorithmBlockmax
+				}
 			}
-			mergeReindexStatus(idx, collection, prop.Name, e.indexType, e.flagOn, parsedTasks, finalizeWindow, h.appState.Logger)
+			mergeReindexStatus(idx, collection, prop.Name, e.indexType, parsedTasks, h.appState.Logger)
+			// Strip the caller's namespace so status and submit responses agree.
+			if idx.TaskID != "" {
+				idx.TaskID = namespacing.StripOwnNamespace(principal, idx.TaskID)
+			}
 			// Flag on → always emit. Flag off → emit only when a reindex
 			// task carries actionable signal (in-flight or terminal
 			// failure/cancellation).
@@ -191,458 +264,6 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 	})
 }
 
-// updateIndex implements PUT /v1/schema/{className}/indexes/{propertyName}.
-//
-// Concurrent non-conflicting reindex tasks are allowed. Two tasks conflict if
-// they would touch the same bucket for the same property. The conflict check
-// rejects same-type same-property tasks, plus cross-type conflicts (e.g.
-// repair-searchable blocks change-tokenization on any property since
-// repair-searchable touches all searchable buckets).
-func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdateParams, principal *models.Principal) middleware.Responder {
-	propertyName := params.PropertyName
-
-	// Qualify (no alias resolution, like DeleteClassPropertyIndex) before authz + lookup.
-	collection, qErr := namespacing.QualifyClass(principal,
-		h.appState.ServerConfig.Config.Namespaces.Enabled, params.ClassName)
-	if qErr != nil {
-		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errPayloadFromSingleErr(principal, qErr))
-	}
-
-	// Require UPDATE on the collection itself: submitting a reindex task is a
-	// privileged, cluster-wide, destructive operation (rebuilds buckets on
-	// every replica, flips schema flags). The read-only authzed sibling above
-	// uses CollectionsMetadata; here we need the stronger Collections verb.
-	if err := h.appState.Authorizer.Authorize(params.HTTPRequest.Context(), principal,
-		authorization.UPDATE, authorization.Collections(collection)...); err != nil {
-		if errors.As(err, &authzerrors.Forbidden{}) {
-			return schema.NewSchemaObjectsIndexesUpdateForbidden().WithPayload(errPayloadFromSingleErr(principal, err))
-		}
-		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(principal, err))
-	}
-
-	// Acquire the per-(collection, property) submit lock EARLY — before
-	// reading the class or running any validation — so a parallel DELETE
-	// on /properties/{prop}/index/{name} cannot mutate the schema (drop
-	// the canonical bucket) between this handler's class read and its
-	// task-add RAFT call.
-	//
-	// The previous lock position (just before AddDistributedTask, after
-	// validation) was insufficient: a parallel DELETE could win the lock,
-	// flip IndexSearchable=false + drop the searchable bucket, release;
-	// meanwhile PUT was already past its `class := ReadOnlyClass(...)` +
-	// `validateTokenizationChange(targetProp)` snapshot which still
-	// observed IndexSearchable=true, so validation passed and PUT
-	// proceeded to submit a change-tok task against a no-longer-existing
-	// bucket — FilterableRetokenize/SearchableRetokenize then failed
-	// at the swap step. The
-	// TestParallelConflictMatrix/change_tokenization_both__delete_searchable_parallel
-	// case in test/acceptance/reindex_concurrent pins this scenario.
-	//
-	// Now: PUT holds the lock across class read + validation + RAFT
-	// task-add. A concurrent DELETE waits; when it acquires, the task
-	// is in-flight in RAFT and the apply-time MutationGuard
-	// rejects the DELETE deterministically. If DELETE wins instead,
-	// PUT's class read sees IndexSearchable=false and
-	// validateTokenizationChange rejects with 400.
-	// Key on the qualified class (the reindex-task key) so short- and qualified-name
-	// callers for the same collection share the DeleteClassPropertyIndex lock.
-	propLock := h.submitLock(collection, propertyName)
-	propLock.Lock()
-	defer propLock.Unlock()
-
-	class := h.appState.SchemaManager.ReadOnlyClass(collection)
-	if class == nil {
-		return schema.NewSchemaObjectsIndexesUpdateNotFound().WithPayload(
-			errorResponse(principal, fmt.Sprintf("collection %q not found", collection)),
-		)
-	}
-
-	// Find the property.
-	var targetProp *models.Property
-	for _, p := range class.Properties {
-		if p.Name == propertyName {
-			targetProp = p
-			break
-		}
-	}
-	if targetProp == nil {
-		return schema.NewSchemaObjectsIndexesUpdateNotFound().WithPayload(
-			errorResponse(principal, fmt.Sprintf("property %q not found on collection %q", propertyName, collection)),
-		)
-	}
-
-	body := params.Body
-	if body == nil {
-		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, "request body required"))
-	}
-
-	// Reject ambiguous bodies (multiple groups set, conflicting verbs within
-	// a group, or zero verbs) before the switch silently picks one arm.
-	if err := validateBodyExclusivity(body); err != nil {
-		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, err.Error()))
-	}
-
-	// Cancel is fundamentally different from the other actions: it does not
-	// submit a new task, it asks DTM to abort one. Handle it up front so the
-	// switch below stays focused on submit-shaped intents.
-	if cancelIndexType, cancelling := requestedCancel(body); cancelling {
-		return h.cancelReindexTask(params.HTTPRequest.Context(), collection, propertyName, cancelIndexType, principal)
-	}
-
-	// Determine which migration type to submit based on the diff.
-	var (
-		migrationType  db.ReindexMigrationType
-		properties     []string
-		targetTok      string
-		bucketStrategy string
-	)
-
-	switch {
-	// enable-searchable must be matched BEFORE change-tokenization: an
-	// enable request carries tokenization in the same body, but a property
-	// that has no searchable index yet cannot have its tokenization
-	// "changed" — validateTokenizationChange would fail looking for a
-	// non-existent searchable bucket.
-	case body.Searchable != nil && body.Searchable.Enabled:
-		migrationType = db.ReindexTypeEnableSearchable
-		properties = []string{propertyName}
-		targetTok = body.Searchable.Tokenization
-		if err := validateEnableSearchableProperty(targetProp, targetTok); err != nil {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, err.Error()))
-		}
-
-	case body.Searchable != nil && body.Searchable.Tokenization != "":
-		// Change tokenization on a property whose searchable index already
-		// exists. If Enabled was also set it would have matched the case
-		// above.
-		migrationType = db.ReindexTypeChangeTokenization
-		properties = []string{propertyName}
-		targetTok = body.Searchable.Tokenization
-
-		// Reject early when the property has no searchable index. Otherwise
-		// the downstream validator surfaces a "searchable bucket not
-		// found" error that doesn't tell the caller what to do — they
-		// just see a 400 and the dialog hangs. Filterable-only properties
-		// should use {filterable: {tokenization: X}} instead.
-		if targetProp.IndexSearchable != nil && !*targetProp.IndexSearchable {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
-				db.NoSearchableIndexError(propertyName, db.NoSearchableIndexHintTokenization)))
-		}
-
-		var err error
-		bucketStrategy, err = validateTokenizationChange(h.appState, class, collection, propertyName, targetTok)
-		if err != nil {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, err.Error()))
-		}
-
-	case body.Filterable != nil && body.Filterable.Tokenization != "":
-		// Change tokenization on a property whose filterable index exists.
-		// Differs from {searchable:{tokenization:X}}: this variant
-		// retokenizes ONLY the filterable bucket, never the searchable.
-		// The right shape for filterable-only text/text[] properties, and
-		// also valid when the property has both indexes and the caller
-		// wants to retokenize only the filterable side (rare but
-		// well-defined: filterable uses Equal semantics, retokenizing it
-		// independently of searchable is meaningful).
-		migrationType = db.ReindexTypeChangeTokenizationFilterable
-		properties = []string{propertyName}
-		targetTok = body.Filterable.Tokenization
-
-		if err := validateFilterableTokenizationChange(targetProp, targetTok); err != nil {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, err.Error()))
-		}
-
-	case body.Searchable != nil && body.Searchable.Rebuild:
-		if targetProp.IndexSearchable != nil && !*targetProp.IndexSearchable {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
-				db.NoSearchableIndexError(propertyName, db.NoSearchableIndexHintRebuildOrAlgorithm)))
-		}
-		// rebuild preserves the current BM25 algorithm and tokenization.
-		// WAND searchable indexes cannot be rebuilt — the only supported
-		// next step for them is migration to BlockMax via
-		// {"searchable":{"algorithm":"blockmax"}}.
-		if class.InvertedIndexConfig == nil || !class.InvertedIndexConfig.UsingBlockMaxWAND {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
-				"cannot rebuild a WAND searchable index — WAND is deprecated; use {\"searchable\":{\"algorithm\":\"blockmax\"}} to migrate first"))
-		}
-		migrationType = db.ReindexTypeRebuildSearchable
-		properties = []string{propertyName}
-
-	case body.Searchable != nil && body.Searchable.Algorithm != "":
-		if targetProp.IndexSearchable != nil && !*targetProp.IndexSearchable {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
-				db.NoSearchableIndexError(propertyName, db.NoSearchableIndexHintRebuildOrAlgorithm)))
-		}
-		// Canonicalise the algorithm name through normalizeSearchableAlgorithm,
-		// then dispatch on the canonical value with an explicit allowlist.
-		//
-		// The explicit `switch` is deliberately stricter than an equality
-		// check: when a second searchable algorithm eventually ships, the
-		// swagger enum will accept it and unrelated handler call sites will
-		// silently start receiving the new value here. With an inline
-		// `if x != "blockmax"` the new algorithm would either be silently
-		// rejected (bad UX) or silently accepted with no migration type
-		// wired up (data corruption). The `switch` instead surfaces every
-		// added algorithm as a missing case the compiler / reviewers can
-		// see at the diff site. WAND is explicitly listed as the deprecated
-		// arm so the error message stays accurate when it lands as input.
-		normalized := normalizeSearchableAlgorithm(body.Searchable.Algorithm)
-		switch normalized {
-		case models.IndexStatusAlgorithmBlockmax:
-			// supported target — fall through to submit
-		case models.IndexStatusAlgorithmWand:
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
-				fmt.Sprintf("algorithm %q is deprecated; only %q is accepted as a target",
-					models.IndexStatusAlgorithmWand, models.IndexStatusAlgorithmBlockmax)))
-		default:
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
-				fmt.Sprintf("unsupported algorithm %q; only %q is accepted (WAND is deprecated)",
-					body.Searchable.Algorithm, models.IndexStatusAlgorithmBlockmax)))
-		}
-		if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
-				"searchable index is already on blockmax"))
-		}
-		migrationType = db.ReindexTypeChangeAlgorithm
-		properties = []string{propertyName}
-
-	case body.Filterable != nil && body.Filterable.Enabled:
-		migrationType = db.ReindexTypeEnableFilterable
-		properties = []string{propertyName}
-		if err := validateEnableFilterableProperty(targetProp); err != nil {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, err.Error()))
-		}
-
-	case body.Filterable != nil && body.Filterable.Rebuild:
-		migrationType = db.ReindexTypeRepairFilterable
-		properties = []string{propertyName}
-		if targetProp.IndexFilterable != nil && !*targetProp.IndexFilterable {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
-				fmt.Sprintf("property %q does not have a filterable index", propertyName)))
-		}
-		if err := validateRebuildFilterableDataType(targetProp); err != nil {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, err.Error()))
-		}
-
-	case body.Rangeable != nil && body.Rangeable.Enabled:
-		migrationType = db.ReindexTypeEnableRangeable
-		properties = []string{propertyName}
-		if err := validateRangeableProperties(class, properties); err != nil {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, err.Error()))
-		}
-
-	case body.Rangeable != nil && body.Rangeable.Rebuild:
-		migrationType = db.ReindexTypeRepairRangeable
-		properties = []string{propertyName}
-		if err := validateRebuildRangeableProperty(targetProp); err != nil {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, err.Error()))
-		}
-
-	default:
-		// The verb list must enumerate EVERY dispatch case above. A missing
-		// verb here ships as a confusing 400 ("you sent a valid body shape
-		// but the error says it's invalid") and was the symptom flagged on
-		// weaviate/0-weaviate-issues#227 (Gap 7). Order: per index-group,
-		// then alphabetical within group.
-		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
-			"no actionable change detected; set one of: "+
-				"searchable.algorithm, searchable.cancel, searchable.enabled, searchable.rebuild, searchable.tokenization, "+
-				"filterable.cancel, filterable.enabled, filterable.rebuild, filterable.tokenization, "+
-				"rangeable.cancel, rangeable.enabled, rangeable.rebuild"))
-	}
-
-	// --- Multi-tenancy handling ---
-	isMT := class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
-	tenants := params.Tenants
-	semantic := db.IsSemanticMigration(migrationType)
-
-	// Validate MT + tenants combination.
-	if !isMT && len(tenants) > 0 {
-		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(
-			errorResponse(principal, "tenants parameter is only valid for multi-tenant collections"))
-	}
-	if semantic && len(tenants) > 0 {
-		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(
-			errorResponse(principal, "tenants parameter cannot be used with semantic migrations (change-tokenization); all tenants must be targeted"))
-	}
-
-	// For MT collections with specific tenants, validate they exist and are not OFFLOADED/FROZEN.
-	if isMT && len(tenants) > 0 {
-		if err := validateTenants(h.appState.DB, params.HTTPRequest.Context(), collection, tenants); err != nil {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, err.Error()))
-		}
-	}
-
-	// Build unit maps from shard placement. Use ShardReplicaOwnership (not
-	// ShardOwnership) to create one unit per shard per replica node. Each
-	// replica has its own local copy of the data that must be reindexed.
-	ctx := params.HTTPRequest.Context()
-	var shardOwnership map[string][]string
-	var err error
-	if isMT {
-		shardOwnership, err = h.appState.DB.ShardReplicaOwnershipForMT(ctx, collection, tenants)
-	} else {
-		shardOwnership, err = h.appState.DB.ShardReplicaOwnership(ctx, collection)
-	}
-	if err != nil {
-		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(
-			errorResponse(principal, fmt.Sprintf("getting shard ownership: %v", err)))
-	}
-	if len(shardOwnership) == 0 {
-		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, "collection has no shards"))
-	}
-
-	unitIDs, unitToShard, unitToNode := buildUnitMaps(shardOwnership)
-
-	// Capture the property's tokenization at submit-time. OnTaskCompleted
-	// will check this in the schema-flip mutator so a post-restart
-	// FSM-replay of an older task can't override a newer task's already-
-	// applied schema flip. See the OriginalTokenization godoc on
-	// ReindexTaskPayload for the full rationale.
-	var originalTok string
-	if migrationType == db.ReindexTypeChangeTokenization ||
-		migrationType == db.ReindexTypeChangeTokenizationFilterable ||
-		migrationType == db.ReindexTypeEnableSearchable {
-		originalTok = targetProp.Tokenization
-	}
-
-	payload := db.ReindexTaskPayload{
-		MigrationType:        migrationType,
-		Collection:           collection,
-		Properties:           properties,
-		TargetTokenization:   targetTok,
-		OriginalTokenization: originalTok,
-		BucketStrategy:       bucketStrategy,
-		Tenants:              tenants,
-		UnitToNode:           unitToNode,
-		UnitToShard:          unitToShard,
-	}
-
-	// Build a human-readable task ID with a random suffix for uniqueness.
-	// Format: "Collection:migration-type:property:ab3f" (or without property for whole-collection ops).
-	suffix := shortRandomSuffix()
-	taskID := fmt.Sprintf("%s:%s:%s", collection, migrationType, suffix)
-	if len(properties) > 0 {
-		taskID = fmt.Sprintf("%s:%s:%s:%s", collection, migrationType, properties[0], suffix)
-	}
-
-	// Note: propLock for (collection, propertyName) was acquired at
-	// the top of this handler — before the class read and validation —
-	// so the conflict-check + AddDistributedTask + DELETE-property-
-	// index races are all serialized through the same lock entry. See
-	// the early-acquisition comment up top + [state.ReindexSubmitLocks]
-	// godoc for the multi-node caveat.
-
-	// Check for conflicting active tasks. Any two reindex migrations on
-	// the same (collection, property) tuple conflict; see typesConflict's
-	// godoc for the on-disk state race that motivated the rule.
-	if h.appState.ClusterService != nil {
-		tasks, err := h.appState.ClusterService.ListDistributedTasks(ctx)
-		if err == nil {
-			reason, checkErr := checkReindexConflict(collection, migrationType, properties, tasks[db.ReindexNamespace])
-			if checkErr != nil {
-				// An in-flight task has an unparseable payload — we cannot
-				// prove the new submit doesn't conflict with it, so refuse
-				// rather than race. Return 503 so the caller knows to retry
-				// after an operator inspects the in-flight task.
-				return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal, checkErr.Error()))
-			}
-			if reason != "" {
-				return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal, reason))
-			}
-			// Per-collection cap on concurrent STARTED reindex tasks. Without
-			// this a caller scripting `for p in $(properties); do PUT
-			// .../indexes/$p; done` against an N-property collection submits N
-			// independent RAFT tasks, each fanning out ingest+backup buckets
-			// on every replica. The LSM compaction layer and disk would not
-			// survive that. Reject with 429 once the cap is reached — the
-			// semantics ("retry later, you're over a concurrency limit") map
-			// exactly to RFC 6585's Too Many Requests, not to 503's "server
-			// is unavailable". Returning 503 here misled callers and
-			// monitoring into thinking the cluster was unhealthy rather than
-			// rate-limiting them.
-			if inflight := countStartedTasksForCollection(collection, tasks[db.ReindexNamespace]); inflight >= maxConcurrentReindexPerCollection {
-				return reindexCapExceededResponder(principal, collection, inflight, maxConcurrentReindexPerCollection)
-			}
-		}
-	}
-
-	// Defense in depth against the CANCEL→retry silent failure (same Sev 1
-	// family as DELETE→re-enable, fixed in 6b7dc23768): if a previous
-	// cancelled run left stale .migrations/<dir>/started.mig +
-	// __reindex/__ingest sidecars on disk, the new task would resume
-	// against them — finish in <1s with a 50-entry no-op — flip the
-	// schema flag, and report success against an empty bucket.
-	//
-	// The cancel handler already runs this cleanup synchronously, but
-	// only after waiting for the local goroutine to drain. The wait can
-	// time out (or be skipped entirely if the node crashed mid-cancel),
-	// in which case the on-disk state survives. Running it again here,
-	// AFTER checkReindexConflict has confirmed no STARTED task targets
-	// this (collection, prop, index) tuple, closes that gap.
-	//
-	// Safe to call even when no stale state exists: missing buckets and
-	// missing directories are silently skipped by the per-shard helper.
-	indexTypesForCleanup, indexTypeKnown := indexTypesFromMigrationType(migrationType)
-	if indexTypeKnown {
-		// Loop over every index type this migration touches. For
-		// single-index migrations the slice has one entry; for
-		// change-tokenization-both (which writes searchable AND filterable
-		// sub-task dirs) it has two. Cleaning BOTH is critical — see the
-		// indexTypesFromMigrationType godoc for the Sev 1 data-loss bug
-		// that motivated the multi-index sweep.
-		for _, indexTypeForCleanup := range indexTypesForCleanup {
-			if err := h.appState.DB.CleanStalePartialReindexState(ctx, collection, propertyName, indexTypeForCleanup); err != nil {
-				h.appState.Logger.WithFields(logrus.Fields{
-					"collection":     collection,
-					"property":       propertyName,
-					"migration_type": migrationType,
-					"index_type":     indexTypeForCleanup,
-				}).Errorf("submit: pre-submit cleanup of stale partial reindex state failed: %v; the new task may short-circuit on the stale state and report a false success — operator inspection recommended", err)
-			}
-		}
-	}
-
-	// Semantic migrations opt into the two-phase RAFT PREP barrier;
-	// MT semantic migrations also group by tenant for per-tenant barriers.
-	if isMT && semantic {
-		unitSpecs := buildUnitSpecs(shardOwnership)
-		if err := h.appState.ClusterService.AddDistributedTaskWithGroupsBarrier(
-			ctx, db.ReindexNamespace, taskID, payload, unitSpecs, semantic,
-		); err != nil {
-			return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(
-				errorResponse(principal, fmt.Sprintf("submitting task: %v", err)))
-		}
-	} else {
-		if err := h.appState.ClusterService.AddDistributedTaskWithBarrier(
-			ctx, db.ReindexNamespace, taskID, payload, unitIDs, semantic,
-		); err != nil {
-			return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(
-				errorResponse(principal, fmt.Sprintf("submitting task: %v", err)))
-		}
-	}
-
-	// Operational audit line: reindex is a privileged cluster-wide operation
-	// (rebuilds buckets on every replica, flips schema flags). Log the who,
-	// what, and which task ID at submit time so ops can grep for it later.
-	// RBAC audit logging upstream covers the authorize/deny decision; this
-	// log covers the successful submission.
-	h.appState.Logger.WithFields(logrus.Fields{
-		"audit_event":    "reindex_task_submitted",
-		"taskID":         taskID,
-		"collection":     collection,
-		"property":       propertyName,
-		"migration_type": migrationType,
-		"principal":      principalUsername(principal),
-	}).Info("reindex provider: submitted task")
-
-	return schema.NewSchemaObjectsIndexesUpdateAccepted().WithPayload(&models.IndexUpdateResponse{
-		// The task ID embeds the qualified collection.
-		TaskID: namespacing.StripOwnNamespace(principal, taskID),
-		Status: "STARTED",
-	})
-}
-
 // principalUsername extracts the user-facing identifier from a principal
 // for audit logging. Falls back to "anonymous" if the principal is nil.
 func principalUsername(principal *models.Principal) string {
@@ -652,30 +273,161 @@ func principalUsername(principal *models.Principal) string {
 	return principal.Username
 }
 
-// requestedCancel returns (indexType, true) if the body asks to cancel an
-// in-flight reindex on this property, where indexType is one of
-// "filterable", "searchable", or "rangeable". Returns ("", false)
-// otherwise. validateBodyExclusivity has already guaranteed at most one
-// cancel field is set across the body.
-func requestedCancel(body *models.IndexUpdateRequest) (string, bool) {
-	switch {
-	case body.Searchable != nil && body.Searchable.Cancel:
-		return "searchable", true
-	case body.Filterable != nil && body.Filterable.Cancel:
-		return "filterable", true
-	case body.Rangeable != nil && body.Rangeable.Cancel:
-		return "rangeable", true
-	}
-	return "", false
+// reindexTaskCanceller is the slice of the cluster service the cancel path
+// needs. *cluster.Service satisfies it (both methods hang off the embedded
+// *Raft).
+type reindexTaskCanceller interface {
+	distributedtask.TaskLister
+	CancelDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
 }
 
-// cancelReindexTask finds the STARTED reindex task targeting
+// findCancelTarget returns the in-flight reindex task for (collection,
+// propertyName, indexType), or nil when none matches. A cancellable match
+// wins, so several matches cannot cost the operator a cancel.
+func findCancelTarget(tasks []*distributedtask.Task, collection, propertyName, indexType string, logger logrus.FieldLogger) (*distributedtask.Task, db.ReindexTaskPayload) {
+	var (
+		refusable        *distributedtask.Task
+		refusablePayload db.ReindexTaskPayload
+	)
+	for _, task := range tasks {
+		if !task.Status.IsActive() {
+			continue
+		}
+		var payload db.ReindexTaskPayload
+		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			// Undecodable in-flight task: it may be the very one the
+			// operator is trying to cancel, and they get a NO_OP instead.
+			logger.WithField("task_id", task.ID).
+				Warnf("cancel: skipping in-flight reindex task with an undecodable payload: %v", err)
+			continue
+		}
+		if !strings.EqualFold(payload.Collection, collection) {
+			continue
+		}
+		// Empty Properties means "all properties" for every blocking guard;
+		// disagreeing here would leave the operator with no cancel target.
+		if !db.ReindexPropsOverlap(payload.Properties, []string{propertyName}) {
+			continue
+		}
+		if matches, _ := migrationTypeTargetsIndex(payload.MigrationType, indexType); !matches {
+			continue
+		}
+		if task.Status.IsCancellable() {
+			return task, payload
+		}
+		if refusable == nil {
+			refusable, refusablePayload = task, payload
+		}
+	}
+	return refusable, refusablePayload
+}
+
+// cancelPreflight answers a cancel that owes no RAFT apply: there is
+// nothing to cancel, or DTM would refuse it. It reads the predicate the
+// FSM guard applies, so the two answers cannot drift.
+func (h *indexesHandlers) cancelPreflight(target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
+	switch {
+	case target == nil:
+		return h.cancelNoOpResponder(collection, propertyName, indexType, principal)
+	case !target.Status.IsCancellable():
+		return h.cancelRefusedResponder(target, collection, propertyName, indexType, principal)
+	}
+	return nil
+}
+
+// cancelApplyFailureResponder maps an FSM rejection to the pre-flight's
+// status code for the same condition — status can race between read and
+// apply, and a bare 500 would leak the sentinel's internal marker into the
+// response body.
+func (h *indexesHandlers) cancelApplyFailureResponder(err error, target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
+	switch {
+	case errors.Is(err, distributedtask.ErrTaskNotRunning):
+		return h.cancelRacedResponder(target, collection, propertyName, indexType, principal)
+	case errors.Is(err, distributedtask.ErrTaskDoesNotExist):
+		return h.cancelNoOpResponder(collection, propertyName, indexType, principal)
+	}
+	return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
+		fmt.Sprintf("cancelling task: %v", err)))
+}
+
+// cancelNoOpResponder answers a cancel that has nothing to cancel.
+func (h *indexesHandlers) cancelNoOpResponder(collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
+	h.appState.Logger.WithFields(logrus.Fields{
+		"audit_event": "reindex_task_cancel_noop",
+		"collection":  collection,
+		"property":    propertyName,
+		"index_type":  indexType,
+		"principal":   principalUsername(principal),
+	}).Info("cancel: no in-flight task to cancel; returning NO_OP")
+	return jsonResponder(http.StatusAccepted, &models.IndexUpdateResponse{
+		Status: reindexCancelStatusNoOp,
+	})
+}
+
+// cancelRefusedResponder answers a cancel DTM will not accept. "Wait for
+// a terminal state" is honest advice in a coordination phase and a dead
+// end for a status only other nodes can terminate, hence two bodies.
+func (h *indexesHandlers) cancelRefusedResponder(target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
+	h.appState.Logger.WithFields(logrus.Fields{
+		"audit_event": "reindex_task_cancel_refused",
+		"collection":  collection,
+		"property":    propertyName,
+		"index_type":  indexType,
+		"taskID":      target.ID,
+		"status":      target.Status.String(),
+		"principal":   principalUsername(principal),
+	}).Info("cancel: task is past the point where cancelling is safe; refusing")
+	return jsonResponder(http.StatusConflict, errorResponse(principal,
+		fmt.Sprintf("reindex task %q on %s.%s is in status %s: %s",
+			target.ID, collection, propertyName, target.Status,
+			cancelRefusalReason(target.Status))))
+}
+
+// cancelRacedResponder answers a cancel whose target stopped accepting
+// one between the list read and the apply. The status held here is stale
+// by construction, so rendering it would name a phase the task has left.
+// This body names no status and sends the operator back to the read.
+func (h *indexesHandlers) cancelRacedResponder(target *distributedtask.Task, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
+	h.appState.Logger.WithFields(logrus.Fields{
+		"audit_event":    "reindex_task_cancel_raced",
+		"collection":     collection,
+		"property":       propertyName,
+		"index_type":     indexType,
+		"taskID":         target.ID,
+		"status_at_read": target.Status.String(),
+		"principal":      principalUsername(principal),
+	}).Info("cancel: task left the cancellable state between the read and the apply; refusing")
+	return jsonResponder(http.StatusConflict, errorResponse(principal,
+		fmt.Sprintf("reindex task %q on %s.%s changed status between this request's task read and "+
+			"the cancel, and is no longer cancellable. Nothing was cancelled. It has either entered "+
+			"a cluster-wide coordination phase, where nodes may already have written merged state or "+
+			"renamed bucket directories, reached a status this node's build does not recognize, or "+
+			"already reached a terminal state. Re-read GET /v1/schema/%s/indexes to see where it landed",
+			target.ID, collection, propertyName, collection)))
+}
+
+// cancelRefusalReason explains a 409 from the cancel verb. Its
+// coordination-phase wording has to hold for PREPARING too, where no node
+// has swapped yet, so it cannot name the swap as under way.
+func cancelRefusalReason(status distributedtask.TaskStatus) string {
+	if !status.IsRecognized() {
+		return "this build cannot classify that status, so it cannot tell whether stopping the " +
+			"task is safe and refuses the cancel on every node — the task has to reach a terminal " +
+			"state on the nodes that do recognize it"
+	}
+	return "nodes may already have written merged state or renamed bucket directories, so " +
+		"stopping it now would leave the cluster serving migrated buckets under the " +
+		"pre-migration schema — wait for it to reach a terminal state"
+}
+
+// cancelReindexTask finds the in-flight reindex task targeting
+// cancelReindexTask finds the in-flight reindex task targeting
 // (collection, propertyName, indexType) and asks DTM to cancel it.
 //
 // Idempotent cancel: by the time this runs the caller's (collection,
-// property) tuple has already been verified to exist by [updateIndex] —
+// property) tuple has already been verified to exist by [cancelIndex] —
 // a missing class or property would have produced a 404 there. So when
-// no STARTED task matches the cancel target we return 202 + Status:
+// no task matches the cancel target we return 202 + Status:
 // NO_OP rather than 404. That mirrors how callers think about cancel:
 // "make sure no reindex is running on this property" is the same
 // idempotent intent whether or not a task happened to be in flight at
@@ -690,66 +442,27 @@ func requestedCancel(body *models.IndexUpdateRequest) (string, bool) {
 // terminates the local handle; the task's ctx (the provider's per-task
 // ctx via runningHandles) is then cancelled, and the worker goroutine
 // returns.
-func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
-	if h.appState.ClusterService == nil {
-		return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal,
-			"cluster service unavailable; cannot cancel reindex task"))
-	}
-
-	tasks, err := h.appState.ClusterService.ListDistributedTasks(ctx)
+//
+// svc is appState.ClusterService in production; the interface lets the
+// idempotent-cancel error mapping be tested against a real Manager.
+func (h *indexesHandlers) cancelReindexTask(ctx context.Context, svc reindexTaskCanceller, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
+	tasks, err := svc.ListDistributedTasks(ctx)
 	if err != nil {
-		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errorResponse(principal,
+		return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
 			fmt.Sprintf("listing tasks: %v", err)))
 	}
 
-	// Find the STARTED task that targets this (collection, prop, indexType).
-	var target *distributedtask.Task
-	var targetPayload db.ReindexTaskPayload
-	for _, task := range tasks[db.ReindexNamespace] {
-		if task.Status != distributedtask.TaskStatusStarted {
-			continue
-		}
-		var payload db.ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &payload); err != nil {
-			continue
-		}
-		if !strings.EqualFold(payload.Collection, collection) {
-			continue
-		}
-		if !slices.Contains(payload.Properties, propertyName) {
-			continue
-		}
-		if matches, _ := migrationTypeTargetsIndex(payload.MigrationType, indexType); !matches {
-			continue
-		}
-		target = task
-		targetPayload = payload
-		break
+	target, targetPayload := findCancelTarget(
+		tasks[db.ReindexNamespace], collection, propertyName, indexType, h.appState.Logger)
+
+	if resp := h.cancelPreflight(target, collection, propertyName, indexType, principal); resp != nil {
+		return resp
 	}
 
-	if target == nil {
-		// Idempotent cancel: caller's (collection, property) is known to
-		// exist (updateIndex verified before dispatch). No task to cancel
-		// means the request is a no-op — surface that explicitly via
-		// Status: NO_OP at 202 rather than overloading 404 with two
-		// distinct semantics (caller-error vs already-done).
-		h.appState.Logger.WithFields(logrus.Fields{
-			"audit_event": "reindex_task_cancel_noop",
-			"collection":  collection,
-			"property":    propertyName,
-			"index_type":  indexType,
-			"principal":   principalUsername(principal),
-		}).Info("cancel: no in-flight task to cancel; returning NO_OP")
-		return schema.NewSchemaObjectsIndexesUpdateAccepted().WithPayload(&models.IndexUpdateResponse{
-			Status: reindexCancelStatusNoOp,
-		})
-	}
-
-	if err := h.appState.ClusterService.CancelDistributedTask(
+	if err := svc.CancelDistributedTask(
 		ctx, target.Namespace, target.ID, target.Version,
 	); err != nil {
-		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errorResponse(principal,
-			fmt.Sprintf("cancelling task: %v", err)))
+		return h.cancelApplyFailureResponder(err, target, collection, propertyName, indexType, principal)
 	}
 
 	// Drain the local reindex goroutine BEFORE cleaning partial on-disk
@@ -800,28 +513,19 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 				// named in the URL.
 				indexTypesToClean = []string{indexType}
 			}
-			var cleanupErrs []error
-			for _, it := range indexTypesToClean {
-				if err := h.appState.DB.CleanStalePartialReindexState(ctx, collection, propertyName, it); err != nil {
-					cleanupErrs = append(cleanupErrs, fmt.Errorf("indexType=%q: %w", it, err))
-				}
-			}
-			if len(cleanupErrs) > 0 {
-				h.appState.Logger.WithFields(logrus.Fields{
-					"taskID":     target.ID,
-					"collection": collection,
-					"property":   propertyName,
-					"index_type": indexType,
-					"strategies": indexTypesToClean,
-				}).Errorf("cancel: cleaning partial reindex state on disk for %d strategies failed: %v; next submit's defense-in-depth cleanup will retry", len(cleanupErrs), cleanupErrs)
-			} else {
-				h.appState.Logger.WithFields(logrus.Fields{
-					"taskID":     target.ID,
-					"collection": collection,
-					"property":   propertyName,
-					"index_type": indexType,
-				}).Info("cancel: on-disk cleanup complete")
-			}
+			// One cache for the whole loop; see the submit path for why.
+			sweep := h.appState.DB.NewStalePartialReindexSweep()
+			cleanupFailures, cleanupDropped := sweepStaleReindexState(indexTypesToClean, func(it string) error {
+				return sweep(ctx, collection, propertyName, it)
+			})
+			// The log fields name every strategy this migration touches, not just
+			// the URL's index type; each failure line adds its own index_type.
+			logCancelCleanupOutcome(h.appState.Logger.WithFields(logrus.Fields{
+				"taskID":     target.ID,
+				"collection": collection,
+				"property":   propertyName,
+				"strategies": indexTypesToClean,
+			}), cleanupFailures, cleanupDropped)
 		}
 	} else {
 		h.appState.Logger.WithFields(logrus.Fields{
@@ -833,15 +537,16 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 	}
 
 	h.appState.Logger.WithFields(logrus.Fields{
-		"audit_event": "reindex_task_cancelled",
-		"taskID":      target.ID,
-		"collection":  collection,
-		"property":    propertyName,
-		"index_type":  indexType,
-		"principal":   principalUsername(principal),
+		"audit_event":    "reindex_task_cancelled",
+		"taskID":         target.ID,
+		"collection":     collection,
+		"property":       propertyName,
+		"index_type":     indexType,
+		"migration_type": targetPayload.MigrationType,
+		"principal":      principalUsername(principal),
 	}).Info("reindex provider: cancelled task")
 
-	return schema.NewSchemaObjectsIndexesUpdateAccepted().WithPayload(&models.IndexUpdateResponse{
+	return jsonResponder(http.StatusAccepted, &models.IndexUpdateResponse{
 		// The task ID embeds the qualified collection.
 		TaskID: namespacing.StripOwnNamespace(principal, target.ID),
 		Status: "CANCELLED",
@@ -864,37 +569,93 @@ const reindexCancelStatusNoOp = "NO_OP"
 // shorter in practice — empirically <1s on test corpora).
 const reindexCancelDrainTimeout = 10 * time.Second
 
-// finalizeWindowMin / finalizeWindowMax bound the "FINISHED but
-// flag-off → indexing@100%" override in [mergeReindexStatus]. The
-// window is normally computed as 2× the DTM scheduler tick interval,
-// but is clamped at both ends:
-//
-//   - finalizeWindowMin (3s) protects against pathological sub-second
-//     tick configs where 2× would shrink the legitimate window faster
-//     than realistic swap-phase jitter. 3s comfortably covers the
-//     in-test 1s tick + swap + jitter.
-//
-//   - finalizeWindowMax (10s) caps how long a stale FINISHED task can
-//     bleed an "indexing(1)" pill after a DELETE — production tick is
-//     60s, so a naive 2× would let the bleed live for 2 minutes,
-//     which was the user-visible face of https://github.com/weaviate/weaviate/issues/10675.
-//
-// Outside the window, flagOn==false cannot legitimately mean "swap
-// pending" — either the swap failed silently (logged as "swap
-// INCOMPLETE" elsewhere) or the swap completed and DELETE flipped the
-// flag back to false (the frontend repro on 2026-05-14 in
-// https://github.com/weaviate/weaviate/issues/10675 — "indexing(1) bleed"). In both cases
-// surfacing the override would be a status lie. The trade-off in
-// production: between task FINISHED and the schema flag flip, a
-// caller polling the GET endpoint will see "indexing@100%" for up to
-// 10s, then briefly see an empty searchable entry, then see "ready"
-// once the flag flips. The brief empty entry is the original UX gap
-// that the override was added to bridge (fd4bfab7cb); we accept it
-// here as the lesser evil compared to the unbounded bleed.
+// staleSweepFailure pairs a sweep error with its index type and with what the
+// sweep left behind, so a handler can name the index type as a structured
+// field and pick its wording from the outcome rather than from the error text.
+type staleSweepFailure struct {
+	indexType string
+	outcome   db.CleanupSweepOutcome
+	err       error
+}
+
+func (f staleSweepFailure) Error() string {
+	return fmt.Sprintf("indexType=%q: %v", f.indexType, f.err)
+}
+
+// sweepStaleReindexState runs sweep once per index type and splits the
+// results by [db.ClassifyCleanupSweep]. A dropped collection is not a
+// failure (nothing left to short-circuit on) but also not a completed
+// cleanup, so it comes back as its own count rather than folded into either.
+func sweepStaleReindexState(
+	indexTypes []string, sweep func(indexType string) error,
+) (failures []staleSweepFailure, dropped int) {
+	for _, indexType := range indexTypes {
+		outcome, failure := db.ClassifyCleanupSweep(sweep(indexType))
+		switch {
+		case outcome == db.CleanupSweepDropped:
+			dropped++
+		case failure != nil:
+			failures = append(failures, staleSweepFailure{
+				indexType: indexType, outcome: outcome, err: failure,
+			})
+		}
+	}
+	return failures, dropped
+}
+
+// The two handlers that sweep, passed to [db.CleanupSweepSummary] so an
+// operator can tell which one ran, and used to word what the outcome means for
+// the caller (see [sweepConsequence]).
 const (
-	finalizeWindowMin = 3 * time.Second
-	finalizeWindowMax = 10 * time.Second
+	sweepPhaseSubmit = "submit"
+	sweepPhaseCancel = "cancel"
 )
+
+// sweepConsequence is what this caller does next about what the sweep left,
+// which is all the handlers add to the shared summary. The phases differ on an
+// incomplete walk: cancel is done once it has swept, so the state waits for a
+// later submit, while the submit that logs this dispatches its task anyway and
+// the task can resume against the state the sweep could not verify.
+func sweepConsequence(phase string, outcome db.CleanupSweepOutcome) string {
+	switch {
+	case outcome == db.CleanupSweepFailed:
+		return "a later task may short-circuit on the stale state and report a false success — " +
+			"operator inspection recommended"
+	case phase == sweepPhaseSubmit:
+		return "this submit proceeds anyway, so the task it dispatches may resume against them"
+	default:
+		return "the next submit sweeps them again"
+	}
+}
+
+// logStaleSweepFailures emits one operator-facing line per sweep that did not
+// finish. What it left behind and how loudly to say so both come from
+// [db.CleanupSweepSummary], so the handlers cannot rank the same outcome
+// differently from the sweep itself.
+func logStaleSweepFailures(entry *logrus.Entry, phase string, failures []staleSweepFailure) {
+	for _, failure := range failures {
+		msg, level := db.CleanupSweepSummary(phase, failure.outcome)
+		entry.WithField("index_type", failure.indexType).
+			Logf(level, "%s: %v; %s", msg, failure, sweepConsequence(phase, failure.outcome))
+	}
+}
+
+// logCancelCleanupOutcome reports what the cancel handler's on-disk cleanup
+// did. Only a run whose sweeps all reached every shard is a finished sweep: a
+// run a collection delete suppressed swept nothing past the delete, and
+// reporting it as finished would claim work that did not happen.
+func logCancelCleanupOutcome(entry *logrus.Entry, failures []staleSweepFailure, dropped int) {
+	if len(failures) > 0 {
+		logStaleSweepFailures(entry, sweepPhaseCancel, failures)
+		return
+	}
+	outcome := db.CleanupSweepClean
+	if dropped > 0 {
+		outcome = db.CleanupSweepDropped
+	}
+	msg, level := db.CleanupSweepSummary(sweepPhaseCancel, outcome)
+	entry.Log(level, msg)
+}
 
 // indexTypesFromMigrationType returns the canonical inverted-index types
 // ("filterable", "searchable", "rangeable") that a migration type targets,
@@ -914,8 +675,8 @@ const (
 // IsTidied check while OnMigrationComplete still flipped the schema's
 // Tokenization. Schema and on-disk state then disagreed.
 //
-// Callers iterate the returned slice and run CleanStalePartialReindexState
-// once per indexType. Safe to call when no stale state exists: missing
+// Callers run the sweep from db.DB.NewStalePartialReindexSweep once per
+// indexType returned. Safe when no stale state exists — missing
 // directories and unloaded buckets are silently skipped.
 func indexTypesFromMigrationType(mt db.ReindexMigrationType) ([]string, bool) {
 	switch mt {
@@ -965,13 +726,50 @@ func migrationTypeTargetsIndex(mt db.ReindexMigrationType, indexType string) (ma
 	return false, false
 }
 
-// normalizeSearchableAlgorithm maps an explicit searchable.algorithm
-// value to its canonical form ("BlockMaxWAND") or "" if unsupported.
-// The reverse direction (BlockMax→WAND) is not supported: the
+// decodeErrorPolicy controls how firstActiveReindexTask treats a task whose
+// payload cannot be decoded.
+type decodeErrorPolicy int
+
+const (
+	// decodeSkip ignores an undecodable task (the submit-time conflict gate
+	// flags it, so the match sites treat it as "no task").
+	decodeSkip decodeErrorPolicy = iota
+	// decodeUndecodableIsHit counts an undecodable task as a match — the
+	// unverifiable scan fails closed rather than derive a trustworthy NO_OP.
+	decodeUndecodableIsHit
+)
+
+// firstActiveReindexTask returns the first active task whose decoded payload
+// satisfies match. On a decode error, policy decides: decodeSkip continues,
+// decodeUndecodableIsHit returns that task as a match. Factors the shared
+// IsActive + unmarshal loop out of the five per-index lookup helpers.
+func firstActiveReindexTask(
+	tasks []*distributedtask.Task,
+	policy decodeErrorPolicy,
+	match func(db.ReindexTaskPayload) bool,
+) (*distributedtask.Task, db.ReindexTaskPayload, bool) {
+	for _, t := range tasks {
+		if !t.Status.IsActive() {
+			continue
+		}
+		var p db.ReindexTaskPayload
+		if err := json.Unmarshal(t.Payload, &p); err != nil {
+			if policy == decodeUndecodableIsHit {
+				return t, db.ReindexTaskPayload{}, true
+			}
+			continue
+		}
+		if match(p) {
+			return t, p, true
+		}
+	}
+	return nil, db.ReindexTaskPayload{}, false
+}
+
 // parsedReindexTask pairs a distributed task with its already-unmarshalled
-// reindex payload. The handler builds a slice of these once per request
-// so mergeReindexStatus doesn't re-unmarshal task.Payload N times where
-// N is the number of properties in the collection.
+// reindex payload. The handler builds a slice of these once per request so
+// mergeReindexStatus doesn't re-unmarshal task.Payload N times where N is the
+// number of properties in the collection.
 type parsedReindexTask struct {
 	task    *distributedtask.Task
 	payload db.ReindexTaskPayload
@@ -982,11 +780,16 @@ type parsedReindexTask struct {
 // checkReindexConflict at submit time; for the read-side merge they're
 // the same as no task.
 //
-// FINISHED tasks are kept in the slice (they were dropped here historically,
-// but mergeReindexStatus now uses them to surface a brief "indexing@100%"
-// SWAPPING-window entry while OnGroupCompleted's swap propagates to the
-// schema — without that, the GET response goes empty for a few ms between
-// FINISHED and the schema flip, which renders as "None" in the UI).
+// FINISHED tasks are kept: [indexesHandlers.getIndexes] matches them against
+// [db.ReindexBucketEffect] to build finishedBlockmaxProps, the last check in
+// [db.SearchablePropertyIsBlockmaxParsed]. Only a property carrying no durable
+// SearchableBlockmax stamp reaches that check: one migrated by a build older
+// than the stamp, or one whose blockmax evidence is a rebuild-searchable task,
+// which never stamps. Dropping FINISHED tasks reports those as wand.
+//
+// [mergeReindexStatus] needs them for a second, independent reason: a
+// completed migration must outrank an older FAILED attempt on the same
+// property, or the entry reports "failed" after the retry succeeded.
 func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
 	parsed := make([]parsedReindexTask, 0, len(tasks))
 	for _, task := range tasks {
@@ -1007,20 +810,12 @@ func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
 // "ready"):
 //
 //   - "pending":    STARTED task, no unit progress yet.
-//   - "indexing":   STARTED task with some progress, OR a FINISHED task
-//     whose swap hasn't propagated to the schema flag yet
-//     (the brief OnGroupCompleted finalize window). The
-//     `flagOn` parameter distinguishes the two: when the
-//     schema flag is already on, a stale FINISHED task is
-//     ignored — the base "ready" wins.
+//   - "indexing":   STARTED task with some progress; a PREPARING /
+//     SWAPPING task, whose units are done but whose cross-replica
+//     barrier or per-node swap is still running; or a task whose
+//     status this build does not recognize.
 //   - "failed":     latest matching task ended in FAILED.
 //   - "cancelled":  latest matching task ended in CANCELLED.
-//
-// `flagOn` is the caller's view of whether the corresponding schema flag
-// (IndexFilterable / IndexSearchable / IndexRangeFilters, depending on
-// indexType) is currently true. It lets this function decide whether a
-// FINISHED task is "still finalizing" (flag-off) or "fully done"
-// (flag-on, so the base "ready" entry takes over).
 //
 // Property matching is uniform across all migration types: every branch
 // requires payload.Properties to be non-empty and to contain propName.
@@ -1031,27 +826,32 @@ func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
 // to the repair-* migration types if they accepted an empty list as
 // "match all").
 //
+// db.ReindexPropsOverlap reads that same empty list as "all properties";
+// the disagreement is deliberate, not drift. A guard picks the answer
+// that refuses, a status report picks the answer it can substantiate.
+// Reconciling this side onto the guard's rule would publish a synthetic
+// "indexing" entry across every property of the collection on behalf of
+// a task createReindexTasks refuses to run at all. Skipping is the
+// cheaper wrong answer: the entry stays "ready" when the flag is on and
+// is dropped from the response when it is off — the same two outcomes
+// this endpoint already produces when it cannot read the task list, so
+// "ready" here means "no evidence of a reindex", never "idle".
+//
 // The logger is used to flag unknown migration types: a future ReindexType
 // added without updating this switch would otherwise silently report "ready"
 // for an in-flight task. Passing a nil logger is allowed (test callers may
 // rely on this); the entry is still skipped, just without a log line.
-// finalizeWindow caps the "FINISHED-but-flag-off → indexing@100%"
-// override (see the TaskStatusFinished branch below). Callers pass in
-// 2× the DTM scheduler tick interval (clamped to finalizeWindowMin);
-// the test harness passes a wider value because the test container
-// always uses 1s ticks. Pass 0 to disable the override entirely (rare;
-// kept for tests that want to assert the post-DELETE bleed never
-// surfaces regardless of FinishedAt freshness).
-func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType string, flagOn bool, parsedTasks []parsedReindexTask, finalizeWindow time.Duration, logger logrus.FieldLogger) {
+func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType string, parsedTasks []parsedReindexTask, logger logrus.FieldLogger) {
 	// Two tasks for the same (collection, prop, indexType) may coexist —
 	// e.g. a freshly retried STARTED enable-filterable plus the original
 	// FAILED attempt that the operator just retried (terminal tasks
 	// deliberately do NOT block fresh submits; see checkReindexConflict).
-	// Pick the most useful one to surface rather than first-in-map-order:
-	//   STARTED  > FAILED ≈ CANCELLED       (in-flight beats terminal)
-	//   newer StartedAt > older StartedAt   (within the same priority)
-	// FINISHED was already skipped by parseReindexTasks (the schema flag
-	// flips and the regular "ready" entry takes over).
+	// Pick the most useful one to surface rather than the first in the list:
+	//   STARTED > FAILED ≈ CANCELLED ≈ FINISHED   (in-flight beats terminal)
+	//   newer StartedAt > older StartedAt          (within the same priority)
+	// FINISHED tasks stay in the loop for the tiebreak below; see
+	// [parseReindexTasks] for why. FINISHED itself surfaces nothing (see
+	// its case).
 	var best *distributedtask.Task
 	var bestPayload db.ReindexTaskPayload
 	for _, pt := range parsedTasks {
@@ -1066,7 +866,8 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		// populates this with one entry; an empty list only happens via
 		// direct cluster payload authoring and is treated as "match
 		// nothing" so we never silently fan out a synthetic entry to
-		// every property in the collection.
+		// every property in the collection — which is why this line
+		// disagrees with db.ReindexPropsOverlap on purpose.
 		if !slices.Contains(payload.Properties, propName) {
 			continue
 		}
@@ -1147,47 +948,29 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		idx.Progress = 1.0
 		surfaceSyntheticFields = true
 	case distributedtask.TaskStatusFinished:
-		// The DTM declares a task FINISHED once every unit is terminal, but
-		// for semantic migrations (enable-*, change-tokenization) the actual
-		// schema flag flip happens later, inside OnGroupCompleted's swap
-		// phase. Without a synthetic entry, that window — from "task
-		// FINISHED" to "schema flag flipped on this node" — would leave the
-		// GET response with no synthetic entry at all and no base "ready"
-		// entry (because the flag is still off), so the UI would see an
-		// empty `indexes` array and render "None".
-		// Treat it as "indexing@100%" until the schema catches up; once
-		// flagOn flips true, the base case "ready" override takes precedence
-		// and this branch is effectively ignored.
-		//
-		// Bound the window by task.FinishedAt: outside it, flagOn==false
-		// cannot mean "swap pending" — the swap window is at most one
-		// scheduler tick plus per-shard swap time, comfortably under
-		// reindexFinalizeWindow. If flagOn is still false past this
-		// window, the only realistic causes are:
-		//   - the swap completed (flag flipped true) and a subsequent
-		//     DELETE flipped it back to false (the frontend repro on
-		//     2026-05-14 #10675 — "indexing(1) bleed");
-		//   - the swap failed silently (logged loudly by
-		//     OnGroupCompleted's "swap INCOMPLETE" branch).
-		// In neither case do we want a synthetic "indexing@100%" entry —
-		// the first case is a stale-task false signal, the second is an
-		// error condition the swap-incomplete logs already surface.
-		if !flagOn && finalizeWindow > 0 && time.Since(best.FinishedAt) < finalizeWindow {
-			idx.Status = "indexing"
-			idx.Progress = 1.0
-			surfaceSyntheticFields = true
-		}
+		// No synthetic entry: the schema flag alone decides whether the
+		// caller emits one.
 	}
 
-	// Only paint the per-migration-type "in-flight" side-effect fields when
-	// the status switch actually surfaced an in-flight or finalizing signal.
-	// If the entry stayed "ready" (FINISHED + flag-on, or FINISHED outside
-	// the finalize window), the migration has either completed and propagated
-	// to the schema (the schema-derived fields above are authoritative) or
-	// the task is stale and shouldn't pollute the response.
+	if !best.Status.IsRecognized() {
+		// "indexing" rather than "pending" or "ready": per-unit progress
+		// does not prove that no shard has started.
+		idx.Status = "indexing"
+		idx.Progress = aggregateProgress(best)
+		surfaceSyntheticFields = true
+	}
+
+	// Only set the in-flight side-effect fields when the switch surfaced an
+	// in-flight signal. A "ready" entry is already fully described by the
+	// schema-derived fields above.
 	if !surfaceSyntheticFields {
 		return
 	}
+
+	// Surface the driving task's ID on every task-driven entry; absent on a
+	// plain "ready" entry. A coupled searchable+filterable migration is one
+	// task, so both entries carry the same taskId.
+	idx.TaskID = best.ID
 
 	switch bestPayload.MigrationType {
 	case db.ReindexTypeEnableSearchable:
@@ -1200,7 +983,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			idx.TargetTokenization = bestPayload.TargetTokenization
 		}
 	case db.ReindexTypeChangeAlgorithm:
-		// repair-searchable migrates WAND → BlockMax. The targetAlgorithm
+		// change-algorithm migrates WAND → BlockMax. The targetAlgorithm
 		// lets the UI render the in-flight switch the same way it renders
 		// targetTokenization for change-tokenization.
 		idx.TargetAlgorithm = models.IndexStatusTargetAlgorithmBlockmax
@@ -1212,33 +995,14 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	}
 }
 
-// taskStatusPriority returns a priority for picking the most user-relevant
-// task when more than one task matches a (collection, prop, indexType).
-// In-flight beats terminal: a user who has just retried a previously
-// failed migration wants to see the new attempt's progress, not the old
-// failure. FINISHED ranks alongside FAILED / CANCELLED so a recently-
-// completed FINISHED task wins the StartedAt tiebreak over an older
-// FAILED on the same property (and mergeReindexStatus uses it to keep
-// the synthetic "indexing@100%" entry visible until the schema flip
-// propagates — see the FINISHED case there).
+// taskStatusPriority ranks FINISHED with FAILED and CANCELLED rather than
+// above them: an in-flight retry has to outrank a completed earlier attempt,
+// so a FINISHED task can only win on recency. See [parseReindexTasks].
 func taskStatusPriority(task *distributedtask.Task) int {
-	switch task.Status {
-	case distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping:
-		// PREPARING and SWAPPING rank alongside STARTED: from the user's
-		// perspective the task is still running (PREP barrier or swap
-		// pending; schema flip has not yet committed). Surface their
-		// synthetic "indexing@100%" entry instead of an older FAILED
-		// attempt's terminal entry.
+	if task.Status.IsActive() {
 		return 2
-	case distributedtask.TaskStatusFailed,
-		distributedtask.TaskStatusCancelled,
-		distributedtask.TaskStatusFinished:
-		return 1
-	default:
-		return 0
 	}
+	return 1
 }
 
 // aggregateProgress averages Unit.Progress across all units in the task.
@@ -1305,24 +1069,10 @@ func errorResponse(principal *models.Principal, msg string) *models.ErrorRespons
 	}
 }
 
-// normalizeSearchableAlgorithm canonicalises the BM25-algorithm string the
-// caller sent on a PUT /v1/schema/{class}/indexes/{prop} body. Returns the
-// lowercase model constant ("wand" / "blockmax") when the input is a
-// recognised alias, or "" when it isn't.
-//
-// Swagger's EnumCase validator is case-insensitive but otherwise rigid: it
-// would already reject "block_max" or "blockmaxwand" at the binding layer.
-// We re-canonicalise here for two reasons:
-//
-//  1. Defence in depth — if the swagger spec is ever loosened (e.g. to add
-//     a new algorithm) the dispatcher still applies a strict allowlist
-//     against the canonical value rather than an EqualFold against a single
-//     hard-coded enum constant.
-//  2. Operationally desired aliases — we accept "block-max" / "block_max"
-//     / "BlockMaxWAND" because callers in the wild have written them; the
-//     intent is unambiguous and rejecting on a punctuation difference is
-//     hostile UX. The accepted alias set is intentionally small and
-//     closed; new aliases require an explicit code change here.
+// normalizeSearchableAlgorithm canonicalises algorithm to "wand"/"blockmax",
+// accepting aliases like "block-max"/"bmw" (case-insensitive). Returns ""
+// for anything else, so the dispatcher's allowlist treats a new algorithm
+// as a missing case, not silent acceptance.
 func normalizeSearchableAlgorithm(s string) string {
 	// Strip surrounding whitespace before any other transform — a body
 	// like {"algorithm":" blockmax "} should not be rejected on a stray
@@ -1345,7 +1095,7 @@ func normalizeSearchableAlgorithm(s string) string {
 // maxConcurrentReindexPerCollection caps how many STARTED reindex tasks
 // can target the same collection at once. Each task creates ingest +
 // backup buckets on every replica; without a cap, a script that runs
-// PUT /indexes/<prop> per property would fan out N tasks for an
+// PUT .../index/{indexType} per property would fan out N tasks for an
 // N-property collection and overwhelm both LSM compaction and disk.
 //
 // The value is sized to comfortably accommodate realistic batch property
@@ -1358,17 +1108,35 @@ func normalizeSearchableAlgorithm(s string) string {
 // non-conflicting submits.
 const maxConcurrentReindexPerCollection = 32
 
-// reindexCapExceededResponder returns a 429 Too Many Requests response with
-// the standard ErrorResponse body shape. The swagger spec for
-// PUT /v1/schema/{class}/indexes/{prop} does not declare a 429 response —
-// it predates the per-collection cap — so we hand-roll the responder
-// instead of adding to the generated code.
-//
-// The status is intentionally 429 and not 503: the rejection is driven by
-// a concurrency limit specific to this caller's collection, not by the
-// cluster being unavailable. Returning 503 misled monitoring (and the
-// reindex_concurrent acceptance test asserts the cap is reached, not that
-// the service went unhealthy).
+// checkReindexAdmission checks conflict (409, or 503 if unverifiable) and the
+// per-collection cap (429) against an already-fetched task snapshot. The
+// fail-closed 503 for an unreachable task store lives in [listReindexTasks].
+func (h *indexesHandlers) checkReindexAdmission(principal *models.Principal, collection string,
+	migrationType db.ReindexMigrationType, properties []string,
+	tasks []*distributedtask.Task,
+) middleware.Responder {
+	reason, checkErr := checkReindexConflict(collection, migrationType, properties, tasks)
+	if checkErr != nil {
+		// checkErr may name a task ID in a namespace the caller can't see, and
+		// StripErrorMessage only strips the caller's own namespace — so log the
+		// detail server-side and return a generic 503 instead of checkErr.Error().
+		h.appState.Logger.WithField("collection", collection).
+			Errorf("submit: cannot verify reindex conflict, failing closed: %v", checkErr)
+		return jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
+			"cannot verify reindex preconditions: an in-flight reindex task has an unparseable or incomplete payload; retry after an operator inspects the task store"))
+	}
+	if reason != "" {
+		return jsonResponder(http.StatusConflict, errorResponse(principal, reason))
+	}
+	if inflight := countInFlightTasksForCollection(collection, tasks); inflight >= maxConcurrentReindexPerCollection {
+		return reindexCapExceededResponder(principal, collection, inflight, maxConcurrentReindexPerCollection)
+	}
+	return nil
+}
+
+// reindexCapExceededResponder returns 429 (not 503 — this is a
+// per-collection concurrency limit, not cluster unavailability),
+// shared by upsert and rebuild.
 func reindexCapExceededResponder(principal *models.Principal, collection string, inflight, capLimit int) middleware.Responder {
 	body := errorResponse(principal, fmt.Sprintf(
 		"collection %q already has %d concurrent reindex tasks (max %d); wait for one to finish before submitting another",
@@ -1383,11 +1151,9 @@ func reindexCapExceededResponder(principal *models.Principal, collection string,
 	})
 }
 
-// countStartedTasksForCollection counts in-flight reindex tasks for a
-// collection. Counts every non-terminal status (STARTED/PREPARING/SWAPPING
-// via IsActive) because PREPARING/SWAPPING still hold tracker dirs and
-// reindex buckets.
-func countStartedTasksForCollection(collection string, tasks []*distributedtask.Task) int {
+// countInFlightTasksForCollection counts in-flight reindex tasks for a
+// collection. PREPARING and SWAPPING count: they still hold tracker dirs.
+func countInFlightTasksForCollection(collection string, tasks []*distributedtask.Task) int {
 	n := 0
 	for _, task := range tasks {
 		if !task.Status.IsActive() {
@@ -1410,25 +1176,11 @@ func countStartedTasksForCollection(collection string, tasks []*distributedtask.
 // payload we cannot decode — in which case we cannot prove non-conflict
 // and the caller must reject the submit.
 //
-// Two tasks conflict if they touch the same index bucket type for the same
-// property. Every migration type is property-scoped: the property the task
-// targets is the one named in payload.Properties. An empty Properties list
-// is reserved for a future whole-collection rebuild and is treated as
-// matching any property for conflict purposes.
-//
-// The bucket types each migration touches on its targeted property:
-//   - repair-searchable:    searchable bucket
-//   - repair-filterable:    filterable bucket
-//   - enable-searchable:    searchable bucket (from scratch)
-//   - enable-filterable:    filterable bucket (from scratch)
-//   - change-tokenization:  searchable + filterable buckets
-//   - enable-rangeable:     rangeable bucket — no cross-type conflicts
-//
-// Unparseable payloads (e.g. payload schema change across versions, RAFT
-// replay of a task from an older binary) are treated as a hard error
-// rather than silently skipped: silent-skip would let a real bucket-level
-// conflict slip through and allow a second task to race against the
-// in-flight one.
+// A conflict is two tasks touching the same bucket type on the same property
+// (empty Properties matches any). Classification lives once in db
+// ([db.TypesConflictReason] over [db.ReindexBucketEffect]), shared with the
+// FSM apply-time check so the two paths can't drift. Unparseable payloads
+// fail closed rather than skip silently.
 func checkReindexConflict(collection string, newType db.ReindexMigrationType,
 	newProps []string, tasks []*distributedtask.Task,
 ) (string, error) {
@@ -1443,12 +1195,9 @@ func checkReindexConflict(collection string, newType db.ReindexMigrationType,
 				"in-flight reindex task %q has an unparseable payload; cannot verify conflict; "+
 					"retry after operator inspects the task: %w", task.ID, err)
 		}
-		// Successfully parsed but informationally empty: a `{}` payload, or
-		// one missing Collection / MigrationType. This is the same epistemic
-		// state as unparseable — we cannot prove non-conflict — so we
-		// refuse for the same reason. Most realistic cause: an older binary
-		// wrote a payload shape we no longer recognize and the missing fields
-		// dropped to their zero values during Unmarshal.
+		// Parsed but empty (`{}`, or missing Collection/MigrationType) is the
+		// same unprovable-non-conflict state as unparseable, so it's refused
+		// too — likely an older binary's shape whose fields zeroed on Unmarshal.
 		if payload.Collection == "" || payload.MigrationType == "" {
 			return "", fmt.Errorf(
 				"in-flight reindex task %q has an empty Collection or MigrationType "+

@@ -12,11 +12,17 @@
 package modstgs3
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -27,6 +33,10 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/backup"
+	ubak "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/awscommon"
 )
 
 func TestInitialize_SkipAccessCheck(t *testing.T) {
@@ -109,7 +119,7 @@ func TestResolveCredentials_EnvVarsPreferred(t *testing.T) {
 	})
 
 	config := &clientConfig{}
-	creds, err := resolveCredentials(config, "us-east-1")
+	creds, err := resolveCredentials(config, "us-east-1", logrus.New())
 	require.NoError(t, err)
 	require.NotNil(t, creds)
 
@@ -128,7 +138,7 @@ func TestResolveCredentials_LegacyEnvVarsPreferred(t *testing.T) {
 	})
 
 	config := &clientConfig{}
-	creds, err := resolveCredentials(config, "us-east-1")
+	creds, err := resolveCredentials(config, "us-east-1", logrus.New())
 	require.NoError(t, err)
 	require.NotNil(t, creds)
 
@@ -136,6 +146,71 @@ func TestResolveCredentials_LegacyEnvVarsPreferred(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "legacy-key", val.AccessKeyID)
 	assert.Equal(t, "legacy-secret", val.SecretAccessKey)
+}
+
+func TestResolveCredentials_AuthBrokerEndpointTakesPrecedence(t *testing.T) {
+	const identityToken = "fake-irsa-jwt"
+	expected := awscommon.AuthBrokerCredentialValue{
+		AccessKeyID:     "AKIATESTBROKER",
+		SecretAccessKey: "broker-secret",
+		SessionToken:    "broker-session",
+		Expiration:      time.Now().UTC().Add(time.Hour).Truncate(time.Second),
+	}
+
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		assert.Equal(t, fmt.Sprintf("Bearer %s", identityToken), r.Header.Get("Authorization"))
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(expected)
+	}))
+	defer srv.Close()
+
+	tokenPath := filepath.Join(t.TempDir(), "token")
+	require.NoError(t, os.WriteFile(tokenPath, []byte(identityToken), 0o600))
+
+	setEnvVars(t, map[string]string{
+		"BACKUP_S3_AUTH_PROXY_ENDPOINT": srv.URL,
+		"AUTH_PROXY_IDENTITY_FILE":      tokenPath,
+		"AWS_ACCESS_KEY_ID":             "static-key",
+		"AWS_SECRET_ACCESS_KEY":         "static-secret",
+	})
+
+	config := &clientConfig{
+		RoleARN: "arn:aws:iam::123456789012:role/TestRole",
+	}
+
+	creds, err := resolveCredentials(config, "us-east-1", logrus.New())
+	require.NoError(t, err)
+	require.NotNil(t, creds)
+	assert.Equal(t, 0, hits, "broker should not be contacted before first credential use")
+
+	val, err := creds.GetWithContext(nil)
+	require.NoError(t, err)
+	assert.Equal(t, expected.AccessKeyID, val.AccessKeyID)
+	assert.Equal(t, expected.SecretAccessKey, val.SecretAccessKey)
+	assert.Equal(t, expected.SessionToken, val.SessionToken)
+	assert.Equal(t, expected.Expiration, val.Expiration)
+	assert.Equal(t, credentials.SignatureV4, val.SignerType)
+	assert.Equal(t, 1, hits, "broker should be hit exactly once on first use")
+
+	// Subsequent calls reuse the cached value until Expiry marks it stale.
+	_, err = creds.GetWithContext(nil)
+	require.NoError(t, err)
+	assert.Equal(t, 1, hits, "broker should not be re-hit while credentials are still fresh")
+}
+
+func TestResolveCredentials_AuthBrokerMissingIdentityFileFailsFast(t *testing.T) {
+	// The broker is configured but the IRSA identity file is not — module init
+	// should fail immediately rather than defer the error to the first backup.
+	clearEnvVars(t, []string{"AUTH_PROXY_IDENTITY_FILE"})
+	setEnvVars(t, map[string]string{
+		"BACKUP_S3_AUTH_PROXY_ENDPOINT": "https://broker.example.com/aws",
+	})
+
+	_, err := resolveCredentials(&clientConfig{}, "us-east-1", logrus.New())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "AUTH_PROXY_IDENTITY_FILE")
 }
 
 func TestResolveCredentials_RoleARNTriggersAssumeRole(t *testing.T) {
@@ -152,7 +227,7 @@ func TestResolveCredentials_RoleARNTriggersAssumeRole(t *testing.T) {
 		ExternalID: "ext-123",
 	}
 
-	_, err := resolveCredentials(config, "us-east-1")
+	_, err := resolveCredentials(config, "us-east-1", logrus.New())
 	// Should fail because no base credentials are available for the STS call
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "IAM credentials for STS AssumeRole")
@@ -172,7 +247,7 @@ func TestResolveCredentials_RoleARNWithEnvCreds(t *testing.T) {
 		ExternalID: "ext-123",
 	}
 
-	creds, err := resolveCredentials(config, "us-east-1")
+	creds, err := resolveCredentials(config, "us-east-1", logrus.New())
 	require.NoError(t, err)
 	require.NotNil(t, creds)
 }
@@ -655,5 +730,120 @@ func fullStackDump() string {
 			return string(buf[:n])
 		}
 		buf = make([]byte, 2*len(buf))
+	}
+}
+
+const (
+	noSuchKey    = `<?xml version="1.0" encoding="UTF-8"?><Error><Code>NoSuchKey</Code><Message>The specified key does not exist.</Message></Error>`
+	accessDenied = `<?xml version="1.0" encoding="UTF-8"?><Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>`
+)
+
+// newFakeS3Client points a real minio client at a server that answers every
+// ListObjectsV2 call with listPage2 and every GET with object(key).
+func newFakeS3Client(t *testing.T, object func(key string) (status int, body []byte)) *s3Client {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("list-type") == "2" {
+			w.Header().Set("Content-Type", "application/xml")
+			fmt.Fprint(w, listPage2)
+			return
+		}
+		status, body := object(strings.TrimPrefix(r.URL.Path, "/bucket/"))
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		w.Header().Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
+		w.WriteHeader(status)
+		w.Write(body)
+	}))
+	t.Cleanup(srv.Close)
+
+	minioClient, err := minio.New(srv.Listener.Addr().String(), &minio.Options{
+		Creds:  credentials.NewStaticV4("key", "secret", ""),
+		Region: "us-east-1",
+	})
+	require.NoError(t, err)
+	return &s3Client{
+		client: minioClient,
+		config: &clientConfig{Bucket: "bucket", BackupPath: "backups"},
+		logger: logrus.New(),
+	}
+}
+
+func TestGetObject(t *testing.T) {
+	payload := bytes.Repeat([]byte{'x'}, 1<<20)
+
+	tests := []struct {
+		name    string
+		status  int
+		body    []byte
+		wantErr any
+	}{
+		{name: "object is read into a buffer sized from its Content-Length", status: http.StatusOK, body: payload},
+		{name: "denied read is ErrInternal", status: http.StatusForbidden, body: []byte(accessDenied), wantErr: &backup.ErrInternal{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s3c := newFakeS3Client(t, func(key string) (int, []byte) {
+				assert.Equal(t, "backups/backup-1/"+ubak.BackupFile, key)
+				return tt.status, tt.body
+			})
+
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			got, err := s3c.GetObject(context.Background(), "backup-1", ubak.BackupFile, "", "")
+			runtime.ReadMemStats(&after)
+			if tt.wantErr != nil {
+				require.ErrorAs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, payload, got)
+			assert.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(len(payload))*3/2, "bytes allocated")
+		})
+	}
+}
+
+func TestAllBackupsSkipsMissingDescriptors(t *testing.T) {
+	descriptor := func(id string) []byte {
+		b, err := json.Marshal(backup.DistributedBackupDescriptor{ID: id})
+		require.NoError(t, err)
+		return b
+	}
+
+	tests := []struct {
+		name     string
+		b2Status int
+		b2Body   []byte
+		wantIDs  []string
+		wantErr  bool
+	}{
+		{name: "missing descriptor for one backup is skipped", b2Status: http.StatusNotFound, b2Body: []byte(noSuchKey), wantIDs: []string{"b1", "b3"}},
+		{name: "denied descriptor read fails the listing", b2Status: http.StatusForbidden, b2Body: []byte(accessDenied), wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s3c := newFakeS3Client(t, func(key string) (int, []byte) {
+				switch key {
+				case "backups/b1/" + ubak.GlobalBackupFile:
+					return http.StatusOK, descriptor("b1")
+				case "backups/b2/" + ubak.GlobalBackupFile:
+					return tt.b2Status, tt.b2Body
+				case "backups/b3/" + ubak.GlobalBackupFile:
+					return http.StatusOK, descriptor("b3")
+				}
+				return http.StatusNotFound, []byte(noSuchKey)
+			})
+
+			got, err := s3c.AllBackups(context.Background())
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			ids := make([]string, 0, len(got))
+			for _, d := range got {
+				ids = append(ids, d.ID)
+			}
+			assert.ElementsMatch(t, tt.wantIDs, ids)
+		})
 	}
 }

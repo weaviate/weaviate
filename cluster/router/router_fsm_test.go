@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/sharding/config"
 
@@ -90,11 +91,13 @@ func TestReadRoutingWithFSM(t *testing.T) {
 			localNodeName:       "node1",
 		},
 		{
+			// A cancelled op is terminal and inert: it must not de-route the
+			// target node, or a lingering record excludes a healthy replica.
 			name:                "cancelled",
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.CANCELLED,
-			expectedReplicas:    types.ReadReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}}},
+			expectedReplicas:    types.ReadReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}, {NodeName: "node2", ShardName: "shard1", HostAddr: "node2"}}},
 			directCandidate:     "node1",
 			localNodeName:       "node1",
 		},
@@ -128,7 +131,7 @@ func TestReadRoutingWithFSM(t *testing.T) {
 			reg := prometheus.NewRegistry()
 			shardReplicationFSM := replication.NewShardReplicationFSM(reg)
 			clusterState := clusterMocks.NewMockNodeSelector(testCase.allShardNodes...)
-			schemaReaderMock := schema.NewMockSchemaReader(t)
+			schemaReaderMock := local.NewMockSchemaReader(t)
 			schemaGetterMock := schema.NewMockSchemaGetter(t)
 			schemaGetterMock.EXPECT().OptimisticTenantStatus(mock.Anything, "collection1", "shard1", mock.Anything).Return(
 				map[string]string{
@@ -268,11 +271,13 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 			localNodeName:       "node1",
 		},
 		{
+			// A cancelled op is terminal and inert: it must not de-route the
+			// target node, or a lingering record excludes a healthy replica.
 			name:                "cancelled",
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.CANCELLED,
-			expectedReplicas:    []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}},
+			expectedReplicas:    []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}, {NodeName: "node2", ShardName: "shard1", HostAddr: "node2"}},
 			directCandidate:     "node1",
 			localNodeName:       "node1",
 		},
@@ -306,7 +311,7 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 			reg := prometheus.NewRegistry()
 			shardReplicationFSM := replication.NewShardReplicationFSM(reg)
 			clusterState := clusterMocks.NewMockNodeSelector(testCase.allShardNodes...)
-			schemaReaderMock := schema.NewMockSchemaReader(t)
+			schemaReaderMock := local.NewMockSchemaReader(t)
 			schemaGetterMock := schema.NewMockSchemaGetter(t)
 			schemaGetterMock.EXPECT().OptimisticTenantStatus(mock.Anything, "collection1", "shard1", mock.Anything).Return(
 				map[string]string{

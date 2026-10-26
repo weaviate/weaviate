@@ -51,12 +51,12 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	}
 	className, aliasName, err := m.resolveNS(principal, updates.Class)
 	if err != nil {
-		return &Error{err.Error(), StatusUnprocessableEntity, err}
+		return forbiddenOrUnprocessable(err)
 	}
 	updates.Class = className
 	cls, id := updates.Class, updates.ID
-	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(cls, updates.Tenant, id)); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
+	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.UPDATE, className, authorization.Objects(className, updates.Tenant)); err != nil {
+		return forbiddenOrUnprocessable(err)
 	}
 
 	ctx = classcache.ContextWithClassCache(ctx)
@@ -116,6 +116,11 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 
 	autoSchemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, fetchedClass, updates)
 	if err != nil {
+		// Extending the collection needs its own permission; reporting a denial
+		// as invalid input would hide the missing grant behind a 422.
+		if errors.As(err, &authzerrs.Forbidden{}) {
+			return &Error{err.Error(), StatusForbidden, err}
+		}
 		return &Error{"bad request", StatusBadRequest, NewErrInvalidUserInput("invalid object: %v", err)}
 	}
 	maxSchemaVersion = max(maxSchemaVersion, autoSchemaVersion)
@@ -153,7 +158,7 @@ func (m *Manager) patchObject(ctx context.Context, prevObj, updates *models.Obje
 	class := fetchedClass[cls].Class
 	primitive, refs := m.splitPrimitiveAndRefs(updates.Properties.(map[string]interface{}), cls, id)
 	objWithVec, err := m.mergeObjectSchemaAndVectorize(ctx, prevObj.Properties,
-		primitive, prevObj.Vector, updates.Vector, prevObj.Vectors, updates.Vectors, updates.ID, class)
+		primitive, prevObj.Vector, updates.Vector, prevObj.Vectors, updates.Vectors, updates.ID, tenant, class)
 	if err != nil {
 		return &Error{"merge and vectorize", StatusInternalServerError, err}
 	}
@@ -219,7 +224,7 @@ func (m *Manager) validateInputs(updates *models.Object) error {
 
 func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, prevPropsSch models.PropertySchema,
 	nextProps map[string]interface{}, prevVec, nextVec []float32, prevVecs models.Vectors, nextVecs models.Vectors,
-	id strfmt.UUID, class *models.Class,
+	id strfmt.UUID, tenant string, class *models.Class,
 ) (*models.Object, error) {
 	var mergedProps map[string]interface{}
 
@@ -244,7 +249,7 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, prevPropsSc
 
 	// Note: vector could be a nil vector in case a vectorizer is configured,
 	// then the vectorizer will set it
-	obj := &models.Object{Class: class.Class, Properties: mergedProps, Vector: vector, Vectors: vectors, ID: id}
+	obj := &models.Object{Class: class.Class, Properties: mergedProps, Vector: vector, Vectors: vectors, ID: id, Tenant: tenant}
 	if err := m.modulesProvider.UpdateVector(ctx, obj, class, m.findObject, m.logger); err != nil {
 		return nil, err
 	}

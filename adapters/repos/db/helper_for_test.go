@@ -14,10 +14,13 @@ package db
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"log"
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strconv"
+	"syscall"
 	"testing"
 	"time"
 
@@ -28,11 +31,12 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -44,8 +48,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/replica"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -254,22 +258,32 @@ func installNoLiveReindexLookup(db *DB) {
 // build a bare &Index{} literal without going through New() or the
 // shard fixtures.
 func stubDBWithNoLiveReindex() *DB {
-	db := &DB{}
+	db := &DB{localNodeName: "node1"}
 	installNoLiveReindexLookup(db)
 	return db
 }
 
-func testShard(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
+func testShard(t testing.TB, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
 	return testShardWithSettings(t, ctx, &models.Class{Class: className}, enthnsw.UserConfig{Skip: true},
-		false, false, false, indexOpts...)
+		false, false, indexOpts...)
 }
 
-func testShardMultiTenant(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
+func testShardMultiTenant(t testing.TB, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
 	return testShardWithMultiTenantSettings(t, ctx, &models.Class{Class: className}, enthnsw.UserConfig{Skip: true},
-		false, false, false, indexOpts...)
+		false, false, indexOpts...)
 }
 
 func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMetrics, classes ...*models.Class) *DB {
+	t.Helper()
+	return createTestDatabaseWithNamespaces(t, metrics, nil, classes...)
+}
+
+// createTestDatabaseWithNamespaces is createTestDatabaseWithClass with a
+// namespace lookup. Qualified class names need one: the shard guard refuses to
+// create a shard for a namespaced class it cannot look up.
+func createTestDatabaseWithNamespaces(t *testing.T, metrics *monitoring.PrometheusMetrics,
+	namespacesExister namespaces.Exister, classes ...*models.Class,
+) *DB {
 	t.Helper()
 
 	require.NotNil(t, metrics, "metrics parameter cannot be nil")
@@ -277,7 +291,7 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 	metricsCopy.Registerer = monitoring.NoopRegisterer
 
 	shardState := singleShardState()
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		for _, class := range classes {
@@ -291,6 +305,7 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 	mockSchemaReader.EXPECT().LocalShards(mock.Anything).Return([]string{"shard1"}, nil).Maybe()
 	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).Return(1, nil).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -305,7 +320,7 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 		TrackVectorDimensions:     true,
 		EnableLazyLoadShards:      boolPtr(true),
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, namespacesExister)
 	require.Nil(t, err)
 
 	db.SetSchemaGetter(&fakeSchemaGetter{
@@ -334,7 +349,10 @@ func publishVectorMetricsFromDB(t *testing.T, db *DB) {
 		t.Logf("Vector dimensions tracking is disabled, returning 0")
 		return
 	}
-	db.metricsObserver.publishVectorMetrics(t.Context())
+	// A throwaway observer, not db.metricsObserver: db.metricsObserver's own
+	// goroutine keeps prune state between passes, and a second publisher
+	// would race it.
+	(&nodeWideMetricsObserver{db: db}).publishVectorMetrics(t.Context())
 }
 
 func getSingleShardNameFromRepo(repo *DB, className string) string {
@@ -351,8 +369,8 @@ func getSingleShardNameFromRepo(repo *DB, className string) string {
 	return shardName
 }
 
-func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,
-	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, multiTenant, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
+func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models.Class,
+	vic schemaConfig.VectorIndexConfig, withStopwords, multiTenant, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
 	tmpDir := t.TempDir()
 	logger, _ := test.NewNullLogger()
@@ -370,7 +388,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		shardState = singleShardState()
 	}
 
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
 		return readFunc(class, shardState)
@@ -379,6 +397,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		return &models.Class{Class: name}
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -400,7 +419,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		AsyncIndexingEnabled:      withAsyncIndexingEnabled,
 		HaltForTransferTimeout:    config.DefaultHaltForTransferTimeout,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 	// Install a default empty backup-gate activity lookup so
 	// Shard.HaltForTransfer / Index.refuseIfReindexInFlight do not
@@ -424,11 +443,6 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		sd, err = stopwords.NewDetectorFromConfig(iic.Stopwords)
 		require.NoError(t, err)
 	}
-	var checkpts *indexcheckpoint.Checkpoints
-	if withCheckpoints {
-		checkpts, err = indexcheckpoint.New(tmpDir, logger)
-		require.NoError(t, err)
-	}
 
 	metrics, err := NewMetrics(logger, nil, class.Class, "")
 	require.NoError(t, err)
@@ -446,8 +460,24 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 			Replicas: []types.Replica{{NodeName: localNodeName, ShardName: "shard1", HostAddr: "127.0.0.1"}},
 		}, nil,
 	).Maybe()
+	mockRouter.EXPECT().
+		BuildRoutingPlanOptions(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(tenant, shard string, cl types.ConsistencyLevel, direct string) types.RoutingPlanBuildOptions {
+			return types.RoutingPlanBuildOptions{Shard: shard, Tenant: tenant, ConsistencyLevel: cl}
+		}).
+		Maybe()
+	mockRouter.EXPECT().
+		BuildReadRoutingPlan(mock.Anything).
+		Return(types.ReadRoutingPlan{
+			LocalHostname: "127.0.0.1",
+			ReplicaSet: types.ReadReplicaSet{
+				Replicas: []types.Replica{{NodeName: localNodeName, ShardName: "shard1", HostAddr: "127.0.0.1"}},
+			},
+		}, nil).
+		Maybe()
 
 	nodeResolver := cluster.NewMockNodeResolver(t)
+	nodeResolver.EXPECT().NodeHostname(mock.Anything).Return("127.0.0.1", true).Maybe()
 
 	getDeletionStrategy := func() string {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
@@ -467,6 +497,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 
 	idx := &Index{
 		Config: IndexConfig{
+			NodeName:               "node1",
 			EnableLazyLoadShards:   true,
 			RootPath:               tmpDir,
 			ClassName:              schema.ClassName(class.Class),
@@ -484,14 +515,13 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		schemaReader:           mockSchemaReader,
 		centralJobQueue:        repo.jobQueueCh,
 		stopwords:              sd,
-		indexCheckpoints:       checkpts,
 		allocChecker:           memwatch.NewDummyMonitor(),
 		shardCreateLocks:       esync.NewKeyRWLocker(),
 		backupLock:             esync.NewKeyRWLocker(),
 		scheduler:              repo.scheduler,
 		shardLoadLimiter:       loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 		shardReindexer:         NewShardReindexerV3Noop(),
-		HFreshEnabled:          true,
+		bitmapBufPool:          roaringset.NewBitmapBufPoolNoop(),
 		replicator:             replicator,
 		router:                 mockRouter,
 		db:                     repo,
@@ -523,16 +553,46 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 }
 
 // Simplified functions that delegate to the common helper
-func testShardWithMultiTenantSettings(t *testing.T, ctx context.Context, class *models.Class,
-	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
+func testShardWithMultiTenantSettings(t testing.TB, ctx context.Context, class *models.Class,
+	vic schemaConfig.VectorIndexConfig, withStopwords, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
-	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, withCheckpoints, true, withAsyncIndexingEnabled, indexOpts...)
+	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, true, withAsyncIndexingEnabled, indexOpts...)
 }
 
-func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,
-	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
+func testShardWithSettings(t testing.TB, ctx context.Context, class *models.Class,
+	vic schemaConfig.VectorIndexConfig, withStopwords, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
-	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, withCheckpoints, false, withAsyncIndexingEnabled, indexOpts...)
+	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, false, withAsyncIndexingEnabled, indexOpts...)
+}
+
+// openDescriptorCount returns how many of this process's file descriptors
+// refer to the file at filePath, matched by device and inode.
+func openDescriptorCount(t *testing.T, filePath string) int {
+	t.Helper()
+
+	info, err := os.Stat(filePath)
+	require.NoError(t, err)
+	want := info.Sys().(*syscall.Stat_t)
+
+	entries, err := os.ReadDir("/dev/fd")
+	require.NoError(t, err)
+
+	count := 0
+	for _, entry := range entries {
+		fd, err := strconv.Atoi(entry.Name())
+		if err != nil {
+			continue
+		}
+		var got syscall.Stat_t
+		// ReadDir closed the descriptor it listed /dev/fd through, so Fstat fails on it
+		if err := syscall.Fstat(fd, &got); err != nil {
+			continue
+		}
+		if got.Dev == want.Dev && got.Ino == want.Ino {
+			count++
+		}
+	}
+	return count
 }
 
 func testObject(className string) *storobj.Object {
@@ -601,4 +661,38 @@ func invertedConfig() *models.InvertedIndexConfig {
 		IndexPropertyLength: true,
 		UsingBlockMaxWAND:   config.DefaultUsingBlockMaxWAND,
 	}
+}
+
+// newTestIndex builds an index holding the given shards, ready to be scanned or
+// shut down. The live closingCtx keeps ForEachShard from short-circuiting.
+func newTestIndex(t *testing.T, logger logrus.FieldLogger, className string,
+	reader local.SchemaReader, shards map[string]ShardLike,
+) *Index {
+	t.Helper()
+
+	closingCtx, closingCancel := context.WithCancel(context.Background())
+	t.Cleanup(closingCancel)
+
+	idx := &Index{
+		Config:        IndexConfig{NodeName: "node1", ClassName: schema.ClassName(className)},
+		logger:        logger,
+		schemaReader:  reader,
+		closingCtx:    closingCtx,
+		closingCancel: closingCancel,
+	}
+	idx.closeRequestedCtx, idx.signalCloseRequested = context.WithCancelCause(context.Background())
+	for name, shard := range shards {
+		idx.shards.Store(name, shard)
+	}
+	return idx
+}
+
+// shutdownIndexOnCleanup stops the index's cycle goroutines before t.TempDir's RemoveAll; tolerates a mid-test shutdown.
+func shutdownIndexOnCleanup(t *testing.T, index *Index) {
+	t.Helper()
+	t.Cleanup(func() {
+		if err := index.Shutdown(context.Background()); err != nil && !errors.Is(err, errAlreadyShutdown) {
+			t.Errorf("shutdown index: %v", err)
+		}
+	})
 }

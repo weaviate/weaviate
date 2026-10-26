@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
@@ -97,11 +98,19 @@ func (s *Raft) SetDistributedTaskSchemaMutationDetectors(detectors map[string]di
 	s.store.SetDistributedTaskSchemaMutationDetectors(detectors)
 }
 
-// RegisterDistributedTaskCollectionExtractor opts a task namespace into
-// the DELETE_CLASS cascade. See [distributedtask.CollectionExtractor]
-// and weaviate/0-weaviate-issues#231.
-func (s *Raft) RegisterDistributedTaskCollectionExtractor(namespace string, extractor distributedtask.CollectionExtractor) {
-	s.store.RegisterDistributedTaskCollectionExtractor(namespace, extractor)
+// LocalUnrecognizedDistributedTasks implements
+// [distributedtask.LocalTaskInspector].
+func (s *Raft) LocalUnrecognizedDistributedTasks() map[string][]*distributedtask.Task {
+	return s.store.LocalUnrecognizedDistributedTasks()
+}
+
+// LocalDistributedTasks reads this node's own FSM, not the leader. The schema
+// lives in that same FSM at the same applied index, so a caller that reads
+// tasks and then a schema flag gets a flag at least as new as the tasks. It
+// can trail the leader: use [Raft.ListDistributedTasks] when a decision needs
+// the cluster's latest state.
+func (s *Raft) LocalDistributedTasks() map[string][]*distributedtask.Task {
+	return s.store.LocalDistributedTasks()
 }
 
 func (s *Raft) Ready() bool {
@@ -121,10 +130,11 @@ func (s *Raft) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
 }
 
 func (s *Raft) ReplicationAllPeersAtLeast(opID uint64, target cmd.ShardReplicationState) (bool, error) {
-	if s.store.raft == nil {
+	rn := s.store.raft.Load()
+	if rn == nil {
 		return false, nil
 	}
-	cfg := s.store.raft.GetConfiguration()
+	cfg := rn.GetConfiguration()
 	if err := cfg.Error(); err != nil {
 		return false, fmt.Errorf("get raft configuration: %w", err)
 	}
@@ -137,6 +147,18 @@ func (s *Raft) ReplicationAllPeersAtLeast(opID uint64, target cmd.ShardReplicati
 		peers = append(peers, string(server.ID))
 	}
 	return s.store.replicationManager.GetReplicationFSM().AllPeersAtLeast(opID, target, peers), nil
+}
+
+func (s *Raft) ReplicationLocalOpCancelState(opID uint64) (replicationTypes.OpCancelState, error) {
+	op, ok := s.store.replicationManager.GetReplicationFSM().GetOpById(opID)
+	if !ok {
+		return replicationTypes.OpCancelState{}, fmt.Errorf("op %d: %w", opID, replicationTypes.ErrReplicationOperationNotFound)
+	}
+	return replicationTypes.OpCancelState{
+		State:         op.Status.GetCurrentState(),
+		ShouldCancel:  op.Status.ShouldCancel,
+		UnCancellable: op.Status.UnCancellable,
+	}, nil
 }
 
 func (s *Raft) NodeSelector() cluster.NodeSelector {
@@ -153,4 +175,14 @@ func (s *Raft) SetInflightDrainer(fn func(ctx context.Context, class, shard stri
 
 func (s *Raft) IsLeader() bool {
 	return s.store.IsLeader()
+}
+
+// ClusterID returns the stable cluster identity UUIDv7, or "" if not yet committed.
+func (s *Raft) ClusterID() string {
+	return s.store.ClusterID()
+}
+
+// ForceSnapshot triggers an immediate RAFT snapshot. See Store.ForceSnapshot.
+func (s *Raft) ForceSnapshot() error {
+	return s.store.ForceSnapshot()
 }

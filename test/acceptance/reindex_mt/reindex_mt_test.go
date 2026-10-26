@@ -27,7 +27,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
@@ -35,11 +34,7 @@ import (
 func TestMultiTenant_ReindexSuite(t *testing.T) {
 	ctx := context.Background()
 
-	compose, err := docker.New().
-		WithWeaviate().
-		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false").
-		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
-		Start(ctx)
+	compose, err := reindexhelpers.StartSingleNode(ctx)
 	require.NoError(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
@@ -89,6 +84,20 @@ func TestMultiTenant_ReindexSuite(t *testing.T) {
 		testValidation(t, restURI)
 	})
 
+	// Cancel → deactivate → restart → re-submit, across the three tenant
+	// populations the cleanup sweep answers differently. Runs on its own
+	// compose (needs forced-lazy loading; the rest of this suite needs
+	// eager loading for its own coverage) and restores the suite's client
+	// afterward.
+	t.Run("ColdAndUnhydratedTenantCancel", func(t *testing.T) {
+		testColdAndUnhydratedTenantCancel(t)
+		helper.SetupClient(restURI)
+	})
+
+	t.Run("TenantScopedRebuildCancel", func(t *testing.T) {
+		testTenantScopedRebuildCancel(t, restURI)
+	})
+
 	// Restart for deferred finalization.
 	t.Run("PostRestart", func(t *testing.T) {
 		t.Log("restarting container for deferred finalize")
@@ -136,7 +145,7 @@ func testRepairAllTenants(t *testing.T, restURI string) {
 	}
 
 	// Submit repair-searchable (no tenants param → all tenants).
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"algorithm":"blockmax"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable", `{"algorithm":"blockmax"}`)
 	t.Logf("repair all tenants task: %s", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
@@ -152,8 +161,8 @@ func testRepairAllTenants(t *testing.T, restURI string) {
 // =============================================================================
 
 func testRepairSpecificTenants(t *testing.T, restURI string) {
-	// Per-tenant filter dispatch via enable-rangeable (format-only).
-	// ChangeAlgorithm + tenant subset is rejected post weaviate/0-weaviate-issues#254.
+	// Per-tenant dispatch via repair-filterable: only a format-only migration
+	// may name tenants, since a semantic one flips a flag every tenant shares.
 	className := "MTRepairSpecific"
 	tenantNames := []string{"t1", "t2", "t3", "t4", "t5"}
 
@@ -177,10 +186,9 @@ func testRepairSpecificTenants(t *testing.T, restURI string) {
 		}
 	}
 
-	// Repair only t1 and t2 via enable-rangeable on the int property.
 	targetTenants := []string{"t1", "t2"}
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "score",
-		`{"rangeable":{"enabled":true}}`, reindexhelpers.WithTenants(targetTenants))
+	taskID := reindexhelpers.RebuildIndex(t, restURI, className, "score",
+		"filterable", reindexhelpers.WithTenants(targetTenants))
 	t.Logf("repair specific tenants task: %s", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
@@ -242,8 +250,8 @@ func testChangeTokenizationMT(t *testing.T, restURI string) {
 	}
 
 	// Change tokenization to field (must target all tenants).
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "filepath",
-		`{"searchable":{"tokenization":"field"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "filepath",
+		"searchable", `{"tokenization":"field"}`)
 	t.Logf("change tokenization MT task: %s", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
@@ -342,9 +350,9 @@ func testEnableRangeableMT(t *testing.T, restURI string) {
 		require.Len(t, ids, 5, "tenant %s should have 5 items with score>5", tn)
 	}
 
-	// Enable rangeable.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "score",
-		`{"rangeable":{"enabled":true}}`)
+	// Enable rangeFilters.
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "score",
+		"rangeFilters", `{}`)
 	t.Logf("enable rangeable MT task: %s", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
@@ -409,16 +417,19 @@ func testValidation(t *testing.T, restURI string) {
 	}
 
 	t.Run("NonMT_with_tenants", func(t *testing.T) {
-		got := reindexhelpers.SubmitIndexUpdateExpect4xx(t, restURI, nonMTClass, "text",
-			`{"searchable":{"algorithm":"blockmax"}}`, reindexhelpers.WithTenants([]string{"t1"}))
+		got := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, nonMTClass, "text",
+			"searchable", `{"algorithm":"blockmax"}`, reindexhelpers.WithTenants([]string{"t1"}))
 		require.Equal(t, http.StatusBadRequest, got.StatusCode,
 			"non-MT class with tenants should reject as 400: %s", got.Body)
 	})
 
-	// MT class for remaining validations.
+	// MT class for remaining validations. "alreadyRangeable" ships with the
+	// rangeable index on, so a PUT asking for it resolves to a no-op.
 	mtClass := "MTValidate"
 	createMTClass(t, mtClass, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
+		{Name: "score", DataType: []string{"int"}},
+		{Name: "alreadyRangeable", DataType: []string{"int"}, IndexRangeFilters: reindexhelpers.BoolPtr(true)},
 	})
 	addTenants(t, mtClass, []string{"active1", "active2"})
 	for _, tn := range []string{"active1", "active2"} {
@@ -431,22 +442,40 @@ func testValidation(t *testing.T, restURI string) {
 	}
 
 	t.Run("ChangeTokenization_with_tenants", func(t *testing.T) {
-		got := reindexhelpers.SubmitIndexUpdateExpect4xx(t, restURI, mtClass, "text",
-			`{"searchable":{"tokenization":"field"}}`, reindexhelpers.WithTenants([]string{"active1"}))
+		got := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, mtClass, "text",
+			"searchable", `{"tokenization":"field"}`, reindexhelpers.WithTenants([]string{"active1"}))
 		require.Equal(t, http.StatusBadRequest, got.StatusCode,
 			"MT class with tenants on change-tokenization should reject as 400: %s", got.Body)
 	})
 
 	t.Run("ChangeAlgorithm_with_tenants", func(t *testing.T) {
-		got := reindexhelpers.SubmitIndexUpdateExpect4xx(t, restURI, mtClass, "text",
-			`{"searchable":{"algorithm":"blockmax"}}`, reindexhelpers.WithTenants([]string{"active1"}))
+		got := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, mtClass, "text",
+			"searchable", `{"algorithm":"blockmax"}`, reindexhelpers.WithTenants([]string{"active1"}))
 		require.Equal(t, http.StatusBadRequest, got.StatusCode,
 			"MT class with tenants on change-algorithm should reject as 400: %s", got.Body)
 	})
 
+	t.Run("EnableRangeable_with_tenants", func(t *testing.T) {
+		// IndexRangeFilters is shared by every tenant: naming a subset would
+		// turn range queries on for tenants that never got a bucket.
+		got := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, mtClass, "score",
+			"rangeFilters", `{}`, reindexhelpers.WithTenants([]string{"active1"}))
+		require.Equal(t, http.StatusBadRequest, got.StatusCode,
+			"MT class with tenants on enable-rangeable should reject as 400: %s", got.Body)
+	})
+
+	t.Run("EnableRangeable_with_tenants_on_already_rangeable", func(t *testing.T) {
+		// Same contract on the no-op arm: changing nothing is still no reason
+		// to accept tenants for a collection-wide flag.
+		got := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, mtClass, "alreadyRangeable",
+			"rangeFilters", `{}`, reindexhelpers.WithTenants([]string{"active1"}))
+		require.Equal(t, http.StatusBadRequest, got.StatusCode,
+			"MT class with tenants on an already-rangeable property should reject as 400: %s", got.Body)
+	})
+
 	t.Run("Nonexistent_tenant", func(t *testing.T) {
-		got := reindexhelpers.SubmitIndexUpdateExpect4xx(t, restURI, mtClass, "text",
-			`{"searchable":{"algorithm":"blockmax"}}`, reindexhelpers.WithTenants([]string{"does_not_exist"}))
+		got := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, mtClass, "text",
+			"searchable", `{"algorithm":"blockmax"}`, reindexhelpers.WithTenants([]string{"does_not_exist"}))
 		require.Equal(t, http.StatusBadRequest, got.StatusCode,
 			"non-existent tenant should reject as 400: %s", got.Body)
 	})

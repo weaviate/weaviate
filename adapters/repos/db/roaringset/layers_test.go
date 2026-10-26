@@ -13,6 +13,7 @@ package roaringset
 
 import (
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -126,6 +127,122 @@ func Test_BitmapLayers_Flatten(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_LayerMerger_MatchesFlatten(t *testing.T) {
+	// A left-fold via LayerMerger (base = first layer's additions, Add the rest
+	// in order) must produce the exact same set as BitmapLayers.Flatten over the
+	// same layers. Reuses Flatten's own cases as the oracle.
+	type inputSegment struct {
+		additions []uint64
+		deletions []uint64
+	}
+
+	tests := []struct {
+		name   string
+		inputs []inputSegment
+	}{
+		{name: "no inputs", inputs: nil},
+		{name: "single segment", inputs: []inputSegment{{additions: []uint64{4, 5}}}},
+		{name: "three segments, only additions", inputs: []inputSegment{
+			{additions: []uint64{4, 5}}, {additions: []uint64{5, 6}}, {additions: []uint64{6, 7, 8}},
+		}},
+		{name: "two segments, including a delete", inputs: []inputSegment{
+			{additions: []uint64{4, 5}}, {additions: []uint64{5, 6}, deletions: []uint64{4}},
+		}},
+		{name: "three segments, delete and re-add", inputs: []inputSegment{
+			{additions: []uint64{3, 4, 5}}, {additions: []uint64{6}, deletions: []uint64{4, 5}}, {additions: []uint64{5}},
+		}},
+	}
+
+	maxConcs := []int{1, 2, concurrency.SROAR_MERGE}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			for _, maxConc := range maxConcs {
+				t.Run(fmt.Sprintf("maxConc=%d", maxConc), func(t *testing.T) {
+					layers := make(BitmapLayers, len(test.inputs))
+					for i, inp := range test.inputs {
+						layers[i].Additions = NewBitmap(inp.additions...)
+						layers[i].Deletions = NewBitmap(inp.deletions...)
+					}
+
+					// oracle: Flatten (clone so it doesn't mutate the layers we
+					// reuse for the merger below)
+					want := layers.Flatten(true, maxConc).ToArray()
+
+					// LayerMerger: seed with base additions, Add the rest
+					var got []uint64
+					if len(layers) == 0 {
+						got = NewLayerMerger(nil, false, maxConc).Result().ToArray()
+					} else {
+						m := NewLayerMerger(layers[0].Additions, true, maxConc)
+						for i := 1; i < len(layers); i++ {
+							m.Add(layers[i])
+						}
+						got = m.Result().ToArray()
+					}
+
+					assert.Equal(t, want, got)
+
+					// nil base: the merger adopts the first Add'd layer, so
+					// folding every layer through Add must equal Flatten too;
+					// fresh layers because the adopted bitmap is mutated in
+					// place
+					layers = make(BitmapLayers, len(test.inputs))
+					for i, inp := range test.inputs {
+						layers[i].Additions = NewBitmap(inp.additions...)
+						layers[i].Deletions = NewBitmap(inp.deletions...)
+					}
+					m := NewLayerMerger(nil, false, maxConc)
+					for _, layer := range layers {
+						m.Add(layer)
+					}
+					assert.Equal(t, want, m.Result().ToArray())
+				})
+			}
+		})
+	}
+}
+
+func Test_LayerMerger_NilBase(t *testing.T) {
+	t.Run("layers fold like Flatten", func(t *testing.T) {
+		m := NewLayerMerger(nil, false, concurrency.SROAR_MERGE)
+		m.Add(BitmapLayer{Additions: NewBitmap(1, 2), Deletions: NewBitmap()})
+		m.Add(BitmapLayer{Additions: NewBitmap(3), Deletions: NewBitmap(1)})
+		assert.Equal(t, []uint64{2, 3}, m.Result().ToArray())
+	})
+
+	t.Run("no layers yield an empty, non-nil result", func(t *testing.T) {
+		m := NewLayerMerger(nil, false, concurrency.SROAR_MERGE)
+		require.NotNil(t, m.Result())
+		assert.Empty(t, m.Result().ToArray())
+	})
+
+	t.Run("first layer's additions are adopted, not copied", func(t *testing.T) {
+		first := NewBitmap(1, 2)
+		m := NewLayerMerger(nil, false, concurrency.SROAR_MERGE)
+		m.Add(BitmapLayer{Additions: first, Deletions: NewBitmap()})
+		assert.Same(t, first, m.Result())
+		m.Add(BitmapLayer{Additions: NewBitmap(3), Deletions: NewBitmap(1)})
+		assert.Same(t, first, m.Result())
+		assert.Equal(t, []uint64{2, 3}, m.Result().ToArray())
+	})
+
+	t.Run("adopted layer's own deletions are dropped", func(t *testing.T) {
+		// the first layer's deletions delete from older state, of which there
+		// is none — Flatten drops the base layer's deletions the same way
+		m := NewLayerMerger(nil, false, concurrency.SROAR_MERGE)
+		m.Add(BitmapLayer{Additions: NewBitmap(1, 2), Deletions: NewBitmap(1)})
+		assert.Equal(t, []uint64{1, 2}, m.Result().ToArray())
+	})
+
+	t.Run("nil-additions layer defers adoption to the next layer", func(t *testing.T) {
+		m := NewLayerMerger(nil, false, concurrency.SROAR_MERGE)
+		m.Add(BitmapLayer{Additions: nil, Deletions: NewBitmap(1)})
+		m.Add(BitmapLayer{Additions: NewBitmap(2, 3), Deletions: NewBitmap(2)})
+		assert.Equal(t, []uint64{2, 3}, m.Result().ToArray())
+	})
 }
 
 func Test_BitmapLayers_Merge(t *testing.T) {
@@ -268,6 +385,182 @@ func Test_BitmapLayers_Merge(t *testing.T) {
 	}
 }
 
+// Test_BitmapLayers_FlattenFirstLayerWithoutAdditions covers a first layer
+// with a nil Additions, which every later layer's deletions would otherwise
+// apply to as a nil receiver. Only reachable when the caller does not clone;
+// every production caller does, so this is defensive.
+func Test_BitmapLayers_FlattenFirstLayerWithoutAdditions(t *testing.T) {
+	tests := []struct {
+		name  string
+		first BitmapLayer
+		want  []uint64
+	}{
+		{name: "nil additions", first: BitmapLayer{Deletions: NewBitmap(9)}, want: []uint64{1, 2}},
+		{name: "nil additions, deletes a later addition", first: BitmapLayer{Deletions: NewBitmap(1)}, want: []uint64{1, 2}},
+		{name: "empty additions", first: BitmapLayer{Additions: NewBitmap(), Deletions: NewBitmap(9)}, want: []uint64{1, 2}},
+		{name: "both sides nil", first: BitmapLayer{}, want: []uint64{1, 2}},
+		{name: "populated additions", first: BitmapLayer{Additions: NewBitmap(7)}, want: []uint64{1, 2, 7}},
+	}
+
+	for _, tc := range tests {
+		for _, clone := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/clone=%t", tc.name, clone), func(t *testing.T) {
+				layers := BitmapLayers{tc.first, {Additions: NewBitmap(1, 2)}}
+				got := layers.Flatten(clone, 1)
+				require.NotNil(t, got)
+				assert.Equal(t, tc.want, got.ToArray())
+			})
+		}
+	}
+}
+
+// Test_BitmapLayer_LenInBytes pins the price against a count taken from the
+// bitmaps themselves. Every other byte assertion in the tree is relative —
+// derived from a first row's price, or from what CloneIfWithin reported — so a
+// term missing here is invisible everywhere downstream.
+func Test_BitmapLayer_LenInBytes(t *testing.T) {
+	additions, deletions := NewBitmap(), NewBitmap()
+	additions.Set(1)
+	deletions.Set(2)
+	additionsLen, deletionsLen := len(additions.ToBuffer()), len(deletions.ToBuffer())
+	require.Positive(t, additionsLen, "the fixture must cost something, or this proves nothing")
+	require.Positive(t, deletionsLen, "the fixture must cost something, or this proves nothing")
+
+	tests := []struct {
+		name  string
+		layer BitmapLayer
+		want  int
+	}{
+		{name: "both nil", layer: BitmapLayer{}, want: 0},
+		{name: "allocated but empty", layer: BitmapLayer{NewBitmap(), NewBitmap()}, want: 0},
+		{name: "additions only", layer: BitmapLayer{Additions: additions}, want: additionsLen},
+		{name: "deletions only", layer: BitmapLayer{Deletions: deletions}, want: deletionsLen},
+		{name: "both sides populated", layer: BitmapLayer{additions, deletions}, want: additionsLen + deletionsLen},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, tc.layer.LenInBytes())
+		})
+	}
+}
+
+// Test_BitmapLayer_CloneIfWithin pins what it does differently from
+// [BitmapLayer.Clone]: a side holding nothing comes back nil rather than an
+// allocated empty bitmap. That's what puts nil layers in front of
+// [LayerMerger] — see TestNilAndEmptyBitmapsMergeAlike for the fold side.
+func Test_BitmapLayer_CloneIfWithin(t *testing.T) {
+	populated := func(v uint64) *sroar.Bitmap {
+		bm := NewBitmap()
+		bm.Set(v)
+		return bm
+	}
+
+	tests := []struct {
+		name          string
+		layer         BitmapLayer
+		wantAdditions []uint64 // nil means the side must come back nil
+		wantDeletions []uint64
+	}{
+		{name: "both sides populated", layer: BitmapLayer{populated(1), populated(2)}, wantAdditions: []uint64{1}, wantDeletions: []uint64{2}},
+		{name: "additions only", layer: BitmapLayer{Additions: populated(1)}, wantAdditions: []uint64{1}},
+		{name: "deletions only", layer: BitmapLayer{Deletions: populated(2)}, wantDeletions: []uint64{2}},
+		{name: "allocated but empty", layer: BitmapLayer{NewBitmap(), NewBitmap()}},
+		{name: "both nil", layer: BitmapLayer{}},
+		{name: "one side allocated and empty", layer: BitmapLayer{populated(1), NewBitmap()}, wantAdditions: []uint64{1}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, cost, ok := tc.layer.CloneIfWithin(math.MaxInt)
+			require.True(t, ok, "nothing is refused at an unlimited budget")
+			require.Equal(t, tc.layer.LenInBytes(), cost,
+				"the clone reports the layer's own price rather than one of its own; what that price is, Test_BitmapLayer_LenInBytes pins")
+
+			for _, side := range []struct {
+				name string
+				want []uint64
+				got  *sroar.Bitmap
+				src  *sroar.Bitmap
+			}{
+				{"additions", tc.wantAdditions, got.Additions, tc.layer.Additions},
+				{"deletions", tc.wantDeletions, got.Deletions, tc.layer.Deletions},
+			} {
+				if side.want == nil {
+					assert.Nilf(t, side.got, "%s holding nothing must come back nil", side.name)
+					continue
+				}
+				require.NotNilf(t, side.got, "%s", side.name)
+				assert.Equalf(t, side.want, side.got.ToArray(), "%s", side.name)
+				assert.NotSamef(t, side.src, side.got, "%s must be a copy, not the original", side.name)
+			}
+		})
+	}
+}
+
+// Test_BitmapLayer_CloneIfWithin_Budget pins the pricing half: a row
+// that does not fit is priced but not copied, so a caller can decide against it
+// without paying. The cost is the same either way, or the caller could not use
+// it to decide.
+func Test_BitmapLayer_CloneIfWithin_Budget(t *testing.T) {
+	bm := NewBitmap()
+	bm.Set(1)
+	populated := BitmapLayer{Additions: bm}
+
+	_, full, ok := populated.CloneIfWithin(math.MaxInt)
+	require.True(t, ok)
+	require.Positive(t, full, "the fixture must cost something, or this proves nothing")
+
+	tests := []struct {
+		name     string
+		layer    BitmapLayer
+		budget   int
+		wantOK   bool
+		wantCost int
+		wantDocs []uint64
+	}{
+		{
+			name: "a row over budget is refused", layer: populated,
+			budget: full - 1, wantOK: false, wantCost: full,
+		},
+		{
+			name: "a row that exactly fits is taken", layer: populated,
+			budget: full, wantOK: true, wantCost: full,
+			wantDocs: []uint64{1},
+		},
+		{
+			// An empty layer costs nothing, so even a zero budget takes it, and
+			// only ok separates it from a refusal.
+			name: "a layer holding nothing is not a refusal", layer: BitmapLayer{},
+			budget: 0, wantOK: true, wantCost: 0,
+		},
+		{
+			// The caller subtracted what it had already spent, and a window
+			// whose always-taken first row overshot hands the next key a
+			// negative budget.
+			name: "nothing fits a budget below zero", layer: BitmapLayer{},
+			budget: -1, wantOK: false, wantCost: 0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, cost, ok := tc.layer.CloneIfWithin(tc.budget)
+			assert.Equal(t, tc.wantOK, ok)
+			assert.Equal(t, tc.wantCost, cost, "the cost is reported either way")
+
+			if tc.wantDocs == nil {
+				assert.Nil(t, got.Additions)
+				assert.Nil(t, got.Deletions)
+				return
+			}
+			require.NotNil(t, got.Additions, "a row that was taken must be copied")
+			assert.Equal(t, tc.wantDocs, got.Additions.ToArray())
+			assert.Nil(t, got.Deletions)
+		})
+	}
+}
+
 func Test_BitmapLayer_Clone(t *testing.T) {
 	t.Run("cloning empty BitmapLayer", func(t *testing.T) {
 		layerEmpty := BitmapLayer{}
@@ -335,4 +628,109 @@ func Test_BitmapLayers_Merge_PanicSliceBoundOutOfRange(t *testing.T) {
 	assert.Nil(t, err)
 
 	assert.ElementsMatch(t, genSlice(289_800, 290_000), failingDeletionsLayer.Deletions.ToArray())
+}
+
+// TestNilAndEmptyBitmapsMergeAlike pins that a nil bitmap and an empty one are
+// interchangeable to the merger, letting a reader leave an empty side nil
+// rather than pay to clone it. The case that matters is Add's first branch:
+// with nothing merged yet, it adopts the layer's additions and returns, so a
+// nil there means that layer's deletions are never applied — sound only
+// because no older layer could have contributed anything to delete yet.
+func TestNilAndEmptyBitmapsMergeAlike(t *testing.T) {
+	nilIfEmpty := func(b *sroar.Bitmap) *sroar.Bitmap {
+		if b != nil && b.IsEmpty() {
+			return nil
+		}
+		return b
+	}
+
+	type layer struct{ add, del []uint64 }
+	for _, tt := range []struct {
+		name     string
+		disk     []uint64
+		diskMiss bool
+		layers   []layer
+	}{
+		{"disk hit, write-only layer", []uint64{1, 2}, false, []layer{{add: []uint64{3}}}},
+		{"disk hit, delete-only layer", []uint64{1, 2}, false, []layer{{del: []uint64{2}}}},
+		{"disk hit, delete then re-add", []uint64{1}, false, []layer{{del: []uint64{1}}, {add: []uint64{1}}}},
+		{"disk miss, delete-only then add", nil, true, []layer{{del: []uint64{5}}, {add: []uint64{5}}}},
+		{"disk miss, delete-only then unrelated add", nil, true, []layer{{del: []uint64{5}}, {add: []uint64{9}}}},
+		{"disk miss, delete-only alone", nil, true, []layer{{del: []uint64{5}}}},
+		{"disk miss, two delete-only", nil, true, []layer{{del: []uint64{5}}, {del: []uint64{6}}}},
+		{"disk miss, add then delete", nil, true, []layer{{add: []uint64{7}}, {del: []uint64{7}}}},
+		{"disk hit, layer holding nothing", []uint64{1, 2}, false, []layer{{}}},
+		{"disk miss, layer holding nothing", nil, true, []layer{{}}},
+		{"disk hit, layer holding nothing between two that do", []uint64{1}, false, []layer{{add: []uint64{2}}, {}, {del: []uint64{1}}}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			run := func(nilEmpty bool) []uint64 {
+				var base *sroar.Bitmap
+				if !tt.diskMiss {
+					base = NewBitmap(tt.disk...)
+				}
+				m := NewLayerMerger(base, false, 1)
+				for _, l := range tt.layers {
+					lay := BitmapLayer{Additions: NewBitmap(l.add...), Deletions: NewBitmap(l.del...)}
+					if nilEmpty {
+						lay.Additions = nilIfEmpty(lay.Additions)
+						lay.Deletions = nilIfEmpty(lay.Deletions)
+					}
+					m.Add(lay)
+				}
+				return m.Result().ToArray()
+			}
+			require.Equal(t, run(false), run(true),
+				"nilling an empty bitmap must not change the merged result")
+		})
+	}
+}
+
+// TestLayerHoldingNothingMergesAsIfAbsent pins that a layer with both sides
+// empty (the shape an AddList with no values produces) folds exactly as if
+// the memtable did not hold that key at all.
+func TestLayerHoldingNothingMergesAsIfAbsent(t *testing.T) {
+	empty := func() BitmapLayer { return BitmapLayer{Additions: sroar.NewBitmap(), Deletions: sroar.NewBitmap()} }
+
+	for _, tt := range []struct {
+		name     string
+		disk     []uint64
+		diskMiss bool
+		before   []BitmapLayer // layers folded before the empty one
+		after    []BitmapLayer // and after it
+	}{
+		{name: "alone, over a disk row", disk: []uint64{1, 2}},
+		{name: "alone, no disk row", diskMiss: true},
+		{
+			name: "between two that contribute", disk: []uint64{1},
+			before: []BitmapLayer{{Additions: NewBitmap(2)}},
+			after:  []BitmapLayer{{Deletions: NewBitmap(1)}},
+		},
+		{
+			name: "first, ahead of a delete-only layer", diskMiss: true,
+			after: []BitmapLayer{{Deletions: NewBitmap(5)}, {Additions: NewBitmap(5)}},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fold := func(withEmpty bool) []uint64 {
+				var base *sroar.Bitmap
+				if !tt.diskMiss {
+					base = NewBitmap(tt.disk...)
+				}
+				m := NewLayerMerger(base, false, 1)
+				for _, l := range tt.before {
+					m.Add(l)
+				}
+				if withEmpty {
+					m.Add(empty())
+				}
+				for _, l := range tt.after {
+					m.Add(l)
+				}
+				return m.Result().ToArray()
+			}
+			require.Equal(t, fold(false), fold(true),
+				"a layer holding nothing must fold as if it were not there")
+		})
+	}
 }

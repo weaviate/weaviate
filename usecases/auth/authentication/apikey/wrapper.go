@@ -19,26 +19,29 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey/keys"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 type ApiKey struct {
-	static  *StaticApiKey
-	Dynamic *DBUser
+	static                    *StaticApiKey
+	Dynamic                   *DBUser
+	namespaceSuspendedMessage string
 }
 
-func New(cfg config.Config, logger logrus.FieldLogger) (*ApiKey, error) {
+func New(cfg config.Config, logger logrus.FieldLogger, nsExister namespaces.Exister) (*ApiKey, error) {
 	static, err := NewStatic(cfg)
 	if err != nil {
 		return nil, err
 	}
-	dynamic, err := NewDBUser(cfg.Persistence.DataPath, cfg.Authentication.DBUsers.Enabled, logger)
+	dynamic, err := NewDBUser(cfg.Persistence.DataPath, cfg.Authentication.DBUsers.Enabled, logger, nsExister)
 	if err != nil {
 		return nil, err
 	}
 
 	return &ApiKey{
-		static:  static,
-		Dynamic: dynamic,
+		static:                    static,
+		Dynamic:                   dynamic,
+		namespaceSuspendedMessage: cfg.Namespaces.SuspendedMessage,
 	}, nil
 }
 
@@ -71,6 +74,9 @@ func (a *ApiKey) ValidateAndExtract(token string, scopes []string) (*models.Prin
 
 	principal, err := validate(token, scopes)
 	if err != nil {
+		if msg, ok := namespaces.PublicMessage(err, a.namespaceSuspendedMessage); ok {
+			return nil, errors.New(401, "unauthorized: %s", msg)
+		}
 		return nil, errors.New(401, "unauthorized: %v", err)
 	}
 	return principal, nil

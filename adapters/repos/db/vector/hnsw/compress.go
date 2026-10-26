@@ -35,9 +35,14 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 	}()
 	data := h.cache.All()
 	singleVector := !h.multivector.Load() || h.muvera.Load()
-	if cfg.PQ.Enabled || cfg.SQ.Enabled {
+	rqCentered := cfg.RQ.Enabled && cfg.RQ.Centering
+	if cfg.PQ.Enabled || cfg.SQ.Enabled || rqCentered {
 		if h.isEmpty() {
 			return errors.New("compress command cannot be executed before inserting some data")
+		}
+		trainingLimit := cfg.PQ.TrainingLimit
+		if rqCentered {
+			trainingLimit = cfg.RQ.TrainingLimit
 		}
 		cleanData := make([][]float32, 0, len(data))
 		sampler := common.NewSparseFisherYatesIterator(len(data))
@@ -67,11 +72,24 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			}
 
 			cleanData = append(cleanData, p)
-			if len(cleanData) >= cfg.PQ.TrainingLimit {
+			if len(cleanData) >= trainingLimit {
 				break
 			}
 		}
-		if cfg.PQ.Enabled {
+		if rqCentered {
+			if !singleVector {
+				return errors.New("rq centering is not supported for multivector indexes")
+			}
+			dims := int(h.dims.Load())
+			mean := compressionhelpers.MeanVector(cleanData, dims)
+			var err error
+			h.compressor, err = compressionhelpers.NewCenteredRQ4Compressor(
+				h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker,
+				h.makeBucketOptions, dims, mean, h.compressedBucketName(), h.vectorForID)
+			if err != nil {
+				return fmt.Errorf("compressing vectors: %w", err)
+			}
+		} else if cfg.PQ.Enabled {
 			dims := int(h.dims.Load())
 
 			if cfg.PQ.Segments <= 0 {
@@ -83,11 +101,11 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			if singleVector {
 				h.compressor, err = compressionhelpers.NewHNSWPQCompressor(
 					cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
-					h.makeBucketOptions, h.allocChecker, h.getTargetVector(), h.vectorForID)
+					h.makeBucketOptions, h.allocChecker, h.compressedBucketName(), h.vectorForID)
 			} else {
 				h.compressor, err = compressionhelpers.NewHNSWPQMultiCompressor(
 					cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
-					h.makeBucketOptions, h.allocChecker, h.getTargetVector(), h.multiVectorForNodeID)
+					h.makeBucketOptions, h.allocChecker, h.compressedBucketName(), h.multiVectorForNodeID)
 			}
 			if err != nil {
 				h.pqConfig.Enabled = false
@@ -98,11 +116,11 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			if singleVector {
 				h.compressor, err = compressionhelpers.NewHNSWSQCompressor(
 					h.distancerProvider, 1e12, h.logger, cleanData, h.store,
-					h.makeBucketOptions, h.allocChecker, h.getTargetVector(), h.vectorForID)
+					h.makeBucketOptions, h.allocChecker, h.compressedBucketName(), h.vectorForID)
 			} else {
 				h.compressor, err = compressionhelpers.NewHNSWSQMultiCompressor(
 					h.distancerProvider, 1e12, h.logger, cleanData, h.store,
-					h.makeBucketOptions, h.allocChecker, h.getTargetVector(), h.multiVectorForNodeID)
+					h.makeBucketOptions, h.allocChecker, h.compressedBucketName(), h.multiVectorForNodeID)
 			}
 			if err != nil {
 				h.sqConfig.Enabled = false
@@ -114,11 +132,11 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		if singleVector {
 			h.compressor, err = compressionhelpers.NewBQCompressor(
 				h.distancerProvider, 1e12, h.logger, h.store,
-				h.makeBucketOptions, h.allocChecker, h.getTargetVector(), h.vectorForID)
+				h.makeBucketOptions, h.allocChecker, h.compressedBucketName(), h.vectorForID)
 		} else {
 			h.compressor, err = compressionhelpers.NewBQMultiCompressor(
 				h.distancerProvider, 1e12, h.logger, h.store,
-				h.makeBucketOptions, h.allocChecker, h.getTargetVector(), h.multiVectorForNodeID)
+				h.makeBucketOptions, h.allocChecker, h.compressedBucketName(), h.multiVectorForNodeID)
 		}
 		if err != nil {
 			return err

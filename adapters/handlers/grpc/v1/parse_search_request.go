@@ -62,19 +62,19 @@ type Parser struct {
 	generative         generativeParser
 	authorizedGetClass classGetterWithAuthzFunc
 	principal          *models.Principal
-	namespacesEnabled  bool
+	qualifier          namespacing.Qualifier
 }
 
 func NewParser(uses127Api bool,
 	authorizedGetClass classGetterWithAuthzFunc,
 	principal *models.Principal,
-	namespacesEnabled bool,
+	qualifier namespacing.Qualifier,
 ) *Parser {
 	return &Parser{
 		generative:         generative.NewParser(uses127Api),
 		authorizedGetClass: authorizedGetClass,
 		principal:          principal,
-		namespacesEnabled:  namespacesEnabled,
+		qualifier:          qualifier,
 	}
 }
 
@@ -292,6 +292,13 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 			}
 		}
 
+		if req.HybridSearch.NearText != nil && req.HybridSearch.NearText.Selection != nil {
+			return dto.GetParams{}, errors.New("hybrid: selection must be set on the top-level hybrid search, not on the near_text sub-search")
+		}
+		if req.HybridSearch.NearVector != nil && req.HybridSearch.NearVector.Selection != nil {
+			return dto.GetParams{}, errors.New("hybrid: selection must be set on the top-level hybrid search, not on the near_vector sub-search")
+		}
+
 		nearTxt, err := extractNearText(out.ClassName, out.Pagination.Limit, req.HybridSearch.NearText, targetVectors)
 		if err != nil {
 			return dto.GetParams{}, err
@@ -381,7 +388,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 
 	if req.Boost != nil {
-		boost, err := p.extractBoost(req.Boost, req.Collection, req.Tenant, p.namespacesEnabled)
+		boost, err := p.extractBoost(req.Boost, req.Collection, req.Tenant, p.qualifier)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
@@ -393,7 +400,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 
 	if req.Filters != nil {
-		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection, req.Tenant, p.namespacesEnabled, p.principal)
+		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection, req.Tenant, p.qualifier, p.principal)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
@@ -431,7 +438,22 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		return dto.GetParams{}, errors.New("cannot combine nearVector and vector in hybrid search")
 	}
 	if out.Selection != nil {
-		for _, tv := range targetVectors {
+		if mmr := out.Selection.MMR; mmr != nil {
+			if mmr.Limit == 0 {
+				return dto.GetParams{}, errors.New("MMR limit must be at least 1")
+			}
+			if out.Pagination.Limit > 0 && int(mmr.Limit) > out.Pagination.Limit {
+				return dto.GetParams{}, fmt.Errorf("MMR limit (%d) cannot be larger than the query limit (%d)", mmr.Limit, out.Pagination.Limit)
+			}
+			if mmr.Balance < 0 || mmr.Balance > 1 {
+				return dto.GetParams{}, errors.New("MMR balance must be between 0 and 1")
+			}
+		}
+		selectionTargets := targetVectors
+		if len(selectionTargets) == 0 {
+			selectionTargets = []string{""}
+		}
+		for _, tv := range selectionTargets {
 			if isTargetVectorMultiVector(class, tv) {
 				return dto.GetParams{}, fmt.Errorf("MMR selection is not supported with multi-vector indexes (target vector %q)", tv)
 			}
@@ -651,7 +673,7 @@ func extractRerank(req *pb.SearchRequest) *rank.Params {
 	return &rerank
 }
 
-func (p *Parser) extractBoost(boost *pb.Boost, className, tenant string, namespacesEnabled bool) (*filters.Boost, error) {
+func (p *Parser) extractBoost(boost *pb.Boost, className, tenant string, qualifier namespacing.Qualifier) (*filters.Boost, error) {
 	if boost == nil {
 		return nil, nil
 	}
@@ -663,7 +685,7 @@ func (p *Parser) extractBoost(boost *pb.Boost, className, tenant string, namespa
 
 	conditions := make([]filters.BoostCondition, 0, len(boost.GetConditions()))
 	for i, cond := range boost.GetConditions() {
-		pc, err := p.extractBoostCondition(cond, className, tenant, i, namespacesEnabled)
+		pc, err := p.extractBoostCondition(cond, className, tenant, i, qualifier)
 		if err != nil {
 			return nil, err
 		}
@@ -688,7 +710,7 @@ func (p *Parser) extractBoost(boost *pb.Boost, className, tenant string, namespa
 	return result, nil
 }
 
-func (p *Parser) extractBoostCondition(cond *pb.Boost_Condition, className, tenant string, idx int, namespacesEnabled bool) (filters.BoostCondition, error) {
+func (p *Parser) extractBoostCondition(cond *pb.Boost_Condition, className, tenant string, idx int, qualifier namespacing.Qualifier) (filters.BoostCondition, error) {
 	weight := float32(1.0)
 	if cond.Weight != nil {
 		weight = cond.GetWeight()
@@ -700,7 +722,7 @@ func (p *Parser) extractBoostCondition(cond *pb.Boost_Condition, className, tena
 
 	switch c := cond.GetCondition().(type) {
 	case *pb.Boost_Condition_Filter:
-		clause, err := ExtractFilters(c.Filter, p.authorizedGetClass, className, tenant, namespacesEnabled, p.principal)
+		clause, err := ExtractFilters(c.Filter, p.authorizedGetClass, className, tenant, qualifier, p.principal)
 		if err != nil {
 			return filters.BoostCondition{}, fmt.Errorf("boost condition[%d] filter: %w", idx, err)
 		}
@@ -1022,7 +1044,7 @@ func (p *Parser) extractPropertiesRequest(reqProps *pb.PropertiesRequest, classN
 							"linked collection. Available linked collections are %v",
 						className, prop.ReferenceProperty, schemaProp.DataType)
 				}
-				linkedClassName, _, err = namespacing.QualifyRefTarget(p.principal, p.namespacesEnabled, className, prop.TargetCollection)
+				linkedClassName, _, err = namespacing.QualifyRefTarget(p.principal, p.qualifier, className, prop.TargetCollection)
 				if err != nil {
 					return nil, err
 				}
@@ -1316,6 +1338,13 @@ func parseNearIMU(n *pb.NearIMUSearch, targetVectors []string) (*nearImu.NearIMU
 func parseNearVec(nv *pb.NearVector, targetVectors []string,
 	class *models.Class, targetCombination *dto.TargetCombination,
 ) (*searchparams.NearVector, *dto.TargetCombination, error) {
+	// targetCombination is nil for aggregates and for searches without a
+	// targets message; fall back to the default type instead of dereferencing.
+	combinationType := dto.DefaultTargetCombinationType
+	if targetCombination != nil {
+		combinationType = targetCombination.Type
+	}
+
 	var vector models.Vector
 	var err error
 	// vectors has precedent for being more efficient
@@ -1371,7 +1400,7 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string,
 			targetVectorsTmp = deduplicatedTargetVectorsTmp
 			vectors = make([]models.Vector, len(targetVectorsTmp))
 
-			switch targetCombination.Type {
+			switch combinationType {
 			case dto.ManualWeights, dto.RelativeScore:
 				// do nothing, Manual and Relative Scores don't need adjustment
 			default:
@@ -1454,7 +1483,7 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string,
 		}
 
 		if detectCombinationWeights {
-			switch targetCombination.Type {
+			switch combinationType {
 			case dto.Average:
 				fixedWeights := extractTargetCombinationAverageWeights(detectedTargetVectorNames)
 				adjustedTargetCombination = &dto.TargetCombination{
@@ -1467,7 +1496,7 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string,
 				}
 			default:
 				adjustedTargetCombination = &dto.TargetCombination{
-					Type: targetCombination.Type, Weights: make([]float32, len(detectedTargetVectorNames)),
+					Type: combinationType, Weights: make([]float32, len(detectedTargetVectorNames)),
 				}
 			}
 		}

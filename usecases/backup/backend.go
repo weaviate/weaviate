@@ -23,13 +23,13 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -56,6 +56,8 @@ const (
 	GlobalBackupFile  = "backup_config.json"
 	GlobalRestoreFile = "restore_config.json"
 	TempDirectory     = ".backup.tmp"
+	// stagingMarkerFile names the attempt that owns a class staging dir; the path itself is class-scoped and shared across attempts.
+	stagingMarkerFile = ".attempt"
 )
 
 // numCPU sizes worker pools. GOMAXPROCS (not NumCPU) may reflect the cgroup CPU
@@ -76,10 +78,6 @@ type objectStore struct {
 
 func (s *objectStore) HomeDir(overrideBucket, overridePath string) string {
 	return s.backend.HomeDir(s.backupId, overrideBucket, overridePath)
-}
-
-func (s *objectStore) WriteToFile(ctx context.Context, key, destPath, overrideBucket, overridePath string) error {
-	return s.backend.WriteToFile(ctx, s.backupId, key, destPath, overrideBucket, overridePath)
 }
 
 // SourceDataPath is data path of all source files
@@ -129,31 +127,35 @@ func (s *objectStore) meta(ctx context.Context, key, overrideBucket, overridePat
 	return nil
 }
 
+// hasMeta reports whether a parseable metadata file exists at key.
+func (s *objectStore) hasMeta(ctx context.Context, key, overrideBucket, overridePath string) bool {
+	var desc backup.BackupDescriptor
+	return s.meta(ctx, key, overrideBucket, overridePath, &desc) == nil
+}
+
 type nodeStore struct {
 	objectStore
 }
 
-// Meta gets meta data using standard path or deprecated old path
-//
-// adjustBasePath: sets the base path to the old path if the backup has been created prior to v1.17.
-func (s *nodeStore) Meta(ctx context.Context, backupID, overrideBucket, overridePath string, adjustBasePath bool) (*backup.BackupDescriptor, error) {
+// Meta gets the node's metadata. A backup carrying metadata only at the top-level base path
+// is refused as errLegacySingleNode.
+func (s *nodeStore) Meta(ctx context.Context, backupID, overrideBucket, overridePath string) (*backup.BackupDescriptor, error) {
 	var result backup.BackupDescriptor
 	err := s.meta(ctx, BackupFile, overrideBucket, overridePath, &result)
 	if err != nil {
-		cs := &objectStore{s.backend, backupID, overrideBucket, overridePath, ""} // for backward compatibility
-		if err := cs.meta(ctx, BackupFile, overrideBucket, overridePath, &result); err == nil {
-			if adjustBasePath {
-				s.objectStore.backupId = backupID
-			}
-			return &result, nil
+		base := &objectStore{s.backend, backupID, overrideBucket, overridePath, ""}
+		if base.hasMeta(ctx, BackupFile, overrideBucket, overridePath) {
+			return &result, errLegacySingleNode
 		}
 	}
 
 	return &result, err
 }
 
-func (s *nodeStore) MetaForBackupID(ctx context.Context, backupID, overrideBucket, overridePath string) (*backup.BackupDescriptor, error) {
-	var result *backup.BackupDescriptor
+// BaseMetaForBackupID reads this node's metadata in backup backupID for an incremental
+// backup built on it.
+func (s *nodeStore) BaseMetaForBackupID(ctx context.Context, backupID, overrideBucket, overridePath string) (*backup.BaseBackupDescriptor, error) {
+	var result *backup.BaseBackupDescriptor
 
 	cs := &objectStore{s.backend, fmt.Sprintf("%s/%s", backupID, s.node), overrideBucket, overridePath, ""} // for backward compatibility
 	if err := cs.meta(ctx, BackupFile, overrideBucket, overridePath, &result); err != nil {
@@ -179,17 +181,30 @@ func (s *coordStore) PutMeta(ctx context.Context, filename string, desc *backup.
 	return s.putMeta(ctx, filename, overrideBucket, overridePath, desc)
 }
 
-// Meta gets coordinator's global metadata from object store
+// Meta gets coordinator's global metadata from object store. A backup carrying only the
+// top-level per-node metadata is refused as errLegacySingleNode.
 func (s *coordStore) Meta(ctx context.Context, filename, overrideBucket, overridePath string) (*backup.DistributedBackupDescriptor, error) {
 	var result backup.DistributedBackupDescriptor
 	err := s.meta(ctx, filename, overrideBucket, overridePath, &result)
-	if err != nil && filename == GlobalBackupFile {
-		var oldBackup backup.BackupDescriptor
-		if err := s.meta(ctx, BackupFile, overrideBucket, overridePath, &oldBackup); err == nil {
-			return oldBackup.ToDistributed(), nil
-		}
+	if err != nil && filename == GlobalBackupFile &&
+		s.hasMeta(ctx, BackupFile, overrideBucket, overridePath) {
+		return &result, errLegacySingleNode
 	}
 	return &result, err
+}
+
+// GlobalMetaForBackupID keeps distributed-only fields that MetaForBackupID's per-node decode type drops.
+func (s *coordStore) GlobalMetaForBackupID(ctx context.Context, backupID, overrideBucket, overridePath string) (*backup.DistributedBackupDescriptor, error) {
+	var result *backup.DistributedBackupDescriptor
+
+	cs := &coordStore{objectStore{s.backend, backupID, overrideBucket, overridePath, ""}}
+	if err := cs.meta(ctx, GlobalBackupFile, overrideBucket, overridePath, &result); err != nil {
+		return nil, err
+	}
+	if result == nil {
+		return nil, fmt.Errorf("no global backup descriptor found in %s", backupID)
+	}
+	return result, nil
 }
 
 func (s *coordStore) MetaForBackupID(ctx context.Context, backupID, overrideBucket, overridePath string) (*backup.BackupDescriptor, error) {
@@ -209,34 +224,53 @@ func (s *coordStore) MetaForBackupID(ctx context.Context, backupID, overrideBuck
 type uploader struct {
 	cfg            config.Backup
 	sourcer        Sourcer
-	rbacSourcer    fsm.Snapshotter
+	rbacSourcer    RBACSnapshotter
 	dynUserSourcer dynUserSnapshotter
-	// Resolved includeUsers ids; empty → whole-cluster snapshot.
-	users    []string
-	backend  nodeStore
-	backupID string
+	selection      snapshotSelection
+	backend        nodeStore
+	backupID       string
+	// class -> shard -> archiving node; nil = every local shard.
+	shardDesignations map[string]map[string]string
 	zipConfig
-	setStatus func(st backup.Status)
-	log       logrus.FieldLogger
+	// slot is the node's own operation slot, which is what a status poll reads
+	// until the descriptor is written to the backend.
+	slot statusPublisher
+	log  logrus.FieldLogger
 }
 
-func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer dynUserSnapshotter, users []string, backend nodeStore,
-	backupID string, setstatus func(st backup.Status), l logrus.FieldLogger,
+// statusPublisher is the observable half of a node's operation slot. Failing
+// goes through its own method so a failure can never be published without the
+// reason that belongs to it; see [backupStat.setFailed].
+type statusPublisher interface {
+	set(st backup.Status)
+	setFailed(reason string)
+}
+
+// snapshotSelection is what the scheduler resolved from includeUsers and
+// includeRoles. Empty users/roles mean the whole-cluster snapshot; the skip
+// flags exclude snapshots for empty lists or unmatched wildcards.
+type snapshotSelection struct {
+	users, roles         []string
+	skipUsers, skipRoles bool
+}
+
+func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer RBACSnapshotter, dynUserSourcer dynUserSnapshotter, selection snapshotSelection, backend nodeStore,
+	backupID string, slot statusPublisher, l logrus.FieldLogger,
 ) *uploader {
 	return &uploader{
 		cfg:            cfg,
 		sourcer:        sourcer,
 		rbacSourcer:    rbacSourcer,
 		dynUserSourcer: dynUserSourcer,
-		users:          users,
+		selection:      selection,
 		backend:        backend,
 		backupID:       backupID,
 		zipConfig: newZipConfig(Compression{
 			Level:         GzipDefaultCompression,
 			CPUPercentage: DefaultCPUPercentage,
 		}),
-		setStatus: setstatus,
-		log:       l,
+		slot: slot,
+		log:  l,
 	}
 }
 
@@ -245,112 +279,243 @@ func (u *uploader) withCompression(cfg zipConfig) *uploader {
 	return u
 }
 
+func (u *uploader) withShardDesignations(designations map[string]map[string]string) *uploader {
+	u.shardDesignations = designations
+	return u
+}
+
 // all uploads all files in addition to the metadata file
-func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, baseDescr []*backup.BackupDescriptor, overrideBucket, overridePath string) (err error) {
-	u.setStatus(backup.Transferring)
+func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, baseDescr []*backup.BaseBackupDescriptor, overrideBucket, overridePath string) (err error) {
+	u.slot.set(backup.Transferring)
 	desc.Status = backup.Transferring
-	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes, baseDescr)
+	// all owns the producer's context so it can be stopped before any index is
+	// released. Without that the wait covers every class the backup never reached.
+	producerCtx, stopProducer := context.WithCancel(ctx)
+	ch := u.sourcer.BackupDescriptors(producerCtx, desc.ID, classes, baseDescr, u.shardDesignations)
+	// A class the producer snapshots after the release below stays marked in
+	// progress, and the next backup of that class fails. Draining to close is what
+	// proves it stopped. Draining twice costs nothing, so the normal path calls
+	// this directly and the defer covers a panic or an early return.
+	stopAndDrainProducer := func() {
+		stopProducer()
+		for range ch {
+		}
+	}
 	var totalPreCompressionSize int64 // Track total pre-compression bytes
+	// completed is set on the one path that runs the backup to the end. The defer
+	// below reads it to tell that path from a panic, which leaves err nil on a
+	// backup that stopped somewhere in the middle.
+	var completed bool
+
+	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessBackup)()
+
 	defer func() {
 		//  release indexes under all conditions
 		u.releaseIndexes(classes, desc.ID)
 
-		//  make sure context is not cancelled when uploading metadata
-		ctx := context.Background()
+		//  make sure context is not cancelled when uploading metadata. Its own
+		//  name, so the cancellation check below still reads the operation's
+		//  context rather than this one, which can never be cancelled.
+		metaCtx := context.Background()
+
+		// A panic unwinds through here with err nil, and the success branch would
+		// publish the node as done on a backup that never reached the end.
+		if err == nil && !completed {
+			err = errors.New("backup did not run to completion")
+		}
 
 		// Handle success case first
 		if err == nil {
 			u.log.Info("start uploading metadata")
-			if err = u.backend.PutMeta(ctx, desc, overrideBucket, overridePath); err != nil {
+			if err = u.backend.PutMeta(metaCtx, desc, overrideBucket, overridePath); err != nil {
+				// Nothing to restore from without the descriptor, so this ends
+				// as a failure. Publishing SUCCESS here would have the
+				// coordinator count the node done and report a backup that
+				// cannot be restored as good.
 				desc.Status = backup.Transferred
+				u.slot.setFailed(err.Error())
+			} else {
+				u.slot.set(backup.Success)
 			}
-			u.setStatus(backup.Success)
 			u.log.Info("finish uploading metadata")
 			return
 		}
 
-		desc.Error = err.Error()
+		desc.Error = nonEmptyErrMsg(err)
 
 		// Handle error cases
-		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
-			u.setStatus(backup.Cancelled)
+		cancelled := errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled)
+		if cancelled {
+			u.slot.set(backup.Cancelled)
 			desc.Status = backup.Cancelled
+		} else {
+			desc.Status = backup.Failed
+			monitoring.GetBackgroundProcessMetrics().Failed(monitoring.ProcessBackup)
 		}
 
 		u.log.Info("start uploading metadata for cancelled or failed backup")
-		if metaErr := u.backend.PutMeta(ctx, desc, overrideBucket, overridePath); metaErr != nil {
+		if metaErr := u.backend.PutMeta(metaCtx, desc, overrideBucket, overridePath); metaErr != nil {
 			// combine errors for shadowing the original error in case
 			// of putMeta failure
 			err = fmt.Errorf("upload %w: %w", err, metaErr)
 		}
+		// After the meta write, which has to carry the reason by the time a
+		// poll can see FAILED. err is published rather than desc.Error, which
+		// was fixed before the write and so says nothing when the write is
+		// what failed.
+		if !cancelled {
+			u.slot.setFailed(err.Error())
+		}
 		u.log.Info("finish uploading metadata for cancelled or failed backup")
 	}()
+
+	// Registered after the release above, so reverse order runs it first and no
+	// index is released while the producer can still snapshot its class.
+	defer stopAndDrainProducer()
 
 	contextChecker := func(ctx context.Context) error {
 		ctxerr := ctx.Err()
 		if ctxerr != nil {
-			u.setStatus(backup.Cancelled)
+			u.slot.set(backup.Cancelled)
 			desc.Status = backup.Cancelled
 			u.releaseIndexes(classes, desc.ID)
 		}
 		return ctxerr
 	}
 
+	// One pool for the whole backup, shared by the shards of every class. A pool
+	// per class could never run wider than that class's shard count, so a node
+	// holding thousands of single-shard collections would upload one shard at a time.
+	poolCtx, cancelPool := context.WithCancel(ctx)
+	eg, poolCtx := enterrors.NewErrorGroupWithContextWrapper(u.log, poolCtx)
+	eg.SetLimit(max(u.GoPoolSize, 1))
+	// Releasing an index deletes the class's staging dir, which its shard jobs read
+	// from. Defers run in reverse order, so this one drains the pool before the
+	// release in the defer above it. Cancelling first is what bounds the drain. A
+	// shard job runs under storeTimeout, so waiting on jobs nothing has cancelled
+	// parks the backup for a day. The normal path already waits below. This defer
+	// is for a panic or an early return.
+	defer func() {
+		cancelPool()
+		_ = eg.Wait()
+	}()
+
+	var (
+		uploads []*classUpload
+		descErr error
+	)
+
 Loop:
 	for {
 		select {
 		case cdesc, ok := <-ch:
 			if !ok {
-				u.releaseIndexes(classes, desc.ID)
 				break Loop // we are done
 			}
 			if cdesc.Error != nil {
-				return cdesc.Error
+				descErr = cdesc.Error
+				cancelPool()
+				break Loop
 			}
-			u.log.WithField("class", cdesc.Name).Info("start uploading files")
-			preCompressionSize, err := u.class(ctx, desc.ID, &cdesc, overrideBucket, overridePath)
-			if err != nil {
-				return err
-			}
-			totalPreCompressionSize += preCompressionSize
-			cdesc.PreCompressionSizeBytes = preCompressionSize // Set pre-compression size for this class
-			desc.Classes = append(desc.Classes, cdesc)
-			u.log.WithField("class", cdesc.Name).Info("finish uploading files")
+			uploads = append(uploads, u.submitClass(poolCtx, eg, desc.ID, cdesc, overrideBucket, overridePath))
 
-		case <-ctx.Done():
-			return contextChecker(ctx)
+		// cancelled when the backup is aborted and when the first shard job fails.
+		// Either way there is no point taking more class descriptors.
+		case <-poolCtx.Done():
+			break Loop
 		}
+	}
+
+	// Wait before releasing. A class still in the pool is reading its staging dir,
+	// and the release deletes it. Every class the loop submitted has already
+	// released itself in finish, so this only covers the ones it never reached.
+	poolErr := eg.Wait()
+
+	stopAndDrainProducer()
+	u.releaseIndexes(classes, desc.ID)
+
+	// uploads is in the order the descriptors arrived, so classes finishing out of
+	// order does not reorder desc.Classes.
+	for _, cu := range uploads {
+		if !cu.complete() {
+			continue
+		}
+		desc.Classes = append(desc.Classes, cu.desc)
+		totalPreCompressionSize += cu.desc.PreCompressionSizeBytes
+	}
+
+	// descErr is returned first, because it is the real cause. cancelPool has
+	// already failed the in-flight shards with context.Canceled, and the defer
+	// above publishes that as a cancelled backup instead of a failed one. Those
+	// shard errors are not lost, since finish logs every class that did not
+	// upload in full.
+	if descErr != nil {
+		return descErr
+	}
+	if poolErr != nil {
+		return poolErr
+	}
+	// The producer stopped without saying why, so publishing here would report a
+	// backup that omits every class it never described.
+	if ctx.Err() == nil && len(uploads) != len(classes) {
+		return fmt.Errorf("backup describes %d of %d classes", len(uploads), len(classes))
 	}
 
 	if err := ctx.Err(); err != nil {
 		return contextChecker(ctx)
+	} else if u.selection.skipRoles {
+		u.log.Info("includeRoles selects no roles, skipping RBAC backup")
 	} else if u.rbacSourcer != nil {
 		u.log.Info("start uploading RBAC backups")
-		descrp, err := u.rbacSourcer.Snapshot()
+		descrp, err := u.rbacSourcer.Snapshot(u.selection.roles...)
 		if err != nil {
 			return err
 		}
 		desc.RbacBackups = descrp
+	} else if len(u.selection.roles) > 0 {
+		return fmt.Errorf("includeRoles requested but RBAC is not enabled")
 	}
 
 	if err := ctx.Err(); err != nil {
 		return contextChecker(ctx)
+	} else if u.selection.skipUsers {
+		u.log.Info("includeUsers selects no users, skipping dynamic user backup")
 	} else if u.dynUserSourcer != nil {
 		u.log.Info("start uploading dynamic user backups")
-		descrp, err := u.dynUserSourcer.Snapshot(u.users...)
+		descrp, err := u.dynUserSourcer.Snapshot(u.selection.users...)
 		if err != nil {
 			return err
 		}
 		desc.UserBackups = descrp
-	} else if len(u.users) > 0 {
+	} else if len(u.selection.users) > 0 {
 		return fmt.Errorf("includeUsers requested but DB Users are not enabled")
 	}
 
-	u.setStatus(backup.Transferred)
+	u.slot.set(backup.Transferred)
 	desc.Status = backup.Success
 	// After all classes, set desc.PreCompressionSizeBytes as the sum of all class sizes
 	desc.PreCompressionSizeBytes = totalPreCompressionSize
+	completed = true
 	return nil
+}
+
+// nonEmptyErrMsg is err's text, or a stand-in when it has none. The failure
+// text is served verbatim from the status API, backend messages and all.
+func nonEmptyErrMsg(err error) string {
+	if msg := err.Error(); msg != "" {
+		return msg
+	}
+	return failureWithoutReason
+}
+
+// labelErr names the step err came from, and reports nil for a step that
+// succeeded. Labelling a nil error with %w instead renders "%!w(<nil>)" for the
+// step that worked, in text the status API serves verbatim.
+func labelErr(label string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%s: %w", label, err)
 }
 
 func (u *uploader) releaseIndexes(classes []string, bakID string) {
@@ -367,120 +532,137 @@ func (u *uploader) releaseIndexes(classes []string, bakID string) {
 	}
 }
 
-// class uploads one class
-// Returns the number of bytes written for this class
-func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescriptor, overrideBucket, overridePath string) (int64, error) {
-	var err error
-	classLabel := desc.Name
+// classUpload is the state one class's shard jobs share. It holds the
+// descriptor they fill in, and the counters that decide when the class is done
+// and whether it uploaded in full.
+type classUpload struct {
+	desc      backup.ClassDescriptor
+	lastChunk atomic.Int32
+
+	// mu guards the descriptor fields the shard jobs write.
+	mu sync.Mutex
+
+	// pending counts shard jobs that have not returned yet. The job that brings it
+	// to zero runs finish.
+	pending atomic.Int32
+	// shardsDone counts the shards that uploaded. A job bumps it only on its way
+	// out, so one that fails or panics leaves its class incomplete.
+	shardsDone atomic.Int32
+
+	// finish runs once, on whichever shard job returns last.
+	finish func()
+}
+
+// complete reports whether every shard of the class uploaded. Only a complete
+// class may join the backup descriptor. A partial one still lists all its
+// shards but holds chunks for only some. The restore then skips the rest
+// without reporting anything.
+func (c *classUpload) complete() bool {
+	return int(c.shardsDone.Load()) == len(c.desc.Shards)
+}
+
+// submitClass queues every shard of one class on the shared pool and returns
+// without waiting for them, so the caller can move on to the next class. The
+// returned classUpload is what those jobs write their result into. Read it only
+// once the pool has drained.
+func (u *uploader) submitClass(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
+	id string, cdesc backup.ClassDescriptor, overrideBucket, overridePath string,
+) *classUpload {
+	cu := &classUpload{desc: cdesc}
+
+	classLabel := cdesc.Name
 	if monitoring.GetMetrics().Group {
 		classLabel = "n/a"
 	}
-	metric, err := monitoring.GetMetrics().BackupStoreDurations.GetMetricWithLabelValues(getType(u.backend.backend), classLabel)
-	if err == nil {
+	observe := func() {}
+	if metric, err := monitoring.GetMetrics().BackupStoreDurations.
+		GetMetricWithLabelValues(getType(u.backend.backend), classLabel); err == nil {
 		timer := prometheus.NewTimer(metric)
-		defer timer.ObserveDuration()
+		observe = func() { timer.ObserveDuration() }
 	}
-	defer func() {
-		// backups need to be released anyway
-		enterrors.GoWrapper(func() {
-			if err := u.sourcer.ReleaseBackup(context.Background(), id, desc.Name); err != nil {
-				u.log.WithFields(logrus.Fields{
-					"class":    desc.Name,
-					"backupID": id,
-				}).Error("failed to release backup")
-			}
-		}, u.log)
-	}()
-	ctx, cancel := context.WithTimeout(ctx, storeTimeout)
-	defer cancel()
 
+	ctx, cancel := context.WithTimeout(ctx, storeTimeout)
 	u.log.WithFields(logrus.Fields{
 		"action":   "upload_class",
 		"duration": storeTimeout,
 	}).Debug("context.WithTimeout")
 
+	// finish runs when the last shard job of the class has returned. That is the
+	// earliest the index may be released, since releasing it deletes the staging
+	// dir the jobs read from. It is also late enough for complete to know whether
+	// the class made it into the backup.
+	cu.finish = func() {
+		cancel()
+		observe()
+		u.releaseIndexes([]string{cu.desc.Name}, id)
+		if cu.complete() {
+			u.log.WithField("class", cu.desc.Name).Info("finish uploading files")
+			return
+		}
+		u.log.WithFields(logrus.Fields{
+			"class":       cu.desc.Name,
+			"shards_done": cu.shardsDone.Load(),
+			"shards":      len(cu.desc.Shards),
+		}).Warn("class left out of the backup, not all of its shards uploaded")
+	}
+
 	// Determine source path: use staging dir (hard-linked snapshot) if available,
 	// otherwise fall back to live data path for backward compatibility.
 	sourcePath := u.backend.SourceDataPath()
-	if desc.StagingDir != "" {
-		sourcePath = desc.StagingDir
+	if cdesc.StagingDir != "" {
+		sourcePath = cdesc.StagingDir
 	}
 
-	nShards := len(desc.Shards)
+	u.log.WithField("class", cu.desc.Name).Info("start uploading files")
+
+	nShards := len(cu.desc.Shards)
 	if nShards == 0 {
-		return 0, nil
+		// there are no jobs to queue, so no job will call finish
+		cu.finish()
+		return cu
 	}
 
-	desc.Chunks = make(map[int32][]string, 1+nShards/2)
-	var (
-		lastChunk atomic.Int32
-		nWorker   = u.GoPoolSize
-	)
-	if nWorker > nShards {
-		nWorker = nShards
-	}
+	cu.desc.Chunks = make(map[int32][]string, 1+nShards/2)
+	cu.pending.Store(int32(nShards))
 
-	// jobs produces work for the processor
-	jobs := func(xs []*backup.ShardDescriptor) <-chan *backup.ShardDescriptor {
-		sendCh := make(chan *backup.ShardDescriptor)
-		f := func() {
-			defer close(sendCh)
-
-			for _, shard := range xs {
-				select {
-				case sendCh <- shard:
-				// cancellation will happen for two reasons:
-				//  - 1. if the whole operation has been aborted,
-				//  - 2. or if the processor routine returns an error
-				case <-ctx.Done():
-					return
+	for _, shard := range cu.desc.Shards {
+		eg.Go(func() error {
+			defer func() {
+				if cu.pending.Add(-1) == 0 {
+					cu.finish()
 				}
-			}
-		}
-		enterrors.GoWrapper(f, u.log)
-		return sendCh
+			}()
+			return u.uploadShard(ctx, cu, shard, overrideBucket, overridePath, sourcePath)
+		})
+	}
+	return cu
+}
+
+// uploadShard compresses one shard into chunks and records them on its class.
+func (u *uploader) uploadShard(ctx context.Context, cu *classUpload, shard *backup.ShardDescriptor,
+	overrideBucket, overridePath, sourcePath string,
+) error {
+	// a failing job cancels ctx, but jobs already queued behind it still start
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
-	incrementalBackupSize := atomic.Int64{}
-
-	// processor
-	processor := func(nWorker int, sender <-chan *backup.ShardDescriptor) <-chan chunkShards {
-		eg, ctx := enterrors.NewErrorGroupWithContextWrapper(u.log, ctx)
-		eg.SetLimit(nWorker)
-		recvCh := make(chan chunkShards, nWorker)
-		f := func() {
-			defer close(recvCh)
-			for i := 0; i < nWorker; i++ {
-				eg.Go(func() error {
-					// operation might have been aborted see comment above
-					if err := ctx.Err(); err != nil {
-						return err
-					}
-					for shard := range sender {
-						incrementalBackupSize.Add(shard.IncrementalBackupInfo.TotalSize)
-						chunks, err := u.processShard(ctx, shard, desc.Name, &lastChunk, overrideBucket, overridePath, sourcePath)
-						if err != nil {
-							return err
-						}
-						for _, c := range chunks {
-							recvCh <- c
-						}
-					}
-					return nil
-				})
-			}
-			err = eg.Wait()
-		}
-		enterrors.GoWrapper(f, u.log)
-		return recvCh
+	chunks, err := u.processShard(ctx, shard, cu.desc.Name, &cu.lastChunk, overrideBucket, overridePath, sourcePath)
+	if err != nil {
+		return err
 	}
 
-	for x := range processor(nWorker, jobs(desc.Shards)) {
-		desc.Chunks[x.chunk] = x.shards
-		desc.PreCompressionSizeBytes += x.preCompressionSize
+	cu.mu.Lock()
+	defer cu.mu.Unlock()
+	var shardBytes int64
+	for _, c := range chunks {
+		cu.desc.Chunks[c.chunk] = c.shards
+		shardBytes += c.preCompressionSize
 	}
-	desc.PreCompressionSizeBytes += incrementalBackupSize.Load()
-	return desc.PreCompressionSizeBytes, err
+	shard.PreCompressionSizeBytes = shardBytes + shard.IncrementalBackupInfo.TotalSize
+	cu.desc.PreCompressionSizeBytes += shard.PreCompressionSizeBytes
+	cu.shardsDone.Add(1)
+	return nil
 }
 
 type chunkShards struct {
@@ -537,11 +719,11 @@ func (u *uploader) compress(ctx context.Context,
 		eg                 = enterrors.NewErrorGroupWrapper(u.log)
 	)
 
-	// bigFileThreshold: files >= this size are "big" and get their own chunk (tracked for incremental dedup).
-	// chunkTargetSize controls the max size when packing small files together; it must be at least bigFileThreshold.
-	bigFileThreshold := max(u.cfg.MinChunkSize, filesInShard.Top100Size)
-	chunkTargetSize := max(u.cfg.ChunkTargetSize, bigFileThreshold)
-	zip, reader, err := NewZip(sourcePath, u.Level, chunkTargetSize, bigFileThreshold, u.cfg.SplitFileSize)
+	// bigFilesThreshold: files >= this size are "big" and get their own chunk (tracked for incremental dedup).
+	// chunkTargetSize controls the max size when packing small files together; it must be at least bigFilesThreshold.
+	bigFilesThreshold := max(u.cfg.MinChunkSize, filesInShard.BigFilesThreshold)
+	chunkTargetSize := max(u.cfg.ChunkTargetSize, bigFilesThreshold)
+	zip, reader, err := NewZip(sourcePath, u.Level, chunkTargetSize, bigFilesThreshold, u.cfg.SplitFileSize)
 	if err != nil {
 		return nil, preCompressionSize.Load(), err
 	}
@@ -552,9 +734,7 @@ func (u *uploader) compress(ctx context.Context,
 			// Use CloseWithError to signal any producer error to the consumer,
 			// so the consumer's read fails instead of seeing EOF.
 			closeErr := zip.CloseWithError(err)
-			if err != nil || closeErr != nil {
-				err = fmt.Errorf("producer: %w, close: %w", err, closeErr)
-			}
+			err = errors.Join(err, labelErr("close", closeErr))
 		}()
 
 		if err := ctx.Err(); err != nil {
@@ -604,10 +784,8 @@ func (u *uploader) compress(ctx context.Context,
 	// the producer to fail with "closed pipe". We need both errors to show
 	// the actual cause (consumer error), not just the symptom (closed pipe).
 	consumerErr := eg.Wait()
-	if producerErr != nil || consumerErr != nil {
-		return fileSizeExceededInfo, preCompressionSize.Load(), fmt.Errorf("producer: %w, consumer: %w", producerErr, consumerErr)
-	}
-	return fileSizeExceededInfo, preCompressionSize.Load(), nil
+	return fileSizeExceededInfo, preCompressionSize.Load(),
+		errors.Join(labelErr("producer", producerErr), labelErr("consumer", consumerErr))
 }
 
 // calculateShardPreCompressionSize calculates the total size of a shard before compression
@@ -635,7 +813,7 @@ func (u *uploader) calculateShardPreCompressionSize(shard *backup.ShardDescripto
 }
 
 // createFileList creates a FileList from a ShardDescriptor with Files copied,
-// FileSizes map populated, and Top100Size calculated (size of 100th biggest file, minimum 1MB).
+// FileSizes map populated, and BigFilesThreshold calculated.
 // This allows file sizes to be collected once at the start of processing rather than repeatedly during compression.
 // Returns an error if any file in the shard doesn't exist at either the normal path or delete marker path.
 func (u *uploader) createFileList(shard *backup.ShardDescriptor, sourcePath string) (*backup.FileList, error) {
@@ -664,17 +842,26 @@ func (u *uploader) createFileList(shard *backup.ShardDescriptor, sourcePath stri
 	filesCopy := make([]string, len(files))
 	copy(filesCopy, files)
 
+	// A config not built by FromEnv leaves this nil, so Get yields 0.
+	maxIndividualFiles := u.cfg.MaxIndividualFiles.Get()
+	if maxIndividualFiles <= 0 {
+		maxIndividualFiles = config.DefaultBackupMaxIndividualFiles
+	}
+
 	return &backup.FileList{
-		Files:      filesCopy,
-		FileSizes:  fileSizes,
-		Top100Size: calculateTop100Size(fileSizes, shard.IncrementalBackupInfo.NumFilesSkipped, u.cfg.MinChunkSize),
+		Files:     filesCopy,
+		FileSizes: fileSizes,
+		BigFilesThreshold: calculateBigFilesThreshold(fileSizes, shard.IncrementalBackupInfo.NumFilesSkipped,
+			maxIndividualFiles, u.cfg.MinChunkSize),
 	}, nil
 }
 
-// calculateTop100Size returns the size of the 100th biggest file (or smallest if fewer than 100),
-// with a minimum of minSize. Uses a min-heap of size 100 for O(n) time and O(1) space complexity.
-func calculateTop100Size(fileSizes map[string]int64, numSkippedFiles int, minSize int64) int64 {
-	k := max(100-numSkippedFiles, 1) // take into account that this might be an incremental backup with skipped files
+// calculateBigFilesThreshold returns the size of the k-th biggest file, clamped to minSize,
+// where k is maxIndividualFiles reduced by numSkippedFiles and at least 1. Returns the
+// smallest file's size if there are fewer than k files.
+// Uses a min-heap for O(n) time and O(min(k, n)) space.
+func calculateBigFilesThreshold(fileSizes map[string]int64, numSkippedFiles, maxIndividualFiles int, minSize int64) int64 {
+	k := max(maxIndividualFiles-numSkippedFiles, 1) // take into account that this might be an incremental backup with skipped files
 
 	if len(fileSizes) == 0 {
 		return minSize
@@ -720,19 +907,20 @@ func (h *int64MinHeap) Pop() interface{} {
 
 // fileWriter downloads files from object store and writes files to the destination folder destDir
 type fileWriter struct {
-	sourcer    Sourcer
-	backend    nodeStore
-	tempDir    string
-	destDir    string
-	movedFiles []string // files successfully moved to destination folder
-	compressed bool
-	GoPoolSize int
-	migrator   func(classPath string) error
-	logger     logrus.FieldLogger
+	sourcer        Sourcer
+	backend        nodeStore
+	tempDir        string
+	destDir        string
+	movedFiles     []string // files successfully moved to destination folder
+	GoPoolSize     int
+	migrator       func(classPath string) error
+	stagedRecorder func(string) // notified before a class staging dir is (re)created
+	attemptID      string       // stamped into the staging marker so cleanup never removes a sibling attempt's dir
+	logger         logrus.FieldLogger
 }
 
 func newFileWriter(sourcer Sourcer, backend nodeStore,
-	compressed bool, logger logrus.FieldLogger,
+	logger logrus.FieldLogger,
 ) *fileWriter {
 	destDir := backend.SourceDataPath()
 	return &fileWriter{
@@ -741,7 +929,6 @@ func newFileWriter(sourcer Sourcer, backend nodeStore,
 		destDir:    destDir,
 		tempDir:    path.Join(destDir, TempDirectory),
 		movedFiles: make([]string, 0, 64),
-		compressed: compressed,
 		GoPoolSize: routinePoolSize(50),
 		logger:     logger,
 	}
@@ -750,6 +937,22 @@ func newFileWriter(sourcer Sourcer, backend nodeStore,
 func (fw *fileWriter) WithPoolPercentage(p int) *fileWriter {
 	fw.GoPoolSize = routinePoolSize(p)
 	return fw
+}
+
+func (fw *fileWriter) withStagedRecorder(f func(string)) *fileWriter {
+	fw.stagedRecorder = f
+	return fw
+}
+
+func (fw *fileWriter) withAttemptID(id string) *fileWriter {
+	fw.attemptID = id
+	return fw
+}
+
+// stagingMarkerMatches reports whether dir's marker names attemptID; missing or foreign means another attempt owns the dir now.
+func stagingMarkerMatches(dir, attemptID string) bool {
+	raw, err := os.ReadFile(path.Join(dir, stagingMarkerFile))
+	return err == nil && string(raw) == attemptID
 }
 
 func (fw *fileWriter) setMigrator(m func(classPath string) error) { fw.migrator = m }
@@ -764,59 +967,42 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, m
 	}
 	classTempDir := path.Join(fw.tempDir, materializedName)
 
-	if err := fw.writeTempFiles(ctx, classTempDir, overrideBucket, overridePath, desc, compressionType); err != nil {
+	if err := fw.prepare(classTempDir); err != nil {
+		return err
+	}
+	if err := fw.fetch(ctx, classTempDir, desc, fw.backend, overrideBucket, overridePath, compressionType); err != nil {
 		return fmt.Errorf("get files: %w", err)
 	}
-
-	if materializedName != desc.Name {
-		oldIndexDir := filepath.Join(classTempDir, strings.ToLower(desc.Name))
-		newIndexDir := filepath.Join(classTempDir, strings.ToLower(materializedName))
-		if _, err := os.Stat(oldIndexDir); err == nil {
-			if err := os.Rename(oldIndexDir, newIndexDir); err != nil {
-				return fmt.Errorf("rename strip index dir %s -> %s: %w", oldIndexDir, newIndexDir, err)
-			}
-		}
-
-	}
-
-	if fw.migrator != nil {
-		if err := fw.migrator(classTempDir); err != nil {
-			return fmt.Errorf("migrate from pre 1.23: %w", err)
-		}
-	}
-
-	return nil
+	return fw.finalize(classTempDir, desc.Name, materializedName)
 }
 
-// writeTempFiles writes class files into a temporary directory
-// temporary directory path = d.tempDir/className
-// Function makes sure that created files will be removed in case of an error
-func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, overrideBucket, overridePath string, desc *backup.ClassDescriptor, compressionType backup.CompressionType) (err error) {
+// prepare resets the class staging directory; run once per class, before any fetch pass.
+func (fw *fileWriter) prepare(classTempDir string) error {
+	// Record before mutating disk so a partially-staged dir is still cleaned on failure.
+	if fw.stagedRecorder != nil {
+		fw.stagedRecorder(classTempDir)
+	}
 	if err := os.RemoveAll(classTempDir); err != nil {
 		return fmt.Errorf("remove %s: %w", classTempDir, err)
 	}
 	if err := os.MkdirAll(classTempDir, os.ModePerm); err != nil {
 		return fmt.Errorf("create temp class folder %s: %w", classTempDir, err)
 	}
+	if fw.attemptID != "" {
+		marker := path.Join(classTempDir, stagingMarkerFile)
+		if err := os.WriteFile(marker, []byte(fw.attemptID), 0o644); err != nil {
+			return fmt.Errorf("write staging marker %s: %w", marker, err)
+		}
+	}
+	return nil
+}
+
+// fetch downloads desc's chunks from store, whose {backupID}/{node} prefix keys the pass; colliding per-source chunk ids must never share a pass.
+func (fw *fileWriter) fetch(ctx context.Context, classTempDir string, desc *backup.ClassDescriptor, store nodeStore, overrideBucket, overridePath string, compressionType backup.CompressionType) (err error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// no compression processed as before
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(fw.logger, ctx)
-	if !fw.compressed {
-		eg.SetLimit(2 * numCPU())
-		for _, shard := range desc.Shards {
-			// Check for cancellation before processing each shard
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			shard := shard
-			eg.Go(func() error { return fw.writeTempShard(ctx, shard, classTempDir, overrideBucket, overridePath) }, shard.Name)
-		}
-		return eg.Wait()
-	}
-
-	// source files are compressed
 	eg.SetLimit(fw.GoPoolSize)
 	for k := range desc.Chunks {
 		// Check for cancellation before processing each chunk
@@ -827,7 +1013,7 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 		eg.Go(func() error {
 			return fw.readAndUnzipChunk(classTempDir, compressionType, chunk,
 				func(w io.WriteCloser) error {
-					_, err := fw.backend.Read(ctx, chunk, overrideBucket, overridePath, w)
+					_, err := store.Read(ctx, chunk, overrideBucket, overridePath, w)
 					return err
 				})
 		})
@@ -841,7 +1027,7 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 					eg.Go(func() error {
 						return fw.readAndUnzipChunk(classTempDir, compressionType, chunkId,
 							func(w io.WriteCloser) error {
-								_, err := fw.backend.ReadFromOtherBackup(ctx, backupId, chunkId, overrideBucket, overridePath, w)
+								_, err := store.ReadFromOtherBackup(ctx, backupId, chunkId, overrideBucket, overridePath, w)
 								return err
 							})
 					})
@@ -852,32 +1038,22 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 	return eg.Wait()
 }
 
-func (fw *fileWriter) writeTempShard(ctx context.Context, sd *backup.ShardDescriptor, classTempDir, overrideBucket, overridePath string) error {
-	for _, key := range sd.Files {
-		// Check for cancellation before processing each file
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		destPath := path.Join(classTempDir, key)
-		destDir := path.Dir(destPath)
-		if err := os.MkdirAll(destDir, os.ModePerm); err != nil {
-			return fmt.Errorf("create folder %s: %w", destDir, err)
-		}
-		if err := fw.backend.WriteToFile(ctx, key, destPath, overrideBucket, overridePath); err != nil {
-			return fmt.Errorf("write file %s: %w", destPath, err)
+// finalize applies the namespace-strip rename and pre-1.23 migrator, once per class after every fetch pass.
+func (fw *fileWriter) finalize(classTempDir, descName, materializedName string) error {
+	if materializedName != descName {
+		oldIndexDir := filepath.Join(classTempDir, strings.ToLower(descName))
+		newIndexDir := filepath.Join(classTempDir, strings.ToLower(materializedName))
+		if _, err := os.Stat(oldIndexDir); err == nil {
+			if err := os.Rename(oldIndexDir, newIndexDir); err != nil {
+				return fmt.Errorf("rename strip index dir %s -> %s: %w", oldIndexDir, newIndexDir, err)
+			}
 		}
 	}
-	destPath := path.Join(classTempDir, sd.DocIDCounterPath)
-	if err := os.WriteFile(destPath, sd.DocIDCounter, os.ModePerm); err != nil {
-		return fmt.Errorf("write counter file %s: %w", destPath, err)
-	}
-	destPath = path.Join(classTempDir, sd.PropLengthTrackerPath)
-	if err := os.WriteFile(destPath, sd.PropLengthTracker, os.ModePerm); err != nil {
-		return fmt.Errorf("write prop file %s: %w", destPath, err)
-	}
-	destPath = path.Join(classTempDir, sd.ShardVersionPath)
-	if err := os.WriteFile(destPath, sd.Version, os.ModePerm); err != nil {
-		return fmt.Errorf("write version file %s: %w", destPath, err)
+
+	if fw.migrator != nil {
+		if err := fw.migrator(classTempDir); err != nil {
+			return fmt.Errorf("migrate from pre 1.23: %w", err)
+		}
 	}
 	return nil
 }
@@ -957,6 +1133,9 @@ func RestoreClassDir(dataPath string) func(class string) error {
 		destDir := dataPath
 
 		for _, key := range files {
+			if key.Name() == stagingMarkerFile {
+				continue
+			}
 			from := path.Join(classTempDir, key.Name())
 			to := path.Join(destDir, key.Name())
 			if err := os.Rename(from, to); err != nil {

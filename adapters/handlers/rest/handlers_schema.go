@@ -23,11 +23,13 @@ import (
 	"github.com/sirupsen/logrus"
 
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
+	cerrors "github.com/weaviate/weaviate/adapters/handlers/rest/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
@@ -36,22 +38,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
-
-// reindexInFlightChecker is the narrow interface schema handlers use
-// to fail fast on property mutations that would conflict with an
-// in-flight reindex migration. Implemented by the RAFT-backed
-// distributed-task state (today: cluster/raft.Raft).
-//
-// This is the REST-handler UX layer of the mutation guard: the
-// handler returns 409 Conflict before issuing the RAFT command, so
-// operators see a clean error instead of a downstream "apply rejected"
-// surprise. The cluster-wide safety net lives at the schema FSM's
-// UpdateProperty apply path via [cluster/schema.SchemaManager]'s
-// [MutationGuard] — that is the load-bearing check; this one is a
-// pre-flight optimization.
-type reindexInFlightChecker interface {
-	ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error)
-}
 
 // reindexSubmitLockProvider returns the per-(collection, property)
 // mutex shared with the reindex-submit REST handler. This is the
@@ -68,10 +54,16 @@ type reindexSubmitLockProvider interface {
 
 type schemaHandlers struct {
 	manager             *schemaUC.Manager
+	authorizer          authorization.Authorizer
 	metricRequestsTotal restApiRequestsTotal
-	reindexTaskLister   reindexInFlightChecker
-	reindexSubmitLocks  reindexSubmitLockProvider
-	namespacesEnabled   bool
+	// reindexTaskLister lets property mutations fail fast with 409 Conflict when they
+	// would conflict with an in-flight reindex migration. It is only the REST pre-flight
+	// check; the load-bearing guard is the schema FSM's MutationGuard on the
+	// UpdateProperty apply path.
+	reindexTaskLister  distributedtask.TaskLister
+	reindexSubmitLocks reindexSubmitLockProvider
+	logger             logrus.FieldLogger
+	qualifier          namespacing.Qualifier
 }
 
 func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
@@ -212,18 +204,37 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 
 	// Conflict check and submit lock key on the qualified class (the reindex-task
 	// key); the manager delete call qualifies internally, so it gets the raw name.
-	qualifiedClass, qErr := namespacing.QualifyClass(principal, s.namespacesEnabled, params.ClassName)
+	qualifiedClass, qErr := namespacing.QualifyClass(principal, s.qualifier, params.ClassName)
 	if qErr != nil {
 		s.metricRequestsTotal.logError(params.ClassName, qErr)
+		if errors.As(qErr, &authzerrors.Forbidden{}) {
+			return schema.NewSchemaObjectsPropertiesDeleteForbidden().
+				WithPayload(errPayloadFromSingleErr(principal, qErr))
+		}
 		return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(principal, qErr))
 	}
 
+	// Authorize BEFORE the conflict pre-flight: it can leak "a task is in
+	// flight" to an unprivileged caller, and DeleteClassPropertyIndex only
+	// authorizes deep in its own body. Collections (data+metadata): dropping
+	// an index rewrites data, not just metadata.
+	if err := s.authorizer.Authorize(ctx, principal, authorization.UPDATE,
+		authorization.Collections(qualifiedClass)...); err != nil {
+		s.metricRequestsTotal.logError(params.ClassName, err)
+		if errors.As(err, &authzerrors.Forbidden{}) {
+			return schema.NewSchemaObjectsPropertiesDeleteForbidden().
+				WithPayload(errPayloadFromSingleErr(principal, err))
+		}
+		return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	}
+
 	// Serialize with the reindex-submit REST handler on the same
 	// (collection, property) tuple. Without this lock, a parallel
-	// PUT /v1/schema/{class}/indexes/{prop} (which submits a reindex
-	// task) and this DELETE (which drops the canonical bucket) race
-	// at the RAFT serializer: if DELETE's UpdateProperty commits
+	// PUT /v1/schema/{class}/properties/{prop}/index/{indexType} (which
+	// submits a reindex task) and this DELETE (which drops the canonical
+	// bucket) race at the RAFT serializer: if DELETE's UpdateProperty commits
 	// before the reindex's DistributedTaskAdd, the apply-time
 	// MutationGuard cannot reject DELETE because no task is in-flight
 	// yet, the bucket is dropped, and the reindex worker then fails
@@ -254,7 +265,15 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("%s", conflict)))
 	}
 
-	err := s.manager.DeleteClassPropertyIndex(ctx, principal, params.ClassName, params.PropertyName, params.IndexName)
+	// Normalize the `rangeable` alias to `rangeFilters` for the schema
+	// manager; other values pass through unchanged so DELETE stays
+	// byte-compatible with GA v1.36.
+	indexName := params.IndexName
+	if indexName == "rangeable" {
+		indexName = "rangeFilters"
+	}
+
+	err := s.manager.DeleteClassPropertyIndex(ctx, principal, params.ClassName, params.PropertyName, indexName)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
@@ -274,9 +293,13 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 // checkReindexConflictForPropertyMutation is the REST-handler
 // pre-flight for the mutation guard. Returns a non-empty conflict
 // reason iff a reindex migration on (className, propertyName) is in
-// any non-terminal state (STARTED, PREPARING, or SWAPPING) — same
-// epistemics as the schema FSM's MutationGuard at apply time, just
+// any non-terminal state (via [distributedtask.TaskStatus.IsActive]) —
+// same epistemics as the schema FSM's MutationGuard at apply time, just
 // earlier in the request lifecycle for operator UX.
+//
+// "Same epistemics" is meant literally: it has to reject on the same arms
+// as [db.ReindexProvider.CheckPropertyUpdate], in the same order, or the
+// caller gets told ok here and FAILED at the apply.
 //
 // Per-node, in-memory: two REST handlers on different nodes can both
 // observe "no conflict" and both forward to RAFT — that's expected,
@@ -298,47 +321,53 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		return ""
 	}
 	for _, task := range tasksByNamespace[db.ReindexNamespace] {
-		// PREPARING and SWAPPING count as in-flight (via
-		// [distributedtask.TaskStatus.IsActive]) — see the godoc on
-		// [checkReindexConflict] for the full reasoning. Mutating the
-		// property during either phase would race the in-flight per-
-		// shard bucket-pointer flip.
 		if !task.Status.IsActive() {
 			continue
 		}
+		// Deciding the collection first looks like it would spare
+		// unrelated collections a garbage payload, but a payload of
+		// literal null decodes with no error and leaves Collection empty,
+		// so this side would allow what the apply then rejects.
 		var payload db.ReindexTaskPayload
 		if err := json.Unmarshal(task.Payload, &payload); err != nil {
 			// Unparseable payload in flight is a hard reject reason on
 			// the apply side; mirror that here so the REST caller
 			// doesn't get a spurious "ok-then-FAILED" two-step.
+			//
+			// This fires BEFORE the collection filter, so task.ID may name a
+			// namespace the caller can't see (StripErrorMessage strips only the
+			// caller's own). Log it server-side instead.
+			if s.logger != nil {
+				s.logger.WithField("task_id", task.ID).
+					Errorf("refusing property mutation on %s.%s: in-flight reindex task has an unparseable payload: %v", className, propertyName, err)
+			}
 			return fmt.Sprintf(
-				"in-flight reindex task %q has unparseable payload; "+
-					"refusing property mutation on %s.%s until the task "+
-					"is inspected", task.ID, className, propertyName)
+				"an in-flight reindex task has an unparseable payload; "+
+					"refusing property mutation on %s.%s until an operator "+
+					"inspects the task store", className, propertyName)
+		}
+		if payload.Collection == "" || payload.MigrationType == "" {
+			return fmt.Sprintf(
+				"in-flight reindex task %q has empty Collection or "+
+					"MigrationType; refusing property mutation on %s.%s "+
+					"until the task is inspected", task.ID, className, propertyName)
 		}
 		if !strings.EqualFold(payload.Collection, className) {
 			continue
 		}
-		// Empty Properties means "all properties" (whole-collection
-		// rebuild, reserved); treat as a match.
-		matches := len(payload.Properties) == 0
-		for _, p := range payload.Properties {
-			if p == propertyName {
-				matches = true
-				break
-			}
-		}
-		if !matches {
+		// An empty Properties list means "all properties", the same rule
+		// the FSM guards use.
+		if !db.ReindexPropsOverlap(payload.Properties, []string{propertyName}) {
 			continue
 		}
 		return fmt.Sprintf(
 			"reindex task %q (%s) is in flight on %s.%s (status=%s); "+
 				"schema mutations on this property are blocked until "+
-				"the reindex completes or is cancelled — wait for the "+
-				"task to reach a terminal state, or cancel it via the "+
-				"reindex REST API before retrying",
+				"the reindex completes or is cancelled — %s",
 			task.ID, payload.MigrationType, payload.Collection,
-			propertyName, task.Status)
+			propertyName, task.Status,
+			db.MutationRemedy(task.Status, "wait for the task to reach a terminal state, or "+
+				"cancel it via the reindex REST API before retrying"))
 	}
 	return ""
 }
@@ -350,24 +379,34 @@ func (s *schemaHandlers) deleteClassVectorIndex(params schema.SchemaObjectsVecto
 	err := s.manager.DeleteClassVectorIndex(ctx, principal, params.ClassName, params.VectorIndexName)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
-		switch {
-		case errors.As(err, &authzerrors.Forbidden{}):
-			return schema.NewSchemaObjectsVectorsDeleteForbidden().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		case errors.Is(err, schemaUC.ErrNotFound):
-			return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		case errors.Is(err, schemaUC.ErrValidation):
-			return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		default:
-			return schema.NewSchemaObjectsVectorsDeleteInternalServerError().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		}
+		return vectorIndexDeleteErrResponder(principal, err)
 	}
 
 	s.metricRequestsTotal.logOk(params.ClassName)
 	return schema.NewSchemaObjectsVectorsDeleteOK()
+}
+
+// vectorIndexDeleteErrResponder maps a failed vector index drop to its response.
+// A namespace that refuses the drop answers 422 rather than the 500 an
+// unrecognized error gets, so a suspended instance does not read as a fault.
+func vectorIndexDeleteErrResponder(principal *models.Principal, err error) middleware.Responder {
+	switch {
+	case errors.As(err, &authzerrors.Forbidden{}):
+		return schema.NewSchemaObjectsVectorsDeleteForbidden().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	case errors.Is(err, schemaUC.ErrNotFound):
+		return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	case errors.Is(err, schemaUC.ErrValidation):
+		return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	case cerrors.NamespaceErrRendersUnprocessable(err):
+		return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	default:
+		return schema.NewSchemaObjectsVectorsDeleteInternalServerError().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	}
 }
 
 func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *models.Principal) middleware.Responder {
@@ -398,7 +437,7 @@ func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *mo
 	return schema.NewSchemaDumpOK().WithPayload(payload)
 }
 
-func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetParams,
+func (s *schemaHandlers) getShardsStorageStatus(params schema.SchemaObjectsShardsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
@@ -412,17 +451,7 @@ func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetPar
 	status, err := s.manager.ShardsStatus(ctx, principal, params.ClassName, tenant)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
-		switch {
-		case errors.As(err, &authzerrors.Forbidden{}):
-			return schema.NewSchemaObjectsShardsGetForbidden().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		case errors.Is(err, schemaUC.ErrNotFound):
-			return schema.NewSchemaObjectsShardsGetNotFound().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		default:
-			return schema.NewSchemaObjectsShardsGetInternalServerError().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		}
+		return shardsStorageStatusErrResponder(principal, err)
 	}
 
 	payload := status
@@ -440,23 +469,52 @@ func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpda
 	)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
-		switch {
-		case errors.As(err, &authzerrors.Forbidden{}):
-			return schema.NewSchemaObjectsShardsUpdateForbidden().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		case errors.Is(err, schemaUC.ErrNotFound):
-			return schema.NewSchemaObjectsShardsUpdateNotFound().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		default:
-			return schema.NewSchemaObjectsShardsUpdateInternalServerError().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		}
+		return shardStatusErrResponder(principal, err)
 	}
 
 	payload := params.Body
 
 	s.metricRequestsTotal.logOk("")
 	return schema.NewSchemaObjectsShardsUpdateOK().WithPayload(payload)
+}
+
+// shardStatusErrResponder maps a failed shard status update to its response. A
+// namespace that refuses the change answers 422 rather than the 500 an
+// unrecognized error gets, so a suspended instance does not read as a fault.
+func shardStatusErrResponder(principal *models.Principal, err error) middleware.Responder {
+	switch {
+	case errors.As(err, &authzerrors.Forbidden{}):
+		return schema.NewSchemaObjectsShardsUpdateForbidden().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	case errors.Is(err, schemaUC.ErrNotFound):
+		return schema.NewSchemaObjectsShardsUpdateNotFound().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	case errors.Is(err, schemaUC.ErrValidation), cerrors.NamespaceErrRendersUnprocessable(err):
+		return schema.NewSchemaObjectsShardsUpdateUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	default:
+		return schema.NewSchemaObjectsShardsUpdateInternalServerError().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	}
+}
+
+// shardsStorageStatusErrResponder maps a failed shard status read to its
+// response. An invalid class name answers 422.
+func shardsStorageStatusErrResponder(principal *models.Principal, err error) middleware.Responder {
+	switch {
+	case errors.As(err, &authzerrors.Forbidden{}):
+		return schema.NewSchemaObjectsShardsGetForbidden().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	case errors.Is(err, schemaUC.ErrNotFound):
+		return schema.NewSchemaObjectsShardsGetNotFound().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	case errors.Is(err, schemaUC.ErrValidation):
+		return schema.NewSchemaObjectsShardsGetUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	default:
+		return schema.NewSchemaObjectsShardsGetInternalServerError().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	}
 }
 
 func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
@@ -607,13 +665,15 @@ func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principa
 	return schema.NewTenantExistsOK()
 }
 
-func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister reindexInFlightChecker, reindexSubmitLocks reindexSubmitLockProvider, namespacesEnabled bool) {
+func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, authorizer authorization.Authorizer, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister distributedtask.TaskLister, reindexSubmitLocks reindexSubmitLockProvider, qualifier namespacing.Qualifier) {
 	h := &schemaHandlers{
 		manager:             manager,
+		authorizer:          authorizer,
 		metricRequestsTotal: newSchemaRequestsTotal(metrics, logger),
 		reindexTaskLister:   reindexTaskLister,
 		reindexSubmitLocks:  reindexSubmitLocks,
-		namespacesEnabled:   namespacesEnabled,
+		logger:              logger,
+		qualifier:           qualifier,
 	}
 
 	api.SchemaSchemaObjectsCreateHandler = schema.
@@ -636,7 +696,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager,
 		SchemaDumpHandlerFunc(h.getSchema)
 
 	api.SchemaSchemaObjectsShardsGetHandler = schema.
-		SchemaObjectsShardsGetHandlerFunc(h.getShardsStatus)
+		SchemaObjectsShardsGetHandlerFunc(h.getShardsStorageStatus)
 	api.SchemaSchemaObjectsShardsUpdateHandler = schema.
 		SchemaObjectsShardsUpdateHandlerFunc(h.updateShardStatus)
 

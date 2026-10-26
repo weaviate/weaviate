@@ -12,6 +12,8 @@
 package distancer
 
 import (
+	"math"
+	"math/rand/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -95,5 +97,74 @@ func TestNormalizeInPlace(t *testing.T) {
 		v := []float32{}
 		NormalizeInPlace(v)
 		assert.Equal(t, []float32{}, v)
+	})
+}
+
+// TestNormalizeMatchesScalarReference checks the SIMD-backed implementation
+// against the straightforward scalar definition. The implementation
+// multiplies by the reciprocal norm rather than dividing, so results may
+// differ by one ulp per element.
+func TestNormalizeMatchesScalarReference(t *testing.T) {
+	rng := rand.New(rand.NewPCG(21, 22))
+	for _, n := range []int{1, 2, 3, 7, 15, 64, 100, 384, 1536} {
+		v := make([]float32, n)
+		for i := range v {
+			v[i] = float32(rng.NormFloat64() * 100)
+		}
+		var norm float32
+		for _, x := range v {
+			norm += x * x
+		}
+		norm = float32(math.Sqrt(float64(norm)))
+		got := Normalize(v)
+		for i := range v {
+			assert.InDelta(t, v[i]/norm, got[i], 1e-6, "n=%d index=%d", n, i)
+		}
+	}
+}
+
+func TestNormalizeInto(t *testing.T) {
+	t.Run("matches Normalize with dirty undersized buffer", func(t *testing.T) {
+		v := []float32{3, -4, 5, -6, 7}
+		got := NormalizeInto([]float32{99}, v)
+		assert.Equal(t, Normalize(v), got)
+		assert.Equal(t, []float32{3, -4, 5, -6, 7}, v, "input must be preserved")
+	})
+
+	t.Run("reuses oversized buffer", func(t *testing.T) {
+		buf := make([]float32, 8)
+		for i := range buf {
+			buf[i] = float32(math.NaN())
+		}
+		v := []float32{3, 4}
+		got := NormalizeInto(buf, v)
+		assert.Equal(t, 2, len(got))
+		assert.Same(t, &buf[0], &got[0], "oversized buffer must be reused")
+		assert.Equal(t, Normalize(v), got)
+	})
+
+	t.Run("zero vector fills buffer with zeros", func(t *testing.T) {
+		buf := []float32{1, 2, 3}
+		got := NormalizeInto(buf, []float32{0, 0, 0})
+		assert.Equal(t, []float32{0, 0, 0}, got)
+	})
+}
+
+func BenchmarkNormalize(b *testing.B) {
+	rng := rand.New(rand.NewPCG(23, 24))
+	v := make([]float32, 1536)
+	for i := range v {
+		v[i] = float32(rng.NormFloat64())
+	}
+	b.Run("alloc", func(b *testing.B) {
+		for b.Loop() {
+			Normalize(v)
+		}
+	})
+	buf := make([]float32, 1536)
+	b.Run("into", func(b *testing.B) {
+		for b.Loop() {
+			NormalizeInto(buf, v)
+		}
 	})
 }

@@ -132,8 +132,8 @@ func (m *metaClass) ShardReplicas(shard string) ([]string, uint64, error) {
 	return slices.Clone(x.BelongsToNodes), m.version(), nil
 }
 
-// TenantsShards returns shard name for the provided tenant and its activity status
-func (m *metaClass) TenantsShards(class string, tenants ...string) (map[string]string, uint64) {
+// TenantsShardsStatus returns shard name for the provided tenant and its activity status
+func (m *metaClass) TenantsShardsStatus(class string, tenants ...string) (map[string]string, uint64) {
 	m.RLock()
 	defer m.RUnlock()
 
@@ -308,6 +308,9 @@ func MergePropsMasked(old, new []*models.Property, mask []string) []*models.Prop
 			// mask.
 			mergedProps[oldIdx].BucketGeneration = new[idx].BucketGeneration
 		}
+		if allow(command.PropertyFieldSearchableBlockmax) {
+			mergedProps[oldIdx].SearchableBlockmax = new[idx].SearchableBlockmax
+		}
 
 		if allow(command.PropertyFieldNestedProperties) {
 			nestedProperties, merged := entSchema.MergeRecursivelyNestedProperties(
@@ -446,7 +449,10 @@ func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProce
 	return sc, nil
 }
 
-func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, replicationFSM replicationFSM, v uint64) (map[string]int, error) {
+// UpdateTenants applies the requested tenant statuses. For every tenant it puts into
+// FREEZING it records the status the tenant held beforehand in preFreezeStatuses, which
+// the DB layer reports back if the freeze aborts. Callers must pass a non-nil map.
+func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, replicationFSM replicationFSM, v uint64, preFreezeStatuses map[string]string) (map[string]int, error) {
 	m.Lock()
 	defer m.Unlock()
 
@@ -529,6 +535,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			}
 
 		case requestedToFrozen && !existedSharedFrozen:
+			preFreezeStatuses[requestTenant.Name] = oldTenant.ActivityStatus()
 			m.freeze(i, req, oldTenant)
 		default:
 			// do nothing

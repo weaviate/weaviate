@@ -42,10 +42,13 @@ type segmentReplacer struct {
 
 const replaceSegmentWarnThreshold = 300 * time.Millisecond
 
-// replaceCompactedSegmentsOnDisk performs the segment switch on disk without
-// affecting the currently running app. Therefore it is non-blocking to the
-// current application. The in-memory switch has to be done separately.
-func (sr *segmentReplacer) switchOnDisk() (Segment, Segment, error) {
+// switchOnDisk performs the segment switch on disk without affecting the
+// currently running app. Therefore it is non-blocking to the current
+// application. The in-memory switch has to be done separately.
+//
+// onCommitted is called once the switch starts marking old files, after which
+// the new segment file is the only copy of the data and must not be discarded.
+func (sr *segmentReplacer) switchOnDisk(onCommitted func()) (Segment, Segment, error) {
 	var leftSegment, rightSegment Segment
 	var leftSegID, rightSegID string
 
@@ -55,6 +58,10 @@ func (sr *segmentReplacer) switchOnDisk() (Segment, Segment, error) {
 	}
 	rightSegment = sr.sg.segments[sr.oldRightPos]
 	sr.sg.maintenanceLock.RUnlock()
+
+	// after the reads so a panic there still discards the new file, above both
+	// arms so neither can start marking without it
+	onCommitted()
 
 	if sr.replaceSingleSegment {
 		// In-place cleanup switch: the rewritten segment has the same canonical

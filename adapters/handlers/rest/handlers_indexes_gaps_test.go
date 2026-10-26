@@ -27,6 +27,7 @@ package rest
 //     match "foo" against "foobar")
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -37,9 +38,33 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 )
+
+// TestValidateTokenizationChange_StampedBlockmaxKeepsInverted pins that a
+// stamped-blockmax property derives StrategyInverted, not StrategyMapCollection,
+// after its migration task ages out.
+func TestValidateTokenizationChange_StampedBlockmaxKeepsInverted(t *testing.T) {
+	tr := true
+	class := &models.Class{
+		Class:               "C",
+		InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: false}, // partial: flag never flipped
+		Properties: []*models.Property{{
+			Name:               "text",
+			DataType:           []string{"text"},
+			Tokenization:       models.PropertyTokenizationWord,
+			IndexSearchable:    &tr,
+			SearchableBlockmax: &tr, // durably stamped blockmax
+		}},
+	}
+	// nil task list == the FINISHED migration task has aged out of the DTM.
+	strategy, err := validateTokenizationChange(class, "text", models.PropertyTokenizationWhitespace, nil)
+	require.NoError(t, err)
+	require.Equal(t, lsmkv.StrategyInverted, strategy,
+		"stamped-blockmax property must keep StrategyInverted after its migration task ages out")
+}
 
 // -----------------------------------------------------------------------------
 // propsOverlap — property-scope correctness, including prefix-similar names.
@@ -65,6 +90,8 @@ func TestPropsOverlap_EmptyMeansAllProperties(t *testing.T) {
 	// Documented semantic: an empty Properties list means "all properties".
 	// That branch is reserved for future whole-collection migrations; the
 	// REST handler today always submits a single-property task.
+	// TestMergeReindexStatus_EmptyProperties_* pins the opposite rule on the
+	// status path. Both are correct; do not make them agree.
 	require.True(t, db.ReindexPropsOverlap(nil, []string{"x"}))
 	require.True(t, db.ReindexPropsOverlap([]string{"x"}, nil))
 	require.True(t, db.ReindexPropsOverlap(nil, nil))
@@ -164,22 +191,32 @@ func mustPayload(t *testing.T, p db.ReindexTaskPayload) []byte {
 }
 
 func TestCheckReindexConflict_RejectsSameTypeSameProperty(t *testing.T) {
-	existing := &distributedtask.Task{
-		TaskDescriptor: distributedtask.TaskDescriptor{ID: "C:enable-filterable:foo:abcd"},
-		Status:         distributedtask.TaskStatusStarted,
-		Payload: mustPayload(t, db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
-			Collection:    "C",
-			Properties:    []string{"foo"},
-		}),
-	}
+	for _, status := range []distributedtask.TaskStatus{
+		distributedtask.TaskStatusStarted,
+		distributedtask.TaskStatusPreparing,
+		distributedtask.TaskStatusSwapping,
+		// An unrecognized status must block a fresh submit too.
+		unknownFutureStatus,
+	} {
+		t.Run(string(status), func(t *testing.T) {
+			existing := &distributedtask.Task{
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "C:enable-filterable:foo:abcd"},
+				Status:         status,
+				Payload: mustPayload(t, db.ReindexTaskPayload{
+					MigrationType: db.ReindexTypeEnableFilterable,
+					Collection:    "C",
+					Properties:    []string{"foo"},
+				}),
+			}
 
-	reason, err := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
-		[]string{"foo"}, []*distributedtask.Task{existing})
-	require.NoError(t, err)
-	require.NotEmpty(t, reason)
-	require.Contains(t, reason, "conflicts")
-	require.Contains(t, reason, existing.ID)
+			reason, err := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
+				[]string{"foo"}, []*distributedtask.Task{existing})
+			require.NoError(t, err)
+			require.NotEmpty(t, reason)
+			require.Contains(t, reason, "conflicts")
+			require.Contains(t, reason, existing.ID)
+		})
+	}
 }
 
 func TestCheckReindexConflict_AllowsSameTypeDifferentProperty(t *testing.T) {
@@ -377,6 +414,75 @@ func TestValidateRangeableProperties(t *testing.T) {
 	})
 }
 
+// validateNoSidecarShapedProperties — a property whose own bucket reads as a
+// migration working directory blocks migrations on the whole collection.
+
+func TestValidateNoSidecarShapedProperties(t *testing.T) {
+	cases := []struct {
+		name         string
+		propNames    []string
+		wantOffender string
+	}{
+		{
+			name:      "plain names, including ones that merely contain a role word",
+			propNames: []string{"title", "myreindex", "a_reindex", "a__foo"},
+		},
+		{
+			name:         "offender is a property the migration request never names",
+			propNames:    []string{"title", "title__enable_filterable_ingest_3"},
+			wantOffender: "title__enable_filterable_ingest_3",
+		},
+		{
+			name:         "generation tail",
+			propNames:    []string{"a__reindex_2"},
+			wantOffender: "a__reindex_2",
+		},
+		{
+			name:         "multi-word strategy before the role word",
+			propNames:    []string{"a__foo_reindex"},
+			wantOffender: "a__foo_reindex",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			class := &models.Class{Class: "C"}
+			for _, n := range tc.propNames {
+				class.Properties = append(class.Properties, &models.Property{Name: n})
+			}
+			err := validateNoSidecarShapedProperties(class)
+			if tc.wantOffender == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantOffender)
+			assert.Contains(t, err.Error(), "no migration can start")
+		})
+	}
+}
+
+// TestSubmitReindexTask_RefusesSidecarShapedProperty pins the refusal on the
+// submit path itself, and that it is class-wide: the request migrates "title",
+// while the offending property is one it never names.
+func TestSubmitReindexTask_RefusesSidecarShapedProperty(t *testing.T) {
+	class := &models.Class{
+		Class: "C",
+		Properties: []*models.Property{
+			{Name: "title", DataType: []string{"text"}},
+			{Name: "title__enable_filterable_ingest_3", DataType: []string{"text"}},
+		},
+	}
+
+	resp := admissionHandler().submitReindexTask(context.Background(), nil, class, "C", "title",
+		upsertPlan{migrationType: db.ReindexTypeEnableFilterable}, nil, nil)
+
+	code, body := statusOf(t, resp)
+	require.Equal(t, http.StatusBadRequest, code)
+	require.Len(t, body.Error, 1)
+	assert.Contains(t, body.Error[0].Message, "title__enable_filterable_ingest_3")
+}
+
 func TestValidateRebuildRangeableProperty(t *testing.T) {
 	trueVal := true
 	falseVal := false
@@ -480,40 +586,6 @@ func TestValidateRebuildFilterableDataType(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "does not support a filterable inverted index")
 		require.Contains(t, err.Error(), "nothing to rebuild")
-	})
-}
-
-func TestRequestedCancel(t *testing.T) {
-	t.Run("none", func(t *testing.T) {
-		typ, ok := requestedCancel(&models.IndexUpdateRequest{
-			Searchable: &models.IndexUpdateSearchable{Enabled: true},
-		})
-		require.False(t, ok)
-		require.Empty(t, typ)
-	})
-
-	t.Run("searchable.cancel", func(t *testing.T) {
-		typ, ok := requestedCancel(&models.IndexUpdateRequest{
-			Searchable: &models.IndexUpdateSearchable{Cancel: true},
-		})
-		require.True(t, ok)
-		require.Equal(t, "searchable", typ)
-	})
-
-	t.Run("filterable.cancel", func(t *testing.T) {
-		typ, ok := requestedCancel(&models.IndexUpdateRequest{
-			Filterable: &models.IndexUpdateFilterable{Cancel: true},
-		})
-		require.True(t, ok)
-		require.Equal(t, "filterable", typ)
-	})
-
-	t.Run("rangeable.cancel", func(t *testing.T) {
-		typ, ok := requestedCancel(&models.IndexUpdateRequest{
-			Rangeable: &models.IndexUpdateRangeable{Cancel: true},
-		})
-		require.True(t, ok)
-		require.Equal(t, "rangeable", typ)
 	})
 }
 
@@ -818,9 +890,9 @@ func TestBuildUnitSpecs_DeterministicSort(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// touchesSearchable / touchesFilterable — exhaustive switch, including a
-// panic on unknown ReindexMigrationType so a future type cannot silently
-// bypass the conflict check.
+// TouchesSearchable / TouchesFilterable: an unknown (peer-written) type must
+// not panic (forward-compat) — it fails safe by conservatively touching the
+// bucket. Exhaustiveness is enforced by db.TestReindexBucketEffect_Exhaustive.
 // -----------------------------------------------------------------------------
 
 func TestTouchesSearchable(t *testing.T) {
@@ -861,217 +933,25 @@ func TestTouchesFilterable(t *testing.T) {
 	}
 }
 
-func TestTouchesSearchable_PanicsOnUnknownType(t *testing.T) {
-	require.PanicsWithValue(t,
-		`TouchesSearchable: unknown ReindexMigrationType "phantom" — add it to this switch`,
-		func() { db.TouchesSearchable(db.ReindexMigrationType("phantom")) },
-		"unknown migration type must panic so the gap is caught loudly",
-	)
+func TestTouchesSearchable_FailsSafeOnUnknownType(t *testing.T) {
+	var got bool
+	require.NotPanics(t, func() { got = db.TouchesSearchable(db.ReindexMigrationType("phantom")) },
+		"an unknown (peer-written) type must not panic on the forward-compat hot path")
+	require.True(t, got, "an unknown type must conservatively be treated as touching searchable")
 }
 
-func TestTouchesFilterable_PanicsOnUnknownType(t *testing.T) {
-	require.PanicsWithValue(t,
-		`TouchesFilterable: unknown ReindexMigrationType "phantom" — add it to this switch`,
-		func() { db.TouchesFilterable(db.ReindexMigrationType("phantom")) },
-		"unknown migration type must panic so the gap is caught loudly",
-	)
+func TestTouchesFilterable_FailsSafeOnUnknownType(t *testing.T) {
+	var got bool
+	require.NotPanics(t, func() { got = db.TouchesFilterable(db.ReindexMigrationType("phantom")) },
+		"an unknown (peer-written) type must not panic on the forward-compat hot path")
+	require.True(t, got, "an unknown type must conservatively be treated as touching filterable")
 }
 
 // -----------------------------------------------------------------------------
-// validateBodyExclusivity — switch-shadow guard.
+// countInFlightTasksForCollection / per-collection concurrent reindex cap.
 //
-// updateIndex dispatches on a Go switch where the FIRST truthy arm wins.
-// Without this guard, a body with two groups (e.g. searchable.rebuild AND
-// filterable.rebuild) or two verbs in one group (e.g. searchable.enabled AND
-// searchable.rebuild) would silently run one and drop the other. These cases
-// pin the rejection.
-// -----------------------------------------------------------------------------
-
-func TestValidateBodyExclusivity(t *testing.T) {
-	cases := []struct {
-		name    string
-		body    *models.IndexUpdateRequest
-		wantErr string // empty = accept; substring = reject and assert substring in error
-	}{
-		// --- nil body -----------------------------------------------------------
-		{
-			name:    "nil body rejected",
-			body:    nil,
-			wantErr: "request body required",
-		},
-
-		// --- valid: exactly one verb in one group ------------------------------
-		{
-			name: "valid: searchable.rebuild only",
-			body: &models.IndexUpdateRequest{
-				Searchable: &models.IndexUpdateSearchable{Rebuild: true},
-			},
-		},
-		{
-			name: "valid: searchable.enabled with tokenization (one verb)",
-			body: &models.IndexUpdateRequest{
-				Searchable: &models.IndexUpdateSearchable{Enabled: true, Tokenization: "word"},
-			},
-		},
-		{
-			name: "valid: searchable.tokenization alone (change-tokenization)",
-			body: &models.IndexUpdateRequest{
-				Searchable: &models.IndexUpdateSearchable{Tokenization: "word"},
-			},
-		},
-		{
-			name: "valid: filterable.enabled only",
-			body: &models.IndexUpdateRequest{
-				Filterable: &models.IndexUpdateFilterable{Enabled: true},
-			},
-		},
-		{
-			name: "valid: filterable.rebuild only",
-			body: &models.IndexUpdateRequest{
-				Filterable: &models.IndexUpdateFilterable{Rebuild: true},
-			},
-		},
-		{
-			name: "valid: rangeable.enabled only",
-			body: &models.IndexUpdateRequest{
-				Rangeable: &models.IndexUpdateRangeable{Enabled: true},
-			},
-		},
-
-		// --- zero verbs --------------------------------------------------------
-		{
-			name:    "reject: empty body (all groups nil)",
-			body:    &models.IndexUpdateRequest{},
-			wantErr: "no actionable change",
-		},
-		{
-			name: "reject: searchable present but no verb set",
-			body: &models.IndexUpdateRequest{
-				Searchable: &models.IndexUpdateSearchable{},
-			},
-			wantErr: "no actionable change",
-		},
-		{
-			name: "reject: filterable present but no verb set",
-			body: &models.IndexUpdateRequest{
-				Filterable: &models.IndexUpdateFilterable{},
-			},
-			wantErr: "no actionable change",
-		},
-		{
-			name: "reject: rangeable present but enabled=false",
-			body: &models.IndexUpdateRequest{
-				Rangeable: &models.IndexUpdateRangeable{Enabled: false},
-			},
-			wantErr: "no actionable change",
-		},
-
-		// --- multiple groups ---------------------------------------------------
-		{
-			name: "reject: searchable.rebuild + filterable.rebuild",
-			body: &models.IndexUpdateRequest{
-				Searchable: &models.IndexUpdateSearchable{Rebuild: true},
-				Filterable: &models.IndexUpdateFilterable{Rebuild: true},
-			},
-			wantErr: "multiple index groups",
-		},
-		{
-			name: "reject: searchable.rebuild + rangeable.enabled",
-			body: &models.IndexUpdateRequest{
-				Searchable: &models.IndexUpdateSearchable{Rebuild: true},
-				Rangeable:  &models.IndexUpdateRangeable{Enabled: true},
-			},
-			wantErr: "multiple index groups",
-		},
-		{
-			name: "reject: filterable.enabled + rangeable.enabled",
-			body: &models.IndexUpdateRequest{
-				Filterable: &models.IndexUpdateFilterable{Enabled: true},
-				Rangeable:  &models.IndexUpdateRangeable{Enabled: true},
-			},
-			wantErr: "multiple index groups",
-		},
-		{
-			name: "reject: all three groups set",
-			body: &models.IndexUpdateRequest{
-				Searchable: &models.IndexUpdateSearchable{Enabled: true, Tokenization: "word"},
-				Filterable: &models.IndexUpdateFilterable{Enabled: true},
-				Rangeable:  &models.IndexUpdateRangeable{Enabled: true},
-			},
-			wantErr: "multiple index groups",
-		},
-
-		// --- multiple verbs within one group -----------------------------------
-		{
-			name: "reject: searchable.enabled + searchable.rebuild",
-			body: &models.IndexUpdateRequest{
-				Searchable: &models.IndexUpdateSearchable{Enabled: true, Rebuild: true, Tokenization: "word"},
-			},
-			wantErr: "conflicting fields in searchable",
-		},
-		{
-			name: "reject: searchable.rebuild + searchable.tokenization (without enabled)",
-			body: &models.IndexUpdateRequest{
-				Searchable: &models.IndexUpdateSearchable{Rebuild: true, Tokenization: "word"},
-			},
-			wantErr: "conflicting fields in searchable",
-		},
-		{
-			name: "reject: filterable.enabled + filterable.rebuild",
-			body: &models.IndexUpdateRequest{
-				Filterable: &models.IndexUpdateFilterable{Enabled: true, Rebuild: true},
-			},
-			wantErr: "conflicting fields in filterable",
-		},
-
-		// --- algorithm verb ----------------------------------------------------
-		{
-			name: "valid: searchable.algorithm alone",
-			body: &models.IndexUpdateRequest{
-				Searchable: &models.IndexUpdateSearchable{Algorithm: "blockmax"},
-			},
-		},
-		{
-			name: "reject: searchable.algorithm + searchable.rebuild",
-			body: &models.IndexUpdateRequest{
-				Searchable: &models.IndexUpdateSearchable{Algorithm: "blockmax", Rebuild: true},
-			},
-			wantErr: "conflicting fields in searchable",
-		},
-		{
-			name: "reject: searchable.algorithm + searchable.tokenization",
-			body: &models.IndexUpdateRequest{
-				Searchable: &models.IndexUpdateSearchable{Algorithm: "blockmax", Tokenization: "word"},
-			},
-			wantErr: "conflicting fields in searchable",
-		},
-		{
-			name: "reject: searchable.algorithm + searchable.enabled",
-			body: &models.IndexUpdateRequest{
-				Searchable: &models.IndexUpdateSearchable{Algorithm: "blockmax", Enabled: true},
-			},
-			wantErr: "conflicting fields in searchable",
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := validateBodyExclusivity(tc.body)
-			if tc.wantErr == "" {
-				require.NoError(t, err)
-			} else {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tc.wantErr)
-			}
-		})
-	}
-}
-
-// -----------------------------------------------------------------------------
-// countStartedTasksForCollection / per-collection concurrent reindex cap.
-//
-// Pins (1) the count function only counts STARTED tasks targeting the named
-// collection, ignoring terminal-status tasks and tasks targeting other
+// Pins (1) the count function counts every non-terminal task targeting the
+// named collection, ignoring terminal-status tasks and tasks targeting other
 // collections; and (2) the comparison against
 // maxConcurrentReindexPerCollection has the right semantics: a fresh submit
 // is admitted exactly when there are strictly fewer than the cap already
@@ -1084,7 +964,7 @@ func TestValidateBodyExclusivity(t *testing.T) {
 // realistic batch property migrations.
 // -----------------------------------------------------------------------------
 
-func TestCountStartedTasksForCollection_FiltersByStatusAndCollection(t *testing.T) {
+func TestCountInFlightTasksForCollection_FiltersByStatusAndCollection(t *testing.T) {
 	mkPayload := func(coll string) db.ReindexTaskPayload {
 		return db.ReindexTaskPayload{
 			MigrationType: db.ReindexTypeChangeTokenization,
@@ -1112,6 +992,16 @@ func TestCountStartedTasksForCollection_FiltersByStatusAndCollection(t *testing.
 				buildTask(t, "t1", distributedtask.TaskStatusStarted, mkPayload("C"), nil),
 			},
 			want: 1,
+		},
+		{
+			name:       "coordination phases and an unrecognized status count",
+			collection: "C",
+			tasks: []*distributedtask.Task{
+				buildTask(t, "t1", distributedtask.TaskStatusPreparing, mkPayload("C"), nil),
+				buildTask(t, "t2", distributedtask.TaskStatusSwapping, mkPayload("C"), nil),
+				buildTask(t, "t3", unknownFutureStatus, mkPayload("C"), nil),
+			},
+			want: 3,
 		},
 		{
 			name:       "FINISHED/FAILED/CANCELLED ignored",
@@ -1165,7 +1055,7 @@ func TestCountStartedTasksForCollection_FiltersByStatusAndCollection(t *testing.
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := countStartedTasksForCollection(tc.collection, tc.tasks)
+			got := countInFlightTasksForCollection(tc.collection, tc.tasks)
 			require.Equal(t, tc.want, got)
 		})
 	}
@@ -1202,14 +1092,14 @@ func TestConcurrentReindexCap_RejectionBoundary(t *testing.T) {
 		tasksAtCapMinusOne = append(tasksAtCapMinusOne,
 			mkStarted(fmtTaskID(i), collection))
 	}
-	got := countStartedTasksForCollection(collection, tasksAtCapMinusOne)
+	got := countInFlightTasksForCollection(collection, tasksAtCapMinusOne)
 	require.Equal(t, cap-1, got)
 	require.False(t, got >= cap,
 		"with %d inflight (cap=%d) the submit must be admitted", got, cap)
 
 	// At exactly the cap, a submit must be rejected.
 	tasksAtCap := append(tasksAtCapMinusOne, mkStarted(fmtTaskID(cap-1), collection))
-	got = countStartedTasksForCollection(collection, tasksAtCap)
+	got = countInFlightTasksForCollection(collection, tasksAtCap)
 	require.Equal(t, cap, got)
 	require.True(t, got >= cap,
 		"with %d inflight (cap=%d) the submit must be rejected", got, cap)
@@ -1248,10 +1138,8 @@ func TestReindexCapExceededResponder_StatusAndBody(t *testing.T) {
 
 // -----------------------------------------------------------------------------
 // normalizeSearchableAlgorithm — canonical aliases for the BM25 algorithm
-// name on PUT /v1/schema/{class}/indexes/{prop}. The dispatcher routes the
-// caller-supplied string through this helper, then applies a strict
-// allowlist on the canonical value (see N4 in the QA review). Adding an
-// alias here without updating both the dispatcher AND the swagger enum
+// name on PUT /v1/schema/{class}/properties/{prop}/index/searchable. Adding
+// an alias here without updating both the dispatcher AND the swagger enum
 // would be silently ineffective; the matrix below pins the accepted shape
 // so a future refactor cannot drift either direction.
 // -----------------------------------------------------------------------------

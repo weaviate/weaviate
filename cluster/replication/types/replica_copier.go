@@ -24,8 +24,20 @@ type ReplicaCopier interface {
 	// CopyReplicaFiles see cluster/replication/copier.Copier.CopyReplicaFiles
 	CopyReplicaFiles(ctx context.Context, opID strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, schemaVersion uint64) error
 
+	// CopyReplicaFilesToLocalShard see cluster/replication/copier.Copier.CopyReplicaFilesToLocalShard
+	CopyReplicaFilesToLocalShard(ctx context.Context, opID strfmt.UUID, sourceNode, sourceCollection, sourceShard, localShardOverride string, schemaVersion uint64) error
+
+	// PromoteRecoveryFolder see cluster/replication/copier.Copier.PromoteRecoveryFolder
+	PromoteRecoveryFolder(collectionName, shardName string) error
+
+	// PromoteRecoveredShard see cluster/replication/copier.Copier.PromoteRecoveredShard
+	PromoteRecoveredShard(ctx context.Context, collectionName, shardName string) error
+
 	// LoadLocalShard see cluster/replication/copier.Copier.LoadLocalShard
 	LoadLocalShard(ctx context.Context, collectionName, shardName string) error
+
+	// DropLocalShard see cluster/replication/copier.Copier.DropLocalShard
+	DropLocalShard(ctx context.Context, collectionName, shardName string) error
 
 	// InitAsyncReplicationLocally see cluster/replication/copier.Copier.InitAsyncReplicationLocally
 	InitAsyncReplicationLocally(ctx context.Context, collectionName, shardName string) error

@@ -124,7 +124,7 @@ func testChangeTokenization(t *testing.T, restURI string) {
 		}
 	}()
 
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, retokenizeClassName, "filepath", `{"searchable":{"tokenization":"field"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, retokenizeClassName, "filepath", "searchable", `{"tokenization":"field"}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
 	reindexhelpers.AwaitReindexViaIndexes(t, restURI, retokenizeClassName, "filepath", "searchable")

@@ -12,7 +12,6 @@
 package indexcheckpoint
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -21,6 +20,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	bolt "go.etcd.io/bbolt"
+
+	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 var checkpointBucket = []byte("checkpoint")
@@ -35,7 +36,9 @@ type Checkpoints struct {
 func New(dir string, logger logrus.FieldLogger) (*Checkpoints, error) {
 	path := filepath.Join(dir, "index.db")
 
-	db, err := bolt.Open(path, 0o600, nil)
+	// Timeout: a leaked handle from a failed teardown holds the flock; without
+	// it this open retries forever and wedges the loading goroutine.
+	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: entlsmkv.BoltFlockTimeout})
 	if err != nil {
 		return nil, errors.Wrapf(err, "open %q", path)
 	}
@@ -47,6 +50,12 @@ func New(dir string, logger logrus.FieldLogger) (*Checkpoints, error) {
 
 	err = ic.initDB()
 	if err != nil {
+		// Close, or the flocked handle leaks and wedges every future open
+		// until restart.
+		if closeErr := db.Close(); closeErr != nil {
+			logger.WithField("path", path).
+				Warnf("close index checkpoint db after failed init: %v", closeErr)
+		}
 		return nil, err
 	}
 
@@ -147,35 +156,21 @@ func (c *Checkpoints) Delete(shardID, targetVector string) error {
 	return nil
 }
 
-// DeleteShard removes all checkpoints for a shard.
-// It works for both single and multi vector shards.
-func (c *Checkpoints) DeleteShard(shardID string) error {
+// DeleteShard deletes the checkpoints of the shard and of its target vectors. Keys
+// join the shard id and the target vector with "_", and both may contain "_", so a
+// key that only starts with the shard id can be another shard's, such as tenant
+// "t1_x" of tenant "t1".
+func (c *Checkpoints) DeleteShard(shardID string, targetVectors []string) error {
 	err := c.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(checkpointBucket)
-
-		c := b.Cursor()
-		sID := []byte(shardID)
-		var toDelete [][]byte
-
-		for k, _ := c.Seek(sID); k != nil; k, _ = c.Next() {
-			if !bytes.HasPrefix(k, sID) {
-				break
-			}
-
-			// ensure the key is either the shardID or shardID_vector
-			if !bytes.Equal(k, sID) && k[len(sID)] != '_' {
-				continue
-			}
-
-			toDelete = append(toDelete, k)
+		if err := b.Delete([]byte(c.getID(shardID, ""))); err != nil {
+			return err
 		}
-
-		for _, k := range toDelete {
-			if err := b.Delete(k); err != nil {
+		for _, targetVector := range targetVectors {
+			if err := b.Delete([]byte(c.getID(shardID, targetVector))); err != nil {
 				return err
 			}
 		}
-
 		return nil
 	})
 	if err != nil {

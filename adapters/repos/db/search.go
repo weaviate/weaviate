@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -37,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
@@ -189,7 +191,7 @@ func (db *DB) VectorSearch(ctx context.Context,
 	targetDist := extractDistanceFromParams(params)
 	res, dists, err := idx.objectVectorSearch(ctx, searchVectors, targetVectors,
 		targetDist, totalLimit, params.Filters, params.Sort, params.GroupBy,
-		params.AdditionalProperties, params.ReplicationProperties, params.Tenant, params.TargetVectorCombination, params.Properties.GetPropertyNames(), params.Selection)
+		params.AdditionalProperties, params.ReplicationProperties, params.Tenant, params.TargetVectorCombination, params.Properties.GetPropertyNames())
 	if err != nil {
 		return nil, errors.Wrapf(err, "object vector search at index %s", idx.ID())
 	}
@@ -256,7 +258,7 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, 
 
 			objs, dist, err := index.objectVectorSearch(ctx, []models.Vector{vector}, []string{targetVector},
 				0, totalLimit, filters, nil, nil,
-				additional.Properties{}, nil, "", nil, nil, nil)
+				additional.Properties{}, nil, "", nil, nil)
 			if err != nil {
 				mutex.Lock()
 				searchErrors = append(searchErrors, errors.Wrapf(err, "search index %s", index.ID()))
@@ -274,15 +276,9 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, 
 	wg.Wait()
 
 	if len(searchErrors) > 0 {
-		var msg strings.Builder
-		for i, err := range searchErrors {
-			if i != 0 {
-				msg.WriteString(", ")
-			}
-			errorMessage := fmt.Sprintf("%v", err)
-			msg.WriteString(errorMessage)
-		}
-		return nil, errors.New(msg.String())
+		// Join (not stringify) so errors.Is/As still traverse the set, e.g.
+		// an admission shed keeps its ErrOverloaded identity.
+		return nil, stderrors.Join(searchErrors...)
 	}
 
 	sort.Slice(found, func(i, j int) bool {
@@ -329,6 +325,9 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 		switch {
 		case errors.As(err, &objects.ErrMultiTenancy{}):
 			return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusUnprocessableEntity, Err: err}
+		case errors.Is(err, queryadmission.ErrOverloaded):
+			// Admission shed: surface as 429, not a generic 500.
+			return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusTooManyRequests, Err: err}
 		default:
 			return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusInternalServerError, Err: err}
 		}
@@ -377,8 +376,7 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 
 		for _, index := range db.indices {
 			// TODO support all additional props
-			scheme := index.getSchema.GetSchemaSkipAuth()
-			props := scheme.GetClass(string(index.Config.ClassName)).Properties
+			props := index.getSchema.ReadOnlyClass(string(index.Config.ClassName)).Properties
 			propsNames := make([]string, len(props))
 			for i, prop := range props {
 				propsNames[i] = prop.Name

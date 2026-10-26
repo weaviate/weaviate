@@ -17,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // TestReindexPropsOverlap pins the property-overlap rule that
@@ -115,6 +116,286 @@ func TestTypesConflictReason(t *testing.T) {
 	}
 }
 
+// TestTouchesBucket_RebuildSearchable pins rebuild-searchable's bucket-touch
+// classification (searchable yes, filterable no) via the public accessors.
+func TestTouchesBucket_RebuildSearchable(t *testing.T) {
+	require.True(t, TouchesSearchable(ReindexTypeRebuildSearchable))
+	require.False(t, TouchesFilterable(ReindexTypeRebuildSearchable))
+}
+
+// TestTypesConflictReason_RebuildSearchableDoesNotPanic pins that an
+// overlapping rebuild-searchable task yields a conflict reason, not a panic.
+func TestTypesConflictReason_RebuildSearchableDoesNotPanic(t *testing.T) {
+	var reason string
+	require.NotPanics(t, func() {
+		reason = typesConflictReason(
+			ReindexTypeRebuildSearchable, []string{"text"},
+			ReindexTypeChangeTokenization, []string{"text"},
+		)
+	})
+	require.NotEmpty(t, reason, "overlapping in-flight task must yield a conflict reason")
+}
+
+// TestSearchablePropertyBlockmaxFromRAFT pins the RAFT-only derivation:
+// class flag OR a FINISHED blockmax-producing task on this property — nothing
+// else (other statuses, migration types, properties, or collections) counts.
+func TestSearchablePropertyBlockmaxFromRAFT(t *testing.T) {
+	task := func(collection string, mt ReindexMigrationType, status distributedtask.TaskStatus, props ...string) *distributedtask.Task {
+		payload, err := json.Marshal(ReindexTaskPayload{Collection: collection, MigrationType: mt, Properties: props})
+		require.NoError(t, err)
+		return &distributedtask.Task{
+			TaskDescriptor: distributedtask.TaskDescriptor{ID: string(mt) + ":" + status.String()},
+			Status:         status,
+			Payload:        payload,
+		}
+	}
+
+	tests := []struct {
+		name      string
+		classFlag bool
+		tasks     []*distributedtask.Task
+		want      bool
+	}{
+		{name: "class flag on, no task → blockmax", classFlag: true, want: true},
+		{name: "class flag off, no task → WAND", classFlag: false, want: false},
+		{
+			name:  "finished change-algorithm on P → blockmax",
+			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusFinished, "text")},
+			want:  true,
+		},
+		{
+			name:  "finished enable-searchable on P → blockmax (created as blockmax)",
+			tasks: []*distributedtask.Task{task("C", ReindexTypeEnableSearchable, distributedtask.TaskStatusFinished, "text")},
+			want:  true,
+		},
+		{
+			name:  "finished rebuild-searchable on P → blockmax",
+			tasks: []*distributedtask.Task{task("C", ReindexTypeRebuildSearchable, distributedtask.TaskStatusFinished, "text")},
+			want:  true,
+		},
+		{
+			name:  "finished change-tokenization on P → not blockmax (strategy preserved)",
+			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeTokenization, distributedtask.TaskStatusFinished, "text")},
+			want:  false,
+		},
+		{
+			name:  "started change-algorithm on P → not yet blockmax",
+			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusStarted, "text")},
+			want:  false,
+		},
+		{
+			name:  "swapping change-algorithm on P → not yet blockmax",
+			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusSwapping, "text")},
+			want:  false,
+		},
+		{
+			name:  "failed change-algorithm on P → not blockmax",
+			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusFailed, "text")},
+			want:  false,
+		},
+		{
+			name:  "cancelled change-algorithm on P → not blockmax",
+			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusCancelled, "text")},
+			want:  false,
+		},
+		{
+			name:  "finished change-algorithm on a different property → P still WAND",
+			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusFinished, "other")},
+			want:  false,
+		},
+		{
+			name:  "finished change-algorithm on a different collection → P still WAND",
+			tasks: []*distributedtask.Task{task("Other", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusFinished, "text")},
+			want:  false,
+		},
+		{
+			name:  "collection match is case-insensitive",
+			tasks: []*distributedtask.Task{task("c", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusFinished, "text")},
+			want:  true,
+		},
+		{
+			name: "class flag on wins even with a failed task present",
+			tasks: []*distributedtask.Task{
+				task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusFailed, "text"),
+			},
+			classFlag: true,
+			want:      true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := SearchablePropertyBlockmaxFromRAFT(tc.classFlag, "C", "text", tc.tasks)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestSearchablePropertyIsBlockmax_TruthTable pins the stamp-first resolver
+// across (classFlag, stamp, taskList); the load-bearing row is a
+// stamped-blockmax property with flag OFF and an aged-out (empty) task list,
+// which must resolve to blockmax, not the legacy WAND fallback.
+func TestSearchablePropertyIsBlockmax_TruthTable(t *testing.T) {
+	finishedBlockmaxTask := func() []*distributedtask.Task {
+		payload, err := json.Marshal(ReindexTaskPayload{
+			Collection: "C", MigrationType: ReindexTypeChangeAlgorithm, Properties: []string{"text"},
+		})
+		require.NoError(t, err)
+		return []*distributedtask.Task{{
+			TaskDescriptor: distributedtask.TaskDescriptor{ID: "t"},
+			Status:         distributedtask.TaskStatusFinished,
+			Payload:        payload,
+		}}
+	}
+	ptr := func(b bool) *bool { return &b }
+
+	tests := []struct {
+		name      string
+		classFlag bool
+		stamp     *bool
+		tasks     []*distributedtask.Task
+		want      bool
+	}{
+		{name: "stamp true, class flag off, aged-out (empty) task list → blockmax [the fix]", classFlag: false, stamp: ptr(true), tasks: nil, want: true},
+		{name: "stamp true, class flag off, unrelated live tasks → blockmax", classFlag: false, stamp: ptr(true), tasks: finishedBlockmaxTask(), want: true},
+		{name: "stamp false, class flag off → WAND", classFlag: false, stamp: ptr(false), tasks: nil, want: false},
+		{name: "stamp false, class flag on → stamp-first wins (unreachable in prod; stamp is only ever written true)", classFlag: true, stamp: ptr(false), tasks: nil, want: false},
+		{name: "nil stamp, class flag on → blockmax (nil-backfill / all-migrated + snapshot from old node)", classFlag: true, stamp: nil, tasks: nil, want: true},
+		{name: "nil stamp, class flag off, finished blockmax task → blockmax (legacy fallback, task still in TTL window)", classFlag: false, stamp: nil, tasks: finishedBlockmaxTask(), want: true},
+		{name: "nil stamp, class flag off, empty task list → WAND (legacy hole; reachable only for pre-stamp migrations, closed by read-repair)", classFlag: false, stamp: nil, tasks: nil, want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			class := &models.Class{
+				Class:               "C",
+				InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: tc.classFlag},
+				Properties:          []*models.Property{{Name: "text", SearchableBlockmax: tc.stamp}},
+			}
+			require.Equal(t, tc.want, SearchablePropertyIsBlockmax(class, "text", tc.tasks))
+		})
+	}
+}
+
+// TestSearchablePropertyIsBlockmaxParsed_MatchesUnparsed pins that the
+// pre-parsed GET-handler variant resolves identically to
+// SearchablePropertyIsBlockmax across the full (stamp, classFlag,
+// finished-task) space.
+func TestSearchablePropertyIsBlockmaxParsed_MatchesUnparsed(t *testing.T) {
+	ptr := func(b bool) *bool { return &b }
+	finishedTask := func(mt ReindexMigrationType, props ...string) *distributedtask.Task {
+		payload, err := json.Marshal(ReindexTaskPayload{Collection: "C", MigrationType: mt, Properties: props})
+		require.NoError(t, err)
+		return &distributedtask.Task{
+			TaskDescriptor: distributedtask.TaskDescriptor{ID: string(mt)},
+			Status:         distributedtask.TaskStatusFinished,
+			Payload:        payload,
+		}
+	}
+
+	tests := []struct {
+		name      string
+		classFlag bool
+		stamp     *bool
+		tasks     []*distributedtask.Task
+	}{
+		{name: "stamp true, flag off, empty tasks", classFlag: false, stamp: ptr(true)},
+		{name: "stamp false, flag off", classFlag: false, stamp: ptr(false)},
+		{name: "nil stamp, flag on", classFlag: true, stamp: nil},
+		{name: "nil stamp, flag off, finished change-algorithm on prop", classFlag: false, stamp: nil, tasks: []*distributedtask.Task{finishedTask(ReindexTypeChangeAlgorithm, "text")}},
+		{name: "nil stamp, flag off, finished change-tokenization on prop (not blockmax)", classFlag: false, stamp: nil, tasks: []*distributedtask.Task{finishedTask(ReindexTypeChangeTokenization, "text")}},
+		{name: "nil stamp, flag off, finished blockmax task on OTHER prop", classFlag: false, stamp: nil, tasks: []*distributedtask.Task{finishedTask(ReindexTypeRebuildSearchable, "other")}},
+		{name: "nil stamp, flag off, empty tasks", classFlag: false, stamp: nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			class := &models.Class{
+				Class:               "C",
+				InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: tc.classFlag},
+				Properties:          []*models.Property{{Name: "text", SearchableBlockmax: tc.stamp}},
+			}
+
+			// Build the set exactly as the GET handler does.
+			finishedBlockmaxProps := make(map[string]struct{})
+			for _, task := range tc.tasks {
+				if task.Status != distributedtask.TaskStatusFinished {
+					continue
+				}
+				var p ReindexTaskPayload
+				require.NoError(t, json.Unmarshal(task.Payload, &p))
+				if _, _, producesBlockmax, _ := ReindexBucketEffect(p.MigrationType); !producesBlockmax {
+					continue
+				}
+				for _, prop := range p.Properties {
+					finishedBlockmaxProps[prop] = struct{}{}
+				}
+			}
+
+			want := SearchablePropertyIsBlockmax(class, "text", tc.tasks)
+			got := SearchablePropertyIsBlockmaxParsed(class, "text", finishedBlockmaxProps)
+			require.Equal(t, want, got, "parsed variant must match the task-list resolver")
+		})
+	}
+}
+
+// allReindexMigrationTypesForTest must list every ReindexMigrationType (kept
+// in sync by hand); TestReindexBucketEffect_Exhaustive fails if any entry here
+// is unclassified, keeping the production fail-safe default honest.
+var allReindexMigrationTypesForTest = []ReindexMigrationType{
+	ReindexTypeChangeAlgorithm,
+	ReindexTypeRebuildSearchable,
+	ReindexTypeRepairFilterable,
+	ReindexTypeEnableRangeable,
+	ReindexTypeRepairRangeable,
+	ReindexTypeEnableFilterable,
+	ReindexTypeEnableSearchable,
+	ReindexTypeChangeTokenization,
+	ReindexTypeChangeTokenizationFilterable,
+}
+
+// TestReindexBucketEffect_Exhaustive enforces at dev-time that every
+// ReindexMigrationType is explicitly classified, and pins the fail-safe
+// defaults (touches both buckets, produces blockmax) for an unrecognized type.
+func TestReindexBucketEffect_Exhaustive(t *testing.T) {
+	// Adding a ReindexMigrationType here without a row below fails the "every
+	// listed type is covered" assertion.
+	want := map[ReindexMigrationType]struct {
+		touchesSearchable bool
+		touchesFilterable bool
+		producesBlockmax  bool
+	}{
+		ReindexTypeChangeAlgorithm:              {true, false, true},
+		ReindexTypeRebuildSearchable:            {true, false, true},
+		ReindexTypeEnableSearchable:             {true, false, true},
+		ReindexTypeChangeTokenization:           {true, true, false},
+		ReindexTypeChangeTokenizationFilterable: {false, true, false},
+		ReindexTypeRepairFilterable:             {false, true, false},
+		ReindexTypeEnableFilterable:             {false, true, false},
+		ReindexTypeEnableRangeable:              {false, false, false},
+		ReindexTypeRepairRangeable:              {false, false, false},
+	}
+
+	for _, mt := range allReindexMigrationTypesForTest {
+		exp, hasRow := want[mt]
+		require.Truef(t, hasRow,
+			"migration type %q is in allReindexMigrationTypesForTest but has no expected row in this test — classify it", mt)
+
+		ts, tf, pb, ok := ReindexBucketEffect(mt)
+		require.Truef(t, ok,
+			"migration type %q is not explicitly classified by ReindexBucketEffect (hit the fail-safe default) — add an explicit case", mt)
+		require.Equalf(t, exp.touchesSearchable, ts, "%s touchesSearchable", mt)
+		require.Equalf(t, exp.touchesFilterable, tf, "%s touchesFilterable", mt)
+		require.Equalf(t, exp.producesBlockmax, pb, "%s producesBlockmax", mt)
+	}
+
+	// An unknown (peer-written) type must fail SAFE, not panic.
+	ts, tf, pb, ok := ReindexBucketEffect(ReindexMigrationType("bogus-future-type"))
+	require.False(t, ok, "unknown type must report ok=false")
+	require.True(t, ts, "unknown type must conservatively touch searchable")
+	require.True(t, tf, "unknown type must conservatively touch filterable")
+	require.True(t, pb, "unknown type must be assumed blockmax (post-GA safe direction)")
+	require.NotPanics(t, func() { _ = producesBlockmaxSearchable(ReindexMigrationType("bogus-future-type")) },
+		"unknown type must never panic on the forward-compat hot path")
+}
+
 // TestCheckConflict_AcceptsNonOverlapping pins the happy path:
 // CheckConflict returns nil when the new payload doesn't overlap with
 // any STARTED existing task.
@@ -169,11 +450,7 @@ func TestCheckConflict_RejectsParallelOnSameProp(t *testing.T) {
 	}
 	existPayload, _ := json.Marshal(existP)
 
-	for _, status := range []distributedtask.TaskStatus{
-		distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping,
-	} {
+	for _, status := range blockingStatuses {
 		t.Run(string(status), func(t *testing.T) {
 			existing := []*distributedtask.Task{
 				{
@@ -374,11 +651,7 @@ func TestCheckPropertyUpdate_InFlightOnSamePropertyRejects(t *testing.T) {
 		Properties:    []string{"name"},
 	})
 
-	for _, status := range []distributedtask.TaskStatus{
-		distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping,
-	} {
+	for _, status := range blockingStatuses {
 		t.Run(string(status), func(t *testing.T) {
 			tasks := []*distributedtask.Task{{
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_change_tok", Version: 1},
@@ -566,11 +839,7 @@ func TestCheckClassMutation_InFlightOnSameClassRejects(t *testing.T) {
 		Properties: []string{"name"},
 	})
 
-	for _, status := range []distributedtask.TaskStatus{
-		distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping,
-	} {
+	for _, status := range blockingStatuses {
 		t.Run(string(status), func(t *testing.T) {
 			tasks := []*distributedtask.Task{{
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_class", Version: 1},
@@ -634,11 +903,7 @@ func TestCheckTenantMutation_InFlightOnSameClassRejects(t *testing.T) {
 		Properties:    []string{"name"},
 	})
 
-	for _, status := range []distributedtask.TaskStatus{
-		distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusPreparing,
-		distributedtask.TaskStatusSwapping,
-	} {
+	for _, status := range blockingStatuses {
 		t.Run(string(status), func(t *testing.T) {
 			tasks := []*distributedtask.Task{{
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_tenant", Version: 1},
@@ -713,5 +978,109 @@ func TestCheckPropertyUpdate_EmptyMigrationTypeOrCollectionRejects(t *testing.T)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "T_empty")
 		})
+	}
+}
+
+// unknownFutureStatus simulates a status a newer node introduced that
+// this build doesn't recognize. Must never become a real status name.
+//
+// A const is fine outside cluster/distributedtask. Inside it, the
+// exhaustive linter reads every TaskStatus const in the package as an
+// enum member, so the copy there is a var.
+const unknownFutureStatus distributedtask.TaskStatus = "UNKNOWN_FUTURE_STATE"
+
+// blockingStatuses are the non-terminal statuses every reindex conflict
+// guard must refuse a mutation for, the unrecognized one included.
+var blockingStatuses = []distributedtask.TaskStatus{
+	distributedtask.TaskStatusStarted,
+	distributedtask.TaskStatusPreparing,
+	distributedtask.TaskStatusSwapping,
+	unknownFutureStatus,
+}
+
+// Pins: a mutation refusal tells the operator to cancel the reindex only
+// for the status the cancel API accepts one for. STARTED is that status.
+// A coordination phase gets 409 because stopping mid-cutover is unsafe,
+// and a status this build cannot classify gets 409 on every node — so
+// naming a cancel for either sends the operator down a road that
+// dead-ends.
+//
+// The expectations are spelled out per status rather than derived from
+// IsCancellable, so re-keying the helper onto a different predicate
+// shows up here as a failure instead of moving the goalposts with it.
+func TestMutationRefusals_NameACancelOnlyWhereTheAPIAcceptsOne(t *testing.T) {
+	provider := &ReindexProvider{}
+	payload, _ := json.Marshal(ReindexTaskPayload{
+		Collection:    "C",
+		MigrationType: ReindexTypeChangeTokenization,
+		Properties:    []string{"name"},
+	})
+	tasksIn := func(status distributedtask.TaskStatus) []*distributedtask.Task {
+		return []*distributedtask.Task{{
+			TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1},
+			Status:         status,
+			Payload:        payload,
+		}}
+	}
+
+	// Each guard's own wording for "cancel it", which may appear only
+	// where a cancel is accepted.
+	guards := map[string]struct {
+		call         func(tasks []*distributedtask.Task) error
+		cancelAdvice string
+	}{
+		"property update": {
+			call: func(tasks []*distributedtask.Task) error {
+				return provider.CheckPropertyUpdate("C", "name", tasks)
+			},
+			cancelAdvice: "cancel it via the reindex REST API before retrying",
+		},
+		"class mutation": {
+			call: func(tasks []*distributedtask.Task) error {
+				return provider.CheckClassMutation("C", tasks)
+			},
+			cancelAdvice: "cancel the reindex via the REST API before deleting the class",
+		},
+		"tenant mutation": {
+			call: func(tasks []*distributedtask.Task) error {
+				return provider.CheckTenantMutation("C", []string{"t1"}, tasks)
+			},
+			cancelAdvice: "cancel the reindex via the REST API before mutating these tenants",
+		},
+	}
+
+	for _, tc := range []struct {
+		status           distributedtask.TaskStatus
+		wantCancelAdvice bool
+		wantReason       string
+	}{
+		{status: distributedtask.TaskStatusStarted, wantCancelAdvice: true},
+		{
+			status:     distributedtask.TaskStatusPreparing,
+			wantReason: "past the point where a cancel is accepted",
+		},
+		{
+			status:     distributedtask.TaskStatusSwapping,
+			wantReason: "past the point where a cancel is accepted",
+		},
+		{
+			status:     unknownFutureStatus,
+			wantReason: "cannot classify that status",
+		},
+	} {
+		for name, guard := range guards {
+			t.Run(string(tc.status)+"/"+name, func(t *testing.T) {
+				err := guard.call(tasksIn(tc.status))
+				require.Error(t, err, "every non-terminal status blocks the mutation")
+
+				if tc.wantCancelAdvice {
+					require.Contains(t, err.Error(), guard.cancelAdvice)
+					return
+				}
+				require.NotContains(t, err.Error(), guard.cancelAdvice,
+					"a cancel for %q is refused with 409, so the refusal must not name one", tc.status)
+				require.Contains(t, err.Error(), tc.wantReason)
+			})
+		}
 	}
 }
