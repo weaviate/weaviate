@@ -25,10 +25,14 @@ import (
 // Config makes every subject on the list an admin, whereas everyone else
 // has no rights whatsoever
 type Config struct {
-	Enabled           bool     `json:"enabled" yaml:"enabled"`
-	RootUsers         []string `json:"root_users" yaml:"root_users"`
-	RootGroups        []string `json:"root_groups" yaml:"root_groups"`
-	ReadOnlyGroups    []string `json:"readonly_groups" yaml:"readonly_groups"`
+	Enabled        bool     `json:"enabled" yaml:"enabled"`
+	RootUsers      []string `json:"root_users" yaml:"root_users"`
+	RootGroups     []string `json:"root_groups" yaml:"root_groups"`
+	ReadOnlyGroups []string `json:"readonly_groups" yaml:"readonly_groups"`
+	// MetadataGroups are bound to the built-in operator_metadata_reader role.
+	// Like root and read-only groups, the binding is reset from config on every
+	// boot and cannot be changed through the API.
+	MetadataGroups    []string `json:"metadata_groups" yaml:"metadata_groups"`
 	ViewerUsers       []string `json:"viewer_users" yaml:"viewer_users"`
 	AdminUsers        []string `json:"admin_users" yaml:"admin_users"`
 	IpInAuditDisabled bool     `json:"ip_in_audit" yaml:"ip_in_audit"`
@@ -48,6 +52,7 @@ func (c Config) Validate() error {
 		validateGrants("viewer_users", c.ViewerUsers, user, authorization.Viewer),
 		validateGrants("root_groups", c.RootGroups, group, authorization.Root),
 		validateGrants("readonly_groups", c.ReadOnlyGroups, group, authorization.ReadOnly),
+		validateGrants("metadata_groups", c.MetadataGroups, group, authorization.MetadataReader),
 	)
 }
 

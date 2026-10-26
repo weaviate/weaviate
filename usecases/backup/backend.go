@@ -152,8 +152,10 @@ func (s *nodeStore) Meta(ctx context.Context, backupID, overrideBucket, override
 	return &result, err
 }
 
-func (s *nodeStore) MetaForBackupID(ctx context.Context, backupID, overrideBucket, overridePath string) (*backup.BackupDescriptor, error) {
-	var result *backup.BackupDescriptor
+// BaseMetaForBackupID reads this node's metadata in backup backupID for an incremental
+// backup built on it.
+func (s *nodeStore) BaseMetaForBackupID(ctx context.Context, backupID, overrideBucket, overridePath string) (*backup.BaseBackupDescriptor, error) {
+	var result *backup.BaseBackupDescriptor
 
 	cs := &objectStore{s.backend, fmt.Sprintf("%s/%s", backupID, s.node), overrideBucket, overridePath, ""} // for backward compatibility
 	if err := cs.meta(ctx, BackupFile, overrideBucket, overridePath, &result); err != nil {
@@ -246,7 +248,7 @@ type statusPublisher interface {
 
 // snapshotSelection is what the scheduler resolved from includeUsers and
 // includeRoles. Empty users/roles mean the whole-cluster snapshot; the skip
-// flags mean the selector matched nothing and no snapshot is uploaded.
+// flags exclude snapshots for empty lists or unmatched wildcards.
 type snapshotSelection struct {
 	users, roles         []string
 	skipUsers, skipRoles bool
@@ -283,7 +285,7 @@ func (u *uploader) withShardDesignations(designations map[string]map[string]stri
 }
 
 // all uploads all files in addition to the metadata file
-func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, baseDescr []*backup.BackupDescriptor, overrideBucket, overridePath string) (err error) {
+func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, baseDescr []*backup.BaseBackupDescriptor, overrideBucket, overridePath string) (err error) {
 	u.slot.set(backup.Transferring)
 	desc.Status = backup.Transferring
 	// all owns the producer's context so it can be stopped before any index is
@@ -462,7 +464,7 @@ Loop:
 	if err := ctx.Err(); err != nil {
 		return contextChecker(ctx)
 	} else if u.selection.skipRoles {
-		u.log.Info("includeRoles matched no role, skipping RBAC backup")
+		u.log.Info("includeRoles selects no roles, skipping RBAC backup")
 	} else if u.rbacSourcer != nil {
 		u.log.Info("start uploading RBAC backups")
 		descrp, err := u.rbacSourcer.Snapshot(u.selection.roles...)
@@ -477,7 +479,7 @@ Loop:
 	if err := ctx.Err(); err != nil {
 		return contextChecker(ctx)
 	} else if u.selection.skipUsers {
-		u.log.Info("includeUsers matched no user, skipping dynamic user backup")
+		u.log.Info("includeUsers selects no users, skipping dynamic user backup")
 	} else if u.dynUserSourcer != nil {
 		u.log.Info("start uploading dynamic user backups")
 		descrp, err := u.dynUserSourcer.Snapshot(u.selection.users...)

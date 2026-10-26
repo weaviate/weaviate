@@ -1151,11 +1151,11 @@ func TestBackupShardWithHardlinks_ReleasesShardAfterBackupLock(t *testing.T) {
 				})
 			idx.shards.Store(shardName, mockShard)
 
-			var baseDescrs []*backup.ClassDescriptor
+			var baseDescrs []*backup.BaseClassDescriptor
 			if tt.missingBigFile {
-				baseDescrs = []*backup.ClassDescriptor{{
+				baseDescrs = []*backup.BaseClassDescriptor{{
 					BackupID: "base-backup",
-					Shards: []*backup.ShardDescriptor{{
+					Shards: []backup.BaseShardDescriptor{{
 						Name:          shardName,
 						BigFilesChunk: map[string]backup.BigFileInfo{snapshotFile: {Size: 1}},
 					}},

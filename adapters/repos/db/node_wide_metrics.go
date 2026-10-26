@@ -621,6 +621,13 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 					index.shardCreateLocks.RLock(shardName)
 					defer index.shardCreateLocks.RUnlock(shardName)
 
+					// Skip sl unless index.shards still holds it loaded, or QuantizedDimensions
+					// would reload a released sl outside the map. Holding preventShutdown in
+					// place of shardCreateLocks would fail an unload that retries for 2s.
+					if index.shards.Loaded(shardName) != sl {
+						return nil
+					}
+
 					dim := calculateShardDimensionMetrics(ctx, sl)
 					indexTotal = indexTotal.Add(dim)
 

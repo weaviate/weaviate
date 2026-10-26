@@ -379,24 +379,34 @@ func (s *schemaHandlers) deleteClassVectorIndex(params schema.SchemaObjectsVecto
 	err := s.manager.DeleteClassVectorIndex(ctx, principal, params.ClassName, params.VectorIndexName)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
-		switch {
-		case errors.As(err, &authzerrors.Forbidden{}):
-			return schema.NewSchemaObjectsVectorsDeleteForbidden().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		case errors.Is(err, schemaUC.ErrNotFound):
-			return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		case errors.Is(err, schemaUC.ErrValidation):
-			return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		default:
-			return schema.NewSchemaObjectsVectorsDeleteInternalServerError().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		}
+		return vectorIndexDeleteErrResponder(principal, err)
 	}
 
 	s.metricRequestsTotal.logOk(params.ClassName)
 	return schema.NewSchemaObjectsVectorsDeleteOK()
+}
+
+// vectorIndexDeleteErrResponder maps a failed vector index drop to its response.
+// A namespace that refuses the drop answers 422 rather than the 500 an
+// unrecognized error gets, so a suspended instance does not read as a fault.
+func vectorIndexDeleteErrResponder(principal *models.Principal, err error) middleware.Responder {
+	switch {
+	case errors.As(err, &authzerrors.Forbidden{}):
+		return schema.NewSchemaObjectsVectorsDeleteForbidden().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	case errors.Is(err, schemaUC.ErrNotFound):
+		return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	case errors.Is(err, schemaUC.ErrValidation):
+		return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	case cerrors.NamespaceErrRendersUnprocessable(err):
+		return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	default:
+		return schema.NewSchemaObjectsVectorsDeleteInternalServerError().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	}
 }
 
 func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *models.Principal) middleware.Responder {

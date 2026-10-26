@@ -2643,46 +2643,64 @@ func TestEnvironmentAsyncReplicationGlobalSentinels(t *testing.T) {
 	}
 }
 
-func TestNamespaceCleanupIntervalValidation(t *testing.T) {
-	tests := []struct {
-		name    string
-		env     string
-		wantErr string
-		wantGet time.Duration
+func TestNamespaceIntervalValidation(t *testing.T) {
+	// Neither knob is gated on NAMESPACES_ENABLED, so both parse with it off.
+	t.Setenv("NAMESPACES_ENABLED", "false")
+	knobs := []struct {
+		env        string
+		defaultGet time.Duration
+		interval   func(Config) *configRuntime.DynamicValue[time.Duration]
 	}{
-		{name: "a sub-second interval fails the boot", env: "500ms", wantErr: "NAMESPACE_CLEANUP_INTERVAL"},
-		{name: "unset yields the default", wantGet: DefaultNamespaceCleanupInterval},
-		// newCronsNamespaceCleanup substitutes the default; Get() keeps the 0 the
-		// operator wrote, and /debug/config omits a zero interval entirely.
-		{name: "a value at or below zero is kept as configured", env: "0"},
+		{
+			env: "NAMESPACE_CLEANUP_INTERVAL", defaultGet: DefaultNamespaceCleanupInterval,
+			interval: func(c Config) *configRuntime.DynamicValue[time.Duration] {
+				return c.Namespaces.CleanupInterval
+			},
+		},
+		{
+			env: "SUSPEND_RECONCILE_INTERVAL", defaultGet: DefaultSuspendReconcileInterval,
+			interval: func(c Config) *configRuntime.DynamicValue[time.Duration] {
+				return c.Namespaces.SuspendReconcileInterval
+			},
+		},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.env != "" {
-				t.Setenv("NAMESPACE_CLEANUP_INTERVAL", tt.env)
-			}
-			var conf Config
+	for _, knob := range knobs {
+		tests := []struct {
+			name    string
+			env     string
+			wantErr bool
+			wantGet time.Duration
+		}{
+			{name: "a sub-second interval fails the boot", env: "500ms", wantErr: true},
+			{name: "unset yields the default", wantGet: knob.defaultGet},
+		}
+		for _, tt := range tests {
+			t.Run(knob.env+"/"+tt.name, func(t *testing.T) {
+				if tt.env != "" {
+					t.Setenv(knob.env, tt.env)
+				}
+				var conf Config
 
-			err := FromEnv(&conf)
+				err := FromEnv(&conf)
 
-			if tt.wantErr != "" {
-				require.ErrorContains(t, err, tt.wantErr)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantGet, conf.Namespaces.CleanupInterval.Get())
-		})
+				if tt.wantErr {
+					require.ErrorContains(t, err, knob.env)
+					return
+				}
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantGet, knob.interval(conf).Get())
+			})
+		}
 	}
+}
 
-	t.Run("a sub-second runtime push is refused and the interval stands", func(t *testing.T) {
-		t.Setenv("NAMESPACE_CLEANUP_INTERVAL", "1m")
-		var conf Config
-		require.NoError(t, FromEnv(&conf))
+func TestNamespaceSuspendedMessageFromEnv(t *testing.T) {
+	t.Setenv("NAMESPACE_SUSPENDED_MESSAGE", "  paused\n")
+	var conf Config
 
-		require.Error(t, conf.Namespaces.CleanupInterval.SetValue(500*time.Millisecond))
-		assert.Equal(t, time.Minute, conf.Namespaces.CleanupInterval.Get(),
-			"a refused push must leave the previous interval in place")
-	})
+	require.NoError(t, FromEnv(&conf))
+
+	assert.Equal(t, "paused", conf.Namespaces.SuspendedMessage)
 }
 
 func TestBatchStreamFromEnv(t *testing.T) {
@@ -3049,6 +3067,42 @@ func TestEnvironmentReindexIndexesAtStartupRejectsAllProperties(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
+		})
+	}
+}
+
+func TestEnvironmentReindexVectorDimensions(t *testing.T) {
+	tests := []struct {
+		name                 string
+		env                  map[string]string
+		expectedReindex      bool
+		expectedToRoaringSet bool
+	}{
+		{name: "not given", env: nil},
+		{
+			name:            "reindex",
+			env:             map[string]string{"REINDEX_VECTOR_DIMENSIONS_AT_STARTUP": "true"},
+			expectedReindex: true,
+		},
+		{
+			name:                 "to roaring set",
+			env:                  map[string]string{"REINDEX_VECTOR_DIMENSIONS_TO_ROARINGSET_AT_STARTUP": "true"},
+			expectedToRoaringSet: true,
+		},
+		{
+			name: "to roaring set disabled",
+			env:  map[string]string{"REINDEX_VECTOR_DIMENSIONS_TO_ROARINGSET_AT_STARTUP": "false"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for name, value := range tt.env {
+				t.Setenv(name, value)
+			}
+			conf := Config{}
+			require.NoError(t, FromEnv(&conf))
+			require.Equal(t, tt.expectedReindex, conf.ReindexVectorDimensionsAtStartup)
+			require.Equal(t, tt.expectedToRoaringSet, conf.ReindexVectorDimensionsToRoaringsetAtStartup)
 		})
 	}
 }

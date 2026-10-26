@@ -545,6 +545,8 @@ func TestHandlerTenantAuthorization(t *testing.T) {
 	calls := deps.authorizer.Calls()
 	require.NotEmpty(t, calls)
 	assert.Contains(t, calls[0].Resources[0], "tenantA")
+	assert.Equal(t, mocks.MethodAuthorizeAndRequireActiveNamespace, calls[0].Method)
+	assert.Equal(t, "Movie", calls[0].Class, "the shard shape reaches the gate with the same class")
 	assert.Equal(t, "tenantA", deps.searcher.lastParams.Tenant)
 }
 
@@ -568,6 +570,10 @@ func (rbacLikeAuthorizer) Authorize(ctx context.Context, principal *models.Princ
 		p = &models.Principal{Username: "anonymous"}
 	}
 	return fmt.Errorf("rbac: %w", autherrs.NewForbidden(p, verb, resources...))
+}
+
+func (a rbacLikeAuthorizer) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error {
+	return a.Authorize(ctx, principal, verb, resources...)
 }
 
 func (a rbacLikeAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
@@ -637,16 +643,16 @@ type denyCollections struct {
 	requests []mocks.AuthZReq
 }
 
-func (a *denyCollections) authorize(principal *models.Principal, verb string, resources []string) error {
-	a.requests = append(a.requests, mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources})
-	for _, r := range resources {
+func (a *denyCollections) authorize(req mocks.AuthZReq) error {
+	a.requests = append(a.requests, req)
+	for _, r := range req.Resources {
 		for name := range a.denied {
 			if strings.Contains(r, "/collections/"+name+"/") {
-				p := principal
+				p := req.Principal
 				if p == nil {
 					p = &models.Principal{Username: "anonymous"}
 				}
-				return fmt.Errorf("rbac: %w", autherrs.NewForbidden(p, verb, resources...))
+				return fmt.Errorf("rbac: %w", autherrs.NewForbidden(p, req.Verb, req.Resources...))
 			}
 		}
 	}
@@ -654,15 +660,22 @@ func (a *denyCollections) authorize(principal *models.Principal, verb string, re
 }
 
 func (a *denyCollections) Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
-	return a.authorize(principal, verb, resources)
+	return a.authorize(mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources, Method: mocks.MethodAuthorize})
+}
+
+func (a *denyCollections) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error {
+	return a.authorize(mocks.AuthZReq{
+		Principal: principal, Verb: verb, Resources: resources,
+		Method: mocks.MethodAuthorizeAndRequireActiveNamespace, Class: class,
+	})
 }
 
 func (a *denyCollections) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
-	return a.authorize(principal, verb, resources)
+	return a.authorize(mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources, Method: mocks.MethodAuthorizeSilent})
 }
 
 func (a *denyCollections) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, verb string, resources ...string) ([]string, error) {
-	if err := a.authorize(principal, verb, resources); err != nil {
+	if err := a.authorize(mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources, Method: mocks.MethodFilterAuthorizedResources}); err != nil {
 		return nil, err
 	}
 	return resources, nil

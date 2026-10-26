@@ -84,7 +84,7 @@ type SchemaWriter interface {
 type ClassWriter interface {
 	AddClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
 	RestoreClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
-	UpdateClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
+	UpdateClass(ctx context.Context, cls *models.Class, ss *sharding.State, origin cmd.ClassUpdateOrigin) (uint64, error)
 	DeleteClass(ctx context.Context, name string) (uint64, error)
 	AddProperty(ctx context.Context, class string, p ...*models.Property) (uint64, error)
 	// UpdateProperty merges property into the named class. When fields is non-empty,
@@ -97,8 +97,9 @@ type ClassWriter interface {
 	// [cmd.UpdatePropertyRequest.FromInFlightMigration] so the schema FSM's cross-FSM
 	// MutationGuard, which blocks property mutations while a reindex on the same
 	// property is STARTED or FINALIZING, lets the migration's own schema flip through:
-	// OnTaskCompleted fires while the task is still FINALIZING. Public REST / gRPC
-	// handlers must not call it.
+	// OnTaskCompleted fires while the task is still FINALIZING. The flag also lets the
+	// flip through while its namespace is not active. Public REST / gRPC handlers must
+	// not call it.
 	UpdatePropertyFromMigration(ctx context.Context, class string, property *models.Property, fields ...string) (uint64, error)
 }
 

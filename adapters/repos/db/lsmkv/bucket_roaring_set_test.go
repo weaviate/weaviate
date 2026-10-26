@@ -245,7 +245,7 @@ func TestBucket_RoaringSetGet_RespectsConcurrencyBudget(t *testing.T) {
 	require.Equal(t, values, arr1)
 	require.Equal(t, arrDefault, arr1)
 
-	// budget=1 spawns no extra workers; slack absorbs sampler/GC noise
+	// budget=1 spawns no extra workers
 	testinghelpers.AssertGoroutineCeiling(t, 24, 1, 8, 200*time.Millisecond, func() error {
 		bm, release, err := b.RoaringSetGet(budget1, key)
 		if err != nil {

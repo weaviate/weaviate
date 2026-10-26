@@ -120,11 +120,29 @@ func (s *Shard) readyVectorIndexNeedsRebuild(name string, rec vectorIndexRecord)
 }
 
 // commitVectorIndexRecords makes the indexes just built durable in the
-// mapping. On the first load every record is written ready in one
-// transaction; later, only the records that were creating are flipped.
-func (s *Shard) commitVectorIndexRecords(records map[string]vectorIndexRecord, initialized bool) error {
+// mapping, each with the config it was built with. On the first load every
+// record is written ready in one transaction; later, the records that were
+// creating are flipped, and a ready record is rewritten when the config it
+// holds is not the one the index was built with.
+//
+// Until the cutover the schema decides the config at load, so a ready
+// record whose config differs from the schema's is rewritten rather than
+// trusted: today's config push reaches loaded shards only, and a shard
+// that was cold during a change picks the change up here. The same rewrite
+// fills in a record from before the config and queue ID fields existed.
+func (s *Shard) commitVectorIndexRecords(records map[string]vectorIndexRecord,
+	built map[string]schemaConfig.VectorIndexConfig, initialized bool,
+) error {
 	for name, rec := range records {
+		rec, changed := rec.adopted(built[name])
 		if initialized && rec.State == vectorIndexStateReady {
+			if !changed {
+				continue
+			}
+			err := s.mapping.Put(name, rec)
+			if err != nil {
+				return err
+			}
 			continue
 		}
 		if !initialized {
@@ -200,9 +218,11 @@ func vectorIndexHasStorage(cfg schemaConfig.VectorIndexConfig) bool {
 	return !ok || !hnswCfg.Skip
 }
 
-// vectorIndexRecordFor is the record of a vector created under the naming rule.
+// vectorIndexRecordFor is the record of a vector created under the naming
+// rule: its queue shares the index's ID, and cfg is what it is built with.
 func vectorIndexRecordFor(name string, cfg schemaConfig.VectorIndexConfig, state string) vectorIndexRecord {
-	return vectorIndexRecord{PhysicalID: vectorIndexID(name), IndexType: cfg.IndexType(), State: state}
+	id := vectorIndexID(name)
+	return vectorIndexRecord{PhysicalID: id, IndexType: cfg.IndexType(), State: state, QueueID: id, Config: cfg}
 }
 
 // vectorIndexStorageDirsFor lists the directories rec occupies under this shard.

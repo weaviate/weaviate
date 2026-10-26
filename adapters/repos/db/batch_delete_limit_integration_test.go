@@ -502,7 +502,7 @@ func newBatchDeleteRepoAt(t *testing.T, rootDir string, class *models.Class,
 
 	return setupTestDBWithShardState(t, rootDir, shardState, func(cfg *Config) {
 		cfg.QueryMaximumResults = queryMaximumResults
-	}, class)
+	}, nil, class)
 }
 
 // TestBatchDeleteObjects_DeadDocIDDoesNotBurnASlot pins that a doc id with no object row costs a read, not a limit slot.
@@ -848,11 +848,11 @@ func TestObjectsTTLSweepResolvesPastDeadDocIDs(t *testing.T) {
 			newTTLRepo := func() *DB {
 				return setupTestDBWithShardState(t, rootDir, shardState, func(cfg *Config) {
 					cfg.ObjectsTTLBatchSize = configRuntime.NewDynamicValue(sweepBatch)
-				}, class)
+				}, nil, class)
 			}
 
 			repo := newTTLRepo()
-			insertTTLObjects(t, repo, expiredCount, aliveCount)
+			insertTTLObjects(t, repo, "", expiredCount, aliveCount)
 			deadDocIDs := make([]uint64, tt.deadCount)
 			for i := range deadDocIDs {
 				deadDocIDs[i] = dropObjectRow(t, repo, batchDeleteTTLClassName, batchDeleteObjectID(i))
@@ -963,7 +963,7 @@ func batchDeleteTTLClass() *models.Class {
 // insertTTLObjects writes expired objects first, then objects that have not expired, so
 // the expired ones hold the lowest doc ids. Each expired object expires a second after the
 // one before it, so the date index holds one key per object.
-func insertTTLObjects(t *testing.T, repo *DB, expiredCount, aliveCount int) {
+func insertTTLObjects(t *testing.T, repo *DB, tenant string, expiredCount, aliveCount int) {
 	t.Helper()
 
 	past := time.Now().Add(-time.Hour)
@@ -980,8 +980,9 @@ func insertTTLObjects(t *testing.T, repo *DB, expiredCount, aliveCount int) {
 			OriginalIndex: i,
 			UUID:          id,
 			Object: &models.Object{
-				Class: batchDeleteTTLClassName,
-				ID:    id,
+				Class:  batchDeleteTTLClassName,
+				ID:     id,
+				Tenant: tenant,
 				Properties: map[string]interface{}{
 					"stringProp":       fmt.Sprintf("element %d", i),
 					batchDeleteTTLProp: expiresAt.Format(time.RFC3339),

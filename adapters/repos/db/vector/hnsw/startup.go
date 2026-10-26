@@ -82,6 +82,10 @@ func (h *hnsw) restoreFromDisk() error {
 	loader := compact.NewLoader(compact.LoaderConfig{
 		Dir:    dir,
 		Logger: h.logger,
+		// Multivector indexes without Muvera number their nodes separately.
+		// HFresh's centroid index numbers them by posting ID; it lives in HFresh's
+		// own directory, which holds no document-ID counter, so it gets no limit.
+		NodeIDsAreDocIDs: !h.multivector.Load() || h.muvera.Load(),
 	})
 
 	loadResult, err := loader.Load()
@@ -142,6 +146,7 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 	if state.Compressed() {
 		h.compressed.Store(true)
 		h.cache.Drop()
+		h.cache = nil
 
 		if pqData := state.CompressionPQData(); pqData != nil {
 			h.dims.Store(int32(pqData.Dimensions))

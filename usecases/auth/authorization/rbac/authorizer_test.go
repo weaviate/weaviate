@@ -922,6 +922,37 @@ func TestAudit_MalformedPrincipal_MarksUnclassifiedAndWarns(t *testing.T) {
 	require.False(t, hasNS)
 }
 
+// TestAuthorizeEnforceErrorOmitsStack checks that a matcher panic on a stored
+// pattern keeps casbin's goroutine stack in the log and out of the error.
+func TestAuthorizeEnforceErrorOmitsStack(t *testing.T) {
+	logger, hook := test.NewNullLogger()
+	m, err := setupTestManager(t, logger)
+	require.NoError(t, err)
+	// The authz API refuses this row, which conv stores for "[[:alpha:]]".
+	_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("bad"), "aliases/collections/.*/aliases/[[:Alpha:]]+", authorization.READ, authorization.AliasesDomain)
+	require.NoError(t, err)
+	require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId("alice", authentication.AuthTypeDb), []string{"bad"}))
+	principal := &models.Principal{Username: "alice", UserType: models.UserTypeInputDb}
+	resource := "aliases/collections/Movies/aliases/Foo"
+
+	check := func(t *testing.T, err error) {
+		t.Helper()
+		require.ErrorContains(t, err, "error parsing regexp")
+		assert.NotContains(t, err.Error(), "goroutine")
+		assert.NotContains(t, err.Error(), "\n")
+		entry := hook.LastEntry()
+		require.NotNil(t, entry)
+		assert.Contains(t, entry.Message, "goroutine", "the log must keep the stack")
+	}
+	t.Run("authorize", func(t *testing.T) {
+		check(t, m.Authorize(context.Background(), principal, authorization.READ, resource))
+	})
+	t.Run("filter", func(t *testing.T) {
+		_, err := m.FilterAuthorizedResources(context.Background(), principal, authorization.READ, resource)
+		check(t, err)
+	})
+}
+
 func setupTestManager(t *testing.T, logger *logrus.Logger) (*Manager, error) {
 	tmpDir, err := os.MkdirTemp("", "rbac-test-*")
 	if err != nil {
@@ -966,22 +997,45 @@ func setupTestManagerWithAPIKey(t *testing.T, logger *logrus.Logger, apiKey conf
 		false, nil, logger)
 }
 
-// fakeNamespaceLister reports a fixed namespace set, standing in for the cluster's
-// namespace controller.
-type fakeNamespaceLister []string
+// fakeNamespaceLister reports a fixed namespace set and each namespace's state,
+// standing in for the cluster's namespace controller.
+type fakeNamespaceLister map[string]cmd.NamespaceState
 
-func (f fakeNamespaceLister) List() []cmd.Namespace {
-	out := make([]cmd.Namespace, 0, len(f))
-	for _, name := range f {
-		out = append(out, cmd.Namespace{Name: name})
+// activeNamespaces builds a lister holding each named namespace in the active state.
+func activeNamespaces(names ...string) fakeNamespaceLister {
+	out := make(fakeNamespaceLister, len(names))
+	for _, name := range names {
+		out[name] = cmd.NamespaceStateActive
 	}
 	return out
 }
 
+func (f fakeNamespaceLister) List() []cmd.Namespace {
+	out := make([]cmd.Namespace, 0, len(f))
+	for name, state := range f {
+		out = append(out, cmd.Namespace{Name: name, State: state})
+	}
+	return out
+}
+
+func (f fakeNamespaceLister) GetNamespace(name string) (cmd.Namespace, bool) {
+	state, ok := f[name]
+	if !ok {
+		return cmd.Namespace{}, false
+	}
+	return cmd.Namespace{Name: name, State: state}, true
+}
+
 // setupNSEnabledTestManager is setupTestManager with namespacesEnabled=true:
 // admin/viewer get the narrowed shape, root/read-only stay wildcard. The caller's
-// namespaces are the ones a snapshot may record.
+// namespaces are the ones a snapshot may record, all of them active.
 func setupNSEnabledTestManager(t *testing.T, logger *logrus.Logger, namespaces ...string) (*Manager, error) {
+	return setupNSEnabledTestManagerWithLister(t, logger, activeNamespaces(namespaces...))
+}
+
+// setupNSEnabledTestManagerWithLister is setupNSEnabledTestManager for a caller
+// that needs namespaces in a state other than active, or none at all.
+func setupNSEnabledTestManagerWithLister(t *testing.T, logger *logrus.Logger, lister NamespaceLister) (*Manager, error) {
 	tmpDir, err := os.MkdirTemp("", "rbac-test-ns-*")
 	if err != nil {
 		return nil, err
@@ -996,7 +1050,7 @@ func setupNSEnabledTestManager(t *testing.T, logger *logrus.Logger, namespaces .
 
 	return New(policyPath, rbacconf.Config{Enabled: true},
 		config.Authentication{OIDC: config.OIDC{Enabled: true}, APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}},
-		true, fakeNamespaceLister(namespaces), logger)
+		true, lister, logger)
 }
 
 // TestNarrowedViewerVsReadOnly_ClusterReadDenied asserts enforcement of

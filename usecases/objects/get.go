@@ -37,7 +37,7 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 		return nil, userInputOrForbidden(err)
 	}
 
-	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(class, tenant)); err != nil {
+	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.READ, class, authorization.Objects(class, tenant)); err != nil {
 		return nil, err
 	}
 
@@ -114,6 +114,10 @@ func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Princip
 	return class, err
 }
 
+// GetObjectClassFromName leaves AuthorizeAndRequireActiveNamespace to GetObject,
+// which its one caller objectHandlers.getObject calls right after. If that
+// changes, check here with data READ, since CollectionsMetadata READ would
+// reveal a suspended namespace to a principal without data READ.
 func (m *Manager) GetObjectClassFromName(ctx context.Context, principal *models.Principal,
 	className string,
 ) (*models.Class, error) {

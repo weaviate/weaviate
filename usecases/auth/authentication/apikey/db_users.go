@@ -53,6 +53,10 @@ var ErrUserIdentifierExists = errors.New("user identifier already exists")
 // with one the caller supplied, locking that user out of the cluster.
 var ErrUserExists = errors.New("user already exists with a different credential")
 
+// ErrUserExpired is returned by ValidateAndExtract and ValidateImportedKey once
+// the user's ExpiresAt is reached.
+var ErrUserExpired = errors.New("user expired")
+
 // MakeUserKey returns the internal storage key for a user. Namespaced users
 // are stored under "namespace<sep>userId" so two namespaces can host the same
 // short id without collision; unnamespaced users keep the bare id for
@@ -75,7 +79,7 @@ func IsOwnUser(principal *models.Principal, userKey string) bool {
 // Write methods accept a context so the implementation can propagate
 // request cancellation through RAFT.
 type DBUsers interface {
-	CreateUser(ctx context.Context, userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace string, createdAt time.Time) error
+	CreateUser(ctx context.Context, userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace string, createdAt, expiresAt time.Time) error
 	CreateUserWithKey(ctx context.Context, userId, apiKeyFirstLetters string, weakHash [sha256.Size]byte, createdAt time.Time) error
 	DeleteUser(ctx context.Context, userId string) error
 	ActivateUser(ctx context.Context, userId string) error
@@ -94,8 +98,11 @@ type User struct {
 	ApiKeyFirstLetters string
 	CreatedAt          time.Time
 	LastUsedAt         time.Time
-	ImportedWithKey    bool
-	Namespace          string
+	// ExpiresAt is when ValidateAndExtract and ValidateImportedKey start
+	// refusing the user's key. Zero means never.
+	ExpiresAt       time.Time
+	ImportedWithKey bool
+	Namespace       string
 }
 
 // UserView is an independent snapshot of [User] returned by [DBUser.GetUsers]
@@ -115,9 +122,14 @@ func (u *User) view() UserView {
 		ApiKeyFirstLetters: u.ApiKeyFirstLetters,
 		CreatedAt:          u.CreatedAt,
 		LastUsedAt:         u.LastUsedAt,
+		ExpiresAt:          u.ExpiresAt,
 		ImportedWithKey:    u.ImportedWithKey,
 		Namespace:          u.Namespace,
 	}
+}
+
+func (u *User) isExpired(now time.Time) bool {
+	return !u.ExpiresAt.IsZero() && !now.Before(u.ExpiresAt)
 }
 
 type DBUser struct {
@@ -242,7 +254,7 @@ func restoreAllFields(data dbUserdata) dbUserdata {
 	return data
 }
 
-func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace string, createdAt time.Time) error {
+func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace string, createdAt, expiresAt time.Time) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -274,6 +286,7 @@ func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLette
 		InternalIdentifier: userIdentifier,
 		CreatedAt:          createdAt,
 		ApiKeyFirstLetters: apiKeyFirstLetters,
+		ExpiresAt:          c.storedExpiryOr(userId, expiresAt.UTC()),
 		Namespace:          namespace,
 	}
 	return c.storeToFile()
@@ -295,6 +308,7 @@ func (c *DBUser) CreateUserWithKey(userId, apiKeyFirstLetters string, weakHash [
 		InternalIdentifier: "imported_" + userId,
 		CreatedAt:          createdAt,
 		ApiKeyFirstLetters: apiKeyFirstLetters,
+		ExpiresAt:          c.storedExpiryOr(userId, time.Time{}),
 		ImportedWithKey:    true,
 	}
 	return c.storeToFile()
@@ -424,6 +438,39 @@ func (c *DBUser) DeactivateUser(userId string, revokeKey bool) error {
 	return c.storeToFile()
 }
 
+// UserUpdate holds the fields UpdateUser sets. A nil field is left as stored.
+type UserUpdate struct {
+	// ExpiresAt is stored in UTC. A pointer to the zero time clears the expiry.
+	ExpiresAt *time.Time
+}
+
+// UpdateUser never reads the clock, so every node applying the entry stores the
+// same values.
+func (c *DBUser) UpdateUser(userId string, update UserUpdate) error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	u := c.data.Users[userId]
+	if u == nil {
+		return fmt.Errorf("user %s does not exist", userId)
+	}
+
+	if update.ExpiresAt != nil {
+		u.ExpiresAt = update.ExpiresAt.UTC()
+	}
+	return c.storeToFile()
+}
+
+// storedExpiryOr returns userId's stored expiry, or expiresAt for an unknown
+// user, so a re-applied CreateUser or CreateUserWithKey keeps the expiry
+// UpdateUser set. Caller must hold c.lock.
+func (c *DBUser) storedExpiryOr(userId string, expiresAt time.Time) time.Time {
+	if u := c.data.Users[userId]; u != nil {
+		return u.ExpiresAt
+	}
+	return expiresAt
+}
+
 func (c *DBUser) GetUsers(userIds ...string) (map[string]UserView, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
@@ -464,6 +511,7 @@ func (c *DBUser) ExportUsers(userIds ...string) (map[string]dbuser.ExportRecord,
 			ApiKeyFirstLetters: v.ApiKeyFirstLetters,
 			Active:             v.Active,
 			CreatedAt:          v.CreatedAt,
+			ExpiresAt:          v.ExpiresAt,
 			Namespace:          v.Namespace,
 		}
 		if v.ImportedWithKey {
@@ -574,6 +622,9 @@ func (c *DBUser) ValidateImportedKey(token string) (*models.Principal, error) {
 		if _, ok := c.data.UserKeyRevoked[userId]; ok {
 			return nil, fmt.Errorf("key is revoked")
 		}
+		if u.isExpired(time.Now()) {
+			return nil, ErrUserExpired
+		}
 
 		// imported keys are always without a namespace, something is seriously wrong here
 		if u.Namespace != "" {
@@ -592,6 +643,7 @@ func (c *DBUser) ValidateImportedKey(token string) (*models.Principal, error) {
 			UserType:         models.UserTypeInputDb,
 			Namespace:        "",
 			IsGlobalOperator: false,
+			IsDynamicDbUser:  true,
 		}, nil
 	}
 
@@ -655,6 +707,9 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 	if _, ok := c.data.UserKeyRevoked[userId]; ok {
 		return nil, fmt.Errorf("key is revoked")
 	}
+	if u.isExpired(time.Now()) {
+		return nil, ErrUserExpired
+	}
 	if err := namespaces.RequireActive(c.nsExister, u.Namespace); err != nil {
 		return nil, err
 	}
@@ -671,6 +726,7 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 		UserType:         models.UserTypeInputDb,
 		Namespace:        u.Namespace,
 		IsGlobalOperator: false,
+		IsDynamicDbUser:  true,
 	}, nil
 }
 
@@ -905,6 +961,7 @@ func stripDBUserNamespace(src dbUserdata) (dbUserdata, error) {
 			ApiKeyFirstLetters: user.ApiKeyFirstLetters,
 			CreatedAt:          user.CreatedAt,
 			LastUsedAt:         user.LastUsedAt,
+			ExpiresAt:          user.ExpiresAt,
 			ImportedWithKey:    user.ImportedWithKey,
 			Namespace:          user.Namespace,
 		}

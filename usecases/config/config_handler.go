@@ -196,6 +196,8 @@ type Config struct {
 	TrackVectorDimensions            bool                     `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
 	TrackVectorDimensionsInterval    time.Duration            `json:"track_vector_dimensions_interval" yaml:"track_vector_dimensions_interval"`
 	ReindexVectorDimensionsAtStartup bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
+	// needs TrackVectorDimensions
+	ReindexVectorDimensionsToRoaringsetAtStartup bool `json:"reindex_vector_dimensions_to_roaringset_at_startup" yaml:"reindex_vector_dimensions_to_roaringset_at_startup"`
 	// QueryAdmissionBudget / QueryAdmissionMaxQueue size the node-level query
 	// admission limiter. 0 means auto (16x / 10x GOMAXPROCS respectively).
 	// QueryAdmissionControlDisabled is a runtime kill switch; enabled by default.
@@ -1277,6 +1279,17 @@ type Namespaces struct {
 	// below zero. No value of this field stops the sweep — a very long
 	// interval parks it, and Enabled above turns it off.
 	CleanupInterval *runtime.DynamicValue[time.Duration] `json:"cleanup_interval" yaml:"cleanup_interval"`
+
+	// SuspendedMessage, when non-empty, replaces "instance suspended" as the
+	// copy namespaces.PublicMessage returns for a suspended namespace. Every
+	// node must set NAMESPACE_SUSPENDED_MESSAGE to the same value.
+	SuspendedMessage string `json:"-" yaml:"-"`
+
+	// SuspendReconcileInterval sets how often each node closes the shards of
+	// suspended namespaces, from SUSPEND_RECONCILE_INTERVAL. The suspend reconcile
+	// job runs at DefaultSuspendReconcileInterval when Get() returns a value at or
+	// below zero.
+	SuspendReconcileInterval *runtime.DynamicValue[time.Duration] `json:"suspend_reconcile_interval" yaml:"suspend_reconcile_interval"`
 }
 
 const (

@@ -2173,8 +2173,8 @@ func (t *ShardReindexTaskGeneric) bucketOptions(shard *Shard, strategy string,
 		lsmkv.WithKeepTombstones(keepTombstones),
 		// overwrite DynamicMemtableSizing
 		lsmkv.WithDynamicMemtableSizing(
-			memtableOptFactor*cfg.MemtablesInitialSizeMB,
-			memtableOptFactor*cfg.MemtablesMaxSizeMB,
+			memtableOptFactor*cfg.MemtablesInitialSizeMB*1024*1024,
+			memtableOptFactor*cfg.MemtablesMaxSizeMB*1024*1024,
 			memtableOptFactor*cfg.MemtablesMinActiveSeconds,
 			memtableOptFactor*cfg.MemtablesMaxActiveSeconds,
 		),

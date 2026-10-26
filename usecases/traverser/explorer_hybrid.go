@@ -167,7 +167,6 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 
 	subsearchWrap.ModuleParams["nearText"] = &subSearchParams
 
-	subsearchWrap.HybridSearch = nil
 	subsearchWrap.Boost = nil
 	subsearchWrap.Selection = nil
 	subsearchWrap.Group = nil

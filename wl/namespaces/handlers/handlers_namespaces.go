@@ -291,6 +291,8 @@ func (h *namespaceHandler) resumeNamespace(params nsops.ResumeNamespaceParams, p
 func (h *namespaceHandler) changeState(
 	ctx context.Context, principal *models.Principal, name string, target cmd.NamespaceState,
 ) (int, error) {
+	// resumeNamespace calls changeState too, so AuthorizeAndRequireActiveNamespace
+	// here would refuse to resume a suspended namespace.
 	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Namespaces(name)...); err != nil {
 		return http.StatusForbidden, err
 	}

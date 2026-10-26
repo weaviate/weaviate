@@ -59,7 +59,7 @@ func newMemtableMetrics(metrics *Metrics, path, strategy string) (*memtableMetri
 			prometheus.CounterOpts{
 				Namespace: "weaviate",
 				Name:      "lsm_memtable_flush_total",
-				Help:      "Total number of LSM memtable flushes, labeled by segment strategy",
+				Help:      "Total number of LSM memtable segment writes, by the flush cycle or a WAL replay, labeled by segment strategy",
 			},
 			[]string{"strategy"},
 		))
@@ -75,7 +75,7 @@ func newMemtableMetrics(metrics *Metrics, path, strategy string) (*memtableMetri
 			prometheus.GaugeOpts{
 				Namespace: "weaviate",
 				Name:      "lsm_memtable_flush_in_progress",
-				Help:      "Number of LSM memtable flushes in progress, labeled by segment strategy",
+				Help:      "Number of LSM memtable segment writes in progress, labeled by segment strategy",
 			},
 			[]string{"strategy"},
 		))
@@ -91,7 +91,7 @@ func newMemtableMetrics(metrics *Metrics, path, strategy string) (*memtableMetri
 			prometheus.CounterOpts{
 				Namespace: "weaviate",
 				Name:      "lsm_memtable_flush_failures_total",
-				Help:      "Total number of failed LSM memtable flushes, labeled by segment strategy",
+				Help:      "Total number of failed LSM memtable segment writes, plus commit-log failures of a flush, labeled by segment strategy. A flush can therefore record a failure alongside a successful write, or with no write at all",
 			},
 			[]string{"strategy"},
 		))
@@ -107,7 +107,7 @@ func newMemtableMetrics(metrics *Metrics, path, strategy string) (*memtableMetri
 			prometheus.HistogramOpts{
 				Namespace: "weaviate",
 				Name:      "lsm_memtable_flush_duration_seconds",
-				Help:      "Duration of LSM memtable flush in seconds, labeled by segment strategy",
+				Help:      "Duration of an LSM memtable segment write in seconds, labeled by segment strategy",
 				Buckets:   flushingDurationBuckets,
 			},
 			[]string{"strategy"},
@@ -121,7 +121,7 @@ func newMemtableMetrics(metrics *Metrics, path, strategy string) (*memtableMetri
 			prometheus.HistogramOpts{
 				Namespace: "weaviate",
 				Name:      "lsm_memtable_flush_size_bytes",
-				Help:      "Size of LSM memtable at flushing time, in bytes",
+				Help:      "Size of an LSM memtable at segment-write time, in bytes",
 				Buckets:   flushingSizeBuckets,
 			},
 			[]string{"strategy"},

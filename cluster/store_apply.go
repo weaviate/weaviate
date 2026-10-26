@@ -57,6 +57,10 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		return 0, fmt.Errorf("marshal command: %w", err)
 	}
 
+	if err := refuseUnknownFields(req); err != nil {
+		return 0, err
+	}
+
 	// Namespace admission runs before the schema-shape filter so a suspended
 	// namespace answers with its own state rather than a complaint about the
 	// entity the caller named.
@@ -85,6 +89,20 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		return 0, fmt.Errorf("response returned from raft apply is not of type Response instead got: %T, this should not happen", futureResponse)
 	}
 	return resp.Version, resp.Error
+}
+
+// refuseUnknownFields refuses an update carrying a field this binary does not
+// know before it is appended. Once committed, only newer nodes could apply it.
+func refuseUnknownFields(req *api.ApplyRequest) error {
+	switch req.Type {
+	case api.ApplyRequest_TYPE_UPDATE_USER:
+		if err := json.Unmarshal(req.SubCommand, &api.UpdateUserRequest{}); err != nil {
+			return fmt.Errorf("unmarshal update-user subcommand: %w", err)
+		}
+		return nil
+	default:
+		return nil
+	}
 }
 
 // admitPropose refuses a command whose namespace is not in a state that admits
@@ -130,18 +148,46 @@ func (st *Store) admitShardStatus(req *api.ApplyRequest) error {
 	return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Class))
 }
 
-// admitCreateLike refuses a create-like command outside the active state. The
-// alias commands write schema and no store, and the RBAC and user commands write
-// neither, so a late one leaves nothing half-built. The class and tenant commands
-// do materialize a shard, and admitPropose says why a late one is still safe.
+// admitCreateLike refuses a create-like, property or class update command
+// outside the active state, except the completions its UPDATE_PROPERTY and
+// UPDATE_CLASS arms exempt. admitPropose says why a check this early is enough
+// for ADD_CLASS, RESTORE_CLASS and the tenant commands, which materialize a shard.
 func (st *Store) admitCreateLike(req *api.ApplyRequest) error {
 	switch req.Type {
 	case api.ApplyRequest_TYPE_ADD_CLASS,
 		api.ApplyRequest_TYPE_RESTORE_CLASS,
 		api.ApplyRequest_TYPE_ADD_TENANT,
-		api.ApplyRequest_TYPE_UPDATE_TENANT:
+		api.ApplyRequest_TYPE_UPDATE_TENANT,
+		api.ApplyRequest_TYPE_ADD_PROPERTY:
 		// These name their class outright, so the namespace comes off the
 		// request rather than a subcommand.
+		return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Class))
+
+	case api.ApplyRequest_TYPE_UPDATE_PROPERTY:
+		sub := &api.UpdatePropertyRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal update-property subcommand: %w", err)
+		}
+		// A reindex's schema flip finishes work that a suspend does not cancel.
+		if sub.FromInFlightMigration {
+			return nil
+		}
+		return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Class))
+
+	case api.ApplyRequest_TYPE_UPDATE_CLASS:
+		sub := &api.UpdateClassRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal update-class subcommand: %w", err)
+		}
+		switch sub.Origin {
+		case api.ClassUpdateOriginDropVectorFinalize, api.ClassUpdateOriginBlockmaxCutover:
+			// A vector drop's cleanup and a BlockMax migration's cutover finish
+			// work that a suspend does not cancel.
+			return nil
+		case api.ClassUpdateOriginUser, api.ClassUpdateOriginUnspecified:
+			// These reach RequireActive below, as does an origin this build does
+			// not name.
+		}
 		return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Class))
 
 	case api.ApplyRequest_TYPE_CREATE_ALIAS:
@@ -178,6 +224,11 @@ func (st *Store) admitCreateLike(req *api.ApplyRequest) error {
 		sub := &api.AddRolesForUsersRequest{}
 		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
 			return fmt.Errorf("unmarshal add-roles-for-user subcommand: %w", err)
+		}
+		// With namespaces off, a ':' in a subject is part of the user id, as in
+		// the OIDC subject "urn:example:alice", and names no namespace.
+		if !st.cfg.NamespacesEnabled {
+			return nil
 		}
 		ns, err := subjectNamespace(sub.User)
 		if err != nil {
@@ -514,6 +565,10 @@ func (st *Store) Apply(l *raft.Log) any {
 	case api.ApplyRequest_TYPE_CREATE_USER_WITH_KEY:
 		f = func() {
 			ret.Error = st.dynUserManager.CreateUserWithKeyRequest(&cmd)
+		}
+	case api.ApplyRequest_TYPE_UPDATE_USER:
+		f = func() {
+			ret.Error = st.dynUserManager.UpdateUser(&cmd)
 		}
 
 	case api.ApplyRequest_TYPE_ADD_NAMESPACE:

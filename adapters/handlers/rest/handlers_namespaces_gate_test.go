@@ -56,7 +56,7 @@ func callCreateNamespace(api *operations.WeaviateAPI) middleware.Responder {
 
 var licenseRefusal = license.Required(namespacesFeature).Error()
 
-func requireNamespaceAnswer(t *testing.T, resp middleware.Responder, wantCode int, wantMsg string) {
+func requireAnswer(t *testing.T, resp middleware.Responder, wantCode int, wantMsg string) {
 	t.Helper()
 	code, body := statusOf(t, resp)
 	require.Equal(t, wantCode, code)
@@ -73,7 +73,7 @@ func TestNamespacesDisabledHandlers(t *testing.T) {
 
 	for _, op := range namespaceOperations {
 		t.Run(op.name, func(t *testing.T) {
-			requireNamespaceAnswer(t, op.call(api), http.StatusNotFound, "namespaces are not enabled")
+			requireAnswer(t, op.call(api), http.StatusNotFound, "namespaces are not enabled")
 		})
 	}
 }
@@ -84,7 +84,7 @@ func TestNamespacesUnlicensedHandlers(t *testing.T) {
 
 	for _, op := range namespaceOperations {
 		t.Run(op.name, func(t *testing.T) {
-			requireNamespaceAnswer(t, op.call(api), http.StatusForbidden, licenseRefusal)
+			requireAnswer(t, op.call(api), http.StatusForbidden, licenseRefusal)
 		})
 	}
 }
@@ -115,7 +115,7 @@ func TestSetupNamespaceHandlers(t *testing.T) {
 			setupNamespaceHandlers(api, tc.mode, setupWL)
 
 			require.Equal(t, tc.wantWLCalls, wlCalls)
-			requireNamespaceAnswer(t, callCreateNamespace(api), tc.wantCode, tc.wantMsg)
+			requireAnswer(t, callCreateNamespace(api), tc.wantCode, tc.wantMsg)
 		})
 	}
 }

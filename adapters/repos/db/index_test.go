@@ -42,8 +42,10 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	esync "github.com/weaviate/weaviate/entities/sync"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -767,5 +769,45 @@ func requireSweepTally(t *testing.T, hook *test.Hook, want map[monitoring.Warmup
 		monitoring.WarmupSkippedRecovering,
 	} {
 		require.Equal(t, want[outcome], tally[string(outcome)], "shards reported as %q", outcome)
+	}
+}
+
+// updateVectorIndexConfig leaves alone a shard that fails its pin, because the
+// shard is shutting down or its index has closed. It holds every other shard's
+// pin while it updates that shard, so an unload finds the shard in use.
+func TestUpdateVectorIndexConfigPinsEachShard(t *testing.T) {
+	tests := []struct {
+		name   string
+		pinErr error
+	}{
+		{name: "pin fails", pinErr: errShutdownInProgress},
+		{name: "pin held during update"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			idx, _ := newDropTestIndex(t)
+			var activePins atomic.Int32
+			shard := NewMockShardLike(t)
+			shard.EXPECT().preventShutdown().RunAndReturn(func() (func(), error) {
+				if tt.pinErr != nil {
+					return func() {}, tt.pinErr
+				}
+				activePins.Add(1)
+				return func() { activePins.Add(-1) }, nil
+			})
+			if tt.pinErr == nil {
+				shard.EXPECT().UpdateVectorIndexConfig(mock.Anything, mock.Anything).RunAndReturn(
+					func(context.Context, schemaConfig.VectorIndexConfig) error {
+						if pins := activePins.Load(); pins != 1 {
+							return fmt.Errorf("updated the shard holding %d pins", pins)
+						}
+						return nil
+					})
+			}
+			idx.shards.Store("t0", shard)
+
+			require.NoError(t, idx.updateVectorIndexConfig(context.Background(), enthnsw.NewDefaultUserConfig()))
+			require.Zero(t, activePins.Load(), "the walk leaked a pin")
+		})
 	}
 }

@@ -12,6 +12,7 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -21,11 +22,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	enthfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -257,12 +265,14 @@ func TestShardKnownShut(t *testing.T) {
 	require.NotNil(t, m.Load("torn"))
 }
 
-// TestShutdownOrRestoreShardOutcome maps each Shutdown error to its outcome.
+// TestShutdownOrRestoreShardOutcome maps each Shutdown error to its outcome and
+// the level of the restore line.
 func TestShutdownOrRestoreShardOutcome(t *testing.T) {
 	tests := []struct {
 		name        string
 		shutdownErr error
 		want        ShardUnloadOutcome
+		wantLevels  []logrus.Level
 	}{
 		{
 			name: "a clean shutdown",
@@ -278,22 +288,26 @@ func TestShutdownOrRestoreShardOutcome(t *testing.T) {
 			name:        "a shard still serving requests",
 			shutdownErr: fmt.Errorf("shard %q: %w", "s1", errShardStillInUse),
 			want:        ShardUnloadOutcomeRefusedInUse,
+			wantLevels:  []logrus.Level{logrus.DebugLevel},
 		},
 		{
 			name:        "a backoff that ran out of time",
 			shutdownErr: context.DeadlineExceeded,
 			want:        ShardUnloadOutcomeRefusedInUse,
+			wantLevels:  []logrus.Level{logrus.DebugLevel},
 		},
 		{
 			name:        "a backoff ended by a close request",
 			shutdownErr: context.Canceled,
 			want:        ShardUnloadOutcomeRefusedInUse,
+			wantLevels:  []logrus.Level{logrus.DebugLevel},
 		},
 		{
 			// No other test in the package reaches failed.
 			name:        "a teardown that failed for its own reason",
 			shutdownErr: errors.New("bucket close failed"),
 			want:        ShardUnloadOutcomeFailed,
+			wantLevels:  []logrus.Level{logrus.ErrorLevel},
 		},
 	}
 
@@ -301,11 +315,12 @@ func TestShutdownOrRestoreShardOutcome(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			shard := NewMockShardLike(t)
 			shard.On("Shutdown", mock.Anything).Return(tc.shutdownErr)
-			idx := indexForShutdownOutcomeTest(t)
+			idx, hook := indexForShutdownOutcomeTest(t)
 
 			got, err := shutdownOrRestoreShard(context.Background(), idx, "s1", shard)
 
 			require.Equal(t, tc.want, got)
+			require.Equal(t, tc.wantLevels, logLevels(hook))
 			if tc.shutdownErr == nil {
 				require.NoError(t, err)
 				return
@@ -319,22 +334,138 @@ func TestShutdownOrRestoreShardOutcome(t *testing.T) {
 func TestShutdownOrRestoreShardOutcomeTorn(t *testing.T) {
 	torn := &Shard{shutdownLock: new(sync.RWMutex), teardownErr: errors.New("bucket close failed")}
 	torn.shut.Store(true)
-	idx := indexForShutdownOutcomeTest(t)
+	idx, hook := indexForShutdownOutcomeTest(t)
 
 	got, err := shutdownOrRestoreShard(context.Background(), idx, "s1", torn)
 
 	require.Equal(t, ShardUnloadOutcomeTorn, got)
 	require.ErrorIs(t, err, errTeardownFailed)
 	require.NotNil(t, idx.shards.Load("s1"), "a torn shard is retained in the map")
+	require.Equal(t, []logrus.Level{logrus.ErrorLevel}, logLevels(hook))
 }
 
-// indexForShutdownOutcomeTest builds only what shutdownOrRestoreShard reads.
-func indexForShutdownOutcomeTest(t *testing.T) *Index {
+// indexForShutdownOutcomeTest builds only what shutdownOrRestoreShard reads,
+// with a hook that records every line its logger writes.
+func indexForShutdownOutcomeTest(t *testing.T) (*Index, *test.Hook) {
 	t.Helper()
 
-	logger, _ := test.NewNullLogger()
+	logger, hook := test.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
 	metrics, err := NewMetrics(logger, nil, "Abc", "n/a")
 	require.NoError(t, err)
 
-	return &Index{logger: logger, metrics: metrics, shards: shardMap{}}
+	return &Index{logger: logger, metrics: metrics, shards: shardMap{}}, hook
+}
+
+func logLevels(hook *test.Hook) []logrus.Level {
+	var levels []logrus.Level
+	for _, entry := range hook.AllEntries() {
+		levels = append(levels, entry.Level)
+	}
+	return levels
+}
+
+// TestShardLoadDropsNodeIDBeyondDocIDCounter pins that the vector index and each
+// geo property index of a shard are bounded by its document-ID counter, so a
+// commit log naming a node far beyond it is truncated on load instead of sizing
+// the node index to it (weaviate/0-weaviate-issues#649). HFresh's centroid index
+// numbers its nodes by posting ID and must keep no limit; it gets none only
+// because it lives in HFresh's directory, where there is no counter.
+func TestShardLoadDropsNodeIDBeyondDocIDCounter(t *testing.T) {
+	type commitLog struct {
+		indexPath     func(s *Shard) string // relative to the shard directory
+		wantTruncated bool
+	}
+	geoLog := commitLog{indexPath: func(*Shard) string { return geoPropID("location") }, wantTruncated: true}
+
+	tests := []struct {
+		name              string
+		vectorIndexConfig schemaConfig.VectorIndexConfig
+		logs              []commitLog
+	}{
+		{
+			name:              "hnsw",
+			vectorIndexConfig: enthnsw.NewDefaultUserConfig(),
+			logs: []commitLog{
+				{indexPath: func(s *Shard) string { return s.vectorIndexID("") }, wantTruncated: true},
+				geoLog,
+			},
+		},
+		{
+			name:              "hfresh",
+			vectorIndexConfig: enthfresh.NewDefaultUserConfig(),
+			logs: []commitLog{
+				{indexPath: func(s *Shard) string {
+					id := s.vectorIndexID("")
+					return path.Join(helpers.HFreshDirName(id), helpers.CentroidsID(id))
+				}},
+				geoLog,
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			className := "NodeIDLimit"
+			class := &models.Class{
+				Class: className,
+				Properties: []*models.Property{
+					{Name: "location", DataType: schema.DataTypeGeoCoordinates.PropString()},
+				},
+			}
+			shard, index := testShardWithSettings(t, ctx, class, tc.vectorIndexConfig, false, false)
+			s, ok := shard.(*Shard)
+			require.True(t, ok)
+
+			const objects = 3
+			for i := range objects {
+				obj := testObject(className)
+				obj.Vector = []float32{float32(i), 1, 2, 3}
+				obj.Object.Properties = map[string]interface{}{"location": geoCoordinates(float32(i), 1)}
+				require.NoError(t, s.PutObject(ctx, obj))
+			}
+			shardPath := s.path()
+			logPaths := make([]string, len(tc.logs))
+			for i, l := range tc.logs {
+				logPaths[i] = path.Join(shardPath, l.indexPath(s)+".hnsw.commitlog.d", "9999999999")
+			}
+			require.NoError(t, s.Shutdown(ctx))
+
+			record := walBytesForShardTest(t, objects+1<<24+1000)
+			for _, p := range logPaths {
+				require.NoError(t, os.WriteFile(p, record, 0o644))
+			}
+
+			s, err := NewShard(ctx, nil, s.Name(), index, class,
+				index.centralJobQueue, index.scheduler,
+				index.shardReindexer, false, index.bitmapBufPool, monitoring.ShardRegistrationEager)
+			require.NoError(t, err)
+			defer s.Shutdown(ctx)
+
+			for i, l := range tc.logs {
+				p := logPaths[i]
+				st, err := os.Stat(p)
+				if l.wantTruncated {
+					// The truncated log is empty, and the commit logger prunes empty raw logs.
+					if os.IsNotExist(err) {
+						continue
+					}
+					require.NoError(t, err)
+					require.Zero(t, st.Size(), "%s must be truncated before the out-of-limit record", p)
+					continue
+				}
+				require.NoError(t, err)
+				require.Equal(t, int64(len(record)), st.Size(), "%s must keep its record", p)
+			}
+		})
+	}
+}
+
+// walBytesForShardTest encodes an AddNode record for id.
+func walBytesForShardTest(t *testing.T, id uint64) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	require.NoError(t, compact.NewWALWriter(&buf).WriteAddNode(id, 0))
+	return buf.Bytes()
 }

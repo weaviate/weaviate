@@ -146,7 +146,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 
 		baseBackupID := req.BaseBackupID
 		startedAt := time.Now().UTC()
-		baseDescrs, err := resolveBaseBackupChain(ctx, baseBackupID, startedAt, store.bucket, store.path, compressionType, store.MetaForBackupID)
+		baseDescrs, err := resolveBaseBackupChain(ctx, baseBackupID, startedAt, store.bucket, store.path, compressionType, store.BaseMetaForBackupID)
 		if err != nil {
 			if !errors.As(err, &backup.ErrNotFound{}) {
 				b.logger.WithFields(logFields).Error(err)

@@ -40,7 +40,6 @@ func TestSubmit_StartedWithoutRaftStatePicksBucket(t *testing.T) {
 			}
 			o := newOrchestratorForTest(t, &stubRaft{},
 				stubSchema{replicas: []string{"self", "peer1"}}, ns, clientFactory, stubPathResolver{root: t.TempDir()})
-			o.enabled = true
 			wantBenign := testutil.ToFloat64(o.metrics.NoDataDuringBootstrapTotal)
 			wantCritical := testutil.ToFloat64(o.metrics.NoDataEmptyTotal)
 			if started {

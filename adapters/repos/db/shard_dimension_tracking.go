@@ -152,7 +152,7 @@ func (s *Shard) clearDimensionMetrics() {
 // accounted for the next time nodeWideMetricsObserver recalculates
 // total vector dimensions, because only _active_ shards are considered.
 func clearDimensionMetrics(cfg IndexConfig, promMetrics *monitoring.PrometheusMetrics, className, shardName string) {
-	if !cfg.TrackVectorDimensions || promMetrics.Group {
+	if promMetrics == nil || !cfg.TrackVectorDimensions || promMetrics.Group {
 		return
 	}
 	namespace := namespacing.NamespaceFromQualified(className)
@@ -348,7 +348,7 @@ func (s *Shard) removeAllDimensionsLSM(ctx context.Context, targetVector string)
 	}
 
 	// Pinned, not just fetched: the clear walks the bucket and then writes to
-	// it, and resetDimensionsLSM can swap this bucket underneath it
+	// it, and replaceDimensionsBucket can swap this bucket underneath it
 	// (Store.ReplaceBuckets). The pin also covers the segments its cursors read,
 	// which a concurrent Shutdown would otherwise unmap.
 	b, release := s.store.AcquireBucketForRead(helpers.DimensionsBucketLSM)

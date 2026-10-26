@@ -12,7 +12,9 @@
 package api
 
 import (
+	"bytes"
 	"crypto/sha256"
+	"encoding/json"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/dbuser"
@@ -30,6 +32,7 @@ type CreateUsersRequest struct {
 	ApiKeyFirstLetters string
 	Namespace          string
 	CreatedAt          time.Time
+	ExpiresAt          time.Time
 	Version            int
 }
 
@@ -70,6 +73,25 @@ type SuspendUserRequest struct {
 	UserId    string
 	RevokeKey bool
 	Version   int
+}
+
+// UpdateUserRequest sets each non-nil pointer field on an existing user and
+// leaves the rest as stored. Those fields carry omitempty, so an update that
+// leaves a field nil still decodes on a node built before that field was added.
+type UpdateUserRequest struct {
+	UserId string
+	// ExpiresAt clears the expiry when it points to the zero time.
+	ExpiresAt *time.Time `json:",omitempty"`
+	Version   int
+}
+
+// UnmarshalJSON refuses a key this binary does not know, so an update carrying
+// a field added later fails instead of applying without it.
+func (r *UpdateUserRequest) UnmarshalJSON(b []byte) error {
+	type plain UpdateUserRequest
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	return dec.Decode((*plain)(r))
 }
 
 type QueryGetUsersRequest struct {

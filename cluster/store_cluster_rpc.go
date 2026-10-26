@@ -140,6 +140,8 @@ func (st *Store) Notify(id, addr string) (err error) {
 			"action": "bootstrap",
 			"warn":   err,
 		}).Warn("bootstrapping cluster")
+	} else {
+		st.electIfSoleVoter(st.raft.Load())
 	}
 	st.bootstrapped.Store(true)
 	return nil

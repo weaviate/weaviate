@@ -111,7 +111,6 @@ func TestRunOneLeavesAnInflightOpItsShard(t *testing.T) {
 				schemaR = s
 			}
 			o := newOrchestratorForTest(t, raft, schemaR, ns, clientFactory, stubPathResolver{root: root})
-			o.enabled = true
 			o.onRecoveryComplete = func(context.Context, string, string) error { return nil }
 			before := testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues(tc.wantOutcome))
 

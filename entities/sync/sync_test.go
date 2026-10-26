@@ -382,12 +382,12 @@ func TestKeyLockersConcurrentColdKey(t *testing.T) {
 			pairs: func() (lockPair, lockPair) {
 				l := NewKeyRWLocker()
 				return lockPair{
-						acquire: func(ID string) error { l.Lock(ID); return nil },
-						release: l.Unlock,
-					}, lockPair{
-						acquire: func(ID string) error { l.RLock(ID); return nil },
-						release: l.RUnlock,
-					}
+					acquire: func(ID string) error { l.Lock(ID); return nil },
+					release: l.Unlock,
+				}, lockPair{
+					acquire: func(ID string) error { l.RLock(ID); return nil },
+					release: l.RUnlock,
+				}
 			},
 		},
 		{
@@ -395,17 +395,17 @@ func TestKeyLockersConcurrentColdKey(t *testing.T) {
 			pairs: func() (lockPair, lockPair) {
 				l := NewKeyRWLocker()
 				return lockPair{
-						acquire: func(ID string) error { l.Lock(ID); return nil },
-						release: l.Unlock,
-					}, lockPair{
-						acquire: func(ID string) error {
-							for !l.TryRLock(ID) {
-								runtime.Gosched()
-							}
-							return nil
-						},
-						release: l.RUnlock,
-					}
+					acquire: func(ID string) error { l.Lock(ID); return nil },
+					release: l.Unlock,
+				}, lockPair{
+					acquire: func(ID string) error {
+						for !l.TryRLock(ID) {
+							runtime.Gosched()
+						}
+						return nil
+					},
+					release: l.RUnlock,
+				}
 			},
 		},
 		{

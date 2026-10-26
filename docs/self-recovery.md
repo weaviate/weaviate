@@ -96,9 +96,9 @@ groups:
 The `/debug/self-recovery/*` endpoints (and the test-only
 `POST /debug/raft/snapshot`) are registered **only when
 `SELF_RECOVERY_ENABLED=true`**. They live on the profiling/debug port,
-like the other `/debug/*` handlers. They stay registered on an unlicensed
-node, but `restart` answers `403 Forbidden` there (it would start a new
-recovery); `accept-empty` keeps working (see "Licensing").
+like the other `/debug/*` handlers. On an unlicensed node both
+`/debug/self-recovery/*` endpoints answer every POST with `403 Forbidden`
+(see "Licensing"); `/debug/raft/snapshot` stays available.
 
 | Endpoint | When to use |
 |---|---|
@@ -301,23 +301,39 @@ cancel via the endpoint above before it reaches FINALIZING.
 
 ## Licensing
 
-When `SELF_RECOVERY_ENABLED=true` but no well-formed Weaviate license key
-is configured (`LICENSE_KEY` or `LICENSE_KEY_FILE`, read once at startup),
-the orchestrator does not start new recoveries — `Submit` declines the
-work, and a missing-dir shard discovered at startup or on tenant
-activation falls back to the normal init path (empty dir + async-rep
-backfill) rather than being parked in `RECOVERING`; each such shard logs
-a `submission was not queued` warning. Already-registered SELF_RECOVERY
-ops (from an earlier licensed run) run to completion. The wiped-joiner
-barrier still applies, so a wiped node still waits at startup, bounded by
-`SELF_RECOVERY_BARRIER_TIMEOUT`, before it serves. The debug endpoints
-stay registered: `POST /debug/self-recovery/restart` answers
-`403 Forbidden`, while `POST /debug/self-recovery/accept-empty` behaves
-as on a licensed node. At startup the node logs once:
+The license decision is made outside `wl/` at startup, and no `wl/` code
+runs on a node that is not licensed: with the flag off the node wires no
+orchestrator, and with the flag on but no well-formed Weaviate license
+key (`LICENSE_KEY` or `LICENSE_KEY_FILE`, read once at startup) it wires a
+stub in its place.
+
+On such an unlicensed node no new recovery starts: a missing-dir shard
+discovered at startup or on tenant activation falls back to the normal
+init path (empty dir + async-rep backfill) rather than being parked in
+`RECOVERING`, and each such shard logs a `submission was not queued`
+warning. A SELF_RECOVERY op registered by an earlier licensed run still
+parks its shard in `RECOVERING` and runs to completion, since the
+replication consumer outside `wl/` drives it. The wiped-joiner barrier
+still applies, so a wiped node still waits at startup, bounded by
+`SELF_RECOVERY_BARRIER_TIMEOUT`, before it serves. Both
+`POST /debug/self-recovery/restart` and
+`POST /debug/self-recovery/accept-empty` answer `403 Forbidden` with the
+license refusal, before any schema or disk check. To unblock a shard whose
+resumed op is stuck, cancel the op via
+`POST /replication/replicate/{id}/cancel` and restart the node: with no op
+left, normal init creates the shard empty. The `weaviate_self_recovery_*`
+metrics are registered only on a licensed node. At startup the node logs
+once:
 
 ```
-SELF_RECOVERY_ENABLED is set but no valid Weaviate license key is configured (LICENSE_KEY/LICENSE_KEY_FILE); no new shard self-recoveries will start; in-flight ops still complete
+the self-recovery feature is enabled but this node holds no well-formed Weaviate license key. To lift the refusal, set exactly one of LICENSE_KEY or LICENSE_KEY_FILE to a well-formed key and restart the node. No new shard self-recovery starts: ...
 ```
+
+Two housekeeping steps run outside `wl/` in every mode, the flag off
+included: orphan `<shard>.recovering/` dirs whose live sibling exists are
+removed, and on any start that cannot submit recoveries (flag off or
+unlicensed) a stale `<data>/.self_recovery_wiped` marker is removed, so a
+later licensed start does not inherit the wiped round.
 
 ## Downgrade safety
 

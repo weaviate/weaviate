@@ -421,6 +421,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SearchSearchNearVectorHandler: search.SearchNearVectorHandlerFunc(func(params search.SearchNearVectorParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation search.SearchNearVector has not yet been implemented")
 		}),
+		UsersSetUserExpirationHandler: users.SetUserExpirationHandlerFunc(func(params users.SetUserExpirationParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation users.SetUserExpiration has not yet been implemented")
+		}),
 		NamespacesSuspendNamespaceHandler: namespaces.SuspendNamespaceHandlerFunc(func(params namespaces.SuspendNamespaceParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation namespaces.SuspendNamespace has not yet been implemented")
 		}),
@@ -738,6 +741,8 @@ type WeaviateAPI struct {
 	SearchSearchNearTextHandler search.SearchNearTextHandler
 	// SearchSearchNearVectorHandler sets the operation handler for the search near vector operation
 	SearchSearchNearVectorHandler search.SearchNearVectorHandler
+	// UsersSetUserExpirationHandler sets the operation handler for the set user expiration operation
+	UsersSetUserExpirationHandler users.SetUserExpirationHandler
 	// NamespacesSuspendNamespaceHandler sets the operation handler for the suspend namespace operation
 	NamespacesSuspendNamespaceHandler namespaces.SuspendNamespaceHandler
 	// SchemaTenantExistsHandler sets the operation handler for the tenant exists operation
@@ -1187,6 +1192,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.SearchSearchNearVectorHandler == nil {
 		unregistered = append(unregistered, "search.SearchNearVectorHandler")
+	}
+	if o.UsersSetUserExpirationHandler == nil {
+		unregistered = append(unregistered, "users.SetUserExpirationHandler")
 	}
 	if o.NamespacesSuspendNamespaceHandler == nil {
 		unregistered = append(unregistered, "namespaces.SuspendNamespaceHandler")
@@ -1778,6 +1786,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/search/{collection}/near-vector"] = search.NewSearchNearVector(o.context, o.SearchSearchNearVectorHandler)
+	if o.handlers["PUT"] == nil {
+		o.handlers["PUT"] = make(map[string]http.Handler)
+	}
+	o.handlers["PUT"]["/users/db/{user_id}/expiration"] = users.NewSetUserExpiration(o.context, o.UsersSetUserExpirationHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}

@@ -51,17 +51,17 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	if input.Class != "" {
 		class, _, err := m.resolveNS(principal, input.Class)
 		if err != nil {
-			return resolverError(err)
+			return forbiddenOrUnprocessable(err)
 		}
 		input.Class = class
 	}
 
 	// We are fetching the existing object and get to know if the UUID exists
 	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(input.Class, tenant)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
+		return forbiddenOrUnprocessable(err)
 	}
 	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
+		return forbiddenOrUnprocessable(err)
 	}
 
 	// Parse + prefix-validate AFTER authz so unauthorized callers get 403
@@ -153,7 +153,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		qualifiedTarget, _, err := namespacing.QualifyRefTarget(
 			principal, m.qualifier, input.Class, beacon.Class)
 		if err != nil {
-			return resolverError(err)
+			return forbiddenOrUnprocessable(err)
 		}
 		beacon.Class = qualifiedTarget
 	}

@@ -303,8 +303,8 @@ func TestDropVectorIndex_DeletesTheMappingRecord(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, initialized)
 	assert.Equal(t, map[string]vectorIndexRecord{
-		"":   {PhysicalID: "main", IndexType: "hnsw", State: "ready"},
-		"mv": {PhysicalID: "vectors_mv", IndexType: "hnsw", State: "ready"},
+		"":   recorded(shard, "", "main", "ready"),
+		"mv": recorded(shard, "mv", "vectors_mv", "ready"),
 	}, records)
 
 	// a retried drop still succeeds
@@ -350,7 +350,7 @@ func wipeMapping(t *testing.T, shard *Shard) {
 func TestDropVectorIndex_CompletionSweepRefusesAShardShuttingDown(t *testing.T) {
 	ctx := testCtx()
 	shard, class := setupDropVectorShard(t, ctx)
-	foo := vectorIndexRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "ready"}
+	foo := recorded(shard, "foo", "vectors_foo", "ready")
 	markDropped(class, "foo")
 
 	shard.shutdownRequested.Store(true)
@@ -646,7 +646,7 @@ func liveCreate(ctx context.Context, shard *Shard, targetVector string) error {
 		return fmt.Errorf("no mapping record for %q", targetVector)
 	}
 	cfg := shard.index.GetVectorIndexConfig(targetVector)
-	return shard.createVectorIndex(ctx, targetVector, rec.PhysicalID, cfg, false)
+	return shard.createVectorIndex(ctx, targetVector, rec.PhysicalID, rec.queueIDOrDefault(), cfg, false)
 }
 
 // searchIDs returns the IDs the index of targetVector finds for vector.

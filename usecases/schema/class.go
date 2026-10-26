@@ -33,6 +33,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
 	entcfg "github.com/weaviate/weaviate/entities/config"
@@ -542,11 +543,12 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		}
 	}
 
-	return UpdateClassInternal(h, ctx, className, updated)
+	return UpdateClassInternal(h, ctx, className, updated, api.ClassUpdateOriginUser)
 }
 
-// bypass the auth check for internal class update requests
+// UpdateClassInternal updates a class without an authorization check.
 func UpdateClassInternal(h *Handler, ctx context.Context, className string, updated *models.Class,
+	origin api.ClassUpdateOrigin,
 ) error {
 	cur := h.schemaReader.ReadOnlyClass(className)
 
@@ -659,13 +661,19 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 			}
 		}
 
-		if err := validateImmutableFields(initial, updated, h.parser.modules); err != nil {
+		allowed, err := mutableSettingsChanges(h.parser.modules, initial, updated, func(module, targetVector string) error {
+			return h.moduleConfig.ValidateModuleConfig(ctx, updated, module, targetVector)
+		})
+		if err != nil {
+			return err
+		}
+		if err := validateImmutableFields(initial, updated, h.parser.modules, allowed); err != nil {
 			return err
 		}
 	}
 	// A nil sharding state means that the sharding state will not be updated.
 
-	_, err := h.schemaManager.UpdateClass(ctx, updated, nil)
+	_, err := h.schemaManager.UpdateClass(ctx, updated, nil, origin)
 	return err
 }
 
@@ -713,7 +721,8 @@ func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, p
 // through [SchemaManager.UpdatePropertyFromMigration], which sets the
 // [api.UpdatePropertyRequest.FromInFlightMigration] flag so the schema
 // FSM's cross-FSM MutationGuard bypasses the in-flight-reindex check
-// for this single update.
+// for this single update. The flag also lets the update through while
+// its namespace is not active.
 //
 // Used by the reindex provider's
 // [adapters/repos/db.applyPerPropertySchemaUpdate] from the scheduler's
@@ -1852,7 +1861,7 @@ func validateUpdatingMT(current, update *models.Class) (enabled bool, err error)
 	return enabled, err
 }
 
-func validateImmutableFields(initial, updated *models.Class, modulesProvider modulesProvider) error {
+func validateImmutableFields(initial, updated *models.Class, modulesProvider modulesProvider, allowed map[string][]string) error {
 	immutableFields := []immutableText{
 		{
 			name:     "class name",
@@ -1897,12 +1906,18 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 		updated.VectorConfig[k] = v
 
 		if !deepEqualVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+			if _, ok := allowed[k]; ok {
+				continue
+			}
+
 			// There might be module settings that need to be migrated to new names, for example
 			// if baseUrl property setting was renamed to baseURL then we need to adjust module settings
 			// and migrate baseUrl to baseURL
-			if modulesProvider.MigrateVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+			// initial shares its maps with the stored schema, so the migration runs on a copy.
+			initialVectorizer := structToMap(initial.VectorConfig[k].Vectorizer)
+			if modulesProvider.MigrateVectorizerSettings(initialVectorizer, v.Vectorizer) {
 				// Module settings have been migrated, let's recheck vectorizer settings
-				if deepEqualVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+				if deepEqualVectorizerSettings(initialVectorizer, v.Vectorizer) {
 					continue
 				}
 			}
@@ -1935,6 +1950,42 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 
 func deepEqualVectorizerSettings(initial, updated any) bool {
 	return reflect.DeepEqual(structToMap(initial), structToMap(updated))
+}
+
+// mutableSettingsChanges returns the modules whose settings changed in a way the module allows, keyed by target
+// vector ("" for the class-level moduleConfig), and stops at the first error validate returns for one of them.
+// It must run before MigrateVectorizerSettings overwrites initial.
+func mutableSettingsChanges(modulesProvider modulesProvider, initial, updated *models.Class,
+	validate func(module, targetVector string) error,
+) (map[string][]string, error) {
+	changes := map[string][]string{}
+	collect := func(targetVector string, initialConfig, updatedConfig map[string]any) error {
+		for module := range updatedConfig {
+			initialSettings, _ := initialConfig[module].(map[string]any)
+			updatedSettings, _ := updatedConfig[module].(map[string]any)
+			if initialSettings != nil && updatedSettings != nil && !reflect.DeepEqual(initialSettings, updatedSettings) &&
+				modulesProvider.MutableSettings(module, initialSettings, updatedSettings) {
+				if err := validate(module, targetVector); err != nil {
+					return err
+				}
+				changes[targetVector] = append(changes[targetVector], module)
+			}
+		}
+		return nil
+	}
+
+	if err := collect("", structToMap(initial.ModuleConfig), structToMap(updated.ModuleConfig)); err != nil {
+		return nil, err
+	}
+	for name, vectorConfig := range updated.VectorConfig {
+		initialVectorizer, updatedVectorizer := structToMap(initial.VectorConfig[name].Vectorizer), structToMap(vectorConfig.Vectorizer)
+		if len(initialVectorizer) == 1 && len(updatedVectorizer) == 1 {
+			if err := collect(name, initialVectorizer, updatedVectorizer); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return changes, nil
 }
 
 func structToMap(obj any) (objMap map[string]any) {

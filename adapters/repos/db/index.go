@@ -535,6 +535,7 @@ func NewIndex(
 		return nil, fmt.Errorf("init index %q: global replication config is required when ReplicationFactor > 1", cfg.ClassName.String())
 	}
 	index.asyncReplicationScheduler = cfg.AsyncReplicationScheduler
+	index.unloadedCheckpoints.metrics = metrics
 
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 
@@ -566,6 +567,10 @@ func NewIndex(
 	index.cycleCallbacks.compactionAuxCycle.Start()
 	index.cycleCallbacks.flushCycle.Start()
 
+	if index.asyncReplicationScheduler != nil {
+		index.asyncReplicationScheduler.registerUnloadedCheckpoints(&index.unloadedCheckpoints)
+	}
+
 	return index, nil
 }
 
@@ -574,7 +579,7 @@ func NewIndex(
 func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	promMetrics *monitoring.PrometheusMetrics,
 ) error {
-	var openLocalShards []string
+	var openLocalShards, coldLocalShards []string
 	className := i.Config.ClassName.String()
 
 	state, err := i.namespaceState()
@@ -602,6 +607,13 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		shardingState.ForEachLocalOpenPhysical(func(name string) {
 			openLocalShards = append(openLocalShards, name)
 		})
+		// a frozen tenant has no dir, it is prepared when it loads after unfreezing
+		for name, physical := range shardingState.Physical {
+			if shardingState.IsLocalPhysical(physical) &&
+				physical.ActivityStatus() == models.TenantActivityStatusCOLD {
+				coldLocalShards = append(coldLocalShards, name)
+			}
+		}
 
 		return nil
 	})
@@ -615,6 +627,9 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	if startupShards == nil {
 		startupShards = &startupShardCounters{}
 	}
+
+	withDirs := append(slices.Clone(openLocalShards), coldLocalShards...)
+	i.prepareDimensionsOfShards(ctx, class, withDirs)
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
@@ -1179,7 +1194,7 @@ func (i *Index) forEachShardStrict(f func(name string, shard ShardLike) error) e
 		return cause
 	}
 	if len(unvisited) > 0 {
-		return fmt.Errorf("%w: %s", errShardsSkipped, strings.Join(reportedShardNames(unvisited), ", "))
+		return fmt.Errorf("%w: %s", errShardsSkipped, strings.Join(ReportedShardNames(unvisited), ", "))
 	}
 	return nil
 }
@@ -1197,10 +1212,10 @@ func (i *Index) shardNameSet() map[string]struct{} {
 	return names
 }
 
-// reportedShardNames orders and caps names at [maxReportedErrors] for an
-// operator-facing message; the cap itself is reported as an entry so the
+// ReportedShardNames orders and caps names at [maxReportedErrors] for an
+// operator-facing message, and reports the cap itself as an entry so the
 // count of unaccounted shards isn't lost.
-func reportedShardNames(names map[string]struct{}) []string {
+func ReportedShardNames(names map[string]struct{}) []string {
 	sorted := make([]string, 0, len(names))
 	for name := range names {
 		sorted = append(sorted, name)
@@ -1249,6 +1264,20 @@ func (i *Index) forEachShardSkipRecovering(f func(name string, shard ShardLike) 
 func (i *Index) ForEachLoadedShard(f func(name string, shard ShardLike) error) error {
 	return i.shards.Range(func(name string, shard ShardLike) error {
 		if !shardIsLoaded(shard) {
+			return nil
+		}
+		return f(name, shard)
+	})
+}
+
+// withEachLoadedShard calls f on each loaded shard while holding its
+// shutdown pin. It skips a shard whose pin fails and one unloaded after the walk
+// saw it, since loading that one again would leave it where no unload finds it.
+func (i *Index) withEachLoadedShard(f func(name string, shard ShardLike) error) error {
+	return i.ForEachLoadedShard(func(name string, _ ShardLike) error {
+		shard, release, err := i.getLoadedShard(name)
+		defer release()
+		if err != nil || shard == nil {
 			return nil
 		}
 		return f(name, shard)
@@ -1324,9 +1353,10 @@ func (i *Index) addProperty(ctx context.Context, props ...*models.Property) erro
 
 	// Skip cold shards: they'd only be force-loaded to create empty buckets,
 	// which they build from the refreshed class at their next load anyway.
-	i.ForEachLoadedShard(func(key string, shard ShardLike) error {
-		release, ok := i.pinLoadedShard(key, shard)
-		if !ok {
+	i.ForEachLoadedShard(func(key string, _ ShardLike) error {
+		shard, release, err := i.getLoadedShard(key)
+		if err != nil || shard == nil {
+			release()
 			return nil
 		}
 		releases = append(releases, release)
@@ -1385,13 +1415,7 @@ func (i *Index) updateVectorIndexConfig(ctx context.Context,
 	updated schemaConfig.VectorIndexConfig,
 ) error {
 	// an updated is not specific to one shard, but rather all
-	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
-		release, ok := i.pinLoadedShard(name, shard)
-		if !ok {
-			return nil
-		}
-		defer release()
-
+	err := i.withEachLoadedShard(func(name string, shard ShardLike) error {
 		// At the moment, we don't do anything in an update that could fail, but
 		// technically this should be part of some sort of a two-phase commit  or
 		// have another way to rollback if we have updates that could potentially
@@ -1415,13 +1439,7 @@ func (i *Index) updateVectorIndexConfig(ctx context.Context,
 func (i *Index) updateVectorIndexConfigs(ctx context.Context,
 	updated map[string]schemaConfig.VectorIndexConfig,
 ) error {
-	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
-		release, ok := i.pinLoadedShard(name, shard)
-		if !ok {
-			return nil
-		}
-		defer release()
-
+	err := i.withEachLoadedShard(func(name string, shard ShardLike) error {
 		if err := shard.UpdateVectorIndexConfigs(ctx, updated); err != nil {
 			return fmt.Errorf("shard %q: %w", name, err)
 		}
@@ -1731,6 +1749,8 @@ type IndexConfig struct {
 	SkipWriteClassNameOnDisk            bool
 	TrackVectorDimensions               bool
 	TrackVectorDimensionsInterval       time.Duration
+	MigrateDimensionsToRoaringSet       bool
+	DimensionsReindex                   *dimensionsReindex
 	UsageEnabled                        bool
 	ShardLoadLimiter                    *loadlimiter.LoadLimiter
 	StartupShards                       *startupShardCounters
@@ -3770,6 +3790,12 @@ func (i *Index) PromoteRecoveringLocalShard(ctx context.Context, shardName strin
 // The outcome is unloaded if and only if the error is nil, and index_closing if
 // and only if the error wraps ErrIndexClosing.
 func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) (ShardUnloadOutcome, error) {
+	return i.unloadLocalShard(ctx, shardName, false)
+}
+
+// unloadLocalShard with keepRecovering returns recovering for a self-recovery
+// placeholder, checked under the create lock that promotion takes.
+func (i *Index) unloadLocalShard(ctx context.Context, shardName string, keepRecovering bool) (ShardUnloadOutcome, error) {
 	// enterRead refuses only after beginClose, so a refusal means the index is closing.
 	if err := i.enterRead(); err != nil {
 		return ShardUnloadOutcomeIndexClosing, fmt.Errorf("%w: %w", ErrIndexClosing, err)
@@ -3778,6 +3804,10 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) (ShardUn
 
 	i.shardCreateLocks.Lock(shardName)
 	defer i.shardCreateLocks.Unlock(shardName)
+
+	if rec, ok := i.shards.Load(shardName).(*RecoveringShard); ok && keepRecovering && rec.IsRecovering() {
+		return ShardUnloadOutcomeRecovering, fmt.Errorf("shard %q: %w", shardName, enterrors.ErrShardRecovering)
+	}
 
 	shardLike, ok := i.shards.LoadAndDelete(shardName)
 	if !ok {
@@ -4164,6 +4194,7 @@ func (i *Index) drop() error {
 	if err := i.beginClose(); err != nil {
 		return err
 	}
+	i.Config.DimensionsReindex.forget(i.ID())
 
 	// Check if a backup is in progress. Dont delete files in this case so the backup process can complete successfully
 	// The files will be deleted after the backup is completed and in case of a crash on next startup.
@@ -4316,7 +4347,7 @@ func (i *Index) dropShards(names []string) error {
 			// on this shard invalidates its usage record as it finishes, which
 			// re-creates the count, and the drop is what waits that reference out.
 			shardusage.ForgetComputedUsageGeneration(i.path(), name)
-			i.unloadedCheckpoints.delete(name)
+			i.unloadedCheckpoints.clear(name)
 
 			return nil
 		})
@@ -4327,6 +4358,7 @@ func (i *Index) dropShards(names []string) error {
 	ec.Add(eg.Wait())
 
 	i.purgeUnloadedShardRegistry(unloadedNames)
+	i.Config.DimensionsReindex.forget(i.ID(), names...)
 
 	return ec.ToErrorLimited(maxReportedErrors)
 }
@@ -4403,8 +4435,12 @@ func (i *Index) Shutdown(ctx context.Context) error {
 		return err
 	}
 
-	ec := errorcompounder.NewSafe()
+	// requestCycleStops runs first so the cycles start no compaction or flush
+	// during the shard shutdown. waitForCycleStops runs after the shards, so a
+	// callback that ignores the abort cannot use up their ctx.
+	cycleStops := i.requestCycleStops()
 
+	ec := errorcompounder.NewSafe()
 	ec.Add(i.shards.RangeConcurrently(i.logger, func(name string, shard ShardLike) error {
 		i.backupLock.RLock(name)
 		defer i.backupLock.RUnlock(name)
@@ -4418,18 +4454,26 @@ func (i *Index) Shutdown(ctx context.Context) error {
 		}
 		return nil
 	}))
-
-	// the cycle managers must stop even when a shard failed to shut down
-	ec.Add(i.stopCycleManagers(ctx, "shutdown"))
+	ec.Add(waitForCycleStops(ctx, "shutdown", cycleStops))
 
 	return ec.ToErrorLimited(maxReportedErrors)
 }
 
 // stopCycleManagers asks every cycle to stop before waiting for any of them, so
-// one slow cycle cannot use up ctx before the others were asked. The index is
-// being closed or deleted, so the cycles are stopped even when ctx already
-// expired; ctx only bounds how long we wait. Joining keeps each failure matchable.
+// one slow cycle cannot use up ctx before the others were asked.
 func (i *Index) stopCycleManagers(ctx context.Context, usecase string) error {
+	return waitForCycleStops(ctx, usecase, i.requestCycleStops())
+}
+
+// cycleStop is a cycle's pending stop result, named for the error that reports it.
+type cycleStop struct {
+	name   string
+	result chan bool
+}
+
+// requestCycleStops asks every cycle to stop without waiting. The index is being
+// closed or deleted, so the request outlives any ctx.
+func (i *Index) requestCycleStops() []cycleStop {
 	// which data each compaction cycle covers depends on SeparateObjectsCompactions
 	compaction, compactionAux := "compaction", "auxiliary compaction"
 	if i.Config.SeparateObjectsCompactions {
@@ -4449,38 +4493,23 @@ func (i *Index) stopCycleManagers(ctx context.Context, usecase string) error {
 		{"geo props tombstone cleanup", i.cycleCallbacks.geoPropsTombstoneCleanupCycle},
 	}
 
-	stopResults := make([]chan bool, len(cycles))
+	stops := make([]cycleStop, len(cycles))
 	for j, c := range cycles {
-		stopResults[j] = c.cycle.Stop(context.Background())
+		stops[j] = cycleStop{name: c.name, result: c.cycle.Stop(context.Background())}
 	}
+	return stops
+}
 
+// waitForCycleStops reports every cycle that kept running or had not stopped when
+// ctx expired. Joining keeps each failure matchable.
+func waitForCycleStops(ctx context.Context, usecase string, stops []cycleStop) error {
 	var errs []error
-	for j, c := range cycles {
-		if err := waitForCycleStop(ctx, stopResults[j]); err != nil {
-			errs = append(errs, fmt.Errorf("%s: stop %s cycle: %w", usecase, c.name, err))
+	for _, stop := range stops {
+		if err := cyclemanager.WaitForStop(ctx, stop.result); err != nil {
+			errs = append(errs, fmt.Errorf("%s: stop %s cycle: %w", usecase, stop.name, err))
 		}
 	}
 	return stderrors.Join(errs...)
-}
-
-// waitForCycleStop waits for a stop result, preferring it over an expired ctx when
-// both are ready, so a cycle that did stop is not reported as a failure.
-func waitForCycleStop(ctx context.Context, stopResult chan bool) error {
-	var stopped bool
-	select {
-	case stopped = <-stopResult:
-	case <-ctx.Done():
-		// select picks randomly when both are ready, so the result is checked again
-		select {
-		case stopped = <-stopResult:
-		default:
-			return ctx.Err()
-		}
-	}
-	if !stopped {
-		return stderrors.New("cycle kept running")
-	}
-	return nil
 }
 
 func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[string]int64, error) {
@@ -5145,6 +5174,12 @@ func (i *Index) beginClose() error {
 	defer lsmkv.GlobalBucketRegistry.RemoveByPrefixes(i.path())
 	i.closingCancel()
 	i.closeLock.Unlock()
+
+	// No put can follow: create re-checks i.closed under closeLock.
+	if i.asyncReplicationScheduler != nil {
+		i.asyncReplicationScheduler.deregisterUnloadedCheckpoints(&i.unloadedCheckpoints)
+	}
+	i.unloadedCheckpoints.clearAll()
 
 	i.inflight.Wait()
 	return nil

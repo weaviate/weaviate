@@ -75,6 +75,7 @@ type DB struct {
 	shutdownOnce              sync.Once
 	startupComplete           atomic.Bool
 	startupShards             startupShardCounters
+	dimensionsReindex         dimensionsReindex
 	resourceScanState         *resourceScanState
 	memMonitor                *memwatch.Monitor
 
@@ -185,7 +186,7 @@ func (db *DB) SetUsageLimits(m *usagelimits.Manager) {
 // SelfRecoveryOrchestrator is the narrow surface avoiding an import cycle on cluster/replication.
 type SelfRecoveryOrchestrator interface {
 	// Enabled must be checked before installing a wrapper, else it blocks load forever.
-	// Flag only; licensing is enforced inside the Submit methods so a resuming op is still recognised when unlicensed.
+	// True whenever the flag is on, licensed or not (UnlicensedSelfRecovery), so a resuming op is still recognised.
 	Enabled() bool
 	// SubmitRecovery is non-blocking; false = not queued and the caller MUST fall back to normal init.
 	SubmitRecovery(ctx context.Context, collection, shard string, startedWithoutRaftState bool) bool
@@ -388,6 +389,7 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		logger:                    logger,
 		localNodeName:             localNodeName,
 		config:                    config,
+		dimensionsReindex:         dimensionsReindex{enabled: config.ReindexVectorDimensions && config.TrackVectorDimensions},
 		indices:                   map[string]*Index{},
 		remoteIndex:               remoteIndex,
 		nodeResolver:              nodeResolver,
@@ -478,6 +480,8 @@ type Config struct {
 	MaxSegmentSize                 int64
 	TrackVectorDimensions          bool
 	TrackVectorDimensionsInterval  time.Duration
+	MigrateDimensionsToRoaringSet  bool
+	ReindexVectorDimensions        bool
 	UsageEnabled                   bool
 	ServerVersion                  string
 	GitHash                        string
@@ -535,11 +539,6 @@ type Config struct {
 	OperationalMode *configRuntime.DynamicValue[string]
 
 	DisableDimensionMetrics *configRuntime.DynamicValue[bool]
-
-	// WeaviateLicense reports whether this node holds a well-formed license key.
-	// No code reads it. A reader outside wl/ must pass it with its feature's
-	// flag to license.ModeFor and call into wl/ only on FeatureLicensed.
-	WeaviateLicense bool
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
@@ -611,6 +610,7 @@ func (db *DB) shuttingDown() bool {
 
 // LocalIndexClassNames returns the sorted class names this node holds an index for,
 // closed ones included, qualified as <ns>:<Class> where the class has a namespace.
+// It covers every namespace, so a caller serving one namespace must drop the rest.
 // Its only error wraps ErrIndexClosing, which it returns after DB.Shutdown has begun.
 // A call that finds DB.Shutdown holding indexLock waits for DB.Shutdown to return.
 func (db *DB) LocalIndexClassNames() ([]string, error) {
@@ -644,16 +644,18 @@ var errIndexClosingForShutdown = fmt.Errorf("%w: %w", ErrIndexClosing, errIndexS
 // node stop or a collection delete.
 var ErrIndexClosing = stderrors.New("collection index is closing")
 
-// GetLocalShardNames returns the names of every shard of the collection on this
-// node, including a lazy shard that never loaded, without loading it. A shard
-// added or removed during the call may or may not be listed. ([]string{}, nil)
-// means this node holds no shard of the collection.
+// OpenLocalShardNames returns the names of the collection's shards this node
+// holds open, without loading any. A lazy shard that never loaded and a shard
+// recovering from a peer are listed. A COLD tenant and a shard DB.UnloadShard
+// closed are not. A shard added or removed during the call may or may not be
+// listed. ([]string{}, nil) means this node holds none of the collection's
+// shards open.
 //
 // ErrIndexClosing means the index is closing for a delete, or DB.Shutdown has
 // begun. A call that finds DB.Shutdown holding indexLock waits for DB.Shutdown to
 // return. cluster/schema.ErrClassNotFound means this node holds no index for the
 // class, and comes back after about 150 ms of DB.GetIndex retries.
-func (db *DB) GetLocalShardNames(collection string) ([]string, error) {
+func (db *DB) OpenLocalShardNames(collection string) ([]string, error) {
 	if db.shuttingDown() {
 		return nil, errIndexClosingForShutdown
 	}
@@ -692,6 +694,8 @@ func (db *DB) GetLocalShardNames(collection string) ([]string, error) {
 
 // UnloadShard skips the namespace check, which would refuse the suspended
 // namespaces it is called for. It blocks while DB.Shutdown holds indexLock.
+// It keeps a self-recovery placeholder in the map, because a request would
+// otherwise create an empty shard before the copy from a peer finishes.
 func (db *DB) UnloadShard(ctx context.Context, className, shardName string) (ShardUnloadOutcome, error) {
 	if db.shuttingDown() {
 		return ShardUnloadOutcomeIndexClosing, fmt.Errorf("%w: %w", ErrIndexClosing, errIndexShutdown)
@@ -701,7 +705,7 @@ func (db *DB) UnloadShard(ctx context.Context, className, shardName string) (Sha
 	if index == nil {
 		return ShardUnloadOutcomeFailed, fmt.Errorf("%w: collection %q", clusterSchema.ErrClassNotFound, className)
 	}
-	return index.UnloadLocalShard(ctx, shardName)
+	return index.unloadLocalShard(ctx, shardName, true)
 }
 
 // IndexExists returns if an index exists
@@ -739,24 +743,19 @@ func (db *DB) droppingIndex(id string) *Index {
 // DropOrphanedClass removes the data of a class the schema already dropped.
 // Unlike DeleteIndex it removes files with no index loaded, the state a
 // schema-only delete leaves behind, so callers must know this node held it.
-func (db *DB) DropOrphanedClass(className schema.ClassName) error {
-	if idx := db.GetIndex(className); idx != nil {
-		if err := db.DeleteIndex(className); err != nil {
-			return err
-		}
+// It reports a live class that shares the lowercased index ID; that class's
+// data, offloaded included, is not the orphan's to drop.
+func (db *DB) DropOrphanedClass(className schema.ClassName) (collided bool, err error) {
+	if collided, err = db.deleteIndex(className); err != nil || collided {
+		return collided, err
 	}
 
 	// The caller knows the class was ours; only the directory knows the path is.
 	path := filepath.Join(db.config.RootPath, indexID(className))
 	if !hasShardStore(path) {
-		db.logger.WithFields(logrus.Fields{
-			"action": "drop_orphaned_class",
-			"class":  className.String(),
-			"path":   path,
-		}).Warn("left class data in place: no shard store, so not our index")
-		return nil
+		return false, nil
 	}
-	return db.dropIndexData(className)
+	return false, db.dropIndexData(className)
 }
 
 // hasShardStore reports whether path holds a shard directory: a child with the
@@ -797,9 +796,25 @@ func (db *DB) dropIndexData(className schema.ClassName) error {
 
 // DeleteIndex deletes the index
 func (db *DB) DeleteIndex(className schema.ClassName) error {
+	_, err := db.deleteIndex(className)
+	return err
+}
+
+// deleteIndex reports a live class that shares the lowercased index ID and
+// leaves it alone: DELETE_CLASS validates nothing, so a name differing only by
+// case reaches the store while the schema keeps the live class.
+func (db *DB) deleteIndex(className schema.ClassName) (collided bool, err error) {
 	index := db.GetIndex(className)
 	if index == nil {
-		return nil
+		return false, nil
+	}
+	if live := index.Config.ClassName; live != className {
+		db.logger.WithFields(logrus.Fields{
+			"action":     "delete_index",
+			"class":      className.String(),
+			"live_class": live.String(),
+		}).Warn("left class data in place: index belongs to a live class that differs only by case")
+		return true, nil
 	}
 	id := indexID(className)
 
@@ -825,7 +840,7 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 	if err := db.promMetrics.DeleteClass(className.String()); err != nil {
 		db.logger.Errorf("can't delete prometheus metrics: %v", err)
 	}
-	return nil
+	return false, nil
 }
 
 func (db *DB) Shutdown(ctx context.Context) error {

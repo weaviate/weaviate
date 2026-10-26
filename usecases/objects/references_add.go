@@ -44,13 +44,13 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	if input.Class != "" {
 		class, _, err := m.resolveNS(principal, input.Class)
 		if err != nil {
-			return resolverError(err)
+			return forbiddenOrUnprocessable(err)
 		}
 		input.Class = class
 	}
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
+		return forbiddenOrUnprocessable(err)
 	}
 
 	deprecatedEndpoint := input.Class == ""
@@ -130,7 +130,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		qualifiedTarget, shortTarget, err := namespacing.QualifyRefTarget(
 			principal, m.qualifier, input.Class, targetRef.Class)
 		if err != nil {
-			return resolverError(err)
+			return forbiddenOrUnprocessable(err)
 		}
 		targetRef.Class = qualifiedTarget
 		input.Ref.Class = strfmt.URI(shortTarget)

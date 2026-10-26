@@ -14,17 +14,21 @@ package rest
 import (
 	"context"
 	stderrors "errors"
+	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	uco "github.com/weaviate/weaviate/usecases/objects"
 
 	"github.com/stretchr/testify/assert"
@@ -1058,6 +1062,29 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 			t.Errorf("expected: %T got: %T", objects.ObjectsListInternalServerError{}, res)
 		}
 	})
+}
+
+// A namespace refusal answers 422 and the metric counts it as a user error, so
+// it logs nothing. POST /v1/objects is covered end to end by
+// TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart.
+func TestObjectHandlers_NamespaceRefusal(t *testing.T) {
+	err := fmt.Errorf("repo: object by id: %w", namespaces.ErrNamespaceSuspended)
+	logger, hook := logrustest.NewNullLogger()
+	h := &objectHandlers{
+		manager:             &fakeManager{getObjectErr: err, updateObjectErr: err, deleteObjectReturn: err},
+		metricRequestsTotal: newObjectsRequestsTotal(nil, logger),
+	}
+	r := httptest.NewRequest(http.MethodGet, "/v1/objects/alpha:Movies/123", nil)
+
+	assert.IsType(t, &objects.ObjectsClassGetUnprocessableEntity{},
+		h.getObject(objects.ObjectsClassGetParams{HTTPRequest: r, ClassName: "alpha:Movies", ID: "123"}, nil))
+	assert.IsType(t, &objects.ObjectsClassPutUnprocessableEntity{},
+		h.updateObject(objects.ObjectsClassPutParams{
+			HTTPRequest: r, ClassName: "alpha:Movies", ID: "123", Body: &models.Object{Class: "alpha:Movies"},
+		}, nil))
+	assert.IsType(t, &objects.ObjectsClassDeleteUnprocessableEntity{},
+		h.deleteObject(objects.ObjectsClassDeleteParams{HTTPRequest: r, ClassName: "alpha:Movies", ID: "123"}, nil))
+	assert.Empty(t, hook.AllEntries())
 }
 
 // A stray qualified class on a beacon never leaks into the Href URL.

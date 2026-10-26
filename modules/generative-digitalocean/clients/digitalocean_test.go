@@ -14,9 +14,11 @@ package clients
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	digitaloceanparams "github.com/weaviate/weaviate/modules/generative-digitalocean/parameters"
+	"github.com/weaviate/weaviate/usecases/build"
 )
 
 func nullLogger() logrus.FieldLogger {
@@ -263,6 +266,45 @@ func TestGenerateRequest(t *testing.T) {
 			assert.Equal(t, tt.expectedQuery, gotQuery)
 			assert.Equal(t, "Bearer key", gotAuth)
 			assert.Equal(t, tt.expectedPayload, gotPayload)
+		})
+	}
+}
+
+func TestGenerateUserAgent(t *testing.T) {
+	tests := []struct {
+		name         string
+		weaviateUUID string
+		expected     string
+	}{
+		{
+			name:         "uuid set",
+			weaviateUUID: "test-uuid",
+			expected:     fmt.Sprintf("vector-db/weaviate/test-uuid %s", build.Version),
+		},
+		{
+			name:     "uuid not set",
+			expected: fmt.Sprintf("vector-db/weaviate/unknown %s", build.Version),
+		},
+	}
+
+	properties := []*modulecapabilities.GenerateProperties{{Text: map[string]string{"prop": "value"}}}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("VECTOR_DB_UUID", tt.weaviateUUID)
+
+			var gotUserAgent string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotUserAgent = r.Header.Get("User-Agent")
+				w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+			}))
+			defer server.Close()
+
+			c := New("key", time.Minute, nullLogger())
+			params := digitaloceanparams.Params{BaseURL: server.URL}
+			_, err := c.GenerateAllResults(context.Background(), properties, "task", params, false, nil)
+			require.NoError(t, err)
+			assert.Equal(t, strings.TrimSpace(tt.expected), gotUserAgent)
 		})
 	}
 }

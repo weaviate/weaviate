@@ -44,7 +44,7 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 	}
 	object.Class = className
 
-	if err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(className, object.Tenant)...); err != nil {
+	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.CREATE, className, authorization.ShardsData(className, object.Tenant)...); err != nil {
 		return nil, err
 	}
 
@@ -168,9 +168,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 	validatedID := strfmt.UUID(strings.ToLower(id.String()))
 
 	exists, err := m.vectorRepo.Exists(ctx, className, validatedID, repl, tenant)
-	if exists {
-		return "", NewErrInvalidUserInput("id '%s' already exists", id)
-	} else if err != nil {
+	if err != nil {
 		switch {
 		case errors.As(err, &ErrInvalidUserInput{}):
 			return "", err
@@ -184,6 +182,9 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 		default:
 			return "", NewErrInternal("%w", err)
 		}
+	}
+	if exists {
+		return "", NewErrInvalidUserInput("id '%s' already exists", id)
 	}
 
 	return validatedID, nil

@@ -79,8 +79,12 @@ func TestNamespaces_DeleteHappyPath(t *testing.T) {
 
 	helper.GetAliasWithAuthzNotFound(t, qualifiedAlias, helper.CreateAuth(adminKey))
 
-	_, err = schemaDumpAs(t, userKey)
-	require.Error(t, err, "user %q should no longer authenticate", qualifiedUser)
+	// The key is polled, because the 404 above is the leader's and the client's
+	// node may still be applying the delete.
+	require.Eventually(t, func() bool {
+		_, err := schemaDumpAs(t, userKey)
+		return err != nil
+	}, 10*time.Second, 50*time.Millisecond, "user %q should no longer authenticate", qualifiedUser)
 }
 
 // TestNamespaces_DeleteUserAuthBlockedClusterWide creates a namespace +
@@ -313,14 +317,14 @@ func TestNamespaces_DeleteWhileBatchInsertInFlight(t *testing.T) {
 		"batch loop should commit some objects before DELETE")
 
 	helper.DeleteNamespace(t, ns, adminKey)
+
+	// (a) The batch loop must see a failure, or the test never overlapped DELETE
+	// with writes. It runs past DeleteNamespace, whose 404 is the leader's, until
+	// the client's node has applied the delete too.
+	require.Eventually(t, func() bool { return batchFailed.Load() > 0 },
+		10*time.Second, 50*time.Millisecond, "expected at least one batch failure after the namespace delete")
 	cancel()
 	wg.Wait()
-
-	// (a) The batch loop must have seen failures once the class was deleted
-	// — otherwise the test never actually overlapped DELETE with writes.
-	require.Greater(t, batchFailed.Load(), int64(0),
-		"expected at least one batch failure after class delete; ok=%d failed=%d",
-		batchOK.Load(), batchFailed.Load())
 
 	// The last failure must be a typed REST error (any 4xx is fine), not
 	// a 500 from torn state.

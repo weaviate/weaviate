@@ -78,6 +78,7 @@ const (
 	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
 
 	DefaultNamespaceCleanupInterval = 30 * time.Second
+	DefaultSuspendReconcileInterval = 30 * time.Second
 
 	DefaultReplicaMovementCleanupMaxAge   = 168 * time.Hour
 	DefaultReplicaMovementCleanupInterval = time.Hour
@@ -148,6 +149,10 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
 		config.ReindexVectorDimensionsAtStartup = true
+	}
+
+	if entcfg.Enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_TO_ROARINGSET_AT_STARTUP")) {
+		config.ReindexVectorDimensionsToRoaringsetAtStartup = true
 	}
 
 	if entcfg.Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
@@ -1113,6 +1118,14 @@ func FromEnv(config *Config) error {
 		DefaultNamespaceCleanupInterval,
 		parser.ValidateCronInterval,
 		func(val *configRuntime.DynamicValue[time.Duration]) { config.Namespaces.CleanupInterval = val }); err != nil {
+		return err
+	}
+	config.Namespaces.SuspendedMessage = strings.TrimSpace(os.Getenv("NAMESPACE_SUSPENDED_MESSAGE"))
+
+	if err := parser.ParseDynamicDurationWithValidation("SUSPEND_RECONCILE_INTERVAL",
+		DefaultSuspendReconcileInterval,
+		parser.ValidateCronInterval,
+		func(val *configRuntime.DynamicValue[time.Duration]) { config.Namespaces.SuspendReconcileInterval = val }); err != nil {
 		return err
 	}
 

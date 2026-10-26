@@ -153,11 +153,8 @@ func (db *DB) readDesiredOpenLocalShards(className string, retryIfClassNotFound 
 // every schema apply for that class waits behind, so it must not block, do I/O,
 // or take another lock.
 //
-// A shard left out is not one that may be unloaded. A replica movement holds its
-// target shard on this node before it adds that shard to the sharding state, so
-// the shard is missing here while still being wanted. A caller comparing this
-// against the shards it holds must intersect with the listed replicas rather
-// than unload everything this omits.
+// A shard left out may still be wanted. A replica movement holds its target
+// shard on this node before it adds that shard to the sharding state.
 func (db *DB) forEachDesiredOpenLocalShard(className string, fn func(name string)) error {
 	_, err := db.readDesiredOpenLocalShards(className, true, func(shardingState *sharding.State) error {
 		shardingState.ForEachLocalOpenPhysical(fn)
@@ -187,9 +184,7 @@ func (db *DB) DesiredOpenLocalShardCount(className string) (int, error) {
 //
 // A shard missing here may still be wanted. A replica movement holds its target
 // before the sharding state lists it, and a namespace resumed after the read
-// leaves this empty while the node holds every shard. Intersect with
-// SchemaReader.LocalShards, which keys on Physical.Name rather than the map key,
-// and re-read before acting on an empty set.
+// leaves this empty while the node holds every shard.
 func (db *DB) DesiredOpenLocalShardNames(className string) ([]string, api.NamespaceState, error) {
 	names := []string{}
 	state, err := db.readDesiredOpenLocalShards(className, false, func(shardingState *sharding.State) error {
@@ -205,9 +200,10 @@ func (db *DB) DesiredOpenLocalShardNames(className string) ([]string, api.Namesp
 }
 
 // NamespaceStateForClass returns the state of the class's namespace. An unqualified
-// name answers active, so resolve it through LocalIndexClassNames or
-// GetLocalShardNames first. ErrNamespaceUnknownLocally means the namespace map
-// diverged, which the caller should report rather than skip.
+// name answers active, so pass the <ns>:<Class> name LocalIndexClassNames returns.
+// ErrNamespaceUnknownLocally means the namespace map diverged, or a namespace delete
+// removed the namespace after the caller listed the class. The caller should report
+// it rather than skip it silently.
 func (db *DB) NamespaceStateForClass(className string) (api.NamespaceState, error) {
 	return stateForShardDecision(db.namespacesExister, namespacing.NamespaceFromQualified(className))
 }

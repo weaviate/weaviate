@@ -10,7 +10,7 @@
 //
 
 // Package selfrecovery triggers SELF_RECOVERY ops for shards missing at startup; the copy and state machine live in the replication FSM + consumer.
-// It is Weaviate-licensed (wl/LICENSE-WEAVIATE), unlike the BSD-3-Clause code outside wl/, and only starts recoveries under Config.Licensed.
+// It is Weaviate-licensed (wl/LICENSE-WEAVIATE), unlike the BSD-3-Clause code outside wl/, and is only constructed on licensed nodes with the flag on.
 package selfrecovery
 
 import (
@@ -64,9 +64,6 @@ const (
 
 	// ErrSelfRecoveryOpInFlight maps to 409 in the REST handler: accept-empty would race the op's own promote.
 	ErrSelfRecoveryOpInFlight sentinelError = "a replication op targeting this replica is still in flight"
-
-	// ErrSelfRecoveryUnlicensed maps to 403 in the REST handler.
-	ErrSelfRecoveryUnlicensed sentinelError = "self-recovery feature is part of the Weaviate Enterprise Edition and requires a license key, see https://docs.weaviate.io/deploy/enterprise"
 )
 
 // RaftEntryPoint is the subset of *cluster.Raft used by the orchestrator.
@@ -108,8 +105,6 @@ type Orchestrator struct {
 	clientFactory          copier.FileReplicationServiceClientFactory
 	nodeSelector           cluster.NodeSelector
 	nodeName               string
-	enabled                bool
-	licensed               bool
 	concurrency            int
 	maintenanceModeEnabled func() bool // nil-safe; treated as off when nil
 	onRecoveryComplete     func(ctx context.Context, collection, shard string) error
@@ -155,10 +150,7 @@ type Config struct {
 	ClientFactory copier.FileReplicationServiceClientFactory
 	NodeSelector  cluster.NodeSelector
 	NodeName      string
-	Enabled       bool
-	// Licensed is Config.WeaviateLicense; false ⇒ Submit declines, in-flight ops still complete.
-	Licensed    bool
-	Concurrency int
+	Concurrency   int
 	// MaintenanceModeEnabled, when non-nil and true, makes Submit a no-op.
 	MaintenanceModeEnabled func() bool
 	// OnRecoveryComplete promotes after empty-fallback; must never create a shard, and only ErrIndexNotRegistered is retried.
@@ -186,24 +178,13 @@ func New(cfg Config) *Orchestrator {
 		logger = logrus.NewEntry(logrus.New())
 	}
 	componentLogger := logger.WithField("component", "self_recovery")
-	if cfg.Enabled && !cfg.Licensed {
-		componentLogger.WithField("event", "self_recovery.unlicensed").
-			Warn("SELF_RECOVERY_ENABLED is set but no valid Weaviate license key is configured (LICENSE_KEY/LICENSE_KEY_FILE); no new shard self-recoveries will start; in-flight ops still complete")
-	}
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 	wipeMarker, wipeRoundOpen := "", false
 	if cfg.RootDataPath != "" {
-		wipeMarker = filepath.Join(cfg.RootDataPath, wipeMarkerName)
+		wipeMarker = filepath.Join(cfg.RootDataPath, api.SelfRecoveryWipeMarkerName)
 		if _, err := os.Stat(wipeMarker); err == nil {
-			if cfg.Enabled && cfg.Licensed {
-				wipeRoundOpen = true
-				componentLogger.Info("self-recovery: resuming a wiped node's recovery round; empty fallbacks stay informational until it drains")
-			} else if err := os.Remove(wipeMarker); err != nil && !errors.Is(err, fs.ErrNotExist) {
-				componentLogger.Warnf("self-recovery: cannot remove the stale wipe-round marker %q: %v", wipeMarker, err)
-			} else {
-				// normal init materialises every missing dir on this start, so a later licensed start must not inherit the benign bucket
-				componentLogger.Info("self-recovery: removed a stale wipe-round marker; this start cannot submit recoveries (feature disabled or unlicensed) and normal init materialises the missing shards")
-			}
+			wipeRoundOpen = true
+			componentLogger.Info("self-recovery: resuming a wiped node's recovery round; empty fallbacks stay informational until it drains")
 		}
 	}
 	return &Orchestrator{
@@ -215,8 +196,6 @@ func New(cfg Config) *Orchestrator {
 		clientFactory:          cfg.ClientFactory,
 		nodeSelector:           cfg.NodeSelector,
 		nodeName:               cfg.NodeName,
-		enabled:                cfg.Enabled,
-		licensed:               cfg.Licensed,
 		concurrency:            cfg.Concurrency,
 		maintenanceModeEnabled: cfg.MaintenanceModeEnabled,
 		onRecoveryComplete:     cfg.OnRecoveryComplete,
@@ -247,17 +226,6 @@ func shufflePeers(peers []string) {
 
 // Submit queues recovery (never drops); false = won't run and the caller MUST fall back to normal init.
 func (o *Orchestrator) Submit(ctx context.Context, ref ShardRef, startedWithoutRaftState bool) bool {
-	if !o.enabled {
-		return false
-	}
-	if !o.licensed {
-		o.logger.WithFields(logrus.Fields{
-			"event":      "self_recovery.skipped_unlicensed",
-			"collection": ref.Collection,
-			"shard":      ref.Shard,
-		}).Debug("self-recovery skipped: no valid Weaviate license")
-		return false
-	}
 	if o.maintenanceModeEnabled != nil && o.maintenanceModeEnabled() {
 		o.logger.WithFields(logrus.Fields{
 			"event":      "self_recovery.skipped_maintenance_mode",
@@ -277,8 +245,6 @@ func (o *Orchestrator) Submit(ctx context.Context, ref ShardRef, startedWithoutR
 	o.queueCond.Signal()
 	return true
 }
-
-const wipeMarkerName = ".self_recovery_wiped"
 
 // noteWipeRoundLocked opens the round on a wiped start and keeps a resumed round's submissions benign; under queueMu.
 func (o *Orchestrator) noteWipeRoundLocked(startedWithoutRaftState bool) bool {
@@ -311,9 +277,9 @@ func (o *Orchestrator) closeWipeRoundLocked() {
 	o.wipeRoundOpen = false
 }
 
-// Enabled reports the SELF_RECOVERY flag only; licensing is enforced in Submit/Restart so a resuming op is still recognised.
+// Enabled is always true: an Orchestrator exists only on a licensed node with the flag on.
 func (o *Orchestrator) Enabled() bool {
-	return o.enabled
+	return true
 }
 
 // SubmitRecovery is the primitive-typed Submit for callers that can't import this package.
@@ -352,9 +318,6 @@ func (o *Orchestrator) Restart(parentCtx context.Context, ref ShardRef) error {
 				ref.Collection, ref.Shard,
 				errors.Join(ErrSelfRecoveryShardNotInSchema, err))
 		}
-	}
-	if !o.licensed {
-		return fmt.Errorf("restart recovery for %s/%s: %w", ref.Collection, ref.Shard, ErrSelfRecoveryUnlicensed)
 	}
 	unlock := o.lockShard(ref)
 	defer unlock()
@@ -397,7 +360,7 @@ func (o *Orchestrator) Restart(parentCtx context.Context, ref ShardRef) error {
 	}).Warn("operator restarted self-recovery from scratch")
 
 	// WithoutCancel so the recovery outlives the HTTP-bound parentCtx
-	if !o.Submit(context.WithoutCancel(parentCtx), ref, false) && o.Enabled() {
+	if !o.Submit(context.WithoutCancel(parentCtx), ref, false) {
 		// resubmit refused (maintenance/shutdown); shard stays RECOVERING
 		return errors.New("restart recovery: re-submission refused (node in maintenance mode or shutting down); retry shortly")
 	}
@@ -504,50 +467,6 @@ func (o *Orchestrator) waitForOpTerminal(ctx context.Context, uuid strfmt.UUID) 
 		case <-ticker.C:
 		}
 	}
-}
-
-// CleanupOrphanRecoveryDirs removes "<shard>.recovering/" dirs whose live sibling exists; in-flight recoveries are kept.
-func (o *Orchestrator) CleanupOrphanRecoveryDirs(rootDataPath string) ([]string, error) {
-	const suffix = api.RecoveryFolderSuffix
-	if rootDataPath == "" {
-		return nil, errors.New("cleanup orphan recovery dirs: empty root data path")
-	}
-	collections, err := os.ReadDir(rootDataPath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("read data root %q: %w", rootDataPath, err)
-	}
-	var removed []string
-	for _, c := range collections {
-		if !c.IsDir() {
-			continue
-		}
-		collDir := filepath.Join(rootDataPath, c.Name())
-		shards, err := os.ReadDir(collDir)
-		if err != nil {
-			o.logger.WithField("dir", collDir).Warnf("cleanup: cannot read collection dir: %v", err)
-			continue
-		}
-		for _, s := range shards {
-			if !s.IsDir() || !strings.HasSuffix(s.Name(), suffix) {
-				continue
-			}
-			recoveryDir := filepath.Join(collDir, s.Name())
-			liveDir := filepath.Join(collDir, strings.TrimSuffix(s.Name(), suffix))
-			if _, err := os.Stat(liveDir); err != nil {
-				continue // no sibling: in-flight recovery to resume
-			}
-			if err := os.RemoveAll(recoveryDir); err != nil {
-				o.logger.WithField("dir", recoveryDir).Warnf("cleanup: failed to remove orphan recovery dir: %v", err)
-				continue
-			}
-			o.logger.WithField("dir", recoveryDir).Info("cleanup: removed orphan recovery dir")
-			removed = append(removed, recoveryDir)
-		}
-	}
-	return removed, nil
 }
 
 // AcceptEmpty (operator escape hatch) erases the staging dir, creates an empty live dir, promotes; refuses while a SELF_RECOVERY op targeting this node is non-terminal.

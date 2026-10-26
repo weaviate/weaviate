@@ -13,15 +13,20 @@ package hnsw
 
 import (
 	"context"
+	"encoding/binary"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -546,4 +551,104 @@ func TestApplyLoadedState_PQWithoutEncodersFailsInsteadOfPanicking(t *testing.T)
 		err := index.applyLoadedState(state)
 		require.ErrorContains(t, err, "no encoders")
 	})
+}
+
+// writeRawCommitLogForTest writes a raw commit log with ten linked nodes, then
+// tail, into the commit log directory of the index cfg describes.
+func writeRawCommitLogForTest(t *testing.T, cfg Config, tail func(w *compact.WALWriter)) (path string, validSize int64) {
+	t.Helper()
+	dir := commitLogDirectory(cfg.RootPath, cfg.ID)
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	path = filepath.Join(dir, "1000")
+	f, err := os.Create(path)
+	require.NoError(t, err)
+	defer f.Close()
+
+	w := compact.NewWALWriter(f)
+	require.NoError(t, w.WriteSetEntryPointMaxLevel(0, 0))
+	for id := uint64(0); id < 10; id++ {
+		require.NoError(t, w.WriteAddNode(id, 0))
+		require.NoError(t, w.WriteAddLinksAtLevel(id, 0, []uint64{(id + 1) % 10}))
+	}
+	st, err := f.Stat()
+	require.NoError(t, err)
+	tail(w)
+	return path, st.Size()
+}
+
+// writeDocIDCounterForTest writes the shard's document-ID counter file, as
+// indexcounter.Counter persists it, into dir.
+func writeDocIDCounterForTest(t *testing.T, dir string, counter uint64) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "indexcount"), binary.LittleEndian.AppendUint64(nil, counter), 0o644))
+}
+
+// TestRestoreFromDisk_NodeIDBeyondDocIDCounter pins that an index whose node
+// IDs are document IDs never loads a node far beyond the shard's document-ID
+// counter: corruption decodes such IDs, and sizing the node index to one ran
+// the node out of memory on every startup (weaviate/0-weaviate-issues#649).
+func TestRestoreFromDisk_NodeIDBeyondDocIDCounter(t *testing.T) {
+	const counter = 10
+	garbage := uint64(counter + 1<<24 + 1000)
+
+	multivector := ent.MultivectorConfig{Enabled: true}
+	muvera := ent.MultivectorConfig{Enabled: true, MuveraConfig: ent.MuveraConfig{Enabled: true, KSim: 4, DProjections: 16, Repetitions: 10}}
+
+	tests := []struct {
+		name          string
+		counterFile   bool
+		counter       uint64
+		multivector   ent.MultivectorConfig
+		hfresh        bool
+		wantTruncated bool
+	}{
+		{name: "beyond the counter and its slack", counterFile: true, counter: counter, wantTruncated: true},
+		{name: "muvera node IDs are document IDs", counterFile: true, counter: counter, multivector: muvera, wantTruncated: true},
+		{name: "multivector node IDs are not document IDs", counterFile: true, counter: counter, multivector: multivector},
+		{name: "hfresh centroids live where there is no counter", counterFile: true, counter: counter, hfresh: true},
+		{name: "zero counter means no limit", counterFile: true, counter: 0},
+		{name: "no counter file means no limit"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			shardDir := t.TempDir()
+			cfg := createVectorHnswIndexTestConfig()
+			cfg.RootPath = shardDir
+			if tc.hfresh {
+				// HFresh's centroid index lives in HFresh's own directory.
+				cfg.RootPath = filepath.Join(shardDir, helpers.HFreshDirName("main"))
+				cfg.ID = helpers.CentroidsID("main")
+			}
+			cfg.MultiVectorForIDThunk = testMultiVectorForID
+			if tc.counterFile {
+				writeDocIDCounterForTest(t, shardDir, tc.counter)
+			}
+			path, validSize := writeRawCommitLogForTest(t, cfg, func(w *compact.WALWriter) {
+				require.NoError(t, w.WriteAddNode(garbage, 0))
+			})
+
+			uc := ent.UserConfig{MaxConnections: 30, EFConstruction: 60, EF: 36, Multivector: tc.multivector}
+			index, err := New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+			require.NoError(t, err)
+			defer index.Shutdown(context.Background())
+
+			st, err := os.Stat(path)
+			require.NoError(t, err)
+			// Without doc mappings in the store, a multivector index without Muvera
+			// drops the loaded nodes, so only the file shows whether the limit applied.
+			if !tc.multivector.Enabled || tc.multivector.MuveraConfig.Enabled {
+				for id := 0; id < 10; id++ {
+					require.NotNil(t, index.nodes[id], "node %d lost", id)
+				}
+			}
+			if tc.wantTruncated {
+				assert.Less(t, len(index.nodes), int(garbage), "node index sized to the garbage ID")
+				assert.Equal(t, validSize, st.Size(), "commit log must be truncated before the record")
+			} else {
+				assert.Greater(t, len(index.nodes), int(garbage), "without a limit the node loads as before")
+				assert.Greater(t, st.Size(), validSize)
+			}
+		})
+	}
 }

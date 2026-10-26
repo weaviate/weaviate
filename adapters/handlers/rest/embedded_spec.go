@@ -2633,7 +2633,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or a record sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7751,6 +7751,12 @@ func init() {
                   "type": "string",
                   "format": "date-time"
                 },
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format at which the user's API key stops authenticating, stored in UTC with millisecond precision. It must be in the future. Setting it needs a Weaviate license key on the node, else the request answers 403. On a node with a license key, a request that also sets ` + "`" + `import` + "`" + ` to true answers 422. Absent means the key never expires.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
                 "import": {
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "type": "boolean",
@@ -7777,7 +7783,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or the body sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7998,6 +8004,85 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.users.db.deactivateUser"
+        ]
+      }
+    },
+    "/users/db/{user_id}/expiration": {
+      "put": {
+        "description": "Set or clear the time at which a database user's (` + "`" + `db` + "`" + ` user type) API key stops authenticating. The body sets exactly one of ` + "`" + `expiresAt` + "`" + `, which must be in the future, and ` + "`" + `neverExpires` + "`" + `, which must be true and clears the expiry. Any other body answers 422, and so do the caller's own user, root users and static users. A node without a Weaviate license key answers 403, so an expired user can then only be deleted and re-created.",
+        "tags": [
+          "users"
+        ],
+        "summary": "Set a user's expiration",
+        "operationId": "setUserExpiration",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the user.",
+            "name": "user_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "Set exactly one of ` + "`" + `expiresAt` + "`" + ` and ` + "`" + `neverExpires` + "`" + `.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format, stored in UTC with millisecond precision, at which the user's API key stops authenticating. It must be in the future.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
+                "neverExpires": {
+                  "description": "True clears the user's expiry, so the API key never expires. False answers 422.",
+                  "type": "boolean",
+                  "x-nullable": true
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User expiration successfully set."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden, because the caller lacks the permission or the node has no Weaviate license key.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "User not found."
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.db.setUserExpiration"
         ]
       }
     },
@@ -8333,7 +8418,7 @@ func init() {
           "x-nullable": false
         },
         "dedupeReplicas": {
-          "description": "If true, shards of replicated collections that are provably in sync (via async-replication checkpoints) are archived by a single replica instead of every replica, and a restore copies them back to all replicas. Shards that cannot be proven in sync fall back to being archived by every replica. The proof is the one async replication itself uses (matching object UUIDs and update timestamps at a checkpoint), and the archived copy is the designated replica's state at archive time: it provably contains every write acknowledged at or before the per-class checkpoint cutoff taken shortly after the backup starts (persisted as dedupeCutoffsMs in the backup descriptor), while writes concurrent with the backup are included best-effort, as in any backup mode. Requires async replication on replicated collections and a cluster where every node supports this option. A backup where at least one shard was deduplicated can only be restored by versions that support this option, and its restore requires every replica node of the archived sharding state to be resolvable (or mapped via node_mapping). Restoring such a backup can block the restore request for up to two minutes while participants read all source descriptors; size client timeouts accordingly. If no shard could be deduplicated, the backup is written in the legacy format and restores like any other backup. The option must be enabled on the cluster (env BACKUP_DEDUPE_ENABLED=true); otherwise requests carrying it are rejected with 422, while restores of existing deduplicated backups always work.",
+          "description": "If true, shards of replicated collections proven in sync by async-replication checkpoints are archived by one replica instead of all, and restore copies them back to every replica; other shards are archived by every replica. Requires async replication, BACKUP_DEDUPE_ENABLED=true (else 422) and a Weaviate license key (else 403) on every node. Such backups restore only on versions that support this option; restoring needs no license.",
           "type": "boolean",
           "default": false,
           "x-nullable": false
@@ -8341,7 +8426,7 @@ func init() {
       }
     },
     "BackupCreateRequest": {
-      "description": "Request body for creating a backup for a set of collections.",
+      "description": "Request body for creating a backup. The resolved selection must contain at least one collection, dynamic user, or RBAC role.",
       "properties": {
         "config": {
           "description": "Custom configuration for the backup creation process",
@@ -8349,7 +8434,7 @@ func init() {
           "$ref": "#/definitions/BackupConfig"
         },
         "exclude": {
-          "description": "List of collections to exclude from the backup creation process. If not set, all collections the caller may back up are included. Cannot be used together with ` + "`" + `include` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
+          "description": "List of collections to exclude from the backup creation process. If not set, all collections the caller may back up are included. Cannot be used together with ` + "`" + `include` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. Excluding every collection is allowed when users or roles are selected, including through omitted identity selectors.",
           "type": "array",
           "items": {
             "type": "string"
@@ -8360,21 +8445,21 @@ func init() {
           "type": "string"
         },
         "include": {
-          "description": "List of collections to include in the backup creation process. If not set, all collections the caller may back up are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `, which match only collections the caller may back up. A list that matches no collection is rejected.",
+          "description": "List of collections to include in the backup creation process. If not set, all collections the caller may back up are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `, which match only collections the caller may back up. A list that matches no collection is allowed when users or roles are selected, including through omitted identity selectors.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "includeRoles": {
-          "description": "List of RBAC roles to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted, the whole RBAC state is captured as part of the cluster snapshot; when set, the RBAC blob is filtered to the matching roles. An exact role name that does not exist is rejected; wildcards that match nothing back up no roles. Built-in roles are rejected and are never selected by wildcards (they are re-applied automatically on restore). No per-role permission check is applied.",
+          "description": "List of RBAC roles to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted or null, the whole RBAC state is captured, including built-in roles and assignments. An empty list or wildcards matching nothing omit the RBAC snapshot; restoring it leaves existing roles untouched. Otherwise, only matching roles are captured. An exact role name that does not exist is rejected. Explicit selectors cannot select built-in roles: exact names are rejected and wildcards exclude them. Selected roles, including built-in roles selected by omission, permit a backup with zero collections. No per-role permission check is applied.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "includeUsers": {
-          "description": "List of dynamic DB users to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted, the whole dynamic-user store is captured as part of the cluster snapshot and no per-user permission check is applied; when set, only matching users are captured. An exact user name that does not exist is rejected; wildcards that match nothing back up no users.",
+          "description": "List of dynamic DB users to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted or null, the whole dynamic-user store is captured. An empty list or wildcards matching nothing omit the user snapshot; restoring it leaves existing users untouched. Otherwise, only matching users are captured. An exact user name that does not exist is rejected. Selected users, including those selected by omission, permit a backup with zero collections. No per-user permission check is applied.",
           "type": "array",
           "items": {
             "type": "string"
@@ -8543,7 +8628,7 @@ func init() {
       }
     },
     "BackupRestoreRequest": {
-      "description": "Request body for restoring a backup for a set of collections (classes).",
+      "description": "Request body for restoring a backup. A backup with no collections can restore users or roles when the matching restore option is enabled.",
       "properties": {
         "config": {
           "description": "Custom configuration for the backup restoration process.",
@@ -8551,14 +8636,14 @@ func init() {
           "$ref": "#/definitions/RestoreConfig"
         },
         "exclude": {
-          "description": "List of collections (classes) to exclude from the backup restoration process.",
+          "description": "List of collections (classes) to exclude from the backup restoration process. Any entry is rejected when the backup contains no collections.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "include": {
-          "description": "List of collections (classes) to include in the backup restoration process. If not set, all collections in the backup the caller may restore are included. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `, which match only collections the caller may restore. A list that matches no collection is rejected.",
+          "description": "List of collections (classes) to include in the backup restoration process. If not set, all collections in the backup the caller may restore are included. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `, which match only collections the caller may restore. A list that matches no collection is rejected. Any entry is rejected when the backup contains no collections.",
           "type": "array",
           "items": {
             "type": "string"
@@ -9077,6 +9162,12 @@ func init() {
           "type": "string",
           "format": "date-time"
         },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent or null means the key never expires, except that import never changes an existing user's expiry, so a record without one keeps the stored value. A new user takes the record's value, even one that has passed. A differing future value for an existing user gives that record an error result naming ` + "`" + `PUT /v1/users/db/{user_id}/expiration` + "`" + `. A differing past value gives ` + "`" + `skipped_exists` + "`" + ` for a deactivated user. For an active one it gives an error result advising to deactivate the user, or delete it and re-import, because that PUT refuses a past time. A node without a Weaviate license key refuses the whole import with 403 when any record sets a non-null ` + "`" + `expiresAt` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "namespace": {
           "description": "The namespace the user was bound to on the source. Informational on export; import binds the user to the request's target namespace.",
           "type": "string"
@@ -9143,6 +9234,12 @@ func init() {
             "db_user",
             "db_env_user"
           ]
+        },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent means the key never expires. Expiry does not change ` + "`" + `active` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
         },
         "lastUsedAt": {
           "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
@@ -10287,6 +10384,7 @@ func init() {
           "type": "string",
           "enum": [
             "manage_backups",
+            "read_backups",
             "read_cluster",
             "create_data",
             "read_data",
@@ -10538,6 +10636,10 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "isDynamicDbUser": {
+          "description": "This is true when the API key resolved to a DB user record, which covers a dynamic DB user's own key and an imported static key. A login through the static API key list leaves it false, even when a DB user shares its name, though both carry userType db.",
+          "type": "boolean"
         },
         "isGlobalOperator": {
           "description": "True for principals that operate across all namespaces (e.g. static API keys). Authoritative marker for operator-level principals; do not infer from an empty namespace.",
@@ -12355,6 +12457,12 @@ func init() {
         "username"
       ],
       "properties": {
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the caller's API key stops authenticating. Absent means the key never expires, the caller is not a DB user, or DB user management is disabled.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "groups": {
           "description": "The groups associated with the user.",
           "type": "array",
@@ -15346,7 +15454,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or a record sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20574,6 +20682,12 @@ func init() {
                   "type": "string",
                   "format": "date-time"
                 },
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format at which the user's API key stops authenticating, stored in UTC with millisecond precision. It must be in the future. Setting it needs a Weaviate license key on the node, else the request answers 403. On a node with a license key, a request that also sets ` + "`" + `import` + "`" + ` to true answers 422. Absent means the key never expires.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
                 "import": {
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "type": "boolean",
@@ -20600,7 +20714,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or the body sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20821,6 +20935,85 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.users.db.deactivateUser"
+        ]
+      }
+    },
+    "/users/db/{user_id}/expiration": {
+      "put": {
+        "description": "Set or clear the time at which a database user's (` + "`" + `db` + "`" + ` user type) API key stops authenticating. The body sets exactly one of ` + "`" + `expiresAt` + "`" + `, which must be in the future, and ` + "`" + `neverExpires` + "`" + `, which must be true and clears the expiry. Any other body answers 422, and so do the caller's own user, root users and static users. A node without a Weaviate license key answers 403, so an expired user can then only be deleted and re-created.",
+        "tags": [
+          "users"
+        ],
+        "summary": "Set a user's expiration",
+        "operationId": "setUserExpiration",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the user.",
+            "name": "user_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "Set exactly one of ` + "`" + `expiresAt` + "`" + ` and ` + "`" + `neverExpires` + "`" + `.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format, stored in UTC with millisecond precision, at which the user's API key stops authenticating. It must be in the future.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
+                "neverExpires": {
+                  "description": "True clears the user's expiry, so the API key never expires. False answers 422.",
+                  "type": "boolean",
+                  "x-nullable": true
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User expiration successfully set."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden, because the caller lacks the permission or the node has no Weaviate license key.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "User not found."
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.db.setUserExpiration"
         ]
       }
     },
@@ -21156,7 +21349,7 @@ func init() {
           "x-nullable": false
         },
         "dedupeReplicas": {
-          "description": "If true, shards of replicated collections that are provably in sync (via async-replication checkpoints) are archived by a single replica instead of every replica, and a restore copies them back to all replicas. Shards that cannot be proven in sync fall back to being archived by every replica. The proof is the one async replication itself uses (matching object UUIDs and update timestamps at a checkpoint), and the archived copy is the designated replica's state at archive time: it provably contains every write acknowledged at or before the per-class checkpoint cutoff taken shortly after the backup starts (persisted as dedupeCutoffsMs in the backup descriptor), while writes concurrent with the backup are included best-effort, as in any backup mode. Requires async replication on replicated collections and a cluster where every node supports this option. A backup where at least one shard was deduplicated can only be restored by versions that support this option, and its restore requires every replica node of the archived sharding state to be resolvable (or mapped via node_mapping). Restoring such a backup can block the restore request for up to two minutes while participants read all source descriptors; size client timeouts accordingly. If no shard could be deduplicated, the backup is written in the legacy format and restores like any other backup. The option must be enabled on the cluster (env BACKUP_DEDUPE_ENABLED=true); otherwise requests carrying it are rejected with 422, while restores of existing deduplicated backups always work.",
+          "description": "If true, shards of replicated collections proven in sync by async-replication checkpoints are archived by one replica instead of all, and restore copies them back to every replica; other shards are archived by every replica. Requires async replication, BACKUP_DEDUPE_ENABLED=true (else 422) and a Weaviate license key (else 403) on every node. Such backups restore only on versions that support this option; restoring needs no license.",
           "type": "boolean",
           "default": false,
           "x-nullable": false
@@ -21164,7 +21357,7 @@ func init() {
       }
     },
     "BackupCreateRequest": {
-      "description": "Request body for creating a backup for a set of collections.",
+      "description": "Request body for creating a backup. The resolved selection must contain at least one collection, dynamic user, or RBAC role.",
       "properties": {
         "config": {
           "description": "Custom configuration for the backup creation process",
@@ -21172,7 +21365,7 @@ func init() {
           "$ref": "#/definitions/BackupConfig"
         },
         "exclude": {
-          "description": "List of collections to exclude from the backup creation process. If not set, all collections the caller may back up are included. Cannot be used together with ` + "`" + `include` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
+          "description": "List of collections to exclude from the backup creation process. If not set, all collections the caller may back up are included. Cannot be used together with ` + "`" + `include` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. Excluding every collection is allowed when users or roles are selected, including through omitted identity selectors.",
           "type": "array",
           "items": {
             "type": "string"
@@ -21183,21 +21376,21 @@ func init() {
           "type": "string"
         },
         "include": {
-          "description": "List of collections to include in the backup creation process. If not set, all collections the caller may back up are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `, which match only collections the caller may back up. A list that matches no collection is rejected.",
+          "description": "List of collections to include in the backup creation process. If not set, all collections the caller may back up are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `, which match only collections the caller may back up. A list that matches no collection is allowed when users or roles are selected, including through omitted identity selectors.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "includeRoles": {
-          "description": "List of RBAC roles to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted, the whole RBAC state is captured as part of the cluster snapshot; when set, the RBAC blob is filtered to the matching roles. An exact role name that does not exist is rejected; wildcards that match nothing back up no roles. Built-in roles are rejected and are never selected by wildcards (they are re-applied automatically on restore). No per-role permission check is applied.",
+          "description": "List of RBAC roles to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted or null, the whole RBAC state is captured, including built-in roles and assignments. An empty list or wildcards matching nothing omit the RBAC snapshot; restoring it leaves existing roles untouched. Otherwise, only matching roles are captured. An exact role name that does not exist is rejected. Explicit selectors cannot select built-in roles: exact names are rejected and wildcards exclude them. Selected roles, including built-in roles selected by omission, permit a backup with zero collections. No per-role permission check is applied.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "includeUsers": {
-          "description": "List of dynamic DB users to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted, the whole dynamic-user store is captured as part of the cluster snapshot and no per-user permission check is applied; when set, only matching users are captured. An exact user name that does not exist is rejected; wildcards that match nothing back up no users.",
+          "description": "List of dynamic DB users to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted or null, the whole dynamic-user store is captured. An empty list or wildcards matching nothing omit the user snapshot; restoring it leaves existing users untouched. Otherwise, only matching users are captured. An exact user name that does not exist is rejected. Selected users, including those selected by omission, permit a backup with zero collections. No per-user permission check is applied.",
           "type": "array",
           "items": {
             "type": "string"
@@ -21369,7 +21562,7 @@ func init() {
       }
     },
     "BackupRestoreRequest": {
-      "description": "Request body for restoring a backup for a set of collections (classes).",
+      "description": "Request body for restoring a backup. A backup with no collections can restore users or roles when the matching restore option is enabled.",
       "properties": {
         "config": {
           "description": "Custom configuration for the backup restoration process.",
@@ -21377,14 +21570,14 @@ func init() {
           "$ref": "#/definitions/RestoreConfig"
         },
         "exclude": {
-          "description": "List of collections (classes) to exclude from the backup restoration process.",
+          "description": "List of collections (classes) to exclude from the backup restoration process. Any entry is rejected when the backup contains no collections.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "include": {
-          "description": "List of collections (classes) to include in the backup restoration process. If not set, all collections in the backup the caller may restore are included. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `, which match only collections the caller may restore. A list that matches no collection is rejected.",
+          "description": "List of collections (classes) to include in the backup restoration process. If not set, all collections in the backup the caller may restore are included. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `, which match only collections the caller may restore. A list that matches no collection is rejected. Any entry is rejected when the backup contains no collections.",
           "type": "array",
           "items": {
             "type": "string"
@@ -22011,6 +22204,12 @@ func init() {
           "type": "string",
           "format": "date-time"
         },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent or null means the key never expires, except that import never changes an existing user's expiry, so a record without one keeps the stored value. A new user takes the record's value, even one that has passed. A differing future value for an existing user gives that record an error result naming ` + "`" + `PUT /v1/users/db/{user_id}/expiration` + "`" + `. A differing past value gives ` + "`" + `skipped_exists` + "`" + ` for a deactivated user. For an active one it gives an error result advising to deactivate the user, or delete it and re-import, because that PUT refuses a past time. A node without a Weaviate license key refuses the whole import with 403 when any record sets a non-null ` + "`" + `expiresAt` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "namespace": {
           "description": "The namespace the user was bound to on the source. Informational on export; import binds the user to the request's target namespace.",
           "type": "string"
@@ -22077,6 +22276,12 @@ func init() {
             "db_user",
             "db_env_user"
           ]
+        },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent means the key never expires. Expiry does not change ` + "`" + `active` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
         },
         "lastUsedAt": {
           "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
@@ -23274,6 +23479,7 @@ func init() {
           "type": "string",
           "enum": [
             "manage_backups",
+            "read_backups",
             "read_cluster",
             "create_data",
             "read_data",
@@ -23693,6 +23899,10 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "isDynamicDbUser": {
+          "description": "This is true when the API key resolved to a DB user record, which covers a dynamic DB user's own key and an imported static key. A login through the static API key list leaves it false, even when a DB user shares its name, though both carry userType db.",
+          "type": "boolean"
         },
         "isGlobalOperator": {
           "description": "True for principals that operate across all namespaces (e.g. static API keys). Authoritative marker for operator-level principals; do not infer from an empty namespace.",
@@ -25519,6 +25729,12 @@ func init() {
         "username"
       ],
       "properties": {
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the caller's API key stops authenticating. Absent means the key never expires, the caller is not a DB user, or DB user management is disabled.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "groups": {
           "description": "The groups associated with the user.",
           "type": "array",

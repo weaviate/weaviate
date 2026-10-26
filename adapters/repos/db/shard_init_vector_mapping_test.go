@@ -62,9 +62,9 @@ func TestInitShardVectors_FirstLoadWritesTheMapping(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, initialized)
 	assert.Equal(t, map[string]vectorIndexRecord{
-		"":    {PhysicalID: "main", IndexType: "hnsw", State: "ready"},
-		"foo": {PhysicalID: "vectors_foo", IndexType: "hnsw", State: "ready"},
-		"mv":  {PhysicalID: "vectors_mv", IndexType: "hnsw", State: "ready"},
+		"":    recorded(shard, "", "main", "ready"),
+		"foo": recorded(shard, "foo", "vectors_foo", "ready"),
+		"mv":  recorded(shard, "mv", "vectors_mv", "ready"),
 	}, records)
 	for name, rec := range records {
 		assert.True(t, storageExistsFor(t, shard, rec), "storage of %q", name)
@@ -101,7 +101,8 @@ func TestInitShardVectors_FirstLoadRecordsEveryType(t *testing.T) {
 
 			records, _, err := shard.mapping.Load()
 			require.NoError(t, err)
-			rec := vectorIndexRecord{PhysicalID: "main", IndexType: tt.indexType, State: "ready"}
+			rec := recorded(shard, "", "main", "ready")
+			assert.Equal(t, tt.indexType, rec.IndexType)
 			assert.Equal(t, map[string]vectorIndexRecord{"": rec}, records)
 			assert.True(t, storageExistsFor(t, shard, rec))
 		})
@@ -173,7 +174,7 @@ func withOfflineMapping(t *testing.T, shardDir string, fn func(m *vectorIndexMap
 func TestInitShardVectors_Reconcile(t *testing.T) {
 	ctx := testCtx()
 	shard, class := setupDropVectorShard(t, ctx)
-	foo := vectorIndexRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "ready"}
+	foo := recorded(shard, "foo", "vectors_foo", "ready")
 	fooDir := filepath.Join(shard.path(), helpers.GetHNSWCommitLogDirName("foo"))
 
 	// a ready record whose storage is on disk opens as before
@@ -222,6 +223,28 @@ func TestInitShardVectors_Reconcile(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, foo, records["foo"])
 
+	// a record from before the config and queue ID fields existed is filled
+	// in: the queue from the physical ID, the config from the schema
+	old := vectorIndexRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "ready"}
+	require.NoError(t, shard.mapping.Put("foo", old))
+	shard = reload(t, ctx, shard, class)
+	records, _, err = shard.mapping.Load()
+	require.NoError(t, err)
+	assert.Equal(t, foo, records["foo"])
+
+	// until the cutover the schema decides the config at load: a record
+	// holding another config, as after a change the shard was cold for, is
+	// rewritten with the schema's
+	staleCfg := foo.Config.(enthnsw.UserConfig)
+	staleCfg.EF = staleCfg.EF + 1
+	stale := foo
+	stale.Config = staleCfg
+	require.NoError(t, shard.mapping.Put("foo", stale))
+	shard = reload(t, ctx, shard, class)
+	records, _, err = shard.mapping.Load()
+	require.NoError(t, err)
+	assert.Equal(t, foo, records["foo"])
+
 	// a record the schema does not have is deleted, its storage untouched
 	ghostDir := filepath.Join(shard.path(), helpers.GetHNSWCommitLogDirName("ghost"))
 	require.NoError(t, os.MkdirAll(ghostDir, 0o755))
@@ -237,6 +260,7 @@ func TestInitShardVectors_Reconcile(t *testing.T) {
 	// a record whose type disagrees with the schema refuses the load
 	wrongType := foo
 	wrongType.IndexType = "flat"
+	wrongType.Config = entflat.NewDefaultUserConfig()
 	require.NoError(t, shard.mapping.Put("foo", wrongType))
 	reloadExpectingError(t, ctx, shard, class, "flat", nil)
 	withOfflineMapping(t, shard.path(), func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
@@ -255,6 +279,19 @@ func TestInitShardVectors_Reconcile(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// A record whose queue ID differs from its index's refuses the load: drop
+// cleanup removes the queue under the index's ID and would leave it behind.
+func TestInitShardVectors_RefusesAQueueIDOtherThanTheIndexID(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	reloadExpectingError(t, ctx, shard, class, `queue id "vectors_foo_queue" differs from physical id "vectors_foo"`, func() {
+		withOfflineMapping(t, shard.path(), func(_ *vectorIndexMapping, ns *shardmeta.Namespace) {
+			require.NoError(t, ns.Put([]byte("foo"),
+				[]byte(`{"physical_id":"vectors_foo","index_type":"hnsw","state":"ready","queue_id":"vectors_foo_queue"}`)))
+		})
+	})
+}
+
 // A vector added to a running shard is recorded ready at the naming rule's
 // ID, with its storage durable, and survives a reload as itself.
 func TestInitTargetVector_RecordsTheVector(t *testing.T) {
@@ -265,7 +302,7 @@ func TestInitTargetVector_RecordsTheVector(t *testing.T) {
 		"added": enthnsw.NewDefaultUserConfig(),
 	}))
 
-	added := vectorIndexRecord{PhysicalID: "vectors_added", IndexType: "hnsw", State: "ready"}
+	added := recorded(shard, "added", "vectors_added", "ready")
 	rec, ok, err := shard.mapping.Get("added")
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -298,7 +335,10 @@ func TestInitTargetVector_FailedBuildLeavesCreating(t *testing.T) {
 	rec, ok, err := shard.mapping.Get("broken")
 	require.NoError(t, err)
 	require.True(t, ok)
-	assert.Equal(t, vectorIndexRecord{PhysicalID: "vectors_broken", IndexType: "hnsw", State: "creating"}, rec)
+	assert.Equal(t, vectorIndexRecord{
+		PhysicalID: "vectors_broken", IndexType: "hnsw", State: "creating",
+		QueueID: "vectors_broken", Config: broken,
+	}, rec)
 	found, err := shard.WithVectorIndex("broken", func(VectorIndex) error { return nil })
 	require.NoError(t, err)
 	assert.False(t, found)
@@ -724,7 +764,7 @@ func TestInitShardVectors_FinishesADroppingRecord(t *testing.T) {
 	rec, ok, err := shard.mapping.Get("foo")
 	require.NoError(t, err)
 	require.True(t, ok)
-	assert.Equal(t, vectorIndexRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "ready"}, rec)
+	assert.Equal(t, recorded(shard, "foo", "vectors_foo", "ready"), rec)
 	_, err = os.Stat(stale)
 	assert.True(t, os.IsNotExist(err), "the old files went before the fresh build")
 	found, err = shard.WithVectorIndex("foo", func(VectorIndex) error { return nil })
