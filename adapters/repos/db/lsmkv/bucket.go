@@ -1826,7 +1826,7 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 		walPath := b.active.commitlogWalPath()
 		b.flushLock.Unlock()
 		if storeActiveCount {
-			b.logShutdownCountStoreErr(walPath, netCount.storeForWAL(walPath))
+			b.logShutdownCountStoreErr(walPath, b.storeWALNetCount(walPath, netCount.value))
 		}
 	} else {
 		segmentPath, err := b.active.flush()
@@ -1836,7 +1836,7 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 		}
 		b.flushLock.Unlock()
 		if storeActiveCount && segmentPath != "" {
-			b.logShutdownCountStoreErr(segmentPath, storeForSegment(segmentPath, netCount.value))
+			b.logShutdownCountStoreErr(segmentPath, b.storeSegmentNetCount(segmentPath, netCount.value))
 		}
 	}
 
@@ -1864,7 +1864,7 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 		return fmt.Errorf("write out memtable of a failed flush: %w", err)
 	}
 	if netCount != nil && netCount.flushing == failed && segmentPath != "" {
-		b.logShutdownCountStoreErr(segmentPath, storeForSegment(segmentPath, netCount.flushingValue))
+		b.logShutdownCountStoreErr(segmentPath, b.storeSegmentNetCount(segmentPath, netCount.flushingValue))
 	}
 	return nil
 }

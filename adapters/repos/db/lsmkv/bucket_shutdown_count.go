@@ -81,21 +81,21 @@ func (b *Bucket) takeShutdownNetCount(ctx context.Context) (*shutdownNetCount, e
 	if b.flushing != nil {
 		flushing = b.flushing.countStats()
 		value, unanswered, err := b.memtableNetCountWithUnanswered(ctx, flushing, nil, segments)
-		if err := checkShutdownNetCount(unanswered, err); err != nil {
+		if err := b.checkShutdownNetCount(unanswered, err); err != nil {
 			return nil, err
 		}
 		c.flushingValue = value
 	}
 
 	value, unanswered, err := b.memtableNetCountWithUnanswered(ctx, b.active.countStats(), flushing, segments)
-	if err := checkShutdownNetCount(unanswered, err); err != nil {
+	if err := b.checkShutdownNetCount(unanswered, err); err != nil {
 		return nil, err
 	}
 	c.value = value
 	return c, nil
 }
 
-func checkShutdownNetCount(unanswered int, err error) error {
+func (b *Bucket) checkShutdownNetCount(unanswered int, err error) error {
 	if err != nil {
 		return err
 	}
@@ -113,28 +113,28 @@ func (c *shutdownNetCount) describes(active, flushing memtable) bool {
 		active.commitlogSize() == c.commitlogSize
 }
 
-// storeForSegment writes value as the count sidecar of the segment at
+// storeSegmentNetCount writes value as the count sidecar of the segment at
 // segmentPath, under the name the segment loads it from.
-func storeForSegment(segmentPath string, value int) error {
-	return storeSidecarAtomically(countNetPathFor(segmentPath), func(path string) error {
+func (b *Bucket) storeSegmentNetCount(segmentPath string, value int) error {
+	return b.storeSidecarAtomically(countNetPathFor(segmentPath), func(path string) error {
 		return storeCountNetOnDisk(path, value, nil)
 	})
 }
 
-// storeForWAL writes the count of the active memtable as the sidecar of the
-// WAL at walPath. The WAL's size is recorded with it: the WAL only grows, so
-// a reader takes the count only while the WAL beside it still has that size.
-// Any write after the shutdown, or a flush of the WAL into a segment by a
-// version that does not know this sidecar, voids it.
-func (c *shutdownNetCount) storeForWAL(walPath string) error {
+// storeWALNetCount writes value, the count of the active memtable, as the
+// sidecar of the WAL at walPath. The WAL's size is recorded with it: the WAL
+// only grows, so a reader takes the count only while the WAL beside it still
+// has that size. Any write after the shutdown, or a flush of the WAL into a
+// segment by a version that does not know this sidecar, voids it.
+func (b *Bucket) storeWALNetCount(walPath string, value int) error {
 	info, err := os.Stat(walPath)
 	if err != nil {
 		return err
 	}
-	return storeSidecarAtomically(walCountNetPathFor(walPath), func(path string) error {
+	return b.storeSidecarAtomically(walCountNetPathFor(walPath), func(path string) error {
 		rw := byteops.NewReadWriter(make([]byte, byteops.Uint32Len+2*byteops.Uint64Len))
 		rw.MoveBufferPositionForward(byteops.Uint32Len) // leave space for checksum
-		rw.WriteUint64(uint64(c.value))
+		rw.WriteUint64(uint64(value))
 		rw.WriteUint64(uint64(info.Size()))
 		return writeWithChecksum(rw, path, nil)
 	})
@@ -144,7 +144,7 @@ func (c *shutdownNetCount) storeForWAL(walPath string) error {
 // count fails on a torn sidecar, so it is synced before it is renamed into
 // place. The rename also leaves the old file, which a backup may have linked,
 // untouched.
-func storeSidecarAtomically(sidecar string, write func(path string) error) error {
+func (b *Bucket) storeSidecarAtomically(sidecar string, write func(path string) error) error {
 	tmp := sidecar + ".tmp"
 	if err := write(tmp); err != nil {
 		return err
