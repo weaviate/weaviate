@@ -197,9 +197,12 @@ func (f *fakeVectorRepo) GetObject(ctx context.Context, uuid strfmt.UUID,
 	return args.Error(1)
 }
 
-type fakeExplorer struct{}
+type fakeExplorer struct {
+	getParams dto.GetParams
+}
 
 func (f *fakeExplorer) GetClass(ctx context.Context, p dto.GetParams) ([]interface{}, error) {
+	f.getParams = p
 	return nil, nil
 }
 

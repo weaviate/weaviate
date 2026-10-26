@@ -1581,3 +1581,60 @@ func TestRefTargetCollectionStripping(t *testing.T) {
 		})
 	}
 }
+
+// A multi-target reference is requested once per target collection. The reply
+// used to shape every referenced object with the first request's selection
+// and emit one result per request, each holding every object.
+func TestGRPCReplyMultiTargetReference(t *testing.T) {
+	className, refClass1, refClass2 := "className", "RefClass1", "RefClass2"
+	scheme := schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
+		{Class: className, Properties: []*models.Property{{Name: "multiRef", DataType: []string{refClass1, refClass2}}}},
+		{Class: refClass1, Properties: []*models.Property{{Name: "something", DataType: schema.DataTypeText.PropString()}}},
+		{Class: refClass2, Properties: []*models.Property{{Name: "else", DataType: schema.DataTypeText.PropString()}}},
+	}}}
+	res := []interface{}{map[string]interface{}{"multiRef": []interface{}{
+		search.LocalRef{Class: refClass1, Fields: map[string]interface{}{"something": "a"}},
+		search.LocalRef{Class: refClass2, Fields: map[string]interface{}{"else": "b"}},
+	}}}
+	target1 := search.SelectClass{ClassName: refClass1, RefProperties: search.SelectProperties{{Name: "something", IsPrimitive: true}}}
+	target2 := search.SelectClass{ClassName: refClass2, RefProperties: search.SelectProperties{{Name: "else", IsPrimitive: true}}}
+	expected := &pb.PropertiesResult{
+		TargetCollection: className,
+		RefProps: []*pb.RefPropertiesResult{{
+			PropName: "multiRef",
+			Properties: []*pb.PropertiesResult{
+				{
+					TargetCollection: refClass1,
+					Metadata:         &pb.MetadataResult{},
+					NonRefProps:      &pb.Properties{Fields: map[string]*pb.Value{"something": {Kind: &pb.Value_TextValue{TextValue: "a"}}}},
+				},
+				{
+					TargetCollection: refClass2,
+					Metadata:         &pb.MetadataResult{},
+					NonRefProps:      &pb.Properties{Fields: map[string]*pb.Value{"else": {Kind: &pb.Value_TextValue{TextValue: "b"}}}},
+				},
+			},
+		}},
+		RefPropsRequested: true,
+	}
+
+	for name, props := range map[string]search.SelectProperties{
+		"one request per target": {
+			{Name: "multiRef", Refs: []search.SelectClass{target1}},
+			{Name: "multiRef", Refs: []search.SelectClass{target2}},
+		},
+		"both targets in one selection": {{Name: "multiRef", Refs: []search.SelectClass{target1, target2}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			getClass := func(name string) (*models.Class, error) { return scheme.GetClass(name), nil }
+			replier := NewReplier(false, fakeGenerativeParams{}, nil, nil)
+
+			out, err := replier.Search(context.Background(), res, time.Now(),
+				dto.GetParams{ClassName: className, Properties: props}, newSchemaResolver(getClass))
+
+			require.NoError(t, err)
+			require.Len(t, out.Results, 1)
+			require.Equal(t, expected.String(), out.Results[0].Properties.String())
+		})
+	}
+}
