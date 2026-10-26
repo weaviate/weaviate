@@ -769,6 +769,29 @@ func TestExplore_FragmentSelection(t *testing.T) {
 			query:         `{ Explore(nearVector: {vector: [0, 1, 0.8]}) { ...F } } fragment F on ExploreObj { certainty }`,
 			withCertainty: true,
 		},
+		// certainty excluded from the response must not trigger the
+		// cosine-only certainty check
+		{
+			name:  "certainty skipped",
+			query: `{ Explore(nearVector: {vector: [0, 1, 0.8]}) { beacon certainty @skip(if: true) } }`,
+		},
+		{
+			name:  "certainty inside skipped named fragment",
+			query: `{ Explore(nearVector: {vector: [0, 1, 0.8]}) { beacon ...F @skip(if: true) } } fragment F on ExploreObj { certainty }`,
+		},
+		{
+			name:  "certainty inside excluded inline fragment",
+			query: `{ Explore(nearVector: {vector: [0, 1, 0.8]}) { beacon ... on ExploreObj @include(if: false) { certainty } } }`,
+		},
+		{
+			name:  "certainty skipped by variable",
+			query: `query ($skip: Boolean = true) { Explore(nearVector: {vector: [0, 1, 0.8]}) { beacon certainty @skip(if: $skip) } }`,
+		},
+		{
+			name:          "certainty kept by variable",
+			query:         `query ($skip: Boolean = false) { Explore(nearVector: {vector: [0, 1, 0.8]}) { beacon certainty @skip(if: $skip) } }`,
+			withCertainty: true,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			resolver := newMockResolver()

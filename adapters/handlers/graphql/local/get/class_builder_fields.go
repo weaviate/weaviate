@@ -14,7 +14,7 @@ package get
 import (
 	"errors"
 	"fmt"
-	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -372,7 +372,7 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 	selectionsOfClass := p.Info.FieldASTs[0].SelectionSet
 
 	properties, addlProps, groupByProperties, err := extractProperties(
-		className, selectionsOfClass, p.Info.Fragments, r.modulesProvider)
+		className, selectionsOfClass, &p.Info, r.modulesProvider)
 	if err != nil {
 		return nil, err
 	}
@@ -571,7 +571,7 @@ func extractGroup(args map[string]interface{}) *dto.GroupParams {
 	}
 }
 
-func isPrimitive(selectionSet *ast.SelectionSet) bool {
+func isPrimitive(selectionSet *ast.SelectionSet, fragments map[string]ast.Definition) bool {
 	if selectionSet == nil {
 		return true
 	}
@@ -579,8 +579,24 @@ func isPrimitive(selectionSet *ast.SelectionSet) bool {
 	// if there is a selection set it could either be a cross-ref or a map-type
 	// field like GeoCoordinates or PhoneNumber
 	for _, subSelection := range selectionSet.Selections {
-		if subsectionField, ok := subSelection.(*ast.Field); ok {
-			if fieldNameIsOfObjectButNonReferenceType(subsectionField.Name.Value) {
+		switch s := subSelection.(type) {
+		case *ast.Field:
+			if fieldNameIsOfObjectButNonReferenceType(s.Name.Value) {
+				return true
+			}
+		case *ast.InlineFragment:
+			if s.TypeCondition == nil {
+				if isPrimitive(s.SelectionSet, fragments) {
+					return true
+				}
+			} else if typeNameIsOfObjectButNonReferenceType(s.TypeCondition.Name.Value) {
+				return true
+			}
+		case *ast.FragmentSpread:
+			// fragment fields can't tell: a referenced class may have a property
+			// named like a geo or phone field, so look at the fragment's type
+			if def, ok := fragments[s.Name.Value].(*ast.FragmentDefinition); ok &&
+				typeNameIsOfObjectButNonReferenceType(def.TypeCondition.Name.Value) {
 				return true
 			}
 		}
@@ -637,184 +653,170 @@ func fieldNameIsOfObjectButNonReferenceType(field string) bool {
 	}
 }
 
+// typeNameIsOfObjectButNonReferenceType matches the GraphQL type names built
+// for geo coordinates and phone number properties.
+func typeNameIsOfObjectButNonReferenceType(typeName string) bool {
+	return strings.HasSuffix(typeName, "GeoCoordinatesObj") || strings.HasSuffix(typeName, "PhoneNumberObj")
+}
+
+// selectedFields expands fragments like common_filters.SelectedFields and then
+// folds fields selected more than once into one field holding all their
+// selections, like graphql's executor does. Extracting every repeat on its own
+// would be exponential in the nesting depth of repeated reference selections.
+func selectedFields(set *ast.SelectionSet, info *graphql.ResolveInfo) []*ast.Field {
+	var fields []*ast.Field
+	positions := map[string]int{}
+	for _, field := range common_filters.SelectedFields(set, info.Fragments, info.VariableValues) {
+		i, ok := positions[field.Name.Value]
+		if !ok {
+			positions[field.Name.Value] = len(fields)
+			fields = append(fields, field)
+			continue
+		}
+		if field.SelectionSet == nil {
+			continue
+		}
+		// copy instead of modifying the query's AST
+		merged := *fields[i]
+		merged.SelectionSet = &ast.SelectionSet{}
+		if fields[i].SelectionSet != nil {
+			merged.SelectionSet.Selections = append(merged.SelectionSet.Selections, fields[i].SelectionSet.Selections...)
+		}
+		merged.SelectionSet.Selections = append(merged.SelectionSet.Selections, field.SelectionSet.Selections...)
+		fields[i] = &merged
+	}
+	return fields
+}
+
 func extractProperties(className string, selections *ast.SelectionSet,
-	fragments map[string]ast.Definition,
-	modulesProvider ModulesProvider,
+	info *graphql.ResolveInfo, modulesProvider ModulesProvider,
 ) ([]search.SelectProperty, additional.Properties, []search.SelectProperty, error) {
 	var properties []search.SelectProperty
 	var additionalGroupHitProperties []search.SelectProperty
 	var additionalProps additional.Properties
 	additionalCheck := &additionalCheck{modulesProvider}
 
-	for _, field := range common_filters.SelectedFields(selections, fragments) {
+	for _, field := range selectedFields(selections, info) {
 		name := field.Name.Value
-		property := search.SelectProperty{Name: name}
-
-		property.IsPrimitive = isPrimitive(field.SelectionSet)
-		if !property.IsPrimitive {
-			// We can interpret this property in different ways
-			for _, subSelection := range field.SelectionSet.Selections {
-				switch s := subSelection.(type) {
-				case *ast.Field:
-					// Is it a field with the name __typename?
-					if s.Name.Value == "__typename" {
-						property.IncludeTypeName = true
-						continue
-					} else if additionalCheck.isAdditional(name, s.Name.Value) {
-						additionalProperty := s.Name.Value
-						if additionalProperty == "classification" {
-							additionalProps.Classification = true
-							continue
+		if name == "_additional" {
+			// _additional is an object, not a reference: its fragments group
+			// fields instead of selecting a target class
+			for _, s := range selectedFields(field.SelectionSet, info) {
+				additionalProperty := s.Name.Value
+				if !additionalCheck.isAdditional(name, additionalProperty) {
+					continue
+				}
+				if additionalProperty == "classification" {
+					additionalProps.Classification = true
+					continue
+				}
+				if additionalProperty == "certainty" {
+					additionalProps.Certainty = true
+					continue
+				}
+				if additionalProperty == "distance" {
+					additionalProps.Distance = true
+					continue
+				}
+				if additionalProperty == "id" {
+					additionalProps.ID = true
+					continue
+				}
+				if additionalProperty == "vector" {
+					additionalProps.Vector = true
+					continue
+				}
+				if additionalProperty == "vectors" {
+					for _, vector := range common_filters.SelectedFields(s.SelectionSet, info.Fragments, info.VariableValues) {
+						if !slices.Contains(additionalProps.Vectors, vector.Name.Value) {
+							additionalProps.Vectors = append(additionalProps.Vectors, vector.Name.Value)
 						}
-						if additionalProperty == "certainty" {
-							additionalProps.Certainty = true
-							continue
-						}
-						if additionalProperty == "distance" {
-							additionalProps.Distance = true
-							continue
-						}
-						if additionalProperty == "id" {
-							additionalProps.ID = true
-							continue
-						}
-						if additionalProperty == "vector" {
-							additionalProps.Vector = true
-							continue
-						}
-						if additionalProperty == "vectors" {
-							if s.SelectionSet != nil && len(s.SelectionSet.Selections) > 0 {
-								vectors := make([]string, len(s.SelectionSet.Selections))
-								for i, selection := range s.SelectionSet.Selections {
-									if field, ok := selection.(*ast.Field); ok {
-										vectors[i] = field.Name.Value
-									}
-								}
-								additionalProps.Vectors = vectors
-							}
-							continue
-						}
-						if additionalProperty == "creationTimeUnix" {
-							additionalProps.CreationTimeUnix = true
-							continue
-						}
-						if additionalProperty == "score" {
-							additionalProps.Score = true
-							continue
-						}
-						if additionalProperty == "explainScore" {
-							additionalProps.ExplainScore = true
-							continue
-						}
-						if additionalProperty == "queryProfile" {
-							additionalProps.QueryProfile = true
-							continue
-						}
-						if additionalProperty == "lastUpdateTimeUnix" {
-							additionalProps.LastUpdateTimeUnix = true
-							continue
-						}
-						if additionalProperty == "isConsistent" {
-							additionalProps.IsConsistent = true
-							continue
-						}
-						if additionalProperty == "group" {
-							additionalProps.Group = true
-							var err error
-							additionalGroupHitProperties, err = extractGroupHitProperties(className, additionalProps, subSelection, fragments, modulesProvider)
-							if err != nil {
-								return nil, additionalProps, nil, err
-							}
-							continue
-						}
-						if modulesProvider != nil {
-							if additionalCheck.isModuleAdditional(additionalProperty) {
-								additionalProps.ModuleParams = getModuleParams(additionalProps.ModuleParams)
-								extracted := modulesProvider.ExtractAdditionalField(className, additionalProperty, s.Arguments)
-								if extractor, ok := extracted.(moduleadditional.PropertyExtractor); ok {
-									extractedProperties := extractor.GetPropertiesToExtract()
-									for _, extractedProperty := range extractedProperties {
-										properties = append(properties, search.SelectProperty{Name: extractedProperty})
-									}
-								}
-								additionalProps.ModuleParams[additionalProperty] = extracted
-								continue
-							}
-						}
-					} else {
-						// It's an object / object array property
-						continue
 					}
-
-				case *ast.FragmentSpread:
-					ref, err := extractFragmentSpread(className, s, fragments, modulesProvider)
+					continue
+				}
+				if additionalProperty == "creationTimeUnix" {
+					additionalProps.CreationTimeUnix = true
+					continue
+				}
+				if additionalProperty == "score" {
+					additionalProps.Score = true
+					continue
+				}
+				if additionalProperty == "explainScore" {
+					additionalProps.ExplainScore = true
+					continue
+				}
+				if additionalProperty == "queryProfile" {
+					additionalProps.QueryProfile = true
+					continue
+				}
+				if additionalProperty == "lastUpdateTimeUnix" {
+					additionalProps.LastUpdateTimeUnix = true
+					continue
+				}
+				if additionalProperty == "isConsistent" {
+					additionalProps.IsConsistent = true
+					continue
+				}
+				if additionalProperty == "group" {
+					additionalProps.Group = true
+					var err error
+					additionalGroupHitProperties, err = extractGroupHitProperties(className, s, info, modulesProvider)
 					if err != nil {
 						return nil, additionalProps, nil, err
 					}
-
-					property.Refs = append(property.Refs, ref)
-
-				case *ast.InlineFragment:
-					ref, err := extractInlineFragment(className, s, fragments, modulesProvider)
-					if err != nil {
-						return nil, additionalProps, nil, err
+					continue
+				}
+				if modulesProvider != nil {
+					if additionalCheck.isModuleAdditional(additionalProperty) {
+						additionalProps.ModuleParams = getModuleParams(additionalProps.ModuleParams)
+						extracted := modulesProvider.ExtractAdditionalField(className, additionalProperty, s.Arguments)
+						if extractor, ok := extracted.(moduleadditional.PropertyExtractor); ok {
+							extractedProperties := extractor.GetPropertiesToExtract()
+							for _, extractedProperty := range extractedProperties {
+								properties = append(properties, search.SelectProperty{Name: extractedProperty})
+							}
+						}
+						additionalProps.ModuleParams[additionalProperty] = extracted
+						continue
 					}
-
-					property.Refs = append(property.Refs, ref)
-
-				default:
-					return nil, additionalProps, nil, fmt.Errorf("unrecoginzed type in subs-selection: %T", subSelection)
 				}
 			}
-		}
-
-		if name == "_additional" {
 			continue
 		}
 
+		property := search.SelectProperty{Name: name}
+		property.IsPrimitive = isPrimitive(field.SelectionSet, info.Fragments)
+		if !property.IsPrimitive {
+			if err := extractRefs(&property, className, field.SelectionSet, info, modulesProvider); err != nil {
+				return nil, additionalProps, nil, err
+			}
+		}
 		properties = append(properties, property)
 	}
 
 	return properties, additionalProps, additionalGroupHitProperties, nil
 }
 
-func extractGroupHitProperties(
-	className string,
-	additionalProps additional.Properties,
-	subSelection ast.Selection,
-	fragments map[string]ast.Definition,
-	modulesProvider ModulesProvider,
+func extractGroupHitProperties(className string, group *ast.Field,
+	info *graphql.ResolveInfo, modulesProvider ModulesProvider,
 ) ([]search.SelectProperty, error) {
 	additionalGroupProperties := []search.SelectProperty{}
-	if subSelection != nil {
-		if selectionSet := subSelection.GetSelectionSet(); selectionSet != nil {
-			for _, groupSubSelection := range selectionSet.Selections {
-				if groupSubSelection != nil {
-					if groupSubSelectionField, ok := groupSubSelection.(*ast.Field); ok {
-						if groupSubSelectionField.Name.Value == "hits" && groupSubSelectionField.SelectionSet != nil {
-							for _, groupHitsSubSelection := range groupSubSelectionField.SelectionSet.Selections {
-								if hf, ok := groupHitsSubSelection.(*ast.Field); ok {
-									if hf.SelectionSet != nil {
-										for _, ss := range hf.SelectionSet.Selections {
-											if inlineFrag, ok := ss.(*ast.InlineFragment); ok {
-												ref, err := extractInlineFragment(className, inlineFrag, fragments, modulesProvider)
-												if err != nil {
-													return nil, err
-												}
-
-												additionalGroupHitProp := search.SelectProperty{Name: hf.Name.Value}
-												additionalGroupHitProp.Refs = append(additionalGroupHitProp.Refs, ref)
-												additionalGroupProperties = append(additionalGroupProperties, additionalGroupHitProp)
-											}
-										}
-									} else {
-										additionalGroupProperties = append(additionalGroupProperties, search.SelectProperty{Name: hf.Name.Value})
-									}
-								}
-							}
-						}
-					}
-				}
+	for _, groupField := range selectedFields(group.SelectionSet, info) {
+		if groupField.Name.Value != "hits" {
+			continue
+		}
+		for _, hitField := range selectedFields(groupField.SelectionSet, info) {
+			hitProperty := search.SelectProperty{Name: hitField.Name.Value}
+			if hitField.SelectionSet == nil {
+				additionalGroupProperties = append(additionalGroupProperties, hitProperty)
+				continue
+			}
+			if err := extractRefs(&hitProperty, className, hitField.SelectionSet, info, modulesProvider); err != nil {
+				return nil, err
+			}
+			if len(hitProperty.Refs) > 0 {
+				additionalGroupProperties = append(additionalGroupProperties, hitProperty)
 			}
 		}
 	}
@@ -828,78 +830,128 @@ func getModuleParams(moduleParams map[string]interface{}) map[string]interface{}
 	return moduleParams
 }
 
-func extractInlineFragment(class string, fragment *ast.InlineFragment,
-	fragments map[string]ast.Definition,
-	modulesProvider ModulesProvider,
+// extractRefs adds the target classes selected on a reference property, one
+// per class however many fragments select it. A fragment on the reference's
+// union type, or one without a type condition, only groups class fragments,
+// so it is expanded instead of being taken for a target class. Like
+// common_filters.SelectedFields it honors @skip/@include and expands each
+// named fragment once.
+func extractRefs(property *search.SelectProperty, className string, selections *ast.SelectionSet,
+	info *graphql.ResolveInfo, modulesProvider ModulesProvider,
+) error {
+	var classes []string
+	selectionsByClass := map[string]*ast.SelectionSet{}
+	visited := map[string]bool{}
+
+	var collect func(set *ast.SelectionSet) error
+	collect = func(set *ast.SelectionSet) error {
+		for _, selection := range set.Selections {
+			var typeCondition *ast.Named
+			var fragmentSelections *ast.SelectionSet
+			switch s := selection.(type) {
+			case *ast.Field:
+				// any other field belongs to an object / object array property
+				if s.Name.Value == "__typename" && common_filters.IsIncluded(s.Directives, info.VariableValues) {
+					property.IncludeTypeName = true
+				}
+				continue
+			case *ast.InlineFragment:
+				if !common_filters.IsIncluded(s.Directives, info.VariableValues) {
+					continue
+				}
+				typeCondition, fragmentSelections = s.TypeCondition, s.SelectionSet
+			case *ast.FragmentSpread:
+				if visited[s.Name.Value] || !common_filters.IsIncluded(s.Directives, info.VariableValues) {
+					continue
+				}
+				visited[s.Name.Value] = true
+				def, ok := info.Fragments[s.Name.Value].(*ast.FragmentDefinition)
+				if !ok {
+					return fmt.Errorf("spread fragment '%s' refers to unknown fragment", s.Name.Value)
+				}
+				typeCondition, fragmentSelections = def.TypeCondition, def.SelectionSet
+			default:
+				return fmt.Errorf("unrecoginzed type in subs-selection: %T", selection)
+			}
+
+			if typeCondition == nil || isUnion(info, typeCondition) {
+				if err := collect(fragmentSelections); err != nil {
+					return err
+				}
+				continue
+			}
+			if isNestedObject(info, typeCondition) {
+				// it selects fields of an object / object array property
+				continue
+			}
+			class := typeCondition.Name.Value
+			classSelections, ok := selectionsByClass[class]
+			if !ok {
+				classes = append(classes, class)
+				classSelections = &ast.SelectionSet{}
+				selectionsByClass[class] = classSelections
+			}
+			classSelections.Selections = append(classSelections.Selections, fragmentSelections.Selections...)
+		}
+		return nil
+	}
+	if err := collect(selections); err != nil {
+		return err
+	}
+
+	for _, class := range classes {
+		ref, err := extractRef(className, class, selectionsByClass[class], info, modulesProvider)
+		if err != nil {
+			return err
+		}
+		property.Refs = append(property.Refs, ref)
+	}
+	return nil
+}
+
+func isUnion(info *graphql.ResolveInfo, typeCondition *ast.Named) bool {
+	_, ok := info.Schema.Type(typeCondition.Name.Value).(*graphql.Union)
+	return ok
+}
+
+// isNestedObject tells the object types of nested properties apart from class
+// types, which always have an _additional field.
+func isNestedObject(info *graphql.ResolveInfo, typeCondition *ast.Named) bool {
+	object, ok := info.Schema.Type(typeCondition.Name.Value).(*graphql.Object)
+	if !ok {
+		return false
+	}
+	_, isClass := object.Fields()["_additional"]
+	return !isClass
+}
+
+func extractRef(className, refClass string, selections *ast.SelectionSet,
+	info *graphql.ResolveInfo, modulesProvider ModulesProvider,
 ) (search.SelectClass, error) {
-	var className schema.ClassName
-	var err error
 	var result search.SelectClass
 
-	if strings.Contains(fragment.TypeCondition.Name.Value, "__") {
-		// is a helper type for a network ref
-		// don't validate anything as of now
-		className = schema.ClassName(fragment.TypeCondition.Name.Value)
-	} else {
-		className, err = schema.ValidateClassName(fragment.TypeCondition.Name.Value)
-		if err != nil {
-			return result, fmt.Errorf("the inline fragment type name '%s' is not a valid class name", fragment.TypeCondition.Name.Value)
+	// class names never start with "_", so this is a class named like a
+	// GraphQL scalar, see getClassObjectName
+	refClass = strings.TrimPrefix(refClass, "_")
+
+	// a "__" type is a helper type for a network ref, don't validate it
+	if !strings.Contains(refClass, "__") {
+		if _, err := schema.ValidateClassName(refClass); err != nil {
+			return result, fmt.Errorf("the fragment type name '%s' is not a valid class name", refClass)
 		}
 	}
 
-	if className == "Beacon" {
+	if refClass == "Beacon" {
 		return result, errors.New("retrieving cross-refs by beacon is not supported yet - coming soon!")
 	}
 
-	subProperties, additionalProperties, _, err := extractProperties(class, fragment.SelectionSet, fragments, modulesProvider)
+	subProperties, additionalProperties, _, err := extractProperties(className, selections, info, modulesProvider)
 	if err != nil {
 		return result, err
 	}
 
-	result.ClassName = string(className)
+	result.ClassName = refClass
 	result.RefProperties = subProperties
 	result.AdditionalProperties = additionalProperties
 	return result, nil
-}
-
-func extractFragmentSpread(class string, spread *ast.FragmentSpread,
-	fragments map[string]ast.Definition,
-	modulesProvider ModulesProvider,
-) (search.SelectClass, error) {
-	var result search.SelectClass
-	name := spread.Name.Value
-
-	def, ok := fragments[name]
-	if !ok {
-		return result, fmt.Errorf("spread fragment '%s' refers to unknown fragment", name)
-	}
-
-	className, err := hackyWorkaroundToExtractClassName(def, name)
-	if err != nil {
-		return result, err
-	}
-
-	subProperties, additionalProperties, _, err := extractProperties(class, def.GetSelectionSet(), fragments, modulesProvider)
-	if err != nil {
-		return result, err
-	}
-
-	result.ClassName = string(className)
-	result.RefProperties = subProperties
-	result.AdditionalProperties = additionalProperties
-	return result, nil
-}
-
-// It seems there's no proper way to extract this info unfortunately:
-// https://github.com/tailor-platform/graphql/issues/455
-func hackyWorkaroundToExtractClassName(def ast.Definition, name string) (string, error) {
-	loc := def.GetLoc()
-	raw := loc.Source.Body[loc.Start:loc.End]
-	r := regexp.MustCompile(fmt.Sprintf(`fragment\s*%s\s*on\s*(\w*)\s*{`, name))
-	matches := r.FindSubmatch(raw)
-	if len(matches) < 2 {
-		return "", fmt.Errorf("could not extract a className from fragment")
-	}
-
-	return string(matches[1]), nil
 }

@@ -143,7 +143,7 @@ func containsCertaintyProperty(info graphql.ResolveInfo) bool {
 		return false
 	}
 
-	for _, field := range common_filters.SelectedFields(info.FieldASTs[0].SelectionSet, info.Fragments) {
+	for _, field := range common_filters.SelectedFields(info.FieldASTs[0].SelectionSet, info.Fragments, info.VariableValues) {
 		if field.Name.Value == "certainty" {
 			return true
 		}

@@ -90,7 +90,7 @@ func resolveAggregate(p graphql.ResolveParams, authorizer authorization.Authoriz
 	}
 
 	selections := p.Info.FieldASTs[0].SelectionSet
-	properties, includeMeta, err := extractProperties(selections, p.Info.Fragments)
+	properties, includeMeta, err := extractProperties(selections, p.Info.Fragments, p.Info.VariableValues)
 	if err != nil {
 		return nil, fmt.Errorf("could not extract properties for class '%s': %w", className, err)
 	}
@@ -199,11 +199,13 @@ func resolveAggregate(p graphql.ResolveParams, authorizer authorization.Authoriz
 	}
 }
 
-func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.Definition) ([]aggregation.ParamProperty, bool, error) {
+func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.Definition,
+	variables map[string]interface{},
+) ([]aggregation.ParamProperty, bool, error) {
 	properties := []aggregation.ParamProperty{}
 	var includeMeta bool
 
-	for _, field := range common_filters.SelectedFields(selections, fragments) {
+	for _, field := range common_filters.SelectedFields(selections, fragments, variables) {
 		name := field.Name.Value
 		if name == GroupedByFieldName {
 			// in the graphQL API we show the "groupedBy" field alongside various
@@ -227,7 +229,7 @@ func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.De
 
 		name = strings.ToLower(string(name[0:1])) + string(name[1:])
 		property := aggregation.ParamProperty{Name: schema.PropertyName(name)}
-		aggregators, err := extractAggregators(field.SelectionSet, fragments)
+		aggregators, err := extractAggregators(field.SelectionSet, fragments, variables)
 		if err != nil {
 			return nil, false, err
 		}
@@ -239,12 +241,14 @@ func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.De
 	return properties, includeMeta, nil
 }
 
-func extractAggregators(selections *ast.SelectionSet, fragments map[string]ast.Definition) ([]aggregation.Aggregator, error) {
+func extractAggregators(selections *ast.SelectionSet, fragments map[string]ast.Definition,
+	variables map[string]interface{},
+) ([]aggregation.Aggregator, error) {
 	if selections == nil {
 		return nil, nil
 	}
 	analyses := []aggregation.Aggregator{}
-	for _, field := range common_filters.SelectedFields(selections, fragments) {
+	for _, field := range common_filters.SelectedFields(selections, fragments, variables) {
 		name := field.Name.Value
 		if name == "__typename" {
 			continue

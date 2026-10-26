@@ -15,22 +15,28 @@ package get
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tailor-platform/graphql"
 	"github.com/tailor-platform/graphql/language/ast"
+	"github.com/tailor-platform/graphql/language/parser"
 	test_helper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	helper "github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func TestSimpleFieldParamsOK(t *testing.T) {
@@ -3539,6 +3545,302 @@ func TestGetFragmentSelection(t *testing.T) {
 			}).Return(test_helper.EmptyList(), nil).Once()
 
 			resolver.AssertResolve(t, query)
+		})
+	}
+}
+
+// Fragments and @skip/@include below the class level used to be ignored:
+// _additional fragments were mistaken for references and dropped, geo and
+// phone fields selected through a fragment were treated as references, and
+// group hits selected through a fragment were never requested.
+func TestGetNestedFragmentsAndDirectives(t *testing.T) {
+	t.Parallel()
+
+	groupBy := func(props ...search.SelectProperty) *searchparams.GroupBy {
+		return &searchparams.GroupBy{Property: "path", Groups: 2, ObjectsPerGroup: 3, Properties: props}
+	}
+	for _, tc := range []struct {
+		name     string
+		query    string
+		expected dto.GetParams
+	}{
+		{
+			name:     "skipped property",
+			query:    "{ Get { SomeAction { intField @skip(if: true) uuidField } } }",
+			expected: dto.GetParams{Properties: []search.SelectProperty{{Name: "uuidField", IsPrimitive: true}}},
+		},
+		{
+			name:     "property excluded by variable",
+			query:    "query ($with: Boolean = false) { Get { SomeAction { intField @include(if: $with) uuidField } } }",
+			expected: dto.GetParams{Properties: []search.SelectProperty{{Name: "uuidField", IsPrimitive: true}}},
+		},
+		{
+			name:     "named fragment in _additional",
+			query:    "{ Get { SomeAction { _additional { ...F } } } } fragment F on SomeActionAdditional { certainty }",
+			expected: dto.GetParams{AdditionalProperties: additional.Properties{Certainty: true}},
+		},
+		{
+			name:     "inline fragment in _additional",
+			query:    "{ Get { SomeAction { _additional { ... on SomeActionAdditional { id } distance } } } }",
+			expected: dto.GetParams{AdditionalProperties: additional.Properties{ID: true, Distance: true}},
+		},
+		{
+			name:     "skipped field in _additional",
+			query:    "{ Get { SomeAction { _additional { certainty @skip(if: true) id } } } }",
+			expected: dto.GetParams{AdditionalProperties: additional.Properties{ID: true}},
+		},
+		{
+			name:     "_additional directly and through a fragment",
+			query:    "{ Get { SomeAction { _additional { id } ...F } } } fragment F on SomeAction { _additional { distance } }",
+			expected: dto.GetParams{AdditionalProperties: additional.Properties{ID: true, Distance: true}},
+		},
+		{
+			name:     "geo coordinates through an inline fragment",
+			query:    "{ Get { SomeAction { location { ... on SomeActionlocationGeoCoordinatesObj { latitude } } } } }",
+			expected: dto.GetParams{Properties: []search.SelectProperty{{Name: "location", IsPrimitive: true}}},
+		},
+		{
+			name:     "phone number through a named fragment",
+			query:    "{ Get { SomeAction { phone { ...P } } } } fragment P on SomeActionphonePhoneNumberObj { input }",
+			expected: dto.GetParams{Properties: []search.SelectProperty{{Name: "phone", IsPrimitive: true}}},
+		},
+		{
+			name: "group hits through a named fragment",
+			query: `{ Get { SomeAction(groupBy:{path: ["path"] groups: 2 objectsPerGroup:3}) {
+				_additional { group { hits { ...H } } } } } } fragment H on SomeActionAdditionalGroupHits { intField }`,
+			expected: dto.GetParams{
+				GroupBy:              groupBy(search.SelectProperty{Name: "intField"}),
+				AdditionalProperties: additional.Properties{Group: true},
+			},
+		},
+		{
+			name: "group through a named fragment",
+			query: `{ Get { SomeAction(groupBy:{path: ["path"] groups: 2 objectsPerGroup:3}) {
+				_additional { ...G } } } } fragment G on SomeActionAdditional { group { ... on SomeActionAdditionalGroup { hits { intField } } } }`,
+			expected: dto.GetParams{
+				GroupBy:              groupBy(search.SelectProperty{Name: "intField"}),
+				AdditionalProperties: additional.Properties{Group: true},
+			},
+		},
+		{
+			name: "reference in group hits through a named fragment",
+			query: `{ Get { SomeAction(groupBy:{path: ["path"] groups: 2 objectsPerGroup:3}) {
+				_additional { group { hits { hasAction { ...A } } } } } } } fragment A on SomeAction { intField }`,
+			expected: dto.GetParams{
+				GroupBy: groupBy(search.SelectProperty{Name: "hasAction", Refs: []search.SelectClass{{
+					ClassName:     "SomeAction",
+					RefProperties: search.SelectProperties{{Name: "intField", IsPrimitive: true}},
+				}}}),
+				AdditionalProperties: additional.Properties{Group: true},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resolver := newMockResolver()
+			tc.expected.ClassName = "SomeAction"
+			resolver.On("GetClass", tc.expected).Return(test_helper.EmptyList(), nil).Once()
+
+			resolver.AssertResolve(t, tc.query)
+		})
+	}
+}
+
+// The test schema has no named vectors, so this exercises the extraction on
+// the query AST directly.
+func TestExtractAdditionalVectors(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		query    string
+		expected []string
+	}{
+		{name: "fields", query: "{ _additional { vectors { a b } } }", expected: []string{"a", "b"}},
+		{name: "named fragment", query: "{ _additional { vectors { a ...V } } } fragment V on X { b }", expected: []string{"a", "b"}},
+		{name: "skipped vector", query: "{ _additional { vectors { a b @skip(if: true) } } }", expected: []string{"a"}},
+		{name: "vectors selected twice", query: "{ _additional { vectors { a } } ...F } fragment F on X { _additional { vectors { b a } } }", expected: []string{"a", "b"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			doc, err := parser.Parse(parser.ParseParams{Source: tc.query})
+			require.NoError(t, err)
+			fragments := map[string]ast.Definition{}
+			for _, def := range doc.Definitions[1:] {
+				fragment := def.(*ast.FragmentDefinition)
+				fragments[fragment.Name.Value] = fragment
+			}
+			set := doc.Definitions[0].(*ast.OperationDefinition).SelectionSet
+
+			_, additionalProps, _, err := extractProperties("SomeAction", set, &graphql.ResolveInfo{Fragments: fragments}, nil)
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.expected, additionalProps.Vectors)
+		})
+	}
+}
+
+// Reference selections: fragments on the reference's union type used to be
+// taken for a target class, @skip/@include were ignored, and a target class
+// selected by several fragments was extracted once per fragment.
+func TestGetReferenceFragments(t *testing.T) {
+	t.Parallel()
+
+	ref := func(props ...search.SelectProperty) search.SelectProperty {
+		return search.SelectProperty{Name: "hasAction", Refs: []search.SelectClass{{ClassName: "SomeAction", RefProperties: props}}}
+	}
+	intField := search.SelectProperty{Name: "intField", IsPrimitive: true}
+	uuidField := search.SelectProperty{Name: "uuidField", IsPrimitive: true}
+
+	for _, tc := range []struct {
+		name     string
+		query    string
+		expected search.SelectProperties
+	}{
+		{
+			name:     "named fragment on the union type",
+			query:    "{ Get { SomeAction { hasAction { ...U } } } } fragment U on SomeActionHasActionObj { ... on SomeAction { intField } }",
+			expected: search.SelectProperties{ref(intField)},
+		},
+		{
+			name:     "inline fragment on the union type",
+			query:    "{ Get { SomeAction { hasAction { ... on SomeActionHasActionObj { ... on SomeAction { intField } } } } } }",
+			expected: search.SelectProperties{ref(intField)},
+		},
+		{
+			name:     "skipped target class",
+			query:    "{ Get { SomeAction { intField hasAction { ... on SomeAction @skip(if: true) { intField } } } } }",
+			expected: search.SelectProperties{intField, {Name: "hasAction"}},
+		},
+		{
+			name:     "two fragments on the same class",
+			query:    "{ Get { SomeAction { hasAction { ... on SomeAction { intField } ...F } } } } fragment F on SomeAction { uuidField }",
+			expected: search.SelectProperties{ref(intField, uuidField)},
+		},
+		{
+			name:     "reference directly and through a fragment",
+			query:    "{ Get { SomeAction { hasAction { ... on SomeAction { intField } } ...F } } } fragment F on SomeAction { hasAction { ... on SomeAction { uuidField } } }",
+			expected: search.SelectProperties{ref(intField, uuidField)},
+		},
+		{
+			name:     "primitive directly and through a fragment",
+			query:    "{ Get { SomeAction { intField ...F } } } fragment F on SomeAction { intField uuidField }",
+			expected: search.SelectProperties{intField, uuidField},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resolver := newMockResolver()
+			resolver.On("GetClass", dto.GetParams{ClassName: "SomeAction", Properties: tc.expected}).
+				Return(test_helper.EmptyList(), nil).Once()
+
+			resolver.AssertResolve(t, tc.query)
+		})
+	}
+}
+
+// Each fragment selects the next one twice, through a repeated field or two
+// fragments on the same class. Extracting every repeat separately did work
+// exponential in the nesting depth for a query of linear size.
+func TestGetRepeatedNestedSpreads(t *testing.T) {
+	t.Parallel()
+
+	const depth = 12
+	expected := search.SelectProperties{{Name: "intField", IsPrimitive: true}}
+	for i := 0; i < depth; i++ {
+		expected = search.SelectProperties{{
+			Name: "hasAction",
+			Refs: []search.SelectClass{{ClassName: "SomeAction", RefProperties: expected}},
+		}}
+	}
+
+	for name, level := range map[string]string{
+		"repeated field":                  "fragment F%d on SomeAction { hasAction { ...F%d } hasAction { ...F%d } } ",
+		"two fragments on the same class": "fragment F%d on SomeAction { hasAction { ... on SomeAction { ...F%d } ... on SomeAction { ...F%d } } } ",
+	} {
+		t.Run(name, func(t *testing.T) {
+			var query strings.Builder
+			fmt.Fprintf(&query, "{ Get { SomeAction { ...F%d } } } fragment F0 on SomeAction { intField } ", depth)
+			for i := 1; i <= depth; i++ {
+				fmt.Fprintf(&query, level, i, i-1, i-1)
+			}
+
+			resolver := newMockResolver()
+			resolver.On("GetClass", dto.GetParams{ClassName: "SomeAction", Properties: expected}).
+				Return(test_helper.EmptyList(), nil).Once()
+
+			resolver.AssertResolve(t, query.String())
+		})
+	}
+}
+
+// A fragment without a type condition dereferenced the nil type condition
+// when it was taken for a reference target. The test schema has no object
+// properties, so this exercises the extraction on the query AST directly.
+func TestExtractTypelessFragmentInObjectProperty(t *testing.T) {
+	t.Parallel()
+
+	doc, err := parser.Parse(parser.ParseParams{Source: "{ objectProp { ... { text } } }"})
+	require.NoError(t, err)
+	set := doc.Definitions[0].(*ast.OperationDefinition).SelectionSet
+
+	var props []search.SelectProperty
+	require.NotPanics(t, func() {
+		props, _, _, err = extractProperties("SomeAction", set, &graphql.ResolveInfo{}, nil)
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []search.SelectProperty{{Name: "objectProp"}}, props)
+}
+
+// A fragment on a nested object type was taken for a reference target, and a
+// class named like a GraphQL scalar (GraphQL type "_String") could not be
+// selected through a fragment at all.
+func TestGetFragmentsOnNonClassTypes(t *testing.T) {
+	t.Parallel()
+
+	logger, _ := logrustest.NewNullLogger()
+	s := test_helper.CreateSimpleSchema(config.VectorizerModuleText2VecContextionary)
+	s.Objects.Classes = append(s.Objects.Classes,
+		&models.Class{
+			Class: "Nested",
+			Properties: []*models.Property{
+				{
+					Name: "obj", DataType: schema.DataTypeObject.PropString(),
+					NestedProperties: []*models.NestedProperty{{Name: "text", DataType: schema.DataTypeText.PropString()}},
+				},
+				{Name: "ofString", DataType: []string{"String"}},
+			},
+		},
+		&models.Class{Class: "String", Properties: []*models.Property{{Name: "text", DataType: schema.DataTypeText.PropString()}}},
+	)
+	field, err := Build(&s, logger, getFakeModulesProvider(), getFakeAuthorizer())
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		name     string
+		query    string
+		expected search.SelectProperties
+	}{
+		{
+			name:     "fragment on a nested object type",
+			query:    "{ Get { Nested { obj { ... on Nested_obj_object { text } } } } }",
+			expected: search.SelectProperties{{Name: "obj"}},
+		},
+		{
+			name:  "fragment on a class named like a scalar",
+			query: "{ Get { Nested { ofString { ... on _String { text } } } } }",
+			expected: search.SelectProperties{{Name: "ofString", Refs: []search.SelectClass{{
+				ClassName:     "String",
+				RefProperties: search.SelectProperties{{Name: "text", IsPrimitive: true}},
+			}}}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resolver := &mockResolver{}
+			resolver.RootFieldName = "Get"
+			resolver.RootField = field
+			resolver.RootObject = map[string]interface{}{"Resolver": Resolver(resolver), "RequestsLog": RequestsLog(&mockRequestsLog{})}
+			resolver.On("GetClass", dto.GetParams{ClassName: "Nested", Properties: tc.expected}).
+				Return(test_helper.EmptyList(), nil).Once()
+
+			resolver.AssertResolve(t, tc.query)
 		})
 	}
 }

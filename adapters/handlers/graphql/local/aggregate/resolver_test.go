@@ -1065,5 +1065,15 @@ func TestAggregateFragmentSelection(t *testing.T) {
 			expectedProps:            []aggregation.ParamProperty{},
 			expectedIncludeMetaCount: true,
 		},
+		testCase{
+			name:          "skipped property",
+			query:         `{ Aggregate { Car { horsepower { sum } modelName @skip(if: true) { count } } } }`,
+			expectedProps: []aggregation.ParamProperty{{Name: "horsepower", Aggregators: []aggregation.Aggregator{aggregation.SumAggregator}}},
+		},
+		testCase{
+			name:          "excluded aggregator",
+			query:         `{ Aggregate { Car { horsepower { sum ... @include(if: false) { mean } } } } }`,
+			expectedProps: []aggregation.ParamProperty{{Name: "horsepower", Aggregators: []aggregation.Aggregator{aggregation.SumAggregator}}},
+		},
 	}.AssertExtraction(t, "Car")
 }
