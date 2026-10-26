@@ -11,7 +11,12 @@
 
 package additional
 
-import "github.com/go-openapi/strfmt"
+import (
+	"maps"
+	"slices"
+
+	"github.com/go-openapi/strfmt"
+)
 
 type Classification struct {
 	BasedOn          []string        `json:"basedOn"`
@@ -65,4 +70,41 @@ type Properties struct {
 	// make any comparisons, and erroneously returns
 	// empty, or with fewer results than expected.
 	ReferenceQuery bool `json:"-"`
+}
+
+// Merge returns everything requested by either p or o, for a selection that
+// was requested more than once. For a module param requested by both, p wins.
+func (p Properties) Merge(o Properties) Properties {
+	p.Classification = p.Classification || o.Classification
+	p.RefMeta = p.RefMeta || o.RefMeta
+	p.Vector = p.Vector || o.Vector
+	p.IncludeAllTargetVectors = p.IncludeAllTargetVectors || o.IncludeAllTargetVectors
+	p.Certainty = p.Certainty || o.Certainty
+	p.ID = p.ID || o.ID
+	p.CreationTimeUnix = p.CreationTimeUnix || o.CreationTimeUnix
+	p.LastUpdateTimeUnix = p.LastUpdateTimeUnix || o.LastUpdateTimeUnix
+	p.Distance = p.Distance || o.Distance
+	p.Score = p.Score || o.Score
+	p.ExplainScore = p.ExplainScore || o.ExplainScore
+	p.IsConsistent = p.IsConsistent || o.IsConsistent
+	p.Group = p.Group || o.Group
+	p.QueryProfile = p.QueryProfile || o.QueryProfile
+	p.ReferenceQuery = p.ReferenceQuery || o.ReferenceQuery
+	// props are only skipped if neither selection wants them
+	p.NoProps = p.NoProps && o.NoProps
+
+	// Clip so appends never write into the backing array of p's caller
+	p.Vectors = slices.Clip(p.Vectors)
+	for _, vector := range o.Vectors {
+		if !slices.Contains(p.Vectors, vector) {
+			p.Vectors = append(p.Vectors, vector)
+		}
+	}
+
+	if len(o.ModuleParams) > 0 {
+		params := maps.Clone(o.ModuleParams)
+		maps.Copy(params, p.ModuleParams)
+		p.ModuleParams = params
+	}
+	return p
 }

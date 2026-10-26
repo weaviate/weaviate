@@ -81,6 +81,9 @@ func (r *Replier) Search(ctx context.Context, res []interface{}, start time.Time
 		Took:                    float32(tookSeconds),
 		GenerativeGroupedResult: new(string), // pointer to empty string
 	}
+	// a multi-target reference is requested once per target collection; reply
+	// with one result per property, like the traverser resolved it
+	searchParams.Properties = searchParams.Properties.Merged()
 
 	if searchParams.GroupBy != nil {
 		out.GroupByResults = make([]*pb.GroupByResult, len(res))
@@ -599,11 +602,18 @@ func (r *Replier) buildPropertiesResult(resolver *schemaResolver, results map[st
 			if !ok {
 				continue
 			}
-			extractedRefProp, err := r.extractRefPropertiesAnswer(resolver, refLocal.Fields, prop.Refs[0].RefProperties, refLocal.Class, additionalPropsParams)
+			selected := &prop.Refs[0]
+			if len(prop.Refs) > 1 {
+				// shape each object of a multi-target reference by its own collection's selection
+				if selected = prop.FindSelectClass(schema.ClassName(refLocal.Class)); selected == nil {
+					continue
+				}
+			}
+			extractedRefProp, err := r.extractRefPropertiesAnswer(resolver, refLocal.Fields, selected.RefProperties, refLocal.Class, additionalPropsParams)
 			if err != nil {
 				continue
 			}
-			additionalProps, err := r.extractAdditionalProps(refLocal.Fields, prop.Refs[0].AdditionalProperties, false, false)
+			additionalProps, err := r.extractAdditionalProps(refLocal.Fields, selected.AdditionalProperties, false, false)
 			if err != nil {
 				return nil, err
 			}

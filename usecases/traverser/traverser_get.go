@@ -45,6 +45,14 @@ func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 	defer t.metrics.QueriesGetDec(params.ClassName)
 	defer t.metrics.QueriesObserveDuration(params.ClassName, before.UnixMilli())
 
+	// ref resolution only sees the first selection of a property name
+	params.Properties = params.Properties.Merged()
+	if params.GroupBy != nil {
+		groupBy := *params.GroupBy
+		groupBy.Properties = groupBy.Properties.Merged()
+		params.GroupBy = &groupBy
+	}
+
 	if err := t.probeForRefDepthLimit(params.Properties); err != nil {
 		return nil, err
 	}
