@@ -1678,7 +1678,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Shutdown OTEL tracing
-		if err := opentelemetry.Shutdown(ctx); err != nil {
+		otelCtx, otelCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer otelCancel()
+		if err := opentelemetry.Shutdown(otelCtx); err != nil {
 			appState.Logger.WithField("action", "stop_opentelemetry").
 				Errorf("failed to stop opentelemetry: %s", err.Error())
 		}
