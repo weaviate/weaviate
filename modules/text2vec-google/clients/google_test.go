@@ -76,7 +76,31 @@ func TestBuildURL(t *testing.T) {
 	}
 }
 
-func TestVectorizeRejectsForeignEndpoint(t *testing.T) {
+func TestBuildURLEscapesUserControlledPathComponents(t *testing.T) {
+	const endpoint = "europe-west1-aiplatform.googleapis.com"
+	tests := []struct {
+		name      string
+		projectID string
+		modelID   string
+		location  string
+		expected  string
+	}{
+		{name: "project id with a query string", projectID: "a?b=c", modelID: "gemini-embedding-001", location: "europe-west1", expected: "https://europe-west1-aiplatform.googleapis.com/v1/projects/a%3Fb=c/locations/europe-west1/publishers/google/models/gemini-embedding-001:predict"},
+		{name: "project id with path segments", projectID: "a/../../other", modelID: "gemini-embedding-001", location: "europe-west1", expected: "https://europe-west1-aiplatform.googleapis.com/v1/projects/a%2F..%2F..%2Fother/locations/europe-west1/publishers/google/models/gemini-embedding-001:predict"},
+		{name: "model id with a query string", projectID: "my-project", modelID: "a?b=c", location: "europe-west1", expected: "https://europe-west1-aiplatform.googleapis.com/v1/projects/my-project/locations/europe-west1/publishers/google/models/a%3Fb=c:predict"},
+		{name: "location with path segments", projectID: "my-project", modelID: "gemini-embedding-001", location: "a/../b", expected: "https://europe-west1-aiplatform.googleapis.com/v1/projects/my-project/locations/a%2F..%2Fb/publishers/google/models/gemini-embedding-001:predict"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, buildURL(false, endpoint, tt.projectID, tt.modelID, tt.location))
+		})
+	}
+
+	assert.Equal(t, "https://generativelanguage.googleapis.com/v1beta/models/a%3Fb=c:batchEmbedContents",
+		buildURL(true, "generativelanguage.googleapis.com", "", "a?b=c", "europe-west1"))
+}
+
+func TestVectorizeRejectsInvalidConfig(t *testing.T) {
 	tests := []struct {
 		name   string
 		config settings
@@ -89,6 +113,10 @@ func TestVectorizeRejectsForeignEndpoint(t *testing.T) {
 			name:   "location carrying a host",
 			config: settings{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "project", Model: "model", Location: "attacker.example.com/"},
 		},
+		{
+			name:   "project id with path segments",
+			config: settings{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "my/../project", Model: "gemini-embedding-001", Location: "us-central1"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -97,7 +125,7 @@ func TestVectorizeRejectsForeignEndpoint(t *testing.T) {
 				httpClient:   &http.Client{},
 				googleApiKey: apikey.NewGoogleApiKey(),
 				urlBuilderFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID, location string) string {
-					t.Fatal("must not build a request URL for a rejected endpoint")
+					t.Fatal("must not build a request URL for a rejected config")
 					return ""
 				},
 				logger: nullLogger(),
