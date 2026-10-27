@@ -76,19 +76,22 @@ func TestRepairBatchPartTimeBasedLiveWinnerFailedRefetch(t *testing.T) {
 
 // TestRepairBatchPartDeleteOnConflictSurvivesFailedFetch pins that a delete,
 // which carries no content, is propagated even when the content fetch fails.
-// Under DeleteOnConflict a replica's older tombstone deletes a live winner, so
-// the only pending write is a delete and no object read can be a precondition
-// for it.
+// The batch holds two objects: one C is stale on, whose winning content has to
+// be read from A, and one B's newer tombstone deletes. Only the read can fail,
+// and the delete must not be gated on it.
 func TestRepairBatchPartDeleteOnConflictSurvivesFailedFetch(t *testing.T) {
 	const (
 		class = "C1"
 		shard = "S1"
-		// caller A holds the live winner, replica B an older tombstone
+		// A and C hold the live copy that B's newer tombstone deletes
 		liveTime = int64(100)
-		delTime  = int64(80)
+		delTime  = int64(150)
+		// C is stale on the read object, which is what forces the fetch
+		staleTime = int64(50)
 	)
-	id := strfmt.UUID("00000000-0000-0000-0000-000000000abc")
-	ids := []strfmt.UUID{id}
+	readID := strfmt.UUID("00000000-0000-0000-0000-000000000abc")
+	delID := strfmt.UUID("00000000-0000-0000-0000-000000000def")
+	ids := []strfmt.UUID{readID, delID}
 
 	tests := []struct {
 		name       string
@@ -100,18 +103,25 @@ func TestRepairBatchPartDeleteOnConflictSurvivesFailedFetch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			var fetches atomic.Int32
 			rc := NewMockRClient(t)
 			if tt.fetchFails {
 				rc.EXPECT().FetchObjects(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-					Return(nil, errors.New("fetch failed")).Maybe()
+					RunAndReturn(func(context.Context, string, string, string, []strfmt.UUID) ([]Replica, error) {
+						fetches.Add(1)
+						return nil, errors.New("fetch failed")
+					}).Maybe()
 			} else {
 				rc.EXPECT().FetchObjects(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-					Return([]Replica{{
-						ID: id,
-						Object: &storobj.Object{Object: models.Object{
-							ID: id, Class: class, LastUpdateTimeUnix: liveTime,
-						}},
-					}}, nil).Maybe()
+					RunAndReturn(func(context.Context, string, string, string, []strfmt.UUID) ([]Replica, error) {
+						fetches.Add(1)
+						return []Replica{{
+							ID: readID,
+							Object: &storobj.Object{Object: models.Object{
+								ID: readID, Class: class, LastUpdateTimeUnix: liveTime,
+							}},
+						}}, nil
+					}).Maybe()
 			}
 
 			var (
@@ -140,15 +150,24 @@ func TestRepairBatchPartDeleteOnConflictSurvivesFailedFetch(t *testing.T) {
 
 			votes := []Vote{
 				{BatchReply: BatchReply{Sender: "A", IsLocal: true, DigestData: []types.RepairResponse{
-					{ID: id.String(), UpdateTime: liveTime},
+					{ID: readID.String(), UpdateTime: liveTime},
+					{ID: delID.String(), UpdateTime: liveTime},
 				}}, Count: make([]int, len(ids))},
 				{BatchReply: BatchReply{Sender: "B", DigestData: []types.RepairResponse{
-					{ID: id.String(), UpdateTime: delTime, Deleted: true},
+					{ID: readID.String(), UpdateTime: liveTime},
+					{ID: delID.String(), UpdateTime: delTime, Deleted: true},
+				}}, Count: make([]int, len(ids))},
+				{BatchReply: BatchReply{Sender: "C", DigestData: []types.RepairResponse{
+					{ID: readID.String(), UpdateTime: staleTime},
+					{ID: delID.String(), UpdateTime: liveTime},
 				}}, Count: make([]int, len(ids))},
 			}
 
 			_, err = r.repairBatchPart(context.Background(), shard, ids, votes, 0)
 			_ = err // a failed fetch is reported, but it must not suppress the delete
+
+			require.NotZero(t, fetches.Load(),
+				"the read object must actually be fetched, otherwise this case tests nothing")
 
 			mu.Lock()
 			defer mu.Unlock()
@@ -157,6 +176,7 @@ func TestRepairBatchPartDeleteOnConflictSurvivesFailedFetch(t *testing.T) {
 			require.Empty(t, captured["B"], "B already holds the winning tombstone")
 
 			got := captured["A"][0]
+			require.Equal(t, delID, got.ID)
 			require.True(t, got.Deleted)
 			require.Nil(t, got.LatestObject, "a delete carries no content")
 			require.Equal(t, delTime, got.LastUpdateTimeUnixMilli)
