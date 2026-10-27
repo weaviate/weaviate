@@ -32,24 +32,13 @@ import (
 var ErrBadRequest = errors.New("bad request")
 
 type Manager struct {
-	authZ           *rbac.Manager
-	authNconfig     config.Authentication
-	logger          logrus.FieldLogger
-	forceSnapshotCh chan<- struct{}
+	authZ       *rbac.Manager
+	authNconfig config.Authentication
+	logger      logrus.FieldLogger
 }
 
-func NewManager(authZ *rbac.Manager, authNconfig config.Authentication, logger logrus.FieldLogger, forceSnapshotCh chan<- struct{}) *Manager {
-	return &Manager{authZ: authZ, authNconfig: authNconfig, logger: logger, forceSnapshotCh: forceSnapshotCh}
-}
-
-// forceSnapshot asks the store for a raft snapshot after a backup-principals
-// migration; see forcedSnapshotter. It never blocks: a signal is already
-// pending, or no channel was provided.
-func (m *Manager) forceSnapshot() {
-	select {
-	case m.forceSnapshotCh <- struct{}{}:
-	default:
-	}
+func NewManager(authZ *rbac.Manager, authNconfig config.Authentication, logger logrus.FieldLogger) *Manager {
+	return &Manager{authZ: authZ, authNconfig: authNconfig, logger: logger}
 }
 
 func (m *Manager) GetRoles(req *cmd.QueryRequest) ([]byte, error) {
@@ -176,10 +165,6 @@ func (m *Manager) UpsertRolesPermissions(c *cmd.ApplyRequest) error {
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
-	if !req.BackupPrincipalsAware {
-		defer m.forceSnapshot()
-	}
-
 	// Scan all roles, not just the exact names, to enforce short-name
 	// uniqueness across namespaces. The handler's pre-check read is not atomic
 	// with this write; applies run serially, so this is the authoritative guard.
@@ -274,7 +259,6 @@ func (m *Manager) RemovePermissions(c *cmd.ApplyRequest) error {
 	// deletes the rows it judges.
 	var orphaned []*authorization.Policy
 	if !req.BackupPrincipalsAware {
-		defer m.forceSnapshot()
 		var err error
 		if orphaned, err = m.authZ.OrphanedBackupPrincipalGrants(req.Role, req.Permissions); err != nil {
 			return err
@@ -328,12 +312,8 @@ func (m *Manager) Restore(b []byte) error {
 	if m.authZ == nil {
 		return nil
 	}
-	migrated, err := m.authZ.RestoreRaftSnapshotAndReportMigration(b)
-	if err != nil {
+	if err := m.authZ.RestoreRaftSnapshot(b); err != nil {
 		return err
-	}
-	if migrated {
-		m.forceSnapshot()
 	}
 	m.logger.Info("successfully restored rbac from snapshot")
 	return nil
@@ -369,8 +349,7 @@ func (m *Manager) RestoreFromBackup(req *cmd.RestoreRolesAndUsersRequest) error 
 	if m.authZ == nil || len(req.Roles) == 0 {
 		return nil
 	}
-	migrated, err := m.authZ.RestoreAndReportMigration(req.Roles, req.StripNamespaces)
-	if err != nil {
+	if err := m.authZ.Restore(req.Roles, req.StripNamespaces); err != nil {
 		if errors.Is(err, rbac.ErrRestoreRefused) {
 			return err
 		}
@@ -380,9 +359,6 @@ func (m *Manager) RestoreFromBackup(req *cmd.RestoreRolesAndUsersRequest) error 
 		m.logger.WithField("action", "restore_roles_from_backup").
 			Errorf("rbac_restore_torn: role store may be cleared on this node only: %v", err)
 		return err
-	}
-	if migrated {
-		m.forceSnapshot()
 	}
 	m.logger.WithField("action", "restore_roles_from_backup").
 		WithField("strip_namespaces", req.StripNamespaces).

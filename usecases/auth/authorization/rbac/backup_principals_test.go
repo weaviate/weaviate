@@ -187,9 +187,7 @@ func TestRestoreBackupPrincipalGrants(t *testing.T) {
 			dir := t.TempDir()
 			m := newManager(t, dir)
 
-			migrated, err := m.RestoreAndReportMigration(snapshotAt(t, version, allCollections, oneCollection, schemaOnly), false)
-			require.NoError(t, err)
-			assert.True(t, migrated, "version %d", version)
+			require.NoError(t, m.Restore(snapshotAt(t, version, allCollections, oneCollection, schemaOnly), false), "version %d", version)
 
 			check := func(t *testing.T, m *Manager) {
 				assert.ElementsMatch(t, []authorization.Policy{collectionsRow(allCollections), usersGrant, rolesGrant}, rowsOf(t, m, "all-collections"))
@@ -207,9 +205,7 @@ func TestRestoreBackupPrincipalGrants(t *testing.T) {
 
 	t.Run("a latest-version snapshot is taken as it is", func(t *testing.T) {
 		m := newManager(t, t.TempDir())
-		migrated, err := m.RestoreAndReportMigration(snapshotAt(t, SnapshotVersionLatest, oneCollection), false)
-		require.NoError(t, err)
-		assert.False(t, migrated)
+		require.NoError(t, m.Restore(snapshotAt(t, SnapshotVersionLatest, oneCollection), false))
 		assert.Equal(t, []authorization.Policy{collectionsRow(oneCollection)}, rowsOf(t, m, "one-collection"))
 	})
 
@@ -220,8 +216,7 @@ func TestRestoreBackupPrincipalGrants(t *testing.T) {
 			[]string{role, usersGrant.Resource, usersGrant.Verb, usersGrant.Domain},
 			[]string{role, rolesGrant.Resource, rolesGrant.Verb, rolesGrant.Domain})
 		for range 2 {
-			_, err := m.RestoreAndReportMigration(blob, false)
-			require.NoError(t, err)
+			require.NoError(t, m.Restore(blob, false))
 			assert.Len(t, rowsOf(t, m, "one-collection"), 3)
 		}
 		require.NoError(t, addBackupPrincipalGrants(m.casbin))
@@ -230,8 +225,7 @@ func TestRestoreBackupPrincipalGrants(t *testing.T) {
 
 	t.Run("a migrated role is allowed on concrete IDs, and a blind revoke of the REST grants removes the rows", func(t *testing.T) {
 		m := newManager(t, t.TempDir())
-		_, err := m.RestoreAndReportMigration(snapshotAt(t, SnapshotVersionV1, oneCollection), false)
-		require.NoError(t, err)
+		require.NoError(t, m.Restore(snapshotAt(t, SnapshotVersionV1, oneCollection), false))
 		_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("operator", authentication.AuthTypeDb), oneCollection[0])
 		require.NoError(t, err)
 		require.NoError(t, m.casbin.InvalidateCache())

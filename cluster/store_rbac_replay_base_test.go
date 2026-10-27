@@ -30,7 +30,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -60,7 +59,7 @@ func TestRBACReplayBase(t *testing.T) {
 
 	// The snapshot without an RBAC section stands in for one taken before
 	// v1.28.13: its log is truncated, so policy.csv alone holds the roles.
-	t.Run("a snapshot without an RBAC section keeps policy.csv roles and is sealed", func(t *testing.T) {
+	t.Run("a snapshot without an RBAC section keeps policy.csv roles", func(t *testing.T) {
 		ctx := context.Background()
 		base := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
 		m := base
@@ -82,8 +81,6 @@ func TestRBACReplayBase(t *testing.T) {
 		require.NoError(t, authZ.CreateRolesPermissions(map[string][]authorization.Policy{"operator": {books}}))
 		require.NoError(t, os.WriteFile(filepath.Join(rbacDir, "rbac", "version"), []byte("1.39.6"), 0o600))
 
-		// The restarted node stays quiet: nothing is written through raft, so
-		// raft's applied index stays at the restored snapshot's.
 		base.indexer = m.indexer
 		m = rbacMockStore(t, base, rbacDir)
 		srv = openMockStore(t, m)
@@ -92,20 +89,6 @@ func TestRBACReplayBase(t *testing.T) {
 		roles, err := m.cfg.RBAC.GetRoles("operator")
 		require.NoError(t, err)
 		assert.Equal(t, []authorization.Policy{books}, roles["operator"], "policy.csv roles survive the boot")
-
-		var newID string
-		require.Eventually(t, func() bool {
-			snaps, err := m.store.snapshotStore.List()
-			if err != nil || len(snaps) == 0 || snaps[0].ID == oldID {
-				return false
-			}
-			newID = snaps[0].ID
-			return true
-		}, 10*time.Second, 10*time.Millisecond, "the forced snapshot was never taken")
-		policies, hasRBAC := snapshotRBACPolicies(t, m.store, newID)
-		require.True(t, hasRBAC, "the new snapshot has an RBAC section")
-		assert.Contains(t, policies, []string{conv.PrefixRoleName("operator"), books.Resource, books.Verb, books.Domain},
-			"the new snapshot carries the policy.csv roles")
 	})
 
 	t.Run("single-node recovery replays onto a cleared store", func(t *testing.T) {

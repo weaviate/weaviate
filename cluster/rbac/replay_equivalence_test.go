@@ -113,7 +113,7 @@ func TestReplayEquivalence(t *testing.T) {
 
 			replayedAuthZ, err := rbac.New(t.TempDir(), rbacconf.Config{Enabled: true}, authN, false, nil, logrus.New())
 			require.NoError(t, err)
-			replayed := NewManager(replayedAuthZ, authN, logrus.New(), make(chan struct{}, 1))
+			replayed := NewManager(replayedAuthZ, authN, logrus.New())
 			for _, apply := range tt.log {
 				apply(t, replayed)
 			}

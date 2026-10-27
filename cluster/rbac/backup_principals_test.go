@@ -209,36 +209,3 @@ func TestBackupPrincipalMigration(t *testing.T) {
 		assert.Equal(t, []authorization.Policy{movies}, rolePolicies(t, replayed, "operator"))
 	})
 }
-
-func TestForcedSnapshotArming(t *testing.T) {
-	const latest = cmd.RBACLatestCommandPolicyVersion
-	movies := policiesOf(t, backupsPermission(&models.PermissionBackups{Collection: authorization.String("Movies")}))[0]
-	row := []string{conv.PrefixRoleName("operator"), movies.Resource, movies.Verb, movies.Domain}
-
-	tests := []struct {
-		name  string
-		apply func(t *testing.T, m *Manager)
-		arms  bool
-	}{
-		{"a marker-less upsert arms the signal", func(t *testing.T, m *Manager) { applyUpsert(t, m, "operator", latest, false, movies) }, true},
-		{"a marker-less remove that changes no rows arms the signal", func(t *testing.T, m *Manager) { applyRemove(t, m, "ghost", latest, false, movies) }, true},
-		{"a marker-bearing upsert does not arm it", func(t *testing.T, m *Manager) { applyUpsert(t, m, "operator", latest, true, movies) }, false},
-		{"a marker-bearing remove does not arm it", func(t *testing.T, m *Manager) { applyRemove(t, m, "operator", latest, true, movies) }, false},
-		{"restoring a pre-bump snapshot arms the signal", func(t *testing.T, m *Manager) {
-			require.NoError(t, m.Restore(rbacBlob(t, rbac.SnapshotVersionV1, row)))
-		}, true},
-		{"restoring a latest-version snapshot does not arm it", func(t *testing.T, m *Manager) {
-			require.NoError(t, m.Restore(rbacBlob(t, rbac.SnapshotVersionLatest, row)))
-		}, false},
-		{"restoring a pre-bump backup blob arms the signal", func(t *testing.T, m *Manager) {
-			require.NoError(t, m.RestoreFromBackup(&cmd.RestoreRolesAndUsersRequest{Roles: rbacBlob(t, rbac.SnapshotVersionV1, row)}))
-		}, true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			m := newTestManager(t)
-			tt.apply(t, m)
-			assert.Equal(t, tt.arms, len(m.forceSnapshotCh) == 1)
-		})
-	}
-}

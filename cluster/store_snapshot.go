@@ -160,18 +160,12 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 			}
 		}
 
+		// A snapshot without an RBAC section leaves policy.csv as the base: it
+		// alone holds the roles written before that snapshot.
 		if snap.RBAC != nil {
 			if err := st.authZManager.Restore(snap.RBAC); err != nil {
 				st.log.WithError(err).Error("restoring rbac from snapshot")
 				return fmt.Errorf("restore rbac from snapshot: %w", err)
-			}
-		} else if st.cfg.RBAC != nil {
-			// policy.csv stays the base: it alone holds the roles written before
-			// this snapshot. A snapshot taken now carries them, so later boots
-			// restore RBAC from raft.
-			select {
-			case st.forcedSnapshotSignal <- struct{}{}:
-			default:
 			}
 		}
 
