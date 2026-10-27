@@ -273,12 +273,24 @@ func testShardMultiTenant(t testing.TB, ctx context.Context, className string, i
 
 func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMetrics, classes ...*models.Class) *DB {
 	t.Helper()
+	db := openTestDatabase(t, t.TempDir(), singleShardState(), metrics, nil, classes...)
+	t.Cleanup(func() {
+		require.NoError(t, db.Shutdown(context.Background()))
+	})
+	return db
+}
+
+// openTestDatabase starts a db at dir. Reopen it with the same shardState, as that
+// names the shards. configure, if set, changes the config before the db starts.
+func openTestDatabase(t *testing.T, dir string, shardState *sharding.State, metrics *monitoring.PrometheusMetrics,
+	configure func(*Config), classes ...*models.Class,
+) *DB {
+	t.Helper()
 
 	require.NotNil(t, metrics, "metrics parameter cannot be nil")
 	metricsCopy := *metrics
 	metricsCopy.Registerer = monitoring.NoopRegisterer
 
-	shardState := singleShardState()
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
@@ -301,13 +313,17 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
 	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
 	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-	db, err := New(logrus.New(), "node1", Config{
-		RootPath:                  t.TempDir(),
+	config := Config{
+		RootPath:                  dir,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
 		EnableLazyLoadShards:      boolPtr(true),
-	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
+	}
+	if configure != nil {
+		configure(&config)
+	}
+	db, err := New(logrus.New(), "node1", config, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 
@@ -323,10 +339,6 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 	installNoLiveReindexLookup(db)
 
 	require.Nil(t, db.WaitForStartup(t.Context()))
-	t.Cleanup(func() {
-		require.NoError(t, db.Shutdown(context.Background()))
-	})
-
 	return db
 }
 

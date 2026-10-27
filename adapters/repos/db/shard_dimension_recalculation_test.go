@@ -838,33 +838,60 @@ func TestIndex_PrepareUnloadedDimensionsBucket_PanicReleasesLock(t *testing.T) {
 	unlock()
 }
 
-func TestShard_ReindexDimensionsOnLoad_CorruptObjectsSegment(t *testing.T) {
-	ctx := testCtx()
-	shard, idx, class := recalculationTestShard(t, ctx)
-	putRecalculationObjects(t, ctx, shard, class, 5)
-	tracked := dimensionsBucketRows(t, shard)
-	require.NoError(t, shard.Shutdown(ctx))
-	// loaded once more, so the segment's sidecars are written before it is corrupted
-	loaded, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
-	require.NoError(t, err)
-	require.NoError(t, loaded.Shutdown(ctx))
+// A corrupt segment makes the cursor panic, which must not fail the load.
+func TestStartupRebuildOnLoad_CorruptObjectsSegment(t *testing.T) {
+	tests := []struct {
+		name    string
+		enable  func(idx *Index) *startupRebuild
+		reindex bool
+	}{
+		{
+			name: "dimensions reindex",
+			enable: func(idx *Index) *startupRebuild {
+				idx.Config.DimensionsReindex = &startupRebuild{enabled: true}
+				return idx.Config.DimensionsReindex
+			},
+			reindex: true,
+		},
+		{
+			name: "property lengths recount",
+			enable: func(idx *Index) *startupRebuild {
+				idx.Config.PropertyLengthsRecount = &startupRebuild{enabled: true}
+				return idx.Config.PropertyLengthsRecount
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			shard, idx, class := recalculationTestShard(t, ctx)
+			putRecalculationObjects(t, ctx, shard, class, 5)
+			tracked := dimensionsBucketRows(t, shard)
+			require.NoError(t, shard.Shutdown(ctx))
+			// loaded once more, so the segment's sidecars are written before it is corrupted
+			loaded, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
+			require.NoError(t, err)
+			require.NoError(t, loaded.Shutdown(ctx))
 
-	segments, err := filepath.Glob(filepath.Join(shard.pathLSM(), helpers.ObjectsBucketLSM, "segment-*.db"))
-	require.NoError(t, err)
-	require.NotEmpty(t, segments)
-	f, err := os.OpenFile(segments[0], os.O_RDWR, 0o600)
-	require.NoError(t, err)
-	// the value length of the first node, after its tombstone byte
-	_, err = f.WriteAt([]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}, int64(segmentindex.HeaderSize+1))
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
+			segments, err := filepath.Glob(filepath.Join(shard.pathLSM(), helpers.ObjectsBucketLSM, "segment-*.db"))
+			require.NoError(t, err)
+			require.NotEmpty(t, segments)
+			f, err := os.OpenFile(segments[0], os.O_RDWR, 0o600)
+			require.NoError(t, err)
+			// the value length of the first node, after its tombstone byte
+			_, err = f.WriteAt([]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}, int64(segmentindex.HeaderSize+1))
+			require.NoError(t, err)
+			require.NoError(t, f.Close())
 
-	reindex := &startupRebuild{enabled: true}
-	idx.Config.DimensionsReindex = reindex
-	reloaded, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
-	require.NoError(t, err, "the shard must load")
-	defer reloaded.Shutdown(ctx)
-	assert.Equal(t, tracked, dimensionsBucketRows(t, reloaded.(*Shard)))
-	_, failed, _ := reindex.summary()
-	assert.Equal(t, 1, failed)
+			rebuild := tt.enable(idx)
+			reloaded, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
+			require.NoError(t, err, "the shard must load")
+			defer reloaded.Shutdown(ctx)
+			if tt.reindex {
+				assert.Equal(t, tracked, dimensionsBucketRows(t, reloaded.(*Shard)))
+			}
+			_, failed, _ := rebuild.summary()
+			assert.Equal(t, 1, failed)
+		})
+	}
 }

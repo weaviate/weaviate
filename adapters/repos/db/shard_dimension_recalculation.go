@@ -30,7 +30,6 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -45,29 +44,11 @@ func (i *Index) prepareDimensionsOfShards(ctx context.Context, class *models.Cla
 		return
 	}
 
-	start := time.Now()
-	eg := enterrors.NewErrorGroupWrapper(i.logger)
-	eg.SetLimit(_NUMCPU)
-	for _, name := range shardNames {
-		eg.Go(func() error {
-			i.prepareShardDimensions(ctx, class, name)
-			return nil
-		}, name)
-	}
-	_ = eg.Wait()
-	i.logger.WithField("action", "prepare_dimensions").WithField("shards", len(shardNames)).
-		WithField("took", time.Since(start)).Info("dimensions buckets prepared")
+	i.rebuildShardsBeforeLoad(ctx, "prepare_dimensions", "dimensions buckets prepared", shardNames,
+		func(logger logrus.FieldLogger, name string) { i.prepareShardDimensions(ctx, logger, class, name) })
 }
 
-func (i *Index) prepareShardDimensions(ctx context.Context, class *models.Class, name string) {
-	logger := i.logger.WithField("action", "prepare_dimensions").WithField("shard", name)
-	if _, err := os.Stat(shardPath(i.path(), name)); err != nil {
-		if !os.IsNotExist(err) {
-			logger.Errorf("could not prepare dimensions: %v", err)
-		}
-		return
-	}
-
+func (i *Index) prepareShardDimensions(ctx context.Context, logger logrus.FieldLogger, class *models.Class, name string) {
 	reindex := i.Config.DimensionsReindex
 	rebuild := reindex.pending(i.ID(), name)
 
@@ -113,24 +94,16 @@ func (i *Index) removeComputedUsage(logger logrus.FieldLogger, name string) {
 
 // rebuildUnloadedShardDimensions rebuilds on a shard with only the objects and
 // dimensions buckets open.
-func (i *Index) rebuildUnloadedShardDimensions(ctx context.Context, class *models.Class, name string) (objects int, err error) {
+func (i *Index) rebuildUnloadedShardDimensions(ctx context.Context, class *models.Class, name string) (int, error) {
 	if i.unloadedShardIsEmpty(name) {
 		return 0, nil
 	}
-	s, closeShard, err := i.openUnloadedShard(ctx, class, name)
-	if err != nil {
-		return 0, err
-	}
-	defer func() {
-		if closeErr := closeShard(); closeErr != nil && err == nil {
-			err = closeErr
+	return i.rebuildUnloadedShard(ctx, class, name, func(s *Shard) (int, error) {
+		if err := s.loadDimensionsBucket(ctx, helpers.DimensionsBucketLSM); err != nil {
+			return 0, err
 		}
-	}()
-
-	if err := s.loadDimensionsBucket(ctx, helpers.DimensionsBucketLSM); err != nil {
-		return 0, err
-	}
-	return s.recalculateDimensions(ctx)
+		return s.recalculateDimensions(ctx)
+	})
 }
 
 // openUnloadedShard opens only the objects bucket of a shard that is not loaded,
