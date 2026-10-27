@@ -164,21 +164,6 @@ func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardM
 	return t, nil
 }
 
-func (t *JsonShardMetaData) Clear() {
-	if t == nil {
-		return
-	}
-	t.Lock()
-	defer t.Unlock()
-	if t.closed {
-		return
-	}
-
-	t.data = &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
-	t.dirty = true
-	t.lockFreeFlush()
-}
-
 // Path to the file on disk
 func (t *JsonShardMetaData) FileName() string {
 	if t == nil {

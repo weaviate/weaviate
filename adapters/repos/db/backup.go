@@ -800,7 +800,7 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 		return nil, fmt.Errorf("counter rel path: %w", err)
 	}
 
-	plPath := filepath.Join(shardDir, "proplengths")
+	plPath := filepath.Join(shardDir, propLengthsFile)
 	data, err = diskio.ReadFileExact(plPath)
 	if err != nil {
 		return nil, fmt.Errorf("read proplengths: %w", err)

@@ -26,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -311,15 +312,16 @@ func TestInFlightObjectReadHoldsOffBucketTeardown(t *testing.T) {
 	iterated := make(chan error, 1)
 
 	go func() {
+		bucket, release := shard.Store().AcquireBucketForRead(helpers.ObjectsBucketLSM)
+		defer release()
 		var once sync.Once
-		iterated <- index.IterateObjects(context.Background(),
-			func(*Index, ShardLike, *storobj.Object) error {
-				once.Do(func() {
-					close(reading)
-					<-resume
-				})
-				return nil
+		iterated <- bucket.IterateObjects(context.Background(), func(*storobj.Object) error {
+			once.Do(func() {
+				close(reading)
+				<-resume
 			})
+			return nil
+		})
 	}()
 
 	select {

@@ -96,6 +96,10 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		return fmt.Errorf("init shard %q: %w", s.ID(), err)
 	}
 
+	if err := s.recountPropertyLengthsOnLoad(ctx); err != nil {
+		return fmt.Errorf("recount property lengths: %w", err)
+	}
+
 	if enabled, config := s.index.asyncReplicationStateForShard(s.name); enabled {
 		// Compute the effective config (needed for hashtreeHeight) before taking
 		// the write lock so we can load the cached hashtree from disk outside it.
@@ -200,7 +204,7 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 }
 
 func (s *Shard) initProplenTracker() error {
-	plPath := path.Join(s.path(), "proplengths")
+	plPath := path.Join(s.path(), propLengthsFile)
 	tracker, err := inverted.NewJsonShardMetaData(plPath, s.index.logger)
 	if err != nil {
 		return fmt.Errorf("init prop length tracker: %w", err)
