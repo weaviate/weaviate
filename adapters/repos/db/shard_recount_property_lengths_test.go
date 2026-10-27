@@ -266,7 +266,7 @@ func TestRecountPropertyLengthsBeforeLoad_FailureRetriedOnLoad(t *testing.T) {
 	idx.Config.PropertyLengthsRecount = recount
 	// a non-empty directory cannot be removed as a leftover recount file
 	require.NoError(t, os.MkdirAll(filepath.Join(recountFileOf(trackerPath), "blocker"), 0o755))
-	idx.recountPropertyLengthsOfShards(testCtx(), class, []string{name})
+	idx.rebuildShardsBeforeLoad(testCtx(), class, []string{name})
 	_, failed, _ := recount.summary()
 	require.Equal(t, 1, failed)
 	sum, count := diskTally(t, trackerPath)
@@ -294,7 +294,7 @@ func TestRecountPropertyLengthsBeforeLoad_UnreadableTrackerOfEmptyShard(t *testi
 	require.NoError(t, os.WriteFile(trackerPath, nil, 0o644))
 
 	idx.Config.PropertyLengthsRecount = &startupRebuild{enabled: true}
-	idx.recountPropertyLengthsOfShards(testCtx(), class, []string{name})
+	idx.rebuildShardsBeforeLoad(testCtx(), class, []string{name})
 	sum, count := diskTally(t, trackerPath)
 	require.Equal(t, []int{0, 0}, []int{sum, count})
 

@@ -605,8 +605,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 			withDirs = append(withDirs, shard.name)
 		}
 	}
-	i.prepareDimensionsOfShards(ctx, class, withDirs)
-	i.recountPropertyLengthsOfShards(ctx, class, withDirs)
+	i.rebuildShardsBeforeLoad(ctx, class, withDirs)
 
 	hotShardNames := make([]string, 0, len(localShards))
 
