@@ -522,11 +522,20 @@ func (db *DB) GetIndex(className schema.ClassName) *Index {
 	return index
 }
 
-// indexForRead is GetIndex for requests. On a miss for a class the local
-// schema holds, it waits until this node has applied that class version.
-// Never call it from SchemaManager.apply, which would wait for its own version.
+// registeredIndex returns the index registered for className, or nil, without
+// GetIndex's retries.
+func (db *DB) registeredIndex(className schema.ClassName) *Index {
+	db.indexLock.RLock()
+	defer db.indexLock.RUnlock()
+	return db.indices[indexID(className)]
+}
+
+// indexForRead returns className's index, or nil and no error if this node has
+// none. On a miss for a class the local schema holds, it first waits until this
+// node has applied that class version. Never call it from SchemaManager.apply,
+// which would wait for its own version.
 func (db *DB) indexForRead(ctx context.Context, className schema.ClassName) (*Index, error) {
-	if index := db.GetIndex(className); index != nil {
+	if index := db.registeredIndex(className); index != nil {
 		return index, nil
 	}
 	version := db.schemaReader.ReadOnlyVersionedClass(className.String()).Version
@@ -536,9 +545,7 @@ func (db *DB) indexForRead(ctx context.Context, className schema.ClassName) (*In
 	if err := db.schemaReader.WaitForUpdate(ctx, version); err != nil {
 		return nil, fmt.Errorf("wait for class %s to be applied locally: %w", className, err)
 	}
-	db.indexLock.RLock()
-	defer db.indexLock.RUnlock()
-	return db.indices[indexID(className)], nil
+	return db.registeredIndex(className), nil
 }
 
 // WaitForLocalInflightWrites blocks until this node's in-flight coordinated
