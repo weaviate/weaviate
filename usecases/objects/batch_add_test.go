@@ -604,7 +604,7 @@ func Test_BatchManager_AddObjects_LocalSchemaBehind(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 			manager := NewBatchManager(objectFinder, getFakeModulesProvider(), schemaManager, cfg, logger,
 				mocks.NewMockAuthorizer(), nil,
-				NewAutoSchemaManager(schemaManager, objectFinder, cfg, logger, prometheus.NewPedanticRegistry()))
+				NewAutoSchemaManager(schemaManager, objectFinder, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 
 			// Every object carries a property the collection does not have yet.
 			objs := []*models.Object{
