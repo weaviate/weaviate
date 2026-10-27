@@ -85,7 +85,8 @@ func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				if tt.absentModuleConfig {
-					t.Log("skipping adding module config configuration to class")
+					// The rows share class: drop the config a previous row set.
+					class.ModuleConfig = nil
 				} else {
 					settings := map[string]any{}
 					if tt.withModuleConfig != nil {
