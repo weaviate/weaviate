@@ -382,8 +382,8 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 				realLen := 0
 				index := 0
 
-				pendingNextRound = pendingNextRound[:candidateNode.connections.LenAtLayer(uint8(level))]
-				pendingNextRound = candidateNode.connections.CopyLayer(pendingNextRound, uint8(level))
+				// A vertex can exceed the pooled buffer's capacity, so let CopyLayer size it.
+				pendingNextRound = candidateNode.connections.CopyLayer(pendingNextRound[:0], uint8(level))
 
 				// Release before the expansion, which locks each neighbor on
 				// its own: two searches expanding each other's vertices would
@@ -787,9 +787,9 @@ func (h *hnsw) handleDeletedNode(docID uint64, operation string) {
 	}
 
 	h.addTombstone(docID)
-	h.metrics.AddUnexpectedTombstone(operation)
 	h.logger.WithField("action", "attach_tombstone_to_deleted_node").
 		WithField("node_id", docID).
+		WithField("operation", operation).
 		Debugf("found a deleted node (%d) without a tombstone, "+
 			"tombstone was added", docID)
 }

@@ -520,6 +520,160 @@ func TestValidateBackupRequest(t *testing.T) {
 		})
 	}
 
+	assignments := []byte(`{"version":1,"grouping_policies":[["db:alice","role:admin"]]}`)
+	oidcAssignments := []byte(`{"version":1,"grouping_policies":[["oidc:ns1:bob","role:admin"]],"namespaces":["ns1"]}`)
+	for _, tt := range []struct {
+		name         string
+		allClasses   []string
+		allUsers     []string
+		allRoles     []string
+		includeUsers []string
+		includeRoles []string
+		noUsers      bool
+		// oidc is what OIDCBuiltInAssignments returns; nil keeps the carried blob
+		// equal to the BuiltInAssignments one.
+		oidc []byte
+		// wantCarried is the ids of each BuiltInAssignments call; nil means no call.
+		wantCarried [][]string
+		// wantOIDC is the namespaces of each OIDCBuiltInAssignments call; nil means
+		// no call.
+		wantOIDC [][]string
+		// wantRows, when set, is the carried blob's decoded grouping rows and
+		// wantNamespaces its namespace list.
+		wantRows       [][]string
+		wantNamespaces []string
+	}{
+		{
+			name:         "explicit empty includeRoles carries the resolved users' assignments and no oidc grants",
+			includeUsers: []string{"alice"},
+			includeRoles: []string{},
+			oidc:         oidcAssignments,
+			wantCarried:  [][]string{{"alice"}},
+		},
+		{
+			name:         "namespace wildcards with no custom roles",
+			allUsers:     []string{"alice", "ns1:alice", "ns2:bob"},
+			allRoles:     []string{authorization.Admin, authorization.Viewer, "ns2:reader"},
+			includeUsers: []string{"ns1:*"},
+			includeRoles: []string{"ns1:*"},
+			wantCarried:  [][]string{{"ns1:alice"}},
+			wantOIDC:     [][]string{{"ns1"}},
+		},
+		{
+			name:           "a namespaced role selection carries oidc grants with users skipped",
+			allClasses:     []string{"Books"},
+			includeUsers:   []string{},
+			includeRoles:   []string{"ns1:*"},
+			oidc:           oidcAssignments,
+			wantOIDC:       [][]string{{"ns1"}},
+			wantRows:       [][]string{{"oidc:ns1:bob", "role:admin"}},
+			wantNamespaces: []string{"ns1"},
+		},
+		{
+			name:           "db and oidc grants merge into one carried blob",
+			allUsers:       []string{"alice", "ns1:alice"},
+			includeUsers:   []string{"ns1:alice"},
+			includeRoles:   []string{"ns1:*"},
+			oidc:           oidcAssignments,
+			wantCarried:    [][]string{{"ns1:alice"}},
+			wantOIDC:       [][]string{{"ns1"}},
+			wantRows:       [][]string{{"db:alice", "role:admin"}, {"oidc:ns1:bob", "role:admin"}},
+			wantNamespaces: []string{"ns1"},
+		},
+		{
+			name:           "an unqualified wildcard takes oidc namespaces from the roles it resolves to",
+			allRoles:       []string{"ns1:editor"},
+			includeUsers:   []string{},
+			includeRoles:   []string{"*"},
+			oidc:           oidcAssignments,
+			wantOIDC:       [][]string{{"ns1"}},
+			wantRows:       [][]string{{"oidc:ns1:bob", "role:admin"}},
+			wantNamespaces: []string{"ns1"},
+		},
+		{
+			name:         "an unqualified wildcard resolving to unqualified roles carries no oidc grants",
+			includeUsers: []string{},
+			includeRoles: []string{"*"},
+			oidc:         oidcAssignments,
+		},
+		{
+			name:         "includeRoles omitted calls nothing",
+			includeUsers: []string{"alice"},
+		},
+		{
+			name:         "includeUsers omitted carries every dynamic user",
+			includeRoles: []string{"reader"},
+			wantCarried:  [][]string{{"alice", "bob"}},
+		},
+		{
+			name:         "includeUsers omitted with namespaced selectors carries only their namespaces' users",
+			allUsers:     []string{"ns1:alice", "ns2:boss"},
+			allRoles:     []string{authorization.Admin, authorization.Viewer},
+			includeRoles: []string{"ns1:*"},
+			wantCarried:  [][]string{{"ns1:alice"}},
+			wantOIDC:     [][]string{{"ns1"}},
+		},
+		{
+			name:         "includeUsers omitted with explicit empty includeRoles carries every dynamic user",
+			includeRoles: []string{},
+			wantCarried:  [][]string{{"alice", "bob"}},
+		},
+		{
+			name:         "dynamic users disabled carries nothing",
+			includeRoles: []string{"reader"},
+			noUsers:      true,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fs := newFakeScheduler(nil)
+			fs.userLister.users = []string{"alice", "bob"}
+			fs.roleLister.roles = []string{"reader", "writer"}
+			if tt.allUsers != nil {
+				fs.userLister.users = tt.allUsers
+			}
+			if tt.allRoles != nil {
+				fs.roleLister.roles = tt.allRoles
+			}
+			fs.roleLister.assignments = assignments
+			fs.roleLister.oidcAssignments = tt.oidc
+			scheduler := fs.scheduler()
+			if tt.noUsers {
+				scheduler.userLister = nil
+			}
+			fs.selector.On("ListClasses", ctx).Return(tt.allClasses)
+			if len(tt.allClasses) > 0 {
+				fs.selector.On("Backupable", ctx, tt.allClasses).Return(nil)
+			}
+
+			id := "carry-test"
+			fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("backups/" + id)
+			fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+			fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
+			store := coordStore{objectStore{backend: fs.backend, backupId: id}}
+			got, err := scheduler.validateBackupRequest(ctx, store, nil, &BackupRequest{
+				ID: id, IncludeUsers: tt.includeUsers, IncludeRoles: tt.includeRoles,
+			})
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantCarried, fs.roleLister.carried)
+			assert.Equal(t, tt.wantOIDC, fs.roleLister.oidcCarried)
+			switch {
+			case tt.wantRows != nil:
+				var carried struct {
+					GroupingPolicy [][]string `json:"grouping_policies"`
+					Namespaces     []string   `json:"namespaces"`
+				}
+				require.NoError(t, json.Unmarshal(got.builtInRoleAssignments, &carried))
+				assert.ElementsMatch(t, tt.wantRows, carried.GroupingPolicy)
+				assert.Equal(t, tt.wantNamespaces, carried.Namespaces)
+			case tt.wantCarried == nil:
+				assert.Nil(t, got.builtInRoleAssignments)
+			default:
+				assert.Equal(t, assignments, got.builtInRoleAssignments)
+			}
+		})
+	}
+
 	t.Run("empty selection wrapper returns unprocessable", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.selector.On("ListClasses", ctx).Return([]string(nil))
@@ -2452,13 +2606,29 @@ type fakeUserLister struct {
 
 func (f *fakeUserLister) ListAllUsers() []string { return f.users }
 
-// fakeRoleLister is a static RoleLister for scheduler tests.
+// fakeRoleLister is a static RoleLister for scheduler tests. carried records the
+// ids of each BuiltInAssignments call, and oidcCarried the namespaces of each
+// OIDCBuiltInAssignments call.
 type fakeRoleLister struct {
-	roles []string
-	err   error
+	roles           []string
+	err             error
+	assignments     []byte
+	carried         [][]string
+	oidcAssignments []byte
+	oidcCarried     [][]string
 }
 
 func (f *fakeRoleLister) ListAllRoles() ([]string, error) { return f.roles, f.err }
+
+func (f *fakeRoleLister) BuiltInAssignments(userIDs ...string) ([]byte, error) {
+	f.carried = append(f.carried, userIDs)
+	return f.assignments, nil
+}
+
+func (f *fakeRoleLister) OIDCBuiltInAssignments(namespaces ...string) ([]byte, error) {
+	f.oidcCarried = append(f.oidcCarried, namespaces)
+	return f.oidcAssignments, nil
+}
 
 func newFakeScheduler(resolver NodeResolver) *fakeScheduler {
 	fc := fakeScheduler{}
@@ -3399,6 +3569,47 @@ func TestSchedulerCreateBackupRecordsRoles(t *testing.T) {
 			assert.False(t, nodeReq.SkipUsers)
 		})
 	}
+
+	t.Run("carried built-in assignments reach the global descriptor and not the nodes", func(t *testing.T) {
+		assignments := []byte(`{"version":1,"grouping_policies":[["db:ns1:alice","role:admin"]]}`)
+		req := BackupRequest{
+			ID:           backupID,
+			Include:      []string{cls},
+			Backend:      backendName,
+			IncludeUsers: []string{"ns1:*"},
+			IncludeRoles: []string{"ns1:*"},
+		}
+		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+		fs.userLister.users = []string{"ns1:alice", "ns2:bob"}
+		fs.roleLister.roles = []string{authorization.Admin, "ns2:reader"}
+		fs.roleLister.assignments = assignments
+		nodeReq := setup(fs, &req)
+
+		_, err := fs.scheduler().Backup(ctx, &models.Principal{}, &req)
+		require.NoError(t, err)
+		select {
+		case <-fs.backend.doneChan: // closed by the final GlobalBackupFile write
+		case <-time.After(10 * time.Second):
+			t.Fatal("backup did not finish")
+		}
+
+		writes := 0
+		for _, call := range fs.backend.Calls {
+			if call.Method != "PutObject" || call.Arguments.String(2) != GlobalBackupFile {
+				continue
+			}
+			var desc backup.DistributedBackupDescriptor
+			require.NoError(t, json.Unmarshal(call.Arguments.Get(3).([]byte), &desc))
+			assert.Equal(t, assignments, desc.BuiltInRoleAssignments)
+			assert.True(t, desc.SkipRoles)
+			writes++
+		}
+		assert.Equal(t, 2, writes)
+		assert.Equal(t, [][]string{{"ns1:alice"}}, fs.roleLister.carried)
+		assert.Empty(t, nodeReq.Roles)
+		assert.True(t, nodeReq.SkipRoles)
+		assert.Nil(t, nodeReq.BuiltInRoleAssignments)
+	})
 }
 
 // classDesc builds a per-node class descriptor, optionally carrying aliases.
@@ -3865,48 +4076,87 @@ func TestRestoreNamespaceStrippingCollisionFailsFast(t *testing.T) {
 		nodeName    = "Node-A"
 		nodeKey     = backupID + "/" + nodeName
 	)
-	meta := backup.DistributedBackupDescriptor{
-		ID:            backupID,
-		StartedAt:     time.Now().UTC(),
-		Version:       Version,
-		ServerVersion: "1.23",
-		Status:        backup.Success,
-		Leader:        nodeName,
-		Nodes: map[string]*backup.NodeDescriptor{
-			nodeName: {Classes: []string{"ns1:Movies", "ns2:Movies"}},
+
+	tests := []struct {
+		name     string
+		classes  []string
+		rbacBlob []byte
+		carried  []byte
+		wantErr  []string
+	}{
+		{
+			name:    "classes stripping to one name",
+			classes: []string{"ns1:Movies", "ns2:Movies"},
+			wantErr: []string{"strip to the same name"},
+		},
+		{
+			name:     "a carried assignment colliding with a node-blob subject",
+			classes:  []string{"ns1:Movies"},
+			rbacBlob: []byte(`{"version":1,"namespaces":["ns2"],"roles_policies":[["role:ns2:editor","*","R","*"]],"grouping_policies":[["db:ns2:alice","role:ns2:editor"]]}`),
+			carried:  []byte(`{"version":1,"grouping_policies":[["db:ns1:alice","role:admin"]]}`),
+			wantErr:  []string{"db:ns1:alice", "db:ns2:alice", `strip to the same name "db:alice"`},
 		},
 	}
-	nodeMeta := backup.BackupDescriptor{
-		ID:     backupID,
-		Status: backup.Success,
-		Classes: []backup.ClassDescriptor{
-			{Name: "ns1:Movies"},
-			{Name: "ns2:Movies"},
-		},
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Neither blob collides alone. In the carried row only the merged
+			// blob collides, so the strip check must run after the merge.
+			require.NoError(t, rbac.ValidateNamespaceStrip(tt.rbacBlob, nil))
+			require.NoError(t, rbac.ValidateNamespaceStrip(tt.carried, nil))
+
+			meta := backup.DistributedBackupDescriptor{
+				ID:            backupID,
+				StartedAt:     time.Now().UTC(),
+				Version:       Version,
+				ServerVersion: "1.23",
+				Status:        backup.Success,
+				Leader:        nodeName,
+				Nodes: map[string]*backup.NodeDescriptor{
+					nodeName: {Classes: tt.classes},
+				},
+				BuiltInRoleAssignments: tt.carried,
+			}
+			nodeMeta := backup.BackupDescriptor{
+				ID:          backupID,
+				Status:      backup.Success,
+				RbacBackups: tt.rbacBlob,
+			}
+			for _, class := range tt.classes {
+				nodeMeta.Classes = append(nodeMeta.Classes, backup.ClassDescriptor{Name: class})
+			}
+			nodeMetaBytes, err := json.Marshal(nodeMeta)
+			require.NoError(t, err)
+
+			fs := newFakeScheduler(newFakeNodeResolver([]string{nodeName}))
+			fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+			fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
+			fs.backend.On("GetObject", ctx, nodeKey, BackupFile).Return(nodeMetaBytes, nil)
+			fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
+			// ListClasses is deliberately unstubbed: class collisions are judged via
+			// ClassEqual, so the selector must not be consulted here.
+			//
+			// If the pre-restore checks wrongly pass, the restore calls the stubs below.
+			// They let the test fail on its assertions instead of panicking on an unexpected mock call.
+			fs.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{}).Maybe()
+			fs.client.On("CanCommit", mock.Anything, mock.Anything, mock.Anything).Return(nil, ErrAny).Maybe()
+
+			s := fs.scheduler()
+			resp, err := s.Restore(ctx, nil, &BackupRequest{
+				ID:      backupID,
+				Backend: backendName,
+				Include: tt.classes,
+			}, false)
+
+			require.Error(t, err)
+			assert.Nil(t, resp)
+			assert.IsType(t, backup.ErrUnprocessable{}, err)
+			for _, want := range tt.wantErr {
+				assert.Contains(t, err.Error(), want)
+			}
+			fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, mock.Anything, mock.Anything)
+		})
 	}
-	nodeMetaBytes, err := json.Marshal(nodeMeta)
-	require.NoError(t, err)
-
-	fs := newFakeScheduler(newFakeNodeResolver([]string{nodeName}))
-	fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
-	fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
-	fs.backend.On("GetObject", ctx, nodeKey, BackupFile).Return(nodeMetaBytes, nil)
-	fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
-	// ListClasses is deliberately unstubbed: class collisions are judged via
-	// ClassEqual, so the selector must not be consulted here.
-
-	s := fs.scheduler()
-	resp, err := s.Restore(ctx, nil, &BackupRequest{
-		ID:      backupID,
-		Backend: backendName,
-		Include: []string{"ns1:Movies", "ns2:Movies"},
-	}, false)
-
-	require.Error(t, err)
-	assert.Nil(t, resp)
-	assert.IsType(t, backup.ErrUnprocessable{}, err)
-	assert.Contains(t, err.Error(), "strip to the same name")
-	fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, mock.Anything, mock.Anything)
 }
 
 // TestRestoreSecondNamespaceAliasCollisionFailsFast pins the sequential
@@ -4119,8 +4369,10 @@ func TestRestoreRejectsInactiveNamespaceRefs(t *testing.T) {
 		name       string
 		rbacBlob   []byte
 		userBlob   []byte
+		carried    []byte
 		states     map[string]cmd.NamespaceState
 		options    func(req *BackupRequest)
+		wantRoles  []byte // the roles blob applied by an accepted restore
 		wantErr    []string
 		wantNotErr []string
 	}{
@@ -4144,10 +4396,13 @@ func TestRestoreRejectsInactiveNamespaceRefs(t *testing.T) {
 				"ns1": cmd.NamespaceStateActive,
 				"ns2": cmd.NamespaceStateSuspended,
 			},
+			wantRoles: rbacBlob,
 		},
 		{
+			// noRestore skips the merge, so an undecodable carried blob is never decoded.
 			name:     "noRestore skips the check for the artefact it turns off",
 			rbacBlob: rbacBlob,
+			carried:  []byte(`not json`),
 			states:   map[string]cmd.NamespaceState{},
 			options: func(req *BackupRequest) {
 				req.RbacRestoreOption = models.RestoreConfigRolesOptionsNoRestore
@@ -4167,6 +4422,14 @@ func TestRestoreRejectsInactiveNamespaceRefs(t *testing.T) {
 			wantErr:    []string{"roles", "ns3"},
 			wantNotErr: []string{"ns2"},
 		},
+		{
+			// The check runs on the merged blob, so a carried assignment alone is enough.
+			name:     "a namespace named only by a carried assignment is caught",
+			rbacBlob: rbacBlob,
+			carried:  []byte(`{"version":1,"grouping_policies":[["db:ns3:bob","role:admin"]]}`),
+			states:   map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateActive},
+			wantErr:  []string{"roles", "ns3"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -4176,7 +4439,8 @@ func TestRestoreRejectsInactiveNamespaceRefs(t *testing.T) {
 			meta := backup.DistributedBackupDescriptor{
 				ID: backupID, StartedAt: time.Now().UTC(), Version: Version,
 				ServerVersion: "1.23", Status: backup.Success, Leader: nodeName,
-				Nodes: map[string]*backup.NodeDescriptor{nodeName: {Classes: []string{"Movies"}}},
+				Nodes:                  map[string]*backup.NodeDescriptor{nodeName: {Classes: []string{"Movies"}}},
+				BuiltInRoleAssignments: tt.carried,
 			}
 			nodeMeta, err := json.Marshal(backup.BackupDescriptor{
 				ID: backupID, Status: backup.Success,
@@ -4189,6 +4453,8 @@ func TestRestoreRejectsInactiveNamespaceRefs(t *testing.T) {
 			fs := newFakeScheduler(newFakeNodeResolver([]string{nodeName}))
 			fs.schema.namespacesEnabled = true
 			fs.namespaces = namespaces.NewMockExisterInState(t, tt.states)
+			rec := &recordingRolesAndUsersRestorer{}
+			fs.rolesAndUsers = rec
 			fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
 			fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
 			fs.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
@@ -4214,6 +4480,11 @@ func TestRestoreRejectsInactiveNamespaceRefs(t *testing.T) {
 				// mocks. Waiting here stops it touching them after the test ends.
 				require.Eventually(t, func() bool { return s.restorer.lastOp.get().Status == "" },
 					10*time.Second, 10*time.Millisecond, "restore did not finish")
+				var applied []byte
+				for _, call := range rec.recorded() {
+					applied = append(applied, call.roles...)
+				}
+				assert.Equal(t, tt.wantRoles, applied)
 				return
 			}
 			require.Error(t, err)
@@ -4240,8 +4511,9 @@ func TestRestoreSelectsLeaderBlob(t *testing.T) {
 	userBlob := []byte(`{"Version":0,"Data":{"Users":{"alice":{"Id":"alice"}}}}`)
 
 	// nodeBlobs maps a node name to the RBAC blob its own descriptor carries.
+	// carried is the global descriptor's built-in role assignments.
 	type skip struct{ users, roles bool }
-	drive := func(t *testing.T, leader string, nodeBlobs map[string][]byte, nilListers bool, sk skip) []rolesAndUsersCall {
+	drive := func(t *testing.T, leader string, nodeBlobs map[string][]byte, nilListers bool, sk skip, carried []byte) []rolesAndUsersCall {
 		t.Helper()
 		backupID := "pick-blob"
 		nodes := make([]string, 0, len(nodeBlobs))
@@ -4257,7 +4529,7 @@ func TestRestoreSelectsLeaderBlob(t *testing.T) {
 		meta := backup.DistributedBackupDescriptor{
 			ID: backupID, StartedAt: time.Now().UTC(), Version: Version,
 			ServerVersion: "1.23", Status: backup.Success, Leader: leader, Nodes: descNodes,
-			SkipUsers: sk.users, SkipRoles: sk.roles,
+			SkipUsers: sk.users, SkipRoles: sk.roles, BuiltInRoleAssignments: carried,
 		}
 
 		fs := newFakeScheduler(newFakeNodeResolver(nodes))
@@ -4296,36 +4568,56 @@ func TestRestoreSelectsLeaderBlob(t *testing.T) {
 	}
 
 	t.Run("the leader's snapshots are the ones applied", func(t *testing.T) {
-		calls := drive(t, "Node-B", map[string][]byte{"Node-A": blobA, "Node-B": blobB}, false, skip{})
+		calls := drive(t, "Node-B", map[string][]byte{"Node-A": blobA, "Node-B": blobB}, false, skip{}, nil)
 		require.Len(t, calls, 1)
 		assert.Equal(t, blobB, calls[0].roles)
 		assert.Equal(t, userBlob, calls[0].users)
 	})
 
 	t.Run("subsystems disabled: no blob and no entry", func(t *testing.T) {
-		calls := drive(t, "Node-A", map[string][]byte{"Node-A": blobA}, true, skip{})
+		calls := drive(t, "Node-A", map[string][]byte{"Node-A": blobA}, true, skip{}, nil)
 		assert.Empty(t, calls, "a nil lister means the subsystem is off on this cluster")
 	})
 
 	// The node uploaded blobs the descriptor says were never selected, as a
 	// participant without the request-level skip flag does.
 	t.Run("descriptor skip discards the users blob", func(t *testing.T) {
-		calls := drive(t, "Node-A", map[string][]byte{"Node-A": blobA}, false, skip{users: true})
+		calls := drive(t, "Node-A", map[string][]byte{"Node-A": blobA}, false, skip{users: true}, nil)
 		require.Len(t, calls, 1)
 		assert.Equal(t, blobA, calls[0].roles)
 		assert.Empty(t, calls[0].users)
 	})
 
 	t.Run("descriptor skip discards the roles blob", func(t *testing.T) {
-		calls := drive(t, "Node-A", map[string][]byte{"Node-A": blobA}, false, skip{roles: true})
+		calls := drive(t, "Node-A", map[string][]byte{"Node-A": blobA}, false, skip{roles: true}, nil)
 		require.Len(t, calls, 1)
 		assert.Empty(t, calls[0].roles)
 		assert.Equal(t, userBlob, calls[0].users)
 	})
 
 	t.Run("descriptor skip on both: no entry", func(t *testing.T) {
-		calls := drive(t, "Node-A", map[string][]byte{"Node-A": blobA}, false, skip{users: true, roles: true})
+		calls := drive(t, "Node-A", map[string][]byte{"Node-A": blobA}, false, skip{users: true, roles: true}, nil)
 		assert.Empty(t, calls)
+	})
+
+	carried := []byte(`{"version":1,"grouping_policies":[["db:alice","role:admin"]]}`)
+
+	// The node's blob is discarded and the carried one is applied in its place.
+	t.Run("a SkipRoles backup applies the carried assignments", func(t *testing.T) {
+		calls := drive(t, "Node-A", map[string][]byte{"Node-A": blobA}, false, skip{roles: true}, carried)
+		require.Len(t, calls, 1)
+		assert.Equal(t, carried, calls[0].roles)
+		assert.Equal(t, userBlob, calls[0].users)
+	})
+
+	t.Run("a custom-role blob is merged with the carried assignments", func(t *testing.T) {
+		calls := drive(t, "Node-A", map[string][]byte{"Node-A": blobA}, false, skip{}, carried)
+		require.Len(t, calls, 1)
+		assert.JSONEq(t, `{
+			"version": 1,
+			"roles_policies": [["role:a","*","R","*"]],
+			"grouping_policies": [["db:alice","role:admin"]]
+		}`, string(calls[0].roles))
 	})
 
 	t.Run("class-less restore performs no authorization call", func(t *testing.T) {

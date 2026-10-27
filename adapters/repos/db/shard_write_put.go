@@ -241,7 +241,12 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 
 	for targetVector, vector := range obj.Vectors {
 		if vectorIndex, ok := s.GetVectorIndex(targetVector); ok {
-			if err := vectorIndex.ValidateBeforeInsert(vector); err != nil {
+			err = checkVectorKind(vectorIndex, targetVector, false)
+			if err != nil {
+				return status, errors.Wrapf(err, "Validate vector index %s for target vector %s", targetVector, obj.ID())
+			}
+			err = vectorIndex.ValidateBeforeInsert(vector)
+			if err != nil {
 				return status, errors.Wrapf(err, "Validate vector index %s for target vector %s", targetVector, obj.ID())
 			}
 		}
@@ -249,7 +254,12 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 
 	for targetVector, vector := range obj.MultiVectors {
 		if vectorIndex, ok := s.GetVectorIndex(targetVector); ok {
-			if err := vectorIndex.(VectorIndexMulti).ValidateMultiBeforeInsert(vector); err != nil {
+			multiIndex, err := asMultiVectorIndex(vectorIndex, targetVector)
+			if err != nil {
+				return status, errors.Wrapf(err, "Validate vector index %s for target multi vector %s", targetVector, obj.ID())
+			}
+			err = multiIndex.ValidateMultiBeforeInsert(vector)
+			if err != nil {
 				return status, errors.Wrapf(err, "Validate vector index %s for target multi vector %s", targetVector, obj.ID())
 			}
 		}
@@ -258,6 +268,9 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 	if len(obj.Vector) > 0 && s.hasLegacyVectorIndex() {
 		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
 		if index, ok := s.GetVectorIndex(""); ok {
+			if err = checkVectorKind(index, "", false); err != nil {
+				return status, errors.Wrapf(err, "Validate vector index for %s", obj.ID())
+			}
 			if err = index.ValidateBeforeInsert(obj.Vector); err != nil {
 				return status, errors.Wrapf(err, "Validate vector index for %s", obj.ID())
 			}

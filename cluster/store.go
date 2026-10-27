@@ -210,8 +210,13 @@ type Config struct {
 	// unlimited), enforced pre-commit on the leader.
 	MaxTenantsPerCollection *runtime.DynamicValue[int]
 
+	// MaxCollections caps collections per namespace, or in total on a
+	// non-namespaced cluster (nil/negative = unlimited), enforced pre-commit on
+	// the leader.
+	MaxCollections *runtime.DynamicValue[int]
+
 	// UsageLimitsErrorMessage (USAGE_LIMITS_ERROR_MESSAGE) is rendered into the
-	// tenant-cap rejection, matching the handler fast-path.
+	// tenant-cap and collection-cap rejections, matching the handler fast-path.
 	UsageLimitsErrorMessage *runtime.DynamicValue[string]
 
 	// Replica-movement cleanup knobs. The sweeper re-reads them every tick, so
@@ -300,6 +305,11 @@ type Store struct {
 	// pre-commit tenant-cap check cannot race the apply that increments the count.
 	tenantAddLocks *entsync.KeyLocker
 
+	// collectionAddLocks serializes AddClass per namespace on the leader so the
+	// pre-commit collection-cap check cannot race the apply that increments the
+	// count.
+	collectionAddLocks *entsync.KeyLocker
+
 	// authZController is the authz controller for the store
 	authZController authorization.Controller
 
@@ -375,12 +385,16 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 	schemaManager.SetMetadataOnly(cfg.MetadataOnlyVoters)
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
+	errTemplate := func() string { return "" }
+	if t := cfg.UsageLimitsErrorMessage; t != nil {
+		errTemplate = t.Get
+	}
 	if dv := cfg.MaxTenantsPerCollection; dv != nil {
-		errTemplate := func() string { return "" }
-		if t := cfg.UsageLimitsErrorMessage; t != nil {
-			errTemplate = t.Get
-		}
 		schemaManager.SetTenantLimit(dv.Get, errTemplate)
+	}
+	// Guarded: a nil DynamicValue's Get returns 0, which would cap at zero.
+	if dv := cfg.MaxCollections; dv != nil {
+		schemaManager.SetCollectionLimit(dv.Get, errTemplate)
 	}
 
 	// Two-way wiring: mutation-guard (prevents schema↔reindex races) and
@@ -431,6 +445,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 		}),
 		schemaManager:           schemaManager,
 		tenantAddLocks:          entsync.NewKeyLocker(),
+		collectionAddLocks:      entsync.NewKeyLocker(),
 		authZController:         authZController,
 		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, cfg.Logger),
 		dynUserManager:          dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),

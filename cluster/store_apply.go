@@ -41,11 +41,19 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.tenantAddLocks.Unlock(req.Class)
 	}
 
+	// Serialize AddClass per namespace for the same reason, keyed by the
+	// namespace the collection cap counts against.
+	if req.Type == api.ApplyRequest_TYPE_ADD_CLASS && st.schemaManager.CollectionLimitEnforced() {
+		ns := namespacing.NamespaceFromQualified(req.Class)
+		st.collectionAddLocks.Lock(ns)
+		defer st.collectionAddLocks.Unlock(ns)
+	}
+
 	// PreApplyFilter below judges against in-memory FSM state, so a leader that
-	// has not drained what it inherited must not judge yet. After the tenant
-	// lock, not before: that lock is held across the apply, so a caller can wait
-	// on it long enough for leadership to turn over, and a term confirmed before
-	// the wait says nothing about the term it wakes up in.
+	// has not drained what it inherited must not judge yet. After the tenant and
+	// collection locks, not before: each is held across the apply, so a caller
+	// can wait on it long enough for leadership to turn over, and a term
+	// confirmed before the wait says nothing about the term it wakes up in.
 	if err := st.waitLeaderFSMCaughtUp(); err != nil {
 		return 0, err
 	}

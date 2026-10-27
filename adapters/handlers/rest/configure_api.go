@@ -483,6 +483,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		MaxImportGoroutinesFactor:           appState.ServerConfig.Config.MaxImportGoroutinesFactor,
 		TrackVectorDimensions:               appState.ServerConfig.Config.TrackVectorDimensions || appState.Modules.UsageEnabled(),
 		TrackVectorDimensionsInterval:       appState.ServerConfig.Config.TrackVectorDimensionsInterval,
+		MigrateDimensionsToRoaringSet:       appState.ServerConfig.Config.ReindexVectorDimensionsToRoaringsetAtStartup,
+		ReindexVectorDimensions:             appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup,
 		UsageEnabled:                        appState.Modules.UsageEnabled(),
 		ResourceUsage:                       appState.ServerConfig.Config.ResourceUsage,
 		AvoidMMap:                           appState.ServerConfig.Config.AvoidMmap,
@@ -687,6 +689,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		},
 		DrainSleep:                             appState.ServerConfig.Config.Raft.DrainSleep.Get(),
 		MaxTenantsPerCollection:                appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection,
+		MaxCollections:                         appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount,
 		UsageLimitsErrorMessage:                appState.ServerConfig.Config.UsageLimits.ErrorMessage,
 		ReplicaMovementCleanupEnabled:          appState.ServerConfig.Config.Replication.ReplicaMovementCleanupEnabled,
 		ReplicaMovementCleanupMaxAge:           appState.ServerConfig.Config.Replication.ReplicaMovementCleanupMaxAge,
@@ -1012,12 +1015,18 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	configureServer = makeConfigureServer(appState)
 
-	// Add dimensions to all the objects in the database, if requested by the user
 	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup && repo.GetConfig().TrackVectorDimensions {
-		appState.Logger.
-			WithField("action", "startup").
-			Info("Reindexing dimensions")
-		migrator.RecalculateVectorDimensions(ctx)
+		enterrors.GoWrapper(func() {
+			l := appState.Logger.WithField("action", "startup")
+			if err := metaStoreReady.waitForMetaStore(); err != nil {
+				l.Errorf("Reindexing dimensions not reported: %v", err)
+				return
+			}
+			if err := migrator.ReportVectorDimensionsReindex(serverShutdownCtx); err != nil {
+				l.Errorf("Reindexing dimensions incomplete, keep environment variable "+
+					"REINDEX_VECTOR_DIMENSIONS_AT_STARTUP set: %v", err)
+			}
+		}, appState.Logger)
 	}
 
 	// Add recount properties of all the objects in the database, if requested by the user
@@ -1520,6 +1529,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	setupMiddlewares := makeSetupMiddlewares(appState)
+	// nothing else polls the readiness check, so time to ready is measured here
+	enterrors.GoWrapper(func() {
+		monitoring.GetStartupMetrics().TrackReady(serverShutdownCtx,
+			func() bool { return nodeReady(appState) }, readyPollInterval)
+	}, appState.Logger)
+
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context(), telemeter)
 	if telemetryEnabled(appState) {
 		enterrors.GoWrapper(func() {
