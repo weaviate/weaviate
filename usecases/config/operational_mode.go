@@ -17,6 +17,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
 var (
@@ -69,7 +70,10 @@ func IsHTTPWrite(method string) bool {
 func IsGRPCRead(method string) bool {
 	return method == protocol.Weaviate_Search_FullMethodName ||
 		method == protocol.Weaviate_Aggregate_FullMethodName ||
-		method == protocol.Weaviate_TenantsGet_FullMethodName
+		method == protocol.Weaviate_TenantsGet_FullMethodName ||
+		method == grpc_health_v1.Health_Check_FullMethodName ||
+		method == grpc_health_v1.Health_Watch_FullMethodName ||
+		method == grpc_health_v1.Health_List_FullMethodName
 }
 
 func IsGRPCWrite(method string) bool {
