@@ -58,6 +58,7 @@ type hnswCommitLogger struct {
 
 	// Config
 	maxSizeIndividual int64
+	nodeIDsAreDocIDs  func() bool
 }
 
 func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
@@ -110,6 +111,7 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 	// Create compactor for maintenance
 	compactorCfg := compact.DefaultCompactorConfig(dir)
 	compactorCfg.FS = l.fs
+	compactorCfg.NodeIDsAreDocIDs = l.nodeIDsAreDocIDs
 	l.compactor = compact.NewCompactor(compactorCfg, logger)
 
 	return l, nil

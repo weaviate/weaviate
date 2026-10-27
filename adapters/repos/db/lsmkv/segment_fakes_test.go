@@ -21,6 +21,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/bloomhash"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
@@ -351,7 +352,7 @@ func (f *fakeSegment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
 	panic("not implemented")
 }
 
-func (f *fakeSegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool) (*sroar.Bitmap, func(), error) {
+func (f *fakeSegment) roaringSetGet(key []byte, h bloomhash.Hash, bitmapBufPool roaringset.BitmapBufPool) (*sroar.Bitmap, func(), error) {
 	f.getCounter++
 	if f.strategy != segmentindex.StrategyRoaringSet {
 		return nil, nil, fmt.Errorf("not a roaring set segment")
@@ -367,12 +368,12 @@ func (f *fakeSegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapB
 	return nil, nil, lsmkv.NotFound
 }
 
-func (f *fakeSegment) roaringSetMergeWith(key []byte, additions *sroar.Bitmap, bitmapBufPool roaringset.BitmapBufPool, maxConc int) error {
+func (f *fakeSegment) roaringSetMergeWith(key []byte, h bloomhash.Hash, additions *sroar.Bitmap, bitmapBufPool roaringset.BitmapBufPool, maxConc int) error {
 	f.getCounter++
 	if f.roaringSetMergeErr != nil {
 		return f.roaringSetMergeErr
 	}
-	bm, _, err := f.roaringSetGet(key, bitmapBufPool)
+	bm, _, err := f.roaringSetGet(key, h, bitmapBufPool)
 	if err != nil {
 		if errors.Is(err, lsmkv.NotFound) {
 			return nil

@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/concurrency/testinghelpers"
@@ -345,6 +346,29 @@ func TestCombinedReaderInnerReaders(t *testing.T) {
 		assert.Equal(t, 0, innerReader2.InUseCounter())
 		assert.Equal(t, 0, innerReader3.InUseCounter())
 	})
+}
+
+// A ContainsAny on a rangeable-only property reads once per value, so its slow-query record must stay bounded.
+func TestCombinedReader_SlowLogIsBounded(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	reader := NewCombinedReader([]InnerReader{
+		newFakeInnerReader(roaringset.NewBitmap(1), nil, nil),
+		newFakeInnerReader(roaringset.NewBitmap(2), nil, nil),
+	}, func() {}, 4, logger)
+
+	ctx := helpers.InitSlowQueryDetails(context.Background())
+	reads := 20
+	for i := range reads {
+		_, release, err := reader.Read(ctx, uint64(i), filters.OperatorEqual)
+		require.NoError(t, err)
+		release()
+	}
+
+	summary, ok := helpers.ExtractSlowQueryDetails(ctx)["build_allow_list_doc_bitmap_rangeable"].(helpers.SlowestEntries)
+	require.True(t, ok, "the record must carry the summary, not one entry per read")
+	require.Equal(t, reads, summary.Count)
+	require.NotEmpty(t, summary.Slowest)
+	require.Less(t, len(summary.Slowest), reads)
 }
 
 // cloningInnerReader returns a fresh clone of its additions on every Read, so
