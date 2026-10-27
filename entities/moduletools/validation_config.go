@@ -20,6 +20,7 @@ type ValidationClassConfig struct {
 	invalid error
 }
 
+// NewValidationClassConfig wraps the class config a module validates.
 func NewValidationClassConfig(cfg ClassConfig) *ValidationClassConfig {
 	return &ValidationClassConfig{ClassConfig: cfg}
 }

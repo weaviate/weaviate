@@ -34,11 +34,15 @@ func TestIntegralValue(t *testing.T) {
 		{number: "1024.0", want: 1024, ok: true},
 		{number: "1e3", want: 1000, ok: true},
 		{number: "-2.0", want: -2, ok: true},
-		{number: "9223372036854775807", want: 9223372036854775807, ok: true},
+		{number: "9007199254740991", want: 9007199254740991, ok: true},
+		{number: "-9007199254740991", want: -9007199254740991, ok: true},
 		{number: "100.5"},
 		{number: "0.1"},
 		{number: "1e-3"},
-		// Too large for a float64 to hold the integer exactly.
+		// Too large for a float64 to hold the integer exactly, however written.
+		{number: "9007199254740992"},
+		{number: "-9007199254740992"},
+		{number: "9223372036854775807"},
 		{number: "9007199254740993.0"},
 		{number: "1e400"},
 		{number: "abc"},
@@ -176,8 +180,11 @@ func TestIntegerSettingErrorOutOfRange(t *testing.T) {
 		number  string
 		wantErr string
 	}{
-		// Written as an integer, it is read exactly beyond 2^53.
-		{number: "9223372036854775807"},
+		// The class stores a float64, which holds an integer exactly only
+		// below 2^53, however it is written.
+		{number: "9007199254740991"},
+		{number: "9007199254740992", wantErr: "dimensions is out of range, got 9007199254740992"},
+		{number: "9223372036854775807", wantErr: "dimensions is out of range, got 9223372036854775807"},
 		{number: "1e16", wantErr: "dimensions is out of range, got 1e16"},
 		{number: "99999999999999999999", wantErr: "dimensions is out of range, got 99999999999999999999"},
 		{number: "1e400", wantErr: "dimensions is out of range, got 1e400"},

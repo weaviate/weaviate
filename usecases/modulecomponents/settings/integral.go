@@ -22,7 +22,8 @@ import (
 )
 
 // integerSettingError returns an error when an int setting of a new class
-// was given a number with a fraction, or one too large to read as an int.
+// was given a number with a fraction, or one the stored float64 cannot hold
+// exactly.
 //
 // Only a json.Number is checked: that is how the REST API decodes the
 // numbers of a new class. A class read back from the schema or from a backup
@@ -79,13 +80,19 @@ func (h *classPropertyValuesHelper) ValidateIntegers(cfg moduletools.ClassConfig
 	return nil
 }
 
-// maxExactInt is the float64 below which every integer is exact.
+// maxExactInt is the float64 below which every integer is exact. A class
+// stores its settings as float64, so an int at or beyond it is out of range
+// however it is written.
 const maxExactInt = 1 << 53
 
 // integralValue returns the integer a number stands for, written as an
-// integer ("1024") or as a float without a fraction ("1024.0", "1e3").
+// integer ("1024") or as a float without a fraction ("1024.0", "1e3"), when
+// a float64 holds it exactly.
 func integralValue(number json.Number) (int64, bool) {
 	if asInt, err := number.Int64(); err == nil {
+		if asInt >= maxExactInt || asInt <= -maxExactInt {
+			return 0, false
+		}
 		return asInt, true
 	}
 	asFloat, err := number.Float64()

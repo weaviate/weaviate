@@ -124,7 +124,11 @@ func TestIntSettingsRejectAFractionOnClassCreate(t *testing.T) {
 	}
 	for _, c := range cases {
 		for _, setting := range c.settings {
-			t.Run(c.module.Name()+"/"+setting, func(t *testing.T) {
+			name := c.module.Name() + "/" + setting
+			if model, ok := c.extra["model"].(string); ok {
+				name += "/" + model
+			}
+			t.Run(name, func(t *testing.T) {
 				assertIntSetting(t, c.module, setting, c.extra)
 			})
 		}
