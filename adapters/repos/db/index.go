@@ -619,7 +619,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 			withDirs = append(withDirs, shard.name)
 		}
 	}
-	i.prepareDimensionsOfShards(ctx, class, withDirs)
+	i.rebuildShardsBeforeLoad(ctx, class, withDirs)
 
 	hotShardNames := make([]string, 0, len(localShards))
 
@@ -940,25 +940,6 @@ func (i *Index) maintenanceModeEnabled() bool {
 	return i.Config.MaintenanceModeEnabled != nil && i.Config.MaintenanceModeEnabled()
 }
 
-// Iterate over all objects in the index, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
-func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard ShardLike, object *storobj.Object) error) (err error) {
-	return i.ForEachShard(func(_ string, shard ShardLike) error {
-		wrapper := func(object *storobj.Object) error {
-			return cb(i, shard, object)
-		}
-		// pinned for the whole iteration: the cursor underneath reads the
-		// bucket's segments, and an unpinned pointer can be shut down between
-		// the lookup and the scan
-		bucket, release := shard.Store().AcquireBucketForRead(helpers.ObjectsBucketLSM)
-		if bucket == nil {
-			return fmt.Errorf("objects bucket of shard %q: %w", shard.Name(), lsmkv.ErrBucketNotFound)
-		}
-		defer release()
-
-		return bucket.IterateObjects(ctx, wrapper)
-	})
-}
-
 // cancelOnCloseRequested derives a context cancelled on close request, so a teardown
 // does not wait behind a lock the caller holds. Call the returned func when done.
 // The derived context is cancelled with the same cause, so a caller can tell a
@@ -1121,13 +1102,6 @@ func (i *Index) ForEachLoadedShardConcurrently(f func(name string, shard ShardLi
 			return nil
 		}
 		return f(name, shard)
-	})
-}
-
-// Iterate over all objects in the shard, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
-func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard ShardLike) error) (err error) {
-	return i.ForEachShard(func(key string, shard ShardLike) error {
-		return cb(i, shard)
 	})
 }
 
@@ -1509,7 +1483,8 @@ type IndexConfig struct {
 	TrackVectorDimensions               bool
 	TrackVectorDimensionsInterval       time.Duration
 	MigrateDimensionsToRoaringSet       bool
-	DimensionsReindex                   *dimensionsReindex
+	DimensionsReindex                   *startupRebuild
+	PropertyLengthsRecount              *startupRebuild
 	UsageEnabled                        bool
 	ShardLoadLimiter                    *loadlimiter.LoadLimiter
 	StartupShards                       *startupShardCounters
@@ -3832,6 +3807,7 @@ func (i *Index) drop() error {
 		return err
 	}
 	i.Config.DimensionsReindex.forget(i.ID())
+	i.Config.PropertyLengthsRecount.forget(i.ID())
 
 	// Check if a backup is in progress. Dont delete files in this case so the backup process can complete successfully
 	// The files will be deleted after the backup is completed and in case of a crash on next startup.
@@ -3995,6 +3971,7 @@ func (i *Index) dropShards(names []string) error {
 
 	i.purgeUnloadedShardRegistry(unloadedNames)
 	i.Config.DimensionsReindex.forget(i.ID(), names...)
+	i.Config.PropertyLengthsRecount.forget(i.ID(), names...)
 
 	return ec.ToErrorLimited(maxReportedErrors)
 }

@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -37,6 +38,9 @@ import (
 // schema, so the assertion holds however fast the load finishes. The periodic
 // "loading local DB from schema" line needs a load slower than its 5s ticker
 // and is left unasserted.
+//
+// The node also recounts property lengths at startup, which must count the
+// objects of every shard.
 func TestStartupProgressLogsShardLoading(t *testing.T) {
 	ctx := context.Background()
 
@@ -54,6 +58,7 @@ func TestStartupProgressLogsShardLoading(t *testing.T) {
 		// eager loading so every shard counts.
 		WithWeaviateEnv("DISABLE_LAZY_LOAD_SHARDS", "true").
 		WithWeaviateEnv("PROMETHEUS_MONITORING_ENABLED", "true").
+		WithWeaviateEnv("RECOUNT_PROPERTIES_AT_STARTUP", "true").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -99,12 +104,15 @@ func TestStartupProgressLogsShardLoading(t *testing.T) {
 
 	assertStartupMetrics(t, ctx, compose, classCount*tenantsPerClass)
 
-	reader, err := compose.GetWeaviate().Container().Logs(ctx)
-	require.NoError(t, err)
-	defer reader.Close()
-	raw, err := io.ReadAll(reader)
-	require.NoError(t, err)
-	logs := string(raw)
+	readLogs := func(t require.TestingT) string {
+		reader, err := compose.GetWeaviate().Container().Logs(ctx)
+		require.NoError(t, err)
+		defer reader.Close()
+		raw, err := io.ReadAll(reader)
+		require.NoError(t, err)
+		return string(raw)
+	}
+	logs := readLogs(t)
 
 	require.Contains(t, logs, "local DB loaded from schema",
 		"the reload's progress tracker must report the load")
@@ -118,6 +126,20 @@ func TestStartupProgressLogsShardLoading(t *testing.T) {
 		strings.Contains(logs, "progress=100%") ||
 			strings.Contains(logs, `"progress":"100%"`),
 		"the final progress line must report 100%%, logs:\n%s", tail(logs, 40))
+
+	// reported once the shards have loaded, after the restart returns
+	objects := classCount * tenantsPerClass * objectsPerTenant
+	objectsField := regexp.MustCompile(fmt.Sprintf(`\bobjects"?[=:]%d\b`, objects))
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		logs := readLogs(c)
+		var recounted bool
+		for _, line := range strings.Split(logs, "\n") {
+			if strings.Contains(line, "Recounting property lengths complete") && objectsField.MatchString(line) {
+				recounted = true
+			}
+		}
+		assert.True(c, recounted, "the recount must count all %d objects, logs:\n%s", objects, tail(logs, 40))
+	}, time.Minute, time.Second)
 }
 
 func tail(logs string, n int) string {
