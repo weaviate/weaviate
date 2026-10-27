@@ -367,8 +367,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 
 	// Authorize the blobs this restore applies before validateNamespaceStripping
 	// and validateNamespaceReferences parse them, because their errors name the
-	// users and roles inside. The kind wildcards run first, so a caller without
-	// them never reaches a blob decode.
+	// users and roles inside.
 	if err := s.authorizeResources(ctx, pr, authorization.CREATE, restorePrincipalResources(meta)); err != nil {
 		return nil, err
 	}
