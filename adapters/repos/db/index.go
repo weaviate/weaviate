@@ -3776,9 +3776,10 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) (ShardUn
 	return i.unloadLocalShard(ctx, shardName, false)
 }
 
-// unloadLocalShard with keepRecovering returns recovering for a self-recovery
-// placeholder, checked under the create lock that promotion takes.
-func (i *Index) unloadLocalShard(ctx context.Context, shardName string, keepRecovering bool) (ShardUnloadOutcome, error) {
+// unloadLocalShard with forSweep, which DB.UnloadShard passes for the suspend
+// sweep, returns recovering for a self-recovery placeholder, checked under the
+// create lock that promotion takes.
+func (i *Index) unloadLocalShard(ctx context.Context, shardName string, forSweep bool) (ShardUnloadOutcome, error) {
 	// enterRead refuses only after beginClose, so a refusal means the index is closing.
 	if err := i.enterRead(); err != nil {
 		return ShardUnloadOutcomeIndexClosing, fmt.Errorf("%w: %w", ErrIndexClosing, err)
@@ -3788,7 +3789,7 @@ func (i *Index) unloadLocalShard(ctx context.Context, shardName string, keepReco
 	i.shardCreateLocks.Lock(shardName)
 	defer i.shardCreateLocks.Unlock(shardName)
 
-	if rec, ok := i.shards.Load(shardName).(*RecoveringShard); ok && keepRecovering && rec.IsRecovering() {
+	if rec, ok := i.shards.Load(shardName).(*RecoveringShard); ok && forSweep && rec.IsRecovering() {
 		return ShardUnloadOutcomeRecovering, fmt.Errorf("shard %q: %w", shardName, enterrors.ErrShardRecovering)
 	}
 
