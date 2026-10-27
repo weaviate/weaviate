@@ -35,45 +35,21 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-// prepareDimensionsOfShards migrates or rebuilds the dimensions buckets of active and
-// cold shards before they load, without loading them. A failed shard is retried at load.
-func (i *Index) prepareDimensionsOfShards(ctx context.Context, class *models.Class, shardNames []string) {
-	reindex := i.Config.DimensionsReindex
-	if !i.Config.TrackVectorDimensions || len(shardNames) == 0 ||
-		(!i.Config.MigrateDimensionsToRoaringSet && (reindex == nil || !reindex.enabled)) {
-		return
-	}
+// prepareShardDimensions migrates the dimensions bucket of a shard that is not loaded,
+// if asked to. It reports whether the dimensions of the shard are to be reindexed.
+func (i *Index) prepareShardDimensions(ctx context.Context, logger logrus.FieldLogger, name string) bool {
+	reindex := i.Config.DimensionsReindex.pending(i.ID(), name)
 
-	i.rebuildShardsBeforeLoad(ctx, "prepare_dimensions", "dimensions buckets prepared", shardNames,
-		func(logger logrus.FieldLogger, name string) { i.prepareShardDimensions(ctx, logger, class, name) })
-}
-
-func (i *Index) prepareShardDimensions(ctx context.Context, logger logrus.FieldLogger, class *models.Class, name string) {
-	reindex := i.Config.DimensionsReindex
-	rebuild := reindex.pending(i.ID(), name)
-
-	// a rebuild writes a RoaringSet bucket anyway
-	migrated, err := i.prepareUnloadedDimensionsBucket(ctx, name, i.Config.MigrateDimensionsToRoaringSet && !rebuild)
+	// a reindex writes a RoaringSet bucket anyway
+	migrated, err := i.prepareUnloadedDimensionsBucket(ctx, name, i.Config.MigrateDimensionsToRoaringSet && !reindex)
 	if err != nil {
 		logger.Errorf("could not prepare dimensions: %v", err)
-		return
+		return false
 	}
 	if migrated {
 		i.removeComputedUsage(logger, name)
 	}
-	if !rebuild {
-		return
-	}
-
-	start := time.Now()
-	objects, err := i.rebuildUnloadedShardDimensions(ctx, class, name)
-	reindex.record(i.ID(), name, objects, err == nil)
-	if err != nil {
-		logger.Errorf("could not reindex dimensions: %v", err)
-		return
-	}
-	i.removeComputedUsage(logger, name)
-	logger.WithField("objects", objects).WithField("took", time.Since(start)).Info("dimensions reindexed")
+	return reindex
 }
 
 func (i *Index) prepareUnloadedDimensionsBucket(ctx context.Context, name string, migrate bool) (bool, error) {
@@ -92,18 +68,42 @@ func (i *Index) removeComputedUsage(logger logrus.FieldLogger, name string) {
 	}
 }
 
-// rebuildUnloadedShardDimensions rebuilds on a shard with only the objects and
-// dimensions buckets open.
-func (i *Index) rebuildUnloadedShardDimensions(ctx context.Context, class *models.Class, name string) (int, error) {
-	if i.unloadedShardIsEmpty(name) {
-		return 0, nil
+// unloadedDimensionsReindex reindexes the dimensions of a shard before it loads.
+type unloadedDimensionsReindex struct {
+	index   *Index
+	name    string
+	logger  logrus.FieldLogger
+	rebuild *dimensionsRebuild
+}
+
+func (r *unloadedDimensionsReindex) empty() error {
+	return nil
+}
+
+func (r *unloadedDimensionsReindex) begin(ctx context.Context, s *Shard) (objectsVisitor, error) {
+	if err := s.loadDimensionsBucket(ctx, helpers.DimensionsBucketLSM); err != nil {
+		return nil, err
 	}
-	return i.rebuildUnloadedShard(ctx, class, name, func(s *Shard) (int, error) {
-		if err := s.loadDimensionsBucket(ctx, helpers.DimensionsBucketLSM); err != nil {
-			return 0, err
-		}
-		return s.recalculateDimensions(ctx)
-	})
+	rebuild, err := s.beginDimensionsRebuild(ctx)
+	if err != nil {
+		return nil, err
+	}
+	r.rebuild = rebuild
+	return rebuild, nil
+}
+
+func (r *unloadedDimensionsReindex) end(ctx context.Context, walkErr error) error {
+	return r.rebuild.end(ctx, walkErr)
+}
+
+func (r *unloadedDimensionsReindex) conclude(objects int, took time.Duration, err error) {
+	r.index.Config.DimensionsReindex.record(r.index.ID(), r.name, objects, err == nil)
+	if err != nil {
+		r.logger.Errorf("could not reindex dimensions: %v", err)
+		return
+	}
+	r.index.removeComputedUsage(r.logger, r.name)
+	r.logger.WithField("objects", objects).WithField("took", took).Info("dimensions reindexed")
 }
 
 // openUnloadedShard opens only the objects bucket of a shard that is not loaded,
@@ -187,41 +187,35 @@ func (s *Shard) reindexDimensionsOnLoad(ctx context.Context) error {
 }
 
 // recalculateDimensions must not run while the shard serves.
-func (s *Shard) recalculateDimensions(ctx context.Context) (objects int, err error) {
-	// a usage scan of the unloaded shard runs migration recovery, which removes a
-	// replacement bucket that has no bucket moved aside next to it
-	unlock, err := shardusage.LockUnloadedDimensionsBucket(ctx, s.index.path(), s.name)
+func (s *Shard) recalculateDimensions(ctx context.Context) (int, error) {
+	rebuild, err := s.beginDimensionsRebuild(ctx)
 	if err != nil {
 		return 0, err
 	}
-	defer unlock()
-
-	rows, objects, err := s.scanObjectDimensions(ctx)
-	if err != nil {
-		return 0, err
-	}
-	// not to be interrupted from here on: a switch given up halfway has to be rolled back
-	ctx = context.WithoutCancel(ctx)
-	name, err := s.createDimensionsReplacement(ctx)
-	if err != nil {
-		return 0, err
-	}
-	if err := s.replaceDimensionsBucket(ctx, name, rows); err != nil {
+	objects, errs := s.walkObjects(ctx, rebuild)
+	if err := rebuild.end(ctx, errs[0]); err != nil {
 		return 0, err
 	}
 	return objects, nil
 }
 
-func (s *Shard) scanObjectDimensions(ctx context.Context) (_ dimensionsRows, _ int, err error) {
-	// a corrupt segment makes the cursor panic; the scan only reads
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("scan objects of shard %q: panic: %v", s.ID(), r)
-		}
-	}()
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	if bucket == nil {
-		return nil, 0, fmt.Errorf("objects bucket of shard %q: %w", s.ID(), lsmkv.ErrBucketNotFound)
+// dimensionsRebuild collects the dimensions of the objects of a shard, to replace its
+// dimensions bucket with.
+type dimensionsRebuild struct {
+	shard  *Shard
+	unlock func()
+	decode additional.Properties
+	rows   dimensionsRows
+	key    []byte
+}
+
+// beginDimensionsRebuild keeps usage scans of the unloaded shard out until end. A
+// usage scan runs migration recovery, which removes a replacement bucket that has no
+// bucket moved aside next to it.
+func (s *Shard) beginDimensionsRebuild(ctx context.Context) (*dimensionsRebuild, error) {
+	unlock, err := shardusage.LockUnloadedDimensionsBucket(ctx, s.index.path(), s.name)
+	if err != nil {
+		return nil, err
 	}
 
 	// the legacy vector's length is kept regardless
@@ -231,46 +225,58 @@ func (s *Shard) scanObjectDimensions(ctx context.Context) (_ dimensionsRows, _ i
 			namedVectors = append(namedVectors, targetVector)
 		}
 	}
-	decode := additional.Properties{NoProps: true, Vectors: namedVectors}
-	className := s.index.Config.ClassName.String()
+	return &dimensionsRebuild{
+		shard:  s,
+		unlock: unlock,
+		decode: additional.Properties{NoProps: true, Vectors: namedVectors},
+		rows:   dimensionsRows{},
+		key:    make([]byte, 0, 64),
+	}, nil
+}
 
-	rows := dimensionsRows{}
-	objects := 0
-	key := make([]byte, 0, 64)
-	track := func(targetVector string, dims int, docID uint64) {
-		key = append(key[:0], targetVector...)
-		key = binary.LittleEndian.AppendUint32(key, uint32(dims))
-		rows.set(key, docID)
+func (d *dimensionsRebuild) decodeOptions() additional.Properties {
+	return d.decode
+}
+
+// visit tracks the vectors as [storobj.Object.IterateThroughVectorDimensions] does for
+// a fully decoded object.
+func (d *dimensionsRebuild) visit(object *storobj.Object) error {
+	if object.VectorLen > 0 {
+		d.track("", object.VectorLen, object.DocID)
 	}
-
-	cursor := bucket.Cursor()
-	defer cursor.Close()
-	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-		if objects%1000 == 0 && ctx.Err() != nil {
-			return nil, 0, fmt.Errorf("scan objects of shard %q: %w", s.ID(), context.Cause(ctx))
-		}
-		object, err := storobj.FromBinaryOptionalDisk(v, className, decode, nil)
-		if err != nil {
-			return nil, 0, fmt.Errorf("unmarshal object %d of shard %q: %w", objects, s.ID(), err)
-		}
-		objects++
-
-		// as [storobj.Object.IterateThroughVectorDimensions] has it for a fully decoded object
-		if object.VectorLen > 0 {
-			track("", object.VectorLen, object.DocID)
-		}
-		for targetVector, vector := range object.Vectors {
-			track(targetVector, len(vector), object.DocID)
-		}
-		for targetVector, vectors := range object.MultiVectors {
-			dims := 0
-			for _, vector := range vectors {
-				dims += len(vector)
-			}
-			track(targetVector, dims, object.DocID)
-		}
+	for targetVector, vector := range object.Vectors {
+		d.track(targetVector, len(vector), object.DocID)
 	}
-	return rows, objects, nil
+	for targetVector, vectors := range object.MultiVectors {
+		dims := 0
+		for _, vector := range vectors {
+			dims += len(vector)
+		}
+		d.track(targetVector, dims, object.DocID)
+	}
+	return nil
+}
+
+func (d *dimensionsRebuild) track(targetVector string, dims int, docID uint64) {
+	d.key = append(d.key[:0], targetVector...)
+	d.key = binary.LittleEndian.AppendUint32(d.key, uint32(dims))
+	d.rows.set(d.key, docID)
+}
+
+// end replaces the dimensions bucket with what the walk found, unless walkErr is set,
+// and lets usage scans in again.
+func (d *dimensionsRebuild) end(ctx context.Context, walkErr error) error {
+	defer d.unlock()
+	if walkErr != nil {
+		return walkErr
+	}
+	// not to be interrupted from here on: a switch given up halfway has to be rolled back
+	ctx = context.WithoutCancel(ctx)
+	name, err := d.shard.createDimensionsReplacement(ctx)
+	if err != nil {
+		return err
+	}
+	return d.shard.replaceDimensionsBucket(ctx, name, d.rows)
 }
 
 func (s *Shard) createDimensionsReplacement(ctx context.Context) (name string, err error) {

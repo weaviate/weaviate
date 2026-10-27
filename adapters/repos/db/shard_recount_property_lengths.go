@@ -22,11 +22,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -35,56 +32,39 @@ const (
 	propLengthsRecountFile = propLengthsFile + ".recount"
 )
 
-// recountPropertyLengthsOfShards recounts the property lengths of active and cold
-// shards before they load, without loading them. A failed shard is retried at load.
-func (i *Index) recountPropertyLengthsOfShards(ctx context.Context, class *models.Class, shardNames []string) {
-	recount := i.Config.PropertyLengthsRecount
-	if recount == nil || !recount.enabled || len(shardNames) == 0 {
-		return
-	}
-
-	i.logger.WithField("action", "recount_property_lengths").WithField("shards", len(shardNames)).
-		Warn("Recounting property lengths before the shards load. It cannot be cancelled, and " +
-			"runs on every startup while environment variable RECOUNT_PROPERTIES_AT_STARTUP is set")
-	i.rebuildShardsBeforeLoad(ctx, "recount_property_lengths", "property lengths recount before load finished",
-		shardNames, func(logger logrus.FieldLogger, name string) {
-			i.recountUnloadedShardPropertyLengths(ctx, logger, class, name)
-		})
+// unloadedPropertyLengthsRecount recounts the property lengths of a shard before it loads.
+type unloadedPropertyLengthsRecount struct {
+	index     *Index
+	name      string
+	logger    logrus.FieldLogger
+	recounter *propertyLengthsRecounter
 }
 
-func (i *Index) recountUnloadedShardPropertyLengths(ctx context.Context, logger logrus.FieldLogger,
-	class *models.Class, name string,
-) {
-	recount := i.Config.PropertyLengthsRecount
-	if !recount.pending(i.ID(), name) {
-		return
+func (r *unloadedPropertyLengthsRecount) empty() error {
+	if r.recounter.trackerReadable() {
+		return nil
 	}
+	return r.recounter.writeEmpty()
+}
 
-	start := time.Now()
-	objects, err := i.recountUnloadedShard(ctx, class, name)
-	recount.record(i.ID(), name, objects, err == nil)
+func (r *unloadedPropertyLengthsRecount) begin(_ context.Context, s *Shard) (objectsVisitor, error) {
+	return r.recounter, r.recounter.begin(s)
+}
+
+func (r *unloadedPropertyLengthsRecount) end(_ context.Context, walkErr error) error {
+	if err := r.recounter.end(walkErr); err != nil {
+		return err
+	}
+	return r.recounter.replaceTrackerFile()
+}
+
+func (r *unloadedPropertyLengthsRecount) conclude(objects int, took time.Duration, err error) {
+	r.index.Config.PropertyLengthsRecount.record(r.index.ID(), r.name, objects, err == nil)
 	if err != nil {
-		logger.Errorf("could not recount property lengths, retrying when the shard loads: %v", err)
+		r.logger.Errorf("could not recount property lengths, retrying when the shard loads: %v", err)
 		return
 	}
-	logger.WithField("objects", objects).WithField("took", time.Since(start)).Info("property lengths recounted")
-}
-
-func (i *Index) recountUnloadedShard(ctx context.Context, class *models.Class, name string) (int, error) {
-	r := newPropertyLengthsRecounter(shardPath(i.path(), name), i.logger)
-	if i.unloadedShardIsEmpty(name) {
-		if r.trackerReadable() {
-			return 0, nil
-		}
-		return 0, r.writeEmpty()
-	}
-	return i.rebuildUnloadedShard(ctx, class, name, func(s *Shard) (int, error) {
-		objects, err := r.count(ctx, s)
-		if err != nil {
-			return 0, err
-		}
-		return objects, r.replaceTrackerFile()
-	})
+	r.logger.WithField("objects", objects).WithField("took", took).Info("property lengths recounted")
 }
 
 // recountPropertyLengthsOnLoad recounts a shard the recount before load missed. It
@@ -129,6 +109,11 @@ type propertyLengthsRecounter struct {
 	logger      logrus.FieldLogger
 	trackerPath string
 	recountPath string
+
+	// set from begin to end
+	shard    *Shard
+	previous *inverted.JsonShardMetaData
+	tracker  *inverted.JsonShardMetaData
 }
 
 func newPropertyLengthsRecounter(shardPath string, logger logrus.FieldLogger) *propertyLengthsRecounter {
@@ -143,24 +128,41 @@ func newPropertyLengthsRecounter(shardPath string, logger logrus.FieldLogger) *p
 // file, so a failure or a crash halfway leaves the previous ones in place. It
 // returns the number of objects counted.
 func (r *propertyLengthsRecounter) count(ctx context.Context, s *Shard) (int, error) {
+	if err := r.begin(s); err != nil {
+		return 0, err
+	}
+	objects, errs := s.walkObjects(ctx, r)
+	if err := r.end(errs[0]); err != nil {
+		return 0, err
+	}
+	return objects, nil
+}
+
+// begin points the tracker of s at a new recount file, for visit to fill. The shard
+// does not serve yet, so nothing else uses its tracker meanwhile.
+func (r *propertyLengthsRecounter) begin(s *Shard) error {
 	tracker, err := r.createRecountTracker()
 	if err != nil {
-		return 0, err
+		return err
 	}
-
-	// the shard does not serve yet, so nothing else uses its tracker meanwhile
-	previous := s.propLenTracker
+	r.shard, r.previous, r.tracker = s, s.propLenTracker, tracker
 	s.propLenTracker = tracker
-	count, err := r.scan(ctx, s)
-	s.propLenTracker = previous
+	return nil
+}
+
+// end gives the shard its tracker back, and keeps the recount file only if walkErr
+// is nil.
+func (r *propertyLengthsRecounter) end(walkErr error) error {
+	r.shard.propLenTracker = r.previous
+	err := walkErr
 	if err == nil {
-		err = tracker.Close()
+		err = r.tracker.Close()
 	}
 	if err != nil {
-		tracker.Drop(false)
-		return 0, err
+		r.tracker.Drop(false)
+		return err
 	}
-	return count, nil
+	return nil
 }
 
 func (r *propertyLengthsRecounter) createRecountTracker() (*inverted.JsonShardMetaData, error) {
@@ -175,40 +177,20 @@ func (r *propertyLengthsRecounter) createRecountTracker() (*inverted.JsonShardMe
 	return tracker, nil
 }
 
-func (r *propertyLengthsRecounter) scan(ctx context.Context, s *Shard) (count int, err error) {
-	// a corrupt segment makes the cursor panic, which the scan can recover as it only reads
-	defer func() {
-		if p := recover(); p != nil {
-			err = fmt.Errorf("scan objects: panic: %v", p)
-		}
-	}()
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	if bucket == nil {
-		return 0, fmt.Errorf("objects bucket: %w", lsmkv.ErrBucketNotFound)
-	}
-	className := s.index.Config.ClassName.String()
+// decodeOptions leaves out the vectors, as decoding them would take most of the time.
+func (r *propertyLengthsRecounter) decodeOptions() additional.Properties {
+	return additional.Properties{}
+}
 
-	cursor := bucket.Cursor()
-	defer cursor.Close()
-	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-		if ctx.Err() != nil {
-			return 0, fmt.Errorf("scan objects: %w", context.Cause(ctx))
-		}
-		// the vectors are not needed, and decoding them would take most of the time
-		object, err := storobj.FromBinaryOptionalDisk(v, className, additional.Properties{}, nil)
-		if err != nil {
-			return 0, fmt.Errorf("unmarshal object %d: %w", count, err)
-		}
-		props, _, _, err := s.AnalyzeObject(object)
-		if err != nil {
-			return 0, fmt.Errorf("analyze object %s: %w", object.ID(), err)
-		}
-		if err := s.SetPropertyLengths(props); err != nil {
-			return 0, fmt.Errorf("track property lengths of object %s: %w", object.ID(), err)
-		}
-		count++
+func (r *propertyLengthsRecounter) visit(object *storobj.Object) error {
+	props, _, _, err := r.shard.AnalyzeObject(object)
+	if err != nil {
+		return fmt.Errorf("analyze object %s: %w", object.ID(), err)
 	}
-	return count, nil
+	if err := r.shard.SetPropertyLengths(props); err != nil {
+		return fmt.Errorf("track property lengths of object %s: %w", object.ID(), err)
+	}
+	return nil
 }
 
 // swapIn replaces the tracker of s with the one count built. It closes the
