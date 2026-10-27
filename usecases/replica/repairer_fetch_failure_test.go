@@ -262,12 +262,22 @@ func TestFullReadsChunksIDs(t *testing.T) {
 	}
 }
 
-// TestFullReadsFetchesChunksConcurrently pins the bounded fan-out: the barrier
-// releases only once the full in-flight cap of requests is simultaneously in
-// flight, so a serial implementation times out here and an unbounded one
-// overshoots the peak.
+// TestFullReadsFetchesChunksConcurrently pins the bounded fan-out in both
+// directions: the barrier releases only once the full in-flight cap is
+// simultaneously in flight, so a serial implementation times out here, and the
+// cap-th arrival then holds the barrier open for a settling window so a request
+// the bound should have prevented has time to arrive and be counted.
+//
+// Releasing the instant the cap is reached is not enough to see a missing
+// bound: the first requests drain as the extra ones start, so the peak never
+// observes them and an unbounded implementation passes.
 func TestFullReadsFetchesChunksConcurrently(t *testing.T) {
-	const inFlightCap = replica.MaxConcurrentFullReadRequests
+	const (
+		inFlightCap = replica.MaxConcurrentFullReadRequests
+		// long enough for the goroutines an absent bound would have started to
+		// arrive, short enough not to matter when the bound holds
+		settle = 250 * time.Millisecond
+	)
 	ids := fullReadIDs((inFlightCap + 4) * replica.MaxFullReadIDsPerRequest)
 
 	var (
@@ -289,6 +299,7 @@ func TestFullReadsFetchesChunksConcurrently(t *testing.T) {
 				}
 			}
 			if arrivals.Add(1) == inFlightCap {
+				time.Sleep(settle)
 				close(release)
 			}
 			select {
@@ -339,9 +350,15 @@ func TestFullReadsFailedChunkFailsTheRead(t *testing.T) {
 
 // TestFullReadsRejectsMisalignedLaterChunk pins that the ID alignment check
 // reports absolute indices for chunks past the first.
+//
+// The corrupted chunk is full sized and in the middle of the batch, which is
+// the shape a real repair batch produces. Corrupting a short trailing chunk
+// instead would leave a guard that only inspects undersized chunks unexercised.
 func TestFullReadsRejectsMisalignedLaterChunk(t *testing.T) {
-	ids := fullReadIDs(replica.MaxFullReadIDsPerRequest + 1)
+	const chunkSize = replica.MaxFullReadIDsPerRequest
+	ids := fullReadIDs(3 * chunkSize) // three full chunks, none of them short
 	other := strfmt.UUID("99999999-9999-4999-8999-999999999999")
+	badAt := 2*chunkSize - 1 // the last id of the middle chunk
 
 	rc := replica.NewMockRClient(t)
 	rc.EXPECT().FetchObjects(anyVal, "B", "C1", "S1", anyVal).
@@ -350,16 +367,15 @@ func TestFullReadsRejectsMisalignedLaterChunk(t *testing.T) {
 			for i, id := range chunk {
 				rs[i] = repl(id, 1, false)
 			}
-			if len(chunk) == 1 { // the second chunk, holding the one trailing id
-				rs[0] = repl(other, 1, false)
+			if chunk[0] == ids[chunkSize] { // the middle chunk
+				rs[len(rs)-1] = repl(other, 1, false)
 			}
 			return rs, nil
 		})
 
 	logger, _ := test.NewNullLogger()
 	rs, err := replica.NewFinderClient(rc, logger).FullReads(context.Background(), "B", "C1", "S1", ids)
-	require.ErrorContains(t, err,
-		fmt.Sprintf("object %d is %q", replica.MaxFullReadIDsPerRequest, other))
+	require.ErrorContains(t, err, fmt.Sprintf("object %d is %q", badAt, other))
 	require.Nil(t, rs)
 }
 
