@@ -1874,18 +1874,14 @@ func testUsageMuvera(t *testing.T, c *client.Client, debug string) {
 
 	// the status pins the tenant, not the path: active covers a loaded shard and a
 	// lazy one read from disk, which lazy_unloaded tells apart
-	assertUsage := func(t require.TestingT, expectedStatus string) {
+	assertUsage := func(t require.TestingT, expectedStatus string, expectedObjects int64) {
 		colUsage, err := getDebugUsageWithPortAndCollection(debug, className)
 		require.NoError(t, err)
 		require.Len(t, colUsage.Shards, 1)
 		shard := colUsage.Shards[0]
 		require.Equal(t, strings.ToLower(expectedStatus), shard.Status)
 		if expectedStatus == models.TenantActivityStatusACTIVE {
-			// making a tenant HOT no longer loads its shard, so the object count is 0
-			// until the shard gets loaded. Flushing more often (e.g.
-			// PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS=1) would report the
-			// proper count after making the tenant HOT again.
-			require.Equal(t, int64(0), shard.ObjectsCount)
+			require.Equal(t, expectedObjects, shard.ObjectsCount)
 		}
 		require.Equal(t, expected, namedVectorDimensionalities(t, shard))
 
@@ -1903,22 +1899,26 @@ func testUsageMuvera(t *testing.T, c *client.Client, debug string) {
 	}
 
 	// the tenant status flips before the local shard finishes activating, so poll until converged
-	assertUsageEventually := func(expectedStatus string) {
+	assertUsageEventually := func(expectedStatus string, expectedObjects int64) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-			assertUsage(ct, expectedStatus)
+			assertUsage(ct, expectedStatus, expectedObjects)
 		}, 30*time.Second, 500*time.Millisecond)
 	}
 
-	assertUsageEventually(models.TenantActivityStatusACTIVE)
+	assertUsageEventually(models.TenantActivityStatusACTIVE, int64(numObjects))
 
 	require.NoError(t, c.Schema().TenantsUpdater().WithClassName(className).
 		WithTenants(models.Tenant{Name: tenantName, ActivityStatus: models.TenantActivityStatusCOLD}).Do(ctx))
-	assertUsageEventually(models.TenantActivityStatusINACTIVE)
-	assertUsage(t, models.TenantActivityStatusINACTIVE)
+	assertUsageEventually(models.TenantActivityStatusINACTIVE, 0)
+	assertUsage(t, models.TenantActivityStatusINACTIVE, 0)
 
 	require.NoError(t, c.Schema().TenantsUpdater().WithClassName(className).
 		WithTenants(models.Tenant{Name: tenantName, ActivityStatus: models.TenantActivityStatusHOT}).Do(ctx))
-	assertUsageEventually(models.TenantActivityStatusACTIVE)
+	// making a tenant HOT no longer loads its shard, so the object count is 0
+	// until the shard gets loaded. Flushing more often (e.g.
+	// PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS=1) would report the
+	// proper count after making the tenant HOT again.
+	assertUsageEventually(models.TenantActivityStatusACTIVE, 0)
 }
 
 func generateRandomMultiVector(tokens, dimensionality int) [][]float32 {
