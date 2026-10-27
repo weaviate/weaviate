@@ -629,7 +629,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 			withDirs = append(withDirs, shard.name)
 		}
 	}
-	i.prepareDimensionsOfShards(ctx, class, withDirs)
+	i.rebuildShardsBeforeLoad(ctx, class, withDirs)
 
 	hotShardNames := make([]string, 0, len(localShards))
 
@@ -1111,25 +1111,6 @@ func (i *Index) maintenanceModeEnabled() bool {
 	return i.Config.MaintenanceModeEnabled != nil && i.Config.MaintenanceModeEnabled()
 }
 
-// Iterate over all objects in the index, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
-func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard ShardLike, object *storobj.Object) error) (err error) {
-	return i.forEachShardSkipRecovering(func(_ string, shard ShardLike) error {
-		wrapper := func(object *storobj.Object) error {
-			return cb(i, shard, object)
-		}
-		// pinned for the whole iteration: the cursor underneath reads the
-		// bucket's segments, and an unpinned pointer can be shut down between
-		// the lookup and the scan
-		bucket, release := shard.Store().AcquireBucketForRead(helpers.ObjectsBucketLSM)
-		if bucket == nil {
-			return fmt.Errorf("objects bucket of shard %q: %w", shard.Name(), lsmkv.ErrBucketNotFound)
-		}
-		defer release()
-
-		return bucket.IterateObjects(ctx, wrapper)
-	})
-}
-
 // cancelOnCloseRequested derives a context cancelled on close request, so a teardown
 // does not wait behind a lock the caller holds. Call the returned func when done.
 // The derived context is cancelled with the same cause, so a caller can tell a
@@ -1315,13 +1296,6 @@ func (i *Index) ForEachLoadedShardConcurrently(f func(name string, shard ShardLi
 			return nil
 		}
 		return f(name, shard)
-	})
-}
-
-// Iterate over all objects in the shard, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
-func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard ShardLike) error) (err error) {
-	return i.forEachShardSkipRecovering(func(key string, shard ShardLike) error {
-		return cb(i, shard)
 	})
 }
 
@@ -1757,7 +1731,8 @@ type IndexConfig struct {
 	TrackVectorDimensions               bool
 	TrackVectorDimensionsInterval       time.Duration
 	MigrateDimensionsToRoaringSet       bool
-	DimensionsReindex                   *dimensionsReindex
+	DimensionsReindex                   *startupRebuild
+	PropertyLengthsRecount              *startupRebuild
 	UsageEnabled                        bool
 	ShardLoadLimiter                    *loadlimiter.LoadLimiter
 	StartupShards                       *startupShardCounters
@@ -3601,13 +3576,15 @@ func (i *Index) LoadLocalShardForTenantAdd(ctx context.Context, shardName string
 	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, false, false, callerTenantAdd, "tenant added")
 }
 
-// LoadLocalShardForTenantActivation loads a shard for the apply that records a
-// tenant turning HOT. It skips and returns nil for the same reason
-// [Index.LoadLocalShardForTenantAdd] does.
+// LoadLocalShardForTenantActivation registers a shard for the apply that records
+// a tenant turning HOT. It skips and returns nil for the same reason
+// [Index.LoadLocalShardForTenantAdd] does. Lazy loading opens it on first touch,
+// since a shard opened in the serial apply delays every entry behind it; with
+// lazy loading off it opens regardless, because nothing else would.
 func (i *Index) LoadLocalShardForTenantActivation(ctx context.Context, shardName string,
 	implicitShardLoading bool,
 ) error {
-	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, true, implicitShardLoading,
+	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, !i.Config.EnableLazyLoadShards, implicitShardLoading,
 		callerTenantActivation, "tenant activated")
 }
 
@@ -3619,14 +3596,17 @@ func (i *Index) LoadLocalShardForTenantProcess(ctx context.Context, shardName st
 	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, true, false, callerTenantProcess, "tenant status applied")
 }
 
-// loadLocalShardForReload opens a shard for the reload replaying committed
+// loadLocalShardForReload registers a shard for the reload replaying committed
 // schema. A namespace that keeps no shards open opens none and returns nil: an
 // error here would skip the tenant drops and property adds the same reload
 // owes, and nothing re-runs a reload. The skip is silent, like
 // initAndStoreShards', since a suspended namespace reaches this once per
-// tenant. mustLoad preserves the eager load each call site did before.
-func (i *Index) loadLocalShardForReload(ctx context.Context, shardName string, mustLoad bool) error {
-	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, false, callerReload)
+// tenant. The reload runs from the serial apply, so lazy loading opens the
+// shard on first touch; with lazy loading off it opens regardless, because
+// nothing else would.
+func (i *Index) loadLocalShardForReload(ctx context.Context, shardName string) error {
+	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName,
+		!i.Config.EnableLazyLoadShards, false, callerReload)
 	if stderrors.Is(err, errShardNamespaceClosed) {
 		return nil
 	}
@@ -4183,6 +4163,7 @@ func (i *Index) drop() error {
 		return err
 	}
 	i.Config.DimensionsReindex.forget(i.ID())
+	i.Config.PropertyLengthsRecount.forget(i.ID())
 
 	// Check if a backup is in progress. Dont delete files in this case so the backup process can complete successfully
 	// The files will be deleted after the backup is completed and in case of a crash on next startup.
@@ -4347,6 +4328,7 @@ func (i *Index) dropShards(names []string) error {
 
 	i.purgeUnloadedShardRegistry(unloadedNames)
 	i.Config.DimensionsReindex.forget(i.ID(), names...)
+	i.Config.PropertyLengthsRecount.forget(i.ID(), names...)
 
 	return ec.ToErrorLimited(maxReportedErrors)
 }

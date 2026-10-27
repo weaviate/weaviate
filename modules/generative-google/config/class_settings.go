@@ -102,6 +102,15 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if err := modulecomponents.ValidateGoogleLocation(locationProperty, ic.Location()); err != nil {
 		errorMessages = append(errorMessages, err.Error())
 	}
+	if err := modulecomponents.ValidateGoogleProjectID(projectID); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
+	if err := modulecomponents.ValidateGoogleModel(ic.getModel()); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
+	if err := modulecomponents.ValidateGoogleModel(ic.EndpointID()); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
 	if apiEndpoint != DefaulGenerativeAIApiEndpoint && projectID == "" {
 		errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", projectIDProperty))
 	}

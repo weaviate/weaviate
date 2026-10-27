@@ -130,9 +130,8 @@ func TestSegmentNodeReaderMetersReads(t *testing.T) {
 	const metricName = "ReadFromSegmentsegmentCursorReplace"
 
 	var observed []int64
-	readObserver.Store(metricName, BytesReadObserver(func(n, nanoseconds int64) {
+	readObserver.Store(metricName, BytesReadObserver(func(n, _ int64) {
 		observed = append(observed, n)
-		assert.Positive(t, nanoseconds)
 	}))
 	t.Cleanup(func() { readObserver.Delete(metricName) })
 

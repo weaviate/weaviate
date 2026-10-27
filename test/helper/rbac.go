@@ -133,6 +133,11 @@ func CreateUser(t *testing.T, userId, key string) string {
 	return *resp.Payload.Apikey
 }
 
+// DBUserKeyTimeout bounds a wait whose first attempt runs Argon2id on a DB user's
+// new key, to create it or to check it on a node for the first time. On the
+// race-enabled CI server, four parallel creates take about 10s.
+const DBUserKeyTimeout = time.Minute
+
 func CreateUserWithNamespace(t *testing.T, userId, namespace, adminKey string) string {
 	t.Helper()
 	// Retry until the follower has applied the namespace; the local fast-path
@@ -140,7 +145,7 @@ func CreateUserWithNamespace(t *testing.T, userId, namespace, adminKey string) s
 	var apikey string
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		resp, err := Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID(namespace+":"+userId).WithBody(users.CreateUserBody{}),
+			users.NewCreateUserParamsWithTimeout(DBUserKeyTimeout).WithUserID(namespace+":"+userId).WithBody(users.CreateUserBody{}),
 			CreateAuth(adminKey),
 		)
 		if !assert.NoError(c, err) {
@@ -150,8 +155,18 @@ func CreateUserWithNamespace(t *testing.T, userId, namespace, adminKey string) s
 			return
 		}
 		apikey = *resp.Payload.Apikey
-	}, 10*time.Second, 50*time.Millisecond, "user %q could not be created in namespace %q", userId, namespace)
+	}, DBUserKeyTimeout, 50*time.Millisecond, "user %q could not be created in namespace %q", userId, namespace)
 	return apikey
+}
+
+// WaitForAPIKeyRecognized polls GetOwnInfo with apikey until the node the test
+// client talks to authenticates it.
+func WaitForAPIKeyRecognized(t *testing.T, apikey, userID string) {
+	t.Helper()
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		_, err := Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), CreateAuth(apikey))
+		assert.NoError(c, err)
+	}, DBUserKeyTimeout, 50*time.Millisecond, "user %q apikey not recognized after create", userID)
 }
 
 func CreateUserWithApiKey(t *testing.T, userId, key string, createdAt *time.Time) string {
@@ -284,7 +299,7 @@ func WaitForOwnRole(t *testing.T, apikey, roleName string) {
 			}
 		}
 		assert.Fail(c, "role not yet leader-visible", "role %q not in own-info roles", roleName)
-	}, 10*time.Second, 50*time.Millisecond, "role %q binding did not become leader-visible via GetOwnInfo", roleName)
+	}, DBUserKeyTimeout, 50*time.Millisecond, "role %q binding did not become leader-visible via GetOwnInfo", roleName)
 
 	if roleName != authorization.Admin && roleName != authorization.Viewer {
 		return

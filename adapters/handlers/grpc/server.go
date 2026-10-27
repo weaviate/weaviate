@@ -297,6 +297,9 @@ func makeOperationalModeInterceptor(state *state.State) grpc.UnaryServerIntercep
 	return func(
 		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
 	) (any, error) {
+		if config.IsGPRCHealthCheck(info.FullMethod) {
+			return handler(ctx, req)
+		}
 		var err error
 		switch state.ServerConfig.Config.OperationalMode.Get() {
 		case config.READ_ONLY:

@@ -18,7 +18,7 @@ import (
 )
 
 type BinarySearchTreeCursor struct {
-	nodes       []*BinarySearchNode
+	nodes       []BinarySearchNode
 	nextNodePos int
 }
 
