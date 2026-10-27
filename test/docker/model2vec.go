@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -28,7 +27,7 @@ func startT2VModel2Vec(ctx context.Context, networkName, model2vecImage string) 
 	if len(model2vecImage) > 0 {
 		image = model2vecImage
 	}
-	port := nat.Port("8080/tcp")
+	port := "8080/tcp"
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:    image,
@@ -61,7 +60,7 @@ func startT2VModel2Vec(ctx context.Context, networkName, model2vecImage string) 
 		return nil, err
 	}
 	envSettings := make(map[string]string)
-	envSettings["MODEL2VEC_INFERENCE_API"] = fmt.Sprintf("http://%s:%s", Text2VecModel2Vec, port.Port())
+	envSettings["MODEL2VEC_INFERENCE_API"] = fmt.Sprintf("http://%s:%s", Text2VecModel2Vec, portNumber(port))
 	endpoints := make(map[EndpointName]endpoint)
 	endpoints[HTTP] = endpoint{port, uri}
 	return &DockerContainer{Text2VecModel2Vec, endpoints, container, envSettings}, nil

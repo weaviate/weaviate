@@ -1093,13 +1093,14 @@ replica_movement_cleanup_include_cancelled: true
 // A missing registration line leaves a nil *DynamicValue whose Get() returns the
 // zero value, so the runtime override would be accepted and ignored with every
 // other test still green.
-func TestBuildRegisteredRuntimeConfig_RegistersReplicaMovementCleanup(t *testing.T) {
+func TestBuildRegisteredRuntimeConfig(t *testing.T) {
 	cfg := &Config{}
 	cfg.Replication.ReplicaMovementEnabled = runtime.NewDynamicValue(true)
 	cfg.Replication.ReplicaMovementCleanupEnabled = runtime.NewDynamicValue(true)
 	cfg.Replication.ReplicaMovementCleanupMaxAge = runtime.NewDynamicValue(time.Hour)
 	cfg.Replication.ReplicaMovementCleanupInterval = runtime.NewDynamicValue(time.Minute)
 	cfg.Replication.ReplicaMovementCleanupIncludeCancelled = runtime.NewDynamicValue(true)
+	cfg.Namespaces.SuspendReconcileInterval = runtime.NewDynamicValue(time.Minute)
 
 	registered := BuildRegisteredRuntimeConfig(cfg)
 
@@ -1108,4 +1109,5 @@ func TestBuildRegisteredRuntimeConfig_RegistersReplicaMovementCleanup(t *testing
 	require.Same(t, cfg.Replication.ReplicaMovementCleanupMaxAge, registered.ReplicaMovementCleanupMaxAge)
 	require.Same(t, cfg.Replication.ReplicaMovementCleanupInterval, registered.ReplicaMovementCleanupInterval)
 	require.Same(t, cfg.Replication.ReplicaMovementCleanupIncludeCancelled, registered.ReplicaMovementCleanupIncludeCancelled)
+	require.Same(t, cfg.Namespaces.SuspendReconcileInterval, registered.SuspendReconcileInterval)
 }

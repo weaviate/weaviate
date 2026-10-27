@@ -125,6 +125,11 @@ func (d *FileDiscovery) Scan() (*DirectoryState, error) {
 		// Get file size
 		stat, err := d.fs.Stat(filepath.Join(d.dir, name))
 		if err != nil {
+			if os.IsNotExist(err) {
+				// deleted between the listing and here, so it is not part of the
+				// state the caller is about to act on
+				continue
+			}
 			return nil, errors.Wrapf(err, "stat file %s", name)
 		}
 		info.Size = stat.Size()

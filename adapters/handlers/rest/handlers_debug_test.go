@@ -222,9 +222,9 @@ type debugReassignTestShard struct {
 	released atomic.Bool
 }
 
-func (s *debugReassignTestShard) GetVectorIndex(target string) (db.VectorIndex, bool) {
+func (s *debugReassignTestShard) AcquireVectorIndex(target string) (db.VectorIndex, func(), bool) {
 	s.target = target
-	return s.index, s.index != nil
+	return s.index, func() {}, s.index != nil
 }
 
 type debugReassignTestVector struct {

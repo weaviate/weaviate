@@ -124,11 +124,11 @@ func TestSchedulerPatternGrants(t *testing.T) {
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("dst/path")
 		fs.backend.On("Initialize", ctx, mock.Anything).Return(nil)
 		fs.backend.On("PutObject", mock.Anything, backupID, GlobalBackupFile, mock.Anything).Return(nil)
-		sReq := &StatusRequest{OpCreate, backupID, backendName, "", "", ""}
+		sReq := &StatusRequest{OpCreate, backupID, backendName, "", "", "", ""}
 		fs.client.On("CanCommit", mock.Anything, node, mock.Anything).
-			Return(&CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}, nil)
-		fs.client.On("Commit", mock.Anything, node, sReq).Return(nil)
-		fs.client.On("Status", mock.Anything, node, sReq).
+			Return(&CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: maxBooking(false)}, nil)
+		fs.client.On("Commit", mock.Anything, node, matchStatusReq(sReq)).Return(nil)
+		fs.client.On("Status", mock.Anything, node, matchStatusReq(sReq)).
 			Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}, nil)
 
 		req.ID, req.Backend = backupID, backendName

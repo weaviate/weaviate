@@ -17,7 +17,9 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"slices"
 	"sync"
+	"time"
 
 	"github.com/stretchr/testify/mock"
 
@@ -67,8 +69,9 @@ func (s *fakeSourcer) Backupable(ctx context.Context, classes []string) error {
 }
 
 func (s *fakeSourcer) BackupDescriptors(ctx context.Context, bakid string, classes []string, baseDescr []*backup.BaseBackupDescriptor,
+	shardDesignations map[string]map[string]string,
 ) <-chan backup.ClassDescriptor {
-	args := s.Called(ctx, bakid, classes, baseDescr)
+	args := s.Called(ctx, bakid, classes, baseDescr, shardDesignations)
 	return args.Get(0).(<-chan backup.ClassDescriptor)
 }
 
@@ -80,6 +83,14 @@ type fakeBackend struct {
 	files    map[string][]byte
 	chunks   map[string][]byte
 	doneChan chan bool
+	// serveWrittenGlobalBackupMeta opts a test into reading GlobalBackupFile back as written, like GlobalRestoreFile already is.
+	serveWrittenGlobalBackupMeta bool
+}
+
+func (fb *fakeBackend) globalMetaStatus() backup.Status {
+	fb.RLock()
+	defer fb.RUnlock()
+	return fb.glMeta.Status
 }
 
 func (fb *fakeBackend) getMetaStatus() (backup.Status, string) {
@@ -92,6 +103,12 @@ func (fb *fakeBackend) getMetaBaseBackupID() string {
 	fb.RLock()
 	defer fb.RUnlock()
 	return fb.meta.BaseBackupID
+}
+
+func (fb *fakeBackend) getMetaStamp() (string, bool) {
+	fb.RLock()
+	defer fb.RUnlock()
+	return fb.meta.Version, fb.meta.DedupeReplicas
 }
 
 func newFakeBackend() *fakeBackend {
@@ -166,6 +183,10 @@ func (fb *fakeBackend) GetObject(ctx context.Context, backupID, key, overrideBuc
 		return bytes, nil
 	}
 
+	if key == GlobalBackupFile && fb.serveWrittenGlobalBackupMeta && fb.glMeta.ID != "" {
+		return json.Marshal(fb.glMeta)
+	}
+
 	args := fb.Called(ctx, backupID, key)
 	if args.Get(0) != nil {
 		return args.Get(0).([]byte), args.Error(1)
@@ -225,4 +246,63 @@ func (fb *fakeBackend) Write(ctx context.Context, backupID, key, overrideBucket,
 	fb.files[backupID+"/"+key] = buf.Bytes()
 
 	return n, err
+}
+
+// fakeDedupePlanner returns a canned plan and records every call's arguments.
+type fakeDedupePlanner struct {
+	plan                *DedupePlan
+	panicWith           interface{}
+	blockUntilCancelled bool
+	onPlan              func()
+
+	mu           sync.Mutex
+	calls        []dedupePlanCall
+	sawCancelled bool
+}
+
+type dedupePlanCall struct {
+	classes      []string
+	budget       time.Duration
+	participants map[string]struct{}
+	preferred    map[string]map[string]string
+	cancelled    func() bool
+}
+
+func (f *fakeDedupePlanner) PlanDesignatedShards(ctx context.Context, classes []string, budget time.Duration,
+	participants map[string]struct{}, preferred map[string]map[string]string, cancelled func() bool,
+) *DedupePlan {
+	f.mu.Lock()
+	f.calls = append(f.calls, dedupePlanCall{classes: classes, budget: budget, participants: participants, preferred: preferred, cancelled: cancelled})
+	f.mu.Unlock()
+	if f.onPlan != nil {
+		f.onPlan()
+	}
+	if f.panicWith != nil {
+		panic(f.panicWith)
+	}
+	for f.blockUntilCancelled && !cancelled() {
+		select {
+		case <-ctx.Done():
+			return f.plan
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+	if f.blockUntilCancelled {
+		f.mu.Lock()
+		f.sawCancelled = true
+		f.mu.Unlock()
+	}
+	return f.plan
+}
+
+func (f *fakeDedupePlanner) recordedCalls() []dedupePlanCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.calls)
+}
+
+func (f *fakeDedupePlanner) observedCancel() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.sawCancelled
 }

@@ -12,6 +12,7 @@ function main() {
   run_acceptance_only_fast_group_5=false
   run_acceptance_only_fast_group_6=false
   run_acceptance_distributed_tasks=false
+  run_acceptance_licensed=false
   run_acceptance_only_authz=false
   run_acceptance_only_mcp=false
   run_acceptance_only_python=false
@@ -70,6 +71,13 @@ function main() {
   run_acceptance_drop_vector_index_async_indexing_group1=false
   run_acceptance_drop_vector_index_async_indexing_group2=false
   run_acceptance_backups=false
+  run_acceptance_backup_dedupe=false
+  run_acceptance_backup_dedupe_cross_version=false
+  run_acceptance_backup_dedupe_incremental=false
+  run_acceptance_backup_dedupe_misc=false
+  run_acceptance_self_recovery=false
+  run_acceptance_self_recovery_lazy=false
+  run_acceptance_self_recovery_intact=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -90,6 +98,7 @@ function main() {
           --acceptance-only-fast-group-5|-aof-g5) run_all_tests=false; run_acceptance_only_fast_group_5=true;;
           --acceptance-only-fast-group-6|-aof-g6) run_all_tests=false; run_acceptance_only_fast_group_6=true;;
           --acceptance-distributed-tasks) run_all_tests=false; run_acceptance_distributed_tasks=true;;
+          --acceptance-licensed|-al) run_all_tests=false; run_acceptance_licensed=true;;
           --acceptance-only-python|-aop) run_all_tests=false; run_acceptance_only_python=true;;
           --acceptance-only-python-namespaces|-aopns) run_all_tests=false; run_acceptance_only_python_namespaces=true;;
           --acceptance-go-client|-ag) run_all_tests=false; run_acceptance_go_client=true;;
@@ -140,6 +149,13 @@ function main() {
           --acceptance-drop-vector-index-async-indexing-group1|-advia1) run_all_tests=false; run_acceptance_drop_vector_index_async_indexing_group1=true;;
           --acceptance-drop-vector-index-async-indexing-group2|-advia2) run_all_tests=false; run_acceptance_drop_vector_index_async_indexing_group2=true;;
           --acceptance-backups|-ab) run_all_tests=false; run_acceptance_backups=true;;
+          --acceptance-backup-dedupe|-abd) run_all_tests=false; run_acceptance_backup_dedupe=true;;
+          --acceptance-backup-dedupe-cross-version|-abdcv) run_all_tests=false; run_acceptance_backup_dedupe_cross_version=true;;
+          --acceptance-backup-dedupe-incremental|-abdi) run_all_tests=false; run_acceptance_backup_dedupe_incremental=true;;
+          --acceptance-backup-dedupe-misc|-abdm) run_all_tests=false; run_acceptance_backup_dedupe_misc=true;;
+          --acceptance-self-recovery|-asr) run_all_tests=false; run_acceptance_self_recovery=true;;
+          --acceptance-self-recovery-lazy|-asrl) run_all_tests=false; run_acceptance_self_recovery_lazy=true;;
+          --acceptance-self-recovery-intact|-asri) run_all_tests=false; run_acceptance_self_recovery_intact=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -162,6 +178,7 @@ function main() {
               "--acceptance-only-fast-group-6 | -aof-g6"\
               "--acceptance-only-python | -aop"\
               "--acceptance-only-python-namespaces | -aopns"\
+              "--acceptance-licensed | -al"\
               "--acceptance-go-client | -ag"\
               "--acceptance-go-client-only-fast | -agof"\
               "--acceptance-go-client-only-fast-group-1 | -agof-g1"\
@@ -195,6 +212,13 @@ function main() {
               "--acceptance-reindex-mt | -armt"\
               "--acceptance-reindex-backup | -arb"\
               "--acceptance-backups | -ab"\
+              "--acceptance-backup-dedupe | -abd"\
+              "--acceptance-backup-dedupe-cross-version | -abdcv"\
+              "--acceptance-backup-dedupe-incremental | -abdi"\
+              "--acceptance-backup-dedupe-misc | -abdm"\
+              "--acceptance-self-recovery | -asr"\
+              "--acceptance-self-recovery-lazy | -asrl"\
+              "--acceptance-self-recovery-intact | -asri"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -401,6 +425,11 @@ function main() {
     run_aof_group "distributed-tasks" test/acceptance/distributed_tasks
   fi
 
+  if $run_acceptance_licensed || $run_acceptance_tests || $run_all_tests; then
+    echo "running acceptance tests that need a license key"
+    run_acceptance_licensed
+  fi
+
   if $run_acceptance_reindex_multinode; then
     echo "running reindex multinode acceptance tests (catch-all: everything not in -aj/-rm/-restart/-scale/-changetok sub-shards)"
     run_acceptance_reindex_multinode
@@ -499,6 +528,41 @@ function main() {
   if $run_acceptance_backups; then
     echo "running backup/restore acceptance tests"
     run_acceptance_backups
+  fi
+
+  if $run_acceptance_backup_dedupe; then
+    echo "running backup dedupe acceptance tests"
+    run_acceptance_backup_dedupe
+  fi
+
+  if $run_acceptance_backup_dedupe_cross_version; then
+    echo "running backup dedupe cross-version acceptance tests"
+    run_acceptance_backup_dedupe_cross_version
+  fi
+
+  if $run_acceptance_backup_dedupe_incremental; then
+    echo "running backup dedupe incremental acceptance tests"
+    run_acceptance_backup_dedupe_incremental
+  fi
+
+  if $run_acceptance_backup_dedupe_misc; then
+    echo "running backup dedupe misc acceptance tests"
+    run_acceptance_backup_dedupe_misc
+  fi
+
+  if $run_acceptance_self_recovery || $run_acceptance_tests || $run_all_tests; then
+    echo "running self-recovery acceptance tests"
+    run_acceptance_self_recovery
+  fi
+
+  if $run_acceptance_self_recovery_lazy || $run_acceptance_tests || $run_all_tests; then
+    echo "running self-recovery lazy-loading acceptance tests"
+    run_acceptance_self_recovery_lazy
+  fi
+
+  if $run_acceptance_self_recovery_intact || $run_acceptance_tests || $run_all_tests; then
+    echo "running self-recovery intact-node acceptance tests"
+    run_acceptance_self_recovery_intact
   fi
   echo "Done!"
 }
@@ -695,9 +759,32 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/reindex_blockmax_ageout' \
     | grep -v 'test/acceptance/reindex_backup' \
     | grep -v 'test/acceptance/backups' \
+    | grep -v 'test/acceptance/backup_dedupe_replicas' \
     | grep -v 'test/acceptance/distributed_tasks' \
     | grep -v 'test/acceptance/drop_vector_index' \
+    | grep -v 'test/acceptance/selfrecovery' \
+    | grep -v -E "$licensed_acceptance_packages" \
     | sed 's|.*/test/acceptance/|test/acceptance/|'
+}
+
+# Packages whose clusters need WEAVIATE_LICENSE_KEY: every namespace-enabled
+# cluster does. They run only in their own CI job, which forks and Dependabot
+# skip because they cannot read the secret.
+licensed_acceptance_packages='test/acceptance/(namespace|licensed/)'
+
+function run_acceptance_licensed() {
+  build_weaviate_test_image
+  build_mockoidc_docker_image_for_tests
+  local listed
+  if ! listed=$(go list ./... | grep -E "$licensed_acceptance_packages" | sed 's|.*/test/acceptance/|test/acceptance/|'); then
+    echo "no licensed acceptance packages found" >&2
+    return 1
+  fi
+  local -a packages=()
+  while IFS= read -r pkg; do
+    packages+=("$pkg")
+  done <<<"$listed"
+  run_aof_group "licensed" "${packages[@]}"
 }
 
 # run_aof_group runs a group of acceptance test packages with appropriate test flags.
@@ -724,6 +811,10 @@ function run_aof_group() {
   if [[ -n "${AOF_GROUP_SKIP:-}" ]]; then
     echo "  -skip filter: $AOF_GROUP_SKIP"
   fi
+  local group_timeout="${AOF_GROUP_TIMEOUT:-20m}"
+  if [[ "$group_timeout" != "20m" ]]; then
+    echo "  -timeout: $group_timeout"
+  fi
 
   local -a extra_flags=()
   if [[ -n "${AOF_GROUP_RUN:-}" ]]; then
@@ -745,7 +836,7 @@ function run_aof_group() {
           testFailed=1
         fi
       else
-        if ! go test -count 1 -timeout=20m -race "${extra_flags[@]}" "$pkg"; then
+        if ! go test -count 1 -timeout="$group_timeout" -race "${extra_flags[@]}" "$pkg"; then
           echo "Test for $pkg failed" >&2
           testFailed=1
         fi
@@ -763,7 +854,7 @@ function get_aof_group() {
     1) echo "test/acceptance/multi_node test/acceptance/actions" ;;
     2) echo "test/acceptance/schema test/acceptance/cluster_api_auth test/acceptance/batch_request_endpoints" ;;
     3) echo "test/acceptance/grpc" ;;
-    4) echo "test/acceptance/alter_schema test/acceptance/namespace test/acceptance/namespace_limits test/acceptance/vector_index_restrictions" ;;
+    4) echo "test/acceptance/alter_schema test/acceptance/vector_index_restrictions" ;;
     6) echo "test/acceptance/authn test/acceptance/aliases test/acceptance/maintenance_mode test/acceptance/vector_distances test/acceptance/backups" ;;
     *) echo "" ;;
   esac
@@ -1132,6 +1223,24 @@ function run_acceptance_reindex_backup() {
   run_aof_group "reindex-backup" \
     test/acceptance/reindex_backup
 }
+function run_acceptance_self_recovery() {
+  build_weaviate_test_image
+  AOF_GROUP_SKIP='^TestSelfRecoveryLazy|^TestSelfRecoveryIntact' \
+    run_aof_group "self-recovery" test/acceptance/selfrecovery
+}
+
+function run_acceptance_self_recovery_lazy() {
+  build_weaviate_test_image
+  AOF_GROUP_RUN='^TestSelfRecoveryLazy' AOF_GROUP_TIMEOUT=40m \
+    run_aof_group "self-recovery-lazy" test/acceptance/selfrecovery
+}
+
+function run_acceptance_self_recovery_intact() {
+  build_weaviate_test_image
+  AOF_GROUP_RUN='^TestSelfRecoveryIntact' AOF_GROUP_TIMEOUT=30m \
+    run_aof_group "self-recovery-intact" test/acceptance/selfrecovery
+}
+
 
 function run_acceptance_drop_vector_index() {
   build_weaviate_test_image
@@ -1186,7 +1295,38 @@ function run_acceptance_backups() {
   build_weaviate_test_image
   echo_green "acceptance — backups"
   run_aof_group "backups" \
-    test/acceptance/backups
+    test/acceptance/backups \
+    test/acceptance/backup_dedupe_replicas
+}
+
+function run_acceptance_backup_dedupe() {
+  build_weaviate_test_image
+  echo_green "acceptance — backup-dedupe"
+  # Worst-case waits in TestBackupDedupeReplicas sum to ~30m; the workflow job allots 45m.
+  AOF_GROUP_RUN='^TestBackupDedupeReplicas$' AOF_GROUP_TIMEOUT=40m \
+    run_aof_group "backup-dedupe" test/acceptance/backup_dedupe_replicas
+}
+
+function run_acceptance_backup_dedupe_cross_version() {
+  build_weaviate_test_image
+  echo_green "acceptance — backup-dedupe-cross-version"
+  AOF_GROUP_RUN='^(TestBackupCrossVersionRestore|TestBackupDedupeRestoreWithoutLicense)$' AOF_GROUP_TIMEOUT=40m \
+    run_aof_group "backup-dedupe-cross-version" test/acceptance/backup_dedupe_replicas
+}
+
+function run_acceptance_backup_dedupe_incremental() {
+  build_weaviate_test_image
+  echo_green "acceptance — backup-dedupe-incremental"
+  AOF_GROUP_RUN='^TestBackupDedupeIncremental$' AOF_GROUP_TIMEOUT=40m \
+    run_aof_group "backup-dedupe-incremental" test/acceptance/backup_dedupe_replicas
+}
+
+# Catch-all shard: when adding a sub-shard above, add its test prefix to the SKIP regex so it isn't double-run.
+function run_acceptance_backup_dedupe_misc() {
+  build_weaviate_test_image
+  echo_green "acceptance — backup-dedupe-misc"
+  AOF_GROUP_SKIP='^(TestBackupDedupeReplicas|TestBackupCrossVersionRestore|TestBackupDedupeRestoreWithoutLicense|TestBackupDedupeIncremental)$' \
+    run_aof_group "backup-dedupe-misc" test/acceptance/backup_dedupe_replicas
 }
 
 # get_fast_go_client_packages returns a list of fast go client test packages.

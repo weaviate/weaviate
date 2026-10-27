@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
@@ -77,7 +78,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider = getFakeModulesProvider()
 		manager = NewBatchManager(objectFinder, modulesProvider, schemaManager, config, logger, authorizer, nil,
-			NewAutoSchemaManager(schemaManager, objectFinder, config, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, objectFinder, config, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 	}
 
 	reset := func() {
@@ -336,7 +337,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider = getFakeModulesProvider()
 		manager = NewBatchManager(objectFinder, modulesProvider, schemaManager, config, logger, authorizer, nil,
-			NewAutoSchemaManager(schemaManager, objectFinder, config, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, objectFinder, config, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 	}
 
 	ctx := context.Background()
@@ -480,7 +481,7 @@ func Test_BatchManager_AddObjectsEmptyProperties(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider = getFakeModulesProvider()
 		manager = NewBatchManager(objectFinder, modulesProvider, schemaManager, config, logger, authorizer, nil,
-			NewAutoSchemaManager(schemaManager, objectFinder, config, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, objectFinder, config, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 	}
 	reset()
 	objects := []*models.Object{
@@ -543,7 +544,7 @@ func Test_BatchManager_AddObjects_KeepsAutoSchemaError(t *testing.T) {
 			modulesProvider.On("BatchUpdateVector").Return(nil, nil)
 			manager := NewBatchManager(objectFinder, modulesProvider, schemaManager, cfg, logger,
 				mocks.NewMockAuthorizer(), nil,
-				NewAutoSchemaManager(schemaManager, objectFinder, cfg, logger, prometheus.NewPedanticRegistry()))
+				NewAutoSchemaManager(schemaManager, objectFinder, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 
 			// A value determineType does not recognize makes getProperties fail.
 			added, err := manager.AddObjects(context.Background(), nil, []*models.Object{{

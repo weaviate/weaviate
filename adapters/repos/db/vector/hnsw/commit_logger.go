@@ -381,7 +381,7 @@ func (l *hnswCommitLogger) AddNode(id uint64, level uint16) error {
 	l.Lock()
 	defer l.Unlock()
 
-	return l.walWriter.WriteAddNode(id, uint16(level))
+	return l.walWriter.WriteAddNode(id, level)
 }
 
 func (l *hnswCommitLogger) SetEntryPointWithMaxLayer(id uint64, level int) error {

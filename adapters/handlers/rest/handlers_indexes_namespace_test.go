@@ -24,10 +24,13 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 // TestUpsertIndex_SubmitLockKeyedOnQualifiedClass pins that a namespaced
@@ -42,6 +45,7 @@ func TestUpsertIndex_SubmitLockKeyedOnQualifiedClass(t *testing.T) {
 		Authorizer:         &authorization.DummyAuthorizer{},
 		ReindexSubmitLocks: locks,
 		Logger:             logger,
+		NamespaceQualifier: wlnamespaces.NewPrefixing(),
 		ServerConfig: &config.WeaviateConfig{Config: config.Config{
 			Namespaces:            config.Namespaces{Enabled: true},
 			RuntimeReindexEnabled: true,
@@ -91,10 +95,11 @@ func TestUpsertIndex_SubmitLockKeyedOnQualifiedClass(t *testing.T) {
 // rejected before any schema read.
 func TestGetIndexes_InvalidClassNameIsUnprocessable(t *testing.T) {
 	h := &indexesHandlers{appState: &state.State{
-		Authorizer:    &authorization.DummyAuthorizer{},
-		SchemaManager: &schemaUC.Manager{SchemaReader: schemaUC.NewMockSchemaReader(t)},
-		ServerConfig:  &config.WeaviateConfig{},
-		Logger:        logrus.New(),
+		Authorizer:         &authorization.DummyAuthorizer{},
+		SchemaManager:      &schemaUC.Manager{SchemaReader: local.NewMockSchemaReader(t)},
+		ServerConfig:       &config.WeaviateConfig{},
+		Logger:             logrus.New(),
+		NamespaceQualifier: namespacing.Disabled,
 	}}
 
 	resp := h.getIndexes(schema.SchemaObjectsIndexesGetParams{

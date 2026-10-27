@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
@@ -32,7 +33,7 @@ import (
 var _NUMCPU = runtime.GOMAXPROCS(0)
 
 type executor struct {
-	schemaReader SchemaReader
+	schemaReader local.SchemaReader
 	migrator     Migrator
 
 	callbacksLock sync.RWMutex
@@ -43,7 +44,7 @@ type executor struct {
 }
 
 // NewManager creates a new manager
-func NewExecutor(migrator Migrator, sr SchemaReader,
+func NewExecutor(migrator Migrator, sr local.SchemaReader,
 	logger logrus.FieldLogger, classBackupDir func(string) error,
 ) *executor {
 	return &executor{
@@ -68,6 +69,8 @@ func (e *executor) DropOrphanedClass(ctx context.Context, cls string, hasFrozen 
 func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassRequest) error {
 	cs := make([]*models.Class, len(all))
 
+	// Tag ctx so the SELF_RECOVERY hook treats these as startup loads of pre-existing classes, not new ones.
+	ctx = enterrors.WithStartupDBLoad(ctx)
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(e.logger, ctx)
 	g.SetLimit(_NUMCPU * 2)
 
@@ -84,7 +87,7 @@ func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassReque
 			if err := e.migrator.UpdateIndex(ctx, u.Class, u.State); err != nil {
 				e.logger.WithField("index", u.Class.Class).
 					WithFields(enterrors.DocsLinkFields(err)).
-					WithError(err).Error("failed to reload local index")
+					Errorf("failed to reload local index: %v", err)
 				err := fmt.Errorf("failed to reload local index %d: %w", i, err)
 
 				errMutex.Lock()
@@ -394,9 +397,8 @@ func (e *executor) UpdateShardStatus(req *api.UpdateShardStatusRequest) error {
 	return e.migrator.UpdateShardStatus(ctx, req.Class, req.Shard, req.Status, req.SchemaVersion)
 }
 
-func (e *executor) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
-	ctx := context.Background()
-	shardsStatus, err := e.migrator.GetShardsStatus(ctx, class, tenant)
+func (e *executor) GetShardsStorageStatus(ctx context.Context, class, tenant string) (models.ShardStatusList, error) {
+	shardsStatus, legacyStatus, err := e.migrator.GetShardsStorageStatus(ctx, class, tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -405,13 +407,13 @@ func (e *executor) GetShardsStatus(class, tenant string) (models.ShardStatusList
 		return nil, err
 	}
 
-	resp := models.ShardStatusList{}
-
-	for name, status := range shardsStatus {
+	resp := make(models.ShardStatusList, 0, len(shardsStatus))
+	for shardName, status := range shardsStatus {
 		resp = append(resp, &models.ShardStatusGetResponse{
-			Name:            name,
-			Status:          status,
-			VectorQueueSize: shardsQueueSize[name],
+			Name:            shardName,
+			Status:          legacyStatus[shardName],
+			PerNodeStatus:   status,
+			VectorQueueSize: shardsQueueSize[shardName],
 		})
 	}
 

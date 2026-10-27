@@ -40,11 +40,11 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 ) (*models.Object, error) {
 	className, _, err := m.resolveNS(principal, object.Class)
 	if err != nil {
-		return nil, NewErrInvalidUserInput("%v", err)
+		return nil, userInputOrForbidden(err)
 	}
 	object.Class = className
 
-	if err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(className, object.Tenant)...); err != nil {
+	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.CREATE, className, authorization.ShardsData(className, object.Tenant)...); err != nil {
 		return nil, err
 	}
 
@@ -206,7 +206,7 @@ func (m *Manager) validateObjectAndNormalizeNames(ctx context.Context,
 	class := fetchedClasses[incoming.Class].Class
 
 	return validation.New(m.vectorRepo.Exists, m.config, repl,
-		principal, m.config.Config.Namespaces.Enabled).
+		principal, m.qualifier).
 		Object(ctx, class, incoming, existing)
 }
 

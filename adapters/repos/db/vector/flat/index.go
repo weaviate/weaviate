@@ -54,7 +54,6 @@ var (
 
 type flat struct {
 	id                string
-	targetVector      string
 	rootPath          string
 	dims              int32
 	metadata          *bolt.DB
@@ -97,7 +96,6 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 
 	index := &flat{
 		id:                   cfg.ID,
-		targetVector:         cfg.TargetVector,
 		rootPath:             cfg.RootPath,
 		logger:               cfg.Logger,
 		distancerProvider:    cfg.DistanceProvider,
@@ -271,14 +269,11 @@ func (index *flat) Multivector() bool {
 }
 
 func (index *flat) getBucketName() string {
-	if index.targetVector != "" {
-		return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, index.targetVector)
-	}
-	return helpers.VectorsBucketLSM
+	return helpers.VectorsBucketNameForID(index.id)
 }
 
 func (index *flat) getCompressedBucketName() string {
-	return helpers.GetCompressedBucketName(index.targetVector)
+	return helpers.CompressedBucketNameForID(index.id)
 }
 
 func (index *flat) initBuckets(ctx context.Context, cfg Config) error {
@@ -1073,10 +1068,9 @@ func (index *flat) PostStartup(ctx context.Context) {
 		}
 		if <-abortedCh {
 			index.logger.WithFields(logrus.Fields{
-				"action":   "preload_cache",
-				"count":    len(vecs),
-				"took":     time.Since(before),
-				"index_id": index.id,
+				"action": "preload_cache",
+				"count":  len(vecs),
+				"took":   time.Since(before),
 			}).Warn("preload vectors aborted")
 			prefillErr = errPreloadAborted
 			return
@@ -1115,10 +1109,9 @@ func (index *flat) PostStartup(ctx context.Context) {
 		}
 		if <-abortedCh {
 			index.logger.WithFields(logrus.Fields{
-				"action":   "preload_cache",
-				"count":    len(vecs),
-				"took":     time.Since(before),
-				"index_id": index.id,
+				"action": "preload_cache",
+				"count":  len(vecs),
+				"took":   time.Since(before),
 			}).Warn("preload vectors aborted")
 			prefillErr = errPreloadAborted
 			return
@@ -1171,10 +1164,9 @@ func (index *flat) PostStartup(ctx context.Context) {
 		}
 		if <-abortedCh {
 			index.logger.WithFields(logrus.Fields{
-				"action":   "preload_cache",
-				"count":    count,
-				"took":     time.Since(before),
-				"index_id": index.id,
+				"action": "preload_cache",
+				"count":  count,
+				"took":   time.Since(before),
 			}).Warn("preload vectors aborted")
 			prefillErr = errPreloadAborted
 			return
@@ -1195,10 +1187,9 @@ func (index *flat) PostStartup(ctx context.Context) {
 		}
 		if <-abortedCh {
 			index.logger.WithFields(logrus.Fields{
-				"action":   "preload_cache",
-				"count":    count,
-				"took":     time.Since(before),
-				"index_id": index.id,
+				"action": "preload_cache",
+				"count":  count,
+				"took":   time.Since(before),
 			}).Warn("preload vectors aborted")
 			prefillErr = errPreloadAborted
 			return
@@ -1210,11 +1201,10 @@ func (index *flat) PostStartup(ctx context.Context) {
 
 	took := time.Since(before)
 	index.logger.WithFields(logrus.Fields{
-		"action":   "preload_cache",
-		"type":     index.compressionType.String(),
-		"count":    count,
-		"took":     took,
-		"index_id": index.id,
+		"action": "preload_cache",
+		"type":   index.compressionType.String(),
+		"count":  count,
+		"took":   took,
 	}).Debugf("pre-loaded %d vectors in %s", count, took)
 }
 

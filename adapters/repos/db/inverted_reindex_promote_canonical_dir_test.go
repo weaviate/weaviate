@@ -129,7 +129,7 @@ func aPromoteShard(t *testing.T, ctx context.Context, props []string, vocabulary
 	className := "Promote" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, props)
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	for _, obj := range promoteObjects(className, props, vocabulary, 20) {
 		require.NoError(t, shard.PutObject(ctx, obj))

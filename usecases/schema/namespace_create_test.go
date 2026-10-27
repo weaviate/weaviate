@@ -29,9 +29,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingcfg "github.com/weaviate/weaviate/usecases/sharding/config"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 // fakeNamespacesExister implements [namespaces.Exister] for tests that only
@@ -64,10 +66,13 @@ func newTestHandlerWithNamespaces(t *testing.T, enabled bool) (*Handler, *fakeSc
 		valid: []string{"text2vec-contextionary", "model1", "model2"},
 	}
 	cfg := config.Config{
-		DefaultVectorizerModule:     config.VectorizerModuleNone,
 		DefaultVectorDistanceMetric: "cosine",
 	}
 	cfg.Namespaces.Enabled = enabled
+	qualifier := namespacing.Disabled
+	if enabled {
+		qualifier = wlnamespaces.NewPrefixing()
+	}
 	fakeClusterState := fakes.NewFakeClusterState()
 	fakeValidator := &fakeValidator{}
 	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, fakeModulesProvider{}, nil, nil)
@@ -76,10 +81,10 @@ func newTestHandlerWithNamespaces(t *testing.T, enabled bool) (*Handler, *fakeSc
 	// Tests that exercise placement should set handler.namespacesExister
 	// directly to override this default.
 	handler, err := NewHandler(
-		schemaManager, schemaManager, fakeValidator, logger, mocks.NewMockAuthorizer(),
+		schemaManager, schemaManager, schemaManager, &fakeDB{}, fakeValidator, logger, mocks.NewMockAuthorizer(),
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil,
-		fakeNamespacesExister{defaultHomeNode: "node-1"}, nil)
+		fakeNamespacesExister{defaultHomeNode: "node-1"}, nil, qualifier)
 	require.NoError(t, err)
 	handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 	return &handler, schemaManager
@@ -638,7 +643,7 @@ func TestUpdateTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 				captured = req
 				return true
 			})).Return(nil)
-			sm.On("TenantsShardsWithVersion", mock.Anything, uint64(0), mock.Anything, mock.Anything).
+			sm.On("TenantsShardsStatusWithVersion", mock.Anything, uint64(0), mock.Anything, mock.Anything).
 				Return(map[string]string{"T1": models.TenantActivityStatusHOT}, nil)
 
 			_, err := handler.UpdateTenants(context.Background(), tt.principal, tt.class,
@@ -871,13 +876,13 @@ func TestUpdateClass_QualifiesPropertyDataTypes(t *testing.T) {
 				},
 			}
 			sm.On("ReadOnlyClass", tt.storedClass).Return(stored).Maybe()
-			sm.On("QueryReadOnlyClasses", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
+			sm.On("ReadOnlyClassesFromLeader", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
 
 			var captured *models.Class
 			sm.On("UpdateClass", mock.MatchedBy(func(c *models.Class) bool {
 				captured = c
 				return true
-			}), mock.Anything).Return(nil).Maybe()
+			}), mock.Anything, cmd.ClassUpdateOriginUser).Return(nil).Maybe()
 
 			body := &models.Class{
 				Class:             tt.bodyClass,
@@ -917,7 +922,7 @@ func TestUpdateClass_QualifiesPropertyDataTypes(t *testing.T) {
 // MAXIMUM_ALLOWED_COLLECTIONS_COUNT cap is enforced per namespace when
 // namespaces are enabled, using principal.Namespace as the selector.
 //
-// The mock matcher on QueryCollectionsCount(<principalNS>) is what proves
+// The mock matcher on CollectionsCountFromLeader(<principalNS>) is what proves
 // the selector: a row only passes if AddClass requested the count for the
 // caller's namespace.
 func TestAddClass_NamespacedCollectionLimit(t *testing.T) {
@@ -958,7 +963,7 @@ func TestAddClass_NamespacedCollectionLimit(t *testing.T) {
 			handler, sm := newTestHandlerWithNamespaces(t, true)
 			handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(tt.limit)
 
-			sm.On("QueryCollectionsCount", tt.principalNS).Return(tt.existingCount, nil)
+			sm.On("CollectionsCountFromLeader", tt.principalNS).Return(tt.existingCount, nil)
 			if !tt.wantErr {
 				sm.On("AddClass", mock.MatchedBy(func(c *models.Class) bool {
 					return c.Class == tt.principalNS+":Movies"

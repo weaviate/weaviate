@@ -5,7 +5,7 @@
 # under tools/dev for execution.
 
 # To get a docker-compose file to run Weaviate, please follow the instructions at
-# https://weaviate.io/developers/weaviate/installation/docker-compose
+# https://docs.weaviate.io/deploy/installation-guides/docker-installation
 ##
 version: '3.4'
 services:

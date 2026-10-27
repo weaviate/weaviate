@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -33,7 +34,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -61,8 +61,6 @@ func newShardMetricsHarness(t *testing.T) *shardMetricsHarness {
 
 func newShardMetricsHarnessWithLazyLoading(t *testing.T, lazyLoading bool) *shardMetricsHarness {
 	t.Helper()
-	logger, _ := test.NewNullLogger()
-
 	baseMetrics := monitoring.GetMetrics()
 	metricsCopy := *baseMetrics
 	metricsCopy.Registerer = monitoring.NoopRegisterer
@@ -75,13 +73,21 @@ func newShardMetricsHarnessWithLazyLoading(t *testing.T, lazyLoading bool) *shar
 	for _, labels := range monitoring.AllShardLabels() {
 		metrics.Shards.WithLabelValues(labels...).Set(0)
 	}
+	return newRepoHarness(t, lazyLoading, metrics)
+}
+
+// newRepoHarness builds the harness around metrics. With nil metrics the repo
+// runs as it does with PROMETHEUS_MONITORING_ENABLED off.
+func newRepoHarness(t *testing.T, lazyLoading bool, metrics *monitoring.PrometheusMetrics) *shardMetricsHarness {
+	t.Helper()
+	logger, _ := test.NewNullLogger()
 
 	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
@@ -218,7 +224,8 @@ func TestShardRegistrationSplitsLoadedFromUnloaded(t *testing.T) {
 
 			shard := h.repo.GetIndex(className).shards.Load(shardName)
 			if lazyShard, ok := shard.(*LazyLoadShard); ok {
-				require.NoError(t, lazyShard.Load(ctx))
+				_, _, err := lazyShard.loadIfCold(ctx)
+				require.NoError(t, err)
 			}
 
 			require.Equal(t, tt.afterAccess, h.gaugesFor(tt.registration))
@@ -259,14 +266,16 @@ func TestShardRemovalStopsCountingIt(t *testing.T) {
 		{
 			name: "UnloadLocalShard on an unloaded shard",
 			remove: func(t *testing.T, h *shardMetricsHarness, shardName string) {
-				require.NoError(t, h.repo.GetIndex(className).UnloadLocalShard(ctx, shardName))
+				_, err := h.repo.GetIndex(className).UnloadLocalShard(ctx, shardName)
+				require.NoError(t, err)
 			},
 		},
 		{
 			name:      "UnloadLocalShard on a loaded shard",
 			loadFirst: true,
 			remove: func(t *testing.T, h *shardMetricsHarness, shardName string) {
-				require.NoError(t, h.repo.GetIndex(className).UnloadLocalShard(ctx, shardName))
+				_, err := h.repo.GetIndex(className).UnloadLocalShard(ctx, shardName)
+				require.NoError(t, err)
 			},
 		},
 		{
@@ -288,7 +297,8 @@ func TestShardRemovalStopsCountingIt(t *testing.T) {
 
 			if tt.loadFirst {
 				shard := h.repo.GetIndex(className).shards.Load(shardName)
-				require.NoError(t, shard.(*LazyLoadShard).Load(ctx))
+				_, _, err := shard.(*LazyLoadShard).loadIfCold(ctx)
+				require.NoError(t, err)
 				require.Equal(t, shardGauges{loaded: 1}, h.gauges())
 			}
 
@@ -310,8 +320,8 @@ func TestShardRemovalStopsCountingIt(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, shardGauges{loaded: 1}, h.gauges())
 
-		require.Error(t, index.UnloadLocalShard(ctx, shardName),
-			"a shard in use cannot be shut down")
+		_, err = index.UnloadLocalShard(ctx, shardName)
+		require.Error(t, err, "a shard in use cannot be shut down")
 		require.Equal(t, shardGauges{loaded: 1}, h.gauges())
 
 		release()
@@ -321,7 +331,8 @@ func TestShardRemovalStopsCountingIt(t *testing.T) {
 		h := newShardMetricsHarness(t)
 		h.addClass(t, className)
 
-		require.NoError(t, h.repo.GetIndex(className).UnloadLocalShard(ctx, "no-such-shard"))
+		_, err := h.repo.GetIndex(className).UnloadLocalShard(ctx, "no-such-shard")
+		require.NoError(t, err)
 
 		require.Equal(t, shardGauges{unloaded: 1}, h.gauges(),
 			"the class's own shard must keep its count")
@@ -384,7 +395,8 @@ func TestReactivationAfterDeferredShutdownCountsOnce(t *testing.T) {
 			_, release, err := index.GetShard(ctx, shardName)
 			require.NoError(t, err)
 			require.Equal(t, shardGauges{loaded: 1}, h.gauges())
-			require.Error(t, index.UnloadLocalShard(ctx, shardName))
+			_, err = index.UnloadLocalShard(ctx, shardName)
+			require.Error(t, err)
 
 			// The last release completes the shutdown, leaving a shard in the
 			// map that is shut but still counted.
@@ -421,7 +433,8 @@ func TestDropStopsCountingTheShard(t *testing.T) {
 			name: "a loaded shard",
 			prepare: func(t *testing.T, h *shardMetricsHarness, shardName string) {
 				shard := h.repo.GetIndex(className).shards.Load(shardName)
-				require.NoError(t, shard.(*LazyLoadShard).Load(ctx))
+				_, _, err := shard.(*LazyLoadShard).loadIfCold(ctx)
+				require.NoError(t, err)
 				require.Equal(t, shardGauges{loaded: 1}, h.gauges())
 			},
 		},
@@ -434,7 +447,8 @@ func TestDropStopsCountingTheShard(t *testing.T) {
 				index := h.repo.GetIndex(className)
 				_, release, err := index.GetShard(ctx, shardName)
 				require.NoError(t, err)
-				require.Error(t, index.UnloadLocalShard(ctx, shardName))
+				_, err = index.UnloadLocalShard(ctx, shardName)
+				require.Error(t, err)
 				release()
 				require.Equal(t, shardGauges{unloaded: 1}, h.gauges(),
 					"a shut shard in the map is counted as unloaded")
@@ -445,7 +459,8 @@ func TestDropStopsCountingTheShard(t *testing.T) {
 			prepare: func(t *testing.T, h *shardMetricsHarness, shardName string) {
 				index := h.repo.GetIndex(className)
 				shard := index.shards.Load(shardName)
-				require.NoError(t, shard.(*LazyLoadShard).Load(ctx))
+				_, _, err := shard.(*LazyLoadShard).loadIfCold(ctx)
+				require.NoError(t, err)
 				// Files removed underneath the shard fail the drop before it
 				// finishes.
 				require.NoError(t, os.RemoveAll(shardPath(index.path(), shardName)))
@@ -476,6 +491,28 @@ func TestDropStopsCountingTheShard(t *testing.T) {
 				"a dropped shard must leave every gauge")
 		})
 	}
+}
+
+// TestDropUnloadedShardWithMonitoringOff pins that dropping a shard that was
+// loaded and then shut down removes its files with
+// PROMETHEUS_MONITORING_ENABLED off and vector dimension tracking on.
+func TestDropUnloadedShardWithMonitoringOff(t *testing.T) {
+	ctx := context.Background()
+	const className = "TestDropMonitoringOff"
+	h := newRepoHarness(t, true, nil)
+	shardName := h.addClass(t, className)
+	index := h.repo.GetIndex(className)
+
+	// A load and a shutdown leave the shard's files on disk and the shard
+	// unloaded in the map, as a restart does.
+	lazy := index.shards.Load(shardName).(*LazyLoadShard)
+	_, _, err := lazy.loadIfCold(ctx)
+	require.NoError(t, err)
+	require.NoError(t, lazy.Shutdown(ctx))
+	require.DirExists(t, shardPath(index.path(), shardName))
+
+	require.NoError(t, index.dropShards([]string{shardName}))
+	require.NoDirExists(t, shardPath(index.path(), shardName))
 }
 
 // TestDropDuringDeferredShutdownCountsOnce pins that a shutdown starting while
@@ -517,11 +554,12 @@ func dropDuringDeferredShutdown(t *testing.T, h *shardMetricsHarness, className 
 	// the held reference without changing its outcome.
 	unloadCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
 	defer cancel()
-	require.Error(t, index.UnloadLocalShard(unloadCtx, shardName))
+	_, err = index.UnloadLocalShard(unloadCtx, shardName)
+	require.Error(t, err)
 
 	lazy, ok := index.shards.Load(shardName).(*LazyLoadShard)
 	require.True(t, ok, "a shard put back after a failed unload stays in the map")
-	shard := lazy.shard
+	shard := lazy.loadedShard()
 	require.NotNil(t, shard)
 
 	// Files removed underneath the shard end the drop early, so its metric
@@ -632,7 +670,7 @@ func TestLazyLoadShardMetricsLifecycle(t *testing.T) {
 		// Load the shard - this should update metrics:
 		// StartLoadingShard: unloaded--, loading++
 		// FinishLoadingShard: loading--, loaded++
-		err = lazyShard.Load(ctx)
+		_, _, err = lazyShard.loadIfCold(ctx)
 		require.NoError(t, err)
 
 		// After loading, shard should be counted as loaded
@@ -673,7 +711,7 @@ func TestLazyLoadShardMetricsLifecycle(t *testing.T) {
 		lazyShard := shard.(*LazyLoadShard)
 
 		// Load again - should be a no-op since already loaded
-		err = lazyShard.Load(ctx)
+		_, _, err = lazyShard.loadIfCold(ctx)
 		require.NoError(t, err)
 
 		// Metrics should remain unchanged

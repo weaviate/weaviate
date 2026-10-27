@@ -16,6 +16,9 @@ import (
 	"os"
 	"testing"
 
+	"github.com/go-openapi/swag"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
+
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 
@@ -25,14 +28,8 @@ import (
 
 func TestConfigModules(t *testing.T) {
 	t.Run("invalid DefaultVectorDistanceMetric", func(t *testing.T) {
-		moduleProvider := &fakeModuleProvider{
-			valid: []string{"text2vec-contextionary"},
-		}
-		config := Config{
-			DefaultVectorizerModule:     "text2vec-contextionary",
-			DefaultVectorDistanceMetric: "euclidean",
-		}
-		err := config.ValidateModules(moduleProvider)
+		config := Config{DefaultVectorDistanceMetric: "euclidean"}
+		err := config.ValidateDefaultVectorDistanceMetric()
 		assert.EqualError(
 			t,
 			err,
@@ -40,54 +37,14 @@ func TestConfigModules(t *testing.T) {
 		)
 	})
 
-	t.Run("invalid DefaultVectorizerModule", func(t *testing.T) {
-		moduleProvider := &fakeModuleProvider{
-			valid: []string{"text2vec-contextionary"},
-		}
-		config := Config{
-			DefaultVectorizerModule:     "contextionary",
-			DefaultVectorDistanceMetric: "cosine",
-		}
-		err := config.ValidateModules(moduleProvider)
-		assert.EqualError(
-			t,
-			err,
-			"default vectorizer module: invalid vectorizer \"contextionary\"",
-		)
-	})
-
-	t.Run("all valid configurations", func(t *testing.T) {
-		moduleProvider := &fakeModuleProvider{
-			valid: []string{"text2vec-contextionary"},
-		}
-		config := Config{
-			DefaultVectorizerModule:     "text2vec-contextionary",
-			DefaultVectorDistanceMetric: "l2-squared",
-		}
-		err := config.ValidateModules(moduleProvider)
-		assert.Nil(t, err, "should not error")
+	t.Run("valid DefaultVectorDistanceMetric", func(t *testing.T) {
+		config := Config{DefaultVectorDistanceMetric: "l2-squared"}
+		assert.NoError(t, config.ValidateDefaultVectorDistanceMetric())
 	})
 
 	t.Run("without DefaultVectorDistanceMetric", func(t *testing.T) {
-		moduleProvider := &fakeModuleProvider{
-			valid: []string{"text2vec-contextionary"},
-		}
-		config := Config{
-			DefaultVectorizerModule: "text2vec-contextionary",
-		}
-		err := config.ValidateModules(moduleProvider)
-		assert.Nil(t, err, "should not error")
-	})
-
-	t.Run("with none DefaultVectorizerModule", func(t *testing.T) {
-		moduleProvider := &fakeModuleProvider{
-			valid: []string{"text2vec-contextionary"},
-		}
-		config := Config{
-			DefaultVectorizerModule: "none",
-		}
-		err := config.ValidateModules(moduleProvider)
-		assert.Nil(t, err, "should not error")
+		config := Config{}
+		assert.NoError(t, config.ValidateDefaultVectorDistanceMetric())
 	})
 
 	t.Run("parse config.yaml file", func(t *testing.T) {
@@ -277,12 +234,53 @@ func TestConfigParsing(t *testing.T) {
 		weaviateConfig := &WeaviateConfig{}
 		config, err := weaviateConfig.parseConfigFile(file, configFileName)
 		require.NoError(t, err)
-		require.Equal(t, BackupGCS{UseGRPC: true, GRPCConnPool: 32}, config.BackupGCS)
+		require.Equal(t, BackupGCS{UseGRPC: new(true), GRPCConnPool: 32}, config.BackupGCS)
 
 		// LoadConfig reads the file before the environment, so an unset variable
 		// has to leave the parsed value alone.
 		require.NoError(t, FromEnv(&config))
-		assert.Equal(t, BackupGCS{UseGRPC: true, GRPCConnPool: 32}, config.BackupGCS)
+		assert.Equal(t, BackupGCS{UseGRPC: new(true), GRPCConnPool: 32}, config.BackupGCS)
+	})
+
+	t.Run("parse backup_gcs http config and survive the env pass - yaml", func(t *testing.T) {
+		for _, key := range []string{"GCS_MODULE_TRANSPORT", "GCS_MODULE_GRPC_CONN_POOL"} {
+			t.Setenv(key, "")
+		}
+
+		configFileName := "config.yaml"
+		configYaml := `backup_gcs:
+  use_grpc: false
+`
+
+		filepath := fmt.Sprintf("%s/%s", t.TempDir(), configFileName)
+		require.NoError(t, os.WriteFile(filepath, []byte(configYaml), 0o600))
+
+		file, err := os.ReadFile(filepath)
+		require.NoError(t, err)
+		weaviateConfig := &WeaviateConfig{}
+		config, err := weaviateConfig.parseConfigFile(file, configFileName)
+		require.NoError(t, err)
+
+		// gRPC is the default, so an explicit false has to be distinguishable
+		// from an absent key or this config file silently changes transport.
+		require.NoError(t, FromEnv(&config))
+		require.NotNil(t, config.BackupGCS.UseGRPC)
+		assert.False(t, config.BackupGCS.UseGRPCOrDefault())
+	})
+
+	t.Run("a config file cannot grant the license", func(t *testing.T) {
+		t.Setenv("LICENSE_KEY", "")
+		t.Setenv("LICENSE_KEY_FILE", "")
+
+		filepath := fmt.Sprintf("%s/config.yaml", t.TempDir())
+		require.NoError(t, os.WriteFile(filepath, []byte("weaviate_license: true\n"), 0o600))
+
+		weaviateConfig := &WeaviateConfig{}
+		flags := &swag.CommandLineOptionsGroup{Options: &Flags{ConfigFile: filepath}}
+		logger, _ := logrustest.NewNullLogger()
+		require.NoError(t, weaviateConfig.LoadConfig(flags, logger))
+
+		assert.False(t, weaviateConfig.Config.WeaviateLicense)
 	})
 }
 
@@ -524,6 +522,24 @@ func TestConfigValidation_Namespaces(t *testing.T) {
 				assert.NotContains(t, err.Error(), "NAMESPACES_ENABLED=true requires DISABLE_GRAPHQL=true")
 				assert.NotContains(t, err.Error(), "NAMESPACES_ENABLED=true requires RBAC to be enabled")
 			}
+		})
+	}
+}
+
+func TestBackupGCSUseGRPCOrDefault(t *testing.T) {
+	tests := []struct {
+		name    string
+		useGRPC *bool
+		want    bool
+	}{
+		{name: "unset defaults to grpc", useGRPC: nil, want: true},
+		{name: "explicit false selects http", useGRPC: new(false), want: false},
+		{name: "explicit true selects grpc", useGRPC: new(true), want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, BackupGCS{UseGRPC: tt.useGRPC}.UseGRPCOrDefault())
 		})
 	}
 }

@@ -854,12 +854,11 @@ func (pdt *fakePropertyDataType) ContainsClass(name schema.ClassName) bool {
 }
 
 func TestHandler_DeleteClassVectorIndex(t *testing.T) {
-	t.Setenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true")
 	ctx := context.Background()
 
 	t.Run("class not found returns error", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"TestClass"}).
+		fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{"TestClass"}).
 			Return(map[string]versioned.Class{}, nil)
 
 		err := handler.DeleteClassVectorIndex(ctx, nil, "TestClass", "vec1")
@@ -874,7 +873,7 @@ func TestHandler_DeleteClassVectorIndex(t *testing.T) {
 
 	t.Run("class with no vector config returns error", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"TestClass"}).
+		fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{"TestClass"}).
 			Return(map[string]versioned.Class{
 				"TestClass": {Class: &models.Class{Class: "TestClass"}},
 			}, nil)
@@ -885,7 +884,7 @@ func TestHandler_DeleteClassVectorIndex(t *testing.T) {
 
 	t.Run("non-existent vector index returns error", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"TestClass"}).
+		fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{"TestClass"}).
 			Return(map[string]versioned.Class{
 				"TestClass": {Class: &models.Class{
 					Class: "TestClass",
@@ -901,7 +900,7 @@ func TestHandler_DeleteClassVectorIndex(t *testing.T) {
 
 	t.Run("already dropped vector index is a no-op", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"TestClass"}).
+		fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{"TestClass"}).
 			Return(map[string]versioned.Class{
 				"TestClass": {Class: &models.Class{
 					Class: "TestClass",
@@ -918,7 +917,7 @@ func TestHandler_DeleteClassVectorIndex(t *testing.T) {
 	t.Run("successful drop sets VectorIndexType to none", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
-		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"TestClass"}).
+		fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{"TestClass"}).
 			Return(map[string]versioned.Class{
 				"TestClass": {Class: &models.Class{
 					Class: "TestClass",
@@ -934,7 +933,7 @@ func TestHandler_DeleteClassVectorIndex(t *testing.T) {
 					},
 				}},
 			}, nil)
-		fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+		fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser).Return(nil)
 
 		err := handler.DeleteClassVectorIndex(ctx, nil, "TestClass", "vec1")
 		require.NoError(t, err)
@@ -1076,7 +1075,7 @@ func TestAddClassProperty_Namespacing(t *testing.T) {
 				handler.Authorizer = authorizer
 			}
 
-			lookup, err := namespacing.QualifyClass(tt.principal, tt.enabled, tt.inputName)
+			lookup, err := namespacing.QualifyClass(tt.principal, handler.qualifier, tt.inputName)
 			require.NoError(t, err)
 			if lookup == tt.stored {
 				sm.On("ReadOnlyClass", lookup).Return(&models.Class{
@@ -1187,7 +1186,7 @@ func TestDeleteClassPropertyIndex_Namespacing(t *testing.T) {
 			t.Parallel()
 			handler, sm := newTestHandlerWithNamespaces(t, tt.enabled)
 
-			lookup, err := namespacing.QualifyClass(tt.principal, tt.enabled, tt.inputName)
+			lookup, err := namespacing.QualifyClass(tt.principal, handler.qualifier, tt.inputName)
 			require.NoError(t, err)
 			prop := &models.Property{
 				Name:            "title",
@@ -1552,7 +1551,6 @@ func TestDeleteClassPropertyIndex_NoOpWhenFlagAlreadyOff(t *testing.T) {
 func boolPtr(b bool) *bool { return &b }
 
 func TestDeleteClassVectorIndex_Namespacing(t *testing.T) {
-	t.Setenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true")
 	cases := []struct {
 		name         string
 		enabled      bool
@@ -1600,7 +1598,7 @@ func TestDeleteClassVectorIndex_Namespacing(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, sm := newTestHandlerWithNamespaces(t, tt.enabled)
 
-			lookup, err := namespacing.QualifyClass(tt.principal, tt.enabled, tt.inputName)
+			lookup, err := namespacing.QualifyClass(tt.principal, handler.qualifier, tt.inputName)
 			require.NoError(t, err)
 			storedClass := &models.Class{
 				Class: tt.stored,
@@ -1609,16 +1607,16 @@ func TestDeleteClassVectorIndex_Namespacing(t *testing.T) {
 				},
 			}
 			if lookup == tt.stored {
-				sm.On("QueryReadOnlyClasses", []string{lookup}).
+				sm.On("ReadOnlyClassesFromLeader", []string{lookup}).
 					Return(map[string]versioned.Class{lookup: {Class: storedClass}}, nil)
 			} else {
-				sm.On("QueryReadOnlyClasses", []string{lookup}).
+				sm.On("ReadOnlyClassesFromLeader", []string{lookup}).
 					Return(map[string]versioned.Class{}, nil)
 			}
 			if tt.wantErrIs == nil {
 				sm.On("UpdateClass", mock.MatchedBy(func(c *models.Class) bool {
 					return c.Class == tt.wantAuthName
-				}), mock.Anything).Return(nil)
+				}), mock.Anything, command.ClassUpdateOriginUser).Return(nil)
 			}
 
 			err = handler.DeleteClassVectorIndex(context.Background(), tt.principal,

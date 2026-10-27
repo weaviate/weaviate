@@ -26,6 +26,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	batchMocks "github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch/mocks"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
@@ -59,7 +60,7 @@ func TestClassGetterWithAuthzFuncMemoization(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			reader := schema.NewMockSchemaReader(t)
+			reader := local.NewMockSchemaReader(t)
 			reader.On("ReadOnlyClass", tt.class).Return(&models.Class{Class: tt.class})
 			authorizer := authMocks.NewMockAuthorizer()
 			s := &Service{
@@ -77,7 +78,10 @@ func TestClassGetterWithAuthzFuncMemoization(t *testing.T) {
 
 			// second call hits the memo, so the class is authorized exactly once
 			require.Equal(t, []authMocks.AuthZReq{
-				{Principal: principal, Verb: authorization.READ, Resources: tt.expectedResources},
+				{
+					Principal: principal, Verb: authorization.READ, Resources: tt.expectedResources,
+					Method: authMocks.MethodAuthorizeAndRequireActiveNamespace, Class: tt.class,
+				},
 			}, authorizer.Calls())
 		})
 	}
@@ -85,7 +89,7 @@ func TestClassGetterWithAuthzFuncMemoization(t *testing.T) {
 
 func TestClassGetterWithAuthzFuncDoesNotMemoizeDenied(t *testing.T) {
 	principal := &models.Principal{}
-	reader := schema.NewMockSchemaReader(t)
+	reader := local.NewMockSchemaReader(t)
 	authorizer := authMocks.NewMockAuthorizer()
 	authorizer.SetErr(errors.New("denied"))
 	s := &Service{
@@ -105,7 +109,7 @@ func TestClassGetterWithAuthzFuncDoesNotMemoizeDenied(t *testing.T) {
 
 func TestClassGetterWithAuthzFuncMemoizesMissingClass(t *testing.T) {
 	principal := &models.Principal{}
-	reader := schema.NewMockSchemaReader(t)
+	reader := local.NewMockSchemaReader(t)
 	reader.On("ReadOnlyClass", "Foo").Return((*models.Class)(nil))
 	authorizer := authMocks.NewMockAuthorizer()
 	s := &Service{
@@ -124,13 +128,16 @@ func TestClassGetterWithAuthzFuncMemoizesMissingClass(t *testing.T) {
 		require.Contains(t, err.Error(), "could not find class Foo")
 	}
 	require.Equal(t, []authMocks.AuthZReq{
-		{Principal: principal, Verb: authorization.READ, Resources: authorization.CollectionsData("Foo")},
+		{
+			Principal: principal, Verb: authorization.READ, Resources: authorization.CollectionsData("Foo"),
+			Method: authMocks.MethodAuthorizeAndRequireActiveNamespace, Class: "Foo",
+		},
 	}, authorizer.Calls())
 }
 
 func TestClassGetterWithAuthzFuncMemoizesPerClass(t *testing.T) {
 	principal := &models.Principal{}
-	reader := schema.NewMockSchemaReader(t)
+	reader := local.NewMockSchemaReader(t)
 	reader.On("ReadOnlyClass", mock.Anything).Return(func(name string) *models.Class {
 		return &models.Class{Class: name}
 	})
@@ -149,8 +156,14 @@ func TestClassGetterWithAuthzFuncMemoizesPerClass(t *testing.T) {
 
 	// each distinct class is authorized once; repeats hit the memo
 	require.Equal(t, []authMocks.AuthZReq{
-		{Principal: principal, Verb: authorization.READ, Resources: authorization.CollectionsData("Foo")},
-		{Principal: principal, Verb: authorization.READ, Resources: authorization.CollectionsData("Bar")},
+		{
+			Principal: principal, Verb: authorization.READ, Resources: authorization.CollectionsData("Foo"),
+			Method: authMocks.MethodAuthorizeAndRequireActiveNamespace, Class: "Foo",
+		},
+		{
+			Principal: principal, Verb: authorization.READ, Resources: authorization.CollectionsData("Bar"),
+			Method: authMocks.MethodAuthorizeAndRequireActiveNamespace, Class: "Bar",
+		},
 	}, authorizer.Calls())
 }
 

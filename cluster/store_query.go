@@ -64,7 +64,7 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get shard owner: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_GET_TENANTS_SHARDS:
-		payload, err = st.schemaManager.QueryTenantsShards(req)
+		payload, err = st.schemaManager.QueryTenantsShardsStatus(req)
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get tenant shard: %w", err)
 		}
@@ -181,6 +181,11 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		payload, err = st.distributedTasksManager.ListDistributedTasksPayload(context.Background())
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get distributed task list: %w", err)
+		}
+	case cmd.QueryRequest_TYPE_DISTRIBUTED_TASK_GET:
+		payload, err = st.distributedTasksManager.GetDistributedTaskPayload(req.SubCommand)
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get distributed task: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_GET_REPLICATION_OPERATION_STATE:
 		payload, err = st.replicationManager.GetReplicationOperationState(req)

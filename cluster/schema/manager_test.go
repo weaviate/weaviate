@@ -57,7 +57,7 @@ func TestResolveAlais(t *testing.T) {
 func TestVersionedSchemaReaderShardReplicas(t *testing.T) {
 	var (
 		ctx = context.Background()
-		sc  = NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+		sc  = NewSchema(t.Name(), prometheus.NewPedanticRegistry())
 		vsc = VersionedSchemaReader{
 			schema:        sc,
 			WaitForUpdate: func(ctx context.Context, version uint64) error { return nil },
@@ -89,7 +89,7 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 		retErr error
 		f      = func(ctx context.Context, version uint64) error { return retErr }
 		nodes  = []string{"N1", "N2"}
-		s      = NewSchema(t.Name(), &MockShardReader{}, prometheus.NewPedanticRegistry())
+		s      = NewSchema(t.Name(), prometheus.NewPedanticRegistry())
 		sc     = VersionedSchemaReader{s, f}
 	)
 
@@ -140,7 +140,7 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 	assert.ErrorContains(t, err, "node not found")
 	_, err = sc.ShardOwner(ctx, "C", "Sx", 1)
 	assert.ErrorIs(t, err, ErrShardNotFound)
-	shards, _, err := sc.TenantsShards(ctx, 1, "C", "S2")
+	shards, _, err := sc.TenantsShardsStatus(ctx, 1, "C", "S2")
 	assert.Empty(t, shards)
 	assert.Nil(t, err)
 	shard, err := sc.ShardFromUUID(ctx, "Cx", nil, 1)
@@ -168,12 +168,12 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 	assert.Contains(t, nodes, owner)
 
 	// TenantShard
-	shards, _, err = sc.TenantsShards(ctx, 1, "D", "S1")
+	shards, _, err = sc.TenantsShardsStatus(ctx, 1, "D", "S1")
 	assert.Equal(t, shards, map[string]string{"S1": "A"})
 	assert.Equal(t, shards["S1"], "A")
 	assert.Nil(t, err)
 
-	shards, _, err = sc.TenantsShards(ctx, 1, "D", "Sx")
+	shards, _, err = sc.TenantsShardsStatus(ctx, 1, "D", "Sx")
 	assert.Empty(t, shards)
 	assert.Nil(t, err)
 
@@ -185,8 +185,8 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 }
 
 func TestSchemaReaderShardReplicas(t *testing.T) {
-	sc := NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
-	rsc := SchemaReader{sc, VersionedSchemaReader{}}
+	sc := NewSchema(t.Name(), prometheus.NewPedanticRegistry())
+	rsc := SchemaReader{schema: sc}
 	// class not found
 	_, _, err := sc.ShardReplicas("C", "S")
 	assert.ErrorIs(t, err, ErrClassNotFound)
@@ -210,8 +210,8 @@ func TestSchemaReaderShardReplicas(t *testing.T) {
 func TestSchemaReaderClass(t *testing.T) {
 	var (
 		nodes = []string{"N1", "N2"}
-		s     = NewSchema(t.Name(), &MockShardReader{}, prometheus.NewPedanticRegistry())
-		sc    = SchemaReader{s, VersionedSchemaReader{}}
+		s     = NewSchema(t.Name(), prometheus.NewPedanticRegistry())
+		sc    = SchemaReader{schema: s}
 	)
 
 	// class not found
@@ -263,12 +263,9 @@ func TestSchemaReaderClass(t *testing.T) {
 	assert.ErrorContains(t, err, "node not found")
 	_, err = sc.ShardOwner("C", "Sx")
 	assert.ErrorIs(t, err, ErrShardNotFound)
-	shard, _ := sc.TenantsShards("C", "S2")
+	shard, _ := sc.TenantsShardsStatus("C", "S2")
 	assert.Empty(t, shard)
 	assert.Empty(t, sc.ShardFromUUID("Cx", nil))
-
-	_, err = sc.GetShardsStatus("C", "")
-	assert.Nil(t, err)
 
 	// Add Multi Tenant Class (PartitioningEnabled: true)
 	cls2 := &models.Class{Class: "D", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}}
@@ -290,9 +287,9 @@ func TestSchemaReaderClass(t *testing.T) {
 	assert.Contains(t, nodes, owner)
 
 	// TenantShard
-	shards, _ := sc.TenantsShards("D", "S1")
+	shards, _ := sc.TenantsShardsStatus("D", "S1")
 	assert.Equal(t, shards["S1"], "A")
-	shards, _ = sc.TenantsShards("D", "Sx")
+	shards, _ = sc.TenantsShardsStatus("D", "Sx")
 	assert.Empty(t, shards)
 }
 
@@ -360,7 +357,7 @@ func TestReloadKeepsNestedRangeFiltersInSchema(t *testing.T) {
 		Type: cmd.ApplyRequest_TYPE_ADD_CLASS, Class: "C", SubCommand: sub,
 	}, "node1", true, false))
 
-	sm.ReloadDBFromSchema()
+	sm.ReloadDBFromSchema(context.Background())
 
 	class, _ := sm.schema.ReadOnlyClass("C")
 	require.NotNil(t, class)
@@ -505,15 +502,6 @@ func TestApplyPartialSchemaErr(t *testing.T) {
 			}
 		})
 	}
-}
-
-type MockShardReader struct {
-	lst models.ShardStatusList
-	err error
-}
-
-func (m *MockShardReader) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
-	return m.lst, m.err
 }
 
 // fakeReplicationFSM stands in for the real FSM here because importing
@@ -1037,10 +1025,10 @@ func TestSchemaManager_UpdateClass_MarkerIntroductionPurgesRecords(t *testing.T)
 	})
 
 	t.Run("the vector-less flip stores nothing synthetic", func(t *testing.T) {
-		// UpdateClassInternal clears the legacy fields the defaults filled
-		// into the body before proposing, so the apply stores the genuinely
-		// empty shape; Vectorizer/VectorIndexType are never copied from
-		// updates in any case.
+		// The defaults never fill legacy fields into a vector-less body and
+		// UpdateClassInternal rejects a caller who sets them, so the body
+		// reaching the apply carries the genuinely empty shape;
+		// Vectorizer/VectorIndexType are never copied from updates in any case.
 		deleter := &fakeCascadeDeleter{}
 		initial := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": {VectorIndexType: none}}}
 		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{}}

@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -98,7 +99,7 @@ func newStatusGaugeHarness(t *testing.T, opts statusGaugeOpts) *statusGaugeHarne
 		shardState: shardState,
 	}
 
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 		func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
@@ -229,7 +230,8 @@ func TestShardStatusGaugeReleasedWhenShardLeavesNode(t *testing.T) {
 			name:    "evicted with UnloadLocalShard",
 			counted: map[storagestate.Status]float64{storagestate.StatusReady: 1},
 			act: func(t *testing.T, e env) {
-				require.NoError(t, e.idx.UnloadLocalShard(ctx, e.shardName))
+				_, err := e.idx.UnloadLocalShard(ctx, e.shardName)
+				require.NoError(t, err)
 			},
 		},
 		{
@@ -277,7 +279,8 @@ func TestShardStatusGaugeReleasedWhenShardLeavesNode(t *testing.T) {
 			multiTenant: true,
 			counted:     map[storagestate.Status]float64{storagestate.StatusReady: 1},
 			prepare: func(t *testing.T, e env) {
-				require.NoError(t, e.shard.(*LazyLoadShard).Load(ctx))
+				_, _, err := e.shard.(*LazyLoadShard).loadIfCold(ctx)
+				require.NoError(t, err)
 				e.h.migrator.cluster = noopProcessor{}
 			},
 			act: func(t *testing.T, e env) {
@@ -359,7 +362,8 @@ func TestShardStatusGaugeCountsEachShardOfACollection(t *testing.T) {
 	idx := h.addClass(t, statusGaugeClass(className, true))
 
 	for i := 0; i < tenants; i++ {
-		require.NoError(t, idx.shards.Load(statusGaugeTenant(i)).(*LazyLoadShard).Load(ctx))
+		_, _, err := idx.shards.Load(statusGaugeTenant(i)).(*LazyLoadShard).loadIfCold(ctx)
+		require.NoError(t, err)
 	}
 	h.requireBuckets(t, "with every tenant loaded",
 		map[storagestate.Status]float64{storagestate.StatusReady: tenants})
@@ -421,7 +425,8 @@ func TestShardStatusGaugeReleasedWhenInitFails(t *testing.T) {
 	require.NoError(t, os.Chmod(idx.path(), 0o555))
 	t.Cleanup(func() { _ = os.Chmod(idx.path(), 0o755) })
 
-	require.Error(t, shard.(*LazyLoadShard).Load(testCtx()))
+	_, _, err := shard.(*LazyLoadShard).loadIfCold(testCtx())
+	require.Error(t, err)
 
 	h.requireBuckets(t, "after the failed init", nil)
 }

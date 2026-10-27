@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -57,14 +58,6 @@ type VectorIndexQueue struct {
 // points per batch.
 const geoQueueChunkSize = 24 * 1024
 
-func NewVectorIndexQueue(
-	shard *Shard,
-	targetVector string,
-	index VectorIndex,
-) (*VectorIndexQueue, error) {
-	return newVectorIndexQueueWithID(shard, shard.vectorIndexID(targetVector), targetVector, index, 0)
-}
-
 // NewGeoIndexQueue creates a VectorIndexQueue for a geo property index.
 // It uses a geo-specific ID to avoid the misleading "vectors_" prefix.
 func NewGeoIndexQueue(
@@ -72,16 +65,27 @@ func NewGeoIndexQueue(
 	propName string,
 	index VectorIndex,
 ) (*VectorIndexQueue, error) {
-	return newVectorIndexQueueWithID(shard, geoPropID(propName), "geo_"+propName, index, geoQueueChunkSize)
+	id := geoPropID(propName)
+	// No target_vector, like the geo index's own lines: a geo index has no
+	// object-vector identity. The Prometheus label keeps "geo_<prop>" so geo
+	// series stay apart from the object vectors'.
+	logger := shard.index.logger.WithFields(logrus.Fields{
+		"class":    shard.index.Config.ClassName.String(),
+		"shard":    shard.name,
+		"index_id": id,
+	})
+	return newVectorIndexQueueWithID(shard, id, logger, "geo_"+propName, index, geoQueueChunkSize)
 }
 
-// newVectorIndexQueueWithID builds the queue draining into index. chunkSize
-// overrides the DiskQueue's default (10MB) chunk size (0 = default) to bound
-// how long one batch occupies a worker.
+// newVectorIndexQueueWithID builds the queue draining into index. logger is
+// the index's identified logger; metricsTargetVector labels the queue's
+// Prometheus series. chunkSize overrides the DiskQueue's default (10MB)
+// chunk size (0 = default) to bound how long one batch occupies a worker.
 func newVectorIndexQueueWithID(
 	shard *Shard,
 	indexID string,
-	logLabel string,
+	logger logrus.FieldLogger,
+	metricsTargetVector string,
 	index VectorIndex,
 	chunkSize uint64,
 ) (*VectorIndexQueue, error) {
@@ -92,13 +96,11 @@ func newVectorIndexQueueWithID(
 	}
 	viq.vectorIndex = index
 
-	logger := shard.index.logger.WithField("component", "vector_index_queue").
-		WithField("shard_id", shard.ID()).
-		WithField("target_vector", logLabel)
+	logger = logger.WithField("component", "vector_index_queue")
 
 	staleTimeout, _ := time.ParseDuration(os.Getenv("ASYNC_INDEXING_STALE_TIMEOUT"))
 
-	viq.metrics = NewVectorIndexQueueMetrics(logger, shard.promMetrics, shard.index.Config.ClassName.String(), shard.Name(), logLabel)
+	viq.metrics = NewVectorIndexQueueMetrics(logger, shard.promMetrics, shard.index.Config.ClassName.String(), shard.Name(), metricsTargetVector)
 
 	q, err := queue.NewDiskQueue(
 		queue.DiskQueueOptions{

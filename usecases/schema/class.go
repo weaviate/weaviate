@@ -27,11 +27,13 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
+	enthfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"golang.org/x/text/unicode/norm"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
 	entcfg "github.com/weaviate/weaviate/entities/config"
@@ -69,7 +71,7 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 	// NOTE: Support getting class via alias name
 	// Also we resolve before doing `Authorize` so that Authorizer will work
 	// with correct `collectionName` for permissions and errors UX
-	resolved, _, err := namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, name)
+	resolved, _, err := namespacing.Resolve(principal, h.schemaReader, h.qualifier, name)
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
@@ -80,7 +82,7 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 	}
 
 	if consistency {
-		vclasses, err := h.schemaManager.QueryReadOnlyClasses(name)
+		vclasses, err := h.schemaManager.ReadOnlyClassesFromLeader(name)
 		return vclasses[name].Class, vclasses[name].Version, err
 	}
 	class, err := h.schemaReader.ReadOnlyClassWithVersion(ctx, name, 0)
@@ -126,7 +128,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	// caller-supplied ":" and the success of the namespaced-create flow are
 	// covered by test/acceptance/namespace/collection_alias_test.go.
 	originalClassName := cls.Class
-	qualified, err := namespacing.QualifyForCreate(principal, h.config.Namespaces.Enabled, cls.Class, "class")
+	qualified, err := namespacing.QualifyForCreate(principal, h.qualifier, cls.Class, "class")
 	if errors.Is(err, namespacing.ErrCreateRequiresNamespace) {
 		return nil, 0, authzerrors.NewNamespaceForbidden(principal)
 	}
@@ -134,7 +136,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 	cls.Class = qualified
-	if err := namespacing.QualifyPropertyDataTypes(principal, h.config.Namespaces.Enabled, cls.Class, cls.Properties); err != nil {
+	if err := namespacing.QualifyPropertyDataTypes(principal, h.qualifier, cls.Class, cls.Properties); err != nil {
 		return nil, 0, err
 	}
 
@@ -198,7 +200,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 			countNamespace = principal.Namespace
 		}
 
-		existingCollectionsCount, err := h.schemaManager.QueryCollectionsCount(countNamespace)
+		existingCollectionsCount, err := h.schemaManager.CollectionsCountFromLeader(countNamespace)
 		if err != nil {
 			h.logger.WithField("namespace", countNamespace).Errorf("could not query the collections count: %v", err)
 		}
@@ -286,7 +288,7 @@ func rejectExplicitMultiShardOnNamespacedClass(shardingConfig any) error {
 // [namespace.home_node] so every shard pins to that one node.
 func (h *Handler) namespaceCandidates(qualifiedClass string) ([]string, error) {
 	if !h.config.Namespaces.Enabled {
-		return h.schemaManager.StorageCandidates(), nil
+		return h.membership.StorageCandidates(), nil
 	}
 	ns := namespacing.NamespaceFromQualified(qualifiedClass)
 	if ns == "" {
@@ -300,7 +302,7 @@ func (h *Handler) namespaceCandidates(qualifiedClass string) ([]string, error) {
 	if homeNode == "" {
 		return nil, fmt.Errorf("namespace %q has no home_node; refusing placement", ns)
 	}
-	candidates := h.schemaManager.StorageCandidates()
+	candidates := h.membership.StorageCandidates()
 	if !slices.Contains(candidates, homeNode) {
 		return nil, fmt.Errorf("namespace %q home_node %q is not a current storage candidate", ns, homeNode)
 	}
@@ -315,18 +317,25 @@ func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *c
 	}
 
 	var err error
-	if !hasTargetVectors(class) || class.VectorIndexType != "" {
-		class.VectorIndexConfig, err = setDefaultQuantization(class.VectorIndexType, class.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
+	// A vector-less class carries no parsed config to quantize, and a class
+	// whose named vector was dropped carries none for that entry. Both reach
+	// here as a nil interface, so every assertion has to be checked.
+	if cfg, ok := class.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+		class.VectorIndexConfig, err = setDefaultQuantization(class.VectorIndexType, cfg, compression)
 		if err != nil {
-			h.logger.WithField("error", err).Error("error while setting default quantization")
+			h.logger.Errorf("error while setting default quantization: %v", err)
 		}
 	}
 
 	for k, vectorConfig := range class.VectorConfig {
-		vectorConfig.VectorIndexConfig, err = setDefaultQuantization(vectorConfig.VectorIndexType, vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
+		cfg, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
+		if !ok {
+			continue
+		}
+		vectorConfig.VectorIndexConfig, err = setDefaultQuantization(vectorConfig.VectorIndexType, cfg, compression)
 		class.VectorConfig[k] = vectorConfig
 		if err != nil {
-			h.logger.WithField("error", err).Error("error while setting default quantization")
+			h.logger.Errorf("error while setting default quantization: %v", err)
 		}
 	}
 }
@@ -445,7 +454,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 // here: deleting via an alias name must be a no-op on the underlying
 // class, otherwise an alias becomes a backdoor to drop its target.
 func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, class string) error {
-	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+	class, err := namespacing.QualifyClass(principal, h.qualifier, class)
 	if err != nil {
 		return err
 	}
@@ -464,7 +473,7 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	className string, updated *models.Class,
 ) error {
-	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	className, err := namespacing.QualifyClass(principal, h.qualifier, className)
 	if err != nil {
 		return err
 	}
@@ -473,7 +482,7 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	// after a GET. Qualify it and require it to match the path so a
 	// mismatch surfaces explicitly instead of being silently overwritten.
 	if updated != nil && namespacing.ConfinedNamespace(principal) != "" {
-		qualifiedBody, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, updated.Class)
+		qualifiedBody, err := namespacing.QualifyClass(principal, h.qualifier, updated.Class)
 		if err != nil {
 			return fmt.Errorf("%w: %w", ErrValidation, err)
 		}
@@ -483,7 +492,7 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		updated.Class = qualifiedBody
 	}
 	if updated != nil {
-		if err := namespacing.QualifyPropertyDataTypes(principal, h.config.Namespaces.Enabled, className, updated.Properties); err != nil {
+		if err := namespacing.QualifyPropertyDataTypes(principal, h.qualifier, className, updated.Properties); err != nil {
 			return fmt.Errorf("%w: %w", ErrValidation, err)
 		}
 	}
@@ -517,7 +526,7 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	// removal slip past the escalation. A failed leader read fails CLOSED —
 	// require the stronger scope rather than guess.
 	reference := initial.VectorConfig
-	if vclasses, err := h.schemaManager.QueryReadOnlyClasses(className); err != nil {
+	if vclasses, err := h.schemaManager.ReadOnlyClassesFromLeader(className); err != nil {
 		if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Collections(className)...); err != nil {
 			return fmt.Errorf("cannot verify the update against the schema leader; the drop endpoint's scope is required: %w", err)
 		}
@@ -534,27 +543,40 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		}
 	}
 
-	return UpdateClassInternal(h, ctx, className, updated)
+	return UpdateClassInternal(h, ctx, className, updated, api.ClassUpdateOriginUser)
 }
 
-// bypass the auth check for internal class update requests
+// UpdateClassInternal updates a class without an authorization check.
 func UpdateClassInternal(h *Handler, ctx context.Context, className string, updated *models.Class,
+	origin api.ClassUpdateOrigin,
 ) error {
+	cur := h.schemaReader.ReadOnlyClass(className)
+
+	// An update body that omits the legacy vector fields is still validated
+	// against a stored class that has them, so it needs those defaults filled
+	// in even though the body alone no longer asks for a legacy index. The
+	// stored class decides: an omitting body passes when the defaults match
+	// what is stored and trips the immutability check when they don't, which
+	// is what it has always done.
+	if cur != nil && !hasTargetVectors(updated) && modelsext.ClassHasLegacyVectorIndex(cur) {
+		h.setLegacyVectorDefaults(updated)
+	}
+
 	// make sure unset optionals on 'updated' don't lead to an error, as all
 	// optionals would have been set with defaults on the initial already
 	if err := h.setClassDefaults(updated, h.config.Replication); err != nil {
 		return err
 	}
 
-	// A vector-less class (no legacy vectorizer, last named vector dropped
-	// or already gone) keeps its legacy fields genuinely empty. The defaults
-	// above just filled them into the body (they cannot know better) —
-	// re-clear, so the update that reaches the parser and the RAFT apply is
-	// exactly the stored shape and no synthetic vectorizer can ever land.
-	if cur := h.schemaReader.ReadOnlyClass(className); cur != nil && modelsext.IsVectorlessUpdate(cur, updated) {
-		updated.Vectorizer = ""
-		updated.VectorIndexType = ""
-		updated.VectorIndexConfig = nil
+	// A vector-less class (created without any vector, or its last named
+	// vector dropped) keeps its legacy fields genuinely empty. The defaults
+	// above never fill them for such a class, so any legacy field set here
+	// came from the caller. Reject it: silently dropping it would answer 200
+	// to a change that was never made. A class-level index cannot be added
+	// after creation; a named vector can.
+	if cur != nil && modelsext.IsVectorlessUpdate(cur, updated) && modelsext.ClassHasLegacyVectorIndex(updated) {
+		return fmt.Errorf("%w: collection %q has no vector index: a class-level vectorizer or vector index "+
+			"cannot be added through an update, add a named vector instead", ErrValidation, className)
 	}
 
 	if updated.ReplicationConfig != nil {
@@ -590,7 +612,7 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 	initial := h.schemaReader.ReadOnlyClass(className)
 
 	if err := rejectVectorIndexTypeNone(initial, updated); err != nil {
-		vclasses, qErr := h.schemaManager.QueryReadOnlyClasses(className)
+		vclasses, qErr := h.schemaManager.ReadOnlyClassesFromLeader(className)
 		if qErr != nil {
 			return err
 		}
@@ -651,7 +673,7 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 	}
 	// A nil sharding state means that the sharding state will not be updated.
 
-	_, err := h.schemaManager.UpdateClass(ctx, updated, nil)
+	_, err := h.schemaManager.UpdateClass(ctx, updated, nil, origin)
 	return err
 }
 
@@ -699,7 +721,8 @@ func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, p
 // through [SchemaManager.UpdatePropertyFromMigration], which sets the
 // [api.UpdatePropertyRequest.FromInFlightMigration] flag so the schema
 // FSM's cross-FSM MutationGuard bypasses the in-flight-reindex check
-// for this single update.
+// for this single update. The flag also lets the update through while
+// its namespace is not active.
 //
 // Used by the reindex provider's
 // [adapters/repos/db.applyPerPropertySchemaUpdate] from the scheduler's
@@ -748,30 +771,40 @@ func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication
 	return nil
 }
 
+// setLegacyVectorDefaults fills the class-level vector fields from the global
+// defaults. Whether a class is entitled to a legacy index at all is the
+// caller's decision — this never creates one for a class that asked for none.
+// A legacy index without a vectorizer never gets one: vectorization must be
+// asked for explicitly, so it defaults to "none".
+func (h *Handler) setLegacyVectorDefaults(class *models.Class) {
+	if class.Vectorizer == "" {
+		class.Vectorizer = config.VectorizerModuleNone
+	}
+
+	if class.VectorIndexType == "" {
+		if v := h.config.DefaultVectorIndexType.Get(); v != "" {
+			class.VectorIndexType = v
+		} else {
+			class.VectorIndexType = vectorindex.DefaultVectorIndexType
+		}
+	}
+
+	if h.config.DefaultVectorDistanceMetric != "" {
+		if class.VectorIndexConfig == nil {
+			class.VectorIndexConfig = map[string]interface{}{"distance": h.config.DefaultVectorDistanceMetric}
+		} else if vIdxCfgMap, ok := class.VectorIndexConfig.(map[string]interface{}); ok && vIdxCfgMap["distance"] == nil {
+			class.VectorIndexConfig.(map[string]interface{})["distance"] = h.config.DefaultVectorDistanceMetric
+		}
+	}
+}
+
 func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.GlobalConfig) error {
-	// set legacy vector index defaults only when:
-	// 	- no target vectors are configured
-	//  - OR, there are target vectors configured AND there is a legacy vector configured
-	if !hasTargetVectors(class) || modelsext.ClassHasLegacyVectorIndex(class) {
-		if class.Vectorizer == "" {
-			class.Vectorizer = h.config.DefaultVectorizerModule
-		}
-
-		if class.VectorIndexType == "" {
-			if v := h.config.DefaultVectorIndexType.Get(); v != "" {
-				class.VectorIndexType = v
-			} else {
-				class.VectorIndexType = vectorindex.DefaultVectorIndexType
-			}
-		}
-
-		if h.config.DefaultVectorDistanceMetric != "" {
-			if class.VectorIndexConfig == nil {
-				class.VectorIndexConfig = map[string]interface{}{"distance": h.config.DefaultVectorDistanceMetric}
-			} else if vIdxCfgMap, ok := class.VectorIndexConfig.(map[string]interface{}); ok && vIdxCfgMap["distance"] == nil {
-				class.VectorIndexConfig.(map[string]interface{})["distance"] = h.config.DefaultVectorDistanceMetric
-			}
-		}
+	// Legacy vector index defaults apply only to a class that already asks for
+	// a legacy index by setting one of vectorizer, vectorIndexType or
+	// vectorIndexConfig. A class that configures no vector at all stays
+	// vector-less: the defaults must never be what creates the index.
+	if modelsext.ClassHasLegacyVectorIndex(class) {
+		h.setLegacyVectorDefaults(class)
 	}
 
 	// apply default vector index type to named vectors
@@ -1528,6 +1561,13 @@ func (h *Handler) validateVectorSettingsAgainst(class, initial *models.Class) er
 		if parsed == nil {
 			continue
 		}
+		// Create/update-only hard limits. They must not live in the config
+		// parser itself: that also runs on startup/restore, where a
+		// persisted out-of-range class must not prevent the node from
+		// starting.
+		if err := validateCreateUpdateOnlyBounds(parsed); err != nil {
+			return fmt.Errorf("target vector %q: %w", name, err)
+		}
 		// Grandfather: same VectorIndexType + same compressions on this
 		// named-vector entry ⇒ skip the policy check.
 		if namedCompressionUnchanged(parsed, name, initial, h) {
@@ -1536,6 +1576,16 @@ func (h *Handler) validateVectorSettingsAgainst(class, initial *models.Class) er
 		if err := h.validateAllowedCompression(cfg.VectorIndexType, parsed); err != nil {
 			return fmt.Errorf("target vector %q: %w", name, err)
 		}
+	}
+	return nil
+}
+
+// validateCreateUpdateOnlyBounds enforces limits that only apply to schema
+// writes (AddClass/UpdateClass), never to parsing persisted schemas at
+// startup or during RAFT log replay.
+func validateCreateUpdateOnlyBounds(parsed schemaConfig.VectorIndexConfig) error {
+	if uc, ok := parsed.(enthfresh.UserConfig); ok {
+		return enthfresh.ValidateMuveraUpperBounds(uc)
 	}
 	return nil
 }
@@ -1734,7 +1784,7 @@ func (h *Handler) validateVectorizer(vectorizer string) error {
 }
 
 // validateVectorIndexTypeBasic is the per-type correctness gate
-// (async-indexing for dynamic, experimental flag for hfresh, known name).
+// (async-indexing for dynamic, known name).
 // Runs unconditionally — these are invariants, not policy.
 func (h *Handler) validateVectorIndexTypeBasic(vectorIndexType string) error {
 	switch vectorIndexType {
@@ -1746,9 +1796,6 @@ func (h *Handler) validateVectorIndexTypeBasic(vectorIndexType string) error {
 		}
 		return nil
 	case vectorindex.VectorIndexTypeHFresh:
-		if !h.config.HFreshEnabled {
-			return fmt.Errorf("the hfresh index is available only in experimental mode")
-		}
 		return nil
 	default:
 		return errors.Errorf("unrecognized or unsupported vectorIndexType %q",

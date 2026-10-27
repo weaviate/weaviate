@@ -18,23 +18,26 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/weaviate/weaviate/entities/models"
-
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 )
 
 const vectorIndexCommitLog = `hnsw.commitlog.d`
 
-func MigrateToHierarchicalFS(rootPath string, s schemaReader) error {
+// ClassShards is one collection and the shards it owns, as the migration needs
+// to see it.
+type ClassShards struct {
+	Class  *models.Class
+	Shards []string
+}
+
+func MigrateToHierarchicalFS(rootPath string, classes []ClassShards) error {
 	root, err := os.ReadDir(rootPath)
 	if err != nil {
 		return fmt.Errorf("read source path %q: %w", rootPath, err)
 	}
-	fm, err := newFileMatcher(s, rootPath)
-	if err != nil {
-		return fmt.Errorf("error while migrating to hierarchical fs: %w", err)
-	}
+	fm := newFileMatcher(classes, rootPath)
 	plan, err := assembleFSMigrationPlan(root, rootPath, fm)
 	if err != nil {
 		return err
@@ -155,24 +158,14 @@ type fileMatcher struct {
 	classes             map[string][]*classShard
 }
 
-type schemaReader interface {
-	Shards(class string) ([]string, error)
-	ReadOnlySchema() models.Schema
-}
-
-func newFileMatcher(schemaReader schemaReader, rootPath string) (*fileMatcher, error) {
+func newFileMatcher(collections []ClassShards, rootPath string) *fileMatcher {
 	shardLsmDirs := make(map[string]*classShard)
 	shardFilePrefixes := make(map[string]*classShard)
 	shardGeoDirPrefixes := make(map[string]*classShardGeoProp)
 	classes := make(map[string][]*classShard)
 
-	schema := schemaReader.ReadOnlySchema()
-	for _, class := range schema.Classes {
-		className := class.Class
-		shards, err := schemaReader.Shards(className)
-		if err != nil {
-			return nil, fmt.Errorf("unable to retrieve shards for class %s", className)
-		}
+	for _, col := range collections {
+		class, shards := col.Class, col.Shards
 		lowercasedClass := strings.ToLower(class.Class)
 
 		var geoProps []string
@@ -202,7 +195,7 @@ func newFileMatcher(schemaReader schemaReader, rootPath string) (*fileMatcher, e
 		shardFilePrefixes:   shardFilePrefixes,
 		shardGeoDirPrefixes: shardGeoDirPrefixes,
 		classes:             classes,
-	}, nil
+	}
 }
 
 // Checks if entry is directory with name (class is lowercased):

@@ -27,14 +27,15 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/namespaces"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -52,14 +53,14 @@ type expiredObjectsDeleter interface {
 		schemaVersion uint64)
 }
 
-func NewCoordinator(schemaReader schemaUC.SchemaReader, schemaGetter schemaUC.SchemaGetter,
+func NewCoordinator(schemaReader local.ClassReader, nodes cluster.NodeReader,
 	namespacesExister namespaces.Exister, db expiredObjectsDeleter,
 	concurrencyFactor *configRuntime.DynamicValue[float64], logger logrus.FieldLogger,
-	clusterClient *http.Client, nodeResolver nodeResolver, localStatus *LocalStatus,
+	clusterClient *http.Client, nodeResolver cluster.HostnameResolver, localStatus *LocalStatus,
 ) *Coordinator {
 	return &Coordinator{
 		schemaReader:      schemaReader,
-		schemaGetter:      schemaGetter,
+		nodes:             nodes,
 		namespacesExister: namespacesExister,
 		logger:            logger,
 		clusterClient:     clusterClient,
@@ -73,8 +74,8 @@ func NewCoordinator(schemaReader schemaUC.SchemaReader, schemaGetter schemaUC.Sc
 }
 
 type Coordinator struct {
-	schemaReader      schemaUC.SchemaReader
-	schemaGetter      schemaUC.SchemaGetter
+	schemaReader      local.ClassReader
+	nodes             cluster.NodeReader
 	namespacesExister namespaces.Exister
 	db                expiredObjectsDeleter
 	concurrencyFactor *configRuntime.DynamicValue[float64]
@@ -82,7 +83,7 @@ type Coordinator struct {
 	logger            logrus.FieldLogger
 	objectTTLLastNode string
 	clusterClient     *http.Client
-	nodeResolver      nodeResolver
+	nodeResolver      cluster.HostnameResolver
 	remoteObjectTTL   *remoteObjectTTL
 	localStatus       *LocalStatus
 }
@@ -119,8 +120,8 @@ func (c *Coordinator) Start(ctx context.Context, targetOwnNode bool, ttlTime, de
 		return nil
 	}
 
-	localNode := c.schemaGetter.NodeName()
-	allNodes := c.schemaGetter.Nodes()
+	localNode := c.nodes.LocalName()
+	allNodes := c.nodes.AllNames()
 	remoteNodes := make([]string, 0, len(allNodes))
 	remoteNodeSelected := ""
 
@@ -160,8 +161,8 @@ func (c *Coordinator) Start(ctx context.Context, targetOwnNode bool, ttlTime, de
 }
 
 func (c *Coordinator) Abort(ctx context.Context, targetOwnNode bool) (bool, error) {
-	localNode := c.schemaGetter.NodeName()
-	allNodes := c.schemaGetter.Nodes()
+	localNode := c.nodes.LocalName()
+	allNodes := c.nodes.AllNames()
 
 	var remoteNodes []string
 	if !targetOwnNode {
@@ -376,14 +377,10 @@ func (c *Coordinator) extractTtlDataFromCollection(ttlConfig *models.ObjectTTLCo
 
 type remoteObjectTTL struct {
 	client       *http.Client
-	nodeResolver nodeResolver
+	nodeResolver cluster.HostnameResolver
 }
 
-type nodeResolver interface {
-	NodeHostname(nodeName string) (string, bool)
-}
-
-func newRemoteObjectTTL(httpClient *http.Client, nodeResolver nodeResolver) *remoteObjectTTL {
+func newRemoteObjectTTL(httpClient *http.Client, nodeResolver cluster.HostnameResolver) *remoteObjectTTL {
 	return &remoteObjectTTL{client: httpClient, nodeResolver: nodeResolver}
 }
 

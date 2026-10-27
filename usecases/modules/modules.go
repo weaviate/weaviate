@@ -25,6 +25,7 @@ import (
 	"github.com/tailor-platform/graphql"
 	"github.com/tailor-platform/graphql/language/ast"
 
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -50,15 +51,11 @@ type Provider struct {
 	vectorsLock               sync.RWMutex
 	registered                map[string]modulecapabilities.Module
 	altNames                  map[string]string
-	schemaGetter              schemaGetter
+	schemaGetter              local.ClassReader
 	hasMultipleVectorizers    bool
 	targetVectorNameValidator *regexp.Regexp
 	logger                    logrus.FieldLogger
 	cfg                       config.Config
-}
-
-type schemaGetter interface {
-	ReadOnlyClass(name string) *models.Class
 }
 
 func NewProvider(logger logrus.FieldLogger, cfg config.Config) *Provider {
@@ -131,7 +128,7 @@ func (p *Provider) Close() error {
 	return nil
 }
 
-func (p *Provider) SetSchemaGetter(sg schemaGetter) {
+func (p *Provider) SetSchemaGetter(sg local.ClassReader) {
 	p.schemaGetter = sg
 }
 

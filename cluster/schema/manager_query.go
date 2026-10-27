@@ -115,7 +115,7 @@ func (sm *SchemaManager) QueryShardOwner(req *cmd.QueryRequest) ([]byte, error) 
 	return payload, nil
 }
 
-func (sm *SchemaManager) QueryTenantsShards(req *cmd.QueryRequest) ([]byte, error) {
+func (sm *SchemaManager) QueryTenantsShardsStatus(req *cmd.QueryRequest) ([]byte, error) {
 	// Validate that the subcommand is the correct type
 	subCommand := cmd.QueryTenantsShardsRequest{}
 	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
@@ -123,7 +123,7 @@ func (sm *SchemaManager) QueryTenantsShards(req *cmd.QueryRequest) ([]byte, erro
 	}
 
 	// Read the meta class to get both the class and sharding information
-	tenants, version := sm.schema.TenantsShards(subCommand.Class, subCommand.Tenants...)
+	tenants, version := sm.schema.TenantsShardsStatus(subCommand.Class, subCommand.Tenants...)
 	// Build the response, marshal and return
 	response := cmd.QueryTenantsShardsResponse{TenantsActivityStatus: tenants, SchemaVersion: version}
 	payload, err := json.Marshal(&response)

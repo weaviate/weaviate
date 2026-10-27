@@ -29,12 +29,13 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	clustermocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/namespaces"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 // fixedNodeResolver resolves every node name to the same host.
@@ -121,7 +122,7 @@ func TestCoordinatorStartSkipsClassesWithoutActiveNamespace(t *testing.T) {
 			}))
 			defer server.Close()
 
-			reader := schemaUC.NewMockSchemaReader(t)
+			reader := local.NewMockSchemaReader(t)
 			reader.EXPECT().ReadSchema(mock.Anything).RunAndReturn(func(read func(models.Class, uint64)) error {
 				for _, class := range test.classes {
 					read(models.Class{
@@ -133,9 +134,7 @@ func TestCoordinatorStartSkipsClassesWithoutActiveNamespace(t *testing.T) {
 			})
 
 			// Not reached when every class is skipped, since there is nothing to dispatch.
-			getter := schemaUC.NewMockSchemaGetter(t)
-			getter.EXPECT().NodeName().Return("node1").Maybe()
-			getter.EXPECT().Nodes().Return([]string{"node1", "node2"}).Maybe()
+			getter := clustermocks.NewMockNodeSelector("node1", "node2")
 
 			// A nil db is safe because two nodes always route the sweep to the remote
 			// node; the local branch would use it.
@@ -567,7 +566,7 @@ func runLocalSweep(t *testing.T, classes []string, deleter expiredObjectsDeleter
 	logger, hook := logrustest.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
 
-	reader := schemaUC.NewMockSchemaReader(t)
+	reader := local.NewMockSchemaReader(t)
 	reader.EXPECT().ReadSchema(mock.Anything).RunAndReturn(func(read func(models.Class, uint64)) error {
 		for _, class := range classes {
 			read(models.Class{
@@ -578,9 +577,7 @@ func runLocalSweep(t *testing.T, classes []string, deleter expiredObjectsDeleter
 		return nil
 	})
 
-	getter := schemaUC.NewMockSchemaGetter(t)
-	getter.EXPECT().NodeName().Return("node1")
-	getter.EXPECT().Nodes().Return([]string{"node1"})
+	getter := clustermocks.NewMockNodeSelector("node1")
 
 	c := NewCoordinator(reader, getter, namespaces.NewController(logger), deleter,
 		configRuntime.NewDynamicValue[float64](1), logger, nil, nil, NewLocalStatus())
@@ -695,9 +692,7 @@ func TestCoordinatorAbortReportsRecoveredPanics(t *testing.T) {
 	}))
 	defer server.Close()
 
-	getter := schemaUC.NewMockSchemaGetter(t)
-	getter.EXPECT().NodeName().Return("node1")
-	getter.EXPECT().Nodes().Return([]string{"node1", "node2", "node3", "node4"})
+	getter := clustermocks.NewMockNodeSelector("node1", "node2", "node3", "node4")
 
 	resolver := scriptedNodeResolver{
 		host:         strings.TrimPrefix(server.URL, "http://"),

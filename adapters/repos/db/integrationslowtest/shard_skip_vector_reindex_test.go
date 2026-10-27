@@ -544,8 +544,9 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			c.AsyncIndexingEnabled = asyncIndexingEnabled
 		}}, class)
 		shard := singleShard(t, repo, class.Class)
-		queue, ok := shard.GetVectorIndexQueue("")
+		queue, release, ok := shard.AcquireVectorIndexQueue("")
 		require.True(t, ok)
+		defer release()
 		return shard, queue
 	}
 

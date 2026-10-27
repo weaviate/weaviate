@@ -536,6 +536,22 @@ linters:
         - gocritic
         path: usecases/memwatch/monitor_test.go # we skip this file as we do defer inside for loop in purpose to mock resource leaking
         text: deferInLoop
+      - linters:
+          - staticcheck
+        path: usecases/schema/executor.go
+        text: ShardStatusGetResponse
+      - linters:
+          - staticcheck
+        path: usecases/schema/authorization_test.go
+        text: ShardStatusGetResponse
+      - linters:
+          - staticcheck
+        path: usecases/schema/executor_test.go
+        text: ShardStatusGetResponse
+      - linters:
+          - staticcheck
+        path: usecases/schema/handler_test.go
+        text: ShardStatusGetResponse
     paths:
       - third_party$
       - builtin$

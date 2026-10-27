@@ -27,14 +27,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
-	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/usecases/sharding"
-
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 func TestBackupMutex(t *testing.T) {
@@ -234,8 +233,8 @@ func TestListInactiveShardFiles(t *testing.T) {
 		},
 		{
 			name:          "dynamic index state db",
-			rootFiles:     []string{dynamicent.StateDBFileName},
-			extraExpected: []string{filepath.Join(indexID, shardName, dynamicent.StateDBFileName)},
+			rootFiles:     []string{shardmeta.FileName},
+			extraExpected: []string{filepath.Join(indexID, shardName, shardmeta.FileName)},
 		},
 		{
 			name:          "flat index metadata of the unnamed vector",
@@ -252,9 +251,9 @@ func TestListInactiveShardFiles(t *testing.T) {
 		},
 		{
 			name:      "dynamic and flat state side by side",
-			rootFiles: []string{dynamicent.StateDBFileName, "meta.db", "meta_first.db"},
+			rootFiles: []string{shardmeta.FileName, "meta.db", "meta_first.db"},
 			extraExpected: []string{
-				filepath.Join(indexID, shardName, dynamicent.StateDBFileName),
+				filepath.Join(indexID, shardName, shardmeta.FileName),
 				filepath.Join(indexID, shardName, "meta.db"),
 				filepath.Join(indexID, shardName, "meta_first.db"),
 			},
@@ -345,7 +344,7 @@ func TestListInactiveShardFiles(t *testing.T) {
 			// Build a minimal Index to call listInactiveShardFiles.
 			// fakeSchemaGetter is defined in fakes_for_tests.go with NodeName() returning "node1".
 			idx := &Index{
-				Config:    IndexConfig{RootPath: rootDir, ClassName: "MyClass"},
+				Config:    IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: "MyClass"},
 				getSchema: &fakeSchemaGetter{},
 				db:        stubDBWithNoLiveReindex(),
 			}
@@ -506,7 +505,7 @@ func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(bucketDir, "segment-123.wal"), walContent, 0o644))
 
 	// Dynamic index state DB at the shard root (mutable).
-	require.NoError(t, os.WriteFile(filepath.Join(shardDir, dynamicent.StateDBFileName), []byte("bolt-data"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(shardDir, shardmeta.FileName), []byte("bolt-data"), 0o644))
 
 	// Flat vector index metadata (mutable), at the shard root where flat.New writes it.
 	require.NoError(t, os.WriteFile(filepath.Join(shardDir, "meta.db"), []byte("boltdb-data"), 0o644))
@@ -522,7 +521,7 @@ func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 	require.NoError(t, os.MkdirAll(stagingRoot, 0o755))
 
 	idx := &Index{
-		Config:    IndexConfig{RootPath: rootDir, ClassName: "MyClass"},
+		Config:    IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: "MyClass"},
 		getSchema: &fakeSchemaGetter{},
 		db:        stubDBWithNoLiveReindex(),
 	}
@@ -552,8 +551,8 @@ func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 	clDst := filepath.Join(stagingRoot, indexID, shardName, "main.hnsw.commitlog.d", "1709203456")
 	assert.NotEqual(t, getIno(clSrc), getIno(clDst), "non-condensed commitlog should be copied, not hard-linked")
 
-	stateDBSrc := filepath.Join(shardDir, dynamicent.StateDBFileName)
-	stateDBDst := filepath.Join(stagingRoot, indexID, shardName, dynamicent.StateDBFileName)
+	stateDBSrc := filepath.Join(shardDir, shardmeta.FileName)
+	stateDBDst := filepath.Join(stagingRoot, indexID, shardName, shardmeta.FileName)
 	assert.NotEqual(t, getIno(stateDBSrc), getIno(stateDBDst), "index.db should be copied, not hard-linked")
 
 	// Immutable files: same inodes (hard-linked).
@@ -580,7 +579,7 @@ func TestBackupProtectedShardsBlockActivation(t *testing.T) {
 
 	newTestIndex := func() *Index {
 		return &Index{
-			Config: IndexConfig{RootPath: rootDir, ClassName: schema.ClassName(className)},
+			Config: IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: schema.ClassName(className)},
 			getSchema: &fakeSchemaGetter{
 				schema: schema.Schema{
 					Objects: &models.Schema{
@@ -686,7 +685,7 @@ func TestBackupFrozenShardOmitted(t *testing.T) {
 	require.NoError(t, os.MkdirAll(stagingRoot, 0o755))
 
 	idx := &Index{
-		Config:    IndexConfig{RootPath: rootDir, ClassName: "MyClass"},
+		Config:    IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: "MyClass"},
 		getSchema: &fakeSchemaGetter{},
 		db:        stubDBWithNoLiveReindex(),
 	}
@@ -714,14 +713,14 @@ func newDescriptorTestIndex(t *testing.T, rootDir, className string, shardState 
 	logger, _ := tlog.NewNullLogger()
 
 	class := &models.Class{Class: className}
-	mockReader := schemaUC.NewMockSchemaReader(t)
+	mockReader := local.NewMockSchemaReader(t)
 	mockReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(_ string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
 			return readFunc(class, shardState)
 		}).Maybe()
 
 	return &Index{
-		Config: IndexConfig{RootPath: rootDir, ClassName: schema.ClassName(className)},
+		Config: IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: schema.ClassName(className)},
 		getSchema: &fakeSchemaGetter{
 			schema: schema.Schema{
 				Objects: &models.Schema{
@@ -774,7 +773,7 @@ func TestDescriptorColdAndFrozenTenants(t *testing.T) {
 	// FROZEN tenant: no directory at all.
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	err := idx.descriptor(ctx, "test-backup", &desc, nil, nil)
 	require.NoError(t, err)
 
 	// Only COLD should be in desc.Shards — FROZEN is omitted.
@@ -821,7 +820,7 @@ func TestDescriptorColdShardMutableFilesCopied(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(clDir, "1709203400.condensed"), []byte("condensed"), 0o644))
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	err := idx.descriptor(ctx, "test-backup", &desc, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, desc.Shards, 1)
 
@@ -873,7 +872,7 @@ func TestDescriptorAllFrozenTenants(t *testing.T) {
 	// No directories, no shards in map.
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	err := idx.descriptor(ctx, "test-backup", &desc, nil, nil)
 	require.NoError(t, err)
 	assert.Empty(t, desc.Shards, "all-FROZEN collection should have no shard descriptors")
 
@@ -899,7 +898,7 @@ func TestDescriptorConcurrentBackupBlocked(t *testing.T) {
 
 	// Second backup: should fail.
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(context.Background(), "backup-2", &desc, nil)
+	err := idx.descriptor(context.Background(), "backup-2", &desc, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not yet released")
 }
@@ -919,7 +918,7 @@ func TestDescriptorReleaseCleansUpStagingDir(t *testing.T) {
 
 	var desc backup.ClassDescriptor
 	backupID := "test-backup"
-	err := idx.descriptor(ctx, backupID, &desc, nil)
+	err := idx.descriptor(ctx, backupID, &desc, nil, nil)
 	require.NoError(t, err)
 
 	stagingDir := desc.StagingDir
@@ -983,7 +982,7 @@ func TestDescriptorHotAndColdTenants(t *testing.T) {
 	}
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	err := idx.descriptor(ctx, "test-backup", &desc, nil, nil)
 	require.NoError(t, err)
 
 	require.Len(t, desc.Shards, len(hotTenants)+len(coldTenants),
@@ -1215,12 +1214,12 @@ func TestBackupShardWithHardlinks_PreventShutdownErrorReleasesLocks(t *testing.T
 // that returns without closing leaves the backup waiting on a channel with no sender.
 func TestBackupDescriptorsClosesChannelWhenCancelled(t *testing.T) {
 	logger, _ := tlog.NewNullLogger()
-	db := &DB{logger: logger, indices: map[string]*Index{}}
+	db := &DB{localNodeName: "node1", logger: logger, indices: map[string]*Index{}}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	ch := db.BackupDescriptors(ctx, "backup-1", []string{"Class-A", "Class-B"}, nil)
+	ch := db.BackupDescriptors(ctx, "backup-1", []string{"Class-A", "Class-B"}, nil, nil)
 
 	var got []backup.ClassDescriptor
 	for {
@@ -1249,9 +1248,9 @@ func TestBackupDescriptorsClosesChannelOnPanic(t *testing.T) {
 
 	logger, hook := tlog.NewNullLogger()
 	// A zero-value Index panics inside descriptor on its nil logger.
-	db := &DB{logger: logger, indices: map[string]*Index{indexID("Class-A"): {}}}
+	db := &DB{localNodeName: "node1", logger: logger, indices: map[string]*Index{indexID("Class-A"): {}}}
 
-	ch := db.BackupDescriptors(context.Background(), "backup-1", []string{"Class-A"}, nil)
+	ch := db.BackupDescriptors(context.Background(), "backup-1", []string{"Class-A"}, nil, nil)
 
 	select {
 	case d, ok := <-ch:
@@ -1270,4 +1269,83 @@ func TestBackupDescriptorsClosesChannelOnPanic(t *testing.T) {
 		}
 		return false
 	}, 5*time.Second, 10*time.Millisecond, "the producer goroutine never recovered a panic")
+}
+
+func TestDB_ShardReplicas(t *testing.T) {
+	ctx := testCtx()
+	logger, _ := tlog.NewNullLogger()
+
+	newDB := func(t *testing.T, className string, state *sharding.State) *DB {
+		mockSchemaReader := local.NewMockSchemaReader(t)
+		mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
+			func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+				return readFunc(&models.Class{Class: className}, state)
+			},
+		)
+		return &DB{logger: logger, schemaReader: mockSchemaReader}
+	}
+
+	t.Run("replicated and single-replica shards", func(t *testing.T) {
+		className := "ReplicasClass"
+		db := newDB(t, className, &sharding.State{
+			Physical: map[string]sharding.Physical{
+				"shard1": {Name: "shard1", BelongsToNodes: []string{"node1", "node2", "node3"}},
+				"shard2": {Name: "shard2", BelongsToNodes: []string{"node2"}},
+			},
+		})
+
+		replicas, err := db.ShardReplicas(ctx, className)
+		require.NoError(t, err)
+		assert.Equal(t, map[string][]string{
+			"shard1": {"node1", "node2", "node3"},
+			"shard2": {"node2"},
+		}, replicas)
+	})
+
+	t.Run("empty node names filtered and empty shards omitted", func(t *testing.T) {
+		className := "FilteredClass"
+		db := newDB(t, className, &sharding.State{
+			Physical: map[string]sharding.Physical{
+				"shard1": {Name: "shard1", BelongsToNodes: []string{"", "node1", ""}},
+				"shard2": {Name: "shard2", BelongsToNodes: []string{""}},
+				"shard3": {Name: "shard3", BelongsToNodes: nil},
+			},
+		})
+
+		replicas, err := db.ShardReplicas(ctx, className)
+		require.NoError(t, err)
+		assert.Equal(t, map[string][]string{"shard1": {"node1"}}, replicas)
+	})
+
+	t.Run("tenants without local data omitted, HOT, COLD and empty status kept", func(t *testing.T) {
+		className := "TenantStatusClass"
+		db := newDB(t, className, &sharding.State{
+			Physical: map[string]sharding.Physical{
+				"hot":        {Name: "hot", BelongsToNodes: []string{"node1", "node2"}, Status: models.TenantActivityStatusHOT},
+				"cold":       {Name: "cold", BelongsToNodes: []string{"node1", "node2"}, Status: models.TenantActivityStatusCOLD},
+				"frozen":     {Name: "frozen", BelongsToNodes: []string{"node1", "node2"}, Status: models.TenantActivityStatusFROZEN},
+				"freezing":   {Name: "freezing", BelongsToNodes: []string{"node1", "node2"}, Status: models.TenantActivityStatusFREEZING},
+				"unfreezing": {Name: "unfreezing", BelongsToNodes: []string{"node1", "node2"}, Status: models.TenantActivityStatusUNFREEZING},
+				"no-status":  {Name: "no-status", BelongsToNodes: []string{"node1", "node2"}},
+			},
+		})
+
+		replicas, err := db.ShardReplicas(ctx, className)
+		require.NoError(t, err)
+		assert.Equal(t, map[string][]string{
+			"hot":       {"node1", "node2"},
+			"cold":      {"node1", "node2"},
+			"no-status": {"node1", "node2"},
+		}, replicas)
+	})
+
+	t.Run("nil sharding state", func(t *testing.T) {
+		className := "NilStateClass"
+		db := newDB(t, className, nil)
+
+		replicas, err := db.ShardReplicas(ctx, className)
+		assert.Error(t, err)
+		assert.Nil(t, replicas)
+		assert.Contains(t, err.Error(), "failed to read sharding state")
+	})
 }

@@ -32,12 +32,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -46,7 +46,7 @@ func startDimensionsTestRepo(t *testing.T, dir string, state *sharding.State, ge
 ) *DB {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
-	schemaReader := schemaUC.NewMockSchemaReader(t)
+	schemaReader := local.NewMockSchemaReader(t)
 	schemaReader.EXPECT().Shards(mock.Anything).Return(state.AllPhysicalShards(), nil).Maybe()
 	schemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 		func(className string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {

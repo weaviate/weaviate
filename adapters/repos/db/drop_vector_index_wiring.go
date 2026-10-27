@@ -20,7 +20,10 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
@@ -36,6 +39,9 @@ import (
 // explicitly with the error surfaced — never via Store()'s panicking mustLoad
 // — acceptable for a drop, a rare operator-initiated action that must touch
 // every shard once anyway.
+//
+// Before each shard it refuses a collection whose namespace is not active, so
+// a namespace suspended while it runs stops it at the next shard.
 func (db *DB) EditOpBucketsForShards(ctx context.Context, collection string, shardNames []string) (map[string]editOpBucket, error) {
 	idx := db.GetIndex(entschema.ClassName(collection))
 	if idx == nil {
@@ -43,23 +49,41 @@ func (db *DB) EditOpBucketsForShards(ctx context.Context, collection string, sha
 	}
 	buckets := make(map[string]editOpBucket, len(shardNames))
 	for _, name := range shardNames {
-		s := idx.shards.Load(name)
-		if s == nil {
-			continue
+		if err := idx.requireNamespaceAllowsShardLoad(callerUserRequest); err != nil {
+			return nil, fmt.Errorf("collection %q: %w", collection, err)
 		}
-		if lazy, ok := s.(*LazyLoadShard); ok {
-			if err := lazy.Load(ctx); err != nil {
-				db.logger.WithField("collection", collection).WithField("shard", name).
-					WithFields(enterrors.DocsLinkFields(err)).
-					Warnf("drop-vector: load lazy shard: %v", err)
-				continue // absent from result; the unit fails instead of panicking
-			}
-		}
-		if b := s.Store().Bucket(helpers.ObjectsBucketLSM); b != nil {
+		if b := db.loadEditOpBucket(ctx, idx, collection, name); b != nil {
 			buckets[name] = b
 		}
 	}
 	return buckets, nil
+}
+
+// loadEditOpBucket keeps the index open and holds the shard's create lock until
+// the bucket is read. An unload or index shutdown before the load would leave
+// the loaded shard outside the map.
+func (db *DB) loadEditOpBucket(ctx context.Context, idx *Index, collection, name string) *lsmkv.Bucket {
+	if idx.enterRead() != nil {
+		return nil
+	}
+	defer idx.exitRead()
+	idx.shardCreateLocks.RLock(name)
+	defer idx.shardCreateLocks.RUnlock(name)
+
+	s := idx.shards.Load(name)
+	if s == nil {
+		return nil
+	}
+	// asLazyLoadShard: a recovering shard's blocked load warns+skips instead of panicking in Store() below.
+	if lazy, ok := asLazyLoadShard(s); ok {
+		if _, _, err := lazy.loadIfCold(ctx); err != nil {
+			db.logger.WithField("collection", collection).WithField("shard", name).
+				WithFields(enterrors.DocsLinkFields(err)).
+				Warnf("drop-vector: load lazy shard: %v", err)
+			return nil // absent from result; the unit fails instead of panicking
+		}
+	}
+	return s.Store().Bucket(helpers.ObjectsBucketLSM)
 }
 
 // EditOpBucketsForLoadedShards is EditOpBucketsForShards restricted to shards
@@ -74,23 +98,23 @@ func (db *DB) EditOpBucketsForLoadedShards(collection string, shardNames []strin
 	}
 	buckets := make(map[string]editOpBucket, len(shardNames))
 	for _, name := range shardNames {
-		s := idx.shards.Load(name)
-		if s == nil {
-			continue
-		}
-		if lazy, ok := s.(*LazyLoadShard); ok {
-			lazy.mutex.Lock()
-			loaded := lazy.loaded
-			lazy.mutex.Unlock()
-			if !loaded {
-				continue
-			}
-		}
-		if b := s.Store().Bucket(helpers.ObjectsBucketLSM); b != nil {
+		if b := loadedEditOpBucket(idx, name); b != nil {
 			buckets[name] = b
 		}
 	}
 	return buckets, nil
+}
+
+// loadedEditOpBucket returns the objects bucket of a shard that is already
+// loaded, and nil otherwise, including while the index or the shard shuts down.
+// getLoadedShard's pin keeps Store from loading a shard an unload released.
+func loadedEditOpBucket(idx *Index, name string) *lsmkv.Bucket {
+	shard, release, err := idx.getLoadedShard(name)
+	defer release()
+	if err != nil || shard == nil {
+		return nil
+	}
+	return shard.Store().Bucket(helpers.ObjectsBucketLSM)
 }
 
 // EnsureDroppedVectorFilesRemoved removes the on-disk artifacts (LSM buckets +
@@ -99,6 +123,23 @@ func (db *DB) EnsureDroppedVectorFilesRemoved(collection, shardName string, targ
 	idx := db.GetIndex(entschema.ClassName(collection))
 	if idx == nil {
 		return fmt.Errorf("index for collection %q not found", collection)
+	}
+	// Loads and unloads hold this lock while they update the map and shut the
+	// shard down. Under it, a shard in the map stays loaded, and one missing
+	// from the map has already closed index.db, so the offline path is safe.
+	idx.shardCreateLocks.RLock(shardName)
+	defer idx.shardCreateLocks.RUnlock(shardName)
+
+	// A shard in the map finishes its own drops: loaded, it retries them, which
+	// never opens index.db against its own lock; a lazy one does so under its
+	// loading mutex, so no load starts against the offline removal. Only a
+	// shard that left the map is swept by path, under the create lock its
+	// unload holds until index.db is closed.
+	switch s := idx.shards.Load(shardName).(type) {
+	case *Shard:
+		return s.retryDroppedVectorIndexes(targets)
+	case *LazyLoadShard:
+		return s.sweepDroppedVectorIndexes(targets)
 	}
 	helper := newVectorDropIndexHelper()
 	class := idx.getClass()
@@ -179,11 +220,7 @@ func loadedShardForDimensionsClear(idx *Index, shardName string) (*Shard, func()
 	case *Shard:
 		shard = s
 	case *LazyLoadShard:
-		s.mutex.Lock()
-		if s.loaded {
-			shard = s.shard
-		}
-		s.mutex.Unlock()
+		shard = s.loadedShard()
 	}
 	if shard == nil {
 		return nil, nil, notLoaded
@@ -209,12 +246,10 @@ func invalidateComputedUsage(idx *Index, shardName string) error {
 	return nil
 }
 
-// schemaClassUpdater is the slice of the schema manager the finalizer needs: read a
-// class and apply an internal class update. Narrowed to an interface so the
-// finalizer's read-modify-write / retry / guard logic is unit-testable.
+// schemaClassUpdater lets tests fake *schema.Manager's class updates.
 type schemaClassUpdater interface {
-	ReadOnlyClass(collection string) *models.Class
-	UpdateClassInternal(ctx context.Context, collection string, updated *models.Class) error
+	local.ClassReader
+	UpdateClassInternal(ctx context.Context, collection string, updated *models.Class, origin api.ClassUpdateOrigin) error
 }
 
 // schemaVectorConfigFinalizer removes dropped named-vector entries from a class's
@@ -224,21 +259,10 @@ type schemaVectorConfigFinalizer struct {
 	mgr schemaClassUpdater
 }
 
-// managerClassUpdater adapts *schema.Manager to schemaClassUpdater.
-type managerClassUpdater struct{ mgr *schema.Manager }
-
-func (a managerClassUpdater) ReadOnlyClass(collection string) *models.Class {
-	return a.mgr.ReadOnlyClass(collection)
-}
-
-func (a managerClassUpdater) UpdateClassInternal(ctx context.Context, collection string, updated *models.Class) error {
-	return schema.UpdateClassInternal(&a.mgr.Handler, ctx, collection, updated)
-}
-
 // NewSchemaVectorConfigFinalizer builds the schema finalizer used to construct
 // the DropVectorIndexProvider (exported so the REST wiring can pass it).
 func NewSchemaVectorConfigFinalizer(mgr *schema.Manager) *schemaVectorConfigFinalizer {
-	return &schemaVectorConfigFinalizer{mgr: managerClassUpdater{mgr}}
+	return &schemaVectorConfigFinalizer{mgr: mgr}
 }
 
 // deepCopyClass returns a fully independent copy (JSON round-trip; finalize is
@@ -293,7 +317,7 @@ func (f *schemaVectorConfigFinalizer) RemoveDroppedVectorConfig(ctx context.Cont
 		// the FSM keeps the legacy fields genuinely empty — nothing to set
 		// here.
 
-		if err := f.mgr.UpdateClassInternal(ctx, collection, next); err != nil {
+		if err := f.mgr.UpdateClassInternal(ctx, collection, next, api.ClassUpdateOriginDropVectorFinalize); err != nil {
 			lastErr = err
 			select {
 			case <-ctx.Done():
@@ -305,4 +329,22 @@ func (f *schemaVectorConfigFinalizer) RemoveDroppedVectorConfig(ctx context.Cont
 		return nil
 	}
 	return fmt.Errorf("drop-vector finalize: bounded retry exhausted: %w", lastErr)
+}
+
+// retryDroppedVectorIndexes re-runs the shard's drop for each target, pinned
+// against shutdown. A shard shutting down is an error: the ack fails, and the
+// next load or the replayed callback sweeps files and record together.
+func (s *Shard) retryDroppedVectorIndexes(targets []string) error {
+	release, err := s.preventShutdown()
+	if err != nil {
+		return fmt.Errorf("sweep dropped vectors of shard %q: %w", s.ID(), err)
+	}
+	defer release()
+	for _, target := range targets {
+		err := s.DropVectorIndex(context.Background(), target)
+		if err != nil {
+			return fmt.Errorf("retry drop of vector %q on loaded shard: %w", target, err)
+		}
+	}
+	return nil
 }

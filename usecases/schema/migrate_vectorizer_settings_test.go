@@ -9,31 +9,38 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package schema
+package schema_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/models"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	text2vecopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/modules"
+	"github.com/weaviate/weaviate/usecases/schema"
 	shardingcfg "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 // text2vec-openai declares baseURL as a migrate property, so baseURL may be missing from the stored settings,
 // but every other difference must still be rejected.
 func TestParseClassUpdate_ModuleWithMigrateProperties(t *testing.T) {
-	const openai = "text2vec-openai"
+	const (
+		openai = "text2vec-openai"
+		hnswT  = vectorindex.VectorIndexTypeHNSW
+	)
 	logger, _ := test.NewNullLogger()
 	provider := modules.NewProvider(logger, config.Config{})
 	provider.Register(text2vecopenai.New())
-	p := NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, fakeValidator{}, provider, nil, nil)
+	p := schema.NewParser(fakes.NewFakeClusterState(), parseVectorConfig, acceptingValidator{}, provider, nil, nil)
 	shardingConfig := shardingcfg.Config{
 		DesiredCount: 1, VirtualPerPhysical: 128, ActualCount: 1, DesiredVirtualCount: 128, Key: "_id", Strategy: "hash", Function: "murmur3",
 	}
@@ -90,7 +97,7 @@ func TestParseClassUpdate_ModuleWithMigrateProperties(t *testing.T) {
 			t.Run(build.name+"/"+tt.name, func(t *testing.T) {
 				storedClass := build.class(tt.stored)
 				storedClass.ShardingConfig = shardingConfig
-				storedBefore := structToMap(storedClass)
+				storedBefore := classToMap(t, storedClass)
 
 				_, err := p.ParseClassUpdate(storedClass, build.class(tt.updated))
 				if tt.wantErr {
@@ -98,8 +105,41 @@ func TestParseClassUpdate_ModuleWithMigrateProperties(t *testing.T) {
 				} else {
 					require.NoError(t, err)
 				}
-				require.Equal(t, storedBefore, structToMap(storedClass), "the stored class must not be changed")
+				require.Equal(t, storedBefore, classToMap(t, storedClass), "the stored class must not be changed")
 			})
 		}
 	}
+}
+
+type fakeVectorIndexConfig struct{}
+
+func (fakeVectorIndexConfig) IndexType() string    { return "fake" }
+func (fakeVectorIndexConfig) DistanceName() string { return "cosine" }
+func (fakeVectorIndexConfig) IsMultiVector() bool  { return false }
+
+func parseVectorConfig(any, string, bool) (schemaConfig.VectorIndexConfig, error) {
+	return fakeVectorIndexConfig{}, nil
+}
+
+type acceptingValidator struct{}
+
+func (acceptingValidator) ValidateVectorIndexConfigUpdate(_, _ schemaConfig.VectorIndexConfig) error {
+	return nil
+}
+
+func (acceptingValidator) ValidateInvertedIndexConfigUpdate(_, _ *models.InvertedIndexConfig) error {
+	return nil
+}
+
+func (acceptingValidator) ValidateVectorIndexConfigsUpdate(_, _ map[string]schemaConfig.VectorIndexConfig) error {
+	return nil
+}
+
+func classToMap(t *testing.T, class *models.Class) map[string]any {
+	t.Helper()
+	data, err := json.Marshal(class)
+	require.NoError(t, err)
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(data, &m))
+	return m
 }

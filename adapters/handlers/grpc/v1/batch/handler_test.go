@@ -24,6 +24,7 @@ import (
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 // Drives BatchObjects with a request carrying no objects, which returns before
@@ -61,7 +62,7 @@ func TestHandler_BatchObjects(t *testing.T) {
 				authenticator := auth.NewHandler(false, func(string, []string) (*models.Principal, error) {
 					return tc.principal, nil
 				})
-				h := NewHandler(nil, nil, logger, authenticator, nil, true)
+				h := NewHandler(nil, nil, logger, authenticator, nil, wlnamespaces.NewPrefixing())
 
 				ctx, slot := restCtx.WithBatchNamespaceSlot(context.Background())
 				reply, err := h.BatchObjects(ctx, &pb.BatchObjectsRequest{})
@@ -78,7 +79,7 @@ func TestHandler_BatchObjects(t *testing.T) {
 		authenticator := auth.NewHandler(false, func(string, []string) (*models.Principal, error) {
 			return nil, errors.New("invalid token")
 		})
-		h := NewHandler(nil, nil, logger, authenticator, nil, true)
+		h := NewHandler(nil, nil, logger, authenticator, nil, wlnamespaces.NewPrefixing())
 
 		ctx, slot := restCtx.WithBatchNamespaceSlot(context.Background())
 		_, err := h.BatchObjects(ctx, &pb.BatchObjectsRequest{})

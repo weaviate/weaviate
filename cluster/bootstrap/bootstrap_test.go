@@ -119,7 +119,7 @@ func TestBootstrapper(t *testing.T) {
 			test.doBefore(m)
 
 			// Configure the bootstrapper
-			b := NewBootstrapper(m, "RID", "ADDR", test.voter, mocks.NewMockNodeSelector(nodesSlice...), test.isReady)
+			b := NewBootstrapper(m, "RID", "ADDR", test.voter, mocks.NewMockNodeSelector(nodesSlice...), test.isReady, nil, nil)
 			b.retryPeriod = time.Millisecond
 			b.jitter = time.Millisecond
 			ctx, cancel := context.WithTimeout(ctx, time.Millisecond*100)
@@ -138,6 +138,29 @@ func TestBootstrapper(t *testing.T) {
 			m.AssertExpectations(t)
 		})
 	}
+}
+
+// Pins X2a: a wiped joiner reports ready pre-join; exiting early would lose the barrier.
+func TestBootstrapperJoinsDespiteReadyWhenBarrierNeeded(t *testing.T) {
+	m := &MockNodeClient{}
+	m.On("Join", mock.Anything, mock.Anything, mock.Anything).Return(&cmd.JoinPeerResponse{LeaderCommitIndex: 42}, nil)
+
+	var gotBarrier uint64
+	needs := true
+	b := NewBootstrapper(m, "RID", "ADDR", true, mocks.NewMockNodeSelector("S1", "S2"),
+		func() bool { return true },
+		func(idx uint64) { gotBarrier = idx; needs = false },
+		func() bool { return needs })
+	b.retryPeriod = time.Millisecond
+	b.jitter = time.Millisecond
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*100)
+	defer cancel()
+	logger, _ := logrustest.NewNullLogger()
+
+	require.NoError(t, b.Do(ctx, map[string]int{"S1": 1, "S2": 2}, logger, make(chan struct{})))
+	require.Equal(t, uint64(42), gotBarrier)
+	m.AssertExpectations(t)
 }
 
 // TestBootstrapperDoesNotWaitForRetryPeriod pins that the first attempt runs at
@@ -170,7 +193,7 @@ func TestBootstrapperDoesNotWaitForRetryPeriod(t *testing.T) {
 			var ready atomic.Bool
 			tt.doBefore(m, &ready)
 
-			b := NewBootstrapper(m, "RID", "ADDR", true, mocks.NewMockNodeSelector("S1"), ready.Load)
+			b := NewBootstrapper(m, "RID", "ADDR", true, mocks.NewMockNodeSelector("S1"), ready.Load, nil, nil)
 			b.retryPeriod = time.Hour
 			b.jitter = time.Millisecond
 			b.readyPollPeriod = time.Millisecond

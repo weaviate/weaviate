@@ -18,6 +18,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"path"
 	"sync"
 	"testing"
 	"time"
@@ -28,7 +29,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
+	dynamicindex "github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	hnswindex "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -123,7 +127,7 @@ func TestShard_InvalidVectorBatches(t *testing.T) {
 
 	class := &models.Class{Class: "TestClass"}
 
-	shd, idx := testShardWithSettings(t, ctx, class, hnsw.NewDefaultUserConfig(), false, false, false)
+	shd, idx := testShardWithSettings(t, ctx, class, hnsw.NewDefaultUserConfig(), false, false)
 
 	testShard(t, context.Background(), class.Class)
 
@@ -153,7 +157,7 @@ func TestShard_InvalidHFreshBatches(t *testing.T) {
 
 	class := &models.Class{Class: "TestClass"}
 
-	shd, idx := testShardWithSettings(t, ctx, class, hfresh.NewDefaultUserConfig(), false, false, false)
+	shd, idx := testShardWithSettings(t, ctx, class, hfresh.NewDefaultUserConfig(), false, false)
 
 	testShard(t, context.Background(), class.Class)
 
@@ -183,7 +187,7 @@ func TestShard_InvalidMultiVectorBatches(t *testing.T) {
 		ctx := testCtx()
 		class := &models.Class{Class: "TestClass"}
 		vectorIndexConfig := hnsw.NewDefaultMultiVectorUserConfig()
-		shd, idx := testShardWithSettings(t, ctx, class, vectorIndexConfig, false, false, false)
+		shd, idx := testShardWithSettings(t, ctx, class, vectorIndexConfig, false, false)
 		testShard(t, context.Background(), class.Class)
 		r := getRandomSeed()
 		batchSize := 100
@@ -208,7 +212,7 @@ func TestShard_InvalidMultiVectorBatches(t *testing.T) {
 			Enabled:      true,
 			MuveraConfig: hnsw.MuveraConfig{Enabled: true, KSim: 1, Repetitions: 2, DProjections: 5},
 		}
-		shd, idx := testShardWithSettings(t, ctx, class, vectorIndexConfig, false, false, false)
+		shd, idx := testShardWithSettings(t, ctx, class, vectorIndexConfig, false, false)
 		testShard(t, context.Background(), class.Class)
 		r := getRandomSeed()
 		batchSize := 100
@@ -231,7 +235,7 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 
 	ctx := testCtx()
 	className := "TestClass"
-	shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, hnsw.UserConfig{}, false, true, true /* withCheckpoints */)
+	shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, hnsw.UserConfig{}, false, true)
 
 	amount := 1500
 
@@ -245,6 +249,7 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 	var objs []*storobj.Object
 	for i := 0; i < amount; i++ {
 		obj := testObject(className)
+		obj.Vector = randVector(3)
 		objs = append(objs, obj)
 	}
 
@@ -265,24 +270,99 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 	err := shd.DebugResetVectorIndex(ctx, "")
 	require.Nil(t, err)
 
-	newIdx, q := getVectorIndexAndQueue(t, shd, "")
+	newIdx, _ := getVectorIndexAndQueue(t, shd, "")
 
 	// the new index should be different from the old one.
 	// pointer comparison is enough here
 	require.NotEqual(t, oldIdx, newIdx)
 
-	// queue should be empty after reset
-	require.EqualValues(t, 0, q.Size())
-
-	// make sure the new index does not contain any of the objects
-	for _, obj := range objs {
-		if newIdx.ContainsDoc(obj.DocID) {
-			t.Fatalf("node %d should not be in the vector index", obj.DocID)
+	// the reset refills the new index from the object store in the background
+	require.Eventually(t, func() bool {
+		for _, obj := range objs {
+			if !newIdx.ContainsDoc(obj.DocID) {
+				return false
+			}
 		}
-	}
+		return true
+	}, time.Minute, 100*time.Millisecond, "not every object made it into the rebuilt index")
+	waitForVectorQueue(t, shd, "")
+
+	// the reset rebuilt at the recorded ID: record ready, storage present
+	s := underlyingShard(t, shd)
+	rec, ok, err := s.mapping.Get("")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, recorded(s, "", "main", "ready"), rec)
+	assert.True(t, storageExistsFor(t, s, rec))
 
 	require.Nil(t, idx.drop())
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+}
+
+// A vector added on a running shard is recorded, so the reset finds its
+// record and rebuilds at its ID; the record is ready again afterwards.
+func TestShard_DebugResetVectorIndex_AddedVector(t *testing.T) {
+	ctx := testCtx()
+	className := "TestClass"
+	shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, hnsw.UserConfig{}, false, true)
+	defer func(path string) {
+		require.NoError(t, os.RemoveAll(path))
+	}(idx.Config.RootPath)
+
+	require.NoError(t, idx.updateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{"added": hnsw.UserConfig{}}))
+	s := underlyingShard(t, shd)
+	before, ok, err := s.mapping.Get("added")
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	require.NoError(t, shd.DebugResetVectorIndex(ctx, "added"))
+
+	after, ok, err := s.mapping.Get("added")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, before, after)
+	assert.True(t, storageExistsFor(t, s, after))
+
+	// a vector without a record cannot be reset
+	require.NoError(t, idx.updateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{"skipped": hnsw.UserConfig{Skip: true}}))
+	require.ErrorContains(t, shd.DebugResetVectorIndex(ctx, "skipped"), "no mapping record")
+
+	require.Nil(t, idx.drop())
+}
+
+// TestShard_DebugResetVectorIndex_Dynamic pins a bug where resetting a
+// dynamic index broke the shard: dynamic.Drop closed and deleted the
+// shard-SHARED index.db, and the re-init reused the shard's stale closed
+// handle, so the reset errored with bolt's "database not open" and every
+// sibling dynamic vector lost its state DB.
+func TestShard_DebugResetVectorIndex_Dynamic(t *testing.T) {
+	ctx := testCtx()
+	className := "TestClass"
+	dist := distancer.NewL2SquaredProvider()
+	fuc := flat.UserConfig{}
+	fuc.SetDefaults()
+	uc := dynamic.UserConfig{
+		Threshold: 1_000_000,
+		Distance:  dist.Type(),
+		HnswUC:    hnsw.UserConfig{MaxConnections: 8, EFConstruction: 16, EF: 8, VectorCacheMaxObjects: 1000},
+		FlatUC:    fuc,
+	}
+	shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, uc,
+		false, true /* async indexing on: required by the dynamic index */)
+
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(shd.Index().Config.RootPath)
+
+	require.NoError(t, shd.DebugResetVectorIndex(ctx, ""))
+
+	// a second reset proves the first left the shard metadata DB usable
+	require.NoError(t, shd.DebugResetVectorIndex(ctx, ""))
+
+	require.Nil(t, idx.drop())
 }
 
 func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
@@ -296,7 +376,6 @@ func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
 		&models.Class{Class: className},
 		hnsw.UserConfig{},
 		false,
-		true,
 		true,
 		func(i *Index) {
 			i.vectorIndexUserConfigs = make(map[string]schemaConfig.VectorIndexConfig)
@@ -340,21 +419,22 @@ func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
 	err := shd.DebugResetVectorIndex(ctx, "foo")
 	require.Nil(t, err)
 
-	newIdx, q := getVectorIndexAndQueue(t, shd, "foo")
+	newIdx, _ := getVectorIndexAndQueue(t, shd, "foo")
 
 	// the new index should be different from the old one.
 	// pointer comparison is enough here
 	require.NotEqual(t, oldIdx, newIdx)
 
-	// queue should be empty after reset
-	require.EqualValues(t, 0, q.Size())
-
-	// make sure the new index does not contain any of the objects
-	for _, obj := range objs {
-		if newIdx.ContainsDoc(obj.DocID) {
-			t.Fatalf("node %d should not be in the vector index", obj.DocID)
+	// the reset refills the new index from the object store in the background
+	require.Eventually(t, func() bool {
+		for _, obj := range objs {
+			if !newIdx.ContainsDoc(obj.DocID) {
+				return false
+			}
 		}
-	}
+		return true
+	}, time.Minute, 100*time.Millisecond, "not every object made it into the rebuilt index")
+	waitForVectorQueue(t, shd, "foo")
 
 	require.Nil(t, idx.drop())
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
@@ -373,7 +453,7 @@ func TestShard_UpgradeIndex(t *testing.T) {
 		i.vectorIndexUserConfig = cfg
 	})
 
-	shd, _ := testShardWithSettings(t, ctx, &models.Class{Class: className}, cfg, false, true, true /* withCheckpoints */, opts...)
+	shd, _ := testShardWithSettings(t, ctx, &models.Class{Class: className}, cfg, false, true, opts...)
 
 	defer func(path string) {
 		err := os.RemoveAll(path)
@@ -402,7 +482,9 @@ func TestShard_UpgradeIndex(t *testing.T) {
 		}
 	}
 
-	q, ok := shd.GetVectorIndexQueue("")
+	q, release, ok := shd.AcquireVectorIndexQueue("")
+	require.True(t, ok)
+	defer release()
 	require.True(t, ok)
 
 	// wait for the queue to be empty
@@ -448,7 +530,7 @@ func TestShard_DynamicIndexStartsTombstoneCleanupCycle(t *testing.T) {
 					tombstoneCycle = i.cycleCallbacks.vectorTombstoneCleanupCycle
 				},
 			}
-			shd, _ := testShardWithSettings(t, ctx, &models.Class{Class: className}, tt.config, false, true, asyncIndexingEnabled, opts...)
+			shd, _ := testShardWithSettings(t, ctx, &models.Class{Class: className}, tt.config, false, asyncIndexingEnabled, opts...)
 
 			defer func(path string) {
 				err := os.RemoveAll(path)
@@ -528,7 +610,7 @@ func TestShard_RequantizeIndex(t *testing.T) {
 			if test.idxOpt != nil {
 				opts = append(opts, test.idxOpt)
 			}
-			shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, test.cfg, false, true, false, opts...)
+			shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, test.cfg, false, false, opts...)
 
 			amount := 50
 
@@ -610,17 +692,38 @@ func TestShard_RequantizeIndex(t *testing.T) {
 }
 
 func getVectorIndexAndQueue(t *testing.T, shard ShardLike, targetVector string) (VectorIndex, *VectorIndexQueue) {
-	idx, vok := shard.GetVectorIndex(targetVector)
-	q, qok := shard.GetVectorIndexQueue(targetVector)
+	idx, releaseIdx, vok := shard.AcquireVectorIndex(targetVector)
+	if vok {
+		defer releaseIdx()
+	}
+	q, releaseQ, qok := shard.AcquireVectorIndexQueue(targetVector)
+	if qok {
+		defer releaseQ()
+	}
 	require.True(t, vok && qok)
 	return idx, q
+}
+
+// Every shard opens index.db at load, and its lock makes an offline read fail.
+func TestShard_OpensMetadataDBForEveryShard(t *testing.T) {
+	ctx := testCtx()
+	shd, _ := testShard(t, ctx, "MetaDBEveryShard")
+	s := shd.(*Shard)
+
+	require.NotNil(t, s.metadataDB)
+	_, err := os.Stat(path.Join(s.path(), shardmeta.FileName))
+	require.NoError(t, err)
+
+	// the loaded shard holds the lock
+	_, _, err = shardmeta.GetOffline(s.path(), dynamicindex.StateNamespace, []byte("upgraded"))
+	require.Error(t, err)
 }
 
 func TestShard_TombstoneCleanupInterval_NamedVector(t *testing.T) {
 	ctx := testCtx()
 	className := "TestClass"
 	shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className},
-		hnsw.UserConfig{}, false, false, false,
+		hnsw.UserConfig{}, false, false,
 		func(i *Index) {
 			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
 				"foo": hnsw.UserConfig{
@@ -657,8 +760,9 @@ func TestShard_TombstoneCleanupInterval_NamedVector(t *testing.T) {
 		require.NoError(t, shd.DeleteObject(ctx, obj.ID(), time.Now()))
 	}
 
-	vi, ok := shd.GetVectorIndex("foo")
+	vi, release, ok := shd.AcquireVectorIndex("foo")
 	require.True(t, ok)
+	defer release()
 	hnswIdx, ok := vi.(*hnswindex.HNSW)
 	require.True(t, ok)
 
@@ -761,7 +865,7 @@ func TestShard_MultiVectorOnIndexWithoutMultiSupport(t *testing.T) {
 				t.Run(fmt.Sprintf("%s/async=%t/%s", index.name, async, opName), func(t *testing.T) {
 					ctx := testCtx()
 					class := &models.Class{Class: "TestClass"}
-					shd, idx := testShardWithSettings(t, ctx, class, hnsw.NewDefaultUserConfig(), false, async /* withCheckpoints */, async,
+					shd, idx := testShardWithSettings(t, ctx, class, hnsw.NewDefaultUserConfig(), false, async,
 						func(i *Index) {
 							i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{"foo": index.cfg}
 						})

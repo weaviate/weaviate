@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
@@ -80,7 +81,7 @@ func TestTTLSkipsLazyUnloadedTenant(t *testing.T) {
 
 	scheduler := queue.NewScheduler(queue.SchedulerOptions{Logger: logger, Workers: 1})
 
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 		func(_ string, _ bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			return readerFunc(class, shardState)
@@ -89,9 +90,8 @@ func TestTTLSkipsLazyUnloadedTenant(t *testing.T) {
 	mockSchemaReader.EXPECT().Shards(className).Return([]string{tenant}, nil).Once()
 
 	mockSchema := schemaUC.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
+	mockSchema.EXPECT().ReadOnlySchema().Maybe().Return(*fakeSchema.Objects)
 	mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
-	mockSchema.EXPECT().NodeName().Maybe().Return(nodeName)
 
 	// No read-routing expectations: the skip means findUUIDs is never reached. Removing the
 	// skip would call BuildReadRoutingPlan and fail on an unexpected mock call.
@@ -101,6 +101,7 @@ func TestTTLSkipsLazyUnloadedTenant(t *testing.T) {
 	shardResolver := resolver.NewShardResolver(className, true, schemaGetter)
 
 	index, err := NewIndex(ctx, nil, IndexConfig{
+		NodeName:             nodeName,
 		RootPath:             t.TempDir(),
 		ClassName:            schema.ClassName(className),
 		ReplicationFactor:    1,
@@ -109,7 +110,7 @@ func TestTTLSkipsLazyUnloadedTenant(t *testing.T) {
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{VectorCacheMaxObjects: 1000}, nil, mockRouter, shardResolver,
 		mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil,
-		class, nil, scheduler, nil, nil,
+		class, nil, scheduler, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
 	defer index.Shutdown(ctx)
@@ -146,7 +147,7 @@ func setupTTLRepo(t *testing.T, batchSize int, shardState *sharding.State, class
 
 	repo := setupTestDBWithShardState(t, t.TempDir(), shardState, func(cfg *Config) {
 		cfg.ObjectsTTLBatchSize = configRuntime.NewDynamicValue(batchSize)
-	}, class)
+	}, nil, class)
 	t.Cleanup(func() { require.NoError(t, repo.Shutdown(context.Background())) })
 
 	insertTTLObjects(t, repo, tenant, expiredCount, aliveCount)
@@ -213,7 +214,7 @@ func TestTTLSweepsATenantAcrossSeveralBatches(t *testing.T) {
 // ttlCountingSchemaReader counts the batch deletes a sweep runs. err, when set, fails every one
 // of them before any shard I/O while findUUIDs still resolves real uuids.
 type ttlCountingSchemaReader struct {
-	schemaUC.SchemaReader
+	local.SchemaReader
 	calls *atomic.Int32
 	err   error
 }

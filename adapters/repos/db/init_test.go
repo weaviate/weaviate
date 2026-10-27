@@ -201,7 +201,7 @@ func TestNewShard_AbortsWhenUsageFileRemovalFails(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(usageTmp, 0o700) })
 
 	_, err := NewShard(ctx, nil, shardName, index, &models.Class{Class: className},
-		index.centralJobQueue, index.scheduler, index.indexCheckpoints,
+		index.centralJobQueue, index.scheduler,
 		index.shardReindexer, false, index.bitmapBufPool, monitoring.ShardRegistrationEager)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "remove computed usage file")
@@ -211,7 +211,8 @@ func TestTotalShardSizeBytes_FallsBackToDirSizeWhenNoMeta(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	db := &DB{
-		logger: logrus.New(),
+		localNodeName: "node1",
+		logger:        logrus.New(),
 		config: Config{
 			RootPath: tmpDir,
 		},
@@ -250,7 +251,7 @@ func TestTotalShardSizeBytes_Concurrent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			db := &DB{logger: logrus.New(), config: Config{RootPath: tmpDir}}
+			db := &DB{localNodeName: "node1", logger: logrus.New(), config: Config{RootPath: tmpDir}}
 			className := schema.ClassName("MyClass")
 			indexPath := path.Join(tmpDir, indexID(className))
 
@@ -300,7 +301,8 @@ func TestTotalShardSizeBytes_PrefersMetaFileWhenPresent(t *testing.T) {
 			tmpDir := t.TempDir()
 
 			db := &DB{
-				logger: logrus.New(),
+				localNodeName: "node1",
+				logger:        logrus.New(),
 				config: Config{
 					RootPath: tmpDir,
 				},

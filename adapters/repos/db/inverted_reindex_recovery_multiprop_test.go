@@ -60,7 +60,7 @@ func computeMultiPropBaseline(t *testing.T, propNames []string, numObjects int) 
 	class := newTestClassWithProps(className, propNames)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 
@@ -97,7 +97,7 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 	class := newTestClassWithProps(className, propNames)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 
@@ -266,7 +266,7 @@ func runCrossReplicaMigration(t *testing.T, propNames []string, className string
 	class := newTestClassWithProps(className, propNames)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 	_ = idx

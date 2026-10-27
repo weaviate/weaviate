@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"path"
 	"slices"
 	"strings"
@@ -26,6 +27,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/entities/backup"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -34,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
+	"github.com/weaviate/weaviate/usecases/license"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
@@ -41,7 +44,17 @@ import (
 var (
 	errLocalBackendDBRO = errors.New("local filesystem backend is not viable for backing up a node cluster, try s3 or gcs")
 	errIncludeExclude   = errors.New("malformed request: 'include' and 'exclude' cannot both contain values")
+	// errDedupePlannerMissing refuses dedupeReplicas on a licensed node whose planner was not wired.
+	errDedupePlannerMissing = errors.New("dedupeReplicas cannot run because this node has no dedupe planner")
 )
+
+// DedupeFeature names deduplicated backups in the license refusal and the startup warning.
+const DedupeFeature = "deduplicated backups"
+
+// DedupeEnabled reports the BACKUP_DEDUPE_ENABLED flag; startup folds it into the dedupe license.Mode.
+func DedupeEnabled() bool {
+	return entcfg.Enabled(os.Getenv("BACKUP_DEDUPE_ENABLED"))
+}
 
 const (
 	errMsgHigherVersion = "unable to restore backup as it was produced by a higher version"
@@ -62,6 +75,8 @@ type Scheduler struct {
 	backupper  *coordinator
 	restorer   *coordinator
 	backends   BackupBackendProvider
+	// dedupeMode gates dedupeReplicas create requests; backupper.dedupePlanner is set only in FeatureLicensed.
+	dedupeMode license.Mode
 	// nil when dynamic DB users are not enabled.
 	userLister UserLister
 	// nil when RBAC is not enabled.
@@ -81,6 +96,8 @@ func NewScheduler(
 	authorizer authorization.Authorizer,
 	client client,
 	sourcer Selector,
+	dedupeMode license.Mode,
+	dedupePlanner DedupePlanner,
 	userLister UserLister,
 	roleLister RoleLister,
 	backends BackupBackendProvider,
@@ -95,6 +112,7 @@ func NewScheduler(
 		logger:            logger,
 		authorizer:        authorizer,
 		backends:          backends,
+		dedupeMode:        dedupeMode,
 		userLister:        userLister,
 		roleLister:        roleLister,
 		schema:            schema,
@@ -104,13 +122,13 @@ func NewScheduler(
 			sourcer,
 			client,
 			schema,
-			logger, nodeResolver, backends, nil,
+			logger, nodeResolver, backends, nil, dedupePlanner,
 		),
 		restorer: newCoordinator(
 			sourcer,
 			client,
 			schema,
-			logger, nodeResolver, backends, rolesAndUsers,
+			logger, nodeResolver, backends, rolesAndUsers, nil,
 		),
 	}
 	return m
@@ -194,6 +212,13 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
+	// After validation so an unauthorized caller never learns the flag or license state; restores are never gated.
+	if req.DedupeReplicas {
+		if err := s.dedupeGate(); err != nil {
+			return nil, err
+		}
+	}
+
 	carriedAssignments, err := rbac.MergeSnapshots(selection.userBuiltInAssignments, selection.oidcBuiltInAssignments)
 	if err != nil {
 		return nil, backup.NewErrUnprocessable(fmt.Errorf("merge built-in role assignments: %w", err))
@@ -203,18 +228,22 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, fmt.Errorf("init uploader: %w", err)
 	}
 	breq := Request{
-		Method:       OpCreate,
-		ID:           req.ID,
-		Backend:      req.Backend,
-		Classes:      selection.classes,
-		Users:        selection.users,
-		Roles:        selection.roles,
-		SkipUsers:    selection.skipUsers,
-		SkipRoles:    selection.skipRoles,
-		Compression:  req.Compression,
-		Bucket:       req.Bucket,
-		Path:         req.Path,
-		BaseBackupID: req.BaseBackupID,
+		Method:                          OpCreate,
+		ID:                              req.ID,
+		Backend:                         req.Backend,
+		Classes:                         selection.classes,
+		Users:                           selection.users,
+		Roles:                           selection.roles,
+		SkipUsers:                       selection.skipUsers,
+		SkipRoles:                       selection.skipRoles,
+		Compression:                     req.Compression,
+		Bucket:                          req.Bucket,
+		Path:                            req.Path,
+		BaseBackupID:                    req.BaseBackupID,
+		DedupeReplicas:                  req.DedupeReplicas,
+		DedupeConvergenceTimeoutSeconds: req.DedupeConvergenceTimeoutSeconds,
+		BaseChainDeduped:                selection.baseChainDeduped,
+		BaseDedupeDesignations:          selection.baseDesignations,
 
 		BuiltInRoleAssignments: carriedAssignments,
 	}
@@ -232,6 +261,21 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 			Bucket:  st.OverrideBucket,
 		}, nil
 	}
+}
+
+// dedupeGate refuses a dedupeReplicas create request unless this node runs the feature licensed and wired.
+func (s *Scheduler) dedupeGate() error {
+	switch s.dedupeMode {
+	case license.FeatureOff:
+		return backup.NewErrUnprocessable(fmt.Errorf("dedupeReplicas is not enabled on this cluster; set BACKUP_DEDUPE_ENABLED=true or retry without the option"))
+	case license.FeatureLicensed:
+		if s.backupper.dedupePlanner == nil {
+			return errDedupePlannerMissing
+		}
+		return nil
+	case license.FeatureUnlicensed:
+	}
+	return license.Required(DedupeFeature)
 }
 
 // Restore loads the backup and restores classes in temporary directories on the filesystem.
@@ -777,7 +821,7 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 		return nil, err
 	}
 
-	req := &StatusRequest{OpCreate, backupID, backend, store.bucket, store.path, ""}
+	req := &StatusRequest{Method: OpCreate, ID: backupID, Backend: backend, Bucket: store.bucket, Path: store.path}
 	st, err := s.backupper.OnStatus(ctx, store, req)
 	if err != nil {
 		if errors.Is(err, errMetaNotFound) {
@@ -801,7 +845,7 @@ func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Pri
 	if err := s.authorizeBackupByID(ctx, principal, authorization.READ, store, GlobalRestoreFile, overrideBucket, overridePath, restorePrincipalResources); err != nil {
 		return nil, err
 	}
-	req := &StatusRequest{OpRestore, backupID, backend, overrideBucket, overridePath, ""}
+	req := &StatusRequest{Method: OpRestore, ID: backupID, Backend: backend, Bucket: overrideBucket, Path: overridePath}
 	st, err := s.restorer.OnStatus(ctx, store, req)
 	if err != nil {
 		if errors.Is(err, errMetaNotFound) {
@@ -863,6 +907,12 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		}
 	}
 
+	// Participant aborts only reach nodes already committed to the op; the slot
+	// signal is what stops a create still in its planning/convergence wait.
+	if s.backupper.lastOp.cancelIfInFlight(backupID) {
+		s.logger.WithField("backup_id", backupID).Info("cancel: signalled in-flight backup coordinator")
+	}
+
 	nodes, err := s.backupper.Nodes(ctx, &Request{
 		Method:  OpCreate,
 		Backend: backend,
@@ -876,6 +926,20 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		&AbortRequest{Method: OpCreate, ID: backupID, Backend: backend, Bucket: overrideBucket, Path: overridePath}, nodes)
 
 	return nil
+}
+
+// cancelCoordinatorOp lets a remote DELETE's abort fan-out cancel a create this node
+// coordinates; only user aborts qualify (empty AttemptID — coordinator cleanup aborts
+// carry theirs and must not flag their own op cancelled).
+func (s *Scheduler) cancelCoordinatorOp(method Op, id, attemptID string) bool {
+	if method != OpCreate || attemptID != "" {
+		return false
+	}
+	if s.backupper.lastOp.cancelIfInFlight(id) {
+		s.logger.WithField("backup_id", id).Info("cancel: remote abort signalled in-flight backup coordinator")
+		return true
+	}
+	return false
 }
 
 func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Principal, backend, backupID, overrideBucket, overridePath string,
@@ -1139,6 +1203,10 @@ func coordBackend(provider BackupBackendProvider, backend, id, overrideBucket, o
 // keep the full backend snapshot unless the corresponding skip flag is set.
 type backupSelections struct {
 	classes, users, roles []string
+	// baseChainDeduped pins the restore floor at 3.0: restoring this artifact traverses a replica-deduped base.
+	baseChainDeduped bool
+	// baseDesignations is the immediate base's dedupeDesignations; nil for non-deduped or pre-feature bases.
+	baseDesignations map[string]map[string]string
 	// Set by an explicit empty list, a wildcard that matches nothing, an
 	// omitted selector where no ID is permitted, and a disabled store.
 	skipUsers, skipRoles bool
@@ -1290,8 +1358,19 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	if err != nil {
 		return selections, fmt.Errorf("get compression type: %w", err)
 	}
-	if _, err = resolveBaseBackupChain(ctx, req.BaseBackupID, time.Now().UTC(), req.Bucket, req.Path, compressionType, store.MetaForBackupID); err != nil {
+	chain, err := resolveBaseBackupChain(ctx, req.BaseBackupID, time.Now().UTC(), req.Bucket, req.Path, compressionType, store.GlobalMetaForBackupID)
+	if err != nil {
 		return selections, fmt.Errorf("resolve base backup chain: %w", err)
+	}
+	for _, base := range chain {
+		if major, ok := parseMajor(base.GetVersion()); ok && major >= 3 {
+			selections.baseChainDeduped = true
+			break
+		}
+	}
+	// only the immediate base constrains stickiness: any other chain shape leaves every replica able to skip
+	if len(chain) > 0 {
+		selections.baseDesignations = chain[0].DedupeDesignations
 	}
 
 	// The response does not report users or roles, so a selector that matched
@@ -1532,8 +1611,9 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	if err := meta.Validate(); err != nil {
 		return nil, fmt.Errorf("corrupted backup file: %w", err)
 	}
-	if v := meta.Version; v[0] > Version[0] {
-		return nil, fmt.Errorf("%s: %s > %s", errMsgHigherVersion, v, Version)
+	// dedupeReplicas requires the 3.x format; 3.x without the flag is a legacy-layout artifact whose base chain pins the floor.
+	if major, ok := parseMajor(meta.Version); ok && meta.DedupeReplicas && major < 3 {
+		return nil, fmt.Errorf("corrupted backup file: version %s inconsistent with dedupeReplicas=%v", meta.Version, meta.DedupeReplicas)
 	}
 
 	// Base backups are only read after the restore has started staging data.

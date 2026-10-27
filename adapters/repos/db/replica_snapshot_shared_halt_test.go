@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
@@ -232,7 +233,6 @@ func newSharedHaltTestShard(t *testing.T) (*Index, *Shard) {
 	t.Helper()
 
 	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
-	mockSchemaGetter.On("NodeName").Return("node1")
 
 	class := &models.Class{
 		Class:               "TestClass",
@@ -255,7 +255,7 @@ func newSharedHaltTestShard(t *testing.T) (*Index, *Shard) {
 		PartitioningEnabled: true,
 	}
 
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(_ string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
 			return readFunc(class, ss)
@@ -264,19 +264,20 @@ func newSharedHaltTestShard(t *testing.T) (*Index, *Shard) {
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
 
 	index, err := NewIndex(context.Background(), nil, IndexConfig{
+		NodeName:          "node1",
 		ClassName:         schema.ClassName("TestClass"),
 		RootPath:          t.TempDir(),
 		ReplicationFactor: 1,
 		ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader,
-		nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil,
+		nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
 	shutdownIndexOnCleanup(t, index)
 	index.db = stubDBWithNoLiveReindex()
 
-	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
+	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler,
 		NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop(),
 		monitoring.ShardRegistrationEager)
 	require.NoError(t, err)
@@ -308,7 +309,7 @@ func TestReplicaTransferCarriesTheDynamicUpgrade(t *testing.T) {
 			duc := dynamicent.UserConfig{}
 			duc.SetDefaults()
 			duc.Threshold = 10 // the queue upgrades the index once this many are indexed
-			shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, duc, false, true, true)
+			shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, duc, false, true)
 			shard := shd.(*Shard)
 			t.Cleanup(func() { _ = idx.drop() })
 

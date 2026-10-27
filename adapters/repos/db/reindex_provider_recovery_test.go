@@ -444,7 +444,7 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 			className := "LocalCallbacksDone_" + uuid.NewString()[:8]
 			class := newTestClassWithProps(className, []string{prop})
 			hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
+				false, false)
 			defer hot.Shutdown(context.Background())
 
 			migrationType := ReindexTypeChangeTokenization
@@ -457,7 +457,7 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 				mkTrackerDir(t, shardPathLSM(idx.path(), tenant), trackerDir, tc.sentinels...)
 			}
 			cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+				idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
 				false, idx.bitmapBufPool)
 			if !tc.absentFromShardMap {
 				idx.shards.Store(tenant, cold)
@@ -483,7 +483,7 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 
 			logger, _ := logrustest.NewNullLogger()
 			p := NewReindexProvider(
-				&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
+				&DB{localNodeName: "node1", indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
 				nil, nil, logger, node, nil, ctx)
 
 			got := p.LocalCallbacksDone(&distributedtask.Task{
@@ -527,7 +527,7 @@ func TestLocalCallbacksDoneOnACorruptPayloadUnderAnotherPropertysTracker(t *test
 
 	logger, _ := logrustest.NewNullLogger()
 	p := NewReindexProvider(
-		&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
+		&DB{localNodeName: "node1", indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
 		nil, nil, logger, "n1", nil, ctx)
 
 	require.True(t, p.LocalCallbacksDone(&distributedtask.Task{

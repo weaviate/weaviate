@@ -60,7 +60,8 @@ func testResourceDB(t *testing.T, diskROPercent, memROPercent uint64, shards map
 	}
 
 	return &DB{
-		logger: logger,
+		localNodeName: "node1",
+		logger:        logger,
 		config: Config{
 			ResourceUsage: config.ResourceUsage{
 				DiskUse: config.DiskUse{
@@ -614,7 +615,8 @@ func TestSetShardsReady_MultipleIndices(t *testing.T) {
 	idx2.shards.Store("shard2", shard2)
 
 	db := &DB{
-		logger: logger,
+		localNodeName: "node1",
+		logger:        logger,
 		config: Config{
 			ResourceUsage: config.ResourceUsage{
 				DiskUse: config.DiskUse{ReadOnlyPercentage: 90},
@@ -637,14 +639,14 @@ func TestSetShardsReady_MultipleIndices(t *testing.T) {
 }
 
 func TestSetShardsReady_SkipsNonResourcePressureReadonly(t *testing.T) {
-	// A shard that is READONLY due to a vector index config update should NOT
-	// be recovered by the resource scanner. Only shards set READONLY due to
-	// resource pressure should be transitioned back to READY.
-	configUpdateShard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonVectorIndexUpdate})
+	// A shard that is READONLY for a non-resource-pressure reason (e.g. a manual
+	// user toggle) should NOT be recovered by the resource scanner. Only shards
+	// set READONLY due to resource pressure should be transitioned back to READY.
+	manualShard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonManualUpdate})
 	resourcePressureShard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonResourcePressure})
 
 	db := testResourceDB(t, 90, 90, map[string]ShardLike{
-		"config_update_shard":     configUpdateShard,
+		"manual_readonly_shard":   manualShard,
 		"resource_pressure_shard": resourcePressureShard,
 	})
 	db.resourceScanState.isReadOnly.Store(true)
@@ -652,20 +654,20 @@ func TestSetShardsReady_SkipsNonResourcePressureReadonly(t *testing.T) {
 	db.setShardsReady()
 
 	assert.False(t, db.resourceScanState.isReadOnly.Load())
-	assert.Equal(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonVectorIndexUpdate}, configUpdateShard.get())
+	assert.Equal(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonManualUpdate}, manualShard.get())
 	assert.Equal(t, storagestate.StatusReady, resourcePressureShard.get().Status)
 }
 
-// A shard that is READONLY for a vector-index config update must stay READONLY
-// across a resource readonly→recovery cycle: the resource scanner must not
-// relabel it as resource-pressure and then recover it mid-update.
-func TestResourceCycle_DoesNotRecoverConfigUpdateShard(t *testing.T) {
-	// Simulate UpdateVectorIndexConfig having marked the shard READONLY.
-	shard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonVectorIndexUpdate})
+// A shard set READONLY for a non-resource-pressure reason (e.g. a manual user
+// toggle) must stay READONLY across a resource readonly→recovery cycle: the
+// resource scanner must not relabel it as resource-pressure and then recover it.
+func TestResourceCycle_DoesNotRecoverManualReadonlyShard(t *testing.T) {
+	// Simulate a manual readonly toggle having marked the shard READONLY.
+	shard := newStatusShard(t, ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonManualUpdate})
 
-	db := testResourceDB(t, 90, 90, map[string]ShardLike{"config_update_shard": shard})
+	db := testResourceDB(t, 90, 90, map[string]ShardLike{"manual_readonly_shard": shard})
 
-	// Resource pressure trips while the config update is in flight.
+	// Resource pressure trips while the shard is manually READONLY.
 	mon := newTestMemMonitor(0, 100)
 	db.resourceUseReadonly(mon, diskUse{total: 100, free: 5, avail: 5})
 
@@ -673,8 +675,8 @@ func TestResourceCycle_DoesNotRecoverConfigUpdateShard(t *testing.T) {
 	db.resourceUseRecovery(mon, diskUse{total: 100, free: 50, avail: 50})
 
 	assert.Equal(t, storagestate.StatusReadOnly, shard.get().Status,
-		"config-update shard must stay READONLY across a resource readonly→recovery cycle; "+
-			"resource recovery must not re-admit writes while the vector-index config update is still in flight")
+		"manually-readonly shard must stay READONLY across a resource readonly→recovery cycle; "+
+			"resource recovery must not re-admit writes that were not disabled by resource pressure")
 }
 
 func TestSetShardsReady_SkipsUserInitiatedReadonly(t *testing.T) {
@@ -787,20 +789,9 @@ func TestResourceScanner_StatusChangedInsideDecisionWindow(t *testing.T) {
 			racingWrite: ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonManualUpdate},
 		},
 		{
-			name:        "readonly sweep, vector-index freeze lands first",
-			initial:     ShardStatus{Status: storagestate.StatusReady},
-			racingWrite: ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonVectorIndexUpdate},
-		},
-		{
 			name:        "recovery sweep, manual freeze lands first",
 			initial:     ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonResourcePressure},
 			racingWrite: ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonManualUpdate},
-			recovery:    true,
-		},
-		{
-			name:        "recovery sweep, vector-index freeze lands first",
-			initial:     ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonResourcePressure},
-			racingWrite: ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonVectorIndexUpdate},
 			recovery:    true,
 		},
 	}

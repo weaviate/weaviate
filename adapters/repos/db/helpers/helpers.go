@@ -17,6 +17,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 )
 
 var (
@@ -42,16 +43,6 @@ func GetVectorsBucketName(targetVector string) string {
 	}
 	return VectorsBucketLSM
 }
-
-// A multivector index keeps one bucket of its own, named off the index ID:
-// muvera encodings when muvera is on, node-to-doc mappings when it is off. The
-// two are mutually exclusive.
-//
-// These live here rather than being concatenated at the point of use so the
-// code that CREATES the bucket and the drop that removes it share one
-// definition. Concatenated inline, a rename on the hnsw side compiles cleanly
-// while the cleanup keeps deleting the old name: removeBucket no-ops and the
-// leak returns silently.
 
 // VectorIndexIDForTarget derives the canonical physical index ID for a
 // target vector: "main" for the legacy unnamed vector, "vectors_<tv>"
@@ -101,6 +92,16 @@ func HNSWCommitLogDirNameForID(physicalID string) string {
 	return physicalID + ".hnsw.commitlog.d"
 }
 
+// A multivector index keeps one bucket of its own, named off the index ID:
+// muvera encodings when muvera is on, node-to-doc mappings when it is off. The
+// two are mutually exclusive.
+//
+// These live here rather than being concatenated at the point of use so the
+// code that CREATES the bucket and the drop that removes it share one
+// definition. Concatenated inline, a rename on the hnsw side compiles cleanly
+// while the cleanup keeps deleting the old name: removeBucket no-ops and the
+// leak returns silently.
+
 // MuveraBucketName is the bucket a muvera-encoded multivector index stores its
 // encoded vectors in. indexID is the vector index's ID.
 func MuveraBucketName(indexID string) string {
@@ -140,13 +141,16 @@ func CentroidsID(indexID string) string {
 	return indexID + "_centroids"
 }
 
-// FlatMetadataFileName is the flat index's quantisation metadata, under the
-// shard directory (see flat.getMetadataFile).
+// FlatMetadataFileName is the single derivation of the flat index's
+// quantisation metadata file name, under the shard directory. Both the live
+// index (via FlatMetadataFileNameForID) and the drop-artifact list
+// (vectorIndexArtifactNames) call through here, so they cannot disagree.
+// Previously they were two independent implementations — this one a plain
+// Sprintf, entities/vectorindex/flat.MetadataFileName sanitizing via
+// filepath.Clean/Base — which drifted for any name the sanitizer alters.
+// Delegating keeps that sanitization intact for both callers.
 func FlatMetadataFileName(targetVector string) string {
-	if targetVector != "" {
-		return fmt.Sprintf("meta_%s.db", targetVector)
-	}
-	return "meta.db"
+	return flatent.MetadataFileName(targetVector)
 }
 
 // VectorIndexArtifacts is everything a named vector's index owns on disk:
@@ -293,7 +297,7 @@ func VectorIndexArtifactsFor(targetVector string, otherTargetVectors []string) V
 	// artifact can ever equal one — filtering them would be unreachable code.
 	// A future shard directory WITHOUT a dotted suffix would break that and
 	// needs the guard extended.
-	keptBuckets := artifacts.LSMBuckets[:0:0]
+	var keptBuckets []string
 	for _, name := range artifacts.LSMBuckets {
 		if _, clash := protected[name]; clash {
 			continue

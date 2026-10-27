@@ -44,7 +44,9 @@ import (
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/remote"
 	"github.com/weaviate/weaviate/usecases/traverser"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
@@ -73,7 +75,7 @@ type State struct {
 	SchemaManager *schema.Manager
 	Cluster       *cluster.State
 
-	RemoteIndexIncoming *sharding.RemoteIndexIncoming
+	RemoteIndexIncoming *remote.IndexIncoming
 	RemoteNodeIncoming  *sharding.RemoteNodeIncoming
 	Traverser           *traverser.Traverser
 
@@ -94,6 +96,7 @@ type State struct {
 	TenantActivity       *tenantactivity.Handler
 	InternalServer       types.ClusterServer
 	NamespacesController *usecasesNamespaces.Controller
+	NamespaceQualifier   namespacing.Qualifier
 
 	ObjectTTLCoordinator *objectttl.Coordinator
 	ObjectTTLLocalStatus *objectttl.LocalStatus

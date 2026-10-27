@@ -236,6 +236,24 @@ func TestNamespaces_DeleteClassPropertyIndex(t *testing.T) {
 	})
 }
 
+// classWithTwoVectors returns a class with two named vectors (vec1, vec2),
+// both backed by HNSW. Dropping one toggles its VectorIndexType to "none".
+func classWithTwoVectors(name string) *models.Class {
+	return &models.Class{
+		Class: name,
+		VectorConfig: map[string]models.VectorConfig{
+			"vec1": {
+				Vectorizer:      map[string]any{"none": map[string]any{}},
+				VectorIndexType: "hnsw",
+			},
+			"vec2": {
+				Vectorizer:      map[string]any{"none": map[string]any{}},
+				VectorIndexType: "hnsw",
+			},
+		},
+	}
+}
+
 func TestNamespaces_DeleteClassVectorIndex(t *testing.T) {
 	t.Parallel()
 	ns1 := uniqueNS()
@@ -245,24 +263,6 @@ func TestNamespaces_DeleteClassVectorIndex(t *testing.T) {
 
 	user1Key := createNamespacedUser(t, "u1", ns1, adminKey)
 	t.Cleanup(func() { helper.DeleteUser(t, ns1+":u1", adminKey) })
-
-	// classWithTwoVectors returns a class with two named vectors (vec1, vec2),
-	// both backed by HNSW. Dropping one toggles its VectorIndexType to "none".
-	classWithTwoVectors := func(name string) *models.Class {
-		return &models.Class{
-			Class: name,
-			VectorConfig: map[string]models.VectorConfig{
-				"vec1": {
-					Vectorizer:      map[string]any{"none": map[string]any{}},
-					VectorIndexType: "hnsw",
-				},
-				"vec2": {
-					Vectorizer:      map[string]any{"none": map[string]any{}},
-					VectorIndexType: "hnsw",
-				},
-			},
-		}
-	}
 
 	// vectorIndexType returns the VectorIndexType of `vec` on `qualified`.
 	vectorIndexType := func(t *testing.T, qualified, vec string) string {
@@ -415,7 +415,7 @@ func TestNamespaces_ShardsStatus(t *testing.T) {
 		})
 		require.Len(t, shards, 1)
 		for _, s := range shards {
-			assert.NotEmpty(t, s.Status, "shard %q should have a populated status", s.Name)
+			assert.NotEmpty(t, s.PerNodeStatus, "shard %q should have a populated status", s.Name)
 		}
 	})
 
@@ -431,7 +431,7 @@ func TestNamespaces_ShardsStatus(t *testing.T) {
 		})
 		require.Len(t, shards, 1)
 		for _, s := range shards {
-			assert.NotEmpty(t, s.Status, "shard %q should have a populated status", s.Name)
+			assert.NotEmpty(t, s.PerNodeStatus, "shard %q should have a populated status", s.Name)
 		}
 	})
 
@@ -452,7 +452,7 @@ func TestNamespaces_ShardsStatus(t *testing.T) {
 		})
 		require.Len(t, shards, 1)
 		for _, s := range shards {
-			assert.NotEmpty(t, s.Status, "shard %q should have a populated status", s.Name)
+			assert.NotEmpty(t, s.PerNodeStatus, "shard %q should have a populated status", s.Name)
 		}
 	})
 }
@@ -521,7 +521,9 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 			}
 			for _, s := range after {
 				if s.Name == shardName {
-					assert.Equal(c, want, s.Status)
+					for nodeName, shardStatus := range s.PerNodeStatus {
+						assert.Equal(c, want, shardStatus, "%s status on node %s", shardName, nodeName)
+					}
 					return
 				}
 			}
@@ -579,7 +581,7 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 		})
 		require.Len(t, shards, 1)
 		shardName := shards[0].Name
-		initialStatus := shards[0].Status
+		initialStatus := shards[0].PerNodeStatus
 
 		// Wait for the alias entry to be visible on the node handling the
 		// request before asserting that UpdateShardStatus rejects it. On a
@@ -598,7 +600,7 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 		after, err := getShards(t, ns1+":Concerts", adminKey)
 		require.NoError(t, err)
 		require.Len(t, after, 1)
-		assert.Equal(t, initialStatus, after[0].Status, "underlying shard status must be unchanged")
+		assert.Equal(t, initialStatus, after[0].PerNodeStatus, "underlying shard status must be unchanged")
 	})
 
 	t.Run("each namespace updates only its own class", func(t *testing.T) {
@@ -628,7 +630,13 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 		after1, err := getShards(t, ns1+":Books", adminKey)
 		require.NoError(t, err)
 		require.Len(t, after1, 1)
-		assert.NotEqual(t, "READONLY", after1[0].Status, "ns1:Books must be untouched by user2's update")
+		for nodeName, shardStatus := range after1[0].PerNodeStatus {
+			assert.NotEqual(t,
+				"READONLY", shardStatus,
+				"ns1:Books must be untouched by user2's update (shard=%s node=%s)",
+				shardName, nodeName,
+			)
+		}
 	})
 }
 

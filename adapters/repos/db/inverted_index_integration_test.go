@@ -27,6 +27,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -36,7 +37,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -87,7 +87,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 			Classes: []*models.Class{class},
 		},
 	}}
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 		return readerFunc(class, shardState)
@@ -224,7 +224,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 				Objects: &models.Schema{},
 			},
 		}
-		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+		mockSchemaReader := local.NewMockSchemaReader(t)
 		mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 		mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			class := &models.Class{Class: className}
@@ -511,7 +511,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 				Objects: &models.Schema{},
 			},
 		}
-		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+		mockSchemaReader := local.NewMockSchemaReader(t)
 		mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 		mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			class := &models.Class{Class: className}
@@ -884,7 +884,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 				Objects: &models.Schema{},
 			},
 		}
-		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+		mockSchemaReader := local.NewMockSchemaReader(t)
 		mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 		mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 			class := &models.Class{Class: className}

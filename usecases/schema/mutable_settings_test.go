@@ -222,10 +222,10 @@ type schemaWithModules struct {
 func newSchemaWithModules(t *testing.T) *schemaWithModules {
 	recorder := &moduleValidationRecorder{}
 	vectorizers := &fakeVectorizerValidator{valid: []string{mutableModule, fixedModule}}
-	handler, schemaManager := newTestHandlerWithModules(t, mutableModules{}, recorder, vectorizers)
+	handler, schemaManager := newTestHandlerWithModules(t, &fakeDB{}, mutableModules{}, recorder, vectorizers)
 	schemaManager.On("QueryCollectionsCount").Return(0, nil)
 	schemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-	schemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+	schemaManager.On("UpdateClass", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	store := NewFakeStore()
 	store.parser = handler.parser
@@ -239,6 +239,8 @@ func (s *schemaWithModules) create(t *testing.T, class *models.Class) *models.Cl
 	s.store.AddClass(class)
 	s.schemaManager.On("ReadOnlyClass", class.Class).Return(class)
 	s.schemaManager.On("QueryReadOnlyClasses", []string{class.Class}).
+		Return(map[string]versioned.Class{class.Class: {Class: class}}, nil)
+	s.schemaManager.On("ReadOnlyClassesFromLeader", []string{class.Class}).
 		Return(map[string]versioned.Class{class.Class: {Class: class}}, nil)
 	return class
 }

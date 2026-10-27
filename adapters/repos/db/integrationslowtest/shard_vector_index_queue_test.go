@@ -119,8 +119,14 @@ func seedVectorIndexQueueShard(t *testing.T, tc vectorIndexQueueCase, amount int
 		require.NoError(t, err)
 	}
 
-	vidx, vok := shd.GetVectorIndex(tc.targetVector)
-	q, qok := shd.GetVectorIndexQueue(tc.targetVector)
+	vidx, releaseIdx, vok := shd.AcquireVectorIndex(tc.targetVector)
+	if vok {
+		t.Cleanup(releaseIdx)
+	}
+	q, releaseQ, qok := shd.AcquireVectorIndexQueue(tc.targetVector)
+	if qok {
+		t.Cleanup(releaseQ)
+	}
 	require.True(t, vok && qok)
 
 	require.EventuallyWithT(t, func(t *assert.CollectT) {

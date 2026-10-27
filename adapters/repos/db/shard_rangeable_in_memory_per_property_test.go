@@ -111,7 +111,7 @@ func newRangeableInMemoryPerPropShard(t *testing.T, ctx context.Context,
 	}
 
 	shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false, func(idx *Index) {
+		false, false, func(idx *Index) {
 			idx.Config.IndexRangeableInMemory = all
 			idx.Config.IndexRangeableInMemoryProps = props
 		})

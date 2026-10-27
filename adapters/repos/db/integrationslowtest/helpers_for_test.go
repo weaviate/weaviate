@@ -29,6 +29,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -36,7 +37,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
@@ -86,7 +86,7 @@ func newRepo(t *testing.T, p repoParams, classes ...*models.Class) (*db.DB, *fak
 		return &models.Class{Class: name}
 	}
 
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 		func(className string, retry bool, readFunc func(*models.Class, *sharding.State) error) error {
@@ -144,12 +144,16 @@ func singleShard(t *testing.T, repo *db.DB, className string) db.ShardLike {
 }
 
 type fakeSchemaGetter struct {
+	local.ClassReader
 	schema     schema.Schema
 	shardState *sharding.State
 }
 
-func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
-	return f.schema
+func (f *fakeSchemaGetter) ReadOnlySchema() models.Schema {
+	if f.schema.Objects == nil {
+		return models.Schema{}
+	}
+	return *f.schema.Objects
 }
 
 func (f *fakeSchemaGetter) ReadOnlyClass(class string) *models.Class {
@@ -187,7 +191,7 @@ func (f *fakeSchemaGetter) ShardReplicas(class, shard string) ([]string, error) 
 	return x.BelongsToNodes, nil
 }
 
-func (f *fakeSchemaGetter) TenantsShards(_ context.Context, class string, tenants ...string) (map[string]string, error) {
+func (f *fakeSchemaGetter) TenantsShardsStatus(_ context.Context, class string, tenants ...string) (map[string]string, error) {
 	res := map[string]string{}
 	for _, t := range tenants {
 		res[t] = models.TenantActivityStatusHOT

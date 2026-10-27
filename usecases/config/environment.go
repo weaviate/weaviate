@@ -78,6 +78,7 @@ const (
 	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
 
 	DefaultNamespaceCleanupInterval = 30 * time.Second
+	DefaultSuspendReconcileInterval = 30 * time.Second
 
 	DefaultReplicaMovementCleanupMaxAge   = 168 * time.Hour
 	DefaultReplicaMovementCleanupInterval = time.Hour
@@ -668,7 +669,9 @@ func FromEnv(config *Config) error {
 	}
 	config.DefaultShardingCount = configRuntime.NewDynamicValue(defaultShardingCount)
 
-	config.HFreshEnabled = true
+	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
+		config.Persistence.IndexRangeableInMemory = true
+	}
 
 	if v := strings.TrimSpace(os.Getenv(indexRangeableInMemoryEnv)); v != "" {
 		all, props, err := parseIndexRangeableInMemory(cptParser, v)
@@ -913,13 +916,8 @@ func FromEnv(config *Config) error {
 	}
 
 	if v := os.Getenv("DEFAULT_VECTORIZER_MODULE"); v != "" {
-		config.DefaultVectorizerModule = v
-	} else {
-		// env not set, this could either mean, we already have a value from a file
-		// or we explicitly want to set the value to "none"
-		if config.DefaultVectorizerModule == "" {
-			config.DefaultVectorizerModule = VectorizerModuleNone
-		}
+		logrus.Warnf("DEFAULT_VECTORIZER_MODULE is deprecated and ignored (set to %q). "+
+			"Set the vectorizer explicitly on each collection instead.", v)
 	}
 
 	if v := os.Getenv("MODULES_CLIENT_TIMEOUT"); v != "" {
@@ -1122,6 +1120,14 @@ func FromEnv(config *Config) error {
 		func(val *configRuntime.DynamicValue[time.Duration]) { config.Namespaces.CleanupInterval = val }); err != nil {
 		return err
 	}
+	config.Namespaces.SuspendedMessage = strings.TrimSpace(os.Getenv("NAMESPACE_SUSPENDED_MESSAGE"))
+
+	if err := parser.ParseDynamicDurationWithValidation("SUSPEND_RECONCILE_INTERVAL",
+		DefaultSuspendReconcileInterval,
+		parser.ValidateCronInterval,
+		func(val *configRuntime.DynamicValue[time.Duration]) { config.Namespaces.SuspendReconcileInterval = val }); err != nil {
+		return err
+	}
 
 	if config.Raft, err = parseRAFTConfig(config.Cluster.Hostname); err != nil {
 		return fmt.Errorf("parse raft config: %w", err)
@@ -1169,6 +1175,37 @@ func FromEnv(config *Config) error {
 			config.Replication.ReplicaMovementCleanupInterval = val
 		}); err != nil {
 		return err
+	}
+
+	config.Replication.SelfRecoveryEnabled = entcfg.Enabled(os.Getenv("SELF_RECOVERY_ENABLED"))
+	if err := parseIntVerify(
+		"SELF_RECOVERY_CONCURRENCY",
+		DefaultSelfRecoveryConcurrency,
+		func(val int) {
+			config.Replication.SelfRecoveryConcurrency = val
+		},
+		func(val int, envName string) error {
+			if val <= 0 {
+				return fmt.Errorf("%s must be > 0, got %d", envName, val)
+			}
+			if val > MaxSelfRecoveryConcurrency {
+				return fmt.Errorf("%s must be <= %d, got %d", envName, MaxSelfRecoveryConcurrency, val)
+			}
+			return nil
+		},
+	); err != nil {
+		return err
+	}
+
+	if v := os.Getenv("SELF_RECOVERY_BARRIER_TIMEOUT"); v != "" {
+		duration, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse SELF_RECOVERY_BARRIER_TIMEOUT as time.Duration: %w", err)
+		}
+		if duration <= 0 {
+			return fmt.Errorf("SELF_RECOVERY_BARRIER_TIMEOUT must be a positive duration")
+		}
+		config.Replication.SelfRecoveryBarrierTimeout = duration
 	}
 
 	if err := parseIntVerify(
@@ -1613,6 +1650,13 @@ func FromEnv(config *Config) error {
 	}
 
 	config.DisableDimensionMetrics = configRuntime.NewDynamicValue(disableDimensionMetrics)
+
+	if config.Replication.SelfRecoveryEnabled && !config.ReplicaMovementEnabled {
+		logrus.Warn("SELF_RECOVERY_ENABLED requires REPLICA_MOVEMENT_ENABLED=true; disabling " +
+			"self-recovery to avoid shards stuck in RECOVERING (the replication engine that " +
+			"processes recovery copy ops only runs when replica movement is enabled)")
+		config.Replication.SelfRecoveryEnabled = false
+	}
 
 	return nil
 }
@@ -2061,6 +2105,8 @@ const (
 	DefaultMaximumAllowedShardsPerCollection      = -1 // unlimited
 	DefaultUsageLimitsErrorMessage                = "" // empty → usagelimits.RenderTemplate falls back to its built-in default
 	DefaultRestrictionsErrorMessage               = "" // empty → restrictions.RenderTemplate falls back to its built-in default
+	DefaultSelfRecoveryConcurrency                = 10
+	MaxSelfRecoveryConcurrency                    = 32
 )
 
 const VectorizerModuleNone = "none"
@@ -2513,9 +2559,9 @@ func (c *Config) parseBackupGCSConfig() error {
 	switch t := strings.TrimSpace(strings.ToLower(os.Getenv(gcsModuleTransportEnv))); t {
 	case "": // keep the config file value
 	case gcsModuleTransportHTTP:
-		c.BackupGCS.UseGRPC = false
+		c.BackupGCS.UseGRPC = new(false)
 	case gcsModuleTransportGRPC:
-		c.BackupGCS.UseGRPC = true
+		c.BackupGCS.UseGRPC = new(true)
 	default:
 		return fmt.Errorf("%s must be %q or %q. Got: %v",
 			gcsModuleTransportEnv, gcsModuleTransportHTTP, gcsModuleTransportGRPC, t)

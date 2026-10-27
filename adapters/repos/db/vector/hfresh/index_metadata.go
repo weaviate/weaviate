@@ -17,9 +17,10 @@ import (
 	"fmt"
 	"sync/atomic"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+
 	"github.com/pkg/errors"
 	"github.com/vmihailenco/msgpack/v5"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
@@ -29,6 +30,7 @@ const (
 	quantizationKey    = "quantization"
 	dimensionsKey      = "dimensions"
 	postingSequenceKey = "posting_seq"
+	muveraKey          = "muvera"
 )
 
 // The shared bucket is used to store various metadata. It is used by multiple stores
@@ -197,6 +199,42 @@ type QuantizationData struct {
 	RQ compression.RQData `msgpack:"rq"`
 }
 
+func (i *IndexMetadataStore) SetMuveraData(data *compression.MuveraData) error {
+	serialized, err := msgpack.Marshal(data)
+	if err != nil {
+		return errors.Wrap(err, "marshal muvera data")
+	}
+	bucket, release, err := i.bucket.acquire()
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	return bucket.Put(i.key(muveraKey), serialized)
+}
+
+func (i *IndexMetadataStore) GetMuveraData() (*compression.MuveraData, error) {
+	bucket, release, err := i.bucket.acquire()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
+	data, err := bucket.Get(i.key(muveraKey))
+	if err != nil {
+		return nil, errors.Wrap(err, "get muvera data")
+	}
+	if data == nil {
+		return nil, nil
+	}
+
+	var muveraData compression.MuveraData
+	if err = msgpack.Unmarshal(data, &muveraData); err != nil {
+		return nil, errors.Wrap(err, "unmarshal muvera data")
+	}
+	return &muveraData, nil
+}
+
 func (h *HFresh) restoreMetadata() error {
 	dims, err := h.IndexMetadata.GetDimensions()
 	if err != nil || dims == 0 {
@@ -205,6 +243,18 @@ func (h *HFresh) restoreMetadata() error {
 
 	if err := h.restoreDimensions(dims); err != nil {
 		return err
+	}
+
+	if h.muvera.Load() {
+		muveraData, err := h.IndexMetadata.GetMuveraData()
+		if err != nil {
+			return err
+		}
+		if muveraData != nil {
+			h.trackMuveraOnce.Do(func() {
+				h.muveraEncoder.LoadMuveraConfig(*muveraData)
+			})
+		}
 	}
 
 	if err := migratePostingMapV1ToV2(h.ctx, h.PostingMap.bucket.bucket, h.logger); err != nil {

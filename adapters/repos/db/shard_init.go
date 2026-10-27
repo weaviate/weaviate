@@ -25,11 +25,12 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -39,7 +40,7 @@ import (
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
-	scheduler *queue.Scheduler, indexCheckpoints *indexcheckpoint.Checkpoints,
+	scheduler *queue.Scheduler,
 	reindexer ShardReindexerV3, lazyLoadSegments bool, bitmapBufPool roaringset.BitmapBufPool,
 	registration monitoring.ShardRegistration,
 ) (_ *Shard, err error) {
@@ -82,10 +83,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 			index.Config.QuerySlowLogThreshold, index.logger),
 		unreadableRowSampler: logrusext.NewSampler(index.logger.WithField("shard", shardName),
 			1, unreadableRowLogWindow),
-		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
-		centralJobQueue:  jobQueueCh,
-		scheduler:        scheduler,
-		indexCheckpoints: indexCheckpoints,
+		replicationMap:  pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
+		centralJobQueue: jobQueueCh,
+		scheduler:       scheduler,
 
 		shutdownLock:  new(sync.RWMutex),
 		shutCtx:       shutCtx,
@@ -96,7 +96,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		reindexer:                       reindexer,
 		usingBlockMaxWAND:               index.invertedIndexConfig.UsingBlockMaxWAND,
 		bitmapBufPool:                   bitmapBufPool,
-		HFreshEnabled:                   index.HFreshEnabled,
 		lazySegmentLoadingEnabled:       lazyLoadSegments,
 		registration:                    registration,
 	}
@@ -152,6 +151,15 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, err
 	}
 
+	// Open for the shard's life: read at load, written by dynamic, and its
+	// file lock makes an offline operation that raced this load fail cleanly.
+	// The timeout bounds the wait on a leaked handle's lock.
+	s.metadataDB, err = shardmeta.Open(s.path(), entlsmkv.BoltFlockTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("open metadata db for shard %q: %w", s.ID(), err)
+	}
+	s.mapping = newVectorIndexMapping(s.metadataDB)
+
 	if err := s.sweepChangelogDir(); err != nil {
 		return nil, fmt.Errorf("sweep changelog dir for shard %q: %w", s.ID(), err)
 	}
@@ -180,18 +188,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	if err = s.initShardVectors(ctx); err != nil {
 		return nil, fmt.Errorf("init shard vectors: %w", err)
-	}
-
-	if s.index.AsyncIndexingEnabled {
-		f := func() {
-			_ = s.ForEachVectorQueue(func(targetVector string, _ *VectorIndexQueue) error {
-				if err := s.ConvertQueue(targetVector); err != nil {
-					index.logger.WithError(err).Errorf("preload shard for target vector: %s", targetVector)
-				}
-				return nil
-			})
-		}
-		enterrors.GoWrapper(f, s.index.logger)
 	}
 	s.NotifyReady()
 	s.inheritResourcePressureReadOnly()

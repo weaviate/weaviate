@@ -198,7 +198,7 @@ func Test_NoRaceQuantizedVectorCompressor(t *testing.T) {
 			testinghelpers.NewDummyStore(t),
 			lsmkv.MakeNoopBucketOptions,
 			memwatch.NewDummyMonitor(),
-			"name",
+			"vectors_compressed_name",
 			nil,
 		)
 		require.Nil(t, err)

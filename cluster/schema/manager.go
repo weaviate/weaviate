@@ -118,7 +118,7 @@ type SchemaManager struct {
 
 func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
 	return &SchemaManager{
-		schema: NewSchema(nodeId, db, reg),
+		schema: NewSchema(nodeId, reg),
 		db:     db,
 		parser: parser,
 		log:    log,
@@ -188,6 +188,33 @@ func (s *SchemaManager) TenantLimitEnforced() bool {
 	return s.tenantLimit != nil && s.tenantLimit() >= 0
 }
 
+// DeleteClassFromDB is the store half of a DELETE_CLASS.
+func (s *SchemaManager) DeleteClassFromDB(class string, hasFrozen bool) error {
+	if s.replicationFSM == nil {
+		return fmt.Errorf("replication deleter is not set, this should never happen")
+	} else if err := s.replicationFSM.DeleteReplicationsByCollection(class); err != nil {
+		// Logged, not returned: a stuck replication op must not block the
+		// delete.
+		s.log.WithField("class", class).Errorf("could not delete replication operations for deleted class: %v", err)
+	}
+	return s.db.DeleteClass(class, hasFrozen)
+}
+
+// HasFrozenTenants reports whether the class has tenants on cloud storage
+func (s *SchemaManager) HasFrozenTenants(class string) bool {
+	tenants, err := s.schema.getTenants(class, nil)
+	if err != nil {
+		return false
+	}
+	for _, t := range tenants {
+		if t.ActivityStatus == models.TenantActivityStatusFROZEN ||
+			t.ActivityStatus == models.TenantActivityStatusFREEZING {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *SchemaManager) NewSchemaReader() SchemaReader {
 	return NewSchemaReader(
 		s.schema,
@@ -212,7 +239,6 @@ func (s *SchemaManager) NewSchemaReaderWithWaitFunc(f func(context.Context, uint
 
 func (s *SchemaManager) SetIndexer(idx Indexer) {
 	s.db = idx
-	s.schema.shardReader = idx
 }
 
 // SetMetadataOnly marks a node that stores no class data.
@@ -394,7 +420,7 @@ func (s *SchemaManager) Load(ctx context.Context, nodeID string) error {
 	return nil
 }
 
-func (s *SchemaManager) ReloadDBFromSchema() {
+func (s *SchemaManager) ReloadDBFromSchema(ctx context.Context) {
 	classes := s.schema.MetaClasses()
 
 	cs := make([]command.UpdateClassRequest, len(classes))
@@ -408,7 +434,7 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 	}
 	s.db.TriggerSchemaUpdateCallbacks()
 	s.log.Info("reload local db: update schema ...")
-	s.db.ReloadLocalDB(context.Background(), cs)
+	s.db.ReloadLocalDB(ctx, cs)
 
 	// ReloadLocalDB only opens classes the schema still names.
 	s.dropOrphanedClasses()
@@ -594,18 +620,6 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		// from an update that never applied. (Moving the purge below the
 		// assignments is no safer: the refusal above must not fire after the
 		// meta was already mutated.)
-		//
-		// ROLLING UPGRADE: the purge and the refusal below are new behavior in
-		// a deterministic apply, so a mixed-version cluster diverges on this
-		// very log entry — a node without this code neither purges nor refuses,
-		// and the two FSMs stay disagreeing after the upgrade completes. The
-		// AddTask apply has the same exposure (CheckConflict's claim re-check
-		// rejects on new binaries, accepts on old). An in-apply version check
-		// cannot fix it: reading node-local version state during apply is
-		// itself non-deterministic, so any fence has to sit proposal-side.
-		// Accepted while the endpoint is experimental
-		// (ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT); revisit
-		// before the feature is promoted to a supported release.
 		if introduced := introducedDroppedVectorConfigs(&meta.Class, u); len(introduced) > 0 {
 			if s.distributedTaskManager == nil {
 				// Mirrors cascadeDeleteDistributedTasks: a marker introduced
@@ -718,19 +732,9 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 		}
 	}
 
-	var hasFrozen bool
-	tenants, err := s.schema.getTenants(cmd.Class, nil)
-	if err != nil {
-		hasFrozen = false
-	}
-
-	for _, t := range tenants {
-		if t.ActivityStatus == models.TenantActivityStatusFROZEN ||
-			t.ActivityStatus == models.TenantActivityStatusFREEZING {
-			hasFrozen = true
-			break
-		}
-	}
+	// Sampled here, not inside updateStore: apply() runs updateSchema (which
+	// drops the class from the schema)
+	hasFrozen := s.HasFrozenTenants(cmd.Class)
 
 	return s.apply(
 		applyOp{

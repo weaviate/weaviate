@@ -56,6 +56,7 @@ func setupRecipe(t *testing.T) {
 	t.Run("schema setup", func(t *testing.T) {
 		createObjectClass(t, &models.Class{
 			Class:        "RecipeType",
+			Vectorizer:   "text2vec-model2vec",
 			ModuleConfig: vectorizeClassName(),
 			Properties: []*models.Property{
 				{
@@ -67,6 +68,7 @@ func setupRecipe(t *testing.T) {
 		})
 		createObjectClass(t, &models.Class{
 			Class:        "Recipe",
+			Vectorizer:   "text2vec-model2vec",
 			ModuleConfig: vectorizeClassName(),
 			Properties: []*models.Property{
 				{
@@ -196,6 +198,7 @@ func setupFoodTypes(t *testing.T) {
 	t.Run("schema setup", func(t *testing.T) {
 		createObjectClass(t, &models.Class{
 			Class:        "FoodType",
+			Vectorizer:   "text2vec-model2vec",
 			ModuleConfig: vectorizeClassName(),
 			Properties: []*models.Property{
 				{
@@ -207,6 +210,7 @@ func setupFoodTypes(t *testing.T) {
 		})
 		createObjectClass(t, &models.Class{
 			Class:        "Recipes",
+			Vectorizer:   "text2vec-model2vec",
 			ModuleConfig: vectorizeClassName(),
 			Properties: []*models.Property{
 				{

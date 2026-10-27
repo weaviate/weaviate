@@ -15,6 +15,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+
 	"github.com/pkg/errors"
 )
 
@@ -43,9 +45,12 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 		return nil
 	}
 
-	// perform a RNG selection to determine the postings where the vector should be
-	// reassigned to.
-	q, err := h.config.VectorForIDThunk(ctx, op.VectorID)
+	var q []float32
+	if h.muvera.Load() {
+		q, err = h.muveraEncoder.GetMuveraVectorForID(op.VectorID, helpers.MuveraBucketName(h.id))
+	} else {
+		q, err = h.config.VectorForIDThunk(ctx, op.VectorID)
+	}
 	if err != nil {
 		return errors.Wrap(err, "failed to get vector by index ID")
 	}

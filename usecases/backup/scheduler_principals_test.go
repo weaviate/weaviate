@@ -59,12 +59,16 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 	ctx := context.Background()
 	caller := &models.Principal{Username: "operator"}
 	call := func(resources ...string) mocks.AuthZReq {
-		return mocks.AuthZReq{Principal: caller, Verb: authorization.CREATE, Resources: resources}
+		return mocks.AuthZReq{Principal: caller, Verb: authorization.CREATE, Resources: resources, Method: mocks.MethodAuthorize}
 	}
 	// silent is the wildcard probe of authorizeWholeStore; a pass is followed
 	// by the audited call, a denial by nothing.
 	silent := func(resources ...string) mocks.AuthZReq {
-		return mocks.AuthZReq{Principal: caller, Verb: authorization.CREATE, Resources: resources, Silent: true}
+		return mocks.AuthZReq{Principal: caller, Verb: authorization.CREATE, Resources: resources, Method: mocks.MethodAuthorizeSilent}
+	}
+	// filtered is the per-ID narrowing of an omitted or pattern selector.
+	filtered := func(resources ...string) mocks.AuthZReq {
+		return mocks.AuthZReq{Principal: caller, Verb: authorization.CREATE, Resources: resources, Method: mocks.MethodFilterAuthorizedResources}
 	}
 
 	// setup wires a create that runs to completion and returns the request the
@@ -81,12 +85,12 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("dst/path")
 		fs.backend.On("Initialize", ctx, mock.Anything).Return(nil)
 		fs.backend.On("PutObject", mock.Anything, backupID, GlobalBackupFile, mock.Anything).Return(nil)
-		sReq := &StatusRequest{OpCreate, backupID, backendName, "", "", ""}
+		sReq := &StatusRequest{OpCreate, backupID, backendName, "", "", "", ""}
 		fs.client.On("CanCommit", mock.Anything, node, mock.Anything).
-			Return(&CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}, nil).
+			Return(&CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: maxBooking(false)}, nil).
 			Run(func(a mock.Arguments) { *nodeReq = *a.Get(2).(*Request) })
-		fs.client.On("Commit", mock.Anything, node, sReq).Return(nil)
-		fs.client.On("Status", mock.Anything, node, sReq).
+		fs.client.On("Commit", mock.Anything, node, matchStatusReq(sReq)).Return(nil)
+		fs.client.On("Status", mock.Anything, node, matchStatusReq(sReq)).
 			Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}, nil)
 		return nodeReq
 	}
@@ -108,13 +112,13 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 
 		require.NoError(t, run(t, fs, &BackupRequest{ID: backupID, Backend: backendName}))
 		assert.Equal(t, []mocks.AuthZReq{
-			call("backups/collections/Movies"),
+			filtered("backups/collections/Movies"),
 			silent("backups/users/*"),
 			call("backups/users/*"),
-			call("backups/users/alice", "backups/users/bob"),
+			filtered("backups/users/alice", "backups/users/bob"),
 			silent("backups/roles/*"),
 			call("backups/roles/*"),
-			call("backups/roles/editor", "backups/roles/writer"),
+			filtered("backups/roles/editor", "backups/roles/writer"),
 		}, fs.auth.(*mocks.FakeAuthorizer).Calls())
 		assert.False(t, nodeReq.SkipUsers)
 		assert.False(t, nodeReq.SkipRoles)
@@ -198,15 +202,15 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 		assert.Equal(t, explicitNode.SkipRoles, narrowedNode.SkipRoles)
 
 		assert.Equal(t, []mocks.AuthZReq{
-			call("backups/collections/Movies"),
+			filtered("backups/collections/Movies"),
 			silent("backups/users/*"),
-			call("backups/users/ns1:alice", "backups/users/ns1:bob", "backups/users/ns2:carol"),
+			filtered("backups/users/ns1:alice", "backups/users/ns1:bob", "backups/users/ns2:carol"),
 			silent("backups/roles/*"),
-			call("backups/roles/ns1:editor", "backups/roles/ns2:writer"),
+			filtered("backups/roles/ns1:editor", "backups/roles/ns2:writer"),
 		}, nfs.auth.(*mocks.FakeAuthorizer).Calls())
 		assert.Equal(t, []mocks.AuthZReq{
 			call("backups/users/ns1:alice", "backups/users/ns1:bob", "backups/roles/ns1:editor"),
-			call("backups/collections/Movies"),
+			filtered("backups/collections/Movies"),
 		}, efs.auth.(*mocks.FakeAuthorizer).Calls())
 	})
 
@@ -247,9 +251,9 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 					}))
 					want := []mocks.AuthZReq{call("backups/collections/Movies")}
 					if sel.wildcards {
-						want = append(want, silent("backups/users/*"), call(tt.users...), silent("backups/roles/*"), call(tt.roles...))
+						want = append(want, silent("backups/users/*"), filtered(tt.users...), silent("backups/roles/*"), filtered(tt.roles...))
 					} else {
-						want = append(want, call(tt.users...), call(tt.roles...))
+						want = append(want, filtered(tt.users...), filtered(tt.roles...))
 					}
 					assert.Equal(t, want, fs.auth.(*mocks.FakeAuthorizer).Calls())
 					assert.Equal(t, []string{"ns1:alice", "ns1:bob"}, nodeReq.Users, "the snapshot keeps the stored IDs")
@@ -335,9 +339,9 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 		assert.ErrorContains(t, err, "backup selects no collections, users, or roles")
 		assert.Equal(t, []mocks.AuthZReq{
 			silent("backups/users/*"),
-			call("backups/users/alice"),
+			filtered("backups/users/alice"),
 			silent("backups/roles/*"),
-			call("backups/roles/editor"),
+			filtered("backups/roles/editor"),
 		}, fs.auth.(*mocks.FakeAuthorizer).Calls())
 		fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, mock.Anything, mock.Anything)
 		fs.backend.AssertNotCalled(t, "Initialize", mock.Anything, mock.Anything)
@@ -355,12 +359,12 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("dst/path")
 		fs.backend.On("Initialize", ctx, mock.Anything).Return(nil)
 		fs.backend.On("PutObject", mock.Anything, backupID, GlobalBackupFile, mock.Anything).Return(nil)
-		sReq := &StatusRequest{OpCreate, backupID, backendName, "", "", ""}
+		sReq := &StatusRequest{OpCreate, backupID, backendName, "", "", "", ""}
 		fs.client.On("CanCommit", mock.Anything, node, mock.Anything).
-			Return(&CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}, nil).
+			Return(&CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: maxBooking(false)}, nil).
 			Run(func(a mock.Arguments) { *nodeReq = *a.Get(2).(*Request) })
-		fs.client.On("Commit", mock.Anything, node, sReq).Return(nil)
-		fs.client.On("Status", mock.Anything, node, sReq).
+		fs.client.On("Commit", mock.Anything, node, matchStatusReq(sReq)).Return(nil)
+		fs.client.On("Status", mock.Anything, node, matchStatusReq(sReq)).
 			Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}, nil)
 
 		require.NoError(t, run(t, fs, &BackupRequest{ID: backupID, Backend: backendName}))
@@ -465,10 +469,10 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 		}))
 		assert.Equal(t, []mocks.AuthZReq{
 			call("backups/collections/Movies", "backups/users/bob"),
-			call("backups/users/alice", "backups/users/anna", "backups/users/bob"),
+			filtered("backups/users/alice", "backups/users/anna", "backups/users/bob"),
 			silent("backups/roles/*"),
 			call("backups/roles/*"),
-			call("backups/roles/editor", "backups/roles/writer"),
+			filtered("backups/roles/editor", "backups/roles/writer"),
 		}, fs.auth.(*mocks.FakeAuthorizer).Calls())
 		assert.Equal(t, []string{"bob", "alice"}, nodeReq.Users)
 	})
@@ -555,8 +559,8 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 					require.ErrorAs(t, err, &authzerrors.Forbidden{})
 					assert.EqualError(t, err, authzerrors.NewForbidden(caller, authorization.CREATE, kind.wildcard).Error())
 					assert.Equal(t, []mocks.AuthZReq{
-						call("backups/collections/Movies"),
-						call(kind.listed...),
+						filtered("backups/collections/Movies"),
+						filtered(kind.listed...),
 						call(kind.wildcard),
 					}, fs.auth.(*mocks.FakeAuthorizer).Calls())
 					fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, mock.Anything, mock.Anything)
@@ -751,7 +755,7 @@ func runRestorePrincipals(t *testing.T, c restorePrincipalsCase) restorePrincipa
 	fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
 	fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.Anything).Return(nil)
 	fs.client.On("CanCommit", mock.Anything, node, mock.Anything).
-		Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}, nil)
+		Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: maxBooking(false)}, nil)
 	fs.client.On("Commit", mock.Anything, node, mock.Anything).Return(nil)
 	fs.client.On("Status", mock.Anything, node, mock.Anything).
 		Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil)
@@ -789,7 +793,7 @@ func runRestorePrincipals(t *testing.T, c restorePrincipalsCase) restorePrincipa
 func TestSchedulerRestorePrincipals(t *testing.T) {
 	t.Parallel()
 	caller := restoreCaller
-	collections := mocks.AuthZReq{Principal: caller, Verb: authorization.CREATE, Resources: []string{"backups/collections/Movies"}}
+	collections := mocks.AuthZReq{Principal: caller, Verb: authorization.CREATE, Resources: []string{"backups/collections/Movies"}, Method: mocks.MethodAuthorize}
 
 	// fullSnapshotRoles lists, sorted, the roles resources a full RBAC snapshot
 	// of roles names: those roles and the built-in roles whose rows it carries.
@@ -859,9 +863,9 @@ func TestSchedulerRestorePrincipals(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			out := runRestorePrincipals(t, tt.c)
 			require.NoError(t, out.err)
-			want := []mocks.AuthZReq{collections, {Principal: caller, Verb: authorization.CREATE, Resources: tt.want}}
+			want := []mocks.AuthZReq{collections, {Principal: caller, Verb: authorization.CREATE, Resources: tt.want, Method: mocks.MethodAuthorize}}
 			for _, ids := range tt.ids {
-				want = append(want, mocks.AuthZReq{Principal: caller, Verb: authorization.CREATE, Resources: ids})
+				want = append(want, mocks.AuthZReq{Principal: caller, Verb: authorization.CREATE, Resources: ids, Method: mocks.MethodFilterAuthorizedResources})
 			}
 			assert.Equal(t, want, out.calls)
 			require.Len(t, out.applied, 1)
@@ -937,7 +941,7 @@ func TestSchedulerRestorePrincipals(t *testing.T) {
 			for _, name := range tt.names {
 				assert.NotContains(t, out.err.Error(), name)
 			}
-			assert.Equal(t, []mocks.AuthZReq{collections, {Principal: caller, Verb: authorization.CREATE, Resources: wholeStores}}, out.calls)
+			assert.Equal(t, []mocks.AuthZReq{collections, {Principal: caller, Verb: authorization.CREATE, Resources: wholeStores, Method: mocks.MethodAuthorize}}, out.calls)
 			out.fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, mock.Anything, mock.Anything)
 		})
 	}
@@ -977,8 +981,8 @@ func TestSchedulerRestorePrincipals(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, s.CancelRestore(context.Background(), caller, "gcs", restoreMeta.ID, "", ""))
 		assert.Equal(t, []mocks.AuthZReq{
-			{Principal: caller, Verb: authorization.READ, Resources: []string{"backups/collections/Movies"}},
-			{Principal: caller, Verb: authorization.DELETE, Resources: []string{"backups/collections/Movies"}},
+			{Principal: caller, Verb: authorization.READ, Resources: []string{"backups/collections/Movies"}, Method: mocks.MethodAuthorize},
+			{Principal: caller, Verb: authorization.DELETE, Resources: []string{"backups/collections/Movies"}, Method: mocks.MethodAuthorize},
 		}, fs.auth.(*mocks.FakeAuthorizer).Calls())
 	})
 }
@@ -1053,9 +1057,9 @@ func TestSchedulerDescriptorPrincipals(t *testing.T) {
 			})
 
 			require.NoError(t, op.run(fs.scheduler()))
-			want := []mocks.AuthZReq{{Principal: caller, Verb: op.verb, Resources: []string{"backups/collections/Movies"}}}
+			want := []mocks.AuthZReq{{Principal: caller, Verb: op.verb, Resources: []string{"backups/collections/Movies"}, Method: mocks.MethodAuthorize}}
 			if d.want != nil {
-				want = append(want, mocks.AuthZReq{Principal: caller, Verb: op.verb, Resources: d.want})
+				want = append(want, mocks.AuthZReq{Principal: caller, Verb: op.verb, Resources: d.want, Method: mocks.MethodAuthorize})
 			}
 			assert.Equal(t, want, fs.auth.(*mocks.FakeAuthorizer).Calls())
 		})
@@ -1131,12 +1135,12 @@ func TestSchedulerDescriptorPrincipals(t *testing.T) {
 
 				err := fs.scheduler().CancelRestore(ctx, caller, "gcs", backupID, "", "")
 				want := []mocks.AuthZReq{
-					{Principal: caller, Verb: authorization.DELETE, Resources: []string{"backups/collections/Movies"}},
-					{Principal: caller, Verb: authorization.DELETE, Resources: wholeStores},
+					{Principal: caller, Verb: authorization.DELETE, Resources: []string{"backups/collections/Movies"}, Method: mocks.MethodAuthorize},
+					{Principal: caller, Verb: authorization.DELETE, Resources: wholeStores, Method: mocks.MethodAuthorize},
 				}
 				if len(tt.deny) > 0 {
 					// The silent users check picks the wildcard the denial names.
-					want = append(want, mocks.AuthZReq{Principal: caller, Verb: authorization.DELETE, Resources: wholeStores[:1], Silent: true})
+					want = append(want, mocks.AuthZReq{Principal: caller, Verb: authorization.DELETE, Resources: wholeStores[:1], Method: mocks.MethodAuthorizeSilent})
 				}
 				assert.Equal(t, want, fs.auth.(*mocks.FakeAuthorizer).Calls())
 				if len(tt.deny) > 0 {
@@ -1158,8 +1162,8 @@ func TestSchedulerDescriptorPrincipals(t *testing.T) {
 
 			require.ErrorIs(t, op.run(fs.scheduler()), ErrAny, op.name)
 			assert.Equal(t, []mocks.AuthZReq{
-				{Principal: caller, Verb: authorization.DELETE, Resources: []string{"backups/collections/*"}},
-				{Principal: caller, Verb: authorization.DELETE, Resources: wholeStores},
+				{Principal: caller, Verb: authorization.DELETE, Resources: []string{"backups/collections/*"}, Method: mocks.MethodAuthorize},
+				{Principal: caller, Verb: authorization.DELETE, Resources: wholeStores, Method: mocks.MethodAuthorize},
 			}, fs.auth.(*mocks.FakeAuthorizer).Calls(), op.name)
 		}
 	})
@@ -1223,11 +1227,11 @@ func TestSchedulerListPrincipals(t *testing.T) {
 			}
 			assert.Equal(t, tt.wantIDs, gotIDs)
 			assert.Equal(t, []mocks.AuthZReq{
-				{Principal: caller, Verb: authorization.READ, Resources: listWildcards, Silent: true},
+				{Principal: caller, Verb: authorization.READ, Resources: listWildcards, Method: mocks.MethodAuthorizeSilent},
 				{Principal: caller, Verb: authorization.READ, Resources: []string{
 					"backups/collections/Movies", "backups/roles/*", "backups/users/*",
 					"backups/users/ns1:alice", "backups/users/ns1:bob",
-				}},
+				}, Method: mocks.MethodFilterAuthorizedResources},
 			}, authorizer.Calls())
 		})
 	}

@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -151,6 +152,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 	var lazyLoadShardEnabled bool
 	idx, err = NewIndex(ctx, m.db,
 		IndexConfig{
+			NodeName:                       m.db.localNodeName,
 			ClassName:                      schema.ClassName(class.Class),
 			RootPath:                       m.db.config.RootPath,
 			ResourceUsage:                  m.db.config.ResourceUsage,
@@ -232,8 +234,9 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			QueryBatchedContainsEnabled:  m.db.config.QueryBatchedContainsEnabled,
 			LazyPropertyLengthsEnabled:   m.db.config.LazyPropertyLengthsEnabled,
 			MaintenanceModeEnabled:       m.db.config.MaintenanceModeEnabled,
-			HFreshEnabled:                m.db.config.HFreshEnabled,
 			AutoTenantActivation:         schema.AutoTenantActivationEnabled(class),
+			SelfRecoveryOrchestrator:     m.db.selfRecoveryOrchestrator,
+			ReplicationFSM:               m.db.replicationFSM,
 		},
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
@@ -241,7 +244,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		convertToVectorIndexConfig(class.VectorIndexConfig),
 		convertToVectorIndexConfigs(class.VectorConfig),
 		indexRouter, shardResolver, m.db.schemaGetter, m.db.schemaReader, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
-		m.db.replicaClient, &m.db.config.Replication, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler, m.db.indexCheckpoints,
+		m.db.replicaClient, &m.db.config.Replication, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler,
 		m.db.memMonitor, m.db.reindexer, m.db.bitmapBufPool, m.db.AsyncIndexingEnabled, m.db.tenantsManager)
 	if err != nil {
 		return errors.Wrap(err, "create index")
@@ -384,7 +387,7 @@ func (m *Migrator) ShutdownShard(ctx context.Context, class, shard string) error
 	if !ok {
 		return fmt.Errorf("could not find shard %s", shard)
 	}
-	if err := shutdownOrRestoreShard(ctx, idx, shard, shardLike); err != nil {
+	if _, err := shutdownOrRestoreShard(ctx, idx, shard, shardLike); err != nil {
 		if !errors.Is(err, errAlreadyShutdown) {
 			return errors.Wrapf(err, "shutdown shard %q", shard)
 		}
@@ -450,7 +453,7 @@ func (m *Migrator) updateIndexTenants(ctx context.Context, idx *Index,
 func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 	incomingSS *sharding.State,
 ) error {
-	nodeName := m.db.schemaGetter.NodeName()
+	nodeName := m.db.localNodeName
 
 	// one tenant's failure must not skip the rest: Physical iterates in map
 	// order, so which tenants were reconciled would otherwise vary per run
@@ -466,8 +469,8 @@ func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 				"add missing tenant shard %s during update index", shardName)
 		} else {
 			// Shutdown the tenant if activity status != HOT
-			ec.AddWrapf(idx.UnloadLocalShard(ctx, shardName),
-				"shutdown tenant shard %s during update index", shardName)
+			_, err := idx.UnloadLocalShard(ctx, shardName)
+			ec.AddWrapf(err, "shutdown tenant shard %s during update index", shardName)
 		}
 	}
 	return ec.ToErrorLimited(maxReportedErrors)
@@ -528,8 +531,8 @@ func (m *Migrator) updateIndexShards(ctx context.Context, idx *Index,
 	// Initialize missing shards and shutdown unneeded ones
 	for shardName := range existingShards {
 		if !slices.Contains(requestedShards, shardName) {
-			ec.AddWrapf(idx.UnloadLocalShard(ctx, shardName),
-				"shutdown shard %s during update index", shardName)
+			_, err := idx.UnloadLocalShard(ctx, shardName)
+			ec.AddWrapf(err, "shutdown shard %s during update index", shardName)
 		}
 	}
 
@@ -553,7 +556,7 @@ func (m *Migrator) updateIndexAddMissingProperties(ctx context.Context, idx *Ind
 		// don't need to continue iterating over all shards
 		errMissingProp := errors.New("missing prop")
 		// Ensure we iterate over loaded shard to avoid force loading a lazy loaded shard
-		err := idx.ForEachLoadedShard(func(name string, shard ShardLike) error {
+		err := idx.withEachLoadedShard(func(name string, shard ShardLike) error {
 			if !shardHasProperty(shard, prop) {
 				return errMissingProp
 			}
@@ -616,14 +619,14 @@ func (m *Migrator) GetShardsQueueSize(ctx context.Context, className, tenant str
 	return idx.getShardsQueueSize(ctx, tenant)
 }
 
-func (m *Migrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
+func (m *Migrator) GetShardsStorageStatus(ctx context.Context, className, tenant string) (map[string]map[string]string, map[string]string, error) {
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		// index not yet local (RAFT schema not applied on this node) or class does not exist
-		return nil, fmt.Errorf("cannot get shards status for a non-existing index for %s: %w", className, schemaUC.ErrNotFound)
+		return nil, nil, fmt.Errorf("cannot get shards status for a non-existing index for %s: %w", className, schemaUC.ErrNotFound)
 	}
 
-	return idx.getShardsStatus(ctx, tenant)
+	return idx.getShardsStorageStatus(ctx, tenant)
 }
 
 func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string, schemaVersion uint64) error {
@@ -763,7 +766,7 @@ func (m *Migrator) updateTenants(ctx context.Context, class *models.Class, updat
 
 				m.logger.WithField("shard", name).Debug("starting shutdown")
 
-				if err := shutdownOrRestoreShard(ctx, idx, name, shard); err != nil {
+				if _, err := shutdownOrRestoreShard(ctx, idx, name, shard); err != nil {
 					if errors.Is(err, errAlreadyShutdown) {
 						m.logger.WithField("shard", shard.Name()).Debug("already shut down or dropped")
 					} else {
@@ -910,9 +913,6 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(
 	case vectorindex.VectorIndexTypeDYNAMIC:
 		return dynamic.ValidateUserConfigUpdate(old, updated)
 	case vectorindex.VectorIndexTypeHFresh:
-		if !m.db.config.HFreshEnabled {
-			return errors.New("hfresh index is available only in experimental mode")
-		}
 		return hfresh.ValidateUserConfigUpdate(old, updated)
 	}
 	return fmt.Errorf("invalid index type: %s", old.IndexType())
@@ -929,6 +929,27 @@ func (m *Migrator) ValidateVectorIndexConfigsUpdate(old, updated map[string]sche
 		if err := m.ValidateVectorIndexConfigUpdate(old[vecName], updatedCfg); err != nil {
 			return fmt.Errorf("invalid update for vector %q: %w", vecName, err)
 		}
+	}
+
+	// A vector this update adds must not own a file an existing vector owns:
+	// file names derive from the name, so "compressed" next to the legacy
+	// vector shares its quantized bucket. Checked here, before the schema
+	// commits; the shard checks again against its own records.
+	owners := make(map[string]string, len(old))
+	for name, cfg := range old {
+		if vectorIndexHasStorage(cfg) {
+			owners[name] = vectorIndexID(name)
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(updated)) {
+		if _, existed := old[name]; existed || !vectorIndexHasStorage(updated[name]) {
+			continue
+		}
+		collisions := vectorIndexCollisionsWith(owners, name, vectorIndexID(name))
+		if len(collisions) > 0 {
+			return vectorIndexCollisionError(name, collisions)
+		}
+		owners[name] = vectorIndexID(name)
 	}
 	return nil
 }
@@ -995,11 +1016,7 @@ func (m *Migrator) ReportVectorDimensionsReindex(ctx context.Context) error {
 	}
 
 	notLoaded, inactive := 0, 0
-	var classes []*models.Class
-	if objects := m.db.schemaGetter.GetSchemaSkipAuth().Objects; objects != nil {
-		classes = objects.Classes
-	}
-	for _, class := range classes {
+	for _, class := range m.db.schemaGetter.ReadOnlySchema().Classes {
 		n, i, err := m.db.dimensionsNotReindexed(class.Class)
 		if err != nil {
 			return err
@@ -1211,7 +1228,7 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNamesWithArgs map[
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU)
 	for _, index := range m.db.indices {
-		index.ForEachShard(func(name string, shard ShardLike) error {
+		index.forEachShardSkipRecovering(func(name string, shard ShardLike) error {
 			eg.Go(func() error {
 				reindexer := NewShardInvertedReindexer(shard, m.logger)
 				for taskName, task := range tasks {
@@ -1266,7 +1283,7 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 
 		eg.Go(func() error {
 			errgrpShards := enterrors.NewErrorGroupWrapper(m.logger)
-			index.ForEachShard(func(_ string, shard ShardLike) error {
+			index.forEachShardSkipRecovering(func(_ string, shard ShardLike) error {
 				errgrpShards.Go(func() error {
 					m.logMissingFilterableShard(shard).
 						Info("starting filterable indexing on shard, this may take a while")

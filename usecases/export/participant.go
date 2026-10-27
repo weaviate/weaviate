@@ -27,6 +27,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/export"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
@@ -68,7 +69,7 @@ type Participant struct {
 
 	// Deps for best-effort sibling abort on failure.
 	client       ExportClient
-	nodeResolver NodeResolver
+	nodeResolver cluster.HostnameResolver
 	localNode    string
 	metrics      *ExportMetrics
 
@@ -101,7 +102,7 @@ func NewParticipant(
 	backends BackendProvider,
 	logger logrus.FieldLogger,
 	client ExportClient,
-	nodeResolver NodeResolver,
+	nodeResolver cluster.HostnameResolver,
 	localNode string,
 	metrics *ExportMetrics,
 	exportParallelism *configRuntime.DynamicValue[int],

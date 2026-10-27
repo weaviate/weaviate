@@ -75,7 +75,7 @@ func enterSemanticSwapWindow(t *testing.T, ctx context.Context, class *models.Cl
 	t.Helper()
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		true, false, false)
+		true, false)
 	shard := shd.(*Shard)
 	t.Cleanup(func() { shard.Shutdown(context.Background()) })
 
@@ -388,7 +388,7 @@ func (c *allocCheckerLosingTheFirstReservation) CheckMappingAndReserve(int64, in
 		return nil
 	}
 	c.missed = true
-	c.lazy.shard, c.lazy.loaded = c.shard, true
+	c.lazy.shard.Store(c.shard)
 	return errors.New("no mapping headroom")
 }
 
@@ -403,7 +403,7 @@ func TestSwapPhaseFailsWhenTheOverlayCannotBeWired(t *testing.T) {
 
 	class := newEnableFilterableTestClass(className, propName)
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		true, false, false)
+		true, false)
 	shard := shd.(*Shard)
 	t.Cleanup(func() { shard.Shutdown(context.Background()) })
 
@@ -462,7 +462,7 @@ func TestSwapPhaseRunsWhenThereIsNoOverlayToWire(t *testing.T) {
 
 	class := newTestClassWithProps(className, []string{propName})
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		true, false, false)
+		true, false)
 	shard := shd.(*Shard)
 	t.Cleanup(func() { shard.Shutdown(context.Background()) })
 

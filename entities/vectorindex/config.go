@@ -12,6 +12,7 @@
 package vectorindex
 
 import (
+	"encoding/json"
 	"fmt"
 
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -52,5 +53,27 @@ func ParseAndValidateConfig(input interface{}, vectorIndexType string, isMultiVe
 		return hfresh.ParseAndValidateConfig(input, isMultiVector)
 	default:
 		return nil, fmt.Errorf("invalid vector index %q. Supported types are hnsw and flat", vectorIndexType)
+	}
+}
+
+// UnmarshalConfig decodes a config that was written by marshalling the parsed
+// config of indexType, as a shard's vector index mapping stores it. It fills
+// in no defaults and validates nothing: what was recorded is what comes back.
+func UnmarshalConfig(indexType string, data []byte) (schemaConfig.VectorIndexConfig, error) {
+	switch indexType {
+	case VectorIndexTypeHNSW:
+		var cfg hnsw.UserConfig
+		return cfg, json.Unmarshal(data, &cfg)
+	case VectorIndexTypeFLAT:
+		var cfg flat.UserConfig
+		return cfg, json.Unmarshal(data, &cfg)
+	case VectorIndexTypeDYNAMIC:
+		var cfg dynamic.UserConfig
+		return cfg, json.Unmarshal(data, &cfg)
+	case VectorIndexTypeHFresh:
+		var cfg hfresh.UserConfig
+		return cfg, json.Unmarshal(data, &cfg)
+	default:
+		return nil, fmt.Errorf("unknown vector index type %q", indexType)
 	}
 }

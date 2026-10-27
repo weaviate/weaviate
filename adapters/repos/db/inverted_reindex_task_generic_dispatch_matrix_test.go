@@ -218,7 +218,7 @@ func dispatchMatrixSearchableSourceStrategy(t *testing.T, idx *Index, className,
 	ctx := testCtx()
 	class := newTestClassWithProps(className+"__probe", []string{propName})
 	shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 	return shard.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName)).Strategy()
@@ -276,7 +276,7 @@ func dispatchMatrixComputeBaseline(
 	class, propName := sc.buildClass(className)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 
@@ -349,7 +349,7 @@ func dispatchMatrixRunCell(
 	class, propName := sc.buildClass(className)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 

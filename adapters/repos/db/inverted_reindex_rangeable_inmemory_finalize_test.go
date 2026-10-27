@@ -65,15 +65,18 @@ func firstErrorEntry(hook *test.Hook) *logrus.Entry {
 }
 
 // newRangeableFinalizeTestShard keeps every rangeable property in memory.
-func newRangeableFinalizeTestShard(t *testing.T, classNamePrefix string) (context.Context, *Shard, *Index, string) {
+// indexOpts run on the index before the shard starts, which is where a test
+// installs a log hook: the shard's goroutines read index.logger, so a swap
+// afterwards is a data race.
+func newRangeableFinalizeTestShard(t *testing.T, classNamePrefix string, indexOpts ...func(*Index)) (context.Context, *Shard, *Index, string) {
 	t.Helper()
-	return newRangeableTestShard(t, classNamePrefix,
-		func(idx *Index) { idx.Config.IndexRangeableInMemory = true })
+	opts := append([]func(*Index){func(idx *Index) { idx.Config.IndexRangeableInMemory = true }}, indexOpts...)
+	return newRangeableTestShard(t, classNamePrefix, opts...)
 }
 
 // newRangeableTestShard builds a shard+index for the filterable-to-rangeable
-// class, configured by indexOpt.
-func newRangeableTestShard(t *testing.T, classNamePrefix string, indexOpt func(*Index),
+// class, configured by indexOpts.
+func newRangeableTestShard(t *testing.T, classNamePrefix string, indexOpts ...func(*Index),
 ) (context.Context, *Shard, *Index, string) {
 	t.Helper()
 	ctx := testCtx()
@@ -81,7 +84,7 @@ func newRangeableTestShard(t *testing.T, classNamePrefix string, indexOpt func(*
 	class := newFilterableToRangeableTestClass(className)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false, indexOpt)
+		false, false, indexOpts...)
 	shard := shd.(*Shard)
 	t.Cleanup(func() { shard.Shutdown(ctx) })
 	return ctx, shard, idx, className
@@ -114,12 +117,11 @@ func setupRangeableFinalizeDegradeFixture(t *testing.T, classNamePrefix string) 
 	const numObjects = 25
 	propName := filterableToRangeablePropName
 
-	ctx, shard, idx, className := newRangeableFinalizeTestShard(t, classNamePrefix)
-
-	// The task captures idx.logger by value at construction, so swap in a
-	// hook-capturing logger first to assert on the ERROR log this fixture drives.
+	// the task captures idx.logger at construction, so the hook logger has to
+	// be the index's from the start to see the ERROR log this fixture drives
 	hookLogger, hook := test.NewNullLogger()
-	idx.logger = hookLogger
+	ctx, shard, idx, className := newRangeableFinalizeTestShard(t, classNamePrefix,
+		func(idx *Index) { idx.logger = hookLogger })
 
 	putRangeableTestObjects(t, ctx, shard, className, numObjects)
 
@@ -332,10 +334,9 @@ func TestRebuildRangeableInMemoryReps_NilBucketRoutesContextCancellation(t *test
 // migration.
 func TestRebuildRangeableInMemoryReps_NilBucketDegradesWithoutCancellation(t *testing.T) {
 	propName := filterableToRangeablePropName
-	ctx, shard, idx, className := newRangeableFinalizeTestShard(t, "RangeableNilBucketDegrade_")
-
 	hookLogger, hook := test.NewNullLogger()
-	idx.logger = hookLogger
+	ctx, shard, idx, className := newRangeableFinalizeTestShard(t, "RangeableNilBucketDegrade_",
+		func(idx *Index) { idx.logger = hookLogger })
 
 	putRangeableTestObjects(t, ctx, shard, className, 5)
 

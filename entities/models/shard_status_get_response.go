@@ -31,10 +31,13 @@ type ShardStatusGetResponse struct {
 	// Name of the shard
 	Name string `json:"name,omitempty"`
 
-	// Status of the shard
+	// Status of the shard on each of its replicas
+	PerNodeStatus map[string]string `json:"per_node_status,omitempty"`
+
+	// Deprecated: value is not consistent in replicated clusters.
 	Status string `json:"status,omitempty"`
 
-	// Size of the vector queue of the shard
+	// Deprecated: value is not consistent in replicated clusters.
 	VectorQueueSize int64 `json:"vectorQueueSize"`
 }
 

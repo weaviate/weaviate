@@ -76,7 +76,7 @@ func decodeModel(body string) (*models.SearchNearTextRequest, *APIError) {
 // not-found sentinel the real classGetterWithAuthz produces.
 func fixtureGetClass(deps *testDeps) classGetterFunc {
 	return func(name string) (*models.Class, error) {
-		if c, ok := deps.schemaReader.classes[name]; ok {
+		if c, ok := deps.classes[name]; ok {
 			return c, nil
 		}
 		return nil, fmt.Errorf("%w %s in schema", errCollectionNotFound, name)
@@ -88,8 +88,7 @@ func fixtureGetClass(deps *testDeps) classGetterFunc {
 // the handler runs before buildNearTextParams.
 func buildParams(t *testing.T, class *models.Class, body string) (*fakeSearcher, *APIError) {
 	t.Helper()
-	deps := newTestHandler(t)
-	deps.schemaReader.classes[class.Class] = class
+	deps := newTestHandlerWithClass(t, class)
 
 	parsed, apiErr := decodeModel(body)
 	if apiErr != nil {
@@ -124,8 +123,7 @@ func decodeBm25Model(body string) (*models.SearchBm25Request, *APIError) {
 // runs before buildBm25Params.
 func buildBm25(t *testing.T, class *models.Class, body string) (*fakeSearcher, *APIError) {
 	t.Helper()
-	deps := newTestHandler(t)
-	deps.schemaReader.classes[class.Class] = class
+	deps := newTestHandlerWithClass(t, class)
 
 	parsed, apiErr := decodeBm25Model(body)
 	if apiErr != nil {
@@ -1091,8 +1089,7 @@ func decodeNearObjectModel(body string) (*models.SearchNearObjectRequest, *APIEr
 // the handler runs before buildNearObjectParams.
 func buildNearObject(t *testing.T, class *models.Class, body string) (*fakeSearcher, *APIError) {
 	t.Helper()
-	deps := newTestHandler(t)
-	deps.schemaReader.classes[class.Class] = class
+	deps := newTestHandlerWithClass(t, class)
 
 	parsed, apiErr := decodeNearObjectModel(body)
 	if apiErr != nil {
@@ -1279,8 +1276,7 @@ func decodeNearVectorModel(body string) (*models.SearchNearVectorRequest, *APIEr
 // handler runs before buildNearVectorParams.
 func buildNearVector(t *testing.T, class *models.Class, body string) (*fakeSearcher, *APIError) {
 	t.Helper()
-	deps := newTestHandler(t)
-	deps.schemaReader.classes[class.Class] = class
+	deps := newTestHandlerWithClass(t, class)
 
 	parsed, apiErr := decodeNearVectorModel(body)
 	if apiErr != nil {
@@ -1471,8 +1467,7 @@ func decodeHybridModel(body string) (*models.SearchHybridRequest, *APIError) {
 // runs before buildHybridParams.
 func buildHybrid(t *testing.T, class *models.Class, body string) (*fakeSearcher, *APIError) {
 	t.Helper()
-	deps := newTestHandler(t)
-	deps.schemaReader.classes[class.Class] = class
+	deps := newTestHandlerWithClass(t, class)
 
 	parsed, apiErr := decodeHybridModel(body)
 	if apiErr != nil {

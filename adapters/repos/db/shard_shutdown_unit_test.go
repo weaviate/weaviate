@@ -15,13 +15,16 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -53,10 +56,10 @@ func TestShardStillAlive(t *testing.T) {
 	require.False(t, shardStillAlive(&LazyLoadShard{}),
 		"an unloaded lazy shard holds nothing to orphan")
 
-	loaded := &LazyLoadShard{loaded: true, shard: live}
+	loaded := newLoadedLazyShard(live)
 	require.True(t, shardStillAlive(loaded))
 
-	loadedShut := &LazyLoadShard{loaded: true, shard: shut}
+	loadedShut := newLoadedLazyShard(shut)
 	require.False(t, shardStillAlive(loadedShut))
 }
 
@@ -174,7 +177,7 @@ func TestShardReleasesCounterAndVersionFiles(t *testing.T) {
 	versionPath := path.Join(shardPath, "version")
 	loadShard := func() (*Shard, error) {
 		return NewShard(ctx, nil, s.Name(), index, &models.Class{Class: className},
-			index.centralJobQueue, index.scheduler, index.indexCheckpoints,
+			index.centralJobQueue, index.scheduler,
 			index.shardReindexer, false, index.bitmapBufPool, monitoring.ShardRegistrationEager)
 	}
 
@@ -240,8 +243,8 @@ func TestShardKnownShut(t *testing.T) {
 	shut := &Shard{shutdownLock: new(sync.RWMutex)}
 	shut.shut.Store(true)
 	require.True(t, shardKnownShut(shut))
-	require.True(t, shardKnownShut(&LazyLoadShard{loaded: true, shard: shut}))
-	require.False(t, shardKnownShut(&LazyLoadShard{loaded: true, shard: &Shard{shutdownLock: new(sync.RWMutex)}}))
+	require.True(t, shardKnownShut(newLoadedLazyShard(shut)))
+	require.False(t, shardKnownShut(newLoadedLazyShard(&Shard{shutdownLock: new(sync.RWMutex)})))
 
 	// A deep-teardown failure (shut=true, sticky teardownErr) is NOT
 	// evictable: the map entry is the last reference to its possibly-leaked
@@ -260,6 +263,106 @@ func TestShardKnownShut(t *testing.T) {
 	require.True(t, restoreShardIfStillAlive(&m, "torn", torn),
 		"a torn shard is retained as the last reference to its leaked handles")
 	require.NotNil(t, m.Load("torn"))
+}
+
+// TestShutdownOrRestoreShardOutcome maps each Shutdown error to its outcome and
+// the level of the restore line.
+func TestShutdownOrRestoreShardOutcome(t *testing.T) {
+	tests := []struct {
+		name        string
+		shutdownErr error
+		want        ShardUnloadOutcome
+		wantLevels  []logrus.Level
+	}{
+		{
+			name: "a clean shutdown",
+			want: ShardUnloadOutcomeUnloaded,
+		},
+		{
+			name:        "a shard that was already shut",
+			shutdownErr: errAlreadyShutdown,
+			want:        ShardUnloadOutcomeUnloaded,
+		},
+		{
+			// performShutdown wraps errShardStillInUse, so this row does too.
+			name:        "a shard still serving requests",
+			shutdownErr: fmt.Errorf("shard %q: %w", "s1", errShardStillInUse),
+			want:        ShardUnloadOutcomeRefusedInUse,
+			wantLevels:  []logrus.Level{logrus.DebugLevel},
+		},
+		{
+			name:        "a backoff that ran out of time",
+			shutdownErr: context.DeadlineExceeded,
+			want:        ShardUnloadOutcomeRefusedInUse,
+			wantLevels:  []logrus.Level{logrus.DebugLevel},
+		},
+		{
+			name:        "a backoff ended by a close request",
+			shutdownErr: context.Canceled,
+			want:        ShardUnloadOutcomeRefusedInUse,
+			wantLevels:  []logrus.Level{logrus.DebugLevel},
+		},
+		{
+			// No other test in the package reaches failed.
+			name:        "a teardown that failed for its own reason",
+			shutdownErr: errors.New("bucket close failed"),
+			want:        ShardUnloadOutcomeFailed,
+			wantLevels:  []logrus.Level{logrus.ErrorLevel},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			shard := NewMockShardLike(t)
+			shard.On("Shutdown", mock.Anything).Return(tc.shutdownErr)
+			idx, hook := indexForShutdownOutcomeTest(t)
+
+			got, err := shutdownOrRestoreShard(context.Background(), idx, "s1", shard)
+
+			require.Equal(t, tc.want, got)
+			require.Equal(t, tc.wantLevels, logLevels(hook))
+			if tc.shutdownErr == nil {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, tc.shutdownErr)
+		})
+	}
+}
+
+// TestShutdownOrRestoreShardOutcomeTorn covers torn with a real *Shard.
+func TestShutdownOrRestoreShardOutcomeTorn(t *testing.T) {
+	torn := &Shard{shutdownLock: new(sync.RWMutex), teardownErr: errors.New("bucket close failed")}
+	torn.shut.Store(true)
+	idx, hook := indexForShutdownOutcomeTest(t)
+
+	got, err := shutdownOrRestoreShard(context.Background(), idx, "s1", torn)
+
+	require.Equal(t, ShardUnloadOutcomeTorn, got)
+	require.ErrorIs(t, err, errTeardownFailed)
+	require.NotNil(t, idx.shards.Load("s1"), "a torn shard is retained in the map")
+	require.Equal(t, []logrus.Level{logrus.ErrorLevel}, logLevels(hook))
+}
+
+// indexForShutdownOutcomeTest builds only what shutdownOrRestoreShard reads,
+// with a hook that records every line its logger writes.
+func indexForShutdownOutcomeTest(t *testing.T) (*Index, *test.Hook) {
+	t.Helper()
+
+	logger, hook := test.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+	metrics, err := NewMetrics(logger, nil, "Abc", "n/a")
+	require.NoError(t, err)
+
+	return &Index{logger: logger, metrics: metrics, shards: shardMap{}}, hook
+}
+
+func logLevels(hook *test.Hook) []logrus.Level {
+	var levels []logrus.Level
+	for _, entry := range hook.AllEntries() {
+		levels = append(levels, entry.Level)
+	}
+	return levels
 }
 
 // TestShardLoadDropsNodeIDBeyondDocIDCounter pins that the vector index and each
@@ -311,7 +414,7 @@ func TestShardLoadDropsNodeIDBeyondDocIDCounter(t *testing.T) {
 					{Name: "location", DataType: schema.DataTypeGeoCoordinates.PropString()},
 				},
 			}
-			shard, index := testShardWithSettings(t, ctx, class, tc.vectorIndexConfig, false, false, false)
+			shard, index := testShardWithSettings(t, ctx, class, tc.vectorIndexConfig, false, false)
 			s, ok := shard.(*Shard)
 			require.True(t, ok)
 
@@ -335,7 +438,7 @@ func TestShardLoadDropsNodeIDBeyondDocIDCounter(t *testing.T) {
 			}
 
 			s, err := NewShard(ctx, nil, s.Name(), index, class,
-				index.centralJobQueue, index.scheduler, index.indexCheckpoints,
+				index.centralJobQueue, index.scheduler,
 				index.shardReindexer, false, index.bitmapBufPool, monitoring.ShardRegistrationEager)
 			require.NoError(t, err)
 			defer s.Shutdown(ctx)

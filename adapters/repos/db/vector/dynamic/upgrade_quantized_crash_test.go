@@ -19,13 +19,15 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	bbolt "go.etcd.io/bbolt"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
@@ -64,7 +66,7 @@ func (i *interruptingIndex) AddBatch(ctx context.Context, ids []uint64, vectors 
 // https://github.com/weaviate/0-weaviate-issues/issues/451.
 //
 // The dynamic index's flat stage and the in-progress HNSW share ONE on-disk
-// compressed LSM bucket (both derive it from GetCompressedBucketName(targetVector)),
+// compressed LSM bucket (both derive it from CompressedBucketNameForID(id)),
 // keyed by docID. When the flat stage and the HNSW target use different-length
 // quantizers that both compress on insert, doUpgrade -> copyToVectorIndex ->
 // AddBatch overwrites the flat stage's codes with the HNSW's codes, batch by
@@ -168,11 +170,11 @@ func runInterruptedQuantizedUpgrade(t *testing.T, targetVector string, flatUC fl
 	dist := distancer.NewL2SquaredProvider()
 
 	dirName := t.TempDir()
-	indexID := "interrupted-quantized-upgrade"
+	indexID := helpers.VectorIndexIDForTarget(targetVector)
 	storeDir := filepath.Join(t.TempDir(), "store")
 	require.NoError(t, os.MkdirAll(storeDir, 0o777))
 
-	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	db, err := shardmeta.Open(t.TempDir(), time.Second)
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 
@@ -182,7 +184,6 @@ func runInterruptedQuantizedUpgrade(t *testing.T, targetVector string, flatUC fl
 		AllocChecker:          memwatch.NewDummyMonitor(),
 		RootPath:              dirName,
 		ID:                    indexID,
-		TargetVector:          targetVector,
 		Logger:                logger,
 		DistanceProvider:      dist,
 		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
@@ -196,7 +197,7 @@ func runInterruptedQuantizedUpgrade(t *testing.T, targetVector string, flatUC fl
 		GetViewThunk:                 GetViewThunk,
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		TombstoneCallbacks:           noopCallback,
-		SharedDB:                     db,
+		State:                        db.Namespace(StateNamespace),
 		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 		AsyncIndexingEnabled:         true,
 	}
@@ -259,7 +260,7 @@ func runInterruptedQuantizedUpgrade(t *testing.T, targetVector string, flatUC fl
 	present, err := idx.upgradingMarkerPresent()
 	require.NoError(t, err)
 	assert.True(t, present, "doUpgrade must persist the in-progress-upgrade marker before the copy")
-	assert.NotEqual(t, verdictUpgraded, readVerdict(t, db, targetVector),
+	assert.NotEqual(t, verdictUpgraded, readVerdict(t, db, indexID),
 		"the verdict itself must stay flat while an upgrade is in progress")
 
 	// Restart through a full store shutdown + reopen from the same directory, so
@@ -321,7 +322,6 @@ func TestUpgrade_InterruptedUpgradeRepairIsDurableAcrossCrash(t *testing.T) {
 	root := t.TempDir()
 	storeDir := filepath.Join(root, "store")
 	rootPath := filepath.Join(root, "index")
-	dbPath := filepath.Join(root, "index.db")
 	for _, d := range []string{storeDir, rootPath} {
 		require.NoError(t, os.MkdirAll(d, 0o777))
 	}
@@ -339,7 +339,7 @@ func TestUpgrade_InterruptedUpgradeRepairIsDurableAcrossCrash(t *testing.T) {
 
 	uc := ent.UserConfig{Threshold: uint64(vectorsSize), Distance: dist.Type(), HnswUC: hnswuc, FlatUC: fuc}
 
-	newConfig := func(db *bbolt.DB, rp string) Config {
+	newConfig := func(db *shardmeta.DB, rp string) Config {
 		return Config{
 			AllocChecker:          memwatch.NewDummyMonitor(),
 			RootPath:              rp,
@@ -353,7 +353,7 @@ func TestUpgrade_InterruptedUpgradeRepairIsDurableAcrossCrash(t *testing.T) {
 			GetViewThunk:                 GetViewThunk,
 			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 			TombstoneCallbacks:           cyclemanager.NewCallbackGroupNoop(),
-			SharedDB:                     db,
+			State:                        db.Namespace(StateNamespace),
 			MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 			AsyncIndexingEnabled:         true,
 		}
@@ -362,7 +362,7 @@ func TestUpgrade_InterruptedUpgradeRepairIsDurableAcrossCrash(t *testing.T) {
 	// Phase 1: build the flat RQ8 stage, then fabricate the on-disk residue an
 	// interrupted quantized upgrade leaves: one compressed entry overwritten with
 	// a shorter (BQ-length) code, and the UPGRADING marker set.
-	db, err := bbolt.Open(dbPath, 0o666, nil)
+	db, err := shardmeta.Open(root, time.Second)
 	require.NoError(t, err)
 	store := testinghelpers.NewDummyStoreFromFolder(storeDir, t)
 	idx, err := New(newConfig(db, rootPath), uc, store)
@@ -386,7 +386,7 @@ func TestUpgrade_InterruptedUpgradeRepairIsDurableAcrossCrash(t *testing.T) {
 	require.NoError(t, store.Bucket(idx.getCompressedBucketName()).Put(key, make([]byte, 8)))
 	// mark the upgrade as in progress, as doUpgrade's start marker would (the
 	// verdict itself stays flat/absent)
-	markUpgradingInDB(t, db, "")
+	markUpgradingInDB(t, db, indexID)
 	require.NoError(t, store.Shutdown(ctx))
 
 	// Phase 2: reopen and let recovery run against the on-disk residue.
@@ -413,7 +413,7 @@ func TestUpgrade_InterruptedUpgradeRepairIsDurableAcrossCrash(t *testing.T) {
 		db.Close()
 	})
 
-	snapDB, err := bbolt.Open(filepath.Join(snap, "index.db"), 0o666, nil)
+	snapDB, err := shardmeta.Open(snap, time.Second)
 	require.NoError(t, err)
 	t.Cleanup(func() { snapDB.Close() })
 	snapStore := testinghelpers.NewDummyStoreFromFolder(filepath.Join(snap, "store"), t)
@@ -437,45 +437,27 @@ func TestUpgrade_InterruptedUpgradeRepairIsDurableAcrossCrash(t *testing.T) {
 
 // readVerdict returns the recorded verdict byte, or verdictFlat when no verdict
 // key is stored (which is the state while an upgrade is only marked in progress).
-func readVerdict(t *testing.T, db *bbolt.DB, targetVector string) byte {
+func readVerdict(t *testing.T, db *shardmeta.DB, id string) byte {
 	t.Helper()
-	v := verdictFlat
-	require.NoError(t, db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(dynamicBucket)
-		if b == nil {
-			return nil
-		}
-		if raw := b.Get(dbKey(targetVector)); len(raw) > 0 {
-			v = raw[0]
-		}
-		return nil
-	}))
-	return v
+	raw, err := db.Namespace(StateNamespace).Get(dbKeyForID(id))
+	require.NoError(t, err)
+	if len(raw) > 0 {
+		return raw[0]
+	}
+	return verdictFlat
 }
 
 // markUpgradingInDB sets the in-progress-upgrade marker key directly, as
 // doUpgrade's start marker would.
-func markUpgradingInDB(t *testing.T, db *bbolt.DB, targetVector string) {
+func markUpgradingInDB(t *testing.T, db *shardmeta.DB, id string) {
 	t.Helper()
-	require.NoError(t, db.Update(func(tx *bbolt.Tx) error {
-		b, err := tx.CreateBucketIfNotExists(dynamicBucket)
-		if err != nil {
-			return err
-		}
-		return b.Put(upgradingKey(targetVector), []byte{1})
-	}))
+	require.NoError(t, db.Namespace(StateNamespace).Put(upgradingKeyForID(id), []byte{1}))
 }
 
-// writeVerdict sets a target vector's verdict byte directly.
-func writeVerdict(t *testing.T, db *bbolt.DB, targetVector string, verdict byte) {
+// writeVerdict sets a vector's verdict byte directly.
+func writeVerdict(t *testing.T, db *shardmeta.DB, id string, verdict byte) {
 	t.Helper()
-	require.NoError(t, db.Update(func(tx *bbolt.Tx) error {
-		b, err := tx.CreateBucketIfNotExists(dynamicBucket)
-		if err != nil {
-			return err
-		}
-		return b.Put(dbKey(targetVector), []byte{verdict})
-	}))
+	require.NoError(t, db.Namespace(StateNamespace).Put(dbKeyForID(id), []byte{verdict}))
 }
 
 // TestUpgrade_MarkerKeyDisjointFromVerdictKey pins that the in-progress marker
@@ -484,25 +466,25 @@ func writeVerdict(t *testing.T, db *bbolt.DB, targetVector string, verdict byte)
 // key of a target vector literally named "foo_upgrading", so upgrading "foo"
 // would read, write, and delete "foo_upgrading"'s verdict.
 func TestUpgrade_MarkerKeyDisjointFromVerdictKey(t *testing.T) {
-	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	db, err := shardmeta.Open(t.TempDir(), time.Second)
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 
 	// "foo_upgrading" is a committed (upgraded) vector.
-	writeVerdict(t, db, "foo_upgrading", verdictUpgraded)
+	writeVerdict(t, db, "vectors_foo_upgrading", verdictUpgraded)
 
 	// these three methods are all that markUpgrading/clear/present touch.
-	foo := &dynamic{db: db, targetVector: "foo"}
+	foo := &dynamic{state: db.Namespace(StateNamespace), id: "vectors_foo"}
 
 	require.NoError(t, foo.markUpgrading())
 	present, err := foo.upgradingMarkerPresent()
 	require.NoError(t, err)
 	assert.True(t, present, "foo's own marker must be set")
-	assert.Equal(t, verdictUpgraded, readVerdict(t, db, "foo_upgrading"),
+	assert.Equal(t, verdictUpgraded, readVerdict(t, db, "vectors_foo_upgrading"),
 		"marking foo upgrading must not touch foo_upgrading's verdict")
 
 	require.NoError(t, foo.clearUpgradingMarker())
-	assert.Equal(t, verdictUpgraded, readVerdict(t, db, "foo_upgrading"),
+	assert.Equal(t, verdictUpgraded, readVerdict(t, db, "vectors_foo_upgrading"),
 		"clearing foo's marker must not delete foo_upgrading's verdict")
 
 	present, err = foo.upgradingMarkerPresent()
@@ -528,7 +510,7 @@ func TestUpgrade_OrdinaryUpgradeFailureRecoversInline(t *testing.T) {
 	vectors, queries := testinghelpers.RandomVecs(vectorsSize, queriesSize, dimensions)
 	dist := distancer.NewL2SquaredProvider()
 
-	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	db, err := shardmeta.Open(t.TempDir(), time.Second)
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 
@@ -551,7 +533,7 @@ func TestUpgrade_OrdinaryUpgradeFailureRecoversInline(t *testing.T) {
 		GetViewThunk:                 GetViewThunk,
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		TombstoneCallbacks:           cyclemanager.NewCallbackGroupNoop(),
-		SharedDB:                     db,
+		State:                        db.Namespace(StateNamespace),
 		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 		AsyncIndexingEnabled:         true,
 	}
@@ -609,34 +591,32 @@ func TestUpgrade_OrdinaryUpgradeFailureRecoversInline(t *testing.T) {
 // dir-existence fallback would otherwise read as upgraded).
 func TestUpgradedOnDisk_InProgressMarkerReadsNotUpgraded(t *testing.T) {
 	rootPath := t.TempDir()
-	db, err := bbolt.Open(filepath.Join(rootPath, ent.StateDBFileName), 0o666, nil)
+	db, err := shardmeta.Open(rootPath, time.Second)
 	require.NoError(t, err)
 
-	const unnamedTV = "" // no dir fallback
-	const namedTV = "namedtarget"
+	const unnamedID = "main" // no dir fallback
 	const namedID = "vectors_namedtarget"
-	const committedTV = "committed"
 	const committedID = "vectors_committed"
 
-	markUpgradingInDB(t, db, unnamedTV)
-	markUpgradingInDB(t, db, namedTV)
+	markUpgradingInDB(t, db, unnamedID)
+	markUpgradingInDB(t, db, namedID)
 	// give the named vector an HNSW commit-log dir, the exact state that without
 	// the sibling-key override would be inferred as upgraded
 	require.NoError(t, os.MkdirAll(hnswCommitLogDirectory(rootPath, namedID), 0o777))
 	// a committed upgrade whose start marker was never cleared: both keys present.
-	writeVerdict(t, db, committedTV, verdictUpgraded)
-	markUpgradingInDB(t, db, committedTV)
+	writeVerdict(t, db, committedID, verdictUpgraded)
+	markUpgradingInDB(t, db, committedID)
 	require.NoError(t, db.Close()) // UpgradedOnDisk opens the file read-only itself
 
-	up, err := UpgradedOnDisk(rootPath, "main", unnamedTV)
+	up, err := UpgradedOnDisk(rootPath, unnamedID)
 	require.NoError(t, err)
 	assert.False(t, up, "unnamed vector with in-progress marker must read as not upgraded")
 
-	up, err = UpgradedOnDisk(rootPath, namedID, namedTV)
+	up, err = UpgradedOnDisk(rootPath, namedID)
 	require.NoError(t, err)
 	assert.False(t, up, "named vector with in-progress marker must read as not upgraded despite the HNSW dir")
 
-	up, err = UpgradedOnDisk(rootPath, committedID, committedTV)
+	up, err = UpgradedOnDisk(rootPath, committedID)
 	require.NoError(t, err)
 	assert.True(t, up, "committed verdict must win over a stale in-progress marker, matching init()")
 }
@@ -653,7 +633,7 @@ func TestUpgrade_FailedRebuildKeepsMarker(t *testing.T) {
 	vectors, _ := testinghelpers.RandomVecs(8, 0, dimensions)
 	dist := distancer.NewL2SquaredProvider()
 
-	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	db, err := shardmeta.Open(t.TempDir(), time.Second)
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 
@@ -676,7 +656,7 @@ func TestUpgrade_FailedRebuildKeepsMarker(t *testing.T) {
 		GetViewThunk:                 GetViewThunk,
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		TombstoneCallbacks:           cyclemanager.NewCallbackGroupNoop(),
-		SharedDB:                     db,
+		State:                        db.Namespace(StateNamespace),
 		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 		AsyncIndexingEnabled:         true,
 	}
@@ -723,7 +703,7 @@ func TestUpgrade_OrphanedCompressedCodeReconciledOnRecovery(t *testing.T) {
 	vectors, queries := testinghelpers.RandomVecs(vectorsSize, queriesSize, dimensions)
 	dist := distancer.NewL2SquaredProvider()
 
-	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	db, err := shardmeta.Open(t.TempDir(), time.Second)
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 
@@ -746,7 +726,7 @@ func TestUpgrade_OrphanedCompressedCodeReconciledOnRecovery(t *testing.T) {
 		GetViewThunk:                 GetViewThunk,
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		TombstoneCallbacks:           cyclemanager.NewCallbackGroupNoop(),
-		SharedDB:                     db,
+		State:                        db.Namespace(StateNamespace),
 		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 		AsyncIndexingEnabled:         true,
 	}

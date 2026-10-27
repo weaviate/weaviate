@@ -31,7 +31,6 @@ var schemaTests = []struct {
 }{
 	{name: "AddObjectClass", fn: testAddObjectClass},
 	{name: "AddObjectClassWithExplicitVectorizer", fn: testAddObjectClassExplicitVectorizer},
-	{name: "AddObjectClassWithImplicitVectorizer", fn: testAddObjectClassImplicitVectorizer},
 	{name: "AddObjectClassWithWrongVectorizer", fn: testAddObjectClassWrongVectorizer},
 	{name: "AddObjectClassWithWrongIndexType", fn: testAddObjectClassWrongIndexType},
 	{name: "RemoveObjectClass", fn: testRemoveObjectClass},
@@ -78,24 +77,6 @@ func testAddObjectClassExplicitVectorizer(t *testing.T, handler *Handler, fakeSc
 		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-	_, _, err := handler.AddClass(context.Background(), nil, class)
-	assert.Nil(t, err)
-}
-
-func testAddObjectClassImplicitVectorizer(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
-	t.Parallel()
-	handler.config.DefaultVectorizerModule = config.VectorizerModuleText2VecContextionary
-	class := &models.Class{
-		Class: "Car",
-		Properties: []*models.Property{{
-			DataType:     schema.DataTypeText.PropString(),
-			Tokenization: models.PropertyTokenizationWhitespace,
-			Name:         "dummy",
-		}},
-		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
-	}
-
-	fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
 }
@@ -460,6 +441,8 @@ func TestShardsStatus(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			handler, fakeSchemaManager := newTestHandlerWithNamespaces(t, tc.namespacesEnabled)
+			db := &fakeDB{}
+			handler.indexer = db
 			handler.schemaReader = &fakeSchemaManagerWithAlias{
 				fakeSchemaManager: fakeSchemaManager,
 				aliasMap:          tc.aliasMap,
@@ -469,12 +452,13 @@ func TestShardsStatus(t *testing.T) {
 				require.ErrorIs(t, err, tc.wantErr)
 				return
 			}
-			fakeSchemaManager.On("GetShardsStatus", tc.resolvedClass, shardName).Return(expectedStatus, nil)
+			db.On("GetShardsStorageStatus", mock.Anything, tc.resolvedClass, shardName).Return(expectedStatus, nil)
 
 			status, err := handler.ShardsStatus(ctx, tc.principal, tc.inputClass, shardName)
 			require.NoError(t, err)
 			assert.Equal(t, expectedStatus, status)
 			fakeSchemaManager.AssertExpectations(t)
+			db.AssertExpectations(t)
 		})
 	}
 }
@@ -529,7 +513,7 @@ func TestGetAliases_WithNonExistentClass(t *testing.T) {
 		handler.schemaReader = fakeSchemaManagerWithReader
 
 		// Mock GetAliases to return aliases
-		fakeSchemaManager.On("GetAliases", ctx, "", expectedClass).Return(expectedAliases, nil)
+		fakeSchemaManager.On("AliasesFromLeader", ctx, "", expectedClass).Return(expectedAliases, nil)
 
 		// Call GetAliases with a class filter that exists
 		aliases, err := handler.GetAliases(ctx, nil, "", "ExistingClass")

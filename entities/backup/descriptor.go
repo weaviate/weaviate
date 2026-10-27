@@ -57,6 +57,17 @@ type DistributedBackupDescriptor struct {
 	BaseBackupID            string                     `json:"baseBackupId"`
 	Users                   []string                   `json:"users,omitempty"`
 	Roles                   []string                   `json:"roles,omitempty"`
+	// DedupeReplicas marks a replica-deduped artifact (Version 3.x): restore must fan shards out to all replicas.
+	DedupeReplicas bool `json:"dedupeReplicas,omitempty"`
+	// DedupeDesignatedShards/DedupeFallbackShards record the dedupe planning outcome; both zero on legacy artifacts.
+	DedupeDesignatedShards int `json:"dedupeDesignatedShards,omitempty"`
+	DedupeFallbackShards   int `json:"dedupeFallbackShards,omitempty"`
+	// DedupeCutoffsMs: per-class checkpoint cutoff (epoch ms) for deduped classes; the artifact provably contains every write acked at or before it.
+	DedupeCutoffsMs map[string]int64 `json:"dedupeCutoffsMs,omitempty"`
+	// DedupeDesignations (class→shard→archiving node) lets a later incremental keep the designee — the only replica whose node-local diff can skip.
+	DedupeDesignations map[string]map[string]string `json:"dedupeDesignations,omitempty"`
+	// DedupeSkippedBytes: bytes attributed to skipping replicas; real archived ≈ PreCompressionSizeBytes − DedupeSkippedBytes.
+	DedupeSkippedBytes int64 `json:"dedupeSkippedBytes,omitempty"`
 	// SkipUsers/SkipRoles leave that subsystem out. Backup sets them when the
 	// subsystem is disabled, its include list matches nothing, or the caller lacks
 	// its wildcard. Restore discards any such blob and keeps BuiltInRoleAssignments.
@@ -272,6 +283,10 @@ func (d *DistributedBackupDescriptor) GetServerVersion() string {
 }
 
 func (d *DistributedBackupDescriptor) GetCompressionType() CompressionType {
+	// pre-zstd global descriptors lack the field and default to gzip
+	if d.CompressionType == "" {
+		return CompressionGZIP
+	}
 	return d.CompressionType
 }
 
@@ -286,6 +301,8 @@ type ShardDescriptor struct {
 	Files                 []string               `json:"files,omitempty"`
 	BigFilesChunk         map[string]BigFileInfo `json:"bigFilesChunk,omitempty"`
 	IncrementalBackupInfo IncrementalBackupInfos `json:"incrementalBackupInfo"`
+	// PreCompressionSizeBytes: archived bytes before compression, incl. incremental-skipped bytes.
+	PreCompressionSizeBytes int64 `json:"preCompressionSizeBytes,omitempty"`
 
 	DocIDCounterPath      string `json:"docIdCounterPath,omitempty"`
 	DocIDCounter          []byte `json:"docIdCounter,omitempty"`
@@ -501,6 +518,15 @@ type ClassDescriptor struct {
 	PreCompressionSizeBytes int64              `json:"preCompressionSizeBytes"` // Size of this class's backup in bytes before compression
 }
 
+func (c *ClassDescriptor) GetShardDescriptor(shardName string) *ShardDescriptor {
+	for _, shard := range c.Shards {
+		if shard.Name == shardName {
+			return shard
+		}
+	}
+	return nil
+}
+
 type CompressionType string
 
 const (
@@ -524,6 +550,8 @@ type BackupDescriptor struct {
 	PreCompressionSizeBytes int64             `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
 	CompressionType         *CompressionType  `json:"compressionType,omitempty"`
 	BaseBackupID            string            `json:"baseBackupId,omitempty"`
+	// DedupeReplicas mirrors the global descriptor's flag into each node's meta.
+	DedupeReplicas bool `json:"dedupeReplicas,omitempty"`
 }
 
 func (d *BackupDescriptor) GetCompressionType() CompressionType {
@@ -629,6 +657,15 @@ func (d *BackupDescriptor) Filter(pred func(s string) bool) {
 		}
 	}
 	d.Classes = cs
+}
+
+func (d *BackupDescriptor) GetClassDescriptor(className string) *ClassDescriptor {
+	for i := range d.Classes {
+		if d.Classes[i].Name == className {
+			return &d.Classes[i]
+		}
+	}
+	return nil
 }
 
 func (d *BackupDescriptor) Validate() error {

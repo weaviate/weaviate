@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.39.12"
+    "version": "1.41.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -2633,7 +2633,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or a record sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3073,7 +3073,7 @@ func init() {
     },
     "/namespaces": {
       "get": {
-        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list (never 403).",
+        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list rather than 403.",
         "tags": [
           "namespaces"
         ],
@@ -3088,6 +3088,12 @@ func init() {
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden: no well-formed Weaviate license key is configured on this node",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Not Found - The namespaces feature is not enabled on this cluster.",
@@ -3138,7 +3144,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3199,7 +3205,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3259,7 +3265,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3314,7 +3320,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3365,7 +3371,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3428,7 +3434,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7745,6 +7751,12 @@ func init() {
                   "type": "string",
                   "format": "date-time"
                 },
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format at which the user's API key stops authenticating, stored in UTC with millisecond precision. It must be in the future. Setting it needs a Weaviate license key on the node, else the request answers 403. On a node with a license key, a request that also sets ` + "`" + `import` + "`" + ` to true answers 422. Absent means the key never expires.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
                 "import": {
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "type": "boolean",
@@ -7771,7 +7783,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or the body sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7992,6 +8004,85 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.users.db.deactivateUser"
+        ]
+      }
+    },
+    "/users/db/{user_id}/expiration": {
+      "put": {
+        "description": "Set or clear the time at which a database user's (` + "`" + `db` + "`" + ` user type) API key stops authenticating. The body sets exactly one of ` + "`" + `expiresAt` + "`" + `, which must be in the future, and ` + "`" + `neverExpires` + "`" + `, which must be true and clears the expiry. Any other body answers 422, and so do the caller's own user, root users and static users. A node without a Weaviate license key answers 403, so an expired user can then only be deleted and re-created.",
+        "tags": [
+          "users"
+        ],
+        "summary": "Set a user's expiration",
+        "operationId": "setUserExpiration",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the user.",
+            "name": "user_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "Set exactly one of ` + "`" + `expiresAt` + "`" + ` and ` + "`" + `neverExpires` + "`" + `.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format, stored in UTC with millisecond precision, at which the user's API key stops authenticating. It must be in the future.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
+                "neverExpires": {
+                  "description": "True clears the user's expiry, so the API key never expires. False answers 422.",
+                  "type": "boolean",
+                  "x-nullable": true
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User expiration successfully set."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden, because the caller lacks the permission or the node has no Weaviate license key.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "User not found."
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.db.setUserExpiration"
         ]
       }
     },
@@ -8317,6 +8408,20 @@ func init() {
         "Path": {
           "description": "Path or key within the bucket.",
           "type": "string"
+        },
+        "dedupeConvergenceTimeoutSeconds": {
+          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
+          "type": "integer",
+          "default": 60,
+          "maximum": 600,
+          "minimum": 1,
+          "x-nullable": false
+        },
+        "dedupeReplicas": {
+          "description": "If true, shards of replicated collections proven in sync by async-replication checkpoints are archived by one replica instead of all, and restore copies them back to every replica; other shards are archived by every replica. Requires async replication, BACKUP_DEDUPE_ENABLED=true (else 422) and a Weaviate license key (else 403) on every node. Such backups restore only on versions that support this option; restoring needs no license.",
+          "type": "boolean",
+          "default": false,
+          "x-nullable": false
         }
       }
     },
@@ -8896,7 +9001,7 @@ func init() {
           "type": "string"
         },
         "vectorizer": {
-          "description": "Specify how the vectors for this collection should be determined. The options are either ` + "`" + `none` + "`" + ` - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as ` + "`" + `text2vec-weaviate` + "`" + `. If left empty, it will use the globally configured default ([` + "`" + `DEFAULT_VECTORIZER_MODULE` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars)) which can itself either be ` + "`" + `none` + "`" + ` or a specific module.",
+          "description": "Specify how the vectors for this collection should be determined. The options are either ` + "`" + `none` + "`" + ` - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as ` + "`" + `text2vec-weaviate` + "`" + `. If left empty, it defaults to ` + "`" + `none` + "`" + `.",
           "type": "string"
         }
       }
@@ -9057,6 +9162,12 @@ func init() {
           "type": "string",
           "format": "date-time"
         },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent or null means the key never expires, except that import never changes an existing user's expiry, so a record without one keeps the stored value. A new user takes the record's value, even one that has passed. A differing future value for an existing user gives that record an error result naming ` + "`" + `PUT /v1/users/db/{user_id}/expiration` + "`" + `. A differing past value gives ` + "`" + `skipped_exists` + "`" + ` for a deactivated user. For an active one it gives an error result advising to deactivate the user, or delete it and re-import, because that PUT refuses a past time. A node without a Weaviate license key refuses the whole import with 403 when any record sets a non-null ` + "`" + `expiresAt` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "namespace": {
           "description": "The namespace the user was bound to on the source. Informational on export; import binds the user to the request's target namespace.",
           "type": "string"
@@ -9123,6 +9234,12 @@ func init() {
             "db_user",
             "db_env_user"
           ]
+        },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent means the key never expires. Expiry does not change ` + "`" + `active` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
         },
         "lastUsedAt": {
           "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
@@ -10529,6 +10646,10 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "isDynamicDbUser": {
+          "description": "This is true when the API key resolved to a DB user record, which covers a dynamic DB user's own key and an imported static key. A login through the static API key list leaves it false, even when a DB user shares its name, though both carry userType db.",
+          "type": "boolean"
         },
         "isGlobalOperator": {
           "description": "True for principals that operate across all namespaces (e.g. static API keys). Authoritative marker for operator-level principals; do not infer from an empty namespace.",
@@ -11937,12 +12058,19 @@ func init() {
           "description": "Name of the shard",
           "type": "string"
         },
+        "per_node_status": {
+          "description": "Status of the shard on each of its replicas",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
         "status": {
-          "description": "Status of the shard",
+          "description": "Deprecated: value is not consistent in replicated clusters.",
           "type": "string"
         },
         "vectorQueueSize": {
-          "description": "Size of the vector queue of the shard",
+          "description": "Deprecated: value is not consistent in replicated clusters.",
           "type": "integer",
           "x-omitempty": false
         }
@@ -12339,6 +12467,12 @@ func init() {
         "username"
       ],
       "properties": {
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the caller's API key stops authenticating. Absent means the key never expires, the caller is not a DB user, or DB user management is disabled.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "groups": {
           "description": "The groups associated with the user.",
           "type": "array",
@@ -12701,7 +12835,7 @@ func init() {
       "name": "meta"
     },
     {
-      "description": "Operations related to managing collections. In Weaviate, 'collections' (formerly called 'classes') store your data objects. Each collection has a definition that specifies its data structure (properties and their data types), vectorizer settings (how vectors are generated or managed), and indexing configuration (how data is indexed for efficient search). These endpoints allow you to create, retrieve, update, and delete collection definitions. For detailed usage and code examples on interacting with collections, see the documentation: [https://weaviate.io/developers/weaviate/manage-data/collections](https://weaviate.io/developers/weaviate/manage-data/collections).",
+      "description": "Operations related to managing collections. In Weaviate, 'collections' (formerly called 'classes') store your data objects. Each collection has a definition that specifies its data structure (properties and their data types), vectorizer settings (how vectors are generated or managed), and indexing configuration (how data is indexed for efficient search). These endpoints allow you to create, retrieve, update, and delete collection definitions. For detailed usage and code examples on interacting with collections, see the documentation: [https://docs.weaviate.io/weaviate/manage-collections](https://docs.weaviate.io/weaviate/manage-collections).",
       "name": "schema"
     },
     {
@@ -12729,7 +12863,7 @@ func init() {
       "name": "mcp"
     },
     {
-      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action.",
+      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action and, on namespace-enabled clusters, a well-formed Weaviate license key on the serving node.",
       "name": "namespaces"
     }
   ],
@@ -12757,7 +12891,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.39.12"
+    "version": "1.41.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -15330,7 +15464,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or a record sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15770,7 +15904,7 @@ func init() {
     },
     "/namespaces": {
       "get": {
-        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list (never 403).",
+        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list rather than 403.",
         "tags": [
           "namespaces"
         ],
@@ -15785,6 +15919,12 @@ func init() {
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden: no well-formed Weaviate license key is configured on this node",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Not Found - The namespaces feature is not enabled on this cluster.",
@@ -15835,7 +15975,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15896,7 +16036,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15956,7 +16096,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -16011,7 +16151,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -16062,7 +16202,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -16125,7 +16265,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20552,6 +20692,12 @@ func init() {
                   "type": "string",
                   "format": "date-time"
                 },
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format at which the user's API key stops authenticating, stored in UTC with millisecond precision. It must be in the future. Setting it needs a Weaviate license key on the node, else the request answers 403. On a node with a license key, a request that also sets ` + "`" + `import` + "`" + ` to true answers 422. Absent means the key never expires.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
                 "import": {
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "type": "boolean",
@@ -20578,7 +20724,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden, or the body sets ` + "`" + `expiresAt` + "`" + ` and the node holds no Weaviate license key.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20799,6 +20945,85 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.users.db.deactivateUser"
+        ]
+      }
+    },
+    "/users/db/{user_id}/expiration": {
+      "put": {
+        "description": "Set or clear the time at which a database user's (` + "`" + `db` + "`" + ` user type) API key stops authenticating. The body sets exactly one of ` + "`" + `expiresAt` + "`" + `, which must be in the future, and ` + "`" + `neverExpires` + "`" + `, which must be true and clears the expiry. Any other body answers 422, and so do the caller's own user, root users and static users. A node without a Weaviate license key answers 403, so an expired user can then only be deleted and re-created.",
+        "tags": [
+          "users"
+        ],
+        "summary": "Set a user's expiration",
+        "operationId": "setUserExpiration",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the user.",
+            "name": "user_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "Set exactly one of ` + "`" + `expiresAt` + "`" + ` and ` + "`" + `neverExpires` + "`" + `.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "expiresAt": {
+                  "description": "Date and time in ISO 8601 format, stored in UTC with millisecond precision, at which the user's API key stops authenticating. It must be in the future.",
+                  "type": "string",
+                  "format": "date-time",
+                  "x-nullable": true
+                },
+                "neverExpires": {
+                  "description": "True clears the user's expiry, so the API key never expires. False answers 422.",
+                  "type": "boolean",
+                  "x-nullable": true
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User expiration successfully set."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden, because the caller lacks the permission or the node has no Weaviate license key.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "User not found."
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.users.db.setUserExpiration"
         ]
       }
     },
@@ -21124,6 +21349,20 @@ func init() {
         "Path": {
           "description": "Path or key within the bucket.",
           "type": "string"
+        },
+        "dedupeConvergenceTimeoutSeconds": {
+          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
+          "type": "integer",
+          "default": 60,
+          "maximum": 600,
+          "minimum": 1,
+          "x-nullable": false
+        },
+        "dedupeReplicas": {
+          "description": "If true, shards of replicated collections proven in sync by async-replication checkpoints are archived by one replica instead of all, and restore copies them back to every replica; other shards are archived by every replica. Requires async replication, BACKUP_DEDUPE_ENABLED=true (else 422) and a Weaviate license key (else 403) on every node. Such backups restore only on versions that support this option; restoring needs no license.",
+          "type": "boolean",
+          "default": false,
+          "x-nullable": false
         }
       }
     },
@@ -21794,7 +22033,7 @@ func init() {
           "type": "string"
         },
         "vectorizer": {
-          "description": "Specify how the vectors for this collection should be determined. The options are either ` + "`" + `none` + "`" + ` - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as ` + "`" + `text2vec-weaviate` + "`" + `. If left empty, it will use the globally configured default ([` + "`" + `DEFAULT_VECTORIZER_MODULE` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars)) which can itself either be ` + "`" + `none` + "`" + ` or a specific module.",
+          "description": "Specify how the vectors for this collection should be determined. The options are either ` + "`" + `none` + "`" + ` - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as ` + "`" + `text2vec-weaviate` + "`" + `. If left empty, it defaults to ` + "`" + `none` + "`" + `.",
           "type": "string"
         }
       }
@@ -21975,6 +22214,12 @@ func init() {
           "type": "string",
           "format": "date-time"
         },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent or null means the key never expires, except that import never changes an existing user's expiry, so a record without one keeps the stored value. A new user takes the record's value, even one that has passed. A differing future value for an existing user gives that record an error result naming ` + "`" + `PUT /v1/users/db/{user_id}/expiration` + "`" + `. A differing past value gives ` + "`" + `skipped_exists` + "`" + ` for a deactivated user. For an active one it gives an error result advising to deactivate the user, or delete it and re-import, because that PUT refuses a past time. A node without a Weaviate license key refuses the whole import with 403 when any record sets a non-null ` + "`" + `expiresAt` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "namespace": {
           "description": "The namespace the user was bound to on the source. Informational on export; import binds the user to the request's target namespace.",
           "type": "string"
@@ -22041,6 +22286,12 @@ func init() {
             "db_user",
             "db_env_user"
           ]
+        },
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the user's API key stops authenticating. Absent means the key never expires. Expiry does not change ` + "`" + `active` + "`" + `.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
         },
         "lastUsedAt": {
           "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
@@ -23679,6 +23930,10 @@ func init() {
             "type": "string"
           }
         },
+        "isDynamicDbUser": {
+          "description": "This is true when the API key resolved to a DB user record, which covers a dynamic DB user's own key and an imported static key. A login through the static API key list leaves it false, even when a DB user shares its name, though both carry userType db.",
+          "type": "boolean"
+        },
         "isGlobalOperator": {
           "description": "True for principals that operate across all namespaces (e.g. static API keys). Authoritative marker for operator-level principals; do not infer from an empty namespace.",
           "type": "boolean"
@@ -25092,12 +25347,19 @@ func init() {
           "description": "Name of the shard",
           "type": "string"
         },
+        "per_node_status": {
+          "description": "Status of the shard on each of its replicas",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
         "status": {
-          "description": "Status of the shard",
+          "description": "Deprecated: value is not consistent in replicated clusters.",
           "type": "string"
         },
         "vectorQueueSize": {
-          "description": "Size of the vector queue of the shard",
+          "description": "Deprecated: value is not consistent in replicated clusters.",
           "type": "integer",
           "x-omitempty": false
         }
@@ -25497,6 +25759,12 @@ func init() {
         "username"
       ],
       "properties": {
+        "expiresAt": {
+          "description": "Date and time in ISO 8601 format, in UTC, at which the caller's API key stops authenticating. Absent means the key never expires, the caller is not a DB user, or DB user management is disabled.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
         "groups": {
           "description": "The groups associated with the user.",
           "type": "array",
@@ -25868,7 +26136,7 @@ func init() {
       "name": "meta"
     },
     {
-      "description": "Operations related to managing collections. In Weaviate, 'collections' (formerly called 'classes') store your data objects. Each collection has a definition that specifies its data structure (properties and their data types), vectorizer settings (how vectors are generated or managed), and indexing configuration (how data is indexed for efficient search). These endpoints allow you to create, retrieve, update, and delete collection definitions. For detailed usage and code examples on interacting with collections, see the documentation: [https://weaviate.io/developers/weaviate/manage-data/collections](https://weaviate.io/developers/weaviate/manage-data/collections).",
+      "description": "Operations related to managing collections. In Weaviate, 'collections' (formerly called 'classes') store your data objects. Each collection has a definition that specifies its data structure (properties and their data types), vectorizer settings (how vectors are generated or managed), and indexing configuration (how data is indexed for efficient search). These endpoints allow you to create, retrieve, update, and delete collection definitions. For detailed usage and code examples on interacting with collections, see the documentation: [https://docs.weaviate.io/weaviate/manage-collections](https://docs.weaviate.io/weaviate/manage-collections).",
       "name": "schema"
     },
     {
@@ -25896,7 +26164,7 @@ func init() {
       "name": "mcp"
     },
     {
-      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action.",
+      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action and, on namespace-enabled clusters, a well-formed Weaviate license key on the serving node.",
       "name": "namespaces"
     }
   ],

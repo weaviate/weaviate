@@ -169,7 +169,7 @@ weaviate_shards{state="loaded",registration="lazy"}
 #### Shard Loading Metrics
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|
-| `weaviate_lazy_shard_warmup_decisions_total` | Number of shards the startup warmup sweep considered, by what it did with each: `loaded`, `failed`, `skipped_shard_gone`, `skipped_already_loaded`, `skipped_empty`, `skipped_below_threshold` | `Counter` | `outcome` | - Low 
+| `weaviate_lazy_shard_warmup_decisions_total` | Number of shards the startup warmup sweep considered, by what it did with each: `loaded`, `failed`, `skipped_shard_gone`, `skipped_already_loaded`, `skipped_empty`, `skipped_below_threshold`, `skipped_namespace_unknown` | `Counter` | `outcome` | - Low 
 
 #### Shard Load Limiter Metrics
 | Name | Description | Type | Labels | High Cardinality |
@@ -188,6 +188,34 @@ weaviate_shards{state="loaded",registration="lazy"}
 | `weaviate_replication_engine_running_status` | Replication engine running status (0:not running, 1:running) | `Gauge` | `node` | - Low 
 | `weaviate_replication_engine_producer_running_status` | Replication engine producer running status (0:not running, 1:running) | `Gauge` | `node` | - Low 
 | `weaviate_replication_engine_consumer_running_status` | Replication engine consumer running status (0:not running, 1:running) | `Gauge` | `node` | - Low 
+
+#### Self-Recovery Metrics
+Registered only on a node with `SELF_RECOVERY_ENABLED=true` and a well-formed Weaviate license key (`LICENSE_KEY` or `LICENSE_KEY_FILE`); a node with the flag off or without a license exposes none of them. No metric carries collection or shard labels, so a wiped node with many shards adds no series per shard. See `docs/self-recovery.md`.
+
+| Name | Description | Type | Labels | High Cardinality |
+|---|---|---|---|---|
+| `weaviate_self_recovery_in_progress` | Self-recovery operations currently in progress on this node | `Gauge` | `-` | - Low 
+| `weaviate_self_recovery_started_total` | Self-recovery operations started, by source peer | `Counter` | `source_node` | - Low (bounded by cluster size) 
+| `weaviate_self_recovery_completed_total` | Self-recovery operations completed, by terminal result (`success`, `failure`, `empty_fallback`, `cancelled`) | `Counter` | `result` | - Low 
+| `weaviate_self_recovery_duration_seconds` | End-to-end duration of a self-recovery operation, by terminal result; buckets 10s to ~1.4h | `Histogram` | `result` | - Low 
+| `weaviate_self_recovery_no_data_empty_total` | Empty fallbacks on a node that started with RAFT state and no healthy peer confirmed the shard; alert on this | `Counter` | `-` | - Low 
+| `weaviate_self_recovery_no_data_during_bootstrap_total` | Empty fallbacks on a node that started without RAFT state, during its wiped round, or on tenant activation; informational | `Counter` | `-` | - Low 
+| `weaviate_self_recovery_no_data_confirmed_empty_total` | Empty fallbacks where a healthy peer confirmed the shard holds no objects; informational | `Counter` | `-` | - Low 
+| `weaviate_self_recovery_unreachable_peer_total` | Probes that failed to reach a peer (transport or timeout), by peer | `Counter` | `peer` | - Low (bounded by cluster size) 
+| `weaviate_self_recovery_giveup_total` | Self-recovery attempts that exhausted retries without reaching READY; alert on this | `Counter` | `-` | - Low 
+| `weaviate_self_recovery_accept_empty_total` | Operator invocations of the accept-empty escape hatch | `Counter` | `-` | - Low 
+
+#### Async Checkpoint Metrics
+Checkpoints of unloaded shards, answered from their persisted hashtree, are counted like those of loaded shards. Every checkpoint leaves exactly once: as expired if it outlived its max lifetime, otherwise as a delete, replacement or clear.
+
+| Name | Description | Type | Labels | High Cardinality |
+|---|---|---|---|---|
+| `weaviate_async_checkpoint_create_total` | Number of successful local async replication checkpoint creations, including replacements of an existing checkpoint | `Counter` | `-` | - Low 
+| `weaviate_async_checkpoint_create_failure_total` | Number of failed checkpoint creations (stale creation time, cutoff already in the past, or async replication not active on the shard) | `Counter` | `-` | - Low 
+| `weaviate_async_checkpoint_delete_total` | Number of explicit checkpoint deletes that cleared an active checkpoint; clears caused by stopping or disabling async replication, an unloaded shard loading, or the shard or class being dropped are excluded | `Counter` | `-` | - Low 
+| `weaviate_async_checkpoint_active` | Number of shards on this node currently holding an active checkpoint; replacements don't change the count | `Gauge` | `-` | - Low 
+| `weaviate_async_checkpoint_lifetime_seconds` | Time a checkpoint stayed active before being cleared by an explicit delete, a replacement, a stop/disable, or expiry | `Histogram` | `-` | - Low 
+| `weaviate_async_checkpoint_expired_total` | Number of async replication checkpoints cleared for outliving their max lifetime without an explicit delete (e.g. the backup planning coordinator crashed). A non-zero rate points at coordinators failing to release checkpoints | `Counter` | `-` | - Low 
 
 #### Distributed Task Metrics
 | Name | Description | Type | Labels | High Cardinality |
@@ -432,6 +460,10 @@ namespace on a namespaces cluster.
 | `bucket_pause_durations_ms` | Bucket pause durations | `Summary` | `bucket_dir` | - Low 
 | `backup_restore_data_transferred` | Total number of bytes transferred during a backup restore | `Counter` | `backend_name, class_name` | ❌ High 
 | `backup_store_data_transferred` | Total number of bytes transferred during a backup store | `Counter` | `backend_name, class_name` | ❌ High 
+| `backup_dedupe_planning_ms` | Wall time of replica-dedupe convergence planning per backup | `Summary` | | - Low 
+| `backup_dedupe_shards_total` | Shards planned by replica-dedupe backups, by outcome (designated = archived once, fallback = archived by every replica) | `Counter` | `outcome` | - Low 
+| `backup_dedupe_fallback_total` | Replica-dedupe fallbacks by reason; `class_ineligible` counts classes, every other reason counts shards | `Counter` | `reason` | - Low 
+| `backup_dedupe_restore_anomalies_total` | Fan-out restore shards without a normal source, by reason (no_holder = nothing restored, multi_holder = deterministic pick among duplicates, schema_source_fallback = shard membership derived from local snapshots) | `Counter` | `reason` | - Low 
 
 #### Shard Metrics
 | Name | Description | Type | Labels | High Cardinality |

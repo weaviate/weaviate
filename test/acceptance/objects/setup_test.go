@@ -176,7 +176,8 @@ func TestObjects_SyncIndexing(t *testing.T) {
 
 func testObjects(t *testing.T) {
 	createObjectClass(t, &models.Class{
-		Class: "TestObject",
+		Class:      "TestObject",
+		Vectorizer: "text2vec-model2vec",
 		ModuleConfig: map[string]interface{}{
 			"text2vec-model2vec": map[string]interface{}{
 				"vectorizeClassName": true,

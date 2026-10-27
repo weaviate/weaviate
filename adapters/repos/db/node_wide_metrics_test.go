@@ -44,6 +44,7 @@ import (
 func newActivityTestIndex(className string, partitioningEnabled bool) *Index {
 	return &Index{
 		Config: IndexConfig{
+			NodeName:          "node1",
 			ClassName:         schema.ClassName(className),
 			ReplicationFactor: 1,
 		},
@@ -82,7 +83,7 @@ func newWarmActivityObserver(tenants int) (*nodeWideMetricsObserver, *Index, *DB
 	for i := 0; i < tenants; i++ {
 		col.shards.Store(fmt.Sprintf("tenant-%d", i), &Shard{})
 	}
-	db := &DB{logger: logger, indices: map[string]*Index{"Col1": col}}
+	db := &DB{localNodeName: "node1", logger: logger, indices: map[string]*Index{"Col1": col}}
 	o := newNodeWideMetricsObserver(db)
 	o.observeActivity()
 	return o, col, db
@@ -91,7 +92,8 @@ func newWarmActivityObserver(tenants int) (*nodeWideMetricsObserver, *Index, *DB
 func TestShardActivity(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	db := &DB{
-		logger: logger,
+		localNodeName: "node1",
+		logger:        logger,
 		indices: map[string]*Index{
 			"Col1":  newActivityTestIndex("Col1", true),
 			"NonMT": newActivityTestIndex("NonMT", false),
@@ -225,8 +227,9 @@ func TestShardActivityAcrossCycles(t *testing.T) {
 	nonMT.shards.Store("shard1", &Shard{})
 
 	db := &DB{
-		logger:  logger,
-		indices: map[string]*Index{"Col1": col1, "Col2": col2, "NonMT": nonMT},
+		localNodeName: "node1",
+		logger:        logger,
+		indices:       map[string]*Index{"Col1": col1, "Col2": col2, "NonMT": nonMT},
 	}
 	o := newNodeWideMetricsObserver(db)
 
@@ -530,7 +533,7 @@ func TestShardActivityUsageIsIndependent(t *testing.T) {
 	col1.shards.Store("t1", &Shard{})
 	col1.shards.Store("t2", &Shard{})
 
-	db := &DB{logger: logger, indices: map[string]*Index{"Col1": col1}}
+	db := &DB{localNodeName: "node1", logger: logger, indices: map[string]*Index{"Col1": col1}}
 	o := newNodeWideMetricsObserver(db)
 	o.observeActivity()
 
@@ -820,6 +823,22 @@ func newColdShard(index *Index, name string) *LazyLoadShard {
 	}
 }
 
+// installLoadedShard leaves lazy in the state loadIfCold does, with shard in
+// place of the one NewShard would build.
+func installLoadedShard(lazy *LazyLoadShard, shard *Shard) {
+	lazy.mutex.Lock()
+	defer lazy.mutex.Unlock()
+	lazy.shard.Store(shard)
+}
+
+// newLoadedLazyShard returns a LazyLoadShard already holding shard, for tests
+// that only need the wrapper to report itself loaded.
+func newLoadedLazyShard(shard *Shard) *LazyLoadShard {
+	lazy := &LazyLoadShard{}
+	installLoadedShard(lazy, shard)
+	return lazy
+}
+
 // Tenant activity is polled for every shard on the node, so a cold tenant has to
 // be observable without being pulled into memory.
 func TestShardActivityColdShard(t *testing.T) {
@@ -828,7 +847,7 @@ func TestShardActivityColdShard(t *testing.T) {
 	cold := newColdShard(col1, "t_cold")
 	col1.shards.Store("t_cold", cold)
 
-	db := &DB{logger: logger, indices: map[string]*Index{"Col1": col1}}
+	db := &DB{localNodeName: "node1", logger: logger, indices: map[string]*Index{"Col1": col1}}
 	o := newNodeWideMetricsObserver(db)
 
 	t.Run("observing does not load it", func(t *testing.T) {
@@ -863,7 +882,7 @@ func TestShardActivityColdShardLoads(t *testing.T) {
 	cold := newColdShard(col1, "t_cold")
 	col1.shards.Store("t_cold", cold)
 
-	db := &DB{logger: logger, indices: map[string]*Index{"Col1": col1}}
+	db := &DB{localNodeName: "node1", logger: logger, indices: map[string]*Index{"Col1": col1}}
 	o := newNodeWideMetricsObserver(db)
 	o.observeActivity()
 	require.NotContains(t, o.Usage(tenantactivity.UsageFilterOnlyReads)["Col1"], "t_cold")
@@ -871,14 +890,110 @@ func TestShardActivityColdShardLoads(t *testing.T) {
 	loaded := &Shard{}
 	loaded.activityTrackerRead.Store(1)
 	loaded.activityTrackerWrite.Store(1)
-	cold.mutex.Lock()
-	cold.shard, cold.loaded = loaded, true
-	cold.mutex.Unlock()
+	installLoadedShard(cold, loaded)
 
 	o.observeActivity()
 
 	require.Contains(t, o.Usage(tenantactivity.UsageFilterOnlyReads)["Col1"], "t_cold")
 	require.Contains(t, o.Usage(tenantactivity.UsageFilterOnlyWrites)["Col1"], "t_cold")
+}
+
+// observeActivity walks tenants under db.indexLock, so waiting on a busy tenant
+// holds up AddClass and every GetIndex queued behind it. Freeze and unfreeze
+// hold a tenant's shardCreateLocks for the whole S3 transfer.
+func TestShardActivityWalkDoesNotWaitOnBusyTenant(t *testing.T) {
+	tests := []struct {
+		name string
+		// hold takes the lock a long-running tenant operation keeps, and returns
+		// the function releasing it
+		hold func(index *Index, tenant *LazyLoadShard) func()
+	}{
+		{
+			name: "shardCreateLocks held by a freeze",
+			hold: func(index *Index, tenant *LazyLoadShard) func() {
+				index.shardCreateLocks.Lock(tenant.Name())
+				return func() { index.shardCreateLocks.Unlock(tenant.Name()) }
+			},
+		},
+		{
+			name: "loading blocked by a backup, export or usage scan",
+			hold: func(_ *Index, tenant *LazyLoadShard) func() {
+				return tenant.blockLoading()
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			col1 := newActivityTestIndex("Col1", true)
+			busy := newColdShard(col1, "t_busy")
+			loaded := &Shard{}
+			loaded.activityTrackerRead.Store(2)
+			loaded.activityTrackerWrite.Store(1)
+			installLoadedShard(busy, loaded)
+			col1.shards.Store("t_busy", busy)
+
+			db := &DB{logger: logger, indices: map[string]*Index{"Col1": col1}}
+			o := newNodeWideMetricsObserver(db)
+
+			// release is deferred as well as called, so a failed wait below still lets
+			// the walk finish instead of leaving it parked on the lock
+			release := sync.OnceFunc(tt.hold(col1, busy))
+			defer release()
+
+			observed := make(chan struct{})
+			go func() {
+				defer close(observed)
+				o.observeActivity()
+			}()
+
+			select {
+			case <-observed:
+			case <-time.After(5 * time.Second):
+				t.Fatal("observeActivity waited on the busy tenant")
+			}
+			require.Contains(t, o.Usage(tenantactivity.UsageFilterOnlyReads)["Col1"], "t_busy")
+		})
+	}
+}
+
+// Activity reads the shard that loadIfCold and Shutdown publish under the mutex without
+// taking the mutex. The reader below runs throughout so -race sees those reads,
+// and each step checks that a shut down shard reports zeros again.
+func TestLazyLoadShardActivityAcrossLoadAndShutdown(t *testing.T) {
+	ctx := context.Background()
+	repo, index := newReplConfigDeadlockFixture(t, "ActivityLoadCycles")
+	lazy := soleColdShard(t, index)
+
+	stop := make(chan struct{})
+	reading := make(chan struct{})
+	go func() {
+		defer close(reading)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				lazy.Activity()
+			}
+		}
+	}()
+
+	for i := 0; i < 3; i++ {
+		_, _, err := lazy.loadIfCold(ctx)
+		require.NoError(t, err)
+		read, write := lazy.Activity()
+		require.Equal(t, [2]int32{1, 1}, [2]int32{read, write}, "a freshly loaded shard starts at its initial counters")
+
+		require.NoError(t, lazy.Shutdown(ctx))
+		read, write = lazy.Activity()
+		require.Equal(t, [2]int32{0, 0}, [2]int32{read, write}, "a shut down shard reports what a cold one does")
+	}
+
+	close(stop)
+	<-reading
+	require.NoError(t, repo.Shutdown(context.Background()))
 }
 
 // Tenant activity logs are a configurable signal operators rely on, so every
@@ -888,7 +1003,7 @@ func TestShardActivityLogging(t *testing.T) {
 	logger.SetLevel(logrus.DebugLevel)
 
 	col1 := newActivityTestIndex("Col1", true)
-	db := &DB{logger: logger, indices: map[string]*Index{"Col1": col1}}
+	db := &DB{localNodeName: "node1", logger: logger, indices: map[string]*Index{"Col1": col1}}
 	db.config.TenantActivityReadLogLevel = configRuntime.NewDynamicValue("info")
 	db.config.TenantActivityWriteLogLevel = configRuntime.NewDynamicValue("info")
 	o := newNodeWideMetricsObserver(db)
@@ -1037,7 +1152,7 @@ func newObjectCountIndex(t *testing.T, rootPath, className string, shardCounts m
 	index.allShardsReady.Store(true)
 
 	for name, count := range shardCounts {
-		require.NoError(t, os.MkdirAll(shardPath(index.path(), name), os.ModePerm))
+		require.NoError(t, os.MkdirAll(shardPathLSM(index.path(), name), os.ModePerm))
 		shard := NewMockShardLike(t)
 		shard.EXPECT().ObjectCountAsync(mock.Anything).Return(count, nil).Maybe()
 		index.shards.Store(name, shard)

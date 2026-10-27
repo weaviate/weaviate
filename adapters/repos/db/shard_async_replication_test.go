@@ -39,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
+	localschema "github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	entreplication "github.com/weaviate/weaviate/entities/replication"
@@ -49,7 +50,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 // uuidLow and uuidHigh are deterministic UUIDs with clear binary ordering:
@@ -732,7 +732,7 @@ func asyncSchedulerOption(t *testing.T, ctx context.Context) func(*Index) {
 
 func setShardReplicas(t *testing.T, idx *Index, nodes ...string) {
 	t.Helper()
-	m, ok := idx.schemaReader.(*schemaUC.MockSchemaReader)
+	m, ok := idx.schemaReader.(*localschema.MockSchemaReader)
 	require.True(t, ok, "schemaReader is not a *MockSchemaReader")
 	for _, c := range m.ExpectedCalls {
 		if c.Method == "ShardReplicas" {
@@ -919,8 +919,9 @@ func TestDBReconcileAsyncReplicationWalksEveryIndex(t *testing.T) {
 	})
 
 	db := &DB{
-		logger:  logger,
-		indices: map[string]*Index{idxA.ID(): idxA, idxB.ID(): idxB},
+		localNodeName: "node1",
+		logger:        logger,
+		indices:       map[string]*Index{idxA.ID(): idxA, idxB.ID(): idxB},
 	}
 
 	disabled.SetValue(false)
@@ -2291,50 +2292,6 @@ func TestMayStopAsyncReplicationDumpReflectsDrainWindowDeletes(t *testing.T) {
 
 	require.Equal(t, storeRoot, dumped.Root(),
 		"shutdown .ht must reflect deletes applied during the worker drain window")
-}
-
-// TestUnfreezeMustNotTrustDownloadedHashtree pins: activation trust-loads a possibly-stale .ht from a pre-fix offload artifact.
-func TestUnfreezeMustNotTrustDownloadedHashtree(t *testing.T) {
-	t.Skip("pinned: activation over downloaded artifact files trust-loads a possibly-stale .ht — scrub belongs in the offload download path, tracked as follow-up")
-
-	ctx := context.Background()
-	const class = "UnfreezeDownloadedHashtreeTest"
-
-	sl, _ := testShard(t, ctx, class, withAsyncScheduler(t))
-	s := concreteShard(t, sl)
-	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
-
-	for _, id := range []strfmt.UUID{uuidLow, uuidMid} {
-		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, id, tsFarPast)))
-	}
-	flushShard(t, ctx, sl)
-
-	cfg := minAsyncReplicationConfig()
-	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
-	awaitHashtreeInitialized(t, s)
-	stopAsyncAndDump(t, s)
-	require.Len(t, htFilesInDir(t, s.pathHashTree()), 1,
-		"pre-condition: a .ht snapshot of {low,mid} exists, as in a pre-fix offload artifact")
-
-	require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidHigh, tsFarPast)))
-	flushShard(t, ctx, sl)
-
-	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
-	awaitHashtreeInitialized(t, s)
-	s.asyncReplicationRWMux.RLock()
-	activationRoot := s.hashtree.Root()
-	s.asyncReplicationRWMux.RUnlock()
-
-	require.NoError(t, s.disableAsyncReplication(ctx))
-	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
-	awaitHashtreeInitialized(t, s)
-	s.asyncReplicationRWMux.RLock()
-	rescanRoot := s.hashtree.Root()
-	s.asyncReplicationRWMux.RUnlock()
-	require.NoError(t, s.disableAsyncReplication(ctx))
-
-	require.Equal(t, rescanRoot, activationRoot,
-		"activation over artifact files must rescan the store, not trust the artifact's .ht")
 }
 
 // TestDisableAsyncReplicationScrubsPersistedHashtree: runtime disable removes any stray .ht.

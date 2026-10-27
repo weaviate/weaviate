@@ -22,7 +22,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/go-connections/nat"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/testcontainers/testcontainers-go"
@@ -251,7 +250,7 @@ func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {
 
 	endPoints := map[EndpointName]endpoint{}
 	for name, e := range c.endpoints {
-		newURI, err := c.container.PortEndpoint(context.Background(), nat.Port(e.port), "")
+		newURI, err := c.container.PortEndpoint(context.Background(), e.port, "")
 		if err != nil {
 			return fmt.Errorf("failed to get new uri for container %q: %w", c.name, err)
 		}
@@ -262,7 +261,7 @@ func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {
 	c.endpoints = endPoints
 
 	if e, ok := endPoints[HTTP]; ok {
-		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(nat.Port(e.port)).
+		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(e.port).
 			WithStartupTimeout(nodeReadinessTimeout)
 		if err := waitStrategy.WaitUntilReady(ctx, c.container); err != nil {
 			return fmt.Errorf("StartAt[%s]: readiness check /v1/.well-known/ready failed: %w",
@@ -305,7 +304,7 @@ func (d *DockerCompose) RestartAt(ctx context.Context, nodeIndex int, timeout *t
 
 	endPoints := map[EndpointName]endpoint{}
 	for name, e := range c.endpoints {
-		newURI, err := c.container.PortEndpoint(ctx, nat.Port(e.port), "")
+		newURI, err := c.container.PortEndpoint(ctx, e.port, "")
 		if err != nil {
 			return fmt.Errorf("RestartAt[%s]: failed to resolve port %s: %w",
 				c.name, e.port, err)
@@ -317,12 +316,25 @@ func (d *DockerCompose) RestartAt(ctx context.Context, nodeIndex int, timeout *t
 	c.endpoints = endPoints
 
 	if e, ok := endPoints[HTTP]; ok {
-		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(nat.Port(e.port)).
+		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(e.port).
 			WithStartupTimeout(nodeReadinessTimeout)
 		if err := waitStrategy.WaitUntilReady(ctx, c.container); err != nil {
 			return fmt.Errorf("RestartAt[%s]: readiness check /v1/.well-known/ready failed: %w",
 				c.name, err)
 		}
+	}
+	return nil
+}
+
+// SetLicenseKeyFileAt overwrites the license key file of a WithLicenseKeyFile
+// node. The node reads the new key when RestartAt next restarts it.
+func (d *DockerCompose) SetLicenseKeyFileAt(ctx context.Context, nodeIndex int, key string) error {
+	if nodeIndex >= len(d.containers) {
+		return errors.Errorf("node index is greater than available nodes")
+	}
+	c := d.containers[nodeIndex]
+	if err := c.container.CopyToContainer(ctx, []byte(key), licenseKeyFilePath, 0o644); err != nil {
+		return fmt.Errorf("SetLicenseKeyFileAt[%s]: %w", c.name, err)
 	}
 	return nil
 }

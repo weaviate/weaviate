@@ -60,7 +60,7 @@ func setupDebugHandlers(appState *state.State) {
 	}))
 
 	http.HandleFunc("/debug/usage", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		service := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules, appState.Logger)
+		service := usage.NewService(appState.SchemaManager, appState.Cluster, appState.DB, appState.Modules, appState.Logger)
 		if param := r.URL.Query().Get("shardConcurrency"); param != "" {
 			shardConcurrency, err := strconv.Atoi(param)
 			if err != nil || shardConcurrency < 1 {
@@ -245,12 +245,13 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
-		vidx, ok := shard.GetVectorIndex(targetVector)
+		vidx, releaseIndex, ok := shard.AcquireVectorIndex(targetVector)
 		if !ok {
 			logger.WithField("shard", shardName).Error("vector index not found")
 			http.Error(w, "vector index not found", http.StatusNotFound)
 			return
 		}
+		defer releaseIndex()
 
 		h, ok := vidx.(hnswStats)
 		if !ok {
@@ -1028,10 +1029,11 @@ func getHFreshReassigner(idx hfreshReassignIndex, shardName, targetVector string
 	if shard == nil {
 		return nil, http.StatusNotFound, fmt.Errorf("shard not found")
 	}
-	vidx, ok := shard.GetVectorIndex(targetVector)
+	vidx, releaseIndex, ok := shard.AcquireVectorIndex(targetVector)
 	if !ok {
 		return nil, http.StatusNotFound, fmt.Errorf("vector index not found")
 	}
+	defer releaseIndex()
 	h, ok := vidx.(hfreshReassignAller)
 	if !ok {
 		return nil, http.StatusBadRequest, fmt.Errorf("not an hfresh index")

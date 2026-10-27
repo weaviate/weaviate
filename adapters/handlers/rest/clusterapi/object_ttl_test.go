@@ -30,6 +30,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -37,7 +38,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/remote"
 )
 
 // ttlProbeTimeout bounds every wait in this test, so a window that never opens
@@ -48,7 +49,7 @@ const ttlProbeTimeout = 10 * time.Second
 // countDeleted across the dispatch loop's next write to the counter map, with
 // nothing ordering the two.
 type ttlCounterProbe struct {
-	sharding.RemoteIndexIncomingRepo
+	remote.IndexIncomingRepo
 	dispatched atomic.Int32
 	reading    chan struct{}
 	stop       chan struct{}
@@ -95,14 +96,16 @@ func (p *ttlCounterProbe) IncomingDeleteObjectsExpired(_ context.Context,
 }
 
 type ttlProbeRepo struct {
-	index sharding.RemoteIndexIncomingRepo
+	index remote.IndexIncomingRepo
 }
 
-func (r ttlProbeRepo) GetIndexForIncomingSharding(schema.ClassName) sharding.RemoteIndexIncomingRepo {
+func (r ttlProbeRepo) GetIndexForIncomingSharding(schema.ClassName) remote.IndexIncomingRepo {
 	return r.index
 }
 
-type ttlProbeSchema struct{}
+type ttlProbeSchema struct {
+	local.VersionedReader
+}
 
 func (ttlProbeSchema) ReadOnlyClassWithVersion(_ context.Context, class string, _ uint64) (*models.Class, error) {
 	return &models.Class{Class: class}, nil
@@ -115,7 +118,7 @@ func TestIncomingDeleteKeepsTheCounterMapOffTheDeleteGoroutines(t *testing.T) {
 	logger.SetLevel(logrus.DebugLevel)
 
 	probe := newTTLCounterProbe()
-	remoteIndex := sharding.NewRemoteIndexIncoming(ttlProbeRepo{index: probe}, ttlProbeSchema{}, nil)
+	remoteIndex := remote.NewIndexIncoming(ttlProbeRepo{index: probe}, ttlProbeSchema{}, nil)
 
 	handler := clusterapi.NewObjectTTL(remoteIndex, clusterapi.NewNoopAuthHandler(), logger,
 		config.Config{ObjectsTTLConcurrencyFactor: configRuntime.NewDynamicValue[float64](1)},
@@ -164,6 +167,7 @@ func ttlSweepReport(hook *logrustest.Hook) *logrus.Entry {
 // node to catch up and gives up on its own deadline. waitTimeout stands in for
 // that deadline, and a zero one is a node already caught up.
 type waitingTTLSchema struct {
+	local.VersionedReader
 	waitTimeout time.Duration
 	entered     chan struct{}
 	once        sync.Once
@@ -193,10 +197,10 @@ func (s *waitingTTLSchema) ReadOnlyClassWithVersion(ctx context.Context, class s
 type sweptTTLRepo struct {
 	lock     sync.Mutex
 	asked    []string
-	indexFor func(schema.ClassName) sharding.RemoteIndexIncomingRepo
+	indexFor func(schema.ClassName) remote.IndexIncomingRepo
 }
 
-func (r *sweptTTLRepo) GetIndexForIncomingSharding(class schema.ClassName) sharding.RemoteIndexIncomingRepo {
+func (r *sweptTTLRepo) GetIndexForIncomingSharding(class schema.ClassName) remote.IndexIncomingRepo {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	r.asked = append(r.asked, string(class))
@@ -215,7 +219,7 @@ func (r *sweptTTLRepo) sweptCollections() []string {
 // noopTTLIndex embeds the interface so only the one method the sweep calls is
 // implemented. It dispatches nothing, so the sweep's own flow is what a test sees.
 type noopTTLIndex struct {
-	sharding.RemoteIndexIncomingRepo
+	remote.IndexIncomingRepo
 }
 
 func (noopTTLIndex) IncomingDeleteObjectsExpired(context.Context, *enterrors.ErrorGroupWrapper,
@@ -225,7 +229,7 @@ func (noopTTLIndex) IncomingDeleteObjectsExpired(context.Context, *enterrors.Err
 
 // ttlTestServer serves the object_ttl endpoints over ttlSchema. The returned
 // outcome reads the handler's log, because the deletion outlives the request.
-func ttlTestServer(t *testing.T, ttlSchema sharding.RemoteIncomingSchema) (
+func ttlTestServer(t *testing.T, ttlSchema local.VersionedReader) (
 	server *httptest.Server, repo *sweptTTLRepo, status *objectttl.LocalStatus,
 	sweepOutcome func() (failed error, returned bool),
 ) {
@@ -236,7 +240,7 @@ func ttlTestServer(t *testing.T, ttlSchema sharding.RemoteIncomingSchema) (
 
 	repo = &sweptTTLRepo{}
 	status = objectttl.NewLocalStatus()
-	d := clusterapi.NewObjectTTL(sharding.NewRemoteIndexIncoming(repo, ttlSchema, nil),
+	d := clusterapi.NewObjectTTL(remote.NewIndexIncoming(repo, ttlSchema, nil),
 		clusterapi.NewNoopAuthHandler(), logger,
 		config.Config{ObjectsTTLConcurrencyFactor: configRuntime.NewDynamicValue[float64](1)},
 		status)
@@ -361,7 +365,7 @@ func TestIncomingDeleteHandsBackTheSlotOnABadBody(t *testing.T) {
 // ttlDispatchIndex dispatches a collection's deletes however the caller wants
 // them to run, in place of the shard loop the sweep reaches in production.
 type ttlDispatchIndex struct {
-	sharding.RemoteIndexIncomingRepo
+	remote.IndexIncomingRepo
 	dispatch func(eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder)
 }
 
@@ -378,7 +382,7 @@ const ttlDeletePanic = "delete goroutine panicked"
 var errTTLDeleteFailed = errors.New("delete failed")
 
 // dispatchPanic hands every collection a delete goroutine that panics.
-func dispatchPanic(schema.ClassName) sharding.RemoteIndexIncomingRepo {
+func dispatchPanic(schema.ClassName) remote.IndexIncomingRepo {
 	return ttlDispatchIndex{dispatch: func(eg *enterrors.ErrorGroupWrapper, _ errorcompounder.ErrorCompounder) {
 		eg.Go(func() error { panic(ttlDeletePanic) })
 	}}
@@ -391,7 +395,7 @@ func TestIncomingDeleteReportsRecoveredPanics(t *testing.T) {
 	tests := []struct {
 		name        string
 		collections int
-		indexFor    func(schema.ClassName) sharding.RemoteIndexIncomingRepo
+		indexFor    func(schema.ClassName) remote.IndexIncomingRepo
 		wantErr     []string
 		wantPanics  int
 	}{
@@ -405,7 +409,7 @@ func TestIncomingDeleteReportsRecoveredPanics(t *testing.T) {
 		{
 			name:        "a panic does not displace an error a sibling filed itself",
 			collections: 2,
-			indexFor: func(class schema.ClassName) sharding.RemoteIndexIncomingRepo {
+			indexFor: func(class schema.ClassName) remote.IndexIncomingRepo {
 				if class == "Collection0" {
 					return dispatchPanic(class)
 				}

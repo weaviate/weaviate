@@ -16,6 +16,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -624,28 +625,28 @@ func TestEnvironmentBackupGCS(t *testing.T) {
 		wantErr  string
 	}{
 		{
-			name:     "unset selects http",
+			name:     "unset leaves the transport unset, which means grpc",
 			expected: BackupGCS{GRPCConnPool: DefaultBackupGCSGRPCConnPool},
 		},
 		{
-			name:     "empty selects http",
+			name:     "empty leaves the transport unset, which means grpc",
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": ""},
 			expected: BackupGCS{GRPCConnPool: DefaultBackupGCSGRPCConnPool},
 		},
 		{
 			name:     "http",
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": "http"},
-			expected: BackupGCS{GRPCConnPool: DefaultBackupGCSGRPCConnPool},
+			expected: BackupGCS{UseGRPC: new(false), GRPCConnPool: DefaultBackupGCSGRPCConnPool},
 		},
 		{
 			name:     "grpc",
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc"},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: DefaultBackupGCSGRPCConnPool},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: DefaultBackupGCSGRPCConnPool},
 		},
 		{
 			name:     "transport is case insensitive and trimmed",
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": " gRPC "},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: DefaultBackupGCSGRPCConnPool},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: DefaultBackupGCSGRPCConnPool},
 		},
 		{
 			name:    "unknown transport is rejected",
@@ -655,17 +656,17 @@ func TestEnvironmentBackupGCS(t *testing.T) {
 		{
 			name:     "connection pool overrides the default",
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc", "GCS_MODULE_GRPC_CONN_POOL": "16"},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 16},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: 16},
 		},
 		{
 			name:     "connection pool of one is accepted",
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc", "GCS_MODULE_GRPC_CONN_POOL": "1"},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 1},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: 1},
 		},
 		{
 			name:     "connection pool at the cap is accepted",
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc", "GCS_MODULE_GRPC_CONN_POOL": "64"},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: MaxBackupGCSGRPCConnPool},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: MaxBackupGCSGRPCConnPool},
 		},
 		{
 			name:    "connection pool of zero is rejected",
@@ -694,43 +695,48 @@ func TestEnvironmentBackupGCS(t *testing.T) {
 		},
 		{
 			name:     "unset transport keeps the config file value",
-			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 32},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			start:    BackupGCS{UseGRPC: new(true), GRPCConnPool: 32},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: 32},
 		},
 		{
 			name:     "empty transport keeps the config file value",
-			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			start:    BackupGCS{UseGRPC: new(true), GRPCConnPool: 32},
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": ""},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: 32},
+		},
+		{
+			name:     "a config file pinned to http stays on http",
+			start:    BackupGCS{UseGRPC: new(false), GRPCConnPool: 32},
+			expected: BackupGCS{UseGRPC: new(false), GRPCConnPool: 32},
 		},
 		{
 			name:     "http overrides the config file transport",
-			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			start:    BackupGCS{UseGRPC: new(true), GRPCConnPool: 32},
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": "http"},
-			expected: BackupGCS{GRPCConnPool: 32},
+			expected: BackupGCS{UseGRPC: new(false), GRPCConnPool: 32},
 		},
 		{
 			name:     "grpc overrides the config file transport",
-			start:    BackupGCS{GRPCConnPool: 32},
+			start:    BackupGCS{UseGRPC: new(false), GRPCConnPool: 32},
 			env:      map[string]string{"GCS_MODULE_TRANSPORT": "grpc"},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: 32},
 		},
 		{
 			name:     "connection pool overrides the config file value",
-			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 32},
+			start:    BackupGCS{UseGRPC: new(true), GRPCConnPool: 32},
 			env:      map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "16"},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 16},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: 16},
 		},
 		{
 			name:     "config file connection pool out of range is left for validation",
-			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 100},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 100},
+			start:    BackupGCS{UseGRPC: new(true), GRPCConnPool: 100},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: 100},
 		},
 		{
 			name:     "connection pool overrides an out of range config file value",
-			start:    BackupGCS{UseGRPC: true, GRPCConnPool: 100},
+			start:    BackupGCS{UseGRPC: new(true), GRPCConnPool: 100},
 			env:      map[string]string{"GCS_MODULE_GRPC_CONN_POOL": "8"},
-			expected: BackupGCS{UseGRPC: true, GRPCConnPool: 8},
+			expected: BackupGCS{UseGRPC: new(true), GRPCConnPool: 8},
 		},
 	}
 
@@ -1233,6 +1239,18 @@ func TestEnvironmentWeaviateLicense(t *testing.T) {
 	})
 }
 
+func TestEnvironmentSelfRecoveryEnabledWithoutLicense(t *testing.T) {
+	t.Setenv("SELF_RECOVERY_ENABLED", "true")
+	t.Setenv("REPLICA_MOVEMENT_ENABLED", "true")
+	t.Setenv("LICENSE_KEY", "")
+	t.Setenv("LICENSE_KEY_FILE", "")
+	conf := Config{}
+	require.NoError(t, FromEnv(&conf))
+
+	require.True(t, conf.Replication.SelfRecoveryEnabled)
+	require.False(t, conf.WeaviateLicense)
+}
+
 func TestEnvironmentLicenseKeyFile(t *testing.T) {
 	writeKeyFile := func(t *testing.T, contents string) string {
 		t.Helper()
@@ -1252,27 +1270,50 @@ func TestEnvironmentLicenseKeyFile(t *testing.T) {
 		require.Equal(t, "lic_01ARZ3NDEKTSV4RRFFQ69G5FAV", conf.License.LicenseID)
 	})
 
-	t.Run("trailing newline in the file is ignored", func(t *testing.T) {
+	t.Run("surrounding whitespace in the file is ignored", func(t *testing.T) {
 		t.Setenv("LICENSE_KEY", "")
-		t.Setenv("LICENSE_KEY_FILE", writeKeyFile(t, wellFormedLicenseKey()+"\n"))
+		t.Setenv("LICENSE_KEY_FILE", writeKeyFile(t, " "+wellFormedLicenseKey()+"\r\n"))
 		conf := Config{}
 		require.NoError(t, FromEnv(&conf))
 
 		require.True(t, conf.WeaviateLicense)
 	})
 
-	t.Run("both LICENSE_KEY and LICENSE_KEY_FILE set is a startup error", func(t *testing.T) {
-		t.Setenv("LICENSE_KEY", wellFormedLicenseKey())
-		t.Setenv("LICENSE_KEY_FILE", writeKeyFile(t, wellFormedLicenseKey()))
+	t.Run("surrounding whitespace in LICENSE_KEY is ignored", func(t *testing.T) {
+		hook := logrustest.NewGlobal()
+		defer hook.Reset()
+
+		t.Setenv("LICENSE_KEY", " "+wellFormedLicenseKey()+"\r\n")
+		t.Setenv("LICENSE_KEY_FILE", "")
 		conf := Config{}
-		require.ErrorContains(t, FromEnv(&conf), "mutually exclusive")
+		require.NoError(t, FromEnv(&conf))
+
+		require.True(t, conf.WeaviateLicense)
+		for _, entry := range hook.AllEntries() {
+			require.NotContains(t, entry.Message, "LICENSE_KEY")
+		}
 	})
 
-	t.Run("unreadable file is a startup error", func(t *testing.T) {
-		t.Setenv("LICENSE_KEY", "")
-		t.Setenv("LICENSE_KEY_FILE", filepath.Join(t.TempDir(), "does-not-exist"))
-		conf := Config{}
-		require.ErrorContains(t, FromEnv(&conf), "LICENSE_KEY_FILE")
+	t.Run("both LICENSE_KEY and LICENSE_KEY_FILE set is a startup error", func(t *testing.T) {
+		// A whitespace-only LICENSE_KEY still counts as set.
+		for _, envKey := range []string{wellFormedLicenseKey(), "  "} {
+			t.Setenv("LICENSE_KEY", envKey)
+			t.Setenv("LICENSE_KEY_FILE", writeKeyFile(t, wellFormedLicenseKey()))
+			conf := Config{}
+			require.ErrorContains(t, FromEnv(&conf), "mutually exclusive", "LICENSE_KEY=%q", envKey)
+		}
+	})
+
+	t.Run("unreadable file is a startup error that leaves out the path", func(t *testing.T) {
+		// An operator may paste the key itself into LICENSE_KEY_FILE.
+		for _, keyFile := range []string{wellFormedLicenseKey(), filepath.Join(t.TempDir(), "does-not-exist")} {
+			t.Setenv("LICENSE_KEY", "")
+			t.Setenv("LICENSE_KEY_FILE", keyFile)
+			conf := Config{}
+			err := FromEnv(&conf)
+			require.ErrorContains(t, err, "LICENSE_KEY_FILE")
+			require.NotContains(t, err.Error(), keyFile)
+		}
 	})
 
 	t.Run("file with malformed key disables the gate and logs a warning", func(t *testing.T) {
@@ -1305,6 +1346,27 @@ func TestEnvironmentLicenseKeyFile(t *testing.T) {
 		entry := hook.LastEntry()
 		require.NotNil(t, entry)
 		require.Contains(t, entry.Message, "LICENSE_KEY_FILE")
+	})
+
+	t.Run("whitespace-only LICENSE_KEY disables the gate and logs one warning", func(t *testing.T) {
+		hook := logrustest.NewGlobal()
+		defer hook.Reset()
+
+		t.Setenv("LICENSE_KEY", "  ")
+		t.Setenv("LICENSE_KEY_FILE", "")
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+
+		require.False(t, conf.WeaviateLicense)
+		var licenseEntries []*logrus.Entry
+		for _, entry := range hook.AllEntries() {
+			if strings.Contains(entry.Message, "LICENSE_KEY") {
+				licenseEntries = append(licenseEntries, entry)
+			}
+		}
+		require.Len(t, licenseEntries, 1)
+		require.Equal(t, logrus.WarnLevel, licenseEntries[0].Level)
+		require.Contains(t, licenseEntries[0].Message, "LICENSE_KEY is set but contains no key")
 	})
 }
 
@@ -2581,46 +2643,64 @@ func TestEnvironmentAsyncReplicationGlobalSentinels(t *testing.T) {
 	}
 }
 
-func TestNamespaceCleanupIntervalValidation(t *testing.T) {
-	tests := []struct {
-		name    string
-		env     string
-		wantErr string
-		wantGet time.Duration
+func TestNamespaceIntervalValidation(t *testing.T) {
+	// Neither knob is gated on NAMESPACES_ENABLED, so both parse with it off.
+	t.Setenv("NAMESPACES_ENABLED", "false")
+	knobs := []struct {
+		env        string
+		defaultGet time.Duration
+		interval   func(Config) *configRuntime.DynamicValue[time.Duration]
 	}{
-		{name: "a sub-second interval fails the boot", env: "500ms", wantErr: "NAMESPACE_CLEANUP_INTERVAL"},
-		{name: "unset yields the default", wantGet: DefaultNamespaceCleanupInterval},
-		// newCronsNamespaceCleanup substitutes the default; Get() keeps the 0 the
-		// operator wrote, and /debug/config omits a zero interval entirely.
-		{name: "a value at or below zero is kept as configured", env: "0"},
+		{
+			env: "NAMESPACE_CLEANUP_INTERVAL", defaultGet: DefaultNamespaceCleanupInterval,
+			interval: func(c Config) *configRuntime.DynamicValue[time.Duration] {
+				return c.Namespaces.CleanupInterval
+			},
+		},
+		{
+			env: "SUSPEND_RECONCILE_INTERVAL", defaultGet: DefaultSuspendReconcileInterval,
+			interval: func(c Config) *configRuntime.DynamicValue[time.Duration] {
+				return c.Namespaces.SuspendReconcileInterval
+			},
+		},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.env != "" {
-				t.Setenv("NAMESPACE_CLEANUP_INTERVAL", tt.env)
-			}
-			var conf Config
+	for _, knob := range knobs {
+		tests := []struct {
+			name    string
+			env     string
+			wantErr bool
+			wantGet time.Duration
+		}{
+			{name: "a sub-second interval fails the boot", env: "500ms", wantErr: true},
+			{name: "unset yields the default", wantGet: knob.defaultGet},
+		}
+		for _, tt := range tests {
+			t.Run(knob.env+"/"+tt.name, func(t *testing.T) {
+				if tt.env != "" {
+					t.Setenv(knob.env, tt.env)
+				}
+				var conf Config
 
-			err := FromEnv(&conf)
+				err := FromEnv(&conf)
 
-			if tt.wantErr != "" {
-				require.ErrorContains(t, err, tt.wantErr)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantGet, conf.Namespaces.CleanupInterval.Get())
-		})
+				if tt.wantErr {
+					require.ErrorContains(t, err, knob.env)
+					return
+				}
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantGet, knob.interval(conf).Get())
+			})
+		}
 	}
+}
 
-	t.Run("a sub-second runtime push is refused and the interval stands", func(t *testing.T) {
-		t.Setenv("NAMESPACE_CLEANUP_INTERVAL", "1m")
-		var conf Config
-		require.NoError(t, FromEnv(&conf))
+func TestNamespaceSuspendedMessageFromEnv(t *testing.T) {
+	t.Setenv("NAMESPACE_SUSPENDED_MESSAGE", "  paused\n")
+	var conf Config
 
-		require.Error(t, conf.Namespaces.CleanupInterval.SetValue(500*time.Millisecond))
-		assert.Equal(t, time.Minute, conf.Namespaces.CleanupInterval.Get(),
-			"a refused push must leave the previous interval in place")
-	})
+	require.NoError(t, FromEnv(&conf))
+
+	assert.Equal(t, "paused", conf.Namespaces.SuspendedMessage)
 }
 
 func TestBatchStreamFromEnv(t *testing.T) {

@@ -41,7 +41,7 @@ func TestEnableFilterableFinalizeWaitsForTheSchemaFlip(t *testing.T) {
 	class := newEnableFilterableTestClass(className, propName)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		true, false, false)
+		true, false)
 	shard := shd.(*Shard)
 
 	objects := makeConvergenceTestObjects(t, numObjects, className)

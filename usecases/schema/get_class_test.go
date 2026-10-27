@@ -34,7 +34,7 @@ func TestClassGetterFromSchema(t *testing.T) {
 			getFromSchema: []string{"class1", "class2", "class3"},
 			strategy:      configRuntime.LeaderOnly,
 			schemaExpect: func(f *fakeSchemaManager) {
-				f.On("QueryReadOnlyClasses", []string{"class1", "class2", "class3"}).Return(map[string]versioned.Class{
+				f.On("ReadOnlyClassesFromLeader", []string{"class1", "class2", "class3"}).Return(map[string]versioned.Class{
 					"class1": {Version: 1, Class: &models.Class{Class: "class1", VectorIndexType: "hnsw", ShardingConfig: make(map[string]interface{})}},
 					"class2": {Version: 2, Class: &models.Class{Class: "class2", VectorIndexType: "hnsw", ShardingConfig: make(map[string]interface{})}},
 					"class3": {Version: 3, Class: &models.Class{Class: "class3", VectorIndexType: "hnsw", ShardingConfig: make(map[string]interface{})}},
@@ -57,7 +57,7 @@ func TestClassGetterFromSchema(t *testing.T) {
 			strategy:      configRuntime.LeaderOnMismatch,
 			schemaExpect: func(f *fakeSchemaManager) {
 				// First we will query the versions from the leader
-				f.On("QueryClassVersions", []string{"class1", "class2", "class3"}).Return(map[string]uint64{
+				f.On("ClassVersionsFromLeader", []string{"class1", "class2", "class3"}).Return(map[string]uint64{
 					"class1": 4,
 					"class2": 5,
 					"class3": 6,
@@ -67,7 +67,7 @@ func TestClassGetterFromSchema(t *testing.T) {
 				f.On("ReadOnlyVersionedClass", "class2").Return(versioned.Class{Version: 2, Class: &models.Class{Class: "class2", VectorIndexType: "hnsw", ShardingConfig: shardingCfg.Config{}}})
 				f.On("ReadOnlyVersionedClass", "class3").Return(versioned.Class{Version: 3, Class: &models.Class{Class: "class3", VectorIndexType: "hnsw", ShardingConfig: shardingCfg.Config{}}})
 				// Then we fetch what we need to update
-				f.On("QueryReadOnlyClasses", []string{"class1", "class2", "class3"}).Return(map[string]versioned.Class{
+				f.On("ReadOnlyClassesFromLeader", []string{"class1", "class2", "class3"}).Return(map[string]versioned.Class{
 					"class1": {Version: 1, Class: &models.Class{Class: "class1", VectorIndexType: "hnsw"}},
 					"class2": {Version: 2, Class: &models.Class{Class: "class2", VectorIndexType: "hnsw"}},
 					"class3": {Version: 3, Class: &models.Class{Class: "class3", VectorIndexType: "hnsw"}},
@@ -80,7 +80,7 @@ func TestClassGetterFromSchema(t *testing.T) {
 			strategy:      configRuntime.LeaderOnMismatch,
 			schemaExpect: func(f *fakeSchemaManager) {
 				// First we will query the versions from the leader
-				f.On("QueryClassVersions", []string{"class1", "class2", "class3"}).Return(map[string]uint64{
+				f.On("ClassVersionsFromLeader", []string{"class1", "class2", "class3"}).Return(map[string]uint64{
 					"class1": 1,
 					"class2": 2,
 					"class3": 6,
@@ -90,7 +90,7 @@ func TestClassGetterFromSchema(t *testing.T) {
 				f.On("ReadOnlyVersionedClass", "class2").Return(versioned.Class{Version: 2, Class: &models.Class{Class: "class2", VectorIndexType: "hnsw", ShardingConfig: shardingCfg.Config{}}})
 				f.On("ReadOnlyVersionedClass", "class3").Return(versioned.Class{Version: 3, Class: &models.Class{Class: "class3", VectorIndexType: "hnsw", ShardingConfig: shardingCfg.Config{}}})
 				// Then we fetch what we need to update
-				f.On("QueryReadOnlyClasses", []string{"class3"}).Return(map[string]versioned.Class{
+				f.On("ReadOnlyClassesFromLeader", []string{"class3"}).Return(map[string]versioned.Class{
 					"class3": {Version: 6, Class: &models.Class{Class: "class3", VectorIndexType: "hnsw"}},
 				}, nil)
 			},
@@ -101,7 +101,7 @@ func TestClassGetterFromSchema(t *testing.T) {
 			strategy:      configRuntime.LeaderOnMismatch,
 			schemaExpect: func(f *fakeSchemaManager) {
 				// First we will query the versions from the leader
-				f.On("QueryClassVersions", []string{"class1", "class2", "class3"}).Return(map[string]uint64{
+				f.On("ClassVersionsFromLeader", []string{"class1", "class2", "class3"}).Return(map[string]uint64{
 					"class1": 1,
 					"class2": 2,
 					"class3": 3,
@@ -117,7 +117,7 @@ func TestClassGetterFromSchema(t *testing.T) {
 			strategy:      configRuntime.LeaderOnMismatch,
 			schemaExpect: func(f *fakeSchemaManager) {
 				// First we will query the versions from the leader
-				f.On("QueryClassVersions", []string{"class1", "class2", "class3"}).Return(map[string]uint64{
+				f.On("ClassVersionsFromLeader", []string{"class1", "class2", "class3"}).Return(map[string]uint64{
 					"class1": 1,
 					"class2": 2,
 					"class3": 3,

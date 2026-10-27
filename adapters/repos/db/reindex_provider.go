@@ -1338,7 +1338,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 	// The task error drops acks from nodes that fail after the first one, so
 	// this line is the only record such a node leaves.
 	if len(refused) > 0 {
-		logger.WithField("shards", reportedShardNames(refused)).
+		logger.WithField("shards", ReportedShardNames(refused)).
 			Errorf("reindex provider: swap refused on %d shard(s): property overlay could not be installed; first error: %v", len(refused), agg.OverlayUnwrapErr)
 	}
 
@@ -2766,6 +2766,10 @@ func lookupShardByName(idx *Index, shardName string) (ShardLike, error) {
 	}
 	if found == nil {
 		return nil, fmt.Errorf("shard %q not found", shardName)
+	}
+	// Callers hit mustLoad-backed methods, which panic on a recovering shard.
+	if rec, ok := found.(*RecoveringShard); ok && rec.IsRecovering() {
+		return nil, fmt.Errorf("shard %q is recovering from a peer", shardName)
 	}
 	return found, nil
 }

@@ -16,19 +16,25 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
 	pkgerrors "github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	gproto "google.golang.org/protobuf/proto"
 
 	dbinverted "github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/cluster/proto/api"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -41,7 +47,11 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
+	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	"github.com/weaviate/weaviate/usecases/sharding"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 type fakeSearcher struct {
@@ -72,19 +82,6 @@ func (f *fakeSearcher) Aggregate(ctx context.Context, principal *models.Principa
 		return nil, f.aggregateErr
 	}
 	return f.aggregateRes, nil
-}
-
-type fakeSchemaReader struct {
-	classes map[string]*models.Class
-	aliases map[string]string
-}
-
-func (f *fakeSchemaReader) ReadOnlyClass(name string) *models.Class {
-	return f.classes[name]
-}
-
-func (f *fakeSchemaReader) ResolveAlias(alias string) string {
-	return f.aliases[alias]
 }
 
 func movieClass() *models.Class {
@@ -179,37 +176,117 @@ func catalogClass(nullState bool) *models.Class {
 
 func newCatalogHandler(t *testing.T, nullState bool) *testDeps {
 	t.Helper()
-	deps := newTestHandler(t)
-	deps.schemaReader.classes["Catalog"] = catalogClass(nullState)
-	return deps
+	return newTestHandlerWithClass(t, catalogClass(nullState))
+}
+
+// seedSchema builds a real SchemaReader over classes and aliases. The handler
+// takes the concrete reader, so a test that wants the schema to hold something
+// has to seed one.
+func seedSchema(t *testing.T, classes []*models.Class, aliases map[string]string) clusterSchema.SchemaReader {
+	t.Helper()
+	parser := fakes.NewMockParser()
+	parser.On("ParseClass", mock.Anything).Return(nil)
+	logger := logrus.New()
+	logger.SetOutput(io.Discard)
+	sm := clusterSchema.NewSchemaManager("node1", nil, parser, prometheus.NewPedanticRegistry(), logger)
+
+	// A reference property whose target class is not in the schema yet is
+	// rejected, and the fixtures cross-link, so retry the rejects until a pass
+	// adds nothing — a reference cycle or a genuinely bad class.
+	remaining := classes
+	for len(remaining) > 0 {
+		var deferred []*models.Class
+		var firstErr error
+		for _, cls := range remaining {
+			sub, err := json.Marshal(api.AddClassRequest{
+				Class: cls,
+				State: &sharding.State{PartitioningEnabled: true},
+			})
+			require.NoError(t, err)
+			if err := sm.AddClass(&api.ApplyRequest{
+				Type: api.ApplyRequest_TYPE_ADD_CLASS, Class: cls.Class, SubCommand: sub,
+			}, "node1", true, false); err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				deferred = append(deferred, cls)
+			}
+		}
+		if len(deferred) == len(remaining) {
+			require.NoError(t, firstErr, "seeding made no progress; check for a reference cycle")
+		}
+		remaining = deferred
+	}
+
+	for alias, collection := range aliases {
+		sub, err := gproto.Marshal(&api.CreateAliasRequest{Alias: alias, Collection: collection})
+		require.NoError(t, err)
+		require.NoError(t, sm.CreateAlias(&api.ApplyRequest{
+			Type: api.ApplyRequest_TYPE_CREATE_ALIAS, Class: collection, SubCommand: sub,
+		}))
+	}
+
+	return sm.NewSchemaReader()
 }
 
 type testDeps struct {
-	searcher     *fakeSearcher
-	schemaReader *fakeSchemaReader
-	authorizer   *mocks.FakeAuthorizer
-	handler      *Handler
+	searcher   *fakeSearcher
+	authorizer *mocks.FakeAuthorizer
+	handler    *Handler
+	// classes mirrors what the schema was seeded with, for the few tests that
+	// resolve collections themselves instead of going through the handler.
+	classes map[string]*models.Class
 }
 
 func newTestHandler(t *testing.T) *testDeps {
 	t.Helper()
+	return newTestHandlerSeeded(t, nil, nil)
+}
+
+// newTestHandlerWithAliases seeds aliases at construction.
+func newTestHandlerWithAliases(t *testing.T, aliases map[string]string) *testDeps {
+	t.Helper()
+	return newTestHandlerSeeded(t, nil, aliases)
+}
+
+// newTestHandlerWithClass seeds one extra collection beyond the fixture set.
+func newTestHandlerWithClass(t *testing.T, extra *models.Class) *testDeps {
+	t.Helper()
+	return newTestHandlerSeeded(t, []*models.Class{extra}, nil)
+}
+
+// newTestHandlerSeeded builds the handler over a real schema. Everything is
+// seeded at construction because the handler takes a concrete schema reader,
+// which, unlike a stub, cannot be re-pointed once built.
+func newTestHandlerSeeded(t *testing.T, extra []*models.Class, aliases map[string]string) *testDeps {
+	t.Helper()
 	deps := &testDeps{
-		searcher: &fakeSearcher{},
-		schemaReader: &fakeSchemaReader{
-			classes: map[string]*models.Class{
-				"Movie":  movieClass(),
-				"Author": authorClass(),
-				"Studio": studioClass(),
-				"Book":   bookClass(),
-				"Comic":  comicClass(),
-			},
-		},
+		searcher:   &fakeSearcher{},
 		authorizer: mocks.NewMockAuthorizer(),
+		classes:    map[string]*models.Class{},
 	}
+
+	// extra overrides a fixture class of the same name, the way assigning into
+	// the old stub's map did.
+	for _, c := range []*models.Class{
+		movieClass(), authorClass(), studioClass(), bookClass(), comicClass(),
+	} {
+		deps.classes[c.Class] = c
+	}
+	for _, c := range extra {
+		deps.classes[c.Class] = c
+	}
+
+	classes := make([]*models.Class, 0, len(deps.classes))
+	for _, c := range deps.classes {
+		classes = append(classes, c)
+	}
+
 	deps.handler = NewHandler(HandlerConfig{
 		Traverser:    deps.searcher,
-		SchemaReader: deps.schemaReader,
+		SchemaReader: seedSchema(t, classes, aliases),
 		Authorizer:   deps.authorizer,
+		Qualifier:    namespacing.Disabled,
 		DefaultLimit: 10,
 		// matches DefaultQueryCrossReferenceDepthLimit
 		CrossRefDepthLimit: 5,
@@ -468,12 +545,13 @@ func TestHandlerTenantAuthorization(t *testing.T) {
 	calls := deps.authorizer.Calls()
 	require.NotEmpty(t, calls)
 	assert.Contains(t, calls[0].Resources[0], "tenantA")
+	assert.Equal(t, mocks.MethodAuthorizeAndRequireActiveNamespace, calls[0].Method)
+	assert.Equal(t, "Movie", calls[0].Class, "the shard shape reaches the gate with the same class")
 	assert.Equal(t, "tenantA", deps.searcher.lastParams.Tenant)
 }
 
 func TestHandlerResolvesAliases(t *testing.T) {
-	deps := newTestHandler(t)
-	deps.schemaReader.aliases = map[string]string{"Films": "Movie"}
+	deps := newTestHandlerWithAliases(t, map[string]string{"Films": "Movie"})
 
 	_, apiErr := doNearText(t, deps, nil, "Films", `{"query":["space"]}`)
 	require.Nil(t, apiErr)
@@ -494,6 +572,10 @@ func (rbacLikeAuthorizer) Authorize(ctx context.Context, principal *models.Princ
 	return fmt.Errorf("rbac: %w", autherrs.NewForbidden(p, verb, resources...))
 }
 
+func (a rbacLikeAuthorizer) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error {
+	return a.Authorize(ctx, principal, verb, resources...)
+}
+
 func (a rbacLikeAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
 	return a.Authorize(ctx, principal, verb, resources...)
 }
@@ -505,9 +587,8 @@ func (a rbacLikeAuthorizer) FilterAuthorizedResources(ctx context.Context, princ
 // TestHandlerAliasForbiddenDoesNotLeakTarget: a denied request against an
 // alias must not disclose the alias's target collection in the 403.
 func TestHandlerAliasForbiddenDoesNotLeakTarget(t *testing.T) {
-	deps := newTestHandler(t)
+	deps := newTestHandlerWithAliases(t, map[string]string{"Films": "Movie"})
 	deps.handler.authorizer = rbacLikeAuthorizer{}
-	deps.schemaReader.aliases = map[string]string{"Films": "Movie"}
 
 	_, apiErr := doNearText(t, deps, nil, "Films", `{"query":["space"]}`)
 	require.NotNil(t, apiErr)
@@ -521,9 +602,8 @@ func TestHandlerAliasForbiddenDoesNotLeakTarget(t *testing.T) {
 // collection — else the difference reveals the alias to a denied caller.
 func TestHandlerAliasForbiddenNoExistenceOracle(t *testing.T) {
 	// registered alias Films -> Movie, caller denied everything
-	aliased := newTestHandler(t)
+	aliased := newTestHandlerWithAliases(t, map[string]string{"Films": "Movie"})
 	aliased.handler.authorizer = rbacLikeAuthorizer{}
-	aliased.schemaReader.aliases = map[string]string{"Films": "Movie"}
 	_, aliasErr := doNearText(t, aliased, nil, "Films", `{"query":["space"]}`)
 	require.NotNil(t, aliasErr)
 
@@ -541,8 +621,7 @@ func TestHandlerAliasForbiddenNoExistenceOracle(t *testing.T) {
 // TestAliasDenialKeepsAuthorizerShape: a denial on an alias target must be
 // byte-identical to one on a plain collection of the alias name.
 func TestAliasDenialKeepsAuthorizerShape(t *testing.T) {
-	aliased := newTestHandler(t)
-	aliased.schemaReader.aliases = map[string]string{"Films": "Movie"}
+	aliased := newTestHandlerWithAliases(t, map[string]string{"Films": "Movie"})
 	aliased.handler.authorizer = &denyCollections{denied: map[string]bool{"Movie": true}}
 	_, aliasErr := doNearText(t, aliased, nil, "Films", `{"query":["space"]}`)
 	require.NotNil(t, aliasErr)
@@ -564,16 +643,16 @@ type denyCollections struct {
 	requests []mocks.AuthZReq
 }
 
-func (a *denyCollections) authorize(principal *models.Principal, verb string, resources []string) error {
-	a.requests = append(a.requests, mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources})
-	for _, r := range resources {
+func (a *denyCollections) authorize(req mocks.AuthZReq) error {
+	a.requests = append(a.requests, req)
+	for _, r := range req.Resources {
 		for name := range a.denied {
 			if strings.Contains(r, "/collections/"+name+"/") {
-				p := principal
+				p := req.Principal
 				if p == nil {
 					p = &models.Principal{Username: "anonymous"}
 				}
-				return fmt.Errorf("rbac: %w", autherrs.NewForbidden(p, verb, resources...))
+				return fmt.Errorf("rbac: %w", autherrs.NewForbidden(p, req.Verb, req.Resources...))
 			}
 		}
 	}
@@ -581,15 +660,22 @@ func (a *denyCollections) authorize(principal *models.Principal, verb string, re
 }
 
 func (a *denyCollections) Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
-	return a.authorize(principal, verb, resources)
+	return a.authorize(mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources, Method: mocks.MethodAuthorize})
+}
+
+func (a *denyCollections) AuthorizeAndRequireActiveNamespace(ctx context.Context, principal *models.Principal, verb string, class string, resources ...string) error {
+	return a.authorize(mocks.AuthZReq{
+		Principal: principal, Verb: verb, Resources: resources,
+		Method: mocks.MethodAuthorizeAndRequireActiveNamespace, Class: class,
+	})
 }
 
 func (a *denyCollections) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
-	return a.authorize(principal, verb, resources)
+	return a.authorize(mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources, Method: mocks.MethodAuthorizeSilent})
 }
 
 func (a *denyCollections) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, verb string, resources ...string) ([]string, error) {
-	if err := a.authorize(principal, verb, resources); err != nil {
+	if err := a.authorize(mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources, Method: mocks.MethodFilterAuthorizedResources}); err != nil {
 		return nil, err
 	}
 	return resources, nil
@@ -1196,7 +1282,7 @@ func TestHybridHandlerHappyPath(t *testing.T) {
 
 func TestHandlerStripsNamespaceFromErrors(t *testing.T) {
 	deps := newTestHandler(t)
-	deps.handler.namespacesEnabled = true
+	deps.handler.qualifier = wlnamespaces.NewPrefixing()
 	principal := &models.Principal{Username: "someone", Namespace: "ns1"}
 
 	// unknown collection: the internal error names the qualified collection
