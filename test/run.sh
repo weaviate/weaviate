@@ -12,6 +12,7 @@ function main() {
   run_acceptance_only_fast_group_5=false
   run_acceptance_only_fast_group_6=false
   run_acceptance_distributed_tasks=false
+  run_acceptance_licensed=false
   run_acceptance_only_authz=false
   run_acceptance_only_mcp=false
   run_acceptance_only_python=false
@@ -97,6 +98,7 @@ function main() {
           --acceptance-only-fast-group-5|-aof-g5) run_all_tests=false; run_acceptance_only_fast_group_5=true;;
           --acceptance-only-fast-group-6|-aof-g6) run_all_tests=false; run_acceptance_only_fast_group_6=true;;
           --acceptance-distributed-tasks) run_all_tests=false; run_acceptance_distributed_tasks=true;;
+          --acceptance-licensed|-al) run_all_tests=false; run_acceptance_licensed=true;;
           --acceptance-only-python|-aop) run_all_tests=false; run_acceptance_only_python=true;;
           --acceptance-only-python-namespaces|-aopns) run_all_tests=false; run_acceptance_only_python_namespaces=true;;
           --acceptance-go-client|-ag) run_all_tests=false; run_acceptance_go_client=true;;
@@ -176,6 +178,7 @@ function main() {
               "--acceptance-only-fast-group-6 | -aof-g6"\
               "--acceptance-only-python | -aop"\
               "--acceptance-only-python-namespaces | -aopns"\
+              "--acceptance-licensed | -al"\
               "--acceptance-go-client | -ag"\
               "--acceptance-go-client-only-fast | -agof"\
               "--acceptance-go-client-only-fast-group-1 | -agof-g1"\
@@ -420,6 +423,11 @@ function main() {
     echo "running acceptance distributed_tasks"
     build_weaviate_test_image
     run_aof_group "distributed-tasks" test/acceptance/distributed_tasks
+  fi
+
+  if $run_acceptance_licensed || $run_acceptance_tests || $run_all_tests; then
+    echo "running acceptance tests that need a license key"
+    run_acceptance_licensed
   fi
 
   if $run_acceptance_reindex_multinode; then
@@ -755,7 +763,28 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/distributed_tasks' \
     | grep -v 'test/acceptance/drop_vector_index' \
     | grep -v 'test/acceptance/selfrecovery' \
+    | grep -v -E "$licensed_acceptance_packages" \
     | sed 's|.*/test/acceptance/|test/acceptance/|'
+}
+
+# Packages whose clusters need WEAVIATE_LICENSE_KEY: every namespace-enabled
+# cluster does. They run only in their own CI job, which forks and Dependabot
+# skip because they cannot read the secret.
+licensed_acceptance_packages='test/acceptance/(namespace|licensed/)'
+
+function run_acceptance_licensed() {
+  build_weaviate_test_image
+  build_mockoidc_docker_image_for_tests
+  local listed
+  if ! listed=$(go list ./... | grep -E "$licensed_acceptance_packages" | sed 's|.*/test/acceptance/|test/acceptance/|'); then
+    echo "no licensed acceptance packages found" >&2
+    return 1
+  fi
+  local -a packages=()
+  while IFS= read -r pkg; do
+    packages+=("$pkg")
+  done <<<"$listed"
+  run_aof_group "licensed" "${packages[@]}"
 }
 
 # run_aof_group runs a group of acceptance test packages with appropriate test flags.
@@ -825,7 +854,7 @@ function get_aof_group() {
     1) echo "test/acceptance/multi_node test/acceptance/actions" ;;
     2) echo "test/acceptance/schema test/acceptance/cluster_api_auth test/acceptance/batch_request_endpoints" ;;
     3) echo "test/acceptance/grpc" ;;
-    4) echo "test/acceptance/alter_schema test/acceptance/namespace test/acceptance/namespace_limits test/acceptance/vector_index_restrictions" ;;
+    4) echo "test/acceptance/alter_schema test/acceptance/vector_index_restrictions" ;;
     6) echo "test/acceptance/authn test/acceptance/aliases test/acceptance/maintenance_mode test/acceptance/vector_distances test/acceptance/backups" ;;
     *) echo "" ;;
   esac
