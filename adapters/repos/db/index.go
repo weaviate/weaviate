@@ -606,6 +606,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		}
 	}
 	i.prepareDimensionsOfShards(ctx, class, withDirs)
+	i.recountPropertyLengthsOfShards(ctx, class, withDirs)
 
 	hotShardNames := make([]string, 0, len(localShards))
 
@@ -781,25 +782,6 @@ func (i *Index) maintenanceModeEnabled() bool {
 	return i.Config.MaintenanceModeEnabled != nil && i.Config.MaintenanceModeEnabled()
 }
 
-// Iterate over all objects in the index, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
-func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard ShardLike, object *storobj.Object) error) (err error) {
-	return i.ForEachShard(func(_ string, shard ShardLike) error {
-		wrapper := func(object *storobj.Object) error {
-			return cb(i, shard, object)
-		}
-		// pinned for the whole iteration: the cursor underneath reads the
-		// bucket's segments, and an unpinned pointer can be shut down between
-		// the lookup and the scan
-		bucket, release := shard.Store().AcquireBucketForRead(helpers.ObjectsBucketLSM)
-		if bucket == nil {
-			return fmt.Errorf("objects bucket of shard %q: %w", shard.Name(), lsmkv.ErrBucketNotFound)
-		}
-		defer release()
-
-		return bucket.IterateObjects(ctx, wrapper)
-	})
-}
-
 // cancelOnCloseRequested derives a context cancelled on close request, so a teardown
 // does not wait behind a lock the caller holds. Call the returned func when done.
 // The derived context is cancelled with the same cause, so a caller can tell a
@@ -870,13 +852,6 @@ func (i *Index) ForEachLoadedShardConcurrently(f func(name string, shard ShardLi
 			return nil
 		}
 		return f(name, shard)
-	})
-}
-
-// Iterate over all objects in the shard, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
-func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard ShardLike) error) (err error) {
-	return i.ForEachShard(func(key string, shard ShardLike) error {
-		return cb(i, shard)
 	})
 }
 
@@ -1243,7 +1218,8 @@ type IndexConfig struct {
 	TrackVectorDimensions               bool
 	TrackVectorDimensionsInterval       time.Duration
 	MigrateDimensionsToRoaringSet       bool
-	DimensionsReindex                   *dimensionsReindex
+	DimensionsReindex                   *startupRebuild
+	PropertyLengthsRecount              *startupRebuild
 	UsageEnabled                        bool
 	ShardLoadLimiter                    *loadlimiter.LoadLimiter
 	StartupShards                       *startupShardCounters
@@ -3405,6 +3381,7 @@ func (i *Index) drop() error {
 		return err
 	}
 	i.Config.DimensionsReindex.forget(i.ID())
+	i.Config.PropertyLengthsRecount.forget(i.ID())
 
 	// Terminal registry sweep. Safe because beginClose sets i.closed under
 	// closeLock.Lock and drains every reader admitted before it, and every
@@ -3567,6 +3544,7 @@ func (i *Index) dropShards(names []string) error {
 
 	i.purgeUnloadedShardRegistry(unloadedNames)
 	i.Config.DimensionsReindex.forget(i.ID(), names...)
+	i.Config.PropertyLengthsRecount.forget(i.ID(), names...)
 
 	return ec.ToErrorLimited(maxReportedErrors)
 }
@@ -4252,4 +4230,76 @@ func (i *Index) beginClose() error {
 
 	i.inflight.Wait()
 	return nil
+}
+
+// recountPropertyLengthsOfShards recounts the property lengths of active and cold
+// shards before they load, without loading them. A failed shard is retried at load.
+func (i *Index) recountPropertyLengthsOfShards(ctx context.Context, class *models.Class, shardNames []string) {
+	recount := i.Config.PropertyLengthsRecount
+	if recount == nil || !recount.enabled || len(shardNames) == 0 {
+		return
+	}
+
+	i.logger.WithField("action", "recount_property_lengths").WithField("shards", len(shardNames)).
+		Warn("Recounting property lengths before the shards load. It cannot be cancelled, and " +
+			"runs on every startup while environment variable RECOUNT_PROPERTIES_AT_STARTUP is set")
+	start := time.Now()
+	eg := enterrors.NewErrorGroupWrapper(i.logger)
+	eg.SetLimit(_NUMCPU)
+	for _, name := range shardNames {
+		eg.Go(func() error {
+			i.recountUnloadedShardPropertyLengths(ctx, class, name)
+			return nil
+		}, name)
+	}
+	_ = eg.Wait()
+	i.logger.WithField("action", "recount_property_lengths").WithField("shards", len(shardNames)).
+		WithField("took", time.Since(start)).Info("property lengths recount before load finished")
+}
+
+func (i *Index) recountUnloadedShardPropertyLengths(ctx context.Context, class *models.Class, name string) {
+	recount := i.Config.PropertyLengthsRecount
+	if !recount.pending(i.ID(), name) {
+		return
+	}
+	logger := i.logger.WithField("action", "recount_property_lengths").WithField("shard", name)
+	if _, err := os.Stat(shardPath(i.path(), name)); err != nil {
+		if !os.IsNotExist(err) {
+			logger.Errorf("could not recount property lengths: %v", err)
+		}
+		return
+	}
+
+	start := time.Now()
+	objects, err := i.recountUnloadedShard(ctx, class, name)
+	recount.record(i.ID(), name, objects, err == nil)
+	if err != nil {
+		logger.Errorf("could not recount property lengths, retrying when the shard loads: %v", err)
+		return
+	}
+	logger.WithField("objects", objects).WithField("took", time.Since(start)).Info("property lengths recounted")
+}
+
+func (i *Index) recountUnloadedShard(ctx context.Context, class *models.Class, name string) (objects int, err error) {
+	if i.unloadedShardIsEmpty(name) {
+		if propertyLengthsReadable(shardPath(i.path(), name)) {
+			return 0, nil
+		}
+		return 0, writeEmptyPropertyLengths(shardPath(i.path(), name), i.logger)
+	}
+	s, closeShard, err := i.openUnloadedShard(ctx, class, name)
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		if closeErr := closeShard(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}()
+
+	r := newPropertyLengthsRecounter(s)
+	if objects, err = r.count(ctx); err != nil {
+		return 0, err
+	}
+	return objects, r.replaceTrackerFile()
 }
