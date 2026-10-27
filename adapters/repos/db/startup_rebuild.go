@@ -12,8 +12,16 @@
 package db
 
 import (
+	"context"
+	"os"
 	"slices"
 	"sync"
+	"time"
+
+	"github.com/sirupsen/logrus"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // startupRebuild makes REINDEX_VECTOR_DIMENSIONS_AT_STARTUP or
@@ -94,4 +102,46 @@ func (r *startupRebuild) summary() (rebuilt, failed int, objects int64) {
 		}
 	}
 	return rebuilt, failed, r.objects
+}
+
+// rebuildShardsBeforeLoad runs rebuild on each of the shards that has a dir,
+// _NUMCPU at a time.
+func (i *Index) rebuildShardsBeforeLoad(ctx context.Context, action, finished string, shardNames []string,
+	rebuild func(logger logrus.FieldLogger, name string),
+) {
+	start := time.Now()
+	eg := enterrors.NewErrorGroupWrapper(i.logger)
+	eg.SetLimit(_NUMCPU)
+	for _, name := range shardNames {
+		eg.Go(func() error {
+			logger := i.logger.WithField("action", action).WithField("shard", name)
+			if _, err := os.Stat(shardPath(i.path(), name)); err != nil {
+				if !os.IsNotExist(err) {
+					logger.Errorf("could not stat shard dir: %v", err)
+				}
+				return nil
+			}
+			rebuild(logger, name)
+			return nil
+		}, name)
+	}
+	_ = eg.Wait()
+	i.logger.WithField("action", action).WithField("shards", len(shardNames)).
+		WithField("took", time.Since(start)).Info(finished)
+}
+
+// rebuildUnloadedShard runs rebuild on the shard opened by openUnloadedShard.
+func (i *Index) rebuildUnloadedShard(ctx context.Context, class *models.Class, name string,
+	rebuild func(s *Shard) (objects int, err error),
+) (objects int, err error) {
+	s, closeShard, err := i.openUnloadedShard(ctx, class, name)
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		if closeErr := closeShard(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}()
+	return rebuild(s)
 }

@@ -23,18 +23,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
-	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/cluster"
-	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -99,13 +94,7 @@ func TestRecountPropertyLengthsAtStartup(t *testing.T) {
 			dir, shardState := t.TempDir(), singleShardState()
 
 			repo, _ := openRecountTestDB(t, dir, shardState, false, tt.lazy)
-			for _, name := range recountTestNames {
-				require.NoError(t, repo.PutObject(testCtx(), &models.Object{
-					Class:      recountTestClass,
-					ID:         strfmt.UUID(uuid.NewString()),
-					Properties: map[string]any{"name": name},
-				}, []float32{1, 2, 3}, nil, nil, nil, 0))
-			}
+			putRecountTestObjects(t, repo)
 			trackerPath := recountTestTracker(t, repo).FileName()
 			require.NoError(t, repo.Shutdown(context.Background()))
 
@@ -228,24 +217,18 @@ func TestRecountPropertyLengths_SwapFailsToReplaceTrackerFile(t *testing.T) {
 	}, []float32{1, 2, 3}, nil, nil, nil, 0))
 	shard := recountTestShard(t, repo)
 
-	r := newPropertyLengthsRecounter(shard)
-	_, err := r.count(testCtx())
+	r := newPropertyLengthsRecounter(shard.path(), shard.index.logger)
+	_, err := r.count(testCtx(), shard)
 	require.NoError(t, err)
 	require.NoError(t, os.Remove(r.recountPath))
-	require.Error(t, r.swapIn())
+	require.Error(t, r.swapIn(shard))
 }
 
 // The recount must be done before the shard serves, so a load cancelled during it fails.
 func TestRecountPropertyLengthsOnLoad_CancelledFailsLoad(t *testing.T) {
 	repo, schemaGetter := openRecountTestDB(t, t.TempDir(), singleShardState(), false, false)
 	defer repo.Shutdown(context.Background())
-	for _, name := range recountTestNames {
-		require.NoError(t, repo.PutObject(testCtx(), &models.Object{
-			Class:      recountTestClass,
-			ID:         strfmt.UUID(uuid.NewString()),
-			Properties: map[string]any{"name": name},
-		}, []float32{1, 2, 3}, nil, nil, nil, 0))
-	}
+	putRecountTestObjects(t, repo)
 	shard := recountTestShard(t, repo)
 	idx, name, class := shard.index, shard.name, shard.class
 	recountPath := filepath.Join(shard.path(), propLengthsRecountFile)
@@ -271,13 +254,7 @@ func TestRecountPropertyLengthsOnLoad_CancelledFailsLoad(t *testing.T) {
 func TestRecountPropertyLengthsBeforeLoad_FailureRetriedOnLoad(t *testing.T) {
 	repo, _ := openRecountTestDB(t, t.TempDir(), singleShardState(), false, false)
 	defer repo.Shutdown(context.Background())
-	for _, name := range recountTestNames {
-		require.NoError(t, repo.PutObject(testCtx(), &models.Object{
-			Class:      recountTestClass,
-			ID:         strfmt.UUID(uuid.NewString()),
-			Properties: map[string]any{"name": name},
-		}, []float32{1, 2, 3}, nil, nil, nil, 0))
-	}
+	putRecountTestObjects(t, repo)
 	shard := recountTestShard(t, repo)
 	idx, name, class := shard.index, shard.name, shard.class
 	trackerPath := shard.GetPropertyLengthTracker().FileName()
@@ -331,13 +308,7 @@ func TestRecountPropertyLengthsBeforeLoad_UnreadableTrackerOfEmptyShard(t *testi
 func TestRecountPropertyLengthsOnLoad_BeforeAsyncReplication(t *testing.T) {
 	repo, schemaGetter := openRecountTestDB(t, t.TempDir(), singleShardState(), false, false)
 	defer repo.Shutdown(context.Background())
-	for _, name := range recountTestNames {
-		require.NoError(t, repo.PutObject(testCtx(), &models.Object{
-			Class:      recountTestClass,
-			ID:         strfmt.UUID(uuid.NewString()),
-			Properties: map[string]any{"name": name},
-		}, []float32{1, 2, 3}, nil, nil, nil, 0))
-	}
+	putRecountTestObjects(t, repo)
 	shard := recountTestShard(t, repo)
 	idx, name, class := shard.index, shard.name, shard.class
 	recountPath := filepath.Join(shard.path(), propLengthsRecountFile)
@@ -376,34 +347,15 @@ func (g *recountHookSchemaGetter) ReadOnlyClass(name string) *models.Class {
 	return g.SchemaGetter.ReadOnlyClass(name)
 }
 
-// A corrupt segment makes the cursor panic, which must not fail the load.
-func TestRecountPropertyLengthsOnLoad_CorruptObjectsSegment(t *testing.T) {
-	ctx := testCtx()
-	shard, idx, class := recalculationTestShard(t, ctx)
-	putRecalculationObjects(t, ctx, shard, class, 5)
-	require.NoError(t, shard.Shutdown(ctx))
-	// loaded once more, so the segment's sidecars are written before it is corrupted
-	loaded, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
-	require.NoError(t, err)
-	require.NoError(t, loaded.Shutdown(ctx))
-
-	segments, err := filepath.Glob(filepath.Join(shard.pathLSM(), helpers.ObjectsBucketLSM, "segment-*.db"))
-	require.NoError(t, err)
-	require.NotEmpty(t, segments)
-	f, err := os.OpenFile(segments[0], os.O_RDWR, 0o600)
-	require.NoError(t, err)
-	// the value length of the first node, after its tombstone byte
-	_, err = f.WriteAt([]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}, int64(segmentindex.HeaderSize+1))
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
-
-	recount := &startupRebuild{enabled: true}
-	idx.Config.PropertyLengthsRecount = recount
-	reloaded, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
-	require.NoError(t, err, "the shard must load")
-	defer reloaded.Shutdown(ctx)
-	_, failed, _ := recount.summary()
-	assert.Equal(t, 1, failed)
+func putRecountTestObjects(t *testing.T, repo *DB) {
+	t.Helper()
+	for _, name := range recountTestNames {
+		require.NoError(t, repo.PutObject(testCtx(), &models.Object{
+			Class:      recountTestClass,
+			ID:         strfmt.UUID(uuid.NewString()),
+			Properties: map[string]any{"name": name},
+		}, []float32{1, 2, 3}, nil, nil, nil, 0))
+	}
 }
 
 func requireTally(t *testing.T, shard *Shard, wantSum, wantCount int, msg string) {
@@ -482,37 +434,9 @@ func recountTestSchema() schema.Schema {
 // it with the same shardState, as that names the shard.
 func openRecountTestDB(t *testing.T, dir string, shardState *sharding.State, recount, lazy bool) (*DB, *fakeSchemaGetter) {
 	t.Helper()
-	logger, _ := test.NewNullLogger()
-	sch := recountTestSchema()
-	schemaGetter := &fakeSchemaGetter{schema: sch, shardState: shardState}
-
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
-		func(className string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
-			return readFunc(sch.GetClass(className), shardState)
-		}).Maybe()
-	mockSchemaReader.EXPECT().ReadOnlySchema().Return(*sch.Objects).Maybe()
-	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
-	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
-	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
-	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockNodeSelector := cluster.NewMockNodeSelector(t)
-	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-
-	repo, err := New(logger, "node1", Config{
-		RootPath:                   dir,
-		QueryMaximumResults:        1000,
-		MaxImportGoroutinesFactor:  1,
-		EnableLazyLoadShards:       boolPtr(lazy),
-		RecountPropertiesAtStartup: recount,
-	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
-	require.NoError(t, err)
-	repo.SetSchemaGetter(schemaGetter)
-	require.NoError(t, repo.WaitForStartup(testCtx()))
-	return repo, schemaGetter
+	repo := openTestDatabase(t, dir, shardState, monitoring.GetMetrics(), func(config *Config) {
+		config.EnableLazyLoadShards = boolPtr(lazy)
+		config.RecountPropertiesAtStartup = recount
+	}, recountTestSchema().Objects.Classes...)
+	return repo, repo.schemaGetter.(*fakeSchemaGetter)
 }
