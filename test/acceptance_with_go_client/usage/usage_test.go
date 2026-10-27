@@ -1881,7 +1881,11 @@ func testUsageMuvera(t *testing.T, c *client.Client, debug string) {
 		shard := colUsage.Shards[0]
 		require.Equal(t, strings.ToLower(expectedStatus), shard.Status)
 		if expectedStatus == models.TenantActivityStatusACTIVE {
-			require.Equal(t, int64(numObjects), shard.ObjectsCount)
+			// making a tenant HOT no longer loads its shard, so the object count is 0
+			// until the shard gets loaded. Flushing more often (e.g.
+			// PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS=1) would report the
+			// proper count after making the tenant HOT again.
+			require.Equal(t, int64(0), shard.ObjectsCount)
 		}
 		require.Equal(t, expected, namedVectorDimensionalities(t, shard))
 
