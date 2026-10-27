@@ -118,6 +118,9 @@ type LocalFilter struct {
 type Value struct {
 	Value interface{}     `json:"value"`
 	Type  schema.DataType `json:"type"`
+
+	// Only Contains turns many values into keys; any other operator encodes one per shard.
+	containsKeys containsKeysCache
 }
 
 func (v *Value) UnmarshalJSON(data []byte) error {

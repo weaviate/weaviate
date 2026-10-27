@@ -3353,13 +3353,15 @@ func (i *Index) LoadLocalShardForTenantAdd(ctx context.Context, shardName string
 	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, false, false, callerTenantAdd, "tenant added")
 }
 
-// LoadLocalShardForTenantActivation loads a shard for the apply that records a
-// tenant turning HOT. It skips and returns nil for the same reason
-// [Index.LoadLocalShardForTenantAdd] does.
+// LoadLocalShardForTenantActivation registers a shard for the apply that records
+// a tenant turning HOT. It skips and returns nil for the same reason
+// [Index.LoadLocalShardForTenantAdd] does. Lazy loading opens it on first touch,
+// since a shard opened in the serial apply delays every entry behind it; with
+// lazy loading off it opens regardless, because nothing else would.
 func (i *Index) LoadLocalShardForTenantActivation(ctx context.Context, shardName string,
 	implicitShardLoading bool,
 ) error {
-	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, true, implicitShardLoading,
+	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, !i.Config.EnableLazyLoadShards, implicitShardLoading,
 		callerTenantActivation, "tenant activated")
 }
 
@@ -3371,14 +3373,17 @@ func (i *Index) LoadLocalShardForTenantProcess(ctx context.Context, shardName st
 	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, true, false, callerTenantProcess, "tenant status applied")
 }
 
-// loadLocalShardForReload opens a shard for the reload replaying committed
+// loadLocalShardForReload registers a shard for the reload replaying committed
 // schema. A namespace that keeps no shards open opens none and returns nil: an
 // error here would skip the tenant drops and property adds the same reload
 // owes, and nothing re-runs a reload. The skip is silent, like
 // initAndStoreShards', since a suspended namespace reaches this once per
-// tenant. mustLoad preserves the eager load each call site did before.
-func (i *Index) loadLocalShardForReload(ctx context.Context, shardName string, mustLoad bool) error {
-	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, false, callerReload)
+// tenant. The reload runs from the serial apply, so lazy loading opens the
+// shard on first touch; with lazy loading off it opens regardless, because
+// nothing else would.
+func (i *Index) loadLocalShardForReload(ctx context.Context, shardName string) error {
+	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName,
+		!i.Config.EnableLazyLoadShards, false, callerReload)
 	if stderrors.Is(err, errShardNamespaceClosed) {
 		return nil
 	}

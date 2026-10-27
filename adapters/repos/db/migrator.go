@@ -462,7 +462,7 @@ func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 
 		if phys.Status == models.TenantActivityStatusHOT {
 			// Only load the tenant if activity status == HOT.
-			ec.AddWrapf(idx.loadLocalShardForReload(ctx, shardName, true /* mustLoad */),
+			ec.AddWrapf(idx.loadLocalShardForReload(ctx, shardName),
 				"add missing tenant shard %s during update index", shardName)
 		} else {
 			// Shutdown the tenant if activity status != HOT
@@ -535,7 +535,7 @@ func (m *Migrator) updateIndexShards(ctx context.Context, idx *Index,
 
 	for _, shardName := range requestedShards {
 		if _, exists := existingShards[shardName]; !exists {
-			ec.AddWrapf(idx.loadLocalShardForReload(ctx, shardName, false /* mustLoad */),
+			ec.AddWrapf(idx.loadLocalShardForReload(ctx, shardName),
 				"add missing shard %s during update index", shardName)
 		}
 	}

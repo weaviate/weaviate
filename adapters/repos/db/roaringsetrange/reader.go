@@ -59,6 +59,9 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 	var mergingSum time.Duration
 
 	defer func() {
+		if !helpers.HasSlowQueryDetails(ctx) {
+			return
+		}
 		took := time.Since(before)
 		vals := map[string]any{
 			"readers":                         count,
@@ -70,7 +73,7 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 			"took_string":                     took.String(),
 		}
 
-		helpers.AnnotateSlowQueryLogAppend(ctx, "build_allow_list_doc_bitmap_rangeable", vals)
+		helpers.AnnotateSlowQueryLogAppendReducible(ctx, "build_allow_list_doc_bitmap_rangeable", vals, helpers.ReduceToSlowest)
 	}()
 
 	switch count {
