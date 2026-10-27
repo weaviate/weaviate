@@ -51,11 +51,15 @@ type fakeEditOpBucket struct {
 	pendingErr     error                          // when set, EditOpPending returns it
 	pendingFn      func(string) ([]string, error) // when set, overrides all other pending sources
 	polled         chan struct{}                  // if set, a non-blocking signal per EditOpPending call
+	registerErr    error                          // when set, RegisterEditOp returns it
 }
 
 func (f *fakeEditOpBucket) RegisterEditOp(opID string, desc lsmkv.OpDescriptor) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.registerErr != nil {
+		return f.registerErr
+	}
 	if f.registered == nil {
 		f.registered = map[string]lsmkv.OpDescriptor{}
 	}
@@ -151,7 +155,9 @@ type fakeShards struct {
 	bucket     editOpBucket
 	buckets    map[string]editOpBucket // per-shard override; takes precedence over bucket
 	bucketErr  error
-	resolveErr error // when set, the bucket resolution itself fails
+	resolveErr error                   // when set, the bucket resolution itself fails
+	loaded     map[string]editOpBucket // when non-nil, what EditOpBucketsForLoadedShards alone returns
+	loadedErr  error                   // when set, EditOpBucketsForLoadedShards alone fails
 	mu         sync.Mutex
 	removed    []removedCall
 	removeErr  map[string]error // per-shard EnsureDroppedVectorFilesRemoved error
@@ -185,6 +191,12 @@ func (f *fakeShards) EditOpBucketsForShards(ctx context.Context, collection stri
 }
 
 func (f *fakeShards) EditOpBucketsForLoadedShards(collection string, shardNames []string) (map[string]editOpBucket, error) {
+	if f.loadedErr != nil {
+		return nil, f.loadedErr
+	}
+	if f.loaded != nil {
+		return f.loaded, nil
+	}
 	return f.resolve(shardNames)
 }
 
@@ -577,6 +589,126 @@ func TestStartTask_BucketLookupFails_UnitFailed(t *testing.T) {
 
 	require.Contains(t, rec.failed, "u1")
 	require.Empty(t, rec.completed)
+}
+
+// TestStartTask_BucketResolutionFails_FailsUnitWithReason pins that the lookup
+// error itself, not a missing-shard reason, is what GET /v1/tasks shows.
+func TestStartTask_BucketResolutionFails_FailsUnitWithReason(t *testing.T) {
+	shards := &fakeShards{resolveErr: errors.New(`index for collection "Collection" not found`)}
+	rec := newFakeRecorder()
+	p := newTestDropProvider(shards, &fakeFinalizer{}, rec)
+
+	task := dropTask(distributedtask.TaskStatusStarted, map[string]*distributedtask.Unit{
+		"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+	})
+	h, err := p.StartTask(task)
+	require.NoError(t, err)
+	waitDone(t, h)
+
+	require.Contains(t, rec.failed, "u1")
+	require.Contains(t, rec.failed["u1"], `index for collection "Collection" not found`)
+	require.Empty(t, rec.completed)
+}
+
+// TestStartTask_ShutdownDuringBucketResolution_LeavesUnitUnfailed pins that a
+// lookup error seen during a shutdown leaves the unit for the task's resume.
+func TestStartTask_ShutdownDuringBucketResolution_LeavesUnitUnfailed(t *testing.T) {
+	shards := &fakeShards{resolveErr: errors.New("listing failed")}
+	rec := newFakeRecorder()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	p := newTestDropProviderCtx(shards, &fakeFinalizer{}, rec, ctx)
+
+	task := dropTask(distributedtask.TaskStatusStarted, map[string]*distributedtask.Unit{
+		"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+	})
+	h, err := p.StartTask(task)
+	require.NoError(t, err)
+	waitDone(t, h)
+
+	require.Empty(t, rec.failed, "shutdown must not fail the unit")
+	require.Empty(t, rec.completed)
+}
+
+// TestStartTask_ShardUnloaded_ReasonNamesSuspend pins that a unit's failure
+// reason names a suspended namespace only when the shard no longer holds the
+// unit's bucket. A shard a resume reopened under a new bucket no longer holds it.
+func TestStartTask_ShardUnloaded_ReasonNamesSuspend(t *testing.T) {
+	registerErr := errors.New("bucket is shutting down")
+	readErr := errors.New("database not open")
+	unloaded := map[string]editOpBucket{}
+	reopened := map[string]editOpBucket{"shard1": &fakeEditOpBucket{}}
+
+	tests := []struct {
+		name         string
+		bucket       *fakeEditOpBucket
+		loaded       map[string]editOpBucket
+		loadedErr    error
+		dimsErr      error
+		wantReason   string // a substring of the unit's reason
+		namesSuspend bool
+	}{
+		{
+			name:         "before arming",
+			bucket:       &fakeEditOpBucket{registerErr: registerErr},
+			loaded:       unloaded,
+			wantReason:   "register drop edit op: bucket is shutting down",
+			namesSuspend: true,
+		},
+		{
+			name:       "register fails on a loaded shard",
+			bucket:     &fakeEditOpBucket{registerErr: registerErr},
+			wantReason: "register drop edit op: bucket is shutting down",
+		},
+		{
+			name:         "resumed mid-drain",
+			bucket:       &fakeEditOpBucket{pendingErr: readErr},
+			loaded:       reopened,
+			wantReason:   "shard no longer locally loaded",
+			namesSuspend: true,
+		},
+		{
+			name:       "loaded-shard lookup fails",
+			bucket:     &fakeEditOpBucket{pendingErr: readErr},
+			loadedErr:  errors.New("listing failed"),
+			wantReason: "consecutive errors",
+		},
+		{
+			name:         "after the drain",
+			bucket:       &fakeEditOpBucket{pendingSeq: [][]string{{}}},
+			loaded:       unloaded,
+			dimsErr:      errDimensionsShardNotLoaded,
+			wantReason:   "clear dimension rows",
+			namesSuspend: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			shards := &fakeShards{bucket: tt.bucket, loaded: tt.loaded, loadedErr: tt.loadedErr}
+			if tt.dimsErr != nil {
+				shards.dimsErr = map[string]error{"shard1": tt.dimsErr}
+			}
+			rec := newFakeRecorder()
+			p := newTestDropProvider(shards, &fakeFinalizer{}, rec)
+
+			h, err := p.StartTask(dropTask(distributedtask.TaskStatusStarted, map[string]*distributedtask.Unit{
+				"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+			}))
+			require.NoError(t, err)
+			waitDone(t, h)
+
+			require.Empty(t, rec.completed)
+			reason := rec.failed["u1"]
+			require.Contains(t, reason, tt.wantReason)
+			if tt.namesSuspend {
+				require.Contains(t, reason, "its namespace suspended")
+				require.Contains(t, reason, "on reactivation or resume")
+			} else {
+				require.NotContains(t, reason, "suspended")
+				require.NotContains(t, reason, "resume")
+			}
+		})
+	}
 }
 
 // TestStartTask_TargetNoLongerDropped_RefusesToArm pins the arm-time guard: if
