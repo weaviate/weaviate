@@ -147,8 +147,8 @@ func TestNullArrayClass(t *testing.T) {
 	}
 }
 
-// An object lacking a property matches IsNull with only IndexNullState on,
-// through updates that drop or add the property and a reindex.
+// An object lacking a property matches len(prop) == 0 and IsNull with either
+// flag on alone, through updates that drop or add the property and a reindex.
 func TestMissingPropertyIndexedUnderEachFlag(t *testing.T) {
 	tests := []struct {
 		name                string
@@ -156,6 +156,11 @@ func TestMissingPropertyIndexedUnderEachFlag(t *testing.T) {
 		indexPropertyLength bool
 		filter              *filters.LocalFilter
 	}{
+		{
+			name:                "len(strings) == 0 with only IndexPropertyLength",
+			indexPropertyLength: true,
+			filter:              buildFilter("len(strings)", 0, eq, dtInt),
+		},
 		{
 			name:           "strings IsNull with only IndexNullState",
 			indexNullState: true,
