@@ -138,3 +138,49 @@ func TestLazyLoadShard_IsLoadedRacesUnloadsAndReloads(t *testing.T) {
 	require.True(t, f.lazy.isLoaded())
 	require.EqualValues(t, 1, f.unloader.registry.Loaded())
 }
+
+// TryUnload holds shardCreateLocks only across try-locks and atomics; the
+// teardown runs after it, so no request path waits on the create lock behind it.
+func TestLazyLoadShard_TryUnloadNeverHoldsTheCreateLockAcrossItsTeardown(t *testing.T) {
+	u := newFakeShardUnloader()
+	f := newAddPropertyLazyFixture(t, "UnloadLocks", multiShardState(), withShardUnloader(u))
+	var victim, other string
+	var lazy *LazyLoadShard
+	for name, l := range f.coldShards(t) {
+		if lazy == nil {
+			victim, lazy = name, l
+		} else {
+			other = name
+		}
+	}
+	for _, name := range []string{victim, other} {
+		shard, release, err := f.index.GetShard(testCtx(), name)
+		require.NoError(t, err)
+		require.NotNil(t, shard)
+		release()
+	}
+	entered, release := blockTeardown(t, lazy)
+	done := make(chan UnloadOutcome, 1)
+	go func() { done <- lazy.TryUnload(testCtx(), UnloadRequest{Mode: UnloadModeRequest, Reindex: noReindex}) }()
+	<-entered
+
+	require.True(t, f.index.shardCreateLocks.TryLock(victim), "the victim's create lock is free during its teardown")
+	f.index.shardCreateLocks.Unlock(victim)
+	pinned := make(chan error, 1)
+	go func() {
+		_, rel, err := f.index.pinResidentShard(other, true)
+		rel()
+		pinned <- err
+	}()
+	select {
+	case err := <-pinned:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		release()
+		require.FailNow(t, "a pin on another shard waited on an unload teardown")
+	}
+	require.False(t, lazy.isLoaded())
+
+	release()
+	require.Equal(t, UnloadOutcomeOK, <-done)
+}
