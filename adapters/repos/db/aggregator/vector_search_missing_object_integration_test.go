@@ -48,11 +48,12 @@ func (f *fixedVectorIndex) SearchByVectorDistance(context.Context, []float32, fl
 	return append([]uint64{}, f.ids...), append([]float32{}, f.dists...), nil
 }
 
-// TestAggregatorObjectVectorSearch_MissingObjectKeepsDistancesAligned deletes
-// one object's row from the objects bucket while the vector index still ranks
-// it, the state of a delete whose index tombstone has not landed yet, and
-// checks that the hybrid fusion input (objs[i] paired with dists[i]) stays
-// aligned: the missing object is dropped together with its distance.
+// TestAggregatorObjectVectorSearch_MissingObjectKeepsDistancesAligned checks
+// that the hybrid fusion input (objs[i] paired with dists[i]) stays aligned
+// when the vector index still ranks a doc ID whose row is gone from the objects
+// bucket (a delete whose index tombstone has not landed yet) and when a
+// certainty cutoff trims the ranked ids: the missing object is dropped together
+// with its distance, and the distances are trimmed with the ids.
 func TestAggregatorObjectVectorSearch_MissingObjectKeepsDistancesAligned(t *testing.T) {
 	const count = 5
 	ctx := context.Background()
@@ -60,34 +61,42 @@ func TestAggregatorObjectVectorSearch_MissingObjectKeepsDistancesAligned(t *test
 	dists := []float32{0.1, 0.2, 0.3, 0.4, 0.5}
 
 	cases := []struct {
-		name    string
-		missing uint64
+		name      string
+		missing   []uint64
+		certainty float64 // 0 = no cutoff; targetDist = (1 - certainty) * 2
+		wantIDs   []uint64
 	}{
-		{name: "missing object is the best hit", missing: 0},
-		{name: "missing object is in the middle", missing: 2},
-		{name: "missing object is the worst hit", missing: 4},
+		{name: "missing object is the best hit", missing: []uint64{0}, wantIDs: []uint64{1, 2, 3, 4}},
+		{name: "missing object is in the middle", missing: []uint64{2}, wantIDs: []uint64{0, 1, 3, 4}},
+		{name: "missing object is the worst hit", missing: []uint64{4}, wantIDs: []uint64{0, 1, 2, 3}},
+		{name: "cutoff keeps three hits, nothing missing", certainty: 0.85, wantIDs: []uint64{0, 1, 2}},
+		{name: "cutoff keeps three hits, one missing", missing: []uint64{1}, certainty: 0.85, wantIDs: []uint64{0, 2}},
+		{name: "cutoff excludes every hit", certainty: 0.99, wantIDs: []uint64{}},
+		{name: "cutoff excludes every hit and one is missing", missing: []uint64{0}, certainty: 0.99, wantIDs: []uint64{}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			store, _ := objectsBucketFixture(t, ctx, false, count, 16, 1)
 			bucket := store.Bucket(helpers.ObjectsBucketLSM)
-			deleteFixtureObject(t, bucket, tc.missing)
+			for _, docID := range tc.missing {
+				deleteFixtureObject(t, bucket, docID)
+			}
 
 			logger, _ := test.NewNullLogger()
 			limit := count
 			agg := &Aggregator{
 				logger:      logger,
 				store:       store,
-				params:      aggregation.Params{ObjectLimit: &limit},
+				params:      aggregation.Params{ObjectLimit: &limit, Certainty: tc.certainty},
 				vectorIndex: &fixedVectorIndex{ids: ranked, dists: dists},
 			}
 
 			objs, gotDists, err := agg.objectVectorSearch(ctx, models.Vector([]float32{1, 0}), nil)
 			require.NoError(t, err)
-			require.Len(t, objs, count-1, "the missing object must be dropped")
+			require.Len(t, objs, len(tc.wantIDs))
 			require.Len(t, gotDists, len(objs), "one distance per returned object")
 			for i, obj := range objs {
-				require.NotEqual(t, tc.missing, obj.DocID, "missing object must not be returned")
+				require.Equal(t, tc.wantIDs[i], obj.DocID, "object at position %d", i)
 				require.Equal(t, dists[obj.DocID], gotDists[i],
 					"object at position %d (doc %d) carries another object's distance", i, obj.DocID)
 			}
