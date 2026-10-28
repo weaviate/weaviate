@@ -23,6 +23,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
@@ -939,4 +940,33 @@ func TestBeforeLoadRacingCloseNeverStrandsAClaim(t *testing.T) {
 			require.Zero(t, h.p.pending.Load())
 		})
 	}
+}
+
+// synctest fails a test whose bubble still holds goroutines once it returns,
+// so this pins that Close leaves neither the loop nor a worker behind.
+func TestCloseLeavesNoGoroutineBehind(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		logger, _ := logrustest.NewNullLogger()
+		k := newTestKnobs()
+		set(t, k.workers, 8)
+		set(t, k.maxLoaded, 1)
+		reg := newFakeRegistry()
+		p := newPolicy[*fakeShard](reg, k.knobs(), policyDeps{
+			logger: logger, clock: reg.clock, namespaces: true,
+			metrics: newMetrics(nil, true, logger),
+		})
+		p.setReindexSource(func(context.Context) (db.ReindexActivity, error) { return db.NewReindexActivity(nil), nil })
+		for range 4 {
+			reg.load("s", "ns")
+		}
+		tickOnce(time.Second)
+		p.beforeLoad(&fakeShard{name: "loading", reg: reg})
+		synctest.Wait()
+		set(t, k.workers, 2)
+		p.refreshConfig()
+		synctest.Wait()
+
+		require.NoError(t, p.close(context.Background()))
+		require.Zero(t, p.workersRunning.Load())
+	})
 }
