@@ -129,10 +129,12 @@ type DB struct {
 	schemaReader   local.SchemaReader
 	replicationFSM types.ReplicationFSMReader
 
-	// reindexLookupsMu guards the two lookups below: written at scheduler start, read from backup.
-	reindexLookupsMu                   sync.RWMutex
-	shardReindexActivityLookupBuilder  ShardReindexActivityLookupBuilder
-	reindexCleanupInProgressLookupBldr CleanupInProgressLookupBuilder
+	// reindexLookupsMu guards the three lookups below: written at scheduler start, read from backup and the unloader.
+	reindexLookupsMu                  sync.RWMutex
+	shardReindexActivityLookupBuilder ShardReindexActivityLookupBuilder
+	// shardReindexActivitySnapshotBuilder serves only the lazy shard unloader.
+	shardReindexActivitySnapshotBuilder ShardReindexActivitySnapshotBuilder
+	reindexCleanupInProgressLookupBldr  CleanupInProgressLookupBuilder
 
 	// Both carry their own lock; see [migrationUnitSeals] and
 	// [migrationClusterReconciler].
@@ -441,6 +443,7 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 	}
 
 	if config.ShardUnloader != nil {
+		config.ShardUnloader.SetReindexActivitySource(db.ReindexActivitySnapshot)
 		startAccessClock(db.shutdown, db.logger)
 	}
 

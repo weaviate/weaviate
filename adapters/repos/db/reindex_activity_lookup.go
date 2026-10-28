@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"encoding/json"
 
 	"github.com/sirupsen/logrus"
@@ -72,4 +73,14 @@ func (db *DB) SetShardReindexActivityLookup(builder ShardReindexActivityLookupBu
 	db.reindexLookupsMu.Lock()
 	defer db.reindexLookupsMu.Unlock()
 	db.shardReindexActivityLookupBuilder = builder
+}
+
+// ShardReindexActivitySnapshotBuilder is a [ShardReindexActivityLookupBuilder] that honours ctx.
+type ShardReindexActivitySnapshotBuilder func(ctx context.Context) (ShardReindexActivityLookup, error)
+
+// SetShardReindexActivitySnapshot installs the builder [DB.ReindexActivitySnapshot] prefers.
+func (db *DB) SetShardReindexActivitySnapshot(builder ShardReindexActivitySnapshotBuilder) {
+	db.reindexLookupsMu.Lock()
+	defer db.reindexLookupsMu.Unlock()
+	db.shardReindexActivitySnapshotBuilder = builder
 }

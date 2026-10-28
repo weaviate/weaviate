@@ -60,6 +60,9 @@ func (p *policy[S]) tick(now time.Time) *snapshot {
 		return s
 	}
 	clear(p.nsActiveCache)
+	if s.maxLoaded > 0 || s.high > 0 || s.idleTTL > 0 {
+		p.refreshReindex()
+	}
 	budget := min(s.rate, cap(p.backgroundCh)-len(p.backgroundCh))
 	budget -= p.drainWatermarks(s, now, budget)
 	p.sweepIdle(s, now, budget)
@@ -119,7 +122,7 @@ func (p *policy[S]) drainWatermarks(s *snapshot, now time.Time, budget int) int 
 	sample := int(min(max(int64(s.candidates), 4*need), maxWatermarkSample))
 	eligible := p.rank(s, now, sample, false)
 	return p.enqueueRanked(eligible, int(need), reasonWatermark,
-		db.UnloadRequest{Mode: db.UnloadModeBackground, MinResidency: s.minResidency})
+		db.UnloadRequest{Mode: db.UnloadModeBackground, MinResidency: s.minResidency, Reindex: p.reindexSnapshot()})
 }
 
 // sweepIdle unloads every shard idle for idle_ttl, whatever the limits, every
@@ -139,7 +142,7 @@ func (p *policy[S]) sweepIdle(s *snapshot, now time.Time, budget int) {
 	}
 	eligible := p.rank(s, now, int(p.reg.Loaded())+64, true)
 	queued := p.enqueueRanked(eligible, budget, reasonIdle,
-		db.UnloadRequest{Mode: db.UnloadModeBackground, MinResidency: s.minResidency, IdleTTL: s.idleTTL})
+		db.UnloadRequest{Mode: db.UnloadModeBackground, MinResidency: s.minResidency, IdleTTL: s.idleTTL, Reindex: p.reindexSnapshot()})
 	p.idleBacklog = queued >= budget && len(eligible) > queued
 }
 
