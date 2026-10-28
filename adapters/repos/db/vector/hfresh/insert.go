@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
@@ -33,6 +34,22 @@ func (h *HFresh) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32
 	}
 	if len(ids) == 0 {
 		return errors.Errorf("insertBatch called with empty lists")
+	}
+
+	if dims := atomic.LoadUint32(&h.dims); dims > 0 {
+		for _, vec := range vectors {
+			if len(vec) != int(dims) {
+				return errors.Wrapf(common.ErrWrongDimensions, "new node has a vector with length %v. "+
+					"Existing nodes have vectors with length %v", len(vec), dims)
+			}
+		}
+	} else {
+		for _, vec := range vectors {
+			if len(vec) != len(vectors[0]) {
+				return errors.Wrapf(common.ErrWrongDimensions, "insert called with vectors of different lengths: got %d, expected %d",
+					len(vec), len(vectors[0]))
+			}
+		}
 	}
 
 	for i, id := range ids {
@@ -57,6 +74,9 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) error {
 		// dimensionality, corrupting every subsequent AddMulti.
 		// AddMulti encodes documents into FDEs and inserts them via add.
 		return errors.New("collection is configured as multi-vector: single vectors are not supported")
+	}
+	if err := h.ValidateBeforeInsert(vector); err != nil {
+		return err
 	}
 	return h.add(ctx, id, vector)
 }
@@ -284,6 +304,9 @@ func (h *HFresh) AddMulti(ctx context.Context, docID uint64, vectors [][]float32
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if err := h.ValidateMultiBeforeInsert(vectors); err != nil {
+		return err
+	}
 	if len(vectors) == 0 || len(vectors[0]) == 0 {
 		return errors.New("multi-vector cannot be empty")
 	}
@@ -331,6 +354,29 @@ func (h *HFresh) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][
 		return errors.Errorf("addMultiBatch called with empty lists")
 	}
 
+	muveraDims := h.muveraEncoder.Dimensions()
+	if muveraDims > 0 {
+		for _, doc := range vectors {
+			for _, vec := range doc {
+				if len(vec) != muveraDims {
+					return errors.Wrapf(common.ErrWrongDimensions, "new node has a multi-vector with dimension %d. "+
+						"Existing nodes have dimensions %d", len(vec), muveraDims)
+				}
+			}
+		}
+	} else {
+		firstDim := -1
+		for _, doc := range vectors {
+			for _, vec := range doc {
+				if firstDim == -1 {
+					firstDim = len(vec)
+				} else if len(vec) != firstDim {
+					return errors.Wrapf(common.ErrWrongDimensions, "addMultiBatch called with vectors of different lengths: got %d, expected %d", len(vec), firstDim)
+				}
+			}
+		}
+	}
+
 	for i, docID := range docIDs {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -364,7 +410,7 @@ func (h *HFresh) ValidateMultiBeforeInsert(vectors [][]float32) error {
 	}
 
 	if muveraDims := h.muveraEncoder.Dimensions(); muveraDims != 0 && firstDim != muveraDims {
-		return fmt.Errorf("new node has a multi-vector with dimension %d. "+
+		return errors.Wrapf(common.ErrWrongDimensions, "new node has a multi-vector with dimension %d. "+
 			"Existing nodes have dimensions %d", firstDim, muveraDims)
 	}
 
@@ -394,9 +440,16 @@ func (h *HFresh) ValidateBeforeInsert(vector []float32) error {
 	}
 
 	if len(vector) != int(dims) {
-		return fmt.Errorf("new node has a vector with length %v. "+
+		return errors.Wrapf(common.ErrWrongDimensions, "new node has a vector with length %v. "+
 			"Existing nodes have vectors with length %v", len(vector), dims)
 	}
 
 	return nil
+}
+
+func (h *HFresh) Dimension() int {
+	if h.muvera.Load() {
+		return h.muveraEncoder.Dimensions()
+	}
+	return int(atomic.LoadUint32(&h.dims))
 }

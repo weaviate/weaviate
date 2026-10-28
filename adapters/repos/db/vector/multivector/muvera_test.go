@@ -13,6 +13,7 @@ package multivector
 
 import (
 	"math"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -169,5 +170,44 @@ func TestEncodedVectorMatchesConfiguredDimensions(t *testing.T) {
 			assert.Len(t, encoder.EncodeDoc(tokens), expected)
 			assert.Len(t, encoder.EncodeQuery(tokens), expected)
 		})
+	}
+}
+
+func TestMuveraEncoder_ConcurrentReadAndInitRace(t *testing.T) {
+	for iter := 0; iter < 50; iter++ {
+		config := ent.MuveraConfig{
+			KSim:         3,
+			DProjections: 8,
+			Repetitions:  2,
+		}
+		encoder := NewMuveraEncoder(config, nil)
+
+		var wg sync.WaitGroup
+		wg.Add(3)
+
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 50; i++ {
+				_ = encoder.Dimensions()
+			}
+		}()
+
+		go func() {
+			defer wg.Done()
+			encoder.InitEncoder(32)
+		}()
+
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 50; i++ {
+				d := encoder.Dimensions()
+				if d > 0 {
+					assert.Equal(t, 32, d)
+				}
+			}
+		}()
+
+		wg.Wait()
+		assert.Equal(t, 32, encoder.Dimensions())
 	}
 }

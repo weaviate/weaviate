@@ -20,6 +20,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -104,6 +105,20 @@ func TestAddBatch_InconsistentVectorDimensions(t *testing.T) {
 	err := index.AddBatch(context.Background(), ids, vectors)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "different lengths")
+	assert.True(t, errors.Is(err, common.ErrWrongDimensions))
+
+	// Index must remain uninitialized (dims == 0)
+	assert.Equal(t, 0, index.Dimension())
+
+	// Subsequent batch with uniform dimensions succeeds and establishes dimension
+	validIDs := []uint64{1, 2}
+	validVectors := [][]float32{
+		{0.1, 0.2, 0.3, 0.4},
+		{0.5, 0.6, 0.7, 0.8},
+	}
+	err = index.AddBatch(context.Background(), validIDs, validVectors)
+	require.NoError(t, err)
+	assert.Equal(t, 4, index.Dimension())
 }
 
 func TestAddBatch_EmptyVector(t *testing.T) {
@@ -195,7 +210,7 @@ func TestAddBatch_WrongDimensionsAfterInitialBatch(t *testing.T) {
 
 	err = index.AddBatch(context.Background(), batch2IDs, batch2Vectors)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "vector lengths don't match")
+	assert.True(t, errors.Is(err, common.ErrWrongDimensions))
 }
 
 func TestAddBatch_MemoryAllocationFailure(t *testing.T) {
@@ -380,6 +395,78 @@ func TestAddBatch_ConcurrentAddBatchCalls(t *testing.T) {
 	for i := 0; i < expectedTotal; i++ {
 		assert.True(t, index.ContainsDoc(uint64(i)), "missing doc %d", i)
 	}
+}
+
+func TestAddMultiBatch_InconsistentVectorDimensions(t *testing.T) {
+	index := newTestMultivectorIndex(t)
+	defer index.Shutdown(context.Background())
+
+	// 1. Uninitialized multi-vector index: conflicting token dimensions across documents
+	docIDs := []uint64{1, 2}
+	vectors := [][][]float32{
+		{{0.1, 0.2, 0.3}, {0.4, 0.5, 0.6}}, // 3D
+		{{0.1, 0.2, 0.3, 0.4}},             // 4D
+	}
+
+	err := index.AddMultiBatch(context.Background(), docIDs, vectors)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, common.ErrWrongDimensions))
+	assert.Equal(t, 0, index.Dimension())
+
+	// 2. Uniform batch succeeds and establishes dimension = 4
+	validIDs := []uint64{1, 2}
+	validVectors := [][][]float32{
+		{{0.1, 0.2, 0.3, 0.4}, {0.5, 0.6, 0.7, 0.8}},
+		{{0.9, 1.0, 1.1, 1.2}},
+	}
+	err = index.AddMultiBatch(context.Background(), validIDs, validVectors)
+	require.NoError(t, err)
+	assert.Equal(t, 4, index.Dimension())
+
+	// 3. Batch with mismatched dimensions against established index returns ErrWrongDimensions
+	mismatchedIDs := []uint64{3}
+	mismatchedVectors := [][][]float32{
+		{{0.1, 0.2, 0.3}}, // 3D != 4D
+	}
+	err = index.AddMultiBatch(context.Background(), mismatchedIDs, mismatchedVectors)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, common.ErrWrongDimensions))
+}
+
+func TestValidateMultiBeforeInsert_Dimensions(t *testing.T) {
+	index := newTestMultivectorIndex(t)
+	defer index.Shutdown(context.Background())
+
+	// 1. Uninitialized: varying token dimensions within single document
+	varyingDoc := [][]float32{
+		{0.1, 0.2, 0.3},
+		{0.1, 0.2},
+	}
+	err := index.ValidateMultiBeforeInsert(varyingDoc)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "multi vector array consists of vectors with varying dimensions")
+
+	// 2. Uninitialized: uniform tokens pass validation
+	uniformDoc := [][]float32{
+		{0.1, 0.2, 0.3, 0.4},
+		{0.5, 0.6, 0.7, 0.8},
+	}
+	err = index.ValidateMultiBeforeInsert(uniformDoc)
+	require.NoError(t, err)
+
+	// Establish dimension = 4
+	err = index.AddMulti(context.Background(), 1, uniformDoc)
+	require.NoError(t, err)
+	assert.Equal(t, 4, index.Dimension())
+
+	// 3. Established index: mismatched dimension returns ErrWrongDimensions
+	wrongDimDoc := [][]float32{
+		{0.1, 0.2, 0.3},
+		{0.4, 0.5, 0.6},
+	}
+	err = index.ValidateMultiBeforeInsert(wrongDimDoc)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, common.ErrWrongDimensions))
 }
 
 func testHNSW(t *testing.T) *hnsw {

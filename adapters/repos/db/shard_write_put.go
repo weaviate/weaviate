@@ -322,6 +322,58 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 		}
 	}
 
+	// Atomically reserve dimensions before LSM persistence
+	for targetVector, vector := range obj.Vectors {
+		_, err := s.WithVectorIndexQueue(targetVector, func(q *VectorIndexQueue) error {
+			if q == nil {
+				return nil
+			}
+			expected, err := q.ReserveDimension(len(vector))
+			if err != nil {
+				return fmt.Errorf("target vector %q: dimension mismatch: expected %d, got %d", targetVector, expected, len(vector))
+			}
+			return nil
+		})
+		if err != nil {
+			return status, err
+		}
+	}
+
+	for targetVector, vector := range obj.MultiVectors {
+		if len(vector) > 0 && len(vector[0]) > 0 {
+			tokenDim := len(vector[0])
+			_, err := s.WithVectorIndexQueue(targetVector, func(q *VectorIndexQueue) error {
+				if q == nil {
+					return nil
+				}
+				expected, err := q.ReserveDimension(tokenDim)
+				if err != nil {
+					return fmt.Errorf("target vector %q: dimension mismatch: expected %d, got %d", targetVector, expected, tokenDim)
+				}
+				return nil
+			})
+			if err != nil {
+				return status, err
+			}
+		}
+	}
+
+	if len(obj.Vector) > 0 && s.index.GetVectorIndexConfig("") != nil {
+		_, err := s.WithVectorIndexQueue("", func(q *VectorIndexQueue) error {
+			if q == nil {
+				return nil
+			}
+			expected, err := q.ReserveDimension(len(obj.Vector))
+			if err != nil {
+				return fmt.Errorf("target vector %q: dimension mismatch: expected %d, got %d", "", expected, len(obj.Vector))
+			}
+			return nil
+		})
+		if err != nil {
+			return status, err
+		}
+	}
+
 	bucket, release, err := s.objectsBucket()
 	if err != nil {
 		return status, err

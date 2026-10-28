@@ -369,21 +369,23 @@ func getSingleShardNameFromRepo(repo *DB, className string) string {
 	return shardName
 }
 
-func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models.Class,
-	vic schemaConfig.VectorIndexConfig, withStopwords, multiTenant, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
-) (ShardLike, *Index) {
+func setupTestIndexWithTenants(t testing.TB, ctx context.Context, class *models.Class,
+	vic schemaConfig.VectorIndexConfig, withStopwords, withAsyncIndexingEnabled bool, tenants []string, indexOpts ...func(*Index),
+) (*Index, *sharding.State) {
 	tmpDir := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	maxResults := int64(10_000)
 
 	var shardState *sharding.State
-	if multiTenant {
-		shardState = NewMultiTenantShardingStateBuilder().
+	if len(tenants) > 0 {
+		builder := NewMultiTenantShardingStateBuilder().
 			WithIndexName("multi-tenant-index").
 			WithNodePrefix("node").
-			WithReplicationFactor(1).
-			WithTenant("foo-tenant", "HOT").
-			Build()
+			WithReplicationFactor(1)
+		for _, tenant := range tenants {
+			builder = builder.WithTenant(tenant, "HOT")
+		}
+		shardState = builder.Build()
 	} else {
 		shardState = singleShardState()
 	}
@@ -535,13 +537,24 @@ func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models
 		}
 		idx.stopwordProvider.Store(stopwords.NewProvider(sd, presetDetectors))
 	}
-	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
+	idx.closingCtx, idx.closingCancel = context.WithCancel(ctx)
 	idx.initCycleCallbacksNoop()
 	for _, opt := range indexOpts {
 		opt(idx)
 	}
 	idx.AsyncIndexingEnabled = withAsyncIndexingEnabled
 
+	return idx, shardState
+}
+
+func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models.Class,
+	vic schemaConfig.VectorIndexConfig, withStopwords, multiTenant, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
+) (ShardLike, *Index) {
+	var tenants []string
+	if multiTenant {
+		tenants = []string{"foo-tenant"}
+	}
+	idx, shardState := setupTestIndexWithTenants(t, ctx, class, vic, withStopwords, withAsyncIndexingEnabled, tenants, indexOpts...)
 	shardName := shardState.AllPhysicalShards()[0]
 
 	shard, err := idx.initShard(ctx, shardName, class, nil, idx.Config.EnableLazyLoadShards, true)

@@ -1105,6 +1105,24 @@ func (_c *MockVectorIndex_UpdateUserConfig_Call) RunAndReturn(run func(config.Ve
 	return _c
 }
 
+// Dimension provides a mock function with given fields:
+func (_m *MockVectorIndex) Dimension() int {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Dimension")
+	}
+
+	var r0 int
+	if rf, ok := ret.Get(0).(func() int); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(int)
+	}
+
+	return r0
+}
+
 // ValidateBeforeInsert provides a mock function with given fields: vector
 func (_m *MockVectorIndex) ValidateBeforeInsert(vector []float32) error {
 	ret := _m.Called(vector)
@@ -1156,7 +1174,8 @@ func (_c *MockVectorIndex_ValidateBeforeInsert_Call) RunAndReturn(run func([]flo
 func NewMockVectorIndex(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockVectorIndex {
+},
+) *MockVectorIndex {
 	mock := &MockVectorIndex{}
 	mock.Mock.Test(t)
 

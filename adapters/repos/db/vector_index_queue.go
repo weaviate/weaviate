@@ -25,6 +25,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
 	"github.com/weaviate/weaviate/entities/dto"
 )
 
@@ -143,31 +144,103 @@ func (iq *VectorIndexQueue) Close(ctx context.Context) error {
 	return iq.DiskQueue.Close(ctx)
 }
 
+func (iq *VectorIndexQueue) Dimension() int {
+	if iq == nil {
+		return 0
+	}
+	return int(iq.dims.Load())
+}
+
+// ReserveDimension atomically reserves the vector dimension for this queue/index
+// before records are written to persistent LSM storage. If the index or queue
+// already has an established dimension that conflicts with dim, it returns the
+// established dimension and common.ErrWrongDimensions.
+func (iq *VectorIndexQueue) ReserveDimension(dim int) (int, error) {
+	if iq == nil || dim <= 0 {
+		return 0, nil
+	}
+	if _, isNoop := iq.vectorIndex.(*noop.Index); isNoop {
+		return 0, nil
+	}
+
+	if iq.vectorIndex != nil && iq.vectorIndex.Dimension() > 0 {
+		est := iq.vectorIndex.Dimension()
+		iq.dims.CompareAndSwap(0, int32(est))
+		if est != dim {
+			return est, fmt.Errorf("%w: dimension mismatch: expected %d, got %d", common.ErrWrongDimensions, est, dim)
+		}
+		return est, nil
+	}
+
+	if !iq.dims.CompareAndSwap(0, int32(dim)) {
+		current := int(iq.dims.Load())
+		if current > 0 && current != dim {
+			return current, fmt.Errorf("%w: dimension mismatch: expected %d, got %d", common.ErrWrongDimensions, current, dim)
+		}
+	}
+
+	return dim, nil
+}
+
 func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.VectorRecord) error {
+	if _, isNoop := iq.vectorIndex.(*noop.Index); isNoop {
+		return nil
+	}
+
 	if !iq.asyncEnabled {
 		return common.AddVectorsToIndex(ctx, vectors, iq.vectorIndex)
 	}
 
 	start := time.Now()
-	defer iq.metrics.Insert(start, len(vectors))
+	defer func() {
+		if iq.metrics != nil {
+			iq.metrics.Insert(start, len(vectors))
+		}
+	}()
+
+	var establishedDim int
+	if iq.vectorIndex != nil && iq.vectorIndex.Dimension() > 0 {
+		establishedDim = iq.vectorIndex.Dimension()
+		iq.dims.CompareAndSwap(0, int32(establishedDim))
+	} else if currentDims := iq.dims.Load(); currentDims > 0 {
+		establishedDim = int(currentDims)
+	}
+
+	// Validate dimensions and records upfront before pushing any records to the queue.
+	// This ensures that an invalid batch never enqueues partial records or poisons iq.dims.
+	batchDim := establishedDim
+	for _, v := range vectors {
+		if establishedDim > 0 {
+			if v.Len() != establishedDim {
+				return fmt.Errorf("%w: inconsistent vector lengths: %d != %d", common.ErrWrongDimensions, v.Len(), establishedDim)
+			}
+		} else {
+			if batchDim == 0 {
+				batchDim = v.Len()
+			} else if v.Len() != batchDim {
+				return fmt.Errorf("%w: inconsistent vector lengths: %d != %d", common.ErrWrongDimensions, v.Len(), batchDim)
+			}
+		}
+
+		if iq.vectorIndex != nil {
+			if err := v.Validate(iq.vectorIndex); err != nil {
+				return errors.Wrap(err, "failed to validate")
+			}
+		}
+	}
+
+	if establishedDim == 0 && batchDim > 0 {
+		if !iq.dims.CompareAndSwap(0, int32(batchDim)) {
+			if iq.dims.Load() != int32(batchDim) {
+				return fmt.Errorf("%w: inconsistent vector lengths: %d != %d", common.ErrWrongDimensions, batchDim, iq.dims.Load())
+			}
+		}
+	}
 
 	var buf []byte
 	var err error
 
 	for _, v := range vectors {
-		// validate vector
-		if err := v.Validate(iq.vectorIndex); err != nil {
-			return errors.Wrap(err, "failed to validate")
-		}
-
-		// if the index is still empty, ensure the first batch is consistent
-		// by keeping track of the dimensions of the vectors.
-		if !iq.dims.CompareAndSwap(0, int32(v.Len())) {
-			if iq.dims.Load() != int32(v.Len()) {
-				return errors.Errorf("inconsistent vector lengths: %d != %d", v.Len(), iq.dims.Load())
-			}
-		}
-
 		// encode vector
 		buf = buf[:0]
 		buf, err = encodeVector(buf, v)

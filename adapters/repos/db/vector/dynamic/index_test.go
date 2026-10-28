@@ -1691,3 +1691,91 @@ func TestDynamicUpgradedIndexDropsNodeIDBeyondDocIDCounter(t *testing.T) {
 		assert.Zero(t, st.Size(), "commit log must be truncated before the out-of-limit record")
 	}
 }
+
+func TestDynamic_AddBatch_WrongDimensions(t *testing.T) {
+	ctx := context.Background()
+	meta, err := shardmeta.Open(t.TempDir(), time.Second)
+	require.NoError(t, err)
+	t.Cleanup(func() { meta.Close() })
+
+	vectors, _ := testinghelpers.RandomVecs(20, 0, 8)
+	idx := newUpgradeTestDynamic(t, t.TempDir(), "dynamic-addbatch-dims", meta, vectors, hnsw.MakeNoopCommitLogger)
+	t.Cleanup(func() { idx.Shutdown(context.Background()) })
+
+	// First batch establishes dimension = 8
+	batch1IDs := []uint64{0, 1}
+	batch1Vectors := [][]float32{vectors[0], vectors[1]}
+	err = idx.AddBatch(ctx, batch1IDs, batch1Vectors)
+	require.NoError(t, err)
+
+	// Second batch with wrong dimension = 4 must return common.ErrWrongDimensions
+	batch2IDs := []uint64{2, 3}
+	batch2Vectors := [][]float32{
+		{0.1, 0.2, 0.3, 0.4},
+		{0.5, 0.6, 0.7, 0.8},
+	}
+	err = idx.AddBatch(ctx, batch2IDs, batch2Vectors)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, common.ErrWrongDimensions))
+}
+
+func TestDynamic_AddBatch_InconsistentDimensionsUninitialized(t *testing.T) {
+	ctx := context.Background()
+	meta, err := shardmeta.Open(t.TempDir(), time.Second)
+	require.NoError(t, err)
+	t.Cleanup(func() { meta.Close() })
+
+	vectors, _ := testinghelpers.RandomVecs(20, 0, 8)
+	idx := newUpgradeTestDynamic(t, t.TempDir(), "dynamic-addbatch-inconsistent", meta, vectors, hnsw.MakeNoopCommitLogger)
+	t.Cleanup(func() { idx.Shutdown(context.Background()) })
+
+	// Inconsistent batch on uninitialized dynamic index (dim 3 and dim 4)
+	ids := []uint64{0, 1, 2}
+	inconsistentVectors := [][]float32{
+		{0.1, 0.2, 0.3},
+		{0.4, 0.5, 0.6, 0.7},
+		{0.8, 0.9, 1.0},
+	}
+	err = idx.AddBatch(ctx, ids, inconsistentVectors)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, common.ErrWrongDimensions))
+	assert.Equal(t, 0, idx.Dimension())
+
+	// Subsequent batch with uniform dimensions succeeds and establishes dimension
+	validIDs := []uint64{0, 1}
+	validVectors := [][]float32{vectors[0], vectors[1]}
+	err = idx.AddBatch(ctx, validIDs, validVectors)
+	require.NoError(t, err)
+	assert.Equal(t, 8, idx.Dimension())
+}
+
+func TestDynamic_AddBatch_ValidationEdgeCases(t *testing.T) {
+	ctx := context.Background()
+	meta, err := shardmeta.Open(t.TempDir(), time.Second)
+	require.NoError(t, err)
+	t.Cleanup(func() { meta.Close() })
+
+	vectors, _ := testinghelpers.RandomVecs(5, 0, 8)
+	idx := newUpgradeTestDynamic(t, t.TempDir(), "dynamic-addbatch-edge-cases", meta, vectors, hnsw.MakeNoopCommitLogger)
+	t.Cleanup(func() { idx.Shutdown(context.Background()) })
+
+	t.Run("empty lists", func(t *testing.T) {
+		err := idx.AddBatch(ctx, []uint64{}, [][]float32{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "insertBatch called with empty lists")
+	})
+
+	t.Run("mismatched sizes", func(t *testing.T) {
+		err := idx.AddBatch(ctx, []uint64{1, 2}, [][]float32{vectors[0]})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "ids and vectors sizes does not match")
+	})
+
+	t.Run("cancelled context", func(t *testing.T) {
+		cancCtx, cancel := context.WithCancel(ctx)
+		cancel()
+		err := idx.AddBatch(cancCtx, []uint64{1}, [][]float32{vectors[0]})
+		require.Error(t, err)
+		assert.Equal(t, context.Canceled, err)
+	})
+}
