@@ -12,10 +12,14 @@
 package db
 
 import (
+	"context"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 )
 
 // An inactive shard is read from disk and must neither reach the active halt path nor be loaded.
@@ -58,4 +62,38 @@ func TestBackupShardWithoutHardlinks_InactiveShardStaysOnDisk(t *testing.T) {
 			require.True(t, protected)
 		})
 	}
+}
+
+// An unload between the create-lock release and the halt must not leave the backup halting an orphan rebuilt off the map.
+func TestBackupShardWithoutHardlinks_UnloadBeforeHaltLeavesNoOrphan(t *testing.T) {
+	ctx := testCtx()
+	f := newAddPropertyLazyFixture(t, "LegacyBackupUnloadRace", singleShardState())
+	var name string
+	for n := range f.coldShards(t) {
+		name = n
+	}
+	_, release, err := f.index.getOrInitShard(ctx, name)
+	release()
+	require.NoError(t, err)
+
+	var unloadOutcome ShardUnloadOutcome
+	f.index.legacyBackupBeforeHalt = func() {
+		unloadCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		defer cancel()
+		unloadOutcome, _ = f.index.UnloadLocalShard(unloadCtx, name)
+	}
+	sd, err := f.index.backupShardWithoutHardlinks(ctx, name, nil)
+	f.index.legacyBackupBeforeHalt = nil
+	require.NoError(t, err)
+	require.NotNil(t, sd)
+	require.NoError(t, f.index.ReleaseBackup(ctx, "legacy-unload-race"))
+	require.Equal(t, ShardUnloadOutcomeRefusedInUse, unloadOutcome)
+
+	_, err = f.index.UnloadLocalShard(ctx, name)
+	require.NoError(t, err)
+	db, err := shardmeta.Open(shardPath(f.index.path(), name), time.Second)
+	if err == nil {
+		err = db.Close()
+	}
+	require.NoError(t, err, "an orphan instance still holds the shard's metadata db")
 }

@@ -323,6 +323,9 @@ type Index struct {
 	// Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
 	backupProtectedShards sync.Map
 
+	// legacyBackupBeforeHalt, when set by a test, runs once the legacy backup has released shardCreateLocks.
+	legacyBackupBeforeHalt func()
+
 	// Release uses this to decide whether to resume the shard (halt-for-duration
 	// fallback) or skip resume (snapshot already resumed at create time).
 	replicaSnapshotsMu sync.Mutex
