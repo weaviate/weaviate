@@ -19,7 +19,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
@@ -312,7 +311,6 @@ func (p *policy[S]) enqueue(ch chan item[S], it item[S]) bool {
 // apply and touches only the collectors, never loop-owned state.
 func (p *policy[S]) deleteNamespaceSeries(namespace string) {
 	p.metrics.loaded.DeleteLabelValues(namespace)
-	p.metrics.unloads.DeletePartialMatch(prometheus.Labels{"namespace": namespace})
 }
 
 // setReindexSource installs the snapshot source and wakes the loop to take the first snapshot.

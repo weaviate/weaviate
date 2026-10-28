@@ -537,7 +537,7 @@ func TestNamespaceShareAndActiveNamespaces(t *testing.T) {
 		require.Equal(t, 4, h.loadedCount(big), "an inactive namespace never gives up shards")
 		require.Equal(t, 0, h.loadedCount(small))
 		require.Equal(t, 4.0, testutil.ToFloat64(h.p.metrics.loaded.WithLabelValues("big")))
-		require.Equal(t, 1.0, testutil.ToFloat64(h.p.metrics.unloads.WithLabelValues("make_room", "ok", "big")))
+		require.Equal(t, 1.0, testutil.ToFloat64(h.p.metrics.unloads.WithLabelValues("make_room", "ok")))
 		tickOnce(time.Second)
 		require.Equal(t, 1, testutil.CollectAndCount(h.p.metrics.loaded), "an emptied namespace drops its gauge")
 	})
@@ -838,6 +838,7 @@ func TestRemovedNamespaceLosesItsSeries(t *testing.T) {
 		h.loadN(1, "kept")
 		tickOnce(time.Second)
 		require.Positive(t, testutil.CollectAndCount(h.p.metrics.unloads))
+		require.Empty(t, familyLabelValues(t, h, "weaviate_lazy_shard_unloading_unloads_total", "namespace"))
 
 		monitoring.GetMetrics().DeleteNamespace("gone")
 
@@ -849,6 +850,26 @@ func TestRemovedNamespaceLosesItsSeries(t *testing.T) {
 			require.Equal(t, ns == "kept", found, "namespace %q", ns)
 		}
 	})
+}
+
+func familyLabelValues(t *testing.T, h *harness, family, label string) []string {
+	t.Helper()
+	families, err := h.prom.Gather()
+	require.NoError(t, err)
+	var out []string
+	for _, f := range families {
+		if f.GetName() != family {
+			continue
+		}
+		for _, m := range f.GetMetric() {
+			for _, l := range m.GetLabel() {
+				if l.GetName() == label {
+					out = append(out, l.GetValue())
+				}
+			}
+		}
+	}
+	return out
 }
 
 func seriesNamespaces(t *testing.T, h *harness) []string {

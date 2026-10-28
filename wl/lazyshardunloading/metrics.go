@@ -33,10 +33,8 @@ const (
 	admissionOvercommit = "overcommit"
 )
 
-// metrics carry no per-shard labels; namespace is a label only when namespaces are on.
+// metrics carry no per-shard labels; namespace labels only the loaded gauge, and only when namespaces are on.
 type metrics struct {
-	namespaces bool
-
 	loaded    *prometheus.GaugeVec
 	unloading prometheus.Gauge
 	limit     prometheus.Gauge
@@ -52,17 +50,14 @@ type metrics struct {
 // newMetrics registers with reg; a nil reg leaves the metrics working but unregistered.
 func newMetrics(reg prometheus.Registerer, namespaces bool, logger logrus.FieldLogger) *metrics {
 	var nsLabel []string
-	unloadLabels := []string{"reason", "outcome"}
 	if namespaces {
 		nsLabel = []string{"namespace"}
-		unloadLabels = append(unloadLabels, "namespace")
 	}
 	admissions := prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "weaviate_lazy_shard_unloading_admissions_total",
 		Help: "Lazy shard loads by admission outcome (under_limit|made_room|overcommit). Overcommit means the load went over the limit because no shard could be unloaded to make room.",
 	}, []string{"outcome"})
 	m := &metrics{
-		namespaces: namespaces,
 		loaded: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "weaviate_lazy_shard_unloading_loaded_shards",
 			Help: "Loaded lazy shards on this node.",
@@ -82,7 +77,7 @@ func newMetrics(reg prometheus.Registerer, namespaces bool, logger logrus.FieldL
 		unloads: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "weaviate_lazy_shard_unloading_unloads_total",
 			Help: "Lazy shard unload attempts by reason (make_room|watermark|idle) and outcome (ok, or why the shard was kept).",
-		}, unloadLabels),
+		}, []string{"reason", "outcome"}),
 		unloadDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name:    "weaviate_lazy_shard_unloading_unload_duration_seconds",
 			Help:    "Duration of successful lazy shard unloads (flush and close).",
@@ -120,10 +115,6 @@ func register[T prometheus.Collector](reg prometheus.Registerer, c T, logger log
 	return got
 }
 
-func (m *metrics) observeUnload(r reason, outcome, namespace string) {
-	if m.namespaces {
-		m.unloads.WithLabelValues(string(r), outcome, namespace).Inc()
-		return
-	}
+func (m *metrics) observeUnload(r reason, outcome string) {
 	m.unloads.WithLabelValues(string(r), outcome).Inc()
 }

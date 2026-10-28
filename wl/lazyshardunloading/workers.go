@@ -89,5 +89,5 @@ func (p *policy[S]) process(it item[S]) {
 	if outcome == db.UnloadOutcomeOK {
 		p.metrics.unloadDuration.Observe(time.Since(start).Seconds())
 	}
-	p.metrics.observeUnload(it.reason, string(outcome), it.shard.Namespace())
+	p.metrics.observeUnload(it.reason, string(outcome))
 }
