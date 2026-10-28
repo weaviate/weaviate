@@ -371,7 +371,7 @@ func TestLazyLoadShard_TryUnloadStressWithWatchdog(t *testing.T) {
 			r.addID(f.put(t))
 			var contenders []unloadContender
 			for _, c := range unloadContenders() {
-				if (coldUnloads[c.name] && !tt.withCold) || c.name == "namespace unload and reopen" {
+				if coldUnloads[c.name] && !tt.withCold {
 					continue
 				}
 				if c.name == "2pc prepare then commit" && tt.withCold {

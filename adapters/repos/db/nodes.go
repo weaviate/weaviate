@@ -307,8 +307,20 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 			continue
 		}
 
+		// With unloading on, the pin keeps a loaded shard from being unloaded,
+		// and so reloaded by the calls below, while its status is read.
+		release, unloaded := func() {}, false
+		if i.Config.lazyShardUnloading() {
+			if loaded, rel, err := i.getLoadedShard(name); err == nil && loaded != nil {
+				shard, release = loaded, rel
+			} else {
+				rel()
+				unloaded = true
+			}
+		}
+
 		// Don't force load a lazy shard to get nodes status
-		if lazy, ok := shard.(*LazyLoadShard); ok && !lazy.isLoaded() {
+		if lazy, ok := shard.(*LazyLoadShard); ok && (unloaded || !lazy.isLoaded()) {
 			shardStatus := &models.NodeShardStatus{
 				Name:                 name,
 				Class:                className,
@@ -353,6 +365,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 			ReplicationFactor:      replicationFactor,
 			NumberOfReplicas:       replicaCountOf(name),
 		}
+		release()
 		*status = append(*status, shardStatus)
 		shardCount++
 	}

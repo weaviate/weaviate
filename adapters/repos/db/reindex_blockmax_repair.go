@@ -129,7 +129,12 @@ func (p *ReindexProvider) reconcileClassSearchableBlockmax(ctx context.Context, 
 	// node skips this and seeds from FINISHED-task evidence below instead.
 	observed := make(map[string]bool, len(candidates))
 	if idx := p.db.GetIndex(entschema.ClassName(class.Class)); idx != nil {
-		_ = idx.ForEachLoadedShard(func(_ string, shard ShardLike) error {
+		walk := idx.ForEachLoadedShard
+		if idx.Config.lazyShardUnloading() {
+			// Pinned, so Store below cannot reload a shard unloaded mid-walk.
+			walk = idx.withEachLoadedShard
+		}
+		_ = walk(func(_ string, shard ShardLike) error {
 			for _, propName := range candidates {
 				if observed[propName] {
 					continue
