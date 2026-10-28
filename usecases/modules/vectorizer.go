@@ -184,7 +184,7 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 	if found == nil {
 		return nil, fmt.Errorf("no vectorizer found for class %q", class.Class)
 	}
-	cfg := NewClassBasedModuleConfig(class, found.Name(), "", targetVector, &p.cfg)
+	cfg := p.newClassBasedModuleConfig(class, found.Name(), "", targetVector)
 	targetProperties := p.sourcePropertiesFromModuleConfig(modConfig, found.Name())
 
 	if vectorizer, ok := found.(modulecapabilities.Vectorizer[[]float32]); ok {
@@ -369,7 +369,7 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 			"no vectorizer found for class %q", object.Class)
 	}
 
-	cfg := NewClassBasedModuleConfig(class, found.Name(), "", targetVector, &p.cfg)
+	cfg := p.newClassBasedModuleConfig(class, found.Name(), "", targetVector)
 
 	if vectorizer, ok := found.(modulecapabilities.Vectorizer[[]float32]); ok {
 		if p.shouldVectorizeObject(object, cfg) {
