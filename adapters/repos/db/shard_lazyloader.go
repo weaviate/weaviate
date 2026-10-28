@@ -131,7 +131,7 @@ type deferredShardOpts struct {
 // which a shutdown can clear right after the load. It skips the memwatch
 // admission check: its callers cannot surface a refusal, so one would panic.
 func (l *LazyLoadShard) mustLoad(ctx context.Context) *Shard {
-	shard, _, err := l.load(ctx, false)
+	shard, _, err := l.load(ctx, loadOpts{skipMemoryCheck: true})
 	if err != nil {
 		// mustLoad on a recovering shard is a routing bug; panic explicitly (docs/self-recovery.md).
 		if enterrors.IsShardRecovering(err) {
@@ -165,11 +165,22 @@ func (l *LazyLoadShard) loadedShard() *Shard {
 // whether this call built it. The startup sweep counts only the loads it
 // performed, and a request can take the shard first.
 func (l *LazyLoadShard) loadIfCold(ctx context.Context) (*Shard, bool, error) {
-	return l.load(ctx, true)
+	return l.load(ctx, loadOpts{})
 }
 
-// load is loadIfCold; checkMemory gates the load on the memwatch mapping reservation.
-func (l *LazyLoadShard) load(ctx context.Context, checkMemory bool) (*Shard, bool, error) {
+// loadForWarmup is loadIfCold for the startup warmup, which never makes room.
+func (l *LazyLoadShard) loadForWarmup(ctx context.Context) (*Shard, bool, error) {
+	return l.load(ctx, loadOpts{warmup: true})
+}
+
+type loadOpts struct {
+	// skipMemoryCheck skips the memwatch mapping reservation.
+	skipMemoryCheck bool
+	// warmup skips the unloader's make-room.
+	warmup bool
+}
+
+func (l *LazyLoadShard) load(ctx context.Context, opts loadOpts) (*Shard, bool, error) {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
@@ -182,11 +193,11 @@ func (l *LazyLoadShard) load(ctx context.Context, checkMemory bool) (*Shard, boo
 	}
 
 	u := l.unloader()
-	if u != nil {
+	if u != nil && !opts.warmup {
 		u.BeforeLoad(l)
 	}
 
-	if checkMemory {
+	if !opts.skipMemoryCheck {
 		if err := l.memMonitor.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
 			return nil, false, errors.Wrap(err, "memory pressure: cannot load shard")
 		}

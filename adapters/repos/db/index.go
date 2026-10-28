@@ -752,8 +752,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				continue
 			}
 			if !i.warmupMayLoad() {
-				i.logger.WithField("action", "load_all_shards").WithField("class", i.Config.ClassName.String()).
-					Info("startup warmup stopped at the loaded-shard limit; the remaining shards load on first access")
+				recordOutcome(monitoring.WarmupSkippedLoadedLimit)
 				break
 			}
 
@@ -781,6 +780,9 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 			if outcome != "" {
 				recordOutcome(outcome)
 			}
+			if outcome == monitoring.WarmupSkippedLoadedLimit {
+				break
+			}
 		}
 
 		i.logger.
@@ -796,6 +798,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				"skipped_below_threshold":   tally[monitoring.WarmupSkippedBelowThreshold],
 				"skipped_namespace_unknown": tally[monitoring.WarmupSkippedNamespaceUnknown],
 				"skipped_recovering":        tally[monitoring.WarmupSkippedRecovering],
+				"skipped_loaded_limit":      tally[monitoring.WarmupSkippedLoadedLimit],
 			}).
 			Debug("finished loading all shards")
 	}
@@ -935,7 +938,13 @@ func (i *Index) loadLocalShardIfActive(shardName string) (monitoring.WarmupOutco
 	ctx, done := i.cancelOnCloseRequested(context.Background())
 	defer done()
 
-	_, loaded, err := lazyShard.loadIfCold(ctx)
+	// Reserved right before the load, so concurrent index warmups never pass the limit together.
+	release, ok := i.reserveWarmupLoad()
+	if !ok {
+		return monitoring.WarmupSkippedLoadedLimit, nil
+	}
+	defer release()
+	_, loaded, err := lazyShard.loadForWarmup(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -3728,9 +3737,18 @@ func (i *Index) loadOrPromoteShard(ctx context.Context, shard ShardLike, shardNa
 	outcome := monitoring.WarmupOutcome("warmup_disabled")
 	if i.Config.backgroundWarmupEnabled() {
 		var shouldWarm bool
-		if shouldWarm, outcome = i.warmupDecisionLocked(shardName, shard); shouldWarm && i.warmupMayLoad() {
-			_, _, err := l.loadIfCold(ctx)
-			return err
+		if shouldWarm, outcome = i.warmupDecisionLocked(shardName, shard); shouldWarm {
+			lazy, isLazy := asLazyLoadShard(shard)
+			if !isLazy {
+				_, _, err := l.loadIfCold(ctx)
+				return err
+			}
+			if release, ok := i.reserveWarmupLoad(); ok {
+				defer release()
+				_, _, err := lazy.loadForWarmup(ctx)
+				return err
+			}
+			outcome = monitoring.WarmupSkippedLoadedLimit
 		}
 	}
 	i.logger.WithFields(logrus.Fields{
@@ -3742,10 +3760,23 @@ func (i *Index) loadOrPromoteShard(ctx context.Context, shard ShardLike, shardNa
 	return nil
 }
 
-// warmupMayLoad: warmup never makes room for itself, so it stops where the unloader says.
+// warmupMayLoad peeks whether a warmup load would fit, so the sweep stops before waiting its tick.
 func (i *Index) warmupMayLoad() bool {
+	release, ok := i.reserveWarmupLoad()
+	release()
+	return ok
+}
+
+// reserveWarmupLoad: warmup never makes room for itself, so it stops where the unloader says. release is never nil.
+func (i *Index) reserveWarmupLoad() (release func(), ok bool) {
 	u := i.Config.ShardUnloader
-	return u == nil || u.AllowWarmupLoad()
+	if u == nil {
+		return func() {}, true
+	}
+	if !u.ReserveWarmupLoad() {
+		return func() {}, false
+	}
+	return u.ReleaseWarmupLoad, true
 }
 
 // seedEmptyFallbackCount makes an empty promoted folder warm up like a plain restart of an empty shard.

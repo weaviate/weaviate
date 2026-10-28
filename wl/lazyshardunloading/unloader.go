@@ -77,7 +77,9 @@ func (u *Unloader) Registry() *db.LoadedShardRegistry { return u.registry }
 
 func (u *Unloader) BeforeLoad(shard *db.LazyLoadShard) { u.p.beforeLoad(shard) }
 
-func (u *Unloader) AllowWarmupLoad() bool { return u.p.allowWarmupLoad() }
+func (u *Unloader) ReserveWarmupLoad() bool { return u.p.reserveWarmupLoad() }
+
+func (u *Unloader) ReleaseWarmupLoad() { u.p.releaseWarmupLoad() }
 
 func (u *Unloader) Close(ctx context.Context) error { return u.p.close(ctx) }
 

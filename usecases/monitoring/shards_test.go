@@ -243,6 +243,7 @@ func TestWarmupOutcomeCountsOnItsOwnSeries(t *testing.T) {
 		WarmupSkippedAlreadyLoaded,
 		WarmupSkippedEmpty,
 		WarmupSkippedRecovering,
+		WarmupSkippedLoadedLimit,
 		WarmupSkippedBelowThreshold,
 		WarmupSkippedNamespaceUnknown,
 	}

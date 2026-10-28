@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -201,7 +202,8 @@ func TestPausedLoadsBehaveAsPlainLazyLoading(t *testing.T) {
 		require.Equal(t, 3, h.loadedCount(shards))
 		under, madeRoom, overcommit := admissions(h)
 		require.Equal(t, [3]float64{0, 0, 0}, [3]float64{under, madeRoom, overcommit})
-		require.True(t, h.p.allowWarmupLoad())
+		require.True(t, h.p.reserveWarmupLoad())
+		h.p.releaseWarmupLoad()
 		for _, s := range shards {
 			require.Empty(t, s.requests())
 		}
@@ -539,7 +541,7 @@ func TestNamespaceShareAndActiveNamespaces(t *testing.T) {
 	})
 }
 
-func TestAllowWarmupLoad(t *testing.T) {
+func TestReserveWarmupLoad(t *testing.T) {
 	tests := []struct {
 		name      string
 		configure func(*testKnobs)
@@ -567,7 +569,11 @@ func TestAllowWarmupLoad(t *testing.T) {
 				for range tt.loaded {
 					h.reg.load("s", "")
 				}
-				require.Equal(t, tt.want, h.p.allowWarmupLoad())
+				require.Equal(t, tt.want, h.p.reserveWarmupLoad())
+				if tt.want {
+					h.p.releaseWarmupLoad()
+				}
+				require.Zero(t, h.p.warmupReserved.Load())
 			})
 		})
 	}
@@ -790,4 +796,32 @@ func warnings(h *harness, substr string) int {
 		}
 	}
 	return n
+}
+
+func TestConcurrentWarmupReservationsNeverPassTheLimit(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		const limit, loaders = 3, 32
+		h := newHarness(t, func(k *testKnobs) {
+			set(t, k.maxLoaded, limit)
+			set(t, k.interval, time.Hour)
+		})
+		h.reg.load("loaded", "")
+		var granted atomic.Int64
+		var wg sync.WaitGroup
+		for range loaders {
+			wg.Go(func() {
+				if h.p.reserveWarmupLoad() {
+					granted.Add(1)
+				}
+			})
+		}
+		wg.Wait()
+		require.EqualValues(t, limit-1, granted.Load(), "one shard is loaded, so only limit-1 warmups fit")
+		require.False(t, h.p.reserveWarmupLoad())
+		for range granted.Load() {
+			h.p.releaseWarmupLoad()
+		}
+		require.True(t, h.p.reserveWarmupLoad(), "released reservations free their room")
+		h.p.releaseWarmupLoad()
+	})
 }
