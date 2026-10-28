@@ -162,6 +162,47 @@ func (l *LazyLoadShard) loadedShard() *Shard {
 	return l.currentShard()
 }
 
+// loadedShardUnlessTearing is loadedShard that reads a shard whose TryUnload
+// teardown is running as cold instead of waiting on it.
+func (l *LazyLoadShard) loadedShardUnlessTearing() *Shard {
+	if !l.lockUnlessTearing() {
+		return nil
+	}
+	defer l.mutex.Unlock()
+	return l.currentShard()
+}
+
+// lockUnlessTearing takes l.mutex, or reports false without waiting while a
+// TryUnload holds it for a teardown, so the caller answers as for a cold shard.
+func (l *LazyLoadShard) lockUnlessTearing() bool {
+	if l.unloader() == nil {
+		l.mutex.Lock()
+		return true
+	}
+	for {
+		switch l.unloadPhase.Load() {
+		case unloadPhaseTearing:
+			return false
+		case unloadPhaseDeciding:
+			runtime.Gosched()
+			continue
+		default:
+		}
+		if l.mutex.TryLock() {
+			return true
+		}
+		// As in loadState: announce the wait so no TryUnload starts behind it, then re-check.
+		l.loadWaiters.Add(1)
+		if l.unloadPhase.Load() != unloadPhaseNone {
+			l.loadWaiters.Add(-1)
+			continue
+		}
+		l.mutex.Lock()
+		l.loadWaiters.Add(-1)
+		return true
+	}
+}
+
 // loadIfCold builds the shard unless it is loaded already, and returns it and
 // whether this call built it. The startup sweep counts only the loads it
 // performed, and a request can take the shard first.
@@ -288,7 +329,9 @@ func (l *LazyLoadShard) NotifyReady() {
 }
 
 func (l *LazyLoadShard) GetStatus() storagestate.Status {
-	l.mutex.Lock()
+	if !l.lockUnlessTearing() {
+		return storagestate.StatusLazyLoading
+	}
 	defer l.mutex.Unlock()
 
 	if shard := l.currentShard(); shard != nil {
@@ -298,7 +341,9 @@ func (l *LazyLoadShard) GetStatus() storagestate.Status {
 }
 
 func (l *LazyLoadShard) GetStatusReason() string {
-	l.mutex.Lock()
+	if !l.lockUnlessTearing() {
+		return storagestate.StatusLazyLoading.String()
+	}
 	defer l.mutex.Unlock()
 
 	if shard := l.currentShard(); shard != nil {
@@ -462,9 +507,9 @@ func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated ma
 }
 
 func (l *LazyLoadShard) enableAsyncReplication(ctx context.Context, config AsyncReplicationConfig) error {
-	// A cold shard stays cold, since NewShard applies the config when it loads.
-	// loadedShard takes l.mutex, so callers must not hold replicationConfigLock.
-	shard := l.loadedShard()
+	// A cold or tearing shard stays cold, since NewShard applies the config when it loads.
+	// loadedShardUnlessTearing takes l.mutex, so callers must not hold replicationConfigLock.
+	shard := l.loadedShardUnlessTearing()
 	if shard == nil {
 		return nil
 	}
@@ -472,7 +517,7 @@ func (l *LazyLoadShard) enableAsyncReplication(ctx context.Context, config Async
 }
 
 func (l *LazyLoadShard) disableAsyncReplication(ctx context.Context) error {
-	shard := l.loadedShard()
+	shard := l.loadedShardUnlessTearing()
 	if shard == nil {
 		return nil
 	}
@@ -480,7 +525,7 @@ func (l *LazyLoadShard) disableAsyncReplication(ctx context.Context) error {
 }
 
 func (l *LazyLoadShard) hasActiveAsyncReplicationTargetOverrides() bool {
-	shard := l.loadedShard()
+	shard := l.loadedShardUnlessTearing()
 	if shard == nil {
 		// An unloaded shard holds no in-memory overrides.
 		return false
@@ -706,6 +751,7 @@ func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.E
 func (l *LazyLoadShard) updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
 	property *models.Property, payloadReads *atomic.Int64,
 ) {
+	// Waits out a TryUnload teardown, bounded by that one teardown, before touching the files.
 	if shard := l.loadedShard(); shard != nil {
 		shard.updatePropertyBuckets(ctx, eg, property, payloadReads)
 	} else {
@@ -750,6 +796,7 @@ func (l *LazyLoadShard) updateUnloadedPropertyBuckets(ctx context.Context,
 // No reference is taken. This runs in the RAFT apply, and releasing a reference
 // runs a pending shutdown inline on the releasing goroutine.
 func (l *LazyLoadShard) DropVectorIndex(ctx context.Context, targetVector string) error {
+	// Waits out a TryUnload teardown, bounded by that one teardown, before touching the files.
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
@@ -1194,11 +1241,30 @@ func (l *LazyLoadShard) hasGeoIndex() bool {
 // through ForEachLoadedShard, and the addProperty that false triggers skips cold
 // shards too.
 func (l *LazyLoadShard) hasGeoIndexForProp(propName string) bool {
-	shard := l.loadedShard()
+	if !l.lockUnlessTearing() {
+		// Its reload builds the index from the class, so answer from there instead of waiting.
+		return l.classHasGeoProp(propName)
+	}
+	shard := l.currentShard()
+	l.mutex.Unlock()
 	if shard == nil {
 		return false
 	}
 	return shard.hasGeoIndexForProp(propName)
+}
+
+func (l *LazyLoadShard) classHasGeoProp(propName string) bool {
+	class := l.shardOpts.index.getClass()
+	if class == nil {
+		class = l.shardOpts.class
+	}
+	for _, prop := range class.Properties {
+		if prop.Name == propName {
+			dt, _ := schema.AsPrimitive(prop.DataType)
+			return dt == schema.DataTypeGeoCoordinates
+		}
+	}
+	return false
 }
 
 func (l *LazyLoadShard) Metrics() *Metrics {
@@ -1209,13 +1275,19 @@ func (l *LazyLoadShard) Metrics() *Metrics {
 // it never waits on an unload: a shard whose teardown has started reads as
 // unloaded, and its reload rebuilds it from the current class.
 func (l *LazyLoadShard) isLoaded() bool {
+	loaded, _ := l.loadState()
+	return loaded
+}
+
+// loadState is isLoaded that also reports a running TryUnload teardown, which reads as not loaded.
+func (l *LazyLoadShard) loadState() (loaded, tearing bool) {
 	if l.unloader() == nil {
-		return l.loadedShard() != nil
+		return l.loadedShard() != nil, false
 	}
 	for {
 		switch l.unloadPhase.Load() {
 		case unloadPhaseTearing:
-			return false
+			return false, true
 		case unloadPhaseDeciding:
 			// TryUnload holds the mutex only for try-locks and atomics here.
 			runtime.Gosched()
@@ -1224,12 +1296,12 @@ func (l *LazyLoadShard) isLoaded() bool {
 		}
 		// A published shard means no load is in flight; the mutex is only needed to wait for one.
 		if l.currentShard() != nil {
-			return true
+			return true, false
 		}
 		if l.mutex.TryLock() {
 			loaded := l.currentShard() != nil
 			l.mutex.Unlock()
-			return loaded
+			return loaded, false
 		}
 		// Announce the wait, then re-check: a TryUnload that read no waiter has
 		// already published its phase, and any later one refuses.
@@ -1240,7 +1312,19 @@ func (l *LazyLoadShard) isLoaded() bool {
 		}
 		loaded := l.loadedShard() != nil
 		l.loadWaiters.Add(-1)
-		return loaded
+		return loaded, false
+	}
+}
+
+// isLoadedAfterTeardown is isLoaded for a caller about to read the shard's
+// files, which must not overlap a teardown; the wait is bounded by one teardown.
+func (l *LazyLoadShard) isLoadedAfterTeardown() bool {
+	for {
+		loaded, tearing := l.loadState()
+		if !tearing {
+			return loaded
+		}
+		l.loadedShard()
 	}
 }
 

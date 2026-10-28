@@ -843,7 +843,11 @@ func (i *Index) warmupDecisionLocked(shardName string, shard ShardLike) (bool, m
 		return false, monitoring.WarmupSkippedRecovering
 	}
 	lazyShard, ok := asLazyLoadShard(shard)
-	if !ok || lazyShard.isLoaded() {
+	if !ok {
+		return false, monitoring.WarmupSkippedAlreadyLoaded
+	}
+	// A shard the unloader is tearing down was loaded already; warming it would wait on its teardown.
+	if loaded, tearing := lazyShard.loadState(); loaded || tearing {
 		return false, monitoring.WarmupSkippedAlreadyLoaded
 	}
 

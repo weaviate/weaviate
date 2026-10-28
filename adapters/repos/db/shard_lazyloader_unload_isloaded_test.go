@@ -20,6 +20,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storagestate"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // blockTeardown parks the next TryUnload once the shard is marked shut and returns what releases it.
@@ -183,4 +187,105 @@ func TestLazyLoadShard_TryUnloadNeverHoldsTheCreateLockAcrossItsTeardown(t *test
 
 	release()
 	require.Equal(t, UnloadOutcomeOK, <-done)
+}
+
+func TestLazyLoadShard_ColdReadsDoNotWaitOnAnUnloadTeardown(t *testing.T) {
+	tests := []struct {
+		name  string
+		check func(t *testing.T, f *unloadFixture)
+	}{
+		{name: "GetStatus", check: func(t *testing.T, f *unloadFixture) {
+			require.Equal(t, storagestate.StatusLazyLoading, f.lazy.GetStatus())
+		}},
+		{name: "GetStatusReason", check: func(t *testing.T, f *unloadFixture) {
+			require.Equal(t, storagestate.StatusLazyLoading.String(), f.lazy.GetStatusReason())
+		}},
+		{name: "IncomingGetShardStatus", check: func(t *testing.T, f *unloadFixture) {
+			status, err := f.index.IncomingGetShardStatus(testCtx(), f.name)
+			require.NoError(t, err)
+			require.Equal(t, storagestate.StatusLazyLoading.String(), status)
+		}},
+		{name: "nodes status", check: func(t *testing.T, f *unloadFixture) {
+			status, count := f.index.shardNodeStatus(testCtx(), f.name, f.lazy, 1, 1)
+			require.False(t, status.Loaded)
+			require.Equal(t, storagestate.StatusLazyLoading.String(), status.VectorIndexingStatus)
+			require.Zero(t, count)
+		}},
+		{name: "async replication walk", check: func(t *testing.T, f *unloadFixture) {
+			require.NoError(t, f.index.applyAsyncReplicationToLoadedShards(testCtx()))
+			require.NoError(t, f.lazy.enableAsyncReplication(testCtx(), f.index.AsyncReplicationConfig()))
+			require.NoError(t, f.lazy.disableAsyncReplication(testCtx()))
+			require.False(t, f.lazy.hasActiveAsyncReplicationTargetOverrides())
+		}},
+		{name: "hasGeoIndexForProp answers from the class", check: func(t *testing.T, f *unloadFixture) {
+			f.schemaClass.Properties = append(f.schemaClass.Properties,
+				&models.Property{Name: "where", DataType: schema.DataTypeGeoCoordinates.PropString()})
+			require.True(t, f.lazy.hasGeoIndexForProp("where"))
+			require.False(t, f.lazy.hasGeoIndexForProp("name"))
+		}},
+		{name: "warmup skips it", check: func(t *testing.T, f *unloadFixture) {
+			warm, outcome := f.index.warmupCandidate(f.name)
+			require.False(t, warm)
+			require.Equal(t, monitoring.WarmupSkippedAlreadyLoaded, outcome)
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newUnloadFixture(t)
+			f.put(t)
+			entered, release := blockTeardown(t, f.lazy)
+			done := make(chan UnloadOutcome, 1)
+			go func() {
+				done <- f.lazy.TryUnload(testCtx(), UnloadRequest{Mode: UnloadModeRequest, Reindex: noReindex})
+			}()
+			<-entered
+
+			checked := make(chan struct{})
+			go func() {
+				defer close(checked)
+				tt.check(t, f)
+			}()
+			select {
+			case <-checked:
+			case <-time.After(5 * time.Second):
+				release()
+				require.FailNow(t, "waited on an unload teardown")
+			}
+			release()
+			require.Equal(t, UnloadOutcomeOK, <-done)
+		})
+	}
+}
+
+func TestLazyLoadShard_ProbeShardDataWaitsOutAnUnloadTeardown(t *testing.T) {
+	f := newUnloadFixture(t)
+	f.put(t)
+	entered, release := blockTeardown(t, f.lazy)
+	done := make(chan UnloadOutcome, 1)
+	go func() {
+		done <- f.lazy.TryUnload(testCtx(), UnloadRequest{Mode: UnloadModeRequest, Reindex: noReindex})
+	}()
+	<-entered
+
+	type probe struct {
+		hasData, hosted bool
+		err             error
+	}
+	probed := make(chan probe, 1)
+	go func() {
+		hasData, hosted, err := f.index.IncomingProbeShardData(testCtx(), f.name)
+		probed <- probe{hasData, hosted, err}
+	}()
+	select {
+	case <-probed:
+		release()
+		require.FailNow(t, "the probe read the shard's files mid-teardown")
+	case <-time.After(200 * time.Millisecond):
+	}
+	release()
+	require.Equal(t, UnloadOutcomeOK, <-done)
+	got := <-probed
+	require.NoError(t, got.err)
+	require.True(t, got.hasData)
+	require.True(t, got.hosted)
 }
