@@ -14,6 +14,8 @@ GOOS=$(go env GOOS)
 if [ ! -f "$SWAGGER" ]; then
   if [ "$GOOS" = "linux" ]; then
     curl -o "$SWAGGER" -L'#' https://github.com/go-swagger/go-swagger/releases/download/$version/swagger_"$(echo `uname`|tr '[:upper:]' '[:lower:]')"_"$GOARCH"
+  elif [ "$GOOS" = "darwin" ]; then
+    curl -o "$SWAGGER" -L'#' https://github.com/go-swagger/go-swagger/releases/download/$version/swagger_"$GOOS"_"$GOARCH"
   else
     curl -o "$SWAGGER" -L'#' https://github.com/go-swagger/go-swagger/releases/download/$version/swagger_"$(echo `uname`|tr '[:upper:]' '[:lower:]')"_amd64
   fi

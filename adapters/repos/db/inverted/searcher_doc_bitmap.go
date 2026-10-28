@@ -27,12 +27,17 @@ import (
 
 var noopRelease = func() {}
 
+const docBitmapSlowLogKey = "build_allow_list_doc_bitmap"
+
 func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 	pv *propValuePair,
 ) (bm docBitmap, err error) {
 	before := time.Now()
 	strategy := "geo"
 	defer func() {
+		if !helpers.HasSlowQueryDetails(ctx) {
+			return
+		}
 		took := time.Since(before)
 		vals := map[string]any{
 			"prop":        pv.prop,
@@ -45,7 +50,7 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 			"strategy":    strategy,
 		}
 
-		helpers.AnnotateSlowQueryLogAppend(ctx, "build_allow_list_doc_bitmap", vals)
+		helpers.AnnotateSlowQueryLogAppendReducible(ctx, docBitmapSlowLogKey, vals, helpers.ReduceToSlowest)
 	}()
 
 	// geo props cannot be served by the inverted index and they require an

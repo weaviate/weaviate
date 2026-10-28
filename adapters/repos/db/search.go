@@ -349,7 +349,7 @@ func (db *DB) ObjectSearch(ctx context.Context, offset, limit int,
 			"took":    took,
 			"offset":  offset,
 			"limit":   limit,
-			"filters": filters,
+			"filters": filters.LogSummary(),
 			"sort":    sort,
 		}).Debugf("object search completed in %s", took)
 	}()
