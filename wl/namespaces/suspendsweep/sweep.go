@@ -342,9 +342,12 @@ func (s *Sweep) reportClass(className string, outcomes shardOutcomes) {
 		case outcomeUnloading:
 			pending[key] = names
 			pendingMsgs = append(pendingMsgs, "shard unloads still running")
-		case db.ShardUnloadOutcomeMovementTarget:
+		case db.ShardUnloadOutcomeMovementSource, db.ShardUnloadOutcomeMovementTarget:
 			pending[key] = names
-			pendingMsgs = append(pendingMsgs, heldForReplicationMsg)
+			// Both outcomes share one message.
+			if !slices.Contains(pendingMsgs, heldForReplicationMsg) {
+				pendingMsgs = append(pendingMsgs, heldForReplicationMsg)
+			}
 		case db.ShardUnloadOutcomeRefusedInUse:
 			pending[key] = names
 			pendingMsgs = append(pendingMsgs,

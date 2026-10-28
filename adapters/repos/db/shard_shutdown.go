@@ -192,6 +192,9 @@ const (
 	// because a replication op copies into it. A later call unloads it once the op
 	// is READY or CANCELLED.
 	ShardUnloadOutcomeMovementTarget ShardUnloadOutcome = "movement_target"
+	// ShardUnloadOutcomeMovementSource is ShardUnloadOutcomeMovementTarget for a
+	// shard a replication op copies out of.
+	ShardUnloadOutcomeMovementSource ShardUnloadOutcome = "movement_source"
 )
 
 // This map is only a checklist: it makes the exhaustive lint fail until a new
@@ -207,6 +210,7 @@ var _ = map[ShardUnloadOutcome]struct{}{
 	ShardUnloadOutcomeFailed:         {},
 	ShardUnloadOutcomeRecovering:     {},
 	ShardUnloadOutcomeMovementTarget: {},
+	ShardUnloadOutcomeMovementSource: {},
 }
 
 // shutdownOrRestoreShard closes a shard removed from the shard map. A live shard

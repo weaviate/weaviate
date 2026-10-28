@@ -701,9 +701,12 @@ func TestSweep_ReportLines(t *testing.T) {
 			wantMsgs:  []string{failedMsg},
 		},
 		{
-			name:      "a shard a replication op copies into is logged at Info",
-			recorded:  []recordedOutcome{{"C", "m1", db.ShardUnloadOutcomeMovementTarget}},
-			wantLines: []string{"info C movement_target=[m1]"},
+			name: "shards a replication op copies out of and into share one Info line and message",
+			recorded: []recordedOutcome{
+				{"C", "s1", db.ShardUnloadOutcomeMovementSource},
+				{"C", "t1", db.ShardUnloadOutcomeMovementTarget},
+			},
+			wantLines: []string{"info C movement_source=[s1] movement_target=[t1]"},
 			wantMsgs:  []string{heldMsg},
 		},
 	}

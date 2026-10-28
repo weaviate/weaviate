@@ -652,7 +652,7 @@ func TestUnloadShard(t *testing.T) {
 	}
 
 	// installOp gives idx a replication FSM holding one FINALIZING op on s1.
-	installOp := func(t *testing.T, idx *Index, source, target, transferType string) {
+	installOp := func(t *testing.T, idx *Index, source, target string) {
 		t.Helper()
 		fsm := replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry())
 		require.NoError(t, fsm.Replicate(1, &api.ReplicationReplicateShardRequest{
@@ -662,7 +662,7 @@ func TestUnloadShard(t *testing.T) {
 			SourceCollection: idx.Config.ClassName.String(),
 			SourceShard:      "s1",
 			TargetNode:       target,
-			TransferType:     transferType,
+			TransferType:     api.COPY.String(),
 		}))
 		require.NoError(t, fsm.UpdateReplicationOpStatus(&api.ReplicationUpdateOpStateRequest{
 			Version: api.ReplicationCommandVersionV0,
@@ -775,10 +775,9 @@ func TestUnloadShard(t *testing.T) {
 		}
 	})
 
-	// The FSM's own tests cover which op states hold a shard. Every row seeds a
-	// FINALIZING op and varies its nodes, the caller and whether the shard is in
-	// the map.
-	t.Run("a replication op keeps the shard it copies into", func(t *testing.T) {
+	// The FSM's own tests cover which op states hold a shard, so every row seeds a
+	// FINALIZING op.
+	t.Run("a replication op keeps the shards it copies out of and into", func(t *testing.T) {
 		sweepUnload := func(db *DB, _ *Index) (ShardUnloadOutcome, error) {
 			return db.UnloadShard(context.Background(), namespacedClass, "s1")
 		}
@@ -793,6 +792,11 @@ func TestUnloadShard(t *testing.T) {
 				name:   "the sweep keeps this node's target",
 				source: "node2", target: "node1", unload: sweepUnload,
 				wantOutcome: ShardUnloadOutcomeMovementTarget,
+			},
+			{
+				name:   "the sweep keeps this node's source",
+				source: "node1", target: "node2", unload: sweepUnload,
+				wantOutcome: ShardUnloadOutcomeMovementSource,
 			},
 			{
 				name:   "the sweep unloads a shard whose op moves other nodes' replicas",
@@ -821,17 +825,17 @@ func TestUnloadShard(t *testing.T) {
 				if tc.notInMap {
 					idx.shards.LoadAndDelete("s1")
 				}
-				installOp(t, idx, tc.source, tc.target, api.COPY.String())
+				installOp(t, idx, tc.source, tc.target)
 
 				outcome, err := tc.unload(db, idx)
 
 				require.NoError(t, err)
 				assert.Equal(t, tc.wantOutcome, outcome)
-				if tc.wantOutcome == ShardUnloadOutcomeMovementTarget {
+				if tc.wantOutcome == ShardUnloadOutcomeUnloaded {
+					assert.Nil(t, idx.shards.Load("s1"))
+				} else {
 					assert.Same(t, shard, idx.shards.Load("s1"))
 					shard.AssertNotCalled(t, "Shutdown", mock.Anything)
-				} else {
-					assert.Nil(t, idx.shards.Load("s1"))
 				}
 			})
 		}
