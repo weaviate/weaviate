@@ -263,7 +263,7 @@ func TestRealIndexMakesRoomAndDrainsToTheLimit(t *testing.T) {
 	for _, tenant := range r.tenants {
 		require.True(t, r.exists(t, tenant), "tenant %s reloads with its data", tenant)
 	}
-	require.Eventually(t, func() bool { return r.loaded(t) <= 3 }, 10*time.Second, 20*time.Millisecond)
+	require.Eventually(t, func() bool { return r.loaded(t) <= 3 && u.Registry().Unloading() == 0 }, 10*time.Second, 20*time.Millisecond)
 	require.EqualValues(t, r.loaded(t), u.Registry().Loaded())
 	r.requireTenantsUnchanged(t)
 }
@@ -277,8 +277,7 @@ func TestRealIndexUnloadsIdleShardsWithoutAnyLimit(t *testing.T) {
 		r.put(t, tenant)
 	}
 	require.Equal(t, 4, r.loaded(t))
-	require.Eventually(t, func() bool { return r.loaded(t) == 0 }, 10*time.Second, 20*time.Millisecond)
-	require.Zero(t, u.Registry().Loaded())
+	require.Eventually(t, func() bool { return r.loaded(t) == 0 && u.Registry().Loaded() == 0 }, 10*time.Second, 20*time.Millisecond)
 
 	set(t, idle, 0)
 	u.RefreshConfig()

@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -79,6 +80,10 @@ type LazyLoadShard struct {
 	unloadedAt    atomic.Int64  // unix nanos of the last TryUnload, 0 once loaded again
 	unloadPending atomic.Bool   // a policy handoff claimed this wrapper
 	regSlot       int           // 1-based slot in LoadedShardRegistry, 0 when absent; guarded by its mu
+	// unloadPhase says what a TryUnload holding mutex is doing; isLoaded reads it instead of waiting on a teardown.
+	unloadPhase atomic.Int32
+	// loadWaiters counts isLoaded calls about to wait on mutex; TryUnload refuses while any does.
+	loadWaiters atomic.Int32
 	// unloadMarkedHook, set only by tests, runs inside TryUnload once shardCreateLocks is released.
 	unloadMarkedHook func()
 }
@@ -1183,8 +1188,43 @@ func (l *LazyLoadShard) Metrics() *Metrics {
 	return l.mustLoad(context.Background()).Metrics()
 }
 
+// isLoaded waits for a load in flight, as loadedShard does. With an unloader
+// it never waits on an unload: a shard whose teardown has started reads as
+// unloaded, and its reload rebuilds it from the current class.
 func (l *LazyLoadShard) isLoaded() bool {
-	return l.loadedShard() != nil
+	if l.unloader() == nil {
+		return l.loadedShard() != nil
+	}
+	for {
+		switch l.unloadPhase.Load() {
+		case unloadPhaseTearing:
+			return false
+		case unloadPhaseDeciding:
+			// TryUnload holds the mutex only for try-locks and atomics here.
+			runtime.Gosched()
+			continue
+		default:
+		}
+		// A published shard means no load is in flight; the mutex is only needed to wait for one.
+		if l.currentShard() != nil {
+			return true
+		}
+		if l.mutex.TryLock() {
+			loaded := l.currentShard() != nil
+			l.mutex.Unlock()
+			return loaded
+		}
+		// Announce the wait, then re-check: a TryUnload that read no waiter has
+		// already published its phase, and any later one refuses.
+		l.loadWaiters.Add(1)
+		if l.unloadPhase.Load() != unloadPhaseNone {
+			l.loadWaiters.Add(-1)
+			continue
+		}
+		loaded := l.loadedShard() != nil
+		l.loadWaiters.Add(-1)
+		return loaded
+	}
 }
 
 func (l *LazyLoadShard) Activity() (int32, int32) {
