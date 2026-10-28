@@ -364,6 +364,10 @@ func (s *Shard) idleUnloadBlocker() UnloadOutcome {
 	if s.changeLogs.Load().Len() > 0 {
 		return UnloadOutcomeChangeLog
 	}
+	// A reload does not re-arm a reindex's double-write callbacks, whatever the snapshot says.
+	if st := s.loadPropValueIndexState(); len(st.add) > 0 || len(st.del) > 0 {
+		return UnloadOutcomeReindex
+	}
 	if !s.asyncReplicationRWMux.TryRLock() {
 		return UnloadOutcomeLockBusy
 	}

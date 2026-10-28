@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 )
 
 func TestLazyLoadShard_TryUnloadNeverWaitsOnTheReindexLookup(t *testing.T) {
@@ -77,10 +79,12 @@ func TestLazyLoadShard_TryUnloadReindexSnapshot(t *testing.T) {
 		builder  ShardReindexActivitySnapshotBuilder
 		cleanup  bool
 		zero     bool
+		unwired  bool
 		want     UnloadOutcome
 	}{
 		{name: "no snapshot taken", zero: true, want: UnloadOutcomeReindexUnknown},
-		{name: "unwired lookup", want: UnloadOutcomeOK},
+		{name: "unwired lookup", unwired: true, want: UnloadOutcomeReindexUnknown},
+		{name: "no reindex", want: UnloadOutcomeOK},
 		{name: "failed lookup", builder: failing, want: UnloadOutcomeReindexUnknown},
 		{name: "live reindex", builder: liveHere, want: UnloadOutcomeReindex},
 		{name: "terminal cleanup in progress", cleanup: true, want: UnloadOutcomeReindex},
@@ -93,6 +97,9 @@ func TestLazyLoadShard_TryUnloadReindexSnapshot(t *testing.T) {
 			if tt.builder != nil {
 				f.index.db.SetShardReindexActivitySnapshot(tt.builder)
 			}
+			if tt.unwired {
+				f.index.db.SetShardReindexActivityLookup(nil)
+			}
 			if tt.cleanup {
 				f.index.db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup {
 					return func(string, string) bool { return true }
@@ -101,11 +108,41 @@ func TestLazyLoadShard_TryUnloadReindexSnapshot(t *testing.T) {
 			req := UnloadRequest{Mode: UnloadModeRequest}
 			if !tt.zero {
 				snap, err := f.index.db.ReindexActivitySnapshot(testCtx())
-				require.Equal(t, tt.builder != nil && tt.want == UnloadOutcomeReindexUnknown, err != nil)
+				require.Equal(t, tt.want == UnloadOutcomeReindexUnknown, err != nil)
 				req.Reindex = snap
 			}
 			require.Equal(t, tt.want, tryUnloadPromptly(t, f.lazy, req))
 		})
+	}
+}
+
+func TestLazyLoadShard_TryUnloadRefusesArmedDoubleWriteCallbacks(t *testing.T) {
+	noop := func(*Shard, uint64, *inverted.Property) error { return nil }
+	tests := []struct {
+		name string
+		arm  func(s *Shard) func()
+	}{
+		{name: "add callback", arm: func(s *Shard) func() { return s.registerAddToPropertyValueIndex(noop) }},
+		{name: "delete callback", arm: func(s *Shard) func() { return s.registerDeleteFromPropertyValueIndex(noop) }},
+		{name: "scoped pair", arm: func(s *Shard) func() { return s.registerDoubleWriteWithScope(noop, noop, []string{"name"}, nil) }},
+	}
+	for _, tt := range tests {
+		for _, mode := range []UnloadMode{UnloadModeRequest, UnloadModeBackground} {
+			t.Run(tt.name, func(t *testing.T) {
+				f := newUnloadFixture(t)
+				f.put(t)
+				s := f.lazy.currentShard()
+				disarm := tt.arm(s)
+				snap, err := f.index.db.ReindexActivitySnapshot(testCtx())
+				require.NoError(t, err)
+				req := UnloadRequest{Mode: mode, Reindex: snap}
+				require.Equal(t, UnloadOutcomeReindex, tryUnloadPromptly(t, f.lazy, req))
+				require.Same(t, s, f.lazy.currentShard())
+				require.False(t, s.shut.Load())
+				disarm()
+				require.Equal(t, UnloadOutcomeOK, tryUnloadPromptly(t, f.lazy, req))
+			})
+		}
 	}
 }
 

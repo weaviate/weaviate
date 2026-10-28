@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"sync"
@@ -111,9 +112,13 @@ func (a ReindexActivity) blocks(collection, shard string) UnloadOutcome {
 	return ""
 }
 
+// errReindexLookupUnwired refuses unloads until configure_api wires the reindex lookup.
+var errReindexLookupUnwired = errors.New("reindex activity lookup not wired yet")
+
 // ReindexActivitySnapshot answers [DB.AnyLiveReindexForShard] for every shard
-// at once, with ctx bounding the DTM list. An unwired lookup reads as no
-// reindex, as AnyLiveReindexForShard does; a failed one is returned unusable.
+// at once, with ctx bounding the DTM list. Unlike AnyLiveReindexForShard, an
+// unwired lookup is returned unusable, as a failed one is: an unload cannot
+// be undone the way a refused backup can be retried.
 func (db *DB) ReindexActivitySnapshot(ctx context.Context) (ReindexActivity, error) {
 	if db.config.RuntimeReindexDisabled {
 		return ReindexActivity{taken: true}, nil
@@ -135,6 +140,7 @@ func (db *DB) ReindexActivitySnapshot(ctx context.Context) (ReindexActivity, err
 	case activityBuilder != nil:
 		a.live = activityBuilder()
 	default:
+		return ReindexActivity{taken: true, failed: true}, errReindexLookupUnwired
 	}
 	if cleanupBuilder != nil {
 		a.cleanup = cleanupBuilder()

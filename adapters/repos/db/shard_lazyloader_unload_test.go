@@ -96,6 +96,7 @@ func newUnloadFixture(t *testing.T, opts ...func(*Config)) *unloadFixture {
 	u := newFakeShardUnloader()
 	f := newAddPropertyLazyFixture(t, "Unload", singleShardState(), append([]func(*Config){withShardUnloader(u)}, opts...)...)
 	uf := &unloadFixture{addPropertyLazyFixture: f, unloader: u}
+	f.index.db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup { return nil })
 	for name, lazy := range f.coldShards(t) {
 		uf.name, uf.lazy = name, lazy
 	}

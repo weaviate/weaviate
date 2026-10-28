@@ -156,6 +156,7 @@ func newRealDB(t *testing.T, unloader db.ShardUnloader, tenants int) *realDB {
 	}, &db.FakeRemoteClient{}, nodes, &db.FakeRemoteNodeClient{}, &db.FakeReplicationClient{}, &metrics,
 		memwatch.NewDummyMonitor(), nodes, reader, fsm, nil)
 	require.NoError(t, err)
+	repo.SetShardReindexActivityLookup(func() db.ShardReindexActivityLookup { return nil })
 	repo.SetSchemaGetter(sg)
 	require.NoError(t, repo.WaitForStartup(context.Background()))
 	t.Cleanup(func() { require.NoError(t, repo.Shutdown(context.Background())) })
