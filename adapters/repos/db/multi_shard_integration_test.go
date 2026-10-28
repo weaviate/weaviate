@@ -24,6 +24,8 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
+	io_prometheus_client "github.com/prometheus/client_model/go"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -33,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -45,6 +48,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -275,6 +279,66 @@ func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
 				assert.Equal(t, test.expectedResults[i], res[i].ID.String())
 			}
 			t.Logf("res: %+v", res)
+		}
+	})
+
+	t.Run("sibling shards get even admission grants", func(t *testing.T) {
+		ctx := context.Background()
+		params := dto.GetParams{ClassName: className, Pagination: &filters.Pagination{Limit: 10}}
+		searches := []struct {
+			name   string
+			search func() error
+		}{
+			{name: "keyword", search: func() error {
+				p := params
+				p.KeywordRanking = &searchparams.KeywordRanking{Query: "driver", Properties: []string{"contents"}}
+				_, err := repo.Search(ctx, p)
+				return err
+			}},
+			{name: "vector", search: func() error {
+				_, err := repo.VectorSearch(ctx, params, []string{""}, []models.Vector{[]float32{1, 2, 3}})
+				return err
+			}},
+		}
+		idx := repo.GetIndex(schema.ClassName(className))
+		limiter := idx.Config.QueryAdmission
+		t.Cleanup(func() { idx.Config.QueryAdmission = limiter })
+		want := concurrency.TimesGOMAXPROCS(2)
+		capacity := 4 * want // the curve grants the first shard its whole want
+		newLimiter := func(reg prometheus.Registerer) *queryadmission.Limiter {
+			return queryadmission.New(reg, queryadmission.Config{Capacity: capacity})
+		}
+		shareCtx, release, err := newLimiter(prometheus.NewRegistry()).Admit(queryadmission.WithShardGroup(ctx, 3), want)
+		require.NoError(t, err)
+		release()
+		share := concurrency.BudgetFromCtx(shareCtx, -1)
+		require.Less(t, share, want)
+
+		for _, tt := range searches {
+			t.Run(tt.name, func(t *testing.T) {
+				reg := prometheus.NewRegistry()
+				idx.Config.QueryAdmission = newLimiter(reg)
+				require.NoError(t, tt.search())
+
+				mfs, err := reg.Gather()
+				require.NoError(t, err)
+				var hist *io_prometheus_client.Histogram
+				for _, mf := range mfs {
+					if mf.GetName() == "query_admission_grant_size" {
+						hist = mf.GetMetric()[0].GetHistogram()
+					}
+				}
+				require.NotNil(t, hist)
+				require.Equal(t, uint64(3), hist.GetSampleCount())
+				require.Equal(t, float64(3*share), hist.GetSampleSum(), "each of the 3 shards gets the share")
+				var buckets []uint64
+				for _, b := range hist.GetBucket() {
+					buckets = append(buckets, b.GetCumulativeCount())
+				}
+				for _, c := range buckets {
+					require.Contains(t, []uint64{0, 3}, c, "the 3 shard grants must be equal, buckets %v", buckets)
+				}
+			})
 		}
 	})
 }
