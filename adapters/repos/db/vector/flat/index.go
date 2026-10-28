@@ -73,6 +73,7 @@ type flat struct {
 	pool      *pools
 
 	count                uint64
+	docLocks             *common.ShardedLocks
 	concurrentCacheReads int
 }
 
@@ -98,6 +99,7 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		compressionType:      extractCompression(uc),
 		pool:                 newPools(),
 		store:                store,
+		docLocks:             common.NewDefaultShardedLocks(),
 		concurrentCacheReads: runtime.GOMAXPROCS(0) * 2,
 	}
 	if err := index.initBuckets(context.Background(), cfg); err != nil {
@@ -414,7 +416,17 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 
 	vector = index.normalized(vector)
 	slice := make([]byte, len(vector)*4)
-	if err := index.storeVector(id, byteSliceFromFloat32Slice(vector, slice)); err != nil {
+	vectorBytes := byteSliceFromFloat32Slice(vector, slice)
+
+	// The presence check, the bucket write and the count transition have to
+	// happen as one step for a given id: a concurrent Delete between the check
+	// and the write would otherwise leave a vector without a matching count,
+	// and a repeated Add would inflate the count for a single live vector.
+	index.docLocks.Lock(id)
+	defer index.docLocks.Unlock(id)
+
+	existed := index.containsDocLocked(id)
+	if err := index.storeVector(id, vectorBytes); err != nil {
 		return err
 	}
 
@@ -422,11 +434,8 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 		return err
 	}
 
-	for {
-		oldCount := atomic.LoadUint64(&index.count)
-		if atomic.CompareAndSwapUint64(&index.count, oldCount, oldCount+1) {
-			break
-		}
+	if !existed {
+		atomic.AddUint64(&index.count, 1)
 	}
 
 	return nil
@@ -434,16 +443,36 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 
 func (index *flat) Delete(ids ...uint64) error {
 	for i := range ids {
-		if index.Cached() {
-			index.cache.Delete(context.Background(), ids[i])
-		}
-		idBytes := make([]byte, 8)
-		binary.BigEndian.PutUint64(idBytes, ids[i])
-
-		if err := index.deleteFromBuckets(idBytes); err != nil {
+		if err := index.deleteOne(ids[i]); err != nil {
 			return err
 		}
 	}
+	return nil
+}
+
+func (index *flat) deleteOne(id uint64) error {
+	index.docLocks.Lock(id)
+	defer index.docLocks.Unlock(id)
+
+	existed := index.containsDocLocked(id)
+
+	if index.Cached() {
+		index.cache.Delete(context.Background(), id)
+	}
+	idBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(idBytes, id)
+
+	if err := index.deleteFromBuckets(idBytes); err != nil {
+		return err
+	}
+	if !existed {
+		return nil
+	}
+
+	// Keep AlreadyIndexed() aligned with the live vector set (#12958). Only a
+	// present-to-absent transition decrements, so repeated deletes of the same
+	// id cannot underflow.
+	atomic.AddUint64(&index.count, ^uint64(0))
 	return nil
 }
 
@@ -1189,6 +1218,13 @@ func (index *flat) PostStartup(ctx context.Context) {
 }
 
 func (index *flat) ContainsDoc(id uint64) bool {
+	return index.containsDocLocked(id)
+}
+
+// containsDocLocked reports whether id currently has a stored vector. Callers
+// that also mutate the buckets for that id must hold index.docLocks for it, so
+// the presence they act on cannot change underneath them.
+func (index *flat) containsDocLocked(id uint64) bool {
 	var bucketName string
 
 	// logic modeled after SearchByVector: the compressed bucket is only
