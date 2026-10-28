@@ -28,11 +28,14 @@ import (
 )
 
 type fakeShardUnloader struct {
-	registry     *LoadedShardRegistry
-	beforeLoads  atomic.Int64
-	denyWarmup   atomic.Bool
-	onBeforeLoad atomic.Pointer[func(*LazyLoadShard)]
-	closes       atomic.Int64
+	registry    *LoadedShardRegistry
+	beforeLoads atomic.Int64
+	denyWarmup  atomic.Bool
+	warmupLimit atomic.Int64
+	// warmupReserved mirrors the policy's atomic reservation.
+	warmupReserved atomic.Int64
+	onBeforeLoad   atomic.Pointer[func(*LazyLoadShard)]
+	closes         atomic.Int64
 }
 
 // noReindex is a usable snapshot in which no reindex runs.
@@ -54,7 +57,23 @@ func (f *fakeShardUnloader) BeforeLoad(l *LazyLoadShard) {
 	}
 }
 
-func (f *fakeShardUnloader) AllowWarmupLoad() bool { return !f.denyWarmup.Load() }
+func (f *fakeShardUnloader) ReserveWarmupLoad() bool {
+	if f.denyWarmup.Load() {
+		return false
+	}
+	limit := f.warmupLimit.Load()
+	for {
+		reserved := f.warmupReserved.Load()
+		if limit > 0 && f.registry.Loaded()+reserved >= limit {
+			return false
+		}
+		if f.warmupReserved.CompareAndSwap(reserved, reserved+1) {
+			return true
+		}
+	}
+}
+
+func (f *fakeShardUnloader) ReleaseWarmupLoad() { f.warmupReserved.Add(-1) }
 
 func (f *fakeShardUnloader) Close(context.Context) error {
 	f.closes.Add(1)
