@@ -46,6 +46,7 @@ type registry[S shard] interface {
 	NamespaceLoaded(namespace string) int
 	NamespaceCounts(dst map[string]int) map[string]int
 	Sample(dst []S, k int) []S
+	AppendChunk(dst []S, from, limit int) ([]S, int)
 }
 
 // queueCapacity bounds each handoff channel; a full channel means overcommit.

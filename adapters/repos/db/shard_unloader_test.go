@@ -88,6 +88,7 @@ func TestLoadedShardRegistrySample(t *testing.T) {
 		{name: "exactly k", loaded: 16, k: 16, want: 16},
 		{name: "more than k", loaded: 1000, k: 16, want: 16},
 		{name: "zero k", loaded: 10, k: 0, want: 0},
+		{name: "all but one", loaded: 4097, k: 4096, want: 4096},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -97,10 +98,7 @@ func TestLoadedShardRegistrySample(t *testing.T) {
 			}
 			dst := make([]*LazyLoadShard, 0, 16)
 			got := r.Sample(dst, tt.k)
-			require.LessOrEqual(t, len(got), tt.want)
-			if tt.loaded <= tt.k || tt.loaded >= 4*tt.k {
-				require.Len(t, got, tt.want)
-			}
+			require.Len(t, got, tt.want)
 			seen := map[*LazyLoadShard]struct{}{}
 			for _, l := range got {
 				require.NotZero(t, l.regSlot)
@@ -108,10 +106,48 @@ func TestLoadedShardRegistrySample(t *testing.T) {
 				require.False(t, dup, "sampled twice")
 				seen[l] = struct{}{}
 			}
-			if tt.k > 0 && tt.k <= cap(dst) {
+			if tt.k > 0 {
+				dst = r.Sample(make([]*LazyLoadShard, 0, tt.k), tt.k)
 				allocs := testing.AllocsPerRun(50, func() { dst = r.Sample(dst[:0], tt.k) })
 				require.Zero(t, allocs)
 			}
+			requireRegistryConsistent(t, r)
+			r.mu.Lock()
+			for i, p := range r.perm {
+				require.EqualValues(t, i, p, "Sample restores the identity permutation")
+			}
+			r.mu.Unlock()
+		})
+	}
+}
+
+func TestLoadedShardRegistryAppendChunk(t *testing.T) {
+	tests := []struct {
+		name          string
+		loaded, limit int
+		wantChunks    int
+	}{
+		{name: "empty", loaded: 0, limit: 4, wantChunks: 1},
+		{name: "one chunk", loaded: 3, limit: 4, wantChunks: 1},
+		{name: "exact chunks", loaded: 8, limit: 4, wantChunks: 2},
+		{name: "partial last chunk", loaded: 9, limit: 4, wantChunks: 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := NewLoadedShardRegistry()
+			for range tt.loaded {
+				r.add(registryWrapper(""))
+			}
+			var got []*LazyLoadShard
+			chunks := 0
+			for from := 0; from >= 0; chunks++ {
+				before := len(got)
+				got, from = r.AppendChunk(got, from, tt.limit)
+				require.LessOrEqual(t, len(got)-before, tt.limit)
+			}
+			require.Equal(t, tt.wantChunks, chunks)
+			require.Equal(t, r.shards, got[:len(r.shards):len(r.shards)])
+			require.Len(t, got, tt.loaded)
 		})
 	}
 }

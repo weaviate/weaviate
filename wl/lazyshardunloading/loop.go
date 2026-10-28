@@ -23,6 +23,9 @@ import (
 // maxWatermarkSample bounds the victims sampled per watermark tick.
 const maxWatermarkSample = 4096
 
+// idleSweepChunk bounds the wrappers an idle sweep copies per registry lock.
+const idleSweepChunk = 4096
+
 func (p *policy[S]) runLoop() {
 	timer := time.NewTimer(p.snap.Load().interval)
 	defer timer.Stop()
@@ -140,16 +143,24 @@ func (p *policy[S]) sweepIdle(s *snapshot, now time.Time, budget int) {
 		p.idleBacklog = true
 		return
 	}
-	eligible := p.rank(s, now, int(p.reg.Loaded())+64, true)
+	eligible := p.rank(s, now, 0, true)
 	queued := p.enqueueRanked(eligible, budget, reasonIdle,
 		db.UnloadRequest{Mode: db.UnloadModeBackground, MinResidency: s.minResidency, IdleTTL: s.idleTTL, Reindex: p.reindexSnapshot()})
 	p.idleBacklog = queued >= budget && len(eligible) > queued
 }
 
-// rank samples k loaded shards and returns those the background may unload,
-// over-share namespaces first, then least recently used.
+// rank samples k loaded shards, or for idle walks every one in chunks, and
+// returns those the background may unload, over-share namespaces first, then
+// least recently used.
 func (p *policy[S]) rank(s *snapshot, now time.Time, k int, idle bool) []ranked[S] {
-	p.loopBuf = p.reg.Sample(p.loopBuf[:0], k)
+	if idle {
+		p.loopBuf = p.loopBuf[:0]
+		for from := 0; from >= 0; {
+			p.loopBuf, from = p.reg.AppendChunk(p.loopBuf, from, idleSweepChunk)
+		}
+	} else {
+		p.loopBuf = p.reg.Sample(p.loopBuf[:0], k)
+	}
 	if p.namespaces && s.nsShare > 0 {
 		p.nsCounts = p.reg.NamespaceCounts(p.nsCounts)
 	}
