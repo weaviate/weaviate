@@ -139,7 +139,12 @@ func (m *filterableToSearchableMigrator) switchShardsToFallbackMode(ctx context.
 		if _, ok := migrationState.MissingFilterableClass2Props[index.Config.ClassName.String()]; !ok {
 			continue
 		}
-		index.ForEachShard(func(name string, shard ShardLike) error {
+		walk := index.ForEachShard
+		if index.Config.lazyShardUnloading() {
+			// Cold shards turn the fallback on as they load, so only loaded ones need it now.
+			walk = index.withEachLoadedShard
+		}
+		walk(func(name string, shard ShardLike) error {
 			if shard.GetStatus() == storagestate.StatusRecovering {
 				return nil
 			}
@@ -173,6 +178,11 @@ func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index
 			if shard.GetStatus() == storagestate.StatusRecovering {
 				return nil
 			}
+			unpin, err := index.pinWhileUnloading(name)
+			defer unpin()
+			if err != nil {
+				return errors.Wrap(err, "pin shard to discover props to fix")
+			}
 			if toFix, err := m.isPropToFix(ctx, prop, shard); toFix {
 				if _, ok := shard2PropsToFix[shard.Name()]; !ok {
 					shard2PropsToFix[shard.Name()] = map[string]struct{}{}
@@ -205,6 +215,11 @@ func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index
 		props := props
 
 		eg.Go(func() error {
+			unpin, err := index.pinWhileUnloading(shardName)
+			defer unpin()
+			if err != nil {
+				return errors.Wrap(err, "pin shard for migration")
+			}
 			if err := m.migrateShard(ctx, shard, props); err != nil {
 				m.logShard(shard).WithError(err).Error("failed migrating shard")
 				return errors.Wrap(err, "failed migrating shard")
