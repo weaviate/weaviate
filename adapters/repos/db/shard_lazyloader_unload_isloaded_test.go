@@ -289,3 +289,58 @@ func TestLazyLoadShard_ProbeShardDataWaitsOutAnUnloadTeardown(t *testing.T) {
 	require.True(t, got.hasData)
 	require.True(t, got.hosted)
 }
+
+func TestLazyLoadShard_IndexCloseDoesNotWaitOnAnUnloadTeardownsRead(t *testing.T) {
+	tests := []struct {
+		name  string
+		close func(f *unloadFixture) error
+		// waitsOnShard: the close then shuts the shard itself, which waits on l.mutex for the teardown.
+		waitsOnShard bool
+	}{
+		{name: "beginClose", close: func(f *unloadFixture) error { return f.index.beginClose() }},
+		{name: "Index.Shutdown", close: func(f *unloadFixture) error { return f.index.Shutdown(testCtx()) }, waitsOnShard: true},
+		{name: "drop", close: func(f *unloadFixture) error { return f.index.drop() }, waitsOnShard: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newUnloadFixture(t)
+			f.put(t)
+			entered, release := blockTeardown(t, f.lazy)
+			done := make(chan UnloadOutcome, 1)
+			go func() {
+				done <- f.lazy.TryUnload(testCtx(), UnloadRequest{Mode: UnloadModeRequest, Reindex: noReindex})
+			}()
+			<-entered
+
+			closed := make(chan error, 1)
+			go func() { closed <- tt.close(f) }()
+			require.Eventually(t, func() bool {
+				f.index.closeLock.RLock()
+				defer f.index.closeLock.RUnlock()
+				return f.index.closed
+			}, 5*time.Second, time.Millisecond)
+			if !tt.waitsOnShard {
+				select {
+				case err := <-closed:
+					require.NoError(t, err)
+				case <-time.After(5 * time.Second):
+					release()
+					require.FailNow(t, "the index close waited on the teardown's read")
+				}
+			} else {
+				select {
+				case <-closed:
+					release()
+					require.FailNow(t, "the close returned before the shard's teardown finished")
+				case <-time.After(200 * time.Millisecond):
+				}
+			}
+			release()
+			require.Equal(t, UnloadOutcomeOK, <-done)
+			if tt.waitsOnShard {
+				require.NoError(t, <-closed)
+			}
+			require.Nil(t, f.lazy.currentShard(), "the close never reloads the unloaded shard")
+		})
+	}
+}
