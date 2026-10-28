@@ -230,6 +230,10 @@ func (l *LazyLoadShard) unloadBlocker(s *Shard, req UnloadRequest) UnloadOutcome
 	if s.shut.Load() {
 		return ""
 	}
+	// Used again since it was picked: unloading it now would only thrash.
+	if req.PickedAt != 0 && l.lastAccess.Load() > req.PickedAt {
+		return UnloadOutcomeReaccessed
+	}
 	if o := s.idleUnloadBlocker(); o != "" {
 		return o
 	}

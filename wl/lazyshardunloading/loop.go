@@ -204,11 +204,12 @@ func (p *policy[S]) enqueueRanked(eligible []ranked[S], n int, r reason, req db.
 		if queued >= n {
 			break
 		}
-		c := eligible[i].shard
+		c, pickedAt := eligible[i].shard, eligible[i].access
 		eligible[i].shard = zero
 		if !c.TryMarkUnloadPending() {
 			continue
 		}
+		req.PickedAt = pickedAt
 		if !p.enqueue(p.backgroundCh, item[S]{shard: c, reason: r, req: req}) {
 			break
 		}
