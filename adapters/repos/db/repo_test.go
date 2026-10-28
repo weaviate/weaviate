@@ -19,11 +19,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/replication"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -649,6 +651,27 @@ func TestUnloadShard(t *testing.T) {
 		}, idx
 	}
 
+	// installOp gives idx a replication FSM holding one FINALIZING op on s1.
+	installOp := func(t *testing.T, idx *Index, source, target, transferType string) {
+		t.Helper()
+		fsm := replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry())
+		require.NoError(t, fsm.Replicate(1, &api.ReplicationReplicateShardRequest{
+			Version:          api.ReplicationCommandVersionV0,
+			Uuid:             "00000000-0000-0000-0000-000000000001",
+			SourceNode:       source,
+			SourceCollection: idx.Config.ClassName.String(),
+			SourceShard:      "s1",
+			TargetNode:       target,
+			TransferType:     transferType,
+		}))
+		require.NoError(t, fsm.UpdateReplicationOpStatus(&api.ReplicationUpdateOpStateRequest{
+			Version: api.ReplicationCommandVersionV0,
+			Id:      1,
+			State:   api.FINALIZING,
+		}))
+		idx.SetReplicationFSMReader(fsm)
+	}
+
 	t.Run("a class with no local index fails the whole call", func(t *testing.T) {
 		db, _ := dbWithShard(t, "Product", "s1")
 
@@ -745,6 +768,68 @@ func TestUnloadShard(t *testing.T) {
 				assert.Equal(t, tc.wantOutcome, outcome)
 				if tc.wantKept {
 					assert.Same(t, tc.shard, idx.shards.Load("s1"))
+				} else {
+					assert.Nil(t, idx.shards.Load("s1"))
+				}
+			})
+		}
+	})
+
+	// The FSM's own tests cover which op states hold a shard. Every row seeds a
+	// FINALIZING op and varies its nodes, the caller and whether the shard is in
+	// the map.
+	t.Run("a replication op keeps the shard it copies into", func(t *testing.T) {
+		sweepUnload := func(db *DB, _ *Index) (ShardUnloadOutcome, error) {
+			return db.UnloadShard(context.Background(), namespacedClass, "s1")
+		}
+		tests := []struct {
+			name           string
+			source, target string
+			unload         func(db *DB, idx *Index) (ShardUnloadOutcome, error)
+			notInMap       bool
+			wantOutcome    ShardUnloadOutcome
+		}{
+			{
+				name:   "the sweep keeps this node's target",
+				source: "node2", target: "node1", unload: sweepUnload,
+				wantOutcome: ShardUnloadOutcomeMovementTarget,
+			},
+			{
+				name:   "the sweep unloads a shard whose op moves other nodes' replicas",
+				source: "node2", target: "node3", unload: sweepUnload,
+				wantOutcome: ShardUnloadOutcomeUnloaded,
+			},
+			{
+				name:   "UnloadLocalShard unloads this node's target",
+				source: "node2", target: "node1",
+				unload: func(_ *DB, idx *Index) (ShardUnloadOutcome, error) {
+					return idx.UnloadLocalShard(context.Background(), "s1")
+				},
+				wantOutcome: ShardUnloadOutcomeUnloaded,
+			},
+			{
+				name:   "a target missing from the map reports unloaded",
+				source: "node2", target: "node1", unload: sweepUnload, notInMap: true,
+				wantOutcome: ShardUnloadOutcomeUnloaded,
+			},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				db, idx := dbWithShard(t, namespacedClass, "s1")
+				shard := idx.shards.Load("s1").(*MockShardLike)
+				if tc.notInMap {
+					idx.shards.LoadAndDelete("s1")
+				}
+				installOp(t, idx, tc.source, tc.target, api.COPY.String())
+
+				outcome, err := tc.unload(db, idx)
+
+				require.NoError(t, err)
+				assert.Equal(t, tc.wantOutcome, outcome)
+				if tc.wantOutcome == ShardUnloadOutcomeMovementTarget {
+					assert.Same(t, shard, idx.shards.Load("s1"))
+					shard.AssertNotCalled(t, "Shutdown", mock.Anything)
 				} else {
 					assert.Nil(t, idx.shards.Load("s1"))
 				}

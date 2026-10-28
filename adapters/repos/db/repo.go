@@ -702,7 +702,8 @@ func (db *DB) OpenLocalShardNames(collection string) ([]string, error) {
 // UnloadShard skips the namespace check, which would refuse the suspended
 // namespaces it is called for. It blocks while DB.Shutdown holds indexLock.
 // It keeps a self-recovery placeholder in the map, because a request would
-// otherwise create an empty shard before the copy from a peer finishes.
+// otherwise create an empty shard before the copy from a peer finishes. It keeps
+// a shard a non-terminal replication op copies into, and returns movement_target.
 func (db *DB) UnloadShard(ctx context.Context, className, shardName string) (ShardUnloadOutcome, error) {
 	if db.shuttingDown() {
 		return ShardUnloadOutcomeIndexClosing, fmt.Errorf("%w: %w", ErrIndexClosing, errIndexShutdown)
