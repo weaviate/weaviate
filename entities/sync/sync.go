@@ -99,6 +99,12 @@ func (s *KeyRWLocker) Lock(ID string) {
 	s.mutexFor(ID).Lock()
 }
 
+// TryLock attempts to acquire the write lock without blocking and reports
+// whether it did. Pair a true result with Unlock.
+func (s *KeyRWLocker) TryLock(ID string) bool {
+	return s.mutexFor(ID).TryLock()
+}
+
 // Unlock it unlocks a specific item by it's ID
 func (s *KeyRWLocker) Unlock(ID string) {
 	iLocks, _ := s.m.Load(ID)
