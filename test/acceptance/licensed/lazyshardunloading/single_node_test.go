@@ -113,9 +113,10 @@ func TestBurstOfNewTenantsInsideMinResidency(t *testing.T) {
 	tenants := tenantNames("t", warm+burst)
 	l := newLedger()
 	createClass(ctx, t, cl, vectorClass(class, true, 1))
-	createTenants(ctx, t, cl, class, tenants)
+	createTenants(ctx, t, cl, class, tenants[:warm])
 	seed(ctx, t, cl, l, class, tenants[:warm], 2, nil)
 	eventuallyLoaded(ctx, t, compose, 1, time.Minute, func(n int) bool { return n == warm }, "the warm tenants are loaded")
+	createTenants(ctx, t, cl, class, tenants[warm:])
 
 	g, gctx := errgroup.WithContext(ctx)
 	for i, tenant := range tenants[warm:] {

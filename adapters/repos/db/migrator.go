@@ -135,7 +135,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		if err != nil {
 			return fmt.Errorf("get local shards count for class %q: %w", class.Class, err)
 		}
-		if m.db.config.ShardUnloader == nil && shouldComputeShardSizes(m.db.config.EnableLazyLoadShards, localActiveShardsCount,
+		if shouldComputeShardSizes(m.db.config.EnableLazyLoadShards, localActiveShardsCount,
 			m.db.config.LazyLoadShardCountThreshold, m.db.config.LazyLoadShardSizeThresholdGB) {
 			// we do need to calculate shard size if it's MT to be able to decide
 			// to enable lazy load shards based on total size
@@ -193,14 +193,16 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 				}
 
 				lazyLoadShardEnabled = shouldAutoLazyLoadShards(
-					isMultiTenant, m.db.config.ShardUnloader != nil,
+					isMultiTenant,
 					localActiveShardsCount,
 					totalShardSizeBytes,
 					m.db.config.LazyLoadShardCountThreshold,
 					m.db.config.LazyLoadShardSizeThresholdGB,
 				)
 				return lazyLoadShardEnabled
-			}(),
+			}() || m.db.config.wrapsShardsForUnloading(),
+			// A call, so it reads lazyLoadShardEnabled after the closure above sets it.
+			EagerShardLoads:                     func() bool { return m.db.config.wrapsShardsForUnloading() && !lazyLoadShardEnabled }(),
 			LazyLoadShardWarmupMinObjects:       m.db.config.LazyLoadShardWarmupMinObjects,
 			ForceFullReplicasSearch:             m.db.config.ForceFullReplicasSearch,
 			TransferInactivityTimeout:           m.db.config.TransferInactivityTimeout,
