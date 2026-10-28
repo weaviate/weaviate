@@ -15,15 +15,33 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/router"
+	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	clusterMocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/replica"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // fakeTTLTenantsManager implements the ttlTenantsManager interface for testing.
@@ -312,4 +330,136 @@ func TestTenantTTLLoop_DeactivateUsesTimeout(t *testing.T) {
 
 	assert.True(t, call.ctxWasLive, "deactivation context must not be expired at call time")
 	assert.True(t, call.hasDeadline, "deactivation context must have a deadline (from WithTimeout)")
+}
+
+// TestIndex_incomingDeleteObjectsExpired runs a single-tenant sweep through the real
+// router and replicator with a majority of the shard's replicas missing from the node selector.
+func TestIndex_incomingDeleteObjectsExpired(t *testing.T) {
+	const (
+		className = "Abc"
+		shardName = "abc"
+	)
+	expired := []strfmt.UUID{
+		"6ae8f8e1-39b4-4a5c-a8a1-91d5b01c5a7e",
+		"73f2eb5f-5abf-447a-81ca-74b1dd168247",
+		"b8b4a5b2-1e8d-4b6a-9f3c-2d7e5f8a9c01",
+	}
+
+	logger, _ := test.NewNullLogger()
+	metrics, err := NewMetrics(logger, monitoring.GetMetrics(), className, "n/a")
+	require.NoError(t, err, "create index metrics")
+
+	for _, tt := range []struct {
+		name     string
+		replicas []string // Only node1 is known to the node selector.
+	}{
+		{name: "rf3 with two unreachable replicas", replicas: []string{"node1", "down-1", "down-2"}},
+		{name: "rf2 with one unreachable replica", replicas: []string{"node1", "down-1"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			schemaGetter := schemaUC.NewMockSchemaGetter(t)
+			schemaGetter.EXPECT().ReadOnlyClass(className).Return(&models.Class{Class: className})
+			schemaReader := schemaUC.NewMockSchemaReader(t)
+			schemaReader.EXPECT().Shards(className).Return([]string{shardName}, nil)
+			schemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
+				func(className string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
+					return readFunc(&models.Class{Class: className}, &sharding.State{Physical: map[string]sharding.Physical{
+						shardName: {Name: shardName, BelongsToNodes: tt.replicas},
+					}})
+				})
+			schemaReader.EXPECT().ShardReplicas(className, shardName).Return(tt.replicas, nil)
+			fsmReader := replicationTypes.NewMockReplicationFSMReader(t)
+			fsmReader.EXPECT().FilterOneShardReplicasRead(className, shardName, tt.replicas).Return(tt.replicas)
+			fsmReader.EXPECT().FilterOneShardReplicasWrite(className, shardName, tt.replicas).Return(tt.replicas)
+
+			indexRouter := router.NewBuilder(className, false, clusterMocks.NewMockNodeSelector("node1"),
+				schemaGetter, schemaReader, fsmReader).Build()
+
+			// Precondition: the router rejects QUORUM reads and writes of this shard.
+			_, err := indexRouter.BuildReadRoutingPlan(
+				indexRouter.BuildRoutingPlanOptions("", shardName, routerTypes.ConsistencyLevelQuorum, ""))
+			require.ErrorIs(t, err, replicaerrors.ErrReplicas, "QUORUM read plan")
+			_, err = indexRouter.BuildWriteRoutingPlan(
+				indexRouter.BuildRoutingPlanOptions("", shardName, routerTypes.ConsistencyLevelQuorum, ""))
+			require.ErrorIs(t, err, replicaerrors.ErrReplicas, "QUORUM write plan")
+
+			client := newTTLReplicaClient(expired)
+			replicator, err := replica.NewReplicator(className, indexRouter, cluster.NewMockNodeResolver(t), "node1",
+				func() string { return models.ReplicationConfigDeletionStrategyNoAutomatedResolution },
+				client, monitoring.GetMetrics(), logger)
+			require.NoError(t, err, "create replicator")
+
+			index := Index{
+				router:     indexRouter,
+				replicator: replicator,
+				getSchema:  schemaGetter,
+				Config:     IndexConfig{ClassName: schema.ClassName(className), ReplicationFactor: int64(len(tt.replicas))},
+				metrics:    metrics,
+				logger:     logger,
+			}
+
+			// Act
+			var deleted atomic.Int32
+			eg := enterrors.NewErrorGroupWrapper(logger)
+			ec := errorcompounder.NewSafe()
+			index.incomingDeleteObjectsExpired(t.Context(), eg, ec, "expiresAt", time.Now(), time.Now(),
+				func(n int32) { deleted.Add(n) }, 0)
+			require.NoError(t, eg.Wait())
+
+			// Assert
+			require.NoError(t, ec.ToError(), "sweep errors")
+			require.Equal(t, int32(len(expired)), deleted.Load(), "deleted objects")
+			require.Empty(t, client.remaining(), "expired objects left on the reachable replica")
+		})
+	}
+}
+
+// ttlReplicaClient models one replica holding expired objects: lookups return the
+// objects not yet deleted, and a committed delete removes its objects.
+type ttlReplicaClient struct {
+	FakeReplicationClient
+	mu       sync.Mutex
+	present  map[strfmt.UUID]struct{}
+	prepared map[string][]strfmt.UUID // Request ID to the UUIDs of its pending delete.
+}
+
+func newTTLReplicaClient(uuids []strfmt.UUID) *ttlReplicaClient {
+	c := &ttlReplicaClient{present: map[strfmt.UUID]struct{}{}, prepared: map[string][]strfmt.UUID{}}
+	for _, id := range uuids {
+		c.present[id] = struct{}{}
+	}
+	return c
+}
+
+func (c *ttlReplicaClient) remaining() []strfmt.UUID {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Collect(maps.Keys(c.present))
+}
+
+func (c *ttlReplicaClient) FindUUIDs(ctx context.Context,
+	hostName, indexName, shardName string, filters *filters.LocalFilter, limit int,
+) ([]strfmt.UUID, error) {
+	return c.remaining(), nil
+}
+
+func (c *ttlReplicaClient) DeleteObjects(ctx context.Context, host, index, shard, requestID string,
+	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64,
+) (replica.SimpleResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.prepared[requestID] = uuids
+	return replica.SimpleResponse{}, nil
+}
+
+func (c *ttlReplicaClient) Commit(ctx context.Context, host, index, shard, requestID string, resp interface{}) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	batch := resp.(*replica.DeleteBatchResponse)
+	for _, id := range c.prepared[requestID] {
+		delete(c.present, id)
+		batch.Batch = append(batch.Batch, replica.UUID2Error{UUID: id.String()})
+	}
+	return nil
 }

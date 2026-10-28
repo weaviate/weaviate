@@ -33,6 +33,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/router/types"
@@ -42,6 +43,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
@@ -411,6 +413,105 @@ func TestIndex_objectSearch_UnreachableReplicas(t *testing.T) {
 			require.True(t, readRepairLogged, "read repair failure is logged")
 		})
 	}
+}
+
+// TestIndex_objectByID runs the near-object source lookup through the real router
+// with a majority of the shard's replicas missing from the node selector.
+func TestIndex_objectByID(t *testing.T) {
+	const (
+		className = "Abc"
+		shardName = "abc"
+		objectID  = strfmt.UUID("6ae8f8e1-39b4-4a5c-a8a1-91d5b01c5a7e")
+	)
+	one := &additional.ReplicationProperties{ConsistencyLevel: string(types.ConsistencyLevelOne)}
+
+	logger, _ := test.NewNullLogger()
+	replicaMetrics, err := replica.NewMetrics(monitoring.GetMetrics())
+	require.NoError(t, err, "create replica metrics")
+
+	for _, tt := range []struct {
+		name     string
+		replicas []string // Only node1 is known to the node selector.
+		repl     *additional.ReplicationProperties
+		wantErr  error
+	}{
+		{
+			name:     "rf3 with two unreachable replicas reads at ONE",
+			replicas: []string{"node1", "down-1", "down-2"},
+			repl:     one,
+		},
+		{
+			name:     "rf2 with one unreachable replica reads at ONE",
+			replicas: []string{"node1", "down-1"},
+			repl:     one,
+		},
+		{
+			name:     "rf3 with two unreachable replicas rejects the QUORUM default",
+			replicas: []string{"node1", "down-1", "down-2"},
+			wantErr:  replicaerrors.ErrReplicas,
+		},
+		{
+			name:     "rf2 with one unreachable replica rejects the QUORUM default",
+			replicas: []string{"node1", "down-1"},
+			wantErr:  replicaerrors.ErrReplicas,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			schemaGetter := schemaUC.NewMockSchemaGetter(t)
+			schemaGetter.EXPECT().ShardFromUUID(className, mock.Anything).Return(shardName)
+			schemaReader := schemaUC.NewMockSchemaReader(t)
+			schemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
+				func(className string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
+					return readFunc(&models.Class{Class: className}, &sharding.State{Physical: map[string]sharding.Physical{
+						shardName: {Name: shardName, BelongsToNodes: tt.replicas},
+					}})
+				})
+			schemaReader.EXPECT().ShardReplicas(className, shardName).Return(tt.replicas, nil)
+			fsmReader := replicationTypes.NewMockReplicationFSMReader(t)
+			fsmReader.EXPECT().FilterOneShardReplicasRead(className, shardName, tt.replicas).Return(tt.replicas)
+
+			indexRouter := router.NewBuilder(className, false, clusterMocks.NewMockNodeSelector("node1"),
+				schemaGetter, schemaReader, fsmReader).Build()
+
+			index := Index{
+				router:        indexRouter,
+				shardResolver: resolver.NewShardResolver(className, false, schemaGetter),
+				replicator: &replica.Replicator{
+					Finder: replica.NewFinder(className, indexRouter, cluster.NewMockNodeResolver(t), "node1",
+						&objectReplicaClient{obj: storobj.FromObject(&models.Object{Class: className, ID: objectID}, nil, nil, nil)},
+						replicaMetrics, logger, func() string { return "Delete" }),
+				},
+				Config: IndexConfig{ClassName: schema.ClassName(className), ReplicationFactor: int64(len(tt.replicas))},
+				logger: logger,
+			}
+
+			// Act
+			obj, err := index.objectByID(t.Context(), objectID, nil, additional.Properties{}, tt.repl, "")
+
+			// Assert
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr, "object by id")
+				return
+			}
+			require.NoError(t, err, "object by id")
+			require.NotNil(t, obj, "object")
+			require.Equal(t, objectID, obj.ID(), "object id")
+		})
+	}
+}
+
+// objectReplicaClient answers every replica fetch with obj.
+type objectReplicaClient struct {
+	FakeReplicationClient
+	obj *storobj.Object
+}
+
+func (c *objectReplicaClient) FetchObject(ctx context.Context, hostName, indexName,
+	shardName string, id strfmt.UUID, props search.SelectProperties,
+	additional additional.Properties, numRetries int,
+) (replica.Replica, error) {
+	return replica.Replica{ID: c.obj.ID(), Object: c.obj, LastUpdateTimeUnixMilli: c.obj.LastUpdateTimeUnix()}, nil
 }
 
 type fakeShardReplicas []string

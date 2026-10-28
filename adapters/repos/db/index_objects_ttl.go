@@ -20,6 +20,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -89,11 +90,10 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 		},
 	}}
 
-	// the replication properties determine how aggressive the errors are returned and does not change anything about
-	// the server's behaviour. Therefore, we set it to QUORUM to be able to log errors in case the deletion does not
-	// succeed on too many nodes. In the case of errors a node might retain the object past its TTL. However, when the
-	// deletion process happens to run on that node again, the object will be deleted then.
-	replProps := defaultConsistency()
+	// The sweep looks up and deletes expired objects at ONE. The router allows this while one replica of each shard
+	// is reachable. A delete succeeds once one replica acknowledges it. A replica that misses a delete keeps the
+	// object past its TTL, until a later sweep reads that replica or async replication propagates the delete.
+	replProps := defaultConsistency(routerTypes.ConsistencyLevelOne)
 
 	if multitenancy.IsMultiTenant(class.MultiTenancyConfig) {
 		tenants, err := i.schemaReader.Shards(class.Class)
