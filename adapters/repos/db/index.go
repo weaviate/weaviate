@@ -597,6 +597,16 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		startupShards = &startupShardCounters{}
 	}
 
+	var withDirs []string
+	for _, shard := range localShards {
+		// a frozen tenant has no dir, it is prepared when it loads after unfreezing
+		if shard.activityStatus == models.TenantActivityStatusHOT ||
+			shard.activityStatus == models.TenantActivityStatusCOLD {
+			withDirs = append(withDirs, shard.name)
+		}
+	}
+	i.rebuildShardsBeforeLoad(ctx, class, withDirs)
+
 	hotShardNames := make([]string, 0, len(localShards))
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
@@ -771,25 +781,6 @@ func (i *Index) maintenanceModeEnabled() bool {
 	return i.Config.MaintenanceModeEnabled != nil && i.Config.MaintenanceModeEnabled()
 }
 
-// Iterate over all objects in the index, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
-func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard ShardLike, object *storobj.Object) error) (err error) {
-	return i.ForEachShard(func(_ string, shard ShardLike) error {
-		wrapper := func(object *storobj.Object) error {
-			return cb(i, shard, object)
-		}
-		// pinned for the whole iteration: the cursor underneath reads the
-		// bucket's segments, and an unpinned pointer can be shut down between
-		// the lookup and the scan
-		bucket, release := shard.Store().AcquireBucketForRead(helpers.ObjectsBucketLSM)
-		if bucket == nil {
-			return fmt.Errorf("objects bucket of shard %q: %w", shard.Name(), lsmkv.ErrBucketNotFound)
-		}
-		defer release()
-
-		return bucket.IterateObjects(ctx, wrapper)
-	})
-}
-
 // cancelOnCloseRequested derives a context cancelled on close request, so a teardown
 // does not wait behind a lock the caller holds. Call the returned func when done.
 // The derived context is cancelled with the same cause, so a caller can tell a
@@ -860,13 +851,6 @@ func (i *Index) ForEachLoadedShardConcurrently(f func(name string, shard ShardLi
 			return nil
 		}
 		return f(name, shard)
-	})
-}
-
-// Iterate over all objects in the shard, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
-func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard ShardLike) error) (err error) {
-	return i.ForEachShard(func(key string, shard ShardLike) error {
-		return cb(i, shard)
 	})
 }
 
@@ -1232,6 +1216,9 @@ type IndexConfig struct {
 	SkipWriteClassNameOnDisk            bool
 	TrackVectorDimensions               bool
 	TrackVectorDimensionsInterval       time.Duration
+	MigrateDimensionsToRoaringSet       bool
+	DimensionsReindex                   *startupRebuild
+	PropertyLengthsRecount              *startupRebuild
 	UsageEnabled                        bool
 	ShardLoadLimiter                    *loadlimiter.LoadLimiter
 	StartupShards                       *startupShardCounters
@@ -2449,6 +2436,15 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	return outObjects, outScores, nil
 }
 
+// withSlowQueryDetails collects details only when LogIfSlow or AddShardQueryProfile
+// will read them, since every annotated LSM lookup appends an entry.
+func (i *Index) withSlowQueryDetails(ctx context.Context, queryProfile bool) context.Context {
+	if !queryProfile && !i.Config.QuerySlowLogEnabled.Get() {
+		return ctx
+	}
+	return helpers.InitSlowQueryDetails(ctx)
+}
+
 func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	addlProps additional.Properties, tenant string, readPlan routerTypes.ReadRoutingPlan, properties []string,
@@ -2489,7 +2485,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		// GetShard would not.
 		return i.withShardOrRemote(ctx, tenant, shardName, localShardOperationRead, 0,
 			func(shard ShardLike) error {
-				localCtx := helpers.InitSlowQueryDetails(ctx)
+				localCtx := i.withSlowQueryDetails(ctx, addlProps.QueryProfile)
 				helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
 				var shardStart time.Time
 				if addlProps.QueryProfile {
@@ -2617,7 +2613,7 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
 	shard ShardLike, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	ctx = helpers.InitSlowQueryDetails(ctx)
+	ctx = i.withSlowQueryDetails(ctx, additional.QueryProfile)
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", true)
 	if err := i.ensureShardLocallyReady(shard); err != nil {
 		return nil, nil, err
@@ -2651,7 +2647,7 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
 	}
 
-	localCtx := helpers.InitSlowQueryDetails(ctx)
+	localCtx := i.withSlowQueryDetails(ctx, additionalProps.QueryProfile)
 	helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
 	var shardStart time.Time
 	if additionalProps.QueryProfile {
@@ -2918,7 +2914,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 		return nil, nil, nil, err
 	}
 
-	ctx = helpers.InitSlowQueryDetails(ctx)
+	ctx = i.withSlowQueryDetails(ctx, additional.QueryProfile)
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", false)
 
 	if additional.QueryProfile {
@@ -3037,10 +3033,13 @@ func (i *Index) initLocalShard(ctx context.Context, shardName string) error {
 	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, false, false)
 }
 
-func (i *Index) LoadLocalShard(ctx context.Context, shardName string, implicitShardLoading bool) error {
-	// TODO: implicitShardLoading needs to be double checked if needed at all
-	// consalidate mustLoad and implicitShardLoading
-	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, implicitShardLoading)
+// LoadLocalShard makes a shard available on this node. mustLoad opens it before returning;
+// otherwise lazy loading opens it on first touch, which is what the serial apply path needs,
+// since a shard opened there delays every entry behind it. With lazy loading off it opens
+// regardless, because nothing else would.
+func (i *Index) LoadLocalShard(ctx context.Context, shardName string, mustLoad, implicitShardLoading bool) error {
+	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName,
+		mustLoad || !i.Config.EnableLazyLoadShards, implicitShardLoading)
 }
 
 // DropLocalShard removes a single local shard and its on-disk files. It is the
@@ -3380,6 +3379,8 @@ func (i *Index) drop() error {
 	if err := i.beginClose(); err != nil {
 		return err
 	}
+	i.Config.DimensionsReindex.forget(i.ID())
+	i.Config.PropertyLengthsRecount.forget(i.ID())
 
 	// Terminal registry sweep. Safe because beginClose sets i.closed under
 	// closeLock.Lock and drains every reader admitted before it, and every
@@ -3541,6 +3542,8 @@ func (i *Index) dropShards(names []string) error {
 	ec.Add(eg.Wait())
 
 	i.purgeUnloadedShardRegistry(unloadedNames)
+	i.Config.DimensionsReindex.forget(i.ID(), names...)
+	i.Config.PropertyLengthsRecount.forget(i.ID(), names...)
 
 	return ec.ToErrorLimited(maxReportedErrors)
 }

@@ -528,6 +528,9 @@ func (s *Shard) readVectorByIndexIDIntoSliceWithView(ctx context.Context, indexI
 		if stderrors.As(err, &eTV) {
 			return nil, storobj.NewErrNotFoundf(indexID, "target vector %q not found", targetVector)
 		}
+		if stderrors.Is(err, storobj.ErrNoVector) {
+			return nil, storobj.NewErrNotFoundf(indexID, "object has no vector")
+		}
 		return nil, err
 	}
 	return vec, nil
@@ -580,7 +583,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 			"shard":           s.ID(),
 			"tenant":          s.tenant(),
 			"query":           "ObjectSearch",
-			"filters":         filters,
+			"filters":         filters.LogSummary(),
 			"limit":           limit,
 			"sort":            sort,
 			"cursor":          cursor,
@@ -677,9 +680,17 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 		var distancer common.QueryVectorDistancer
 		switch v := searchVectors[j].(type) {
 		case []float32:
+			err := checkVectorKind(index, target, false)
+			if err != nil {
+				return nil, err
+			}
 			distancer = index.QueryVectorDistancer(v)
 		case [][]float32:
-			distancer = index.(VectorIndexMulti).QueryMultiVectorDistancer(v)
+			multiIndex, err := asMultiVectorIndex(index, target)
+			if err != nil {
+				return nil, err
+			}
+			distancer = multiIndex.QueryMultiVectorDistancer(v)
 		default:
 			return nil, fmt.Errorf("unsupported vector type: %T", v)
 		}
@@ -696,17 +707,12 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	startTime := time.Now()
 
 	defer func() {
-		// reduce lsm stats
-		helpers.ReplaceSlowQueryEntry(ctx, "lsm_get_by_secondary", func(old []lsmkv.BucketSlowLogEntry) lsmkv.BucketSlowLogEntryStats {
-			return lsmkv.BucketSlowLogEntries(old).Reduce()
-		})
-
 		s.slowQueryReporter.LogIfSlow(ctx, startTime, map[string]any{
 			"collection": s.index.Config.ClassName,
 			"shard":      s.ID(),
 			"tenant":     s.tenant(),
 			"query":      "ObjectVectorSearch",
-			"filters":    filters,
+			"filters":    filters.LogSummary(),
 			"limit":      limit,
 			"sort":       sort,
 			"version":    s.versioner.Version(),
@@ -770,6 +776,10 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 			if limit < 0 {
 				switch searchVector := searchVectors[i].(type) {
 				case []float32:
+					err = checkVectorKind(vidx, targetVector, false)
+					if err != nil {
+						return fmt.Errorf("vector search by distance: %w", err)
+					}
 					ids, dists, err = vidx.SearchByVectorDistance(
 						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
 					if err != nil {
@@ -781,7 +791,11 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 						return err
 					}
 				case [][]float32:
-					ids, dists, err = vidx.(VectorIndexMulti).SearchByMultiVectorDistance(
+					multiIndex, err := asMultiVectorIndex(vidx, targetVector)
+					if err != nil {
+						return fmt.Errorf("multi vector search by distance: %w", err)
+					}
+					ids, dists, err = multiIndex.SearchByMultiVectorDistance(
 						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
@@ -797,6 +811,10 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 			} else {
 				switch searchVector := searchVectors[i].(type) {
 				case []float32:
+					err = checkVectorKind(vidx, targetVector, false)
+					if err != nil {
+						return fmt.Errorf("vector search: %w", err)
+					}
 					ids, dists, err = vidx.SearchByVector(ctx, searchVector, limit, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
@@ -809,7 +827,11 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 						return err
 					}
 				case [][]float32:
-					ids, dists, err = vidx.(VectorIndexMulti).SearchByMultiVector(ctx, searchVector, limit, allowList)
+					multiIndex, err := asMultiVectorIndex(vidx, targetVector)
+					if err != nil {
+						return fmt.Errorf("multi vector search: %w", err)
+					}
+					ids, dists, err = multiIndex.SearchByMultiVector(ctx, searchVector, limit, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's

@@ -513,7 +513,11 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 
 		// cleanup index checkpoints
 		if l.shardOpts.indexCheckpoints != nil {
-			if err := l.shardOpts.index.indexCheckpoints.DeleteShard(l.ID()); err != nil {
+			targetVectors := make([]string, 0)
+			for targetVector := range idx.GetVectorIndexConfigs() {
+				targetVectors = append(targetVectors, targetVector)
+			}
+			if err := l.shardOpts.index.indexCheckpoints.DeleteShard(l.ID(), targetVectors); err != nil {
 				return fmt.Errorf("delete shard index checkpoints: %w", err)
 			}
 		}
@@ -723,11 +727,6 @@ func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (in
 func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) (int, error) {
 	l.mustLoad()
 	return l.shard.QuantizedDimensions(ctx, targetVector, segments)
-}
-
-func (l *LazyLoadShard) resetDimensionsLSM(ctx context.Context) error {
-	l.mustLoad()
-	return l.shard.resetDimensionsLSM(ctx)
 }
 
 func (l *LazyLoadShard) Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error) {
@@ -942,13 +941,6 @@ func (l *LazyLoadShard) filePutter(ctx context.Context, shardID string) (io.Writ
 		return nil, err
 	}
 	return l.shard.filePutter(ctx, shardID)
-}
-
-func (l *LazyLoadShard) extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error {
-	if err := l.Load(context.Background()); err != nil {
-		return err
-	}
-	return l.shard.extendDimensionTrackerLSM(dimLength, docID, targetVector)
 }
 
 func (l *LazyLoadShard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {

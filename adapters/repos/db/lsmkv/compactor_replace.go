@@ -14,7 +14,6 @@ package lsmkv
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 
@@ -183,9 +182,9 @@ func (c *compactorReplace) writeKeys(ctx context.Context, f *segmentindex.Segmen
 			break
 		}
 		if bytes.Equal(key1, key2) {
-			if !(c.cleanupTombstones && errors.Is(err2, lsmkv.Deleted)) {
+			if !(c.cleanupTombstones && lsmkv.IsDeleted(err2)) {
 				ki, err := c.writeIndividualNode(f, offset, res2.primaryKey, res2.value,
-					res2.secondaryKeys, errors.Is(err2, lsmkv.Deleted))
+					res2.secondaryKeys, lsmkv.IsDeleted(err2))
 				if err != nil {
 					return nil, fmt.Errorf("write individual node (equal keys): %w", err)
 				}
@@ -202,9 +201,9 @@ func (c *compactorReplace) writeKeys(ctx context.Context, f *segmentindex.Segmen
 
 		if (key1 != nil && bytes.Compare(key1, key2) < 0) || key2 == nil {
 			// key 1 is smaller
-			if !(c.cleanupTombstones && errors.Is(err1, lsmkv.Deleted)) {
+			if !(c.cleanupTombstones && lsmkv.IsDeleted(err1)) {
 				ki, err := c.writeIndividualNode(f, offset, res1.primaryKey, res1.value,
-					res1.secondaryKeys, errors.Is(err1, lsmkv.Deleted))
+					res1.secondaryKeys, lsmkv.IsDeleted(err1))
 				if err != nil {
 					return nil, fmt.Errorf("write individual node (res1.primaryKey smaller): %w", err)
 				}
@@ -216,9 +215,9 @@ func (c *compactorReplace) writeKeys(ctx context.Context, f *segmentindex.Segmen
 			res1, err1 = c.c1.next()
 		} else {
 			// key 2 is smaller
-			if !(c.cleanupTombstones && errors.Is(err2, lsmkv.Deleted)) {
+			if !(c.cleanupTombstones && lsmkv.IsDeleted(err2)) {
 				ki, err := c.writeIndividualNode(f, offset, res2.primaryKey, res2.value,
-					res2.secondaryKeys, errors.Is(err2, lsmkv.Deleted))
+					res2.secondaryKeys, lsmkv.IsDeleted(err2))
 				if err != nil {
 					return nil, fmt.Errorf("write individual node (res2.primaryKey smaller): %w", err)
 				}

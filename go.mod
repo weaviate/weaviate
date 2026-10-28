@@ -35,7 +35,7 @@ require (
 	github.com/fortytw2/leaktest v1.3.0
 	github.com/getsentry/sentry-go v0.30.0
 	github.com/go-ego/gse v0.80.3
-	github.com/go-jose/go-jose/v4 v4.1.4
+	github.com/go-jose/go-jose/v4 v4.1.6
 	github.com/go-openapi/errors v0.22.4
 	github.com/go-openapi/loads v0.23.2
 	github.com/go-openapi/runtime v0.29.2
@@ -61,7 +61,7 @@ require (
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/johnbellone/grpc-middleware-sentry v0.4.0
 	github.com/jonboulle/clockwork v0.5.0
-	github.com/klauspost/compress v1.18.2
+	github.com/klauspost/compress v1.18.7
 	github.com/launchdarkly/go-sdk-common/v3 v3.4.0
 	github.com/launchdarkly/go-server-sdk/v7 v7.14.6
 	github.com/mark3labs/mcp-go v0.37.1-0.20250812151906-9f16336f83e1
@@ -88,7 +88,7 @@ require (
 	github.com/weaviate/mockoidc v0.0.0-20250611114324-56bff60d94c2
 	github.com/weaviate/s5cmd/v2 v2.0.1
 	github.com/weaviate/sroar v0.0.18
-	github.com/weaviate/tiktoken-go v0.0.3
+	github.com/weaviate/tiktoken-go v0.0.4
 	github.com/zeebo/xxh3 v1.1.0
 	go.etcd.io/bbolt v1.4.3
 	go.opentelemetry.io/otel v1.44.0
@@ -98,11 +98,11 @@ require (
 	go.opentelemetry.io/otel/sdk v1.44.0
 	go.opentelemetry.io/otel/trace v1.44.0
 	go.uber.org/automaxprocs v1.6.0
-	golang.org/x/net v0.58.0
+	golang.org/x/net v0.61.0
 	golang.org/x/oauth2 v0.36.0
-	golang.org/x/sync v0.22.0
-	golang.org/x/sys v0.47.0
-	golang.org/x/text v0.41.0
+	golang.org/x/sync v0.24.0
+	golang.org/x/sys v0.49.0
+	golang.org/x/text v0.43.0
 	golang.org/x/time v0.15.0
 	gonum.org/v1/gonum v0.17.0
 	google.golang.org/api v0.295.0
@@ -274,9 +274,9 @@ require (
 	go.opentelemetry.io/proto/otlp v1.10.0 // indirect
 	go.uber.org/mock v0.4.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/crypto v0.56.0 // indirect
-	golang.org/x/mod v0.38.0 // indirect
-	golang.org/x/tools v0.48.0 // indirect
+	golang.org/x/crypto v0.58.0 // indirect
+	golang.org/x/mod v0.41.0 // indirect
+	golang.org/x/tools v0.51.0 // indirect
 	google.golang.org/genproto v0.0.0-20260715232425-e75dac1f907d // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260715232425-e75dac1f907d // indirect
 )

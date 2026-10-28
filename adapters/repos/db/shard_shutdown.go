@@ -77,6 +77,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		return fmt.Errorf("shard %q is still in use", s.name)
 	}
 	s.shut.Store(true)
+	defer s.releaseCountedStatus()
 	s.shutdownRequested.Store(false)
 	s.shutCtxCancel(fmt.Errorf("shutdown %q", s.ID()))
 

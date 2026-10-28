@@ -15,6 +15,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"io"
@@ -394,14 +395,15 @@ func (cl *commitLogger) sync() error {
 	return cl.file.Sync()
 }
 
+// close releases the file even when flushing or syncing it fails.
 func (cl *commitLogger) close() error {
 	if !cl.paused {
 		if err := cl.writer.Flush(); err != nil {
-			return err
+			return errors.Join(err, cl.file.Close())
 		}
 
 		if err := cl.file.Sync(); err != nil {
-			return err
+			return errors.Join(err, cl.file.Close())
 		}
 	}
 

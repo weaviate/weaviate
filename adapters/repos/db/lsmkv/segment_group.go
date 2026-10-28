@@ -28,6 +28,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/bloomhash"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
@@ -778,7 +779,7 @@ func (sg *SegmentGroup) makeExistsOn(segments []Segment) existsOnLowerSegmentsFn
 			return false, nil
 		}
 		if err := sg.existsWithSegmentList(key, segments); err != nil {
-			if !errors.Is(err, lsmkv.Deleted) && !errors.Is(err, lsmkv.NotFound) {
+			if !lsmkv.IsDeletedOrNotFound(err) {
 				return false, fmt.Errorf("check exists on segments: %w", err)
 			}
 			return false, nil
@@ -894,10 +895,10 @@ func (sg *SegmentGroup) getWithSegmentList(key []byte, segments []Segment) ([]by
 		if err == nil {
 			return v, nil
 		}
-		if errors.Is(err, lsmkv.Deleted) {
+		if lsmkv.IsDeleted(err) {
 			return nil, err
 		}
-		if !errors.Is(err, lsmkv.NotFound) {
+		if !lsmkv.IsNotFound(err) {
 			return nil, fmt.Errorf("SegmentGroup::getWithSegmentList() %q: %w", segments[i].getPath(), err)
 		}
 	}
@@ -934,10 +935,10 @@ func (sg *SegmentGroup) existsWithSegmentListUpTo(key []byte, segIdx int, segmen
 		if err == nil {
 			return nil
 		}
-		if errors.Is(err, lsmkv.Deleted) {
+		if lsmkv.IsDeleted(err) {
 			return err
 		}
-		if !errors.Is(err, lsmkv.NotFound) {
+		if !lsmkv.IsNotFound(err) {
 			return fmt.Errorf("SegmentGroup::existsWithSegmentList() %q: %w", segments[i].getPath(), err)
 		}
 	}
@@ -968,10 +969,10 @@ func (sg *SegmentGroup) getBySecondaryWithSegmentList(pos int, key []byte, buffe
 		if err == nil {
 			return k, v, allocBuf, i, nil
 		}
-		if errors.Is(err, lsmkv.Deleted) {
+		if lsmkv.IsDeleted(err) {
 			return nil, nil, nil, i, err
 		}
-		if !errors.Is(err, lsmkv.NotFound) {
+		if !lsmkv.IsNotFound(err) {
 			return nil, nil, nil, i, fmt.Errorf("SegmentGroup::getBySecondaryWithSegmentList() %q: %w", segments[i].getPath(), err)
 		}
 	}
@@ -1005,7 +1006,7 @@ func (sg *SegmentGroup) getCollection(key []byte, segments []Segment) ([]value, 
 	for _, segment := range segments {
 		v, err := segment.getCollection(key)
 		if err != nil {
-			if errors.Is(err, lsmkv.NotFound) {
+			if lsmkv.IsNotFound(err) {
 				continue
 			}
 
@@ -1029,7 +1030,7 @@ func (sg *SegmentGroup) getCollectionBytes(key []byte, segments []Segment) ([][]
 	for _, segment := range segments {
 		v, err := segment.getCollectionBytes(key)
 		if err != nil {
-			if errors.Is(err, lsmkv.NotFound) {
+			if lsmkv.IsNotFound(err) {
 				continue
 			}
 
@@ -1058,7 +1059,7 @@ func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte
 		}
 		v, err := segment.getCollection(key)
 		if err != nil {
-			if !errors.Is(err, lsmkv.NotFound) {
+			if !lsmkv.IsNotFound(err) {
 				return nil, nil, fmt.Errorf("SegmentGroup::getCollectionAndSegments() %q: %w",
 					segment.getPath(), err)
 			}
@@ -1089,6 +1090,7 @@ func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc in
 	if ln == 0 {
 		return nil, noopRelease, nil
 	}
+	h := bloomhash.Sum(key)
 
 	// acquired (not the named return, which error paths overwrite with
 	// noopRelease) is what the defer frees, so a mid-merge disk read error
@@ -1097,14 +1099,14 @@ func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc in
 
 	i := 0
 	for ; i < ln; i++ {
-		baseBM, baseRelease, getErr := segments[i].roaringSetGet(key, sg.bitmapBufPoolWithHeadroom)
+		baseBM, baseRelease, getErr := segments[i].roaringSetGet(key, h, sg.bitmapBufPoolWithHeadroom)
 		if getErr == nil {
 			bm = baseBM
 			acquired = baseRelease
 			i++
 			break
 		}
-		if !errors.Is(getErr, lsmkv.NotFound) {
+		if !lsmkv.IsNotFound(getErr) {
 			return nil, noopRelease, getErr
 		}
 	}
@@ -1115,7 +1117,7 @@ func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc in
 	}()
 
 	for ; i < ln; i++ {
-		if mergeErr := segments[i].roaringSetMergeWith(key, bm, sg.bitmapBufPool, maxConc); mergeErr != nil {
+		if mergeErr := segments[i].roaringSetMergeWith(key, h, bm, sg.bitmapBufPool, maxConc); mergeErr != nil {
 			err = mergeErr
 			return nil, noopRelease, err
 		}

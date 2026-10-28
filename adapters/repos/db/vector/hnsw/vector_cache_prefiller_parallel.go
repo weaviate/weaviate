@@ -135,7 +135,7 @@ func targetVectorFromObject(targetVector string) VectorFromObject {
 		vec, err := storobj.VectorFromBinary(objectBytes, nil, targetVector)
 		if err != nil {
 			var notFound storobj.ErrTargetVectorNotFound
-			if errors.As(err, &notFound) {
+			if errors.As(err, &notFound) || errors.Is(err, storobj.ErrNoVector) {
 				return nil, nil
 			}
 			return nil, err

@@ -704,6 +704,27 @@ func TestDocBitmapContainsBatch_ContainsAllFold(t *testing.T) {
 	})
 }
 
+// TestDocBitmapContainsBatch_ParallelNoKeyHasARow pins that a parallel union
+// fold whose every row is nil still answers a bitmap.
+func TestDocBitmapContainsBatch_ParallelNoKeyHasARow(t *testing.T) {
+	forceContainsAccumulatorGate(t, math.MaxInt)
+	forceContainsWorkers(t, 2)
+	fixture := newContainsBatchFixture(t, context.Background(), map[string][]uint64{"a": {1}})
+
+	pv := &propValuePair{
+		operator:     filters.ContainsAny,
+		containsKeys: keysFrom(t, []byte("b"), []byte("c")),
+	}
+	dbm, plan, err := newFoldSearcher(t, nil).docBitmapContainsBatch(t.Context(), fixture.source(t), pv)
+	require.NoError(t, err)
+	defer dbm.release()
+
+	require.Equal(t, foldStrategyUnionIncremental, plan.strategy)
+	require.Equal(t, 2, plan.workers)
+	require.NotNil(t, dbm.docIDs, "a fold must never return a nil bitmap")
+	require.Empty(t, dbm.docIDs.ToArray())
+}
+
 // TestDocBitmapContainsBatch_ContextCancelledMidLoop pins fold cancellation on
 // both arms: each checks the context before every read, so a context cancelled
 // during the first read stops the loop before the second and releases the row

@@ -312,6 +312,10 @@ func (s *Store) Shutdown(ctx context.Context) error {
 // error normally.
 var ErrBucketNotFound = errors.New("bucket not found")
 
+// ErrReplacedBucketNotShutDown: the replaced bucket may still be flushing into its dir,
+// which must not be opened again.
+var ErrReplacedBucketNotShutDown = errors.New("replaced bucket not shut down")
+
 func (s *Store) ShutdownBucket(ctx context.Context, bucketName string) error {
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()
@@ -537,7 +541,7 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 // replaceBucket drains the displaced bucket and swaps the two directories on
 // disk. Caller must hold replacementBucket.flushLock (flushLock OUTER →
 // maintenanceLock INNER, same order as the flush path).
-func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, replacementBucketName string, bucket *Bucket, bucketName string) (string, string, string, string, error) {
+func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, replacementBucketName string, bucket *Bucket, bucketName string) (_, _, _, _ string, err error) {
 	replacementBucket.disk.maintenanceLock.Lock()
 	defer replacementBucket.disk.maintenanceLock.Unlock()
 
@@ -547,7 +551,7 @@ func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, re
 	newReplacementBucketDir := currBucketDir
 
 	if err := bucket.Shutdown(ctx); err != nil {
-		return "", "", "", "", errors.Wrapf(err, "failed shutting down bucket old '%s'", bucketName)
+		return "", "", "", "", fmt.Errorf("%w: failed shutting down bucket old '%s': %w", ErrReplacedBucketNotShutDown, bucketName, err)
 	}
 
 	s.logger.WithField("action", "lsm_replace_bucket").
@@ -555,6 +559,12 @@ func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, re
 		WithField("replacement_bucket", replacementBucketName).
 		WithField("dir", s.dir).
 		Info("replacing bucket")
+
+	finishClaim, err := claimDirForMove(replacementBucket, newReplacementBucketDir)
+	if err != nil {
+		return "", "", "", "", err
+	}
+	defer func() { finishClaim(err == nil) }()
 
 	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
 		return "", "", "", "", errors.Wrapf(err, "failed moving orig bucket dir '%s'", currBucketDir)
@@ -564,6 +574,32 @@ func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, re
 	}
 
 	return currBucketDir, newBucketDir, currReplacementBucketDir, newReplacementBucketDir, nil
+}
+
+// claimDirForMove registers newDir in [GlobalBucketRegistry] before bucket is
+// moved there, so a move onto a dir another bucket uses fails before anything
+// is renamed. The returned finish must be called with the move's outcome: on
+// success the bucket's registration follows it to newDir, otherwise newDir is
+// released. Left at the old dir, the registry would refuse a new bucket there,
+// and would not notice a second bucket opened on the dir in use.
+//
+// The caller must hold bucket.flushLock until finish returns: Bucket.Shutdown
+// reads registeredPath under it.
+func claimDirForMove(bucket *Bucket, newDir string) (finish func(moved bool), err error) {
+	if bucket.registeredPath == newDir {
+		return func(bool) {}, nil
+	}
+	if err := GlobalBucketRegistry.TryAdd(newDir); err != nil {
+		return nil, err
+	}
+	return func(moved bool) {
+		if !moved {
+			GlobalBucketRegistry.Remove(newDir)
+			return
+		}
+		GlobalBucketRegistry.Remove(bucket.registeredPath)
+		bucket.registeredPath = newDir
+	}, nil
 }
 
 // freezeAndSwapForReplace makes the replacement name-visible while frozen:
@@ -676,21 +712,29 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 		return fmt.Errorf("bucket '%s' can not be renamed before flushing", bucketName)
 	}
 
-	currBucket.dir = newBucketDir
+	finishClaim, err := claimDirForMove(currBucket, newBucketDir)
+	if err != nil {
+		return err
+	}
+	moved := false
+	defer func() { finishClaim(moved) }()
 
-	mt, err := currBucket.createNewActiveMemtable()
+	// Nothing in memory changes until the dir is renamed, so a failed rename
+	// leaves the bucket as it was.
+	mt, err := currBucket.newActiveMemtableIn(newBucketDir)
 	if err != nil {
 		return fmt.Errorf("switch active memtable: %w", err)
 	}
-	currBucket.active = mt
-
-	s.bucketsByName[newBucketName] = currBucket
-	delete(s.bucketsByName, bucketName)
 
 	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
 		return errors.Wrapf(err, "failed renaming bucket dir '%s' to '%s'", currBucketDir, newBucketDir)
 	}
+	moved = true
 
+	currBucket.dir = newBucketDir
+	currBucket.active = mt
+	s.bucketsByName[newBucketName] = currBucket
+	delete(s.bucketsByName, bucketName)
 	s.updateBucketDir(currBucket, currBucketDir, newBucketDir)
 
 	return nil
@@ -760,7 +804,10 @@ func (s *Store) SwapBucketPointer(ctx context.Context, targetName, sourceName st
 	// because every swap in a chain runs this same Remove, so the path is
 	// released BEFORE the next bucket claims it. registeredPath equals the
 	// source bucket's current dir here (no rename has run yet).
-	GlobalBucketRegistry.Remove(sourceBucket.registeredPath)
+	sourceBucket.flushLock.RLock()
+	registeredPath := sourceBucket.registeredPath
+	sourceBucket.flushLock.RUnlock()
+	GlobalBucketRegistry.Remove(registeredPath)
 
 	return oldBucket, nil
 }
@@ -807,19 +854,27 @@ func (s *Store) FinalizeBucketSwap(ctx context.Context, bucketName, canonicalDir
 		return fmt.Errorf("flush memtable before dir rename: %w", err)
 	}
 
+	bucket.flushLock.Lock()
+	defer bucket.flushLock.Unlock()
+
+	finishClaim, err := claimDirForMove(bucket, canonicalDir)
+	if err != nil {
+		return err
+	}
+
 	if err := os.RemoveAll(backupDir); err != nil {
+		finishClaim(false)
 		return fmt.Errorf("remove backup dir %q: %w", backupDir, err)
 	}
 
 	if err := os.Rename(currentDir, canonicalDir); err != nil {
+		finishClaim(false)
 		return fmt.Errorf("rename %q to %q: %w", currentDir, canonicalDir, err)
 	}
+	finishClaim(true)
 
 	s.updateBucketDir(bucket, currentDir, canonicalDir)
 	bucket.dir = canonicalDir
-
-	bucket.flushLock.Lock()
-	defer bucket.flushLock.Unlock()
 
 	mt, err := bucket.createNewActiveMemtable()
 	if err != nil {

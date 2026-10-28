@@ -14,15 +14,17 @@ GOOS=$(go env GOOS)
 if [ ! -f "$SWAGGER" ]; then
   if [ "$GOOS" = "linux" ]; then
     curl -o "$SWAGGER" -L'#' https://github.com/go-swagger/go-swagger/releases/download/$version/swagger_"$(echo `uname`|tr '[:upper:]' '[:lower:]')"_"$GOARCH"
+  elif [ "$GOOS" = "darwin" ]; then
+    curl -o "$SWAGGER" -L'#' https://github.com/go-swagger/go-swagger/releases/download/$version/swagger_"$GOOS"_"$GOARCH"
   else
     curl -o "$SWAGGER" -L'#' https://github.com/go-swagger/go-swagger/releases/download/$version/swagger_"$(echo `uname`|tr '[:upper:]' '[:lower:]')"_amd64
   fi
   chmod +x "$SWAGGER"
 fi
 
-# Install golangci-lint if it's not istalled
+# Install golangci-lint if it's not installed; keep the version in sync with .github/actions/golangci-lint/action.yml and .pre-commit-config.yaml.
 if ! command -v golangci-lint >/dev/null 2>&1; then
-  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
 fi
 
 # Always install goimports to ensure that all parties use the same version
@@ -51,9 +53,11 @@ echo Now add the header to the generated code too.
 # 3. only *_test.go files
 
 echo Fix imports with goimports
-(cd "$DIR"/..; goimports -w $(find . -type f -name '*.go' -not -name '*_test.go' -not -path './test/*' -not -name '*pb.go' -not -path './vendor/*' -not -path "./.*/*"))
-(cd "$DIR"/..; goimports -w $(find . -type f -name '*.go' -not -name '*_test.go' -path './test/*' -not -name '*pb.go' -not -path './vendor/*' -not -path "./.*/*"))
-(cd "$DIR"/..; goimports -w $(find . -type f -name '*_test.go' -not -name '*pb.go' -not -path './vendor/*' -not -path "./.*/*"))
+(cd "$DIR"/..; find . -type f -name '*.go' \
+  -not -name '*pb.go' \
+  -not -path './vendor/*' \
+  -not -path './.*/*' \
+  -exec goimports -w {} +)
 
 echo Run the code formatter
 (cd "$DIR"/..; golangci-lint fmt)

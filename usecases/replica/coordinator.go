@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -320,6 +321,22 @@ func (c *coordinator[T, R]) Push(ctx context.Context,
 	return c.read(level, commitCh, onResult, onFlatten, batchSize), nil
 }
 
+// replicaCannotServe reports whether err is a peer's node-not-ready refusal, matched by message
+// because the read clients pass it through as text. That node is starting up and will not answer,
+// so the read fails over to another replica. Maintenance and a missing class are retried instead:
+// a replica behind the schema answers the same unprocessable as a class that does not exist, and
+// catches up in less than a retry takes. Maintenance is only ever the wire text of a 418.
+func replicaCannotServe(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrReplicaBooting) || errors.Is(err, ErrReplicaMaintenance) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, NodeNotReadyMsg) || strings.Contains(msg, LocalIndexNotReadyMsg)
+}
+
 // Pull data from replica depending on consistency level, trying to reach level successful calls
 // to op, while cycling through replicas for the coordinator's shard.
 //
@@ -361,6 +378,21 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 			c.metrics.ObserveReadDuration(time.Since(start))
 		}()
 
+		// A not-ready replica is starting up, so retrying it cannot help yet. Drop it and take
+		// another. Once every replica has settled, cancelling releases a worker that would
+		// otherwise wait on an empty queue.
+		candidatesCtx, noCandidatesLeft := context.WithCancel(ctx)
+		defer noCandidatesLeft()
+
+		var candidates atomic.Int32
+		candidates.Store(int32(len(hosts)))
+		// Called once per host that will not be tried again, whether it answered or was dropped.
+		hostSettled := func() {
+			if candidates.Add(-1) <= 0 {
+				noCandidatesLeft()
+			}
+		}
+
 		hostRetryQueue := make(chan hostRetry, len(hosts))
 
 		// put the "backups/fallbacks" on the retry queue
@@ -379,7 +411,7 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 			isFullReadWorker := hostIndex == 0 // first worker will perform the fullRead
 			workerFunc := func() {
 				defer wg.Done()
-				workerCtx, workerCancel := context.WithTimeout(ctx, timeout)
+				workerCtx, workerCancel := context.WithTimeout(candidatesCtx, timeout)
 				defer workerCancel()
 				// each worker will first try its corresponding host (eg worker0 tries hosts[0],
 				// worker1 tries hosts[1], etc). We want the fullRead to be tried on hosts[0]
@@ -391,28 +423,50 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 				// TODO have increasing timeout passed into each op (eg 1s, 2s, 4s, 8s, 16s, 32s, with some max) similar to backoff? future PR? or should we just set timeout once per worker in Pull?
 				if err == nil {
 					successful.Add(1)
+					hostSettled()
 					replyCh <- Result[T]{resp, err}
 					return
 				}
-				// this host failed op on the first try, put it on the retry queue
-				select {
-				case <-workerCtx.Done():
-					replyCh <- Result[T]{Err: workerCtx.Err()}
-					return
-				default:
-					hostRetryQueue <- hostRetry{
-						hosts[hostIndex],
-						backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), workerCtx),
+				if replicaCannotServe(err) {
+					hostSettled()
+				} else {
+					// this host failed op on the first try, put it on the retry queue
+					select {
+					case <-workerCtx.Done():
+						replyCh <- Result[T]{Err: workerCtx.Err()}
+						return
+					default:
+						hostRetryQueue <- hostRetry{
+							hosts[hostIndex],
+							// candidatesCtx, not workerCtx: the backoff belongs to the host, which
+							// outlives this worker. Bound to the worker it dies when that worker
+							// returns, and the next one gets backoff.Stop on its first failure.
+							backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), candidatesCtx),
+						}
 					}
 				}
 
 				// let's fallback to the backups in the retry queue
-				for hr := range hostRetryQueue {
-					resp, err := op(workerCtx, hr.host, isFullReadWorker)
+				for {
+					var hr hostRetry
+					select {
+					case <-workerCtx.Done():
+						replyCh <- Result[T]{resp, err}
+						return
+					case hr = <-hostRetryQueue:
+					}
+
+					resp, err = op(workerCtx, hr.host, isFullReadWorker)
 					if err == nil {
+						hostSettled()
 						replyCh <- Result[T]{resp, err}
 						return
 					}
+					if replicaCannotServe(err) {
+						hostSettled()
+						continue
+					}
+
 					nextBackOff := hr.currentBackOff.NextBackOff()
 					if nextBackOff == backoff.Stop {
 						// this host has run out of retries, send the result and note that
