@@ -47,8 +47,8 @@ func (a *Aggregator) searchByVector(ctx context.Context, searchVector models.Vec
 			i++
 		}
 
-		return idsFound[:i], dists, nil
-
+		// trim the distances with the ids: callers pair dists[i] with idsFound[i]
+		return idsFound[:i], dists[:i], nil
 	}
 	return idsFound, dists, nil
 }
