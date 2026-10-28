@@ -45,7 +45,7 @@ import (
 var errInjectedMemoryPressure = errors.New("memory pressure: injected")
 
 // failingAllocChecker fails every mapping reservation, so LazyLoadShard.loadIfCold
-// (and therefore mustLoad) fails for any shard that gets force-loaded.
+// fails for any shard that gets force-loaded; mustLoad skips the check.
 type failingAllocChecker struct{}
 
 func (failingAllocChecker) CheckAlloc(int64) error { return nil }
