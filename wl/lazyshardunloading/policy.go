@@ -223,8 +223,8 @@ func (p *policy[S]) beforeLoad(loading S) {
 		p.metrics.admitUnder.Inc()
 		return
 	}
-	victim, ok := p.pickMakeRoomVictim(s, loading)
-	req := db.UnloadRequest{Mode: db.UnloadModeRequest, Reindex: p.reindexSnapshot()}
+	victim, pickedAt, ok := p.pickMakeRoomVictim(s, loading)
+	req := db.UnloadRequest{Mode: db.UnloadModeRequest, PickedAt: pickedAt, Reindex: p.reindexSnapshot()}
 	if !ok || !p.enqueue(p.makeRoomCh, item[S]{shard: victim, reason: reasonMakeRoom, req: req}) {
 		p.metrics.admitOvercommit.Inc()
 		return
@@ -232,11 +232,12 @@ func (p *policy[S]) beforeLoad(loading S) {
 	p.metrics.admitMadeRoom.Inc()
 }
 
-// pickMakeRoomVictim claims the least recently used sampled candidate, ignoring residency.
-func (p *policy[S]) pickMakeRoomVictim(s *snapshot, loading S) (S, bool) {
+// pickMakeRoomVictim claims the least recently used sampled candidate, ignoring
+// residency, and returns the LastAccess it was picked at.
+func (p *policy[S]) pickMakeRoomVictim(s *snapshot, loading S) (S, uint32, bool) {
 	var zero S
 	if s.candidates == 0 {
-		return zero, false
+		return zero, 0, false
 	}
 	bp := p.bufs.Get().(*[]S)
 	buf := p.reg.Sample((*bp)[:0], s.candidates)
@@ -259,14 +260,14 @@ func (p *policy[S]) pickMakeRoomVictim(s *snapshot, loading S) (S, bool) {
 			}
 		}
 		if best < 0 {
-			return zero, false
+			return zero, 0, false
 		}
 		if victim := buf[best]; victim.TryMarkUnloadPending() {
-			return victim, true
+			return victim, bestAt, true
 		}
 		buf[best] = zero
 	}
-	return zero, false
+	return zero, 0, false
 }
 
 // overShare reports whether namespace holds more than its share; count < 0 reads it from the registry.
