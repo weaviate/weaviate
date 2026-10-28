@@ -117,6 +117,7 @@ func (t *shardInvertedReindexTaskMissingTextFilterable) updateMigrationStateAndS
 
 func (t *shardInvertedReindexTaskMissingTextFilterable) OnPostResumeStore(ctx context.Context, shard ShardLike) error {
 	// turn off fallback mode immediately after creating filterable index and resuming store's activity
+	shard.Index().filterableRebuilt.Store(shard.Name(), struct{}{})
 	shard.setFallbackToSearchable(false)
 	return nil
 }

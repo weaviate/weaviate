@@ -441,27 +441,69 @@ func (mf *filterableToSearchableMigrationFiles) createMigrationSkipFlag() error 
 // set at startup. That runs once per process, so without this every later load
 // of the shard (a tenant reactivation, a reload after an unload) would query a
 // filterable bucket that does not exist. A missing state file means no class
-// needs the fallback.
+// needs the fallback, and a shard the task already rebuilt never needs it again.
 func (s *Shard) inheritFallbackToSearchable() {
-	files := newFilterableToSearchableMigrationFiles(s.index.Config.RootPath)
-	data, err := os.ReadFile(files.stateFileName)
+	if _, rebuilt := s.index.filterableRebuilt.Load(s.name); rebuilt {
+		return
+	}
+	stateFile := newFilterableToSearchableMigrationFiles(s.index.Config.RootPath).stateFileName
+	missing, err := fallbackStates.missingFilterable(stateFile)
 	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			s.index.logger.WithField("action", "filterable_to_searchable_fallback").WithField("shard", s.ID()).
-				Warnf("cannot read the filterable-to-searchable migration state; shard keeps its default mode: %v", err)
-		}
-		return
-	}
-	if len(data) == 0 {
-		return
-	}
-	var state filterableToSearchableMigrationState
-	if err := json.Unmarshal(data, &state); err != nil {
 		s.index.logger.WithField("action", "filterable_to_searchable_fallback").WithField("shard", s.ID()).
-			Warnf("cannot parse the filterable-to-searchable migration state; shard keeps its default mode: %v", err)
+			Warnf("cannot read the filterable-to-searchable migration state; shard keeps its default mode: %v", err)
 		return
 	}
-	if _, missing := state.MissingFilterableClass2Props[s.index.Config.ClassName.String()]; missing {
+	if _, ok := missing[s.index.Config.ClassName.String()]; ok {
 		s.setFallbackToSearchable(true)
 	}
+}
+
+// fallbackStates caches each state file's classes missing a filterable index,
+// re-read only when a stat shows the file changed, so a shard load costs a stat.
+var fallbackStates = &fallbackStateCache{byPath: map[string]fallbackStateEntry{}}
+
+type fallbackStateCache struct {
+	mu     sync.Mutex
+	byPath map[string]fallbackStateEntry
+}
+
+type fallbackStateEntry struct {
+	info    os.FileInfo
+	missing map[string]map[string]struct{}
+}
+
+// missingFilterable returns the classes the state file lists as missing a
+// filterable index, nil when it does not exist. The result is shared: read only.
+func (c *fallbackStateCache) missingFilterable(stateFile string) (map[string]map[string]struct{}, error) {
+	info, err := os.Stat(stateFile)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	c.mu.Lock()
+	cached, ok := c.byPath[stateFile]
+	c.mu.Unlock()
+	// saveMigrationState renames a new file into place, so SameFile catches every rewrite.
+	if ok && os.SameFile(cached.info, info) && cached.info.ModTime().Equal(info.ModTime()) && cached.info.Size() == info.Size() {
+		return cached.missing, nil
+	}
+	data, err := os.ReadFile(stateFile)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var state filterableToSearchableMigrationState
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &state); err != nil {
+			return nil, err
+		}
+	}
+	c.mu.Lock()
+	c.byPath[stateFile] = fallbackStateEntry{info: info, missing: state.MissingFilterableClass2Props}
+	c.mu.Unlock()
+	return state.MissingFilterableClass2Props, nil
 }

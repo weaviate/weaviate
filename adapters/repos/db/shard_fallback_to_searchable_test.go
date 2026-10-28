@@ -12,6 +12,7 @@
 package db
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -67,4 +68,64 @@ func TestShardReloadKeepsFallbackToSearchable(t *testing.T) {
 			})
 		}
 	}
+}
+
+// A shard whose filterable index the task already rebuilt must not fall back
+// again on a reload, while the rest of its class is still being rebuilt.
+func TestShardReloadAfterItsFilterableRebuildKeepsFallbackOff(t *testing.T) {
+	f := newUnloadFixture(t)
+	state := &filterableToSearchableMigrationState{
+		MissingFilterableClass2Props: map[string]map[string]struct{}{f.index.Config.ClassName.String(): {"warm": {}}},
+		CreatedFilterableClass2Props: map[string]map[string]struct{}{},
+	}
+	require.NoError(t, newFilterableToSearchableMigrationFiles(f.index.Config.RootPath).saveMigrationState(state))
+	require.NoError(t, f.migrator.AdjustFilterablePropSettings(testCtx()))
+	shard, release, err := f.index.getOrInitShard(testCtx(), f.name)
+	require.NoError(t, err)
+	require.True(t, f.lazy.currentShard().isFallbackToSearchable())
+	task := newShardInvertedReindexTaskMissingTextFilterable(f.migrator)
+	require.NoError(t, task.OnPostResumeStore(testCtx(), shard))
+	require.False(t, f.lazy.currentShard().isFallbackToSearchable())
+	release()
+
+	require.Equal(t, UnloadOutcomeOK, f.lazy.TryUnload(testCtx(), UnloadRequest{Reindex: noReindex}))
+
+	_, release, err = f.index.getOrInitShard(testCtx(), f.name)
+	require.NoError(t, err)
+	defer release()
+	require.False(t, f.lazy.currentShard().isFallbackToSearchable(), "the reload re-enabled the fallback over a rebuilt filterable index")
+}
+
+func TestFallbackStateIsReparsedOnlyWhenTheFileChanges(t *testing.T) {
+	root := t.TempDir()
+	files := newFilterableToSearchableMigrationFiles(root)
+	cache := &fallbackStateCache{byPath: map[string]fallbackStateEntry{}}
+
+	missing, err := cache.missingFilterable(files.stateFileName)
+	require.NoError(t, err)
+	require.Nil(t, missing, "no state file, no fallback")
+
+	save := func(classes ...string) {
+		state := &filterableToSearchableMigrationState{
+			MissingFilterableClass2Props: map[string]map[string]struct{}{},
+			CreatedFilterableClass2Props: map[string]map[string]struct{}{},
+		}
+		for _, c := range classes {
+			state.MissingFilterableClass2Props[c] = map[string]struct{}{"p": {}}
+		}
+		require.NoError(t, files.saveMigrationState(state))
+	}
+	save("A", "B")
+	first, err := cache.missingFilterable(files.stateFileName)
+	require.NoError(t, err)
+	require.Len(t, first, 2)
+	again, err := cache.missingFilterable(files.stateFileName)
+	require.NoError(t, err)
+	require.Equal(t, reflect.ValueOf(first).Pointer(), reflect.ValueOf(again).Pointer(), "an unchanged file is served from the cache")
+
+	save("B")
+	after, err := cache.missingFilterable(files.stateFileName)
+	require.NoError(t, err)
+	require.Len(t, after, 1, "a class the task finished stops falling back on its next load")
+	require.Contains(t, after, "B")
 }
