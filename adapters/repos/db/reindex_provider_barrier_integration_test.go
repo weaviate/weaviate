@@ -34,7 +34,7 @@ import (
 // Integration tests for ReindexProvider's PREP→SWAP boundary on a real
 // shard with a real LSM store (the acceptance equivalent is slow and
 // flaky). Tests exercise runShardPrepPhase / runShardSwapPhase
-// directly — outer GetIndex/lookupShardByName orchestration is unit-
+// directly — outer GetIndex/pinShardByName orchestration is unit-
 // tested elsewhere.
 //
 // T1: PREP boundary — Iterated to Merged via runShardPrepPhase.

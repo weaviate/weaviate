@@ -148,7 +148,7 @@ func TestAPhaseHoldsItsUnitWhileItRuns(t *testing.T) {
 
 	ran, sealedDuring := false, false
 	require.NoError(t, p.runPerUnitPhase(task, payload, []string{"u1"}, idx, logger, "probe", false,
-		func(unitID string, _ ShardLike, _ []*ShardReindexTaskGeneric, _ bool) phaseResult {
+		func(_ context.Context, unitID string, _ ShardLike, _ []*ShardReindexTaskGeneric, _ bool) phaseResult {
 			ran = true
 			if release, sealed := p.SealLocalUnit(desc, unitID); sealed {
 				sealedDuring = true
