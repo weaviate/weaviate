@@ -43,6 +43,9 @@ type ShardUnloader interface {
 	BeforeLoad(shard *LazyLoadShard)
 	// AllowWarmupLoad reports whether the startup warmup may load another shard.
 	AllowWarmupLoad() bool
+	// Close stops the unloader's goroutines. DB.Shutdown calls it before any
+	// index shuts down, so no unload races an index teardown.
+	Close(ctx context.Context) error
 }
 
 // UnloadMode selects which clauses [LazyLoadShard.TryUnload] applies.
@@ -179,6 +182,20 @@ func (r *LoadedShardRegistry) NamespaceLoaded(namespace string) int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.byNamespace[namespace]
+}
+
+// NamespaceCounts replaces dst's entries with the loaded count per namespace and returns it.
+func (r *LoadedShardRegistry) NamespaceCounts(dst map[string]int) map[string]int {
+	if dst == nil {
+		dst = map[string]int{}
+	}
+	clear(dst)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for ns, n := range r.byNamespace {
+		dst[ns] = n
+	}
+	return dst
 }
 
 // Sample appends up to k distinct random loaded wrappers to dst and returns it.

@@ -359,3 +359,53 @@ func TestLazyLoadShard_EvictedAfterDeferredShutdownLeavesTheRegistry(t *testing.
 	require.NotSame(t, f.lazy, f.index.shards.Load(f.name), "the cleanly shut wrapper was evicted and replaced")
 	require.EqualValues(t, 1, f.unloader.registry.Loaded(), "the evicted wrapper must leave the registry")
 }
+
+func TestLoadedShardRegistryNamespaceCounts(t *testing.T) {
+	tests := []struct {
+		name       string
+		namespaces []string
+		dst        map[string]int
+		want       map[string]int
+	}{
+		{name: "empty into nil", want: map[string]int{}},
+		{name: "stale entries cleared", dst: map[string]int{"gone": 3}, want: map[string]int{}},
+		{name: "per namespace", namespaces: []string{"a", "b", "a", ""}, dst: map[string]int{"gone": 1}, want: map[string]int{"a": 2, "b": 1, "": 1}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := NewLoadedShardRegistry()
+			for _, ns := range tt.namespaces {
+				r.add(registryWrapper(ns))
+			}
+			require.Equal(t, tt.want, r.NamespaceCounts(tt.dst))
+		})
+	}
+}
+
+func TestLazyLoadShard_UnloadedAtTracksTheLastUnload(t *testing.T) {
+	f := newUnloadFixture(t)
+	require.True(t, f.lazy.UnloadedAt().IsZero())
+	f.put(t)
+	require.True(t, f.lazy.UnloadedAt().IsZero())
+
+	before := time.Now()
+	require.Equal(t, UnloadOutcomeOK, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
+	require.False(t, f.lazy.UnloadedAt().Before(before))
+
+	f.put(t)
+	require.True(t, f.lazy.UnloadedAt().IsZero(), "a reload clears it")
+}
+
+func TestDBShutdownClosesTheShardUnloaderOnce(t *testing.T) {
+	u := newFakeShardUnloader()
+	repo, _, _, _ := newLazyLoadRepoWithConfig(t, singleShardState(), true, -1, withShardUnloader(u))
+	require.Same(t, u, repo.ShardUnloader())
+	require.NoError(t, repo.Shutdown(context.Background()))
+	require.EqualValues(t, 1, u.closes.Load())
+}
+
+func TestDBShardUnloaderIsNilWithoutOne(t *testing.T) {
+	repo, _, _, _ := newLazyLoadRepoWithConfig(t, singleShardState(), true, -1)
+	t.Cleanup(func() { require.NoError(t, repo.Shutdown(context.Background())) })
+	require.Nil(t, repo.ShardUnloader())
+}
