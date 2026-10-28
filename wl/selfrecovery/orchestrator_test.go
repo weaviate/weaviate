@@ -178,6 +178,7 @@ func newOrchestratorForTest(t *testing.T, raft RaftEntryPoint, schemaR SchemaRea
 	o.probeBackoffMax = 20_000_000
 	o.restartTimeout = 200 * time.Millisecond
 	o.vanishedGracePeriod = 10 * time.Millisecond
+	o.parkPollInterval = 20 * time.Millisecond
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
