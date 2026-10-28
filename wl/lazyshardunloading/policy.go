@@ -18,10 +18,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // shard is what the policy needs of a lazy shard wrapper; *db.LazyLoadShard in production.
@@ -115,6 +117,8 @@ type policy[S shard] struct {
 	nsCounts      map[string]int
 	nsActiveCache map[string]bool
 	nsGauges      map[string]struct{}
+
+	unregisterNamespaceSeries func()
 }
 
 type ranked[S shard] struct {
@@ -147,6 +151,10 @@ func newPolicy[S shard](reg registry[S], knobs Knobs, deps policyDeps) *policy[S
 	p.bufs.New = func() any {
 		buf := make([]S, 0, MaxMakeRoomCandidates)
 		return &buf
+	}
+	p.unregisterNamespaceSeries = func() {}
+	if deps.namespaces {
+		p.unregisterNamespaceSeries = monitoring.RegisterNamespaceSeriesDeleter(p.deleteNamespaceSeries)
 	}
 	s := p.refresh()
 	p.storeRatio(p.memRatio())
@@ -289,6 +297,13 @@ func (p *policy[S]) enqueue(ch chan item[S], it item[S]) bool {
 	}
 }
 
+// deleteNamespaceSeries drops a removed namespace's series; it runs on the RAFT
+// apply and touches only the collectors, never loop-owned state.
+func (p *policy[S]) deleteNamespaceSeries(namespace string) {
+	p.metrics.loaded.DeleteLabelValues(namespace)
+	p.metrics.unloads.DeletePartialMatch(prometheus.Labels{"namespace": namespace})
+}
+
 // setReindexSource installs the snapshot source and wakes the loop to take the first snapshot.
 func (p *policy[S]) setReindexSource(src reindexSource) {
 	p.reindexSrc.Store(&src)
@@ -353,6 +368,7 @@ func (p *policy[S]) releaseWarmupLoad() { p.warmupReserved.Add(-1) }
 // close stops the loop and the workers; queued handoffs are released.
 func (p *policy[S]) close(ctx context.Context) error {
 	p.closeOnce.Do(func() {
+		p.unregisterNamespaceSeries()
 		p.closed.Store(true)
 		p.cancel()
 		p.workersMu.Lock()

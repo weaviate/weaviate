@@ -233,3 +233,16 @@ func TestNewPrometheusMetrics(t *testing.T) {
 		}
 	})
 }
+
+func TestDeleteNamespaceRunsRegisteredSeriesDeleters(t *testing.T) {
+	pm := newDeletableMetrics()
+	var got []string
+	unregister := RegisterNamespaceSeriesDeleter(func(ns string) { got = append(got, ns) })
+
+	pm.DeleteNamespace("ns_a")
+	pm.DeleteNamespace("")
+	unregister()
+	pm.DeleteNamespace("ns_b")
+
+	assert.Equal(t, []string{"ns_a"}, got, "runs per removed namespace, never for the shared one, and not once unregistered")
+}
