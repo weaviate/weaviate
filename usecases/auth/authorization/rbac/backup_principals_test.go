@@ -128,6 +128,21 @@ func TestAuthorizeBackupPrincipals(t *testing.T) {
 		}
 	})
 
+	t.Run("the built-in metadata reader reads both wildcards and creates neither", func(t *testing.T) {
+		const group = "infra-access"
+		for _, mode := range metadataReaderModes {
+			t.Run(mode.name, func(t *testing.T) {
+				m := setupMetadataReaderTestManager(t, mode.namespacesEnabled, group)
+				caller := metadataReaderPrincipal("staff", mode.namespacesEnabled, group)
+				for _, r := range append(authorization.BackupUsers(), authorization.BackupRoles()...) {
+					assert.NoError(t, m.Authorize(context.Background(), caller, authorization.READ, r), r)
+					err := m.Authorize(context.Background(), caller, authorization.CREATE, r)
+					assert.ErrorAs(t, err, new(authzErrors.Forbidden), r)
+				}
+			})
+		}
+	})
+
 	t.Run("a namespaced caller stays denied despite a wildcard grant", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		m, err := setupNSEnabledTestManager(t, logger, "customer1")

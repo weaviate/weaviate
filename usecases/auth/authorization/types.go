@@ -719,6 +719,8 @@ func metadataReaderPermissions() []*models.Permission {
 		{Action: &readRoles, Roles: AllRoles},
 		{Action: &readGroups, Groups: AllOIDCGroups},
 		{Action: &readBackups, Backups: AllBackups},
+		{Action: &readBackups, Backups: AllBackupUsers},
+		{Action: &readBackups, Backups: AllBackupRoles},
 	}
 }
 
