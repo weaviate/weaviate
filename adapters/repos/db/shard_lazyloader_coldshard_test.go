@@ -71,7 +71,7 @@ type addPropertyLazyFixture struct {
 // newLazyLoadRepo wires a lazy-load-enabled repo whose shards start cold and
 // stay cold, so a test decides when each one loads.
 // It registers no Shutdown cleanup — callers own the repo's lifecycle.
-func newLazyLoadRepo(t *testing.T, shardState *sharding.State, opts ...func(*Config)) (*DB, *Migrator, *fakeSchemaGetter) {
+func newLazyLoadRepo(t testing.TB, shardState *sharding.State, opts ...func(*Config)) (*DB, *Migrator, *fakeSchemaGetter) {
 	t.Helper()
 	repo, migrator, schemaGetter, _ := newLazyLoadRepoWithConfig(t, shardState, true, -1, opts...)
 	return repo, migrator, schemaGetter
@@ -80,7 +80,7 @@ func newLazyLoadRepo(t *testing.T, shardState *sharding.State, opts ...func(*Con
 // newLazyLoadRepoWithConfig wires a repo with EnableLazyLoadShards and
 // LazyLoadShardWarmupMinObjects set as given, then applies opts, returning the
 // log hook so a test can read what startup logged.
-func newLazyLoadRepoWithConfig(t *testing.T, shardState *sharding.State,
+func newLazyLoadRepoWithConfig(t testing.TB, shardState *sharding.State,
 	lazyLoad bool, warmupMinObjects int64, opts ...func(*Config),
 ) (*DB, *Migrator, *fakeSchemaGetter, *test.Hook) {
 	t.Helper()
@@ -107,6 +107,8 @@ func newLazyLoadRepoWithConfig(t *testing.T, shardState *sharding.State,
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().HasActiveSourceReplicationForShard(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	mockReplicationFSMReader.EXPECT().HasActiveTargetReplicationForShard(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
 	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
 	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
@@ -139,7 +141,7 @@ func newLazyLoadRepoWithConfig(t *testing.T, shardState *sharding.State,
 	return repo, NewMigrator(repo, logger, "node1"), schemaGetter, hook
 }
 
-func newAddPropertyLazyFixture(t *testing.T, className string, shardState *sharding.State, opts ...func(*Config)) *addPropertyLazyFixture {
+func newAddPropertyLazyFixture(t testing.TB, className string, shardState *sharding.State, opts ...func(*Config)) *addPropertyLazyFixture {
 	t.Helper()
 	ctx := testCtx()
 	repo, migrator, schemaGetter := newLazyLoadRepo(t, shardState, opts...)
@@ -159,7 +161,7 @@ func newAddPropertyLazyFixture(t *testing.T, className string, shardState *shard
 
 // coldShards returns every shard as an unloaded LazyLoadShard, keyed by name,
 // asserting none is loaded yet.
-func (f *addPropertyLazyFixture) coldShards(t *testing.T) map[string]*LazyLoadShard {
+func (f *addPropertyLazyFixture) coldShards(t testing.TB) map[string]*LazyLoadShard {
 	t.Helper()
 	shards := map[string]*LazyLoadShard{}
 	f.index.shards.Range(func(name string, shard ShardLike) error {
