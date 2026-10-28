@@ -76,7 +76,9 @@ func (a *Aggregator) objectVectorSearch(ctx context.Context, searchVector models
 	}
 
 	bucket := a.store.Bucket(helpers.ObjectsBucketLSM)
-	objs, err := storobj.ObjectsByDocID(bucket, ids, additional.Properties{}, nil, a.logger)
+	// hybrid fusion pairs objs[i] with dists[i], so a doc ID the index still
+	// knows but the bucket no longer has must take its distance with it
+	objs, dists, err := storobj.ObjectsByDocIDWithDists(bucket, ids, dists, additional.Properties{}, nil, a.logger)
 	if err != nil {
 		return nil, nil, fmt.Errorf("get objects by doc id: %w", err)
 	}
