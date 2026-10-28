@@ -122,6 +122,20 @@ type WeaviateRuntimeConfig struct {
 	OIDCJWKSUrl           *runtime.DynamicValue[string]   `yaml:"authentication_oidc_jwks_url" json:"authentication_oidc_jwks_url"`
 	OIDCSkipTLSVerify     *runtime.DynamicValue[bool]     `yaml:"authentication_oidc_insecure_skip_tls_verify" json:"authentication_oidc_insecure_skip_tls_verify"`
 
+	// Lazy shard unloading (licensed); see LazyShardUnloading.
+	LazyShardUnloadingIdleTTL             *runtime.DynamicValue[time.Duration] `json:"lazy_shard_unloading_idle_ttl" yaml:"lazy_shard_unloading_idle_ttl"`
+	LazyShardUnloadingIdleCheckInterval   *runtime.DynamicValue[time.Duration] `json:"lazy_shard_unloading_idle_check_interval" yaml:"lazy_shard_unloading_idle_check_interval"`
+	LazyShardUnloadingMaxLoadedShards     *runtime.DynamicValue[int]           `json:"lazy_shard_unloading_max_loaded_shards" yaml:"lazy_shard_unloading_max_loaded_shards"`
+	LazyShardUnloadingMemoryHighWatermark *runtime.DynamicValue[float64]       `json:"lazy_shard_unloading_memory_high_watermark" yaml:"lazy_shard_unloading_memory_high_watermark"`
+	LazyShardUnloadingMemoryLowWatermark  *runtime.DynamicValue[float64]       `json:"lazy_shard_unloading_memory_low_watermark" yaml:"lazy_shard_unloading_memory_low_watermark"`
+	LazyShardUnloadingMinResidency        *runtime.DynamicValue[time.Duration] `json:"lazy_shard_unloading_min_residency" yaml:"lazy_shard_unloading_min_residency"`
+	LazyShardUnloadingUnloadRate          *runtime.DynamicValue[int]           `json:"lazy_shard_unloading_unload_rate" yaml:"lazy_shard_unloading_unload_rate"`
+	LazyShardUnloadingInterval            *runtime.DynamicValue[time.Duration] `json:"lazy_shard_unloading_interval" yaml:"lazy_shard_unloading_interval"`
+	LazyShardUnloadingMakeRoomCandidates  *runtime.DynamicValue[int]           `json:"lazy_shard_unloading_make_room_candidates" yaml:"lazy_shard_unloading_make_room_candidates"`
+	LazyShardUnloadingUnloadWorkers       *runtime.DynamicValue[int]           `json:"lazy_shard_unloading_unload_workers" yaml:"lazy_shard_unloading_unload_workers"`
+	LazyShardUnloadingNamespaceMaxShare   *runtime.DynamicValue[float64]       `json:"lazy_shard_unloading_namespace_max_share" yaml:"lazy_shard_unloading_namespace_max_share"`
+	LazyShardUnloadingPaused              *runtime.DynamicValue[bool]          `json:"lazy_shard_unloading_paused" yaml:"lazy_shard_unloading_paused"`
+
 	// MCP Server settings
 	MCPEnabled            *runtime.DynamicValue[bool] `json:"mcp_server_enabled" yaml:"mcp_server_enabled"`
 	MCPWriteAccessEnabled *runtime.DynamicValue[bool] `json:"mcp_server_write_access_enabled" yaml:"mcp_server_write_access_enabled"`
@@ -485,6 +499,18 @@ func BuildRegisteredRuntimeConfig(cfg *Config) *WeaviateRuntimeConfig {
 	registered.DebugEndpointsEnabled = cfg.Profiling.DebugEndpointsEnabled
 	registered.GRPCWebEnabled = cfg.GRPC.GrpcWebEnabled
 	registered.DisableGraphQL = cfg.DisableGraphQL
+	registered.LazyShardUnloadingIdleTTL = cfg.LazyShardUnloading.IdleTTL
+	registered.LazyShardUnloadingIdleCheckInterval = cfg.LazyShardUnloading.IdleCheckInterval
+	registered.LazyShardUnloadingMaxLoadedShards = cfg.LazyShardUnloading.MaxLoadedShards
+	registered.LazyShardUnloadingMemoryHighWatermark = cfg.LazyShardUnloading.MemoryHighWatermark
+	registered.LazyShardUnloadingMemoryLowWatermark = cfg.LazyShardUnloading.MemoryLowWatermark
+	registered.LazyShardUnloadingMinResidency = cfg.LazyShardUnloading.MinResidency
+	registered.LazyShardUnloadingUnloadRate = cfg.LazyShardUnloading.UnloadRate
+	registered.LazyShardUnloadingInterval = cfg.LazyShardUnloading.Interval
+	registered.LazyShardUnloadingMakeRoomCandidates = cfg.LazyShardUnloading.MakeRoomCandidates
+	registered.LazyShardUnloadingUnloadWorkers = cfg.LazyShardUnloading.UnloadWorkers
+	registered.LazyShardUnloadingNamespaceMaxShare = cfg.LazyShardUnloading.NamespaceMaxShare
+	registered.LazyShardUnloadingPaused = cfg.LazyShardUnloading.Paused
 
 	if cfg.Authentication.OIDC.Enabled {
 		registered.OIDCIssuer = cfg.Authentication.OIDC.Issuer

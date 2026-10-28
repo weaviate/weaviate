@@ -344,6 +344,9 @@ type Config struct {
 	// only be enabled on newly bootstrapped clusters (enforced at startup).
 	Namespaces Namespaces `json:"namespaces" yaml:"namespaces"`
 
+	// LazyShardUnloading holds the runtime knobs of licensed lazy shard unloading.
+	LazyShardUnloading LazyShardUnloading `json:"-" yaml:"-"`
+
 	// Configuration options for the batch streaming logic, e.g. soft memory backpressure.
 	BatchStream BatchStream `json:"batch_stream" yaml:"batch_stream"`
 

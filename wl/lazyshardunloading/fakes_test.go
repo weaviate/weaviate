@@ -256,12 +256,20 @@ func withQueueCap(n int) harnessOpt {
 
 func newHarness(t testing.TB, configure func(*testKnobs), opts ...harnessOpt) *harness {
 	t.Helper()
+	k := newTestKnobs()
+	if configure != nil {
+		configure(k)
+	}
+	h := newHarnessWithKnobs(t, k.knobs(), opts...)
+	h.knobs = k
+	return h
+}
+
+func newHarnessWithKnobs(t testing.TB, knobs Knobs, opts ...harnessOpt) *harness {
+	t.Helper()
 	logger, hook := logrustest.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
-	h := &harness{t: t, reg: newFakeRegistry(), knobs: newTestKnobs(), prom: prometheus.NewPedanticRegistry(), logs: hook}
-	if configure != nil {
-		configure(h.knobs)
-	}
+	h := &harness{t: t, reg: newFakeRegistry(), prom: prometheus.NewPedanticRegistry(), logs: hook}
 	deps := policyDeps{
 		logger:   logger,
 		clock:    h.reg.clock,
@@ -275,7 +283,7 @@ func newHarness(t testing.TB, configure func(*testKnobs), opts ...harnessOpt) *h
 		opt(h, &deps)
 	}
 	deps.metrics = newMetrics(h.prom, deps.namespaces, logger)
-	h.p = newPolicy[*fakeShard](h.reg, h.knobs.knobs(), deps)
+	h.p = newPolicy[*fakeShard](h.reg, knobs, deps)
 	t.Cleanup(func() { require.NoError(t, h.p.close(context.Background())) })
 	return h
 }
