@@ -121,6 +121,7 @@ type fakeRegistry struct {
 
 	mu     sync.Mutex
 	shards []*fakeShard
+	chunks int
 }
 
 func newFakeRegistry() *fakeRegistry { return &fakeRegistry{epoch: time.Now()} }
@@ -190,6 +191,21 @@ func (r *fakeRegistry) Sample(dst []*fakeShard, k int) []*fakeShard {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append(dst, r.shards[:min(k, len(r.shards))]...)
+}
+
+func (r *fakeRegistry) AppendChunk(dst []*fakeShard, from, limit int) ([]*fakeShard, int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.chunks++
+	if from < 0 || from >= len(r.shards) || limit <= 0 {
+		return dst, -1
+	}
+	end := min(from+limit, len(r.shards))
+	dst = append(dst, r.shards[from:end]...)
+	if end == len(r.shards) {
+		return dst, -1
+	}
+	return dst, end
 }
 
 type testKnobs struct {
