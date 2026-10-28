@@ -139,6 +139,7 @@ func (s *Shard) Shutdown(ctx context.Context) error {
 // call, so a wrapper can hold its own lock per attempt instead of across the backoff.
 func (s *Shard) shutdownWithAttempt(ctx context.Context, attempt func() error) (err error) {
 	s.shutdownRequested.Store(true)
+	s.yieldPins()
 	var lastAttemptErr error
 	err = backoff.Retry(func() error {
 		// this retry to make sure it's retried in case
@@ -470,6 +471,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 // Note: this will keep drainRefsForDrop running for 30 seconds.
 func (s *Shard) drainRefsForDrop() error {
 	s.dropRequested.Store(true)
+	s.yieldPins()
 
 	return backoff.Retry(func() error {
 		s.shutdownLock.Lock()
@@ -530,6 +532,54 @@ func (s *Shard) preventShutdown() (release func(), err error) {
 		}
 		s.refCountSub()
 	}, nil
+}
+
+// errShardYielded is the cancel cause of a yielding pin whose shard was asked to shut down or drop.
+var errShardYielded = errors.New("shard shutdown or drop requested")
+
+type yieldingPin struct {
+	ctx    context.Context
+	cancel context.CancelCauseFunc
+}
+
+// yieldOnTeardown turns a held pin into one for long-running work that must not
+// delay a teardown: the returned context is cancelled with errShardYielded as
+// soon as a shutdown or drop is requested, so the work can stop and release
+// before the teardown's first retry. The returned release is idempotent and
+// replaces releasePin.
+func (s *Shard) yieldOnTeardown(ctx context.Context, releasePin func()) (context.Context, func()) {
+	yieldCtx, cancel := context.WithCancelCause(ctx)
+	pin := &yieldingPin{ctx: yieldCtx, cancel: cancel}
+	s.yieldMu.Lock()
+	if s.yielders == nil {
+		s.yielders = map[*yieldingPin]struct{}{}
+	}
+	s.yielders[pin] = struct{}{}
+	s.yieldMu.Unlock()
+	// Requests set their flag before yieldPins: either it saw this pin, or this sees the flag.
+	if s.shutdownRequested.Load() || s.dropRequested.Load() {
+		cancel(errShardYielded)
+	}
+	var released atomic.Bool
+	return yieldCtx, func() {
+		if !released.CompareAndSwap(false, true) {
+			return
+		}
+		s.yieldMu.Lock()
+		delete(s.yielders, pin)
+		s.yieldMu.Unlock()
+		cancel(nil)
+		releasePin()
+	}
+}
+
+// yieldPins cancels every yielding pin. Callers set shutdownRequested or dropRequested first.
+func (s *Shard) yieldPins() {
+	s.yieldMu.Lock()
+	defer s.yieldMu.Unlock()
+	for pin := range s.yielders {
+		pin.cancel(errShardYielded)
+	}
 }
 
 func (s *Shard) refCountAdd() {
