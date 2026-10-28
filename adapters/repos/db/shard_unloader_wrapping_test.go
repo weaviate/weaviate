@@ -85,7 +85,7 @@ func TestLazyShardUnloadingWrapsEagerPaths(t *testing.T) {
 				require.True(t, ok, "got %T", got)
 				require.True(t, lazy.isLoaded(), "the eager path still loads, into the wrapper")
 				require.EqualValues(t, 1, f.index.Config.ShardUnloader.Registry().Loaded())
-				require.Equal(t, UnloadOutcomeOK, lazy.TryUnload(testCtx(), UnloadRequest{}))
+				require.Equal(t, UnloadOutcomeOK, lazy.TryUnload(testCtx(), UnloadRequest{Reindex: noReindex}))
 				require.Same(t, lazy, f.index.shards.Load(name))
 			})
 		}
@@ -145,7 +145,7 @@ func TestNodesStatusNeverReloadsAnUnloadedShard(t *testing.T) {
 	require.EqualValues(t, 1, count)
 	require.True(t, status[0].Loaded)
 
-	require.Equal(t, UnloadOutcomeOK, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
+	require.Equal(t, UnloadOutcomeOK, f.lazy.TryUnload(testCtx(), UnloadRequest{Reindex: noReindex}))
 	beforeLoads := f.unloader.beforeLoads.Load()
 	status = nil
 	_, _, err = f.index.getShardsNodeStatus(testCtx(), &status, "")
@@ -181,9 +181,9 @@ func TestPinWhileUnloading(t *testing.T) {
 					return
 				}
 				require.True(t, lazy.isLoaded())
-				require.Equal(t, tt.want, lazy.TryUnload(testCtx(), UnloadRequest{}))
+				require.Equal(t, tt.want, lazy.TryUnload(testCtx(), UnloadRequest{Reindex: noReindex}))
 				release()
-				require.Equal(t, UnloadOutcomeOK, lazy.TryUnload(testCtx(), UnloadRequest{}))
+				require.Equal(t, UnloadOutcomeOK, lazy.TryUnload(testCtx(), UnloadRequest{Reindex: noReindex}))
 			}
 		})
 	}

@@ -81,5 +81,9 @@ func (u *Unloader) AllowWarmupLoad() bool { return u.p.allowWarmupLoad() }
 
 func (u *Unloader) Close(ctx context.Context) error { return u.p.close(ctx) }
 
+func (u *Unloader) SetReindexActivitySource(src func(ctx context.Context) (db.ReindexActivity, error)) {
+	u.p.setReindexSource(src)
+}
+
 // RefreshConfig applies changed knobs now instead of at the next tick; the runtime-config hook calls it.
 func (u *Unloader) RefreshConfig() { u.p.refreshConfig() }

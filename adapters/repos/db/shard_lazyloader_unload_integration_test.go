@@ -104,7 +104,7 @@ type unloadContender struct {
 }
 
 func unloaderLoop(r *unloadRace) error {
-	req := UnloadRequest{Mode: UnloadModeRequest}
+	req := UnloadRequest{Reindex: noReindex, Mode: UnloadModeRequest}
 	if r.progress.Load()%2 == 0 {
 		req.Mode = UnloadModeBackground
 	}
@@ -447,17 +447,17 @@ func TestLazyLoadShard_TryUnloadRacesTerminalOps(t *testing.T) {
 func TestLazyLoadShard_TryUnloadAfterRecoveringPromotion(t *testing.T) {
 	f := newUnloadFixture(t)
 	id := f.put(t)
-	require.Equal(t, UnloadOutcomeOK, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
+	require.Equal(t, UnloadOutcomeOK, f.lazy.TryUnload(testCtx(), UnloadRequest{Reindex: noReindex}))
 
 	f.lazy.blockLoad(enterrors.ErrShardRecovering)
 	rec := &RecoveringShard{LazyLoadShard: f.lazy}
 	f.index.shards.Store(f.name, rec)
-	require.Equal(t, UnloadOutcomeRecovering, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
+	require.Equal(t, UnloadOutcomeRecovering, f.lazy.TryUnload(testCtx(), UnloadRequest{Reindex: noReindex}))
 
 	require.NoError(t, f.index.PromoteRecoveringLocalShard(testCtx(), f.name))
 	require.Same(t, f.lazy, f.index.shards.Load(f.name))
 	require.True(t, f.exists(t, id))
-	require.Equal(t, UnloadOutcomeOK, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
+	require.Equal(t, UnloadOutcomeOK, f.lazy.TryUnload(testCtx(), UnloadRequest{Reindex: noReindex}))
 	f.requireUnloaded(t)
 	require.True(t, f.exists(t, id))
 }
@@ -474,7 +474,7 @@ func TestLazyLoadShard_TryUnloadLeavesTenantStatus(t *testing.T) {
 	require.NotNil(t, lazy)
 	_, _, err := lazy.loadIfCold(testCtx())
 	require.NoError(t, err)
-	require.Equal(t, UnloadOutcomeOK, lazy.TryUnload(testCtx(), UnloadRequest{}))
+	require.Equal(t, UnloadOutcomeOK, lazy.TryUnload(testCtx(), UnloadRequest{Reindex: noReindex}))
 	require.Equal(t, models.TenantActivityStatusHOT, state.Physical["t1"].Status)
 	require.Same(t, lazy, f.index.shards.Load("t1"))
 }

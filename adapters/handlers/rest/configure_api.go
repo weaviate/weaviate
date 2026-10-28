@@ -1145,6 +1145,12 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// cannot see.
 		repo.SetShardReindexActivityLookup(shardReindexActivityBuilder(serverShutdownCtx,
 			appState.ClusterService.ListDistributedTasks, appState.Logger))
+		if repo.ShardUnloader() != nil {
+			// The unloader bounds the list with its own deadline and logs a failure itself.
+			repo.SetShardReindexActivitySnapshot(func(ctx context.Context) (db.ShardReindexActivityLookup, error) {
+				return shardReindexActivityBuilder(ctx, appState.ClusterService.ListDistributedTasks, appState.Logger)()
+			})
+		}
 		// S1: the DTM-activity lookup flips a shard "free" the moment a
 		// task lands in a terminal status; autoCleanupAfterTerminal then
 		// tears the sidecar __reindex / __ingest dirs over the next

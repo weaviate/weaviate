@@ -13,11 +13,15 @@ package lazyshardunloading
 
 import (
 	"context"
+	"errors"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
@@ -683,4 +687,107 @@ func BenchmarkBeforeLoad(b *testing.B) {
 			}
 		})
 	}
+}
+
+func TestReindexSnapshotIsTakenPerTickAndRidesOnEveryUnload(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, func(k *testKnobs) {
+			set(t, k.maxLoaded, 2)
+			set(t, k.minResidency, 0)
+		})
+		var calls atomic.Int64
+		h.p.setReindexSource(func(ctx context.Context) (db.ReindexActivity, error) {
+			calls.Add(1)
+			return db.NewReindexActivity(nil), nil
+		})
+		synctest.Wait()
+		require.EqualValues(t, 1, calls.Load(), "installing the source takes the first snapshot at once")
+		shards := h.loadN(3, "")
+		synctest.Wait()
+
+		h.p.beforeLoad(cold(h, ""))
+		synctest.Wait()
+		var reqs []db.UnloadRequest
+		for _, s := range shards {
+			reqs = append(reqs, s.requests()...)
+		}
+		require.NotEmpty(t, reqs)
+		for _, r := range reqs {
+			require.True(t, r.Reindex.Usable(), "every unload carries the last tick's snapshot")
+		}
+		require.GreaterOrEqual(t, calls.Load(), int64(3), "one snapshot per tick")
+	})
+}
+
+func TestReindexSnapshotIsNotTakenWithoutAnyTrigger(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, nil)
+		var calls atomic.Int64
+		h.p.setReindexSource(func(ctx context.Context) (db.ReindexActivity, error) {
+			calls.Add(1)
+			return db.NewReindexActivity(nil), nil
+		})
+		tickOnce(10 * time.Second)
+		require.Zero(t, calls.Load())
+	})
+}
+
+func TestSlowReindexSnapshotIsBoundedAndNeverBlocksALoad(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, func(k *testKnobs) { set(t, k.maxLoaded, 1) })
+		h.loadN(2, "")
+		var calls atomic.Int64
+		h.p.setReindexSource(func(ctx context.Context) (db.ReindexActivity, error) {
+			calls.Add(1)
+			<-ctx.Done()
+			return db.ReindexActivity{}, ctx.Err()
+		})
+		synctest.Wait()
+		require.EqualValues(t, 1, calls.Load())
+
+		start := time.Now()
+		h.p.beforeLoad(cold(h, ""))
+		require.Zero(t, time.Since(start), "make-room reads the last snapshot, never the source")
+
+		time.Sleep(reindexSnapshotTimeout)
+		synctest.Wait()
+		require.False(t, h.p.reindexSnapshot().Usable())
+		require.EqualValues(t, 1, warnings(h, "unloads are refused"), "a failing source logs once")
+	})
+}
+
+func TestFailingReindexSnapshotLogsOncePerStreak(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, func(k *testKnobs) { set(t, k.maxLoaded, 10) })
+		var fail atomic.Bool
+		fail.Store(true)
+		h.p.setReindexSource(func(ctx context.Context) (db.ReindexActivity, error) {
+			if fail.Load() {
+				return db.ReindexActivity{}, errors.New("leader unreachable")
+			}
+			return db.NewReindexActivity(nil), nil
+		})
+		for range 5 {
+			tickOnce(time.Second)
+		}
+		require.EqualValues(t, 1, warnings(h, "unloads are refused"))
+		require.False(t, h.p.reindexSnapshot().Usable())
+
+		fail.Store(false)
+		tickOnce(time.Second)
+		require.True(t, h.p.reindexSnapshot().Usable())
+		fail.Store(true)
+		tickOnce(time.Second)
+		require.EqualValues(t, 2, warnings(h, "unloads are refused"))
+	})
+}
+
+func warnings(h *harness, substr string) int {
+	n := 0
+	for _, e := range h.logs.AllEntries() {
+		if e.Level == logrus.WarnLevel && strings.Contains(e.Message, substr) {
+			n++
+		}
+	}
+	return n
 }

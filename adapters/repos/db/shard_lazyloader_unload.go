@@ -102,8 +102,8 @@ func (l *LazyLoadShard) markUnloaded() {
 // TryUnload closes the loaded shard and leaves the wrapper cold in the shard
 // map. Tenant status is untouched. Every lock it takes is a try-lock, so it
 // never waits on a request, a RAFT apply or a load; any refusal leaves the
-// shard exactly as it was. The reindex clause is a DTM query that may reach
-// the leader, so it runs before any shard lock is taken.
+// shard exactly as it was. The reindex clause reads the caller's snapshot
+// (req.Reindex), never DTM: that list may reach the leader.
 //
 // Lock order is the documented one: enterRead, shardCreateLocks, l.mutex,
 // shutdownLock. shardCreateLocks is released once the shard is marked shut, so
@@ -122,10 +122,9 @@ func (l *LazyLoadShard) TryUnload(ctx context.Context, req UnloadRequest) Unload
 	if idx.closeRequestedCause() != nil {
 		return UnloadOutcomeIndexClosing
 	}
-	if idx.db != nil {
-		live, err := idx.db.anyLiveReindexForShard(idx.Config.ClassName.String(), name, idx.db.reindexActivityLookup)
-		if err != nil || live {
-			return UnloadOutcomeReindex
+	if idx.db != nil && !idx.db.config.RuntimeReindexDisabled {
+		if o := req.Reindex.blocks(idx.Config.ClassName.String(), name); o != "" {
+			return o
 		}
 	}
 
