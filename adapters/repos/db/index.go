@@ -5126,7 +5126,13 @@ func (i *Index) DebugRepairIndex(ctx context.Context, shardName, targetVector st
 
 	// Repair in the background
 	enterrors.GoWrapper(func() {
-		err := shard.RepairIndex(context.Background(), targetVector)
+		unpin, err := i.pinWhileUnloading(shardName)
+		defer unpin()
+		if err != nil {
+			i.logger.WithField("shard", shardName).Errorf("failed to pin the shard to repair its vector index: %v", err)
+			return
+		}
+		err = shard.RepairIndex(context.Background(), targetVector)
 		if err != nil {
 			i.logger.WithField("shard", shardName).WithError(err).Error("failed to repair vector index")
 			return
@@ -5174,7 +5180,13 @@ func (i *Index) DebugRequantizeIndex(ctx context.Context, shardName, targetVecto
 
 	// Repair in the background
 	enterrors.GoWrapper(func() {
-		err := shard.RequantizeIndex(context.Background(), targetVector)
+		unpin, err := i.pinWhileUnloading(shardName)
+		defer unpin()
+		if err != nil {
+			i.logger.WithField("shard", shardName).Errorf("failed to pin the shard to requantize its vector index: %v", err)
+			return
+		}
+		err = shard.RequantizeIndex(context.Background(), targetVector)
 		if err != nil {
 			i.logger.WithField("shard", shardName).WithError(err).Error("failed to requantize vector index")
 			return

@@ -188,3 +188,38 @@ func TestPinWhileUnloading(t *testing.T) {
 		})
 	}
 }
+
+func TestFallbackModeSwitchLeavesColdShardsCold(t *testing.T) {
+	tests := []struct {
+		name       string
+		unloader   bool
+		wantLoaded bool
+	}{
+		{name: "no unloader force-loads every shard as before", wantLoaded: true},
+		{name: "unloader leaves cold shards to inherit the mode at load", unloader: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var opts []func(*Config)
+			if tt.unloader {
+				opts = append(opts, withShardUnloader(newFakeShardUnloader()))
+			}
+			f := newAddPropertyLazyFixture(t, "FallbackCold", singleShardState(), opts...)
+			className := f.index.Config.ClassName.String()
+			files := newFilterableToSearchableMigrationFiles(f.index.Config.RootPath)
+			require.NoError(t, files.createMigrationSkipFlag())
+			require.NoError(t, files.saveMigrationState(&filterableToSearchableMigrationState{
+				MissingFilterableClass2Props: map[string]map[string]struct{}{className: {"warm": {}}},
+				CreatedFilterableClass2Props: map[string]map[string]struct{}{},
+			}))
+			for name, lazy := range f.coldShards(t) {
+				require.NoError(t, f.migrator.AdjustFilterablePropSettings(testCtx()))
+				require.Equal(t, tt.wantLoaded, lazy.isLoaded())
+				shard, release, err := f.index.getOrInitShard(testCtx(), name)
+				require.NoError(t, err)
+				require.True(t, shard.(*LazyLoadShard).currentShard().isFallbackToSearchable())
+				release()
+			}
+		})
+	}
+}
