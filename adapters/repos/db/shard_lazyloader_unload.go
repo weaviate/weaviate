@@ -121,10 +121,11 @@ func (l *LazyLoadShard) deregisterShard(shard *Shard) {
 // (req.Reindex), never DTM: that list may reach the leader.
 //
 // Lock order is the documented one: enterRead, shardCreateLocks, l.mutex,
-// shutdownLock. shardCreateLocks is released once the shard is marked shut, so
-// a COLD apply or a drop waits only on l.mutex for this one teardown, and a
-// request for this shard reloads it once the teardown finished. It clears the
-// unloadPending claim on return.
+// shutdownLock. shardCreateLocks and enterRead are released once the shard is
+// marked shut, so a COLD apply, a drop or an index close waits only on l.mutex
+// for this one teardown (LazyLoadShard.Shutdown and drop take it), and a
+// request for this shard reloads it once the teardown finished. l.mutex and
+// shut keep any reload out meanwhile. It clears the unloadPending claim on return.
 func (l *LazyLoadShard) TryUnload(ctx context.Context, req UnloadRequest) UnloadOutcome {
 	idx := l.shardOpts.index
 	name := l.shardOpts.name
@@ -133,7 +134,14 @@ func (l *LazyLoadShard) TryUnload(ctx context.Context, req UnloadRequest) Unload
 	if err := idx.enterRead(); err != nil {
 		return UnloadOutcomeIndexClosing
 	}
-	defer idx.exitRead()
+	readEntered := true
+	releaseRead := func() {
+		if readEntered {
+			readEntered = false
+			idx.exitRead()
+		}
+	}
+	defer releaseRead()
 	if idx.closeRequestedCause() != nil {
 		return UnloadOutcomeIndexClosing
 	}
@@ -196,6 +204,7 @@ func (l *LazyLoadShard) TryUnload(ctx context.Context, req UnloadRequest) Unload
 	outcome, err := shard.tryShutdownIdle(ctx, func() {
 		l.unloadPhase.Store(unloadPhaseTearing)
 		releaseCreateLock()
+		releaseRead()
 		if l.unloadMarkedHook != nil {
 			l.unloadMarkedHook()
 		}
