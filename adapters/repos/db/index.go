@@ -3953,6 +3953,9 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 	// directory's file locks. Same reasoning as getLoadedShard.
 	shard, release, err = i.pinResidentShard(shardName, ensureInit)
 	if err != nil || shard != nil {
+		if err == nil {
+			i.recordShardAccess(shard)
+		}
 		return shard, release, recoveringAsUnprocessable(err)
 	}
 	if !ensureInit {
@@ -3991,8 +3994,21 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 	if err != nil {
 		return nil, func() {}, recoveringAsUnprocessable(fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err))
 	}
+	i.recordShardAccess(shard)
 
 	return shard, release, nil
+}
+
+// recordShardAccess feeds the unloader's LRU from request pins only; internal
+// walks, async replication and status reads pin through other paths, so they
+// never make an idle shard look used.
+func (i *Index) recordShardAccess(shard ShardLike) {
+	if i.Config.ShardUnloader == nil {
+		return
+	}
+	if lazy, ok := shard.(*LazyLoadShard); ok {
+		lazy.recordAccess()
+	}
 }
 
 // recoveringAsUnprocessable: 422 (retriable on a replica), not a 500, when the shard is mid-recovery.

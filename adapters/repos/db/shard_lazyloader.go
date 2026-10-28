@@ -990,11 +990,7 @@ func (l *LazyLoadShard) preventShutdown() (release func(), err error) {
 	if err != nil {
 		return func() {}, fmt.Errorf("LazyLoadShard::preventShutdown: %w", err)
 	}
-	release, err = shard.preventShutdown()
-	if err == nil && l.unloader() != nil {
-		l.recordAccess()
-	}
-	return release, err
+	return shard.preventShutdown()
 }
 
 // HashTreeLevel maps unloaded to ErrAsyncReplicationNotActive; an empty level would read as convergence.
