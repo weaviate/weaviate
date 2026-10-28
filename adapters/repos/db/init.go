@@ -203,6 +203,7 @@ func (db *DB) init(ctx context.Context) error {
 			AutoTenantActivation:         schema.AutoTenantActivationEnabled(class),
 			DisableDimensionMetrics:      db.config.DisableDimensionMetrics,
 			SelfRecoveryOrchestrator:     db.selfRecoveryOrchestrator,
+			ShardUnloader:                db.config.ShardUnloader,
 			ReplicationFSM:               db.replicationFSM,
 		},
 			inverted.ConfigFromModel(invertedConfig),

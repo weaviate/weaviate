@@ -236,6 +236,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			MaintenanceModeEnabled:       m.db.config.MaintenanceModeEnabled,
 			AutoTenantActivation:         schema.AutoTenantActivationEnabled(class),
 			SelfRecoveryOrchestrator:     m.db.selfRecoveryOrchestrator,
+			ShardUnloader:                m.db.config.ShardUnloader,
 			ReplicationFSM:               m.db.replicationFSM,
 		},
 		// no backward-compatibility check required, since newly added classes will

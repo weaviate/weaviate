@@ -751,6 +751,11 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				recordOutcome(outcome)
 				continue
 			}
+			if !i.warmupMayLoad() {
+				i.logger.WithField("action", "load_all_shards").WithField("class", i.Config.ClassName.String()).
+					Info("startup warmup stopped at the loaded-shard limit; the remaining shards load on first access")
+				break
+			}
 
 			select {
 			case <-i.closingCtx.Done():
@@ -1756,6 +1761,8 @@ type IndexConfig struct {
 
 	// Consulted at startup for shards whose dir is missing; nil-safe.
 	SelfRecoveryOrchestrator SelfRecoveryOrchestrator
+	// ShardUnloader is nil unless lazy shard unloading is licensed and on.
+	ShardUnloader ShardUnloader
 	// Seeded before initAndStoreShards so the startup recovery check can read it.
 	ReplicationFSM replicationTypes.ReplicationFSMReader
 
@@ -3718,7 +3725,7 @@ func (i *Index) loadOrPromoteShard(ctx context.Context, shard ShardLike, shardNa
 	outcome := monitoring.WarmupOutcome("warmup_disabled")
 	if i.Config.backgroundWarmupEnabled() {
 		var shouldWarm bool
-		if shouldWarm, outcome = i.warmupDecisionLocked(shardName, shard); shouldWarm {
+		if shouldWarm, outcome = i.warmupDecisionLocked(shardName, shard); shouldWarm && i.warmupMayLoad() {
 			_, _, err := l.loadIfCold(ctx)
 			return err
 		}
@@ -3730,6 +3737,12 @@ func (i *Index) loadOrPromoteShard(ctx context.Context, shard ShardLike, shardNa
 		"outcome": string(outcome),
 	}).Info("promoted shard stays cold; it loads on first access")
 	return nil
+}
+
+// warmupMayLoad: warmup never makes room for itself, so it stops where the unloader says.
+func (i *Index) warmupMayLoad() bool {
+	u := i.Config.ShardUnloader
+	return u == nil || u.AllowWarmupLoad()
 }
 
 // seedEmptyFallbackCount makes an empty promoted folder warm up like a plain restart of an empty shard.
