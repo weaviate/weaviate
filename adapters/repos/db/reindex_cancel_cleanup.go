@@ -180,6 +180,7 @@ func (i *Index) cleanStalePartialReindexState(
 	}
 	shardErrs := errorcompounder.New()
 	skippedShards, payloadReads := 0, 0
+	leftMap := map[string]struct{}{}
 	// One cache serves every sweep of a request, so only the delta belongs to
 	// this one; its running total would re-report the first sweep's refusals.
 	refusedBefore := dirs.refusedListings()
@@ -189,8 +190,7 @@ func (i *Index) cleanStalePartialReindexState(
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return fmt.Errorf("%w: stopped before shard %q: %w", ErrCleanupSweepTruncated, name, ctxErr)
 		}
-		shard, ok := shardLike.(*Shard)
-		if !ok {
+		if _, ok := shardLike.(*Shard); !ok {
 			lazy, isLazy := asLazyLoadShard(shardLike)
 			if !isLazy {
 				// Unreachable in production (only two implementations exist).
@@ -209,17 +209,22 @@ func (i *Index) cleanStalePartialReindexState(
 				skippedShards++
 				return nil
 			}
-			unwrapped, _, unwrapErr := lazy.loadIfCold(ctx)
-			if unwrapErr != nil {
-				reported := fmt.Errorf(
-					"shard %q: unwrap for partial-reindex cleanup: %w", name, unwrapErr)
-				if truncated := truncatedByCancellation(reported); truncated != nil {
-					return truncated
-				}
-				shardErrs.Add(reported)
-				return nil
+		}
+		// Pinned for the sweep: an unload must neither orphan the load nor close buckets mid-sweep.
+		_, shard, release, pinErr := i.loadAndPinShard(ctx, name)
+		defer release()
+		if shard == nil && (pinErr == nil || shardIsGoing(pinErr)) {
+			leftMap[name] = struct{}{}
+			return nil
+		}
+		if pinErr != nil {
+			reported := fmt.Errorf(
+				"shard %q: unwrap for partial-reindex cleanup: %w", name, pinErr)
+			if truncated := truncatedByCancellation(reported); truncated != nil {
+				return truncated
 			}
-			shard = unwrapped
+			shardErrs.Add(reported)
+			return nil
 		}
 		// Charged whether or not the sweep then failed, for the same reason the
 		// gate's reads are: the reads are paid before the outcome is known.
@@ -234,6 +239,10 @@ func (i *Index) cleanStalePartialReindexState(
 		}
 		return nil
 	})
+	if len(leftMap) > 0 {
+		walkErr = errors.Join(walkErr, fmt.Errorf("%w: left the map mid-walk: %s",
+			errShardsSkipped, strings.Join(ReportedShardNames(leftMap), ", ")))
+	}
 	var failedShards error
 	if reported := shardErrs.ToErrorLimited(maxReportedErrors); reported != nil {
 		failedShards = fmt.Errorf("%w: %w", ErrCleanupShardFailed, reported)

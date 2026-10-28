@@ -27,6 +27,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
+	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -269,6 +270,7 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 				closeRequestedCtx:    closeRequestedCtx,
 				signalCloseRequested: signalCloseRequested,
 				logger:               logger,
+				shardCreateLocks:     esync.NewKeyRWLocker(),
 			}
 			// The real teardowns signal the cause first and cancel closingCtx
 			// once they hold the lock.
@@ -405,6 +407,7 @@ func TestCleanStalePartialReindexStateRefusesAnAlreadyRequestedClose(t *testing.
 				closeRequestedCtx:    closeRequestedCtx,
 				signalCloseRequested: signalCloseRequested,
 				logger:               logger,
+				shardCreateLocks:     esync.NewKeyRWLocker(),
 			}
 
 			monitor := &loadAttemptMonitor{}
@@ -544,6 +547,7 @@ func TestForEachShardStrictReportsACloseThatLandsMidWalk(t *testing.T) {
 				closeRequestedCtx:    closeRequestedCtx,
 				signalCloseRequested: signalCloseRequested,
 				logger:               logger,
+				shardCreateLocks:     esync.NewKeyRWLocker(),
 			}
 			shardNames := []string{"shard-a", "shard-b", "shard-c"}
 			for _, name := range shardNames {
@@ -691,6 +695,7 @@ func newSweepTestIndex(t *testing.T, logger *logrus.Logger) (
 		closeRequestedCtx:    closeRequestedCtx,
 		signalCloseRequested: signalCloseRequested,
 		logger:               logger,
+		shardCreateLocks:     esync.NewKeyRWLocker(),
 	}, signalCloseRequested, closeIndex
 }
 

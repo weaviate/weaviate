@@ -4023,6 +4023,43 @@ func (i *Index) pinResidentShard(shardName string, ensureInit bool) (shard Shard
 	return shard, release, nil
 }
 
+// loadAndPinShard loads the named shard if it is cold and pins it against
+// shutdown, returning the map entry and its loaded shard. A nil shard with a
+// nil error means the name is not in the map. Lookup, load and pin share one
+// create lock under enterRead: a teardown between them would have the load
+// rebuild the shard on a wrapper no longer in the map, an orphan nothing can
+// shut down. An unload while the pin is held returns refused_in_use after
+// Shard.Shutdown's bounded retries, and the shard shuts down on release.
+func (i *Index) loadAndPinShard(ctx context.Context, shardName string) (ShardLike, *Shard, func(), error) {
+	if err := i.enterRead(); err != nil {
+		return nil, nil, func() {}, fmt.Errorf("local shard %q: %w", shardName, err)
+	}
+	defer i.exitRead()
+
+	i.shardCreateLocks.RLock(shardName)
+	defer i.shardCreateLocks.RUnlock(shardName)
+
+	shard := i.shards.Load(shardName)
+	if shard == nil {
+		return nil, nil, func() {}, nil
+	}
+	concrete, err := unwrapShard(ctx, shard)
+	if err != nil {
+		return nil, nil, func() {}, err
+	}
+	release, err := concrete.preventShutdown()
+	if err != nil {
+		return nil, nil, func() {}, fmt.Errorf("local shard %q, no shutdown: %w", shardName, err)
+	}
+	return shard, concrete, release, nil
+}
+
+// shardIsGoing reports a pin refused because the shard or its index is being torn down.
+func shardIsGoing(err error) bool {
+	return stderrors.Is(err, errAlreadyShutdown) || stderrors.Is(err, errShutdownInProgress) ||
+		stderrors.Is(err, errDropInProgress)
+}
+
 func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 	replProps *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
