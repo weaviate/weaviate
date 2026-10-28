@@ -18,6 +18,13 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
+// unloadPhase values; see LazyLoadShard.unloadPhase.
+const (
+	unloadPhaseNone int32 = iota
+	unloadPhaseDeciding
+	unloadPhaseTearing
+)
+
 // unloader is the index's unloading policy, nil when unloading is off. Bare
 // test wrappers carry no shardOpts, so it reads as off for them.
 func (l *LazyLoadShard) unloader() ShardUnloader {
@@ -155,6 +162,11 @@ func (l *LazyLoadShard) TryUnload(ctx context.Context, req UnloadRequest) Unload
 		return UnloadOutcomeLockBusy
 	}
 	defer l.mutex.Unlock()
+	l.unloadPhase.Store(unloadPhaseDeciding)
+	defer l.unloadPhase.Store(unloadPhaseNone)
+	if l.loadWaiters.Load() > 0 {
+		return UnloadOutcomeLockBusy
+	}
 
 	if l.loadBlocked {
 		return UnloadOutcomeRecovering
@@ -174,6 +186,7 @@ func (l *LazyLoadShard) TryUnload(ctx context.Context, req UnloadRequest) Unload
 	}
 
 	outcome, err := shard.tryShutdownIdle(ctx, func() {
+		l.unloadPhase.Store(unloadPhaseTearing)
 		releaseCreateLock()
 		if l.unloadMarkedHook != nil {
 			l.unloadMarkedHook()
