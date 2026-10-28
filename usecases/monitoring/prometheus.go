@@ -427,6 +427,45 @@ func (pm *PrometheusMetrics) DeleteNamespace(namespace string) {
 	if pm.VectorSegmentsSum.Delete(groupedGauge) {
 		pm.VectorSegmentsSum.With(groupedGauge).Set(0)
 	}
+	namespaceSeriesDeleters.run(namespace)
+}
+
+// namespaceSeriesDeleters drop the namespace series of collectors that live
+// outside PrometheusMetrics; DeleteNamespace runs them after its own.
+var namespaceSeriesDeleters = &seriesDeleters{fns: map[uint64]func(string){}}
+
+type seriesDeleters struct {
+	mu   sync.Mutex
+	next uint64
+	fns  map[uint64]func(string)
+}
+
+// RegisterNamespaceSeriesDeleter makes DeleteNamespace also run fn, which must
+// not block: it runs on the RAFT apply. The returned func unregisters it.
+func RegisterNamespaceSeriesDeleter(fn func(namespace string)) (unregister func()) {
+	d := namespaceSeriesDeleters
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	id := d.next
+	d.next++
+	d.fns[id] = fn
+	return func() {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		delete(d.fns, id)
+	}
+}
+
+func (d *seriesDeleters) run(namespace string) {
+	d.mu.Lock()
+	fns := make([]func(string), 0, len(d.fns))
+	for _, fn := range d.fns {
+		fns = append(fns, fn)
+	}
+	d.mu.Unlock()
+	for _, fn := range fns {
+		fn(namespace)
+	}
 }
 
 const mb = 1024 * 1024
