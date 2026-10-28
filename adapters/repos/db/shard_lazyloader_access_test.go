@@ -107,3 +107,22 @@ func TestLazyLoadShard_OnlyRequestPinsRecordAccess(t *testing.T) {
 		})
 	}
 }
+
+type panickingCompressedIndex struct{ VectorIndex }
+
+func (panickingCompressedIndex) Compressed() bool { panic("injected status read panic") }
+
+func TestNodesStatusReleasesItsPinOnPanic(t *testing.T) {
+	f := newUnloadFixture(t)
+	f.put(t)
+	s := f.lazy.currentShard()
+	restore := replaceLegacyVectorIndex(t, s, func(v VectorIndex) VectorIndex { return panickingCompressedIndex{v} })
+	defer restore()
+
+	func() {
+		defer func() { require.NotNil(t, recover()) }()
+		var status []*models.NodeShardStatus
+		f.index.getShardsNodeStatus(testCtx(), &status, "")
+	}()
+	require.Zero(t, s.inUseCounter.Load(), "a panicking status read must not leak the shard's pin")
+}
