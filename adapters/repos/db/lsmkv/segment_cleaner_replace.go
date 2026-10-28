@@ -13,7 +13,6 @@ package lsmkv
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"io"
 
@@ -119,7 +118,7 @@ func (p *segmentCleanerReplace) writeKeys(f *segmentindex.SegmentFile,
 	var keyExists bool
 
 	i := 0
-	for node, err = p.cursor.firstWithAllKeys(); err == nil || errors.Is(err, lsmkv.Deleted); node, err = p.cursor.nextWithAllKeys() {
+	for node, err = p.cursor.firstWithAllKeys(); err == nil || lsmkv.IsDeleted(err); node, err = p.cursor.nextWithAllKeys() {
 		i++
 		if i%100 == 0 && shouldAbort() {
 			return nil, errCleanupAborted
@@ -149,7 +148,7 @@ func (p *segmentCleanerReplace) writeKeys(f *segmentindex.SegmentFile,
 		indexKeys = append(indexKeys, indexKey)
 	}
 
-	if !errors.Is(err, lsmkv.NotFound) {
+	if !lsmkv.IsNotFound(err) {
 		return nil, err
 	}
 	return indexKeys, nil

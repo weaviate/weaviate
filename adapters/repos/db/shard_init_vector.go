@@ -50,7 +50,7 @@ func vectorFromObjectForTarget(targetVector string) hnsw.VectorFromObject {
 		vec, err := storobj.VectorFromBinary(objectBytes, nil, targetVector)
 		if err != nil {
 			var notFound storobj.ErrTargetVectorNotFound
-			if stderrors.As(err, &notFound) {
+			if stderrors.As(err, &notFound) || stderrors.Is(err, storobj.ErrNoVector) {
 				return nil, nil
 			}
 			return nil, err

@@ -13,7 +13,6 @@ package lsmkv
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -31,7 +30,7 @@ func (s *segment) get(key []byte) ([]byte, error) {
 
 	start, end, err := s.index.GetOffsets(key)
 	if err != nil {
-		if errors.Is(err, lsmkv.NotFound) {
+		if lsmkv.IsNotFound(err) {
 			return nil, lsmkv.NotFound
 		}
 		return nil, s.reportIndexErr(err)
@@ -187,7 +186,7 @@ func (s *segment) exists(key []byte) error {
 
 	start, end, err := s.index.GetOffsets(key)
 	if err != nil {
-		if errors.Is(err, lsmkv.NotFound) {
+		if lsmkv.IsNotFound(err) {
 			return lsmkv.NotFound
 		}
 		return s.reportIndexErr(err)

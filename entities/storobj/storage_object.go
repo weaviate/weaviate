@@ -1894,7 +1894,7 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 		return nil, err
 	}
 	if vecLen == 0 {
-		return nil, fmt.Errorf("vector length is 0")
+		return nil, ErrNoVector
 	}
 
 	var out []float32
