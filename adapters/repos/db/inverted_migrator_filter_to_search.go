@@ -421,3 +421,32 @@ func (mf *filterableToSearchableMigrationFiles) createMigrationSkipFlag() error 
 	f.Close()
 	return nil
 }
+
+// inheritFallbackToSearchable restores the fallback mode switchShardsToFallbackMode
+// set at startup. That runs once per process, so without this every later load
+// of the shard (a tenant reactivation, a reload after an unload) would query a
+// filterable bucket that does not exist. A missing state file means no class
+// needs the fallback.
+func (s *Shard) inheritFallbackToSearchable() {
+	files := newFilterableToSearchableMigrationFiles(s.index.Config.RootPath)
+	data, err := os.ReadFile(files.stateFileName)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			s.index.logger.WithField("action", "filterable_to_searchable_fallback").WithField("shard", s.ID()).
+				Warnf("cannot read the filterable-to-searchable migration state; shard keeps its default mode: %v", err)
+		}
+		return
+	}
+	if len(data) == 0 {
+		return
+	}
+	var state filterableToSearchableMigrationState
+	if err := json.Unmarshal(data, &state); err != nil {
+		s.index.logger.WithField("action", "filterable_to_searchable_fallback").WithField("shard", s.ID()).
+			Warnf("cannot parse the filterable-to-searchable migration state; shard keeps its default mode: %v", err)
+		return
+	}
+	if _, missing := state.MissingFilterableClass2Props[s.index.Config.ClassName.String()]; missing {
+		s.setFallbackToSearchable(true)
+	}
+}
