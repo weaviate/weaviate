@@ -656,6 +656,8 @@ func TestSweep_ReportLines(t *testing.T) {
 		inUseMsg   = "shards in use, a later sweep retries them while the namespace stays suspended"
 		runningMsg = "shard unloads still running"
 		failedMsg  = "shard unloads failed, restart the node to clear these shards before resuming the namespace"
+		heldMsg    = "shards held for a replication op, a later sweep unloads them once the op is READY or CANCELLED " +
+			"(GET /replication/replicate/list lists the ops)"
 	)
 	type recordedOutcome struct {
 		className, shardName string
@@ -697,6 +699,12 @@ func TestSweep_ReportLines(t *testing.T) {
 			},
 			wantLines: []string{"error C failed=[f1] torn=[t1]"},
 			wantMsgs:  []string{failedMsg},
+		},
+		{
+			name:      "a shard a replication op copies into is logged at Info",
+			recorded:  []recordedOutcome{{"C", "m1", db.ShardUnloadOutcomeMovementTarget}},
+			wantLines: []string{"info C movement_target=[m1]"},
+			wantMsgs:  []string{heldMsg},
 		},
 	}
 	for _, tt := range tests {

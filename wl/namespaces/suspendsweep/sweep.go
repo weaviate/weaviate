@@ -319,9 +319,16 @@ func (s *Sweep) logOutcomes(outcomes map[string]shardOutcomes) {
 	}
 }
 
-// reportClass logs at Info the unloads still running or refused as in use, at
-// Error those that need a restart, and each other outcome at Debug, a recovering
-// shard included.
+// heldForReplicationMsg tells an operator why a replication op's shards stay
+// loaded. Cancelling the op, or force-deleting it while its target node is down,
+// releases them sooner. Once a cancel answers 409, a force-delete can leave the
+// target without writes the source acknowledged.
+const heldForReplicationMsg = "shards held for a replication op, a later sweep unloads them once the op is READY or CANCELLED " +
+	"(GET /replication/replicate/list lists the ops)"
+
+// reportClass logs at Info the unloads still running, refused as in use or held
+// for a replication op. It logs at Error those that need a restart, and each
+// other outcome at Debug, a recovering shard included.
 func (s *Sweep) reportClass(className string, outcomes shardOutcomes) {
 	logger := s.logger.WithField("class", className)
 	pending, broken := logrus.Fields{}, logrus.Fields{}
@@ -335,6 +342,9 @@ func (s *Sweep) reportClass(className string, outcomes shardOutcomes) {
 		case outcomeUnloading:
 			pending[key] = names
 			pendingMsgs = append(pendingMsgs, "shard unloads still running")
+		case db.ShardUnloadOutcomeMovementTarget:
+			pending[key] = names
+			pendingMsgs = append(pendingMsgs, heldForReplicationMsg)
 		case db.ShardUnloadOutcomeRefusedInUse:
 			pending[key] = names
 			pendingMsgs = append(pendingMsgs,
