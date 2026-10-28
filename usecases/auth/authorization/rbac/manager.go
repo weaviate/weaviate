@@ -17,6 +17,8 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -61,6 +63,8 @@ type Manager struct {
 	namespacesEnabled bool
 	namespaces        NamespaceLister
 	restoreLock       sync.RWMutex
+	// rbacDir holds the policy.csv and version files of earlier releases.
+	rbacDir string
 }
 
 // New builds the RBAC manager. namespaces must be non-nil when namespacesEnabled is
@@ -79,6 +83,7 @@ func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Auth
 		rbacConf:          rbacConf,
 		namespacesEnabled: namespacesEnabled,
 		namespaces:        namespaces,
+		rbacDir:           rbacDirIn(rbacStoragePath),
 	}, nil
 }
 
@@ -853,8 +858,9 @@ func (m *Manager) Restore(b []byte, stripNamespaces bool) error {
 // refusing the snapshot keeps the node from starting or catching up. Dropping a
 // row only removes a grant.
 func (m *Manager) RestoreRaftSnapshot(b []byte) error {
-	// don't overwrite with empty snapshot to avoid overwriting recovery from file
-	// with a non-existent RBAC snapshot when coming from old versions
+	// An empty payload comes from a snapshot taken before RAFT carried RBAC.
+	// Returning keeps the current state, including roles seeded from the legacy
+	// policy file, until a snapshot carries RBAC.
 	if m == nil || len(b) == 0 || m.casbin == nil {
 		return nil
 	}
@@ -866,7 +872,32 @@ func (m *Manager) RestoreRaftSnapshot(b []byte) error {
 	snapshot.Policy = m.dropUnstorableRows("p", snapshot.Policy)
 	snapshot.GroupingPolicy = m.dropUnstorableRows("g", snapshot.GroupingPolicy)
 
-	return m.replacePolicies(snapshot)
+	if err := m.replacePolicies(snapshot); err != nil {
+		return err
+	}
+	m.removeLegacyFiles()
+	return nil
+}
+
+// removeLegacyFiles deletes the policy.csv and version files of earlier
+// releases. Callers run it only after a RAFT snapshot carrying RBAC was
+// restored, so the files hold nothing the node still needs. A failed removal
+// is logged and does not fail the restore.
+func (m *Manager) removeLegacyFiles() {
+	var removed []string
+	for _, name := range []string{"policy.csv", "version"} {
+		p := filepath.Join(m.rbacDir, name)
+		if err := os.Remove(p); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				m.logger.WithField("path", p).Warnf("failed to remove legacy rbac file: %v", err)
+			}
+			continue
+		}
+		removed = append(removed, p)
+	}
+	if len(removed) > 0 {
+		m.logger.WithField("paths", removed).Info("removed legacy rbac files: the restored RAFT snapshot carries the RBAC state")
+	}
 }
 
 // replacePolicies clears the policy store and loads snapshot into it.

@@ -83,7 +83,7 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 	// explicitly invalidating the cache.
 	enforcer.SetExpireTime(1 * time.Hour)
 
-	if err := seedFromLegacyPolicyFile(enforcer, filepath.Join(policyPath, "rbac"), authNconf); err != nil {
+	if err := seedFromLegacyPolicyFile(enforcer, rbacDirIn(policyPath), authNconf); err != nil {
 		return nil, err
 	}
 
@@ -95,6 +95,11 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 	}
 
 	return enforcer, nil
+}
+
+// rbacDirIn returns the dir under storagePath where earlier releases wrote policy.csv and version.
+func rbacDirIn(storagePath string) string {
+	return filepath.Join(storagePath, "rbac")
 }
 
 // seedFromLegacyPolicyFile loads the policy.csv that earlier releases wrote

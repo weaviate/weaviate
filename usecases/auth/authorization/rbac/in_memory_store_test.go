@@ -18,6 +18,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync/atomic"
 	"testing"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/casbin/casbin/v2/model"
 	fileadapter "github.com/casbin/casbin/v2/persist/file-adapter"
 	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -240,6 +242,144 @@ func TestSeedFromLegacyPolicyFile(t *testing.T) {
 			assert.Equal(t, before, dirContents(t, dir), "the seed must not write")
 		})
 	}
+}
+
+func TestRestoreRaftSnapshotRemovesLegacyFiles(t *testing.T) {
+	const seededRows = "p, role:custom, schema/collections/Movies/shards/#, R, schema\n" +
+		"g, db:alice, role:custom\n"
+	authNconf := config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"alice"}}}
+
+	// rbacSnapshot holds a role "writer" and no assignment for alice, so a
+	// restore of it replaces the seeded state.
+	source, err := New(t.TempDir(), rbacconf.Config{Enabled: true}, authNconf, false, nil, discardLogger())
+	require.NoError(t, err)
+	require.NoError(t, source.CreateRolesPermissions(map[string][]authorization.Policy{"writer": {moviesRead}}))
+	rbacSnapshot, err := source.Snapshot()
+	require.NoError(t, err)
+	// The one-field grouping row passes validation and fails building role links,
+	// so the restore fails inside replacePolicies.
+	failingSnapshot, err := json.Marshal(snapshot{
+		GroupingPolicy: [][]string{{"db:malformed"}},
+		Version:        SnapshotVersionLatest,
+	})
+	require.NoError(t, err)
+
+	requireSeeded := func(t *testing.T, m *Manager) {
+		t.Helper()
+		require.NoError(t, m.Authorize(context.Background(), aliceAsUser, authorization.READ, moviesRead.Resource))
+	}
+	requireRestored := func(t *testing.T, m *Manager) {
+		t.Helper()
+		roles, err := m.GetRoles()
+		require.NoError(t, err)
+		assert.Contains(t, roles, "writer")
+		assert.NotContains(t, roles, "custom")
+		err = m.Authorize(context.Background(), aliceAsUser, authorization.READ, moviesRead.Resource)
+		require.ErrorAs(t, err, new(authzErrors.Forbidden))
+	}
+
+	tests := []struct {
+		name        string
+		plantFiles  bool
+		snapshot    []byte
+		backup      bool
+		wantErr     bool
+		wantKept    bool
+		checkMemory func(t *testing.T, m *Manager)
+	}{
+		{
+			name:        "an RBAC snapshot removes both files",
+			plantFiles:  true,
+			snapshot:    rbacSnapshot,
+			checkMemory: requireRestored,
+		},
+		{
+			name:        "an empty snapshot keeps them",
+			plantFiles:  true,
+			wantKept:    true,
+			checkMemory: requireSeeded,
+		},
+		{
+			name:       "a failed restore keeps them",
+			plantFiles: true,
+			snapshot:   failingSnapshot,
+			wantErr:    true,
+			wantKept:   true,
+		},
+		{
+			name:        "a backup restore keeps them",
+			plantFiles:  true,
+			snapshot:    rbacSnapshot,
+			backup:      true,
+			wantKept:    true,
+			checkMemory: requireRestored,
+		},
+		{
+			name:        "no files present is a no-op",
+			snapshot:    rbacSnapshot,
+			checkMemory: requireRestored,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if tt.plantFiles {
+				rbacDir := filepath.Join(dir, "rbac")
+				require.NoError(t, os.MkdirAll(rbacDir, 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(rbacDir, "policy.csv"), []byte(seededRows), 0o644))
+				require.NoError(t, os.WriteFile(filepath.Join(rbacDir, "version"), []byte("1.30.0"), 0o644))
+			}
+			before := dirContents(t, dir)
+			m, err := New(dir, rbacconf.Config{Enabled: true}, authNconf, false, nil, discardLogger())
+			require.NoError(t, err)
+			if tt.plantFiles {
+				requireSeeded(t, m)
+			}
+
+			if tt.backup {
+				err = m.Restore(tt.snapshot, false)
+			} else {
+				err = m.RestoreRaftSnapshot(tt.snapshot)
+			}
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			switch {
+			case tt.wantKept:
+				assert.Equal(t, before, dirContents(t, dir))
+			case tt.plantFiles:
+				// The rbac dir stays; only the two files go.
+				assert.Equal(t, map[string]string{"rbac": ""}, dirContents(t, dir))
+			default:
+				assert.Empty(t, dirContents(t, dir))
+			}
+			if tt.checkMemory != nil {
+				tt.checkMemory(t, m)
+			}
+		})
+	}
+
+	t.Run("a removal error does not fail the restore", func(t *testing.T) {
+		dir := t.TempDir()
+		logger, hook := test.NewNullLogger()
+		m, err := New(dir, rbacconf.Config{Enabled: true}, authNconf, false, nil, logger)
+		require.NoError(t, err)
+		// os.Remove fails on a non-empty dir with an error other than not-exist.
+		blocked := filepath.Join(dir, "rbac", "policy.csv")
+		require.NoError(t, os.MkdirAll(blocked, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(blocked, "x"), nil, 0o644))
+
+		require.NoError(t, m.RestoreRaftSnapshot(rbacSnapshot))
+
+		requireRestored(t, m)
+		warned := slices.ContainsFunc(hook.AllEntries(), func(e *logrus.Entry) bool {
+			return e.Level == logrus.WarnLevel && e.Data["path"] == blocked
+		})
+		assert.True(t, warned, "the removal error is logged with its path")
+	})
 }
 
 func TestRestoreRaftSnapshotDropsRevokedAssignment(t *testing.T) {
