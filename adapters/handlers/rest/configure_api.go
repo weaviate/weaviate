@@ -189,6 +189,7 @@ import (
 	"github.com/weaviate/weaviate/wl/backupdedupe"
 	wldbusers "github.com/weaviate/weaviate/wl/dbusers"
 	wldbusershandlers "github.com/weaviate/weaviate/wl/dbusers/handlers"
+	"github.com/weaviate/weaviate/wl/lazyshardunloading"
 	wlnshandlers "github.com/weaviate/weaviate/wl/namespaces/handlers"
 	"github.com/weaviate/weaviate/wl/namespaces/suspendsweep"
 	"github.com/weaviate/weaviate/wl/selfrecovery"
@@ -465,6 +466,16 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		restReplicationClient,
 		appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled.Get,
 	)
+	shardUnloader := lazyShardUnloaderFor(lazyShardUnloadingModeFor(appState.ServerConfig.Config), func() db.ShardUnloader {
+		return lazyshardunloading.New(lazyshardunloading.Config{
+			Logger:            appState.Logger,
+			Registerer:        metricsRegisterer,
+			Knobs:             lazyshardunloading.KnobsFrom(appState.ServerConfig.Config.LazyShardUnloading),
+			MemoryRatio:       appState.MemWatch.Ratio,
+			NamespacesEnabled: appState.ServerConfig.Config.Namespaces.Enabled,
+			NamespaceActive:   namespaceActiveFor(appState.ServerConfig.Config.Namespaces.Enabled, appState.NamespacesController),
+		})
+	})
 	repo, err := db.New(appState.Logger, appState.Cluster.LocalName(), db.Config{
 		ServerVersion:                       config.ServerVersion,
 		GitHash:                             build.Revision,
@@ -561,6 +572,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		AsyncIndexingEnabled:          appState.ServerConfig.Config.AsyncIndexingEnabled,
 		OperationalMode:               appState.ServerConfig.Config.OperationalMode,
 		DisableDimensionMetrics:       appState.ServerConfig.Config.DisableDimensionMetrics,
+		ShardUnloader:                 shardUnloader,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil, appState.NamespacesController) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -1198,6 +1210,16 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			return db.NewShardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], appState.Logger)
 		}
 		repo.SetShardReindexActivityLookup(buildShardReindexActivity)
+		if repo.ShardUnloader() != nil {
+			// The unloader bounds the list with its own deadline and logs a failure itself.
+			repo.SetShardReindexActivitySnapshot(func(ctx context.Context) (db.ShardReindexActivityLookup, error) {
+				tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(ctx)
+				if err != nil {
+					return nil, err
+				}
+				return db.NewShardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], appState.Logger), nil
+			})
+		}
 		// S1: the DTM-activity lookup flips a shard "free" the moment a
 		// task lands in a terminal status; autoCleanupAfterTerminal then
 		// tears the sidecar __reindex / __ingest dirs over the next
@@ -2934,6 +2956,11 @@ func runtimeConfigHooks(appState *state.State, serverShutdownCtx context.Context
 	hooks["DefaultVectorIndexType"] = restrictionHook
 	hooks["DefaultQuantization"] = restrictionHook
 
+	if appState.DB != nil {
+		if err := mergeRuntimeHooks(hooks, lazyShardUnloadingHooks(appState.DB.ShardUnloader())); err != nil {
+			return nil, err
+		}
+	}
 	if err := mergeRuntimeHooks(hooks, appState.Crons.RuntimeConfigHooks()); err != nil {
 		return nil, err
 	}

@@ -342,21 +342,21 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 				if len(confirmed) == 0 {
 					continue
 				}
-				var shard *Shard
-				if idx != nil {
-					if sl := idx.shards.Load(shardName); sl != nil {
-						if s, ok := sl.(*Shard); ok {
-							shard = s
-						}
-					}
-				}
 				var cleaned int
 				var failed []string
-				if shard != nil {
+				shard, release, ok := auditShardFor(idx, shardName)
+				switch {
+				case !ok:
+					// Mid-teardown: retried on the next sweep, like a failed cleanup.
+					for i := range confirmed {
+						failed = append(failed, confirmed[i].dirName)
+					}
+				case shard != nil:
 					cleaned, failed = db.cleanLoadedShardOrphans(ctx, shard, confirmed, auditLogger)
-				} else {
+				default:
 					cleaned, failed = cleanUnloadedShardOrphans(lsmPath, confirmed, auditLogger)
 				}
+				release()
 				outcome.OrphansClean += cleaned
 				outcome.FailedDirs = append(outcome.FailedDirs, failed...)
 			}
@@ -722,6 +722,37 @@ func (db *DB) cleanLoadedShardOrphans(ctx context.Context, shard *Shard, orphans
 		cleaned++
 	}
 	return cleaned, failed
+}
+
+// auditShardFor returns the loaded shard whose store the cleanup must go
+// through, or nil for an on-disk cleanup; ok false means neither is safe now.
+// A lazy shard counts as loaded only while it holds a shard: a loaded one is
+// pinned so it cannot be unloaded mid-cleanup, and a cold one keeps its loading
+// mutex until release, so no load opens the directories the on-disk cleanup
+// removes. release is never nil.
+func auditShardFor(idx *Index, shardName string) (shard *Shard, release func(), ok bool) {
+	if idx == nil {
+		return nil, func() {}, true
+	}
+	sl := idx.shards.Load(shardName)
+	if s, isShard := sl.(*Shard); isShard {
+		return s, func() {}, true
+	}
+	lazy, isLazy := asLazyLoadShard(sl)
+	if !isLazy {
+		return nil, func() {}, true
+	}
+	unblock := lazy.blockLoading()
+	loaded := lazy.currentShard()
+	if loaded == nil {
+		return nil, unblock, true
+	}
+	release, err := loaded.preventShutdown()
+	unblock()
+	if err != nil {
+		return nil, func() {}, false
+	}
+	return loaded, release, true
 }
 
 // cleanUnloadedShardOrphans removes orphan tracker dirs and their

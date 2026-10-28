@@ -583,6 +583,10 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.BaseClassDescriptor) (*backup.ShardDescriptor, error) {
 	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
 
+	// Deferred before backupLock so the pin drop's inline teardown runs after the unlock.
+	releaseShard := func() {}
+	defer func() { releaseShard() }()
+
 	i.backupLock.Lock(name)
 	unlockOnReturn := true
 	defer func() {
@@ -594,6 +598,7 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 	var shard ShardLike
 	var sd backup.ShardDescriptor
 	var err error
+	inactive := false
 	if err := func() error {
 		// Acquire shardCreateLocks to atomically check shard state and protect
 		// inactive shards. This prevents concurrent activation from racing.
@@ -606,6 +611,7 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 			// Mark as protected and keep backupLock.Lock held until ReleaseBackup.
 			i.backupProtectedShards.Store(name, struct{}{})
 			unlockOnReturn = false
+			inactive = true
 			return i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr)
 		}
 
@@ -613,18 +619,32 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 		// read files from disk. See backupShardWithHardlinks for details.
 		if lazyShard, ok := asLazyLoadShard(shard); ok {
 			releaseBlock := lazyShard.blockLoading()
-			defer releaseBlock()
 			if lazyShard.currentShard() == nil {
+				defer releaseBlock()
 				// Shard is in the map but not loaded; protect and keep lock held.
 				i.backupProtectedShards.Store(name, struct{}{})
 				unlockOnReturn = false
+				inactive = true
 				return i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr)
 			}
+			releaseBlock()
 		}
 
+		// Pin before releasing shardCreateLocks: an unload in between would let the halt rebuild an orphan off the map.
+		release, err := shard.preventShutdown()
+		if err != nil {
+			return fmt.Errorf("prevent shutdown of shard %v: %w", name, err)
+		}
+		releaseShard = release
 		return nil
 	}(); err != nil {
 		return nil, err
+	}
+	if inactive {
+		return &sd, nil
+	}
+	if i.legacyBackupBeforeHalt != nil {
+		i.legacyBackupBeforeHalt()
 	}
 
 	// Active path => halt compaction (stays paused until ReleaseBackup).

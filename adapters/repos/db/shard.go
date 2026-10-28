@@ -460,6 +460,13 @@ type Shard struct {
 	shutdownRequested atomic.Bool
 	// dropRequested marks shard as requested for drop.
 	dropRequested atomic.Bool
+	// yieldMu guards yielders, the cancels of pins that give way to a shutdown or drop request.
+	yieldMu  sync.Mutex
+	yielders map[*yieldingPin]struct{}
+
+	// deferredShutdownDone, set by an unloading wrapper before it publishes the
+	// shard, runs once a shutdown deferred to the last release has shut it.
+	deferredShutdownDone func()
 
 	lazySegmentLoadingEnabled bool
 

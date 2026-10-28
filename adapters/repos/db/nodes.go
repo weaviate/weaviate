@@ -307,56 +307,80 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 			continue
 		}
 
-		// Don't force load a lazy shard to get nodes status
-		if lazy, ok := shard.(*LazyLoadShard); ok && !lazy.isLoaded() {
-			shardStatus := &models.NodeShardStatus{
-				Name:                 name,
-				Class:                className,
-				VectorIndexingStatus: shard.GetStatus().String(),
-				Loaded:               false,
-				ReplicationFactor:    replicationFactor,
-				NumberOfReplicas:     replicaCountOf(name),
-				// don't add compression status as this would trigger loading the shard
-			}
-			*status = append(*status, shardStatus)
-			shardCount++
-			continue
-		}
-
-		objectCount, err := shard.ObjectCountAsync(ctx)
-		if err != nil {
-			i.logger.Warnf("error while getting object count for shard %s: %v", shard.Name(), err)
-		}
-
-		totalCount += int64(objectCount)
-
-		// FIXME stats of target vectors
-		var queueLen int64
-		_ = shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
-			queueLen += queue.Size()
-			return nil
-		})
-		_ = shard.ForEachGeoQueue(func(_ string, queue *VectorIndexQueue) error {
-			queueLen += queue.Size()
-			return nil
-		})
-
-		shardStatus := &models.NodeShardStatus{
-			Name:                   name,
-			Class:                  className,
-			ObjectCount:            objectCount,
-			VectorIndexingStatus:   shard.GetStatus().String(),
-			VectorQueueLength:      queueLen,
-			Compressed:             isAnyVectorIndexCompressed(shard),
-			Loaded:                 true,
-			AsyncReplicationStatus: shard.getAsyncReplicationStats(ctx),
-			ReplicationFactor:      replicationFactor,
-			NumberOfReplicas:       replicaCountOf(name),
-		}
+		shardStatus, objectCount := i.shardNodeStatus(ctx, name, shard, replicationFactor, replicaCountOf(name))
+		totalCount += objectCount
 		*status = append(*status, shardStatus)
 		shardCount++
 	}
 	return totalCount, shardCount, nil
+}
+
+// shardNodeStatus reports one shard without loading it; a cold lazy shard is
+// reported unloaded, and objectCount counts only a loaded shard's objects.
+func (i *Index) shardNodeStatus(ctx context.Context, name string, shard ShardLike,
+	replicationFactor, replicas int64,
+) (status *models.NodeShardStatus, objectCount int64) {
+	shard, release, loaded := i.nodeStatusShard(name, shard)
+	defer release()
+
+	if !loaded {
+		return &models.NodeShardStatus{
+			Name:                 name,
+			Class:                i.Config.ClassName.String(),
+			VectorIndexingStatus: shard.GetStatus().String(),
+			Loaded:               false,
+			ReplicationFactor:    replicationFactor,
+			NumberOfReplicas:     replicas,
+			// don't add compression status as this would trigger loading the shard
+		}, 0
+	}
+
+	count, err := shard.ObjectCountAsync(ctx)
+	if err != nil {
+		i.logger.Warnf("error while getting object count for shard %s: %v", shard.Name(), err)
+	}
+
+	// FIXME stats of target vectors
+	var queueLen int64
+	_ = shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
+		queueLen += queue.Size()
+		return nil
+	})
+	_ = shard.ForEachGeoQueue(func(_ string, queue *VectorIndexQueue) error {
+		queueLen += queue.Size()
+		return nil
+	})
+
+	return &models.NodeShardStatus{
+		Name:                   name,
+		Class:                  i.Config.ClassName.String(),
+		ObjectCount:            count,
+		VectorIndexingStatus:   shard.GetStatus().String(),
+		VectorQueueLength:      queueLen,
+		Compressed:             isAnyVectorIndexCompressed(shard),
+		Loaded:                 true,
+		AsyncReplicationStatus: shard.getAsyncReplicationStats(ctx),
+		ReplicationFactor:      replicationFactor,
+		NumberOfReplicas:       replicas,
+	}, count
+}
+
+// nodeStatusShard resolves the shard a status read works on. With unloading
+// on it pins a loaded shard, so the reads neither race its unload nor reload
+// it; loaded is false for a shard to report as unloaded. release is never nil.
+func (i *Index) nodeStatusShard(name string, shard ShardLike) (resolved ShardLike, release func(), loaded bool) {
+	if i.Config.lazyShardUnloading() {
+		pinned, release, err := i.getLoadedShard(name)
+		if err != nil || pinned == nil {
+			release()
+			return shard, func() {}, false
+		}
+		return pinned, release, true
+	}
+	if lazy, ok := shard.(*LazyLoadShard); ok && !lazy.isLoaded() {
+		return shard, func() {}, false
+	}
+	return shard, func() {}, true
 }
 
 // readReplicationDetails reads the sharding state once for the whole collection,

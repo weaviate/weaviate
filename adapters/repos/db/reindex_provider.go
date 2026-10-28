@@ -141,6 +141,10 @@ type phaseUnitResolution struct {
 	Errs               []string
 	SawContextCanceled bool
 	Skip               bool
+	// runCtx ends when the shard is asked to unload or drop; release drops its
+	// pin. Both are set only with Shard.
+	runCtx  context.Context
+	release func()
 }
 
 // phaseResult is the aggregated outcome of a per-unit phase callback:
@@ -453,20 +457,18 @@ func (p *ReindexProvider) processOneUnit(
 		return
 	}
 
-	// Find the shard.
-	shard, err := lookupShardByName(idx, shardName)
+	// Loaded up front (createReindexTasks needs the lsmPath, persistRecoveryRecord
+	// the concrete shard) and pinned for the run; runCtx ends when the shard is
+	// asked to unload or drop. Released before any recorder call, which can wait.
+	concreteShard, runCtx, release, err := pinShardByName(ctx, idx, shardName, false)
+	defer release()
 	if err != nil {
 		p.failUnit(ctx, task, unitID, recorder, err.Error())
 		return
 	}
-
-	// Unwrap up front: createReindexTasks needs the lsmPath, and
-	// persistRecoveryRecord below needs the concrete shard.
-	concreteShard, unwrapErr := unwrapShard(ctx, shard)
-	if unwrapErr != nil {
-		p.failUnit(ctx, task, unitID, recorder,
-			fmt.Sprintf("unwrap shard: %v", unwrapErr))
-		return
+	fail := func(msg string) {
+		release()
+		p.failUnit(ctx, task, unitID, recorder, msg)
 	}
 
 	// For semantic migrations (change-tokenization, enable-filterable), use
@@ -516,7 +518,7 @@ func (p *ReindexProvider) processOneUnit(
 		var createErr error
 		tasks, createErr = p.createReindexTasks(task.TaskDescriptor, payload, concreteShard.pathLSM(), false)
 		if createErr != nil {
-			p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf("creating reindex tasks: %v", createErr))
+			fail(fmt.Sprintf("creating reindex tasks: %v", createErr))
 			return
 		}
 	}
@@ -534,7 +536,7 @@ func (p *ReindexProvider) processOneUnit(
 		taskRef.SetProgressCallback(func(progress float32) {
 			envelope := composeProgressEnvelope(taskIdx, totalTasks, progress)
 			if err := recorder.UpdateDistributedTaskUnitProgress(
-				ctx, task.Namespace, task.ID, task.Version, p.localNode, unitID, envelope,
+				runCtx, task.Namespace, task.ID, task.Version, p.localNode, unitID, envelope,
 			); err != nil {
 				logger.WithField("progress", envelope).
 					Debugf("reindex provider: failed to report progress (will retry on next tick): %v", err)
@@ -573,32 +575,37 @@ func (p *ReindexProvider) processOneUnit(
 		// next few seconds would lose the in-flight reindex's double-write
 		// callbacks. That is bad enough to fail the unit explicitly rather
 		// than silently degrade.
-		p.failUnit(ctx, task, unitID, recorder,
-			fmt.Sprintf("persist reindex recovery record: %v", err))
+		fail(fmt.Sprintf("persist reindex recovery record: %v", err))
 		return
 	}
 
 	for _, reindexTask := range tasks {
 		var runErr error
 		if semantic {
-			runErr = reindexTask.RunReindexOnlyOnShard(ctx, shard)
+			runErr = reindexTask.RunReindexOnlyOnShard(runCtx, concreteShard)
 		} else {
-			runErr = reindexTask.RunOnShard(ctx, shard)
+			runErr = reindexTask.RunOnShard(runCtx, concreteShard)
 		}
 		if runErr != nil {
+			// Failed, as when an unload closed the buckets under an unpinned run.
+			if shardYielded(ctx, runCtx, idx) {
+				fail(fmt.Sprintf("reindex (%s): shard %q was unloaded or dropped mid-run: %v",
+					reindexTask.Name(), shardName, runErr))
+				return
+			}
 			// weaviate/0-weaviate-issues#239 Mode 1: don't FSM-flip
 			// FAILED on a shutdown signal.
 			if errors.Is(runErr, context.Canceled) {
 				logger.Infof("reindex provider: unit interrupted by shutdown; will resume after restart: %v", runErr)
 				return
 			}
-			p.failUnit(ctx, task, unitID, recorder,
-				fmt.Sprintf("reindex (%s): %v", reindexTask.Name(), runErr))
+			fail(fmt.Sprintf("reindex (%s): %v", reindexTask.Name(), runErr))
 			return
 		}
 	}
 
 	logger.Info("reindex provider: unit completed")
+	release()
 
 	if err := recorder.RecordDistributedTaskUnitCompletion(
 		ctx, task.Namespace, task.ID, task.Version, p.localNode, unitID,
@@ -1110,31 +1117,25 @@ func (p *ReindexProvider) resolveUnitForPhase(
 	}
 
 	shardName := payload.UnitToShard[unitID]
-	resolvedShard, err := lookupShardByName(idx, shardName)
+	// A phase renames dirs and moves sentinels, so it never stops half-way on a shutdown request.
+	concreteShard, runCtx, release, err := pinShardByName(ctx, idx, shardName, true)
 	if err != nil {
 		logger.WithField("unit", unitID).WithField("shard", shardName).
 			Errorf("reindex provider: resolveUnitForPhase: shard lookup failed: %v", err)
 		return phaseUnitResolution{
-			Errs: []string{fmt.Sprintf("unit %s shard %s lookup: %v", unitID, shardName, err)},
+			Errs:               []string{fmt.Sprintf("unit %s shard %s lookup: %v", unitID, shardName, err)},
+			SawContextCanceled: errors.Is(err, context.Canceled),
 		}
 	}
 
 	if cached := p.cachedReindexTasks(task.TaskDescriptor, unitID); len(cached) > 0 {
-		return phaseUnitResolution{Shard: resolvedShard, UnitTasks: cached}
+		return phaseUnitResolution{Shard: concreteShard, UnitTasks: cached, runCtx: runCtx, release: release}
 	}
 
 	// Cache miss — instantiate from disk.
-	concreteShard, unwrapErr := unwrapShard(ctx, resolvedShard)
-	if unwrapErr != nil {
-		logger.WithField("unit", unitID).
-			Errorf("reindex provider: resolveUnitForPhase: unwrap shard for rehydrate: %v", unwrapErr)
-		return phaseUnitResolution{
-			Errs:               []string{fmt.Sprintf("unit %s unwrap shard: %v", unitID, unwrapErr)},
-			SawContextCanceled: errors.Is(unwrapErr, context.Canceled),
-		}
-	}
 	fresh, err := p.createReindexTasks(task.TaskDescriptor, payload, concreteShard.pathLSM(), true)
 	if err != nil {
+		release()
 		logger.WithField("unit", unitID).
 			Errorf("reindex provider: resolveUnitForPhase: creating reindex tasks: %v", err)
 		return phaseUnitResolution{
@@ -1143,6 +1144,7 @@ func (p *ReindexProvider) resolveUnitForPhase(
 		}
 	}
 	if len(fresh) == 0 {
+		release()
 		// Nothing on disk: prior FinalizeCompletedMigrations or end-of-swap
 		// trim already cleaned this unit up. Phase callbacks have no work.
 		logger.WithField("unit", unitID).
@@ -1156,7 +1158,7 @@ func (p *ReindexProvider) resolveUnitForPhase(
 
 	logger.WithField("unit", unitID).
 		Info("reindex provider: resolveUnitForPhase: rebuilding tasks from disk (node likely restarted); cached for subsequent phase callbacks")
-	return phaseUnitResolution{Shard: resolvedShard, UnitTasks: fresh, Rehydrate: true}
+	return phaseUnitResolution{Shard: concreteShard, UnitTasks: fresh, Rehydrate: true, runCtx: runCtx, release: release}
 }
 
 // runShardPrepPhase runs the disk-I/O PREP phase for one unit on one shard.
@@ -1275,7 +1277,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 	logger logrus.FieldLogger,
 	callbackName string,
 	parallel bool,
-	runPhase func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult,
+	runPhase func(ctx context.Context, unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult,
 ) error {
 	ctx := p.serverCtx
 	var agg phaseResult
@@ -1284,6 +1286,9 @@ func (p *ReindexProvider) runPerUnitPhase(
 
 	runOne := func(unitID string) {
 		res := p.resolveUnitForPhase(ctx, task, payload, unitID, idx, logger)
+		if res.release != nil {
+			defer res.release()
+		}
 		if res.Skip {
 			return
 		}
@@ -1299,7 +1304,14 @@ func (p *ReindexProvider) runPerUnitPhase(
 			return
 		}
 
-		phase := runPhase(unitID, res.Shard, res.UnitTasks, res.Rehydrate)
+		phase := runPhase(res.runCtx, unitID, res.Shard, res.UnitTasks, res.Rehydrate)
+		res.release()
+		// A drop cancelled the phase: fail it rather than resume it.
+		if len(phase.Errs) > 0 && shardYielded(ctx, res.runCtx, idx) {
+			phase.SawContextCanceled = false
+			phase.Errs = append(phase.Errs, fmt.Sprintf("unit %s: shard %s was dropped mid-phase",
+				unitID, payload.UnitToShard[unitID]))
+		}
 		func() {
 			aggMu.Lock()
 			defer aggMu.Unlock()
@@ -1436,13 +1448,12 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	// SWAPPING. The split bounds the cross-replica stagger window at
 	// billion-scale to RAFT propagation latency rather than per-node
 	// PREP duration.
-	ctx := p.serverCtx
 	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
 		// Sequential: prep is heavy disk work on every shard (flush, bucket
 		// shutdown, segment prepend), and until its swap a shard's queries
 		// still read its old buckets.
 		"group-completion", false,
-		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
+		func(ctx context.Context, unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
 			return p.onGroupCompletedRunPhaseForUnit(ctx, task, payload, unitID, shard, unitTasks, rehydrate, logger)
 		})
 }
@@ -1525,7 +1536,6 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 		return fmt.Errorf("collection %q not found on this node", payload.Collection)
 	}
 
-	ctx := p.serverCtx
 	// SWAP path runs the in-memory pointer flip first (the user-observable
 	// event) and then per-shard post-flip work (Shutdown drain, dir
 	// rename, sentinel writes, trim). Parallel across this node's units
@@ -1535,7 +1545,7 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 	// disjoint (see runPerUnitPhase godoc).
 	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
 		"swap-requested", true,
-		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
+		func(ctx context.Context, unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
 			return p.onSwapRequestedRunPhaseForUnit(ctx, payload, unitID, shard, unitTasks, rehydrate, logger)
 		})
 }
@@ -2749,27 +2759,45 @@ func (db *DB) ShardReplicaOwnership(ctx context.Context, className string) (map[
 	return result, nil
 }
 
-// lookupShardByName returns the named shard from the index, or an error
-// describing why the lookup failed. There is no Index.GetShardByName, so
-// callers walk ForEachShard; centralise that walk here so the two call
-// sites (processOneUnit and OnGroupCompleted) report the same shape of
-// error.
-func lookupShardByName(idx *Index, shardName string) (ShardLike, error) {
-	var found ShardLike
-	if err := idx.ForEachShard(func(name string, s ShardLike) error {
-		if name == shardName {
-			found = s
+// pinShardByName loads the named shard and pins it for the caller's run; release
+// is never nil and idempotent. Centralised so the two call sites (processOneUnit
+// and the phase callbacks) report the same shape of error.
+//
+// Unpinned, an unload would close the buckets under the running migration, and
+// a load racing it would orphan a shard outside the map. The pin yields: the
+// returned context is cancelled as soon as the shard is asked to shut down or
+// drop, so the run stops and releases before the teardown's first retry and
+// never delays an unload, a drop or the RAFT apply that issues them.
+//
+// With dropOnly the run keeps its pin through a shutdown request, which then
+// waits on it for at most Shutdown's bounded retries before the release
+// completes the shutdown; only a drop cancels it.
+func pinShardByName(ctx context.Context, idx *Index, shardName string, dropOnly bool) (*Shard, context.Context, func(), error) {
+	if idx.closeCause() != nil {
+		return nil, ctx, func() {}, fmt.Errorf("shard %q not found", shardName)
+	}
+	shard, concrete, release, err := idx.loadAndPinShard(ctx, shardName)
+	if err != nil {
+		// Callers hit mustLoad-backed methods, which panic on a recovering shard.
+		if enterrors.IsShardRecovering(err) {
+			return nil, ctx, func() {}, fmt.Errorf("shard %q is recovering from a peer", shardName)
 		}
-		return nil
-	}); err != nil {
-		return nil, fmt.Errorf("iterating shards: %w", err)
+		return nil, ctx, func() {}, fmt.Errorf("pin shard %q: %w", shardName, err)
 	}
-	if found == nil {
-		return nil, fmt.Errorf("shard %q not found", shardName)
+	if shard == nil {
+		return nil, ctx, func() {}, fmt.Errorf("shard %q not found", shardName)
 	}
-	// Callers hit mustLoad-backed methods, which panic on a recovering shard.
-	if rec, ok := found.(*RecoveringShard); ok && rec.IsRecovering() {
-		return nil, fmt.Errorf("shard %q is recovering from a peer", shardName)
+	if dropOnly {
+		runCtx, release := concrete.yieldOnDrop(ctx, release)
+		return concrete, runCtx, release, nil
 	}
-	return found, nil
+	runCtx, release := concrete.yieldOnTeardown(ctx, release)
+	return concrete, runCtx, release, nil
+}
+
+// shardYielded reports a run stopped because its shard was asked to unload or
+// drop, as opposed to the caller, the node or the index closing.
+func shardYielded(ctx, runCtx context.Context, idx *Index) bool {
+	return ctx.Err() == nil && idx.closeRequestedCause() == nil &&
+		errors.Is(context.Cause(runCtx), errShardYielded)
 }

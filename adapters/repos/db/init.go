@@ -165,7 +165,9 @@ func (db *DB) init(ctx context.Context) error {
 					db.config.LazyLoadShardSizeThresholdGB,
 				)
 				return lazyLoadShardEnabled
-			}(),
+			}() || db.config.wrapsShardsForUnloading(),
+			// A call, so it reads lazyLoadShardEnabled after the closure above sets it.
+			EagerShardLoads:                     func() bool { return db.config.wrapsShardsForUnloading() && !lazyLoadShardEnabled }(),
 			LazyLoadShardWarmupMinObjects:       db.config.LazyLoadShardWarmupMinObjects,
 			ForceFullReplicasSearch:             db.config.ForceFullReplicasSearch,
 			TransferInactivityTimeout:           db.config.TransferInactivityTimeout,
@@ -203,6 +205,7 @@ func (db *DB) init(ctx context.Context) error {
 			AutoTenantActivation:         schema.AutoTenantActivationEnabled(class),
 			DisableDimensionMetrics:      db.config.DisableDimensionMetrics,
 			SelfRecoveryOrchestrator:     db.selfRecoveryOrchestrator,
+			ShardUnloader:                db.config.ShardUnloader,
 			ReplicationFSM:               db.replicationFSM,
 		},
 			inverted.ConfigFromModel(invertedConfig),

@@ -47,7 +47,7 @@ func (i *Index) IncomingProbeShardData(ctx context.Context, shardName string) (h
 		if rec, ok := s.(*RecoveringShard); ok && rec.IsRecovering() {
 			return false, false, fmt.Errorf("incoming probe shard data for shard %s: %w", shardName, enterrors.ErrShardRecovering)
 		}
-		if lazy, ok := asLazyLoadShard(s); ok && !lazy.isLoaded() {
+		if lazy, ok := asLazyLoadShard(s); ok && !lazy.isLoadedAfterTeardown() {
 			// A cold shard without its folder lost its copy; it must not confirm the shard as empty.
 			if _, err := os.Stat(shardPath(i.path(), shardName)); err != nil {
 				if errors.Is(err, fs.ErrNotExist) {
