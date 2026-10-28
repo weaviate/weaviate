@@ -33,7 +33,6 @@ func TestApplyLazyShardAutoDetection(t *testing.T) {
 	tests := []struct {
 		name               string
 		mtEnabled          bool
-		unloading          bool
 		localShardCount    int
 		totalShardSizeGib  float64
 		countThreshold     int
@@ -76,24 +75,6 @@ func TestApplyLazyShardAutoDetection(t *testing.T) {
 			sizeThresholdGib:   100,
 			expectedEnableLazy: true,
 		},
-		{
-			name:               "unloading makes a single-tenant collection lazy",
-			unloading:          true,
-			localShardCount:    1,
-			countThreshold:     1000,
-			sizeThresholdGib:   100,
-			expectedEnableLazy: true,
-		},
-		{
-			name:               "unloading makes a small multi-tenant collection lazy",
-			mtEnabled:          true,
-			unloading:          true,
-			localShardCount:    10,
-			totalShardSizeGib:  1,
-			countThreshold:     1000,
-			sizeThresholdGib:   100,
-			expectedEnableLazy: true,
-		},
 	}
 
 	for _, tt := range tests {
@@ -101,7 +82,6 @@ func TestApplyLazyShardAutoDetection(t *testing.T) {
 			totalBytes := uint64(tt.totalShardSizeGib * 1024 * 1024 * 1024)
 			got := shouldAutoLazyLoadShards(
 				tt.mtEnabled,
-				tt.unloading,
 				tt.localShardCount,
 				totalBytes,
 				tt.countThreshold,

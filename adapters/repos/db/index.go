@@ -641,7 +641,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 
 		eg.Go(func() error {
 			switch {
-			case i.Config.EnableLazyLoadShards:
+			case i.Config.lazyLoadsShards():
 				if err := i.ensureShardDir(shardName); err != nil {
 					return fmt.Errorf("init lazy shard %s of index %s: %w", shardName, i.ID(), err)
 				}
@@ -657,6 +657,28 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 						i.centralJobQueue, i.allocChecker, i.shardLoadLimiter,
 						i.shardReindexer, false, i.bitmapBufPool))
 					startupShards.lazy.Add(1)
+					return nil
+				}
+				if i.Config.lazyShardUnloading() {
+					// Loads up to the unloader's limit, never making room; the rest load on first touch.
+					release, ok := i.reserveWarmupLoad()
+					defer release()
+					if !ok {
+						if err := i.ensureShardDir(shardName); err != nil {
+							return fmt.Errorf("init lazy shard %s of index %s: %w", shardName, i.ID(), err)
+						}
+						i.shards.Store(shardName, NewLazyLoadShard(ctx, promMetrics, shardName, i, class,
+							i.centralJobQueue, i.allocChecker, i.shardLoadLimiter, i.shardReindexer, true, i.bitmapBufPool))
+						startupShards.lazy.Add(1)
+						return nil
+					}
+					lazyShard, err := i.initLoadedLazyShard(ctx, shardName, class, promMetrics,
+						loadOpts{skipMemoryCheck: true, warmup: true})
+					if err != nil {
+						return err
+					}
+					i.shards.Store(shardName, lazyShard)
+					startupShards.eager.Add(1)
 					return nil
 				}
 				// default behavior is to load all shards immediately
@@ -685,7 +707,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		return err
 	}
 
-	if !i.Config.EnableLazyLoadShards {
+	if !i.Config.lazyLoadsShards() {
 		i.allShardsReady.Store(true)
 		return nil
 	}
@@ -1131,7 +1153,11 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 	promMetrics *monitoring.PrometheusMetrics, disableLazyLoad bool, implicitShardLoading bool,
 ) (ShardLike, error) {
 	if disableLazyLoad && i.Config.lazyShardUnloading() {
-		return i.initLoadedLazyShard(ctx, shardName, class, promMetrics)
+		lazy, err := i.initLoadedLazyShard(ctx, shardName, class, promMetrics, loadOpts{})
+		if err != nil {
+			return nil, err
+		}
+		return lazy, nil
 	}
 	if disableLazyLoad {
 		if err := i.allocChecker.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
@@ -1759,35 +1785,37 @@ func (i *Index) DeletionStrategy() string {
 
 type IndexConfig struct {
 	// NodeName is the local node name.
-	NodeName                            string
-	RootPath                            string
-	ClassName                           schema.ClassName
-	QueryMaximumResults                 int64
-	QueryHybridMaximumResults           int64
-	QueryNestedRefLimit                 int64
-	ResourceUsage                       config.ResourceUsage
-	LazySegmentsDisabled                bool
-	SegmentInfoIntoFileNameEnabled      bool
-	WriteMetadataFilesEnabled           bool
-	MemtablesFlushDirtyAfter            int
-	MemtablesInitialSizeMB              int
-	MemtablesMaxSizeMB                  int
-	MemtablesMinActiveSeconds           int
-	MemtablesMaxActiveSeconds           int
-	MinMMapSize                         int64
-	MaxReuseWalSize                     int64
-	SegmentsCleanupIntervalSeconds      int
-	SeparateObjectsCompactions          bool
-	CycleManagerRoutinesFactor          int
-	IndexRangeableInMemory              bool
-	IndexRangeableInMemoryProps         []string
-	MaxSegmentSize                      int64
-	ReplicationFactor                   int64
-	DeletionStrategy                    string
-	AsyncReplicationConfig              AsyncReplicationConfig
-	AsyncReplicationScheduler           *AsyncReplicationScheduler
-	AvoidMMap                           bool
-	EnableLazyLoadShards                bool
+	NodeName                       string
+	RootPath                       string
+	ClassName                      schema.ClassName
+	QueryMaximumResults            int64
+	QueryHybridMaximumResults      int64
+	QueryNestedRefLimit            int64
+	ResourceUsage                  config.ResourceUsage
+	LazySegmentsDisabled           bool
+	SegmentInfoIntoFileNameEnabled bool
+	WriteMetadataFilesEnabled      bool
+	MemtablesFlushDirtyAfter       int
+	MemtablesInitialSizeMB         int
+	MemtablesMaxSizeMB             int
+	MemtablesMinActiveSeconds      int
+	MemtablesMaxActiveSeconds      int
+	MinMMapSize                    int64
+	MaxReuseWalSize                int64
+	SegmentsCleanupIntervalSeconds int
+	SeparateObjectsCompactions     bool
+	CycleManagerRoutinesFactor     int
+	IndexRangeableInMemory         bool
+	IndexRangeableInMemoryProps    []string
+	MaxSegmentSize                 int64
+	ReplicationFactor              int64
+	DeletionStrategy               string
+	AsyncReplicationConfig         AsyncReplicationConfig
+	AsyncReplicationScheduler      *AsyncReplicationScheduler
+	AvoidMMap                      bool
+	EnableLazyLoadShards           bool
+	// EagerShardLoads keeps an unloading index, lazy only for its wrappers, loading as eagerly as without them.
+	EagerShardLoads                     bool
 	LazyLoadShardWarmupMinObjects       int64 // read only when EnableLazyLoadShards is true
 	ForceFullReplicasSearch             bool
 	TransferInactivityTimeout           time.Duration
@@ -1840,7 +1868,12 @@ type IndexConfig struct {
 // lazy-loading path has one, and a negative LazyLoadShardWarmupMinObjects turns it
 // off. Which shards a non-negative value loads is warmupCandidate's call.
 func (c IndexConfig) backgroundWarmupEnabled() bool {
-	return c.EnableLazyLoadShards && c.LazyLoadShardWarmupMinObjects >= 0
+	return c.lazyLoadsShards() && c.LazyLoadShardWarmupMinObjects >= 0
+}
+
+// lazyLoadsShards reports whether shards load on first touch rather than eagerly.
+func (c IndexConfig) lazyLoadsShards() bool {
+	return c.EnableLazyLoadShards && !c.EagerShardLoads
 }
 
 // keepRangeableInMemory reports whether propName's rangeable bucket keeps its
@@ -3652,7 +3685,7 @@ func (i *Index) LoadLocalShardForTenantAdd(ctx context.Context, shardName string
 func (i *Index) LoadLocalShardForTenantActivation(ctx context.Context, shardName string,
 	implicitShardLoading bool,
 ) error {
-	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, !i.Config.EnableLazyLoadShards, implicitShardLoading,
+	return i.loadLocalShardUnlessNamespaceClosed(ctx, shardName, !i.Config.lazyLoadsShards(), implicitShardLoading,
 		callerTenantActivation, "tenant activated")
 }
 
@@ -3674,7 +3707,7 @@ func (i *Index) LoadLocalShardForTenantProcess(ctx context.Context, shardName st
 // nothing else would.
 func (i *Index) loadLocalShardForReload(ctx context.Context, shardName string) error {
 	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName,
-		!i.Config.EnableLazyLoadShards, false, callerReload)
+		!i.Config.lazyLoadsShards(), false, callerReload)
 	if namespaceRefusedShardLoad(err) {
 		return nil
 	}
@@ -3753,7 +3786,7 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 		return nil
 	}
 
-	disableLazyLoad := mustLoad || !i.Config.EnableLazyLoadShards
+	disableLazyLoad := mustLoad || !i.Config.lazyLoadsShards()
 
 	shard, err := i.initShard(ctx, shardName, class, i.metrics.baseMetrics, disableLazyLoad, implicitShardLoading)
 	if err != nil {
@@ -3782,7 +3815,7 @@ func (i *Index) loadOrPromoteShard(ctx context.Context, shard ShardLike, shardNa
 	if !ok {
 		return nil
 	}
-	if mustLoad || !i.Config.EnableLazyLoadShards {
+	if mustLoad || !i.Config.lazyLoadsShards() {
 		_, _, err := l.loadIfCold(ctx)
 		return err
 	}

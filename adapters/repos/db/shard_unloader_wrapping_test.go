@@ -13,11 +13,15 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"testing"
+
+	"github.com/go-openapi/strfmt"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func TestLazyShardUnloadingWrapsEagerPaths(t *testing.T) {
@@ -126,11 +130,148 @@ func TestLazyShardUnloadingMakesAutoDetectedCollectionsLazy(t *testing.T) {
 			index := repo.GetIndex("AutoLazy")
 			require.NotNil(t, index)
 			require.Equal(t, tt.wantLazy, index.Config.EnableLazyLoadShards)
+			require.False(t, index.Config.lazyLoadsShards(), "auto-detection still picks eager loading")
 			index.ForEachShard(func(_ string, shard ShardLike) error {
-				_, isLazy := shard.(*LazyLoadShard)
+				lazy, isLazy := shard.(*LazyLoadShard)
 				require.Equal(t, tt.wantLazy, isLazy, "got %T", shard)
+				if isLazy {
+					require.True(t, lazy.isLoaded(), "an eager collection loads its wrappers at startup")
+				}
 				return nil
 			})
+		})
+	}
+}
+
+func TestLazyShardUnloadingKeepsAutoEagerShardLoadsEager(t *testing.T) {
+	paths := []struct {
+		name string
+		init func(t *testing.T, index *Index, name string)
+	}{
+		{name: "tenant add", init: func(t *testing.T, index *Index, name string) {
+			require.NoError(t, index.LoadLocalShardForTenantAdd(testCtx(), name))
+		}},
+		{name: "tenant activation", init: func(t *testing.T, index *Index, name string) {
+			require.NoError(t, index.LoadLocalShardForTenantActivation(testCtx(), name, false))
+		}},
+		{name: "schema reload", init: func(t *testing.T, index *Index, name string) {
+			require.NoError(t, index.loadLocalShardForReload(testCtx(), name))
+		}},
+	}
+	modes := []struct {
+		name       string
+		lazy       *bool
+		unloader   bool
+		wantBare   bool
+		wantLoaded bool
+	}{
+		{name: "auto-detected eager without unloader", wantBare: true, wantLoaded: true},
+		{name: "auto-detected eager with unloader", unloader: true, wantLoaded: true},
+		{name: "lazy loading on with unloader", lazy: boolPtr(true), unloader: true},
+	}
+	for _, mode := range modes {
+		for _, path := range paths {
+			t.Run(mode.name+"/"+path.name, func(t *testing.T) {
+				opts := []func(*Config){func(c *Config) { c.EnableLazyLoadShards = mode.lazy }}
+				if mode.unloader {
+					opts = append(opts, withShardUnloader(newFakeShardUnloader()))
+				}
+				index := newAddPropertyLazyFixture(t, "AutoEager", singleShardState(), opts...).index
+				var name string
+				index.ForEachShard(func(n string, _ ShardLike) error { name = n; return nil })
+				require.NotEmpty(t, name)
+				_, err := index.UnloadLocalShard(testCtx(), name)
+				require.NoError(t, err)
+
+				path.init(t, index, name)
+
+				got := index.shards.Load(name)
+				require.NotNil(t, got)
+				_, bare := got.(*Shard)
+				require.Equal(t, mode.wantBare, bare, "got %T", got)
+				var status []*models.NodeShardStatus
+				_, _, err = index.getShardsNodeStatus(testCtx(), &status, "")
+				require.NoError(t, err)
+				require.Len(t, status, 1)
+				require.Equal(t, mode.wantLoaded, status[0].Loaded)
+			})
+		}
+	}
+}
+
+func TestLazyShardUnloadingRestartLoadsAutoEagerShardsUpToTheLimit(t *testing.T) {
+	const indexes = 5
+	tests := []struct {
+		name       string
+		limit      int64
+		wantLoaded int
+	}{
+		{name: "no limit loads every shard", wantLoaded: indexes},
+		{name: "limit loads that many and leaves the rest cold", limit: 2, wantLoaded: 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root, state := t.TempDir(), singleShardState()
+			classes := make([]*models.Class, indexes)
+			for n := range classes {
+				classes[n] = newClassWithWarmProp(fmt.Sprintf("Restart%d", n))
+			}
+			open := func(u *fakeShardUnloader) *DB {
+				repo, migrator, schemaGetter, _ := newLazyLoadRepoWithConfig(t, state, true, -1,
+					func(c *Config) { c.RootPath = root; c.EnableLazyLoadShards = nil }, withShardUnloader(u))
+				schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: classes}}
+				for _, class := range classes {
+					require.NoError(t, migrator.AddClass(testCtx(), class))
+				}
+				return repo
+			}
+			withShard := func(repo *DB, class string, f func(ShardLike)) {
+				index := repo.GetIndex(schema.ClassName(class))
+				require.NotNil(t, index)
+				var name string
+				index.ForEachShard(func(n string, _ ShardLike) error { name = n; return nil })
+				shard, release, err := index.GetShard(testCtx(), name)
+				require.NoError(t, err)
+				defer release()
+				f(shard)
+			}
+
+			repo := open(newFakeShardUnloader())
+			ids := make([]strfmt.UUID, indexes)
+			for n, class := range classes {
+				obj := testObject(class.Class)
+				ids[n] = obj.ID()
+				withShard(repo, class.Class, func(s ShardLike) { require.NoError(t, s.PutObject(testCtx(), obj)) })
+			}
+			require.NoError(t, repo.Shutdown(context.Background()))
+
+			u := newFakeShardUnloader()
+			u.warmupLimit.Store(tt.limit)
+			repo = open(u)
+			t.Cleanup(func() { require.NoError(t, repo.Shutdown(context.Background())) })
+			require.EqualValues(t, tt.wantLoaded, u.registry.Loaded())
+			require.Zero(t, u.beforeLoads.Load(), "a startup load never makes room")
+			cold := 0
+			for _, class := range classes {
+				repo.GetIndex(schema.ClassName(class.Class)).ForEachShard(func(_ string, shard ShardLike) error {
+					lazy, ok := shard.(*LazyLoadShard)
+					require.True(t, ok, "got %T", shard)
+					if !lazy.isLoaded() {
+						cold++
+					}
+					return nil
+				})
+			}
+			require.Equal(t, indexes-tt.wantLoaded, cold)
+
+			for n, class := range classes {
+				withShard(repo, class.Class, func(s ShardLike) {
+					ok, err := s.Exists(testCtx(), ids[n])
+					require.NoError(t, err)
+					require.True(t, ok, "%s keeps its object", class.Class)
+				})
+			}
+			require.EqualValues(t, indexes, u.registry.Loaded(), "a request loads a cold shard")
 		})
 	}
 }

@@ -404,18 +404,26 @@ func (c *IndexConfig) lazyShardUnloading() bool {
 	return c.ShardUnloader != nil && c.EnableLazyLoadShards
 }
 
+// wrapsShardsForUnloading reports whether new indexes keep every shard in a
+// wrapper the unloader can release; lazy loading forced off keeps bare shards.
+func (c *Config) wrapsShardsForUnloading() bool {
+	return c.ShardUnloader != nil && (c.EnableLazyLoadShards == nil || *c.EnableLazyLoadShards)
+}
+
 // initLoadedLazyShard is initShard's eager branch for an unloading index: it
 // loads the shard into a wrapper instead of building a bare *Shard, through the
-// same memory and limiter admission. Callers hold shardCreateLocks.
+// same memory and limiter admission. Callers hold shardCreateLocks, or own an
+// index not yet published, as its startup does with opts skipping the memory
+// check and the make-room the eager startup load never had.
 func (i *Index) initLoadedLazyShard(ctx context.Context, shardName string, class *models.Class,
-	promMetrics *monitoring.PrometheusMetrics,
-) (ShardLike, error) {
+	promMetrics *monitoring.PrometheusMetrics, opts loadOpts,
+) (*LazyLoadShard, error) {
 	if err := i.ensureShardDir(shardName); err != nil {
 		return nil, fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 	}
 	lazy := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue,
 		i.allocChecker, i.shardLoadLimiter, i.shardReindexer, false, i.bitmapBufPool)
-	if _, _, err := lazy.loadIfCold(ctx); err != nil {
+	if _, _, err := lazy.load(ctx, opts); err != nil {
 		// Never published, so it must not stay counted as an unloaded shard.
 		promMetrics.DeleteUnloadedShard(monitoring.ShardRegistrationLazy)
 		return nil, fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
