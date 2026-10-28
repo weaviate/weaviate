@@ -916,6 +916,25 @@ func (dynamic *dynamic) UpgradeInProgress() bool {
 	return false
 }
 
+// TryUpgradeInProgress is UpgradeInProgress without waiting on the index
+// lock: ok is false while a config update, startup or swap holds it.
+func (dynamic *dynamic) TryUpgradeInProgress() (inProgress, ok bool) {
+	if dynamic.status.IsUpgrading() {
+		return true, true
+	}
+	if !dynamic.status.IsUpgraded() {
+		return false, true
+	}
+	if !dynamic.TryRLock() {
+		return false, false
+	}
+	defer dynamic.RUnlock()
+	if u, isUpgradable := dynamic.index.(upgradableIndexer); isUpgradable {
+		return u.UpgradeInProgress(), true
+	}
+	return false, true
+}
+
 func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
 	byteops.CopyBytesToSlice(slice, vector[:len(slice)*4])
 	return slice

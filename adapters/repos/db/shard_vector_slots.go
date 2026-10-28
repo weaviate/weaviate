@@ -149,7 +149,21 @@ func (v *vectorIndexSlots) get(name string) (*vectorIndexSlot, bool) {
 func (v *vectorIndexSlots) ForEach(f func(name string, index VectorIndex, queue *VectorIndexQueue) error) error {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
+	return v.forEachLocked(f)
+}
 
+// TryForEach is ForEach without waiting: acquired is false, and f is not
+// called, while a create, removal or replace holds the write lock.
+func (v *vectorIndexSlots) TryForEach(f func(name string, index VectorIndex, queue *VectorIndexQueue) error) (acquired bool, err error) {
+	if !v.mu.TryRLock() {
+		return false, nil
+	}
+	defer v.mu.RUnlock()
+	return true, v.forEachLocked(f)
+}
+
+// forEachLocked is the walk of ForEach; callers hold mu for reading.
+func (v *vectorIndexSlots) forEachLocked(f func(name string, index VectorIndex, queue *VectorIndexQueue) error) error {
 	for name, slot := range v.slots {
 		if name == "" || slot.closing {
 			continue

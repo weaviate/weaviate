@@ -590,6 +590,19 @@ func (q *DiskQueue) Size() int64 {
 	return int64(q.recordCount)
 }
 
+// TrySize is Size without waiting: ok is false while a push, flush or chunk
+// promotion holds the queue.
+func (q *DiskQueue) TrySize() (size int64, ok bool) {
+	if q == nil {
+		return 0, true
+	}
+	if !q.m.TryRLock() {
+		return 0, false
+	}
+	defer q.m.RUnlock()
+	return int64(q.recordCount), true
+}
+
 // Pause the dequeuing of tasks. If nowait is true, it returns immediately
 // without waiting for the currently running tasks to finish.
 // This does not prevent pushing new tasks to the queue.

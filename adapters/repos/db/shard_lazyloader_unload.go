@@ -102,7 +102,8 @@ func (l *LazyLoadShard) markUnloaded() {
 // TryUnload closes the loaded shard and leaves the wrapper cold in the shard
 // map. Tenant status is untouched. Every lock it takes is a try-lock, so it
 // never waits on a request, a RAFT apply or a load; any refusal leaves the
-// shard exactly as it was.
+// shard exactly as it was. The reindex clause is a DTM query that may reach
+// the leader, so it runs before any shard lock is taken.
 //
 // Lock order is the documented one: enterRead, shardCreateLocks, l.mutex,
 // shutdownLock. shardCreateLocks is released once the shard is marked shut, so
@@ -120,6 +121,9 @@ func (l *LazyLoadShard) TryUnload(ctx context.Context, req UnloadRequest) Unload
 	defer idx.exitRead()
 	if idx.closeRequestedCause() != nil {
 		return UnloadOutcomeIndexClosing
+	}
+	if idx.db != nil && idx.db.AnyLiveReindexForShard(idx.Config.ClassName.String(), name) {
+		return UnloadOutcomeReindex
 	}
 
 	if !idx.shardCreateLocks.TryLock(name) {
@@ -209,12 +213,8 @@ func (l *LazyLoadShard) unloadBlocker(s *Shard, req UnloadRequest) UnloadOutcome
 	if o := s.idleUnloadBlocker(); o != "" {
 		return o
 	}
-	if busy, _ := s.structuralVectorOpInFlight(); busy {
-		return UnloadOutcomeVectorOp
-	}
-	idx := l.shardOpts.index
-	if idx.db != nil && idx.db.AnyLiveReindexForShard(idx.Config.ClassName.String(), l.shardOpts.name) {
-		return UnloadOutcomeReindex
+	if o := s.vectorOpUnloadBlocker(); o != "" {
+		return o
 	}
 	if req.Mode == UnloadModeBackground {
 		return l.softUnloadBlocker(s, req)
@@ -235,16 +235,8 @@ func (l *LazyLoadShard) softUnloadBlocker(s *Shard, req UnloadRequest) UnloadOut
 			return UnloadOutcomeNotIdle
 		}
 	}
-	queued := false
-	countQueued := func(_ string, q *VectorIndexQueue) error {
-		queued = queued || q.Size() > 0
-		return nil
-	}
-	if err := s.ForEachVectorQueue(countQueued); err != nil || queued {
-		return UnloadOutcomeQueueNotEmpty
-	}
-	if err := s.ForEachGeoQueue(countQueued); err != nil || queued {
-		return UnloadOutcomeQueueNotEmpty
+	if o := s.queueUnloadBlocker(); o != "" {
+		return o
 	}
 	if !s.asyncReplicationRWMux.TryRLock() {
 		return UnloadOutcomeLockBusy
@@ -255,6 +247,73 @@ func (l *LazyLoadShard) softUnloadBlocker(s *Shard, req UnloadRequest) UnloadOut
 		return UnloadOutcomeHashtreeInit
 	}
 	return ""
+}
+
+// tryUpgradableIndexer is a vector index whose upgrade probe can refuse instead
+// of waiting on the index lock.
+type tryUpgradableIndexer interface {
+	TryUpgradeInProgress() (inProgress, ok bool)
+}
+
+// vectorOpUnloadBlocker is structuralVectorOpInFlight with try-locks only.
+func (s *Shard) vectorOpUnloadBlocker() UnloadOutcome {
+	outcome := UnloadOutcome("")
+	acquired, err := s.vectors.TryForEach(func(_ string, index VectorIndex, _ *VectorIndexQueue) error {
+		if outcome != "" {
+			return nil
+		}
+		switch vi := index.(type) {
+		case tryUpgradableIndexer:
+			if busy, ok := vi.TryUpgradeInProgress(); !ok {
+				outcome = UnloadOutcomeLockBusy
+			} else if busy {
+				outcome = UnloadOutcomeVectorOp
+			}
+		case upgradableIndexer:
+			if vi.UpgradeInProgress() {
+				outcome = UnloadOutcomeVectorOp
+			}
+		default:
+		}
+		return nil
+	})
+	if !acquired || err != nil {
+		return UnloadOutcomeLockBusy
+	}
+	return outcome
+}
+
+// queueUnloadBlocker refuses while a vector or geo queue holds work or is locked.
+func (s *Shard) queueUnloadBlocker() UnloadOutcome {
+	outcome := UnloadOutcome("")
+	check := func(q *VectorIndexQueue) {
+		if outcome != "" || q == nil {
+			return
+		}
+		if size, ok := q.TrySize(); !ok {
+			outcome = UnloadOutcomeLockBusy
+		} else if size > 0 {
+			outcome = UnloadOutcomeQueueNotEmpty
+		}
+	}
+	acquired, err := s.vectors.TryForEach(func(_ string, _ VectorIndex, q *VectorIndexQueue) error {
+		check(q)
+		return nil
+	})
+	if !acquired || err != nil {
+		return UnloadOutcomeLockBusy
+	}
+	if outcome != "" {
+		return outcome
+	}
+	if !s.propertyIndicesLock.TryRLock() {
+		return UnloadOutcomeLockBusy
+	}
+	defer s.propertyIndicesLock.RUnlock()
+	for _, q := range s.geoQueues {
+		check(q)
+	}
+	return outcome
 }
 
 // idleUnloadBlocker is the in-memory part of the predicate. It uses atomics and

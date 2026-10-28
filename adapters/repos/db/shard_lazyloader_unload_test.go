@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -111,6 +112,17 @@ func (upgradingVectorIndex) Upgrade(func()) error       { return nil }
 func (upgradingVectorIndex) ShouldUpgrade() (bool, int) { return false, 0 }
 func (upgradingVectorIndex) AlreadyIndexed() uint64     { return 0 }
 func (upgradingVectorIndex) UpgradeInProgress() bool    { return true }
+
+type lockedUpgradeVectorIndex struct{ VectorIndex }
+
+func (lockedUpgradeVectorIndex) Upgraded() bool             { return false }
+func (lockedUpgradeVectorIndex) Upgrade(func()) error       { return nil }
+func (lockedUpgradeVectorIndex) ShouldUpgrade() (bool, int) { return false, 0 }
+func (lockedUpgradeVectorIndex) AlreadyIndexed() uint64     { return 0 }
+func (lockedUpgradeVectorIndex) UpgradeInProgress() bool {
+	panic("the unloader must not wait on the index lock")
+}
+func (lockedUpgradeVectorIndex) TryUpgradeInProgress() (bool, bool) { return false, false }
 
 type failingShutdownVectorIndex struct{ VectorIndex }
 
@@ -277,6 +289,32 @@ func TestLazyLoadShard_TryUnloadClauses(t *testing.T) {
 			want: UnloadOutcomeVectorOp,
 		},
 		{
+			name: "vector index lock held",
+			req:  request,
+			arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
+				return replaceLegacyVectorIndex(t, s, func(v VectorIndex) VectorIndex { return lockedUpgradeVectorIndex{v} })
+			},
+			want: UnloadOutcomeLockBusy,
+		},
+		{
+			name: "vector slots write-locked",
+			req:  request,
+			arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
+				s.vectors.mu.Lock()
+				return s.vectors.mu.Unlock
+			},
+			want: UnloadOutcomeLockBusy,
+		},
+		{
+			name: "property indices write-locked",
+			req:  background,
+			arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
+				s.propertyIndicesLock.Lock()
+				return s.propertyIndicesLock.Unlock
+			},
+			want: UnloadOutcomeLockBusy,
+		},
+		{
 			name: "live reindex",
 			req:  request,
 			arm: func(t *testing.T, f *unloadFixture, s *Shard) func() {
@@ -420,17 +458,18 @@ func TestLazyLoadShard_TryUnloadClauses(t *testing.T) {
 			require.NotNil(t, s)
 			require.EqualValues(t, 1, f.unloader.registry.Loaded())
 
-			var undo func()
+			undo := func() {}
 			if tt.arm != nil {
-				undo = tt.arm(t, f, s)
+				if u := tt.arm(t, f, s); u != nil {
+					undo = sync.OnceFunc(u)
+				}
 			}
+			t.Cleanup(undo)
 			require.True(t, f.lazy.TryMarkUnloadPending())
-			got := f.lazy.TryUnload(testCtx(), tt.req)
+			got := tryUnloadPromptly(t, f.lazy, tt.req)
 			require.Equal(t, tt.want, got)
 			require.False(t, f.lazy.UnloadPending(), "TryUnload clears the handoff claim")
-			if undo != nil {
-				undo()
-			}
+			undo()
 
 			switch tt.want {
 			case UnloadOutcomeOK, UnloadOutcomeAlreadyCold:
@@ -453,6 +492,43 @@ func TestLazyLoadShard_TryUnloadClauses(t *testing.T) {
 			require.EqualValues(t, 1, f.unloader.registry.Loaded())
 		})
 	}
+}
+
+// tryUnloadPromptly fails the test instead of hanging when TryUnload waits on a lock.
+func tryUnloadPromptly(t *testing.T, l *LazyLoadShard, req UnloadRequest) UnloadOutcome {
+	t.Helper()
+	done := make(chan UnloadOutcome, 1)
+	go func() { done <- l.TryUnload(testCtx(), req) }()
+	select {
+	case got := <-done:
+		return got
+	case <-time.After(10 * time.Second):
+		require.FailNow(t, "TryUnload blocked instead of refusing")
+		return ""
+	}
+}
+
+func TestLazyLoadShard_TryUnloadQueriesReindexBeforeShardLocks(t *testing.T) {
+	f := newUnloadFixture(t)
+	f.put(t)
+	var lockedDuringLookup atomic.Bool
+	f.index.db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+		if !f.index.shardCreateLocks.TryLock(f.name) {
+			lockedDuringLookup.Store(true)
+		} else {
+			f.index.shardCreateLocks.Unlock(f.name)
+		}
+		if !f.lazy.mutex.TryLock() {
+			lockedDuringLookup.Store(true)
+		} else {
+			f.lazy.mutex.Unlock()
+		}
+		return func(string, string) bool { return false }
+	})
+
+	require.Equal(t, UnloadOutcomeOK, tryUnloadPromptly(t, f.lazy, UnloadRequest{Mode: UnloadModeRequest}))
+	require.False(t, lockedDuringLookup.Load(), "the DTM lookup may reach the leader and must run without shard locks")
+	f.requireUnloaded(t)
 }
 
 func TestLazyLoadShard_TryUnloadTornTeardown(t *testing.T) {
