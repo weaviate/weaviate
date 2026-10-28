@@ -21,13 +21,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var lazyShardUnloadingEnvs = []string{
-	"LAZY_SHARD_UNLOADING_IDLE_TTL", "LAZY_SHARD_UNLOADING_IDLE_CHECK_INTERVAL", "LAZY_SHARD_UNLOADING_MAX_LOADED_SHARDS",
-	"LAZY_SHARD_UNLOADING_MEMORY_HIGH_WATERMARK", "LAZY_SHARD_UNLOADING_MEMORY_LOW_WATERMARK", "LAZY_SHARD_UNLOADING_MIN_RESIDENCY",
-	"LAZY_SHARD_UNLOADING_UNLOAD_RATE", "LAZY_SHARD_UNLOADING_INTERVAL", "LAZY_SHARD_UNLOADING_MAKE_ROOM_CANDIDATES",
-	"LAZY_SHARD_UNLOADING_UNLOAD_WORKERS", "LAZY_SHARD_UNLOADING_NAMESPACE_MAX_SHARE", "LAZY_SHARD_UNLOADING_PAUSED",
-}
-
 func lazyShardUnloadingValues(c LazyShardUnloading) map[string]any {
 	return map[string]any{
 		"idle_ttl": c.IdleTTL.Get(), "idle_check_interval": c.IdleCheckInterval.Get(), "max_loaded_shards": c.MaxLoadedShards.Get(),
@@ -47,69 +40,32 @@ func defaultLazyShardUnloadingValues() map[string]any {
 	}
 }
 
-func TestEnvironmentLazyShardUnloading(t *testing.T) {
+// The knobs come only from the runtime overrides file: an env var, valid or
+// not, neither seeds one nor fails startup on an unlicensed node.
+func TestLazyShardUnloadingIgnoresEnvironment(t *testing.T) {
 	tests := []struct {
-		name    string
-		env     map[string]string
-		want    map[string]any
-		wantErr string
+		name string
+		env  map[string]string
 	}{
-		{name: "defaults", want: map[string]any{}},
-		{
-			name: "every knob set",
-			env: map[string]string{
-				"LAZY_SHARD_UNLOADING_IDLE_TTL": "10m", "LAZY_SHARD_UNLOADING_IDLE_CHECK_INTERVAL": "1m",
-				"LAZY_SHARD_UNLOADING_MAX_LOADED_SHARDS": "500", "LAZY_SHARD_UNLOADING_MEMORY_HIGH_WATERMARK": "0.9",
-				"LAZY_SHARD_UNLOADING_MEMORY_LOW_WATERMARK": "0.7", "LAZY_SHARD_UNLOADING_MIN_RESIDENCY": "1m",
-				"LAZY_SHARD_UNLOADING_UNLOAD_RATE": "0", "LAZY_SHARD_UNLOADING_INTERVAL": "1s",
-				"LAZY_SHARD_UNLOADING_MAKE_ROOM_CANDIDATES": "1024", "LAZY_SHARD_UNLOADING_UNLOAD_WORKERS": "64",
-				"LAZY_SHARD_UNLOADING_NAMESPACE_MAX_SHARE": "0.25", "LAZY_SHARD_UNLOADING_PAUSED": "true",
-			},
-			want: map[string]any{
-				"idle_ttl": 10 * time.Minute, "idle_check_interval": time.Minute, "max_loaded_shards": 500,
-				"memory_high_watermark": 0.9, "memory_low_watermark": 0.7, "min_residency": time.Minute,
-				"unload_rate": 0, "interval": time.Second, "make_room_candidates": 1024, "unload_workers": 64,
-				"namespace_max_share": 0.25, "paused": true,
-			},
-		},
-		{name: "min_residency off", env: map[string]string{"LAZY_SHARD_UNLOADING_MIN_RESIDENCY": "0s"}, want: map[string]any{"min_residency": time.Duration(0)}},
-		{name: "high of exactly one", env: map[string]string{"LAZY_SHARD_UNLOADING_MEMORY_HIGH_WATERMARK": "1", "LAZY_SHARD_UNLOADING_MEMORY_LOW_WATERMARK": "0.5"}, want: map[string]any{"memory_high_watermark": 1.0, "memory_low_watermark": 0.5}},
-		{name: "sub-second idle_ttl", env: map[string]string{"LAZY_SHARD_UNLOADING_IDLE_TTL": "500ms"}, wantErr: "LAZY_SHARD_UNLOADING_IDLE_TTL"},
-		{name: "zero interval", env: map[string]string{"LAZY_SHARD_UNLOADING_INTERVAL": "0s"}, wantErr: "LAZY_SHARD_UNLOADING_INTERVAL"},
-		{name: "zero idle check interval", env: map[string]string{"LAZY_SHARD_UNLOADING_IDLE_CHECK_INTERVAL": "0s"}, wantErr: "LAZY_SHARD_UNLOADING_IDLE_CHECK_INTERVAL"},
-		{name: "unparsable duration", env: map[string]string{"LAZY_SHARD_UNLOADING_MIN_RESIDENCY": "soon"}, wantErr: "LAZY_SHARD_UNLOADING_MIN_RESIDENCY"},
-		{name: "negative limit", env: map[string]string{"LAZY_SHARD_UNLOADING_MAX_LOADED_SHARDS": "-1"}, wantErr: "LAZY_SHARD_UNLOADING_MAX_LOADED_SHARDS"},
-		{name: "negative rate", env: map[string]string{"LAZY_SHARD_UNLOADING_UNLOAD_RATE": "-1"}, wantErr: "LAZY_SHARD_UNLOADING_UNLOAD_RATE"},
-		{name: "too many candidates", env: map[string]string{"LAZY_SHARD_UNLOADING_MAKE_ROOM_CANDIDATES": "1025"}, wantErr: "LAZY_SHARD_UNLOADING_MAKE_ROOM_CANDIDATES"},
-		{name: "no workers", env: map[string]string{"LAZY_SHARD_UNLOADING_UNLOAD_WORKERS": "0"}, wantErr: "LAZY_SHARD_UNLOADING_UNLOAD_WORKERS"},
-		{name: "too many workers", env: map[string]string{"LAZY_SHARD_UNLOADING_UNLOAD_WORKERS": "65"}, wantErr: "LAZY_SHARD_UNLOADING_UNLOAD_WORKERS"},
-		{name: "share above one", env: map[string]string{"LAZY_SHARD_UNLOADING_NAMESPACE_MAX_SHARE": "1.5"}, wantErr: "LAZY_SHARD_UNLOADING_NAMESPACE_MAX_SHARE"},
-		{name: "NaN watermark", env: map[string]string{"LAZY_SHARD_UNLOADING_MEMORY_HIGH_WATERMARK": "NaN"}, wantErr: "LAZY_SHARD_UNLOADING_MEMORY_HIGH_WATERMARK"},
-		{name: "watermark above one", env: map[string]string{"LAZY_SHARD_UNLOADING_MEMORY_LOW_WATERMARK": "1.2"}, wantErr: "LAZY_SHARD_UNLOADING_MEMORY_LOW_WATERMARK"},
-		{name: "low above high", env: map[string]string{"LAZY_SHARD_UNLOADING_MEMORY_HIGH_WATERMARK": "0.5", "LAZY_SHARD_UNLOADING_MEMORY_LOW_WATERMARK": "0.7"}, wantErr: "0 < low < high <= 1"},
-		{name: "only high", env: map[string]string{"LAZY_SHARD_UNLOADING_MEMORY_HIGH_WATERMARK": "0.8"}, wantErr: "0 < low < high <= 1"},
-		{name: "idle_ttl below min_residency", env: map[string]string{"LAZY_SHARD_UNLOADING_IDLE_TTL": "10s"}, wantErr: "at least LAZY_SHARD_UNLOADING_MIN_RESIDENCY"},
+		{name: "nothing set"},
+		{name: "valid values", env: map[string]string{
+			"LAZY_SHARD_UNLOADING_IDLE_TTL": "10m", "LAZY_SHARD_UNLOADING_MAX_LOADED_SHARDS": "500",
+			"LAZY_SHARD_UNLOADING_MEMORY_HIGH_WATERMARK": "0.9", "LAZY_SHARD_UNLOADING_MEMORY_LOW_WATERMARK": "0.7",
+			"LAZY_SHARD_UNLOADING_PAUSED": "true",
+		}},
+		{name: "invalid values", env: map[string]string{
+			"LAZY_SHARD_UNLOADING_INTERVAL": "0s", "LAZY_SHARD_UNLOADING_UNLOAD_WORKERS": "0",
+			"LAZY_SHARD_UNLOADING_MEMORY_HIGH_WATERMARK": "0.5", "LAZY_SHARD_UNLOADING_MEMORY_LOW_WATERMARK": "0.7",
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			for _, env := range lazyShardUnloadingEnvs {
-				t.Setenv(env, "")
-			}
 			for k, v := range tt.env {
 				t.Setenv(k, v)
 			}
 			conf := Config{}
-			err := FromEnv(&conf)
-			if tt.wantErr != "" {
-				require.ErrorContains(t, err, tt.wantErr)
-				return
-			}
-			require.NoError(t, err)
-			want := defaultLazyShardUnloadingValues()
-			for k, v := range tt.want {
-				want[k] = v
-			}
-			require.Equal(t, want, lazyShardUnloadingValues(conf.LazyShardUnloading))
+			require.NoError(t, FromEnv(&conf))
+			require.Equal(t, defaultLazyShardUnloadingValues(), lazyShardUnloadingValues(conf.LazyShardUnloading))
 		})
 	}
 }
@@ -117,9 +73,6 @@ func TestEnvironmentLazyShardUnloading(t *testing.T) {
 func TestLazyShardUnloadingRuntimeOverrides(t *testing.T) {
 	log := logrus.New()
 	log.SetOutput(io.Discard)
-	for _, env := range lazyShardUnloadingEnvs {
-		t.Setenv(env, "")
-	}
 	conf := Config{}
 	require.NoError(t, FromEnv(&conf))
 	registered := BuildRegisteredRuntimeConfig(&conf)
@@ -167,9 +120,6 @@ lazy_shard_unloading_max_loaded_shards: 5
 }
 
 func TestBuildRegisteredRuntimeConfigSharesLazyShardUnloading(t *testing.T) {
-	for _, env := range lazyShardUnloadingEnvs {
-		t.Setenv(env, "")
-	}
 	conf := Config{}
 	require.NoError(t, FromEnv(&conf))
 	r := BuildRegisteredRuntimeConfig(&conf)
