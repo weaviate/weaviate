@@ -41,6 +41,32 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
+func TestAdmissionSiblingsCappedAtLanes(t *testing.T) {
+	plan := func(local, remote int) types.ReadRoutingPlan {
+		var replicas []types.Replica
+		for i := range local {
+			replicas = append(replicas, types.Replica{NodeName: "node-1", ShardName: fmt.Sprintf("local-%d", i)})
+		}
+		for i := range remote {
+			replicas = append(replicas, types.Replica{NodeName: "node-2", ShardName: fmt.Sprintf("remote-%d", i)})
+		}
+		return types.ReadRoutingPlan{LocalHostname: "node-1", ReplicaSet: types.ReadReplicaSet{Replicas: replicas}}
+	}
+	tests := []struct {
+		name          string
+		local, remote int
+		want          int
+	}{
+		{name: "fewer local shards than lanes", local: shardSearchLanes - 1, remote: 3, want: shardSearchLanes - 1},
+		{name: "more local shards than lanes", local: shardSearchLanes + 5, remote: 3, want: shardSearchLanes},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, admissionSiblings(plan(tt.local, tt.remote)))
+		})
+	}
+}
+
 func TestIndex_aggregateCount(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	metrics, err := NewMetrics(logger, monitoring.GetMetrics(), "Abc", "n/a")
