@@ -105,7 +105,6 @@ func New(nodesStatusGetter nodesStatusGetter, schemaManager schema.SchemaGetter,
 		shutdown:             make(chan struct{}),
 		consumer:             consumerURL,
 		pushInterval:         pushInterval,
-		clientTracker:        NewClientTracker(logger),
 		cloudInfoHelper:      newCloudInfoHelper(logger, cfg.Enabled),
 		nodeID:               cfg.NodeID,
 		asyncIndexingEnabled: cfg.AsyncIndexingEnabled,
@@ -122,12 +121,12 @@ func New(nodesStatusGetter nodesStatusGetter, schemaManager schema.SchemaGetter,
 	return tel
 }
 
-// GetClientTracker returns the client tracker instance for use in middleware
+// GetClientTracker returns the client tracker, or nil when telemetry is disabled.
 func (tel *Telemeter) GetClientTracker() *ClientTracker {
 	return tel.clientTracker
 }
 
-// GetIntegrationTracker returns the integration tracker instance for use in middleware
+// GetIntegrationTracker returns the integration tracker, or nil when telemetry is disabled.
 func (tel *Telemeter) GetIntegrationTracker() *IntegrationTracker {
 	return tel.integrationTracker
 }
