@@ -86,7 +86,7 @@ func (db *DB) init(ctx context.Context) error {
 			if err != nil {
 				return fmt.Errorf("get local shards count for class %q: %w", class.Class, err)
 			}
-			if shouldComputeShardSizes(db.config.EnableLazyLoadShards, localActiveShardsCount,
+			if db.config.ShardUnloader == nil && shouldComputeShardSizes(db.config.EnableLazyLoadShards, localActiveShardsCount,
 				db.config.LazyLoadShardCountThreshold, db.config.LazyLoadShardSizeThresholdGB) {
 				// we do need to calculate shard size if it's MT to be able to decide
 				// to enable lazy load shards based on total size
@@ -158,7 +158,7 @@ func (db *DB) init(ctx context.Context) error {
 				}
 
 				lazyLoadShardEnabled = shouldAutoLazyLoadShards(
-					isMultiTenant,
+					isMultiTenant, db.config.ShardUnloader != nil,
 					localActiveShardsCount,
 					totalShardSizeBytes,
 					db.config.LazyLoadShardCountThreshold,
@@ -265,7 +265,11 @@ func (db *DB) init(ctx context.Context) error {
 //   - Size: defaults to 100GB, customizable via LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB
 //
 // Returns true if lazy loading should be enabled for this collection.
-func shouldAutoLazyLoadShards(mtEnabled bool, localShardCount int, totalShardSizeBytes uint64, countThreshold int, sizeThresholdGB float64) bool {
+func shouldAutoLazyLoadShards(mtEnabled, unloading bool, localShardCount int, totalShardSizeBytes uint64, countThreshold int, sizeThresholdGB float64) bool {
+	// An unloader can only release lazy shards, so with one every collection is lazy.
+	if unloading {
+		return true
+	}
 	if !mtEnabled {
 		return false
 	}

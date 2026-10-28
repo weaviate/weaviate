@@ -12,6 +12,8 @@
 package db
 
 import (
+	"context"
+	"fmt"
 	"math/rand/v2"
 	"sync"
 	"sync/atomic"
@@ -20,6 +22,8 @@ import (
 	"github.com/sirupsen/logrus"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // ShardUnloader is the lazy shard unloading policy. The db only calls it when
@@ -244,4 +248,51 @@ func startAccessClock(stop <-chan struct{}, logger logrus.FieldLogger) {
 			}
 		}
 	}, logger)
+}
+
+// lazyShardUnloading reports whether this index keeps every local shard a
+// *LazyLoadShard for its whole life, so the unloader can release it. It needs a
+// configured unloader, which only a licensed node with lazy loading on has.
+func (c *IndexConfig) lazyShardUnloading() bool {
+	return c.ShardUnloader != nil && c.EnableLazyLoadShards
+}
+
+// initLoadedLazyShard is initShard's eager branch for an unloading index: it
+// loads the shard into a wrapper instead of building a bare *Shard, through the
+// same memory and limiter admission. Callers hold shardCreateLocks.
+func (i *Index) initLoadedLazyShard(ctx context.Context, shardName string, class *models.Class,
+	promMetrics *monitoring.PrometheusMetrics,
+) (ShardLike, error) {
+	if err := i.ensureShardDir(shardName); err != nil {
+		return nil, fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
+	}
+	lazy := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue,
+		i.allocChecker, i.shardLoadLimiter, i.shardReindexer, false, i.bitmapBufPool)
+	if _, _, err := lazy.loadIfCold(ctx); err != nil {
+		// Never published, so it must not stay counted as an unloaded shard.
+		promMetrics.DeleteUnloadedShard(monitoring.ShardRegistrationLazy)
+		return nil, fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
+	}
+	return lazy, nil
+}
+
+// pinWhileUnloading pins a shard a long background walk works on unpinned, so
+// the unloader cannot close it mid-walk; with unloading off it does nothing,
+// leaving the walk as it was. release is never nil.
+func (i *Index) pinWhileUnloading(name string) (release func(), err error) {
+	if !i.Config.lazyShardUnloading() {
+		return func() {}, nil
+	}
+	if err := i.enterRead(); err != nil {
+		return func() {}, err
+	}
+	defer i.exitRead()
+	shard, release, err := i.pinResidentShard(name, false)
+	if err != nil {
+		return func() {}, err
+	}
+	if shard == nil {
+		return func() {}, fmt.Errorf("shard %q: %w", name, enterrors.ErrShardNotRegistered)
+	}
+	return release, nil
 }
