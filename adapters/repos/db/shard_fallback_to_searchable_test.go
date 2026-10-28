@@ -29,7 +29,7 @@ func TestShardReloadKeepsFallbackToSearchable(t *testing.T) {
 			require.NoError(t, f.index.initLocalShard(testCtx(), f.name))
 		}},
 		{name: "unloaded by the unloader", reload: func(t *testing.T, f *unloadFixture) {
-			require.Equal(t, UnloadOutcomeOK, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
+			require.Equal(t, UnloadOutcomeOK, f.lazy.TryUnload(testCtx(), UnloadRequest{Reindex: noReindex}))
 		}},
 	}
 	tests := []struct {

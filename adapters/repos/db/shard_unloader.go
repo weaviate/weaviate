@@ -43,6 +43,9 @@ type ShardUnloader interface {
 	BeforeLoad(shard *LazyLoadShard)
 	// AllowWarmupLoad reports whether the startup warmup may load another shard.
 	AllowWarmupLoad() bool
+	// SetReindexActivitySource hands the unloader the snapshot it passes in
+	// [UnloadRequest.Reindex]; db.New calls it once, before any shard loads.
+	SetReindexActivitySource(src func(ctx context.Context) (ReindexActivity, error))
 	// Close stops the unloader's goroutines. DB.Shutdown calls it before any
 	// index shuts down, so no unload races an index teardown.
 	Close(ctx context.Context) error
@@ -65,6 +68,70 @@ type UnloadRequest struct {
 	MinResidency time.Duration
 	// IdleTTL, when set, skips a shard accessed within it (background only).
 	IdleTTL time.Duration
+	// Reindex is the caller's snapshot from [DB.ReindexActivitySnapshot]; the
+	// zero value refuses every shard a runtime reindex could be working on.
+	Reindex ReindexActivity
+}
+
+// ReindexActivity is one snapshot of the shards a runtime reindex works on,
+// taken outside every shard lock because building it may reach the leader.
+// A reload does not re-arm a running reindex's double-write callbacks, so
+// such a shard must stay loaded.
+type ReindexActivity struct {
+	taken   bool
+	failed  bool
+	live    ShardReindexActivityLookup
+	cleanup CleanupInProgressLookup
+}
+
+// NewReindexActivity is a usable snapshot over live, nil meaning no reindex runs.
+func NewReindexActivity(live ShardReindexActivityLookup) ReindexActivity {
+	return ReindexActivity{taken: true, live: live}
+}
+
+// Usable reports whether the snapshot was taken and its lookup succeeded.
+func (a ReindexActivity) Usable() bool { return a.taken && !a.failed }
+
+// blocks reports whether the shard may be under a reindex; the cleanup lookup is node-local and read live.
+func (a ReindexActivity) blocks(collection, shard string) UnloadOutcome {
+	if !a.Usable() {
+		return UnloadOutcomeReindexUnknown
+	}
+	if (a.live != nil && a.live(collection, shard)) || (a.cleanup != nil && a.cleanup(collection, shard)) {
+		return UnloadOutcomeReindex
+	}
+	return ""
+}
+
+// ReindexActivitySnapshot answers [DB.AnyLiveReindexForShard] for every shard
+// at once, with ctx bounding the DTM list. An unwired lookup reads as no
+// reindex, as AnyLiveReindexForShard does; a failed one is returned unusable.
+func (db *DB) ReindexActivitySnapshot(ctx context.Context) (ReindexActivity, error) {
+	if db.config.RuntimeReindexDisabled {
+		return ReindexActivity{taken: true}, nil
+	}
+	db.reindexAuditMu.RLock()
+	snapshotBuilder := db.shardReindexActivitySnapshotBuilder
+	activityBuilder := db.shardReindexActivityLookupBuilder
+	cleanupBuilder := db.reindexCleanupInProgressLookupBldr
+	db.reindexAuditMu.RUnlock()
+
+	a := ReindexActivity{taken: true}
+	switch {
+	case snapshotBuilder != nil:
+		live, err := snapshotBuilder(ctx)
+		if err != nil {
+			return ReindexActivity{taken: true, failed: true}, err
+		}
+		a.live = live
+	case activityBuilder != nil:
+		a.live = activityBuilder()
+	default:
+	}
+	if cleanupBuilder != nil {
+		a.cleanup = cleanupBuilder()
+	}
+	return a, nil
 }
 
 // UnloadOutcome values are meant as Prometheus labels, so renaming one
@@ -84,6 +151,7 @@ const (
 	UnloadOutcomeAsyncCheckpoint UnloadOutcome = "async_checkpoint"
 	UnloadOutcomeVectorOp        UnloadOutcome = "vector_op"
 	UnloadOutcomeReindex         UnloadOutcome = "reindex"
+	UnloadOutcomeReindexUnknown  UnloadOutcome = "reindex_unknown"
 	UnloadOutcomeManualReadOnly  UnloadOutcome = "manual_readonly"
 	UnloadOutcomeMinResidency    UnloadOutcome = "min_residency"
 	UnloadOutcomeNotIdle         UnloadOutcome = "not_idle"
@@ -110,6 +178,7 @@ var _ = map[UnloadOutcome]struct{}{
 	UnloadOutcomeAsyncCheckpoint: {},
 	UnloadOutcomeVectorOp:        {},
 	UnloadOutcomeReindex:         {},
+	UnloadOutcomeReindexUnknown:  {},
 	UnloadOutcomeManualReadOnly:  {},
 	UnloadOutcomeMinResidency:    {},
 	UnloadOutcomeNotIdle:         {},

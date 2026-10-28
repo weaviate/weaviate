@@ -49,6 +49,11 @@ type registry[S shard] interface {
 // queueCapacity bounds each handoff channel; a full channel means overcommit.
 const queueCapacity = 1024
 
+// reindexSnapshotTimeout bounds the per-tick DTM list behind the reindex snapshot.
+const reindexSnapshotTimeout = 3 * time.Second
+
+type reindexSource = func(ctx context.Context) (db.ReindexActivity, error)
+
 type item[S shard] struct {
 	shard  S
 	reason reason
@@ -77,6 +82,11 @@ type policy[S shard] struct {
 
 	snap  atomic.Pointer[snapshot]
 	ratio atomic.Uint64
+
+	// reindex is the last tick's snapshot; nil, or an unusable one, refuses every unload it guards.
+	reindex       atomic.Pointer[db.ReindexActivity]
+	reindexSrc    atomic.Pointer[reindexSource]
+	reindexFailed bool
 
 	makeRoomCh   chan item[S]
 	backgroundCh chan item[S]
@@ -204,7 +214,8 @@ func (p *policy[S]) beforeLoad(loading S) {
 		return
 	}
 	victim, ok := p.pickMakeRoomVictim(s, loading)
-	if !ok || !p.enqueue(p.makeRoomCh, item[S]{shard: victim, reason: reasonMakeRoom, req: db.UnloadRequest{Mode: db.UnloadModeRequest}}) {
+	req := db.UnloadRequest{Mode: db.UnloadModeRequest, Reindex: p.reindexSnapshot()}
+	if !ok || !p.enqueue(p.makeRoomCh, item[S]{shard: victim, reason: reasonMakeRoom, req: req}) {
 		p.metrics.admitOvercommit.Inc()
 		return
 	}
@@ -274,6 +285,43 @@ func (p *policy[S]) enqueue(ch chan item[S], it item[S]) bool {
 		it.shard.ClearUnloadPending()
 		return false
 	}
+}
+
+// setReindexSource installs the snapshot source and wakes the loop to take the first snapshot.
+func (p *policy[S]) setReindexSource(src reindexSource) {
+	p.reindexSrc.Store(&src)
+	p.wakeLoop()
+}
+
+func (p *policy[S]) reindexSnapshot() db.ReindexActivity {
+	if a := p.reindex.Load(); a != nil {
+		return *a
+	}
+	return db.ReindexActivity{}
+}
+
+// refreshReindex takes this tick's snapshot outside every shard lock, logging
+// a failure once when it starts and once when it ends.
+func (p *policy[S]) refreshReindex() {
+	src := p.reindexSrc.Load()
+	if src == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(p.ctx, reindexSnapshotTimeout)
+	a, err := (*src)(ctx)
+	cancel()
+	p.reindex.Store(&a)
+	failed := err != nil || !a.Usable()
+	switch {
+	case failed && !p.reindexFailed:
+		p.logger.WithField("action", "lazy_shard_unloading_reindex_snapshot").
+			Warnf("cannot tell which shards a reindex works on; unloads are refused until it succeeds: %v", err)
+	case !failed && p.reindexFailed:
+		p.logger.WithField("action", "lazy_shard_unloading_reindex_snapshot").
+			Info("reindex snapshot available again; unloads resume")
+	default:
+	}
+	p.reindexFailed = failed
 }
 
 func (p *policy[S]) allowWarmupLoad() bool {

@@ -149,7 +149,7 @@ func TestLazyLoadShard_UnloaderHooks(t *testing.T) {
 	release()
 	require.Equal(t, AccessClockNow(), f.lazy.LastAccess(), "a pin records the access")
 
-	require.Equal(t, UnloadOutcomeOK, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
+	require.Equal(t, UnloadOutcomeOK, f.lazy.TryUnload(testCtx(), UnloadRequest{Reindex: noReindex}))
 	f.put(t)
 	require.EqualValues(t, 2, f.unloader.beforeLoads.Load())
 	require.EqualValues(t, 1, f.unloader.registry.Loaded())
@@ -176,7 +176,7 @@ func TestLazyLoadShard_UnloaderDeregisteredOnDropAndShutdown(t *testing.T) {
 			require.EqualValues(t, 1, f.unloader.registry.Loaded())
 			tt.stop(t, f)
 			require.Zero(t, f.unloader.registry.Loaded())
-			require.Equal(t, tt.after, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
+			require.Equal(t, tt.after, f.lazy.TryUnload(testCtx(), UnloadRequest{Reindex: noReindex}))
 		})
 	}
 }
@@ -267,12 +267,12 @@ func TestLazyLoadShard_RequestDuringTeardownWaitsThenReloads(t *testing.T) {
 		<-proceed
 	}
 	unloaded := make(chan UnloadOutcome, 1)
-	enterrors.GoWrapper(func() { unloaded <- f.lazy.TryUnload(testCtx(), UnloadRequest{}) }, f.index.logger)
+	enterrors.GoWrapper(func() { unloaded <- f.lazy.TryUnload(testCtx(), UnloadRequest{Reindex: noReindex}) }, f.index.logger)
 	<-marked
 
 	require.True(t, f.index.shardCreateLocks.TryLock(f.name), "the teardown runs without the create lock")
 	f.index.shardCreateLocks.Unlock(f.name)
-	require.Equal(t, UnloadOutcomeLockBusy, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
+	require.Equal(t, UnloadOutcomeLockBusy, f.lazy.TryUnload(testCtx(), UnloadRequest{Reindex: noReindex}))
 
 	type readResult struct {
 		shard  *Shard
@@ -389,7 +389,7 @@ func TestLazyLoadShard_UnloadedAtTracksTheLastUnload(t *testing.T) {
 	require.True(t, f.lazy.UnloadedAt().IsZero())
 
 	before := time.Now()
-	require.Equal(t, UnloadOutcomeOK, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
+	require.Equal(t, UnloadOutcomeOK, f.lazy.TryUnload(testCtx(), UnloadRequest{Reindex: noReindex}))
 	require.False(t, f.lazy.UnloadedAt().Before(before))
 
 	f.put(t)

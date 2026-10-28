@@ -35,6 +35,12 @@ type fakeShardUnloader struct {
 	closes       atomic.Int64
 }
 
+// noReindex is a usable snapshot in which no reindex runs.
+var noReindex = ReindexActivity{taken: true}
+
+func (f *fakeShardUnloader) SetReindexActivitySource(func(context.Context) (ReindexActivity, error)) {
+}
+
 func newFakeShardUnloader() *fakeShardUnloader {
 	return &fakeShardUnloader{registry: NewLoadedShardRegistry()}
 }
@@ -140,8 +146,8 @@ func replaceLegacyVectorIndex(t *testing.T, s *Shard, wrap func(VectorIndex) Vec
 }
 
 func TestLazyLoadShard_TryUnloadClauses(t *testing.T) {
-	background := UnloadRequest{Mode: UnloadModeBackground}
-	request := UnloadRequest{Mode: UnloadModeRequest}
+	background := UnloadRequest{Reindex: noReindex, Mode: UnloadModeBackground}
+	request := UnloadRequest{Reindex: noReindex, Mode: UnloadModeRequest}
 
 	tests := []struct {
 		name string
@@ -351,22 +357,22 @@ func TestLazyLoadShard_TryUnloadClauses(t *testing.T) {
 		},
 		{
 			name: "background respects min residency",
-			req:  UnloadRequest{Mode: UnloadModeBackground, MinResidency: time.Hour},
+			req:  UnloadRequest{Reindex: noReindex, Mode: UnloadModeBackground, MinResidency: time.Hour},
 			want: UnloadOutcomeMinResidency,
 		},
 		{
 			name: "request ignores min residency",
-			req:  UnloadRequest{Mode: UnloadModeRequest, MinResidency: time.Hour},
+			req:  UnloadRequest{Reindex: noReindex, Mode: UnloadModeRequest, MinResidency: time.Hour},
 			want: UnloadOutcomeOK,
 		},
 		{
 			name: "background respects idle ttl",
-			req:  UnloadRequest{Mode: UnloadModeBackground, IdleTTL: time.Hour},
+			req:  UnloadRequest{Reindex: noReindex, Mode: UnloadModeBackground, IdleTTL: time.Hour},
 			want: UnloadOutcomeNotIdle,
 		},
 		{
 			name: "request ignores idle ttl",
-			req:  UnloadRequest{Mode: UnloadModeRequest, IdleTTL: time.Hour},
+			req:  UnloadRequest{Reindex: noReindex, Mode: UnloadModeRequest, IdleTTL: time.Hour},
 			want: UnloadOutcomeOK,
 		},
 		{
@@ -466,7 +472,11 @@ func TestLazyLoadShard_TryUnloadClauses(t *testing.T) {
 			}
 			t.Cleanup(undo)
 			require.True(t, f.lazy.TryMarkUnloadPending())
-			got := tryUnloadPromptly(t, f.lazy, tt.req)
+			req := tt.req
+			snap, err := f.index.db.ReindexActivitySnapshot(testCtx())
+			require.NoError(t, err)
+			req.Reindex = snap
+			got := tryUnloadPromptly(t, f.lazy, req)
 			require.Equal(t, tt.want, got)
 			require.False(t, f.lazy.UnloadPending(), "TryUnload clears the handoff claim")
 			undo()
@@ -508,40 +518,17 @@ func tryUnloadPromptly(t *testing.T, l *LazyLoadShard, req UnloadRequest) Unload
 	}
 }
 
-func TestLazyLoadShard_TryUnloadQueriesReindexBeforeShardLocks(t *testing.T) {
-	f := newUnloadFixture(t)
-	f.put(t)
-	var lockedDuringLookup atomic.Bool
-	f.index.db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
-		if !f.index.shardCreateLocks.TryLock(f.name) {
-			lockedDuringLookup.Store(true)
-		} else {
-			f.index.shardCreateLocks.Unlock(f.name)
-		}
-		if !f.lazy.mutex.TryLock() {
-			lockedDuringLookup.Store(true)
-		} else {
-			f.lazy.mutex.Unlock()
-		}
-		return func(string, string) bool { return false }
-	})
-
-	require.Equal(t, UnloadOutcomeOK, tryUnloadPromptly(t, f.lazy, UnloadRequest{Mode: UnloadModeRequest}))
-	require.False(t, lockedDuringLookup.Load(), "the DTM lookup may reach the leader and must run without shard locks")
-	f.requireUnloaded(t)
-}
-
 func TestLazyLoadShard_TryUnloadTornTeardown(t *testing.T) {
 	f := newUnloadFixture(t)
 	f.put(t)
 	s := f.lazy.currentShard()
 	replaceLegacyVectorIndex(t, s, func(v VectorIndex) VectorIndex { return failingShutdownVectorIndex{v} })
 
-	require.Equal(t, UnloadOutcomeTorn, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
+	require.Equal(t, UnloadOutcomeTorn, f.lazy.TryUnload(testCtx(), UnloadRequest{Reindex: noReindex}))
 	require.Same(t, s, f.lazy.currentShard(), "the torn shard stays published as the last reference to its handles")
 	require.Error(t, s.teardownError())
 	require.Zero(t, f.unloader.registry.Loaded(), "a torn shard no longer counts as loaded")
-	require.Equal(t, UnloadOutcomeTorn, f.lazy.TryUnload(testCtx(), UnloadRequest{}))
+	require.Equal(t, UnloadOutcomeTorn, f.lazy.TryUnload(testCtx(), UnloadRequest{Reindex: noReindex}))
 
 	_, _, err := f.index.getOrInitShard(testCtx(), f.name)
 	require.ErrorContains(t, err, "injected vector index shutdown failure")
