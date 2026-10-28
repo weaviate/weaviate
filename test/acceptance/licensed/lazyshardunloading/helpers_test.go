@@ -212,16 +212,27 @@ func waitLimit(ctx context.Context, t *testing.T, compose *docker.DockerCompose,
 	}, 60*time.Second, 500*time.Millisecond, "max_loaded_shards=%d was not applied", limit)
 }
 
-// eventuallyLoaded waits until cond holds for every node's loaded count.
+// gaugeStable outlasts one publish of the loaded gauge, so a value published before the last change cannot satisfy a wait.
+const gaugeStable = 1500 * time.Millisecond
+
+// eventuallyLoaded waits until cond has held for every node's loaded count for gaugeStable.
 func eventuallyLoaded(ctx context.Context, t *testing.T, compose *docker.DockerCompose, nodeCount int, timeout time.Duration, cond func(loaded int) bool, msg string) {
 	t.Helper()
+	var heldSince time.Time
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		for i := 1; i <= nodeCount; i++ {
 			n, err := loadedShards(ctx, compose.GetWeaviateNode(i))
+			if err != nil || !cond(n) {
+				heldSince = time.Time{}
+			}
 			require.NoError(ct, err)
 			require.True(ct, cond(n), "node %d has %d loaded shards", i, n)
 		}
-	}, timeout, 500*time.Millisecond, msg)
+		if heldSince.IsZero() {
+			heldSince = time.Now()
+		}
+		require.GreaterOrEqual(ct, time.Since(heldSince), gaugeStable, "the loaded count has not held for a full publish interval")
+	}, timeout, 250*time.Millisecond, msg)
 }
 
 // nodeLoadedShards reads shard load states from the nodes API; it pins every loaded shard it reports.
