@@ -14,6 +14,12 @@ package aggregator
 import (
 	"testing"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storobj"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/aggregation"
 )
@@ -95,4 +101,24 @@ func TestTextAggregator_TopOccurrencesCalculation(t *testing.T) {
 			assert.Equal(t, tc.expectedTopOccurrences, res.Items)
 		})
 	}
+}
+
+func TestTextAggregatorStoredEscapesMatchHydratedValues(t *testing.T) {
+	fast, hydrated := newTextAggregator(5), newTextAggregator(5)
+	aggregator := &Aggregator{}
+	for _, value := range []string{"Denim & Dash", "Denim & Dash", `literal \u0026`, "<tag>"} {
+		obj := storobj.FromObject(&models.Object{
+			Class: "Text", ID: strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			Properties: map[string]interface{}{"name": value},
+		}, nil, nil, nil)
+		data, err := obj.MarshalBinary()
+		require.NoError(t, err)
+		require.NoError(t, aggregator.parseAndAddTextRow(fast, data, schema.PropertyName("name")))
+		decoded, err := storobj.FromBinaryNetwork(data)
+		require.NoError(t, err)
+		require.NoError(t, hydrated.AddText(decoded.Properties().(map[string]interface{})["name"].(string)))
+	}
+	require.Equal(t, hydrated.Res(), fast.Res())
+	require.Equal(t, 2, fast.itemCounter["Denim & Dash"])
+	require.Equal(t, 1, fast.itemCounter[`literal \u0026`])
 }
