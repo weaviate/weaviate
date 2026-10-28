@@ -346,6 +346,39 @@ func TestIndex_aggregateCount_UnreachableReplicas(t *testing.T) {
 	}
 }
 
+// unreachableShardFixture is the shared arrange for tests that drive one shard
+// through the real router while some of its replicas are missing from the node
+// selector. Callers add the expectations their path needs on the mocks.
+type unreachableShardFixture struct {
+	schemaGetter *schemaUC.MockSchemaGetter
+	schemaReader *schemaUC.MockSchemaReader
+	fsmReader    *replicationTypes.MockReplicationFSMReader
+	router       types.Router
+}
+
+func newUnreachableShardFixture(t *testing.T, className, shardName string,
+	replicas []string, nodeSelector cluster.NodeSelector,
+) *unreachableShardFixture {
+	schemaGetter := schemaUC.NewMockSchemaGetter(t)
+	schemaReader := schemaUC.NewMockSchemaReader(t)
+	schemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
+		func(className string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
+			return readFunc(&models.Class{Class: className}, &sharding.State{Physical: map[string]sharding.Physical{
+				shardName: {Name: shardName, BelongsToNodes: replicas},
+			}})
+		})
+	schemaReader.EXPECT().ShardReplicas(className, shardName).Return(replicas, nil)
+	fsmReader := replicationTypes.NewMockReplicationFSMReader(t)
+	fsmReader.EXPECT().FilterOneShardReplicasRead(className, shardName, replicas).Return(replicas)
+
+	return &unreachableShardFixture{
+		schemaGetter: schemaGetter,
+		schemaReader: schemaReader,
+		fsmReader:    fsmReader,
+		router:       router.NewBuilder(className, false, nodeSelector, schemaGetter, schemaReader, fsmReader).Build(),
+	}
+}
+
 func TestIndex_objectSearch_UnreachableReplicas(t *testing.T) {
 	const (
 		className = "Abc"
@@ -363,30 +396,17 @@ func TestIndex_objectSearch_UnreachableReplicas(t *testing.T) {
 		t.Run(string(level), func(t *testing.T) {
 			// Arrange
 			logger, hook := test.NewNullLogger()
-			schemaReader := schemaUC.NewMockSchemaReader(t)
-			schemaReader.EXPECT().Shards(className).Return([]string{shardName}, nil)
-			// Read serves the shard check of the read repair plan.
-			schemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
-				func(className string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
-					return readFunc(&models.Class{Class: className}, &sharding.State{Physical: map[string]sharding.Physical{
-						shardName: {Name: shardName, BelongsToNodes: replicas},
-					}})
-				})
-			schemaReader.EXPECT().ShardReplicas(className, shardName).Return(replicas, nil)
-			fsmReader := replicationTypes.NewMockReplicationFSMReader(t)
-			fsmReader.EXPECT().FilterOneShardReplicasRead(className, shardName, replicas).Return(replicas)
-
-			indexRouter := router.NewBuilder(className, false, nodeSelector,
-				schemaUC.NewMockSchemaGetter(t), schemaReader, fsmReader).Build()
+			f := newUnreachableShardFixture(t, className, shardName, replicas, nodeSelector)
+			f.schemaReader.EXPECT().Shards(className).Return([]string{shardName}, nil)
 
 			index := Index{
-				router: indexRouter,
+				router: f.router,
 				remote: sharding.NewRemoteIndex(className, fakeShardReplicas(replicas), nodeSelector,
 					&searchRemoteClient{objects: []*storobj.Object{
 						storobj.FromObject(&models.Object{Class: className, ID: objectID}, nil, nil, nil),
 					}}),
 				replicator: &replica.Replicator{
-					Finder: replica.NewFinder(className, indexRouter, cluster.NewMockNodeResolver(t), "coordinator",
+					Finder: replica.NewFinder(className, f.router, cluster.NewMockNodeResolver(t), "coordinator",
 						nil, replicaMetrics, logger, func() string { return "Delete" }),
 				},
 				Config: IndexConfig{ClassName: schema.ClassName(className), ReplicationFactor: 3},
@@ -458,27 +478,14 @@ func TestIndex_objectByID(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
-			schemaGetter := schemaUC.NewMockSchemaGetter(t)
-			schemaGetter.EXPECT().ShardFromUUID(className, mock.Anything).Return(shardName)
-			schemaReader := schemaUC.NewMockSchemaReader(t)
-			schemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
-				func(className string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
-					return readFunc(&models.Class{Class: className}, &sharding.State{Physical: map[string]sharding.Physical{
-						shardName: {Name: shardName, BelongsToNodes: tt.replicas},
-					}})
-				})
-			schemaReader.EXPECT().ShardReplicas(className, shardName).Return(tt.replicas, nil)
-			fsmReader := replicationTypes.NewMockReplicationFSMReader(t)
-			fsmReader.EXPECT().FilterOneShardReplicasRead(className, shardName, tt.replicas).Return(tt.replicas)
-
-			indexRouter := router.NewBuilder(className, false, clusterMocks.NewMockNodeSelector("node1"),
-				schemaGetter, schemaReader, fsmReader).Build()
+			f := newUnreachableShardFixture(t, className, shardName, tt.replicas, clusterMocks.NewMockNodeSelector("node1"))
+			f.schemaGetter.EXPECT().ShardFromUUID(className, mock.Anything).Return(shardName)
 
 			index := Index{
-				router:        indexRouter,
-				shardResolver: resolver.NewShardResolver(className, false, schemaGetter),
+				router:        f.router,
+				shardResolver: resolver.NewShardResolver(className, false, f.schemaGetter),
 				replicator: &replica.Replicator{
-					Finder: replica.NewFinder(className, indexRouter, cluster.NewMockNodeResolver(t), "node1",
+					Finder: replica.NewFinder(className, f.router, cluster.NewMockNodeResolver(t), "node1",
 						&objectReplicaClient{obj: storobj.FromObject(&models.Object{Class: className, ID: objectID}, nil, nil, nil)},
 						replicaMetrics, logger, func() string { return "Delete" }),
 				},

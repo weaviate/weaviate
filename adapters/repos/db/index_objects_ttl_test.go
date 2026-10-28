@@ -25,10 +25,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
-	"github.com/weaviate/weaviate/cluster/router"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -40,8 +37,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // fakeTTLTenantsManager implements the ttlTenantsManager interface for testing.
@@ -358,42 +353,29 @@ func TestIndex_incomingDeleteObjectsExpired(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
-			schemaGetter := schemaUC.NewMockSchemaGetter(t)
-			schemaGetter.EXPECT().ReadOnlyClass(className).Return(&models.Class{Class: className})
-			schemaReader := schemaUC.NewMockSchemaReader(t)
-			schemaReader.EXPECT().Shards(className).Return([]string{shardName}, nil)
-			schemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
-				func(className string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
-					return readFunc(&models.Class{Class: className}, &sharding.State{Physical: map[string]sharding.Physical{
-						shardName: {Name: shardName, BelongsToNodes: tt.replicas},
-					}})
-				})
-			schemaReader.EXPECT().ShardReplicas(className, shardName).Return(tt.replicas, nil)
-			fsmReader := replicationTypes.NewMockReplicationFSMReader(t)
-			fsmReader.EXPECT().FilterOneShardReplicasRead(className, shardName, tt.replicas).Return(tt.replicas)
-			fsmReader.EXPECT().FilterOneShardReplicasWrite(className, shardName, tt.replicas).Return(tt.replicas)
-
-			indexRouter := router.NewBuilder(className, false, clusterMocks.NewMockNodeSelector("node1"),
-				schemaGetter, schemaReader, fsmReader).Build()
+			f := newUnreachableShardFixture(t, className, shardName, tt.replicas, clusterMocks.NewMockNodeSelector("node1"))
+			f.schemaGetter.EXPECT().ReadOnlyClass(className).Return(&models.Class{Class: className})
+			f.schemaReader.EXPECT().Shards(className).Return([]string{shardName}, nil)
+			f.fsmReader.EXPECT().FilterOneShardReplicasWrite(className, shardName, tt.replicas).Return(tt.replicas)
 
 			// Precondition: the router rejects QUORUM reads and writes of this shard.
-			_, err := indexRouter.BuildReadRoutingPlan(
-				indexRouter.BuildRoutingPlanOptions("", shardName, routerTypes.ConsistencyLevelQuorum, ""))
+			_, err := f.router.BuildReadRoutingPlan(
+				f.router.BuildRoutingPlanOptions("", shardName, routerTypes.ConsistencyLevelQuorum, ""))
 			require.ErrorIs(t, err, replicaerrors.ErrReplicas, "QUORUM read plan")
-			_, err = indexRouter.BuildWriteRoutingPlan(
-				indexRouter.BuildRoutingPlanOptions("", shardName, routerTypes.ConsistencyLevelQuorum, ""))
+			_, err = f.router.BuildWriteRoutingPlan(
+				f.router.BuildRoutingPlanOptions("", shardName, routerTypes.ConsistencyLevelQuorum, ""))
 			require.ErrorIs(t, err, replicaerrors.ErrReplicas, "QUORUM write plan")
 
 			client := newTTLReplicaClient(expired)
-			replicator, err := replica.NewReplicator(className, indexRouter, cluster.NewMockNodeResolver(t), "node1",
+			replicator, err := replica.NewReplicator(className, f.router, cluster.NewMockNodeResolver(t), "node1",
 				func() string { return models.ReplicationConfigDeletionStrategyNoAutomatedResolution },
 				client, monitoring.GetMetrics(), logger)
 			require.NoError(t, err, "create replicator")
 
 			index := Index{
-				router:     indexRouter,
+				router:     f.router,
 				replicator: replicator,
-				getSchema:  schemaGetter,
+				getSchema:  f.schemaGetter,
 				Config:     IndexConfig{ClassName: schema.ClassName(className), ReplicationFactor: int64(len(tt.replicas))},
 				metrics:    metrics,
 				logger:     logger,
@@ -403,7 +385,10 @@ func TestIndex_incomingDeleteObjectsExpired(t *testing.T) {
 			var deleted atomic.Int32
 			eg := enterrors.NewErrorGroupWrapper(logger)
 			ec := errorcompounder.NewSafe()
-			index.incomingDeleteObjectsExpired(t.Context(), eg, ec, "expiresAt", time.Now(), time.Now(),
+			// A failing delete re-finds the same UUIDs forever; the deadline turns that hang into a fast failure.
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			index.incomingDeleteObjectsExpired(ctx, eg, ec, "expiresAt", time.Now(), time.Now(),
 				func(n int32) { deleted.Add(n) }, 0)
 			require.NoError(t, eg.Wait())
 

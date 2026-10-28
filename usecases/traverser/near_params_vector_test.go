@@ -615,8 +615,7 @@ func Test_nearParamsVector_vectorFromModules_TypedError(t *testing.T) {
 }
 
 // fixedObjectSearcher answers every source-object lookup with the same
-// result, so the near-object failure modes can be staged. It records the
-// replication properties of each lookup in repls.
+// result, so the near-object failure modes can be staged.
 type fixedObjectSearcher struct {
 	res   *search.Result
 	repls []*additional.ReplicationProperties
