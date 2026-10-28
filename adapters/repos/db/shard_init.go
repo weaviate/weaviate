@@ -189,6 +189,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	if err = s.initShardVectors(ctx); err != nil {
 		return nil, fmt.Errorf("init shard vectors: %w", err)
 	}
+	s.inheritFallbackToSearchable()
 	s.NotifyReady()
 	s.inheritResourcePressureReadOnly()
 
