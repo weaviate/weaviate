@@ -14,8 +14,6 @@ package rbac
 import (
 	"encoding/json"
 	"errors"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -26,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
@@ -157,31 +156,33 @@ func TestRestoreFromBackupLogsTornOnlyAfterClear(t *testing.T) {
 		"version":           rbac.SnapshotVersionLatest,
 	})
 	require.NoError(t, err)
+	// The one-field grouping row passes validation. casbin adds every row to the
+	// model and then fails building its role link, so Restore fails after the clear.
+	roleCRow := []string{"role:roleC", authorization.Cluster(), authorization.READ, authorization.ClusterDomain}
+	oneFieldRow := []string{"db:malformed"}
+	malformedGrouping := [][]string{{"db:linked", "role:roleC"}, oneFieldRow, {"db:unlinked", "role:roleC"}}
+	failsAfterClear, err := json.Marshal(map[string]any{
+		"roles_policies":    [][]string{roleCRow},
+		"grouping_policies": malformedGrouping,
+		"version":           rbac.SnapshotVersionLatest,
+	})
+	require.NoError(t, err)
 
 	tests := []struct {
-		name string
-		blob []byte
-		// breakPolicyFile replaces the policy file with a directory, so Restore
-		// fails after it cleared the roles.
-		breakPolicyFile bool
-		wantTorn        bool
+		name     string
+		blob     []byte
+		wantTorn bool
 	}{
 		{name: "undecodable blob", blob: []byte("{")},
 		{name: "row the policy file cannot store", blob: unstorableRow},
-		{name: "policy file fails after the clear", blob: snapshotOf(t, "roleC"), breakPolicyFile: true, wantTorn: true},
+		{name: "grouping row with one field fails after the clear", blob: failsAfterClear, wantTorn: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			dir := t.TempDir()
-			m := newTestManagerAt(t, dir, nil)
+			m := newTestManager(t)
 			require.NoError(t, applyCreateRole(m, "roleA"))
 			logger, hook := test.NewNullLogger()
 			m.logger = logger
-			if tt.breakPolicyFile {
-				policyFile := filepath.Join(dir, "rbac", "policy.csv")
-				require.NoError(t, os.Remove(policyFile))
-				require.NoError(t, os.Mkdir(policyFile, 0o755))
-			}
 
 			err := m.RestoreFromBackup(&cmd.RestoreRolesAndUsersRequest{Roles: tt.blob})
 			require.Error(t, err)
@@ -193,9 +194,32 @@ func TestRestoreFromBackupLogsTornOnlyAfterClear(t *testing.T) {
 			assert.Equal(t, !tt.wantTorn, errors.Is(err, rbac.ErrRestoreRefused))
 			if !tt.wantTorn {
 				assert.ElementsMatch(t, []string{"roleA"}, customRoleNames(t, m))
-			} else {
-				assert.NotContains(t, customRoleNames(t, m), "roleA")
+				return
 			}
+
+			// GetRoles indexes field 1 of every grouping row and panics on the
+			// one-field row, so the torn state is read through calls that do not.
+			hasRoleA, err := m.authZ.HasPermission("roleA", &authorization.Policy{
+				Resource: authorization.Cluster(), Verb: authorization.READ, Domain: authorization.ClusterDomain,
+			})
+			require.NoError(t, err)
+			assert.False(t, hasRoleA, "the clear must have removed the target's roleA")
+
+			blob, err := m.authZ.Snapshot()
+			require.NoError(t, err)
+			var held struct {
+				Policy         [][]string `json:"roles_policies"`
+				GroupingPolicy [][]string `json:"grouping_policies"`
+			}
+			require.NoError(t, json.Unmarshal(blob, &held))
+			assert.Contains(t, held.Policy, roleCRow)
+			for _, row := range malformedGrouping {
+				assert.Contains(t, held.GroupingPolicy, row, "the model must hold every blob row")
+			}
+
+			linked, err := m.authZ.GetUsersOrGroupForRole("roleC", authentication.AuthTypeDb, false)
+			require.NoError(t, err)
+			assert.Equal(t, []string{"linked"}, linked, "role links must stop at the one-field row")
 		})
 	}
 }

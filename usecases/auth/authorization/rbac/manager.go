@@ -171,9 +171,6 @@ func (m *Manager) upsertRolesPermissions(roles map[string][]authorization.Policy
 			}
 		}
 	}
-	if err := m.casbin.SavePolicy(); err != nil {
-		return fmt.Errorf("SavePolicy: %w", err)
-	}
 	if err := m.casbin.InvalidateCache(); err != nil {
 		return fmt.Errorf("InvalidateCache: %w", err)
 	}
@@ -354,9 +351,6 @@ func (m *Manager) RemovePermissions(roleName string, permissions []*authorizatio
 	if !changed {
 		return nil
 	}
-	if err := m.casbin.SavePolicy(); err != nil {
-		return fmt.Errorf("SavePolicy: %w", err)
-	}
 	if err := m.casbin.InvalidateCache(); err != nil {
 		return fmt.Errorf("InvalidateCache: %w", err)
 	}
@@ -401,9 +395,6 @@ func (m *Manager) DeleteRoles(roles ...string) error {
 	if !changed {
 		return nil
 	}
-	if err := m.casbin.SavePolicy(); err != nil {
-		return fmt.Errorf("SavePolicy: %w", err)
-	}
 	if err := m.casbin.InvalidateCache(); err != nil {
 		return fmt.Errorf("InvalidateCache: %w", err)
 	}
@@ -431,9 +422,6 @@ func (m *Manager) AddRolesForUser(user string, roles []string) error {
 		if _, err := m.casbin.AddRoleForUser(user, conv.PrefixRoleName(role)); err != nil {
 			return fmt.Errorf("AddRoleForUser: %w", err)
 		}
-	}
-	if err := m.casbin.SavePolicy(); err != nil {
-		return fmt.Errorf("SavePolicy: %w", err)
 	}
 	if err := m.casbin.InvalidateCache(); err != nil {
 		return fmt.Errorf("InvalidateCache: %w", err)
@@ -510,9 +498,6 @@ func (m *Manager) RevokeRolesForUser(userName string, roles ...string) error {
 		if _, err := m.casbin.DeleteRoleForUser(userName, conv.PrefixRoleName(roleName)); err != nil {
 			return fmt.Errorf("DeleteRoleForUser: %w", err)
 		}
-	}
-	if err := m.casbin.SavePolicy(); err != nil {
-		return fmt.Errorf("SavePolicy: %w", err)
 	}
 	if err := m.casbin.InvalidateCache(); err != nil {
 		return fmt.Errorf("InvalidateCache: %w", err)
@@ -850,8 +835,9 @@ func (m *Manager) Restore(b []byte, stripNamespaces bool) error {
 		snapshot = stripped
 	}
 
-	// Like the strip above, refuse before ClearPolicy. Rows the policy file can't
-	// hold would fail the next load, or load as rows the snapshot never had.
+	// Like the strip above, refuse before ClearPolicy. The previous release stores
+	// rows in a CSV file, and a row it can't hold fails its next load, or loads as
+	// rows the snapshot never had.
 	if err := validateStorableRows("p", snapshot.Policy); err != nil {
 		return fmt.Errorf("%w: %w", ErrRestoreRefused, err)
 	}
@@ -863,8 +849,9 @@ func (m *Manager) Restore(b []byte, stripNamespaces bool) error {
 }
 
 // RestoreRaftSnapshot replaces the policy store with a RAFT snapshot. It drops
-// and logs each row the policy file cannot store, since refusing the snapshot
-// keeps the node from starting or catching up. Dropping a row only removes a grant.
+// and logs each row the previous release's CSV policy file cannot store, since
+// refusing the snapshot keeps the node from starting or catching up. Dropping a
+// row only removes a grant.
 func (m *Manager) RestoreRaftSnapshot(b []byte) error {
 	// don't overwrite with empty snapshot to avoid overwriting recovery from file
 	// with a non-existent RBAC snapshot when coming from old versions
@@ -904,6 +891,13 @@ func (m *Manager) replacePolicies(snapshot snapshot) error {
 		return fmt.Errorf("add grouping policies: %w", err)
 	}
 
+	// ClearPolicy clears the model but not the role manager, so links for
+	// assignments the snapshot lacks still grant access until this rebuild. It
+	// runs before the V0 upgrade, which reads the links.
+	if err := m.casbin.BuildRoleLinks(); err != nil {
+		return fmt.Errorf("build role links: %w", err)
+	}
+
 	if snapshot.Version == SnapshotVersionV0 {
 		if err := upgradePoliciesFrom129(m.casbin, true); err != nil {
 			return fmt.Errorf("upgrade policies: %w", err)
@@ -919,13 +913,8 @@ func (m *Manager) replacePolicies(snapshot snapshot) error {
 		return fmt.Errorf("apply env config: %w", err)
 	}
 
-	// Load the policies to ensure they are in memory
-	if err := m.casbin.LoadPolicy(); err != nil {
-		return fmt.Errorf("load policies: %w", err)
-	}
-
 	// Invalidate the cache so the first Enforce() after the lock is released
-	// evaluates against the freshly loaded policies. ClearPolicy() is not
+	// evaluates against the restored policies. ClearPolicy() is not
 	// overridden by SyncedCachedEnforcer and does not invalidate on its own.
 	if err := m.casbin.InvalidateCache(); err != nil {
 		return fmt.Errorf("restore snapshot: InvalidateCache: %w", err)

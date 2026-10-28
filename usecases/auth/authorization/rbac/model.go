@@ -12,7 +12,6 @@
 package rbac
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,7 +33,6 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
-	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
@@ -62,28 +60,8 @@ const (
 `
 )
 
-func createStorage(filePath string) error {
-	if err := os.MkdirAll(filepath.Dir(filePath), os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create directories: %w", err)
-	}
-
-	_, err := os.Stat(filePath)
-	if err == nil { // file exists
-		return nil
-	}
-
-	if os.IsNotExist(err) {
-		file, err := os.Create(filePath)
-		if err != nil {
-			return fmt.Errorf("failed to create file: %w", err)
-		}
-		defer file.Close()
-		return nil
-	}
-
-	return err
-}
-
+// Init builds the in-memory enforcer. It attaches no persistence adapter: RAFT
+// snapshot restore and log replay rebuild the RBAC state on every start.
 func Init(conf rbacconf.Config, policyPath string, authNconf config.Authentication, namespacesEnabled bool) (*casbin.SyncedCachedEnforcer, error) {
 	if !conf.Enabled {
 		return nil, nil
@@ -105,38 +83,10 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 	// explicitly invalidating the cache.
 	enforcer.SetExpireTime(1 * time.Hour)
 
-	rbacStoragePath := fmt.Sprintf("%s/rbac", policyPath)
-	rbacStorageFilePath := fmt.Sprintf("%s/rbac/policy.csv", policyPath)
-
-	if err := createStorage(rbacStorageFilePath); err != nil {
-		return nil, errors.Wrapf(err, "create storage path: %v", rbacStorageFilePath)
-	}
-
-	enforcer.SetAdapter(fileadapter.NewAdapter(rbacStorageFilePath))
-
-	if err := enforcer.LoadPolicy(); err != nil {
-		return nil, err
-	}
-	// parse version string to check if upgrade is needed
-	policyVersion, err := getVersion(rbacStoragePath)
-	if err != nil {
-		return nil, err
-	}
-	versionParts := strings.Split(policyVersion, ".")
-	minorVersion, err := strconv.Atoi(versionParts[1])
-	if err != nil {
+	if err := seedFromLegacyPolicyFile(enforcer, filepath.Join(policyPath, "rbac"), authNconf); err != nil {
 		return nil, err
 	}
 
-	if versionParts[0] == "1" && minorVersion < 30 {
-		if err := upgradePoliciesFrom129(enforcer, false); err != nil {
-			return nil, err
-		}
-
-		if err := upgradeGroupingsFrom129(enforcer, authNconf); err != nil {
-			return nil, err
-		}
-	}
 	// docs: https://casbin.org/docs/function/
 	enforcer.AddFunction("namespaceAwareMatcher", makeNamespaceAwareMatcherFunc(namespacesEnabled))
 
@@ -144,12 +94,53 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 		return nil, errors.Wrapf(err, "apply env config")
 	}
 
-	// update version after casbin policy has been written
-	if err := writeVersion(rbacStoragePath, build.Version); err != nil {
-		return nil, err
+	return enforcer, nil
+}
+
+// seedFromLegacyPolicyFile loads the policy.csv that earlier releases wrote
+// under rbacDir, so a cluster upgraded from them keeps its roles until a RAFT
+// snapshot carries RBAC state. A missing file is a no-op. The seed never writes:
+// the file and its version stay as the earlier release left them, so the <1.30
+// upgrade sees the same rows on every boot.
+func seedFromLegacyPolicyFile(enforcer *casbin.SyncedCachedEnforcer, rbacDir string, authNconf config.Authentication) error {
+	policyFile := filepath.Join(rbacDir, "policy.csv")
+	if _, err := os.Stat(policyFile); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("stat legacy policy file %s: %w", policyFile, err)
 	}
 
-	return enforcer, nil
+	enforcer.SetAdapter(fileadapter.NewAdapter(policyFile))
+	err := enforcer.LoadPolicy()
+	// casbin writes every mutation through an attached adapter, so detaching
+	// it keeps all later changes in memory.
+	enforcer.SetAdapter(nil)
+	if err != nil {
+		return fmt.Errorf("load legacy policy file %s: %w", policyFile, err)
+	}
+
+	// parse version string to check if upgrade is needed
+	policyVersion, err := getVersion(rbacDir)
+	if err != nil {
+		return err
+	}
+	versionParts := strings.Split(policyVersion, ".")
+	minorVersion, err := strconv.Atoi(versionParts[1])
+	if err != nil {
+		return err
+	}
+
+	if versionParts[0] == "1" && minorVersion < 30 {
+		if err := upgradePoliciesFrom129(enforcer, false); err != nil {
+			return err
+		}
+
+		if err := upgradeGroupingsFrom129(enforcer, authNconf); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // applyPredefinedRoles adds pre-defined roles (admin/viewer/root) and assigns them to the users provided in the
@@ -162,8 +153,8 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 	}
 
 	// Wipe all built-in role policies before re-registering. The
-	// canonical shape lives in code; rebuilding from scratch on every boot
-	// keeps the on-disk policy CSV honest.
+	// canonical shape lives in code, so rows from a legacy seed or a
+	// restored snapshot are replaced by it on every boot and restore.
 	for _, role := range authorization.BuiltInRoles {
 		if _, err := enforcer.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(role)); err != nil {
 			return err
@@ -297,10 +288,6 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 		if _, err := enforcer.AddRoleForUser(conv.PrefixGroupName(metadataGroup), conv.PrefixRoleName(authorization.MetadataReader)); err != nil {
 			return fmt.Errorf("add metadata reader role for group %s: %w", metadataGroup, err)
 		}
-	}
-
-	if err := enforcer.SavePolicy(); err != nil {
-		return errors.Wrapf(err, "save policy")
 	}
 
 	return nil
@@ -521,35 +508,4 @@ func getVersion(path string) (string, error) {
 		return "", err
 	}
 	return string(b), nil
-}
-
-func writeVersion(path, version string) error {
-	tmpFile, err := os.CreateTemp(path, "policy-temp-*.tmp")
-	if err != nil {
-		return err
-	}
-	tempFilename := tmpFile.Name()
-
-	defer func() {
-		tmpFile.Close()
-		os.Remove(tempFilename) // Remove temp file if it still exists
-	}()
-
-	writer := bufio.NewWriter(tmpFile)
-	if _, err := fmt.Fprint(writer, version); err != nil {
-		return err
-	}
-
-	// Flush the writer to ensure all data is written, then sync and flush tmpfile and atomically rename afterwards
-	if err := writer.Flush(); err != nil {
-		return err
-	}
-	if err := tmpFile.Sync(); err != nil {
-		return err
-	}
-	if err := tmpFile.Close(); err != nil {
-		return err
-	}
-
-	return os.Rename(tempFilename, path+"/version")
 }

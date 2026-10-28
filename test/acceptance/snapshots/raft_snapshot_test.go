@@ -13,6 +13,7 @@ package recovery
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strconv"
@@ -22,7 +23,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
 
 	"github.com/weaviate/weaviate/client/cluster"
 	"github.com/weaviate/weaviate/client/schema"
@@ -51,6 +51,7 @@ func TestSnapshotRecovery(t *testing.T) {
 		WithWeaviateCluster(3).
 		WithApiKey().
 		WithUserApiKey(adminUser, adminKey).
+		WithUserApiKey(granteeUser, granteeKey).
 		WithRBAC().
 		WithRbacRoots(adminUser).
 		WithWeaviateEnv("RAFT_SNAPSHOT_THRESHOLD", "1").
@@ -156,27 +157,65 @@ func testRBACSnapshotRecovery(t *testing.T, ctx context.Context, compose *docker
 			require.NotNil(t, role)
 			require.Equal(t, roleName, *role.Name)
 		}
+		helper.AssignRoleToUser(t, adminKey, fmt.Sprintf("%s_while_down_0", testRole), granteeUser)
 		waitForLeaderSnapshot(t, adminKey)
 	})
 
 	// Start node 3 back up
 	t.Run("start node 3", func(t *testing.T) {
 		require.NoError(t, compose.StartAt(ctx, 2))
-		helper.SetupClient(compose.GetWeaviateNode3().URI())
 	})
 
-	// Verify all roles exist on recovered node
-	t.Run("verify roles on recovered node", func(t *testing.T) {
-		// Wait for node 3 to be ready and verify checksums match
-		assert.Eventually(t, func() bool {
-			checksum1 := getPolicyChecksum(t, compose.GetWeaviate().Container())
-			checksum2 := getPolicyChecksum(t, compose.GetWeaviateNode2().Container())
-			checksum3 := getPolicyChecksum(t, compose.GetWeaviateNode3().Container())
-			// All checksums should match
-			return checksum1 != "" && checksum2 != "" && checksum3 != "" &&
-				checksum1 == checksum2 && checksum1 == checksum3
-		}, 90*time.Second, 1*time.Second, "Policy checksums should match across all nodes")
+	t.Run("recovered node enforces roles", func(t *testing.T) {
+		requireNode3EnforcesGranteeRole(t, compose, adminKey, "RecoveredNodeClass")
 	})
+
+	t.Run("restart preserves roles", func(t *testing.T) {
+		require.NoError(t, compose.StopAt(ctx, 2, nil))
+		require.NoError(t, compose.StartAt(ctx, 2))
+		requireNode3EnforcesGranteeRole(t, compose, adminKey, "RestartedNodeClass")
+	})
+
+	t.Run("no rbac files created", func(t *testing.T) {
+		for _, node := range []*docker.DockerContainer{compose.GetWeaviate(), compose.GetWeaviateNode2(), compose.GetWeaviateNode3()} {
+			for _, file := range []string{"data/raft/rbac/policy.csv", "data/raft/rbac/version"} {
+				out, err := exec.Command("docker", "exec", node.Container().GetContainerID(), "test", "!", "-e", file).CombinedOutput()
+				assert.NoError(t, err, "%s exists on %s: %s", file, node.Name(), out)
+			}
+		}
+	})
+}
+
+// granteeUser starts with no role. The RBAC subtest assigns it one role while
+// node 3 is down.
+const (
+	granteeUser = "grantee-user"
+	granteeKey  = "grantee-key"
+)
+
+// requireNode3EnforcesGranteeRole checks that node 3 lets granteeUser create a
+// collection, which its role grants, and denies deleting it, which no role
+// grants. Node 3 authorizes both requests against its own RBAC state before
+// forwarding the create to the leader.
+func requireNode3EnforcesGranteeRole(t *testing.T, compose *docker.DockerCompose, adminKey, className string) {
+	t.Helper()
+	helper.SetupClient(compose.GetWeaviateNode3().URI())
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		_, err := helper.CreateClassAuthWithReturn(t, &models.Class{Class: className}, granteeKey)
+		// Node 3 authorizes the create before it checks whether the class exists,
+		// so "already exists" means an earlier attempt was allowed and committed.
+		var exists *schema.SchemaObjectsCreateUnprocessableEntity
+		if errors.As(err, &exists) && exists.Payload != nil && len(exists.Payload.Error) > 0 &&
+			strings.Contains(exists.Payload.Error[0].Message, "already exists") {
+			return
+		}
+		assert.NoError(ct, err)
+	}, 90*time.Second, time.Second, "node 3 did not allow the granted create")
+	defer helper.DeleteClassAuth(t, className, adminKey)
+
+	err := helper.DeleteClassAuthWithReturn(t, className, granteeKey)
+	var forbidden *schema.SchemaObjectsDeleteForbidden
+	require.ErrorAs(t, err, &forbidden, "node 3 must deny the ungranted delete")
 }
 
 // waitForLeaderSnapshot waits until the leader has snapshotted every entry in
@@ -202,23 +241,6 @@ func waitForLeaderSnapshot(t *testing.T, adminKey string) {
 		}
 		ct.Errorf("no leader in cluster statistics")
 	}, 30*time.Second, 200*time.Millisecond)
-}
-
-func getPolicyChecksum(t *testing.T, container testcontainers.Container) string {
-	// Run sort | md5sum on the policy file directly in the container
-	cmd := exec.Command("docker", "exec", container.GetContainerID(), "sh", "-c", "test -s data/raft/rbac/policy.csv && sort data/raft/rbac/policy.csv | md5sum")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Logf("Failed to get policy checksum: %v", err)
-		return ""
-	}
-
-	// Extract the checksum from the output
-	parts := strings.Fields(string(output))
-	if len(parts) < 1 {
-		return ""
-	}
-	return parts[0]
 }
 
 func Bool(b bool) *bool {

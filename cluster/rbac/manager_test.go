@@ -34,13 +34,7 @@ func newTestManager(t *testing.T) *Manager {
 
 func newTestManagerWithNamespaces(t *testing.T, namespaces rbac.NamespaceLister) *Manager {
 	t.Helper()
-	return newTestManagerAt(t, t.TempDir(), namespaces)
-}
-
-// newTestManagerAt keeps the policy file under dir, for a test that breaks it.
-func newTestManagerAt(t *testing.T, dir string, namespaces rbac.NamespaceLister) *Manager {
-	t.Helper()
-	authZ, err := rbac.New(dir, rbacconf.Config{Enabled: true}, config.Authentication{}, true, namespaces, logrus.New())
+	authZ, err := rbac.New(t.TempDir(), rbacconf.Config{Enabled: true}, config.Authentication{}, true, namespaces, logrus.New())
 	require.NoError(t, err)
 	return NewManager(authZ, config.Authentication{}, logrus.New())
 }

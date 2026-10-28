@@ -1344,11 +1344,10 @@ func TestRestoreStripFalseUnchanged(t *testing.T) {
 }
 
 // TestManager_DeleteRoles_MultiRoleBatchPersistsAcrossReload pins that an
-// already-absent role in a batch delete does not drop persistence of the roles
-// (and their assignments) removed alongside it: the cleanup cascade calls
-// DeleteRoles with many names, and a concurrent delete can leave one already
-// gone. Reloading the policy from disk (a restart) must still see every removed
-// role and assignment gone.
+// already-absent role in a batch delete does not keep the roles (and their
+// assignments) removed alongside it: the cleanup cascade calls DeleteRoles with
+// many names, and a concurrent delete can leave one already gone. A restart
+// must still see every removed role and assignment gone.
 func TestManager_DeleteRoles_MultiRoleBatchPersistsAcrossReload(t *testing.T) {
 	const (
 		roleA = "batchRoleA"
@@ -1387,9 +1386,9 @@ func TestManager_DeleteRoles_MultiRoleBatchPersistsAcrossReload(t *testing.T) {
 
 			require.NoError(t, m.DeleteRoles(allRoles...))
 
-			// Drop in-memory state and reload from the persisted policy file,
-			// which is what a restart does.
-			require.NoError(t, m.casbin.LoadPolicy())
+			restarted, err := setupTestManager(t, logger)
+			require.NoError(t, err)
+			m = restartFrom(t, m, restarted)
 
 			got, err := m.GetRoles()
 			require.NoError(t, err)
@@ -1751,7 +1750,7 @@ func TestRestoreInvalidatesEnforceCache(t *testing.T) {
 
 	// Hammer checkPermissions() concurrently during Restore(). Without the
 	// restoreLock in Restore() and checkPermissions(), a concurrent reader can
-	// re-cache a stale "true" after LoadPolicy() clears the cache.
+	// re-cache a stale "true" after the restore invalidates the cache.
 	const concurrentReaders = 10
 	done := make(chan struct{})
 	var wg sync.WaitGroup
@@ -1936,8 +1935,8 @@ func TestRemovePermissions(t *testing.T) {
 			wantAbsent: []*authorization.Policy{p1, p2},
 		},
 		{
-			// A real removal followed by an absent permission must still be
-			// persisted (SavePolicy must not be skipped).
+			// A real removal followed by an absent permission must still
+			// survive a restart.
 			name:       "present then absent persists durably",
 			initial:    []*authorization.Policy{p1},
 			remove:     []*authorization.Policy{p1, absentA},
@@ -1987,9 +1986,9 @@ func TestRemovePermissions(t *testing.T) {
 			// In-memory state.
 			assertPermissions(t)
 
-			// Durable state: reload from the policy file. A skipped SavePolicy
-			// would let removed permissions reappear here.
-			require.NoError(t, m.casbin.LoadPolicy())
+			restarted, err := setupTestManager(t, logger)
+			require.NoError(t, err)
+			m = restartFrom(t, m, restarted)
 			assertPermissions(t)
 		})
 	}
@@ -2020,9 +2019,9 @@ func TestDeleteRoles(t *testing.T) {
 			wantAbsent: []string{roleA, roleB},
 		},
 		{
-			// A real delete followed by an absent role must still be persisted
-			// (SavePolicy/InvalidateCache must not be skipped).
-			name:       "present then absent persists durably",
+			// An absent role after a real delete does not fail the batch or
+			// bring the deleted role back.
+			name:       "present then absent",
 			create:     []string{roleA},
 			delete:     []string{roleA, absentA},
 			wantAbsent: []string{roleA},
@@ -2055,33 +2054,23 @@ func TestDeleteRoles(t *testing.T) {
 
 			require.NoError(t, m.DeleteRoles(tt.delete...))
 
-			assertRoles := func(t *testing.T) {
-				got, err := m.GetRoles(append(append([]string{}, tt.wantAbsent...), tt.wantPresent...)...)
-				require.NoError(t, err)
-				for _, name := range tt.wantAbsent {
-					_, ok := got[name]
-					assert.False(t, ok, "role %q should be deleted", name)
-				}
-				for _, name := range tt.wantPresent {
-					_, ok := got[name]
-					assert.True(t, ok, "role %q should still be present", name)
-				}
+			got, err := m.GetRoles(append(append([]string{}, tt.wantAbsent...), tt.wantPresent...)...)
+			require.NoError(t, err)
+			for _, name := range tt.wantAbsent {
+				_, ok := got[name]
+				assert.False(t, ok, "role %q should be deleted", name)
 			}
-
-			// In-memory state.
-			assertRoles(t)
-
-			// Durable state: reload from the policy file. A skipped SavePolicy
-			// would let deleted roles reappear here.
-			require.NoError(t, m.casbin.LoadPolicy())
-			assertRoles(t)
+			for _, name := range tt.wantPresent {
+				_, ok := got[name]
+				assert.True(t, ok, "role %q should still be present", name)
+			}
 		})
 	}
 }
 
 // recordingAdapter records the section each policy removal targets, in the order
-// casbin calls the adapter. The file adapter under it answers "not implemented",
-// which casbin ignores.
+// casbin calls the adapter. The embedded Adapter is nil: DeleteRoles makes casbin
+// call only RemoveFilteredPolicy.
 type recordingAdapter struct {
 	persist.Adapter
 	removed []string
@@ -2089,7 +2078,7 @@ type recordingAdapter struct {
 
 func (a *recordingAdapter) RemoveFilteredPolicy(sec string, ptype string, fieldIndex int, fieldValues ...string) error {
 	a.removed = append(a.removed, sec+" "+strings.Join(fieldValues, " "))
-	return a.Adapter.RemoveFilteredPolicy(sec, ptype, fieldIndex, fieldValues...)
+	return nil
 }
 
 // TestDeleteRolesRemovesAssignmentsFirst pins that DeleteRoles removes a role's g
@@ -2110,7 +2099,7 @@ func TestDeleteRolesRemovesAssignmentsFirst(t *testing.T) {
 
 	// casbin hands every removal to the adapter, which is how the test sees the
 	// order without a seam in Manager.
-	adapter := &recordingAdapter{Adapter: m.casbin.GetAdapter()}
+	adapter := &recordingAdapter{}
 	m.casbin.SetAdapter(adapter)
 
 	require.NoError(t, m.DeleteRoles(roles...))
