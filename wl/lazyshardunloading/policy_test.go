@@ -57,7 +57,7 @@ func TestMakeRoomUnloadsTheOldestEvenUnderMinResidency(t *testing.T) {
 		require.False(t, shards[0].loaded())
 		require.True(t, shards[1].loaded())
 		require.True(t, shards[2].loaded())
-		require.Equal(t, []db.UnloadRequest{{Mode: db.UnloadModeRequest}}, shards[0].requests())
+		require.Equal(t, []db.UnloadRequest{{Mode: db.UnloadModeRequest, PickedAt: shards[0].LastAccess()}}, shards[0].requests())
 		under, madeRoom, overcommit := admissions(h)
 		require.Equal(t, [3]float64{0, 1, 0}, [3]float64{under, madeRoom, overcommit})
 		require.Equal(t, 1.0, testutil.ToFloat64(h.p.metrics.unloads.WithLabelValues("make_room", "ok")))
@@ -230,7 +230,7 @@ func TestRequestModeIgnoresSoftClausesTheLoopHonoursThem(t *testing.T) {
 		require.True(t, fresh.loaded())
 		require.Empty(t, fresh.requests(), "the loop never hands over a shard under min_residency")
 		require.True(t, old[0].loaded(), "a queued vector index keeps a background unload off")
-		require.Equal(t, db.UnloadRequest{Mode: db.UnloadModeBackground, MinResidency: 30 * time.Second}, old[0].requests()[0])
+		require.Equal(t, db.UnloadRequest{Mode: db.UnloadModeBackground, MinResidency: 30 * time.Second, PickedAt: old[0].LastAccess()}, old[0].requests()[0])
 		require.Positive(t, testutil.ToFloat64(h.p.metrics.unloads.WithLabelValues("watermark", "queue_not_empty")))
 
 		for _, s := range old {
@@ -240,7 +240,7 @@ func TestRequestModeIgnoresSoftClausesTheLoopHonoursThem(t *testing.T) {
 		h.p.beforeLoad(cold(h, ""))
 		synctest.Wait()
 		require.False(t, fresh.loaded(), "make-room ignores residency and queues")
-		require.Equal(t, []db.UnloadRequest{{Mode: db.UnloadModeRequest}}, fresh.requests())
+		require.Equal(t, []db.UnloadRequest{{Mode: db.UnloadModeRequest, PickedAt: fresh.LastAccess()}}, fresh.requests())
 	})
 }
 
@@ -316,7 +316,7 @@ func TestIdleTTLUnloadsBelowEveryLimitAndStopsAtZero(t *testing.T) {
 		}
 		require.True(t, busy.loaded())
 		require.False(t, idle.loaded())
-		require.Equal(t, db.UnloadRequest{Mode: db.UnloadModeBackground, MinResidency: 5 * time.Second, IdleTTL: 10 * time.Second},
+		require.Equal(t, db.UnloadRequest{Mode: db.UnloadModeBackground, MinResidency: 5 * time.Second, IdleTTL: 10 * time.Second, PickedAt: idle.LastAccess()},
 			idle.requests()[len(idle.requests())-1])
 		require.Positive(t, testutil.ToFloat64(h.p.metrics.unloads.WithLabelValues("idle", "ok")))
 
@@ -865,4 +865,24 @@ func seriesNamespaces(t *testing.T, h *harness) []string {
 		}
 	}
 	return out
+}
+
+func TestMakeRoomSkipsAVictimAccessedSincePicked(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, func(k *testKnobs) {
+			set(t, k.maxLoaded, 2)
+			set(t, k.interval, time.Hour)
+		})
+		shards := h.loadN(2, "")
+		block := make(chan struct{})
+		shards[0].block.Store(&block)
+
+		h.p.beforeLoad(cold(h, ""))
+		synctest.Wait()
+		reqs := shards[0].requests()
+		require.Len(t, reqs, 1)
+		require.Equal(t, shards[0].LastAccess(), reqs[0].PickedAt, "make-room tells TryUnload what the victim was picked at")
+		close(block)
+		synctest.Wait()
+	})
 }

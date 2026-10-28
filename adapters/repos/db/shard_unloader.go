@@ -73,6 +73,9 @@ type UnloadRequest struct {
 	MinResidency time.Duration
 	// IdleTTL, when set, skips a shard accessed within it (background only).
 	IdleTTL time.Duration
+	// PickedAt is the victim's LastAccess when the policy picked it; an access
+	// since refuses the unload as reaccessed. 0 skips the check.
+	PickedAt uint32
 	// Reindex is the caller's snapshot from [DB.ReindexActivitySnapshot]; the
 	// zero value refuses every shard a runtime reindex could be working on.
 	Reindex ReindexActivity
@@ -167,6 +170,7 @@ const (
 	UnloadOutcomeTorn             UnloadOutcome = "torn"
 	UnloadOutcomeIndexClosing     UnloadOutcome = "index_closing"
 	UnloadOutcomeAlreadyCold      UnloadOutcome = "already_cold"
+	UnloadOutcomeReaccessed       UnloadOutcome = "reaccessed"
 )
 
 // Checklist only: the exhaustive lint fails until a new outcome is listed here.
@@ -195,6 +199,7 @@ var _ = map[UnloadOutcome]struct{}{
 	UnloadOutcomeTorn:             {},
 	UnloadOutcomeIndexClosing:     {},
 	UnloadOutcomeAlreadyCold:      {},
+	UnloadOutcomeReaccessed:       {},
 }
 
 // LoadedShardRegistry holds every loaded wrapper of the DB in a dense slice, so

@@ -192,15 +192,17 @@ func (l *LazyLoadShard) load(ctx context.Context, opts loadOpts) (*Shard, bool, 
 		return nil, false, l.loadBlockedErr
 	}
 
-	u := l.unloader()
-	if u != nil && !opts.warmup {
-		u.BeforeLoad(l)
-	}
-
 	if !opts.skipMemoryCheck {
 		if err := l.memMonitor.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
 			return nil, false, errors.Wrap(err, "memory pressure: cannot load shard")
 		}
+	}
+
+	// Past memwatch, so a refused load evicts nothing, and ahead of the
+	// limiter wait, so the victim's teardown overlaps it.
+	u := l.unloader()
+	if u != nil && !opts.warmup {
+		u.BeforeLoad(l)
 	}
 
 	if err := l.shardLoadLimiter.Acquire(ctx); err != nil {
