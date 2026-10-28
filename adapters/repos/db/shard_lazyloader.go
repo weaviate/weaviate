@@ -73,6 +73,14 @@ type LazyLoadShard struct {
 	// loadBlocked makes Load fail with loadBlockedErr; RecoveringShard uses it to prevent an empty shard pre-rename.
 	loadBlocked    bool
 	loadBlockedErr error
+
+	// Unloading state, touched only when the index has a ShardUnloader.
+	lastAccess    atomic.Uint32 // AccessClockNow at the last pin
+	loadedAt      atomic.Int64  // unix nanos of the current load, 0 while cold
+	unloadPending atomic.Bool   // a policy handoff claimed this wrapper
+	regSlot       int           // 1-based slot in LoadedShardRegistry, 0 when absent; guarded by its mu
+	// unloadMarkedHook, set only by tests, runs inside TryUnload once shardCreateLocks is released.
+	unloadMarkedHook func()
 }
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -168,6 +176,11 @@ func (l *LazyLoadShard) load(ctx context.Context, checkMemory bool) (*Shard, boo
 		return nil, false, l.loadBlockedErr
 	}
 
+	u := l.unloader()
+	if u != nil {
+		u.BeforeLoad(l)
+	}
+
 	if checkMemory {
 		if err := l.memMonitor.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
 			return nil, false, errors.Wrap(err, "memory pressure: cannot load shard")
@@ -208,6 +221,9 @@ func (l *LazyLoadShard) load(ctx context.Context, checkMemory bool) (*Shard, boo
 	shard.metricsRegistered.Store(true)
 
 	l.shard.Store(shard)
+	if u != nil {
+		l.markLoaded(u)
+	}
 
 	return shard, true, nil
 }
@@ -639,6 +655,7 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 		return nil
 	}
 
+	l.markUnloaded()
 	return shard.drop(keepFiles)
 }
 
@@ -956,10 +973,14 @@ func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 			return nil
 		}
 		if err := shard.performShutdown(ctx); err != nil {
+			if shard.shut.Load() {
+				l.markUnloaded()
+			}
 			return err
 		}
 		// Mark as unloaded so drop() knows the correct state
 		l.shard.Store(nil)
+		l.markUnloaded()
 		return nil
 	})
 }
@@ -969,7 +990,11 @@ func (l *LazyLoadShard) preventShutdown() (release func(), err error) {
 	if err != nil {
 		return func() {}, fmt.Errorf("LazyLoadShard::preventShutdown: %w", err)
 	}
-	return shard.preventShutdown()
+	release, err = shard.preventShutdown()
+	if err == nil && l.unloader() != nil {
+		l.recordAccess()
+	}
+	return release, err
 }
 
 // HashTreeLevel maps unloaded to ErrAsyncReplicationNotActive; an empty level would read as convergence.

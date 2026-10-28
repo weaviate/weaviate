@@ -440,6 +440,10 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		}
 	}
 
+	if config.ShardUnloader != nil {
+		startAccessClock(db.shutdown, db.logger)
+	}
+
 	schedulerOK = true
 	return db, nil
 }
@@ -531,6 +535,10 @@ type Config struct {
 	OperationalMode *configRuntime.DynamicValue[string]
 
 	DisableDimensionMetrics *configRuntime.DynamicValue[bool]
+
+	// ShardUnloader is the licensed unloading policy; nil (the default) keeps
+	// every shard path exactly as without unloading.
+	ShardUnloader ShardUnloader
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
