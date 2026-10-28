@@ -206,9 +206,7 @@ func FromEnv(config *Config) error {
 			minObjects, left)
 	}
 
-	if err := parseLazyShardUnloading(config); err != nil {
-		return err
-	}
+	config.LazyShardUnloading = NewLazyShardUnloading()
 
 	// Lazy load shard size threshold for auto-detection (in GB)
 	// Determines at what total shard size auto-detection enables lazy loading
