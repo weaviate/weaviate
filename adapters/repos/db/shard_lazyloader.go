@@ -76,6 +76,7 @@ type LazyLoadShard struct {
 	// Unloading state, touched only when the index has a ShardUnloader.
 	lastAccess    atomic.Uint32 // AccessClockNow at the last pin
 	loadedAt      atomic.Int64  // unix nanos of the current load, 0 while cold
+	unloadedAt    atomic.Int64  // unix nanos of the last TryUnload, 0 once loaded again
 	unloadPending atomic.Bool   // a policy handoff claimed this wrapper
 	regSlot       int           // 1-based slot in LoadedShardRegistry, 0 when absent; guarded by its mu
 	// unloadMarkedHook, set only by tests, runs inside TryUnload once shardCreateLocks is released.

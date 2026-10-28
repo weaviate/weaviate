@@ -45,6 +45,14 @@ func (l *LazyLoadShard) LoadedAt() time.Time {
 	return time.Time{}
 }
 
+// UnloadedAt is when TryUnload last closed the shard; zero once it loads again.
+func (l *LazyLoadShard) UnloadedAt() time.Time {
+	if ns := l.unloadedAt.Load(); ns != 0 {
+		return time.Unix(0, ns)
+	}
+	return time.Time{}
+}
+
 // TryMarkUnloadPending claims the wrapper for one unload handoff.
 func (l *LazyLoadShard) TryMarkUnloadPending() bool {
 	return l.unloadPending.CompareAndSwap(false, true)
@@ -76,6 +84,7 @@ func (l *LazyLoadShard) recordAccess() {
 // markLoaded registers a load that just published shard; callers hold l.mutex.
 func (l *LazyLoadShard) markLoaded(u ShardUnloader) {
 	l.loadedAt.Store(time.Now().UnixNano())
+	l.unloadedAt.Store(0)
 	l.recordAccess()
 	u.Registry().add(l)
 }
@@ -168,6 +177,7 @@ func (l *LazyLoadShard) TryUnload(ctx context.Context, req UnloadRequest) Unload
 	case UnloadOutcomeOK:
 		l.shard.Store(nil)
 		l.markUnloaded()
+		l.unloadedAt.Store(time.Now().UnixNano())
 	case UnloadOutcomeTorn:
 		// The torn pointer stays published as the last reference to its handles, like shardTeardownError.
 		l.markUnloaded()
@@ -226,15 +236,14 @@ func (l *LazyLoadShard) softUnloadBlocker(s *Shard, req UnloadRequest) UnloadOut
 		}
 	}
 	queued := false
-	_ = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
+	countQueued := func(_ string, q *VectorIndexQueue) error {
 		queued = queued || q.Size() > 0
 		return nil
-	})
-	_ = s.ForEachGeoQueue(func(_ string, q *VectorIndexQueue) error {
-		queued = queued || q.Size() > 0
-		return nil
-	})
-	if queued {
+	}
+	if err := s.ForEachVectorQueue(countQueued); err != nil || queued {
+		return UnloadOutcomeQueueNotEmpty
+	}
+	if err := s.ForEachGeoQueue(countQueued); err != nil || queued {
 		return UnloadOutcomeQueueNotEmpty
 	}
 	if !s.asyncReplicationRWMux.TryRLock() {
