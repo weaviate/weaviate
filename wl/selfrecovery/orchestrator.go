@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"net"
 	"os"
 	"path/filepath"
@@ -91,6 +92,9 @@ type ShardRef struct {
 	Trigger string
 }
 
+// key names the shard in shardLocks and parked.
+func (r ShardRef) key() string { return r.Collection + "/" + r.Shard }
+
 const TriggerActivation = "activation"
 
 // TenantStatusReader is the optional schema surface that lets a queued recovery notice its tenant went COLD.
@@ -117,12 +121,15 @@ type Orchestrator struct {
 	restartTimeout         time.Duration
 	vanishedGracePeriod    time.Duration
 	metrics                *Metrics
+	namespaceStateForClass func(className string) (api.NamespaceState, error) // nil answers active
+	parkPollInterval       time.Duration
 
 	// Workers drain an unbounded queue; Close abandons un-started items (re-discovered next startup).
 	poolOnce       sync.Once
 	queueMu        sync.Mutex
 	queueCond      *sync.Cond
 	pending        *list.List
+	parked         map[string]submission // submissions a namespace refusal parked, by ShardRef.key, under queueMu
 	closed         bool
 	active         int // workers inside runOne, under queueMu
 	workerWg       sync.WaitGroup
@@ -163,6 +170,8 @@ type Config struct {
 	Registerer   prometheus.Registerer
 	PollInterval time.Duration // FSM poll cadence; 5s if zero
 	ProbeTimeout time.Duration // single ProbeShardData RPC; 5s if zero
+	// NamespaceStateForClass reads the namespace state a parked submission waits on. A nil reader answers active.
+	NamespaceStateForClass func(className string) (api.NamespaceState, error)
 }
 
 func New(cfg Config) *Orchestrator {
@@ -208,6 +217,8 @@ func New(cfg Config) *Orchestrator {
 		restartTimeout:         30 * time.Second,
 		vanishedGracePeriod:    10 * time.Second,
 		metrics:                NewMetrics(cfg.Registerer),
+		namespaceStateForClass: cfg.NamespaceStateForClass,
+		parkPollInterval:       5 * time.Second,
 		shutdownCtx:            shutdownCtx,
 		shutdownCancel:         shutdownCancel,
 	}
@@ -535,8 +546,9 @@ func (o *Orchestrator) AcceptEmpty(ctx context.Context, ref ShardRef) (string, e
 	return livePath, nil
 }
 
-// runOne probes peers, acts, and backs off up to maxAttempts; give-up leaves the shard RECOVERING for operator recovery.
-func (o *Orchestrator) runOne(ctx context.Context, ref ShardRef, startedWithoutRaftState bool) {
+// runOne probes peers, acts, and backs off up to maxAttempts. A give-up leaves the shard RECOVERING for operator recovery.
+// runOne returns parked true when a suspended or resuming namespace refused the registration, which also leaves the shard RECOVERING.
+func (o *Orchestrator) runOne(ctx context.Context, ref ShardRef, startedWithoutRaftState bool) (parked bool) {
 	unlock := o.lockShard(ref)
 	defer unlock()
 	// The shard may have been torn down or re-created while queued.
@@ -545,7 +557,7 @@ func (o *Orchestrator) runOne(ctx context.Context, ref ShardRef, startedWithoutR
 			o.logger.WithFields(logrus.Fields{"collection": ref.Collection, "shard": ref.Shard}).
 				Info("self-recovery: live shard dir present at dequeue; skipping")
 			o.recordOutcome("skipped", time.Now())
-			return
+			return false
 		}
 	}
 	// bind per-op ctx to shutdownCtx so probes/polls bail when Close fires
@@ -584,7 +596,7 @@ func (o *Orchestrator) runOne(ctx context.Context, ref ShardRef, startedWithoutR
 
 	for {
 		if ctx.Err() != nil {
-			return
+			return false
 		}
 		if attempts >= maxAttempts {
 			logger.WithField("attempts", attempts).Error("self-recovery exhausted retries; giving up. " +
@@ -594,14 +606,14 @@ func (o *Orchestrator) runOne(ctx context.Context, ref ShardRef, startedWithoutR
 				o.metrics.GiveupTotal.Inc()
 			}
 			o.recordOutcome("failure", startedAt)
-			return
+			return false
 		}
 
 		// Peers answer "no data" for a deactivated tenant; only its next activation may recover it.
 		if o.tenantInactive(ref) {
 			logger.Info("self-recovery abandoned: tenant is no longer active; its activation recovers it")
 			o.recordOutcome("cancelled", startedAt)
-			return
+			return false
 		}
 		// A live op owns "<shard>.recovering/"; an empty fallback beside it would wedge that op's promote.
 		if !opChecked {
@@ -609,11 +621,11 @@ func (o *Orchestrator) runOne(ctx context.Context, ref ShardRef, startedWithoutR
 				if errors.Is(err, ErrSelfRecoveryOpInFlight) {
 					logger.Infof("self-recovery skipped: %v", err)
 					o.recordOutcome("skipped", startedAt)
-					return
+					return false
 				}
 				logger.Warnf("self-recovery in-flight op check failed; will retry: %v", err)
 				if !retryAfterBackoff() {
-					return
+					return false
 				}
 				continue
 			}
@@ -625,11 +637,11 @@ func (o *Orchestrator) runOne(ctx context.Context, ref ShardRef, startedWithoutR
 			if errors.Is(err, clusterschema.ErrClassNotFound) || errors.Is(err, clusterschema.ErrShardNotFound) {
 				logger.Infof("self-recovery abandoned: shard no longer in schema: %v", err)
 				o.recordOutcome("cancelled", startedAt)
-				return
+				return false
 			}
 			logger.Warnf("self-recovery probe failed; will retry: %v", err)
 			if !retryAfterBackoff() {
-				return
+				return false
 			}
 			continue
 		}
@@ -638,19 +650,21 @@ func (o *Orchestrator) runOne(ctx context.Context, ref ShardRef, startedWithoutR
 		case actionRegisterOp:
 			switch o.handleRegisterDecision(ctx, ref, decision, startedAt, logger) {
 			case registerDone:
-				return
+				return false
+			case registerPark:
+				return true
 			case registerRetry:
 				if !retryAfterBackoff() {
-					return
+					return false
 				}
 			}
 		case actionEmptyFallback:
 			o.handleEmptyFallback(ctx, ref, decision, startedAt, startedWithoutRaftState, logger)
-			return
+			return false
 		case actionRetry:
 			logger.WithField("retry_in", backoff.String()).Debug("self-recovery: peers unreachable, will retry")
 			if !retryAfterBackoff() {
-				return
+				return false
 			}
 		}
 	}
@@ -671,15 +685,18 @@ type registerOutcome int
 const (
 	registerDone  registerOutcome = iota // runOne returns
 	registerRetry                        // runOne backs off and probes again
+	registerPark                         // runOne returns parked, and pollParked requeues the submission
 )
+
+// refusedUntilNamespaceActive reports whether err refused a registration because its namespace is suspended or resuming.
+func refusedUntilNamespaceActive(err error) bool {
+	return errors.Is(err, namespaces.ErrNamespaceSuspended) || errors.Is(err, namespaces.ErrNamespaceResuming)
+}
 
 // handleRegisterDecision registers and polls the op copying from decision.sourceNode.
 func (o *Orchestrator) handleRegisterDecision(ctx context.Context, ref ShardRef, decision probeDecision,
 	startedAt time.Time, logger logrus.FieldLogger,
 ) registerOutcome {
-	if o.metrics != nil {
-		o.metrics.StartedTotal.WithLabelValues(decision.sourceNode).Inc()
-	}
 	err := o.registerAndPoll(ctx, ref, decision.sourceNode)
 	if err == nil {
 		o.recordOutcome("success", startedAt)
@@ -703,10 +720,10 @@ func (o *Orchestrator) handleRegisterDecision(ctx context.Context, ref ShardRef,
 		o.recordOutcome("cancelled", startedAt)
 		return registerDone
 	// a deleting namespace never turns active again, so default logs its refusal at Warn
-	case errors.Is(err, namespaces.ErrNamespaceSuspended) || errors.Is(err, namespaces.ErrNamespaceResuming):
-		logger.WithField("source_node", decision.sourceNode).
+	case refusedUntilNamespaceActive(err):
+		logger.WithFields(logrus.Fields{"event": "self_recovery.parked", "source_node": decision.sourceNode}).
 			Infof("self-recovery waits for its namespace to become active: %v", err)
-		return registerRetry
+		return registerPark
 	default:
 		logger.WithField("source_node", decision.sourceNode).
 			Warnf("self-recovery register/poll failed; will retry: %v", err)
@@ -1027,6 +1044,10 @@ func isShardAbsentErr(err error) bool {
 // registerAndPoll: nil on READY, error on CANCELLED, ErrReplicationOperationNotFound if force-deleted.
 func (o *Orchestrator) registerAndPoll(ctx context.Context, ref ShardRef, sourceNode string) error {
 	uuid, err := o.raft.RegisterSelfRecovery(ctx, sourceNode, ref.Collection, ref.Shard, o.nodeName)
+	// every register attempt counts a start except a suspended or resuming refusal, which parks the submission
+	if o.metrics != nil && !refusedUntilNamespaceActive(err) {
+		o.metrics.StartedTotal.WithLabelValues(sourceNode).Inc()
+	}
 	if err != nil {
 		return fmt.Errorf("register self-recovery op: %w", err)
 	}
@@ -1100,9 +1121,14 @@ func (o *Orchestrator) initPool() {
 		return
 	}
 	o.pending = list.New()
+	o.parked = map[string]submission{}
 	o.queueCond = sync.NewCond(&o.queueMu)
-	o.workerWg.Add(n)
+	o.workerWg.Add(n + 1)
 	o.queueMu.Unlock()
+	enterrors.GoWrapper(func() {
+		defer o.workerWg.Done()
+		o.pollParked()
+	}, o.logger)
 	for i := 0; i < n; i++ {
 		enterrors.GoWrapper(func() {
 			defer o.workerWg.Done()
@@ -1120,9 +1146,12 @@ func (o *Orchestrator) initPool() {
 				o.active++
 				o.queueMu.Unlock()
 				sub := front.Value.(submission)
-				o.runOne(sub.ctx, sub.ref, sub.startedWithoutRaftState)
+				parked := o.runOne(sub.ctx, sub.ref, sub.startedWithoutRaftState)
 				o.queueMu.Lock()
 				o.active--
+				if parked {
+					o.parkLocked(sub)
+				}
 				o.closeWipeRoundLocked()
 				o.queueMu.Unlock()
 			}
@@ -1130,7 +1159,71 @@ func (o *Orchestrator) initPool() {
 	}
 }
 
-// Close waits for workers (bounded by ctx); un-started items re-discovered next startup. Idempotent.
+// parkLocked keeps sub for pollParked under queueMu. A shard parked twice keeps startedWithoutRaftState if either submission set it.
+func (o *Orchestrator) parkLocked(sub submission) {
+	key := sub.ref.key()
+	sub.startedWithoutRaftState = sub.startedWithoutRaftState || o.parked[key].startedWithoutRaftState
+	o.parked[key] = sub
+}
+
+// pollParked runs releaseParked every parkPollInterval until Close.
+func (o *Orchestrator) pollParked() {
+	ticker := time.NewTicker(o.parkPollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-o.shutdownCtx.Done():
+			return
+		case <-ticker.C:
+			o.releaseParked()
+		}
+	}
+}
+
+// releaseParked requeues each parked submission whose namespace no longer reads suspended or resuming.
+// It pushes onto pending itself, because Submit would rewrite the wipe marker for a wiped submission.
+func (o *Orchestrator) releaseParked() {
+	o.queueMu.Lock()
+	parked := maps.Clone(o.parked)
+	o.queueMu.Unlock()
+
+	var release []string
+	for key, sub := range parked {
+		if !o.namespaceKeepsParked(sub.ref) {
+			release = append(release, key)
+		}
+	}
+
+	o.queueMu.Lock()
+	defer o.queueMu.Unlock()
+	if o.closed {
+		return
+	}
+	for _, key := range release {
+		if sub, ok := o.parked[key]; ok {
+			delete(o.parked, key)
+			o.pending.PushBack(sub)
+			o.queueCond.Signal()
+		}
+	}
+}
+
+// namespaceKeepsParked reports whether ref's namespace reads suspended or resuming. A failed read releases the submission.
+func (o *Orchestrator) namespaceKeepsParked(ref ShardRef) bool {
+	if o.namespaceStateForClass == nil {
+		return false
+	}
+	state, err := o.namespaceStateForClass(ref.Collection)
+	if err != nil {
+		o.logger.WithFields(logrus.Fields{"collection": ref.Collection, "shard": ref.Shard}).
+			Warnf("self-recovery: requeueing a parked shard whose namespace state cannot be read: %v", err)
+		return false
+	}
+	return state == api.NamespaceStateSuspended || state == api.NamespaceStateResuming
+}
+
+// Close waits for workers, bounded by ctx, and drops parked submissions. The next startup re-discovers un-started items.
+// Close is idempotent.
 func (o *Orchestrator) Close(ctx context.Context) error {
 	o.queueMu.Lock()
 	if o.closed {
@@ -1177,8 +1270,7 @@ func mergedCtx(parent, sibling context.Context) (context.Context, context.Cancel
 
 // lockShard acquires the per-shard mutex and returns a release closure.
 func (o *Orchestrator) lockShard(ref ShardRef) func() {
-	key := ref.Collection + "/" + ref.Shard
-	m, _ := o.shardLocks.LoadOrStore(key, &sync.Mutex{})
+	m, _ := o.shardLocks.LoadOrStore(ref.key(), &sync.Mutex{})
 	mu := m.(*sync.Mutex)
 	mu.Lock()
 	return mu.Unlock

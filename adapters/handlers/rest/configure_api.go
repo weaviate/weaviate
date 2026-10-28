@@ -772,6 +772,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			Concurrency:            appState.ServerConfig.Config.Replication.SelfRecoveryConcurrency,
 			MaintenanceModeEnabled: appState.Cluster.MaintenanceModeEnabledForLocalhost,
 			OnRecoveryComplete:     appState.DB.LoadLocalShard,
+			NamespaceStateForClass: appState.DB.NamespaceStateForClass,
 			RootDataPath:           dataPath,
 			Logger:                 appState.Logger,
 			Registerer:             prometheus.DefaultRegisterer,
