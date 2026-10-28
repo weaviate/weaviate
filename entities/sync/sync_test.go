@@ -340,6 +340,123 @@ func TestKeyRWLockerTryRLock(t *testing.T) {
 	})
 }
 
+func TestKeyRWLockerTryLock(t *testing.T) {
+	tests := []struct {
+		name    string
+		hold    func(s *KeyRWLocker, key string)
+		release func(s *KeyRWLocker, key string)
+		want    bool
+	}{
+		{name: "unlocked key", want: true},
+		{
+			name:    "write-locked key",
+			hold:    func(s *KeyRWLocker, key string) { s.Lock(key) },
+			release: func(s *KeyRWLocker, key string) { s.Unlock(key) },
+		},
+		{
+			name:    "read-locked key",
+			hold:    func(s *KeyRWLocker, key string) { s.RLock(key) },
+			release: func(s *KeyRWLocker, key string) { s.RUnlock(key) },
+		},
+		{
+			name: "try-read-locked key",
+			hold: func(s *KeyRWLocker, key string) {
+				if !s.TryRLock(key) {
+					panic("TryRLock failed on an uncontended key")
+				}
+			},
+			release: func(s *KeyRWLocker, key string) { s.RUnlock(key) },
+		},
+		{
+			name: "try-write-locked key",
+			hold: func(s *KeyRWLocker, key string) {
+				if !s.TryLock(key) {
+					panic("TryLock failed on an uncontended key")
+				}
+			},
+			release: func(s *KeyRWLocker, key string) { s.Unlock(key) },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := NewKeyRWLocker()
+			const key = "k"
+			if tt.hold != nil {
+				tt.hold(s, key)
+			}
+			require.Equal(t, tt.want, s.TryLock(key))
+			require.True(t, s.TryLock("other"), "another key is independent")
+			s.Unlock("other")
+			if tt.want {
+				require.False(t, s.TryRLock(key))
+				require.False(t, s.TryLock(key))
+				s.Unlock(key)
+			}
+			if tt.release != nil {
+				tt.release(s, key)
+			}
+			require.True(t, s.TryLock(key), "free again once released")
+			s.Unlock(key)
+			require.True(t, s.TryRLock(key))
+			s.RUnlock(key)
+		})
+	}
+}
+
+func TestKeyRWLockerTryLockContention(t *testing.T) {
+	const (
+		goroutines = 32
+		iterations = 500
+		key        = "contended"
+	)
+	s := NewKeyRWLocker()
+	var inside, acquired, readers atomic.Int64
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for g := range goroutines {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for range iterations {
+				switch g % 3 {
+				case 0:
+					for !s.TryLock(key) {
+						runtime.Gosched()
+					}
+					if inside.Add(1) != 1 || readers.Load() != 0 {
+						panic("TryLock admitted a second holder")
+					}
+					acquired.Add(1)
+					inside.Add(-1)
+					s.Unlock(key)
+				case 1:
+					s.RLock(key)
+					readers.Add(1)
+					if inside.Load() != 0 {
+						panic("RLock admitted alongside a TryLock holder")
+					}
+					readers.Add(-1)
+					s.RUnlock(key)
+				default:
+					s.Lock(key)
+					if inside.Add(1) != 1 || readers.Load() != 0 {
+						panic("Lock admitted alongside another holder")
+					}
+					inside.Add(-1)
+					s.Unlock(key)
+				}
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	require.Positive(t, acquired.Load())
+	require.True(t, s.TryLock(key))
+	s.Unlock(key)
+}
+
 // lockPair is one locker's acquire/release pair, so one concurrent test body
 // can drive every locker type.
 type lockPair struct {
@@ -518,6 +635,16 @@ func TestKeyLockersNoAllocationOnWarmKey(t *testing.T) {
 					return errors.New("TryRLock failed on an uncontended key")
 				}
 				rwLocker.RUnlock(id)
+				return nil
+			},
+		},
+		{
+			name: "KeyRWLocker.TryLock",
+			lockUnlock: func() error {
+				if !rwLocker.TryLock(id) {
+					return errors.New("TryLock failed on an uncontended key")
+				}
+				rwLocker.Unlock(id)
 				return nil
 			},
 		},
