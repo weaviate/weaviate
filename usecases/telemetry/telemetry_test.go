@@ -640,6 +640,40 @@ func TestTelemetry_WithCloudInfoConsumer_AWS(t *testing.T) {
 	assert.Equal(t, "101", *payload.UniqueID)
 }
 
+func TestNew_TrackerGating(t *testing.T) {
+	tests := []struct {
+		name             string
+		telemetryEnabled bool
+	}{
+		{name: "telemetry disabled", telemetryEnabled: false},
+		{name: "telemetry enabled", telemetryEnabled: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			tel := New(&fakeNodesStatusGetter{}, schemaUC.NewMockSchemaGetter(t), logger,
+				"", 0, tt.telemetryEnabled, Config{})
+			t.Cleanup(func() {
+				if tel.clientTracker != nil {
+					tel.clientTracker.Stop()
+				}
+				if tel.integrationTracker != nil {
+					tel.integrationTracker.Stop()
+				}
+			})
+
+			if tt.telemetryEnabled {
+				assert.NotNil(t, tel.GetClientTracker())
+				assert.NotNil(t, tel.GetIntegrationTracker())
+			} else {
+				assert.Nil(t, tel.GetClientTracker())
+				assert.Nil(t, tel.GetIntegrationTracker())
+			}
+		})
+	}
+}
+
 type telemetryOpt func(*Telemeter)
 
 func withConsumerURL(url string) telemetryOpt {
