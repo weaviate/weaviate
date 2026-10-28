@@ -15,6 +15,7 @@ import (
 	"context"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/stretchr/testify/require"
 
@@ -107,9 +108,20 @@ func TestLoadedShardRegistrySample(t *testing.T) {
 				seen[l] = struct{}{}
 			}
 			if tt.k > 0 {
+				// AllocsPerRun counts every goroutine's mallocs, so it flakes in a busy package; buffer reuse is exact.
 				dst = r.Sample(make([]*LazyLoadShard, 0, tt.k), tt.k)
-				allocs := testing.AllocsPerRun(50, func() { dst = r.Sample(dst[:0], tt.k) })
-				require.Zero(t, allocs)
+				backing := unsafe.SliceData(dst)
+				r.mu.Lock()
+				perm, swaps := unsafe.SliceData(r.perm), unsafe.SliceData(r.swaps)
+				r.mu.Unlock()
+				for range 50 {
+					dst = r.Sample(dst[:0], tt.k)
+					require.Same(t, backing, unsafe.SliceData(dst), "Sample reuses dst")
+				}
+				r.mu.Lock()
+				require.Same(t, perm, unsafe.SliceData(r.perm), "Sample reuses perm")
+				require.Same(t, swaps, unsafe.SliceData(r.swaps), "Sample reuses swaps")
+				r.mu.Unlock()
 			}
 			requireRegistryConsistent(t, r)
 			r.mu.Lock()
