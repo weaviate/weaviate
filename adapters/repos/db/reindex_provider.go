@@ -460,7 +460,7 @@ func (p *ReindexProvider) processOneUnit(
 	// Loaded up front (createReindexTasks needs the lsmPath, persistRecoveryRecord
 	// the concrete shard) and pinned for the run; runCtx ends when the shard is
 	// asked to unload or drop. Released before any recorder call, which can wait.
-	concreteShard, runCtx, release, err := pinShardByName(ctx, idx, shardName)
+	concreteShard, runCtx, release, err := pinShardByName(ctx, idx, shardName, false)
 	defer release()
 	if err != nil {
 		p.failUnit(ctx, task, unitID, recorder, err.Error())
@@ -1117,7 +1117,8 @@ func (p *ReindexProvider) resolveUnitForPhase(
 	}
 
 	shardName := payload.UnitToShard[unitID]
-	concreteShard, runCtx, release, err := pinShardByName(ctx, idx, shardName)
+	// A phase renames dirs and moves sentinels, so it never stops half-way on a shutdown request.
+	concreteShard, runCtx, release, err := pinShardByName(ctx, idx, shardName, true)
 	if err != nil {
 		logger.WithField("unit", unitID).WithField("shard", shardName).
 			Errorf("reindex provider: resolveUnitForPhase: shard lookup failed: %v", err)
@@ -1305,10 +1306,10 @@ func (p *ReindexProvider) runPerUnitPhase(
 
 		phase := runPhase(res.runCtx, unitID, res.Shard, res.UnitTasks, res.Rehydrate)
 		res.release()
-		// Failed, as when an unload closed the buckets under an unpinned phase.
+		// A drop cancelled the phase: fail it rather than resume it.
 		if len(phase.Errs) > 0 && shardYielded(ctx, res.runCtx, idx) {
 			phase.SawContextCanceled = false
-			phase.Errs = append(phase.Errs, fmt.Sprintf("unit %s: shard %s was unloaded or dropped mid-phase",
+			phase.Errs = append(phase.Errs, fmt.Sprintf("unit %s: shard %s was dropped mid-phase",
 				unitID, payload.UnitToShard[unitID]))
 		}
 		func() {
@@ -2767,7 +2768,11 @@ func (db *DB) ShardReplicaOwnership(ctx context.Context, className string) (map[
 // returned context is cancelled as soon as the shard is asked to shut down or
 // drop, so the run stops and releases before the teardown's first retry and
 // never delays an unload, a drop or the RAFT apply that issues them.
-func pinShardByName(ctx context.Context, idx *Index, shardName string) (*Shard, context.Context, func(), error) {
+//
+// With dropOnly the run keeps its pin through a shutdown request, which then
+// waits on it for at most Shutdown's bounded retries before the release
+// completes the shutdown; only a drop cancels it.
+func pinShardByName(ctx context.Context, idx *Index, shardName string, dropOnly bool) (*Shard, context.Context, func(), error) {
 	if idx.closeCause() != nil {
 		return nil, ctx, func() {}, fmt.Errorf("shard %q not found", shardName)
 	}
@@ -2781,6 +2786,10 @@ func pinShardByName(ctx context.Context, idx *Index, shardName string) (*Shard, 
 	}
 	if shard == nil {
 		return nil, ctx, func() {}, fmt.Errorf("shard %q not found", shardName)
+	}
+	if dropOnly {
+		runCtx, release := concrete.yieldOnDrop(ctx, release)
+		return concrete, runCtx, release, nil
 	}
 	runCtx, release := concrete.yieldOnTeardown(ctx, release)
 	return concrete, runCtx, release, nil

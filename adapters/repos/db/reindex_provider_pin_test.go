@@ -299,30 +299,65 @@ func TestReindexPhasePinsItsShard(t *testing.T) {
 	}
 }
 
-func TestReindexPhaseYieldsToUnload(t *testing.T) {
+// A swap or prep phase renames dirs and moves sentinels; interrupting it on a
+// shutdown request would leave its half-shut buckets claimed until restart,
+// so it finishes first and the unload completes on its release.
+func TestReindexPhaseFinishesThroughAShutdownRequest(t *testing.T) {
+	ctx := testCtx()
+	f, _ := newPinProviderFixture(t, ctx, false, nil)
+	tasks, err := f.provider.createReindexTasks(f.task.TaskDescriptor, f.payload, t.TempDir(), false)
+	require.NoError(t, err)
+	f.provider.cacheReindexTasks(f.task.TaskDescriptor, pinUnit, tasks)
+	type unload struct {
+		outcome ShardUnloadOutcome
+		err     error
+	}
+	unloaded := make(chan unload, 1)
+
+	err = f.provider.runPerUnitPhase(f.task, f.payload, []string{pinUnit}, f.idx, f.provider.logger,
+		"test", false, func(ctx context.Context, _ string, _ ShardLike, _ []*ShardReindexTaskGeneric, _ bool) phaseResult {
+			enterrors.GoWrapper(func() {
+				outcome, err := f.idx.UnloadLocalShard(context.Background(), f.hot.Name())
+				unloaded <- unload{outcome, err}
+			}, f.idx.logger)
+			require.Eventually(t, f.hot.shutdownRequested.Load, 5*time.Second, time.Millisecond)
+			select {
+			case <-ctx.Done():
+				return phaseResult{Errs: []string{"phase interrupted by a shutdown request: " + context.Cause(ctx).Error()}}
+			case <-time.After(300 * time.Millisecond):
+			}
+			return phaseResult{}
+		})
+
+	require.NoError(t, err)
+	u := <-unloaded
+	if u.err != nil {
+		require.Equal(t, ShardUnloadOutcomeRefusedInUse, u.outcome)
+	}
+	require.Eventually(t, func() bool { return shardKnownShut(f.hot) }, 5*time.Second, 10*time.Millisecond,
+		"the unload completes once the phase releases its pin")
+}
+
+func TestReindexPhaseYieldsToDrop(t *testing.T) {
 	ctx := testCtx()
 	f, _ := newPinProviderFixture(t, ctx, false, nil)
 	tasks, err := f.provider.createReindexTasks(f.task.TaskDescriptor, f.payload, t.TempDir(), false)
 	require.NoError(t, err)
 	f.provider.cacheReindexTasks(f.task.TaskDescriptor, pinUnit, tasks)
 	tookCh := make(chan time.Duration, 1)
-	errCh := make(chan error, 1)
 
 	err = f.provider.runPerUnitPhase(f.task, f.payload, []string{pinUnit}, f.idx, f.provider.logger,
 		"test", false, func(ctx context.Context, _ string, _ ShardLike, _ []*ShardReindexTaskGeneric, _ bool) phaseResult {
 			enterrors.GoWrapper(func() {
 				started := time.Now()
-				_, err := f.idx.UnloadLocalShard(context.Background(), f.hot.Name())
+				assert.NoError(t, f.hot.drainRefsForDrop())
 				tookCh <- time.Since(started)
-				errCh <- err
 			}, f.idx.logger)
 			<-ctx.Done()
 			return phaseResult{Errs: []string{ctx.Err().Error()}, SawContextCanceled: true}
 		})
 
-	require.ErrorContains(t, err, "unloaded or dropped mid-phase")
+	require.ErrorContains(t, err, "dropped mid-phase")
 	require.NotErrorIs(t, err, context.Canceled, "a yielded phase must fail, not read as a shutdown to resume from")
-	require.NoError(t, <-errCh)
-	require.Less(t, <-tookCh, time.Second, "the running phase delayed the unload")
-	require.Nil(t, f.idx.shards.Load(f.hot.Name()))
+	require.Less(t, <-tookCh, time.Second, "the running phase delayed the drop")
 }
