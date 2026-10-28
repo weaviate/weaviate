@@ -273,6 +273,48 @@ func TestAddMultiBatch_RestoredDimsRejectsMixedBatchWithoutPartialInsert(t *test
 	assert.Equal(t, int32(4), index.dims.Load())
 }
 
+// Two first batches of different lengths can both observe dims == 0. Only the
+// one that settles the dimension may be accepted; the loser must be rejected
+// rather than mixing vector lengths in one index.
+func TestTrackDimensions_ConcurrentFirstBatchesKeepOneDimension(t *testing.T) {
+	for round := range 50 {
+		index := testHNSW(t)
+
+		// A long scan widens the window in which both callers see dims == 0.
+		const padding = 300_000
+		wide := make([][]float32, padding)
+		vec4 := []float32{1, 2, 3, 4}
+		for i := range wide {
+			wide[i] = vec4
+		}
+		narrow := [][]float32{{1, 2, 3, 4, 5, 6, 7}}
+
+		start := make(chan struct{})
+		errs := make([]error, 2)
+		var wg sync.WaitGroup
+		for i, batch := range [][][]float32{wide, narrow} {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				errs[i] = index.trackDimensions(batch)
+			}()
+		}
+		close(start)
+		wg.Wait()
+		index.Shutdown(context.Background())
+
+		var rejected int
+		for _, err := range errs {
+			if err != nil {
+				rejected++
+			}
+		}
+		require.Equal(t, 1, rejected, "round %d: exactly one of the two lengths must win, got %d rejections", round, rejected)
+		require.NotEqual(t, int32(0), index.dims.Load())
+	}
+}
+
 func TestAddBatch_WrongDimensionsAfterInitialBatch(t *testing.T) {
 	index := testHNSW(t)
 	defer index.Shutdown(context.Background())

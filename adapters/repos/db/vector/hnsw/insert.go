@@ -194,34 +194,46 @@ func (h *hnsw) growIndexToAccomodateNodeUnderCompressLock(maxId uint64) error {
 // otherwise dims would stay 0 and ValidateBeforeInsert would accept vectors
 // of any length from then on.
 func (h *hnsw) trackDimensions(vectors [][]float32) error {
-	dims := int(h.dims.Load())
-	if dims == 0 {
-		dims = len(vectors[0])
-	}
-	for _, vec := range vectors {
-		if len(vec) != dims {
-			return errors.Errorf("addBatch called with vectors of different lengths: got %d, expected %d", len(vec), dims)
-		}
-	}
-	h.dims.CompareAndSwap(0, int32(dims))
-	return nil
+	_, err := settleDim(h, "addBatch", vectors, func(vec []float32) int { return len(vec) })
+	return err
 }
 
 // trackMultiDimensions is the multi-vector counterpart of trackDimensions.
 func (h *hnsw) trackMultiDimensions(vectors [][][]float32) error {
-	dims := int(h.dims.Load())
-	if dims == 0 {
-		dims = len(vectors[0][0])
-	}
-	for _, doc := range vectors {
-		for _, vec := range doc {
-			if len(vec) != dims {
-				return errors.Errorf("addMultiBatch called with vectors of different lengths: got %d, expected %d", len(vec), dims)
+	_, err := settleDim(h, "addMultiBatch", vectors, func(doc [][]float32) int {
+		if len(doc) == 0 {
+			return 0
+		}
+		return len(doc[0])
+	})
+	return err
+}
+
+// settleDim scans every entry of a batch and returns the dimension all of its
+// vectors share. A batch that establishes the dimension is only accepted if it
+// still matches h.dims after the CAS: two concurrent first batches can both
+// observe dims == 0 with different lengths, and the loser must not insert
+// vectors that disagree with the winner.
+func settleDim[T any](h *hnsw, batchName string, batch []T, dimsOf func(T) int) (int, error) {
+	for {
+		existing := int(h.dims.Load())
+		dims := existing
+		if dims == 0 {
+			dims = dimsOf(batch[0])
+		}
+		for _, entry := range batch {
+			if got := dimsOf(entry); got != dims {
+				return 0, errors.Errorf("%s called with vectors of different lengths: got %d, expected %d", batchName, got, dims)
 			}
 		}
+		if existing != 0 {
+			return dims, nil
+		}
+		if h.dims.CompareAndSwap(0, int32(dims)) {
+			return dims, nil
+		}
+		// another batch settled dims first; re-validate against its value
 	}
-	h.dims.CompareAndSwap(0, int32(dims))
-	return nil
 }
 
 func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
