@@ -3838,14 +3838,19 @@ func (i *Index) unloadLocalShard(ctx context.Context, shardName string, forSweep
 	return outcome, nil
 }
 
-// heldForMovement reports whether a non-terminal replication op copies into this
-// node's replica of the shard, and the outcome unloadLocalShard returns for it.
+// heldForMovement reports whether a non-terminal replication op copies out of or
+// into this node's replica of the shard, and the outcome unloadLocalShard returns
+// for it.
 func (i *Index) heldForMovement(shardName string) (ShardUnloadOutcome, bool) {
 	fsm := i.getReplicationFSMReader()
 	if fsm == nil {
 		return "", false
 	}
-	if fsm.HasActiveTargetReplicationForShard(i.Config.ClassName.String(), shardName, i.Config.NodeName) {
+	className, node := i.Config.ClassName.String(), i.Config.NodeName
+	if fsm.HasActiveSourceReplicationForShard(className, shardName, node) {
+		return ShardUnloadOutcomeMovementSource, true
+	}
+	if fsm.HasActiveTargetReplicationForShard(className, shardName, node) {
 		return ShardUnloadOutcomeMovementTarget, true
 	}
 	return "", false

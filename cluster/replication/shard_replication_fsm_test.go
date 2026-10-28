@@ -433,6 +433,76 @@ func TestShardReplicationFSM_HasActiveTargetReplicationForShard(t *testing.T) {
 	}
 }
 
+func TestShardReplicationFSM_HasActiveSourceReplicationForShard(t *testing.T) {
+	const (
+		coll  = "TestClass"
+		shard = "shard1"
+	)
+
+	cases := []struct {
+		name     string
+		seed     func(t *testing.T, fsm *replication.ShardReplicationFSM)
+		replica  string
+		expected bool
+	}{
+		{
+			name: "op is CANCELLED",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.COPY)
+				driveToCancelled(t, fsm, 1)
+			},
+			replica: "node1", expected: false,
+		},
+		{
+			name: "op is READY and marked for deletion",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				uuid := seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.COPY)
+				driveToState(t, fsm, 1, api.READY)
+				require.NoError(t, fsm.DeleteReplication(&api.ReplicationDeleteRequest{
+					Version: api.ReplicationCommandVersionV0,
+					Uuid:    uuid,
+				}))
+			},
+			replica: "node1", expected: false,
+		},
+		{
+			name: "queried replica is the target node",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.COPY)
+				driveToState(t, fsm, 1, api.HYDRATING)
+			},
+			replica: "node2", expected: false,
+		},
+		{
+			name: "op on another shard",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, "other-shard", api.COPY)
+			},
+			replica: "node1", expected: false,
+		},
+		{
+			name: "active op beside terminal ops on same shard",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.COPY)
+				driveToCancelled(t, fsm, 1)
+				seedOpFull(t, fsm, 2, "node1", "node3", coll, shard, api.COPY)
+				driveToState(t, fsm, 2, api.READY)
+				seedOpFull(t, fsm, 3, "node1", "node4", coll, shard, api.COPY)
+				driveToState(t, fsm, 3, api.HYDRATING)
+			},
+			replica: "node1", expected: true,
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			fsm := replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry())
+			tt.seed(t, fsm)
+			assert.Equal(t, tt.expected, fsm.HasActiveSourceReplicationForShard(coll, shard, tt.replica))
+		})
+	}
+}
+
 func TestShardReplicationFSM_HasActiveSelfRecoveryTargetingShard(t *testing.T) {
 	const (
 		coll  = "TestClass"
@@ -572,6 +642,7 @@ func TestShardReplicationFSM_HasActiveTargetReplicationForShardConcurrent(t *tes
 			for i := range iterations * writers {
 				shard := fmt.Sprintf("shard-%d-%d", (r+i)%writers, i%iterations)
 				fsm.HasActiveTargetReplicationForShard(coll, shard, "node2")
+				fsm.HasActiveSourceReplicationForShard(coll, shard, "node1")
 				fsm.HasActiveReplicationForShard(coll, shard)
 				if !fsm.HasActiveTargetReplicationForShard(coll, pinnedShard, "node2") {
 					return fmt.Errorf("expected pinned op on %q to gate replication", pinnedShard)
