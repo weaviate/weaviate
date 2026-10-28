@@ -594,6 +594,7 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 	var shard ShardLike
 	var sd backup.ShardDescriptor
 	var err error
+	inactive := false
 	if err := func() error {
 		// Acquire shardCreateLocks to atomically check shard state and protect
 		// inactive shards. This prevents concurrent activation from racing.
@@ -606,6 +607,7 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 			// Mark as protected and keep backupLock.Lock held until ReleaseBackup.
 			i.backupProtectedShards.Store(name, struct{}{})
 			unlockOnReturn = false
+			inactive = true
 			return i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr)
 		}
 
@@ -618,6 +620,7 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 				// Shard is in the map but not loaded; protect and keep lock held.
 				i.backupProtectedShards.Store(name, struct{}{})
 				unlockOnReturn = false
+				inactive = true
 				return i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr)
 			}
 		}
@@ -625,6 +628,9 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 		return nil
 	}(); err != nil {
 		return nil, err
+	}
+	if inactive {
+		return &sd, nil
 	}
 
 	// Active path => halt compaction (stays paused until ReleaseBackup).
