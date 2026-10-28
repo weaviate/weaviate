@@ -92,7 +92,9 @@ type policy[S shard] struct {
 	backgroundCh chan item[S]
 	wake         chan struct{}
 	pending      atomic.Int64
-	bufs         sync.Pool
+	// warmupReserved counts warmup loads admitted but not yet released.
+	warmupReserved atomic.Int64
+	bufs           sync.Pool
 
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -324,16 +326,29 @@ func (p *policy[S]) refreshReindex() {
 	p.reindexFailed = failed
 }
 
-func (p *policy[S]) allowWarmupLoad() bool {
+// reserveWarmupLoad counts in-flight warmup loads as loaded, so the warmups of
+// every index together stop at the limit. Paused, warmup loads as plain lazy loading.
+func (p *policy[S]) reserveWarmupLoad() bool {
 	s := p.snap.Load()
-	if s.paused {
-		return true
+	if !s.paused {
+		if s.high > 0 && p.memRatio() >= s.high {
+			return false
+		}
+		for s.maxLoaded > 0 {
+			reserved := p.warmupReserved.Load()
+			if p.reg.Loaded()+reserved >= s.maxLoaded {
+				return false
+			}
+			if p.warmupReserved.CompareAndSwap(reserved, reserved+1) {
+				return true
+			}
+		}
 	}
-	if s.maxLoaded > 0 && p.reg.Loaded() >= s.maxLoaded {
-		return false
-	}
-	return s.high <= 0 || p.memRatio() < s.high
+	p.warmupReserved.Add(1)
+	return true
 }
+
+func (p *policy[S]) releaseWarmupLoad() { p.warmupReserved.Add(-1) }
 
 // close stops the loop and the workers; queued handoffs are released.
 func (p *policy[S]) close(ctx context.Context) error {

@@ -39,10 +39,15 @@ type ShardUnloader interface {
 	// return the same registry for the unloader's whole life.
 	Registry() *LoadedShardRegistry
 	// BeforeLoad runs before a cold wrapper loads, ahead of the memory and
-	// concurrency admission. It cannot fail the load.
+	// concurrency admission; never for a startup warmup load, which must not
+	// make room for itself. It cannot fail the load.
 	BeforeLoad(shard *LazyLoadShard)
-	// AllowWarmupLoad reports whether the startup warmup may load another shard.
-	AllowWarmupLoad() bool
+	// ReserveWarmupLoad reserves room for one startup warmup load and reports
+	// false at the limit. Reservations are atomic, so the warmups of all
+	// indexes together never pass the limit. Each true is paired with one
+	// ReleaseWarmupLoad once that load finished or was abandoned.
+	ReserveWarmupLoad() bool
+	ReleaseWarmupLoad()
 	// SetReindexActivitySource hands the unloader the snapshot it passes in
 	// [UnloadRequest.Reindex]; db.New calls it once, before any shard loads.
 	SetReindexActivitySource(src func(ctx context.Context) (ReindexActivity, error))

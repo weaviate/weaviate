@@ -83,6 +83,8 @@ const (
 	WarmupSkippedEmpty WarmupOutcome = "skipped_empty"
 	// WarmupSkippedRecovering: being restored from a peer; the promote loads it, not the sweep.
 	WarmupSkippedRecovering WarmupOutcome = "skipped_recovering"
+	// WarmupSkippedLoadedLimit: lazy shard unloading's loaded-shard limit is reached; the sweep stops.
+	WarmupSkippedLoadedLimit WarmupOutcome = "skipped_loaded_limit"
 	// WarmupSkippedBelowThreshold: the shard holds too few objects for
 	// LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS.
 	WarmupSkippedBelowThreshold WarmupOutcome = "skipped_below_threshold"
