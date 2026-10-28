@@ -45,6 +45,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 // sentinelError keeps the sentinels constant: Go initialises a package-level var on every node at startup, licensed or not.
@@ -635,12 +636,13 @@ func (o *Orchestrator) runOne(ctx context.Context, ref ShardRef, startedWithoutR
 
 		switch decision.action {
 		case actionRegisterOp:
-			done, retry := o.handleRegisterDecision(ctx, ref, decision, startedAt, logger)
-			if done {
+			switch o.handleRegisterDecision(ctx, ref, decision, startedAt, logger) {
+			case registerDone:
 				return
-			}
-			if retry && !retryAfterBackoff() {
-				return
+			case registerRetry:
+				if !retryAfterBackoff() {
+					return
+				}
 			}
 		case actionEmptyFallback:
 			o.handleEmptyFallback(ctx, ref, decision, startedAt, startedWithoutRaftState, logger)
@@ -663,10 +665,18 @@ func (o *Orchestrator) recordOutcome(result string, startedAt time.Time) {
 	o.metrics.DurationSeconds.WithLabelValues(result).Observe(time.Since(startedAt).Seconds())
 }
 
-// handleRegisterDecision: done = nothing more to attempt, retry = back off and probe again.
+// registerOutcome tells runOne what to do after handleRegisterDecision.
+type registerOutcome int
+
+const (
+	registerDone  registerOutcome = iota // runOne returns
+	registerRetry                        // runOne backs off and probes again
+)
+
+// handleRegisterDecision registers and polls the op copying from decision.sourceNode.
 func (o *Orchestrator) handleRegisterDecision(ctx context.Context, ref ShardRef, decision probeDecision,
 	startedAt time.Time, logger logrus.FieldLogger,
-) (done, retry bool) {
+) registerOutcome {
 	if o.metrics != nil {
 		o.metrics.StartedTotal.WithLabelValues(decision.sourceNode).Inc()
 	}
@@ -678,7 +688,7 @@ func (o *Orchestrator) handleRegisterDecision(ctx context.Context, ref ShardRef,
 			"source_node": decision.sourceNode,
 			"duration_ms": time.Since(startedAt).Milliseconds(),
 		}).Info("self-recovery completed")
-		return true, false
+		return registerDone
 	}
 	// force-delete and operator cancel are terminal; retrying would re-register and negate them
 	switch {
@@ -686,16 +696,21 @@ func (o *Orchestrator) handleRegisterDecision(ctx context.Context, ref ShardRef,
 		logger.WithField("source_node", decision.sourceNode).
 			Infof("self-recovery op was force-deleted; abandoning: %v", err)
 		o.recordOutcome("cancelled", startedAt)
-		return true, false
+		return registerDone
 	case errors.Is(err, ErrSelfRecoveryCancelled):
 		logger.WithField("source_node", decision.sourceNode).
 			Infof("self-recovery op cancelled; abandoning: %v", err)
 		o.recordOutcome("cancelled", startedAt)
-		return true, false
+		return registerDone
+	// a deleting namespace never turns active again, so default logs its refusal at Warn
+	case errors.Is(err, namespaces.ErrNamespaceSuspended) || errors.Is(err, namespaces.ErrNamespaceResuming):
+		logger.WithField("source_node", decision.sourceNode).
+			Infof("self-recovery waits for its namespace to become active: %v", err)
+		return registerRetry
 	default:
 		logger.WithField("source_node", decision.sourceNode).
 			Warnf("self-recovery register/poll failed; will retry: %v", err)
-		return false, true
+		return registerRetry
 	}
 }
 

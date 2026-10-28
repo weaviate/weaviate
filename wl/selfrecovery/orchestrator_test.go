@@ -528,6 +528,54 @@ func TestRunOne_CancelledTerminal(t *testing.T) {
 	require.Equal(t, 1, calls, "operator-cancelled op must not be re-registered; got %d RegisterSelfRecovery calls", calls)
 }
 
+// newOrchestratorWithDataPeer builds an orchestrator whose one peer, peer1, answers every probe with data.
+func newOrchestratorWithDataPeer(t *testing.T, raft RaftEntryPoint) *Orchestrator {
+	t.Helper()
+	ns := &stubNodeSelector{addrs: map[string]string{"peer1": "10.0.0.1"}, ports: map[string]int{"peer1": 50051}}
+	clientFactory := func(context.Context, string) (copier.FileReplicationServiceClient, error) {
+		return &stubFileReplicationClient{
+			probeShardData: func(context.Context, *protocol.ProbeShardDataRequest) (*protocol.ProbeShardDataResponse, error) {
+				return answerHostedData()
+			},
+		}, nil
+	}
+	return newOrchestratorForTest(t, raft, stubSchema{replicas: []string{"self", "peer1"}}, ns, clientFactory,
+		stubPathResolver{root: t.TempDir()})
+}
+
+func TestRunOne_RegisterOutcomeEndsRun(t *testing.T) {
+	tests := []struct {
+		name    string
+		state   string // "" leaves the op unknown, so polls read it force-deleted
+		outcome string
+	}{
+		{"op reaches READY", string(api.READY), "success"},
+		{"op force-deleted", "", "cancelled"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			raft := &stubRaft{detailsByUUID: map[strfmt.UUID]api.ReplicationDetailsResponse{}}
+			if tt.state != "" {
+				raft.registerHook = func(uuid strfmt.UUID, _, _, _, _ string) {
+					raft.mu.Lock()
+					defer raft.mu.Unlock()
+					raft.detailsByUUID[uuid] = api.ReplicationDetailsResponse{Status: api.ReplicationDetailsState{State: tt.state}}
+				}
+			}
+			o := newOrchestratorWithDataPeer(t, raft)
+
+			o.runOne(context.Background(), ShardRef{Collection: "C", Shard: "S"}, false)
+
+			raft.mu.Lock()
+			calls := len(raft.registeredCalls)
+			raft.mu.Unlock()
+			require.Equal(t, 1, calls)
+			require.Equal(t, 1.0, testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues(tt.outcome)))
+			require.Equal(t, 0.0, testutil.ToFloat64(o.metrics.GiveupTotal))
+		})
+	}
+}
+
 func TestShufflePeers_NotDeterministic(t *testing.T) {
 	const N = 20
 	base := make([]string, 10)
