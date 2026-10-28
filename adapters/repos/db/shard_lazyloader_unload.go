@@ -89,11 +89,10 @@ func (l *LazyLoadShard) recordAccess() {
 }
 
 // markLoaded registers a load that just published shard; callers hold l.mutex.
-func (l *LazyLoadShard) markLoaded(u ShardUnloader) {
-	l.loadedAt.Store(time.Now().UnixNano())
+func (l *LazyLoadShard) markLoaded(u ShardUnloader, shard *Shard) {
 	l.unloadedAt.Store(0)
 	l.recordAccess()
-	u.Registry().add(l)
+	u.Registry().add(l, shard)
 }
 
 // markUnloaded deregisters the wrapper; callers hold l.mutex. Idempotent.
@@ -106,10 +105,14 @@ func (l *LazyLoadShard) markUnloaded() {
 	u.Registry().remove(l)
 }
 
-// deregister is markUnloaded for a shard a deferred shutdown just shut on the
-// last release, which must not wait on l.mutex. It cannot interleave with an
-// add: the shut shard stays published, so this wrapper never loads again.
-func (l *LazyLoadShard) deregister() { l.markUnloaded() }
+// deregisterShard is markUnloaded for shard, which a deferred shutdown just
+// shut on the last release and so must not wait on l.mutex. It is a no-op once
+// the wrapper is registered for another shard.
+func (l *LazyLoadShard) deregisterShard(shard *Shard) {
+	if u := l.unloader(); u != nil {
+		u.Registry().removeShard(l, shard)
+	}
+}
 
 // TryUnload closes the loaded shard and leaves the wrapper cold in the shard
 // map. Tenant status is untouched. Every lock it takes is a try-lock, so it

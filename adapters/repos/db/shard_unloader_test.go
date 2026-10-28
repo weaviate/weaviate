@@ -60,8 +60,8 @@ func TestLoadedShardRegistry(t *testing.T) {
 			wrappers := make([]*LazyLoadShard, len(tt.namespaces))
 			for i, ns := range tt.namespaces {
 				wrappers[i] = registryWrapper(ns)
-				r.add(wrappers[i])
-				r.add(wrappers[i])
+				r.add(wrappers[i], nil)
+				r.add(wrappers[i], nil)
 			}
 			requireRegistryConsistent(t, r)
 			for _, idx := range tt.remove {
@@ -94,7 +94,7 @@ func TestLoadedShardRegistrySample(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			r := NewLoadedShardRegistry()
 			for range tt.loaded {
-				r.add(registryWrapper(""))
+				r.add(registryWrapper(""), nil)
 			}
 			dst := make([]*LazyLoadShard, 0, 16)
 			got := r.Sample(dst, tt.k)
@@ -136,7 +136,7 @@ func TestLoadedShardRegistryAppendChunk(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			r := NewLoadedShardRegistry()
 			for range tt.loaded {
-				r.add(registryWrapper(""))
+				r.add(registryWrapper(""), nil)
 			}
 			var got []*LazyLoadShard
 			chunks := 0
@@ -430,7 +430,7 @@ func TestLoadedShardRegistryNamespaceCounts(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			r := NewLoadedShardRegistry()
 			for _, ns := range tt.namespaces {
-				r.add(registryWrapper(ns))
+				r.add(registryWrapper(ns), nil)
 			}
 			require.Equal(t, tt.want, r.NamespaceCounts(tt.dst))
 		})
@@ -463,4 +463,24 @@ func TestDBShardUnloaderIsNilWithoutOne(t *testing.T) {
 	repo, _, _, _ := newLazyLoadRepoWithConfig(t, singleShardState(), true, -1)
 	t.Cleanup(func() { require.NoError(t, repo.Shutdown(context.Background())) })
 	require.Nil(t, repo.ShardUnloader())
+}
+
+func TestLazyLoadShard_LateDeferredShutdownHookKeepsAReloadRegistered(t *testing.T) {
+	f := newUnloadFixture(t)
+	f.put(t)
+	old := f.lazy.currentShard()
+	require.NotNil(t, old.deferredShutdownDone)
+	require.Equal(t, UnloadOutcomeOK, f.lazy.TryUnload(testCtx(), UnloadRequest{Reindex: noReindex}))
+	f.put(t)
+	reloaded := f.lazy.currentShard()
+	require.NotSame(t, old, reloaded)
+	require.EqualValues(t, 1, f.unloader.registry.Loaded())
+
+	old.deferredShutdownDone()
+	require.EqualValues(t, 1, f.unloader.registry.Loaded(), "a late hook of the old shard leaves the reload registered")
+	require.False(t, f.lazy.LoadedAt().IsZero())
+	requireRegistryConsistent(t, f.unloader.registry)
+
+	reloaded.deferredShutdownDone()
+	require.Zero(t, f.unloader.registry.Loaded(), "the current shard's hook deregisters")
 }

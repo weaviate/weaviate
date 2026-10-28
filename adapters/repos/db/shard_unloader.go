@@ -221,8 +221,10 @@ func NewLoadedShardRegistry() *LoadedShardRegistry {
 	return &LoadedShardRegistry{byNamespace: map[string]int{}}
 }
 
-// add registers l; callers hold l.mutex, so add and remove of one wrapper never interleave.
-func (r *LoadedShardRegistry) add(l *LazyLoadShard) {
+// add registers l with the shard it just loaded and stamps loadedAt under mu,
+// so a late removeShard cannot clear a reload's stamp. Callers hold l.mutex,
+// so add and remove of one wrapper never interleave.
+func (r *LoadedShardRegistry) add(l *LazyLoadShard, s *Shard) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if l.regSlot != 0 {
@@ -230,6 +232,8 @@ func (r *LoadedShardRegistry) add(l *LazyLoadShard) {
 	}
 	r.shards = append(r.shards, l)
 	l.regSlot = len(r.shards)
+	l.regShard = s
+	l.loadedAt.Store(time.Now().UnixNano())
 	r.byNamespace[l.namespace()]++
 	r.loaded.Add(1)
 }
@@ -238,6 +242,22 @@ func (r *LoadedShardRegistry) add(l *LazyLoadShard) {
 func (r *LoadedShardRegistry) remove(l *LazyLoadShard) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.removeLocked(l)
+}
+
+// removeShard deregisters l only while it is registered for s, so a late
+// deferred shutdown of an old shard never deregisters a reload.
+func (r *LoadedShardRegistry) removeShard(l *LazyLoadShard, s *Shard) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if l.regSlot == 0 || l.regShard != s {
+		return
+	}
+	r.removeLocked(l)
+	l.loadedAt.Store(0)
+}
+
+func (r *LoadedShardRegistry) removeLocked(l *LazyLoadShard) {
 	slot := l.regSlot
 	if slot == 0 {
 		return
@@ -249,6 +269,7 @@ func (r *LoadedShardRegistry) remove(l *LazyLoadShard) {
 	r.shards[last] = nil
 	r.shards = r.shards[:last]
 	l.regSlot = 0
+	l.regShard = nil
 	ns := l.namespace()
 	if r.byNamespace[ns]--; r.byNamespace[ns] <= 0 {
 		delete(r.byNamespace, ns)

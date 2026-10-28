@@ -80,6 +80,7 @@ type LazyLoadShard struct {
 	unloadedAt    atomic.Int64  // unix nanos of the last TryUnload, 0 once loaded again
 	unloadPending atomic.Bool   // a policy handoff claimed this wrapper
 	regSlot       int           // 1-based slot in LoadedShardRegistry, 0 when absent; guarded by its mu
+	regShard      *Shard        // the shard regSlot was registered for; guarded by the registry's mu
 	// unloadPhase says what a TryUnload holding mutex is doing; isLoaded reads it instead of waiting on a teardown.
 	unloadPhase atomic.Int32
 	// loadWaiters counts isLoaded calls about to wait on mutex; TryUnload refuses while any does.
@@ -238,12 +239,12 @@ func (l *LazyLoadShard) load(ctx context.Context, opts loadOpts) (*Shard, bool, 
 	l.shardOpts.promMetrics.FinishLoadingShard()
 	shard.metricsRegistered.Store(true)
 	if u != nil {
-		shard.deferredShutdownDone = l.deregister
+		shard.deferredShutdownDone = func() { l.deregisterShard(shard) }
 	}
 
 	l.shard.Store(shard)
 	if u != nil {
-		l.markLoaded(u)
+		l.markLoaded(u, shard)
 	}
 
 	return shard, true, nil
