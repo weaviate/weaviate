@@ -936,22 +936,31 @@ func (l *LazyLoadShard) RequantizeIndex(ctx context.Context, targetVector string
 	return l.mustLoad(context.Background()).RequantizeIndex(ctx, targetVector)
 }
 
+// Shutdown holds l.mutex per teardown attempt, not across the in-use retry
+// backoff, so isLoaded and status reads do not stall behind a busy shard. The
+// shard stays published until an attempt succeeds, so no load can build a
+// second one over its directory meanwhile.
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
-
-	shard := l.currentShard()
+	shard := l.loadedShard()
 	if shard == nil {
 		return nil
 	}
 
-	if err := shard.Shutdown(ctx); err != nil {
-		return err
-	}
+	return shard.shutdownWithAttempt(ctx, func() error {
+		l.mutex.Lock()
+		defer l.mutex.Unlock()
 
-	// Mark as unloaded so drop() knows the correct state
-	l.shard.Store(nil)
-	return nil
+		// A concurrent Shutdown already shut and unpublished it.
+		if l.currentShard() != shard {
+			return nil
+		}
+		if err := shard.performShutdown(ctx); err != nil {
+			return err
+		}
+		// Mark as unloaded so drop() knows the correct state
+		l.shard.Store(nil)
+		return nil
+	})
 }
 
 func (l *LazyLoadShard) preventShutdown() (release func(), err error) {

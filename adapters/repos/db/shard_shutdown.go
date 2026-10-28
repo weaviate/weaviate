@@ -131,13 +131,19 @@ func shardStillAlive(s ShardLike) bool {
 	}
 }
 
-func (s *Shard) Shutdown(ctx context.Context) (err error) {
+func (s *Shard) Shutdown(ctx context.Context) error {
+	return s.shutdownWithAttempt(ctx, func() error { return s.performShutdown(ctx) })
+}
+
+// shutdownWithAttempt is Shutdown with attempt in place of each performShutdown
+// call, so a wrapper can hold its own lock per attempt instead of across the backoff.
+func (s *Shard) shutdownWithAttempt(ctx context.Context, attempt func() error) (err error) {
 	s.shutdownRequested.Store(true)
 	var lastAttemptErr error
 	err = backoff.Retry(func() error {
 		// this retry to make sure it's retried in case
 		// the performShutdown() returned shard still in use
-		lastAttemptErr = s.performShutdown(ctx)
+		lastAttemptErr = attempt()
 		if errors.Is(lastAttemptErr, errTeardownFailed) {
 			// Sticky: no amount of retrying un-tears the shard, and callers
 			// hold shardCreateLocks across this call — fail immediately
