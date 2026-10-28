@@ -114,19 +114,18 @@ func refuseUnknownFields(req *api.ApplyRequest) error {
 }
 
 // admitPropose refuses a command whose namespace is not in a state that admits
-// it. It runs on the leader before the entry is appended, which is the only
-// place such a refusal can live: Apply must be a pure function of the log, so a
-// check there would have an older binary carry out what an upgraded one refuses,
-// live during a rolling update and again on every replay of that entry.
-// Refusing before the append means no node ever sees a committed entry it has to
-// reject, so the set of commands checked here can grow without becoming a
-// compatibility event.
+// it. It runs on the leader before the entry is appended. A check in Apply would
+// have an older binary carry out what an upgraded one refuses, live during a
+// rolling update and again on every replay of that entry. Refusing before the
+// append means no node ever sees a committed entry it has to reject, so the set
+// of commands checked here can grow without becoming a compatibility event.
 //
 // The check reads the leader's namespace state and the entry commits shortly
 // after, so a state flip landing in between still lets an accepted command
 // through. That is deliberate, and matches the rule that a suspend does not
 // cancel work already accepted. Every node applies the entry either way, so the
-// outcome stays the same across the cluster.
+// outcome stays the same across the cluster. A replica movement is the one
+// exception, which every node of one binary refuses once the flip has applied.
 //
 // A command that materializes a shard is checked here too. The flip it can race
 // leaves the schema entry standing with its shard still to open, which is the
@@ -325,8 +324,11 @@ func (st *Store) StoreConfiguration(index uint64, _ raft.Configuration) {
 // produce the same result on all peers in the cluster.
 // The returned value is returned to the client as the ApplyFuture.Response.
 //
-// That determinism is why no arm below refuses a command for its namespace
-// state: [Store.admitPropose] does it before the entry is appended.
+// That determinism is why [Store.admitPropose] refuses a command for its
+// namespace state before the entry is appended. TYPE_REPLICATION_REPLICATE is
+// the one command an arm below refuses as well. Every node of one binary
+// answers it the same, because the namespace and replication FSMs restore from
+// one snapshot.
 func (st *Store) Apply(l *raft.Log) any {
 	ret := Response{Version: l.Index}
 
@@ -628,6 +630,11 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
 		f = func() {
+			// The propose check can race a suspend appended ahead of this entry,
+			// and only Apply sees which of the two came first in the log.
+			if ret.Error = st.admitReplicaMovement(&cmd); ret.Error != nil {
+				return
+			}
 			ret.Error = st.replicationManager.Replicate(l.Index, &cmd)
 		}
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR:

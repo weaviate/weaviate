@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -45,15 +46,16 @@ const (
 // lifecycle commands stay ungated, so a suspended namespace can still be resumed
 // or deleted.
 //
-// No type is gated in the apply switch. Every check runs before the append, so a
-// committed entry applies on every binary; see Store.admitPropose.
+// Only the types in bothSidesApplyTypes and selfGatedApplyTypes are gated in
+// the apply switch. Every other check runs before the append, so a committed
+// entry applies on every binary. Store.admitPropose says why.
 //
 // The maps record intent, not behaviour. The switch in store_apply.go is the
 // authority, so a type listed here but wired to a different check still leaves
 // this test green. The TestExecuteGate_* tests pin the behaviour per state.
 
 // Commands gated by namespaces.RequireActive at propose time, in
-// store.admitCreateLike, store.admitShardStatus and store.admitReplicaMovement.
+// store.admitCreateLike and store.admitShardStatus.
 var requireActiveProposeTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_ADD_CLASS:                {},
 	api.ApplyRequest_TYPE_RESTORE_CLASS:            {},
@@ -68,7 +70,12 @@ var requireActiveProposeTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_UPSERT_USER:              {},
 	api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS: {},
 	api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:       {},
-	api.ApplyRequest_TYPE_REPLICATION_REPLICATE:    {},
+}
+
+// Commands gated by namespaces.RequireActive in store.admitReplicaMovement, both
+// at propose time and in their Store.Apply case.
+var bothSidesApplyTypes = map[api.ApplyRequest_Type]struct{}{
+	api.ApplyRequest_TYPE_REPLICATION_REPLICATE: {},
 }
 
 // Commands gated by namespaces.AdmitDestructiveApply, in store.admitDestructive
@@ -155,6 +162,7 @@ var applyTypeBuckets = []struct {
 	types map[api.ApplyRequest_Type]struct{}
 }{
 	{"requireActiveProposeTypes", requireActiveProposeTypes},
+	{"bothSidesApplyTypes", bothSidesApplyTypes},
 	{"destructiveApplyTypes", destructiveApplyTypes},
 	{"ungatedApplyTypes", ungatedApplyTypes},
 	{"selfGatedApplyTypes", selfGatedApplyTypes},
@@ -739,7 +747,6 @@ func gatedCommands() []gatedCommand {
 	all = append(all, schemaUpdateCommands()...)
 	all = append(all, shardMaterializingCommands()...)
 	all = append(all, shardStatusCommand())
-	all = append(all, replicaMovementCommand())
 	return all
 }
 
@@ -802,9 +809,9 @@ func TestExecuteGate_RefusesBeforeTheAppend(t *testing.T) {
 }
 
 // applyState is one namespace state the FSM has to apply through, seeded onto
-// alpha. The missing case is deliberate: an entry can commit before the
-// namespace it names is known locally, and refusing it in Apply would diverge
-// from a node that already has it.
+// alpha. The missing case is deliberate. An entry admitted before its namespace
+// is removed can commit after the removal, and the commands gatedCommands
+// drives still apply then.
 type applyState struct {
 	name string
 	seed func(*testing.T, *namespaces.Controller)
@@ -834,11 +841,10 @@ func applyStateNamed(t *testing.T, name string) applyState {
 	return applyState{}
 }
 
-// TestApplyGate_GatedTypesIgnoreNamespaceState is the guard that keeps every
-// namespace check out of the FSM. Apply must be a pure function of the log, so a
-// committed entry has to apply in every namespace state, live and on replay.
-// Re-adding a gate to any arm fails this test, and would otherwise have one
-// binary carry out what another refuses.
+// TestApplyGate_GatedTypesIgnoreNamespaceState keeps a check that refuses a
+// suspended namespace out of the Store.Apply arms of the commands gatedCommands
+// drives. A committed entry of those types has to apply in every namespace
+// state, live and on replay, or one binary carries out what another refuses.
 //
 // One table for all three buckets, because they now answer alike: before the
 // checks moved ahead of the append the shard-materializing arms were the
@@ -900,10 +906,10 @@ var applyUndrivableGatedTypes = map[api.ApplyRequest_Type]string{
 	api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:       "cluster/rbac.TestAddRolesForUserIgnoresTheNamespace",
 }
 
-// TestApplyGate_CoversEveryGatedType fails when a gated type has no apply-side
-// case and no recorded reason for lacking one. Without it, adding a type to a
-// gate map would silently gain propose-side coverage and no guard against the
-// check being put in Apply as well.
+// TestApplyGate_CoversEveryGatedType fails when a type gated only at propose
+// time has no apply-side case and no recorded reason for lacking one. Without
+// it, adding a type to requireActiveProposeTypes or destructiveApplyTypes would
+// gain propose-side coverage and no guard against the check being put in Apply.
 func TestApplyGate_CoversEveryGatedType(t *testing.T) {
 	covered := make(map[api.ApplyRequest_Type]struct{}, len(applyUndrivableGatedTypes))
 	for _, c := range gatedCommands() {
@@ -949,6 +955,28 @@ func TestApplyGate_DestructiveTypesApplyDuringReplay(t *testing.T) {
 	require.NoError(t, resp.Error)
 	require.Empty(t, ms.store.SchemaReader().ClassEqual("alpha:Foo"),
 		"replay must not resurrect a class the committed entry deleted")
+}
+
+// TestApplyGate_RefusesReplicaMovementAfterSuspend applies a replica movement
+// after alpha's suspend. A movement commits in that order when it is proposed
+// while the suspend is appended but not yet applied.
+func TestApplyGate_RefusesReplicaMovementAfterSuspend(t *testing.T) {
+	const target = "alpha:Foo"
+
+	ms, log := setupApplyTest(t)
+	seedNamespaceInState(t, ms.cfg.NamespacesController, "alpha", api.NamespaceStateSuspended)
+	movement := replicaMovementCommand()
+	movement.seedEntity(t, &ms, target)
+
+	data, err := gproto.Marshal(movement.build(target))
+	require.NoError(t, err)
+	log.Data = data
+
+	resp, ok := ms.store.Apply(log).(Response)
+	require.True(t, ok)
+	require.ErrorIs(t, resp.Error, namespaces.ErrNamespaceSuspended)
+	require.False(t, movement.landed(&ms, target), "a refused movement must store no op")
+	require.Equal(t, float64(1), testutil.ToFloat64(ms.store.metrics.applyFailures))
 }
 
 func TestSubjectNamespace(t *testing.T) {
