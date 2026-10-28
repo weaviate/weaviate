@@ -311,6 +311,13 @@ func restoreShardIfStillAlive(shards *shardMap, name string, shard ShardLike) bo
 // component was initialized. If not, it turns it into a noop to prevent
 // blocking.
 func (s *Shard) performShutdown(ctx context.Context) (err error) {
+	_, err = s.performShutdownTracked(ctx)
+	return err
+}
+
+// performShutdownTracked is performShutdown, also reporting whether this call
+// marked the shard shut, as opposed to finding it shut or in use.
+func (s *Shard) performShutdownTracked(ctx context.Context) (shutHere bool, err error) {
 	s.shutdownLock.Lock()
 	defer s.shutdownLock.Unlock()
 	defer func() {
@@ -327,21 +334,21 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	if s.shut.Load() {
 		s.shutdownRequested.Store(false)
 		if s.teardownErr != nil {
-			return fmt.Errorf("%w: %w", errTeardownFailed, s.teardownErr)
+			return false, fmt.Errorf("%w: %w", errTeardownFailed, s.teardownErr)
 		}
 		s.index.logger.
 			WithField("action", "shutdown").
 			Debugf("shard %q is already shut down", s.name)
 			// shutdown is idempotent
-		return nil
+		return false, nil
 	}
 	if s.inUseCounter.Load() > 0 {
 		s.index.logger.
 			WithField("action", "shutdown").
 			Debugf("shard %q is still in use", s.name)
-		return fmt.Errorf("shard %q: %w", s.name, errShardStillInUse)
+		return false, fmt.Errorf("shard %q: %w", s.name, errShardStillInUse)
 	}
-	return s.teardownLocked(ctx, nil)
+	return true, s.teardownLocked(ctx, nil)
 }
 
 // tryShutdownIdle is the unloader's performShutdown: it only try-locks, refuses
@@ -644,7 +651,12 @@ func (s *Shard) refCountSub() {
 	// a shutdown requested while the shard was in use runs once the last
 	// reference drops
 	if s.inUseCounter.Add(-1) == 0 && s.shutdownRequested.Load() {
-		if err := s.performShutdown(context.TODO()); err != nil {
+		shutHere, err := s.performShutdownTracked(context.TODO())
+		// Only the call that shut it: a wrapper that shut it itself deregisters, and may already have reloaded.
+		if shutHere && s.deferredShutdownDone != nil {
+			s.deferredShutdownDone()
+		}
+		if err != nil {
 			// No caller to receive this: the deferred completion runs on
 			// whichever request releases the last ref. teardownErr keeps deep
 			// failures sticky for later Shutdown/reactivation attempts, but

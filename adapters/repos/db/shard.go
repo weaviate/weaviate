@@ -464,6 +464,10 @@ type Shard struct {
 	yieldMu  sync.Mutex
 	yielders map[*yieldingPin]struct{}
 
+	// deferredShutdownDone, set by an unloading wrapper before it publishes the
+	// shard, runs once a shutdown deferred to the last release has shut it.
+	deferredShutdownDone func()
+
 	lazySegmentLoadingEnabled bool
 
 	// metricsRegistered tracks whether this shard was registered with shard lifecycle metrics

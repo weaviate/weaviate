@@ -106,6 +106,11 @@ func (l *LazyLoadShard) markUnloaded() {
 	u.Registry().remove(l)
 }
 
+// deregister is markUnloaded for a shard a deferred shutdown just shut on the
+// last release, which must not wait on l.mutex. It cannot interleave with an
+// add: the shut shard stays published, so this wrapper never loads again.
+func (l *LazyLoadShard) deregister() { l.markUnloaded() }
+
 // TryUnload closes the loaded shard and leaves the wrapper cold in the shard
 // map. Tenant status is untouched. Every lock it takes is a try-lock, so it
 // never waits on a request, a RAFT apply or a load; any refusal leaves the

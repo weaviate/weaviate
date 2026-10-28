@@ -360,6 +360,25 @@ func TestLazyLoadShard_EvictedAfterDeferredShutdownLeavesTheRegistry(t *testing.
 	require.EqualValues(t, 1, f.unloader.registry.Loaded(), "the evicted wrapper must leave the registry")
 }
 
+func TestLazyLoadShard_DeferredShutdownLeavesTheRegistry(t *testing.T) {
+	f := newUnloadFixture(t)
+	f.put(t)
+	_, release, err := f.index.GetShard(testCtx(), f.name)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(testCtx(), 300*time.Millisecond)
+	defer cancel()
+	outcome, err := f.index.UnloadLocalShard(ctx, f.name)
+	require.Error(t, err)
+	require.Equal(t, ShardUnloadOutcomeRefusedInUse, outcome)
+	require.EqualValues(t, 1, f.unloader.registry.Loaded())
+
+	release()
+	require.Eventually(t, func() bool { return shardKnownShut(f.lazy) }, 5*time.Second, 10*time.Millisecond)
+	require.Zero(t, f.unloader.registry.Loaded(), "a shard the last release shut no longer counts as loaded")
+	require.True(t, f.lazy.LoadedAt().IsZero())
+}
+
 func TestLoadedShardRegistryNamespaceCounts(t *testing.T) {
 	tests := []struct {
 		name       string

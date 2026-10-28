@@ -235,6 +235,9 @@ func (l *LazyLoadShard) load(ctx context.Context, opts loadOpts) (*Shard, bool, 
 
 	l.shardOpts.promMetrics.FinishLoadingShard()
 	shard.metricsRegistered.Store(true)
+	if u != nil {
+		shard.deferredShutdownDone = l.deregister
+	}
 
 	l.shard.Store(shard)
 	if u != nil {
