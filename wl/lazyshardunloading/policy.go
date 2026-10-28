@@ -14,6 +14,7 @@ package lazyshardunloading
 import (
 	"context"
 	"math"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -94,6 +95,8 @@ type policy[S shard] struct {
 	backgroundCh chan item[S]
 	wake         chan struct{}
 	pending      atomic.Int64
+	// enqueuing counts enqueues past their closed check; close drains only once it is 0.
+	enqueuing atomic.Int64
 	// warmupReserved counts warmup loads admitted but not yet released.
 	warmupReserved atomic.Int64
 	bufs           sync.Pool
@@ -285,8 +288,15 @@ func (p *policy[S]) namespaceActive(namespace string) bool {
 	return namespace == "" || p.nsActive == nil || p.nsActive(namespace)
 }
 
-// enqueue hands a claimed shard to the workers without blocking; on failure it releases the claim.
+// enqueue hands a claimed shard to the workers without blocking; on failure,
+// a closed policy included, it releases the claim.
 func (p *policy[S]) enqueue(ch chan item[S], it item[S]) bool {
+	p.enqueuing.Add(1)
+	defer p.enqueuing.Add(-1)
+	if p.closed.Load() {
+		it.shard.ClearUnloadPending()
+		return false
+	}
 	p.pending.Add(1)
 	select {
 	case ch <- it:
@@ -366,7 +376,8 @@ func (p *policy[S]) reserveWarmupLoad() bool {
 
 func (p *policy[S]) releaseWarmupLoad() { p.warmupReserved.Add(-1) }
 
-// close stops the loop and the workers; queued handoffs are released.
+// close stops the loop and the workers. Queued handoffs are released before it
+// waits, so a close that times out on an unload in flight strands no claim.
 func (p *policy[S]) close(ctx context.Context) error {
 	p.closeOnce.Do(func() {
 		p.unregisterNamespaceSeries()
@@ -379,6 +390,12 @@ func (p *policy[S]) close(ctx context.Context) error {
 		}
 		p.workers = nil
 		p.workersMu.Unlock()
+		// An enqueue that read closed as false is past its check; once none
+		// is, every later one refuses, so this drain is the last.
+		for p.enqueuing.Load() > 0 {
+			runtime.Gosched()
+		}
+		p.drainQueues()
 	})
 	done := make(chan struct{})
 	enterrors.GoWrapper(func() {
@@ -387,7 +404,6 @@ func (p *policy[S]) close(ctx context.Context) error {
 	}, p.logger)
 	select {
 	case <-done:
-		p.drainQueues()
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
