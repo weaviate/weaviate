@@ -14,6 +14,7 @@ package lazyshardunloading
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -300,6 +301,32 @@ func TestShardLimitDrainsAtUnloadRate(t *testing.T) {
 		require.Equal(t, []int{5, 6, 7, 8, 9}, loadedIndexes(shards))
 		require.Equal(t, 5.0, testutil.ToFloat64(h.p.metrics.limit))
 		require.Zero(t, testutil.ToFloat64(h.p.metrics.overLimit))
+	})
+}
+
+func TestIdleSweepWalksTheRegistryInChunks(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, func(k *testKnobs) {
+			set(t, k.idleTTL, 10*time.Second)
+			set(t, k.minResidency, 5*time.Second)
+			set(t, k.rate, 10)
+		})
+		shards := make([]*fakeShard, idleSweepChunk+3)
+		for i := range shards {
+			shards[i] = h.reg.load(strconv.Itoa(i), "")
+		}
+		busy, idle := shards[:idleSweepChunk], shards[idleSweepChunk:]
+		for range 12 {
+			for _, s := range busy {
+				s.touch()
+			}
+			tickOnce(time.Second)
+		}
+		require.Equal(t, idleSweepChunk, h.loadedCount(busy))
+		require.Zero(t, h.loadedCount(idle), "shards past the first chunk are swept")
+		h.reg.mu.Lock()
+		defer h.reg.mu.Unlock()
+		require.GreaterOrEqual(t, h.reg.chunks, 2)
 	})
 }
 

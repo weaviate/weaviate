@@ -209,6 +209,9 @@ type LoadedShardRegistry struct {
 	mu          sync.Mutex
 	shards      []*LazyLoadShard
 	byNamespace map[string]int
+	// perm stays the identity over shards' indexes between Samples; swaps undoes Sample's swaps.
+	perm  []int32
+	swaps []int32
 
 	loaded    atomic.Int64
 	unloading atomic.Int64
@@ -280,8 +283,9 @@ func (r *LoadedShardRegistry) NamespaceCounts(dst map[string]int) map[string]int
 	return dst
 }
 
-// Sample appends up to k distinct random loaded wrappers to dst and returns it.
-// It allocates only when dst lacks capacity.
+// Sample appends up to k distinct random loaded wrappers to dst and returns it,
+// by a partial Fisher-Yates over a reused index permutation, so it is O(k) under
+// mu. It allocates only when dst or the scratch slices lack capacity.
 func (r *LoadedShardRegistry) Sample(dst []*LazyLoadShard, k int) []*LazyLoadShard {
 	if k <= 0 {
 		return dst
@@ -292,21 +296,38 @@ func (r *LoadedShardRegistry) Sample(dst []*LazyLoadShard, k int) []*LazyLoadSha
 	if n <= k {
 		return append(dst, r.shards...)
 	}
-	base := len(dst)
-	for attempts := 0; len(dst)-base < k && attempts < 4*k; attempts++ {
-		candidate := r.shards[rand.IntN(n)]
-		duplicate := false
-		for _, picked := range dst[base:] {
-			if picked == candidate {
-				duplicate = true
-				break
-			}
-		}
-		if !duplicate {
-			dst = append(dst, candidate)
-		}
+	for i := len(r.perm); i < n; i++ {
+		r.perm = append(r.perm, int32(i))
+	}
+	r.swaps = r.swaps[:0]
+	for i := 0; i < k; i++ {
+		j := i + rand.IntN(n-i)
+		r.perm[i], r.perm[j] = r.perm[j], r.perm[i]
+		r.swaps = append(r.swaps, int32(j))
+		dst = append(dst, r.shards[r.perm[i]])
+	}
+	for i := k - 1; i >= 0; i-- {
+		j := r.swaps[i]
+		r.perm[i], r.perm[j] = r.perm[j], r.perm[i]
 	}
 	return dst
+}
+
+// AppendChunk appends up to limit wrappers from slot from on to dst and returns
+// dst and the next slot, or -1 past the end. Walking it releases mu between
+// chunks, so a concurrent add or remove may make the walk miss or repeat one.
+func (r *LoadedShardRegistry) AppendChunk(dst []*LazyLoadShard, from, limit int) ([]*LazyLoadShard, int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if from < 0 || from >= len(r.shards) || limit <= 0 {
+		return dst, -1
+	}
+	end := min(from+limit, len(r.shards))
+	dst = append(dst, r.shards[from:end]...)
+	if end == len(r.shards) {
+		return dst, -1
+	}
+	return dst, end
 }
 
 // accessClock is a coarse seconds clock for LastAccess. Only a running unloader
