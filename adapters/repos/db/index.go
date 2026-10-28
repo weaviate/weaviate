@@ -323,6 +323,10 @@ type Index struct {
 	// Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
 	backupProtectedShards sync.Map
 
+	// filterableRebuilt names the shards whose missing filterable index the
+	// startup task rebuilt this process; a reload must not fall back again.
+	filterableRebuilt sync.Map
+
 	// legacyBackupBeforeHalt, when set by a test, runs once the legacy backup has released shardCreateLocks.
 	legacyBackupBeforeHalt func()
 
