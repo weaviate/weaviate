@@ -15,6 +15,8 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -22,6 +24,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
@@ -50,7 +53,7 @@ const (
 // this test green. The TestExecuteGate_* tests pin the behaviour per state.
 
 // Commands gated by namespaces.RequireActive at propose time, in
-// store.admitCreateLike and store.admitShardStatus.
+// store.admitCreateLike, store.admitShardStatus and store.admitReplicaMovement.
 var requireActiveProposeTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_ADD_CLASS:                {},
 	api.ApplyRequest_TYPE_RESTORE_CLASS:            {},
@@ -65,6 +68,7 @@ var requireActiveProposeTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_UPSERT_USER:              {},
 	api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS: {},
 	api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:       {},
+	api.ApplyRequest_TYPE_REPLICATION_REPLICATE:    {},
 }
 
 // Commands gated by namespaces.AdmitDestructiveApply, in store.admitDestructive
@@ -105,7 +109,6 @@ var ungatedApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_UPDATE_NAMESPACE:                                           {},
 	api.ApplyRequest_TYPE_CHANGE_NAMESPACE_STATE:                                     {},
 	api.ApplyRequest_TYPE_REMOVE_NAMESPACE_ENTITY:                                    {},
-	api.ApplyRequest_TYPE_REPLICATION_REPLICATE:                                      {},
 	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE:                         {},
 	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR:                       {},
 	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCEL:                               {},
@@ -416,6 +419,50 @@ func shardStatusCommand() gatedCommand {
 	}
 }
 
+// replicaMovementUUID names the op replicaMovementRequest registers.
+const replicaMovementUUID = strfmt.UUID("5b0e3c1a-8d2f-4f6b-9a47-1c3e5d7f9b20")
+
+// replicaMovementRequest copies seededTenant of collection off the node seedClass
+// places it on, to a node holding no replica.
+func replicaMovementRequest(collection string) api.ReplicationReplicateShardRequest {
+	return api.ReplicationReplicateShardRequest{
+		Version:          api.ReplicationCommandVersionV0,
+		Uuid:             replicaMovementUUID,
+		SourceNode:       "Node-1",
+		SourceCollection: collection,
+		SourceShard:      seededTenant,
+		TargetNode:       "Node-2",
+		TransferType:     api.COPY.String(),
+	}
+}
+
+// replicaMovementCommand drives a COPY registration through Apply. It writes no
+// schema, so an op in the replication FSM is what says the apply took effect.
+func replicaMovementCommand() gatedCommand {
+	return gatedCommand{
+		cmdType: api.ApplyRequest_TYPE_REPLICATION_REPLICATE,
+		build: func(target string) *api.ApplyRequest {
+			sub, err := json.Marshal(replicaMovementRequest(target))
+			if err != nil {
+				panic(err)
+			}
+			return &api.ApplyRequest{Type: api.ApplyRequest_TYPE_REPLICATION_REPLICATE, SubCommand: sub}
+		},
+		seedEntity: func(t *testing.T, ms *MockStore, target string) {
+			// setupApplyTest swaps the schema manager, and Manager.Replicate
+			// validates against the schema reader it was built over.
+			ms.store.replicationManager = replication.NewManager(
+				ms.store.schemaManager.NewSchemaReader(), ms.cfg.NodeSelector, prometheus.NewPedanticRegistry())
+			seedClass(t, ms, target)
+		},
+		expectApplied: func(t *testing.T, ms *MockStore, _ string) {},
+		landed: func(ms *MockStore, _ string) bool {
+			_, ok := ms.store.replicationManager.GetReplicationFSM().GetOpByUuid(replicaMovementUUID)
+			return ok
+		},
+	}
+}
+
 // createLikeCommands are the gated commands that write schema and no store. The
 // RBAC and user commands belong here too but cannot be driven through this mock
 // store; see applyUndrivableGatedTypes.
@@ -692,6 +739,7 @@ func gatedCommands() []gatedCommand {
 	all = append(all, schemaUpdateCommands()...)
 	all = append(all, shardMaterializingCommands()...)
 	all = append(all, shardStatusCommand())
+	all = append(all, replicaMovementCommand())
 	return all
 }
 
@@ -1085,6 +1133,27 @@ func TestExecuteGate_RejectsShardStatusApplyType(t *testing.T) {
 	// admitted whatever the namespace map holds.
 	t.Run("an unqualified class is admitted", func(t *testing.T) {
 		assertProposeAdmits(t, statusCmd("Foo"), alphaAt(api.NamespaceStateSuspended))
+	})
+}
+
+// TestExecuteGate_RefusesReplicaMovement drives a replica movement through the
+// propose-time check. The command carries no Class, so a suspended alpha refuses
+// it only when the check reads the subcommand's collection.
+func TestExecuteGate_RefusesReplicaMovement(t *testing.T) {
+	movementCmd := proposeCommand{
+		name:    "TYPE_REPLICATION_REPLICATE",
+		cmdType: api.ApplyRequest_TYPE_REPLICATION_REPLICATE,
+		jsonSub: replicaMovementRequest("alpha:Books"),
+	}
+
+	for _, c := range inactiveNamespaceCases() {
+		t.Run(c.name, func(t *testing.T) {
+			assertProposeRefuses(t, movementCmd, c)
+		})
+	}
+
+	t.Run("active namespace admitted", func(t *testing.T) {
+		assertProposeAdmits(t, movementCmd, alphaAt(api.NamespaceStateActive))
 	})
 }
 

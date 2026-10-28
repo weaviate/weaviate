@@ -141,7 +141,29 @@ func (st *Store) admitPropose(req *api.ApplyRequest) error {
 	if err := st.admitCreateLike(req); err != nil {
 		return err
 	}
-	return st.admitShardStatus(req)
+	if err := st.admitShardStatus(req); err != nil {
+		return err
+	}
+	return st.admitReplicaMovement(req)
+}
+
+// admitReplicaMovement refuses a replica movement outside the active state. The
+// suspend sweep keeps the shards a movement copies out of and into loaded, so
+// one registered while suspended would hold the namespace's shards open.
+func (st *Store) admitReplicaMovement(req *api.ApplyRequest) error {
+	if req.Type != api.ApplyRequest_TYPE_REPLICATION_REPLICATE {
+		return nil
+	}
+	// The command carries no Class, so the namespace comes off the subcommand's
+	// collection.
+	sub := &api.ReplicationReplicateShardRequest{}
+	if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+		return fmt.Errorf("unmarshal replicate subcommand: %w", err)
+	}
+	if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(sub.SourceCollection)); err != nil {
+		return fmt.Errorf("replica movement of shard %q of %q: %w", sub.SourceShard, sub.SourceCollection, err)
+	}
+	return nil
 }
 
 // admitShardStatus refuses a manual shard status change outside the active

@@ -55,7 +55,7 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 		replicationType = *params.Body.Type
 	}
 	if err := h.replicationManager.ReplicationReplicateReplica(params.HTTPRequest.Context(), uuid, *params.Body.SourceNode, collection, *params.Body.Shard, *params.Body.TargetNode, replicationType); err != nil {
-		if errors.Is(err, replicationTypes.ErrInvalidRequest) {
+		if errors.Is(err, replicationTypes.ErrInvalidRequest) || cerrors.NamespaceErrRendersUnprocessable(err) {
 			return replication.NewReplicateUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 		}
 		return replication.NewReplicateInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
