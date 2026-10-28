@@ -31,6 +31,7 @@ type fakeShardUnloader struct {
 	beforeLoads  atomic.Int64
 	denyWarmup   atomic.Bool
 	onBeforeLoad atomic.Pointer[func(*LazyLoadShard)]
+	closes       atomic.Int64
 }
 
 func newFakeShardUnloader() *fakeShardUnloader {
@@ -47,6 +48,11 @@ func (f *fakeShardUnloader) BeforeLoad(l *LazyLoadShard) {
 }
 
 func (f *fakeShardUnloader) AllowWarmupLoad() bool { return !f.denyWarmup.Load() }
+
+func (f *fakeShardUnloader) Close(context.Context) error {
+	f.closes.Add(1)
+	return nil
+}
 
 func withShardUnloader(u ShardUnloader) func(*Config) {
 	return func(c *Config) { c.ShardUnloader = u }
