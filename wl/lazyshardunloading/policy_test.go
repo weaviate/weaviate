@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func cold(h *harness, namespace string) *fakeShard {
@@ -824,4 +825,44 @@ func TestConcurrentWarmupReservationsNeverPassTheLimit(t *testing.T) {
 		require.True(t, h.p.reserveWarmupLoad(), "released reservations free their room")
 		h.p.releaseWarmupLoad()
 	})
+}
+
+func TestRemovedNamespaceLosesItsSeries(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, func(k *testKnobs) {
+			set(t, k.maxLoaded, 1)
+			set(t, k.minResidency, 0)
+		}, withNamespaces())
+		h.loadN(1, "gone")
+		h.loadN(1, "kept")
+		tickOnce(time.Second)
+		require.Positive(t, testutil.CollectAndCount(h.p.metrics.unloads))
+
+		monitoring.GetMetrics().DeleteNamespace("gone")
+
+		for _, ns := range []string{"gone", "kept"} {
+			found := false
+			for _, n := range seriesNamespaces(t, h) {
+				found = found || n == ns
+			}
+			require.Equal(t, ns == "kept", found, "namespace %q", ns)
+		}
+	})
+}
+
+func seriesNamespaces(t *testing.T, h *harness) []string {
+	t.Helper()
+	families, err := h.prom.Gather()
+	require.NoError(t, err)
+	var out []string
+	for _, f := range families {
+		for _, m := range f.GetMetric() {
+			for _, l := range m.GetLabel() {
+				if l.GetName() == "namespace" {
+					out = append(out, l.GetValue())
+				}
+			}
+		}
+	}
+	return out
 }
