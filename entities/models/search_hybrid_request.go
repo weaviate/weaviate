@@ -26,13 +26,13 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// SearchHybridRequest Request body for the hybrid search endpoint. Combines a keyword (BM25F) search and a vector search over the same query string, fusing both rankings into one result list. Extends the shared search fields (`SearchCommon`) with the hybrid-specific `query`, `alpha`, `fusionType`, `maxVectorDistance`, `queryProperties` and `targetVector`.
+// SearchHybridRequest Request body for the hybrid search endpoint. Combines a keyword (BM25F) search and a vector search over the same query string, fusing both rankings into one result list. Extends the shared search fields (`SearchCommon`) with the hybrid-specific `query`, `alpha`, `fusionType`, `maxVectorDistance`, `queryProperties`, `targetVector` and `vector`.
 //
 // swagger:model SearchHybridRequest
 type SearchHybridRequest struct {
 	SearchCommon
 
-	// The weight of the vector part of the search, between 0 and 1. `0` is a pure keyword search, `1` a pure vector search. Omitted defaults to `0.75`. With `0` the query is never vectorized, so a collection without a vectorizer module is searchable.
+	// The weight of the vector part of the search, between 0 and 1. `0` is a pure keyword search, `1` a pure vector search. Omitted defaults to `0.75`. With `0`, or with `vector` supplied, the query is never vectorized, so a collection without a vectorizer module is searchable.
 	Alpha *float64 `json:"alpha,omitempty"`
 
 	// The algorithm that fuses the keyword and vector rankings: `ranked` (reciprocal-rank fusion) or `relativeScore` (normalized-score fusion). Omitted defaults to `relativeScore`.
@@ -42,7 +42,7 @@ type SearchHybridRequest struct {
 	// The maximum vector distance of a match: objects farther than this from the query vector are excluded, from the keyword ranking too.
 	MaxVectorDistance *float64 `json:"maxVectorDistance,omitempty"`
 
-	// The query, as a plain string. It is scored with BM25F for the keyword part of the search and vectorized server-side for the vector part. Must not be empty.
+	// The query, as a plain string. It is scored with BM25F for the keyword part of the search and vectorized server-side for the vector part, unless `vector` is supplied. Must not be empty.
 	// Required: true
 	Query *string `json:"query"`
 
@@ -51,6 +51,9 @@ type SearchHybridRequest struct {
 
 	// The named vector to search. Required when the collection has more than one named vector.
 	TargetVector string `json:"targetVector,omitempty"`
+
+	// The query vector for the vector part of the search, used instead of vectorizing `query`. A non-empty array of numbers that fit a 32-bit float, e.g. `[0.12, -0.3, 0.98]`. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. A vector of the wrong dimensionality is rejected with 422 by uncompressed HNSW and flat indexes; a BQ- or RQ-compressed HNSW index does not detect it and yields an empty result set instead. Requires `alpha` > 0.
+	Vector interface{} `json:"vector,omitempty"`
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
@@ -75,6 +78,8 @@ func (m *SearchHybridRequest) UnmarshalJSON(raw []byte) error {
 		QueryProperties []string `json:"queryProperties"`
 
 		TargetVector string `json:"targetVector,omitempty"`
+
+		Vector interface{} `json:"vector,omitempty"`
 	}
 	if err := swag.ReadJSON(raw, &dataAO1); err != nil {
 		return err
@@ -91,6 +96,8 @@ func (m *SearchHybridRequest) UnmarshalJSON(raw []byte) error {
 	m.QueryProperties = dataAO1.QueryProperties
 
 	m.TargetVector = dataAO1.TargetVector
+
+	m.Vector = dataAO1.Vector
 
 	return nil
 }
@@ -116,6 +123,8 @@ func (m SearchHybridRequest) MarshalJSON() ([]byte, error) {
 		QueryProperties []string `json:"queryProperties"`
 
 		TargetVector string `json:"targetVector,omitempty"`
+
+		Vector interface{} `json:"vector,omitempty"`
 	}
 
 	dataAO1.Alpha = m.Alpha
@@ -129,6 +138,8 @@ func (m SearchHybridRequest) MarshalJSON() ([]byte, error) {
 	dataAO1.QueryProperties = m.QueryProperties
 
 	dataAO1.TargetVector = m.TargetVector
+
+	dataAO1.Vector = m.Vector
 
 	jsonDataAO1, errAO1 := swag.WriteJSON(dataAO1)
 	if errAO1 != nil {

@@ -1651,6 +1651,126 @@ func TestHybridVectorizerOnlyAboveAlphaZero(t *testing.T) {
 	})
 }
 
+// TestHybridVector: a supplied vector replaces the vectorized query for the
+// vector part, so no vectorizer module is needed and none is called.
+func TestHybridVector(t *testing.T) {
+	noVectorizer := movieClass()
+	noVectorizer.Vectorizer = "none"
+
+	t.Run("accepted", func(t *testing.T) {
+		tests := []struct {
+			name         string
+			class        *models.Class
+			body         string
+			wantAlpha    float64
+			wantFusion   int
+			wantProps    []string
+			wantDistance bool
+			wantTargets  []string
+		}{
+			{
+				name:       "collection without a vectorizer",
+				class:      noVectorizer,
+				body:       `{"query":"space","alpha":0.6,"fusionType":"ranked","queryProperties":["title"],"vector":[0.1,-0.2,0.3]}`,
+				wantAlpha:  0.6,
+				wantFusion: common_filters.HybridRankedFusion,
+				wantProps:  []string{"title"},
+			},
+			{
+				name:       "supplied vector wins over the vectorizer",
+				class:      movieClass(),
+				body:       `{"query":"space","vector":[0.1,-0.2,0.3]}`,
+				wantAlpha:  common_filters.DefaultAlpha,
+				wantFusion: common_filters.HybridFusionDefault,
+			},
+			{
+				name:         "with maxVectorDistance",
+				class:        noVectorizer,
+				body:         `{"query":"space","alpha":1,"maxVectorDistance":0.4,"vector":[0.1,-0.2,0.3]}`,
+				wantAlpha:    1,
+				wantFusion:   common_filters.HybridFusionDefault,
+				wantDistance: true,
+			},
+			{
+				name:        "sole named vector",
+				class:       namedVectorsClass("title_vec"),
+				body:        `{"query":"space","vector":[0.1,-0.2,0.3]}`,
+				wantAlpha:   common_filters.DefaultAlpha,
+				wantFusion:  common_filters.HybridFusionDefault,
+				wantTargets: []string{"title_vec"},
+			},
+			{
+				name:        "explicit targetVector among several named vectors",
+				class:       namedVectorsClass("title_vec", "summary_vec"),
+				body:        `{"query":"space","targetVector":"summary_vec","vector":[0.1,-0.2,0.3]}`,
+				wantAlpha:   common_filters.DefaultAlpha,
+				wantFusion:  common_filters.HybridFusionDefault,
+				wantTargets: []string{"summary_vec"},
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				searcher, apiErr := buildHybrid(t, tt.class, tt.body)
+				require.Nil(t, apiErr)
+				hybrid := searcher.lastParams.HybridSearch
+				require.NotNil(t, hybrid)
+				assert.Equal(t, []float32{0.1, -0.2, 0.3}, hybrid.Vector)
+				assert.Equal(t, "space", hybrid.Query)
+				assert.Equal(t, tt.wantAlpha, hybrid.Alpha)
+				assert.Equal(t, tt.wantFusion, hybrid.FusionAlgorithm)
+				assert.Equal(t, tt.wantProps, hybrid.Properties)
+				assert.Equal(t, tt.wantDistance, hybrid.WithDistance)
+				assert.Equal(t, tt.wantTargets, hybrid.TargetVectors)
+				if tt.wantDistance {
+					assert.Equal(t, float32(0.4), hybrid.Distance)
+				}
+			})
+		}
+	})
+
+	t.Run("omitted leaves the vector unset", func(t *testing.T) {
+		searcher, apiErr := buildHybrid(t, movieClass(), `{"query":"space"}`)
+		require.Nil(t, apiErr)
+		assert.Nil(t, searcher.lastParams.HybridSearch.Vector)
+	})
+
+	t.Run("rejected", func(t *testing.T) {
+		tests := []struct {
+			name       string
+			class      *models.Class
+			body       string
+			wantStatus int
+			want       string
+		}{
+			{"alpha 0", movieClass(), `{"query":"space","alpha":0,"vector":[0.1,0.2]}`, http.StatusBadRequest, "vector requires alpha > 0"},
+			// null counts as absent, so the missing vectorizer still matters
+			{"null without a vectorizer", noVectorizer, `{"query":"space","vector":null}`, http.StatusUnprocessableEntity, "vectorizer"},
+			{"empty query", noVectorizer, `{"query":"","alpha":1,"vector":[0.1,0.2]}`, http.StatusBadRequest, errQueryEmpty},
+			{"empty array", noVectorizer, `{"query":"space","vector":[]}`, http.StatusBadRequest, errVectorNotNumbers},
+			{"string entries", noVectorizer, `{"query":"space","vector":["0.1","0.2"]}`, http.StatusBadRequest, errVectorNotNumbers},
+			{"bare number", noVectorizer, `{"query":"space","vector":0.5}`, http.StatusBadRequest, errVectorNotNumbers},
+			{"outside float32 range", noVectorizer, `{"query":"space","vector":[0.1,1e39]}`, http.StatusBadRequest, "vector[1] does not fit a 32-bit float"},
+			{"array of vectors", noVectorizer, `{"query":"space","vector":[[0.1,0.2],[0.3,0.4]]}`, http.StatusUnprocessableEntity, "multi-vector"},
+			{
+				"multi-vector target", multiVectorClass(namedVectorsClass("colbert_vec"), "colbert_vec"),
+				`{"query":"space","vector":[0.1,0.2]}`, http.StatusUnprocessableEntity, `target vector "colbert_vec" is a multi-vector index`,
+			},
+			{
+				"several named vectors without targetVector", namedVectorsClass("title_vec", "summary_vec"),
+				`{"query":"space","vector":[0.1,0.2]}`, http.StatusUnprocessableEntity, "no target vectors were provided",
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				_, apiErr := buildHybrid(t, tt.class, tt.body)
+				require.NotNil(t, apiErr)
+				assert.Equal(t, tt.wantStatus, apiErr.Status)
+				assert.Contains(t, apiErr.Error(), tt.want)
+			})
+		}
+	})
+}
+
 func TestHybridNoSearchableProperties(t *testing.T) {
 	// the keyword part expands empty queryProperties to all searchable
 	// properties; below alpha 1 a collection with none is a 422, at alpha 1
