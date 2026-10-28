@@ -33,7 +33,7 @@ require (
 	github.com/fortytw2/leaktest v1.3.0
 	github.com/getsentry/sentry-go v0.30.0
 	github.com/go-ego/gse v0.80.3
-	github.com/go-jose/go-jose/v4 v4.1.4
+	github.com/go-jose/go-jose/v4 v4.1.6
 	github.com/go-openapi/errors v0.22.8
 	github.com/go-openapi/loads v0.23.2
 	github.com/go-openapi/runtime v0.29.2
@@ -88,7 +88,7 @@ require (
 	github.com/weaviate/mockoidc v0.0.0-20250611114324-56bff60d94c2
 	github.com/weaviate/s5cmd/v2 v2.0.1
 	github.com/weaviate/sroar v0.0.18
-	github.com/weaviate/tiktoken-go v0.0.3
+	github.com/weaviate/tiktoken-go v0.0.4
 	github.com/weaviate/weaviate/grpc/generated/protocol v0.0.0
 	github.com/zeebo/xxh3 v1.1.0
 	go.etcd.io/bbolt v1.5.0

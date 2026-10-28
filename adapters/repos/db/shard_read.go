@@ -528,6 +528,9 @@ func (s *Shard) readVectorByIndexIDIntoSliceWithView(ctx context.Context, indexI
 		if stderrors.As(err, &eTV) {
 			return nil, storobj.NewErrNotFoundf(indexID, "target vector %q not found", targetVector)
 		}
+		if stderrors.Is(err, storobj.ErrNoVector) {
+			return nil, storobj.NewErrNotFoundf(indexID, "object has no vector")
+		}
 		return nil, err
 	}
 	return vec, nil
@@ -580,7 +583,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 			"shard":           s.ID(),
 			"tenant":          s.tenant(),
 			"query":           "ObjectSearch",
-			"filters":         filters,
+			"filters":         filters.LogSummary(),
 			"limit":           limit,
 			"sort":            sort,
 			"cursor":          cursor,
@@ -714,7 +717,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 			"shard":      s.ID(),
 			"tenant":     s.tenant(),
 			"query":      "ObjectVectorSearch",
-			"filters":    filters,
+			"filters":    filters.LogSummary(),
 			"limit":      limit,
 			"sort":       sort,
 			"version":    s.versioner.Version(),

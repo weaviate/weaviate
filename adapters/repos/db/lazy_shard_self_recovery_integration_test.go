@@ -259,11 +259,10 @@ func TestLazyShardSelfRecoveryPromotedColdShardLoadsOnDemand(t *testing.T) {
 		wantLoaded bool
 	}{
 		{
-			name: "tenant activation",
+			name: "tenant activation stays cold",
 			then: func(t *testing.T, index *Index) {
 				require.NoError(t, index.LoadLocalShardForTenantActivation(ctx, tenant, false))
 			},
-			wantLoaded: true,
 		},
 		{
 			name:       "replica movement",

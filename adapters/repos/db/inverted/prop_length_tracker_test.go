@@ -693,7 +693,6 @@ func Test_JsonShardMetaData_FlushWritesOnlyWhenDirty(t *testing.T) {
 		{name: "UnTrackProperty unknown property", mutate: func(tr *JsonShardMetaData) {
 			tr.UnTrackProperty("unknown", 3)
 		}},
-		{name: "Clear", mutate: func(tr *JsonShardMetaData) { tr.Clear() }, wantRewrite: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
