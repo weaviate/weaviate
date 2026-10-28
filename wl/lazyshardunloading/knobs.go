@@ -18,6 +18,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
@@ -49,6 +50,24 @@ type Knobs struct {
 	UnloadWorkers       *runtime.DynamicValue[int]
 	NamespaceMaxShare   *runtime.DynamicValue[float64]
 	Paused              *runtime.DynamicValue[bool]
+}
+
+// KnobsFrom shares c's runtime values, so a runtime-config reload reaches the policy.
+func KnobsFrom(c config.LazyShardUnloading) Knobs {
+	return Knobs{
+		IdleTTL:             c.IdleTTL,
+		IdleCheckInterval:   c.IdleCheckInterval,
+		MaxLoadedShards:     c.MaxLoadedShards,
+		MemoryHighWatermark: c.MemoryHighWatermark,
+		MemoryLowWatermark:  c.MemoryLowWatermark,
+		MinResidency:        c.MinResidency,
+		UnloadRate:          c.UnloadRate,
+		Interval:            c.Interval,
+		MakeRoomCandidates:  c.MakeRoomCandidates,
+		UnloadWorkers:       c.UnloadWorkers,
+		NamespaceMaxShare:   c.NamespaceMaxShare,
+		Paused:              c.Paused,
+	}
 }
 
 func (k Knobs) withDefaults() Knobs {
