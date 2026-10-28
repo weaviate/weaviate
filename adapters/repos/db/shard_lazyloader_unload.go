@@ -377,5 +377,8 @@ func (s *Shard) idleUnloadBlocker() UnloadOutcome {
 	if manual {
 		return UnloadOutcomeManualReadOnly
 	}
+	if s.index.db.diskPressureReadOnly() {
+		return UnloadOutcomeResourceReadOnly
+	}
 	return ""
 }

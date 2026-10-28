@@ -158,40 +158,43 @@ const (
 	UnloadOutcomeReindex         UnloadOutcome = "reindex"
 	UnloadOutcomeReindexUnknown  UnloadOutcome = "reindex_unknown"
 	UnloadOutcomeManualReadOnly  UnloadOutcome = "manual_readonly"
-	UnloadOutcomeMinResidency    UnloadOutcome = "min_residency"
-	UnloadOutcomeNotIdle         UnloadOutcome = "not_idle"
-	UnloadOutcomeQueueNotEmpty   UnloadOutcome = "queue_not_empty"
-	UnloadOutcomeHashtreeInit    UnloadOutcome = "hashtree_init"
-	UnloadOutcomeTorn            UnloadOutcome = "torn"
-	UnloadOutcomeIndexClosing    UnloadOutcome = "index_closing"
-	UnloadOutcomeAlreadyCold     UnloadOutcome = "already_cold"
+	// UnloadOutcomeResourceReadOnly: disk usage holds the node read-only, where an unload's flush could tear the shard.
+	UnloadOutcomeResourceReadOnly UnloadOutcome = "resource_readonly"
+	UnloadOutcomeMinResidency     UnloadOutcome = "min_residency"
+	UnloadOutcomeNotIdle          UnloadOutcome = "not_idle"
+	UnloadOutcomeQueueNotEmpty    UnloadOutcome = "queue_not_empty"
+	UnloadOutcomeHashtreeInit     UnloadOutcome = "hashtree_init"
+	UnloadOutcomeTorn             UnloadOutcome = "torn"
+	UnloadOutcomeIndexClosing     UnloadOutcome = "index_closing"
+	UnloadOutcomeAlreadyCold      UnloadOutcome = "already_cold"
 )
 
 // Checklist only: the exhaustive lint fails until a new outcome is listed here.
 //
 //exhaustive:enforce
 var _ = map[UnloadOutcome]struct{}{
-	UnloadOutcomeOK:              {},
-	UnloadOutcomeLockBusy:        {},
-	UnloadOutcomeNotInMap:        {},
-	UnloadOutcomeRecovering:      {},
-	UnloadOutcomeInUse:           {},
-	UnloadOutcomeHalted:          {},
-	UnloadOutcomePending2PC:      {},
-	UnloadOutcomeChangeLog:       {},
-	UnloadOutcomeAsyncOverride:   {},
-	UnloadOutcomeAsyncCheckpoint: {},
-	UnloadOutcomeVectorOp:        {},
-	UnloadOutcomeReindex:         {},
-	UnloadOutcomeReindexUnknown:  {},
-	UnloadOutcomeManualReadOnly:  {},
-	UnloadOutcomeMinResidency:    {},
-	UnloadOutcomeNotIdle:         {},
-	UnloadOutcomeQueueNotEmpty:   {},
-	UnloadOutcomeHashtreeInit:    {},
-	UnloadOutcomeTorn:            {},
-	UnloadOutcomeIndexClosing:    {},
-	UnloadOutcomeAlreadyCold:     {},
+	UnloadOutcomeOK:               {},
+	UnloadOutcomeLockBusy:         {},
+	UnloadOutcomeNotInMap:         {},
+	UnloadOutcomeRecovering:       {},
+	UnloadOutcomeInUse:            {},
+	UnloadOutcomeHalted:           {},
+	UnloadOutcomePending2PC:       {},
+	UnloadOutcomeChangeLog:        {},
+	UnloadOutcomeAsyncOverride:    {},
+	UnloadOutcomeAsyncCheckpoint:  {},
+	UnloadOutcomeVectorOp:         {},
+	UnloadOutcomeReindex:          {},
+	UnloadOutcomeReindexUnknown:   {},
+	UnloadOutcomeManualReadOnly:   {},
+	UnloadOutcomeResourceReadOnly: {},
+	UnloadOutcomeMinResidency:     {},
+	UnloadOutcomeNotIdle:          {},
+	UnloadOutcomeQueueNotEmpty:    {},
+	UnloadOutcomeHashtreeInit:     {},
+	UnloadOutcomeTorn:             {},
+	UnloadOutcomeIndexClosing:     {},
+	UnloadOutcomeAlreadyCold:      {},
 }
 
 // LoadedShardRegistry holds every loaded wrapper of the DB in a dense slice, so
