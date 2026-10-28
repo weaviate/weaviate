@@ -69,7 +69,7 @@ func TestAuthZBatchRefAuthZCalls(t *testing.T) {
 	helper.CreateObjectAuth(t, &models.Object{ID: UUID1, Class: className2}, adminKey)
 
 	ls := newLogScanner(containers[0].Container())
-	ls.GetAuthzLogs(t) // startup and object class creation logs that are irrelevant
+	ls.SkipAuthzLogs(t) // startup and object class creation logs that are irrelevant
 
 	from := beaconStart + className1 + "/" + UUID1.String() + "/ref"
 	to := beaconStart + UUID1
