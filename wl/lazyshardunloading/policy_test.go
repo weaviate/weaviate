@@ -886,3 +886,57 @@ func TestMakeRoomSkipsAVictimAccessedSincePicked(t *testing.T) {
 		synctest.Wait()
 	})
 }
+
+func TestCloseTimingOutStillReleasesQueuedShards(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, func(k *testKnobs) {
+			set(t, k.maxLoaded, 1)
+			set(t, k.interval, time.Hour)
+			set(t, k.workers, 1)
+		})
+		shards := h.loadN(3, "")
+		gate := make(chan struct{})
+		shards[0].block.Store(&gate)
+		h.p.beforeLoad(cold(h, ""))
+		synctest.Wait()
+		h.p.beforeLoad(cold(h, ""))
+		require.True(t, shards[1].pending.Load())
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		require.ErrorIs(t, h.p.close(ctx), context.DeadlineExceeded)
+		require.False(t, shards[1].pending.Load(), "a timed-out close must not strand a queued claim")
+		require.True(t, shards[1].loaded())
+		close(gate)
+	})
+}
+
+func TestBeforeLoadRacingCloseNeverStrandsAClaim(t *testing.T) {
+	for range 50 {
+		synctest.Test(t, func(t *testing.T) {
+			h := newHarness(t, func(k *testKnobs) {
+				set(t, k.maxLoaded, 1)
+				set(t, k.interval, time.Hour)
+				set(t, k.workers, 1)
+			})
+			shards := h.loadN(8, "")
+			gate := make(chan struct{})
+			for _, s := range shards {
+				s.block.Store(&gate)
+			}
+			var wg sync.WaitGroup
+			for range 8 {
+				wg.Go(func() { h.p.beforeLoad(cold(h, "")) })
+			}
+			closed := make(chan error, 1)
+			go func() { closed <- h.p.close(context.Background()) }()
+			wg.Wait()
+			close(gate)
+			require.NoError(t, <-closed)
+			for _, s := range shards {
+				require.False(t, s.pending.Load(), "shard %s keeps a claim nothing will process", s.name)
+			}
+			require.Zero(t, h.p.pending.Load())
+		})
+	}
+}
