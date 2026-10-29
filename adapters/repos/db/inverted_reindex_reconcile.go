@@ -87,7 +87,7 @@ func migrationReportedNames(names []string) []string {
 	for _, name := range names {
 		set[name] = struct{}{}
 	}
-	return reportedShardNames(set)
+	return ReportedShardNames(set)
 }
 
 // Counts the record against this pass and no further. A refusal, a filesystem

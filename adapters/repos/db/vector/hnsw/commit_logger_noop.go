@@ -46,7 +46,7 @@ func (n *NoopCommitLogger) AddBRQCompression(data compression.BRQData) error {
 	return nil
 }
 
-func (n *NoopCommitLogger) AddNode(node *vertex) error {
+func (n *NoopCommitLogger) AddNode(id uint64, level uint16) error {
 	return nil
 }
 

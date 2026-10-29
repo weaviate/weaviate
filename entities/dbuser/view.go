@@ -23,6 +23,7 @@ type View struct {
 	ApiKeyFirstLetters string
 	CreatedAt          time.Time
 	LastUsedAt         time.Time
+	ExpiresAt          time.Time
 	ImportedWithKey    bool
 	Namespace          string
 }

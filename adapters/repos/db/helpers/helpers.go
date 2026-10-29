@@ -87,6 +87,11 @@ func FlatMetadataFileNameForID(physicalID string) string {
 	return FlatMetadataFileName(PhysicalIDSuffix(physicalID))
 }
 
+// HNSWCommitLogDirNameForID is GetHNSWCommitLogDirName by physical ID.
+func HNSWCommitLogDirNameForID(physicalID string) string {
+	return physicalID + ".hnsw.commitlog.d"
+}
+
 // A multivector index keeps one bucket of its own, named off the index ID:
 // muvera encodings when muvera is on, node-to-doc mappings when it is off. The
 // two are mutually exclusive.
@@ -199,6 +204,60 @@ func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
 	}
 }
 
+// VectorIndexArtifactNamesForID is vectorIndexArtifactNames keyed by physical
+// ID. For a named vector the two agree; for the legacy vector only this one
+// names what the indexes write (the name-based list keys off "vectors").
+func VectorIndexArtifactNamesForID(physicalID string) VectorIndexArtifacts {
+	return VectorIndexArtifacts{
+		LSMBuckets: []string{
+			VectorsBucketNameForID(physicalID),
+			CompressedBucketNameForID(physicalID),
+			MuveraBucketName(physicalID),
+			MVMappingsBucketName(physicalID),
+			HFreshPostingsBucketName(physicalID),
+			HFreshSharedBucketName(physicalID),
+			CompressedBucketNameForID(CentroidsID(physicalID)),
+		},
+		ShardDirs: []string{
+			HNSWCommitLogDirNameForID(physicalID),
+			physicalID + ".hnsw.snapshot.d",
+			HFreshDirName(physicalID),
+			physicalID + ".queue.d",
+			FlatMetadataFileNameForID(physicalID),
+		},
+	}
+}
+
+// VectorIndexArtifactsForID is VectorIndexArtifactsFor keyed by physical ID:
+// what dropping the index at physicalID has to remove, minus any LSM bucket
+// an index at one of otherIDs owns. The mapping's record is the source of
+// these IDs; the name-based twin serves callers without a record.
+func VectorIndexArtifactsForID(physicalID string, otherIDs []string) VectorIndexArtifacts {
+	artifacts := VectorIndexArtifactNamesForID(physicalID)
+	protected := map[string]struct{}{}
+	for _, other := range otherIDs {
+		if other == physicalID {
+			continue
+		}
+		for _, name := range VectorIndexArtifactNamesForID(other).All() {
+			protected[name] = struct{}{}
+		}
+	}
+	if len(protected) == 0 {
+		return artifacts
+	}
+	// only LSM buckets can collide, see VectorIndexArtifactsFor
+	var keptBuckets []string
+	for _, name := range artifacts.LSMBuckets {
+		if _, clash := protected[name]; clash {
+			continue
+		}
+		keptBuckets = append(keptBuckets, name)
+	}
+	artifacts.LSMBuckets = keptBuckets
+	return artifacts
+}
+
 // VectorIndexArtifactsFor lists what dropping targetVector has to remove. It is
 // the single source of truth for that set: the live drop, the file sweep and
 // the tests all read it, because three hand-maintained copies is exactly how
@@ -238,7 +297,7 @@ func VectorIndexArtifactsFor(targetVector string, otherTargetVectors []string) V
 	// artifact can ever equal one — filtering them would be unreachable code.
 	// A future shard directory WITHOUT a dotted suffix would break that and
 	// needs the guard extended.
-	keptBuckets := artifacts.LSMBuckets[:0:0]
+	var keptBuckets []string
 	for _, name := range artifacts.LSMBuckets {
 		if _, clash := protected[name]; clash {
 			continue

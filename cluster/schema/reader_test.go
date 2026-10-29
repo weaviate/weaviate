@@ -181,7 +181,7 @@ func TestSchemaReader_WithShardingStateCheck(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// GIVEN
-			s := NewSchema("test-node", nil, prometheus.NewPedanticRegistry())
+			s := NewSchema("test-node", prometheus.NewPedanticRegistry())
 			className := tt.setupSchema(s)
 
 			reader := SchemaReader{schema: s}

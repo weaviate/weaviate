@@ -39,8 +39,11 @@ type fakeSchemaManager struct {
 	schema schema.Schema
 }
 
-func (f *fakeSchemaManager) GetSchemaSkipAuth() schema.Schema {
-	return f.schema
+func (f *fakeSchemaManager) ReadOnlySchema() models.Schema {
+	if f.schema.Objects == nil {
+		return models.Schema{}
+	}
+	return *f.schema.Objects
 }
 
 func (f *fakeSchemaManager) ReadOnlyClass(class string) *models.Class {
@@ -88,7 +91,7 @@ func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string {
 	return ""
 }
 
-func (f *fakeSchemaManager) TenantsShards(_ context.Context, class string, tenants ...string) (map[string]string, error) {
+func (f *fakeSchemaManager) TenantsShardsStatus(_ context.Context, class string, tenants ...string) (map[string]string, error) {
 	return nil, nil
 }
 

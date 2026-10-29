@@ -194,15 +194,18 @@ func TestRoaringSetGetWindowRangeGuards(t *testing.T) {
 
 // TestRoaringSetGetWindowDropsEmptySides pins that a row's unused side comes
 // back nil, not an allocated-but-empty bitmap: that nil is what the reader's
-// presence test relies on, even though the tree itself allocates both sides.
+// presence test relies on. Only the emptied row reaches that dropping, since the
+// tree leaves a side it never wrote to nil already.
 func TestRoaringSetGetWindowDropsEmptySides(t *testing.T) {
 	t.Parallel()
 
 	m := memtableWith(t, []string{"a", "b", "c"})
 	require.NoError(t, m.roaringSetAddOne([]byte("adds-only"), 1))
 	require.NoError(t, m.roaringSetRemoveOne([]byte("dels-only"), 2))
+	require.NoError(t, m.roaringSetAddOne([]byte("emptied"), 3))
+	require.NoError(t, m.roaringSetRemoveOne([]byte("emptied"), 3))
 
-	keys := sortedKeysOf(t, []string{"adds-only", "dels-only"})
+	keys := sortedKeysOf(t, []string{"adds-only", "dels-only", "emptied"})
 	into := make([]roaringset.BitmapLayer, keys.Len())
 	fillWindowOK(t, m, keys, 0, keys.Len(), into)
 
@@ -213,6 +216,10 @@ func TestRoaringSetGetWindowDropsEmptySides(t *testing.T) {
 			require.Nil(t, into[i].Deletions, "a row never deleted from must carry no deletion side")
 		case "dels-only":
 			require.Nil(t, into[i].Additions, "a row never added to must carry no addition side")
+			require.NotNil(t, into[i].Deletions)
+		case "emptied":
+			require.Nil(t, into[i].Additions,
+				"a row whose only added value was removed must carry no addition side")
 			require.NotNil(t, into[i].Deletions)
 		}
 	}

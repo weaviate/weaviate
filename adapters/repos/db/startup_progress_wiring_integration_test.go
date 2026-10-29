@@ -23,12 +23,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -115,7 +115,7 @@ func newShardCountingDB(t *testing.T, class *models.Class, state *sharding.State
 		shardState: state,
 	}
 
-	sr := schemaUC.NewMockSchemaReader(t)
+	sr := local.NewMockSchemaReader(t)
 	sr.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(_ string, _ bool, read func(*models.Class, *sharding.State) error) error {
 			return read(class, state)

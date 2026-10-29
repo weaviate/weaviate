@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/vectorindex"
@@ -48,11 +49,10 @@ func (f *fakeDropEnqueuer) EnqueueDropVectorIndex(ctx context.Context, collectio
 
 func newDropVectorHandler(t *testing.T, cls *models.Class) (*Handler, *fakeSchemaManager, *fakeDropEnqueuer) {
 	t.Helper()
-	t.Setenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true")
 	h, sm := newTestHandler(t, nil)
 	enq := &fakeDropEnqueuer{}
 	h.dropVectorEnqueuer = enq
-	sm.On("QueryReadOnlyClasses", []string{cls.Class}).
+	sm.On("ReadOnlyClassesFromLeader", []string{cls.Class}).
 		Return(map[string]versioned.Class{cls.Class: {Class: cls}}, nil)
 	return h, sm, enq
 }
@@ -68,13 +68,13 @@ func TestDeleteClassVectorIndex_FreshDrop_SetsMarkerAndEnqueues(t *testing.T) {
 		"foo": {VectorIndexType: "hnsw"},
 	})
 	h, sm, enq := newDropVectorHandler(t, cls)
-	sm.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+	sm.On("UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser).Return(nil)
 
 	require.NoError(t, h.DeleteClassVectorIndex(context.Background(), nil, "C", "foo"))
 
 	require.Equal(t, vectorindex.VectorIndexTypeNone, cls.VectorConfig["foo"].VectorIndexType,
 		"marker must be set on the dropped vector")
-	sm.AssertCalled(t, "UpdateClass", mock.Anything, mock.Anything)
+	sm.AssertCalled(t, "UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser)
 	require.Equal(t, [][]string{{"foo"}}, enq.enqueued)
 	require.Equal(t, []string{"C"}, enq.enqueuedAt)
 }
@@ -88,7 +88,7 @@ func TestDeleteClassVectorIndex_FSMRefusal_SurfacesAsValidation(t *testing.T) {
 		"foo": {VectorIndexType: "hnsw"},
 	})
 	h, sm, enq := newDropVectorHandler(t, cls)
-	sm.On("UpdateClass", mock.Anything, mock.Anything).
+	sm.On("UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser).
 		Return(fmt.Errorf("%w: a previous drop of [foo] on \"C\" is still completing; retry", clusterSchema.ErrBadRequest))
 
 	err := h.DeleteClassVectorIndex(context.Background(), nil, "C", "foo")
@@ -106,7 +106,7 @@ func TestDeleteClassVectorIndex_ReTrigger_SameTarget_Active_NoOp(t *testing.T) {
 
 	require.NoError(t, h.DeleteClassVectorIndex(context.Background(), nil, "C", "foo"))
 
-	sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything)
+	sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser)
 	require.Empty(t, enq.enqueued, "an active cleanup must not be re-enqueued")
 }
 
@@ -119,7 +119,7 @@ func TestDeleteClassVectorIndex_ReTrigger_SameTarget_Failed_ReEnqueues(t *testin
 
 	require.NoError(t, h.DeleteClassVectorIndex(context.Background(), nil, "C", "foo"))
 
-	sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything)
+	sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser)
 	require.Equal(t, [][]string{{"foo"}}, enq.enqueued, "a failed cleanup must be re-enqueued (fresh task)")
 }
 
@@ -130,7 +130,7 @@ func TestDeleteClassVectorIndex_ReTrigger_DifferentTarget_SecondTask(t *testing.
 		"bar": {VectorIndexType: "hnsw"},
 	})
 	h, sm, enq := newDropVectorHandler(t, cls)
-	sm.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+	sm.On("UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser).Return(nil)
 
 	require.NoError(t, h.DeleteClassVectorIndex(context.Background(), nil, "C", "bar"))
 
@@ -148,7 +148,7 @@ func TestDeleteClassVectorIndex_ReTrigger_HasActiveDropError_Surfaces(t *testing
 	err := h.DeleteClassVectorIndex(context.Background(), nil, "C", "foo")
 	require.Error(t, err, "an unverifiable in-flight state must surface, not silently re-enqueue")
 	require.ErrorContains(t, err, "dtm unreachable")
-	sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything)
+	sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser)
 	require.Empty(t, enq.enqueued)
 }
 
@@ -162,11 +162,11 @@ func TestDeleteClassVectorIndex_FreshDrop_EnqueueFailure_StillSucceeds(t *testin
 	})
 	h, sm, enq := newDropVectorHandler(t, cls)
 	enq.enqueueErr = errors.New("dtm unreachable")
-	sm.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+	sm.On("UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser).Return(nil)
 
 	require.NoError(t, h.DeleteClassVectorIndex(context.Background(), nil, "C", "foo"),
 		"the drop is in effect once the marker is applied; enqueue failure must not fail it")
-	sm.AssertCalled(t, "UpdateClass", mock.Anything, mock.Anything)
+	sm.AssertCalled(t, "UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser)
 }
 
 // TestDeleteClassVectorIndex_ReTrigger_EnqueueFailure_StillSucceeds pins the
@@ -182,37 +182,28 @@ func TestDeleteClassVectorIndex_ReTrigger_EnqueueFailure_StillSucceeds(t *testin
 	enq.enqueueErr = errors.New("dtm unreachable")
 
 	require.NoError(t, h.DeleteClassVectorIndex(context.Background(), nil, "C", "foo"))
-	sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything)
+	sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser)
 }
 
 // TestDeleteClassVectorIndex_GuardBranches pins every early-return guard: none
 // may set the marker (UpdateClass) or reach the enqueuer.
 func TestDeleteClassVectorIndex_GuardBranches(t *testing.T) {
-	t.Run("endpoint disabled", func(t *testing.T) {
-		t.Setenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "false")
-		h, sm := newTestHandler(t, nil)
-		err := h.DeleteClassVectorIndex(context.Background(), nil, "C", "foo")
-		require.ErrorContains(t, err, "experimental")
-		sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything)
-	})
-
 	t.Run("empty vector index name", func(t *testing.T) {
 		cls := classWithVectors(map[string]models.VectorConfig{"foo": {VectorIndexType: "hnsw"}})
 		h, sm, enq := newDropVectorHandler(t, cls)
 		err := h.DeleteClassVectorIndex(context.Background(), nil, "C", "")
 		require.ErrorIs(t, err, ErrValidation)
 		require.ErrorContains(t, err, "cannot be empty")
-		sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything)
+		sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser)
 		require.Empty(t, enq.enqueued)
 	})
 
 	t.Run("class not found", func(t *testing.T) {
-		t.Setenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true")
 		h, sm := newTestHandler(t, nil)
-		sm.On("QueryReadOnlyClasses", []string{"C"}).Return(map[string]versioned.Class{}, nil)
+		sm.On("ReadOnlyClassesFromLeader", []string{"C"}).Return(map[string]versioned.Class{}, nil)
 		err := h.DeleteClassVectorIndex(context.Background(), nil, "C", "foo")
 		require.ErrorIs(t, err, ErrNotFound)
-		sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything)
+		sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser)
 	})
 
 	t.Run("no named vector configs", func(t *testing.T) {
@@ -221,7 +212,7 @@ func TestDeleteClassVectorIndex_GuardBranches(t *testing.T) {
 		err := h.DeleteClassVectorIndex(context.Background(), nil, "C", "foo")
 		require.ErrorIs(t, err, ErrValidation)
 		require.ErrorContains(t, err, "no named vector")
-		sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything)
+		sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser)
 		require.Empty(t, enq.enqueued)
 	})
 
@@ -231,7 +222,7 @@ func TestDeleteClassVectorIndex_GuardBranches(t *testing.T) {
 		err := h.DeleteClassVectorIndex(context.Background(), nil, "C", "foo")
 		require.ErrorIs(t, err, ErrNotFound)
 		require.ErrorContains(t, err, "not found in class")
-		sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything)
+		sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser)
 		require.Empty(t, enq.enqueued)
 	})
 }

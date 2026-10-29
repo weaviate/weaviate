@@ -27,7 +27,7 @@ def test_fetch_objects_search(collection_factory: CollectionFactory) -> None:
 def test_near_object_search(collection_factory: CollectionFactory) -> None:
     collection = collection_factory(
         properties=[Property(name="Name", data_type=DataType.TEXT)],
-        vectorizer_config=Configure.Vectorizer.text2vec_contextionary(
+        vectorizer_config=Configure.Vectorizer.text2vec_model2vec(
             vectorize_collection_name=False
         ),
     )
@@ -55,7 +55,7 @@ def test_near_object_search(collection_factory: CollectionFactory) -> None:
 def test_near_vector_search(collection_factory: CollectionFactory) -> None:
     collection = collection_factory(
         properties=[Property(name="Name", data_type=DataType.TEXT)],
-        vectorizer_config=Configure.Vectorizer.text2vec_contextionary(
+        vectorizer_config=Configure.Vectorizer.text2vec_model2vec(
             vectorize_collection_name=False
         ),
     )
@@ -96,7 +96,7 @@ def test_near_text_search(
     return_properties: Optional[PROPERTIES],
 ) -> None:
     collection = collection_factory(
-        vectorizer_config=Configure.Vectorizer.text2vec_contextionary(
+        vectorizer_config=Configure.Vectorizer.text2vec_model2vec(
             vectorize_collection_name=False
         ),
         properties=[Property(name="value", data_type=DataType.TEXT)],
@@ -132,7 +132,7 @@ def test_hybrid_near_vector_search(collection_factory: CollectionFactory) -> Non
         properties=[
             Property(name="text", data_type=DataType.TEXT),
         ],
-        vectorizer_config=Configure.Vectorizer.text2vec_contextionary(
+        vectorizer_config=Configure.Vectorizer.text2vec_model2vec(
             vectorize_collection_name=False
         ),
     )

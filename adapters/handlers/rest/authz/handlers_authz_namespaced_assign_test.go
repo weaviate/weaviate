@@ -13,6 +13,7 @@ package authz
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -530,6 +531,147 @@ func TestReservedRoleExistenceHiddenOnResolvePaths(t *testing.T) {
 			res := tt.invoke(h)
 			require.True(t, tt.want(res), "got %T", res)
 		})
+	}
+}
+
+// TestResolveLookupFailureIsInternalError pins that a GetRoles failure while
+// resolving a confined caller's role name returns 500 on every resolve path. A
+// lost leader is not the client's fault.
+func TestResolveLookupFailureIsInternalError(t *testing.T) {
+	principal := &models.Principal{Username: "customer1:admin", UserType: "db", Namespace: "customer1"}
+	lookupErr := errors.New("failed to execute query: leader not found")
+
+	failures := []struct {
+		name    string
+		failing string // stored name whose GetRoles call fails
+	}{
+		{name: "local lookup", failing: "customer1:auditor"},
+		{name: "global fallback", failing: "auditor"},
+	}
+
+	endpoints := []struct {
+		name   string
+		invoke func(h *authZHandlers) middleware.Responder
+		want   func(res middleware.Responder) bool
+	}{
+		{
+			name: "assign",
+			invoke: func(h *authZHandlers) middleware.Responder {
+				return h.assignRoleToUser(authz.AssignRoleToUserParams{HTTPRequest: req, ID: "bob", Body: authz.AssignRoleToUserBody{Roles: []string{"auditor"}, UserType: models.UserTypeInputDb}}, principal)
+			},
+			want: func(res middleware.Responder) bool {
+				_, ok := res.(*authz.AssignRoleToUserInternalServerError)
+				return ok
+			},
+		},
+		{
+			name: "assign second of two roles",
+			invoke: func(h *authZHandlers) middleware.Responder {
+				return h.assignRoleToUser(authz.AssignRoleToUserParams{HTTPRequest: req, ID: "bob", Body: authz.AssignRoleToUserBody{Roles: []string{"editor", "auditor"}, UserType: models.UserTypeInputDb}}, principal)
+			},
+			want: func(res middleware.Responder) bool {
+				_, ok := res.(*authz.AssignRoleToUserInternalServerError)
+				return ok
+			},
+		},
+		{
+			name: "revoke",
+			invoke: func(h *authZHandlers) middleware.Responder {
+				return h.revokeRoleFromUser(authz.RevokeRoleFromUserParams{HTTPRequest: req, ID: "bob", Body: authz.RevokeRoleFromUserBody{Roles: []string{"auditor"}, UserType: models.UserTypeInputDb}}, principal)
+			},
+			want: func(res middleware.Responder) bool {
+				_, ok := res.(*authz.RevokeRoleFromUserInternalServerError)
+				return ok
+			},
+		},
+		{
+			name: "addPermissions",
+			invoke: func(h *authZHandlers) middleware.Responder {
+				return h.addPermissions(authz.AddPermissionsParams{HTTPRequest: req, ID: "auditor", Body: authz.AddPermissionsBody{Permissions: collectionPerm()}}, principal)
+			},
+			want: func(res middleware.Responder) bool {
+				_, ok := res.(*authz.AddPermissionsInternalServerError)
+				return ok
+			},
+		},
+		{
+			name: "removePermissions",
+			invoke: func(h *authZHandlers) middleware.Responder {
+				return h.removePermissions(authz.RemovePermissionsParams{HTTPRequest: req, ID: "auditor", Body: authz.RemovePermissionsBody{Permissions: collectionPerm()}}, principal)
+			},
+			want: func(res middleware.Responder) bool {
+				_, ok := res.(*authz.RemovePermissionsInternalServerError)
+				return ok
+			},
+		},
+		{
+			name: "deleteRole",
+			invoke: func(h *authZHandlers) middleware.Responder {
+				return h.deleteRole(authz.DeleteRoleParams{HTTPRequest: req, ID: "auditor"}, principal)
+			},
+			want: func(res middleware.Responder) bool { _, ok := res.(*authz.DeleteRoleInternalServerError); return ok },
+		},
+		{
+			name: "getRole",
+			invoke: func(h *authZHandlers) middleware.Responder {
+				return h.getRole(authz.GetRoleParams{HTTPRequest: req, ID: "auditor"}, principal)
+			},
+			want: func(res middleware.Responder) bool { _, ok := res.(*authz.GetRoleInternalServerError); return ok },
+		},
+		{
+			name: "hasPermission",
+			invoke: func(h *authZHandlers) middleware.Responder {
+				return h.hasPermission(authz.HasPermissionParams{HTTPRequest: req, ID: "auditor", Body: collectionPerm()[0]}, principal)
+			},
+			want: func(res middleware.Responder) bool { _, ok := res.(*authz.HasPermissionInternalServerError); return ok },
+		},
+		{
+			name: "getUsersForRole",
+			invoke: func(h *authZHandlers) middleware.Responder {
+				return h.getUsersForRole(authz.GetUsersForRoleParams{HTTPRequest: req, ID: "auditor"}, principal)
+			},
+			want: func(res middleware.Responder) bool {
+				_, ok := res.(*authz.GetUsersForRoleInternalServerError)
+				return ok
+			},
+		},
+		{
+			name: "getGroupsForRole",
+			invoke: func(h *authZHandlers) middleware.Responder {
+				return h.getGroupsForRole(authz.GetGroupsForRoleParams{HTTPRequest: req, ID: "auditor"}, principal)
+			},
+			want: func(res middleware.Responder) bool {
+				_, ok := res.(*authz.GetGroupsForRoleInternalServerError)
+				return ok
+			},
+		},
+	}
+
+	for _, f := range failures {
+		for _, ep := range endpoints {
+			t.Run(f.name+"/"+ep.name, func(t *testing.T) {
+				authorizer := authorization.NewMockAuthorizer(t)
+				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+				// The controller registers no write or listing method, so reaching one
+				// past the failed lookup fails the test.
+				controller := NewMockControllerAndGetUsers(t)
+				controller.On("GetRoles", mock.Anything).Return(func(names ...string) (map[string][]authorization.Policy, error) {
+					switch names[0] {
+					case f.failing:
+						return nil, lookupErr
+					case "customer1:editor":
+						return map[string][]authorization.Policy{names[0]: {collPolicy(authorization.CREATE, "customer1:Films")}}, nil
+					default:
+						return map[string][]authorization.Policy{}, nil
+					}
+				})
+				logger, _ := test.NewNullLogger()
+				h := &authZHandlers{authorizer: authorizer, controller: controller, logger: logger, rbacconfig: rbacconf.Config{Enabled: true}, namespacesEnabled: true}
+
+				res := ep.invoke(h)
+				require.True(t, ep.want(res), "got %T", res)
+			})
+		}
 	}
 }
 

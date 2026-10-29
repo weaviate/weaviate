@@ -137,6 +137,9 @@ func createSchema(t *testing.T, client *weaviate.Client, class *models.Class) {
 		WithClass(class).
 		Do(context.Background())
 	if err != nil {
+		// tolerated so a re-created class does not fail the caller, but never
+		// silent: a genuine rejection here surfaces later as "class not found"
+		t.Logf("create class %q: %v", class.Class, err)
 		return
 	}
 
@@ -151,14 +154,16 @@ func classPizza() *models.Class {
 		Description:         "A delicious religion like food and arguably the best export of Italy.",
 		InvertedIndexConfig: &models.InvertedIndexConfig{IndexTimestamps: true, UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND},
 		Properties:          classPropertiesFood(),
+		VectorConfig:        DefaultVectorConfig(),
 	}
 }
 
 func classSoup() *models.Class {
 	return &models.Class{
-		Class:       "Soup",
-		Description: "Mostly water based brew of sustenance for humans.",
-		Properties:  classPropertiesFood(),
+		Class:        "Soup",
+		Description:  "Mostly water based brew of sustenance for humans.",
+		Properties:   classPropertiesFood(),
+		VectorConfig: DefaultVectorConfig(),
 	}
 }
 
@@ -168,6 +173,7 @@ func classRisotto() *models.Class {
 		Description:         "Risotto is a northern Italian rice dish cooked with broth.",
 		InvertedIndexConfig: &models.InvertedIndexConfig{IndexTimestamps: true, UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND},
 		Properties:          classPropertiesFood(),
+		VectorConfig:        DefaultVectorConfig(),
 	}
 }
 
@@ -207,7 +213,7 @@ func classPropertiesFood() []*models.Property {
 		Description: "price",
 		DataType:    schema.DataTypeNumber.PropString(),
 		ModuleConfig: map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
+			Text2VecModel2Vec: map[string]interface{}{
 				"skip": true,
 			},
 		},

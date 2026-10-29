@@ -51,7 +51,7 @@ func testVectorFromObject(targetVector string) VectorFromObject {
 		vec, err := storobj.VectorFromBinary(objectBytes, nil, targetVector)
 		if err != nil {
 			var notFound storobj.ErrTargetVectorNotFound
-			if errors.As(err, &notFound) {
+			if errors.As(err, &notFound) || errors.Is(err, storobj.ErrNoVector) {
 				return nil, nil
 			}
 			return nil, err
@@ -135,6 +135,21 @@ func TestScanObjectVectorsParallel(t *testing.T) {
 			}
 		}
 		assertVectorsEqual(t, exp, collectScan(t, bucket, "custom"))
+	})
+
+	t.Run("legacy objects without a vector are skipped", func(t *testing.T) {
+		bucket := newTestObjectsBucket(t)
+		exp := map[uint64][]float32{}
+		for i := uint64(0); i < 40; i++ {
+			if i%2 == 0 {
+				vec := []float32{float32(i)}
+				putTestObject(t, bucket, i, vec, nil)
+				exp[i] = vec
+			} else {
+				putTestObject(t, bucket, i, nil, nil)
+			}
+		}
+		assertVectorsEqual(t, exp, collectScan(t, bucket, ""))
 	})
 
 	t.Run("empty bucket", func(t *testing.T) {

@@ -60,12 +60,12 @@ func gettingObjectsWithFilters(t *testing.T) {
 				City (
 					nearText: {
 						concepts: ["hi"],
-						distance: 0.9
+						distance: 1.5
 					},
 					where: {
 						path: "len(name)"
 						operator: GreaterThanEqual
-						valueInt: 0
+						valueInt: 1
 					}
 				) {
 				  name
@@ -85,7 +85,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 				City (
 					nearText: {
 						concepts: ["hi"],
-						distance: 0.9
+						distance: 1.5
 					},
 					where: {
 						path: "name"

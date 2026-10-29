@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -35,7 +34,7 @@ func startOllamaGenerative(ctx context.Context, networkName string) (*DockerCont
 }
 
 func startOllama(ctx context.Context, networkName, hostname, model string) (*DockerContainer, error) {
-	port := nat.Port("11434/tcp")
+	port := "11434/tcp"
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:    "ollama/ollama:0.12.11",
@@ -68,6 +67,6 @@ func startOllama(ctx context.Context, networkName, hostname, model string) (*Doc
 	}
 	endpoints := make(map[EndpointName]endpoint)
 	endpoints[HTTP] = endpoint{port, uri}
-	endpoints["apiEndpoint"] = endpoint{uri: fmt.Sprintf("http://%s:%s", hostname, port.Port())}
+	endpoints["apiEndpoint"] = endpoint{uri: fmt.Sprintf("http://%s:%s", hostname, portNumber(port))}
 	return &DockerContainer{hostname, endpoints, container, nil}, nil
 }

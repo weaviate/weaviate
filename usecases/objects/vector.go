@@ -16,13 +16,14 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 )
 
-func (m *Manager) updateRefVector(ctx context.Context, principal *models.Principal,
+func (m *Manager) updateRefVector(ctx context.Context,
 	className string, id strfmt.UUID, tenant string, class *models.Class, schemaVersion uint64,
 ) error {
 	if m.modulesProvider.UsingRef2Vec(className) {
@@ -34,11 +35,6 @@ func (m *Manager) updateRefVector(ctx context.Context, principal *models.Princip
 		}
 
 		obj := parent.Object()
-
-		class, err := m.schemaManager.GetClass(ctx, principal, className)
-		if err != nil {
-			return err
-		}
 
 		if err := m.modulesProvider.UpdateVector(
 			ctx, obj, class, m.findObject, m.logger); err != nil {

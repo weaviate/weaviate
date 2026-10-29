@@ -70,6 +70,12 @@ func (o *ForceDeleteReplicationsReader) ReadResponse(response runtime.ClientResp
 			return nil, err
 		}
 		return nil, result
+	case 501:
+		result := NewForceDeleteReplicationsNotImplemented()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -460,6 +466,74 @@ func (o *ForceDeleteReplicationsInternalServerError) GetPayload() *models.ErrorR
 }
 
 func (o *ForceDeleteReplicationsInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewForceDeleteReplicationsNotImplemented creates a ForceDeleteReplicationsNotImplemented with default headers values
+func NewForceDeleteReplicationsNotImplemented() *ForceDeleteReplicationsNotImplemented {
+	return &ForceDeleteReplicationsNotImplemented{}
+}
+
+/*
+ForceDeleteReplicationsNotImplemented describes a response with status code 501, with default header values.
+
+Replica movement operations are disabled.
+*/
+type ForceDeleteReplicationsNotImplemented struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this force delete replications not implemented response has a 2xx status code
+func (o *ForceDeleteReplicationsNotImplemented) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this force delete replications not implemented response has a 3xx status code
+func (o *ForceDeleteReplicationsNotImplemented) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this force delete replications not implemented response has a 4xx status code
+func (o *ForceDeleteReplicationsNotImplemented) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this force delete replications not implemented response has a 5xx status code
+func (o *ForceDeleteReplicationsNotImplemented) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this force delete replications not implemented response a status code equal to that given
+func (o *ForceDeleteReplicationsNotImplemented) IsCode(code int) bool {
+	return code == 501
+}
+
+// Code gets the status code for the force delete replications not implemented response
+func (o *ForceDeleteReplicationsNotImplemented) Code() int {
+	return 501
+}
+
+func (o *ForceDeleteReplicationsNotImplemented) Error() string {
+	return fmt.Sprintf("[POST /replication/replicate/force-delete][%d] forceDeleteReplicationsNotImplemented  %+v", 501, o.Payload)
+}
+
+func (o *ForceDeleteReplicationsNotImplemented) String() string {
+	return fmt.Sprintf("[POST /replication/replicate/force-delete][%d] forceDeleteReplicationsNotImplemented  %+v", 501, o.Payload)
+}
+
+func (o *ForceDeleteReplicationsNotImplemented) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ForceDeleteReplicationsNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

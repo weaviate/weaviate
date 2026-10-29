@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/cluster/schema/leader"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -75,6 +76,10 @@ type recordedCall struct {
 
 // stubRaft records calls and lets tests inject errors per op.
 type stubRaft struct {
+	// Only DeleteClass and DeleteAlias of these writers are expected; the rest
+	// are left unset.
+	leader.ClassWriter
+	leader.AliasWriter
 	calls []recordedCall
 
 	deleteUsersErr   map[string]error

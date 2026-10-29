@@ -74,25 +74,12 @@ func ValidateNamespacePrefix(principal *models.Principal, namespacesEnabled bool
 // get the same limit.
 const ShortNameMaxLength = schema.ClassNameMaxLength - schema.NamespaceMaxLength - len(schema.NamespaceSeparator)
 
-// QualifyForCreate is the create-path entry point: it enforces the NS-enabled
-// policy, length-checks the raw short name, and returns the qualified form.
-// On NS-enabled clusters, callers without a namespace are rejected with
-// ErrCreateRequiresNamespace; the call site is responsible for translating
-// that into a 403 with the appropriate verb and resources. kind is the noun
-// ("class" or "alias") used in the prefix-rejection error so the wording
-// matches the field the caller is validating.
-func QualifyForCreate(principal *models.Principal, namespacesEnabled bool, raw, kind string) (string, error) {
-	if err := ValidateNamespacePrefix(principal, namespacesEnabled, raw, kind); err != nil {
+// QualifyForCreate validates raw's prefix, naming kind in the rejection, and
+// passes raw to q.QualifyForCreate. Call sites turn ErrCreateRequiresNamespace
+// into a 403 and handle any other error from q as Qualifier describes.
+func QualifyForCreate(principal *models.Principal, q Qualifier, raw, kind string) (string, error) {
+	if err := ValidateNamespacePrefix(principal, q.NamespacesEnabled(), raw, kind); err != nil {
 		return "", err
 	}
-	if !namespacesEnabled {
-		return raw, nil
-	}
-	if ConfinedNamespace(principal) == "" {
-		return "", ErrCreateRequiresNamespace
-	}
-	if len(raw) > ShortNameMaxLength {
-		return "", fmt.Errorf("'%s' is too long: namespaced names must be at most %d characters before qualification", raw, ShortNameMaxLength)
-	}
-	return qualify(principal, raw), nil
+	return q.QualifyForCreate(principal, raw)
 }

@@ -21,11 +21,14 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	entschema "github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -35,7 +38,7 @@ import (
 // so it can reuse buildUnitMaps/buildUnitSpecs.
 type dropVectorIndexEnqueuer struct {
 	clusterService clusterDropTaskClient
-	schemaState    schemaStateQuerier
+	schemaState    leader.SchemaReader
 	logger         logrus.FieldLogger // nil-safe: only used for skip warnings
 	// finalizer removes dropped VectorConfig entries directly — the escape
 	// for MT collections with ZERO tenants, where no cleanup task can ever
@@ -52,23 +55,12 @@ type dropVectorFinalizer interface {
 
 // clusterDropTaskClient is the slice of the cluster service the enqueuer uses.
 type clusterDropTaskClient interface {
-	ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error)
+	distributedtask.TaskLister
 	AddDistributedTaskWithGroups(ctx context.Context, namespace, taskID string,
 		taskPayload any, unitSpecs []distributedtask.UnitSpec) error
 }
 
-// schemaStateQuerier provides leader-consistent schema reads for a collection:
-// the sharding state (units must be built from the current tenant statuses, not
-// this node's eventually-consistent local view — a tenant activated moments ago
-// could still read COLD locally and be skipped) and the class (targets are
-// re-validated as still marked dropped right before submitting the destructive
-// cleanup task). cluster.Raft satisfies it.
-type schemaStateQuerier interface {
-	QueryShardingState(class string) (*sharding.State, uint64, error)
-	QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error)
-}
-
-func newDropVectorIndexEnqueuer(clusterService clusterDropTaskClient, schemaState schemaStateQuerier, logger logrus.FieldLogger) *dropVectorIndexEnqueuer {
+func newDropVectorIndexEnqueuer(clusterService clusterDropTaskClient, schemaState leader.SchemaReader, logger logrus.FieldLogger) *dropVectorIndexEnqueuer {
 	return &dropVectorIndexEnqueuer{clusterService: clusterService, schemaState: schemaState, logger: logger}
 }
 
@@ -154,7 +146,7 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndexWithTasks(ctx context.Co
 		return nil // nothing (still) marked dropped — no-op
 	}
 
-	state, _, err := e.schemaState.QueryShardingState(collection)
+	state, _, err := e.schemaState.ShardingStateFromLeader(collection)
 	if err != nil {
 		return fmt.Errorf("drop-vector enqueue: sharding state for %q: %w", collection, err)
 	}
@@ -372,7 +364,7 @@ func withoutCleanedShards(ownership map[string][]string, cleaned []string) map[s
 // stillDroppedTargets filters targets to those still present and marked dropped
 // in the leader-consistent class. A missing class means nothing to clean.
 func (e *dropVectorIndexEnqueuer) stillDroppedTargets(collection string, targets []string) ([]string, error) {
-	vclasses, err := e.schemaState.QueryReadOnlyClasses(collection)
+	vclasses, err := e.schemaState.ReadOnlyClassesFromLeader(collection)
 	if err != nil {
 		return nil, err
 	}
@@ -484,7 +476,7 @@ func (e *dropVectorIndexEnqueuer) opStillNeeded(
 	}
 	lookup, ok := classes[p.Collection]
 	if !ok {
-		vclasses, err := e.schemaState.QueryReadOnlyClasses(p.Collection)
+		vclasses, err := e.schemaState.ReadOnlyClassesFromLeader(p.Collection)
 		if err != nil {
 			if e.logger != nil {
 				e.logger.WithField("collection", p.Collection).
@@ -507,7 +499,7 @@ var _ schema.DropVectorIndexEnqueuer = (*dropVectorIndexEnqueuer)(nil)
 // dropVectorReconcileClient is the enqueuer slice reconciliation uses. The
 // task list is fetched once per round and shared across every marker check.
 type dropVectorReconcileClient interface {
-	ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error)
+	distributedtask.TaskLister
 	EnqueueDropVectorIndexWithTasks(ctx context.Context, collection string, targets []string,
 		tasks map[string][]*distributedtask.Task) error
 }
@@ -515,9 +507,11 @@ type dropVectorReconcileClient interface {
 // reconcileDroppedVectorIndexes enqueues cleanup for every "none" marker with no
 // in-flight task — recovery for a crash between marker apply and enqueue, an
 // upgrade with pre-existing markers, or a restore. Idempotent: the active-task
-// check + the ConflictDetector dedupe across nodes running it at startup.
+// check + the ConflictDetector dedupe across nodes running it at startup. It
+// skips a class whose namespace is not active and leaves its markers for a round
+// after resume.
 func reconcileDroppedVectorIndexes(ctx context.Context, classes []*models.Class,
-	enq dropVectorReconcileClient, logger logrus.FieldLogger,
+	enq dropVectorReconcileClient, namespacesExister namespaces.Exister, logger logrus.FieldLogger,
 ) {
 	tasks, err := enq.ListDistributedTasks(ctx)
 	if err != nil {
@@ -526,6 +520,9 @@ func reconcileDroppedVectorIndexes(ctx context.Context, classes []*models.Class,
 	}
 	for _, class := range classes {
 		if class == nil {
+			continue
+		}
+		if err := namespaces.RequireActive(namespacesExister, namespacing.NamespaceFromQualified(class.Class)); err != nil {
 			continue
 		}
 		for name, cfg := range class.VectorConfig {
@@ -543,19 +540,14 @@ func reconcileDroppedVectorIndexes(ctx context.Context, classes []*models.Class,
 	}
 }
 
-// schemaLister returns the local schema snapshot (eventually-consistent is fine
-// for an idempotent safety net); *schema.Manager satisfies it.
-type schemaLister interface {
-	GetSchemaSkipAuth() entschema.Schema
-}
-
 // runDropVectorIndexReconciliation waits (bounded) for the cluster task store to
 // be readable — so submits don't hit an unelected leader — then runs
 // reconcileDroppedVectorIndexes periodically until ctx is cancelled. Launch in a
-// goroutine.
-func runDropVectorIndexReconciliation(ctx context.Context, lister schemaLister,
-	enq dropVectorReconcileClient, logger logrus.FieldLogger, interval time.Duration,
-	isLeader func() bool, nudge <-chan struct{},
+// goroutine. lister reads the local schema: eventually consistent is fine for
+// this idempotent safety net.
+func runDropVectorIndexReconciliation(ctx context.Context, lister local.ClassReader,
+	enq dropVectorReconcileClient, namespacesExister namespaces.Exister, logger logrus.FieldLogger,
+	interval time.Duration, isLeader func() bool, nudge <-chan struct{},
 ) {
 	const attempts = 30
 	for i := 0; i < attempts; i++ {
@@ -594,9 +586,8 @@ func runDropVectorIndexReconciliation(ctx context.Context, lister schemaLister,
 			if isLeader != nil && !isLeader() {
 				return
 			}
-			sch := lister.GetSchemaSkipAuth()
-			if sch.Objects != nil && len(sch.Objects.Classes) > 0 {
-				reconcileDroppedVectorIndexes(ctx, sch.Objects.Classes, enq, logger)
+			if classes := lister.ReadOnlySchema().Classes; len(classes) > 0 {
+				reconcileDroppedVectorIndexes(ctx, classes, enq, namespacesExister, logger)
 			}
 		}()
 		select {

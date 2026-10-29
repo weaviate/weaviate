@@ -262,15 +262,15 @@ func TestCrons_RuntimeConfigHooks(t *testing.T) {
 		want  []string
 	}{
 		{
-			// Startup reads the map before anything calls Init, so both keys
+			// Startup reads the map before anything calls Init, so every key
 			// must already be there without one.
-			name: "both registrants, collected before Init",
+			name: "every registrant, collected before Init",
 			crons: func(t *testing.T) *Crons {
 				c, _, _, cancel := newTestCrons(t)
 				t.Cleanup(cancel)
 				return c
 			},
-			want: []string{"NamespaceCleanup", "ObjectsTTL"},
+			want: []string{"NamespaceCleanup", "ObjectsTTL", "SuspendReconcile"},
 		},
 		{
 			name:  "no registrants",

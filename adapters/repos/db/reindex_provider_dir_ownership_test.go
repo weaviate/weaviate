@@ -266,7 +266,7 @@ func TestRecoveryNamesTheDirectoriesItRecoveredFrom(t *testing.T) {
 
 			onDisk := seedInFlightMigration(t, p, lsm, tc, 3, 41)
 
-			recovered, err := DiscoverInFlightReindexTasks(root, p.logger, nil)
+			recovered, err := DiscoverInFlightReindexTasks(root, true, p.logger, nil)
 			require.NoError(t, err)
 			require.NotEmpty(t, recovered, "an unswapped migration is in flight on this shard")
 
@@ -300,7 +300,7 @@ func TestRecoverySkipsATrackerDirectoryThatNamesNoGeneration(t *testing.T) {
 					filepath.Join(lsm, migrationsDir, base)))
 			}
 
-			recovered, err := DiscoverInFlightReindexTasks(root, p.logger, nil)
+			recovered, err := DiscoverInFlightReindexTasks(root, true, p.logger, nil)
 			require.NoError(t, err)
 			require.Empty(t, recoveredMigrationDirs(recovered),
 				"a directory name with no generation gives recovery nothing to rebuild from")

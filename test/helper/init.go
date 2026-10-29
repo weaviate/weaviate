@@ -40,6 +40,13 @@ var (
 // previous test may still be reading them through Client() or ClientGRPC().
 var serverMu sync.RWMutex
 
+// SharedServerURI and SharedServerGRPCURI address the single-node server that
+// test/run.sh starts from docker-compose-test.yml for the suites that need it.
+const (
+	SharedServerURI     = "localhost:8080"
+	SharedServerGRPCURI = "localhost:50051"
+)
+
 // Credentials for the root key
 var RootAuth runtime.ClientAuthInfoWriterFunc
 

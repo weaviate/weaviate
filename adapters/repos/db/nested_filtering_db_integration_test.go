@@ -1145,7 +1145,7 @@ func getDocID(t *testing.T, db *DB, className string, id strfmt.UUID) uint64 {
 		docID uint64
 		found bool
 	)
-	err := index.IterateShards(context.Background(), func(_ *Index, shard ShardLike) error {
+	err := index.ForEachShard(func(_ string, shard ShardLike) error {
 		obj, err := shard.ObjectByID(context.Background(), id, search.SelectProperties{}, additional.Properties{})
 		if err != nil || obj == nil {
 			return err
@@ -1172,7 +1172,7 @@ func assertNoGhostEntries(t *testing.T, db *DB, className, propName string, dele
 		helpers.BucketNestedMetaFromPropNameLSM(propName),
 	}
 
-	err := index.IterateShards(context.Background(), func(_ *Index, shard ShardLike) error {
+	err := index.ForEachShard(func(_ string, shard ShardLike) error {
 		for _, bucketName := range bucketNames {
 			bucket := shard.Store().Bucket(bucketName)
 			if bucket == nil {
@@ -1267,7 +1267,6 @@ func TestNestedFilteringAllDatatypesAPIPath(t *testing.T) {
 
 	// Create DB only for schema access — the object is NOT written to the DB.
 	db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
-	ctx := context.Background()
 
 	obj := storobj.FromObject(&models.Object{
 		Class: nestedClass, ID: objID,
@@ -1284,7 +1283,7 @@ func TestNestedFilteringAllDatatypesAPIPath(t *testing.T) {
 
 	index := db.indices[indexID(schema.ClassName(nestedClass))]
 	require.NotNil(t, index)
-	err := index.IterateShards(ctx, func(_ *Index, shard ShardLike) error {
+	err := index.ForEachShard(func(_ string, shard ShardLike) error {
 		// Analyze the in-memory object — values are in JSON/API form ([]any,
 		// float64, string, bool) with no binary round-trip applied.
 		_, _, nestedProps, err := shard.AnalyzeObject(obj)
@@ -1447,7 +1446,7 @@ func TestNestedFilteringAllDatatypesDBReadBack(t *testing.T) {
 
 	index := db.indices[indexID(schema.ClassName(nestedClass))]
 	require.NotNil(t, index)
-	err := index.IterateShards(ctx, func(_ *Index, shard ShardLike) error {
+	err := index.ForEachShard(func(_ string, shard ShardLike) error {
 		obj, err := shard.ObjectByID(ctx, objID, search.SelectProperties{}, additional.Properties{})
 		require.NoError(t, err)
 		require.NotNil(t, obj)

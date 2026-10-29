@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - name: Get build date
         id: date
@@ -38,7 +38,7 @@ jobs:
 
       - name: Build and cache Docker image
         id: build
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         env:
           DOCKER_BUILD_SUMMARY: false
         with:
@@ -47,15 +47,16 @@ jobs:
           tags: weaviate:${{ github.sha }}
           platforms: linux/amd64 # Single-arch for scanning
           load: true
-          # Use all caches as "read" sources, so BuildKit can reuse whatever matches.
           cache-from: |
             type=gha,scope=weaviate-multi
-            type=gha,scope=weaviate-amd64
-            type=gha,scope=weaviate-arm64
-          # Write back only to this job's cache scope (multi) to keep per-arch caches clean.
           # ignore-error=true prevents the build from failing if the cache export flakes.
           cache-to: |
             type=gha,scope=weaviate-multi,mode=max,ignore-error=true
+          # Rebuild the final stage on every run. Its `apk upgrade` cache key covers the
+          # base image and the Dockerfile line, not Alpine's package index, so a cached
+          # layer keeps serving packages Alpine has since fixed. push_docker.sh then
+          # reuses the freshly built, scanned layer from this builder's local cache.
+          no-cache-filters: weaviate
           build-args: |
             CGO_ENABLED=0
             GIT_REVISION=${{ github.sha }}
@@ -77,13 +78,13 @@ jobs:
 
       - name: Upload SARIF file
         if: always() && steps.vuln-scan.outputs.exit_code != 1
-        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
         with:
           sarif_file: results/image.sarif
 
       - name: Run Orca SAST Scan
         id: sast-scan
-        uses: orcasecurity/shiftleft-sast-action@4bd6a2dc704568ad08b58705eceeeeb595ea609c # v1.0.12
+        uses: orcasecurity/shiftleft-sast-action@0de964b908a3c1ba234dcb18c44c7a2fd5aa3573 # v1.0.14
         continue-on-error: true
         with:
           api_token: ${{ secrets.ORCA_SECURITY_API_TOKEN }}
@@ -123,7 +124,7 @@ jobs:
           echo "${{ steps.push.outputs.PREVIEW_SEMVER_TAG }}" > /tmp/docker-outputs/preview-semver-tag.txt
 
       - name: Upload outputs
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: docker-outputs-multi-arch
           path: /tmp/docker-outputs/
@@ -149,7 +150,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - name: Login to Docker Hub
         uses: ./.github/actions/docker-login
@@ -170,7 +171,7 @@ jobs:
           echo "${{ steps.push.outputs.PREVIEW_SEMVER_TAG }}" > /tmp/docker-outputs/preview-semver-tag.txt
 
       - name: Upload outputs
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: docker-outputs-pr-${{ matrix.arch }}
           path: /tmp/docker-outputs/
@@ -187,10 +188,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - name: Build Docker image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         env:
           DOCKER_BUILD_SUMMARY: false
         with:
@@ -201,7 +202,8 @@ jobs:
           load: true
           cache-from: |
             type=gha,scope=weaviate-multi
-            type=gha,scope=weaviate-amd64
+          # Scan a fresh `apk upgrade` layer, not main's cached one (see Multi-Arch-Docker-Build).
+          no-cache-filters: weaviate
           build-args: |
             CGO_ENABLED=0
 
@@ -219,13 +221,13 @@ jobs:
 
       - name: Upload SARIF file
         if: always() && steps.vuln-scan.outputs.exit_code != 1
-        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
         with:
           sarif_file: results/image.sarif
 
       - name: Run Orca SAST Scan
         id: sast-scan
-        uses: orcasecurity/shiftleft-sast-action@4bd6a2dc704568ad08b58705eceeeeb595ea609c # v1.0.12
+        uses: orcasecurity/shiftleft-sast-action@0de964b908a3c1ba234dcb18c44c7a2fd5aa3573 # v1.0.14
         continue-on-error: true
         with:
           api_token: ${{ secrets.ORCA_SECURITY_API_TOKEN }}
@@ -257,7 +259,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Download all build outputs
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: docker-outputs-*
           path: /tmp/all-outputs/
@@ -296,6 +298,7 @@ jobs:
   Buf-Checks:
     name: buf checks
     runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1.50.0
@@ -312,6 +315,7 @@ jobs:
   Run-Swagger:
     name: swagger
     runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
@@ -351,7 +355,7 @@ jobs:
       - name: Unit test
         run: ./test/run.sh ${{ matrix.test }}
       - name: Archive code coverage results
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: coverage-report-unit-${{ matrix.name }}
           path: coverage-unit.txt
@@ -366,6 +370,8 @@ jobs:
             test: "--integration-vector-package-only"
           - name: "without vector"
             test: "--integration-without-vector-package"
+          - name: "integrationslowtest"
+            test: "--integration-slow-package-only"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
@@ -381,13 +387,14 @@ jobs:
       - name: Integration test
         run: ./test/run.sh ${{ matrix.test }}
       - name: Archive code coverage results
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: coverage-report-integration${{ matrix.test }}
           path: coverage-integration.txt
   Modules-Acceptance-Tests:
     name: modules (${{ matrix.name }})
     runs-on: ubicloud-standard-4
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
@@ -437,7 +444,7 @@ jobs:
   Modules-On-Demand-Tests-Check:
     name: modules on demand
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
+    if: ${{ !github.event.pull_request.head.repo.fork && (github.event_name != 'push' || github.ref_type != 'branch') }}  # no PRs from fork, skipped on branch pushes
     outputs:
       run_pipeline: ${{ steps.check.outputs.run_pipeline }}
     steps:
@@ -623,7 +630,7 @@ jobs:
       - name: configure aws
         if: ${{ env.run_pipeline == 'true' }}
         id: creds-aws
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -652,6 +659,7 @@ jobs:
   Acceptance-Tests:
     name: acceptance (${{ matrix.name }})
     runs-on: ubicloud-standard-4
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
@@ -661,7 +669,9 @@ jobs:
           - name: "fast-group-2"
             test: "--acceptance-only-fast-group-2"
           - name: "fast-group-3"
-            test: "--acceptance-only-fast-group-3"          
+            test: "--acceptance-only-fast-group-3"
+          - name: "fast-group-6"
+            test: "--acceptance-only-fast-group-6"
           - name: "graphql"
             test: "--acceptance-only-graphql"
           - name: "authz"
@@ -673,10 +683,15 @@ jobs:
           - name: "replication-grpc"
             test: "--acceptance-only-replication"
             grpc_replication: "true"
-          - name: "async-replication"
-            test: "--acceptance-only-async-replication"
-          - name: "async-replication-grpc"
-            test: "--acceptance-only-async-replication"
+          - name: "async-replication-group-1"
+            test: "--acceptance-only-async-replication-group-1"
+          - name: "async-replication-group-1-grpc"
+            test: "--acceptance-only-async-replication-group-1"
+            grpc_replication: "true"
+          - name: "async-replication-group-2"
+            test: "--acceptance-only-async-replication-group-2"
+          - name: "async-replication-group-2-grpc"
+            test: "--acceptance-only-async-replication-group-2"
             grpc_replication: "true"
           - name: "replica-fast"
             test: "--acceptance-only-replica-replication-fast"
@@ -708,6 +723,7 @@ jobs:
   Acceptance-Tests-4-cores:
     name: acceptance large (${{ matrix.name }})
     runs-on: ubicloud-standard-4-ubuntu-2404
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
@@ -731,10 +747,14 @@ jobs:
             test: "--acceptance-compaction"
           - name: "recovery"
             test: "--acceptance-recovery"
+          - name: "self-recovery"
+            test: "--acceptance-self-recovery"
+          - name: "self-recovery-lazy"
+            test: "--acceptance-self-recovery-lazy"
+          - name: "self-recovery-intact"
+            test: "--acceptance-self-recovery-intact"
           - name: "python"
             test: "--acceptance-only-python"
-          - name: "python-namespaces"
-            test: "--acceptance-only-python-namespaces"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
@@ -758,7 +778,7 @@ jobs:
         env:
           MATRIX_TEST: ${{ matrix.name }}
         run: |
-          if [[ "$MATRIX_TEST" == "replica-slow" || "$MATRIX_TEST" == "replica-slow-grpc" || "$MATRIX_TEST" == "fast-group-4" || "$MATRIX_TEST" == "fast-group-5" || "$MATRIX_TEST" == "recovery" || "$MATRIX_TEST" == "distributed-tasks" || "$MATRIX_TEST" == "compaction" || "$MATRIX_TEST" == "python-namespaces" ]]; then
+          if [[ "$MATRIX_TEST" == "replica-slow" || "$MATRIX_TEST" == "replica-slow-grpc" || "$MATRIX_TEST" == "fast-group-4" || "$MATRIX_TEST" == "fast-group-5" || "$MATRIX_TEST" == "recovery" || "$MATRIX_TEST" == "self-recovery" || "$MATRIX_TEST" == "self-recovery-lazy" || "$MATRIX_TEST" == "self-recovery-intact" || "$MATRIX_TEST" == "distributed-tasks" || "$MATRIX_TEST" == "compaction" ]]; then
             echo "test_timeout_minutes=45" >> $GITHUB_ENV
           else
             echo "test_timeout_minutes=15" >> $GITHUB_ENV
@@ -772,9 +792,37 @@ jobs:
           max_attempts: ${{ env.retry_max_attempts }}
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
+  Acceptance-With-License-Tests:
+    name: acceptance with license (${{ matrix.name }})
+    runs-on: ubicloud-standard-4-ubuntu-2404
+    # Forks and Dependabot cannot read WEAVIATE_LICENSE_KEY.
+    if: ${{ (github.event_name != 'push' || github.ref_type != 'branch') && !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "licensed"
+            test: "--acceptance-licensed"
+          - name: "python-namespaces"
+            test: "--acceptance-only-python-namespaces"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go
+        uses: ./.github/actions/setup-go
+      - name: Login to Docker Hub
+        uses: ./.github/actions/docker-login
+        with:
+          username: ${{secrets.DOCKER_USERNAME}}
+          password: ${{secrets.DOCKER_PASSWORD}}
+      - name: Acceptance tests with license
+        timeout-minutes: 45
+        env:
+          WEAVIATE_LICENSE_KEY: ${{ secrets.WEAVIATE_LICENSE_KEY }}
+        run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Reindex-Tests:
     name: reindex (${{ matrix.name }})
     runs-on: ubicloud-standard-4-ubuntu-2404
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
@@ -824,9 +872,45 @@ jobs:
           max_attempts: 1
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
+  Acceptance-Backup-Dedupe-Tests:
+    name: backup-dedupe (${{ matrix.name }})
+    runs-on: ubicloud-standard-4-ubuntu-2404
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "dedupe"
+            test: "--acceptance-backup-dedupe"
+          - name: "cross-version"
+            test: "--acceptance-backup-dedupe-cross-version"
+          - name: "incremental"
+            test: "--acceptance-backup-dedupe-incremental"
+          - name: "misc"
+            test: "--acceptance-backup-dedupe-misc"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go
+        uses: ./.github/actions/setup-go
+      - name: Login to Docker Hub
+        uses: ./.github/actions/docker-login
+        if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
+        with:
+          username: ${{secrets.DOCKER_USERNAME}}
+          password: ${{secrets.DOCKER_PASSWORD}}
+      - name: Acceptance tests backup dedupe
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
+        with:
+          # 3-node + MinIO testcontainer suites under -race; the cross-version
+          # entry additionally pulls a 1.34.0 release image.
+          timeout_minutes: 45
+          max_attempts: 1
+          command: ./test/run.sh ${{ matrix.test }}
+          on_retry_command: ./test/run.sh --cleanup
   Acceptance-DropVectorIndex-Tests:
     name: drop-vector-index (${{ matrix.name }})
     runs-on: ubicloud-standard-4-ubuntu-2404
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
@@ -863,6 +947,7 @@ jobs:
   Acceptance-Tests-github-4-cores:
     name: acceptance large (${{ matrix.name }})
     runs-on: DB-ubuntu-24.04-4-cores
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
@@ -904,34 +989,40 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Download coverage artifacts integration
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: coverage-report-unit-adapters
           path: coverage-unit-adapters
       - name: Download coverage unit non-adapters
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: coverage-report-unit-non-adapters
           path: coverage-unit-non-adapters
       - name: Download coverage integration without vector package
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: coverage-report-integration--integration-without-vector-package
           path: coverage-integration-without-vector-package.txt
       - name: Download coverage integration vector package only
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: coverage-report-integration--integration-vector-package-only
           path: coverage-integration-vector-package-only.txt
+      - name: Download coverage integration slow package only
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: coverage-report-integration--integration-slow-package-only
+          path: coverage-integration-slow-package-only.txt
       - name: Codecov
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           fail_ci_if_error: false
-          files: ./coverage-integration-without-vector-package.txt, ./coverage-integration-vector-package-only.txt, ./coverage-unit-adapters/coverage-unit.txt, ./coverage-unit-non-adapters/coverage-unit.txt
+          files: ./coverage-integration-without-vector-package.txt, ./coverage-integration-vector-package-only.txt, ./coverage-integration-slow-package-only.txt, ./coverage-unit-adapters/coverage-unit.txt, ./coverage-unit-non-adapters/coverage-unit.txt
           verbose: true
   Compile-and-upload-binaries:
     name: compile and upload binaries
     runs-on: ubicloud-standard-4-ubuntu-2404
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
@@ -944,56 +1035,17 @@ jobs:
         run: |
           GIT_REVISION=$(git rev-parse --short HEAD) GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD) BUILD_USER=ci BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") goreleaser build  --clean --snapshot
       - name: Upload macos
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: binaries-macos-unsigned
           path: dist/weaviate_darwin_all
-      - name: Upload windows
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: binaries-windows-amd64
-          path: dist/weaviate_windows_amd64_v1
-      - name: Upload windows
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: binaries-windows-arm64
-          path: dist/weaviate_windows_arm64
       - name: Upload linux amd64
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: binaries-linux-amd64
           path: dist/weaviate_linux_amd64_v1
       - name: Upload linux arm64
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: binaries-linux-arm64
           path: dist/weaviate_linux_arm64
-  Acceptance-Tests-windows:
-    name: acceptance (windows)
-    needs: Compile-and-upload-binaries
-    runs-on: windows-latest
-    env:
-      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: true
-      PERSISTENCE_DATA_PATH: /tmp
-      QUERY_DEFAULTS_LIMIT: 20
-      CLUSTER_HOSTNAME: node1
-      RAFT_BOOTSTRAP_EXPECT: 1
-      RAFT_JOIN: node1
-      GRPC_PORT: 50052
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Download binaries
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: binaries-windows-amd64
-      - name: Set up Go
-        uses: ./.github/actions/setup-go
-      - name: start weaviate
-        shell: bash
-        # Weaviate is started without a Vectorizer as running text2vec-contextionary on GH actions is difficult:
-        # - docker on GHA only supports windows container - which we currently are not build
-        # - building those containers without a windows machine is difficult to figure out
-        run: ./weaviate.exe --scheme http --port 8080 &
-      - name: run acceptance tests
-        shell: bash
-        run: go test -count 1 -race test/acceptance/actions/*.go  # tests that don't need a Vectorizer

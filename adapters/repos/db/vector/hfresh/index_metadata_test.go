@@ -13,10 +13,14 @@ package hfresh
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
 
@@ -51,6 +55,43 @@ func TestQuantizationDataSurvivesRestart(t *testing.T) {
 	require.Equal(t, dataBefore.Rotation.Rounds, dataAfter.Rotation.Rounds)
 	require.Equal(t, dataBefore.Rotation.Swaps, dataAfter.Rotation.Swaps)
 	require.Equal(t, dataBefore.Rotation.Signs, dataAfter.Rotation.Signs)
+}
+
+func TestSingleCentroidSurvivesCompactionAndRestart(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc := makeHFreshConfig(t)
+	vectors, _ := testinghelpers.RandomVecsFixedSeed(3, 1, 64)
+	cfg.VectorForIDThunk = func(_ context.Context, id uint64) ([]float32, error) {
+		return vectors[id], nil
+	}
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+	for id, vector := range vectors {
+		require.NoError(t, index.Add(t.Context(), uint64(id), vector))
+	}
+	require.Eventually(t, func() bool { return index.taskQueue.Size() == 0 }, 10*time.Second, 10*time.Millisecond)
+
+	for round := 0; round < 3; round++ {
+		for _, vector := range vectors {
+			ids, _, err := index.SearchByVector(t.Context(), vector, len(vectors), nil)
+			require.NoError(t, err)
+			require.ElementsMatch(t, []uint64{0, 1, 2}, ids, "restart %d", round)
+		}
+		if round == 2 {
+			break
+		}
+		require.NoError(t, index.Shutdown(t.Context()))
+		dir := filepath.Join(cfg.RootPath, "centroids.hnsw.commitlog.d")
+		// A newer active WAL makes the closed log eligible for compaction,
+		// as happens on restart, regardless of the size of the closed log.
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "999999999999999999"), nil, 0o600))
+		compactor := compact.NewCompactor(compact.DefaultCompactorConfig(dir), cfg.Logger)
+		action, err := compactor.RunCycle(nil)
+		require.NoError(t, err)
+		if round == 0 {
+			require.Equal(t, compact.ActionCreateSnapshot, action)
+		}
+		index = makeHFreshWithConfig(t, store, cfg, uc)
+	}
 }
 
 func TestRestoreMetadataMigratesPostingMapV1ToV2(t *testing.T) {

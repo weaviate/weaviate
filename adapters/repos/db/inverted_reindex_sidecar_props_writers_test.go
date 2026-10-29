@@ -77,7 +77,7 @@ func TestEveryPerPropertyStrategyWritesASidecarThatRebuildsItsDirName(t *testing
 		{
 			name: "filterable to rangeable", prefix: MigrationDirPrefixFilterableToRangeable, multiProp: true,
 			newTask: func(l logrus.FieldLogger, p []string, g int) *ShardReindexTaskGeneric {
-				return NewRuntimeFilterableToRangeableTask(l, nil, p, collection, g)
+				return NewRuntimeFilterableToRangeableTask(l, p, collection, g)
 			},
 		},
 		{

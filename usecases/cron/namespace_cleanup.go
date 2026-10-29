@@ -43,13 +43,8 @@ func newCronsNamespaceCleanup(serverShutdownCtx context.Context,
 
 		shouldRegister: func() bool { return configGetter().Namespaces.Enabled },
 		configuredValue: func() time.Duration {
-			interval := configGetter().Namespaces.CleanupInterval.Get()
-			if interval > 0 {
-				return interval
-			}
-			jobLogger.Warnf("namespace cleanup interval %s is at or below zero, applying the default %s",
-				interval, config.DefaultNamespaceCleanupInterval)
-			return config.DefaultNamespaceCleanupInterval
+			return intervalOrDefault(configGetter().Namespaces.CleanupInterval.Get(),
+				config.DefaultNamespaceCleanupInterval, jobLogger)
 		},
 		resolve: func(interval time.Duration) (string, bool) {
 			return cron.EverySpec(interval), true

@@ -88,6 +88,20 @@ var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/[^/]+$`, authorization.NamespacesDomain),
 }
 
+// resourcePatterns and VALID_VERBS are fixed at init, so compile them once.
+// validResource runs per policy on every role read and permission conversion;
+// recompiling there dominated those paths.
+var (
+	compiledResourcePatterns = func() []*regexp.Regexp {
+		out := make([]*regexp.Regexp, len(resourcePatterns))
+		for i, pattern := range resourcePatterns {
+			out[i] = regexp.MustCompile(pattern)
+		}
+		return out
+	}()
+	compiledValidVerbs = regexp.MustCompile(VALID_VERBS)
+)
+
 func newPolicy(policy []string) *authorization.Policy {
 	return &authorization.Policy{
 		Resource: fromCasbinResource(policy[1]),
@@ -238,7 +252,7 @@ func CasbinAliases(collection, alias string) string {
 	return fmt.Sprintf("%s/collections/%s/aliases/%s", authorization.AliasesDomain, collection, alias)
 }
 
-func CasbinData(collection, shard, object string) string {
+func CasbinData(collection, shard string) string {
 	collection = schema.UppercaseClassesNames(collection)[0]
 	if collection == "" {
 		collection = "*"
@@ -246,13 +260,9 @@ func CasbinData(collection, shard, object string) string {
 	if shard == "" {
 		shard = "*"
 	}
-	if object == "" {
-		object = "*"
-	}
 	collection = casbinSegment(collection)
 	shard = casbinSegment(shard)
-	object = casbinSegment(object)
-	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/%s", authorization.DataDomain, collection, shard, object)
+	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/.*", authorization.DataDomain, collection, shard)
 }
 
 func CasbinMcp() string {
@@ -385,17 +395,13 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 	case authorization.DataDomain:
 		collection := "*"
 		tenant := "*"
-		object := "*"
 		if permission.Data != nil && permission.Data.Collection != nil {
 			collection = schema.UppercaseClassName(*permission.Data.Collection)
 		}
 		if permission.Data != nil && permission.Data.Tenant != nil {
 			tenant = *permission.Data.Tenant
 		}
-		if permission.Data != nil && permission.Data.Object != nil {
-			object = *permission.Data.Object
-		}
-		resource = CasbinData(collection, tenant, object)
+		resource = CasbinData(collection, tenant)
 	case authorization.BackupsDomain:
 		collection := "*"
 		if permission.Backups != nil {
@@ -519,11 +525,11 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 	case authorization.DataDomain:
 		collection := unwrapCasbinSegment(splits[2])
 		tenant := unwrapCasbinSegment(splits[4])
-		object := unwrapCasbinSegment(splits[6])
 		permission.Data = &models.PermissionData{
 			Collection: &collection,
 			Tenant:     &tenant,
-			Object:     &object,
+			//nolint:staticcheck // deprecated on the wire but still emitted, as the wildcard, so old clients keep reading a value
+			Object: authorization.All,
 		}
 	case authorization.RolesDomain:
 		role := unwrapCasbinSegment(splits[1])
@@ -607,12 +613,8 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 }
 
 func validResource(input string) bool {
-	for _, pattern := range resourcePatterns {
-		matched, err := regexp.MatchString(pattern, input)
-		if err != nil {
-			return false
-		}
-		if matched {
+	for _, re := range compiledResourcePatterns {
+		if re.MatchString(input) {
 			return true
 		}
 	}
@@ -620,7 +622,7 @@ func validResource(input string) bool {
 }
 
 func validVerb(input string) bool {
-	return regexp.MustCompile(VALID_VERBS).MatchString(input)
+	return compiledValidVerbs.MatchString(input)
 }
 
 func PrefixRoleName(name string) string {

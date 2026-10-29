@@ -61,21 +61,25 @@ type GlobalConfig struct {
 
 	ReplicationGRPCEnabled *runtime.DynamicValue[bool] `json:"replication_grpc_enabled" yaml:"replication_grpc_enabled"`
 
-	// ReplicaMovementCleanupEnabled is the master switch, REPLICA_MOVEMENT_CLEANUP_ENABLED.
+	// ReplicaMovementEnabled is the master switch for replica movement, REPLICA_MOVEMENT_ENABLED.
+	ReplicaMovementEnabled *runtime.DynamicValue[bool] `json:"replica_movement_enabled" yaml:"replica_movement_enabled"`
+	// ReplicaMovementCleanupEnabled controls whether the cleanup of old replica movement operations is active, REPLICA_MOVEMENT_CLEANUP_ENABLED.
 	ReplicaMovementCleanupEnabled *runtime.DynamicValue[bool] `json:"replica_movement_cleanup_enabled" yaml:"replica_movement_cleanup_enabled"`
 	// ReplicaMovementCleanupMaxAge is how old a terminal op must be before it is
 	// swept, REPLICA_MOVEMENT_CLEANUP_MAX_AGE. 0 disables the sweep and must
-	// never be read as "delete everything". A negative value is rejected rather
-	// than coerced: it fails startup via env and is refused at reload, leaving
-	// the previous value in place.
+	// never be read as "delete everything".
 	ReplicaMovementCleanupMaxAge *runtime.DynamicValue[time.Duration] `json:"replica_movement_cleanup_max_age" yaml:"replica_movement_cleanup_max_age"`
 	// ReplicaMovementCleanupInterval is the sweep period,
 	// REPLICA_MOVEMENT_CLEANUP_INTERVAL. 0 disables the sweep; any other value
-	// must lie within [1m, 168h] and is otherwise rejected on the same terms as
-	// MaxAge above.
+	// must lie within [1m, 168h].
 	ReplicaMovementCleanupInterval *runtime.DynamicValue[time.Duration] `json:"replica_movement_cleanup_interval" yaml:"replica_movement_cleanup_interval"`
 	// ReplicaMovementCleanupIncludeCancelled widens the sweep predicate to old
-	// CANCELLED ops, REPLICA_MOVEMENT_CLEANUP_INCLUDE_CANCELLED. Opt-in because
-	// CANCELLED ops carry diagnostic error context.
+	// CANCELLED ops, REPLICA_MOVEMENT_CLEANUP_INCLUDE_CANCELLED.
 	ReplicaMovementCleanupIncludeCancelled *runtime.DynamicValue[bool] `json:"replica_movement_cleanup_include_cancelled" yaml:"replica_movement_cleanup_include_cancelled"`
+
+	// SELF_RECOVERY: env-only, read at startup, not hot-reloadable.
+	SelfRecoveryEnabled     bool `json:"self_recovery_enabled" yaml:"self_recovery_enabled"`
+	SelfRecoveryConcurrency int  `json:"self_recovery_concurrency" yaml:"self_recovery_concurrency"`
+	// Time a wiped joiner waits without apply progress at its catch-up barrier before loading eagerly. 0 ⇒ default.
+	SelfRecoveryBarrierTimeout time.Duration `json:"self_recovery_barrier_timeout" yaml:"self_recovery_barrier_timeout"`
 }

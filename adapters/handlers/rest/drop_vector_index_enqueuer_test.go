@@ -25,10 +25,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	api "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
-	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -90,7 +93,7 @@ func TestReconcile_EnqueuesMissingTasks(t *testing.T) {
 	}
 	enq := &fakeReconcileEnqueuer{active: map[string]bool{}}
 
-	reconcileDroppedVectorIndexes(context.Background(), classes, enq, logger)
+	reconcileDroppedVectorIndexes(context.Background(), classes, enq, nil, logger)
 
 	require.ElementsMatch(t, []string{"A/v1", "B/v2"}, enq.enqueued,
 		"every dropped marker without a live task is enqueued; non-dropped vectors are skipped")
@@ -115,7 +118,7 @@ func TestReconcile_ListError_SkipsRound(t *testing.T) {
 	}
 	enq := &listErrEnqueuer{fakeReconcileEnqueuer: &fakeReconcileEnqueuer{active: map[string]bool{}}}
 
-	reconcileDroppedVectorIndexes(context.Background(), classes, enq, logger)
+	reconcileDroppedVectorIndexes(context.Background(), classes, enq, nil, logger)
 
 	require.Empty(t, enq.enqueued, "an unreadable task list must skip the round, not enqueue blind")
 }
@@ -127,9 +130,30 @@ func TestReconcile_SkipsClassesWithLiveTasks(t *testing.T) {
 	}
 	enq := &fakeReconcileEnqueuer{active: map[string]bool{"A/v1": true}} // v1 already in flight
 
-	reconcileDroppedVectorIndexes(context.Background(), classes, enq, logger)
+	reconcileDroppedVectorIndexes(context.Background(), classes, enq, nil, logger)
 
 	require.Equal(t, []string{"A/v2"}, enq.enqueued, "only the marker without a live task is enqueued")
+}
+
+func TestReconcile_SkipsClassesWithoutActiveNamespace(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	classes := []*models.Class{
+		{Class: "ns1:A", VectorConfig: map[string]models.VectorConfig{"v1": dropped()}},
+		{Class: "ns2:B", VectorConfig: map[string]models.VectorConfig{"v1": dropped()}},
+		{Class: "C", VectorConfig: map[string]models.VectorConfig{"v1": dropped()}},
+		{Class: "ns3:D", VectorConfig: map[string]models.VectorConfig{"v1": dropped()}},
+	}
+	exister := namespaces.NewMockExisterInState(t, map[string]api.NamespaceState{
+		"ns1": api.NamespaceStateSuspended,
+		"ns2": api.NamespaceStateActive,
+		"ns3": api.NamespaceStateDeleting,
+	})
+	enq := &fakeReconcileEnqueuer{active: map[string]bool{}}
+
+	reconcileDroppedVectorIndexes(context.Background(), classes, enq, exister, logger)
+
+	require.Equal(t, []string{"ns2:B/v1", "C/v1"}, enq.enqueued,
+		"a class whose namespace is not active is skipped, and the round continues past it")
 }
 
 // probeRecordingEnqueuer flags when the DTM probe has run, so the order test can
@@ -146,16 +170,17 @@ func (p *probeRecordingEnqueuer) ListDistributedTasks(ctx context.Context) (map[
 
 // orderLister records whether the schema was read before or after the probe.
 type orderLister struct {
+	local.ClassReader
 	probed  *bool
 	orderOK *bool
 	classes []*models.Class
 }
 
-func (l orderLister) GetSchemaSkipAuth() entschema.Schema {
+func (l orderLister) ReadOnlySchema() models.Schema {
 	if *l.probed {
 		*l.orderOK = true
 	}
-	return entschema.Schema{Objects: &models.Schema{Classes: l.classes}}
+	return models.Schema{Classes: l.classes}
 }
 
 // TestReconciliationAtStartup_ReadsSchemaAfterProbe pins the restore race fix:
@@ -176,7 +201,7 @@ func TestReconciliationAtStartup_ReadsSchemaAfterProbe(t *testing.T) {
 	// One round: the loop exits via ctx after the first pass.
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	runDropVectorIndexReconciliation(ctx, lister, enq, logger, time.Hour,
+	runDropVectorIndexReconciliation(ctx, lister, enq, nil, logger, time.Hour,
 		func() bool { return true }, nil)
 
 	require.True(t, orderOK, "schema must be read AFTER the DTM readiness probe")
@@ -200,7 +225,7 @@ func TestReconciliation_FollowerSkipsRound(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	runDropVectorIndexReconciliation(ctx, lister, enq, logger, time.Hour,
+	runDropVectorIndexReconciliation(ctx, lister, enq, nil, logger, time.Hour,
 		func() bool { return false }, nil)
 
 	require.Empty(t, enq.enqueued, "a non-leader must not enqueue")
@@ -349,9 +374,11 @@ func mustDropPayload(t *testing.T, collection string, targets ...string) []byte 
 // shard -> (status, nodes), and a class whose VectorConfig is vectorCfg (defaults
 // to the targets-still-dropped happy path for "v1").
 type fakeShardingState struct {
+	// leader.SchemaReader is left unset: only the methods below are expected.
+	leader.SchemaReader
 	state     *sharding.State
 	vectorCfg map[string]models.VectorConfig
-	// missingClasses lists collection names QueryReadOnlyClasses reports as
+	// missingClasses lists collection names ReadOnlyClassesFromLeader reports as
 	// absent (deleted class). Without it the fake fabricates a class for ANY
 	// name, and the class-gone sweep arm of LiveOpIDs is untestable.
 	missingClasses []string
@@ -359,11 +386,11 @@ type fakeShardingState struct {
 	err            error
 }
 
-func (f *fakeShardingState) QueryShardingState(class string) (*sharding.State, uint64, error) {
+func (f *fakeShardingState) ShardingStateFromLeader(class string) (*sharding.State, uint64, error) {
 	return f.state, 0, f.err
 }
 
-func (f *fakeShardingState) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error) {
+func (f *fakeShardingState) ReadOnlyClassesFromLeader(classes ...string) (map[string]versioned.Class, error) {
 	f.classReads++
 	if f.err != nil {
 		return nil, f.err
@@ -1090,7 +1117,7 @@ func TestReconciliation_NudgeWakesBeforeInterval(t *testing.T) {
 	defer cancel()
 	// Interval far beyond the ctx timeout: a second round can only come from
 	// the nudge.
-	runDropVectorIndexReconciliation(ctx, lister, enq, logger, time.Hour,
+	runDropVectorIndexReconciliation(ctx, lister, enq, nil, logger, time.Hour,
 		func() bool { return true }, nudge)
 
 	require.GreaterOrEqual(t, len(enq.enqueued), 2, "the nudge must trigger a follow-up round within the interval")
@@ -1157,7 +1184,7 @@ func TestEnqueuerGuardConsistency(t *testing.T) {
 
 			// Re-prove the enqueuer's claim exactly as the raft apply would.
 			logger, _ := test.NewNullLogger()
-			provider := db.NewDropVectorIndexProvider(nil, nil, nil, logger, "n1", context.Background(), nil)
+			provider := db.NewDropVectorIndexProvider(nil, nil, nil, nil, logger, "n1", context.Background(), nil)
 			enc, err := json.Marshal(payload)
 			require.NoError(t, err)
 			require.NoError(t, provider.CheckConflict(enc, sc.tasks),

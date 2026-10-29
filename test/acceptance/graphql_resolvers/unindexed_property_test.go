@@ -39,9 +39,10 @@ func Test_UnindexedProperty(t *testing.T) {
 		vTrue := true
 
 		c := &models.Class{
-			Class: className,
+			Class:      className,
+			Vectorizer: "text2vec-model2vec",
 			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
+				"text2vec-model2vec": map[string]interface{}{
 					"vectorizeClassName": true,
 				},
 			},

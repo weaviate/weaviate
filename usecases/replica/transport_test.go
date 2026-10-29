@@ -19,8 +19,50 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/usecases/replica"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
+
+// TestDeleteBatchResponseFirstError pins what promotes one failed slot to the host's commit error.
+// A batch delete seeds every slot, so a slot no delete wrote to has to surface here or the
+// replicated leg reports the host as having deleted everything.
+func TestDeleteBatchResponseFirstError(t *testing.T) {
+	seeded := replicaerrors.Error{
+		Code: replicaerrors.StatusConflict,
+		Msg:  "no delete reported an outcome for this object",
+	}
+
+	tests := []struct {
+		name    string
+		batch   []replica.UUID2Error
+		wantErr bool
+	}{
+		{name: "a host that answered no slots has no error"},
+		{
+			name:  "every slot deleted",
+			batch: []replica.UUID2Error{{UUID: "a"}, {UUID: "b"}},
+		},
+		{
+			name:    "the last slot carries the seed",
+			batch:   []replica.UUID2Error{{UUID: "a"}, {UUID: "b", Error: seeded}},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := replica.DeleteBatchResponse{Batch: tt.batch}
+
+			err := resp.FirstError()
+			if !tt.wantErr {
+				assert.NoError(t, err)
+				return
+			}
+			assert.ErrorContains(t, err, "no delete reported an outcome",
+				"a slot no delete wrote to must reach the host's commit error")
+		})
+	}
+}
 
 func TestReplicationErrorTimeout(t *testing.T) {
 	ctx := context.Background()

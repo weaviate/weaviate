@@ -106,3 +106,78 @@ func TestHashTreeDeserializationHeaderValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestReadHashTreeRoot(t *testing.T) {
+	const height = 4
+
+	ht, err := NewHashTree(height)
+	require.NoError(t, err)
+	for i := 0; i < LeavesCount(height); i++ {
+		require.NoError(t, ht.AggregateLeafWith(uint64(i), []byte(fmt.Sprintf("somevalue%d", i))))
+	}
+
+	var buf bytes.Buffer
+	_, err = ht.Serialize(&buf)
+	require.NoError(t, err)
+	valid := buf.Bytes()
+
+	reseal := func(b []byte) {
+		cs := headerChecksum(b[:25])
+		copy(b[25:41], cs[:])
+	}
+
+	tests := []struct {
+		name    string
+		input   func() []byte
+		wantErr string
+	}{
+		{name: "full file", input: func() []byte { return bytes.Clone(valid) }},
+		{name: "header only, leaves never read", input: func() []byte { return bytes.Clone(valid[:hashTreeHeaderLength]) }},
+		{name: "legacy echo checksum", input: func() []byte {
+			b := bytes.Clone(valid)
+			copy(b[25:41], b[0:16])
+			return b
+		}},
+		{name: "corrupt leaf is invisible to a header read", input: func() []byte {
+			b := bytes.Clone(valid)
+			b[41] ^= 0xff
+			return b
+		}},
+		{name: "corrupt magic", input: func() []byte {
+			b := bytes.Clone(valid)
+			b[0] ^= 0xff
+			return b
+		}, wantErr: "magic number mismatch"},
+		{name: "corrupt version", input: func() []byte {
+			b := bytes.Clone(valid)
+			b[4] ^= 0xff
+			return b
+		}, wantErr: "unsupported version"},
+		{name: "corrupt root", input: func() []byte {
+			b := bytes.Clone(valid)
+			b[9] ^= 0xff
+			return b
+		}, wantErr: "header checksum mismatch"},
+		{name: "height above max with valid checksum", input: func() []byte {
+			b := bytes.Clone(valid)
+			binary.BigEndian.PutUint32(b[5:9], MaxHeight+1)
+			reseal(b)
+			return b
+		}, wantErr: "illegal height"},
+		{name: "truncated header", input: func() []byte { return bytes.Clone(valid[:hashTreeHeaderLength-1]) }, wantErr: "unexpected EOF"},
+		{name: "empty", input: func() []byte { return nil }, wantErr: "EOF"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root, h, err := ReadHashTreeRoot(bytes.NewReader(tc.input()))
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, height, h)
+			require.Equal(t, ht.Root(), root)
+		})
+	}
+}
