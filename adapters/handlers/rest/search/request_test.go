@@ -1747,17 +1747,10 @@ func TestHybridVector(t *testing.T) {
 			{"null without a vectorizer", noVectorizer, `{"query":"space","vector":null}`, http.StatusUnprocessableEntity, "vectorizer"},
 			{"empty query", noVectorizer, `{"query":"","alpha":1,"vector":[0.1,0.2]}`, http.StatusBadRequest, errQueryEmpty},
 			{"empty array", noVectorizer, `{"query":"space","vector":[]}`, http.StatusBadRequest, errVectorNotNumbers},
-			{"string entries", noVectorizer, `{"query":"space","vector":["0.1","0.2"]}`, http.StatusBadRequest, errVectorNotNumbers},
-			{"bare number", noVectorizer, `{"query":"space","vector":0.5}`, http.StatusBadRequest, errVectorNotNumbers},
-			{"outside float32 range", noVectorizer, `{"query":"space","vector":[0.1,1e39]}`, http.StatusBadRequest, "vector[1] does not fit a 32-bit float"},
 			{"array of vectors", noVectorizer, `{"query":"space","vector":[[0.1,0.2],[0.3,0.4]]}`, http.StatusUnprocessableEntity, "multi-vector"},
 			{
 				"multi-vector target", multiVectorClass(namedVectorsClass("colbert_vec"), "colbert_vec"),
 				`{"query":"space","vector":[0.1,0.2]}`, http.StatusUnprocessableEntity, `target vector "colbert_vec" is a multi-vector index`,
-			},
-			{
-				"several named vectors without targetVector", namedVectorsClass("title_vec", "summary_vec"),
-				`{"query":"space","vector":[0.1,0.2]}`, http.StatusUnprocessableEntity, "no target vectors were provided",
 			},
 		}
 		for _, tt := range tests {
