@@ -548,6 +548,20 @@ func TestPersistenceValidateIndexRangeableInMemoryProps(t *testing.T) {
 			props: map[string][]string{"Foo": {AllProperties}},
 		},
 		{
+			name:  "every collection",
+			props: map[string][]string{AllCollections: {AllProperties}},
+		},
+		{
+			name:   "named properties of every collection are refused",
+			props:  map[string][]string{AllCollections: {"price"}},
+			errMsg: "every collection takes only",
+		},
+		{
+			name:   "every collection with no properties is refused",
+			props:  map[string][]string{AllCollections: {}},
+			errMsg: "every collection takes only",
+		},
+		{
 			name:   "a collection with no properties is refused",
 			props:  map[string][]string{"Foo": {}},
 			errMsg: "with no properties",
