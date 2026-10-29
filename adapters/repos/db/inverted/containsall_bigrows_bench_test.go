@@ -300,7 +300,8 @@ const (
 	mergeFactorMinContainers = 48
 )
 
-// grantingPool hands out every resize in full, standing in for an idle node.
+// grantingPool hands out every resize in full: a node where the shrink is let
+// through, which takes a waiting query, and the restore still gets its units.
 type grantingPool struct{}
 
 func (grantingPool) Resize(_, n int) int { return n }
@@ -328,8 +329,8 @@ func newMergeFactorFixture(tb testing.TB) *roaringRowsFixture {
 
 // BenchmarkDocIDs_ContainsMergeFactor sweeps containsFoldMergeFactor on an
 // admitted query, for a one-worker and a parallel fold. The `fixed` leg runs on
-// a budget docIDs cannot shrink, which is what the fold's merges get without
-// the resize. Run:
+// a budget docIDs cannot shrink, which is what the fold's merges get on an idle
+// node. Run:
 //
 //	go test -tags integrationTest -run '^$' -bench 'ContainsMergeFactor' \
 //	    -benchmem -count 6 ./adapters/repos/db/inverted/ | tee mergefactor.txt

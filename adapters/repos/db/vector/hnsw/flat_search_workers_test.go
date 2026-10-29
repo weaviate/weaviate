@@ -113,11 +113,12 @@ func TestFlatSearchWorkersFollowBudget(t *testing.T) {
 
 			provider.peak.Store(&peakInFlight{all: testFlatSearchConcurrency, hold: tt.hold})
 			allowList := helpers.NewAllowList(candidateRange(nVectors)...)
-			ids, _, err := index.flatSearch(tt.ctx, queries[0], nVectors, nVectors, allowList)
+			ids, dists, err := index.flatSearch(tt.ctx, queries[0], nVectors, nVectors, allowList)
 			require.NoError(t, err)
 
 			provider.peak.Load().assertMax(t, tt.wantMax, tt.wantExactMax)
 			assert.ElementsMatch(t, candidateRange(nVectors), ids)
+			assert.IsNonDecreasing(t, dists)
 		})
 	}
 }
@@ -158,11 +159,12 @@ func TestFlatSearchSkipsMissingCandidates(t *testing.T) {
 			if tt.beyondNodes {
 				candidates = append(candidates, uint64(len(index.nodes)))
 			}
-			ids, _, err := index.flatSearch(context.Background(), queries[0], len(candidates), len(candidates),
+			ids, dists, err := index.flatSearch(context.Background(), queries[0], len(candidates), len(candidates),
 				helpers.NewAllowList(candidates...))
 
 			require.ErrorIs(t, err, tt.wantErr)
 			assert.ElementsMatch(t, tt.wantIDs, ids)
+			assert.IsNonDecreasing(t, dists)
 		})
 	}
 }
@@ -222,11 +224,12 @@ func TestFlatMultiSearch(t *testing.T) {
 				hold = 20 * time.Millisecond
 			}
 			peak.Store(&peakInFlight{all: testFlatSearchConcurrency, hold: hold})
-			ids, _, err := index.flatMultiSearch(tt.ctx, queries, nDocs, helpers.NewAllowList(candidateRange(nDocs)...))
+			ids, dists, err := index.flatMultiSearch(tt.ctx, queries, nDocs, helpers.NewAllowList(candidateRange(nDocs)...))
 
 			require.ErrorIs(t, err, tt.wantErr)
 			peak.Load().assertMax(t, tt.wantMax, tt.wantExactMax)
 			assert.ElementsMatch(t, tt.wantIDs, ids)
+			assert.IsNonDecreasing(t, dists)
 		})
 	}
 }

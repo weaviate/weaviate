@@ -112,7 +112,8 @@ func BudgetFromCtx(ctx context.Context, fallback int) int {
 }
 
 // ResizeBudget resizes ctx's budget toward n and returns its new size, or n
-// when ctx carries none.
+// when ctx carries none. n is absolute, so a caller that shrinks and later
+// restores must be the budget's only resizer until it restores.
 func ResizeBudget(ctx context.Context, n int) int {
 	b, ok := ctx.Value(budgetKey{}).(*Budget)
 	if !ok {

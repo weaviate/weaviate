@@ -244,7 +244,7 @@ func (l *Limiter) grantLocked(want int64) int64 {
 	return g
 }
 
-// releaseLocked returns a finished query's g units to the pool.
+// releaseLocked returns a released or abandoned grant's g units to the pool, then wakes waiters.
 func (l *Limiter) releaseLocked(g int64) {
 	l.used -= g
 	l.inflight--
@@ -269,15 +269,24 @@ func (l *Limiter) wakeLocked() {
 	}
 }
 
-// Resize moves an admitted query's holding of held units toward n, floored at
-// 1. A shrink wakes waiters. A grow takes only free units, of which wakeLocked
-// leaves none while anyone is queued, so a running query never jumps the queue
-// or waits.
-func (l *Limiter) Resize(held, n int) int {
+// budgetPool is the Limiter as an admitted grant's concurrency.Pool. Unexported,
+// so only a grant's own Budget, which passes what it holds, can resize it.
+type budgetPool struct{ l *Limiter }
+
+func (p budgetPool) Resize(held, n int) int { return p.l.resize(held, n) }
+
+// resize moves an admitted query's holding of held units toward n, floored at
+// 1. A shrink happens only while a query waits, and wakes it: with nobody to
+// take the units, giving them back would only slow the query down. A grow takes
+// only free units, of which wakeLocked leaves none while anyone is queued, so a
+// running query never jumps the queue or waits.
+func (l *Limiter) resize(held, n int) int {
 	n = max(n, 1)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	switch {
+	case n < held && l.waiters.Len() == 0:
+		n = held
 	case n < held:
 		l.used -= int64(held - n)
 		l.wakeLocked()
@@ -295,7 +304,7 @@ func (l *Limiter) Resize(held, n int) int {
 // it with admissionKey. The idempotent release returns what the budget holds
 // then, not g.
 func (l *Limiter) admitted(ctx context.Context, g int64) (context.Context, func()) {
-	budget := concurrency.NewBudget(l, int(g))
+	budget := concurrency.NewBudget(budgetPool{l}, int(g))
 	ctx = concurrency.CtxWithResizableBudget(ctx, budget)
 	ctx = context.WithValue(ctx, admissionKey{}, struct{}{})
 

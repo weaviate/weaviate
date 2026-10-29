@@ -47,6 +47,8 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, source containsBa
 		return docBitmap{}, containsFoldPlan{}, fmt.Errorf("%w: %w", entsInverted.ErrInternal, err)
 	}
 
+	// only a root fold resizes: a child's ctx carries a fixed share
+	restoreBudget := shrinkBudgetForContainsFold(ctx, plan)
 	isDenyList := pv.operator == filters.ContainsNone
 	fold := containsFoldRunner{
 		source:    source,
@@ -58,15 +60,14 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, source containsBa
 	}
 
 	acc, accRelease, err := fold.run(ctx)
+	restoreBudget()
 	if err != nil {
 		return docBitmap{}, plan, err
 	}
 	return docBitmap{docIDs: acc, release: accRelease, isDenyList: isDenyList}, plan, nil
 }
 
-// planContainsFold plans pv's fold under ctx's budget. Searcher.docIDs shrinks
-// the budget to a multiple of the plan's workers first, so planning again under
-// that smaller budget must return the same workers.
+// planContainsFold plans pv's fold under ctx's budget.
 func (s *Searcher) planContainsFold(ctx context.Context, pv *propValuePair) (containsFoldPlan, error) {
 	planner := containsFoldPlanner{docIDCount: s.bitmapFactory.DocIDCount()}
 	// the smaller of the query's share and the machine, so the planner compares
