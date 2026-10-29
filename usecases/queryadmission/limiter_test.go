@@ -645,7 +645,9 @@ func TestResize(t *testing.T) {
 		wantSize int
 		wantUsed int64
 	}{
-		{name: "shrink returns units", resizeTo: 3, wantSize: 3, wantUsed: 3},
+		{name: "shrink keeps units while nobody waits", resizeTo: 3, wantSize: 8, wantUsed: 8},
+		// the waiter's grant of 1 comes out of the 5 the shrink frees
+		{name: "shrink returns units to a waiting query", others: 56, queued: true, resizeTo: 3, wantSize: 3, wantUsed: 4},
 		{name: "grow takes free units", resizeTo: 20, wantSize: 20, wantUsed: 20},
 		{name: "grow is capped at capacity", others: 50, resizeTo: 30, wantSize: 14, wantUsed: 14},
 		{name: "grow gets nothing while a query waits", others: 56, queued: true, resizeTo: 20, wantSize: 8, wantUsed: 8},

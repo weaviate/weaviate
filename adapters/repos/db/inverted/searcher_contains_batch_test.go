@@ -1016,7 +1016,7 @@ func TestFetchContainsBatch_AnnotatesSlowQueryLog(t *testing.T) {
 }
 
 // recordingPool grants every resize, a grow up to growCap if set, and records
-// what it was asked and how far docIDs had got by then.
+// what it was asked and whether docIDs had finished resolving by then.
 type recordingPool struct {
 	calls   [][2]int
 	stages  []string
@@ -1030,11 +1030,9 @@ func (p *recordingPool) Resize(held, n int) int {
 		n = min(n, p.growCap)
 	}
 	details := helpers.ExtractSlowQueryDetails(p.ctx)
-	stage := "before fold"
+	stage := "during resolve"
 	if _, ok := details["build_allow_list_resolve_took"]; ok {
 		stage = "after resolve"
-	} else if _, ok := details[docBitmapSlowLogKey]; ok {
-		stage = "after fold"
 	}
 	p.stages = append(p.stages, stage)
 	return n
@@ -1059,7 +1057,7 @@ func TestDocIDs_ShrinksBudgetForContainsFold(t *testing.T) {
 	// nothing to give back under DISABLE_SROAR_MERGE_BUDGET, or with no unit to spare
 	if !concurrency.BudgetCapDisabled() && foldBudget < grant {
 		wantCalls = [][2]int{{grant, foldBudget}, {foldBudget, grant}}
-		wantStages = []string{"before fold", "after fold"}
+		wantStages = []string{"during resolve", "during resolve"}
 		wantAnnotation = map[string]int{"held": grant, "shrunk": foldBudget, "restored": grant}
 	}
 
@@ -1092,15 +1090,13 @@ func TestDocIDs_ShrinksBudgetForContainsFold(t *testing.T) {
 // TestShrinkBudgetForContainsFold pins the cases that give nothing back, and a
 // restore that gets back less than was given.
 func TestShrinkBudgetForContainsFold(t *testing.T) {
-	f := newContainsBatchGateFixture(t)
-	oneKey := keysFrom(t, []byte("a"))
+	oneWorker := containsFoldPlan{workers: 1}
 	pooled := func(grant int) func(concurrency.Pool) context.Context {
 		return func(p concurrency.Pool) context.Context {
 			return concurrency.CtxWithResizableBudget(context.Background(), concurrency.NewBudget(p, grant))
 		}
 	}
 
-	// one key folds on one worker
 	need := containsFoldMergeFactor
 	var partialCalls [][2]int
 	partialSize := 10
@@ -1113,7 +1109,6 @@ func TestShrinkBudgetForContainsFold(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		pv             *propValuePair
 		ctx            func(concurrency.Pool) context.Context
 		growCap        int
 		wantCalls      [][2]int
@@ -1121,32 +1116,22 @@ func TestShrinkBudgetForContainsFold(t *testing.T) {
 		wantAnnotation map[string]int
 	}{
 		{
-			name:     "contains leaf without batched keys",
-			pv:       &propValuePair{operator: filters.ContainsAny},
-			ctx:      pooled(10),
-			wantSize: 10,
-		},
-		{
 			name:     "grant at the fold's need",
-			pv:       &propValuePair{operator: filters.ContainsAny, containsKeys: oneKey},
 			ctx:      pooled(need),
 			wantSize: need,
 		},
 		{
 			name:     "grant below the fold's need",
-			pv:       &propValuePair{operator: filters.ContainsAny, containsKeys: oneKey},
 			ctx:      pooled(1),
 			wantSize: 1,
 		},
 		{
 			name:     "fixed budget",
-			pv:       &propValuePair{operator: filters.ContainsAny, containsKeys: oneKey},
 			ctx:      func(concurrency.Pool) context.Context { return concurrency.CtxWithBudget(context.Background(), 10) },
 			wantSize: 10,
 		},
 		{
 			name:           "restore gets back only what is free",
-			pv:             &propValuePair{operator: filters.ContainsAny, containsKeys: oneKey},
 			ctx:            pooled(10),
 			growCap:        5,
 			wantCalls:      partialCalls,
@@ -1160,7 +1145,7 @@ func TestShrinkBudgetForContainsFold(t *testing.T) {
 			ctx := helpers.InitSlowQueryDetails(tt.ctx(pool))
 			pool.ctx = ctx
 
-			f.searcher.shrinkBudgetForContainsFold(ctx, tt.pv)()
+			shrinkBudgetForContainsFold(ctx, oneWorker)()
 
 			require.Equal(t, tt.wantCalls, pool.calls)
 			require.Equal(t, tt.wantSize, concurrency.BudgetFromCtx(ctx, -1))
@@ -1182,12 +1167,10 @@ func TestShrinkBudgetForContainsFold_KillSwitch(t *testing.T) {
 		return
 	}
 
-	f := newContainsBatchGateFixture(t)
 	pool := &recordingPool{ctx: context.Background()}
 	ctx := concurrency.CtxWithResizableBudget(context.Background(), concurrency.NewBudget(pool, 10))
-	pv := &propValuePair{operator: filters.ContainsAny, containsKeys: keysFrom(t, []byte("a"))}
 
-	f.searcher.shrinkBudgetForContainsFold(ctx, pv)()
+	shrinkBudgetForContainsFold(ctx, containsFoldPlan{workers: 1})()
 
 	require.Empty(t, pool.calls)
 	require.Equal(t, 10, concurrency.BudgetFromCtx(ctx, -1))

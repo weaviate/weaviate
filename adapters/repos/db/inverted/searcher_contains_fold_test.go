@@ -50,6 +50,7 @@ type containsBatchFixture struct {
 	// fold has returned, which is where every assertion here happens.
 	mu           sync.Mutex
 	reads        []string
+	mergeConcs   []int // the merge budget each read was handed
 	releaseCalls int
 	// onHold, when set, runs while the worker holds the row it just fetched,
 	// which is the only point a test can observe what the fold holds at once.
@@ -137,6 +138,7 @@ func (r *spyContainsBatchReader) Next(mergeConc int) (*sroar.Bitmap, func(), err
 	if r.pos < r.keys.Len() {
 		s.mu.Lock()
 		s.reads = append(s.reads, string(r.keys.At(r.pos)))
+		s.mergeConcs = append(s.mergeConcs, mergeConc)
 		numReads, onRead := len(s.reads), s.onRead
 		s.mu.Unlock()
 		// called outside the lock: a hook may cancel a context, block, or
@@ -283,6 +285,34 @@ func TestDocBitmapContainsBatch_ReadsUnflushedRows(t *testing.T) {
 	require.Equal(t, want, dbm.docIDs.ToArray(),
 		"the fold must see the memtable's rows as well as the disk's")
 	dbm.release()
+}
+
+// A fold's merges run on the shrunk budget, which is restored once the fold returns.
+func TestDocBitmapContainsBatch_FoldsOnShrunkBudget(t *testing.T) {
+	const workers, grant = 2, 40
+	forceContainsWorkers(t, workers)
+	ctx := context.Background()
+	fixture := newContainsBatchFixture(t, ctx, map[string][]uint64{"a": {1}, "b": {2}})
+	s := newFoldSearcher(t, fixture.pool)
+
+	need := containsFoldMergeFactor * workers
+	wantCalls := [][2]int{{grant, need}, {need, grant}}
+	wantConc := min(need/workers, concurrency.SROAR_MERGE)
+	if concurrency.BudgetCapDisabled() {
+		wantCalls, wantConc = nil, concurrency.SROAR_MERGE
+	}
+
+	pool := &recordingPool{}
+	ctx = concurrency.CtxWithResizableBudget(ctx, concurrency.NewBudget(pool, grant))
+	pool.ctx = ctx
+	pv := &propValuePair{operator: filters.ContainsAny, containsKeys: keysFrom(t, []byte("a"), []byte("b"))}
+	dbm, _, err := s.docBitmapContainsBatch(ctx, fixture.source(t), pv)
+	require.NoError(t, err)
+	dbm.release()
+
+	require.Equal(t, wantCalls, pool.calls)
+	require.Equal(t, []int{wantConc, wantConc}, fixture.mergeConcs)
+	require.Equal(t, grant, concurrency.BudgetFromCtx(ctx, -1))
 }
 
 // TestMergeAllowlistBitmaps_UnsupportedOperator pins the defensive default

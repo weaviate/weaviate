@@ -302,7 +302,6 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 		return nil, err
 	}
 
-	restoreBudget := s.shrinkBudgetForContainsFold(ctx, pv)
 	beforeResolve := time.Now()
 	// Children on the desugared path, distinct keys on the batched one — the
 	// latter can be fewer than the values the filter named, since the builders
@@ -313,7 +312,6 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_resolve_len", n)
 	dbm, err := pv.resolveDocIDs(ctx, s, limit)
-	restoreBudget()
 	if err != nil {
 		return nil, fmt.Errorf("resolve doc ids for prop/value pair: %w", err)
 	}
@@ -330,17 +328,13 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	return helpers.NewAllowListCloseableFromBitmap(dbm.docIDs, dbm.release), nil
 }
 
-// shrinkBudgetForContainsFold gives back the part of ctx's budget a batched
-// Contains fold leaves idle, and returns the func that asks for it again, which
-// gets back only free units. Under DISABLE_SROAR_MERGE_BUDGET the merges ignore
-// the budget, so nothing is given back. A plan error is left to the fold.
-func (s *Searcher) shrinkBudgetForContainsFold(ctx context.Context, pv *propValuePair) (restore func()) {
+// shrinkBudgetForContainsFold gives back the part of ctx's budget plan's fold
+// leaves idle, and returns the func that asks for it again, which gets back only
+// free units. Under DISABLE_SROAR_MERGE_BUDGET the merges ignore the budget, so
+// nothing is given back.
+func shrinkBudgetForContainsFold(ctx context.Context, plan containsFoldPlan) (restore func()) {
 	noop := func() {}
-	if pv.containsKeys.Len() == 0 || concurrency.BudgetCapDisabled() {
-		return noop
-	}
-	plan, err := s.planContainsFold(ctx, pv)
-	if err != nil {
+	if concurrency.BudgetCapDisabled() {
 		return noop
 	}
 	need := containsFoldMergeFactor * plan.workers
