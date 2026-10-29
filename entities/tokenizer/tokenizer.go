@@ -147,7 +147,7 @@ func init_gse() error {
 	defer gseLock.Unlock()
 	if gseTokenizer == nil {
 		startTime := time.Now()
-		seg, err := newGseSegmenter("ja")
+		seg, err := gse.New("ja")
 		if err != nil {
 			return fmt.Errorf("load ja dictionary: %w", err)
 		}
@@ -164,7 +164,7 @@ func init_gse_ch() error {
 	defer gseLock.Unlock()
 	if gseTokenizerCh == nil {
 		startTime := time.Now()
-		seg, err := newGseSegmenter("zh")
+		seg, err := gse.New("zh")
 		if err != nil {
 			return fmt.Errorf("load zh dictionary: %w", err)
 		}
