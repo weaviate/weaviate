@@ -33,20 +33,24 @@ import (
 // fakeServer answers verify calls with a configurable status, signing every
 // response with its key.
 type fakeServer struct {
-	srv     *httptest.Server
-	key     license.ServerKey
-	trusted license.ServerKeySet
-	status  atomic.Value // license.Status
-	down    atomic.Bool
-	calls   atomic.Int32
-	clock   func() time.Time
-	expires time.Time
+	srv          *httptest.Server
+	key          license.ServerKey
+	trusted      license.ServerKeySet
+	status       atomic.Value // license.Status
+	down         atomic.Bool
+	calls        atomic.Int32
+	clock        func() time.Time
+	expires      time.Time
+	entitlements []string
 }
 
 func newFakeServer(t *testing.T, clock func() time.Time) *fakeServer {
 	t.Helper()
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
-	f := &fakeServer{key: license.ServerKey{ID: "k", PrivateKey: priv}, trusted: license.ServerKeySet{"k": pub}, clock: clock}
+	f := &fakeServer{
+		key: license.ServerKey{ID: "k", PrivateKey: priv}, trusted: license.ServerKeySet{"k": pub},
+		clock: clock, entitlements: []string{license.EntitlementEnterprise},
+	}
 	f.status.Store(license.StatusValid)
 	f.expires = clock().Add(365 * 24 * time.Hour)
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -61,6 +65,7 @@ func newFakeServer(t *testing.T, clock func() time.Time) *fakeServer {
 		resp := license.VerifyResponse{
 			LicenseID: req.LicenseID, Status: f.status.Load().(license.Status), ExpiresAt: f.expires,
 			CheckedAt: now, NextCheckAfter: now.Add(24 * time.Hour), Nonce: req.Nonce,
+			Entitlements: f.entitlements,
 		}
 		f.key.Sign(&resp)
 		json.NewEncoder(w).Encode(resp)
@@ -93,12 +98,37 @@ func newChecker(t *testing.T, f *fakeServer, clk *clock, cache string) *Checker 
 func TestUnlicensed(t *testing.T) {
 	c := &Checker{}
 	c.Start()
-	if s := c.Snapshot(); s.State != licensestate.StatusUnlicensed || !s.Allowed() {
+	if s := c.Snapshot(); s.State != licensestate.StatusUnlicensed || s.Allowed() {
 		t.Fatalf("%+v", s)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	c.Run(ctx) // returns immediately
+}
+
+func TestClampInterval(t *testing.T) {
+	tests := []struct {
+		name      string
+		grace     time.Duration
+		requested time.Duration
+		want      time.Duration
+	}{
+		{name: "minimum", requested: 30 * time.Minute, want: time.Hour},
+		{name: "server interval", requested: 24 * time.Hour, want: 24 * time.Hour},
+		{name: "default grace cap", requested: 30 * 24 * time.Hour, want: DefaultGracePeriod / 2},
+		{name: "custom grace cap", grace: 48 * time.Hour, requested: 30 * 24 * time.Hour, want: 24 * time.Hour},
+		{name: "short grace below cap", grace: time.Hour, requested: 15 * time.Minute, want: 30 * time.Minute},
+		{name: "short grace above cap", grace: time.Hour, requested: 2 * time.Hour, want: 30 * time.Minute},
+		{name: "tiny grace stays positive", grace: time.Nanosecond, requested: time.Hour, want: time.Nanosecond},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &Checker{GracePeriod: tt.grace}
+			if got := c.clampInterval(tt.requested); got != tt.want {
+				t.Fatalf("clampInterval(%v) = %v, want %v", tt.requested, got, tt.want)
+			}
+		})
+	}
 }
 
 func TestHappyPathAndScheduling(t *testing.T) {
@@ -118,6 +148,9 @@ func TestHappyPathAndScheduling(t *testing.T) {
 	}
 	if s.NextCheckAt.Sub(clk.t) != 24*time.Hour {
 		t.Fatalf("next check should follow the server's interval, got %v", s.NextCheckAt.Sub(clk.t))
+	}
+	if len(s.Entitlements) != 1 || s.Entitlements[0] != license.EntitlementEnterprise {
+		t.Fatalf("enterprise entitlements: %v", s.Entitlements)
 	}
 	if len(changes) != 1 || changes[0] != licensestate.StatusValid {
 		t.Fatalf("OnChange: %v", changes)
@@ -242,8 +275,11 @@ func TestCacheRoundTripAndTamper(t *testing.T) {
 	dir := t.TempDir()
 	cache := filepath.Join(dir, "sub", "license.json")
 
+	f.entitlements = []string{license.EntitlementEnterprise, license.EntitlementPlatform}
 	c1 := newChecker(t, f, clk, cache)
-	c1.CheckNow(context.Background())
+	if s := c1.CheckNow(context.Background()); len(s.Entitlements) != 2 || s.Entitlements[1] != license.EntitlementPlatform {
+		t.Fatalf("platform entitlements: %v", s.Entitlements)
+	}
 	if _, err := os.Stat(cache); err != nil {
 		t.Fatal("cache not written")
 	}
@@ -258,6 +294,9 @@ func TestCacheRoundTripAndTamper(t *testing.T) {
 	}
 	if !s.Allowed() {
 		t.Fatal("restored valid state must be allowed")
+	}
+	if len(s.Entitlements) != 2 || s.Entitlements[1] != license.EntitlementPlatform {
+		t.Fatalf("restored entitlements: %v", s.Entitlements)
 	}
 
 	// Tampered cache (status flipped) is ignored: signature no longer
@@ -402,5 +441,89 @@ func TestOnChangeFiresOnClockDrivenTransition(t *testing.T) {
 	}
 	if len(changes) != 2 || changes[1] != licensestate.StatusDegraded {
 		t.Fatalf("OnChange not fired for clock-driven transition: %v", changes)
+	}
+}
+
+func TestLegacyEntitlements(t *testing.T) {
+	clk := &clock{time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)}
+	f := newFakeServer(t, clk.now)
+	f.entitlements = nil
+	c := newChecker(t, f, clk, "")
+	s := c.CheckNow(context.Background())
+	if len(s.Entitlements) != 1 || s.Entitlements[0] != license.EntitlementEnterprise {
+		t.Fatalf("legacy entitlements: %v", s.Entitlements)
+	}
+}
+
+func TestEntitlementsRetainedThroughGrace(t *testing.T) {
+	clk := &clock{time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)}
+	f := newFakeServer(t, clk.now)
+	f.entitlements = []string{license.EntitlementEnterprise, license.EntitlementPlatform}
+	c := newChecker(t, f, clk, "")
+	c.CheckNow(context.Background())
+	f.status.Store(license.StatusRevoked)
+	s := c.CheckNow(context.Background())
+	if s.State != licensestate.StatusRevoked || !s.Allowed() {
+		t.Fatalf("revoked state inside grace: %+v", s)
+	}
+	if len(s.Entitlements) != 2 || s.Entitlements[1] != license.EntitlementPlatform {
+		t.Fatalf("entitlements lost inside grace: %v", s.Entitlements)
+	}
+}
+
+func TestCacheEntitlementsTamper(t *testing.T) {
+	clk := &clock{time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)}
+	f := newFakeServer(t, clk.now)
+	f.entitlements = []string{license.EntitlementEnterprise, license.EntitlementPlatform}
+	cache := filepath.Join(t.TempDir(), "license.json")
+	c1 := newChecker(t, f, clk, cache)
+	c1.CheckNow(context.Background())
+
+	raw, _ := os.ReadFile(cache)
+	var cf cacheFile
+	json.Unmarshal(raw, &cf)
+	if cf.LastValid == nil {
+		t.Fatal("cache should carry the last valid answer")
+	}
+	cf.LastValid.Entitlements = []string{license.EntitlementEnterprise}
+	tampered, _ := json.Marshal(cf)
+	os.WriteFile(cache, tampered, 0o600)
+
+	f.down.Store(true)
+	c2 := &Checker{Client: c1.Client, CachePath: cache, Log: slog.New(slog.DiscardHandler), Now: clk.now}
+	c2.Start()
+	if s := c2.Snapshot(); s.State != licensestate.StatusDegraded || len(s.Entitlements) != 0 {
+		t.Fatalf("tampered entitlements accepted: %+v", s)
+	}
+}
+
+func TestEmptyEntitlementsNotAllowed(t *testing.T) {
+	clk := &clock{time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)}
+	f := newFakeServer(t, clk.now)
+	f.entitlements = []string{}
+	c := newChecker(t, f, clk, "")
+	s := c.CheckNow(context.Background())
+	if s.State != licensestate.StatusValid || len(s.Entitlements) != 0 {
+		t.Fatalf("empty entitlements changed state: %+v", s)
+	}
+	if s.Allowed() {
+		t.Fatal("empty entitlements must not allow enterprise features")
+	}
+}
+
+func TestSnapshotEntitlementsAreIsolated(t *testing.T) {
+	clk := &clock{time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)}
+	f := newFakeServer(t, clk.now)
+	c := newChecker(t, f, clk, "")
+	returned := c.CheckNow(context.Background())
+	returned.Entitlements[0] = "edition:forged"
+	first := c.Snapshot()
+	if len(first.Entitlements) != 1 || first.Entitlements[0] != license.EntitlementEnterprise {
+		t.Fatalf("returned snapshot mutated checker state: %v", first.Entitlements)
+	}
+	first.Entitlements[0] = "edition:forged"
+	second := c.Snapshot()
+	if len(second.Entitlements) != 1 || second.Entitlements[0] != license.EntitlementEnterprise {
+		t.Fatalf("snapshot mutated checker state: %v", second.Entitlements)
 	}
 }

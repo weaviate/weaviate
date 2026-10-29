@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
 
@@ -118,7 +119,7 @@ func TestVerifyTrustChecks(t *testing.T) {
 				if err == nil {
 					t.Fatal("expected an error")
 				}
-				if resp != (license.VerifyResponse{}) {
+				if !reflect.DeepEqual(resp, license.VerifyResponse{}) {
 					t.Fatalf("expected a zero response on error, got %+v", resp)
 				}
 				return
@@ -130,5 +131,41 @@ func TestVerifyTrustChecks(t *testing.T) {
 				t.Fatalf("unexpected status %q", resp.Status)
 			}
 		})
+	}
+}
+
+func TestVerifyAcceptsTrustedRotationSignature(t *testing.T) {
+	_, newPriv, _ := ed25519.GenerateKey(rand.Reader)
+	oldPub, oldPriv, _ := ed25519.GenerateKey(rand.Reader)
+	primary := license.ServerKey{ID: "new", PrivateKey: newPriv}
+	previous := license.ServerKey{ID: "old", PrivateKey: oldPriv}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req license.VerifyRequest
+		json.NewDecoder(r.Body).Decode(&req)
+		now := time.Now().UTC().Truncate(time.Second)
+		resp := license.VerifyResponse{
+			LicenseID: req.LicenseID, Status: license.StatusValid,
+			ExpiresAt: now.Add(time.Hour), CheckedAt: now, NextCheckAfter: now.Add(24 * time.Hour), Nonce: req.Nonce,
+			Entitlements: []string{license.EntitlementEnterprise, license.EntitlementPlatform},
+		}
+		if err := license.SignWith(&resp, primary, previous); err != nil {
+			t.Error(err)
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	lic, _ := license.Generate()
+	client, err := NewClient(lic.Key(), license.ServerKeySet{"old": oldPub})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.ServerURL = srv.URL
+	resp, err := client.Verify(context.Background(), "c-1", "n-1", "1.39.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Entitlements) != 2 || resp.Entitlements[1] != license.EntitlementPlatform {
+		t.Fatalf("unexpected entitlements: %v", resp.Entitlements)
 	}
 }

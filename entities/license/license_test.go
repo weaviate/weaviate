@@ -194,6 +194,7 @@ func TestResponseSignAndVerify(t *testing.T) {
 		CheckedAt:      now,
 		NextCheckAfter: now.Add(24 * time.Hour),
 		Nonce:          "n1",
+		Entitlements:   []string{EntitlementEnterprise, EntitlementPlatform, "feature:beekeeper9000"},
 	}
 	if err := srv.Sign(&resp); err != nil {
 		t.Fatal(err)
@@ -209,6 +210,9 @@ func TestResponseSignAndVerify(t *testing.T) {
 	if !got.Matches(VerifyRequest{LicenseID: resp.LicenseID, Nonce: "n1"}) {
 		t.Fatal("response should match its request")
 	}
+	if strings.Join(got.EffectiveEntitlements(), ",") != "edition:enterprise,edition:platform,feature:beekeeper9000" {
+		t.Fatalf("entitlements did not round-trip: %v", got.Entitlements)
+	}
 
 	// Forging "valid" over a revoked answer must fail.
 	forged := got
@@ -222,6 +226,11 @@ func TestResponseSignAndVerify(t *testing.T) {
 	if err := trusted.Verify(forged); !errors.Is(err, ErrBadSignature) {
 		t.Fatalf("forged cluster_mismatch accepted: %v", err)
 	}
+	forged = got
+	forged.Entitlements = []string{EntitlementPlatform}
+	if err := trusted.Verify(forged); !errors.Is(err, ErrBadSignature) {
+		t.Fatalf("forged entitlements accepted: %v", err)
+	}
 	// Unknown key id is rejected before signature check.
 	forged = got
 	forged.ServerKeyID = "srv-9999"
@@ -231,6 +240,108 @@ func TestResponseSignAndVerify(t *testing.T) {
 	// A rotated-out key that the client no longer trusts is rejected.
 	if err := (ServerKeySet{}).Verify(got); !errors.Is(err, ErrUnknownServerKey) {
 		t.Fatalf("empty key set accepted: %v", err)
+	}
+
+	legacy := got
+	legacy.Entitlements = nil
+	if err := srv.Sign(&legacy); err != nil {
+		t.Fatal(err)
+	}
+	legacyWire, _ := json.Marshal(legacy)
+	var legacyFields map[string]any
+	json.Unmarshal(legacyWire, &legacyFields)
+	delete(legacyFields, "entitlements")
+	legacyWire, _ = json.Marshal(legacyFields)
+	var legacyRoundTrip VerifyResponse
+	if err := json.Unmarshal(legacyWire, &legacyRoundTrip); err != nil {
+		t.Fatal(err)
+	}
+	if err := trusted.Verify(legacyRoundTrip); err != nil {
+		t.Fatalf("legacy response rejected: %v", err)
+	}
+	if got := legacyRoundTrip.EffectiveEntitlements(); len(got) != 1 || got[0] != EntitlementEnterprise {
+		t.Fatalf("legacy entitlements: %v", got)
+	}
+
+	empty := got
+	empty.Entitlements = []string{}
+	if err := srv.Sign(&empty); err != nil {
+		t.Fatal(err)
+	}
+	wire, _ = json.Marshal(empty)
+	var emptyRoundTrip VerifyResponse
+	if err := json.Unmarshal(wire, &emptyRoundTrip); err != nil {
+		t.Fatal(err)
+	}
+	if err := trusted.Verify(emptyRoundTrip); err != nil {
+		t.Fatalf("empty entitlement list rejected: %v", err)
+	}
+	if emptyRoundTrip.Entitlements == nil || len(emptyRoundTrip.EffectiveEntitlements()) != 0 {
+		t.Fatalf("empty entitlement list changed meaning: %#v", emptyRoundTrip.Entitlements)
+	}
+}
+
+func TestKeyIDFor(t *testing.T) {
+	pub, err := base64.RawURLEncoding.DecodeString("QtbmlPpmSqodZMBBP2nNyjNyGRNjz3Ejm_KXtNrMVFs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := KeyIDFor(pub); got != "kSqW93_D-AqI" {
+		t.Fatalf("KeyIDFor() = %q", got)
+	}
+}
+
+func TestRotationSignatures(t *testing.T) {
+	newPub, newPriv, _ := ed25519.GenerateKey(rand.Reader)
+	oldPub, oldPriv, _ := ed25519.GenerateKey(rand.Reader)
+	newKey := ServerKey{ID: "new", PrivateKey: newPriv}
+	oldKey := ServerKey{ID: "old", PrivateKey: oldPriv}
+	now := time.Now()
+	resp := VerifyResponse{
+		LicenseID:      "lic_01J9ABCDEFGHJKMNPQRSTVWXYZ",
+		Status:         StatusValid,
+		ExpiresAt:      now.Add(DefaultTerm),
+		CheckedAt:      now,
+		NextCheckAfter: now.Add(24 * time.Hour),
+		Nonce:          "n1",
+		Entitlements:   []string{EntitlementEnterprise},
+	}
+	if err := SignWith(&resp, newKey, oldKey); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.ServerSignatures) != 1 {
+		t.Fatalf("additional signatures: %v", resp.ServerSignatures)
+	}
+	for name, trusted := range map[string]ServerKeySet{
+		"new key only": {"new": newPub},
+		"old key only": {"old": oldPub},
+		"both keys":    {"new": newPub, "old": oldPub},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := trusted.Verify(resp); err != nil {
+				t.Fatalf("rotated response rejected: %v", err)
+			}
+		})
+	}
+	if err := (ServerKeySet{}).Verify(resp); !errors.Is(err, ErrUnknownServerKey) {
+		t.Fatalf("untrusted rotation accepted: %v", err)
+	}
+
+	tamperedAlternate := resp
+	tamperedAlternate.ServerSignatures = append([]ServerSig(nil), resp.ServerSignatures...)
+	tamperedAlternate.ServerSignatures[0].Signature = resp.ServerSignature
+	if err := (ServerKeySet{"old": oldPub}).Verify(tamperedAlternate); !errors.Is(err, ErrBadSignature) {
+		t.Fatalf("tampered alternate accepted: %v", err)
+	}
+
+	tamperedPrimary := resp
+	tamperedPrimary.ServerSignature = resp.ServerSignatures[0].Signature
+	if err := (ServerKeySet{"new": newPub, "old": oldPub}).Verify(tamperedPrimary); !errors.Is(err, ErrBadSignature) {
+		t.Fatalf("bad primary fell through to alternate: %v", err)
+	}
+
+	if err := (ServerKeySet{"old": oldPub[:ed25519.PublicKeySize-1]}).Verify(resp); !errors.Is(err, ErrUnknownServerKey) {
+		t.Fatalf("wrong-length alternate key: %v", err)
 	}
 }
 

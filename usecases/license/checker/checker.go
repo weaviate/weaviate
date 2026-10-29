@@ -32,9 +32,10 @@ import (
 
 // Defaults for the check loop.
 const (
-	DefaultGracePeriod  = 7 * 24 * time.Hour
-	MinCheckInterval    = time.Hour
-	MaxCheckInterval    = 7 * 24 * time.Hour
+	DefaultGracePeriod = 7 * 24 * time.Hour
+	MinCheckInterval   = time.Hour
+	// A healthy node checks in before half the grace period has elapsed.
+	MaxCheckInterval    = DefaultGracePeriod / 2
 	InitialRetryBackoff = time.Minute
 	MaxRetryBackoff     = time.Hour
 )
@@ -50,11 +51,27 @@ type Snapshot struct {
 	NextCheckAt     time.Time           `json:"next_check_at,omitempty"`
 	LastError       string              `json:"last_error,omitempty"`
 	ClusterMismatch bool                `json:"cluster_mismatch,omitempty"`
+	Entitlements    []string            `json:"entitlements,omitempty"`  // from the last signed "valid"
 	GraceEndsAt     time.Time           `json:"grace_ends_at,omitempty"` // when degradation starts
 }
 
 // Allowed reports whether enterprise features may run.
-func (s Snapshot) Allowed() bool { return s.State != licensestate.StatusDegraded }
+func (s Snapshot) Allowed() bool {
+	if s.State == licensestate.StatusDegraded || s.State == licensestate.StatusUnlicensed {
+		return false
+	}
+	for _, entitlement := range s.Entitlements {
+		if entitlement == license.EntitlementEnterprise {
+			return true
+		}
+	}
+	return false
+}
+
+func cloneSnapshot(s Snapshot) Snapshot {
+	s.Entitlements = append([]string(nil), s.Entitlements...)
+	return s
+}
 
 // Checker runs the client side of the protocol for one node.
 type Checker struct {
@@ -117,14 +134,34 @@ func (c *Checker) grace() time.Duration {
 	return DefaultGracePeriod
 }
 
+func (c *Checker) clampInterval(d time.Duration) time.Duration {
+	max := c.grace() / 2
+	if max > MaxCheckInterval {
+		max = MaxCheckInterval
+	}
+	if max < MinCheckInterval {
+		if max <= 0 {
+			return time.Nanosecond
+		}
+		return max
+	}
+	if d < MinCheckInterval {
+		return MinCheckInterval
+	}
+	if d > max {
+		return max
+	}
+	return d
+}
+
 // Snapshot returns the current view, recomputing time-dependent state. When
 // the recompute crosses a state boundary (expiry or the grace period passing
 // on the local clock), OnChange is invoked, after the lock is released.
 func (c *Checker) Snapshot() Snapshot {
 	c.mu.Lock()
-	old := c.snap
+	old := cloneSnapshot(c.snap)
 	c.recompute()
-	newSnap := c.snap
+	newSnap := cloneSnapshot(c.snap)
 	c.mu.Unlock()
 	if old.State != newSnap.State && c.OnChange != nil {
 		c.OnChange(old, newSnap)
@@ -184,7 +221,7 @@ func (c *Checker) CheckNow(ctx context.Context) Snapshot {
 	now := c.now()
 
 	c.mu.Lock()
-	old := c.snap
+	old := cloneSnapshot(c.snap)
 	if err != nil {
 		c.snap.LastError = err.Error()
 		if c.backoff == 0 {
@@ -208,19 +245,13 @@ func (c *Checker) CheckNow(ctx context.Context) Snapshot {
 		if resp.Status == license.StatusValid {
 			c.lastValid = &resp
 			c.snap.LastValidAt = resp.CheckedAt
+			c.snap.Entitlements = append([]string(nil), resp.EffectiveEntitlements()...)
 		}
-		interval := resp.NextCheckAfter.Sub(now)
-		if interval < MinCheckInterval {
-			interval = MinCheckInterval
-		}
-		if interval > MaxCheckInterval {
-			interval = MaxCheckInterval
-		}
-		c.snap.NextCheckAt = now.Add(interval)
+		c.snap.NextCheckAt = now.Add(c.clampInterval(resp.NextCheckAfter.Sub(now)))
 		c.saveCache()
 	}
 	c.recompute()
-	newSnap := c.snap
+	newSnap := cloneSnapshot(c.snap)
 	c.mu.Unlock()
 
 	c.logState(old, newSnap)
@@ -349,6 +380,9 @@ func (c *Checker) loadCache() {
 	case resp.Status == license.StatusValid:
 		c.lastValid = &resp
 		c.snap.LastValidAt = resp.CheckedAt
+	}
+	if c.lastValid != nil {
+		c.snap.Entitlements = append([]string(nil), c.lastValid.EffectiveEntitlements()...)
 	}
 	c.snap.NextCheckAt = c.now() // check straight away
 	c.log().Info("license state restored from cache", "status", resp.Status, "checked_at", resp.CheckedAt)
