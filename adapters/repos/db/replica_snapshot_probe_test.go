@@ -18,8 +18,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	esync "github.com/weaviate/weaviate/entities/sync"
 )
@@ -127,6 +129,73 @@ func TestIncomingProbeShardDataAbsentShard(t *testing.T) {
 	require.ErrorContains(t, err, "shard is nil")
 	require.False(t, hasData)
 	require.False(t, hosted)
+}
+
+func TestIncomingProbeShardDataNamespaceNotActive(t *testing.T) {
+	cases := []struct {
+		name       string
+		prepare    func(t *testing.T, idx *Index)
+		wantData   bool
+		wantHosted bool
+		wantErr    string
+	}{
+		{
+			name: "loaded shard answers its object count",
+			prepare: func(t *testing.T, idx *Index) {
+				shard := NewMockShardLike(t)
+				shard.EXPECT().preventShutdown().Return(func() {}, nil)
+				shard.EXPECT().ObjectCount(mock.Anything).Return(3, nil)
+				idx.shards.Store("S", shard)
+			},
+			wantData:   true,
+			wantHosted: true,
+		},
+		{
+			name: "shard unloaded since the map read answers from its counter",
+			prepare: func(t *testing.T, idx *Index) {
+				idx.shards.Store("S", &stubLoadableShard{})
+				seedShardObjectCounter(t, idx.Config.RootPath, idx.Config.ClassName.String(), "S")
+			},
+			wantData:   true,
+			wantHosted: true,
+		},
+		{
+			name: "folder stat failing other than not-exist is an error",
+			prepare: func(t *testing.T, idx *Index) {
+				// A regular file at the index path fails the shard folder's stat with ENOTDIR.
+				require.NoError(t, os.WriteFile(idx.path(), nil, 0o644))
+			},
+			wantErr: "not a directory",
+		},
+		{
+			name: "torn counter is an error, not a hosted copy",
+			prepare: func(t *testing.T, idx *Index) {
+				dir := shardPath(idx.path(), "S")
+				require.NoError(t, os.MkdirAll(dir, 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "indexcount"), []byte{1, 2, 3}, 0o644))
+			},
+			wantErr: "read counter",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			idx := newTestIndexForRecovery(t, &fakeSelfRecoveryOrch{})
+			idx.closingCtx = context.Background()
+			idx.shardCreateLocks = esync.NewKeyRWLocker()
+			idx.namespace = "alpha"
+			idx.namespacesExister = existerWithState(t, api.NamespaceStateSuspended)
+			tc.prepare(t, idx)
+
+			hasData, hosted, err := idx.IncomingProbeShardData(context.Background(), "S")
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, tc.wantData, hasData)
+			require.Equal(t, tc.wantHosted, hosted)
+		})
+	}
 }
 
 func TestIncomingProbeShardDataDeactivatedTenantOnDisk(t *testing.T) {
