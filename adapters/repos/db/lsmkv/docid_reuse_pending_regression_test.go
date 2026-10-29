@@ -46,7 +46,7 @@ func TestDocIDReuse_C2_Jero_Retombstone(t *testing.T) {
 // PENDING: no repro file exists in either audit set (H1 was confirmed by
 // analysis); this needs a NEW pinning test. Real home: package db / queue.
 func TestDocIDReuse_H1_ChunkWatermarkEscape(t *testing.T) {
-	t.Skip("PENDING new repro (H1) — no verbatim source exists; confirmed by analysis only; see docid-reuse-jero-audit")
+	t.Skip("PENDING (H1) — its pinning test lands TDD-style in the gen-tagged fix PR that implements the chunk-watermark check site; see docid-reuse-jero-audit")
 }
 
 // TestDocIDReuse_H2_QueueDurableBeforeWAL pins the H2-adjacent hole (audit H2
@@ -55,7 +55,7 @@ func TestDocIDReuse_H1_ChunkWatermarkEscape(t *testing.T) {
 // was refuted (Load() defends it); this is the real hole. PENDING: no repro
 // file exists; needs a NEW restart/replay pinning test. Real home: package db.
 func TestDocIDReuse_H2_QueueDurableBeforeWAL(t *testing.T) {
-	t.Skip("PENDING new repro (H2-adjacent) — no verbatim source exists; confirmed by analysis only; see docid-reuse-jero-audit")
+	t.Skip("PENDING (H2-adjacent) — its pinning test lands TDD-style in the gen-tagged fix PR that implements the queue-durability-before-WAL check site; see docid-reuse-jero-audit")
 }
 
 // TestDocIDReuse_H3_HarvestWindowNoIdentity pins H3 (CONFIRMED): there is no
@@ -63,5 +63,5 @@ func TestDocIDReuse_H2_QueueDurableBeforeWAL(t *testing.T) {
 // cycle to open. PENDING: no repro file exists; needs a NEW (likely
 // time/harvest-driven) pinning test. Real home: package db (free list).
 func TestDocIDReuse_H3_HarvestWindowNoIdentity(t *testing.T) {
-	t.Skip("PENDING new repro (H3) — no verbatim source exists; confirmed by analysis only; see docid-reuse-jero-audit")
+	t.Skip("PENDING (H3) — its pinning test lands TDD-style in the gen-tagged fix PR that implements the reuse-resolution identity check site; see docid-reuse-jero-audit")
 }
