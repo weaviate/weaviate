@@ -23,7 +23,7 @@ import "math"
 // definition lives here. Semantics are unchanged from the rq4c original
 // (commit 3d208f5300).
 func float32ToBFloat16(x float32) uint16 {
-	if x != x {
+	if math.IsNaN(float64(x)) {
 		return 0x7FC0
 	}
 	bits := math.Float32bits(x)
