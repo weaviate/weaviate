@@ -40,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/tokenizer"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -1283,10 +1284,16 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 				if !entcfg.Enabled(os.Getenv("USE_GSE")) && !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
 					return fmt.Errorf("the GSE tokenizer is not enabled; set 'ENABLE_TOKENIZER_GSE' to 'true' to enable")
 				}
+				if !tokenizer.UseGse {
+					return fmt.Errorf("the GSE tokenizer is enabled but failed to load its dictionary; see the startup log")
+				}
 				return nil
 			case models.PropertyTokenizationGseCh:
 				if !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE_CH")) {
 					return fmt.Errorf("the Chinese tokenizer is not enabled; set 'ENABLE_TOKENIZER_GSE_CH' to 'true' to enable")
+				}
+				if !tokenizer.UseGseCh {
+					return fmt.Errorf("the Chinese tokenizer is enabled but failed to load its dictionary; see the startup log")
 				}
 				return nil
 			case models.PropertyTokenizationKagomeKr:

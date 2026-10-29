@@ -26,6 +26,16 @@ Everything below is a build input. Change any of it and the hash changes.
 `go version -m weaviate` prints every one of these, so a verifier can read the inputs
 straight out of the binary they want to check.
 
+## Code must not find files through runtime.Caller
+
+`-trimpath` rewrites the file names that `runtime.Caller` reports from absolute paths to
+module-relative ones, so any code that builds a path from them breaks in a release binary.
+The gse tokenizer did exactly this to locate its dictionaries and was silently unavailable
+in every Docker image from v1.34.0 until the dictionaries were loaded from the embedded
+copies instead (`entities/tokenizer/gse_dict.go`). `test/run.sh` runs the tokenizer tests
+with `-trimpath` for that reason. Ship data as `//go:embed` files, never as paths derived
+from the source tree.
+
 ## The VCS stamp
 
 With `-buildvcs=auto` (the default) `go build` records the commit, its time, whether the
