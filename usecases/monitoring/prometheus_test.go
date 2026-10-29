@@ -232,4 +232,9 @@ func TestNewPrometheusMetrics(t *testing.T) {
 				"the sample must land on the series the writers address, api=%s", api)
 		}
 	})
+
+	t.Run("file_io_reads_total_bytes is on the default registry", func(t *testing.T) {
+		var already prometheus.AlreadyRegisteredError
+		require.ErrorAs(t, prometheus.DefaultRegisterer.Register(GetMetrics().FileIOReads), &already)
+	})
 }
