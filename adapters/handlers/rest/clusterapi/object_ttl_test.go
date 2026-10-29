@@ -98,7 +98,7 @@ type ttlProbeRepo struct {
 	index sharding.RemoteIndexIncomingRepo
 }
 
-func (r ttlProbeRepo) GetIndexForIncomingSharding(schema.ClassName) sharding.RemoteIndexIncomingRepo {
+func (r ttlProbeRepo) GetIndexForIncomingSharding(context.Context, schema.ClassName) sharding.RemoteIndexIncomingRepo {
 	return r.index
 }
 
@@ -196,7 +196,7 @@ type sweptTTLRepo struct {
 	indexFor func(schema.ClassName) sharding.RemoteIndexIncomingRepo
 }
 
-func (r *sweptTTLRepo) GetIndexForIncomingSharding(class schema.ClassName) sharding.RemoteIndexIncomingRepo {
+func (r *sweptTTLRepo) GetIndexForIncomingSharding(_ context.Context, class schema.ClassName) sharding.RemoteIndexIncomingRepo {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	r.asked = append(r.asked, string(class))
