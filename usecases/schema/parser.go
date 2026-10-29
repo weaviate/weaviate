@@ -14,6 +14,7 @@ package schema
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"sort"
@@ -533,9 +534,11 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 		// There might be module settings that need to be migrated to new names, for example
 		// if baseUrl property setting was renamed to baseURL then we need to adjust module settings
 		// and migrate baseUrl to baseURL
-		if p.modules.MigrateVectorizerSettings(initialModConf, updatedModConf) {
+		// initialModConf is the stored schema's map, so the migration runs on a copy.
+		migratedInitialModConf := structToMap(initialModConf)
+		if p.modules.MigrateVectorizerSettings(migratedInitialModConf, updatedModConf) {
 			// Module settings have been migrated, let's recheck vectorizer settings
-			if deepEqualVectorizerSettings(initialModConf[module], updatedModConf[module]) {
+			if deepEqualVectorizerSettings(migratedInitialModConf[module], updatedModConf[module]) {
 				continue
 			}
 		}
@@ -543,37 +546,33 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 		return fmt.Errorf("can only update generative and reranker module configs, or settings the module allows to change. Got: %v for class: %s", module, updated.Class)
 	}
 
-	if initial.ModuleConfig == nil {
-		initial.ModuleConfig = updatedModConf
+	if initialModConf == nil {
+		updated.ModuleConfig = updatedModConf
 		return nil
 	}
 
-	if _, ok := initial.ModuleConfig.(map[string]any); !ok {
-		initial.ModuleConfig = updatedModConf
-		return nil
-	}
+	// initialModConf is the stored schema's map and the caller may still reject the update, so merge into a copy.
+	mergedModConf := maps.Clone(initialModConf)
 	if hasGenerativeUpdate {
 		// clear out old generative module
-		for module := range initialModConf {
+		for module := range mergedModConf {
 			if p.modules.IsGenerative(module) {
-				delete(initialModConf, module)
+				delete(mergedModConf, module)
 			}
 		}
 	}
 
 	if hasRerankerUpdate {
 		// clear out old reranker module
-		for module := range initialModConf {
+		for module := range mergedModConf {
 			if p.modules.IsReranker(module) {
-				delete(initialModConf, module)
+				delete(mergedModConf, module)
 			}
 		}
 	}
 
-	for module := range updatedModConf {
-		initialModConf[module] = updatedModConf[module]
-	}
-	updated.ModuleConfig = initialModConf
+	maps.Copy(mergedModConf, updatedModConf)
+	updated.ModuleConfig = mergedModConf
 	return nil
 }
 

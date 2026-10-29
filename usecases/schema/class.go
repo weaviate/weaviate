@@ -385,6 +385,14 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 		shardingState.IndexID = class.Class
 	}
 
+	// Refuse a cross-namespace alias before schemaManager.RestoreClass commits the
+	// class and the alias loop below deletes the live alias under overwriteAlias.
+	for _, alias := range aliases {
+		if err := namespacing.ValidateAliasTarget(alias.Alias, class.Class); err != nil {
+			return fmt.Errorf("restore class %s: %w", class.Class, err)
+		}
+	}
+
 	metric, err := monitoring.GetMetrics().BackupRestoreClassDurations.GetMetricWithLabelValues(class.Class)
 	if err == nil {
 		timer := prometheus.NewTimer(metric)
@@ -1910,9 +1918,11 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 			// There might be module settings that need to be migrated to new names, for example
 			// if baseUrl property setting was renamed to baseURL then we need to adjust module settings
 			// and migrate baseUrl to baseURL
-			if modulesProvider.MigrateVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+			// initial shares its maps with the stored schema, so the migration runs on a copy.
+			initialVectorizer := structToMap(initial.VectorConfig[k].Vectorizer)
+			if modulesProvider.MigrateVectorizerSettings(initialVectorizer, v.Vectorizer) {
 				// Module settings have been migrated, let's recheck vectorizer settings
-				if deepEqualVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+				if deepEqualVectorizerSettings(initialVectorizer, v.Vectorizer) {
 					continue
 				}
 			}

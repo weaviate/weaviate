@@ -72,7 +72,8 @@ type DB struct {
 	shutdownOnce              sync.Once
 	startupComplete           atomic.Bool
 	startupShards             startupShardCounters
-	dimensionsReindex         dimensionsReindex
+	dimensionsReindex         startupRebuild
+	propLengthsRecount        startupRebuild
 	resourceScanState         *resourceScanState
 	memMonitor                *memwatch.Monitor
 
@@ -382,7 +383,8 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		logger:                    logger,
 		localNodeName:             localNodeName,
 		config:                    config,
-		dimensionsReindex:         dimensionsReindex{enabled: config.ReindexVectorDimensions && config.TrackVectorDimensions},
+		dimensionsReindex:         startupRebuild{enabled: config.ReindexVectorDimensions && config.TrackVectorDimensions},
+		propLengthsRecount:        startupRebuild{enabled: config.RecountPropertiesAtStartup},
 		indices:                   map[string]*Index{},
 		remoteIndex:               remoteIndex,
 		nodeResolver:              nodeResolver,
@@ -479,6 +481,11 @@ type Config struct {
 	ServerVersion                  string
 	GitHash                        string
 	AvoidMMap                      bool
+
+	// RecountPropertiesAtStartup rebuilds the property lengths of every shard once
+	// per process, before the shard loads or, if that fails, as it loads.
+	RecountPropertiesAtStartup bool
+
 	// EnableLazyLoadShards controls lazy shard loading.
 	// nil = auto-detect based on thresholds, true = always lazy-load, false = always eager-load.
 	EnableLazyLoadShards                *bool

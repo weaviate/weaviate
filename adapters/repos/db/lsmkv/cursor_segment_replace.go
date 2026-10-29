@@ -13,7 +13,6 @@ package lsmkv
 
 import (
 	"bufio"
-	"errors"
 	"io"
 	"sync"
 
@@ -446,7 +445,7 @@ type reusableInnerCursorReplace struct {
 }
 
 func nodeToKV(n *segmentReplaceNode, err error) ([]byte, []byte, error) {
-	if errors.Is(err, lsmkv.Deleted) {
+	if lsmkv.IsDeleted(err) {
 		// tombstone: key with nil value, so the merge can advance past it
 		return n.primaryKey, nil, err
 	}

@@ -1955,8 +1955,11 @@ func TestGuardReload(t *testing.T) {
 
 		// Which tenants a reload opens is decided by the check boot uses rather
 		// than the request-path one, so the multi-tenant arm walks the same table.
+		// With lazy loading on a reload only registers the tenant, so it is off
+		// here to make the reload open it.
 		t.Run(tc.name+" opens the tenants that stay open", func(t *testing.T) {
 			m, idx := migratorForReload(t, tc.className, tc.exister(t))
+			idx.Config.EnableLazyLoadShards = false
 			idx.shards.Store("t1", &LazyLoadShard{memMonitor: failingAllocChecker{}})
 
 			state := reloadState(true, map[string]sharding.Physical{"t1": hotPhysical("t1")})

@@ -6,6 +6,7 @@ repos:
         entry: gofumpt -w
         language: system
         types: [ go ]
+        exclude: ^adapters/repos/db/lsmkv/bloomhash/murmur\.go$ # verbatim copy of bits-and-blooms/bloom
       - id: error groups
         name: error groups
         entry: ./tools/linter_error_groups.sh

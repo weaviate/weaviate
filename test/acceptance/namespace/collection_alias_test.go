@@ -15,14 +15,12 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	objectsCli "github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/client/schema"
-	"github.com/weaviate/weaviate/client/users"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -31,25 +29,7 @@ import (
 func createNamespacedUser(t *testing.T, userID, ns, adminKey string) string {
 	t.Helper()
 
-	// AddNamespace no longer waits for local apply, so the follower the test
-	// client talks to may not yet see the namespace in its local controller
-	// when CreateUser arrives. The createUser handler's fast-path Exists()
-	// check then 422s with "namespace does not exist"; the local check 422s
-	// before any RAFT command is sent, so retries are safe.
-	var apikey string
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		resp, err := helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID(ns+":"+userID).WithBody(users.CreateUserBody{}),
-			helper.CreateAuth(adminKey),
-		)
-		if !assert.NoError(c, err) {
-			return
-		}
-		if !assert.NotNil(c, resp.Payload.Apikey) {
-			return
-		}
-		apikey = *resp.Payload.Apikey
-	}, 10*time.Second, 50*time.Millisecond, "user %q could not be created", userID)
+	apikey := helper.CreateUserWithNamespace(t, userID, ns, adminKey)
 
 	// On a multi-node cluster CreateUser is RAFT-forwarded to the leader and
 	// returns once the leader applies the FSM entry; the follower the test
@@ -57,11 +37,7 @@ func createNamespacedUser(t *testing.T, userID, ns, adminKey string) string {
 	// authenticated with apikey can transiently 401. Poll a cheap auth-bearing
 	// endpoint until the new key is recognized locally. Same pattern as
 	// helper.CreateNamespace and retryOnAliasLag, just for dynamic users.
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		_, err := helper.Client(t).Users.GetOwnInfo(
-			users.NewGetOwnInfoParams(), helper.CreateAuth(apikey))
-		assert.NoError(c, err)
-	}, 10*time.Second, 50*time.Millisecond, "user %q apikey not recognized after create", userID)
+	helper.WaitForAPIKeyRecognized(t, apikey, userID)
 
 	// Mandatory RBAC: grant the built-in admin role so the namespaced user can
 	// reach the data/schema/tenant/alias/MCP handlers. The role's wildcard
@@ -522,6 +498,28 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 
 		got := helper.GetAliasWithAuthz(t, ns1+":AdminAliasQualifiedUpdate", helper.CreateAuth(adminKey))
 		require.Equal(t, ns1+":AdminAliasQualifiedUpdateB", got.Class)
+	})
+
+	// user1 reads through its alias, so a target in ns2 would hand user1 ns2's objects.
+	t.Run("alias update to another namespace's class is rejected", func(t *testing.T) {
+		helper.CreateClassAuth(t, &models.Class{Class: "CrossNSAliasOwn"}, user1Key)
+		defer helper.DeleteClassAuth(t, ns1+":CrossNSAliasOwn", adminKey)
+		helper.CreateClassAuth(t, &models.Class{Class: "CrossNSAliasSecret"}, user2Key)
+		defer helper.DeleteClassAuth(t, ns2+":CrossNSAliasSecret", adminKey)
+		helper.CreateAliasAuth(t, &models.Alias{Alias: "CrossNSAlias", Class: "CrossNSAliasOwn"}, user1Key)
+		defer helper.DeleteAliasWithAuthz(t, ns1+":CrossNSAlias", helper.CreateAuth(adminKey))
+
+		_, err := helper.UpdateAliasAuthWithReturn(t, ns1+":CrossNSAlias", ns2+":CrossNSAliasSecret", adminKey)
+		var unproc *schema.AliasesUpdateUnprocessableEntity
+		require.True(t, errors.As(err, &unproc), "expected AliasesUpdateUnprocessableEntity, got %T: %v", err, err)
+		assert.Contains(t, unproc.Payload.Error[0].Message, "are in different namespaces")
+
+		_, err = helper.UpdateAliasAuthWithReturn(t, "CrossNSAlias", ns2+":CrossNSAliasSecret", user1Key)
+		require.True(t, errors.As(err, &unproc), "expected AliasesUpdateUnprocessableEntity, got %T: %v", err, err)
+		assert.Contains(t, unproc.Payload.Error[0].Message, "is not a valid class name")
+
+		got := helper.GetAliasWithAuthz(t, ns1+":CrossNSAlias", helper.CreateAuth(adminKey))
+		require.Equal(t, ns1+":CrossNSAliasOwn", got.Class)
 	})
 
 	// Read paths (GET /aliases/{name} and GET /aliases?class=) qualify in

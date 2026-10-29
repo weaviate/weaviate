@@ -36,18 +36,13 @@ func TestAuthzNamespaces(t *testing.T) {
 	noPermsUser := "no-perms-user"
 	noPermsKey := "no-perms-key"
 
-	_, down := composeUpWithSettings(t,
+	down := composeUp(t,
 		map[string]string{adminUser: adminKey},
 		map[string]string{
 			manageUser:       manageKey,
 			scopedManageUser: scopedManageKey,
 			noPermsUser:      noPermsKey,
 		},
-		nil,
-		false,
-		nil,
-		true, // withDbUsers — needed for the namespace-scoping subtests below.
-		true, // withNamespaces
 	)
 	defer down()
 
@@ -232,7 +227,7 @@ func TestAuthzNamespaces(t *testing.T) {
 	// user can only create within their own namespace.
 	const bootstrapRole = "ns-bootstrap-create"
 	helper.CreateRole(t, adminKey, &models.Role{
-		Name: String(bootstrapRole),
+		Name: new(bootstrapRole),
 		Permissions: []*models.Permission{
 			helper.NewCollectionsPermission().WithAction(authorization.CreateCollections).WithCollection("*").Permission(),
 			helper.NewAliasesPermission().WithAction(authorization.CreateAliases).WithCollection("*").WithAlias("*").Permission(),
@@ -259,7 +254,7 @@ func TestAuthzNamespaces(t *testing.T) {
 	t.Run("read_collections wildcard scope: namespaced caller can read own-NS collection by unqualified name", func(t *testing.T) {
 		const role = "read-all"
 		helper.CreateRole(t, adminKey, &models.Role{
-			Name: String(role),
+			Name: new(role),
 			Permissions: []*models.Permission{
 				helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection("*").Permission(),
 			},
@@ -274,7 +269,7 @@ func TestAuthzNamespaces(t *testing.T) {
 	t.Run("read_collections regex scope (Movies*): matches in own namespace only", func(t *testing.T) {
 		const role = "read-movies-prefix"
 		helper.CreateRole(t, adminKey, &models.Role{
-			Name: String(role),
+			Name: new(role),
 			Permissions: []*models.Permission{
 				helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection("Movies*").Permission(),
 			},
@@ -296,7 +291,7 @@ func TestAuthzNamespaces(t *testing.T) {
 	t.Run("read_collections exact scope (Movies): allows only Movies in own namespace", func(t *testing.T) {
 		const role = "read-movies-exact"
 		helper.CreateRole(t, adminKey, &models.Role{
-			Name: String(role),
+			Name: new(role),
 			Permissions: []*models.Permission{
 				helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection("Movies").Permission(),
 			},
@@ -317,7 +312,7 @@ func TestAuthzNamespaces(t *testing.T) {
 	t.Run("schema dump filters to own namespace for namespaced caller", func(t *testing.T) {
 		const role = "read-all-for-dump"
 		helper.CreateRole(t, adminKey, &models.Role{
-			Name: String(role),
+			Name: new(role),
 			Permissions: []*models.Permission{
 				helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection("*").Permission(),
 			},
@@ -354,7 +349,7 @@ func TestAuthzNamespaces(t *testing.T) {
 
 		const role = "read-aliases-all"
 		helper.CreateRole(t, adminKey, &models.Role{
-			Name: String(role),
+			Name: new(role),
 			Permissions: []*models.Permission{
 				helper.NewAliasesPermission().WithAction(authorization.ReadAliases).WithCollection("*").WithAlias("*").Permission(),
 			},
@@ -393,7 +388,7 @@ func TestAuthzNamespaces(t *testing.T) {
 		// Role creation rejects qualified resource paths for now
 		const role = "own-info-strip"
 		helper.CreateRole(t, adminKey, &models.Role{
-			Name: String(role),
+			Name: new(role),
 			Permissions: []*models.Permission{
 				helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection("*").Permission(),
 				helper.NewAliasesPermission().WithAction(authorization.ReadAliases).WithCollection("*").WithAlias("*").Permission(),
@@ -470,7 +465,7 @@ func TestAuthzNamespaces(t *testing.T) {
 		const role = "qualified-path-role"
 		_, err := helper.Client(t).Authz.CreateRole(
 			authz.NewCreateRoleParams().WithBody(&models.Role{
-				Name: String(role),
+				Name: new(role),
 				Permissions: []*models.Permission{
 					helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection(ns1 + ":Movies").Permission(),
 				},
