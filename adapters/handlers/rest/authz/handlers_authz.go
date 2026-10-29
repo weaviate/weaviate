@@ -62,6 +62,68 @@ type ControllerAndGetUsers interface {
 	GetUsers(userIds ...string) (map[string]apikey.UserView, error)
 }
 
+// UserGetter looks up dynamic DB users.
+type UserGetter interface {
+	GetUsers(userIds ...string) (map[string]apikey.UserView, error)
+}
+
+// InertController backs the role API on a cluster with RBAC disabled: every
+// mutation returns nil without effect and every RBAC getter returns the empty
+// value. GetUsers delegates to Users, because user existence is not RBAC state.
+type InertController struct {
+	Users UserGetter
+}
+
+var _ ControllerAndGetUsers = InertController{}
+
+func (InertController) UpdateRolesPermissions(map[string][]authorization.Policy) error {
+	return nil
+}
+
+func (InertController) CreateRolesPermissions(map[string][]authorization.Policy) error {
+	return nil
+}
+
+func (InertController) DeleteRoles(...string) error {
+	return nil
+}
+
+func (InertController) AddRolesForUser(string, []string) error {
+	return nil
+}
+
+func (InertController) RevokeRolesForUser(string, ...string) error {
+	return nil
+}
+
+func (InertController) RemovePermissions(string, []*authorization.Policy) error {
+	return nil
+}
+
+func (InertController) GetRoles(...string) (map[string][]authorization.Policy, error) {
+	return nil, nil
+}
+
+func (InertController) GetRolesForUserOrGroup(string, authentication.AuthType, bool) (map[string][]authorization.Policy, error) {
+	return nil, nil
+}
+
+func (InertController) GetUsersOrGroupForRole(string, authentication.AuthType, bool) ([]string, error) {
+	return nil, nil
+}
+
+func (InertController) HasPermission(string, *authorization.Policy) (bool, error) {
+	return false, nil
+}
+
+func (InertController) GetUsersOrGroupsWithRoles(bool, authentication.AuthType) ([]string, error) {
+	return nil, nil
+}
+
+func (c InertController) GetUsers(userIds ...string) (map[string]apikey.UserView, error) {
+	return c.Users.GetUsers(userIds...)
+}
+
 func SetupHandlers(api *operations.WeaviateAPI, controller ControllerAndGetUsers,
 	apiKeysConfigs config.StaticAPIKey, oidcConfigs config.OIDC, rconfig rbacconf.Config, namespacesEnabled bool, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger,
 ) {
@@ -659,7 +721,7 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 
 	var response []*models.Role
 	for roleName, policies := range roles {
-		if roleName == authorization.Root && !slices.Contains(h.rbacconfig.RootUsers, principal.Username) {
+		if roleName == authorization.Root && (principal == nil || !slices.Contains(h.rbacconfig.RootUsers, principal.Username)) {
 			continue
 		}
 

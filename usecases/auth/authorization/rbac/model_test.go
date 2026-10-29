@@ -1149,3 +1149,62 @@ func TestEnforce_GlobalRoleAssignedToNamespacedSubject(t *testing.T) {
 		})
 	}
 }
+
+func TestAdminViewerGrants(t *testing.T) {
+	conf := rbacconf.Config{Enabled: true, AdminUsers: []string{"alice", " "}, ViewerUsers: []string{"bob"}}
+	apiKey := config.StaticAPIKey{Enabled: true, Users: []string{"alice", "bob"}}
+	oidc := config.OIDC{Enabled: true}
+
+	tests := []struct {
+		name      string
+		conf      rbacconf.Config
+		authNconf config.Authentication
+		want      []RoleGrant
+	}{
+		{
+			name:      "APIKey only",
+			conf:      conf,
+			authNconf: config.Authentication{APIKey: apiKey},
+			want: []RoleGrant{
+				{Subject: "db:alice", Role: authorization.Admin},
+				{Subject: "db:bob", Role: authorization.Viewer},
+			},
+		},
+		{
+			name:      "OIDC only",
+			conf:      conf,
+			authNconf: config.Authentication{OIDC: oidc},
+			want: []RoleGrant{
+				{Subject: "oidc:alice", Role: authorization.Admin},
+				{Subject: "oidc:bob", Role: authorization.Viewer},
+			},
+		},
+		{
+			name:      "APIKey and OIDC",
+			conf:      conf,
+			authNconf: config.Authentication{APIKey: apiKey, OIDC: oidc},
+			want: []RoleGrant{
+				{Subject: "db:alice", Role: authorization.Admin},
+				{Subject: "oidc:alice", Role: authorization.Admin},
+				{Subject: "db:bob", Role: authorization.Viewer},
+				{Subject: "oidc:bob", Role: authorization.Viewer},
+			},
+		},
+		{
+			name:      "no admin or viewer users",
+			conf:      rbacconf.Config{Enabled: true, RootUsers: []string{"alice"}},
+			authNconf: config.Authentication{APIKey: apiKey, OIDC: oidc},
+		},
+		{
+			name:      "a user missing from APIKey.Users gets no db: grant",
+			conf:      conf,
+			authNconf: config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"bob"}}},
+			want:      []RoleGrant{{Subject: "db:bob", Role: authorization.Viewer}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, AdminViewerGrants(tt.conf, tt.authNconf))
+		})
+	}
+}

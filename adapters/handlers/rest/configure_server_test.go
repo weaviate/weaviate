@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -60,6 +61,62 @@ func Test_AdminListAuthorizer(t *testing.T) {
 			assert.NotNil(t, err)
 		})
 	})
+}
+
+func TestConfigureAuthorizer(t *testing.T) {
+	tests := []struct {
+		name           string
+		authz          config.Authorization
+		wantAuthorizer func(t *testing.T, appState *state.State)
+	}{
+		{
+			name:  "RBAC enabled",
+			authz: config.Authorization{Rbac: rbacconf.Config{Enabled: true}},
+			wantAuthorizer: func(t *testing.T, appState *state.State) {
+				assert.Equal(t, appState.RBAC, appState.Authorizer)
+			},
+		},
+		{
+			name:  "adminlist enabled",
+			authz: config.Authorization{AdminList: adminlist.Config{Enabled: true}},
+			wantAuthorizer: func(t *testing.T, appState *state.State) {
+				assert.IsType(t, &adminlist.Authorizer{}, appState.Authorizer)
+			},
+		},
+		{
+			name: "no authorization configured",
+			wantAuthorizer: func(t *testing.T, appState *state.State) {
+				assert.IsType(t, &authorization.DummyAuthorizer{}, appState.Authorizer)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			appState := &state.State{
+				Logger: logger,
+				ServerConfig: &config.WeaviateConfig{Config: config.Config{
+					Persistence:   config.Persistence{DataPath: t.TempDir()},
+					Authorization: tt.authz,
+				}},
+			}
+			require.NoError(t, configureAuthorizer(appState))
+
+			require.NotNil(t, appState.RBAC, "the manager is built whatever the config")
+			tt.wantAuthorizer(t, appState)
+
+			raft := authz.NewMockControllerAndGetUsers(t)
+			roleAPI := roleAPIController(tt.authz.Rbac.Enabled, raft)
+			if tt.authz.Rbac.Enabled {
+				assert.Same(t, raft, roleAPI)
+			} else {
+				inert, ok := roleAPI.(authz.InertController)
+				require.True(t, ok, "RBAC disabled selects the inert controller")
+				assert.Same(t, raft, inert.Users, "user lookups go to raft")
+			}
+		})
+	}
 }
 
 func TestConfigureAuthorizerRefusesNamespacesWithoutController(t *testing.T) {

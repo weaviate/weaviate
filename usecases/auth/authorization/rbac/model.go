@@ -60,13 +60,8 @@ const (
 `
 )
 
-// Init builds the in-memory enforcer. It attaches no persistence adapter: RAFT
-// snapshot restore and log replay rebuild the RBAC state on every start.
+// Init builds the in-memory enforcer. It attaches no persistence adapter: RAFT snapshot restore and log replay rebuild the RBAC state on every start.
 func Init(conf rbacconf.Config, policyPath string, authNconf config.Authentication, namespacesEnabled bool) (*casbin.SyncedCachedEnforcer, error) {
-	if !conf.Enabled {
-		return nil, nil
-	}
-
 	m, err := model.NewModelFromString(MODEL)
 	if err != nil {
 		return nil, fmt.Errorf("load rbac model: %w", err)
@@ -231,40 +226,11 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 		}
 	}
 
-	// temporary to enable import of existing keys to WCD (Admin + readonly)
-	for i := range conf.AdminUsers {
-		if strings.TrimSpace(conf.AdminUsers[i]) == "" {
-			continue
-		}
-
-		if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, conf.AdminUsers[i]) {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.AdminUsers[i], authentication.AuthTypeDb), conv.PrefixRoleName(authorization.Admin)); err != nil {
-				return fmt.Errorf("add role for user: %w", err)
-			}
-		}
-
-		if authNconf.OIDC.Enabled {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.AdminUsers[i], authentication.AuthTypeOIDC), conv.PrefixRoleName(authorization.Admin)); err != nil {
-				return fmt.Errorf("add role for user: %w", err)
-			}
-		}
-	}
-
-	for i := range conf.ViewerUsers {
-		if strings.TrimSpace(conf.ViewerUsers[i]) == "" {
-			continue
-		}
-
-		if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, conf.ViewerUsers[i]) {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.ViewerUsers[i], authentication.AuthTypeDb), conv.PrefixRoleName(authorization.Viewer)); err != nil {
-				return fmt.Errorf("add role for user: %w", err)
-			}
-		}
-
-		if authNconf.OIDC.Enabled {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.ViewerUsers[i], authentication.AuthTypeOIDC), conv.PrefixRoleName(authorization.Viewer)); err != nil {
-				return fmt.Errorf("add role for user: %w", err)
-			}
+	// The boot writer in adapters/handlers/rest submits the same grants as RAFT
+	// entries. This in-memory add makes them effective before RAFT is up.
+	for _, g := range AdminViewerGrants(conf, authNconf) {
+		if _, err := enforcer.AddRoleForUser(g.Subject, conv.PrefixRoleName(g.Role)); err != nil {
+			return fmt.Errorf("add role for user: %w", err)
 		}
 	}
 
@@ -296,6 +262,42 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 	}
 
 	return nil
+}
+
+// RoleGrant assigns the built-in role Role (unprefixed) to Subject (a
+// db: or oidc: prefixed user name).
+type RoleGrant struct {
+	Subject string
+	Role    string
+}
+
+// AdminViewerGrants returns the admin and viewer assignments conf.AdminUsers
+// and conf.ViewerUsers configure: a db: subject for each user listed in an
+// enabled APIKey config, and an oidc: subject for each user when OIDC is
+// enabled. Blank entries grant nothing.
+func AdminViewerGrants(conf rbacconf.Config, authNconf config.Authentication) []RoleGrant {
+	var grants []RoleGrant
+	// temporary to enable import of existing keys to WCD (Admin + readonly)
+	for _, byRole := range []struct {
+		role  string
+		users []string
+	}{
+		{authorization.Admin, conf.AdminUsers},
+		{authorization.Viewer, conf.ViewerUsers},
+	} {
+		for _, user := range byRole.users {
+			if strings.TrimSpace(user) == "" {
+				continue
+			}
+			if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, user) {
+				grants = append(grants, RoleGrant{Subject: conv.UserNameWithTypeFromId(user, authentication.AuthTypeDb), Role: byRole.role})
+			}
+			if authNconf.OIDC.Enabled {
+				grants = append(grants, RoleGrant{Subject: conv.UserNameWithTypeFromId(user, authentication.AuthTypeOIDC), Role: byRole.role})
+			}
+		}
+	}
+	return grants
 }
 
 var (

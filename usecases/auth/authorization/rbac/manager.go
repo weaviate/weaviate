@@ -71,6 +71,9 @@ type Manager struct {
 // true, because the first namespace-qualified class reads its state.
 // configureAuthorizer refuses to boot without it.
 func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool, namespaces NamespaceLister, logger logrus.FieldLogger) (*Manager, error) {
+	if !rbacConf.Enabled {
+		rbacConf = rbacconf.Config{}
+	}
 	csbin, err := Init(rbacConf, rbacStoragePath, authNconf, namespacesEnabled)
 	if err != nil {
 		return nil, err
@@ -751,7 +754,7 @@ type snapshot struct {
 // come along too. A selection of custom roles carries no admin or viewer assignments
 // ([Manager.BuiltInAssignments] and [Manager.OIDCBuiltInAssignments] carry those).
 func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
-	// snapshot isn't always initialized, e.g. when RBAC is disabled
+	// Defensive nil guard: a nil Manager returns an empty snapshot instead of panicking.
 	if m == nil {
 		return []byte{}, nil
 	}

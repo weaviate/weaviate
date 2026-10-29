@@ -17,6 +17,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
@@ -30,6 +31,7 @@ func TestGetRolesSuccess(t *testing.T) {
 		principal       *models.Principal
 		authorizedRoles []string
 		expectedRoles   map[string][]authorization.Policy
+		wantRoles       []string
 	}
 
 	tests := []testCase{
@@ -40,6 +42,7 @@ func TestGetRolesSuccess(t *testing.T) {
 			expectedRoles: map[string][]authorization.Policy{
 				"testRole": {},
 			},
+			wantRoles: []string{"testRole"},
 		},
 		{
 			name:            "success as root user",
@@ -48,6 +51,7 @@ func TestGetRolesSuccess(t *testing.T) {
 			expectedRoles: map[string][]authorization.Policy{
 				"testRole": {}, "root": {},
 			},
+			wantRoles: []string{"root", "testRole"},
 		},
 		{
 			name:            "success without principal",
@@ -56,6 +60,16 @@ func TestGetRolesSuccess(t *testing.T) {
 			expectedRoles: map[string][]authorization.Policy{
 				"testRole": {},
 			},
+			wantRoles: []string{"testRole"},
+		},
+		{
+			name:            "without principal the root role is hidden",
+			principal:       nil,
+			authorizedRoles: []string{"testRole", "root"},
+			expectedRoles: map[string][]authorization.Policy{
+				"testRole": {}, "root": {},
+			},
+			wantRoles: []string{"testRole"},
 		},
 	}
 
@@ -75,8 +89,12 @@ func TestGetRolesSuccess(t *testing.T) {
 			}
 			res := h.getRoles(authz.GetRolesParams{HTTPRequest: req}, tt.principal)
 			parsed, ok := res.(*authz.GetRolesOK)
-			assert.True(t, ok)
-			assert.Len(t, parsed.Payload, len(tt.expectedRoles))
+			require.True(t, ok)
+			var gotRoles []string
+			for _, role := range parsed.Payload {
+				gotRoles = append(gotRoles, *role.Name)
+			}
+			assert.Equal(t, tt.wantRoles, gotRoles)
 		})
 	}
 }

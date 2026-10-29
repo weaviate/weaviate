@@ -102,6 +102,51 @@ func TestInitWithoutLegacyFiles(t *testing.T) {
 	})
 }
 
+func TestNewWithRBACDisabled(t *testing.T) {
+	authNconf := config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"alice"}}}
+
+	t.Run("the store applies, snapshots and restores without writing files", func(t *testing.T) {
+		dir := t.TempDir()
+		m, err := New(dir, rbacconf.Config{}, authNconf, false, nil, discardLogger())
+		require.NoError(t, err)
+
+		require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{"reader": {moviesRead}}))
+		require.NoError(t, m.AddRolesForUser(alice, []string{"reader"}))
+		blob, err := m.Snapshot()
+		require.NoError(t, err)
+		require.NoError(t, m.DeleteRoles("reader"))
+		require.NoError(t, m.RestoreRaftSnapshot(blob))
+
+		roles, err := m.GetRolesForUserOrGroup("alice", authentication.AuthTypeDb, false)
+		require.NoError(t, err)
+		assert.Equal(t, map[string][]authorization.Policy{"reader": {moviesRead}}, roles)
+		assert.Empty(t, dirContents(t, dir))
+	})
+
+	t.Run("a disabled config grants none of its users or groups", func(t *testing.T) {
+		conf := rbacconf.Config{
+			// A namespaced root user. Init fails on it when the conf is enabled on a namespaced cluster.
+			RootUsers:      []string{"ns1:alice"},
+			AdminUsers:     []string{"alice"},
+			ViewerUsers:    []string{"alice"},
+			RootGroups:     []string{"ops"},
+			ReadOnlyGroups: []string{"auditors"},
+			MetadataGroups: []string{"catalog"},
+		}
+		m, err := New(t.TempDir(), conf, authNconf, true, nil, discardLogger())
+		require.NoError(t, err)
+
+		groupings, err := m.casbin.GetGroupingPolicy()
+		require.NoError(t, err)
+		assert.Empty(t, groupings)
+		roles, err := m.GetRoles()
+		require.NoError(t, err)
+		for _, role := range authorization.BuiltInRoles {
+			assert.Contains(t, roles, role, "built-in roles are registered")
+		}
+	})
+}
+
 // TestMutationsWriteNoFiles runs its steps in order on one Manager, so each
 // step mutates the state the previous one left.
 func TestMutationsWriteNoFiles(t *testing.T) {
