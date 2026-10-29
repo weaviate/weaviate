@@ -27,11 +27,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/bloomhash"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/concurrency/testinghelpers"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -323,6 +325,68 @@ func TestBatchReaderMatchesRoaringSetGet(t *testing.T) {
 		string(keyB):       arrWantB,
 		string(keyMissing): nil,
 	})
+}
+
+// TestBatchReaderProbesBloomFiltersWithAttachedHashes pins that Next probes with the attached hash.
+func TestBatchReaderProbesBloomFiltersWithAttachedHashes(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyRoaringSet), WithUseBloomFilter(true),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, b.Shutdown(context.Background())) })
+	b.SetMemtableThreshold(1e9)
+
+	// on disk only, so the bloom filter alone decides whether the row is read
+	require.NoError(t, b.RoaringSetAddList([]byte("present"), []uint64{1, 2}))
+	require.NoError(t, b.FlushAndSwitch())
+
+	sumOf := func(prefix string) func([]byte) inverted.BloomHash {
+		return func(key []byte) inverted.BloomHash {
+			return bloomhash.Sum(append([]byte(prefix), key...))
+		}
+	}
+	keys := sortedKeysOf(t, []string{"absent", "present"})
+
+	tests := []struct {
+		name   string
+		keys   inverted.SortedKeys
+		window int
+		want   map[string][]uint64
+	}{
+		{
+			name:   "correct hashes",
+			keys:   keys.WithHashes(sumOf("")),
+			window: BatchReaderWindowKeys,
+			want:   map[string][]uint64{"present": {1, 2}},
+		},
+		{
+			// window slot 0 of the second window is batch position 1
+			name:   "correct hashes past the first window",
+			keys:   keys.WithHashes(sumOf("")),
+			window: 1,
+			want:   map[string][]uint64{"present": {1, 2}},
+		},
+		{
+			// the filter holds "present" but not "not-present"
+			name:   "wrong hashes",
+			keys:   keys.WithHashes(sumOf("not-")),
+			window: BatchReaderWindowKeys,
+			want:   map[string][]uint64{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			view := b.GetConsistentView()
+			defer view.ReleaseView()
+			reader, err := newRoaringSetBatchReaderWithBounds(view.WithoutEmptyActiveMemtable(),
+				tt.keys, tt.window, BatchReaderWindowBytes)
+			require.NoError(t, err)
+			requireRowsAre(t, reader, tt.keys, tt.want)
+		})
+	}
 }
 
 // TestBatchReaderAllocatesNothingForAbsentKeys pins that a key no segment or
