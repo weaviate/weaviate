@@ -14,6 +14,8 @@ package concurrency
 import (
 	"context"
 	"os"
+	"sync"
+	"sync/atomic"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
 )
@@ -27,32 +29,97 @@ func BudgetCapDisabled() bool {
 	return budgetCapDisabled
 }
 
+// Pool is where a resizable budget's units come from: the node's query
+// admission limiter.
+type Pool interface {
+	// Resize moves a holding of held units toward n and returns the new holding.
+	Resize(held, n int) int
+}
+
+// Budget is the per-query worker budget every goroutine of one query reads.
+// With a pool it can give units back and take them again. Without one it is
+// fixed, since shrinking it would free nothing for anyone.
+type Budget struct {
+	mu    sync.Mutex // serializes resize and Detach; size never takes it
+	pool  Pool
+	units atomic.Int64
+}
+
+func NewBudget(pool Pool, size int) *Budget {
+	b := &Budget{pool: pool}
+	b.units.Store(int64(size))
+	return b
+}
+
+func (b *Budget) size() int {
+	return int(b.units.Load())
+}
+
+// resize moves the budget toward n and returns its new size. A fixed budget
+// keeps its size.
+func (b *Budget) resize(n int) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.pool == nil {
+		return b.size()
+	}
+	size := b.pool.Resize(b.size(), n)
+	b.units.Store(int64(size))
+	return size
+}
+
+// Detach makes the budget fixed and returns the units it holds, which the
+// caller then owes to the pool.
+func (b *Budget) Detach() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.pool = nil
+	return b.size()
+}
+
 type budgetKey struct{}
 
 func (budgetKey) String() string {
 	return "concurrency_budget"
 }
 
+// CtxWithBudget stores a fixed budget, so a share split off for a child cannot
+// resize the budget it was split from.
 func CtxWithBudget(ctx context.Context, budget int) context.Context {
-	return context.WithValue(ctx, budgetKey{}, budget)
+	return CtxWithResizableBudget(ctx, NewBudget(nil, budget))
+}
+
+func CtxWithResizableBudget(ctx context.Context, b *Budget) context.Context {
+	return context.WithValue(ctx, budgetKey{}, b)
 }
 
 // CtxWithBudgetIfAbsent seeds a budget only if ctx doesn't already carry one,
 // so an upstream admission grant isn't overwritten by a downstream default.
 func CtxWithBudgetIfAbsent(ctx context.Context, budget int) context.Context {
-	if _, ok := ctx.Value(budgetKey{}).(int); ok {
+	if _, ok := ctx.Value(budgetKey{}).(*Budget); ok {
 		return ctx
 	}
 	return CtxWithBudget(ctx, budget)
 }
 
 func BudgetFromCtx(ctx context.Context, fallback int) int {
-	budget, ok := ctx.Value(budgetKey{}).(int)
+	b, ok := ctx.Value(budgetKey{}).(*Budget)
 	if !ok {
 		return fallback
 	}
 
-	return budget
+	return b.size()
+}
+
+// ResizeBudget resizes ctx's budget toward n and returns its new size, or n
+// when ctx carries none. n is absolute, so a caller that shrinks and later
+// restores must be the budget's only resizer until it restores.
+func ResizeBudget(ctx context.Context, n int) int {
+	b, ok := ctx.Value(budgetKey{}).(*Budget)
+	if !ok {
+		return n
+	}
+	return b.resize(n)
 }
 
 func ContextWithFractionalBudget(ctx context.Context, factor, fallback int) context.Context {

@@ -328,6 +328,33 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	return helpers.NewAllowListCloseableFromBitmap(dbm.docIDs, dbm.release), nil
 }
 
+// shrinkBudgetForContainsFold gives back the part of ctx's budget plan's fold
+// leaves idle, and returns the func that asks for it again, which gets back only
+// free units. Under DISABLE_SROAR_MERGE_BUDGET the merges ignore the budget, so
+// nothing is given back.
+func shrinkBudgetForContainsFold(ctx context.Context, plan containsFoldPlan) (restore func()) {
+	noop := func() {}
+	if concurrency.BudgetCapDisabled() {
+		return noop
+	}
+	need := containsFoldMergeFactor * plan.workers
+	held := concurrency.BudgetFromCtx(ctx, need)
+	if need >= held {
+		return noop
+	}
+	shrunk := concurrency.ResizeBudget(ctx, need)
+	if shrunk >= held {
+		return noop
+	}
+	return func() {
+		restored := concurrency.ResizeBudget(ctx, held)
+		if helpers.HasSlowQueryDetails(ctx) {
+			helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_budget",
+				map[string]int{"held": held, "shrunk": shrunk, "restored": restored})
+		}
+	}
+}
+
 // extractPropValuePair is the entry point. It delegates type-dispatched
 // construction of the propValuePair tree to buildPropValuePair, then
 // runs a single post-order pass over the tree to group same-root

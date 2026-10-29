@@ -81,7 +81,7 @@ func (a *Aggregator) objectVectorSearch(ctx context.Context, searchVector models
 	if bucket == nil {
 		return nil, nil, fmt.Errorf("objects bucket not available (store shutting down)")
 	}
-	objs, err := storobj.ObjectsByDocID(bucket, ids, additional.Properties{}, nil, a.logger)
+	objs, err := storobj.ObjectsByDocID(ctx, bucket, ids, additional.Properties{}, nil, a.logger)
 	if err != nil {
 		return nil, nil, fmt.Errorf("get objects by doc id: %w", err)
 	}

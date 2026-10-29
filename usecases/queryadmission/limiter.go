@@ -65,11 +65,11 @@ type waiter struct {
 
 // Limiter is a node-level query admission controller, safe for concurrent use.
 //
-// Nesting: same-node re-entrant admits inherit the parent's grant
-// (admissionKey), so they can't deadlock locally. A grant IS held while
-// fanning out to a REMOTE node's admission; liveness there rests on the
-// bounded wait queue, the coordinator's bounded retry backoff, and request
-// deadlines, not on releasing the grant, so the cost is latency, not
+// Nesting: same-node re-entrant admits run on a fixed copy of the parent's
+// grant (admissionKey), so they can't deadlock locally or resize it. A grant
+// IS held while fanning out to a REMOTE node's admission; liveness there rests
+// on the bounded wait queue, the coordinator's bounded retry backoff, and
+// request deadlines, not on releasing the grant, so the cost is latency, not
 // deadlock.
 type Limiter struct {
 	mu       sync.Mutex
@@ -88,8 +88,8 @@ type Limiter struct {
 	waitDuration  prometheus.Histogram
 }
 
-// admissionKey marks a ctx that already holds a grant on this node. Its
-// presence makes Admit re-entrant: nested admits inherit the parent grant.
+// admissionKey marks a ctx that already holds a grant on this node, so a
+// nested Admit takes no grant of its own.
 type admissionKey struct{}
 
 // New builds a Limiter and registers its metrics with reg (may be a noop).
@@ -149,18 +149,25 @@ func (l *Limiter) disabled() bool {
 // It returns ErrOverloaded if the node and wait queue are both full, or the
 // ctx error if ctx is/becomes done before a grant.
 //
-// Admit is nil-receiver-safe: a nil Limiter, disabled limiter, or re-entrant
-// call all return the ctx unchanged and a no-op release. Production always
-// wires a limiter; this exists purely so tests can skip it.
+// Admit is nil-receiver-safe. A nil or disabled Limiter takes no grant and
+// returns a no-op release. Only tests pass a nil one. A re-entrant call on a
+// nil, disabled or enabled Limiter also takes no grant and returns a no-op
+// release. Its ctx holds a fixed copy of the parent's budget, so resizing it
+// reaches neither the parent nor the pool.
 func (l *Limiter) Admit(ctx context.Context, want int) (context.Context, func(), error) {
 	if l == nil || l.disabled() {
+		// a query admitted before the kill switch flipped still owns a pooled budget
+		if ctx.Value(admissionKey{}) != nil {
+			ctx = concurrency.CtxWithBudget(ctx, concurrency.BudgetFromCtx(ctx, want))
+		}
 		return ctx, func() {}, nil
 	}
 	if err := ctx.Err(); err != nil {
 		return ctx, func() {}, err
 	}
 	if ctx.Value(admissionKey{}) != nil {
-		return ctx, func() {}, nil
+		// Return a fixed copy, so parallel nested searches cannot resize the parent's grant.
+		return concurrency.CtxWithBudget(ctx, concurrency.BudgetFromCtx(ctx, want)), func() {}, nil
 	}
 
 	w64 := int64(want)
@@ -175,7 +182,8 @@ func (l *Limiter) Admit(ctx context.Context, want int) (context.Context, func(),
 		l.observeGrantLocked(g)
 		l.updateGaugesLocked()
 		l.mu.Unlock()
-		return admittedCtx(ctx, g), l.releaseFn(g), nil
+		ctx, release := l.admitted(ctx, g)
+		return ctx, release, nil
 	}
 
 	if l.waiters.Len() >= l.maxQueue {
@@ -197,7 +205,8 @@ func (l *Limiter) Admit(ctx context.Context, want int) (context.Context, func(),
 		return ctx, func() {}, ctx.Err()
 	case g := <-w.ready:
 		l.waitDuration.Observe(time.Since(enqueuedAt).Seconds())
-		return admittedCtx(ctx, g), l.releaseFn(g), nil
+		ctx, release := l.admitted(ctx, g)
+		return ctx, release, nil
 	}
 }
 
@@ -235,12 +244,16 @@ func (l *Limiter) grantLocked(want int64) int64 {
 	return g
 }
 
-// releaseLocked returns g units to the pool and then wakes waiters FIFO,
-// granting each the current curve amount until capacity is exhausted or the
-// queue empties.
+// releaseLocked returns a released or abandoned grant's g units to the pool, then wakes waiters.
 func (l *Limiter) releaseLocked(g int64) {
 	l.used -= g
 	l.inflight--
+	l.wakeLocked()
+}
+
+// wakeLocked wakes waiters FIFO, granting each the current curve amount until
+// capacity is exhausted or the queue empties.
+func (l *Limiter) wakeLocked() {
 	for l.waiters.Len() > 0 {
 		front := l.waiters.Front()
 		w := front.Value.(*waiter)
@@ -256,13 +269,51 @@ func (l *Limiter) releaseLocked(g int64) {
 	}
 }
 
-// releaseFn returns an idempotent release closure for a grant of g units.
-func (l *Limiter) releaseFn(g int64) func() {
+// budgetPool is the Limiter as an admitted grant's concurrency.Pool. Unexported,
+// so only a grant's own Budget, which passes what it holds, can resize it.
+type budgetPool struct{ l *Limiter }
+
+func (p budgetPool) Resize(held, n int) int { return p.l.resize(held, n) }
+
+// resize moves an admitted query's holding of held units toward n, floored at
+// 1. A shrink happens only while a query waits, and wakes it: with nobody to
+// take the units, giving them back would only slow the query down. A grow takes
+// only free units, of which wakeLocked leaves none while anyone is queued, so a
+// running query never jumps the queue or waits.
+func (l *Limiter) resize(held, n int) int {
+	n = max(n, 1)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	switch {
+	case n < held && l.waiters.Len() == 0:
+		n = held
+	case n < held:
+		l.used -= int64(held - n)
+		l.wakeLocked()
+	case n > held:
+		n = held + int(min(int64(n-held), l.capacity-l.used))
+		l.used += int64(n - held)
+	default:
+		n = held
+	}
+	l.updateGaugesLocked()
+	return n
+}
+
+// admitted seeds ctx with a grant of g units this limiter can resize, and marks
+// it with admissionKey. The idempotent release returns what the budget holds
+// then, not g.
+func (l *Limiter) admitted(ctx context.Context, g int64) (context.Context, func()) {
+	budget := concurrency.NewBudget(budgetPool{l}, int(g))
+	ctx = concurrency.CtxWithResizableBudget(ctx, budget)
+	ctx = context.WithValue(ctx, admissionKey{}, struct{}{})
+
 	var once sync.Once
-	return func() {
+	return ctx, func() {
 		once.Do(func() {
+			held := int64(budget.Detach())
 			l.mu.Lock()
-			l.releaseLocked(g)
+			l.releaseLocked(held)
 			l.updateGaugesLocked()
 			l.mu.Unlock()
 		})
@@ -279,11 +330,4 @@ func (l *Limiter) updateGaugesLocked() {
 	l.usedGauge.Set(float64(l.used))
 	l.inflightGauge.Set(float64(l.inflight))
 	l.waitingGauge.Set(float64(l.waiters.Len()))
-}
-
-// admittedCtx seeds the granted budget for the read path to consume and marks
-// the ctx so nested admits on this node inherit the grant.
-func admittedCtx(ctx context.Context, g int64) context.Context {
-	ctx = concurrency.CtxWithBudget(ctx, int(g))
-	return context.WithValue(ctx, admissionKey{}, struct{}{})
 }
