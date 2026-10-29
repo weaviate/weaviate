@@ -927,8 +927,9 @@ func TestAuthorizeEnforceErrorOmitsStack(t *testing.T) {
 	logger, hook := test.NewNullLogger()
 	m, err := setupTestManager(t, logger)
 	require.NoError(t, err)
-	// The authz API refuses this row, which conv stores for "[[:alpha:]]".
-	_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("bad"), "aliases/collections/.*/aliases/[[:Alpha:]]+", authorization.READ, authorization.AliasesDomain)
+	// The authz API never stores a verb that does not compile, and casbin's
+	// regexMatch panics on one.
+	_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("bad"), "aliases/collections/.*/aliases/.*", "(", authorization.AliasesDomain)
 	require.NoError(t, err)
 	require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId("alice", authentication.AuthTypeDb), []string{"bad"}))
 	principal := &models.Principal{Username: "alice", UserType: models.UserTypeInputDb}

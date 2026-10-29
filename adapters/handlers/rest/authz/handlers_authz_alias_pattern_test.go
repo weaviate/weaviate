@@ -29,37 +29,63 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// TestAliasPatternCheckedAsStored checks that create and add refuse an alias
-// pattern that stops compiling once conv uppercases it, and checkLookup doesn't.
-func TestAliasPatternCheckedAsStored(t *testing.T) {
-	perm := &models.Permission{Action: String(authorization.ReadAliases), Aliases: &models.PermissionAliases{Collection: String("*"), Alias: String("[[:alpha:]]+")}}
-	wantErr := "'[[:alpha:]]+' is not a valid alias name"
-	require.NoError(t, validatePermissions(false, checkLookup, perm))
+// TestPatternCheckedAsStored checks that create and add refuse a pattern that
+// stops compiling once conv stores it, and checkLookup doesn't, so a row already
+// stored stays removable.
+func TestPatternCheckedAsStored(t *testing.T) {
+	tests := []struct {
+		name    string
+		perm    *models.Permission
+		wantErr string
+	}{
+		{
+			name:    "alias uppercased",
+			perm:    &models.Permission{Action: String(authorization.ReadAliases), Aliases: &models.PermissionAliases{Collection: String("*"), Alias: String("[[:alpha:]]+")}},
+			wantErr: "'[[:alpha:]]+' is not a valid alias name",
+		},
+		{
+			// conv stores X|\Q as (X|\Q), and \Q quotes the closing ')'.
+			name:    "alternation wrapped in a group",
+			perm:    &models.Permission{Action: String(authorization.ReadData), Data: &models.PermissionData{Collection: String(`X|\Q`)}},
+			wantErr: "is not a valid pattern: error parsing regexp: missing closing )",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.NoError(t, validatePermissions(false, checkLookup, tt.perm))
 
-	t.Run("create role", func(t *testing.T) {
-		logger, _ := test.NewNullLogger()
-		h := &authZHandlers{authorizer: authorization.NewMockAuthorizer(t), controller: NewMockControllerAndGetUsers(t), logger: logger}
-		res := h.createRole(authz.CreateRoleParams{
-			HTTPRequest: req,
-			Body:        &models.Role{Name: String("newRole"), Permissions: []*models.Permission{perm}},
-		}, &models.Principal{Username: "user1"})
-		parsed, ok := res.(*authz.CreateRoleUnprocessableEntity)
-		require.True(t, ok, "got %T", res)
-		assert.Contains(t, parsed.Payload.Error[0].Message, wantErr)
-	})
+			t.Run("create role", func(t *testing.T) {
+				logger, _ := test.NewNullLogger()
+				h := &authZHandlers{authorizer: authorization.NewMockAuthorizer(t), controller: NewMockControllerAndGetUsers(t), logger: logger}
+				res := h.createRole(authz.CreateRoleParams{
+					HTTPRequest: req,
+					Body:        &models.Role{Name: String("newRole"), Permissions: []*models.Permission{tt.perm}},
+				}, &models.Principal{Username: "user1"})
+				parsed, ok := res.(*authz.CreateRoleUnprocessableEntity)
+				require.True(t, ok, "got %T", res)
+				assert.Contains(t, parsed.Payload.Error[0].Message, tt.wantErr)
+			})
 
-	t.Run("add permissions", func(t *testing.T) {
-		logger, _ := test.NewNullLogger()
-		h := &authZHandlers{authorizer: authorization.NewMockAuthorizer(t), controller: NewMockControllerAndGetUsers(t), logger: logger}
-		res := h.addPermissions(authz.AddPermissionsParams{
-			ID:          "someRole",
-			HTTPRequest: req,
-			Body:        authz.AddPermissionsBody{Permissions: []*models.Permission{perm}},
-		}, &models.Principal{Username: "user1"})
-		parsed, ok := res.(*authz.AddPermissionsBadRequest)
-		require.True(t, ok, "got %T", res)
-		assert.Contains(t, parsed.Payload.Error[0].Message, wantErr)
-	})
+			t.Run("add permissions", func(t *testing.T) {
+				logger, _ := test.NewNullLogger()
+				h := &authZHandlers{authorizer: authorization.NewMockAuthorizer(t), controller: NewMockControllerAndGetUsers(t), logger: logger}
+				res := h.addPermissions(authz.AddPermissionsParams{
+					ID:          "someRole",
+					HTTPRequest: req,
+					Body:        authz.AddPermissionsBody{Permissions: []*models.Permission{tt.perm}},
+				}, &models.Principal{Username: "user1"})
+				parsed, ok := res.(*authz.AddPermissionsBadRequest)
+				require.True(t, ok, "got %T", res)
+				assert.Contains(t, parsed.Payload.Error[0].Message, tt.wantErr)
+			})
+		})
+	}
+}
+
+// TestValidateStorablePoliciesBraceRewrite checks that the stored-form compile
+// rewrites "{...}" as KeyMatch5 does, so a target the matcher accepts is not refused.
+func TestValidateStorablePoliciesBraceRewrite(t *testing.T) {
+	require.NoError(t, validateStorablePolicies([]authorization.Policy{{Resource: "users/x{1001}"}}))
 }
 
 // TestValidatePermissionsAliasRule checks that create and add apply the
