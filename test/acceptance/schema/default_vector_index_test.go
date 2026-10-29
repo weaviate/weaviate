@@ -23,19 +23,8 @@ import (
 )
 
 func TestDefaultVectorIndexEmpty(t *testing.T) {
-	mainCtx := context.Background()
-
-	compose, err := docker.New().
-		WithWeaviate().
-		Start(mainCtx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(mainCtx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
+	helper.SetupClient(helper.SharedServerURI)
+	defer helper.ResetClient()
 
 	t.Run("no env defaults to hnsw", func(t *testing.T) {
 		cls := articles.ParagraphsClass()
@@ -43,6 +32,7 @@ func TestDefaultVectorIndexEmpty(t *testing.T) {
 
 		helper.DeleteClass(t, cls.Class)
 		helper.CreateClass(t, cls)
+		defer helper.DeleteClass(t, cls.Class)
 
 		got := helper.GetClass(t, cls.Class)
 		require.Equal(t, "hnsw", got.VectorIndexType)
@@ -63,6 +53,7 @@ func TestDefaultVectorIndexEmpty(t *testing.T) {
 
 		helper.DeleteClass(t, cls.Class)
 		helper.CreateClass(t, cls)
+		defer helper.DeleteClass(t, cls.Class)
 
 		got := helper.GetClass(t, cls.Class)
 		require.Equal(t, "hnsw", got.VectorConfig["my_vector"].VectorIndexType)
@@ -78,6 +69,7 @@ func TestDefaultVectorIndexEmpty(t *testing.T) {
 
 		helper.DeleteClass(t, cls.Class)
 		helper.CreateClass(t, cls)
+		defer helper.DeleteClass(t, cls.Class)
 
 		got := helper.GetClass(t, cls.Class)
 		require.Equal(t, "hnsw", got.VectorIndexType)
@@ -99,6 +91,7 @@ func TestDefaultVectorIndexEmpty(t *testing.T) {
 
 		helper.DeleteClass(t, cls.Class)
 		helper.CreateClass(t, cls)
+		defer helper.DeleteClass(t, cls.Class)
 
 		got := helper.GetClass(t, cls.Class)
 		require.Equal(t, "hnsw", got.VectorConfig["my_vector"].VectorIndexType)

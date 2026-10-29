@@ -18,6 +18,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -32,6 +33,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/bloomhash"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -90,12 +92,10 @@ type Segment interface {
 	quantileKeys(q int) [][]byte
 	ReadOnlyTombstones() (*sroar.Bitmap, error)
 	replaceStratParseData(in []byte) ([]byte, []byte, error)
-	roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool) (roaringset.BitmapLayer, func(), error)
-	roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool, maxConc int) error
+	roaringSetGet(key []byte, h bloomhash.Hash, bitmapBufPool roaringset.BitmapBufPool) (*sroar.Bitmap, func(), error)
+	roaringSetMergeWith(key []byte, h bloomhash.Hash, additions *sroar.Bitmap, bitmapBufPool roaringset.BitmapBufPool, maxConc int) error
 
 	// map/bmw specific
-	hasKey(key []byte) bool
-	getDocCount(key []byte) uint64
 	getInvertedNodeAndDocCount(key []byte) (segmentindex.Node, uint64, bool)
 	getPropertyLengths() (map[uint64]uint32, error)
 	isPropertyLengthsLoaded() bool
@@ -150,11 +150,22 @@ type segment struct {
 
 	deleteMarkerSuffix string
 
+	// corruptIndexReportOnce keeps one unreadable segment to one log line, spent by
+	// whichever of its indexes fails first.
+	corruptIndexReportOnce sync.Once
+
 	// set when the .db was overwritten in place by a newer segment, so drop must
 	// not look for a ".deleteme" copy of it. See markForDeletionExceptSegment.
 	segmentFileSuperseded bool
 }
 
+// diskIndex is the segment's view of its on-disk search tree. Its lookups report
+// an absent key as lsmkv.NotFound and Contains as (false, nil); any other error
+// means the index could not be read, and taking it for absence drops keys the
+// segment still holds.
+//
+// Seek and Next answer with a Node where offsets alone will not do, and are kept
+// for that shape whether or not this repository reaches for them.
 type diskIndex interface {
 	// Get return lsmkv.NotFound in case no node can be found
 	Get(key []byte) (segmentindex.Node, error)
@@ -168,6 +179,12 @@ type diskIndex interface {
 	// value (or the exact value if present)
 	Seek(key []byte) (segmentindex.Node, error)
 
+	// SeekOffsets returns only the payload position (start, end) of the node
+	// Seek would return; prefer it where Node.Key is not read.
+	SeekOffsets(key []byte) (start, end uint64, err error)
+
+	// Next returns the node holding the smallest key strictly greater than key,
+	// or lsmkv.NotFound past the highest key.
 	Next(key []byte) (segmentindex.Node, error)
 
 	// AllKeys in no specific order, e.g. for building a bloom filter
@@ -196,7 +213,8 @@ type diskIndex interface {
 	// with ForEachNodeInRange.
 	SplitNodeRanges(parts int) [][2]int
 
-	// Contains reports whether key is present, without materializing it.
+	// Contains reports whether key is present, without materializing it. An
+	// absent key is (false, nil); an unreadable index is (false, err).
 	Contains(key []byte) (bool, error)
 }
 
@@ -226,13 +244,28 @@ type segmentConfig struct {
 func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	existsLower existsOnLowerSegmentsFn, cfg segmentConfig,
 ) (_ *segment, rerr error) {
+	// Every failure gives back what it took, from the defer that recovers: it is
+	// the only one that runs once a panic has become rerr. A lazy segment retries
+	// newSegment per read, so a leak here repeats per read.
+	var file *os.File
+	var contents []byte
+	var unMapContents bool
+
 	defer func() {
-		p := recover()
-		if p == nil {
+		if p := recover(); p != nil {
+			entsentry.Recover(p)
+			rerr = fmt.Errorf("unexpected error loading segment %q: %v", path, p)
+		}
+		if rerr == nil {
 			return
 		}
-		entsentry.Recover(p)
-		rerr = fmt.Errorf("unexpected error loading segment %q: %v", path, p)
+		if unMapContents {
+			mapped := mmap.MMap(contents)
+			_ = mapped.Unmap()
+		}
+		if file != nil {
+			file.Close()
+		}
 	}()
 
 	file, err := os.Open(path)
@@ -245,15 +278,6 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		// Errors are ignored — fadvise is purely advisory.
 		_ = fadviseSequential(file)
 	}
-
-	// The lifetime of the `file` exceeds this constructor as we store the open file for later use in `contentFile`.
-	// invariant: We close **only** if any error happened after successfully opening the file. To avoid leaking open file descriptor.
-	// NOTE: This `defer` works even with `err` being shadowed in the whole function because defer checks for named `rerr` return value.
-	defer func() {
-		if rerr != nil {
-			file.Close()
-		}
-	}()
 
 	var size int64
 	if cfg.fileList != nil {
@@ -272,8 +296,6 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	}
 
 	// mmap has some overhead, we can read small files directly to memory
-	var contents []byte
-	var unMapContents bool
 	var allocCheckerErr error
 
 	if size <= cfg.MinMMapSize { // check if it is a candidate for full reading
@@ -332,6 +354,14 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		}
 	}
 
+	// PrimaryIndex slices contents on IndexStart, panicking into a recover that
+	// reports no sentinel. Checksum validation would have caught it, but it is
+	// opt-in and version-gated.
+	if header.IndexStart > uint64(len(contents)) {
+		return nil, fmt.Errorf("%w: index starts at %d, past the segment (%d bytes)",
+			lsmkv.ErrCorruptIndex, header.IndexStart, len(contents))
+	}
+
 	primaryIndex, err := header.PrimaryIndex(contents)
 	if err != nil {
 		return nil, fmt.Errorf("extract primary index position: %w", err)
@@ -344,8 +374,6 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		primaryIndex = primaryIndex[:len(primaryIndex)-segmentindex.ChecksumSize]
 	}
 
-	primaryDiskIndex := segmentindex.NewDiskTree(primaryIndex)
-
 	dataStartPos := uint64(segmentindex.HeaderSize)
 	dataEndPos := header.IndexStart
 
@@ -357,7 +385,23 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		}
 		dataStartPos = invertedHeader.KeysOffset
 		dataEndPos = invertedHeader.TombstoneOffset
+
+		// LoadHeaderInverted checks neither, and these are bytes a cursor parses
+		if dataStartPos < segmentindex.HeaderSize+segmentindex.HeaderInvertedSize {
+			return nil, fmt.Errorf("%w: key region starts at %d, inside the header",
+				lsmkv.ErrCorruptIndex, dataStartPos)
+		}
 	}
+
+	// a node addresses the data section, and past IndexStart that is the index blob
+	if dataEndPos < dataStartPos || dataEndPos > header.IndexStart {
+		return nil, fmt.Errorf("%w: data section [%d,%d) ends outside the index at %d",
+			lsmkv.ErrCorruptIndex, dataStartPos, dataEndPos, header.IndexStart)
+	}
+
+	// built after the inverted header moves them: those nodes address
+	// [KeysOffset, TombstoneOffset), not the whole data section
+	primaryDiskIndex := segmentindex.NewDiskTreeWithValueBounds(primaryIndex, dataStartPos, dataEndPos)
 
 	stratLabel := header.Strategy.String()
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
@@ -419,7 +463,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 			if header.Version >= segmentindex.SegmentV1 && cfg.enableChecksumValidation && i == int(seg.secondaryIndexCount-1) {
 				secondary = secondary[:len(secondary)-segmentindex.ChecksumSize]
 			}
-			seg.secondaryIndices[i] = segmentindex.NewDiskTree(secondary)
+			seg.secondaryIndices[i] = segmentindex.NewDiskTreeWithValueBounds(secondary, seg.dataStartPos, seg.dataEndPos)
 		}
 	}
 
@@ -481,6 +525,19 @@ func (s *segment) close() error {
 	}
 
 	return nil
+}
+
+// segmentSidecarExtensions lists the extensions of the files a segment writes beside
+// its .db, the same set sidecarPaths builds per-segment paths for.
+var segmentSidecarExtensions = []string{".bloom", CountNetAdditionsFileSuffix, MetadataFileSuffix}
+
+// isSegmentSidecarName reports whether a file name is one of those files. It reads
+// the extension alone, because what sits before it varies: a secondary bloom
+// carries its index, and writeSegmentInfoIntoFileName adds a level and a strategy.
+func isSegmentSidecarName(name string) bool {
+	return slices.ContainsFunc(segmentSidecarExtensions, func(ext string) bool {
+		return strings.HasSuffix(name, ext)
+	})
 }
 
 // sidecarPaths returns the paths of the files derived from the segment: bloom
@@ -660,6 +717,22 @@ func (s *segment) getCountNetAdditions() int {
 	return s.countNetAdditions
 }
 
+// reportIndexErr returns an index lookup's error unchanged, naming an
+// unreadable segment on the way past. Reads that go on to swallow the error
+// route through it too, which is the only place they become visible.
+func (s *segment) reportIndexErr(err error) error {
+	if errors.Is(err, lsmkv.ErrCorruptIndex) {
+		// the path is what an operator has to repair, and the index cannot name
+		// it: it holds no path
+		s.corruptIndexReportOnce.Do(func() {
+			s.logger.WithField("action", "lsmkv_corrupt_index").
+				WithField("path", s.path).
+				Errorf("segment index cannot be read: %v", err)
+		})
+	}
+	return err
+}
+
 func (s *segment) getLevel() uint16 {
 	return s.level
 }
@@ -685,9 +758,23 @@ func (s *segment) indexSize() int {
 	return s.index.Size()
 }
 
+// nodeReader streams one node off a segment. It bundles every reader either
+// path needs, so that a pooled nodeReader serves a node read without allocating.
+// Callers must Release it exactly once and not touch it afterwards: the next
+// read, possibly on another goroutine, reuses it.
 type nodeReader struct {
-	r         io.Reader
-	releaseFn func()
+	// r is nil while the nodeReader sits in the pool
+	r io.Reader
+
+	mem   bytes.Reader
+	file  meteredOffsetReader
+	bufio *bufio.Reader
+}
+
+var nodeReaderPool = sync.Pool{
+	New: func() any {
+		return &nodeReader{bufio: bufio.NewReader(nil)}
+	},
 }
 
 func (n *nodeReader) Read(b []byte) (int, error) {
@@ -697,20 +784,77 @@ func (n *nodeReader) Read(b []byte) (int, error) {
 	return n.r.Read(b)
 }
 
+// Release is a no-op on a nodeReader that is already released, so a repeated
+// call cannot pool it twice.
 func (n *nodeReader) Release() {
+	if n.r == nil {
+		return
+	}
 	n.r = nil
-	n.releaseFn()
+	// drop the segment's contents, file and metrics before the next read reuses this
+	n.mem.Reset(nil)
+	n.file = meteredOffsetReader{}
+	n.bufio.Reset(nil)
+	nodeReaderPool.Put(n)
+}
+
+// meteredOffsetReader reads a file sequentially from off through ReadAt, so
+// concurrent readers never share the file's own offset, and meters each
+// successful read.
+type meteredOffsetReader struct {
+	ra      readerAt
+	off     int64
+	observe BytesReadObserver
+}
+
+func (r *meteredOffsetReader) Read(p []byte) (int, error) {
+	n, err := r.ra.ReadAt(p, r.off)
+	r.off += int64(n)
+	if err != nil {
+		return n, err
+	}
+	// the observer records bytes only, so the read is not timed
+	r.observe(int64(n), 0)
+	return n, nil
 }
 
 type nodeOffset struct {
 	start, end uint64
 }
 
-// readMetricName is the sync.Map key bufferedReaderAt meters under. Joining it
-// per call allocates, and read paths that fetch a few bytes per row do this once
-// a row, so the operations used there are pre-joined.
+const (
+	copyNodeOp                      = "copyNode"
+	loadBMWOp                       = "loadBMW"
+	roaringSetReadOp                = "roaringSetRead"
+	segmentCursorReplaceOp          = "segmentCursorReplace"
+	segmentCursorMapOp              = "segmentCursorMap"
+	segmentCursorCollectionOp       = "segmentCursorCollection"
+	cursorCollectionReusableOp      = "CursorCollectionReusable"
+	segmentCursorInvertedReusableOp = "segmentCursorInvertedReusable"
+)
+
+// readMetricName is the sync.Map key segment reads meter under. Joining it per
+// call allocates, so the operations the switch lists are joined at compile time;
+// the rest join per call in the default arm.
 func readMetricName(operation string) string {
 	switch operation {
+	case copyNodeOp:
+		return "ReadFromSegment" + copyNodeOp
+	case loadBMWOp:
+		return "ReadFromSegment" + loadBMWOp
+	case roaringSetReadOp:
+		// has always been metered without the prefix
+		return roaringSetReadOp
+	case segmentCursorReplaceOp:
+		return "ReadFromSegment" + segmentCursorReplaceOp
+	case segmentCursorMapOp:
+		return "ReadFromSegment" + segmentCursorMapOp
+	case segmentCursorCollectionOp:
+		return "ReadFromSegment" + segmentCursorCollectionOp
+	case cursorCollectionReusableOp:
+		return "ReadFromSegment" + cursorCollectionReusableOp
+	case segmentCursorInvertedReusableOp:
+		return "ReadFromSegment" + segmentCursorInvertedReusableOp
 	case targetedScanPeekOp:
 		return "ReadFromSegment" + targetedScanPeekOp
 	case targetedScanRangeOp:
@@ -719,26 +863,38 @@ func readMetricName(operation string) string {
 	return "ReadFromSegment" + operation
 }
 
+// newNodeReader streams the segment from offset.start. In memory the stream ends
+// at offset.end, or at the end of the contents if that is 0; on disk offset.end
+// is not enforced and the stream runs to the end of the file.
 func (s *segment) newNodeReader(offset nodeOffset, operation string) (*nodeReader, error) {
-	var (
-		r       io.Reader
-		err     error
-		release = func() {} // no-op function for un-pooled readers
-	)
-
 	if s.readFromMemory {
 		contents := s.contents[offset.start:]
 		if offset.end != 0 {
 			contents = s.contents[offset.start:offset.end]
 		}
-		r, err = s.bytesReaderFrom(contents)
-	} else {
-		r, release, err = s.bufferedReaderAt(offset.start, readMetricName(operation))
+		if len(contents) == 0 {
+			return nil, fmt.Errorf("new nodeReader: %w", lsmkv.NotFound)
+		}
+
+		n := nodeReaderPool.Get().(*nodeReader)
+		n.mem.Reset(contents)
+		n.r = &n.mem
+		return n, nil
 	}
-	if err != nil {
-		return nil, fmt.Errorf("new nodeReader: %w", err)
+
+	if s.contentFile == nil {
+		return nil, fmt.Errorf("new nodeReader: nil contentFile for segment at %s", s.path)
 	}
-	return &nodeReader{r: r, releaseFn: release}, nil
+
+	n := nodeReaderPool.Get().(*nodeReader)
+	n.file = meteredOffsetReader{
+		ra:      s.contentFile,
+		off:     int64(offset.start),
+		observe: readObserver.GetOrCreate(readMetricName(operation), s.metrics),
+	}
+	n.bufio.Reset(&n.file)
+	n.r = n.bufio
+	return n, nil
 }
 
 func (s *segment) copyNode(b []byte, offset nodeOffset) error {
@@ -746,55 +902,30 @@ func (s *segment) copyNode(b []byte, offset nodeOffset) error {
 		copy(b, s.contents[offset.start:offset.end])
 		return nil
 	}
-	n, err := s.newNodeReader(offset, "copyNode")
-	if err != nil {
-		return fmt.Errorf("copy node: %w", err)
-	}
-	defer n.Release()
-
-	_, err = io.ReadFull(n, b)
-	return err
+	return s.preadInto(b, offset.start, copyNodeOp)
 }
 
-func (s *segment) bytesReaderFrom(in []byte) (*bytes.Reader, error) {
-	if len(in) == 0 {
-		return nil, lsmkv.NotFound
-	}
-	return bytes.NewReader(in), nil
-}
-
-func (s *segment) bufferedReaderAt(offset uint64, operation string) (io.Reader, func(), error) {
+// preadInto fills b from the segment file at off and meters what came off disk.
+// The caller owns the buffer and the range it covers; this is the pread half
+// copyNode and readRange share, and the operation names both the metric label
+// and the error.
+func (s *segment) preadInto(b []byte, off uint64, operation string) error {
 	if s.contentFile == nil {
-		return nil, nil, fmt.Errorf("nil contentFile for segment at %s", s.path)
+		return fmt.Errorf("%s: nil contentFile for segment at %s", operation, s.path)
 	}
 
-	meteredF := diskio.NewMeteredReader(s.contentFile, diskio.MeteredReaderCallback(readObserver.GetOrCreate(operation, s.metrics)))
-	r := io.NewSectionReader(meteredF, int64(offset), s.size)
-
-	bufioR := bufReaderPool.Get().(*bufio.Reader)
-	bufioR.Reset(r)
-
-	releaseFn := func() {
-		bufReaderPool.Put(bufioR)
+	// ReadAt errors on a short read; all io.ReadFull adds is io.ErrUnexpectedEOF in place of io.EOF
+	n, err := s.contentFile.ReadAt(b, int64(off))
+	if err != nil {
+		return fmt.Errorf("%s: %w", operation, err)
 	}
-
-	return bufioR, releaseFn, nil
+	observe := readObserver.GetOrCreate(readMetricName(operation), s.metrics)
+	// the observer records bytes only, so the read is not timed
+	observe(int64(n), 0)
+	return nil
 }
 
-var (
-	bufReaderPool *sync.Pool
-	readObserver  *readObserverCache
-)
-
-func init() {
-	bufReaderPool = &sync.Pool{
-		New: func() interface{} {
-			return bufio.NewReader(nil)
-		},
-	}
-
-	readObserver = &readObserverCache{}
-}
+var readObserver = &readObserverCache{}
 
 type readObserverCache struct {
 	sync.Map

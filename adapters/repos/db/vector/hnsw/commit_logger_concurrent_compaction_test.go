@@ -79,7 +79,7 @@ func TestCommitLog_ConcurrentSwitchAndCompaction(t *testing.T) {
 			return false
 		}
 
-		if fail(l.AddNode(&vertex{id: 0, level: 2})) {
+		if fail(l.AddNode(0, 2)) {
 			return
 		}
 		if fail(l.SetEntryPointWithMaxLayer(0, 2)) {
@@ -88,7 +88,7 @@ func TestCommitLog_ConcurrentSwitchAndCompaction(t *testing.T) {
 
 		for id := uint64(1); id <= numNodes; id++ {
 			lvl := levelFor(id)
-			if fail(l.AddNode(&vertex{id: id, level: lvl})) {
+			if fail(l.AddNode(id, uint16(lvl))) {
 				return
 			}
 			if fail(l.AddLinkAtLevel(id, 0, 0)) {

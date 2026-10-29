@@ -28,7 +28,7 @@ func TestGRPC_NamedVectors(t *testing.T) {
 	grpcClient, conn := newClient(t)
 
 	// delete if exists and then re-create Books class
-	booksClass := books.ClassNamedContextionaryVectorizer()
+	booksClass := books.ClassNamedModel2VecVectorizer()
 	helper.DeleteClass(t, booksClass.Class)
 	helper.CreateClass(t, booksClass)
 	defer helper.DeleteClass(t, booksClass.Class)

@@ -54,25 +54,46 @@ func CreateAsyncCheckpoint(t *testing.T, clusterURI, className string, shards []
 
 func DeleteAsyncCheckpoint(t *testing.T, clusterURI, className string, shards []string) {
 	t.Helper()
+	require.NoError(t, TryDeleteAsyncCheckpoint(clusterURI, className, shards))
+}
+
+// TryDeleteAsyncCheckpoint is the error-returning variant, safe inside EventuallyWithT closures.
+func TryDeleteAsyncCheckpoint(clusterURI, className string, shards []string) error {
 	body, err := json.Marshal(map[string]any{"shards": shards})
-	require.NoError(t, err)
+	if err != nil {
+		return err
+	}
 	req, err := http.NewRequest(http.MethodDelete, asyncCheckpointURL(clusterURI, className), bytes.NewReader(body))
-	require.NoError(t, err)
+	if err != nil {
+		return err
+	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
+	if err != nil {
+		return err
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
-		t.Fatalf("delete checkpoint returned %d: %s", resp.StatusCode, respBody)
+		return fmt.Errorf("delete checkpoint on %s returned %d: %s", clusterURI, resp.StatusCode, respBody)
 	}
+	return nil
 }
 
 // AsyncCheckpointStatus returns an empty map when the node hosts none of the requested shards.
 func AsyncCheckpointStatus(t *testing.T, clusterURI, className string, shards []string) map[string]AsyncCheckpointStatusEntry {
 	t.Helper()
-	u, err := url.Parse(asyncCheckpointURL(clusterURI, className))
+	out, err := TryAsyncCheckpointStatus(clusterURI, className, shards)
 	require.NoError(t, err)
+	return out
+}
+
+// TryAsyncCheckpointStatus is the error-returning variant, safe inside EventuallyWithT closures.
+func TryAsyncCheckpointStatus(clusterURI, className string, shards []string) (map[string]AsyncCheckpointStatusEntry, error) {
+	u, err := url.Parse(asyncCheckpointURL(clusterURI, className))
+	if err != nil {
+		return nil, err
+	}
 	if len(shards) > 0 {
 		q := u.Query()
 		for _, s := range shards {
@@ -81,15 +102,19 @@ func AsyncCheckpointStatus(t *testing.T, clusterURI, className string, shards []
 		u.RawQuery = q.Encode()
 	}
 	resp, err := http.Get(u.String())
-	require.NoError(t, err)
+	if err != nil {
+		return nil, err
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("status returned %d: %s", resp.StatusCode, body)
+		return nil, fmt.Errorf("status on %s returned %d: %s", clusterURI, resp.StatusCode, body)
 	}
 	var out map[string]AsyncCheckpointStatusEntry
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
-	return out
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func asyncCheckpointURL(clusterURI, className string) string {

@@ -47,12 +47,12 @@ func (s *Raft) AddClass(ctx context.Context, cls *models.Class, ss *sharding.Sta
 	return s.Execute(ctx, command)
 }
 
-func (s *Raft) UpdateClass(ctx context.Context, cls *models.Class, _ *sharding.State) (uint64, error) {
+func (s *Raft) UpdateClass(ctx context.Context, cls *models.Class, _ *sharding.State, origin cmd.ClassUpdateOrigin) (uint64, error) {
 	if cls == nil || cls.Class == "" {
 		return 0, fmt.Errorf("nil class or empty class name: %w", schema.ErrBadRequest)
 	}
 
-	req := cmd.UpdateClassRequest{Class: cls}
+	req := cmd.UpdateClassRequest{Class: cls, Origin: origin}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
 		return 0, fmt.Errorf("marshal request: %w", err)
@@ -135,7 +135,8 @@ func (s *Raft) UpdateProperty(ctx context.Context, class string, property *model
 // adapters/repos/db/reindex_provider.flipSemanticMigrationSchema). The
 // resulting command carries [api.UpdatePropertyRequest.FromInFlightMigration]
 // = true, which the schema FSM uses to bypass the in-flight-reindex
-// MutationGuard for this single update.
+// MutationGuard for this single update. The flag also lets the update
+// through while its namespace is not active.
 //
 // Public REST / gRPC handlers must not call this; they go through
 // [Raft.UpdateProperty]. The migration-only bypass exists because the
@@ -336,6 +337,10 @@ func (s *Raft) Execute(ctx context.Context, req *cmd.ApplyRequest) (uint64, erro
 			schemaVersion, err = s.store.Execute(req)
 			// We might fail due to leader not found as we are losing or transferring leadership, retry
 			if errors.Is(err, raft.ErrNotLeader) || errors.Is(err, raft.ErrLeadershipLost) {
+				return err
+			}
+			// Transient by construction, so retry instead of failing the client.
+			if errors.Is(err, types.ErrFSMNotCaughtUp) {
 				return err
 			}
 			return backoff.Permanent(err)

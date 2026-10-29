@@ -57,6 +57,27 @@ type DistributedBackupDescriptor struct {
 	BaseBackupID            string                     `json:"baseBackupId"`
 	Users                   []string                   `json:"users,omitempty"`
 	Roles                   []string                   `json:"roles,omitempty"`
+	// DedupeReplicas marks a replica-deduped artifact (Version 3.x): restore must fan shards out to all replicas.
+	DedupeReplicas bool `json:"dedupeReplicas,omitempty"`
+	// DedupeDesignatedShards/DedupeFallbackShards record the dedupe planning outcome; both zero on legacy artifacts.
+	DedupeDesignatedShards int `json:"dedupeDesignatedShards,omitempty"`
+	DedupeFallbackShards   int `json:"dedupeFallbackShards,omitempty"`
+	// DedupeCutoffsMs: per-class checkpoint cutoff (epoch ms) for deduped classes; the artifact provably contains every write acked at or before it.
+	DedupeCutoffsMs map[string]int64 `json:"dedupeCutoffsMs,omitempty"`
+	// DedupeDesignations (class→shard→archiving node) lets a later incremental keep the designee — the only replica whose node-local diff can skip.
+	DedupeDesignations map[string]map[string]string `json:"dedupeDesignations,omitempty"`
+	// DedupeSkippedBytes: bytes attributed to skipping replicas; real archived ≈ PreCompressionSizeBytes − DedupeSkippedBytes.
+	DedupeSkippedBytes int64 `json:"dedupeSkippedBytes,omitempty"`
+	// SkipUsers/SkipRoles record an explicit user-supplied empty list or if user-supplied wildcards matched nothing.
+	// Restore discards any user or RBAC blob a node uploaded anyway, which a participant predating the request-level skip flag does.
+	// That discard leaves BuiltInRoleAssignments in place.
+	SkipUsers bool `json:"skipUsers,omitempty"`
+	SkipRoles bool `json:"skipRoles,omitempty"`
+	// BuiltInRoleAssignments is an RBAC snapshot of the admin and viewer assignments the backup
+	// carries: those of the backed-up db users and of the OIDC users in the namespaces includeRoles
+	// names. The coordinator writes it when includeRoles is set; restore merges it into the RBAC
+	// blob it applies.
+	BuiltInRoleAssignments []byte `json:"builtInRoleAssignments,omitempty"`
 }
 
 // Len returns how many nodes exist in d
@@ -248,6 +269,10 @@ func (d *DistributedBackupDescriptor) GetServerVersion() string {
 }
 
 func (d *DistributedBackupDescriptor) GetCompressionType() CompressionType {
+	// pre-zstd global descriptors lack the field and default to gzip
+	if d.CompressionType == "" {
+		return CompressionGZIP
+	}
 	return d.CompressionType
 }
 
@@ -262,6 +287,8 @@ type ShardDescriptor struct {
 	Files                 []string               `json:"files,omitempty"`
 	BigFilesChunk         map[string]BigFileInfo `json:"bigFilesChunk,omitempty"`
 	IncrementalBackupInfo IncrementalBackupInfos `json:"incrementalBackupInfo"`
+	// PreCompressionSizeBytes: archived bytes before compression, incl. incremental-skipped bytes.
+	PreCompressionSizeBytes int64 `json:"preCompressionSizeBytes,omitempty"`
 
 	DocIDCounterPath      string `json:"docIdCounterPath,omitempty"`
 	DocIDCounter          []byte `json:"docIdCounter,omitempty"`
@@ -342,7 +369,7 @@ FilesLoop:
 }
 
 type ShardAndID struct {
-	ShardDesc *ShardDescriptor
+	ShardDesc *BaseShardDescriptor
 	BackupID  string
 }
 
@@ -509,14 +536,20 @@ type BackupDescriptor struct {
 	PreCompressionSizeBytes int64             `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
 	CompressionType         *CompressionType  `json:"compressionType,omitempty"`
 	BaseBackupID            string            `json:"baseBackupId,omitempty"`
+	// DedupeReplicas mirrors the global descriptor's flag into each node's meta.
+	DedupeReplicas bool `json:"dedupeReplicas,omitempty"`
 }
 
 func (d *BackupDescriptor) GetCompressionType() CompressionType {
-	if d.CompressionType == nil {
-		// backward compatibility with old backups that don't have this field and default to gzip
+	return compressionTypeOrGZIP(d.CompressionType)
+}
+
+// compressionTypeOrGZIP returns CompressionGZIP for backup metadata written without a compressionType field.
+func compressionTypeOrGZIP(c *CompressionType) CompressionType {
+	if c == nil {
 		return CompressionGZIP
 	}
-	return *d.CompressionType
+	return *c
 }
 
 func (d *BackupDescriptor) GetStatus() Status {
@@ -634,6 +667,74 @@ func (d *BackupDescriptor) Validate() error {
 			if s.Name == "" || s.Node == "" {
 				return fmt.Errorf("class=%q: invalid shard %q node=%q", c.Name, s.Name, s.Node)
 			}
+		}
+	}
+	return nil
+}
+
+// BaseBackupDescriptor holds the fields of a node's backup metadata that an
+// incremental backup reads from the backups it builds on. Decoding into it skips
+// the metadata's file lists, so a chain of bases stays small in memory.
+type BaseBackupDescriptor struct {
+	StartedAt       time.Time             `json:"startedAt"`
+	Status          Status                `json:"status"`
+	Version         string                `json:"version"`
+	ServerVersion   string                `json:"serverVersion"`
+	CompressionType *CompressionType      `json:"compressionType,omitempty"`
+	BaseBackupID    string                `json:"baseBackupId,omitempty"`
+	Classes         []BaseClassDescriptor `json:"classes"`
+}
+
+type BaseClassDescriptor struct {
+	Name     string                `json:"name"`
+	BackupID string                `json:"backupId"`
+	Shards   []BaseShardDescriptor `json:"shards"`
+}
+
+// BaseShardDescriptor holds the big-file chunks FillFileInfo reuses for a file
+// that is unchanged since the base backup.
+type BaseShardDescriptor struct {
+	Name          string                 `json:"name"`
+	BigFilesChunk map[string]BigFileInfo `json:"bigFilesChunk,omitempty"`
+}
+
+func (d *BaseBackupDescriptor) GetCompressionType() CompressionType {
+	return compressionTypeOrGZIP(d.CompressionType)
+}
+
+func (d *BaseBackupDescriptor) GetStatus() Status {
+	return d.Status
+}
+
+func (d *BaseBackupDescriptor) GetVersion() string {
+	return d.Version
+}
+
+func (d *BaseBackupDescriptor) GetServerVersion() string {
+	return d.ServerVersion
+}
+
+func (d *BaseBackupDescriptor) GetBaseBackupID() string {
+	return d.BaseBackupID
+}
+
+func (d *BaseBackupDescriptor) GetStartedAt() time.Time {
+	return d.StartedAt
+}
+
+func (d *BaseBackupDescriptor) GetClassDescriptor(className string) *BaseClassDescriptor {
+	for i := range d.Classes {
+		if d.Classes[i].Name == className {
+			return &d.Classes[i]
+		}
+	}
+	return nil
+}
+
+func (c *BaseClassDescriptor) GetShardDescriptor(shardName string) *BaseShardDescriptor {
+	for i := range c.Shards {
+		if c.Shards[i].Name == shardName {
+			return &c.Shards[i]
 		}
 	}
 	return nil

@@ -297,7 +297,10 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		if strings.Contains(propertyWithBoost, "^") {
 			property = strings.Split(propertyWithBoost, "^")[0]
 			boostStr := strings.Split(propertyWithBoost, "^")[1]
-			boost, _ := strconv.ParseFloat(boostStr, 32)
+			boost, err := strconv.ParseFloat(boostStr, 32)
+			if err != nil {
+				return queryTerms{}, queryStats{}, pins, fmt.Errorf("parse boost of property %q: %w", propertyWithBoost, err)
+			}
 			propBoost = float32(boost)
 		}
 		propertyBoosts[property] = propBoost
@@ -468,17 +471,17 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	// Success: the caller now owns the pins; disarm the error-path release.
 	failed = false
 	return queryTerms{
-			propNamesByTokenization:       propNamesByTokenization,
-			queryTermsByTokenization:      queryTermsByTokenization,
-			duplicateBoostsByTokenization: duplicateBoostsByTokenization,
-			propertyBoosts:                propertyBoosts,
-			crossPropQueryTerms:           crossPropQueryTerms,
-			crossPropDuplicateBoosts:      crossPropDuplicateBoosts,
-		}, queryStats{
-			allBucketsAreInverted: allBucketsAreInverted,
-			n:                     N,
-			averagePropLength:     averagePropLength,
-		}, pins, nil
+		propNamesByTokenization:       propNamesByTokenization,
+		queryTermsByTokenization:      queryTermsByTokenization,
+		duplicateBoostsByTokenization: duplicateBoostsByTokenization,
+		propertyBoosts:                propertyBoosts,
+		crossPropQueryTerms:           crossPropQueryTerms,
+		crossPropDuplicateBoosts:      crossPropDuplicateBoosts,
+	}, queryStats{
+		allBucketsAreInverted: allBucketsAreInverted,
+		n:                     N,
+		averagePropLength:     averagePropLength,
+	}, pins, nil
 }
 
 // analyzerFingerprint identifies the settings that decide how a property tokenizes

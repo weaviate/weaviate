@@ -28,7 +28,6 @@ func TestProperties_SingleNode(t *testing.T) {
 		ctx := context.Background()
 		compose, err = docker.New().
 			WithWeaviate().
-			WithWeaviateEnv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true").
 			WithText2VecModel2Vec().
 			Start(ctx)
 		require.NoError(t, err)
@@ -58,7 +57,6 @@ func TestProperties_Cluster(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
-		WithWeaviateEnv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true").
 		WithText2VecModel2Vec().
 		Start(ctx)
 	require.NoError(t, err)

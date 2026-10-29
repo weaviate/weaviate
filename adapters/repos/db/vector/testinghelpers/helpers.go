@@ -25,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -35,6 +36,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 type DistanceFunction func([]float32, []float32) float32
@@ -350,4 +353,65 @@ func DistanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 		dist, _ := provider.SingleDist(x, y)
 		return dist
 	}
+}
+
+// NewTestObjectsStore creates an lsmkv store with an "objects" bucket, wired
+// with real objects/nonObjects cyclemanager groups so flush and compaction
+// callbacks behave like production rather than a dummy store's no-ops.
+func NewTestObjectsStore(t testing.TB) *lsmkv.Store {
+	t.Helper()
+	dir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+	store, err := lsmkv.New(dir, dir, logger, nil, nil,
+		cyclemanager.NewCallbackGroup("objects", logger, 1),
+		cyclemanager.NewCallbackGroup("nonObjects", logger, 1),
+		cyclemanager.NewCallbackGroupNoop())
+	require.NoError(t, err)
+	t.Cleanup(func() { store.Shutdown(context.Background()) })
+
+	require.NoError(t, store.CreateOrLoadBucket(context.Background(), helpers.ObjectsBucketLSM,
+		lsmkv.WithStrategy(lsmkv.StrategyReplace)))
+	return store
+}
+
+// NewTestObjectsBucket is NewTestObjectsStore for callers that only need the
+// objects bucket.
+func NewTestObjectsBucket(t testing.TB) *lsmkv.Bucket {
+	t.Helper()
+	return NewTestObjectsStore(t).Bucket(helpers.ObjectsBucketLSM)
+}
+
+// PutTestObject stores an object marshalled exactly as the write path does, so
+// a scan reads real on-disk data rather than a hand-rolled encoding.
+func PutTestObject(t testing.TB, bucket *lsmkv.Bucket, docID uint64, legacyVec []float32, named map[string][]float32) {
+	t.Helper()
+	PutTestObjectWithProps(t, bucket, docID, legacyVec, named, nil)
+}
+
+// PutTestObjectWithProps also stores properties, for an index whose cached
+// vector is derived from one rather than stored verbatim.
+func PutTestObjectWithProps(t testing.TB, bucket *lsmkv.Bucket, docID uint64,
+	legacyVec []float32, named map[string][]float32, props map[string]interface{},
+) {
+	t.Helper()
+	id := strfmt.UUID(fmt.Sprintf("00000000-0000-4000-8000-%012x", docID))
+	obj := storobj.New(docID)
+	obj.Object = models.Object{ID: id, Class: "Test", Properties: props}
+	obj.Vector = legacyVec
+	if named != nil {
+		obj.Vectors = named
+	}
+	data, err := obj.MarshalBinary()
+	require.NoError(t, err)
+
+	require.NoError(t, bucket.Put(KeyForDocID(docID), data))
+}
+
+// KeyForDocID builds a unique, sortable bucket key for a test object. Scans
+// read docID + vector from the value, not the key, so a 16-byte big-endian
+// docID stands in for a real UUID key.
+func KeyForDocID(docID uint64) []byte {
+	key := make([]byte, 16)
+	binary.BigEndian.PutUint64(key[8:], docID)
+	return key
 }

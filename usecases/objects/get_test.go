@@ -30,11 +30,12 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func Test_GetAction(t *testing.T) {
 	var (
-		vectorRepo    *fakeVectorRepo
+		vectorRepo    *fakeObjectFinder
 		manager       *Manager
 		extender      *fakeExtender
 		projectorFake *fakeProjector
@@ -52,7 +53,7 @@ func Test_GetAction(t *testing.T) {
 	}
 
 	reset := func() {
-		vectorRepo = &fakeVectorRepo{}
+		vectorRepo = &fakeObjectFinder{}
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
 		}
@@ -67,7 +68,7 @@ func Test_GetAction(t *testing.T) {
 		manager = NewManager(schemaManager, cfg, logger,
 			authorizer, vectorRepo,
 			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 	}
 
 	t.Run("get non-existing action by id", func(t *testing.T) {
@@ -664,7 +665,7 @@ func Test_GetAction(t *testing.T) {
 
 func Test_GetThing(t *testing.T) {
 	var (
-		vectorRepo    *fakeVectorRepo
+		vectorRepo    *fakeObjectFinder
 		manager       *Manager
 		extender      *fakeExtender
 		projectorFake *fakeProjector
@@ -681,7 +682,7 @@ func Test_GetThing(t *testing.T) {
 	}
 
 	reset := func() {
-		vectorRepo = &fakeVectorRepo{}
+		vectorRepo = &fakeObjectFinder{}
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
 		}
@@ -696,7 +697,7 @@ func Test_GetThing(t *testing.T) {
 		manager = NewManager(schemaManager, cfg, logger,
 			authorizer, vectorRepo,
 			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 	}
 
 	t.Run("get non-existing thing by id", func(t *testing.T) {
@@ -1059,7 +1060,7 @@ func ptInt64(in int64) *int64 {
 
 type fakeGetManager struct {
 	*Manager
-	repo            *fakeVectorRepo
+	repo            *fakeObjectFinder
 	extender        *fakeExtender
 	projector       *fakeProjector
 	authorizer      *mocks.FakeAuthorizer
@@ -1069,7 +1070,7 @@ type fakeGetManager struct {
 
 func newFakeGetManager(schema schema.Schema, opts ...func(*fakeGetManager)) fakeGetManager {
 	r := fakeGetManager{
-		repo:            new(fakeVectorRepo),
+		repo:            new(fakeObjectFinder),
 		extender:        new(fakeExtender),
 		projector:       new(fakeProjector),
 		authorizer:      mocks.NewMockAuthorizer(),
@@ -1093,7 +1094,7 @@ func newFakeGetManager(schema schema.Schema, opts ...func(*fakeGetManager)) fake
 	r.modulesProvider = getFakeModulesProviderWithCustomExtenders(r.extender, r.projector)
 	r.Manager = NewManager(schemaManager, cfg, logger,
 		r.authorizer, r.repo, r.modulesProvider, r.metrics, nil,
-		NewAutoSchemaManager(schemaManager, r.repo, cfg, logger, prometheus.NewPedanticRegistry()))
+		NewAutoSchemaManager(schemaManager, r.repo, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 
 	return r
 }

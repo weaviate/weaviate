@@ -85,6 +85,7 @@ type ExportRecord struct {
 	ApiKeyFirstLetters string
 	Active             bool
 	CreatedAt          time.Time
+	ExpiresAt          time.Time
 	Namespace          string
 	Status             ExportStatus
 }

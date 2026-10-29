@@ -24,6 +24,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
@@ -68,23 +69,14 @@ func (e *PartialUpdateError) Error() string {
 
 func (e *PartialUpdateError) Unwrap() []error { return e.Errs }
 
-type ClassInfo struct {
-	Exists            bool
-	MultiTenancy      models.MultiTenancyConfig
-	ReplicationFactor int
-	Tenants           int
-	Properties        int
-	ClassVersion      uint64
-	ShardVersion      uint64
-}
+// ClassInfo lives in package local, whose SchemaReader this package's SchemaReader
+// implements; local must not import this package.
+type ClassInfo = local.ClassInfo
 
-func (ci *ClassInfo) Version() uint64 {
-	return max(ci.ClassVersion, ci.ShardVersion)
-}
+var _ local.SchemaReader = SchemaReader{}
 
 type schema struct {
-	nodeID      string
-	shardReader shardReader
+	nodeID string
 
 	// mu protects `classes`, `aliases` and `classCountByNamespace`
 	mu      sync.RWMutex
@@ -107,7 +99,7 @@ type schema struct {
 	shardsCount *prometheus.GaugeVec
 }
 
-func NewSchema(nodeID string, shardReader shardReader, reg prometheus.Registerer) *schema {
+func NewSchema(nodeID string, reg prometheus.Registerer) *schema {
 	// this also registers the prometheus metrics with given `reg` in addition to just creating it.
 	r := promauto.With(reg)
 
@@ -116,7 +108,6 @@ func NewSchema(nodeID string, shardReader shardReader, reg prometheus.Registerer
 		classes:               make(map[string]*metaClass, 128),
 		aliases:               make(map[string]string, 128),
 		classCountByNamespace: make(map[string]int),
-		shardReader:           shardReader,
 		collectionsCount: r.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace:   "weaviate",
 			Name:        "schema_collections",
@@ -312,8 +303,8 @@ func (s *schema) ShardReplicas(class, shard string) ([]string, uint64, error) {
 	return meta.ShardReplicas(shard)
 }
 
-// TenantsShards returns shard name for the provided tenant and its activity status
-func (s *schema) TenantsShards(class string, tenants ...string) (map[string]string, uint64) {
+// TenantsShardsStatus returns shard name for the provided tenant and its activity status
+func (s *schema) TenantsShardsStatus(class string, tenants ...string) (map[string]string, uint64) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -322,7 +313,7 @@ func (s *schema) TenantsShards(class string, tenants ...string) (map[string]stri
 		return nil, 0
 	}
 
-	return meta.TenantsShards(class, tenants...)
+	return meta.TenantsShardsStatus(class, tenants...)
 }
 
 func (s *schema) CopyShardingState(class string) (*sharding.State, uint64) {
@@ -344,12 +335,31 @@ func (s *schema) CopyShardingState(class string) (*sharding.State, uint64) {
 	return &shardingState, version
 }
 
-func (s *schema) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
-	return s.shardReader.GetShardsStatus(class, tenant)
+// hasFrozenTenant reports whether class has a tenant on offloaded storage.
+func (s *schema) hasFrozenTenant(class string) bool {
+	tenants, err := s.getTenants(class, nil)
+	if err != nil {
+		return false
+	}
+	for _, t := range tenants {
+		if t.ActivityStatus == models.TenantActivityStatusFROZEN ||
+			t.ActivityStatus == models.TenantActivityStatusFREEZING {
+			return true
+		}
+	}
+	return false
 }
 
-type shardReader interface {
-	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
+// classNames returns the names the schema holds, without MetaClasses' deep copy.
+func (s *schema) classNames() map[string]struct{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	names := make(map[string]struct{}, len(s.classes))
+	for name := range s.classes {
+		names[name] = struct{}{}
+	}
+	return names
 }
 
 func (s *schema) len() int {
@@ -755,10 +765,10 @@ func (s *schema) MetaClasses() map[string]*metaClass {
 	return classesCopy
 }
 
-func (s *schema) Restore(data []byte, parser Parser) error {
+func (s *schema) Restore(data []byte, parser Parser) (map[string]bool, error) {
 	var classes map[string]*metaClass
 	if err := json.Unmarshal(data, &classes); err != nil {
-		return fmt.Errorf("restore snapshot: decode json: %w", err)
+		return nil, fmt.Errorf("restore snapshot: decode json: %w", err)
 	}
 
 	if classes == nil {
@@ -768,10 +778,10 @@ func (s *schema) Restore(data []byte, parser Parser) error {
 	return s.restore(classes, parser)
 }
 
-func (s *schema) RestoreLegacy(data []byte, parser Parser) error {
+func (s *schema) RestoreLegacy(data []byte, parser Parser) (map[string]bool, error) {
 	snap := snapshot{}
 	if err := json.Unmarshal(data, &snap); err != nil {
-		return fmt.Errorf("restore snapshot: decode json: %w", err)
+		return nil, fmt.Errorf("restore snapshot: decode json: %w", err)
 	}
 
 	if snap.Classes == nil {
@@ -781,15 +791,43 @@ func (s *schema) RestoreLegacy(data []byte, parser Parser) error {
 	return s.restore(snap.Classes, parser)
 }
 
-func (s *schema) restore(classes map[string]*metaClass, parser Parser) error {
+// restore reports the classes it dropped, each mapped to whether it has a
+// tenant on offloaded storage. Both are resolved before the swap: afterwards
+// the schema can no longer answer either question.
+func (s *schema) restore(classes map[string]*metaClass, parser Parser) (map[string]bool, error) {
 	for _, cls := range classes {
 		if err := parser.ParseClass(&cls.Class); err != nil { // should not fail
-			return fmt.Errorf("parsing class %q: %w", cls.Class.Class, err) // schema might be corrupted
+			return nil, fmt.Errorf("parsing class %q: %w", cls.Class.Class, err) // schema might be corrupted
 		}
 		cls.Sharding.SetLocalName(s.nodeID)
 	}
+
+	dropped := s.droppedBy(classes)
 	s.replaceClasses(classes)
-	return nil
+	return dropped, nil
+}
+
+// droppedBy returns the classes incoming does not name, each with whether it
+// has a tenant on offloaded storage. Only the dropped classes are looked up, so
+// a restore that removes nothing costs nothing.
+func (s *schema) droppedBy(incoming map[string]*metaClass) map[string]bool {
+	s.mu.RLock()
+	var names []string
+	for name := range s.classes {
+		if _, kept := incoming[name]; !kept {
+			names = append(names, name)
+		}
+	}
+	s.mu.RUnlock()
+
+	if len(names) == 0 {
+		return nil
+	}
+	dropped := make(map[string]bool, len(names))
+	for _, name := range names {
+		dropped[name] = s.hasFrozenTenant(name)
+	}
+	return dropped
 }
 
 func (s *schema) RestoreAlias(data []byte) error {

@@ -97,6 +97,51 @@ func (o *ListNamespacesUnauthorized) WriteResponse(rw http.ResponseWriter, produ
 	rw.WriteHeader(401)
 }
 
+// ListNamespacesForbiddenCode is the HTTP code returned for type ListNamespacesForbidden
+const ListNamespacesForbiddenCode int = 403
+
+/*
+ListNamespacesForbidden Forbidden: no well-formed Weaviate license key is configured on this node
+
+swagger:response listNamespacesForbidden
+*/
+type ListNamespacesForbidden struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewListNamespacesForbidden creates ListNamespacesForbidden with default headers values
+func NewListNamespacesForbidden() *ListNamespacesForbidden {
+
+	return &ListNamespacesForbidden{}
+}
+
+// WithPayload adds the payload to the list namespaces forbidden response
+func (o *ListNamespacesForbidden) WithPayload(payload *models.ErrorResponse) *ListNamespacesForbidden {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the list namespaces forbidden response
+func (o *ListNamespacesForbidden) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ListNamespacesForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(403)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // ListNamespacesNotFoundCode is the HTTP code returned for type ListNamespacesNotFound
 const ListNamespacesNotFoundCode int = 404
 

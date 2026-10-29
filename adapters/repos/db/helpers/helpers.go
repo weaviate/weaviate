@@ -13,9 +13,11 @@ package helpers
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 )
 
 var (
@@ -40,6 +42,54 @@ func GetVectorsBucketName(targetVector string) string {
 		return fmt.Sprintf("%s_%s", VectorsBucketLSM, targetVector)
 	}
 	return VectorsBucketLSM
+}
+
+// VectorIndexIDForTarget derives the canonical physical index ID for a
+// target vector: "main" for the legacy unnamed vector, "vectors_<tv>"
+// otherwise. The shard derives its IDs through it, and so can packages
+// below the shard.
+func VectorIndexIDForTarget(targetVector string) string {
+	if targetVector != "" {
+		return fmt.Sprintf("%s_%s", VectorsBucketLSM, targetVector)
+	}
+	return "main"
+}
+
+// PhysicalIDSuffix extracts the naming suffix from a physical index ID:
+// "vectors_<x>" → "<x>", anything else (including "main") → "". Suffix-based
+// names (compressed bucket, flat metadata, dynamic state key) append
+// "_<suffix>" when it is non-empty and use their bare legacy form otherwise.
+// The anything-else→"" rule reproduces hnsw's historical CutPrefix fallback,
+// which is what shipped bytes on disk for geo and centroid IDs depend on.
+func PhysicalIDSuffix(physicalID string) string {
+	if suffix, found := strings.CutPrefix(physicalID, VectorsBucketLSM+"_"); found {
+		return suffix
+	}
+	return ""
+}
+
+// VectorsBucketNameForID names the raw-vectors LSM bucket for a physical
+// index ID. NOTE the legacy asymmetry: ID "main" stores raw vectors in
+// bucket "vectors", not "main".
+func VectorsBucketNameForID(physicalID string) string {
+	return GetVectorsBucketName(PhysicalIDSuffix(physicalID))
+}
+
+// CompressedBucketNameForID names the quantized-vectors LSM bucket for a
+// physical index ID.
+func CompressedBucketNameForID(physicalID string) string {
+	return GetCompressedBucketName(PhysicalIDSuffix(physicalID))
+}
+
+// FlatMetadataFileNameForID names the flat index's quantization metadata
+// file for a physical index ID.
+func FlatMetadataFileNameForID(physicalID string) string {
+	return FlatMetadataFileName(PhysicalIDSuffix(physicalID))
+}
+
+// HNSWCommitLogDirNameForID is GetHNSWCommitLogDirName by physical ID.
+func HNSWCommitLogDirNameForID(physicalID string) string {
+	return physicalID + ".hnsw.commitlog.d"
 }
 
 // A multivector index keeps one bucket of its own, named off the index ID:
@@ -85,13 +135,22 @@ func HFreshSharedBucketName(indexID string) string {
 	return fmt.Sprintf("hfresh_shared_%s", indexID)
 }
 
-// FlatMetadataFileName is the flat index's quantisation metadata, under the
-// shard directory (see flat.getMetadataFile).
+// CentroidsID is the physical ID of the hnsw graph hfresh keeps its centroids
+// in; hnsw names that graph's commit log and compressed bucket from it.
+func CentroidsID(indexID string) string {
+	return indexID + "_centroids"
+}
+
+// FlatMetadataFileName is the single derivation of the flat index's
+// quantisation metadata file name, under the shard directory. Both the live
+// index (via FlatMetadataFileNameForID) and the drop-artifact list
+// (vectorIndexArtifactNames) call through here, so they cannot disagree.
+// Previously they were two independent implementations — this one a plain
+// Sprintf, entities/vectorindex/flat.MetadataFileName sanitizing via
+// filepath.Clean/Base — which drifted for any name the sanitizer alters.
+// Delegating keeps that sanitization intact for both callers.
 func FlatMetadataFileName(targetVector string) string {
-	if targetVector != "" {
-		return fmt.Sprintf("meta_%s.db", targetVector)
-	}
-	return "meta.db"
+	return flatent.MetadataFileName(targetVector)
 }
 
 // VectorIndexArtifacts is everything a named vector's index owns on disk:
@@ -145,6 +204,60 @@ func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
 	}
 }
 
+// VectorIndexArtifactNamesForID is vectorIndexArtifactNames keyed by physical
+// ID. For a named vector the two agree; for the legacy vector only this one
+// names what the indexes write (the name-based list keys off "vectors").
+func VectorIndexArtifactNamesForID(physicalID string) VectorIndexArtifacts {
+	return VectorIndexArtifacts{
+		LSMBuckets: []string{
+			VectorsBucketNameForID(physicalID),
+			CompressedBucketNameForID(physicalID),
+			MuveraBucketName(physicalID),
+			MVMappingsBucketName(physicalID),
+			HFreshPostingsBucketName(physicalID),
+			HFreshSharedBucketName(physicalID),
+			CompressedBucketNameForID(CentroidsID(physicalID)),
+		},
+		ShardDirs: []string{
+			HNSWCommitLogDirNameForID(physicalID),
+			physicalID + ".hnsw.snapshot.d",
+			HFreshDirName(physicalID),
+			physicalID + ".queue.d",
+			FlatMetadataFileNameForID(physicalID),
+		},
+	}
+}
+
+// VectorIndexArtifactsForID is VectorIndexArtifactsFor keyed by physical ID:
+// what dropping the index at physicalID has to remove, minus any LSM bucket
+// an index at one of otherIDs owns. The mapping's record is the source of
+// these IDs; the name-based twin serves callers without a record.
+func VectorIndexArtifactsForID(physicalID string, otherIDs []string) VectorIndexArtifacts {
+	artifacts := VectorIndexArtifactNamesForID(physicalID)
+	protected := map[string]struct{}{}
+	for _, other := range otherIDs {
+		if other == physicalID {
+			continue
+		}
+		for _, name := range VectorIndexArtifactNamesForID(other).All() {
+			protected[name] = struct{}{}
+		}
+	}
+	if len(protected) == 0 {
+		return artifacts
+	}
+	// only LSM buckets can collide, see VectorIndexArtifactsFor
+	var keptBuckets []string
+	for _, name := range artifacts.LSMBuckets {
+		if _, clash := protected[name]; clash {
+			continue
+		}
+		keptBuckets = append(keptBuckets, name)
+	}
+	artifacts.LSMBuckets = keptBuckets
+	return artifacts
+}
+
 // VectorIndexArtifactsFor lists what dropping targetVector has to remove. It is
 // the single source of truth for that set: the live drop, the file sweep and
 // the tests all read it, because three hand-maintained copies is exactly how
@@ -184,7 +297,7 @@ func VectorIndexArtifactsFor(targetVector string, otherTargetVectors []string) V
 	// artifact can ever equal one — filtering them would be unreachable code.
 	// A future shard directory WITHOUT a dotted suffix would break that and
 	// needs the guard extended.
-	keptBuckets := artifacts.LSMBuckets[:0:0]
+	var keptBuckets []string
 	for _, name := range artifacts.LSMBuckets {
 		if _, clash := protected[name]; clash {
 			continue

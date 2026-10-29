@@ -20,8 +20,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/storobj"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 // TestPutObjectBatchReportsErrorAtEveryGroupPosition asserts that a failure of a
@@ -48,7 +48,7 @@ func TestPutObjectBatchReportsErrorAtEveryGroupPosition(t *testing.T) {
 			schemaVersion: schemaVersion,
 			setup: func(t *testing.T, idx *Index, shard *Shard) {
 				// the caller's own wait succeeds, the one inside the shard lookup does not
-				schemaReader := idx.schemaReader.(*schemaUC.MockSchemaReader)
+				schemaReader := idx.schemaReader.(*local.MockSchemaReader)
 				schemaReader.EXPECT().WaitForUpdate(mock.Anything, schemaVersion).Return(nil).Once()
 				schemaReader.EXPECT().WaitForUpdate(mock.Anything, schemaVersion).
 					Return(context.Canceled).Once()

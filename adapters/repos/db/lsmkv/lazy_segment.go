@@ -23,6 +23,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/bloomhash"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
@@ -339,16 +340,16 @@ func (s *lazySegment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
 	return s.segment.replaceStratParseData(in)
 }
 
-func (s *lazySegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool,
-) (roaringset.BitmapLayer, func(), error) {
+func (s *lazySegment) roaringSetGet(key []byte, h bloomhash.Hash, bitmapBufPool roaringset.BitmapBufPool,
+) (*sroar.Bitmap, func(), error) {
 	s.mustLoad()
-	return s.segment.roaringSetGet(key, bitmapBufPool)
+	return s.segment.roaringSetGet(key, h, bitmapBufPool)
 }
 
-func (s *lazySegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool, maxConc int,
+func (s *lazySegment) roaringSetMergeWith(key []byte, h bloomhash.Hash, additions *sroar.Bitmap, bitmapBufPool roaringset.BitmapBufPool, maxConc int,
 ) error {
 	s.mustLoad()
-	return s.segment.roaringSetMergeWith(key, input, bitmapBufPool, maxConc)
+	return s.segment.roaringSetMergeWith(key, h, additions, bitmapBufPool, maxConc)
 }
 
 func (s *lazySegment) numberFromPath(re *regexp.Regexp) (int, bool) {
@@ -372,14 +373,13 @@ func (s *lazySegment) decRef() {
 	s.segment.decRef()
 }
 
+// getRefs reads the count without loading: a segment nobody could load holds no
+// references, and shutdown polls this until every count reaches zero.
 func (s *lazySegment) getRefs() int {
-	s.mustLoad()
+	if !s.loaded.Load() {
+		return 0
+	}
 	return s.segment.getRefs()
-}
-
-func (s *lazySegment) hasKey(key []byte) bool {
-	s.mustLoad()
-	return s.segment.hasKey(key)
 }
 
 func (s *lazySegment) getPropertyLengths() (map[uint64]uint32, error) {
@@ -423,11 +423,6 @@ func (s *lazySegment) newSegmentBlockMax(node *segmentindex.Node, key []byte, qu
 ) *SegmentBlockMax {
 	s.mustLoad()
 	return s.segment.newSegmentBlockMax(node, key, queryTermIndex, idf, propertyBoost, tombstones, memTombstones, filterDocIds, averagePropLength, config)
-}
-
-func (s *lazySegment) getDocCount(key []byte) uint64 {
-	s.mustLoad()
-	return s.segment.getDocCount(key)
 }
 
 func (s *lazySegment) getInvertedNodeAndDocCount(key []byte) (segmentindex.Node, uint64, bool) {

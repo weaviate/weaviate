@@ -13,11 +13,13 @@ package vectorizer
 
 import (
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
@@ -53,6 +55,24 @@ var defaultModelDimensions = map[string]*int64{
 	"gemini-embedding-001": &DefaultDimensions,
 }
 
+// MutableSettings reports whether updated differs from current only in the endpoint settings.
+func MutableSettings(current, updated moduletools.ClassConfig) bool {
+	return onlyEndpointSettingsChanged(current.Class(), updated.Class())
+}
+
+var endpointSettings = []string{apiEndpointProperty, projectIDProperty, locationProperty}
+
+func onlyEndpointSettingsChanged(current, updated map[string]any) bool {
+	for _, settings := range []map[string]any{current, updated} {
+		for key := range settings {
+			if !slices.Contains(endpointSettings, key) && !reflect.DeepEqual(current[key], updated[key]) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 var availableTaskTypes = []string{
 	DefaultTaskType,
 	"QUESTION_ANSWERING",
@@ -82,6 +102,18 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	}
 
 	apiEndpoint := ic.ApiEndpoint()
+	if err := modulecomponents.ValidateGoogleApiEndpoint(apiEndpoint); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
+	if err := modulecomponents.ValidateGoogleLocation(locationProperty, ic.Location()); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
+	if err := modulecomponents.ValidateGoogleProjectID(ic.ProjectID()); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
+	if err := modulecomponents.ValidateGoogleModel(ic.Model()); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
 	if apiEndpoint != DefaultAIStudioEndpoint {
 		projectID := ic.ProjectID()
 		if projectID == "" {

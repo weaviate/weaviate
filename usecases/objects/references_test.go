@@ -27,6 +27,8 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 func Test_ReferencesAddDeprecated(t *testing.T) {
@@ -106,6 +108,7 @@ func Test_ReferencesClasslessOnNSReturnsGone(t *testing.T) {
 	t.Run("AddObjectReference", func(t *testing.T) {
 		m := newFakeGetManager(zooAnimalSchemaForTest())
 		m.config.Config.Namespaces.Enabled = true
+		m.qualifier = wlnamespaces.NewPrefixing()
 		err := m.AddObjectReference(context.Background(), nil, &AddReferenceInput{
 			ID: id, Property: "hasAnimals", Ref: models.SingleRef{Beacon: beacon},
 		}, nil, "")
@@ -118,6 +121,7 @@ func Test_ReferencesClasslessOnNSReturnsGone(t *testing.T) {
 	t.Run("UpdateObjectReferences", func(t *testing.T) {
 		m := newFakeGetManager(zooAnimalSchemaForTest())
 		m.config.Config.Namespaces.Enabled = true
+		m.qualifier = wlnamespaces.NewPrefixing()
 		err := m.UpdateObjectReferences(context.Background(), nil, &PutReferenceInput{
 			ID: id, Property: "hasAnimals",
 			Refs: models.MultipleRef{&models.SingleRef{Beacon: beacon}},
@@ -130,6 +134,7 @@ func Test_ReferencesClasslessOnNSReturnsGone(t *testing.T) {
 	t.Run("DeleteObjectReference", func(t *testing.T) {
 		m := newFakeGetManager(zooAnimalSchemaForTest())
 		m.config.Config.Namespaces.Enabled = true
+		m.qualifier = wlnamespaces.NewPrefixing()
 		err := m.DeleteObjectReference(context.Background(), nil, &DeleteReferenceInput{
 			ID: id, Property: "hasAnimals", Reference: models.SingleRef{Beacon: beacon},
 		}, nil, "")
@@ -182,7 +187,12 @@ func Test_ReferenceAdd(t *testing.T) {
 	}{
 		{
 			Name: "authorization", Req: req, Stage: 0,
-			WantCode: StatusForbidden, WantErr: anyErr, ErrAuth: anyErr,
+			// anyErr is not a Forbidden, so forbiddenOrUnprocessable renders it 422 rather than 403.
+			WantCode: StatusUnprocessableEntity, WantErr: anyErr, ErrAuth: anyErr,
+		},
+		{
+			Name: "authorization denied", Req: req, Stage: 0,
+			WantCode: StatusForbidden, ErrAuth: authzerrs.NewForbidden(nil, "U", "data/collections/Zoo"),
 		},
 		{
 			Name: "get schema",
@@ -336,8 +346,13 @@ func Test_ReferenceUpdate(t *testing.T) {
 		},
 		{
 			Name: "authorization", Req: req,
-			WantCode: StatusForbidden, WantErr: anyErr, ErrAuth: anyErr,
+			// anyErr is not a Forbidden, so forbiddenOrUnprocessable renders it 422 rather than 403.
+			WantCode: StatusUnprocessableEntity, WantErr: anyErr, ErrAuth: anyErr,
 			Stage: 0,
+		},
+		{
+			Name: "authorization denied", Req: req, Stage: 0,
+			WantCode: StatusForbidden, ErrAuth: authzerrs.NewForbidden(nil, "U", "data/collections/Zoo"),
 		},
 		{
 			Name: "get schema",
@@ -493,7 +508,12 @@ func Test_ReferenceDelete(t *testing.T) {
 		},
 		{
 			Name: "authorization", Req: req,
-			WantCode: StatusForbidden, WantErr: anyErr, ErrAuth: anyErr, Stage: 1,
+			// anyErr is not a Forbidden, so forbiddenOrUnprocessable renders it 422 rather than 403.
+			WantCode: StatusUnprocessableEntity, WantErr: anyErr, ErrAuth: anyErr, Stage: 1,
+		},
+		{
+			Name: "authorization denied", Req: req, Stage: 1,
+			WantCode: StatusForbidden, ErrAuth: authzerrs.NewForbidden(nil, "R", "data/collections/Zoo"),
 		},
 		{
 			Name: "get schema",

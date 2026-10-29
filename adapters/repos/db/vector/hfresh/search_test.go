@@ -51,7 +51,7 @@ func TestFlatSearchTreatsPartiallyInitializedIndexAsEmptyIndex(t *testing.T) {
 
 	vectors, _ := testinghelpers.RandomVecs(1, 0, 32)
 
-	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector, func(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
+	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk("", func(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
 		if indexID == 0 {
 			return vectors[0], nil
 		}
@@ -77,7 +77,7 @@ func TestSearchWithEmptyIndex(t *testing.T) {
 
 	vectors, _ := testinghelpers.RandomVecs(1, 0, 32)
 
-	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector, func(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
+	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk("", func(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
 		if indexID == 0 {
 			return vectors[0], nil
 		}
@@ -148,7 +148,7 @@ func TestSearchCosineDistanceRescore(t *testing.T) {
 	// VectorForIDThunk returns RAW (unnormalized) vectors, simulating
 	// the real object store. In production, the shard stores the user's
 	// original vector, not the normalized version that HFresh uses internally.
-	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector, func(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
+	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk("", func(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
 		if int(indexID) < len(vectors) {
 			return vectors[indexID], nil
 		}
@@ -565,7 +565,7 @@ func newSearchTestIndex(t *testing.T, vectors [][]float32, intercept func(ctx co
 		return vectors[id], nil
 	}
 
-	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector,
+	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk("",
 		func(ctx context.Context, id uint64, targetVector string) ([]float32, error) {
 			return serve(ctx, id)
 		})
@@ -715,7 +715,7 @@ func TestSearchUsesPooledReadsWhenConfigured(t *testing.T) {
 	cfg, uc := makeHFreshConfig(t)
 
 	var pooledCalls atomic.Int64
-	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector,
+	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk("",
 		func(ctx context.Context, id uint64, targetVector string) ([]float32, error) {
 			if int(id) >= len(vectors) {
 				return nil, storobj.NewErrNotFoundf(id, "out of range")

@@ -46,11 +46,10 @@ func sweepStoppedInABucketShutdown(t *testing.T,
 
 	shd, idx := testShardWithSettings(t, testCtx(),
 		newTestClassWithProps(className, []string{"category"}),
-		enthnsw.UserConfig{Skip: true}, false, false, false,
+		enthnsw.UserConfig{Skip: true}, false, false,
 		func(i *Index) { i.logger = logger })
 	shard := shd.(*Shard)
 	t.Cleanup(func() { shard.Shutdown(testCtx()) })
-	idx.logger = logger
 
 	// A cancelled attempt at gen 2: started but never completed, so the sweep
 	// has to shut its ingest bucket down rather than preserve it.

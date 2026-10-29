@@ -12,15 +12,19 @@
 package aggregate
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 )
 
 type testCase struct {
@@ -1017,4 +1021,24 @@ func (tests testCases) AssertExtraction(t *testing.T, className string) {
 
 func ptInt(in int) *int {
 	return &in
+}
+
+// TestAggregate_AdmissionShedMapsToRateLimit pins that a shed surfacing from
+// an aggregation (a ref filter's nested object search is admitted) maps to
+// "429 Too many requests" at the GraphQL Aggregate ingress, as Get does.
+func TestAggregate_AdmissionShedMapsToRateLimit(t *testing.T) {
+	t.Parallel()
+	resolver := newMockResolver(config.Config{})
+
+	shed := fmt.Errorf("aggregate: shard search: %w", queryadmission.ErrOverloaded)
+	resolver.On("Aggregate", mock.Anything).Return(nil, shed).Once()
+
+	result := resolver.Resolve(`{ Aggregate { Car { horsepower { mean } } } }`)
+
+	require.Len(t, result.Errors, 1)
+	require.Contains(t, result.Errors[0].Error(), "429 Too many requests",
+		"admission shed must surface as the rate-limit error at the GraphQL Aggregate ingress")
+	require.NotContains(t, result.Errors[0].Error(), "node overloaded",
+		"raw ErrOverloaded message must not leak to the client")
+	resolver.AssertExpectations(t)
 }

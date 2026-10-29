@@ -31,6 +31,12 @@ var (
 	SROAR_MERGE = GOMAXPROCS_2
 )
 
+// CurrentGOMAXPROCSx2 returns twice GOMAXPROCS read now, where GOMAXPROCSx2 is
+// fixed at package init and misses a later limitResources or debug-endpoint change.
+func CurrentGOMAXPROCSx2() int {
+	return 2 * runtime.GOMAXPROCS(0)
+}
+
 func NoMoreThanGOMAXPROCS(conc int) int {
 	if conc > GOMAXPROCS || conc <= 0 {
 		return GOMAXPROCS

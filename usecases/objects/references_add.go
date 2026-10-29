@@ -44,13 +44,13 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	if input.Class != "" {
 		class, _, err := m.resolveNS(principal, input.Class)
 		if err != nil {
-			return &Error{err.Error(), StatusUnprocessableEntity, err}
+			return forbiddenOrUnprocessable(err)
 		}
 		input.Class = class
 	}
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
+		return forbiddenOrUnprocessable(err)
 	}
 
 	deprecatedEndpoint := input.Class == ""
@@ -90,7 +90,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	}
 
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl,
-		principal, m.config.Config.Namespaces.Enabled)
+		principal, m.qualifier)
 	targetRef, err := input.validate(validator, class)
 	if err != nil {
 		if errors.As(err, &ErrMultiTenancy{}) {
@@ -128,9 +128,9 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		// Qualified for in-memory ops (authz + existence), short for the
 		// stored beacon. QualifyRefTarget backs all four write paths.
 		qualifiedTarget, shortTarget, err := namespacing.QualifyRefTarget(
-			principal, m.config.Config.Namespaces.Enabled, input.Class, targetRef.Class)
+			principal, m.qualifier, input.Class, targetRef.Class)
 		if err != nil {
-			return &Error{err.Error(), StatusUnprocessableEntity, err}
+			return forbiddenOrUnprocessable(err)
 		}
 		targetRef.Class = qualifiedTarget
 		input.Ref.Class = strfmt.URI(shortTarget)
@@ -193,7 +193,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		return &Error{"add reference to repo", StatusInternalServerError, err}
 	}
 
-	if err := m.updateRefVector(ctx, principal, input.Class, input.ID, tenant, class, schemaVersion); err != nil {
+	if err := m.updateRefVector(ctx, input.Class, input.ID, tenant, class, schemaVersion); err != nil {
 		return &Error{"update ref vector", StatusInternalServerError, err}
 	}
 

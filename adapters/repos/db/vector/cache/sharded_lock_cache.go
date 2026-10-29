@@ -44,10 +44,19 @@ type shardedLockCache[T float32 | byte | uint64] struct {
 	allocChecker           memwatch.AllocChecker
 	prefetchBytes          int
 
+	// dropped tells a dropped cache apart from a fresh one, which it otherwise
+	// looks like: reads still pass through, but nothing reallocates the slice.
+	dropped atomic.Bool
+
 	// The maintenanceLock makes sure that only one maintenance operation, such
 	// as growing the cache or clearing the cache happens at the same time.
 	maintenanceLock sync.RWMutex
 }
+
+// ErrDropped is returned by a read on a dropped multivector cache. Drop
+// releases the node-to-doc keys with the vectors, so there is nothing left to
+// fetch with. It is deliberately not a storobj.ErrNotFound: the object exists.
+var ErrDropped = errors.New("vector cache dropped")
 
 var (
 	_ IfAbsentPreloader[float32] = (*shardedLockCache[float32])(nil)
@@ -250,7 +259,8 @@ func (s *shardedLockCache[T]) storeLocked(id uint64, vec []T) {
 }
 
 func (s *shardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([]T, error) {
-	if s.allocChecker != nil {
+	// a dropped cache keeps nothing, so memory pressure is no reason to refuse
+	if s.allocChecker != nil && !s.dropped.Load() {
 		// we don't really know the exact size here, but we don't have to be
 		// accurate. If mem pressure is this high, we basically want to prevent any
 		// new permanent heap alloc. If we underestimate the size of a vector a
@@ -277,7 +287,10 @@ func (s *shardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([
 
 	if len(vec) != 0 {
 		s.shardedLocks.Lock(id)
-		s.storeLocked(id, vec)
+		// Drop can release the slice before or while vectorForID runs
+		if int(id) < len(s.cache) {
+			s.storeLocked(id, vec)
+		}
 		s.shardedLocks.Unlock(id)
 	}
 
@@ -322,11 +335,11 @@ func (s *shardedLockCache[T]) GetAllInCurrentLock(ctx context.Context, id uint64
 	end := start + s.shardedLocks.PageSize
 	cacheMiss := false
 
+	s.shardedLocks.RLock(start)
+	// read the length under the lock: Drop swaps the slice for nil
 	if end > uint64(len(s.cache)) {
 		end = uint64(len(s.cache))
 	}
-
-	s.shardedLocks.RLock(start)
 	for i := start; i < end; i++ {
 		vec := s.cache[i]
 		if vec == nil {
@@ -461,6 +474,11 @@ func (s *shardedLockCache[T]) preload(id uint64, vec []T, ifAbsent bool) bool {
 		}
 		s.shardedLocks.Unlock(id)
 
+		// Grow never covers id on a dropped cache, so looping would spin
+		if s.dropped.Load() {
+			return false
+		}
+
 		// slow path: the cache doesn't cover id yet — preloaders (e.g. the
 		// HNSW insert path) don't grow the cache themselves. Grow guarantees
 		// coverage of id, so the next iteration stores.
@@ -469,11 +487,15 @@ func (s *shardedLockCache[T]) preload(id uint64, vec []T, ifAbsent bool) bool {
 }
 
 func (s *shardedLockCache[T]) PreloadNoLock(id uint64, vec []T) {
+	// SetSizeAndGrowNoLock leaves a dropped cache uncovered
+	if int(id) >= len(s.cache) {
+		return
+	}
 	s.storeLocked(id, vec)
 }
 
 func (s *shardedLockCache[T]) SetSizeAndGrowNoLock(size uint64) {
-	if size < uint64(len(s.cache)) {
+	if s.dropped.Load() || size < uint64(len(s.cache)) {
 		return
 	}
 	newSize := growTargetFor(size)
@@ -484,7 +506,7 @@ func (s *shardedLockCache[T]) SetSizeAndGrowNoLock(size uint64) {
 
 func (s *shardedLockCache[T]) Grow(node uint64) {
 	s.maintenanceLock.RLock()
-	if node < uint64(len(s.cache)) {
+	if s.dropped.Load() || node < uint64(len(s.cache)) {
 		s.maintenanceLock.RUnlock()
 		return
 	}
@@ -493,9 +515,9 @@ func (s *shardedLockCache[T]) Grow(node uint64) {
 	s.maintenanceLock.Lock()
 	defer s.maintenanceLock.Unlock()
 
-	// make sure cache still needs growing
-	// (it could have grown while waiting for maintenance lock)
-	if node < uint64(len(s.cache)) {
+	// make sure cache still needs growing (it could have grown or been
+	// dropped while waiting for maintenance lock)
+	if s.dropped.Load() || node < uint64(len(s.cache)) {
 		return
 	}
 
@@ -523,8 +545,22 @@ func (s *shardedLockCache[T]) CountVectors() int64 {
 	return atomic.LoadInt64(&s.count)
 }
 
+// Drop releases the backing slice along with the vectors, since an empty slot
+// still costs a slice header per id. Later reads pass through to vectorForID
+// without reallocating it.
 func (s *shardedLockCache[T]) Drop() {
-	s.deleteAllVectors()
+	// shutdown and an in-flight compression can both drop the cache; the
+	// watcher exits on the first notification, so a second send would block
+	if !s.dropped.CompareAndSwap(false, true) {
+		return
+	}
+	s.maintenanceLock.Lock()
+	s.shardedLocks.LockAll()
+	s.cache = nil
+	atomic.StoreInt64(&s.count, 0)
+	s.shardedLocks.UnlockAll()
+	s.maintenanceLock.Unlock()
+
 	if s.deletionInterval != 0 {
 		s.cancel <- true
 	}
@@ -630,6 +666,10 @@ type shardedMultipleLockCache[T float32 | uint64 | byte] struct {
 	// per element type by the constructors (full compressed codes, float
 	// vector prefixes).
 	prefetchBytes int
+
+	// dropped: see shardedLockCache.dropped. Reads fail with ErrDropped here,
+	// since the keys they would fetch with are released too.
+	dropped atomic.Bool
 
 	// The maintenanceLock makes sure that only one maintenance operation, such
 	// as growing the cache or clearing the cache happens at the same time.
@@ -755,19 +795,25 @@ func (s *shardedMultipleLockCache[T]) All() [][]T {
 
 func (s *shardedMultipleLockCache[T]) GetKeys(id uint64) (uint64, uint64) {
 	s.shardedLocks.RLock(id)
-	keys := s.vectorDocID[id]
-	s.shardedLocks.RUnlock(id)
-	return keys.DocID, keys.RelativeID
+	defer s.shardedLocks.RUnlock(id)
+	return s.GetKeysNoLock(id)
 }
 
 func (s *shardedMultipleLockCache[T]) SetKeys(id uint64, docID uint64, relativeID uint64) {
 	s.shardedLocks.Lock(id)
 	defer s.shardedLocks.Unlock(id)
 
+	// a dropped cache has no keys slice to write to
+	if int(id) >= len(s.vectorDocID) {
+		return
+	}
 	s.vectorDocID[id] = CacheKeys{DocID: docID, RelativeID: relativeID}
 }
 
 func (s *shardedMultipleLockCache[T]) GetKeysNoLock(id uint64) (uint64, uint64) {
+	if int(id) >= len(s.vectorDocID) {
+		return 0, 0
+	}
 	keys := s.vectorDocID[id]
 	return keys.DocID, keys.RelativeID
 }
@@ -804,11 +850,16 @@ func (s *shardedMultipleLockCache[T]) MultiGet(ctx context.Context, ids []uint64
 	errs := make([]error, len(ids))
 
 	for i, id := range ids {
-
+		var vec []T
 		s.shardedLocks.RLock(id)
-		vec := s.cache[id]
+		if int(id) < len(s.cache) {
+			vec = s.cache[id]
+		}
 		s.shardedLocks.RUnlock(id)
 		if len(vec) == 0 {
+			// make sure the cache covers id before handleMultipleCacheMiss
+			// stores into it; a no-op once the cache is large enough
+			s.Grow(id)
 			docID, relativeID := s.GetKeys(id)
 			vec, errs[i] = s.handleMultipleCacheMiss(ctx, id, docID, relativeID)
 		}
@@ -841,6 +892,9 @@ func (s *shardedMultipleLockCache[T]) storeLocked(id uint64, vec []T) {
 }
 
 func (s *shardedMultipleLockCache[T]) handleMultipleCacheMiss(ctx context.Context, id uint64, docID uint64, relativeID uint64) ([]T, error) {
+	if s.dropped.Load() {
+		return nil, ErrDropped
+	}
 	if s.allocChecker != nil {
 		// we don't really know the exact size here, but we don't have to be
 		// accurate. If mem pressure is this high, we basically want to prevent any
@@ -879,7 +933,10 @@ func (s *shardedMultipleLockCache[T]) handleMultipleCacheMiss(ctx context.Contex
 
 	if len(vec) != 0 {
 		s.shardedLocks.Lock(id)
-		s.storeLocked(id, vec)
+		// Drop can release the slice while multipleVectorForID runs
+		if int(id) < len(s.cache) {
+			s.storeLocked(id, vec)
+		}
 		s.shardedLocks.Unlock(id)
 	}
 
@@ -921,20 +978,34 @@ func (s *shardedMultipleLockCache[T]) PrefetchGet(id uint64) []T {
 
 func (s *shardedMultipleLockCache[T]) PreloadMulti(docID uint64, ids []uint64, vecs [][]T) {
 	for i, id := range ids {
-		s.shardedLocks.Lock(id)
-		s.storeLocked(id, vecs[i])
 		// keys are recorded even for an empty vec: a later miss needs them to fetch
-		s.vectorDocID[id] = CacheKeys{DocID: docID, RelativeID: uint64(i)}
-		s.shardedLocks.Unlock(id)
+		s.preloadPassage(id, docID, uint64(i), vecs[i])
 	}
 }
 
 func (s *shardedMultipleLockCache[T]) PreloadPassage(id uint64, docID uint64, relativeID uint64, vec []T) {
-	s.shardedLocks.Lock(id)
-	defer s.shardedLocks.Unlock(id)
+	s.preloadPassage(id, docID, relativeID, vec)
+}
 
-	s.storeLocked(id, vec)
-	s.vectorDocID[id] = CacheKeys{DocID: docID, RelativeID: relativeID}
+// preloadPassage stores vec and its keys at id, growing the cache to cover id.
+// A dropped cache takes nothing.
+func (s *shardedMultipleLockCache[T]) preloadPassage(id uint64, docID uint64, relativeID uint64, vec []T) {
+	for {
+		s.shardedLocks.Lock(id)
+		if int(id) < len(s.cache) {
+			s.storeLocked(id, vec)
+			s.vectorDocID[id] = CacheKeys{DocID: docID, RelativeID: relativeID}
+			s.shardedLocks.Unlock(id)
+			return
+		}
+		s.shardedLocks.Unlock(id)
+
+		// Grow never covers id on a dropped cache, so looping would spin
+		if s.dropped.Load() {
+			return
+		}
+		s.Grow(id)
+	}
 }
 
 func (s *shardedMultipleLockCache[T]) Preload(docID uint64, vec []T) {
@@ -951,7 +1022,7 @@ func (s *shardedMultipleLockCache[T]) SetSizeAndGrowNoLock(size uint64) {
 
 func (s *shardedMultipleLockCache[T]) Grow(node uint64) {
 	s.maintenanceLock.RLock()
-	if node < uint64(len(s.vectorDocID)) {
+	if s.dropped.Load() || node < uint64(len(s.vectorDocID)) {
 		s.maintenanceLock.RUnlock()
 		return
 	}
@@ -960,9 +1031,9 @@ func (s *shardedMultipleLockCache[T]) Grow(node uint64) {
 	s.maintenanceLock.Lock()
 	defer s.maintenanceLock.Unlock()
 
-	// make sure cache still needs growing
-	// (it could have grown while waiting for maintenance lock)
-	if node < uint64(len(s.vectorDocID)) {
+	// make sure cache still needs growing (it could have grown or been
+	// dropped while waiting for maintenance lock)
+	if s.dropped.Load() || node < uint64(len(s.vectorDocID)) {
 		return
 	}
 
@@ -989,8 +1060,18 @@ func (s *shardedMultipleLockCache[T]) CountVectors() int64 {
 	return atomic.LoadInt64(&s.count)
 }
 
+// Drop releases both backing slices along with the vectors: an empty slot
+// still costs a slice header and a key pair per id.
 func (s *shardedMultipleLockCache[T]) Drop() {
-	s.deleteAllVectors()
+	s.dropped.Store(true)
+	s.maintenanceLock.Lock()
+	s.shardedLocks.LockAll()
+	s.cache = nil
+	s.vectorDocID = nil
+	atomic.StoreInt64(&s.count, 0)
+	s.shardedLocks.UnlockAll()
+	s.maintenanceLock.Unlock()
+
 	if s.deletionInterval != 0 {
 		s.cancelFn()
 	}

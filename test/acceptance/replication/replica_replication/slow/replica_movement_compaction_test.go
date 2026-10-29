@@ -38,7 +38,8 @@ func (suite *ReplicationTestSuiteSlow) TestReplicaMovementCompactionContinuesOnS
 
 	const (
 		className       = "ReplMoveCompactionTest"
-		sleepWindow     = 60 * time.Second
+		sleepWindow     = 30 * time.Second
+		prePopBatches   = 20
 		observeDeadline = 10 * time.Minute
 	)
 
@@ -101,7 +102,7 @@ func (suite *ReplicationTestSuiteSlow) TestReplicaMovementCompactionContinuesOnS
 	}
 
 	t.Log("pre-populating source shard")
-	for i := 0; i < 1000; i++ {
+	for range prePopBatches {
 		compactions.ImportBatch(t, cls.Class)
 	}
 

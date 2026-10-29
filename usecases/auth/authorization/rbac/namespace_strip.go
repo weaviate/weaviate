@@ -66,20 +66,8 @@ func stripRBACSnapshot(s snapshot, staticAPIKeyUsers []string) (snapshot, error)
 		namespaces[ns] = struct{}{}
 	}
 	if len(namespaces) == 0 {
-		addNamespace := func(roleKey string) {
-			if ns := namespacing.NamespaceFromQualified(conv.TrimRoleNamePrefix(roleKey)); ns != "" {
-				namespaces[ns] = struct{}{}
-			}
-		}
-		for _, p := range s.Policy {
-			if len(p) > 0 {
-				addNamespace(p[0])
-			}
-		}
-		for _, g := range s.GroupingPolicy {
-			if len(g) > 1 {
-				addNamespace(g[1])
-			}
+		for _, ns := range roleNameNamespaces(s) {
+			namespaces[ns] = struct{}{}
 		}
 	}
 
@@ -252,6 +240,29 @@ func stripRBACSnapshot(s snapshot, staticAPIKeyUsers []string) (snapshot, error)
 	return out, nil
 }
 
+// roleNameNamespaces returns, sorted, the namespaces s's role names carry:
+// p[0] of every policy row and g[1] of every grouping row. It ignores
+// s.Namespaces.
+func roleNameNamespaces(s snapshot) []string {
+	seen := map[string]struct{}{}
+	add := func(roleKey string) {
+		if ns := namespacing.NamespaceFromQualified(conv.TrimRoleNamePrefix(roleKey)); ns != "" {
+			seen[ns] = struct{}{}
+		}
+	}
+	for _, p := range s.Policy {
+		if len(p) > 0 {
+			add(p[0])
+		}
+	}
+	for _, g := range s.GroupingPolicy {
+		if len(g) > 1 {
+			add(g[1])
+		}
+	}
+	return slices.Sorted(maps.Keys(seen))
+}
+
 // hasNamespacedSource reports whether the strip actually changed any of the
 // source names. A source that already equals the stripped name was unqualified
 // to begin with, so it is a genuine built-in row and not a collision.
@@ -285,10 +296,9 @@ func ValidateNamespaceStrip(blob []byte, staticAPIKeyUsers []string) error {
 	return ValidateSnapshot(blob, true, staticAPIKeyUsers)
 }
 
-// ValidateSnapshot runs the checks [Manager.Restore] makes before it clears
-// the policy store, without clearing it: the decode, plus the strip when
-// stripNamespaces is set. Restore has no version check of its own, so with the
-// strip off only the decode runs.
+// ValidateSnapshot runs the decode and, with stripNamespaces set, the strip that
+// [Manager.Restore] runs before it clears the policy store. Restore also refuses
+// rows the policy file cannot store, which ValidateSnapshot does not check.
 func ValidateSnapshot(blob []byte, stripNamespaces bool, staticAPIKeyUsers []string) error {
 	// Restore treats an empty snapshot as a no-op.
 	if len(blob) == 0 {

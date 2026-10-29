@@ -25,14 +25,14 @@ import (
 
 // buildUnitMaps creates per-replica unit IDs and maps from shard ownership.
 // ShardOwnership returns map[nodeName][]shardName (node→shards it owns).
-// Unit ID format: "shardName__nodeName".
+// Unit ID format is [db.MigrationUnitID]: "shardName__nodeName".
 func buildUnitMaps(shardOwnership map[string][]string) (unitIDs []string, unitToShard, unitToNode map[string]string) {
 	unitToShard = make(map[string]string)
 	unitToNode = make(map[string]string)
 
 	for nodeName, shards := range shardOwnership {
 		for _, shardName := range shards {
-			unitID := fmt.Sprintf("%s__%s", shardName, nodeName)
+			unitID := db.MigrationUnitID(shardName, nodeName)
 			unitIDs = append(unitIDs, unitID)
 			unitToShard[unitID] = shardName
 			unitToNode[unitID] = nodeName
@@ -76,6 +76,16 @@ func filterableIndexOn(prop *models.Property) bool {
 	default:
 		return prop.IndexFilterable == nil || *prop.IndexFilterable
 	}
+}
+
+func validateNoSidecarShapedProperties(class *models.Class) error {
+	for _, prop := range class.Properties {
+		if entschema.PropertyNameIsSidecarShaped(prop.Name) {
+			return fmt.Errorf("collection %q has property %q, whose name collides with the working directories a migration derives from another property; no migration can start on this collection until that property is removed",
+				class.Class, prop.Name)
+		}
+	}
+	return nil
 }
 
 // validateRangeableProperties validates that the named properties are
@@ -288,7 +298,7 @@ func buildUnitSpecs(shardOwnership map[string][]string) []distributedtask.UnitSp
 	var specs []distributedtask.UnitSpec
 	for nodeName, shards := range shardOwnership {
 		for _, shardName := range shards {
-			unitID := fmt.Sprintf("%s__%s", shardName, nodeName)
+			unitID := db.MigrationUnitID(shardName, nodeName)
 			specs = append(specs, distributedtask.UnitSpec{
 				ID:      unitID,
 				GroupID: shardName,

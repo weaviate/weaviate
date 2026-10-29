@@ -18,18 +18,20 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/diskio"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -88,7 +90,7 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 			errs = append(errs, fmt.Errorf("class %v doesn't exist", c))
 			continue
 		}
-		shards, _, err := idx.readSchema()
+		shards, _, _, err := idx.readSchema()
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s/%s: enumerating local shards for backup-precheck: %w", nodeName, c, err))
 			continue
@@ -108,7 +110,8 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 // BackupDescriptors returns a channel of class descriptors.
 // Class descriptor records everything needed to restore a class
 // If an error happens a descriptor with an error will be written to the channel just before closing it.
-func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []string, baseDescrs []*backup.BackupDescriptor,
+func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []string, baseDescrs []*backup.BaseBackupDescriptor,
+	shardDesignations map[string]map[string]string,
 ) <-chan backup.ClassDescriptor {
 	ds := make(chan backup.ClassDescriptor, len(classes))
 	f := func() {
@@ -134,7 +137,7 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 					return
 				}
 				defer idx.exitRead()
-				var classBaseDescr []*backup.ClassDescriptor
+				var classBaseDescr []*backup.BaseClassDescriptor
 				for _, b := range baseDescrs {
 					classbaseDescrTmp := b.GetClassDescriptor(c)
 					if classbaseDescrTmp == nil {
@@ -142,7 +145,7 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 					}
 					classBaseDescr = append(classBaseDescr, classbaseDescrTmp)
 				}
-				if err := idx.descriptor(ctx, bakid, &desc, classBaseDescr); err != nil {
+				if err := idx.descriptor(ctx, bakid, &desc, classBaseDescr, shardDesignations[c]); err != nil {
 					desc.Error = fmt.Errorf("backup class %v descriptor: %w", c, err)
 				}
 			}()
@@ -248,8 +251,50 @@ func (db *DB) Shards(ctx context.Context, class string) ([]string, error) {
 	return nodes, nil
 }
 
+// tenantHasLocalData: HOT and COLD shards are complete on disk; FROZEN and the transitional statuses are not.
+func tenantHasLocalData(status string) bool {
+	return status == models.TenantActivityStatusHOT || status == models.TenantActivityStatusCOLD
+}
+
+// ShardReplicas returns shard name -> replica node names for class, omitting empty names, replica-less shards and tenants without local data.
+func (db *DB) ShardReplicas(ctx context.Context, class string) (map[string][]string, error) {
+	shardReplicas := make(map[string][]string)
+
+	skippedNoLocalData := 0
+	err := db.schemaReader.Read(class, true, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return fmt.Errorf("unable to retrieve sharding state for class %s", class)
+		}
+		for shardName, shard := range state.Physical {
+			if !tenantHasLocalData(shard.ActivityStatus()) {
+				skippedNoLocalData++
+				continue
+			}
+			validNodes := make([]string, 0, len(shard.BelongsToNodes))
+			for _, node := range shard.BelongsToNodes {
+				if node != "" {
+					validNodes = append(validNodes, node)
+				}
+			}
+			if len(validNodes) > 0 {
+				shardReplicas[shardName] = validNodes
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to read sharding state for class %s: %w", class, err)
+	}
+	if skippedNoLocalData > 0 {
+		db.logger.WithField("action", "backup_dedupe").WithField("class", class).
+			Debugf("replica dedupe: %d tenants without local data excluded from checkpoint candidates", skippedNoLocalData)
+	}
+
+	return shardReplicas, nil
+}
+
 func (db *DB) ListClasses(ctx context.Context) []string {
-	classes := db.schemaGetter.GetSchemaSkipAuth().Objects.Classes
+	classes := db.schemaGetter.ReadOnlySchema().Classes
 	classNames := make([]string, len(classes))
 
 	for i, class := range classes {
@@ -260,7 +305,7 @@ func (db *DB) ListClasses(ctx context.Context) []string {
 }
 
 // descriptor record everything needed to restore a class
-func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor) (err error) {
+func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.BaseClassDescriptor, designated map[string]string) (err error) {
 	if err := i.initBackup(backupID); err != nil {
 		return err
 	}
@@ -269,11 +314,11 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	i.logger.WithField("hardlinks_supported", useHardlinks).Info("backup: probed filesystem hardlink support")
 
 	if useHardlinks {
-		return i.descriptorWithHardlinks(ctx, backupID, desc, classBaseDescrs)
+		return i.descriptorWithHardlinks(ctx, backupID, desc, classBaseDescrs, designated)
 	}
 	// NO-HARDLINK-BACKUP: only reachable on filesystems without hardlink support.
 	// Removed in v1.40; bugs here are not fixed.
-	return i.descriptorWithoutHardlinks(ctx, backupID, desc, classBaseDescrs)
+	return i.descriptorWithoutHardlinks(ctx, backupID, desc, classBaseDescrs, designated)
 }
 
 // descriptorWithHardlinks creates hard-linked snapshots per shard, allowing compaction
@@ -281,7 +326,7 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 //
 // It iterates the sharding state (single source of truth) to discover all local shards,
 // then uses the shardMap to determine the backup method per shard under backupLock.Lock.
-func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor) (err error) {
+func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.BaseClassDescriptor, designated map[string]string) (err error) {
 	stagingRoot := backupStagingDir(i.Config.RootPath, backupID, i.Config.ClassName)
 	if err := os.MkdirAll(stagingRoot, 0o755); err != nil {
 		return fmt.Errorf("create backup staging dir: %w", err)
@@ -296,10 +341,14 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 
 	desc.StagingDir = stagingRoot
 
-	shardNames, stateBytes, err := i.readSchema()
+	shardNames, stateBytes, replicas, err := i.readSchema()
 	if err != nil {
 		return fmt.Errorf("list local shards: %w", err)
 	}
+	if err := verifyDesignatedLocalShards(designated, shardNames, i.Config.NodeName); err != nil {
+		return err
+	}
+	shardNames = filterDesignatedShards(shardNames, designated, replicas, i.Config.NodeName)
 
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
 	eg.SetLimit(_NUMCPU)
@@ -349,7 +398,7 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 // preventShutdown refcount) so concurrent queries — which RLock the same per-shard
 // key in getOptInitLocalShard — don't block for the snapshot duration. See
 // weaviate/0-weaviate-issues#234.
-func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.ClassDescriptor, stagingRoot string) (*backup.ShardDescriptor, error) {
+func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.BaseClassDescriptor, stagingRoot string) (*backup.ShardDescriptor, error) {
 	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
 
 	// Deferred before backupLock so it runs after the unlock: dropping the last
@@ -385,9 +434,9 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, class
 	// read files from disk without the LSM store being opened underneath us.
 	// Read paths don't use backupLock.RLock, so backupLock.Lock alone is not
 	// sufficient to prevent concurrent lazy loading.
-	if lazyShard, ok := shard.(*LazyLoadShard); ok {
+	if lazyShard, ok := asLazyLoadShard(shard); ok {
 		releaseBlock := lazyShard.blockLoading()
-		if !lazyShard.loaded {
+		if lazyShard.currentShard() == nil {
 			// Shard is in the map but not loaded; read from disk.
 			defer releaseBlock()
 			if err := i.backupInactiveShardWithHardlinks(name, &sd, shardBaseDescr, stagingRoot); err != nil {
@@ -482,7 +531,7 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 // hardlinks. Compaction remains paused for the entire backup upload duration.
 //
 // Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
-func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor) (err error) {
+func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.BaseClassDescriptor, designated map[string]string) (err error) {
 	defer func() {
 		if err != nil {
 			// closelock is hold by the caller
@@ -490,10 +539,14 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 		}
 	}()
 
-	shardNames, stateBytes, err := i.readSchema()
+	shardNames, stateBytes, replicas, err := i.readSchema()
 	if err != nil {
 		return fmt.Errorf("list local shards: %w", err)
 	}
+	if err := verifyDesignatedLocalShards(designated, shardNames, i.Config.NodeName); err != nil {
+		return err
+	}
+	shardNames = filterDesignatedShards(shardNames, designated, replicas, i.Config.NodeName)
 
 	shards := map[string]*backup.ShardDescriptor{}
 	for _, name := range shardNames {
@@ -527,7 +580,7 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 // until ReleaseBackup to block both activation and FREEZE/FROZEN file operations.
 //
 // Deprecated: NO-HARDLINK-BACKUP. Removed in v1.40; bugs here are not fixed.
-func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.ClassDescriptor) (*backup.ShardDescriptor, error) {
+func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.BaseClassDescriptor) (*backup.ShardDescriptor, error) {
 	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
 
 	i.backupLock.Lock(name)
@@ -558,10 +611,10 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 
 		// For unloaded LazyLoadShards, block concurrent loading so we can safely
 		// read files from disk. See backupShardWithHardlinks for details.
-		if lazyShard, ok := shard.(*LazyLoadShard); ok {
+		if lazyShard, ok := asLazyLoadShard(shard); ok {
 			releaseBlock := lazyShard.blockLoading()
 			defer releaseBlock()
-			if !lazyShard.loaded {
+			if lazyShard.currentShard() == nil {
 				// Shard is in the map but not loaded; protect and keep lock held.
 				i.backupProtectedShards.Store(name, struct{}{})
 				unlockOnReturn = false
@@ -624,7 +677,7 @@ func (i *Index) backupInactiveShardWithoutHardlinks(name string, sd *backup.Shar
 }
 
 // collectShardBaseDescrs gathers base descriptors for incremental backups of a given shard.
-func (i *Index) collectShardBaseDescrs(shardName string, classBaseDescrs []*backup.ClassDescriptor) []backup.ShardAndID {
+func (i *Index) collectShardBaseDescrs(shardName string, classBaseDescrs []*backup.BaseClassDescriptor) []backup.ShardAndID {
 	var result []backup.ShardAndID
 	for _, classBaseDescr := range classBaseDescrs {
 		shardBaseDescrTmp := classBaseDescr.GetShardDescriptor(shardName)
@@ -729,7 +782,7 @@ func (i *Index) resetBackupState() {
 func (i *Index) resumeMaintenanceCycles(ctx context.Context) (lastErr error) {
 	// Only loaded shards have maintenance cycles to resume; a cold shard has
 	// none, so skip it rather than force-load every shard after a backup.
-	i.ForEachLoadedShard(func(name string, shard ShardLike) error {
+	i.withEachLoadedShard(func(name string, shard ShardLike) error {
 		if err := shard.resumeMaintenanceCycles(ctx); err != nil {
 			lastErr = err
 			i.logger.WithField("shard", name).WithField("op", "resume_maintenance").Error(err)
@@ -750,11 +803,13 @@ func (i *Index) marshalSchema() ([]byte, error) {
 }
 
 // readSchema reads the sharding state and returns the names of all shards
-// that belong to this node, regardless of tenant status, and the overall sharding state.
+// that belong to this node, regardless of tenant status, their replica sets,
+// and the overall sharding state.
 // This is used as the single source of truth for which shards to back up, avoiding the race condition
 // of iterating two separate data structures.
-func (i *Index) readSchema() (shards []string, state []byte, err error) {
-	nodeName := i.getSchema.NodeName()
+func (i *Index) readSchema() (shards []string, state []byte, replicas map[string][]string, err error) {
+	nodeName := i.Config.NodeName
+	replicas = make(map[string][]string)
 	err = i.schemaReader.Read(i.Config.ClassName.String(), true, func(_ *models.Class, s *sharding.State) error {
 		if s == nil {
 			return fmt.Errorf("unable to retrieve sharding state for class %s", i.Config.ClassName.String())
@@ -767,11 +822,49 @@ func (i *Index) readSchema() (shards []string, state []byte, err error) {
 		for shardName, phys := range s.Physical {
 			if phys.IsLocalShard(nodeName) {
 				shards = append(shards, shardName)
+				replicas[shardName] = slices.Clone(phys.BelongsToNodes)
 			}
 		}
 		return nil
 	})
 	return
+}
+
+// verifyDesignatedLocalShards fails when a shard designated to this node is no longer local: archiving would silently omit it from the artifact.
+func verifyDesignatedLocalShards(designated map[string]string, shardNames []string, nodeName string) error {
+	mine := make([]string, 0, len(designated))
+	for shard, d := range designated {
+		if d == nodeName && !slices.Contains(shardNames, shard) {
+			mine = append(mine, shard)
+		}
+	}
+	if len(mine) == 0 {
+		return nil
+	}
+	sort.Strings(mine)
+	listed := mine
+	if len(mine) > _maxDesignatedShardsInError {
+		listed = append(mine[:_maxDesignatedShardsInError:_maxDesignatedShardsInError], fmt.Sprintf("+%d more", len(mine)-_maxDesignatedShardsInError))
+	}
+	return fmt.Errorf("shards %v are designated to this node but no longer local; the replica set changed during the backup, retry it", listed)
+}
+
+// _maxDesignatedShardsInError caps the shard names in a drift error, which can span every tenant of a class.
+const _maxDesignatedShardsInError = 10
+
+// filterDesignatedShards drops shards designated to another still-replica node; anything else is kept so exclusion never orphans a shard.
+func filterDesignatedShards(shardNames []string, designated map[string]string, replicas map[string][]string, nodeName string) []string {
+	if len(designated) == 0 {
+		return shardNames
+	}
+	out := make([]string, 0, len(shardNames))
+	for _, name := range shardNames {
+		if d, ok := designated[name]; ok && d != nodeName && slices.Contains(replicas[name], d) {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
 }
 
 // listInactiveShardFiles reads an INACTIVE (unloaded) shard's data directly from the
@@ -784,14 +877,19 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 	rootPath := i.Config.RootPath
 
 	sd.Name = shardName
-	sd.Node = i.getSchema.NodeName()
+	sd.Node = i.Config.NodeName
+
+	if dirEntries, err := os.ReadDir(shardDir); err != nil {
+		return nil, fmt.Errorf("read shard dir: %w", err)
+	} else if len(dirEntries) == 0 {
+		return nil, errShardNoLocalData // registered lazily, never loaded
+	}
 
 	// Read metadata files (same data as readBackupMetadata in shard_backup.go).
-	// These files are guaranteed to exist: INACTIVE shards were always ACTIVE
-	// first (required to ingest data), and Shard.Shutdown writes indexcount,
-	// proplengths, and version during the flush/close sequence.
+	// A non-empty folder was initialized once, and Shard.Shutdown writes
+	// indexcount, proplengths, and version during the flush/close sequence.
 	counterPath := filepath.Join(shardDir, "indexcount")
-	data, err := os.ReadFile(counterPath)
+	data, err := diskio.ReadFileExact(counterPath)
 	if err != nil {
 		return nil, fmt.Errorf("read counter: %w", err)
 	}
@@ -800,8 +898,8 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 		return nil, fmt.Errorf("counter rel path: %w", err)
 	}
 
-	plPath := filepath.Join(shardDir, "proplengths")
-	data, err = os.ReadFile(plPath)
+	plPath := filepath.Join(shardDir, propLengthsFile)
+	data, err = diskio.ReadFileExact(plPath)
 	if err != nil {
 		return nil, fmt.Errorf("read proplengths: %w", err)
 	}
@@ -811,7 +909,7 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 	}
 
 	versionPath := filepath.Join(shardDir, "version")
-	data, err = os.ReadFile(versionPath)
+	data, err = diskio.ReadFileExact(versionPath)
 	if err != nil {
 		return nil, fmt.Errorf("read version: %w", err)
 	}
@@ -850,7 +948,7 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 			continue
 		}
 		name := entry.Name()
-		if name != dynamicent.StateDBFileName && !flatent.IsMetadataFile(name) {
+		if name != shardmeta.FileName && !flatent.IsMetadataFile(name) {
 			continue
 		}
 		relPath, err := filepath.Rel(rootPath, filepath.Join(shardDir, name))
@@ -875,27 +973,39 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 			continue
 		}
 		vectorDir := filepath.Join(shardDir, entry.Name())
-		if err := filepath.WalkDir(vectorDir, func(fpath string, d os.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if d.IsDir() {
-				return nil
-			}
-			if filepath.Ext(d.Name()) == tmpExt {
-				return nil
-			}
-			relPath, relErr := filepath.Rel(rootPath, fpath)
-			if relErr != nil {
-				return relErr
-			}
-			files = append(files, relPath)
-			return nil
-		}); err != nil {
+		if files, err = appendFilesBelow(files, vectorDir, rootPath); err != nil {
 			return nil, fmt.Errorf("list vector index %s files: %w", entry.Name(), err)
 		}
 	}
 
+	return files, nil
+}
+
+// appendFilesBelow appends every file below dir except .tmp files, as paths
+// relative to rootPath. It uses os.ReadDir because filepath.WalkDir pays an
+// Lstat on the directory it starts from.
+func appendFilesBelow(files []string, dir, rootPath string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		fpath := filepath.Join(dir, entry.Name())
+		if entry.IsDir() {
+			if files, err = appendFilesBelow(files, fpath, rootPath); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if filepath.Ext(entry.Name()) == tmpExt {
+			continue
+		}
+		relPath, relErr := filepath.Rel(rootPath, fpath)
+		if relErr != nil {
+			return nil, relErr
+		}
+		files = append(files, relPath)
+	}
 	return files, nil
 }
 

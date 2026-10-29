@@ -24,7 +24,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -144,7 +144,7 @@ func (c *segmentCleanerCommon) init() error {
 
 	// Timeout: a leaked handle from a failed shard teardown holds the flock;
 	// without it this open retries forever and wedges the loading goroutine.
-	if db, err = bolt.Open(path, 0o600, &bolt.Options{Timeout: entlsmkv.BoltFlockTimeout}); err != nil {
+	if db, err = bolt.Open(path, 0o600, &bolt.Options{Timeout: lsmkv.BoltFlockTimeout}); err != nil {
 		return fmt.Errorf("open cleanup bolt db %q: %w", path, err)
 	}
 
@@ -932,9 +932,17 @@ func (sg *SegmentGroup) makeKeyExistsOnUpperSegments(segments []Segment, startId
 
 	return func(key []byte) (bool, error) {
 		for i := range upperSegments {
-			if exists, err := upperSegments[i].indexContainsKey(key); err != nil {
+			exists, err := upperSegments[i].indexContainsKey(key)
+			if errors.Is(err, lsmkv.ErrCorruptIndex) {
+				// answering "superseded" drops the row, so skip a segment that cannot
+				// say: the row survives a cleanup it might not have needed, rather than
+				// the run reclaiming nothing until the segment is repaired
+				continue
+			}
+			if err != nil {
 				return false, err
-			} else if exists {
+			}
+			if exists {
 				return true, nil
 			}
 		}

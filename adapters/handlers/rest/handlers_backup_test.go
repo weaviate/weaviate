@@ -12,12 +12,18 @@
 package rest
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/license"
 )
 
 func TestCompressionBackupCfg(t *testing.T) {
@@ -133,6 +139,38 @@ func TestIsRequestFromRootUser(t *testing.T) {
 	for n, tc := range tcs {
 		t.Run(n, func(t *testing.T) {
 			assert.Equal(t, tc.expectGet, h.isRequestFromRootUser(tc.principal))
+		})
+	}
+}
+
+func TestBackupCreateErrPayload(t *testing.T) {
+	refusal := license.Required(ubak.DedupeFeature)
+	docs := ", see " + license.EnterpriseDocsURL
+	plain := errors.New("no backup backend")
+	denied := authzerrors.NewForbidden(nil, "create", "backups/Class-A")
+	cases := []struct {
+		name      string
+		principal *models.Principal
+		err       error
+		want      string
+	}{
+		{name: "license refusal names the docs", err: refusal, want: refusal.Error() + docs},
+		{name: "wrapped license refusal names the docs", err: fmt.Errorf("backup b1 %w", refusal), want: "backup b1 " + refusal.Error() + docs},
+		{
+			name:      "a namespace named like the URL scheme keeps the URL whole",
+			principal: &models.Principal{Username: "u", Namespace: "https"},
+			err:       refusal,
+			want:      refusal.Error() + docs,
+		},
+		{name: "authorization refusal stays as is", err: denied, want: denied.Error()},
+		{name: "other error stays as is", err: plain, want: plain.Error()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := backupCreateErrPayload(tc.principal, tc.err)
+
+			require.Len(t, payload.Error, 1)
+			require.Equal(t, tc.want, payload.Error[0].Message)
 		})
 	}
 }

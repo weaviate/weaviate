@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 )
 
 // errInvalidNodeID is returned by growIndexToAccommodateNode when the node ID
@@ -165,11 +166,13 @@ func (r *InMemoryReader) Do(initialState *ent.DeserializationResult, keepLinkRep
 		}
 	}
 
-	for commitType, count := range commitTypeMetrics {
-		r.logger.WithFields(logrus.Fields{
-			"action": "hnsw_deserialization",
-			"ops":    count,
-		}).Debugf("hnsw commit logger %s", commitType)
+	if logrusext.LevelEnabled(r.logger, logrus.DebugLevel) {
+		for commitType, count := range commitTypeMetrics {
+			r.logger.WithFields(logrus.Fields{
+				"action": "hnsw_deserialization",
+				"ops":    count,
+			}).Debugf("hnsw commit logger %s", commitType)
+		}
 	}
 
 	return out, nil
@@ -570,10 +573,12 @@ func growIndexToAccommodateNode(index []*ent.Vertex, id uint64, logger logrus.Fi
 	newIndex := make([]*ent.Vertex, newSize)
 	copy(newIndex, index)
 
-	logger.WithField("action", "hnsw_grow_index").
-		WithField("previous_size", previousSize).
-		WithField("new_size", newSize).
-		Debugf("index grown from %d to %d", previousSize, newSize)
+	if logrusext.LevelEnabled(logger, logrus.DebugLevel) {
+		logger.WithField("action", "hnsw_grow_index").
+			WithField("previous_size", previousSize).
+			WithField("new_size", newSize).
+			Debugf("index grown from %d to %d", previousSize, newSize)
+	}
 
 	return newIndex, true, nil
 }

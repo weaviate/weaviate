@@ -135,7 +135,7 @@ func BenchmarkInvertedCompaction(b *testing.B) {
 				key := []byte(fmt.Sprintf("term%d", term))
 				for d := 0; d < docsPer; d++ {
 					docID := uint64(seg*numTerms*docsPer + term*docsPer + d)
-					require.NoError(b, bu.MapSet(key, NewMapPairFromDocIdAndTf(docID, float32(d%10+1), float32(d%5+1), false)))
+					require.NoError(b, bu.InvertedSet(key, docID, float32(d%10+1), float32(d%5+1)))
 				}
 			}
 			require.NoError(b, bu.FlushAndSwitch())

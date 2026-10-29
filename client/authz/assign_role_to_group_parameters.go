@@ -77,7 +77,7 @@ type AssignRoleToGroupParams struct {
 
 	/* ID.
 
-	   The name of the group.
+	   The name of the group. Must not contain ',', '"' or control characters, and must be at most 256 bytes.
 	*/
 	ID string
 

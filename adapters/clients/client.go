@@ -42,6 +42,10 @@ func (e *HTTPError) Error() string {
 	return fmt.Sprintf("status code: %v, error: %s", e.Code, e.Body)
 }
 
+func (e *HTTPError) StatusCode() int {
+	return e.Code
+}
+
 // AsHTTPError returns the *HTTPError in err's chain, if any.
 func AsHTTPError(err error) (*HTTPError, bool) {
 	if err == nil {

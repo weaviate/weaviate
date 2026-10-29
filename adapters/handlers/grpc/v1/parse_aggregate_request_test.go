@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func TestGRPCAggregateRequest(t *testing.T) {
@@ -294,7 +295,7 @@ func TestGRPCAggregateRequest(t *testing.T) {
 		},
 	}
 
-	parser := NewAggregateParser(getClass, false, nil)
+	parser := NewAggregateParser(getClass, namespacing.Disabled, nil)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			out, err := parser.Aggregate(tt.req)

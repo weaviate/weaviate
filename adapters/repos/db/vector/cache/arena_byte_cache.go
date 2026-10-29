@@ -153,6 +153,11 @@ type arenaByteCache struct {
 	deletionInterval       time.Duration
 	allocChecker           memwatch.AllocChecker
 	prefetchBytes          int
+
+	// dropped tells a dropped cache apart from a fresh one, exactly like
+	// shardedLockCache.dropped: reads still pass through to vectorForID, but
+	// nothing reallocates the chunk table.
+	dropped atomic.Bool
 }
 
 var _ IfAbsentPreloader[byte] = (*arenaByteCache)(nil)
@@ -293,7 +298,8 @@ func (s *arenaByteCache) Get(ctx context.Context, id uint64) ([]byte, error) {
 // It returns the freshly fetched slice, not the arena view, so miss results
 // are never aliased to arena memory.
 func (s *arenaByteCache) handleCacheMiss(ctx context.Context, id uint64) ([]byte, error) {
-	if s.allocChecker != nil {
+	// a dropped cache keeps nothing, so memory pressure is no reason to refuse
+	if s.allocChecker != nil && !s.dropped.Load() {
 		// The estimate mirrors the map-backed cache: accuracy doesn't matter
 		// here, only that permanent allocations stop under memory pressure.
 		estimatedSize := int64(1024)
@@ -315,7 +321,10 @@ func (s *arenaByteCache) handleCacheMiss(ctx context.Context, id uint64) ([]byte
 	if len(vec) != 0 {
 		s.checkRecordSize(id, vec)
 		s.shardedLocks.Lock(id)
-		s.storeRecord(id, vec)
+		// Drop can release the chunk table before or while vectorForID runs
+		if id < s.logicalLen {
+			s.storeRecord(id, vec)
+		}
 		s.shardedLocks.Unlock(id)
 	}
 	return vec, nil
@@ -438,6 +447,11 @@ func (s *arenaByteCache) preload(id uint64, vec []byte, ifAbsent bool) bool {
 		}
 		s.shardedLocks.Unlock(id)
 
+		// Grow never covers id on a dropped cache, so looping would spin
+		if s.dropped.Load() {
+			return false
+		}
+
 		// slow path: the cache doesn't cover id yet — preloaders don't grow
 		// the cache themselves. Grow guarantees coverage of id, so the next
 		// iteration stores.
@@ -448,12 +462,12 @@ func (s *arenaByteCache) preload(id uint64, vec []byte, ifAbsent bool) bool {
 // PreloadNoLock stores without locks; like every other write path it moves
 // the count only when the slot was empty (the map-backed cache routes this
 // through storeLocked). The caller owns synchronization and must have grown
-// the cache to cover id (it panics otherwise, as the map-backed version
-// panics on the out-of-range index).
+// the cache to cover id; an uncovered id is skipped, mirroring the map-backed
+// cache (SetSizeAndGrowNoLock leaves a dropped cache uncovered).
 func (s *arenaByteCache) PreloadNoLock(id uint64, vec []byte) {
 	s.checkRecordSize(id, vec)
 	if id >= s.logicalLen {
-		panic(fmt.Sprintf("arena cache: PreloadNoLock id %d beyond cache length %d", id, s.logicalLen))
+		return
 	}
 	s.storeRecord(id, vec)
 }
@@ -463,7 +477,7 @@ func (s *arenaByteCache) PreloadNoLock(id uint64, vec []byte) {
 // which growing doesn't change) — and returns early when size is already
 // covered. Caller owns synchronization.
 func (s *arenaByteCache) SetSizeAndGrowNoLock(size uint64) {
-	if size < s.logicalLen {
+	if s.dropped.Load() || size < s.logicalLen {
 		return
 	}
 	newLen := growTargetFor(size)
@@ -488,7 +502,7 @@ func (s *arenaByteCache) growChunkTable(newLen uint64) {
 
 func (s *arenaByteCache) Grow(node uint64) {
 	s.maintenanceLock.RLock()
-	if node < s.logicalLen {
+	if s.dropped.Load() || node < s.logicalLen {
 		s.maintenanceLock.RUnlock()
 		return
 	}
@@ -497,8 +511,9 @@ func (s *arenaByteCache) Grow(node uint64) {
 	s.maintenanceLock.Lock()
 	defer s.maintenanceLock.Unlock()
 
-	// re-check: it could have grown while waiting for the maintenance lock
-	if node < s.logicalLen {
+	// re-check: it could have grown or been dropped while waiting for the
+	// maintenance lock
+	if s.dropped.Load() || node < s.logicalLen {
 		return
 	}
 
@@ -571,8 +586,23 @@ func (s *arenaByteCache) UnlockAll() {
 	s.shardedLocks.UnlockAll()
 }
 
+// Drop releases the chunk table along with the chunks, since even an empty
+// table costs a pointer per 4096 ids. Later reads pass through to vectorForID
+// without reallocating it — the arena mirror of shardedLockCache.Drop.
 func (s *arenaByteCache) Drop() {
-	s.deleteAllVectors()
+	// shutdown and an in-flight compression can both drop the cache; the
+	// watcher exits on the first notification, so a second send would block
+	if !s.dropped.CompareAndSwap(false, true) {
+		return
+	}
+	s.maintenanceLock.Lock()
+	s.shardedLocks.LockAll()
+	s.chunks = nil
+	s.logicalLen = 0
+	atomic.StoreInt64(&s.count, 0)
+	s.shardedLocks.UnlockAll()
+	s.maintenanceLock.Unlock()
+
 	if s.deletionInterval != 0 {
 		s.cancel <- true
 	}

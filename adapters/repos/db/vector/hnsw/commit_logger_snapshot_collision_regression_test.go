@@ -12,10 +12,15 @@
 package hnsw
 
 import (
+	"bytes"
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -23,6 +28,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 // These tests guard against a regression of a real bug that existed in an
@@ -220,4 +226,133 @@ func writeValidSnapshot(t *testing.T, path string) {
 	}
 
 	require.NoError(t, sw.Flush())
+}
+
+// Log names can run ahead of the clock: a rotation within the same second as
+// the previous one takes the next second. The log a restarted process opens
+// must still be a new file named after every file already in the directory.
+// Reusing a name appends to a log that may end in a torn commit, and a lower
+// name replays the new commits before older ones, or places the log inside the
+// snapshot's range, where the loader and the compactor treat it as covered.
+func TestCommitLogger_NewFileSortsAfterExistingFiles(t *testing.T) {
+	now := time.Now().Unix()
+	name := func(format string, offsets ...int64) string {
+		args := make([]any, len(offsets))
+		for i, o := range offsets {
+			args[i] = now + o
+		}
+		return fmt.Sprintf(format, args...)
+	}
+
+	cases := []struct {
+		name  string
+		files []string
+		after int64 // the new log's timestamp must exceed now+after
+	}{
+		{name: "non-empty raw from the current second", files: []string{name("%d", 0)}, after: 0},
+		{
+			name:  "snapshot and live raw ahead of the clock",
+			files: []string{name("%d_%d.snapshot", -100, 60), name("%d", 61)},
+			after: 61,
+		},
+		{name: "sorted range ahead of the clock", files: []string{name("%d_%d.sorted", -10, 30)}, after: 30},
+		{name: "condensed ahead of the clock", files: []string{name("%d.condensed", 5)}, after: 5},
+		{name: "only older files", files: []string{"100.sorted", "200"}, after: -1},
+	}
+
+	logger, _ := test.NewNullLogger()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rootPath := t.TempDir()
+			indexName := "ahead"
+			dir := commitLogDirectory(rootPath, indexName)
+			require.NoError(t, os.MkdirAll(dir, 0o755))
+			for _, f := range tc.files {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, f), []byte("existing"), 0o644))
+			}
+
+			fd, path, err := createNewCommitFile(rootPath, indexName, common.NewOSFS(), logger)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = fd.Close() })
+			_, err = fd.Write([]byte("new"))
+			require.NoError(t, err)
+
+			ts, err := strconv.ParseInt(filepath.Base(path), 10, 64)
+			require.NoError(t, err)
+			assert.Greater(t, ts, now+tc.after)
+			assert.GreaterOrEqual(t, ts, now, "the name never falls behind the clock")
+
+			for _, f := range tc.files {
+				content, err := os.ReadFile(filepath.Join(dir, f))
+				require.NoError(t, err)
+				assert.Equal(t, "existing", string(content), "%s was written to", f)
+			}
+		})
+	}
+}
+
+// The restart from weaviate/0-weaviate-issues#649: the killed process left a
+// snapshot and a live log named ahead of the clock, and the live log ends in a
+// commit cut between two fields. The restarted process loads, writes, rotates
+// and compacts; after another restart every commit of both processes must load
+// back.
+func TestCommitLogger_RestartAfterLogsNamedAheadOfClock(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	rootPath := t.TempDir()
+	indexName := "restart"
+	dir := commitLogDirectory(rootPath, indexName)
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+
+	now := time.Now().Unix()
+	writeValidSnapshot(t, filepath.Join(dir, fmt.Sprintf("%d_%d.snapshot", now-100, now+60)))
+
+	var live bytes.Buffer
+	w := compact.NewWALWriter(&live)
+	require.NoError(t, w.WriteAddNode(40, 0))
+	require.NoError(t, w.WriteAddLinkAtLevel(40, 0, 1))
+	var torn bytes.Buffer
+	require.NoError(t, compact.NewWALWriter(&torn).WriteAddLinkAtLevel(40, 0, 2))
+	live.Write(torn.Bytes()[:11]) // type, source and level reached disk, target did not
+	require.NoError(t, os.WriteFile(filepath.Join(dir, fmt.Sprintf("%d", now+61)), live.Bytes(), 0o644))
+
+	load := func() *compact.LoadResult {
+		t.Helper()
+		res, err := compact.NewLoader(compact.LoaderConfig{Dir: dir, Logger: logger}).Load()
+		require.NoError(t, err)
+		require.NotNil(t, res)
+		return res
+	}
+
+	// restarted process: load, then open the commit logger, as hnsw.init does
+	load()
+	cl, err := NewCommitLogger(rootPath, indexName, logger, cyclemanager.NewCallbackGroupNoop())
+	require.NoError(t, err)
+
+	var written []uint64
+	for i := range 70 {
+		id := uint64(4703 + i)
+		require.NoError(t, cl.AddNode(id, 0))
+		require.NoError(t, cl.AddLinkAtLevel(id, 0, 1))
+		written = append(written, id)
+		require.NoError(t, cl.Flush())
+		// enough rotations to walk past every name the killed process used
+		_, err := cl.switchCommitLogs(true)
+		require.NoError(t, err)
+		if i%10 == 0 {
+			_, err := cl.compactor.RunCycle(nil)
+			require.NoError(t, err)
+		}
+	}
+	require.NoError(t, cl.Flush())
+	require.NoError(t, cl.Shutdown(ctx))
+
+	nodes := load().State.Graph.Nodes
+	require.Less(t, len(nodes), 10_000, "a misaligned read decodes huge node IDs")
+	for _, id := range append([]uint64{0, 31, 40}, written...) {
+		require.NotNil(t, nodes[id], "node %d lost", id)
+	}
+	for _, id := range written {
+		assert.Equal(t, []uint64{1}, nodes[id].Connections.GetLayer(0), "node %d links", id)
+	}
 }

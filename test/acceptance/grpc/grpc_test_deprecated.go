@@ -31,7 +31,7 @@ func TestGRPCDeprecated(t *testing.T) {
 	require.NotNil(t, grpcClient)
 
 	// create Books class
-	booksClass := books.ClassContextionaryVectorizer()
+	booksClass := books.ClassModel2VecVectorizer()
 	helper.CreateClass(t, booksClass)
 	defer helper.DeleteClass(t, booksClass.Class)
 

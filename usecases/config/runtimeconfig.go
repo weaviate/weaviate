@@ -80,14 +80,17 @@ type WeaviateRuntimeConfig struct {
 	DebugEndpointsEnabled                     *runtime.DynamicValue[bool]          `json:"debug_endpoints_enabled" yaml:"debug_endpoints_enabled"`
 	GRPCWebEnabled                            *runtime.DynamicValue[bool]          `json:"grpc_web_enabled" yaml:"grpc_web_enabled"`
 	DisableGraphQL                            *runtime.DynamicValue[bool]          `json:"disable_graphql" yaml:"disable_graphql"`
-	ExperimentalRESTSearchEnabled             *runtime.DynamicValue[bool]          `json:"rest_search_enabled" yaml:"rest_search_enabled"`
 
 	NamespaceCleanupInterval *runtime.DynamicValue[time.Duration] `json:"namespace_cleanup_interval" yaml:"namespace_cleanup_interval"`
+	SuspendReconcileInterval *runtime.DynamicValue[time.Duration] `json:"suspend_reconcile_interval" yaml:"suspend_reconcile_interval"`
 
+	ReplicaMovementEnabled                 *runtime.DynamicValue[bool]          `json:"replica_movement_enabled" yaml:"replica_movement_enabled"`
 	ReplicaMovementCleanupEnabled          *runtime.DynamicValue[bool]          `json:"replica_movement_cleanup_enabled" yaml:"replica_movement_cleanup_enabled"`
 	ReplicaMovementCleanupMaxAge           *runtime.DynamicValue[time.Duration] `json:"replica_movement_cleanup_max_age" yaml:"replica_movement_cleanup_max_age"`
 	ReplicaMovementCleanupInterval         *runtime.DynamicValue[time.Duration] `json:"replica_movement_cleanup_interval" yaml:"replica_movement_cleanup_interval"`
 	ReplicaMovementCleanupIncludeCancelled *runtime.DynamicValue[bool]          `json:"replica_movement_cleanup_include_cancelled" yaml:"replica_movement_cleanup_include_cancelled"`
+
+	QueryAdmissionControlDisabled *runtime.DynamicValue[bool] `json:"query_admission_control_disabled" yaml:"query_admission_control_disabled"`
 
 	ObjectsTTLDeleteSchedule      *runtime.DynamicValue[string]        `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
 	ObjectsTTLBatchSize           *runtime.DynamicValue[int]           `json:"objects_ttl_batch_size" yaml:"objects_ttl_batch_size"`
@@ -439,6 +442,7 @@ func BuildRegisteredRuntimeConfig(cfg *Config) *WeaviateRuntimeConfig {
 	registered.AsyncReplicationPropagationDelay = cfg.Replication.AsyncReplicationPropagationDelay
 	registered.AsyncReplicationRootPrefilterBatchSize = cfg.Replication.AsyncReplicationRootPrefilterBatchSize
 	registered.ReplicationGRPCEnabled = cfg.Replication.ReplicationGRPCEnabled
+	registered.ReplicaMovementEnabled = cfg.Replication.ReplicaMovementEnabled
 	registered.ReplicaMovementCleanupEnabled = cfg.Replication.ReplicaMovementCleanupEnabled
 	registered.ReplicaMovementCleanupMaxAge = cfg.Replication.ReplicaMovementCleanupMaxAge
 	registered.ReplicaMovementCleanupInterval = cfg.Replication.ReplicaMovementCleanupInterval
@@ -453,6 +457,7 @@ func BuildRegisteredRuntimeConfig(cfg *Config) *WeaviateRuntimeConfig {
 	registered.QueryBatchedContainsEnabled = cfg.QueryBatchedContainsEnabled
 	registered.LazyPropertyLengthsEnabled = cfg.LazyPropertyLengthsEnabled
 	registered.BM25FilterTombMergeGateRatio = cfg.BM25FilterTombMergeGateRatio
+	registered.QueryAdmissionControlDisabled = cfg.QueryAdmissionControlDisabled
 	registered.DefaultQuantization = cfg.DefaultQuantization
 	registered.DefaultVectorIndexType = cfg.DefaultVectorIndexType
 	registered.DefaultShardingCount = cfg.DefaultShardingCount
@@ -464,6 +469,7 @@ func BuildRegisteredRuntimeConfig(cfg *Config) *WeaviateRuntimeConfig {
 	registered.OperationalMode = cfg.OperationalMode
 	registered.DisableDimensionMetrics = cfg.DisableDimensionMetrics
 	registered.NamespaceCleanupInterval = cfg.Namespaces.CleanupInterval
+	registered.SuspendReconcileInterval = cfg.Namespaces.SuspendReconcileInterval
 	registered.ObjectsTTLDeleteSchedule = cfg.ObjectsTTLDeleteSchedule
 	registered.ObjectsTTLBatchSize = cfg.ObjectsTTLBatchSize
 	registered.ObjectsTTLPauseEveryNoBatches = cfg.ObjectsTTLPauseEveryNoBatches
@@ -479,7 +485,6 @@ func BuildRegisteredRuntimeConfig(cfg *Config) *WeaviateRuntimeConfig {
 	registered.DebugEndpointsEnabled = cfg.Profiling.DebugEndpointsEnabled
 	registered.GRPCWebEnabled = cfg.GRPC.GrpcWebEnabled
 	registered.DisableGraphQL = cfg.DisableGraphQL
-	registered.ExperimentalRESTSearchEnabled = cfg.ExperimentalRESTSearchEnabled
 
 	if cfg.Authentication.OIDC.Enabled {
 		registered.OIDCIssuer = cfg.Authentication.OIDC.Issuer

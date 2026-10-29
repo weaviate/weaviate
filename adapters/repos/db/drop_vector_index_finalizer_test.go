@@ -18,15 +18,20 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 )
 
 type fakeClassUpdater struct {
+	// Left unset: only the methods defined below are expected.
+	local.ClassReader
 	class       *models.Class
 	updateErr   error // returned by every UpdateClassInternal
 	updateCalls int
 	updated     *models.Class
+	origin      api.ClassUpdateOrigin
 }
 
 func (f *fakeClassUpdater) ReadOnlyClass(string) *models.Class {
@@ -41,13 +46,50 @@ func (f *fakeClassUpdater) ReadOnlyClass(string) *models.Class {
 	return &cp
 }
 
-func (f *fakeClassUpdater) UpdateClassInternal(_ context.Context, _ string, updated *models.Class) error {
+func (f *fakeClassUpdater) UpdateClassInternal(_ context.Context, _ string, updated *models.Class, origin api.ClassUpdateOrigin) error {
 	f.updateCalls++
+	f.origin = origin
 	if f.updateErr != nil {
 		return f.updateErr
 	}
 	f.updated = updated
 	return nil
+}
+
+// TestSchemaClassUpdaterOrigins pins the origin each class update here passes.
+func TestSchemaClassUpdaterOrigins(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name   string
+		class  *models.Class
+		update func(up schemaClassUpdater) error
+		want   api.ClassUpdateOrigin
+	}{
+		{
+			name:  "RemoveDroppedVectorConfig",
+			class: &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"drop": droppedCfg()}},
+			update: func(up schemaClassUpdater) error {
+				return (&schemaVectorConfigFinalizer{mgr: up}).RemoveDroppedVectorConfig(ctx, "C", []string{"drop"})
+			},
+			want: api.ClassUpdateOriginDropVectorFinalize,
+		},
+		{
+			name:  "updateToBlockMaxInvertedIndexConfig",
+			class: &models.Class{Class: "C", InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: false}},
+			update: func(up schemaClassUpdater) error {
+				return updateToBlockMaxInvertedIndexConfig(ctx, up, "C")
+			},
+			want: api.ClassUpdateOriginBlockmaxCutover,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			up := &fakeClassUpdater{class: tt.class}
+			require.NoError(t, tt.update(up))
+			require.Equal(t, 1, up.updateCalls)
+			require.Equal(t, tt.want, up.origin)
+		})
+	}
 }
 
 func droppedCfg() models.VectorConfig {

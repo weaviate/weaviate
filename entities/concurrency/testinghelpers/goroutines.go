@@ -14,47 +14,59 @@
 package testinghelpers
 
 import (
-	"runtime"
+	"bytes"
+	"context"
+	"fmt"
+	"runtime/pprof"
+	"strconv"
 	"sync"
-	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// AssertGoroutineCeiling runs do from numWorkers goroutines for runFor and
-// asserts peak live goroutines stay within baseline + numWorkers*maxPerWorker
-// + noiseSlack, where maxPerWorker bounds the goroutines one in-flight do
-// call may legitimately hold.
-func AssertGoroutineCeiling(t *testing.T, numWorkers, maxPerWorker, noiseSlack int,
+// ceilingLabel is set on AssertGoroutineCeiling's workers and inherited by
+// every goroutine they start, so other goroutines in the process are not counted.
+const ceilingLabel = "goroutine-ceiling"
+
+// AssertGoroutineCeiling runs do from numWorkers goroutines for runFor and asserts that
+// they and their descendants never exceed numWorkers*maxPerWorker + noiseSlack. Each
+// worker counts toward its own maxPerWorker. noiseSlack covers joined children not yet exited.
+func AssertGoroutineCeiling(t require.TestingT, numWorkers, maxPerWorker, noiseSlack int,
 	runFor time.Duration, do func() error,
 ) {
-	t.Helper()
+	if h, ok := t.(interface{ Helper() }); ok {
+		h.Helper()
+	}
 
 	stop := make(chan struct{})
 	samplerDone := make(chan struct{})
-	var maxSeen int // written only by the sampler, read after samplerDone closes
+	// written only by the sampler, read after samplerDone closes
+	var (
+		maxSeen   int
+		sampleErr error
+	)
 
 	go func() {
 		defer close(samplerDone)
 		ticker := time.NewTicker(1 * time.Millisecond)
 		defer ticker.Stop()
+		var buf bytes.Buffer
 		for {
 			select {
 			case <-stop:
 				return
 			case <-ticker.C:
-				if n := runtime.NumGoroutine(); n > maxSeen {
-					maxSeen = n
+				n, err := countLabelled(&buf)
+				if err != nil {
+					sampleErr = err
+					return
 				}
+				maxSeen = max(maxSeen, n)
 			}
 		}
 	}()
-
-	// let the sampler settle before capturing the baseline
-	time.Sleep(5 * time.Millisecond)
-	base := runtime.NumGoroutine()
 
 	var (
 		mu       sync.Mutex
@@ -64,9 +76,10 @@ func AssertGoroutineCeiling(t *testing.T, numWorkers, maxPerWorker, noiseSlack i
 	abort := make(chan struct{})
 	var wg sync.WaitGroup
 	deadline := time.Now().Add(runFor)
+	labels := pprof.Labels(ceilingLabel, "counted")
 	for range numWorkers {
 		wg.Add(1)
-		go func() {
+		go pprof.Do(context.Background(), labels, func(context.Context) {
 			defer wg.Done()
 			for time.Now().Before(deadline) {
 				select {
@@ -84,17 +97,46 @@ func AssertGoroutineCeiling(t *testing.T, numWorkers, maxPerWorker, noiseSlack i
 					return
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	close(stop)
 	<-samplerDone
 
 	require.NoError(t, firstErr)
+	require.NoError(t, sampleErr)
 
-	ceiling := base + numWorkers*maxPerWorker + noiseSlack
+	ceiling := numWorkers*maxPerWorker + noiseSlack
 	assert.LessOrEqualf(t, maxSeen, ceiling,
-		"live goroutines peaked at %d, above base(%d)+workers(%d)*perWorker(%d)+noise(%d)=%d; "+
+		"goroutines started by do peaked at %d, above workers(%d)*perWorker(%d)+noise(%d)=%d; "+
 			"the concurrency budget must bound the fan-out",
-		maxSeen, base, numWorkers, maxPerWorker, noiseSlack, ceiling)
+		maxSeen, numWorkers, maxPerWorker, noiseSlack, ceiling)
+}
+
+// countLabelled counts live goroutines carrying ceilingLabel. It reads the
+// goroutine profile, a consistent snapshot, because runtime.NumGoroutine
+// counts the whole process and can overshoot while goroutines exit.
+func countLabelled(buf *bytes.Buffer) (int, error) {
+	buf.Reset()
+	if err := pprof.Lookup("goroutine").WriteTo(buf, 1); err != nil {
+		return 0, err
+	}
+	// debug=1 prints each stack as "<count> @ <pcs>", then its labels if any.
+	marker := []byte(strconv.Quote(ceilingLabel) + ":")
+	total, count := 0, 0
+	for line := range bytes.Lines(buf.Bytes()) {
+		if bytes.HasPrefix(line, []byte("# labels: ")) {
+			if bytes.Contains(line, marker) {
+				total += count
+			}
+			continue
+		}
+		if c, _, ok := bytes.Cut(line, []byte(" @ ")); ok {
+			var err error
+			if count, err = strconv.Atoi(string(c)); err != nil {
+				return 0, fmt.Errorf("parse goroutine profile line %q: %w", line, err)
+			}
+		}
+	}
+	return total, nil
 }

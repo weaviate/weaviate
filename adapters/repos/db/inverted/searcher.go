@@ -13,7 +13,6 @@ package inverted
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"strconv"
@@ -44,19 +43,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
-// IsRangeableLocallyReady returns true when this shard's local rangeable
-// bucket for the given property is fully populated and safe to query.
-// During an enable-rangeable migration the cluster-wide schema flag
-// `IndexRangeFilters` can flip to true as soon as the first replica
-// completes its swap, but other replicas may still be mid-iteration
-// with an empty PreReindexHook-created rangeable bucket — so a query
-// using the rangeable bucket on those replicas would return partial /
-// zero counts. When this callback returns false, the filter resolver
-// treats the property as if it had no rangeable index for THIS shard
-// only and falls back to the filterable bucket walk (slow but correct).
-// Returns true for properties that have no in-flight migration on disk
-// — i.e. either never migrated (native rangeable from collection
-// creation) or already-completed migrations.
+// IsRangeableLocallyReady reports whether this shard's rangeable bucket for
+// the property is safe to query; true when no migration is in flight. False
+// makes the filter resolver fall back to the filterable bucket walk on THIS
+// shard only — slow but correct while a repair-rangeable rebuild runs with
+// the schema flag already true.
 type IsRangeableLocallyReady func(propName string) bool
 
 type Searcher struct {
@@ -165,7 +156,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	className schema.ClassName, properties []string,
 	disableInvertedSorter *runtime.DynamicValue[bool],
 ) ([]*storobj.Object, error) {
-	ctx = concurrency.CtxWithBudget(ctx, concurrency.TimesGOMAXPROCS(2))
+	ctx = concurrency.CtxWithBudgetIfAbsent(ctx, concurrency.TimesGOMAXPROCS(2))
 	beforeFilters := time.Now()
 	allowList, err := s.docIDs(ctx, filter, className, limit)
 	if err != nil {
@@ -221,22 +212,11 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 		return nil, fmt.Errorf("getting objects bucket class name: %w", err)
 	}
 
-	// Prevent unbounded iteration
-	if limit == 0 {
+	// Prevent unbounded iteration: an unset (zero) limit and a negative one both
+	// fall back to the default.
+	if limit <= 0 {
 		limit = int(config.DefaultQueryMaximumResults)
 	}
-	outlen := it.Len()
-	if outlen > limit {
-		outlen = limit
-	}
-
-	out := make([]*storobj.Object, outlen)
-	docIDBytes := make([]byte, 8)
-
-	// Reused across iterations and grown to fit the largest object seen. Safe to
-	// reuse because FromBinary*Disk copies every value out of the returned bytes
-	// before the next lookup overwrites the buffer.
-	var objBuf []byte
 
 	propertyPaths := make([][]string, len(properties))
 	for j := range properties {
@@ -264,45 +244,30 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 		}
 	}()
 
-	i := 0
-	loop := 0
-	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
-		if loop%1000 == 0 && ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		loop++
-
-		binary.LittleEndian.PutUint64(docIDBytes, docID)
-		res, newBuf, err := bucket.GetBySecondaryWithBuffer(ctx, 0, docIDBytes, objBuf)
-		if err != nil {
-			return nil, err
-		}
-		objBuf = newBuf
-
+	// decode runs on the bucket's lookup workers and shares props (read-only);
+	// it copies every value it keeps, since res is overwritten by the next lookup.
+	out, err := storobj.DecodeByDocID(ctx, bucket, it, limit, func(docID uint64, res []byte) (*storobj.Object, bool, error) {
 		if res == nil {
 			handleDeletedId(docID)
-			continue
+			return nil, false, nil
 		}
 
 		var unmarshalled *storobj.Object
+		var err error
 		if additional.ReferenceQuery {
 			unmarshalled, err = storobj.FromBinaryUUIDOnlyDisk(res, className)
 		} else {
 			unmarshalled, err = storobj.FromBinaryOptionalDisk(res, className, additional, props)
 		}
 		if err != nil {
-			return nil, fmt.Errorf("unmarshal data object at position %d: %w", i, err)
+			return nil, false, fmt.Errorf("unmarshal data object for doc id %d: %w", docID, err)
 		}
-
-		out[i] = unmarshalled
-		i++
-
-		if i >= limit {
-			break
-		}
+		return unmarshalled, true, nil
+	})
+	if err != nil {
+		return nil, err
 	}
-
-	return out[:i], nil
+	return out, nil
 }
 
 // DocIDs is similar to Objects, but does not actually resolve the docIDs to
@@ -318,14 +283,14 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 ) (helpers.AllowList, error) {
-	ctx = concurrency.CtxWithBudget(ctx, concurrency.GOMAXPROCSx2)
+	ctx = concurrency.CtxWithBudgetIfAbsent(ctx, concurrency.GOMAXPROCSx2)
 	return s.docIDs(ctx, filter, className, 0)
 }
 
 func (s *Searcher) DocIDsLimited(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName, limit int,
 ) (helpers.AllowList, error) {
-	ctx = concurrency.CtxWithBudget(ctx, concurrency.GOMAXPROCSx2)
+	ctx = concurrency.CtxWithBudgetIfAbsent(ctx, concurrency.GOMAXPROCSx2)
 	return s.docIDs(ctx, filter, className, max(0, limit))
 }
 
@@ -338,9 +303,12 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	}
 
 	beforeResolve := time.Now()
+	// Children on the desugared path, distinct keys on the batched one — the
+	// latter can be fewer than the values the filter named, since the builders
+	// drop duplicates.
 	n := len(pv.children)
-	if pv.containsValues != nil {
-		n = len(pv.containsValues)
+	if ln := pv.containsKeys.Len(); ln > 0 {
+		n = ln
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_resolve_len", n)
 	dbm, err := pv.resolveDocIDs(ctx, s, limit)
@@ -500,7 +468,12 @@ func (s *Searcher) buildPropValuePair(
 
 	switch filter.Operator {
 	case filters.ContainsAll, filters.ContainsAny, filters.ContainsNone:
-		return s.extractContains(ctx, filter.On, filter.Value.Type, filter.Value.Value, filter.Operator, class)
+		pv, err := s.extractContains(ctx, filter.On, filter.Value, filter.Operator, class)
+		if err != nil {
+			s.logContainsFault(string(filter.On.Property), err)
+			return nil, fmt.Errorf("extract contains values: %w", err)
+		}
+		return pv, nil
 	default:
 		// proceed
 	}
@@ -546,7 +519,7 @@ func (s *Searcher) buildPropValuePair(
 	}
 
 	if s.onRefProp(property) && len(props) != 1 {
-		return s.extractReferenceFilter(property, filter, class)
+		return s.extractReferenceFilter(ctx, property, filter, class)
 	}
 
 	if s.onRefProp(property) && filter.Value.Type == schema.DataTypeInt {
@@ -640,10 +613,16 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 	return children, nil
 }
 
-func (s *Searcher) extractReferenceFilter(prop *models.Property,
+// extractReferenceFilter runs the nested cross-reference search for a ref
+// filter. It threads the caller's ctx through the nested search so that (1) an
+// admission grant already held on this node is inherited by the nested search
+// (re-entrancy) instead of the nested search re-entering admission as a fresh
+// acquirer, and (2) the per-query merge budget and any deadline/cancellation
+// propagate. Passing a fresh context here previously caused a permanent
+// admission wedge under a saturated node budget.
+func (s *Searcher) extractReferenceFilter(ctx context.Context, prop *models.Property,
 	filter *filters.Clause, class *models.Class,
 ) (*propValuePair, error) {
-	ctx := context.TODO()
 	return newRefFilterExtractor(s.logger, s.classSearcher, filter, class, prop, s.tenant, s.nestedCrossRefLimit).
 		Do(ctx)
 }
@@ -1010,15 +989,15 @@ const (
 	containsBatchUUID
 	// containsBatchTextField: string values encode via FIELD tokenization.
 	containsBatchTextField
-	// containsBatchPrimitive: values encode via the primitive encoder of
-	// the value type (int/number/boolean/date).
-	containsBatchPrimitive
+	containsBatchInt
+	containsBatchNumber
+	containsBatchBool
+	containsBatchDate
 )
 
 // containsDecline* are the reasons surfaced in the "contains_desugared"
-// slow-query annotation when classifyContainsBatch (or the value-count gate
-// in extractContains) routes a Contains filter through the desugared
-// per-value path instead of the batched fold.
+// slow-query annotation when classifyContainsBatch routes a Contains filter
+// through the desugared per-value path instead of the batched fold.
 const (
 	containsDeclineNonContainsOperator  = "non-contains-operator"
 	containsDeclineNotEnabled           = "not-enabled"
@@ -1053,9 +1032,14 @@ const (
 // batching is only safe when every leaf would have been a plain 1-key
 // roaringset lookup. TestDocIDs_BatchedMatchesDesugared pins that agreement
 // end-to-end.
-func (s *Searcher) classifyContainsBatch(path *filters.Path, propType schema.DataType,
+//
+// It also declines fewer than 2 values, because a single desugared leaf
+// applies the query limit while resolving and the batched fold does not.
+func (s *Searcher) classifyContainsBatch(path *filters.Path, value *filters.Value,
 	operator filters.Operator, class *models.Class,
 ) (*models.Property, containsBatchType, string) {
+	propType := value.Type
+
 	if !operator.IsContains() {
 		return nil, containsNotBatchable, containsDeclineNonContainsOperator
 	}
@@ -1100,12 +1084,13 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, propType schema.Dat
 		return nil, containsNotBatchable, containsDeclineNoRoaringSetBucket
 	}
 
+	var batchType containsBatchType
 	switch {
 	case s.onUUIDProp(property):
 		if propType != schema.DataTypeText {
 			return nil, containsNotBatchable, containsDeclineValueTypeMismatch
 		}
-		return property, containsBatchUUID, ""
+		batchType = containsBatchUUID
 	case s.onTokenizableProp(property):
 		if propType != schema.DataTypeText {
 			return nil, containsNotBatchable, containsDeclineValueTypeMismatch
@@ -1120,38 +1105,44 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, propType schema.Dat
 		if s.isFallbackToSearchable() {
 			return nil, containsNotBatchable, containsDeclineFallbackToSearchable
 		}
-		return property, containsBatchTextField, ""
+		batchType = containsBatchTextField
 	default:
 		switch propType {
-		case schema.DataTypeInt, schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate:
-			return property, containsBatchPrimitive, ""
+		case schema.DataTypeInt:
+			batchType = containsBatchInt
+		case schema.DataTypeNumber:
+			batchType = containsBatchNumber
+		case schema.DataTypeBoolean:
+			batchType = containsBatchBool
+		case schema.DataTypeDate:
+			batchType = containsBatchDate
 		default:
 			return nil, containsNotBatchable, containsDeclineValueTypeMismatch
 		}
 	}
-}
 
-// encodeBatchedContainsKeys encodes every value to its on-disk key via encode,
-// wrapping the first failure with its position so the caller can report
-// which element was malformed. encode takes interface{} — the shared
-// signature of the extract*Value encoders — so method values pass directly;
-// each typed value boxes at the call.
-func encodeBatchedContainsKeys[T any](values []T, encode func(interface{}) ([]byte, error)) ([][]byte, error) {
-	keys := make([][]byte, len(values))
-	for i, v := range values {
-		k, err := encode(v)
-		if err != nil {
-			return nil, fmt.Errorf("extract contains values: value %d: %w", i, err)
-		}
-		keys[i] = k
+	if containsValueCount(value.Value) < 2 {
+		return nil, containsNotBatchable, containsDeclineFewerThanTwoValues
 	}
-	return keys, nil
+	return property, batchType, ""
 }
 
-// newBatchedContainsPair builds the batched Contains leaf from pre-encoded keys.
+// newBatchedContainsPair builds the batched Contains leaf from pre-encoded
+// keys, which arrive already ascending — each producer sorts its own slab or
+// encodes directly into rank order — so the fold can walk the bucket once.
+//
+// At least one key is required and checked here: the downstream routing
+// predicate is a key count, not a presence test, so a leaf holding none would
+// fall through to the children dispatch with no children to resolve. The
+// count can be lower than the filter's value count, since the builders drop
+// duplicates.
 func newBatchedContainsPair(property *models.Property, operator filters.Operator,
-	class *models.Class, keys [][]byte,
+	class *models.Class, keys inverted.SortedKeys,
 ) (*propValuePair, error) {
+	if keys.Len() == 0 {
+		return nil, fmt.Errorf("%w: batched contains leaf for property %q has no keys",
+			inverted.ErrInternal, property.Name)
+	}
 	pv, err := newPropValuePair(class)
 	if err != nil {
 		return nil, err
@@ -1159,166 +1150,168 @@ func newBatchedContainsPair(property *models.Property, operator filters.Operator
 	pv.prop = property.Name
 	pv.operator = operator
 	pv.hasFilterableIndex = true
-	pv.containsValues = keys
+	pv.containsKeys = keys
 	return pv, nil
 }
 
-// batchedContainsUUID builds the batched leaf for string values on a UUID
-// property. A value that fails to encode is an error, not a fall-through:
-// the shape already matched, so desugaring would only re-derive the
-// identical failure per value. The same applies to every batchedContains*
-// method below.
-func (s *Searcher) batchedContainsUUID(property *models.Property, operator filters.Operator,
-	class *models.Class, values []string,
-) (*propValuePair, error) {
-	keys, err := encodeBatchedContainsKeys(values, s.extractUUIDValue)
-	if err != nil {
-		return nil, err
+// logContainsFault reports an assertion from either Contains path. A fault
+// returns through the same channel and prefix as a value the user got wrong,
+// so without this it arrives looking like a malformed filter, and the gRPC
+// path records nothing else.
+func (s *Searcher) logContainsFault(prop string, err error) {
+	if errors.Is(err, inverted.ErrInternal) {
+		s.logger.WithField("prop", prop).
+			Errorf("contains hit an internal fault: %v", err)
 	}
-	return newBatchedContainsPair(property, operator, class, keys)
 }
 
-// batchedContainsTextField builds the batched leaf for string values on a
-// FIELD-tokenized text property: one batched analysis for all values —
-// per-batch metrics and a shared token backing array instead of per-value
-// Analyze calls — yielding one key per value. classifyContainsBatch has
-// already confirmed the property's effective tokenization is FIELD.
-func (s *Searcher) batchedContainsTextField(property *models.Property, operator filters.Operator,
-	class *models.Class, values []string,
-) (*propValuePair, error) {
+// containsValueCount is the number of values in a Contains filter's raw
+// value, or 0 for a shape the extract*Array helpers reject.
+func containsValueCount(value interface{}) int {
+	switch v := value.(type) {
+	case []string:
+		return len(v)
+	case []int:
+		return len(v)
+	case []float64:
+		return len(v)
+	case []bool:
+		return len(v)
+	case []interface{}:
+		return len(v)
+	default:
+		return 0
+	}
+}
+
+// buildContainsKeys extracts the typed values and encodes them for the batch
+// type classifyContainsBatch chose. A value that fails to encode is an error
+// rather than a desugar, which would only fail again per value.
+func (s *Searcher) buildContainsKeys(batchType containsBatchType, value interface{},
+	property *models.Property, class *models.Class,
+) (inverted.SortedKeys, error) {
+	switch batchType {
+	case containsBatchUUID:
+		values, err := s.extractStringArray(value)
+		if err != nil {
+			return inverted.SortedKeys{}, err
+		}
+		return encodeUUIDKeys(values)
+	case containsBatchTextField:
+		values, err := s.extractStringArray(value)
+		if err != nil {
+			return inverted.SortedKeys{}, err
+		}
+		return encodeTextFieldKeys(property, class, values)
+	case containsBatchInt:
+		values, err := s.extractIntArray(value)
+		if err != nil {
+			return inverted.SortedKeys{}, err
+		}
+		return encodeIntKeys(values)
+	case containsBatchNumber:
+		values, err := s.extractFloat64Array(value)
+		if err != nil {
+			return inverted.SortedKeys{}, err
+		}
+		return encodeNumberKeys(values)
+	case containsBatchBool:
+		values, err := s.extractBoolArray(value)
+		if err != nil {
+			return inverted.SortedKeys{}, err
+		}
+		return encodeBoolKeys(values)
+	case containsBatchDate:
+		values, err := s.extractStringArray(value)
+		if err != nil {
+			return inverted.SortedKeys{}, err
+		}
+		return encodeDateKeys(values)
+	default:
+		return inverted.SortedKeys{}, fmt.Errorf("%w: no batched contains encoding for batch type %d",
+			inverted.ErrInternal, batchType)
+	}
+}
+
+// encodeTextFieldKeys encodes string values on a FIELD-tokenized text property,
+// one key per value. One batched analysis replaces per-value Analyze calls, so
+// metrics are recorded once and the tokens share one backing array.
+func encodeTextFieldKeys(property *models.Property, class *models.Class, values []string) (inverted.SortedKeys, error) {
 	prepared := tokenizer.NewPreparedAnalyzer(property.TextAnalyzer)
 	batch, err := tokenizer.AnalyzeBatch(values, models.PropertyTokenizationField, class.Class, prepared, nil)
 	if err != nil {
-		return nil, fmt.Errorf("extract contains values: %w", err)
+		return inverted.SortedKeys{}, err
 	}
-	keys := make([][]byte, batch.Len())
-	for i, valueTokens := range batch.All() {
-		if len(valueTokens) != 1 {
-			return nil, fmt.Errorf("extract contains values: value %d: FIELD tokenization produced %d tokens, want exactly 1", i, len(valueTokens))
-		}
-		keys[i] = []byte(valueTokens[0])
-	}
-	return newBatchedContainsPair(property, operator, class, keys)
-}
-
-func (s *Searcher) batchedContainsInt(property *models.Property, operator filters.Operator,
-	class *models.Class, values []int,
-) (*propValuePair, error) {
-	keys, err := encodeBatchedContainsKeys(values, s.extractIntValue)
+	// FIELD gives one token per value, and the key is that token's bytes.
+	total, err := batch.SingleTokenBytes()
 	if err != nil {
-		return nil, err
+		return inverted.SortedKeys{}, err
 	}
-	return newBatchedContainsPair(property, operator, class, keys)
-}
 
-func (s *Searcher) batchedContainsNumber(property *models.Property, operator filters.Operator,
-	class *models.Class, values []float64,
-) (*propValuePair, error) {
-	keys, err := encodeBatchedContainsKeys(values, s.extractNumberValue)
-	if err != nil {
-		return nil, err
+	// Fill first, order in Build: ordering the tokens here instead would mean a
+	// comparison sort dereferencing string headers into the tokenizer's backing
+	// array, where ordering the slab lets equal-width keys go through a radix.
+	kb := inverted.NewVarKeyBuilder(batch.Len(), total)
+	for _, valueTokens := range batch.All() {
+		kb.AppendString(valueTokens[0])
 	}
-	return newBatchedContainsPair(property, operator, class, keys)
-}
-
-func (s *Searcher) batchedContainsBool(property *models.Property, operator filters.Operator,
-	class *models.Class, values []bool,
-) (*propValuePair, error) {
-	keys, err := encodeBatchedContainsKeys(values, s.extractBoolValue)
-	if err != nil {
-		return nil, err
-	}
-	return newBatchedContainsPair(property, operator, class, keys)
-}
-
-func (s *Searcher) batchedContainsDate(property *models.Property, operator filters.Operator,
-	class *models.Class, values []string,
-) (*propValuePair, error) {
-	keys, err := encodeBatchedContainsKeys(values, s.extractDateValue)
-	if err != nil {
-		return nil, err
-	}
-	return newBatchedContainsPair(property, operator, class, keys)
+	return kb.Build()
 }
 
 // extractContains resolves a ContainsAny/ContainsAll/ContainsNone filter.
-// classifyContainsBatch decides once whether the batched fast path applies
-// and with which key encoding; each value-type arm then extracts its typed
-// values once and either builds the batched leaf or desugars the same slice
-// into per-value Equal operands.
-//
-// Batching additionally requires len(values) >= 2: a single desugared leaf
-// applies the query limit while resolving, which the batched fold does
-// not — and one value has no per-value overhead to amortize anyway.
+// Local shards that batch it share one key build through the filter value.
 func (s *Searcher) extractContains(ctx context.Context,
-	path *filters.Path, propType schema.DataType, value interface{},
+	path *filters.Path, value *filters.Value,
 	operator filters.Operator, class *models.Class,
 ) (*propValuePair, error) {
-	property, batchType, declineReason := s.classifyContainsBatch(path, propType, operator, class)
-	if declineReason == "" {
-		// the classifier approved the shape; if the filter still desugars in
-		// the arms below, the value count is the only remaining cause
-		declineReason = containsDeclineFewerThanTwoValues
+	property, batchType, declineReason := s.classifyContainsBatch(path, value, operator, class)
+	if batchType == containsNotBatchable {
+		operands, err := s.extractContainsOperands(path, value, operator)
+		if err != nil {
+			return nil, err
+		}
+		return s.desugaredContains(ctx, operator, class, path, operands, declineReason)
 	}
 
-	switch propType {
-	case schema.DataTypeText, schema.DataTypeTextArray:
-		values, err := s.extractStringArray(value)
+	keys, err := value.ContainsKeys(func() (inverted.SortedKeys, error) {
+		return s.buildContainsKeys(batchType, value.Value, property, class)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return newBatchedContainsPair(property, operator, class, keys)
+}
+
+// extractContainsOperands turns a Contains filter's values into one Equal
+// clause per value.
+func (s *Searcher) extractContainsOperands(path *filters.Path, value *filters.Value,
+	operator filters.Operator,
+) ([]filters.Clause, error) {
+	switch propType := value.Type; propType {
+	case schema.DataTypeText, schema.DataTypeTextArray, schema.DataTypeDate, schema.DataTypeDateArray:
+		values, err := s.extractStringArray(value.Value)
 		if err != nil {
 			return nil, err
 		}
-		if len(values) >= 2 {
-			switch batchType {
-			case containsBatchUUID:
-				return s.batchedContainsUUID(property, operator, class, values)
-			case containsBatchTextField:
-				return s.batchedContainsTextField(property, operator, class, values)
-			default:
-				// containsNotBatchable: desugar below
-			}
-		}
-		return s.desugaredContains(ctx, operator, class, path, getContainsOperands(propType, path, values), declineReason)
-
+		return getContainsOperands(propType, path, values), nil
 	case schema.DataTypeInt, schema.DataTypeIntArray:
-		values, err := s.extractIntArray(value)
+		values, err := s.extractIntArray(value.Value)
 		if err != nil {
 			return nil, err
 		}
-		if batchType == containsBatchPrimitive && len(values) >= 2 {
-			return s.batchedContainsInt(property, operator, class, values)
-		}
-		return s.desugaredContains(ctx, operator, class, path, getContainsOperands(propType, path, values), declineReason)
-
+		return getContainsOperands(propType, path, values), nil
 	case schema.DataTypeNumber, schema.DataTypeNumberArray:
-		values, err := s.extractFloat64Array(value)
+		values, err := s.extractFloat64Array(value.Value)
 		if err != nil {
 			return nil, err
 		}
-		if batchType == containsBatchPrimitive && len(values) >= 2 {
-			return s.batchedContainsNumber(property, operator, class, values)
-		}
-		return s.desugaredContains(ctx, operator, class, path, getContainsOperands(propType, path, values), declineReason)
-
+		return getContainsOperands(propType, path, values), nil
 	case schema.DataTypeBoolean, schema.DataTypeBooleanArray:
-		values, err := s.extractBoolArray(value)
+		values, err := s.extractBoolArray(value.Value)
 		if err != nil {
 			return nil, err
 		}
-		if batchType == containsBatchPrimitive && len(values) >= 2 {
-			return s.batchedContainsBool(property, operator, class, values)
-		}
-		return s.desugaredContains(ctx, operator, class, path, getContainsOperands(propType, path, values), declineReason)
-
-	case schema.DataTypeDate, schema.DataTypeDateArray:
-		values, err := s.extractStringArray(value)
-		if err != nil {
-			return nil, err
-		}
-		if batchType == containsBatchPrimitive && len(values) >= 2 {
-			return s.batchedContainsDate(property, operator, class, values)
-		}
-		return s.desugaredContains(ctx, operator, class, path, getContainsOperands(propType, path, values), declineReason)
-
+		return getContainsOperands(propType, path, values), nil
 	default:
 		return nil, fmt.Errorf("unsupported type '%T' for '%v' operator", propType, operator)
 	}

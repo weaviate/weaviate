@@ -20,6 +20,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -32,6 +34,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 const (
@@ -184,7 +187,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		h.muveraEncoder = multivector.NewMuveraEncoder(uc.Multivector.MuveraConfig, store)
 		if err = store.CreateOrLoadBucket(
 			context.Background(),
-			cfg.ID+"_muvera_vectors",
+			helpers.MuveraBucketName(cfg.ID),
 			cfg.Store.MakeBucketOptions(lsmkv.StrategyReplace)...,
 		); err != nil {
 			return nil, errors.Wrap(err, "create or load muvera bucket")
@@ -247,7 +250,7 @@ func (h *HFresh) DeleteMulti(ids ...uint64) error {
 		return ErrMuveraNotEnabled
 	}
 	var idBytes [8]byte
-	bucket := h.store.Bucket(h.id + "_muvera_vectors")
+	bucket := h.store.Bucket(helpers.MuveraBucketName(h.id))
 	for _, id := range ids {
 		binary.BigEndian.PutUint64(idBytes[:], id)
 		if err := bucket.Delete(idBytes[:]); err != nil {
@@ -422,11 +425,22 @@ func (h *HFresh) PostStartup(ctx context.Context) {
 	h.Centroids.hnsw.PostStartup(ctx)
 }
 
+var (
+	errWarmupIncomplete = stderrors.New("version map warmup did not complete")
+	errNothingToWarm    = stderrors.New("version map warmup found nothing to warm")
+)
+
 func (h *HFresh) warmVersionMap() {
 	before := time.Now()
+	prefillDone := monitoring.GetStartupMetrics().PrefillStarted()
+	// failure default: a recovered panic must not record a duration
+	warmupErr := errWarmupIncomplete
+	defer func() { prefillDone(warmupErr) }()
+
 	count, err := h.VersionMap.Warmup(h.ctx)
 	if err != nil {
 		h.logger.Warnf("version map warmup interrupted after %d entries: %v", count, err)
+		warmupErr = err
 		return
 	}
 
@@ -437,6 +451,7 @@ func (h *HFresh) warmVersionMap() {
 	for postingID, metadata := range h.PostingMap.Iter() {
 		if h.ctx.Err() != nil {
 			h.logger.Warnf("version map warmup interrupted after %d entries: %v", count+defaults, h.ctx.Err())
+			warmupErr = h.ctx.Err()
 			return
 		}
 
@@ -454,6 +469,11 @@ func (h *HFresh) warmVersionMap() {
 		}()
 	}
 
+	// an empty tenant warms nothing and is not a prefill
+	warmupErr = nil
+	if count+defaults == 0 {
+		warmupErr = errNothingToWarm
+	}
 	h.logger.WithFields(logrus.Fields{
 		"action":   "hfresh_version_map_warmup",
 		"count":    count,
