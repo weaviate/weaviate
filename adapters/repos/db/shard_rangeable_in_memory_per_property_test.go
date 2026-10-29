@@ -179,8 +179,8 @@ func TestIndexConfigKeepRangeableInMemory(t *testing.T) {
 }
 
 // A key not matching the class name exactly would leave every property
-// unnamed. No other test sees that, because both build IndexConfig by hand.
-func TestMigratorAddClassFlattensRangeableInMemoryProps(t *testing.T) {
+// unnamed. No other test sees that, because each builds IndexConfig by hand.
+func TestMigratorAddClassFlattensPerCollectionProps(t *testing.T) {
 	const className = "Foo"
 
 	tests := []struct {
@@ -213,18 +213,44 @@ func TestMigratorAddClassFlattensRangeableInMemoryProps(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := testCtx()
-			repo, migrator, _ := newLazyLoadRepo(t, singleShardState())
-			t.Cleanup(func() { repo.Shutdown(context.Background()) })
-			repo.config.IndexRangeableInMemoryProps = tt.configured
+	fields := []struct {
+		name string
+		set  func(*Config, map[string][]string)
+		get  func(IndexConfig) []string
+	}{
+		{
+			name: "IndexRangeableInMemoryProps",
+			set:  func(c *Config, m map[string][]string) { c.IndexRangeableInMemoryProps = m },
+			get:  func(c IndexConfig) []string { return c.IndexRangeableInMemoryProps },
+		},
+		{
+			name: "IndexFilterableMMapProps",
+			set:  func(c *Config, m map[string][]string) { c.IndexFilterableMMapProps = m },
+			get:  func(c IndexConfig) []string { return c.IndexFilterableMMapProps },
+		},
+	}
 
-			require.NoError(t, migrator.AddClass(ctx, newClassWithWarmProp(className)))
+	for _, field := range fields {
+		for _, tt := range tests {
+			t.Run(field.name+"/"+tt.name, func(t *testing.T) {
+				ctx := testCtx()
+				repo, migrator, _ := newLazyLoadRepo(t, singleShardState())
+				t.Cleanup(func() { repo.Shutdown(context.Background()) })
+				field.set(&repo.config, tt.configured)
 
-			idx := repo.GetIndex(schema.ClassName(className))
-			require.NotNil(t, idx)
-			require.Equal(t, tt.want, idx.Config.IndexRangeableInMemoryProps)
-		})
+				require.NoError(t, migrator.AddClass(ctx, newClassWithWarmProp(className)))
+
+				idx := repo.GetIndex(schema.ClassName(className))
+				require.NotNil(t, idx)
+				// only the field set is filled, so a cross-wired migrator fails
+				for _, other := range fields {
+					want := tt.want
+					if other.name != field.name {
+						want = nil
+					}
+					require.Equal(t, want, other.get(idx.Config), other.name)
+				}
+			})
+		}
 	}
 }

@@ -58,6 +58,7 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	clusterMocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
@@ -1114,6 +1115,52 @@ func TestUpdateVectorIndexConfigPinsEachShard(t *testing.T) {
 
 			require.NoError(t, idx.updateVectorIndexConfig(context.Background(), enthnsw.NewDefaultUserConfig()))
 			require.Zero(t, activePins.Load(), "the walk leaked a pin")
+		})
+	}
+}
+
+func TestIndexConfigFilterableUsesPread(t *testing.T) {
+	tests := []struct {
+		name      string
+		avoidMMap bool
+		props     []string
+		want      map[string]bool
+	}{
+		{
+			name: "mmap everywhere leaves nothing on pread",
+			want: map[string]bool{"price": false, "weight": false},
+		},
+		{
+			name:      "pread everywhere when nothing is configured",
+			avoidMMap: true,
+			want:      map[string]bool{"price": true, "weight": true},
+		},
+		{
+			name:      "a named property, and only that one",
+			avoidMMap: true,
+			props:     []string{"price"},
+			want:      map[string]bool{"price": false, "weight": true},
+		},
+		{
+			name:      "every property of the collection",
+			avoidMMap: true,
+			props:     []string{config.AllProperties},
+			want:      map[string]bool{"price": false, "weight": false},
+		},
+		{
+			name:      "a name differing in case does not match",
+			avoidMMap: true,
+			props:     []string{"price"},
+			want:      map[string]bool{"Price": true},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := IndexConfig{AvoidMMap: tt.avoidMMap, IndexFilterableMMapProps: tt.props}
+			for propName, want := range tt.want {
+				require.Equal(t, want, cfg.filterableUsesPread(propName), propName)
+			}
 		})
 	}
 }

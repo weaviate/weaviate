@@ -36,6 +36,8 @@ func TestCursorReplaceReusable_MatchesCursor(t *testing.T) {
 	}{
 		{"mmap", true, nil},
 		{"pread", false, []BucketOption{WithPread(true), WithMinMMapSize(0)}},
+		// a later WithPread(false) wins over a pread default
+		{"pread overridden", true, []BucketOption{WithPread(true), WithMinMMapSize(0), WithPread(false)}},
 	}
 
 	for _, mode := range modes {
