@@ -23,10 +23,10 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/bloomhash"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -340,13 +340,13 @@ func (s *lazySegment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
 	return s.segment.replaceStratParseData(in)
 }
 
-func (s *lazySegment) roaringSetGet(key []byte, h bloomhash.Hash, bitmapBufPool roaringset.BitmapBufPool,
+func (s *lazySegment) roaringSetGet(key []byte, h inverted.BloomHash, bitmapBufPool roaringset.BitmapBufPool,
 ) (*sroar.Bitmap, func(), error) {
 	s.mustLoad()
 	return s.segment.roaringSetGet(key, h, bitmapBufPool)
 }
 
-func (s *lazySegment) roaringSetMergeWith(key []byte, h bloomhash.Hash, additions *sroar.Bitmap, bitmapBufPool roaringset.BitmapBufPool, maxConc int,
+func (s *lazySegment) roaringSetMergeWith(key []byte, h inverted.BloomHash, additions *sroar.Bitmap, bitmapBufPool roaringset.BitmapBufPool, maxConc int,
 ) error {
 	s.mustLoad()
 	return s.segment.roaringSetMergeWith(key, h, additions, bitmapBufPool, maxConc)

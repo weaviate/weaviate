@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/bloomhash"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -244,6 +245,11 @@ func TestExtractContainsBatch_EligibleFamilies(t *testing.T) {
 			require.Equal(t, len(want), pv.containsKeys.Len(),
 				"one key per distinct value")
 			require.Equal(t, want, collectKeys(pv.containsKeys))
+			for i := range want {
+				h, ok := pv.containsKeys.HashAt(i)
+				require.Truef(t, ok, "key %d has no hash", i)
+				require.Equalf(t, bloomhash.Sum(want[i]), h, "key %d's hash", i)
+			}
 		})
 	}
 }

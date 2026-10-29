@@ -34,6 +34,7 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/bloomhash"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/concurrency"
@@ -1175,7 +1176,7 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 	defer view3.ReleaseView()
 
 	// the original memtable was flushed to disk
-	v, release, err := b.disk.roaringSetGet([]byte("key1"), view3.Disk, concurrency.SROAR_MERGE)
+	v, release, err := b.disk.roaringSetGet([]byte("key1"), bloomhash.Sum([]byte("key1")), view3.Disk, concurrency.SROAR_MERGE)
 	assert.Equal(t, []uint64{1, 2}, v.ToArray())
 	require.NoError(t, err)
 	release()
@@ -1246,7 +1247,7 @@ func TestBucketRoaringSetStrategyWriteVsFlush(t *testing.T) {
 	view := b.GetConsistentView()
 	defer view.ReleaseView()
 
-	bm, release, err := b.disk.roaringSetGet([]byte("key1"), view.Disk, concurrency.SROAR_MERGE)
+	bm, release, err := b.disk.roaringSetGet([]byte("key1"), bloomhash.Sum([]byte("key1")), view.Disk, concurrency.SROAR_MERGE)
 	require.NoError(t, err)
 	assert.Equal(t, []uint64{1, 2, 3}, bm.ToArray())
 	release()

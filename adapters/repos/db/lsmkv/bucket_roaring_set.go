@@ -16,6 +16,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/bloomhash"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/inverted"
@@ -184,7 +185,7 @@ func (b *Bucket) roaringSetGetFromConsistentView(
 		layers[found] = layer
 		found++
 	}
-	bm, release, err := b.roaringSetGetWithLayers(view.Disk, key, mergeConc, layers[:found])
+	bm, release, err := b.roaringSetGetWithLayers(view.Disk, key, bloomhash.Sum(key), mergeConc, layers[:found])
 	if err == nil && bm == nil {
 		return sroar.NewBitmap(), noopRelease, nil
 	}
@@ -193,15 +194,15 @@ func (b *Bucket) roaringSetGetFromConsistentView(
 
 // roaringSetGetWithLayers folds key's disk row with the memtable layers the
 // caller already read. It returns a nil bitmap when no segment and no layer
-// holds key.
+// holds key. h must be bloomhash.Sum(key).
 //
 // layers must be oldest first, flushing before active: the merger replays each
 // layer's deletions before its additions, so a document deleted while flushing
 // and re-added in the active memtable survives only in that order.
 func (b *Bucket) roaringSetGetWithLayers(
-	segments []Segment, key []byte, mergeConc int, layers []roaringset.BitmapLayer,
+	segments []Segment, key []byte, h inverted.BloomHash, mergeConc int, layers []roaringset.BitmapLayer,
 ) (*sroar.Bitmap, func(), error) {
-	diskBM, diskRelease, err := b.disk.roaringSetGet(key, segments, mergeConc)
+	diskBM, diskRelease, err := b.disk.roaringSetGet(key, h, segments, mergeConc)
 	if err != nil {
 		return nil, noopRelease, err
 	}
@@ -410,6 +411,8 @@ const BatchReaderWindowBytes = 8 << 20
 // memtable holds nothing": the disk row is then served with that memtable's
 // deletions unapplied, and a ContainsAny returns a deleted document.
 //
+// Hashes attached to keys must come from bloomhash.Sum, or Next reads held keys as absent.
+//
 // The view it was narrowed from must carry its Bucket, and this panics rather
 // than erroring if it does not.
 // No producer builds one that way, and the sibling read paths on this bucket
@@ -496,8 +499,13 @@ func (r *RoaringSetBatchReader) Next(mergeConc int) (*sroar.Bitmap, func(), erro
 		// stays live until the next fill.
 		w.layer[at] = roaringset.BitmapLayer{}
 	}
+	key := r.keys.At(r.pos)
+	h, ok := r.keys.HashAt(r.pos)
+	if !ok {
+		h = bloomhash.Sum(key)
+	}
 	bm, release, err := r.bucket.roaringSetGetWithLayers(
-		r.segments, r.keys.At(r.pos), mergeConc, layers[:found])
+		r.segments, key, h, mergeConc, layers[:found])
 	if err != nil {
 		// This key's slots were already emptied above; collapsing the window
 		// forces a refill on retry instead of folding the disk row alone.
