@@ -8,7 +8,6 @@ WORKDIR /app
 # (2026-10-29) require go >= 1.26 and broke all acceptance jobs still
 # building with go 1.24.
 COPY go.mod go.sum mockoidc.go ./
-RUN go mod download
-RUN go build -o mockoidc .
+RUN go mod download && go build -o mockoidc .
 
 CMD ["/app/mockoidc"]
