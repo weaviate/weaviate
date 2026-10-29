@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -88,7 +87,14 @@ func (s *containsBatchFixture) source(t *testing.T) *spyContainsBatchReaderSourc
 	return &spyContainsBatchReaderSource{t: t, fixture: s, view: view.WithoutEmptyActiveMemtable()}
 }
 
+// bothMemtables gives a fake source the count of a view holding Active and
+// Flushing, which prices the largest window.
+type bothMemtables struct{}
+
+func (bothMemtables) memtableCount() int { return 2 }
+
 type spyContainsBatchReaderSource struct {
+	bothMemtables
 	t       *testing.T
 	fixture *containsBatchFixture
 	view    lsmkv.NarrowedConsistentView
@@ -382,6 +388,7 @@ func TestDocBitmapContainsBatch_NoKeys(t *testing.T) {
 // mints one per worker still meets the injected failure whichever share holds
 // the poisoned key.
 type failingContainsBatchReaderSource struct {
+	bothMemtables
 	fixture *containsBatchFixture
 	t       *testing.T
 	failKey string
@@ -1039,6 +1046,7 @@ func TestDocBitmapContainsBatch_ParallelReadError(t *testing.T) {
 // openFailingSource opens readers normally until failAt, which fails. It needs
 // no lock: runWorkers opens every reader from its own goroutine.
 type openFailingSource struct {
+	bothMemtables
 	fixture *containsBatchFixture
 	t       *testing.T
 	failAt  int // the 0-based reader index whose open fails
@@ -1118,6 +1126,7 @@ func TestDocBitmapContainsBatch_ParallelReaderOpenError(t *testing.T) {
 // reader's read has failed. Without that ordering the open wins the race and
 // the worker returns context.Canceled — a path that passes against the bug.
 type openFailsAfterWorkingReaderSource struct {
+	bothMemtables
 	fixture *containsBatchFixture
 	t       *testing.T
 	opened  int
@@ -1207,6 +1216,7 @@ func (r *panicAfterReadsReader) Next(mergeConc int) (*sroar.Bitmap, func(), erro
 // panickingSource hands out readers that panic once they have served enough
 // rows for a worker to be holding a merged partial.
 type panickingSource struct {
+	bothMemtables
 	fixture    *containsBatchFixture
 	t          *testing.T
 	afterReads int
@@ -1505,8 +1515,8 @@ func TestDocBitmapContainsBatch_MemoryClampBoundsTheFold(t *testing.T) {
 		clampBinds bool
 	}{
 		{name: "an empty shard pays only for its windows", docIDCount: 0, want: 8},
-		{name: "the row term has cost half the pool", docIDCount: 33_488_896, want: 4, clampBinds: true},
-		{name: "one doc past the three-worker boundary", docIDCount: 55_836_673, want: 2, clampBinds: true},
+		{name: "the row term has cost half the pool", docIDCount: 13_369_344, want: 4, clampBinds: true},
+		{name: "one doc past the three-worker boundary", docIDCount: 22_347_777, want: 2, clampBinds: true},
 		{name: "a shard this size folds alone", docIDCount: 300_000_000, want: 1, clampBinds: true},
 	}
 
@@ -1587,8 +1597,9 @@ func TestDocBitmapContainsBatch_MemoryClampBoundsTheFold(t *testing.T) {
 			require.LessOrEqual(t, int64(st.BytesPeak), int64(want)*int64(lsmkv.BatchReaderWindowBytes),
 				"the fold held more than the workers it was granted could account for")
 			if tc.clampBinds {
-				footprint := containsFoldPlanner{docIDCount: tc.docIDCount}.
-					perWorkerFootprintBytes()
+				footprint := containsFoldPlanner{
+					docIDCount: tc.docIDCount, memtableCount: source.memtableCount(),
+				}.perWorkerFootprintBytes()
 				// Above one worker only: the clamp floors at one, so a shard
 				// whose single worker already costs more than the budget runs
 				// anyway rather than not running at all.
@@ -1608,10 +1619,10 @@ func TestDocBitmapContainsBatch_MemoryClampBoundsTheFold(t *testing.T) {
 	}
 }
 
-// TestDocBitmapContainsBatch_RowsHeldPerWorker pins the row term
-// perWorkerFootprintBytes charges, which the clamp's own arithmetic cannot
-// check and BytesPeak does not see — that counter measures memtable window
-// bytes, while these are pooled bitmaps.
+// TestDocBitmapContainsBatch_RowsHeldPerWorker pins the pooled rows among the
+// live rows perWorkerFootprintBytes charges. The clamp's own arithmetic cannot
+// check them and BytesPeak does not see them — that counter measures memtable
+// window bytes, while these are pooled bitmaps.
 //
 // The sequential cases are the model itself, one worker's worth: the
 // incremental fold holds its running partial and the row it is merging in at
@@ -1747,10 +1758,29 @@ func TestContainsBatchReaderSourceStatsSumThePeaks(t *testing.T) {
 	require.Equal(t, sorted.Len(), got.KeysServed)
 }
 
+// TestRoaringSetBatchReaderSourceMemtableCount pins the count the planner
+// prices windows by to the narrowed view. A constant would price a flushed
+// bucket's readers for windows they never fill.
+func TestRoaringSetBatchReaderSourceMemtableCount(t *testing.T) {
+	fixture := newContainsBatchFixture(t, context.Background(),
+		map[string][]uint64{"flushed": {1, 2}})
+	countOf := func() int {
+		view := fixture.GetConsistentView()
+		defer view.ReleaseView()
+		return (&roaringSetBatchReaderSource{view: view.WithoutEmptyActiveMemtable()}).memtableCount()
+	}
+
+	require.Equal(t, 0, countOf(), "a flush with no writes since leaves an empty active memtable")
+
+	require.NoError(t, fixture.RoaringSetAddOne([]byte("unflushed"), 3))
+	require.Equal(t, 1, countOf(), "one write puts the active memtable back in the view")
+}
+
 // lateFailingSource fails one key, but only once the rest of the batch has been
 // read — so the workers that succeed have merged their shares into the fold's
 // shared result before the failing one brings the fold down.
 type lateFailingSource struct {
+	bothMemtables
 	fixture    *containsBatchFixture
 	t          *testing.T
 	failKey    string
@@ -2075,7 +2105,7 @@ func TestPlanContainsFold(t *testing.T) {
 			if budget == 0 {
 				budget = workerBudget
 			}
-			plan, err := containsFoldPlanner{docIDCount: smallShard}.plan(budget, tc.operator, tc.numKeys)
+			plan, err := containsFoldPlanner{docIDCount: smallShard, memtableCount: 2}.plan(budget, tc.operator, tc.numKeys)
 			if tc.wantErr != "" {
 				require.ErrorContains(t, err, tc.wantErr)
 				require.Equal(t, containsFoldPlan{}, plan)
@@ -2113,7 +2143,7 @@ func TestPlanContainsFoldWorkSizeFloor(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(fmt.Sprintf("%d keys plans %d workers", tc.numKeys, tc.want), func(t *testing.T) {
-			plan, err := containsFoldPlanner{docIDCount: smallShard}.plan(budget,
+			plan, err := containsFoldPlanner{docIDCount: smallShard, memtableCount: 2}.plan(budget,
 				filters.ContainsAll, tc.numKeys)
 			require.NoError(t, err)
 			require.Equal(t, tc.want, plan.workers)
@@ -2146,7 +2176,7 @@ func TestPlanContainsFoldGateUnchangedAtOneWorker(t *testing.T) {
 		// gets, but still inside the budget — so the memory giveaway in
 		// planUnion does not fire and the gate is what decides the strategy.
 		// TestPlanContainsFoldMemoryClamp covers the giveaway itself.
-		{name: "large shard the clamp cuts to one worker", docIDCount: 100_000_000},
+		{name: "large shard the clamp cuts to one worker", docIDCount: 60_000_000},
 	}
 
 	for _, shard := range shards {
@@ -2158,7 +2188,7 @@ func TestPlanContainsFoldGateUnchangedAtOneWorker(t *testing.T) {
 				containsAccumulatorMinKeysPerWorker + 1,
 			} {
 				t.Run(fmt.Sprintf("%d keys", numKeys), func(t *testing.T) {
-					plan, err := containsFoldPlanner{docIDCount: shard.docIDCount}.plan(1,
+					plan, err := containsFoldPlanner{docIDCount: shard.docIDCount, memtableCount: 2}.plan(1,
 						filters.ContainsAny, numKeys)
 					require.NoError(t, err)
 					require.Equal(t, 1, plan.workers, "this case is about the one-worker plan")
@@ -2186,13 +2216,13 @@ func TestPlanContainsFoldGateIsPerWorker(t *testing.T) {
 	numKeys := 4 * containsAccumulatorMinKeysPerWorker
 
 	// unsplit, the batch is one worker's share and clears the gate four times over
-	unsplit, err := containsFoldPlanner{docIDCount: smallShard}.plan(1, filters.ContainsAny, numKeys)
+	unsplit, err := containsFoldPlanner{docIDCount: smallShard, memtableCount: 2}.plan(1, filters.ContainsAny, numKeys)
 	require.NoError(t, err)
 	require.Equal(t, 1, unsplit.workers)
 	require.Equal(t, foldStrategyUnionAccumulator, unsplit.strategy)
 
 	// split eight ways the same batch gives each worker half the gate
-	split, err := containsFoldPlanner{docIDCount: smallShard}.plan(8, filters.ContainsAny, numKeys)
+	split, err := containsFoldPlanner{docIDCount: smallShard, memtableCount: 2}.plan(8, filters.ContainsAny, numKeys)
 	require.NoError(t, err)
 	require.Greater(t, split.workers, 4, "the budget must actually split it for this to mean anything")
 	require.Equal(t, foldStrategyUnionIncremental, split.strategy,
@@ -2328,63 +2358,49 @@ func TestContainsFoldRunUnsupportedStrategy(t *testing.T) {
 	require.Nil(t, release)
 }
 
-// TestPerWorkerFootprintPricesEveryMemtable pins the pricing to the view it
-// prices, since nothing else connects them: a memtable added to
-// BucketConsistentView must show up as one more row a window can hold, and no
-// compiler error would say otherwise.
-func TestPerWorkerFootprintPricesEveryMemtable(t *testing.T) {
-	view := reflect.TypeOf(lsmkv.BucketConsistentView{})
-	memtables := int64(0)
-	for i := 0; i < view.NumField(); i++ {
-		if view.Field(i).Type.Name() == "memtable" {
-			memtables++
-		}
-	}
-	require.Positive(t, memtables, "no memtable field found, so this pins nothing")
-
-	// a row this size exhausts the whole window budget by itself, so every
-	// memtable is priced for a first row rather than for its share
-	row := int64(lsmkv.BatchReaderWindowBytes)
-	// the partial and the row merged into it, plus one first row per memtable
-	want := (2 + memtables) * row
-	require.Equal(t, want, perWorkerFootprintFor(row),
-		"BucketConsistentView carries %d memtables and perWorkerFootprintFor prices a "+
-			"window for a different count, so the clamp misjudges what a worker holds",
-		memtables)
-}
-
 // TestPerWorkerFootprintOverflowBoundary walks the guard that stops a row near
 // the ceiling summing into a negative, and the share where the window stops
-// being the larger term. One unit either side of each: a guard with the wrong
-// constant still saturates at MaxInt64, which is the only row the sibling test
-// reaches.
+// being the larger term. One unit either side of each, for every memtable
+// count a view can hold: a guard with the wrong constant still saturates at
+// MaxInt64, which is the only row the sibling test reaches.
 func TestPerWorkerFootprintOverflowBoundary(t *testing.T) {
-	// two rows live in the merge, and above the share one first row per memtable
-	boundary := int64(math.MaxInt64) / 4
-	// the largest row that still fits the window share one memtable is given
+	// five live rows, and above the share one first row per memtable
+	boundary := int64(math.MaxInt64) / 7
+	// with no memtable there is no window, so only the live rows count
+	boundaryNoMemtable := int64(math.MaxInt64) / 5
+	// the largest row that still fits the window share one of two memtables is given
 	share := int64(lsmkv.BatchReaderWindowBytes) / 2
+	window := int64(lsmkv.BatchReaderWindowBytes)
 
 	tests := []struct {
-		name string
-		row  int64
-		want int64
+		name          string
+		row           int64
+		memtableCount int64
+		want          int64
 	}{
-		{"one below the boundary fits", boundary - 1, 4 * (boundary - 1)},
-		{"the boundary itself fits", boundary, 4 * boundary},
-		{"one above saturates", boundary + 1, math.MaxInt64},
-		{"a saturated row saturates", math.MaxInt64, math.MaxInt64},
-		{"an ordinary row is two rows and a window", 1_200_000, 2*1_200_000 + lsmkv.BatchReaderWindowBytes},
-		{"a row filling its share still prices the whole window", share, 2*share + lsmkv.BatchReaderWindowBytes},
+		{"one below the boundary fits", boundary - 1, 2, 7 * (boundary - 1)},
+		{"the boundary itself fits", boundary, 2, 7 * boundary},
+		{"one above saturates", boundary + 1, 2, math.MaxInt64},
+		{"a saturated row saturates", math.MaxInt64, 2, math.MaxInt64},
+		{"an ordinary row is five rows and a window", 1_200_000, 2, 5*1_200_000 + window},
+		{"a row filling its share still prices the whole window", share, 2, 5*share + window},
 		{
 			"a row above its share prices what the memtables take instead",
-			share + 1, 4 * (share + 1),
+			share + 1, 2, 7 * (share + 1),
 		},
+		{"one memtable prices the same window", 1_200_000, 1, 5*1_200_000 + window},
+		{"one memtable's share is the whole window", window, 1, 6 * window},
+		{"one memtable above the window prices its first row", window + 1, 1, 6 * (window + 1)},
+		{"no memtable fills no window", 1_200_000, 0, 5 * 1_200_000},
+		{"no memtable on an empty shard costs nothing", 0, 0, 0},
+		{"no memtable at its own boundary fits", boundaryNoMemtable, 0, 5 * boundaryNoMemtable},
+		{"no memtable one above saturates", boundaryNoMemtable + 1, 0, math.MaxInt64},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := perWorkerFootprintFor(tc.row)
+			got := perWorkerFootprintFor(tc.row, tc.memtableCount)
 			require.Equal(t, tc.want, got)
-			require.Positive(t, got,
+			require.GreaterOrEqual(t, got, int64(0),
 				"a footprint that wrapped negative would floor the clamp at one worker")
 		})
 	}
@@ -2442,7 +2458,7 @@ func TestRowFootprintBytes(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			p := containsFoldPlanner{docIDCount: tc.docIDCount}
+			p := containsFoldPlanner{docIDCount: tc.docIDCount, memtableCount: 2}
 
 			require.Equal(t, tc.wantRow, p.rowFootprintBytes())
 			require.Positive(t, p.perWorkerFootprintBytes(),
@@ -2456,39 +2472,53 @@ func TestRowFootprintBytes(t *testing.T) {
 // workers the budget affords, and what happens when it affords none.
 func TestClampWorkers(t *testing.T) {
 	tests := []struct {
-		name       string
-		planned    int
-		docIDCount uint64
-		want       int
+		name          string
+		planned       int
+		docIDCount    uint64
+		memtableCount int
+		want          int
 	}{
 		{
 			name:    "an unknown ceiling still pays for a window",
-			planned: 64, docIDCount: 0, want: 8,
+			planned: 64, docIDCount: 0, memtableCount: 2, want: 8,
 		},
 		{
 			name:    "a small shard is bounded by the window, not the rows",
-			planned: 64, docIDCount: smallShard, want: 7,
+			planned: 64, docIDCount: smallShard, memtableCount: 2, want: 7,
 		},
 		{
 			name:    "the row term bites on a large shard",
-			planned: 64, docIDCount: 60_000_000, want: 2,
+			planned: 64, docIDCount: 30_000_000, memtableCount: 2, want: 2,
 		},
 		{
 			name:    "one worker is all a very large shard affords",
-			planned: 64, docIDCount: 300_000_000, want: 1,
+			planned: 64, docIDCount: 300_000_000, memtableCount: 2, want: 1,
 		},
 		{
 			name:    "past the budget it floors at one rather than zero",
-			planned: 64, docIDCount: 600_000_000, want: 1,
+			planned: 64, docIDCount: 600_000_000, memtableCount: 2, want: 1,
 		},
 		{
 			name:    "it never raises what was planned",
-			planned: 2, docIDCount: 0, want: 2,
+			planned: 2, docIDCount: 0, memtableCount: 2, want: 2,
+		},
+		{
+			name:    "a shard with one memtable pays for its window",
+			planned: 64, docIDCount: 3_300_000, memtableCount: 1, want: 6,
+		},
+		{
+			name:    "the same shard with no memtable pays only for its rows",
+			planned: 64, docIDCount: 3_300_000, memtableCount: 0, want: 32,
+		},
+		{
+			name:    "an empty shard with no memtable keeps what was planned",
+			planned: 64, docIDCount: 0, memtableCount: 0, want: 64,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, containsFoldPlanner{docIDCount: tc.docIDCount}.clampWorkers(tc.planned))
+			p := containsFoldPlanner{docIDCount: tc.docIDCount, memtableCount: tc.memtableCount}
+			require.Equal(t, tc.want, p.clampWorkers(tc.planned))
 		})
 	}
 }
@@ -2503,43 +2533,28 @@ var clampBoundaries = []struct {
 	lastFits uint64
 }{
 	{workers: 8, lastFits: 0},
-	{workers: 7, lastFits: 4_784_128},
-	{workers: 6, lastFits: 11_141_120},
-	{workers: 5, lastFits: 20_054_016},
-	{workers: 4, lastFits: 33_488_896},
-	{workers: 3, lastFits: 44_695_552},
-	{workers: 2, lastFits: 67_043_328},
+	{workers: 7, lastFits: 1_900_544},
+	{workers: 6, lastFits: 4_456_448},
+	{workers: 5, lastFits: 7_995_392},
+	{workers: 4, lastFits: 13_369_344},
+	{workers: 3, lastFits: 22_347_776},
+	{workers: 2, lastFits: 38_273_024},
 }
 
 // TestClampWorkersBoundaries walks the crossover table one doc ID at a time
 // across every step in it. Checkpoints inside a step only show that the clamp
 // is in the right region; the boundaries are what pin the table itself, and
 // they are what the memory argument is actually stated in terms of — a shard of
-// 44.7M doc IDs still affording three concurrent windows, and one doc past it
+// 22.3M doc IDs still affording three concurrent workers, and one doc past it
 // affording two.
-// TestMaxContainsFoldWorkersBoundsEveryClamp pins that no shard size clamps
-// above the constant the reader list is sized against. The widest plan is the
-// empty-shard one — the footprint's floor is one window — and the sizes either
-// side keep the constant honest if the footprint gains a term.
-func TestMaxContainsFoldWorkersBoundsEveryClamp(t *testing.T) {
-	for _, docIDCount := range []uint64{
-		0, 1, 65_535, 65_536, 1_000_000, 33_488_896, 55_836_673, 300_000_000,
-		math.MaxUint64 / 2, math.MaxUint64,
-	} {
-		p := containsFoldPlanner{docIDCount: docIDCount}
-		require.LessOrEqualf(t, p.clampWorkers(1<<30), maxContainsFoldWorkers,
-			"a shard of %d doc IDs clamped above the reader list's capacity", docIDCount)
-	}
-}
-
 func TestClampWorkersBoundaries(t *testing.T) {
 	for _, tc := range clampBoundaries {
 		t.Run(fmt.Sprintf("%d workers", tc.workers), func(t *testing.T) {
-			p := containsFoldPlanner{docIDCount: tc.lastFits}
+			p := containsFoldPlanner{docIDCount: tc.lastFits, memtableCount: 2}
 			require.Equal(t, tc.workers, p.clampWorkers(64),
 				"the largest shard that still affords %d workers", tc.workers)
 
-			past := containsFoldPlanner{docIDCount: tc.lastFits + 1}
+			past := containsFoldPlanner{docIDCount: tc.lastFits + 1, memtableCount: 2}
 			require.Equal(t, tc.workers-1, past.clampWorkers(64),
 				"one doc ID further must cost a worker")
 		})
@@ -2558,26 +2573,26 @@ func TestPlanContainsFoldMemoryClamp(t *testing.T) {
 	// Large enough that every worker's share still clears the accumulator gate
 	// after the clamp has split the batch — otherwise these cases would be
 	// reading the gate rather than the clamp, which is what they are about. Eight
-	// workers is the most any shard affords, so eight shares of the gate is the
-	// size that holds for all of them.
+	// workers is the most a shard with a memtable affords, so eight shares of the
+	// gate is the size that holds for all of them.
 	manyKeys := 8 * containsAccumulatorMinKeysPerWorker
 
 	t.Run("an intersection sheds workers but keeps its strategy", func(t *testing.T) {
-		plan, err := containsFoldPlanner{docIDCount: 60_000_000}.plan(workerBudget, filters.ContainsAll, manyKeys)
+		plan, err := containsFoldPlanner{docIDCount: 30_000_000, memtableCount: 2}.plan(workerBudget, filters.ContainsAll, manyKeys)
 		require.NoError(t, err)
 		require.Equal(t, foldStrategyIntersection, plan.strategy)
 		require.Equal(t, 2, plan.workers)
 	})
 
 	t.Run("an accumulator sheds workers but keeps its strategy", func(t *testing.T) {
-		plan, err := containsFoldPlanner{docIDCount: 60_000_000}.plan(workerBudget, filters.ContainsAny, manyKeys)
+		plan, err := containsFoldPlanner{docIDCount: 30_000_000, memtableCount: 2}.plan(workerBudget, filters.ContainsAny, manyKeys)
 		require.NoError(t, err)
 		require.Equal(t, foldStrategyUnionAccumulator, plan.strategy)
 		require.Equal(t, 2, plan.workers)
 	})
 
 	t.Run("a shard too large for one worker gives up the strategy", func(t *testing.T) {
-		plan, err := containsFoldPlanner{docIDCount: 600_000_000}.plan(workerBudget, filters.ContainsAny, manyKeys)
+		plan, err := containsFoldPlanner{docIDCount: 600_000_000, memtableCount: 2}.plan(workerBudget, filters.ContainsAny, manyKeys)
 		require.NoError(t, err)
 		require.Equal(t, foldStrategyUnionIncremental, plan.strategy,
 			"with no worker left to shed, the only lever is which fold runs")
@@ -2585,10 +2600,17 @@ func TestPlanContainsFoldMemoryClamp(t *testing.T) {
 	})
 
 	t.Run("an empty shard still pays for its window", func(t *testing.T) {
-		plan, err := containsFoldPlanner{docIDCount: 0}.plan(workerBudget, filters.ContainsAny, manyKeys)
+		plan, err := containsFoldPlanner{docIDCount: 0, memtableCount: 2}.plan(workerBudget, filters.ContainsAny, manyKeys)
 		require.NoError(t, err)
 		require.Equal(t, foldStrategyUnionAccumulator, plan.strategy)
 		require.Equal(t, 8, plan.workers, "the window alone caps the pool")
+	})
+
+	t.Run("an empty shard with no memtable is bounded by the budget alone", func(t *testing.T) {
+		const smallBudget = 16
+		plan, err := containsFoldPlanner{docIDCount: 0, memtableCount: 0}.plan(smallBudget, filters.ContainsAll, manyKeys)
+		require.NoError(t, err)
+		require.Equal(t, smallBudget, plan.workers, "a worker that costs nothing must still not exceed the budget")
 	})
 }
 
@@ -2606,22 +2628,22 @@ func TestPlanContainsFoldOverride(t *testing.T) {
 		t.Run(op.Name(), func(t *testing.T) {
 			forceContainsWorkers(t, 6)
 
-			plan, err := containsFoldPlanner{docIDCount: smallShard}.plan(workerBudget, op, 100)
+			plan, err := containsFoldPlanner{docIDCount: smallShard, memtableCount: 2}.plan(workerBudget, op, 100)
 			require.NoError(t, err)
 			require.Equal(t, 6, plan.workers)
 
-			capped, err := containsFoldPlanner{docIDCount: smallShard}.plan(workerBudget, op, 3)
+			capped, err := containsFoldPlanner{docIDCount: smallShard, memtableCount: 2}.plan(workerBudget, op, 3)
 			require.NoError(t, err)
 			require.Equal(t, 3, capped.workers, "the override is capped by the key count")
 
 			// the budget and the clamp both bound what the policy asks for, but
 			// the override is a deliberate pin: a benchmark forcing 6 workers
 			// gets 6 whatever the query carries or the shard costs
-			starved, err := containsFoldPlanner{docIDCount: smallShard}.plan(1, op, 100)
+			starved, err := containsFoldPlanner{docIDCount: smallShard, memtableCount: 2}.plan(1, op, 100)
 			require.NoError(t, err)
 			require.Equal(t, 6, starved.workers, "the override outranks the query budget")
 
-			overClamped, err := containsFoldPlanner{docIDCount: 600_000_000}.plan(workerBudget, op, 100)
+			overClamped, err := containsFoldPlanner{docIDCount: 600_000_000, memtableCount: 2}.plan(workerBudget, op, 100)
 			require.NoError(t, err)
 			require.Equal(t, 6, overClamped.workers, "the override outranks the memory clamp")
 		})

@@ -42,7 +42,10 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, source containsBa
 			entsInverted.ErrInternal, pv.prop)
 	}
 
-	planner := containsFoldPlanner{docIDCount: s.bitmapFactory.DocIDCount()}
+	planner := containsFoldPlanner{
+		docIDCount:    s.bitmapFactory.DocIDCount(),
+		memtableCount: source.memtableCount(),
+	}
 	// the smaller of the query's share and the machine, so the planner compares
 	// one number against the batch rather than reaching for a second
 	workerBudget := min(concurrency.BudgetFromCtx(ctx, concurrency.GOMAXPROCS),
@@ -74,6 +77,7 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, source containsBa
 // given, so a worker cannot have its own position without its own reader.
 type containsBatchReaderSource interface {
 	newContainsBatchReader(keys entsInverted.SortedKeys) (containsBatchReader, error)
+	memtableCount() int
 }
 
 // roaringSetBatchReaderSource opens readers on one held view and keeps them.
@@ -93,6 +97,10 @@ func (s *roaringSetBatchReaderSource) newContainsBatchReader(
 	}
 	s.readers = append(s.readers, reader)
 	return reader, nil
+}
+
+func (s *roaringSetBatchReaderSource) memtableCount() int {
+	return s.view.MemtableCount()
 }
 
 // stats sums what the readers did, reporting false when none ran: zeroed
@@ -130,10 +138,6 @@ const (
 	// fold: one filter leaf on one shard. Nothing sums it across a request's
 	// filter children, its shards, or the requests in flight.
 	containsFoldMemoryBudget int64 = 64 << 20
-
-	// maxContainsFoldWorkers is the most workers the budget affords: a worker
-	// costs at least its reader's window whatever the row size.
-	maxContainsFoldWorkers = int(containsFoldMemoryBudget / lsmkv.BatchReaderWindowBytes)
 )
 
 // containsMinKeysPerWorker is the smallest share worth giving a worker. A worker
@@ -194,6 +198,9 @@ type containsFoldPlanner struct {
 	// docIDCount sizes the largest row a worker can hold: one past the highest
 	// doc ID ever allocated.
 	docIDCount uint64
+	// memtableCount is how many memtables the readers' view holds, each of which a
+	// reader fills its window from.
+	memtableCount int
 }
 
 // plan decides how a batch will be folded: the strategy from the operator and
@@ -244,30 +251,40 @@ func (p containsFoldPlanner) planUnion(numKeys, planned int) containsFoldPlan {
 // the budget affords, flooring at one: the clamp bounds what concurrency adds,
 // not the one reader's worth a fold needs regardless.
 func (p containsFoldPlanner) clampWorkers(planned int) int {
-	maxWorkers := int(containsFoldMemoryBudget / p.perWorkerFootprintBytes())
+	footprint := p.perWorkerFootprintBytes()
+	if footprint == 0 {
+		// an empty shard whose view holds no memtable costs a worker nothing
+		return max(1, planned)
+	}
+	maxWorkers := int(containsFoldMemoryBudget / footprint)
 	return max(1, min(planned, maxWorkers))
 }
 
-// perWorkerFootprintBytes is what one worker holds at once: two row-sized
-// structures plus its reader's window. Two because the running partial and the
-// row being merged in are both live across Or.
+// perWorkerFootprintBytes is what one worker holds at once: its live rows plus
+// its reader's window.
 func (p containsFoldPlanner) perWorkerFootprintBytes() int64 {
-	return perWorkerFootprintFor(p.rowFootprintBytes())
+	return perWorkerFootprintFor(p.rowFootprintBytes(), int64(p.memtableCount))
 }
 
 // perWorkerFootprintFor is the arithmetic, taking the row size rather than
 // deriving it. rowFootprintBytes saturates at its own ceiling before any doc-ID
 // count reaches the boundary below, so this is the only way to walk the guard.
-func perWorkerFootprintFor(row int64) int64 {
-	maxContainsFoldLiveRows := int64(2)  // the running partial and the row merged into it
-	maxContainsFoldMemtables := int64(2) // Active and Flushing, per [lsmkv.BucketConsistentView]
+func perWorkerFootprintFor(row, memtableCount int64) int64 {
+	// One row for the running partial or Accumulator staging. On a pread bucket,
+	// two each for the segment node a row is built in and the one merged into
+	// it, holding additions and deletions.
+	maxContainsFoldLiveRows := int64(5)
 
 	// A footprint that wrapped negative would floor the clamp at one worker.
-	if row > math.MaxInt64/(maxContainsFoldLiveRows+maxContainsFoldMemtables) {
+	if row > math.MaxInt64/(maxContainsFoldLiveRows+memtableCount) {
 		return math.MaxInt64
 	}
-	// The budget caps neither memtable: each takes its first row whatever it costs.
-	window := max(int64(lsmkv.BatchReaderWindowBytes), maxContainsFoldMemtables*row)
+	if memtableCount == 0 {
+		// a reader with no memtable fills no window
+		return maxContainsFoldLiveRows * row
+	}
+	// The budget caps no memtable, since each takes its first row whatever it costs.
+	window := max(int64(lsmkv.BatchReaderWindowBytes), memtableCount*row)
 	return maxContainsFoldLiveRows*row + window
 }
 

@@ -25,7 +25,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -397,13 +396,7 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 
 	// Narrowed once, so every worker's reader sees the same memtables. Built
 	// before the annotation reads it, so the closure never sees nil.
-	source := &roaringSetBatchReaderSource{
-		view: view.WithoutEmptyActiveMemtable(),
-		// Sized at what the budget affords, since the plan is not made yet and
-		// the annotation below must not read a nil source. A test override can
-		// ask for more, which append handles.
-		readers: make([]*lsmkv.RoaringSetBatchReader, 0, maxContainsFoldWorkers),
-	}
+	source := &roaringSetBatchReaderSource{view: view.WithoutEmptyActiveMemtable()}
 	// Zero until the fold has planned, so a filter rejected before then is timed
 	// without inventing a strategy it never chose.
 	var plan containsFoldPlan
