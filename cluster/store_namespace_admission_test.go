@@ -125,6 +125,10 @@ var ungatedApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_TARGET_NODE:          {},
 	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_UUID:                 {},
 	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_IDS:                  {},
+	api.ApplyRequest_TYPE_REPLICATION_REBALANCE_CREATE_PLAN:                          {},
+	api.ApplyRequest_TYPE_REPLICATION_REBALANCE_COMPLETE_PLANNING:                    {},
+	api.ApplyRequest_TYPE_REPLICATION_REBALANCE_STOP:                                 {},
+	api.ApplyRequest_TYPE_REPLICATION_REBALANCE_DELETE:                               {},
 	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:                                       {},
 	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_CANCEL:                                    {},
 	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED:                     {}, //nolint:staticcheck // deprecated but must stay classified for the drift check
