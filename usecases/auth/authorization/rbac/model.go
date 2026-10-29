@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp/syntax"
 	"slices"
 	"strconv"
 	"strings"
@@ -362,13 +363,25 @@ func operatorOnlyResource(path string) bool {
 // KeyMatch5: a collection-level request must not match a per-tenant policy.
 //
 // A verbose nodes policy on any collection also satisfies the minimal nodes request.
-func weaviateKeyMatch(reqObj, polObj string) bool {
+//
+// Past those carve-outs, a policy whose pattern does not compile matches
+// nothing. KeyMatch5 panics on it, which casbin turns into an error failing
+// the whole Enforce call.
+func weaviateKeyMatch(reqObj, polObj string) (matched bool) {
 	if strings.HasSuffix(reqObj, "/shards/#") && strings.HasSuffix(polObj, "/shards/.*") {
 		return false
 	}
 	if reqObj == nodesMinimalResource && strings.HasPrefix(polObj, nodesVerbosePrefix) {
 		return true
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			if err, ok := r.(error); !ok || !errors.As(err, new(*syntax.Error)) {
+				panic(r)
+			}
+			matched = false
+		}
+	}()
 	return casbinutil.KeyMatch5(reqObj, polObj)
 }
 
