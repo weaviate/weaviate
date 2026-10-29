@@ -370,3 +370,74 @@ func Test_SortedMapMerger_KeepTombstones(t *testing.T) {
 		})
 	})
 }
+
+// mpKV and mpTomb build one-line MapPair table entries for
+// Test_SortedMapMerger_TwoInputFastPath below (prefixed to avoid colliding
+// with the existing `kv` struct used by other tests in this package).
+func mpKV(k, v string) MapPair { return MapPair{Key: []byte(k), Value: []byte(v)} }
+func mpTomb(k string) MapPair  { return MapPair{Key: []byte(k), Tombstone: true} }
+
+// Test_SortedMapMerger_TwoInputFastPath pins doKeepTombstones's len==2 fast
+// path (mergeSortedPairs) against an independently computed expected result
+// and against doKeepTombstonesReusable on the same two segments.
+func Test_SortedMapMerger_TwoInputFastPath(t *testing.T) {
+	tests := []struct {
+		name     string
+		left     []MapPair
+		right    []MapPair
+		expected []MapPair
+	}{
+		{
+			name:     "disjoint keys",
+			left:     []MapPair{mpKV("a", "a1"), mpKV("c", "c1")},
+			right:    []MapPair{mpKV("b", "b1"), mpKV("d", "d1")},
+			expected: []MapPair{mpKV("a", "a1"), mpKV("b", "b1"), mpKV("c", "c1"), mpKV("d", "d1")},
+		},
+		{
+			name:     "overlapping keys, right-hand precedence",
+			left:     []MapPair{mpKV("a", "a1"), mpKV("b", "b1"), mpKV("c", "c1")},
+			right:    []MapPair{mpKV("b", "b2"), mpKV("c", "c2")},
+			expected: []MapPair{mpKV("a", "a1"), mpKV("b", "b2"), mpKV("c", "c2")},
+		},
+		{
+			name:     "tombstone on the left, overwritten on the right",
+			left:     []MapPair{mpTomb("a"), mpKV("b", "b1")},
+			right:    []MapPair{mpKV("a", "a2")},
+			expected: []MapPair{mpKV("a", "a2"), mpKV("b", "b1")},
+		},
+		{
+			name:     "tombstone on the right, shadows the left",
+			left:     []MapPair{mpKV("a", "a1")},
+			right:    []MapPair{mpTomb("a"), mpKV("b", "b2")},
+			expected: []MapPair{mpTomb("a"), mpKV("b", "b2")},
+		},
+		{
+			name:     "empty left side",
+			left:     nil,
+			right:    []MapPair{mpKV("a", "a1")},
+			expected: []MapPair{mpKV("a", "a1")},
+		},
+		{
+			name:     "empty right side",
+			left:     []MapPair{mpKV("a", "a1")},
+			right:    nil,
+			expected: []MapPair{mpKV("a", "a1")},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			segments := [][]MapPair{tc.left, tc.right}
+
+			actual, err := newSortedMapMerger().doKeepTombstones(segments)
+			require.NoError(t, err)
+			assert.Equal(t, tc.expected, actual)
+
+			reusable := newSortedMapMerger()
+			require.NoError(t, reusable.reset(segments))
+			viaReusable, err := reusable.doKeepTombstonesReusable()
+			require.NoError(t, err)
+			assert.Equal(t, tc.expected, viaReusable)
+		})
+	}
+}
