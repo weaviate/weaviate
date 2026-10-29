@@ -360,6 +360,24 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 	}
 
 	doneFn := func() {
+		// flush the index (e.g. the HNSW commit log) BEFORE the chunk is
+		// removed: once the chunk is gone the queue no longer holds these
+		// ops, so a crash between removal and flush would lose them.
+		// Flushing first makes leaving the queue imply durability.
+		if q.onBatchProcessed != nil {
+			if err := q.onBatchProcessed(); err != nil {
+				// the batch is applied but not durable: leave the chunk at
+				// the front of the reader's list — it only leaves the list
+				// via finishChunk — so the next DequeueBatch replays it
+				// (replay is idempotent) rather than deleting the only copy
+				// of these ops. This holds for a corrupt chunk too:
+				// quarantining it now would take its salvaged records out of
+				// the replay path before they are durable.
+				q.Logger.WithField("file", c.path).
+					Errorf("failed to flush after batch, keeping chunk for replay: %v", err)
+				return
+			}
+		}
 		// a corrupt chunk is only quarantined once its salvaged records are
 		// processed, so a canceled batch can salvage them again
 		err := q.finishChunk(c.path, corruptChunkErr)
@@ -368,9 +386,6 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 			// retries
 			q.r.markProcessed(c.path, corruptChunkErr)
 			q.Logger.WithField("file", c.path).Errorf("failed to remove processed chunk, will retry: %v", err)
-		}
-		if q.onBatchProcessed != nil {
-			q.onBatchProcessed()
 		}
 	}
 
