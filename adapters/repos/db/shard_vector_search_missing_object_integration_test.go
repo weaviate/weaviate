@@ -62,7 +62,7 @@ func TestObjectVectorSearch_MissingObjectKeepsDistancesAligned(t *testing.T) {
 			ctx := context.Background()
 			className := fmt.Sprintf("MissingObjRank%d", tc.missingRank)
 			shard, index := testShardWithSettings(t, ctx, &models.Class{Class: className},
-				enthnsw.NewDefaultUserConfig(), false, false)
+				enthnsw.NewDefaultUserConfig(), false, false, false)
 			defer func() {
 				require.NoError(t, index.drop())
 			}()
@@ -78,7 +78,7 @@ func TestObjectVectorSearch_MissingObjectKeepsDistancesAligned(t *testing.T) {
 			deleteFromObjectsBucketOnly(t, shard, ids[tc.missingRank])
 
 			objs, dists, err := shard.ObjectVectorSearch(ctx, []models.Vector{query}, []string{""},
-				0, numObjects*2, nil, nil, nil, additional.Properties{}, nil, nil)
+				0, numObjects*2, nil, nil, nil, additional.Properties{}, nil, nil, nil)
 			require.NoError(t, err)
 
 			require.Len(t, objs, numObjects-1, "the missing object must be dropped")

@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -27,7 +28,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 // fixedVectorIndex answers every search with the same ranked doc IDs, so the
@@ -76,7 +79,7 @@ func TestAggregatorObjectVectorSearch_MissingObjectKeepsDistancesAligned(t *test
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			store, _ := objectsBucketFixture(t, ctx, false, count, 16, 1)
+			store := objectsBucketWith(t, ctx, count)
 			bucket := store.Bucket(helpers.ObjectsBucketLSM)
 			for _, docID := range tc.missing {
 				deleteFixtureObject(t, bucket, docID)
@@ -104,7 +107,53 @@ func TestAggregatorObjectVectorSearch_MissingObjectKeepsDistancesAligned(t *test
 	}
 }
 
-// deleteFixtureObject removes the row objectsBucketFixture wrote for docID,
+// objectsBucketWith builds an objects bucket shaped like Shard.initObjectBucket
+// holding count objects with doc IDs 0..count-1, keyed like deleteFixtureObject
+// expects.
+func objectsBucketWith(t *testing.T, ctx context.Context, count int) *lsmkv.Store {
+	t.Helper()
+	dir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	store, err := lsmkv.New(dir, dir, logger, nil, nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
+	require.NoError(t, err)
+	t.Cleanup(func() { store.Shutdown(ctx) })
+
+	require.NoError(t, store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM,
+		lsmkv.WithStrategy(lsmkv.StrategyReplace),
+		lsmkv.WithSecondaryIndices(1),
+		lsmkv.WithKeepTombstones(true),
+		lsmkv.WithCalcCountNetAdditions(true),
+		lsmkv.WithClassName("AggregatorFixture"),
+	))
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	require.NotNil(t, bucket)
+
+	for i := 0; i < count; i++ {
+		docID := uint64(i)
+		obj := storobj.FromObject(&models.Object{
+			Class:      "AggregatorFixture",
+			ID:         strfmt.UUID(uuid.NewSHA1(uuid.Nil, []byte(fmt.Sprint(i))).String()),
+			Properties: map[string]interface{}{"value": float64(i)},
+		}, nil, nil, nil)
+		obj.DocID = docID
+		value, err := obj.MarshalBinary()
+		require.NoError(t, err)
+		key, err := uuid.MustParse(obj.ID().String()).MarshalBinary()
+		require.NoError(t, err)
+		docIDBytes := make([]byte, 8)
+		binary.LittleEndian.PutUint64(docIDBytes, docID)
+		require.NoError(t, bucket.Put(key, value,
+			lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes)))
+	}
+	require.NoError(t, bucket.FlushAndSwitch())
+	return store
+}
+
+// deleteFixtureObject removes the row objectsBucketWith wrote for docID,
 // including its doc-ID secondary key, without telling any index.
 func deleteFixtureObject(t *testing.T, bucket *lsmkv.Bucket, docID uint64) {
 	t.Helper()
