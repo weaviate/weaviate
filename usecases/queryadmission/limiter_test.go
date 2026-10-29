@@ -20,6 +20,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/concurrency"
@@ -89,7 +90,7 @@ func TestGrantCurve(t *testing.T) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for i, exp := range expected {
-		g := l.grantLocked(want)
+		g := l.grantLocked(want, nil)
 		require.Equalf(t, exp, g, "grant %d", i)
 		l.used += g
 	}
@@ -102,11 +103,247 @@ func TestGrantFloorOfOne(t *testing.T) {
 
 	// remaining below 4 still yields a grant of at least 1 for a huge want.
 	l.used = 9 // remaining 1
-	require.Equal(t, int64(1), l.grantLocked(1000))
+	require.Equal(t, int64(1), l.grantLocked(1000, nil))
 	l.used = 7 // remaining 3
-	require.Equal(t, int64(1), l.grantLocked(1000))
+	require.Equal(t, int64(1), l.grantLocked(1000, nil))
+	require.Equal(t, int64(1), evenShare(3, 1000, 4), "4 siblings over 3 free units")
+	require.Equal(t, int64(1), evenShare(25, 12, 13), "13 siblings drain 25 free units after 12 grants")
+	require.Equal(t, int64(3), l.grantLocked(1000, &shardGroup{n: 4, share: 8}), "a share above what remains")
 	l.used = 10 // remaining 0 -> saturated
-	require.Equal(t, int64(0), l.grantLocked(1000))
+	require.Equal(t, int64(0), l.grantLocked(1000, nil))
+	sg := &shardGroup{n: 4}
+	require.Equal(t, int64(0), l.grantLocked(1000, sg))
+	require.Zero(t, sg.share, "a saturated sibling queues without fixing the share")
+}
+
+func TestAdmitSiblingsGetEvenShare(t *testing.T) {
+	const capacity, want = 64, 76
+	tests := []struct {
+		name   string
+		used   int64
+		group  int // WithShardGroup size, 0 for none
+		admits int
+		grants []int64
+	}{
+		// the curve alone grants 10 7 5 4 3 2 from 40 free units
+		{name: "siblings get an even share", used: 24, group: 6, admits: 6, grants: []int64{5, 5, 5, 5, 5, 5}},
+		{name: "a group of one is not grouped", used: 24, group: 1, admits: 3, grants: []int64{10, 7, 5}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			admit := func(group int) ([]int64, *Limiter) {
+				l := newLimiter(t, Config{Capacity: capacity})
+				l.used = tt.used
+				// a sibling that queues fails the test instead of hanging it
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				t.Cleanup(cancel)
+				ctx = WithShardGroup(ctx, group)
+				grants := make([]int64, tt.admits)
+				for i := range grants {
+					admitted, release, err := l.Admit(ctx, want)
+					require.NoError(t, err)
+					t.Cleanup(release)
+					grants[i] = int64(concurrency.BudgetFromCtx(admitted, -1))
+				}
+				return grants, l
+			}
+
+			grants, l := admit(tt.group)
+			require.Equal(t, tt.grants, grants)
+			base, _ := admit(0)
+			require.LessOrEqual(t, sum(grants), sum(base))
+			require.Equal(t, tt.used+sum(grants), l.usedForTest())
+		})
+	}
+}
+
+// TestWakeSplitsSiblingGrantsEvenly frees units before each wake pass over
+// parked waiters, and checks each pass hands out the total the same queue
+// without groups gets.
+func TestWakeSplitsSiblingGrantsEvenly(t *testing.T) {
+	const capacity, want = 64, 76
+	tests := []struct {
+		name   string
+		groups []int   // group of each parked waiter in FIFO order, 0 for none
+		frees  []int64 // units freed before each wake pass
+		grants []int64
+	}{
+		// the curve alone grants 10 7 5 4 3 from 40 free units
+		{name: "interleaved groups split within one pass", groups: []int{1, 2, 3, 1, 3}, frees: []int64{40}, grants: []int64{7, 7, 4, 7, 4}},
+		{name: "an uneven sum gives the remainder to the first", groups: []int{1, 1, 1}, frees: []int64{40}, grants: []int64{8, 7, 7}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wake := func(grouped bool) ([]int64, *Limiter) {
+				l := newLimiter(t, Config{Capacity: capacity, MaxQueue: 8})
+				l.used = capacity
+				groups := map[int]*shardGroup{}
+				waiters := make([]*waiter, len(tt.groups))
+				for i, id := range tt.groups {
+					w := &waiter{want: want, ready: make(chan int64, 1)}
+					if grouped && id != 0 {
+						if groups[id] == nil {
+							groups[id] = &shardGroup{n: 2}
+						}
+						w.group = groups[id]
+					}
+					l.waiters.PushBack(w)
+					waiters[i] = w
+				}
+				l.mu.Lock()
+				for _, f := range tt.frees {
+					l.used -= f
+					l.wakeLocked()
+				}
+				l.mu.Unlock()
+
+				grants := make([]int64, len(waiters))
+				for i, w := range waiters {
+					select {
+					case grants[i] = <-w.ready:
+					default:
+						t.Fatalf("waiter %d not woken", i)
+					}
+				}
+				for _, sg := range groups {
+					require.Zero(t, sg.passSum)
+					require.Zero(t, sg.passCount)
+				}
+				return grants, l
+			}
+
+			grants, l := wake(true)
+			require.Equal(t, tt.grants, grants)
+			base, _ := wake(false)
+			require.Equal(t, sum(base), sum(grants), "a pass hands out what it would without groups")
+			for i, id := range tt.groups {
+				if id == 0 || count(tt.groups, id) == 1 {
+					require.Equalf(t, base[i], grants[i], "waiter %d has no woken sibling", i)
+				}
+			}
+			require.Equal(t, capacity-sum(tt.frees)+sum(grants), l.usedForTest())
+			require.Equal(t, grantSizeBuckets(grants), histogramBuckets(t, l.grantSize))
+		})
+	}
+}
+
+func TestQueuedSiblingsSplitTheirWakeGrants(t *testing.T) {
+	const capacity, want = 64, 76
+	l := newLimiter(t, Config{Capacity: capacity, MaxQueue: 8})
+	l.mu.Lock()
+	l.used = capacity
+	l.mu.Unlock()
+	ctx := WithShardGroup(context.Background(), 2)
+	type res struct {
+		g   int
+		rel func()
+	}
+	out := make(chan res, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			admitted, rel, err := l.Admit(ctx, want)
+			if err != nil {
+				out <- res{-1, func() {}}
+				return
+			}
+			out <- res{concurrency.BudgetFromCtx(admitted, -1), rel}
+		}()
+		waitFor(t, func() bool { return l.waitersLenForTest() == i+1 })
+	}
+	l.mu.Lock()
+	l.used -= 40
+	l.wakeLocked()
+	l.mu.Unlock()
+	a, b := <-out, <-out
+	// the curve alone grants 10 7 from 40 free units
+	require.ElementsMatch(t, []int{9, 8}, []int{a.g, b.g})
+	a.rel()
+	b.rel()
+	require.Equal(t, int64(capacity-40), l.usedForTest())
+	require.Equal(t, int64(0), l.inflightForTest())
+}
+
+// A wake pass's scratch must stay on the stack, or every release that wakes waiters allocates.
+func TestWakePassDoesNotAllocate(t *testing.T) {
+	const capacity = 64
+	l := newLimiter(t, Config{Capacity: capacity, MaxQueue: 16})
+	sg := &shardGroup{n: 3}
+	waiters := make([]*waiter, 8)
+	for i := range waiters {
+		waiters[i] = &waiter{want: 4, ready: make(chan int64, 1)}
+		if i%2 == 0 {
+			waiters[i].group = sg
+		}
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	park := func() {
+		l.used = capacity
+		for _, w := range waiters {
+			l.waiters.PushBack(w)
+		}
+	}
+
+	// Parking allocates one list element per waiter, so compare against parking alone.
+	parkOnly := testing.AllocsPerRun(100, func() {
+		park()
+		l.waiters.Init()
+	})
+	parkAndWake := testing.AllocsPerRun(100, func() {
+		park()
+		l.used = 0
+		l.wakeLocked()
+		for _, w := range waiters {
+			<-w.ready
+		}
+		l.inflight = 0
+	})
+	require.Equal(t, parkOnly, parkAndWake)
+}
+
+func sum(s []int64) int64 {
+	var total int64
+	for _, v := range s {
+		total += v
+	}
+	return total
+}
+
+func count(s []int, v int) int {
+	n := 0
+	for _, x := range s {
+		if x == v {
+			n++
+		}
+	}
+	return n
+}
+
+// grantSizeBuckets is the cumulative count of grants at or below each
+// query_admission_grant_size bucket bound.
+func grantSizeBuckets(grants []int64) map[float64]uint64 {
+	buckets := map[float64]uint64{}
+	for _, bound := range prometheus.ExponentialBuckets(1, 2, 11) {
+		for _, g := range grants {
+			if float64(g) <= bound {
+				buckets[bound]++
+			}
+		}
+	}
+	return buckets
+}
+
+func histogramBuckets(t *testing.T, h prometheus.Histogram) map[float64]uint64 {
+	t.Helper()
+	var m dto.Metric
+	require.NoError(t, h.Write(&m))
+	buckets := map[float64]uint64{}
+	for _, b := range m.GetHistogram().GetBucket() {
+		if b.GetCumulativeCount() > 0 {
+			buckets[b.GetUpperBound()] = b.GetCumulativeCount()
+		}
+	}
+	return buckets
 }
 
 // --- uncontended path -------------------------------------------------------
@@ -441,6 +678,23 @@ func TestConcurrentStress(t *testing.T) {
 		}
 	}
 
+	admitOnce := func(ctx context.Context, want int, r uint32) {
+		admitted, rel, err := l.Admit(ctx, want)
+		if err != nil {
+			return // shed or cancelled: nothing held
+		}
+		concurrency.ResizeBudget(admitted, int(r%5)+1)
+		record(l.usedForTest())
+		// a resize racing the release must neither leak nor double-free
+		resized := make(chan struct{})
+		go func() {
+			concurrency.ResizeBudget(admitted, int(r%7)+1)
+			close(resized)
+		}()
+		rel()
+		<-resized
+	}
+
 	var wg sync.WaitGroup
 	for g := 0; g < goroutines; g++ {
 		wg.Add(1)
@@ -451,31 +705,27 @@ func TestConcurrentStress(t *testing.T) {
 				r = r*1664525 + 1013904223
 				want := int(r%8) + 1
 
-				ctx := context.Background()
-				var cancel context.CancelFunc
+				timeout := time.Minute
 				if r%4 == 0 {
 					// Occasionally use a tight deadline to exercise the
 					// queue -> cancel reclaim path under contention.
-					ctx, cancel = context.WithTimeout(ctx, time.Duration(r%3)*time.Millisecond)
+					timeout = time.Duration(r%3) * time.Millisecond
 				}
+				ctx, cancel := context.WithTimeout(context.Background(), timeout)
 
-				admitted, rel, err := l.Admit(ctx, want)
-				if cancel != nil {
-					cancel()
+				// siblings share a group, so a wake pass can split grants among them
+				siblings := 1 + int(r%3)
+				ctx = WithShardGroup(ctx, siblings)
+				var sw sync.WaitGroup
+				for range siblings {
+					sw.Add(1)
+					go func() {
+						defer sw.Done()
+						admitOnce(ctx, want, r)
+					}()
 				}
-				if err != nil {
-					continue // shed or cancelled: nothing held
-				}
-				concurrency.ResizeBudget(admitted, int(r%5)+1)
-				record(l.usedForTest())
-				// a resize racing the release must neither leak nor double-free
-				resized := make(chan struct{})
-				go func() {
-					concurrency.ResizeBudget(admitted, int(r%7)+1)
-					close(resized)
-				}()
-				rel()
-				<-resized
+				sw.Wait()
+				cancel()
 			}
 		}(g)
 	}
