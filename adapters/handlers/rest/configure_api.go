@@ -1596,9 +1596,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	serverShutdown := func() {
 		// Leave announces the node's departure before internal infrastructure
-		// closes. Public HTTP has stopped by now; it waits up to
-		// GracefulTimeout. gRPC then gets up to 20s to stop. After that, gRPC
-		// may still be stopping in the background (see shutdownHooks).
+		// closes. Public HTTP has drained by now, or been closed and its handlers
+		// awaited (see ServeAndShutdown). gRPC then gets up to 20s to stop. After
+		// that, gRPC may still be stopping in the background (see shutdownHooks).
 		if err := appState.Cluster.Leave(); err != nil {
 			appState.Logger.WithError(err).Error("leave node from cluster")
 		}
