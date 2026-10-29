@@ -2930,6 +2930,17 @@ func TestEnvironmentIndexCollectionProps(t *testing.T) {
 				{name: "no covers nothing rather than failing", env: "no"},
 			},
 		},
+		{
+			name:  "INDEX_FILTERABLE_MMAP",
+			props: func(p *Persistence) *map[string][]string { return &p.IndexFilterableMMapProps },
+			// "*" is its only way to say everything
+			cases: []indexCollectionPropsCase{
+				{name: "true is refused", env: "true", errMsg: "invalid collection name"},
+				{name: "True is refused", env: "True", errMsg: "with no properties"},
+				{name: "false is refused", env: "false", errMsg: "invalid collection name"},
+				{name: "1 is refused", env: "1", errMsg: "invalid collection name"},
+			},
+		},
 	}
 
 	for _, env := range envs {

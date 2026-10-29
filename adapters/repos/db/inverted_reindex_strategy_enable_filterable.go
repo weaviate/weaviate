@@ -130,7 +130,8 @@ func (s *EnableFilterableStrategy) PreReindexHook(shard *Shard, props []string) 
 		if shard.store.Bucket(bucketName) != nil {
 			continue
 		}
-		opts := shard.makeDefaultBucketOptions(lsmkv.StrategyRoaringSet)
+		opts := shard.makeDefaultBucketOptions(lsmkv.StrategyRoaringSet,
+			lsmkv.WithPread(shard.index.Config.filterableUsesPread(propName)))
 		if err := shard.store.CreateOrLoadBucket(ctx, bucketName, opts...); err != nil {
 			shard.index.logger.WithField("bucket", bucketName).
 				WithError(err).Error("PreReindexHook: failed to create filterable bucket")

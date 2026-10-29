@@ -678,6 +678,14 @@ func FromEnv(config *Config) error {
 		config.Persistence.IndexRangeableInMemoryProps = props
 	}
 
+	if v := strings.TrimSpace(os.Getenv(indexFilterableMMapEnv)); v != "" {
+		props, err := parseIndexCollectionProps(cptParser, indexFilterableMMapEnv, v)
+		if err != nil {
+			return err
+		}
+		config.Persistence.IndexFilterableMMapProps = props
+	}
+
 	if err := parseInt(
 		"HNSW_VISITED_LIST_POOL_MAX_SIZE",
 		func(size int) { config.HNSWVisitedListPoolMaxSize = size },
@@ -2235,7 +2243,10 @@ func parseClusterConfig() (cluster.Config, error) {
 	return cfg, nil
 }
 
-const indexRangeableInMemoryEnv = "INDEX_RANGEABLE_IN_MEMORY"
+const (
+	indexRangeableInMemoryEnv = "INDEX_RANGEABLE_IN_MEMORY"
+	indexFilterableMMapEnv    = "INDEX_FILTERABLE_MMAP"
+)
 
 // parseIndexRangeableInMemory reads INDEX_RANGEABLE_IN_MEMORY as
 // parseIndexCollectionProps does, and also reads a value [entcfg.Enabled] accepts

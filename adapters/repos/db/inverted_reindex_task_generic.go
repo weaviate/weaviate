@@ -2035,6 +2035,23 @@ func (t *ShardReindexTaskGeneric) loadIngestBuckets(ctx context.Context,
 		props = onDisk
 	}
 
+	// Every strategy targeting RoaringSet rebuilds the filterable bucket.
+	if strategy == lsmkv.StrategyRoaringSet {
+		var mmapProps, preadProps []string
+		for _, propName := range props {
+			if shard.Index().Config.filterableUsesPread(propName) {
+				preadProps = append(preadProps, propName)
+			} else {
+				mmapProps = append(mmapProps, propName)
+			}
+		}
+		mmapOpts := append(slices.Clone(bucketOpts), lsmkv.WithPread(false))
+		if err := t.loadBuckets(ctx, logger, shard, mmapProps, t.ingestBucketName, mmapOpts); err != nil {
+			return err
+		}
+		props = preadProps
+	}
+
 	return t.loadBuckets(ctx, logger, shard, props, t.ingestBucketName, bucketOpts)
 }
 

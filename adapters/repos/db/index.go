@@ -1466,6 +1466,7 @@ type IndexConfig struct {
 	SeparateObjectsCompactions          bool
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemoryProps         []string
+	IndexFilterableMMapProps            []string
 	MaxSegmentSize                      int64
 	ReplicationFactor                   int64
 	DeletionStrategy                    string
@@ -1530,7 +1531,16 @@ func (c IndexConfig) keepRangeableInMemory(propName string) bool {
 		slices.Contains(c.IndexRangeableInMemoryProps, propName)
 }
 
-// collectionProps returns the properties collectionProps names for collection.
+// filterableUsesPread reports whether propName's filterable bucket reads its
+// segments with pread. INDEX_FILTERABLE_MMAP takes a property off pread.
+func (c IndexConfig) filterableUsesPread(propName string) bool {
+	return c.AvoidMMap &&
+		!slices.Contains(c.IndexFilterableMMapProps, config.AllProperties) &&
+		!slices.Contains(c.IndexFilterableMMapProps, propName)
+}
+
+// collectionProps returns the properties named for collection, or for every
+// collection under [config.AllCollections].
 func collectionProps(collectionProps map[string][]string, collection string) []string {
 	if props, ok := collectionProps[config.AllCollections]; ok {
 		return props
