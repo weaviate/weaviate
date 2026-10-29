@@ -1465,7 +1465,6 @@ type IndexConfig struct {
 	SegmentsCleanupIntervalSeconds      int
 	SeparateObjectsCompactions          bool
 	CycleManagerRoutinesFactor          int
-	IndexRangeableInMemory              bool
 	IndexRangeableInMemoryProps         []string
 	MaxSegmentSize                      int64
 	ReplicationFactor                   int64
@@ -1527,9 +1526,16 @@ func (c IndexConfig) backgroundWarmupEnabled() bool {
 // keepRangeableInMemory reports whether propName's rangeable bucket keeps its
 // segments in memory.
 func (c IndexConfig) keepRangeableInMemory(propName string) bool {
-	return c.IndexRangeableInMemory ||
-		slices.Contains(c.IndexRangeableInMemoryProps, config.AllProperties) ||
+	return slices.Contains(c.IndexRangeableInMemoryProps, config.AllProperties) ||
 		slices.Contains(c.IndexRangeableInMemoryProps, propName)
+}
+
+// collectionProps returns the properties collectionProps names for collection.
+func collectionProps(collectionProps map[string][]string, collection string) []string {
+	if props, ok := collectionProps[config.AllCollections]; ok {
+		return props
+	}
+	return collectionProps[collection]
 }
 
 func indexID(class schema.ClassName) string {
