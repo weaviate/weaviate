@@ -739,6 +739,20 @@ func TestAddAlias(t *testing.T) {
 	}
 }
 
+func TestUpdateAlias_RejectsCrossNamespaceTarget(t *testing.T) {
+	t.Parallel()
+	handler, sm := newTestHandlerWithNamespaces(t, true)
+	sm.On("GetAliases", mock.Anything, "customer1:Films", mock.Anything).
+		Return([]*models.Alias{{Alias: "customer1:Films", Class: "customer1:Movies"}}, nil)
+	sm.On("ReadOnlyClass", "customer2:Secret").Return(&models.Class{Class: "customer2:Secret"})
+	sm.On("ReplaceAlias", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	_, err := handler.UpdateAlias(context.Background(), globalPrincipal(), "customer1:Films", "customer2:Secret")
+	require.ErrorIs(t, err, ErrValidation)
+	assert.ErrorContains(t, err, "are in different namespaces")
+	sm.AssertNotCalled(t, "ReplaceAlias", mock.Anything, mock.Anything, mock.Anything)
+}
+
 // TestUpdateClass_QualifiesPropertyDataTypes pins the GET→PUT round-trip.
 // A short cross-ref DataType gets the class's namespace before it reaches the
 // SchemaManager, and a target in another namespace is rejected for every caller.
