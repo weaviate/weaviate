@@ -269,8 +269,8 @@ func (p *BackupTaskProvider) StartTask(task *distributedtask.Task) (distributedt
 	// CleanupTask drops only the handle, so a latch held by this provider's
 	// flow has that flow's handle here until CleanupTask runs for it.
 	p.mu.Lock()
+	defer p.mu.Unlock()
 	if h, running := p.activeHandles[task.ID]; running {
-		p.mu.Unlock()
 		return h, nil
 	}
 	recorder := p.recorder
@@ -278,7 +278,6 @@ func (p *BackupTaskProvider) StartTask(task *distributedtask.Task) (distributedt
 	if slot != nil {
 		if prevID := slot.renew(task.ID, "", homeDir, payload.Bucket, payload.Path); prevID != "" {
 			_, releasing := p.activeHandles[prevID]
-			p.mu.Unlock()
 			switch {
 			case prevID == task.ID:
 				// The latch holds this ID but there is no local handle, so another
@@ -296,7 +295,8 @@ func (p *BackupTaskProvider) StartTask(task *distributedtask.Task) (distributedt
 				// holds the latch. The local units fail rather than running two
 				// backups at once.
 				msg := fmt.Sprintf("node %s is already running backup %q", p.node, prevID)
-				p.failAllUnits(context.Background(), task, payload, recorder, msg, false)
+				// launch I/O in goroutine to avoid holding p.mu over the raft proposes
+				enterrors.GoWrapper(func() { p.failAllUnits(context.Background(), task, payload, recorder, msg, false) }, p.logger)
 				return nil, fmt.Errorf("backup %s: %s", task.ID, msg)
 			}
 		}
@@ -305,7 +305,6 @@ func (p *BackupTaskProvider) StartTask(task *distributedtask.Task) (distributedt
 	handle := newBackupTaskHandle(task.ID)
 	p.payloadCache[task.ID] = startedTask{desc: task.TaskDescriptor, payload: task.Payload}
 	p.activeHandles[task.ID] = handle
-	p.mu.Unlock()
 
 	enterrors.GoWrapper(func() {
 		defer handle.markDone()
@@ -537,19 +536,25 @@ func newClassCompletionTracker(total int) *classCompletionTracker {
 }
 
 func (t *classCompletionTracker) uploaded(className string, record func(string) bool) {
-	t.mu.Lock()
-	t.completed[className] = true
-	holdBack := len(t.completed) == t.total
-	if holdBack {
-		t.heldBack = className
-	}
-	t.mu.Unlock()
-
-	if !holdBack && record(className) {
+	var holdBack bool
+	func() {
 		t.mu.Lock()
-		t.reported[className] = true
-		t.mu.Unlock()
-	}
+		defer t.mu.Unlock()
+		t.completed[className] = true
+		holdBack = len(t.completed) == t.total
+		if holdBack {
+			t.heldBack = className
+		}
+	}()
+
+	// record can perform I/O so don't lock over it
+	func() {
+		if !holdBack && record(className) {
+			t.mu.Lock()
+			defer t.mu.Unlock()
+			t.reported[className] = true
+		}
+	}()
 }
 
 func (t *classCompletionTracker) isReported(className string) bool {
@@ -559,13 +564,17 @@ func (t *classCompletionTracker) isReported(className string) bool {
 }
 
 func (t *classCompletionTracker) flush(classes []string, record func(string) bool) {
-	t.mu.Lock()
-	heldBack := t.heldBack
-	reported := make(map[string]bool, len(t.reported))
-	for className := range t.reported {
-		reported[className] = true
-	}
-	t.mu.Unlock()
+	var heldBack string
+	var reported map[string]bool
+	func() {
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		heldBack = t.heldBack
+		reported = make(map[string]bool, len(t.reported))
+		for className := range t.reported {
+			reported[className] = true
+		}
+	}()
 
 	for _, className := range classes {
 		if className == heldBack || reported[className] {
@@ -1196,10 +1205,10 @@ func backupVerdict(task *distributedtask.Task) (backup.Status, string) {
 	case distributedtask.TaskStatusCancelled:
 		return backup.Cancelled, "backup canceled"
 	case distributedtask.TaskStatusFailed:
-		return backup.Failed, collectTaskErrors(task)
+		return backup.Failed, errBackupFailed(task)
 	default:
 		if task.AnyUnitFailed() {
-			return backup.Failed, collectTaskErrors(task)
+			return backup.Failed, errBackupFailed(task)
 		}
 		for _, ack := range task.PostCompletionAcks {
 			if !ack.Success {
@@ -1247,7 +1256,7 @@ func fillNodeFromTaskRecord(nd *backup.NodeDescriptor, nodeName string, task *di
 	}
 }
 
-func collectTaskErrors(task *distributedtask.Task) string {
+func errBackupFailed(task *distributedtask.Task) string {
 	var errs []string
 	if task.Error != "" {
 		errs = append(errs, task.Error)
@@ -1383,7 +1392,7 @@ func dtmStatusToBackup(task *distributedtask.Task) (backup.Status, string) {
 	case distributedtask.TaskStatusFinished:
 		return backup.Success, ""
 	case distributedtask.TaskStatusFailed:
-		return backup.Failed, collectTaskErrors(task)
+		return backup.Failed, errBackupFailed(task)
 	case distributedtask.TaskStatusCancelled:
 		return backup.Cancelled, "backup canceled"
 	default:

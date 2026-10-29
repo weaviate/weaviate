@@ -77,10 +77,10 @@ func (p *taskPayload) descriptorSeed() descriptorSeed {
 // BaseChainDeduped) are recomputed on retry and may legitimately differ.
 func (p *taskPayload) sameRequestConfig(other *taskPayload) bool {
 	return p.Backend == other.Backend &&
-		sameStringSet(p.Classes, other.Classes) &&
-		sameStringSet(p.Users, other.Users) &&
-		sameStringSet(p.Roles, other.Roles) &&
-		sameStringSet(p.RoleNamespaces, other.RoleNamespaces) &&
+		p.sameStringSet(p.Classes, other.Classes) &&
+		p.sameStringSet(p.Users, other.Users) &&
+		p.sameStringSet(p.Roles, other.Roles) &&
+		p.sameStringSet(p.RoleNamespaces, other.RoleNamespaces) &&
 		p.SkipUsers == other.SkipUsers &&
 		p.SkipRoles == other.SkipRoles &&
 		p.Compression == other.Compression &&
@@ -95,7 +95,7 @@ func (p *taskPayload) sameRequestConfig(other *taskPayload) bool {
 // from server-side selection (ListClasses, lister expansion), whose order is
 // not stable across nodes, and RoleNamespaces follows the selector order the
 // client sent.
-func sameStringSet(a, b []string) bool {
+func (p *taskPayload) sameStringSet(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
 	}

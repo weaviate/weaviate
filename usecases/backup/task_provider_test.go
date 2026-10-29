@@ -338,8 +338,14 @@ func TestBackupTaskProvider(t *testing.T) {
 		require.Error(t, err)
 		assert.Nil(t, handle)
 		assert.Contains(t, err.Error(), "legacy-backup")
-		assert.ElementsMatch(t, []string{"node-1/Article", "node-1/Book"}, recorder.getFailures(),
-			"every local unit must fail cleanly")
+		// StartTask records the unit failures asynchronously, after its error
+		// returns, so the latch mutex is not held over the raft proposes.
+		require.Eventually(t, func() bool {
+			failures := recorder.getFailures()
+			return len(failures) == 2 &&
+				slices.Contains(failures, "node-1/Article") &&
+				slices.Contains(failures, "node-1/Book")
+		}, 5*time.Second, time.Millisecond, "every local unit must fail cleanly")
 		assert.Equal(t, "legacy-backup", handler.backupper.lastOp.get().ID,
 			"the refused start must not steal the latch")
 	})

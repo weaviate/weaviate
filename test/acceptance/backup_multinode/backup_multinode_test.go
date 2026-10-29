@@ -612,21 +612,31 @@ func TestBackupMultinode(t *testing.T) {
 		// need the backend.
 		require.NoError(t, compose.DisconnectFromNetwork(ctx, "test-minio"))
 
-		// SUCCESS here means the upload won the race: the backup finished
-		// before the outage began, so the subtest skips. Any other status, and
-		// a failed status read, runs the outage assertions below.
-		if resp, err := helper.CreateBackupStatus(t, backendName, "backend-outage", "", ""); err == nil &&
-			*resp.Payload.Status == "SUCCESS" {
-			t.Skipf("upload finished before the disconnect; outage scenario not exercised")
+		// The status API serves the task record while the descriptor is
+		// unreadable, so a terminal status is visible during the outage.
+		// FAILED proves the outage caught an upload in flight. SUCCESS means
+		// every upload finished before the disconnect took effect: the outage
+		// scenario never existed, and the subtest skips. The S3 client's
+		// retry budget (10 attempts, backoff capped at 1s) is far below 90s,
+		// so an in-flight upload cannot outlast this poll. The stale timeout
+		// is 2m (start3NodeBackupCluster), longer than this outage.
+		outageStatus := ""
+		for start := time.Now(); time.Since(start) < 90*time.Second; {
+			if resp, err := helper.CreateBackupStatus(t, backendName, "backend-outage", "", ""); err == nil {
+				if st := *resp.Payload.Status; st == "SUCCESS" || st == "FAILED" {
+					outageStatus = st
+					break
+				}
+			}
+			time.Sleep(500 * time.Millisecond)
 		}
-
-		// MinIO stays unreachable for 30s so the in-flight upload fails
-		// against it. The stale timeout is 2m (start3NodeBackupCluster),
-		// longer than this outage.
-		time.Sleep(30 * time.Second)
 
 		// Reconnect MinIO so the terminal descriptor can be written.
 		require.NoError(t, compose.ConnectToNetwork(ctx, "test-minio"))
+
+		if outageStatus == "SUCCESS" {
+			t.Skipf("uploads finished before the disconnect; outage scenario not exercised")
+		}
 
 		st, _ := pollBackupStatus(t, "backend-outage", 4*time.Minute)
 		assert.Equal(t, "FAILED", st,
