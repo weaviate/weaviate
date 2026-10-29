@@ -23,9 +23,9 @@ import (
 // size — rather than a [][]byte, whose 24-byte headers would outweigh the
 // 8-to-16-byte keys they describe.
 //
-// Only a builder's Build and [SortedKeys.Sub] return one, so the order and the
-// absence of duplicates need no re-checking; dropping duplicates means a list
-// can be shorter than what was appended.
+// Only a builder's Build, [SortedKeys.Sub] and [SortedKeys.WithHashes] return
+// one, so the order and the absence of duplicates need no re-checking. Dropping
+// duplicates means a list can be shorter than what was appended.
 //
 // The zero value is a valid empty list.
 type SortedKeys struct {
@@ -35,6 +35,30 @@ type SortedKeys struct {
 	offs []uint32
 	// w is the shared key width, read only when offs is nil.
 	w int
+	// hashes is nil until [SortedKeys.WithHashes] attaches one per key.
+	hashes []BloomHash
+}
+
+// BloomHash is a key's hash, from which a bloom filter derives its bit
+// locations. [SortedKeys.WithHashes] attaches one per key, so every reader
+// sharing the list skips hashing it.
+type BloomHash [4]uint64
+
+// WithHashes returns the list with sum's hash of every key attached.
+func (k SortedKeys) WithHashes(sum func(key []byte) BloomHash) SortedKeys {
+	k.hashes = make([]BloomHash, k.Len())
+	for i, key := range k.All() {
+		k.hashes[i] = sum(key)
+	}
+	return k
+}
+
+// HashAt returns key i's hash, and false when none are attached.
+func (k SortedKeys) HashAt(i int) (BloomHash, bool) {
+	if k.hashes == nil {
+		return BloomHash{}, false
+	}
+	return k.hashes[i], true
 }
 
 // Len returns the number of keys.
@@ -129,12 +153,16 @@ func (k SortedKeys) Sub(from, to int) SortedKeys {
 		panic(fmt.Errorf("%w: range [%d,%d) is not within a list of %d keys",
 			ErrInternal, from, to, k.Len()))
 	}
+	var hashes []BloomHash
+	if k.hashes != nil {
+		hashes = k.hashes[from:to:to]
+	}
 	// Len treats offs without a terminator as empty, so route that shape to the
 	// width arm, which yields an empty list.
 	if len(k.offs) == 0 {
-		return SortedKeys{slab: k.slab[from*k.w : to*k.w : to*k.w], w: k.w}
+		return SortedKeys{slab: k.slab[from*k.w : to*k.w : to*k.w], w: k.w, hashes: hashes}
 	}
-	return SortedKeys{slab: k.slab, offs: k.offs[from : to+1 : to+1]}
+	return SortedKeys{slab: k.slab, offs: k.offs[from : to+1 : to+1], hashes: hashes}
 }
 
 // FirstAtOrAfter returns the first position in [from, to) whose key is at or

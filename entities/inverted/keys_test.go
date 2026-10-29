@@ -12,6 +12,7 @@
 package inverted
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"math/rand"
@@ -294,6 +295,14 @@ func buildFixed(tb testing.TB, width int) func(keys []string) SortedKeys {
 	}
 }
 
+func hashOf(key []byte) BloomHash {
+	s := sha256.Sum256(key)
+	return BloomHash{
+		binary.LittleEndian.Uint64(s[0:]), binary.LittleEndian.Uint64(s[8:]),
+		binary.LittleEndian.Uint64(s[16:]), binary.LittleEndian.Uint64(s[24:]),
+	}
+}
+
 func collect(keys SortedKeys) []string {
 	out := make([]string, 0, keys.Len())
 	for _, k := range keys.All() {
@@ -360,6 +369,15 @@ func TestSortedKeysRange(t *testing.T) {
 					// a subrange is a list in its own right: a reader handed one
 					// walks it from 0, so it has to be ascending on its own terms
 					assert.True(t, sub.isAscending())
+
+					_, ok := sub.HashAt(0)
+					assert.False(t, ok, "a list without hashes must not report any")
+					hashed := keys.WithHashes(hashOf).Sub(r.from, r.to)
+					for i := range want {
+						h, ok := hashed.HashAt(i)
+						require.Truef(t, ok, "HashAt(%d)", i)
+						assert.Equalf(t, hashOf(hashed.At(i)), h, "HashAt(%d) must be key %d's", i, i)
+					}
 				})
 			}
 

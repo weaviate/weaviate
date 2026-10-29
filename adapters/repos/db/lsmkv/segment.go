@@ -33,9 +33,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/bloomhash"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/schema"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
@@ -92,8 +92,8 @@ type Segment interface {
 	quantileKeys(q int) [][]byte
 	ReadOnlyTombstones() (*sroar.Bitmap, error)
 	replaceStratParseData(in []byte) ([]byte, []byte, error)
-	roaringSetGet(key []byte, h bloomhash.Hash, bitmapBufPool roaringset.BitmapBufPool) (*sroar.Bitmap, func(), error)
-	roaringSetMergeWith(key []byte, h bloomhash.Hash, additions *sroar.Bitmap, bitmapBufPool roaringset.BitmapBufPool, maxConc int) error
+	roaringSetGet(key []byte, h inverted.BloomHash, bitmapBufPool roaringset.BitmapBufPool) (*sroar.Bitmap, func(), error)
+	roaringSetMergeWith(key []byte, h inverted.BloomHash, additions *sroar.Bitmap, bitmapBufPool roaringset.BitmapBufPool, maxConc int) error
 
 	// map/bmw specific
 	getInvertedNodeAndDocCount(key []byte) (segmentindex.Node, uint64, bool)
