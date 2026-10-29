@@ -12,9 +12,11 @@
 package namespace
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -515,6 +517,93 @@ func TestNamespaces_SuspendKeepsMovementTargetAcrossRestart(t *testing.T) {
 	})
 
 	t.Run("the reloaded target stays listed until READY", func(t *testing.T) {
+		got := requireShardListedUntil(t, qualified, shardName, opID, api.READY, movementTimeout, live)
+		require.Equal(t, api.READY, got)
+	})
+}
+
+// removeShardDirAndKill deletes one shard's directory on node and kills node, so
+// its next boot finds the directory missing. It kills, because a graceful stop
+// flushes into the directory and recreates it.
+func removeShardDirAndKill(t *testing.T, node, class, shard string) {
+	t.Helper()
+	ctx := context.Background()
+	// StopNode counts from 0, matching the container name, where GetWeaviateNode
+	// counts from 1.
+	index := nodeIndexFromName(t, node)
+	suffix := index - 1
+	t.Cleanup(func() { require.NoError(t, sharedCompose.EnsureRunning(ctx, suffix)) })
+
+	dir := "/data/" + strings.ToLower(class) + "/" + shard
+	code, _, err := sharedCompose.GetWeaviateNode(index).Container().
+		Exec(ctx, []string{"sh", "-c", `test -d "$1" || exit 3; rm -rf "$1"`, "sh", dir})
+	require.NoError(t, err, "exec rm %s on %q", dir, node)
+	require.Zero(t, code, "rm %s on %q exited %d, where 3 means the directory is missing", dir, node, code)
+
+	zero := time.Duration(0)
+	require.NoError(t, sharedCompose.StopNode(ctx, suffix, &zero))
+}
+
+// waitSelfRecoveryOp polls the ops targeting node until one is a SELF_RECOVERY of
+// the shard, and returns its id.
+func waitSelfRecoveryOp(t *testing.T, qualifiedClass, shardName, node string) strfmt.UUID {
+	t.Helper()
+
+	var opID strfmt.UUID
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		resp, err := helper.Client(t).Replication.ListReplication(
+			replication.NewListReplicationParams().WithTargetNode(&node), helper.CreateAuth(adminKey))
+		if !assert.NoError(c, err) {
+			return
+		}
+		for _, op := range resp.Payload {
+			if op.ID != nil && op.Type != nil && *op.Type == api.SELF_RECOVERY.String() &&
+				op.Collection != nil && *op.Collection == qualifiedClass && op.Shard != nil && *op.Shard == shardName {
+				opID = *op.ID
+				return
+			}
+		}
+		assert.Fail(c, "no SELF_RECOVERY op of the shard yet")
+	}, movementTimeout, 250*time.Millisecond, "%q never registered a SELF_RECOVERY of shard %q", node, shardName)
+	return opID
+}
+
+// A SELF_RECOVERY in FINALIZING under a suspend keeps its promoted shard and its
+// source loaded until READY. Not parallel, because it kills and restarts a node.
+// That node keeps its RAFT state, so this covers an intact node's recovery.
+func TestNamespaces_SuspendKeepsSelfRecovery(t *testing.T) {
+	const (
+		sourceNode = docker.Weaviate1
+		targetNode = restartNodeName
+		class      = "SelfRecovered"
+	)
+	ns, userKey := newNamespaceOnNode(t, sourceNode)
+	qualified, shardName := newSingleShardClass(t, ns, class, userKey)
+	// A probe that finds no objects on any peer sends the recovery to the empty
+	// fallback, which registers no op.
+	seedObjects(t, class, userKey, 1000)
+	live := map[string]presentShard{
+		sourceNode: newPresentShard(t, sourceNode),
+		targetNode: newPresentShard(t, targetNode),
+	}
+
+	// The COPY gives targetNode the replica whose directory its boot then misses.
+	waitMovementState(t, startCopyMovement(t, qualified, shardName, sourceNode, targetNode), api.READY)
+	removeShardDirAndKill(t, targetNode, qualified, shardName)
+	require.NoError(t, sharedCompose.StartNode(context.Background(), restartNodeIndex))
+
+	opID := waitSelfRecoveryOp(t, qualified, shardName, targetNode)
+	if got := waitMovementState(t, opID, api.FINALIZING); got != api.FINALIZING {
+		waitMovementState(t, opID, api.READY)
+		t.Skipf("the op was in %s before the suspend, so FINALIZING under the suspend was not reached", got)
+	}
+	helper.SuspendNamespace(t, ns, adminKey)
+	t.Cleanup(func() { helper.ResumeNamespace(t, ns, adminKey) })
+	if got, err := currentMovementState(t, opID); err == nil && got == api.READY {
+		t.Skip("the op read READY as soon as the suspend returned, so the listings below would assert nothing")
+	}
+
+	t.Run("the promoted shard and the source stay listed until READY", func(t *testing.T) {
 		got := requireShardListedUntil(t, qualified, shardName, opID, api.READY, movementTimeout, live)
 		require.Equal(t, api.READY, got)
 	})
