@@ -12,6 +12,7 @@
 package namespace
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,31 +29,42 @@ import (
 )
 
 // shardOnNode returns what node reports for one shard of a class, or nil when it
-// holds no such shard. Node status walks each index's shard map rather than the
-// schema, so a node a movement never materialized the shard on reports nothing
-// here while still being named as that movement's target.
-func shardOnNode(t *testing.T, qualifiedClass, shardName, node string) (*models.NodeShardStatus, error) {
+// holds no such shard. answered is false when node is missing from the reply or
+// reports TIMEOUT or UNAVAILABLE, which list no shards. Node status walks each
+// index's shard map rather than the schema, so a node a movement never
+// materialized the shard on reports nothing here while still being named as that
+// movement's target.
+func shardOnNode(t *testing.T, qualifiedClass, shardName, node string) (shard *models.NodeShardStatus, answered bool, err error) {
 	t.Helper()
 
 	verbose := "verbose"
 	params := nodes.NewNodesGetClassParams().WithClassName(qualifiedClass).WithOutput(&verbose)
 	resp, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(adminKey))
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	for _, n := range resp.Payload.Nodes {
 		if n.Name != node {
 			continue
 		}
-		for _, shard := range n.Shards {
-			if shard.Name == shardName {
-				return shard, nil
+		if status := n.Status; status != nil &&
+			(*status == models.NodeStatusStatusTIMEOUT || *status == models.NodeStatusStatusUNAVAILABLE) {
+			return nil, false, nil
+		}
+		for _, s := range n.Shards {
+			if s.Name == shardName {
+				return s, true, nil
 			}
 		}
+		return nil, true, nil
 	}
-	return nil, nil
+	return nil, false, nil
 }
+
+// sweepWindow is three SUSPEND_RECONCILE_INTERVALs of the shared cluster, so every
+// node runs a sweep pass inside it.
+const sweepWindow = 3 * time.Second
 
 // requireShardReleasedOnNode waits until node has listed no such shard for three
 // seconds in a row. A shard the node opens and its sweep closes during the wait
@@ -61,24 +73,40 @@ func shardOnNode(t *testing.T, qualifiedClass, shardName, node string) (*models.
 func requireShardReleasedOnNode(t *testing.T, qualifiedClass, shardName, node string, live presentShard) {
 	t.Helper()
 
-	const window = 3 * time.Second
 	var absentSince time.Time
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		anchor, err := shardOnNode(t, live.qualifiedClass, live.name, node)
-		if !assert.NoError(c, err) || !assert.NotNil(c, anchor, "%q stopped listing %q", node, live.name) {
-			absentSince = time.Time{}
-			return
-		}
-		shard, err := shardOnNode(t, qualifiedClass, shardName, node)
-		if !assert.NoError(c, err) || !assert.Nil(c, shard, "%q still lists shard %q", node, shardName) {
+		listed, answered, err := shardListedOnLiveNode(t, qualifiedClass, shardName, node, live)
+		if !assert.NoError(c, err) || !assert.True(c, answered, "%q stopped listing %q", node, live.name) ||
+			!assert.False(c, listed, "%q still lists shard %q", node, shardName) {
 			absentSince = time.Time{}
 			return
 		}
 		if absentSince.IsZero() {
 			absentSince = time.Now()
 		}
-		assert.GreaterOrEqual(c, time.Since(absentSince), window)
-	}, 30*time.Second, 250*time.Millisecond, "%q never went %v without listing shard %q", node, window, shardName)
+		assert.GreaterOrEqual(c, time.Since(absentSince), sweepWindow)
+	}, 30*time.Second, 250*time.Millisecond, "%q never went %v without listing shard %q", node, sweepWindow, shardName)
+}
+
+// requireNoMovementErrors holds for 20 s asserting the op records no error,
+// because the FSM cancels a movement after 50 errors and drops its target's copy.
+// Its read and failed counters keep a window in which no read finished from passing.
+func requireNoMovementErrors(t *testing.T, opID strfmt.UUID) {
+	t.Helper()
+
+	var read, failed atomic.Int64
+	require.Never(t, func() bool {
+		_, messages, err := movementState(t, opID)
+		if err != nil {
+			failed.Add(1)
+			return false
+		}
+		read.Add(1)
+		return len(messages) > 0
+	}, 20*time.Second, 1*time.Second, "the suspension was charged to the movement's error budget")
+
+	require.Zero(t, failed.Load(), "reading the movement's state failed")
+	require.Positive(t, read.Load(), "no movement state was read")
 }
 
 // registerMovement returns the op id of a movement of one shard onto targetNode,
@@ -156,36 +184,20 @@ func TestNamespaces_SuspendAcceptsEmptyReplicaAdd(t *testing.T) {
 	const (
 		// The namespace pins its shards to its home node, so the addition lands
 		// on a node that holds nothing of this class.
-		homeNode    = docker.Weaviate1
-		targetNode  = docker.Weaviate0
-		class       = "EmptyReplicaShard"
-		anchorClass = "Anchor"
-		planID      = strfmt.UUID("6f1c9d84-2a70-4c1e-8b53-9e0d17a4c6b2")
+		homeNode   = docker.Weaviate1
+		targetNode = docker.Weaviate0
+		class      = "EmptyReplicaShard"
+		planID     = strfmt.UUID("6f1c9d84-2a70-4c1e-8b53-9e0d17a4c6b2")
 	)
 
-	ns := uniqueNS()
-	helper.CreateNamespaceWithHomeNode(t, ns, homeNode, adminKey)
-	t.Cleanup(func() { helper.DeleteNamespace(t, ns, adminKey) })
-
-	userKey := createNamespacedUser(t, "u1", ns, adminKey)
-	t.Cleanup(func() { helper.DeleteUser(t, ns+":u1", adminKey) })
-
-	setupClassInNs1(t, ns, class, userKey)
-	qualified := ns + ":" + class
+	ns, userKey := newNamespaceOnNode(t, homeNode)
 
 	// Read before the suspend: a suspended namespace reports no shards.
-	shardName := requireShardCountEventually(t, qualified, 1)[0]
+	qualified, shardName := newSingleShardClass(t, ns, class, userKey)
 
 	// The anchor's namespace is active and homed on the target, so its shard stays
 	// open there.
-	anchorNS := uniqueNS()
-	helper.CreateNamespaceWithHomeNode(t, anchorNS, targetNode, adminKey)
-	t.Cleanup(func() { helper.DeleteNamespace(t, anchorNS, adminKey) })
-	anchorKey := createNamespacedUser(t, "u1", anchorNS, adminKey)
-	t.Cleanup(func() { helper.DeleteUser(t, anchorNS+":u1", adminKey) })
-	setupClassInNs1(t, anchorNS, anchorClass, anchorKey)
-	anchorQualified := anchorNS + ":" + anchorClass
-	anchor := presentShard{anchorQualified, requireShardCountEventually(t, anchorQualified, 1)[0]}
+	anchor := newPresentShard(t, targetNode)
 
 	helper.SuspendNamespace(t, ns, adminKey)
 	t.Cleanup(func() { helper.ResumeNamespace(t, ns, adminKey) })
@@ -210,14 +222,10 @@ func TestNamespaces_SuspendAcceptsEmptyReplicaAdd(t *testing.T) {
 
 	t.Run("the schema names the target as a replica", func(t *testing.T) {
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			state, err := helper.Client(t).Replication.GetCollectionShardingState(
-				replication.NewGetCollectionShardingStateParams().WithCollection(&qualified).WithShard(&shardName),
-				helper.CreateAuth(adminKey),
-			)
-			if !assert.NoError(c, err) || !assert.Len(c, state.Payload.ShardingState.Shards, 1) {
-				return
+			replicas, err := shardReplicas(t, qualified, shardName)
+			if assert.NoError(c, err) {
+				assert.Contains(c, replicas, targetNode)
 			}
-			assert.Contains(c, state.Payload.ShardingState.Shards[0].Replicas, targetNode)
 		}, 30*time.Second, 250*time.Millisecond, "the scale plan never named %q a replica of %q", targetNode, shardName)
 	})
 
@@ -240,15 +248,8 @@ func TestNamespaces_SuspendRefusesReplicaMovement(t *testing.T) {
 		title      = "written before the movement"
 	)
 
-	ns := uniqueNS()
-	helper.CreateNamespaceWithHomeNode(t, ns, sourceNode, adminKey)
-	t.Cleanup(func() { helper.DeleteNamespace(t, ns, adminKey) })
-
-	userKey := createNamespacedUser(t, "u1", ns, adminKey)
-	t.Cleanup(func() { helper.DeleteUser(t, ns+":u1", adminKey) })
-
-	setupClassInNs1(t, ns, class, userKey)
-	qualified := ns + ":" + class
+	ns, userKey := newNamespaceOnNode(t, sourceNode)
+	qualified, shardName := newSingleShardClass(t, ns, class, userKey)
 
 	// One object, so the movement has something to copy and the replica it lands
 	// can be told apart from an empty shard.
@@ -258,9 +259,8 @@ func TestNamespaces_SuspendRefusesReplicaMovement(t *testing.T) {
 	}, userKey)
 	require.NoError(t, err)
 
-	shardName := requireShardCountEventually(t, qualified, 1)[0]
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		shard, err := shardOnNode(t, qualified, shardName, sourceNode)
+		shard, _, err := shardOnNode(t, qualified, shardName, sourceNode)
 		if !assert.NoError(c, err) {
 			return
 		}
@@ -282,18 +282,12 @@ func TestNamespaces_SuspendRefusesReplicaMovement(t *testing.T) {
 		helper.ResumeNamespace(t, ns, adminKey)
 		opID := startCopyMovement(t, qualified, shardName, sourceNode, targetNode)
 
-		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			state, messages, err := movementState(t, opID)
-			if !assert.NoError(c, err) {
-				return
-			}
-			assert.Equal(c, "READY", state, "movement still %q; errors %v", state, messages)
-		}, 180*time.Second, 2*time.Second, "the movement never finished after the resume")
+		waitMovementState(t, opID, api.READY)
 	})
 
 	t.Run("the new replica carries the shard's data", func(t *testing.T) {
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			shard, err := shardOnNode(t, qualified, shardName, targetNode)
+			shard, _, err := shardOnNode(t, qualified, shardName, targetNode)
 			if !assert.NoError(c, err) {
 				return
 			}
