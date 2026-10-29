@@ -25,6 +25,31 @@ import (
 	"github.com/weaviate/weaviate/entities/license"
 )
 
+func TestNewClientRejectsEmptyTrustedKeys(t *testing.T) {
+	lic, err := license.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name    string
+		trusted license.ServerKeySet
+	}{
+		{name: "nil", trusted: nil},
+		{name: "empty", trusted: license.ServerKeySet{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client, err := NewClient(lic.Key(), tt.trusted)
+			if err == nil {
+				t.Fatal("NewClient() accepted an empty trusted-key set")
+			}
+			if client != nil {
+				t.Fatal("NewClient() returned a client with an empty trusted-key set")
+			}
+		})
+	}
+}
+
 func TestVerifyToleratesTrailingSlashServerURL(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	key := license.ServerKey{ID: "k", PrivateKey: priv}

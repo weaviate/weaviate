@@ -46,6 +46,9 @@ func NewClient(key string, trusted protocol.ServerKeySet) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(trusted) == 0 {
+		return nil, errors.New("license: no trusted server keys")
+	}
 	return &Client{LicenseID: id, PrivateKey: priv, TrustedKeys: trusted}, nil
 }
 
