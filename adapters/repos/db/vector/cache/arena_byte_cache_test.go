@@ -369,9 +369,10 @@ func TestArenaByteCacheGetAllInCurrentLock(t *testing.T) {
 	}
 }
 
-// TestArenaByteCacheDropAndReuse ensures Drop clears content and the cache
-// remains usable, mirroring deleteAllVectors semantics (count reset, entries
-// gone, coverage retained).
+// TestArenaByteCacheDropAndReuse ensures Drop mirrors the map-backed cache's
+// dropped state: count reset, coverage released, reads passing through to
+// vectorForID without reallocating anything, writes and growth ignored, and a
+// repeated Drop returning early instead of notifying the watcher twice.
 func TestArenaByteCacheDropAndReuse(t *testing.T) {
 	ctx := context.Background()
 	arena := newTestArena(t, testRecordSize)
@@ -388,14 +389,36 @@ func TestArenaByteCacheDropAndReuse(t *testing.T) {
 	assert.Equal(t, oracle.Len(), arena.Len())
 
 	// ids beyond the backing limit are gone for good (vecForID errors), ids
-	// under it come back through the miss path in both caches. id 12 is
-	// backed (12 % 7 != 3, see arenaTestVecForID).
+	// under it read through the miss path in both caches — without being
+	// stored again. id 12 is backed (12 % 7 != 3, see arenaTestVecForID).
 	got, gotErr := arena.Get(ctx, 12)
 	want, wantErr := oracle.Get(ctx, 12)
 	require.NoError(t, wantErr)
 	require.NoError(t, gotErr)
 	assert.Equal(t, want, got)
 	assert.Equal(t, oracle.CountVectors(), arena.CountVectors())
+	assert.Equal(t, oracle.Len(), arena.Len(), "a read-through must not regrow a dropped cache")
+
+	// writes and growth are ignored on a dropped cache instead of
+	// resurrecting it (or spinning on a Grow that never covers the id)
+	code := arenaTestCodeFor(7, testRecordSize)
+	arena.Preload(7, code)
+	oracle.Preload(7, code)
+	assert.False(t, arena.(IfAbsentPreloader[byte]).PreloadIfAbsent(7, code))
+	assert.False(t, oracle.(IfAbsentPreloader[byte]).PreloadIfAbsent(7, code))
+	arena.Grow(5000)
+	oracle.Grow(5000)
+	arena.SetSizeAndGrowNoLock(5000)
+	oracle.SetSizeAndGrowNoLock(5000)
+	arena.PreloadNoLock(7, code)
+	oracle.PreloadNoLock(7, code)
+	assert.Equal(t, oracle.CountVectors(), arena.CountVectors())
+	assert.Equal(t, oracle.Len(), arena.Len())
+
+	// a second Drop returns early (the watcher already exited; a second
+	// notification would block forever)
+	arena.Drop()
+	oracle.Drop()
 }
 
 // TestArenaByteCacheConcurrency runs readers, writers, deleters and growth
