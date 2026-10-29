@@ -1752,6 +1752,80 @@ func TestObjectsByDocID(t *testing.T) {
 	}
 }
 
+func TestObjectsByDocIDWithDists(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	bucket := genFakeBucket(t, 10) // doc IDs 0..9 exist, anything above is missing
+
+	tests := []struct {
+		name      string
+		ids       []uint64
+		dists     []float32
+		wantIDs   []uint64
+		wantDists []float32
+	}{
+		{
+			name:      "nothing missing",
+			ids:       []uint64{3, 1, 2},
+			dists:     []float32{0.1, 0.2, 0.3},
+			wantIDs:   []uint64{3, 1, 2},
+			wantDists: []float32{0.1, 0.2, 0.3},
+		},
+		{
+			name:      "missing best hit shifts nothing",
+			ids:       []uint64{42, 1, 2},
+			dists:     []float32{0.1, 0.2, 0.3},
+			wantIDs:   []uint64{1, 2},
+			wantDists: []float32{0.2, 0.3},
+		},
+		{
+			name:      "missing in the middle",
+			ids:       []uint64{0, 42, 2, 43, 4},
+			dists:     []float32{0.1, 0.2, 0.3, 0.4, 0.5},
+			wantIDs:   []uint64{0, 2, 4},
+			wantDists: []float32{0.1, 0.3, 0.5},
+		},
+		{
+			name:      "single id, sequential path, missing",
+			ids:       []uint64{42},
+			dists:     []float32{0.1},
+			wantIDs:   []uint64{},
+			wantDists: []float32{},
+		},
+		{
+			name:      "everything missing",
+			ids:       []uint64{42, 43},
+			dists:     []float32{0.1, 0.2},
+			wantIDs:   []uint64{},
+			wantDists: []float32{},
+		},
+		{
+			name:      "empty",
+			ids:       []uint64{},
+			dists:     []float32{},
+			wantIDs:   []uint64{},
+			wantDists: []float32{},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			objs, dists, err := ObjectsByDocIDWithDists(bucket, tc.ids, tc.dists,
+				additional.Properties{}, nil, logger)
+			require.NoError(t, err)
+			require.Len(t, objs, len(tc.wantIDs))
+			require.Equal(t, tc.wantDists, dists)
+			for i, obj := range objs {
+				assert.Equal(t, tc.wantIDs[i], obj.DocID, "object at position %d", i)
+			}
+		})
+	}
+
+	t.Run("length mismatch is an error, not a truncation", func(t *testing.T) {
+		_, _, err := ObjectsByDocIDWithDists(bucket, []uint64{0, 1, 2}, []float32{0.1},
+			additional.Properties{}, nil, logger)
+		require.Error(t, err)
+	})
+}
+
 func TestObjectsByDocIDSharedView(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
