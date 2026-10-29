@@ -70,7 +70,7 @@ type PrometheusMetrics struct {
 	QueryDimensionsCombined             prometheus.Counter
 	GoroutinesCount                     *prometheus.GaugeVec
 	FileIOWrites                        *prometheus.SummaryVec
-	FileIOReads                         *prometheus.SummaryVec
+	FileIOReads                         *StripedSummaryVec
 	MmapOperations                      *prometheus.CounterVec
 	MmapProcMaps                        prometheus.Gauge
 
@@ -626,10 +626,8 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "file_io_writes_total_bytes",
 			Help: "Total number of bytes written to disk",
 		}, []string{"operation", "strategy"}),
-		FileIOReads: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "file_io_reads_total_bytes",
-			Help: "Total number of bytes read from disk",
-		}, []string{"operation"}),
+		FileIOReads: NewStripedSummaryVec("file_io_reads_total_bytes",
+			"Total number of bytes read from disk", "operation"),
 		MmapOperations: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "mmap_operations_total",
 			Help: "Total number of mmap operations",
@@ -1026,6 +1024,8 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help: "Number of bytes read during checksum validation",
 		}),
 	}
+
+	m.Registerer.MustRegister(m.FileIOReads)
 
 	if err := m.initObjectsTtl(); err != nil {
 		panic(err)

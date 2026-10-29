@@ -115,7 +115,7 @@ type Metrics struct {
 	memtableDurations            prometheus.ObserverVec
 	memtableSize                 *prometheus.GaugeVec
 	IOWrite                      *prometheus.SummaryVec
-	IORead                       *prometheus.SummaryVec
+	IORead                       *monitoring.StripedSummaryVec
 	LazySegmentUnLoad            prometheus.Gauge
 	LazySegmentLoad              prometheus.Gauge
 	LazySegmentClose             prometheus.Gauge
@@ -1058,11 +1058,9 @@ func (m *Metrics) ReadObserver(op string) BytesReadObserver {
 		return noOpNsReadObserver
 	}
 
-	curried := m.IORead.With(prometheus.Labels{
-		"operation": op,
-	})
+	summary := m.IORead.WithLabelValue(op)
 
-	return func(n int64, nanoseconds int64) { curried.Observe(float64(n)) }
+	return func(n int64, nanoseconds int64) { summary.Observe(uint64(n)) }
 }
 
 func (m *Metrics) MemtableSizeSetter(path, strategy string) Setter {
