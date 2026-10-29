@@ -680,6 +680,22 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.replicationManager.ForceDeleteByIds(&cmd)
 		}
+	case api.ApplyRequest_TYPE_REPLICATION_REBALANCE_CREATE_PLAN:
+		f = func() {
+			ret.Error = st.replicationManager.CreateRebalancePlan(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REBALANCE_COMPLETE_PLANNING:
+		f = func() {
+			ret.Error = st.replicationManager.CompleteRebalancePlanning(l.Term, &cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REBALANCE_STOP:
+		f = func() {
+			ret.Error = st.replicationManager.StopRebalancePlan(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REBALANCE_DELETE:
+		f = func() {
+			ret.Error = st.replicationManager.DeleteRebalancePlan(&cmd)
+		}
 
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
 		f = func() {

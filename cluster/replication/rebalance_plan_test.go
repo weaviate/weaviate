@@ -396,6 +396,15 @@ func TestRebalancePlan_Fencing(t *testing.T) {
 			want:     *planning,
 		},
 		{
+			name: "complete whose run term is above the entry's term is refused",
+			seed: planning,
+			apply: func(fsm *replication.ShardReplicationFSM) []error {
+				return []error{fsm.CompletePlanning(runTerm, withRun("run-a", runTerm+1))}
+			},
+			wantErrs: []error{replication.ErrPlanStaleRun},
+			want:     *planning,
+		},
+		{
 			name: "complete from another run in the recorded term is refused",
 			seed: recordedRun,
 			apply: func(fsm *replication.ShardReplicationFSM) []error {
