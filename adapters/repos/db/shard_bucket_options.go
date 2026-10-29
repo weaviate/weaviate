@@ -12,9 +12,11 @@
 package db
 
 import (
+	"slices"
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func (s *Shard) makeDefaultBucketOptions(strategy string, customOptions ...lsmkv.BucketOption) []lsmkv.BucketOption {
@@ -51,7 +53,8 @@ func (s *Shard) makeDefaultBucketOptions(strategy string, customOptions ...lsmkv
 			lsmkv.WithBitmapBufPool(s.bitmapBufPool),
 			// Only a creator holds the property name this resolves against,
 			// so each appends its own value after this one, which wins.
-			lsmkv.WithKeepSegmentsInMemory(s.index.Config.IndexRangeableInMemory),
+			lsmkv.WithKeepSegmentsInMemory(slices.Contains(
+				s.index.Config.IndexRangeableInMemoryProps, config.AllProperties)),
 			lsmkv.WithUseBloomFilter(false),
 		)
 	case lsmkv.StrategyMapCollection:

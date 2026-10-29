@@ -631,9 +631,11 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 			}
 		}
 
+		// The pread option goes last so it wins over makeDefaultBucketOptions' value.
+		opts := append(makeBucketOptions(lsmkv.StrategyRoaringSet),
+			lsmkv.WithPread(s.index.Config.filterableUsesPread(prop.Name)))
 		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketFromPropNameLSM(prop.Name),
-			makeBucketOptions(lsmkv.StrategyRoaringSet)...,
+			helpers.BucketFromPropNameLSM(prop.Name), opts...,
 		); err != nil {
 			return err
 		}
@@ -798,14 +800,16 @@ func (s *Shard) addTimestampProperties(ctx context.Context) error {
 func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropCreationTimeUnix),
-		s.makeDefaultBucketOptions(lsmkv.StrategyRoaringSet)...,
+		s.makeDefaultBucketOptions(lsmkv.StrategyRoaringSet, lsmkv.WithPread(
+			s.index.Config.filterableUsesPread(filters.InternalPropCreationTimeUnix)))...,
 	)
 }
 
 func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
-		s.makeDefaultBucketOptions(lsmkv.StrategyRoaringSet)...,
+		s.makeDefaultBucketOptions(lsmkv.StrategyRoaringSet, lsmkv.WithPread(
+			s.index.Config.filterableUsesPread(filters.InternalPropLastUpdateTimeUnix)))...,
 	)
 }
 

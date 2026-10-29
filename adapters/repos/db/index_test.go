@@ -37,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
@@ -492,4 +493,50 @@ func TestIndexDropLocalShard(t *testing.T) {
 		}
 		require.True(t, sawNamedDropLog, "expected a drop_shard error log naming the shard")
 	})
+}
+
+func TestIndexConfigFilterableUsesPread(t *testing.T) {
+	tests := []struct {
+		name      string
+		avoidMMap bool
+		props     []string
+		want      map[string]bool
+	}{
+		{
+			name: "mmap everywhere leaves nothing on pread",
+			want: map[string]bool{"price": false, "weight": false},
+		},
+		{
+			name:      "pread everywhere when nothing is configured",
+			avoidMMap: true,
+			want:      map[string]bool{"price": true, "weight": true},
+		},
+		{
+			name:      "a named property, and only that one",
+			avoidMMap: true,
+			props:     []string{"price"},
+			want:      map[string]bool{"price": false, "weight": true},
+		},
+		{
+			name:      "every property of the collection",
+			avoidMMap: true,
+			props:     []string{config.AllProperties},
+			want:      map[string]bool{"price": false, "weight": false},
+		},
+		{
+			name:      "a name differing in case does not match",
+			avoidMMap: true,
+			props:     []string{"price"},
+			want:      map[string]bool{"Price": true},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := IndexConfig{AvoidMMap: tt.avoidMMap, IndexFilterableMMapProps: tt.props}
+			for propName, want := range tt.want {
+				require.Equal(t, want, cfg.filterableUsesPread(propName), propName)
+			}
+		})
+	}
 }

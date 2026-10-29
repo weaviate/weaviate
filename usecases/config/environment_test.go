@@ -16,6 +16,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -2822,71 +2823,28 @@ func TestEnvironmentQueryAdmissionControlDisabled(t *testing.T) {
 	}
 }
 
-// The index is resident for the life of the process, so the wide reading of a
-// value is the expensive one. "*" is written out, and a tenant is refused.
-func TestEnvironmentIndexRangeableInMemory(t *testing.T) {
-	tests := []struct {
-		name          string
-		env           string
-		expectedAll   bool
-		expectedProps map[string][]string
-		errMsg        string
-	}{
+type indexCollectionPropsCase struct {
+	name          string
+	env           string
+	expectedProps map[string][]string
+	errMsg        string
+}
+
+// A value both variables share must parse alike, and an error must name the variable that failed.
+func TestEnvironmentIndexCollectionProps(t *testing.T) {
+	everything := map[string][]string{AllCollections: {AllProperties}}
+
+	shared := []indexCollectionPropsCase{
 		{
 			// the config file's value stands, which is why every other row
-			// starts from a pre-set true
-			name:        "unset leaves the config file's value alone",
-			expectedAll: true,
+			// starts from a pre-set value
+			name:          "unset leaves the config file's value alone",
+			expectedProps: everything,
 		},
 		{
-			name:        "true covers every collection",
-			env:         "true",
-			expectedAll: true,
-		},
-		{
-			name:        "1 covers every collection",
-			env:         "1",
-			expectedAll: true,
-		},
-		{
-			name:        "on covers every collection",
-			env:         "on",
-			expectedAll: true,
-		},
-		{
-			// "True" matches ClassNameRegexCore, so a parse-first order would
-			// read it as a collection of that name
-			name:        "True covers every collection",
-			env:         "True",
-			expectedAll: true,
-		},
-		{
-			name: "false covers nothing",
-			env:  "false",
-		},
-		{
-			name: "off covers nothing",
-			env:  "off",
-		},
-		{
-			name:        "enabled covers every collection",
-			env:         "enabled",
-			expectedAll: true,
-		},
-		{
-			name: "0 covers nothing",
-			env:  "0",
-		},
-		{
-			// naming no collection, so it stays off rather than failing startup
-			name: "no covers nothing rather than failing",
-			env:  "no",
-		},
-		{
-			// a ConfigMap written as a "|" block scalar delivers this
-			name:        "a trailing newline is trimmed, not parsed",
-			env:         "true\n",
-			expectedAll: true,
+			name:          "* covers every property of every collection",
+			env:           "*",
+			expectedProps: everything,
 		},
 		{
 			name:          "surrounding spaces are trimmed, not parsed",
@@ -2907,6 +2865,11 @@ func TestEnvironmentIndexRangeableInMemory(t *testing.T) {
 			name:          "every property of a collection",
 			env:           "Foo:*",
 			expectedProps: map[string][]string{"Foo": {"*"}},
+		},
+		{
+			name:   "* is not a collection beside properties",
+			env:    "*:prop1",
+			errMsg: "invalid collection name '*'",
 		},
 		{
 			// the same string means no properties to REINDEX_INDEXES_AT_STARTUP,
@@ -2938,28 +2901,69 @@ func TestEnvironmentIndexRangeableInMemory(t *testing.T) {
 		{
 			name:   "an unparseable value fails",
 			env:    "foo:prop1",
-			errMsg: "INDEX_RANGEABLE_IN_MEMORY",
+			errMsg: "parse",
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// spelled out rather than taken from the constant, because this
-			// is what an operator types
-			t.Setenv("INDEX_RANGEABLE_IN_MEMORY", tt.env)
+	envs := []struct {
+		name  string
+		props func(*Persistence) *map[string][]string
+		cases []indexCollectionPropsCase
+	}{
+		{
+			name:  "INDEX_RANGEABLE_IN_MEMORY",
+			props: func(p *Persistence) *map[string][]string { return &p.IndexRangeableInMemoryProps },
+			// only this variable takes a boolean
+			cases: []indexCollectionPropsCase{
+				{name: "true covers everything", env: "true", expectedProps: everything},
+				{name: "1 covers everything", env: "1", expectedProps: everything},
+				{name: "on covers everything", env: "on", expectedProps: everything},
+				{name: "enabled covers everything", env: "enabled", expectedProps: everything},
+				// "True" matches ClassNameRegexCore, so a parse-first order would
+				// read it as a collection of that name
+				{name: "True covers everything", env: "True", expectedProps: everything},
+				// a ConfigMap written as a "|" block scalar delivers this
+				{name: "a trailing newline is trimmed, not parsed", env: "true\n", expectedProps: everything},
+				{name: "false covers nothing", env: "false"},
+				{name: "off covers nothing", env: "off"},
+				{name: "0 covers nothing", env: "0"},
+				{name: "no covers nothing rather than failing", env: "no"},
+			},
+		},
+		{
+			name:  "INDEX_FILTERABLE_MMAP",
+			props: func(p *Persistence) *map[string][]string { return &p.IndexFilterableMMapProps },
+			// "*" is its only way to say everything
+			cases: []indexCollectionPropsCase{
+				{name: "true is refused", env: "true", errMsg: "invalid collection name"},
+				{name: "True is refused", env: "True", errMsg: "with no properties"},
+				{name: "false is refused", env: "false", errMsg: "invalid collection name"},
+				{name: "1 is refused", env: "1", errMsg: "invalid collection name"},
+			},
+		},
+	}
 
-			// pre-set the way a config file would, so a value that selects
-			// properties is seen to replace it rather than add to it
-			conf := Config{Persistence: Persistence{IndexRangeableInMemory: true}}
-			err := FromEnv(&conf)
-			if tt.errMsg != "" {
-				require.ErrorContains(t, err, tt.errMsg)
-				return
-			}
-			require.NoError(t, err)
-			require.Equal(t, tt.expectedAll, conf.Persistence.IndexRangeableInMemory)
-			require.Equal(t, tt.expectedProps, conf.Persistence.IndexRangeableInMemoryProps)
-		})
+	for _, env := range envs {
+		for _, tt := range append(slices.Clone(shared), env.cases...) {
+			t.Run(env.name+"/"+tt.name, func(t *testing.T) {
+				// spelled out rather than taken from the constant, because this
+				// is what an operator types
+				t.Setenv(env.name, tt.env)
+
+				// pre-set the way a config file would, so a value is seen to
+				// replace it rather than add to it
+				conf := Config{}
+				*env.props(&conf.Persistence) = everything
+				err := FromEnv(&conf)
+				if tt.errMsg != "" {
+					require.ErrorContains(t, err, tt.errMsg)
+					require.ErrorContains(t, err, env.name, "the error names the variable that failed")
+					return
+				}
+				require.NoError(t, err)
+				require.Equal(t, tt.expectedProps, *env.props(&conf.Persistence))
+			})
+		}
 	}
 }
 

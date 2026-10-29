@@ -68,7 +68,7 @@ func firstErrorEntry(hook *test.Hook) *logrus.Entry {
 func newRangeableFinalizeTestShard(t *testing.T, classNamePrefix string) (context.Context, *Shard, *Index, string) {
 	t.Helper()
 	return newRangeableTestShard(t, classNamePrefix,
-		func(idx *Index) { idx.Config.IndexRangeableInMemory = true })
+		func(idx *Index) { idx.Config.IndexRangeableInMemoryProps = []string{config.AllProperties} })
 }
 
 // newRangeableTestShard builds a shard+index for the filterable-to-rangeable

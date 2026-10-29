@@ -40,7 +40,6 @@ func TestShardRangeableInMemoryPerProperty(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		all        bool
 		props      []string
 		wantInMemo map[string]bool
 	}{
@@ -58,12 +57,6 @@ func TestShardRangeableInMemoryPerProperty(t *testing.T) {
 			props:      []string{config.AllProperties},
 			wantInMemo: map[string]bool{namedProp: true, unnamedProp: true},
 		},
-		{
-			// INDEX_RANGEABLE_IN_MEMORY=true covers a property no list names
-			name:       "the collection-wide flag covers both",
-			all:        true,
-			wantInMemo: map[string]bool{namedProp: true, unnamedProp: true},
-		},
 	}
 
 	for _, tt := range tests {
@@ -71,7 +64,7 @@ func TestShardRangeableInMemoryPerProperty(t *testing.T) {
 			ctx := testCtx()
 			className := "RangeableInMemoryPerProp" + uuid.NewString()[:8]
 			shard := newRangeableInMemoryPerPropShard(t, ctx, className,
-				namedProp, unnamedProp, tt.all, tt.props)
+				namedProp, unnamedProp, tt.props)
 
 			wantDocIDs := putRangeableInMemoryPerPropObjects(t, ctx, shard, className,
 				namedProp, unnamedProp, numObjects, threshold)
@@ -93,7 +86,7 @@ func TestShardRangeableInMemoryPerProperty(t *testing.T) {
 
 // newRangeableInMemoryPerPropShard builds a shard with two rangeable int props.
 func newRangeableInMemoryPerPropShard(t *testing.T, ctx context.Context,
-	className, propA, propB string, all bool, props []string,
+	className, propA, propB string, props []string,
 ) *Shard {
 	t.Helper()
 	rangeable := true
@@ -112,7 +105,6 @@ func newRangeableInMemoryPerPropShard(t *testing.T, ctx context.Context,
 
 	shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false, func(idx *Index) {
-			idx.Config.IndexRangeableInMemory = all
 			idx.Config.IndexRangeableInMemoryProps = props
 		})
 	shard := shd.(*Shard)
@@ -152,18 +144,12 @@ func putRangeableInMemoryPerPropObjects(t *testing.T, ctx context.Context, shard
 func TestIndexConfigKeepRangeableInMemory(t *testing.T) {
 	tests := []struct {
 		name  string
-		all   bool
 		props []string
 		want  map[string]bool
 	}{
 		{
 			name: "nothing configured",
 			want: map[string]bool{"price": false, "Price": false},
-		},
-		{
-			name: "the collection-wide flag covers a property no list names",
-			all:  true,
-			want: map[string]bool{"price": true, "weight": true},
 		},
 		{
 			name:  "a named property, and only that one",
@@ -184,10 +170,7 @@ func TestIndexConfigKeepRangeableInMemory(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := IndexConfig{
-				IndexRangeableInMemory:      tt.all,
-				IndexRangeableInMemoryProps: tt.props,
-			}
+			cfg := IndexConfig{IndexRangeableInMemoryProps: tt.props}
 			for propName, want := range tt.want {
 				assert.Equal(t, want, cfg.keepRangeableInMemory(propName), propName)
 			}
@@ -196,8 +179,8 @@ func TestIndexConfigKeepRangeableInMemory(t *testing.T) {
 }
 
 // A key not matching the class name exactly would leave every property
-// unnamed. No other test sees that, because both build IndexConfig by hand.
-func TestMigratorAddClassFlattensRangeableInMemoryProps(t *testing.T) {
+// unnamed. No other test sees that, because each builds IndexConfig by hand.
+func TestMigratorAddClassFlattensPerCollectionProps(t *testing.T) {
 	const className = "Foo"
 
 	tests := []struct {
@@ -218,6 +201,11 @@ func TestMigratorAddClassFlattensRangeableInMemoryProps(t *testing.T) {
 			configured: map[string][]string{"Bar": {"weight"}},
 		},
 		{
+			name:       "every collection",
+			configured: map[string][]string{config.AllCollections: {config.AllProperties}},
+			want:       []string{config.AllProperties},
+		},
+		{
 			// indexID lowercases the class name for the directory, and the
 			// lookup must not
 			name:       "a key differing in case does not match",
@@ -225,18 +213,44 @@ func TestMigratorAddClassFlattensRangeableInMemoryProps(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := testCtx()
-			repo, migrator, _ := newLazyLoadRepo(t, singleShardState())
-			t.Cleanup(func() { repo.Shutdown(context.Background()) })
-			repo.config.IndexRangeableInMemoryProps = tt.configured
+	fields := []struct {
+		name string
+		set  func(*Config, map[string][]string)
+		get  func(IndexConfig) []string
+	}{
+		{
+			name: "IndexRangeableInMemoryProps",
+			set:  func(c *Config, m map[string][]string) { c.IndexRangeableInMemoryProps = m },
+			get:  func(c IndexConfig) []string { return c.IndexRangeableInMemoryProps },
+		},
+		{
+			name: "IndexFilterableMMapProps",
+			set:  func(c *Config, m map[string][]string) { c.IndexFilterableMMapProps = m },
+			get:  func(c IndexConfig) []string { return c.IndexFilterableMMapProps },
+		},
+	}
 
-			require.NoError(t, migrator.AddClass(ctx, newClassWithWarmProp(className)))
+	for _, field := range fields {
+		for _, tt := range tests {
+			t.Run(field.name+"/"+tt.name, func(t *testing.T) {
+				ctx := testCtx()
+				repo, migrator, _ := newLazyLoadRepo(t, singleShardState())
+				t.Cleanup(func() { repo.Shutdown(context.Background()) })
+				field.set(&repo.config, tt.configured)
 
-			idx := repo.GetIndex(schema.ClassName(className))
-			require.NotNil(t, idx)
-			require.Equal(t, tt.want, idx.Config.IndexRangeableInMemoryProps)
-		})
+				require.NoError(t, migrator.AddClass(ctx, newClassWithWarmProp(className)))
+
+				idx := repo.GetIndex(schema.ClassName(className))
+				require.NotNil(t, idx)
+				// only the field set is filled, so a cross-wired migrator fails
+				for _, other := range fields {
+					want := tt.want
+					if other.name != field.name {
+						want = nil
+					}
+					require.Equal(t, want, other.get(idx.Config), other.name)
+				}
+			})
+		}
 	}
 }
