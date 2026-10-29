@@ -415,7 +415,7 @@ func compactionRoaringSetRangeStrategy(ctx context.Context, t *testing.T, opts [
 				// segment1 and segment2 merged
 				// none of them is root segment, so tombstones
 				// will not be removed regardless of keepTombstones setting
-				assertSecondSegmentOfSize(t, bucket, 2256, 2256)
+				assertSecondSegmentOfSize(t, bucket, 2016, 2016)
 			}
 			i++
 		}

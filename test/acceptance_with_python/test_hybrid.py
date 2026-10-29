@@ -125,7 +125,7 @@ def test_hybrid_search_vector_distance_more_objects(
 ) -> None:
     collection = collection_factory(
         properties=[Property(name="name", data_type=DataType.TEXT)],
-        vectorizer_config=Configure.Vectorizer.text2vec_contextionary(
+        vectorizer_config=Configure.Vectorizer.text2vec_model2vec(
             vectorize_collection_name=False
         ),
         vector_index_config=Configure.VectorIndex.hnsw(distance_metric=distance),
@@ -242,7 +242,7 @@ def test_hybrid_with_offset(
 ) -> None:
     collection = collection_factory(
         properties=[Property(name="name", data_type=DataType.TEXT)],
-        vectorizer_config=Configure.Vectorizer.text2vec_contextionary(
+        vectorizer_config=Configure.Vectorizer.text2vec_model2vec(
             vectorize_collection_name=False
         ),
     )

@@ -17,8 +17,6 @@ import (
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
 
-	"github.com/go-openapi/strfmt"
-
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
@@ -66,7 +64,8 @@ var (
 	AllData = &models.PermissionData{
 		Collection: All,
 		Tenant:     All,
-		Object:     All,
+		//nolint:staticcheck // deprecated on the wire but still emitted, as the wildcard, so old clients keep reading a value
+		Object: All,
 	}
 	AllTenants = &models.PermissionTenants{
 		Collection: All,
@@ -129,6 +128,9 @@ var (
 	DeleteUsers          = "delete_users"
 
 	ManageBackups = "manage_backups"
+	// ReadBackups lists backups and reads backup and restore status. It cannot
+	// create, restore or cancel a backup.
+	ReadBackups = "read_backups"
 
 	ManageNamespaces = "manage_namespaces"
 
@@ -170,6 +172,7 @@ var (
 
 		// Backups domain
 		ManageBackups,
+		ReadBackups,
 
 		// Namespaces domain
 		ManageNamespaces,
@@ -233,11 +236,21 @@ var (
 	Viewer = "viewer"
 	Admin  = "admin"
 	// build-in roles that can be assigned via env vars and cannot be changed via APIS
-	Root         = "root"
-	ReadOnly     = "read-only"
-	BuiltInRoles = []string{Viewer, Admin, Root, ReadOnly}
+	Root     = "root"
+	ReadOnly = "read-only"
+	// MetadataReader is a config-bound built-in role granting read-only access
+	// to cluster metadata (schema, tenants, nodes, cluster, aliases, replication
+	// status) and no access to objects or vectors. The operator_ prefix keeps it
+	// hidden from namespace-confined callers on namespace-enabled clusters.
+	MetadataReader         = "operator_metadata_reader"
+	BuiltInRoles           = []string{Viewer, Admin, Root, ReadOnly, MetadataReader}
+	ApiManagedBuiltInRoles = []string{Admin, Viewer}
+	EnvVarRoles            = []string{ReadOnly, Root, MetadataReader}
 
-	EnvVarRoles = []string{ReadOnly, Root}
+	// WildcardRoles are the built-in roles registered as a single wildcard
+	// policy. MetadataReader is deliberately absent: a wildcard READ would
+	// include read_data, so it is always registered per permission.
+	WildcardRoles = []string{Viewer, Admin, Root, ReadOnly}
 
 	// OperatorReservedRolePrefixes mark a global role operator-only: invisible to,
 	// unassignable to, and uncreatable-as-a-local-role by namespace-confined callers.
@@ -262,17 +275,19 @@ func IsOperatorReservedRoleName(shortName string) bool {
 func BuiltInPermissionsFor(namespacesEnabled bool) map[string][]*models.Permission {
 	if !namespacesEnabled {
 		return map[string][]*models.Permission{
-			Viewer:   viewerPermissions(),
-			Admin:    adminPermissions(),
-			Root:     adminPermissions(),
-			ReadOnly: viewerPermissions(),
+			Viewer:         viewerPermissions(),
+			Admin:          adminPermissions(),
+			Root:           adminPermissions(),
+			ReadOnly:       viewerPermissions(),
+			MetadataReader: metadataReaderPermissions(),
 		}
 	}
 	return map[string][]*models.Permission{
-		Viewer:   tenantSafeViewerPermissions(),
-		Admin:    tenantSafeAdminPermissions(),
-		Root:     adminPermissions(),
-		ReadOnly: viewerPermissions(),
+		Viewer:         tenantSafeViewerPermissions(),
+		Admin:          tenantSafeAdminPermissions(),
+		Root:           adminPermissions(),
+		ReadOnly:       viewerPermissions(),
+		MetadataReader: metadataReaderPermissions(),
 	}
 }
 
@@ -465,12 +480,12 @@ func CollectionsData(classes ...string) []string {
 	classes = schema.UppercaseClassesNames(classes...)
 
 	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
-		return []string{Objects("*", "*", "*")}
+		return []string{Objects("*", "*")}
 	}
 
 	var paths []string
 	for _, class := range classes {
-		paths = append(paths, Objects(class, "*", "*"))
+		paths = append(paths, Objects(class, "*"))
 	}
 	return paths
 }
@@ -518,27 +533,21 @@ func ShardsData(class string, shards ...string) []string {
 	class = schema.UppercaseClassesNames(class)[0]
 	var paths []string
 	for _, shard := range shards {
-		paths = append(paths, Objects(class, shard, "*"))
+		paths = append(paths, Objects(class, shard))
 	}
 	return paths
 }
 
 // Objects generates a string representing a path to objects within a collection and shard.
-// The path format varies based on the provided class, shard, and id parameters.
+// Object-level RBAC is not supported — the objects segment is always wildcarded.
 //
 // Parameters:
 // - class: the class of the collection (string)
 // - shard: the shard identifier (string)
-// - id: the unique identifier of the object (strfmt.UUID)
 //
 // Returns:
 // - A string representing the path to the objects, with wildcards (*) used for any empty parameters.
-//
-// Example outputs:
-// - "collections/*/shards/*/objects/*" if all parameters are empty
-// - "collections/*/shards/*/objects/{id}" if only id is provided
-// - "collections/{class}/shards/{shard}/objects/{id}" if all parameters are provided
-func Objects(class, shard string, id strfmt.UUID) string {
+func Objects(class, shard string) string {
 	class = schema.UppercaseClassesNames(class)[0]
 	if class == "" {
 		class = "*"
@@ -546,10 +555,7 @@ func Objects(class, shard string, id strfmt.UUID) string {
 	if shard == "" {
 		shard = "*"
 	}
-	if id == "" {
-		id = "*"
-	}
-	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/%s", DataDomain, class, shard, id)
+	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/*", DataDomain, class, shard)
 }
 
 // Backups generates a resource string for the given classes.
@@ -650,6 +656,27 @@ func viewerPermissions() []*models.Permission {
 	}
 
 	return perms
+}
+
+// metadataReaderPermissions : can read cluster metadata and access-control
+// configuration but never objects or vectors. Deliberately excludes read_data
+// and read_mcp, and every non-read action, including manage_backups.
+func metadataReaderPermissions() []*models.Permission {
+	readCollections, readTenants, readNodes := ReadCollections, ReadTenants, ReadNodes
+	readCluster, readAliases, readReplicate := ReadCluster, ReadAliases, ReadReplicate
+	readUsers, readRoles, readGroups, readBackups := ReadUsers, ReadRoles, ReadGroups, ReadBackups
+	return []*models.Permission{
+		{Action: &readCollections, Collections: AllCollections},
+		{Action: &readTenants, Tenants: AllTenants},
+		{Action: &readNodes, Nodes: AllNodes},
+		{Action: &readCluster},
+		{Action: &readAliases, Aliases: AllAliases},
+		{Action: &readReplicate, Replicate: AllReplicate},
+		{Action: &readUsers, Users: AllUsers},
+		{Action: &readRoles, Roles: AllRoles},
+		{Action: &readGroups, Groups: AllOIDCGroups},
+		{Action: &readBackups, Backups: AllBackups},
+	}
 }
 
 // Admin : aka basically super Admin or root

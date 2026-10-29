@@ -51,6 +51,9 @@ func (v *Validator) vector(ctx context.Context, class *models.Class,
 			return nil
 		}
 
+		if len(class.VectorConfig) == 0 {
+			return fmt.Errorf("collection %v is configured without a vector index, but received a vector", class.Class)
+		}
 		return fmt.Errorf("collection %v configuration does not have single vector index", class.Class)
 	}
 

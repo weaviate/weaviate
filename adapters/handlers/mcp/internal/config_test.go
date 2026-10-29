@@ -138,3 +138,60 @@ func TestToToolConfigMap(t *testing.T) {
 		assert.Equal(t, "desc a", m[testToolName].Description)
 	})
 }
+
+func TestAllowNullForOptionalArguments(t *testing.T) {
+	tests := []struct {
+		name   string
+		schema string
+		want   string
+	}{
+		{
+			name:   "optional arguments accept null, required ones do not",
+			schema: `{"type":"object","properties":{"a":{"type":"string"},"b":{"type":"string"}},"required":["b"]}`,
+			want:   `{"type":"object","properties":{"a":{"type":["string","null"]},"b":{"type":"string"}},"required":["b"]}`,
+		},
+		{
+			name:   "a required argument loses a generated null",
+			schema: `{"type":"object","properties":{"a":{"type":["null","array"],"items":{"type":"string"}}},"required":["a"]}`,
+			want:   `{"type":"object","properties":{"a":{"type":"array","items":{"type":"string"}}},"required":["a"]}`,
+		},
+		{
+			name:   "an optional argument keeps a single null",
+			schema: `{"type":"object","properties":{"a":{"type":["null","integer"]}}}`,
+			want:   `{"type":"object","properties":{"a":{"type":["integer","null"]}}}`,
+		},
+		{
+			name:   "array items follow their own required list",
+			schema: `{"type":"object","properties":{"objects":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"props":{"type":"object"}},"required":["props"]}}},"required":["objects"]}`,
+			want:   `{"type":"object","properties":{"objects":{"type":"array","items":{"type":"object","properties":{"id":{"type":["string","null"]},"props":{"type":"object"}},"required":["props"]}}},"required":["objects"]}`,
+		},
+		{
+			name:   "nested object properties are optional unless required",
+			schema: `{"type":"object","properties":{"geo":{"type":"object","properties":{"lat":{"type":"number"}}}}}`,
+			want:   `{"type":"object","properties":{"geo":{"type":["object","null"],"properties":{"lat":{"type":["number","null"]}}}}}`,
+		},
+		{
+			name:   "an optional enum accepts null",
+			schema: `{"type":"object","properties":{"op":{"type":"string","enum":["And","Or"]}}}`,
+			want:   `{"type":"object","properties":{"op":{"type":["string","null"],"enum":["And","Or",null]}}}`,
+		},
+		{
+			name:   "a property without a type is left alone",
+			schema: `{"type":"object","properties":{"any":{"description":"x"}}}`,
+			want:   `{"type":"object","properties":{"any":{"description":"x"}}}`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tool := mcp.Tool{RawInputSchema: json.RawMessage(tc.schema)}
+			AllowNullForOptionalArguments(&tool)
+			assert.JSONEq(t, tc.want, string(tool.RawInputSchema))
+		})
+	}
+
+	t.Run("no-op when schema is nil", func(t *testing.T) {
+		tool := mcp.Tool{}
+		AllowNullForOptionalArguments(&tool)
+		assert.Nil(t, tool.RawInputSchema)
+	})
+}

@@ -25,12 +25,12 @@ import (
 	"github.com/rs/cors"
 	"github.com/sirupsen/logrus"
 
+	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	restsearch "github.com/weaviate/weaviate/adapters/handlers/rest/search"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/swagger_middleware"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/telemetry"
 )
@@ -42,14 +42,53 @@ import (
 // to some resources which are not exposed
 func makeSetupMiddlewares(appState *state.State) func(http.Handler) http.Handler {
 	return func(handler http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		return addConsistencyLevelMetric(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.String() == "/v1/.well-known/openid-configuration" || r.URL.String() == "/v1" {
 				handler.ServeHTTP(w, r)
 				return
 			}
 			appState.AnonymousAccess.Middleware(handler).ServeHTTP(w, r)
-		})
+		}))
 	}
+}
+
+// addConsistencyLevelMetric counts each request to a route that declares the
+// consistency_level query parameter. It relies on running after routing, so
+// the matched route is in the request context, and before authentication, so
+// rejected requests are counted too. Invalid levels are not counted; the
+// handler rejects them with 422.
+func addConsistencyLevelMetric(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if route := middleware.MatchedRouteFrom(r); route != nil && acceptsConsistencyLevel(route) {
+			countConsistencyLevel(r)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func countConsistencyLevel(r *http.Request) {
+	level := r.URL.Query().Get("consistency_level")
+	if level != "" {
+		if _, err := getConsistencyLevel(&level); err != nil {
+			return
+		}
+	}
+	operation := monitoring.ConsistencyLevelWrite
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		operation = monitoring.ConsistencyLevelRead
+	}
+	monitoring.GetMetrics().IncConsistencyLevelRequest(operation, level)
+}
+
+// acceptsConsistencyLevel iterates because route.Parameters is keyed by the Go
+// field name, not the query parameter name.
+func acceptsConsistencyLevel(route *middleware.MatchedRoute) bool {
+	for _, p := range route.Parameters {
+		if p.In == "query" && p.Name == "consistency_level" {
+			return true
+		}
+	}
+	return false
 }
 
 func addHandleRoot(next http.Handler) http.Handler {
@@ -64,28 +103,6 @@ func addHandleRoot(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
-}
-
-func makeAddModuleHandlers(modules *modules.Provider) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		mux := http.NewServeMux()
-
-		for _, mod := range modules.GetAllWithHTTPHandlers() {
-			prefix := fmt.Sprintf("/v1/modules/%s", mod.Name())
-			mux.Handle(fmt.Sprintf("%s/", prefix),
-				http.StripPrefix(prefix, mod.RootHandler()))
-		}
-
-		prefix := "/v1/modules"
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if url := r.URL.String(); len(url) > len(prefix) && url[:len(prefix)] == prefix {
-				mux.ServeHTTP(w, r)
-				return
-			}
-
-			next.ServeHTTP(w, r)
-		})
-	}
 }
 
 // The middleware configuration happens before anything, this middleware also applies to serving the swagger.json document.
@@ -108,7 +125,6 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 		handler = addPreflight(handler, appState.ServerConfig.Config.CORS)
 		handler = addLiveAndReadyness(appState, handler)
 		handler = addHandleRoot(handler)
-		handler = makeAddModuleHandlers(appState.Modules)(handler)
 		// Add client tracking middleware early in the chain to capture all requests
 		if telemeter != nil {
 			handler = telemetry.ClientTrackingMiddleware(telemeter.GetClientTracker(), telemeter.GetIntegrationTracker())(handler)
@@ -118,6 +134,7 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 		handler = addSourceIpToContext(handler)
 		handler = addClientIdentifierToContext(handler)
 		handler = addOperationalMode(appState, handler)
+		handler = addSearchBodyLimit(handler)
 		// Add OpenTelemetry tracing middleware (only has an effect if tracing is enabled)
 		handler = monitoring.AddTracingToHTTPMiddleware(handler, appState.Logger)
 		if appState.ServerConfig.Config.Monitoring.Enabled {
@@ -183,9 +200,18 @@ func makeAddMonitoring(metrics *monitoring.PrometheusMetrics) func(http.Handler)
 			before := time.Now()
 			method := r.Method
 			path := r.URL.Path
+			isBatch := strings.HasPrefix(path, "/v1/batch/objects") && method == http.MethodPost
+
+			var batchNamespace *restCtx.BatchNamespace
+			if isBatch {
+				var ctx context.Context
+				ctx, batchNamespace = restCtx.WithBatchNamespaceSlot(r.Context())
+				r = r.WithContext(ctx)
+			}
+
 			next.ServeHTTP(w, r)
 
-			if strings.HasPrefix(path, "/v1/batch/objects") && method == http.MethodPost {
+			if isBatch {
 				metrics.BatchTime.With(prometheus.Labels{
 					"operation":  "total_api_level",
 					"class_name": "n/a",
@@ -193,10 +219,30 @@ func makeAddMonitoring(metrics *monitoring.PrometheusMetrics) func(http.Handler)
 				}).
 					Observe(float64(time.Since(before) / time.Millisecond))
 
-				metrics.BatchSizeBytes.WithLabelValues("rest").Observe(float64(r.ContentLength))
+				size, ok := batchRequestSize(r)
+				if !ok {
+					return
+				}
+				metrics.BatchSizeBytes.WithLabelValues("rest", batchNamespace.Namespace).
+					Observe(float64(size))
 			}
 		})
 	}
+}
+
+// batchRequestSize reports the body size to record as batch_size_bytes.
+// A chunked request declares a ContentLength of -1. Its size instead comes
+// from the byte counter that monitoring.InstrumentHandler wraps the body in.
+// That handler wraps this one, and it restores the original body only after
+// its own ServeHTTP returns. The counter is therefore still in place here.
+//
+// ok is false when the request is chunked and the counter is absent. The
+// caller must then skip the observation rather than record -1.
+func batchRequestSize(r *http.Request) (int64, bool) {
+	if r.ContentLength >= 0 {
+		return r.ContentLength, true
+	}
+	return monitoring.BytesRead(r)
 }
 
 func addPreflight(next http.Handler, cfg config.CORS) http.Handler {
@@ -241,17 +287,8 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 
 		if r.URL.String() == "/v1/.well-known/ready" {
 			code := http.StatusOK
-			// if this node is in maintenance mode, we want to return live but not ready
-			// so that kubernetes will allow this pod to run but not send traffic to it
-			if state.Cluster.MaintenanceModeEnabledForLocalhost() {
+			if !nodeReady(state) {
 				code = http.StatusServiceUnavailable
-			} else if !state.ClusterService.Ready() || state.Cluster.ClusterHealthScore() != 0 {
-				code = http.StatusServiceUnavailable
-			} else if state.Modules != nil {
-				_, err := state.Modules.GetMeta()
-				if err != nil {
-					code = http.StatusServiceUnavailable
-				}
 			}
 			w.WriteHeader(code)
 			return
@@ -261,20 +298,61 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 	})
 }
 
+// nodeReady is the check behind /v1/.well-known/ready; the startup metrics poll it too.
+func nodeReady(state *state.State) bool {
+	// in maintenance mode the node is live but not ready
+	if state.Cluster.MaintenanceModeEnabledForLocalhost() {
+		return false
+	}
+	if !state.ClusterService.Ready() || state.Cluster.ClusterHealthScore() != 0 {
+		return false
+	}
+	if state.Modules != nil {
+		if _, err := state.Modules.GetMeta(); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// readyPollInterval paces the readiness polling; GetMeta may call module sidecars.
+const readyPollInterval = time.Second
+
+// addSearchBodyLimit caps search and aggregate request bodies: an announced
+// oversize body is refused here, a streamed one is cut off by MaxBytesReader
+// and surfaces as a bind error that ServeError maps to 413.
+func addSearchBodyLimit(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if restsearch.IsSearchRoute(r.URL.Path) || restsearch.IsAggregateRoute(r.URL.Path) {
+			if r.ContentLength > restsearch.MaxBodyBytes {
+				resp := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{
+					Message: fmt.Sprintf("request body exceeds the %d byte limit", restsearch.MaxBodyBytes),
+				}}}
+				data, _ := json.Marshal(resp)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusRequestEntityTooLarge)
+				w.Write(data)
+				return
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, restsearch.MaxBodyBytes)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func addOperationalMode(state *state.State, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// search and aggregate requests are POSTs (an HTTP write method) but
 		// are semantically reads
 		isSearch := restsearch.IsSearchRoute(r.URL.Path) || restsearch.IsAggregateRoute(r.URL.Path)
-		searchReadAllowed := isSearch && state.ServerConfig.Config.ExperimentalRESTSearchEnabled.Get()
 		switch state.ServerConfig.Config.OperationalMode.Get() {
 		case config.READ_ONLY:
-			if config.IsHTTPWrite(r.Method) && !whitelist(r.URL.Path, config.ReadOnlyWhitelist) && !searchReadAllowed {
+			if config.IsHTTPWrite(r.Method) && !whitelist(r.URL.Path, config.ReadOnlyWhitelist) && !isSearch {
 				writeOperationalModeErrorResponse(w, config.ErrReadOnlyModeEnabled)
 				return
 			}
 		case config.SCALE_OUT:
-			if config.IsHTTPWrite(r.Method) && !whitelist(r.URL.Path, config.ScaleOutWhitelist) && !searchReadAllowed {
+			if config.IsHTTPWrite(r.Method) && !whitelist(r.URL.Path, config.ScaleOutWhitelist) && !isSearch {
 				writeOperationalModeErrorResponse(w, config.ErrScaleOutModeEnabled)
 				return
 			}

@@ -291,7 +291,7 @@ func NewCreateUserForbidden() *CreateUserForbidden {
 /*
 CreateUserForbidden describes a response with status code 403, with default header values.
 
-Forbidden
+Forbidden, or the body sets `expiresAt` and the node holds no Weaviate license key.
 */
 type CreateUserForbidden struct {
 	Payload *models.ErrorResponse
@@ -633,6 +633,10 @@ type CreateUserBody struct {
 	// Format: date-time
 	CreateTime strfmt.DateTime `json:"createTime,omitempty"`
 
+	// Date and time in ISO 8601 format at which the user's API key stops authenticating, stored in UTC with millisecond precision. It must be in the future. Setting it needs a Weaviate license key on the node, else the request answers 403. On a node with a license key, a request that also sets `import` to true answers 422. Absent means the key never expires.
+	// Format: date-time
+	ExpiresAt *strfmt.DateTime `json:"expiresAt,omitempty"`
+
 	// EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user
 	Import *bool `json:"import,omitempty"`
 }
@@ -642,6 +646,10 @@ func (o *CreateUserBody) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := o.validateCreateTime(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := o.validateExpiresAt(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -657,6 +665,18 @@ func (o *CreateUserBody) validateCreateTime(formats strfmt.Registry) error {
 	}
 
 	if err := validate.FormatOf("body"+"."+"createTime", "body", "date-time", o.CreateTime.String(), formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (o *CreateUserBody) validateExpiresAt(formats strfmt.Registry) error {
+	if swag.IsZero(o.ExpiresAt) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("body"+"."+"expiresAt", "body", "date-time", o.ExpiresAt.String(), formats); err != nil {
 		return err
 	}
 

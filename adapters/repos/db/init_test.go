@@ -211,7 +211,8 @@ func TestTotalShardSizeBytes_FallsBackToDirSizeWhenNoMeta(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	db := &DB{
-		logger: logrus.New(),
+		localNodeName: "node1",
+		logger:        logrus.New(),
 		config: Config{
 			RootPath: tmpDir,
 		},
@@ -250,7 +251,7 @@ func TestTotalShardSizeBytes_Concurrent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			db := &DB{logger: logrus.New(), config: Config{RootPath: tmpDir}}
+			db := &DB{localNodeName: "node1", logger: logrus.New(), config: Config{RootPath: tmpDir}}
 			className := schema.ClassName("MyClass")
 			indexPath := path.Join(tmpDir, indexID(className))
 
@@ -300,7 +301,8 @@ func TestTotalShardSizeBytes_PrefersMetaFileWhenPresent(t *testing.T) {
 			tmpDir := t.TempDir()
 
 			db := &DB{
-				logger: logrus.New(),
+				localNodeName: "node1",
+				logger:        logrus.New(),
 				config: Config{
 					RootPath: tmpDir,
 				},
@@ -312,7 +314,10 @@ func TestTotalShardSizeBytes_PrefersMetaFileWhenPresent(t *testing.T) {
 			shardPath := path.Join(indexPath, shardName)
 
 			require.NoError(t, os.MkdirAll(shardPath, 0o777))
-			require.NoError(t, shardusage.SaveComputedUsageData(indexPath, shardName, tt.usage, ""))
+			saved, err := shardusage.SaveComputedUsageData(indexPath, shardName, tt.usage, "",
+				shardusage.ComputedUsageGeneration(indexPath, shardName))
+			require.NoError(t, err)
+			require.True(t, saved)
 			require.NoError(t, os.WriteFile(path.Join(shardPath, "data.bin"), onDisk, 0o644))
 
 			want := fullShardBytes

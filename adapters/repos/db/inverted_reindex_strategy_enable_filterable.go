@@ -138,11 +138,6 @@ func (s *EnableFilterableStrategy) PreReindexHook(shard *Shard, props []string) 
 	}
 }
 
-// AnalyzerOverlay forces IndexFilterable=true on the targeted properties
-// while the backfill iterator scans the objects bucket. Until
-// OnMigrationComplete flips the RAFT-stored schema flag, the analyzer would
-// otherwise skip the property entirely (see HasAnyInvertedIndex in
-// inverted/objects.go) and the new bucket would come out empty.
 func (s *EnableFilterableStrategy) AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay {
 	if len(props) == 0 {
 		return nil

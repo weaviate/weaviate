@@ -23,10 +23,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modelsext"
-	"github.com/weaviate/weaviate/entities/versioned"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // defaultDropVectorPollInterval is how often a running unit polls the edit-ops
@@ -78,6 +77,9 @@ type dropVectorShards interface {
 	// deletes so replayed callbacks can't mass-load inactive shards.
 	EditOpBucketsForLoadedShards(collection string, shardNames []string) (map[string]editOpBucket, error)
 	EnsureDroppedVectorFilesRemoved(collection, shard string, targets []string) error
+	// RemoveDroppedVectorDimensions clears a shard's dimension rows for the
+	// dropped vectors. Called per unit before the unit is recorded complete.
+	RemoveDroppedVectorDimensions(ctx context.Context, collection, shard string, targets []string) error
 }
 
 // dropVectorSchemaFinalizer removes the dropped named-vector entries from a
@@ -85,16 +87,6 @@ type dropVectorShards interface {
 // re-running after the entries are already gone is a no-op.
 type dropVectorSchemaFinalizer interface {
 	RemoveDroppedVectorConfig(ctx context.Context, collection string, targets []string) error
-}
-
-// dropVectorSchemaReader provides leader-consistent schema reads: the sharding
-// state (so the finalize path can tell whether this task covered every current
-// shard/tenant) and the class (so op-arming can re-verify the targets are still
-// marked dropped). cluster.Raft satisfies it.
-type dropVectorSchemaReader interface {
-	QueryShardingState(class string) (*sharding.State, uint64, error)
-	QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error)
-	ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error)
 }
 
 // DropVectorIndexProvider executes drop-vector-index distributed tasks: each
@@ -105,9 +97,13 @@ type dropVectorSchemaReader interface {
 type DropVectorIndexProvider struct {
 	recorder distributedtask.TaskCompletionRecorder
 
-	shards    dropVectorShards
-	schema    dropVectorSchemaFinalizer
-	sharding  dropVectorSchemaReader
+	shards dropVectorShards
+	schema dropVectorSchemaFinalizer
+	// leader answers the leader-consistent reads: the sharding state (which nodes
+	// hold each shard/tenant) and the class, so op-arming can re-verify the targets
+	// are still marked dropped.
+	leader    leader.SchemaReader
+	tasks     distributedtask.TaskLister
 	logger    logrus.FieldLogger
 	localNode string
 
@@ -155,7 +151,8 @@ type DropVectorIndexProvider struct {
 func NewDropVectorIndexProvider(
 	shards dropVectorShards,
 	schema dropVectorSchemaFinalizer,
-	sharding dropVectorSchemaReader,
+	leaderReader leader.SchemaReader,
+	tasks distributedtask.TaskLister,
 	logger logrus.FieldLogger,
 	localNode string,
 	serverCtx context.Context,
@@ -164,7 +161,8 @@ func NewDropVectorIndexProvider(
 	return &DropVectorIndexProvider{
 		shards:               shards,
 		schema:               schema,
-		sharding:             sharding,
+		leader:               leaderReader,
+		tasks:                tasks,
 		logger:               logger,
 		localNode:            localNode,
 		serverCtx:            serverCtx,
@@ -245,7 +243,7 @@ func (p *DropVectorIndexProvider) processUnits(
 	ctx context.Context, task *distributedtask.Task,
 	payload *DropVectorIndexTaskPayload, localUnits []string,
 ) {
-	buckets := p.localBuckets(ctx, payload, localUnits)
+	buckets, resolveErr := p.localBuckets(ctx, payload, localUnits)
 
 	pending := make([]string, 0, len(localUnits))
 	for _, unitID := range localUnits {
@@ -253,6 +251,11 @@ func (p *DropVectorIndexProvider) processUnits(
 			continue // already done in a prior run
 		}
 		pending = append(pending, unitID)
+	}
+
+	if resolveErr != nil {
+		p.failPending(ctx, task, pending, "resolve objects buckets: "+resolveErr.Error())
+		return
 	}
 
 	// Last check before the destructive ops arm: the marker commit and the task
@@ -263,12 +266,7 @@ func (p *DropVectorIndexProvider) processUnits(
 	// drain poll: a momentary leader blip must not fail a whole drop task.
 	stillDropped, verifyErr := p.targetsStillDroppedWithRetry(ctx, payload)
 	if verifyErr != nil {
-		if ctx.Err() != nil {
-			return // shutdown: leave units in place, the task resumes after restart
-		}
-		for _, unitID := range pending {
-			p.failUnit(ctx, task, unitID, "verify targets still marked dropped: "+verifyErr.Error())
-		}
+		p.failPending(ctx, task, pending, "verify targets still marked dropped: "+verifyErr.Error())
 		return
 	}
 	if !stillDropped {
@@ -301,21 +299,15 @@ func (p *DropVectorIndexProvider) processUnits(
 }
 
 // localBuckets resolves the objects bucket for every local unit's shard in one
-// walk. Returns nil on a lookup error; per-unit handling then fails the units.
+// walk.
 func (p *DropVectorIndexProvider) localBuckets(
 	ctx context.Context, payload *DropVectorIndexTaskPayload, localUnits []string,
-) map[string]editOpBucket {
+) (map[string]editOpBucket, error) {
 	shardNames := make([]string, 0, len(localUnits))
 	for _, unitID := range localUnits {
 		shardNames = append(shardNames, payload.UnitToShard[unitID])
 	}
-	buckets, err := p.shards.EditOpBucketsForShards(ctx, payload.Collection, shardNames)
-	if err != nil {
-		p.logger.WithField("collection", payload.Collection).
-			Errorf("drop-vector: resolve objects buckets: %v", err)
-		return nil
-	}
-	return buckets
+	return p.shards.EditOpBucketsForShards(ctx, payload.Collection, shardNames)
 }
 
 // armUnit registers the edit op on the unit's shard, reporting whether the unit
@@ -344,7 +336,11 @@ func (p *DropVectorIndexProvider) armUnit(
 		CreatedAt: time.Now().UnixNano(),
 	}
 	if err := bucket.RegisterEditOp(payload.OpID, desc); err != nil {
-		p.failUnit(ctx, task, unitID, "register drop edit op: "+err.Error())
+		msg := "register drop edit op: " + err.Error()
+		if !p.bucketStillLoaded(payload.Collection, payload.UnitToShard[unitID], bucket) {
+			msg += shardGoneReason
+		}
+		p.failUnit(ctx, task, unitID, msg)
 		return false
 	}
 	return true
@@ -356,20 +352,35 @@ func (p *DropVectorIndexProvider) drainUnit(
 	payload *DropVectorIndexTaskPayload, unitID string, bucket editOpBucket,
 ) {
 	shardGone := func() bool {
-		return !p.shardLocallyLoaded(payload.Collection, payload.UnitToShard[unitID])
+		return !p.bucketStillLoaded(payload.Collection, payload.UnitToShard[unitID], bucket)
 	}
 	if err := p.pollUntilEmpty(ctx, bucket, task, unitID, payload.OpID, shardGone); err != nil {
 		if ctx.Err() != nil {
 			return // shutdown: resume after restart, do not mark failed
 		}
 		msg := "drain pending segments: " + err.Error()
-		// Tenant lifecycle is decoupled from cleanups (see CheckTenantMutation):
-		// a mid-strip deactivation surfaces here as persistent read errors on
-		// the closed sidecar. Name the real cause — this failure is an expected
-		// hand-off to the next reconcile round, not a fault.
-		if shard := payload.UnitToShard[unitID]; !p.shardLocallyLoaded(payload.Collection, shard) {
-			msg += " (shard no longer locally available — tenant deactivated, offloaded, or deleted; " +
-				"reconciliation re-covers the remaining shards and the tenant on reactivation)"
+		// Neither a tenant deactivation (see CheckTenantMutation) nor a namespace
+		// suspend waits for this drain, so a gone shard is the likely cause.
+		if shardGone() {
+			msg += shardGoneReason
+		}
+		p.failUnit(ctx, task, unitID, msg)
+		return
+	}
+
+	// Before the completion is recorded, not after: a completed unit stays
+	// credited to the drop's coverage even when its round fails, so a clear
+	// that failed later would leave this shard skipped by every later round
+	// while the rows are still on disk.
+	if err := p.shards.RemoveDroppedVectorDimensions(ctx, payload.Collection,
+		payload.UnitToShard[unitID], payload.Targets); err != nil {
+		if ctx.Err() != nil {
+			return // shutdown: resume after restart, do not mark failed
+		}
+		msg := "clear dimension rows: " + err.Error()
+		if errors.Is(err, errDimensionsShardNotLoaded) {
+			msg += " (" + shardUnloadedCause + ", after its drain; reconciliation " +
+				"re-covers the shard on reactivation or resume, and loading it clears the rows)"
 		}
 		p.failUnit(ctx, task, unitID, msg)
 		return
@@ -407,11 +418,9 @@ func (p *DropVectorIndexProvider) pollUntilEmpty(
 		}
 		switch {
 		case err != nil:
-			// A read error on a shard that is no longer locally loaded is not a
-			// blip — the tenant deactivated/offloaded/deleted mid-drain (tenant
-			// lifecycle is decoupled from cleanups). Fail the unit NOW instead
-			// of burning the blip tolerance: the round ends and reconciliation
-			// re-covers the surviving shards without multi-tick delay.
+			// A read error on a shard that is no longer locally loaded means the tenant
+			// deactivated/offloaded/deleted or its namespace suspended mid-drain. Fail
+			// now rather than burn the blip tolerance, so the next round starts sooner.
 			if shardGone() {
 				return fmt.Errorf("shard no longer locally loaded: %w", err)
 			}
@@ -571,16 +580,23 @@ func retainVerdictKey(payload *DropVectorIndexTaskPayload) string {
 	return payload.DropEpochID + "\x00" + payload.Collection + "\x00" + strings.Join(targets, "\x00")
 }
 
-// shardLocallyLoaded reports whether the shard is currently loaded on this
-// node. Diagnostic only (enriches a unit-failure reason); errors read as
-// "loaded" so a listing blip cannot mislabel a real drain failure.
-func (p *DropVectorIndexProvider) shardLocallyLoaded(collection, shardName string) bool {
+// shardUnloadedCause lists what unloads a shard under a running unit.
+const shardUnloadedCause = "tenant deactivated, offloaded, or deleted, or its namespace suspended"
+
+// shardGoneReason is what armUnit and drainUnit append to a unit's failure
+// reason when bucketStillLoaded reports false.
+const shardGoneReason = " (shard no longer locally available — " + shardUnloadedCause +
+	"; reconciliation re-covers the remaining shards, and this shard on reactivation or resume)"
+
+// bucketStillLoaded reports whether the shard is loaded on this node with held
+// as its objects bucket. A shard reopened under a new bucket counts as gone. A
+// lookup error reads as loaded, so a listing blip cannot mislabel a real failure.
+func (p *DropVectorIndexProvider) bucketStillLoaded(collection, shardName string, held editOpBucket) bool {
 	buckets, err := p.shards.EditOpBucketsForLoadedShards(collection, []string{shardName})
 	if err != nil {
 		return true
 	}
-	_, ok := buckets[shardName]
-	return ok
+	return buckets[shardName] == held
 }
 
 func (p *DropVectorIndexProvider) failUnit(
@@ -590,6 +606,19 @@ func (p *DropVectorIndexProvider) failUnit(
 	if err := p.recorder.RecordDistributedTaskUnitFailure(ctx, task.Namespace, task.ID,
 		task.Version, p.localNode, unitID, msg); err != nil {
 		p.unitLogger(task, nil, unitID).Errorf("drop-vector: record unit failure failed: %v", err)
+	}
+}
+
+// failPending fails every pending unit with msg. On shutdown it fails none, so
+// the task resumes after restart.
+func (p *DropVectorIndexProvider) failPending(
+	ctx context.Context, task *distributedtask.Task, pending []string, msg string,
+) {
+	if ctx.Err() != nil {
+		return
+	}
+	for _, unitID := range pending {
+		p.failUnit(ctx, task, unitID, msg)
 	}
 }
 
@@ -792,7 +821,7 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) er
 // activeOverlappingDrop reports whether another ACTIVE drop task overlaps this
 // payload's collection+targets.
 func (p *DropVectorIndexProvider) activeOverlappingDrop(task *distributedtask.Task, payload *DropVectorIndexTaskPayload) (bool, error) {
-	tasks, err := p.sharding.ListDistributedTasks(p.serverCtx)
+	tasks, err := p.tasks.ListDistributedTasks(p.serverCtx)
 	if err != nil {
 		return false, err
 	}
@@ -810,7 +839,7 @@ func (p *DropVectorIndexProvider) activeOverlappingDrop(task *distributedtask.Ta
 // deliberately folds ANY instead — recorded progress stays valuable while any
 // target still owes a round.
 func (p *DropVectorIndexProvider) targetsStillDropped(payload *DropVectorIndexTaskPayload) (bool, error) {
-	vclasses, err := p.sharding.QueryReadOnlyClasses(payload.Collection)
+	vclasses, err := p.leader.ReadOnlyClassesFromLeader(payload.Collection)
 	if err != nil {
 		return false, err
 	}
@@ -889,7 +918,7 @@ func (p *DropVectorIndexProvider) memoizedTargetsStillDropped(
 // with no unit in this task and no entry in its inherited cleaned-shard set
 // (shards cleaned by the same epoch's earlier tasks).
 func (p *DropVectorIndexProvider) uncoveredShards(payload *DropVectorIndexTaskPayload) ([]string, error) {
-	state, _, err := p.sharding.QueryShardingState(payload.Collection)
+	state, _, err := p.leader.ShardingStateFromLeader(payload.Collection)
 	if err != nil {
 		return nil, err
 	}

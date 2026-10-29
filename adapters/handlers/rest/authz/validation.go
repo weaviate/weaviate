@@ -19,6 +19,8 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 )
 
 // keyMatch5BraceRe mirrors casbin's KeyMatch5, which rewrites a "{...}" token to
@@ -50,8 +52,18 @@ func validateRegexTarget(field, value string) error {
 	return nil
 }
 
-func validatePermissions(namespacesEnabled, allowEmpty bool, permissions ...*models.Permission) error {
-	if !allowEmpty && len(permissions) == 0 {
+// permissionCheck is the request a permission list comes from, which decides how
+// strictly validatePermissions checks it.
+type permissionCheck int
+
+const (
+	checkCreate permissionCheck = iota // create accepts an empty list and checks the stored form
+	checkAdd                           // add needs one or more and checks the stored form
+	checkLookup                        // remove and has-permission accept rows already stored
+)
+
+func validatePermissions(namespacesEnabled bool, check permissionCheck, permissions ...*models.Permission) error {
+	if check != checkCreate && len(permissions) == 0 {
 		return fmt.Errorf("role has to have at least 1 permission")
 	}
 
@@ -76,6 +88,18 @@ func validatePermissions(namespacesEnabled, allowEmpty bool, permissions ...*mod
 			add(schema.ValidateTenantNameIncludesRegex(name))
 			add(validateRegexTarget("tenant", name))
 		}
+		// aliasName checks the pattern as conv stores it, uppercased, against the
+		// class-name rule. That refuses "ålias.*", which matches no alias, and
+		// "[[:alpha:]]", stored as "[[:Alpha:]]", which panics casbin on every alias
+		// check. checkLookup skips the rule so remove can drop such stored rows.
+		aliasName := func(name string) {
+			if check == checkLookup {
+				return
+			}
+			if validatePermissionClassName(namespacesEnabled, schema.UppercaseClassName(name)) != nil {
+				add(fmt.Errorf("'%s' is not a valid alias name", name))
+			}
+		}
 
 		if p := perm.Collections; p != nil && p.Collection != nil {
 			className(*p.Collection)
@@ -95,9 +119,9 @@ func validatePermissions(namespacesEnabled, allowEmpty bool, permissions ...*mod
 			if p.Tenant != nil {
 				tenantName(*p.Tenant)
 			}
-			if p.Object != nil {
-				add(validateRegexTarget("object", *p.Object))
-			}
+			// Data.Object is deprecated and ignored: the data resource wildcards its
+			// objects segment, so the value never becomes a casbin pattern and there is
+			// nothing left to validate. A value an old client still sends is a no-op.
 		}
 		if p := perm.Backups; p != nil && p.Collection != nil {
 			className(*p.Collection)
@@ -128,6 +152,7 @@ func validatePermissions(namespacesEnabled, allowEmpty bool, permissions ...*mod
 			}
 			if p.Alias != nil {
 				add(validateRegexTarget("alias", *p.Alias))
+				aliasName(*p.Alias)
 			}
 		}
 		if p := perm.Namespaces; p != nil && p.Namespace != nil {
@@ -139,6 +164,18 @@ func validatePermissions(namespacesEnabled, allowEmpty bool, permissions ...*mod
 		}
 	}
 
+	return nil
+}
+
+// validateStorablePolicies rejects a permission whose resource would corrupt the
+// policy file. It skips the length check because a resource joins several
+// targets, and validatePermissions already caps each one at maxTargetLength.
+func validateStorablePolicies(policies []authorization.Policy) error {
+	for _, p := range policies {
+		if err := conv.ValidateStorableCharacters(p.Resource); err != nil {
+			return fmt.Errorf("permission %q %w", p.Resource, err)
+		}
+	}
 	return nil
 }
 

@@ -13,10 +13,12 @@ package modules
 
 import (
 	"context"
+	"testing"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/mock"
 
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -179,10 +181,13 @@ func (m dummyNonVectorizerModule) Type() modulecapabilities.ModuleType {
 	return non
 }
 
-type fakeSchemaGetter struct{ schema schema.Schema }
-
-func (f *fakeSchemaGetter) ReadOnlyClass(name string) *models.Class {
-	return f.schema.GetClass(name)
+// newMockSchemaGetter returns a generated SchemaGetter mock that serves
+// ReadOnlyClass from sch. The expectation is optional so setups that never
+// look up a class don't fail the mock's cleanup assertion.
+func newMockSchemaReader(t *testing.T, sch schema.Schema) *local.MockSchemaReader {
+	sg := local.NewMockSchemaReader(t)
+	sg.EXPECT().ReadOnlyClass(mock.Anything).RunAndReturn(sch.GetClass).Maybe()
+	return sg
 }
 
 type fakeObjectsRepo struct {

@@ -12,16 +12,26 @@
 package rest
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/batch"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -80,4 +90,93 @@ func TestReferencesResponse_FailedRowWithNilBeaconsDoesNotPanic(t *testing.T) {
 	// Empty beacons are acceptable here — what matters is no panic and the
 	// failure is preserved in Result.Errors.
 	assert.NotNil(t, got[0].Result.Errors)
+}
+
+// stubRequestsTotal swallows the metric calls addObjects makes on its error
+// paths.
+type stubRequestsTotal struct{}
+
+func (stubRequestsTotal) logError(string, error)       {}
+func (stubRequestsTotal) logOk(string)                 {}
+func (stubRequestsTotal) logUserError(string)          {}
+func (stubRequestsTotal) logServerError(string, error) {}
+
+func TestBatchObjectHandlers_AddObjects(t *testing.T) {
+	t.Run("records the caller's namespace before validation rejects the batch", func(t *testing.T) {
+		tests := []struct {
+			name      string
+			principal *models.Principal
+			want      string
+		}{
+			{name: "nil principal yields empty label", principal: nil, want: ""},
+			{
+				name:      "global operator yields empty label",
+				principal: &models.Principal{Username: "admin", Namespace: "ns_a", IsGlobalOperator: true},
+				want:      "",
+			},
+			{
+				name:      "namespace-less principal yields empty label",
+				principal: &models.Principal{Username: "legacy"},
+				want:      "",
+			},
+			{
+				name:      "namespaced user yields its namespace",
+				principal: &models.Principal{Username: "ns_a:alice", Namespace: "ns_a"},
+				want:      "ns_a",
+			},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				ctx, slot := restCtx.WithBatchNamespaceSlot(context.Background())
+				r := httptest.NewRequest(http.MethodPost, "/v1/batch/objects", nil).WithContext(ctx)
+				// An unknown consistency level fails validation on the line
+				// after the slot write, which keeps the batch manager out of
+				// this test.
+				badLevel := "not-a-level"
+
+				h := &batchObjectHandlers{metricRequestsTotal: stubRequestsTotal{}}
+				res := h.addObjects(batch.BatchObjectsCreateParams{
+					HTTPRequest:      r,
+					ConsistencyLevel: &badLevel,
+					Body:             batch.BatchObjectsCreateBody{},
+				}, tc.principal)
+
+				require.IsType(t, &batch.BatchObjectsCreateBadRequest{}, res)
+				assert.Equal(t, tc.want, slot.Namespace)
+			})
+		}
+	})
+
+	// A suspended namespace refuses the tenant autoTenants creates for a batch,
+	// which fails the whole request rather than one row. The metric counts it as
+	// a user error, so it logs nothing.
+	t.Run("answers 422 for a namespace refusal", func(t *testing.T) {
+		logger, hook := logrustest.NewNullLogger()
+		h := &batchObjectHandlers{
+			manager:             &fakeBatchManager{err: fmt.Errorf("auto create tenants: %w", namespaces.ErrNamespaceSuspended)},
+			metricRequestsTotal: newBatchRequestsTotal(nil, logger),
+		}
+		rec := httptest.NewRecorder()
+		h.addObjects(batch.BatchObjectsCreateParams{
+			HTTPRequest: httptest.NewRequest(http.MethodPost, "/v1/batch/objects", nil),
+			Body:        batch.BatchObjectsCreateBody{Objects: []*models.Object{{Class: "alpha:Movies"}}},
+		}, nil).WriteResponse(rec, runtime.JSONProducer())
+
+		assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+		assert.Contains(t, rec.Body.String(), "namespace is suspended")
+		assert.Empty(t, hook.AllEntries())
+	})
+}
+
+// fakeBatchManager answers AddObjects with err. Its other methods panic.
+type fakeBatchManager struct {
+	batchObjectsManager
+	err error
+}
+
+func (f *fakeBatchManager) AddObjects(context.Context, *models.Principal, []*models.Object,
+	[]*string, *additional.ReplicationProperties,
+) (objects.BatchObjects, error) {
+	return nil, f.err
 }

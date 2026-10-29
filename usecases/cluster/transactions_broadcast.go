@@ -44,7 +44,7 @@ type Client interface {
 }
 
 type MemberLister interface {
-	AllNames() []string
+	NodeLister
 	Hostnames() []string
 }
 

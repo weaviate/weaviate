@@ -65,7 +65,7 @@ func buildManualLayer0(t *testing.T, index *hnsw, n int, conns map[uint64][]uint
 	for id := 0; id < n; id++ {
 		c, err := packedconn.NewWithElements([][]uint64{conns[uint64(id)]})
 		require.Nil(t, err)
-		nodes[id] = &vertex{level: 0, connections: c}
+		nodes[id] = &vertex{level: 0, connections: *c}
 	}
 	index.nodes = nodes
 }

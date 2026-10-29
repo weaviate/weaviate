@@ -17,16 +17,23 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"strconv"
 	"syscall"
 	"testing"
 	"time"
+	"unsafe"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func TestEstimation(t *testing.T) {
@@ -145,10 +152,10 @@ func TestMappings(t *testing.T) {
 	t.Run("current memory settings", func(t *testing.T) {
 		switch runtime.GOOS {
 		case "linux":
-			assert.Greater(t, getCurrentMappings(make([]byte, 32*1024)), int64(0))
-			assert.Less(t, getCurrentMappings(make([]byte, 32*1024)), int64(math.MaxInt64))
+			assert.Greater(t, currentMappings(t), int64(0))
+			assert.Less(t, currentMappings(t), int64(math.MaxInt64))
 		case "darwin":
-			assert.Equal(t, getCurrentMappings(make([]byte, 32*1024)), int64(0))
+			assert.Equal(t, currentMappings(t), int64(0))
 		}
 	})
 
@@ -157,7 +164,8 @@ func TestMappings(t *testing.T) {
 		defer os.Remove(file.Name())
 		defer file.Close()
 
-		result := currentMappingsLinux(file.Name(), make([]byte, 32*1024))
+		result, err := currentMappingsLinux(file.Name(), make([]byte, 32*1024))
+		require.NoError(t, err)
 		assert.Equal(t, int64(5001), result, "Should count exactly 5001 mappings")
 	})
 
@@ -165,13 +173,13 @@ func TestMappings(t *testing.T) {
 		if runtime.GOOS == "darwin" {
 			t.Skip("macOS does not have a limit on mappings")
 		}
-		currentMappings := getCurrentMappings(make([]byte, 32*1024))
+		usedMappings := currentMappings(t)
 		addMappings := 15
-		t.Setenv("MAX_MEMORY_MAPPINGS", strconv.FormatInt(currentMappings+int64(addMappings), 10))
+		t.Setenv("MAX_MEMORY_MAPPINGS", strconv.FormatInt(usedMappings+int64(addMappings), 10))
 		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97)
 		m.Refresh(true)
 
-		mappingsLeft := getMaxMemoryMappings() - currentMappings
+		mappingsLeft := getMaxMemoryMappings() - usedMappings
 		assert.InDelta(t, mappingsLeft, addMappings, 10) // other things can happen at the same time
 		path := t.TempDir()
 
@@ -191,7 +199,7 @@ func TestMappings(t *testing.T) {
 
 			// there might be other processes that use mappings. Don't check any specific number just that we have
 			// reached the limit
-			if mappingsLeft := getMaxMemoryMappings() - getCurrentMappings(make([]byte, 32*1024)); mappingsLeft <= 0 {
+			if mappingsLeft := getMaxMemoryMappings() - currentMappings(t); mappingsLeft <= 0 {
 				limitReached = true
 				break
 			} else {
@@ -243,9 +251,9 @@ func TestMappings(t *testing.T) {
 	})
 
 	t.Run("check reservations", func(t *testing.T) {
-		currentMappings := getCurrentMappings(make([]byte, 32*1024))
+		usedMappings := currentMappings(t)
 		addMappings := 15
-		t.Setenv("MAX_MEMORY_MAPPINGS", strconv.FormatInt(currentMappings+int64(addMappings), 10))
+		t.Setenv("MAX_MEMORY_MAPPINGS", strconv.FormatInt(usedMappings+int64(addMappings), 10))
 		maxMappings := getMaxMemoryMappings()
 		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97)
 		m.Refresh(true)
@@ -266,35 +274,316 @@ func TestMappings(t *testing.T) {
 }
 
 func TestMappingsReservationClearing(t *testing.T) {
-	baseTime, err := time.Parse(time.RFC3339, "2021-01-01T00:00:30Z")
-	require.Nil(t, err)
+	const baseSecond = 30 // seconds since the monitor was built
 	cases := []struct {
-		name             string
-		baseLineShift    int
-		nowShift         int
+		name          string
+		baseLineShift int
+		nowShift      int
+		// keys are the seconds after baseSecond at which a reservation expires
 		reservations     map[int]int64
 		expectedClearing int64
 	}{
 		{name: "no reservations", reservations: map[int]int64{}, expectedClearing: 0},
-		{name: "reservations present, no expiration", nowShift: 1, reservations: map[int]int64{1: 45, 2: 14}, expectedClearing: 0},
-		{name: "reservations present, one expiration", nowShift: 1, reservations: map[int]int64{1: 45, 31: 14}, expectedClearing: 14},
-		{name: "reservations present, clear all", nowShift: 62, reservations: map[int]int64{0: 1, 1: 1, 2: 1, 59: 1}, expectedClearing: 4},
-		{name: "reservations present, clear nothing (same time)", reservations: map[int]int64{0: 1, 30: 1, 2: 1, 59: 1}, expectedClearing: 0},
-		{name: "clear range", nowShift: 20, reservations: map[int]int64{0: 10, 29: 10, 30: 1, 31: 1, 50: 1, 51: 10}, expectedClearing: 2},
-		{name: "clear over minute wraparound", nowShift: 45, reservations: map[int]int64{0: 1, 1: 1, 2: 1, 29: 10, 59: 1}, expectedClearing: 4},
-		{name: "dont clear value of last refresh", nowShift: 2, reservations: map[int]int64{0: 1, 30: 1, 31: 1, 32: 1, 33: 1}, expectedClearing: 2},
+		{name: "reservations present, no expiration", nowShift: 1, reservations: map[int]int64{31: 45, 32: 14}, expectedClearing: 0},
+		{name: "reservations present, one expiration", nowShift: 1, reservations: map[int]int64{31: 45, 1: 14}, expectedClearing: 14},
+		{name: "reservations present, clear all", nowShift: 62, reservations: map[int]int64{30: 1, 31: 1, 32: 1, 29: 1}, expectedClearing: 4},
+		{name: "reservations present, clear all after a long gap", nowShift: 200, reservations: map[int]int64{1: 1, 15: 1, 30: 1, 62: 1}, expectedClearing: 4},
+		{name: "reservations present, clear nothing (same time)", reservations: map[int]int64{30: 1, 0: 1, 32: 1, 29: 1}, expectedClearing: 0},
+		{name: "clear range", nowShift: 20, reservations: map[int]int64{30: 10, 59: 10, 0: 1, 1: 1, 20: 1, 21: 10}, expectedClearing: 2},
+		{name: "clear over the buffer wraparound", nowShift: 45, reservations: map[int]int64{30: 1, 31: 1, 32: 1, 59: 10, 29: 1}, expectedClearing: 4},
+		{name: "clear the current second over the buffer wraparound", nowShift: 45, reservations: map[int]int64{45: 1, 46: 10}, expectedClearing: 1},
+		{name: "clear the whole minute 60 seconds later", nowShift: 60, reservations: map[int]int64{15: 1, 60: 1, 61: 10}, expectedClearing: 2},
+		{name: "clear the whole minute 61 seconds later", nowShift: 61, reservations: map[int]int64{10: 1, 40: 1, 61: 1, 62: 10}, expectedClearing: 3},
+		{name: "dont clear value of last refresh", nowShift: 2, reservations: map[int]int64{30: 1, 0: 1, 1: 1, 2: 1, 3: 1}, expectedClearing: 2},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			baseTimeLocal := baseTime.Add(time.Duration(tt.baseLineShift) * time.Second)
-			now := baseTime.Add(time.Duration(tt.nowShift) * time.Second)
-			reservationBuffer := make([]int64, 62)
-			for i, v := range tt.reservations {
-				reservationBuffer[i] = v
+			reservationBuffer := make([]int64, mappingsEntries)
+			for expiresAfter, v := range tt.reservations {
+				reservationBuffer[reservationSlot(baseSecond+int64(expiresAfter))] += v
 			}
-			require.Equal(t, clearReservedMappings(baseTimeLocal, now, reservationBuffer), tt.expectedClearing)
+			lastCleared := int64(baseSecond + tt.baseLineShift)
+			now := int64(baseSecond + tt.nowShift)
+			require.Equal(t, tt.expectedClearing, clearReservedMappings(lastCleared, now, reservationBuffer))
 		})
 	}
+}
+
+// A reservation outlives its requested time by MappingDelayInS, and a wall-clock
+// step moves no reservation's expiry.
+func TestMappingsReservationHold(t *testing.T) {
+	cases := []struct {
+		name         string
+		reservationS int
+		// a clear runs with a time before the reservation, as a ticker time can
+		laggingClear  bool
+		wallClockStep time.Duration // moves the wall-clock reading of every clear time
+		expectedHoldS int64
+	}{
+		{name: "no reservation time reserves nothing", reservationS: 0, expectedHoldS: 0},
+		{name: "shortest reservation", reservationS: 1, expectedHoldS: 1 + MappingDelayInS},
+		{name: "flush reservation", reservationS: 60, expectedHoldS: 60 + MappingDelayInS},
+		{name: "reservation capped at the buffer", reservationS: 120, expectedHoldS: mappingsEntries},
+		{name: "flush reservation after a lagging clear", reservationS: 60, laggingClear: true, expectedHoldS: 60 + MappingDelayInS},
+		{name: "flush reservation, wall clock steps back 5 s", reservationS: 60, wallClockStep: -5 * time.Second, expectedHoldS: 60 + MappingDelayInS},
+		{name: "flush reservation, wall clock steps forward 40 s", reservationS: 60, wallClockStep: 40 * time.Second, expectedHoldS: 60 + MappingDelayInS},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Monitor{
+				maxMemoryMappings:      1000,
+				reservedMappingsBuffer: make([]int64, mappingsEntries),
+				createdAt:              time.Now().Add(-10 * time.Second),
+			}
+			clearAt := func(second int64) {
+				m.expireReservations(withWallClockStep(t, secondAfterCreation(m, second), tt.wallClockStep))
+			}
+			require.NoError(t, m.CheckMappingAndReserve(5, tt.reservationS))
+			reservedAt := m.lastClearedSecond
+			if tt.laggingClear {
+				clearAt(reservedAt - 1)
+			}
+
+			for s := int64(1); s < tt.expectedHoldS; s++ {
+				clearAt(reservedAt + s)
+				require.Equal(t, int64(5), m.reservedMappings, "expired %d seconds after reserving", s)
+			}
+			clearAt(reservedAt + tt.expectedHoldS)
+			require.Equal(t, int64(0), m.reservedMappings)
+			require.Equal(t, make([]int64, mappingsEntries), m.reservedMappingsBuffer)
+		})
+	}
+}
+
+// Reservations made in the same second share a slot and expire together.
+func TestMappingsReservationsInOneSecond(t *testing.T) {
+	m := &Monitor{
+		maxMemoryMappings:      1000,
+		reservedMappingsBuffer: make([]int64, mappingsEntries),
+		createdAt:              time.Now(),
+	}
+	require.NoError(t, m.CheckMappingAndReserve(3, 60))
+	require.NoError(t, m.CheckMappingAndReserve(3, 60))
+	reservedAt := m.lastClearedSecond
+	require.Equal(t, int64(6), m.reservedMappings)
+
+	m.expireReservations(secondAfterCreation(m, reservedAt+60+MappingDelayInS))
+	require.Equal(t, int64(0), m.reservedMappings)
+}
+
+// The scan calls MappingsReadDue and ReadMappings while shard loads reserve concurrently.
+func TestMappingsReadDueWhileReserving(t *testing.T) {
+	m := &Monitor{
+		maxMemoryMappings:      math.MaxInt64,
+		reservedMappingsBuffer: make([]int64, mappingsEntries),
+		createdAt:              time.Now(),
+		mappingsBuf:            make([]byte, 32*1024),
+	}
+	logger, _ := test.NewNullLogger()
+	scanDone := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		defer close(scanDone)
+		for i := 0; i < 1000; i++ {
+			if now := time.Now(); m.MappingsReadDue(now) {
+				assert.NoError(t, m.ReadMappings(now))
+			}
+		}
+	}, logger)
+	for i := 0; i < 1000; i++ {
+		require.NoError(t, m.CheckMappingAndReserve(3, 60))
+	}
+	<-scanDone
+}
+
+// The scan asks MappingsReadDue on every tick and reads when it says so.
+func TestMappingsReadDue(t *testing.T) {
+	const tick = 500 * time.Millisecond
+	cases := []struct {
+		name     string
+		mappings int // lines in the maps file
+		max      int64
+		early    time.Duration // ticks after the first come this early
+		// mappings are admitted half a tick before this tick, if set
+		admitBeforeTick int
+		failBeforeTick  int // reads before this tick fail
+		ticks           int
+		expectedReads   []int
+	}{
+		{name: "below half the limit", mappings: 100, max: 1000, ticks: 130, expectedReads: []int{0, 60, 120}},
+		{name: "at half the limit", mappings: 500, max: 1000, ticks: 20, expectedReads: []int{0, 4, 8, 12, 16, 20}},
+		{name: "ticks come a nanosecond early", mappings: 500, max: 1000, early: time.Nanosecond, ticks: 20, expectedReads: []int{0, 4, 8, 12, 16, 20}},
+		{name: "mappings admitted since the last read", mappings: 100, max: 1000, admitBeforeTick: 21, ticks: 90, expectedReads: []int{0, 21, 81}},
+		{name: "a failed read is retried", mappings: 100, max: 1000, failBeforeTick: 6, ticks: 70, expectedReads: []int{0, 4, 8, 68}},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			mapsPath := writeMapsFile(t, tt.mappings)
+			missingPath := filepath.Join(t.TempDir(), "missing")
+			start := time.Now()
+			m := &Monitor{
+				maxMemoryMappings:      tt.max,
+				reservedMappingsBuffer: make([]int64, mappingsEntries),
+				createdAt:              start,
+				mappingsBuf:            make([]byte, 32*1024),
+			}
+
+			var reads []int
+			for i := 0; i <= tt.ticks; i++ {
+				now := start.Add(time.Duration(i) * tick)
+				if i > 0 {
+					now = now.Add(-tt.early)
+				}
+				if tt.admitBeforeTick > 0 && i == tt.admitBeforeTick {
+					m.lastMappingsAdmitted = now.Add(-tick / 2)
+				}
+				if !m.MappingsReadDue(now) {
+					continue
+				}
+				reads = append(reads, i)
+				failing := i < tt.failBeforeTick
+				m.mapsPath = mapsPath
+				if failing {
+					m.mapsPath = missingPath
+				}
+				require.Equal(t, failing, m.ReadMappings(now) != nil)
+			}
+			assert.Equal(t, tt.expectedReads, reads)
+		})
+	}
+}
+
+// A failed read keeps the last count, so shard loads are not checked against 0.
+func TestReadMappings(t *testing.T) {
+	cases := []struct {
+		name         string
+		mapsPath     string
+		expectErr    bool
+		expectedUsed int64
+	}{
+		{name: "a read stores the count", mapsPath: writeMapsFile(t, 7), expectedUsed: 7},
+		{name: "a failed read keeps the last count", mapsPath: filepath.Join(t.TempDir(), "missing"), expectErr: true, expectedUsed: 5},
+		{name: "a read failing after the open keeps the last count", mapsPath: t.TempDir(), expectErr: true, expectedUsed: 5},
+		{name: "an OS without a maps file counts 0", mapsPath: "", expectedUsed: 0},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			lastRead := time.Now().Add(-time.Minute)
+			now := time.Now()
+			m := &Monitor{
+				usedMappings:     5,
+				lastMappingsRead: lastRead,
+				mapsPath:         tt.mapsPath,
+				mappingsBuf:      make([]byte, 32*1024),
+			}
+
+			monitoring.GetMetrics().MmapProcMaps.Set(5)
+			err := m.ReadMappings(now)
+			assert.Equal(t, tt.expectedUsed, m.usedMappings)
+			assert.Equal(t, float64(tt.expectedUsed), testutil.ToFloat64(monitoring.GetMetrics().MmapProcMaps))
+			if tt.expectErr {
+				require.Error(t, err)
+				assert.Equal(t, lastRead, m.lastMappingsRead)
+				assert.Equal(t, now, m.lastMappingsReadFailed)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, now, m.lastMappingsRead)
+			}
+		})
+	}
+}
+
+func TestMappingsRefreshInterval(t *testing.T) {
+	nearLimit := MappingDelayInS * time.Second
+	cases := []struct {
+		name     string
+		used     int64
+		max      int64
+		reserved int64 // expires after the interval is asked for
+		expired  int64 // expired when the interval is asked for
+		// CheckMappingAndReserve is asked for this many mappings
+		admittedBeforeRead int64
+		admittedAfterRead  int64
+		refusedAfterRead   int64
+		readFailedAgo      time.Duration // a read failed this long ago, if set
+		expected           time.Duration
+	}{
+		{name: "just below half the limit", used: 499, max: 1000, expected: mappingsRefreshFarFromLimit},
+		{name: "at half the limit", used: 500, max: 1000, expected: nearLimit},
+		{name: "past the limit", used: 1200, max: 1000, expected: nearLimit},
+		{name: "reservations reach half the limit", used: 400, reserved: 100, max: 1000, expected: nearLimit},
+		{name: "expired reservations do not count", used: 400, expired: 100, max: 1000, expected: mappingsRefreshFarFromLimit},
+		{name: "mappings admitted since the last read", used: 100, max: 1000, admittedAfterRead: 3, expected: nearLimit},
+		{name: "mappings admitted before the last read", used: 100, max: math.MaxInt64, admittedBeforeRead: 3, expected: mappingsRefreshFarFromLimit},
+		{name: "refused mappings since the last read", used: 100, max: 1000, refusedAfterRead: 2000, expected: mappingsRefreshFarFromLimit},
+		{name: "no limit", used: 0, max: math.MaxInt64, expected: mappingsRefreshFarFromLimit},
+		{name: "the last read failed", used: 100, max: 1000, readFailedAgo: 30 * time.Second, expected: nearLimit},
+		{name: "a read succeeded after the last failure", used: 100, max: 1000, readFailedAgo: 2 * time.Minute, expected: mappingsRefreshFarFromLimit},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			now := time.Now()
+			m := &Monitor{
+				maxMemoryMappings:      tt.max,
+				usedMappings:           tt.used,
+				reservedMappingsBuffer: make([]int64, mappingsEntries),
+				createdAt:              now.Add(-time.Minute),
+				lastClearedSecond:      59,
+				lastMappingsRead:       now.Add(-time.Minute),
+			}
+			if tt.readFailedAgo > 0 {
+				m.lastMappingsReadFailed = now.Add(-tt.readFailedAgo)
+			}
+			m.reservedMappingsBuffer[reservationSlot(61)] = tt.reserved
+			m.reservedMappingsBuffer[reservationSlot(60)] = tt.expired
+			m.reservedMappings = tt.reserved + tt.expired
+
+			if tt.admittedBeforeRead > 0 {
+				require.NoError(t, m.CheckMappingAndReserve(tt.admittedBeforeRead, 60))
+				require.NoError(t, m.ReadMappings(time.Now()))
+			}
+			if tt.admittedAfterRead > 0 {
+				require.NoError(t, m.CheckMappingAndReserve(tt.admittedAfterRead, 60))
+			}
+			if tt.refusedAfterRead > 0 {
+				require.ErrorIs(t, m.CheckMappingAndReserve(tt.refusedAfterRead, 60), enterrors.ErrNotEnoughMappings)
+			}
+
+			assert.Equal(t, tt.expected, m.mappingsRefreshInterval(now))
+		})
+	}
+}
+
+// currentMappings counts this process's memory mappings, or 0 outside Linux.
+func currentMappings(t *testing.T) int64 {
+	t.Helper()
+	used, err := getCurrentMappings(procMapsPath(), make([]byte, 32*1024))
+	require.NoError(t, err)
+	return used
+}
+
+func writeMapsFile(t *testing.T, mappings int) string {
+	t.Helper()
+	file := createTestMappingsFile(t, mappings)
+	require.NoError(t, file.Close())
+	t.Cleanup(func() { os.Remove(file.Name()) })
+	return file.Name()
+}
+
+func secondAfterCreation(m *Monitor, second int64) time.Time {
+	return m.createdAt.Add(time.Duration(second) * time.Second)
+}
+
+// withWallClockStep moves t's wall-clock reading by step and keeps its monotonic
+// reading, as an NTP correction does.
+func withWallClockStep(tb testing.TB, t time.Time, step time.Duration) time.Time {
+	tb.Helper()
+	stepped := t
+	// with a monotonic reading, the first word of a time.Time holds wall-clock seconds from bit 30
+	wall := (*uint64)(unsafe.Pointer(&stepped))
+	*wall += uint64(int64(step/time.Second)) << 30
+	require.Equal(tb, t.Unix()+int64(step/time.Second), stepped.Unix(), "time.Time no longer has the expected layout")
+	require.Zero(tb, stepped.Sub(t), "time.Time no longer has the expected layout")
+	return stepped
 }
 
 type fakeHeapReader struct {
@@ -387,7 +676,10 @@ func BenchmarkCurrentMappingsLinuxComparison(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			buf := make([]byte, 32*1024)
-			result := currentMappingsLinux(filePath, buf)
+			result, err := currentMappingsLinux(filePath, buf)
+			if err != nil {
+				b.Fatal(err)
+			}
 			if result != 100000 {
 				b.Fatalf("Expected 100000 mappings, got %d", result)
 			}

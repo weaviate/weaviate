@@ -16,18 +16,20 @@ import (
 	"fmt"
 	"net/http"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
-// HTTPStatusForNamespaceErr maps a namespace/collection lifecycle sentinel
-// to its REST status: the terminal family (deleting, not-empty,
-// invalid-state, suspended, invalid-transition) renders 422, a resuming
-// namespace renders 503. ok is false for anything else, so the caller falls
-// through to its own default.
+// HTTPStatusForNamespaceErr maps a missing license key to 403, a resuming
+// namespace to 503, and the other lifecycle errors (deleting, not-empty,
+// invalid-state, suspended, invalid-transition) to 422. ok is false for any other err.
 func HTTPStatusForNamespaceErr(err error) (status int, ok bool) {
 	switch {
+	case errors.Is(err, license.ErrRequired):
+		return http.StatusForbidden, true
 	case errors.Is(err, namespaces.ErrNamespaceResuming):
 		return http.StatusServiceUnavailable, true
 	case errors.Is(err, namespaces.ErrNamespaceDeleting),
@@ -60,20 +62,25 @@ func NamespaceErrRendersUnprocessable(err error) bool {
 // callers to leave the message unchanged. A nil err is tolerated and yields
 // fmt's standard "<nil>" rendering rather than panicking, since this helper
 // sits on dozens of REST error paths and a missed err-guard upstream should
-// not crash the handler.
+// not crash the handler. The namespace is stripped before the docs link is
+// appended: a namespace named "https" must not cut the link's scheme.
 func ErrPayloadFromSingleErr(principal *models.Principal, err error) *models.ErrorResponse {
+	msg := namespacing.StripErrorMessage(principal, fmt.Sprintf("%v", err))
 	return &models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{
-		Message: namespacing.StripErrorMessage(principal, fmt.Sprintf("%v", err)),
+		Message: enterrors.AppendDocsLink(msg, err),
 	}}}
 }
 
-// restrictionViolationFromErr wraps a non-restriction error into the
+// ErrRestrictionViolation wraps a non-restriction error into the
 // same RestrictionViolationResponse shape so handlers can return both
-// 422 cases through the same swagger-generated payload type.
+// 422 cases through the same swagger-generated payload type. Like
+// ErrPayloadFromSingleErr, the namespace is stripped before the docs
+// link is appended.
 func ErrRestrictionViolation(principal *models.Principal, err error) *models.RestrictionViolationResponse {
+	msg := namespacing.StripErrorMessage(principal, fmt.Sprintf("%v", err))
 	return &models.RestrictionViolationResponse{
 		Error: []*models.RestrictionViolationResponseErrorItems0{{
-			Message: namespacing.StripErrorMessage(principal, fmt.Sprintf("%v", err)),
+			Message: enterrors.AppendDocsLink(msg, err),
 		}},
 	}
 }

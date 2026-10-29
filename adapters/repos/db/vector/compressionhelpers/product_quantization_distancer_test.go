@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -78,6 +79,54 @@ func TestPQDistancerQueryDimensionMismatch(t *testing.T) {
 			}
 
 			pq.ReturnDistancer(d)
+		})
+	}
+}
+
+// TestPQRestoreWithShortKMeansEncoders pins that restoring PQ from k-means
+// encoders with fewer centers than the configured centroids fails instead of
+// panicking while building the distance table. Corrupt commit log data can
+// decode as such encoders.
+func TestPQRestoreWithShortKMeansEncoders(t *testing.T) {
+	nullLogger, _ := logrustest.NewNullLogger()
+	encoders := func(centers int) []compression.PQSegmentEncoder {
+		out := make([]compression.PQSegmentEncoder, 0, 2)
+		for s := 0; s < 2; s++ {
+			c := make([][]float32, centers)
+			for i := range c {
+				c[i] = []float32{float32(i), float32(s)}
+			}
+			out = append(out, compressionhelpers.NewKMeansEncoderWithCenters(centers, 2, s, c))
+		}
+		return out
+	}
+
+	tests := []struct {
+		name    string
+		centers int
+		wantErr bool
+	}{
+		{name: "no centers", centers: 0, wantErr: true},
+		{name: "fewer centers than configured", centers: 1, wantErr: true},
+		{name: "as many centers as configured", centers: 4},
+		{name: "more centers than configured", centers: 8},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := ent.PQConfig{
+				Enabled:   true,
+				Encoder:   ent.PQEncoder{Type: ent.PQEncoderTypeKMeans, Distribution: ent.DefaultPQEncoderDistribution},
+				Centroids: 4,
+			}
+			require.NotPanics(t, func() {
+				_, err := compressionhelpers.NewProductQuantizerWithEncoders(cfg, distancer.NewL2SquaredProvider(), 4, encoders(tc.centers), nullLogger)
+				if tc.wantErr {
+					require.ErrorContains(t, err, "centers")
+				} else {
+					require.NoError(t, err)
+				}
+			})
 		})
 	}
 }

@@ -868,7 +868,7 @@ func TestIndexCleanStalePartialReindexStateSweepsALoadedShardUnconditionally(t *
 		idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
 		false, idx.bitmapBufPool)
 	idx.shards.Store(tenant, lazy)
-	_, err := lazy.Unwrap(ctx)
+	_, _, err := lazy.loadIfCold(ctx)
 	require.NoError(t, err)
 	defer lazy.Shutdown(context.Background())
 	lsm := shardPathLSM(idx.path(), tenant)
@@ -1026,7 +1026,8 @@ func TestLazyLoadShardCanSkipUnloadedSweep(t *testing.T) {
 				}
 			}()
 			if tc.load {
-				require.NoError(t, lazy.Load(ctx))
+				_, _, err := lazy.loadIfCold(ctx)
+				require.NoError(t, err)
 			}
 
 			gotSkip, _ := lazy.canSkipUnloadedSweep(propName, indexType, nil, nil)

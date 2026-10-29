@@ -54,7 +54,7 @@ func (m *Manager) CreateUser(c *cmd.ApplyRequest) error {
 
 	// No namespace-state check here: a committed create must apply on every
 	// binary. Store.admitCreateLike refuses it before the append.
-	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier, req.ApiKeyFirstLetters, req.Namespace, req.CreatedAt)
+	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier, req.ApiKeyFirstLetters, req.Namespace, req.CreatedAt, req.ExpiresAt)
 }
 
 func (m *Manager) CreateUserWithKeyRequest(c *cmd.ApplyRequest) error {
@@ -117,6 +117,18 @@ func (m *Manager) SuspendUser(c *cmd.ApplyRequest) error {
 	}
 
 	return m.dynUser.DeactivateUser(req.UserId, req.RevokeKey)
+}
+
+func (m *Manager) UpdateUser(c *cmd.ApplyRequest) error {
+	if m.dynUser == nil {
+		return nil
+	}
+	req := &cmd.UpdateUserRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return m.dynUser.UpdateUser(req.UserId, apikey.UserUpdate{ExpiresAt: req.ExpiresAt})
 }
 
 func (m *Manager) RotateKey(c *cmd.ApplyRequest) error {

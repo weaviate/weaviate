@@ -197,7 +197,19 @@
 //
 //   - The framework does NOT re-assign units claimed by a crashed node to other nodes.
 //     The crashed node must eventually restart for its IN_PROGRESS units to complete.
-//     If a node is permanently lost, the task must be cancelled manually.
+//     If a node is permanently lost and the task carries a stale_timeout_ms, the
+//     stale-node detector proposes force-terminate(FAILED) naming the node.
+//     Consumers that need an operator-facing exit build their own endpoint on
+//     top of the [ForceTerminator] interface (e.g. backup adds ?force=true on
+//     its cancel endpoint). The framework ships the mechanism; no generic REST
+//     endpoint exists.
+//
+// # Payload secrecy
+//
+// Task payloads are replicated verbatim in the Raft log and stored in
+// every node's snapshot. Do NOT place secrets (credentials, tokens,
+// encryption keys) in task payloads. Backend credentials come from
+// module/env config, never from the payload.
 //
 // Typical idempotency patterns:
 //

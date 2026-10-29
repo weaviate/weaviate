@@ -217,6 +217,7 @@ func TestNamespaceLocalRoles(t *testing.T) {
 		assert.True(t, names["visible"], "namespaced admin should see its own role (stripped)")
 		assert.False(t, names[authorization.Root], "root must stay hidden")
 		assert.False(t, names[authorization.ReadOnly], "read-only must stay hidden")
+		assert.False(t, names[authorization.MetadataReader], "operator-reserved metadata reader must stay hidden")
 		assert.False(t, names["hidden"], "another namespace's role must stay hidden")
 		assert.False(t, names[ns2+":hidden"], "another namespace's role must stay hidden (qualified)")
 	})
@@ -481,7 +482,7 @@ func TestNamespaceLocalRoles(t *testing.T) {
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
 			_, err := helper.ListObjectsAuth(t, "Docs", readerKey)
 			assert.NoError(c, err)
-		}, 15*time.Second, 100*time.Millisecond, "read_data role never became effective for the new user")
+		}, helper.DBUserKeyTimeout, 100*time.Millisecond, "read_data role never became effective for the new user")
 
 		// read_data grants reads, so a write (create object) is denied.
 		err := helper.CreateObjectAuth(t, &models.Object{
@@ -547,7 +548,7 @@ func TestNamespaceLocalRoles(t *testing.T) {
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
 			_, err := helper.ListObjectsAuth(t, "Revdocs", readerKey)
 			assert.NoError(c, err)
-		}, 15*time.Second, 100*time.Millisecond, "read_data role never became effective for the new user")
+		}, helper.DBUserKeyTimeout, 100*time.Millisecond, "read_data role never became effective for the new user")
 
 		// After revoke the read must start failing with a forbidden.
 		helper.RevokeRoleFromUser(t, u1Key, "revreader", "revreader1")

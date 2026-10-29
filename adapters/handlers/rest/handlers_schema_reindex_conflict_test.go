@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // gateWithTasks builds the schema handler with just enough wiring for
@@ -35,6 +36,7 @@ import (
 // schema FSM's mutation guard.
 func gateWithTasks(tasks ...*distributedtask.Task) *schemaHandlers {
 	return &schemaHandlers{
+		qualifier:           namespacing.Disabled,
 		metricRequestsTotal: newSchemaRequestsTotal(nil, logrus.New()),
 		// allow-all authorizer: these tests are about the conflict gate, not authz
 		authorizer: &authorization.DummyAuthorizer{},

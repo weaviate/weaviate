@@ -40,22 +40,9 @@ func TestBigramModule_Init(t *testing.T) {
 	mod := New()
 	params := moduletools.NewMockModuleInitParams(t)
 	params.EXPECT().GetLogger().Return(logrus.New())
-	params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
 	err := mod.Init(context.Background(), params)
 	assert.NoError(t, err)
 	assert.Equal(t, "alphabet", mod.activeVectoriser)
-}
-
-type fakeStorageProvider struct {
-	dataPath string
-}
-
-func (f *fakeStorageProvider) Storage(name string) (moduletools.Storage, error) {
-	return nil, nil
-}
-
-func (f *fakeStorageProvider) DataPath() string {
-	return f.dataPath
 }
 
 func TestBigramModule_VectorizeInput(t *testing.T) {

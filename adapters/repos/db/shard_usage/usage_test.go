@@ -234,7 +234,16 @@ func TestStorageCalculation(t *testing.T) {
 		helpers.BucketNestedMetaFromPropNameLSM("someNestedProp"),
 		emptyBucket,
 	}
-	buckets := append([]string{helpers.ObjectsBucketLSM, "vectors", "vectors_compressed", "vectors_compressed_named_vector"}, indexBuckets...)
+	// hfresh keeps its postings (the RQ-coded vectors) and shared metadata in two
+	// buckets of the shard store, named off the index ID: "main" for the legacy
+	// vector, "vectors_<name>" for a named one
+	vectorBuckets := []string{
+		"vectors", "vectors_compressed", "vectors_compressed_named_vector",
+		"hfresh_postings_main", "hfresh_shared_main",
+		"hfresh_postings_vectors_named_vector", "hfresh_shared_vectors_named_vector",
+	}
+	buckets := append([]string{helpers.ObjectsBucketLSM}, vectorBuckets...)
+	buckets = append(buckets, indexBuckets...)
 	sizeTracker := make(map[string]uint64, len(buckets))
 
 	// create different buckets with dummy files with varying sizes
@@ -276,7 +285,11 @@ func TestStorageCalculation(t *testing.T) {
 	vectorMetrics, err := CalculateUnloadedVectorsMetrics(lsmFolder, buckets)
 	require.NoError(t, err)
 	vectorBytes := uint64(vectorMetrics.StorageBytes)
-	require.Equal(t, sizeTracker["vectors"]+sizeTracker["vectors_compressed"]+sizeTracker["vectors_compressed_named_vector"], vectorBytes)
+	expectedVectorBytes := uint64(0)
+	for _, bucket := range vectorBuckets {
+		expectedVectorBytes += sizeTracker[bucket]
+	}
+	require.Equal(t, expectedVectorBytes, vectorBytes)
 
 	indexBytes, err := CalculateUnloadedIndicesSize(lsmFolder, buckets)
 	require.NoError(t, err)

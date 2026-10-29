@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -26,6 +27,8 @@ import (
 	routertypes "github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
@@ -295,4 +298,59 @@ func TestNoteHashbeatSkipEscalatesAfterConsecutiveRuns(t *testing.T) {
 	s.asyncRepConsecutiveSkips.Store(0)
 	s.noteHashbeatSkip(skipErr, time.Hour)
 	require.Equal(t, 1, warns())
+}
+
+// TestHashBeatRejectsUnreadyHashtree pins hashBeat as the authoritative readiness gate: runEntry's snapshot is stale by the time it runs.
+// The ready row is the positive control; it clears the gate and panics on the nil replicator underneath.
+func TestHashBeatRejectsUnreadyHashtree(t *testing.T) {
+	ht, err := hashtree.NewHashTree(4)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name         string
+		hashtree     hashtree.AggregatedHashTree
+		ready        bool
+		wantSentinel bool
+		wantPanic    bool
+	}{
+		{name: "nilHashtree", wantSentinel: true},
+		{name: "unreadyHashtree", hashtree: ht, wantSentinel: true},
+		{name: "readyHashtree", hashtree: ht, ready: true, wantPanic: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := logrustest.NewNullLogger()
+			className := "HashBeatGate" + tc.name
+			m, err := NewMetrics(logger, monitoring.GetMetrics(), className, "S")
+			require.NoError(t, err)
+
+			s := &Shard{
+				index:                    &Index{Config: IndexConfig{ClassName: schema.ClassName(className)}, logger: logger},
+				class:                    &models.Class{Class: className},
+				name:                     "S",
+				metrics:                  m,
+				hashtree:                 tc.hashtree,
+				hashtreeFullyInitialized: tc.ready,
+			}
+
+			failuresBefore := testutil.ToFloat64(m.asyncReplicationIterationFailureCount)
+
+			var beatErr error
+			panicked := func() (panicked bool) {
+				defer func() { panicked = recover() != nil }()
+				_, beatErr = s.hashBeat(context.Background(), AsyncReplicationConfig{
+					hashtreeHeight:     4,
+					diffPerNodeTimeout: time.Second,
+				})
+				return
+			}()
+
+			require.Equal(t, tc.wantPanic, panicked)
+			if tc.wantSentinel {
+				require.ErrorIs(t, beatErr, errAsyncReplicationNotActive)
+			}
+			require.Equal(t, failuresBefore, testutil.ToFloat64(m.asyncReplicationIterationFailureCount))
+		})
+	}
 }

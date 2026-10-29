@@ -5,11 +5,12 @@
 
 ###############################################################################
 # Base build image
-FROM golang:1.26-alpine AS build_base
+FROM golang:1.27-alpine AS build_base
 ENV GO111MODULE=on
 RUN apk add --no-cache bash ca-certificates git gcc g++ libc-dev
 WORKDIR /go/src/github.com/weaviate/weaviate
 COPY go.mod go.sum ./
+COPY grpc/generated/protocol/go.mod grpc/generated/protocol/go.sum ./grpc/generated/protocol/
 # Retry to ride out transient proxy.golang.org flakes; http2client=0 forces HTTP/1.1,
 # which avoids the HTTP/2 "stream INTERNAL_ERROR" class seen mid-download.
 RUN for i in 1 2 3 4 5; do \
@@ -55,8 +56,11 @@ ENTRYPOINT ["./tools/dev/telemetry_mock_api.sh"]
 ###############################################################################
 # Weaviate (no differentiation between dev/test/prod - 12 factor!)
 FROM alpine:3.24 AS weaviate
+# Raise or add a pin when an image scan reports a fixed package. CI reuses this
+# layer from its build cache until the RUN line changes, so `apk upgrade` alone
+# never picks up the fix.
 RUN apk upgrade --no-cache && \
-    apk add --no-cache bc ca-certificates "openssl>=3.5.8-r0" && mkdir ./modules
+    apk add --no-cache bc ca-certificates "openssl>=3.5.8-r0" "zlib>=1.3.2-r1" && mkdir ./modules
 COPY --from=server_builder /weaviate-server /bin/weaviate
 COPY --from=server_builder /runtime/go-ego/ /go/pkg/mod/github.com/go-ego/
 ENTRYPOINT ["/bin/weaviate"]

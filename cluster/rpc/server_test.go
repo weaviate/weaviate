@@ -349,6 +349,30 @@ func TestApply(t *testing.T) {
 			},
 		},
 		{
+			name:     "Apply unknown command reaches the caller as Unimplemented",
+			members:  &MockMembers{},
+			executor: &MockExecutor{},
+			testFunc: func(t *testing.T, leaderAddr string, members *MockMembers, executor *MockExecutor) {
+				logger, _ := logrustest.NewNullLogger()
+				server := NewServer(members, executor, leaderAddr, raftGrpcMessageMaxSize, false, sm, logger)
+				assert.Nil(t, server.Open())
+				defer server.Close()
+				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false, logrus.StandardLogger())
+				defer client.Close()
+
+				n := 0
+				executor.ef = func() error {
+					n++
+					return types.ErrUnknownCommand
+				}
+
+				_, err := client.Apply(context.TODO(), leaderAddr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
+				assert.Equal(t, codes.Unimplemented, status.Code(err))
+				assert.ErrorIs(t, err, types.ErrUnknownCommand)
+				assert.Equal(t, 1, n, "Unimplemented must not be retried")
+			},
+		},
+		{
 			name:     "Apply success",
 			members:  &MockMembers{},
 			executor: &MockExecutor{},
@@ -468,10 +492,11 @@ func TestToRPCError(t *testing.T) {
 }
 
 type MockMembers struct {
-	leader    string
-	errJoin   error
-	errNotify error
-	errRemove error
+	leader      string
+	commitIndex uint64
+	errJoin     error
+	errNotify   error
+	errRemove   error
 }
 
 func (m *MockMembers) Join(id string, addr string, voter bool) error {
@@ -488,6 +513,10 @@ func (m *MockMembers) Remove(id string) error {
 
 func (m *MockMembers) Leader() string {
 	return m.leader
+}
+
+func (m *MockMembers) CommitIndex() uint64 {
+	return m.commitIndex
 }
 
 type MockExecutor struct {

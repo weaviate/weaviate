@@ -31,11 +31,12 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 	var (
-		vectorRepo      *fakeVectorRepo
+		vectorRepo      *fakeObjectFinder
 		modulesProvider *fakeModulesProvider
 		manager         *Manager
 		schemaManager   *fakeSchemaManager
@@ -62,7 +63,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 	}
 
 	resetAutoSchema := func(autoSchemaEnabled bool) {
-		vectorRepo = &fakeVectorRepo{}
+		vectorRepo = &fakeObjectFinder{}
 		vectorRepo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
 		schemaManager = &fakeSchemaManager{
 			GetSchemaResponse: sch,
@@ -82,7 +83,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		metrics := &fakeMetrics{}
 		manager = NewManager(schemaManager, cfg, logger, authorizer,
 			vectorRepo, modulesProvider, metrics, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 	}
 
 	reset := func() {
@@ -192,6 +193,24 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 
 		_, err := manager.AddObject(ctx, nil, class, nil)
 		assert.Equal(t, NewErrInvalidUserInput("id '%s' already exists", id), err)
+	})
+
+	t.Run("with a uuid whose existence check fails", func(t *testing.T) {
+		reset()
+
+		ctx := context.Background()
+		id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
+		class := &models.Object{
+			ID:    id,
+			Class: "Foo",
+		}
+
+		checkErr := errors.New("owner node unreachable")
+		vectorRepo.On("Exists", "Foo", id).Return(true, checkErr).Once()
+
+		_, err := manager.AddObject(ctx, nil, class, nil)
+		require.ErrorAs(t, err, &ErrInternal{})
+		require.ErrorIs(t, err, checkErr)
 	})
 
 	t.Run("with a uuid that's malformed", func(t *testing.T) {
@@ -316,7 +335,7 @@ func Test_Add_Object_Uses_Max_SchemaVersion_For_Write(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			sch := schema.Schema{Objects: &models.Schema{Classes: tt.classes}}
-			vectorRepo := &fakeVectorRepo{}
+			vectorRepo := &fakeObjectFinder{}
 			vectorRepo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
 			schemaManager := &fakeSchemaManager{
 				GetSchemaResponse:       sch,
@@ -331,7 +350,7 @@ func Test_Add_Object_Uses_Max_SchemaVersion_For_Write(t *testing.T) {
 			modulesProvider := getFakeModulesProvider()
 			metrics := &fakeMetrics{}
 			manager := NewManager(schemaManager, cfg, logger, authorizer, vectorRepo, modulesProvider, metrics, nil,
-				NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+				NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 
 			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).Return(nil, nil)
 
@@ -351,7 +370,7 @@ func Test_Add_Object_Uses_Max_SchemaVersion_For_Write(t *testing.T) {
 
 func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 	var (
-		vectorRepo      *fakeVectorRepo
+		vectorRepo      *fakeObjectFinder
 		modulesProvider *fakeModulesProvider
 		manager         *Manager
 	)
@@ -369,7 +388,7 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 	}
 
 	reset := func() {
-		vectorRepo = &fakeVectorRepo{}
+		vectorRepo = &fakeObjectFinder{}
 		vectorRepo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
@@ -382,7 +401,7 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 		modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 		manager = NewManager(schemaManager, cfg, logger, authorizer,
 			vectorRepo, modulesProvider, metrics, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 	}
 
 	t.Run("without an id set", func(t *testing.T) {
@@ -465,7 +484,7 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 
 func Test_Add_Object_OverrideVectorizer(t *testing.T) {
 	var (
-		vectorRepo      *fakeVectorRepo
+		vectorRepo      *fakeObjectFinder
 		modulesProvider *fakeModulesProvider
 		manager         *Manager
 	)
@@ -483,7 +502,7 @@ func Test_Add_Object_OverrideVectorizer(t *testing.T) {
 	}
 
 	reset := func() {
-		vectorRepo = &fakeVectorRepo{}
+		vectorRepo = &fakeObjectFinder{}
 		vectorRepo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
@@ -495,7 +514,7 @@ func Test_Add_Object_OverrideVectorizer(t *testing.T) {
 		metrics := &fakeMetrics{}
 		manager = NewManager(schemaManager, cfg, logger,
 			authorizer, vectorRepo, modulesProvider, metrics, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 	}
 
 	t.Run("overriding the vector by explicitly specifying it", func(t *testing.T) {
@@ -521,7 +540,7 @@ func Test_Add_Object_OverrideVectorizer(t *testing.T) {
 
 func Test_AddObjectEmptyProperties(t *testing.T) {
 	var (
-		vectorRepo      *fakeVectorRepo
+		vectorRepo      *fakeObjectFinder
 		modulesProvider *fakeModulesProvider
 		manager         *Manager
 	)
@@ -544,7 +563,7 @@ func Test_AddObjectEmptyProperties(t *testing.T) {
 		},
 	}
 	reset := func() {
-		vectorRepo = &fakeVectorRepo{}
+		vectorRepo = &fakeObjectFinder{}
 		vectorRepo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
@@ -556,7 +575,7 @@ func Test_AddObjectEmptyProperties(t *testing.T) {
 		metrics := &fakeMetrics{}
 		manager = NewManager(schemaManager, cfg, logger,
 			authorizer, vectorRepo, modulesProvider, metrics, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 	}
 	reset()
 	ctx := context.Background()
@@ -574,7 +593,7 @@ func Test_AddObjectEmptyProperties(t *testing.T) {
 
 func Test_AddObjectWithUUIDProps(t *testing.T) {
 	var (
-		vectorRepo      *fakeVectorRepo
+		vectorRepo      *fakeObjectFinder
 		modulesProvider *fakeModulesProvider
 		manager         *Manager
 	)
@@ -600,7 +619,7 @@ func Test_AddObjectWithUUIDProps(t *testing.T) {
 		},
 	}
 	reset := func() {
-		vectorRepo = &fakeVectorRepo{}
+		vectorRepo = &fakeObjectFinder{}
 		vectorRepo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
@@ -613,6 +632,7 @@ func Test_AddObjectWithUUIDProps(t *testing.T) {
 		manager = NewManager(schemaManager, cfg, logger,
 			authorizer, vectorRepo, modulesProvider, metrics, nil,
 			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()),
+			namespacing.Disabled,
 		)
 	}
 	reset()

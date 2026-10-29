@@ -101,8 +101,11 @@ func (s *ShardReplicationFSM) checkNoConflictingOp(op ShardReplicationOp, existi
 		switch {
 		case status.GetCurrentState() == api.CANCELLED:
 			continue
-		case status.GetCurrentState() == api.READY && existingOp.TransferType == api.COPY:
+		case status.GetCurrentState() == api.READY && (existingOp.TransferType == api.COPY || existingOp.TransferType == api.SELF_RECOVERY):
 			continue
+		// a second in-flight op writing the same target dir corrupts the copy
+		case scope == "target" && op.TransferType == api.SELF_RECOVERY:
+			return fmt.Errorf("op %s: target replica already has in-flight op %d: %w", op.UUID, existingOp.ID, ErrShardAlreadyReplicating)
 		case existingOp.TransferType == api.MOVE:
 			return fmt.Errorf("existing op %s shares a %s replica and is a MOVE: %w", op.UUID, scope, ErrShardAlreadyReplicating)
 		case op.TransferType == api.MOVE:
@@ -150,6 +153,10 @@ func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdate
 
 	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Dec()
 	status.ChangeState(c.State)
+	// FINALIZING promotes a SELF_RECOVERY copy over the live dir; a cancel past it would route an undrained replica.
+	if op.TransferType == api.SELF_RECOVERY && c.State == api.FINALIZING && !status.ShouldCancel {
+		status.UnCancellable = true
+	}
 	s.statusById[op.ID] = status
 	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Inc()
 	return nil

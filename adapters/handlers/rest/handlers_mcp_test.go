@@ -14,24 +14,32 @@ package rest
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/require"
 )
 
 func TestMCPGate(t *testing.T) {
+	unknownVersionBody := `{"error":"unsupported MCP protocol version: 2024-01-01. Supported versions: ` +
+		strings.Join(mcplib.ValidProtocolVersions, ", ") + `"}`
+
 	tests := []struct {
 		name       string
 		method     string
 		enabled    bool
+		version    string
 		wantStatus int
 		wantServed bool
+		wantBody   string
 	}{
 		{
 			name:       "POST while disabled reports 503",
 			method:     http.MethodPost,
 			enabled:    false,
 			wantStatus: http.StatusServiceUnavailable,
+			wantBody:   mcpDisabledBody,
 		},
 		{
 			name:       "POST while enabled reaches the MCP server",
@@ -45,6 +53,7 @@ func TestMCPGate(t *testing.T) {
 			method:     http.MethodDelete,
 			enabled:    false,
 			wantStatus: http.StatusServiceUnavailable,
+			wantBody:   mcpDisabledBody,
 		},
 		{
 			name:       "DELETE while enabled reaches the MCP server",
@@ -52,6 +61,38 @@ func TestMCPGate(t *testing.T) {
 			enabled:    true,
 			wantStatus: http.StatusOK,
 			wantServed: true,
+		},
+		{
+			name:       "POST with a supported protocol version reaches the MCP server",
+			method:     http.MethodPost,
+			enabled:    true,
+			version:    mcplib.LATEST_PROTOCOL_VERSION,
+			wantStatus: http.StatusOK,
+			wantServed: true,
+		},
+		{
+			name:       "POST with an unsupported protocol version reports 400",
+			method:     http.MethodPost,
+			enabled:    true,
+			version:    "2024-01-01",
+			wantStatus: http.StatusBadRequest,
+			wantBody:   unknownVersionBody,
+		},
+		{
+			name:       "POST with a newer protocol version is left to the MCP server",
+			method:     http.MethodPost,
+			enabled:    true,
+			version:    "2099-01-01",
+			wantStatus: http.StatusOK,
+			wantServed: true,
+		},
+		{
+			name:       "an unsupported protocol version while disabled still reports 503",
+			method:     http.MethodPost,
+			enabled:    false,
+			version:    "2024-01-01",
+			wantStatus: http.StatusServiceUnavailable,
+			wantBody:   mcpDisabledBody,
 		},
 	}
 
@@ -66,14 +107,18 @@ func TestMCPGate(t *testing.T) {
 				}),
 			)
 
+			req := httptest.NewRequest(tt.method, "/v1/mcp", nil)
+			if tt.version != "" {
+				req.Header.Set("MCP-Protocol-Version", tt.version)
+			}
 			w := httptest.NewRecorder()
-			gate.ServeHTTP(w, httptest.NewRequest(tt.method, "/v1/mcp", nil))
+			gate.ServeHTTP(w, req)
 
 			require.Equal(t, tt.wantStatus, w.Code)
 			require.Equal(t, tt.wantServed, served)
-			if !tt.enabled {
+			if tt.wantBody != "" {
 				require.Equal(t, "application/json", w.Header().Get("Content-Type"))
-				require.JSONEq(t, mcpDisabledBody, w.Body.String())
+				require.JSONEq(t, tt.wantBody, w.Body.String())
 			}
 		})
 	}

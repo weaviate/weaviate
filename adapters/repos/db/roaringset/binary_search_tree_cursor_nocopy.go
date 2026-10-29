@@ -22,8 +22,10 @@ import (
 // [NewBinarySearchTreeCursor], it allocates nothing but itself.
 //
 // It locks nothing. The caller must hold the tree's read lock for the cursor's
-// whole lifetime, or otherwise keep writers away. What it yields belongs to the
-// tree, so anything kept past that lock must be copied.
+// whole lifetime, or otherwise keep writers away. A key is assigned once when
+// its node is created and the tree has no removal, so a key may be held past
+// that lock; the bitmaps belong to the tree and a writer mutates them in place,
+// so those must be copied.
 type BinarySearchTreeCursorNoCopy struct {
 	root *BinarySearchNode
 	node *BinarySearchNode

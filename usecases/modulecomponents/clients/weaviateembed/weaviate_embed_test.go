@@ -51,7 +51,9 @@ func TestClient(t *testing.T) {
 		res, err := c.Vectorize(ctx, []string{"input"}, false, nil, "model", server.URL)
 
 		assert.Nil(t, err)
-		assert.Equal(t, expected, res)
+		assert.Equal(t, expected.Embeddings, res.Embeddings)
+		assert.Equal(t, expected.Metadata, res.Metadata)
+		assert.Nil(t, res.RateLimits)
 	})
 
 	t.Run("when the context is expired", func(t *testing.T) {
@@ -124,6 +126,44 @@ func TestClient(t *testing.T) {
 		assert.Equal(t, 50, rl.RemainingRequests)
 	})
 
+	t.Run("rate limits from response headers", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{t: t, headers: map[string]string{
+			"x-ratelimit-limit-tokens":     "6000000",
+			"x-ratelimit-remaining-tokens": "4200000",
+			"x-ratelimit-reset-tokens":     "37s",
+		}})
+		defer server.Close()
+		c := New[[]float32](0, 10000, 6000000)
+		ctx := context.WithValue(context.Background(), "Authorization", []string{"token"})
+		ctx = context.WithValue(ctx, "X-Weaviate-Cluster-Url", []string{server.URL})
+
+		res, err := c.Vectorize(ctx, []string{"input"}, false, nil, "model", server.URL)
+
+		require.Nil(t, err)
+		require.NotNil(t, res.RateLimits)
+		assert.Equal(t, 6000000, res.RateLimits.LimitTokens)
+		assert.Equal(t, 4200000, res.RateLimits.RemainingTokens)
+		assert.WithinDuration(t, time.Now().Add(37*time.Second), res.RateLimits.ResetTokens, time.Second)
+		// the service does not limit requests, so the defaults stand in
+		assert.Equal(t, 10000, res.RateLimits.LimitRequests)
+		assert.Equal(t, 10000, res.RateLimits.RemainingRequests)
+	})
+
+	t.Run("no rate limits without token headers", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{t: t, headers: map[string]string{
+			"x-ratelimit-limit-tokens": "6000000",
+		}})
+		defer server.Close()
+		c := New[[]float32](0, 10000, 6000000)
+		ctx := context.WithValue(context.Background(), "Authorization", []string{"token"})
+		ctx = context.WithValue(ctx, "X-Weaviate-Cluster-Url", []string{server.URL})
+
+		res, err := c.Vectorize(ctx, []string{"input"}, false, nil, "model", server.URL)
+
+		require.Nil(t, err)
+		assert.Nil(t, res.RateLimits)
+	})
+
 	t.Run("when X-Weaviate-Cluster-URL header is missing", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
@@ -140,6 +180,7 @@ func TestClient(t *testing.T) {
 type fakeHandler struct {
 	t           *testing.T
 	serverError error
+	headers     map[string]string
 }
 
 func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -184,5 +225,8 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	outBytes, err := json.Marshal(embeddingResponse)
 	require.Nil(f.t, err)
 
+	for key, value := range f.headers {
+		w.Header().Set(key, value)
+	}
 	w.Write(outBytes)
 }

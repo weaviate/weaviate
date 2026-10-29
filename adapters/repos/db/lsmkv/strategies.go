@@ -38,6 +38,20 @@ var allStrategies = []string{
 	StrategyInverted,
 }
 
+// strategyUsesSharedIndexWriter reports whether a strategy's flush routes its
+// keys through the shared index writer, which is the only thing that emits a
+// secondary-index offsets table. Memtable.flush gates that writer on this, and
+// NewBucket refuses a secondary index to the strategies it excludes, so the two
+// answers cannot drift apart.
+func strategyUsesSharedIndexWriter(strategy string) bool {
+	switch strategy {
+	case StrategyRoaringSet, StrategyRoaringSetRange, StrategyInverted:
+		return false
+	default:
+		return true
+	}
+}
+
 func SegmentStrategyFromString(in string) segmentindex.Strategy {
 	switch in {
 	case StrategyReplace:
@@ -64,12 +78,31 @@ func IsExpectedStrategy(strategy string, expectedStrategies ...string) bool {
 	return slices.Contains(expectedStrategies, strategy)
 }
 
+// With no expectedStrategies, CheckExpectedStrategy accepts any known strategy.
 func CheckExpectedStrategy(strategy string, expectedStrategies ...string) error {
-	if len(expectedStrategies) == 0 {
-		expectedStrategies = allStrategies
+	// slices.Contains would put this over the inlining budget
+	for _, e := range expectedStrategies {
+		if strategy == e {
+			return nil
+		}
 	}
-	if IsExpectedStrategy(strategy, expectedStrategies...) {
+	return strategyMismatch(strategy, expectedStrategies)
+}
+
+func checkStrategy(strategy, want string) error {
+	if strategy == want {
 		return nil
+	}
+	return strategyMismatch(strategy, []string{want})
+}
+
+// strategyMismatch holds the slow path so the checks above fit the inlining budget.
+func strategyMismatch(strategy string, expectedStrategies []string) error {
+	if len(expectedStrategies) == 0 {
+		if slices.Contains(allStrategies, strategy) {
+			return nil
+		}
+		expectedStrategies = allStrategies
 	}
 	if len(expectedStrategies) == 1 {
 		return fmt.Errorf("strategy %q expected, got %q", expectedStrategies[0], strategy)
@@ -81,17 +114,28 @@ func CheckExpectedStrategy(strategy string, expectedStrategies ...string) error 
 }
 
 func MustBeExpectedStrategy(strategy string, expectedStrategies ...string) {
-	if err := CheckExpectedStrategy(strategy, expectedStrategies...); err != nil {
+	// slices.Contains would put this over the inlining budget
+	for _, e := range expectedStrategies {
+		if strategy == e {
+			return
+		}
+	}
+	mustBeMismatch(strategy, expectedStrategies)
+}
+
+//go:noinline
+func mustBeMismatch(strategy string, expectedStrategies []string) {
+	if err := strategyMismatch(strategy, expectedStrategies); err != nil {
 		panic(err)
 	}
 }
 
 func CheckStrategyRoaringSet(strategy string) error {
-	return CheckExpectedStrategy(strategy, StrategyRoaringSet)
+	return checkStrategy(strategy, StrategyRoaringSet)
 }
 
 func CheckStrategyRoaringSetRange(strategy string) error {
-	return CheckExpectedStrategy(strategy, StrategyRoaringSetRange)
+	return checkStrategy(strategy, StrategyRoaringSetRange)
 }
 
 func DefaultSearchableStrategy(useInvertedSearchable bool) string {

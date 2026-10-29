@@ -29,7 +29,7 @@ type ObjectToUpsert struct {
 type UpsertObjectArgs struct {
 	CollectionName string           `json:"collection_name" jsonschema:"required" jsonschema_description:"Name of collection to upsert objects into"`
 	TenantName     string           `json:"tenant_name,omitempty" jsonschema_description:"Name of the tenant the objects belong to (for multi-tenant collections)"`
-	Objects        []ObjectToUpsert `json:"objects" jsonschema:"required,minItems=1" jsonschema_description:"Array of objects to upsert. Each object should have 'properties' (required) and optionally 'uuid' and 'vectors'. Minimum 1 object required."`
+	Objects        []ObjectToUpsert `json:"objects" jsonschema:"required" jsonschema_description:"Array of objects to upsert. Each object should have 'properties' (required) and optionally 'uuid' and 'vectors'. Minimum 1 object required."`
 }
 
 // Response types
@@ -57,6 +57,7 @@ func Tools(creator *WeaviateCreator, configs map[string]internal.ToolConfig, m *
 		mcp.WithIdempotentHintAnnotation(true),
 	)
 	internal.ApplySchemaDescriptions(&tool, toolName, configs)
+	internal.AllowNullForOptionalArguments(&tool)
 	return []server.ServerTool{
 		{Tool: tool, Handler: mcp.NewStructuredToolHandler(mcpmetrics.Instrument(m, toolName, creator.UpsertObject))},
 	}
