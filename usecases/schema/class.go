@@ -385,6 +385,14 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 		shardingState.IndexID = class.Class
 	}
 
+	// Refuse a cross-namespace alias before schemaManager.RestoreClass commits the
+	// class and the alias loop below deletes the live alias under overwriteAlias.
+	for _, alias := range aliases {
+		if err := namespacing.ValidateAliasTarget(alias.Alias, class.Class); err != nil {
+			return fmt.Errorf("restore class %s: %w", class.Class, err)
+		}
+	}
+
 	metric, err := monitoring.GetMetrics().BackupRestoreClassDurations.GetMetricWithLabelValues(class.Class)
 	if err == nil {
 		timer := prometheus.NewTimer(metric)
