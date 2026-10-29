@@ -893,6 +893,7 @@ func (m *Manager) removeLegacyFiles() {
 		if err := os.Remove(p); err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
 				m.logger.WithField("path", p).Warnf("failed to remove legacy rbac file: %v", err)
+				return
 			}
 			continue
 		}
